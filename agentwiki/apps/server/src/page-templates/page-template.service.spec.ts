@@ -321,12 +321,11 @@ describe('PageTemplateService', () => {
 
   it('returns localized system summaries plus the current Space page', async () => {
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'editor' });
-    pageTemplate.findMany.mockResolvedValueOnce([systemRecord]).mockResolvedValueOnce([spaceRecord]);
-    pageTemplateVersion.findMany.mockResolvedValue([
-      { templateId: 'system-1', version: 1, definition: null },
-      { templateId: 'space-template', version: 2, definition: null },
-    ]);
-    pageTemplate.count.mockResolvedValue(1);
+    prisma.$queryRaw
+      .mockResolvedValueOnce([{ ...systemRecord, kind: 'single_page', supportsCollaboration: false }])
+      .mockResolvedValueOnce([{ total: 1n }])
+      .mockResolvedValueOnce([{ ...spaceRecord, kind: 'single_page', supportsCollaboration: false }])
+      .mockResolvedValueOnce([{ total: 1n }]);
 
     await expect(service.list('space-1', { locale: 'zh-CN', skip: 0, take: 100 }, principal))
       .resolves.toMatchObject({
@@ -342,11 +341,11 @@ describe('PageTemplateService', () => {
 
   it('hides templates whose current version is composite from the legacy catalog', async () => {
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'owner' });
-    pageTemplate.findMany.mockResolvedValueOnce([systemRecord]).mockResolvedValueOnce([spaceRecord]);
-    pageTemplateVersion.findMany.mockResolvedValue([
-      { templateId: 'system-1', version: 1, definition: compositeDefinition },
-      { templateId: 'space-template', version: 2, definition: null },
-    ]);
+    prisma.$queryRaw
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ total: 0n }])
+      .mockResolvedValueOnce([{ ...spaceRecord, kind: 'single_page', supportsCollaboration: false }])
+      .mockResolvedValueOnce([{ total: 1n }]);
 
     await expect(service.list('space-1', { locale: 'en', skip: 0, take: 100 }, principal))
       .resolves.toMatchObject({ system: [], space: [expect.objectContaining({ id: 'space-template' })], totalSpace: 1 });
@@ -365,21 +364,21 @@ describe('PageTemplateService', () => {
       statusCode: 403,
     });
 
-    expect(pageTemplate.findMany).not.toHaveBeenCalled();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
     expect(pageTemplate.count).not.toHaveBeenCalled();
   });
 
   it.each(['owner', 'admin'] as const)('allows %s to list archived templates', async (role) => {
     authorization.assertSpaceAccess.mockResolvedValue({ role });
-    pageTemplate.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    prisma.$queryRaw.mockResolvedValue([]);
 
     await expect(service.list('space-1', {
       locale: 'en', scope: 'all', archived: 'archived', skip: 0, take: 100,
     }, principal)).resolves.toMatchObject({ capabilities: { canManage: true } });
 
-    expect(pageTemplate.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ archivedAt: { not: null } }),
-    }));
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(4);
+    expect((prisma.$queryRaw.mock.calls[2]?.[0] as Prisma.Sql).sql)
+      .toContain('template."archivedAt" IS NOT NULL');
   });
 
   it('lists only lightweight Markdown source summaries with bounded stable pagination', async () => {

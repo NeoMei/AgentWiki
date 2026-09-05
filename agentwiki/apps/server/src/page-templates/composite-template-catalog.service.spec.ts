@@ -1,4 +1,5 @@
 import type { CompositeTemplateDefinition } from '@neomei/agentwiki-sync-protocol';
+import { Prisma } from '@prisma/client';
 import type { Principal } from '../core/authorization/authorization.service';
 import { CompositeTemplateCatalogService } from './composite-template-catalog.service';
 import { hashCompositeDefinition } from './composite-template-validator';
@@ -17,27 +18,6 @@ const definition: CompositeTemplateDefinition = {
   collaboration: null,
 };
 
-const collaborativeDefinition: CompositeTemplateDefinition = {
-  ...definition,
-  collaboration: {
-    workflow: {
-      schemaVersion: 1,
-      inputs: [],
-      roleSlots: [{ id: 'researcher', name: 'Researcher', required: true, description: 'Researches' }],
-      nodes: [{
-        kind: 'agent_task', id: 'research', name: 'Research', roleSlotId: 'researcher',
-        objective: 'Research', inputKeys: [], upstreamArtifacts: [],
-        output: { key: 'research-output', kind: 'external_reference' }, evidenceRequired: [],
-        humanAcceptance: false, leaseSeconds: 300, maxExecutionSeconds: 3600,
-        retryBudget: 1, repairBudget: 1, skippable: false,
-        todos: [{ id: 'research', name: 'Research', required: true, evidenceKinds: [] }],
-      }],
-      dependencies: [], terminalNodeIds: ['research'],
-    },
-    taskTargets: [],
-  },
-};
-
 const template = (overrides: Record<string, unknown> = {}) => ({
   id: 'template-1', scope: 'system', spaceId: null, stableKey: 'workspace', category: 'planning',
   displayOrder: 0, nameI18n: { 'zh-CN': '工作区', en: 'Workspace' },
@@ -52,7 +32,7 @@ describe('CompositeTemplateCatalogService', () => {
   const pageTemplate = { findFirst: jest.fn(), findMany: jest.fn(), count: jest.fn() };
   const pageTemplateVersion = { findMany: jest.fn() };
   const tx = { pageTemplate } as any;
-  const prisma = { pageTemplate, pageTemplateVersion, $transaction: jest.fn() } as any;
+  const prisma = { pageTemplate, pageTemplateVersion, $queryRaw: jest.fn(), $transaction: jest.fn() } as any;
   const authorization = { assertSpaceAccess: jest.fn() } as any;
   const pageTemplates = {
     createCompositeSpaceTemplate: jest.fn(), createCompositeVersion: jest.fn(),
@@ -62,6 +42,7 @@ describe('CompositeTemplateCatalogService', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    prisma.$queryRaw.mockResolvedValue([]);
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'owner' });
     service = new CompositeTemplateCatalogService(prisma, authorization, pageTemplates);
   });
@@ -111,16 +92,9 @@ describe('CompositeTemplateCatalogService', () => {
   });
 
   it('filters kind and collaboration before paginating and includes matching totals', async () => {
-    pageTemplate.findMany.mockResolvedValue([
-      template({ id: 'legacy', scope: 'space', spaceId: 'space-1', sourceLocale: 'en', currentVersion: 2 }),
-      template({ id: 'group', currentVersion: 2 }),
-      template({ id: 'collab', currentVersion: 2 }),
-    ]);
-    pageTemplateVersion.findMany.mockResolvedValue([
-      { templateId: 'legacy', version: 2, contentI18n: { en: '# Old' }, definition: null, definitionHash: null },
-      { templateId: 'group', version: 2, contentI18n: {}, definition, definitionHash: hashCompositeDefinition(definition) },
-      { templateId: 'collab', version: 2, contentI18n: {}, definition: collaborativeDefinition, definitionHash: hashCompositeDefinition(collaborativeDefinition) },
-    ]);
+    prisma.$queryRaw
+      .mockResolvedValueOnce([{ ...template({ id: 'group' }), kind: 'page_group', supportsCollaboration: false }])
+      .mockResolvedValueOnce([{ total: 1n }]);
 
     const result = await service.list('space-1', {
       locale: 'en', kind: 'page_group', supportsCollaboration: false, skip: 0, take: 1,
@@ -128,9 +102,10 @@ describe('CompositeTemplateCatalogService', () => {
 
     expect(result.total).toBe(1);
     expect(result.data.map((row) => row.id)).toEqual(['group']);
-    const listArgs = pageTemplate.findMany.mock.calls[0]?.[0];
-    expect(listArgs).not.toHaveProperty('skip');
-    expect(listArgs).not.toHaveProperty('take');
+    const listQuery = prisma.$queryRaw.mock.calls[0]?.[0] as Prisma.Sql;
+    expect(listQuery.sql).toContain('LIMIT ?');
+    expect(listQuery.sql).toContain('OFFSET ?');
+    expect(listQuery.sql).not.toContain('version."definition" AS');
   });
 
   it('enforces read access and delegates all custom writes to the legacy policy owner', async () => {
@@ -143,7 +118,7 @@ describe('CompositeTemplateCatalogService', () => {
     expect(pageTemplates.createCompositeSpaceTemplate).toHaveBeenCalledWith('space-1', { definition }, principal);
     expect(pageTemplates.createCompositeVersion).toHaveBeenCalledWith('space-1', 'template-1', { definition }, principal);
 
-    pageTemplate.findMany.mockResolvedValue([]);
+    prisma.$queryRaw.mockResolvedValue([]);
     await service.list('space-1', { locale: 'en', skip: 0, take: 100 }, principal);
     expect(authorization.assertSpaceAccess).toHaveBeenCalledWith(
       principal, 'space-1', ['owner', 'admin', 'editor', 'viewer'], 'pages:read',

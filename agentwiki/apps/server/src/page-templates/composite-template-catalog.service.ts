@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, type PageTemplate, type PageTemplateCategory, type PageTemplateVersion } from '@prisma/client';
+import { Prisma, type PageTemplateCategory } from '@prisma/client';
 import {
   CompositeTemplateDefinitionSchema,
   type CompositeTemplateDefinition,
@@ -23,6 +23,7 @@ import {
   resolveLocalizedValue,
   type PageTemplateLocale,
 } from './page-template.types';
+import { queryCurrentTemplateCatalog } from './current-template-catalog-query';
 
 export type CompositeTemplateListQuery = {
   locale: PageTemplateLocale;
@@ -103,64 +104,23 @@ export class CompositeTemplateCatalogService {
     if (!canManage && query.archived && query.archived !== 'active') {
       throw new BusinessException('PAGE_TEMPLATE_PERMISSION_DENIED');
     }
-    const spaceArchive = query.archived === 'archived' ? { archivedAt: { not: null } }
-      : query.archived === 'all' ? {} : { archivedAt: null };
-    const where: Prisma.PageTemplateWhereInput = {
-      OR: [
-        ...(query.scope === 'space' ? [] : [{ scope: 'system' as const, archivedAt: null }]),
-        ...(query.scope === 'system' ? [] : [{ scope: 'space' as const, spaceId, ...spaceArchive }]),
-      ],
-      ...(query.category ? { category: query.category } : {}),
-    };
-    const records = await this.prisma.pageTemplate.findMany({
-      where,
-      orderBy: [{ displayOrder: 'asc' }, { updatedAt: 'desc' }, { id: 'asc' }],
+    const result = await queryCurrentTemplateCatalog(this.prisma, {
+      ...query,
+      mode: 'composite',
+      spaceId,
     });
-    const currentVersions = records.length === 0 ? [] : await this.prisma.pageTemplateVersion.findMany({
-      where: {
-        OR: records.map((template) => ({
-          templateId: template.id,
-          version: template.currentVersion,
-        })),
-      },
-    });
-    const versionByTemplateId = new Map(
-      (currentVersions as PageTemplateVersion[]).map((version) => [version.templateId, version]),
-    );
-    // Semantic filters are applied to exact current versions before pagination.
-    const rows = (records as PageTemplate[]).flatMap((template) => {
-      const version = versionByTemplateId.get(template.id);
-      if (!version) throw new BusinessException('PAGE_TEMPLATE_VERSION_NOT_FOUND');
-      const parsed = version.definition
-        ? CompositeTemplateDefinitionSchema.safeParse(version.definition)
-        : null;
-      const definition = parsed
-        ? parsed.success ? parsed.data : null
-        : normalizeLegacyVersion(version.contentI18n);
-      if (!definition || validateCompositeDefinition(definition).length > 0) {
-        throw new BusinessException('PAGE_TEMPLATE_INVALID');
-      }
-      if (version.definition && (!version.definitionHash
-        || hashCompositeDefinition(definition) !== version.definitionHash)) {
-        throw new BusinessException('PAGE_TEMPLATE_INVALID');
-      }
-      const supportsCollaboration = definition.collaboration !== null;
-      if (query.kind && definition.kind !== query.kind) return [];
-      if (query.supportsCollaboration !== undefined
-        && supportsCollaboration !== query.supportsCollaboration) return [];
+    const rows = result.rows.map((template) => {
       const fallback = template.scope === 'system'
         ? 'en'
         : PageTemplateLocaleSchema.parse(template.sourceLocale);
       const name = localizedValue(template.nameI18n, query.locale, fallback);
-      const normalizedQuery = query.q?.trim().toLocaleLowerCase(query.locale);
-      if (normalizedQuery && !name.toLocaleLowerCase(query.locale).includes(normalizedQuery)) return [];
-      return [{
+      return {
         id: template.id,
         scope: template.scope,
         stableKey: template.stableKey,
         category: template.category,
-        kind: definition.kind,
-        supportsCollaboration,
+        kind: template.kind,
+        supportsCollaboration: template.supportsCollaboration,
         name,
         description: localizedValue(template.descriptionI18n, query.locale, fallback),
         defaultTitle: localizedValue(template.defaultTitleI18n, query.locale, fallback),
@@ -168,11 +128,11 @@ export class CompositeTemplateCatalogService {
         currentVersion: template.currentVersion,
         archivedAt: template.archivedAt?.toISOString() ?? null,
         updatedAt: template.updatedAt.toISOString(),
-      }];
+      };
     });
     return {
-      data: rows.slice(query.skip, query.skip + query.take),
-      total: rows.length,
+      data: rows,
+      total: result.total,
       skip: query.skip,
       take: query.take,
       capabilities: { canManage },

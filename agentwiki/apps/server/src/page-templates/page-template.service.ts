@@ -1,6 +1,6 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PageTemplate, Prisma, type PageTemplateCategory, type PageTemplateVersion } from '@prisma/client';
+import { PageTemplate, Prisma, type PageTemplateCategory } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { ZodError } from 'zod';
 import {
@@ -33,6 +33,7 @@ import {
   resolveLocalizedValue,
   templateContentHash,
 } from './page-template.types';
+import { queryCurrentTemplateCatalog } from './current-template-catalog-query';
 
 const SEED_TRANSACTION_MAX_ATTEMPTS = 3;
 const SPACE_MUTATION_MAX_ATTEMPTS = 3;
@@ -188,48 +189,19 @@ export class PageTemplateService implements OnModuleInit {
     if (!canManage && query.archived && query.archived !== 'active') {
       throw new BusinessException('PAGE_TEMPLATE_PERMISSION_DENIED');
     }
-    const system = query.scope === 'space' ? [] : await this.prisma.pageTemplate.findMany({
-      where: { scope: 'system', archivedAt: null, ...(query.category ? { category: query.category } : {}) },
-      orderBy: [{ displayOrder: 'asc' }, { id: 'asc' }],
-    });
-    const spaceWhere: Prisma.PageTemplateWhereInput = {
-      scope: 'space', spaceId,
-      ...(query.archived === 'archived' ? { archivedAt: { not: null } }
-        : query.archived === 'all' ? {} : { archivedAt: null }),
-      ...(query.category ? { category: query.category } : {}),
-      ...(query.q?.trim() ? { nameKey: { contains: normalizeTemplateName(query.q) } } : {}),
-    };
-    const space = query.scope === 'system' ? [] : await this.prisma.pageTemplate.findMany({
-      where: spaceWhere,
-      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-    });
-    const candidates = [...system, ...space];
-    const versions = candidates.length === 0 ? [] : await this.prisma.pageTemplateVersion.findMany({
-      where: { OR: candidates.map((template) => ({
-        templateId: template.id,
-        version: template.currentVersion,
-      })) },
-    });
-    const versionByTemplateId = new Map(
-      (versions as PageTemplateVersion[]).map((version) => [version.templateId, version]),
-    );
-    const legacyOnly = (template: PageTemplate) => {
-      const version = versionByTemplateId.get(template.id);
-      if (!version) throw new BusinessException('PAGE_TEMPLATE_VERSION_NOT_FOUND');
-      return version.definition === null;
-    };
-    const legacySystem = system.filter(legacyOnly);
-    const legacySpace = space.filter(legacyOnly);
+    const [systemResult, spaceResult] = await Promise.all([
+      query.scope === 'space' ? Promise.resolve({ rows: [], total: 0 }) : queryCurrentTemplateCatalog(
+        this.prisma, { ...query, mode: 'legacy', scope: 'system', spaceId, skip: 0, take: 100 },
+      ),
+      query.scope === 'system' ? Promise.resolve({ rows: [], total: 0 }) : queryCurrentTemplateCatalog(
+        this.prisma, { ...query, mode: 'legacy', scope: 'space', spaceId },
+      ),
+    ]);
     try {
-      const systemSummaries = legacySystem.map((row) => this.summary(row, query.locale));
-      const normalizedQuery = query.q?.trim().toLocaleLowerCase(query.locale);
       return {
-        system: normalizedQuery
-          ? systemSummaries.filter((row) => row.name.toLocaleLowerCase(query.locale).includes(normalizedQuery))
-          : systemSummaries,
-        space: legacySpace.slice(query.skip, query.skip + query.take)
-          .map((row) => this.summary(row, query.locale)),
-        totalSpace: legacySpace.length, skip: query.skip, take: query.take,
+        system: systemResult.rows.map((row) => this.summary(row, query.locale)),
+        space: spaceResult.rows.map((row) => this.summary(row, query.locale)),
+        totalSpace: spaceResult.total, skip: query.skip, take: query.take,
         capabilities: { canManage },
       };
     } catch (error) {
@@ -850,7 +822,10 @@ export class PageTemplateService implements OnModuleInit {
     throw error;
   }
 
-  private summary(template: PageTemplate, locale: PageTemplateLocale) {
+  private summary(template: Pick<PageTemplate,
+    | 'id' | 'scope' | 'stableKey' | 'category' | 'nameI18n' | 'descriptionI18n'
+    | 'defaultTitleI18n' | 'sourceLocale' | 'currentVersion' | 'archivedAt' | 'updatedAt'
+  >, locale: PageTemplateLocale) {
     const fallback = template.scope === 'system' ? 'en' : PageTemplateLocaleSchema.parse(template.sourceLocale);
     return {
       id: template.id, scope: template.scope, stableKey: template.stableKey, category: template.category,
