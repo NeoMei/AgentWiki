@@ -110,6 +110,19 @@ CREATE TABLE "TemplateEffectJob" (
   CONSTRAINT "TemplateEffectJob_pkey" PRIMARY KEY ("id")
 );
 
+CREATE TABLE "PageTemplateVersionLegacyWorkflowSource" (
+  "id" TEXT NOT NULL,
+  "compositeTemplateVersionId" TEXT NOT NULL,
+  "spaceId" TEXT NOT NULL,
+  "legacyTemplateId" TEXT NOT NULL,
+  "legacyVersion" INTEGER NOT NULL,
+  "legacyDefinitionHash" TEXT NOT NULL,
+  "upgradeRequestHash" TEXT NOT NULL,
+  "createdById" TEXT,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "PageTemplateVersionLegacyWorkflowSource_pkey" PRIMARY KEY ("id")
+);
+
 ALTER TABLE "PageTemplateVersion" ADD CONSTRAINT "PageTemplateVersion_definition_tuple_check" CHECK (
   ("definition" IS NULL AND "schemaVersion" IS NULL AND "definitionHash" IS NULL)
   OR
@@ -144,6 +157,84 @@ ALTER TABLE "PageAgentBindingEvent" ADD CONSTRAINT "PageAgentBindingEvent_change
   OR "beforeRoleSlotKey" IS DISTINCT FROM "afterRoleSlotKey"
 );
 ALTER TABLE "TemplateEffectJob" ADD CONSTRAINT "TemplateEffectJob_attempts_check" CHECK ("attempts" >= 0);
+ALTER TABLE "PageTemplateVersionLegacyWorkflowSource" ADD CONSTRAINT "PageTemplateVersionLegacyWorkflowSource_hashes_check" CHECK (
+  "legacyDefinitionHash" ~ '^[a-f0-9]{64}$' AND "upgradeRequestHash" ~ '^[a-f0-9]{64}$'
+);
+
+CREATE FUNCTION "enforce_legacy_workflow_upgrade_source_space"()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+      FROM "CollaborationTemplate" legacy
+     WHERE legacy."id" = NEW."legacyTemplateId"
+       AND legacy."system" = FALSE
+       AND legacy."spaceId" = NEW."spaceId"
+       AND legacy."scopeKey" = NEW."spaceId"
+  ) OR NOT EXISTS (
+    SELECT 1
+      FROM "PageTemplateVersion" version
+      JOIN "PageTemplate" template ON template."id" = version."templateId"
+     WHERE version."id" = NEW."compositeTemplateVersionId"
+       AND version."definition" IS NOT NULL
+       AND template."scope" = 'space'
+       AND template."spaceId" = NEW."spaceId"
+       AND template."scopeKey" = NEW."spaceId"
+  ) THEN
+    RAISE EXCEPTION 'Legacy workflow upgrade source, composite version, and Space must share ownership'
+      USING ERRCODE = '23503';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER "PageTemplateVersionLegacyWorkflowSource_space"
+BEFORE INSERT ON "PageTemplateVersionLegacyWorkflowSource"
+FOR EACH ROW EXECUTE FUNCTION "enforce_legacy_workflow_upgrade_source_space"();
+
+CREATE FUNCTION "reject_legacy_workflow_upgrade_source_update"()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW."id" IS DISTINCT FROM OLD."id"
+    OR NEW."compositeTemplateVersionId" IS DISTINCT FROM OLD."compositeTemplateVersionId"
+    OR NEW."spaceId" IS DISTINCT FROM OLD."spaceId"
+    OR NEW."legacyTemplateId" IS DISTINCT FROM OLD."legacyTemplateId"
+    OR NEW."legacyVersion" IS DISTINCT FROM OLD."legacyVersion"
+    OR NEW."legacyDefinitionHash" IS DISTINCT FROM OLD."legacyDefinitionHash"
+    OR NEW."upgradeRequestHash" IS DISTINCT FROM OLD."upgradeRequestHash"
+    OR NEW."createdAt" IS DISTINCT FROM OLD."createdAt"
+  THEN
+    RAISE EXCEPTION 'Legacy workflow upgrade source is immutable';
+  END IF;
+  IF NEW."createdById" IS DISTINCT FROM OLD."createdById"
+    AND NOT (OLD."createdById" IS NOT NULL AND NEW."createdById" IS NULL)
+  THEN
+    RAISE EXCEPTION 'Legacy workflow upgrade source createdById may only be cleared';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER "PageTemplateVersionLegacyWorkflowSource_immutable"
+BEFORE UPDATE ON "PageTemplateVersionLegacyWorkflowSource"
+FOR EACH ROW EXECUTE FUNCTION "reject_legacy_workflow_upgrade_source_update"();
+
+CREATE FUNCTION "reject_collaboration_template_ownership_update"()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW."spaceId" IS DISTINCT FROM OLD."spaceId"
+    OR NEW."scopeKey" IS DISTINCT FROM OLD."scopeKey"
+    OR NEW."system" IS DISTINCT FROM OLD."system"
+  THEN
+    RAISE EXCEPTION 'CollaborationTemplate scope and Space ownership are immutable';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER "CollaborationTemplate_ownership_immutable"
+BEFORE UPDATE OF "spaceId", "scopeKey", "system" ON "CollaborationTemplate"
+FOR EACH ROW EXECUTE FUNCTION "reject_collaboration_template_ownership_update"();
 
 CREATE OR REPLACE FUNCTION "reject_page_template_version_update"()
 RETURNS TRIGGER AS $$
@@ -228,6 +319,7 @@ CREATE FUNCTION "reject_page_template_ownership_update"()
 RETURNS TRIGGER AS $$
 BEGIN
   IF NEW."scope" IS DISTINCT FROM OLD."scope"
+    OR NEW."scopeKey" IS DISTINCT FROM OLD."scopeKey"
     OR NEW."spaceId" IS DISTINCT FROM OLD."spaceId"
   THEN
     RAISE EXCEPTION 'PageTemplate scope and Space ownership are immutable';
@@ -237,7 +329,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER "PageTemplate_ownership_immutable"
-BEFORE UPDATE OF "scope", "spaceId" ON "PageTemplate"
+BEFORE UPDATE OF "scope", "scopeKey", "spaceId" ON "PageTemplate"
 FOR EACH ROW EXECUTE FUNCTION "reject_page_template_ownership_update"();
 
 CREATE FUNCTION "enforce_collaboration_attempt_baseline_page"()
@@ -319,6 +411,10 @@ CREATE UNIQUE INDEX "TemplateEffectJob_instantiationId_effectKey_key" ON "Templa
 CREATE INDEX "TemplateEffectJob_status_availableAt_idx" ON "TemplateEffectJob"("status", "availableAt");
 CREATE INDEX "TemplateEffectJob_spaceId_status_idx" ON "TemplateEffectJob"("spaceId", "status");
 
+CREATE UNIQUE INDEX "PageTemplateVersionLegacyWorkflowSource_compositeTemplateVersionId_key" ON "PageTemplateVersionLegacyWorkflowSource"("compositeTemplateVersionId");
+CREATE UNIQUE INDEX "PageTemplateVersionLegacyWorkflowSource_source_snapshot_key" ON "PageTemplateVersionLegacyWorkflowSource"("spaceId", "legacyTemplateId", "legacyVersion", "legacyDefinitionHash");
+CREATE INDEX "PageTemplateVersionLegacyWorkflowSource_legacyTemplateId_legacyVersion_idx" ON "PageTemplateVersionLegacyWorkflowSource"("legacyTemplateId", "legacyVersion");
+
 CREATE UNIQUE INDEX "CollaborationRun_id_spaceId_key" ON "CollaborationRun"("id", "spaceId");
 CREATE UNIQUE INDEX "CollaborationRun_templateInstantiationId_key" ON "CollaborationRun"("templateInstantiationId");
 CREATE UNIQUE INDEX "CollaborationRun_templateInstantiationId_compositeTemplateV_key" ON "CollaborationRun"("templateInstantiationId", "compositeTemplateVersionId", "spaceId");
@@ -365,5 +461,10 @@ ALTER TABLE "CollaborationArtifactChangeSetLink" ADD CONSTRAINT "CollaborationAr
 
 ALTER TABLE "TemplateEffectJob" ADD CONSTRAINT "TemplateEffectJob_instantiationId_spaceId_fkey" FOREIGN KEY ("instantiationId", "spaceId") REFERENCES "TemplateInstantiation"("id", "spaceId") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "TemplateEffectJob" ADD CONSTRAINT "TemplateEffectJob_spaceId_fkey" FOREIGN KEY ("spaceId") REFERENCES "Space"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "PageTemplateVersionLegacyWorkflowSource" ADD CONSTRAINT "PageTemplateVersionLegacyWorkflowSource_compositeVersion_fkey" FOREIGN KEY ("compositeTemplateVersionId") REFERENCES "PageTemplateVersion"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "PageTemplateVersionLegacyWorkflowSource" ADD CONSTRAINT "PageTemplateVersionLegacyWorkflowSource_spaceId_fkey" FOREIGN KEY ("spaceId") REFERENCES "Space"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "PageTemplateVersionLegacyWorkflowSource" ADD CONSTRAINT "PageTemplateVersionLegacyWorkflowSource_legacyTemplateId_fkey" FOREIGN KEY ("legacyTemplateId") REFERENCES "CollaborationTemplate"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "PageTemplateVersionLegacyWorkflowSource" ADD CONSTRAINT "PageTemplateVersionLegacyWorkflowSource_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 COMMIT;

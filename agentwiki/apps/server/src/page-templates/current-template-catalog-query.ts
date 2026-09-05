@@ -60,7 +60,7 @@ export async function queryCurrentTemplateCatalog(
     Prisma.sql`(${Prisma.join(scopePredicates, ' OR ')})`,
     input.mode === 'legacy'
       ? Prisma.sql`version."definition" IS NULL`
-      : Prisma.sql`TRUE`,
+      : Prisma.sql`NOT (template."scope" = 'system' AND template."stableKey" = 'project-management')`,
   ];
   if (input.category) predicates.push(Prisma.sql`template."category" = ${input.category}::"PageTemplateCategory"`);
   if (input.kind) {

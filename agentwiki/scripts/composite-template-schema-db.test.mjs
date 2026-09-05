@@ -119,7 +119,8 @@ test('composite-template migration preserves legacy runs and enforces source and
         `SELECT tablename AS name FROM pg_tables
           WHERE schemaname = $1 AND tablename IN
             ('TemplateInstantiation', 'TemplateInstantiationNode', 'PageAgentBinding',
-             'PageAgentBindingEvent', 'CollaborationArtifactChangeSetLink', 'TemplateEffectJob')
+             'PageAgentBindingEvent', 'CollaborationArtifactChangeSetLink', 'TemplateEffectJob',
+             'PageTemplateVersionLegacyWorkflowSource')
           ORDER BY tablename`,
         schemaName,
       );
@@ -127,6 +128,7 @@ test('composite-template migration preserves legacy runs and enforces source and
         'CollaborationArtifactChangeSetLink',
         'PageAgentBinding',
         'PageAgentBindingEvent',
+        'PageTemplateVersionLegacyWorkflowSource',
         'TemplateEffectJob',
         'TemplateInstantiation',
         'TemplateInstantiationNode',
@@ -221,6 +223,50 @@ test('composite-template migration preserves legacy runs and enforces source and
       );
       await insertCompositeVersion(id('other_space_version'), otherSpaceTemplate.id, '6');
       await insertCompositeVersion(id('system_version'), systemTemplate.id, '7');
+
+      const insertUpgradeSource = (sourceId, spaceId, compositeVersionId, legacyTemplateId, requestHash = '2'.repeat(64)) =>
+        prisma.$executeRawUnsafe(
+          `INSERT INTO "${schemaName}"."PageTemplateVersionLegacyWorkflowSource"
+            ("id", "compositeTemplateVersionId", "spaceId", "legacyTemplateId", "legacyVersion",
+             "legacyDefinitionHash", "upgradeRequestHash", "createdById")
+           VALUES ($1, $2, $3, $4, 1, $5, $6, $7)`,
+          sourceId, compositeVersionId, spaceId, legacyTemplateId,
+          '1'.repeat(64), requestHash, id('user'),
+        );
+      await assert.rejects(
+        insertUpgradeSource(id('cross_space_upgrade'), id('space_a'), id('other_space_version'), id('legacy_template')),
+        /23503|share ownership|constraint/iu,
+      );
+      await assert.rejects(
+        insertUpgradeSource(id('system_upgrade'), id('space_a'), id('system_version'), id('legacy_template')),
+        /23503|share ownership|constraint/iu,
+      );
+      await insertUpgradeSource(
+        id('valid_upgrade'), id('space_a'), id('composite_version'), id('legacy_template'),
+      );
+      await assert.rejects(
+        prisma.$executeRawUnsafe(
+          `UPDATE "${schemaName}"."CollaborationTemplate"
+              SET "spaceId" = $1, "scopeKey" = $1, "updatedAt" = CURRENT_TIMESTAMP
+            WHERE "id" = $2`,
+          id('space_b'), id('legacy_template'),
+        ),
+        /immutable|constraint/iu,
+      );
+      await assert.rejects(
+        insertUpgradeSource(
+          id('duplicate_upgrade'), id('space_a'), id('composite_version'), id('legacy_template'), '3'.repeat(64),
+        ),
+        /23505|unique|constraint/iu,
+      );
+      await assert.rejects(
+        prisma.$executeRawUnsafe(
+          `UPDATE "${schemaName}"."PageTemplateVersionLegacyWorkflowSource"
+              SET "upgradeRequestHash" = $1 WHERE "id" = $2`,
+          '4'.repeat(64), id('valid_upgrade'),
+        ),
+        /immutable|constraint/iu,
+      );
 
       await prisma.agent.create({ data: { id: id('agent'), name: 'Agent', ownerId: id('user') } });
       await prisma.agentGrant.create({ data: {

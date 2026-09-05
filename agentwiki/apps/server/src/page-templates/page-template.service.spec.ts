@@ -5,6 +5,7 @@ import { BUILT_IN_PAGE_TEMPLATES } from './page-template-definitions';
 import { PageTemplateService } from './page-template.service';
 import { templateContentHash } from './page-template.types';
 import { hashCompositeDefinition } from './composite-template-validator';
+import { BUILT_IN_COMPOSITE_TEMPLATES } from './composite-template-definitions';
 
 const compositeDefinition = {
   schemaVersion: 1 as const,
@@ -175,6 +176,26 @@ describe('PageTemplateService', () => {
       where: { id: 'system-1', scope: 'system', currentVersion: 1 },
       data: expect.objectContaining({ currentVersion: 2 }),
     }));
+  });
+
+  it('seeds all six composite definitions once and never appends on repeat startup', async () => {
+    pageTemplate.findUnique.mockResolvedValue(null);
+    await service.seedBuiltIns();
+    const compositeCreates = pageTemplateVersion.create.mock.calls.filter(([call]: any[]) =>
+      call.data.definition !== undefined);
+    expect(compositeCreates).toHaveLength(6);
+    expect(compositeCreates.map(([call]: any[]) => call.data.definitionHash))
+      .toEqual(expect.arrayContaining(BUILT_IN_COMPOSITE_TEMPLATES.map((seed) =>
+        hashCompositeDefinition(seed.definition))));
+
+    jest.clearAllMocks();
+    pageTemplate.findUnique.mockImplementation(async ({ where }: any) => ({
+      id: `existing-${where.scopeKey_stableKey.stableKey}`,
+      scope: 'system', currentVersion: 1,
+    }));
+    await service.seedBuiltIns();
+    expect(pageTemplateVersion.create).not.toHaveBeenCalled();
+    expect(pageTemplate.updateMany).not.toHaveBeenCalled();
   });
 
   it('creates a composite Space template through the existing locked management path', async () => {

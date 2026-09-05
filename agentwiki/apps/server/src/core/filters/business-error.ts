@@ -50,6 +50,7 @@ const ERROR_CODE_MAP: Record<string, { status: HttpStatus; message: string }> = 
   PAGE_TEMPLATE_ARCHIVED: { status: HttpStatus.CONFLICT, message: 'Page template is archived' },
   PAGE_TEMPLATE_VERSION_CONFLICT: { status: HttpStatus.CONFLICT, message: 'Page template changed; reload before saving' },
   PAGE_TEMPLATE_NAME_CONFLICT: { status: HttpStatus.CONFLICT, message: 'A Space template already uses this name' },
+  PAGE_TEMPLATE_UPGRADE_CONFLICT: { status: HttpStatus.CONFLICT, message: 'This workflow snapshot was already upgraded with different settings' },
   PAGE_TEMPLATE_QUOTA_EXCEEDED: { status: HttpStatus.TOO_MANY_REQUESTS, message: 'Space page template quota exceeded' },
   PAGE_TEMPLATE_PERMISSION_DENIED: { status: HttpStatus.FORBIDDEN, message: 'This human member cannot manage page templates' },
   PAGE_TEMPLATE_SOURCE_INVALID: { status: HttpStatus.BAD_REQUEST, message: 'Template source page is invalid' },

@@ -112,9 +112,9 @@ model User {
   password     String?
 
   spaces                        SpaceMember[]
-  pages                         Page[]                        @relation("PageAuthor")
-  modifiedPages                 Page[]                        @relation("PageLastModifiedByUser")
-  modifiedRelations             KnowledgeRelation[]           @relation("RelationLastModifiedByUser")
+  pages                         Page[]                                    @relation("PageAuthor")
+  modifiedPages                 Page[]                                    @relation("PageLastModifiedByUser")
+  modifiedRelations             KnowledgeRelation[]                       @relation("RelationLastModifiedByUser")
   pageVersions                  PageVersion[]
   apiKeys                       ApiKeyCredential[]
   auditEvents                   SecurityAuditEvent[]
@@ -122,28 +122,29 @@ model User {
   createdSources                Source[]
   requestedRuns                 IngestRun[]
   createdChangeSets             ChangeSet[]
-  createdRevisions              SpaceKnowledgeRevision[]      @relation("RevisionCreatedByUser")
+  createdRevisions              SpaceKnowledgeRevision[]                  @relation("RevisionCreatedByUser")
   approvals                     Approval[]
   onboardingSessions            OnboardingDeviceSession[]
   obsidianInstallations         ObsidianInstallation[]
   humanDeviceCredentialFamilies HumanDeviceCredentialFamily[]
   humanDeviceCredentials        HumanDeviceCredential[]
-  collaborationTemplatesCreated CollaborationTemplate[]       @relation("CollaborationTemplateCreatedBy")
-  collaborationRunsStarted      CollaborationRun[]            @relation("CollaborationRunStartedBy")
-  collaborationReviewsDecided   CollaborationReview[]         @relation("CollaborationReviewReviewer")
-  collaborationEvents           CollaborationRunEvent[]       @relation("CollaborationEventUser")
-  pageTemplatesCreated          PageTemplate[]                @relation("PageTemplateCreatedBy")
-  pageTemplatesUpdated          PageTemplate[]                @relation("PageTemplateUpdatedBy")
-  pageTemplateVersionsCreated   PageTemplateVersion[]         @relation("PageTemplateVersionCreatedBy")
-  templateInstantiationsCreated TemplateInstantiation[]       @relation("TemplateInstantiationCreatedBy")
-  pageAgentBindingsAssigned     PageAgentBinding[]            @relation("PageAgentBindingAssignedBy")
-  pageAgentBindingEvents        PageAgentBindingEvent[]       @relation("PageAgentBindingEventActor")
-  attachmentsUploaded           SpaceAttachment[]             @relation("AttachmentUploadedBy")
-  foldersCreated                Folder[]                      @relation("FolderCreatedByUser")
-  foldersLastModified           Folder[]                      @relation("FolderLastModifiedByUser")
+  collaborationTemplatesCreated CollaborationTemplate[]                   @relation("CollaborationTemplateCreatedBy")
+  collaborationRunsStarted      CollaborationRun[]                        @relation("CollaborationRunStartedBy")
+  collaborationReviewsDecided   CollaborationReview[]                     @relation("CollaborationReviewReviewer")
+  collaborationEvents           CollaborationRunEvent[]                   @relation("CollaborationEventUser")
+  pageTemplatesCreated          PageTemplate[]                            @relation("PageTemplateCreatedBy")
+  pageTemplatesUpdated          PageTemplate[]                            @relation("PageTemplateUpdatedBy")
+  pageTemplateVersionsCreated   PageTemplateVersion[]                     @relation("PageTemplateVersionCreatedBy")
+  legacyWorkflowUpgradesCreated PageTemplateVersionLegacyWorkflowSource[] @relation("LegacyWorkflowUpgradeCreatedBy")
+  templateInstantiationsCreated TemplateInstantiation[]                   @relation("TemplateInstantiationCreatedBy")
+  pageAgentBindingsAssigned     PageAgentBinding[]                        @relation("PageAgentBindingAssignedBy")
+  pageAgentBindingEvents        PageAgentBindingEvent[]                   @relation("PageAgentBindingEventActor")
+  attachmentsUploaded           SpaceAttachment[]                         @relation("AttachmentUploadedBy")
+  foldersCreated                Folder[]                                  @relation("FolderCreatedByUser")
+  foldersLastModified           Folder[]                                  @relation("FolderLastModifiedByUser")
   lockedAt                      DateTime?
-  mustChangePassword            Boolean                       @default(false)
-  authVersion                   Int                           @default(0)
+  mustChangePassword            Boolean                                   @default(false)
+  authVersion                   Int                                       @default(0)
 
   assistTasks AssistTask[]
 
@@ -208,28 +209,29 @@ model Space {
   pagePathAliases        PagePathAlias[]
   contentDeletionBatches ContentDeletionBatch[]
 
-  createdAt               DateTime                             @default(now())
-  updatedAt               DateTime                             @updatedAt
-  deletedAt               DateTime?
-  agentGrants             AgentGrant[]
-  sources                 Source[]
-  ingestRuns              IngestRun[]
-  changeSets              ChangeSet[]
-  knowledgeSubmissions    KnowledgeSubmission[]
-  knowledgeRevisions      SpaceKnowledgeRevision[]
-  revisionChainCheckpoint SpaceRevisionChainCheckpoint?
-  agentMemories           AgentMemory[]
-  assistTasks             AssistTask[]
-  graphState              SpaceGraphState?
-  collaborationTemplates  CollaborationTemplate[]
-  collaborationRuns       CollaborationRun[]
-  pageTemplates           PageTemplate[]
-  attachments             SpaceAttachment[]
-  templateInstantiations  TemplateInstantiation[]
-  pageAgentBindings       PageAgentBinding[]
-  pageAgentBindingEvents  PageAgentBindingEvent[]
-  templateEffectJobs      TemplateEffectJob[]
-  artifactChangeSetLinks  CollaborationArtifactChangeSetLink[]
+  createdAt                    DateTime                                  @default(now())
+  updatedAt                    DateTime                                  @updatedAt
+  deletedAt                    DateTime?
+  agentGrants                  AgentGrant[]
+  sources                      Source[]
+  ingestRuns                   IngestRun[]
+  changeSets                   ChangeSet[]
+  knowledgeSubmissions         KnowledgeSubmission[]
+  knowledgeRevisions           SpaceKnowledgeRevision[]
+  revisionChainCheckpoint      SpaceRevisionChainCheckpoint?
+  agentMemories                AgentMemory[]
+  assistTasks                  AssistTask[]
+  graphState                   SpaceGraphState?
+  collaborationTemplates       CollaborationTemplate[]
+  collaborationRuns            CollaborationRun[]
+  pageTemplates                PageTemplate[]
+  attachments                  SpaceAttachment[]
+  templateInstantiations       TemplateInstantiation[]
+  pageAgentBindings            PageAgentBinding[]
+  pageAgentBindingEvents       PageAgentBindingEvent[]
+  templateEffectJobs           TemplateEffectJob[]
+  artifactChangeSetLinks       CollaborationArtifactChangeSetLink[]
+  legacyWorkflowUpgradeSources PageTemplateVersionLegacyWorkflowSource[]
 }
 
 model SpaceAttachment {
@@ -626,16 +628,37 @@ model PageTemplateVersion {
   createdById    String?
   createdAt      DateTime @default(now())
 
-  template               PageTemplate            @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  sourcePage             Page?                   @relation("PageTemplateVersionSourcePage", fields: [sourcePageId], references: [id], onDelete: SetNull)
-  createdBy              User?                   @relation("PageTemplateVersionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  pages                  Page[]                  @relation("PageSourceTemplateVersion")
+  template               PageTemplate                             @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  sourcePage             Page?                                    @relation("PageTemplateVersionSourcePage", fields: [sourcePageId], references: [id], onDelete: SetNull)
+  createdBy              User?                                    @relation("PageTemplateVersionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  pages                  Page[]                                   @relation("PageSourceTemplateVersion")
   templateInstantiations TemplateInstantiation[]
-  collaborationRuns      CollaborationRun[]      @relation("CompositeTemplateVersionRuns")
+  collaborationRuns      CollaborationRun[]                       @relation("CompositeTemplateVersionRuns")
+  legacyWorkflowSource   PageTemplateVersionLegacyWorkflowSource? @relation("LegacyWorkflowUpgradeCompositeVersion")
 
   @@unique([templateId, version])
   @@index([templateId, createdAt])
   @@index([sourcePageId])
+}
+
+model PageTemplateVersionLegacyWorkflowSource {
+  id                         String   @id @default(cuid())
+  compositeTemplateVersionId String   @unique
+  spaceId                    String
+  legacyTemplateId           String
+  legacyVersion              Int
+  legacyDefinitionHash       String
+  upgradeRequestHash         String
+  createdById                String?
+  createdAt                  DateTime @default(now())
+
+  compositeTemplateVersion PageTemplateVersion   @relation("LegacyWorkflowUpgradeCompositeVersion", fields: [compositeTemplateVersionId], references: [id], onDelete: Cascade)
+  space                    Space                 @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  legacyTemplate           CollaborationTemplate @relation("LegacyWorkflowUpgradeLegacyTemplate", fields: [legacyTemplateId], references: [id], onDelete: Restrict)
+  createdBy                User?                 @relation("LegacyWorkflowUpgradeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([spaceId, legacyTemplateId, legacyVersion, legacyDefinitionHash])
+  @@index([legacyTemplateId, legacyVersion])
 }
 
 model PageSearchDocument {
@@ -1395,9 +1418,10 @@ model CollaborationTemplate {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  space     Space?             @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  createdBy User?              @relation("CollaborationTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  runs      CollaborationRun[]
+  space                   Space?                                    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  createdBy               User?                                     @relation("CollaborationTemplateCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  runs                    CollaborationRun[]
+  compositeUpgradeSources PageTemplateVersionLegacyWorkflowSource[] @relation("LegacyWorkflowUpgradeLegacyTemplate")
 
   @@unique([scopeKey, slug])
   @@index([spaceId, archivedAt])

@@ -6,11 +6,12 @@ import { DatabaseModule } from '../database/database.module';
 import { PageTemplateController } from './page-template.controller';
 import { PageTemplateService } from './page-template.service';
 import { CompositeTemplateCatalogService } from './composite-template-catalog.service';
+import { LegacyWorkflowUpgradeService } from './legacy-workflow-upgrade.service';
 
 @Module({
   imports: [DatabaseModule, AuthorizationModule, AuthModule, ConfigModule],
   controllers: [PageTemplateController],
-  providers: [PageTemplateService, CompositeTemplateCatalogService],
-  exports: [PageTemplateService, CompositeTemplateCatalogService],
+  providers: [PageTemplateService, CompositeTemplateCatalogService, LegacyWorkflowUpgradeService],
+  exports: [PageTemplateService, CompositeTemplateCatalogService, LegacyWorkflowUpgradeService],
 })
 export class PageTemplateModule {}

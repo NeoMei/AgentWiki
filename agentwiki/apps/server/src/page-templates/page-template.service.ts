@@ -21,6 +21,10 @@ import {
 } from './page-template.dto';
 import { BUILT_IN_PAGE_TEMPLATES, type BuiltInPageTemplate } from './page-template-definitions';
 import {
+  BUILT_IN_COMPOSITE_TEMPLATES,
+  type BuiltInCompositeTemplate,
+} from './composite-template-definitions';
+import {
   hashCompositeDefinition,
   validateCompositeDefinition,
 } from './composite-template-validator';
@@ -130,6 +134,7 @@ export class PageTemplateService implements OnModuleInit {
         await this.prisma.$transaction(async (tx) => {
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('agentwiki:page-template-seeds'))`;
           for (const seed of BUILT_IN_PAGE_TEMPLATES) await this.seedOne(seed, tx);
+          for (const seed of BUILT_IN_COMPOSITE_TEMPLATES) await this.seedCompositeOne(seed, tx);
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
         return;
       } catch (error) {
@@ -168,6 +173,58 @@ export class PageTemplateService implements OnModuleInit {
       templateId: current.id, version: seed.seedVersion,
       contentI18n: seed.content as Prisma.InputJsonValue, contentHash, sourcePageId: null,
     } });
+    const updated = await tx.pageTemplate.updateMany({
+      where: { id: current.id, scope: 'system', currentVersion: current.currentVersion },
+      data: {
+        category: seed.category, displayOrder: seed.displayOrder,
+        nameI18n: seed.name as Prisma.InputJsonValue,
+        descriptionI18n: seed.description as Prisma.InputJsonValue,
+        defaultTitleI18n: seed.defaultTitle as Prisma.InputJsonValue,
+        currentVersion: seed.seedVersion, archivedAt: null,
+      },
+    });
+    if (updated.count !== 1) throw new BusinessException('PAGE_TEMPLATE_VERSION_CONFLICT');
+  }
+
+  async seedCompositeOne(
+    seed: BuiltInCompositeTemplate,
+    transaction?: Prisma.TransactionClient,
+  ): Promise<void> {
+    if (!transaction) {
+      await this.prisma.$transaction((tx) => this.seedCompositeOne(seed, tx));
+      return;
+    }
+    const tx = transaction;
+    const current = await tx.pageTemplate.findUnique({
+      where: { scopeKey_stableKey: { scopeKey: 'system', stableKey: seed.stableKey } },
+    });
+    if (current?.scope === 'system' && current.currentVersion >= seed.seedVersion) return;
+    const definition = CompositeTemplateDefinitionSchema.parse(structuredClone(seed.definition));
+    if (validateCompositeDefinition(definition).length > 0) throw new BusinessException('PAGE_TEMPLATE_INVALID');
+    const definitionHash = hashCompositeDefinition(definition);
+    const versionData = {
+      version: seed.seedVersion,
+      contentI18n: { 'zh-CN': '', en: '' } as Prisma.InputJsonValue,
+      contentHash: templateContentHash(''),
+      sourcePageId: null,
+      definition: definition as Prisma.InputJsonValue,
+      schemaVersion: 1,
+      definitionHash,
+    };
+    if (!current) {
+      const created = await tx.pageTemplate.create({ data: {
+        scope: 'system', scopeKey: 'system', stableKey: seed.stableKey,
+        category: seed.category, displayOrder: seed.displayOrder,
+        nameI18n: seed.name as Prisma.InputJsonValue,
+        descriptionI18n: seed.description as Prisma.InputJsonValue,
+        defaultTitleI18n: seed.defaultTitle as Prisma.InputJsonValue,
+        currentVersion: seed.seedVersion,
+      } });
+      await tx.pageTemplateVersion.create({ data: { templateId: created.id, ...versionData } });
+      return;
+    }
+    if (current.scope !== 'system') return;
+    await tx.pageTemplateVersion.create({ data: { templateId: current.id, ...versionData } });
     const updated = await tx.pageTemplate.updateMany({
       where: { id: current.id, scope: 'system', currentVersion: current.currentVersion },
       data: {
@@ -554,6 +611,14 @@ export class PageTemplateService implements OnModuleInit {
       data: { currentVersion: nextVersion, updatedById: principal.userId },
     });
     if (changed.count !== 1) throw new BusinessException('PAGE_TEMPLATE_VERSION_CONFLICT');
+    return this.getManagedCompositeRecord(tx, templateId, locale);
+  }
+
+  getCompositeManagedRecordInLockedTransaction(
+    tx: Prisma.TransactionClient,
+    templateId: string,
+    locale: PageTemplateLocale,
+  ) {
     return this.getManagedCompositeRecord(tx, templateId, locale);
   }
 

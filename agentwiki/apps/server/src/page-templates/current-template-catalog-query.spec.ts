@@ -43,6 +43,7 @@ describe('queryCurrentTemplateCatalog', () => {
     expect(query.sql).toMatch(/CASE\s+WHEN version\."definition" IS NULL THEN FALSE/u);
     expect(query.sql).not.toContain('version."definition" AS');
     expect(query.sql.indexOf('COALESCE(version."definition"')).toBeLessThan(query.sql.indexOf('LIMIT ?'));
+    expect(query.sql).toContain('template."stableKey" = \'project-management\'');
   });
 
   it('escapes LIKE wildcard characters so q remains a literal substring', async () => {
