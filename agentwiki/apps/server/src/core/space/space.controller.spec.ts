@@ -70,6 +70,7 @@ describe('SpaceController.remove live ownership', () => {
     const principal = { userId: 'owner-1', type: 'human' };
     const roles: Record<string, string> = { 'owner-1': 'owner', 'owner-2': 'admin' };
     let deleted = false;
+    let pendingPublicationSuperseded = false;
     let reportPaused!: () => void;
     let resumePaused!: () => void;
     const mutationPaused = new Promise<void>((resolve) => { reportPaused = resolve; });
@@ -99,7 +100,24 @@ describe('SpaceController.remove live ownership', () => {
     const makeTx = () => ({
       assistTask: { updateMany: jest.fn() },
       pageSearchDocument: { deleteMany: jest.fn() },
-      page: { updateMany: jest.fn() },
+      page: {
+        findMany: jest.fn().mockResolvedValue([{ id: 'page-live' }]),
+        updateMany: jest.fn(),
+      },
+      collaborationArtifactChangeSetLink: {
+        findMany: jest.fn(async ({ where }: any) => (
+          where.spaceId === 'space-1' && where.pageId.in.includes('page-live')
+            ? [{ changeSetId: 'pending-change-set' }]
+            : []
+        )),
+      },
+      changeSet: {
+        updateMany: jest.fn(async () => {
+          pendingPublicationSuperseded = true;
+          return { count: 1 };
+        }),
+      },
+      changeItem: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       space: {
         findUnique: jest.fn(async () => {
           await pauseMutation('space-read');
@@ -170,6 +188,7 @@ describe('SpaceController.remove live ownership', () => {
       resumeMutation: resumePaused,
       revisionWriter,
       roles,
+      publicationSuperseded: () => pendingPublicationSuperseded,
       spaceDeleted: () => deleted,
     };
   };
@@ -198,6 +217,7 @@ describe('SpaceController.remove live ownership', () => {
       status: 'rejected', reason: { businessCode: 'SPACE_ACCESS_DENIED' },
     });
     expect(harness.spaceDeleted()).toBe(true);
+    expect(harness.publicationSuperseded()).toBe(true);
     expect(harness.roles).toEqual({ 'owner-1': 'owner', 'owner-2': 'admin' });
   });
 
@@ -224,6 +244,7 @@ describe('SpaceController.remove live ownership', () => {
       status: 'rejected', reason: { businessCode: 'SPACE_ACCESS_DENIED' },
     });
     expect(harness.spaceDeleted()).toBe(false);
+    expect(harness.publicationSuperseded()).toBe(false);
     expect(harness.roles).toEqual({ 'owner-1': 'admin', 'owner-2': 'owner' });
   });
 });
