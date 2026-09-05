@@ -44,6 +44,7 @@ interface ImageTargetToken {
   syntax: ParsedImageReference['syntax'];
   targetStart: number;
   targetEnd: number;
+  syntaxValid: boolean;
 }
 
 interface ListContainer {
@@ -161,6 +162,57 @@ function findMarkdownDestinationClose(value: string, start: number): number {
   if (value[cursor] === ')') return cursor;
   const syntaxEnd = skipMarkdownWhitespace(value, cursor);
   return syntaxEnd > cursor && value[syntaxEnd] === ')' ? syntaxEnd : -1;
+}
+
+function findMalformedMarkdownExpressionEnd(value: string, start: number): number {
+  let cursor = start;
+  let quote: '"' | "'" | null = null;
+  let parenthesisDepth = 0;
+  while (cursor < value.length) {
+    const character = value[cursor];
+    if (character === '\n' || character === '\r') return cursor;
+    if (character === '\\') {
+      cursor = skipBackslashRun(value, cursor);
+      continue;
+    }
+    if (quote !== null) {
+      if (character === quote) quote = null;
+      cursor += 1;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      cursor += 1;
+      continue;
+    }
+    if (character === '(') {
+      parenthesisDepth += 1;
+      cursor += 1;
+      continue;
+    }
+    if (character === ')') {
+      if (parenthesisDepth === 0) return cursor + 1;
+      parenthesisDepth -= 1;
+    }
+    cursor += 1;
+  }
+  return cursor;
+}
+
+function findMalformedAngleTargetEnd(value: string, start: number): number {
+  let cursor = start;
+  while (cursor < value.length) {
+    const character = value[cursor];
+    if (character === '\n' || character === '\r' || character === ')' || /[ \t]/u.test(character ?? '')) {
+      return cursor;
+    }
+    if (character === '\\') {
+      cursor = skipBackslashRun(value, cursor);
+      continue;
+    }
+    cursor += 1;
+  }
+  return cursor;
 }
 
 function listMarkerEnd(value: string, start: number, lineEnd: number): number {
@@ -402,7 +454,7 @@ function scanImageTargetTokens(body: string): ImageTargetToken[] {
       const rawEnd = separator !== -1 && separator < close ? separator : close;
       const [targetStart, targetEnd] = trimRange(body, cursor + 3, rawEnd);
       if (targetStart < targetEnd) {
-        tokens.push({ syntax: 'obsidian', targetStart, targetEnd });
+        tokens.push({ syntax: 'obsidian', targetStart, targetEnd, syntaxValid: true });
       }
       cursor = close + 2;
       continue;
@@ -419,28 +471,38 @@ function scanImageTargetTokens(body: string): ImageTargetToken[] {
     }
     const targetStart = skipMarkdownWhitespace(body, altClose + 2);
     if (body[targetStart] === '<') {
-      const targetEnd = findUnescaped(body, '>', targetStart + 1);
-      const syntaxEnd = targetEnd === -1
+      const angleClose = findUnescaped(body, '>', targetStart + 1);
+      const targetEnd = angleClose === -1
+        ? findMalformedAngleTargetEnd(body, targetStart + 1)
+        : angleClose;
+      const syntaxEnd = angleClose === -1
         ? -1
-        : findMarkdownDestinationClose(body, targetEnd + 1);
-      if (targetEnd === -1 || syntaxEnd === -1) {
-        cursor += 1;
+        : findMarkdownDestinationClose(body, angleClose + 1);
+      if (targetEnd > targetStart + 1) {
+        tokens.push({
+          syntax: 'markdown',
+          targetStart: targetStart + 1,
+          targetEnd,
+          syntaxValid: syntaxEnd !== -1,
+        });
+        cursor = syntaxEnd === -1
+          ? findMalformedMarkdownExpressionEnd(body, targetEnd)
+          : syntaxEnd + 1;
         continue;
       }
-      tokens.push({ syntax: 'markdown', targetStart: targetStart + 1, targetEnd });
-      cursor = syntaxEnd + 1;
+      cursor += 1;
       continue;
     }
 
     let depth = 0;
     let targetEnd = -1;
     let syntaxEnd = -1;
-    for (let index = targetStart; index < body.length; index += 1) {
+    let index = targetStart;
+    for (; index < body.length; index += 1) {
       const current = body[index];
       if (current === '\n' || current === '\r') {
-        if (depth > 0) break;
         targetEnd = index;
-        syntaxEnd = findMarkdownDestinationClose(body, index);
+        if (depth === 0) syntaxEnd = findMarkdownDestinationClose(body, index);
         break;
       }
       if (current === '\\') {
@@ -466,9 +528,17 @@ function scanImageTargetTokens(body: string): ImageTargetToken[] {
         break;
       }
     }
-    if (targetEnd > targetStart && syntaxEnd !== -1) {
-      tokens.push({ syntax: 'markdown', targetStart, targetEnd });
-      cursor = syntaxEnd + 1;
+    if (targetEnd === -1 && index === body.length) targetEnd = body.length;
+    if (targetEnd > targetStart) {
+      tokens.push({
+        syntax: 'markdown',
+        targetStart,
+        targetEnd,
+        syntaxValid: syntaxEnd !== -1,
+      });
+      cursor = syntaxEnd === -1
+        ? findMalformedMarkdownExpressionEnd(body, targetEnd)
+        : syntaxEnd + 1;
       continue;
     }
     cursor += 1;
@@ -493,10 +563,12 @@ export function hasImageReferenceLiteral(
   });
 }
 
-function decodeTarget(rawTarget: string): string | null {
-  const markdownUnescaped = rawTarget.replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\]^_`{|}~])/gu, '$1');
+function decodeTarget(rawTarget: string, syntax: ParsedImageReference['syntax']): string | null {
+  const escapedTarget = syntax === 'markdown'
+    ? rawTarget.replace(/\\([ \t!"#$%&'()*+,\-./:;<=>?@[\]^_`{|}~])/gu, '$1')
+    : rawTarget.replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\]^_`{|}~])/gu, '$1');
   try {
-    return decodeURIComponent(markdownUnescaped).normalize('NFC');
+    return decodeURIComponent(escapedTarget).normalize('NFC');
   } catch {
     return null;
   }
@@ -506,8 +578,10 @@ function classifyTarget(
   rawTarget: string,
   syntax: ParsedImageReference['syntax'],
   sourceSyncPath: string,
+  syntaxValid = true,
 ): Pick<ParsedImageReference, 'resolvedPath' | 'classification'> {
-  const decoded = decodeTarget(rawTarget);
+  if (!syntaxValid) return { resolvedPath: null, classification: 'invalid_local' };
+  const decoded = decodeTarget(rawTarget, syntax);
   if (decoded === null) return { resolvedPath: null, classification: 'invalid_local' };
   if (/^data:/iu.test(decoded) || decoded.startsWith('//')) {
     return { resolvedPath: null, classification: 'external' };
@@ -536,10 +610,8 @@ function classifyTarget(
   }
 
   let candidate: string;
-  if (!decoded.includes('/') && syntax === 'obsidian') {
-    candidate = `assets/${decoded}`;
-  } else if (decoded.startsWith('assets/')) {
-    candidate = decoded;
+  if (syntax === 'obsidian') {
+    candidate = !decoded.includes('/') ? `assets/${decoded}` : decoded;
   } else {
     const pagePath = sourceSyncPath.normalize('NFC');
     const directory = posix.dirname(pagePath);
@@ -573,7 +645,7 @@ export function parseImageReferences(
       rawTarget,
       targetStart: token.targetStart,
       targetEnd: token.targetEnd,
-      ...classifyTarget(rawTarget, token.syntax, sourceSyncPath),
+      ...classifyTarget(rawTarget, token.syntax, sourceSyncPath, token.syntaxValid),
     };
   });
 }
@@ -636,9 +708,9 @@ export function rewriteAttachmentReferenceRanges(
   body: string,
   replacements: ReadonlyArray<{ start: number; end: number; target: string }>,
 ): string {
-  const validRanges = new Set(scanImageTargetTokens(body).map((token) => (
-    `${token.targetStart}:${token.targetEnd}`
-  )));
+  const validRanges = new Set(scanImageTargetTokens(body)
+    .filter((token) => token.syntaxValid)
+    .map((token) => `${token.targetStart}:${token.targetEnd}`));
   const ordered = [...replacements].sort((left, right) => (
     right.start - left.start || right.end - left.end
   ));

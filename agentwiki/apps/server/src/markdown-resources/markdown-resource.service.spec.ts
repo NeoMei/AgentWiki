@@ -393,6 +393,27 @@ describe('MarkdownResourceService', () => {
     expect(prisma.spaceAttachment.findMany).not.toHaveBeenCalled();
   });
 
+  it('blocks a malformed Markdown image title at the service boundary without querying attachments', async () => {
+    const body = 'before ![image](../../assets/a.png "one" trailing) after';
+    const targetStart = body.indexOf('../../assets/a.png');
+
+    await expect(service.resolveReferencedAttachments({
+      spaceId: 'space-1',
+      sourceSyncPath: 'pages/topic/note.md',
+      body,
+    })).resolves.toEqual({
+      attachmentIds: [],
+      references: [],
+      errors: [{
+        code: 'ATTACHMENT_REFERENCE_INVALID',
+        targetStart,
+        targetEnd: targetStart + '../../assets/a.png'.length,
+      }],
+    });
+
+    expect(prisma.spaceAttachment.findMany).not.toHaveBeenCalled();
+  });
+
   it('can resolve through the caller transaction so a locked writer sees one snapshot', async () => {
     const transaction = {
       spaceAttachment: {
