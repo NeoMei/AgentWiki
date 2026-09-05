@@ -13,6 +13,7 @@ import { SavePageAsTemplateDialog } from '../page-templates/SavePageAsTemplateDi
 import { PageAgentBindingDialog } from '../page-templates/PageAgentBindingDialog';
 import { listPageTemplates } from '../page-templates/pageTemplateApi';
 import { truncateValidatorLength } from '../page-templates/validatorLength';
+import { listCompositeTemplates } from '../page-templates/compositeTemplateApi';
 import { AgentAssistPanel } from './AgentAssistPanel';
 import { AttachmentPickerDialog } from '../attachments/AttachmentPickerDialog';
 import { uploadAttachment } from '../attachments/attachmentApi';
@@ -136,6 +137,10 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const [templateDialogSnapshot, setTemplateDialogSnapshot] = useState<TemplateDialogSnapshot | null>(null);
   const [attachmentPickerOpen, setAttachmentPickerOpen] = useState(false);
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false);
+  const [compositeCapability, setCompositeCapability] = useState<{
+    identity: string;
+    canCreate: boolean;
+  } | null>(null);
 
   const templateCapabilityIdentity = page
     ? `${page.id}\u0000${page.spaceId}\u0000${page.format}\u0000${language}`
@@ -143,6 +148,9 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const canManageTemplates = templateCapabilityIdentity !== null
     && templateCapability?.identity === templateCapabilityIdentity
     && templateCapability.canManage;
+  const compositeCreationEnabled = templateCapabilityIdentity !== null
+    && compositeCapability?.identity === templateCapabilityIdentity
+    && compositeCapability.canCreate;
   const templateCreationBlocked = isDirty || saving || remoteUpdate !== null;
   const attachmentEnabled = page?.capabilities?.canManageAttachments === true
     && page.id === id
@@ -302,6 +310,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     setMoreActionsPosition(null);
     setTemplateDialogSnapshot(null);
     setTemplateCapability(null);
+    setCompositeCapability(null);
+    setBindingDialogOpen(false);
     if (!page?.spaceId || !page.id || page.format !== 'markdown' || !templateCapabilityIdentity) return;
 
     let active = true;
@@ -312,6 +322,18 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       })
       .catch(() => {
         if (active) setTemplateCapability({ identity: requestIdentity, canManage: false });
+      });
+    void listCompositeTemplates(page.spaceId, { locale: language, take: 1 })
+      .then((result) => {
+        if (active) {
+          setCompositeCapability({
+            identity: requestIdentity,
+            canCreate: result.capabilities.canCreate,
+          });
+        }
+      })
+      .catch(() => {
+        if (active) setCompositeCapability({ identity: requestIdentity, canCreate: false });
       });
     return () => {
       active = false;
@@ -776,7 +798,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
           <button onClick={() => guardNavigate(`/pages/${id}/versions`)} aria-label={t('editor.versions')} title={t('editor.versions')} data-testid="history-button" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition hover:bg-gray-100 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500">
             <History size={18} />
           </button>
-          <button
+          {compositeCreationEnabled ? <button
             ref={bindingButtonRef}
             type="button"
             aria-label={t('pageTemplate.binding.action')}
@@ -785,7 +807,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition hover:bg-gray-100 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <Users size={18} />
-          </button>
+          </button> : null}
           {canManageTemplates && page.format === 'markdown' ? (
             <div ref={moreActionsRef} className="relative">
               <button
@@ -954,7 +976,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         />
       ) : null}
 
-      {bindingDialogOpen ? <PageAgentBindingDialog
+      {bindingDialogOpen && compositeCreationEnabled ? <PageAgentBindingDialog
         spaceId={page.spaceId}
         scope={{ kind: 'page', pageId: page.id, title: page.title }}
         returnFocusTo={bindingButtonRef.current}

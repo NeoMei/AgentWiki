@@ -16,6 +16,10 @@ import { CollaborationWorkflowsModule } from '../collaboration-workflows/collabo
 import { CompositeTemplateController } from './composite-template.controller';
 import { CompositeTemplatePreviewService } from './composite-template-preview.service';
 import { ExistingRunOrchestrationService } from './existing-run-orchestration.service';
+import { SearchCoreModule } from '../core/search/search-core.module';
+import { KnowledgeGraphModule } from '../knowledge-graph/knowledge-graph.module';
+import { TemplateEffectsService } from './template-effects.service';
+import { TemplateFeaturePolicy } from './template-feature-policy';
 
 @Module({
   imports: [
@@ -26,6 +30,8 @@ import { ExistingRunOrchestrationService } from './existing-run-orchestration.se
     ContentTreeModule,
     MarkdownResourceCoreModule,
     CollaborationWorkflowsModule,
+    SearchCoreModule,
+    KnowledgeGraphModule,
   ],
   controllers: [PageTemplateController, CompositeTemplateController],
   providers: [
@@ -37,6 +43,8 @@ import { ExistingRunOrchestrationService } from './existing-run-orchestration.se
     FolderTemplateSnapshotService,
     CompositeTemplatePreviewService,
     ExistingRunOrchestrationService,
+    TemplateEffectsService,
+    TemplateFeaturePolicy,
   ],
   exports: [
     PageTemplateService,
@@ -47,6 +55,8 @@ import { ExistingRunOrchestrationService } from './existing-run-orchestration.se
     FolderTemplateSnapshotService,
     CompositeTemplatePreviewService,
     ExistingRunOrchestrationService,
+    TemplateEffectsService,
+    TemplateFeaturePolicy,
   ],
 })
 export class PageTemplateModule {}

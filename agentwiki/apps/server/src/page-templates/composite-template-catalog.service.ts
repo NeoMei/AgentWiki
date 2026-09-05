@@ -27,6 +27,7 @@ import {
   queryCurrentTemplateCatalog,
   type CurrentTemplateCatalogRow,
 } from './current-template-catalog-query';
+import { TemplateFeaturePolicy } from './template-feature-policy';
 
 type CatalogStoredVersion = {
   definition: Prisma.JsonValue | null;
@@ -79,6 +80,7 @@ export class CompositeTemplateCatalogService {
     private readonly prisma: PrismaService,
     private readonly authorization: AuthorizationService,
     private readonly pageTemplates: PageTemplateService,
+    private readonly policy: TemplateFeaturePolicy,
   ) {}
 
   async resolve(
@@ -152,7 +154,7 @@ export class CompositeTemplateCatalogService {
       total: result.total,
       skip: query.skip,
       take: query.take,
-      capabilities: { canManage },
+      capabilities: { canManage, canCreate: this.policy.canCreate(spaceId) },
     };
   }
 

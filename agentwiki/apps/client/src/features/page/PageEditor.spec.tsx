@@ -12,6 +12,7 @@ import { PageEditor } from './PageEditor';
 const templateMocks = vi.hoisted(() => ({
   listPageTemplates: vi.fn(),
   createPageTemplate: vi.fn(),
+  listCompositeTemplates: vi.fn(),
 }));
 
 const attachmentMocks = vi.hoisted(() => ({
@@ -54,6 +55,9 @@ vi.mock('socket.io-client', () => ({ io: vi.fn(() => socketMock.socket) }));
 vi.mock('../page-templates/pageTemplateApi', () => ({
   listPageTemplates: templateMocks.listPageTemplates,
   createPageTemplate: templateMocks.createPageTemplate,
+}));
+vi.mock('../page-templates/compositeTemplateApi', () => ({
+  listCompositeTemplates: templateMocks.listCompositeTemplates,
 }));
 vi.mock('../attachments/attachmentApi', () => ({
   listAttachments: attachmentMocks.listAttachments,
@@ -207,7 +211,12 @@ describe('PageEditor remote update safety', () => {
     contentTreeMocks.getContentTreeRevision.mockResolvedValue('31');
     templateMocks.listPageTemplates.mockReset();
     templateMocks.createPageTemplate.mockReset();
+    templateMocks.listCompositeTemplates.mockReset();
     templateMocks.listPageTemplates.mockResolvedValue(catalog(false));
+    templateMocks.listCompositeTemplates.mockResolvedValue({
+      data: [], total: 0, skip: 0, take: 1,
+      capabilities: { canManage: false, canCreate: true },
+    });
     attachmentMocks.listAttachments.mockReset();
     attachmentMocks.uploadAttachment.mockReset();
     attachmentMocks.archiveAttachment.mockReset();
@@ -227,11 +236,30 @@ describe('PageEditor remote update safety', () => {
   it('opens late-binding settings from the Page editor without requiring template-management permission', async () => {
     queuePages({ data: page({ capabilities: { canEdit: true } }) });
     templateMocks.listPageTemplates.mockResolvedValue(catalog(false));
+    templateMocks.listCompositeTemplates.mockResolvedValue({
+      data: [], total: 0, skip: 0, take: 1,
+      capabilities: { canManage: false, canCreate: true },
+    });
     renderEditor();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Agent / collaboration settings' }));
 
     expect(screen.getByRole('dialog')).toHaveTextContent('Binding page: Original title');
+  });
+
+  it('hides late-binding settings when authoritative composite rollout is off', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    templateMocks.listCompositeTemplates.mockResolvedValue({
+      data: [], total: 0, skip: 0, take: 1,
+      capabilities: { canManage: true, canCreate: false },
+    });
+    renderEditor();
+
+    await screen.findByDisplayValue('Original title');
+    await waitFor(() => expect(templateMocks.listCompositeTemplates).toHaveBeenCalledWith('space-1', {
+      locale: 'en', take: 1,
+    }));
+    expect(screen.queryByRole('button', { name: 'Agent / collaboration settings' })).not.toBeInTheDocument();
   });
 
   it('preserves a dirty draft across repeated remote refreshes and accepts only the latest remote version explicitly', async () => {

@@ -33,6 +33,8 @@ import { LegacyWorkflowUpgradeService } from './legacy-workflow-upgrade.service'
 import { PageAgentBindingService } from './page-agent-binding.service';
 import { ExistingRunOrchestrationService } from './existing-run-orchestration.service';
 import type { RunPageSelectionBinding } from './run-page-selection';
+import { TemplateFeaturePolicy } from './template-feature-policy';
+import { BusinessException } from '../core/filters/business-error';
 
 @Controller('spaces/:spaceId')
 @UseGuards(CombinedAuthGuard, HumanOnlyGuard)
@@ -45,7 +47,14 @@ export class CompositeTemplateController {
     private readonly upgrades: LegacyWorkflowUpgradeService,
     private readonly bindings: PageAgentBindingService,
     private readonly orchestration: ExistingRunOrchestrationService,
+    private readonly policy: TemplateFeaturePolicy,
   ) {}
+
+  private assertCanCreate(spaceId: string): void {
+    if (!this.policy.canCreate(spaceId)) {
+      throw new BusinessException('COMPOSITE_TEMPLATE_FEATURE_DISABLED');
+    }
+  }
 
   @Get('templates')
   list(@Req() req: Request, @Param('spaceId') spaceId: string, @Query() query: CompositeTemplateListQueryDto) {
@@ -54,6 +63,7 @@ export class CompositeTemplateController {
 
   @Post('templates')
   createTemplate(@Req() req: Request, @Param('spaceId') spaceId: string, @Body() body: CreateCompositeSpaceTemplateDto) {
+    this.assertCanCreate(spaceId);
     return this.catalog.createSpaceTemplate(spaceId, body, req.user as Principal);
   }
 
@@ -69,21 +79,25 @@ export class CompositeTemplateController {
 
   @Patch('templates/:templateId')
   updateTemplate(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('templateId') templateId: string, @Body() body: UpdatePageTemplateDto) {
+    this.assertCanCreate(spaceId);
     return this.catalog.updateMetadata(spaceId, templateId, body, req.user as Principal);
   }
 
   @Post('templates/:templateId/versions')
   createTemplateVersion(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('templateId') templateId: string, @Body() body: CreateCompositeTemplateVersionDto) {
+    this.assertCanCreate(spaceId);
     return this.catalog.createVersion(spaceId, templateId, body, req.user as Principal);
   }
 
   @Delete('templates/:templateId')
   archiveTemplate(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('templateId') templateId: string, @Body() body: PageTemplateStateDto) {
+    this.assertCanCreate(spaceId);
     return this.catalog.archive(spaceId, templateId, body, req.user as Principal);
   }
 
   @Post('templates/:templateId/restore')
   restoreTemplate(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('templateId') templateId: string, @Body() body: PageTemplateStateDto) {
+    this.assertCanCreate(spaceId);
     return this.catalog.restore(spaceId, templateId, body, req.user as Principal);
   }
 
@@ -96,6 +110,7 @@ export class CompositeTemplateController {
 
   @Post('templates/from-folder')
   saveFolderTemplate(@Req() req: Request, @Param('spaceId') spaceId: string, @Body() body: SaveFolderTemplateDto) {
+    this.assertCanCreate(spaceId);
     return this.snapshots.save(spaceId, body as any, req.user as Principal);
   }
 
@@ -106,6 +121,7 @@ export class CompositeTemplateController {
 
   @Post('templates/:templateId/instantiate')
   async instantiate(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('templateId') templateId: string, @Body() body: InstantiateCompositeTemplateDto) {
+    this.assertCanCreate(spaceId);
     return serializeBigInts(await this.instantiation.instantiate(spaceId, templateId, {
       ...body,
       roleBindings: toBindings(body.roleBindings),
@@ -125,6 +141,7 @@ export class CompositeTemplateController {
 
   @Post('collaboration-templates/:legacyId/upgrade')
   upgrade(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('legacyId') legacyId: string, @Body() body: UpgradeLegacyWorkflowDto) {
+    this.assertCanCreate(spaceId);
     return this.upgrades.upgrade(spaceId, legacyId, body as any, req.user as Principal);
   }
 
@@ -135,6 +152,7 @@ export class CompositeTemplateController {
 
   @Put('pages/:pageId/agent-binding')
   setPageBinding(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('pageId') pageId: string, @Body() body: PageBindingMutationDto) {
+    this.assertCanCreate(spaceId);
     return this.bindings.setBindingsInScope(spaceId, {
       pageIds: [pageId], expectedTreeRevision: BigInt(body.expectedTreeRevision),
       edits: [{ pageId, agentId: body.agentId, roleSlotKey: body.roleSlotKey, expectedUpdatedAt: body.expectedUpdatedAt }],
@@ -143,6 +161,7 @@ export class CompositeTemplateController {
 
   @Delete('pages/:pageId/agent-binding')
   deletePageBinding(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('pageId') pageId: string, @Body() body: DeletePageBindingDto) {
+    this.assertCanCreate(spaceId);
     return this.bindings.setBindingsInScope(spaceId, {
       pageIds: [pageId], expectedTreeRevision: BigInt(body.expectedTreeRevision),
       edits: [{ pageId, agentId: null, roleSlotKey: null, expectedUpdatedAt: body.expectedUpdatedAt }],
@@ -158,6 +177,7 @@ export class CompositeTemplateController {
 
   @Post('folders/:folderId/agent-bindings')
   setFolderBindings(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('folderId') folderId: string, @Body() body: FolderBindingMutationDto) {
+    this.assertCanCreate(spaceId);
     return this.orchestration.setFolderBindings(spaceId, folderId, {
       pageIds: body.pageIds,
       expectedTreeRevision: BigInt(body.expectedTreeRevision),
@@ -183,6 +203,7 @@ export class CompositeTemplateController {
 
   @Post('pages/:pageId/collaboration-runs')
   startPageRun(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('pageId') pageId: string, @Body() body: PageRunStartDto) {
+    this.assertCanCreate(spaceId);
     return this.orchestration.start(spaceId, pageId, {
       source: { kind: 'page_selection' }, pageIds: [pageId],
       collaborationInputs: body.collaborationInputs ?? {}, bindings: toBindings(body.bindings) ?? [],
@@ -202,6 +223,7 @@ export class CompositeTemplateController {
 
   @Post('folders/:folderId/collaboration-runs')
   startFolderRun(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('folderId') folderId: string, @Body() body: ExistingRunStartDto) {
+    this.assertCanCreate(spaceId);
     return this.orchestration.start(spaceId, folderId, {
       ...body, source: toRunSource(body.source), bindings: toBindings(body.bindings) ?? [],
       expectedTreeRevision: BigInt(body.expectedTreeRevision),

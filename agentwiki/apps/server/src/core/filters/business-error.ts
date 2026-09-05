@@ -60,6 +60,7 @@ const ERROR_CODE_MAP: Record<string, { status: HttpStatus; message: string }> = 
   PAGE_TEMPLATE_SOURCE_STALE: { status: HttpStatus.CONFLICT, message: 'Template source page changed; reload before saving' },
   PAGE_TEMPLATE_SYSTEM_IMMUTABLE: { status: HttpStatus.CONFLICT, message: 'System page templates are immutable' },
   PAGE_TEMPLATE_AGENT_UNSUPPORTED: { status: HttpStatus.FORBIDDEN, message: 'Agents cannot use page template source fields' },
+  COMPOSITE_TEMPLATE_FEATURE_DISABLED: { status: HttpStatus.CONFLICT, message: 'Composite template creation is not enabled for this Space' },
   PAGE_TEMPLATE_INSTANTIATION_IDEMPOTENCY_CONFLICT: { status: HttpStatus.CONFLICT, message: 'Idempotency key was reused for another template instantiation' },
   PAGE_TEMPLATE_INSTANTIATION_UNSUPPORTED: { status: HttpStatus.CONFLICT, message: 'Requested template instantiation features are not enabled' },
   PAGE_TEMPLATE_INSTANTIATION_RETRY_REQUIRED: { status: HttpStatus.CONFLICT, message: 'Template instantiation conflicted; retry with the same idempotency key' },

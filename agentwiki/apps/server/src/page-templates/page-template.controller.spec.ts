@@ -150,6 +150,7 @@ describe('PageTemplateController', () => {
       { assertSpaceAccess: jest.fn().mockResolvedValue({ role: 'editor' }) } as any,
       { get: jest.fn() } as any,
       { lockSpace: jest.fn() } as any,
+      { canCreate: jest.fn().mockReturnValue(false) } as any,
     );
     const realController = new PageTemplateController(realService);
 

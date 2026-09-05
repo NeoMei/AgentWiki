@@ -53,7 +53,7 @@ const renderManager = () => {
 describe('PageTemplateManager composite catalog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.listCompositeTemplates.mockResolvedValue({ data: [summary], total: 1, skip: 0, take: 50, capabilities: { canManage: true } });
+    mocks.listCompositeTemplates.mockResolvedValue({ data: [summary], total: 1, skip: 0, take: 50, capabilities: { canManage: true, canCreate: true } });
     mocks.listPageTemplateSourcePages.mockResolvedValue({ data: [], total: 0, skip: 0, take: 100 });
     mocks.getCompositeTemplateManagement.mockResolvedValue({ ...summary, templateId: summary.id, version: 2, locale: 'en', definitionHash: 'a'.repeat(64), definition });
     mocks.createCompositeTemplateVersion.mockResolvedValue({ ...summary, templateId: summary.id, currentVersion: 3, version: 3, locale: 'en', definitionHash: 'b'.repeat(64), definition });
@@ -70,11 +70,33 @@ describe('PageTemplateManager composite catalog', () => {
     })));
   });
 
+  it('uses the legacy manager and visible fallback copy when composite rollout is off', async () => {
+    mocks.listCompositeTemplates.mockResolvedValue({
+      data: [summary], total: 1, skip: 0, take: 50,
+      capabilities: { canManage: true, canCreate: false },
+    });
+    mocks.listPageTemplates.mockResolvedValue({
+      system: [],
+      space: [{
+        id: 'legacy-1', scope: 'space', stableKey: 'legacy', category: 'other',
+        name: 'Legacy note', description: '', defaultTitle: 'Note', sourceLocale: 'en',
+        currentVersion: 1, archivedAt: null, updatedAt: '2026-09-05T00:00:00.000Z',
+      }],
+      totalSpace: 1, skip: 0, take: 50, capabilities: { canManage: true },
+    });
+
+    renderManager();
+
+    expect(await screen.findByText('Composite page groups are not enabled for this Space. Legacy single-page templates remain available.')).toBeVisible();
+    expect(screen.getByText('Legacy note')).toBeVisible();
+    expect(screen.queryByText('Project group')).not.toBeInTheDocument();
+  });
+
   it('refreshes through the unified catalog when a paginated page makes no progress', async () => {
     mocks.listCompositeTemplates
-      .mockResolvedValueOnce({ data: [summary], total: 2, skip: 0, take: 1, capabilities: { canManage: true } })
-      .mockResolvedValueOnce({ data: [summary], total: 2, skip: 1, take: 1, capabilities: { canManage: true } })
-      .mockResolvedValueOnce({ data: [summary], total: 1, skip: 0, take: 50, capabilities: { canManage: true } });
+      .mockResolvedValueOnce({ data: [summary], total: 2, skip: 0, take: 1, capabilities: { canManage: true, canCreate: true } })
+      .mockResolvedValueOnce({ data: [summary], total: 2, skip: 1, take: 1, capabilities: { canManage: true, canCreate: true } })
+      .mockResolvedValueOnce({ data: [summary], total: 1, skip: 0, take: 50, capabilities: { canManage: true, canCreate: true } });
     renderManager();
     fireEvent.click(await screen.findByRole('button', { name: 'Load more' }));
 
@@ -103,7 +125,7 @@ describe('PageTemplateManager composite catalog', () => {
   it('permits archived composite inspection but keeps system templates read-only', async () => {
     const archived = { ...summary, id: 'archived-1', name: 'Archived group', archivedAt: '2026-09-05T01:00:00.000Z' };
     const system = { ...summary, id: 'system-1', scope: 'system' as const, name: 'System group', sourceLocale: null };
-    mocks.listCompositeTemplates.mockResolvedValue({ data: [archived, system], total: 2, skip: 0, take: 50, capabilities: { canManage: true } });
+    mocks.listCompositeTemplates.mockResolvedValue({ data: [archived, system], total: 2, skip: 0, take: 50, capabilities: { canManage: true, canCreate: true } });
     mocks.getCompositeTemplateManagement.mockResolvedValue({ ...archived, templateId: archived.id, version: 2, locale: 'en', definitionHash: 'a'.repeat(64), definition });
     renderManager();
 
@@ -141,7 +163,7 @@ describe('PageTemplateManager composite catalog', () => {
 
   it('ignores stale composite detail success and failure after close and same-Space template switch', async () => {
     const other = { ...summary, id: 'group-2', stableKey: 'group-2', name: 'Other group' };
-    mocks.listCompositeTemplates.mockResolvedValue({ data: [summary, other], total: 2, skip: 0, take: 50, capabilities: { canManage: true } });
+    mocks.listCompositeTemplates.mockResolvedValue({ data: [summary, other], total: 2, skip: 0, take: 50, capabilities: { canManage: true, canCreate: true } });
     let resolveFirst!: (value: ReturnType<typeof managementDetail>) => void;
     let resolveSecond!: (value: ReturnType<typeof managementDetail>) => void;
     const first = new Promise<ReturnType<typeof managementDetail>>((resolve) => { resolveFirst = resolve; });

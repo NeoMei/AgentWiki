@@ -12,6 +12,7 @@ import { RunList } from './components/RunList';
 import { TemplateCard } from './components/TemplateCard';
 import { UpgradeWorkflowTemplateDialog } from '../page-templates/UpgradeWorkflowTemplateDialog';
 import { NewPageDialog, type NewPageCreationTarget } from '../page-templates/NewPageDialog';
+import { listCompositeTemplates } from '../page-templates/compositeTemplateApi';
 import type { RunListKind, RunSummary, TemplateSummary } from './types';
 
 type Tab = 'templates' | RunListKind;
@@ -35,6 +36,7 @@ export const CollaborationWorkspace: React.FC = () => {
   const [state, setState] = useState<LoadState>('loading');
   const [canManage, setCanManage] = useState(false);
   const [canStart, setCanStart] = useState(false);
+  const [canCreateComposite, setCanCreateComposite] = useState(false);
   const [copySource, setCopySource] = useState<TemplateSummary | null>(null);
   const [copyName, setCopyName] = useState('');
   const [upgradeSource, setUpgradeSource] = useState<{ template: TemplateSummary; trigger: HTMLElement } | null>(null);
@@ -55,9 +57,10 @@ export const CollaborationWorkspace: React.FC = () => {
     const epoch = ++workspaceRequestEpoch.current;
     setState('loading');
     try {
-      const [nextTemplates, members] = await Promise.all([
+      const [nextTemplates, members, compositeCatalog] = await Promise.all([
         collaborationApi.listTemplates(spaceId),
         collaborationApi.listMembers(spaceId),
+        listCompositeTemplates(spaceId, { locale: language, take: 1 }).catch(() => null),
       ]);
       if (!isCurrentWorkspaceRequest(spaceId, 'templates', epoch)) return;
       setTemplates(nextTemplates);
@@ -66,13 +69,14 @@ export const CollaborationWorkspace: React.FC = () => {
         : members.find((member) => member.type === 'human' && member.userId === user?.id)?.role;
       setCanManage(myRole === 'owner' || myRole === 'admin');
       setCanStart(myRole === 'owner' || myRole === 'admin' || myRole === 'editor');
+      setCanCreateComposite(compositeCatalog?.capabilities.canCreate === true);
       setState('ready');
     } catch (error) {
       if (!isCurrentWorkspaceRequest(spaceId, 'templates', epoch)) return;
       setToast({ kind: 'error', message: apiErrorMessage(error, t, 'collaboration.loadFailed') });
       setState('error');
     }
-  }, [id, isCurrentWorkspaceRequest, t, user?.id, user?.platformRole]);
+  }, [id, isCurrentWorkspaceRequest, language, t, user?.id, user?.platformRole]);
 
   const loadRuns = useCallback(async (kind: RunListKind) => {
     if (!id) return;
@@ -123,6 +127,7 @@ export const CollaborationWorkspace: React.FC = () => {
     setLoadingMoreRuns(false);
     setCanManage(false);
     setCanStart(false);
+    setCanCreateComposite(false);
     setCopySource(null);
     setCopyName('');
     setUpgradeSource(null);
@@ -200,9 +205,9 @@ export const CollaborationWorkspace: React.FC = () => {
             <p className="mt-1 max-w-3xl text-sm text-gray-600">{t('collaboration.subtitle')}</p>
           </div>
           {canStart && tab === 'templates' ? <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={(event) => setCreationTrigger(event.currentTarget)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white">
+            {canCreateComposite ? <button type="button" onClick={(event) => setCreationTrigger(event.currentTarget)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white">
               <Plus size={16} aria-hidden="true" />{t('collaboration.createCompositeRun')}
-            </button>
+            </button> : null}
             <Link to={`/spaces/${id}/settings/page-templates`} className="inline-flex min-h-10 items-center justify-center rounded-lg border px-4 text-sm font-medium">{t('pageTemplate.manage')}</Link>
             {canManage ? <Link to={`/spaces/${id}/collaboration/templates/new`} className="inline-flex min-h-10 items-center justify-center rounded-lg border px-4 text-sm font-medium">{t('collaboration.createLegacyTemplate')}</Link> : null}
           </div> : null}
@@ -244,7 +249,9 @@ export const CollaborationWorkspace: React.FC = () => {
                     labels={labels}
                     onCopy={openCopy}
                     onArchive={(item) => void archiveTemplate(item)}
-                    onUpgrade={(template, trigger) => setUpgradeSource({ template, trigger })}
+                    onUpgrade={canCreateComposite
+                      ? (template, trigger) => setUpgradeSource({ template, trigger })
+                      : undefined}
                   />
                 ))}
               </div>

@@ -25,6 +25,24 @@ import type { CompositeTemplateDefinition } from '@neomei/agentwiki-sync-protoco
 const segment = (value: string) => encodeURIComponent(value);
 const spacePath = (spaceId: string) => `/spaces/${segment(spaceId)}`;
 
+function parseCompositeTemplateCatalog(value: unknown): CompositeTemplateCatalog {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('Invalid composite template catalog response');
+  }
+  const record = value as Record<string, unknown>;
+  const capabilities = record.capabilities;
+  if (!Array.isArray(record.data)
+    || !Number.isInteger(record.total)
+    || !Number.isInteger(record.skip)
+    || !Number.isInteger(record.take)
+    || !capabilities || typeof capabilities !== 'object' || Array.isArray(capabilities)
+    || typeof (capabilities as Record<string, unknown>).canManage !== 'boolean'
+    || typeof (capabilities as Record<string, unknown>).canCreate !== 'boolean') {
+    throw new TypeError('Invalid composite template catalog response');
+  }
+  return value as CompositeTemplateCatalog;
+}
+
 export async function listCompositeTemplates(spaceId: string, options: {
   locale: CompositeTemplateLocale;
   scope?: 'all' | 'system' | 'space';
@@ -37,7 +55,7 @@ export async function listCompositeTemplates(spaceId: string, options: {
   take?: number;
   signal?: AbortSignal;
 }): Promise<CompositeTemplateCatalog> {
-  return (await api.get<CompositeTemplateCatalog>(`${spacePath(spaceId)}/templates`, {
+  return parseCompositeTemplateCatalog((await api.get<CompositeTemplateCatalog>(`${spacePath(spaceId)}/templates`, {
     params: {
       locale: options.locale,
       scope: options.scope ?? 'all',
@@ -48,7 +66,7 @@ export async function listCompositeTemplates(spaceId: string, options: {
       ...(options.q?.trim() ? { q: options.q.trim() } : {}),
     },
     signal: options.signal,
-  })).data;
+  })).data);
 }
 
 export async function getCompositeTemplateManagement(

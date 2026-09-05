@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { NewPageDialog, type NewPageCreationTarget } from '../page-templates/NewPageDialog';
 import { PageAgentBindingDialog, type BindingDialogScope } from '../page-templates/PageAgentBindingDialog';
 import { SaveFolderAsTemplateDialog } from '../page-templates/SaveFolderAsTemplateDialog';
+import { listCompositeTemplates } from '../page-templates/compositeTemplateApi';
 import {
   createFolder,
   deleteFolder,
@@ -59,7 +60,7 @@ interface RestoreInfo {
 export const SpaceView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
   const { user } = useAuth();
   const createPageOpenerRef = useRef<HTMLButtonElement | null>(null);
   const requestSequenceRef = useRef(0);
@@ -95,6 +96,10 @@ export const SpaceView: React.FC = () => {
   const [bindingReturnFocus, setBindingReturnFocus] = useState<HTMLElement | null>(null);
   const [templateFolder, setTemplateFolder] = useState<ContentTreeFolderNode | null>(null);
   const [templateReturnFocus, setTemplateReturnFocus] = useState<HTMLElement | null>(null);
+  const [compositeCapability, setCompositeCapability] = useState<{
+    identity: string;
+    canCreate: boolean;
+  } | null>(null);
 
   activeRouteIdRef.current = id;
 
@@ -181,6 +186,32 @@ export const SpaceView: React.FC = () => {
       requestSequenceRef.current += 1;
     };
   }, [fetchSpace, id]);
+
+  useEffect(() => {
+    setCompositeCapability(null);
+    setBindingScope(null);
+    setBindingReturnFocus(null);
+    setTemplateFolder(null);
+    setTemplateReturnFocus(null);
+    if (!id) return;
+    const requestIdentity = `${id}\u0000${language}`;
+    let active = true;
+    void listCompositeTemplates(id, { locale: language, take: 1 })
+      .then((catalog) => {
+        if (active) {
+          setCompositeCapability({
+            identity: requestIdentity,
+            canCreate: catalog.capabilities.canCreate,
+          });
+        }
+      })
+      .catch(() => {
+        if (active) setCompositeCapability({ identity: requestIdentity, canCreate: false });
+      });
+    return () => {
+      active = false;
+    };
+  }, [id, language]);
 
   useEffect(() => {
     if (!id || requestSpaceId !== id) return;
@@ -368,6 +399,8 @@ export const SpaceView: React.FC = () => {
       || currentRole === 'owner'
       || currentRole === 'admin'
   );
+  const compositeCreationEnabled = compositeCapability?.identity === `${id}\u0000${language}`
+    && compositeCapability.canCreate;
   const crumbs = crumbsForFolder(folderIndex, currentFolderId, space.name);
 
   return (
@@ -466,15 +499,15 @@ export const SpaceView: React.FC = () => {
           onCreateSubfolder={(parent) => setFolderDialog({ mode: 'create', parent })}
           onRenameFolder={(folder) => setFolderDialog({ mode: 'rename', parent: null, target: folder })}
           onDeleteFolder={(folder) => setDeleteTarget(folder)}
-          onConfigurePageAgent={(page) => {
+          onConfigurePageAgent={compositeCreationEnabled ? (page) => {
             setBindingReturnFocus(document.activeElement instanceof HTMLElement ? document.activeElement : null);
             setBindingScope({ kind: 'page', pageId: page.id, title: page.title });
-          }}
-          onConfigureFolderAgents={(folder) => {
+          } : undefined}
+          onConfigureFolderAgents={compositeCreationEnabled ? (folder) => {
             setBindingReturnFocus(document.activeElement instanceof HTMLElement ? document.activeElement : null);
             setBindingScope({ kind: 'folder', folderId: folder.id, name: folder.name });
-          }}
-          onSaveFolderAsTemplate={canManageTemplates ? (folder, trigger) => {
+          } : undefined}
+          onSaveFolderAsTemplate={canManageTemplates && compositeCreationEnabled ? (folder, trigger) => {
             setTemplateFolder(folder);
             setTemplateReturnFocus(trigger);
           } : undefined}
@@ -508,7 +541,7 @@ export const SpaceView: React.FC = () => {
         />
       ) : null}
 
-      {bindingScope && canEdit && id ? <PageAgentBindingDialog
+      {bindingScope && canEdit && compositeCreationEnabled && id ? <PageAgentBindingDialog
         spaceId={id}
         scope={bindingScope}
         returnFocusTo={bindingReturnFocus}
@@ -516,7 +549,7 @@ export const SpaceView: React.FC = () => {
         onSaved={reloadTree}
       /> : null}
 
-      {templateFolder && canManageTemplates && id ? <SaveFolderAsTemplateDialog
+      {templateFolder && canManageTemplates && compositeCreationEnabled && id ? <SaveFolderAsTemplateDialog
         spaceId={id}
         folderId={templateFolder.id}
         folderName={templateFolder.name}

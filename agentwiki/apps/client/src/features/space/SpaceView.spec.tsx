@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   api: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
   auth: { user: { id: 'user-1', platformRole: 'user' } as { id: string; platformRole: string } },
   getContentTreeRevision: vi.fn(),
+  listCompositeTemplates: vi.fn(),
 }));
 
 vi.mock('../page-templates/PageAgentBindingDialog', () => ({
@@ -28,6 +29,9 @@ vi.mock('../page-templates/SaveFolderAsTemplateDialog', () => ({
 vi.mock('../../api/client', () => ({ default: mocks.api }));
 vi.mock('../../context/AuthContext', () => ({ useAuth: () => mocks.auth }));
 vi.mock('../../api/content-tree', () => ({ getContentTreeRevision: mocks.getContentTreeRevision }));
+vi.mock('../page-templates/compositeTemplateApi', () => ({
+  listCompositeTemplates: mocks.listCompositeTemplates,
+}));
 
 const emptyCatalog = {
   system: [],
@@ -155,6 +159,10 @@ describe('SpaceView new-page flow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getContentTreeRevision.mockResolvedValue('43');
+    mocks.listCompositeTemplates.mockResolvedValue({
+      data: [], total: 0, skip: 0, take: 1,
+      capabilities: { canManage: true, canCreate: true },
+    });
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
     mocks.auth.user = { id: 'user-1', platformRole: 'user' };
   });
@@ -228,6 +236,33 @@ describe('SpaceView new-page flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close binding' }));
     fireEvent.click(screen.getByTestId('content-agent-folder-1'));
     expect(screen.getByRole('dialog')).toHaveTextContent('Binding folder: Project');
+  });
+
+  it('keeps ordinary Page creation but hides composite binding and Folder-template writes when rollout is off', async () => {
+    const folder: ContentTreeNode = {
+      kind: 'folder', id: 'folder-1', name: 'Project', path: '/Project', sortOrder: 0,
+      createdAt: '2026-09-05T00:00:00.000Z', updatedAt: '2026-09-05T00:00:00.000Z', hasChildren: true,
+    };
+    mocks.listCompositeTemplates.mockResolvedValue({
+      data: [], total: 0, skip: 0, take: 1,
+      capabilities: { canManage: true, canCreate: false },
+    });
+    mocks.api.get.mockImplementation(async (url: string) => {
+      if (url === '/spaces/space-1') return spaceResponse('space-1', 'Role Space', 'owner');
+      if (url === '/spaces/space-1/content-tree') {
+        return treeResponse('space-1', [folder, pageNode('page-1', 'Brief')]);
+      }
+      throw new Error(`Unexpected GET ${url}`);
+    });
+    renderSpaceView();
+
+    expect(await screen.findByRole('button', { name: '新建页面' })).toBeInTheDocument();
+    await waitFor(() => expect(mocks.listCompositeTemplates).toHaveBeenCalledWith('space-1', {
+      locale: 'zh-CN', take: 1,
+    }));
+    expect(screen.queryByTestId('content-agent-page-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('content-agent-folder-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('content-save-template-folder-1')).not.toBeInTheDocument();
   });
 
   it.each([

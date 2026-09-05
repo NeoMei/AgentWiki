@@ -34,7 +34,7 @@ export interface CompositeTemplateCatalog {
   total: number;
   skip: number;
   take: number;
-  capabilities: { canManage: boolean };
+  capabilities: { canManage: boolean; canCreate: boolean };
 }
 
 export interface CompositeTemplateManagementDetail {

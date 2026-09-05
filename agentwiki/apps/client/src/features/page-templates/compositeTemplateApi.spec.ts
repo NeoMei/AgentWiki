@@ -28,11 +28,20 @@ describe('compositeTemplateApi', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('keeps scope and kind as independent catalog filters', async () => {
-    vi.mocked(api.get).mockResolvedValue({ data: { data: [], total: 0, skip: 0, take: 100, capabilities: { canManage: true } } });
+    vi.mocked(api.get).mockResolvedValue({ data: { data: [], total: 0, skip: 0, take: 100, capabilities: { canManage: true, canCreate: true } } });
     await listCompositeTemplates('space/1', { locale: 'zh-CN', scope: 'space', kind: 'page_group' });
     expect(api.get).toHaveBeenCalledWith('/spaces/space%2F1/templates', { params: expect.objectContaining({
       locale: 'zh-CN', scope: 'space', kind: 'page_group', skip: 0, take: 100,
     }), signal: undefined });
+  });
+
+  it('fails closed when the server omits the authoritative rollout capability', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: { data: [], total: 0, skip: 0, take: 100, capabilities: { canManage: true } },
+    });
+
+    await expect(listCompositeTemplates('space-1', { locale: 'en' }))
+      .rejects.toThrow('Invalid composite template catalog response');
   });
 
   it('posts preview and instantiate payloads without client-authored definitions', async () => {

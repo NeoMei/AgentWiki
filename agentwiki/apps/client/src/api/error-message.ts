@@ -32,6 +32,7 @@ const CODE_KEYS: Record<string, string> = {
   PAGE_TEMPLATE_INSTANTIATION_UNSUPPORTED: 'pageTemplate.composite.unsupported',
   PAGE_TEMPLATE_INSTANTIATION_IDEMPOTENCY_CONFLICT: 'pageTemplate.composite.idempotencyConflict',
   PAGE_TEMPLATE_INSTANTIATION_RETRY_REQUIRED: 'pageTemplate.composite.retryRequired',
+  COMPOSITE_TEMPLATE_FEATURE_DISABLED: 'pageTemplate.composite.featureDisabled',
   COLLABORATION_TEMPLATE_INVALID: 'pageTemplate.composite.workflowInvalid',
   COLLABORATION_AGENT_CANNOT_EXECUTE: 'pageTemplate.composite.agentCannotExecute',
   COLLABORATION_AGENT_INACTIVE: 'pageTemplate.composite.agentNotActive',

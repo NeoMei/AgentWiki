@@ -22,7 +22,7 @@ interface TemplateCardProps {
   };
   onCopy: (template: TemplateSummary) => void;
   onArchive: (template: TemplateSummary) => void;
-  onUpgrade: (template: TemplateSummary, trigger: HTMLElement) => void;
+  onUpgrade?: (template: TemplateSummary, trigger: HTMLElement) => void;
 }
 
 export const TemplateCard: React.FC<TemplateCardProps> = ({
@@ -56,9 +56,9 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({
       ) : null}
       {!template.system && canManage ? (
         <>
-          <button type="button" aria-label={`${labels.upgrade} ${name}`} onClick={(event) => onUpgrade(template, event.currentTarget)} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-amber-200 px-3 text-sm text-amber-800 hover:bg-amber-50">
+          {onUpgrade ? <button type="button" aria-label={`${labels.upgrade} ${name}`} onClick={(event) => onUpgrade(template, event.currentTarget)} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-amber-200 px-3 text-sm text-amber-800 hover:bg-amber-50">
             <RefreshCw size={14} aria-hidden="true" />{labels.upgrade}
-          </button>
+          </button> : null}
           <Link to={`/spaces/${spaceId}/collaboration/templates/${template.id}`} className="inline-flex min-h-10 items-center gap-1 rounded-lg border px-3 text-sm hover:bg-gray-50">
             <Pencil size={14} aria-hidden="true" />{labels.edit}
           </Link>

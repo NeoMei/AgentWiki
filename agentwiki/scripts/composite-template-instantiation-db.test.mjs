@@ -19,6 +19,7 @@ const { CompositeTemplateCatalogService } = requireFromServer(
   './dist/page-templates/composite-template-catalog.service.js',
 );
 const { PageTemplateService } = requireFromServer('./dist/page-templates/page-template.service.js');
+const { TemplateFeaturePolicy } = requireFromServer('./dist/page-templates/template-feature-policy.js');
 const { PageAgentBindingService } = requireFromServer('./dist/page-templates/page-agent-binding.service.js');
 const { FolderTemplateSnapshotService } = requireFromServer('./dist/page-templates/folder-template-snapshot.service.js');
 const { ExistingRunOrchestrationService } = requireFromServer('./dist/page-templates/existing-run-orchestration.service.js');
@@ -140,6 +141,7 @@ async function createService(prisma, failAt) {
       AuthorizationService,
       ContentTreeService,
       { provide: PageTemplateService, useValue: {} },
+      { provide: TemplateFeaturePolicy, useValue: { canCreate: () => true } },
       { provide: MarkdownResourceService, useValue: { resolveReferencedAttachmentsBatch: async () => [] } },
       CompositeTemplateCatalogService,
       PageAgentBindingService,

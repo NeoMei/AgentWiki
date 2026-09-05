@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { WorkerModule } from './worker.module';
+import { TemplateEffectsService } from './page-templates/template-effects.service';
 
 describe('WorkerModule dependency graph', () => {
   let moduleRef: TestingModule | undefined;
@@ -16,5 +17,6 @@ describe('WorkerModule dependency graph', () => {
   it('compiles without importing HTTP controllers or guards', async () => {
     moduleRef = await Test.createTestingModule({ imports: [WorkerModule] }).compile();
     expect(moduleRef.get(WorkerModule)).toBeDefined();
+    expect(moduleRef.get(TemplateEffectsService)).toBeDefined();
   });
 });

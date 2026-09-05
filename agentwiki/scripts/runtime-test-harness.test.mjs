@@ -59,6 +59,7 @@ test('runtime plan assigns every test exactly once and serializes only database 
   ].includes(name)));
   assert.ok(inventory.filter((name) => name.endsWith('-db.test.mjs'))
     .every((name) => plan.databaseTests.includes(name)));
+  assert.ok(plan.databaseTests.includes('composite-template-effects-policy-db.test.mjs'));
   assert.ok(plan.parallelTests.length >= 19, 'non-database runtime suites must remain parallel');
   assert.equal(plan.parallelArgs[0], '--test');
   assert.equal(plan.parallelArgs.includes('--test-concurrency=1'), false);

@@ -20,6 +20,7 @@ import {
   type UpdatePageTemplateDto,
 } from './page-template.dto';
 import { BUILT_IN_PAGE_TEMPLATES, type BuiltInPageTemplate } from './page-template-definitions';
+import { TemplateFeaturePolicy } from './template-feature-policy';
 import {
   BUILT_IN_COMPOSITE_TEMPLATES,
   type BuiltInCompositeTemplate,
@@ -120,7 +121,14 @@ export class PageTemplateService implements OnModuleInit {
     private readonly authorization: AuthorizationService,
     private readonly config: ConfigService,
     private readonly revisionWriter: SpaceRevisionWriterService,
+    private readonly featurePolicy: TemplateFeaturePolicy,
   ) {}
+
+  private assertCompositeEnabled(spaceId: string): void {
+    if (!this.featurePolicy.canCreate(spaceId)) {
+      throw new BusinessException('COMPOSITE_TEMPLATE_FEATURE_DISABLED');
+    }
+  }
 
   async onModuleInit(): Promise<void> {
     if (['api', 'all'].includes(this.config.get<string>('PROCESS_ROLE', 'api'))) {
@@ -421,6 +429,7 @@ export class PageTemplateService implements OnModuleInit {
     body: CreateCompositeSpaceTemplateInput,
     principal: Principal,
   ) {
+    this.assertCompositeEnabled(spaceId);
     return this.runSpaceMutation(spaceId, principal, async (tx) => {
       return this.createCompositeSpaceTemplateInLockedTransaction(tx, spaceId, body, principal);
     }, { retryStableKeyConflict: true });
@@ -432,6 +441,7 @@ export class PageTemplateService implements OnModuleInit {
     body: CreateCompositeSpaceTemplateInput,
     principal: Principal,
   ) {
+    this.assertCompositeEnabled(spaceId);
     await this.assertCanManage(tx, principal, spaceId);
     const definition = this.compositeDefinitionForWrite(body.definition, body.locale);
     const definitionHash = hashCompositeDefinition(definition);
@@ -484,6 +494,7 @@ export class PageTemplateService implements OnModuleInit {
     body: UpdatePageTemplateDto,
     principal: Principal,
   ) {
+    this.assertCompositeEnabled(spaceId);
     return this.updateMetadataWithRecord(spaceId, templateId, body, principal, 'composite');
   }
 
@@ -497,6 +508,7 @@ export class PageTemplateService implements OnModuleInit {
     return this.runSpaceMutation(spaceId, principal, async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
       const current = await this.requireSpaceTemplate(tx, spaceId, templateId);
+      if (recordKind === 'legacy') await this.assertLegacyTemplateVersion(tx, current);
       if (current.archivedAt) throw new BusinessException('PAGE_TEMPLATE_ARCHIVED');
       const { name, defaultTitle } = this.normalizedMetadata(body);
       const nameKey = normalizeTemplateName(name);
@@ -582,6 +594,7 @@ export class PageTemplateService implements OnModuleInit {
     body: CreateCompositeTemplateVersionInput,
     principal: Principal,
   ) {
+    this.assertCompositeEnabled(spaceId);
     return this.runSpaceMutation(spaceId, principal, async (tx) => {
       return this.createCompositeVersionInLockedTransaction(tx, spaceId, templateId, body, principal);
     });
@@ -594,6 +607,7 @@ export class PageTemplateService implements OnModuleInit {
     body: CreateCompositeTemplateVersionInput,
     principal: Principal,
   ) {
+    this.assertCompositeEnabled(spaceId);
     await this.assertCanManage(tx, principal, spaceId);
     const current = await this.requireSpaceTemplate(tx, spaceId, templateId);
     if (current.archivedAt) throw new BusinessException('PAGE_TEMPLATE_ARCHIVED');
@@ -659,6 +673,7 @@ export class PageTemplateService implements OnModuleInit {
     body: PageTemplateStateDto,
     principal: Principal,
   ) {
+    this.assertCompositeEnabled(spaceId);
     return this.archiveWithRecord(spaceId, templateId, body, principal, 'composite');
   }
 
@@ -672,6 +687,7 @@ export class PageTemplateService implements OnModuleInit {
     return this.runSpaceMutation(spaceId, principal, async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
       const current = await this.requireSpaceTemplate(tx, spaceId, templateId);
+      if (recordKind === 'legacy') await this.assertLegacyTemplateVersion(tx, current);
       const locale = PageTemplateLocaleSchema.parse(current.sourceLocale);
       const changed = await tx.pageTemplate.updateMany({
         where: {
@@ -702,6 +718,7 @@ export class PageTemplateService implements OnModuleInit {
     body: PageTemplateStateDto,
     principal: Principal,
   ) {
+    this.assertCompositeEnabled(spaceId);
     return this.restoreWithRecord(spaceId, templateId, body, principal, 'composite');
   }
 
@@ -715,6 +732,7 @@ export class PageTemplateService implements OnModuleInit {
     return this.runSpaceMutation(spaceId, principal, async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
       const current = await this.requireSpaceTemplate(tx, spaceId, templateId);
+      if (recordKind === 'legacy') await this.assertLegacyTemplateVersion(tx, current);
       if (!current.archivedAt) throw new BusinessException('PAGE_TEMPLATE_VERSION_CONFLICT');
       const activeCount = await tx.pageTemplate.count({
         where: { spaceId, scope: 'space', archivedAt: null },
@@ -843,6 +861,22 @@ export class PageTemplateService implements OnModuleInit {
       );
     }
     return template;
+  }
+
+  private async assertLegacyTemplateVersion(
+    tx: Prisma.TransactionClient,
+    template: Pick<PageTemplate, 'id' | 'currentVersion'>,
+  ): Promise<void> {
+    const version = await tx.pageTemplateVersion.findUnique({
+      where: {
+        templateId_version: { templateId: template.id, version: template.currentVersion },
+      },
+      select: { definition: true },
+    });
+    if (!version) throw new BusinessException('PAGE_TEMPLATE_VERSION_NOT_FOUND');
+    if (version.definition !== null && version.definition !== undefined) {
+      throw new BusinessException('PAGE_TEMPLATE_INVALID');
+    }
   }
 
   private async allocateStableKey(

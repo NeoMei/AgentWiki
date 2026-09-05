@@ -72,6 +72,7 @@ export const PageTemplateManager: React.FC = () => {
   const [showArchived, setShowArchived] = useState(false);
   const [templates, setTemplatesState] = useState<PageTemplateListResponse>(EMPTY_TEMPLATES);
   const [templatesIdentity, setTemplatesIdentity] = useState<string | null>(null);
+  const [rolloutDisabledIdentity, setRolloutDisabledIdentity] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -142,13 +143,17 @@ export const PageTemplateManager: React.FC = () => {
         skip: reset ? 0 : spaceNextSkipRef.current,
         take: 50,
       } as const;
-      const unified = await listCompositeTemplates(id, options);
-      const usingUnified = Array.isArray(unified?.data)
-        && typeof unified.total === 'number'
-        && typeof unified.capabilities?.canManage === 'boolean';
+      let unified: Awaited<ReturnType<typeof listCompositeTemplates>> | null = null;
+      try {
+        unified = await listCompositeTemplates(id, options);
+      } catch {
+        unified = null;
+      }
+      const authoritativeDisabled = unified?.capabilities.canCreate === false;
+      const usingUnified = unified?.capabilities.canCreate === true;
       let result: PageTemplateListResponse;
       let batchCount: number;
-      if (usingUnified) {
+      if (usingUnified && unified) {
         const data = unified.data as ManagedTemplate[];
         result = {
           system: data.filter((item) => item.scope === 'system') as PageTemplateSummary[],
@@ -162,6 +167,7 @@ export const PageTemplateManager: React.FC = () => {
         batchCount = result.space.length;
       }
       if (requestId !== requestIdRef.current || requestIdentity !== identityRef.current) return;
+      setRolloutDisabledIdentity(authoritativeDisabled ? requestIdentity : null);
       let next: PageTemplateListResponse;
       if (reset) {
         next = result;
@@ -248,6 +254,7 @@ export const PageTemplateManager: React.FC = () => {
     spaceNextSkipRef.current = 0;
     setTemplatesState(EMPTY_TEMPLATES);
     setTemplatesIdentity(null);
+    setRolloutDisabledIdentity(null);
     setPendingDialog(null);
     setSubmitting(false);
     setDialogError(null);
@@ -632,6 +639,10 @@ export const PageTemplateManager: React.FC = () => {
       </Link>
       <h1 className="mt-3 text-2xl font-semibold">{t('pageTemplate.settingsTitle')}</h1>
       <p className="mt-1 text-sm text-gray-500">{t('pageTemplate.settingsDescription')}</p>
+
+      {rolloutDisabledIdentity === identity ? <p role="status" className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+        {t('pageTemplate.composite.managerFallback')}
+      </p> : null}
 
       <div className="mt-6 grid gap-3 rounded-[14px] border bg-white p-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_160px_160px_160px_auto] lg:items-end">
         <label className="text-sm font-medium">

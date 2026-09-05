@@ -8,6 +8,7 @@ import { validDefinition } from './collaboration-test-fixtures';
 import { CollaborationWorkspace } from './CollaborationWorkspace';
 
 const pageDialogProps = vi.hoisted(() => ({ current: null as null | Record<string, any> }));
+const compositeMocks = vi.hoisted(() => ({ listCompositeTemplates: vi.fn() }));
 
 vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
 vi.mock('../page-templates/UpgradeWorkflowTemplateDialog', () => ({
@@ -18,6 +19,9 @@ vi.mock('../page-templates/NewPageDialog', () => ({
     pageDialogProps.current = props;
     return <div role="dialog">Unified page and collaboration flow</div>;
   },
+}));
+vi.mock('../page-templates/compositeTemplateApi', () => ({
+  listCompositeTemplates: compositeMocks.listCompositeTemplates,
 }));
 vi.mock('./api', () => ({
   collaborationApi: {
@@ -81,6 +85,10 @@ describe('CollaborationWorkspace', () => {
       { type: 'human', userId: 'owner-1', role: 'owner' },
     ]);
     vi.mocked(collaborationApi.listRuns).mockResolvedValue({ items: [], nextCursor: null });
+    compositeMocks.listCompositeTemplates.mockResolvedValue({
+      data: [], total: 0, skip: 0, take: 1,
+      capabilities: { canManage: true, canCreate: true },
+    });
   });
 
   it('opens the shared composite creation flow and navigates only to its atomic Run result', async () => {
@@ -126,6 +134,25 @@ describe('CollaborationWorkspace', () => {
     expect(card.querySelector('a[href="/spaces/space-1/collaboration/templates/space-template/start"]')).not.toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Upgrade Backend release' }));
     expect(await screen.findByRole('dialog')).toHaveTextContent('Upgrade dialog Backend release');
+  });
+
+  it('hides only new composite entry points when the authoritative capability is disabled', async () => {
+    compositeMocks.listCompositeTemplates.mockResolvedValueOnce({
+      data: [], total: 0, skip: 0, take: 1,
+      capabilities: { canManage: true, canCreate: false },
+    });
+    renderWorkspace();
+
+    const card = (await screen.findByText('Backend release')).closest('article')!;
+    await waitFor(() => expect(compositeMocks.listCompositeTemplates).toHaveBeenCalledWith(
+      'space-1', expect.objectContaining({ locale: 'en', take: 1 }),
+    ));
+    expect(screen.queryByRole('button', { name: 'Create page group collaboration' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Upgrade Backend release' })).not.toBeInTheDocument();
+    expect(card.querySelector('a[href="/spaces/space-1/collaboration/templates/space-template/start"]')).not.toBeNull();
+    expect(screen.getByRole('link', { name: 'Create legacy workflow template' })).toHaveAttribute(
+      'href', '/spaces/space-1/collaboration/templates/new',
+    );
   });
 
   it('keeps ingest Runs distinct and places Collaboration between Runs and Members', async () => {

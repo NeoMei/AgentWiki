@@ -49,7 +49,7 @@ const renderDialog = () => {
 describe('NewPageDialog composite flow', () => {
   beforeEach(() => {
     vi.clearAllMocks(); localStorage.setItem('agentwiki.language.v1', 'zh-CN');
-    mocks.listComposite.mockResolvedValue({ data: [project, weekly], total: 2, skip: 0, take: 100, capabilities: { canManage: true } });
+    mocks.listComposite.mockResolvedValue({ data: [project, weekly], total: 2, skip: 0, take: 100, capabilities: { canManage: true, canCreate: true } });
     mocks.listMembers.mockResolvedValue([{ type: 'agent', agentId: 'agent-1', role: 'editor', agent: { id: 'agent-1', name: 'Alpha', status: 'active', connected: true } }]);
     mocks.listLegacy.mockRejectedValue(new Error('not used')); mocks.getRevision.mockResolvedValue('21');
     mocks.preview.mockImplementation((_space: string, _template: string, input: {
@@ -130,8 +130,8 @@ describe('NewPageDialog composite flow', () => {
     const lateTemplate = { ...project, id: 'late-project', name: '第二批项目空间' };
     mocks.listComposite.mockImplementation((_spaceId: string, options: { skip?: number }) => Promise.resolve(
       options.skip === 100
-        ? { data: [lateTemplate], total: 101, skip: 100, take: 100, capabilities: { canManage: true } }
-        : { data: [project], total: 101, skip: 0, take: 100, capabilities: { canManage: true } },
+        ? { data: [lateTemplate], total: 101, skip: 100, take: 100, capabilities: { canManage: true, canCreate: true } }
+        : { data: [project], total: 101, skip: 0, take: 100, capabilities: { canManage: true, canCreate: true } },
     ));
     renderDialog();
     expect(await screen.findByRole('button', { name: /项目管理工作区/ })).toBeVisible();
@@ -204,5 +204,22 @@ describe('NewPageDialog composite flow', () => {
     fireEvent.click(screen.getByRole('button', { name: '创建页面组' }));
     await screen.findByText('创建完成');
     expect(mocks.instantiate.mock.calls[1]?.[2]).toEqual(firstPayload);
+  });
+
+  it('keeps blank and legacy creation available while hiding composite choices when rollout is off', async () => {
+    mocks.listComposite.mockResolvedValue({
+      data: [project], total: 1, skip: 0, take: 100,
+      capabilities: { canManage: true, canCreate: false },
+    });
+    mocks.listLegacy.mockResolvedValue({
+      system: [{ ...weekly, kind: undefined }], space: [], totalSpace: 0, skip: 0, take: 100,
+      capabilities: { canManage: true },
+    });
+
+    renderDialog();
+
+    expect(await screen.findByText('组合页面组当前未对这个 Space 开放。你仍可创建空白页面或使用旧单页模板。')).toBeVisible();
+    expect(screen.queryByRole('button', { name: /项目管理工作区/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^空白页面/ })).toBeVisible();
   });
 });

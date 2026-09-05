@@ -62,7 +62,7 @@ type SelectedTemplate =
 type CatalogState =
   | { generation: number; status: 'loading' }
   | { generation: number; status: 'error' }
-  | { generation: number; status: 'legacy'; value: PageTemplateListResponse }
+  | { generation: number; status: 'legacy'; value: PageTemplateListResponse; compositeDisabled: boolean }
   | { generation: number; status: 'composite'; value: CompositeTemplateCatalog };
 
 const PAGE_TITLE_LIMIT = 200;
@@ -157,8 +157,16 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       take: 100,
       signal: controller.signal,
     })
-      .then((value) => {
+      .then(async (value) => {
         if (!active) return;
+        if (!value.capabilities.canCreate) {
+          if (appending) return;
+          const legacy = await listPageTemplates(spaceId, { locale: language });
+          if (active) setCatalogState({
+            generation: reloadKey, status: 'legacy', value: legacy, compositeDisabled: true,
+          });
+          return;
+        }
         setNextCatalogOffset(value.skip + value.take);
         setCatalogState((current) => {
           if (!appending || current.status !== 'composite') {
@@ -177,7 +185,9 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
         if (appending) return;
         try {
           const value = await listPageTemplates(spaceId, { locale: language });
-          if (active) setCatalogState({ generation: reloadKey, status: 'legacy', value });
+          if (active) setCatalogState({
+            generation: reloadKey, status: 'legacy', value, compositeDisabled: false,
+          });
         } catch {
           if (active) setCatalogState({ generation: reloadKey, status: 'error' });
         }
@@ -438,6 +448,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       loading={currentCatalog.status === 'loading'}
       failed={currentCatalog.status === 'error'}
       canManage={canManage}
+      compositeDisabled={currentCatalog.status === 'legacy' && currentCatalog.compositeDisabled}
       spaceId={spaceId}
       compositeTemplates={compositeTemplates}
       legacyTemplates={legacyTemplates}
@@ -549,6 +560,7 @@ const SelectPhase: React.FC<{
   loading: boolean;
   failed: boolean;
   canManage: boolean;
+  compositeDisabled: boolean;
   spaceId: string;
   compositeTemplates: CompositeTemplateSummary[];
   legacyTemplates: PageTemplateSummary[];
@@ -564,7 +576,7 @@ const SelectPhase: React.FC<{
   onClose: () => void;
   canContinue: boolean;
   onNext: () => void;
-}> = ({ selected, scopeFilter, kindFilter, loading, failed, canManage, spaceId, compositeTemplates, legacyTemplates,
+}> = ({ selected, scopeFilter, kindFilter, loading, failed, canManage, compositeDisabled, spaceId, compositeTemplates, legacyTemplates,
   hasMore, loadingMore, onScopeFilter, onKindFilter, onLoadMore, onBlank, onComposite, onLegacy, onRetry, onClose, canContinue, onNext }) => {
   const { t } = useLanguage();
   return <>
@@ -576,6 +588,9 @@ const SelectPhase: React.FC<{
     </div>
     {failed ? <div role="alert" className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900"><span>{t('pageTemplate.loadFailed')}</span>{' '}
       <button type="button" onClick={onRetry} className="min-h-10 px-2 font-medium underline">{t('pageTemplate.retry')}</button></div> : null}
+    {compositeDisabled ? <p role="status" className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+      {t('pageTemplate.composite.rolloutFallback')}
+    </p> : null}
     {loading ? <p role="status" className="mt-4 text-sm text-gray-500">{t('common.loading')}</p> : null}
     <div role="group" aria-label={t('pageTemplate.step.choose')} className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
       {kindFilter !== 'page_group' ? <TemplateButton name={t('pageTemplate.blank.name')} description={t('pageTemplate.blank.description')}

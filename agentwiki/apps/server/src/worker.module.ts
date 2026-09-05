@@ -22,6 +22,7 @@ import { AttachmentStorageModule } from './attachments/attachment-storage.module
 import { ContentTreeService } from './content-tree/content-tree.service';
 import { PagePublicationService } from './review/page-publication.service';
 import { PageResultService } from './collaboration-workflows/page-result.service';
+import { TemplateEffectsService } from './page-templates/template-effects.service';
 
 @Module({
   imports: [ConfigModule.forRoot({ isGlobal: true }), DatabaseModule, SearchCoreModule, CollaborationModule, SyncModule, KnowledgeGraphModule, AttachmentStorageModule],
@@ -48,6 +49,7 @@ import { PageResultService } from './collaboration-workflows/page-result.service
     CollaborationEventsService,
     RecoveryWorker,
     AttachmentCleanupWorker,
+    TemplateEffectsService,
     { provide: 'OPENCODE_RUNNER', useExisting: OpencodeModelRouter },
   ],
 })

@@ -22,7 +22,9 @@ async function createServices(prisma) {
   const revisionWriter = SpaceRevisionWriterService.legacyOnly(prisma);
   const markdownResources = new MarkdownResourceService(prisma, authorization);
   const config = { get: (_key, fallback) => fallback };
-  const pageTemplates = new PageTemplateService(prisma, authorization, config, revisionWriter);
+  const pageTemplates = new PageTemplateService(
+    prisma, authorization, config, revisionWriter, { canCreate: () => true },
+  );
   return {
     snapshots: new FolderTemplateSnapshotService(
       prisma, authorization, revisionWriter, markdownResources, pageTemplates,

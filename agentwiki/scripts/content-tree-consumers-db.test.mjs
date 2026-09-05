@@ -89,7 +89,9 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
       const contentTree = new ContentTreeService(prisma, writer, syncPaths);
       const authorization = new AuthorizationService(prisma);
       const config = { get: (_key, fallback) => fallback };
-      const templates = new PageTemplateService(prisma, authorization, config, writer);
+      const templates = new PageTemplateService(
+        prisma, authorization, config, writer, { canCreate: () => true },
+      );
       const search = {
         indexPage: async () => ({ lexicalIndexed: true }),
         deletePageIndex: async () => undefined,

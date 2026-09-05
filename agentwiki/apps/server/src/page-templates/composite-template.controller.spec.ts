@@ -17,6 +17,7 @@ import { FolderTemplateSnapshotService } from './folder-template-snapshot.servic
 import { LegacyWorkflowUpgradeService } from './legacy-workflow-upgrade.service';
 import { PageAgentBindingService } from './page-agent-binding.service';
 import { TemplateInstantiationService } from './template-instantiation.service';
+import { TemplateFeaturePolicy } from './template-feature-policy';
 
 describe('CompositeTemplateController', () => {
   const services = {
@@ -35,13 +36,17 @@ describe('CompositeTemplateController', () => {
       previewFolderBindings: jest.fn(), setFolderBindings: jest.fn(), discoverFolderSource: jest.fn(),
     },
   } as any;
+  const policy = { canCreate: jest.fn().mockReturnValue(true) } as any;
   const controller = new CompositeTemplateController(
     services.catalog, services.preview, services.instantiation, services.snapshots,
-    services.upgrades, services.bindings, services.orchestration,
+    services.upgrades, services.bindings, services.orchestration, policy,
   );
   const request = { user: { userId: 'user-1' } } as any;
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    policy.canCreate.mockReturnValue(true);
+  });
 
   it('declares the design routes behind ordered human-only guards', () => {
     expect(Reflect.getMetadata(PATH_METADATA, CompositeTemplateController)).toBe('spaces/:spaceId');
@@ -166,6 +171,43 @@ describe('CompositeTemplateController', () => {
       'space-1', 'folder-1', expect.objectContaining({ expectedTreeRevision: 9n }), request.user,
     );
   });
+
+  it('gates every new composite mutation while leaving read-only previews available', async () => {
+    policy.canCreate.mockReturnValue(false);
+    const mutations: Array<() => unknown> = [
+      () => controller.createTemplate(request, 'space-1', {} as any),
+      () => controller.updateTemplate(request, 'space-1', 'template-1', {} as any),
+      () => controller.createTemplateVersion(request, 'space-1', 'template-1', {} as any),
+      () => controller.archiveTemplate(request, 'space-1', 'template-1', {} as any),
+      () => controller.restoreTemplate(request, 'space-1', 'template-1', {} as any),
+      () => controller.saveFolderTemplate(request, 'space-1', {} as any),
+      () => controller.instantiate(request, 'space-1', 'template-1', {} as any),
+      () => controller.upgrade(request, 'space-1', 'legacy-1', {} as any),
+      () => controller.setPageBinding(request, 'space-1', 'page-1', {} as any),
+      () => controller.deletePageBinding(request, 'space-1', 'page-1', {} as any),
+      () => controller.setFolderBindings(request, 'space-1', 'folder-1', {} as any),
+      () => controller.startPageRun(request, 'space-1', 'page-1', {} as any),
+      () => controller.startFolderRun(request, 'space-1', 'folder-1', {} as any),
+    ];
+    for (const mutate of mutations) {
+      await expect(Promise.resolve().then(mutate)).rejects.toMatchObject({
+        businessCode: 'COMPOSITE_TEMPLATE_FEATURE_DISABLED',
+      });
+    }
+
+    await controller.previewTemplate(request, 'space-1', 'template-1', {} as any);
+    await controller.previewFolderTemplate(request, 'space-1', {} as any);
+    await controller.previewUpgrade(request, 'space-1', 'legacy-1', {} as any);
+    await controller.previewFolderBindings(request, 'space-1', 'folder-1', {} as any);
+    await controller.previewPageRun(request, 'space-1', 'page-1', {} as any);
+    await controller.previewFolderRun(request, 'space-1', 'folder-1', {
+      source: { kind: 'page_selection' }, pageIds: [], collaborationInputs: {}, bindings: [],
+    } as any);
+    expect(services.preview.preview).toHaveBeenCalledTimes(1);
+    expect(services.snapshots.preview).toHaveBeenCalledTimes(1);
+    expect(services.upgrades.preview).toHaveBeenCalledTimes(1);
+    expect(services.orchestration.preview).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('CompositeTemplateController HTTP boundary', () => {
@@ -174,6 +216,7 @@ describe('CompositeTemplateController HTTP boundary', () => {
   const writes = {
     createTemplate: jest.fn(), instantiate: jest.fn(), setBindings: jest.fn(), start: jest.fn(),
   };
+  let rolloutEnabled = true;
 
   class PrincipalProbe implements CanActivate {
     canActivate(context: ExecutionContext) {
@@ -192,6 +235,7 @@ describe('CompositeTemplateController HTTP boundary', () => {
       controllers: [CompositeTemplateController],
       providers: [
         HumanOnlyGuard,
+        { provide: TemplateFeaturePolicy, useValue: { canCreate: () => rolloutEnabled } },
         { provide: CompositeTemplateCatalogService, useValue: {
           list: jest.fn(), detail: jest.fn(),
           managementDetail: jest.fn().mockResolvedValue({ templateId: 'template-1' }),
@@ -231,7 +275,10 @@ describe('CompositeTemplateController HTTP boundary', () => {
   });
 
   afterAll(async () => app.close());
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    rolloutEnabled = true;
+  });
 
   it('rejects an Agent at the human HTTP guard before any template write', async () => {
     const response = await fetch(`${baseUrl}/api/spaces/space-1/templates/template-1/instantiate`, {
@@ -303,5 +350,19 @@ describe('CompositeTemplateController HTTP boundary', () => {
     });
     expect(response.status).toBe(403);
     expect(writes.start).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects disabled composite writes at the real HTTP route before service execution', async () => {
+    rolloutEnabled = false;
+    const response = await fetch(`${baseUrl}/api/spaces/space-1/templates/template-1/instantiate`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        templateVersion: 1, locale: 'en', variables: {}, collaborationEnabled: false,
+        expectedTreeRevision: '0', idempotencyKey: 'instantiate-0001',
+      }),
+    });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ code: 'COMPOSITE_TEMPLATE_FEATURE_DISABLED' });
+    expect(writes.instantiate).not.toHaveBeenCalled();
   });
 });

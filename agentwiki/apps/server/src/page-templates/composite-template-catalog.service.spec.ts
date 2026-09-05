@@ -4,6 +4,7 @@ import type { Principal } from '../core/authorization/authorization.service';
 import { BusinessException } from '../core/filters/business-error';
 import { CompositeTemplateCatalogService } from './composite-template-catalog.service';
 import { hashCompositeDefinition } from './composite-template-validator';
+import { TemplateFeaturePolicy } from './template-feature-policy';
 
 const principal: Principal = { userId: 'user-1' };
 const definition: CompositeTemplateDefinition = {
@@ -66,10 +67,12 @@ describe('CompositeTemplateCatalogService', () => {
     updateCompositeMetadata: jest.fn(), archiveComposite: jest.fn(), restoreComposite: jest.fn(),
     updateMetadata: jest.fn(), archive: jest.fn(), restore: jest.fn(),
   } as any;
+  const policy = { canCreate: jest.fn().mockReturnValue(true) } as unknown as TemplateFeaturePolicy;
   let service: CompositeTemplateCatalogService;
 
   beforeEach(() => {
     jest.resetAllMocks();
+    (policy.canCreate as jest.Mock).mockReturnValue(true);
     prisma.$queryRaw.mockResolvedValue([]);
     prisma.$transaction.mockImplementation((operation: any) => operation(tx));
     pageTemplateVersion.findUnique.mockResolvedValue({
@@ -80,7 +83,19 @@ describe('CompositeTemplateCatalogService', () => {
     });
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'owner' });
     authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'owner' });
-    service = new CompositeTemplateCatalogService(prisma, authorization, pageTemplates);
+    service = new CompositeTemplateCatalogService(prisma, authorization, pageTemplates, policy);
+  });
+
+  it('returns rollout capability from the authoritative Space policy', async () => {
+    (policy.canCreate as jest.Mock).mockReturnValue(false);
+    pageTemplate.findMany.mockResolvedValue([]);
+    pageTemplate.count.mockResolvedValue(0);
+
+    const result = await service.list('space-1', {
+      locale: 'en', scope: 'all', archived: 'active', skip: 0, take: 50,
+    }, principal);
+
+    expect(result.capabilities).toEqual({ canManage: true, canCreate: false });
   });
 
   it('resolves the exact requested new version as the definition authority', async () => {

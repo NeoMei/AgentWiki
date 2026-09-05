@@ -6,6 +6,7 @@ import { PageTemplateService } from './page-template.service';
 import { templateContentHash } from './page-template.types';
 import { hashCompositeDefinition } from './composite-template-validator';
 import { BUILT_IN_COMPOSITE_TEMPLATES } from './composite-template-definitions';
+import { TemplateFeaturePolicy } from './template-feature-policy';
 
 const compositeDefinition = {
   schemaVersion: 1 as const,
@@ -118,6 +119,9 @@ describe('PageTemplateService', () => {
   const revisionWriter = {
     lockSpace: jest.fn(async (tx: unknown) => tx),
   } as any;
+  const featurePolicy = {
+    canCreate: jest.fn().mockReturnValue(true),
+  } as unknown as jest.Mocked<TemplateFeaturePolicy>;
   let service: PageTemplateService;
 
   beforeEach(() => {
@@ -134,13 +138,16 @@ describe('PageTemplateService', () => {
     pageTemplate.count.mockResolvedValue(0);
     pageTemplate.findUnique.mockResolvedValue(null);
     pageTemplate.findFirst.mockResolvedValue(null);
-    pageTemplateVersion.findUnique.mockResolvedValue(null);
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      templateId: 'template-1', version: 3, definition: null,
+    });
     pageTemplateVersion.findMany.mockResolvedValue([]);
     page.findFirst.mockResolvedValue(markdownPage());
     page.findMany.mockResolvedValue([]);
     page.count.mockResolvedValue(0);
     authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'owner' });
-    service = new PageTemplateService(prisma, authorization, config, revisionWriter);
+    featurePolicy.canCreate.mockReturnValue(true);
+    service = new PageTemplateService(prisma, authorization, config, revisionWriter, featurePolicy);
   });
 
   it('seeds a new system template and version atomically', async () => {
@@ -1553,4 +1560,69 @@ describe('PageTemplateService', () => {
       expect(pageTemplate.updateMany).not.toHaveBeenCalled();
     },
   );
+
+  it.each([
+    ['create', () => service.createCompositeSpaceTemplate('space-1', {
+      name: 'Workspace', category: 'planning', defaultTitle: 'Workspace',
+      locale: 'en', definition: compositeDefinition,
+    }, principal)],
+    ['create inside an existing locked transaction', () => service.createCompositeSpaceTemplateInLockedTransaction(
+      prisma, 'space-1', {
+        name: 'Workspace', category: 'planning', defaultTitle: 'Workspace',
+        locale: 'en', definition: compositeDefinition,
+      }, principal,
+    )],
+    ['update metadata', () => service.updateCompositeMetadata('space-1', 'template-1', {
+      name: 'Workspace', category: 'planning', defaultTitle: 'Workspace',
+      expectedUpdatedAt: templateTimestamp,
+    }, principal)],
+    ['create version', () => service.createCompositeVersion('space-1', 'template-1', {
+      expectedCurrentVersion: 3, definition: compositeDefinition,
+    }, principal)],
+    ['create version inside an existing locked transaction', () => service.createCompositeVersionInLockedTransaction(
+      prisma, 'space-1', 'template-1', {
+        expectedCurrentVersion: 3, definition: compositeDefinition,
+      }, principal,
+    )],
+    ['archive', () => service.archiveComposite(
+      'space-1', 'template-1', { expectedUpdatedAt: templateTimestamp }, principal,
+    )],
+    ['restore', () => service.restoreComposite(
+      'space-1', 'template-1', { expectedUpdatedAt: templateTimestamp }, principal,
+    )],
+  ] as const)('fails closed before %s when the Space is not enabled', async (_label, mutate) => {
+    featurePolicy.canCreate.mockReturnValue(false);
+
+    await expect(mutate()).rejects.toMatchObject({
+      businessCode: 'COMPOSITE_TEMPLATE_FEATURE_DISABLED',
+    });
+    expect(pageTemplate.create).not.toHaveBeenCalled();
+    expect(pageTemplate.updateMany).not.toHaveBeenCalled();
+    expect(pageTemplateVersion.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['update metadata', () => service.updateMetadata('space-1', 'template-1', {
+      name: 'Workspace', category: 'planning', defaultTitle: 'Workspace',
+      expectedUpdatedAt: templateTimestamp,
+    }, principal)],
+    ['archive', () => service.archive(
+      'space-1', 'template-1', { expectedUpdatedAt: templateTimestamp }, principal,
+    )],
+    ['restore', () => service.restore(
+      'space-1', 'template-1', { expectedUpdatedAt: templateTimestamp }, principal,
+    )],
+  ] as const)('rejects composite records through the legacy %s path', async (_label, mutate) => {
+    pageTemplate.findFirst.mockResolvedValue(spaceTemplate({
+      archivedAt: _label === 'restore' ? new Date('2026-08-25T02:00:00.000Z') : null,
+    }));
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      version: 3,
+      definition: compositeDefinition,
+      definitionHash: hashCompositeDefinition(compositeDefinition),
+    });
+
+    await expect(mutate()).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_INVALID' });
+    expect(pageTemplate.updateMany).not.toHaveBeenCalled();
+  });
 });
