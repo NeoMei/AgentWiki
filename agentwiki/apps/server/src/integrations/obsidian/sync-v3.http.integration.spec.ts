@@ -609,6 +609,44 @@ describe('sync v3 HTTP contract', () => {
     expect(revisions.snapshot).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['capabilities unknown', '/sync/v3/capabilities?unexpected=1', 'GET', undefined],
+    ['capabilities repeated', '/sync/v3/capabilities?unexpected=1&unexpected=2', 'GET', undefined],
+    ['spaces unknown', '/sync/v3/spaces?unexpected=1', 'GET', undefined],
+    ['spaces repeated', '/sync/v3/spaces?unexpected=1&unexpected=2', 'GET', undefined],
+    ['head unknown', '/sync/v3/spaces/space-1/head?unexpected=1', 'GET', undefined],
+    ['head repeated', '/sync/v3/spaces/space-1/head?unexpected=1&unexpected=2', 'GET', undefined],
+    ['bootstrap preview unknown', '/sync/v3/spaces/space-1/bootstrap-preview?unexpected=1', 'GET', undefined],
+    ['bootstrap preview repeated', '/sync/v3/spaces/space-1/bootstrap-preview?unexpected=1&unexpected=2', 'GET', undefined],
+    ['bootstrap unknown', '/sync/v3/spaces/space-1/bootstrap?unexpected=1', 'POST', {
+      protocolVersion: '3', baseRevision: 'rev-1', confirmationHash: hash, userConfirmed: true,
+    }],
+    ['bootstrap repeated', '/sync/v3/spaces/space-1/bootstrap?unexpected=1&unexpected=2', 'POST', {
+      protocolVersion: '3', baseRevision: 'rev-1', confirmationHash: hash, userConfirmed: true,
+    }],
+    ['snapshot repeated revision', '/sync/v3/spaces/space-1/snapshot?revision=current&revision=rev-2', 'GET', undefined],
+    ['snapshot repeated cursor', '/sync/v3/spaces/space-1/snapshot?revision=current&cursor=a&cursor=b', 'GET', undefined],
+    ['snapshot repeated limit', '/sync/v3/spaces/space-1/snapshot?revision=current&limit=1&limit=2', 'GET', undefined],
+    ['delta unknown', '/sync/v3/spaces/space-1/delta?from=0&unexpected=1', 'GET', undefined],
+    ['delta repeated from', '/sync/v3/spaces/space-1/delta?from=0&from=rev-1', 'GET', undefined],
+    ['delta repeated cursor', '/sync/v3/spaces/space-1/delta?from=0&cursor=a&cursor=b', 'GET', undefined],
+    ['delta repeated limit', '/sync/v3/spaces/space-1/delta?from=0&limit=1&limit=2', 'GET', undefined],
+  ])('rejects %s before any v3 read or mutation service', async (_name, path, method, body) => {
+    const response = await fetch(`${baseUrl}${path}`, {
+      method,
+      headers: {
+        Authorization: 'Bearer device-secret',
+        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    expect(response.status).toBe(400);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(SyncV3ErrorEnvelopeSchema.parse(await response.json())).toEqual({
+      protocolVersion: '3', error: { code: 'PAYLOAD_INVALID', retryable: false },
+    });
+  });
+
   it('uses the safe strict v3 envelope for guard-stage credential revocation', async () => {
     prisma.humanDeviceCredential.findUnique.mockResolvedValueOnce({
       id: 'cred-1', credentialFamilyId: 'family-1', userId: 'user-1',

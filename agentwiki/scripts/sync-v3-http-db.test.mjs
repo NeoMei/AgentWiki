@@ -90,7 +90,7 @@ test('real isolated HTTP Sync v3 lifecycle is durable, idempotent, guarded, and 
         JWT_SECRET: `sync-v3-http-jwt-${randomUUID()}-${randomUUID()}`,
         AGENTWIKI_SERVER_PEPPER: `sync-v3-http-pepper-${randomUUID()}`,
         AGENTWIKI_DEPLOYMENT_SEED: randomBytes(32).toString('base64'),
-        LOCAL_SYNC_PACKAGE_VERSION: '0.7.0',
+        LOCAL_SYNC_PACKAGE_VERSION: '0.8.0',
         ATTACHMENT_STORAGE_PATH: storageRoot,
         ATTACHMENT_MIN_FREE_BYTES: '1',
       });
@@ -144,12 +144,63 @@ test('real isolated HTTP Sync v3 lifecycle is durable, idempotent, guarded, and 
           code: installation.code,
           exchangeId: randomUUID(), credential: deviceToken,
           deviceId: randomUUID(), deviceName: 'Isolated HTTP vault', vaultId: randomUUID(),
-          pluginVersion: '0.5.0', supportedProtocolVersions: ['1'],
+          pluginVersion: '0.5.1', supportedProtocolVersions: ['1'],
         },
       })).data;
       await requestJson(baseUrl, '/integrations/obsidian/credentials/current/activate', {
         method: 'POST', token: deviceToken, body: { credentialId: exchange.credentialId },
       });
+
+      const strictQueryCases = [
+        ['capabilities unknown', '/sync/v3/capabilities?unexpected=1', 'GET', undefined],
+        ['capabilities repeated', '/sync/v3/capabilities?unexpected=1&unexpected=2', 'GET', undefined],
+        ['spaces unknown', '/sync/v3/spaces?unexpected=1', 'GET', undefined],
+        ['spaces repeated', '/sync/v3/spaces?unexpected=1&unexpected=2', 'GET', undefined],
+        ['head unknown', `/sync/v3/spaces/${space.id}/head?unexpected=1`, 'GET', undefined],
+        ['head repeated', `/sync/v3/spaces/${space.id}/head?unexpected=1&unexpected=2`, 'GET', undefined],
+        ['preview unknown', `/sync/v3/spaces/${space.id}/bootstrap-preview?unexpected=1`, 'GET', undefined],
+        ['preview repeated', `/sync/v3/spaces/${space.id}/bootstrap-preview?unexpected=1&unexpected=2`, 'GET', undefined],
+        ['bootstrap unknown', `/sync/v3/spaces/${space.id}/bootstrap?unexpected=1`, 'POST', {
+          protocolVersion: '3', baseRevision: '0', confirmationHash: 'a'.repeat(64),
+          userConfirmed: true,
+        }],
+        ['bootstrap repeated', `/sync/v3/spaces/${space.id}/bootstrap?unexpected=1&unexpected=2`, 'POST', {
+          protocolVersion: '3', baseRevision: '0', confirmationHash: 'a'.repeat(64),
+          userConfirmed: true,
+        }],
+        ['snapshot unknown', `/sync/v3/spaces/${space.id}/snapshot?revision=current&unexpected=1`, 'GET', undefined],
+        ['snapshot repeated revision', `/sync/v3/spaces/${space.id}/snapshot?revision=current&revision=0`, 'GET', undefined],
+        ['snapshot repeated cursor', `/sync/v3/spaces/${space.id}/snapshot?revision=current&cursor=a&cursor=b`, 'GET', undefined],
+        ['snapshot repeated limit', `/sync/v3/spaces/${space.id}/snapshot?revision=current&limit=1&limit=2`, 'GET', undefined],
+        ['delta unknown', `/sync/v3/spaces/${space.id}/delta?from=0&unexpected=1`, 'GET', undefined],
+        ['delta repeated from', `/sync/v3/spaces/${space.id}/delta?from=0&from=rev-1`, 'GET', undefined],
+        ['delta repeated cursor', `/sync/v3/spaces/${space.id}/delta?from=0&cursor=a&cursor=b`, 'GET', undefined],
+        ['delta repeated limit', `/sync/v3/spaces/${space.id}/delta?from=0&limit=1&limit=2`, 'GET', undefined],
+      ];
+      const strictQueryResults = [];
+      for (const [name, path, method, body] of strictQueryCases) {
+        const response = await fetch(`${baseUrl}${path}`, {
+          method,
+          headers: {
+            Authorization: `Bearer ${deviceToken}`,
+            ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+          },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
+        let responseBody;
+        try { responseBody = await response.json(); } catch { responseBody = null; }
+        strictQueryResults.push({
+          name, status: response.status, cacheControl: response.headers.get('cache-control'),
+          code: responseBody?.error?.code,
+        });
+      }
+      assert.deepEqual(
+        strictQueryResults,
+        strictQueryCases.map(([name]) => ({
+          name, status: 400, cacheControl: 'no-store', code: 'PAYLOAD_INVALID',
+        })),
+        `strict query failures: ${JSON.stringify(strictQueryResults)}`,
+      );
 
       const capabilities = (await requestJson(baseUrl, '/sync/v3/capabilities', {
         token: deviceToken,
@@ -192,6 +243,41 @@ test('real isolated HTTP Sync v3 lifecycle is durable, idempotent, guarded, and 
       assert.equal(snapshot.pages[0].pageId, persistedPage.knowledgeKey);
       assert.deepEqual(snapshot.pages[0].referencedAttachmentIds, [attachment.id]);
       assert.equal(snapshot.attachments[0].path, attachment.canonicalPath);
+
+      const currentSnapshot = (await requestJson(
+        baseUrl,
+        `/sync/v3/spaces/${space.id}/snapshot?revision=current&limit=1`,
+        { token: deviceToken },
+      )).data;
+      assert.equal(currentSnapshot.revision, head.revision);
+      assert.equal(typeof currentSnapshot.nextCursor, 'string');
+      const continuedSnapshot = (await requestJson(
+        baseUrl,
+        `/sync/v3/spaces/${space.id}/snapshot?revision=current&cursor=${encodeURIComponent(currentSnapshot.nextCursor)}&limit=1`,
+        { token: deviceToken },
+      )).data;
+      assert.equal(continuedSnapshot.revision, head.revision);
+      const driftedSnapshot = await requestJson(
+        baseUrl,
+        `/sync/v3/spaces/${space.id}/snapshot?revision=0&cursor=${encodeURIComponent(currentSnapshot.nextCursor)}&limit=1`,
+        { token: deviceToken, expected: [400] },
+      );
+      assert.equal(driftedSnapshot.data.error.code, 'CURSOR_INVALID');
+
+      const deltaPage = (await requestJson(
+        baseUrl,
+        `/sync/v3/spaces/${space.id}/delta?from=0&limit=1`,
+        { token: deviceToken },
+      )).data;
+      assert.equal(deltaPage.fromRevision, '0');
+      assert.equal(typeof deltaPage.nextCursor, 'string');
+      const continuedDelta = (await requestJson(
+        baseUrl,
+        `/sync/v3/spaces/${space.id}/delta?from=0&cursor=${encodeURIComponent(deltaPage.nextCursor)}&limit=1`,
+        { token: deviceToken },
+      )).data;
+      assert.equal(continuedDelta.fromRevision, '0');
+      assert.equal(continuedDelta.toRevision, deltaPage.toRevision);
 
       const blob = await fetch(
         `${baseUrl}/sync/v3/spaces/${space.id}/revisions/${head.revision}/attachments/${attachment.id}/content`,

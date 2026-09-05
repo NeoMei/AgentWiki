@@ -1,6 +1,6 @@
 # AgentWiki–Obsidian Sync API v3
 
-Status: local release-candidate contract for `@neomei/agentwiki-sync-protocol` 0.5.0. The package schemas and canonical hashing functions are normative; this document is the public HTTP map.
+Status: local release-candidate contract for `@neomei/agentwiki-sync-protocol` 0.5.1. The package schemas and canonical hashing functions are normative; this document is the public HTTP map.
 
 ## Transport, authentication, and authorization
 
@@ -23,7 +23,7 @@ No message, details, stack, path, storage key, token, or server-internal field i
 | `GET` | `/sync/v3/capabilities` | Protocol `3`, bounded capabilities, and `capabilitiesHash` |
 | `GET` | `/sync/v3/spaces` | Spaces visible to the credential, live role, publish capability, and current head |
 | `GET` | `/sync/v3/spaces/:spaceId/head` | Current immutable Revision metadata and content hash |
-| `GET` | `/sync/v3/spaces/:spaceId/snapshot?revision=:fixed&cursor=:cursor&limit=:limit` | Paged folders, Pages, referenced attachments, and fixed-Revision counts |
+| `GET` | `/sync/v3/spaces/:spaceId/snapshot?revision=current\|:fixed&cursor=:cursor&limit=:limit` | Paged folders, Pages, referenced attachments, and fixed-Revision counts |
 | `GET` | `/sync/v3/spaces/:spaceId/delta?from=:fixed&cursor=:cursor&limit=:limit` | Paged canonical changes from a retained Revision to current |
 | `GET` | `/sync/v3/spaces/:spaceId/bootstrap-preview` | Hash-bound preview for a legacy Space that has no native v3 head |
 | `POST` | `/sync/v3/spaces/:spaceId/bootstrap` | Confirm a preview with `baseRevision` and `confirmationHash` |
@@ -36,7 +36,7 @@ No message, details, stack, path, storage key, token, or server-internal field i
 | `POST` | `/sync/v3/spaces/:spaceId/push-sessions/:sessionId/finalize` | Atomically validate and publish, or replay the stored terminal result |
 | `GET` | `/sync/v3/spaces/:spaceId/revisions/:revisionId/attachments/:attachmentId/content` | Authorize and stream a Blob owned by a fixed retained Revision |
 
-Except for snapshot/delta, query parameters are forbidden. `revisionId=current` is forbidden for Blob downloads: authorization is always pinned to a fixed Revision.
+Except for snapshot/delta, query parameters are forbidden. Unknown query keys and repeated/array values are rejected before any read or mutation service. Snapshot accepts exactly `revision`, optional `cursor`, and optional `limit`; delta accepts exactly `from`, optional `cursor`, and optional `limit`. A first snapshot page requested with `revision=current` resolves and returns the real fixed Revision. Its continuation cursor remains pinned to that Revision even if the head advances; a caller-supplied fixed Revision that disagrees with the cursor is rejected. `revisionId=current` is forbidden for Blob downloads: authorization is always pinned to a fixed Revision.
 
 ## Capabilities and limits
 
@@ -66,6 +66,6 @@ Finalized v3 publications create governed ChangeSets for audit, but they are exp
 
 ## Retention and compatibility
 
-Snapshots, deltas, and Blob downloads work only while their fixed Revision is retained; an expired base returns `REVISION_GONE`. A v3 head is not projected through v1/v2: legacy head/snapshot/delta/Push routes return `SYNC_PROTOCOL_UPGRADE_REQUIRED`. Clients must upgrade rather than guessing a lossy Page-only view.
+Snapshots requested with `current` work only when that current Revision exists and is retained; continuation cursors, explicit fixed snapshots, deltas, and Blob downloads work only while every fixed Revision they bind remains retained. An expired bound Revision or base returns `REVISION_GONE`; a mismatched continuation returns `CURSOR_INVALID`. A v3 head is not projected through v1/v2: legacy head/snapshot/delta/Push routes return `SYNC_PROTOCOL_UPGRADE_REQUIRED`. Clients must upgrade rather than guessing a lossy Page-only view.
 
 Public error codes include the inherited authentication, authorization, cursor, stale-base, confirmation, collision, quota, session, idempotency, rate-limit and internal codes plus v3 attachment codes: `ATTACHMENT_REFERENCE_INVALID`, `ATTACHMENT_MISSING`, `ATTACHMENT_CONTENT_INVALID`, `ATTACHMENT_NAME_CONFLICT`, `ATTACHMENT_REFERENCED`, `ATTACHMENT_BLOB_MISSING`, `ATTACHMENT_QUOTA_EXCEEDED`, and `SYNC_PROTOCOL_UPGRADE_REQUIRED`.

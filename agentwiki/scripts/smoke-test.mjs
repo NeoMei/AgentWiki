@@ -82,7 +82,7 @@ async function createSmokeDeviceCredential(apiUrl, humanToken, suffix) {
       deviceId: randomUUID(),
       deviceName: `Smoke device ${suffix}`,
       vaultId: randomUUID(),
-      pluginVersion: '0.5.0',
+      pluginVersion: '0.5.1',
       supportedProtocolVersions: ['1'],
     },
   });
@@ -178,7 +178,7 @@ export async function runSmoke(environment = process.env) {
     fixture.agentId = agent.data.id;
     const installation = await request(apiUrl, `/agents/${agent.data.id}/local-sync-installations`, {
       method: 'POST', token,
-      body: { spaceId: space.data.id, role: 'editor', pluginVersion: '0.7.0' },
+      body: { spaceId: space.data.id, role: 'editor', pluginVersion: '0.8.0' },
     });
     const credential = await request(apiUrl, '/integrations/local-sync/exchange', {
       method: 'POST', body: { code: installation.data.code },

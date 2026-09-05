@@ -68,7 +68,8 @@ export class SyncV3Controller {
   ) {}
 
   @Get('capabilities')
-  async negotiatedCapabilities() {
+  async negotiatedCapabilities(@Query() query: unknown) {
+    this.assertEmptyQuery(query);
     return TreeCapabilitiesResponseV3Schema.parse({
       protocolVersion: '3',
       capabilities: this.capabilities.capabilitiesV3(),
@@ -158,7 +159,11 @@ export class SyncV3Controller {
   }
 
   @Get('spaces')
-  async listSpaces(@Req() request: { user: HumanDevicePrincipal }) {
+  async listSpaces(
+    @Query() query: unknown,
+    @Req() request: { user: HumanDevicePrincipal },
+  ) {
+    this.assertEmptyQuery(query);
     return TreeSyncSpaceListResponseV3Schema.parse(
       await this.revisions.listSpaces(request.user),
     );
@@ -167,8 +172,10 @@ export class SyncV3Controller {
   @Get('spaces/:spaceId/head')
   async head(
     @Param('spaceId') value: string,
+    @Query() query: unknown,
     @Req() request: { user: HumanDevicePrincipal },
   ) {
+    this.assertEmptyQuery(query);
     return TreeRevisionHeadResponseV3Schema.parse(
       await this.revisions.head(request.user, this.parseSpaceId(value)),
     );
@@ -211,8 +218,10 @@ export class SyncV3Controller {
   @Get('spaces/:spaceId/bootstrap-preview')
   async bootstrapPreview(
     @Param('spaceId') value: string,
+    @Query() query: unknown,
     @Req() request: { user: HumanDevicePrincipal },
   ) {
+    this.assertEmptyQuery(query);
     const spaceId = this.parseSpaceId(value);
     await this.revisions.assertReadable(request.user, spaceId);
     return this.safeBootstrap(() => this.bootstrap.previewBootstrap(
@@ -225,9 +234,11 @@ export class SyncV3Controller {
   @HttpCode(HttpStatus.OK)
   async bootstrapConfirmed(
     @Param('spaceId') value: string,
+    @Query() query: unknown,
     @Body() body: unknown,
     @Req() request: { user: HumanDevicePrincipal },
   ) {
+    this.assertEmptyQuery(query);
     const parsed = TreeBootstrapRequestV3Schema.safeParse(body);
     if (!parsed.success) throw this.invalid('Invalid bootstrap request');
     return this.safeBootstrap(() => this.bootstrap.bootstrapConfirmed(
