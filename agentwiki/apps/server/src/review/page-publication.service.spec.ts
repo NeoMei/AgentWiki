@@ -75,7 +75,7 @@ describe('PagePublicationService', () => {
     const locked = await service.lockChangeSetSpace(tx, 'change-set-1');
     await expect(service.publishLocked(locked, 'change-set-1', {
       userId: 'reviewer-1', comment: 'Accepted',
-    })).resolves.toEqual({ pageId: 'page-1', pageVersionId: 'published-version' });
+    })).resolves.toEqual({ kind: 'published', pageId: 'page-1', pageVersionId: 'published-version' });
 
     expect(tx.pageVersion.create).toHaveBeenNthCalledWith(1, { data: expect.objectContaining({
       pageId: 'page-1', content: 'Old\r\nbody',
@@ -103,7 +103,7 @@ describe('PagePublicationService', () => {
     tx.page.findFirst.mockResolvedValue({ ...oldPage, content: 'silently changed' });
     await expect(service.publishLocked(Object.assign(tx, { contentTreeRevision: 7n }), 'change-set-1', {
       userId: 'reviewer-1',
-    })).rejects.toMatchObject({ businessCode: 'CHANGESET_CONFLICT' });
+    })).resolves.toMatchObject({ kind: 'conflict', pageId: 'page-1' });
     expect(tx.pageVersion.create).not.toHaveBeenCalled();
     expect(tx.approval.create).not.toHaveBeenCalled();
   });
@@ -134,7 +134,7 @@ describe('PagePublicationService', () => {
 
     await expect(service.publishLocked(Object.assign(tx, { contentTreeRevision: 7n }), 'change-set-1', {
       userId: 'reviewer-1',
-    })).resolves.toEqual({ pageId: 'page-1', pageVersionId: 'published-version' });
+    })).resolves.toEqual({ kind: 'published', pageId: 'page-1', pageVersionId: 'published-version' });
     expect(tx.pageVersion.create).toHaveBeenNthCalledWith(2, { data: expect.objectContaining({
       pageId: 'page-1', content: oldPage.content,
     }) });

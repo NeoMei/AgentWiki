@@ -31,6 +31,7 @@ import {
 } from '../core/authorization/live-agent-authorization';
 import { lockContentStore } from '../core/sync/content-store-lock';
 import { publishPageUpdateLocked } from './page-update-publication';
+import { supersedePendingPagePublicationsLocked } from '../collaboration-workflows/page-publication-invalidation';
 
 interface AgentAutoPublishContext {
   ownerId?: string;
@@ -943,6 +944,17 @@ export class ReviewService {
         : undefined;
       const submission = await tx.knowledgeSubmission?.findUnique({ where: { changeSetId: id } });
       if (submission) {
+        const archivedPageIds = pageItems
+          .filter((item) => item.type === 'archive_page')
+          .flatMap((item) => {
+            const pageId = (item.payload as { pageId?: unknown })?.pageId;
+            return typeof pageId === 'string' ? [pageId] : [];
+          });
+        await supersedePendingPagePublicationsLocked(lockedTx, {
+          spaceId: changeSet.spaceId,
+          pageIds: archivedPageIds,
+          excludeChangeSetId: id,
+        });
         const revision = await this.createKnowledgeRevision(
           lockedTx as SpaceLockedTransaction,
           changeSet.spaceId,

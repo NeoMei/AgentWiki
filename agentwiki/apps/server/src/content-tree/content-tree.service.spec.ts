@@ -398,8 +398,10 @@ describe('ContentTreeService Sync v2 recursive archive query boundary', () => {
       changeSet: {
         create: jest.fn().mockResolvedValue({ id: 'change-set-1' }),
         update: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
-      changeItem: { create: jest.fn().mockResolvedValue({}) },
+      changeItem: { create: jest.fn().mockResolvedValue({}), updateMany: jest.fn() },
+      collaborationArtifactChangeSetLink: { findMany: jest.fn().mockResolvedValue([]) },
       pagePathAlias: { createMany: jest.fn(), findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn() },
     }, { contentTreeRevision: 0n });
     const revisionWriter: any = {

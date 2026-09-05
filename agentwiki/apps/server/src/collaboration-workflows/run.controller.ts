@@ -12,7 +12,7 @@ import {
   ValidateRunDraftDto,
 } from './run.dto';
 import { RunService } from './run.service';
-import { ReviewDecisionDto } from './review.dto';
+import { ResolvePageConflictDto, ReviewDecisionDto } from './review.dto';
 import { ReviewService } from './review.service';
 
 @Controller('spaces/:spaceId/collaboration/runs')
@@ -128,5 +128,16 @@ export class RunController {
   ) {
     await this.reviews.decide(spaceId, runId, reviewId, body, req.user as Principal);
     return this.runs.getHumanRun(spaceId, runId, req.user as Principal);
+  }
+
+  @Post(':runId/tasks/:taskId/page-conflict')
+  resolvePageConflict(
+    @Req() req: Request,
+    @Param('spaceId') spaceId: string,
+    @Param('runId') runId: string,
+    @Param('taskId') taskId: string,
+    @Body() body: ResolvePageConflictDto,
+  ) {
+    return this.reviews.resolvePageConflict(spaceId, runId, taskId, body, req.user as Principal);
   }
 }

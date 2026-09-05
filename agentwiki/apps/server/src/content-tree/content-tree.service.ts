@@ -11,6 +11,7 @@ import {
   validatePortablePath,
 } from '@neomei/agentwiki-sync-protocol';
 import { PrismaService } from '../database/prisma.service';
+import { supersedePendingPagePublicationsLocked } from '../collaboration-workflows/page-publication-invalidation';
 import {
   ReadableSyncPathService,
   safeMarkdownBasename,
@@ -2661,6 +2662,20 @@ export class ContentTreeService {
     actor: ContentTreeActor,
     revisionOrigin?: AdvancePageMutationInput['revisionOrigin'],
   ): Promise<{ treeRevision: bigint; syncRevisionId: string }> {
+    const archivedKeys = pageChanges
+      .filter((change) => change.operation === 'archive')
+      .map((change) => change.pageId);
+    if (archivedKeys.length > 0) {
+      const archivedPages = await tx.page.findMany({
+        where: { spaceId, knowledgeKey: { in: archivedKeys } },
+        select: { id: true },
+      });
+      await supersedePendingPagePublicationsLocked(tx, {
+        spaceId,
+        pageIds: archivedPages.map((page) => page.id),
+        excludeChangeSetId: revisionOrigin?.sourceChangeSetId ?? undefined,
+      });
+    }
     const treeRevision = await this.revisionWriter.advanceContentTreeRevision(
       tx, spaceId, expectedTreeRevision,
     );

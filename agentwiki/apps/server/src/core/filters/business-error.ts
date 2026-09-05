@@ -42,6 +42,7 @@ const ERROR_CODE_MAP: Record<string, { status: HttpStatus; message: string }> = 
   RUN_NOT_RETRYABLE: { status: HttpStatus.CONFLICT, message: 'Run cannot be retried' },
   CHANGESET_INVALID_STATE: { status: HttpStatus.CONFLICT, message: 'Change set state does not allow this operation' },
   CHANGESET_CONFLICT: { status: HttpStatus.CONFLICT, message: 'Change set conflicts with newer resource state' },
+  PAGE_VERSION_CONFLICT: { status: HttpStatus.CONFLICT, message: 'The target Page changed after the task was claimed' },
   APPROVAL_REQUIRED: { status: HttpStatus.FORBIDDEN, message: 'Approval is required before publishing' },
   MEMORY_QUOTA_EXCEEDED: { status: HttpStatus.TOO_MANY_REQUESTS, message: 'Memory quota exceeded' },
   PAGE_TEMPLATE_INVALID: { status: HttpStatus.BAD_REQUEST, message: 'Page template input is invalid' },

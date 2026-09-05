@@ -11,6 +11,15 @@ import { pageVersionData, publishPageUpdateLocked } from './page-update-publicat
 type Tx = Prisma.TransactionClient;
 
 export type CollaborationPageReviewer = { userId: string; comment?: string };
+export type CollaborationPagePublicationResult =
+  | { kind: 'published'; pageId: string; pageVersionId: string }
+  | {
+    kind: 'conflict';
+    pageId: string;
+    expectedPageVersionId: string | null;
+    expectedContentHash: string;
+    currentContentHash: string | null;
+  };
 
 @Injectable()
 export class PagePublicationService {
@@ -31,7 +40,7 @@ export class PagePublicationService {
     lockedTx: SpaceTreeLockedTransaction,
     changeSetId: string,
     reviewer: CollaborationPageReviewer,
-  ): Promise<{ pageId: string; pageVersionId: string }> {
+  ): Promise<CollaborationPagePublicationResult> {
     const link = await this.loadLink(lockedTx, changeSetId);
     const changeSet = await lockedTx.changeSet.findUnique({
       where: { id: changeSetId },
@@ -73,12 +82,22 @@ export class PagePublicationService {
     const page = await lockedTx.page.findFirst({
       where: { id: link.pageId, spaceId: link.spaceId, deletedAt: null },
     });
-    if (!page) throw new BusinessException('RESOURCE_NOT_FOUND', 'Target Page is unavailable');
+    if (!page) return {
+      kind: 'conflict', pageId: link.pageId,
+      expectedPageVersionId: payload.expectedPageVersionId,
+      expectedContentHash: payload.expectedContentHash,
+      currentContentHash: null,
+    };
     if (
       page.updatedAt.toISOString() !== payload.expectedUpdatedAt
       || canonicalPageContentHash(page.content) !== payload.expectedContentHash
     ) {
-      throw new BusinessException('CHANGESET_CONFLICT', 'The target Page changed after the task was claimed');
+      return {
+        kind: 'conflict', pageId: page.id,
+        expectedPageVersionId: payload.expectedPageVersionId,
+        expectedContentHash: payload.expectedContentHash,
+        currentContentHash: canonicalPageContentHash(page.content),
+      };
     }
     if (payload.expectedPageVersionId) {
       const version = await lockedTx.pageVersion.findFirst({
@@ -86,7 +105,12 @@ export class PagePublicationService {
         select: { id: true, title: true, content: true },
       });
       if (!version || version.title !== page.title || canonicalPageContentHash(version.content) !== payload.expectedContentHash) {
-        throw new BusinessException('CHANGESET_CONFLICT', 'The target Page version baseline is no longer valid');
+        return {
+          kind: 'conflict', pageId: page.id,
+          expectedPageVersionId: payload.expectedPageVersionId,
+          expectedContentHash: payload.expectedContentHash,
+          currentContentHash: canonicalPageContentHash(page.content),
+        };
       }
     }
     const now = new Date();
@@ -143,7 +167,30 @@ export class PagePublicationService {
       actor: { agentId: changeSet.createdByAgentId! },
       revisionOrigin: { sourceChangeSetId: changeSetId },
     });
-    return { pageId: page.id, pageVersionId: publishedVersion.id };
+    return { kind: 'published', pageId: page.id, pageVersionId: publishedVersion.id };
+  }
+
+  async supersedeLocked(
+    tx: Tx,
+    changeSetId: string,
+    reason: string,
+  ): Promise<boolean> {
+    void reason;
+    await this.loadLink(tx, changeSetId);
+    const superseded = await tx.changeSet.updateMany({
+      where: {
+        id: changeSetId,
+        origin: 'collaboration',
+        status: { in: ['draft', 'pending_review', 'approved'] },
+      },
+      data: { status: 'superseded' },
+    });
+    if (superseded.count === 0) return false;
+    await tx.changeItem.updateMany({
+      where: { changeSetId, status: { in: ['pending', 'accepted'] } },
+      data: { status: 'rejected' },
+    });
+    return true;
   }
 
   async rejectLocked(

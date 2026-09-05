@@ -1,20 +1,24 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuthorizationService, type Principal, type SpaceRole } from '../core/authorization/authorization.service';
 import { BusinessException } from '../core/filters/business-error';
 import { PrismaService } from '../database/prisma.service';
 import { ProgressionService } from './progression.service';
-import type { ReviewDecisionDto } from './review.dto';
+import type { ResolvePageConflictDto, ReviewDecisionDto } from './review.dto';
 import { canonicalRequestHash, RunEventStore } from './run-event.store';
 import { CollaborationEventsService } from './collaboration-events.service';
 import { withCollaborationSerializableRetry } from './serializable-retry';
 import { HUMAN_ROLE_ORDER, rolesAtLeast } from './reviewer-members';
 import { PagePublicationService } from '../review/page-publication.service';
+import { PageResultService } from './page-result.service';
+import { supersedeRunPagePublicationsLocked } from './page-publication-invalidation';
 
 type Tx = Prisma.TransactionClient;
 
 @Injectable()
 export class ReviewService {
+  private readonly logger = new Logger(ReviewService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly authorization: AuthorizationService,
@@ -22,6 +26,7 @@ export class ReviewService {
     private readonly progression: ProgressionService,
     private readonly notifications: CollaborationEventsService,
     private readonly pagePublication: PagePublicationService,
+    @Optional() private readonly pageResults?: PageResultService,
   ) {}
 
   async decide(
@@ -92,13 +97,6 @@ export class ReviewService {
           throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Review generation is stale');
         }
         const decidedAt = new Date();
-        const status = input.kind === 'approve' ? 'approved' : input.kind === 'terminate' ? 'terminated' : 'rejected';
-        const decided = await mutationTx.collaborationReview.updateMany({
-          where: { id: reviewId, runId, status: 'pending' },
-          data: { status, reviewerUserId: principal.userId, reason: input.reason, decidedAt },
-        });
-        if (decided.count !== 1) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Review was decided concurrently');
-
         if (input.kind === 'approve') {
           const sourceReviewNodeIds = snapshotGraph(mutationRun.templateSnapshot).nodes
             .filter((node) => node.kind === 'human_review' && node.artifactTaskId === currentSource.nodeId)
@@ -106,7 +104,10 @@ export class ReviewService {
           const sourceReviews = await mutationTx.collaborationReview.findMany({
             where: { runId, sourceTaskId: current.sourceTaskId, generation: current.generation },
           });
-          const sourceReviewByNode = new Map(sourceReviews.map((item) => [item.nodeId, item]));
+          const sourceReviewByNode = new Map(sourceReviews.map((item) => [
+            item.nodeId,
+            item.id === reviewId ? { ...item, status: 'approved' } : item,
+          ]));
           const groupApproved = sourceReviewNodeIds.length > 0
             && sourceReviewNodeIds.every((nodeId) => sourceReviewByNode.get(nodeId)?.status === 'approved');
           const currentArtifact = await mutationTx.collaborationTaskArtifact.findFirst({
@@ -122,6 +123,24 @@ export class ReviewService {
               comment: input.reason,
             })
             : null;
+          if (publication?.kind === 'conflict') {
+            await mutationTx.collaborationRun.update({
+              where: { id: runId },
+              data: { status: 'paused', pauseReason: 'page_version_conflict' },
+            });
+            const paused = await mutationTx.collaborationRun.findUnique({
+              where: { id: runId }, select: { id: true, status: true, version: true },
+            });
+            if (!paused) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
+            return { runId: paused.id, status: paused.status, version: paused.version, pageConflict: publication };
+          }
+          const decided = await mutationTx.collaborationReview.updateMany({
+            where: { id: reviewId, runId, status: 'pending' },
+            data: { status: 'approved', reviewerUserId: principal.userId, reason: input.reason, decidedAt },
+          });
+          if (decided.count !== 1) {
+            throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Review was decided concurrently');
+          }
           if (groupApproved && currentArtifact.status === 'pending') {
             const accepted = await mutationTx.collaborationTaskArtifact.updateMany({
               where: { id: current.artifactId, runId, generation: current.generation, status: 'pending' },
@@ -142,6 +161,7 @@ export class ReviewService {
           if (!receipt) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
           return { runId: receipt.id, status: receipt.status, version: receipt.version, publication };
         } else if (input.kind === 'reject_for_revision') {
+          await this.decidePendingReview(mutationTx, runId, reviewId, 'rejected', principal.userId, input.reason, decidedAt);
           if (pageLink) await this.pagePublication.rejectLocked(mutationTx as any, pageLink.changeSetId, {
             userId: principal.userId, comment: input.reason,
           });
@@ -149,6 +169,7 @@ export class ReviewService {
           await this.progression.advanceRun(mutationTx, runId, `review-rejected:${reviewId}`, false);
         } else {
           if (!current.allowTerminate) throw new BusinessException('COLLABORATION_REVIEW_TERMINATE_DENIED');
+          await this.decidePendingReview(mutationTx, runId, reviewId, 'terminated', principal.userId, input.reason, decidedAt);
           if (pageLink) await this.pagePublication.rejectLocked(mutationTx as any, pageLink.changeSetId, {
             userId: principal.userId, comment: input.reason,
           });
@@ -156,6 +177,7 @@ export class ReviewService {
             where: { runId, status: { in: ['claimed', 'running'] } },
             data: { status: 'invalidated', failureCode: 'review_terminated', finishedAt: decidedAt },
           });
+          await supersedeRunPagePublicationsLocked(mutationTx, { runId });
           await mutationTx.collaborationRun.update({
             where: { id: runId },
             data: { status: 'cancelled', finishedAt: decidedAt },
@@ -172,8 +194,163 @@ export class ReviewService {
     if ((result as any).publication?.pageId) {
       await this.pagePublication.runPostCommitEffects(spaceId, [(result as any).publication.pageId]);
     }
+    if ((result as any).pageConflict) {
+      try {
+        await this.notifications.publishCurrentRun(runId);
+      } catch (error) {
+        this.logger.warn({ code: 'COLLABORATION_PAGE_CONFLICT_NOTIFICATION_FAILED', runId, error });
+      }
+      throw new BusinessException('PAGE_VERSION_CONFLICT', undefined, (result as any).pageConflict);
+    }
     await this.notifications.publishCurrentRun(runId);
     return result;
+  }
+
+  async resolvePageConflict(
+    spaceId: string,
+    runId: string,
+    taskId: string,
+    input: ResolvePageConflictDto,
+    principal: Principal,
+  ) {
+    if (principal.agentId) throw new BusinessException('HUMAN_AUTH_REQUIRED');
+    const result = await withCollaborationSerializableRetry(() => this.prisma.$transaction(async (tx) => {
+      await this.authorization.lockLiveHumanPrincipal(tx, principal);
+      const initialRun = await tx.collaborationRun.findUnique({ where: { id: runId } });
+      if (!initialRun || initialRun.spaceId !== spaceId) {
+        throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
+      }
+      const initialTask = await tx.collaborationRunTask.findFirst({ where: { id: taskId, runId } });
+      if (!initialTask || initialTask.targetSpaceId !== spaceId || !initialTask.targetPageId) {
+        throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration Page task not found');
+      }
+      const initialReview = await tx.collaborationReview.findFirst({
+        where: { runId, sourceTaskId: taskId },
+        orderBy: [{ revision: 'desc' }, { createdAt: 'desc' }],
+      });
+      if (!initialReview) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration Page review not found');
+      const pageLink = await tx.collaborationArtifactChangeSetLink.findUnique({
+        where: { artifactId: initialReview.artifactId },
+      });
+      if (
+        !pageLink
+        || pageLink.runId !== runId
+        || pageLink.taskId !== taskId
+        || pageLink.spaceId !== spaceId
+        || pageLink.pageId !== initialTask.targetPageId
+      ) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration Page publication not found');
+      const lockedTx = await this.pagePublication.lockChangeSetSpace(tx, pageLink.changeSetId);
+      let member: { role: SpaceRole };
+      try {
+        member = await this.authorization.assertLiveHumanSpaceAccess(
+          lockedTx, principal, spaceId, ['owner', 'admin', 'editor'],
+        );
+      } catch (error) {
+        if (error instanceof BusinessException && error.businessCode === 'SPACE_ACCESS_DENIED') {
+          throw new BusinessException('COLLABORATION_REVIEWER_DENIED');
+        }
+        throw error;
+      }
+      const reviewerOverride = await this.assertReviewer(
+        lockedTx, spaceId, initialReview, member.role, principal.userId,
+      );
+      return this.events.executeIdempotent(lockedTx, {
+        runId,
+        actorKind: 'human',
+        actorId: principal.userId,
+        actorUserId: principal.userId,
+        operation: `resolve_page_conflict_${input.kind}`,
+        target: taskId,
+        key: input.idempotencyKey,
+        requestHash: canonicalRequestHash(input),
+        metadata: { taskId, kind: input.kind, reviewerOverride },
+      }, async () => {
+        const [run, task, review] = await Promise.all([
+          lockedTx.collaborationRun.findUnique({ where: { id: runId } }),
+          lockedTx.collaborationRunTask.findFirst({ where: { id: taskId, runId } }),
+          lockedTx.collaborationReview.findFirst({
+            where: { id: initialReview.id, runId, sourceTaskId: taskId, status: 'pending' },
+          }),
+        ]);
+        if (
+          !run
+          || run.spaceId !== spaceId
+          || run.pauseReason !== 'page_version_conflict'
+          || !task
+          || task.status !== 'submitted'
+          || task.generation !== initialReview.generation
+          || !task.targetPageId
+          || !review
+        ) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Page conflict is no longer recoverable');
+        const pageResults = this.requirePageResults();
+        const snapshot = await pageResults.currentSnapshotLocked(lockedTx, {
+          spaceId,
+          pageId: task.targetPageId,
+          expectedPageVersionId: input.expectedPageVersionId,
+          expectedContentHash: input.expectedContentHash,
+          createVersion: input.kind === 'adopt_current',
+        });
+        if (input.kind === 'regenerate') {
+          await this.pagePublication.supersedeLocked(lockedTx, pageLink.changeSetId, 'page_conflict_regenerate');
+          await this.decidePendingReview(
+            lockedTx, runId, review.id, 'rejected', principal.userId,
+            'Regenerated after Page version conflict', new Date(),
+          );
+          const tasks = await lockedTx.collaborationRunTask.findMany({ where: { runId } });
+          await this.rejectForRevision(lockedTx, run, review, 'Page version conflict', tasks);
+          const regenerated = await lockedTx.collaborationRunTask.findUnique({ where: { id: taskId } });
+          if (!regenerated) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT');
+          return { kind: 'regenerate' as const, taskId, generation: regenerated.generation };
+        }
+        if (!snapshot.pageVersionId) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT');
+        await this.pagePublication.supersedeLocked(lockedTx, pageLink.changeSetId, 'page_conflict_adopt_current');
+        const adopted = await pageResults.adoptCurrentLocked(lockedTx, {
+          runId,
+          task: task as any,
+          review,
+          page: snapshot.page,
+          pageVersionId: snapshot.pageVersionId,
+          reviewerUserId: principal.userId,
+          reason: 'Adopted current Page after version conflict',
+        });
+        await lockedTx.collaborationRun.update({
+          where: { id: runId }, data: { status: 'running', pauseReason: null, finishedAt: null },
+        });
+        await this.progression.advanceRun(lockedTx, runId, `page-conflict-adopted:${taskId}`, false);
+        return {
+          kind: 'adopt_current' as const,
+          taskId,
+          generation: adopted.generation,
+          artifactId: adopted.artifactId,
+          pageVersionId: snapshot.pageVersionId,
+        };
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
+    await this.notifications.publishCurrentRun(runId);
+    return result;
+  }
+
+  private requirePageResults(): PageResultService {
+    if (!this.pageResults) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT');
+    return this.pageResults;
+  }
+
+  private async decidePendingReview(
+    tx: Tx,
+    runId: string,
+    reviewId: string,
+    status: 'rejected' | 'terminated',
+    reviewerUserId: string,
+    reason: string,
+    decidedAt: Date,
+  ): Promise<void> {
+    const decided = await tx.collaborationReview.updateMany({
+      where: { id: reviewId, runId, status: 'pending' },
+      data: { status, reviewerUserId, reason, decidedAt },
+    });
+    if (decided.count !== 1) {
+      throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Review was decided concurrently');
+    }
   }
 
   private async assertReviewer(
@@ -268,6 +445,7 @@ export class ReviewService {
       where: { runId: run.id, id: { not: review.id }, nodeId: { in: [...affectedNodes] }, status: 'pending' },
       data: { status: 'superseded', reason: `Superseded by revision: ${reason}` },
     });
+    await supersedeRunPagePublicationsLocked(tx, { runId: run.id, taskIds: affectedTaskIds });
 
     const todos: Array<Record<string, unknown>> = [];
     const satisfiedOutside = new Set(sourceTask

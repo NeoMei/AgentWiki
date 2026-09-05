@@ -23,6 +23,7 @@ describe('RunController', () => {
       ':runId/history/:kind',
       ':runId/actions/pause', ':runId/actions/resume', ':runId/actions/fail', ':runId/actions/cancel',
       ':runId/tasks/:taskId/retry', ':runId/tasks/:taskId/reassign', ':runId/tasks/:taskId/skip',
+      ':runId/tasks/:taskId/page-conflict',
       ':runId/reviews/:reviewId/decision',
     ]));
   });

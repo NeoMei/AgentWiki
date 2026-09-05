@@ -69,7 +69,10 @@ describe('RunService', () => {
     collaborationTaskDependency: { createMany: jest.fn() },
     collaborationTaskAttempt: { updateMany: jest.fn(), findFirst: jest.fn(), findMany: jest.fn() },
     collaborationTaskArtifact: { updateMany: jest.fn(), findFirst: jest.fn(), findMany: jest.fn() },
-    collaborationReview: { findFirst: jest.fn(), findMany: jest.fn() },
+    collaborationReview: { findFirst: jest.fn(), findMany: jest.fn(), updateMany: jest.fn() },
+    collaborationArtifactChangeSetLink: { findMany: jest.fn() },
+    changeSet: { updateMany: jest.fn() },
+    changeItem: { updateMany: jest.fn() },
     collaborationRunEvent: { findMany: jest.fn() },
     agentGrant: { findMany: jest.fn(), findUnique: jest.fn() },
     spaceMember: { findMany: jest.fn() },
@@ -103,6 +106,11 @@ describe('RunService', () => {
     tx.collaborationTaskArtifact.findFirst.mockResolvedValue(null);
     tx.collaborationReview.findFirst.mockResolvedValue(null);
     tx.collaborationReview.findMany.mockResolvedValue([]);
+    tx.collaborationArtifactChangeSetLink.findMany.mockResolvedValue([
+      { artifactId: 'artifact-page-1', changeSetId: 'change-set-1' },
+    ]);
+    tx.changeSet.updateMany.mockResolvedValue({ count: 1 });
+    tx.changeItem.updateMany.mockResolvedValue({ count: 1 });
     tx.collaborationRunEvent.findMany.mockResolvedValue([]);
     tx.spaceMember.findMany.mockResolvedValue([]);
     service = new RunService(prisma, authorization, events, progression, notifications, historyCursors, expansion);
@@ -367,6 +375,53 @@ describe('RunService', () => {
       metadata: { reason: 'handoff', oldAgentId: 'agent-old', newAgentId: 'agent-new' },
     }), expect.any(Function));
     expect(tx.collaborationRoleBinding.updateMany).not.toHaveBeenCalled();
+    expect(tx.changeSet.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: { in: ['change-set-1'] } }),
+      data: { status: 'superseded' },
+    }));
+  });
+
+  it('supersedes linked pending Page publication candidates when cancelling a Run', async () => {
+    const running = { ...ready, status: 'running', startedById: 'starter-1' };
+    tx.collaborationRun.findUnique.mockResolvedValue({
+      ...running, tasks: [], dependencies: [], reviews: [], events: [], roleBindings: bindings,
+    });
+    authorization.assertLiveHumanSpaceAccess.mockResolvedValue({
+      role: 'owner', userId: 'starter-1', spaceId: 'space-1',
+    });
+
+    await service.cancelRun('run-1', {
+      reason: 'cancel publication', idempotencyKey: 'cancel-publish-1',
+    }, starterPrincipal);
+
+    expect(tx.collaborationArtifactChangeSetLink.findMany).toHaveBeenCalledWith({
+      where: { runId: 'run-1' }, select: { artifactId: true, changeSetId: true },
+    });
+    expect(tx.changeSet.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: { status: 'superseded' },
+    }));
+    expect(tx.collaborationTaskArtifact.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: { in: ['artifact-page-1'] } }),
+      data: { status: 'superseded' },
+    }));
+  });
+
+  it('does not let generic resume clear an unresolved Page version conflict', async () => {
+    const paused = {
+      ...ready, status: 'paused', pauseReason: 'page_version_conflict', startedById: 'starter-1',
+      tasks: [], dependencies: [], reviews: [], events: [], roleBindings: bindings,
+    };
+    tx.collaborationRun.findUnique.mockResolvedValue(paused);
+    authorization.assertLiveHumanSpaceAccess.mockResolvedValue({
+      role: 'editor', userId: 'starter-1', spaceId: 'space-1',
+    });
+
+    await expect(service.resumeRun('run-1', {
+      reason: 'continue', idempotencyKey: 'resume-conflict-1',
+    }, starterPrincipal)).rejects.toMatchObject({ businessCode: 'COLLABORATION_PROGRESS_INVARIANT' });
+
+    expect(tx.collaborationRun.update).not.toHaveBeenCalled();
+    expect(progression.advanceRun).not.toHaveBeenCalled();
   });
 
   it.each([

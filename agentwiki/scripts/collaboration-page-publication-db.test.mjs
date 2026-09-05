@@ -44,7 +44,7 @@ test('targeted collaboration Page approval is atomic and retryable in real Postg
       prisma, authorization, config, events, artifacts, progression, notifications, pageResults,
     );
     const reviews = new ReviewService(
-      prisma, authorization, events, progression, notifications, publication,
+      prisma, authorization, events, progression, notifications, publication, pageResults,
     );
     try {
       const fixture = await createFixture(prisma, id);
@@ -113,8 +113,15 @@ test('targeted collaboration Page approval is atomic and retryable in real Postg
       const staleReview = await prisma.collaborationReview.findFirstOrThrow({ where: { artifactId: staleSubmitted.artifactId } });
       await assertBusinessCode(reviews.decide(stale.spaceId, stale.runId, staleReview.id, {
         kind: 'approve', reason: 'must conflict', idempotencyKey: 'approve-stale-01',
-      }, stale.humanPrincipal), 'CHANGESET_CONFLICT');
+      }, stale.humanPrincipal), 'PAGE_VERSION_CONFLICT');
       assert.equal((await prisma.page.findUniqueOrThrow({ where: { id: stale.pageId } })).content, 'human edit after claim');
+      assert.equal((await prisma.collaborationReview.findUniqueOrThrow({ where: { id: staleReview.id } })).status, 'pending');
+      assert.deepEqual(
+        await prisma.collaborationRun.findUniqueOrThrow({
+          where: { id: stale.runId }, select: { status: true, pauseReason: true },
+        }),
+        { status: 'paused', pauseReason: 'page_version_conflict' },
+      );
     } finally {
       await prisma.$disconnect();
     }

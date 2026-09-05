@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { Principal } from '../core/authorization/authorization.service';
 import { BusinessException } from '../core/filters/business-error';
+import { canonicalPageContentHash } from './page-baseline';
 
 type Tx = Prisma.TransactionClient;
 
@@ -111,6 +112,134 @@ export class PageResultService {
       pageId,
     } });
     return { changeSetId: changeSet.id, artifactId: artifact.id, pageId };
+  }
+
+  async currentSnapshotLocked(
+    tx: Tx,
+    input: {
+      spaceId: string;
+      pageId: string;
+      expectedPageVersionId: string | null;
+      expectedContentHash: string;
+      createVersion: boolean;
+    },
+  ): Promise<{ page: any; pageVersionId: string | null }> {
+    const page = await tx.page.findFirst({
+      where: { id: input.pageId, spaceId: input.spaceId, deletedAt: null },
+    });
+    if (!page) throw new BusinessException('PAGE_VERSION_CONFLICT', 'The target Page is no longer available');
+    const currentContentHash = canonicalPageContentHash(page.content);
+    const currentVersion = await tx.pageVersion.findFirst({
+      where: {
+        pageId: page.id,
+        title: page.title,
+        content: page.content,
+        slug: page.slug,
+        format: page.format,
+        parentId: page.parentId,
+        folderId: page.folderId,
+        syncPath: page.syncPath,
+        syncPathKey: page.syncPathKey,
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true },
+    });
+    if (
+      currentContentHash !== input.expectedContentHash
+      || (currentVersion?.id ?? null) !== input.expectedPageVersionId
+    ) {
+      throw new BusinessException('PAGE_VERSION_CONFLICT', 'The target Page changed during conflict recovery', {
+        pageId: page.id,
+        currentPageVersionId: currentVersion?.id ?? null,
+        currentContentHash,
+      });
+    }
+    if (currentVersion || !input.createVersion) {
+      return { page, pageVersionId: currentVersion?.id ?? null };
+    }
+    const created = await tx.pageVersion.create({ data: {
+      pageId: page.id,
+      title: page.title,
+      content: page.content,
+      authorId: page.authorId,
+      slug: page.slug,
+      format: page.format,
+      parentId: page.parentId,
+      folderId: page.folderId,
+      syncPath: page.syncPath,
+      syncPathKey: page.syncPathKey,
+    } });
+    return { page, pageVersionId: created.id };
+  }
+
+  async adoptCurrentLocked(
+    tx: Tx,
+    input: {
+      runId: string;
+      task: PageTask & { status: string };
+      review: { id: string; artifactId: string; generation: number };
+      page: any;
+      pageVersionId: string;
+      reviewerUserId: string;
+      reason: string;
+    },
+  ): Promise<{ artifactId: string; generation: number }> {
+    const prior = await tx.collaborationTaskArtifact.findFirst({
+      where: { id: input.review.artifactId, runId: input.runId, taskId: input.task.id },
+      select: { id: true, attemptId: true, version: true, status: true },
+    });
+    if (!prior || !['pending', 'accepted'].includes(prior.status)) {
+      throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'The Page conflict Artifact is stale');
+    }
+    const superseded = await tx.collaborationTaskArtifact.updateMany({
+      where: { id: prior.id, runId: input.runId, status: { in: ['pending', 'accepted'] } },
+      data: { status: 'superseded' },
+    });
+    if (superseded.count !== 1) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT');
+    const artifact = await tx.collaborationTaskArtifact.create({ data: {
+      runId: input.runId,
+      taskId: input.task.id,
+      attemptId: prior.attemptId,
+      generation: input.task.generation,
+      version: prior.version + 1,
+      kind: 'markdown',
+      status: 'accepted',
+      payload: {
+        markdown: input.page.content,
+        adoptedCurrentPage: {
+          kind: 'human_adopt_current',
+          pageId: input.page.id,
+          pageVersionId: input.pageVersionId,
+          contentHash: canonicalPageContentHash(input.page.content),
+          adoptedByUserId: input.reviewerUserId,
+        },
+      } as Prisma.InputJsonValue,
+      evidence: [] as Prisma.InputJsonValue,
+      acceptedAt: new Date(),
+    } });
+    const decided = await tx.collaborationReview.updateMany({
+      where: {
+        id: input.review.id,
+        runId: input.runId,
+        artifactId: prior.id,
+        generation: input.review.generation,
+        status: 'pending',
+      },
+      data: {
+        status: 'approved',
+        artifactId: artifact.id,
+        reviewerUserId: input.reviewerUserId,
+        reason: input.reason,
+        decidedAt: new Date(),
+      },
+    });
+    if (decided.count !== 1) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'The Page conflict was resolved concurrently');
+    const completed = await tx.collaborationRunTask.updateMany({
+      where: { id: input.task.id, runId: input.runId, generation: input.task.generation, status: 'submitted' },
+      data: { status: 'completed', completedAt: new Date() },
+    });
+    if (completed.count !== 1) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT');
+    return { artifactId: artifact.id, generation: input.task.generation };
   }
 }
 

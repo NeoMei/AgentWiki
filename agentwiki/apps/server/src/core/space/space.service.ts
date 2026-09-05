@@ -5,6 +5,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { CreateSpaceDto, UpdateSpaceDto } from '../dto/space.dto';
 import { SpaceRevisionWriterService } from '../sync/space-revision-writer.service';
 import { AuthorizationService, type Principal } from '../authorization/authorization.service';
+import { supersedePendingPagePublicationsLocked } from '../../collaboration-workflows/page-publication-invalidation';
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -311,6 +312,12 @@ export class SpaceService {
         select: { id: true },
       });
       if (!liveSpace) throw new NotFoundException('Space not found');
+      const activePageIds = await lockedTx.page.findMany({
+        where: { spaceId: id, deletedAt: null }, select: { id: true },
+      });
+      await supersedePendingPagePublicationsLocked(lockedTx, {
+        spaceId: id, pageIds: activePageIds.map((page) => page.id),
+      });
       await lockedTx.assistTask.updateMany({
         where: { spaceId: id, status: { in: ['queued', 'running'] } },
         data: {

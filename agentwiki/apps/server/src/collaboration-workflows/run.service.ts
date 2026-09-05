@@ -26,6 +26,7 @@ import { reviewerMemberIssues, rolesAtLeast } from './reviewer-members';
 import { RunExpansionService } from './run-expansion.service';
 import { assertCollaborationAgentGrantsExecutable } from './agent-readiness';
 import { parseCollaborationInputs } from './run-input-validation';
+import { supersedeRunPagePublicationsLocked } from './page-publication-invalidation';
 
 const READ_ROLES: SpaceRole[] = ['owner', 'admin', 'editor', 'viewer'];
 const EDIT_ROLES: SpaceRole[] = ['owner', 'admin', 'editor'];
@@ -470,6 +471,12 @@ export class RunService {
   resumeRun(runId: string, body: RunActionDto, principal: Principal, expectedSpaceId?: string) {
     return this.mutateRun(runId, 'resume_run', body, principal, false, async (tx, run) => {
       if (run.status !== 'paused') throw this.runStateError(run.status);
+      if (run.pauseReason === 'page_version_conflict') {
+        throw new BusinessException(
+          'COLLABORATION_PROGRESS_INVARIANT',
+          'Resolve the Page version conflict before resuming this Run',
+        );
+      }
       await tx.collaborationRun.update({ where: { id: runId }, data: { status: 'running', pauseReason: null } });
       await this.progression.advanceRun(tx, runId, `human-resume:${body.idempotencyKey}`, false);
     }, runId, expectedSpaceId);
@@ -479,6 +486,7 @@ export class RunService {
     return this.mutateRun(runId, 'fail_run', body, principal, true, async (tx, run) => {
       this.assertNotTerminal(run.status);
       await this.invalidateAttempts(tx, runId, body.reason);
+      await supersedeRunPagePublicationsLocked(tx, { runId });
       await tx.collaborationRun.update({ where: { id: runId }, data: { status: 'failed', finishedAt: new Date() } });
     }, runId, expectedSpaceId);
   }
@@ -487,6 +495,7 @@ export class RunService {
     return this.mutateRun(runId, 'cancel_run', body, principal, true, async (tx, run) => {
       this.assertNotTerminal(run.status);
       await this.invalidateAttempts(tx, runId, body.reason);
+      await supersedeRunPagePublicationsLocked(tx, { runId });
       await tx.collaborationRun.update({ where: { id: runId }, data: { status: 'cancelled', finishedAt: new Date() } });
     }, runId, expectedSpaceId);
   }
@@ -538,6 +547,7 @@ export class RunService {
       }
       await this.validateFreshAgents(tx, run.spaceId, [body.agentId]);
       await this.invalidateAttempts(tx, runId, body.reason, taskId);
+      await supersedeRunPagePublicationsLocked(tx, { runId, taskIds: [taskId] });
       const active = ['claimed', 'running'].includes(task.status);
       await tx.collaborationRunTask.update({
         where: { id: taskId },
@@ -571,7 +581,8 @@ export class RunService {
     principal: Principal,
     managersOnly: boolean,
     mutation: (tx: Tx, run: {
-      id: string; spaceId: string; status: string; startedById: string; templateSnapshot: unknown;
+      id: string; spaceId: string; status: string; startedById: string; pauseReason: string | null;
+      templateSnapshot: unknown;
     }) => Promise<void>,
     target = runId,
     expectedSpaceId?: string,
@@ -580,7 +591,10 @@ export class RunService {
     await withCollaborationSerializableRetry(() => this.prisma.$transaction(async (tx) => {
       const current = await tx.collaborationRun.findUnique({
         where: { id: runId },
-        select: { id: true, spaceId: true, status: true, startedById: true, templateSnapshot: true },
+        select: {
+          id: true, spaceId: true, status: true, startedById: true,
+          pauseReason: true, templateSnapshot: true,
+        },
       });
       if (!current || (expectedSpaceId !== undefined && current.spaceId !== expectedSpaceId)) {
         throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');

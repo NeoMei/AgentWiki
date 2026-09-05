@@ -442,7 +442,10 @@ describe('SpaceService.remove', () => {
   const tx = {
     assistTask: { updateMany: jest.fn() },
     pageSearchDocument: { deleteMany: jest.fn() },
-    page: { updateMany: jest.fn() },
+    page: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn() },
+    collaborationArtifactChangeSetLink: { findMany: jest.fn().mockResolvedValue([]) },
+    changeSet: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    changeItem: { updateMany: jest.fn() },
     space: {
       findUnique: jest.fn().mockResolvedValue({ id: 'space-1' }),
       update: jest.fn().mockResolvedValue({ id: 'space-1' }),
@@ -459,6 +462,8 @@ describe('SpaceService.remove', () => {
     (revisionWriter.lockSpace as jest.Mock).mockImplementation(async (transaction: unknown) => transaction);
     tx.space.findUnique.mockResolvedValue({ id: 'space-1' });
     tx.space.update.mockResolvedValue({ id: 'space-1' });
+    tx.page.findMany.mockResolvedValue([]);
+    tx.collaborationArtifactChangeSetLink.findMany.mockResolvedValue([]);
   });
 
   it('fails queued and running assistant tasks before soft-deleting the space', async () => {

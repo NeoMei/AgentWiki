@@ -1,4 +1,4 @@
-import { IsIn, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 
 export class ReviewDecisionDto {
   @IsString()
@@ -9,6 +9,28 @@ export class ReviewDecisionDto {
   @MinLength(1)
   @MaxLength(4_000)
   reason!: string;
+
+  @IsString()
+  @MinLength(8)
+  @MaxLength(128)
+  @Matches(/^[A-Za-z0-9._:-]+$/u)
+  idempotencyKey!: string;
+}
+
+export class ResolvePageConflictDto {
+  @IsString()
+  @IsIn(['regenerate', 'adopt_current'])
+  kind!: 'regenerate' | 'adopt_current';
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(128)
+  expectedPageVersionId!: string | null;
+
+  @IsString()
+  @Matches(/^[a-f0-9]{64}$/u)
+  expectedContentHash!: string;
 
   @IsString()
   @MinLength(8)

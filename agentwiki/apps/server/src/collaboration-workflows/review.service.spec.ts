@@ -41,7 +41,9 @@ describe('ReviewService', () => {
     collaborationRunTask: { findMany: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     collaborationTaskAttempt: { updateMany: jest.fn() },
     collaborationTaskTodo: { createMany: jest.fn() },
-    collaborationArtifactChangeSetLink: { findUnique: jest.fn() },
+    collaborationArtifactChangeSetLink: { findUnique: jest.fn(), findMany: jest.fn() },
+    changeSet: { updateMany: jest.fn() },
+    changeItem: { updateMany: jest.fn() },
     spaceMember: { count: jest.fn() },
   } as any;
   const prisma = { ...tx, $transaction: jest.fn(async (callback: (value: any) => unknown) => callback(tx)) } as any;
@@ -63,6 +65,8 @@ describe('ReviewService', () => {
     tx.collaborationRun.findUnique.mockResolvedValue(run);
     tx.collaborationReview.findFirst.mockResolvedValue(review);
     tx.collaborationArtifactChangeSetLink.findUnique.mockResolvedValue(null);
+    tx.collaborationArtifactChangeSetLink.findMany.mockResolvedValue([]);
+    tx.changeSet.updateMany.mockResolvedValue({ count: 0 });
     tx.collaborationReview.findMany.mockResolvedValue([{ ...review, status: 'approved' }]);
     tx.collaborationReview.updateMany.mockResolvedValue({ count: 1 });
     tx.collaborationTaskArtifact.updateMany.mockResolvedValue({ count: 1 });
