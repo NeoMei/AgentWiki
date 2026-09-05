@@ -86,7 +86,10 @@ export class LegacyWorkflowUpgradeService {
           throw new BusinessException('PAGE_TEMPLATE_UPGRADE_CONFLICT');
         }
         return this.pageTemplates.getCompositeManagedRecordInLockedTransaction(
-          tx, replay.compositeTemplateVersion.templateId, input.locale,
+          tx,
+          replay.compositeTemplateVersion.templateId,
+          replay.compositeTemplateVersion.version,
+          input.locale,
         );
       }
 
@@ -123,7 +126,9 @@ export class LegacyWorkflowUpgradeService {
         upgradeRequestHash: requestHash,
         createdById: principal.userId,
       } });
-      return created;
+      return this.pageTemplates.getCompositeManagedRecordInLockedTransaction(
+        tx, created.id, created.currentVersion, input.locale,
+      );
     });
   }
 

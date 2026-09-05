@@ -38,6 +38,12 @@ const input = {
   ],
   taskTargets: [{ taskNodeId: 'draft', pageNodeId: 'page' }],
 };
+const linkedDefinition = {
+  schemaVersion: 1 as const,
+  kind: 'page_group' as const,
+  nodes: input.nodes,
+  collaboration: { workflow: legacyDefinition, taskTargets: input.taskTargets },
+};
 
 function setup() {
   const source = {
@@ -64,7 +70,9 @@ function setup() {
   const created = { id: 'template-1', currentVersion: 1, definitionHash: 'composite-hash' };
   const pageTemplates = {
     createCompositeSpaceTemplateInLockedTransaction: jest.fn().mockResolvedValue(created),
-    getCompositeManagedRecordInLockedTransaction: jest.fn().mockResolvedValue(created),
+    getCompositeManagedRecordInLockedTransaction: jest.fn(async (
+      _tx: unknown, templateId: string, resultVersion: number,
+    ): Promise<Record<string, unknown>> => ({ ...created, id: templateId, resultVersion })),
   };
   const service = new LegacyWorkflowUpgradeService(
     prisma as never, authorization as never, revisionWriter as never, pageTemplates as never,
@@ -141,8 +149,11 @@ describe('LegacyWorkflowUpgradeService', () => {
   it('creates one independent composite version and immutable source link', async () => {
     const { service, tx, pageTemplates, created } = setup();
     const result = await service.upgrade('space-1', 'legacy-1', input, principal);
-    expect(result).toEqual(created);
+    expect(result).toEqual({ ...created, resultVersion: 1 });
     expect(pageTemplates.createCompositeSpaceTemplateInLockedTransaction).toHaveBeenCalled();
+    expect(pageTemplates.getCompositeManagedRecordInLockedTransaction).toHaveBeenCalledWith(
+      tx, 'template-1', 1, 'en',
+    );
     expect(tx.pageTemplateVersionLegacyWorkflowSource.create).toHaveBeenCalledWith({ data: expect.objectContaining({
       compositeTemplateVersionId: 'template-1-version-1', spaceId: 'space-1',
       legacyTemplateId: 'legacy-1', legacyVersion: 3, legacyDefinitionHash: definitionHash,
@@ -161,15 +172,34 @@ describe('LegacyWorkflowUpgradeService', () => {
     expect(tx.pageTemplateVersionLegacyWorkflowSource.create).not.toHaveBeenCalled();
   });
 
-  it('replays the same request before applying stale source CAS, but rejects a different payload', async () => {
-    const { service, source, tx, created } = setup();
+  it('replays the immutable linked version after the composite template advances', async () => {
+    const { service, source, tx, pageTemplates } = setup();
     const preview = await service.preview('space-1', 'legacy-1', input, principal);
     tx.pageTemplateVersionLegacyWorkflowSource.findUnique.mockResolvedValue({
-      upgradeRequestHash: preview.upgradeRequestHash, compositeTemplateVersion: { template: created },
+      upgradeRequestHash: preview.upgradeRequestHash,
+      compositeTemplateVersion: { templateId: 'template-1', version: 1 },
     });
     source.version = 4;
+    pageTemplates.getCompositeManagedRecordInLockedTransaction.mockResolvedValue({
+      id: 'template-1', currentVersion: 2, resultVersion: 1,
+      definition: linkedDefinition,
+      definitionHash: 'linked-definition-hash',
+    });
     const replay = await service.upgrade('space-1', 'legacy-1', input, principal);
-    expect(replay).toEqual(created);
+    expect(replay).toMatchObject({ currentVersion: 2, resultVersion: 1, definition: linkedDefinition });
+    expect(pageTemplates.getCompositeManagedRecordInLockedTransaction).toHaveBeenCalledWith(
+      tx, 'template-1', 1, 'en',
+    );
+  });
+
+  it('rejects a different replay payload before applying stale source CAS', async () => {
+    const { service, source, tx } = setup();
+    const preview = await service.preview('space-1', 'legacy-1', input, principal);
+    tx.pageTemplateVersionLegacyWorkflowSource.findUnique.mockResolvedValue({
+      upgradeRequestHash: preview.upgradeRequestHash,
+      compositeTemplateVersion: { templateId: 'template-1', version: 1 },
+    });
+    source.version = 4;
     await expect(service.upgrade('space-1', 'legacy-1', { ...input, name: 'Different' }, principal))
       .rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_UPGRADE_CONFLICT' });
   });

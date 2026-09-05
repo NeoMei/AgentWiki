@@ -617,9 +617,10 @@ export class PageTemplateService implements OnModuleInit {
   getCompositeManagedRecordInLockedTransaction(
     tx: Prisma.TransactionClient,
     templateId: string,
+    resultVersion: number,
     locale: PageTemplateLocale,
   ) {
-    return this.getManagedCompositeRecord(tx, templateId, locale);
+    return this.getManagedCompositeVersionRecord(tx, templateId, resultVersion, locale);
   }
 
   async archive(
@@ -845,8 +846,21 @@ export class PageTemplateService implements OnModuleInit {
   ) {
     const template = await tx.pageTemplate.findUnique({ where: { id: templateId } });
     if (!template) throw new BusinessException('PAGE_TEMPLATE_NOT_FOUND');
+    return this.getManagedCompositeVersionRecord(tx, templateId, template.currentVersion, locale, template, false);
+  }
+
+  private async getManagedCompositeVersionRecord(
+    tx: Prisma.TransactionClient,
+    templateId: string,
+    resultVersion: number,
+    locale: PageTemplateLocale,
+    loadedTemplate?: PageTemplate,
+    exposeResultVersion = true,
+  ) {
+    const template = loadedTemplate ?? await tx.pageTemplate.findUnique({ where: { id: templateId } });
+    if (!template) throw new BusinessException('PAGE_TEMPLATE_NOT_FOUND');
     const version = await tx.pageTemplateVersion.findUnique({
-      where: { templateId_version: { templateId, version: template.currentVersion } },
+      where: { templateId_version: { templateId, version: resultVersion } },
     });
     if (!version?.definition || !version.definitionHash) {
       throw new BusinessException('PAGE_TEMPLATE_INVALID');
@@ -857,6 +871,7 @@ export class PageTemplateService implements OnModuleInit {
     }
     return {
       ...this.summary(template, locale),
+      ...(exposeResultVersion ? { resultVersion } : {}),
       definition,
       definitionHash: version.definitionHash,
       sourcePageId: version.sourcePageId,

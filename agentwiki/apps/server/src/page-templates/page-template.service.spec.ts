@@ -254,6 +254,30 @@ describe('PageTemplateService', () => {
     }));
   });
 
+  it('resolves an immutable requested composite version while exposing the current head separately', async () => {
+    const linkedDefinition = {
+      ...compositeDefinition,
+      nodes: [{ ...compositeDefinition.nodes[0], titleI18n: { en: 'Linked version one' } }],
+    };
+    pageTemplate.findUnique.mockResolvedValue(spaceTemplate({ currentVersion: 2 }));
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      templateId: 'template-1', version: 1, contentI18n: { en: '' }, sourcePageId: null,
+      definition: linkedDefinition, definitionHash: hashCompositeDefinition(linkedDefinition),
+    });
+
+    await expect(service.getCompositeManagedRecordInLockedTransaction(
+      prisma, 'template-1', 1, 'en',
+    )).resolves.toMatchObject({
+      currentVersion: 2,
+      resultVersion: 1,
+      definition: linkedDefinition,
+      definitionHash: hashCompositeDefinition(linkedDefinition),
+    });
+    expect(pageTemplateVersion.findUnique).toHaveBeenCalledWith({
+      where: { templateId_version: { templateId: 'template-1', version: 1 } },
+    });
+  });
+
   it('runs standalone seedOne writes on one transaction client', async () => {
     const transactionFailure = new Error('version insert failed');
     const tx = {
