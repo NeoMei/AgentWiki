@@ -174,3 +174,86 @@ Modified:
 - Verified PageEditor viewers never render the edit toolbar because the existing `canEdit=false` path redirects to the read-only route. Template-management permission is deliberately not required for an otherwise editable Page binding entry.
 - Verified only the listed client/report files are intended for the commit. Controller-owned `.codex-memory/current.md`, `.codex-memory/tasks/index.md`, and `.codex-memory/tasks/active/...` remain untracked/unstaged by this task.
 - Real Chrome layout/focus, real HTTP integration, and real external Agent execution are not proven by jsdom/build. They remain the explicit Task 13b business-acceptance gate. Task 11a/controller owns the server and real PostgreSQL regression evidence.
+
+## Independent review fix round 1
+
+### Base and reviewed scope
+
+- Fix base: `bd08bb2cbddc0dd2ef4276181a5e76d716ab1a44` (Task 11b UI plus the independently accepted server inventory test-only commit).
+- Addressed all five Important findings in `task-11b-review.md`; the deferred numeric-empty Minor was not changed. No server, schema, protected-source, Task 12, or Task 13 implementation was added.
+
+### Corrections
+
+1. The first collaboration-enabled preview now omits `enabledTaskNodeIds`, allowing the server to choose all valid tasks. Only after that authoritative preview succeeds does the dialog initialize the explicit task selection; later previews and instantiation carry the user's selection.
+2. Editing the root name marks the hierarchy preview stale, disables collaboration progression and creation, and reloads on blur. Creation has a second stale guard, so a renamed root cannot be submitted against an unseen hierarchy.
+3. Every Page in a Folder binding confirmation now shows title, explicit `pageId`, current Agent (authoritative name where available, otherwise ID), role slot, and binding version.
+4. Agent preparation now reloads Space members authoritatively before accepting the prepared selection, prunes bindings that no longer resolve to executable Agents, rejects a prepared Agent absent from the executable member set, and lets the refreshed member state supply the option and participant name.
+5. Both locales now map every issue code returned by the composite/existing-run preview services, including `ROLE_BINDING_CONFLICT` and all five `COLLABORATION_INPUT_*` validation codes. The root-stale and binding-row labels also have zh-CN/en parity.
+
+### TDD RED
+
+Command:
+
+```text
+pnpm --filter @agentwiki/client exec vitest run \
+  src/features/page-templates/NewPageDialog.composite.spec.tsx \
+  src/features/page-templates/PageAgentBindingDialog.spec.tsx \
+  src/features/page-templates/CollaborationSettingsPanel.spec.tsx \
+  src/i18n/page-template-messages.spec.tsx
+```
+
+Before the production corrections: exit 1; `4 failed` files; `6 failed, 146 passed` tests (`152` total); duration `3.31s`. The failures reproduced the explicit empty first-task selection, stale root preview, missing Folder Page identity/binding facts, missing authoritative prepared-Agent refresh, and missing issue-code translations. The existing collaboration path also failed under the contract-faithful mock that rejects an explicit empty task selection.
+
+### GREEN and compatibility regression
+
+The same four-file command after the corrections: exit 0; `4 passed` files; `152 passed` tests; duration `1.24s`.
+
+Final focused command (the four review targets plus the legacy new-page wizard, shared role editor, legacy `RunStartWizard`, API/error helpers, and Page/Folder entry points):
+
+```text
+pnpm --filter @agentwiki/client exec vitest run \
+  src/features/page-templates/NewPageDialog.spec.tsx \
+  src/features/page-templates/NewPageDialog.composite.spec.tsx \
+  src/features/page-templates/TemplateTreePreview.spec.tsx \
+  src/features/page-templates/CollaborationSettingsPanel.spec.tsx \
+  src/features/page-templates/PageAgentBindingDialog.spec.tsx \
+  src/features/page-templates/compositeTemplateApi.spec.ts \
+  src/features/content-tree/ContentTree.spec.tsx \
+  src/features/space/SpaceView.spec.tsx \
+  src/features/page/PageEditor.spec.tsx \
+  src/features/collaboration/RunStartWizard.test.tsx \
+  src/features/collaboration/components/RoleBindingEditor.test.tsx \
+  src/i18n/page-template-messages.spec.tsx \
+  src/api/error-message.spec.ts
+```
+
+Fresh output: exit 0; `13 passed` files; `340 passed` tests; duration `24.66s`.
+
+### Static verification
+
+The first parallel static run exposed one test-only unused default `React` import: TypeScript/build exited 2 with `TS6133`; lint exited 0. After removing that import, the fresh commands were:
+
+```text
+pnpm --filter @agentwiki/client exec tsc --noEmit
+pnpm --filter @agentwiki/client lint
+pnpm --filter @agentwiki/client build
+```
+
+- TypeScript: exit 0, no output.
+- ESLint: exit 0.
+- Production build: exit 0; `4750 modules transformed`; `built in 30.25s`. Vite emitted only the repository's existing `>500 kB` chunk warning; no bundle refactor was in scope.
+- `git --git-dir='/Users/neomei/.codex/worktrees/69d8/AgentWiki /.git' --work-tree='/Users/neomei/.codex/worktrees/69d8/AgentWiki ' diff --check`: exit 0, no output.
+
+### Fix-round files
+
+- `agentwiki/apps/client/src/features/page-templates/NewPageDialog.tsx`
+- `agentwiki/apps/client/src/features/page-templates/NewPageDialog.composite.spec.tsx`
+- `agentwiki/apps/client/src/features/page-templates/CollaborationSettingsPanel.tsx`
+- `agentwiki/apps/client/src/features/page-templates/CollaborationSettingsPanel.spec.tsx`
+- `agentwiki/apps/client/src/features/page-templates/PageAgentBindingDialog.tsx`
+- `agentwiki/apps/client/src/features/page-templates/PageAgentBindingDialog.spec.tsx`
+- `agentwiki/apps/client/src/i18n/messages.ts`
+- `agentwiki/apps/client/src/i18n/page-template-messages.spec.tsx`
+- `.superpowers/sdd/2026-09-05-composite-page-group-agent-collaboration/task-11b-report.md`
+
+Controller-owned `.codex-memory` changes remain unstaged and are not part of this fix.

@@ -68,6 +68,9 @@ export const PageAgentBindingDialog: React.FC<{
   const availability = useMemo(() => new Map(agents.flatMap((member) => member.agentId && member.agent
     ? [[member.agentId, member.agent.status === 'active' && !member.agent.revokedAt && (member.role === 'editor' || member.role === 'publisher')] as const]
     : [])), [agents]);
+  const agentNames = useMemo(() => new Map(agents.flatMap((member) => member.agentId && member.agent
+    ? [[member.agentId, member.agent.name] as const]
+    : [])), [agents]);
   const selectedAgent = agents.find((member) => member.agentId === agentId);
 
   const edits = () => pages.map((page) => ({
@@ -126,7 +129,15 @@ export const PageAgentBindingDialog: React.FC<{
     {loading ? <p role="status" className="mt-5 text-sm text-gray-500">{t('common.loading')}</p> : null}
     {!loading && pages.length ? <>
       <div data-testid="binding-page-scope" className="mt-5 rounded-[14px] border bg-gray-50 p-4"><h3 className="font-medium">{t('pageTemplate.binding.scope')}</h3>
-        <ul className="mt-2 space-y-1 text-sm">{pages.map((page) => <li key={page.pageId} className="flex flex-wrap justify-between gap-2"><span>{page.title ?? page.pageId}</span><span className="text-gray-500">{page.updatedAt ?? t('pageTemplate.binding.unbound')}</span></li>)}</ul>
+        <ul className="mt-3 space-y-2 text-sm">{pages.map((page) => <li key={page.pageId} className="min-w-0 rounded-lg border bg-white p-3">
+          <p className="break-words font-medium text-gray-900">{page.title ?? page.pageId}</p>
+          <p className="mt-1 break-all font-mono text-xs text-gray-500">{page.pageId}</p>
+          <dl className="mt-2 grid min-w-0 grid-cols-1 gap-1 text-xs text-gray-600 sm:grid-cols-3">
+            <div className="min-w-0"><dt className="font-medium">{t('pageTemplate.binding.currentAgent')}</dt><dd className="break-all">{page.agentId ? agentNames.get(page.agentId) ?? page.agentId : t('pageTemplate.binding.unbound')}</dd></div>
+            <div className="min-w-0"><dt className="font-medium">{t('pageTemplate.binding.currentRole')}</dt><dd className="break-all">{page.roleSlotKey ?? t('pageTemplate.binding.unbound')}</dd></div>
+            <div className="min-w-0"><dt className="font-medium">{t('pageTemplate.binding.currentVersion')}</dt><dd className="break-all">{page.updatedAt ?? t('pageTemplate.binding.unbound')}</dd></div>
+          </dl>
+        </li>)}</ul>
       </div>
       {result ? <section className="mt-5"><h3 className="text-lg font-semibold">{t('pageTemplate.binding.runStarted')}</h3>
         <p className="mt-1 text-sm text-amber-800">{t('pageTemplate.composite.agentsNeedWake')}</p>

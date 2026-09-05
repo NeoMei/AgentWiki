@@ -26,10 +26,10 @@ const project = {
   currentVersion: 3, archivedAt: null, updatedAt: '2026-09-05T00:00:00.000Z',
 };
 const weekly = { ...project, id: 'weekly', kind: 'single_page', name: '周报', pageCount: 1, folderCount: 0 };
-const preview = (collaborationEnabled = false) => ({
+const preview = (collaborationEnabled = false, rootName = '项目管理工作区') => ({
   templateId: 'project', templateVersion: 3, locale: 'zh-CN', definitionHash: 'a'.repeat(64), treeRevision: '21',
   nodes: [
-    { nodeId: 'root', parentNodeId: null, kind: 'folder', order: 0, name: '项目管理工作区' },
+    { nodeId: 'root', parentNodeId: null, kind: 'folder', order: 0, name: rootName },
     { nodeId: 'governance', parentNodeId: 'root', kind: 'folder', order: 0, name: '治理' },
     { nodeId: 'risks', parentNodeId: 'governance', kind: 'page', order: 0, title: '风险与阻塞', content: '' },
   ], pageCount: 1, folderCount: 2, roleCount: 1,
@@ -52,8 +52,13 @@ describe('NewPageDialog composite flow', () => {
     mocks.listComposite.mockResolvedValue({ data: [project, weekly], total: 2, skip: 0, take: 100, capabilities: { canManage: true } });
     mocks.listMembers.mockResolvedValue([{ type: 'agent', agentId: 'agent-1', role: 'editor', agent: { id: 'agent-1', name: 'Alpha', status: 'active', connected: true } }]);
     mocks.listLegacy.mockRejectedValue(new Error('not used')); mocks.getRevision.mockResolvedValue('21');
-    mocks.preview.mockImplementation((_space: string, _template: string, input: { collaborationEnabled: boolean; roleBindings?: unknown[] }) => {
-      const result = preview(input.collaborationEnabled);
+    mocks.preview.mockImplementation((_space: string, _template: string, input: {
+      collaborationEnabled: boolean; rootName?: string; roleBindings?: unknown[]; enabledTaskNodeIds?: string[];
+    }) => {
+      if (input.collaborationEnabled && input.enabledTaskNodeIds?.length === 0) {
+        return Promise.reject(new Error('real selector rejects an explicit empty task selection'));
+      }
+      const result = preview(input.collaborationEnabled, input.rootName);
       return Promise.resolve(input.roleBindings?.length ? result : { ...result, assignments: [], participants: [] });
     });
     mocks.instantiate.mockResolvedValue({ instantiationId: 'instance-1', rootFolderId: 'folder-new', pageIds: ['page-new'], runId: null, treeRevision: '22' });
@@ -81,6 +86,34 @@ describe('NewPageDialog composite flow', () => {
     fireEvent.click(await screen.findByRole('button', { name: /项目管理工作区/ }));
     fireEvent.click(screen.getByRole('button', { name: '下一步' }));
     expect(await screen.findByText('风险与阻塞')).toBeVisible();
+  });
+
+  it('omits task selection for the first enabled preview so the server can select all valid tasks', async () => {
+    renderDialog();
+    fireEvent.click(await screen.findByRole('button', { name: /项目管理工作区/ }));
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: '启用 Agent 协作' }));
+
+    await waitFor(() => expect(mocks.preview).toHaveBeenLastCalledWith('space-1', 'project', expect.not.objectContaining({
+      enabledTaskNodeIds: expect.anything(),
+    }), expect.any(AbortSignal)));
+    expect(await screen.findByRole('button', { name: '下一步' })).toBeEnabled();
+  });
+
+  it('marks a renamed root stale and reloads the visible hierarchy before creation', async () => {
+    renderDialog();
+    fireEvent.click(await screen.findByRole('button', { name: /项目管理工作区/ }));
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    await screen.findByText('风险与阻塞');
+    const rootName = screen.getByLabelText('根名称');
+
+    fireEvent.change(rootName, { target: { value: '自定义根目录' } });
+
+    expect(screen.getByRole('button', { name: '创建页面组' })).toBeDisabled();
+    fireEvent.blur(rootName);
+    expect(await screen.findByText('自定义根目录')).toBeVisible();
+    expect(mocks.preview).toHaveBeenLastCalledWith('space-1', 'project', expect.objectContaining({ rootName: '自定义根目录' }), expect.any(AbortSignal));
+    expect(screen.getByRole('button', { name: '创建页面组' })).toBeEnabled();
   });
 
   it('queries kind and scope on the server so filtering is not limited to the first catalog page', async () => {

@@ -85,8 +85,14 @@ describe('PageAgentBindingDialog', () => {
   it('shows the server-discovered Folder page IDs and sends that exact versioned scope', async () => {
     renderDialog({ kind: 'folder', folderId: 'folder-root', name: 'Root' });
     const list = await screen.findByTestId('binding-page-scope');
-    expect(within(list).getByText('One')).toBeVisible();
-    expect(within(list).getByText('Deep')).toBeVisible();
+    const unboundRow = within(list).getByText('page-1').closest('li');
+    const boundRow = within(list).getByText('page-deep').closest('li');
+    expect(unboundRow).toHaveTextContent('One');
+    expect(unboundRow).toHaveTextContent('未绑定');
+    expect(boundRow).toHaveTextContent('Deep');
+    expect(boundRow).toHaveTextContent('agent-old');
+    expect(boundRow).toHaveTextContent('owner');
+    expect(boundRow).toHaveTextContent('v1');
     fireEvent.change(screen.getByLabelText('主责 Agent'), { target: { value: 'agent-1' } });
     fireEvent.click(screen.getByRole('button', { name: '保存绑定' }));
     await waitFor(() => expect(mocks.setFolderBindings).toHaveBeenCalledWith('space-1', 'folder-root', {

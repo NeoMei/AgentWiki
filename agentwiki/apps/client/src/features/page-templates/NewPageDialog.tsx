@@ -113,6 +113,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
     bindings: [], inputValues: {}, enabledTaskNodeIds: [],
   });
   const [preview, setPreview] = useState<CompositeTemplatePreview | null>(null);
+  const [previewStale, setPreviewStale] = useState(false);
   const [members, setMembers] = useState<SpaceMemberSummary[]>([]);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -131,6 +132,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
   const controllerRef = useRef<AbortController | null>(null);
   const submittingRef = useRef(false);
   const idempotencyRef = useRef<{ signature: string; key: string } | null>(null);
+  const taskSelectionInitializedRef = useRef(false);
 
   useEffect(() => {
     sessionActiveRef.current = true;
@@ -230,8 +232,10 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
     setSelected({ source: 'composite', value: template });
     setRootName(truncateValidatorLength(template.defaultTitle, PAGE_TITLE_LIMIT));
     setPreview(null);
+    setPreviewStale(false);
     setCollaborationEnabled(false);
     setCollaboration({ bindings: [], inputValues: {}, enabledTaskNodeIds: [] });
+    taskSelectionInitializedRef.current = false;
     setError(null);
   };
 
@@ -248,7 +252,9 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       ...(enabled ? {
         collaborationInputs: settings.inputValues,
         roleBindings,
-        enabledTaskNodeIds: settings.enabledTaskNodeIds,
+        ...(taskSelectionInitializedRef.current
+          ? { enabledTaskNodeIds: settings.enabledTaskNodeIds }
+          : {}),
       } : {}),
     };
   };
@@ -268,8 +274,10 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       ]);
       if (!sessionActiveRef.current || controller.signal.aborted || operationRef.current !== operation) return;
       setPreview(nextPreview);
+      setPreviewStale(false);
       setMembers(nextMembers);
-      if (enabled && settings.enabledTaskNodeIds.length === 0) {
+      if (enabled && !taskSelectionInitializedRef.current) {
+        taskSelectionInitializedRef.current = true;
         setCollaboration((current) => ({ ...current, enabledTaskNodeIds: nextPreview.tasks.map((task) => task.nodeId) }));
       }
     } catch (reason) {
@@ -334,6 +342,10 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
 
   const createComposite = async () => {
     if (!selectedComposite || !preview || submittingRef.current) return;
+    if (previewStale) {
+      setError(t('pageTemplate.composite.previewStale'));
+      return;
+    }
     if (collaborationEnabled && preview.inputs.some((input) => input.required
       && (collaboration.inputValues[input.key] === undefined || collaboration.inputValues[input.key] === ''))) {
       setError(t('pageTemplate.composite.requiredInputs'));
@@ -465,13 +477,20 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
     {phase === 'preview' ? <section className="mt-5 space-y-4">
       <SelectedSummary name={selectedComposite?.name ?? ''} description={selectedComposite?.description ?? ''} version={selectedComposite?.currentVersion} />
       <label className="block text-sm font-medium text-gray-800">{t('pageTemplate.composite.rootName')}
-        <input type="text" value={rootName} onChange={(event) => { setRootName(truncateValidatorLength(event.target.value, PAGE_TITLE_LIMIT)); idempotencyRef.current = null; }}
-          className="mt-1 min-h-10 w-full rounded-lg border px-3" />
+        <input type="text" value={rootName} disabled={previewLoading}
+          onChange={(event) => {
+            setRootName(truncateValidatorLength(event.target.value, PAGE_TITLE_LIMIT));
+            setPreviewStale(true);
+            idempotencyRef.current = null;
+          }}
+          onBlur={() => { if (previewStale && !previewLoading) void loadPreview(collaborationEnabled); }}
+          className="mt-1 min-h-10 w-full rounded-lg border px-3 disabled:opacity-50" />
       </label>
       {previewLoading ? <p role="status" className="text-sm text-gray-500">{t('common.loading')}</p>
         : preview ? <TemplateTreePreview nodes={preview.nodes} emptyLabel={t('pageTemplate.composite.treeEmpty')} /> : null}
+      {previewStale ? <p role="status" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{t('pageTemplate.composite.previewStale')}</p> : null}
       <label className="flex items-start gap-3 rounded-[14px] border p-4 text-sm font-medium">
-        <input type="checkbox" checked={collaborationEnabled} disabled={!selectedComposite?.effectiveSupportsCollaboration || previewLoading}
+        <input type="checkbox" checked={collaborationEnabled} disabled={!selectedComposite?.effectiveSupportsCollaboration || previewLoading || previewStale}
           onChange={(event) => {
             const enabled = event.target.checked;
             setCollaborationEnabled(enabled);
@@ -484,9 +503,9 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       <ErrorNotice message={error} />
       <WizardActions onBack={() => { focusCloseAfterBackRef.current = true; dispatchPhase({ type: 'back' }); }}>
         <button type="button" onClick={onClose} className="min-h-10 rounded-lg border px-4 text-sm">{t('common.cancel')}</button>
-        {collaborationEnabled ? <button type="button" disabled={!preview} onClick={() => dispatchPhase({ type: 'configure' })}
+        {collaborationEnabled ? <button type="button" disabled={!preview || previewStale} onClick={() => dispatchPhase({ type: 'configure' })}
           className="min-h-10 rounded-lg bg-blue-600 px-5 text-sm font-medium text-white disabled:opacity-50">{t('pageTemplate.next')}</button>
-          : <button type="button" disabled={!preview || previewLoading} onClick={() => void createComposite()}
+          : <button type="button" disabled={!preview || previewLoading || previewStale} onClick={() => void createComposite()}
             className="min-h-10 rounded-lg bg-blue-600 px-5 text-sm font-medium text-white disabled:opacity-50">{selectedComposite?.kind === 'page_group' ? t('pageTemplate.composite.createGroup') : t('common.create')}</button>}
       </WizardActions>
     </section> : null}
@@ -495,6 +514,11 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       <CollaborationSettingsPanel spaceId={spaceId} roles={preview.roles} inputs={preview.inputs} tasks={preview.tasks}
         agents={members} bindings={collaboration.bindings} inputValues={collaboration.inputValues}
         enabledTaskNodeIds={collaboration.enabledTaskNodeIds} participants={preview.participants}
+        onRefreshAgents={async () => {
+          const nextMembers = await collaborationApi.listMembers(spaceId);
+          if (sessionActiveRef.current) setMembers(nextMembers);
+          return nextMembers;
+        }}
         onChange={(value) => { setCollaboration(value); idempotencyRef.current = null; }} />
       <IssueList issues={preview.issues} />
       <ErrorNotice message={error} />

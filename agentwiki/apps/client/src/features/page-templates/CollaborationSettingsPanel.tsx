@@ -21,8 +21,9 @@ export const CollaborationSettingsPanel: React.FC<{
   inputValues: Record<string, string | number | boolean>;
   enabledTaskNodeIds: string[];
   participants: string[];
+  onRefreshAgents: () => Promise<SpaceMemberSummary[]>;
   onChange: (value: CollaborationSettingsValue) => void;
-}> = ({ spaceId, roles, inputs, tasks, agents, bindings, inputValues, enabledTaskNodeIds, participants, onChange }) => {
+}> = ({ spaceId, roles, inputs, tasks, agents, bindings, inputValues, enabledTaskNodeIds, participants, onRefreshAgents, onChange }) => {
   const { t } = useLanguage();
   const [preparationRole, setPreparationRole] = useState<CompositePreviewRole | null>(null);
   const fallbackRef = useRef<HTMLHeadingElement>(null);
@@ -74,10 +75,25 @@ export const CollaborationSettingsPanel: React.FC<{
     {preparationRole ? <AgentPreparationDialog spaceId={spaceId} target={{ id: preparationRole.id, name: preparationRole.name }}
       fallbackFocusRef={fallbackRef} onClose={() => setPreparationRole(null)} onAuthorizationLost={async () => setPreparationRole(null)}
       onPrepared={async (prepared: PreparedAgentSelection) => {
-        onChange({ bindings: [...bindings.filter((item) => item.roleSlotId !== preparationRole.id), {
+        const refreshed = await onRefreshAgents();
+        const executable = refreshed.filter(isExecutableAgent);
+        const executableIds = new Set(executable.flatMap((member) => member.agentId ? [member.agentId] : []));
+        const converged = bindings.filter((item) => item.roleSlotId !== preparationRole.id && executableIds.has(item.agentId));
+        const authoritativeAgent = executable.find((member) => member.agentId === prepared.agentId);
+        if (!authoritativeAgent) {
+          onChange({ bindings: converged, inputValues, enabledTaskNodeIds });
+          throw new Error(t('collaboration.agentPreparation.refreshFailed'));
+        }
+        onChange({ bindings: [...converged, {
           roleSlotId: preparationRole.id, roleSlotName: preparationRole.name, agentId: prepared.agentId,
         }], inputValues, enabledTaskNodeIds });
         setPreparationRole(null);
       }} /> : null}
   </section>;
 };
+
+function isExecutableAgent(member: SpaceMemberSummary): boolean {
+  return member.type === 'agent' && !!member.agentId && !!member.agent
+    && member.agent.status === 'active' && !member.agent.revokedAt
+    && (member.role === 'editor' || member.role === 'publisher');
+}

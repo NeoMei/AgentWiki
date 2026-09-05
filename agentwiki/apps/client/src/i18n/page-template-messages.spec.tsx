@@ -156,6 +156,30 @@ const Translation = ({ messageKey }: { messageKey: string }) => {
 };
 
 describe('page-template bilingual copy contract', () => {
+  it('translates every issue code returned by the composite and existing-run preview services', () => {
+    const issueCodes = [
+      'ROLE_BINDING_REQUIRED',
+      'ROLE_BINDING_CONFLICT',
+      'COLLABORATION_AGENT_CANNOT_EXECUTE',
+      'COLLABORATION_AGENT_INACTIVE',
+      'COLLABORATION_INPUT_INVALID',
+      'COLLABORATION_INPUT_UNKNOWN',
+      'COLLABORATION_INPUT_REQUIRED',
+      'COLLABORATION_INPUT_TYPE_INVALID',
+      'COLLABORATION_INPUT_URL_INVALID',
+      'PAGE_ROLE_REQUIRED',
+      'TARGET_PARENT_FOLDER_NOT_FOUND',
+      'TARGET_FOLDER_DEPTH_LIMIT',
+    ];
+    for (const language of ['zh-CN', 'en'] as const) {
+      for (const code of issueCodes) {
+        const key = `pageTemplate.composite.issue.${code}`;
+        expect(messages[language][key]).toBeTruthy();
+        expect(messages[language][key]).not.toBe(key);
+      }
+    }
+  });
+
   it('keeps the composite creation and binding key sets complete in both locales', () => {
     const task11Keys = (language: Language) => Object.keys(messages[language])
       .filter((key) => key.startsWith('pageTemplate.composite.') || key.startsWith('pageTemplate.binding.'))
