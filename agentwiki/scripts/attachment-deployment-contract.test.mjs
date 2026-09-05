@@ -745,6 +745,7 @@ test('Docker gives API and worker one private persistent attachment volume and a
 
   assert.equal((namedVolumes.match(/^ {2}attachment-data:\s*$/gmu) ?? []).length, 1);
   for (const [name, service] of [['backend', backend], ['worker', worker]]) {
+    assert.match(service, /^ {4}read_only: true$/mu, `${name} must keep its container root read-only`);
     assert.equal(
       environmentValue(service, 'ATTACHMENT_STORAGE_PATH'),
       '/var/lib/agentwiki/attachments',
@@ -793,6 +794,10 @@ test('direct-runtime units share the durable attachment path with restrictive cr
       ['ATTACHMENT_STORAGE_PATH=/var/lib/agentwiki/attachments'],
     );
     assert.deepEqual(unitValues(unit, 'UMask'), ['0077']);
+    assert.deepEqual(unitValues(unit, 'ProtectSystem'), ['strict']);
+    assert.deepEqual(unitValues(unit, 'ProtectHome'), ['true']);
+    assert.deepEqual(unitValues(unit, 'PrivateDevices'), ['true']);
+    assert.deepEqual(unitValues(unit, 'ReadWritePaths'), ['/var/lib/agentwiki/attachments']);
     assert.doesNotMatch(unit, /ATTACHMENT_STORAGE_PATH=(?:%h|\/tmp|[^\n]*agentwiki-release)/u);
   }
 });

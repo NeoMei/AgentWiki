@@ -615,13 +615,8 @@ test('the local-sync release remains pinned to its compatible sync protocol rele
   const rootPackage = JSON.parse(await read('package.json'));
   const cleanInstallGate = await read('scripts/verify-local-sync-clean-install.mjs');
 
-  assert.equal(protocolPackage.version, '0.5.0');
-  assert.equal(localSyncPackage.dependencies[protocolPackage.name], '0.4.0');
-  assert.notEqual(
-    localSyncPackage.dependencies[protocolPackage.name],
-    protocolPackage.version,
-    'the v2 local-sync client must not silently adopt the v3 protocol package',
-  );
+  assert.equal(protocolPackage.version, '0.5.1');
+  assert.equal(localSyncPackage.dependencies[protocolPackage.name], '0.5.1');
   assert.doesNotMatch(
     localSyncPackage.dependencies[protocolPackage.name],
     /^workspace:/u,

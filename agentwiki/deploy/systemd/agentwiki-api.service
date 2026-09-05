@@ -17,6 +17,10 @@ RestartSec=3
 TimeoutStopSec=30
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/agentwiki/attachments
 UMask=0077
 
 [Install]

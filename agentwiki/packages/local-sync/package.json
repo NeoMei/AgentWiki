@@ -90,7 +90,7 @@
     "prepack": "pnpm build && pnpm test"
   },
   "dependencies": {
-    "@neomei/agentwiki-sync-protocol": "0.4.0",
+    "@neomei/agentwiki-sync-protocol": "0.5.1",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "zod": "^3.25.76"
   },

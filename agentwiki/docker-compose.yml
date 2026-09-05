@@ -20,6 +20,7 @@ services:
       args:
         NODE_IMAGE: ${NODE_IMAGE:-node:24-alpine}
     container_name: agentwiki-backend
+    read_only: true
     environment:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
@@ -58,6 +59,8 @@ services:
       PORT: 3000
     ports:
       - "127.0.0.1:3000:3000"
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=268435456,mode=1777
     volumes:
       - attachment-data:/var/lib/agentwiki/attachments
     depends_on:
@@ -78,6 +81,7 @@ services:
   worker:
     image: agentwiki-backend:latest
     container_name: agentwiki-worker
+    read_only: true
     command: ["node", "dist/worker.js"]
     environment:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}

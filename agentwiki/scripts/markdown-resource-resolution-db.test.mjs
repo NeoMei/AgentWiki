@@ -212,7 +212,9 @@ test('page identity migration matches Unicode 15.1 folding and exposes indexed l
         { key: 'trim-title', status: 'resolved', kind: 'page' },
         { key: 'trim-slug', status: 'resolved', kind: 'page' },
         { key: 'unicode-path', status: 'resolved', kind: 'page' },
-        { key: 'trim-path', status: 'resolved', kind: 'page' },
+        // Public normalization trims a bare wikilink before title/slug lookup.
+        // It must not alias the distinct portable path whose first byte is a space.
+        { key: 'trim-path', status: 'unresolved', kind: undefined },
         { key: 'unicode-title', status: 'resolved', kind: 'page' },
         { key: 'unicode-slug', status: 'resolved', kind: 'page' },
         { key: 'nfc-title', status: 'resolved', kind: 'page' },

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -60,6 +61,47 @@ async function request(apiUrl, path, { method = 'GET', token, apiKey, body, expe
   return { status: response.status, data };
 }
 
+export async function assertProductionSafeSyncV3Capabilities(apiUrl, token) {
+  const response = await request(apiUrl, '/sync/v3/capabilities', { token });
+  assert.equal(response.data.protocolVersion, '3');
+  assert.match(response.data.capabilitiesHash, /^[0-9a-f]{64}$/u);
+  assert.equal(response.data.capabilities?.blobChunkBytes, 1_048_576);
+  return response.data;
+}
+
+async function createSmokeDeviceCredential(apiUrl, humanToken, suffix) {
+  const installation = await request(apiUrl, '/integrations/obsidian/installations', {
+    method: 'POST', token: humanToken,
+  });
+  const credential = randomBytes(32).toString('base64url');
+  const exchanged = await request(apiUrl, '/integrations/obsidian/exchange', {
+    method: 'POST', body: {
+      code: installation.data.code,
+      exchangeId: randomUUID(),
+      credential,
+      deviceId: randomUUID(),
+      deviceName: `Smoke device ${suffix}`,
+      vaultId: randomUUID(),
+      pluginVersion: '0.5.0',
+      supportedProtocolVersions: ['1'],
+    },
+  });
+  await request(apiUrl, '/integrations/obsidian/credentials/current/activate', {
+    method: 'POST', token: credential, body: { credentialId: exchanged.data.credentialId },
+  });
+  return credential;
+}
+
+export async function assertProductionSafeSyncV3WithFreshDeviceCredential(
+  apiUrl,
+  humanToken,
+  suffix,
+) {
+  const deviceCredential = await createSmokeDeviceCredential(apiUrl, humanToken, suffix);
+  assert.notEqual(deviceCredential, humanToken);
+  return assertProductionSafeSyncV3Capabilities(apiUrl, deviceCredential);
+}
+
 export async function runSmoke(environment = process.env) {
   const apiUrl = assertE2ETarget(
     environment.AGENTWIKI_API_URL ?? 'http://127.0.0.1:3000/api',
@@ -101,6 +143,7 @@ export async function runSmoke(environment = process.env) {
     const spaces = await request(apiUrl, '/spaces', { token });
     assert.ok((spaces.data.data ?? spaces.data).some((candidate) => candidate.id === space.data.id));
     const contentTreeRevision = await getContentTreeRevision(apiUrl, space.data.id, token);
+    await assertProductionSafeSyncV3WithFreshDeviceCredential(apiUrl, token, suffix);
 
     const createdPage = await request(apiUrl, '/pages', {
       method: 'POST', token,
@@ -202,7 +245,7 @@ export async function runSmoke(environment = process.env) {
     assert.equal(profile.data.email, email);
     await request(apiUrl, '/integrations/mcp', { token });
 
-    return { status: 'passed', checks: 31 };
+    return { status: 'passed', checks: 32 };
   } finally {
     if (token) {
       await cleanupFixture(fixture, async (kind, id) => {
