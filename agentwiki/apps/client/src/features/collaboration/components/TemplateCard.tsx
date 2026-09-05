@@ -1,5 +1,5 @@
 import React from 'react';
-import { Archive, Copy, LockKeyhole, Pencil, Play } from 'lucide-react';
+import { Archive, Copy, LockKeyhole, Pencil, Play, RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { TemplateSummary } from '../types';
 
@@ -17,13 +17,16 @@ interface TemplateCardProps {
     edit: string;
     archive: string;
     start: string;
+    pendingUpgrade: string;
+    upgrade: string;
   };
   onCopy: (template: TemplateSummary) => void;
   onArchive: (template: TemplateSummary) => void;
+  onUpgrade: (template: TemplateSummary, trigger: HTMLElement) => void;
 }
 
 export const TemplateCard: React.FC<TemplateCardProps> = ({
-  spaceId, template, name, description, canManage, canStart, labels, onCopy, onArchive,
+  spaceId, template, name, description, canManage, canStart, labels, onCopy, onArchive, onUpgrade,
 }) => (
   <article className="flex min-w-0 flex-col rounded-xl border bg-white p-5 shadow-sm">
     <div className="flex min-w-0 items-start justify-between gap-3">
@@ -36,6 +39,7 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({
         {template.system ? labels.system : labels.space}
       </span>
     </div>
+    {!template.system ? <p className="mt-3 inline-flex w-fit rounded-full bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800">{labels.pendingUpgrade}</p> : null}
     <div className="mt-auto flex flex-wrap gap-2 pt-5">
       {canStart ? (
         <Link
@@ -52,6 +56,9 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({
       ) : null}
       {!template.system && canManage ? (
         <>
+          <button type="button" aria-label={`${labels.upgrade} ${name}`} onClick={(event) => onUpgrade(template, event.currentTarget)} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-amber-200 px-3 text-sm text-amber-800 hover:bg-amber-50">
+            <RefreshCw size={14} aria-hidden="true" />{labels.upgrade}
+          </button>
           <Link to={`/spaces/${spaceId}/collaboration/templates/${template.id}`} className="inline-flex min-h-10 items-center gap-1 rounded-lg border px-3 text-sm hover:bg-gray-50">
             <Pencil size={14} aria-hidden="true" />{labels.edit}
           </Link>

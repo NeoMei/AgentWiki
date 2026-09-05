@@ -67,6 +67,10 @@ describe('apiErrorMessage', () => {
     ['COLLABORATION_AGENT_INACTIVE', 'pageTemplate.composite.agentNotActive', '所选 Agent 已停用或撤销'],
     ['PAGE_ROLE_REQUIRED', 'pageTemplate.composite.pageRoleRequired', '仍有页面没有可执行的主责 Agent'],
     ['CONTENT_TREE_CONFLICT', 'pageTemplate.composite.treeConflict', '页面结构已变化，请重新预览后重试'],
+    ['COLLABORATION_TEMPLATE_VERSION_CONFLICT', 'pageTemplate.upgrade.sourceConflict', '旧协作模板已变化，请重新加载规范来源后重试'],
+    ['PAGE_TEMPLATE_UPGRADE_CONFLICT', 'pageTemplate.upgrade.replayConflict', '该升级请求与已有结果冲突，请刷新后重试'],
+    ['COLLABORATION_TEMPLATE_NOT_FOUND', 'pageTemplate.upgrade.sourceNotFound', '旧协作模板不存在或无权访问'],
+    ['PAGE_TEMPLATE_WARNING_CONFIRMATION_REQUIRED', 'pageTemplate.folderSave.warningConfirmationRequired', '请先确认附件与资源不会被复制'],
     ['RESOURCE_NOT_FOUND', 'error.resourceNotFound', '该项目已不存在或无权访问'],
   ])('maps Task 11 code %s to localized recovery copy', (code, key, expected) => {
     const translate = (messageKey: string) => messages['zh-CN'][messageKey] ?? messageKey;

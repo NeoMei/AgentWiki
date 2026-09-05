@@ -1,4 +1,8 @@
-import type { CollaborationTemplateDefinition } from '@neomei/agentwiki-sync-protocol';
+import type {
+  CollaborationTemplateDefinition,
+  CompositeTemplateDefinition,
+  TemplateNode,
+} from '@neomei/agentwiki-sync-protocol';
 import type { RoleBinding, RunJoinInstruction, SpaceMemberSummary } from '../collaboration/types';
 
 export type CompositeTemplateLocale = 'zh-CN' | 'en';
@@ -31,6 +35,130 @@ export interface CompositeTemplateCatalog {
   skip: number;
   take: number;
   capabilities: { canManage: boolean };
+}
+
+export interface CompositeTemplateManagementDetail {
+  templateId: string;
+  scope: CompositeTemplateScope;
+  stableKey: string;
+  category: CompositeTemplateSummary['category'];
+  name: string;
+  description: string;
+  defaultTitle: string;
+  sourceLocale: CompositeTemplateLocale | null;
+  currentVersion: number;
+  version: number;
+  archivedAt: string | null;
+  updatedAt: string;
+  locale: CompositeTemplateLocale;
+  definitionHash: string;
+  definition: CompositeTemplateDefinition;
+  resultVersion?: number;
+  noChange?: boolean;
+}
+
+/** Mutation shape returned by the composite write entrypoints (distinct from exact-version management reads). */
+export interface CompositeTemplateWriteResult extends CompositeTemplateSummary {
+  definitionHash: string;
+  definition: CompositeTemplateDefinition;
+  sourcePageId?: string | null;
+  resultVersion?: number;
+  noChange?: boolean;
+}
+
+export type FolderWorkflowSource =
+  | { kind: 'structure_only' }
+  | { kind: 'simple_pages' }
+  | { kind: 'template'; versionId: string }
+  | { kind: 'legacy_workflow'; templateId: string; version: number; taskTargets: Array<{ taskNodeId: string; pageId: string }> };
+
+export interface FolderSnapshotSelection {
+  excludedFolderIds: string[];
+  excludedPageIds: string[];
+  locale: CompositeTemplateLocale;
+  roleSlotsByPage?: Array<{ pageId: string; roleSlotKey: string | null }>;
+  source: FolderWorkflowSource;
+}
+
+export type FolderSourceNode =
+  | { templateNodeId: string; sourceNodeId: string; parentSourceNodeId: string | null; parentTemplateNodeId: string | null; kind: 'folder'; name: string }
+  | { templateNodeId: string; sourceNodeId: string; parentSourceNodeId: string; parentTemplateNodeId: string; kind: 'page'; title: string };
+
+export interface FolderSnapshotWarning {
+  code: 'ATTACHMENTS_NOT_COPIED' | 'SOURCE_CONTENT_REVIEW_REQUIRED';
+  affectedPageIds: string[];
+  message: string;
+}
+
+export interface FolderSourceToken {
+  digest: string;
+  treeRevision: string;
+  pages: Array<{
+    pageId: string;
+    updatedAt: string;
+    titleHash: string;
+    contentHash: string;
+    matchingPageVersionId: string | null;
+  }>;
+  workflowSource: Record<string, unknown>;
+}
+
+export interface FolderSnapshotPreview {
+  definition: CompositeTemplateDefinition;
+  tree: TemplateNode[];
+  roles: CollaborationTemplateDefinition['roleSlots'];
+  sourceNodes: FolderSourceNode[];
+  warnings: FolderSnapshotWarning[];
+  sourceToken: FolderSourceToken;
+}
+
+export interface SaveFolderTemplateInput {
+  rootFolderId: string;
+  selection: FolderSnapshotSelection;
+  sourceToken: FolderSourceToken;
+  acknowledgedWarnings: string[];
+  name: string;
+  description?: string;
+  defaultTitle: string;
+  category: CompositeTemplateSummary['category'];
+  locale: CompositeTemplateLocale;
+}
+
+export interface LegacyWorkflowUpgradeSource {
+  legacyId: string;
+  version: number;
+  definitionHash: string;
+  definition: CollaborationTemplateDefinition;
+}
+
+export interface LegacyWorkflowUpgradeInput {
+  expectedLegacyVersion: number;
+  expectedLegacyDefinitionHash: string;
+  name: string;
+  description?: string;
+  defaultTitle: string;
+  category: CompositeTemplateSummary['category'];
+  locale: CompositeTemplateLocale;
+  nodes: TemplateNode[];
+  taskTargets: Array<{ taskNodeId: string; pageNodeId: string }>;
+}
+
+export interface LegacyWorkflowUpgradePreview {
+  definition: CompositeTemplateDefinition;
+  definitionHash: string;
+  upgradeRequestHash: string;
+  issues: Array<{ code: string; nodeId?: string }>;
+}
+
+export interface FolderCollaborationSource {
+  source: null | {
+    sourceInstantiationId: string;
+    compositeTemplateVersionId: string;
+    templateId: string;
+    templateVersion: number;
+    rootFolderId: string;
+    nodes: Array<{ templateNodeId: string; kind: 'folder' | 'page'; folderId: string | null; pageId: string | null }>;
+  };
 }
 
 export type ExpandedTemplateNode =
@@ -123,4 +251,4 @@ export interface CreationRunResult {
   joinInstructions?: RunJoinInstruction[];
 }
 
-export type { CollaborationTemplateDefinition, RoleBinding, SpaceMemberSummary };
+export type { CollaborationTemplateDefinition, CompositeTemplateDefinition, TemplateNode, RoleBinding, SpaceMemberSummary };

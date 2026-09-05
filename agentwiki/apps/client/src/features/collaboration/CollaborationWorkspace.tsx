@@ -10,6 +10,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { collaborationApi } from './api';
 import { RunList } from './components/RunList';
 import { TemplateCard } from './components/TemplateCard';
+import { UpgradeWorkflowTemplateDialog } from '../page-templates/UpgradeWorkflowTemplateDialog';
 import type { RunListKind, RunSummary, TemplateSummary } from './types';
 
 type Tab = 'templates' | RunListKind;
@@ -34,6 +35,7 @@ export const CollaborationWorkspace: React.FC = () => {
   const [canStart, setCanStart] = useState(false);
   const [copySource, setCopySource] = useState<TemplateSummary | null>(null);
   const [copyName, setCopyName] = useState('');
+  const [upgradeSource, setUpgradeSource] = useState<{ template: TemplateSummary; trigger: HTMLElement } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
   workspaceScope.current = { spaceId: id, tab };
@@ -120,6 +122,7 @@ export const CollaborationWorkspace: React.FC = () => {
     setCanStart(false);
     setCopySource(null);
     setCopyName('');
+    setUpgradeSource(null);
     setSubmitting(false);
     setToast(null);
     setState('loading');
@@ -133,7 +136,8 @@ export const CollaborationWorkspace: React.FC = () => {
   const labels = useMemo(() => ({
     system: t('collaboration.systemTemplate'), space: t('collaboration.spaceTemplate'),
     copy: t('collaboration.copyTemplate'), edit: t('common.edit'), archive: t('collaboration.archive'),
-    start: t('collaboration.start'),
+    start: t('collaboration.start'), pendingUpgrade: t('collaboration.pendingUpgrade'),
+    upgrade: t('collaboration.upgrade'),
   }), [t]);
 
   const openCopy = (template: TemplateSummary) => {
@@ -234,6 +238,7 @@ export const CollaborationWorkspace: React.FC = () => {
                     labels={labels}
                     onCopy={openCopy}
                     onArchive={(item) => void archiveTemplate(item)}
+                    onUpgrade={(template, trigger) => setUpgradeSource({ template, trigger })}
                   />
                 ))}
               </div>
@@ -272,6 +277,11 @@ export const CollaborationWorkspace: React.FC = () => {
           </div>
         </ModalDialog>
       ) : null}
+      {upgradeSource ? <UpgradeWorkflowTemplateDialog
+        spaceId={id} legacyTemplate={upgradeSource.template} returnFocusTo={upgradeSource.trigger}
+        onClose={() => setUpgradeSource(null)}
+        onUpgraded={(template) => setToast({ kind: 'success', message: t('collaboration.upgradeSuccess', { version: template.resultVersion }) })}
+      /> : null}
       {toast ? <Toast kind={toast.kind} message={toast.message} onClose={() => setToast(null)} /> : null}
     </div>
   );

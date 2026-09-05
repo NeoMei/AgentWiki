@@ -1,16 +1,26 @@
 import api from '../../api/client';
 import type {
   CompositeInstantiationResult,
+  CompositeTemplateManagementDetail,
+  CompositeTemplateWriteResult,
   CompositePreviewInputPayload,
   CompositeTemplateCatalog,
   CompositeTemplateKind,
   CompositeTemplateLocale,
   CompositeTemplatePreview,
   ExistingRunPreview,
+  FolderCollaborationSource,
   FolderAgentBindingPreview,
+  FolderSnapshotPreview,
+  FolderSnapshotSelection,
+  LegacyWorkflowUpgradeInput,
+  LegacyWorkflowUpgradePreview,
+  LegacyWorkflowUpgradeSource,
   PageAgentBindingEdit,
   PageAgentBindingSnapshot,
+  SaveFolderTemplateInput,
 } from './compositeTemplateTypes';
+import type { CompositeTemplateDefinition } from '@neomei/agentwiki-sync-protocol';
 
 const segment = (value: string) => encodeURIComponent(value);
 const spacePath = (spaceId: string) => `/spaces/${segment(spaceId)}`;
@@ -19,6 +29,10 @@ export async function listCompositeTemplates(spaceId: string, options: {
   locale: CompositeTemplateLocale;
   scope?: 'all' | 'system' | 'space';
   kind?: CompositeTemplateKind;
+  archived?: 'active' | 'archived' | 'all';
+  category?: 'planning' | 'reporting' | 'knowledge' | 'other';
+  supportsCollaboration?: boolean;
+  q?: string;
   skip?: number;
   take?: number;
   signal?: AbortSignal;
@@ -28,10 +42,120 @@ export async function listCompositeTemplates(spaceId: string, options: {
       locale: options.locale,
       scope: options.scope ?? 'all',
       ...(options.kind ? { kind: options.kind } : {}),
-      archived: 'active', skip: options.skip ?? 0, take: options.take ?? 100,
+      archived: options.archived ?? 'active', skip: options.skip ?? 0, take: options.take ?? 100,
+      ...(options.category ? { category: options.category } : {}),
+      ...(options.supportsCollaboration === undefined ? {} : { supportsCollaboration: options.supportsCollaboration }),
+      ...(options.q?.trim() ? { q: options.q.trim() } : {}),
     },
     signal: options.signal,
   })).data;
+}
+
+export async function getCompositeTemplateManagement(
+  spaceId: string,
+  templateId: string,
+  version: number,
+  locale: CompositeTemplateLocale,
+): Promise<CompositeTemplateManagementDetail> {
+  return (await api.get<CompositeTemplateManagementDetail>(
+    `${spacePath(spaceId)}/templates/${segment(templateId)}/management`,
+    { params: { version, locale } },
+  )).data;
+}
+
+export async function updateCompositeTemplateMetadata(spaceId: string, templateId: string, input: {
+  name: string;
+  description?: string;
+  category: 'planning' | 'reporting' | 'knowledge' | 'other';
+  defaultTitle: string;
+  expectedUpdatedAt: string;
+}): Promise<CompositeTemplateWriteResult> {
+  return (await api.patch<CompositeTemplateWriteResult>(
+    `${spacePath(spaceId)}/templates/${segment(templateId)}`, input,
+  )).data;
+}
+
+export async function createCompositeTemplateVersion(spaceId: string, templateId: string, input: {
+  expectedCurrentVersion: number;
+  definition: CompositeTemplateDefinition;
+}): Promise<CompositeTemplateWriteResult> {
+  return (await api.post<CompositeTemplateWriteResult>(
+    `${spacePath(spaceId)}/templates/${segment(templateId)}/versions`, input,
+  )).data;
+}
+
+export async function archiveCompositeTemplate(
+  spaceId: string, templateId: string, expectedUpdatedAt: string,
+): Promise<CompositeTemplateWriteResult> {
+  return (await api.delete<CompositeTemplateWriteResult>(
+    `${spacePath(spaceId)}/templates/${segment(templateId)}`, { data: { expectedUpdatedAt } },
+  )).data;
+}
+
+export async function restoreCompositeTemplate(
+  spaceId: string, templateId: string, expectedUpdatedAt: string,
+): Promise<CompositeTemplateWriteResult> {
+  return (await api.post<CompositeTemplateWriteResult>(
+    `${spacePath(spaceId)}/templates/${segment(templateId)}/restore`, { expectedUpdatedAt },
+  )).data;
+}
+
+export async function previewFolderTemplate(
+  spaceId: string,
+  rootFolderId: string,
+  selection: FolderSnapshotSelection,
+  signal?: AbortSignal,
+): Promise<FolderSnapshotPreview> {
+  return (await api.post<FolderSnapshotPreview>(`${spacePath(spaceId)}/templates/from-folder/preview`, {
+    rootFolderId, selection,
+  }, { signal })).data;
+}
+
+export async function saveFolderTemplate(
+  spaceId: string,
+  input: SaveFolderTemplateInput,
+): Promise<CompositeTemplateWriteResult> {
+  return (await api.post<CompositeTemplateWriteResult>(
+    `${spacePath(spaceId)}/templates/from-folder`, input,
+  )).data;
+}
+
+export async function discoverFolderCollaborationSource(
+  spaceId: string,
+  folderId: string,
+): Promise<FolderCollaborationSource> {
+  return (await api.get<FolderCollaborationSource>(
+    `${spacePath(spaceId)}/folders/${segment(folderId)}/collaboration-source`,
+  )).data;
+}
+
+export async function getLegacyWorkflowUpgradeSource(
+  spaceId: string,
+  legacyId: string,
+): Promise<LegacyWorkflowUpgradeSource> {
+  return (await api.get<LegacyWorkflowUpgradeSource>(
+    `${spacePath(spaceId)}/collaboration-templates/${segment(legacyId)}/upgrade/source`,
+  )).data;
+}
+
+export async function previewLegacyWorkflowUpgrade(
+  spaceId: string,
+  legacyId: string,
+  input: LegacyWorkflowUpgradeInput,
+): Promise<LegacyWorkflowUpgradePreview> {
+  return (await api.post<LegacyWorkflowUpgradePreview>(
+    `${spacePath(spaceId)}/collaboration-templates/${segment(legacyId)}/upgrade/preview`, input,
+  )).data;
+}
+
+export async function upgradeLegacyWorkflow(
+  spaceId: string,
+  legacyId: string,
+  input: LegacyWorkflowUpgradeInput,
+): Promise<CompositeTemplateWriteResult & { resultVersion: number }> {
+  return (await api.post<CompositeTemplateWriteResult & { resultVersion: number }>(
+    `${spacePath(spaceId)}/collaboration-templates/${segment(legacyId)}/upgrade`, input,
+  )).data;
 }
 
 export async function previewCompositeTemplate(spaceId: string, templateId: string,

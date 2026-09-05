@@ -808,12 +808,17 @@ describe('PageTemplateManager', () => {
     }));
     render(<LanguageHarness />);
 
-    expect(pending).toHaveLength(1);
+    await waitFor(() => expect(pending).toHaveLength(1));
     fireEvent.change(screen.getByLabelText('搜索模板'), { target: { value: 'weekly' } });
     fireEvent.change(screen.getByLabelText('分类'), { target: { value: 'reporting' } });
     fireEvent.click(screen.getByRole('checkbox', { name: '显示已归档模板' }));
     fireEvent.click(screen.getByRole('button', { name: 'Switch language' }));
-    const newest = pending[pending.length - 1];
+    await waitFor(() => expect(pending.some((request) => request.options.locale === 'en'
+      && request.options.q === 'weekly' && request.options.category === 'reporting'
+      && request.options.archived === 'all')).toBe(true));
+    const newest = [...pending].reverse().find((request) => request.options.locale === 'en'
+      && request.options.q === 'weekly' && request.options.category === 'reporting'
+      && request.options.archived === 'all')!;
     await act(async () => newest.resolve({
       ...ownerCatalog, system: [], space: [{ ...spaceTemplate, id: 'newest', name: 'Newest result' }],
     }));
@@ -848,6 +853,7 @@ describe('PageTemplateManager', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Switch space' }));
+    await waitFor(() => expect(resolveNew).toBeTypeOf('function'));
     await act(async () => resolveNew({
       ...ownerCatalog, space: [{ ...spaceTemplate, id: 'new-space', name: 'Space Two template' }],
     }));

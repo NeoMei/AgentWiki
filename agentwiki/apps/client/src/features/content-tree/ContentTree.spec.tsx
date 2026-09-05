@@ -31,4 +31,20 @@ describe('ContentTree Agent binding entry points', () => {
     expect(onConfigureFolderAgents).toHaveBeenCalledWith(folder);
     expect(onConfigurePageAgent).toHaveBeenCalledWith(page);
   });
+
+  it('passes the exact Folder and opener element to the template save action', () => {
+    const onSaveFolderAsTemplate = vi.fn();
+    render(<LanguageProvider><ContentTree nodes={[folder, page]} loading={false} error={null} canEdit
+      levelParentFolderId={null} pageDeleteDisabled={false} emptyText="Empty"
+      onOpenFolder={() => undefined} onOpenPage={() => undefined} onEditPage={() => undefined}
+      onDeletePage={() => undefined} onCreateSubfolder={() => undefined} onRenameFolder={() => undefined}
+      onDeleteFolder={() => undefined} onMove={() => undefined}
+      onSaveFolderAsTemplate={onSaveFolderAsTemplate} />
+    </LanguageProvider>);
+
+    const opener = screen.getByTestId('content-save-template-folder-1');
+    fireEvent.click(opener);
+
+    expect(onSaveFolderAsTemplate).toHaveBeenCalledWith(folder, opener);
+  });
 });

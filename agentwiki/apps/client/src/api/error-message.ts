@@ -37,6 +37,10 @@ const CODE_KEYS: Record<string, string> = {
   COLLABORATION_AGENT_INACTIVE: 'pageTemplate.composite.agentNotActive',
   PAGE_ROLE_REQUIRED: 'pageTemplate.composite.pageRoleRequired',
   CONTENT_TREE_CONFLICT: 'pageTemplate.composite.treeConflict',
+  COLLABORATION_TEMPLATE_VERSION_CONFLICT: 'pageTemplate.upgrade.sourceConflict',
+  PAGE_TEMPLATE_UPGRADE_CONFLICT: 'pageTemplate.upgrade.replayConflict',
+  COLLABORATION_TEMPLATE_NOT_FOUND: 'pageTemplate.upgrade.sourceNotFound',
+  PAGE_TEMPLATE_WARNING_CONFIRMATION_REQUIRED: 'pageTemplate.folderSave.warningConfirmationRequired',
   RESOURCE_NOT_FOUND: 'error.resourceNotFound',
 };
 

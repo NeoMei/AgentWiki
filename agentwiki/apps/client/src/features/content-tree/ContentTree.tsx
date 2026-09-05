@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bot, Edit, FileText, Folder, FolderPlus, Pencil, Trash2 } from 'lucide-react';
+import { Bot, Edit, FileText, Folder, FolderPlus, Pencil, Save, Trash2 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { buildMoveRequest, sortNodes } from './contentTreeState';
 import type { ContentMoveRequest, DragInfo, MovePosition } from './contentTreeState';
@@ -27,6 +27,7 @@ export interface ContentTreeProps {
   onMove: (request: ContentMoveRequest) => void;
   onConfigurePageAgent?: (page: ContentTreePageNode) => void;
   onConfigureFolderAgents?: (folder: ContentTreeFolderNode) => void;
+  onSaveFolderAsTemplate?: (folder: ContentTreeFolderNode, trigger: HTMLElement) => void;
 }
 
 interface NodeRowLabels {
@@ -36,6 +37,7 @@ interface NodeRowLabels {
   deleteFolder: string;
   newSubfolder: string;
   configureAgent: string;
+  saveAsTemplate: string;
 }
 
 export const ContentTree: React.FC<ContentTreeProps> = ({
@@ -57,6 +59,7 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
   onMove,
   onConfigurePageAgent,
   onConfigureFolderAgents,
+  onSaveFolderAsTemplate,
 }) => {
   const { t } = useLanguage();
   const [drag, setDrag] = useState<DragInfo | null>(null);
@@ -93,6 +96,7 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
     deleteFolder: t('folder.delete'),
     newSubfolder: t('folder.createTitle'),
     configureAgent: t('pageTemplate.binding.action'),
+    saveAsTemplate: t('pageTemplate.folderSave.action'),
   };
 
   return (
@@ -115,6 +119,7 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
           onDeleteFolder={onDeleteFolder}
           onConfigurePageAgent={onConfigurePageAgent}
           onConfigureFolderAgents={onConfigureFolderAgents}
+          onSaveFolderAsTemplate={onSaveFolderAsTemplate}
           onDragStart={setDrag}
           onDragEnd={() => setDrag(null)}
           onDrop={(_event, target, position) => {
@@ -144,6 +149,7 @@ interface NodeRowProps {
   onDeleteFolder: (folder: ContentTreeFolderNode) => void;
   onConfigurePageAgent?: (page: ContentTreePageNode) => void;
   onConfigureFolderAgents?: (folder: ContentTreeFolderNode) => void;
+  onSaveFolderAsTemplate?: (folder: ContentTreeFolderNode, trigger: HTMLElement) => void;
   onDragStart: (drag: DragInfo) => void;
   onDragEnd: () => void;
   onDrop: (event: React.DragEvent, target: ContentTreeNode, position: MovePosition) => void;
@@ -231,6 +237,14 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
                   title={labels.configureAgent}
                   onClick={() => props.onConfigureFolderAgents?.(node as ContentTreeFolderNode)}
                 ><Bot size={13} /></IconButton> : null}
+                {props.onSaveFolderAsTemplate ? <IconButton
+                  testId={'content-save-template-' + node.id}
+                  title={labels.saveAsTemplate}
+                  onClick={(event) => props.onSaveFolderAsTemplate?.(
+                    node as ContentTreeFolderNode,
+                    event.currentTarget,
+                  )}
+                ><Save size={13} /></IconButton> : null}
                 <IconButton
                   testId={'content-newsubfolder-' + node.id}
                   title={labels.newSubfolder}
@@ -291,7 +305,7 @@ const IconButton: React.FC<{
   title: string;
   danger?: boolean;
   disabled?: boolean;
-  onClick: () => void;
+  onClick: React.MouseEventHandler<HTMLButtonElement>;
   children: React.ReactNode;
 }> = ({ testId, title, danger, disabled, onClick, children }) => (
   <button

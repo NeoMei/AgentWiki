@@ -7,6 +7,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { NewPageDialog, type NewPageCreationTarget } from '../page-templates/NewPageDialog';
 import { PageAgentBindingDialog, type BindingDialogScope } from '../page-templates/PageAgentBindingDialog';
+import { SaveFolderAsTemplateDialog } from '../page-templates/SaveFolderAsTemplateDialog';
 import {
   createFolder,
   deleteFolder,
@@ -92,6 +93,8 @@ export const SpaceView: React.FC = () => {
   const [restoring, setRestoring] = useState(false);
   const [bindingScope, setBindingScope] = useState<BindingDialogScope | null>(null);
   const [bindingReturnFocus, setBindingReturnFocus] = useState<HTMLElement | null>(null);
+  const [templateFolder, setTemplateFolder] = useState<ContentTreeFolderNode | null>(null);
+  const [templateReturnFocus, setTemplateReturnFocus] = useState<HTMLElement | null>(null);
 
   activeRouteIdRef.current = id;
 
@@ -170,6 +173,8 @@ export const SpaceView: React.FC = () => {
       setDeleteTarget(null);
       setBindingScope(null);
       setBindingReturnFocus(null);
+      setTemplateFolder(null);
+      setTemplateReturnFocus(null);
     }
     void fetchSpace(routeChanged);
     return () => {
@@ -358,6 +363,11 @@ export const SpaceView: React.FC = () => {
       || currentRole === 'admin'
       || currentRole === 'editor'
   );
+  const canManageTemplates = (
+    user?.platformRole === 'super_admin'
+      || currentRole === 'owner'
+      || currentRole === 'admin'
+  );
   const crumbs = crumbsForFolder(folderIndex, currentFolderId, space.name);
 
   return (
@@ -464,6 +474,10 @@ export const SpaceView: React.FC = () => {
             setBindingReturnFocus(document.activeElement instanceof HTMLElement ? document.activeElement : null);
             setBindingScope({ kind: 'folder', folderId: folder.id, name: folder.name });
           }}
+          onSaveFolderAsTemplate={canManageTemplates ? (folder, trigger) => {
+            setTemplateFolder(folder);
+            setTemplateReturnFocus(trigger);
+          } : undefined}
           onMove={(request) => { void handleContentMove(request); }}
         />
       </div>
@@ -500,6 +514,15 @@ export const SpaceView: React.FC = () => {
         returnFocusTo={bindingReturnFocus}
         onClose={() => { setBindingScope(null); setBindingReturnFocus(null); }}
         onSaved={reloadTree}
+      /> : null}
+
+      {templateFolder && canManageTemplates && id ? <SaveFolderAsTemplateDialog
+        spaceId={id}
+        folderId={templateFolder.id}
+        folderName={templateFolder.name}
+        returnFocusTo={templateReturnFocus}
+        onClose={() => { setTemplateFolder(null); setTemplateReturnFocus(null); }}
+        onSaved={() => { setTemplateFolder(null); setTemplateReturnFocus(null); }}
       /> : null}
 
       {folderDialog && canEdit && id ? (

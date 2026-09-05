@@ -19,6 +19,12 @@ vi.mock('../page-templates/PageAgentBindingDialog', () => ({
   ),
 }));
 
+vi.mock('../page-templates/SaveFolderAsTemplateDialog', () => ({
+  SaveFolderAsTemplateDialog: ({ folderName, onClose }: { folderName: string; onClose: () => void }) => (
+    <div role="dialog">Save folder template: {folderName}<button type="button" onClick={onClose}>Close template save</button></div>
+  ),
+}));
+
 vi.mock('../../api/client', () => ({ default: mocks.api }));
 vi.mock('../../context/AuthContext', () => ({ useAuth: () => mocks.auth }));
 vi.mock('../../api/content-tree', () => ({ getContentTreeRevision: mocks.getContentTreeRevision }));
@@ -222,6 +228,30 @@ describe('SpaceView new-page flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close binding' }));
     fireEvent.click(screen.getByTestId('content-agent-folder-1'));
     expect(screen.getByRole('dialog')).toHaveTextContent('Binding folder: Project');
+  });
+
+  it.each([
+    ['owner', true],
+    ['admin', true],
+    ['editor', false],
+    ['viewer', false],
+  ] as const)('shows Folder template saving for %s according to template-management permission', async (role, visible) => {
+    const folder: ContentTreeNode = {
+      kind: 'folder', id: 'folder-1', name: 'Project', path: '/Project', sortOrder: 0,
+      createdAt: '2026-09-05T00:00:00.000Z', updatedAt: '2026-09-05T00:00:00.000Z', hasChildren: true,
+    };
+    mocks.api.get.mockImplementation(async (url: string) => url === '/spaces/space-1'
+      ? spaceResponse('space-1', 'Role Space', role)
+      : treeResponse('space-1', [folder]));
+    renderSpaceView();
+
+    await screen.findByRole('heading', { name: 'Role Space' });
+    const opener = screen.queryByTestId('content-save-template-folder-1');
+    expect(opener !== null).toBe(visible);
+    if (opener) {
+      fireEvent.click(opener);
+      expect(screen.getByRole('dialog')).toHaveTextContent('Save folder template: Project');
+    }
   });
 
   it('archives a page with the page and tree compare-and-swap tokens in the DELETE body', async () => {

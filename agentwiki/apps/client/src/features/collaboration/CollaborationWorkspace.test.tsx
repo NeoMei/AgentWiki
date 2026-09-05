@@ -8,6 +8,9 @@ import { validDefinition } from './collaboration-test-fixtures';
 import { CollaborationWorkspace } from './CollaborationWorkspace';
 
 vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
+vi.mock('../page-templates/UpgradeWorkflowTemplateDialog', () => ({
+  UpgradeWorkflowTemplateDialog: ({ legacyTemplate }: { legacyTemplate: { name: string } }) => <div role="dialog">Upgrade dialog {legacyTemplate.name}</div>,
+}));
 vi.mock('./api', () => ({
   collaborationApi: {
     listTemplates: vi.fn(), copyTemplate: vi.fn(), archiveTemplate: vi.fn(),
@@ -88,6 +91,16 @@ describe('CollaborationWorkspace', () => {
       'space-1', 'system-coding', 'Backend release copy',
     ));
     expect(await screen.findByRole('status')).toHaveTextContent('Template copied');
+  });
+
+  it('marks custom legacy templates pending upgrade while keeping legacy launch and explicit upgrade', async () => {
+    renderWorkspace();
+
+    const card = (await screen.findByText('Backend release')).closest('article')!;
+    expect(card).toHaveTextContent('Pending upgrade');
+    expect(card.querySelector('a[href="/spaces/space-1/collaboration/templates/space-template/start"]')).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Upgrade Backend release' }));
+    expect(await screen.findByRole('dialog')).toHaveTextContent('Upgrade dialog Backend release');
   });
 
   it('keeps ingest Runs distinct and places Collaboration between Runs and Members', async () => {

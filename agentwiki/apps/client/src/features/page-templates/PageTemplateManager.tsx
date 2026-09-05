@@ -4,6 +4,21 @@ import { apiErrorCode, apiErrorMessage } from '../../api/error-message';
 import { ModalDialog } from '../../components/ModalDialog';
 import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
+import { CompositeDefinitionEditor, definitionReferenceIssues } from './CompositeDefinitionEditor';
+import {
+  archiveCompositeTemplate,
+  createCompositeTemplateVersion,
+  getCompositeTemplateManagement,
+  listCompositeTemplates,
+  restoreCompositeTemplate,
+  updateCompositeTemplateMetadata,
+} from './compositeTemplateApi';
+import type {
+  CompositeTemplateDefinition,
+  CompositeTemplateManagementDetail,
+  CompositeTemplateSummary,
+} from './compositeTemplateTypes';
+import { TemplateTreePreview } from './TemplateTreePreview';
 import {
   archivePageTemplate,
   createPageTemplateVersion,
@@ -42,11 +57,18 @@ const TEMPLATE_DEFAULT_TITLE_LIMIT = 200;
 const TEMPLATE_SEARCH_LIMIT = 80;
 const SOURCE_PAGE_TAKE = 100;
 
+type ManagedTemplate = PageTemplateSummary & Partial<Pick<CompositeTemplateSummary,
+  'kind' | 'pageCount' | 'folderCount' | 'roleCount' | 'supportsCollaboration' | 'effectiveSupportsCollaboration'>>;
+
+const templateKind = (template: PageTemplateSummary) => (template as ManagedTemplate).kind ?? 'single_page';
+
 export const PageTemplateManager: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { language, t } = useLanguage();
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<PageTemplateCategory | ''>('');
+  const [kind, setKind] = useState<'' | 'single_page' | 'page_group'>('');
+  const [scope, setScope] = useState<'all' | 'system' | 'space'>('all');
   const [showArchived, setShowArchived] = useState(false);
   const [templates, setTemplatesState] = useState<PageTemplateListResponse>(EMPTY_TEMPLATES);
   const [templatesIdentity, setTemplatesIdentity] = useState<string | null>(null);
@@ -68,6 +90,8 @@ export const PageTemplateManager: React.FC = () => {
   const [sourcePageSkip, setSourcePageSkip] = useState(0);
   const [sourcePageTotal, setSourcePageTotal] = useState(0);
   const [sourcePageId, setSourcePageId] = useState('');
+  const [compositeDetail, setCompositeDetail] = useState<CompositeTemplateManagementDetail | null>(null);
+  const [compositeDraft, setCompositeDraft] = useState<CompositeTemplateDefinition | null>(null);
   const [pendingArchiveKeys, setPendingArchiveKeys] = useState<Set<string>>(() => new Set());
   const requestIdRef = useRef(0);
   const sourceRequestIdRef = useRef(0);
@@ -79,7 +103,7 @@ export const PageTemplateManager: React.FC = () => {
   const archiveOperationRef = useRef(new Set<string>());
   const fallbackFocusRef = useRef<HTMLInputElement>(null);
   spaceIdRef.current = id;
-  const identity = `${id ?? ''}\u0000${language}\u0000${search}\u0000${category}\u0000${showArchived ? 'all' : 'active'}`;
+  const identity = `${id ?? ''}\u0000${language}\u0000${search}\u0000${category}\u0000${kind}\u0000${scope}\u0000${showArchived ? 'all' : 'active'}`;
   const identityRef = useRef(identity);
   identityRef.current = identity;
   const visibleTemplates = templatesIdentity === identity ? templates : EMPTY_TEMPLATES;
@@ -106,31 +130,66 @@ export const PageTemplateManager: React.FC = () => {
     try {
       const options = {
         locale: language,
-        scope: 'all',
+        scope,
+        kind: kind || undefined,
         archived: showArchived ? 'all' : 'active',
         category: category || undefined,
         q: search || undefined,
         skip: reset ? 0 : spaceNextSkipRef.current,
         take: 50,
       } as const;
-      let result = await listPageTemplates(id, options);
+      const unified = await listCompositeTemplates(id, options);
+      const usingUnified = Array.isArray(unified?.data)
+        && typeof unified.total === 'number'
+        && typeof unified.capabilities?.canManage === 'boolean';
+      let result: PageTemplateListResponse;
+      let batchCount: number;
+      if (usingUnified) {
+        const data = unified.data as ManagedTemplate[];
+        result = {
+          system: data.filter((item) => item.scope === 'system') as PageTemplateSummary[],
+          space: data.filter((item) => item.scope === 'space') as PageTemplateSummary[],
+          totalSpace: unified.total, skip: unified.skip, take: unified.take,
+          capabilities: unified.capabilities,
+        };
+        batchCount = data.length;
+      } else {
+        result = await listPageTemplates(id, { ...options, kind: undefined } as Parameters<typeof listPageTemplates>[1]);
+        batchCount = result.space.length;
+      }
       if (requestId !== requestIdRef.current || requestIdentity !== identityRef.current) return;
       let next: PageTemplateListResponse;
       if (reset) {
         next = result;
       } else {
-        const additions = result.space.filter(
-          (item) => !templatesRef.current.space.some((old) => old.id === item.id),
-        );
-        if (additions.length === 0) {
-          result = await listPageTemplates(id, { ...options, skip: 0 });
+        const spaceAdditions = result.space.filter((item) => !templatesRef.current.space.some((old) => old.id === item.id));
+        const systemAdditions = result.system.filter((item) => !templatesRef.current.system.some((old) => old.id === item.id));
+        if (spaceAdditions.length + systemAdditions.length === 0) {
+          if (usingUnified) {
+            const refreshed = await listCompositeTemplates(id, { ...options, skip: 0 });
+            const data = refreshed.data as ManagedTemplate[];
+            result = {
+              system: data.filter((item) => item.scope === 'system') as PageTemplateSummary[],
+              space: data.filter((item) => item.scope === 'space') as PageTemplateSummary[],
+              totalSpace: refreshed.total, skip: refreshed.skip, take: refreshed.take,
+              capabilities: refreshed.capabilities,
+            };
+            batchCount = data.length;
+          } else {
+            result = await listPageTemplates(id, { ...options, skip: 0 });
+            batchCount = result.space.length;
+          }
           if (requestId !== requestIdRef.current || requestIdentity !== identityRef.current) return;
           next = result;
         } else {
-          next = { ...result, space: [...templatesRef.current.space, ...additions] };
+          next = {
+            ...result,
+            system: [...templatesRef.current.system, ...systemAdditions],
+            space: [...templatesRef.current.space, ...spaceAdditions],
+          };
         }
       }
-      spaceNextSkipRef.current = result.skip + result.space.length;
+      spaceNextSkipRef.current = result.skip + batchCount;
       templatesRef.current = next;
       setTemplatesState(next);
       setTemplatesIdentity(requestIdentity);
@@ -144,7 +203,7 @@ export const PageTemplateManager: React.FC = () => {
         setLoadingMore(false);
       }
     }
-  }, [category, id, identity, language, search, showArchived, t]);
+  }, [category, id, identity, kind, language, scope, search, showArchived, t]);
   const latestLoadRef = useRef(load);
   latestLoadRef.current = load;
 
@@ -229,6 +288,24 @@ export const PageTemplateManager: React.FC = () => {
   const openVersion = (template: PageTemplateSummary) => {
     const operationKey = `${id ?? ''}\u0000${template.id}`;
     if (!visibleTemplates.capabilities.canManage || archiveOperationRef.current.has(operationKey)) return;
+    if (templateKind(template) === 'page_group') {
+      setDialogError(null);
+      setDialogConflict(false);
+      setCompositeDetail(null);
+      setCompositeDraft(null);
+      setPendingDialog({ type: 'version', template });
+      const operationSpaceId = id ?? '';
+      void getCompositeTemplateManagement(operationSpaceId, template.id, template.currentVersion, language)
+        .then((detail) => {
+          if (spaceIdRef.current !== operationSpaceId) return;
+          setCompositeDetail(detail);
+          setCompositeDraft(detail.definition);
+        })
+        .catch((caught) => {
+          if (spaceIdRef.current === operationSpaceId) setDialogError(apiErrorMessage(caught, t, 'pageTemplate.reloadFailed'));
+        });
+      return;
+    }
     sourceDialogSpaceIdRef.current = id ?? null;
     setDialogError(null);
     setDialogConflict(false);
@@ -240,6 +317,8 @@ export const PageTemplateManager: React.FC = () => {
     if (!submitting && !conflictReloading) {
       sourceDialogSpaceIdRef.current = null;
       setPendingDialog(null);
+      setCompositeDetail(null);
+      setCompositeDraft(null);
     }
   };
 
@@ -257,13 +336,15 @@ export const PageTemplateManager: React.FC = () => {
     setDialogError(null);
     setDialogConflict(false);
     try {
-      await updatePageTemplate(id, template.id, {
+      const metadataInput = {
         name,
         description: description || undefined,
         category: metadataCategory,
         defaultTitle,
         expectedUpdatedAt: template.updatedAt,
-      });
+      };
+      if (templateKind(template) === 'page_group') await updateCompositeTemplateMetadata(id, template.id, metadataInput);
+      else await updatePageTemplate(id, template.id, metadataInput);
       if (spaceIdRef.current !== operationSpaceId) return;
       invalidateCatalog();
       queueMicrotask(() => fallbackFocusRef.current?.focus());
@@ -281,6 +362,25 @@ export const PageTemplateManager: React.FC = () => {
   const submitVersion = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!id || pendingDialog?.type !== 'version' || submitting || !visibleTemplates.capabilities.canManage) return;
+    if (templateKind(pendingDialog.template) === 'page_group') {
+      if (!compositeDetail || !compositeDraft || definitionReferenceIssues(compositeDraft).length) return;
+      setSubmitting(true);
+      setDialogError(null);
+      setDialogConflict(false);
+      try {
+        const result = await createCompositeTemplateVersion(id, pendingDialog.template.id, {
+          expectedCurrentVersion: compositeDetail.currentVersion,
+          definition: compositeDraft,
+        });
+        if (result.noChange) { setDialogError(t('pageTemplate.noChange')); return; }
+        invalidateCatalog();
+        await latestLoadRef.current(true);
+      } catch (caught) {
+        setDialogConflict(apiErrorCode(caught) === 'PAGE_TEMPLATE_VERSION_CONFLICT');
+        setDialogError(apiErrorMessage(caught, t, 'pageTemplate.createVersionFailed'));
+      } finally { setSubmitting(false); }
+      return;
+    }
     const sourcePage = sourcePages.find((page) => page.id === sourcePageId);
     if (!sourcePage) return;
     const operationIdentity = identityRef.current;
@@ -313,6 +413,23 @@ export const PageTemplateManager: React.FC = () => {
     }
   };
 
+  const inspectComposite = (template: PageTemplateSummary) => {
+    setPendingDialog({ type: 'version', template });
+    setCompositeDetail(null);
+    setCompositeDraft(null);
+    setDialogError(null);
+    const operationSpaceId = id ?? '';
+    void getCompositeTemplateManagement(operationSpaceId, template.id, template.currentVersion, language)
+      .then((detail) => {
+        if (spaceIdRef.current !== operationSpaceId) return;
+        setCompositeDetail(detail);
+        setCompositeDraft(detail.definition);
+      })
+      .catch((caught) => {
+        if (spaceIdRef.current === operationSpaceId) setDialogError(apiErrorMessage(caught, t, 'pageTemplate.reloadFailed'));
+      });
+  };
+
   const reloadConflict = async () => {
     if (!id || !pendingDialog || submitting || conflictReloading || !dialogConflict) return;
     const operationIdentity = identityRef.current;
@@ -322,16 +439,37 @@ export const PageTemplateManager: React.FC = () => {
     setConflictReloading(true);
     setDialogError(null);
     try {
-      const latest = await getPageTemplate(id, templateId, language);
+      const latest = templateKind(pendingDialog.template) === 'page_group'
+        ? await getCompositeTemplateManagement(id, templateId, pendingDialog.template.currentVersion, language)
+        : await getPageTemplate(id, templateId, language);
       if (spaceIdRef.current !== operationSpaceId || identityRef.current !== operationIdentity) return;
+      const latestSummary: PageTemplateSummary = 'templateId' in latest
+        ? latest.scope === 'system'
+          ? {
+            id: latest.templateId, scope: 'system', stableKey: latest.stableKey,
+            category: latest.category, name: latest.name, description: latest.description,
+            defaultTitle: latest.defaultTitle, sourceLocale: null,
+            currentVersion: latest.currentVersion, archivedAt: latest.archivedAt, updatedAt: latest.updatedAt,
+          }
+          : {
+            id: latest.templateId, scope: 'space', stableKey: latest.stableKey,
+            category: latest.category, name: latest.name, description: latest.description,
+            defaultTitle: latest.defaultTitle, sourceLocale: latest.sourceLocale as 'zh-CN' | 'en',
+            currentVersion: latest.currentVersion, archivedAt: latest.archivedAt, updatedAt: latest.updatedAt,
+          }
+        : latest;
       setPendingDialog((current) => (
         current?.type === operationType && current.template.id === templateId
-          ? { ...current, template: latest }
+          ? { ...current, template: { ...current.template, ...latestSummary } }
           : current
       ));
+      if ('definition' in latest) {
+        setCompositeDetail(latest);
+        setCompositeDraft((current) => current ?? latest.definition);
+      }
       const nextCatalog = {
         ...templatesRef.current,
-        space: templatesRef.current.space.map((item) => item.id === templateId ? latest : item),
+        space: templatesRef.current.space.map((item) => item.id === templateId ? { ...item, ...latestSummary } : item),
       };
       templatesRef.current = nextCatalog;
       setTemplatesState(nextCatalog);
@@ -358,7 +496,10 @@ export const PageTemplateManager: React.FC = () => {
     const operationSpaceId = id;
     setError(null);
     try {
-      if (restore) await restorePageTemplate(id, template.id, template.updatedAt);
+      if (templateKind(template) === 'page_group') {
+        if (restore) await restoreCompositeTemplate(id, template.id, template.updatedAt);
+        else await archiveCompositeTemplate(id, template.id, template.updatedAt);
+      } else if (restore) await restorePageTemplate(id, template.id, template.updatedAt);
       else await archivePageTemplate(id, template.id, template.updatedAt);
       if (spaceIdRef.current === operationSpaceId) {
         invalidateCatalog();
@@ -399,16 +540,19 @@ export const PageTemplateManager: React.FC = () => {
                   {t('common.edit')} {template.name}
                 </button>
                 <button type="button" disabled={archivePending} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => openVersion(template)}>
-                  {t('pageTemplate.updateFromPage')} {template.name}
+                  {templateKind(template) === 'page_group' ? t('pageTemplate.composite.editStructure') : t('pageTemplate.updateFromPage')} {template.name}
                 </button>
                 <button type="button" disabled={archivePending} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm text-red-600 break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => void changeArchiveState(template, false)}>
                   {t('pageTemplate.archive')} {template.name}
                 </button>
               </>
             ) : (
-              <button type="button" disabled={archivePending} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => void changeArchiveState(template, true)}>
-                {t('pageTemplate.restore')} {template.name}
-              </button>
+              <>
+                {templateKind(template) === 'page_group' ? <button type="button" disabled={archivePending} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => inspectComposite(template)}>{t('pageTemplate.composite.inspect')} {template.name}</button> : null}
+                <button type="button" disabled={archivePending} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => void changeArchiveState(template, true)}>
+                  {t('pageTemplate.restore')} {template.name}
+                </button>
+              </>
             )}
           </div>
         ) : null}
@@ -426,7 +570,7 @@ export const PageTemplateManager: React.FC = () => {
       <h1 className="mt-3 text-2xl font-semibold">{t('pageTemplate.settingsTitle')}</h1>
       <p className="mt-1 text-sm text-gray-500">{t('pageTemplate.settingsDescription')}</p>
 
-      <div className="mt-6 grid gap-3 rounded-[14px] border bg-white p-4 md:grid-cols-[minmax(0,1fr)_180px_auto] md:items-end">
+      <div className="mt-6 grid gap-3 rounded-[14px] border bg-white p-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_160px_160px_160px_auto] lg:items-end">
         <label className="text-sm font-medium">
           <span className="mb-1 block">{t('pageTemplate.search')}</span>
           <input
@@ -436,6 +580,22 @@ export const PageTemplateManager: React.FC = () => {
             onChange={(event) => setSearch(truncateValidatorLength(event.target.value, TEMPLATE_SEARCH_LIMIT))}
             className="h-10 w-full rounded-lg border px-3 font-normal"
           />
+        </label>
+        <label className="text-sm font-medium">
+          <span className="mb-1 block">{t('pageTemplate.composite.kindFilter')}</span>
+          <select value={kind} onChange={(event) => setKind(event.target.value as typeof kind)} className="h-10 w-full rounded-lg border px-3 font-normal">
+            <option value="">{t('pageTemplate.filter.all')}</option>
+            <option value="single_page">{t('pageTemplate.composite.singlePage')}</option>
+            <option value="page_group">{t('pageTemplate.composite.pageGroup')}</option>
+          </select>
+        </label>
+        <label className="text-sm font-medium">
+          <span className="mb-1 block">{t('pageTemplate.composite.scopeFilter')}</span>
+          <select value={scope} onChange={(event) => setScope(event.target.value as typeof scope)} className="h-10 w-full rounded-lg border px-3 font-normal">
+            <option value="all">{t('pageTemplate.filter.all')}</option>
+            <option value="system">{t('pageTemplate.filter.system')}</option>
+            <option value="space">{t('pageTemplate.filter.space')}</option>
+          </select>
         </label>
         <label className="text-sm font-medium">
           <span className="mb-1 block">{t('pageTemplate.category')}</span>
@@ -472,7 +632,7 @@ export const PageTemplateManager: React.FC = () => {
       {loading ? <p className="mt-6 text-sm text-gray-500">{t('common.loading')}</p> : null}
       {!loading && !error && visibleTemplates.system.length === 0 && visibleTemplates.space.length === 0 ? (
         <p role="status" className="mt-6 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600">
-          {search.trim() || category || showArchived
+            {search.trim() || category || kind || scope !== 'all' || showArchived
             ? t('pageTemplate.emptySearch')
             : t('pageTemplate.emptyCatalog')}
         </p>
@@ -538,13 +698,20 @@ export const PageTemplateManager: React.FC = () => {
       ) : null}
 
       {visibleTemplates.capabilities.canManage && pendingDialog?.type === 'version' ? (
-        <ModalDialog labelledBy="version-dialog-title" onRequestClose={closeDialog} closeDisabled={submitting || conflictReloading} fallbackFocusRef={fallbackFocusRef} className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-[14px] bg-white p-5">
+        <ModalDialog labelledBy="version-dialog-title" onRequestClose={closeDialog} closeDisabled={submitting || conflictReloading} fallbackFocusRef={fallbackFocusRef} className={`max-h-[calc(100vh-2rem)] w-full overflow-y-auto rounded-[14px] bg-white p-5 ${templateKind(pendingDialog.template) === 'page_group' ? 'max-w-5xl' : 'max-w-lg'}`}>
           <div className="flex items-start justify-between gap-3">
-            <h2 id="version-dialog-title" className="min-w-0 break-all text-xl font-semibold [overflow-wrap:anywhere]">{t('pageTemplate.updateFromPage')} {pendingDialog.template.name}</h2>
+            <h2 id="version-dialog-title" className="min-w-0 break-all text-xl font-semibold [overflow-wrap:anywhere]">{templateKind(pendingDialog.template) === 'page_group' ? t('pageTemplate.composite.definition') : t('pageTemplate.updateFromPage')} {pendingDialog.template.name}</h2>
             <button type="button" aria-label={t('common.close')} disabled={submitting || conflictReloading} onClick={closeDialog} className="h-8 w-8 shrink-0 rounded-lg border disabled:opacity-50">×</button>
           </div>
           <form className="mt-5 space-y-4" onSubmit={submitVersion}>
-            <label className="block text-sm font-medium">
+            {templateKind(pendingDialog.template) === 'page_group' ? <>
+              <h3 className="font-semibold">{t('pageTemplate.composite.nestedDefinition')}</h3>
+              {!compositeDraft ? <p className="text-sm text-gray-500">{t('common.loading')}</p> : pendingDialog.template.archivedAt
+                ? <TemplateTreePreview nodes={compositeDraft.nodes.map((node) => node.kind === 'folder'
+                  ? { ...node, name: node.nameI18n[language] ?? node.nameI18n.en ?? node.nodeId }
+                  : { ...node, title: node.titleI18n[language] ?? node.titleI18n.en ?? node.nodeId, content: node.contentI18n[language] ?? node.contentI18n.en ?? '' })} emptyLabel={t('pageTemplate.emptyCatalog')} />
+                : <CompositeDefinitionEditor definition={compositeDraft} locale={language} onChange={(next) => { setCompositeDraft(next); setDialogError(null); }} />}
+            </> : <><label className="block text-sm font-medium">
               {t('pageTemplate.sourcePage')}
               <select
                 data-modal-autofocus
@@ -571,13 +738,13 @@ export const PageTemplateManager: React.FC = () => {
                 onClick={() => void loadSourcePage(sourcePageSkip + SOURCE_PAGE_TAKE)}
                 className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50"
               >{t('common.next')}</button>
-            </div>
+            </div></>}
             {dialogError ? <p role="alert" className="text-sm text-red-600">{dialogError}</p> : null}
             <div className="flex justify-end gap-2">
-              {sourcePagesFailed ? <button type="button" disabled={sourcePagesLoading || submitting} onClick={() => void loadSourcePage(sourceRetrySkipRef.current)} className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('pageTemplate.retry')}</button> : null}
+              {templateKind(pendingDialog.template) === 'single_page' && sourcePagesFailed ? <button type="button" disabled={sourcePagesLoading || submitting} onClick={() => void loadSourcePage(sourceRetrySkipRef.current)} className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('pageTemplate.retry')}</button> : null}
               {dialogConflict ? <button type="button" disabled={conflictReloading} onClick={() => void reloadConflict()} className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('pageTemplate.reload')}</button> : null}
               <button type="button" disabled={submitting || conflictReloading} onClick={closeDialog} className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('common.cancel')}</button>
-              <button type="submit" disabled={submitting || conflictReloading || dialogConflict || sourcePagesLoading || !sourcePageId} className="h-10 rounded-lg bg-blue-600 px-4 text-sm text-white disabled:opacity-50">{t('pageTemplate.createVersion')}</button>
+              {!pendingDialog.template.archivedAt ? <button type="submit" disabled={submitting || conflictReloading || dialogConflict || (templateKind(pendingDialog.template) === 'single_page' ? sourcePagesLoading || !sourcePageId : !compositeDraft || definitionReferenceIssues(compositeDraft).length > 0)} className="h-10 rounded-lg bg-blue-600 px-4 text-sm text-white disabled:opacity-50">{t('pageTemplate.createVersion')}</button> : null}
             </div>
           </form>
         </ModalDialog>
