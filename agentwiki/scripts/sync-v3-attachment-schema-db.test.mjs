@@ -46,6 +46,19 @@ test('Sync v3 database URLs fail closed outside a dedicated test database and sc
     () => validateSyncV3TestDatabaseUrl('postgresql://localhost/agentwiki'),
     /database name.*test/iu,
   );
+  for (const unsafeHost of [
+    '203.0.113.10',
+    'localhost.evil',
+    '2130706433',
+    '0x7f000001',
+  ]) {
+    assert.throws(
+      () => validateSyncV3TestDatabaseUrl(
+        `postgresql://${unsafeHost}/agentwiki_sync_v3_test`,
+      ),
+      /loopback/iu,
+    );
+  }
   assert.throws(
     () => validateSyncV3TestDatabaseUrl(
       'postgresql://localhost/agentwiki_test?schema=sync_v3_test_safe&schema=public',
@@ -58,6 +71,12 @@ test('Sync v3 database URLs fail closed outside a dedicated test database and sc
   );
   assert.doesNotThrow(
     () => validateSyncV3TestDatabaseUrl('postgresql://localhost/agentwiki_sync_v3_test'),
+  );
+  assert.doesNotThrow(
+    () => validateSyncV3TestDatabaseUrl('postgresql://127.42.0.9/agentwiki_sync_v3_test'),
+  );
+  assert.doesNotThrow(
+    () => validateSyncV3TestDatabaseUrl('postgresql://[::1]/agentwiki_sync_v3_test'),
   );
   assert.doesNotThrow(
     () => validateSyncV3TestDatabaseUrl(

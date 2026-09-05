@@ -472,9 +472,10 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
     });
     expect([403, 404]).toContain(outsiderContent.status());
 
+    const archiveFixture = await uploadByApi(owner, primarySpaceId, 'archive-restore.png');
     const archived = await json<AttachmentSummary>(await api.post(
-      `spaces/${primarySpaceId}/attachments/${sameNameAttachment.id}/archive`,
-      { headers: headers(owner), data: { expectedUpdatedAt: sameNameAttachment.updatedAt } },
+      `spaces/${primarySpaceId}/attachments/${archiveFixture.id}/archive`,
+      { headers: headers(owner), data: { expectedUpdatedAt: archiveFixture.updatedAt } },
     ), 'owner archives attachment');
     expect(archived.status).toBe('archived');
     const activeAfterArchive = await json<AttachmentList>(await api.get(
@@ -485,23 +486,23 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       `spaces/${primarySpaceId}/attachments?status=archived&skip=0&take=100`,
       { headers: headers(owner) },
     ), 'owner lists archived attachments after archive');
-    expect(activeAfterArchive.items.map((item) => item.id)).not.toContain(sameNameAttachment.id);
-    expect(archivedAfterArchive.items.map((item) => item.id)).toContain(sameNameAttachment.id);
+    expect(activeAfterArchive.items.map((item) => item.id)).not.toContain(archiveFixture.id);
+    expect(archivedAfterArchive.items.map((item) => item.id)).toContain(archiveFixture.id);
     // Archive removes the item from active resolution but retains recoverable bytes.
-    expect((await api.get(`attachments/${sameNameAttachment.id}/content`, {
+    expect((await api.get(`attachments/${archiveFixture.id}/content`, {
       headers: headers(owner),
     })).status()).toBe(200);
-    sameNameAttachment = await json<AttachmentSummary>(await api.post(
-      `spaces/${primarySpaceId}/attachments/${sameNameAttachment.id}/restore`,
+    const restoredArchiveFixture = await json<AttachmentSummary>(await api.post(
+      `spaces/${primarySpaceId}/attachments/${archiveFixture.id}/restore`,
       { headers: headers(owner), data: { expectedUpdatedAt: archived.updatedAt } },
     ), 'owner restores attachment');
-    expect(sameNameAttachment.status).toBe('active');
+    expect(restoredArchiveFixture.status).toBe('active');
     const activeAfterRestore = await json<AttachmentList>(await api.get(
       `spaces/${primarySpaceId}/attachments?status=active&skip=0&take=100`,
       { headers: headers(owner) },
     ), 'owner lists active attachments after restore');
-    expect(activeAfterRestore.items.map((item) => item.id)).toContain(sameNameAttachment.id);
-    expect((await api.get(`attachments/${sameNameAttachment.id}/content`, {
+    expect(activeAfterRestore.items.map((item) => item.id)).toContain(archiveFixture.id);
+    expect((await api.get(`attachments/${archiveFixture.id}/content`, {
       headers: headers(owner),
     })).status()).toBe(200);
 
@@ -555,7 +556,7 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
     }
   });
 
-  test('uploads through picker, paste and coordinate drop, then saves authoritative markers and private Blob images', async ({ browser }) => {
+  test('uploads through picker, paste and coordinate drop, then saves authoritative markers and private Blob images', async ({ browser }, testInfo) => {
     test.setTimeout(120_000);
     const ownerSession = await authenticatedPage(browser, owner);
     try {
@@ -629,6 +630,10 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       }
       const ownerScreenshot = path.join(artifacts, 'owner-attachment-preview.png');
       await page.screenshot({ path: ownerScreenshot, fullPage: true });
+      await testInfo.attach('owner-attachment-preview', {
+        path: ownerScreenshot,
+        contentType: 'image/png',
+      });
       // Screenshot is layout evidence only; credential checks use inspectable browser surfaces.
       await recordCredentialSurface(page);
       expect(ownerSession.externalRequests).toEqual([]);
@@ -750,7 +755,7 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
     }
   });
 
-  test('renders refreshed sections, bounded cycle/depth/count/character fallbacks, version provenance and responsive anchors', async ({ browser }) => {
+  test('renders refreshed sections, bounded cycle/depth/count/character fallbacks, version provenance and responsive anchors', async ({ browser }, testInfo) => {
     test.setTimeout(180_000);
     const session = await authenticatedPage(browser, owner);
     const contexts: BrowserContext[] = [session.context];
@@ -811,6 +816,10 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       await expectNoDocumentOverflow(page);
       const mobileScreenshot = path.join(artifacts, 'mobile-attachment-picker.png');
       await page.screenshot({ path: mobileScreenshot, fullPage: true });
+      await testInfo.attach('mobile-attachment-picker', {
+        path: mobileScreenshot,
+        contentType: 'image/png',
+      });
       // Screenshot is layout evidence only; credential checks use inspectable browser surfaces.
       await recordCredentialSurface(page);
       expect(session.externalRequests).toEqual([]);

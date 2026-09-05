@@ -26,6 +26,7 @@ test('server test harness declares random schema isolation without leaking crede
   assert.deepEqual(JSON.parse(result.stdout), {
     status: 'ready',
     databaseIsolation: 'random collaboration_test_* schema',
+    syncV3DatabaseBinding: 'same random collaboration_test_* schema',
   });
   assert.doesNotMatch(result.stdout, /secret|postgresql:\/\//u);
 });

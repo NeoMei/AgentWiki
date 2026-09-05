@@ -92,13 +92,12 @@ export async function assertNpmReleaseCandidatesAvailable({
   return { registryUrl: registry.href, candidates };
 }
 
-async function releaseCandidates() {
-  const [protocol, localSync] = await Promise.all([
-    readFile(new URL('../packages/sync-protocol/package.json', import.meta.url), 'utf8').then(JSON.parse),
-    readFile(new URL('../packages/local-sync/package.json', import.meta.url), 'utf8').then(JSON.parse),
-  ]);
+export async function releaseCandidates() {
+  const localSync = await readFile(
+    new URL('../packages/local-sync/package.json', import.meta.url),
+    'utf8',
+  ).then(JSON.parse);
   return [
-    { name: protocol.name, version: protocol.version },
     { name: localSync.name, version: localSync.version },
   ];
 }

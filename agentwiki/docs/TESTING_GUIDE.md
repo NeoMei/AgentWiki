@@ -253,7 +253,7 @@
 | 12.6 | 跨机器同步 | 不同机器通过同一 Space 读写同一套 Wiki |
 | 12.7 | 知识修订 | `GET /spaces/:spaceId/knowledge-revisions/current` 返回当前 revision |
 | 12.8 | 快照/Delta | `GET .../snapshot`、`GET .../delta?from=xxx` 增量同步 |
-| 12.9 | npm 包 | `pnpm test:package:local-sync-clean-install` 在空目录联合安装 sync-protocol 0.5.1 与 local-sync 0.8.0 并启动 CLI；`pnpm test:release:sync-v3-registry` 必须对显式 registry fail closed。当前计划只允许发布 protocol 0.5.1；local-sync 0.8.0 仍需后续独立授权与计划。 |
+| 12.9 | npm 包 | `pnpm test:package:local-sync-clean-install` 在空目录联合安装 sync-protocol 0.5.1 与 local-sync 0.8.0 并启动 CLI；`pnpm test:release:sync-v3-registry` 只对待发布的 Local Sync 0.8.0 执行显式 registry 可用性门并 fail closed。已发布且不可变的 protocol 0.5.1 不再进行“版本未占用”检查；运行 `pnpm test:release:sync-protocol-registry-parity` 从 registry 下载其 tarball 并与当前候选产物解包后逐字节比较，再运行 `pnpm test:package:local-sync-registry-protocol` 验证公网协议包的干净消费者兼容性。禁止重新发布 protocol 0.5.1 或绕过 Local Sync 的 registry 检查。 |
 
 ---
 

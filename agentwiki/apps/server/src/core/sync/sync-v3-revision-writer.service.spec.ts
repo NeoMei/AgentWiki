@@ -1157,6 +1157,10 @@ describe('SyncV3RevisionWriterService PostgreSQL integration', () => {
       await prisma.user.create({ data: { id: userId, email: `${suffix}@rename.sync-v3.test` } });
       await prisma.space.create({ data: { id: spaceId, name: 'Rename v3', slug: spaceId } });
       await prisma.spaceMember.create({ data: { userId, spaceId, role: 'owner' } });
+      const pageBFolder = await prisma.folder.create({ data: {
+        spaceId, name: 'topic', nameKey: 'topic', path: 'pages/topic', pathKey: 'pages/topic',
+        createdByUserId: userId,
+      } });
       const pageAContent = '![[  assets/photo.png  | cover | 320x200  ]]\r\n![root](<../assets/photo.png> "title")';
       const pageBContent = 'prefix ![nested](<../../assets/photo.png> "nested title") suffix';
       const pageA = await prisma.page.create({ data: {
@@ -1167,6 +1171,7 @@ describe('SyncV3RevisionWriterService PostgreSQL integration', () => {
       const pageB = await prisma.page.create({ data: {
         knowledgeKey: `page_b_${suffix}`, title: 'Page B', slug: `page-b-${suffix}`,
         content: pageBContent, spaceId, authorId: userId,
+        folderId: pageBFolder.id,
         syncPath: 'pages/topic/Page B.md', syncPathKey: 'pages/topic/page b.md',
       } });
       const attachment = await prisma.spaceAttachment.create({ data: {

@@ -4,10 +4,7 @@ import { once } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const candidates = [
-  { name: '@neomei/agentwiki-sync-protocol', version: '0.5.1' },
-  { name: '@neomei/agentwiki-local-sync', version: '0.8.0' },
-];
+const candidates = [{ name: '@neomei/agentwiki-local-sync', version: '0.8.0' }];
 
 async function loadGate() {
   return import('./sync-v3-registry-collision-gate.mjs');
@@ -27,7 +24,7 @@ async function withRegistry(handler, operation) {
   }
 }
 
-test('release manifests and the explicit registry command use the unoccupied candidates', async () => {
+test('release manifests and the explicit registry command check only unpublished Local Sync', async () => {
   const [root, protocol, localSync] = await Promise.all([
     readFile(new URL('../package.json', import.meta.url), 'utf8').then(JSON.parse),
     readFile(new URL('../packages/sync-protocol/package.json', import.meta.url), 'utf8').then(JSON.parse),
@@ -41,14 +38,16 @@ test('release manifests and the explicit registry command use the unoccupied can
     root.scripts['test:release:sync-v3-registry'],
     'node scripts/sync-v3-registry-collision-gate.mjs --registry=https://registry.npmjs.org/',
   );
+  const { releaseCandidates } = await loadGate();
+  assert.deepEqual(await releaseCandidates(), candidates);
 });
 
 test('registry collision gate rejects an occupied candidate', async () => {
   const { assertNpmReleaseCandidatesAvailable } = await loadGate();
   await withRegistry((request, response) => {
     response.writeHead(200, { 'content-type': 'application/json' });
-    const occupied = request.url?.includes('sync-protocol');
-    response.end(JSON.stringify({ versions: occupied ? { '0.5.1': {} } : { '0.7.0': {} } }));
+    assert.match(request.url ?? '', /local-sync/u);
+    response.end(JSON.stringify({ versions: { '0.8.0': {} } }));
   }, async (registryUrl) => {
     await assert.rejects(
       assertNpmReleaseCandidatesAvailable({ registryUrl, candidates }),
@@ -57,7 +56,7 @@ test('registry collision gate rejects an occupied candidate', async () => {
   });
 });
 
-test('registry collision gate accepts candidates only after both version lists are fetched', async () => {
+test('registry collision gate accepts the Local Sync candidate after its version list is fetched', async () => {
   const { assertNpmReleaseCandidatesAvailable } = await loadGate();
   const requested = [];
   await withRegistry((request, response) => {
@@ -67,7 +66,7 @@ test('registry collision gate accepts candidates only after both version lists a
   }, async (registryUrl) => {
     const result = await assertNpmReleaseCandidatesAvailable({ registryUrl, candidates });
     assert.deepEqual(result, { registryUrl, candidates });
-    assert.equal(requested.length, 2);
+    assert.equal(requested.length, 1);
   });
 });
 

@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
 import { cp, mkdtemp, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { boundedMigrationOptions, spawnPnpmSync } from './package-manager-process.mjs';
+import { assertLoopbackDatabaseHost } from './test-database-url-safety.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
@@ -27,23 +28,21 @@ export function buildMigrationDeployProcess({ databaseUrl, prismaRoot }) {
   const childEnvironment = { ...process.env, DATABASE_URL: databaseUrl };
   delete childEnvironment.SYNC_V3_TEST_DATABASE_URL;
   return {
-    command: 'pnpm',
     args: [
       '--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy',
       '--schema', join(prismaRoot, 'schema.prisma'),
     ],
-    options: {
+    options: boundedMigrationOptions({
       cwd: new URL('..', import.meta.url),
       encoding: 'utf8',
-      timeout: 120_000,
       env: childEnvironment,
-    },
+    }),
   };
 }
 
 function runMigrationDeploy({ databaseUrl, prismaRoot, sensitiveValues, stage }) {
   const invocation = buildMigrationDeployProcess({ databaseUrl, prismaRoot });
-  const migration = spawnSync(invocation.command, invocation.args, invocation.options);
+  const migration = spawnPnpmSync(invocation.args, invocation.options);
   const diagnostics = redactMigrationDiagnostics(
     [migration.error?.message, migration.stdout, migration.stderr]
       .filter(Boolean)
@@ -78,6 +77,7 @@ export function validateSyncV3TestDatabaseUrl(value) {
   if (!['postgres:', 'postgresql:'].includes(parsed.protocol)) {
     throw new Error('SYNC_V3_TEST_DATABASE_URL must use PostgreSQL');
   }
+  assertLoopbackDatabaseHost(parsed, 'SYNC_V3_TEST_DATABASE_URL');
   const databaseName = decodeURIComponent(parsed.pathname.replace(/^\//u, ''));
   if (!databaseName || !databaseName.toLowerCase().includes('test')) {
     throw new Error('SYNC_V3_TEST_DATABASE_URL database name must contain test');

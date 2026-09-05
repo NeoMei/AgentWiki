@@ -740,9 +740,9 @@ describe('sync v3 HTTP contract', () => {
     });
     const body = await response.json();
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(410);
     expect(SyncV3ErrorEnvelopeSchema.parse(body)).toEqual({
-      protocolVersion: '3', error: { code: 'INTERNAL_ERROR', retryable: true },
+      protocolVersion: '3', error: { code: 'REVISION_GONE', retryable: false },
     });
     expect(JSON.stringify(body)).not.toMatch(/private|storageKey|secret|message|details|path/u);
   });
