@@ -227,6 +227,150 @@ describe('AttachmentService', () => {
     }, principal('viewer')))).not.toContain('storageKey');
   });
 
+  it('lists legacy unsafe active rows as visible but non-referenceable', async () => {
+    const h = harness();
+    h.attachment.findMany.mockResolvedValue([
+      row(),
+      ...['bad|name.png', 'bad]]name.png', 'a%20b.png', 'bad:name.png', 'bad#name.png']
+        .map((displayName, index) => row({
+          id: `legacy-${index}`,
+          displayName,
+          nameKey: displayName.toLocaleLowerCase('und'),
+        })),
+    ]);
+    h.attachment.count.mockResolvedValue(6);
+
+    const result = await h.service.list('space-1', {
+      status: 'active', skip: 0, take: 100,
+    }, principal('viewer'));
+
+    expect(result.items[0]).toMatchObject({
+      displayName: 'Photo.png', referenceable: true, canonicalPath: 'assets/Photo.png',
+    });
+    const unsafeItems = result.items.slice(1) as Array<typeof result.items[number] & {
+      referenceable: boolean;
+      canonicalPath: string | null;
+    }>;
+    expect(unsafeItems.map(({ displayName, referenceable, canonicalPath }) => ({
+      displayName, referenceable, canonicalPath,
+    }))).toEqual([
+      { displayName: 'bad|name.png', referenceable: false, canonicalPath: null },
+      { displayName: 'bad]]name.png', referenceable: false, canonicalPath: null },
+      { displayName: 'a%20b.png', referenceable: false, canonicalPath: null },
+      { displayName: 'bad:name.png', referenceable: false, canonicalPath: null },
+      { displayName: 'bad#name.png', referenceable: false, canonicalPath: null },
+    ]);
+  });
+
+  it('repairs an unreferenced legacy unsafe attachment through preview and confirm', async () => {
+    const h = harness();
+    const unsafe = row({ displayName: 'bad|name.png', nameKey: 'bad|name.png' });
+    h.attachment.findFirst.mockImplementation(async ({ where }: { where: { id?: string } }) => (
+      where.id === 'attachment-1' ? unsafe : null
+    ));
+    h.attachment.findMany.mockResolvedValue([unsafe]);
+    h.page.findMany.mockResolvedValue([]);
+    h.attachment.findUnique.mockResolvedValue(row({
+      displayName: 'repaired.png', nameKey: 'repaired.png', updatedAt: new Date(NOW.getTime() + 1),
+    }));
+
+    const preview = await h.service.previewRename('space-1', 'attachment-1', {
+      displayName: 'repaired.png',
+    }, principal('editor'));
+    const tokenPayload = JSON.parse(Buffer.from(preview.previewToken.split('.')[0], 'base64url').toString('utf8'));
+    expect(tokenPayload).toMatchObject({ sourceIdentityHash: expect.stringMatching(/^[0-9a-f]{64}$/u) });
+    expect(tokenPayload).not.toHaveProperty('sourcePath');
+    expect(JSON.stringify(tokenPayload)).not.toContain('bad|name.png');
+    await expect(h.service.rename('space-1', 'attachment-1', {
+      previewToken: preview.previewToken,
+    }, principal('editor'))).resolves.toMatchObject({
+      displayName: 'repaired.png', referenceable: true, canonicalPath: 'assets/repaired.png',
+    });
+    expect(h.attachment.updateMany).toHaveBeenCalledTimes(1);
+    expect(h.revisionWriter.advanceReferencedImagesLocked).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an unsafe source identity change after preview even when updatedAt is unchanged', async () => {
+    const h = harness();
+    let live = row({ displayName: 'bad|name.png', nameKey: 'bad|name.png' });
+    h.attachment.findFirst.mockImplementation(async ({ where }: { where: { id?: string } }) => (
+      where.id === 'attachment-1' ? live : null
+    ));
+    h.attachment.findMany.mockImplementation(async () => [live]);
+    h.page.findMany.mockResolvedValue([]);
+
+    const preview = await h.service.previewRename('space-1', 'attachment-1', {
+      displayName: 'repaired.png',
+    }, principal('editor'));
+    live = row({ displayName: 'other#name.png', nameKey: 'other#name.png' });
+
+    await expect(h.service.rename('space-1', 'attachment-1', {
+      previewToken: preview.previewToken,
+    }, principal('editor'))).rejects.toMatchObject({ businessCode: 'RESOURCE_CONFLICT' });
+    expect(h.attachment.updateMany).not.toHaveBeenCalled();
+    expect(h.revisionWriter.advanceReferencedImagesLocked).not.toHaveBeenCalled();
+  });
+
+  it('rejects repair when a legacy Page contains an unsafe raw marker and publishes nothing', async () => {
+    const h = harness();
+    const unsafe = row({ displayName: 'bad|name.png', nameKey: 'bad|name.png' });
+    h.attachment.findFirst.mockImplementation(async ({ where }: { where: { id?: string } }) => (
+      where.id === 'attachment-1' ? unsafe : null
+    ));
+    h.attachment.findMany.mockResolvedValue([unsafe]);
+    h.page.findMany.mockResolvedValue([{
+      id: 'legacy-page', knowledgeKey: 'legacy-key', title: 'Legacy Page',
+      content: '![[bad|name.png]]', authorId: 'owner-1', slug: 'legacy-page', format: 'markdown',
+      parentId: null, folderId: null, syncPath: 'pages/legacy.md', syncPathKey: 'pages/legacy.md',
+      updatedAt: NOW,
+    }]);
+
+    let rejection: BusinessException | undefined;
+    try {
+      await h.service.previewRename('space-1', 'attachment-1', {
+        displayName: 'repaired.png',
+      }, principal('editor'));
+    } catch (error) {
+      rejection = error as BusinessException;
+    }
+    expect(rejection?.getResponse()).toEqual(expect.objectContaining({
+      code: 'ATTACHMENT_REFERENCE_INVALID',
+      details: { pages: [{ id: 'legacy-page', title: 'Legacy Page' }] },
+    }));
+    expect(h.attachment.updateMany).not.toHaveBeenCalled();
+    expect(h.revisionWriter.advanceReferencedImagesLocked).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['fenced code', 'before\n```md\n![[bad|name.png]]\n```\nafter'],
+    ['inline code', 'before `![[bad|name.png]]` after'],
+  ])('repairs an unsafe unreferenced attachment when its old marker appears only in %s', async (_label, content) => {
+    const h = harness();
+    const unsafe = row({ displayName: 'bad|name.png', nameKey: 'bad|name.png' });
+    h.attachment.findFirst.mockImplementation(async ({ where }: { where: { id?: string } }) => (
+      where.id === 'attachment-1' ? unsafe : null
+    ));
+    h.attachment.findMany.mockResolvedValue([unsafe]);
+    h.page.findMany.mockResolvedValue([{
+      id: 'example-page', knowledgeKey: 'example-key', title: 'Examples',
+      content, authorId: 'owner-1', slug: 'examples', format: 'markdown',
+      parentId: null, folderId: null, syncPath: 'pages/examples.md', syncPathKey: 'pages/examples.md',
+      updatedAt: NOW,
+    }]);
+    h.attachment.findUnique.mockResolvedValue(row({
+      displayName: 'repaired.png', nameKey: 'repaired.png', updatedAt: new Date(NOW.getTime() + 1),
+    }));
+
+    const preview = await h.service.previewRename('space-1', 'attachment-1', {
+      displayName: 'repaired.png',
+    }, principal('editor'));
+    await expect(h.service.rename('space-1', 'attachment-1', {
+      previewToken: preview.previewToken,
+    }, principal('editor'))).resolves.toMatchObject({ displayName: 'repaired.png' });
+    expect(h.attachment.updateMany).toHaveBeenCalledTimes(1);
+    expect(h.revisionWriter.advanceReferencedImagesLocked).toHaveBeenCalledTimes(1);
+  });
+
   it.each(['owner', 'editor'] as const)('allows a live human %s to upload', async (role) => {
     const h = harness();
     await expect(h.service.upload('space-1', uploadFile(), principal(role)))

@@ -14,13 +14,17 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('./attachmentApi', () => mocks);
 
-const attachment = (overrides: Record<string, unknown> = {}) => ({
-  id: 'attachment-1', spaceId: 'space-1', displayName: 'diagram.png', mimeType: 'image/png',
-  sizeBytes: 10n, width: 100, height: 50, status: 'active' as const,
-  uploadedByUserId: 'user-1', createdAt: '2026-08-27T01:00:00Z',
-  updatedAt: '2026-08-27T01:01:00Z', archivedAt: null,
-  ...overrides,
-});
+const attachment = (overrides: Record<string, unknown> = {}) => {
+  const displayName = typeof overrides.displayName === 'string' ? overrides.displayName : 'diagram.png';
+  return {
+    id: 'attachment-1', spaceId: 'space-1', displayName, mimeType: 'image/png',
+    canonicalPath: `assets/${displayName}`, referenceable: true,
+    sizeBytes: 10n, width: 100, height: 50, status: 'active' as const,
+    uploadedByUserId: 'user-1', createdAt: '2026-08-27T01:00:00Z',
+    updatedAt: '2026-08-27T01:01:00Z', archivedAt: null,
+    ...overrides,
+  };
+};
 
 const deferred = <T,>() => {
   let resolve!: (value: T) => void;
@@ -101,7 +105,7 @@ describe('AttachmentPickerDialog', () => {
     const activeRow = await screen.findByRole('listitem', { name: 'old.png' });
     expect(screen.getByRole('searchbox', { name: 'Search attachments' })).toBeEnabled();
     fireEvent.click(within(activeRow).getByRole('button', { name: 'Insert old.png' }));
-    expect(onInsert).toHaveBeenLastCalledWith('old.png');
+    expect(onInsert).toHaveBeenLastCalledWith('assets/old.png');
   });
 
   it('reloads the active first page after archive so offset pagination cannot skip the shifted boundary row', async () => {
@@ -215,7 +219,7 @@ describe('AttachmentPickerDialog', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Uploading 42%');
     expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite');
     await act(async () => upload.resolve(attachment({ id: 'uploaded', displayName: 'diagram (2).png' })));
-    await waitFor(() => expect(onInsert).toHaveBeenCalledWith('diagram (2).png'));
+    await waitFor(() => expect(onInsert).toHaveBeenCalledWith('assets/diagram (2).png'));
     expect(screen.getByText('Uploaded as diagram (2).png')).toHaveAttribute('aria-live', 'polite');
   });
 
@@ -237,7 +241,7 @@ describe('AttachmentPickerDialog', () => {
 
     fireEvent.change(screen.getByLabelText('Upload image'), { target: { files: [new File(['png'], 'new.png', { type: 'image/png' })] } });
 
-    await waitFor(() => expect(onInsert).toHaveBeenCalledWith('new (2).png'));
+    await waitFor(() => expect(onInsert).toHaveBeenCalledWith('assets/new (2).png'));
     await waitFor(() => expect(mocks.listAttachments.mock.calls.length).toBeGreaterThan(callsBeforeUpload));
     expect(mocks.listAttachments).toHaveBeenLastCalledWith('space-1', expect.objectContaining({ q: 'old', status: 'archived', skip: 0 }), expect.any(AbortSignal));
     expect(screen.queryByRole('listitem', { name: 'new (2).png' })).not.toBeInTheDocument();
@@ -269,6 +273,23 @@ describe('AttachmentPickerDialog', () => {
     expect(mocks.archiveAttachment).toHaveBeenCalledWith('space-1', 'attachment-1', '2026-08-27T01:01:00Z');
     expect(await screen.findByRole('alert')).toHaveTextContent('This attachment changed or the Space attachment quota was exceeded.');
     expect(within(row).getByRole('button', { name: 'Insert diagram.png' })).toBeInTheDocument();
+    expect(onInsert).not.toHaveBeenCalled();
+  });
+
+  it('keeps a legacy unsafe active row visible and renameable while disabling insertion with guidance', async () => {
+    mocks.listAttachments.mockResolvedValue({
+      items: [attachment({
+        displayName: 'bad|name.png', canonicalPath: null, referenceable: false,
+      })],
+      total: 1, skip: 0, take: 20,
+    });
+    const { onInsert } = renderDialog();
+    const row = await screen.findByRole('listitem', { name: 'bad|name.png' });
+
+    expect(within(row).getByRole('button', { name: 'Insert bad|name.png' })).toBeDisabled();
+    expect(within(row).getByText('Rename this attachment before inserting it.')).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'Rename bad|name.png' })).toBeEnabled();
+    fireEvent.click(within(row).getByRole('button', { name: 'Insert bad|name.png' }));
     expect(onInsert).not.toHaveBeenCalled();
   });
 
@@ -461,6 +482,6 @@ describe('AttachmentPickerDialog', () => {
     const row = await screen.findByRole('listitem', { name: 'diagram.png' });
     fireEvent.click(within(row).getByRole('button', { name: 'Insert diagram.png' }));
 
-    expect(onInsert).toHaveBeenCalledWith('diagram.png');
+    expect(onInsert).toHaveBeenCalledWith('assets/diagram.png');
   });
 });

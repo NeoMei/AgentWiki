@@ -590,11 +590,15 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         uploadAttachment(requestedSpaceId, file, { signal: controllers[index].signal })
       )));
       if (requestIsStale()) throw new StaleAttachmentUploadError();
-      const names = uploaded.map((item) => item.displayName);
-      if (names.length !== files.length || names.some((name) => typeof name !== 'string' || !name.trim())) {
-        throw new Error('Invalid attachment upload result');
+      const canonicalPaths: string[] = [];
+      for (const item of uploaded) {
+        if (!item.referenceable || item.canonicalPath === null) {
+          throw new Error('Invalid attachment upload result');
+        }
+        canonicalPaths.push(item.canonicalPath);
       }
-      return names;
+      if (canonicalPaths.length !== files.length) throw new Error('Invalid attachment upload result');
+      return canonicalPaths;
     } catch (error) {
       controllers.forEach((controller) => controller.abort());
       if (requestIsStale() && !(error instanceof StaleAttachmentUploadError)) {
@@ -946,9 +950,9 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
           spaceId={page.spaceId}
           returnFocusTo={attachmentButtonRef.current}
           onClose={() => setAttachmentPickerOpen(false)}
-          onInsert={(displayName) => {
+          onInsert={(canonicalPath) => {
             if (!attachmentEnabled) return;
-            internalWorkspaceRef.current?.insertText(formatAttachmentReference(displayName));
+            internalWorkspaceRef.current?.insertText(formatAttachmentReference(canonicalPath));
             setAttachmentPickerOpen(false);
           }}
         />

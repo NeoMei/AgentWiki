@@ -14,21 +14,26 @@ vi.mock('../../api/client', () => ({
   default: { get: vi.fn(), post: vi.fn() },
 }));
 
-const rawAttachment = (overrides: Record<string, unknown> = {}) => ({
-  id: 'attachment-1',
-  spaceId: 'space-1',
-  displayName: 'diagram.png',
-  mimeType: 'image/png',
-  sizeBytes: '9007199254740993',
-  width: 1280,
-  height: 720,
-  status: 'active',
-  uploadedByUserId: 'user-1',
-  createdAt: '2026-08-27T01:00:00.000Z',
-  updatedAt: '2026-08-27T01:01:00.000Z',
-  archivedAt: null,
-  ...overrides,
-});
+const rawAttachment = (overrides: Record<string, unknown> = {}) => {
+  const displayName = typeof overrides.displayName === 'string' ? overrides.displayName : 'diagram.png';
+  return {
+    id: 'attachment-1',
+    spaceId: 'space-1',
+    displayName,
+    canonicalPath: `assets/${displayName}`,
+    referenceable: true,
+    mimeType: 'image/png',
+    sizeBytes: '9007199254740993',
+    width: 1280,
+    height: 720,
+    status: 'active',
+    uploadedByUserId: 'user-1',
+    createdAt: '2026-08-27T01:00:00.000Z',
+    updatedAt: '2026-08-27T01:01:00.000Z',
+    archivedAt: null,
+    ...overrides,
+  };
+};
 
 describe('attachmentApi', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -47,7 +52,25 @@ describe('attachmentApi', () => {
       signal: undefined,
     });
     expect(result.items[0].sizeBytes).toBe(9007199254740993n);
+    expect(result.items[0]).toMatchObject({
+      canonicalPath: 'assets/diagram.png', referenceable: true,
+    });
     expect(result).toMatchObject({ total: 1, skip: 2, take: 20 });
+  });
+
+  it('preserves a server-classified legacy unsafe row without inventing a canonical path', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: {
+        items: [rawAttachment({
+          displayName: 'bad|name.png', canonicalPath: null, referenceable: false,
+        })],
+        total: 1, skip: 0, take: 20,
+      },
+    });
+
+    await expect(listAttachments('space-1')).resolves.toMatchObject({
+      items: [{ displayName: 'bad|name.png', canonicalPath: null, referenceable: false }],
+    });
   });
 
   it.each([

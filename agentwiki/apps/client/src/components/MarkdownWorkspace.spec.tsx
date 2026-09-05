@@ -729,7 +729,7 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
 
     const event = dispatchPaste(view.contentDOM, [fileItem(file)]);
     act(() => view.dispatch({ selection: EditorSelection.cursor(0) }));
-    await act(async () => upload.resolve(['server-name-2.png']));
+    await act(async () => upload.resolve(['assets/server-name-2.png']));
 
     expect(event.defaultPrevented).toBe(true);
     expect(onUploadImages).toHaveBeenCalledWith([file]);
@@ -738,7 +738,7 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
 
   it('preserves pasted image order and inserts one newline-separated marker batch', async () => {
     const onChange = vi.fn();
-    const onUploadImages = vi.fn().mockResolvedValue(['first-2.png', 'second.gif']);
+    const onUploadImages = vi.fn().mockResolvedValue(['assets/first-2.png', 'assets/second.gif']);
     const { container } = renderWYS({ initial: '', onChange, onUploadImages });
     const view = currentEditorView(container);
     const first = new File(['one'], 'first.png', { type: 'image/png' });
@@ -753,7 +753,7 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
   });
 
   it('accepts an image extension only when MIME is empty and rejects spoofed or unsupported MIME', async () => {
-    const onUploadImages = vi.fn().mockResolvedValue(['accepted.webp']);
+    const onUploadImages = vi.fn().mockResolvedValue(['assets/accepted.webp']);
     const { container } = renderWYS({ initial: '', onUploadImages });
     const view = currentEditorView(container);
     const fallback = new File(['webp'], 'fallback.WEBP', { type: '' });
@@ -789,7 +789,7 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
   });
 
   it('inserts a dropped image at the coordinate-derived position instead of the cursor', async () => {
-    const onUploadImages = vi.fn().mockResolvedValue(['drop.png']);
+    const onUploadImages = vi.fn().mockResolvedValue(['assets/drop.png']);
     const onUploadError = vi.fn();
     const { container } = renderWYS({ initial: 'abcdef', onUploadImages, onUploadError });
     const view = currentEditorView(container);
@@ -809,7 +809,7 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
   it.each([
     ['rejection', () => Promise.reject(new Error('upload failed'))],
     ['empty result', () => Promise.resolve([])],
-    ['mismatched result', () => Promise.resolve(['only-one.png'])],
+    ['mismatched result', () => Promise.resolve(['assets/only-one.png'])],
   ])('%s preserves the whole document and reports exactly once', async (_name, uploadFactory) => {
     const onUploadImages = vi.fn(uploadFactory);
     const onUploadError = vi.fn();
@@ -839,9 +839,9 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     dispatchPaste(view.contentDOM, [fileItem(secondFile)]);
     expect(onUploadImages).toHaveBeenCalledTimes(1);
 
-    await act(async () => first.resolve(['first.png']));
+    await act(async () => first.resolve(['assets/first.png']));
     await waitFor(() => expect(onUploadImages).toHaveBeenCalledTimes(2));
-    await act(async () => second.resolve(['second.png']));
+    await act(async () => second.resolve(['assets/second.png']));
 
     await waitFor(() => expect(view.state.doc.toString()).toBe('![[assets/first.png]]![[assets/second.png]]'));
   });
@@ -860,9 +860,9 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
 
     dispatchPaste(view.contentDOM, [fileItem(firstFile)]);
     dispatchPaste(view.contentDOM, [fileItem(secondFile)]);
-    await act(async () => first.resolve(['first.png']));
+    await act(async () => first.resolve(['assets/first.png']));
     await waitFor(() => expect(onUploadImages).toHaveBeenCalledTimes(2));
-    await act(async () => second.resolve(['second.png']));
+    await act(async () => second.resolve(['assets/second.png']));
 
     await waitFor(() => expect(view.state.doc.toString()).toBe(
       'before ![[assets/first.png]]![[assets/second.png]] after',
@@ -883,7 +883,7 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
 
     act(() => view.dispatch({ changes: { from: 9, to: 11, insert: 'USER' } }));
     expect(view.state.doc.toString()).toBe('before taUSERet after');
-    await act(async () => upload.resolve(['late.png']));
+    await act(async () => upload.resolve(['assets/late.png']));
 
     await waitFor(() => expect(onUploadError).toHaveBeenCalledTimes(1));
     expect(view.state.doc.toString()).toBe('before taUSERet after');
@@ -900,7 +900,7 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     dispatchPaste(view.contentDOM, [fileItem(new File(['png'], 'mapped.png', { type: 'image/png' }))]);
 
     act(() => view.dispatch({ changes: { from: 0, insert: 'new ' } }));
-    await act(async () => upload.resolve(['mapped.png']));
+    await act(async () => upload.resolve(['assets/mapped.png']));
 
     await waitFor(() => expect(view.state.doc.toString()).toBe('new left ![[assets/mapped.png]]right'));
   });
@@ -917,7 +917,7 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     dispatchPaste(view.contentDOM, [fileItem(new File(['png'], 'late.png', { type: 'image/png' }))]);
 
     fireEvent.click(screen.getByTestId('mode-toggle'));
-    await act(async () => upload.resolve(['late.png']));
+    await act(async () => upload.resolve(['assets/late.png']));
 
     expect(screen.getByTestId('md-preview')).toHaveTextContent('unchanged');
     expect(onUploadError).not.toHaveBeenCalled();

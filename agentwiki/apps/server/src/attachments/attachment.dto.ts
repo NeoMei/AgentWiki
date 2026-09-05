@@ -63,6 +63,8 @@ export interface AttachmentSummary {
   id: string;
   spaceId: string;
   displayName: string;
+  canonicalPath: string | null;
+  referenceable: boolean;
   mimeType: string;
   sizeBytes: string;
   width: number;

@@ -39,6 +39,7 @@ import {
   type AttachmentRenamePreviewTokenPayload,
 } from './attachment-rename-preview-token.service';
 import {
+  hasImageReferenceLiteral,
   parseImageReferences,
   resolveParsedAttachmentReferences,
   rewriteAttachmentReferenceRanges,
@@ -55,6 +56,7 @@ type AttachmentRow = Pick<
   | 'id'
   | 'spaceId'
   | 'displayName'
+  | 'nameKey'
   | 'mimeType'
   | 'sizeBytes'
   | 'width'
@@ -159,10 +161,13 @@ function attachmentFamilySuffix(
 }
 
 function summary(row: AttachmentRow): AttachmentSummary {
+  const canonicalPath = managedAttachmentPath(row.displayName);
   return {
     id: row.id,
     spaceId: row.spaceId,
     displayName: row.displayName,
+    canonicalPath,
+    referenceable: canonicalPath !== null,
     mimeType: row.mimeType,
     sizeBytes: row.sizeBytes.toString(10),
     width: row.width,
@@ -173,6 +178,20 @@ function summary(row: AttachmentRow): AttachmentSummary {
     updatedAt: row.updatedAt.toISOString(),
     archivedAt: row.archivedAt?.toISOString() ?? null,
   };
+}
+
+function managedAttachmentPath(displayName: string): string | null {
+  const parsed = FlatAttachmentPathSchema.safeParse(`assets/${displayName}`);
+  return parsed.success ? parsed.data : null;
+}
+
+function attachmentSourceIdentityHash(row: Pick<SpaceAttachment, 'id' | 'displayName' | 'nameKey' | 'updatedAt'>): string {
+  return createHash('sha256').update(canonicalBytes({
+    attachmentId: row.id,
+    displayName: row.displayName,
+    nameKey: row.nameKey,
+    updatedAt: row.updatedAt.toISOString(),
+  })).digest('hex');
 }
 
 function markdownRenameTarget(
@@ -345,12 +364,13 @@ export class AttachmentService {
     await this.assertRenameNameAvailable(this.prisma, spaceId, attachmentId, target.nameKey);
     const pageChanges = await this.buildRenamePageChanges(
       this.prisma, spaceId, attachmentId, target.displayName,
+      managedAttachmentPath(attachment.displayName) === null ? attachment.displayName : undefined,
     );
     const head = await this.currentRevisionHead(this.prisma, spaceId);
     const previewToken = this.renamePreviewTokens.encode({
       spaceId,
       attachmentId,
-      sourcePath: this.currentManagedPath(attachment.displayName),
+      sourceIdentityHash: attachmentSourceIdentityHash(attachment),
       targetPath: target.path,
       displayName: target.displayName,
       attachmentUpdatedAt: attachment.updatedAt.toISOString(),
@@ -389,8 +409,7 @@ export class AttachmentService {
       if (attachment.updatedAt.toISOString() !== preview.attachmentUpdatedAt) {
         throw new BusinessException('RESOURCE_CONFLICT', 'Attachment changed; preview again');
       }
-      const sourcePath = FlatAttachmentPathSchema.safeParse(`assets/${attachment.displayName}`);
-      if (!sourcePath.success || sourcePath.data !== preview.sourcePath) {
+      if (attachmentSourceIdentityHash(attachment) !== preview.sourceIdentityHash) {
         throw new BusinessException('RESOURCE_CONFLICT', 'Attachment changed; preview again');
       }
       const currentHead = await this.currentRevisionHead(lockedTx, spaceId);
@@ -404,6 +423,7 @@ export class AttachmentService {
       await this.assertRenameNameAvailable(lockedTx, spaceId, attachmentId, target.nameKey);
       const pageChanges = await this.buildRenamePageChanges(
         lockedTx, spaceId, attachmentId, target.displayName,
+        managedAttachmentPath(attachment.displayName) === null ? attachment.displayName : undefined,
       );
       if (renameEvidenceHash(pageChanges) !== preview.evidenceHash) {
         throw new BusinessException('CONTENT_TREE_CONFLICT', 'Page references changed; preview again');
@@ -793,22 +813,12 @@ export class AttachmentService {
     if (conflict) throw new BusinessException('ATTACHMENT_NAME_CONFLICT');
   }
 
-  private currentManagedPath(displayName: string): string {
-    const path = FlatAttachmentPathSchema.safeParse(`assets/${displayName}`);
-    if (!path.success) {
-      throw new BusinessException(
-        'ATTACHMENT_REFERENCE_INVALID',
-        'Existing attachment name cannot be represented in Markdown',
-      );
-    }
-    return path.data;
-  }
-
   private async buildRenamePageChanges(
     db: Prisma.TransactionClient,
     spaceId: string,
     attachmentId: string,
     displayName: string,
+    legacyUnsafeDisplayName?: string,
   ): Promise<RenamePageChange[]> {
     const [attachments, pages] = await Promise.all([
       db.spaceAttachment.findMany({
@@ -834,6 +844,21 @@ export class AttachmentService {
         orderBy: { id: 'asc' },
       }),
     ]);
+    if (legacyUnsafeDisplayName !== undefined) {
+      const impactedPages = pages
+        .filter((page) => hasImageReferenceLiteral(
+          page.content,
+          [legacyUnsafeDisplayName, `assets/${legacyUnsafeDisplayName}`],
+        ))
+        .map((page) => ({ id: page.id, title: page.title }));
+      if (impactedPages.length > 0) {
+        throw new BusinessException(
+          'ATTACHMENT_REFERENCE_INVALID',
+          'Repair the legacy Page references before renaming this attachment',
+          { pages: impactedPages },
+        );
+      }
+    }
     const canonicalPath = `assets/${displayName}`;
     const changes: RenamePageChange[] = [];
     for (const page of pages) {

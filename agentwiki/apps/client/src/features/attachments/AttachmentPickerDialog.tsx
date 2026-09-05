@@ -23,7 +23,7 @@ const ACCEPTED_IMAGES = '.png,.jpg,.jpeg,.webp,.gif';
 export interface AttachmentPickerDialogProps {
   spaceId: string;
   onClose: () => void;
-  onInsert: (displayName: string) => void;
+  onInsert: (canonicalPath: string) => void;
   returnFocusTo?: HTMLElement | null;
 }
 
@@ -208,7 +208,10 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
         setUploadProgress(null);
       });
       const reconciliation = load(0, false, message);
-      onInsert(uploaded.displayName);
+      if (!uploaded.referenceable || uploaded.canonicalPath === null) {
+        throw new Error('Uploaded attachment is not referenceable');
+      }
+      onInsert(uploaded.canonicalPath);
       await reconciliation;
     } catch (caught) {
       if (!aliveRef.current) return;
@@ -297,8 +300,10 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
   };
 
   const criteriaLocked = uploading || busyIds.size > 0;
-  const insertExisting = (displayName: string) => {
-    if (!operationRef.current) onInsert(displayName);
+  const insertExisting = (item: AttachmentSummary) => {
+    if (!operationRef.current && item.referenceable && item.canonicalPath !== null) {
+      onInsert(item.canonicalPath);
+    }
   };
 
   return <ModalDialog labelledBy="attachment-picker-title" onRequestClose={requestClose} closeDisabled={criteriaLocked} returnFocusTo={returnFocusTo} className="max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-5 shadow-xl">
@@ -343,8 +348,9 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
           <div className="min-w-0 flex-1">
             <p className="truncate font-medium">{item.displayName}</p>
             <p className="text-xs text-gray-500">{t(item.status === 'active' ? 'attachment.statusActive' : 'attachment.statusArchived')}</p>
+            {item.status === 'active' && !item.referenceable ? <p className="text-xs text-amber-700">{t('attachment.renameBeforeInsert')}</p> : null}
           </div>
-          {item.status === 'active' ? <button type="button" disabled={criteriaLocked} aria-label={t('attachment.insertNamed', { name: item.displayName })} onClick={() => insertExisting(item.displayName)} className="min-h-10 rounded-lg bg-blue-600 px-3 text-sm text-white disabled:opacity-50">{t('attachment.insert')}</button> : null}
+          {item.status === 'active' ? <button type="button" disabled={criteriaLocked || !item.referenceable || item.canonicalPath === null} aria-label={t('attachment.insertNamed', { name: item.displayName })} onClick={() => insertExisting(item)} className="min-h-10 rounded-lg bg-blue-600 px-3 text-sm text-white disabled:opacity-50">{t('attachment.insert')}</button> : null}
           {item.status === 'active' ? <button type="button" disabled={criteriaLocked} aria-label={t('attachment.renameNamed', { name: item.displayName })} onClick={(event) => startRename(item, event.currentTarget)} className="min-h-10 rounded-lg border px-3 text-sm disabled:opacity-50">{t('attachment.rename')}</button> : null}
           <button type="button" disabled={criteriaLocked} aria-label={t(item.status === 'active' ? 'attachment.archiveNamed' : 'attachment.restoreNamed', { name: item.displayName })} onClick={() => void mutate(item, item.status === 'active' ? 'archive' : 'restore')} className="min-h-10 rounded-lg border px-3 text-sm disabled:opacity-50">{busy ? t('common.loading') : t(item.status === 'active' ? 'attachment.archive' : 'attachment.restore')}</button>
           {renameItem?.id === item.id ? <div className="w-full rounded-lg bg-gray-50 p-3" onKeyDown={(event) => {

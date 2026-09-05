@@ -109,6 +109,8 @@ const attachment = (displayName: string, overrides: Record<string, unknown> = {}
   id: `attachment-${displayName}`,
   spaceId: 'space-1',
   displayName,
+  canonicalPath: `assets/${displayName}`,
+  referenceable: true,
   mimeType: 'image/png',
   sizeBytes: 3n,
   width: 10,

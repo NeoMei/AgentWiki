@@ -10,7 +10,7 @@ const TOKEN_DOMAIN = 'attachment-rename-preview-v1\0';
 export interface AttachmentRenamePreviewTokenInput {
   spaceId: string;
   attachmentId: string;
-  sourcePath: string;
+  sourceIdentityHash: string;
   targetPath: string;
   displayName: string;
   attachmentUpdatedAt: string;
@@ -85,7 +85,7 @@ export class AttachmentRenamePreviewTokenService {
     const candidate = value as Record<string, unknown>;
     const exactKeys = [
       'attachmentId', 'attachmentUpdatedAt', 'contentTreeRevision', 'displayName',
-      'evidenceHash', 'expiresAt', 'head', 'issuedAt', 'nonce', 'sourcePath',
+      'evidenceHash', 'expiresAt', 'head', 'issuedAt', 'nonce', 'sourceIdentityHash',
       'spaceId', 'targetPath', 'v',
     ].sort();
     if (Object.keys(candidate).sort().join(',') !== exactKeys.join(',')) return false;
@@ -101,7 +101,8 @@ export class AttachmentRenamePreviewTokenService {
     return candidate.v === 1
       && typeof candidate.spaceId === 'string'
       && typeof candidate.attachmentId === 'string'
-      && typeof candidate.sourcePath === 'string'
+      && typeof candidate.sourceIdentityHash === 'string'
+      && /^[0-9a-f]{64}$/u.test(candidate.sourceIdentityHash)
       && typeof candidate.targetPath === 'string'
       && typeof candidate.displayName === 'string'
       && typeof candidate.attachmentUpdatedAt === 'string'

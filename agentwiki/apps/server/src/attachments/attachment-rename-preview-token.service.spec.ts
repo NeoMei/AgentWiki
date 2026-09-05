@@ -4,7 +4,7 @@ import { AttachmentRenamePreviewTokenService } from './attachment-rename-preview
 const payload = {
   spaceId: 'space-1',
   attachmentId: 'attachment-1',
-  sourcePath: 'assets/Photo.png',
+  sourceIdentityHash: 'c'.repeat(64),
   targetPath: 'assets/Renamed.png',
   displayName: 'Renamed.png',
   attachmentUpdatedAt: '2026-09-05T00:00:00.000Z',

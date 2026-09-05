@@ -477,6 +477,22 @@ function scanImageTargetTokens(body: string): ImageTargetToken[] {
   return tokens;
 }
 
+export function hasImageReferenceLiteral(
+  body: string,
+  rawTargets: ReadonlyArray<string>,
+): boolean {
+  const targets = new Set(rawTargets);
+  return scanImageTargetTokens(body).some((token) => {
+    const rawTarget = body.slice(token.targetStart, token.targetEnd);
+    if (targets.has(rawTarget)) return true;
+    if (token.syntax !== 'obsidian') return false;
+    const markerStart = token.targetStart - 3;
+    return markerStart >= 0 && rawTargets.some((target) => (
+      body.startsWith(`![[${target}]]`, markerStart)
+    ));
+  });
+}
+
 function decodeTarget(rawTarget: string): string | null {
   const markdownUnescaped = rawTarget.replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\]^_`{|}~])/gu, '$1');
   try {

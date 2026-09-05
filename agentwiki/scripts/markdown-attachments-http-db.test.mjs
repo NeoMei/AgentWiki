@@ -683,6 +683,126 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
         where: { id: beta.id }, data: { status: 'active', archivedAt: null },
       });
 
+      const legacyUnsafeSpace = (await request('/spaces', {
+        method: 'POST', token: owner.token, body: { name: `Legacy unsafe ${randomUUID()}` },
+      })).data;
+      const reusableBlob = await prisma.spaceAttachment.findUniqueOrThrow({ where: { id: beta.id } });
+      const unsafeNames = [
+        'bad|name.png', 'bad]]name.png', 'a%20b.png', 'bad:name.png', 'bad#name.png',
+      ];
+      const unsafeRows = [];
+      for (const displayName of unsafeNames) {
+        unsafeRows.push(await prisma.spaceAttachment.create({ data: {
+          spaceId: legacyUnsafeSpace.id,
+          displayName,
+          nameKey: displayName.toLocaleLowerCase('und'),
+          contentHash: reusableBlob.contentHash,
+          storageKey: reusableBlob.storageKey,
+          mimeType: reusableBlob.mimeType,
+          sizeBytes: reusableBlob.sizeBytes,
+          width: reusableBlob.width,
+          height: reusableBlob.height,
+          uploadedByUserId: owner.id,
+        } }));
+      }
+      const unsafeListBefore = (await request(`/spaces/${legacyUnsafeSpace.id}/attachments`, {
+        token: owner.token,
+      })).data;
+      assert.deepEqual(
+        unsafeListBefore.items.map(({ displayName, referenceable, canonicalPath }) => ({
+          displayName, referenceable, canonicalPath,
+        })).sort((left, right) => left.displayName.localeCompare(right.displayName)),
+        unsafeNames.map((displayName) => ({
+          displayName, referenceable: false, canonicalPath: null,
+        })).sort((left, right) => left.displayName.localeCompare(right.displayName)),
+      );
+      const pipeRow = unsafeRows[0];
+      const repairPreview = (await request(
+        `/spaces/${legacyUnsafeSpace.id}/attachments/${pipeRow.id}/rename/preview`,
+        { method: 'POST', token: owner.token, body: { displayName: 'repaired legacy.png' } },
+      )).data;
+      const repairTokenBody = JSON.parse(Buffer.from(
+        repairPreview.previewToken.split('.')[0], 'base64url',
+      ).toString('utf8'));
+      assert.match(repairTokenBody.sourceIdentityHash, /^[0-9a-f]{64}$/u);
+      assert.equal(repairTokenBody.sourcePath, undefined);
+      assert.doesNotMatch(JSON.stringify(repairTokenBody), /bad\|name\.png/u);
+      const repairedLegacy = (await request(
+        `/spaces/${legacyUnsafeSpace.id}/attachments/${pipeRow.id}/rename`,
+        { method: 'POST', token: owner.token, body: { previewToken: repairPreview.previewToken } },
+      )).data;
+      assert.equal(repairedLegacy.displayName, 'repaired legacy.png');
+      assert.equal(repairedLegacy.referenceable, true);
+      assert.equal(repairedLegacy.canonicalPath, 'assets/repaired legacy.png');
+      const repairedList = (await request(`/spaces/${legacyUnsafeSpace.id}/attachments`, {
+        token: owner.token, body: undefined,
+      })).data;
+      const repairedListItem = repairedList.items.find((item) => item.id === pipeRow.id);
+      assert.deepEqual({
+        displayName: repairedListItem?.displayName,
+        referenceable: repairedListItem?.referenceable,
+        canonicalPath: repairedListItem?.canonicalPath,
+      }, {
+        displayName: 'repaired legacy.png',
+        referenceable: true,
+        canonicalPath: 'assets/repaired legacy.png',
+      });
+      const repairHeads = await prisma.spaceKnowledgeRevision.findMany({
+        where: { spaceId: legacyUnsafeSpace.id }, orderBy: { sequence: 'asc' },
+      });
+      assert.equal(repairHeads.length, 1);
+      assert.equal(repairHeads[0].schemaVersion, 'content-tree@3');
+      assert.equal(repairHeads[0].recipeVersion, 'referenced-images-v1');
+
+      const unsafeMarkerSpace = (await request('/spaces', {
+        method: 'POST', token: owner.token, body: { name: `Legacy marker ${randomUUID()}` },
+      })).data;
+      const unsafeMarkerAttachment = await prisma.spaceAttachment.create({ data: {
+        spaceId: unsafeMarkerSpace.id,
+        displayName: 'bad|name.png',
+        nameKey: 'bad|name.png',
+        contentHash: reusableBlob.contentHash,
+        storageKey: reusableBlob.storageKey,
+        mimeType: reusableBlob.mimeType,
+        sizeBytes: reusableBlob.sizeBytes,
+        width: reusableBlob.width,
+        height: reusableBlob.height,
+        uploadedByUserId: owner.id,
+      } });
+      const unsafeMarkerPage = await prisma.page.create({ data: {
+        knowledgeKey: randomUUID(), title: 'Legacy unsafe marker', slug: `legacy-marker-${randomUUID()}`,
+        content: '![[bad|name.png]]', spaceId: unsafeMarkerSpace.id, authorId: owner.id,
+        syncPath: 'pages/Legacy unsafe marker.md', syncPathKey: `pages/legacy-marker-${randomUUID()}.md`,
+      } });
+      const unsafeMarkerSnapshot = {
+        attachment: await prisma.spaceAttachment.findUniqueOrThrow({ where: { id: unsafeMarkerAttachment.id } }),
+        page: await prisma.page.findUniqueOrThrow({ where: { id: unsafeMarkerPage.id } }),
+        revisions: await prisma.spaceKnowledgeRevision.count({ where: { spaceId: unsafeMarkerSpace.id } }),
+      };
+      const blockedRepair = await request(
+        `/spaces/${unsafeMarkerSpace.id}/attachments/${unsafeMarkerAttachment.id}/rename/preview`,
+        {
+          method: 'POST', token: owner.token, body: { displayName: 'safe marker.png' },
+          expected: [409],
+        },
+      );
+      assert.equal(blockedRepair.data.code, 'ATTACHMENT_REFERENCE_INVALID');
+      assert.deepEqual(blockedRepair.data.details?.pages, [{
+        id: unsafeMarkerPage.id, title: 'Legacy unsafe marker',
+      }]);
+      assert.deepEqual(
+        await prisma.spaceAttachment.findUniqueOrThrow({ where: { id: unsafeMarkerAttachment.id } }),
+        unsafeMarkerSnapshot.attachment,
+      );
+      assert.deepEqual(
+        await prisma.page.findUniqueOrThrow({ where: { id: unsafeMarkerPage.id } }),
+        unsafeMarkerSnapshot.page,
+      );
+      assert.equal(
+        await prisma.spaceKnowledgeRevision.count({ where: { spaceId: unsafeMarkerSpace.id } }),
+        unsafeMarkerSnapshot.revisions,
+      );
+
       const treeBeforeLifecycleCreate = await prisma.space.findUniqueOrThrow({
         where: { id: space.id }, select: { contentTreeRevision: true },
       });

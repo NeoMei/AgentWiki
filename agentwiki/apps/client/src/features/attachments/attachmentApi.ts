@@ -29,6 +29,12 @@ const nullableStringField = (record: Record<string, unknown>, name: string): str
   return value;
 };
 
+const booleanField = (record: Record<string, unknown>, name: string): boolean => {
+  const value = record[name];
+  if (typeof value !== 'boolean') throw invalidResponse();
+  return value;
+};
+
 const safeIntegerField = (record: Record<string, unknown>, name: string, minimum: number): number => {
   const value = record[name];
   if (!Number.isSafeInteger(value) || (value as number) < minimum) throw invalidResponse();
@@ -45,10 +51,15 @@ const normalizeAttachment = (value: unknown): AttachmentSummary => {
   if (!isRecord(value)) throw invalidResponse();
   const status = value.status;
   if (status !== 'active' && status !== 'archived') throw invalidResponse();
+  const canonicalPath = nullableStringField(value, 'canonicalPath');
+  const referenceable = booleanField(value, 'referenceable');
+  if (referenceable !== (canonicalPath !== null)) throw invalidResponse();
   return {
     id: stringField(value, 'id'),
     spaceId: stringField(value, 'spaceId'),
     displayName: stringField(value, 'displayName'),
+    canonicalPath,
+    referenceable,
     mimeType: stringField(value, 'mimeType'),
     sizeBytes: sizeField(value),
     width: safeIntegerField(value, 'width', 1),

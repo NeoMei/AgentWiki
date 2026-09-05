@@ -9,6 +9,8 @@ import {
   type Page,
 } from '@playwright/test';
 import { mkdir, rm } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import os from 'node:os';
 import path from 'node:path';
 import { resolveE2ETarget } from '../src/config/localTargets';
@@ -37,6 +39,8 @@ interface PersistedPage {
 interface AttachmentSummary {
   id: string;
   displayName: string;
+  canonicalPath: string | null;
+  referenceable: boolean;
   status: 'active' | 'archived';
   updatedAt: string;
 }
@@ -56,6 +60,7 @@ const alternatePng = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z3GAAAAAASUVORK5CYII=',
   'base64',
 );
+const execFileAsync = promisify(execFile);
 
 let api: APIRequestContext;
 let owner: AuthAccount;
@@ -131,6 +136,27 @@ const uploadByApi = async (account: AuthAccount, spaceId: string, name: string) 
   }),
   `upload ${name}`,
 );
+
+const seedLegacyUnsafeAttachmentName = async (
+  attachmentId: string,
+  displayName: string,
+) => {
+  if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required for legacy attachment E2E setup');
+  const script = [
+    "const { PrismaClient } = require('@prisma/client');",
+    'const prisma = new PrismaClient();',
+    'prisma.spaceAttachment.update({',
+    '  where: { id: process.argv[1] },',
+    '  data: { displayName: process.argv[2], nameKey: process.argv[3] },',
+    '}).finally(() => prisma.$disconnect());',
+  ].join('\n');
+  await execFileAsync(process.execPath, [
+    '-e', script, attachmentId, displayName, displayName.normalize('NFC').toLocaleLowerCase('und'),
+  ], {
+    cwd: path.resolve(process.cwd(), '../server'),
+    env: process.env,
+  });
+};
 
 const watchPage = (page: Page) => {
   const externalRequests: string[] = [];
@@ -493,6 +519,39 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       expect(viewerSession.externalRequests).toEqual([]);
     } finally {
       await viewerSession.context.close();
+    }
+  });
+
+  test('repairs a legacy unsafe attachment before inserting its canonical marker', async ({ browser }) => {
+    const legacyAttachment = await uploadByApi(owner, primarySpaceId, 'legacy-ui-seed.png');
+    await seedLegacyUnsafeAttachmentName(legacyAttachment.id, 'bad|name.png');
+    const ownerSession = await authenticatedPage(browser, owner);
+    try {
+      const page = ownerSession.page;
+      await page.goto(`/pages/${editorPage.id}/edit`);
+      await page.getByRole('button', { name: 'Image attachments' }).click();
+      const picker = page.getByRole('dialog', { name: 'Image attachments' });
+      const row = picker.getByRole('listitem', { name: 'bad|name.png' });
+      await expect(row).toBeVisible();
+      await expect(row.getByRole('button', { name: 'Insert bad|name.png' })).toBeDisabled();
+      await expect(row.getByText('Rename this attachment before inserting it.')).toBeVisible();
+      const rename = row.getByRole('button', { name: 'Rename bad|name.png' });
+      await expect(rename).toBeEnabled();
+      await rename.click();
+      await picker.getByRole('textbox', { name: 'New attachment name' }).fill('repaired-ui.png');
+      await picker.getByRole('button', { name: 'Preview rename' }).click();
+      await expect(picker.getByText('assets/repaired-ui.png')).toBeVisible();
+      await picker.getByRole('button', { name: 'Confirm rename' }).click();
+
+      const repairedRow = picker.getByRole('listitem', { name: 'repaired-ui.png' });
+      await expect(repairedRow).toBeVisible();
+      const insert = repairedRow.getByRole('button', { name: 'Insert repaired-ui.png' });
+      await expect(insert).toBeEnabled();
+      await insert.click();
+      await expectMarker(page, '![[assets/repaired-ui.png]]');
+      await recordCredentialSurface(page);
+    } finally {
+      await ownerSession.context.close();
     }
   });
 
