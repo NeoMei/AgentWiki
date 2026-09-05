@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { hashCompositeDefinition } from './composite-template-validator';
+import { normalizeLegacyVersion } from './composite-template-validator';
 import {
   TemplateInstantiationService,
   type TemplateInstantiationInput,
@@ -87,9 +88,14 @@ function makeHarness() {
     })),
     advancePageMutation: jest.fn().mockResolvedValue({ treeRevision: 5n, syncRevisionId: 'sync-1' }),
   };
+  const catalog: any = {
+    resolve: jest.fn().mockResolvedValue({
+      definition, definitionHash: hashCompositeDefinition(definition), locale: 'en',
+    }),
+  };
   return {
-    service: new TemplateInstantiationService(prisma, authorization, contentTree),
-    prisma, tx, authorization, contentTree, folders,
+    service: new TemplateInstantiationService(prisma, authorization, contentTree, catalog),
+    prisma, tx, authorization, contentTree, catalog, folders,
   };
 }
 
@@ -161,6 +167,65 @@ describe('TemplateInstantiationService', () => {
 
     expect(h.tx.page.create).toHaveBeenCalledWith({ data: expect.objectContaining({
       title: 'Intro', sourceTemplateLocale: 'en',
+    }) });
+  });
+
+  it('instantiates a legacy contentI18n-only version with its catalog default title and source locale', async () => {
+    const h = makeHarness();
+    h.tx.pageTemplate.findUnique.mockResolvedValue({
+      id: 'template-1', scope: 'system', spaceId: null, sourceLocale: null, archivedAt: null,
+      defaultTitleI18n: { 'zh-CN': '旧模板页面', en: 'Legacy page' },
+    });
+    h.tx.pageTemplateVersion.findUnique.mockResolvedValue({
+      id: 'template-version-3', templateId: 'template-1', version: 3,
+      definition: null, schemaVersion: null, definitionHash: null,
+      contentI18n: { 'zh-CN': '# 旧正文', en: '# Legacy body' },
+    });
+    const legacy = normalizeLegacyVersion({ 'zh-CN': '# 旧正文', en: '# Legacy body' });
+    if (legacy.nodes[0].kind !== 'page') throw new Error('invalid test fixture');
+    legacy.nodes[0].titleI18n = { 'zh-CN': '旧模板页面', en: 'Legacy page' };
+    h.catalog.resolve.mockResolvedValue({
+      definition: legacy, definitionHash: hashCompositeDefinition(legacy), locale: 'zh-CN',
+    });
+
+    const result = await h.service.instantiate(
+      'space-1', 'template-1', input({ locale: 'zh-CN' }), principal,
+    );
+
+    expect(result.rootFolderId).toBeNull();
+    expect(h.tx.page.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      title: '旧模板页面', content: '# 旧正文', sourceTemplateLocale: 'zh-CN',
+    }) });
+    expect(h.catalog.resolve).toHaveBeenCalledWith(h.tx, 'space-1', 'template-1', 3, 'zh-CN');
+    expect(h.catalog.resolve.mock.invocationCallOrder[0]).toBeLessThan(
+      h.tx.pageTemplateVersion.findUnique.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('applies rootName to a legacy contentI18n-only single Page without changing its body', async () => {
+    const h = makeHarness();
+    h.tx.pageTemplate.findUnique.mockResolvedValue({
+      id: 'template-1', scope: 'system', spaceId: null, sourceLocale: null, archivedAt: null,
+      defaultTitleI18n: { en: 'Legacy page' },
+    });
+    h.tx.pageTemplateVersion.findUnique.mockResolvedValue({
+      id: 'template-version-3', templateId: 'template-1', version: 3,
+      definition: null, schemaVersion: null, definitionHash: null,
+      contentI18n: { en: '# Immutable legacy body' },
+    });
+    const legacy = normalizeLegacyVersion({ en: '# Immutable legacy body' });
+    if (legacy.nodes[0].kind !== 'page') throw new Error('invalid test fixture');
+    legacy.nodes[0].titleI18n = { en: 'Legacy page' };
+    h.catalog.resolve.mockResolvedValue({
+      definition: legacy, definitionHash: hashCompositeDefinition(legacy), locale: 'en',
+    });
+
+    await h.service.instantiate(
+      'space-1', 'template-1', input({ rootName: 'Renamed root' }), principal,
+    );
+
+    expect(h.tx.page.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      title: 'Renamed root', content: '# Immutable legacy body', sourceTemplateLocale: 'en',
     }) });
   });
 

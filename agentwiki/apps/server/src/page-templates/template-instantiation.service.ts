@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
-  CompositeTemplateDefinitionSchema,
   type CompositeTemplateDefinition,
   type TemplateNode,
 } from '@neomei/agentwiki-sync-protocol';
@@ -14,10 +13,9 @@ import { ContentTreeConflict, ContentTreeError } from '../content-tree/content-t
 import { PrismaService } from '../database/prisma.service';
 import {
   compareCompositeTemplateSiblingOrder,
-  hashCompositeDefinition,
-  validateCompositeDefinition,
 } from './composite-template-validator';
 import { PageTemplateLocaleSchema, type PageTemplateLocale } from './page-template.types';
+import { CompositeTemplateCatalogService } from './composite-template-catalog.service';
 
 const MAX_SERIALIZABLE_ATTEMPTS = 3;
 const INSTANTIATION_TRANSACTION_TIMEOUT_MS = 120_000;
@@ -55,12 +53,11 @@ export function expandTemplateDefinition(
   locale: PageTemplateLocale,
   options: { rootName?: string } = {},
 ): ExpandedTemplateNode[] {
-  const parsed = CompositeTemplateDefinitionSchema.parse(structuredClone(definition));
-  if (validateCompositeDefinition(parsed).length > 0) throw new BusinessException('PAGE_TEMPLATE_INVALID');
-  const root = parsed.nodes.find((node) => node.parentNodeId === null)!;
+  const root = definition.nodes.find((node) => node.parentNodeId === null);
+  if (!root) throw new BusinessException('PAGE_TEMPLATE_INVALID');
   const rootName = options.rootName === undefined ? undefined : normalizeRootName(options.rootName);
   const children = new Map<string | null, TemplateNode[]>();
-  for (const node of parsed.nodes) {
+  for (const node of definition.nodes) {
     const siblings = children.get(node.parentNodeId) ?? [];
     siblings.push(node);
     children.set(node.parentNodeId, siblings);
@@ -100,7 +97,7 @@ export function expandTemplateDefinition(
     }
   };
   visit(null);
-  if (expanded.length !== parsed.nodes.length) throw new BusinessException('PAGE_TEMPLATE_INVALID');
+  if (expanded.length !== definition.nodes.length) throw new BusinessException('PAGE_TEMPLATE_INVALID');
   return expanded;
 }
 
@@ -110,6 +107,7 @@ export class TemplateInstantiationService {
     private readonly prisma: PrismaService,
     private readonly authorization: AuthorizationService,
     private readonly contentTree: ContentTreeService,
+    private readonly catalog: CompositeTemplateCatalogService,
   ) {}
 
   async instantiate(
@@ -172,37 +170,16 @@ export class TemplateInstantiationService {
     principal: Principal,
     requestHash: string,
   ): Promise<TemplateInstantiationResult> {
-    const template = await tx.pageTemplate.findUnique({
-      where: { id: templateId },
-      select: { id: true, scope: true, spaceId: true, sourceLocale: true, archivedAt: true },
-    });
-    if (!template || (template.scope === 'space' && template.spaceId !== spaceId)) {
-      throw new BusinessException('PAGE_TEMPLATE_NOT_FOUND');
-    }
-    if (template.archivedAt) throw new BusinessException('PAGE_TEMPLATE_ARCHIVED');
+    const resolved = await this.catalog.resolve(
+      tx, spaceId, templateId, input.templateVersion, input.locale,
+    );
     const version = await tx.pageTemplateVersion.findUnique({
       where: { templateId_version: { templateId, version: input.templateVersion } },
-      select: {
-        id: true, templateId: true, version: true, definition: true,
-        schemaVersion: true, definitionHash: true,
-      },
+      select: { id: true },
     });
     if (!version) throw new BusinessException('PAGE_TEMPLATE_VERSION_NOT_FOUND');
-    const parsed = CompositeTemplateDefinitionSchema.safeParse(structuredClone(version.definition));
-    if (!parsed.success
-      || version.schemaVersion !== parsed.data.schemaVersion
-      || version.definitionHash !== hashCompositeDefinition(parsed.data)
-      || validateCompositeDefinition(parsed.data).length > 0) {
-      throw new BusinessException('PAGE_TEMPLATE_INVALID');
-    }
-    const preferredLocale = template.scope === 'space'
-      ? PageTemplateLocaleSchema.parse(template.sourceLocale)
-      : input.locale;
-    if (template.scope === 'space' && preferredLocale !== input.locale) {
-      throw new BusinessException('PAGE_TEMPLATE_INVALID', 'Space templates must use their source locale');
-    }
-    const locale = resolveDefinitionLocale(parsed.data, preferredLocale, template.scope);
-    const nodes = expandTemplateDefinition(parsed.data, locale, { rootName: input.rootName });
+    const locale = resolved.locale;
+    const nodes = expandTemplateDefinition(resolved.definition, locale, { rootName: input.rootName });
     await assertCombinedDepth(tx, spaceId, input.targetParentFolderId ?? null, nodes);
     const initialSiblingOrders = await loadInitialSiblingOrders(
       tx, spaceId, input.targetParentFolderId ?? null, nodes,
@@ -331,22 +308,9 @@ export class TemplateInstantiationService {
 }
 
 function localized(value: { 'zh-CN'?: string; en?: string }, locale: PageTemplateLocale): string {
-  const resolved = value[locale] ?? value.en ?? value['zh-CN'];
+  const resolved = value[locale];
   if (resolved === undefined) throw new BusinessException('PAGE_TEMPLATE_INVALID');
   return resolved;
-}
-
-function resolveDefinitionLocale(
-  definition: CompositeTemplateDefinition,
-  preferred: PageTemplateLocale,
-  scope: 'system' | 'space',
-): PageTemplateLocale {
-  const values = definition.nodes.flatMap((node) => node.kind === 'folder'
-    ? [node.nameI18n]
-    : [node.titleI18n, node.contentI18n]);
-  if (values.every((value) => value[preferred] !== undefined)) return preferred;
-  if (scope === 'system' && values.every((value) => value.en !== undefined)) return 'en';
-  throw new BusinessException('PAGE_TEMPLATE_INVALID');
 }
 
 function normalizeRootName(value: string): string {

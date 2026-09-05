@@ -15,6 +15,10 @@ const { SpaceRevisionWriterService } = requireFromServer('./dist/core/sync/space
 const { TemplateInstantiationService } = requireFromServer(
   './dist/page-templates/template-instantiation.service.js',
 );
+const { CompositeTemplateCatalogService } = requireFromServer(
+  './dist/page-templates/composite-template-catalog.service.js',
+);
+const { PageTemplateService } = requireFromServer('./dist/page-templates/page-template.service.js');
 const baseDatabaseUrl = process.env.PAGE_TEMPLATE_TEST_DATABASE_URL;
 
 if (!baseDatabaseUrl) throw new Error('PAGE_TEMPLATE_TEST_DATABASE_URL is required');
@@ -81,6 +85,8 @@ async function createService(prisma, failAt) {
       ReadableSyncPathService,
       AuthorizationService,
       ContentTreeService,
+      { provide: PageTemplateService, useValue: {} },
+      CompositeTemplateCatalogService,
       TemplateInstantiationService,
     ],
   }).compile();
@@ -106,6 +112,29 @@ async function createFixture(prisma, suffix) {
     definition, schemaVersion: 1, definitionHash,
   } });
   return { userId, spaceId, templateId };
+}
+
+async function createLegacyFixture(prisma, suffix) {
+  const userId = `legacy_user_${suffix}`;
+  const spaceId = `legacy_space_${suffix}`;
+  const templateId = `legacy_template_${suffix}`;
+  const versionId = `legacy_version_${suffix}`;
+  const contentI18n = { 'zh-CN': '# 不可变旧正文', en: '# Immutable legacy body' };
+  await prisma.user.create({ data: { id: userId, email: `${userId}@example.test`, type: 'human' } });
+  await prisma.space.create({ data: { id: spaceId, name: 'Legacy instantiation fixture', slug: spaceId } });
+  await prisma.spaceMember.create({ data: { userId, spaceId, role: 'owner' } });
+  await prisma.pageTemplate.create({ data: {
+    id: templateId, scope: 'system', scopeKey: 'system', stableKey: `legacy-fixture-${suffix}`,
+    category: 'knowledge', displayOrder: 2,
+    nameI18n: { 'zh-CN': '旧模板', en: 'Legacy template' },
+    descriptionI18n: { 'zh-CN': '', en: '' },
+    defaultTitleI18n: { 'zh-CN': '旧模板页面', en: 'Legacy page' }, currentVersion: 1,
+  } });
+  await prisma.pageTemplateVersion.create({ data: {
+    id: versionId, templateId, version: 1, contentI18n,
+    contentHash: createHash('sha256').update(contentI18n.en).digest('hex'),
+  } });
+  return { userId, spaceId, templateId, versionId, contentI18n };
 }
 
 function request(idempotencyKey, overrides = {}) {
@@ -243,6 +272,44 @@ test('composite instantiation is atomic, idempotent, stale-safe, and permission-
         );
       } finally {
         await working.close();
+      }
+
+      const legacyFixture = await createLegacyFixture(prisma, `${schemaName.slice(-8)}_legacy`);
+      const legacyVersionBefore = await prisma.pageTemplateVersion.findUniqueOrThrow({
+        where: { id: legacyFixture.versionId },
+      });
+      const legacyService = await createService(prisma, null);
+      try {
+        const original = await legacyService.service.instantiate(
+          legacyFixture.spaceId, legacyFixture.templateId,
+          request('legacy-0001', { locale: 'zh-CN' }),
+          { userId: legacyFixture.userId, platformRole: 'user' },
+        );
+        const originalPage = await prisma.page.findUniqueOrThrow({ where: { id: original.pageIds[0] } });
+        assert.equal(original.rootFolderId, null);
+        assert.equal(originalPage.title, '旧模板页面');
+        assert.equal(originalPage.content, '# 不可变旧正文');
+        assert.equal(originalPage.sourceTemplateLocale, 'zh-CN');
+
+        const renamed = await legacyService.service.instantiate(
+          legacyFixture.spaceId, legacyFixture.templateId,
+          request('legacy-0002', {
+            locale: 'en', rootName: 'Renamed legacy page', expectedTreeRevision: 1n,
+          }),
+          { userId: legacyFixture.userId, platformRole: 'user' },
+        );
+        const renamedPage = await prisma.page.findUniqueOrThrow({ where: { id: renamed.pageIds[0] } });
+        assert.equal(renamedPage.title, 'Renamed legacy page');
+        assert.equal(renamedPage.content, '# Immutable legacy body');
+        assert.equal(renamedPage.sourceTemplateLocale, 'en');
+        const legacyVersionAfter = await prisma.pageTemplateVersion.findUniqueOrThrow({
+          where: { id: legacyFixture.versionId },
+        });
+        assert.deepEqual(legacyVersionAfter, legacyVersionBefore);
+        assert.deepEqual(legacyVersionAfter.contentI18n, legacyFixture.contentI18n);
+        assert.equal(legacyVersionAfter.definition, null);
+      } finally {
+        await legacyService.close();
       }
     } finally {
       await prisma.$disconnect();
