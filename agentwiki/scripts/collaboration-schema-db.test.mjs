@@ -73,7 +73,7 @@ test('collaboration harness removes its random schema when the callback fails', 
   }
 });
 
-test('collaboration migration exposes all ten tables and integrity guards', {
+test('collaboration migration exposes all eleven tables and integrity guards', {
   skip: baseDatabaseUrl ? false : 'COLLABORATION_TEST_DATABASE_URL is not configured',
   timeout: 120_000,
 }, async () => {
@@ -97,6 +97,7 @@ test('collaboration migration exposes all ten tables and integrity guards', {
         schemaName,
       );
       assert.deepEqual(rows.map((row) => row.tablename), [
+        'CollaborationArtifactChangeSetLink',
         'CollaborationReview',
         'CollaborationRoleBinding',
         'CollaborationRun',
