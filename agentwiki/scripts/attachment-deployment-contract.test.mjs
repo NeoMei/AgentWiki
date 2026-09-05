@@ -10,7 +10,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import test from 'node:test';
@@ -828,9 +828,11 @@ test('direct deployment validates durable storage before stopping services or mi
 
 test('direct deployment preflights staged OpenCode before installing units or stopping writers', async () => {
   const deploy = deployedShell(await read('deploy.sh'));
-  const preflight = deploy.indexOf(
-    '"$node_binary" dist/assist/opencode-deployment-preflight.js "$release_dir" "$live_dir"',
-  );
+  const preflightCommand = deploy.split('\n').find((line) => (
+    line.includes('opencode-deployment-preflight.js') && line.trimStart().startsWith('"$node_binary"')
+  ));
+  assert.ok(preflightCommand, 'missing staged OpenCode runtime preflight');
+  const preflight = deploy.indexOf(preflightCommand);
   assert.ok(preflight >= 0, 'missing staged OpenCode runtime preflight');
   for (const boundary of [
     'install -m 0644 deploy/systemd/*.service',
@@ -838,6 +840,59 @@ test('direct deployment preflights staged OpenCode before installing units or st
     'pnpm --filter @agentwiki/server exec prisma migrate deploy',
   ]) {
     assert.ok(preflight < deploy.indexOf(boundary), `OpenCode preflight must precede ${boundary}`);
+  }
+
+  const sandbox = await mkdtemp(resolve(tmpdir(), 'agentwiki-deploy-preflight-entry-'));
+  const stage = resolve(sandbox, 'stage');
+  const live = resolve(sandbox, 'live');
+  const entryDirectory = resolve(stage, 'apps/server/dist/assist');
+  const trace = resolve(sandbox, 'trace.json');
+  const mutation = resolve(sandbox, 'mutation');
+  await mkdir(entryDirectory, { recursive: true });
+  await mkdir(live, { recursive: true });
+  await writeFile(resolve(entryDirectory, 'opencode-deployment-preflight.js'), `
+const { writeFileSync } = require('node:fs');
+writeFileSync(process.env.TRACE_PATH, JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2) }));
+`);
+  const result = spawnSync(bashExecutable, ['--noprofile', '--norc', '-c', `
+set -euo pipefail
+node_binary="$1"
+release_dir="$2"
+live_dir="$3"
+${preflightCommand}
+printf mutation > "$4"
+`, 'contract', process.execPath, stage, live, mutation], {
+    cwd: stage,
+    encoding: 'utf8',
+    env: { ...process.env, TRACE_PATH: trace },
+  });
+  try {
+    assert.equal(result.status, 0, `staged preflight command failed: ${result.stderr}`);
+    assert.deepEqual(JSON.parse(await readFile(trace, 'utf8')), {
+      cwd: await realpath(stage),
+      args: [stage, live],
+    });
+    assert.equal(await readFile(mutation, 'utf8'), 'mutation');
+
+    await rm(trace, { force: true });
+    await rm(mutation, { force: true });
+    await writeFile(resolve(entryDirectory, 'opencode-deployment-preflight.js'), 'process.exit(23);\n');
+    const rejected = spawnSync(bashExecutable, ['--noprofile', '--norc', '-c', `
+set -euo pipefail
+node_binary="$1"
+release_dir="$2"
+live_dir="$3"
+${preflightCommand}
+printf mutation > "$4"
+`, 'contract', process.execPath, stage, live, mutation], {
+      cwd: stage,
+      encoding: 'utf8',
+      env: { ...process.env, TRACE_PATH: trace },
+    });
+    assert.equal(rejected.status, 23, rejected.stderr);
+    assert.equal(existsSync(mutation), false, 'preflight failure must prevent later mutation');
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
   }
 });
 
