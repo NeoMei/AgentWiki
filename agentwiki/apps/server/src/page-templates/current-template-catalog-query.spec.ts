@@ -44,4 +44,20 @@ describe('queryCurrentTemplateCatalog', () => {
     expect(query.sql).not.toContain('version."definition" AS');
     expect(query.sql.indexOf('COALESCE(version."definition"')).toBeLessThan(query.sql.indexOf('LIMIT ?'));
   });
+
+  it('escapes LIKE wildcard characters so q remains a literal substring', async () => {
+    const db = {
+      $queryRaw: jest.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([{ total: 0n }]),
+    } as any;
+
+    await queryCurrentTemplateCatalog(db, {
+      mode: 'legacy', spaceId: 'space-1', locale: 'en', scope: 'all', archived: 'active',
+      q: String.raw`100%_done\path`, skip: 0, take: 10,
+    });
+
+    const query = db.$queryRaw.mock.calls[0]?.[0] as Prisma.Sql;
+    expect(query.sql).toContain('LIKE ? ESCAPE ?');
+    expect(query.values).toContain(String.raw`%100\%\_done\\path%`);
+    expect(query.values.filter((value) => value === '\\')).toHaveLength(2);
+  });
 });

@@ -74,16 +74,16 @@ export async function queryCurrentTemplateCatalog(
     predicates.push(Prisma.sql`(${supportsExpression}) = ${input.supportsCollaboration}`);
   }
   if (input.q?.trim()) {
-    const localizedNeedle = `%${input.q.trim().toLocaleLowerCase(input.locale)}%`;
-    const normalizedNeedle = `%${normalizeTemplateName(input.q)}%`;
+    const localizedNeedle = `%${escapeLikePattern(input.q.trim().toLocaleLowerCase(input.locale))}%`;
+    const normalizedNeedle = `%${escapeLikePattern(normalizeTemplateName(input.q))}%`;
     predicates.push(Prisma.sql`(
       (template."scope" = 'system' AND LOWER(COALESCE(
         template."nameI18n" ->> ${input.locale},
         template."nameI18n" ->> 'en',
         template."nameI18n" ->> 'zh-CN'
-      )) LIKE ${localizedNeedle})
+      )) LIKE ${localizedNeedle} ESCAPE ${'\\'})
       OR
-      (template."scope" = 'space' AND template."nameKey" LIKE ${normalizedNeedle})
+      (template."scope" = 'space' AND template."nameKey" LIKE ${normalizedNeedle} ESCAPE ${'\\'})
     )`);
   }
   const where = Prisma.sql`${Prisma.join(predicates, ' AND ')}`;
@@ -125,4 +125,8 @@ export async function queryCurrentTemplateCatalog(
     `),
   ]);
   return { rows, total: Number(totals[0]?.total ?? 0) };
+}
+
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/gu, '\\$&');
 }
