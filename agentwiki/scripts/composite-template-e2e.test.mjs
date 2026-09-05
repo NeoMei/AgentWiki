@@ -7,6 +7,11 @@ import {
   acceptanceChildEnvironment,
   acceptanceCompletionStatus,
   assertCollaborationOffPersistence,
+  assertHistoricalBindingPersistence,
+  assertSavedFolderTemplatePersistence,
+  assertCompatibilityPersistence,
+  assertConcurrentPageConflictPersistence,
+  partitionExpectedConsoleIssues,
   assertExternalAgentSuccessfulSequence,
   assertExternalAgentReceipt,
   buildExternalAgentStagePrompt,
@@ -90,6 +95,7 @@ test('acceptance child environment is bound to one generated schema, exact ports
       REDIS_URL: 'redis://127.0.0.1:6379/0',
       DATABASE_URL: 'postgresql://tester@127.0.0.1:50415/agentwiki_composite_test',
       SYNC_V3_TEST_DATABASE_URL: 'postgresql://tester@127.0.0.1:50415/agentwiki_composite_test',
+      AGENTWIKI_E2E_API_RATE_LIMIT: '400',
     },
     databaseUrl: generatedDatabaseUrl,
     redisUrl: 'redis://127.0.0.1:50416/0',
@@ -112,6 +118,7 @@ test('acceptance child environment is bound to one generated schema, exact ports
   assert.equal(result.LLM_GATEWAY, 'openrouter');
   assert.equal(result.PUBLIC_API_URL, 'http://127.0.0.1:43123/api');
   assert.equal(result.CORS_ORIGINS, 'http://127.0.0.1:43124');
+  assert.equal(result.AGENTWIKI_E2E_API_RATE_LIMIT, '10000');
   assert.doesNotMatch(JSON.stringify(result), /127\.0\.0\.1:6379/u);
 });
 
@@ -164,6 +171,243 @@ test('collaboration-off persistence rejects bindings and any revision proof othe
   assert.throws(() => assertCollaborationOffPersistence({
     ...valid, instantiation: { ...valid.instantiation, result: { ...valid.instantiation.result, treeRevision: '4' } },
   }), /result treeRevision/u);
+});
+
+test('historical Page binding proof requires immutable Run assignee, exact audit chain, and no Grant mutation', () => {
+  const input = {
+    targetPageId: 'page-target',
+    outsidePageId: 'page-outside',
+    initialAgentId: 'agent-codex',
+    replacementAgentId: 'agent-opencode',
+    grantVersionsBefore: [
+      { agentId: 'agent-codex', updatedAt: '2026-09-06T00:00:00.000Z' },
+      { agentId: 'agent-opencode', updatedAt: '2026-09-06T00:00:00.000Z' },
+    ],
+    grantVersionsAfter: [
+      { agentId: 'agent-codex', updatedAt: '2026-09-06T00:00:00.000Z' },
+      { agentId: 'agent-opencode', updatedAt: '2026-09-06T00:00:00.000Z' },
+    ],
+    runTasks: [{ targetPageId: 'page-target', assigneeAgentId: 'agent-codex' }],
+    runParticipantAgentIds: ['agent-codex'],
+    events: [
+      { pageId: 'page-target', beforeAgentId: null, afterAgentId: 'agent-codex' },
+      { pageId: 'page-outside', beforeAgentId: null, afterAgentId: 'agent-opencode' },
+      { pageId: 'page-target', beforeAgentId: 'agent-codex', afterAgentId: 'agent-opencode' },
+      { pageId: 'page-target', beforeAgentId: 'agent-opencode', afterAgentId: null },
+    ],
+    bindings: [{ pageId: 'page-outside', agentId: 'agent-opencode' }],
+  };
+  assert.deepEqual(assertHistoricalBindingPersistence(input), {
+    auditEventCount: 4,
+    frozenAssigneeAgentId: 'agent-codex',
+    participantAgentIds: ['agent-codex'],
+    remainingBindingPageIds: ['page-outside'],
+    grantMutationCount: 0,
+  });
+  assert.throws(() => assertHistoricalBindingPersistence({
+    ...input,
+    runTasks: [{ targetPageId: 'page-target', assigneeAgentId: 'agent-opencode' }],
+  }), /frozen assignee/u);
+  assert.throws(() => assertHistoricalBindingPersistence({
+    ...input,
+    runParticipantAgentIds: ['agent-codex', 'agent-opencode'],
+  }), /outside binding.*participant/u);
+  assert.throws(() => assertHistoricalBindingPersistence({
+    ...input,
+    grantVersionsAfter: [{ agentId: 'agent-codex', updatedAt: 'changed' }, input.grantVersionsAfter[1]],
+  }), /AgentGrant/u);
+});
+
+test('saved Folder proof prunes descendants, abstracts Agents, and preserves retained Markdown on re-instantiation', () => {
+  const sourceNodes = [
+    { templateNodeId: 'folder-1', parentTemplateNodeId: null, sourceNodeId: 'root', parentSourceNodeId: null, kind: 'folder', name: 'Root', order: 0 },
+    { templateNodeId: 'folder-2', parentTemplateNodeId: 'folder-1', sourceNodeId: 'drop-folder', parentSourceNodeId: 'root', kind: 'folder', name: 'Drop', order: 0 },
+    { templateNodeId: 'page-1', parentTemplateNodeId: 'folder-2', sourceNodeId: 'drop-child', parentSourceNodeId: 'drop-folder', kind: 'page', title: 'Drop child', content: 'drop', order: 0 },
+    { templateNodeId: 'page-2', parentTemplateNodeId: 'folder-1', sourceNodeId: 'drop-page', parentSourceNodeId: 'root', kind: 'page', title: 'Drop page', content: 'drop explicit', order: 0 },
+    { templateNodeId: 'page-3', parentTemplateNodeId: 'folder-1', sourceNodeId: 'keep-page', parentSourceNodeId: 'root', kind: 'page', title: 'Keep page', content: '# updated body', order: 1 },
+  ];
+  const definition = {
+    nodes: [
+      { nodeId: 'folder-1', parentNodeId: null, kind: 'folder', order: 0, nameI18n: { 'zh-CN': 'Root' } },
+      { nodeId: 'page-3', parentNodeId: 'folder-1', kind: 'page', order: 1, titleI18n: { 'zh-CN': 'Keep page' }, contentI18n: { 'zh-CN': '# updated body' }, roleSlotKey: 'page-3-owner' },
+    ],
+    collaboration: { workflow: { roleSlots: [{ id: 'page-3-owner', name: 'Owner' }] } },
+  };
+  assert.deepEqual(assertSavedFolderTemplatePersistence({
+    sourceNodes,
+    excludedFolderIds: ['drop-folder'],
+    excludedPageIds: ['drop-page'],
+    definition,
+    instantiatedRootName: 'Created Root',
+    instantiatedNodes: [
+      { nodeId: 'folder-1', parentNodeId: null, kind: 'folder', order: 0, name: 'Created Root' },
+      { nodeId: 'page-3', parentNodeId: 'folder-1', kind: 'page', order: 1, title: 'Keep page', content: '# updated body' },
+    ],
+    concreteAgentIds: ['agent-a', 'agent-b'],
+  }), {
+    retainedNodeCount: 2,
+    retainedPageCount: 1,
+    roleCount: 1,
+    instantiatedNodeCount: 2,
+  });
+  assert.throws(() => assertSavedFolderTemplatePersistence({
+    sourceNodes,
+    excludedFolderIds: ['drop-folder'],
+    excludedPageIds: ['drop-page'],
+    definition: { ...definition, leakedAgentId: 'agent-a' },
+    instantiatedRootName: 'Created Root',
+    instantiatedNodes: [],
+    concreteAgentIds: ['agent-a'],
+  }), /concrete Agent/u);
+  assert.throws(() => assertSavedFolderTemplatePersistence({
+    sourceNodes,
+    excludedFolderIds: ['drop-folder'],
+    excludedPageIds: ['drop-page'],
+    definition,
+    instantiatedRootName: 'Created Root',
+    instantiatedNodes: [
+      { nodeId: 'folder-1', parentNodeId: null, kind: 'folder', order: 0, name: 'Created Root' },
+      { nodeId: 'page-3', parentNodeId: null, kind: 'page', order: 1, title: 'Keep page', content: '# updated body' },
+    ],
+    concreteAgentIds: [],
+  }), /tree structure/u);
+  assert.throws(() => assertSavedFolderTemplatePersistence({
+    sourceNodes,
+    excludedFolderIds: ['drop-folder'],
+    excludedPageIds: ['drop-page'],
+    definition,
+    instantiatedRootName: 'Created Root',
+    instantiatedNodes: [
+      { nodeId: 'page-3', parentNodeId: null, kind: 'page', order: 1, title: 'Keep page', content: '# updated body' },
+    ],
+    concreteAgentIds: [],
+  }), /tree structure/u);
+});
+
+test('compatibility proof keeps legacy and existing composite state while new composite creation is disabled', () => {
+  const input = {
+    oldPage: { id: 'page-old', title: 'Legacy page', content: '# Legacy body' },
+    legacy: { runId: 'run-legacy', status: 'cancelled', historyRunIds: ['run-legacy'] },
+    folder: {
+      folderId: 'folder-root', discoveredPageIds: ['page-a', 'page-b', 'page-outside'],
+      selectedBindingPageIds: ['page-a', 'page-b'], bindingPageIds: ['page-a', 'page-b'],
+      selectedTaskPageIds: ['page-a'], outsidePageId: 'page-outside',
+      outsideAgentId: 'agent-outside', outsideBindingAgentId: 'agent-outside', outsideBindingUnchanged: true,
+      runParticipantAgentIds: ['agent-selected'],
+    },
+    featureOff: {
+      canCreate: false, compositeWriteStatus: 409,
+      compositeWriteCode: 'COMPOSITE_TEMPLATE_FEATURE_DISABLED',
+      existingRunId: 'run-composite', readableRunId: 'run-composite',
+      taskCount: 7, reviewCount: 2, beforeCounts: { pages: 10, runs: 3, instantiations: 2 },
+      afterCounts: { pages: 10, runs: 3, instantiations: 2 },
+      execution: {
+        transport: 'protocol fixture APIs; no model execution',
+        submittedRunStatus: 'waiting_review', reviewStatus: 'approved',
+        finalRunStatus: 'completed', pageId: 'page-target',
+        submittedMarkdown: '# Published while feature off',
+        pageContent: '# Published while feature off', pageVersionCount: 1,
+      },
+    },
+  };
+  assert.deepEqual(assertCompatibilityPersistence(input), {
+    legacyRunId: 'run-legacy', bulkBindingCount: 2, selectedTaskCount: 1,
+    existingCompositeRunId: 'run-composite', featureOffNoDeletion: true,
+    featureOffPublishedPageId: 'page-target',
+  });
+  assert.throws(() => assertCompatibilityPersistence({
+    ...input,
+    folder: { ...input.folder, bindingPageIds: ['page-a', 'page-outside'] },
+  }), /exactly the selected Pages/u);
+  assert.throws(() => assertCompatibilityPersistence({
+    ...input,
+    folder: { ...input.folder, outsideBindingUnchanged: false },
+  }), /outside.*unchanged/u);
+  assert.throws(() => assertCompatibilityPersistence({
+    ...input,
+    folder: { ...input.folder, runParticipantAgentIds: ['agent-selected', 'agent-outside'] },
+  }), /outside.*binding.*participant/u);
+  assert.throws(() => assertCompatibilityPersistence({
+    ...input,
+    featureOff: { ...input.featureOff, afterCounts: { pages: 9, runs: 3, instantiations: 2 } },
+  }), /delete/u);
+  assert.throws(() => assertCompatibilityPersistence({
+    ...input,
+    featureOff: {
+      ...input.featureOff,
+      execution: { ...input.featureOff.execution, pageContent: '# stale body' },
+    },
+  }), /execute.*publish.*PageVersion/u);
+});
+
+test('console classification consumes only the exact expected SOURCE_CHANGED browser error', () => {
+  const conflict = 'error: Failed to load resource: the server responded with a status of 409 (Conflict)';
+  const expectedResponse = {
+    method: 'POST', pathname: '/api/spaces/space-1/templates/from-folder',
+    status: 409, code: 'SOURCE_CHANGED',
+  };
+  assert.deepEqual(partitionExpectedConsoleIssues(
+    [conflict, 'warning: unrelated warning'],
+    [expectedResponse],
+  ), { expected: [conflict], unexpected: ['warning: unrelated warning'] });
+  assert.deepEqual(partitionExpectedConsoleIssues([conflict, conflict], [expectedResponse]), {
+    expected: [conflict], unexpected: [conflict],
+  });
+  for (const response of [
+    { ...expectedResponse, pathname: '/api/spaces/space-1/other' },
+    { ...expectedResponse, status: 500 },
+    { ...expectedResponse, code: 'OTHER_CONFLICT' },
+  ]) {
+    assert.deepEqual(partitionExpectedConsoleIssues([conflict], [response]), {
+      expected: [], unexpected: [conflict],
+    });
+  }
+  const serverError = 'error: Failed to load resource: the server responded with a status of 500 (Internal Server Error)';
+  assert.deepEqual(partitionExpectedConsoleIssues([serverError], [expectedResponse]), {
+    expected: [], unexpected: [serverError],
+  });
+  const pageConflictResponse = {
+    method: 'POST',
+    pathname: '/api/spaces/space-1/collaboration/runs/run-1/reviews/review-1/decision',
+    status: 409, code: 'PAGE_VERSION_CONFLICT',
+  };
+  assert.deepEqual(partitionExpectedConsoleIssues([conflict, conflict], [expectedResponse, pageConflictResponse]), {
+    expected: [conflict, conflict], unexpected: [],
+  });
+  assert.deepEqual(partitionExpectedConsoleIssues([conflict], [expectedResponse, pageConflictResponse]), {
+    expected: [], unexpected: [conflict],
+  });
+});
+
+test('concurrent Page conflict proof preserves both human edits and supersedes both stale candidates', () => {
+  const humanFirst = '# Human first';
+  const humanChosen = '# Human chosen';
+  assert.deepEqual(assertConcurrentPageConflictPersistence({
+    humanFirst,
+    humanChosen,
+    firstConflict: { runStatus: 'paused', pauseReason: 'page_version_conflict', reviewStatus: 'pending', pageContent: humanFirst },
+    regenerated: { generation: 2, baseContentHash: 'hash-first', expectedBaseContentHash: 'hash-first', changeSetStatus: 'superseded', artifactStatus: 'rejected' },
+    secondConflict: { runStatus: 'paused', pauseReason: 'page_version_conflict', reviewStatus: 'pending', pageContent: humanChosen },
+    adopted: {
+      pageContent: humanChosen, reviewStatus: 'approved', adoptedArtifactStatus: 'accepted',
+      adoptedMarkdown: humanChosen, adoptedPageVersionId: 'version-human',
+      currentPageVersionId: 'version-human', staleArtifactStatus: 'superseded',
+      staleChangeSetStatus: 'superseded',
+    },
+  }), { conflictCount: 2, regeneration: 2, adoptedPageVersionId: 'version-human', staleCandidateCount: 2 });
+  assert.throws(() => assertConcurrentPageConflictPersistence({
+    humanFirst,
+    humanChosen,
+    firstConflict: { runStatus: 'paused', pauseReason: 'page_version_conflict', reviewStatus: 'pending', pageContent: 'stale overwrite' },
+    regenerated: { generation: 2, baseContentHash: 'hash-first', expectedBaseContentHash: 'hash-first', changeSetStatus: 'superseded', artifactStatus: 'rejected' },
+    secondConflict: { runStatus: 'paused', pauseReason: 'page_version_conflict', reviewStatus: 'pending', pageContent: humanChosen },
+    adopted: {
+      pageContent: humanChosen, reviewStatus: 'approved', adoptedArtifactStatus: 'accepted',
+      adoptedMarkdown: humanChosen, adoptedPageVersionId: 'version-human',
+      currentPageVersionId: 'version-human', staleArtifactStatus: 'superseded',
+      staleChangeSetStatus: 'superseded',
+    },
+  }), /first conflict.*human edit/u);
 });
 
 test('external Agent stage prompt is bounded, copyable, and preserves the human gate', () => {

@@ -11,11 +11,21 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { assertTestRedisAvailable, resolveTestRedisTarget } from './e2e-safety.mjs';
 import {
+  runHistoricalPageBindingJourney,
+  runSavedFolderTemplateJourney,
+} from './composite-template-e2e-browser-journeys.mjs';
+import { runConcurrentPageConflictJourney } from './composite-template-e2e-conflict-journey.mjs';
+import {
+  runEnabledCompatibilityJourney,
+  runFeatureOffCompatibilityJourney,
+} from './composite-template-e2e-compatibility-journey.mjs';
+import {
   acceptanceChildEnvironment,
   acceptanceCompletionStatus,
   assertCollaborationOffPersistence,
   assertExternalAgentReceipt,
   assertPublishedPageVersionPair,
+  partitionExpectedConsoleIssues,
   buildExternalAgentStagePrompt,
   collectContentTree,
   externalAgentClientArgs,
@@ -102,7 +112,7 @@ async function runAcceptanceStartup(baseDatabaseUrl, redisUrl, { full }) {
         throw new Error('Vite API proxy did not reach the isolated API');
       }
       const artifactsDirectory = await acceptanceArtifactsDirectory();
-      const browserEvidence = full
+      let browserEvidence = full
         ? await runChromeAcceptance({
           webOrigin,
           apiUrl: `http://127.0.0.1:${apiPort}/api`,
@@ -111,6 +121,28 @@ async function runAcceptanceStartup(baseDatabaseUrl, redisUrl, { full }) {
           artifactsDirectory,
         })
         : undefined;
+      if (browserEvidence) {
+        await stopProcess(worker);
+        worker = undefined;
+        await stopProcess(api);
+        api = undefined;
+        const featureOffEnvironment = { ...baseEnvironment, COMPOSITE_TEMPLATE_SPACE_ALLOWLIST: '' };
+        api = startProcess('api', process.execPath, [resolve(root, 'apps/server/dist/main.js')], featureOffEnvironment);
+        await waitForHealth(`http://127.0.0.1:${apiPort}/api`, api);
+        const featureOff = await runFeatureOffCompatibilityJourney({
+          webOrigin,
+          apiUrl: `http://127.0.0.1:${apiPort}/api`,
+          databaseUrl: generatedDatabaseUrl,
+          fixture,
+          artifactsDirectory,
+          enabledCompatibility: browserEvidence.compatibility,
+        });
+        browserEvidence = {
+          ...browserEvidence,
+          scenariosPassed: 6,
+          compatibility: { ...browserEvidence.compatibility, featureOff },
+        };
+      }
       process.stdout.write(`${JSON.stringify({
         status: acceptanceCompletionStatus(full, browserEvidence), schemaName, apiPort, webPort,
         spaceId: fixture.space.id,
@@ -275,12 +307,33 @@ async function runChromeAcceptance({ webOrigin, apiUrl, databaseUrl, fixture, ar
       artifactsDirectory,
       runId: collaborationOn.runId,
     });
-    assert.deepEqual(consoleIssues, []);
+    const historicalPageBinding = await runHistoricalPageBindingJourney({
+      page, webOrigin, apiUrl, databaseUrl, fixture, artifactsDirectory,
+    });
+    const savedFolderTemplate = await runSavedFolderTemplateJourney({
+      page, webOrigin, apiUrl, databaseUrl, fixture, artifactsDirectory,
+    });
+    const concurrentPageConflict = await runConcurrentPageConflictJourney({
+      page, webOrigin, apiUrl, databaseUrl, fixture, artifactsDirectory,
+    });
+    const compatibility = await runEnabledCompatibilityJourney({
+      page, webOrigin, apiUrl, databaseUrl, fixture, artifactsDirectory,
+      existingCompositeRunId: concurrentPageConflict.runId,
+      featureOffExecutableRunId: historicalPageBinding.runId,
+    });
+    const classifiedConsole = partitionExpectedConsoleIssues(
+      consoleIssues, [
+        savedFolderTemplate.sourceChangedResponse,
+        ...concurrentPageConflict.expectedConflictResponses,
+      ],
+    );
+    assert.equal(classifiedConsole.expected.length, 3);
+    assert.deepEqual(classifiedConsole.unexpected, []);
     await assertNoOverflow(page);
     return {
       browser: 'Chrome',
       desktop: { width: 1440, height: 900 },
-      scenariosPassed: 2,
+      scenariosPassed: 5,
       collaborationOff: {
         nodes: nodes.length,
         runs: 0,
@@ -289,8 +342,13 @@ async function runChromeAcceptance({ webOrigin, apiUrl, databaseUrl, fixture, ar
         ...collaborationOffPersistence,
       },
       collaborationOn,
+      historicalPageBinding,
+      savedFolderTemplate,
+      concurrentPageConflict,
+      compatibility,
       externalAgents,
-      consoleIssues: 0,
+      consoleIssues: classifiedConsole.unexpected.length,
+      expectedSourceChangedConsoleIssues: classifiedConsole.expected.length,
     };
   } finally {
     await context.tracing.stop({ path: join(artifactsDirectory, 'chrome-trace.zip') }).catch(() => undefined);

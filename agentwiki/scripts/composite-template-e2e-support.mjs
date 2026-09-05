@@ -67,6 +67,7 @@ export function acceptanceChildEnvironment({
     PUBLIC_API_URL: `http://127.0.0.1:${apiPort}/api`,
     MCP_ALLOWED_HOSTS: '127.0.0.1,localhost',
     CORS_ORIGINS: webOrigin,
+    AGENTWIKI_E2E_API_RATE_LIMIT: '10000',
     COMPOSITE_TEMPLATE_SPACE_ALLOWLIST: spaceId,
     OPENROUTER_API_KEY: '',
     LLM_GATEWAY: 'openrouter',
@@ -134,6 +135,304 @@ export function assertCollaborationOffPersistence({
     createdPageCount: resultPageIds.length,
     bindingCount,
   };
+}
+
+export function assertHistoricalBindingPersistence({
+  targetPageId,
+  outsidePageId,
+  initialAgentId,
+  replacementAgentId,
+  grantVersionsBefore,
+  grantVersionsAfter,
+  runTasks,
+  runParticipantAgentIds,
+  events,
+  bindings,
+}) {
+  const expectedEvents = [
+    { pageId: targetPageId, beforeAgentId: null, afterAgentId: initialAgentId },
+    { pageId: outsidePageId, beforeAgentId: null, afterAgentId: replacementAgentId },
+    { pageId: targetPageId, beforeAgentId: initialAgentId, afterAgentId: replacementAgentId },
+    { pageId: targetPageId, beforeAgentId: replacementAgentId, afterAgentId: null },
+  ];
+  const actualEvents = events.map(({ pageId, beforeAgentId, afterAgentId }) => ({
+    pageId, beforeAgentId, afterAgentId,
+  }));
+  if (!isDeepStrictEqual(actualEvents, expectedEvents)) {
+    throw new Error('Historical binding audit must preserve the exact bind/outside-bind/replace/unbind chain');
+  }
+  const targetTasks = runTasks.filter((task) => task.targetPageId === targetPageId);
+  if (targetTasks.length !== 1 || targetTasks[0].assigneeAgentId !== initialAgentId) {
+    throw new Error('Historical binding Run must retain its frozen assignee');
+  }
+  const participants = [...new Set(runParticipantAgentIds)].sort();
+  if (!isDeepStrictEqual(participants, [initialAgentId])) {
+    throw new Error('Historical binding outside binding must not become a participant');
+  }
+  const remaining = bindings.map(({ pageId, agentId }) => ({ pageId, agentId }));
+  if (!isDeepStrictEqual(remaining, [{ pageId: outsidePageId, agentId: replacementAgentId }])) {
+    throw new Error('Historical binding final state must retain only the outside Page binding');
+  }
+  const grantKey = (items) => items
+    .map(({ agentId, updatedAt }) => ({ agentId, updatedAt }))
+    .sort((left, right) => left.agentId.localeCompare(right.agentId));
+  if (!isDeepStrictEqual(grantKey(grantVersionsBefore), grantKey(grantVersionsAfter))) {
+    throw new Error('Historical Page binding must not mutate AgentGrant rows');
+  }
+  return {
+    auditEventCount: actualEvents.length,
+    frozenAssigneeAgentId: initialAgentId,
+    participantAgentIds: participants,
+    remainingBindingPageIds: remaining.map((binding) => binding.pageId),
+    grantMutationCount: 0,
+  };
+}
+
+export function assertSavedFolderTemplatePersistence({
+  sourceNodes,
+  excludedFolderIds,
+  excludedPageIds,
+  definition,
+  instantiatedRootName,
+  instantiatedNodes,
+  concreteAgentIds,
+}) {
+  const byId = new Map(sourceNodes.map((node) => [node.sourceNodeId, node]));
+  const excludedFolders = new Set(excludedFolderIds);
+  const excludedPages = new Set(excludedPageIds);
+  const hasExcludedAncestor = (node) => {
+    let parentId = node.parentSourceNodeId;
+    while (parentId !== null) {
+      if (excludedFolders.has(parentId)) return true;
+      parentId = byId.get(parentId)?.parentSourceNodeId ?? null;
+    }
+    return false;
+  };
+  const retained = sourceNodes.filter((node) => !excludedPages.has(node.sourceNodeId)
+    && !excludedFolders.has(node.sourceNodeId) && !hasExcludedAncestor(node));
+  const serialized = JSON.stringify(definition);
+  if (concreteAgentIds.some((agentId) => serialized.includes(agentId))) {
+    throw new Error('Saved Folder template must not retain a concrete Agent ID');
+  }
+  if (!Array.isArray(definition?.nodes) || definition.nodes.length !== retained.length) {
+    throw new Error('Saved Folder template definition must exactly match the pruned source tree');
+  }
+  const logicalPaths = (nodes) => {
+    const byParent = new Map();
+    for (const node of nodes) {
+      const siblings = byParent.get(node.parentNodeId) ?? [];
+      siblings.push(node);
+      byParent.set(node.parentNodeId, siblings);
+    }
+    const paths = [];
+    const visit = (parentNodeId, parentPath) => {
+      for (const node of byParent.get(parentNodeId) ?? []) {
+        const path = `${parentPath}/${node.kind}:${node.label}`;
+        paths.push(path);
+        visit(node.nodeId, path);
+      }
+    };
+    visit(null, '');
+    return paths.sort();
+  };
+  const expectedTree = retained.map((node) => ({
+    nodeId: node.sourceNodeId,
+    parentNodeId: node.parentSourceNodeId,
+    kind: node.kind,
+    label: node.kind === 'folder' ? node.name : node.title,
+  }));
+  const sortTree = (nodes) => [...nodes].sort((left, right) => left.nodeId.localeCompare(right.nodeId));
+  const definitionTree = sortTree(definition.nodes.map((node) => ({
+    nodeId: node.nodeId,
+    parentNodeId: node.parentNodeId,
+    kind: node.kind,
+    order: node.order,
+    label: node.kind === 'folder'
+      ? node.nameI18n?.['zh-CN'] ?? node.nameI18n?.en
+      : node.titleI18n?.['zh-CN'] ?? node.titleI18n?.en,
+    content: node.kind === 'page'
+      ? node.contentI18n?.['zh-CN'] ?? node.contentI18n?.en
+      : undefined,
+  })));
+  if (!isDeepStrictEqual(logicalPaths(definitionTree), logicalPaths(expectedTree))) {
+    throw new Error('Saved Folder template must preserve the exact pruned tree structure');
+  }
+  const instantiatedTree = sortTree(instantiatedNodes.map((node) => ({
+    nodeId: node.nodeId,
+    parentNodeId: node.parentNodeId,
+    kind: node.kind,
+    order: node.order,
+    label: node.kind === 'folder' ? node.name : node.title,
+    content: node.kind === 'page' ? node.content : undefined,
+  })));
+  const rankSiblingOrder = (nodes) => {
+    const ranked = new Map();
+    const byParent = new Map();
+    for (const node of nodes) {
+      const siblings = byParent.get(node.parentNodeId) ?? [];
+      siblings.push(node);
+      byParent.set(node.parentNodeId, siblings);
+    }
+    for (const siblings of byParent.values()) {
+      siblings.sort((left, right) => left.order - right.order
+        || (left.kind === right.kind ? 0 : left.kind === 'folder' ? 1 : -1)
+        || left.nodeId.localeCompare(right.nodeId));
+      siblings.forEach((node, index) => ranked.set(node.nodeId, index));
+    }
+    return sortTree(nodes.map((node) => ({ ...node, order: ranked.get(node.nodeId) })));
+  };
+  const expectedInstantiationTree = rankSiblingOrder(definitionTree).map((node) => node.parentNodeId === null
+    && node.kind === 'folder' && instantiatedRootName
+    ? { ...node, label: instantiatedRootName }
+    : node);
+  if (!isDeepStrictEqual(rankSiblingOrder(instantiatedTree), expectedInstantiationTree)) {
+    throw new Error('Saved Folder re-instantiation must reproduce the exact tree structure');
+  }
+  const retainedPages = retained.filter((node) => node.kind === 'page');
+  const definitionPages = definition.nodes.filter((node) => node.kind === 'page');
+  const expectedPages = retainedPages.map((page) => ({ title: page.title, content: page.content }));
+  const actualPages = definitionPages.map((page) => ({
+    title: page.titleI18n?.['zh-CN'] ?? page.titleI18n?.en,
+    content: page.contentI18n?.['zh-CN'] ?? page.contentI18n?.en,
+  }));
+  if (!isDeepStrictEqual(actualPages, expectedPages)) {
+    throw new Error('Saved Folder template must preserve the retained Page titles and Markdown');
+  }
+  const instantiatedPages = instantiatedNodes.filter((node) => node.kind === 'page')
+    .map(({ title, content }) => ({ title, content }));
+  if (!isDeepStrictEqual(instantiatedPages, expectedPages)) {
+    throw new Error('Saved Folder re-instantiation must reproduce retained Page titles and Markdown');
+  }
+  const roleCount = definition.collaboration?.workflow?.roleSlots?.length ?? 0;
+  if (roleCount !== retainedPages.length) {
+    throw new Error('Saved Folder role abstraction must cover each retained Page exactly once');
+  }
+  return {
+    retainedNodeCount: retained.length,
+    retainedPageCount: retainedPages.length,
+    roleCount,
+    instantiatedNodeCount: instantiatedNodes.length,
+  };
+}
+
+export function assertConcurrentPageConflictPersistence({
+  humanFirst,
+  humanChosen,
+  firstConflict,
+  regenerated,
+  secondConflict,
+  adopted,
+}) {
+  const assertConflict = (conflict, content, label) => {
+    if (conflict.runStatus !== 'paused' || conflict.pauseReason !== 'page_version_conflict'
+      || conflict.reviewStatus !== 'pending') {
+      throw new Error(`${label} must persist a paused Run and pending review`);
+    }
+    if (conflict.pageContent !== content) throw new Error(`${label} must preserve the human edit`);
+  };
+  assertConflict(firstConflict, humanFirst, 'first conflict');
+  if (regenerated.generation !== 2
+    || regenerated.baseContentHash !== regenerated.expectedBaseContentHash
+    || regenerated.changeSetStatus !== 'superseded'
+    || regenerated.artifactStatus !== 'rejected') {
+    throw new Error('regenerate must use the latest Page baseline and supersede the stale candidate');
+  }
+  assertConflict(secondConflict, humanChosen, 'second conflict');
+  if (adopted.pageContent !== humanChosen || adopted.adoptedMarkdown !== humanChosen
+    || adopted.reviewStatus !== 'approved' || adopted.adoptedArtifactStatus !== 'accepted'
+    || !adopted.adoptedPageVersionId
+    || adopted.adoptedPageVersionId !== adopted.currentPageVersionId
+    || adopted.staleArtifactStatus !== 'superseded'
+    || adopted.staleChangeSetStatus !== 'superseded') {
+    throw new Error('adopt_current must preserve the chosen human Page version and supersede the stale candidate');
+  }
+  return {
+    conflictCount: 2,
+    regeneration: regenerated.generation,
+    adoptedPageVersionId: adopted.adoptedPageVersionId,
+    staleCandidateCount: 2,
+  };
+}
+
+export function assertCompatibilityPersistence({ oldPage, legacy, folder, featureOff }) {
+  if (!oldPage?.id || !oldPage.title || !oldPage.content) {
+    throw new Error('Compatibility must preserve an old single-Page creation');
+  }
+  if (!legacy?.runId || legacy.status !== 'cancelled'
+    || !legacy.historyRunIds.includes(legacy.runId)) {
+    throw new Error('Compatibility must preserve legacy Run start and history');
+  }
+  const discovered = [...folder.discoveredPageIds].sort();
+  const scoped = [...folder.selectedBindingPageIds].sort();
+  const bindings = [...folder.bindingPageIds].sort();
+  if (scoped.length === 0 || discovered.length <= scoped.length
+    || scoped.some((pageId) => !discovered.includes(pageId))) {
+    throw new Error('Folder bulk binding must use an explicit non-empty Page subset');
+  }
+  if (bindings.includes(folder.folderId) || !isDeepStrictEqual(bindings, scoped)) {
+    throw new Error('Folder bulk binding must bind exactly the selected Pages and never the Folder');
+  }
+  if (!discovered.includes(folder.outsidePageId) || scoped.includes(folder.outsidePageId)
+    || folder.outsideBindingAgentId !== folder.outsideAgentId || folder.outsideBindingUnchanged !== true) {
+    throw new Error('Folder outside Page binding and audit must remain unchanged');
+  }
+  if (folder.selectedTaskPageIds.length === 0
+    || folder.selectedTaskPageIds.some((pageId) => !scoped.includes(pageId))) {
+    throw new Error('Folder Run must retain an explicit Page task selection');
+  }
+  if (folder.runParticipantAgentIds.includes(folder.outsideAgentId)) {
+    throw new Error('Folder outside binding must not become a Run participant');
+  }
+  if (featureOff.canCreate !== false || featureOff.compositeWriteStatus !== 409
+    || featureOff.compositeWriteCode !== 'COMPOSITE_TEMPLATE_FEATURE_DISABLED') {
+    throw new Error('Feature-off compatibility must block only new composite creation');
+  }
+  if (featureOff.readableRunId !== featureOff.existingRunId
+    || featureOff.taskCount === 0 || featureOff.reviewCount === 0) {
+    throw new Error('Feature-off compatibility must keep the existing composite Run readable and reviewable');
+  }
+  if (!isDeepStrictEqual(featureOff.beforeCounts, featureOff.afterCounts)) {
+    throw new Error('Feature-off compatibility must not delete existing data');
+  }
+  const execution = featureOff.execution;
+  if (execution?.transport !== 'protocol fixture APIs; no model execution'
+    || execution.submittedRunStatus !== 'waiting_review'
+    || execution.reviewStatus !== 'approved'
+    || execution.finalRunStatus !== 'completed'
+    || !execution.pageId
+    || execution.submittedMarkdown !== execution.pageContent
+    || execution.pageVersionCount !== 1) {
+    throw new Error('Feature-off compatibility must execute the existing Run and publish exactly one PageVersion');
+  }
+  return {
+    legacyRunId: legacy.runId,
+    bulkBindingCount: bindings.length,
+    selectedTaskCount: folder.selectedTaskPageIds.length,
+    existingCompositeRunId: featureOff.existingRunId,
+    featureOffNoDeletion: true,
+    featureOffPublishedPageId: execution.pageId,
+  };
+}
+
+export function partitionExpectedConsoleIssues(consoleIssues, sourceChangedResponses) {
+  const exactConflict = 'error: Failed to load resource: the server responded with a status of 409 (Conflict)';
+  const expectedDomainConflict = (response) => response.method === 'POST' && response.status === 409 && (
+    (response.code === 'SOURCE_CHANGED'
+      && /^\/api\/spaces\/[^/]+\/templates\/from-folder$/u.test(response.pathname))
+    || (response.code === 'PAGE_VERSION_CONFLICT'
+      && /^\/api\/spaces\/[^/]+\/collaboration\/runs\/[^/]+\/reviews\/[^/]+\/decision$/u.test(response.pathname))
+  );
+  const matchedResponses = sourceChangedResponses.filter(expectedDomainConflict);
+  const expected = [];
+  const unexpected = [];
+  for (const issue of consoleIssues) {
+    if (issue === exactConflict && expected.length < matchedResponses.length) expected.push(issue);
+    else unexpected.push(issue);
+  }
+  if (expected.length !== matchedResponses.length) {
+    return { expected: [], unexpected: [...consoleIssues] };
+  }
+  return { expected, unexpected };
 }
 
 export function buildExternalAgentStagePrompt({ client, runId, stage }) {
