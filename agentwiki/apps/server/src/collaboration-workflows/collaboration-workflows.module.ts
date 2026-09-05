@@ -17,17 +17,19 @@ import { RecoveryWorker } from './recovery.worker';
 import { HistoryCursorService } from './history-cursor.service';
 import { RunExpansionService } from './run-expansion.service';
 import { ContentTreeModule } from '../content-tree/content-tree.module';
+import { ReviewModule } from '../review/review.module';
+import { PageResultService } from './page-result.service';
 
 @Module({
-  imports: [DatabaseModule, AuthorizationModule, AuthModule, ConfigModule, ContentTreeModule],
+  imports: [DatabaseModule, AuthorizationModule, AuthModule, ConfigModule, ContentTreeModule, ReviewModule],
   controllers: [TemplateController, RunController],
   providers: [
     TemplateService, RunEventStore, RunService, ArtifactValidator, ProgressionService, ExecutionService, ReviewService,
-    CollaborationEventsService, HistoryCursorService, RecoveryWorker, RunExpansionService,
+    CollaborationEventsService, HistoryCursorService, RecoveryWorker, RunExpansionService, PageResultService,
   ],
   exports: [
     TemplateService, RunEventStore, RunService, ArtifactValidator, ProgressionService, ExecutionService, ReviewService,
-    CollaborationEventsService, RunExpansionService,
+    CollaborationEventsService, RunExpansionService, PageResultService,
   ],
 })
 export class CollaborationWorkflowsModule {}

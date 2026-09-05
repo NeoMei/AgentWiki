@@ -1679,6 +1679,45 @@ describe('ReviewService approval boundaries', () => {
   });
 });
 
+describe('ReviewService collaboration Page boundary', () => {
+  const tx = {
+    collaborationArtifactChangeSetLink: { findUnique: jest.fn() },
+    changeItem: { updateMany: jest.fn(), count: jest.fn() },
+    changeSet: { updateMany: jest.fn(), findUnique: jest.fn() },
+    approval: { create: jest.fn() },
+  } as any;
+  const prisma = {
+    ...tx,
+    $transaction: jest.fn(async (callback: (value: any) => unknown) => callback(tx)),
+  } as any;
+  const service = new ReviewService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any);
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    tx.collaborationArtifactChangeSetLink.findUnique.mockResolvedValue({
+      runId: 'collaboration-run-1', taskId: 'task-1', spaceId: 'space-1', pageId: 'page-1',
+    });
+  });
+
+  it.each([
+    ['decideItem', () => service.decideItem('change-set-1', 'item-1', 'accepted')],
+    ['approve', () => service.approve('change-set-1', 'reviewer-1')],
+    ['reject', () => service.reject('change-set-1', 'reviewer-1')],
+    ['reviewPublish', () => service.reviewPublish('change-set-1', 'reviewer-1')],
+    ['publish', () => service.publish('change-set-1')],
+  ])('rejects ordinary %s for a collaboration-linked Page ChangeSet', async (_name, invoke) => {
+    await expect(invoke()).rejects.toMatchObject({
+      businessCode: 'CHANGESET_INVALID_STATE',
+      response: expect.objectContaining({
+        details: expect.objectContaining({ runId: 'collaboration-run-1', taskId: 'task-1' }),
+      }),
+    });
+    expect(tx.changeSet.updateMany).not.toHaveBeenCalled();
+    expect(tx.changeItem.updateMany).not.toHaveBeenCalled();
+    expect(tx.approval.create).not.toHaveBeenCalled();
+  });
+});
+
 describe('one-shot review-publish and agent auto-publish', () => {
   const prisma = {
     changeItem: { count: jest.fn(), updateMany: jest.fn(), update: jest.fn() },

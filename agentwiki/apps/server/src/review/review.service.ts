@@ -30,6 +30,7 @@ import {
   type LockedAgentAuthorization,
 } from '../core/authorization/live-agent-authorization';
 import { lockContentStore } from '../core/sync/content-store-lock';
+import { publishPageUpdateLocked } from './page-update-publication';
 
 interface AgentAutoPublishContext {
   ownerId?: string;
@@ -53,6 +54,26 @@ export class ReviewService {
       throw new Error('ContentTreeService is required for Review Page mutations');
     }
     return this.contentTree;
+  }
+
+  private async assertOrdinaryReviewEntry(db: any, changeSetId: string): Promise<void> {
+    const delegate = db.collaborationArtifactChangeSetLink;
+    if (!delegate?.findUnique) return;
+    const link = await delegate.findUnique({
+      where: { changeSetId },
+      select: { runId: true, taskId: true, spaceId: true, pageId: true },
+    });
+    if (!link) return;
+    throw new BusinessException(
+      'CHANGESET_INVALID_STATE',
+      'This Page result must be decided through its collaboration Review',
+      {
+        runId: link.runId,
+        taskId: link.taskId,
+        pageId: link.pageId,
+        reviewPath: `/spaces/${link.spaceId}/collaboration-runs/${link.runId}`,
+      },
+    );
   }
 
   async propose(
@@ -166,6 +187,7 @@ export class ReviewService {
   }
 
   async decideItem(changeSetId: string, itemId: string, status: string) {
+    await this.assertOrdinaryReviewEntry(this.prisma, changeSetId);
     const result = await this.prisma.changeItem.updateMany({
       where: { id: itemId, changeSetId, status: 'pending', changeSet: { status: 'pending_review' } },
       data: { status },
@@ -185,6 +207,7 @@ export class ReviewService {
 
   async approve(id: string, reviewerId: string, comment?: string) {
     await this.prisma.$transaction(async (tx) => {
+      await this.assertOrdinaryReviewEntry(tx, id);
       const [pending, accepted] = await Promise.all([
         tx.changeItem.count({ where: { changeSetId: id, status: 'pending' } }),
         tx.changeItem.count({ where: { changeSetId: id, status: 'accepted' } }),
@@ -203,6 +226,7 @@ export class ReviewService {
 
   async reject(id: string, reviewerId: string, comment?: string) {
     await this.prisma.$transaction(async (tx) => {
+      await this.assertOrdinaryReviewEntry(tx, id);
       const changed = await tx.changeSet.updateMany({
         where: { id, status: 'pending_review' },
         data: { status: 'rejected', reviewedAt: new Date() },
@@ -221,6 +245,7 @@ export class ReviewService {
    */
   async reviewPublish(id: string, reviewerId: string, comment?: string) {
     await this.prisma.$transaction(async (tx) => {
+      await this.assertOrdinaryReviewEntry(tx, id);
       const claimed = await tx.changeSet.updateMany({
         where: { id, status: 'pending_review' },
         data: { status: 'approved', reviewedAt: new Date() },
@@ -238,6 +263,7 @@ export class ReviewService {
   }
 
   async publish(id: string, autoPublishContext?: AgentAutoPublishContext | null) {
+    await this.assertOrdinaryReviewEntry(this.prisma, id);
     const changeSet = await this.get(id);
     if (['draft', 'pending_review'].includes(changeSet.status)) {
       throw new BusinessException('APPROVAL_REQUIRED', 'Change set must be approved before publishing');
@@ -580,112 +606,24 @@ export class ReviewService {
             });
           }
         } else if (item.type === 'update_page') {
-          const page = await tx.page.findFirst({ where: { id: payload.pageId, spaceId: changeSet.spaceId, deletedAt: null } });
-          if (!page) throw new BadRequestException('Updated page must belong to the change set space');
-          if (payload.expectedUpdatedAt && page.updatedAt.toISOString() !== payload.expectedUpdatedAt) {
-            throw new BusinessException('CHANGESET_INVALID_STATE', 'The page changed after this candidate was compiled; create a new run before publishing');
-          }
-          const changes = payload.changes || {};
-          if (changes.parentId !== undefined) {
-            throw new ContentTreeError(
-              'PAGE_PARENT_DEPRECATED',
-              'Legacy Page parent placement cannot be mapped safely',
-            );
-          }
-          const {
-            expectedTreeRevision: _expectedTreeRevision,
-            folderId: requestedFolderId,
-            ...pageChanges
-          } = changes;
-          const structural = changes.title !== undefined || changes.folderId !== undefined;
-          const placement = structural
-            ? await this.requireContentTree().preparePageMutation(lockedTx as any, {
-              spaceId: changeSet.spaceId,
-              pageId: page.id,
-              title: changes.title ?? page.title,
-              folderId: requestedFolderId === undefined ? (page.folderId ?? null) : requestedFolderId,
-              current: {
-                title: page.title,
-                folderId: page.folderId ?? null,
-                syncPath: page.syncPath,
-                syncPathKey: page.syncPathKey,
-                sortOrder: page.sortOrder ?? 0,
-                createdAt: page.createdAt ?? page.updatedAt,
-                updatedAt: page.updatedAt,
-                knowledgeKey: page.knowledgeKey,
-                content: page.content,
-              },
-            })
-            : {
-              folderId: page.folderId ?? null,
-              syncPath: page.syncPath,
-              syncPathKey: page.syncPathKey,
-            };
-          const before = {
-            title: page.title, slug: page.slug, content: page.content, parentId: page.parentId,
-            folderId: page.folderId ?? null, format: page.format,
-            sourceChangeSetId: page.sourceChangeSetId, createdByAgentId: page.createdByAgentId,
-            lastChangeSetId: page.lastChangeSetId, lastModifiedByUserId: page.lastModifiedByUserId,
-            lastModifiedByAgentId: page.lastModifiedByAgentId, lastModifiedAt: page.lastModifiedAt,
-            sourceId: page.sourceId, sourceVersionId: page.sourceVersionId, sourcePath: page.sourcePath,
-            syncPath: page.syncPath, syncPathKey: page.syncPathKey,
-          };
-          await tx.pageVersion.create({
-            data: {
-              pageId: page.id,
-              title: page.title,
-              content: page.content,
-              authorId: page.authorId,
-              slug: page.slug,
-              format: page.format,
-              parentId: page.parentId,
-              folderId: page.folderId ?? null,
-              syncPath: page.syncPath,
-              syncPathKey: page.syncPathKey,
-            },
+          const page = await publishPageUpdateLocked({
+            tx: lockedTx as any,
+            changeSet,
+            item,
+            authorId,
+            contentTree: this.requireContentTree(),
           });
-          await tx.changeItem.update({ where: { id: item.id }, data: { payload: { ...payload, before } } });
-          const updated = await tx.page.updateMany({
-            where: { id: page.id, spaceId: changeSet.spaceId, deletedAt: null, updatedAt: page.updatedAt },
-            data: {
-              ...pageChanges,
-              ...(structural
-                ? {
-                  parentId: null,
-                  folderId: placement.folderId,
-                  ...(placement.syncPathKey === page.syncPathKey
-                    ? {}
-                    : {
-                      syncPath: placement.syncPath,
-                      syncPathKey: placement.syncPathKey,
-                    }),
-                }
-                : {}),
-              sourceChangeSetId: page.sourceChangeSetId || id,
-              createdByAgentId: page.createdByAgentId || changeSet.createdByAgentId,
-              lastChangeSetId: id,
-              lastModifiedByAgentId: changeSet.createdByAgentId,
-              lastModifiedByUserId: changeSet.createdByAgentId ? null : authorId,
-              lastModifiedAt: new Date(),
-              sourceId: payload.sourceId ?? page.sourceId,
-              sourceVersionId: payload.sourceVersionId ?? page.sourceVersionId,
-              sourcePath: payload.sourcePath ?? page.sourcePath,
-            },
-          });
-          if (updated.count !== 1) {
-            throw new BusinessException('CHANGESET_CONFLICT', 'The page changed while this change set was being published');
-          }
-          resourceId = page.id;
-          pageIds.push(page.id);
-          if (payload.sourcePath || page.sourcePath) pageIdBySourcePath.set(payload.sourcePath || page.sourcePath!, page.id);
+          resourceId = page.pageId;
+          pageIds.push(page.pageId);
+          if (page.sourcePath) pageIdBySourcePath.set(page.sourcePath, page.pageId);
           if (changeSet.runId) {
             await tx.evidence.updateMany({
               where: {
                 runId: changeSet.runId,
                 targetPageId: null,
-                ...((payload.sourcePath || page.sourcePath) ? { location: { path: ['sourcePath'], equals: payload.sourcePath || page.sourcePath } } : {}),
+                ...(page.sourcePath ? { location: { path: ['sourcePath'], equals: page.sourcePath } } : {}),
               },
-              data: { targetPageId: page.id },
+              data: { targetPageId: page.pageId },
             });
           }
         } else if (item.type === 'archive_page') {

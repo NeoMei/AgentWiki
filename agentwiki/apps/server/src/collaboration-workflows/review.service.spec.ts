@@ -41,13 +41,20 @@ describe('ReviewService', () => {
     collaborationRunTask: { findMany: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     collaborationTaskAttempt: { updateMany: jest.fn() },
     collaborationTaskTodo: { createMany: jest.fn() },
+    collaborationArtifactChangeSetLink: { findUnique: jest.fn() },
     spaceMember: { count: jest.fn() },
   } as any;
   const prisma = { ...tx, $transaction: jest.fn(async (callback: (value: any) => unknown) => callback(tx)) } as any;
-  const authorization = { assertSpaceAccess: jest.fn(), assertLiveHumanSpaceAccess: jest.fn() } as any;
+  const authorization = { lockLiveHumanPrincipal: jest.fn(), assertSpaceAccess: jest.fn(), assertLiveHumanSpaceAccess: jest.fn() } as any;
   const events = { executeIdempotent: jest.fn(async (_tx: any, _scope: any, mutation: () => unknown) => mutation()) } as any;
   const progression = { advanceRun: jest.fn() } as any;
   const notifications = { publishCurrentRun: jest.fn() } as any;
+  const pagePublication = {
+    lockChangeSetSpace: jest.fn(async (value: any) => Object.assign(value, { contentTreeRevision: 3n })),
+    publishLocked: jest.fn().mockResolvedValue({ pageId: 'page-1', pageVersionId: 'version-published' }),
+    rejectLocked: jest.fn(),
+    runPostCommitEffects: jest.fn(),
+  } as any;
   let service: ReviewService;
 
   beforeEach(() => {
@@ -55,6 +62,7 @@ describe('ReviewService', () => {
     events.executeIdempotent.mockImplementation(async (_tx: any, _scope: any, mutation: () => unknown) => mutation());
     tx.collaborationRun.findUnique.mockResolvedValue(run);
     tx.collaborationReview.findFirst.mockResolvedValue(review);
+    tx.collaborationArtifactChangeSetLink.findUnique.mockResolvedValue(null);
     tx.collaborationReview.findMany.mockResolvedValue([{ ...review, status: 'approved' }]);
     tx.collaborationReview.updateMany.mockResolvedValue({ count: 1 });
     tx.collaborationTaskArtifact.updateMany.mockResolvedValue({ count: 1 });
@@ -63,7 +71,7 @@ describe('ReviewService', () => {
     tx.collaborationRunTask.findMany.mockResolvedValue(tasks);
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'editor' });
     authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'editor', userId: 'reviewer-1', spaceId: 'space-1' });
-    service = new ReviewService(prisma, authorization, events, progression, notifications);
+    service = new ReviewService(prisma, authorization, events, progression, notifications, pagePublication);
   });
 
   it('refuses an Agent principal and a human outside reviewer constraints', async () => {
@@ -129,6 +137,52 @@ describe('ReviewService', () => {
     expect(tx.collaborationRunTask.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'completed' }) }));
     expect(progression.advanceRun).toHaveBeenCalled();
   });
+
+  it('publishes a linked Page result in the same review transaction and runs effects after commit', async () => {
+    tx.collaborationArtifactChangeSetLink.findUnique.mockResolvedValue({
+      changeSetId: 'change-set-1', artifactId: 'artifact-1', runId: 'run-1', taskId: 'task-polish',
+      spaceId: 'space-1', pageId: 'page-1',
+    });
+
+    await service.decide('space-1', 'run-1', 'review-1', {
+      kind: 'approve', reason: 'accepted', idempotencyKey: 'approve-page-review-1',
+    }, reviewer);
+
+    expect(pagePublication.lockChangeSetSpace).toHaveBeenCalledWith(tx, 'change-set-1');
+    expect(pagePublication.publishLocked).toHaveBeenCalledWith(
+      expect.objectContaining({ contentTreeRevision: 3n }),
+      'change-set-1',
+      { userId: 'reviewer-1', comment: 'accepted' },
+    );
+    expect(pagePublication.runPostCommitEffects).toHaveBeenCalledWith('space-1', ['page-1']);
+    expect(authorization.lockLiveHumanPrincipal.mock.invocationCallOrder[0]).toBeLessThan(
+      pagePublication.lockChangeSetSpace.mock.invocationCallOrder[0],
+    );
+    expect(pagePublication.lockChangeSetSpace.mock.invocationCallOrder[0]).toBeLessThan(
+      events.executeIdempotent.mock.invocationCallOrder[0],
+    );
+  });
+
+  it.each(['reject_for_revision', 'terminate'] as const)(
+    'rejects the linked ChangeSet in the same transaction for %s',
+    async (kind) => {
+      tx.collaborationArtifactChangeSetLink.findUnique.mockResolvedValue({
+        changeSetId: 'change-set-1', artifactId: 'artifact-1', runId: 'run-1', taskId: 'task-polish',
+        spaceId: 'space-1', pageId: 'page-1',
+      });
+
+      await service.decide('space-1', 'run-1', 'review-1', {
+        kind, reason: 'not accepted', idempotencyKey: `${kind}-page-review-1`,
+      }, reviewer);
+
+      expect(pagePublication.rejectLocked).toHaveBeenCalledWith(
+        expect.objectContaining({ contentTreeRevision: 3n }),
+        'change-set-1',
+        { userId: 'reviewer-1', comment: 'not accepted' },
+      );
+      expect(pagePublication.publishLocked).not.toHaveBeenCalled();
+    },
+  );
 
   it('retries a serialization conflict while deciding a Review', async () => {
     prisma.$transaction

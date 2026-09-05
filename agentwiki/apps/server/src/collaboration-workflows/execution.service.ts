@@ -23,6 +23,8 @@ import { canonicalRequestHash, RunEventStore } from './run-event.store';
 import { ProgressionService } from './progression.service';
 import { CollaborationEventsService } from './collaboration-events.service';
 import { isCollaborationSerializationConflict, withCollaborationSerializableRetry } from './serializable-retry';
+import { PageResultService } from './page-result.service';
+import { canonicalPageContentHash } from './page-baseline';
 
 type Tx = Prisma.TransactionClient;
 type AgentRun = { run: any; agentId: string };
@@ -39,6 +41,9 @@ type AttemptWithTask = {
   leaseExpiresAt: Date;
   maxExecutionAt: Date;
   repairCount: number;
+  basePageVersionId: string | null;
+  basePageUpdatedAt: Date | null;
+  baseContentHash: string | null;
   task: {
     id: string;
     runId: string;
@@ -50,6 +55,10 @@ type AttemptWithTask = {
     repairBudget: number;
     outputContract: unknown;
     requiredEvidence: unknown;
+    name: string;
+    targetPageId: string | null;
+    targetSpaceId: string | null;
+    humanAcceptance: boolean;
   };
 };
 
@@ -65,6 +74,7 @@ export class ExecutionService {
     private readonly artifacts: ArtifactValidator,
     private readonly progression: ProgressionService,
     private readonly notifications: CollaborationEventsService,
+    private readonly pageResults: PageResultService,
   ) {
     this.leaseSecret = String(config.get('JWT_SECRET') || '');
     if (!this.leaseSecret) throw new Error('JWT_SECRET is required for collaboration task leases');
@@ -317,6 +327,9 @@ export class ExecutionService {
             acceptedAt: requiresReview ? null : new Date(),
           },
         });
+        if (attempt.task.targetPageId) {
+          await this.pageResults.proposeLocked(tx, attempt.task, attempt, artifact, principal);
+        }
         await tx.collaborationTaskAttempt.updateMany({
           where: { id: attempt.id, status: { in: ['claimed', 'running'] } },
           data: { status: 'completed', finishedAt: new Date() },
@@ -588,7 +601,7 @@ export class ExecutionService {
     return {
       pageVersionId: version?.id ?? null,
       updatedAt: page.updatedAt,
-      contentHash: sha256(page.content.replace(/\r\n?/gu, '\n')),
+      contentHash: canonicalPageContentHash(page.content),
     };
   }
 

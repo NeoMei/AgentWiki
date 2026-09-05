@@ -20,11 +20,15 @@ import { RecoveryWorker } from './collaboration-workflows/recovery.worker';
 import { AttachmentCleanupWorker } from './attachments/attachment-cleanup.worker';
 import { AttachmentStorageModule } from './attachments/attachment-storage.module';
 import { ContentTreeService } from './content-tree/content-tree.service';
+import { PagePublicationService } from './review/page-publication.service';
+import { PageResultService } from './collaboration-workflows/page-result.service';
 
 @Module({
   imports: [ConfigModule.forRoot({ isGlobal: true }), DatabaseModule, SearchCoreModule, CollaborationModule, SyncModule, KnowledgeGraphModule, AttachmentStorageModule],
   providers: [
     ContentTreeService,
+    PagePublicationService,
+    PageResultService,
     ReviewService,
     SourceService,
     IngestQueue,

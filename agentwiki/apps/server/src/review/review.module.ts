@@ -6,11 +6,12 @@ import { ReviewService } from './review.service';
 import { SearchModule } from '../core/search/search.module';
 import { KnowledgeGraphModule } from '../knowledge-graph/knowledge-graph.module';
 import { ContentTreeModule } from '../content-tree/content-tree.module';
+import { PagePublicationService } from './page-publication.service';
 
 @Module({
   imports: [DatabaseModule, AuthModule, SearchModule, KnowledgeGraphModule, ContentTreeModule],
-  providers: [ReviewService],
+  providers: [ReviewService, PagePublicationService],
   controllers: [ReviewController],
-  exports: [ReviewService],
+  exports: [ReviewService, PagePublicationService],
 })
 export class ReviewModule {}

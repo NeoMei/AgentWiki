@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
@@ -20,6 +20,7 @@ import { canonicalRequestHash, RunEventStore } from './run-event.store';
 import { withCollaborationSerializableRetry } from './serializable-retry';
 import { assertCollaborationAgentsReady } from './agent-readiness';
 import { parseCollaborationInputs } from './run-input-validation';
+import { canonicalPageContentHash } from './page-baseline';
 
 type Tx = Prisma.TransactionClient;
 
@@ -338,7 +339,7 @@ async function loadPageBaselines(
       spaceId,
       pageVersionId: version?.id ?? null,
       updatedAt: page.updatedAt,
-      contentHash: hashContent(page.content),
+      contentHash: canonicalPageContentHash(page.content),
     });
   }
   return baselines;
@@ -357,10 +358,6 @@ function parseDefinition(value: unknown): CollaborationTemplateDefinition {
 
 function dependencyModeFor(definition: CollaborationTemplateDefinition, nodeId: string): 'all' | 'any' {
   return definition.dependencies.find((dependency) => dependency.to === nodeId)?.mode ?? 'all';
-}
-
-function hashContent(value: string): string {
-  return createHash('sha256').update(value.replace(/\r\n?/gu, '\n'), 'utf8').digest('hex');
 }
 
 function toJson(value: unknown): Prisma.InputJsonValue {

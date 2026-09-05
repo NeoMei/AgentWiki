@@ -51,6 +51,7 @@ describe('ExecutionService', () => {
   const artifacts = { validate: jest.fn() } as any;
   const progression = { advanceRun: jest.fn() } as any;
   const notifications = { publishCurrentRun: jest.fn() } as any;
+  const pageResults = { proposeLocked: jest.fn() } as any;
   let service: ExecutionService;
 
   beforeEach(() => {
@@ -87,7 +88,7 @@ describe('ExecutionService', () => {
       agent: { status: 'active', revokedAt: null }, space: { deletedAt: null },
     });
     artifacts.validate.mockReturnValue({ valid: true, normalizedArtifact: { kind: 'markdown', markdown: 'done', evidence: [] }, issues: [] });
-    service = new ExecutionService(prisma, authorization, config, events, artifacts, progression, notifications);
+    service = new ExecutionService(prisma, authorization, config, events, artifacts, progression, notifications, pageResults);
   });
 
   it('joins a bound Agent and rejects an unbound Agent', async () => {
@@ -369,6 +370,13 @@ describe('ExecutionService', () => {
     const second = await service.submitResult(input, agent);
     expect(second).toEqual(first);
     expect(tx.collaborationTaskArtifact.create).toHaveBeenCalledTimes(1);
+    expect(pageResults.proposeLocked).toHaveBeenCalledWith(
+      tx,
+      task,
+      expect.objectContaining({ id: 'attempt-1' }),
+      expect.objectContaining({ id: 'artifact-1' }),
+      agent,
+    );
     expect(events.executeIdempotent).toHaveBeenCalled();
   });
 
