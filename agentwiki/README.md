@@ -366,12 +366,15 @@ AgentWiki uses direct deployment with systemd (no Docker for the application):
    coordinated PostgreSQL custom-format backup, attachment-filesystem snapshot and
    path/size/SHA-256 manifest. A database-only or filesystem-only backup is incomplete.
 2. Build and test the exact release commit: `pnpm build && pnpm test`.
-3. Pack `@neomei/agentwiki-sync-protocol@0.5.1` and
-   `@neomei/agentwiki-local-sync@0.8.0`, then run
-   `pnpm test:package:local-sync-clean-install` and the explicit-registry collision gate.
-   The Sync v3 release plan may publish only the audited protocol 0.5.1 tarball.
-   Local Sync 0.8.0 remains an unpublished local candidate and requires a later,
-   separately authorized release plan before any registry write.
+3. Pack and audit the `@neomei/agentwiki-local-sync@0.8.0` candidate. Run its
+   explicit registry-availability gate with `pnpm test:release:sync-v3-registry`,
+   verify the immutable public protocol with
+   `pnpm test:release:sync-protocol-registry-parity`, and verify the Local Sync
+   consumer against that public protocol with
+   `pnpm test:package:local-sync-registry-protocol`. Protocol 0.5.1 must never be
+   republished. Local Sync publication remains a separately authorized registry
+   write, and deployment remains blocked until Local Sync 0.8.0 is published,
+   publicly available and passes the public-registry clean-install gate.
 4. Run database migrations: `cd apps/server && npx prisma migrate deploy`.
 5. Configure three systemd services (templates in `deploy/systemd/`):
    - `agentwiki-api.service` — NestJS API server

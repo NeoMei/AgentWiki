@@ -42,6 +42,18 @@ test('release manifests and the explicit registry command check only unpublished
   assert.deepEqual(await releaseCandidates(), candidates);
 });
 
+test('deployment runbook names all package gates and never republishes immutable protocol', async () => {
+  const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
+  assert.match(readme, /`pnpm test:release:sync-v3-registry`/u);
+  assert.match(readme, /`pnpm test:release:sync-protocol-registry-parity`/u);
+  assert.match(readme, /`pnpm test:package:local-sync-registry-protocol`/u);
+  assert.match(readme, /protocol 0\.5\.1 must never be\s+republished/iu);
+  assert.match(
+    readme,
+    /deployment remains blocked until Local Sync 0\.8\.0 is published,\s+publicly available and passes the public-registry clean-install gate/iu,
+  );
+});
+
 test('registry collision gate rejects an occupied candidate', async () => {
   const { assertNpmReleaseCandidatesAvailable } = await loadGate();
   await withRegistry((request, response) => {
