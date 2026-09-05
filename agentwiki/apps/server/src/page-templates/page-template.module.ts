@@ -9,11 +9,24 @@ import { CompositeTemplateCatalogService } from './composite-template-catalog.se
 import { LegacyWorkflowUpgradeService } from './legacy-workflow-upgrade.service';
 import { ContentTreeModule } from '../content-tree/content-tree.module';
 import { TemplateInstantiationService } from './template-instantiation.service';
+import { PageAgentBindingService } from './page-agent-binding.service';
 
 @Module({
   imports: [DatabaseModule, AuthorizationModule, AuthModule, ConfigModule, ContentTreeModule],
   controllers: [PageTemplateController],
-  providers: [PageTemplateService, CompositeTemplateCatalogService, LegacyWorkflowUpgradeService, TemplateInstantiationService],
-  exports: [PageTemplateService, CompositeTemplateCatalogService, LegacyWorkflowUpgradeService, TemplateInstantiationService],
+  providers: [
+    PageTemplateService,
+    CompositeTemplateCatalogService,
+    LegacyWorkflowUpgradeService,
+    TemplateInstantiationService,
+    PageAgentBindingService,
+  ],
+  exports: [
+    PageTemplateService,
+    CompositeTemplateCatalogService,
+    LegacyWorkflowUpgradeService,
+    TemplateInstantiationService,
+    PageAgentBindingService,
+  ],
 })
 export class PageTemplateModule {}
