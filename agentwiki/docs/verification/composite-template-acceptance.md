@@ -1,7 +1,7 @@
 # Composite page-group template acceptance
 
-Date: 2026-09-06  
-Branch: `codex/composite-page-group-agent-collaboration`  
+Date: 2026-09-06
+Branch: `codex/composite-page-group-agent-collaboration`
 Task 13b2 base: `3375334e159050c9684b9d82f7ceba5232224388`
 
 ## Acceptance boundary
