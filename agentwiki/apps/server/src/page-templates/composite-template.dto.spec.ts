@@ -2,6 +2,8 @@ import { ValidationPipe } from '@nestjs/common';
 import { ResolvePageConflictDto } from '../collaboration-workflows/review.dto';
 import {
   CompositeTemplateListQueryDto,
+  CreateCompositeSpaceTemplateDto,
+  CreateCompositeTemplateVersionDto,
   ExistingRunPreviewDto,
   FolderBindingMutationDto,
   FolderBindingPreviewDto,
@@ -59,6 +61,18 @@ describe('Composite template HTTP DTOs', () => {
     expect(query).toEqual(expect.objectContaining({
       locale: 'en', scope: 'system', kind: 'page_group', supportsCollaboration: true, skip: 0, take: 25,
     }));
+  });
+
+  it('accepts only strict composite management write envelopes', async () => {
+    const definition = { schemaVersion: 1, kind: 'page_group', nodes: [], collaboration: null };
+    await expect(pipe.transform({
+      name: 'Workspace', description: '', category: 'other', defaultTitle: 'Root',
+      locale: 'en', definition,
+    }, { type: 'body', metatype: CreateCompositeSpaceTemplateDto }))
+      .resolves.toEqual(expect.objectContaining({ name: 'Workspace', definition }));
+    await expect(pipe.transform({ expectedCurrentVersion: 2, definition, sourcePageId: 'forged' }, {
+      type: 'body', metatype: CreateCompositeTemplateVersionDto,
+    })).rejects.toMatchObject({ status: 400 });
   });
 
   it('requires Folder binding edits and revision on writes but not previews', async () => {

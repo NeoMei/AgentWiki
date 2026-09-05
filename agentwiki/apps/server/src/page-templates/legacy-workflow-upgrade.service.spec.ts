@@ -81,6 +81,24 @@ function setup() {
 }
 
 describe('LegacyWorkflowUpgradeService', () => {
+  it('returns the exact canonical legacy definition and hash after live manager authorization', async () => {
+    const { service, source, authorization } = setup();
+    const result = await (service as any).source('space-1', 'legacy-1', principal);
+    expect(result).toEqual({
+      legacyId: 'legacy-1', version: 3, definitionHash, definition: legacyDefinition,
+    });
+    expect(result.definition).not.toBe(source.definition);
+    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledWith(
+      expect.anything(), principal, 'space-1', ['owner', 'admin'],
+    );
+  });
+
+  it('refuses a cross-Space canonical source lookup', async () => {
+    const { service } = setup();
+    await expect(service.source('other-space', 'legacy-1', principal))
+      .rejects.toMatchObject({ businessCode: 'COLLABORATION_TEMPLATE_NOT_FOUND' });
+  });
+
   it('previews only an explicit tree and mapping without writes', async () => {
     const { service, tx } = setup();
     const result = await service.preview('space-1', 'legacy-1', input, principal);

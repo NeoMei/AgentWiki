@@ -20,15 +20,19 @@ import { TemplateInstantiationService } from './template-instantiation.service';
 
 describe('CompositeTemplateController', () => {
   const services = {
-    catalog: { list: jest.fn(), detail: jest.fn() },
+    catalog: {
+      list: jest.fn(), detail: jest.fn(), managementDetail: jest.fn(),
+      createSpaceTemplate: jest.fn(), createVersion: jest.fn(), updateMetadata: jest.fn(),
+      archive: jest.fn(), restore: jest.fn(),
+    },
     preview: { preview: jest.fn() },
     instantiation: { instantiate: jest.fn() },
     snapshots: { preview: jest.fn(), save: jest.fn() },
-    upgrades: { preview: jest.fn(), upgrade: jest.fn() },
+    upgrades: { source: jest.fn(), preview: jest.fn(), upgrade: jest.fn() },
     bindings: { previewBindings: jest.fn(), setBindingsInScope: jest.fn() },
     orchestration: {
       preview: jest.fn(), start: jest.fn(),
-      previewFolderBindings: jest.fn(), setFolderBindings: jest.fn(),
+      previewFolderBindings: jest.fn(), setFolderBindings: jest.fn(), discoverFolderSource: jest.fn(),
     },
   } as any;
   const controller = new CompositeTemplateController(
@@ -46,10 +50,17 @@ describe('CompositeTemplateController', () => {
     const routes = [
       ['list', 'templates', RequestMethod.GET],
       ['detail', 'templates/:templateId', RequestMethod.GET],
+      ['managementDetail', 'templates/:templateId/management', RequestMethod.GET],
+      ['createTemplate', 'templates', RequestMethod.POST],
+      ['updateTemplate', 'templates/:templateId', RequestMethod.PATCH],
+      ['createTemplateVersion', 'templates/:templateId/versions', RequestMethod.POST],
+      ['archiveTemplate', 'templates/:templateId', RequestMethod.DELETE],
+      ['restoreTemplate', 'templates/:templateId/restore', RequestMethod.POST],
       ['previewTemplate', 'templates/:templateId/preview', RequestMethod.POST],
       ['instantiate', 'templates/:templateId/instantiate', RequestMethod.POST],
       ['previewFolderTemplate', 'templates/from-folder/preview', RequestMethod.POST],
       ['saveFolderTemplate', 'templates/from-folder', RequestMethod.POST],
+      ['legacyUpgradeSource', 'collaboration-templates/:legacyId/upgrade/source', RequestMethod.GET],
       ['previewUpgrade', 'collaboration-templates/:legacyId/upgrade/preview', RequestMethod.POST],
       ['upgrade', 'collaboration-templates/:legacyId/upgrade', RequestMethod.POST],
       ['getPageBinding', 'pages/:pageId/agent-binding', RequestMethod.GET],
@@ -57,6 +68,7 @@ describe('CompositeTemplateController', () => {
       ['deletePageBinding', 'pages/:pageId/agent-binding', RequestMethod.DELETE],
       ['previewFolderBindings', 'folders/:folderId/agent-bindings/preview', RequestMethod.POST],
       ['setFolderBindings', 'folders/:folderId/agent-bindings', RequestMethod.POST],
+      ['discoverFolderSource', 'folders/:folderId/collaboration-source', RequestMethod.GET],
       ['previewPageRun', 'pages/:pageId/collaboration-runs/preview', RequestMethod.POST],
       ['startPageRun', 'pages/:pageId/collaboration-runs', RequestMethod.POST],
       ['previewFolderRun', 'folders/:folderId/collaboration-runs/preview', RequestMethod.POST],
@@ -67,6 +79,27 @@ describe('CompositeTemplateController', () => {
       expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe(path);
       expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(method);
     }
+  });
+
+  it('delegates composite management, canonical legacy source, and Folder provenance reads', async () => {
+    const metadata = {
+      name: 'Renamed', description: '', category: 'other', defaultTitle: 'Root',
+      expectedUpdatedAt: '2026-09-05T00:00:00.000Z',
+    } as any;
+    await (controller as any).managementDetail(request, 'space-1', 'template-1', { locale: 'en', version: 1 });
+    await (controller as any).updateTemplate(request, 'space-1', 'template-1', metadata);
+    await (controller as any).legacyUpgradeSource(request, 'space-1', 'legacy-1');
+    await (controller as any).discoverFolderSource(request, 'space-1', 'folder-1');
+    expect(services.catalog.managementDetail).toHaveBeenCalledWith(
+      'space-1', 'template-1', 1, 'en', request.user,
+    );
+    expect(services.catalog.updateMetadata).toHaveBeenCalledWith(
+      'space-1', 'template-1', metadata, request.user,
+    );
+    expect(services.upgrades.source).toHaveBeenCalledWith('space-1', 'legacy-1', request.user);
+    expect(services.orchestration.discoverFolderSource).toHaveBeenCalledWith(
+      'space-1', 'folder-1', request.user,
+    );
   });
 
   it('converts bigint boundaries and never accepts a preview body on instantiate', async () => {
@@ -117,7 +150,9 @@ describe('CompositeTemplateController', () => {
 describe('CompositeTemplateController HTTP boundary', () => {
   let app: INestApplication;
   let baseUrl: string;
-  const writes = { instantiate: jest.fn(), setBindings: jest.fn(), start: jest.fn() };
+  const writes = {
+    createTemplate: jest.fn(), instantiate: jest.fn(), setBindings: jest.fn(), start: jest.fn(),
+  };
 
   class PrincipalProbe implements CanActivate {
     canActivate(context: ExecutionContext) {
@@ -136,14 +171,24 @@ describe('CompositeTemplateController HTTP boundary', () => {
       controllers: [CompositeTemplateController],
       providers: [
         HumanOnlyGuard,
-        { provide: CompositeTemplateCatalogService, useValue: { list: jest.fn(), detail: jest.fn() } },
+        { provide: CompositeTemplateCatalogService, useValue: {
+          list: jest.fn(), detail: jest.fn(),
+          managementDetail: jest.fn().mockResolvedValue({ templateId: 'template-1' }),
+          createSpaceTemplate: writes.createTemplate,
+          createVersion: jest.fn(), updateMetadata: jest.fn(), archive: jest.fn(), restore: jest.fn(),
+        } },
         { provide: CompositeTemplatePreviewService, useValue: { preview: jest.fn() } },
         { provide: TemplateInstantiationService, useValue: { instantiate: writes.instantiate } },
-        { provide: FolderTemplateSnapshotService, useValue: { preview: jest.fn(), save: jest.fn() } },
-        { provide: LegacyWorkflowUpgradeService, useValue: { preview: jest.fn(), upgrade: jest.fn() } },
+        { provide: FolderTemplateSnapshotService, useValue: {
+          preview: jest.fn().mockResolvedValue({ treeRevision: 4n }), save: jest.fn(),
+        } },
+        { provide: LegacyWorkflowUpgradeService, useValue: {
+          source: jest.fn().mockResolvedValue({ legacyId: 'legacy-1' }), preview: jest.fn(), upgrade: jest.fn(),
+        } },
         { provide: PageAgentBindingService, useValue: { getBinding: jest.fn(), setBindingsInScope: writes.setBindings } },
         { provide: ExistingRunOrchestrationService, useValue: {
           preview: jest.fn(), previewFolderBindings: jest.fn(), setFolderBindings: jest.fn(),
+          discoverFolderSource: jest.fn().mockResolvedValue({ source: null }),
           start: writes.start.mockImplementation((_spaceId, _scopeId, _input, principal) =>
             principal.userId === 'viewer-1'
               ? Promise.reject(new BusinessException('SPACE_ACCESS_DENIED'))
@@ -190,6 +235,42 @@ describe('CompositeTemplateController HTTP boundary', () => {
     });
     expect(response.status).toBe(400);
     expect(writes.instantiate).not.toHaveBeenCalled();
+  });
+
+  it('matches static management/source reads and rejects unknown composite write fields', async () => {
+    for (const path of [
+      '/api/spaces/space-1/templates/template-1/management?locale=en&version=1',
+      '/api/spaces/space-1/collaboration-templates/legacy-1/upgrade/source',
+      '/api/spaces/space-1/folders/folder-1/collaboration-source',
+    ]) {
+      const response = await fetch(`${baseUrl}${path}`);
+      expect(response.status).toBe(200);
+    }
+    const response = await fetch(`${baseUrl}/api/spaces/space-1/templates`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Workspace', category: 'other', defaultTitle: 'Root', locale: 'en',
+        definition: { schemaVersion: 1, kind: 'page_group', nodes: [], collaboration: null },
+        sourcePageId: 'forged',
+      }),
+    });
+    expect(response.status).toBe(400);
+    expect(writes.createTemplate).not.toHaveBeenCalled();
+  });
+
+  it('matches static from-folder preview before the template-id preview route', async () => {
+    const response = await fetch(`${baseUrl}/api/spaces/space-1/templates/from-folder/preview`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        rootFolderId: 'folder-1',
+        selection: {
+          excludedFolderIds: [], excludedPageIds: [], locale: 'en',
+          source: { kind: 'structure_only' },
+        },
+      }),
+    });
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({ treeRevision: '4' });
   });
 
   it('returns Viewer service denial as HTTP 403 without a Run write', async () => {

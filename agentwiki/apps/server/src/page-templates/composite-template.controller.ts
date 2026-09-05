@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Delete, Get, Param, Post, Put, Query, Req, UseGuards,
+  Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req, UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { CombinedAuthGuard } from '../core/auth/combined-auth.guard';
@@ -8,6 +8,8 @@ import type { Principal } from '../core/authorization/authorization.service';
 import {
   CompositeTemplateDetailQueryDto,
   CompositeTemplateListQueryDto,
+  CreateCompositeSpaceTemplateDto,
+  CreateCompositeTemplateVersionDto,
   DeletePageBindingDto,
   ExistingRunPreviewDto,
   ExistingRunStartDto,
@@ -22,6 +24,7 @@ import {
   SaveFolderTemplateDto,
   UpgradeLegacyWorkflowDto,
 } from './composite-template.dto';
+import { PageTemplateStateDto, UpdatePageTemplateDto } from './page-template.dto';
 import { CompositeTemplateCatalogService } from './composite-template-catalog.service';
 import { CompositeTemplatePreviewService } from './composite-template-preview.service';
 import { TemplateInstantiationService } from './template-instantiation.service';
@@ -49,9 +52,51 @@ export class CompositeTemplateController {
     return this.catalog.list(spaceId, query, req.user as Principal);
   }
 
+  @Post('templates')
+  createTemplate(@Req() req: Request, @Param('spaceId') spaceId: string, @Body() body: CreateCompositeSpaceTemplateDto) {
+    return this.catalog.createSpaceTemplate(spaceId, body, req.user as Principal);
+  }
+
   @Get('templates/:templateId')
   detail(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('templateId') templateId: string, @Query() query: CompositeTemplateDetailQueryDto) {
     return this.catalog.detail(spaceId, templateId, query.version, query.locale, req.user as Principal);
+  }
+
+  @Get('templates/:templateId/management')
+  managementDetail(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('templateId') templateId: string, @Query() query: CompositeTemplateDetailQueryDto) {
+    return this.catalog.managementDetail(spaceId, templateId, query.version, query.locale, req.user as Principal);
+  }
+
+  @Patch('templates/:templateId')
+  updateTemplate(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('templateId') templateId: string, @Body() body: UpdatePageTemplateDto) {
+    return this.catalog.updateMetadata(spaceId, templateId, body, req.user as Principal);
+  }
+
+  @Post('templates/:templateId/versions')
+  createTemplateVersion(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('templateId') templateId: string, @Body() body: CreateCompositeTemplateVersionDto) {
+    return this.catalog.createVersion(spaceId, templateId, body, req.user as Principal);
+  }
+
+  @Delete('templates/:templateId')
+  archiveTemplate(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('templateId') templateId: string, @Body() body: PageTemplateStateDto) {
+    return this.catalog.archive(spaceId, templateId, body, req.user as Principal);
+  }
+
+  @Post('templates/:templateId/restore')
+  restoreTemplate(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('templateId') templateId: string, @Body() body: PageTemplateStateDto) {
+    return this.catalog.restore(spaceId, templateId, body, req.user as Principal);
+  }
+
+  @Post('templates/from-folder/preview')
+  async previewFolderTemplate(@Req() req: Request, @Param('spaceId') spaceId: string, @Body() body: FolderSnapshotPreviewDto) {
+    return serializeBigInts(await this.snapshots.preview(
+      spaceId, body.rootFolderId, body.selection as any, req.user as Principal,
+    ));
+  }
+
+  @Post('templates/from-folder')
+  saveFolderTemplate(@Req() req: Request, @Param('spaceId') spaceId: string, @Body() body: SaveFolderTemplateDto) {
+    return this.snapshots.save(spaceId, body as any, req.user as Principal);
   }
 
   @Post('templates/:templateId/preview')
@@ -68,16 +113,9 @@ export class CompositeTemplateController {
     }, req.user as Principal));
   }
 
-  @Post('templates/from-folder/preview')
-  async previewFolderTemplate(@Req() req: Request, @Param('spaceId') spaceId: string, @Body() body: FolderSnapshotPreviewDto) {
-    return serializeBigInts(await this.snapshots.preview(
-      spaceId, body.rootFolderId, body.selection as any, req.user as Principal,
-    ));
-  }
-
-  @Post('templates/from-folder')
-  saveFolderTemplate(@Req() req: Request, @Param('spaceId') spaceId: string, @Body() body: SaveFolderTemplateDto) {
-    return this.snapshots.save(spaceId, body as any, req.user as Principal);
+  @Get('collaboration-templates/:legacyId/upgrade/source')
+  legacyUpgradeSource(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('legacyId') legacyId: string) {
+    return this.upgrades.source(spaceId, legacyId, req.user as Principal);
   }
 
   @Post('collaboration-templates/:legacyId/upgrade/preview')
@@ -125,6 +163,11 @@ export class CompositeTemplateController {
       expectedTreeRevision: BigInt(body.expectedTreeRevision),
       edits: body.edits,
     }, req.user as Principal);
+  }
+
+  @Get('folders/:folderId/collaboration-source')
+  discoverFolderSource(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('folderId') folderId: string) {
+    return this.orchestration.discoverFolderSource(spaceId, folderId, req.user as Principal);
   }
 
   @Post('pages/:pageId/collaboration-runs/preview')

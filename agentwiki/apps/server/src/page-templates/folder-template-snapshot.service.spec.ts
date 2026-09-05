@@ -2,6 +2,7 @@ import type { CollaborationTemplateDefinition } from '@neomei/agentwiki-sync-pro
 import {
   FolderTemplateSnapshotService,
   snapshotDefinition,
+  snapshotDefinitionWithSourceMap,
   type FolderSnapshotSource,
   type FolderTemplateSnapshotSaveInput,
   type FolderTemplateSnapshotSelection,
@@ -97,6 +98,46 @@ describe('folder template snapshot transformation', () => {
       kind: 'legacy_workflow', templateId: 'legacy', version: 1,
       taskTargets: [{ taskNodeId: 'draft', pageId: 'page-a' }],
     })).toThrow(expect.objectContaining({ businessCode: 'PAGE_TEMPLATE_INVALID' }));
+  });
+
+  it('returns source identity and parent mappings from the same traversal despite repeated names', () => {
+    const repeated: FolderSnapshotSource = {
+      nodes: [
+        { sourceId: 'folder-root', parentSourceId: null, kind: 'folder', order: 0, name: 'Repeated' },
+        { sourceId: 'folder-child', parentSourceId: 'folder-root', kind: 'folder', order: 0, name: 'Repeated' },
+        {
+          sourceId: 'page-root', parentSourceId: 'folder-root', kind: 'page', order: 0,
+          title: 'Repeated', content: '# Root', sourceSyncPath: 'root.md',
+        },
+        {
+          sourceId: 'page-child', parentSourceId: 'folder-child', kind: 'page', order: 0,
+          title: 'Repeated', content: '# Child', sourceSyncPath: 'child.md',
+        },
+      ],
+      bindings: [],
+    };
+
+    const result = snapshotDefinitionWithSourceMap(repeated, { kind: 'structure_only' });
+
+    expect(result.sourceNodes).toEqual([
+      {
+        templateNodeId: 'folder-1', sourceNodeId: 'folder-root', parentSourceNodeId: null,
+        parentTemplateNodeId: null, kind: 'folder', name: 'Repeated',
+      },
+      {
+        templateNodeId: 'page-1', sourceNodeId: 'page-root', parentSourceNodeId: 'folder-root',
+        parentTemplateNodeId: 'folder-1', kind: 'page', title: 'Repeated',
+      },
+      {
+        templateNodeId: 'folder-2', sourceNodeId: 'folder-child', parentSourceNodeId: 'folder-root',
+        parentTemplateNodeId: 'folder-1', kind: 'folder', name: 'Repeated',
+      },
+      {
+        templateNodeId: 'page-2', sourceNodeId: 'page-child', parentSourceNodeId: 'folder-child',
+        parentTemplateNodeId: 'folder-2', kind: 'page', title: 'Repeated',
+      },
+    ]);
+    expect(JSON.stringify(result.definition)).not.toMatch(/folder-root|folder-child|page-root|page-child/u);
   });
 
 });

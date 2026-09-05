@@ -653,11 +653,29 @@ test('composite instantiation is atomic, idempotent, stale-safe, and permission-
         const secondPrisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
         const secondNextRunService = await createService(secondPrisma, null);
         try {
+          const discovered = await secondNextRunService.existingRuns.discoverFolderSource(
+            nextRunFixture.spaceId,
+            initial.rootFolderId,
+            { userId: nextRunFixture.userId, platformRole: 'user' },
+          );
+          assert.equal(discovered.source.sourceInstantiationId, initial.instantiationId);
+          assert.equal(
+            discovered.source.compositeTemplateVersionId,
+            originalInstance.compositeTemplateVersionId,
+          );
+          assert.equal(discovered.source.rootFolderId, initial.rootFolderId);
+          assert.deepEqual(
+            discovered.source.nodes.filter((node) => node.kind === 'page').map((node) => node.pageId),
+            initial.pageIds,
+          );
           const runsBeforeNext = await prisma.collaborationRun.count({
             where: { spaceId: nextRunFixture.spaceId },
           });
           const payload = {
-            source: { kind: 'template_instantiation', sourceInstantiationId: initial.instantiationId },
+            source: {
+              kind: 'template_instantiation',
+              sourceInstantiationId: discovered.source.sourceInstantiationId,
+            },
             pageIds: initial.pageIds,
             collaborationInputs: { brief: 'Continue exact source' },
             bindings: [],

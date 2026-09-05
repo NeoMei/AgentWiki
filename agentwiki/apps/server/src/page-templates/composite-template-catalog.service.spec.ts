@@ -1,6 +1,7 @@
 import type { CompositeTemplateDefinition } from '@neomei/agentwiki-sync-protocol';
 import { Prisma } from '@prisma/client';
 import type { Principal } from '../core/authorization/authorization.service';
+import { BusinessException } from '../core/filters/business-error';
 import { CompositeTemplateCatalogService } from './composite-template-catalog.service';
 import { hashCompositeDefinition } from './composite-template-validator';
 
@@ -289,5 +290,31 @@ describe('CompositeTemplateCatalogService', () => {
     expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledWith(
       tx, principal, 'space-1', ['owner', 'admin', 'editor', 'viewer'],
     );
+  });
+
+  it('returns an archived immutable version only through live Owner/Admin management detail', async () => {
+    pageTemplate.findFirst.mockResolvedValue(template({
+      scope: 'space', spaceId: 'space-1', sourceLocale: 'en', archivedAt: new Date('2026-09-05T02:00:00Z'),
+      versions: [{ definition, schemaVersion: 1, definitionHash: hashCompositeDefinition(definition), contentI18n: {} }],
+    }));
+    const result = await (service as any).managementDetail(
+      'space-1', 'template-1', 2, 'en', principal,
+    );
+    expect(result).toEqual(expect.objectContaining({
+      templateId: 'template-1', version: 2, archivedAt: '2026-09-05T02:00:00.000Z',
+      definition, definitionHash: hashCompositeDefinition(definition),
+    }));
+    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledWith(
+      tx, principal, 'space-1', ['owner', 'admin'],
+    );
+  });
+
+  it('refuses non-manager management detail before reading templates', async () => {
+    authorization.assertLiveHumanSpaceAccess.mockRejectedValueOnce(
+      new BusinessException('SPACE_ACCESS_DENIED'),
+    );
+    await expect(service.managementDetail('space-1', 'template-1', 1, 'en', principal))
+      .rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_PERMISSION_DENIED' });
+    expect(pageTemplate.findFirst).not.toHaveBeenCalled();
   });
 });

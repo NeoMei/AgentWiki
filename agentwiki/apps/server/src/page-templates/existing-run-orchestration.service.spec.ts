@@ -1,5 +1,6 @@
 import { ExistingRunOrchestrationService } from './existing-run-orchestration.service';
 import { BusinessException } from '../core/filters/business-error';
+import { hashCompositeDefinition } from './composite-template-validator';
 
 const principal = { userId: 'human-1' };
 
@@ -8,6 +9,7 @@ describe('ExistingRunOrchestrationService', () => {
     const tx: any = Object.assign({
       collaborationRunEvent: { findFirst: jest.fn().mockResolvedValue(null) },
       space: { findUnique: jest.fn().mockResolvedValue({ contentTreeRevision: 4n }) },
+      templateInstantiation: { findMany: jest.fn().mockResolvedValue([]) },
     }, { contentTreeRevision: 4n });
     const prisma: any = { $transaction: jest.fn((callback: any) => callback(tx)) };
     const authorization: any = {
@@ -53,6 +55,61 @@ describe('ExistingRunOrchestrationService', () => {
     }));
     expect(h.pageBindings.setBindings).not.toHaveBeenCalled();
     expect(h.expansion.createStarted).not.toHaveBeenCalled();
+  });
+
+  it('discovers only exact-root composite provenance and returns no guessed source for unrelated Folders', async () => {
+    const h = harness();
+    const sourceDefinition = {
+      schemaVersion: 1 as const, kind: 'page_group' as const, collaboration: null,
+      nodes: [
+        { nodeId: 'root', parentNodeId: null, kind: 'folder' as const, order: 0, nameI18n: { en: 'Root' } },
+        { nodeId: 'page', parentNodeId: 'root', kind: 'page' as const, order: 0, titleI18n: { en: 'Page' }, contentI18n: { en: '# Page' }, roleSlotKey: null },
+      ],
+    };
+    const instantiation = {
+      id: 'instance-1',
+      compositeTemplateVersion: {
+        id: 'version-id-2', version: 2, definition: sourceDefinition,
+        schemaVersion: 1, definitionHash: hashCompositeDefinition(sourceDefinition),
+        template: { id: 'template-1', archivedAt: null },
+      },
+      nodes: [
+        { templateNodeId: 'root', kind: 'folder', folderId: 'folder-1', pageId: null },
+        { templateNodeId: 'page', kind: 'page', folderId: null, pageId: 'page-1' },
+      ],
+    };
+    h.tx.templateInstantiation.findMany.mockResolvedValueOnce([instantiation]).mockResolvedValueOnce([]);
+
+    await expect((h.service as any).discoverFolderSource('space-1', 'folder-1', principal))
+      .resolves.toEqual({ source: expect.objectContaining({
+        sourceInstantiationId: 'instance-1', compositeTemplateVersionId: 'version-id-2',
+        templateId: 'template-1', templateVersion: 2, rootFolderId: 'folder-1',
+        nodes: expect.arrayContaining([
+          { templateNodeId: 'page', kind: 'page', folderId: null, pageId: 'page-1' },
+        ]),
+      }) });
+    await expect((h.service as any).discoverFolderSource('space-1', 'unrelated', principal))
+      .resolves.toEqual({ source: null });
+  });
+
+  it('rejects ambiguous exact-root provenance instead of guessing an instance', async () => {
+    const h = harness();
+    const sourceDefinition = {
+      schemaVersion: 1 as const, kind: 'page_group' as const, collaboration: null,
+      nodes: [{ nodeId: 'root', parentNodeId: null, kind: 'folder' as const, order: 0, nameI18n: { en: 'Root' } }],
+    };
+    const candidate = (id: string) => ({
+      id,
+      compositeTemplateVersion: {
+        id: `version-${id}`, version: 1, definition: sourceDefinition, schemaVersion: 1,
+        definitionHash: hashCompositeDefinition(sourceDefinition),
+        template: { id: `template-${id}`, archivedAt: null },
+      },
+      nodes: [{ templateNodeId: 'root', kind: 'folder', folderId: 'folder-1', pageId: null }],
+    });
+    h.tx.templateInstantiation.findMany.mockResolvedValue([candidate('one'), candidate('two')]);
+    await expect(h.service.discoverFolderSource('space-1', 'folder-1', principal as any))
+      .rejects.toMatchObject({ businessCode: 'SOURCE_INVALID' });
   });
 
   it('saves optional bindings and starts one Run in the same caller transaction', async () => {

@@ -19,10 +19,10 @@ import { hashCompositeDefinition, validateCompositeDefinition } from './composit
 import { PageTemplateService } from './page-template.service';
 import { PageTemplateLocaleSchema, type PageTemplateLocale } from './page-template.types';
 import {
-  snapshotDefinition,
   snapshotDefinitionWithSourceMap,
   selectIndependentSimplePages,
   type FolderSnapshotSource,
+  type FolderTemplateSourceNodeMap,
   type FolderTemplateSnapshotSelection,
   type FolderTemplateWorkflowSource,
 } from './folder-template-snapshot-definition';
@@ -76,6 +76,7 @@ export type FolderTemplateSnapshotPreview = {
   definition: CompositeTemplateDefinition;
   tree: TemplateNode[];
   roles: CollaborationTemplateDefinition['roleSlots'];
+  sourceNodes: FolderTemplateSourceNodeMap[];
   warnings: FolderTemplateSnapshotWarning[];
   sourceToken: FolderTemplateSourceToken;
 };
@@ -497,7 +498,10 @@ export class FolderTemplateSnapshotService {
       tx, spaceId, rootFolderId, selection.source,
     );
     source.workflow = workflowSource.workflow;
-    const definition = snapshotDefinition(source, selection.source, selection.roleSlotsByPage);
+    const snapshot = snapshotDefinitionWithSourceMap(
+      source, selection.source, selection.roleSlotsByPage,
+    );
+    const definition = snapshot.definition;
     const warningResolution = await this.markdownResources.resolveReferencedAttachmentsBatch(
       pages.map((page) => ({
         spaceId, sourceSyncPath: page.syncPath, body: page.content,
@@ -560,6 +564,7 @@ export class FolderTemplateSnapshotService {
       definition,
       tree: definition.nodes,
       roles: definition.collaboration?.workflow.roleSlots ?? [],
+      sourceNodes: snapshot.sourceNodes,
       warnings,
       sourceToken,
       tokenManifest,
@@ -819,6 +824,7 @@ export class FolderTemplateSnapshotService {
       definition: prepared.definition,
       tree: prepared.tree,
       roles: prepared.roles,
+      sourceNodes: prepared.sourceNodes,
       warnings: prepared.warnings,
       sourceToken: prepared.sourceToken,
     };

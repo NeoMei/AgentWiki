@@ -178,6 +178,58 @@ export class CompositeTemplateCatalogService {
     };
   }
 
+  async managementDetail(
+    spaceId: string,
+    templateId: string,
+    version: number,
+    locale: PageTemplateLocale,
+    principal: Principal,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      try {
+        await this.authorization.assertLiveHumanSpaceAccess(
+          tx, principal, spaceId, ['owner', 'admin'],
+        );
+      } catch (error) {
+        if (error instanceof BusinessException && error.businessCode === 'SPACE_ACCESS_DENIED') {
+          throw new BusinessException('PAGE_TEMPLATE_PERMISSION_DENIED');
+        }
+        throw error;
+      }
+      const template = await tx.pageTemplate.findFirst({
+        where: {
+          id: templateId,
+          OR: [{ scope: 'system' }, { scope: 'space', spaceId }],
+        },
+        include: { versions: { where: { version }, take: 1 } },
+      });
+      if (!template) throw new BusinessException('PAGE_TEMPLATE_NOT_FOUND');
+      const stored = template.versions[0];
+      if (!stored) throw new BusinessException('PAGE_TEMPLATE_VERSION_NOT_FOUND');
+      const resolved = this.validateStoredVersion(template, stored, locale);
+      const fallback = template.scope === 'system'
+        ? 'en'
+        : PageTemplateLocaleSchema.parse(template.sourceLocale);
+      return {
+        templateId: template.id,
+        scope: template.scope,
+        stableKey: template.stableKey,
+        category: template.category,
+        name: localizedValue(template.nameI18n, locale, fallback),
+        description: localizedValue(template.descriptionI18n, locale, fallback),
+        defaultTitle: localizedValue(template.defaultTitleI18n, locale, fallback),
+        sourceLocale: template.sourceLocale,
+        currentVersion: template.currentVersion,
+        version,
+        archivedAt: template.archivedAt?.toISOString() ?? null,
+        updatedAt: template.updatedAt.toISOString(),
+        locale: resolved.locale,
+        definitionHash: resolved.definitionHash,
+        definition: resolved.definition,
+      };
+    });
+  }
+
   createSpaceTemplate(spaceId: string, body: CreateCompositeSpaceTemplateInput, principal: Principal) {
     return this.pageTemplates.createCompositeSpaceTemplate(spaceId, body, principal);
   }

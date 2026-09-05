@@ -1,4 +1,5 @@
 import { PageTemplateCategory } from '@prisma/client';
+import type { CompositeTemplateDefinition } from '@neomei/agentwiki-sync-protocol';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -44,6 +45,20 @@ export class CompositeTemplateListQueryDto {
 export class CompositeTemplateDetailQueryDto {
   @IsIn(['zh-CN', 'en']) locale!: 'zh-CN' | 'en';
   @Type(() => Number) @IsInt() @Min(1) @Max(2_147_483_647) version!: number;
+}
+
+export class CreateCompositeSpaceTemplateDto {
+  @PreserveRawInput() @IsString() @MinLength(1) @MaxLength(80) name!: string;
+  @IsOptional() @PreserveRawInput() @IsString() @MaxLength(240) description?: string;
+  @IsEnum(PageTemplateCategory) category!: PageTemplateCategory;
+  @PreserveRawInput() @IsString() @MinLength(1) @MaxLength(200) defaultTitle!: string;
+  @IsIn(['zh-CN', 'en']) locale!: 'zh-CN' | 'en';
+  @IsObject() definition!: CompositeTemplateDefinition;
+}
+
+export class CreateCompositeTemplateVersionDto {
+  @IsInt() @Min(1) @Max(2_147_483_647) expectedCurrentVersion!: number;
+  @IsObject() definition!: CompositeTemplateDefinition;
 }
 
 @ValidatorConstraint({ name: 'runParticipantBindingShapes', async: false })

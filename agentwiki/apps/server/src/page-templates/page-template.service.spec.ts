@@ -1194,6 +1194,10 @@ describe('PageTemplateService', () => {
     );
     const mutations = [
       () => service.createSpaceTemplate('space-1', validCreateBody, principal),
+      () => service.createCompositeSpaceTemplate('space-1', {
+        name: 'Workspace', category: 'planning', defaultTitle: 'Workspace',
+        locale: 'en', definition: compositeDefinition,
+      }, principal),
       () => service.updateMetadata('space-1', 'template-1', {
         name: 'Weekly', category: 'reporting', defaultTitle: 'Weekly', expectedUpdatedAt: templateTimestamp,
       }, principal),
@@ -1207,9 +1211,9 @@ describe('PageTemplateService', () => {
     for (const mutate of mutations) {
       await expect(mutate()).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_PERMISSION_DENIED' });
     }
-    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledTimes(5);
-    expect(revisionWriter.lockSpace).toHaveBeenCalledTimes(5);
-    expect(prisma.$transaction).toHaveBeenCalledTimes(5);
+    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledTimes(6);
+    expect(revisionWriter.lockSpace).toHaveBeenCalledTimes(6);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(6);
     for (const call of prisma.$transaction.mock.calls as any[][]) {
       expect(call[1]).toEqual({ isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
     }

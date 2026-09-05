@@ -97,6 +97,23 @@ test('folder snapshot detects body-only changes, prunes full subtrees, and persi
       const baseSelection = selection();
       const preview = await service.preview(spaceId, rootId, baseSelection, principal);
       assert.equal(preview.sourceToken.treeRevision, '0');
+      assert.deepEqual(preview.sourceNodes.map((node) => ({
+        sourceNodeId: node.sourceNodeId,
+        parentSourceNodeId: node.parentSourceNodeId,
+        kind: node.kind,
+      })), [
+        { sourceNodeId: rootId, parentSourceNodeId: null, kind: 'folder' },
+        { sourceNodeId: rootPageId, parentSourceNodeId: rootId, kind: 'page' },
+        { sourceNodeId: keptFolderId, parentSourceNodeId: rootId, kind: 'folder' },
+        { sourceNodeId: keptPageId, parentSourceNodeId: keptFolderId, kind: 'page' },
+        { sourceNodeId: excludedFolderId, parentSourceNodeId: rootId, kind: 'folder' },
+        { sourceNodeId: excludedPageId, parentSourceNodeId: excludedFolderId, kind: 'page' },
+        { sourceNodeId: excludedChildId, parentSourceNodeId: excludedFolderId, kind: 'folder' },
+        { sourceNodeId: excludedGrandchildPageId, parentSourceNodeId: excludedChildId, kind: 'page' },
+      ]);
+      assert.doesNotMatch(JSON.stringify(preview.definition), new RegExp([
+        rootId, keptFolderId, excludedFolderId, rootPageId, keptPageId,
+      ].join('|'), 'u'));
       assert.equal(preview.sourceToken.pages.find((item) => item.pageId === rootPageId).matchingPageVersionId, null);
       assert.equal(preview.definition.nodes.find((node) => node.kind === 'page' && node.titleI18n['zh-CN'] === '根页').contentI18n['zh-CN'], '# 根页\n当前正文');
 
@@ -125,6 +142,9 @@ test('folder snapshot detects body-only changes, prunes full subtrees, and persi
       const storedVersion = await prisma.pageTemplateVersion.findFirstOrThrow({
         where: { templateId: created.id, version: 1 },
       });
+      assert.doesNotMatch(JSON.stringify(storedVersion.definition), new RegExp([
+        rootId, keptFolderId, rootPageId, keptPageId,
+      ].join('|'), 'u'));
       await assert.rejects(
         prisma.pageTemplateVersion.update({
           where: { id: storedVersion.id }, data: { definitionHash: 'f'.repeat(64) },

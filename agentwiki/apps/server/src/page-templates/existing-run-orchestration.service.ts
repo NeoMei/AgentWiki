@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { CompositeTemplateDefinitionSchema } from '@neomei/agentwiki-sync-protocol';
 import type { Principal } from '../core/authorization/authorization.service';
 import { AuthorizationService } from '../core/authorization/authorization.service';
 import { ContentTreeService } from '../content-tree/content-tree.service';
@@ -22,6 +23,7 @@ import {
 } from './folder-template-snapshot.service';
 import { PageAgentBindingService } from './page-agent-binding.service';
 import { resolveParticipants } from './run-page-selection';
+import { hashCompositeDefinition, validateCompositeDefinition } from './composite-template-validator';
 
 export type ExistingRunPreviewInput = Omit<ExistingRunPreviewDto, 'source' | 'bindings' | 'bindingEdits'> & {
   source: { kind: 'page_selection' } | { kind: 'template_instantiation'; sourceInstantiationId: string };
@@ -49,6 +51,63 @@ export class ExistingRunOrchestrationService {
     private readonly events: RunEventStore,
     private readonly notifications: CollaborationEventsService,
   ) {}
+
+  discoverFolderSource(spaceId: string, folderId: string, principal: Principal) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.authorization.assertLiveHumanSpaceAccess(
+        tx, principal, spaceId, ['owner', 'admin', 'editor', 'viewer'],
+      );
+      const candidates = await tx.templateInstantiation.findMany({
+        where: {
+          spaceId,
+          status: 'completed',
+          nodes: { some: { kind: 'folder', folderId } },
+        },
+        select: {
+          id: true,
+          compositeTemplateVersion: {
+            select: {
+              id: true, version: true, definition: true, schemaVersion: true, definitionHash: true,
+              template: { select: { id: true, archivedAt: true } },
+            },
+          },
+          nodes: {
+            select: { templateNodeId: true, kind: true, folderId: true, pageId: true },
+            orderBy: { templateNodeId: 'asc' },
+          },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 3,
+      });
+      const exact = candidates.flatMap((candidate) => {
+        const version = candidate.compositeTemplateVersion;
+        if (version.template.archivedAt) return [];
+        const parsed = CompositeTemplateDefinitionSchema.safeParse(structuredClone(version.definition));
+        if (!parsed.success || version.schemaVersion !== 1 || !version.definitionHash
+          || validateCompositeDefinition(parsed.data).length > 0
+          || hashCompositeDefinition(parsed.data) !== version.definitionHash) {
+          throw new BusinessException('SOURCE_INVALID');
+        }
+        const root = parsed.data.nodes.find((node) => node.parentNodeId === null);
+        const rootMapping = candidate.nodes.find((node) =>
+          node.templateNodeId === root?.nodeId && node.kind === 'folder' && node.folderId === folderId);
+        return root?.kind === 'folder' && rootMapping ? [candidate] : [];
+      });
+      if (exact.length === 0) return { source: null };
+      if (exact.length !== 1) throw new BusinessException('SOURCE_INVALID');
+      const candidate = exact[0]!;
+      return {
+        source: {
+          sourceInstantiationId: candidate.id,
+          compositeTemplateVersionId: candidate.compositeTemplateVersion.id,
+          templateId: candidate.compositeTemplateVersion.template.id,
+          templateVersion: candidate.compositeTemplateVersion.version,
+          rootFolderId: folderId,
+          nodes: candidate.nodes,
+        },
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
 
   preview(spaceId: string, scopeId: string, input: ExistingRunPreviewInput, principal: Principal) {
     return this.prisma.$transaction(async (tx) => {

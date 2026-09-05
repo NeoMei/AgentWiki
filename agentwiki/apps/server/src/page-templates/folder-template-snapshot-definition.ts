@@ -68,6 +68,24 @@ export type FolderSnapshotSource = {
 
 type SnapshotRoleOverride = { pageId: string; roleSlotKey: string | null };
 
+export type FolderTemplateSourceNodeMap =
+  | {
+    templateNodeId: string;
+    sourceNodeId: string;
+    parentSourceNodeId: string | null;
+    parentTemplateNodeId: string | null;
+    kind: 'folder';
+    name: string;
+  }
+  | {
+    templateNodeId: string;
+    sourceNodeId: string;
+    parentSourceNodeId: string;
+    parentTemplateNodeId: string;
+    kind: 'page';
+    title: string;
+  };
+
 export function snapshotDefinition(
   source: FolderSnapshotSource,
   policy: FolderTemplateWorkflowSource,
@@ -83,6 +101,7 @@ export function snapshotDefinitionWithSourceMap(
 ): {
   definition: CompositeTemplateDefinition;
   sourcePageIdByTemplateNodeId: Record<string, string>;
+  sourceNodes: FolderTemplateSourceNodeMap[];
 } {
   const locale = source.locale ?? 'en';
   const ordered = orderSnapshotNodes(source.nodes);
@@ -133,6 +152,28 @@ export function snapshotDefinitionWithSourceMap(
     definition: parsed.data,
     sourcePageIdByTemplateNodeId: Object.fromEntries(source.nodes.flatMap((node) =>
       node.kind === 'page' ? [[templateIdBySource.get(node.sourceId)!, node.sourceId]] : [])),
+    sourceNodes: ordered.map((node): FolderTemplateSourceNodeMap => {
+      const parentTemplateNodeId = node.parentSourceId === null
+        ? null
+        : templateIdBySource.get(node.parentSourceId)!;
+      return node.kind === 'folder'
+        ? {
+          templateNodeId: templateIdBySource.get(node.sourceId)!,
+          sourceNodeId: node.sourceId,
+          parentSourceNodeId: node.parentSourceId,
+          parentTemplateNodeId,
+          kind: 'folder',
+          name: node.name,
+        }
+        : {
+          templateNodeId: templateIdBySource.get(node.sourceId)!,
+          sourceNodeId: node.sourceId,
+          parentSourceNodeId: node.parentSourceId,
+          parentTemplateNodeId: parentTemplateNodeId!,
+          kind: 'page',
+          title: node.title,
+        };
+    }),
   };
 }
 

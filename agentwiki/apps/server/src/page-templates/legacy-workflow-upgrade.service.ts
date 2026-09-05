@@ -47,6 +47,33 @@ export class LegacyWorkflowUpgradeService {
     private readonly pageTemplates: PageTemplateService,
   ) {}
 
+  source(spaceId: string, legacyId: string, principal: Principal) {
+    if (principal.agentId) throw new BusinessException('PAGE_TEMPLATE_PERMISSION_DENIED');
+    return this.prisma.$transaction(async (tx) => {
+      try {
+        await this.authorization.assertLiveHumanSpaceAccess(
+          tx, principal, spaceId, ['owner', 'admin'],
+        );
+      } catch (error) {
+        if (error instanceof BusinessException && error.businessCode === 'SPACE_ACCESS_DENIED') {
+          throw new BusinessException('PAGE_TEMPLATE_PERMISSION_DENIED');
+        }
+        throw error;
+      }
+      const legacy = await this.requireLegacy(tx, spaceId, legacyId);
+      const parsed = CollaborationTemplateDefinitionSchema.safeParse(structuredClone(legacy.definition));
+      if (!parsed.success || validateCollaborationTemplate(parsed.data).length > 0) {
+        throw new BusinessException('COLLABORATION_TEMPLATE_INVALID');
+      }
+      return {
+        legacyId: legacy.id,
+        version: legacy.version,
+        definitionHash: hashCollaborationTemplate(parsed.data),
+        definition: structuredClone(parsed.data),
+      };
+    });
+  }
+
   preview(
     spaceId: string,
     legacyId: string,
