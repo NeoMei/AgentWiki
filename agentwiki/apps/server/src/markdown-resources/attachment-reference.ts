@@ -49,6 +49,10 @@ interface ImageTargetToken {
 
 type MarkdownContainerStep =
   | { kind: 'blockquote' }
+  | { kind: 'list'; contentIndent: number; contentStarted: boolean };
+
+type FenceContainerStep =
+  | { kind: 'blockquote' }
   | { kind: 'list'; contentIndent: number };
 
 interface MarkdownContainerState {
@@ -58,7 +62,8 @@ interface MarkdownContainerState {
 interface MarkdownFenceState {
   marker: '`' | '~';
   length: number;
-  containerPath: MarkdownContainerStep[];
+  containerPath: FenceContainerStep[];
+  containsBlockquote: boolean;
 }
 
 export class AttachmentReferenceError extends Error {
@@ -212,47 +217,145 @@ function findMalformedAngleTargetEnd(value: string, start: number): number {
   return cursor;
 }
 
-function listMarkerEnd(value: string, start: number, lineEnd: number): number {
-  const marker = value[start];
+interface LinePosition {
+  offset: number;
+  column: number;
+  virtualIndent: number;
+}
+
+interface IndentScan {
+  position: LinePosition;
+  indent: number;
+  blank: boolean;
+}
+
+function nextTabStop(column: number): number {
+  return column + 4 - (column % 4);
+}
+
+function scanIndent(
+  value: string,
+  position: LinePosition,
+  lineEnd: number,
+): IndentScan {
+  let offset = position.offset;
+  let column = position.column;
+  let indent = position.virtualIndent;
+  while (offset < lineEnd) {
+    if (value[offset] === ' ') {
+      offset += 1;
+      column += 1;
+      indent += 1;
+      continue;
+    }
+    if (value[offset] === '\t') {
+      const nextColumn = nextTabStop(column);
+      indent += nextColumn - column;
+      column = nextColumn;
+      offset += 1;
+      continue;
+    }
+    break;
+  }
+  return {
+    position: { offset, column, virtualIndent: 0 },
+    indent,
+    blank: offset >= lineEnd || value[offset] === '\r',
+  };
+}
+
+function blankLine(value: string, lineStart: number, lineEnd: number): boolean {
+  return scanIndent(value, {
+    offset: lineStart,
+    column: 0,
+    virtualIndent: 0,
+  }, lineEnd).blank;
+}
+
+function consumeIndent(
+  value: string,
+  position: LinePosition,
+  lineEnd: number,
+  required: number,
+): LinePosition | null {
+  const scanned = scanIndent(value, position, lineEnd);
+  if (!scanned.blank && scanned.indent < required) return null;
+  return {
+    ...scanned.position,
+    virtualIndent: scanned.blank ? 0 : scanned.indent - required,
+  };
+}
+
+function blockquoteMarkerPosition(
+  value: string,
+  position: LinePosition,
+  lineEnd: number,
+): LinePosition | null {
+  const indent = scanIndent(value, position, lineEnd);
+  if (indent.indent > 3 || value[indent.position.offset] !== '>') return null;
+  let offset = indent.position.offset + 1;
+  let column = indent.position.column + 1;
+  if (value[offset] === ' ') {
+    offset += 1;
+    column += 1;
+  } else if (value[offset] === '\t') {
+    const nextColumn = nextTabStop(column);
+    offset += 1;
+    return {
+      offset,
+      column: nextColumn,
+      virtualIndent: nextColumn - column - 1,
+    };
+  }
+  return { offset, column, virtualIndent: 0 };
+}
+
+function listMarkerPosition(
+  value: string,
+  position: LinePosition,
+  lineEnd: number,
+): { position: LinePosition; contentIndent: number; empty: boolean } | null {
+  const indentation = scanIndent(value, position, lineEnd);
+  if (indentation.indent > 3 || indentation.blank) return null;
+  const markerStart = indentation.position.offset;
   let delimiterEnd = -1;
-  if (marker === '-' || marker === '+' || marker === '*') {
-    delimiterEnd = start + 1;
+  if (value[markerStart] === '-' || value[markerStart] === '+' || value[markerStart] === '*') {
+    delimiterEnd = markerStart + 1;
   } else {
-    let cursor = start;
-    while (cursor < lineEnd && cursor - start < 9 && /[0-9]/u.test(value[cursor] ?? '')) cursor += 1;
-    if (cursor > start && (value[cursor] === '.' || value[cursor] === ')')) {
+    let cursor = markerStart;
+    while (cursor < lineEnd && cursor - markerStart < 9 && /[0-9]/u.test(value[cursor] ?? '')) {
+      cursor += 1;
+    }
+    if (cursor > markerStart && (value[cursor] === '.' || value[cursor] === ')')) {
       delimiterEnd = cursor + 1;
     }
   }
-  if (delimiterEnd === -1 || !/[ \t]/u.test(value[delimiterEnd] ?? '')) return -1;
-  if (value[delimiterEnd] === '\t') return delimiterEnd + 1;
+  if (delimiterEnd === -1) return null;
 
-  let whitespaceEnd = delimiterEnd;
-  while (whitespaceEnd < lineEnd && value[whitespaceEnd] === ' ') whitespaceEnd += 1;
-  const whitespaceLength = whitespaceEnd - delimiterEnd;
-  return delimiterEnd + (whitespaceLength <= 4 ? whitespaceLength : 1);
-}
+  const delimiterWidth = delimiterEnd - markerStart;
+  const delimiterColumn = indentation.position.column + delimiterWidth;
+  const padding = scanIndent(value, {
+    offset: delimiterEnd,
+    column: delimiterColumn,
+    virtualIndent: 0,
+  }, lineEnd);
+  if (padding.blank) {
+    return {
+      position: padding.position,
+      contentIndent: indentation.indent + delimiterWidth + 1,
+      empty: true,
+    };
+  }
+  if (padding.indent === 0) return null;
 
-function blockquoteMarkerEnd(value: string, start: number, lineEnd: number): number {
-  let spaces = 0;
-  while (start + spaces < lineEnd && value[start + spaces] === ' ') spaces += 1;
-  const markerStart = start + spaces;
-  if (spaces > 3 || value[markerStart] !== '>') return -1;
-  let markerEnd = markerStart + 1;
-  if (value[markerEnd] === ' ' || value[markerEnd] === '\t') markerEnd += 1;
-  return markerEnd;
-}
-
-function lineIndent(
-  value: string,
-  start: number,
-  lineEnd: number,
-): { end: number; blank: boolean } {
-  let end = start;
-  while (end < lineEnd && value[end] === ' ') end += 1;
+  const consumedPadding = padding.indent <= 4 ? padding.indent : 1;
   return {
-    end,
-    blank: end >= lineEnd || value[end] === '\r',
+    position: {
+      ...padding.position,
+      virtualIndent: padding.indent - consumedPadding,
+    },
+    contentIndent: indentation.indent + delimiterWidth + consumedPadding,
+    empty: false,
   };
 }
 
@@ -262,46 +365,50 @@ function markdownLineContext(
   lineEnd: number,
   state: MarkdownContainerState,
 ): { contentStart: number; indentedCode: boolean } {
-  let cursor = lineStart;
+  let position: LinePosition = { offset: lineStart, column: 0, virtualIndent: 0 };
   const path: MarkdownContainerStep[] = [];
 
   for (const step of state.path) {
     if (step.kind === 'blockquote') {
-      const markerEnd = blockquoteMarkerEnd(value, cursor, lineEnd);
-      if (markerEnd === -1) break;
+      const nextPosition = blockquoteMarkerPosition(value, position, lineEnd);
+      if (nextPosition === null) break;
       path.push(step);
-      cursor = markerEnd;
+      position = nextPosition;
       continue;
     }
 
-    const indent = lineIndent(value, cursor, lineEnd);
-    if (!indent.blank && indent.end - cursor < step.contentIndent) break;
+    const remainderBlank = scanIndent(value, position, lineEnd).blank;
+    if (!step.contentStarted && remainderBlank) break;
+    const nextPosition = consumeIndent(value, position, lineEnd, step.contentIndent);
+    if (nextPosition === null) break;
+    if (!remainderBlank) step.contentStarted = true;
     path.push(step);
-    if (!indent.blank) cursor += step.contentIndent;
+    position = nextPosition;
   }
 
-  while (cursor < lineEnd) {
-    const quoteEnd = blockquoteMarkerEnd(value, cursor, lineEnd);
-    if (quoteEnd !== -1) {
+  while (position.offset < lineEnd) {
+    const quotePosition = blockquoteMarkerPosition(value, position, lineEnd);
+    if (quotePosition !== null) {
       path.push({ kind: 'blockquote' });
-      cursor = quoteEnd;
+      position = quotePosition;
       continue;
     }
 
-    const indent = lineIndent(value, cursor, lineEnd);
-    const markerStart = indent.end;
-    if (indent.blank || markerStart - cursor > 3) break;
-    const markerEnd = listMarkerEnd(value, markerStart, lineEnd);
-    if (markerEnd === -1) break;
-    path.push({ kind: 'list', contentIndent: markerEnd - cursor });
-    cursor = markerEnd;
+    const listMarker = listMarkerPosition(value, position, lineEnd);
+    if (listMarker === null) break;
+    path.push({
+      kind: 'list',
+      contentIndent: listMarker.contentIndent,
+      contentStarted: !listMarker.empty,
+    });
+    position = listMarker.position;
   }
 
   state.path = path;
-  const indent = lineIndent(value, cursor, lineEnd);
+  const indent = scanIndent(value, position, lineEnd);
   return {
-    contentStart: indent.end,
-    indentedCode: !indent.blank && (value[cursor] === '\t' || indent.end - cursor >= 4),
+    contentStart: indent.position.offset,
+    indentedCode: !indent.blank && indent.indent >= 4,
   };
 }
 
@@ -310,23 +417,29 @@ function activeFenceLineContext(
   lineStart: number,
   lineEnd: number,
   fence: MarkdownFenceState,
-): { inContainer: boolean; contentStart: number } {
-  let cursor = lineStart;
+): { inContainer: boolean; position: LinePosition } {
+  const initialPosition: LinePosition = { offset: lineStart, column: 0, virtualIndent: 0 };
+  if (blankLine(value, lineStart, lineEnd)) {
+    return {
+      inContainer: !fence.containsBlockquote,
+      position: { offset: lineEnd, column: 0, virtualIndent: 0 },
+    };
+  }
+
+  let position = initialPosition;
   for (const step of fence.containerPath) {
     if (step.kind === 'blockquote') {
-      const markerEnd = blockquoteMarkerEnd(value, cursor, lineEnd);
-      if (markerEnd === -1) return { inContainer: false, contentStart: lineStart };
-      cursor = markerEnd;
+      const nextPosition = blockquoteMarkerPosition(value, position, lineEnd);
+      if (nextPosition === null) return { inContainer: false, position: initialPosition };
+      position = nextPosition;
       continue;
     }
 
-    const indent = lineIndent(value, cursor, lineEnd);
-    if (!indent.blank && indent.end - cursor < step.contentIndent) {
-      return { inContainer: false, contentStart: lineStart };
-    }
-    if (!indent.blank) cursor += step.contentIndent;
+    const nextPosition = consumeIndent(value, position, lineEnd, step.contentIndent);
+    if (nextPosition === null) return { inContainer: false, position: initialPosition };
+    position = nextPosition;
   }
-  return { inContainer: true, contentStart: cursor };
+  return { inContainer: true, position };
 }
 
 function scanImageTargetTokens(body: string): ImageTargetToken[] {
@@ -350,16 +463,14 @@ function scanImageTargetTokens(body: string): ImageTargetToken[] {
           scannerState.fence,
         );
         if (fenceContext.inContainer) {
-          let markerStart = fenceContext.contentStart;
-          let indent = 0;
-          while (body[markerStart + indent] === ' ') indent += 1;
-          markerStart += indent;
+          const indentation = scanIndent(body, fenceContext.position, lineEnd);
+          const markerStart = indentation.position.offset;
           const marker = body[markerStart];
           let markerEnd = markerStart;
-          if (indent <= 3 && marker === scannerState.fence.marker) {
+          if (indentation.indent <= 3 && marker === scannerState.fence.marker) {
             while (body[markerEnd] === marker) markerEnd += 1;
           }
-          const isClosingFence = indent <= 3
+          const isClosingFence = indentation.indent <= 3
             && marker === scannerState.fence.marker
             && markerEnd - markerStart >= scannerState.fence.length
             && /^[ \t\r]*$/u.test(body.slice(markerEnd, lineEnd));
@@ -387,7 +498,12 @@ function scanImageTargetTokens(body: string): ImageTargetToken[] {
           scannerState.fence = {
             marker,
             length: markerLength,
-            containerPath: [...containers.path],
+            containerPath: containers.path.map((step) => (
+              step.kind === 'blockquote'
+                ? { kind: 'blockquote' }
+                : { kind: 'list', contentIndent: step.contentIndent }
+            )),
+            containsBlockquote: containers.path.some((step) => step.kind === 'blockquote'),
           };
           cursor = newline === -1 ? body.length : newline + 1;
           lineStart = true;

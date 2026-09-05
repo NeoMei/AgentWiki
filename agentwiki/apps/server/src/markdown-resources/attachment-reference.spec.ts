@@ -459,6 +459,18 @@ describe('parseImageReferences', () => {
     })]);
     expect(counted.reads()).toBeLessThanOrEqual(raw.length * 20);
   });
+
+  it('matches deep list-fence blank lines in a linear number of indexed reads', () => {
+    const depth = 512;
+    const raw = `${'- '.repeat(depth)}\`\`\`md\r\n${'\r\n'.repeat(depth)}![[assets/real.png]]`;
+    const counted = countIndexedReads(raw);
+
+    expect(parseImageReferences(counted.value, sourcePath)).toEqual([expect.objectContaining({
+      rawTarget: 'assets/real.png',
+      resolvedPath: 'assets/real.png',
+    })]);
+    expect(counted.reads()).toBeLessThanOrEqual(raw.length * 40);
+  });
 });
 
 describe('resolveReferencedAttachments', () => {
