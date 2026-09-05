@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, type PageTemplateCategory } from '@prisma/client';
+import { Prisma, type PageTemplateCategory, type PageTemplateScope } from '@prisma/client';
 import {
   CompositeTemplateDefinitionSchema,
   type CompositeTemplateDefinition,
@@ -23,7 +23,23 @@ import {
   resolveLocalizedValue,
   type PageTemplateLocale,
 } from './page-template.types';
-import { queryCurrentTemplateCatalog } from './current-template-catalog-query';
+import {
+  queryCurrentTemplateCatalog,
+  type CurrentTemplateCatalogRow,
+} from './current-template-catalog-query';
+
+type CatalogStoredVersion = {
+  definition: Prisma.JsonValue | null;
+  schemaVersion: number | null;
+  definitionHash: string | null;
+  contentI18n: Prisma.JsonValue;
+};
+
+type TemplateDefinitionOwner = {
+  scope: PageTemplateScope;
+  sourceLocale: string | null;
+  defaultTitleI18n: Prisma.JsonValue;
+};
 
 export type CompositeTemplateListQuery = {
   locale: PageTemplateLocale;
@@ -68,32 +84,7 @@ export class CompositeTemplateCatalogService {
     const stored = template.versions[0];
     if (!stored) throw new BusinessException('PAGE_TEMPLATE_VERSION_NOT_FOUND');
 
-    try {
-      const locale = template.scope === 'system'
-        ? requestedLocale
-        : PageTemplateLocaleSchema.parse(template.sourceLocale);
-      if (stored.definition) {
-        const definition = CompositeTemplateDefinitionSchema.parse(structuredClone(stored.definition));
-        if (validateCompositeDefinition(definition).length > 0 || !stored.definitionHash
-          || hashCompositeDefinition(definition) !== stored.definitionHash) {
-          throw new BusinessException('PAGE_TEMPLATE_INVALID');
-        }
-        const resolvedLocale = this.definitionLocale(definition, template.scope, locale);
-        return { definition, definitionHash: stored.definitionHash, locale: resolvedLocale };
-      }
-
-      const definition = normalizeLegacyVersion(stored.contentI18n);
-      const page = definition.nodes[0];
-      if (page.kind !== 'page') throw new BusinessException('PAGE_TEMPLATE_INVALID');
-      page.titleI18n = structuredClone(template.defaultTitleI18n) as typeof page.titleI18n;
-      const resolved = template.scope === 'system'
-        ? resolveLocalizedValue(stored.contentI18n, { scope: 'system', requested: locale })
-        : resolveLocalizedValue(stored.contentI18n, { scope: 'space', sourceLocale: locale });
-      return { definition, definitionHash: hashCompositeDefinition(definition), locale: resolved.locale };
-    } catch (error) {
-      if (error instanceof BusinessException) throw error;
-      throw new BusinessException('PAGE_TEMPLATE_INVALID');
-    }
+    return this.validateStoredVersion(template, stored, requestedLocale);
   }
 
   async list(spaceId: string, query: CompositeTemplateListQuery, principal: Principal) {
@@ -109,6 +100,7 @@ export class CompositeTemplateCatalogService {
       mode: 'composite',
       spaceId,
     });
+    await this.validateCatalogPage(result.rows, query.locale);
     const rows = result.rows.map((template) => {
       const fallback = template.scope === 'system'
         ? 'en'
@@ -162,6 +154,69 @@ export class CompositeTemplateCatalogService {
 
   restore(...args: Parameters<PageTemplateService['restore']>) {
     return this.pageTemplates.restore(...args);
+  }
+
+  private async validateCatalogPage(
+    rows: CurrentTemplateCatalogRow[],
+    locale: PageTemplateLocale,
+  ): Promise<void> {
+    for (const row of rows) {
+      const stored = await this.prisma.pageTemplateVersion.findUnique({
+        where: { templateId_version: { templateId: row.id, version: row.currentVersion } },
+        select: { definition: true, schemaVersion: true, definitionHash: true, contentI18n: true },
+      });
+      if (!stored) throw new BusinessException('PAGE_TEMPLATE_INVALID');
+      const validated = this.validateStoredVersion(row, stored, locale);
+      if (validated.definition.kind !== row.kind
+        || (validated.definition.collaboration !== null) !== row.supportsCollaboration) {
+        throw new BusinessException('PAGE_TEMPLATE_INVALID');
+      }
+    }
+  }
+
+  private validateStoredVersion(
+    template: TemplateDefinitionOwner,
+    stored: CatalogStoredVersion,
+    requestedLocale: PageTemplateLocale,
+  ): {
+      definition: CompositeTemplateDefinition;
+      definitionHash: string;
+      locale: PageTemplateLocale;
+    } {
+    try {
+      const locale = template.scope === 'system'
+        ? requestedLocale
+        : PageTemplateLocaleSchema.parse(template.sourceLocale);
+      if (stored.definition !== null && stored.definition !== undefined) {
+        const definition = CompositeTemplateDefinitionSchema.parse(structuredClone(stored.definition));
+        if (stored.schemaVersion !== definition.schemaVersion
+          || validateCompositeDefinition(definition).length > 0
+          || !stored.definitionHash
+          || hashCompositeDefinition(definition) !== stored.definitionHash) {
+          throw new BusinessException('PAGE_TEMPLATE_INVALID');
+        }
+        const resolvedLocale = this.definitionLocale(definition, template.scope, locale);
+        return { definition, definitionHash: stored.definitionHash, locale: resolvedLocale };
+      }
+
+      if (stored.schemaVersion !== null && stored.schemaVersion !== undefined) {
+        throw new BusinessException('PAGE_TEMPLATE_INVALID');
+      }
+      if (stored.definitionHash !== null && stored.definitionHash !== undefined) {
+        throw new BusinessException('PAGE_TEMPLATE_INVALID');
+      }
+      const definition = normalizeLegacyVersion(stored.contentI18n);
+      const page = definition.nodes[0];
+      if (page.kind !== 'page') throw new BusinessException('PAGE_TEMPLATE_INVALID');
+      page.titleI18n = structuredClone(template.defaultTitleI18n) as typeof page.titleI18n;
+      const resolved = template.scope === 'system'
+        ? resolveLocalizedValue(stored.contentI18n, { scope: 'system', requested: locale })
+        : resolveLocalizedValue(stored.contentI18n, { scope: 'space', sourceLocale: locale });
+      return { definition, definitionHash: hashCompositeDefinition(definition), locale: resolved.locale };
+    } catch (error) {
+      if (error instanceof BusinessException) throw error;
+      throw new BusinessException('PAGE_TEMPLATE_INVALID');
+    }
   }
 
   private definitionLocale(

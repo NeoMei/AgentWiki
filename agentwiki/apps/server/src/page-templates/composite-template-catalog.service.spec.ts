@@ -18,6 +18,32 @@ const definition: CompositeTemplateDefinition = {
   collaboration: null,
 };
 
+const semanticallyInvalidDefinition: CompositeTemplateDefinition = {
+  ...definition,
+  nodes: [{
+    nodeId: 'page', parentNodeId: null, kind: 'page', order: 0,
+    titleI18n: { en: 'Page' }, contentI18n: { en: '# Page' }, roleSlotKey: 'writer',
+  }],
+  kind: 'single_page',
+  collaboration: {
+    workflow: {
+      schemaVersion: 1,
+      inputs: [],
+      roleSlots: [{ id: 'writer', name: 'Writer', required: true, description: 'Writes' }],
+      nodes: [{
+        kind: 'agent_task', id: 'draft', name: 'Draft', roleSlotId: 'writer', objective: 'Draft',
+        inputKeys: [], upstreamArtifacts: [], output: { key: 'draft', kind: 'markdown' },
+        evidenceRequired: [], humanAcceptance: true, leaseSeconds: 300, maxExecutionSeconds: 3600,
+        retryBudget: 1, repairBudget: 1, skippable: false,
+        todos: [{ id: 'write', name: 'Write', required: true, evidenceKinds: [] }],
+      }],
+      dependencies: [],
+      terminalNodeIds: ['draft'],
+    },
+    taskTargets: [{ taskNodeId: 'draft', pageNodeId: 'page' }],
+  },
+};
+
 const template = (overrides: Record<string, unknown> = {}) => ({
   id: 'template-1', scope: 'system', spaceId: null, stableKey: 'workspace', category: 'planning',
   displayOrder: 0, nameI18n: { 'zh-CN': '工作区', en: 'Workspace' },
@@ -30,7 +56,7 @@ const template = (overrides: Record<string, unknown> = {}) => ({
 
 describe('CompositeTemplateCatalogService', () => {
   const pageTemplate = { findFirst: jest.fn(), findMany: jest.fn(), count: jest.fn() };
-  const pageTemplateVersion = { findMany: jest.fn() };
+  const pageTemplateVersion = { findUnique: jest.fn() };
   const tx = { pageTemplate } as any;
   const prisma = { pageTemplate, pageTemplateVersion, $queryRaw: jest.fn(), $transaction: jest.fn() } as any;
   const authorization = { assertSpaceAccess: jest.fn() } as any;
@@ -43,13 +69,22 @@ describe('CompositeTemplateCatalogService', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     prisma.$queryRaw.mockResolvedValue([]);
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      definition,
+      schemaVersion: 1,
+      definitionHash: hashCompositeDefinition(definition),
+      contentI18n: {},
+    });
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'owner' });
     service = new CompositeTemplateCatalogService(prisma, authorization, pageTemplates);
   });
 
   it('resolves the exact requested new version as the definition authority', async () => {
     pageTemplate.findFirst.mockResolvedValue(template({
-      versions: [{ version: 1, definition, definitionHash: hashCompositeDefinition(definition), contentI18n: { en: 'ignored' } }],
+      versions: [{
+        version: 1, definition, schemaVersion: 1,
+        definitionHash: hashCompositeDefinition(definition), contentI18n: { en: 'ignored' },
+      }],
     }));
 
     await expect(service.resolve(tx, 'space-1', 'template-1', 1, 'en')).resolves.toEqual({
@@ -106,6 +141,107 @@ describe('CompositeTemplateCatalogService', () => {
     expect(listQuery.sql).toContain('LIMIT ?');
     expect(listQuery.sql).toContain('OFFSET ?');
     expect(listQuery.sql).not.toContain('version."definition" AS');
+  });
+
+  it('rejects a selected catalog page when a current composite definition has corrupt schema or hash', async () => {
+    prisma.$queryRaw
+      .mockResolvedValueOnce([{ ...template({ id: 'group' }), kind: 'page_group', supportsCollaboration: false }])
+      .mockResolvedValueOnce([{ total: 1n }]);
+    pageTemplateVersion.findUnique.mockResolvedValueOnce({
+      definition: { ...definition, schemaVersion: 2 },
+      schemaVersion: 2,
+      definitionHash: hashCompositeDefinition(definition),
+      contentI18n: {},
+    });
+
+    await expect(service.list('space-1', {
+      locale: 'en', kind: 'page_group', skip: 0, take: 1,
+    }, principal)).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_INVALID' });
+
+    prisma.$queryRaw
+      .mockResolvedValueOnce([{ ...template({ id: 'group' }), kind: 'page_group', supportsCollaboration: false }])
+      .mockResolvedValueOnce([{ total: 1n }]);
+    pageTemplateVersion.findUnique.mockResolvedValueOnce({
+      definition,
+      schemaVersion: 1,
+      definitionHash: '0'.repeat(64),
+      contentI18n: {},
+    });
+
+    await expect(service.list('space-1', {
+      locale: 'en', kind: 'page_group', skip: 0, take: 1,
+    }, principal)).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_INVALID' });
+  });
+
+  it('rejects selected composite semantics and legacy content after bounded candidate paging', async () => {
+    prisma.$queryRaw
+      .mockResolvedValueOnce([{ ...template({ id: 'group' }), kind: 'single_page', supportsCollaboration: true }])
+      .mockResolvedValueOnce([{ total: 1n }]);
+    pageTemplateVersion.findUnique.mockResolvedValueOnce({
+      definition: semanticallyInvalidDefinition,
+      schemaVersion: 1,
+      definitionHash: hashCompositeDefinition(semanticallyInvalidDefinition),
+      contentI18n: {},
+    });
+
+    await expect(service.list('space-1', {
+      locale: 'en', skip: 0, take: 1,
+    }, principal)).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_INVALID' });
+
+    prisma.$queryRaw
+      .mockResolvedValueOnce([{ ...template({ id: 'legacy' }), kind: 'single_page', supportsCollaboration: false }])
+      .mockResolvedValueOnce([{ total: 1n }]);
+    pageTemplateVersion.findUnique.mockResolvedValueOnce({
+      definition: null,
+      schemaVersion: null,
+      definitionHash: null,
+      contentI18n: {},
+    });
+
+    await expect(service.list('space-1', {
+      locale: 'en', skip: 0, take: 1,
+    }, principal)).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_INVALID' });
+  });
+
+  it('validates only selected exact versions sequentially before returning summaries', async () => {
+    prisma.$queryRaw
+      .mockResolvedValueOnce([
+        { ...template({ id: 'first', currentVersion: 3 }), kind: 'page_group', supportsCollaboration: false },
+        { ...template({ id: 'second', currentVersion: 7 }), kind: 'page_group', supportsCollaboration: false },
+      ])
+      .mockResolvedValueOnce([{ total: 500n }]);
+    let active = 0;
+    let maximumActive = 0;
+    pageTemplateVersion.findUnique.mockImplementation(async () => {
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      await new Promise((resolve) => setImmediate(resolve));
+      active -= 1;
+      return {
+        definition,
+        schemaVersion: 1,
+        definitionHash: hashCompositeDefinition(definition),
+        contentI18n: {},
+      };
+    });
+
+    const result = await service.list('space-1', {
+      locale: 'en', skip: 40, take: 2,
+    }, principal);
+
+    expect(result.total).toBe(500);
+    expect(result.data.map((row) => row.id)).toEqual(['first', 'second']);
+    expect(maximumActive).toBe(1);
+    expect(pageTemplateVersion.findUnique.mock.calls.map(([argument]) => argument)).toEqual([
+      {
+        where: { templateId_version: { templateId: 'first', version: 3 } },
+        select: { definition: true, schemaVersion: true, definitionHash: true, contentI18n: true },
+      },
+      {
+        where: { templateId_version: { templateId: 'second', version: 7 } },
+        select: { definition: true, schemaVersion: true, definitionHash: true, contentI18n: true },
+      },
+    ]);
   });
 
   it('enforces read access and delegates all custom writes to the legacy policy owner', async () => {
