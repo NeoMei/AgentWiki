@@ -10,9 +10,18 @@ import { LegacyWorkflowUpgradeService } from './legacy-workflow-upgrade.service'
 import { ContentTreeModule } from '../content-tree/content-tree.module';
 import { TemplateInstantiationService } from './template-instantiation.service';
 import { PageAgentBindingService } from './page-agent-binding.service';
+import { MarkdownResourceCoreModule } from '../markdown-resources/markdown-resource-core.module';
+import { FolderTemplateSnapshotService } from './folder-template-snapshot.service';
 
 @Module({
-  imports: [DatabaseModule, AuthorizationModule, AuthModule, ConfigModule, ContentTreeModule],
+  imports: [
+    DatabaseModule,
+    AuthorizationModule,
+    AuthModule,
+    ConfigModule,
+    ContentTreeModule,
+    MarkdownResourceCoreModule,
+  ],
   controllers: [PageTemplateController],
   providers: [
     PageTemplateService,
@@ -20,6 +29,7 @@ import { PageAgentBindingService } from './page-agent-binding.service';
     LegacyWorkflowUpgradeService,
     TemplateInstantiationService,
     PageAgentBindingService,
+    FolderTemplateSnapshotService,
   ],
   exports: [
     PageTemplateService,
@@ -27,6 +37,7 @@ import { PageAgentBindingService } from './page-agent-binding.service';
     LegacyWorkflowUpgradeService,
     TemplateInstantiationService,
     PageAgentBindingService,
+    FolderTemplateSnapshotService,
   ],
 })
 export class PageTemplateModule {}

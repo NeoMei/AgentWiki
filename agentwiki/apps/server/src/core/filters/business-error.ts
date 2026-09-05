@@ -53,6 +53,8 @@ const ERROR_CODE_MAP: Record<string, { status: HttpStatus; message: string }> = 
   PAGE_TEMPLATE_UPGRADE_CONFLICT: { status: HttpStatus.CONFLICT, message: 'This workflow snapshot was already upgraded with different settings' },
   PAGE_TEMPLATE_QUOTA_EXCEEDED: { status: HttpStatus.TOO_MANY_REQUESTS, message: 'Space page template quota exceeded' },
   PAGE_TEMPLATE_PERMISSION_DENIED: { status: HttpStatus.FORBIDDEN, message: 'This human member cannot manage page templates' },
+  PAGE_TEMPLATE_WARNING_CONFIRMATION_REQUIRED: { status: HttpStatus.BAD_REQUEST, message: 'Explicit template warning confirmation is required' },
+  SOURCE_CHANGED: { status: HttpStatus.CONFLICT, message: 'Template source changed; refresh the preview before saving' },
   PAGE_TEMPLATE_SOURCE_INVALID: { status: HttpStatus.BAD_REQUEST, message: 'Template source page is invalid' },
   PAGE_TEMPLATE_SOURCE_STALE: { status: HttpStatus.CONFLICT, message: 'Template source page changed; reload before saving' },
   PAGE_TEMPLATE_SYSTEM_IMMUTABLE: { status: HttpStatus.CONFLICT, message: 'System page templates are immutable' },
