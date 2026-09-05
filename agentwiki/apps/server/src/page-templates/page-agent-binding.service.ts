@@ -90,7 +90,7 @@ export class PageAgentBindingService {
    * never starts a nested transaction and never advances the tree revision.
    */
   async setBindings(
-    tx: Prisma.TransactionClient | SpaceTreeLockedTransaction,
+    tx: SpaceTreeLockedTransaction,
     spaceId: string,
     edits: readonly PageAgentBindingEdit[],
     principal: Principal,

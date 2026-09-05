@@ -4,10 +4,18 @@ export type RunPageSelectionTask = {
   enabled: boolean;
 };
 
-export type RunPageSelectionBinding = {
-  roleSlotId: string;
-  agentId: string;
-};
+export type RunPageSelectionBinding =
+  | {
+    kind: 'task_default';
+    nodeId: string;
+    roleSlotId: string;
+    agentId: string;
+  }
+  | {
+    kind: 'role_override';
+    roleSlotId: string;
+    agentId: string;
+  };
 
 export type RunPageAssignment = {
   nodeId: string;
@@ -32,19 +40,27 @@ export function resolveParticipants(
   agentIds: string[];
   issues: RunPageSelectionIssue[];
 } {
-  const agentsByRole = new Map<string, Set<string>>();
-  for (const binding of bindings) {
-    const agents = agentsByRole.get(binding.roleSlotId) ?? new Set<string>();
-    agents.add(binding.agentId);
-    agentsByRole.set(binding.roleSlotId, agents);
-  }
-
   const enabledTasks = tasks.filter((task) => task.enabled);
+  const enabledByNode = new Map(enabledTasks.map((task) => [task.nodeId, task]));
   const nodesByRole = new Map<string, string[]>();
   for (const task of enabledTasks) {
     const nodeIds = nodesByRole.get(task.roleSlotId) ?? [];
     nodeIds.push(task.nodeId);
     nodesByRole.set(task.roleSlotId, nodeIds);
+  }
+
+  const agentsByRole = new Map<string, Set<string>>();
+  for (const roleSlotId of nodesByRole.keys()) {
+    const overrides = bindings.filter((binding) => (
+      binding.kind === 'role_override' && binding.roleSlotId === roleSlotId
+    ));
+    const applicable = overrides.length > 0
+      ? overrides
+      : bindings.filter((binding) => {
+        if (binding.kind !== 'task_default' || binding.roleSlotId !== roleSlotId) return false;
+        return enabledByNode.get(binding.nodeId)?.roleSlotId === binding.roleSlotId;
+      });
+    agentsByRole.set(roleSlotId, new Set(applicable.map((binding) => binding.agentId)));
   }
 
   const issues: RunPageSelectionIssue[] = [];

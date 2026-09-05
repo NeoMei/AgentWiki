@@ -73,3 +73,39 @@ PAGE_TEMPLATE_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:62341/agentwiki_
 ## Concerns
 
 - Task 8 must invoke `setBindings` only from its existing serializable, Space-tree-locked creation transaction, and must separately run startup Credential/readiness checks. This task deliberately does not make saved bindings depend on realtime Agent presence.
+
+## Reviewer fix 1
+
+- Replaced the ambiguous role-only participant binding with an explicit union:
+  - `task_default`: `{kind,nodeId,roleSlotId,agentId}`
+  - `role_override`: `{kind,roleSlotId,agentId}`
+- Task defaults now participate only when both `nodeId` and `roleSlotId` match an enabled task. A disabled task sharing the same role can no longer create a false conflict or participant.
+- A single explicit override takes precedence over task defaults for a used role; distinct overrides for one used role return stable `ROLE_BINDING_CONFLICT`; overrides for unused roles are omitted.
+- Tightened the `setBindings` transaction parameter from `Prisma.TransactionClient | SpaceTreeLockedTransaction` to only `SpaceTreeLockedTransaction`. The spec now carries a branded fixture and a compile-only negative type assertion.
+
+RED:
+
+```text
+TS2353: 'kind' does not exist in type 'RunPageSelectionBinding'
+TS2578: Unused '@ts-expect-error' directive for an unbranded Prisma transaction
+Test Suites: 2 failed, 2 total
+```
+
+GREEN:
+
+```text
+pnpm --filter @agentwiki/server test -- run-page-selection.spec.ts page-agent-binding.service.spec.ts
+Test Suites: 2 passed, 2 total
+Tests: 22 passed, 22 total
+
+pnpm --filter @agentwiki/server typecheck
+passed
+
+pnpm --filter @agentwiki/server lint
+passed
+
+git --work-tree='/Users/neomei/.codex/worktrees/69d8/AgentWiki ' diff --check
+passed
+```
+
+The PostgreSQL binding transaction runtime was unchanged by this fix, so the previously passing dedicated rollback test was not rerun.

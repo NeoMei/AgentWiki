@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { BusinessException } from '../core/filters/business-error';
+import type { SpaceTreeLockedTransaction } from '../core/sync/space-revision-writer.service';
 import {
   PageAgentBindingService,
   type PageAgentBindingEdit,
@@ -76,6 +77,7 @@ function makeHarness() {
       create: jest.fn(async ({ data }: any) => { events.push(data); return data; }),
     },
   }, { contentTreeRevision: 7n });
+  const lockedTx = tx as SpaceTreeLockedTransaction;
   const prisma: any = {
     $transaction: jest.fn(async (callback: (transaction: any) => unknown, options: unknown) => {
       expect(options).toEqual({ isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
@@ -94,9 +96,15 @@ function makeHarness() {
   };
   return {
     service: new PageAgentBindingService(prisma, authorization, contentTree),
-    prisma, authorization, contentTree, tx, bindings, events,
+    prisma, authorization, contentTree, tx, lockedTx, bindings, events,
   };
 }
+
+function compileOnlyRequiresSpaceTreeLock(service: PageAgentBindingService) {
+  // @ts-expect-error The transaction primitive must reject an unbranded transaction.
+  return service.setBindings({} as Prisma.TransactionClient, 'space-1', [edit()], principal);
+}
+void compileOnlyRequiresSpaceTreeLock;
 
 describe('PageAgentBindingService', () => {
   it('rejects a human without current content-write permission', async () => {
@@ -104,7 +112,7 @@ describe('PageAgentBindingService', () => {
     h.authorization.assertLiveHumanSpaceAccess.mockRejectedValueOnce(
       new BusinessException('SPACE_ACCESS_DENIED'),
     );
-    await expect(h.service.setBindings(h.tx, 'space-1', [edit()], principal))
+    await expect(h.service.setBindings(h.lockedTx, 'space-1', [edit()], principal))
       .rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
     expect(h.tx.pageAgentBinding.create).not.toHaveBeenCalled();
   });
@@ -112,7 +120,7 @@ describe('PageAgentBindingService', () => {
   it('rejects a Page that actually belongs to another Space', async () => {
     const h = makeHarness();
     await expect(h.service.setBindings(
-      h.tx, 'space-1', [edit({ pageId: 'foreign-page' })], principal,
+      h.lockedTx, 'space-1', [edit({ pageId: 'foreign-page' })], principal,
     )).rejects.toMatchObject({ businessCode: 'RESOURCE_NOT_FOUND' });
     expect(h.tx.agentGrant.findMany).not.toHaveBeenCalled();
   });
@@ -126,14 +134,14 @@ describe('PageAgentBindingService', () => {
   ])('rejects non-compliant Agent %s', async (agentId, code) => {
     const h = makeHarness();
     await expect(h.service.setBindings(
-      h.tx, 'space-1', [edit({ agentId })], principal,
+      h.lockedTx, 'space-1', [edit({ agentId })], principal,
     )).rejects.toMatchObject({ businessCode: code });
     expect(h.tx.pageAgentBinding.create).not.toHaveBeenCalled();
   });
 
   it('binds an authorized Agent without requiring a realtime session', async () => {
     const h = makeHarness();
-    await expect(h.service.setBindings(h.tx, 'space-1', [edit()], principal)).resolves.toEqual([{
+    await expect(h.service.setBindings(h.lockedTx, 'space-1', [edit()], principal)).resolves.toEqual([{
       pageId: 'page-1', agentId: 'agent-1', roleSlotKey: 'writer',
       updatedAt: firstVersion.toISOString(),
     }]);
@@ -152,7 +160,7 @@ describe('PageAgentBindingService', () => {
       roleSlotKey: 'writer', assignedByUserId: 'human-1', createdAt: firstVersion,
       updatedAt: firstVersion,
     });
-    await expect(h.service.setBindings(h.tx, 'space-1', [edit({
+    await expect(h.service.setBindings(h.lockedTx, 'space-1', [edit({
       agentId: 'agent-2', expectedUpdatedAt: '2026-09-04T00:00:00.000Z',
     })], principal)).rejects.toMatchObject({ businessCode: 'RESOURCE_CONFLICT' });
     expect(h.bindings.get('page-1').agentId).toBe('agent-1');
@@ -166,7 +174,7 @@ describe('PageAgentBindingService', () => {
       roleSlotKey: 'writer', assignedByUserId: 'human-1', createdAt: firstVersion,
       updatedAt: firstVersion,
     });
-    await expect(h.service.setBindings(h.tx, 'space-1', [edit({
+    await expect(h.service.setBindings(h.lockedTx, 'space-1', [edit({
       expectedUpdatedAt: firstVersion.toISOString(),
     })], principal)).resolves.toEqual([{
       pageId: 'page-1', agentId: 'agent-1', roleSlotKey: 'writer',
@@ -185,10 +193,10 @@ describe('PageAgentBindingService', () => {
     });
     const clock = jest.spyOn(Date, 'now').mockReturnValue(firstVersion.getTime());
     try {
-      const first = await h.service.setBindings(h.tx, 'space-1', [edit({
+      const first = await h.service.setBindings(h.lockedTx, 'space-1', [edit({
         agentId: 'agent-2', expectedUpdatedAt: firstVersion.toISOString(),
       })], principal);
-      const second = await h.service.setBindings(h.tx, 'space-1', [edit({
+      const second = await h.service.setBindings(h.lockedTx, 'space-1', [edit({
         agentId: 'agent-2', roleSlotKey: 'reviewer', expectedUpdatedAt: first[0].updatedAt,
       })], principal);
       expect(first[0].updatedAt).toBe('2026-09-05T00:00:00.001Z');
@@ -205,7 +213,7 @@ describe('PageAgentBindingService', () => {
       roleSlotKey: 'writer', assignedByUserId: 'human-1', createdAt: firstVersion,
       updatedAt: firstVersion,
     });
-    await expect(h.service.setBindings(h.tx, 'space-1', [edit({
+    await expect(h.service.setBindings(h.lockedTx, 'space-1', [edit({
       agentId: null, roleSlotKey: null, expectedUpdatedAt: firstVersion.toISOString(),
     })], principal)).resolves.toEqual([{
       pageId: 'page-1', agentId: null, roleSlotKey: null, updatedAt: null,
