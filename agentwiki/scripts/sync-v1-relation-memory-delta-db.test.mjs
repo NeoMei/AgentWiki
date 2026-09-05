@@ -50,9 +50,10 @@ test('relation/memory-only revision advances head with an empty sync v1 delta', 
     const { PrismaClient } = require('@prisma/client');
     const { SpaceRevisionWriterService } = await import('../apps/server/dist/core/sync/space-revision-writer.service.js');
     const { SyncRevisionService } = await import('../apps/server/dist/integrations/obsidian/sync-revision.service.js');
+    const { SyncV3ImmutableRevisionService } = await import('../apps/server/dist/integrations/obsidian/sync-v3-immutable-revision.service.js');
     const prisma = new PrismaClient({ datasources: { db: { url: url.href } } });
     const writer = SpaceRevisionWriterService.legacyOnly(prisma);
-    const revisions = new SyncRevisionService(prisma);
+    const revisions = new SyncRevisionService(prisma, new SyncV3ImmutableRevisionService());
 
     try {
       const spaceId = randomUUID();

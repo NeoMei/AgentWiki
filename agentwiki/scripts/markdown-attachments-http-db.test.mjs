@@ -84,6 +84,24 @@ function createAdminClient(databaseUrl) {
   return new PrismaClient({ datasources: { db: { url: administrativeUrl.toString() } } });
 }
 
+function failDelegate(tx, delegateName, methodName) {
+  return new Proxy(tx, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver);
+      if (property !== delegateName || !value || typeof value !== 'object') return value;
+      return new Proxy(value, {
+        get(delegate, method, delegateReceiver) {
+          if (method === methodName) {
+            return async () => { throw new Error(`injected:${delegateName}.${methodName}`); };
+          }
+          const member = Reflect.get(delegate, method, delegateReceiver);
+          return typeof member === 'function' ? member.bind(delegate) : member;
+        },
+      });
+    },
+  });
+}
+
 test('capacity lock contenders release a two-connection pool for unrelated PostgreSQL work', {
   skip: baseDatabaseUrl
     ? false
@@ -185,7 +203,7 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
         JWT_SECRET: `attachment-http-jwt-${randomUUID()}-${randomUUID()}`,
         AGENTWIKI_SERVER_PEPPER: `attachment-http-pepper-${randomUUID()}`,
         AGENTWIKI_DEPLOYMENT_SEED: randomBytes(32).toString('base64'),
-        LOCAL_SYNC_PACKAGE_VERSION: '0.7.0',
+        LOCAL_SYNC_PACKAGE_VERSION: '0.8.0',
         ATTACHMENT_STORAGE_PATH: storageRoot,
         ATTACHMENT_MAX_SPACE_BYTES: String(PNG.length * 2),
         ATTACHMENT_MIN_FREE_BYTES: '1',
@@ -203,6 +221,14 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
         '../apps/server/dist/core/filters/all-exceptions.filter.js'
       );
       const { PrismaService } = await import('../apps/server/dist/database/prisma.service.js');
+      const { AttachmentService } = await import('../apps/server/dist/attachments/attachment.service.js');
+      const { AttachmentRenamePreviewTokenService } = await import(
+        '../apps/server/dist/attachments/attachment-rename-preview-token.service.js'
+      );
+      const { AuthorizationService } = await import('../apps/server/dist/core/authorization/authorization.service.js');
+      const { SpaceRevisionWriterService } = await import('../apps/server/dist/core/sync/space-revision-writer.service.js');
+      const { SearchService } = await import('../apps/server/dist/core/search/search.service.js');
+      const { GraphMaintenance } = await import('../apps/server/dist/knowledge-graph/graph-maintenance.js');
       const { AttachmentCleanupWorker } = await import(
         '../apps/server/dist/attachments/attachment-cleanup.worker.js'
       );
@@ -297,7 +323,7 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
         `/agents/${agentRecord.id}/local-sync-installations`,
         {
           method: 'POST', token: owner.token,
-          body: { spaceId: space.id, role: 'editor', pluginVersion: '0.7.0' },
+          body: { spaceId: space.id, role: 'editor', pluginVersion: '0.8.0' },
         },
       )).data;
       const exchange = (await request('/integrations/local-sync/exchange', {
@@ -305,6 +331,23 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
       })).data;
       assert.match(exchange.apiKey, /^agk_/u);
       const agentToken = exchange.apiKey;
+
+      const activeBeforeInvalidUpload = await prisma.spaceAttachment.count({
+        where: { spaceId: space.id, status: 'active' },
+      });
+      await request(`/spaces/${space.id}/attachments`, {
+        method: 'POST', token: owner.token,
+        form: multipart(PNG, 'bad]]name.png', 'image/png'),
+        expected: [400],
+      });
+      await request(`/spaces/${space.id}/attachments`, {
+        method: 'POST', token: owner.token,
+        form: multipart(PNG, 'a#b.png', 'image/png'),
+        expected: [400],
+      });
+      assert.equal(await prisma.spaceAttachment.count({
+        where: { spaceId: space.id, status: 'active' },
+      }), activeBeforeInvalidUpload);
 
       const alpha = (await request(`/spaces/${space.id}/attachments`, {
         method: 'POST', token: owner.token,
@@ -392,6 +435,411 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
       await rawContent(viewer.token, 404);
       assert.equal(outsiderSpace.members[0].userId, outsider.id);
 
+      const pageBFolder = await prisma.folder.create({ data: {
+        spaceId: space.id, name: 'topic', nameKey: 'topic',
+        path: 'pages/topic', pathKey: 'pages/topic', createdByUserId: owner.id,
+      } });
+      const pageBContent = 'prefix ![nested](<../../assets/Beta.png> "nested title") suffix';
+      let pageB = await prisma.page.create({ data: {
+        knowledgeKey: randomUUID(), title: 'Page B', slug: `page-b-${randomUUID()}`,
+        content: pageBContent, spaceId: space.id, authorId: owner.id,
+        folderId: pageBFolder.id,
+        syncPath: 'pages/topic/Page B.md', syncPathKey: `pages/topic/page-b-${randomUUID()}.md`,
+      } });
+      const treeBeforePageA = await prisma.space.findUniqueOrThrow({
+        where: { id: space.id }, select: { contentTreeRevision: true },
+      });
+      const pageAContent = '![[  assets/Beta.png  | cover | 320x200  ]]\r\n![root](<../assets/Beta.png> "root title")';
+      const pageA = (await request('/pages', {
+        method: 'POST', token: owner.token,
+        body: {
+          spaceId: space.id, title: 'Page A', content: pageAContent,
+          expectedTreeRevision: treeBeforePageA.contentTreeRevision.toString(10),
+        },
+      })).data;
+      const preview = (await request(
+        `/spaces/${space.id}/attachments/${beta.id}/rename/preview`,
+        { method: 'POST', token: owner.token, body: { displayName: 'Beta renamed.png' } },
+      )).data;
+      assert.equal(preview.path, 'assets/Beta renamed.png');
+      assert.deepEqual(preview.impactedPages, [
+        { id: pageA.id, title: 'Page A' }, { id: pageB.id, title: 'Page B' },
+      ].sort((left, right) => left.id.localeCompare(right.id)));
+      assert.match(preview.previewToken, /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u);
+      assert.equal(preview.expectedUpdatedAt, undefined);
+      assert.equal(preview.expectedTreeRevision, undefined);
+
+      await request(`/spaces/${space.id}/attachments/${beta.id}/rename/preview`, {
+        method: 'POST', token: owner.token, body: { displayName: 'bad]]name.png' }, expected: [400],
+      });
+      await request(`/spaces/${space.id}/attachments/${beta.id}/rename/preview`, {
+        method: 'POST', token: owner.token, body: { displayName: 'a#b.png' }, expected: [400],
+      });
+
+      const pageBStaleContent = `${pageBContent}\n![[assets/Beta.png]]`;
+      pageB = (await request(`/pages/${pageB.id}`, {
+        method: 'PATCH', token: owner.token,
+        body: {
+          expectedUpdatedAt: pageB.updatedAt.toISOString(),
+          content: pageBStaleContent,
+        },
+      })).data;
+      const staleSnapshot = {
+        attachment: await prisma.spaceAttachment.findUniqueOrThrow({ where: { id: beta.id } }),
+        page: await prisma.page.findUniqueOrThrow({ where: { id: pageB.id } }),
+        pageVersions: await prisma.pageVersion.count({ where: { page: { spaceId: space.id } } }),
+        revisions: await prisma.spaceKnowledgeRevision.count({ where: { spaceId: space.id } }),
+      };
+      await request(`/spaces/${space.id}/attachments/${beta.id}/rename`, {
+        method: 'POST', token: owner.token, body: { previewToken: preview.previewToken }, expected: [409],
+      });
+      assert.deepEqual(
+        await prisma.spaceAttachment.findUniqueOrThrow({ where: { id: beta.id } }),
+        staleSnapshot.attachment,
+      );
+      assert.deepEqual(await prisma.page.findUniqueOrThrow({ where: { id: pageB.id } }), staleSnapshot.page);
+      assert.equal(await prisma.pageVersion.count({ where: { page: { spaceId: space.id } } }), staleSnapshot.pageVersions);
+      assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId: space.id } }), staleSnapshot.revisions);
+
+      const publishedAgentChangeSet = await prisma.changeSet.create({ data: {
+        title: 'Published Agent provenance before attachment rename',
+        status: 'published',
+        spaceId: space.id,
+        createdByAgentId: agentRecord.id,
+        publishedAt: new Date(),
+      } });
+      await prisma.page.update({
+        where: { id: pageA.id },
+        data: {
+          lastChangeSetId: publishedAgentChangeSet.id,
+          lastModifiedByAgentId: agentRecord.id,
+          lastModifiedByUserId: null,
+        },
+      });
+
+      const freshPreview = (await request(
+        `/spaces/${space.id}/attachments/${beta.id}/rename/preview`,
+        { method: 'POST', token: owner.token, body: { displayName: 'Beta renamed.png' } },
+      )).data;
+
+      const authorization = app.get(AuthorizationService);
+      const revisionWriter = app.get(SpaceRevisionWriterService);
+      const searchService = app.get(SearchService);
+      const graphMaintenance = app.get(GraphMaintenance);
+      const storage = app.get(ATTACHMENT_STORAGE);
+      const attachmentConfig = app.get(ATTACHMENT_CONFIG);
+      const previewTokens = app.get(AttachmentRenamePreviewTokenService);
+      const failingPrisma = new Proxy(prisma, {
+        get(target, property, receiver) {
+          if (property !== '$transaction') {
+            const value = Reflect.get(target, property, receiver);
+            return typeof value === 'function' ? value.bind(target) : value;
+          }
+          return (work, options) => target.$transaction(
+            async (tx) => work(failDelegate(tx, 'pageVersion', 'create')),
+            options,
+          );
+        },
+      });
+      const failingService = new AttachmentService(
+        failingPrisma, authorization, revisionWriter, storage, attachmentConfig,
+        searchService, graphMaintenance, previewTokens,
+      );
+      const revisionCountBeforeRename = await prisma.spaceKnowledgeRevision.count({
+        where: { spaceId: space.id },
+      });
+      const versionCountBeforeRename = await prisma.pageVersion.count({
+        where: { pageId: { in: [pageA.id, pageB.id] } },
+      });
+      await assert.rejects(
+        failingService.rename(space.id, beta.id, { previewToken: freshPreview.previewToken }, { userId: owner.id }),
+        /injected:pageVersion\.create/u,
+      );
+      assert.equal((await prisma.spaceAttachment.findUniqueOrThrow({ where: { id: beta.id } })).displayName, 'Beta.png');
+      assert.equal((await prisma.page.findUniqueOrThrow({ where: { id: pageA.id } })).content, pageAContent);
+      assert.equal((await prisma.page.findUniqueOrThrow({ where: { id: pageB.id } })).content, pageBStaleContent);
+      assert.equal(
+        await prisma.pageVersion.count({ where: { pageId: { in: [pageA.id, pageB.id] } } }),
+        versionCountBeforeRename,
+      );
+      assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId: space.id } }), revisionCountBeforeRename);
+
+      const confirms = await Promise.all([
+        request(`/spaces/${space.id}/attachments/${beta.id}/rename`, {
+          method: 'POST', token: owner.token,
+          body: { previewToken: freshPreview.previewToken }, expected: [201, 409],
+        }),
+        request(`/spaces/${space.id}/attachments/${beta.id}/rename`, {
+          method: 'POST', token: owner.token,
+          body: { previewToken: freshPreview.previewToken }, expected: [201, 409],
+        }),
+      ]);
+      assert.deepEqual(confirms.map(({ response }) => response.status).sort(), [201, 409]);
+      assert.equal((await prisma.spaceAttachment.findUniqueOrThrow({ where: { id: beta.id } })).displayName, 'Beta renamed.png');
+      assert.equal(
+        (await prisma.page.findUniqueOrThrow({ where: { id: pageA.id } })).content,
+        '![[  assets/Beta renamed.png  | cover | 320x200  ]]\r\n![root](<../assets/Beta renamed.png> "root title")',
+      );
+      assert.equal(
+        (await prisma.page.findUniqueOrThrow({ where: { id: pageB.id } })).content,
+        'prefix ![nested](<../../assets/Beta renamed.png> "nested title") suffix\n![[assets/Beta renamed.png]]',
+      );
+      assert.equal(
+        await prisma.pageVersion.count({ where: { pageId: { in: [pageA.id, pageB.id] } } }),
+        versionCountBeforeRename + 2,
+      );
+      assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId: space.id } }), revisionCountBeforeRename + 1);
+      const renamedVersion = await prisma.attachmentVersion.findFirstOrThrow({
+        where: { attachmentId: beta.id }, orderBy: { createdAt: 'desc' },
+      });
+      const renameHead = await prisma.spaceKnowledgeRevision.findFirstOrThrow({
+        where: { spaceId: space.id }, orderBy: { sequence: 'desc' },
+      });
+      assert.equal(renameHead.schemaVersion, 'content-tree@3');
+      assert.equal(renameHead.recipeVersion, 'referenced-images-v1');
+      assert.equal(renameHead.origin, 'web_editor');
+      assert.equal(renameHead.createdByUserId, owner.id);
+      assert.equal(renameHead.sourceChangeSetId, null);
+      assert.equal(renameHead.attachmentCount, 1n);
+      const renamedPageA = (await request(`/pages/${pageA.id}`, {
+        token: owner.token,
+      })).data;
+      assert.equal(renamedPageA.lastChangeSetId, null);
+      assert.equal(renamedPageA.lastModifiedByAgentId, null);
+      assert.equal(renamedPageA.lastModifiedByUserId, owner.id);
+      assert.deepEqual(await prisma.syncRevisionAttachmentRow.findMany({
+        where: { revisionId: renameHead.id },
+        select: { attachmentId: true, attachmentVersionId: true },
+      }), [{ attachmentId: beta.id, attachmentVersionId: renamedVersion.id }]);
+
+      for (const pageId of [pageA.id, pageB.id]) {
+        const current = await prisma.page.findUniqueOrThrow({ where: { id: pageId } });
+        await request(`/pages/${pageId}`, {
+          method: 'PATCH', token: owner.token,
+          body: { expectedUpdatedAt: current.updatedAt.toISOString(), content: `# Detached ${pageId}\n` },
+        });
+      }
+      const detachedHead = await prisma.spaceKnowledgeRevision.findFirstOrThrow({
+        where: { spaceId: space.id }, orderBy: { sequence: 'desc' },
+      });
+      assert.equal(detachedHead.schemaVersion, 'content-tree@3');
+      assert.equal(detachedHead.recipeVersion, 'referenced-images-v1');
+      assert.equal(detachedHead.attachmentCount, 0n);
+      assert.equal(await prisma.syncRevisionAttachmentRow.count({
+        where: { revisionId: detachedHead.id },
+      }), 0);
+
+      const snapshotPagePublication = async (pageId) => ({
+        page: await prisma.page.findUniqueOrThrow({ where: { id: pageId } }),
+        pageVersions: await prisma.pageVersion.count({ where: { page: { spaceId: space.id } } }),
+        revisions: await prisma.spaceKnowledgeRevision.count({ where: { spaceId: space.id } }),
+        treeRevision: (await prisma.space.findUniqueOrThrow({ where: { id: space.id } })).contentTreeRevision,
+      });
+      const assertRejectedPageSaveRolledBack = async (content, before, code, status) => {
+        const rejected = await request(`/pages/${before.page.id}`, {
+          method: 'PATCH', token: owner.token,
+          body: { expectedUpdatedAt: before.page.updatedAt.toISOString(), content },
+          expected: [status],
+        });
+        assert.equal(rejected.data?.error?.code, code);
+        assert.doesNotMatch(JSON.stringify(rejected.data), /storageKey|contentHash|markdown_test_/iu);
+        const after = await snapshotPagePublication(before.page.id);
+        assert.equal(after.page.content, before.page.content);
+        assert.equal(after.page.updatedAt.getTime(), before.page.updatedAt.getTime());
+        assert.equal(after.pageVersions, before.pageVersions);
+        assert.equal(after.revisions, before.revisions);
+        assert.equal(after.treeRevision, before.treeRevision);
+      };
+
+      await assertRejectedPageSaveRolledBack(
+        '![[assets/missing.png]]\n', await snapshotPagePublication(pageA.id),
+        'ATTACHMENT_MISSING', 409,
+      );
+      await prisma.$executeRawUnsafe(
+        'DROP INDEX "SpaceAttachment_spaceId_nameKey_key"',
+      );
+      const duplicate = await prisma.spaceAttachment.create({ data: {
+        spaceId: space.id, displayName: 'Beta renamed.png', nameKey: 'beta renamed.png',
+        contentHash: renamedVersion.contentHash, storageKey: renamedVersion.storageKey, mimeType: beta.mimeType,
+        sizeBytes: BigInt(beta.sizeBytes), width: beta.width, height: beta.height,
+        uploadedByUserId: owner.id,
+      } });
+      await assertRejectedPageSaveRolledBack(
+        '![[assets/Beta renamed.png]]\n', await snapshotPagePublication(pageA.id),
+        'ATTACHMENT_REFERENCE_INVALID', 400,
+      );
+      await prisma.spaceAttachment.delete({ where: { id: duplicate.id } });
+      await prisma.$executeRawUnsafe(
+        'CREATE UNIQUE INDEX "SpaceAttachment_spaceId_nameKey_key" ON "SpaceAttachment"("spaceId", "nameKey")',
+      );
+      await prisma.spaceAttachment.update({
+        where: { id: beta.id }, data: { status: 'archived', archivedAt: new Date() },
+      });
+      await assertRejectedPageSaveRolledBack(
+        '![[assets/Beta renamed.png]]\n', await snapshotPagePublication(pageA.id),
+        'ATTACHMENT_MISSING', 409,
+      );
+      await prisma.spaceAttachment.update({
+        where: { id: beta.id }, data: { status: 'active', archivedAt: null },
+      });
+
+      const legacyUnsafeSpace = (await request('/spaces', {
+        method: 'POST', token: owner.token, body: { name: `Legacy unsafe ${randomUUID()}` },
+      })).data;
+      const reusableBlob = await prisma.spaceAttachment.findUniqueOrThrow({ where: { id: beta.id } });
+      const unsafeNames = [
+        'bad|name.png', 'bad]]name.png', 'a%20b.png', 'bad:name.png', 'bad#name.png',
+      ];
+      const unsafeRows = [];
+      for (const displayName of unsafeNames) {
+        unsafeRows.push(await prisma.spaceAttachment.create({ data: {
+          spaceId: legacyUnsafeSpace.id,
+          displayName,
+          nameKey: displayName.toLocaleLowerCase('und'),
+          contentHash: reusableBlob.contentHash,
+          storageKey: reusableBlob.storageKey,
+          mimeType: reusableBlob.mimeType,
+          sizeBytes: reusableBlob.sizeBytes,
+          width: reusableBlob.width,
+          height: reusableBlob.height,
+          uploadedByUserId: owner.id,
+        } }));
+      }
+      const unsafeListBefore = (await request(`/spaces/${legacyUnsafeSpace.id}/attachments`, {
+        token: owner.token,
+      })).data;
+      assert.deepEqual(
+        unsafeListBefore.items.map(({ displayName, referenceable, canonicalPath }) => ({
+          displayName, referenceable, canonicalPath,
+        })).sort((left, right) => left.displayName.localeCompare(right.displayName)),
+        unsafeNames.map((displayName) => ({
+          displayName, referenceable: false, canonicalPath: null,
+        })).sort((left, right) => left.displayName.localeCompare(right.displayName)),
+      );
+      const pipeRow = unsafeRows[0];
+      const repairPreview = (await request(
+        `/spaces/${legacyUnsafeSpace.id}/attachments/${pipeRow.id}/rename/preview`,
+        { method: 'POST', token: owner.token, body: { displayName: 'repaired legacy.png' } },
+      )).data;
+      const repairTokenBody = JSON.parse(Buffer.from(
+        repairPreview.previewToken.split('.')[0], 'base64url',
+      ).toString('utf8'));
+      assert.match(repairTokenBody.sourceIdentityHash, /^[0-9a-f]{64}$/u);
+      assert.equal(repairTokenBody.sourcePath, undefined);
+      assert.doesNotMatch(JSON.stringify(repairTokenBody), /bad\|name\.png/u);
+      const repairedLegacy = (await request(
+        `/spaces/${legacyUnsafeSpace.id}/attachments/${pipeRow.id}/rename`,
+        { method: 'POST', token: owner.token, body: { previewToken: repairPreview.previewToken } },
+      )).data;
+      assert.equal(repairedLegacy.displayName, 'repaired legacy.png');
+      assert.equal(repairedLegacy.referenceable, true);
+      assert.equal(repairedLegacy.canonicalPath, 'assets/repaired legacy.png');
+      const repairedList = (await request(`/spaces/${legacyUnsafeSpace.id}/attachments`, {
+        token: owner.token, body: undefined,
+      })).data;
+      const repairedListItem = repairedList.items.find((item) => item.id === pipeRow.id);
+      assert.deepEqual({
+        displayName: repairedListItem?.displayName,
+        referenceable: repairedListItem?.referenceable,
+        canonicalPath: repairedListItem?.canonicalPath,
+      }, {
+        displayName: 'repaired legacy.png',
+        referenceable: true,
+        canonicalPath: 'assets/repaired legacy.png',
+      });
+      const repairHeads = await prisma.spaceKnowledgeRevision.findMany({
+        where: { spaceId: legacyUnsafeSpace.id }, orderBy: { sequence: 'asc' },
+      });
+      assert.equal(repairHeads.length, 1);
+      assert.equal(repairHeads[0].schemaVersion, 'content-tree@3');
+      assert.equal(repairHeads[0].recipeVersion, 'referenced-images-v1');
+
+      const unsafeMarkerSpace = (await request('/spaces', {
+        method: 'POST', token: owner.token, body: { name: `Legacy marker ${randomUUID()}` },
+      })).data;
+      const unsafeMarkerAttachment = await prisma.spaceAttachment.create({ data: {
+        spaceId: unsafeMarkerSpace.id,
+        displayName: 'bad|name.png',
+        nameKey: 'bad|name.png',
+        contentHash: reusableBlob.contentHash,
+        storageKey: reusableBlob.storageKey,
+        mimeType: reusableBlob.mimeType,
+        sizeBytes: reusableBlob.sizeBytes,
+        width: reusableBlob.width,
+        height: reusableBlob.height,
+        uploadedByUserId: owner.id,
+      } });
+      const unsafeMarkerPage = await prisma.page.create({ data: {
+        knowledgeKey: randomUUID(), title: 'Legacy unsafe marker', slug: `legacy-marker-${randomUUID()}`,
+        content: '![[bad|name.png]]', spaceId: unsafeMarkerSpace.id, authorId: owner.id,
+        syncPath: 'pages/Legacy unsafe marker.md', syncPathKey: `pages/legacy-marker-${randomUUID()}.md`,
+      } });
+      const unsafeMarkerSnapshot = {
+        attachment: await prisma.spaceAttachment.findUniqueOrThrow({ where: { id: unsafeMarkerAttachment.id } }),
+        page: await prisma.page.findUniqueOrThrow({ where: { id: unsafeMarkerPage.id } }),
+        revisions: await prisma.spaceKnowledgeRevision.count({ where: { spaceId: unsafeMarkerSpace.id } }),
+      };
+      const blockedRepair = await request(
+        `/spaces/${unsafeMarkerSpace.id}/attachments/${unsafeMarkerAttachment.id}/rename/preview`,
+        {
+          method: 'POST', token: owner.token, body: { displayName: 'safe marker.png' },
+          expected: [409],
+        },
+      );
+      assert.equal(blockedRepair.data.code, 'ATTACHMENT_REFERENCE_INVALID');
+      assert.deepEqual(blockedRepair.data.details?.pages, [{
+        id: unsafeMarkerPage.id, title: 'Legacy unsafe marker',
+      }]);
+      assert.deepEqual(
+        await prisma.spaceAttachment.findUniqueOrThrow({ where: { id: unsafeMarkerAttachment.id } }),
+        unsafeMarkerSnapshot.attachment,
+      );
+      assert.deepEqual(
+        await prisma.page.findUniqueOrThrow({ where: { id: unsafeMarkerPage.id } }),
+        unsafeMarkerSnapshot.page,
+      );
+      assert.equal(
+        await prisma.spaceKnowledgeRevision.count({ where: { spaceId: unsafeMarkerSpace.id } }),
+        unsafeMarkerSnapshot.revisions,
+      );
+
+      const treeBeforeLifecycleCreate = await prisma.space.findUniqueOrThrow({
+        where: { id: space.id }, select: { contentTreeRevision: true },
+      });
+      const lifecyclePage = (await request('/pages', {
+        method: 'POST', token: owner.token,
+        body: {
+          spaceId: space.id, title: 'Lifecycle image', content: '![[assets/Beta renamed.png]]\n',
+          expectedTreeRevision: treeBeforeLifecycleCreate.contentTreeRevision.toString(10),
+        },
+      })).data;
+      let lifecycleCurrent = await prisma.page.findUniqueOrThrow({ where: { id: lifecyclePage.id } });
+      await request(`/pages/${lifecyclePage.id}`, {
+        method: 'PATCH', token: owner.token,
+        body: { expectedUpdatedAt: lifecycleCurrent.updatedAt.toISOString(), content: '# Temporarily detached\n' },
+      });
+      const imageVersion = await prisma.pageVersion.findFirstOrThrow({
+        where: { pageId: lifecyclePage.id }, orderBy: { createdAt: 'desc' },
+      });
+      const treeBeforeLifecycleRestore = await prisma.space.findUniqueOrThrow({
+        where: { id: space.id }, select: { contentTreeRevision: true },
+      });
+      await request(`/pages/${lifecyclePage.id}/versions/${imageVersion.id}/restore`, {
+        method: 'POST', token: owner.token,
+        body: { expectedTreeRevision: treeBeforeLifecycleRestore.contentTreeRevision.toString(10) },
+      });
+      lifecycleCurrent = await prisma.page.findUniqueOrThrow({ where: { id: lifecyclePage.id } });
+      assert.equal(lifecycleCurrent.content, '![[assets/Beta renamed.png]]\n');
+      const lifecycleHeads = await prisma.spaceKnowledgeRevision.findMany({
+        where: { spaceId: space.id }, orderBy: { sequence: 'desc' }, take: 3,
+      });
+      assert.equal(lifecycleHeads.length, 3);
+      assert.ok(lifecycleHeads.every((revision) => (
+        revision.schemaVersion === 'content-tree@3'
+        && revision.recipeVersion === 'referenced-images-v1'
+      )));
+      assert.deepEqual(lifecycleHeads.map((revision) => revision.attachmentCount), [1n, 0n, 1n]);
+
       const archived = (await request(
         `/spaces/${space.id}/attachments/${alpha.id}/archive`,
         { method: 'POST', token: owner.token, body: { expectedUpdatedAt: alpha.updatedAt } },
@@ -423,6 +871,95 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
         });
       }
 
+      const noHeadSpace = (await request('/spaces', {
+        method: 'POST', token: owner.token, body: { name: `No-head rename ${randomUUID()}` },
+      })).data;
+      const noHeadAttachment = (await request(`/spaces/${noHeadSpace.id}/attachments`, {
+        method: 'POST', token: owner.token,
+        form: multipart(PNG, 'unreferenced no head.png', 'image/png'),
+      })).data;
+      const noHeadPreview = (await request(
+        `/spaces/${noHeadSpace.id}/attachments/${noHeadAttachment.id}/rename/preview`,
+        { method: 'POST', token: owner.token, body: { displayName: '未引用 (renamed).png' } },
+      )).data;
+      await request(`/spaces/${noHeadSpace.id}/attachments/${noHeadAttachment.id}/rename`, {
+        method: 'POST', token: owner.token, body: { previewToken: noHeadPreview.previewToken },
+      });
+      const noHeadRevisions = await prisma.spaceKnowledgeRevision.findMany({
+        where: { spaceId: noHeadSpace.id }, orderBy: { sequence: 'asc' },
+      });
+      assert.equal(noHeadRevisions.length, 1);
+      assert.equal(noHeadRevisions[0].schemaVersion, 'content-tree@3');
+      assert.equal(noHeadRevisions[0].recipeVersion, 'referenced-images-v1');
+
+      const legacySpace = (await request('/spaces', {
+        method: 'POST', token: owner.token, body: { name: `Legacy rename ${randomUUID()}` },
+      })).data;
+      const legacyAttachment = (await request(`/spaces/${legacySpace.id}/attachments`, {
+        method: 'POST', token: owner.token,
+        form: multipart(PNG, 'legacy unreferenced.png', 'image/png'),
+      })).data;
+      const legacyHead = await prisma.spaceKnowledgeRevision.create({ data: {
+        spaceId: legacySpace.id,
+        sequence: 1,
+        parentRevisionId: null,
+        schemaVersion: 'knowledge-bundle@1',
+        recipeVersion: 'none',
+        contentHash: 'c'.repeat(64),
+        revisionContentHash: 'd'.repeat(64),
+        snapshot: null,
+        delta: null,
+        pageCount: 0n,
+        revisionBodyBytes: 0n,
+        revisionManifestByteLength: 0n,
+        origin: 'web_editor',
+        createdByUserId: owner.id,
+      } });
+      const legacyPreview = (await request(
+        `/spaces/${legacySpace.id}/attachments/${legacyAttachment.id}/rename/preview`,
+        { method: 'POST', token: owner.token, body: { displayName: 'legacy renamed.png' } },
+      )).data;
+      const failingV3Prisma = new Proxy(prisma, {
+        get(target, property, receiver) {
+          if (property !== '$transaction') {
+            const value = Reflect.get(target, property, receiver);
+            return typeof value === 'function' ? value.bind(target) : value;
+          }
+          return (work, options) => target.$transaction(
+            async (tx) => work(failDelegate(tx, 'spaceKnowledgeRevision', 'create')),
+            options,
+          );
+        },
+      });
+      const failingV3Service = new AttachmentService(
+        failingV3Prisma, authorization, revisionWriter, storage, attachmentConfig,
+        searchService, graphMaintenance, previewTokens,
+      );
+      await assert.rejects(
+        failingV3Service.rename(
+          legacySpace.id,
+          legacyAttachment.id,
+          { previewToken: legacyPreview.previewToken },
+          { userId: owner.id },
+        ),
+        /injected:spaceKnowledgeRevision\.create/u,
+      );
+      assert.equal(
+        (await prisma.spaceAttachment.findUniqueOrThrow({ where: { id: legacyAttachment.id } })).displayName,
+        'legacy unreferenced.png',
+      );
+      assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId: legacySpace.id } }), 1);
+      await request(`/spaces/${legacySpace.id}/attachments/${legacyAttachment.id}/rename`, {
+        method: 'POST', token: owner.token, body: { previewToken: legacyPreview.previewToken },
+      });
+      const legacyRevisions = await prisma.spaceKnowledgeRevision.findMany({
+        where: { spaceId: legacySpace.id }, orderBy: { sequence: 'asc' },
+      });
+      assert.equal(legacyRevisions.length, 2);
+      assert.equal(legacyRevisions[0].id, legacyHead.id);
+      assert.equal(legacyRevisions[1].schemaVersion, 'content-tree@3');
+      assert.equal(legacyRevisions[1].recipeVersion, 'referenced-images-v1');
+
       const raceSpace = (await request('/spaces', {
         method: 'POST', token: owner.token, body: { name: `Race ${randomUUID()}` },
       })).data;
@@ -443,8 +980,6 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
           archivedAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000),
         },
       });
-      const storage = app.get(ATTACHMENT_STORAGE);
-      const attachmentConfig = app.get(ATTACHMENT_CONFIG);
       const runtimeConfig = app.get(ConfigService);
       const originalPublish = storage.publish.bind(storage);
       let signalPublished;

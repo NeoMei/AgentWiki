@@ -44,23 +44,26 @@ interface ImageTargetToken {
   syntax: ParsedImageReference['syntax'];
   targetStart: number;
   targetEnd: number;
+  syntaxValid: boolean;
 }
 
-interface ListContainer {
-  markerIndent: number;
-  contentIndent: number;
-}
+type MarkdownContainerStep =
+  | { kind: 'blockquote' }
+  | { kind: 'list'; contentIndent: number; contentStarted: boolean };
+
+type FenceContainerStep =
+  | { kind: 'blockquote' }
+  | { kind: 'list'; contentIndent: number };
 
 interface MarkdownContainerState {
-  quoteDepth: number;
-  lists: ListContainer[];
+  path: MarkdownContainerStep[];
 }
 
 interface MarkdownFenceState {
   marker: '`' | '~';
   length: number;
-  quoteDepth: number;
-  listContentIndent: number | null;
+  containerPath: FenceContainerStep[];
+  containsBlockquote: boolean;
 }
 
 export class AttachmentReferenceError extends Error {
@@ -163,21 +166,197 @@ function findMarkdownDestinationClose(value: string, start: number): number {
   return syntaxEnd > cursor && value[syntaxEnd] === ')' ? syntaxEnd : -1;
 }
 
-function listMarkerEnd(value: string, start: number, lineEnd: number): number {
-  const marker = value[start];
-  if ((marker === '-' || marker === '+' || marker === '*') && /[ \t]/u.test(value[start + 1] ?? '')) {
-    return start + 2;
-  }
+function findMalformedMarkdownExpressionEnd(value: string, start: number): number {
   let cursor = start;
-  while (cursor < lineEnd && cursor - start < 9 && /[0-9]/u.test(value[cursor] ?? '')) cursor += 1;
-  if (
-    cursor > start
-    && (value[cursor] === '.' || value[cursor] === ')')
-    && /[ \t]/u.test(value[cursor + 1] ?? '')
-  ) {
-    return cursor + 2;
+  let quote: '"' | "'" | null = null;
+  let parenthesisDepth = 0;
+  while (cursor < value.length) {
+    const character = value[cursor];
+    if (character === '\n' || character === '\r') return cursor;
+    if (character === '\\') {
+      cursor = skipBackslashRun(value, cursor);
+      continue;
+    }
+    if (quote !== null) {
+      if (character === quote) quote = null;
+      cursor += 1;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      cursor += 1;
+      continue;
+    }
+    if (character === '(') {
+      parenthesisDepth += 1;
+      cursor += 1;
+      continue;
+    }
+    if (character === ')') {
+      if (parenthesisDepth === 0) return cursor + 1;
+      parenthesisDepth -= 1;
+    }
+    cursor += 1;
   }
-  return -1;
+  return cursor;
+}
+
+function findMalformedAngleTargetEnd(value: string, start: number): number {
+  let cursor = start;
+  while (cursor < value.length) {
+    const character = value[cursor];
+    if (character === '\n' || character === '\r' || character === ')' || /[ \t]/u.test(character ?? '')) {
+      return cursor;
+    }
+    if (character === '\\') {
+      cursor = skipBackslashRun(value, cursor);
+      continue;
+    }
+    cursor += 1;
+  }
+  return cursor;
+}
+
+interface LinePosition {
+  offset: number;
+  column: number;
+  virtualIndent: number;
+}
+
+interface IndentScan {
+  position: LinePosition;
+  indent: number;
+  blank: boolean;
+}
+
+function nextTabStop(column: number): number {
+  return column + 4 - (column % 4);
+}
+
+function scanIndent(
+  value: string,
+  position: LinePosition,
+  lineEnd: number,
+): IndentScan {
+  let offset = position.offset;
+  let column = position.column;
+  let indent = position.virtualIndent;
+  while (offset < lineEnd) {
+    if (value[offset] === ' ') {
+      offset += 1;
+      column += 1;
+      indent += 1;
+      continue;
+    }
+    if (value[offset] === '\t') {
+      const nextColumn = nextTabStop(column);
+      indent += nextColumn - column;
+      column = nextColumn;
+      offset += 1;
+      continue;
+    }
+    break;
+  }
+  return {
+    position: { offset, column, virtualIndent: 0 },
+    indent,
+    blank: offset >= lineEnd || value[offset] === '\r',
+  };
+}
+
+function blankLine(value: string, lineStart: number, lineEnd: number): boolean {
+  return scanIndent(value, {
+    offset: lineStart,
+    column: 0,
+    virtualIndent: 0,
+  }, lineEnd).blank;
+}
+
+function consumeIndent(
+  value: string,
+  position: LinePosition,
+  lineEnd: number,
+  required: number,
+): LinePosition | null {
+  const scanned = scanIndent(value, position, lineEnd);
+  if (!scanned.blank && scanned.indent < required) return null;
+  return {
+    ...scanned.position,
+    virtualIndent: scanned.blank ? 0 : scanned.indent - required,
+  };
+}
+
+function blockquoteMarkerPosition(
+  value: string,
+  position: LinePosition,
+  lineEnd: number,
+): LinePosition | null {
+  const indent = scanIndent(value, position, lineEnd);
+  if (indent.indent > 3 || value[indent.position.offset] !== '>') return null;
+  let offset = indent.position.offset + 1;
+  let column = indent.position.column + 1;
+  if (value[offset] === ' ') {
+    offset += 1;
+    column += 1;
+  } else if (value[offset] === '\t') {
+    const nextColumn = nextTabStop(column);
+    offset += 1;
+    return {
+      offset,
+      column: nextColumn,
+      virtualIndent: nextColumn - column - 1,
+    };
+  }
+  return { offset, column, virtualIndent: 0 };
+}
+
+function listMarkerPosition(
+  value: string,
+  position: LinePosition,
+  lineEnd: number,
+): { position: LinePosition; contentIndent: number; empty: boolean } | null {
+  const indentation = scanIndent(value, position, lineEnd);
+  if (indentation.indent > 3 || indentation.blank) return null;
+  const markerStart = indentation.position.offset;
+  let delimiterEnd = -1;
+  if (value[markerStart] === '-' || value[markerStart] === '+' || value[markerStart] === '*') {
+    delimiterEnd = markerStart + 1;
+  } else {
+    let cursor = markerStart;
+    while (cursor < lineEnd && cursor - markerStart < 9 && /[0-9]/u.test(value[cursor] ?? '')) {
+      cursor += 1;
+    }
+    if (cursor > markerStart && (value[cursor] === '.' || value[cursor] === ')')) {
+      delimiterEnd = cursor + 1;
+    }
+  }
+  if (delimiterEnd === -1) return null;
+
+  const delimiterWidth = delimiterEnd - markerStart;
+  const delimiterColumn = indentation.position.column + delimiterWidth;
+  const padding = scanIndent(value, {
+    offset: delimiterEnd,
+    column: delimiterColumn,
+    virtualIndent: 0,
+  }, lineEnd);
+  if (padding.blank) {
+    return {
+      position: padding.position,
+      contentIndent: indentation.indent + delimiterWidth + 1,
+      empty: true,
+    };
+  }
+  if (padding.indent === 0) return null;
+
+  const consumedPadding = padding.indent <= 4 ? padding.indent : 1;
+  return {
+    position: {
+      ...padding.position,
+      virtualIndent: padding.indent - consumedPadding,
+    },
+    contentIndent: indentation.indent + delimiterWidth + consumedPadding,
+    empty: false,
+  };
 }
 
 function markdownLineContext(
@@ -186,67 +365,50 @@ function markdownLineContext(
   lineEnd: number,
   state: MarkdownContainerState,
 ): { contentStart: number; indentedCode: boolean } {
-  let cursor = lineStart;
-  let quoteDepth = 0;
-  while (cursor < lineEnd) {
-    let spaces = 0;
-    while (cursor + spaces < lineEnd && value[cursor + spaces] === ' ') spaces += 1;
-    const markerStart = cursor + spaces;
-    if (spaces <= 3 && value[markerStart] === '>') {
-      quoteDepth += 1;
-      cursor = markerStart + 1;
-      if (value[cursor] === ' ' || value[cursor] === '\t') cursor += 1;
+  let position: LinePosition = { offset: lineStart, column: 0, virtualIndent: 0 };
+  const path: MarkdownContainerStep[] = [];
+
+  for (const step of state.path) {
+    if (step.kind === 'blockquote') {
+      const nextPosition = blockquoteMarkerPosition(value, position, lineEnd);
+      if (nextPosition === null) break;
+      path.push(step);
+      position = nextPosition;
       continue;
     }
-    break;
-  }
-  if (quoteDepth !== state.quoteDepth) {
-    state.quoteDepth = quoteDepth;
-    state.lists = [];
+
+    const remainderBlank = scanIndent(value, position, lineEnd).blank;
+    if (!step.contentStarted && remainderBlank) break;
+    const nextPosition = consumeIndent(value, position, lineEnd, step.contentIndent);
+    if (nextPosition === null) break;
+    if (!remainderBlank) step.contentStarted = true;
+    path.push(step);
+    position = nextPosition;
   }
 
-  let indent = 0;
-  while (cursor + indent < lineEnd && value[cursor + indent] === ' ') indent += 1;
-  const markerStart = cursor + indent;
-  const blank = markerStart >= lineEnd || value[markerStart] === '\r';
-  if (!blank) {
-    while (
-      state.lists.length > 0
-      && indent < (state.lists[state.lists.length - 1]?.contentIndent ?? 0)
-    ) {
-      state.lists.pop();
+  while (position.offset < lineEnd) {
+    const quotePosition = blockquoteMarkerPosition(value, position, lineEnd);
+    if (quotePosition !== null) {
+      path.push({ kind: 'blockquote' });
+      position = quotePosition;
+      continue;
     }
-  }
-  const listContentIndent = state.lists[state.lists.length - 1]?.contentIndent ?? 0;
-  const indentedCode = value[cursor] === '\t' || indent >= listContentIndent + 4;
-  if (indentedCode) {
-    return {
-      contentStart: markerStart,
-      indentedCode: true,
-    };
-  }
 
-  const markerEnd = listMarkerEnd(value, markerStart, lineEnd);
-  if (markerEnd !== -1) {
-    while (
-      state.lists.length > 0
-      && (state.lists[state.lists.length - 1]?.markerIndent ?? -1) >= indent
-    ) {
-      state.lists.pop();
-    }
-    state.lists.push({
-      markerIndent: indent,
-      contentIndent: markerEnd - cursor,
+    const listMarker = listMarkerPosition(value, position, lineEnd);
+    if (listMarker === null) break;
+    path.push({
+      kind: 'list',
+      contentIndent: listMarker.contentIndent,
+      contentStarted: !listMarker.empty,
     });
-    return {
-      contentStart: markerEnd,
-      indentedCode: false,
-    };
+    position = listMarker.position;
   }
 
+  state.path = path;
+  const indent = scanIndent(value, position, lineEnd);
   return {
-    contentStart: markerStart,
-    indentedCode: false,
+    contentStart: indent.position.offset,
+    indentedCode: !indent.blank && indent.indent >= 4,
   };
 }
 
@@ -255,32 +417,29 @@ function activeFenceLineContext(
   lineStart: number,
   lineEnd: number,
   fence: MarkdownFenceState,
-): { inContainer: boolean; contentStart: number } {
-  let cursor = lineStart;
-  for (let depth = 0; depth < fence.quoteDepth; depth += 1) {
-    let spaces = 0;
-    while (cursor + spaces < lineEnd && value[cursor + spaces] === ' ') spaces += 1;
-    const markerStart = cursor + spaces;
-    if (spaces > 3 || value[markerStart] !== '>') {
-      return { inContainer: false, contentStart: lineStart };
-    }
-    cursor = markerStart + 1;
-    if (value[cursor] === ' ' || value[cursor] === '\t') cursor += 1;
+): { inContainer: boolean; position: LinePosition } {
+  const initialPosition: LinePosition = { offset: lineStart, column: 0, virtualIndent: 0 };
+  if (blankLine(value, lineStart, lineEnd)) {
+    return {
+      inContainer: !fence.containsBlockquote,
+      position: { offset: lineEnd, column: 0, virtualIndent: 0 },
+    };
   }
 
-  if (fence.listContentIndent === null) {
-    return { inContainer: true, contentStart: cursor };
+  let position = initialPosition;
+  for (const step of fence.containerPath) {
+    if (step.kind === 'blockquote') {
+      const nextPosition = blockquoteMarkerPosition(value, position, lineEnd);
+      if (nextPosition === null) return { inContainer: false, position: initialPosition };
+      position = nextPosition;
+      continue;
+    }
+
+    const nextPosition = consumeIndent(value, position, lineEnd, step.contentIndent);
+    if (nextPosition === null) return { inContainer: false, position: initialPosition };
+    position = nextPosition;
   }
-  let indent = 0;
-  while (cursor + indent < lineEnd && value[cursor + indent] === ' ') indent += 1;
-  const blank = cursor + indent >= lineEnd || value[cursor + indent] === '\r';
-  if (!blank && indent < fence.listContentIndent) {
-    return { inContainer: false, contentStart: lineStart };
-  }
-  return {
-    inContainer: true,
-    contentStart: blank ? cursor + indent : cursor + fence.listContentIndent,
-  };
+  return { inContainer: true, position };
 }
 
 function scanImageTargetTokens(body: string): ImageTargetToken[] {
@@ -289,8 +448,7 @@ function scanImageTargetTokens(body: string): ImageTargetToken[] {
   let lineStart = true;
   const scannerState: { fence: MarkdownFenceState | null } = { fence: null };
   const containers: MarkdownContainerState = {
-    quoteDepth: 0,
-    lists: [],
+    path: [],
   };
 
   while (cursor < body.length) {
@@ -305,16 +463,14 @@ function scanImageTargetTokens(body: string): ImageTargetToken[] {
           scannerState.fence,
         );
         if (fenceContext.inContainer) {
-          let markerStart = fenceContext.contentStart;
-          let indent = 0;
-          while (body[markerStart + indent] === ' ') indent += 1;
-          markerStart += indent;
+          const indentation = scanIndent(body, fenceContext.position, lineEnd);
+          const markerStart = indentation.position.offset;
           const marker = body[markerStart];
           let markerEnd = markerStart;
-          if (indent <= 3 && marker === scannerState.fence.marker) {
+          if (indentation.indent <= 3 && marker === scannerState.fence.marker) {
             while (body[markerEnd] === marker) markerEnd += 1;
           }
-          const isClosingFence = indent <= 3
+          const isClosingFence = indentation.indent <= 3
             && marker === scannerState.fence.marker
             && markerEnd - markerStart >= scannerState.fence.length
             && /^[ \t\r]*$/u.test(body.slice(markerEnd, lineEnd));
@@ -339,12 +495,15 @@ function scanImageTargetTokens(body: string): ImageTargetToken[] {
         while (body[markerEnd] === marker) markerEnd += 1;
         const markerLength = markerEnd - markerStart;
         if (markerLength >= 3) {
-          const listContentIndent = containers.lists[containers.lists.length - 1]?.contentIndent;
           scannerState.fence = {
             marker,
             length: markerLength,
-            quoteDepth: containers.quoteDepth,
-            listContentIndent: listContentIndent ?? null,
+            containerPath: containers.path.map((step) => (
+              step.kind === 'blockquote'
+                ? { kind: 'blockquote' }
+                : { kind: 'list', contentIndent: step.contentIndent }
+            )),
+            containsBlockquote: containers.path.some((step) => step.kind === 'blockquote'),
           };
           cursor = newline === -1 ? body.length : newline + 1;
           lineStart = true;
@@ -402,7 +561,7 @@ function scanImageTargetTokens(body: string): ImageTargetToken[] {
       const rawEnd = separator !== -1 && separator < close ? separator : close;
       const [targetStart, targetEnd] = trimRange(body, cursor + 3, rawEnd);
       if (targetStart < targetEnd) {
-        tokens.push({ syntax: 'obsidian', targetStart, targetEnd });
+        tokens.push({ syntax: 'obsidian', targetStart, targetEnd, syntaxValid: true });
       }
       cursor = close + 2;
       continue;
@@ -419,28 +578,38 @@ function scanImageTargetTokens(body: string): ImageTargetToken[] {
     }
     const targetStart = skipMarkdownWhitespace(body, altClose + 2);
     if (body[targetStart] === '<') {
-      const targetEnd = findUnescaped(body, '>', targetStart + 1);
-      const syntaxEnd = targetEnd === -1
+      const angleClose = findUnescaped(body, '>', targetStart + 1);
+      const targetEnd = angleClose === -1
+        ? findMalformedAngleTargetEnd(body, targetStart + 1)
+        : angleClose;
+      const syntaxEnd = angleClose === -1
         ? -1
-        : findMarkdownDestinationClose(body, targetEnd + 1);
-      if (targetEnd === -1 || syntaxEnd === -1) {
-        cursor += 1;
+        : findMarkdownDestinationClose(body, angleClose + 1);
+      if (targetEnd > targetStart + 1) {
+        tokens.push({
+          syntax: 'markdown',
+          targetStart: targetStart + 1,
+          targetEnd,
+          syntaxValid: syntaxEnd !== -1,
+        });
+        cursor = syntaxEnd === -1
+          ? findMalformedMarkdownExpressionEnd(body, targetEnd)
+          : syntaxEnd + 1;
         continue;
       }
-      tokens.push({ syntax: 'markdown', targetStart: targetStart + 1, targetEnd });
-      cursor = syntaxEnd + 1;
+      cursor += 1;
       continue;
     }
 
     let depth = 0;
     let targetEnd = -1;
     let syntaxEnd = -1;
-    for (let index = targetStart; index < body.length; index += 1) {
+    let index = targetStart;
+    for (; index < body.length; index += 1) {
       const current = body[index];
       if (current === '\n' || current === '\r') {
-        if (depth > 0) break;
         targetEnd = index;
-        syntaxEnd = findMarkdownDestinationClose(body, index);
+        if (depth === 0) syntaxEnd = findMarkdownDestinationClose(body, index);
         break;
       }
       if (current === '\\') {
@@ -466,9 +635,17 @@ function scanImageTargetTokens(body: string): ImageTargetToken[] {
         break;
       }
     }
-    if (targetEnd > targetStart && syntaxEnd !== -1) {
-      tokens.push({ syntax: 'markdown', targetStart, targetEnd });
-      cursor = syntaxEnd + 1;
+    if (targetEnd === -1 && index === body.length) targetEnd = body.length;
+    if (targetEnd > targetStart) {
+      tokens.push({
+        syntax: 'markdown',
+        targetStart,
+        targetEnd,
+        syntaxValid: syntaxEnd !== -1,
+      });
+      cursor = syntaxEnd === -1
+        ? findMalformedMarkdownExpressionEnd(body, targetEnd)
+        : syntaxEnd + 1;
       continue;
     }
     cursor += 1;
@@ -477,10 +654,28 @@ function scanImageTargetTokens(body: string): ImageTargetToken[] {
   return tokens;
 }
 
-function decodeTarget(rawTarget: string): string | null {
-  const markdownUnescaped = rawTarget.replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\]^_`{|}~])/gu, '$1');
+export function hasImageReferenceLiteral(
+  body: string,
+  rawTargets: ReadonlyArray<string>,
+): boolean {
+  const targets = new Set(rawTargets);
+  return scanImageTargetTokens(body).some((token) => {
+    const rawTarget = body.slice(token.targetStart, token.targetEnd);
+    if (targets.has(rawTarget)) return true;
+    if (token.syntax !== 'obsidian') return false;
+    const markerStart = token.targetStart - 3;
+    return markerStart >= 0 && rawTargets.some((target) => (
+      body.startsWith(`![[${target}]]`, markerStart)
+    ));
+  });
+}
+
+function decodeTarget(rawTarget: string, syntax: ParsedImageReference['syntax']): string | null {
+  const escapedTarget = syntax === 'markdown'
+    ? rawTarget.replace(/\\([ \t!"#$%&'()*+,\-./:;<=>?@[\]^_`{|}~])/gu, '$1')
+    : rawTarget.replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\]^_`{|}~])/gu, '$1');
   try {
-    return decodeURIComponent(markdownUnescaped).normalize('NFC');
+    return decodeURIComponent(escapedTarget).normalize('NFC');
   } catch {
     return null;
   }
@@ -490,8 +685,10 @@ function classifyTarget(
   rawTarget: string,
   syntax: ParsedImageReference['syntax'],
   sourceSyncPath: string,
+  syntaxValid = true,
 ): Pick<ParsedImageReference, 'resolvedPath' | 'classification'> {
-  const decoded = decodeTarget(rawTarget);
+  if (!syntaxValid) return { resolvedPath: null, classification: 'invalid_local' };
+  const decoded = decodeTarget(rawTarget, syntax);
   if (decoded === null) return { resolvedPath: null, classification: 'invalid_local' };
   if (/^data:/iu.test(decoded) || decoded.startsWith('//')) {
     return { resolvedPath: null, classification: 'external' };
@@ -520,12 +717,10 @@ function classifyTarget(
   }
 
   let candidate: string;
-  if (!decoded.includes('/') && syntax === 'obsidian') {
-    candidate = `assets/${decoded}`;
-  } else if (decoded.startsWith('assets/')) {
-    candidate = decoded;
+  if (syntax === 'obsidian') {
+    candidate = !decoded.includes('/') ? `assets/${decoded}` : decoded;
   } else {
-    const pagePath = sourceSyncPath.normalize('NFC').replace(/^pages\//u, '');
+    const pagePath = sourceSyncPath.normalize('NFC');
     const directory = posix.dirname(pagePath);
     candidate = posix.normalize(posix.join(directory === '.' ? '' : directory, decoded));
   }
@@ -557,7 +752,7 @@ export function parseImageReferences(
       rawTarget,
       targetStart: token.targetStart,
       targetEnd: token.targetEnd,
-      ...classifyTarget(rawTarget, token.syntax, sourceSyncPath),
+      ...classifyTarget(rawTarget, token.syntax, sourceSyncPath, token.syntaxValid),
     };
   });
 }
@@ -620,9 +815,9 @@ export function rewriteAttachmentReferenceRanges(
   body: string,
   replacements: ReadonlyArray<{ start: number; end: number; target: string }>,
 ): string {
-  const validRanges = new Set(scanImageTargetTokens(body).map((token) => (
-    `${token.targetStart}:${token.targetEnd}`
-  )));
+  const validRanges = new Set(scanImageTargetTokens(body)
+    .filter((token) => token.syntaxValid)
+    .map((token) => `${token.targetStart}:${token.targetEnd}`));
   const ordered = [...replacements].sort((left, right) => (
     right.start - left.start || right.end - left.end
   ));

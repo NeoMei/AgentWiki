@@ -244,7 +244,8 @@ model SpaceAttachment {
   @@unique([id, spaceId])
   @@index([spaceId, status, updatedAt])
   @@index([contentHash])
-  @@index([status, archivedAt])
+  @@index([storageKey])
+  @@index([status, archivedAt, id])
 }
 
 model AttachmentVersion {
@@ -264,6 +265,18 @@ model AttachmentVersion {
   @@unique([attachmentId, contentHash])
   @@unique([id, attachmentId])
   @@index([contentHash])
+  @@index([storageKey])
+}
+
+model AttachmentCleanupCursor {
+  key               String    @id
+  archivedAt        DateTime?
+  attachmentId      String?
+  sweepArchivedAt   DateTime?
+  sweepAttachmentId String?
+  leaseOwner        String?
+  leaseExpiresAt    DateTime?
+  updatedAt         DateTime  @default(now()) @updatedAt
 }
 
 model AssistTask {
@@ -1005,6 +1018,8 @@ model SyncRevisionAttachmentRow {
   @@id([revisionId, attachmentId])
   @@unique([revisionId, pathKey])
   @@unique([revisionId, ordinal])
+  @@index([attachmentVersionId, attachmentId])
+  @@index([attachmentId, spaceId])
 }
 
 model SpaceRevisionChainCheckpoint {
@@ -1225,6 +1240,7 @@ model PushSessionBlob {
   chunks  PushSessionBlobChunk[]
 
   @@id([sessionId, contentHash])
+  @@index([storageKey])
 }
 
 model PushSessionBlobChunk {

@@ -21,6 +21,11 @@ RestartSec=3
 TimeoutStopSec=60
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
+ProtectHome=tmpfs
+BindReadOnlyPaths=%h/agentwiki
+ProtectSystem=strict
+ReadWritePaths=/var/lib/agentwiki/attachments
 TemporaryFileSystem=/tmp:rw,nosuid,nodev,noexec,size=256M,mode=1777
 UMask=0077
 

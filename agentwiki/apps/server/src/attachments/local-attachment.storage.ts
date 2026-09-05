@@ -26,6 +26,7 @@ import type {
 const HASH_PATTERN = /^[0-9a-f]{64}$/;
 const TEMP_NAME_PATTERN = /^upload-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/;
 const TEMP_SIDECAR_NAME_PATTERN = /^(upload-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp)\.(lease|reclaim)$/;
+const READ_SNAPSHOT_NAME_PATTERN = /^read-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/;
 const OWNER_TOKEN_PATTERN = /^[0-9a-f]{64}$/u;
 const TEMP_CLEANUP_VISIT_LIMIT = 100;
 const TEMP_CLEANUP_DELETE_LIMIT = 100;
@@ -87,6 +88,11 @@ interface LocalAttachmentStorageDependencies {
     tempPath: string,
   ) => Promise<void> | void;
   openTempDirectory?: (path: string) => Promise<TempDirectoryCursor>;
+  openSnapshotDirectory?: (path: string) => Promise<TempDirectoryCursor>;
+  lstatSnapshot?: (path: string) => Promise<BigIntStats>;
+  unlinkSnapshot?: (path: string) => Promise<void>;
+  syncSnapshotDirectory?: () => Promise<void>;
+  platform?: NodeJS.Platform;
 }
 
 function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {
@@ -122,16 +128,21 @@ function attachCleanupCause(primary: unknown, cleanupError: unknown): void {
 }
 
 async function openDirectorySafely(path: string): Promise<FileHandle> {
-  const handle = await open(
-    path,
-    constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
-  );
-  const metadata = await handle.stat();
-  if (!metadata.isDirectory()) {
-    await handle.close();
-    throw new Error(`Attachment storage path is not a directory: ${path}`);
+  let handle: FileHandle | undefined;
+  try {
+    handle = await open(
+      path,
+      constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+    );
+    const metadata = await handle.stat();
+    if (!metadata.isDirectory()) {
+      throw new Error(`Attachment storage path is not a directory: ${path}`);
+    }
+    return handle;
+  } catch (error) {
+    await handle?.close().catch(() => undefined);
+    throw error;
   }
-  return handle;
 }
 
 async function ensurePrivateDirectory(path: string): Promise<void> {
@@ -254,6 +265,9 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
   private readonly root: string;
   private readonly tempRoot: string;
   private readonly lockRoot: string;
+  private readonly snapshotRoot: string;
+  private readonly isWindows: boolean;
+  private readonly activeSnapshotPaths = new Set<string>();
   private readonly activeLeases = new WeakMap<AttachmentContentLease, OwnedContentLock>();
   private readonly activeReservations = new WeakMap<
     AttachmentTempReservation,
@@ -267,6 +281,7 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
   ) => NodeJS.Timeout;
   private readonly cancelInterval: (timer: NodeJS.Timeout) => void;
   private tempCleanupCursor?: TempDirectoryCursor;
+  private snapshotCleanupCursor?: TempDirectoryCursor;
   private tempCleanupTail: Promise<void> = Promise.resolve();
   private tempCleanupDestroyed = false;
   private tempCleanupDestroyPromise?: Promise<void>;
@@ -278,6 +293,8 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
     this.root = resolve(config.storagePath);
     this.tempRoot = join(this.root, '.tmp');
     this.lockRoot = join(this.root, '.locks');
+    this.snapshotRoot = join(this.root, '.read-snapshots');
+    this.isWindows = (dependencies.platform ?? process.platform) === 'win32';
     this.now = dependencies.now ?? Date.now;
     this.scheduleInterval = dependencies.setInterval
       ?? ((callback, delayMs) => setInterval(callback, delayMs));
@@ -440,9 +457,12 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
       throw new Error('Attachment temp reservation cutoff must be a valid date');
     }
     if (this.tempCleanupDestroyed) return 0;
-    const cleanup = this.tempCleanupTail.then(() => {
+    const cleanup = this.tempCleanupTail.then(async () => {
       if (this.tempCleanupDestroyed) return 0;
-      return this.runTempCleanupBatch(cutoff);
+      const reservations = await this.runTempCleanupBatch(cutoff);
+      if (this.tempCleanupDestroyed) return reservations;
+      await this.runSnapshotCleanupBatch(cutoff);
+      return reservations;
     });
     this.tempCleanupTail = cleanup.then(() => undefined, () => undefined);
     return cleanup;
@@ -607,6 +627,108 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
     return handle.createReadStream({ autoClose: true, start: 0 });
   }
 
+  async openVerified(
+    storageKey: string,
+    contentHash: string,
+    sizeBytes: bigint,
+  ): Promise<NodeJS.ReadableStream> {
+    if (!HASH_PATTERN.test(contentHash) || storageKey !== this.storageKey(contentHash)) {
+      throw new Error('Attachment storage key does not match the expected content hash');
+    }
+    if (sizeBytes <= 0n) {
+      throw new Error('Attachment size must be positive');
+    }
+    await this.ensureBaseDirectories();
+    const path = this.pathForStorageKey(storageKey);
+    const snapshotPath = join(this.snapshotRoot, `read-${randomUUID()}.tmp`);
+    let source: FileHandle;
+    try {
+      source = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    } catch (error) {
+      if (isNodeError(error, 'ELOOP')) {
+        throw errorWithCause('Attachment content path must not be a symbolic link', error);
+      }
+      throw error;
+    }
+    let snapshot: FileHandle | undefined;
+    let snapshotLinked = false;
+    try {
+      const opened = await source.stat({ bigint: true });
+      if (!opened.isFile() || opened.size !== sizeBytes) {
+        throw new Error('Attachment content size does not match immutable metadata');
+      }
+      snapshot = await open(
+        snapshotPath,
+        constants.O_CREAT | constants.O_EXCL | constants.O_RDWR | constants.O_NOFOLLOW,
+        0o600,
+      );
+      snapshotLinked = true;
+      this.activeSnapshotPaths.add(snapshotPath);
+      await snapshot.chmod(0o600);
+      const digest = createHash('sha256');
+      let snapshotBytes = 0;
+      const sourceStream = source.createReadStream({ autoClose: false, start: 0 });
+      for await (const value of sourceStream) {
+        const bytes = value as Buffer;
+        digest.update(bytes);
+        let offset = 0;
+        while (offset < bytes.length) {
+          const result = await snapshot.write(
+            bytes,
+            offset,
+            bytes.length - offset,
+            snapshotBytes + offset,
+          );
+          if (result.bytesWritten <= 0) {
+            throw new Error('Attachment read snapshot write was incomplete');
+          }
+          offset += result.bytesWritten;
+        }
+        snapshotBytes += bytes.length;
+      }
+      await snapshot.truncate(snapshotBytes);
+      await snapshot.sync();
+      const snapshotMetadata = await snapshot.stat({ bigint: true });
+      if (
+        BigInt(snapshotBytes) !== sizeBytes
+        || snapshotMetadata.size !== sizeBytes
+        || digest.digest('hex') !== contentHash
+      ) {
+        throw new Error('Attachment content hash does not match immutable metadata');
+      }
+      const current = await lstat(path, { bigint: true });
+      if (
+        !current.isFile()
+        || current.isSymbolicLink()
+        || !sameBigIntFile(opened, current)
+        || current.size !== sizeBytes
+      ) {
+        throw new Error('Attachment content changed during immutable verification');
+      }
+      await source.close();
+      if (!this.isWindows) {
+        await this.deleteReadSnapshot(snapshotPath);
+        snapshotLinked = false;
+        this.activeSnapshotPaths.delete(snapshotPath);
+      }
+      const stream = snapshot.createReadStream({ autoClose: true, start: 0 });
+      if (this.isWindows) {
+        stream.once('close', () => {
+          this.activeSnapshotPaths.delete(snapshotPath);
+          void this.deleteReadSnapshot(snapshotPath).catch(() => undefined);
+        });
+      }
+      snapshot = undefined;
+      return stream;
+    } catch (error) {
+      await source.close().catch(() => undefined);
+      await snapshot?.close().catch(() => undefined);
+      this.activeSnapshotPaths.delete(snapshotPath);
+      if (snapshotLinked) await this.deleteReadSnapshot(snapshotPath).catch(() => undefined);
+      throw error;
+    }
+  }
+
   async removeIfUnreferenced(
     storageKey: string,
     lease: AttachmentContentLease,
@@ -644,6 +766,7 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
     await ensurePrivateDirectory(this.root);
     await ensurePrivateDirectory(this.tempRoot);
     await ensurePrivateDirectory(this.lockRoot);
+    await ensurePrivateDirectory(this.snapshotRoot);
   }
 
   private async availableBytes(): Promise<bigint> {
@@ -833,12 +956,106 @@ export class LocalAttachmentStorage implements AttachmentStorage, OnModuleDestro
   private async finishTempCleanupDestroy(): Promise<void> {
     await this.tempCleanupTail;
     await this.closeTempCleanupCursor();
+    await this.closeSnapshotCleanupCursor();
   }
 
   private async closeTempCleanupCursor(): Promise<void> {
     const cursor = this.tempCleanupCursor;
     this.tempCleanupCursor = undefined;
     await cursor?.close();
+  }
+
+  private async closeSnapshotCleanupCursor(): Promise<void> {
+    const cursor = this.snapshotCleanupCursor;
+    this.snapshotCleanupCursor = undefined;
+    await cursor?.close();
+  }
+
+  private async deleteReadSnapshot(path: string): Promise<void> {
+    await (this.dependencies.unlinkSnapshot ?? unlink)(path);
+    await (
+      this.dependencies.syncSnapshotDirectory
+      ?? (() => this.syncDirectory(this.snapshotRoot))
+    )();
+  }
+
+  private async runSnapshotCleanupBatch(cutoff: Date): Promise<number> {
+    let visited = 0;
+    let removed = 0;
+    let hasEntryError = false;
+    let firstEntryError: unknown;
+    try {
+      await this.ensureBaseDirectories();
+      this.snapshotCleanupCursor ??= await (
+        this.dependencies.openSnapshotDirectory
+        ?? ((path: string) => opendir(path))
+      )(this.snapshotRoot);
+      while (
+        visited < TEMP_CLEANUP_VISIT_LIMIT
+        && removed < TEMP_CLEANUP_DELETE_LIMIT
+      ) {
+        const entry = await this.snapshotCleanupCursor.read();
+        if (!entry) {
+          await this.closeSnapshotCleanupCursor();
+          break;
+        }
+        visited += 1;
+        if (!READ_SNAPSHOT_NAME_PATTERN.test(entry.name)) continue;
+        try {
+          if (await this.cleanupSnapshotDirectoryEntry(entry.name, cutoff)) {
+            removed += 1;
+          }
+        } catch (error) {
+          if (!hasEntryError) {
+            hasEntryError = true;
+            firstEntryError = error;
+          } else {
+            attachCleanupCause(firstEntryError, error);
+          }
+        }
+      }
+    } catch (error) {
+      try {
+        await this.closeSnapshotCleanupCursor();
+      } catch (cleanupError) {
+        attachCleanupCause(error, cleanupError);
+      }
+      throw error;
+    }
+    if (hasEntryError) throw firstEntryError;
+    return removed;
+  }
+
+  private async cleanupSnapshotDirectoryEntry(name: string, cutoff: Date): Promise<boolean> {
+    const path = join(this.snapshotRoot, name);
+    if (this.activeSnapshotPaths.has(path)) return false;
+    const initial = await this.lstatSnapshotBigInt(path);
+    if (
+      !initial?.isFile()
+      || initial.isSymbolicLink()
+      || Number(initial.mtimeMs) >= cutoff.getTime()
+    ) return false;
+    const current = await this.lstatSnapshotBigInt(path);
+    if (
+      !current?.isFile()
+      || current.isSymbolicLink()
+      || !sameBigIntFile(initial, current)
+      || this.activeSnapshotPaths.has(path)
+    ) return false;
+    await this.deleteReadSnapshot(path);
+    return true;
+  }
+
+  private async lstatSnapshotBigInt(path: string): Promise<BigIntStats | undefined> {
+    try {
+      return await (
+        this.dependencies.lstatSnapshot
+        ?? ((snapshotPath: string) => lstat(snapshotPath, { bigint: true }))
+      )(path);
+    } catch (error) {
+      if (isNodeError(error, 'ENOENT')) return undefined;
+      throw error;
+    }
   }
 
   private async runTempCleanupBatch(cutoff: Date): Promise<number> {

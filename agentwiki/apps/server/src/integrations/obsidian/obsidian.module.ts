@@ -20,9 +20,29 @@ import { SyncModule } from '../../core/sync/sync.module';
 import { SyncV3BootstrapService } from './sync-v3-bootstrap.service';
 import { SyncV3Controller } from './sync-v3.controller';
 import { SyncV3RevisionService } from './sync-v3-revision.service';
+import { SyncV3ImmutableRevisionService } from './sync-v3-immutable-revision.service';
+import { AttachmentStorageModule } from '../../attachments/attachment-storage.module';
+import {
+  ATTACHMENT_CONFIG,
+  type AttachmentConfig,
+} from '../../attachments/attachment.config';
+import { SyncV3BlobStorage } from './sync-v3-blob.storage';
+import { SyncV3BlobService } from './sync-v3-blob.service';
+import { AuthorizationModule } from '../../core/authorization/authorization.module';
+import { SyncV3PushSessionService } from './sync-v3-push-session.service';
 
 @Module({
-  imports: [DatabaseModule, AuthModule, SecurityModule, SearchModule, KnowledgeGraphModule, ContentTreeModule, SyncModule],
+  imports: [
+    DatabaseModule,
+    AuthModule,
+    SecurityModule,
+    SearchModule,
+    KnowledgeGraphModule,
+    ContentTreeModule,
+    SyncModule,
+    AttachmentStorageModule,
+    AuthorizationModule,
+  ],
   providers: [
     ObsidianCryptoService,
     HumanDeviceGuard,
@@ -34,6 +54,14 @@ import { SyncV3RevisionService } from './sync-v3-revision.service';
     PushSessionService,
     SyncV3BootstrapService,
     SyncV3RevisionService,
+    SyncV3ImmutableRevisionService,
+    {
+      provide: SyncV3BlobStorage,
+      inject: [ATTACHMENT_CONFIG],
+      useFactory: (config: AttachmentConfig) => new SyncV3BlobStorage(config.storagePath),
+    },
+    SyncV3BlobService,
+    SyncV3PushSessionService,
   ],
   controllers: [ObsidianIntegrationController, SyncV1Controller, SyncV2Controller, SyncV3Controller],
   exports: [
@@ -47,6 +75,9 @@ import { SyncV3RevisionService } from './sync-v3-revision.service';
     PushSessionService,
     SyncV3BootstrapService,
     SyncV3RevisionService,
+    SyncV3ImmutableRevisionService,
+    SyncV3BlobService,
+    SyncV3PushSessionService,
   ],
 })
 export class ObsidianModule {}

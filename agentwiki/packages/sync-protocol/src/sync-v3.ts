@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { canonicalBytes } from "./canonical.js";
+import { CONTENT_TREE_HARD_LIMITS } from "./content-tree-limits.js";
 import { sha256Hex } from "./hash.js";
 import { PublicIdSchema, SyncErrorCodeSchema } from "./schemas.js";
 import {
@@ -75,9 +76,24 @@ export const TREE_SYNC_V3_HARD_LIMITS = Object.freeze({
   maxDecodedPixels: 40_000_000,
 });
 
-const BoundedDecimalSchema = z.string().regex(/^(0|[1-9][0-9]*)$/).refine(
-  (value) => BigInt(value) <= BigInt(TREE_SYNC_V3_HARD_LIMITS.maxAttachmentBytes),
-  "Attachment byte count exceeds the hard limit",
+const maxAttachmentBytesDecimal = String(TREE_SYNC_V3_HARD_LIMITS.maxAttachmentBytes);
+
+function isCanonicalAttachmentByteCount(value: string, allowZero: boolean): boolean {
+  const canonical = allowZero ? /^(?:0|[1-9][0-9]*)$/ : /^[1-9][0-9]*$/;
+  return canonical.test(value)
+    && (value.length < maxAttachmentBytesDecimal.length
+      || (value.length === maxAttachmentBytesDecimal.length
+        && value <= maxAttachmentBytesDecimal));
+}
+
+const BoundedDecimalSchema = z.string().refine(
+  (value) => isCanonicalAttachmentByteCount(value, true),
+  "Attachment byte count must be canonical and within the hard limit",
+);
+
+const PositiveBoundedBlobBytesSchema = z.string().refine(
+  (value) => isCanonicalAttachmentByteCount(value, false),
+  "Blob byte count must be positive, canonical, and within the hard limit",
 );
 
 export const FlatAttachmentPathSchema = z.string().transform((value, context) => {
@@ -86,7 +102,14 @@ export const FlatAttachmentPathSchema = z.string().transform((value, context) =>
     const parts = path.split("/");
     if (parts.length !== 2 || parts[0] !== "assets")
       throw new TypeError("Attachment path must be a flat path under assets/");
-    if (!/\.(?:png|jpe?g|webp|gif)$/iu.test(parts[1] ?? ""))
+    const filename = parts[1] ?? "";
+    if (filename.includes("]]"))
+      throw new TypeError("Attachment path cannot contain a Markdown closing delimiter");
+    if (filename.includes("%"))
+      throw new TypeError("Attachment path cannot contain a literal percent character");
+    if (filename.includes("#"))
+      throw new TypeError("Attachment path cannot contain a Markdown fragment delimiter");
+    if (!/\.(?:png|jpe?g|webp|gif)$/iu.test(filename))
       throw new TypeError("Attachment path must use a supported image extension");
     return path;
   } catch (error) {
@@ -157,6 +180,29 @@ export const SyncAttachmentV3Schema: z.ZodType<SyncAttachmentV3> = z
       : extension === attachment.mimeType.slice("image/".length);
     if (!extensionMatches) {
       context.addIssue({ code: "custom", path: ["mimeType"], message: "Attachment MIME type does not match its path extension" });
+    }
+  });
+
+export interface BlobRequirementV3 {
+  contentHash: string;
+  sizeBytes: string;
+  mimeType: "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+  width: number;
+  height: number;
+}
+
+export const BlobRequirementV3Schema: z.ZodType<BlobRequirementV3> = z
+  .object({
+    contentHash: HashSchema,
+    sizeBytes: PositiveBoundedBlobBytesSchema,
+    mimeType: AttachmentMimeTypeSchema,
+    width: z.number().int().positive().max(TREE_SYNC_V3_HARD_LIMITS.maxImageDimension),
+    height: z.number().int().positive().max(TREE_SYNC_V3_HARD_LIMITS.maxImageDimension),
+  })
+  .strict()
+  .superRefine((requirement, context) => {
+    if (requirement.width * requirement.height > TREE_SYNC_V3_HARD_LIMITS.maxDecodedPixels) {
+      context.addIssue({ code: "custom", message: "Decoded image pixels exceed the hard limit" });
     }
   });
 
@@ -378,6 +424,21 @@ const SortedUniqueHashesSchema = z.array(HashSchema).max(TREE_SYNC_V3_HARD_LIMIT
   }
 });
 
+const SortedUniqueBlobRequirementsSchema = z
+  .array(BlobRequirementV3Schema)
+  .max(TREE_SYNC_V3_HARD_LIMITS.maxRevisionAttachments)
+  .superRefine((requirements, context) => {
+    for (let index = 1; index < requirements.length; index += 1) {
+      if ((requirements[index - 1]?.contentHash ?? "") >= (requirements[index]?.contentHash ?? "")) {
+        context.addIssue({
+          code: "custom",
+          message: "Blob requirements must be sorted and unique by content hash",
+        });
+        return;
+      }
+    }
+  });
+
 export const CreateTreePushSessionRequestV3Schema = z.object({
   protocolVersion: z.literal(SYNC_PROTOCOL_V3),
   baseRevision: PublicIdSchema,
@@ -389,8 +450,53 @@ export const CreateTreePushSessionRequestV3Schema = z.object({
   totalBodyBytes: z.number().int().nonnegative().max(TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes),
   attachmentCount: z.number().int().min(0).max(TREE_SYNC_V3_HARD_LIMITS.maxRevisionAttachments),
   transferBlobBytes: z.number().int().nonnegative().max(TREE_SYNC_V3_HARD_LIMITS.maxTransferBlobBytes),
-  contentHashes: SortedUniqueHashesSchema,
-}).strict();
+  blobRequirements: SortedUniqueBlobRequirementsSchema,
+}).strict().superRefine((request, context) => {
+  if (request.attachmentCount > request.changeCount) {
+    context.addIssue({
+      code: "custom",
+      path: ["attachmentCount"],
+      message: "Attachment upsert count cannot exceed the total change count",
+    });
+  }
+  if (request.blobRequirements.length > request.attachmentCount) {
+    context.addIssue({
+      code: "custom",
+      path: ["blobRequirements"],
+      message: "Blob requirement count cannot exceed the attachment upsert count",
+    });
+  }
+  if (request.attachmentCount > 0 && request.blobRequirements.length === 0) {
+    context.addIssue({
+      code: "custom",
+      path: ["blobRequirements"],
+      message: "Attachment upserts require at least one Blob requirement",
+    });
+  }
+  const requirementBytes = request.blobRequirements.reduce(
+    (total, requirement) => total + Number(requirement.sizeBytes),
+    0,
+  );
+  if (!Number.isSafeInteger(requirementBytes)) return;
+  if (requirementBytes > TREE_SYNC_V3_HARD_LIMITS.maxTransferBlobBytes) {
+    context.addIssue({
+      code: "custom",
+      path: ["blobRequirements"],
+      message: "Blob requirement sum exceeds the transfer hard limit",
+    });
+  }
+  if (requirementBytes !== request.transferBlobBytes) {
+    context.addIssue({
+      code: "custom",
+      path: ["transferBlobBytes"],
+      message: "transferBlobBytes must equal the Blob requirement size sum",
+    });
+  }
+});
+
+export type CreateTreePushSessionRequestV3 = z.infer<
+  typeof CreateTreePushSessionRequestV3Schema
+>;
 
 const PushSessionStatusV3Schema = z.enum([
   "uploading",
@@ -619,11 +725,47 @@ function folderDepths(folders: ReadonlyMap<string, SyncFolderV3>): ReadonlyMap<s
 
 export function canonicalTreeRevisionManifestV3(manifest: TreeRevisionContentManifestV3): TreeRevisionContentManifestV3 {
   const parsed = TreeRevisionContentManifestV3Schema.parse(manifest);
+  if (parsed.folders.length > CONTENT_TREE_HARD_LIMITS.maxActiveFolders) {
+    throw new TypeError("Folder manifest exceeds 10,000 active Folders");
+  }
   const foldersById = new Map(parsed.folders.map((folder) => [folder.folderId, folder]));
   if (foldersById.size !== parsed.folders.length) throw new TypeError("Folder manifest contains duplicate IDs");
   const depthByFolderId = folderDepths(foldersById);
+  if ([...depthByFolderId.values()].some((depth) => depth >= CONTENT_TREE_HARD_LIMITS.maxFolderDepth)) {
+    throw new TypeError("Folder manifest exceeds 32 levels");
+  }
+  const folderPathKeys = new Set<string>();
+  for (const folder of parsed.folders) {
+    const folderPathKey = pathKey(folder.path);
+    if (folderPathKeys.has(folderPathKey)) throw new TypeError("Folder manifest contains duplicate folder paths");
+    folderPathKeys.add(folderPathKey);
+    const separator = folder.path.lastIndexOf("/");
+    if (folder.path.slice(separator + 1) !== folder.name) {
+      throw new TypeError("Folder name does not match its path basename");
+    }
+    const parentPath = separator < 0 ? "" : folder.path.slice(0, separator);
+    if (folder.parentFolderId === null) {
+      if (parentPath !== "pages") throw new TypeError("Root Folder parent path must be pages/");
+    } else if (foldersById.get(folder.parentFolderId)?.path !== parentPath) {
+      throw new TypeError("Folder parent path does not match parentFolderId");
+    }
+  }
   const pageIds = new Set(parsed.pages.map((page) => page.pageId));
   if (pageIds.size !== parsed.pages.length) throw new TypeError("Page manifest contains duplicate IDs");
+  const pagePathKeys = new Set<string>();
+  for (const page of parsed.pages) {
+    const pagePathKey = pathKey(page.path);
+    if (pagePathKeys.has(pagePathKey)) throw new TypeError("Page manifest contains duplicate paths");
+    pagePathKeys.add(pagePathKey);
+    if (folderPathKeys.has(pagePathKey)) throw new TypeError("Folder and Page paths collide");
+    const separator = page.path.lastIndexOf("/");
+    const parentPath = separator < 0 ? "" : page.path.slice(0, separator);
+    if (page.folderId === null) {
+      if (parentPath !== "pages") throw new TypeError("Root Page path must be directly under pages/");
+    } else if (foldersById.get(page.folderId)?.path !== parentPath) {
+      throw new TypeError("Page folder path does not match folderId");
+    }
+  }
   return {
     ...parsed,
     folders: [...parsed.folders].sort((left, right) =>

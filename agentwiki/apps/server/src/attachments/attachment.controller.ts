@@ -19,7 +19,12 @@ import type { Request, Response } from 'express';
 import { CombinedAuthGuard } from '../core/auth/combined-auth.guard';
 import { HumanOnlyGuard } from '../core/auth/human-only.guard';
 import type { Principal } from '../core/authorization/authorization.service';
-import { AttachmentListQueryDto, AttachmentStateDto } from './attachment.dto';
+import {
+  AttachmentListQueryDto,
+  AttachmentRenameConfirmDto,
+  AttachmentRenamePreviewDto,
+  AttachmentStateDto,
+} from './attachment.dto';
 import { AttachmentService } from './attachment.service';
 
 function contentDisposition(displayName: string): string {
@@ -76,6 +81,28 @@ export class SpaceAttachmentController {
     @Body() body: AttachmentStateDto,
   ) {
     return this.attachments.restore(spaceId, attachmentId, body, req.user as Principal);
+  }
+
+  @Post(':attachmentId/rename/preview')
+  @UseGuards(HumanOnlyGuard)
+  previewRename(
+    @Req() req: Request,
+    @Param('spaceId') spaceId: string,
+    @Param('attachmentId') attachmentId: string,
+    @Body() body: AttachmentRenamePreviewDto,
+  ) {
+    return this.attachments.previewRename(spaceId, attachmentId, body, req.user as Principal);
+  }
+
+  @Post(':attachmentId/rename')
+  @UseGuards(HumanOnlyGuard)
+  rename(
+    @Req() req: Request,
+    @Param('spaceId') spaceId: string,
+    @Param('attachmentId') attachmentId: string,
+    @Body() body: AttachmentRenameConfirmDto,
+  ) {
+    return this.attachments.rename(spaceId, attachmentId, body, req.user as Principal);
   }
 }
 

@@ -46,9 +46,10 @@ test('snapshot remains pinned to its revision after head advances', { skip }, as
     const { PrismaClient } = require('@prisma/client');
     const { SpaceRevisionWriterService } = await import('../apps/server/dist/core/sync/space-revision-writer.service.js');
     const { SyncRevisionService } = await import('../apps/server/dist/integrations/obsidian/sync-revision.service.js');
+    const { SyncV3ImmutableRevisionService } = await import('../apps/server/dist/integrations/obsidian/sync-v3-immutable-revision.service.js');
     const prisma = new PrismaClient({ datasources: { db: { url: url.href } } });
     const writer = SpaceRevisionWriterService.legacyOnly(prisma);
-    const service = new SyncRevisionService(prisma);
+    const service = new SyncRevisionService(prisma, new SyncV3ImmutableRevisionService());
 
     try {
       const spaceId = randomUUID();

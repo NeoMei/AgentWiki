@@ -18,6 +18,7 @@ if (command === 'plan') {
   process.stdout.write(`${JSON.stringify({
     status: 'ready',
     databaseIsolation: 'random collaboration_test_* schema',
+    syncV3DatabaseBinding: 'same random collaboration_test_* schema',
   })}\n`);
 } else if (command === 'run') {
   const testExit = await withCollaborationTestDatabase(baseDatabaseUrl, async ({ databaseUrl }) => {
@@ -29,6 +30,7 @@ if (command === 'plan') {
         ...process.env,
         DATABASE_URL: databaseUrl,
         COLLABORATION_TEST_DATABASE_URL: databaseUrl,
+        SYNC_V3_TEST_DATABASE_URL: databaseUrl,
       },
       maxBuffer: 64 * 1024 * 1024,
     });

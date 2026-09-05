@@ -32,6 +32,10 @@ import {
   isSupportedLegacySyncRevisionFormat,
   isSyncV3RevisionFormat,
 } from '../../core/sync/sync-revision-format';
+import {
+  SyncV3AuthorityError,
+  SyncV3ImmutableRevisionService,
+} from './sync-v3-immutable-revision.service';
 
 const EMPTY_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
@@ -79,7 +83,8 @@ export class SyncV2RevisionService {
     private readonly prisma: PrismaService,
     private readonly cursors: SyncCursorService,
     private readonly capabilities: SyncCapabilitiesService,
-    @Optional() private readonly v3Writer?: SyncV3RevisionWriterService,
+    @Optional() private readonly v3Writer: SyncV3RevisionWriterService | undefined,
+    private readonly immutableV3: SyncV3ImmutableRevisionService,
   ) {}
 
   async head(spaceId: string) {
@@ -213,7 +218,9 @@ export class SyncV2RevisionService {
       });
     } catch (error) {
       if (error instanceof SyncApiException) throw error;
-      if (error instanceof RevisionV2IntegrityError) throw revisionGone();
+      if (error instanceof RevisionV2IntegrityError || error instanceof SyncV3AuthorityError) {
+        throw revisionGone();
+      }
       throw revisionReadUnavailable();
     }
   }
@@ -266,6 +273,9 @@ export class SyncV2RevisionService {
     const isNativeV3 = isSyncV3RevisionFormat(revision);
     const isKnownLegacy = isSupportedLegacySyncRevisionFormat(revision);
     try {
+      if (isNativeV3) {
+        await this.immutableV3.verify(tx, spaceId, revision);
+      }
       const [immutable, sidecarRow, deltaRows, ancestors] = await Promise.all([
         this.rebuildImmutableManifest(tx, spaceId, revision.id),
         tx.legacyRevisionSidecar.findUnique({ where: { revisionId: revision.id } }),
@@ -380,7 +390,9 @@ export class SyncV2RevisionService {
         revisionBodyBytes: bodyBytes,
       };
     } catch (error) {
-      if (error instanceof SyncApiException || error instanceof RevisionV2IntegrityError) {
+      if (error instanceof SyncApiException
+        || error instanceof RevisionV2IntegrityError
+        || error instanceof SyncV3AuthorityError) {
         throw error;
       }
       throw revisionReadUnavailable();

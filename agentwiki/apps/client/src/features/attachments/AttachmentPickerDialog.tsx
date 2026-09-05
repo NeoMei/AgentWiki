@@ -6,10 +6,16 @@ import { useLanguage } from '../../context/LanguageContext';
 import {
   archiveAttachment,
   listAttachments,
+  previewAttachmentRename,
+  renameAttachment,
   restoreAttachment,
   uploadAttachment,
 } from './attachmentApi';
-import type { AttachmentListStatus, AttachmentSummary } from './attachmentTypes';
+import type {
+  AttachmentListStatus,
+  AttachmentRenamePreview,
+  AttachmentSummary,
+} from './attachmentTypes';
 
 const PAGE_SIZE = 20;
 const ACCEPTED_IMAGES = '.png,.jpg,.jpeg,.webp,.gif';
@@ -17,7 +23,7 @@ const ACCEPTED_IMAGES = '.png,.jpg,.jpeg,.webp,.gif';
 export interface AttachmentPickerDialogProps {
   spaceId: string;
   onClose: () => void;
-  onInsert: (displayName: string) => void;
+  onInsert: (canonicalPath: string) => void;
   returnFocusTo?: HTMLElement | null;
 }
 
@@ -40,6 +46,9 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
   const [busyIds, setBusyIds] = useState<Set<string>>(() => new Set());
+  const [renameItem, setRenameItem] = useState<AttachmentSummary | null>(null);
+  const [renameName, setRenameName] = useState('');
+  const [renamePreview, setRenamePreview] = useState<AttachmentRenamePreview | null>(null);
   const uploadingRef = useRef(false);
   const operationRef = useRef(false);
   const busyIdsRef = useRef<Set<string>>(new Set());
@@ -47,6 +56,7 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
   const listSequenceRef = useRef(0);
   const listAbortRef = useRef<AbortController | null>(null);
   const skipNextEffectLoadRef = useRef(false);
+  const renameTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     aliveRef.current = true;
@@ -58,6 +68,24 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
 
   const translatedError = useCallback((caught: unknown, fallbackKey: string) => {
     const code = apiErrorCode(caught);
+    if (code === 'CONTENT_TREE_CONFLICT') return t('attachment.renameStale');
+    if (code === 'ATTACHMENT_NAME_CONFLICT') return t('attachment.renameConflict');
+    if (code === 'ATTACHMENT_REFERENCED') {
+      const rawPages = (caught as { response?: { data?: { details?: { pages?: unknown } } } })
+        ?.response?.data?.details?.pages;
+      const pagesById = new Map<string, string>();
+      if (Array.isArray(rawPages)) for (const page of rawPages) {
+        if (page && typeof page === 'object' && typeof (page as { id?: unknown }).id === 'string'
+          && typeof (page as { title?: unknown }).title === 'string'
+          && !pagesById.has((page as { id: string }).id)) {
+          pagesById.set((page as { id: string }).id, (page as { title: string }).title);
+        }
+      }
+      const titles = [...pagesById.values()];
+      return titles.length > 0
+        ? t('attachment.referencedBy', { pages: titles.join(', ') })
+        : t('attachment.archiveFailed');
+    }
     if (code === 'RESOURCE_CONFLICT') return t('attachment.conflict');
     const statusCode = (caught as { response?: { status?: number } })?.response?.status;
     if (statusCode === 400) return t('attachment.validationFailed');
@@ -180,7 +208,10 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
         setUploadProgress(null);
       });
       const reconciliation = load(0, false, message);
-      onInsert(uploaded.displayName);
+      if (!uploaded.referenceable || uploaded.canonicalPath === null) {
+        throw new Error('Uploaded attachment is not referenceable');
+      }
+      onInsert(uploaded.canonicalPath);
       await reconciliation;
     } catch (caught) {
       if (!aliveRef.current) return;
@@ -195,6 +226,72 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
     }
   };
 
+  const startRename = (item: AttachmentSummary, trigger: HTMLButtonElement) => {
+    if (operationRef.current) return;
+    renameTriggerRef.current = trigger;
+    setError(null);
+    setRenameItem(item);
+    setRenameName(item.displayName);
+    setRenamePreview(null);
+  };
+
+  const cancelRename = () => {
+    if (operationRef.current) return;
+    flushSync(() => {
+      setRenameItem(null);
+      setRenamePreview(null);
+    });
+    renameTriggerRef.current?.focus();
+  };
+
+  const runRenamePreview = async () => {
+    if (!renameItem || operationRef.current) return;
+    operationRef.current = true;
+    setError(null);
+    try {
+      const preview = await previewAttachmentRename(spaceId, renameItem.id, renameName);
+      if (!aliveRef.current) return;
+      setRenamePreview(preview);
+      setAnnouncement(t('attachment.renamePreviewReady', { count: preview.impactedPages.length }));
+    } catch (caught) {
+      if (!aliveRef.current) return;
+      const message = translatedError(caught, 'attachment.renameFailed');
+      setError(message);
+      setAnnouncement(message);
+    } finally {
+      operationRef.current = false;
+    }
+  };
+
+  const confirmRename = async () => {
+    if (!renameItem || !renamePreview || operationRef.current) return;
+    operationRef.current = true;
+    busyIdsRef.current.add(renameItem.id);
+    setBusyIds(new Set(busyIdsRef.current));
+    setError(null);
+    try {
+      const renamed = await renameAttachment(spaceId, renameItem.id, {
+        previewToken: renamePreview.previewToken,
+      });
+      if (!aliveRef.current) return;
+      const message = t('attachment.renamed', { name: renamed.displayName });
+      setAnnouncement(message);
+      setRenameItem(null);
+      setRenamePreview(null);
+      await load(0, false, message);
+    } catch (caught) {
+      if (!aliveRef.current) return;
+      const message = translatedError(caught, 'attachment.renameFailed');
+      setError(message);
+      setAnnouncement(message);
+      setRenamePreview(null);
+    } finally {
+      operationRef.current = false;
+      busyIdsRef.current.delete(renameItem.id);
+      if (aliveRef.current) setBusyIds(new Set(busyIdsRef.current));
+    }
+  };
+
   const requestClose = () => {
     if (operationRef.current) return;
     aliveRef.current = false;
@@ -203,8 +300,10 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
   };
 
   const criteriaLocked = uploading || busyIds.size > 0;
-  const insertExisting = (displayName: string) => {
-    if (!operationRef.current) onInsert(displayName);
+  const insertExisting = (item: AttachmentSummary) => {
+    if (!operationRef.current && item.referenceable && item.canonicalPath !== null) {
+      onInsert(item.canonicalPath);
+    }
   };
 
   return <ModalDialog labelledBy="attachment-picker-title" onRequestClose={requestClose} closeDisabled={criteriaLocked} returnFocusTo={returnFocusTo} className="max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-5 shadow-xl">
@@ -249,9 +348,34 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
           <div className="min-w-0 flex-1">
             <p className="truncate font-medium">{item.displayName}</p>
             <p className="text-xs text-gray-500">{t(item.status === 'active' ? 'attachment.statusActive' : 'attachment.statusArchived')}</p>
+            {item.status === 'active' && !item.referenceable ? <p className="text-xs text-amber-700">{t('attachment.renameBeforeInsert')}</p> : null}
           </div>
-          {item.status === 'active' ? <button type="button" disabled={criteriaLocked} aria-label={t('attachment.insertNamed', { name: item.displayName })} onClick={() => insertExisting(item.displayName)} className="min-h-10 rounded-lg bg-blue-600 px-3 text-sm text-white disabled:opacity-50">{t('attachment.insert')}</button> : null}
+          {item.status === 'active' ? <button type="button" disabled={criteriaLocked || !item.referenceable || item.canonicalPath === null} aria-label={t('attachment.insertNamed', { name: item.displayName })} onClick={() => insertExisting(item)} className="min-h-10 rounded-lg bg-blue-600 px-3 text-sm text-white disabled:opacity-50">{t('attachment.insert')}</button> : null}
+          {item.status === 'active' ? <button type="button" disabled={criteriaLocked} aria-label={t('attachment.renameNamed', { name: item.displayName })} onClick={(event) => startRename(item, event.currentTarget)} className="min-h-10 rounded-lg border px-3 text-sm disabled:opacity-50">{t('attachment.rename')}</button> : null}
           <button type="button" disabled={criteriaLocked} aria-label={t(item.status === 'active' ? 'attachment.archiveNamed' : 'attachment.restoreNamed', { name: item.displayName })} onClick={() => void mutate(item, item.status === 'active' ? 'archive' : 'restore')} className="min-h-10 rounded-lg border px-3 text-sm disabled:opacity-50">{busy ? t('common.loading') : t(item.status === 'active' ? 'attachment.archive' : 'attachment.restore')}</button>
+          {renameItem?.id === item.id ? <div className="w-full rounded-lg bg-gray-50 p-3" onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.stopPropagation();
+              cancelRename();
+            }
+          }}>
+            <label className="text-sm font-medium">{t('attachment.newName')}
+              <input autoFocus type="text" aria-label={t('attachment.newName')} value={renameName} disabled={busy} onChange={(event) => {
+                setRenameName(event.target.value);
+                setRenamePreview(null);
+              }} className="mt-1 h-10 w-full rounded-lg border px-3" />
+            </label>
+            {renamePreview ? <div className="mt-2 text-sm">
+              <p>{renamePreview.path}</p>
+              <p>{t('attachment.impactedPages')}</p>
+              {renamePreview.impactedPages.length > 0 ? <ul>{renamePreview.impactedPages.map((page) => <li key={page.id}>{page.title}</li>)}</ul> : <p>{t('attachment.noImpactedPages')}</p>}
+            </div> : null}
+            <div className="mt-3 flex gap-2">
+              {renamePreview ? <button type="button" disabled={busy} onClick={() => void confirmRename()} className="min-h-10 rounded-lg bg-blue-600 px-3 text-sm text-white">{t('attachment.confirmRename')}</button>
+                : <button type="button" disabled={busy || renameName.trim().length === 0} onClick={() => void runRenamePreview()} className="min-h-10 rounded-lg bg-blue-600 px-3 text-sm text-white">{t('attachment.previewRename')}</button>}
+              <button type="button" disabled={busy} onClick={cancelRename} className="min-h-10 rounded-lg border px-3 text-sm">{t('common.cancel')}</button>
+            </div>
+          </div> : null}
         </li>;
       })}
     </ul> : <p className="mt-5 text-sm text-gray-500">{t('attachment.empty')}</p>}

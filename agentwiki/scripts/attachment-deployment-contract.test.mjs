@@ -10,7 +10,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import test from 'node:test';
@@ -745,6 +745,7 @@ test('Docker gives API and worker one private persistent attachment volume and a
 
   assert.equal((namedVolumes.match(/^ {2}attachment-data:\s*$/gmu) ?? []).length, 1);
   for (const [name, service] of [['backend', backend], ['worker', worker]]) {
+    assert.match(service, /^ {4}read_only: true$/mu, `${name} must keep its container root read-only`);
     assert.equal(
       environmentValue(service, 'ATTACHMENT_STORAGE_PATH'),
       '/var/lib/agentwiki/attachments',
@@ -793,6 +794,11 @@ test('direct-runtime units share the durable attachment path with restrictive cr
       ['ATTACHMENT_STORAGE_PATH=/var/lib/agentwiki/attachments'],
     );
     assert.deepEqual(unitValues(unit, 'UMask'), ['0077']);
+    assert.deepEqual(unitValues(unit, 'ProtectSystem'), ['strict']);
+    assert.deepEqual(unitValues(unit, 'ProtectHome'), ['tmpfs']);
+    assert.deepEqual(unitValues(unit, 'BindReadOnlyPaths'), ['%h/agentwiki']);
+    assert.deepEqual(unitValues(unit, 'PrivateDevices'), ['true']);
+    assert.deepEqual(unitValues(unit, 'ReadWritePaths'), ['/var/lib/agentwiki/attachments']);
     assert.doesNotMatch(unit, /ATTACHMENT_STORAGE_PATH=(?:%h|\/tmp|[^\n]*agentwiki-release)/u);
   }
 });
@@ -818,6 +824,109 @@ test('direct deployment validates durable storage before stopping services or mi
   assert.ok(archiveCommand, 'release archive command must be inspectable');
   assert.doesNotMatch(archiveCommand, /\/var\/lib\/agentwiki\/attachments|attachment_storage_path/u);
   assert.doesNotMatch(archiveCommand, /(?:^|\s)\.(?:\s|$)/u, 'archive input must stay an explicit allowlist');
+});
+
+test('direct deployment preflights staged OpenCode before installing units or stopping writers', async () => {
+  const deploy = deployedShell(await read('deploy.sh'));
+  const preflightCommand = deploy.split('\n').find((line) => (
+    line.includes('opencode-deployment-preflight.js') && line.trimStart().startsWith('"$node_binary"')
+  ));
+  assert.ok(preflightCommand, 'missing staged OpenCode runtime preflight');
+  const preflight = deploy.indexOf(preflightCommand);
+  assert.ok(preflight >= 0, 'missing staged OpenCode runtime preflight');
+  for (const boundary of [
+    'install -m 0644 deploy/systemd/*.service',
+    'systemctl --user stop agentwiki-api.service agentwiki-worker.service agentwiki-frontend.service',
+    'pnpm --filter @agentwiki/server exec prisma migrate deploy',
+  ]) {
+    assert.ok(preflight < deploy.indexOf(boundary), `OpenCode preflight must precede ${boundary}`);
+  }
+
+  const sandbox = await mkdtemp(resolve(tmpdir(), 'agentwiki-deploy-preflight-entry-'));
+  const stage = resolve(sandbox, 'stage');
+  const live = resolve(sandbox, 'live');
+  const entryDirectory = resolve(stage, 'apps/server/dist/assist');
+  const trace = resolve(sandbox, 'trace.json');
+  const mutation = resolve(sandbox, 'mutation');
+  await mkdir(entryDirectory, { recursive: true });
+  await mkdir(live, { recursive: true });
+  await writeFile(resolve(entryDirectory, 'opencode-deployment-preflight.js'), `
+const { writeFileSync } = require('node:fs');
+writeFileSync(process.env.TRACE_PATH, JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2) }));
+`);
+  const result = spawnSync(bashExecutable, ['--noprofile', '--norc', '-c', `
+set -euo pipefail
+node_binary="$1"
+release_dir="$2"
+live_dir="$3"
+${preflightCommand}
+printf mutation > "$4"
+`, 'contract', process.execPath, stage, live, mutation], {
+    cwd: stage,
+    encoding: 'utf8',
+    env: { ...process.env, TRACE_PATH: trace },
+  });
+  try {
+    assert.equal(result.status, 0, `staged preflight command failed: ${result.stderr}`);
+    assert.deepEqual(JSON.parse(await readFile(trace, 'utf8')), {
+      cwd: await realpath(stage),
+      args: [stage, live],
+    });
+    assert.equal(await readFile(mutation, 'utf8'), 'mutation');
+
+    await rm(trace, { force: true });
+    await rm(mutation, { force: true });
+    await writeFile(resolve(entryDirectory, 'opencode-deployment-preflight.js'), 'process.exit(23);\n');
+    const rejected = spawnSync(bashExecutable, ['--noprofile', '--norc', '-c', `
+set -euo pipefail
+node_binary="$1"
+release_dir="$2"
+live_dir="$3"
+${preflightCommand}
+printf mutation > "$4"
+`, 'contract', process.execPath, stage, live, mutation], {
+      cwd: stage,
+      encoding: 'utf8',
+      env: { ...process.env, TRACE_PATH: trace },
+    });
+    assert.equal(rejected.status, 23, rejected.stderr);
+    assert.equal(existsSync(mutation), false, 'preflight failure must prevent later mutation');
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test('deployment validates upload, lease, and verified Blob roots cannot escape persistent storage', async () => {
+  const deploy = deployedShell(await read('deploy.sh'));
+  const validator = extractShellFunction(deploy, 'validate_attachment_content_roots');
+  const sandbox = await mkdtemp(resolve(tmpdir(), 'agentwiki-attachment-roots-'));
+  const persistentRoot = resolve(sandbox, 'persistent');
+  const outside = resolve(sandbox, 'outside');
+  await mkdir(persistentRoot, { recursive: true });
+  await mkdir(outside, { recursive: true });
+  const execute = () => spawnSync(bashExecutable, ['--noprofile', '--norc', '-c', `
+set -euo pipefail
+${validator}
+readlink() {
+  if [ "\$1" = -f ]; then realpath "\$2"; else command readlink "\$@"; fi
+}
+attachment_storage_path="\$1"
+validate_attachment_content_roots
+`, 'contract', persistentRoot], { encoding: 'utf8' });
+
+  try {
+    const accepted = execute();
+    assert.equal(accepted.status, 0, accepted.stderr);
+    for (const child of ['.tmp', '.locks', 'sha256']) {
+      assert.ok(existsSync(resolve(persistentRoot, child)), `missing protected ${child} root`);
+    }
+    await rm(resolve(persistentRoot, '.tmp'), { recursive: true, force: true });
+    await symlink(outside, resolve(persistentRoot, '.tmp'));
+    const escaped = execute();
+    assert.notEqual(escaped.status, 0, 'symlinked upload staging root must fail closed');
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
+  }
 });
 
 test('deployment contract rejects reordered validation and destructive root mutations', async () => {
@@ -877,6 +986,12 @@ test('deployment reads optional server env safely and validates its selected fre
 
 test('direct post-deploy health requires the JSON storage signal', async () => {
   const deploy = deployedShell(await read('deploy.sh'));
+  const finalRestart = deploy.indexOf('systemctl --user restart agentwiki-worker.service');
+  const workerActive = deploy.indexOf(
+    'systemctl --user is-active --quiet agentwiki-worker.service',
+    finalRestart,
+  );
+  assert.ok(workerActive > finalRestart, 'post-deploy acceptance must explicitly require an active worker');
   assert.match(deploy, /curl[^\n]*\/api\/health/u);
   assert.doesNotMatch(deploy, /api="\$\(curl[^\n]*-o \/dev\/null/u);
   const probe = deploy.match(/"\$node_binary" -e '([^']*JSON\.parse[^']*)' "\$api_body"/u)?.[1];
