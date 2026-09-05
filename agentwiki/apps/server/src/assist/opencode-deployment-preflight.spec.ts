@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'fs';
 import { tmpdir } from 'os';
@@ -80,7 +81,7 @@ describe('OpenCode deployment preflight', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-override-'));
     const { stagedRoot } = stagedFixture(fixture);
     const liveRoot = join(fixture, 'home', 'agentwiki');
-    const override = join(fixture, 'system', 'opencode.js');
+    const override = join(stagedRoot, 'operator-tools', 'opencode.js');
     mkdirSync(join(override, '..'), { recursive: true });
     writeFileSync(override, `process.stdout.write(${JSON.stringify(`${expectedVersion}\n`)});\n`);
     const rootEnv = 'OPENCODE_BIN=/missing/first\nASSIST_OPENCODE_ALLOW_PAID_FALLBACK=true\n';
@@ -95,6 +96,57 @@ describe('OpenCode deployment preflight', () => {
         homeRoot: join(fixture, 'home'),
       })).toEqual({ migratedKnownShim: false, version: expectedVersion });
       expect(readFileSync(join(stagedRoot, '.env'), 'utf8')).toBe(rootEnv);
+      expect(readFileSync(join(stagedRoot, 'apps', 'server', '.env'), 'utf8')).toBe(serverEnv);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a direct explicit override from the external temporary tree', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-external-tmp-'));
+    const { stagedRoot } = stagedFixture(fixture);
+    const liveRoot = join(fixture, 'home', 'agentwiki');
+    const override = join(fixture, 'external', 'opencode.js');
+    mkdirSync(join(override, '..'), { recursive: true });
+    writeFileSync(override, `process.stdout.write(${JSON.stringify(`${expectedVersion}\n`)});\n`);
+    const serverEnv = `OPENCODE_BIN=${override}\nASSIST_MODELS=model-a\n`;
+    writeFileSync(join(stagedRoot, 'apps', 'server', '.env'), serverEnv);
+
+    try {
+      expect(() => preflightStagedOpencodeRuntime({
+        stagedRoot,
+        liveRoot,
+        homeRoot: join(fixture, 'home'),
+      })).toThrow(/runtime-visible.*exact read-only bind/iu);
+      expect(readFileSync(join(stagedRoot, 'apps', 'server', '.env'), 'utf8')).toBe(serverEnv);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects an application-tree symlink whose canonical target escapes to temporary storage', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-staged-symlink-'));
+    const { stagedRoot } = stagedFixture(fixture);
+    const liveRoot = join(fixture, 'home', 'agentwiki');
+    const relativeOverride = join('vendor', 'opencode.js');
+    const liveOverride = join(liveRoot, relativeOverride);
+    const stagedOverride = join(stagedRoot, relativeOverride);
+    const externalTarget = join(fixture, 'external', 'opencode.js');
+    mkdirSync(join(liveOverride, '..'), { recursive: true });
+    mkdirSync(join(stagedOverride, '..'), { recursive: true });
+    mkdirSync(join(externalTarget, '..'), { recursive: true });
+    writeFileSync(liveOverride, `process.stdout.write(${JSON.stringify('0.0.0\n')});\n`);
+    writeFileSync(externalTarget, `process.stdout.write(${JSON.stringify(`${expectedVersion}\n`)});\n`);
+    symlinkSync(externalTarget, stagedOverride);
+    const serverEnv = `OPENCODE_BIN=${liveOverride}\nASSIST_MODELS=model-a\n`;
+    writeFileSync(join(stagedRoot, 'apps', 'server', '.env'), serverEnv);
+
+    try {
+      expect(() => preflightStagedOpencodeRuntime({
+        stagedRoot,
+        liveRoot,
+        homeRoot: join(fixture, 'home'),
+      })).toThrow(/runtime-visible.*exact read-only bind/iu);
       expect(readFileSync(join(stagedRoot, 'apps', 'server', '.env'), 'utf8')).toBe(serverEnv);
     } finally {
       rmSync(fixture, { recursive: true, force: true });
@@ -153,7 +205,7 @@ describe('OpenCode deployment preflight', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-invalid-'));
     const { stagedRoot } = stagedFixture(fixture);
     const liveRoot = join(fixture, 'home', 'agentwiki');
-    const override = join(fixture, 'system', 'opencode');
+    const override = join(stagedRoot, 'operator-tools', 'opencode');
     mkdirSync(join(override, '..'), { recursive: true });
     writeFileSync(override, '#!/bin/sh\nexit 0\n');
     chmodSync(override, 0o755);

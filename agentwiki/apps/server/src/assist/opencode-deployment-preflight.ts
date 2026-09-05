@@ -194,9 +194,16 @@ export function preflightStagedOpencodeRuntime({
   } catch {
     throw new Error('Explicit OPENCODE_BIN must reference an existing regular launch file');
   }
-  const allowedStagedTarget = applicationTreeOverride && pathIsWithin(realOverride, stagedRoot);
+  const allowedStagedTarget = pathIsWithin(realOverride, stagedRoot);
   if (!allowedStagedTarget && pathIsWithin(realOverride, homeRoot)) {
     throw new Error('Explicit OPENCODE_BIN is hidden by ProtectHome and needs an approved exact bind');
+  }
+  const allowedSystemTarget = ['/usr', '/opt'].some((root) => pathIsWithin(realOverride, root));
+  if (!allowedStagedTarget && !allowedSystemTarget) {
+    throw new Error(
+      'Explicit OPENCODE_BIN canonical target is not runtime-visible; '
+      + 'place it in the application tree, /usr, or /opt, or add an approved exact read-only bind',
+    );
   }
   const override = resolveOpencodeLaunchFile(realOverride, process.platform);
   if (!override) throw new Error('Unsupported explicit OPENCODE_BIN launch file');
