@@ -318,6 +318,7 @@ pnpm --filter @agentwiki/shared build
 pnpm --filter @neomei/agentwiki-sync-protocol build
 pnpm --filter @agentwiki/server build
 pnpm --filter @agentwiki/client build
+"\$node_binary" dist/assist/opencode-deployment-preflight.js "\$release_dir" "\$live_dir"
 
 mkdir -p "\$HOME/.config/systemd/user"
 install -m 0644 deploy/systemd/*.service "\$HOME/.config/systemd/user/"
@@ -386,15 +387,20 @@ systemctl --user restart agentwiki-frontend.service
 for attempt in \$(seq 1 30); do
   api_body=""
   api_ok=0
+  worker_ok=0
   if api_body="\$(curl -fsS http://127.0.0.1:3000/api/health)" && \
      "\$node_binary" -e 'const body = JSON.parse(process.argv[1]); if (body.status !== "ok" || body.attachmentStorage !== "ok") process.exit(1)' "\$api_body"; then
     api_ok=1
   fi
+  if systemctl --user is-active --quiet agentwiki-worker.service; then
+    worker_ok=1
+  fi
   ui="\$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:5173/ || true)"
-  if [ "\$api_ok" = 1 ] && [ "\$ui" = 200 ]; then break; fi
+  if [ "\$api_ok" = 1 ] && [ "\$worker_ok" = 1 ] && [ "\$ui" = 200 ]; then break; fi
   sleep 2
 done
 test "\${api_ok:-0}" = 1
+test "\${worker_ok:-0}" = 1
 test "\${ui:-}" = 200
 systemctl --user --no-pager --full status agentwiki-api.service agentwiki-worker.service agentwiki-frontend.service
 echo "Previous application tree retained at \$previous_dir; do not reactivate it without restoring its matching database backup."

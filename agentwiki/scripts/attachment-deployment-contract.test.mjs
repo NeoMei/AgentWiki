@@ -795,7 +795,8 @@ test('direct-runtime units share the durable attachment path with restrictive cr
     );
     assert.deepEqual(unitValues(unit, 'UMask'), ['0077']);
     assert.deepEqual(unitValues(unit, 'ProtectSystem'), ['strict']);
-    assert.deepEqual(unitValues(unit, 'ProtectHome'), ['true']);
+    assert.deepEqual(unitValues(unit, 'ProtectHome'), ['tmpfs']);
+    assert.deepEqual(unitValues(unit, 'BindReadOnlyPaths'), ['%h/agentwiki']);
     assert.deepEqual(unitValues(unit, 'PrivateDevices'), ['true']);
     assert.deepEqual(unitValues(unit, 'ReadWritePaths'), ['/var/lib/agentwiki/attachments']);
     assert.doesNotMatch(unit, /ATTACHMENT_STORAGE_PATH=(?:%h|\/tmp|[^\n]*agentwiki-release)/u);
@@ -823,6 +824,21 @@ test('direct deployment validates durable storage before stopping services or mi
   assert.ok(archiveCommand, 'release archive command must be inspectable');
   assert.doesNotMatch(archiveCommand, /\/var\/lib\/agentwiki\/attachments|attachment_storage_path/u);
   assert.doesNotMatch(archiveCommand, /(?:^|\s)\.(?:\s|$)/u, 'archive input must stay an explicit allowlist');
+});
+
+test('direct deployment preflights staged OpenCode before installing units or stopping writers', async () => {
+  const deploy = deployedShell(await read('deploy.sh'));
+  const preflight = deploy.indexOf(
+    '"$node_binary" dist/assist/opencode-deployment-preflight.js "$release_dir" "$live_dir"',
+  );
+  assert.ok(preflight >= 0, 'missing staged OpenCode runtime preflight');
+  for (const boundary of [
+    'install -m 0644 deploy/systemd/*.service',
+    'systemctl --user stop agentwiki-api.service agentwiki-worker.service agentwiki-frontend.service',
+    'pnpm --filter @agentwiki/server exec prisma migrate deploy',
+  ]) {
+    assert.ok(preflight < deploy.indexOf(boundary), `OpenCode preflight must precede ${boundary}`);
+  }
 });
 
 test('deployment validates upload, lease, and verified Blob roots cannot escape persistent storage', async () => {
@@ -915,6 +931,12 @@ test('deployment reads optional server env safely and validates its selected fre
 
 test('direct post-deploy health requires the JSON storage signal', async () => {
   const deploy = deployedShell(await read('deploy.sh'));
+  const finalRestart = deploy.indexOf('systemctl --user restart agentwiki-worker.service');
+  const workerActive = deploy.indexOf(
+    'systemctl --user is-active --quiet agentwiki-worker.service',
+    finalRestart,
+  );
+  assert.ok(workerActive > finalRestart, 'post-deploy acceptance must explicitly require an active worker');
   assert.match(deploy, /curl[^\n]*\/api\/health/u);
   assert.doesNotMatch(deploy, /api="\$\(curl[^\n]*-o \/dev\/null/u);
   const probe = deploy.match(/"\$node_binary" -e '([^']*JSON\.parse[^']*)' "\$api_body"/u)?.[1];
