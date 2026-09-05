@@ -679,6 +679,7 @@ model PageVersion {
 
   createdAt DateTime @default(now())
 
+  @@unique([id, pageId])
   @@unique([pageId, migrationBatchId])
   @@index([pageId])
   @@index([authorId])
@@ -1497,7 +1498,7 @@ model CollaborationRunTask {
   sourceReviews   CollaborationReview[]                @relation("CollaborationReviewSourceTask")
   revisionReviews CollaborationReview[]                @relation("CollaborationReviewRevisionTask")
   targetPage      Page?                                @relation("CollaborationRunTaskTargetPage", fields: [targetPageId, targetSpaceId], references: [id, spaceId], onDelete: Restrict)
-  basePageVersion PageVersion?                         @relation("CollaborationRunTaskBasePageVersion", fields: [basePageVersionId], references: [id], onDelete: Restrict)
+  basePageVersion PageVersion?                         @relation("CollaborationRunTaskBasePageVersion", fields: [basePageVersionId, targetPageId], references: [id, pageId], onDelete: Restrict)
   changeSetLinks  CollaborationArtifactChangeSetLink[]
 
   @@unique([id, runId])

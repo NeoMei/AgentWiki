@@ -123,6 +123,47 @@ test('composite-template migration preserves legacy runs and enforces source and
         /immutable|constraint/iu,
       );
 
+      const otherSpaceTemplate = await prisma.pageTemplate.create({
+        data: {
+          id: id('other_space_template'),
+          scope: 'space',
+          scopeKey: id('space_b'),
+          spaceId: id('space_b'),
+          stableKey: 'composite',
+          category: 'planning',
+          nameI18n: { en: 'Other composite' },
+          nameKey: 'composite',
+          descriptionI18n: { en: '' },
+          defaultTitleI18n: { en: 'Other composite' },
+          sourceLocale: 'en',
+        },
+      });
+      const systemTemplate = await prisma.pageTemplate.create({
+        data: {
+          id: id('system_template'),
+          scope: 'system',
+          scopeKey: 'system',
+          stableKey: id('system_composite'),
+          category: 'planning',
+          displayOrder: 999,
+          nameI18n: { en: 'System composite' },
+          descriptionI18n: { en: '' },
+          defaultTitleI18n: { en: 'System composite' },
+        },
+      });
+      const insertCompositeVersion = (versionId, templateId, hashCharacter) => prisma.$executeRawUnsafe(
+        `INSERT INTO "${schemaName}"."PageTemplateVersion"
+          ("id", "templateId", "version", "contentI18n", "contentHash", "definition", "schemaVersion", "definitionHash")
+         VALUES ($1, $2, 1, '{}'::jsonb, $3, $4::jsonb, 1, $5)`,
+        versionId,
+        templateId,
+        hashCharacter.repeat(64),
+        JSON.stringify({ schemaVersion: 1, kind: 'single_page', nodes: [], collaboration: null }),
+        hashCharacter.repeat(64),
+      );
+      await insertCompositeVersion(id('other_space_version'), otherSpaceTemplate.id, '6');
+      await insertCompositeVersion(id('system_version'), systemTemplate.id, '7');
+
       await prisma.agent.create({ data: { id: id('agent'), name: 'Agent', ownerId: id('user') } });
       await prisma.agentGrant.create({ data: {
         id: id('grant_b'), agentId: id('agent'), spaceId: id('space_b'), role: 'editor',
@@ -136,7 +177,31 @@ test('composite-template migration preserves legacy runs and enforces source and
           id: id('page_b'), title: 'B', slug: id('page_b'), spaceId: id('space_b'),
           authorId: id('user'), syncPath: 'B.md', syncPathKey: 'b.md',
         },
+        {
+          id: id('page_c'), title: 'C', slug: id('page_c'), spaceId: id('space_a'),
+          authorId: id('user'), syncPath: 'C.md', syncPathKey: 'c.md',
+        },
       ] });
+      await prisma.pageVersion.createMany({ data: [
+        { id: id('page_version_a'), pageId: id('page_a'), title: 'A', content: 'A' },
+        { id: id('page_version_b'), pageId: id('page_b'), title: 'B', content: 'B' },
+        { id: id('page_version_c'), pageId: id('page_c'), title: 'C', content: 'C' },
+      ] });
+      await assert.rejects(
+        prisma.$executeRawUnsafe(
+          `INSERT INTO "${schemaName}"."TemplateInstantiation"
+            ("id", "spaceId", "compositeTemplateVersionId", "createdByUserId", "idempotencyKey", "requestHash", "treeRevision", "result", "updatedAt")
+           VALUES ($1, $2, $3, $4, 'cross-space-template', $5, 0, '{}'::jsonb, CURRENT_TIMESTAMP)`,
+          id('cross_space_instantiation'), id('space_a'), id('other_space_version'), id('user'), '4'.repeat(64),
+        ),
+        /23503|scope|space|constraint/iu,
+      );
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "${schemaName}"."TemplateInstantiation"
+          ("id", "spaceId", "compositeTemplateVersionId", "createdByUserId", "idempotencyKey", "requestHash", "treeRevision", "result", "updatedAt")
+         VALUES ($1, $2, $3, $4, 'system-template', $5, 0, '{}'::jsonb, CURRENT_TIMESTAMP)`,
+        id('system_instantiation'), id('space_a'), id('system_version'), id('user'), '5'.repeat(64),
+      );
       await prisma.$executeRawUnsafe(
         `INSERT INTO "${schemaName}"."TemplateInstantiation"
           ("id", "spaceId", "compositeTemplateVersionId", "createdByUserId", "idempotencyKey", "requestHash", "treeRevision", "result", "updatedAt")
@@ -209,12 +274,45 @@ test('composite-template migration preserves legacy runs and enforces source and
         id('composite_run'), id('space_a'), id('composite_version'), id('instantiation'),
         '1'.repeat(64), id('user'),
       );
-      const taskInsert = (taskId, pageId, targetSpaceId) => prisma.$executeRawUnsafe(
+      await assert.rejects(
+        prisma.$executeRawUnsafe(
+          `INSERT INTO "${schemaName}"."CollaborationRun"
+            ("id", "spaceId", "sourceKind", "templateId", "compositeTemplateVersionId", "templateVersion", "templateSnapshot", "snapshotHash", "name", "inputs", "startedById", "updatedAt")
+           VALUES ($1, $2, 'composite', NULL, $3, 1, '{}'::jsonb, $4, 'Cross-space direct', '{}'::jsonb, $5, CURRENT_TIMESTAMP)`,
+          id('cross_space_direct_run'), id('space_a'), id('other_space_version'), '2'.repeat(64), id('user'),
+        ),
+        /23503|scope|space|constraint/iu,
+      );
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "${schemaName}"."CollaborationRun"
+          ("id", "spaceId", "sourceKind", "templateId", "compositeTemplateVersionId", "templateVersion", "templateSnapshot", "snapshotHash", "name", "inputs", "startedById", "updatedAt")
+         VALUES ($1, $2, 'composite', NULL, $3, 1, '{}'::jsonb, $4, 'Space direct', '{}'::jsonb, $5, CURRENT_TIMESTAMP)`,
+        id('space_direct_run'), id('space_a'), id('composite_version'), '3'.repeat(64), id('user'),
+      );
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "${schemaName}"."CollaborationRun"
+          ("id", "spaceId", "sourceKind", "templateId", "compositeTemplateVersionId", "templateVersion", "templateSnapshot", "snapshotHash", "name", "inputs", "startedById", "updatedAt")
+         VALUES ($1, $2, 'composite', NULL, $3, 1, '{}'::jsonb, $4, 'System direct', '{}'::jsonb, $5, CURRENT_TIMESTAMP)`,
+        id('system_direct_run'), id('space_a'), id('system_version'), '4'.repeat(64), id('user'),
+      );
+      await assert.rejects(
+        prisma.$executeRawUnsafe(
+          `UPDATE "${schemaName}"."PageTemplate"
+              SET "scope" = 'space', "scopeKey" = $1, "spaceId" = $1,
+                  "displayOrder" = NULL, "nameKey" = 'moved-system', "sourceLocale" = 'en',
+                  "updatedAt" = CURRENT_TIMESTAMP
+            WHERE "id" = $2`,
+          id('space_b'), systemTemplate.id,
+        ),
+        /23503|scope|space|constraint/iu,
+      );
+      const taskInsert = (taskId, pageId, targetSpaceId, basePageVersionId = null) => prisma.$executeRawUnsafe(
         `INSERT INTO "${schemaName}"."CollaborationRunTask"
           ("id", "runId", "nodeId", "ordinal", "name", "objective", "roleSlotId", "assigneeAgentId",
-           "outputContract", "requiredEvidence", "leaseSeconds", "maxExecutionSeconds", "targetPageId", "targetSpaceId", "updatedAt")
-         VALUES ($1, $2, $1, 0, 'Task', 'Write', 'writer', $3, '{}'::jsonb, '[]'::jsonb, 300, 3600, $4, $5, CURRENT_TIMESTAMP)`,
-        taskId, id('composite_run'), id('agent'), pageId, targetSpaceId,
+           "outputContract", "requiredEvidence", "leaseSeconds", "maxExecutionSeconds", "targetPageId", "targetSpaceId",
+           "basePageVersionId", "updatedAt")
+         VALUES ($1, $2, $1, 0, 'Task', 'Write', 'writer', $3, '{}'::jsonb, '[]'::jsonb, 300, 3600, $4, $5, $6, CURRENT_TIMESTAMP)`,
+        taskId, id('composite_run'), id('agent'), pageId, targetSpaceId, basePageVersionId,
       );
       await assert.rejects(
         taskInsert(id('half_target'), id('page_a'), null),
@@ -224,7 +322,50 @@ test('composite-template migration preserves legacy runs and enforces source and
         taskInsert(id('cross_target'), id('page_b'), id('space_b')),
         /foreign key|constraint/iu,
       );
-      await taskInsert(id('valid_target'), id('page_a'), id('space_a'));
+      await assert.rejects(
+        taskInsert(id('wrong_page_baseline'), id('page_a'), id('space_a'), id('page_version_c')),
+        /23503|foreign key|constraint/iu,
+      );
+      await assert.rejects(
+        taskInsert(id('cross_space_baseline'), id('page_a'), id('space_a'), id('page_version_b')),
+        /23503|foreign key|constraint/iu,
+      );
+      await taskInsert(id('valid_target'), id('page_a'), id('space_a'), id('page_version_a'));
+
+      const attemptInsert = (attemptId, attemptNumber, basePageVersionId) => prisma.$executeRawUnsafe(
+        `INSERT INTO "${schemaName}"."CollaborationTaskAttempt"
+          ("id", "runId", "taskId", "generation", "agentId", "attemptNumber", "status",
+           "claimIdempotencyKey", "leaseTokenHash", "leaseStartedAt", "leaseExpiresAt", "maxExecutionAt",
+           "finishedAt", "basePageVersionId", "updatedAt")
+         VALUES ($1, $2, $3, 1, $4, $5, 'failed', $1, $1, CURRENT_TIMESTAMP,
+                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $6, CURRENT_TIMESTAMP)`,
+        attemptId, id('composite_run'), id('valid_target'), id('agent'), attemptNumber, basePageVersionId,
+      );
+      await assert.rejects(
+        attemptInsert(id('wrong_page_attempt'), 1, id('page_version_c')),
+        /23503|foreign key|target page|constraint/iu,
+      );
+      await assert.rejects(
+        attemptInsert(id('cross_space_attempt'), 1, id('page_version_b')),
+        /23503|foreign key|target page|constraint/iu,
+      );
+      await attemptInsert(id('valid_attempt'), 1, id('page_version_a'));
+      await assert.rejects(
+        prisma.$executeRawUnsafe(
+          `UPDATE "${schemaName}"."CollaborationRunTask"
+              SET "targetPageId" = $1, "updatedAt" = CURRENT_TIMESTAMP
+            WHERE "id" = $2`,
+          id('page_c'), id('valid_target'),
+        ),
+        /23503|attempt baseline|constraint/iu,
+      );
+      await assert.rejects(
+        prisma.$executeRawUnsafe(
+          `UPDATE "${schemaName}"."PageVersion" SET "pageId" = $1 WHERE "id" = $2`,
+          id('page_c'), id('page_version_a'),
+        ),
+        /23503|attempt baseline|constraint/iu,
+      );
     } finally {
       await prisma.$disconnect();
     }

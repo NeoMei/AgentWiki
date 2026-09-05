@@ -128,6 +128,9 @@ ALTER TABLE "CollaborationRunTask" ADD CONSTRAINT "CollaborationRunTask_target_t
   OR
   ("targetPageId" IS NOT NULL AND "targetSpaceId" IS NOT NULL)
 );
+ALTER TABLE "CollaborationRunTask" ADD CONSTRAINT "CollaborationRunTask_base_target_check" CHECK (
+  "basePageVersionId" IS NULL OR "targetPageId" IS NOT NULL
+);
 
 ALTER TABLE "TemplateInstantiationNode" ADD CONSTRAINT "TemplateInstantiationNode_mapping_check" CHECK (
   ("kind" = 'folder' AND "folderId" IS NOT NULL AND "pageId" IS NULL)
@@ -192,6 +195,136 @@ CREATE TRIGGER "PageAgentBinding_grant_space"
 BEFORE INSERT OR UPDATE OF "agentId", "spaceId" ON "PageAgentBinding"
 FOR EACH ROW EXECUTE FUNCTION "enforce_page_agent_binding_grant"();
 
+CREATE FUNCTION "enforce_composite_template_version_space"()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW."compositeTemplateVersionId" IS NOT NULL AND NOT EXISTS (
+    SELECT 1
+    FROM "PageTemplateVersion" AS version
+    JOIN "PageTemplate" AS template ON template."id" = version."templateId"
+    WHERE version."id" = NEW."compositeTemplateVersionId"
+      AND (
+        (template."scope" = 'system' AND template."spaceId" IS NULL)
+        OR
+        (template."scope" = 'space' AND template."spaceId" = NEW."spaceId")
+      )
+  ) THEN
+    RAISE EXCEPTION 'Composite PageTemplateVersion must be system-scoped or belong to the target Space'
+      USING ERRCODE = '23503';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER "TemplateInstantiation_composite_template_space"
+BEFORE INSERT OR UPDATE OF "compositeTemplateVersionId", "spaceId" ON "TemplateInstantiation"
+FOR EACH ROW EXECUTE FUNCTION "enforce_composite_template_version_space"();
+
+CREATE TRIGGER "CollaborationRun_composite_template_space"
+BEFORE INSERT OR UPDATE OF "compositeTemplateVersionId", "spaceId" ON "CollaborationRun"
+FOR EACH ROW EXECUTE FUNCTION "enforce_composite_template_version_space"();
+
+CREATE FUNCTION "protect_composite_template_scope"()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF (NEW."scope" IS DISTINCT FROM OLD."scope" OR NEW."spaceId" IS DISTINCT FROM OLD."spaceId")
+    AND EXISTS (
+      SELECT 1
+      FROM "PageTemplateVersion" AS version
+      LEFT JOIN "TemplateInstantiation" AS instantiation
+        ON instantiation."compositeTemplateVersionId" = version."id"
+      LEFT JOIN "CollaborationRun" AS run
+        ON run."compositeTemplateVersionId" = version."id"
+      WHERE version."templateId" = OLD."id"
+        AND (
+          (instantiation."id" IS NOT NULL AND NOT (
+            (NEW."scope" = 'system' AND NEW."spaceId" IS NULL)
+            OR (NEW."scope" = 'space' AND NEW."spaceId" = instantiation."spaceId")
+          ))
+          OR
+          (run."id" IS NOT NULL AND NOT (
+            (NEW."scope" = 'system' AND NEW."spaceId" IS NULL)
+            OR (NEW."scope" = 'space' AND NEW."spaceId" = run."spaceId")
+          ))
+        )
+    )
+  THEN
+    RAISE EXCEPTION 'PageTemplate scope change would invalidate a composite template Space reference'
+      USING ERRCODE = '23503';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER "PageTemplate_protect_composite_scope"
+BEFORE UPDATE OF "scope", "spaceId" ON "PageTemplate"
+FOR EACH ROW EXECUTE FUNCTION "protect_composite_template_scope"();
+
+CREATE FUNCTION "enforce_collaboration_attempt_baseline_page"()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW."basePageVersionId" IS NOT NULL AND NOT EXISTS (
+    SELECT 1
+    FROM "CollaborationRunTask" AS task
+    JOIN "PageVersion" AS version
+      ON version."id" = NEW."basePageVersionId"
+      AND version."pageId" = task."targetPageId"
+    WHERE task."id" = NEW."taskId" AND task."runId" = NEW."runId"
+  ) THEN
+    RAISE EXCEPTION 'CollaborationTaskAttempt baseline must belong to its Task target Page'
+      USING ERRCODE = '23503';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER "CollaborationTaskAttempt_baseline_page"
+BEFORE INSERT OR UPDATE OF "basePageVersionId", "taskId", "runId" ON "CollaborationTaskAttempt"
+FOR EACH ROW EXECUTE FUNCTION "enforce_collaboration_attempt_baseline_page"();
+
+CREATE FUNCTION "protect_collaboration_attempt_baseline_from_task_retarget"()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW."targetPageId" IS DISTINCT FROM OLD."targetPageId" AND EXISTS (
+    SELECT 1
+    FROM "CollaborationTaskAttempt" AS attempt
+    JOIN "PageVersion" AS version ON version."id" = attempt."basePageVersionId"
+    WHERE attempt."taskId" = OLD."id" AND attempt."runId" = OLD."runId"
+      AND version."pageId" IS DISTINCT FROM NEW."targetPageId"
+  ) THEN
+    RAISE EXCEPTION 'CollaborationRunTask target Page cannot invalidate an Attempt baseline'
+      USING ERRCODE = '23503';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER "CollaborationRunTask_protect_attempt_baseline"
+BEFORE UPDATE OF "targetPageId" ON "CollaborationRunTask"
+FOR EACH ROW EXECUTE FUNCTION "protect_collaboration_attempt_baseline_from_task_retarget"();
+
+CREATE FUNCTION "protect_collaboration_attempt_baseline_from_version_retarget"()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW."pageId" IS DISTINCT FROM OLD."pageId" AND EXISTS (
+    SELECT 1
+    FROM "CollaborationTaskAttempt" AS attempt
+    JOIN "CollaborationRunTask" AS task
+      ON task."id" = attempt."taskId" AND task."runId" = attempt."runId"
+    WHERE attempt."basePageVersionId" = OLD."id"
+      AND task."targetPageId" IS DISTINCT FROM NEW."pageId"
+  ) THEN
+    RAISE EXCEPTION 'PageVersion Page cannot invalidate a CollaborationTaskAttempt baseline'
+      USING ERRCODE = '23503';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER "PageVersion_protect_attempt_baseline"
+BEFORE UPDATE OF "pageId" ON "PageVersion"
+FOR EACH ROW EXECUTE FUNCTION "protect_collaboration_attempt_baseline_from_version_retarget"();
+
 CREATE UNIQUE INDEX "TemplateInstantiation_id_spaceId_key" ON "TemplateInstantiation"("id", "spaceId");
 CREATE UNIQUE INDEX "TemplateInstantiation_id_compositeTemplateVersionId_spaceId_key" ON "TemplateInstantiation"("id", "compositeTemplateVersionId", "spaceId");
 CREATE UNIQUE INDEX "TemplateInstantiation_spaceId_createdByUserId_idempotencyKe_key" ON "TemplateInstantiation"("spaceId", "createdByUserId", "idempotencyKey");
@@ -223,6 +356,7 @@ CREATE UNIQUE INDEX "CollaborationRun_id_spaceId_key" ON "CollaborationRun"("id"
 CREATE UNIQUE INDEX "CollaborationRun_templateInstantiationId_key" ON "CollaborationRun"("templateInstantiationId");
 CREATE UNIQUE INDEX "CollaborationRun_templateInstantiationId_compositeTemplateV_key" ON "CollaborationRun"("templateInstantiationId", "compositeTemplateVersionId", "spaceId");
 CREATE INDEX "CollaborationRun_compositeTemplateVersionId_idx" ON "CollaborationRun"("compositeTemplateVersionId");
+CREATE UNIQUE INDEX "PageVersion_id_pageId_key" ON "PageVersion"("id", "pageId");
 CREATE INDEX "CollaborationRunTask_targetPageId_idx" ON "CollaborationRunTask"("targetPageId");
 CREATE UNIQUE INDEX "CollaborationRunTask_id_runId_targetPageId_targetSpaceId_key" ON "CollaborationRunTask"("id", "runId", "targetPageId", "targetSpaceId");
 CREATE INDEX "CollaborationRunTask_basePageVersionId_idx" ON "CollaborationRunTask"("basePageVersionId");
@@ -234,7 +368,7 @@ ALTER TABLE "CollaborationRun" ADD CONSTRAINT "CollaborationRun_compositeTemplat
 ALTER TABLE "CollaborationRun" ADD CONSTRAINT "CollaborationRun_templateInstantiationId_compositeTemplate_fkey" FOREIGN KEY ("templateInstantiationId", "compositeTemplateVersionId", "spaceId") REFERENCES "TemplateInstantiation"("id", "compositeTemplateVersionId", "spaceId") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "CollaborationRunTask" ADD CONSTRAINT "CollaborationRunTask_runId_targetSpaceId_fkey" FOREIGN KEY ("runId", "targetSpaceId") REFERENCES "CollaborationRun"("id", "spaceId") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "CollaborationRunTask" ADD CONSTRAINT "CollaborationRunTask_targetPageId_targetSpaceId_fkey" FOREIGN KEY ("targetPageId", "targetSpaceId") REFERENCES "Page"("id", "spaceId") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "CollaborationRunTask" ADD CONSTRAINT "CollaborationRunTask_basePageVersionId_fkey" FOREIGN KEY ("basePageVersionId") REFERENCES "PageVersion"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "CollaborationRunTask" ADD CONSTRAINT "CollaborationRunTask_basePageVersionId_targetPageId_fkey" FOREIGN KEY ("basePageVersionId", "targetPageId") REFERENCES "PageVersion"("id", "pageId") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "CollaborationTaskAttempt" ADD CONSTRAINT "CollaborationTaskAttempt_basePageVersionId_fkey" FOREIGN KEY ("basePageVersionId") REFERENCES "PageVersion"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 ALTER TABLE "TemplateInstantiation" ADD CONSTRAINT "TemplateInstantiation_spaceId_fkey" FOREIGN KEY ("spaceId") REFERENCES "Space"("id") ON DELETE CASCADE ON UPDATE CASCADE;
