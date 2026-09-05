@@ -104,3 +104,146 @@ The first recovered full-client PTY (`90884`) was no longer available after the 
 - Reviewed responsive/accessibility fit: the existing stacked mobile layout and responsive grids remain intact; new actions use native buttons/links, visible status/alert roles, disabled busy states, and opener focus restoration.
 - No known functional blocker remains in this UI slice. The build chunk-size warning is pre-existing/non-blocking.
 - This task did not perform real Chrome, external-Agent, production, push, npm, protected Sync, attachment, or Markdown-image-rewrite acceptance. Real browser and external Agent end-to-end acceptance remains Task 13b and is not claimed here.
+
+## Fix round 1 — existing Folder next Run
+
+Base: `bf16adecf8ca69009d5bc6ec496afda5304e3f48`.
+
+The exact original Task 12c RED command was not retained in the recovered session evidence, so it remains unavailable rather than being reconstructed. This fix round recorded a new exact behavioral RED:
+
+```text
+npm exec vitest -- run \
+  src/features/page-templates/PageAgentBindingDialog.spec.tsx \
+  src/features/page-templates/compositeTemplateApi.spec.ts \
+  src/features/page-templates/CollaborationSettingsPanel.spec.tsx \
+  --reporter=verbose
+
+Exit 1. 3 files: 6 failed / 15 passed.
+Expected failures: explicit keep-vs-bulk binding controls were absent; heterogeneous
+defaults were collapsed into bulk edits; required workflow inputs and role overrides
+had no controls; matched preview revision 19 was not used over initial revision 18;
+and clearing a numeric input produced 0 instead of removing the value.
+```
+
+Focused GREEN after the minimal implementation and test-locator correction:
+
+```text
+npm exec vitest -- run \
+  src/features/page-templates/PageAgentBindingDialog.spec.tsx \
+  src/features/page-templates/compositeTemplateApi.spec.ts \
+  src/features/page-templates/CollaborationSettingsPanel.spec.tsx \
+  --reporter=dot
+
+Exit 0. 3/3 files passed; 21/21 tests passed in 802ms.
+```
+
+Self-review regression RED/GREEN for explicit bulk unbind:
+
+```text
+npm exec vitest -- run src/features/page-templates/PageAgentBindingDialog.spec.tsx \
+  -t 'allows an explicit Folder bulk unbind' --reporter=dot
+
+RED: exit 1, 1 failed / 8 skipped because the new no-Agent guard also blocked
+the existing save-only bulk-unbind operation.
+GREEN: exit 0, 1 passed / 8 skipped in 793ms after limiting that guard to Start.
+```
+
+Final focused and adjacent shared-control regression:
+
+```text
+npm exec vitest -- run \
+  src/features/page-templates/PageAgentBindingDialog.spec.tsx \
+  src/features/page-templates/compositeTemplateApi.spec.ts \
+  src/features/page-templates/CollaborationSettingsPanel.spec.tsx \
+  src/features/page-templates/NewPageDialog.composite.spec.tsx \
+  src/features/page-templates/NewPageDialog.spec.tsx \
+  src/features/collaboration/components/RoleBindingEditor.test.tsx \
+  src/i18n/page-template-messages.spec.tsx --reporter=dot
+
+Exit 0. 7/7 files passed; 189/189 tests passed in 2.55s.
+```
+
+Task-choice persistence RED after review of the preview lifecycle:
+
+```text
+npm exec vitest -- run src/features/page-templates/PageAgentBindingDialog.spec.tsx \
+  -t 'keeps disabled task choices' --reporter=dot
+
+Exit 1. 1 failed / 9 skipped: after a second preview returned only the enabled
+task, the disabled `Polish` task disappeared and could not be selected again.
+```
+
+Task-choice persistence GREEN:
+
+```text
+npm exec vitest -- run src/features/page-templates/PageAgentBindingDialog.spec.tsx \
+  -t 'keeps disabled task choices' --reporter=dot
+
+Exit 0. 1 passed / 9 skipped in 780ms. The settings panel retains the current
+source's complete task-option catalog while the authoritative preview remains the
+server-returned enabled subset; switching source resets that catalog and Run-only settings.
+```
+
+Fresh focused and adjacent regression after the task-option fix:
+
+```text
+npm exec vitest -- run \
+  src/features/page-templates/PageAgentBindingDialog.spec.tsx \
+  src/features/page-templates/compositeTemplateApi.spec.ts \
+  src/features/page-templates/CollaborationSettingsPanel.spec.tsx \
+  src/features/page-templates/NewPageDialog.composite.spec.tsx \
+  src/features/page-templates/NewPageDialog.spec.tsx \
+  src/features/collaboration/components/RoleBindingEditor.test.tsx \
+  src/i18n/page-template-messages.spec.tsx --reporter=dot
+
+Exit 0. 7/7 files passed; 190/190 tests passed in 1.53s.
+```
+
+Fresh full-client regression on the fix1 tree:
+
+```text
+npm test
+
+Exit 0. 92/92 files passed; 1218/1218 tests passed in 11.93s.
+Full output: /tmp/task12c-fix1-client-test.log
+```
+
+```text
+npx tsc --noEmit
+
+Exit 0, no diagnostics. Output: /tmp/task12c-fix1-types.log
+```
+
+```text
+npm run lint
+
+Exit 0, no ESLint findings. Output: /tmp/task12c-fix1-lint.log
+```
+
+```text
+npm run build
+
+Exit 0. TypeScript and Vite production build passed; 4753 modules transformed,
+built in 4.74s. Known chunk-size warning only. Full output:
+/tmp/task12c-fix1-build.log
+```
+
+```text
+git --git-dir='/Users/neomei/.codex/worktrees/69d8/AgentWiki /.git' \
+  --work-tree='/Users/neomei/.codex/worktrees/69d8/AgentWiki ' diff --check
+
+Exit 0, clean.
+```
+
+Fix1 self-review confirms:
+
+- default Folder next-Run payloads omit `bindingEdits` and preserve heterogeneous
+  Page defaults; only the explicit bulk mode sends versioned per-Page edits;
+- save-only explicit bulk unbind remains available, while bulk Start without an
+  execution Agent remains blocked;
+- workflow inputs, Run-only role overrides, and explicit task scope are previewed
+  and sent without persisting role overrides into Page bindings;
+- Start uses the exact latest matching preview `treeRevision`; bulk binding edits
+  keep their independent `expectedUpdatedAt` CAS values;
+- task options survive subset previews so a disabled task can be re-enabled, and
+  source changes reset the source-specific task catalog and Run settings.

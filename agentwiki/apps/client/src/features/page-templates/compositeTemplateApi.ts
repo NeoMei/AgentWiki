@@ -229,8 +229,9 @@ export async function startExistingFolderRun(spaceId: string, folderId: string, 
   pageIds: string[];
   collaborationInputs: Record<string, string | number | boolean>;
   bindings: Array<{ kind: 'task_default' | 'role_override'; nodeId?: string; roleSlotId: string; agentId: string }>;
-  bindingEdits: PageAgentBindingEdit[];
-  roleSlotsByPage: Array<{ pageId: string; roleSlotKey: string | null }>;
+  enabledTaskNodeIds?: string[];
+  bindingEdits?: PageAgentBindingEdit[];
+  roleSlotsByPage?: Array<{ pageId: string; roleSlotKey: string | null }>;
   name: string;
   expectedTreeRevision: string;
   idempotencyKey: string;
@@ -243,8 +244,9 @@ export async function previewExistingFolderRun(spaceId: string, folderId: string
   pageIds: string[];
   collaborationInputs: Record<string, string | number | boolean>;
   bindings: Array<{ kind: 'task_default' | 'role_override'; nodeId?: string; roleSlotId: string; agentId: string }>;
-  bindingEdits: PageAgentBindingEdit[];
-  roleSlotsByPage: Array<{ pageId: string; roleSlotKey: string | null }>;
+  enabledTaskNodeIds?: string[];
+  bindingEdits?: PageAgentBindingEdit[];
+  roleSlotsByPage?: Array<{ pageId: string; roleSlotKey: string | null }>;
 }, signal?: AbortSignal): Promise<ExistingRunPreview> {
   return (await api.post<ExistingRunPreview>(
     `${spacePath(spaceId)}/folders/${segment(folderId)}/collaboration-runs/preview`, input, { signal },

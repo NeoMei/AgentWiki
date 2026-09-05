@@ -16,6 +16,7 @@ import {
   restoreCompositeTemplate,
   saveFolderTemplate,
   setPageAgentBinding,
+  startExistingFolderRun,
   startExistingPageRun,
   updateCompositeTemplateMetadata,
   upgradeLegacyWorkflow,
@@ -88,6 +89,21 @@ describe('compositeTemplateApi', () => {
     expect(api.post).toHaveBeenCalledWith(
       '/spaces/space%2F1/folders/folder%2F1/collaboration-runs/preview', input, { signal: controller.signal },
     );
+  });
+
+  it('forwards actionable Folder Run inputs, role overrides, task scope and matched preview revision', async () => {
+    const input = {
+      source: { kind: 'template_instantiation' as const, sourceInstantiationId: 'instantiation-1' },
+      pageIds: ['page-1'], collaborationInputs: { brief: 'Release' },
+      bindings: [{ kind: 'role_override' as const, roleSlotId: 'reviewer', agentId: 'agent-2' }],
+      enabledTaskNodeIds: ['review'], bindingEdits: [], roleSlotsByPage: [],
+      name: 'Next run', expectedTreeRevision: '19', idempotencyKey: 'start-12345678',
+    };
+    vi.mocked(api.post).mockResolvedValue({ data: { runId: 'run-next' } });
+
+    await startExistingFolderRun('space', 'folder', input);
+
+    expect(api.post).toHaveBeenCalledWith('/spaces/space/folders/folder/collaboration-runs', input, { signal: undefined });
   });
 
   it('uses the composite management routes and keeps CAS tokens in every write', async () => {

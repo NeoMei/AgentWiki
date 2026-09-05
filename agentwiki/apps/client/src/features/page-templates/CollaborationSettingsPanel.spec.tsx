@@ -61,6 +61,21 @@ describe('CollaborationSettingsPanel', () => {
     expect(screen.getByRole('option', { name: /Reader.*Reader/ })).toBeDisabled();
   });
 
+  it('keeps a cleared numeric workflow input missing instead of converting it to zero', () => {
+    const onChange = vi.fn();
+    render(<LanguageProvider><CollaborationSettingsPanel
+      spaceId="space-1" roles={[]}
+      inputs={[{ key: 'limit', label: '数量', type: 'number', required: true }]}
+      tasks={[]} agents={[]} bindings={[]} inputValues={{ limit: 3 }}
+      enabledTaskNodeIds={[]} participants={[]}
+      onRefreshAgents={async () => []} onChange={onChange}
+    /></LanguageProvider>);
+
+    fireEvent.change(screen.getByLabelText('数量'), { target: { value: '' } });
+
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ inputValues: {} }));
+  });
+
   it('refreshes authoritative members and reconciles a prepared Agent before binding it', async () => {
     const refreshed = [{
       type: 'agent' as const, agentId: 'agent-new', role: 'editor',

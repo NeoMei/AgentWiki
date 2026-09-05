@@ -51,7 +51,12 @@ export const CollaborationSettingsPanel: React.FC<{
           value={String(inputValues[input.key] ?? '')} onChange={(event) => onChange({ bindings, enabledTaskNodeIds, inputValues: { ...inputValues, [input.key]: event.target.value } })}
           className="mt-1 min-h-24 w-full rounded-lg border px-3 py-2" /> : <input required={input.required} aria-label={input.label}
           type={input.type === 'number' ? 'number' : input.type === 'url' ? 'url' : 'text'} value={String(inputValues[input.key] ?? '')}
-          onChange={(event) => onChange({ bindings, enabledTaskNodeIds, inputValues: { ...inputValues, [input.key]: input.type === 'number' ? Number(event.target.value) : event.target.value } })}
+          onChange={(event) => {
+            const next = { ...inputValues };
+            if (input.type === 'number' && event.target.value === '') delete next[input.key];
+            else next[input.key] = input.type === 'number' ? Number(event.target.value) : event.target.value;
+            onChange({ bindings, enabledTaskNodeIds, inputValues: next });
+          }}
           className="mt-1 min-h-10 w-full rounded-lg border px-3" />}
       </label>)}</div></div> : null}
     {tasks.length ? <fieldset><legend className="text-base font-semibold">{t('pageTemplate.composite.taskScope')}</legend>
