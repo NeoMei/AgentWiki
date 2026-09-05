@@ -3,6 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { isolatedServerTestEnvironment } from './server-test-harness-environment.mjs';
+
 const script = fileURLToPath(new URL('./server-test-harness.mjs', import.meta.url));
 
 test('server test harness fails closed without a dedicated database', () => {
@@ -28,4 +30,19 @@ test('server test harness declares random schema isolation without leaking crede
     databaseIsolation: 'random collaboration_test_* schema',
   });
   assert.doesNotMatch(result.stdout, /secret|postgresql:\/\//u);
+});
+
+test('server test harness propagates the generated schema to Sync v3 without exposing the base database', () => {
+  const generatedDatabaseUrl = 'postgresql://tester:secret@127.0.0.1/agentwiki_test?schema=collaboration_test_generated';
+  const environment = isolatedServerTestEnvironment(
+    {
+      DATABASE_URL: 'postgresql://tester:base-secret@127.0.0.1/agentwiki_test',
+      SYNC_V3_TEST_DATABASE_URL: 'postgresql://tester:base-secret@127.0.0.1/agentwiki_test',
+    },
+    generatedDatabaseUrl,
+  );
+
+  assert.equal(environment.DATABASE_URL, generatedDatabaseUrl);
+  assert.equal(environment.COLLABORATION_TEST_DATABASE_URL, generatedDatabaseUrl);
+  assert.equal(environment.SYNC_V3_TEST_DATABASE_URL, generatedDatabaseUrl);
 });

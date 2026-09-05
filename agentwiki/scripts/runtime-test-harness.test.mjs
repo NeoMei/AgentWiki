@@ -60,6 +60,19 @@ test('runtime plan assigns every test exactly once and serializes only database 
   assert.ok(inventory.filter((name) => name.endsWith('-db.test.mjs'))
     .every((name) => plan.databaseTests.includes(name)));
   assert.ok(plan.databaseTests.includes('composite-template-effects-policy-db.test.mjs'));
+  for (const requiredGate of [
+    'composite-template-schema-db.test.mjs',
+    'composite-template-catalog-db.test.mjs',
+    'composite-template-instantiation-db.test.mjs',
+    'page-agent-binding-db.test.mjs',
+    'composite-template-snapshot-db.test.mjs',
+    'collaboration-page-publication-db.test.mjs',
+    'collaboration-page-conflict-db.test.mjs',
+    'composite-template-effects-policy-db.test.mjs',
+    'composite-template-e2e-db.test.mjs',
+  ]) {
+    assert.ok(plan.databaseTests.includes(requiredGate), `missing required DB gate: ${requiredGate}`);
+  }
   assert.ok(plan.parallelTests.length >= 19, 'non-database runtime suites must remain parallel');
   assert.equal(plan.parallelArgs[0], '--test');
   assert.equal(plan.parallelArgs.includes('--test-concurrency=1'), false);

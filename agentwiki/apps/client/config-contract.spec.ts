@@ -56,4 +56,20 @@ describe('local development target contract', () => {
     const configured = (await import('./playwright.config.ts')).default as { use?: { baseURL?: string } };
     expect(configured.use?.baseURL).toBe('https://qa.example.test:7443');
   });
+
+  it('routes the Vite API and socket proxies to one explicit loopback acceptance origin', async () => {
+    vi.stubEnv('AGENTWIKI_DEV_API_ORIGIN', 'http://127.0.0.1:43123');
+    vi.resetModules();
+    const configured = (await import('./vite.config.ts')).default as {
+      server?: { proxy?: Record<string, { target?: string }> };
+    };
+    expect(configured.server?.proxy?.['/api']?.target).toBe('http://127.0.0.1:43123');
+    expect(configured.server?.proxy?.['/socket.io']?.target).toBe('http://127.0.0.1:43123');
+  });
+
+  it('rejects a non-loopback Vite acceptance proxy target', async () => {
+    vi.stubEnv('AGENTWIKI_DEV_API_ORIGIN', 'https://production.example.test');
+    vi.resetModules();
+    await expect(import('./vite.config.ts')).rejects.toThrow(/loopback/u);
+  });
 });

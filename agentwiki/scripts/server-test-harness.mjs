@@ -7,6 +7,7 @@ import {
   withCollaborationTestDatabase,
 } from './collaboration-test-database.mjs';
 import { spawnPnpmSync } from './package-manager-process.mjs';
+import { isolatedServerTestEnvironment } from './server-test-harness-environment.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const command = process.argv[2];
@@ -25,11 +26,7 @@ if (command === 'plan') {
       cwd: root,
       encoding: 'utf8',
       timeout: 15 * 60_000,
-      env: {
-        ...process.env,
-        DATABASE_URL: databaseUrl,
-        COLLABORATION_TEST_DATABASE_URL: databaseUrl,
-      },
+      env: isolatedServerTestEnvironment(process.env, databaseUrl),
       maxBuffer: 64 * 1024 * 1024,
     });
     process.stdout.write(result.stdout ?? '');
