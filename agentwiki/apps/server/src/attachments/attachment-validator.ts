@@ -4,6 +4,7 @@ import { lstat, open } from 'node:fs/promises';
 import { extname } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import type * as FileType from 'file-type';
+import { FlatAttachmentPathSchema } from '@neomei/agentwiki-sync-protocol';
 import type { AttachmentConfig } from './attachment.config';
 
 const MAX_FILENAME_CODE_POINTS = 200;
@@ -132,6 +133,12 @@ export function validateAttachmentFilename(originalName: string): { displayName:
   }
   if (Buffer.byteLength(displayName, 'utf8') > MAX_FILENAME_UTF8_BYTES) {
     throw new AttachmentValidationError('Attachment filename exceeds 512 UTF-8 bytes');
+  }
+  if (
+    /\.(?:png|jpe?g|webp|gif)$/iu.test(displayName)
+    && !FlatAttachmentPathSchema.safeParse(`assets/${displayName}`).success
+  ) {
+    throw new AttachmentValidationError('Attachment filename cannot round-trip through Markdown');
   }
   return { displayName, nameKey: displayName.toLocaleLowerCase('und') };
 }

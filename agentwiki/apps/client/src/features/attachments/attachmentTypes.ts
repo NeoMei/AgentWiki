@@ -44,16 +44,11 @@ export interface AttachmentRenamePreview {
   attachmentId: string;
   displayName: string;
   path: string;
-  expectedUpdatedAt: string;
-  expectedTreeRevision: string;
+  previewToken: string;
   impactedPages: AttachmentImpactedPage[];
 }
 
-export interface AttachmentRenameConfirm {
-  displayName: string;
-  expectedUpdatedAt: string;
-  expectedTreeRevision: string;
-}
+export interface AttachmentRenameConfirm { previewToken: string }
 
 export interface AttachmentRenameResult extends AttachmentSummary {
   path: string;

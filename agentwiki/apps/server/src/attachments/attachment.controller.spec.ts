@@ -112,7 +112,7 @@ describe('attachment controllers', () => {
     await spaces.archive(request, 'space-1', 'attachment-1', state);
     await spaces.restore(request, 'space-1', 'attachment-1', state);
     const preview = { displayName: 'renamed.png' };
-    const confirm = { ...preview, expectedUpdatedAt: state.expectedUpdatedAt, expectedTreeRevision: '7' };
+    const confirm = { previewToken: 'signed-preview-token' };
     await spaces.previewRename(request, 'space-1', 'attachment-1', preview);
     await spaces.rename(request, 'space-1', 'attachment-1', confirm);
 

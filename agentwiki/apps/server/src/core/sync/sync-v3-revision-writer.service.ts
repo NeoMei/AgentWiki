@@ -388,11 +388,16 @@ export class SyncV3RevisionWriterService {
     spaceId: string,
     changes: Array<PageChange | StructuralPageChange>,
     origin: RevisionOrigin,
+    options: { forceNative?: boolean } = {},
   ): Promise<SyncV3RevisionWriteResult | null> {
-    const inspection = await this.inspectLiveCurrentLocked(tx, spaceId);
+    const inspection = await this.inspectLiveCurrentLocked(
+      tx,
+      spaceId,
+      options.forceNative ? true : undefined,
+    );
     if (inspection.mode === 'legacy_v2') return null;
     const blocker = inspection.blockers[0];
-    if (inspection.mode === 'bootstrap_required' && changes.length === 0) {
+    if (inspection.mode === 'bootstrap_required' && changes.length === 0 && !options.forceNative) {
       if (blocker) {
         throw new SyncApiException(
           blocker.code,

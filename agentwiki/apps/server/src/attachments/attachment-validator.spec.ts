@@ -4,6 +4,7 @@ import { extname, join } from 'node:path';
 import type { AttachmentConfig } from './attachment.config';
 import {
   AttachmentValidationError,
+  validateAttachmentFilename,
   validateStagedImage,
   validateUploadedImage,
 } from './attachment-validator';
@@ -253,5 +254,30 @@ describe('validateUploadedImage', () => {
     );
 
     await expect(validateUploadedImage(file, config(root))).rejects.toThrow('image');
+  });
+});
+
+describe('validateAttachmentFilename', () => {
+  it.each([
+    'bad|alias.png',
+    'bad]]close.png',
+    'bad%.png',
+    'bad%2G.png',
+    'a%20b.png',
+    'a#b.png',
+    'bad:name.png',
+  ])('rejects a managed filename that cannot round-trip through Markdown %j', (filename) => {
+    expect(() => validateAttachmentFilename(filename)).toThrow(AttachmentValidationError);
+  });
+
+  it.each([
+    'road map (final).png',
+    '路线图（最终）.webp',
+    'emoji 🖼️.gif',
+  ])('accepts a managed filename that round-trips through Markdown %j', (filename) => {
+    expect(validateAttachmentFilename(filename)).toEqual({
+      displayName: filename.normalize('NFC'),
+      nameKey: filename.normalize('NFC').toLocaleLowerCase('und'),
+    });
   });
 });

@@ -601,6 +601,16 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
 
   test('previews and confirms a referenced rename, then blocks archive without a force action', async ({ browser }) => {
     test.setTimeout(120_000);
+    editorPage = await json<PersistedPage>(
+      await api.get(`pages/${editorPage.id}`, { headers: headers(owner) }),
+      'read current attachment editor Page',
+    );
+    if (!editorPage.content.includes('![[assets/same-name.png]]')) {
+      editorPage = await updatePage(
+        editorPage,
+        `${editorPage.content}\n\n![[assets/same-name.png]]`,
+      );
+    }
     const ownerSession = await authenticatedPage(browser, owner);
     try {
       const page = ownerSession.page;
@@ -610,6 +620,19 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       await expect(picker).toBeVisible();
 
       await picker.getByRole('button', { name: 'Rename same-name.png' }).click();
+      const invalidPreviewResponse = page.waitForResponse((response) => (
+        response.request().method() === 'POST'
+        && response.url().endsWith('/rename/preview')
+      ));
+      await picker.getByRole('textbox', { name: 'New attachment name' }).fill('bad]]name.png');
+      await picker.getByRole('button', { name: 'Preview rename' }).click();
+      expect((await invalidPreviewResponse).status()).toBe(400);
+      await expect(picker.getByRole('alert')).toContainText('not valid');
+      await expect(picker.getByRole('textbox', { name: 'New attachment name' })).toHaveValue('bad]]name.png');
+      await expect(picker.getByRole('button', { name: 'Confirm rename' })).toHaveCount(0);
+      await expect.poll(() => consoleIssues.filter((issue) => issue.includes('400 (Bad Request)')).length).toBe(1);
+      consoleIssues = consoleIssues.filter((issue) => !issue.includes('400 (Bad Request)'));
+
       await picker.getByRole('textbox', { name: 'New attachment name' }).fill('renamed-reference.png');
       await picker.getByRole('button', { name: 'Preview rename' }).click();
       await expect(picker.getByText('assets/renamed-reference.png')).toBeVisible();
@@ -617,6 +640,21 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       await expect(picker.getByText(anchorPage.title, { exact: true })).toHaveCount(1);
       await expect(picker.getByRole('button', { name: /force/iu })).toHaveCount(0);
 
+      anchorPage = await updatePage(
+        anchorPage,
+        `${anchorPage.content}\n\n![[assets/same-name.png]]`,
+      );
+      const staleConfirmResponse = page.waitForResponse((response) => (
+        response.request().method() === 'POST'
+        && response.url().endsWith('/rename')
+      ));
+      await picker.getByRole('button', { name: 'Confirm rename' }).click();
+      expect((await staleConfirmResponse).status()).toBe(409);
+      await expect(picker.getByRole('alert')).toContainText('Preview the rename again');
+      await expect(picker.getByRole('button', { name: 'Confirm rename' })).toHaveCount(0);
+      await expect.poll(() => consoleIssues.filter((issue) => issue.includes('409 (Conflict)')).length).toBe(1);
+      consoleIssues = consoleIssues.filter((issue) => !issue.includes('409 (Conflict)'));
+      await picker.getByRole('button', { name: 'Preview rename' }).click();
       await picker.getByRole('button', { name: 'Confirm rename' }).click();
       await expect(picker.getByRole('listitem', { name: 'renamed-reference.png' })).toBeVisible();
       await expect(picker.getByRole('listitem', { name: 'same-name.png' })).toHaveCount(0);

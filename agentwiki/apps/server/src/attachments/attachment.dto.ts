@@ -38,16 +38,12 @@ export class AttachmentRenamePreviewDto {
   displayName!: string;
 }
 
-export class AttachmentRenameConfirmDto extends AttachmentRenamePreviewDto {
-  @PreserveRawInput()
-  @IsISO8601({ strict: true, strictSeparator: true })
-  @Matches(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/)
-  expectedUpdatedAt!: string;
-
+export class AttachmentRenameConfirmDto {
   @PreserveRawInput()
   @IsString()
-  @Matches(/^(?:0|[1-9][0-9]*)$/)
-  expectedTreeRevision!: string;
+  @MinLength(1)
+  @MaxLength(16_384)
+  previewToken!: string;
 }
 
 export interface AttachmentImpactedPage {
@@ -59,8 +55,7 @@ export interface AttachmentRenamePreview {
   attachmentId: string;
   displayName: string;
   path: string;
-  expectedUpdatedAt: string;
-  expectedTreeRevision: string;
+  previewToken: string;
   impactedPages: AttachmentImpactedPage[];
 }
 

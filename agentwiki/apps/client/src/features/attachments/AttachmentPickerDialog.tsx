@@ -268,9 +268,7 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
     setError(null);
     try {
       const renamed = await renameAttachment(spaceId, renameItem.id, {
-        displayName: renamePreview.displayName,
-        expectedUpdatedAt: renamePreview.expectedUpdatedAt,
-        expectedTreeRevision: renamePreview.expectedTreeRevision,
+        previewToken: renamePreview.previewToken,
       });
       if (!aliveRef.current) return;
       const message = t('attachment.renamed', { name: renamed.displayName });

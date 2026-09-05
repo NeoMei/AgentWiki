@@ -109,7 +109,7 @@ describe('attachmentApi', () => {
   it('previews then confirms rename using the exact server concurrency tokens', async () => {
     const preview = {
       attachmentId: 'attachment-1', displayName: 'renamed.png', path: 'assets/renamed.png',
-      expectedUpdatedAt: '2026-08-27T01:01:00.000Z', expectedTreeRevision: '17',
+      previewToken: 'v1.server-verifiable-preview-token',
       impactedPages: [{ id: 'page-1', title: 'Page A' }, { id: 'page-2', title: 'Page B' }],
     };
     vi.mocked(api.post)
@@ -118,9 +118,7 @@ describe('attachmentApi', () => {
     const signal = new AbortController().signal;
     const received = await previewAttachmentRename('space /', 'attachment /?#', 'renamed.png', signal);
     await renameAttachment('space /', 'attachment /?#', {
-      displayName: received.displayName,
-      expectedUpdatedAt: received.expectedUpdatedAt,
-      expectedTreeRevision: received.expectedTreeRevision,
+      previewToken: received.previewToken,
     }, signal);
 
     expect(api.post).toHaveBeenNthCalledWith(1,
@@ -128,7 +126,7 @@ describe('attachmentApi', () => {
       { displayName: 'renamed.png' }, { signal });
     expect(api.post).toHaveBeenNthCalledWith(2,
       '/spaces/space%20%2F/attachments/attachment%20%2F%3F%23/rename',
-      { displayName: 'renamed.png', expectedUpdatedAt: preview.expectedUpdatedAt, expectedTreeRevision: '17' },
+      { previewToken: preview.previewToken },
       { signal });
   });
 

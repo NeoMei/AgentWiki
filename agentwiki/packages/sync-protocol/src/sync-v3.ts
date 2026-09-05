@@ -102,7 +102,14 @@ export const FlatAttachmentPathSchema = z.string().transform((value, context) =>
     const parts = path.split("/");
     if (parts.length !== 2 || parts[0] !== "assets")
       throw new TypeError("Attachment path must be a flat path under assets/");
-    if (!/\.(?:png|jpe?g|webp|gif)$/iu.test(parts[1] ?? ""))
+    const filename = parts[1] ?? "";
+    if (filename.includes("]]"))
+      throw new TypeError("Attachment path cannot contain a Markdown closing delimiter");
+    if (filename.includes("%"))
+      throw new TypeError("Attachment path cannot contain a literal percent character");
+    if (filename.includes("#"))
+      throw new TypeError("Attachment path cannot contain a Markdown fragment delimiter");
+    if (!/\.(?:png|jpe?g|webp|gif)$/iu.test(filename))
       throw new TypeError("Attachment path must use a supported image extension");
     return path;
   } catch (error) {

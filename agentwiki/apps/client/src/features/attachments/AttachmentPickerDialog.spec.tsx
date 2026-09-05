@@ -275,7 +275,7 @@ describe('AttachmentPickerDialog', () => {
   it('previews and confirms a rename with exact tokens, impacted Pages and accessible keyboard cancellation', async () => {
     const preview = {
       attachmentId: 'attachment-1', displayName: 'renamed.png', path: 'assets/renamed.png',
-      expectedUpdatedAt: '2026-08-27T01:01:00Z', expectedTreeRevision: '17',
+      previewToken: 'v1.server-verifiable-preview-token',
       impactedPages: [{ id: 'page-a', title: 'Page A' }, { id: 'page-b', title: 'Page B' }],
     };
     mocks.previewAttachmentRename.mockResolvedValue(preview);
@@ -306,9 +306,7 @@ describe('AttachmentPickerDialog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Confirm rename' }));
     expect(mocks.renameAttachment).toHaveBeenCalledWith('space-1', 'attachment-1', {
-      displayName: 'renamed.png',
-      expectedUpdatedAt: '2026-08-27T01:01:00Z',
-      expectedTreeRevision: '17',
+      previewToken: preview.previewToken,
     });
   });
 
@@ -332,7 +330,7 @@ describe('AttachmentPickerDialog', () => {
   it('discards stale confirm tokens and requires a fresh preview before retrying', async () => {
     mocks.previewAttachmentRename.mockResolvedValue({
       attachmentId: 'attachment-1', displayName: 'renamed.png', path: 'assets/renamed.png',
-      expectedUpdatedAt: '2026-08-27T01:01:00Z', expectedTreeRevision: '17', impactedPages: [],
+      previewToken: 'v1.server-verifiable-preview-token', impactedPages: [],
     });
     mocks.renameAttachment.mockRejectedValue({ response: { status: 409, data: { code: 'CONTENT_TREE_CONFLICT' } } });
     renderDialog();

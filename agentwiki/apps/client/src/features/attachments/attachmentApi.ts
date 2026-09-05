@@ -160,8 +160,7 @@ export async function previewAttachmentRename(
     attachmentId: stringField(response.data, 'attachmentId'),
     displayName: stringField(response.data, 'displayName'),
     path: stringField(response.data, 'path'),
-    expectedUpdatedAt: stringField(response.data, 'expectedUpdatedAt'),
-    expectedTreeRevision: stringField(response.data, 'expectedTreeRevision'),
+    previewToken: stringField(response.data, 'previewToken'),
     impactedPages: impactedPages(response.data.impactedPages),
   };
 }

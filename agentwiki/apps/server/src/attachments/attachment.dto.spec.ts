@@ -86,18 +86,17 @@ describe('attachment DTO validation', () => {
     })).rejects.toMatchObject({ status: 400 });
   });
 
-  it('requires exact preview concurrency tokens for rename confirmation', async () => {
-    const valid = {
-      displayName: 'Renamed image.png',
-      expectedUpdatedAt: '2026-09-05T00:00:00.000Z',
-      expectedTreeRevision: '17',
-    };
+  it('requires only the opaque preview token for rename confirmation', async () => {
+    const valid = { previewToken: 'v1.valid-preview-token' };
     await expect(transformBody(AttachmentRenameConfirmDto, valid))
       .resolves.toEqual(valid);
     for (const input of [
-      { ...valid, expectedUpdatedAt: 'today' },
-      { ...valid, expectedTreeRevision: 17 },
-      { ...valid, expectedTreeRevision: '01' },
+      { previewToken: '' },
+      { previewToken: 17 },
+      { previewToken: 'x'.repeat(16_385) },
+      { ...valid, displayName: 'swapped.png' },
+      { ...valid, expectedUpdatedAt: '2026-09-05T00:00:00.000Z' },
+      { ...valid, expectedTreeRevision: '17' },
       { ...valid, extra: 'not-allowed' },
     ]) {
       await expect(transformBody(AttachmentRenameConfirmDto, input))

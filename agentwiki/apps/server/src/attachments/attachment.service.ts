@@ -1,7 +1,8 @@
 import { extname, posix } from 'node:path';
+import { createHash } from 'node:crypto';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma, SpaceAttachmentStatus, type SpaceAttachment } from '@prisma/client';
-import { FlatAttachmentPathSchema } from '@neomei/agentwiki-sync-protocol';
+import { canonicalBytes, FlatAttachmentPathSchema } from '@neomei/agentwiki-sync-protocol';
 import { AuthorizationService, type Principal } from '../core/authorization/authorization.service';
 import { BusinessException } from '../core/filters/business-error';
 import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.service';
@@ -33,6 +34,10 @@ import {
   type PreparedAttachment,
 } from './attachment-validator';
 import { normalizeAttachmentName } from './attachment-name';
+import {
+  AttachmentRenamePreviewTokenService,
+  type AttachmentRenamePreviewTokenPayload,
+} from './attachment-rename-preview-token.service';
 import {
   parseImageReferences,
   resolveParsedAttachmentReferences,
@@ -76,7 +81,14 @@ type RenamePage = {
   updatedAt: Date;
 };
 
-type RenamePageChange = { page: RenamePage; content: string };
+type RenamePageChange = {
+  page: RenamePage;
+  content: string;
+  sourceRanges: Array<{ start: number; end: number }>;
+  bodyHash: string;
+};
+
+type RevisionHeadEvidence = { id: string; hash: string } | null;
 
 const MIME_EXTENSION = new Map([
   ['.png', 'image/png'],
@@ -182,6 +194,18 @@ function markdownRenameTarget(
     .join('/');
 }
 
+function renameEvidenceHash(changes: readonly RenamePageChange[]): string {
+  const evidence = [...changes]
+    .sort((left, right) => left.page.id.localeCompare(right.page.id))
+    .map(({ page, bodyHash, sourceRanges }) => ({
+      pageId: page.id,
+      updatedAt: page.updatedAt.toISOString(),
+      bodyHash,
+      sourceRanges: [...sourceRanges].sort((left, right) => left.start - right.start || left.end - right.end),
+    }));
+  return createHash('sha256').update(canonicalBytes(evidence)).digest('hex');
+}
+
 @Injectable()
 export class AttachmentService {
   private readonly logger = new Logger(AttachmentService.name);
@@ -194,6 +218,7 @@ export class AttachmentService {
     @Inject(ATTACHMENT_CONFIG) private readonly config: AttachmentConfig,
     private readonly searchService: SearchService,
     private readonly graphMaintenance: GraphMaintenance,
+    private readonly renamePreviewTokens: AttachmentRenamePreviewTokenService,
   ) {}
 
   async list(
@@ -321,12 +346,23 @@ export class AttachmentService {
     const pageChanges = await this.buildRenamePageChanges(
       this.prisma, spaceId, attachmentId, target.displayName,
     );
+    const head = await this.currentRevisionHead(this.prisma, spaceId);
+    const previewToken = this.renamePreviewTokens.encode({
+      spaceId,
+      attachmentId,
+      sourcePath: this.currentManagedPath(attachment.displayName),
+      targetPath: target.path,
+      displayName: target.displayName,
+      attachmentUpdatedAt: attachment.updatedAt.toISOString(),
+      contentTreeRevision: space.contentTreeRevision.toString(10),
+      head,
+      evidenceHash: renameEvidenceHash(pageChanges),
+    });
     return {
       attachmentId,
       displayName: target.displayName,
       path: target.path,
-      expectedUpdatedAt: attachment.updatedAt.toISOString(),
-      expectedTreeRevision: space.contentTreeRevision.toString(10),
+      previewToken,
       impactedPages: pageChanges.map(({ page }) => ({ id: page.id, title: page.title })),
     };
   }
@@ -337,26 +373,41 @@ export class AttachmentService {
     body: AttachmentRenameConfirmDto,
     principal: Principal,
   ): Promise<AttachmentSummary & { path: string; impactedPages: Array<{ id: string; title: string }> }> {
+    const preview = this.renamePreviewTokens.decode(body.previewToken, spaceId, attachmentId);
     const result = await this.prisma.$transaction(async (tx) => {
       await this.authorization.lockLiveHumanPrincipal(tx, principal);
       const lockedTx = await this.revisionWriter.lockContentTreeSpace(tx, spaceId);
       if (!lockedTx) throw new BusinessException('SPACE_NOT_FOUND');
       await this.assertWritableHuman(lockedTx, principal, spaceId);
-      if (lockedTx.contentTreeRevision.toString(10) !== body.expectedTreeRevision) {
+      if (lockedTx.contentTreeRevision.toString(10) !== preview.contentTreeRevision) {
         throw new BusinessException('CONTENT_TREE_CONFLICT');
       }
       const attachment = await lockedTx.spaceAttachment.findFirst({
         where: { id: attachmentId, spaceId, status: SpaceAttachmentStatus.active },
       });
       if (!attachment) throw new BusinessException('RESOURCE_NOT_FOUND', 'Attachment not found');
-      if (attachment.updatedAt.getTime() !== new Date(body.expectedUpdatedAt).getTime()) {
+      if (attachment.updatedAt.toISOString() !== preview.attachmentUpdatedAt) {
         throw new BusinessException('RESOURCE_CONFLICT', 'Attachment changed; preview again');
       }
-      const target = this.renameTarget(body.displayName, attachment.mimeType);
+      const sourcePath = FlatAttachmentPathSchema.safeParse(`assets/${attachment.displayName}`);
+      if (!sourcePath.success || sourcePath.data !== preview.sourcePath) {
+        throw new BusinessException('RESOURCE_CONFLICT', 'Attachment changed; preview again');
+      }
+      const currentHead = await this.currentRevisionHead(lockedTx, spaceId);
+      if (!this.sameRevisionHead(currentHead, preview.head)) {
+        throw new BusinessException('CONTENT_TREE_CONFLICT', 'Space content changed; preview again');
+      }
+      const target = this.renameTarget(preview.displayName, attachment.mimeType);
+      if (target.path !== preview.targetPath) {
+        throw new BusinessException('RESOURCE_CONFLICT', 'Rename preview target is invalid; preview again');
+      }
       await this.assertRenameNameAvailable(lockedTx, spaceId, attachmentId, target.nameKey);
       const pageChanges = await this.buildRenamePageChanges(
         lockedTx, spaceId, attachmentId, target.displayName,
       );
+      if (renameEvidenceHash(pageChanges) !== preview.evidenceHash) {
+        throw new BusinessException('CONTENT_TREE_CONFLICT', 'Page references changed; preview again');
+      }
 
       const changedAttachment = await lockedTx.spaceAttachment.updateMany({
         where: {
@@ -398,6 +449,7 @@ export class AttachmentService {
             content: change.content,
             lastModifiedByUserId: principal.userId,
             lastModifiedByAgentId: null,
+            lastChangeSetId: null,
             lastModifiedAt: changedAt,
           },
         });
@@ -407,7 +459,7 @@ export class AttachmentService {
         await lockedTx.pageSearchDocument.deleteMany({ where: { pageId: page.id } });
       }
 
-      await this.revisionWriter.advanceLocked(lockedTx, spaceId, pageChanges.map(({ page, content }) => ({
+      await this.revisionWriter.advanceReferencedImagesLocked(lockedTx, spaceId, pageChanges.map(({ page, content }) => ({
         operation: 'upsert' as const,
         pageId: page.knowledgeKey,
         path: page.syncPath,
@@ -741,6 +793,17 @@ export class AttachmentService {
     if (conflict) throw new BusinessException('ATTACHMENT_NAME_CONFLICT');
   }
 
+  private currentManagedPath(displayName: string): string {
+    const path = FlatAttachmentPathSchema.safeParse(`assets/${displayName}`);
+    if (!path.success) {
+      throw new BusinessException(
+        'ATTACHMENT_REFERENCE_INVALID',
+        'Existing attachment name cannot be represented in Markdown',
+      );
+    }
+    return path.data;
+  }
+
   private async buildRenamePageChanges(
     db: Prisma.TransactionClient,
     spaceId: string,
@@ -795,9 +858,35 @@ export class AttachmentService {
       if (verified.errors.length > 0 || !verified.attachmentIds.includes(attachmentId)) {
         throw new BusinessException('ATTACHMENT_REFERENCE_INVALID');
       }
-      changes.push({ page, content });
+      changes.push({
+        page,
+        content,
+        sourceRanges: references.map(({ targetStart: start, targetEnd: end }) => ({ start, end })),
+        bodyHash: createHash('sha256').update(page.content, 'utf8').digest('hex'),
+      });
     }
     return changes;
+  }
+
+  private async currentRevisionHead(
+    db: Prisma.TransactionClient | PrismaService,
+    spaceId: string,
+  ): Promise<RevisionHeadEvidence> {
+    const head = await db.spaceKnowledgeRevision.findFirst({
+      where: { spaceId },
+      orderBy: { sequence: 'desc' },
+      select: { id: true, revisionContentHash: true },
+    });
+    return head ? { id: head.id, hash: head.revisionContentHash } : null;
+  }
+
+  private sameRevisionHead(
+    current: RevisionHeadEvidence,
+    preview: AttachmentRenamePreviewTokenPayload['head'],
+  ): boolean {
+    return current === null
+      ? preview === null
+      : preview !== null && current.id === preview.id && current.hash === preview.hash;
   }
 
   private async assertWritableHuman(

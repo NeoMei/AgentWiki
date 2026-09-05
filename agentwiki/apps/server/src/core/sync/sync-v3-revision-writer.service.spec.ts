@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
+import type { ConfigService } from '@nestjs/config';
 import {
   TreeFinalizePushResponseV3Schema,
   contentHash,
@@ -15,6 +16,7 @@ import { SyncV3BootstrapService } from '../../integrations/obsidian/sync-v3-boot
 import type { AttachmentConfig } from '../../attachments/attachment.config';
 import { LocalAttachmentStorage } from '../../attachments/local-attachment.storage';
 import { AttachmentService } from '../../attachments/attachment.service';
+import { AttachmentRenamePreviewTokenService } from '../../attachments/attachment-rename-preview-token.service';
 import { SpaceRevisionWriterService } from './space-revision-writer.service';
 import { PageService } from '../page/page.service';
 import { ReadableSyncPathService } from './readable-sync-path.service';
@@ -1184,9 +1186,12 @@ describe('SyncV3RevisionWriterService PostgreSQL integration', () => {
       const writer = new SpaceRevisionWriterService(prisma as any, v3Writer);
       const renameSearch = { indexPage: jest.fn().mockResolvedValue(undefined) };
       const renameGraph = { enqueue: jest.fn() };
+      const renamePreviewTokens = new AttachmentRenamePreviewTokenService({
+        get: (key: string) => key === 'AGENTWIKI_SERVER_PEPPER' ? 'rename-v3-test-pepper' : undefined,
+      } as unknown as ConfigService);
       const service = new AttachmentService(
         prisma as any, authorization, writer, storage, syncV3StorageConfig(storageRoot),
-        renameSearch as any, renameGraph as any,
+        renameSearch as any, renameGraph as any, renamePreviewTokens,
       );
       const preview = await service.previewRename(spaceId, attachment.id, {
         displayName: 'renamed.png',
@@ -1206,9 +1211,11 @@ describe('SyncV3RevisionWriterService PostgreSQL integration', () => {
       });
       const failingService = new AttachmentService(
         failingPrisma as any, authorization, writer, storage, syncV3StorageConfig(storageRoot),
-        renameSearch as any, renameGraph as any,
+        renameSearch as any, renameGraph as any, renamePreviewTokens,
       );
-      await expect(failingService.rename(spaceId, attachment.id, preview, principal))
+      await expect(failingService.rename(spaceId, attachment.id, {
+        previewToken: preview.previewToken,
+      }, principal))
         .rejects.toThrow('injected:pageVersion.create');
       expect(await prisma.spaceAttachment.findUniqueOrThrow({ where: { id: attachment.id } }))
         .toMatchObject({ displayName: 'photo.png', nameKey: 'photo.png' });
@@ -1220,8 +1227,8 @@ describe('SyncV3RevisionWriterService PostgreSQL integration', () => {
       expect(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } })).toBe(0);
 
       const confirmations = await Promise.allSettled([
-        service.rename(spaceId, attachment.id, preview, principal),
-        service.rename(spaceId, attachment.id, preview, principal),
+        service.rename(spaceId, attachment.id, { previewToken: preview.previewToken }, principal),
+        service.rename(spaceId, attachment.id, { previewToken: preview.previewToken }, principal),
       ]);
       expect(confirmations.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
       expect(confirmations.filter(({ status }) => status === 'rejected')).toHaveLength(1);

@@ -5,6 +5,7 @@ import {
   BlobChunkReceiptV3Schema,
   CompletedBlobV3Schema,
   CreateTreePushSessionRequestV3Schema,
+  FlatAttachmentPathSchema,
   SYNC_ERROR_CODES,
   SYNC_V3_ERROR_CODES,
   SYNC_PROTOCOL_V3,
@@ -347,6 +348,26 @@ describe("Sync Protocol v3", () => {
       SyncAttachmentV3Schema.parse({ ...valid, path: "assets/nested/photo.png" }),
     ).toThrow();
     expect(SyncAttachmentV3Schema.parse(valid).path).toBe("assets/photo.png");
+  });
+
+  it.each([
+    "assets/bad|alias.png",
+    "assets/bad]]close.png",
+    "assets/bad%.png",
+    "assets/bad%2G.png",
+    "assets/a%20b.png",
+    "assets/a#b.png",
+    "assets/bad:name.png",
+  ])("rejects managed attachment paths that cannot round-trip through Markdown %j", (path) => {
+    expect(() => FlatAttachmentPathSchema.parse(path)).toThrow();
+  });
+
+  it.each([
+    "assets/road map (final).png",
+    "assets/路线图（最终）.webp",
+    "assets/emoji 🖼️.gif",
+  ])("accepts managed attachment paths that round-trip through Markdown %j", (path) => {
+    expect(FlatAttachmentPathSchema.parse(path)).toBe(path.normalize("NFC"));
   });
 
   it("requires sorted unique page attachment ids", () => {
