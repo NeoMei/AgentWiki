@@ -71,6 +71,7 @@ test('backfills one immutable version for every active attachment', {
   timeout: 180_000,
 }, async () => {
   await withSyncV3TestDatabase(baseDatabaseUrl, async ({
+    applySyncV3AttachmentCleanupLeaseMigration,
     applySyncV3Migration,
     applySyncV3PushOrdinalMigration,
     applySyncV3BlobReferenceIndexMigration,
@@ -489,6 +490,27 @@ test('backfills one immutable version for every active attachment', {
       const cleanupDeployment = await applySyncV3AttachmentCleanupCursorMigration();
       assert.match(cleanupDeployment.firstDeployOutput, /1 migration found|Applying migration/iu);
       assert.match(cleanupDeployment.secondDeployOutput, /No pending migrations to apply/iu);
+      const cleanupLeaseDeployment = await applySyncV3AttachmentCleanupLeaseMigration();
+      assert.match(cleanupLeaseDeployment.firstDeployOutput, /1 migration found|Applying migration/iu);
+      assert.match(cleanupLeaseDeployment.secondDeployOutput, /No pending migrations to apply/iu);
+      const cleanupCursor = await prisma.attachmentCleanupCursor.findUniqueOrThrow({
+        where: { key: 'archived-attachments-v1' },
+      });
+      assert.deepEqual({
+        archivedAt: cleanupCursor.archivedAt,
+        attachmentId: cleanupCursor.attachmentId,
+        sweepArchivedAt: cleanupCursor.sweepArchivedAt,
+        sweepAttachmentId: cleanupCursor.sweepAttachmentId,
+        leaseOwner: cleanupCursor.leaseOwner,
+        leaseExpiresAt: cleanupCursor.leaseExpiresAt,
+      }, {
+        archivedAt: null,
+        attachmentId: null,
+        sweepArchivedAt: null,
+        sweepAttachmentId: null,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+      });
       await prisma.$executeRawUnsafe(`
         INSERT INTO "PushSessionV3Change" (
           "sessionId", ordinal, "entityType", "entityId", operation, payload
@@ -538,6 +560,15 @@ test('backfills one immutable version for every active attachment', {
         WHERE migration_name = '20260905200000_add_attachment_cleanup_cursor'
       `);
       assert.deepEqual(cleanupLedger[0], { count: 1, finished: 1, rolled_back: 0 });
+      const cleanupLeaseLedger = await prisma.$queryRawUnsafe(`
+        SELECT
+          COUNT(*)::int AS count,
+          COUNT(*) FILTER (WHERE finished_at IS NOT NULL)::int AS finished,
+          COUNT(*) FILTER (WHERE rolled_back_at IS NOT NULL)::int AS rolled_back
+        FROM "_prisma_migrations"
+        WHERE migration_name = '20260905210000_harden_attachment_cleanup_claim'
+      `);
+      assert.deepEqual(cleanupLeaseLedger[0], { count: 1, finished: 1, rolled_back: 0 });
       await prisma.$executeRawUnsafe(`DELETE FROM "PushSession" WHERE id = '${pushSessionId}'`);
       const stagedRows = await prisma.$queryRawUnsafe(`
         SELECT

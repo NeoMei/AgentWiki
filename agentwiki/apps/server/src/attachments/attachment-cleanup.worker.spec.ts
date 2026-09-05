@@ -44,9 +44,17 @@ describe('AttachmentCleanupWorker', () => {
   ) => {
     const events: string[] = [];
     const tx = {
-      $queryRaw: jest.fn(async (query: unknown) => {
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      $queryRaw: jest.fn<Promise<any>, [unknown]>(async (query: unknown) => {
         if (Array.isArray(query) && query.join('').includes('AttachmentCleanupCursor')) {
-          return [{ archivedAt: null, attachmentId: null }];
+          return [{
+            archivedAt: null,
+            attachmentId: null,
+            sweepArchivedAt: null,
+            sweepAttachmentId: null,
+            leaseOwner: null,
+            leaseExpiresAt: null,
+          }];
         }
         events.push('metadata-lock');
         return [{ id: 'attachment-1' }];
@@ -54,6 +62,7 @@ describe('AttachmentCleanupWorker', () => {
       attachmentCleanupCursor: {
         upsert: jest.fn().mockResolvedValue({}),
         update: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       attachmentVersion: {
         deleteMany: jest.fn(async () => {
@@ -62,6 +71,9 @@ describe('AttachmentCleanupWorker', () => {
         }),
       },
       spaceAttachment: {
+        findFirst: jest.fn().mockResolvedValue(
+          options.archived?.[options.archived.length - 1] ?? null,
+        ),
         findMany: jest.fn().mockResolvedValue(options.archived ?? []),
         deleteMany: jest.fn(async () => {
           events.push('metadata-delete');
@@ -89,6 +101,9 @@ describe('AttachmentCleanupWorker', () => {
       },
       syncRevisionAttachmentRow: {
         findFirst: jest.fn().mockResolvedValue(null),
+      },
+      attachmentCleanupCursor: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       $transaction: jest.fn(async (callback: (value: typeof tx) => unknown) => callback(tx)),
     };
@@ -173,7 +188,7 @@ describe('AttachmentCleanupWorker', () => {
       new Date(now.getTime() - DAY_MS),
     );
     expect(storage.cleanupExpiredTempReservations.mock.invocationCallOrder[0]).toBeLessThan(
-      tx.spaceAttachment.findMany.mock.invocationCallOrder[0],
+      tx.spaceAttachment.findFirst.mock.invocationCallOrder[0],
     );
   });
 
@@ -202,9 +217,9 @@ describe('AttachmentCleanupWorker', () => {
     const root = await createRoot();
     const { worker, tx } = createWorker(root);
     let release!: () => void;
-    tx.spaceAttachment.findMany.mockImplementationOnce(
+    tx.spaceAttachment.findFirst.mockImplementationOnce(
       () => new Promise((resolve) => {
-        release = () => resolve([]);
+        release = () => resolve(null);
       }),
     );
 
@@ -214,7 +229,7 @@ describe('AttachmentCleanupWorker', () => {
       await Promise.resolve();
     }
 
-    expect(tx.spaceAttachment.findMany).toHaveBeenCalledTimes(1);
+    expect(tx.spaceAttachment.findFirst).toHaveBeenCalledTimes(1);
     release();
     await Promise.all([first, second]);
   });
@@ -233,6 +248,12 @@ describe('AttachmentCleanupWorker', () => {
       where: {
         status: 'archived',
         archivedAt: { lte: new Date(now.getTime() - 30 * DAY_MS) },
+        AND: [{
+          OR: [
+            { archivedAt: { lt: archivedAt } },
+            { archivedAt, id: { lte: 'attachment-1' } },
+          ],
+        }],
       },
       orderBy: [{ archivedAt: 'asc' }, { id: 'asc' }],
       take: 100,
@@ -271,13 +292,25 @@ describe('AttachmentCleanupWorker', () => {
 
     await worker.tick();
 
-    expect(tx.attachmentCleanupCursor.upsert).toHaveBeenCalledWith({
-      where: { key: 'archived-attachments-v1' },
-      create: { key: 'archived-attachments-v1' },
-      update: {},
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(tx.spaceAttachment.findFirst).toHaveBeenCalledWith({
+      where: { status: 'archived', archivedAt: { lte: new Date(now.getTime() - 30 * DAY_MS) } },
+      orderBy: [{ archivedAt: 'desc' }, { id: 'desc' }],
+      select: {
+        id: true, spaceId: true, contentHash: true, storageKey: true, archivedAt: true,
+      },
     });
     expect(tx.spaceAttachment.findMany).toHaveBeenCalledWith({
-      where: { status: 'archived', archivedAt: { lte: new Date(now.getTime() - 30 * DAY_MS) } },
+      where: {
+        status: 'archived',
+        archivedAt: { lte: new Date(now.getTime() - 30 * DAY_MS) },
+        AND: [{
+          OR: [
+            { archivedAt: { lt: archivedAt } },
+            { archivedAt, id: { lte: 'attachment-1' } },
+          ],
+        }],
+      },
       orderBy: [{ archivedAt: 'asc' }, { id: 'asc' }],
       take: 100,
       select: {
@@ -287,6 +320,80 @@ describe('AttachmentCleanupWorker', () => {
     expect(prisma.spaceAttachment.findMany).not.toHaveBeenCalled();
     expect(prisma.syncRevisionAttachmentRow.findFirst).toHaveBeenCalledTimes(1);
     expect(tx.syncRevisionAttachmentRow.findFirst).toHaveBeenCalledTimes(1);
+  });
+
+  it('does no archived metadata or storage work while another worker owns the batch lease', async () => {
+    const root = await createRoot();
+    const hash = '5'.repeat(64);
+    const archivedAt = new Date(now.getTime() - 31 * DAY_MS);
+    const { worker, tx, storage } = createWorker(root, {
+      archived: [{
+        id: 'attachment-1', spaceId: 'space-1', contentHash: hash,
+        storageKey: `sha256/55/55/${hash}`, archivedAt,
+      }],
+    });
+    tx.$queryRaw.mockImplementation(async (query: unknown) => {
+      if (Array.isArray(query) && query.join('').includes('AttachmentCleanupCursor')) {
+        return [{
+          archivedAt: null,
+          attachmentId: null,
+          sweepArchivedAt: null,
+          sweepAttachmentId: null,
+          leaseOwner: 'other-worker',
+          leaseExpiresAt: new Date(now.getTime() + HOUR_MS),
+        }];
+      }
+      return [{ id: 'attachment-1' }];
+    });
+
+    await worker.tick();
+
+    expect(tx.spaceAttachment.findMany).not.toHaveBeenCalled();
+    expect(tx.spaceAttachment.deleteMany).not.toHaveBeenCalled();
+    expect(storage.withContentLock).not.toHaveBeenCalled();
+  });
+
+  it('stops before metadata mutation and unlink when its archived batch lease is lost', async () => {
+    const root = await createRoot();
+    const hash = '3'.repeat(64);
+    const archivedAt = new Date(now.getTime() - 31 * DAY_MS);
+    const { worker, tx, storage } = createWorker(root, {
+      archived: [{
+        id: 'attachment-1', spaceId: 'space-1', contentHash: hash,
+        storageKey: `sha256/33/33/${hash}`, archivedAt,
+      }],
+    });
+    tx.attachmentCleanupCursor.updateMany.mockResolvedValue({ count: 0 });
+
+    await worker.tick();
+
+    expect(tx.spaceAttachment.deleteMany).not.toHaveBeenCalled();
+    expect(storage.removeIfUnreferenced).not.toHaveBeenCalled();
+  });
+
+  it('does not unlink after metadata commit when the archived lease is lost under the content lock', async () => {
+    const root = await createRoot();
+    const hash = '2'.repeat(64);
+    const archivedAt = new Date(now.getTime() - 31 * DAY_MS);
+    const { worker, prisma, tx, storage } = createWorker(root, {
+      blobReferenceResults: [false],
+      archived: [{
+        id: 'attachment-1', spaceId: 'space-1', contentHash: hash,
+        storageKey: `sha256/22/22/${hash}`, archivedAt,
+      }],
+    });
+    prisma.attachmentCleanupCursor.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 });
+
+    await worker.tick();
+
+    expect(tx.spaceAttachment.deleteMany).toHaveBeenCalledTimes(1);
+    expect(storage.withContentLock).toHaveBeenCalledTimes(1);
+    expect(storage.removeIfUnreferenced).not.toHaveBeenCalled();
   });
 
   it('retains a shared blob when another metadata row references its storage key', async () => {
@@ -502,7 +609,7 @@ describe('AttachmentCleanupWorker', () => {
     expect(generators).toBe(1);
     expect(generatorsClosed).toBe(1);
     expect((worker as any).orphanIterator).toBeUndefined();
-    expect(tx.spaceAttachment.findMany).toHaveBeenCalledTimes(1);
+    expect(tx.spaceAttachment.findFirst).toHaveBeenCalledTimes(1);
     expect(prisma.spaceAttachment.count).not.toHaveBeenCalled();
     expect(storage.withContentLock).not.toHaveBeenCalled();
     expect(storage.removeIfUnreferenced).not.toHaveBeenCalled();
@@ -527,7 +634,7 @@ describe('AttachmentCleanupWorker', () => {
   it('logs storage failures without crashing the process', async () => {
     const root = await createRoot();
     const { worker, tx } = createWorker(root);
-    tx.spaceAttachment.findMany.mockRejectedValueOnce(new Error('storage metadata unavailable'));
+    tx.spaceAttachment.findFirst.mockRejectedValueOnce(new Error('storage metadata unavailable'));
     const error = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
 
     await expect((worker as any).safeTick()).resolves.toBeUndefined();

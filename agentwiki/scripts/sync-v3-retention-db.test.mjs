@@ -48,6 +48,7 @@ test('Sync v3 Blob ownership and cleanup probes use their indexes at high cardin
   timeout: 180_000,
 }, async () => {
   await withSyncV3TestDatabase(baseDatabaseUrl, async ({
+    applySyncV3AttachmentCleanupLeaseMigration,
     applySyncV3AttachmentCleanupCursorMigration,
     applySyncV3BlobReferenceIndexMigration, applySyncV3Migration,
     applySyncV3PushOrdinalMigration, databaseUrl, schemaName,
@@ -56,6 +57,7 @@ test('Sync v3 Blob ownership and cleanup probes use their indexes at high cardin
     await applySyncV3PushOrdinalMigration();
     await applySyncV3BlobReferenceIndexMigration();
     await applySyncV3AttachmentCleanupCursorMigration();
+    await applySyncV3AttachmentCleanupLeaseMigration();
     const prisma = new PrismaService({ datasources: { db: { url: databaseUrl } } });
     const suffix = schemaName.slice(-10);
     const userId = `index-user-${suffix}`;
@@ -204,11 +206,180 @@ test('Sync v3 Blob ownership and cleanup probes use their indexes at high cardin
   });
 });
 
+test('archived cleanup claims one leased fixed-tail sweep across workers and crash recovery', {
+  skip: baseDatabaseUrl ? false : 'SYNC_V3_TEST_DATABASE_URL is not configured',
+  timeout: 180_000,
+}, async () => {
+  await withSyncV3TestDatabase(baseDatabaseUrl, async ({
+    applySyncV3AttachmentCleanupLeaseMigration,
+    applySyncV3AttachmentCleanupCursorMigration,
+    applySyncV3BlobReferenceIndexMigration,
+    applySyncV3Migration,
+    applySyncV3PushOrdinalMigration,
+    databaseUrl,
+    schemaName,
+  }) => {
+    await applySyncV3Migration();
+    await applySyncV3PushOrdinalMigration();
+    await applySyncV3BlobReferenceIndexMigration();
+    await applySyncV3AttachmentCleanupCursorMigration();
+    await applySyncV3AttachmentCleanupLeaseMigration();
+    const firstPrisma = new PrismaService({ datasources: { db: { url: databaseUrl } } });
+    const secondPrisma = new PrismaService({ datasources: { db: { url: databaseUrl } } });
+    const suffix = schemaName.slice(-10);
+    const userId = `claim-user-${suffix}`;
+    const spaceId = `claim-space-${suffix}`;
+    const archivedAt = new Date('2026-06-01T00:00:00.000Z');
+    const cutoff = new Date('2026-07-01T00:00:00.000Z');
+    const config = {
+      storagePath: '/tmp/unused-sync-v3-claim-storage',
+      maxFileBytes: 1n, maxSpaceBytes: 1n, maxDimension: 1, maxPixels: 1n,
+      minFreeBytes: 1n, retentionMs: DAY, orphanGraceMs: DAY,
+      contentLockTimeoutMs: 5_000,
+    };
+    let contentLockCalls = 0;
+    let removeCalls = 0;
+    const storage = {
+      cleanupExpiredTempReservations: async () => 0,
+      withContentLock: async (_hash, work) => {
+        contentLockCalls += 1;
+        return work(Object.freeze({}));
+      },
+      removeIfUnreferenced: async () => { removeCalls += 1; },
+    };
+    const workerFor = (prisma) => new AttachmentCleanupWorker(
+      prisma,
+      { get: (key) => key === 'PROCESS_ROLE' ? 'worker' : undefined },
+      storage,
+      config,
+    );
+    const firstWorker = workerFor(firstPrisma);
+    const secondWorker = workerFor(secondPrisma);
+    const rowsOf = (claim) => claim?.attachments ?? [];
+    const release = async (worker, claim) => {
+      if (claim) await worker.releaseArchivedLease(claim.ownerToken);
+    };
+    const insertAttachments = async (start, count, rowArchivedAt = archivedAt, status = 'archived') => {
+      await firstPrisma.spaceAttachment.createMany({
+        data: Array.from({ length: count }, (_, offset) => {
+          const ordinal = start + offset;
+          const id = `claim-${String(ordinal).padStart(6, '0')}-${suffix}`;
+          const hash = ordinal.toString(16).padStart(64, '0');
+          return {
+            id, spaceId, displayName: `${id}.png`, nameKey: `${id}.png`,
+            contentHash: hash, storageKey: storageKey(hash), mimeType: 'image/png',
+            sizeBytes: 1n, width: 1, height: 1, status,
+            archivedAt: status === 'archived' ? rowArchivedAt : null,
+            uploadedByUserId: userId,
+          };
+        }),
+      });
+    };
+    try {
+      await Promise.all([firstPrisma.$connect(), secondPrisma.$connect()]);
+      await firstPrisma.user.create({ data: { id: userId, email: `${userId}@retention-v3.test` } });
+      await firstPrisma.space.create({ data: { id: spaceId, name: 'Claim lease', slug: spaceId } });
+      await insertAttachments(1, 1);
+
+      await firstPrisma.attachmentCleanupCursor.deleteMany();
+      const emptyTableClaims = await Promise.allSettled([
+        firstWorker.claimArchivedPage(cutoff),
+        secondWorker.claimArchivedPage(cutoff),
+      ]);
+      assert.equal(emptyTableClaims.filter((result) => result.status === 'rejected').length, 0);
+      const emptyFulfilled = emptyTableClaims
+        .filter((result) => result.status === 'fulfilled')
+        .map((result) => result.value);
+      assert.equal(emptyFulfilled.filter((claim) => rowsOf(claim).length > 0).length, 1);
+      for (const claim of emptyFulfilled) await release(firstWorker, claim);
+
+      await firstPrisma.attachmentCleanupCursor.update({
+        where: { key: 'archived-attachments-v1' },
+        data: {
+          archivedAt: null, attachmentId: null,
+          sweepArchivedAt: null, sweepAttachmentId: null,
+          leaseOwner: null, leaseExpiresAt: null,
+        },
+      });
+      const preseededClaims = await Promise.all([
+        firstWorker.claimArchivedPage(cutoff),
+        secondWorker.claimArchivedPage(cutoff),
+      ]);
+      assert.equal(preseededClaims.filter((claim) => rowsOf(claim).length > 0).length, 1);
+      const crashedClaim = preseededClaims.find((claim) => rowsOf(claim).length > 0);
+      const blockedClaim = await secondWorker.claimArchivedPage(cutoff);
+      assert.equal(blockedClaim, null, 'an unexpired crashed-worker lease blocks takeover');
+      await firstPrisma.attachmentCleanupCursor.update({
+        where: { key: 'archived-attachments-v1' },
+        data: { leaseExpiresAt: new Date(Date.now() - 1) },
+      });
+      const takeover = await secondWorker.claimArchivedPage(cutoff);
+      assert.equal(rowsOf(takeover).length, 1, 'an expired lease is recoverable');
+      await release(secondWorker, takeover);
+      await release(firstWorker, crashedClaim);
+
+      await firstPrisma.attachmentCleanupCursor.update({
+        where: { key: 'archived-attachments-v1' },
+        data: {
+          archivedAt: null, attachmentId: null,
+          sweepArchivedAt: null, sweepAttachmentId: null,
+          leaseOwner: null, leaseExpiresAt: null,
+        },
+      });
+      await Promise.all([firstWorker.tick(), secondWorker.tick()]);
+      assert.equal(
+        await firstPrisma.spaceAttachment.count({ where: { spaceId, status: 'archived' } }),
+        0,
+      );
+      assert.equal(contentLockCalls, 1, 'only the claim owner performs content-lock work');
+      assert.equal(removeCalls, 1, 'only the claim owner performs physical cleanup work');
+
+      await firstPrisma.spaceAttachment.deleteMany({ where: { spaceId } });
+      await firstPrisma.attachmentCleanupCursor.update({
+        where: { key: 'archived-attachments-v1' },
+        data: {
+          archivedAt: null, attachmentId: null,
+          sweepArchivedAt: null, sweepAttachmentId: null,
+          leaseOwner: null, leaseExpiresAt: null,
+        },
+      });
+      await insertAttachments(1, 150);
+      await insertAttachments(900_000, 1, archivedAt, 'active');
+      await insertAttachments(900_001, 1, new Date(cutoff.getTime() + 1));
+      const firstPageClaim = await firstWorker.claimArchivedPage(cutoff);
+      const firstPageIds = new Set(rowsOf(firstPageClaim).map((row) => row.id));
+      assert.equal(firstPageIds.size, 100);
+      await insertAttachments(151, 101);
+      assert.equal(await secondWorker.claimArchivedPage(cutoff), null);
+      await firstPrisma.attachmentCleanupCursor.update({
+        where: { key: 'archived-attachments-v1' },
+        data: { leaseExpiresAt: new Date(Date.now() - 1) },
+      });
+      const tailClaim = await secondWorker.claimArchivedPage(cutoff);
+      assert.equal(rowsOf(tailClaim).length, 50, 'the fixed first-epoch tail excludes later rows');
+      assert.equal(rowsOf(tailClaim).some((row) => row.id.includes('900000')), false);
+      assert.equal(rowsOf(tailClaim).some((row) => row.id.includes('900001')), false);
+      await release(secondWorker, tailClaim);
+      await insertAttachments(252, 101);
+      const wrappedClaim = await firstWorker.claimArchivedPage(cutoff);
+      assert.equal(
+        rowsOf(wrappedClaim).some((row) => firstPageIds.has(row.id)),
+        true,
+        'the next epoch wraps and revisits the failed first page despite a growing tail',
+      );
+      await release(firstWorker, wrappedClaim);
+    } finally {
+      await Promise.all([firstPrisma.$disconnect(), secondPrisma.$disconnect()]);
+    }
+  });
+});
+
 test('Sync v3 retention and Blob GC preserve every live owner and close deletion races', {
   skip: baseDatabaseUrl ? false : 'SYNC_V3_TEST_DATABASE_URL is not configured',
   timeout: 180_000,
 }, async () => {
   await withSyncV3TestDatabase(baseDatabaseUrl, async ({
+    applySyncV3AttachmentCleanupLeaseMigration,
     applySyncV3AttachmentCleanupCursorMigration,
     applySyncV3BlobReferenceIndexMigration, applySyncV3Migration,
     applySyncV3PushOrdinalMigration, databaseUrl, schemaName,
@@ -217,6 +388,7 @@ test('Sync v3 retention and Blob GC preserve every live owner and close deletion
     await applySyncV3PushOrdinalMigration();
     await applySyncV3BlobReferenceIndexMigration();
     await applySyncV3AttachmentCleanupCursorMigration();
+    await applySyncV3AttachmentCleanupLeaseMigration();
     const prisma = new PrismaService({ datasources: { db: { url: databaseUrl } } });
     const root = await mkdtemp(join(tmpdir(), 'agentwiki-attachment-test-retention-v3-'));
     const suffix = schemaName.slice(-10);

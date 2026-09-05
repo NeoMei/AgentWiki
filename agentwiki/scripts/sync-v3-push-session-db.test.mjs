@@ -124,6 +124,7 @@ test('Sync v3 finalize is atomic, race-safe, retryable, and terminally idempoten
   timeout: 180_000,
 }, async () => {
   await withSyncV3TestDatabase(baseDatabaseUrl, async ({
+    applySyncV3AttachmentCleanupLeaseMigration,
     applySyncV3AttachmentCleanupCursorMigration,
     applySyncV3BlobReferenceIndexMigration, applySyncV3Migration,
     applySyncV3PushOrdinalMigration, databaseUrl, schemaName,
@@ -132,6 +133,7 @@ test('Sync v3 finalize is atomic, race-safe, retryable, and terminally idempoten
     await applySyncV3PushOrdinalMigration();
     await applySyncV3BlobReferenceIndexMigration();
     await applySyncV3AttachmentCleanupCursorMigration();
+    await applySyncV3AttachmentCleanupLeaseMigration();
     const prisma = new PrismaService({ datasources: { db: { url: databaseUrl } } });
     await prisma.$connect();
     const suffix = schemaName.slice(-12);
@@ -642,6 +644,7 @@ test('Sync v3 atomically rejects Folder depth and active-count boundary overflow
   timeout: 240_000,
 }, async () => {
   await withSyncV3TestDatabase(baseDatabaseUrl, async ({
+    applySyncV3AttachmentCleanupLeaseMigration,
     applySyncV3AttachmentCleanupCursorMigration,
     applySyncV3BlobReferenceIndexMigration, applySyncV3Migration,
     applySyncV3PushOrdinalMigration, databaseUrl, schemaName,
@@ -650,6 +653,7 @@ test('Sync v3 atomically rejects Folder depth and active-count boundary overflow
     await applySyncV3PushOrdinalMigration();
     await applySyncV3BlobReferenceIndexMigration();
     await applySyncV3AttachmentCleanupCursorMigration();
+    await applySyncV3AttachmentCleanupLeaseMigration();
     const prisma = new PrismaService({ datasources: { db: { url: databaseUrl } } });
     await prisma.$connect();
     const suffix = schemaName.slice(-12);

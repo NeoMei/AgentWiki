@@ -13,6 +13,7 @@ const SYNC_V3_MIGRATION = '20260904120000_add_sync_v3_attachments';
 const SYNC_V3_PUSH_ORDINAL_MIGRATION = '20260905120000_expand_sync_v3_push_change_ordinal';
 const SYNC_V3_BLOB_REFERENCE_INDEX_MIGRATION = '20260905180000_add_attachment_blob_reference_indexes';
 const SYNC_V3_ATTACHMENT_CLEANUP_CURSOR_MIGRATION = '20260905200000_add_attachment_cleanup_cursor';
+const SYNC_V3_ATTACHMENT_CLEANUP_LEASE_MIGRATION = '20260905210000_harden_attachment_cleanup_claim';
 
 export function redactMigrationDiagnostics(value, sensitiveValues) {
   let redacted = value;
@@ -153,6 +154,10 @@ export async function withSyncV3TestDatabase(baseDatabaseUrl, callback) {
       recursive: true,
       force: true,
     });
+    await rm(join(temporaryPrismaRoot, 'migrations', SYNC_V3_ATTACHMENT_CLEANUP_LEASE_MIGRATION), {
+      recursive: true,
+      force: true,
+    });
     runMigrationDeploy({
       databaseUrl,
       prismaRoot: temporaryPrismaRoot,
@@ -239,7 +244,28 @@ export async function withSyncV3TestDatabase(baseDatabaseUrl, callback) {
       });
       return { firstDeployOutput, secondDeployOutput };
     };
+    const applySyncV3AttachmentCleanupLeaseMigration = async () => {
+      await cp(
+        new URL(`../apps/server/prisma/migrations/${SYNC_V3_ATTACHMENT_CLEANUP_LEASE_MIGRATION}/`, import.meta.url),
+        join(temporaryPrismaRoot, 'migrations', SYNC_V3_ATTACHMENT_CLEANUP_LEASE_MIGRATION),
+        { recursive: true },
+      );
+      const firstDeployOutput = runMigrationDeploy({
+        databaseUrl,
+        prismaRoot: temporaryPrismaRoot,
+        sensitiveValues,
+        stage: 'attachment cleanup claim lease',
+      });
+      const secondDeployOutput = runMigrationDeploy({
+        databaseUrl,
+        prismaRoot: temporaryPrismaRoot,
+        sensitiveValues,
+        stage: 'attachment cleanup claim lease no-op verification',
+      });
+      return { firstDeployOutput, secondDeployOutput };
+    };
     return await callback({
+      applySyncV3AttachmentCleanupLeaseMigration,
       applySyncV3AttachmentCleanupCursorMigration,
       applySyncV3BlobReferenceIndexMigration,
       applySyncV3Migration,

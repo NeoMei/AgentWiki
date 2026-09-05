@@ -269,10 +269,14 @@ model AttachmentVersion {
 }
 
 model AttachmentCleanupCursor {
-  key          String    @id
-  archivedAt   DateTime?
-  attachmentId String?
-  updatedAt    DateTime  @default(now()) @updatedAt
+  key               String    @id
+  archivedAt        DateTime?
+  attachmentId      String?
+  sweepArchivedAt   DateTime?
+  sweepAttachmentId String?
+  leaseOwner        String?
+  leaseExpiresAt    DateTime?
+  updatedAt         DateTime  @default(now()) @updatedAt
 }
 
 model AssistTask {
