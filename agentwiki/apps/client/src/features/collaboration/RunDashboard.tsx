@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { ModalDialog } from '../../components/ModalDialog';
+import { apiErrorCode, apiErrorMessage } from '../../api/error-message';
 import { SpaceNav } from '../../components/SpaceNav';
 import { Toast } from '../../components/Toast';
 import { useAuth } from '../../context/AuthContext';
@@ -9,10 +10,10 @@ import { useLanguage } from '../../context/LanguageContext';
 import { collaborationApi } from './api';
 import { AgentActivityPanel } from './components/AgentActivityPanel';
 import { ArtifactPanel } from './components/ArtifactPanel';
-import { ReviewPanel } from './components/ReviewPanel';
+import { ReviewPanel, type ReviewDetail } from './components/ReviewPanel';
 import { RunSummary } from './components/RunSummary';
 import { TaskPanel } from './components/TaskPanel';
-import type { AgentInstruction, CollaborationArtifact, CollaborationHistoryKind, CollaborationReview, CollaborationRun, CollaborationTask, HumanSpaceRole, SpaceMemberSummary } from './types';
+import type { AgentInstruction, CollaborationArtifact, CollaborationHistoryKind, CollaborationPageReviewComparison, CollaborationReview, CollaborationRun, CollaborationTask, HumanSpaceRole, SpaceMemberSummary } from './types';
 import { useCollaborationRun } from './useCollaborationRun';
 import { buildAgentJoinInstructions } from './agentJoinInstructions';
 
@@ -40,6 +41,11 @@ export const RunDashboard: React.FC = () => {
   const [resumeInstructions, setResumeInstructions] = useState<AgentInstruction[]>([]);
   const [reviewArtifacts, setReviewArtifacts] = useState<Record<string, CollaborationArtifact>>({});
   const [reviewArtifactErrors, setReviewArtifactErrors] = useState<Record<string, boolean>>({});
+  const [reviewDetail, setReviewDetail] = useState<ReviewDetail | null>(null);
+  const [resolvingConflict, setResolvingConflict] = useState(false);
+  const reviewDetailRequest = useRef(0);
+  const reviewDetailController = useRef<AbortController | null>(null);
+  const reviewArtifactRequests = useRef(new Map<string, number>());
   const reviewArtifactScope = useRef(`${id}:${runId}`);
   const dashboardScope = useRef(`${id}:${runId}`);
   const pendingScope = useRef<string | null>(null);
@@ -51,11 +57,14 @@ export const RunDashboard: React.FC = () => {
   const [historyError, setHistoryError] = useState(false);
   const [historyNextCursor, setHistoryNextCursor] = useState<string | null>(null);
   const currentScope = `${id}:${runId}`;
-  if (reviewArtifactScope.current !== currentScope) reviewArtifactScope.current = currentScope;
   if (dashboardScope.current !== currentScope) {
     dashboardScope.current = currentScope;
+    reviewArtifactScope.current = currentScope;
+    reviewArtifactRequests.current.clear();
     memberRequest.current += 1;
     historyRequest.current += 1;
+    reviewDetailRequest.current += 1;
+    reviewDetailController.current?.abort();
   }
 
   const loadMembers = React.useCallback(async () => {
@@ -87,6 +96,8 @@ export const RunDashboard: React.FC = () => {
     setResumeInstructions([]);
     setReviewArtifacts({});
     setReviewArtifactErrors({});
+    setReviewDetail(null);
+    setResolvingConflict(false);
     setHistoryKind(null);
     setHistoryItems([]);
     setHistoryNextCursor(null);
@@ -99,16 +110,44 @@ export const RunDashboard: React.FC = () => {
     ? 'owner'
     : members.find((member) => member.type === 'human' && member.userId === user?.id)?.role) as HumanSpaceRole | undefined;
   const executableAgents = useMemo(() => members.filter((member) => member.type === 'agent' && member.agent?.status === 'active' && !member.agent.revokedAt && ['editor', 'publisher'].includes(member.role)), [members]);
+  const agentNames = useMemo(() => new Map(members.flatMap((member) => member.type === 'agent' && member.agentId && member.agent ? [[member.agentId, member.agent.name] as const] : [])), [members]);
+
+  const loadReviewDetail = React.useCallback(async (review: CollaborationReview) => {
+    const requestedScope = `${id}:${runId}`;
+    const request = ++reviewDetailRequest.current;
+    reviewDetailController.current?.abort();
+    const controller = new AbortController();
+    reviewDetailController.current = controller;
+    setReviewDetail({ reviewId: review.id, kind: 'loading' });
+    try {
+      const next: ReviewDetail = {
+        reviewId: review.id,
+        kind: 'comparison',
+        comparison: await collaborationApi.getPageReviewComparison(id, runId, review.id, controller.signal),
+      };
+      if (controller.signal.aborted || reviewDetailRequest.current !== request || dashboardScope.current !== requestedScope) return;
+      setReviewDetail(next);
+    } catch (error) {
+      if (controller.signal.aborted || reviewDetailRequest.current !== request || dashboardScope.current !== requestedScope) return;
+      setReviewDetail({ reviewId: review.id, kind: 'error', message: apiErrorMessage(error, t, 'collaboration.dashboard.reviewDetailFailed') });
+    }
+  }, [id, runId, t]);
+
+  useEffect(() => () => reviewDetailController.current?.abort(), []);
 
   const loadReviewArtifact = React.useCallback(async (review: CollaborationReview) => {
     const requestedScope = `${id}:${runId}`;
+    const request = (reviewArtifactRequests.current.get(review.id) ?? 0) + 1;
+    reviewArtifactRequests.current.set(review.id, request);
     setReviewArtifactErrors((current) => ({ ...current, [review.id]: false }));
     try {
       const artifact = await collaborationApi.getArtifact(id, runId, review.artifactId);
-      if (reviewArtifactScope.current !== requestedScope) return;
+      if (reviewArtifactScope.current !== requestedScope
+        || reviewArtifactRequests.current.get(review.id) !== request) return;
       setReviewArtifacts((current) => ({ ...current, [review.id]: artifact }));
     } catch {
-      if (reviewArtifactScope.current !== requestedScope) return;
+      if (reviewArtifactScope.current !== requestedScope
+        || reviewArtifactRequests.current.get(review.id) !== request) return;
       setReviewArtifactErrors((current) => ({ ...current, [review.id]: true }));
     }
   }, [id, runId]);
@@ -116,9 +155,15 @@ export const RunDashboard: React.FC = () => {
   useEffect(() => {
     setReviewArtifacts({});
     setReviewArtifactErrors({});
+    reviewArtifactRequests.current.clear();
+    setReviewDetail(null);
+    reviewDetailRequest.current += 1;
+    reviewDetailController.current?.abort();
     if (!run) return;
     for (const review of (run.reviews ?? []).filter((item) => item.status === 'pending')) {
-      void loadReviewArtifact(review);
+      const pageReview = Boolean(review.pagePublication
+        || run.tasks?.some((task) => task.id === review.sourceTaskId && task.targetPageId));
+      if (!pageReview) void loadReviewArtifact(review);
     }
   }, [loadReviewArtifact, run?.id, run?.eventSequence]);
 
@@ -218,11 +263,52 @@ export const RunDashboard: React.FC = () => {
       pendingScope.current = null;
       setToast({ kind: 'success', message: t('collaboration.dashboard.actionSuccess') });
       await refresh();
-    } catch {
+    } catch (error) {
       if (dashboardScope.current !== requestedScope) return;
-      setToast({ kind: 'error', message: t('collaboration.dashboard.actionFailed') });
+      setToast({ kind: 'error', message: apiErrorMessage(error, t, 'collaboration.dashboard.actionFailed') });
+      if (apiErrorCode(error) === 'PAGE_VERSION_CONFLICT') {
+        setReviewDetail(null);
+        await refresh();
+      }
     } finally {
       if (dashboardScope.current === requestedScope) setSubmitting(false);
+    }
+  };
+
+  const resolvePageConflict = async (
+    kind: 'regenerate' | 'adopt_current',
+    review: CollaborationReview,
+    comparison: CollaborationPageReviewComparison,
+  ) => {
+    if (resolvingConflict || comparison.mode !== 'candidate' || !comparison.current.contentHash || !review.sourceTaskId) return;
+    const requestedScope = `${id}:${runId}`;
+    const requestedDetail = reviewDetailRequest.current;
+    setResolvingConflict(true);
+    setToast(null);
+    try {
+      await collaborationApi.resolvePageConflict(id, runId, review.sourceTaskId, {
+        kind,
+        expectedPageVersionId: comparison.current.pageVersionId,
+        expectedContentHash: comparison.current.contentHash,
+        idempotencyKey: `page-conflict-${kind}-${safeUuid()}`,
+      });
+      const nextRun = await collaborationApi.getRun(id, runId);
+      if (dashboardScope.current !== requestedScope || reviewDetailRequest.current !== requestedDetail) return;
+      setResumeInstructions(nextRun.status === 'running' ? buildAgentJoinInstructions(nextRun) : []);
+      setReviewDetail(null);
+      setToast({ kind: 'success', message: t('collaboration.dashboard.conflictResolved') });
+      await refresh();
+    } catch (error) {
+      if (dashboardScope.current !== requestedScope || reviewDetailRequest.current !== requestedDetail) return;
+      setToast({
+        kind: 'error',
+        message: apiErrorCode(error) === 'PAGE_VERSION_CONFLICT'
+          ? t('collaboration.dashboard.pageConflictStale')
+          : apiErrorMessage(error, t, 'collaboration.dashboard.conflictResolveFailed'),
+      });
+      await loadReviewDetail(review);
+    } finally {
+      if (dashboardScope.current === requestedScope) setResolvingConflict(false);
     }
   };
 
@@ -243,8 +329,8 @@ export const RunDashboard: React.FC = () => {
 
       <div className="mt-6 grid min-w-0 gap-4 lg:grid-cols-[minmax(15rem,0.8fr)_minmax(0,1.8fr)_minmax(17rem,1fr)]">
         <RunSummary run={run} role={humanRole} userId={user?.id} t={t} onAction={(kind) => openAction({ type: 'run', kind })} />
-        <TaskPanel run={run} role={humanRole} userId={user?.id} t={t} onHistory={(kind) => void openHistory(kind)} onAction={(kind, task) => openAction({ type: 'task', kind, task })} />
-        <ReviewPanel run={run} t={t} artifacts={reviewArtifacts} artifactErrors={reviewArtifactErrors} onHistory={() => void openHistory('reviews')} onRetryArtifact={(review) => void loadReviewArtifact(review)} onDecision={(kind, review) => openAction({ type: 'review', kind, review })} />
+        <TaskPanel run={run} role={humanRole} userId={user?.id} t={t} agentNames={agentNames} onHistory={(kind) => void openHistory(kind)} onAction={(kind, task) => openAction({ type: 'task', kind, task })} />
+        <ReviewPanel run={run} spaceId={id} t={t} artifacts={reviewArtifacts} artifactErrors={reviewArtifactErrors} detail={reviewDetail} resolvingConflict={resolvingConflict} onHistory={() => void openHistory('reviews')} onLoadDetail={(review) => void loadReviewDetail(review)} onRetryArtifact={(review) => void loadReviewArtifact(review)} onDecision={(kind, review) => openAction({ type: 'review', kind, review })} onResolveConflict={(kind, review, comparison) => void resolvePageConflict(kind, review, comparison)} />
         <ArtifactPanel run={run} t={t} onHistory={() => void openHistory('artifacts')} />
         <AgentActivityPanel run={run} t={t} onHistory={() => void openHistory('events')} />
       </div>

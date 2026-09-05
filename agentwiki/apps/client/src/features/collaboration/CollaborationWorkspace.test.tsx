@@ -7,9 +7,17 @@ import { collaborationApi } from './api';
 import { validDefinition } from './collaboration-test-fixtures';
 import { CollaborationWorkspace } from './CollaborationWorkspace';
 
+const pageDialogProps = vi.hoisted(() => ({ current: null as null | Record<string, any> }));
+
 vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
 vi.mock('../page-templates/UpgradeWorkflowTemplateDialog', () => ({
   UpgradeWorkflowTemplateDialog: ({ legacyTemplate }: { legacyTemplate: { name: string } }) => <div role="dialog">Upgrade dialog {legacyTemplate.name}</div>,
+}));
+vi.mock('../page-templates/NewPageDialog', () => ({
+  NewPageDialog: (props: Record<string, any>) => {
+    pageDialogProps.current = props;
+    return <div role="dialog">Unified page and collaboration flow</div>;
+  },
 }));
 vi.mock('./api', () => ({
   collaborationApi: {
@@ -56,6 +64,7 @@ function renderWorkspace(language: 'en' | 'zh-CN' = 'en') {
         <NavigationCapture />
         <Routes>
           <Route path="/spaces/:id/collaboration" element={<CollaborationWorkspace />} />
+          <Route path="/spaces/:id/collaboration/runs/:runId" element={<div data-testid="opened-atomic-run" />} />
         </Routes>
       </MemoryRouter>
     </LanguageProvider>,
@@ -65,12 +74,28 @@ function renderWorkspace(language: 'en' | 'zh-CN' = 'en') {
 describe('CollaborationWorkspace', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    pageDialogProps.current = null;
     vi.mocked(useAuth).mockReturnValue({ user: { id: 'owner-1' } } as ReturnType<typeof useAuth>);
     vi.mocked(collaborationApi.listTemplates).mockResolvedValue([systemCodingTemplate, spaceTemplate]);
     vi.mocked(collaborationApi.listMembers).mockResolvedValue([
       { type: 'human', userId: 'owner-1', role: 'owner' },
     ]);
     vi.mocked(collaborationApi.listRuns).mockResolvedValue({ items: [], nextCursor: null });
+  });
+
+  it('opens the shared composite creation flow and navigates only to its atomic Run result', async () => {
+    renderWorkspace();
+    await screen.findByText('Coding collaboration');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create page group collaboration' }));
+    expect(await screen.findByRole('dialog')).toHaveTextContent('Unified page and collaboration flow');
+    expect(pageDialogProps.current).toEqual(expect.objectContaining({ spaceId: 'space-1' }));
+
+    await act(async () => pageDialogProps.current?.onCreated({
+      firstPageId: 'page-1', rootFolderId: 'folder-1', pageIds: ['page-1', 'page-2'], runId: 'run-atomic',
+    }));
+    expect(await screen.findByTestId('opened-atomic-run')).toBeVisible();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   afterEach(() => {
@@ -567,7 +592,7 @@ describe('CollaborationWorkspace', () => {
 
     renderWorkspace();
 
-    expect(await screen.findByRole('link', { name: 'Create template' })).toBeVisible();
+    expect(await screen.findByRole('link', { name: 'Create legacy workflow template' })).toBeVisible();
     expect(screen.getAllByRole('link', { name: 'Start run' })).toHaveLength(2);
   });
 });

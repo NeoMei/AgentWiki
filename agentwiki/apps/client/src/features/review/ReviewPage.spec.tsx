@@ -28,6 +28,18 @@ const changeSet = (
   run: { source: { id: 'source-1', name: 'Source', type: 'text', uri: null }, evidences: [] },
 });
 
+const linkedChangeSet = (
+  status: 'pending_review' | 'approved' | 'published' = 'pending_review',
+  itemStatus: 'pending' | 'accepted' | 'rejected' = 'pending',
+) => ({
+  ...changeSet(status, itemStatus),
+  collaborationArtifactLink: {
+    artifactId: 'artifact-1', runId: 'collaboration-run-1', taskId: 'task-1',
+    spaceId: 'space-1', pageId: 'page-1',
+    reviewPath: '/spaces/space-1/collaboration/runs/collaboration-run-1',
+  },
+});
+
 const summary = () => ({ ...changeSet(), run: { source: { type: 'text' } } });
 
 const deferred = <T,>() => {
@@ -88,6 +100,34 @@ describe('ReviewPage detail refresh', () => {
     expect(screen.queryByRole('button', { name: 'Accept candidate' })).not.toBeInTheDocument();
     expect(calls).toContain('patch:/change-sets/cs-1/items/item-1:accepted');
     expect(calls.filter((call) => call === 'get:/change-sets/cs-1')).toHaveLength(2);
+  });
+
+  it.each(['pending_review', 'approved'] as const)(
+    'routes a collaboration-linked %s candidate to the collaboration review without bypass controls',
+    async (status) => {
+      vi.mocked(api.get).mockImplementation((url) => Promise.resolve({
+        data: url === '/review' ? [summary()] : linkedChangeSet(status, status === 'approved' ? 'accepted' : 'pending'),
+      } as any));
+      renderReview();
+      await expand();
+
+      expect(screen.getByRole('link', { name: 'Go to collaboration review' })).toHaveAttribute(
+        'href', '/spaces/space-1/collaboration/runs/collaboration-run-1',
+      );
+      expect(screen.queryByRole('button', { name: 'Accept candidate' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Approve only' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Approve & publish' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Publish' })).not.toBeInTheDocument();
+    },
+  );
+
+  it('keeps published collaboration ChangeSet revert separate', async () => {
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve({
+      data: url === '/review' ? [summary()] : linkedChangeSet('published', 'accepted'),
+    } as any));
+    renderReview();
+    await expand();
+    expect(screen.getByRole('button', { name: 'Revert' })).toBeVisible();
   });
 
   it('disables approve-only until every candidate is decided', async () => {

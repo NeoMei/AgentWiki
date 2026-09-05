@@ -12,6 +12,7 @@ import {
   previewLegacyWorkflowUpgrade,
   previewCompositeTemplate,
   previewFolderAgentBindings,
+  previewExistingFolderRun,
   restoreCompositeTemplate,
   saveFolderTemplate,
   setPageAgentBinding,
@@ -67,6 +68,26 @@ describe('compositeTemplateApi', () => {
     const result = await previewFolderAgentBindings('space', 'folder-root');
     expect(api.post).toHaveBeenCalledWith('/spaces/space/folders/folder-root/agent-bindings/preview', {}, { signal: undefined });
     expect(result.pages.map((page) => page.pageId)).toEqual(['deep-page']);
+  });
+
+  it('previews an existing Folder Run through the dedicated server boundary', async () => {
+    const controller = new AbortController();
+    const input = {
+      source: { kind: 'template_instantiation' as const, sourceInstantiationId: 'instantiation-1' },
+      pageIds: ['page-1'], collaborationInputs: {}, bindings: [],
+      bindingEdits: [{ pageId: 'page-1', agentId: 'agent-1', roleSlotKey: 'owner', expectedUpdatedAt: null }],
+      roleSlotsByPage: [{ pageId: 'page-1', roleSlotKey: 'owner' }],
+    };
+    vi.mocked(api.post).mockResolvedValue({ data: {
+      treeRevision: '9', pageIds: ['page-1'], pages: [], inputs: {}, inputDefinitions: [], roles: [],
+      tasks: [], assignments: [], participants: ['agent-1'], issues: [],
+    } });
+
+    await previewExistingFolderRun('space/1', 'folder/1', input, controller.signal);
+
+    expect(api.post).toHaveBeenCalledWith(
+      '/spaces/space%2F1/folders/folder%2F1/collaboration-runs/preview', input, { signal: controller.signal },
+    );
   });
 
   it('uses the composite management routes and keeps CAS tokens in every write', async () => {

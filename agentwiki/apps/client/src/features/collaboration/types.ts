@@ -146,6 +146,8 @@ export interface CollaborationTask {
   objectivePreview?: string | null;
   roleSlotId: string;
   assigneeAgentId: string;
+  targetPageId?: string | null;
+  targetSpaceId?: string | null;
   status: string;
   generation: number;
   skippable: boolean;
@@ -168,9 +170,53 @@ export interface CollaborationReview {
   artifactId: string;
   approvalCriteria?: string[];
   canDecide?: boolean;
+  pagePublication?: { pageId: string; changeSetId: string } | null;
   reason?: string | null;
   createdAt: string;
 }
+
+export interface PageReviewSnapshot {
+  pageVersionId: string | null;
+  updatedAt: string | null;
+  contentHash: string | null;
+  markdown: string;
+}
+
+export type CollaborationPageReviewComparison = {
+  mode: 'candidate';
+  reviewId: string;
+  artifactId: string;
+  canDecide: boolean;
+  target: { pageId: string; title: string };
+  baseline: {
+    pageVersionId: string | null;
+    updatedAt: string | null;
+    contentHash: string | null;
+    available: boolean;
+    title: string | null;
+    markdown: string | null;
+  };
+  candidate: { changeSetId: string; changeSetStatus: string; markdown: string; evidence?: unknown };
+  current: PageReviewSnapshot;
+  conflict: boolean;
+} | {
+  mode: 'adopted_current';
+  reviewId: string;
+  artifactId: string;
+  canDecide: boolean;
+  target: { pageId: string; title: string };
+  adoptedCurrent: {
+    kind: 'human_adopt_current';
+    pageId: string;
+    pageVersionId: string;
+    contentHash: string;
+    adoptedByUserId: string;
+    markdown: string;
+    title: string;
+  };
+  current: PageReviewSnapshot;
+  conflict: boolean;
+};
 
 export interface CollaborationRunEvent {
   id: string;

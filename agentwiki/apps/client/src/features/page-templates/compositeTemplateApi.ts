@@ -123,9 +123,11 @@ export async function saveFolderTemplate(
 export async function discoverFolderCollaborationSource(
   spaceId: string,
   folderId: string,
+  signal?: AbortSignal,
 ): Promise<FolderCollaborationSource> {
   return (await api.get<FolderCollaborationSource>(
     `${spacePath(spaceId)}/folders/${segment(folderId)}/collaboration-source`,
+    { signal },
   )).data;
 }
 
@@ -223,7 +225,7 @@ export async function startExistingPageRun(spaceId: string, pageId: string, inpu
 }
 
 export async function startExistingFolderRun(spaceId: string, folderId: string, input: {
-  source: { kind: 'page_selection' };
+  source: { kind: 'page_selection' } | { kind: 'template_instantiation'; sourceInstantiationId: string };
   pageIds: string[];
   collaborationInputs: Record<string, string | number | boolean>;
   bindings: Array<{ kind: 'task_default' | 'role_override'; nodeId?: string; roleSlotId: string; agentId: string }>;
@@ -234,4 +236,17 @@ export async function startExistingFolderRun(spaceId: string, folderId: string, 
   idempotencyKey: string;
 }, signal?: AbortSignal): Promise<{ runId: string }> {
   return (await api.post<{ runId: string }>(`${spacePath(spaceId)}/folders/${segment(folderId)}/collaboration-runs`, input, { signal })).data;
+}
+
+export async function previewExistingFolderRun(spaceId: string, folderId: string, input: {
+  source: { kind: 'page_selection' } | { kind: 'template_instantiation'; sourceInstantiationId: string };
+  pageIds: string[];
+  collaborationInputs: Record<string, string | number | boolean>;
+  bindings: Array<{ kind: 'task_default' | 'role_override'; nodeId?: string; roleSlotId: string; agentId: string }>;
+  bindingEdits: PageAgentBindingEdit[];
+  roleSlotsByPage: Array<{ pageId: string; roleSlotKey: string | null }>;
+}, signal?: AbortSignal): Promise<ExistingRunPreview> {
+  return (await api.post<ExistingRunPreview>(
+    `${spacePath(spaceId)}/folders/${segment(folderId)}/collaboration-runs/preview`, input, { signal },
+  )).data;
 }

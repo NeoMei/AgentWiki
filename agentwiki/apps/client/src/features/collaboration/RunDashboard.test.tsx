@@ -13,12 +13,19 @@ const socket = {
   off: vi.fn(), emit: vi.fn(), connect: vi.fn(), disconnect: vi.fn(),
   io: { on: vi.fn((event: string, handler: (...args: any[]) => void) => { managerHandlers.set(event, handler); }), off: vi.fn() },
 };
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((nextResolve) => { resolve = nextResolve; });
+  return { promise, resolve };
+}
 vi.mock('socket.io-client', () => ({ io: vi.fn(() => socket) }));
 vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
 vi.mock('./api', () => ({ collaborationApi: {
   getRun: vi.fn(), listMembers: vi.fn(), pauseRun: vi.fn(), resumeRun: vi.fn(), failRun: vi.fn(),
   cancelRun: vi.fn(), retryTask: vi.fn(), reassignTask: vi.fn(), skipTask: vi.fn(), decideReview: vi.fn(),
   getRunHistory: vi.fn(), getArtifact: vi.fn(),
+  getPageReviewComparison: vi.fn(), resolvePageConflict: vi.fn(),
 } }));
 
 const runningRun = {
@@ -86,6 +93,14 @@ describe('RunDashboard', () => {
       payload: { markdown: '# Release evidence\nAll checks passed.' }, evidence: [{ kind: 'test', reference: 'client:293' }],
       createdAt: '2026-08-24T00:09:00Z',
     });
+    vi.mocked(collaborationApi.getPageReviewComparison).mockResolvedValue({
+      mode: 'candidate', reviewId: 'review-1', artifactId: 'artifact-1', canDecide: true,
+      target: { pageId: 'page-1', title: 'Release page' },
+      baseline: { pageVersionId: 'version-1', updatedAt: '2026-08-24T00:00:00Z', contentHash: 'a'.repeat(64), available: true, title: 'Release page', markdown: '# Baseline' },
+      candidate: { changeSetId: 'change-1', changeSetStatus: 'pending_review', markdown: '# Proposed', evidence: {} },
+      current: { pageVersionId: 'version-1', updatedAt: '2026-08-24T00:00:00Z', contentHash: 'a'.repeat(64), markdown: '# Baseline' },
+      conflict: false,
+    } as any);
     vi.mocked(collaborationApi.getRunHistory).mockResolvedValue({
       items: [{
         id: 'artifact-1', taskId: 'task-1', generation: 2, version: 2, kind: 'markdown', status: 'pending',
@@ -107,6 +122,129 @@ describe('RunDashboard', () => {
     expect(screen.getByText('Draft release preview')).toBeVisible();
     expect(screen.getByText('artifact-v2 preview')).toBeVisible();
     expect(screen.getByText('Todo updated')).toBeVisible();
+  });
+
+  it('labels the Run task assignee as frozen even when the current Space member default changed', async () => {
+    vi.mocked(collaborationApi.listMembers).mockResolvedValue([
+      { type: 'human', userId: 'reviewer-1', role: 'editor' },
+      { type: 'agent', agentId: 'agent-new', role: 'editor', agent: { id: 'agent-new', name: 'New page default', status: 'active' } },
+    ]);
+    renderDashboard();
+    const task = (await screen.findByText('Draft')).closest('article')!;
+    expect(task).toHaveTextContent('Frozen assignee');
+    expect(task).toHaveTextContent('agent-1');
+    expect(task).not.toHaveTextContent('New page default');
+  });
+
+  it('loads one authoritative Page comparison on demand and obeys comparison canDecide', async () => {
+    renderDashboard({
+      ...waitingReviewRun,
+      reviews: waitingReviewRun.reviews.map((review) => ({ ...review, pagePublication: { pageId: 'page-1', changeSetId: 'change-1' } })),
+    });
+    expect(await screen.findByRole('button', { name: 'Load page comparison' })).toBeVisible();
+    expect(collaborationApi.getPageReviewComparison).not.toHaveBeenCalled();
+    expect(collaborationApi.getArtifact).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load page comparison' }));
+    expect(await screen.findByRole('link', { name: /Release page/ })).toHaveAttribute('href', '/pages/page-1');
+    expect(screen.getAllByText('# Baseline')).toHaveLength(2);
+    expect(screen.getByText('# Proposed')).toBeVisible();
+    expect(screen.getByRole('link', { name: /change-1/ })).toHaveAttribute('href', '/review?spaceId=space-1&changeSet=change-1');
+    expect(collaborationApi.getPageReviewComparison).toHaveBeenCalledWith('space-1', 'run-1', 'review-1', expect.any(AbortSignal));
+
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeVisible();
+  });
+
+  it('uses only comparison canDecide and keeps an unavailable Page comparison read-only', async () => {
+    vi.mocked(collaborationApi.getPageReviewComparison).mockResolvedValueOnce({
+      mode: 'adopted_current', reviewId: 'review-1', artifactId: 'artifact-1', canDecide: false,
+      target: { pageId: 'page-archived', title: 'Archived page' },
+      adoptedCurrent: { pageId: 'page-archived', pageVersionId: null, contentHash: 'b'.repeat(64), markdown: '# Adopted' },
+      current: { pageVersionId: null, updatedAt: null, contentHash: null, markdown: null },
+      conflict: true,
+    } as any);
+    renderDashboard({
+      ...waitingReviewRun,
+      reviews: waitingReviewRun.reviews.map((review) => ({
+        ...review, canDecide: true, pagePublication: { pageId: 'page-archived', changeSetId: 'change-old' },
+      })),
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Load page comparison' }));
+    expect(await screen.findByText('# Adopted')).toBeVisible();
+    expect(screen.getByText('Available for review, but the server has not authorized you to decide it.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reject for revision' })).not.toBeInTheDocument();
+  });
+
+  it.each(['regenerate', 'adopt_current'] as const)(
+    'resolves a Page conflict with latest comparison CAS for %s',
+    async (kind) => {
+      const conflictRun = {
+        ...waitingReviewRun, status: 'paused' as const, pauseReason: 'page_version_conflict',
+        tasks: waitingReviewRun.tasks.map((task) => ({ ...task, targetPageId: 'page-1' })),
+        reviews: waitingReviewRun.reviews.map((review) => ({
+          ...review, pagePublication: { pageId: 'page-1', changeSetId: 'change-1' },
+        })),
+      };
+      vi.mocked(collaborationApi.getPageReviewComparison).mockResolvedValueOnce({
+        mode: 'candidate', reviewId: 'review-1', artifactId: 'artifact-1', canDecide: true,
+        target: { pageId: 'page-1', title: 'Release page' },
+        baseline: { pageVersionId: 'version-1', updatedAt: null, contentHash: 'a'.repeat(64), available: true, title: 'Release page', markdown: '# Baseline' },
+        candidate: { changeSetId: 'change-1', changeSetStatus: 'pending_review', markdown: '# Proposed', evidence: {} },
+        current: { pageVersionId: null, updatedAt: null, contentHash: 'b'.repeat(64), markdown: '# Current' },
+        conflict: true,
+      } as any);
+      vi.mocked(collaborationApi.resolvePageConflict).mockResolvedValue({ kind, taskId: 'task-1', generation: 2 } as any);
+      vi.mocked(collaborationApi.getRun).mockResolvedValue(conflictRun as any);
+      renderDashboard(conflictRun, 'owner', 'owner-1');
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Load page comparison' }));
+      const actionName = kind === 'regenerate' ? 'Regenerate from current Page' : 'Adopt current Page';
+      fireEvent.click(await screen.findByRole('button', { name: actionName }));
+
+      await waitFor(() => expect(collaborationApi.resolvePageConflict).toHaveBeenCalledWith(
+        'space-1', 'run-1', 'task-1', expect.objectContaining({
+          kind, expectedPageVersionId: null, expectedContentHash: 'b'.repeat(64),
+        }),
+      ));
+    },
+  );
+
+  it('retains a conflict error and reloads the latest comparison after stale CAS', async () => {
+    const conflictRun = {
+      ...waitingReviewRun, status: 'paused' as const, pauseReason: 'page_version_conflict',
+      tasks: waitingReviewRun.tasks.map((task) => ({ ...task, targetPageId: 'page-1' })),
+      reviews: waitingReviewRun.reviews.map((review) => ({
+        ...review, pagePublication: { pageId: 'page-1', changeSetId: 'change-1' },
+      })),
+    };
+    const comparison = (hash: string, markdown: string) => ({
+      mode: 'candidate', reviewId: 'review-1', artifactId: 'artifact-1', canDecide: true,
+      target: { pageId: 'page-1', title: 'Release page' },
+      baseline: { pageVersionId: 'version-1', updatedAt: null, contentHash: 'a'.repeat(64), available: true, title: 'Release page', markdown: '# Baseline' },
+      candidate: { changeSetId: 'change-1', changeSetStatus: 'pending_review', markdown: '# Proposed', evidence: {} },
+      current: { pageVersionId: null, updatedAt: null, contentHash: hash, markdown }, conflict: true,
+    });
+    vi.mocked(collaborationApi.getPageReviewComparison)
+      .mockResolvedValueOnce(comparison('b'.repeat(64), '# Current before') as any)
+      .mockResolvedValueOnce(comparison('c'.repeat(64), '# Current after') as any);
+    vi.mocked(collaborationApi.resolvePageConflict).mockRejectedValue({ response: { data: { code: 'PAGE_VERSION_CONFLICT' } } });
+    renderDashboard(conflictRun, 'owner', 'owner-1');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Load page comparison' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Regenerate from current Page' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The Page changed again. The latest comparison is shown; review it before retrying.');
+    expect(await screen.findByText('# Current after')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Regenerate from current Page' })).toBeEnabled();
+    expect(collaborationApi.getPageReviewComparison).toHaveBeenCalledTimes(2);
+
+    vi.mocked(collaborationApi.resolvePageConflict).mockResolvedValueOnce({ kind: 'regenerate', taskId: 'task-1', generation: 2 } as any);
+    fireEvent.click(screen.getByRole('button', { name: 'Regenerate from current Page' }));
+    await waitFor(() => expect(collaborationApi.resolvePageConflict).toHaveBeenNthCalledWith(
+      2, 'space-1', 'run-1', 'task-1', expect.objectContaining({ expectedContentHash: 'c'.repeat(64) }),
+    ));
   });
 
   it('renders every collaboration operation and actor without translation-key fallbacks', async () => {
@@ -178,6 +316,58 @@ describe('RunDashboard', () => {
     await act(async () => resolveOldMembers([{ type: 'human', userId: 'user-1', role: 'owner' }]));
 
     expect(screen.queryByRole('button', { name: 'End as failed' })).not.toBeInTheDocument();
+  });
+
+  it('aborts and ignores an old Page comparison after navigating to another Run', async () => {
+    const oldComparison = deferred<any>();
+    let oldSignal: AbortSignal | undefined;
+    vi.mocked(useAuth).mockReturnValue({ user: { id: 'reviewer-1' } } as ReturnType<typeof useAuth>);
+    vi.mocked(collaborationApi.listMembers).mockResolvedValue([{ type: 'human', userId: 'reviewer-1', role: 'editor' }] as any);
+    vi.mocked(collaborationApi.getRun).mockImplementation(async (spaceId, requestedRunId) => ({
+      ...waitingReviewRun,
+      id: requestedRunId,
+      spaceId,
+      tasks: waitingReviewRun.tasks.map((task) => ({ ...task, targetPageId: `page-${requestedRunId}` })),
+      reviews: waitingReviewRun.reviews.map((review) => ({
+        ...review,
+        id: `review-${requestedRunId}`,
+        pagePublication: { pageId: `page-${requestedRunId}`, changeSetId: `change-${requestedRunId}` },
+      })),
+    }) as any);
+    vi.mocked(collaborationApi.getPageReviewComparison)
+      .mockImplementationOnce((_spaceId, _runId, _reviewId, signal) => {
+        oldSignal = signal;
+        return oldComparison.promise;
+      })
+      .mockResolvedValueOnce({
+        mode: 'candidate', reviewId: 'review-run-new', artifactId: 'artifact-new', canDecide: false,
+        target: { pageId: 'page-run-new', title: 'New run page' },
+        baseline: { pageVersionId: null, updatedAt: null, contentHash: null, available: false, title: null, markdown: null },
+        candidate: { changeSetId: 'change-run-new', changeSetStatus: 'pending_review', markdown: '# New run proposed', evidence: {} },
+        current: { pageVersionId: null, updatedAt: null, contentHash: 'c'.repeat(64), markdown: '# New current' },
+        conflict: true,
+      } as any);
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/space-old/collaboration/runs/run-old']}>
+      <Routes><Route path="/spaces/:id/collaboration/runs/:runId" element={<NavigationDashboard />} /></Routes>
+    </MemoryRouter></LanguageProvider>);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Load page comparison' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open new run' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Load page comparison' }));
+    expect(await screen.findByText('# New run proposed')).toBeVisible();
+    expect(oldSignal?.aborted).toBe(true);
+
+    await act(async () => oldComparison.resolve({
+      mode: 'candidate', reviewId: 'review-run-old', artifactId: 'artifact-old', canDecide: true,
+      target: { pageId: 'page-run-old', title: 'Old run page' },
+      baseline: { pageVersionId: null, updatedAt: null, contentHash: null, available: false, title: null, markdown: null },
+      candidate: { changeSetId: 'change-run-old', changeSetStatus: 'pending_review', markdown: '# Old proposed', evidence: {} },
+      current: { pageVersionId: null, updatedAt: null, contentHash: 'b'.repeat(64), markdown: '# Old current' },
+      conflict: true,
+    }));
+    expect(screen.queryByText('# Old proposed')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
   });
 
   it('treats Socket messages as refresh hints and refetches on focus and reconnect', async () => {

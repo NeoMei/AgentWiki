@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, ChevronRight, RotateCcw, Send, X } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import api from '../../api/client';
 import { apiErrorMessage } from '../../api/error-message';
 import { Toast } from '../../components/Toast';
@@ -278,25 +278,29 @@ export const ReviewPage: React.FC = () => {
             </button>
             {expanded === changeSet.id ? (
               <div className="px-5 md:px-11 pb-5">
+                {changeSet.collaborationArtifactLink ? <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                  <p>{t('review.collaborationOwned')}</p>
+                  <Link to={changeSet.collaborationArtifactLink.reviewPath} className="mt-2 inline-flex min-h-10 items-center font-medium text-blue-700 underline">{t('review.goToCollaboration')}</Link>
+                </div> : null}
                 <div className="border rounded-lg divide-y mb-4">
                   {changeSet.items.map((item: any) => (
                     <div key={item.id} className="p-3">
                       <div className="flex justify-between gap-3"><p className="text-sm font-medium">{item.type.replaceAll('_', ' ')}</p><span className="text-xs text-gray-400">{item.status}</span></div>
                       <CandidateDiff item={item} />
                       <EvidencePanel changeSet={changeSet} item={item} />
-                      {item.status === 'pending' && changeSet.status === 'pending_review' ? <div className="flex gap-3 mt-3"><button disabled={mutatingIds.has(changeSet.id)} onClick={() => void decide(changeSet.id, item.id, 'accepted')} className="text-xs font-medium text-green-700 disabled:opacity-50">{zh ? '接受候选项' : 'Accept candidate'}</button><button disabled={mutatingIds.has(changeSet.id)} onClick={() => void decide(changeSet.id, item.id, 'rejected')} className="text-xs font-medium text-red-700 disabled:opacity-50">{zh ? '拒绝候选项' : 'Reject candidate'}</button></div> : null}
+                      {!changeSet.collaborationArtifactLink && item.status === 'pending' && changeSet.status === 'pending_review' ? <div className="flex gap-3 mt-3"><button disabled={mutatingIds.has(changeSet.id)} onClick={() => void decide(changeSet.id, item.id, 'accepted')} className="text-xs font-medium text-green-700 disabled:opacity-50">{zh ? '接受候选项' : 'Accept candidate'}</button><button disabled={mutatingIds.has(changeSet.id)} onClick={() => void decide(changeSet.id, item.id, 'rejected')} className="text-xs font-medium text-red-700 disabled:opacity-50">{zh ? '拒绝候选项' : 'Reject candidate'}</button></div> : null}
                     </div>
                   ))}
                 </div>
-                {changeSet.status === 'pending_review' ? <textarea value={comments[changeSet.id] || ''} onChange={(event) => setComments((current) => ({ ...current, [changeSet.id]: event.target.value }))} placeholder={zh ? '审核意见（可选）' : 'Review comment (optional)'} className="w-full border rounded-lg p-2 text-sm mb-3" rows={2} /> : null}
-                {changeSet.status === 'pending_review' && changeSet.items.some((item: any) => item.status === 'pending') ? <p className="mb-2 text-right text-xs text-amber-700">{t('review.decideBeforeApprove')}</p> : null}
+                {!changeSet.collaborationArtifactLink && changeSet.status === 'pending_review' ? <textarea value={comments[changeSet.id] || ''} onChange={(event) => setComments((current) => ({ ...current, [changeSet.id]: event.target.value }))} placeholder={zh ? '审核意见（可选）' : 'Review comment (optional)'} className="w-full border rounded-lg p-2 text-sm mb-3" rows={2} /> : null}
+                {!changeSet.collaborationArtifactLink && changeSet.status === 'pending_review' && changeSet.items.some((item: any) => item.status === 'pending') ? <p className="mb-2 text-right text-xs text-amber-700">{t('review.decideBeforeApprove')}</p> : null}
                 <div className="flex gap-2 justify-end">
-                  {changeSet.status === 'pending_review' ? <>
+                  {!changeSet.collaborationArtifactLink && changeSet.status === 'pending_review' ? <>
                     <button disabled={mutatingIds.has(changeSet.id)} onClick={() => void action(changeSet.id, 'reject')} className="h-8 px-3 border border-red-200 text-red-700 rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"><X size={14} /> {zh ? '拒绝' : 'Reject'}</button>
                     <button disabled={mutatingIds.has(changeSet.id) || changeSet.items.some((item: any) => item.status === 'pending')} onClick={() => void action(changeSet.id, 'approve')} className="h-8 px-3 border rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"><Check size={14} /> {zh ? '仅批准' : 'Approve only'}</button>
                     <button disabled={mutatingIds.has(changeSet.id)} onClick={() => void action(changeSet.id, 'review-publish')} className="h-8 px-3 bg-blue-600 text-white rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"><Send size={14} /> {zh ? '通过并发布' : 'Approve & publish'}</button>
                   </> : null}
-                  {changeSet.status === 'approved' ? <button disabled={mutatingIds.has(changeSet.id)} onClick={() => void action(changeSet.id, 'publish')} className="h-8 px-3 bg-blue-600 text-white rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"><Send size={14} /> {zh ? '发布' : 'Publish'}</button> : null}
+                  {!changeSet.collaborationArtifactLink && changeSet.status === 'approved' ? <button disabled={mutatingIds.has(changeSet.id)} onClick={() => void action(changeSet.id, 'publish')} className="h-8 px-3 bg-blue-600 text-white rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"><Send size={14} /> {zh ? '发布' : 'Publish'}</button> : null}
                   {changeSet.status === 'published' ? <button disabled={mutatingIds.has(changeSet.id)} onClick={() => void action(changeSet.id, 'revert')} className="h-8 px-3 border rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"><RotateCcw size={14} /> {zh ? '回滚' : 'Revert'}</button> : null}
                 </div>
               </div>

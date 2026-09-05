@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { apiErrorMessage } from '../../api/error-message';
 import { ModalDialog } from '../../components/ModalDialog';
 import { SpaceNav } from '../../components/SpaceNav';
@@ -11,6 +11,7 @@ import { collaborationApi } from './api';
 import { RunList } from './components/RunList';
 import { TemplateCard } from './components/TemplateCard';
 import { UpgradeWorkflowTemplateDialog } from '../page-templates/UpgradeWorkflowTemplateDialog';
+import { NewPageDialog, type NewPageCreationTarget } from '../page-templates/NewPageDialog';
 import type { RunListKind, RunSummary, TemplateSummary } from './types';
 
 type Tab = 'templates' | RunListKind;
@@ -20,6 +21,7 @@ const SYSTEM_TEMPLATE_SLUGS = new Set(['coding', 'bid-writing', 'paper-writing',
 
 export const CollaborationWorkspace: React.FC = () => {
   const { id = '' } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { t, language } = useLanguage();
   const [tab, setTab] = useState<Tab>('templates');
@@ -36,6 +38,7 @@ export const CollaborationWorkspace: React.FC = () => {
   const [copySource, setCopySource] = useState<TemplateSummary | null>(null);
   const [copyName, setCopyName] = useState('');
   const [upgradeSource, setUpgradeSource] = useState<{ template: TemplateSummary; trigger: HTMLElement } | null>(null);
+  const [creationTrigger, setCreationTrigger] = useState<HTMLElement | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
   workspaceScope.current = { spaceId: id, tab };
@@ -123,6 +126,7 @@ export const CollaborationWorkspace: React.FC = () => {
     setCopySource(null);
     setCopyName('');
     setUpgradeSource(null);
+    setCreationTrigger(null);
     setSubmitting(false);
     setToast(null);
     setState('loading');
@@ -195,11 +199,13 @@ export const CollaborationWorkspace: React.FC = () => {
             <h1 id="collaboration-title" className="text-2xl font-semibold text-gray-900">{t('collaboration.title')}</h1>
             <p className="mt-1 max-w-3xl text-sm text-gray-600">{t('collaboration.subtitle')}</p>
           </div>
-          {canManage && tab === 'templates' ? (
-            <Link to={`/spaces/${id}/collaboration/templates/new`} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white">
-              <Plus size={16} aria-hidden="true" />{t('collaboration.createTemplate')}
-            </Link>
-          ) : null}
+          {canStart && tab === 'templates' ? <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={(event) => setCreationTrigger(event.currentTarget)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white">
+              <Plus size={16} aria-hidden="true" />{t('collaboration.createCompositeRun')}
+            </button>
+            <Link to={`/spaces/${id}/settings/page-templates`} className="inline-flex min-h-10 items-center justify-center rounded-lg border px-4 text-sm font-medium">{t('pageTemplate.manage')}</Link>
+            {canManage ? <Link to={`/spaces/${id}/collaboration/templates/new`} className="inline-flex min-h-10 items-center justify-center rounded-lg border px-4 text-sm font-medium">{t('collaboration.createLegacyTemplate')}</Link> : null}
+          </div> : null}
         </div>
 
         <div role="tablist" aria-label={t('collaboration.sections')} className="mt-6 flex overflow-x-auto border-b">
@@ -282,6 +288,19 @@ export const CollaborationWorkspace: React.FC = () => {
         onClose={() => setUpgradeSource(null)}
         onUpgraded={(template) => setToast({ kind: 'success', message: t('collaboration.upgradeSuccess', { version: template.resultVersion }) })}
       /> : null}
+      {creationTrigger ? <NewPageDialog spaceId={id} returnFocusTo={creationTrigger}
+        onClose={() => setCreationTrigger(null)}
+        onCreated={(target) => {
+          setCreationTrigger(null);
+          if (typeof target === 'string') {
+            navigate(`/pages/${target}/edit`);
+            return;
+          }
+          const created = target as NewPageCreationTarget;
+          if (created.runId) navigate(`/spaces/${id}/collaboration/runs/${created.runId}`);
+          else if (created.firstPageId) navigate(`/pages/${created.firstPageId}/edit`);
+          else navigate(`/spaces/${id}`);
+        }} /> : null}
       {toast ? <Toast kind={toast.kind} message={toast.message} onClose={() => setToast(null)} /> : null}
     </div>
   );

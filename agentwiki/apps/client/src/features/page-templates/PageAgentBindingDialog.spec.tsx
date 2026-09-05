@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   listMembers: vi.fn(), getRun: vi.fn(), getTreeRevision: vi.fn(),
   getPageBinding: vi.fn(), setPageBinding: vi.fn(), deletePageBinding: vi.fn(),
   previewFolderBindings: vi.fn(), setFolderBindings: vi.fn(), startPageRun: vi.fn(), startFolderRun: vi.fn(),
+  discoverFolderSource: vi.fn(), previewFolderRun: vi.fn(),
 }));
 
 vi.mock('../collaboration/api', () => ({ collaborationApi: { listMembers: mocks.listMembers, getRun: mocks.getRun } }));
@@ -20,6 +21,8 @@ vi.mock('./compositeTemplateApi', () => ({
   setFolderAgentBindings: mocks.setFolderBindings,
   startExistingPageRun: mocks.startPageRun,
   startExistingFolderRun: mocks.startFolderRun,
+  previewExistingFolderRun: mocks.previewFolderRun,
+  discoverFolderCollaborationSource: mocks.discoverFolderSource,
 }));
 
 const agents = [
@@ -41,6 +44,16 @@ describe('PageAgentBindingDialog', () => {
       { pageId: 'page-deep', title: 'Deep', agentId: 'agent-old', roleSlotKey: 'owner', updatedAt: 'v1' },
     ] });
     mocks.setPageBinding.mockResolvedValue([]); mocks.setFolderBindings.mockResolvedValue([]);
+    mocks.discoverFolderSource.mockResolvedValue({ source: null });
+    mocks.previewFolderRun.mockResolvedValue({
+      treeRevision: '18', pageIds: ['page-1', 'page-deep'],
+      pages: [{ pageId: 'page-1', title: 'One' }, { pageId: 'page-deep', title: 'Deep' }],
+      inputs: {}, inputDefinitions: [],
+      roles: [{ id: 'writer', name: 'Writer', description: '', required: true }],
+      tasks: [{ nodeId: 'write-release', name: 'Write release', roleSlotId: 'writer' }],
+      assignments: [{ nodeId: 'write-release', roleSlotId: 'writer', agentId: 'agent-1' }],
+      participants: ['agent-1'], issues: [],
+    });
     mocks.startPageRun.mockResolvedValue({ runId: 'run-1' }); mocks.startFolderRun.mockResolvedValue({ runId: 'run-folder' });
     mocks.getRun.mockResolvedValue({ id: 'run-1', roleBindings: [], joinInstructions: [] });
   });
@@ -101,5 +114,39 @@ describe('PageAgentBindingDialog', () => {
         { pageId: 'page-deep', agentId: 'agent-1', roleSlotKey: 'owner', expectedUpdatedAt: 'v1' },
       ],
     }));
+  });
+
+  it('starts the next composite Run from exact provenance without creating or duplicating Pages', async () => {
+    mocks.discoverFolderSource.mockResolvedValue({ source: {
+      sourceInstantiationId: 'instantiation-1', compositeTemplateVersionId: 'version-2',
+      templateId: 'template-1', templateVersion: 2, rootFolderId: 'folder-root',
+      nodes: [
+        { templateNodeId: 'root', kind: 'folder', folderId: 'folder-root', pageId: null },
+        { templateNodeId: 'page-a', kind: 'page', folderId: null, pageId: 'page-1' },
+        { templateNodeId: 'page-b', kind: 'page', folderId: null, pageId: 'page-deep' },
+      ],
+    } });
+    renderDialog({ kind: 'folder', folderId: 'folder-root', name: 'Root' });
+    await screen.findByLabelText('主责 Agent');
+    expect(screen.getByRole('radio', { name: /沿用原组合工作流/ })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /改用显式的简单页面职责/ })).not.toBeChecked();
+    fireEvent.change(screen.getByLabelText('主责 Agent'), { target: { value: 'agent-1' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: '保存后立即启动协作' }));
+    expect(screen.getByRole('button', { name: '保存绑定并启动' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '预览本次协作' }));
+
+    expect(await screen.findByText('Write release')).toBeVisible();
+    expect(screen.getAllByText(/Alpha/).some((element) => element.closest('li'))).toBe(true);
+    expect(mocks.previewFolderRun).toHaveBeenCalledWith('space-1', 'folder-root', expect.objectContaining({
+      source: { kind: 'template_instantiation', sourceInstantiationId: 'instantiation-1' },
+      pageIds: ['page-1', 'page-deep'],
+    }), expect.any(AbortSignal));
+    fireEvent.click(screen.getByRole('button', { name: '保存绑定并启动' }));
+
+    await waitFor(() => expect(mocks.startFolderRun).toHaveBeenCalledWith('space-1', 'folder-root', expect.objectContaining({
+      source: { kind: 'template_instantiation', sourceInstantiationId: 'instantiation-1' },
+      pageIds: ['page-1', 'page-deep'],
+    }), expect.any(AbortSignal)));
+    expect(mocks.startFolderRun.mock.calls[0]?.[2].pageIds).toEqual(['page-1', 'page-deep']);
   });
 });

@@ -6,6 +6,7 @@ import type {
   CollaborationRunDraftDetails,
   CollaborationHistoryKind,
   CollaborationHistoryPage,
+  CollaborationPageReviewComparison,
   CreateRunDraftInput,
   RunListKind,
   RunListPage,
@@ -54,6 +55,16 @@ export const collaborationApi = {
     (await api.get<CollaborationRun>(`/spaces/${spaceId}/collaboration/runs/${runId}`)).data,
   getArtifact: async (spaceId: string, runId: string, artifactId: string): Promise<CollaborationArtifact> =>
     (await api.get<CollaborationArtifact>(`/spaces/${spaceId}/collaboration/runs/${runId}/artifacts/${artifactId}`)).data,
+  getPageReviewComparison: async (
+    spaceId: string,
+    runId: string,
+    reviewId: string,
+    signal?: AbortSignal,
+  ): Promise<CollaborationPageReviewComparison> =>
+    (await api.get<CollaborationPageReviewComparison>(
+      `/spaces/${spaceId}/collaboration/runs/${runId}/reviews/${reviewId}/page-comparison`,
+      { signal },
+    )).data,
   getRunDraftDetails: async (spaceId: string, runId: string): Promise<CollaborationRunDraftDetails> =>
     (await api.get<CollaborationRunDraftDetails>(`/spaces/${spaceId}/collaboration/runs/${runId}/draft-details`)).data,
   getRunHistory: async <T = unknown>(
@@ -88,6 +99,18 @@ export const collaborationApi = {
     input: { kind: 'approve' | 'reject_for_revision' | 'terminate'; reason: string; idempotencyKey: string },
   ): Promise<CollaborationRun> =>
     (await api.post<CollaborationRun>(`/spaces/${spaceId}/collaboration/runs/${runId}/reviews/${reviewId}/decision`, input)).data,
+  resolvePageConflict: async (
+    spaceId: string,
+    runId: string,
+    taskId: string,
+    input: {
+      kind: 'regenerate' | 'adopt_current';
+      expectedPageVersionId: string | null;
+      expectedContentHash: string;
+      idempotencyKey: string;
+    },
+  ): Promise<{ kind: 'regenerate' | 'adopt_current'; taskId: string; generation: number }> =>
+    (await api.post(`/spaces/${spaceId}/collaboration/runs/${runId}/tasks/${taskId}/page-conflict`, input)).data,
 };
 
 export interface RunActionInput {
