@@ -214,7 +214,11 @@ describe('AttachmentCleanupWorker', () => {
     await worker.tick();
 
     expect(prisma.spaceAttachment.findMany).toHaveBeenCalledWith({
-      where: { status: 'archived', archivedAt: { lte: new Date(now.getTime() - 30 * DAY_MS) } },
+      where: {
+        status: 'archived',
+        archivedAt: { lte: new Date(now.getTime() - 30 * DAY_MS) },
+        revisionRows: { none: {} },
+      },
       orderBy: [{ archivedAt: 'asc' }, { id: 'asc' }],
       take: 100,
       select: { id: true, contentHash: true, storageKey: true, archivedAt: true },

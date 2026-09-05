@@ -11,6 +11,7 @@ const SAFE_SCHEMA = /^sync_v3_test_[a-z0-9_]+$/u;
 const EMPTY_AUTHORITY_SOCKET_URL = /^(postgres(?:ql)?:\/\/)([^/?#]+@)\/([^?#]+)(\?[^#]*)?$/iu;
 const SYNC_V3_MIGRATION = '20260904120000_add_sync_v3_attachments';
 const SYNC_V3_PUSH_ORDINAL_MIGRATION = '20260905120000_expand_sync_v3_push_change_ordinal';
+const SYNC_V3_BLOB_REFERENCE_INDEX_MIGRATION = '20260905180000_add_attachment_blob_reference_indexes';
 
 export function redactMigrationDiagnostics(value, sensitiveValues) {
   let redacted = value;
@@ -143,6 +144,10 @@ export async function withSyncV3TestDatabase(baseDatabaseUrl, callback) {
       recursive: true,
       force: true,
     });
+    await rm(join(temporaryPrismaRoot, 'migrations', SYNC_V3_BLOB_REFERENCE_INDEX_MIGRATION), {
+      recursive: true,
+      force: true,
+    });
     runMigrationDeploy({
       databaseUrl,
       prismaRoot: temporaryPrismaRoot,
@@ -189,7 +194,28 @@ export async function withSyncV3TestDatabase(baseDatabaseUrl, callback) {
       });
       return { firstDeployOutput, secondDeployOutput };
     };
+    const applySyncV3BlobReferenceIndexMigration = async () => {
+      await cp(
+        new URL(`../apps/server/prisma/migrations/${SYNC_V3_BLOB_REFERENCE_INDEX_MIGRATION}/`, import.meta.url),
+        join(temporaryPrismaRoot, 'migrations', SYNC_V3_BLOB_REFERENCE_INDEX_MIGRATION),
+        { recursive: true },
+      );
+      const firstDeployOutput = runMigrationDeploy({
+        databaseUrl,
+        prismaRoot: temporaryPrismaRoot,
+        sensitiveValues,
+        stage: 'Blob reference indexes',
+      });
+      const secondDeployOutput = runMigrationDeploy({
+        databaseUrl,
+        prismaRoot: temporaryPrismaRoot,
+        sensitiveValues,
+        stage: 'Blob reference indexes no-op verification',
+      });
+      return { firstDeployOutput, secondDeployOutput };
+    };
     return await callback({
+      applySyncV3BlobReferenceIndexMigration,
       applySyncV3Migration,
       applySyncV3PushOrdinalMigration,
       databaseUrl,

@@ -244,6 +244,7 @@ model SpaceAttachment {
   @@unique([id, spaceId])
   @@index([spaceId, status, updatedAt])
   @@index([contentHash])
+  @@index([storageKey])
   @@index([status, archivedAt])
 }
 
@@ -264,6 +265,7 @@ model AttachmentVersion {
   @@unique([attachmentId, contentHash])
   @@unique([id, attachmentId])
   @@index([contentHash])
+  @@index([storageKey])
 }
 
 model AssistTask {
@@ -1005,6 +1007,7 @@ model SyncRevisionAttachmentRow {
   @@id([revisionId, attachmentId])
   @@unique([revisionId, pathKey])
   @@unique([revisionId, ordinal])
+  @@index([attachmentVersionId, attachmentId])
 }
 
 model SpaceRevisionChainCheckpoint {
@@ -1225,6 +1228,7 @@ model PushSessionBlob {
   chunks  PushSessionBlobChunk[]
 
   @@id([sessionId, contentHash])
+  @@index([storageKey])
 }
 
 model PushSessionBlobChunk {

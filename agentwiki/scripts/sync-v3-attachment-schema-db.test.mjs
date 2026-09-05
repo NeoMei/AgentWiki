@@ -73,6 +73,7 @@ test('backfills one immutable version for every active attachment', {
   await withSyncV3TestDatabase(baseDatabaseUrl, async ({
     applySyncV3Migration,
     applySyncV3PushOrdinalMigration,
+    applySyncV3BlobReferenceIndexMigration,
     databaseUrl,
     schemaName,
   }) => {
@@ -481,6 +482,9 @@ test('backfills one immutable version for every active attachment', {
       const ordinalDeployment = await applySyncV3PushOrdinalMigration();
       assert.match(ordinalDeployment.firstDeployOutput, /1 migration found|Applying migration/iu);
       assert.match(ordinalDeployment.secondDeployOutput, /No pending migrations to apply/iu);
+      const indexDeployment = await applySyncV3BlobReferenceIndexMigration();
+      assert.match(indexDeployment.firstDeployOutput, /1 migration found|Applying migration/iu);
+      assert.match(indexDeployment.secondDeployOutput, /No pending migrations to apply/iu);
       await prisma.$executeRawUnsafe(`
         INSERT INTO "PushSessionV3Change" (
           "sessionId", ordinal, "entityType", "entityId", operation, payload
@@ -512,6 +516,15 @@ test('backfills one immutable version for every active attachment', {
         WHERE migration_name = '20260905120000_expand_sync_v3_push_change_ordinal'
       `);
       assert.deepEqual(ordinalLedger[0], { count: 1, finished: 1, rolled_back: 0 });
+      const indexLedger = await prisma.$queryRawUnsafe(`
+        SELECT
+          COUNT(*)::int AS count,
+          COUNT(*) FILTER (WHERE finished_at IS NOT NULL)::int AS finished,
+          COUNT(*) FILTER (WHERE rolled_back_at IS NOT NULL)::int AS rolled_back
+        FROM "_prisma_migrations"
+        WHERE migration_name = '20260905180000_add_attachment_blob_reference_indexes'
+      `);
+      assert.deepEqual(indexLedger[0], { count: 1, finished: 1, rolled_back: 0 });
       await prisma.$executeRawUnsafe(`DELETE FROM "PushSession" WHERE id = '${pushSessionId}'`);
       const stagedRows = await prisma.$queryRawUnsafe(`
         SELECT

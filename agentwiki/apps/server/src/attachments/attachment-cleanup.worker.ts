@@ -143,7 +143,11 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
   private async cleanupArchived(cutoff: Date, referenceTime: Date): Promise<void> {
     if (this.shuttingDown) return;
     const archived = await this.prisma.spaceAttachment.findMany({
-      where: { status: 'archived', archivedAt: { lte: cutoff } },
+      where: {
+        status: 'archived',
+        archivedAt: { lte: cutoff },
+        revisionRows: { none: {} },
+      },
       orderBy: [{ archivedAt: 'asc' }, { id: 'asc' }],
       take: BATCH_SIZE,
       select: { id: true, contentHash: true, storageKey: true, archivedAt: true },

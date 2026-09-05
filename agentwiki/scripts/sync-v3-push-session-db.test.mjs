@@ -124,10 +124,12 @@ test('Sync v3 finalize is atomic, race-safe, retryable, and terminally idempoten
   timeout: 180_000,
 }, async () => {
   await withSyncV3TestDatabase(baseDatabaseUrl, async ({
-    applySyncV3Migration, applySyncV3PushOrdinalMigration, databaseUrl, schemaName,
+    applySyncV3BlobReferenceIndexMigration, applySyncV3Migration,
+    applySyncV3PushOrdinalMigration, databaseUrl, schemaName,
   }) => {
     await applySyncV3Migration();
     await applySyncV3PushOrdinalMigration();
+    await applySyncV3BlobReferenceIndexMigration();
     const prisma = new PrismaService({ datasources: { db: { url: databaseUrl } } });
     await prisma.$connect();
     const suffix = schemaName.slice(-12);
@@ -638,10 +640,12 @@ test('Sync v3 atomically rejects Folder depth and active-count boundary overflow
   timeout: 240_000,
 }, async () => {
   await withSyncV3TestDatabase(baseDatabaseUrl, async ({
-    applySyncV3Migration, applySyncV3PushOrdinalMigration, databaseUrl, schemaName,
+    applySyncV3BlobReferenceIndexMigration, applySyncV3Migration,
+    applySyncV3PushOrdinalMigration, databaseUrl, schemaName,
   }) => {
     await applySyncV3Migration();
     await applySyncV3PushOrdinalMigration();
+    await applySyncV3BlobReferenceIndexMigration();
     const prisma = new PrismaService({ datasources: { db: { url: databaseUrl } } });
     await prisma.$connect();
     const suffix = schemaName.slice(-12);

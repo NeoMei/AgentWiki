@@ -30,15 +30,175 @@ async function exists(path) {
   }
 }
 
+function collectPlanNodes(node, result = []) {
+  if (!node || typeof node !== 'object') return result;
+  if (node['Node Type']) {
+    result.push({
+      nodeType: node['Node Type'],
+      relation: node['Relation Name'],
+      index: node['Index Name'],
+    });
+  }
+  for (const child of node.Plans ?? []) collectPlanNodes(child, result);
+  return result;
+}
+
+test('Sync v3 Blob ownership probes use storageKey indexes at high cardinality', {
+  skip: baseDatabaseUrl ? false : 'SYNC_V3_TEST_DATABASE_URL is not configured',
+  timeout: 180_000,
+}, async () => {
+  await withSyncV3TestDatabase(baseDatabaseUrl, async ({
+    applySyncV3BlobReferenceIndexMigration, applySyncV3Migration,
+    applySyncV3PushOrdinalMigration, databaseUrl, schemaName,
+  }) => {
+    await applySyncV3Migration();
+    await applySyncV3PushOrdinalMigration();
+    await applySyncV3BlobReferenceIndexMigration();
+    const prisma = new PrismaService({ datasources: { db: { url: databaseUrl } } });
+    const suffix = schemaName.slice(-10);
+    const userId = `index-user-${suffix}`;
+    const spaceId = `index-space-${suffix}`;
+    const revisionId = `index-revision-${suffix}`;
+    const sessionId = randomUUID();
+    const targetHash = (2_000).toString(16).padStart(64, '0');
+    const targetStorageKey = storageKey(targetHash);
+    try {
+      await prisma.$connect();
+      await prisma.user.create({ data: { id: userId, email: `${userId}@retention-v3.test` } });
+      await prisma.space.create({ data: { id: spaceId, name: 'Index plan', slug: spaceId } });
+      await prisma.spaceKnowledgeRevision.create({ data: {
+        id: revisionId, spaceId, sequence: 1, schemaVersion: 'content-tree@3',
+        recipeVersion: 'referenced-images-v1', contentHash: 'a'.repeat(64),
+        revisionContentHash: 'b'.repeat(64), pageCount: 0n, revisionBodyBytes: 0n,
+        revisionManifestByteLength: 2n,
+      } });
+      await prisma.pushSession.create({ data: {
+        id: sessionId, protocolVersion: '3', credentialFamilyId: randomUUID(),
+        credentialId: randomUUID(), userId, spaceId, baseRevisionId: revisionId,
+        idempotencyKey: randomUUID(), capabilitiesHash: 'c'.repeat(64),
+        confirmationHash: 'd'.repeat(64), confirmationByteLength: 2,
+        changeCount: 0, totalBodyBytes: 0n, expiresAt: new Date(Date.now() + DAY),
+      } });
+      await prisma.$executeRawUnsafe(`
+        INSERT INTO "SpaceAttachment" (
+          id, "spaceId", "displayName", "nameKey", "contentHash", "storageKey",
+          "mimeType", "sizeBytes", width, height, status, "uploadedByUserId", "createdAt", "updatedAt"
+        )
+        SELECT
+          'index-attachment-' || g || '-' || $1,
+          $2,
+          'index-' || g || '.png',
+          'index-' || g || '.png',
+          lpad(to_hex(g), 64, '0'),
+          'sha256/00/00/' || lpad(to_hex(g), 64, '0'),
+          'image/png', 1, 1, 1, 'active'::"SpaceAttachmentStatus", $3, now(), now()
+        FROM generate_series(1, 2000) AS g
+      `, suffix, spaceId, userId);
+      await prisma.$executeRawUnsafe(`
+        INSERT INTO "AttachmentVersion" (
+          id, "attachmentId", "contentHash", "storageKey", "mimeType", "sizeBytes", width, height
+        )
+        SELECT
+          'index-version-' || g || '-' || $1,
+          'index-attachment-' || g || '-' || $1,
+          lpad(to_hex(g), 64, '0'),
+          'sha256/00/00/' || lpad(to_hex(g), 64, '0'),
+          'image/png', 1, 1, 1
+        FROM generate_series(1, 2000) AS g
+      `, suffix);
+      await prisma.$executeRawUnsafe(`
+        INSERT INTO "SyncRevisionAttachmentRow" (
+          "revisionId", "attachmentId", "attachmentVersionId", "spaceId", path, "pathKey", ordinal
+        )
+        SELECT
+          $1,
+          'index-attachment-' || g || '-' || $2,
+          'index-version-' || g || '-' || $2,
+          $3,
+          'assets/index-' || g || '.png',
+          'assets/index-' || g || '.png',
+          g - 1
+        FROM generate_series(1, 1000) AS g
+      `, revisionId, suffix, spaceId);
+      await prisma.$executeRawUnsafe(`
+        INSERT INTO "PushSessionBlob" (
+          "sessionId", "contentHash", "sizeBytes", "mimeType", width, height, status, "storageKey"
+        )
+        SELECT
+          $1, lpad(to_hex(g), 64, '0'), 1, 'image/png', 1, 1, 'verified',
+          'sha256/00/00/' || lpad(to_hex(g), 64, '0')
+        FROM generate_series(1, 2000) AS g
+      `, sessionId);
+      await prisma.$executeRawUnsafe(
+        'ANALYZE "SpaceAttachment", "AttachmentVersion", "SyncRevisionAttachmentRow", "PushSessionBlob"',
+      );
+      await prisma.$executeRawUnsafe('SET enable_seqscan = off');
+
+      const probes = [
+        [
+          'SpaceAttachment',
+          'SELECT 1 FROM "SpaceAttachment" WHERE "storageKey" = $1',
+          ['SpaceAttachment_storageKey_idx'],
+        ],
+        [
+          'AttachmentVersion',
+          'SELECT 1 FROM "AttachmentVersion" WHERE "storageKey" = $1',
+          ['AttachmentVersion_storageKey_idx'],
+        ],
+        [
+          'PushSessionBlob',
+          'SELECT 1 FROM "PushSessionBlob" WHERE "storageKey" = $1',
+          ['PushSessionBlob_storageKey_idx'],
+        ],
+        ['SyncRevisionAttachmentRow', `
+          SELECT 1 FROM "SyncRevisionAttachmentRow" r
+          JOIN "AttachmentVersion" v
+            ON v.id = r."attachmentVersionId" AND v."attachmentId" = r."attachmentId"
+          WHERE v."storageKey" = $1
+        `, [
+          'AttachmentVersion_storageKey_idx',
+          'SyncRevisionAttachmentRow_attachmentVersionId_attachmentId_idx',
+        ]],
+      ];
+      for (const [label, sql, expectedIndexes] of probes) {
+        const [explain] = await prisma.$queryRawUnsafe(`EXPLAIN (FORMAT JSON) ${sql}`, targetStorageKey);
+        const nodes = collectPlanNodes(explain['QUERY PLAN'][0].Plan);
+        assert.equal(
+          nodes.some((node) => node.nodeType.includes('Index') || node.nodeType.includes('Bitmap')),
+          true,
+          `${label} owner lookup plan must use an index: ${JSON.stringify(nodes)}`,
+        );
+        assert.equal(
+          nodes.some((node) => node.nodeType === 'Seq Scan'),
+          false,
+          `${label} owner lookup plan must not fall back to Seq Scan: ${JSON.stringify(nodes)}`,
+        );
+        const indexes = new Set(nodes.map((node) => node.index).filter(Boolean));
+        for (const expectedIndex of expectedIndexes) {
+          assert.equal(
+            indexes.has(expectedIndex),
+            true,
+            `${label} owner lookup must use ${expectedIndex}: ${JSON.stringify(nodes)}`,
+          );
+        }
+      }
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+});
+
 test('Sync v3 retention and Blob GC preserve every live owner and close deletion races', {
   skip: baseDatabaseUrl ? false : 'SYNC_V3_TEST_DATABASE_URL is not configured',
   timeout: 180_000,
 }, async () => {
   await withSyncV3TestDatabase(baseDatabaseUrl, async ({
-    applySyncV3Migration, applySyncV3PushOrdinalMigration, databaseUrl, schemaName,
+    applySyncV3BlobReferenceIndexMigration, applySyncV3Migration,
+    applySyncV3PushOrdinalMigration, databaseUrl, schemaName,
   }) => {
     await applySyncV3Migration();
     await applySyncV3PushOrdinalMigration();
+    await applySyncV3BlobReferenceIndexMigration();
     const prisma = new PrismaService({ datasources: { db: { url: databaseUrl } } });
     const root = await mkdtemp(join(tmpdir(), 'agentwiki-attachment-test-retention-v3-'));
     const suffix = schemaName.slice(-10);
@@ -144,6 +304,44 @@ test('Sync v3 retention and Blob GC preserve every live owner and close deletion
           pathKey: `assets/photo-${suffix}.png`, ordinal: 0,
         },
       ] });
+      const blockedAttachments = Array.from({ length: 100 }, (_, index) => ({
+        id: `blocked-attachment-${index}-${suffix}`,
+        spaceId,
+        displayName: `blocked-${index}-${suffix}.png`,
+        nameKey: `blocked-${index}-${suffix}.png`,
+        contentHash: index.toString(16).padStart(64, '0'),
+        storageKey: storageKey(index.toString(16).padStart(64, '0')),
+        mimeType: 'image/png',
+        sizeBytes: 1n,
+        width: 1,
+        height: 1,
+        status: 'archived',
+        archivedAt: new Date(now - 32 * DAY),
+        uploadedByUserId: userId,
+      }));
+      await prisma.spaceAttachment.createMany({ data: blockedAttachments });
+      const blockedVersions = blockedAttachments.map((row, index) => ({
+        id: `blocked-version-${index}-${suffix}`,
+        attachmentId: row.id,
+        contentHash: row.contentHash,
+        storageKey: row.storageKey,
+        mimeType: row.mimeType,
+        sizeBytes: row.sizeBytes,
+        width: row.width,
+        height: row.height,
+      }));
+      await prisma.attachmentVersion.createMany({ data: blockedVersions });
+      await prisma.syncRevisionAttachmentRow.createMany({
+        data: blockedAttachments.map((row, index) => ({
+          revisionId: currentRevisionId,
+          attachmentId: row.id,
+          attachmentVersionId: blockedVersions[index].id,
+          spaceId,
+          path: `assets/blocked-${index}-${suffix}.png`,
+          pathKey: `assets/blocked-${index}-${suffix}.png`,
+          ordinal: index + 1,
+        })),
+      });
       await prisma.legacyRevisionSidecar.create({ data: {
         revisionId: currentRevisionId,
         sidecar: {
@@ -245,6 +443,9 @@ test('Sync v3 retention and Blob GC preserve every live owner and close deletion
       assert.equal(await exists(expired.path), false, 'session beyond grace is collectible');
       assert.equal(await exists(orphan.path), false, 'unowned Blob is collectible');
       assert.equal(await exists(archived.path), false, 'unreferenced archived version is collectible');
+      assert.equal(await prisma.spaceAttachment.count({
+        where: { id: { in: blockedAttachments.map((row) => row.id) } },
+      }), 100, 'permanently revision-owned archived rows remain retained');
       assert.equal(await prisma.spaceAttachment.findUnique({ where: { id: archivedAttachment.id } }), null);
       assert.equal(await prisma.attachmentVersion.count({ where: { attachmentId: archivedAttachment.id } }), 0);
     } finally {

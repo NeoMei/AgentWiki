@@ -21,9 +21,13 @@ const { PrismaClient } = requireFromServer('@prisma/client');
 const { ContentTreeService } = requireFromServer('./dist/content-tree/content-tree.service.js');
 const { ReadableSyncPathService } = requireFromServer('./dist/core/sync/readable-sync-path.service.js');
 const { SpaceRevisionWriterService } = requireFromServer('./dist/core/sync/space-revision-writer.service.js');
+const { AuthorizationService } = requireFromServer('./dist/core/authorization/authorization.service.js');
+const { MarkdownResourceService } = requireFromServer('./dist/markdown-resources/markdown-resource.service.js');
+const { SyncV3RevisionWriterService } = requireFromServer('./dist/core/sync/sync-v3-revision-writer.service.js');
+const { LocalAttachmentStorage } = requireFromServer('./dist/attachments/local-attachment.storage.js');
 const baseDatabaseUrl = process.env.FOLDER_TEST_DATABASE_URL;
 let publicInventoryBefore;
-const REVIEWED_MIGRATION_TREE_SHA256 = '6a0e9aafe798df4c17358e53eec98214084eb002aab93ccc5630400728d2512b';
+const REVIEWED_MIGRATION_TREE_SHA256 = '5d51254712ba8dbf90fa62e13506dbc8ee8a3d71d637099281794618a1e558ee';
 
 const folderPgDumpFixture = (token, body) => `--\n-- PostgreSQL database dump\n--\n\n\\restrict ${token}\n\n${body}\n\n--\n-- PostgreSQL database dump complete\n--\n\n\\unrestrict ${token}\n\n`;
 
@@ -636,6 +640,8 @@ test('ContentTree production advisory lock serializes create, commit, and rollba
       assert.equal(afterCommitSnapshot.data.length, 1);
     } finally {
       await prisma.$disconnect();
+      await storage.onModuleDestroy();
+      await rm(storageRoot, { recursive: true, force: true });
     }
   });
 });
