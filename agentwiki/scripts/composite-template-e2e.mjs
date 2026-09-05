@@ -13,6 +13,8 @@ import { assertTestRedisAvailable, resolveTestRedisTarget } from './e2e-safety.m
 import {
   acceptanceChildEnvironment,
   acceptanceCompletionStatus,
+  assertCollaborationOffPersistence,
+  assertExternalAgentSuccessfulSequence,
   assertPublishedPageVersionPair,
   buildExternalAgentStagePrompt,
   collectContentTree,
@@ -172,6 +174,7 @@ async function runChromeAcceptance({ webOrigin, apiUrl, databaseUrl, fixture, ar
   const { chromium } = requireFromClient('@playwright/test');
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   const consoleIssues = [];
+  const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
   const page = await context.newPage();
@@ -198,6 +201,9 @@ async function runChromeAcceptance({ webOrigin, apiUrl, databaseUrl, fixture, ar
     await newPage.click();
     await page.getByRole('button', { name: /项目管理工作区/u }).click();
     await page.getByRole('button', { name: '下一步' }).click();
+    const treeRevisionBefore = (await prisma.space.findUniqueOrThrow({
+      where: { id: fixture.space.id }, select: { contentTreeRevision: true },
+    })).contentTreeRevision;
     const rootName = page.getByLabel('根名称');
     await rootName.fill('离线项目验收工作区');
     await rootName.blur();
@@ -224,6 +230,23 @@ async function runChromeAcceptance({ webOrigin, apiUrl, databaseUrl, fixture, ar
     const activeRuns = await request(apiUrl, `/spaces/${fixture.space.id}/collaboration/runs?status=active&limit=100`, { token: fixture.owner.access_token });
     const historicRuns = await request(apiUrl, `/spaces/${fixture.space.id}/collaboration/runs?status=history&limit=100`, { token: fixture.owner.access_token });
     assert.equal(activeRuns.items.length + historicRuns.items.length, 0);
+    const instantiations = await prisma.templateInstantiation.findMany({
+      where: { spaceId: fixture.space.id }, include: { nodes: { select: { pageId: true } } },
+    });
+    assert.equal(instantiations.length, 1, 'collaboration-off flow needs exactly one TemplateInstantiation before ordinary editing');
+    const createdPageIds = instantiations[0].nodes.flatMap((node) => node.pageId ? [node.pageId] : []);
+    const bindingCount = await prisma.pageAgentBinding.count({
+      where: { spaceId: fixture.space.id, pageId: { in: createdPageIds } },
+    });
+    const treeRevisionAfter = (await prisma.space.findUniqueOrThrow({
+      where: { id: fixture.space.id }, select: { contentTreeRevision: true },
+    })).contentTreeRevision;
+    const collaborationOffPersistence = assertCollaborationOffPersistence({
+      beforeTreeRevision: treeRevisionBefore,
+      afterTreeRevision: treeRevisionAfter,
+      instantiation: instantiations[0],
+      bindingCount,
+    });
     const editablePage = nodes.find((node) => node.kind === 'page' || typeof node.title === 'string');
     assert.ok(editablePage?.id, 'created tree needs an editable Page');
     await page.goto(`${webOrigin}/pages/${editablePage.id}/edit`);
@@ -263,6 +286,7 @@ async function runChromeAcceptance({ webOrigin, apiUrl, databaseUrl, fixture, ar
         runs: 0,
         editedPageId: editablePage.id,
         openGroupLabel: '打开页面组',
+        ...collaborationOffPersistence,
       },
       collaborationOn,
       externalAgents,
@@ -272,6 +296,7 @@ async function runChromeAcceptance({ webOrigin, apiUrl, databaseUrl, fixture, ar
     await context.tracing.stop({ path: join(artifactsDirectory, 'chrome-trace.zip') }).catch(() => undefined);
     await context.close();
     await browser.close();
+    await prisma.$disconnect();
   }
 }
 
@@ -337,13 +362,10 @@ async function runRealExternalAgentJourney({ page, webOrigin, apiUrl, databaseUr
     });
       receipts.push(result);
       assert.equal(result.exitCode, 0, `${item.label} model execution failed; see ${result.receiptPath}`);
-      for (const expected of [
-        'wiki_collaboration_join_run',
-        'wiki_collaboration_next_action',
-        'wiki_collaboration_update_todo',
-        'wiki_collaboration_submit_result',
-      ]) assert.equal(result.succeededTools.includes(expected), true, `${item.label} did not execute ${expected}`);
-      publications.push(await approveExternalPageReview({
+      const sequence = assertExternalAgentSuccessfulSequence(result.successfulCalls);
+      publications.push({
+        sequence,
+        ...(await approveExternalPageReview({
         page,
         webOrigin,
         apiUrl,
@@ -355,14 +377,15 @@ async function runRealExternalAgentJourney({ page, webOrigin, apiUrl, databaseUr
         beforeEvidence: item.evidence,
         afterEvidence: item.evidence + 1,
         artifactsDirectory,
-      }));
+        })),
+      });
     }
   } finally {
     await prisma.$disconnect();
   }
   return {
-    clients: receipts.map(({ client, exitCode, requestedTools, succeededTools, receiptPath, lastMessagePath }) => ({
-      client, exitCode, requestedTools, succeededTools, receiptPath, ...(lastMessagePath ? { lastMessagePath } : {}),
+    clients: receipts.map(({ client, exitCode, requestedCalls, successfulCalls, receiptPath, lastMessagePath }) => ({
+      client, exitCode, requestedCalls, successfulCalls, receiptPath, ...(lastMessagePath ? { lastMessagePath } : {}),
     })),
     publications,
   };
@@ -484,7 +507,7 @@ async function runExternalAgentClient({ client, label, agent, apiUrl, runId, sta
   const toolReceipt = extractCollaborationToolReceipt(output);
   return {
     client, exitCode,
-    requestedTools: toolReceipt.requested, succeededTools: toolReceipt.succeeded,
+    requestedCalls: toolReceipt.requestedCalls, successfulCalls: toolReceipt.successfulCalls,
     receiptPath, lastMessagePath,
   };
 }

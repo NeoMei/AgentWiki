@@ -94,6 +94,48 @@ export async function collectContentTree(loadChildren) {
   return nodes;
 }
 
+export function assertCollaborationOffPersistence({
+  beforeTreeRevision,
+  afterTreeRevision,
+  instantiation,
+  bindingCount,
+}) {
+  if (afterTreeRevision !== beforeTreeRevision + 1n) {
+    throw new Error('Collaboration-off instantiation must advance contentTreeRevision exactly one');
+  }
+  if (instantiation.treeRevision !== afterTreeRevision) {
+    throw new Error('Collaboration-off instantiation treeRevision does not match the Space revision');
+  }
+  const stored = instantiation.result;
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)
+    || typeof stored.treeRevision !== 'string' || !Array.isArray(stored.pageIds)) {
+    throw new Error('Collaboration-off instantiation result is invalid');
+  }
+  if (BigInt(stored.treeRevision) !== afterTreeRevision) {
+    throw new Error('Collaboration-off result treeRevision does not match the Space revision');
+  }
+  const nodePageIds = instantiation.nodes
+    .map((node) => node.pageId)
+    .filter((pageId) => typeof pageId === 'string')
+    .sort();
+  const resultPageIds = stored.pageIds
+    .filter((pageId) => typeof pageId === 'string')
+    .sort();
+  if (!isDeepStrictEqual(nodePageIds, resultPageIds)) {
+    throw new Error('Collaboration-off created Page scope does not match its instantiation result');
+  }
+  if (bindingCount !== 0) {
+    throw new Error('Collaboration-off created Page scope must have zero PageAgentBinding rows');
+  }
+  return {
+    instantiationId: instantiation.id,
+    treeRevisionBefore: beforeTreeRevision.toString(),
+    treeRevisionAfter: afterTreeRevision.toString(),
+    createdPageCount: resultPageIds.length,
+    bindingCount,
+  };
+}
+
 export function buildExternalAgentStagePrompt({ client, runId, stage }) {
   if (!client || !runId || !stage) throw new Error('External Agent prompt requires client, runId, and stage');
   return `${client} isolated AgentWiki acceptance stage ${stage}.
@@ -156,12 +198,86 @@ function collaborationToolName(value) {
   return value.match(/(wiki_collaboration_[a-z_]+)$/u)?.[1];
 }
 
+function parsedToolPayload(value) {
+  if (typeof value === 'string') {
+    try { return JSON.parse(value); } catch { return undefined; }
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const parsed = parsedToolPayload(item);
+      if (parsed !== undefined) return parsed;
+    }
+    return undefined;
+  }
+  if (!value || typeof value !== 'object') return undefined;
+  if (Array.isArray(value.content)) return parsedToolPayload(value.content);
+  if (typeof value.text === 'string') return parsedToolPayload(value.text);
+  return value;
+}
+
+function safeRequestedInput(tool, input) {
+  const value = input && typeof input === 'object' ? input : {};
+  if (tool === 'wiki_collaboration_join_run') return { ...(typeof value.runId === 'string' ? { runId: value.runId } : {}) };
+  if (tool === 'wiki_collaboration_next_action') return {
+    ...(typeof value.runId === 'string' ? { runId: value.runId } : {}),
+    ...(Number.isInteger(value.waitSeconds) ? { waitSeconds: value.waitSeconds } : {}),
+  };
+  if (tool === 'wiki_collaboration_update_todo') return {
+    ...(typeof value.todoId === 'string' ? { todoId: value.todoId } : {}),
+    ...(typeof value.status === 'string' ? { status: value.status } : {}),
+  };
+  if (tool === 'wiki_collaboration_submit_result') return {
+    ...(typeof value.artifact?.kind === 'string' ? { artifactKind: value.artifact.kind } : {}),
+  };
+  return {};
+}
+
+function safeResultSummary(tool, rawResult) {
+  const value = parsedToolPayload(rawResult);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  if (tool === 'wiki_collaboration_join_run') return {
+    ...(typeof value.status === 'string' ? { status: value.status } : {}),
+  };
+  if (tool === 'wiki_collaboration_next_action') return {
+    ...(typeof value.action === 'string' ? { action: value.action } : {}),
+    ...(typeof value.task?.id === 'string' ? { taskId: value.task.id } : {}),
+    ...(Array.isArray(value.task?.todos) ? {
+      todos: value.task.todos.flatMap((todo) => typeof todo?.id === 'string' && Number.isInteger(todo.ordinal)
+        ? [{ id: todo.id, ordinal: todo.ordinal }]
+        : []),
+    } : {}),
+  };
+  if (tool === 'wiki_collaboration_update_todo') return {
+    ...(typeof value.todo?.id === 'string' ? { todoId: value.todo.id } : {}),
+    ...(typeof value.todo?.status === 'string' ? { todoStatus: value.todo.status } : {}),
+    ...(typeof value.taskStatus === 'string' ? { taskStatus: value.taskStatus } : {}),
+  };
+  if (tool === 'wiki_collaboration_submit_result') return {
+    ...(typeof value.action === 'string' ? { action: value.action } : {}),
+    ...(typeof value.artifactStatus === 'string' ? { artifactStatus: value.artifactStatus } : {}),
+    ...(typeof value.taskStatus === 'string' ? { taskStatus: value.taskStatus } : {}),
+    ...(typeof value.runStatus === 'string' ? { runStatus: value.runStatus } : {}),
+  };
+  return {};
+}
+
 export function extractCollaborationToolReceipt(output) {
-  const requested = [];
-  const succeeded = [];
+  const requestedCalls = [];
+  const successfulCalls = [];
   const claudeRequests = new Map();
-  const record = (target, name) => {
-    if (name && !target.includes(name)) target.push(name);
+  const codexRequestIds = new Set();
+  const request = (tool, input, id) => {
+    if (!tool || (id && codexRequestIds.has(id))) return;
+    requestedCalls.push({ tool, input: safeRequestedInput(tool, input) });
+    if (id) codexRequestIds.add(id);
+  };
+  const succeed = (tool, input, result) => {
+    if (!tool) return;
+    successfulCalls.push({
+      tool,
+      input: safeRequestedInput(tool, input),
+      result: safeResultSummary(tool, result),
+    });
   };
   for (const line of output.split(/\r?\n/u)) {
     if (!line.trim()) continue;
@@ -170,10 +286,10 @@ export function extractCollaborationToolReceipt(output) {
     const item = event?.item;
     if (item?.type === 'mcp_tool_call') {
       const name = collaborationToolName(item.tool);
-      record(requested, name);
+      request(name, item.arguments, item.id);
       const resultFailed = item.result?.isError === true || item.result?.is_error === true;
       if (event.type === 'item.completed' && item.status === 'completed' && !item.error && item.result && !resultFailed) {
-        record(succeeded, name);
+        succeed(name, item.arguments, item.result);
       }
     }
     const claudeContent = event?.message?.content;
@@ -181,26 +297,77 @@ export function extractCollaborationToolReceipt(output) {
       for (const block of claudeContent) {
         if (block?.type === 'tool_use') {
           const name = collaborationToolName(block.name);
-          record(requested, name);
-          if (name && typeof block.id === 'string') claudeRequests.set(block.id, name);
+          request(name, block.input);
+          if (name && typeof block.id === 'string') claudeRequests.set(block.id, { tool: name, input: block.input });
         } else if (block?.type === 'tool_result') {
-          const name = claudeRequests.get(block.tool_use_id);
-          if (block.is_error !== true && block.isError !== true) record(succeeded, name);
+          const pending = claudeRequests.get(block.tool_use_id);
+          if (pending && block.is_error !== true && block.isError !== true) {
+            succeed(pending.tool, pending.input, block.content);
+          }
         }
       }
     }
     const part = event?.part;
     if (part?.type === 'tool') {
       const name = collaborationToolName(part.tool);
-      record(requested, name);
-      if (part.state?.status === 'completed' && part.state?.error == null) record(succeeded, name);
+      request(name, part.state?.input);
+      if (part.state?.status === 'completed' && part.state?.error == null) {
+        succeed(name, part.state?.input, part.state?.output);
+      }
     }
   }
-  return { requested, succeeded };
+  return { requestedCalls, successfulCalls };
 }
 
 export function extractExecutedCollaborationTools(output) {
-  return extractCollaborationToolReceipt(output).succeeded;
+  return extractCollaborationToolReceipt(output).successfulCalls.map((call) => call.tool);
+}
+
+export function assertExternalAgentSuccessfulSequence(calls) {
+  const expectTool = (index, tool) => {
+    if (calls[index]?.tool !== tool) throw new Error(`External Agent receipt expected ${tool} at successful call ${index + 1}`);
+  };
+  expectTool(0, 'wiki_collaboration_join_run');
+  if (calls[0].result?.status !== 'running') throw new Error('External Agent join must return running');
+  expectTool(1, 'wiki_collaboration_next_action');
+  const execute = calls[1];
+  const todos = execute?.result?.todos;
+  const todoCount = Array.isArray(todos) ? todos.length : 0;
+  if (execute.result?.action !== 'execute_task' || typeof execute.result?.taskId !== 'string' || todoCount < 1) {
+    throw new Error('External Agent initial next_action must return execute_task with Todos');
+  }
+  const expectedCount = 4 + (todoCount * 2);
+  if (calls.length !== expectedCount) {
+    throw new Error(`External Agent receipt needs exact successful call count ${expectedCount}, got ${calls.length}`);
+  }
+  const orderedTodos = [...todos].sort((left, right) => left.ordinal - right.ordinal);
+  for (const [ordinalIndex, todo] of orderedTodos.entries()) {
+    const doingIndex = 2 + (ordinalIndex * 2);
+    const doneIndex = doingIndex + 1;
+    expectTool(doingIndex, 'wiki_collaboration_update_todo');
+    if (calls[doingIndex].input?.todoId !== todo.id || calls[doingIndex].input?.status !== 'doing'
+      || calls[doingIndex].result?.todoId !== todo.id || calls[doingIndex].result?.todoStatus !== 'doing') {
+      throw new Error(`External Agent Todo doing transition is invalid for ordinal ${todo.ordinal}`);
+    }
+    expectTool(doneIndex, 'wiki_collaboration_update_todo');
+    if (calls[doneIndex].input?.todoId !== todo.id || calls[doneIndex].input?.status !== 'done'
+      || calls[doneIndex].result?.todoId !== todo.id || calls[doneIndex].result?.todoStatus !== 'done') {
+      throw new Error(`External Agent Todo done transition is invalid for ordinal ${todo.ordinal}`);
+    }
+  }
+  const submitIndex = 2 + (todoCount * 2);
+  expectTool(submitIndex, 'wiki_collaboration_submit_result');
+  const submit = calls[submitIndex];
+  if (submit.input?.artifactKind !== 'markdown' || submit.result?.action !== 'submitted'
+    || submit.result?.artifactStatus !== 'pending' || submit.result?.taskStatus !== 'submitted'
+    || submit.result?.runStatus !== 'waiting_review') {
+    throw new Error('External Agent submit must return submitted/pending waiting_review state');
+  }
+  expectTool(submitIndex + 1, 'wiki_collaboration_next_action');
+  if (calls[submitIndex + 1].result?.action !== 'waiting_human') {
+    throw new Error('External Agent final next_action must return waiting_human');
+  }
+  return { taskId: execute.result.taskId, todoCount, finalAction: 'waiting_human' };
 }
 
 export function externalAgentClientArgs({

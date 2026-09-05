@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import {
   acceptanceChildEnvironment,
   acceptanceCompletionStatus,
+  assertCollaborationOffPersistence,
+  assertExternalAgentSuccessfulSequence,
   buildExternalAgentStagePrompt,
   collectContentTree,
   externalAgentGatewayFiles,
@@ -138,6 +140,31 @@ test('acceptance persistence proof walks every nested content-tree folder', asyn
   assert.deepEqual(nodes.map((node) => node.id), ['root', 'overview', 'plan', 'milestones']);
 });
 
+test('collaboration-off persistence rejects bindings and any revision proof other than one atomic advance', () => {
+  const valid = {
+    beforeTreeRevision: 4n,
+    afterTreeRevision: 5n,
+    instantiation: {
+      id: 'instance-1', treeRevision: 5n,
+      result: { treeRevision: '5', pageIds: ['page-1', 'page-2'] },
+      nodes: [{ pageId: 'page-1' }, { pageId: 'page-2' }],
+    },
+    bindingCount: 0,
+  };
+  assert.deepEqual(assertCollaborationOffPersistence(valid), {
+    instantiationId: 'instance-1', treeRevisionBefore: '4', treeRevisionAfter: '5',
+    createdPageCount: 2, bindingCount: 0,
+  });
+  assert.throws(() => assertCollaborationOffPersistence({ ...valid, bindingCount: 1 }), /zero PageAgentBinding/u);
+  assert.throws(() => assertCollaborationOffPersistence({ ...valid, afterTreeRevision: 6n }), /exactly one/u);
+  assert.throws(() => assertCollaborationOffPersistence({
+    ...valid, instantiation: { ...valid.instantiation, treeRevision: 4n },
+  }), /instantiation treeRevision/u);
+  assert.throws(() => assertCollaborationOffPersistence({
+    ...valid, instantiation: { ...valid.instantiation, result: { ...valid.instantiation.result, treeRevision: '4' } },
+  }), /result treeRevision/u);
+});
+
 test('external Agent stage prompt is bounded, copyable, and preserves the human gate', () => {
   const prompt = buildExternalAgentStagePrompt({
     client: 'Codex',
@@ -180,36 +207,48 @@ test('external Agent gateway files pass an explicit fixture home without repurpo
   assert.doesNotMatch(files.wrapperSource, /process\.env\.(?:HOME|CODEX_HOME)|homedir/u);
 });
 
-test('external Agent receipt distinguishes requested tools from successful results for every CLI', () => {
+test('external Agent receipt preserves safe ordered successes for Codex, Claude, and OpenCode', () => {
   const receipt = [
-    JSON.stringify({ type: 'item.started', item: { type: 'mcp_tool_call', server: 'agentwiki', tool: 'wiki_collaboration_join_run' } }),
-    JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'agentwiki', tool: 'wiki_collaboration_join_run', status: 'failed', result: null, error: 'approval denied' } }),
-    JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', server: 'agentwiki', tool: 'wiki_collaboration_next_action', status: 'completed', result: { content: [{ type: 'text', text: '{}' }] }, error: null } }),
-    JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'claude-1', name: 'mcp__agentwiki__wiki_collaboration_update_todo' }] } }),
-    JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'claude-1', is_error: false, content: 'ok' }] } }),
-    JSON.stringify({ type: 'tool_use', part: { type: 'tool', tool: 'agentwiki_wiki_collaboration_submit_result', state: { status: 'completed', output: '{}' } } }),
-    JSON.stringify({ type: 'tool_use', part: { type: 'tool', tool: 'agentwiki_wiki_collaboration_heartbeat', state: { status: 'error', error: 'failed' } } }),
-    JSON.stringify({ type: 'assistant', text: 'I plan to call wiki_collaboration_submit_result later.' }),
+    JSON.stringify({ type: 'item.started', item: { id: 'codex-failed', type: 'mcp_tool_call', tool: 'wiki_collaboration_join_run', arguments: { runId: 'run-1' } } }),
+    JSON.stringify({ type: 'item.completed', item: { id: 'codex-failed', type: 'mcp_tool_call', tool: 'wiki_collaboration_join_run', arguments: { runId: 'run-1' }, status: 'failed', result: null, error: 'approval denied' } }),
+    JSON.stringify({ type: 'item.completed', item: { type: 'mcp_tool_call', tool: 'wiki_collaboration_next_action', arguments: { runId: 'run-1', waitSeconds: 0, idempotencyKey: 'secret-idempotency' }, status: 'completed', result: { content: [{ type: 'text', text: JSON.stringify({ action: 'execute_task', task: { id: 'task-1', todos: [{ id: 'todo-1', ordinal: 0 }] }, leaseToken: 'secret-lease' }) }] }, error: null } }),
+    JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'claude-1', name: 'mcp__agentwiki__wiki_collaboration_update_todo', input: { todoId: 'todo-1', status: 'doing', leaseToken: 'secret-lease' } }] } }),
+    JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'claude-1', is_error: false, content: JSON.stringify({ todo: { id: 'todo-1', status: 'doing' }, taskStatus: 'running' }) }] } }),
+    JSON.stringify({ type: 'tool_use', part: { type: 'tool', tool: 'agentwiki_wiki_collaboration_submit_result', state: { status: 'completed', input: { artifact: { kind: 'markdown', markdown: 'raw secret body' }, leaseToken: 'secret-lease' }, output: JSON.stringify({ action: 'submitted', artifactStatus: 'pending', taskStatus: 'submitted', runStatus: 'waiting_review' }) } } }),
   ].join('\n');
-  assert.deepEqual(extractCollaborationToolReceipt(receipt), {
-    requested: [
-      'wiki_collaboration_join_run',
-      'wiki_collaboration_next_action',
-      'wiki_collaboration_update_todo',
-      'wiki_collaboration_submit_result',
-      'wiki_collaboration_heartbeat',
-    ],
-    succeeded: [
-      'wiki_collaboration_next_action',
-      'wiki_collaboration_update_todo',
-      'wiki_collaboration_submit_result',
-    ],
-  });
-  assert.deepEqual(extractExecutedCollaborationTools(receipt), [
-    'wiki_collaboration_next_action',
-    'wiki_collaboration_update_todo',
-    'wiki_collaboration_submit_result',
+  const parsed = extractCollaborationToolReceipt(receipt);
+  assert.deepEqual(parsed.requestedCalls.map((call) => call.tool), [
+    'wiki_collaboration_join_run', 'wiki_collaboration_next_action',
+    'wiki_collaboration_update_todo', 'wiki_collaboration_submit_result',
   ]);
+  assert.deepEqual(parsed.successfulCalls, [
+    { tool: 'wiki_collaboration_next_action', input: { runId: 'run-1', waitSeconds: 0 }, result: { action: 'execute_task', taskId: 'task-1', todos: [{ id: 'todo-1', ordinal: 0 }] } },
+    { tool: 'wiki_collaboration_update_todo', input: { todoId: 'todo-1', status: 'doing' }, result: { todoId: 'todo-1', todoStatus: 'doing', taskStatus: 'running' } },
+    { tool: 'wiki_collaboration_submit_result', input: { artifactKind: 'markdown' }, result: { action: 'submitted', artifactStatus: 'pending', taskStatus: 'submitted', runStatus: 'waiting_review' } },
+  ]);
+  assert.deepEqual(extractExecutedCollaborationTools(receipt), parsed.successfulCalls.map((call) => call.tool));
+  assert.doesNotMatch(JSON.stringify(parsed), /secret-|raw secret body|leaseToken|idempotencyKey/u);
+});
+
+test('external Agent sequence requires exact Todo transitions, submit state, and final human gate', () => {
+  const valid = [
+    { tool: 'wiki_collaboration_join_run', input: { runId: 'run-1' }, result: { status: 'running' } },
+    { tool: 'wiki_collaboration_next_action', input: { runId: 'run-1', waitSeconds: 0 }, result: { action: 'execute_task', taskId: 'task-1', todos: [{ id: 'todo-1', ordinal: 0 }] } },
+    { tool: 'wiki_collaboration_update_todo', input: { todoId: 'todo-1', status: 'doing' }, result: { todoId: 'todo-1', todoStatus: 'doing', taskStatus: 'running' } },
+    { tool: 'wiki_collaboration_update_todo', input: { todoId: 'todo-1', status: 'done' }, result: { todoId: 'todo-1', todoStatus: 'done', taskStatus: 'running' } },
+    { tool: 'wiki_collaboration_submit_result', input: { artifactKind: 'markdown' }, result: { action: 'submitted', artifactStatus: 'pending', taskStatus: 'submitted', runStatus: 'waiting_review' } },
+    { tool: 'wiki_collaboration_next_action', input: { runId: 'run-1', waitSeconds: 0 }, result: { action: 'waiting_human' } },
+  ];
+  assert.deepEqual(assertExternalAgentSuccessfulSequence(valid), { taskId: 'task-1', todoCount: 1, finalAction: 'waiting_human' });
+  assert.throws(() => assertExternalAgentSuccessfulSequence(valid.slice(0, -1)), /exact successful call count/u);
+  assert.throws(() => assertExternalAgentSuccessfulSequence([...valid.slice(0, 4), valid[3], ...valid.slice(4)]), /exact successful call count/u);
+  assert.throws(() => assertExternalAgentSuccessfulSequence([valid[1], valid[0], ...valid.slice(2)]), /expected wiki_collaboration_join_run/u);
+  assert.throws(() => assertExternalAgentSuccessfulSequence(valid.map((call, index) => index === 2
+    ? { ...call, input: { todoId: 'todo-1', status: 'done' } } : call)), /Todo doing/u);
+  assert.throws(() => assertExternalAgentSuccessfulSequence(valid.map((call, index) => index === 4
+    ? { ...call, result: { ...call.result, artifactStatus: 'accepted' } } : call)), /submitted\/pending/u);
+  assert.throws(() => assertExternalAgentSuccessfulSequence(valid.map((call, index) => index === 5
+    ? { ...call, result: { action: 'completed' } } : call)), /waiting_human/u);
 });
 
 test('Codex external invocation uses automatic review in workspace-write without bypass flags', () => {
