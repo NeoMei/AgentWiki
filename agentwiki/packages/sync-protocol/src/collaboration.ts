@@ -564,6 +564,19 @@ const AcceptedArtifactViewSchema = z.object({
   kind: CollaborationArtifactKindSchema,
   payload: z.unknown(),
 }).strict();
+const TargetPageViewSchema = z.object({
+  id: IdentifierSchema,
+  spaceId: IdentifierSchema,
+  title: z.string(),
+  content: z.string(),
+  format: z.string(),
+  updatedAt: z.string().datetime(),
+  baseline: z.object({
+    pageVersionId: IdentifierSchema.nullable(),
+    updatedAt: z.string().datetime().nullable(),
+    contentHash: z.string().regex(/^[a-f0-9]{64}$/u).nullable(),
+  }).strict(),
+}).strict();
 const AgentTaskViewSchema = z.object({
   id: IdentifierSchema,
   nodeId: IdentifierSchema,
@@ -572,12 +585,26 @@ const AgentTaskViewSchema = z.object({
   todos: z.array(TodoViewSchema),
   inputs: CollaborationInputValuesSchema,
   acceptedArtifacts: z.array(AcceptedArtifactViewSchema),
+  targetPage: TargetPageViewSchema.nullable(),
+  dependencyPages: z.array(TargetPageViewSchema.omit({ baseline: true })),
+  authorizationContext: z.object({
+    spaceId: IdentifierSchema,
+    scope: z.enum(["collaboration:read", "collaboration:execute"]),
+    targetPageId: IdentifierSchema.nullable(),
+  }).strict(),
+  outputRequirements: z.object({
+    kind: CollaborationArtifactKindSchema,
+    targetPageId: IdentifierSchema.nullable(),
+    humanReviewRequired: z.boolean(),
+    requiredEvidence: z.array(IdentifierSchema),
+  }).strict(),
 }).strict();
 
 export const CollaborationJoinRunOutputSchema = z.object({
   runId: IdentifierSchema,
   status: CollaborationRunStatusSchema,
   roleSlots: z.array(RoleSlotSummarySchema),
+  assignedTasks: z.array(AgentTaskViewSchema),
   protocol: z.object({
     nextActionTool: z.literal("wiki_collaboration_next_action"),
     stopOn: z.array(z.enum(["waiting_human", "paused", "completed", "failed", "cancelled"])),

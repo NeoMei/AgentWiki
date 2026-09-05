@@ -1,5 +1,6 @@
 import { RunEventStore, canonicalRequestHash } from './run-event.store';
 import { RunService } from './run.service';
+import { RunExpansionService } from './run-expansion.service';
 
 function projectSelected(value: any, select: Record<string, any>): any {
   return Object.fromEntries(Object.entries(select).map(([key, selection]) => {
@@ -206,6 +207,7 @@ describe('RunEventStore', () => {
       { advanceRun: jest.fn() } as any,
       { publishCurrentRun: jest.fn() } as any,
       { decode: jest.fn(), encode: jest.fn() } as any,
+      new RunExpansionService({} as any, {} as any, {} as any, {} as any, {} as any),
     );
     const principal = { userId: 'user-cross' };
     const input = { expectedVersion: 2, idempotencyKey: 'start-space-a-0001' };

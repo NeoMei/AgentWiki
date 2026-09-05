@@ -19,6 +19,10 @@ const { CompositeTemplateCatalogService } = requireFromServer(
   './dist/page-templates/composite-template-catalog.service.js',
 );
 const { PageTemplateService } = requireFromServer('./dist/page-templates/page-template.service.js');
+const { PageAgentBindingService } = requireFromServer('./dist/page-templates/page-agent-binding.service.js');
+const { RunExpansionService } = requireFromServer('./dist/collaboration-workflows/run-expansion.service.js');
+const { CollaborationEventsService } = requireFromServer('./dist/collaboration-workflows/collaboration-events.service.js');
+const { RunEventStore } = requireFromServer('./dist/collaboration-workflows/run-event.store.js');
 const baseDatabaseUrl = process.env.PAGE_TEMPLATE_TEST_DATABASE_URL;
 
 if (!baseDatabaseUrl) throw new Error('PAGE_TEMPLATE_TEST_DATABASE_URL is required');
@@ -36,9 +40,38 @@ const definition = {
   collaboration: null,
 };
 
-const definitionHash = createHash('sha256')
-  .update(JSON.stringify(sortObject(definition)), 'utf8')
-  .digest('hex');
+const collaborationDefinition = {
+  schemaVersion: 1,
+  kind: 'single_page',
+  nodes: [{
+    nodeId: 'page', parentNodeId: null, kind: 'page', order: 0,
+    titleI18n: { en: 'Draft' }, contentI18n: { en: '# Draft' }, roleSlotKey: 'writer',
+  }],
+  collaboration: {
+    workflow: {
+      schemaVersion: 1,
+      inputs: [{ key: 'brief', label: 'Brief', type: 'long_text', required: true }],
+      roleSlots: [{ id: 'writer', name: 'Writer', required: true, description: 'Writes' }],
+      nodes: [
+        {
+          kind: 'agent_task', id: 'draft', name: 'Draft', roleSlotId: 'writer', objective: 'Draft Page',
+          inputKeys: ['brief'], upstreamArtifacts: [], output: { key: 'draft-output', kind: 'markdown' },
+          evidenceRequired: [], humanAcceptance: true, leaseSeconds: 300, maxExecutionSeconds: 3600,
+          retryBudget: 1, repairBudget: 1, skippable: false,
+          todos: [{ id: 'write', name: 'Write', required: true, evidenceKinds: [] }],
+        },
+        {
+          kind: 'human_review', id: 'review-draft', name: 'Review', artifactTaskId: 'draft',
+          minimumRole: 'editor', reviewerUserIds: [], approvalCriteria: ['Accurate'],
+          revisionTaskId: 'draft', allowTerminate: true,
+        },
+      ],
+      dependencies: [{ from: 'draft', to: 'review-draft', mode: 'all' }],
+      terminalNodeIds: ['review-draft'],
+    },
+    taskTargets: [{ taskNodeId: 'draft', pageNodeId: 'page' }],
+  },
+};
 
 function sortObject(value) {
   if (Array.isArray(value)) return value.map(sortObject);
@@ -70,7 +103,16 @@ async function createService(prisma, failAt) {
         });
         const intercepted = new Proxy(tx, {
           get(transaction, key) {
-            return key === 'page' ? page : Reflect.get(transaction, key);
+            if (key === 'page') return page;
+            if (key === 'collaborationRunTask' && failAt === 'run-expansion') {
+              return new Proxy(transaction.collaborationRunTask, {
+                get(delegate, operation) {
+                  if (operation !== 'createMany') return Reflect.get(delegate, operation);
+                  return async () => { throw new Error('injected run expansion failure'); };
+                },
+              });
+            }
+            return Reflect.get(transaction, key);
           },
         });
         return callback(intercepted);
@@ -87,13 +129,22 @@ async function createService(prisma, failAt) {
       ContentTreeService,
       { provide: PageTemplateService, useValue: {} },
       CompositeTemplateCatalogService,
+      PageAgentBindingService,
+      { provide: CollaborationEventsService, useValue: { publishCurrentRun: async () => undefined } },
+      RunEventStore,
+      RunExpansionService,
       TemplateInstantiationService,
     ],
   }).compile();
-  return { service: moduleRef.get(TemplateInstantiationService), close: () => moduleRef.close() };
+  return {
+    service: moduleRef.get(TemplateInstantiationService),
+    runExpansion: moduleRef.get(RunExpansionService),
+    pageBindings: moduleRef.get(PageAgentBindingService),
+    close: () => moduleRef.close(),
+  };
 }
 
-async function createFixture(prisma, suffix) {
+async function createFixture(prisma, suffix, templateDefinition = definition) {
   const userId = `instantiate_user_${suffix}`;
   const spaceId = `instantiate_space_${suffix}`;
   const templateId = `instantiate_template_${suffix}`;
@@ -109,9 +160,26 @@ async function createFixture(prisma, suffix) {
   await prisma.pageTemplateVersion.create({ data: {
     id: `instantiate_version_${suffix}`, templateId, version: 1,
     contentI18n: {}, contentHash: createHash('sha256').update('').digest('hex'),
-    definition, schemaVersion: 1, definitionHash,
+    definition: templateDefinition, schemaVersion: 1,
+    definitionHash: createHash('sha256').update(JSON.stringify(sortObject(templateDefinition)), 'utf8').digest('hex'),
   } });
   return { userId, spaceId, templateId };
+}
+
+async function prepareAgent(prisma, fixture, suffix) {
+  const agentId = `instantiate_agent_${suffix}`;
+  await prisma.agent.create({ data: {
+    id: agentId, name: 'Writer Agent', ownerId: fixture.userId, status: 'active',
+  } });
+  const grant = await prisma.agentGrant.create({ data: {
+    id: `instantiate_grant_${suffix}`, agentId, spaceId: fixture.spaceId, role: 'editor',
+  } });
+  await prisma.agentCredential.create({ data: {
+    id: `instantiate_credential_${suffix}`, name: 'Fixture credential', prefix: `fix_${suffix.slice(-8)}`,
+    keyHash: createHash('sha256').update(`credential-${suffix}`).digest('hex'),
+    agentId, authorizationId: grant.id,
+  } });
+  return agentId;
 }
 
 async function createLegacyFixture(prisma, suffix) {
@@ -143,6 +211,16 @@ function request(idempotencyKey, overrides = {}) {
     variables: {}, collaborationEnabled: false, expectedTreeRevision: 0n,
     idempotencyKey, ...overrides,
   };
+}
+
+function collaborationRequest(idempotencyKey, agentId, overrides = {}) {
+  return request(idempotencyKey, {
+    collaborationEnabled: true,
+    collaborationInputs: { brief: 'Write from the current Page' },
+    roleBindings: [{ kind: 'task_default', nodeId: 'draft', roleSlotId: 'writer', agentId }],
+    enabledTaskNodeIds: ['draft'],
+    ...overrides,
+  });
 }
 
 async function counts(prisma, spaceId) {
@@ -272,6 +350,130 @@ test('composite instantiation is atomic, idempotent, stale-safe, and permission-
         );
       } finally {
         await working.close();
+      }
+
+      const collaborationRollback = await createFixture(
+        prisma, `${schemaName.slice(-8)}_collab_rollback`, collaborationDefinition,
+      );
+      const rollbackAgent = await prepareAgent(prisma, collaborationRollback, `${schemaName.slice(-8)}_rollback`);
+      const collaborationBefore = await counts(prisma, collaborationRollback.spaceId);
+      const collaborationSpaceBefore = await prisma.space.findUniqueOrThrow({ where: { id: collaborationRollback.spaceId } });
+      const failingExpansion = await createService(prisma, 'run-expansion');
+      try {
+        await assert.rejects(
+          failingExpansion.service.instantiate(
+            collaborationRollback.spaceId,
+            collaborationRollback.templateId,
+            collaborationRequest('collaboration-rollback-0001', rollbackAgent),
+            { userId: collaborationRollback.userId, platformRole: 'user' },
+          ),
+          /injected run expansion failure/u,
+        );
+      } finally {
+        await failingExpansion.close();
+      }
+      assert.deepEqual(await counts(prisma, collaborationRollback.spaceId), collaborationBefore);
+      assert.equal(
+        (await prisma.space.findUniqueOrThrow({ where: { id: collaborationRollback.spaceId } })).contentTreeRevision,
+        collaborationSpaceBefore.contentTreeRevision,
+      );
+
+      const collaborationSuccess = await createFixture(
+        prisma, `${schemaName.slice(-8)}_collab_success`, collaborationDefinition,
+      );
+      const successAgent = await prepareAgent(prisma, collaborationSuccess, `${schemaName.slice(-8)}_success`);
+      const collaborationService = await createService(prisma, null);
+      try {
+        const result = await collaborationService.service.instantiate(
+          collaborationSuccess.spaceId,
+          collaborationSuccess.templateId,
+          collaborationRequest('collaboration-success-0001', successAgent),
+          { userId: collaborationSuccess.userId, platformRole: 'user' },
+        );
+        assert.ok(result.runId);
+        const createdRun = await prisma.collaborationRun.findUniqueOrThrow({
+          where: { id: result.runId }, include: { roleBindings: true, tasks: true },
+        });
+        assert.equal(createdRun.sourceKind, 'composite');
+        assert.equal(createdRun.templateId, null);
+        assert.equal(createdRun.roleBindings.length, 1);
+        assert.equal(createdRun.roleBindings[0].agentId, successAgent);
+        assert.equal(createdRun.tasks.length, 1);
+        assert.equal(createdRun.tasks[0].targetPageId, result.pageIds[0]);
+        assert.equal(createdRun.tasks[0].basePageVersionId === null, false);
+        const collaborationEffect = await prisma.templateEffectJob.findUniqueOrThrow({
+          where: {
+            instantiationId_effectKey: {
+              instantiationId: result.instantiationId,
+              effectKey: `collaboration-run:${result.runId}`,
+            },
+          },
+        });
+        assert.equal(collaborationEffect.kind, 'collaboration_run');
+        assert.deepEqual(collaborationEffect.payload, { runId: result.runId });
+        assert.equal(await prisma.pageAgentBinding.count({ where: { spaceId: collaborationSuccess.spaceId } }), 1);
+        assert.equal(
+          (await prisma.space.findUniqueOrThrow({ where: { id: collaborationSuccess.spaceId } })).contentTreeRevision,
+          1n,
+        );
+
+        const replacementAgent = await prepareAgent(
+          prisma, collaborationSuccess, `${schemaName.slice(-8)}_replacement`,
+        );
+        const originalBinding = await prisma.pageAgentBinding.findUniqueOrThrow({
+          where: { pageId: result.pageIds[0] },
+        });
+        await collaborationService.pageBindings.setBindingsInScope(
+          collaborationSuccess.spaceId,
+          {
+            pageIds: [result.pageIds[0]],
+            expectedTreeRevision: 1n,
+            edits: [{
+              pageId: result.pageIds[0], agentId: replacementAgent, roleSlotKey: 'writer',
+              expectedUpdatedAt: originalBinding.updatedAt.toISOString(),
+            }],
+          },
+          { userId: collaborationSuccess.userId, platformRole: 'user' },
+        );
+        const frozenTask = await prisma.collaborationRunTask.findUniqueOrThrow({
+          where: { id: createdRun.tasks[0].id },
+        });
+        assert.equal(
+          (await prisma.pageAgentBinding.findUniqueOrThrow({ where: { pageId: result.pageIds[0] } })).agentId,
+          replacementAgent,
+        );
+        assert.equal(frozenTask.assigneeAgentId, successAgent);
+
+        const secondPrisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+        const secondService = await createService(secondPrisma, null);
+        try {
+          const existingPageInput = {
+            spaceId: collaborationSuccess.spaceId,
+            name: 'Run existing Page again',
+            pageIds: [result.pageIds[0]],
+            expectedTreeRevision: 1n,
+            idempotencyKey: 'existing-page-double-client-1',
+          };
+          const runsBefore = await prisma.collaborationRun.count({ where: { spaceId: collaborationSuccess.spaceId } });
+          const [leftRunId, rightRunId] = await Promise.all([
+            collaborationService.runExpansion.createPageSelection(
+              existingPageInput, { userId: collaborationSuccess.userId, platformRole: 'user' },
+            ),
+            secondService.runExpansion.createPageSelection(
+              existingPageInput, { userId: collaborationSuccess.userId, platformRole: 'user' },
+            ),
+          ]);
+          assert.equal(leftRunId, rightRunId);
+          assert.equal(
+            await prisma.collaborationRun.count({ where: { spaceId: collaborationSuccess.spaceId } }),
+            runsBefore + 1,
+          );
+        } finally {
+          await secondService.close();
+          await secondPrisma.$disconnect();
+        }
+      } finally {
+        await collaborationService.close();
       }
 
       const legacyFixture = await createLegacyFixture(prisma, `${schemaName.slice(-8)}_legacy`);

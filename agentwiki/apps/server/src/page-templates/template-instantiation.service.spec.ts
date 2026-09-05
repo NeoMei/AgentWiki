@@ -21,6 +21,39 @@ const definition = {
   collaboration: null,
 };
 
+const collaborationDefinition = {
+  schemaVersion: 1 as const,
+  kind: 'single_page' as const,
+  nodes: [{
+    nodeId: 'page', parentNodeId: null, kind: 'page' as const, order: 0,
+    titleI18n: { en: 'Draft' }, contentI18n: { en: '# Draft' }, roleSlotKey: 'writer',
+  }],
+  collaboration: {
+    workflow: {
+      schemaVersion: 1 as const,
+      inputs: [{ key: 'brief', label: 'Brief', type: 'long_text' as const, required: true }],
+      roleSlots: [{ id: 'writer', name: 'Writer', required: true, description: 'Writes' }],
+      nodes: [
+        {
+          kind: 'agent_task' as const, id: 'draft', name: 'Draft', roleSlotId: 'writer', objective: 'Draft page',
+          inputKeys: ['brief'], upstreamArtifacts: [], output: { key: 'draft-output', kind: 'markdown' as const },
+          evidenceRequired: [], humanAcceptance: true, leaseSeconds: 300, maxExecutionSeconds: 3_600,
+          retryBudget: 1, repairBudget: 1, skippable: false,
+          todos: [{ id: 'write', name: 'Write', required: true, evidenceKinds: [] }],
+        },
+        {
+          kind: 'human_review' as const, id: 'review-draft', name: 'Review', artifactTaskId: 'draft',
+          minimumRole: 'editor' as const, reviewerUserIds: [], approvalCriteria: ['Accurate'],
+          revisionTaskId: 'draft', allowTerminate: true,
+        },
+      ],
+      dependencies: [{ from: 'draft', to: 'review-draft', mode: 'all' as const }],
+      terminalNodeIds: ['review-draft'],
+    },
+    taskTargets: [{ taskNodeId: 'draft', pageNodeId: 'page' }],
+  },
+};
+
 function input(overrides: Partial<TemplateInstantiationInput> = {}): TemplateInstantiationInput {
   return {
     templateVersion: 3,
@@ -48,6 +81,7 @@ function makeHarness() {
     templateInstantiation: {
       findUnique: jest.fn().mockResolvedValue(null),
       create: jest.fn(async ({ data }: any) => ({ id: data.id, ...data })),
+      update: jest.fn(async ({ data }: any) => data),
     },
     templateInstantiationNode: { createMany: jest.fn().mockResolvedValue({ count: 5 }) },
     templateEffectJob: { createMany: jest.fn().mockResolvedValue({ count: 4 }) },
@@ -93,9 +127,11 @@ function makeHarness() {
       definition, definitionHash: hashCompositeDefinition(definition), locale: 'en',
     }),
   };
+  const expansion: any = { createStarted: jest.fn().mockResolvedValue('run-1') };
+  const bindings: any = { setBindings: jest.fn().mockResolvedValue([]) };
   return {
-    service: new TemplateInstantiationService(prisma, authorization, contentTree, catalog),
-    prisma, tx, authorization, contentTree, catalog, folders,
+    service: new TemplateInstantiationService(prisma, authorization, contentTree, catalog, expansion, bindings),
+    prisma, tx, authorization, contentTree, catalog, expansion, bindings, folders,
   };
 }
 
@@ -257,6 +293,114 @@ describe('TemplateInstantiationService', () => {
     expect(h.tx.page.create).toHaveBeenCalledTimes(3);
   });
 
+  it('creates Page bindings and a started composite Run inside the instantiation transaction', async () => {
+    const h = makeHarness();
+    h.catalog.resolve.mockResolvedValue({
+      definition: collaborationDefinition,
+      definitionHash: hashCompositeDefinition(collaborationDefinition),
+      locale: 'en',
+    });
+
+    const result = await h.service.instantiate('space-1', 'template-1', input({
+      collaborationEnabled: true,
+      collaborationInputs: { brief: 'Use the source material' },
+      roleBindings: [{ kind: 'task_default', nodeId: 'draft', roleSlotId: 'writer', agentId: 'agent-1' }],
+      enabledTaskNodeIds: ['draft'],
+    }), principal);
+
+    expect(result.runId).toBe('run-1');
+    const createdPageId = h.tx.page.create.mock.calls[0][0].data.id;
+    expect(h.bindings.setBindings).toHaveBeenCalledWith(h.tx, 'space-1', [{
+      pageId: createdPageId,
+      agentId: 'agent-1',
+      roleSlotKey: 'writer',
+      expectedUpdatedAt: null,
+    }], principal);
+    expect(h.expansion.createStarted).toHaveBeenCalledWith(h.tx, expect.objectContaining({
+      spaceId: 'space-1',
+      source: {
+        kind: 'composite', templateVersion: 3,
+        compositeTemplateVersionId: 'template-version-3',
+        templateInstantiationId: expect.any(String),
+      },
+      definition: collaborationDefinition.collaboration.workflow,
+      inputs: { brief: 'Use the source material' },
+      taskPageIds: { draft: createdPageId },
+    }), principal);
+    expect(h.tx.templateEffectJob.createMany).toHaveBeenCalledWith({
+      data: expect.arrayContaining([{
+        instantiationId: expect.any(String),
+        spaceId: 'space-1',
+        effectKey: 'collaboration-run:run-1',
+        kind: 'collaboration_run',
+        payload: { runId: 'run-1' },
+      }]),
+    });
+  });
+
+  it('generates a one-task one-review workflow for an ordinary single-Page template', async () => {
+    const h = makeHarness();
+    const ordinary = normalizeLegacyVersion({ en: '# Existing template body' });
+    if (ordinary.nodes[0].kind !== 'page') throw new Error('fixture');
+    ordinary.nodes[0].titleI18n = { en: 'Ordinary Page' };
+    h.catalog.resolve.mockResolvedValue({
+      definition: ordinary, definitionHash: hashCompositeDefinition(ordinary), locale: 'en',
+    });
+
+    await h.service.instantiate('space-1', 'template-1', input({
+      collaborationEnabled: true,
+      collaborationInputs: {},
+      roleBindings: [{ kind: 'task_default', nodeId: 'write-page', roleSlotId: 'writer', agentId: 'agent-1' }],
+      enabledTaskNodeIds: ['write-page'],
+    }), principal);
+
+    expect(h.expansion.createStarted).toHaveBeenCalledWith(h.tx, expect.objectContaining({
+      definition: expect.objectContaining({
+        roleSlots: [{ id: 'writer', name: 'Writer', required: true, description: 'Writes the target Page' }],
+        terminalNodeIds: ['review-page'],
+        nodes: expect.arrayContaining([
+          expect.objectContaining({ kind: 'agent_task', id: 'write-page', humanAcceptance: true, output: { key: 'page-markdown', kind: 'markdown' } }),
+          expect.objectContaining({ kind: 'human_review', id: 'review-page', artifactTaskId: 'write-page' }),
+        ]),
+      }),
+      taskPageIds: { 'write-page': expect.any(String) },
+    }), principal);
+  });
+
+  it('rejects a selected downstream task when its required upstream task was not selected', async () => {
+    const h = makeHarness();
+    const withUpstream = structuredClone(collaborationDefinition);
+    withUpstream.collaboration.workflow.roleSlots.push({
+      id: 'researcher', name: 'Researcher', required: true, description: 'Researches',
+    });
+    withUpstream.collaboration.workflow.nodes.unshift({
+      kind: 'agent_task', id: 'research', name: 'Research', roleSlotId: 'researcher', objective: 'Research',
+      inputKeys: [], upstreamArtifacts: [], output: { key: 'research-output', kind: 'markdown' },
+      evidenceRequired: [], humanAcceptance: false, leaseSeconds: 300, maxExecutionSeconds: 3_600,
+      retryBudget: 1, repairBudget: 1, skippable: false,
+      todos: [{ id: 'research', name: 'Research', required: true, evidenceKinds: [] }],
+    });
+    withUpstream.collaboration.workflow.dependencies.unshift({ from: 'research', to: 'draft', mode: 'all' });
+    h.catalog.resolve.mockResolvedValue({
+      definition: withUpstream, definitionHash: hashCompositeDefinition(withUpstream), locale: 'en',
+    });
+
+    await expect(h.service.instantiate('space-1', 'template-1', input({
+      collaborationEnabled: true,
+      collaborationInputs: { brief: 'Draft' },
+      roleBindings: [{ kind: 'task_default', nodeId: 'draft', roleSlotId: 'writer', agentId: 'agent-1' }],
+      enabledTaskNodeIds: ['draft'],
+    }), principal)).rejects.toMatchObject({
+      businessCode: 'COLLABORATION_TEMPLATE_INVALID',
+      response: expect.objectContaining({
+        details: { issues: expect.arrayContaining([{ code: 'TEMPLATE_REQUIRED_UPSTREAM_REMOVED', nodeId: 'draft' }]) },
+      }),
+    });
+    expect(h.tx.page.create).not.toHaveBeenCalled();
+    expect(h.bindings.setBindings).not.toHaveBeenCalled();
+    expect(h.expansion.createStarted).not.toHaveBeenCalled();
+  });
+
   it('rejects idempotency-key reuse with a different canonical payload', async () => {
     const h = makeHarness();
     h.tx.templateInstantiation.findUnique.mockResolvedValue({
@@ -269,7 +413,6 @@ describe('TemplateInstantiationService', () => {
   });
 
   it.each([
-    ['collaboration', { collaborationEnabled: true }],
     ['role bindings', { roleBindings: [] }],
     ['enabled tasks', { enabledTaskNodeIds: [] }],
     ['non-empty free-form variables', { variables: { project: 'unsupported DSL' } }],
@@ -279,6 +422,18 @@ describe('TemplateInstantiationService', () => {
     await expect(h.service.instantiate('space-1', 'template-1', input(unsupported), principal))
       .rejects.toEqual(expect.objectContaining({ businessCode: 'PAGE_TEMPLATE_INSTANTIATION_UNSUPPORTED' }));
     expect(h.contentTree.lockPageMutationSpace).not.toHaveBeenCalled();
+    expect(h.tx.page.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects collaboration for a structure-only template before creating nodes', async () => {
+    const h = makeHarness();
+    await expect(h.service.instantiate('space-1', 'template-1', input({
+      collaborationEnabled: true,
+      collaborationInputs: {},
+      roleBindings: [],
+    }), principal)).rejects.toEqual(expect.objectContaining({
+      businessCode: 'PAGE_TEMPLATE_INSTANTIATION_UNSUPPORTED',
+    }));
     expect(h.tx.page.create).not.toHaveBeenCalled();
   });
 

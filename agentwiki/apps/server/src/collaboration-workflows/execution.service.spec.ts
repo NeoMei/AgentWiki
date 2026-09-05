@@ -15,6 +15,10 @@ const task = {
   id: 'task-1', runId: 'run-1', nodeId: 'build', ordinal: 0, name: 'Build', objective: 'Build it',
   assigneeAgentId: 'agent-a', status: 'ready', generation: 1, leaseSeconds: 300, maxExecutionSeconds: 3600,
   retryBudget: 1, repairBudget: 1, requiredEvidence: [], outputContract: { key: 'result', kind: 'markdown' },
+  humanAcceptance: true,
+  targetPageId: 'page-1', targetSpaceId: 'space-1',
+  basePageVersionId: 'page-version-at-start', basePageUpdatedAt: new Date('2026-09-05T08:00:00.000Z'),
+  baseContentHash: 'start-hash',
 };
 
 describe('ExecutionService', () => {
@@ -27,6 +31,8 @@ describe('ExecutionService', () => {
     collaborationTaskArtifact: { findFirst: jest.fn(), findMany: jest.fn(), create: jest.fn() },
     collaborationReview: { create: jest.fn(), findFirst: jest.fn() },
     agentGrant: { findUnique: jest.fn() },
+    page: { findFirst: jest.fn(), findMany: jest.fn() },
+    pageVersion: { findFirst: jest.fn() },
   } as any;
   const prisma = { ...tx, $transaction: jest.fn(async (callback: (value: any) => unknown) => callback(tx)) } as any;
   const authorization = { assertSpaceAccess: jest.fn(), assertLiveAgentWriteAccess: jest.fn() } as any;
@@ -67,6 +73,12 @@ describe('ExecutionService', () => {
       required: true, status: data.status,
     }));
     tx.collaborationTaskArtifact.findMany.mockResolvedValue([]);
+    tx.page.findFirst.mockResolvedValue({
+      id: 'page-1', spaceId: 'space-1', title: 'Target', content: 'current\r\nbody',
+      format: 'markdown', updatedAt: new Date('2026-09-05T09:00:00.000Z'),
+    });
+    tx.page.findMany.mockResolvedValue([]);
+    tx.pageVersion.findFirst.mockResolvedValue({ id: 'page-version-current' });
     events.findReplay.mockResolvedValue(undefined);
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'editor' });
     authorization.assertLiveAgentWriteAccess.mockResolvedValue(undefined);
@@ -81,11 +93,51 @@ describe('ExecutionService', () => {
   it('joins a bound Agent and rejects an unbound Agent', async () => {
     await expect(service.joinRun('run-1', agent)).resolves.toMatchObject({
       runId: 'run-1', roleSlots: [{ id: 'builder', name: 'Builder' }], protocol: expect.any(Object),
+      assignedTasks: [expect.objectContaining({
+        targetPage: expect.objectContaining({ id: 'page-1', title: 'Target', content: 'current\r\nbody' }),
+        authorizationContext: { spaceId: 'space-1', scope: 'collaboration:execute', targetPageId: 'page-1' },
+        outputRequirements: expect.objectContaining({ kind: 'markdown', targetPageId: 'page-1', humanReviewRequired: true }),
+      })],
     });
     tx.collaborationRoleBinding.findFirst.mockResolvedValue(null);
     tx.collaborationRunTask.findFirst.mockResolvedValue(null);
     await expect(service.joinRun('run-1', { ...agent, agentId: 'agent-x' }))
       .rejects.toMatchObject({ businessCode: 'COLLABORATION_AGENT_NOT_BOUND' });
+  });
+
+  it('freezes a fresh current Page baseline only when creating a new Attempt', async () => {
+    const claimed = await service.nextAction({ runId: 'run-1', idempotencyKey: 'next-page-baseline-1' }, agent);
+    expect(tx.collaborationTaskAttempt.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        basePageVersionId: 'page-version-current',
+        basePageUpdatedAt: new Date('2026-09-05T09:00:00.000Z'),
+        baseContentHash: 'cf689ad75f63bedc12e6510bc32678777cca4d0eeb664c8781b638d047362ca7',
+      }),
+    }));
+    expect((claimed as any).task.targetPage.baseline).toEqual({
+      pageVersionId: 'page-version-current',
+      updatedAt: '2026-09-05T09:00:00.000Z',
+      contentHash: 'cf689ad75f63bedc12e6510bc32678777cca4d0eeb664c8781b638d047362ca7',
+    });
+    const firstBaselineReads = tx.pageVersion.findFirst.mock.calls.length;
+    tx.collaborationTaskAttempt.findFirst.mockResolvedValue({
+      id: 'attempt-existing', runId: 'run-1', taskId: 'task-1', generation: 1,
+      agentId: 'agent-a', attemptNumber: 1, status: 'claimed', claimIdempotencyKey: 'first-claim',
+      leaseTokenHash: 'ignored', leaseExpiresAt: new Date(Date.now() + 60_000),
+      maxExecutionAt: new Date(Date.now() + 120_000), runTask: task,
+    });
+    await service.nextAction({ runId: 'run-1', idempotencyKey: 'next-page-baseline-2' }, agent);
+    expect(tx.pageVersion.findFirst).toHaveBeenCalledTimes(firstBaselineReads);
+    expect(tx.collaborationTaskAttempt.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects any client-supplied targetPageId during result submission', async () => {
+    await expect(service.submitResult({
+      runId: 'run-1', attemptId: 'attempt-1', leaseToken: 'a'.repeat(64),
+      targetPageId: 'page-client-swap',
+      artifact: { kind: 'markdown', markdown: 'done', evidence: [] }, idempotencyKey: 'submit-swap-1',
+    } as any, agent)).rejects.toBeDefined();
+    expect(tx.collaborationTaskArtifact.create).not.toHaveBeenCalled();
   });
 
   it('rejects a fresh reader Grant even if an earlier authorization result was executable', async () => {
@@ -121,7 +173,12 @@ describe('ExecutionService', () => {
       id: 'grant-a', agentId: 'agent-a', spaceId: 'space-1', role: 'reader',
       agent: { status: 'active', revokedAt: null }, space: { deletedAt: null },
     });
-    await expect(service.getAgentRun({ runId: 'run-1' }, reader)).resolves.toMatchObject({ runId: 'run-1' });
+    await expect(service.getAgentRun({ runId: 'run-1' }, reader)).resolves.toMatchObject({
+      runId: 'run-1',
+      assignedTasks: [expect.objectContaining({
+        authorizationContext: expect.objectContaining({ scope: 'collaboration:read' }),
+      })],
+    });
     await expect(service.joinRun('run-1', reader))
       .rejects.toMatchObject({ businessCode: 'COLLABORATION_AGENT_CANNOT_EXECUTE' });
   });
@@ -145,6 +202,40 @@ describe('ExecutionService', () => {
     expect(read.assignedTasks[0].inputs).toEqual({ public: 'visible' });
     expect((action as any).task.inputs).toEqual({ public: 'visible' });
     expect(JSON.stringify({ read, action })).not.toContain('must-not-cross-role');
+  });
+
+  it('returns same-Space dependency Pages without consulting or changing another Agent Grant', async () => {
+    tx.collaborationRun.findUnique.mockResolvedValue({
+      ...run,
+      templateSnapshot: {
+        ...run.templateSnapshot,
+        nodes: [
+          { kind: 'agent_task', id: 'research', inputKeys: [], upstreamArtifacts: [], output: { key: 'research-output', kind: 'markdown' } },
+          { kind: 'agent_task', id: 'build', inputKeys: [], upstreamArtifacts: [{ key: 'research-output', required: true }], output: { key: 'result', kind: 'markdown' } },
+        ],
+      },
+    });
+    tx.collaborationRunTask.findMany.mockResolvedValue([{
+      ...task, id: 'task-research', nodeId: 'research', assigneeAgentId: 'agent-b',
+      targetPageId: 'page-dependency', targetSpaceId: 'space-1',
+    }]);
+    tx.page.findMany.mockResolvedValue([{
+      id: 'page-dependency', spaceId: 'space-1', title: 'Research', content: '# Research',
+      format: 'markdown', updatedAt: new Date('2026-09-05T07:00:00.000Z'),
+    }]);
+
+    const action = await service.nextAction({
+      runId: 'run-1', idempotencyKey: 'next-with-dependency-page-1',
+    }, agent);
+
+    expect((action as any).task.dependencyPages).toEqual([{
+      id: 'page-dependency', spaceId: 'space-1', title: 'Research', content: '# Research',
+      format: 'markdown', updatedAt: '2026-09-05T07:00:00.000Z',
+    }]);
+    expect(tx.agentGrant.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      where: { agentId_spaceId: { agentId: 'agent-a', spaceId: 'space-1' } },
+    }));
+    expect(JSON.stringify(tx.agentGrant.findUnique.mock.calls)).not.toContain('agent-b');
   });
 
   it('claims one task, persists only the token hash, and never stores plaintext in the event response', async () => {

@@ -4,6 +4,8 @@ import {
   CollaborationArtifactInputSchema,
   CollaborationInputValuesSchema,
   CollaborationNextActionInputSchema,
+  CollaborationJoinRunOutputSchema,
+  CollaborationNextActionOutputSchema,
   CollaborationRunStatusSchema,
   CollaborationTaskStatusSchema,
   CollaborationTemplateDefinitionSchema,
@@ -390,5 +392,30 @@ describe("collaboration contract", () => {
     expect(() => CollaborationArtifactInputSchema.parse({
       kind: "markdown", markdown: "ok", evidence: [], script: "run",
     })).toThrow();
+  });
+
+  it("exposes server-scoped Page targets and output requirements to executing Agents", () => {
+    const task = {
+      id: "task-1", nodeId: "draft", name: "Draft", objective: "Draft the Page",
+      todos: [], inputs: { topic: "AgentWiki" }, acceptedArtifacts: [],
+      targetPage: {
+        id: "page-1", spaceId: "space-1", title: "Target", content: "# Target", format: "markdown",
+        updatedAt: "2026-09-05T08:00:00.000Z",
+        baseline: { pageVersionId: null, updatedAt: "2026-09-05T07:00:00.000Z", contentHash: "a".repeat(64) },
+      },
+      dependencyPages: [],
+      authorizationContext: { spaceId: "space-1", scope: "collaboration:execute", targetPageId: "page-1" },
+      outputRequirements: {
+        kind: "markdown", targetPageId: "page-1", humanReviewRequired: true, requiredEvidence: [],
+      },
+    };
+    expect(() => CollaborationJoinRunOutputSchema.parse({
+      runId: "run-1", status: "running", roleSlots: [], assignedTasks: [task],
+      protocol: { nextActionTool: "wiki_collaboration_next_action", stopOn: ["waiting_human"] },
+    })).not.toThrow();
+    expect(() => CollaborationNextActionOutputSchema.parse({
+      action: "execute_task", attemptId: "attempt-1", leaseToken: "b".repeat(64),
+      leaseExpiresAt: "2026-09-05T09:00:00.000Z", task,
+    })).not.toThrow();
   });
 });

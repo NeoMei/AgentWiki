@@ -76,10 +76,17 @@ export class ExecutionService {
       where: { runId, agentId },
       orderBy: { roleSlotId: 'asc' },
     });
+    const tasks = await this.prisma.collaborationRunTask.findMany({
+      where: { runId, assigneeAgentId: agentId },
+      orderBy: { ordinal: 'asc' },
+    });
     return {
       runId,
       status: run.status,
       roleSlots: bindings.map((binding) => ({ id: binding.roleSlotId, name: binding.roleSlotName })),
+      assignedTasks: await Promise.all(tasks.map((task) => this.loadTaskContext(
+        this.prisma as unknown as Tx, run, task,
+      ))),
       protocol: {
         nextActionTool: 'wiki_collaboration_next_action' as const,
         stopOn: ['waiting_human', 'paused', 'completed', 'failed', 'cancelled'] as const,
@@ -356,7 +363,12 @@ export class ExecutionService {
       runId: input.runId,
       status: participant.run.status,
       roleSlots: bindings.map((binding) => ({ id: binding.roleSlotId, name: binding.roleSlotName })),
-      assignedTasks: await Promise.all(tasks.map((task) => this.loadTaskContext(this.prisma as unknown as Tx, participant.run, task))),
+      assignedTasks: await Promise.all(tasks.map((task) => this.loadTaskContext(
+        this.prisma as unknown as Tx,
+        participant.run,
+        task,
+        'collaboration:read',
+      ))),
       ...(participant.run.status === 'waiting_review' ? { waitingReason: 'Human review is required' } : {}),
     };
   }
@@ -397,6 +409,7 @@ export class ExecutionService {
     const now = new Date();
     const maxExecutionAt = new Date(now.getTime() + task.maxExecutionSeconds * 1_000);
     const leaseExpiresAt = new Date(Math.min(maxExecutionAt.getTime(), now.getTime() + task.leaseSeconds * 1_000));
+    const baseline = await this.loadAttemptPageBaseline(tx, participant.run, task);
     const attempt = await tx.collaborationTaskAttempt.create({
       data: {
         id: attemptId,
@@ -411,6 +424,9 @@ export class ExecutionService {
         leaseStartedAt: now,
         leaseExpiresAt,
         maxExecutionAt,
+        basePageVersionId: baseline?.pageVersionId ?? null,
+        basePageUpdatedAt: baseline?.updatedAt ?? null,
+        baseContentHash: baseline?.contentHash ?? null,
       },
     });
     return {
@@ -418,7 +434,12 @@ export class ExecutionService {
       attemptId: attempt.id,
       leaseToken,
       leaseExpiresAt: attempt.leaseExpiresAt.toISOString(),
-      task: await this.loadTaskContext(tx, participant.run, task),
+      task: await this.loadTaskContext(tx, participant.run, {
+        ...task,
+        basePageVersionId: attempt.basePageVersionId,
+        basePageUpdatedAt: attempt.basePageUpdatedAt,
+        baseContentHash: attempt.baseContentHash,
+      }),
     };
   }
 
@@ -457,11 +478,21 @@ export class ExecutionService {
       attemptId: attempt.id,
       leaseToken: this.leaseTokenFor(attempt.id, run.id, attempt.agentId, attempt.claimIdempotencyKey),
       leaseExpiresAt: attempt.leaseExpiresAt.toISOString(),
-      task: await this.loadTaskContext(tx, run, attempt.task),
+      task: await this.loadTaskContext(tx, run, {
+        ...attempt.task,
+        basePageVersionId: attempt.basePageVersionId,
+        basePageUpdatedAt: attempt.basePageUpdatedAt,
+        baseContentHash: attempt.baseContentHash,
+      }),
     };
   }
 
-  private async loadTaskContext(tx: Tx, run: any, task: any) {
+  private async loadTaskContext(
+    tx: Tx,
+    run: any,
+    task: any,
+    scope: 'collaboration:read' | 'collaboration:execute' = 'collaboration:execute',
+  ) {
     const todos = await tx.collaborationTaskTodo.findMany({
       where: { taskId: task.id, generation: task.generation },
       orderBy: { ordinal: 'asc' },
@@ -489,6 +520,23 @@ export class ExecutionService {
       },
       orderBy: [{ taskId: 'asc' }, { version: 'desc' }],
     }) : [];
+    const targetPage = task.targetPageId ? await tx.page.findFirst({
+      where: { id: task.targetPageId, spaceId: run.spaceId, deletedAt: null },
+      select: { id: true, spaceId: true, title: true, content: true, format: true, updatedAt: true },
+    }) : null;
+    if (task.targetPageId && !targetPage) {
+      throw new BusinessException('RESOURCE_NOT_FOUND', 'The task target Page is unavailable');
+    }
+    const dependencyTargetIds = [...new Set(upstreamTasks.flatMap((upstream: any) => (
+      upstream.targetPageId && upstream.targetSpaceId === run.spaceId ? [upstream.targetPageId] : []
+    )))];
+    const dependencyPages = dependencyTargetIds.length > 0 ? await tx.page.findMany({
+      where: { id: { in: dependencyTargetIds }, spaceId: run.spaceId, deletedAt: null },
+      select: { id: true, spaceId: true, title: true, content: true, format: true, updatedAt: true },
+      orderBy: { id: 'asc' },
+    }) : [];
+    const output = task.outputContract && typeof task.outputContract === 'object'
+      ? task.outputContract as Record<string, unknown> : {};
     return {
       id: task.id,
       nodeId: task.nodeId,
@@ -501,6 +549,46 @@ export class ExecutionService {
       acceptedArtifacts: acceptedArtifacts.map((artifact) => ({
         taskId: artifact.taskId, version: artifact.version, kind: artifact.kind, payload: artifact.payload,
       })),
+      targetPage: targetPage ? {
+        ...targetPage,
+        updatedAt: targetPage.updatedAt.toISOString(),
+        baseline: {
+          pageVersionId: task.basePageVersionId ?? null,
+          updatedAt: task.basePageUpdatedAt?.toISOString?.() ?? null,
+          contentHash: task.baseContentHash ?? null,
+        },
+      } : null,
+      dependencyPages: dependencyPages.map((page) => ({ ...page, updatedAt: page.updatedAt.toISOString() })),
+      authorizationContext: {
+        spaceId: run.spaceId,
+        scope,
+        targetPageId: task.targetPageId ?? null,
+      },
+      outputRequirements: {
+        kind: typeof output.kind === 'string' ? output.kind : 'unknown',
+        targetPageId: task.targetPageId ?? null,
+        humanReviewRequired: task.humanAcceptance === true,
+        requiredEvidence: stringArray(task.requiredEvidence),
+      },
+    };
+  }
+
+  private async loadAttemptPageBaseline(tx: Tx, run: any, task: any) {
+    if (!task.targetPageId) return null;
+    const page = await tx.page.findFirst({
+      where: { id: task.targetPageId, spaceId: run.spaceId, deletedAt: null },
+      select: { id: true, title: true, content: true, updatedAt: true },
+    });
+    if (!page) throw new BusinessException('RESOURCE_NOT_FOUND', 'The task target Page is unavailable');
+    const version = await tx.pageVersion.findFirst({
+      where: { pageId: page.id, title: page.title, content: page.content },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true },
+    });
+    return {
+      pageVersionId: version?.id ?? null,
+      updatedAt: page.updatedAt,
+      contentHash: sha256(page.content.replace(/\r\n?/gu, '\n')),
     };
   }
 

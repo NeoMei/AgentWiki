@@ -13,9 +13,19 @@ import { ContentTreeConflict, ContentTreeError } from '../content-tree/content-t
 import { PrismaService } from '../database/prisma.service';
 import {
   compareCompositeTemplateSiblingOrder,
+  validateCompositeTaskSelection,
 } from './composite-template-validator';
 import { PageTemplateLocaleSchema, type PageTemplateLocale } from './page-template.types';
 import { CompositeTemplateCatalogService } from './composite-template-catalog.service';
+import {
+  createSinglePageWorkflow,
+  RunExpansionService,
+} from '../collaboration-workflows/run-expansion.service';
+import { PageAgentBindingService } from './page-agent-binding.service';
+import {
+  resolveParticipants,
+  type RunPageSelectionBinding,
+} from './run-page-selection';
 
 const MAX_SERIALIZABLE_ATTEMPTS = 3;
 const INSTANTIATION_TRANSACTION_TIMEOUT_MS = 120_000;
@@ -29,7 +39,8 @@ export type TemplateInstantiationInput = {
   variables: Record<string, unknown>;
   rootName?: string;
   collaborationEnabled: boolean;
-  roleBindings?: unknown[];
+  collaborationInputs?: Record<string, unknown>;
+  roleBindings?: RunPageSelectionBinding[];
   enabledTaskNodeIds?: string[];
   expectedTreeRevision: bigint;
   idempotencyKey: string;
@@ -108,6 +119,8 @@ export class TemplateInstantiationService {
     private readonly authorization: AuthorizationService,
     private readonly contentTree: ContentTreeService,
     private readonly catalog: CompositeTemplateCatalogService,
+    private readonly runExpansion: RunExpansionService,
+    private readonly pageBindings: PageAgentBindingService,
   ) {}
 
   async instantiate(
@@ -180,6 +193,9 @@ export class TemplateInstantiationService {
     if (!version) throw new BusinessException('PAGE_TEMPLATE_VERSION_NOT_FOUND');
     const locale = resolved.locale;
     const nodes = expandTemplateDefinition(resolved.definition, locale, { rootName: input.rootName });
+    const selected = input.collaborationEnabled
+      ? selectCollaboration(resolved.definition, input.enabledTaskNodeIds)
+      : null;
     await assertCombinedDepth(tx, spaceId, input.targetParentFolderId ?? null, nodes);
     const initialSiblingOrders = await loadInitialSiblingOrders(
       tx, spaceId, input.targetParentFolderId ?? null, nodes,
@@ -265,7 +281,7 @@ export class TemplateInstantiationService {
     });
     const root = nodes.find((node) => node.parentNodeId === null)!;
     const rootRuntime = runtimeByNode.get(root.nodeId)!;
-    const result: TemplateInstantiationResult = {
+    let result: TemplateInstantiationResult = {
       instantiationId,
       rootFolderId: rootRuntime.kind === 'folder' ? rootRuntime.id : null,
       pageIds,
@@ -293,11 +309,64 @@ export class TemplateInstantiationService {
         pageId: runtime.kind === 'page' ? runtime.id : null,
       };
     }) });
+    if (selected) {
+      const bindings = input.roleBindings ?? [];
+      const tasks = selected.workflow.nodes.filter((node) => node.kind === 'agent_task');
+      const participants = resolveParticipants(
+        tasks.map((task) => ({ nodeId: task.id, roleSlotId: task.roleSlotId, enabled: true })),
+        bindings,
+      );
+      if (participants.issues.length > 0) {
+        throw new BusinessException('COLLABORATION_TEMPLATE_INVALID', undefined, { issues: participants.issues });
+      }
+      const assignmentByTask = new Map(participants.assignments.map((item) => [item.nodeId, item]));
+      const taskPageIds = Object.fromEntries(selected.taskTargets.map((target) => {
+        const runtime = runtimeByNode.get(target.pageNodeId);
+        if (!runtime || runtime.kind !== 'page') throw new BusinessException('PAGE_TEMPLATE_INVALID');
+        return [target.taskNodeId, runtime.id];
+      }));
+      const bindingEdits = selected.taskTargets.map((target) => {
+        const assignment = assignmentByTask.get(target.taskNodeId)!;
+        return {
+          pageId: taskPageIds[target.taskNodeId],
+          agentId: assignment.agentId,
+          roleSlotKey: assignment.roleSlotId,
+          expectedUpdatedAt: null,
+        };
+      });
+      if (bindingEdits.length > 0) {
+        await this.pageBindings.setBindings(tx, spaceId, bindingEdits, principal);
+      }
+      const expandedRoot = nodes.find((node) => node.nodeId === root.nodeId)!;
+      const runId = await this.runExpansion.createStarted(tx, {
+        spaceId,
+        name: expandedRoot.kind === 'folder' ? expandedRoot.name : expandedRoot.title,
+        source: {
+          kind: 'composite',
+          templateVersion: input.templateVersion,
+          compositeTemplateVersionId: version.id,
+          templateInstantiationId: instantiationId,
+        },
+        definition: selected.workflow,
+        inputs: input.collaborationInputs ?? {},
+        bindings,
+        taskPageIds,
+      }, principal);
+      result = { ...result, runId };
+      await tx.templateInstantiation.update({
+        where: { id: instantiationId },
+        data: { result: storedResult(result) },
+      });
+    }
     await tx.templateEffectJob.createMany({ data: [
       ...pageIds.map((pageId) => ({
         instantiationId, spaceId, effectKey: `page-index:${pageId}`, kind: 'page_index',
         payload: { pageId },
       })),
+      ...(result.runId ? [{
+        instantiationId, spaceId, effectKey: `collaboration-run:${result.runId}`, kind: 'collaboration_run',
+        payload: { runId: result.runId },
+      }] : []),
       {
         instantiationId, spaceId, effectKey: `space-graph:${spaceId}`, kind: 'space_graph',
         payload: { spaceId },
@@ -350,6 +419,9 @@ function normalizeRequest(spaceId: string, templateId: string, input: TemplateIn
     rootName: input.rootName === undefined ? null : normalizeRootName(input.rootName),
     collaborationEnabled: input.collaborationEnabled,
     roleBindings: input.roleBindings === undefined ? null : sortJson(input.roleBindings),
+    collaborationInputs: input.collaborationInputs === undefined
+      ? null
+      : sortJson(input.collaborationInputs),
     enabledTaskNodeIds: input.enabledTaskNodeIds === undefined
       ? null
       : [...input.enabledTaskNodeIds].sort(),
@@ -359,15 +431,68 @@ function normalizeRequest(spaceId: string, templateId: string, input: TemplateIn
 }
 
 function assertTask5Supported(input: ReturnType<typeof normalizeRequest>): void {
-  if (input.collaborationEnabled
-    || input.roleBindings !== null
-    || input.enabledTaskNodeIds !== null
-    || Object.keys(input.variables).length > 0) {
+  if (Object.keys(input.variables).length > 0
+    || (!input.collaborationEnabled && (
+      input.roleBindings !== null
+      || input.enabledTaskNodeIds !== null
+      || input.collaborationInputs !== null
+    ))) {
     throw new BusinessException(
       'PAGE_TEMPLATE_INSTANTIATION_UNSUPPORTED',
       'Collaboration, mappings, task selection, and free-form variables are not enabled yet',
     );
   }
+}
+
+function selectCollaboration(
+  definition: CompositeTemplateDefinition,
+  enabledTaskNodeIds: readonly string[] | undefined,
+) {
+  const collaboration = definition.collaboration ?? ordinarySinglePageCollaboration(definition);
+  const workflow = collaboration.workflow;
+  const allTasks = workflow.nodes.filter((node) => node.kind === 'agent_task');
+  const enabled = enabledTaskNodeIds === undefined ? allTasks.map((task) => task.id) : [...enabledTaskNodeIds];
+  if (enabled.length === 0 || new Set(enabled).size !== enabled.length
+    || enabled.some((id) => !allTasks.some((task) => task.id === id))) {
+    throw new BusinessException('COLLABORATION_TEMPLATE_INVALID', 'Enabled task selection is invalid');
+  }
+  const selectedTasks = new Set(enabled);
+  const retainedIds = workflow.nodes.flatMap((node) => (
+    node.kind === 'agent_task'
+      ? (selectedTasks.has(node.id) ? [node.id] : [])
+      : (selectedTasks.has(node.artifactTaskId) ? [node.id] : [])
+  ));
+  const issues = validateCompositeTaskSelection(definition, retainedIds);
+  if (issues.length > 0) {
+    throw new BusinessException('COLLABORATION_TEMPLATE_INVALID', undefined, { issues });
+  }
+  const retained = new Set(retainedIds);
+  const usedRoles = new Set(allTasks.filter((task) => selectedTasks.has(task.id)).map((task) => task.roleSlotId));
+  return {
+    workflow: {
+      ...structuredClone(workflow),
+      roleSlots: workflow.roleSlots.filter((slot) => usedRoles.has(slot.id)),
+      nodes: workflow.nodes.filter((node) => retained.has(node.id)),
+      dependencies: workflow.dependencies.filter((edge) => retained.has(edge.from) && retained.has(edge.to)),
+      terminalNodeIds: workflow.terminalNodeIds.filter((id) => retained.has(id)),
+    },
+    taskTargets: collaboration.taskTargets.filter((target) => selectedTasks.has(target.taskNodeId)),
+  };
+}
+
+function ordinarySinglePageCollaboration(definition: CompositeTemplateDefinition) {
+  const page = definition.kind === 'single_page' && definition.nodes.length === 1
+    ? definition.nodes[0] : null;
+  if (!page || page.kind !== 'page') {
+    throw new BusinessException(
+      'PAGE_TEMPLATE_INSTANTIATION_UNSUPPORTED',
+      'Structure-only Page groups require an explicit collaboration workflow',
+    );
+  }
+  return {
+    workflow: createSinglePageWorkflow('writer'),
+    taskTargets: [{ taskNodeId: 'write-page', pageNodeId: page.nodeId }],
+  };
 }
 
 function sortJson(value: unknown): any {

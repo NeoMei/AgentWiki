@@ -2,6 +2,7 @@ import type { Principal } from '../core/authorization/authorization.service';
 import { BusinessException } from '../core/filters/business-error';
 import { HistoryCursorService } from './history-cursor.service';
 import { RunService } from './run.service';
+import { RunExpansionService } from './run-expansion.service';
 
 const humanPrincipal: Principal = { userId: 'user-1' };
 const starterPrincipal: Principal = { userId: 'starter-1' };
@@ -45,6 +46,7 @@ const ready = { ...draft, status: 'ready', version: 2 };
 const grant = (agentId: string, role: 'reader' | 'editor' | 'publisher' = 'editor', status = 'active') => ({
   id: `grant-${agentId}`, agentId, spaceId: 'space-1', role,
   agent: { id: agentId, status, revokedAt: null, owner: { deletedAt: null, lockedAt: null } }, space: { deletedAt: null },
+  credentials: [{ id: `credential-${agentId}` }],
 });
 
 function projectSelect(value: any, select: Record<string, any>): any {
@@ -80,6 +82,7 @@ describe('RunService', () => {
   const progression = { advanceRun: jest.fn() } as any;
   const notifications = { publishCurrentRun: jest.fn() } as any;
   const historyCursors = new HistoryCursorService({ get: jest.fn().mockReturnValue('run-service-history-test-pepper') } as any);
+  const expansion = new RunExpansionService({} as any, {} as any, {} as any, {} as any, {} as any);
   let service: RunService;
 
   beforeEach(() => {
@@ -102,7 +105,7 @@ describe('RunService', () => {
     tx.collaborationReview.findMany.mockResolvedValue([]);
     tx.collaborationRunEvent.findMany.mockResolvedValue([]);
     tx.spaceMember.findMany.mockResolvedValue([]);
-    service = new RunService(prisma, authorization, events, progression, notifications, historyCursors);
+    service = new RunService(prisma, authorization, events, progression, notifications, historyCursors, expansion);
   });
 
   it('persists an optimistic draft', async () => {
@@ -198,6 +201,15 @@ describe('RunService', () => {
     tx.agentGrant.findMany.mockResolvedValue(grants);
     await expect(service.validateDraft('space-1', 'run-1', { expectedVersion: 1 }, humanPrincipal))
       .rejects.toMatchObject({ businessCode: code });
+  });
+
+  it('preserves legacy Grant-only validation when an Agent has no current credential', async () => {
+    tx.collaborationRun.findFirst.mockResolvedValue(draft);
+    tx.agentGrant.findMany.mockResolvedValue([{ ...grant('agent-a'), credentials: [] }, grant('agent-b')]);
+
+    await expect(service.validateDraft(
+      'space-1', 'run-1', { expectedVersion: 1 }, humanPrincipal,
+    )).resolves.toMatchObject({ id: 'run-1' });
   });
 
   it('rechecks designated reviewer membership before validating a draft', async () => {
@@ -435,12 +447,15 @@ describe('RunService', () => {
     tx.collaborationRun.findUnique.mockResolvedValue({
       ...ready,
       roleBindings: [bindings[0], { ...bindings[1], agentId: 'agent-a' }],
-      tasks: [{ id: 'task-1', assigneeAgentId: 'agent-a' }],
+      tasks: [
+        { id: 'task-1', assigneeAgentId: 'agent-a' },
+        { id: 'task-2', assigneeAgentId: 'agent-a' },
+      ],
       dependencies: [], reviews: [], events: [],
     });
     const result = await service.getHumanRun('space-1', 'run-1', humanPrincipal);
     expect(result.joinInstructions).toEqual([{
-      agentId: 'agent-a', roleSlotIds: ['planner', 'builder'], taskIds: ['task-1'],
+      agentId: 'agent-a', roleSlotIds: ['planner', 'builder'], taskIds: ['task-1', 'task-2'],
     }]);
   });
 
@@ -1049,7 +1064,7 @@ describe('RunService', () => {
       ...receiptTx,
       $transaction: jest.fn(async (callback: (value: any) => unknown) => callback(receiptTx)),
     } as any;
-    const receiptService = new RunService(receiptPrisma, authorization, receiptEvents, progression, notifications, historyCursors);
+    const receiptService = new RunService(receiptPrisma, authorization, receiptEvents, progression, notifications, historyCursors, expansion);
     const input = { reason: 'maintenance', idempotencyKey: 'pause-bounded-1' };
 
     const first = await receiptService.pauseRun('run-1', input, starterPrincipal);

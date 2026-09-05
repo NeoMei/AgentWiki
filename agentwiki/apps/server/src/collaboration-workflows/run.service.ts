@@ -1,10 +1,8 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
-  CollaborationInputValuesSchema,
   CollaborationTemplateDefinitionSchema,
-  agentRoleAllowsScope,
   type CollaborationTemplateDefinition,
 } from '@neomei/agentwiki-sync-protocol';
 import { AuthorizationService, type Principal, type SpaceRole } from '../core/authorization/authorization.service';
@@ -25,6 +23,9 @@ import { CollaborationEventsService } from './collaboration-events.service';
 import { HISTORY_KINDS, HistoryCursorService, type HistoryKind, type HistoryPosition, type RunListStatus } from './history-cursor.service';
 import { withCollaborationSerializableRetry } from './serializable-retry';
 import { reviewerMemberIssues, rolesAtLeast } from './reviewer-members';
+import { RunExpansionService } from './run-expansion.service';
+import { assertCollaborationAgentGrantsExecutable } from './agent-readiness';
+import { parseCollaborationInputs } from './run-input-validation';
 
 const READ_ROLES: SpaceRole[] = ['owner', 'admin', 'editor', 'viewer'];
 const EDIT_ROLES: SpaceRole[] = ['owner', 'admin', 'editor'];
@@ -133,6 +134,11 @@ const HUMAN_RUN_SELECT = {
       skippable: true,
       nextAttemptAt: true,
       completedAt: true,
+      targetPageId: true,
+      targetSpaceId: true,
+      basePageVersionId: true,
+      basePageUpdatedAt: true,
+      baseContentHash: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -148,6 +154,7 @@ export class RunService {
     private readonly progression: ProgressionService,
     private readonly notifications: CollaborationEventsService,
     private readonly historyCursors: HistoryCursorService,
+    private readonly expansion: RunExpansionService,
   ) {}
 
   async createDraft(spaceId: string, body: CreateRunDraftDto, principal: Principal) {
@@ -156,7 +163,7 @@ export class RunService {
       await this.assertLiveHumanAccess(tx, principal, spaceId, EDIT_ROLES);
       const template = await this.loadTemplate(tx, spaceId, body.templateId);
       const definition = parseDefinition(template.definition);
-      const inputs = this.parseInputs(definition, body.inputs);
+      const inputs = parseCollaborationInputs(definition, body.inputs);
       const bindings = this.normalizeBindings(definition, body.roleBindings, true);
       const run = await tx.collaborationRun.create({
         data: {
@@ -193,7 +200,7 @@ export class RunService {
       if (!current) throw new BusinessException('COLLABORATION_RUN_VERSION_CONFLICT');
       const template = await this.loadLegacyRunTemplate(tx, spaceId, current);
       const definition = parseDefinition(template.definition);
-      const inputs = body.inputs === undefined ? undefined : this.parseInputs(definition, body.inputs);
+      const inputs = body.inputs === undefined ? undefined : parseCollaborationInputs(definition, body.inputs);
       if (body.roleBindings) {
         const bindings = this.normalizeBindings(definition, body.roleBindings);
         await tx.collaborationRoleBinding.deleteMany({ where: { runId } });
@@ -233,7 +240,7 @@ export class RunService {
       const template = await this.loadLegacyRunTemplate(tx, spaceId, run);
       const definition = parseDefinition(template.definition);
       const bindings = await this.loadBindings(tx, runId, run);
-      this.parseInputs(definition, run.inputs);
+      parseCollaborationInputs(definition, run.inputs);
       this.normalizeBindings(definition, bindings);
       await this.assertReviewerMembers(tx, spaceId, definition);
       await this.validateFreshAgents(tx, spaceId, bindings.map((binding) => binding.agentId));
@@ -274,7 +281,7 @@ export class RunService {
         const template = await this.loadLegacyRunTemplate(tx, spaceId, run);
         const definition = parseDefinition(template.definition);
         const bindings = await this.loadBindings(tx, runId, run);
-        this.parseInputs(definition, run.inputs);
+        parseCollaborationInputs(definition, run.inputs);
         this.normalizeBindings(definition, bindings);
         await this.assertReviewerMembers(tx, spaceId, definition);
         await this.validateFreshAgents(tx, spaceId, bindings.map((binding) => binding.agentId));
@@ -290,7 +297,11 @@ export class RunService {
             version: { increment: 1 },
           },
         });
-        await this.expandRun(tx, runId, definition, bindings);
+        const agentByRole = new Map(bindings.map((binding) => [binding.roleSlotId, binding.agentId]));
+        const assignments = new Map(definition.nodes.flatMap((node) => node.kind === 'agent_task'
+          ? [[node.id, { agentId: agentByRole.get(node.roleSlotId)! }] as const]
+          : []));
+        await this.expansion.expand(tx, runId, definition, assignments);
         return { runId, status: updated.status, version: updated.version };
       });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
@@ -690,60 +701,8 @@ export class RunService {
     return bindings;
   }
 
-  private parseInputs(
-    definition: CollaborationTemplateDefinition,
-    raw: unknown,
-  ): Record<string, string | number | boolean> {
-    const parsed = CollaborationInputValuesSchema.safeParse(raw);
-    if (!parsed.success) throw new BusinessException('COLLABORATION_TEMPLATE_INVALID', undefined, { issues: parsed.error.issues });
-    const definitions = new Map(definition.inputs.map((input) => [input.key, input]));
-    const issues: string[] = [];
-    for (const key of Object.keys(parsed.data)) if (!definitions.has(key)) issues.push(`Unknown input: ${key}`);
-    for (const input of definition.inputs) {
-      const value = parsed.data[input.key];
-      if (input.required && value === undefined) issues.push(`Required input is missing: ${input.key}`);
-      if (value === undefined) continue;
-      if (input.type === 'number' && typeof value !== 'number') issues.push(`${input.key} must be a number`);
-      if (input.type === 'boolean' && typeof value !== 'boolean') issues.push(`${input.key} must be a boolean`);
-      if (!['number', 'boolean'].includes(input.type) && typeof value !== 'string') issues.push(`${input.key} must be text`);
-      if (input.type === 'url' && (typeof value !== 'string' || !isHttpsUrl(value))) issues.push(`${input.key} must be an HTTPS URL`);
-    }
-    if (issues.length) throw new BusinessException('COLLABORATION_TEMPLATE_INVALID', undefined, { issues });
-    return Object.fromEntries(Object.entries(parsed.data).map(([key, value]) => {
-      const input = definitions.get(key)!;
-      if (input.type === 'url' && typeof value === 'string') return [key, new URL(value).toString()];
-      return [key, value];
-    }));
-  }
-
   private async validateFreshAgents(tx: Tx, spaceId: string, agentIds: string[]): Promise<void> {
-    const uniqueIds = [...new Set(agentIds)];
-    const grants = await tx.agentGrant.findMany({
-      where: { spaceId, agentId: { in: uniqueIds } },
-      include: {
-        agent: { select: { id: true, status: true, revokedAt: true, owner: { select: { deletedAt: true, lockedAt: true } } } },
-        space: { select: { deletedAt: true } },
-      },
-    });
-    const byAgent = new Map(grants.map((grant) => [grant.agentId, grant]));
-    for (const agentId of uniqueIds) {
-      const grant = byAgent.get(agentId);
-      if (!grant) throw new BusinessException('COLLABORATION_AGENT_CANNOT_EXECUTE');
-      const owner = grant.agent.owner;
-      if (
-        grant.agent.status !== 'active'
-        || grant.agent.revokedAt
-        || !owner
-        || owner.deletedAt
-        || owner.lockedAt
-        || grant.space.deletedAt
-      ) {
-        throw new BusinessException('COLLABORATION_AGENT_INACTIVE');
-      }
-      if (!agentRoleAllowsScope(grant.role, 'collaboration:execute')) {
-        throw new BusinessException('COLLABORATION_AGENT_CANNOT_EXECUTE');
-      }
-    }
+    await assertCollaborationAgentGrantsExecutable(tx, spaceId, agentIds);
   }
 
   private async assertReviewerMembers(
@@ -758,62 +717,6 @@ export class RunService {
   private async loadBindings(tx: Tx, runId: string, run: unknown): Promise<RoleBindingInput[]> {
     const embedded = (run as { roleBindings?: RoleBindingInput[] }).roleBindings;
     return embedded ?? tx.collaborationRoleBinding.findMany({ where: { runId } });
-  }
-
-  private async expandRun(
-    tx: Tx,
-    runId: string,
-    definition: CollaborationTemplateDefinition,
-    bindings: RoleBindingInput[],
-  ): Promise<void> {
-    const agentByRole = new Map(bindings.map((binding) => [binding.roleSlotId, binding.agentId]));
-    const incoming = new Set(definition.dependencies.map((dependency) => dependency.to));
-    const tasks = definition.nodes.filter((node) => node.kind === 'agent_task').map((node, ordinal) => ({
-      id: randomUUID(),
-      runId,
-      nodeId: node.id,
-      ordinal,
-      name: node.name,
-      objective: node.objective,
-      roleSlotId: node.roleSlotId,
-      assigneeAgentId: agentByRole.get(node.roleSlotId)!,
-      status: incoming.has(node.id) ? 'blocked' as const : 'ready' as const,
-      generation: 1,
-      dependencyMode: dependencyModeFor(definition, node.id),
-      outputContract: toJson(node.output),
-      requiredEvidence: toJson(node.evidenceRequired),
-      humanAcceptance: node.humanAcceptance,
-      skippable: node.skippable,
-      leaseSeconds: node.leaseSeconds,
-      maxExecutionSeconds: node.maxExecutionSeconds,
-      retryBudget: node.retryBudget,
-      repairBudget: node.repairBudget,
-    }));
-    if (tasks.length) await tx.collaborationRunTask.createMany({ data: tasks });
-    const taskByNode = new Map(tasks.map((task) => [task.nodeId, task]));
-    const todos = definition.nodes.filter((node) => node.kind === 'agent_task').flatMap((node) =>
-      node.todos.map((todo, ordinal) => ({
-        runId,
-        taskId: taskByNode.get(node.id)!.id,
-        generation: 1,
-        templateId: todo.id,
-        ordinal,
-        name: todo.name,
-        required: todo.required,
-        status: 'pending' as const,
-      })),
-    );
-    if (todos.length) await tx.collaborationTaskTodo.createMany({ data: todos });
-    if (definition.dependencies.length) {
-      await tx.collaborationTaskDependency.createMany({
-        data: definition.dependencies.map((dependency) => ({
-          runId,
-          fromNodeId: dependency.from,
-          toNodeId: dependency.to,
-          mode: dependency.mode,
-        })),
-      });
-    }
   }
 
   private async invalidateAttempts(tx: Tx, runId: string, reason: string, taskId?: string): Promise<void> {
@@ -967,18 +870,6 @@ function hashJson(value: unknown): string {
 
 function toJson(value: unknown): Prisma.InputJsonValue {
   return structuredClone(value) as Prisma.InputJsonValue;
-}
-
-function dependencyModeFor(definition: CollaborationTemplateDefinition, nodeId: string): 'all' | 'any' {
-  return definition.dependencies.find((dependency) => dependency.to === nodeId)?.mode ?? 'all';
-}
-
-function isHttpsUrl(value: string): boolean {
-  try {
-    return new URL(value).protocol === 'https:';
-  } catch {
-    return false;
-  }
 }
 
 function snapshotNodes(value: unknown): any[] {

@@ -12,6 +12,7 @@ import { TemplateInstantiationService } from './template-instantiation.service';
 import { PageAgentBindingService } from './page-agent-binding.service';
 import { MarkdownResourceCoreModule } from '../markdown-resources/markdown-resource-core.module';
 import { FolderTemplateSnapshotService } from './folder-template-snapshot.service';
+import { CollaborationWorkflowsModule } from '../collaboration-workflows/collaboration-workflows.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { FolderTemplateSnapshotService } from './folder-template-snapshot.servic
     ConfigModule,
     ContentTreeModule,
     MarkdownResourceCoreModule,
+    CollaborationWorkflowsModule,
   ],
   controllers: [PageTemplateController],
   providers: [
