@@ -370,6 +370,23 @@ export function assertExternalAgentSuccessfulSequence(calls) {
   return { taskId: execute.result.taskId, todoCount, finalAction: 'waiting_human' };
 }
 
+export function assertExternalAgentReceipt({ requestedCalls, successfulCalls }) {
+  if (requestedCalls.length !== successfulCalls.length) {
+    throw new Error(`External Agent receipt requires every requested call to succeed; requested ${requestedCalls.length}, succeeded ${successfulCalls.length}`);
+  }
+  for (const [index, requested] of requestedCalls.entries()) {
+    const successful = successfulCalls[index];
+    if (!isDeepStrictEqual(requested, { tool: successful?.tool, input: successful?.input })) {
+      throw new Error(`External Agent receipt request/success mismatch at call ${index + 1}`);
+    }
+  }
+  return {
+    ...assertExternalAgentSuccessfulSequence(successfulCalls),
+    requestedCount: requestedCalls.length,
+    successfulCount: successfulCalls.length,
+  };
+}
+
 export function externalAgentClientArgs({
   client,
   fixtureHome,

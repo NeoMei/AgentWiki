@@ -8,6 +8,7 @@ import {
   acceptanceCompletionStatus,
   assertCollaborationOffPersistence,
   assertExternalAgentSuccessfulSequence,
+  assertExternalAgentReceipt,
   buildExternalAgentStagePrompt,
   collectContentTree,
   externalAgentGatewayFiles,
@@ -249,6 +250,31 @@ test('external Agent sequence requires exact Todo transitions, submit state, and
     ? { ...call, result: { ...call.result, artifactStatus: 'accepted' } } : call)), /submitted\/pending/u);
   assert.throws(() => assertExternalAgentSuccessfulSequence(valid.map((call, index) => index === 5
     ? { ...call, result: { action: 'completed' } } : call)), /waiting_human/u);
+});
+
+test('external Agent receipt gate rejects failed or unmatched requests around a valid success sequence', () => {
+  const successfulCalls = [
+    { tool: 'wiki_collaboration_join_run', input: { runId: 'run-1' }, result: { status: 'running' } },
+    { tool: 'wiki_collaboration_next_action', input: { runId: 'run-1', waitSeconds: 0 }, result: { action: 'execute_task', taskId: 'task-1', todos: [{ id: 'todo-1', ordinal: 0 }] } },
+    { tool: 'wiki_collaboration_update_todo', input: { todoId: 'todo-1', status: 'doing' }, result: { todoId: 'todo-1', todoStatus: 'doing', taskStatus: 'running' } },
+    { tool: 'wiki_collaboration_update_todo', input: { todoId: 'todo-1', status: 'done' }, result: { todoId: 'todo-1', todoStatus: 'done', taskStatus: 'running' } },
+    { tool: 'wiki_collaboration_submit_result', input: { artifactKind: 'markdown' }, result: { action: 'submitted', artifactStatus: 'pending', taskStatus: 'submitted', runStatus: 'waiting_review' } },
+    { tool: 'wiki_collaboration_next_action', input: { runId: 'run-1', waitSeconds: 0 }, result: { action: 'waiting_human' } },
+  ];
+  const requestedCalls = successfulCalls.map(({ tool, input }) => ({ tool, input }));
+  assert.deepEqual(assertExternalAgentReceipt({ requestedCalls, successfulCalls }), {
+    taskId: 'task-1', todoCount: 1, finalAction: 'waiting_human', requestedCount: 6, successfulCount: 6,
+  });
+  assert.throws(() => assertExternalAgentReceipt({
+    requestedCalls: [{ tool: 'wiki_collaboration_join_run', input: { runId: 'failed-run' } }, ...requestedCalls],
+    successfulCalls,
+  }), /every requested call to succeed/u);
+  assert.throws(() => assertExternalAgentReceipt({
+    requestedCalls: requestedCalls.map((call, index) => index === 2
+      ? { ...call, input: { todoId: 'different-todo', status: 'doing' } }
+      : call),
+    successfulCalls,
+  }), /request\/success mismatch at call 3/u);
 });
 
 test('Codex external invocation uses automatic review in workspace-write without bypass flags', () => {

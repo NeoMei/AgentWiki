@@ -14,7 +14,7 @@ import {
   acceptanceChildEnvironment,
   acceptanceCompletionStatus,
   assertCollaborationOffPersistence,
-  assertExternalAgentSuccessfulSequence,
+  assertExternalAgentReceipt,
   assertPublishedPageVersionPair,
   buildExternalAgentStagePrompt,
   collectContentTree,
@@ -362,7 +362,7 @@ async function runRealExternalAgentJourney({ page, webOrigin, apiUrl, databaseUr
     });
       receipts.push(result);
       assert.equal(result.exitCode, 0, `${item.label} model execution failed; see ${result.receiptPath}`);
-      const sequence = assertExternalAgentSuccessfulSequence(result.successfulCalls);
+      const sequence = assertExternalAgentReceipt(result);
       publications.push({
         sequence,
         ...(await approveExternalPageReview({
