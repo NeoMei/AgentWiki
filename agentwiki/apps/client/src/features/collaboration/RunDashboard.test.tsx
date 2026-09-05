@@ -252,7 +252,7 @@ describe('RunDashboard', () => {
       'next_action', 'heartbeat', 'update_todo', 'submit_result', 'advance_run', 'recover_expired_lease',
       'review_approve', 'review_reject_for_revision', 'review_terminate', 'pause_run', 'resume_run',
       'fail_run', 'cancel_run', 'retry_task', 'reassign_task', 'skip_task', 'start_run',
-      'resolve_page_conflict_regenerate', 'resolve_page_conflict_adopt_current',
+      'resolve_page_conflict_regenerate', 'resolve_page_conflict_adopt_current', 'create_existing_page_group_run',
     ];
     renderDashboard({
       ...runningRun,

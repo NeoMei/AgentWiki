@@ -126,6 +126,8 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
   const [catalogLoadingMore, setCatalogLoadingMore] = useState(false);
   const [catalogState, setCatalogState] = useState<CatalogState>({ generation: 0, status: 'loading' });
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const refreshParticipantsButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreRefreshFocusRef = useRef(false);
   const focusCloseAfterBackRef = useRef(false);
   const sessionActiveRef = useRef(true);
   const operationRef = useRef(0);
@@ -142,6 +144,16 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       controllerRef.current?.abort();
     };
   }, []);
+
+  useEffect(() => {
+    const button = refreshParticipantsButtonRef.current;
+    if (!previewLoading && phase === 'configure' && sessionActiveRef.current
+      && restoreRefreshFocusRef.current && button?.isConnected && !button.disabled) {
+      restoreRefreshFocusRef.current = false;
+      button.focus();
+    }
+    if (phase !== 'configure') restoreRefreshFocusRef.current = false;
+  }, [phase, previewLoading]);
 
   useEffect(() => {
     let active = true;
@@ -534,7 +546,10 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       <IssueList issues={preview.issues} />
       <ErrorNotice message={error} />
       <WizardActions onBack={() => dispatchPhase({ type: 'back' })}>
-        <button type="button" disabled={previewLoading} onClick={() => void loadPreview(true)} className="min-h-10 rounded-lg border px-4 text-sm disabled:opacity-50">
+        <button ref={refreshParticipantsButtonRef} type="button" disabled={previewLoading} onClick={() => {
+          restoreRefreshFocusRef.current = true;
+          void loadPreview(true);
+        }} className="min-h-10 rounded-lg border px-4 text-sm disabled:opacity-50">
           {previewLoading ? t('common.loading') : t('pageTemplate.composite.refreshParticipants')}</button>
         <button type="button" onClick={() => void createComposite()} disabled={previewLoading}
           className="min-h-10 rounded-lg bg-blue-600 px-5 text-sm font-medium text-white disabled:opacity-50">{t('pageTemplate.composite.createAndStart')}</button>

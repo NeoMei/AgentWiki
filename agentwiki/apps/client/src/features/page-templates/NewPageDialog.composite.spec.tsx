@@ -175,6 +175,31 @@ describe('NewPageDialog composite flow', () => {
     expect(screen.getByText(/外部 Agent 尚未被唤醒/)).toBeVisible();
   });
 
+  it('restores focus after a user refreshes participant scope so Escape stays inside the dialog', async () => {
+    let resolveRefresh!: (value: ReturnType<typeof preview>) => void;
+    mocks.preview.mockImplementation((_space: string, _template: string, input: {
+      collaborationEnabled: boolean; rootName?: string; roleBindings?: unknown[];
+    }) => input.roleBindings?.length
+      ? new Promise((resolve) => { resolveRefresh = resolve; })
+      : Promise.resolve(preview(input.collaborationEnabled, input.rootName)));
+    renderDialog();
+    fireEvent.click(await screen.findByRole('button', { name: /项目管理工作区/ }));
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: '启用 Agent 协作' }));
+    fireEvent.click(await screen.findByRole('button', { name: '下一步' }));
+    fireEvent.change(await screen.findByLabelText('项目简述'), { target: { value: '交付目标' } });
+    fireEvent.change(screen.getByLabelText('项目负责人'), { target: { value: 'agent-1' } });
+    const refresh = screen.getByRole('button', { name: '刷新参与范围' });
+    refresh.focus();
+
+    fireEvent.click(refresh);
+    screen.getByRole('dialog').focus();
+    expect(refresh).not.toHaveFocus();
+    resolveRefresh({ ...preview(true), participants: ['agent-1'] });
+
+    await waitFor(() => expect(refresh).toHaveFocus());
+  });
+
   it('guards double submission and aborting the wait does not claim rollback', async () => {
     let resolve!: (value: any) => void;
     mocks.instantiate.mockImplementation(() => new Promise((done) => { resolve = done; }));
