@@ -30,6 +30,7 @@ import {
   type ContentTreeNode,
   type ContentTreePageNode,
   type CreateFolderInput,
+  type CreateFolderLockedInput,
   type CreatedFolderResult,
   type DeleteFolderInput,
   type DeleteImpactInput,
@@ -499,84 +500,10 @@ export class ContentTreeService {
     input: CreateFolderInput,
     providedLockedTx?: SpaceTreeLockedTransaction,
   ): Promise<CreatedFolderResult> {
-    assertActor(input.actor);
-    const normalized = normalizeFolderName(input.name);
     const mutate = async (tx: Prisma.TransactionClient): Promise<CreatedFolderResult> => {
       const lockedTx = providedLockedTx
         ?? await this.lockMutationSpace(tx, input.spaceId, input.expectedTreeRevision);
-
-      const ancestors = await lockedTx.$queryRaw<AncestorRow[]>(Prisma.sql`
-        WITH RECURSIVE ancestors AS (
-          SELECT "id", "parentId", "path", 1 AS depth
-          FROM "Folder"
-          WHERE "id" = ${input.parentId ?? ''}
-            AND "spaceId" = ${input.spaceId}
-            AND "deletedAt" IS NULL
-          UNION ALL
-          SELECT parent."id", parent."parentId", parent."path", ancestors.depth + 1
-          FROM "Folder" parent
-          JOIN ancestors ON parent."id" = ancestors."parentId"
-          WHERE parent."spaceId" = ${input.spaceId}
-            AND parent."deletedAt" IS NULL
-            AND ancestors.depth < ${MAX_FOLDER_DEPTH}
-        )
-        SELECT "id", "parentId", "path", depth FROM ancestors ORDER BY depth ASC
-      `);
-      if (input.parentId && ancestors.length === 0) {
-        throw new ContentTreeError('FOLDER_NOT_FOUND', 'Folder not found');
-      }
-      if (ancestors.length + 1 > MAX_FOLDER_DEPTH) {
-        throw new ContentTreeError('FOLDER_DEPTH_LIMIT', 'Folder depth exceeds 32 levels');
-      }
-      const counts = await lockedTx.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
-        SELECT COUNT(*)::bigint AS count
-        FROM "Folder"
-        WHERE "spaceId" = ${input.spaceId} AND "deletedAt" IS NULL
-      `);
-      if ((counts[0]?.count ?? 0n) >= MAX_ACTIVE_FOLDERS) {
-        throw new ContentTreeError('FOLDER_COUNT_LIMIT', 'A Space may contain at most 10,000 active Folders');
-      }
-
-      const parentPath = input.parentId ? ancestors[0]!.path : 'pages';
-      let portablePath: { path: string; key: string };
-      try {
-        portablePath = validatePortableDirectoryPath(`${parentPath}/${normalized.name}`);
-      } catch (error) {
-        throw new ContentTreeError(
-          error instanceof RangeError ? 'FOLDER_PATH_TOO_LONG' : 'FOLDER_INVALID_NAME',
-          error instanceof Error ? error.message : 'Invalid Folder path',
-        );
-      }
-      const duplicate = await lockedTx.folder.findFirst({
-        where: {
-          spaceId: input.spaceId,
-          parentId: input.parentId,
-          nameKey: normalized.nameKey,
-          deletedAt: null,
-        },
-        select: { id: true },
-      });
-      if (duplicate) throw new ContentTreeError('FOLDER_NAME_CONFLICT', 'A sibling Folder already uses this portable name');
-      const siblingOrder = await lockedTx.folder.aggregate({
-        where: { spaceId: input.spaceId, parentId: input.parentId, deletedAt: null },
-        _max: { sortOrder: true },
-      });
-      const created = await lockedTx.folder.create({
-        data: {
-          spaceId: input.spaceId,
-          parentId: input.parentId,
-          name: normalized.name,
-          nameKey: normalized.nameKey,
-          path: portablePath.path,
-          pathKey: portablePath.key,
-          sortOrder: (siblingOrder._max.sortOrder ?? -1) + 1,
-          createdByUserId: input.actor.userId ?? null,
-          createdByAgentId: input.actor.agentId ?? null,
-          lastModifiedByUserId: input.actor.userId ?? null,
-          lastModifiedByAgentId: input.actor.agentId ?? null,
-          lastModifiedAt: new Date(),
-        },
-      });
+      const created = await this.createFolderLocked(lockedTx, input);
       const treeRevision = await this.revisionWriter.advanceContentTreeRevision(
         lockedTx, input.spaceId, input.expectedTreeRevision,
       );
@@ -589,6 +516,90 @@ export class ContentTreeService {
     return providedLockedTx
       ? mutate(providedLockedTx)
       : this.prisma.$transaction(mutate);
+  }
+
+  async createFolderLocked(
+    lockedTx: SpaceTreeLockedTransaction,
+    input: CreateFolderLockedInput,
+  ): Promise<CreatedFolderResult['folder']> {
+    assertActor(input.actor);
+    const normalized = normalizeFolderName(input.name);
+    if (input.sortOrder !== undefined && (!Number.isSafeInteger(input.sortOrder) || input.sortOrder < 0)) {
+      throw new ContentTreeError('CONTENT_TREE_PAYLOAD_INVALID', 'Folder sortOrder must be a non-negative safe integer');
+    }
+    const ancestors = await lockedTx.$queryRaw<AncestorRow[]>(Prisma.sql`
+      WITH RECURSIVE ancestors AS (
+        SELECT "id", "parentId", "path", 1 AS depth
+        FROM "Folder"
+        WHERE "id" = ${input.parentId ?? ''}
+          AND "spaceId" = ${input.spaceId}
+          AND "deletedAt" IS NULL
+        UNION ALL
+        SELECT parent."id", parent."parentId", parent."path", ancestors.depth + 1
+        FROM "Folder" parent
+        JOIN ancestors ON parent."id" = ancestors."parentId"
+        WHERE parent."spaceId" = ${input.spaceId}
+          AND parent."deletedAt" IS NULL
+          AND ancestors.depth < ${MAX_FOLDER_DEPTH}
+      )
+      SELECT "id", "parentId", "path", depth FROM ancestors ORDER BY depth ASC
+    `);
+    if (input.parentId && ancestors.length === 0) {
+      throw new ContentTreeError('FOLDER_NOT_FOUND', 'Folder not found');
+    }
+    if (ancestors.length + 1 > MAX_FOLDER_DEPTH) {
+      throw new ContentTreeError('FOLDER_DEPTH_LIMIT', 'Folder depth exceeds 32 levels');
+    }
+    const counts = await lockedTx.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
+      SELECT COUNT(*)::bigint AS count
+      FROM "Folder"
+      WHERE "spaceId" = ${input.spaceId} AND "deletedAt" IS NULL
+    `);
+    if ((counts[0]?.count ?? 0n) >= MAX_ACTIVE_FOLDERS) {
+      throw new ContentTreeError('FOLDER_COUNT_LIMIT', 'A Space may contain at most 10,000 active Folders');
+    }
+    const parentPath = input.parentId ? ancestors[0]!.path : 'pages';
+    let portablePath: { path: string; key: string };
+    try {
+      portablePath = validatePortableDirectoryPath(`${parentPath}/${normalized.name}`);
+    } catch (error) {
+      throw new ContentTreeError(
+        error instanceof RangeError ? 'FOLDER_PATH_TOO_LONG' : 'FOLDER_INVALID_NAME',
+        error instanceof Error ? error.message : 'Invalid Folder path',
+      );
+    }
+    const duplicate = await lockedTx.folder.findFirst({
+      where: {
+        spaceId: input.spaceId,
+        parentId: input.parentId,
+        nameKey: normalized.nameKey,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (duplicate) throw new ContentTreeError('FOLDER_NAME_CONFLICT', 'A sibling Folder already uses this portable name');
+    const siblingOrder = input.sortOrder === undefined
+      ? await lockedTx.folder.aggregate({
+        where: { spaceId: input.spaceId, parentId: input.parentId, deletedAt: null },
+        _max: { sortOrder: true },
+      })
+      : null;
+    return lockedTx.folder.create({
+      data: {
+        spaceId: input.spaceId,
+        parentId: input.parentId,
+        name: normalized.name,
+        nameKey: normalized.nameKey,
+        path: portablePath.path,
+        pathKey: portablePath.key,
+        sortOrder: input.sortOrder ?? (siblingOrder?._max.sortOrder ?? -1) + 1,
+        createdByUserId: input.actor.userId ?? null,
+        createdByAgentId: input.actor.agentId ?? null,
+        lastModifiedByUserId: input.actor.userId ?? null,
+        lastModifiedByAgentId: input.actor.agentId ?? null,
+        lastModifiedAt: new Date(),
+      },
+    });
   }
 
   async placePage(

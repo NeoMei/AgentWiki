@@ -89,6 +89,11 @@ export interface CreateFolderInput {
   actor: ContentTreeActor;
 }
 
+export interface CreateFolderLockedInput extends Omit<CreateFolderInput, 'expectedTreeRevision'> {
+  /** Explicit sibling order for atomic multi-node creators; omitted preserves createFolder append behavior. */
+  sortOrder?: number;
+}
+
 export interface MoveTreeNodeInput {
   spaceId: string;
   kind: 'folder' | 'page';

@@ -61,6 +61,21 @@ function makeHarness(options: {
 }
 
 describe('ContentTreeService create/read core', () => {
+  it('creates a Folder through the already-locked primitive without advancing either revision', async () => {
+    const { service, tx, revisionWriter } = makeHarness();
+
+    const folder = await service.createFolderLocked(tx, {
+      spaceId: 'space-1', parentId: null, name: ' 原子目录 ',
+      actor: { userId: 'user-1' }, sortOrder: 7,
+    });
+
+    expect(folder).toEqual(expect.objectContaining({
+      id: 'folder-new', name: '原子目录', path: 'pages/原子目录', sortOrder: 7,
+    }));
+    expect(revisionWriter.advanceContentTreeRevision).not.toHaveBeenCalled();
+    expect(revisionWriter.advance).not.toHaveBeenCalled();
+  });
+
   it('creates a root Folder and advances tree and sync revisions in one transaction', async () => {
     const { service, tx, revisionWriter } = makeHarness();
 
