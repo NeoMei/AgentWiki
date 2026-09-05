@@ -54,6 +54,27 @@ describe('SaveFolderAsTemplateDialog', () => {
     mocks.listTemplates.mockResolvedValue([{ id: 'legacy-1', spaceId: 'space-1', slug: 'legacy', name: 'Legacy plan', description: '', system: false, version: 5 }]);
   });
 
+  it('keeps source choices disabled until the authoritative source tree is ready', async () => {
+    let resolveInitial!: (value: ReturnType<typeof preview>) => void;
+    mocks.previewFolderTemplate.mockReturnValueOnce(new Promise((resolve) => { resolveInitial = resolve; }));
+    renderDialog();
+    expect(await screen.findByRole('radio', { name: 'Independent page duties' })).toBeDisabled();
+    resolveInitial(preview());
+    expect(await screen.findByRole('checkbox', { name: 'Include folder Workspace (root)' })).toBeVisible();
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'Independent page duties' })).toBeEnabled());
+  });
+
+  it('recovers an initially failed authoritative source tree through the explicit refresh action', async () => {
+    mocks.previewFolderTemplate.mockRejectedValueOnce(new Error('initial preview failed'));
+    renderDialog();
+    const sourceChoice = await screen.findByRole('radio', { name: 'Independent page duties' });
+    expect(sourceChoice).toBeDisabled();
+    await waitFor(() => expect(mocks.previewFolderTemplate).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh source' }));
+    expect(await screen.findByRole('checkbox', { name: 'Include folder Workspace (root)' })).toBeVisible();
+    await waitFor(() => expect(sourceChoice).toBeEnabled());
+  });
+
   it('prunes nested runtime IDs and structure-only never serializes roles or workflow', async () => {
     renderDialog();
     const nestedA = await screen.findByRole('checkbox', { name: 'Include folder Repeated (nested-a)' });

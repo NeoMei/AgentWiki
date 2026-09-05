@@ -252,6 +252,7 @@ describe('RunDashboard', () => {
       'next_action', 'heartbeat', 'update_todo', 'submit_result', 'advance_run', 'recover_expired_lease',
       'review_approve', 'review_reject_for_revision', 'review_terminate', 'pause_run', 'resume_run',
       'fail_run', 'cancel_run', 'retry_task', 'reassign_task', 'skip_task', 'start_run',
+      'resolve_page_conflict_regenerate', 'resolve_page_conflict_adopt_current',
     ];
     renderDashboard({
       ...runningRun,
@@ -433,6 +434,25 @@ describe('RunDashboard', () => {
     expect(instruction).toHaveTextContent('wiki_collaboration_next_action');
     expect(instruction.textContent).not.toMatch(/(?<!wiki_)collaboration_(?:join_run|next_action)/u);
     expect(document.body.textContent).not.toMatch(/credential|api[-_ ]?key|token=/iu);
+  });
+
+  it('restores dialog focus after a conflict refresh so Escape remains available', async () => {
+    vi.mocked(collaborationApi.decideReview).mockRejectedValueOnce({
+      response: { data: { code: 'PAGE_VERSION_CONFLICT' } },
+    });
+    renderDashboard(waitingReviewRun, 'editor', 'reviewer-1');
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+    const reason = screen.getByLabelText('Reason');
+    fireEvent.change(reason, { target: { value: 'Concurrent edit' } });
+    const confirm = screen.getByRole('button', { name: 'Confirm approve' });
+    confirm.focus();
+    expect(confirm).toHaveFocus();
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(collaborationApi.getRun).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(reason).toHaveFocus());
+    fireEvent.keyDown(reason, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('does not emit resume instructions when the mutation returns a non-running authoritative status', async () => {

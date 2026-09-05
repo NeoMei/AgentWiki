@@ -392,7 +392,7 @@ export const SaveFolderAsTemplateDialog: React.FC<SaveFolderAsTemplateDialogProp
       <section aria-labelledby="folder-template-source-heading" className="rounded-[14px] border p-4">
         <h3 id="folder-template-source-heading" className="font-semibold">{t('pageTemplate.folderSave.source')}</h3>
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          {(['structure_only', 'simple_pages', 'template', 'legacy_workflow'] as const).map((kind) => <label key={kind} className="flex min-h-10 items-center gap-2 rounded-lg border p-3 text-sm"><input type="radio" name="folder-template-source" checked={sourceKind === kind} disabled={kind === 'template' && (!exactSourceChecked || !exactSource)} onChange={() => void changeSourceKind(kind)} />{t(`pageTemplate.folderSave.source.${kind}`)}</label>)}
+          {(['structure_only', 'simple_pages', 'template', 'legacy_workflow'] as const).map((kind) => <label key={kind} className="flex min-h-10 items-center gap-2 rounded-lg border p-3 text-sm"><input type="radio" name="folder-template-source" checked={sourceKind === kind} disabled={!authoritativeNodes.length || (kind === 'template' && (!exactSourceChecked || !exactSource))} onChange={() => void changeSourceKind(kind)} />{t(`pageTemplate.folderSave.source.${kind}`)}</label>)}
         </div>
         {exactSourceChecked && !exactSource ? <p className="mt-2 text-sm text-amber-700">{t('pageTemplate.folderSave.exactSourceMissing')}</p> : null}
         {sourceKind === 'template' ? <div className="mt-3 rounded-lg bg-gray-50 p-3 text-sm">{exactSource

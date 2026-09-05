@@ -71,6 +71,13 @@ describe('PageAgentBindingDialog', () => {
     expect(mocks.startPageRun).not.toHaveBeenCalled();
   });
 
+  it('shows the Page title in the exact binding scope instead of repeating its ID', async () => {
+    renderDialog({ kind: 'page', pageId: 'page-1', title: 'Page one' });
+    const scope = await screen.findByTestId('binding-page-scope');
+    expect(within(scope).getByText('Page one')).toBeVisible();
+    expect(within(scope).getAllByText('page-1')).toHaveLength(1);
+  });
+
   it('unbinds an existing Page with its exact binding and tree versions', async () => {
     mocks.getPageBinding.mockResolvedValue({ pageId: 'page-1', agentId: 'agent-1', roleSlotKey: 'owner', updatedAt: 'binding-v1' });
     renderDialog({ kind: 'page', pageId: 'page-1', title: 'Page one' });
@@ -107,7 +114,7 @@ describe('PageAgentBindingDialog', () => {
     expect(boundRow).toHaveTextContent('agent-old');
     expect(boundRow).toHaveTextContent('owner');
     expect(boundRow).toHaveTextContent('v1');
-    fireEvent.click(screen.getByRole('radio', { name: '批量替换所有页面默认绑定' }));
+    fireEvent.click(screen.getByRole('radio', { name: '批量替换所选页面的默认绑定' }));
     fireEvent.change(screen.getByLabelText('批量替换为 Agent'), { target: { value: 'agent-1' } });
     fireEvent.click(screen.getByRole('button', { name: '保存绑定' }));
     await waitFor(() => expect(mocks.setFolderBindings).toHaveBeenCalledWith('space-1', 'folder-root', {
@@ -118,10 +125,126 @@ describe('PageAgentBindingDialog', () => {
     }));
   });
 
+  it('requests the authoritative Folder preview without an ID-only source snapshot so Page titles remain visible', async () => {
+    mocks.discoverFolderSource.mockResolvedValue({ source: exactFolderSource() });
+    renderDialog({ kind: 'folder', folderId: 'folder-root', name: 'Root' });
+    const scope = await screen.findByTestId('binding-page-scope');
+
+    expect(mocks.previewFolderBindings).toHaveBeenCalledWith('space-1', 'folder-root', undefined, expect.any(AbortSignal));
+    expect(within(scope).getByRole('checkbox', { name: '将 One 纳入绑定范围' })).toBeVisible();
+    expect(within(scope).getByRole('checkbox', { name: '将 Deep 纳入绑定范围' })).toBeVisible();
+  });
+
+  it('writes only the explicitly selected Folder Pages and leaves unselected bindings outside the mutation scope', async () => {
+    renderDialog({ kind: 'folder', folderId: 'folder-root', name: 'Root' });
+    await screen.findByTestId('binding-page-scope');
+    fireEvent.click(screen.getByRole('checkbox', { name: '将 Deep 纳入绑定范围' }));
+    fireEvent.click(screen.getByRole('radio', { name: '批量替换所选页面的默认绑定' }));
+    fireEvent.change(screen.getByLabelText('批量替换为 Agent'), { target: { value: 'agent-1' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存绑定' }));
+
+    await waitFor(() => expect(mocks.setFolderBindings).toHaveBeenCalledWith('space-1', 'folder-root', {
+      pageIds: ['page-1'], expectedTreeRevision: '18', edits: [
+        { pageId: 'page-1', agentId: 'agent-1', roleSlotKey: 'owner', expectedUpdatedAt: null },
+      ],
+    }));
+  });
+
+  it('disables Folder save and start for an empty Page scope and invalidates a preview when scope changes', async () => {
+    mocks.discoverFolderSource.mockResolvedValue({ source: null });
+    renderDialog({ kind: 'folder', folderId: 'folder-root', name: 'Root' });
+    await screen.findByTestId('binding-page-scope');
+    fireEvent.click(screen.getByRole('radio', { name: '批量替换所选页面的默认绑定' }));
+    fireEvent.change(screen.getByLabelText('批量替换为 Agent'), { target: { value: 'agent-1' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: '保存后立即启动协作' }));
+    fireEvent.click(screen.getByRole('button', { name: '预览本次协作' }));
+    expect(await screen.findByRole('checkbox', { name: 'Write release' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '保存绑定并启动' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '将 Deep 纳入绑定范围' }));
+    expect(screen.getByText('已选择 1/2 个页面；仅保存或预览/启动所选页面。')).toBeVisible();
+    expect(screen.getByRole('button', { name: '保存绑定并启动' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '预览本次协作' }));
+    await waitFor(() => expect(mocks.previewFolderRun).toHaveBeenCalledTimes(2));
+    expect(mocks.previewFolderRun.mock.calls[1]?.[2]).toEqual(expect.objectContaining({
+      pageIds: ['page-1'],
+      bindingEdits: [{ pageId: 'page-1', agentId: 'agent-1', roleSlotKey: 'owner', expectedUpdatedAt: null }],
+    }));
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '将 One 纳入绑定范围' }));
+    expect(screen.getByText('请至少选择一个页面。')).toBeVisible();
+    expect(screen.getByRole('button', { name: '保存绑定并启动' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '预览本次协作' })).toBeDisabled();
+  });
+
+  it('keeps a narrowed Page scope when changing source and surfaces exact-template validation issues', async () => {
+    mocks.discoverFolderSource.mockResolvedValue({ source: exactFolderSource() });
+    mocks.previewFolderRun.mockResolvedValueOnce({
+      treeRevision: '19', pageIds: ['page-1'], pages: [{ pageId: 'page-1', title: 'One' }],
+      inputs: {}, inputDefinitions: [], roles: [], tasks: [], assignments: [], participants: [],
+      issues: [{ code: 'PAGE_ROLE_REQUIRED' }],
+    }).mockResolvedValueOnce({
+      treeRevision: '19', pageIds: ['page-1'], pages: [{ pageId: 'page-1', title: 'One' }],
+      inputs: {}, inputDefinitions: [], roles: [], tasks: [], assignments: [], participants: [], issues: [],
+    });
+
+    renderDialog({ kind: 'folder', folderId: 'folder-root', name: 'Root' });
+    await screen.findByRole('radio', { name: /沿用原组合工作流/ });
+    fireEvent.click(screen.getByRole('checkbox', { name: '将 Deep 纳入绑定范围' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '保存后立即启动协作' }));
+    fireEvent.click(screen.getByRole('button', { name: '预览本次协作' }));
+
+    expect(await screen.findByText('仍有页面需要明确职责。')).toBeVisible();
+    expect(mocks.previewFolderRun.mock.calls[0]?.[2]).toEqual(expect.objectContaining({
+      source: { kind: 'template_instantiation', sourceInstantiationId: 'instantiation-1' },
+      pageIds: ['page-1'],
+    }));
+    expect(screen.getByRole('button', { name: '保存绑定并启动' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('radio', { name: /改用显式的简单页面职责/ }));
+    fireEvent.click(screen.getByRole('button', { name: '预览本次协作' }));
+    await waitFor(() => expect(mocks.previewFolderRun).toHaveBeenCalledTimes(2));
+    expect(mocks.previewFolderRun.mock.calls[1]?.[2]).toEqual(expect.objectContaining({
+      source: { kind: 'page_selection' },
+      pageIds: ['page-1'],
+    }));
+  });
+
+  it('ignores an in-flight preview after the Folder Page scope changes', async () => {
+    let resolveStalePreview: ((value: Awaited<ReturnType<typeof mocks.previewFolderRun>>) => void) | undefined;
+    const stalePreview = new Promise<Awaited<ReturnType<typeof mocks.previewFolderRun>>>((resolve) => {
+      resolveStalePreview = resolve;
+    });
+    mocks.previewFolderRun.mockReturnValueOnce(stalePreview).mockResolvedValueOnce({
+      treeRevision: '19', pageIds: ['page-1'], pages: [{ pageId: 'page-1', title: 'One' }],
+      inputs: {}, inputDefinitions: [], roles: [],
+      tasks: [{ nodeId: 'current-task', name: 'Current task', roleSlotId: 'owner' }],
+      assignments: [], participants: [], issues: [],
+    });
+
+    renderDialog({ kind: 'folder', folderId: 'folder-root', name: 'Root' });
+    await screen.findByTestId('binding-page-scope');
+    fireEvent.click(screen.getByRole('checkbox', { name: '保存后立即启动协作' }));
+    fireEvent.click(screen.getByRole('button', { name: '预览本次协作' }));
+    await waitFor(() => expect(mocks.previewFolderRun).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '将 Deep 纳入绑定范围' }));
+    fireEvent.click(screen.getByRole('button', { name: '预览本次协作' }));
+    expect((await screen.findAllByText('Current task')).length).toBeGreaterThan(0);
+
+    resolveStalePreview?.({
+      treeRevision: '18', pageIds: ['page-1', 'page-deep'], pages: [], inputs: {}, inputDefinitions: [], roles: [],
+      tasks: [{ nodeId: 'stale-task', name: 'Stale task', roleSlotId: 'owner' }],
+      assignments: [], participants: [], issues: [],
+    });
+    await waitFor(() => expect(screen.queryByText('Stale task')).not.toBeInTheDocument());
+    expect(mocks.previewFolderRun.mock.calls[1]?.[2]).toEqual(expect.objectContaining({ pageIds: ['page-1'] }));
+  });
+
   it('allows an explicit Folder bulk unbind without starting a Run', async () => {
     renderDialog({ kind: 'folder', folderId: 'folder-root', name: 'Root' });
     await screen.findByRole('radio', { name: '保留各页面当前默认绑定' });
-    fireEvent.click(screen.getByRole('radio', { name: '批量替换所有页面默认绑定' }));
+    fireEvent.click(screen.getByRole('radio', { name: '批量替换所选页面的默认绑定' }));
     expect(screen.getByLabelText('批量替换为 Agent')).toHaveValue('');
     fireEvent.click(screen.getByRole('button', { name: '保存绑定' }));
 
@@ -283,7 +406,7 @@ describe('PageAgentBindingDialog', () => {
     mocks.startFolderRun.mockRejectedValue({ response: { data: { code: 'RESOURCE_CONFLICT' } } });
     renderDialog({ kind: 'folder', folderId: 'folder-root', name: 'Root' });
     await screen.findByRole('radio', { name: '保留各页面当前默认绑定' });
-    fireEvent.click(screen.getByRole('radio', { name: '批量替换所有页面默认绑定' }));
+    fireEvent.click(screen.getByRole('radio', { name: '批量替换所选页面的默认绑定' }));
     fireEvent.change(screen.getByLabelText('批量替换为 Agent'), { target: { value: 'agent-2' } });
     fireEvent.click(screen.getByRole('checkbox', { name: '保存后立即启动协作' }));
     fireEvent.click(screen.getByRole('button', { name: '预览本次协作' }));

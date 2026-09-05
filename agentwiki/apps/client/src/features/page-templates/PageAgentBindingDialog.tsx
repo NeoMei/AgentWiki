@@ -39,6 +39,7 @@ export const PageAgentBindingDialog: React.FC<{
   const [error, setError] = useState<string | null>(null);
   const [agents, setAgents] = useState<SpaceMemberSummary[]>([]);
   const [pages, setPages] = useState<PageAgentBindingSnapshot[]>([]);
+  const [selectedPageIds, setSelectedPageIds] = useState<string[]>([]);
   const [treeRevision, setTreeRevision] = useState<string | null>(null);
   const [folderSource, setFolderSource] = useState<FolderCollaborationSource['source']>(null);
   const [folderRunSource, setFolderRunSource] = useState<'template_instantiation' | 'page_selection'>('page_selection');
@@ -57,25 +58,25 @@ export const PageAgentBindingDialog: React.FC<{
   const signatureRef = useRef<{ value: string; key: string } | null>(null);
   const scopeKind = scope.kind;
   const scopeId = scope.kind === 'page' ? scope.pageId : scope.folderId;
+  const scopeTitle = scope.kind === 'page' ? scope.title : null;
 
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
     controllerRef.current = controller;
-    setLoading(true); setError(null); setResult(null); setRunPreview(null); setRunPreviewSignature(null);
+    setLoading(true); setError(null); setResult(null); setRunPreview(null); setRunPreviewSignature(null); setSelectedPageIds([]);
     setFolderBindingMode('keep_current'); setRunSettings({ bindings: [], inputValues: {}, enabledTaskNodeIds: [] }); setRunTaskOptions([]);
     taskSelectionInitialized.current = false;
     const snapshot = scopeKind === 'page'
       ? Promise.all([getPageAgentBinding(spaceId, scopeId), getContentTreeRevision(spaceId, controller.signal)])
-        .then(([page, revision]) => ({ pages: [page], treeRevision: revision, source: null }))
+        .then(([page, revision]) => ({ pages: [{ ...page, title: scopeTitle ?? undefined }], treeRevision: revision, source: null }))
       : discoverFolderCollaborationSource(spaceId, scopeId, controller.signal).then(async ({ source }) => {
-        const sourcePageIds = source?.nodes.flatMap((node) => node.kind === 'page' && node.pageId ? [node.pageId] : []);
-        const binding = await previewFolderAgentBindings(spaceId, scopeId, sourcePageIds, controller.signal);
+        const binding = await previewFolderAgentBindings(spaceId, scopeId, undefined, controller.signal);
         return { ...binding, source };
       });
     void Promise.all([snapshot, collaborationApi.listMembers(spaceId)]).then(([binding, members]) => {
       if (!active || controller.signal.aborted) return;
-      setPages(binding.pages); setTreeRevision(binding.treeRevision); setFolderSource(binding.source);
+      setPages(binding.pages); setSelectedPageIds(binding.pages.map((page) => page.pageId)); setTreeRevision(binding.treeRevision); setFolderSource(binding.source);
       setFolderRunSource(binding.source ? 'template_instantiation' : 'page_selection'); setAgents(members);
       const existing = binding.pages.find((page) => page.agentId)?.agentId;
       setAgentId(scopeKind === 'page' ? existing ?? '' : '');
@@ -83,7 +84,7 @@ export const PageAgentBindingDialog: React.FC<{
       if (active && !controller.signal.aborted) setError(apiErrorMessage(reason, t, 'pageTemplate.binding.loadFailed'));
     }).finally(() => { if (active && !controller.signal.aborted) setLoading(false); });
     return () => { active = false; previewRequest.current += 1; controller.abort(); };
-  }, [scopeId, scopeKind, spaceId, t]);
+  }, [scopeId, scopeKind, scopeTitle, spaceId, t]);
 
   const availability = useMemo(() => new Map(agents.flatMap((member) => member.agentId && member.agent
     ? [[member.agentId, member.agent.status === 'active' && !member.agent.revokedAt && (member.role === 'editor' || member.role === 'publisher')] as const]
@@ -92,8 +93,13 @@ export const PageAgentBindingDialog: React.FC<{
     ? [[member.agentId, member.agent.name] as const]
     : [])), [agents]);
   const selectedAgent = agents.find((member) => member.agentId === agentId);
+  const selectedPageIdSet = useMemo(() => new Set(selectedPageIds), [selectedPageIds]);
+  const scopedPages = scope.kind === 'folder'
+    ? pages.filter((page) => selectedPageIdSet.has(page.pageId))
+    : pages;
+  const hasFolderPageScope = scope.kind !== 'folder' || scopedPages.length > 0;
 
-  const edits = () => pages.map((page) => ({
+  const edits = () => scopedPages.map((page) => ({
     pageId: page.pageId, agentId: agentId || null, roleSlotKey: agentId ? 'owner' : null, expectedUpdatedAt: page.updatedAt,
   }));
   const folderRunPayload = (
@@ -103,7 +109,7 @@ export const PageAgentBindingDialog: React.FC<{
     source: folderSource && folderRunSource === 'template_instantiation'
       ? { kind: 'template_instantiation' as const, sourceInstantiationId: folderSource.sourceInstantiationId }
       : { kind: 'page_selection' as const },
-    pageIds: uniqueIds(pages.map((page) => page.pageId)),
+    pageIds: uniqueIds(scopedPages.map((page) => page.pageId)),
     collaborationInputs: settings.inputValues,
     bindings: settings.bindings.map((binding) => ({
       kind: 'role_override' as const,
@@ -113,7 +119,7 @@ export const PageAgentBindingDialog: React.FC<{
     ...(includeTaskSelection ? { enabledTaskNodeIds: settings.enabledTaskNodeIds } : {}),
     ...(folderBindingMode === 'bulk_replace' ? {
       bindingEdits: edits(),
-      roleSlotsByPage: pages.map((page) => ({ pageId: page.pageId, roleSlotKey: agentId ? 'owner' : null })),
+      roleSlotsByPage: scopedPages.map((page) => ({ pageId: page.pageId, roleSlotKey: agentId ? 'owner' : null })),
     } : {}),
   });
   const currentRunPreviewSignature = () => JSON.stringify(folderRunPayload());
@@ -132,7 +138,8 @@ export const PageAgentBindingDialog: React.FC<{
     invalidateRunPreview();
   };
   const previewFolderRun = async () => {
-    if (scope.kind !== 'folder' || !startNow || (folderBindingMode === 'bulk_replace' && !agentId) || runPreviewBusy) return;
+    if (scope.kind !== 'folder' || !hasFolderPageScope || !startNow
+      || (folderBindingMode === 'bulk_replace' && !agentId) || runPreviewBusy) return;
     const request = ++previewRequest.current;
     const requestedPayload = folderRunPayload();
     const controller = new AbortController();
@@ -165,14 +172,14 @@ export const PageAgentBindingDialog: React.FC<{
     }
   };
   const idempotencyKey = () => {
-    const signature = JSON.stringify([spaceId, scope, pages, agentId, startNow, folderRunSource,
+    const signature = JSON.stringify([spaceId, scope, pages, selectedPageIds, agentId, startNow, folderRunSource,
       folderBindingMode, runSettings, taskSelectionInitialized.current, runPreview?.treeRevision]);
     if (signatureRef.current?.value !== signature) signatureRef.current = { value: signature, key: `bind-${safeUuid()}` };
     return signatureRef.current.key;
   };
 
   const submit = async () => {
-    if (busy || !treeRevision || (scope.kind === 'page' && !agentId && startNow)
+    if (busy || !treeRevision || !hasFolderPageScope || (scope.kind === 'page' && !agentId && startNow)
       || (scope.kind === 'folder' && startNow && folderBindingMode === 'bulk_replace' && !agentId)
       || (scope.kind === 'folder' && !startNow && folderBindingMode === 'keep_current')
       || (scope.kind === 'folder' && startNow
@@ -202,7 +209,7 @@ export const PageAgentBindingDialog: React.FC<{
         onSaved(); onClose();
       } else {
         await setFolderAgentBindings(spaceId, scope.folderId, {
-          pageIds: pages.map((page) => page.pageId), expectedTreeRevision: treeRevision, edits: edits(),
+          pageIds: scopedPages.map((page) => page.pageId), expectedTreeRevision: treeRevision, edits: edits(),
         });
         onSaved(); onClose();
       }
@@ -224,8 +231,17 @@ export const PageAgentBindingDialog: React.FC<{
         {scope.kind === 'folder' ? <p className="mt-1 text-xs text-gray-500">{folderSource
           ? t('pageTemplate.binding.exactCompositeSource', { version: folderSource.templateVersion })
           : t('pageTemplate.binding.simplePageSource')}</p> : null}
+        {scope.kind === 'folder' ? <p className="mt-1 text-xs text-gray-500">{t('pageTemplate.binding.scopeCount', {
+          count: scopedPages.length, total: pages.length,
+        })}</p> : null}
         <ul className="mt-3 space-y-2 text-sm">{pages.map((page) => <li key={page.pageId} className="min-w-0 rounded-lg border bg-white p-3">
-          <p className="break-words font-medium text-gray-900">{page.title ?? page.pageId}</p>
+          {scope.kind === 'folder' ? <label className="flex min-w-0 items-start gap-2 font-medium text-gray-900"><input type="checkbox"
+            checked={selectedPageIdSet.has(page.pageId)} aria-label={t('pageTemplate.binding.includePage', { title: page.title ?? page.pageId })}
+            onChange={(event) => {
+              setSelectedPageIds((current) => event.target.checked ? uniqueIds([...current, page.pageId]) : current.filter((id) => id !== page.pageId));
+              resetRunConfiguration();
+            }} /><span className="break-words">{page.title ?? page.pageId}</span></label>
+            : <p className="break-words font-medium text-gray-900">{page.title ?? page.pageId}</p>}
           <p className="mt-1 break-all font-mono text-xs text-gray-500">{page.pageId}</p>
           <dl className="mt-2 grid min-w-0 grid-cols-1 gap-1 text-xs text-gray-600 sm:grid-cols-3">
             <div className="min-w-0"><dt className="font-medium">{t('pageTemplate.binding.currentAgent')}</dt><dd className="break-all">{page.agentId ? agentNames.get(page.agentId) ?? page.agentId : t('pageTemplate.binding.unbound')}</dd></div>
@@ -233,6 +249,7 @@ export const PageAgentBindingDialog: React.FC<{
             <div className="min-w-0"><dt className="font-medium">{t('pageTemplate.binding.currentVersion')}</dt><dd className="break-all">{page.updatedAt ?? t('pageTemplate.binding.unbound')}</dd></div>
           </dl>
         </li>)}</ul>
+        {scope.kind === 'folder' && !hasFolderPageScope ? <p role="alert" className="mt-3 text-sm text-red-700">{t('pageTemplate.binding.emptyScope')}</p> : null}
       </div>
       {scope.kind === 'folder' && folderSource ? <fieldset className="mt-4 rounded-[14px] border p-4"><legend className="px-1 text-sm font-medium">{t('pageTemplate.binding.runSource')}</legend>
         <label className="mt-2 flex items-start gap-2 text-sm"><input type="radio" name="folder-run-source" value="template_instantiation" checked={folderRunSource === 'template_instantiation'} onChange={() => { setFolderRunSource('template_instantiation'); resetRunConfiguration(); }} />{t('pageTemplate.binding.useOriginalWorkflow', { version: folderSource.templateVersion })}</label>
@@ -260,11 +277,11 @@ export const PageAgentBindingDialog: React.FC<{
           </select>
         </label>}
         {selectedAgent?.agent ? <p className="mt-2 text-sm text-gray-500">{selectedAgent.agent.name} · {selectedAgent.agent.connected ? t('pageTemplate.binding.connected') : t('pageTemplate.binding.notConnected')}</p> : null}
-        <label className="mt-4 flex items-center gap-2 text-sm"><input type="checkbox" checked={startNow} disabled={scope.kind === 'page' ? !agentId : folderBindingMode === 'bulk_replace' && !agentId} onChange={(event) => { setStartNow(event.target.checked); signatureRef.current = null; invalidateRunPreview(); }} />{t('pageTemplate.binding.startNow')}</label>
+        <label className="mt-4 flex items-center gap-2 text-sm"><input type="checkbox" checked={startNow} disabled={scope.kind === 'page' ? !agentId : !hasFolderPageScope || (folderBindingMode === 'bulk_replace' && !agentId)} onChange={(event) => { setStartNow(event.target.checked); signatureRef.current = null; invalidateRunPreview(); }} />{t('pageTemplate.binding.startNow')}</label>
         <p className="mt-2 text-xs text-gray-500">{t('pageTemplate.binding.distinction')}</p>
         {scope.kind === 'folder' && startNow ? <section className="mt-4 rounded-[14px] border p-4">
           <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-medium">{t('pageTemplate.binding.runPreview')}</h3><p className="mt-1 text-xs text-gray-500">{t('pageTemplate.binding.runPreviewHelp')}</p></div>
-            <button type="button" disabled={runPreviewBusy} onClick={() => void previewFolderRun()} className="min-h-10 rounded-lg border px-3 text-sm disabled:opacity-50">{runPreviewBusy ? t('common.loading') : t('pageTemplate.binding.previewRun')}</button></div>
+            <button type="button" disabled={runPreviewBusy || !hasFolderPageScope} onClick={() => void previewFolderRun()} className="min-h-10 rounded-lg border px-3 text-sm disabled:opacity-50">{runPreviewBusy ? t('common.loading') : t('pageTemplate.binding.previewRun')}</button></div>
           {runPreview ? <div className="mt-4 space-y-4"><CollaborationSettingsPanel spaceId={spaceId}
             roles={runPreview.roles} inputs={runPreview.inputDefinitions} tasks={runTaskOptions}
             agents={agents} bindings={runSettings.bindings} inputValues={runSettings.inputValues}
@@ -288,7 +305,7 @@ export const PageAgentBindingDialog: React.FC<{
     </> : null}
     {error ? <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
     {!loading && !result ? <div className="mt-6 flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-end"><button type="button" onClick={close} className="min-h-10 rounded-lg border px-4 text-sm">{t('common.cancel')}</button>
-      <button type="button" disabled={busy || !treeRevision || (scope.kind === 'folder' && !startNow && folderBindingMode === 'keep_current') || (scope.kind === 'folder' && startNow && (!runPreview || runPreviewSignature !== currentRunPreviewSignature() || runPreview.issues.length > 0))} onClick={() => void submit()} className="min-h-10 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white disabled:opacity-50">{busy ? t('common.saving') : startNow ? t('pageTemplate.binding.saveAndStart') : t('pageTemplate.binding.save')}</button></div> : null}
+      <button type="button" disabled={busy || !treeRevision || !hasFolderPageScope || (scope.kind === 'folder' && !startNow && folderBindingMode === 'keep_current') || (scope.kind === 'folder' && startNow && (!runPreview || runPreviewSignature !== currentRunPreviewSignature() || runPreview.issues.length > 0))} onClick={() => void submit()} className="min-h-10 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white disabled:opacity-50">{busy ? t('common.saving') : startNow ? t('pageTemplate.binding.saveAndStart') : t('pageTemplate.binding.save')}</button></div> : null}
   </ModalDialog>;
 };
 

@@ -69,6 +69,8 @@ function renderWorkspace(language: 'en' | 'zh-CN' = 'en') {
         <Routes>
           <Route path="/spaces/:id/collaboration" element={<CollaborationWorkspace />} />
           <Route path="/spaces/:id/collaboration/runs/:runId" element={<div data-testid="opened-atomic-run" />} />
+          <Route path="/spaces/:id" element={<div data-testid="opened-space-root" />} />
+          <Route path="/pages/:pageId/edit" element={<div data-testid="opened-created-group-page" />} />
         </Routes>
       </MemoryRouter>
     </LanguageProvider>,
@@ -91,7 +93,7 @@ describe('CollaborationWorkspace', () => {
     });
   });
 
-  it('opens the shared composite creation flow and navigates only to its atomic Run result', async () => {
+  it('opens the shared composite creation flow and sends Open group to a created group Page', async () => {
     renderWorkspace();
     await screen.findByText('Coding collaboration');
 
@@ -102,7 +104,9 @@ describe('CollaborationWorkspace', () => {
     await act(async () => pageDialogProps.current?.onCreated({
       firstPageId: 'page-1', rootFolderId: 'folder-1', pageIds: ['page-1', 'page-2'], runId: 'run-atomic',
     }));
-    expect(await screen.findByTestId('opened-atomic-run')).toBeVisible();
+    expect(await screen.findByTestId('opened-created-group-page')).toBeVisible();
+    expect(screen.queryByTestId('opened-atomic-run')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('opened-space-root')).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 

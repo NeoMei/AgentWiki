@@ -304,8 +304,9 @@ export const CollaborationWorkspace: React.FC = () => {
             return;
           }
           const created = target as NewPageCreationTarget;
-          if (created.runId) navigate(`/spaces/${id}/collaboration/runs/${created.runId}`);
-          else if (created.firstPageId) navigate(`/pages/${created.firstPageId}/edit`);
+          if (created.firstPageId) navigate(`/pages/${created.firstPageId}/edit`);
+          else if (created.rootFolderId) navigate(`/spaces/${id}`);
+          else if (created.runId) navigate(`/spaces/${id}/collaboration/runs/${created.runId}`);
           else navigate(`/spaces/${id}`);
         }} /> : null}
       {toast ? <Toast kind={toast.kind} message={toast.message} onClose={() => setToast(null)} /> : null}
