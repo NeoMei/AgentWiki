@@ -8,31 +8,63 @@ export function parseCollaborationInputs(
   definition: CollaborationTemplateDefinition,
   raw: unknown,
 ): Record<string, string | number | boolean> {
+  const inspected = inspectCollaborationInputs(definition, raw);
+  if (inspected.issues.length > 0) {
+    throw new BusinessException('COLLABORATION_TEMPLATE_INVALID', undefined, { issues: inspected.issues });
+  }
+  return inspected.values;
+}
+
+export type CollaborationInputIssue = {
+  code:
+    | 'COLLABORATION_INPUT_INVALID'
+    | 'COLLABORATION_INPUT_UNKNOWN'
+    | 'COLLABORATION_INPUT_REQUIRED'
+    | 'COLLABORATION_INPUT_TYPE_INVALID'
+    | 'COLLABORATION_INPUT_URL_INVALID';
+  inputKey?: string;
+};
+
+export function inspectCollaborationInputs(
+  definition: CollaborationTemplateDefinition,
+  raw: unknown,
+): { values: Record<string, string | number | boolean>; issues: CollaborationInputIssue[] } {
   const parsed = CollaborationInputValuesSchema.safeParse(raw);
   if (!parsed.success) {
-    throw new BusinessException('COLLABORATION_TEMPLATE_INVALID', undefined, { issues: parsed.error.issues });
+    return { values: {}, issues: [{ code: 'COLLABORATION_INPUT_INVALID' }] };
   }
   const definitions = new Map(definition.inputs.map((input) => [input.key, input]));
-  const issues: string[] = [];
-  for (const key of Object.keys(parsed.data)) if (!definitions.has(key)) issues.push(`Unknown input: ${key}`);
+  const issues: CollaborationInputIssue[] = [];
+  for (const key of Object.keys(parsed.data).sort()) {
+    if (!definitions.has(key)) issues.push({ code: 'COLLABORATION_INPUT_UNKNOWN', inputKey: key });
+  }
   for (const input of definition.inputs) {
     const value = parsed.data[input.key];
-    if (input.required && value === undefined) issues.push(`Required input is missing: ${input.key}`);
+    if (input.required && value === undefined) {
+      issues.push({ code: 'COLLABORATION_INPUT_REQUIRED', inputKey: input.key });
+    }
     if (value === undefined) continue;
-    if (input.type === 'number' && typeof value !== 'number') issues.push(`${input.key} must be a number`);
-    if (input.type === 'boolean' && typeof value !== 'boolean') issues.push(`${input.key} must be a boolean`);
-    if (!['number', 'boolean'].includes(input.type) && typeof value !== 'string') issues.push(`${input.key} must be text`);
+    if (input.type === 'number' && typeof value !== 'number') {
+      issues.push({ code: 'COLLABORATION_INPUT_TYPE_INVALID', inputKey: input.key });
+    }
+    if (input.type === 'boolean' && typeof value !== 'boolean') {
+      issues.push({ code: 'COLLABORATION_INPUT_TYPE_INVALID', inputKey: input.key });
+    }
+    if (!['number', 'boolean'].includes(input.type) && typeof value !== 'string') {
+      issues.push({ code: 'COLLABORATION_INPUT_TYPE_INVALID', inputKey: input.key });
+    }
     if (input.type === 'url' && (typeof value !== 'string' || !isHttpsUrl(value))) {
-      issues.push(`${input.key} must be an HTTPS URL`);
+      issues.push({ code: 'COLLABORATION_INPUT_URL_INVALID', inputKey: input.key });
     }
   }
-  if (issues.length > 0) throw new BusinessException('COLLABORATION_TEMPLATE_INVALID', undefined, { issues });
-  return Object.fromEntries(Object.entries(parsed.data).map(([key, value]) => {
+  const values = Object.fromEntries(Object.entries(parsed.data).flatMap(([key, value]) => {
+    if (!definitions.has(key)) return [];
     const input = definitions.get(key)!;
     return input.type === 'url' && typeof value === 'string'
-      ? [key, new URL(value).toString()]
-      : [key, value];
+      ? [[key, isHttpsUrl(value) ? new URL(value).toString() : value] as const]
+      : [[key, value] as const];
   }));
+  return { values, issues };
 }
 
 function isHttpsUrl(value: string): boolean {

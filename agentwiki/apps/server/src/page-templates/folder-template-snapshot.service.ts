@@ -20,13 +20,18 @@ import { PageTemplateService } from './page-template.service';
 import { PageTemplateLocaleSchema, type PageTemplateLocale } from './page-template.types';
 import {
   snapshotDefinition,
+  snapshotDefinitionWithSourceMap,
   type FolderSnapshotSource,
   type FolderTemplateSnapshotSelection,
   type FolderTemplateWorkflowSource,
 } from './folder-template-snapshot-definition';
+import { selectCompositeCollaboration } from './template-instantiation.service';
+import type { PageAgentBindingEdit } from './page-agent-binding.service';
+import type { RunPageSelectionBinding } from './run-page-selection';
 
 export {
   snapshotDefinition,
+  snapshotDefinitionWithSourceMap,
   type FolderSnapshotSource,
   type FolderSnapshotSourceNode,
   type FolderTemplateSnapshotSelection,
@@ -98,6 +103,26 @@ type PreparedSnapshot = FolderTemplateSnapshotPreview & {
   tokenManifest: Record<string, unknown>;
 };
 
+export type ExistingRunSelectionInput = {
+  source: { kind: 'page_selection' } | { kind: 'template_instantiation'; sourceInstantiationId: string };
+  pageIds: string[];
+  enabledTaskNodeIds?: string[];
+  bindingEdits?: PageAgentBindingEdit[];
+  roleSlotsByPage?: Array<{ pageId: string; roleSlotKey: string | null }>;
+};
+
+export type PreparedExistingRunSource = {
+  name: string;
+  source:
+    | { kind: 'page_selection'; templateVersion: number }
+    | { kind: 'composite'; compositeTemplateVersionId: string; templateInstantiationId: null; templateVersion: number };
+  definition: CollaborationTemplateDefinition;
+  taskPageIds: Record<string, string>;
+  defaultBindings: RunPageSelectionBinding[];
+  pageIds: string[];
+  sourceInstantiationId: string | null;
+};
+
 @Injectable()
 export class FolderTemplateSnapshotService {
   constructor(
@@ -125,6 +150,7 @@ export class FolderTemplateSnapshotService {
 
   save(spaceId: string, input: FolderTemplateSnapshotSaveInput, principal: Principal) {
     if (principal.agentId) throw new BusinessException('PAGE_TEMPLATE_PERMISSION_DENIED');
+    assertAcknowledgedWarnings(input.acknowledgedWarnings);
     const locale = PageTemplateLocaleSchema.parse(input.locale);
     if (locale !== input.selection.locale) throw new BusinessException('SOURCE_CHANGED');
     return this.prisma.$transaction(async (tx) => {
@@ -160,6 +186,220 @@ export class FolderTemplateSnapshotService {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       timeout: SNAPSHOT_TRANSACTION_TIMEOUT_MS,
     });
+  }
+
+  /** Caller-transaction source resolver for existing Page/Folder Run preview and start. */
+  async prepareExistingRunSource(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    scopeId: string,
+    input: ExistingRunSelectionInput,
+  ): Promise<PreparedExistingRunSource> {
+    const scoped = await this.assertExistingPageScope(tx, spaceId, scopeId, input.pageIds);
+    const { pageIds, scopePage, scopeFolder } = scoped;
+    const pages = scoped.pages;
+    const currentBindings = await tx.pageAgentBinding.findMany({
+      where: { spaceId, pageId: { in: pageIds } },
+      select: { pageId: true, agentId: true, roleSlotKey: true },
+      take: pageIds.length,
+    });
+    const hypothetical = new Map(currentBindings.map((binding) => [binding.pageId, binding]));
+    for (const edit of input.bindingEdits ?? []) {
+      if (!pageIds.includes(edit.pageId)) throw new BusinessException('SOURCE_INVALID');
+      if (edit.agentId === null) hypothetical.delete(edit.pageId);
+      else hypothetical.set(edit.pageId, {
+        pageId: edit.pageId, agentId: edit.agentId, roleSlotKey: edit.roleSlotKey,
+      });
+    }
+
+    if (input.source.kind === 'page_selection') {
+      const rootId = `selection-root:${scopeId}`;
+      const details = snapshotDefinitionWithSourceMap({
+        locale: 'en',
+        nodes: [
+          { sourceId: rootId, parentSourceId: null, kind: 'folder', order: 0, name: scopeFolder?.name ?? scopePage!.title },
+          ...pages.map((page) => ({
+            sourceId: page.id, parentSourceId: rootId, kind: 'page' as const,
+            order: page.sortOrder, title: page.title, content: '', sourceSyncPath: '',
+          })),
+        ],
+        bindings: pages.map((page) => {
+          const binding = hypothetical.get(page.id);
+          return {
+            pageId: page.id,
+            hasAgent: !!binding,
+            roleSlotKey: binding?.roleSlotKey ?? null,
+            ...(binding ? { agentId: binding.agentId } : {}),
+          };
+        }),
+      }, { kind: 'simple_pages' }, selectedPageRoles(
+        pages.map((page) => page.id), hypothetical, input.roleSlotsByPage,
+      ));
+      const collaboration = details.definition.collaboration;
+      if (!collaboration) throw new BusinessException('SOURCE_INVALID');
+      const taskPageIds = Object.fromEntries(collaboration.taskTargets.map((target) => [
+        target.taskNodeId, details.sourcePageIdByTemplateNodeId[target.pageNodeId],
+      ]));
+      const tasks = new Map(collaboration.workflow.nodes.flatMap((node) =>
+        node.kind === 'agent_task' ? [[node.id, node] as const] : []));
+      const defaultBindings = collaboration.taskTargets.flatMap((target) => {
+        const pageId = taskPageIds[target.taskNodeId];
+        const binding = pageId ? hypothetical.get(pageId) : undefined;
+        const task = tasks.get(target.taskNodeId);
+        return binding && task ? [{
+          kind: 'task_default' as const,
+          nodeId: task.id,
+          roleSlotId: task.roleSlotId,
+          agentId: binding.agentId,
+        }] : [];
+      });
+      return {
+        name: scopeFolder?.name ?? scopePage!.title,
+        source: { kind: 'page_selection', templateVersion: 1 },
+        definition: collaboration.workflow,
+        taskPageIds,
+        defaultBindings,
+        pageIds,
+        sourceInstantiationId: null,
+      };
+    }
+
+    if (!scopeFolder) throw new BusinessException('SOURCE_INVALID');
+    const instantiation = await tx.templateInstantiation.findFirst({
+      where: {
+        id: input.source.sourceInstantiationId,
+        spaceId,
+        status: 'completed',
+      },
+      select: {
+        id: true,
+        compositeTemplateVersionId: true,
+        compositeTemplateVersion: {
+          select: {
+            id: true, version: true, definition: true, schemaVersion: true,
+            definitionHash: true,
+            template: { select: { archivedAt: true } },
+          },
+        },
+        nodes: { select: { templateNodeId: true, kind: true, pageId: true, folderId: true } },
+      },
+    });
+    const version = instantiation?.compositeTemplateVersion;
+    if (!instantiation || !version || version.template.archivedAt || version.schemaVersion !== 1
+      || version.definition === null || !version.definitionHash) throw new BusinessException('SOURCE_INVALID');
+    const parsed = CompositeTemplateDefinitionSchema.safeParse(structuredClone(version.definition));
+    if (!parsed.success || validateCompositeDefinition(parsed.data).length > 0
+      || hashCompositeDefinition(parsed.data) !== version.definitionHash) throw new BusinessException('SOURCE_INVALID');
+    const root = parsed.data.nodes.find((node) => node.parentNodeId === null);
+    if (!root || root.kind !== 'folder' || !instantiation.nodes.some((node) =>
+      node.templateNodeId === root.nodeId && node.kind === 'folder' && node.folderId === scopeFolder.id)) {
+      throw new BusinessException('SOURCE_INVALID');
+    }
+    const runtimeByTemplateNode = new Map(instantiation.nodes.flatMap((node) =>
+      node.kind === 'page' && node.pageId ? [[node.templateNodeId, node.pageId] as const] : []));
+    const runtimePageIds = new Set(runtimeByTemplateNode.values());
+    if (pageIds.some((pageId) => !runtimePageIds.has(pageId))) throw new BusinessException('SOURCE_INVALID');
+    const selected = selectCompositeCollaboration(parsed.data, input.enabledTaskNodeIds);
+    const taskPageIds = Object.fromEntries(selected.taskTargets.map((target) => {
+      const pageId = runtimeByTemplateNode.get(target.pageNodeId);
+      if (!pageId || !pageIds.includes(pageId)) throw new BusinessException('SOURCE_INVALID');
+      return [target.taskNodeId, pageId];
+    }));
+    const taskById = new Map(selected.workflow.nodes.flatMap((node) =>
+      node.kind === 'agent_task' ? [[node.id, node] as const] : []));
+    const defaultBindings = selected.taskTargets.flatMap((target) => {
+      const pageId = taskPageIds[target.taskNodeId];
+      const binding = hypothetical.get(pageId);
+      const task = taskById.get(target.taskNodeId);
+      return binding && task ? [{
+        kind: 'task_default' as const, nodeId: task.id, roleSlotId: task.roleSlotId, agentId: binding.agentId,
+      }] : [];
+    });
+    return {
+      name: scopeFolder.name,
+      source: {
+        kind: 'composite', compositeTemplateVersionId: version.id,
+        templateInstantiationId: null, templateVersion: version.version,
+      },
+      definition: selected.workflow,
+      taskPageIds,
+      defaultBindings,
+      pageIds,
+      sourceInstantiationId: instantiation.id,
+    };
+  }
+
+  async assertExistingPageScope(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    scopeId: string,
+    selectedPageIds: string[],
+    options: { requireFolder?: boolean } = {},
+  ): Promise<{
+    pageIds: string[];
+    scopePage: { id: string; title: string } | null;
+    scopeFolder: { id: string; name: string } | null;
+    pages: Array<{ id: string; title: string; sortOrder: number; folderId: string | null }>;
+  }> {
+    const pageIds = normalizeIds(selectedPageIds);
+    if (pageIds.length === 0 || pageIds.length > COMPOSITE_TEMPLATE_LIMITS.pages) {
+      throw new BusinessException('SOURCE_INVALID');
+    }
+    const [scopePage, scopeFolder] = await Promise.all([
+      tx.page.findFirst({
+        where: { id: scopeId, spaceId, deletedAt: null },
+        select: { id: true, title: true },
+      }),
+      tx.folder.findFirst({
+        where: { id: scopeId, spaceId, deletedAt: null },
+        select: { id: true, name: true },
+      }),
+    ]);
+    if (!scopePage && !scopeFolder) throw new BusinessException('SOURCE_INVALID');
+    if (options.requireFolder && !scopeFolder) throw new BusinessException('SOURCE_INVALID');
+    if (scopePage && (pageIds.length !== 1 || pageIds[0] !== scopePage.id)) {
+      throw new BusinessException('SOURCE_INVALID');
+    }
+    if (scopeFolder) {
+      const folders = await this.readSelectedFolders(tx, spaceId, scopeFolder.id, []);
+      const pages = await tx.page.findMany({
+        where: { id: { in: pageIds }, spaceId, deletedAt: null, folderId: { in: folders.map((folder) => folder.id) } },
+        select: { id: true },
+        take: pageIds.length,
+      });
+      if (pages.length !== pageIds.length) throw new BusinessException('SOURCE_INVALID');
+    }
+    const pages = await tx.page.findMany({
+      where: { id: { in: pageIds }, spaceId, deletedAt: null },
+      select: { id: true, title: true, sortOrder: true, folderId: true },
+      orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+      take: pageIds.length,
+    });
+    if (pages.length !== pageIds.length) throw new BusinessException('SOURCE_INVALID');
+    return { pageIds, scopePage, scopeFolder, pages };
+  }
+
+  async discoverExistingFolderPages(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    folderId: string,
+  ): Promise<Array<{ pageId: string; title: string }>> {
+    const root = await tx.folder.findFirst({
+      where: { id: folderId, spaceId, deletedAt: null }, select: { id: true },
+    });
+    if (!root) throw new BusinessException('SOURCE_INVALID');
+    const folders = await this.readSelectedFolders(tx, spaceId, folderId, []);
+    const pages = await tx.page.findMany({
+      where: {
+        spaceId, deletedAt: null,
+        folderId: { in: folders.map((folder) => folder.id) },
+      },
+      select: { id: true, title: true, folderId: true, sortOrder: true },
+      orderBy: [{ folderId: 'asc' }, { sortOrder: 'asc' }, { id: 'asc' }],
+      take: COMPOSITE_TEMPLATE_LIMITS.pages + 1,
+    });
+    if (pages.length > COMPOSITE_TEMPLATE_LIMITS.pages) throw new BusinessException('SOURCE_TOO_LARGE');
+    return pages.map((page) => ({ pageId: page.id, title: page.title }));
   }
 
   private async prepare(
@@ -557,6 +797,7 @@ export class FolderTemplateSnapshotService {
 
 function normalizeSelection(input: FolderTemplateSnapshotSelection): FolderTemplateSnapshotSelection {
   if (!input || !Array.isArray(input.excludedFolderIds) || !Array.isArray(input.excludedPageIds)
+    || (input.roleSlotsByPage !== undefined && !Array.isArray(input.roleSlotsByPage))
     || !input.source || typeof input.source !== 'object' || Array.isArray(input.source)) {
     throw new BusinessException('PAGE_TEMPLATE_INVALID');
   }
@@ -567,10 +808,16 @@ function normalizeSelection(input: FolderTemplateSnapshotSelection): FolderTempl
     throw new BusinessException('PAGE_TEMPLATE_INVALID');
   }
   const locale = PageTemplateLocaleSchema.parse(input.locale);
-  const roleSlotsByPage = input.roleSlotsByPage?.map((item) => ({
-    pageId: requireId(item.pageId),
-    roleSlotKey: item.roleSlotKey === null ? null : requireId(item.roleSlotKey),
-  }));
+  const roleSlotsByPage = input.roleSlotsByPage?.map((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new BusinessException('PAGE_TEMPLATE_INVALID');
+    }
+    assertExactKeys(item, ['pageId', 'roleSlotKey']);
+    return {
+      pageId: requireId(item.pageId),
+      roleSlotKey: item.roleSlotKey === null ? null : requireId(item.roleSlotKey),
+    };
+  });
   if (roleSlotsByPage && (roleSlotsByPage.length > COMPOSITE_TEMPLATE_LIMITS.pages
     || new Set(roleSlotsByPage.map((item) => item.pageId)).size !== roleSlotsByPage.length)) {
     throw new BusinessException('PAGE_TEMPLATE_INVALID');
@@ -632,6 +879,37 @@ function assertRoleOverrides(
   const pageIds = new Set(pages.map((page) => page.id));
   if (overrides.some((override) => !pageIds.has(override.pageId))) {
     throw new BusinessException('SOURCE_INVALID');
+  }
+}
+
+function selectedPageRoles(
+  pageIds: readonly string[],
+  bindings: ReadonlyMap<string, { roleSlotKey: string | null }>,
+  overrides: readonly { pageId: string; roleSlotKey: string | null }[] | undefined,
+): Array<{ pageId: string; roleSlotKey: string | null }> {
+  if (overrides !== undefined && !Array.isArray(overrides)) {
+    throw new BusinessException('PAGE_TEMPLATE_INVALID');
+  }
+  const explicit = new Map((overrides ?? []).map((item) => [requireId(item.pageId), item.roleSlotKey]));
+  if (explicit.size !== (overrides?.length ?? 0)
+    || [...explicit.keys()].some((pageId) => !pageIds.includes(pageId))) {
+    throw new BusinessException('SOURCE_INVALID');
+  }
+  return pageIds.flatMap((pageId) => {
+    if (explicit.has(pageId)) {
+      const value = explicit.get(pageId);
+      return [{ pageId, roleSlotKey: value === null ? null : requireId(value!) }];
+    }
+    const binding = bindings.get(pageId);
+    return binding ? [{ pageId, roleSlotKey: binding.roleSlotKey ?? 'owner' }] : [];
+  });
+}
+
+function assertAcknowledgedWarnings(value: unknown): asserts value is string[] {
+  if (!Array.isArray(value) || value.length > 10
+    || value.some((item) => typeof item !== 'string' || !item.trim() || item.length > 128)
+    || new Set(value).size !== value.length) {
+    throw new BusinessException('PAGE_TEMPLATE_INVALID');
   }
 }
 

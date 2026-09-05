@@ -66,10 +66,12 @@ export async function queryCurrentTemplateCatalog(
   if (input.kind) {
     predicates.push(Prisma.sql`COALESCE(version."definition" ->> 'kind', 'single_page') = ${input.kind}`);
   }
-  const supportsExpression = Prisma.sql`CASE
-    WHEN version."definition" IS NULL THEN FALSE
-    ELSE COALESCE(version."definition" -> 'collaboration' <> 'null'::jsonb, FALSE)
-  END`;
+  const supportsExpression = input.mode === 'composite'
+    ? Prisma.sql`CASE
+        WHEN COALESCE(version."definition" ->> 'kind', 'single_page') = 'single_page' THEN TRUE
+        ELSE COALESCE(version."definition" -> 'collaboration' <> 'null'::jsonb, FALSE)
+      END`
+    : Prisma.sql`FALSE`;
   if (input.supportsCollaboration !== undefined) {
     predicates.push(Prisma.sql`(${supportsExpression}) = ${input.supportsCollaboration}`);
   }

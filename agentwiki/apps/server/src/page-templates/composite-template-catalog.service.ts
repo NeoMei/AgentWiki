@@ -53,6 +53,26 @@ export type CompositeTemplateListQuery = {
   take: number;
 };
 
+export type CompositeTemplateSummary = {
+  id: string;
+  scope: PageTemplateScope;
+  stableKey: string;
+  category: PageTemplateCategory;
+  kind: 'single_page' | 'page_group';
+  supportsCollaboration: boolean;
+  effectiveSupportsCollaboration: boolean;
+  pageCount: number;
+  folderCount: number;
+  roleCount: number;
+  name: string;
+  description: string;
+  defaultTitle: string;
+  sourceLocale: string | null;
+  currentVersion: number;
+  archivedAt: string | null;
+  updatedAt: string;
+};
+
 @Injectable()
 export class CompositeTemplateCatalogService {
   constructor(
@@ -88,9 +108,10 @@ export class CompositeTemplateCatalogService {
   }
 
   async list(spaceId: string, query: CompositeTemplateListQuery, principal: Principal) {
-    const member = await this.authorization.assertSpaceAccess(
-      principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read',
-    );
+    const member = await this.prisma.$transaction((tx) =>
+      this.authorization.assertLiveHumanSpaceAccess(
+        tx, principal, spaceId, ['owner', 'admin', 'editor', 'viewer'],
+      ));
     const canManage = !principal.agentId && ['owner', 'admin'].includes(member.role);
     if (!canManage && query.archived && query.archived !== 'active') {
       throw new BusinessException('PAGE_TEMPLATE_PERMISSION_DENIED');
@@ -100,8 +121,8 @@ export class CompositeTemplateCatalogService {
       mode: 'composite',
       spaceId,
     });
-    await this.validateCatalogPage(result.rows, query.locale);
-    const rows = result.rows.map((template) => {
+    const summaries = await this.validateCatalogPage(result.rows, query.locale);
+    const rows = result.rows.map((template, index): CompositeTemplateSummary => {
       const fallback = template.scope === 'system'
         ? 'en'
         : PageTemplateLocaleSchema.parse(template.sourceLocale);
@@ -113,6 +134,10 @@ export class CompositeTemplateCatalogService {
         category: template.category,
         kind: template.kind,
         supportsCollaboration: template.supportsCollaboration,
+        effectiveSupportsCollaboration: summaries[index]!.effectiveSupportsCollaboration,
+        pageCount: summaries[index]!.pageCount,
+        folderCount: summaries[index]!.folderCount,
+        roleCount: summaries[index]!.roleCount,
         name,
         description: localizedValue(template.descriptionI18n, query.locale, fallback),
         defaultTitle: localizedValue(template.defaultTitleI18n, query.locale, fallback),
@@ -128,6 +153,28 @@ export class CompositeTemplateCatalogService {
       skip: query.skip,
       take: query.take,
       capabilities: { canManage },
+    };
+  }
+
+  async detail(
+    spaceId: string,
+    templateId: string,
+    version: number,
+    locale: PageTemplateLocale,
+    principal: Principal,
+  ) {
+    const resolved = await this.prisma.$transaction(async (tx) => {
+      await this.authorization.assertLiveHumanSpaceAccess(
+        tx, principal, spaceId, ['owner', 'admin', 'editor', 'viewer'],
+      );
+      return this.resolve(tx, spaceId, templateId, version, locale);
+    });
+    return {
+      templateId,
+      version,
+      locale: resolved.locale,
+      definitionHash: resolved.definitionHash,
+      definition: resolved.definition,
     };
   }
 
@@ -159,7 +206,13 @@ export class CompositeTemplateCatalogService {
   private async validateCatalogPage(
     rows: CurrentTemplateCatalogRow[],
     locale: PageTemplateLocale,
-  ): Promise<void> {
+  ): Promise<Array<{
+    pageCount: number;
+    folderCount: number;
+    roleCount: number;
+    effectiveSupportsCollaboration: boolean;
+  }>> {
+    const summaries = [];
     for (const row of rows) {
       const stored = await this.prisma.pageTemplateVersion.findUnique({
         where: { templateId_version: { templateId: row.id, version: row.currentVersion } },
@@ -167,11 +220,20 @@ export class CompositeTemplateCatalogService {
       });
       if (!stored) throw new BusinessException('PAGE_TEMPLATE_INVALID');
       const validated = this.validateStoredVersion(row, stored, locale);
+      const effectiveSupportsCollaboration = validated.definition.kind === 'single_page'
+        || validated.definition.collaboration !== null;
       if (validated.definition.kind !== row.kind
-        || (validated.definition.collaboration !== null) !== row.supportsCollaboration) {
+        || effectiveSupportsCollaboration !== row.supportsCollaboration) {
         throw new BusinessException('PAGE_TEMPLATE_INVALID');
       }
+      summaries.push({
+        pageCount: validated.definition.nodes.filter((node) => node.kind === 'page').length,
+        folderCount: validated.definition.nodes.filter((node) => node.kind === 'folder').length,
+        roleCount: validated.definition.collaboration?.workflow.roleSlots.length ?? 0,
+        effectiveSupportsCollaboration,
+      });
     }
+    return summaries;
   }
 
   private validateStoredVersion(

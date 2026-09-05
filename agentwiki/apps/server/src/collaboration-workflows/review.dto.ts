@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsDefined, IsIn, IsString, Matches, MaxLength, MinLength, ValidateIf } from 'class-validator';
 
 export class ReviewDecisionDto {
   @IsString()
@@ -22,7 +22,8 @@ export class ResolvePageConflictDto {
   @IsIn(['regenerate', 'adopt_current'])
   kind!: 'regenerate' | 'adopt_current';
 
-  @IsOptional()
+  @IsDefined()
+  @ValidateIf((_object, value) => value !== null)
   @IsString()
   @MinLength(1)
   @MaxLength(128)

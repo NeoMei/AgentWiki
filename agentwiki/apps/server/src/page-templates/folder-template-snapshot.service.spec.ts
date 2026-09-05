@@ -115,7 +115,7 @@ describe('FolderTemplateSnapshotService', () => {
   const tx = {
     space: { findUnique: jest.fn() },
     folder: { findFirst: jest.fn(), findMany: jest.fn() },
-    page: { findMany: jest.fn(), findUnique: jest.fn() },
+    page: { findFirst: jest.fn(), findMany: jest.fn(), findUnique: jest.fn() },
     pageVersion: { findFirst: jest.fn() },
     pageAgentBinding: { findMany: jest.fn() },
     pageTemplateVersion: { findFirst: jest.fn(), findUnique: jest.fn() },
@@ -233,6 +233,19 @@ describe('FolderTemplateSnapshotService', () => {
     }, principal)).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_INVALID' });
   });
 
+  it('rejects malformed role overrides and warning acknowledgements with stable errors', async () => {
+    await expect(service.preview('space-1', 'root-id', {
+      ...selection, roleSlotsByPage: {} as any,
+    }, principal)).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_INVALID' });
+
+    const preview = await service.preview('space-1', 'root-id', selection, principal);
+    expect(() => service.save('space-1', {
+      rootFolderId: 'root-id', selection, sourceToken: preview.sourceToken,
+      acknowledgedWarnings: null as any, name: 'Saved folder', defaultTitle: 'Root',
+      description: '', category: 'knowledge', locale: 'en',
+    }, principal)).toThrow(expect.objectContaining({ businessCode: 'PAGE_TEMPLATE_INVALID' }));
+  });
+
   it('uses only the exact same-Space template instantiation mapping for workflow targets', async () => {
     const templateDefinition = {
       schemaVersion: 1 as const,
@@ -277,5 +290,75 @@ describe('FolderTemplateSnapshotService', () => {
     await expect(service.preview('space-1', 'root-id', {
       ...selection, source: { kind: 'template', versionId: 'template-version' },
     }, principal)).rejects.toMatchObject({ businessCode: 'SOURCE_INVALID' });
+  });
+
+  it('resolves a next Run only from the exact instance root and mapped Pages', async () => {
+    const templateDefinition = {
+      schemaVersion: 1 as const,
+      kind: 'page_group' as const,
+      nodes: [
+        { nodeId: 'template-root', parentNodeId: null, kind: 'folder' as const, order: 0, nameI18n: { en: 'Root' } },
+        {
+          nodeId: 'template-page', parentNodeId: 'template-root', kind: 'page' as const,
+          order: 0, titleI18n: { en: 'Overview' }, contentI18n: { en: '# Source' }, roleSlotKey: 'writer',
+        },
+      ],
+      collaboration: { workflow, taskTargets: [{ taskNodeId: 'draft', pageNodeId: 'template-page' }] },
+    };
+    tx.page.findFirst.mockResolvedValue(null);
+    tx.templateInstantiation.findFirst.mockResolvedValue({
+      id: 'instantiation-id',
+      compositeTemplateVersion: {
+        id: 'template-version', version: 3, definition: templateDefinition, schemaVersion: 1,
+        definitionHash: hashCompositeDefinition(templateDefinition), template: { archivedAt: null },
+      },
+      nodes: [
+        { templateNodeId: 'template-root', kind: 'folder', folderId: 'root-id', pageId: null },
+        { templateNodeId: 'template-page', kind: 'page', folderId: null, pageId: 'page-a' },
+      ],
+    });
+
+    await expect(service.prepareExistingRunSource(tx, 'space-1', 'root-id', {
+      source: { kind: 'template_instantiation', sourceInstantiationId: 'instantiation-id' },
+      pageIds: ['page-a'],
+    })).resolves.toEqual(expect.objectContaining({
+      source: {
+        kind: 'composite', compositeTemplateVersionId: 'template-version',
+        templateInstantiationId: null, templateVersion: 3,
+      },
+      sourceInstantiationId: 'instantiation-id',
+      pageIds: ['page-a'], taskPageIds: { draft: 'page-a' },
+    }));
+
+    tx.templateInstantiation.findFirst.mockResolvedValueOnce({
+      id: 'instantiation-id',
+      compositeTemplateVersion: {
+        id: 'template-version', version: 3, definition: templateDefinition, schemaVersion: 1,
+        definitionHash: hashCompositeDefinition(templateDefinition), template: { archivedAt: null },
+      },
+      nodes: [
+        { templateNodeId: 'template-root', kind: 'folder', folderId: 'other-root', pageId: null },
+        { templateNodeId: 'template-page', kind: 'page', folderId: null, pageId: 'page-a' },
+      ],
+    });
+    await expect(service.prepareExistingRunSource(tx, 'space-1', 'root-id', {
+      source: { kind: 'template_instantiation', sourceInstantiationId: 'instantiation-id' },
+      pageIds: ['page-a'],
+    })).rejects.toMatchObject({ businessCode: 'SOURCE_INVALID' });
+  });
+
+  it('does not invent a responsibility for an unbound historical Page', async () => {
+    tx.page.findFirst.mockResolvedValue(null);
+    await expect(service.prepareExistingRunSource(tx, 'space-1', 'root-id', {
+      source: { kind: 'page_selection' }, pageIds: ['page-a'],
+    })).rejects.toMatchObject({ businessCode: 'SOURCE_INVALID' });
+
+    await expect(service.prepareExistingRunSource(tx, 'space-1', 'root-id', {
+      source: { kind: 'page_selection' }, pageIds: ['page-a'],
+      roleSlotsByPage: [{ pageId: 'page-a', roleSlotKey: 'writer' }],
+    })).resolves.toEqual(expect.objectContaining({
+      pageIds: ['page-a'],
+      taskPageIds: { 'write-page-1': 'page-a' },
+    }));
   });
 });

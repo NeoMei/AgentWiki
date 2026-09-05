@@ -40,7 +40,7 @@ describe('queryCurrentTemplateCatalog', () => {
 
     const query = db.$queryRaw.mock.calls[0]?.[0] as Prisma.Sql;
     expect(query.sql).toContain('COALESCE(version."definition" ->> \'kind\', \'single_page\') = ?');
-    expect(query.sql).toMatch(/CASE\s+WHEN version\."definition" IS NULL THEN FALSE/u);
+    expect(query.sql).toMatch(/CASE\s+WHEN COALESCE\(version\."definition" ->> 'kind', 'single_page'\) = 'single_page' THEN TRUE/u);
     expect(query.sql).not.toContain('version."definition" AS');
     expect(query.sql.indexOf('COALESCE(version."definition"')).toBeLessThan(query.sql.indexOf('LIMIT ?'));
     expect(query.sql).toContain('template."stableKey" = \'project-management\'');

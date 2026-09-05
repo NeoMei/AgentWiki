@@ -194,12 +194,12 @@ export class TemplateInstantiationService {
     const locale = resolved.locale;
     const nodes = expandTemplateDefinition(resolved.definition, locale, { rootName: input.rootName });
     const selected = input.collaborationEnabled
-      ? selectCollaboration(resolved.definition, input.enabledTaskNodeIds)
+      ? selectCompositeCollaboration(resolved.definition, input.enabledTaskNodeIds)
       : null;
     const pageBindingDefaults = selected
       ? resolvePageBindingDefaults(selected, input.roleBindings ?? [])
       : new Map<string, { agentId: string; roleSlotId: string }>();
-    await assertCombinedDepth(tx, spaceId, input.targetParentFolderId ?? null, nodes);
+    await assertCompositeTemplatePlacement(tx, spaceId, input.targetParentFolderId ?? null, nodes);
     const initialSiblingOrders = await loadInitialSiblingOrders(
       tx, spaceId, input.targetParentFolderId ?? null, nodes,
     );
@@ -448,7 +448,7 @@ function assertTask5Supported(input: ReturnType<typeof normalizeRequest>): void 
   }
 }
 
-function selectCollaboration(
+export function selectCompositeCollaboration(
   definition: CompositeTemplateDefinition,
   enabledTaskNodeIds: readonly string[] | undefined,
 ) {
@@ -485,7 +485,7 @@ function selectCollaboration(
 }
 
 function resolvePageBindingDefaults(
-  selected: ReturnType<typeof selectCollaboration>,
+  selected: ReturnType<typeof selectCompositeCollaboration>,
   bindings: readonly RunPageSelectionBinding[],
 ): Map<string, { agentId: string; roleSlotId: string }> {
   const tasks = new Map(selected.workflow.nodes.flatMap((node) => (
@@ -517,7 +517,7 @@ function resolvePageBindingDefaults(
   return defaults;
 }
 
-function ordinarySinglePageCollaboration(definition: CompositeTemplateDefinition) {
+export function ordinarySinglePageCollaboration(definition: CompositeTemplateDefinition) {
   const page = definition.kind === 'single_page' && definition.nodes.length === 1
     ? definition.nodes[0] : null;
   if (!page || page.kind !== 'page') {
@@ -551,8 +551,8 @@ function requireFolderRuntime(
   return runtime.id;
 }
 
-async function assertCombinedDepth(
-  tx: SpaceTreeLockedTransaction,
+export async function assertCompositeTemplatePlacement(
+  tx: Prisma.TransactionClient,
   spaceId: string,
   targetParentFolderId: string | null,
   nodes: readonly ExpandedTemplateNode[],

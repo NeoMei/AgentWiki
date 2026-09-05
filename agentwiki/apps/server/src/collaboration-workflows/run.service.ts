@@ -27,6 +27,7 @@ import { RunExpansionService } from './run-expansion.service';
 import { assertCollaborationAgentGrantsExecutable } from './agent-readiness';
 import { parseCollaborationInputs } from './run-input-validation';
 import { supersedeRunPagePublicationsLocked } from './page-publication-invalidation';
+import { canonicalPageContentHash } from './page-baseline';
 
 const READ_ROLES: SpaceRole[] = ['owner', 'admin', 'editor', 'viewer'];
 const EDIT_ROLES: SpaceRole[] = ['owner', 'admin', 'editor'];
@@ -48,6 +49,7 @@ const HUMAN_ATTEMPT_SELECT = {
   id: true, runId: true, taskId: true, generation: true, agentId: true, attemptNumber: true,
   status: true, leaseStartedAt: true, leaseExpiresAt: true, maxExecutionAt: true,
   failureCode: true, repairCount: true, finishedAt: true, createdAt: true, updatedAt: true,
+  basePageVersionId: true, basePageUpdatedAt: true, baseContentHash: true,
 } satisfies Prisma.CollaborationTaskAttemptSelect;
 
 const HUMAN_ARTIFACT_DETAIL_SELECT = {
@@ -88,6 +90,7 @@ const HUMAN_HISTORY_MAX_SERIALIZED_BYTES = 4_000_000;
 // 8 MB leaves > 1 MB for the fixed row/page envelope while remaining bounded.
 const HUMAN_ARTIFACT_HISTORY_MAX_SERIALIZED_BYTES = 8_000_000;
 const HUMAN_ARTIFACT_HISTORY_MAX_PAGE = 1;
+const HUMAN_PAGE_COMPARISON_MAX_SERIALIZED_BYTES = 8_000_000;
 const HUMAN_TODO_PREVIEW_LIMIT = 3;
 const HUMAN_EVENT_PREVIEW_LIMIT = 20;
 const ACTIVE_RUN_STATUSES = ['draft', 'ready', 'running', 'waiting_review', 'paused'] as const;
@@ -456,6 +459,130 @@ export class RunService {
     return artifact;
   }
 
+  async getHumanPageReviewComparison(
+    spaceId: string,
+    runId: string,
+    reviewId: string,
+    principal: Principal,
+  ) {
+    const member = await this.assertLiveHumanAccess(
+      this.prisma as unknown as Tx, principal, spaceId, READ_ROLES,
+    );
+    const run = await this.prisma.collaborationRun.findFirst({
+      where: { id: runId, spaceId }, select: { id: true, spaceId: true },
+    });
+    if (!run) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
+    const review = await this.prisma.collaborationReview.findFirst({
+      where: { id: reviewId, runId },
+      select: {
+        id: true, runId: true, sourceTaskId: true, artifactId: true, status: true,
+        minimumRole: true, reviewerUserIds: true,
+      },
+    });
+    if (!review) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration review not found');
+    const artifact = await this.prisma.collaborationTaskArtifact.findFirst({
+      where: { id: review.artifactId, runId, taskId: review.sourceTaskId },
+      select: {
+        id: true, runId: true, taskId: true, attemptId: true, status: true,
+        payload: true, evidence: true,
+        attempt: { select: {
+          id: true, basePageVersionId: true, basePageUpdatedAt: true, baseContentHash: true,
+        } },
+      },
+    });
+    if (!artifact) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration Artifact not found');
+    const link = await this.prisma.collaborationArtifactChangeSetLink.findUnique({
+      where: { artifactId: artifact.id },
+      include: { changeSet: { select: { status: true } } },
+    });
+    const canDecide = await this.canDecideHumanReview(
+      spaceId, review, member.role, principal.userId,
+    );
+    if (!link) {
+      const adopted = adoptedCurrentPage(artifact.payload);
+      if (!adopted) throw new BusinessException('RESOURCE_NOT_FOUND', 'Page review comparison not found');
+      const [page, pageVersion] = await Promise.all([
+        this.prisma.page.findFirst({
+          where: { id: adopted.pageId, spaceId, deletedAt: null },
+          select: { id: true, title: true, content: true, updatedAt: true },
+        }),
+        this.prisma.pageVersion.findFirst({
+          where: { id: adopted.pageVersionId, pageId: adopted.pageId },
+          select: { id: true, pageId: true, title: true, content: true, createdAt: true },
+        }),
+      ]);
+      if (!page || !pageVersion || canonicalPageContentHash(pageVersion.content) !== adopted.contentHash) {
+        throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Adopted Page result is inconsistent');
+      }
+      const currentHash = canonicalPageContentHash(page.content);
+      return ensureComparisonBudget({
+        mode: 'adopted_current' as const,
+        reviewId: review.id,
+        artifactId: artifact.id,
+        canDecide,
+        target: { pageId: page.id, title: page.title },
+        adoptedCurrent: { ...adopted, markdown: pageVersion.content, title: pageVersion.title },
+        current: {
+          pageVersionId: currentHash === adopted.contentHash ? pageVersion.id : null,
+          updatedAt: page.updatedAt.toISOString(),
+          contentHash: currentHash,
+          markdown: page.content,
+        },
+        conflict: currentHash !== adopted.contentHash,
+      });
+    }
+    if (link.runId !== runId || link.taskId !== review.sourceTaskId || link.spaceId !== spaceId) {
+      throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Page result Link does not match the Review');
+    }
+    const page = await this.prisma.page.findFirst({
+      where: { id: link.pageId, spaceId, deletedAt: null },
+      select: { id: true, title: true, content: true, updatedAt: true },
+    });
+    if (!page) throw new BusinessException('RESOURCE_NOT_FOUND', 'Target Page not found');
+    const attempt = artifact.attempt;
+    const currentHash = canonicalPageContentHash(page.content);
+    const matchesBaseline = !!attempt.basePageUpdatedAt && !!attempt.baseContentHash
+      && page.updatedAt.toISOString() === attempt.basePageUpdatedAt.toISOString()
+      && currentHash === attempt.baseContentHash;
+    const exactVersion = attempt.basePageVersionId
+      ? await this.prisma.pageVersion.findFirst({
+        where: { id: attempt.basePageVersionId, pageId: page.id },
+        select: { id: true, title: true, content: true, createdAt: true },
+      })
+      : null;
+    if (attempt.basePageVersionId && !exactVersion) {
+      throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Attempt PageVersion baseline is missing');
+    }
+    const markdown = artifactMarkdown(artifact.payload);
+    return ensureComparisonBudget({
+      mode: 'candidate' as const,
+      reviewId: review.id,
+      artifactId: artifact.id,
+      canDecide,
+      target: { pageId: page.id, title: page.title },
+      baseline: {
+        pageVersionId: attempt.basePageVersionId,
+        updatedAt: attempt.basePageUpdatedAt?.toISOString() ?? null,
+        contentHash: attempt.baseContentHash,
+        available: !!exactVersion || matchesBaseline,
+        title: exactVersion?.title ?? (matchesBaseline ? page.title : null),
+        markdown: exactVersion?.content ?? (matchesBaseline ? page.content : null),
+      },
+      candidate: {
+        changeSetId: link.changeSetId,
+        changeSetStatus: link.changeSet.status,
+        markdown,
+        evidence: artifact.evidence,
+      },
+      current: {
+        updatedAt: page.updatedAt.toISOString(),
+        contentHash: currentHash,
+        markdown: page.content,
+      },
+      conflict: !matchesBaseline,
+    });
+  }
+
   pauseRun(runId: string, body: RunActionDto, principal: Principal, expectedSpaceId?: string) {
     return this.mutateRun(runId, 'pause_run', body, principal, false, async (tx, run) => {
       if (!['running', 'waiting_review'].includes(run.status)) throw this.runStateError(run.status);
@@ -660,6 +787,31 @@ export class RunService {
     }
   }
 
+  private async canDecideHumanReview(
+    spaceId: string,
+    review: { status: string; minimumRole: string; reviewerUserIds: Prisma.JsonValue },
+    role: SpaceRole,
+    userId: string,
+  ): Promise<boolean> {
+    if (review.status !== 'pending' || !rolesAtLeast(review.minimumRole).includes(role)) return false;
+    const reviewerUserIds = Array.isArray(review.reviewerUserIds)
+      ? review.reviewerUserIds.filter((value): value is string => typeof value === 'string')
+      : [];
+    if (reviewerUserIds.length === 0 || reviewerUserIds.includes(userId)) return true;
+    if (!['owner', 'admin'].includes(role)) return false;
+    const eligible = await this.prisma.spaceMember.findMany({
+      where: {
+        spaceId,
+        userId: { in: reviewerUserIds },
+        role: { in: rolesAtLeast(review.minimumRole) },
+        user: { type: 'human', deletedAt: null, lockedAt: null },
+      },
+      select: { userId: true },
+      take: reviewerUserIds.length,
+    });
+    return eligible.length === 0;
+  }
+
   private async assertLiveHumanAccess(tx: Tx, principal: Principal, spaceId: string, roles: SpaceRole[]) {
     try {
       return await this.authorization.assertLiveHumanSpaceAccess(tx, principal, spaceId, roles);
@@ -788,6 +940,16 @@ export class RunService {
       }),
     ]);
     const currentReviews = reviews.filter((review): review is NonNullable<typeof review> => review !== null);
+    const pagePublications = currentReviews.length === 0 ? []
+      : await tx.collaborationArtifactChangeSetLink.findMany({
+        where: {
+          runId,
+          artifactId: { in: currentReviews.map((review) => review.artifactId) },
+        },
+        select: { artifactId: true, pageId: true, changeSetId: true },
+        take: currentReviews.length,
+      });
+    const pagePublicationByArtifact = new Map(pagePublications.map((item) => [item.artifactId, item]));
     const designatedReviewerIds = [...new Set(currentReviews.flatMap((review) =>
       Array.isArray(review.reviewerUserIds) ? review.reviewerUserIds.filter((id): id is string => typeof id === 'string') : []))];
     const eligibleReviewerRoles = reviewerContext && designatedReviewerIds.length
@@ -819,6 +981,7 @@ export class RunService {
         reviewerUserIds,
         canDecide,
         approvalCriteria: stringArray(reviewNodes.find((node) => node.id === review.nodeId)?.approvalCriteria),
+        pagePublication: pagePublicationByArtifact.get(review.artifactId) ?? null,
       };
     });
     const tasks = run.tasks.map((task, index) => {
@@ -880,6 +1043,41 @@ function parseDefinition(value: unknown): CollaborationTemplateDefinition {
 
 function hashJson(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+function artifactMarkdown(value: Prisma.JsonValue): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || typeof (value as { markdown?: unknown }).markdown !== 'string') {
+    throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Page Artifact Markdown is missing');
+  }
+  return (value as { markdown: string }).markdown;
+}
+
+function adoptedCurrentPage(value: Prisma.JsonValue): {
+  kind: 'human_adopt_current';
+  pageId: string;
+  pageVersionId: string;
+  contentHash: string;
+  adoptedByUserId: string;
+} | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const adopted = (value as { adoptedCurrentPage?: unknown }).adoptedCurrentPage;
+  if (!adopted || typeof adopted !== 'object' || Array.isArray(adopted)) return null;
+  const item = adopted as Record<string, unknown>;
+  return item.kind === 'human_adopt_current'
+    && typeof item.pageId === 'string'
+    && typeof item.pageVersionId === 'string'
+    && typeof item.contentHash === 'string'
+    && typeof item.adoptedByUserId === 'string'
+    ? item as ReturnType<typeof adoptedCurrentPage>
+    : null;
+}
+
+function ensureComparisonBudget<T>(value: T): T {
+  if (Buffer.byteLength(JSON.stringify(value), 'utf8') > HUMAN_PAGE_COMPARISON_MAX_SERIALIZED_BYTES) {
+    throw new BusinessException('COLLABORATION_HISTORY_PAGE_TOO_LARGE', 'Page comparison exceeds its response budget');
+  }
+  return value;
 }
 
 function toJson(value: unknown): Prisma.InputJsonValue {
@@ -966,6 +1164,9 @@ function attemptPreview(attempt: any) {
     attemptNumber: attempt.attemptNumber, status: attempt.status, leaseStartedAt: attempt.leaseStartedAt,
     leaseExpiresAt: attempt.leaseExpiresAt, maxExecutionAt: attempt.maxExecutionAt,
     failureCode: previewText(attempt.failureCode, 240), repairCount: attempt.repairCount,
+    basePageVersionId: attempt.basePageVersionId,
+    basePageUpdatedAt: attempt.basePageUpdatedAt,
+    baseContentHash: attempt.baseContentHash,
     finishedAt: attempt.finishedAt, createdAt: attempt.createdAt, updatedAt: attempt.updatedAt,
   };
 }

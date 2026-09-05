@@ -73,6 +73,17 @@ export function snapshotDefinition(
   policy: FolderTemplateWorkflowSource,
   roleSlotsByPage: readonly SnapshotRoleOverride[] = [],
 ): CompositeTemplateDefinition {
+  return snapshotDefinitionWithSourceMap(source, policy, roleSlotsByPage).definition;
+}
+
+export function snapshotDefinitionWithSourceMap(
+  source: FolderSnapshotSource,
+  policy: FolderTemplateWorkflowSource,
+  roleSlotsByPage: readonly SnapshotRoleOverride[] = [],
+): {
+  definition: CompositeTemplateDefinition;
+  sourcePageIdByTemplateNodeId: Record<string, string>;
+} {
   const locale = source.locale ?? 'en';
   const ordered = orderSnapshotNodes(source.nodes);
   const templateIdBySource = new Map<string, string>();
@@ -118,7 +129,11 @@ export function snapshotDefinition(
   if (!parsed.success) throw invalidSnapshot([{ code: 'TEMPLATE_SCHEMA_INVALID' }]);
   const issues = validateCompositeDefinition(parsed.data);
   if (issues.length > 0) throw invalidSnapshot(issues);
-  return parsed.data;
+  return {
+    definition: parsed.data,
+    sourcePageIdByTemplateNodeId: Object.fromEntries(source.nodes.flatMap((node) =>
+      node.kind === 'page' ? [[templateIdBySource.get(node.sourceId)!, node.sourceId]] : [])),
+  };
 }
 
 function orderSnapshotNodes(nodes: readonly FolderSnapshotSourceNode[]): FolderSnapshotSourceNode[] {

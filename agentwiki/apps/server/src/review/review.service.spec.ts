@@ -1699,6 +1699,22 @@ describe('ReviewService collaboration Page boundary', () => {
     });
   });
 
+  it('returns the collaboration Link summary with the actual Run destination', async () => {
+    tx.changeSet.findUnique.mockResolvedValue({
+      id: 'change-set-1', status: 'pending_review', spaceId: 'space-1',
+      space: {}, run: null, items: [], approvals: [],
+      collaborationArtifactLink: {
+        artifactId: 'artifact-1', runId: 'collaboration-run-1', taskId: 'task-1',
+        spaceId: 'space-1', pageId: 'page-1',
+      },
+    });
+    await expect(service.get('change-set-1')).resolves.toEqual(expect.objectContaining({
+      collaborationArtifactLink: expect.objectContaining({
+        reviewPath: '/spaces/space-1/collaboration/runs/collaboration-run-1',
+      }),
+    }));
+  });
+
   it.each([
     ['decideItem', () => service.decideItem('change-set-1', 'item-1', 'accepted')],
     ['approve', () => service.approve('change-set-1', 'reviewer-1')],

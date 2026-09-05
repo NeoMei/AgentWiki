@@ -668,10 +668,16 @@ describe('RunService', () => {
       artifactId: 'artifact-1', revisionTaskId: 'task-1', minimumRole: 'editor', reviewerUserIds: [],
       allowTerminate: true, status: 'pending', createdAt: new Date(),
     });
+    tx.collaborationArtifactChangeSetLink.findMany.mockResolvedValueOnce([{
+      artifactId: 'artifact-1', pageId: 'page-1', changeSetId: 'change-set-1',
+    }]);
 
     const result = await service.getHumanRun('space-1', 'run-1', humanPrincipal);
 
     expect(result.reviews[0].approvalCriteria).toEqual(['Tests pass', 'Evidence is complete']);
+    expect(result.reviews[0].pagePublication).toEqual({
+      artifactId: 'artifact-1', pageId: 'page-1', changeSetId: 'change-set-1',
+    });
     expect(result).not.toHaveProperty('templateSnapshot');
   });
 

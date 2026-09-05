@@ -65,6 +65,20 @@ export class PageAgentBindingService {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
+  async getBinding(
+    spaceId: string,
+    pageId: string,
+    principal: Principal,
+  ): Promise<PageAgentBindingSnapshot> {
+    return this.prisma.$transaction(async (tx) => {
+      await this.authorization.assertLiveHumanSpaceAccess(
+        tx, principal, spaceId, ['owner', 'admin', 'editor', 'viewer'],
+      );
+      const [result] = await this.readBindings(tx, spaceId, [pageId]);
+      return result;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
+
   async setBindingsInScope(
     spaceId: string,
     input: PageAgentBindingScopeInput,
@@ -178,7 +192,8 @@ export class PageAgentBindingService {
     return results;
   }
 
-  private async readBindings(
+  /** Bounded caller-transaction read after the caller has established Page scope. */
+  async readBindings(
     tx: Prisma.TransactionClient,
     spaceId: string,
     pageIds: string[],
@@ -190,6 +205,18 @@ export class PageAgentBindingService {
     });
     const byPage = new Map(rows.map((row) => [row.pageId, row]));
     return pageIds.map((pageId) => snapshot(pageId, byPage.get(pageId)));
+  }
+
+  /** Caller-owned locked primitive that additionally proves edit/page scope equality. */
+  setBindingsForExactScope(
+    tx: SpaceTreeLockedTransaction,
+    spaceId: string,
+    pageIds: string[],
+    edits: readonly PageAgentBindingEdit[],
+    principal: Principal,
+  ): Promise<PageAgentBindingSnapshot[]> {
+    assertScopeMatchesEdits(pageIds, edits);
+    return this.setBindings(tx, spaceId, edits, principal);
   }
 }
 

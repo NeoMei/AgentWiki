@@ -83,6 +83,16 @@ export class RunController {
     return this.runs.getHumanArtifact(spaceId, runId, artifactId, req.user as Principal);
   }
 
+  @Get(':runId/reviews/:reviewId/page-comparison')
+  pageComparison(
+    @Req() req: Request,
+    @Param('spaceId') spaceId: string,
+    @Param('runId') runId: string,
+    @Param('reviewId') reviewId: string,
+  ) {
+    return this.runs.getHumanPageReviewComparison(spaceId, runId, reviewId, req.user as Principal);
+  }
+
   @Post(':runId/actions/pause')
   pause(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('runId') runId: string, @Body() body: RunActionDto) {
     return this.runs.pauseRun(runId, body, req.user as Principal, spaceId);

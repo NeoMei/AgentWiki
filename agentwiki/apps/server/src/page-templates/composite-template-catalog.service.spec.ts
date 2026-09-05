@@ -59,7 +59,7 @@ describe('CompositeTemplateCatalogService', () => {
   const pageTemplateVersion = { findUnique: jest.fn() };
   const tx = { pageTemplate } as any;
   const prisma = { pageTemplate, pageTemplateVersion, $queryRaw: jest.fn(), $transaction: jest.fn() } as any;
-  const authorization = { assertSpaceAccess: jest.fn() } as any;
+  const authorization = { assertSpaceAccess: jest.fn(), assertLiveHumanSpaceAccess: jest.fn() } as any;
   const pageTemplates = {
     createCompositeSpaceTemplate: jest.fn(), createCompositeVersion: jest.fn(),
     updateMetadata: jest.fn(), archive: jest.fn(), restore: jest.fn(),
@@ -69,6 +69,7 @@ describe('CompositeTemplateCatalogService', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     prisma.$queryRaw.mockResolvedValue([]);
+    prisma.$transaction.mockImplementation((operation: any) => operation(tx));
     pageTemplateVersion.findUnique.mockResolvedValue({
       definition,
       schemaVersion: 1,
@@ -76,6 +77,7 @@ describe('CompositeTemplateCatalogService', () => {
       contentI18n: {},
     });
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'owner' });
+    authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'owner' });
     service = new CompositeTemplateCatalogService(prisma, authorization, pageTemplates);
   });
 
@@ -141,6 +143,34 @@ describe('CompositeTemplateCatalogService', () => {
     expect(listQuery.sql).toContain('LIMIT ?');
     expect(listQuery.sql).toContain('OFFSET ?');
     expect(listQuery.sql).not.toContain('version."definition" AS');
+  });
+
+  it('summarizes implicit single-Page collaboration without treating it as stored corruption', async () => {
+    const single = {
+      schemaVersion: 1 as const,
+      kind: 'single_page' as const,
+      nodes: [{
+        nodeId: 'page', parentNodeId: null, kind: 'page' as const, order: 0,
+        titleI18n: { en: 'Page' }, contentI18n: { en: '# Page' }, roleSlotKey: null,
+      }],
+      collaboration: null,
+    };
+    prisma.$queryRaw
+      .mockResolvedValueOnce([{ ...template(), kind: 'single_page', supportsCollaboration: true }])
+      .mockResolvedValueOnce([{ total: 1n }]);
+    pageTemplateVersion.findUnique.mockResolvedValueOnce({
+      definition: single, schemaVersion: 1,
+      definitionHash: hashCompositeDefinition(single), contentI18n: {},
+    });
+
+    await expect(service.list('space-1', {
+      locale: 'en', supportsCollaboration: true, skip: 0, take: 1,
+    }, principal)).resolves.toEqual(expect.objectContaining({
+      data: [expect.objectContaining({
+        kind: 'single_page', supportsCollaboration: true,
+        effectiveSupportsCollaboration: true, pageCount: 1, folderCount: 0, roleCount: 0,
+      })],
+    }));
   });
 
   it('rejects a selected catalog page when a current composite definition has corrupt schema or hash', async () => {
@@ -256,8 +286,8 @@ describe('CompositeTemplateCatalogService', () => {
 
     prisma.$queryRaw.mockResolvedValue([]);
     await service.list('space-1', { locale: 'en', skip: 0, take: 100 }, principal);
-    expect(authorization.assertSpaceAccess).toHaveBeenCalledWith(
-      principal, 'space-1', ['owner', 'admin', 'editor', 'viewer'], 'pages:read',
+    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledWith(
+      tx, principal, 'space-1', ['owner', 'admin', 'editor', 'viewer'],
     );
   });
 });

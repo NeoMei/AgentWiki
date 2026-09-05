@@ -13,6 +13,9 @@ import { PageAgentBindingService } from './page-agent-binding.service';
 import { MarkdownResourceCoreModule } from '../markdown-resources/markdown-resource-core.module';
 import { FolderTemplateSnapshotService } from './folder-template-snapshot.service';
 import { CollaborationWorkflowsModule } from '../collaboration-workflows/collaboration-workflows.module';
+import { CompositeTemplateController } from './composite-template.controller';
+import { CompositeTemplatePreviewService } from './composite-template-preview.service';
+import { ExistingRunOrchestrationService } from './existing-run-orchestration.service';
 
 @Module({
   imports: [
@@ -24,7 +27,7 @@ import { CollaborationWorkflowsModule } from '../collaboration-workflows/collabo
     MarkdownResourceCoreModule,
     CollaborationWorkflowsModule,
   ],
-  controllers: [PageTemplateController],
+  controllers: [PageTemplateController, CompositeTemplateController],
   providers: [
     PageTemplateService,
     CompositeTemplateCatalogService,
@@ -32,6 +35,8 @@ import { CollaborationWorkflowsModule } from '../collaboration-workflows/collabo
     TemplateInstantiationService,
     PageAgentBindingService,
     FolderTemplateSnapshotService,
+    CompositeTemplatePreviewService,
+    ExistingRunOrchestrationService,
   ],
   exports: [
     PageTemplateService,
@@ -40,6 +45,8 @@ import { CollaborationWorkflowsModule } from '../collaboration-workflows/collabo
     TemplateInstantiationService,
     PageAgentBindingService,
     FolderTemplateSnapshotService,
+    CompositeTemplatePreviewService,
+    ExistingRunOrchestrationService,
   ],
 })
 export class PageTemplateModule {}

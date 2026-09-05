@@ -72,7 +72,7 @@ export class ReviewService {
         runId: link.runId,
         taskId: link.taskId,
         pageId: link.pageId,
-        reviewPath: `/spaces/${link.spaceId}/collaboration-runs/${link.runId}`,
+        reviewPath: `/spaces/${link.spaceId}/collaboration/runs/${link.runId}`,
       },
     );
   }
@@ -142,6 +142,9 @@ export class ReviewService {
         run: { include: { source: { select: { id: true, name: true, type: true, uri: true } } } },
         items: true,
         approvals: { include: { reviewer: { select: { id: true, name: true, email: true } } } },
+        collaborationArtifactLink: {
+          select: { artifactId: true, runId: true, taskId: true, spaceId: true, pageId: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -181,10 +184,19 @@ export class ReviewService {
         },
         items: true,
         approvals: { include: { reviewer: { select: { id: true, name: true, email: true } } } },
+        collaborationArtifactLink: {
+          select: { artifactId: true, runId: true, taskId: true, spaceId: true, pageId: true },
+        },
       },
     });
     if (!changeSet) throw new BusinessException('RESOURCE_NOT_FOUND', 'Change set not found');
-    return changeSet;
+    return {
+      ...changeSet,
+      collaborationArtifactLink: changeSet.collaborationArtifactLink ? {
+        ...changeSet.collaborationArtifactLink,
+        reviewPath: `/spaces/${changeSet.collaborationArtifactLink.spaceId}/collaboration/runs/${changeSet.collaborationArtifactLink.runId}`,
+      } : null,
+    };
   }
 
   async decideItem(changeSetId: string, itemId: string, status: string) {

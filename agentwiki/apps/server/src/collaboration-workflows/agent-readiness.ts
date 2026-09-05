@@ -16,6 +16,24 @@ export async function assertCollaborationAgentGrantsExecutable(
   agentIds: readonly string[],
   requireCredential = false,
 ): Promise<void> {
+  const issues = await inspectCollaborationAgentReadiness(
+    tx, spaceId, agentIds, requireCredential,
+  );
+  const first = issues[0];
+  if (first) throw new BusinessException(first.code);
+}
+
+export type CollaborationAgentReadinessIssue = {
+  code: 'COLLABORATION_AGENT_INACTIVE' | 'COLLABORATION_AGENT_CANNOT_EXECUTE';
+  agentId: string;
+};
+
+export async function inspectCollaborationAgentReadiness(
+  tx: Prisma.TransactionClient,
+  spaceId: string,
+  agentIds: readonly string[],
+  requireCredential = false,
+): Promise<CollaborationAgentReadinessIssue[]> {
   const uniqueIds = [...new Set(agentIds)];
   const grants = await tx.agentGrant.findMany({
     where: { spaceId, agentId: { in: uniqueIds } },
@@ -29,17 +47,23 @@ export async function assertCollaborationAgentGrantsExecutable(
     },
   });
   const byAgent = new Map(grants.map((grant) => [grant.agentId, grant]));
-  for (const agentId of uniqueIds) {
+  const issues: CollaborationAgentReadinessIssue[] = [];
+  for (const agentId of uniqueIds.sort()) {
     const grant = byAgent.get(agentId);
-    if (!grant) throw new BusinessException('COLLABORATION_AGENT_CANNOT_EXECUTE');
+    if (!grant) {
+      issues.push({ code: 'COLLABORATION_AGENT_CANNOT_EXECUTE', agentId });
+      continue;
+    }
     const owner = grant.agent.owner;
     if (grant.agent.status !== 'active' || grant.agent.revokedAt || !owner
       || owner.deletedAt || owner.lockedAt || grant.space.deletedAt) {
-      throw new BusinessException('COLLABORATION_AGENT_INACTIVE');
+      issues.push({ code: 'COLLABORATION_AGENT_INACTIVE', agentId });
+      continue;
     }
     if (!agentRoleAllowsScope(grant.role, 'collaboration:execute')
       || (requireCredential && grant.credentials.length === 0)) {
-      throw new BusinessException('COLLABORATION_AGENT_CANNOT_EXECUTE');
+      issues.push({ code: 'COLLABORATION_AGENT_CANNOT_EXECUTE', agentId });
     }
   }
+  return issues;
 }
