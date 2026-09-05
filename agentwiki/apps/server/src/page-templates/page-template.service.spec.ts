@@ -4,6 +4,17 @@ import { BusinessException } from '../core/filters/business-error';
 import { BUILT_IN_PAGE_TEMPLATES } from './page-template-definitions';
 import { PageTemplateService } from './page-template.service';
 import { templateContentHash } from './page-template.types';
+import { hashCompositeDefinition } from './composite-template-validator';
+
+const compositeDefinition = {
+  schemaVersion: 1 as const,
+  kind: 'single_page' as const,
+  nodes: [{
+    nodeId: 'page', parentNodeId: null, kind: 'page' as const, order: 0,
+    titleI18n: { en: 'Page' }, contentI18n: { en: '# Page' }, roleSlotKey: null,
+  }],
+  collaboration: null,
+};
 
 const principal: Principal = { userId: 'user-1' };
 
@@ -85,6 +96,7 @@ describe('PageTemplateService', () => {
   };
   const pageTemplateVersion = {
     findUnique: jest.fn(),
+    findMany: jest.fn(),
     create: jest.fn(),
   };
   const page = { findFirst: jest.fn(), findMany: jest.fn(), count: jest.fn() };
@@ -122,6 +134,7 @@ describe('PageTemplateService', () => {
     pageTemplate.findUnique.mockResolvedValue(null);
     pageTemplate.findFirst.mockResolvedValue(null);
     pageTemplateVersion.findUnique.mockResolvedValue(null);
+    pageTemplateVersion.findMany.mockResolvedValue([]);
     page.findFirst.mockResolvedValue(markdownPage());
     page.findMany.mockResolvedValue([]);
     page.count.mockResolvedValue(0);
@@ -161,6 +174,62 @@ describe('PageTemplateService', () => {
     expect(pageTemplate.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'system-1', scope: 'system', currentVersion: 1 },
       data: expect.objectContaining({ currentVersion: 2 }),
+    }));
+  });
+
+  it('creates a composite Space template through the existing locked management path', async () => {
+    const created = spaceTemplate({ currentVersion: 1, updatedAt: new Date(templateTimestamp) });
+    pageTemplate.findUnique.mockImplementation(async ({ where }: any) => {
+      if (where.spaceId_nameKey) return null;
+      if (where.id === 'template-1') return created;
+      return null;
+    });
+    pageTemplate.findMany.mockResolvedValue([]);
+    pageTemplate.create.mockResolvedValue(created);
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      templateId: 'template-1', version: 1, contentI18n: { en: '' },
+      sourcePageId: null, definition: compositeDefinition,
+      definitionHash: hashCompositeDefinition(compositeDefinition),
+    });
+
+    await service.createCompositeSpaceTemplate('space-1', {
+      name: ' Team Template ', description: 'Shared', category: 'planning',
+      defaultTitle: 'Page', locale: 'en', definition: compositeDefinition,
+    }, principal);
+
+    expect(authorization.lockLiveHumanPrincipal).toHaveBeenCalledWith(prisma, principal);
+    expect(revisionWriter.lockSpace).toHaveBeenCalledWith(prisma, 'space-1');
+    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledWith(
+      prisma, principal, 'space-1', ['owner', 'admin'],
+    );
+    expect(pageTemplateVersion.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        contentI18n: { en: '' }, sourcePageId: null, schemaVersion: 1,
+        definition: compositeDefinition, definitionHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      }),
+    }));
+  });
+
+  it('creates a single authoritative composite version and atomically advances currentVersion', async () => {
+    pageTemplate.findFirst.mockResolvedValue(spaceTemplate({ currentVersion: 3 }));
+    pageTemplate.findUnique.mockResolvedValue(spaceTemplate({ currentVersion: 4 }));
+    pageTemplateVersion.findUnique
+      .mockResolvedValueOnce({ version: 3, definitionHash: 'old' })
+      .mockResolvedValueOnce({
+        templateId: 'template-1', version: 4, contentI18n: { en: '' }, sourcePageId: null,
+        definition: compositeDefinition, definitionHash: hashCompositeDefinition(compositeDefinition),
+      });
+
+    await service.createCompositeVersion('space-1', 'template-1', {
+      expectedCurrentVersion: 3, definition: compositeDefinition,
+    }, principal);
+
+    expect(pageTemplateVersion.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ templateId: 'template-1', version: 4, definition: compositeDefinition }),
+    }));
+    expect(pageTemplate.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'template-1', currentVersion: 3, archivedAt: null }),
+      data: { currentVersion: 4, updatedById: 'user-1' },
     }));
   });
 
@@ -253,6 +322,10 @@ describe('PageTemplateService', () => {
   it('returns localized system summaries plus the current Space page', async () => {
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'editor' });
     pageTemplate.findMany.mockResolvedValueOnce([systemRecord]).mockResolvedValueOnce([spaceRecord]);
+    pageTemplateVersion.findMany.mockResolvedValue([
+      { templateId: 'system-1', version: 1, definition: null },
+      { templateId: 'space-template', version: 2, definition: null },
+    ]);
     pageTemplate.count.mockResolvedValue(1);
 
     await expect(service.list('space-1', { locale: 'zh-CN', skip: 0, take: 100 }, principal))
@@ -265,6 +338,18 @@ describe('PageTemplateService', () => {
     expect(authorization.assertSpaceAccess).toHaveBeenCalledWith(
       principal, 'space-1', ['owner', 'admin', 'editor', 'viewer'], 'pages:read',
     );
+  });
+
+  it('hides templates whose current version is composite from the legacy catalog', async () => {
+    authorization.assertSpaceAccess.mockResolvedValue({ role: 'owner' });
+    pageTemplate.findMany.mockResolvedValueOnce([systemRecord]).mockResolvedValueOnce([spaceRecord]);
+    pageTemplateVersion.findMany.mockResolvedValue([
+      { templateId: 'system-1', version: 1, definition: compositeDefinition },
+      { templateId: 'space-template', version: 2, definition: null },
+    ]);
+
+    await expect(service.list('space-1', { locale: 'en', skip: 0, take: 100 }, principal))
+      .resolves.toMatchObject({ system: [], space: [expect.objectContaining({ id: 'space-template' })], totalSpace: 1 });
   });
 
   it.each([
@@ -379,6 +464,17 @@ describe('PageTemplateService', () => {
     });
   });
 
+  it('rejects a composite current version through the legacy detail API', async () => {
+    authorization.assertSpaceAccess.mockResolvedValue({ role: 'owner' });
+    pageTemplate.findFirst.mockResolvedValue(systemRecord);
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      templateId: 'system-1', version: 1, contentI18n: { en: '' }, definition: compositeDefinition,
+    });
+
+    await expect(service.get('space-1', 'system-1', 'en', principal))
+      .rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_INVALID' });
+  });
+
   it('denies Viewer detail content with HTTP 403 before a soft-deleted source can be disclosed', async () => {
     authorization.assertSpaceAccess.mockRejectedValue(new BusinessException('SPACE_ACCESS_DENIED'));
     pageTemplate.findFirst.mockResolvedValue(spaceRecord);
@@ -455,6 +551,26 @@ describe('PageTemplateService', () => {
     expect(pageTemplate.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       include: { versions: { where: { version: 2 }, take: 1 } },
     }));
+  });
+
+  it('keeps legacy history readable but rejects a composite exact version through resolveVersion', async () => {
+    pageTemplate.findFirst
+      .mockResolvedValueOnce({
+        id: 'space-template', scope: 'space', spaceId: 'space-1', sourceLocale: 'en', archivedAt: null,
+        currentVersion: 2,
+        versions: [{ version: 1, contentI18n: { en: '# Old' }, definition: null }],
+      })
+      .mockResolvedValueOnce({
+        id: 'space-template', scope: 'space', spaceId: 'space-1', sourceLocale: 'en', archivedAt: null,
+        currentVersion: 2,
+        versions: [{ version: 2, contentI18n: { en: '' }, definition: compositeDefinition }],
+      });
+    await expect(service.resolveVersion(prisma, {
+      spaceId: 'space-1', templateId: 'space-template', version: 1, locale: 'en',
+    })).resolves.toMatchObject({ content: '# Old', version: 1 });
+    await expect(service.resolveVersion(prisma, {
+      spaceId: 'space-1', templateId: 'space-template', version: 2, locale: 'en',
+    })).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_INVALID' });
   });
 
   it('resolveVersion returns existing requested system content with its requested locale', async () => {
@@ -866,6 +982,19 @@ describe('PageTemplateService', () => {
     await expect(service.createVersion('space-1', 'template-1', {
       sourcePageId: 'page-1', expectedSourceUpdatedAt: sourceTimestamp, expectedCurrentVersion: 3,
     }, principal)).resolves.toMatchObject({ currentVersion: 3, noChange: true, content: '# Same' });
+    expect(pageTemplateVersion.create).not.toHaveBeenCalled();
+    expect(pageTemplate.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('does not let the legacy source-page writer replace a composite current version', async () => {
+    pageTemplate.findFirst.mockResolvedValue(spaceTemplate({ currentVersion: 3 }));
+    pageTemplateVersion.findUnique.mockResolvedValue({
+      version: 3, contentHash: templateContentHash(''), definition: compositeDefinition,
+    });
+
+    await expect(service.createVersion('space-1', 'template-1', {
+      sourcePageId: 'page-1', expectedSourceUpdatedAt: sourceTimestamp, expectedCurrentVersion: 3,
+    }, principal)).rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_INVALID' });
     expect(pageTemplateVersion.create).not.toHaveBeenCalled();
     expect(pageTemplate.updateMany).not.toHaveBeenCalled();
   });

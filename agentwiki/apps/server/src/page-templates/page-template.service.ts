@@ -1,8 +1,12 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PageTemplate, Prisma } from '@prisma/client';
+import { PageTemplate, Prisma, type PageTemplateCategory, type PageTemplateVersion } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { ZodError } from 'zod';
+import {
+  CompositeTemplateDefinitionSchema,
+  type CompositeTemplateDefinition,
+} from '@neomei/agentwiki-sync-protocol';
 import { AuthorizationService, type Principal } from '../core/authorization/authorization.service';
 import { BusinessException } from '../core/filters/business-error';
 import { PrismaService } from '../database/prisma.service';
@@ -16,6 +20,10 @@ import {
   type UpdatePageTemplateDto,
 } from './page-template.dto';
 import { BUILT_IN_PAGE_TEMPLATES, type BuiltInPageTemplate } from './page-template-definitions';
+import {
+  hashCompositeDefinition,
+  validateCompositeDefinition,
+} from './composite-template-validator';
 import {
   localizedValue,
   normalizeTemplateName,
@@ -85,6 +93,20 @@ function uniqueTargetMatches(
 function truncateCodePoints(value: string, length: number): string {
   return Array.from(value).slice(0, length).join('');
 }
+
+export type CreateCompositeSpaceTemplateInput = {
+  name: string;
+  description?: string;
+  category: PageTemplateCategory;
+  defaultTitle: string;
+  locale: PageTemplateLocale;
+  definition: CompositeTemplateDefinition;
+};
+
+export type CreateCompositeTemplateVersionInput = {
+  expectedCurrentVersion: number;
+  definition: CompositeTemplateDefinition;
+};
 
 @Injectable()
 export class PageTemplateService implements OnModuleInit {
@@ -177,22 +199,37 @@ export class PageTemplateService implements OnModuleInit {
       ...(query.category ? { category: query.category } : {}),
       ...(query.q?.trim() ? { nameKey: { contains: normalizeTemplateName(query.q) } } : {}),
     };
-    const [space, totalSpace] = query.scope === 'system' ? [[], 0] : await Promise.all([
-      this.prisma.pageTemplate.findMany({
-        where: spaceWhere, skip: query.skip, take: query.take,
-        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-      }),
-      this.prisma.pageTemplate.count({ where: spaceWhere }),
-    ]);
+    const space = query.scope === 'system' ? [] : await this.prisma.pageTemplate.findMany({
+      where: spaceWhere,
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+    });
+    const candidates = [...system, ...space];
+    const versions = candidates.length === 0 ? [] : await this.prisma.pageTemplateVersion.findMany({
+      where: { OR: candidates.map((template) => ({
+        templateId: template.id,
+        version: template.currentVersion,
+      })) },
+    });
+    const versionByTemplateId = new Map(
+      (versions as PageTemplateVersion[]).map((version) => [version.templateId, version]),
+    );
+    const legacyOnly = (template: PageTemplate) => {
+      const version = versionByTemplateId.get(template.id);
+      if (!version) throw new BusinessException('PAGE_TEMPLATE_VERSION_NOT_FOUND');
+      return version.definition === null;
+    };
+    const legacySystem = system.filter(legacyOnly);
+    const legacySpace = space.filter(legacyOnly);
     try {
-      const systemSummaries = system.map((row) => this.summary(row, query.locale));
+      const systemSummaries = legacySystem.map((row) => this.summary(row, query.locale));
       const normalizedQuery = query.q?.trim().toLocaleLowerCase(query.locale);
       return {
         system: normalizedQuery
           ? systemSummaries.filter((row) => row.name.toLocaleLowerCase(query.locale).includes(normalizedQuery))
           : systemSummaries,
-        space: space.map((row) => this.summary(row, query.locale)),
-        totalSpace, skip: query.skip, take: query.take,
+        space: legacySpace.slice(query.skip, query.skip + query.take)
+          .map((row) => this.summary(row, query.locale)),
+        totalSpace: legacySpace.length, skip: query.skip, take: query.take,
         capabilities: { canManage },
       };
     } catch (error) {
@@ -255,6 +292,9 @@ export class PageTemplateService implements OnModuleInit {
     if (template.archivedAt) throw new BusinessException('PAGE_TEMPLATE_ARCHIVED');
     const version = template.versions[0];
     if (!version) throw new BusinessException('PAGE_TEMPLATE_VERSION_NOT_FOUND');
+    if (version.definition !== null && version.definition !== undefined) {
+      throw new BusinessException('PAGE_TEMPLATE_INVALID');
+    }
     try {
       const resolved = template.scope === 'system'
         ? resolveLocalizedValue(version.contentI18n, { scope: 'system', requested: input.locale })
@@ -286,6 +326,9 @@ export class PageTemplateService implements OnModuleInit {
         where: { templateId_version: { templateId: template.id, version: template.currentVersion } },
       });
       if (!version) throw new BusinessException('PAGE_TEMPLATE_VERSION_NOT_FOUND');
+      if (version.definition !== null && version.definition !== undefined) {
+        throw new BusinessException('PAGE_TEMPLATE_INVALID');
+      }
       try {
         const resolved = template.scope === 'system'
           ? resolveLocalizedValue(version.contentI18n, { scope: 'system', requested: locale })
@@ -344,6 +387,59 @@ export class PageTemplateService implements OnModuleInit {
     }, { retryStableKeyConflict: true });
   }
 
+  async createCompositeSpaceTemplate(
+    spaceId: string,
+    body: CreateCompositeSpaceTemplateInput,
+    principal: Principal,
+  ) {
+    return this.runSpaceMutation(spaceId, principal, async (tx) => {
+      return this.createCompositeSpaceTemplateInLockedTransaction(tx, spaceId, body, principal);
+    }, { retryStableKeyConflict: true });
+  }
+
+  async createCompositeSpaceTemplateInLockedTransaction(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    body: CreateCompositeSpaceTemplateInput,
+    principal: Principal,
+  ) {
+    await this.assertCanManage(tx, principal, spaceId);
+    const definition = this.compositeDefinitionForWrite(body.definition, body.locale);
+    const definitionHash = hashCompositeDefinition(definition);
+    const { name, defaultTitle } = this.normalizedMetadata(body);
+    const activeCount = await tx.pageTemplate.count({
+      where: { spaceId, scope: 'space', archivedAt: null },
+    });
+    if (activeCount >= 100) throw new BusinessException('PAGE_TEMPLATE_QUOTA_EXCEEDED');
+    const nameKey = normalizeTemplateName(name);
+    const existing = await tx.pageTemplate.findUnique({
+      where: { spaceId_nameKey: { spaceId, nameKey } },
+    });
+    if (existing) throw new BusinessException('PAGE_TEMPLATE_NAME_CONFLICT');
+    const stableKey = await this.allocateStableKey(tx, spaceId, name);
+    const localized = <T extends string>(value: T): Prisma.InputJsonValue => ({ [body.locale]: value });
+    const created = await tx.pageTemplate.create({ data: {
+      scope: 'space', scopeKey: spaceId, spaceId, stableKey,
+      category: body.category, nameI18n: localized(name), nameKey,
+      descriptionI18n: localized(body.description?.trim() ?? ''),
+      defaultTitleI18n: localized(defaultTitle),
+      sourceLocale: body.locale, currentVersion: 1,
+      createdById: principal.userId, updatedById: principal.userId,
+    } });
+    await tx.pageTemplateVersion.create({ data: {
+      templateId: created.id,
+      version: 1,
+      contentI18n: localized(''),
+      contentHash: templateContentHash(''),
+      sourcePageId: null,
+      definition: structuredClone(definition) as Prisma.InputJsonValue,
+      schemaVersion: 1,
+      definitionHash,
+      createdById: principal.userId,
+    } });
+    return this.getManagedCompositeRecord(tx, created.id, body.locale);
+  }
+
   async updateMetadata(
     spaceId: string,
     templateId: string,
@@ -392,15 +488,18 @@ export class PageTemplateService implements OnModuleInit {
       if (current.currentVersion !== body.expectedCurrentVersion) {
         throw new BusinessException('PAGE_TEMPLATE_VERSION_CONFLICT');
       }
-      const source = await this.sourceMarkdown(
-        tx, spaceId, body.sourcePageId, body.expectedSourceUpdatedAt,
-      );
-      const hash = templateContentHash(source.content);
       const previous = await tx.pageTemplateVersion.findUnique({
         where: {
           templateId_version: { templateId, version: current.currentVersion },
         },
       });
+      if (previous?.definition !== null && previous?.definition !== undefined) {
+        throw new BusinessException('PAGE_TEMPLATE_INVALID');
+      }
+      const source = await this.sourceMarkdown(
+        tx, spaceId, body.sourcePageId, body.expectedSourceUpdatedAt,
+      );
+      const hash = templateContentHash(source.content);
       const locale = PageTemplateLocaleSchema.parse(current.sourceLocale);
       if (previous?.contentHash === hash) {
         return {
@@ -425,6 +524,65 @@ export class PageTemplateService implements OnModuleInit {
       if (changed.count !== 1) throw new BusinessException('PAGE_TEMPLATE_VERSION_CONFLICT');
       return this.getManagedRecord(tx, templateId, locale);
     });
+  }
+
+  async createCompositeVersion(
+    spaceId: string,
+    templateId: string,
+    body: CreateCompositeTemplateVersionInput,
+    principal: Principal,
+  ) {
+    return this.runSpaceMutation(spaceId, principal, async (tx) => {
+      return this.createCompositeVersionInLockedTransaction(tx, spaceId, templateId, body, principal);
+    });
+  }
+
+  async createCompositeVersionInLockedTransaction(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    templateId: string,
+    body: CreateCompositeTemplateVersionInput,
+    principal: Principal,
+  ) {
+    await this.assertCanManage(tx, principal, spaceId);
+    const current = await this.requireSpaceTemplate(tx, spaceId, templateId);
+    if (current.archivedAt) throw new BusinessException('PAGE_TEMPLATE_ARCHIVED');
+    if (current.currentVersion !== body.expectedCurrentVersion) {
+      throw new BusinessException('PAGE_TEMPLATE_VERSION_CONFLICT');
+    }
+    const locale = PageTemplateLocaleSchema.parse(current.sourceLocale);
+    const definition = this.compositeDefinitionForWrite(body.definition, locale);
+    const definitionHash = hashCompositeDefinition(definition);
+    const previous = await tx.pageTemplateVersion.findUnique({
+      where: { templateId_version: { templateId, version: current.currentVersion } },
+    });
+    if (previous?.definitionHash === definitionHash) {
+      return {
+        ...(await this.getManagedCompositeRecord(tx, templateId, locale)),
+        noChange: true,
+      };
+    }
+    const nextVersion = current.currentVersion + 1;
+    await tx.pageTemplateVersion.create({ data: {
+      templateId,
+      version: nextVersion,
+      contentI18n: { [locale]: '' },
+      contentHash: templateContentHash(''),
+      sourcePageId: null,
+      definition: structuredClone(definition) as Prisma.InputJsonValue,
+      schemaVersion: 1,
+      definitionHash,
+      createdById: principal.userId,
+    } });
+    const changed = await tx.pageTemplate.updateMany({
+      where: {
+        id: templateId, spaceId, scope: 'space',
+        currentVersion: current.currentVersion, archivedAt: null,
+      },
+      data: { currentVersion: nextVersion, updatedById: principal.userId },
+    });
+    if (changed.count !== 1) throw new BusinessException('PAGE_TEMPLATE_VERSION_CONFLICT');
+    return this.getManagedCompositeRecord(tx, templateId, locale);
   }
 
   async archive(
@@ -641,6 +799,50 @@ export class PageTemplateService implements OnModuleInit {
     } catch (error) {
       this.rethrowInvalidTemplateJson(error);
     }
+  }
+
+  private async getManagedCompositeRecord(
+    tx: Prisma.TransactionClient,
+    templateId: string,
+    locale: PageTemplateLocale,
+  ) {
+    const template = await tx.pageTemplate.findUnique({ where: { id: templateId } });
+    if (!template) throw new BusinessException('PAGE_TEMPLATE_NOT_FOUND');
+    const version = await tx.pageTemplateVersion.findUnique({
+      where: { templateId_version: { templateId, version: template.currentVersion } },
+    });
+    if (!version?.definition || !version.definitionHash) {
+      throw new BusinessException('PAGE_TEMPLATE_INVALID');
+    }
+    const definition = this.compositeDefinitionForWrite(version.definition, locale);
+    if (hashCompositeDefinition(definition) !== version.definitionHash) {
+      throw new BusinessException('PAGE_TEMPLATE_INVALID');
+    }
+    return {
+      ...this.summary(template, locale),
+      definition,
+      definitionHash: version.definitionHash,
+      sourcePageId: version.sourcePageId,
+    };
+  }
+
+  private compositeDefinitionForWrite(
+    input: unknown,
+    sourceLocale: PageTemplateLocale,
+  ): CompositeTemplateDefinition {
+    const parsed = CompositeTemplateDefinitionSchema.safeParse(structuredClone(input));
+    if (!parsed.success || validateCompositeDefinition(parsed.data).length > 0) {
+      throw new BusinessException('PAGE_TEMPLATE_INVALID');
+    }
+    for (const node of parsed.data.nodes) {
+      const localized = node.kind === 'folder'
+        ? [node.nameI18n]
+        : [node.titleI18n, node.contentI18n];
+      if (localized.some((value) => value[sourceLocale] === undefined)) {
+        throw new BusinessException('PAGE_TEMPLATE_INVALID');
+      }
+    }
+    return parsed.data;
   }
 
   private rethrowInvalidTemplateJson(error: unknown): never {
