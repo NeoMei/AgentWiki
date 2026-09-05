@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 import { withFolderTestDatabase } from './folder-test-database.mjs';
+import { createSyncV3TestRuntime } from './sync-v3-test-runtime.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
@@ -9,10 +10,8 @@ const {
   canonicalBytes, contentHash, pathKey, treeBatchHashV2, treeConfirmationHashV2,
 } = requireFromServer('@neomei/agentwiki-sync-protocol');
 const { ReadableSyncPathService } = requireFromServer('./dist/core/sync/readable-sync-path.service.js');
-const { SpaceRevisionWriterService } = requireFromServer('./dist/core/sync/space-revision-writer.service.js');
 const { ContentTreeService } = requireFromServer('./dist/content-tree/content-tree.service.js');
 const { PushSessionService } = requireFromServer('./dist/integrations/obsidian/push-session.service.js');
-const { SyncV2RevisionService } = requireFromServer('./dist/integrations/obsidian/sync-v2-revision.service.js');
 
 const databaseUrl = process.env.FOLDER_TEST_DATABASE_URL;
 
@@ -37,6 +36,7 @@ test('Sync v2 mixed Folder/Page publish is one ContentTree transaction in real P
 }, async () => {
   await withFolderTestDatabase(databaseUrl, async ({ databaseUrl: isolatedUrl, schemaName }) => {
     const prisma = new PrismaClient({ datasources: { db: { url: isolatedUrl } } });
+    const runtime = await createSyncV3TestRuntime(prisma, `sync-v2-folder-${schemaName}`);
     try {
       const suffix = schemaName.slice('folder_test_'.length);
       const userId = `sync-v2-user-${suffix}`;
@@ -57,7 +57,7 @@ test('Sync v2 mixed Folder/Page publish is one ContentTree transaction in real P
         credentialHash: `credential-hash-${suffix}`, status: 'active', activatedAt: new Date(),
       } });
 
-      const writer = SpaceRevisionWriterService.legacyOnly(prisma);
+      const writer = runtime.writer;
       const tree = new ContentTreeService(prisma, writer, new ReadableSyncPathService());
       const now = '2026-08-29T00:00:00.000Z';
       const body = '# Child\n';
@@ -290,6 +290,8 @@ test('Sync v2 mixed Folder/Page publish is one ContentTree transaction in real P
         { indexPage: async () => undefined, deletePageIndex: async () => undefined },
         undefined,
         { enqueue: () => undefined },
+        runtime.syncCapabilities,
+        runtime.v3Writer,
       );
       const flowPrincipal = {
         userId, platformRole: 'user', credentialId, credentialFamilyId,
@@ -499,7 +501,7 @@ test('Sync v2 mixed Folder/Page publish is one ContentTree transaction in real P
         await Promise.allSettled([afterFinalize, afterDelete].filter(Boolean));
       }
 
-      const immutableReader = new SyncV2RevisionService(
+      const immutableReader = runtime.createV2Reader(
         prisma,
         {
           encode: (payload) => Buffer.from(JSON.stringify(payload)).toString('base64url'),
@@ -564,8 +566,11 @@ test('Sync v2 mixed Folder/Page publish is one ContentTree transaction in real P
       });
       let archiveQueryCount = 0;
       queryPrisma.$on('query', () => { archiveQueryCount += 1; });
+      const queryRuntime = await createSyncV3TestRuntime(
+        queryPrisma, `sync-v2-folder-query-${schemaName}`,
+      );
       try {
-        const queryWriter = SpaceRevisionWriterService.legacyOnly(queryPrisma);
+        const queryWriter = queryRuntime.writer;
         const queryTree = new ContentTreeService(
           queryPrisma, queryWriter, new ReadableSyncPathService(),
         );
@@ -589,9 +594,11 @@ test('Sync v2 mixed Folder/Page publish is one ContentTree transaction in real P
           `recursive 10,000-node archive used ${archiveQueryCount} queries`,
         );
       } finally {
+        await queryRuntime.dispose();
         await queryPrisma.$disconnect();
       }
     } finally {
+      await runtime.dispose();
       await prisma.$disconnect();
     }
   });

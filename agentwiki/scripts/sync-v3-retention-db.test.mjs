@@ -43,24 +43,26 @@ function collectPlanNodes(node, result = []) {
   return result;
 }
 
-test('Sync v3 Blob ownership probes use storageKey indexes at high cardinality', {
+test('Sync v3 Blob ownership and cleanup probes use their indexes at high cardinality', {
   skip: baseDatabaseUrl ? false : 'SYNC_V3_TEST_DATABASE_URL is not configured',
   timeout: 180_000,
 }, async () => {
   await withSyncV3TestDatabase(baseDatabaseUrl, async ({
+    applySyncV3AttachmentCleanupCursorMigration,
     applySyncV3BlobReferenceIndexMigration, applySyncV3Migration,
     applySyncV3PushOrdinalMigration, databaseUrl, schemaName,
   }) => {
     await applySyncV3Migration();
     await applySyncV3PushOrdinalMigration();
     await applySyncV3BlobReferenceIndexMigration();
+    await applySyncV3AttachmentCleanupCursorMigration();
     const prisma = new PrismaService({ datasources: { db: { url: databaseUrl } } });
     const suffix = schemaName.slice(-10);
     const userId = `index-user-${suffix}`;
     const spaceId = `index-space-${suffix}`;
     const revisionId = `index-revision-${suffix}`;
     const sessionId = randomUUID();
-    const targetHash = (2_000).toString(16).padStart(64, '0');
+    const targetHash = (20_000).toString(16).padStart(64, '0');
     const targetStorageKey = storageKey(targetHash);
     try {
       await prisma.$connect();
@@ -92,7 +94,7 @@ test('Sync v3 Blob ownership probes use storageKey indexes at high cardinality',
           lpad(to_hex(g), 64, '0'),
           'sha256/00/00/' || lpad(to_hex(g), 64, '0'),
           'image/png', 1, 1, 1, 'active'::"SpaceAttachmentStatus", $3, now(), now()
-        FROM generate_series(1, 2000) AS g
+        FROM generate_series(1, 20000) AS g
       `, suffix, spaceId, userId);
       await prisma.$executeRawUnsafe(`
         INSERT INTO "AttachmentVersion" (
@@ -104,7 +106,7 @@ test('Sync v3 Blob ownership probes use storageKey indexes at high cardinality',
           lpad(to_hex(g), 64, '0'),
           'sha256/00/00/' || lpad(to_hex(g), 64, '0'),
           'image/png', 1, 1, 1
-        FROM generate_series(1, 2000) AS g
+        FROM generate_series(1, 20000) AS g
       `, suffix);
       await prisma.$executeRawUnsafe(`
         INSERT INTO "SyncRevisionAttachmentRow" (
@@ -127,13 +129,11 @@ test('Sync v3 Blob ownership probes use storageKey indexes at high cardinality',
         SELECT
           $1, lpad(to_hex(g), 64, '0'), 1, 'image/png', 1, 1, 'verified',
           'sha256/00/00/' || lpad(to_hex(g), 64, '0')
-        FROM generate_series(1, 2000) AS g
+        FROM generate_series(1, 20000) AS g
       `, sessionId);
       await prisma.$executeRawUnsafe(
         'ANALYZE "SpaceAttachment", "AttachmentVersion", "SyncRevisionAttachmentRow", "PushSessionBlob"',
       );
-      await prisma.$executeRawUnsafe('SET enable_seqscan = off');
-
       const probes = [
         [
           'SpaceAttachment',
@@ -157,11 +157,27 @@ test('Sync v3 Blob ownership probes use storageKey indexes at high cardinality',
           WHERE v."storageKey" = $1
         `, [
           'AttachmentVersion_storageKey_idx',
-          'SyncRevisionAttachmentRow_attachmentVersionId_attachmentId_idx',
+          'SyncRevisionAttachmentRow_attachmentId_spaceId_idx',
         ]],
+        [
+          'SyncRevisionAttachmentRow point owner check',
+          `SELECT 1 FROM "SyncRevisionAttachmentRow"
+           WHERE "attachmentId" = $1 AND "spaceId" = $2`,
+          ['SyncRevisionAttachmentRow_attachmentId_spaceId_idx'],
+          [`index-attachment-1000-${suffix}`, spaceId],
+        ],
+        [
+          'SpaceAttachment archived keyset scan',
+          `SELECT id FROM "SpaceAttachment"
+           WHERE status = 'archived'::"SpaceAttachmentStatus" AND "archivedAt" <= $1
+           ORDER BY "archivedAt" ASC, id ASC
+           LIMIT 100`,
+          ['SpaceAttachment_status_archivedAt_id_idx'],
+          [new Date()],
+        ],
       ];
-      for (const [label, sql, expectedIndexes] of probes) {
-        const [explain] = await prisma.$queryRawUnsafe(`EXPLAIN (FORMAT JSON) ${sql}`, targetStorageKey);
+      for (const [label, sql, expectedIndexes, parameters = [targetStorageKey]] of probes) {
+        const [explain] = await prisma.$queryRawUnsafe(`EXPLAIN (FORMAT JSON) ${sql}`, ...parameters);
         const nodes = collectPlanNodes(explain['QUERY PLAN'][0].Plan);
         assert.equal(
           nodes.some((node) => node.nodeType.includes('Index') || node.nodeType.includes('Bitmap')),
@@ -193,12 +209,14 @@ test('Sync v3 retention and Blob GC preserve every live owner and close deletion
   timeout: 180_000,
 }, async () => {
   await withSyncV3TestDatabase(baseDatabaseUrl, async ({
+    applySyncV3AttachmentCleanupCursorMigration,
     applySyncV3BlobReferenceIndexMigration, applySyncV3Migration,
     applySyncV3PushOrdinalMigration, databaseUrl, schemaName,
   }) => {
     await applySyncV3Migration();
     await applySyncV3PushOrdinalMigration();
     await applySyncV3BlobReferenceIndexMigration();
+    await applySyncV3AttachmentCleanupCursorMigration();
     const prisma = new PrismaService({ datasources: { db: { url: databaseUrl } } });
     const root = await mkdtemp(join(tmpdir(), 'agentwiki-attachment-test-retention-v3-'));
     const suffix = schemaName.slice(-10);
@@ -235,8 +253,8 @@ test('Sync v3 retention and Blob GC preserve every live owner and close deletion
       await prisma.user.create({ data: { id: userId, email: `${userId}@retention-v3.test` } });
       await prisma.space.create({ data: { id: spaceId, name: 'Retention v3', slug: spaceId } });
       await prisma.spaceMember.create({ data: { userId, spaceId, role: 'owner' } });
-      const [referenced, archived, unexpired, grace, expired, orphan, racing] = await Promise.all(
-        ['a', 'b', 'c', 'd', 'e', 'f', '9'].map(createBlob),
+      const [referenced, archived, unexpired, grace, expired, orphan, racing, archiveRacing] = await Promise.all(
+        ['a', 'b', 'c', 'd', 'e', 'f', '9', '7'].map(createBlob),
       );
 
       const page = await prisma.page.create({ data: {
@@ -273,6 +291,18 @@ test('Sync v3 retention and Blob GC preserve every live owner and close deletion
         contentHash: archived.hash, storageKey: archived.key, mimeType: 'image/png',
         sizeBytes: 1n, width: 1, height: 1,
       } });
+      const archiveRaceAttachment = await prisma.spaceAttachment.create({ data: {
+        id: `archive-race-${suffix}`, spaceId,
+        displayName: `archive-race-${suffix}.png`, nameKey: `archive-race-${suffix}.png`,
+        contentHash: archiveRacing.hash, storageKey: archiveRacing.key, mimeType: 'image/png',
+        sizeBytes: 1n, width: 1, height: 1, status: 'archived',
+        archivedAt: new Date(now - 31 * DAY), uploadedByUserId: userId,
+      } });
+      const archiveRaceVersion = await prisma.attachmentVersion.create({ data: {
+        id: `archive-race-version-${suffix}`, attachmentId: archiveRaceAttachment.id,
+        contentHash: archiveRacing.hash, storageKey: archiveRacing.key, mimeType: 'image/png',
+        sizeBytes: 1n, width: 1, height: 1,
+      } });
 
       const oldRevisionId = `revision-old-${suffix}`;
       const currentRevisionId = `revision-current-${suffix}`;
@@ -304,7 +334,7 @@ test('Sync v3 retention and Blob GC preserve every live owner and close deletion
           pathKey: `assets/photo-${suffix}.png`, ordinal: 0,
         },
       ] });
-      const blockedAttachments = Array.from({ length: 100 }, (_, index) => ({
+      const blockedAttachments = Array.from({ length: 250 }, (_, index) => ({
         id: `blocked-attachment-${index}-${suffix}`,
         spaceId,
         displayName: `blocked-${index}-${suffix}.png`,
@@ -390,13 +420,11 @@ test('Sync v3 retention and Blob GC preserve every live owner and close deletion
         where: { id: attachment.id },
       });
 
-      const rawQuery = prisma.$queryRaw.bind(prisma);
-      let raceFirstCheck = false;
-      prisma.$queryRaw = async (...args) => {
-        const result = await rawQuery(...args);
-        const candidateKey = args[1];
-        if (!raceFirstCheck && candidateKey === racing.key) {
-          raceFirstCheck = true;
+      const withContentLock = storage.withContentLock.bind(storage);
+      let orphanRaceInjected = false;
+      storage.withContentLock = async (contentHash, callback) => {
+        if (!orphanRaceInjected && contentHash === racing.hash) {
+          orphanRaceInjected = true;
           await prisma.spaceAttachment.create({ data: {
             id: `race-owner-${suffix}`, spaceId,
             displayName: `race-${suffix}.png`, nameKey: `race-${suffix}.png`,
@@ -404,16 +432,90 @@ test('Sync v3 retention and Blob GC preserve every live owner and close deletion
             sizeBytes: 1n, width: 1, height: 1, status: 'active', uploadedByUserId: userId,
           } });
         }
+        return withContentLock(contentHash, callback);
+      };
+      const findRevisionReference = prisma.syncRevisionAttachmentRow.findFirst.bind(
+        prisma.syncRevisionAttachmentRow,
+      );
+      let archiveRaceInjected = false;
+      prisma.syncRevisionAttachmentRow.findFirst = async (args) => {
+        const result = await findRevisionReference(args);
+        if (
+          !archiveRaceInjected
+          && result === null
+          && args?.where?.attachmentId === archiveRaceAttachment.id
+        ) {
+          archiveRaceInjected = true;
+          await prisma.syncRevisionAttachmentRow.create({ data: {
+            revisionId: currentRevisionId,
+            attachmentId: archiveRaceAttachment.id,
+            attachmentVersionId: archiveRaceVersion.id,
+            spaceId,
+            path: `assets/archive-race-${suffix}.png`,
+            pathKey: `assets/archive-race-${suffix}.png`,
+            ordinal: 500,
+          } });
+        }
         return result;
       };
-      const worker = new AttachmentCleanupWorker(
+      const makeWorker = () => new AttachmentCleanupWorker(
         prisma,
         { get: (key) => key === 'PROCESS_ROLE' ? 'worker' : undefined },
         storage,
         config,
       );
-      await worker.tick();
-      prisma.$queryRaw = rawQuery;
+      const firstWorker = makeWorker();
+      await firstWorker.tick();
+      assert.notEqual(
+        await prisma.spaceAttachment.findUnique({ where: { id: archivedAttachment.id } }),
+        null,
+        'one tick visits at most 100 of 250 older blocked rows',
+      );
+      const firstCursor = await prisma.attachmentCleanupCursor.findUniqueOrThrow({
+        where: { key: 'archived-attachments-v1' },
+      });
+      await firstWorker.onModuleDestroy();
+
+      const restartedWorker = makeWorker();
+      await restartedWorker.tick();
+      assert.notEqual(
+        await prisma.spaceAttachment.findUnique({ where: { id: archivedAttachment.id } }),
+        null,
+        'a restarted worker resumes after the persisted cursor',
+      );
+      const secondCursor = await prisma.attachmentCleanupCursor.findUniqueOrThrow({
+        where: { key: 'archived-attachments-v1' },
+      });
+      assert.notEqual(secondCursor.attachmentId, firstCursor.attachmentId);
+      await restartedWorker.onModuleDestroy();
+
+      const completingWorker = makeWorker();
+      await completingWorker.tick();
+      const cursorBeforeWrap = await prisma.attachmentCleanupCursor.findUniqueOrThrow({
+        where: { key: 'archived-attachments-v1' },
+      });
+      assert.equal(
+        await prisma.spaceAttachment.findUnique({ where: { id: archivedAttachment.id } }),
+        null,
+        'the later eligible row is collected within three bounded ticks',
+      );
+      assert.equal(archiveRaceInjected, true, 'archive race fixture reached the unlocked point check');
+      assert.notEqual(
+        await prisma.spaceAttachment.findUnique({ where: { id: archiveRaceAttachment.id } }),
+        null,
+        'a revision reference added after the point check wins the locked recheck',
+      );
+      await completingWorker.onModuleDestroy();
+
+      const wrappingWorker = makeWorker();
+      await wrappingWorker.tick();
+      const cursorAfterWrap = await prisma.attachmentCleanupCursor.findUniqueOrThrow({
+        where: { key: 'archived-attachments-v1' },
+      });
+      assert.ok(cursorAfterWrap.archivedAt < cursorBeforeWrap.archivedAt);
+      await wrappingWorker.onModuleDestroy();
+      prisma.syncRevisionAttachmentRow.findFirst = findRevisionReference;
+      storage.withContentLock = withContentLock;
 
       const retention = new RevisionRetentionService(prisma);
       let retainedCount;
@@ -440,12 +542,14 @@ test('Sync v3 retention and Blob GC preserve every live owner and close deletion
       assert.equal(await exists(unexpired.path), true, 'unexpired session owner');
       assert.equal(await exists(grace.path), true, 'expired session grace owner');
       assert.equal(await exists(racing.path), true, 'new owner created between GC checks');
+      assert.equal(orphanRaceInjected, true, 'orphan race fixture reached the content lease');
       assert.equal(await exists(expired.path), false, 'session beyond grace is collectible');
       assert.equal(await exists(orphan.path), false, 'unowned Blob is collectible');
       assert.equal(await exists(archived.path), false, 'unreferenced archived version is collectible');
       assert.equal(await prisma.spaceAttachment.count({
         where: { id: { in: blockedAttachments.map((row) => row.id) } },
-      }), 100, 'permanently revision-owned archived rows remain retained');
+      }), 250, 'permanently revision-owned archived rows remain retained');
+      assert.equal(await exists(archiveRacing.path), true, 'new archived-row revision owner race');
       assert.equal(await prisma.spaceAttachment.findUnique({ where: { id: archivedAttachment.id } }), null);
       assert.equal(await prisma.attachmentVersion.count({ where: { attachmentId: archivedAttachment.id } }), 0);
     } finally {

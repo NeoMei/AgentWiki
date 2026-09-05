@@ -15,19 +15,15 @@ import {
   withFolderTestDatabase,
 } from './folder-test-database.mjs';
 import { runBlockingLockProbe } from './content-tree-lock-probe.mjs';
+import { createSyncV3TestRuntime } from './sync-v3-test-runtime.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
 const { ContentTreeService } = requireFromServer('./dist/content-tree/content-tree.service.js');
 const { ReadableSyncPathService } = requireFromServer('./dist/core/sync/readable-sync-path.service.js');
-const { SpaceRevisionWriterService } = requireFromServer('./dist/core/sync/space-revision-writer.service.js');
-const { AuthorizationService } = requireFromServer('./dist/core/authorization/authorization.service.js');
-const { MarkdownResourceService } = requireFromServer('./dist/markdown-resources/markdown-resource.service.js');
-const { SyncV3RevisionWriterService } = requireFromServer('./dist/core/sync/sync-v3-revision-writer.service.js');
-const { LocalAttachmentStorage } = requireFromServer('./dist/attachments/local-attachment.storage.js');
 const baseDatabaseUrl = process.env.FOLDER_TEST_DATABASE_URL;
 let publicInventoryBefore;
-const REVIEWED_MIGRATION_TREE_SHA256 = '5d51254712ba8dbf90fa62e13506dbc8ee8a3d71d637099281794618a1e558ee';
+const REVIEWED_MIGRATION_TREE_SHA256 = '813c0add6c4a4a991ae5fb89e91db0856200654aa46169a44da3cb226c94bb58';
 
 const folderPgDumpFixture = (token, body) => `--\n-- PostgreSQL database dump\n--\n\n\\restrict ${token}\n\n${body}\n\n--\n-- PostgreSQL database dump complete\n--\n\n\\unrestrict ${token}\n\n`;
 
@@ -478,7 +474,8 @@ test('ContentTree production advisory lock serializes create, commit, and rollba
 }, async () => {
   await withFolderTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schemaName }) => {
     const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
-    const writer = SpaceRevisionWriterService.legacyOnly(prisma);
+    const runtime = await createSyncV3TestRuntime(prisma, `content-tree-core-${schemaName}`);
+    const writer = runtime.writer;
     const service = new ContentTreeService(prisma, writer, new ReadableSyncPathService());
     const suffix = schemaName.replace('folder_test_', '');
     const userId = `user_${suffix}`;
@@ -639,9 +636,8 @@ test('ContentTree production advisory lock serializes create, commit, and rollba
       assert.equal(afterCommitSnapshot.treeRevision, 1n);
       assert.equal(afterCommitSnapshot.data.length, 1);
     } finally {
+      await runtime.dispose();
       await prisma.$disconnect();
-      await storage.onModuleDestroy();
-      await rm(storageRoot, { recursive: true, force: true });
     }
   });
 });
@@ -656,7 +652,8 @@ test('blocking probe releases latches and the Folder harness cleans a controlled
   await assert.rejects(
     withFolderTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schemaName }) => {
       const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
-      const writer = SpaceRevisionWriterService.legacyOnly(prisma);
+      const runtime = await createSyncV3TestRuntime(prisma, `content-tree-lock-${schemaName}`);
+      const writer = runtime.writer;
       const spaceId = `cleanup_${schemaName.replace('folder_test_', '')}`;
       try {
         await prisma.space.create({ data: { id: spaceId, name: 'Cleanup', slug: spaceId } });
@@ -680,6 +677,7 @@ test('blocking probe releases latches and the Folder harness cleans a controlled
           wait(1_000).then(() => { throw new Error('blocking probe cleanup hung'); }),
         ]);
       } finally {
+        await runtime.dispose();
         await prisma.$disconnect();
       }
     }),

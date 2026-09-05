@@ -17,7 +17,7 @@ import {
 } from './attachment-storage';
 import { ATTACHMENT_CONFIG } from './attachment.config';
 
-const BATCH_SIZE = 100;
+const ARCHIVED_SCAN_VISIT_LIMIT = 100;
 const ORPHAN_SCAN_VISIT_LIMIT = 100;
 const ORPHAN_DELETE_LIMIT = 100;
 const DEFAULT_POLL_MS = 60 * 60 * 1000;
@@ -27,6 +27,7 @@ const SHARD_PATTERN = /^[0-9a-f]{2}$/u;
 
 type ArchivedAttachment = {
   id: string;
+  spaceId: string;
   contentHash: string;
   storageKey: string;
   archivedAt: Date | null;
@@ -142,21 +143,13 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
 
   private async cleanupArchived(cutoff: Date, referenceTime: Date): Promise<void> {
     if (this.shuttingDown) return;
-    const archived = await this.prisma.spaceAttachment.findMany({
-      where: {
-        status: 'archived',
-        archivedAt: { lte: cutoff },
-        revisionRows: { none: {} },
-      },
-      orderBy: [{ archivedAt: 'asc' }, { id: 'asc' }],
-      take: BATCH_SIZE,
-      select: { id: true, contentHash: true, storageKey: true, archivedAt: true },
-    }) as ArchivedAttachment[];
+    const archived = await this.claimArchivedPage(cutoff);
     if (this.shuttingDown) return;
 
     for (const attachment of archived) {
       if (this.shuttingDown) return;
       try {
+        if (await this.hasRevisionOwner(this.prisma, attachment)) continue;
         const deleted = await this.prisma.$transaction(async (tx) => {
           const locked = await tx.$queryRaw<Array<{ id: string }>>`
             SELECT id
@@ -167,6 +160,7 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
             FOR UPDATE
           `;
           if (locked.length !== 1) return { count: 0 };
+          if (await this.hasRevisionOwner(tx, attachment)) return { count: 0 };
           await tx.attachmentVersion.deleteMany({
             where: {
               attachmentId: attachment.id,
@@ -194,6 +188,80 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
         );
       }
     }
+  }
+
+  private async claimArchivedPage(cutoff: Date): Promise<ArchivedAttachment[]> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.attachmentCleanupCursor.upsert({
+        where: { key: 'archived-attachments-v1' },
+        create: { key: 'archived-attachments-v1' },
+        update: {},
+      });
+      const positions = await tx.$queryRaw<Array<{
+        archivedAt: Date | null;
+        attachmentId: string | null;
+      }>>`
+        SELECT "archivedAt", "attachmentId"
+        FROM "AttachmentCleanupCursor"
+        WHERE key = 'archived-attachments-v1'
+        FOR UPDATE
+      `;
+      if (
+        positions.length !== 1
+        || ((positions[0]!.archivedAt === null) !== (positions[0]!.attachmentId === null))
+      ) throw new Error('ATTACHMENT_CLEANUP_CURSOR_INVALID');
+
+      const select = {
+        id: true,
+        spaceId: true,
+        contentHash: true,
+        storageKey: true,
+        archivedAt: true,
+      } as const;
+      const findPage = (position: typeof positions[number] | null) =>
+        tx.spaceAttachment.findMany({
+          where: {
+            status: 'archived',
+            archivedAt: { lte: cutoff },
+            ...(position?.archivedAt && position.attachmentId
+              ? {
+                  OR: [
+                    { archivedAt: { gt: position.archivedAt } },
+                    { archivedAt: position.archivedAt, id: { gt: position.attachmentId } },
+                  ],
+                }
+              : {}),
+          },
+          orderBy: [{ archivedAt: 'asc' as const }, { id: 'asc' as const }],
+          take: ARCHIVED_SCAN_VISIT_LIMIT,
+          select,
+        }) as Promise<ArchivedAttachment[]>;
+
+      const position = positions[0]!;
+      let page = await findPage(position);
+      if (page.length === 0 && position.archivedAt !== null) {
+        page = await findPage(null);
+      }
+      const last = page[page.length - 1];
+      await tx.attachmentCleanupCursor.update({
+        where: { key: 'archived-attachments-v1' },
+        data: last
+          ? { archivedAt: last.archivedAt, attachmentId: last.id }
+          : { archivedAt: null, attachmentId: null },
+      });
+      return page;
+    });
+  }
+
+  private async hasRevisionOwner(
+    db: Pick<PrismaService, 'syncRevisionAttachmentRow'>,
+    attachment: Pick<ArchivedAttachment, 'id' | 'spaceId'>,
+  ): Promise<boolean> {
+    const owner = await db.syncRevisionAttachmentRow.findFirst({
+      where: { attachmentId: attachment.id, spaceId: attachment.spaceId },
+      select: { attachmentId: true },
+    });
+    return owner !== null;
   }
 
   private async cleanupOrphans(cutoff: Date, referenceTime: Date): Promise<void> {

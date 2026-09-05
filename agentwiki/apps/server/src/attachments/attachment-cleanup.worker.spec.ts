@@ -44,10 +44,17 @@ describe('AttachmentCleanupWorker', () => {
   ) => {
     const events: string[] = [];
     const tx = {
-      $queryRaw: jest.fn(async () => {
+      $queryRaw: jest.fn(async (query: unknown) => {
+        if (Array.isArray(query) && query.join('').includes('AttachmentCleanupCursor')) {
+          return [{ archivedAt: null, attachmentId: null }];
+        }
         events.push('metadata-lock');
         return [{ id: 'attachment-1' }];
       }),
+      attachmentCleanupCursor: {
+        upsert: jest.fn().mockResolvedValue({}),
+        update: jest.fn().mockResolvedValue({}),
+      },
       attachmentVersion: {
         deleteMany: jest.fn(async () => {
           events.push('version-delete');
@@ -55,10 +62,14 @@ describe('AttachmentCleanupWorker', () => {
         }),
       },
       spaceAttachment: {
+        findMany: jest.fn().mockResolvedValue(options.archived ?? []),
         deleteMany: jest.fn(async () => {
           events.push('metadata-delete');
           return { count: 1 };
         }),
+      },
+      syncRevisionAttachmentRow: {
+        findFirst: jest.fn().mockResolvedValue(null),
       },
     };
     const prisma = {
@@ -75,6 +86,9 @@ describe('AttachmentCleanupWorker', () => {
           if (options.referenceCountFor) return options.referenceCountFor(where.storageKey);
           return options.referenceCount ?? 0;
         }),
+      },
+      syncRevisionAttachmentRow: {
+        findFirst: jest.fn().mockResolvedValue(null),
       },
       $transaction: jest.fn(async (callback: (value: typeof tx) => unknown) => callback(tx)),
     };
@@ -150,7 +164,7 @@ describe('AttachmentCleanupWorker', () => {
 
   it('scans expired temp reservations on worker startup before metadata and blob cleanup', async () => {
     const root = await createRoot();
-    const { worker, storage, prisma } = createWorker(root);
+    const { worker, storage, tx } = createWorker(root);
 
     worker.onModuleInit();
     await jest.advanceTimersByTimeAsync(0);
@@ -159,7 +173,7 @@ describe('AttachmentCleanupWorker', () => {
       new Date(now.getTime() - DAY_MS),
     );
     expect(storage.cleanupExpiredTempReservations.mock.invocationCallOrder[0]).toBeLessThan(
-      prisma.spaceAttachment.findMany.mock.invocationCallOrder[0],
+      tx.spaceAttachment.findMany.mock.invocationCallOrder[0],
     );
   });
 
@@ -186,9 +200,9 @@ describe('AttachmentCleanupWorker', () => {
 
   it('suppresses an overlapping tick', async () => {
     const root = await createRoot();
-    const { worker, prisma } = createWorker(root);
+    const { worker, tx } = createWorker(root);
     let release!: () => void;
-    prisma.spaceAttachment.findMany.mockImplementationOnce(
+    tx.spaceAttachment.findMany.mockImplementationOnce(
       () => new Promise((resolve) => {
         release = () => resolve([]);
       }),
@@ -196,9 +210,11 @@ describe('AttachmentCleanupWorker', () => {
 
     const first = worker.tick();
     const second = worker.tick();
-    await Promise.resolve();
+    for (let attempt = 0; attempt < 20 && !release; attempt += 1) {
+      await Promise.resolve();
+    }
 
-    expect(prisma.spaceAttachment.findMany).toHaveBeenCalledTimes(1);
+    expect(tx.spaceAttachment.findMany).toHaveBeenCalledTimes(1);
     release();
     await Promise.all([first, second]);
   });
@@ -207,21 +223,22 @@ describe('AttachmentCleanupWorker', () => {
     const root = await createRoot();
     const hash = 'a'.repeat(64);
     const archivedAt = new Date(now.getTime() - 31 * DAY_MS);
-    const { worker, prisma, tx, storage, events } = createWorker(root, {
+    const { worker, tx, storage, events } = createWorker(root, {
       archived: [{ id: 'attachment-1', contentHash: hash, storageKey: `sha256/aa/aa/${hash}`, archivedAt }],
     });
 
     await worker.tick();
 
-    expect(prisma.spaceAttachment.findMany).toHaveBeenCalledWith({
+    expect(tx.spaceAttachment.findMany).toHaveBeenCalledWith({
       where: {
         status: 'archived',
         archivedAt: { lte: new Date(now.getTime() - 30 * DAY_MS) },
-        revisionRows: { none: {} },
       },
       orderBy: [{ archivedAt: 'asc' }, { id: 'asc' }],
       take: 100,
-      select: { id: true, contentHash: true, storageKey: true, archivedAt: true },
+      select: {
+        id: true, spaceId: true, contentHash: true, storageKey: true, archivedAt: true,
+      },
     });
     expect(tx.spaceAttachment.deleteMany).toHaveBeenCalledWith({
       where: { id: 'attachment-1', status: 'archived', archivedAt: { lte: new Date(now.getTime() - 30 * DAY_MS) } },
@@ -239,6 +256,37 @@ describe('AttachmentCleanupWorker', () => {
       'physical-remove',
       'lock-end',
     ]);
+  });
+
+  it('claims a persisted keyset page and point-checks revision owners within the visit budget', async () => {
+    const root = await createRoot();
+    const hash = '4'.repeat(64);
+    const archivedAt = new Date(now.getTime() - 31 * DAY_MS);
+    const { worker, prisma, tx } = createWorker(root, {
+      archived: [{
+        id: 'attachment-1', spaceId: 'space-1', contentHash: hash,
+        storageKey: `sha256/44/44/${hash}`, archivedAt,
+      }],
+    });
+
+    await worker.tick();
+
+    expect(tx.attachmentCleanupCursor.upsert).toHaveBeenCalledWith({
+      where: { key: 'archived-attachments-v1' },
+      create: { key: 'archived-attachments-v1' },
+      update: {},
+    });
+    expect(tx.spaceAttachment.findMany).toHaveBeenCalledWith({
+      where: { status: 'archived', archivedAt: { lte: new Date(now.getTime() - 30 * DAY_MS) } },
+      orderBy: [{ archivedAt: 'asc' }, { id: 'asc' }],
+      take: 100,
+      select: {
+        id: true, spaceId: true, contentHash: true, storageKey: true, archivedAt: true,
+      },
+    });
+    expect(prisma.spaceAttachment.findMany).not.toHaveBeenCalled();
+    expect(prisma.syncRevisionAttachmentRow.findFirst).toHaveBeenCalledTimes(1);
+    expect(tx.syncRevisionAttachmentRow.findFirst).toHaveBeenCalledTimes(1);
   });
 
   it('retains a shared blob when another metadata row references its storage key', async () => {
@@ -408,7 +456,7 @@ describe('AttachmentCleanupWorker', () => {
     await writeFile(absolutePath, 'old orphan');
     const oldTime = new Date(now.getTime() - DAY_MS - 1);
     await utimes(absolutePath, oldTime, oldTime);
-    const { worker, prisma, storage } = createWorker(root);
+    const { worker, prisma, storage, tx } = createWorker(root);
     let releaseNext!: () => void;
     let signalNextStarted!: () => void;
     const nextStarted = new Promise<void>((resolve) => { signalNextStarted = resolve; });
@@ -454,7 +502,7 @@ describe('AttachmentCleanupWorker', () => {
     expect(generators).toBe(1);
     expect(generatorsClosed).toBe(1);
     expect((worker as any).orphanIterator).toBeUndefined();
-    expect(prisma.spaceAttachment.findMany).toHaveBeenCalledTimes(1);
+    expect(tx.spaceAttachment.findMany).toHaveBeenCalledTimes(1);
     expect(prisma.spaceAttachment.count).not.toHaveBeenCalled();
     expect(storage.withContentLock).not.toHaveBeenCalled();
     expect(storage.removeIfUnreferenced).not.toHaveBeenCalled();
@@ -478,8 +526,8 @@ describe('AttachmentCleanupWorker', () => {
 
   it('logs storage failures without crashing the process', async () => {
     const root = await createRoot();
-    const { worker, prisma } = createWorker(root);
-    prisma.spaceAttachment.findMany.mockRejectedValueOnce(new Error('storage metadata unavailable'));
+    const { worker, tx } = createWorker(root);
+    tx.spaceAttachment.findMany.mockRejectedValueOnce(new Error('storage metadata unavailable'));
     const error = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
 
     await expect((worker as any).safeTick()).resolves.toBeUndefined();

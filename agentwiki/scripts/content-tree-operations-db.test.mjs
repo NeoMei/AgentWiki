@@ -10,13 +10,13 @@ import {
   validateFolderTestDatabaseUrl,
   withFolderTestDatabase,
 } from './folder-test-database.mjs';
+import { createSyncV3TestRuntime } from './sync-v3-test-runtime.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
 const { contentHash, pathKey } = requireFromServer('@neomei/agentwiki-sync-protocol');
 const { ContentTreeService } = requireFromServer('./dist/content-tree/content-tree.service.js');
 const { ReadableSyncPathService } = requireFromServer('./dist/core/sync/readable-sync-path.service.js');
-const { SpaceRevisionWriterService } = requireFromServer('./dist/core/sync/space-revision-writer.service.js');
 
 const baseDatabaseUrl = process.env.FOLDER_TEST_DATABASE_URL;
 
@@ -74,7 +74,8 @@ test('ContentTree lifecycle operations are atomic in real PostgreSQL', {
         if (trackQueries) trackedQueryCount += 1;
         return next(params);
       });
-      const writer = SpaceRevisionWriterService.legacyOnly(prisma);
+      const runtime = await createSyncV3TestRuntime(prisma, `content-tree-operations-${schemaName}`);
+      const writer = runtime.writer;
       const paths = new ReadableSyncPathService();
       const service = new ContentTreeService(prisma, writer, paths);
       const suffix = schemaName.slice('folder_test_'.length);
@@ -1010,6 +1011,7 @@ test('ContentTree lifecycle operations are atomic in real PostgreSQL', {
           assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 0);
         });
       } finally {
+        await runtime.dispose();
         await prisma.$disconnect();
       }
     });

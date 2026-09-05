@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 import {
   TreeRevisionContentManifestV2Schema,
@@ -17,6 +17,7 @@ import {
 } from '../packages/sync-protocol/dist/esm/index.js';
 
 import { withFolderTestDatabase } from './folder-test-database.mjs';
+import { createSyncV3TestRuntime } from './sync-v3-test-runtime.mjs';
 import {
   SpaceFolderMigrationPreflightError,
   legacyFolderId,
@@ -104,11 +105,8 @@ test('real PostgreSQL preflight/apply/no-op/version-alias/rollback contract', {
           createdAt: new Date('2026-08-27T01:00:00.000Z'),
         },
       ] });
-      const { SpaceRevisionWriterService } = await import(pathToFileURL(resolve(
-        rootDirectory,
-        'apps/server/dist/core/sync/space-revision-writer.service.js',
-      )).href);
-      const writer = SpaceRevisionWriterService.legacyOnly(prisma);
+      const runtime = await createSyncV3TestRuntime(prisma, 'space-folder-migration-prior');
+      const writer = runtime.writer;
       const priorRevision = await prisma.$transaction((tx) => writer.advanceStructuralPages(
         tx,
         seeded.spaceId,
@@ -128,6 +126,7 @@ test('real PostgreSQL preflight/apply/no-op/version-alias/rollback contract', {
           },
         },
       ));
+      await runtime.dispose();
       assert.ok(priorRevision.revisionId);
 
       const before = {

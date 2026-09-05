@@ -245,7 +245,7 @@ model SpaceAttachment {
   @@index([spaceId, status, updatedAt])
   @@index([contentHash])
   @@index([storageKey])
-  @@index([status, archivedAt])
+  @@index([status, archivedAt, id])
 }
 
 model AttachmentVersion {
@@ -266,6 +266,13 @@ model AttachmentVersion {
   @@unique([id, attachmentId])
   @@index([contentHash])
   @@index([storageKey])
+}
+
+model AttachmentCleanupCursor {
+  key          String    @id
+  archivedAt   DateTime?
+  attachmentId String?
+  updatedAt    DateTime  @default(now()) @updatedAt
 }
 
 model AssistTask {
@@ -1008,6 +1015,7 @@ model SyncRevisionAttachmentRow {
   @@unique([revisionId, pathKey])
   @@unique([revisionId, ordinal])
   @@index([attachmentVersionId, attachmentId])
+  @@index([attachmentId, spaceId])
 }
 
 model SpaceRevisionChainCheckpoint {
