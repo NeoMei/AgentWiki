@@ -197,7 +197,7 @@ describe('TemplateEffectsService', () => {
     await h.service.drain();
 
     expect(h.jobs.map((item) => item.status)).toEqual(['done', 'done', 'done']);
-    expect(h.search.indexPage).toHaveBeenCalledWith('page-1');
+    expect(h.search.indexPage).toHaveBeenCalledWith('page-1', { requireSemanticWrite: true });
     expect(h.graph.refresh).toHaveBeenCalledWith('space-1');
     expect(h.events.publishCurrentRun).toHaveBeenCalledWith('run-1');
   });
@@ -256,7 +256,7 @@ describe('TemplateEffectsService', () => {
     await h.service.drain();
 
     expect(h.jobs.map((item) => item.status)).toEqual(['done', 'done', 'done']);
-    expect(h.search.indexPage).toHaveBeenCalledWith('page-1');
+    expect(h.search.indexPage).toHaveBeenCalledWith('page-1', { requireSemanticWrite: true });
     expect(h.graph.refresh).not.toHaveBeenCalled();
     expect(h.events.publishCurrentRun).not.toHaveBeenCalled();
   });

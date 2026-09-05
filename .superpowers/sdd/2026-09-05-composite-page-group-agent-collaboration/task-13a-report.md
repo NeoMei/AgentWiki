@@ -230,3 +230,87 @@ Database/harness and evidence:
 - `git diff --check` was clean before this final report update and is rerun immediately before commit.
 - No schema migration, public schema write, Sync v3/attachment/Markdown-image-reference change, push, npm publish, production action, destructive rollback, or controller project-memory staging is included.
 - Task 13b remains separate and incomplete here: real Chrome desktop/390px zh-CN/en scenarios, actual external Agent execution/wake behavior, the repository/full acceptance document and harness, final `test:full`, and any release/deployment evidence are not claimed by this report.
+
+## Fix round 1 — semantic completion truth and Redis harness isolation
+
+### Semantic-index completion RED
+
+```text
+pnpm --filter @agentwiki/server exec jest --runInBand \
+  src/core/search/search.service.spec.ts \
+  src/page-templates/template-effects.service.spec.ts
+
+Exit 1. SearchService rejected the new two-argument contract with TS2554, and the
+effect suite observed `indexPage("page-1")` rather than the required
+`indexPage("page-1", { requireSemanticWrite: true })`. This proves an effect retry
+could still use the unproven hash-plus-vector shortcut, and a CAS-zero vector write
+was not exposed as incomplete.
+```
+
+### Redis harness isolation RED
+
+```text
+node --test scripts/e2e-safety.test.mjs
+
+Exit 1. 22/24 passed and the two new entrypoint checks failed because
+`composite-template-effects-policy-db.test.mjs` exited 0 both without an explicit
+test Redis URL and with an unavailable loopback URL. The script therefore still
+accepted its hard-coded 6379 fallback instead of failing before migrations/children.
+```
+
+### Authoritative Page-snapshot fence RED
+
+```text
+pnpm --filter @agentwiki/server exec jest --runInBand \
+  src/core/search/search.service.spec.ts \
+  -t 'guards the vector write against a concurrent newer index run'
+
+Exit 1. The inspected vector-update SQL contained only the lexical-document content
+hash fence; it did not contain Page title/content predicates or their captured
+values. A Page edit that landed before another indexer updated the lexical document
+could therefore still accept the old embedding.
+```
+
+### Semantic-index completion GREEN
+
+```text
+pnpm --filter @agentwiki/server exec jest --runInBand \
+  src/core/search/search.service.spec.ts \
+  src/page-templates/template-effects.service.spec.ts
+
+Exit 0. 2/2 suites and 27/27 tests passed in 2.13s. A CAS-zero vector write now
+returns `{ lexicalIndexed: true, semanticIndexed: false, superseded: true }`;
+the SQL also fences the captured live Page title/content and deletion state. Effect
+delivery calls `indexPage(pageId, { requireSemanticWrite: true })`, so its retry
+cannot accept an old vector solely because the new lexical hash already exists.
+```
+
+### Redis harness isolation GREEN
+
+```text
+node --test scripts/e2e-safety.test.mjs
+
+Exit 0. 24/24 tests passed in 1.49s. The effects-policy DB entrypoint now rejects
+both missing and unavailable Redis targets before database migration or child API
+startup. It accepts only an explicit `PAGE_TEMPLATE_TEST_REDIS_URL` or the full
+runner's explicit `TEST_REDIS_URL`, validates loopback syntax and availability with
+the shared safety helper, and passes that normalized exact URL to the API child.
+```
+
+- Fix round 1 server build: `pnpm --filter @agentwiki/server build`; exit 0 (`nest build`).
+- First fix-round real DB/HTTP run: the feature-off continuation test passed, while the semantic concurrency fixture failed before exercising SearchService because its manual stale-vector setup used unqualified `::halfvec`; PostgreSQL random-schema search paths expose the extension type as `public.halfvec` (`42704: type "halfvec" does not exist`). The helper cleaned both random schemas and preserved the public inventory. Inspection also found the production index-write cast was unqualified, unlike the existing migration and pgvector DB fixtures; both the production write and controlled setup now use the schema-qualified extension type without changing database search paths or global state.
+- Server rebuild after schema-qualifying the pgvector write: `pnpm --filter @agentwiki/server build`; exit 0 (`nest build`).
+- Fix-round real PostgreSQL/HTTP GREEN: explicit PG `127.0.0.1:50415` and Redis `127.0.0.1:50416`, `node --test scripts/composite-template-effects-policy-db.test.mjs`; exit 0, 2/2 tests passed in 11.38s. The real SearchService sequence started with an old stored vector, paused the old-content embedding, committed newer Page title/content, let the newer lexical index fail its isolated fake embedding, then released the old writer. The old vector CAS returned zero/`superseded`; the forced retry bypassed the new-hash/old-vector shortcut and wrote the current embedding. The separate default-closed API process again denied creation and completed the existing Run through MCP claim/submit and human Page publication. Both random schemas reported the unchanged protected-public digest `887e5d38ed14a3945866940b88cb74236e4f56f7636235f53d289095ba0ef73b` and were cleaned.
+- Final fix-round focused regression: server Search/effects/AppModule/WorkerModule 4/4 suites and 29/29 tests passed in 4.36s; `scripts/e2e-safety.test.mjs` passed 24/24 in 1.57s.
+- Fix-round server typecheck: `pnpm --filter @agentwiki/server typecheck`; exit 0, no diagnostics.
+- Fix-round server lint: `pnpm --filter @agentwiki/server lint`; exit 0, no ESLint findings.
+- Final fix-round server build: `pnpm --filter @agentwiki/server build`; exit 0 (`nest build`).
+
+### Fix round 1 files and self-review
+
+- Changed `apps/server/src/core/search/search.service.ts` and `.spec.ts`, `apps/server/src/page-templates/template-effects.service.ts` and `.spec.ts`, `scripts/composite-template-effects-policy-db.test.mjs`, `scripts/e2e-safety.test.mjs`, and this report.
+- Replayed both review findings against the final diff. A live effect can complete semantic indexing only after a current Page snapshot wins the vector CAS; CAS-zero and provider failure remain retryable. The effect-specific forced write is the smallest safe bypass of the legacy cache optimization and ordinary index callers retain that optimization.
+- The real concurrency test covers both distinct races: Page content changes before the old vector write, and a newer lexical document coexists with an old vector after its embedding fails. The first is rejected by authoritative Page title/content/deletion predicates; the second cannot short-circuit the forced retry.
+- Redis selection has no default endpoint. The page-specific variable takes precedence over the full runner's explicit shared variable, both paths pass through the same loopback/URL/database validation and availability probe, and the normalized selected URL is the only value given to the API child.
+- The `public.halfvec` qualification matches the existing migration/test contract and avoids mutating random-schema or global search paths. No schema, Sync, attachment, Markdown-resource, client, authorization, rollout, or Task 13b behavior changed in this fix round.
+- Final explicit-work-tree unstaged and staged `git diff --check` commands both exited 0; the seven staged fix/report paths contain no `.codex-memory` entry.

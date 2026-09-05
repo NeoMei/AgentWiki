@@ -7,6 +7,7 @@ import { createServer } from 'node:net';
 import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { assertTestRedisAvailable, resolveTestRedisTarget } from './e2e-safety.mjs';
 import { withPageTemplateTestDatabase } from './page-template-test-database.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -16,10 +17,15 @@ const { JwtService } = requireFromServer('@nestjs/jwt');
 const { Client } = requireFromServer('@modelcontextprotocol/sdk/client/index.js');
 const { StreamableHTTPClientTransport } = requireFromServer('@modelcontextprotocol/sdk/client/streamableHttp.js');
 const protocol = requireFromServer('@neomei/agentwiki-sync-protocol');
+const { SearchService } = requireFromServer('./dist/core/search/search.service.js');
 const { TemplateEffectsService } = requireFromServer('./dist/page-templates/template-effects.service.js');
 const baseDatabaseUrl = process.env.PAGE_TEMPLATE_TEST_DATABASE_URL;
 
 if (!baseDatabaseUrl) throw new Error('PAGE_TEMPLATE_TEST_DATABASE_URL is required');
+const redisTarget = resolveTestRedisTarget(
+  process.env.PAGE_TEMPLATE_TEST_REDIS_URL ?? process.env.TEST_REDIS_URL,
+);
+assertTestRedisAvailable(redisTarget);
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 
@@ -187,8 +193,54 @@ test('durable effects use real PostgreSQL claim fences and deduplicate concurren
       assert.deepEqual(await first.templateEffectJob.findUniqueOrThrow({
         where: { id: pending.id }, select: { status: true, attempts: true, lastError: true },
       }), { status: 'done', attempts: 2, lastError: null });
+
+      const staleVector = `[${Array.from({ length: 2048 }, () => '0').join(',')}]`;
+      await first.$executeRawUnsafe(
+        'UPDATE "Page" SET "embeddingVector" = $1::public.halfvec WHERE "id" = $2',
+        staleVector,
+        fixture.pageId,
+      );
+      let releaseOldEmbedding;
+      const oldEmbeddingReleased = new Promise((resolveRelease) => {
+        releaseOldEmbedding = resolveRelease;
+      });
+      let markOldEmbeddingStarted;
+      const oldEmbeddingStarted = new Promise((resolveStarted) => {
+        markOldEmbeddingStarted = resolveStarted;
+      });
+      const oldSearch = new SearchService(first, {
+        generateEmbedding: async () => {
+          markOldEmbeddingStarted();
+          await oldEmbeddingReleased;
+          return { embedding: Array(2048).fill(0.1) };
+        },
+      });
+      const oldAttempt = oldSearch.indexPage(fixture.pageId, { requireSemanticWrite: true });
+      await oldEmbeddingStarted;
+      await first.page.update({
+        where: { id: fixture.pageId },
+        data: { title: 'Newer Page', content: '# Newer Page' },
+      });
+      const newerSearch = new SearchService(first, {
+        generateEmbedding: async () => { throw new Error('isolated embedding failure'); },
+      });
+      assert.deepEqual(
+        await newerSearch.indexPage(fixture.pageId, { requireSemanticWrite: true }),
+        { lexicalIndexed: true, semanticIndexed: false },
+      );
+      releaseOldEmbedding();
+      assert.deepEqual(await oldAttempt, {
+        lexicalIndexed: true, semanticIndexed: false, superseded: true,
+      });
+      const retrySearch = new SearchService(first, {
+        generateEmbedding: async () => ({ embedding: Array(2048).fill(0.2) }),
+      });
+      assert.deepEqual(
+        await retrySearch.indexPage(fixture.pageId, { requireSemanticWrite: true }),
+        { lexicalIndexed: true, semanticIndexed: true },
+      );
       process.stdout.write(`${JSON.stringify({
-        check: 'durable-effect-duplicate-claim-and-retry', schemaName, publicInventoryDigest,
+        check: 'durable-effect-claim-retry-and-semantic-fence', schemaName, publicInventoryDigest,
       })}\n`);
     } finally {
       await Promise.all([first.$disconnect(), second.$disconnect()]);
@@ -221,7 +273,7 @@ test('default-closed production HTTP blocks new writes while an existing composi
       AGENTWIKI_LISTEN_HOST: '127.0.0.1',
       PORT: String(port),
       DATABASE_URL: databaseUrl,
-      REDIS_URL: process.env.PAGE_TEMPLATE_TEST_REDIS_URL ?? process.env.TEST_REDIS_URL ?? 'redis://127.0.0.1:6379',
+      REDIS_URL: redisTarget.url,
       JWT_SECRET: jwtSecret,
       AGENTWIKI_SERVER_PEPPER: `effects-policy-pepper-${randomUUID()}`,
       AGENTWIKI_DEPLOYMENT_SEED: randomBytes(32).toString('base64'),

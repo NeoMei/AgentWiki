@@ -121,9 +121,29 @@ describe('SearchService data minimization and durable index', () => {
     prisma.$executeRaw.mockResolvedValueOnce(0);
 
     await expect(service.indexPage('page-1')).resolves.toEqual({
+      lexicalIndexed: true, semanticIndexed: false, superseded: true,
+    });
+    const vectorWrite = prisma.$executeRaw.mock.calls[0][0];
+    expect(vectorWrite.strings.join(' ')).toContain('page."title"');
+    expect(vectorWrite.strings.join(' ')).toContain('page."content"');
+    expect(vectorWrite.values).toEqual(expect.arrayContaining(['Title', 'Body']));
+  });
+
+  it('forces an effect retry to replace an unproven cached vector for the current lexical hash', async () => {
+    const text = 'Title\nBody';
+    const hash = require('crypto').createHash('sha256').update(text).digest('hex');
+    prisma.page.findUnique.mockResolvedValue({ id: 'page-1', title: 'Title', content: 'Body' });
+    prisma.pageSearchDocument.findMany.mockResolvedValue([{ contentHash: hash }]);
+    prisma.$queryRaw.mockResolvedValue([{ exists: true }]);
+    prisma.$executeRaw.mockResolvedValue(1);
+    prisma.pageSearchDocument.upsert.mockResolvedValue({});
+    llm.generateEmbedding.mockResolvedValue({ embedding: [0.2] });
+
+    await expect(service.indexPage('page-1', { requireSemanticWrite: true })).resolves.toEqual({
       lexicalIndexed: true, semanticIndexed: true,
     });
-    expect(prisma.$executeRaw).toHaveBeenCalled();
+    expect(llm.generateEmbedding).toHaveBeenCalledTimes(1);
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
   });
 
   it('repairs active pages whose lexical document is missing', async () => {

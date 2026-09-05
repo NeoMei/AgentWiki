@@ -104,11 +104,18 @@ test('an explicitly configured Redis target fails closed when its probe fails', 
 });
 
 test('database-backed integration test entrypoints fail closed without TEST_REDIS_URL', () => {
-  for (const [file, databaseVariable, testPattern] of [
-    ['sync-v1-http-e2e.test.mjs', 'DATABASE_URL', '__bootstrap_gate_only__'],
+  for (const [file, databaseVariable, redisVariable, testPattern] of [
+    ['sync-v1-http-e2e.test.mjs', 'DATABASE_URL', 'TEST_REDIS_URL', '__bootstrap_gate_only__'],
+    [
+      'composite-template-effects-policy-db.test.mjs',
+      'PAGE_TEMPLATE_TEST_DATABASE_URL',
+      'PAGE_TEMPLATE_TEST_REDIS_URL',
+      '__bootstrap_gate_only__',
+    ],
     [
       'markdown-attachments-http-db.test.mjs',
       'MARKDOWN_TEST_DATABASE_URL',
+      'TEST_REDIS_URL',
       'real HTTP attachment lifecycle',
     ],
   ]) {
@@ -117,6 +124,7 @@ test('database-backed integration test entrypoints fail closed without TEST_REDI
       [databaseVariable]: 'postgresql://e2e:test@127.0.0.1:55432/agentwiki_test',
     };
     delete environment.TEST_REDIS_URL;
+    delete environment.PAGE_TEMPLATE_TEST_REDIS_URL;
     delete environment.NODE_TEST_CONTEXT;
     const result = spawnSync(
       process.execPath,
@@ -135,19 +143,28 @@ test('database-backed integration test entrypoints fail closed without TEST_REDI
 });
 
 test('database-backed Redis integration entrypoints fail instead of skipping an unavailable target', () => {
-  for (const [file, databaseVariable, testPattern] of [
-    ['sync-v1-http-e2e.test.mjs', 'DATABASE_URL', '__bootstrap_gate_only__'],
+  for (const [file, databaseVariable, redisVariable, testPattern] of [
+    ['sync-v1-http-e2e.test.mjs', 'DATABASE_URL', 'TEST_REDIS_URL', '__bootstrap_gate_only__'],
+    [
+      'composite-template-effects-policy-db.test.mjs',
+      'PAGE_TEMPLATE_TEST_DATABASE_URL',
+      'PAGE_TEMPLATE_TEST_REDIS_URL',
+      '__bootstrap_gate_only__',
+    ],
     [
       'markdown-attachments-http-db.test.mjs',
       'MARKDOWN_TEST_DATABASE_URL',
+      'TEST_REDIS_URL',
       'real HTTP attachment lifecycle',
     ],
   ]) {
     const environment = {
       ...process.env,
       [databaseVariable]: 'postgresql://e2e:test@127.0.0.1:55432/agentwiki_test',
-      TEST_REDIS_URL: 'redis://127.0.0.1:1/0',
+      [redisVariable]: 'redis://127.0.0.1:1/0',
     };
+    if (redisVariable === 'TEST_REDIS_URL') delete environment.PAGE_TEMPLATE_TEST_REDIS_URL;
+    else delete environment.TEST_REDIS_URL;
     delete environment.NODE_TEST_CONTEXT;
     const result = spawnSync(
       process.execPath,

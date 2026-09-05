@@ -160,7 +160,15 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
     }));
   }
 
-  async indexPage(pageId: string): Promise<{ lexicalIndexed: boolean; semanticIndexed: boolean; skipped?: boolean }> {
+  async indexPage(
+    pageId: string,
+    options: { requireSemanticWrite?: boolean } = {},
+  ): Promise<{
+    lexicalIndexed: boolean;
+    semanticIndexed: boolean;
+    skipped?: boolean;
+    superseded?: boolean;
+  }> {
     this.logger.log('Indexing page: ' + pageId);
 
     const page = await this.prisma.page.findUnique({
@@ -188,7 +196,7 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
       select: { contentHash: true },
       take: 1,
     });
-    if (existingDoc?.contentHash === contentHash) {
+    if (!options.requireSemanticWrite && existingDoc?.contentHash === contentHash) {
       const [vectorExists] = await this.prisma.$queryRaw<Array<{ exists: boolean }>>(
         Prisma.sql`SELECT EXISTS (SELECT 1 FROM "Page" WHERE "id" = ${pageId} AND "embeddingVector" IS NOT NULL) AS "exists"`,
       );
@@ -224,15 +232,19 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
       const written = await this.prisma.$executeRaw(
         Prisma.sql`
           UPDATE "Page" AS page
-          SET "embeddingVector" = ${embeddingVector}::halfvec
+          SET "embeddingVector" = ${embeddingVector}::public.halfvec
           FROM "PageSearchDocument" AS document
           WHERE page."id" = ${pageId}
+            AND page."deletedAt" IS NULL
+            AND page."title" = ${page.title}
+            AND COALESCE(page."content", '') = ${page.content ?? ''}
             AND document."pageId" = ${pageId}
             AND document."contentHash" = ${contentHash}
         `,
       );
       if (written === 0) {
         this.logger.warn('Page ' + pageId + ' changed during embedding; newer index run owns the vector');
+        return { lexicalIndexed: true, semanticIndexed: false, superseded: true };
       }
       this.logger.log('Page ' + pageId + ' indexed successfully');
       return { lexicalIndexed: true, semanticIndexed: true };

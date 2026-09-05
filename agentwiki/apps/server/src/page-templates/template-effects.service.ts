@@ -140,7 +140,7 @@ export class TemplateEffectsService implements OnModuleInit, OnModuleDestroy {
         where: { id: pageId }, select: { id: true, spaceId: true, deletedAt: true },
       });
       if (page && page.spaceId !== job.spaceId) throw new EffectDispatchError('TEMPLATE_EFFECT_SCOPE_MISMATCH');
-      const indexed = await this.search.indexPage(pageId);
+      const indexed = await this.search.indexPage(pageId, { requireSemanticWrite: true });
       if (page?.deletedAt || !page) return;
       if (!indexed.lexicalIndexed) throw new EffectDispatchError('PAGE_INDEX_LEXICAL_PENDING');
       if (!indexed.semanticIndexed) throw new EffectDispatchError('PAGE_INDEX_SEMANTIC_PENDING');
