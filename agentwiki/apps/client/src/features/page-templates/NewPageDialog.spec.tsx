@@ -260,7 +260,7 @@ describe('NewPageDialog', () => {
     await screen.findByRole('button', { name: /团队周报/ });
     fireEvent.click(screen.getByRole('button', { name: 'Space 模板' }));
     expect(screen.queryByRole('button', { name: /^周报/ })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /团队周报/ })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /团队周报/ })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '管理模板' })).toHaveAttribute(
       'href',
       '/spaces/space-1/settings/page-templates',
@@ -322,6 +322,7 @@ describe('NewPageDialog', () => {
     render(<DeferredCatalogHarness />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Switch space' }));
+    await waitFor(() => expect(resolveNew).toBeTypeOf('function'));
     resolveNew({ ...catalog, system: [{ ...systemTasks, id: 'new-template', name: '新模板' }] });
     expect(await screen.findByRole('button', { name: /新模板/ })).toBeInTheDocument();
     resolveOld({ ...catalog, system: [{ ...systemTasks, id: 'old-template', name: '旧模板' }] });
@@ -351,6 +352,7 @@ describe('NewPageDialog', () => {
     expect(screen.queryByRole('button', { name: '创建' })).not.toBeInTheDocument();
     expect(mocks.api.post).not.toHaveBeenCalled();
 
+    await waitFor(() => expect(rejectNew).toBeTypeOf('function'));
     await act(async () => { rejectNew(new Error('offline')); });
     expect(await screen.findByRole('alert')).toHaveTextContent('模板加载失败');
     expect(screen.getByRole('button', { name: /空白页面/ })).toHaveAttribute('aria-pressed', 'true');
@@ -376,6 +378,7 @@ describe('NewPageDialog', () => {
     expect(screen.queryByRole('link', { name: 'Manage templates' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Title')).not.toBeInTheDocument();
 
+    await waitFor(() => expect(resolveEnglish).toBeTypeOf('function'));
     act(() => resolveEnglish({
       ...catalog,
       system: [{ ...systemTasks, id: 'english-template', name: 'English task list' }],

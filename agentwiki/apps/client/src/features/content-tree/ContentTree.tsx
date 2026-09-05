@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Edit, FileText, Folder, FolderPlus, Pencil, Trash2 } from 'lucide-react';
+import { Bot, Edit, FileText, Folder, FolderPlus, Pencil, Trash2 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { buildMoveRequest, sortNodes } from './contentTreeState';
 import type { ContentMoveRequest, DragInfo, MovePosition } from './contentTreeState';
@@ -25,6 +25,8 @@ export interface ContentTreeProps {
   onRenameFolder: (folder: ContentTreeFolderNode) => void;
   onDeleteFolder: (folder: ContentTreeFolderNode) => void;
   onMove: (request: ContentMoveRequest) => void;
+  onConfigurePageAgent?: (page: ContentTreePageNode) => void;
+  onConfigureFolderAgents?: (folder: ContentTreeFolderNode) => void;
 }
 
 interface NodeRowLabels {
@@ -33,6 +35,7 @@ interface NodeRowLabels {
   rename: string;
   deleteFolder: string;
   newSubfolder: string;
+  configureAgent: string;
 }
 
 export const ContentTree: React.FC<ContentTreeProps> = ({
@@ -52,6 +55,8 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
   onRenameFolder,
   onDeleteFolder,
   onMove,
+  onConfigurePageAgent,
+  onConfigureFolderAgents,
 }) => {
   const { t } = useLanguage();
   const [drag, setDrag] = useState<DragInfo | null>(null);
@@ -87,6 +92,7 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
     rename: t('folder.rename'),
     deleteFolder: t('folder.delete'),
     newSubfolder: t('folder.createTitle'),
+    configureAgent: t('pageTemplate.binding.action'),
   };
 
   return (
@@ -107,6 +113,8 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
           onCreateSubfolder={onCreateSubfolder}
           onRenameFolder={onRenameFolder}
           onDeleteFolder={onDeleteFolder}
+          onConfigurePageAgent={onConfigurePageAgent}
+          onConfigureFolderAgents={onConfigureFolderAgents}
           onDragStart={setDrag}
           onDragEnd={() => setDrag(null)}
           onDrop={(_event, target, position) => {
@@ -134,6 +142,8 @@ interface NodeRowProps {
   onCreateSubfolder: (parent: ContentTreeFolderNode | null) => void;
   onRenameFolder: (folder: ContentTreeFolderNode) => void;
   onDeleteFolder: (folder: ContentTreeFolderNode) => void;
+  onConfigurePageAgent?: (page: ContentTreePageNode) => void;
+  onConfigureFolderAgents?: (folder: ContentTreeFolderNode) => void;
   onDragStart: (drag: DragInfo) => void;
   onDragEnd: () => void;
   onDrop: (event: React.DragEvent, target: ContentTreeNode, position: MovePosition) => void;
@@ -216,6 +226,11 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
           <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
             {!isPage ? (
               <>
+                {props.onConfigureFolderAgents ? <IconButton
+                  testId={'content-agent-' + node.id}
+                  title={labels.configureAgent}
+                  onClick={() => props.onConfigureFolderAgents?.(node as ContentTreeFolderNode)}
+                ><Bot size={13} /></IconButton> : null}
                 <IconButton
                   testId={'content-newsubfolder-' + node.id}
                   title={labels.newSubfolder}
@@ -241,6 +256,11 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
               </>
             ) : (
               <>
+                {props.onConfigurePageAgent ? <IconButton
+                  testId={'content-agent-' + node.id}
+                  title={labels.configureAgent}
+                  onClick={() => props.onConfigurePageAgent?.(node as ContentTreePageNode)}
+                ><Bot size={13} /></IconButton> : null}
                 <IconButton
                   testId={'content-edit-' + node.id}
                   title={labels.edit}

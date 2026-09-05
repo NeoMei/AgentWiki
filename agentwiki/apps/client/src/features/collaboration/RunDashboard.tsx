@@ -14,7 +14,7 @@ import { RunSummary } from './components/RunSummary';
 import { TaskPanel } from './components/TaskPanel';
 import type { AgentInstruction, CollaborationArtifact, CollaborationHistoryKind, CollaborationReview, CollaborationRun, CollaborationTask, HumanSpaceRole, SpaceMemberSummary } from './types';
 import { useCollaborationRun } from './useCollaborationRun';
-import { buildAgentJoinInstructions } from './RunStartWizard';
+import { buildAgentJoinInstructions } from './agentJoinInstructions';
 
 type RunAction = 'pause' | 'resume' | 'fail' | 'cancel';
 type TaskAction = 'retry' | 'reassign' | 'skip';

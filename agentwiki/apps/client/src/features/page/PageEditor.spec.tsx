@@ -25,6 +25,12 @@ const contentTreeMocks = vi.hoisted(() => ({
   getContentTreeRevision: vi.fn(),
 }));
 
+vi.mock('../page-templates/PageAgentBindingDialog', () => ({
+  PageAgentBindingDialog: ({ scope, onClose }: { scope: { title: string }; onClose: () => void }) => (
+    <div role="dialog">Binding page: {scope.title}<button type="button" onClick={onClose}>Close binding</button></div>
+  ),
+}));
+
 const socketMock = vi.hoisted(() => {
   const handlers = new Map<string, (...args: any[]) => void>();
   const socket: any = {
@@ -216,6 +222,16 @@ describe('PageEditor remote update safety', () => {
       if (!next) return Promise.reject(new Error('unexpected get ' + url));
       return Promise.resolve(next);
     });
+  });
+
+  it('opens late-binding settings from the Page editor without requiring template-management permission', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    templateMocks.listPageTemplates.mockResolvedValue(catalog(false));
+    renderEditor();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Agent / collaboration settings' }));
+
+    expect(screen.getByRole('dialog')).toHaveTextContent('Binding page: Original title');
   });
 
   it('preserves a dirty draft across repeated remote refreshes and accepts only the latest remote version explicitly', async () => {

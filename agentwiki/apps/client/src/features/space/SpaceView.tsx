@@ -5,7 +5,8 @@ import { Plus, RotateCcw, X } from 'lucide-react';
 import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
-import { NewPageDialog } from '../page-templates/NewPageDialog';
+import { NewPageDialog, type NewPageCreationTarget } from '../page-templates/NewPageDialog';
+import { PageAgentBindingDialog, type BindingDialogScope } from '../page-templates/PageAgentBindingDialog';
 import {
   createFolder,
   deleteFolder,
@@ -89,6 +90,8 @@ export const SpaceView: React.FC = () => {
   const [deleteTarget, setDeleteTarget] = useState<ContentTreeFolderNode | null>(null);
   const [restoreInfo, setRestoreInfo] = useState<RestoreInfo | null>(null);
   const [restoring, setRestoring] = useState(false);
+  const [bindingScope, setBindingScope] = useState<BindingDialogScope | null>(null);
+  const [bindingReturnFocus, setBindingReturnFocus] = useState<HTMLElement | null>(null);
 
   activeRouteIdRef.current = id;
 
@@ -165,6 +168,8 @@ export const SpaceView: React.FC = () => {
       setShowCreate(false);
       setFolderDialog(null);
       setDeleteTarget(null);
+      setBindingScope(null);
+      setBindingReturnFocus(null);
     }
     void fetchSpace(routeChanged);
     return () => {
@@ -451,6 +456,14 @@ export const SpaceView: React.FC = () => {
           onCreateSubfolder={(parent) => setFolderDialog({ mode: 'create', parent })}
           onRenameFolder={(folder) => setFolderDialog({ mode: 'rename', parent: null, target: folder })}
           onDeleteFolder={(folder) => setDeleteTarget(folder)}
+          onConfigurePageAgent={(page) => {
+            setBindingReturnFocus(document.activeElement instanceof HTMLElement ? document.activeElement : null);
+            setBindingScope({ kind: 'page', pageId: page.id, title: page.title });
+          }}
+          onConfigureFolderAgents={(folder) => {
+            setBindingReturnFocus(document.activeElement instanceof HTMLElement ? document.activeElement : null);
+            setBindingScope({ kind: 'folder', folderId: folder.id, name: folder.name });
+          }}
           onMove={(request) => { void handleContentMove(request); }}
         />
       </div>
@@ -461,13 +474,33 @@ export const SpaceView: React.FC = () => {
           folderId={currentFolderId}
           returnFocusTo={createPageOpenerRef.current}
           onClose={() => setShowCreate(false)}
-          onCreated={(pageId) => {
+          onCreated={(target) => {
             setShowCreate(false);
-            reloadTree();
-            navigate('/pages/' + pageId + '/edit');
+            if (typeof target === 'string') {
+              reloadTree();
+              navigate('/pages/' + target + '/edit');
+              return;
+            }
+            const created = target as NewPageCreationTarget;
+            if (created.rootFolderId) {
+              setCurrentFolderId(created.rootFolderId);
+            } else if (created.firstPageId) {
+              reloadTree();
+              navigate('/pages/' + created.firstPageId + '/edit');
+            } else {
+              reloadTree();
+            }
           }}
         />
       ) : null}
+
+      {bindingScope && canEdit && id ? <PageAgentBindingDialog
+        spaceId={id}
+        scope={bindingScope}
+        returnFocusTo={bindingReturnFocus}
+        onClose={() => { setBindingScope(null); setBindingReturnFocus(null); }}
+        onSaved={reloadTree}
+      /> : null}
 
       {folderDialog && canEdit && id ? (
         <FolderDialog

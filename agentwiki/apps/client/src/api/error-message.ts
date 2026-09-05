@@ -27,6 +27,17 @@ const CODE_KEYS: Record<string, string> = {
   PAGE_TEMPLATE_VERSION_CONFLICT: 'pageTemplate.versionConflict',
   PAGE_TEMPLATE_SOURCE_STALE: 'pageTemplate.sourceStale',
   PAGE_TEMPLATE_QUOTA_EXCEEDED: 'pageTemplate.quotaExceeded',
+  PAGE_VERSION_CONFLICT: 'pageTemplate.binding.pageVersionConflict',
+  SOURCE_CHANGED: 'pageTemplate.composite.sourceChanged',
+  PAGE_TEMPLATE_INSTANTIATION_UNSUPPORTED: 'pageTemplate.composite.unsupported',
+  PAGE_TEMPLATE_INSTANTIATION_IDEMPOTENCY_CONFLICT: 'pageTemplate.composite.idempotencyConflict',
+  PAGE_TEMPLATE_INSTANTIATION_RETRY_REQUIRED: 'pageTemplate.composite.retryRequired',
+  COLLABORATION_TEMPLATE_INVALID: 'pageTemplate.composite.workflowInvalid',
+  COLLABORATION_AGENT_CANNOT_EXECUTE: 'pageTemplate.composite.agentCannotExecute',
+  COLLABORATION_AGENT_INACTIVE: 'pageTemplate.composite.agentNotActive',
+  PAGE_ROLE_REQUIRED: 'pageTemplate.composite.pageRoleRequired',
+  CONTENT_TREE_CONFLICT: 'pageTemplate.composite.treeConflict',
+  RESOURCE_NOT_FOUND: 'error.resourceNotFound',
 };
 
 export function apiErrorMessage(error: unknown, t: Translate, fallbackKey: string): string {

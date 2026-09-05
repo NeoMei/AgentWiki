@@ -11,7 +11,8 @@ export const RoleBindingEditor: React.FC<{
   chooseLabel: string;
   prepareLabel?: string;
   prepareActionLabel?: (roleName: string) => string;
-}> = ({ roleSlots, agents, bindings, onChange, onPrepare, chooseLabel, prepareLabel, prepareActionLabel }) => (
+  agentAvailability?: Record<string, { disabled: boolean; reason?: string }>;
+}> = ({ roleSlots, agents, bindings, onChange, onPrepare, chooseLabel, prepareLabel, prepareActionLabel, agentAvailability }) => (
   <div className="space-y-4">
     {roleSlots.map((slot) => {
       const value = bindings.find((binding) => binding.roleSlotId === slot.id)?.agentId ?? '';
@@ -46,7 +47,13 @@ export const RoleBindingEditor: React.FC<{
             className="mt-3 h-10 w-full rounded-lg border px-3 text-sm"
           >
             <option value="">{chooseLabel}</option>
-            {agents.map((member) => <option key={member.agentId} value={member.agentId}>{member.agent?.name}</option>)}
+            {agents.flatMap((member) => {
+              if (!member.agentId || !member.agent) return [];
+              const availability = agentAvailability?.[member.agentId];
+              return [<option key={member.agentId} value={member.agentId} disabled={availability?.disabled}>
+                {member.agent.name}{availability?.reason ? ` — ${availability.reason}` : ''}
+              </option>];
+            })}
           </select>
         </div>
       );

@@ -55,4 +55,24 @@ describe('apiErrorMessage', () => {
       .toBe(expected);
     expect(translate(key)).toBe(expected);
   });
+
+  it.each([
+    ['PAGE_VERSION_CONFLICT', 'pageTemplate.binding.pageVersionConflict', '页面版本已变化，请重新加载绑定范围后重试'],
+    ['SOURCE_CHANGED', 'pageTemplate.composite.sourceChanged', '源页面结构已变化，请重新预览后重试'],
+    ['PAGE_TEMPLATE_INSTANTIATION_UNSUPPORTED', 'pageTemplate.composite.unsupported', '该模板当前不能用于创建页面结构'],
+    ['PAGE_TEMPLATE_INSTANTIATION_IDEMPOTENCY_CONFLICT', 'pageTemplate.composite.idempotencyConflict', '同一创建请求已被用于不同配置，请修改后重试'],
+    ['PAGE_TEMPLATE_INSTANTIATION_RETRY_REQUIRED', 'pageTemplate.composite.retryRequired', '上次创建结果尚未确定，请使用原请求重试'],
+    ['COLLABORATION_TEMPLATE_INVALID', 'pageTemplate.composite.workflowInvalid', '协作配置无效，请重新检查任务和映射'],
+    ['COLLABORATION_AGENT_CANNOT_EXECUTE', 'pageTemplate.composite.agentCannotExecute', '所选 Agent 无权执行当前 Space 的任务'],
+    ['COLLABORATION_AGENT_INACTIVE', 'pageTemplate.composite.agentNotActive', '所选 Agent 已停用或撤销'],
+    ['PAGE_ROLE_REQUIRED', 'pageTemplate.composite.pageRoleRequired', '仍有页面没有可执行的主责 Agent'],
+    ['CONTENT_TREE_CONFLICT', 'pageTemplate.composite.treeConflict', '页面结构已变化，请重新预览后重试'],
+    ['RESOURCE_NOT_FOUND', 'error.resourceNotFound', '该项目已不存在或无权访问'],
+  ])('maps Task 11 code %s to localized recovery copy', (code, key, expected) => {
+    const translate = (messageKey: string) => messages['zh-CN'][messageKey] ?? messageKey;
+
+    expect(apiErrorMessage({ response: { status: 409, data: { code, message: 'server detail' } } }, translate, 'page.createFailed'))
+      .toBe(expected);
+    expect(translate(key)).toBe(expected);
+  });
 });

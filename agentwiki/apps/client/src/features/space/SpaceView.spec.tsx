@@ -13,6 +13,12 @@ const mocks = vi.hoisted(() => ({
   getContentTreeRevision: vi.fn(),
 }));
 
+vi.mock('../page-templates/PageAgentBindingDialog', () => ({
+  PageAgentBindingDialog: ({ scope, onClose }: { scope: { kind: string; title?: string; name?: string }; onClose: () => void }) => (
+    <div role="dialog">Binding {scope.kind}: {scope.title ?? scope.name}<button type="button" onClick={onClose}>Close binding</button></div>
+  ),
+}));
+
 vi.mock('../../api/client', () => ({ default: mocks.api }));
 vi.mock('../../context/AuthContext', () => ({ useAuth: () => mocks.auth }));
 vi.mock('../../api/content-tree', () => ({ getContentTreeRevision: mocks.getContentTreeRevision }));
@@ -197,6 +203,25 @@ describe('SpaceView new-page flow', () => {
       expectedTreeRevision: '43',
     }));
     expect(await screen.findByRole('heading', { name: 'Editing created page' })).toBeInTheDocument();
+  });
+
+  it('opens late-binding settings for an existing Page and Folder', async () => {
+    const folder: ContentTreeNode = {
+      kind: 'folder', id: 'folder-1', name: 'Project', path: '/Project', sortOrder: 0,
+      createdAt: '2026-09-05T00:00:00.000Z', updatedAt: '2026-09-05T00:00:00.000Z', hasChildren: true,
+    };
+    mocks.api.get.mockImplementation(async (url: string) => {
+      if (url === '/spaces/space-1') return spaceResponse('space-1', 'Role Space', 'owner');
+      if (url === '/spaces/space-1/content-tree') return treeResponse('space-1', [folder, pageNode('page-1', 'Brief')]);
+      throw new Error(`Unexpected GET ${url}`);
+    });
+    renderSpaceView();
+
+    fireEvent.click(await screen.findByTestId('content-agent-page-1'));
+    expect(screen.getByRole('dialog')).toHaveTextContent('Binding page: Brief');
+    fireEvent.click(screen.getByRole('button', { name: 'Close binding' }));
+    fireEvent.click(screen.getByTestId('content-agent-folder-1'));
+    expect(screen.getByRole('dialog')).toHaveTextContent('Binding folder: Project');
   });
 
   it('archives a page with the page and tree compare-and-swap tokens in the DELETE body', async () => {

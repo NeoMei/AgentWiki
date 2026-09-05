@@ -4,6 +4,20 @@ import { validDefinition } from '../collaboration-test-fixtures';
 import { RoleBindingEditor } from './RoleBindingEditor';
 
 describe('RoleBindingEditor', () => {
+  it('can present an invalid Agent as disabled with an explicit reason', () => {
+    render(<RoleBindingEditor
+      roleSlots={[validDefinition.roleSlots[0]]}
+      agents={[{
+        type: 'agent', agentId: 'agent-1', role: 'reader',
+        agent: { id: 'agent-1', name: 'Agent One', status: 'active' },
+      }]}
+      bindings={[]}
+      onChange={() => undefined}
+      chooseLabel="Choose"
+      agentAvailability={{ 'agent-1': { disabled: true, reason: 'Reader cannot execute' } }}
+    />);
+    expect(screen.getByRole('option', { name: 'Agent One — Reader cannot execute' })).toBeDisabled();
+  });
   it('reports the exact Role Slot when Prepare Agent is chosen', () => {
     const onPrepare = vi.fn();
     render(<RoleBindingEditor

@@ -1,7 +1,7 @@
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { LanguageProvider, useLanguage } from '../context/LanguageContext';
-import type { Language } from './messages';
+import { messages, type Language } from './messages';
 
 const pageTemplateZhCN = {
   'pageTemplate.blank.name': '空白页面',
@@ -156,6 +156,20 @@ const Translation = ({ messageKey }: { messageKey: string }) => {
 };
 
 describe('page-template bilingual copy contract', () => {
+  it('keeps the composite creation and binding key sets complete in both locales', () => {
+    const task11Keys = (language: Language) => Object.keys(messages[language])
+      .filter((key) => key.startsWith('pageTemplate.composite.') || key.startsWith('pageTemplate.binding.'))
+      .sort();
+
+    expect(task11Keys('zh-CN')).toEqual(task11Keys('en'));
+    for (const language of ['zh-CN', 'en'] as const) {
+      for (const key of task11Keys(language)) {
+        expect(messages[language][key]).toBeTruthy();
+        expect(messages[language][key]).not.toBe(key);
+      }
+    }
+  });
+
   it('contains exactly 66 contract keys per locale', () => {
     expect(Object.keys(pageTemplateZhCN)).toHaveLength(66);
     expect(Object.keys(pageTemplateEn)).toHaveLength(66);

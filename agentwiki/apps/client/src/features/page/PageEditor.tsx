@@ -10,6 +10,7 @@ import { Save, ArrowLeft, History, Users, Bot, Ellipsis, ImagePlus } from 'lucid
 import { IconButton } from '../../components/IconButton';
 import { ModeToggleButton } from '../../components/ModeToggleButton';
 import { SavePageAsTemplateDialog } from '../page-templates/SavePageAsTemplateDialog';
+import { PageAgentBindingDialog } from '../page-templates/PageAgentBindingDialog';
 import { listPageTemplates } from '../page-templates/pageTemplateApi';
 import { truncateValidatorLength } from '../page-templates/validatorLength';
 import { AgentAssistPanel } from './AgentAssistPanel';
@@ -114,6 +115,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const moreActionsMenuRef = useRef<HTMLDivElement>(null);
   const saveAsTemplateItemRef = useRef<HTMLButtonElement>(null);
   const attachmentButtonRef = useRef<HTMLButtonElement>(null);
+  const bindingButtonRef = useRef<HTMLButtonElement>(null);
   const internalWorkspaceRef = useRef<MarkdownWorkspaceHandle | null>(null);
 
   const [page, setPage] = useState<Page | null>(null);
@@ -133,6 +135,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const [moreActionsPosition, setMoreActionsPosition] = useState<{ left: number; top: number; width: number } | null>(null);
   const [templateDialogSnapshot, setTemplateDialogSnapshot] = useState<TemplateDialogSnapshot | null>(null);
   const [attachmentPickerOpen, setAttachmentPickerOpen] = useState(false);
+  const [bindingDialogOpen, setBindingDialogOpen] = useState(false);
 
   const templateCapabilityIdentity = page
     ? `${page.id}\u0000${page.spaceId}\u0000${page.format}\u0000${language}`
@@ -233,6 +236,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const adoptRemoteDraft = useCallback((nextContent: string, revision: string) => {
     abortAttachmentUploads();
     setTemplateDialogSnapshot(null);
+    setBindingDialogOpen(false);
     setContent(nextContent);
     contentRef.current = nextContent;
     editRevisionRef.current += 1;
@@ -772,6 +776,16 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
           <button onClick={() => guardNavigate(`/pages/${id}/versions`)} aria-label={t('editor.versions')} title={t('editor.versions')} data-testid="history-button" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition hover:bg-gray-100 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500">
             <History size={18} />
           </button>
+          <button
+            ref={bindingButtonRef}
+            type="button"
+            aria-label={t('pageTemplate.binding.action')}
+            title={t('pageTemplate.binding.action')}
+            onClick={() => setBindingDialogOpen(true)}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition hover:bg-gray-100 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <Users size={18} />
+          </button>
           {canManageTemplates && page.format === 'markdown' ? (
             <div ref={moreActionsRef} className="relative">
               <button
@@ -939,6 +953,14 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
           }}
         />
       ) : null}
+
+      {bindingDialogOpen ? <PageAgentBindingDialog
+        spaceId={page.spaceId}
+        scope={{ kind: 'page', pageId: page.id, title: page.title }}
+        returnFocusTo={bindingButtonRef.current}
+        onClose={() => setBindingDialogOpen(false)}
+        onSaved={() => showStatus({ kind: 'success', text: t('pageTemplate.binding.saved') }, 'template', 3000)}
+      /> : null}
 
       {attachmentPickerOpen && attachmentEnabled ? (
         <AttachmentPickerDialog
