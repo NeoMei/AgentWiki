@@ -19,8 +19,9 @@ describe('ExistingRunOrchestrationService', () => {
       assertExistingPageScope: jest.fn().mockResolvedValue({ pageIds: ['page-1'] }),
       prepareExistingRunSource: jest.fn().mockResolvedValue({
       name: 'Existing group', source: { kind: 'page_selection', templateVersion: 1 },
-      definition: { schemaVersion: 1, inputs: [], roleSlots: [], nodes: [], dependencies: [], terminalNodeIds: [] },
-      taskPageIds: {}, defaultBindings: [], pageIds: ['page-1'], sourceInstantiationId: null,
+	      definition: { schemaVersion: 1, inputs: [], roleSlots: [], nodes: [], dependencies: [], terminalNodeIds: [] },
+	      taskPageIds: {}, defaultBindings: [], pageIds: ['page-1'], pages: [{ pageId: 'page-1', title: 'Page' }],
+	      issues: [], sourceInstantiationId: null,
     }),
     };
     const pageBindings: any = {
@@ -158,11 +159,51 @@ describe('ExistingRunOrchestrationService', () => {
         inputs: [{ key: 'brief', label: 'Brief', type: 'long_text', required: true }],
         roleSlots: [], nodes: [], dependencies: [], terminalNodeIds: [],
       },
-      taskPageIds: {}, defaultBindings: [], pageIds: ['page-1'], sourceInstantiationId: null,
+	      taskPageIds: {}, defaultBindings: [], pageIds: ['page-1'], pages: [{ pageId: 'page-1', title: 'Page' }],
+	      issues: [], sourceInstantiationId: null,
     });
     const result = await h.service.preview('space-1', 'folder-1', {
       source: { kind: 'page_selection' }, pageIds: ['page-1'], collaborationInputs: {}, bindings: [],
     }, principal as any);
     expect(result.issues).toContainEqual({ code: 'COLLABORATION_INPUT_REQUIRED', inputKey: 'brief' });
+  });
+
+  it('returns Page metadata and a role-required issue for an unbound preview', async () => {
+    const h = harness();
+    h.sources.prepareExistingRunSource.mockResolvedValueOnce({
+      name: 'Existing group', source: { kind: 'page_selection', templateVersion: 1 },
+      definition: null, taskPageIds: {}, defaultBindings: [], pageIds: ['page-1'],
+      pages: [{ pageId: 'page-1', title: 'Page' }],
+      issues: [{ code: 'PAGE_ROLE_REQUIRED', pageId: 'page-1' }],
+      sourceInstantiationId: null,
+    });
+    const result = await h.service.preview('space-1', 'folder-1', {
+      source: { kind: 'page_selection' }, pageIds: ['page-1'], collaborationInputs: {}, bindings: [],
+    }, principal as any);
+    expect(result).toEqual(expect.objectContaining({
+      pages: [{ pageId: 'page-1', title: 'Page' }],
+      tasks: [], roles: [], assignments: [], participants: [],
+      issues: [{ code: 'PAGE_ROLE_REQUIRED', pageId: 'page-1' }],
+    }));
+  });
+
+  it('blocks start before binding or Run writes while a selected Page still lacks a responsibility', async () => {
+    const h = harness();
+    h.sources.prepareExistingRunSource.mockResolvedValueOnce({
+      name: 'Existing group', source: { kind: 'page_selection', templateVersion: 1 },
+      definition: null, taskPageIds: {}, defaultBindings: [], pageIds: ['page-1'],
+      pages: [{ pageId: 'page-1', title: 'Page' }],
+      issues: [{ code: 'PAGE_ROLE_REQUIRED', pageId: 'page-1' }],
+      sourceInstantiationId: null,
+    });
+    await expect(h.service.start('space-1', 'folder-1', {
+      source: { kind: 'page_selection' }, pageIds: ['page-1'], collaborationInputs: {}, bindings: [],
+      name: 'Blocked run', expectedTreeRevision: 4n, idempotencyKey: 'blocked-run-0001',
+    }, principal as any)).rejects.toMatchObject({
+      businessCode: 'COLLABORATION_TEMPLATE_INVALID',
+    });
+    expect(h.pageBindings.setBindings).not.toHaveBeenCalled();
+    expect(h.expansion.createStarted).not.toHaveBeenCalled();
+    expect(h.events.executeIdempotent).not.toHaveBeenCalled();
   });
 });

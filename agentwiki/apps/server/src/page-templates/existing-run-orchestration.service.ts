@@ -146,6 +146,11 @@ export class ExistingRunOrchestrationService {
         throw new ContentTreeConflict(input.expectedTreeRevision, lockedTx.contentTreeRevision);
       }
       const prepared = await this.sources.prepareExistingRunSource(lockedTx, spaceId, scopeId, input);
+      if (!prepared.definition || prepared.issues.length > 0) {
+        throw new BusinessException('COLLABORATION_TEMPLATE_INVALID', undefined, {
+          issues: prepared.issues,
+        });
+      }
       if (input.bindingEdits?.length) {
         await this.pageBindings.setBindings(lockedTx, spaceId, input.bindingEdits, principal);
       }
@@ -185,8 +190,10 @@ export class ExistingRunOrchestrationService {
     prepared: PreparedExistingRunSource,
     input: ExistingRunPreviewInput,
   ) {
-    const inspectedInputs = inspectCollaborationInputs(prepared.definition, input.collaborationInputs);
-    const tasks = prepared.definition.nodes.filter((node) => node.kind === 'agent_task');
+    const inspectedInputs = prepared.definition
+      ? inspectCollaborationInputs(prepared.definition, input.collaborationInputs)
+      : { values: {}, issues: [] };
+    const tasks = prepared.definition?.nodes.filter((node) => node.kind === 'agent_task') ?? [];
     const bindings = [...prepared.defaultBindings, ...input.bindings];
     const participants = resolveParticipants(
       tasks.map((task) => ({ nodeId: task.id, roleSlotId: task.roleSlotId, enabled: true })),
@@ -197,15 +204,16 @@ export class ExistingRunOrchestrationService {
     return {
       treeRevision,
       pageIds: prepared.pageIds,
+      pages: prepared.pages,
       source: prepared.source,
       sourceInstantiationId: prepared.sourceInstantiationId,
       inputs: inspectedInputs.values,
-      inputDefinitions: prepared.definition.inputs,
-      roles: prepared.definition.roleSlots,
+      inputDefinitions: prepared.definition?.inputs ?? [],
+      roles: prepared.definition?.roleSlots ?? [],
       tasks: tasks.map((task) => ({ nodeId: task.id, name: task.name, roleSlotId: task.roleSlotId })),
       assignments: participants.assignments,
       participants: participants.agentIds,
-      issues: [...inspectedInputs.issues, ...participants.issues, ...readinessIssues],
+      issues: [...prepared.issues, ...inspectedInputs.issues, ...participants.issues, ...readinessIssues],
     };
   }
 }

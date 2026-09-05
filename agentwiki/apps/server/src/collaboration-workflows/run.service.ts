@@ -28,6 +28,7 @@ import { assertCollaborationAgentGrantsExecutable } from './agent-readiness';
 import { parseCollaborationInputs } from './run-input-validation';
 import { supersedeRunPagePublicationsLocked } from './page-publication-invalidation';
 import { canonicalPageContentHash } from './page-baseline';
+import { PageResultService } from './page-result.service';
 
 const READ_ROLES: SpaceRole[] = ['owner', 'admin', 'editor', 'viewer'];
 const EDIT_ROLES: SpaceRole[] = ['owner', 'admin', 'editor'];
@@ -159,6 +160,7 @@ export class RunService {
     private readonly notifications: CollaborationEventsService,
     private readonly historyCursors: HistoryCursorService,
     private readonly expansion: RunExpansionService,
+    private readonly pageResults: PageResultService,
   ) {}
 
   async createDraft(spaceId: string, body: CreateRunDraftDto, principal: Principal) {
@@ -504,7 +506,11 @@ export class RunService {
       const [page, pageVersion] = await Promise.all([
         this.prisma.page.findFirst({
           where: { id: adopted.pageId, spaceId, deletedAt: null },
-          select: { id: true, title: true, content: true, updatedAt: true },
+          select: {
+            id: true, title: true, content: true, updatedAt: true,
+            slug: true, format: true, parentId: true, folderId: true,
+            syncPath: true, syncPathKey: true,
+          },
         }),
         this.prisma.pageVersion.findFirst({
           where: { id: adopted.pageVersionId, pageId: adopted.pageId },
@@ -515,6 +521,9 @@ export class RunService {
         throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Adopted Page result is inconsistent');
       }
       const currentHash = canonicalPageContentHash(page.content);
+      const currentPageVersionId = await this.pageResults.readCurrentPageVersionLocked(
+        this.prisma as unknown as Tx, page,
+      );
       return ensureComparisonBudget({
         mode: 'adopted_current' as const,
         reviewId: review.id,
@@ -523,12 +532,12 @@ export class RunService {
         target: { pageId: page.id, title: page.title },
         adoptedCurrent: { ...adopted, markdown: pageVersion.content, title: pageVersion.title },
         current: {
-          pageVersionId: currentHash === adopted.contentHash ? pageVersion.id : null,
+          pageVersionId: currentPageVersionId,
           updatedAt: page.updatedAt.toISOString(),
           contentHash: currentHash,
           markdown: page.content,
         },
-        conflict: currentHash !== adopted.contentHash,
+        conflict: currentPageVersionId !== adopted.pageVersionId,
       });
     }
     if (link.runId !== runId || link.taskId !== review.sourceTaskId || link.spaceId !== spaceId) {
@@ -536,14 +545,22 @@ export class RunService {
     }
     const page = await this.prisma.page.findFirst({
       where: { id: link.pageId, spaceId, deletedAt: null },
-      select: { id: true, title: true, content: true, updatedAt: true },
+      select: {
+        id: true, title: true, content: true, updatedAt: true,
+        slug: true, format: true, parentId: true, folderId: true,
+        syncPath: true, syncPathKey: true,
+      },
     });
     if (!page) throw new BusinessException('RESOURCE_NOT_FOUND', 'Target Page not found');
     const attempt = artifact.attempt;
     const currentHash = canonicalPageContentHash(page.content);
+    const currentPageVersionId = await this.pageResults.readCurrentPageVersionLocked(
+      this.prisma as unknown as Tx, page,
+    );
     const matchesBaseline = !!attempt.basePageUpdatedAt && !!attempt.baseContentHash
       && page.updatedAt.toISOString() === attempt.basePageUpdatedAt.toISOString()
-      && currentHash === attempt.baseContentHash;
+      && currentHash === attempt.baseContentHash
+      && currentPageVersionId === attempt.basePageVersionId;
     const exactVersion = attempt.basePageVersionId
       ? await this.prisma.pageVersion.findFirst({
         where: { id: attempt.basePageVersionId, pageId: page.id },
@@ -575,6 +592,7 @@ export class RunService {
         evidence: artifact.evidence,
       },
       current: {
+        pageVersionId: currentPageVersionId,
         updatedAt: page.updatedAt.toISOString(),
         contentHash: currentHash,
         markdown: page.content,

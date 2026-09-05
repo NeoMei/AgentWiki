@@ -347,11 +347,22 @@ describe('FolderTemplateSnapshotService', () => {
     })).rejects.toMatchObject({ businessCode: 'SOURCE_INVALID' });
   });
 
-  it('does not invent a responsibility for an unbound historical Page', async () => {
+  it('previews an unbound historical Page as a stable role-required issue without inventing a task', async () => {
     tx.page.findFirst.mockResolvedValue(null);
-    await expect(service.prepareExistingRunSource(tx, 'space-1', 'root-id', {
+    const preview = await service.prepareExistingRunSource(tx, 'space-1', 'root-id', {
       source: { kind: 'page_selection' }, pageIds: ['page-a'],
-    })).rejects.toMatchObject({ businessCode: 'SOURCE_INVALID' });
+    });
+    expect(preview).toEqual(expect.objectContaining({
+      definition: null,
+      pageIds: ['page-a'],
+      pages: [{ pageId: 'page-a', title: 'Overview' }],
+      taskPageIds: {},
+      defaultBindings: [],
+      issues: [{ code: 'PAGE_ROLE_REQUIRED', pageId: 'page-a' }],
+    }));
+    await expect(service.prepareExistingRunSource(tx, 'space-1', 'root-id', {
+      source: { kind: 'page_selection' }, pageIds: ['page-a'], enabledTaskNodeIds: [],
+    })).rejects.toMatchObject({ businessCode: 'COLLABORATION_TEMPLATE_INVALID' });
 
     await expect(service.prepareExistingRunSource(tx, 'space-1', 'root-id', {
       source: { kind: 'page_selection' }, pageIds: ['page-a'],
@@ -360,5 +371,54 @@ describe('FolderTemplateSnapshotService', () => {
       pageIds: ['page-a'],
       taskPageIds: { 'write-page-1': 'page-a' },
     }));
+  });
+
+  it('prunes independent simple-page tasks, gates, targets, and default Agents from one stable full-scope mapping', async () => {
+    tx.page.findFirst.mockResolvedValue(null);
+    const pageB = {
+      ...page,
+      id: 'page-b', title: 'Details', sortOrder: 1,
+      syncPath: 'pages/Root/Details.md',
+    };
+    tx.page.findMany.mockResolvedValue([page, pageB]);
+    tx.pageAgentBinding.findMany.mockResolvedValue([
+      { pageId: 'page-a', agentId: 'agent-a', roleSlotKey: 'writer' },
+      { pageId: 'page-b', agentId: 'agent-b', roleSlotKey: 'editor' },
+    ]);
+
+    const first = await service.prepareExistingRunSource(tx, 'space-1', 'root-id', {
+      source: { kind: 'page_selection' }, pageIds: ['page-a', 'page-b'],
+      enabledTaskNodeIds: ['write-page-1'],
+    });
+    expect(first.taskPageIds).toEqual({ 'write-page-1': 'page-a' });
+    expect(first.defaultBindings).toEqual([
+      expect.objectContaining({ nodeId: 'write-page-1', agentId: 'agent-a' }),
+    ]);
+    expect(first.definition?.nodes.map((node) => node.id)).toEqual([
+      'write-page-1', 'write-page-1-page-review',
+    ]);
+    expect(first.definition?.terminalNodeIds).toEqual(['write-page-1-page-review']);
+
+    const second = await service.prepareExistingRunSource(tx, 'space-1', 'root-id', {
+      source: { kind: 'page_selection' }, pageIds: ['page-a', 'page-b'],
+      enabledTaskNodeIds: ['write-page-2'],
+    });
+    expect(second.taskPageIds).toEqual({ 'write-page-2': 'page-b' });
+    expect(second.defaultBindings).toEqual([
+      expect.objectContaining({ nodeId: 'write-page-2', agentId: 'agent-b' }),
+    ]);
+    expect(second.definition?.nodes.map((node) => node.id)).toEqual([
+      'write-page-2', 'write-page-2-page-review',
+    ]);
+    expect(second.definition?.terminalNodeIds).toEqual(['write-page-2-page-review']);
+
+    await expect(service.prepareExistingRunSource(tx, 'space-1', 'root-id', {
+      source: { kind: 'page_selection' }, pageIds: ['page-a', 'page-b'],
+      enabledTaskNodeIds: [],
+    })).rejects.toMatchObject({ businessCode: 'COLLABORATION_TEMPLATE_INVALID' });
+    await expect(service.prepareExistingRunSource(tx, 'space-1', 'root-id', {
+      source: { kind: 'page_selection' }, pageIds: ['page-a', 'page-b'],
+      enabledTaskNodeIds: ['write-page-unknown'],
+    })).rejects.toMatchObject({ businessCode: 'COLLABORATION_TEMPLATE_INVALID' });
   });
 });

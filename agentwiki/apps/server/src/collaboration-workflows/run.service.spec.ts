@@ -3,6 +3,7 @@ import { BusinessException } from '../core/filters/business-error';
 import { HistoryCursorService } from './history-cursor.service';
 import { RunService } from './run.service';
 import { RunExpansionService } from './run-expansion.service';
+import { PageResultService } from './page-result.service';
 
 const humanPrincipal: Principal = { userId: 'user-1' };
 const starterPrincipal: Principal = { userId: 'starter-1' };
@@ -113,7 +114,10 @@ describe('RunService', () => {
     tx.changeItem.updateMany.mockResolvedValue({ count: 1 });
     tx.collaborationRunEvent.findMany.mockResolvedValue([]);
     tx.spaceMember.findMany.mockResolvedValue([]);
-    service = new RunService(prisma, authorization, events, progression, notifications, historyCursors, expansion);
+    service = new RunService(
+      prisma, authorization, events, progression, notifications, historyCursors, expansion,
+      new PageResultService(),
+    );
   });
 
   it('persists an optimistic draft', async () => {
@@ -1135,7 +1139,10 @@ describe('RunService', () => {
       ...receiptTx,
       $transaction: jest.fn(async (callback: (value: any) => unknown) => callback(receiptTx)),
     } as any;
-    const receiptService = new RunService(receiptPrisma, authorization, receiptEvents, progression, notifications, historyCursors, expansion);
+    const receiptService = new RunService(
+      receiptPrisma, authorization, receiptEvents, progression, notifications, historyCursors, expansion,
+      new PageResultService(),
+    );
     const input = { reason: 'maintenance', idempotencyKey: 'pause-bounded-1' };
 
     const first = await receiptService.pauseRun('run-1', input, starterPrincipal);

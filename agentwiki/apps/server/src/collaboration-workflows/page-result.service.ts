@@ -6,6 +6,18 @@ import { canonicalPageContentHash } from './page-baseline';
 
 type Tx = Prisma.TransactionClient;
 
+type CurrentPageVersionFields = {
+  id: string;
+  title: string;
+  content: string;
+  slug: string;
+  format: string;
+  parentId: string | null;
+  folderId: string | null;
+  syncPath: string;
+  syncPathKey: string;
+};
+
 type PageTask = {
   id: string;
   runId: string;
@@ -41,6 +53,28 @@ type MarkdownArtifact = {
 
 @Injectable()
 export class PageResultService {
+  async readCurrentPageVersionLocked(
+    tx: Pick<Tx, 'pageVersion'>,
+    page: CurrentPageVersionFields,
+  ): Promise<string | null> {
+    const currentVersion = await tx.pageVersion.findFirst({
+      where: {
+        pageId: page.id,
+        title: page.title,
+        content: page.content,
+        slug: page.slug,
+        format: page.format,
+        parentId: page.parentId,
+        folderId: page.folderId,
+        syncPath: page.syncPath,
+        syncPathKey: page.syncPathKey,
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true },
+    });
+    return currentVersion?.id ?? null;
+  }
+
   async proposeLocked(
     tx: Tx,
     task: PageTask,
@@ -129,33 +163,19 @@ export class PageResultService {
     });
     if (!page) throw new BusinessException('PAGE_VERSION_CONFLICT', 'The target Page is no longer available');
     const currentContentHash = canonicalPageContentHash(page.content);
-    const currentVersion = await tx.pageVersion.findFirst({
-      where: {
-        pageId: page.id,
-        title: page.title,
-        content: page.content,
-        slug: page.slug,
-        format: page.format,
-        parentId: page.parentId,
-        folderId: page.folderId,
-        syncPath: page.syncPath,
-        syncPathKey: page.syncPathKey,
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      select: { id: true },
-    });
+    const currentPageVersionId = await this.readCurrentPageVersionLocked(tx, page);
     if (
       currentContentHash !== input.expectedContentHash
-      || (currentVersion?.id ?? null) !== input.expectedPageVersionId
+      || currentPageVersionId !== input.expectedPageVersionId
     ) {
       throw new BusinessException('PAGE_VERSION_CONFLICT', 'The target Page changed during conflict recovery', {
         pageId: page.id,
-        currentPageVersionId: currentVersion?.id ?? null,
+        currentPageVersionId,
         currentContentHash,
       });
     }
-    if (currentVersion || !input.createVersion) {
-      return { page, pageVersionId: currentVersion?.id ?? null };
+    if (currentPageVersionId || !input.createVersion) {
+      return { page, pageVersionId: currentPageVersionId };
     }
     const created = await tx.pageVersion.create({ data: {
       pageId: page.id,

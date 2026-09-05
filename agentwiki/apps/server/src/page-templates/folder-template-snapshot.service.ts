@@ -21,6 +21,7 @@ import { PageTemplateLocaleSchema, type PageTemplateLocale } from './page-templa
 import {
   snapshotDefinition,
   snapshotDefinitionWithSourceMap,
+  selectIndependentSimplePages,
   type FolderSnapshotSource,
   type FolderTemplateSnapshotSelection,
   type FolderTemplateWorkflowSource,
@@ -116,10 +117,12 @@ export type PreparedExistingRunSource = {
   source:
     | { kind: 'page_selection'; templateVersion: number }
     | { kind: 'composite'; compositeTemplateVersionId: string; templateInstantiationId: null; templateVersion: number };
-  definition: CollaborationTemplateDefinition;
+  definition: CollaborationTemplateDefinition | null;
   taskPageIds: Record<string, string>;
   defaultBindings: RunPageSelectionBinding[];
   pageIds: string[];
+  pages: Array<{ pageId: string; title: string }>;
+  issues: Array<{ code: 'PAGE_ROLE_REQUIRED'; pageId: string }>;
   sourceInstantiationId: string | null;
 };
 
@@ -236,13 +239,36 @@ export class FolderTemplateSnapshotService {
         pages.map((page) => page.id), hypothetical, input.roleSlotsByPage,
       ));
       const collaboration = details.definition.collaboration;
-      if (!collaboration) throw new BusinessException('SOURCE_INVALID');
-      const taskPageIds = Object.fromEntries(collaboration.taskTargets.map((target) => [
+      const missingRolePageIds = pages
+        .filter((page) => selectedPageRole(page.id, hypothetical, input.roleSlotsByPage) === null)
+        .map((page) => page.id);
+      if (!collaboration) {
+        if (input.enabledTaskNodeIds !== undefined) {
+          throw new BusinessException('COLLABORATION_TEMPLATE_INVALID', 'Enabled task selection is invalid');
+        }
+        return {
+          name: scopeFolder?.name ?? scopePage!.title,
+          source: { kind: 'page_selection', templateVersion: 1 },
+          definition: null,
+          taskPageIds: {},
+          defaultBindings: [],
+          pageIds,
+          pages: pages.map((page) => ({ pageId: page.id, title: page.title })),
+          issues: missingRolePageIds.map((pageId) => ({ code: 'PAGE_ROLE_REQUIRED', pageId })),
+          sourceInstantiationId: null,
+        };
+      }
+      const fullDefinition: CompositeTemplateDefinition = {
+        ...details.definition,
+        collaboration,
+      };
+      const selected = selectIndependentSimplePages(fullDefinition, input.enabledTaskNodeIds);
+      const taskPageIds = Object.fromEntries(selected.taskTargets.map((target) => [
         target.taskNodeId, details.sourcePageIdByTemplateNodeId[target.pageNodeId],
       ]));
-      const tasks = new Map(collaboration.workflow.nodes.flatMap((node) =>
+      const tasks = new Map(selected.workflow.nodes.flatMap((node) =>
         node.kind === 'agent_task' ? [[node.id, node] as const] : []));
-      const defaultBindings = collaboration.taskTargets.flatMap((target) => {
+      const defaultBindings = selected.taskTargets.flatMap((target) => {
         const pageId = taskPageIds[target.taskNodeId];
         const binding = pageId ? hypothetical.get(pageId) : undefined;
         const task = tasks.get(target.taskNodeId);
@@ -256,10 +282,12 @@ export class FolderTemplateSnapshotService {
       return {
         name: scopeFolder?.name ?? scopePage!.title,
         source: { kind: 'page_selection', templateVersion: 1 },
-        definition: collaboration.workflow,
+        definition: selected.workflow,
         taskPageIds,
         defaultBindings,
         pageIds,
+        pages: pages.map((page) => ({ pageId: page.id, title: page.title })),
+        issues: missingRolePageIds.map((pageId) => ({ code: 'PAGE_ROLE_REQUIRED', pageId })),
         sourceInstantiationId: null,
       };
     }
@@ -325,6 +353,8 @@ export class FolderTemplateSnapshotService {
       taskPageIds,
       defaultBindings,
       pageIds,
+      pages: pages.map((page) => ({ pageId: page.id, title: page.title })),
+      issues: [],
       sourceInstantiationId: instantiation.id,
     };
   }
@@ -903,6 +933,17 @@ function selectedPageRoles(
     const binding = bindings.get(pageId);
     return binding ? [{ pageId, roleSlotKey: binding.roleSlotKey ?? 'owner' }] : [];
   });
+}
+
+function selectedPageRole(
+  pageId: string,
+  bindings: ReadonlyMap<string, { roleSlotKey: string | null }>,
+  overrides: readonly { pageId: string; roleSlotKey: string | null }[] | undefined,
+): string | null {
+  const override = overrides?.find((item) => item.pageId === pageId);
+  if (override) return override.roleSlotKey;
+  const binding = bindings.get(pageId);
+  return binding ? binding.roleSlotKey ?? 'owner' : null;
 }
 
 function assertAcknowledgedWarnings(value: unknown): asserts value is string[] {

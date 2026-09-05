@@ -525,6 +525,87 @@ test('composite instantiation is atomic, idempotent, stale-safe, and permission-
         await overrideService.close();
       }
 
+      const selectedFixture = await createFixture(
+        prisma,
+        `${schemaName.slice(-8)}_selected_pages`,
+        {
+          ...definition,
+          nodes: [
+            { nodeId: 'root', parentNodeId: null, kind: 'folder', order: 0, nameI18n: { en: 'Selected pages' } },
+            { nodeId: 'first', parentNodeId: 'root', kind: 'page', order: 0, titleI18n: { en: 'First' }, contentI18n: { en: '# First' }, roleSlotKey: null },
+            { nodeId: 'second', parentNodeId: 'root', kind: 'page', order: 1, titleI18n: { en: 'Second' }, contentI18n: { en: '# Second' }, roleSlotKey: null },
+          ],
+        },
+      );
+      const selectedAgentA = await prepareAgent(
+        prisma, selectedFixture, `${schemaName.slice(-8)}_selected_a`,
+      );
+      const selectedAgentB = await prepareAgent(
+        prisma, selectedFixture, `${schemaName.slice(-8)}_selected_b`,
+      );
+      const selectedService = await createService(prisma, null);
+      try {
+        const instantiated = await selectedService.service.instantiate(
+          selectedFixture.spaceId,
+          selectedFixture.templateId,
+          request('selected-pages-initial-0001'),
+          { userId: selectedFixture.userId, platformRole: 'user' },
+        );
+        await selectedService.pageBindings.setBindingsInScope(
+          selectedFixture.spaceId,
+          {
+            pageIds: instantiated.pageIds,
+            expectedTreeRevision: 1n,
+            edits: [
+              { pageId: instantiated.pageIds[0], agentId: selectedAgentA, roleSlotKey: 'writer', expectedUpdatedAt: null },
+              { pageId: instantiated.pageIds[1], agentId: selectedAgentB, roleSlotKey: 'editor', expectedUpdatedAt: null },
+            ],
+          },
+          { userId: selectedFixture.userId, platformRole: 'user' },
+        );
+        const selection = {
+          source: { kind: 'page_selection' },
+          pageIds: instantiated.pageIds,
+          enabledTaskNodeIds: ['write-page-1'],
+          collaborationInputs: {},
+          bindings: [],
+        };
+        const preview = await selectedService.existingRuns.preview(
+          selectedFixture.spaceId, instantiated.rootFolderId, selection,
+          { userId: selectedFixture.userId, platformRole: 'user' },
+        );
+        assert.deepEqual(preview.participants, [selectedAgentA]);
+        assert.deepEqual(preview.tasks.map((task) => task.nodeId), ['write-page-1']);
+        const started = await selectedService.existingRuns.start(
+          selectedFixture.spaceId,
+          instantiated.rootFolderId,
+          {
+            ...selection,
+            name: 'Only first selected Page', expectedTreeRevision: 1n,
+            idempotencyKey: 'selected-pages-run-0001',
+          },
+          { userId: selectedFixture.userId, platformRole: 'user' },
+        );
+        const selectedRun = await prisma.collaborationRun.findUniqueOrThrow({
+          where: { id: started.runId }, include: { tasks: true, roleBindings: true },
+        });
+        assert.equal(selectedRun.tasks.length, 1);
+        assert.equal(selectedRun.tasks[0].nodeId, 'write-page-1');
+        assert.equal(selectedRun.tasks[0].targetPageId, instantiated.pageIds[0]);
+        assert.equal(selectedRun.tasks[0].assigneeAgentId, selectedAgentA);
+        assert.deepEqual(selectedRun.roleBindings.map((binding) => binding.agentId), [selectedAgentA]);
+        assert.equal(selectedRun.tasks.some((task) => task.assigneeAgentId === selectedAgentB), false);
+        const durableBindings = await prisma.pageAgentBinding.findMany({
+          where: { spaceId: selectedFixture.spaceId }, orderBy: { pageId: 'asc' },
+        });
+        assert.equal(durableBindings.length, 2);
+        assert.deepEqual(new Set(durableBindings.map((binding) => binding.agentId)), new Set([
+          selectedAgentA, selectedAgentB,
+        ]));
+      } finally {
+        await selectedService.close();
+      }
+
       const nextRunFixture = await createFixture(
         prisma, `${schemaName.slice(-8)}_next_run`, collaborationGroupDefinition,
       );

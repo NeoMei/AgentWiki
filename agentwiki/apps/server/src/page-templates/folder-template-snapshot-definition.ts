@@ -136,6 +136,55 @@ export function snapshotDefinitionWithSourceMap(
   };
 }
 
+export function selectIndependentSimplePages(
+  definition: CompositeTemplateDefinition,
+  enabledTaskNodeIds: readonly string[] | undefined,
+): NonNullable<CompositeTemplateDefinition['collaboration']> {
+  const collaboration = definition.collaboration;
+  if (!collaboration) throw new BusinessException('COLLABORATION_TEMPLATE_INVALID');
+  const allTasks = collaboration.workflow.nodes.filter((node) => node.kind === 'agent_task');
+  const enabled = enabledTaskNodeIds === undefined
+    ? allTasks.map((task) => task.id)
+    : [...enabledTaskNodeIds];
+  if (enabled.length === 0 || new Set(enabled).size !== enabled.length
+    || enabled.some((id) => !allTasks.some((task) => task.id === id))) {
+    throw new BusinessException('COLLABORATION_TEMPLATE_INVALID', 'Enabled task selection is invalid');
+  }
+  const selectedTasks = new Set(enabled);
+  const retainedNodeIds = new Set(collaboration.workflow.nodes.flatMap((node) => (
+    node.kind === 'agent_task'
+      ? selectedTasks.has(node.id) ? [node.id] : []
+      : selectedTasks.has(node.artifactTaskId) ? [node.id] : []
+  )));
+  const usedRoles = new Set(allTasks
+    .filter((task) => selectedTasks.has(task.id))
+    .map((task) => task.roleSlotId));
+  const selected: NonNullable<CompositeTemplateDefinition['collaboration']> = {
+    workflow: CollaborationTemplateDefinitionSchema.parse({
+      ...structuredClone(collaboration.workflow),
+      roleSlots: collaboration.workflow.roleSlots.filter((slot) => usedRoles.has(slot.id)),
+      nodes: collaboration.workflow.nodes.filter((node) => retainedNodeIds.has(node.id)),
+      dependencies: collaboration.workflow.dependencies.filter((edge) =>
+        retainedNodeIds.has(edge.from) && retainedNodeIds.has(edge.to)),
+      terminalNodeIds: collaboration.workflow.terminalNodeIds.filter((id) => retainedNodeIds.has(id)),
+    }),
+    taskTargets: collaboration.taskTargets.filter((target) => selectedTasks.has(target.taskNodeId)),
+  };
+  const selectedPageNodeIds = new Set(selected.taskTargets.map((target) => target.pageNodeId));
+  const candidate = CompositeTemplateDefinitionSchema.parse({
+    ...definition,
+    nodes: definition.nodes.map((node) => node.kind === 'page' && !selectedPageNodeIds.has(node.nodeId)
+      ? { ...node, roleSlotKey: null }
+      : node),
+    collaboration: selected,
+  });
+  const issues = validateCompositeDefinition(candidate);
+  if (issues.length > 0) {
+    throw new BusinessException('COLLABORATION_TEMPLATE_INVALID', undefined, { issues });
+  }
+  return selected;
+}
+
 function orderSnapshotNodes(nodes: readonly FolderSnapshotSourceNode[]): FolderSnapshotSourceNode[] {
   const roots = nodes.filter((node) => node.parentSourceId === null);
   if (roots.length !== 1 || roots[0]?.kind !== 'folder') {
