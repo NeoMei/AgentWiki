@@ -9,6 +9,7 @@ import {
   Max,
   MaxLength,
   Min,
+  MinLength,
 } from 'class-validator';
 
 const PreserveRawInput = () => Transform(({ obj, key }) => obj[key], { toClassOnly: true });
@@ -27,6 +28,40 @@ export class AttachmentStateDto {
   @IsISO8601({ strict: true, strictSeparator: true })
   @Matches(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/)
   expectedUpdatedAt!: string;
+}
+
+export class AttachmentRenamePreviewDto {
+  @PreserveRawInput()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(512)
+  displayName!: string;
+}
+
+export class AttachmentRenameConfirmDto extends AttachmentRenamePreviewDto {
+  @PreserveRawInput()
+  @IsISO8601({ strict: true, strictSeparator: true })
+  @Matches(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/)
+  expectedUpdatedAt!: string;
+
+  @PreserveRawInput()
+  @IsString()
+  @Matches(/^(?:0|[1-9][0-9]*)$/)
+  expectedTreeRevision!: string;
+}
+
+export interface AttachmentImpactedPage {
+  id: string;
+  title: string;
+}
+
+export interface AttachmentRenamePreview {
+  attachmentId: string;
+  displayName: string;
+  path: string;
+  expectedUpdatedAt: string;
+  expectedTreeRevision: string;
+  impactedPages: AttachmentImpactedPage[];
 }
 
 export interface AttachmentSummary {

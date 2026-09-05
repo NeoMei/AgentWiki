@@ -6,6 +6,7 @@ import { unified } from 'unified';
 import { visit } from 'unist-util-visit';
 import api from '../../api/client';
 import {
+  attachmentDisplayNameFromWikiTarget,
   canonicalWikiReferenceKey,
   normalizeMarkdownAttachmentIdentity,
   normalizeMarkdownPageIdentity,
@@ -1045,7 +1046,9 @@ const markdownResourceRefFromNode = (node: MarkdownAstNode): MarkdownResourceRef
   return {
     canonicalKey: canonicalWikiReferenceKey(wikiReference),
     kind: wikiReferenceKind(wikiReference),
-    target,
+    target: wikiReferenceKind(wikiReference) === 'attachment'
+      ? attachmentDisplayNameFromWikiTarget(target)
+      : target,
     ...(heading ? { heading } : {}),
     ...(blockId ? { blockId } : {}),
   };

@@ -34,3 +34,28 @@ export interface AttachmentUploadOptions {
   signal?: AbortSignal;
   onProgress?: (percentage: number) => void;
 }
+
+export interface AttachmentImpactedPage {
+  id: string;
+  title: string;
+}
+
+export interface AttachmentRenamePreview {
+  attachmentId: string;
+  displayName: string;
+  path: string;
+  expectedUpdatedAt: string;
+  expectedTreeRevision: string;
+  impactedPages: AttachmentImpactedPage[];
+}
+
+export interface AttachmentRenameConfirm {
+  displayName: string;
+  expectedUpdatedAt: string;
+  expectedTreeRevision: string;
+}
+
+export interface AttachmentRenameResult extends AttachmentSummary {
+  path: string;
+  impactedPages: AttachmentImpactedPage[];
+}

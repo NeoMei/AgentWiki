@@ -84,6 +84,24 @@ function createAdminClient(databaseUrl) {
   return new PrismaClient({ datasources: { db: { url: administrativeUrl.toString() } } });
 }
 
+function failDelegate(tx, delegateName, methodName) {
+  return new Proxy(tx, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver);
+      if (property !== delegateName || !value || typeof value !== 'object') return value;
+      return new Proxy(value, {
+        get(delegate, method, delegateReceiver) {
+          if (method === methodName) {
+            return async () => { throw new Error(`injected:${delegateName}.${methodName}`); };
+          }
+          const member = Reflect.get(delegate, method, delegateReceiver);
+          return typeof member === 'function' ? member.bind(delegate) : member;
+        },
+      });
+    },
+  });
+}
+
 test('capacity lock contenders release a two-connection pool for unrelated PostgreSQL work', {
   skip: baseDatabaseUrl
     ? false
@@ -203,6 +221,11 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
         '../apps/server/dist/core/filters/all-exceptions.filter.js'
       );
       const { PrismaService } = await import('../apps/server/dist/database/prisma.service.js');
+      const { AttachmentService } = await import('../apps/server/dist/attachments/attachment.service.js');
+      const { AuthorizationService } = await import('../apps/server/dist/core/authorization/authorization.service.js');
+      const { SpaceRevisionWriterService } = await import('../apps/server/dist/core/sync/space-revision-writer.service.js');
+      const { SearchService } = await import('../apps/server/dist/core/search/search.service.js');
+      const { GraphMaintenance } = await import('../apps/server/dist/knowledge-graph/graph-maintenance.js');
       const { AttachmentCleanupWorker } = await import(
         '../apps/server/dist/attachments/attachment-cleanup.worker.js'
       );
@@ -392,6 +415,222 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
       await rawContent(viewer.token, 404);
       assert.equal(outsiderSpace.members[0].userId, outsider.id);
 
+      const pageBFolder = await prisma.folder.create({ data: {
+        spaceId: space.id, name: 'topic', nameKey: 'topic',
+        path: 'pages/topic', pathKey: 'pages/topic', createdByUserId: owner.id,
+      } });
+      const pageBContent = 'prefix ![nested](<../../assets/Beta.png> "nested title") suffix';
+      const pageB = await prisma.page.create({ data: {
+        knowledgeKey: randomUUID(), title: 'Page B', slug: `page-b-${randomUUID()}`,
+        content: pageBContent, spaceId: space.id, authorId: owner.id,
+        folderId: pageBFolder.id,
+        syncPath: 'pages/topic/Page B.md', syncPathKey: `pages/topic/page-b-${randomUUID()}.md`,
+      } });
+      const treeBeforePageA = await prisma.space.findUniqueOrThrow({
+        where: { id: space.id }, select: { contentTreeRevision: true },
+      });
+      const pageAContent = '![[  assets/Beta.png  | cover | 320x200  ]]\r\n![root](<../assets/Beta.png> "root title")';
+      const pageA = (await request('/pages', {
+        method: 'POST', token: owner.token,
+        body: {
+          spaceId: space.id, title: 'Page A', content: pageAContent,
+          expectedTreeRevision: treeBeforePageA.contentTreeRevision.toString(10),
+        },
+      })).data;
+      const preview = (await request(
+        `/spaces/${space.id}/attachments/${beta.id}/rename/preview`,
+        { method: 'POST', token: owner.token, body: { displayName: 'Beta renamed.png' } },
+      )).data;
+      assert.equal(preview.path, 'assets/Beta renamed.png');
+      assert.deepEqual(preview.impactedPages, [
+        { id: pageA.id, title: 'Page A' }, { id: pageB.id, title: 'Page B' },
+      ].sort((left, right) => left.id.localeCompare(right.id)));
+
+      const authorization = app.get(AuthorizationService);
+      const revisionWriter = app.get(SpaceRevisionWriterService);
+      const searchService = app.get(SearchService);
+      const graphMaintenance = app.get(GraphMaintenance);
+      const storage = app.get(ATTACHMENT_STORAGE);
+      const attachmentConfig = app.get(ATTACHMENT_CONFIG);
+      const failingPrisma = new Proxy(prisma, {
+        get(target, property, receiver) {
+          if (property !== '$transaction') {
+            const value = Reflect.get(target, property, receiver);
+            return typeof value === 'function' ? value.bind(target) : value;
+          }
+          return (work, options) => target.$transaction(
+            async (tx) => work(failDelegate(tx, 'pageVersion', 'create')),
+            options,
+          );
+        },
+      });
+      const failingService = new AttachmentService(
+        failingPrisma, authorization, revisionWriter, storage, attachmentConfig,
+        searchService, graphMaintenance,
+      );
+      const revisionCountBeforeRename = await prisma.spaceKnowledgeRevision.count({
+        where: { spaceId: space.id },
+      });
+      await assert.rejects(
+        failingService.rename(space.id, beta.id, preview, { userId: owner.id }),
+        /injected:pageVersion\.create/u,
+      );
+      assert.equal((await prisma.spaceAttachment.findUniqueOrThrow({ where: { id: beta.id } })).displayName, 'Beta.png');
+      assert.equal((await prisma.page.findUniqueOrThrow({ where: { id: pageA.id } })).content, pageAContent);
+      assert.equal((await prisma.page.findUniqueOrThrow({ where: { id: pageB.id } })).content, pageBContent);
+      assert.equal(await prisma.pageVersion.count({ where: { pageId: { in: [pageA.id, pageB.id] } } }), 0);
+      assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId: space.id } }), revisionCountBeforeRename);
+
+      const confirms = await Promise.all([
+        request(`/spaces/${space.id}/attachments/${beta.id}/rename`, {
+          method: 'POST', token: owner.token, body: {
+            displayName: preview.displayName,
+            expectedUpdatedAt: preview.expectedUpdatedAt,
+            expectedTreeRevision: preview.expectedTreeRevision,
+          }, expected: [201, 409],
+        }),
+        request(`/spaces/${space.id}/attachments/${beta.id}/rename`, {
+          method: 'POST', token: owner.token, body: {
+            displayName: preview.displayName,
+            expectedUpdatedAt: preview.expectedUpdatedAt,
+            expectedTreeRevision: preview.expectedTreeRevision,
+          }, expected: [201, 409],
+        }),
+      ]);
+      assert.deepEqual(confirms.map(({ response }) => response.status).sort(), [201, 409]);
+      assert.equal((await prisma.spaceAttachment.findUniqueOrThrow({ where: { id: beta.id } })).displayName, 'Beta renamed.png');
+      assert.equal(
+        (await prisma.page.findUniqueOrThrow({ where: { id: pageA.id } })).content,
+        '![[  assets/Beta renamed.png  | cover | 320x200  ]]\r\n![root](<../assets/Beta renamed.png> "root title")',
+      );
+      assert.equal(
+        (await prisma.page.findUniqueOrThrow({ where: { id: pageB.id } })).content,
+        'prefix ![nested](<../../assets/Beta renamed.png> "nested title") suffix',
+      );
+      assert.equal(await prisma.pageVersion.count({ where: { pageId: { in: [pageA.id, pageB.id] } } }), 2);
+      assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId: space.id } }), revisionCountBeforeRename + 1);
+      const renamedVersion = await prisma.attachmentVersion.findFirstOrThrow({
+        where: { attachmentId: beta.id }, orderBy: { createdAt: 'desc' },
+      });
+      const renameHead = await prisma.spaceKnowledgeRevision.findFirstOrThrow({
+        where: { spaceId: space.id }, orderBy: { sequence: 'desc' },
+      });
+      assert.equal(renameHead.schemaVersion, 'content-tree@3');
+      assert.equal(renameHead.recipeVersion, 'referenced-images-v1');
+      assert.equal(renameHead.attachmentCount, 1n);
+      assert.deepEqual(await prisma.syncRevisionAttachmentRow.findMany({
+        where: { revisionId: renameHead.id },
+        select: { attachmentId: true, attachmentVersionId: true },
+      }), [{ attachmentId: beta.id, attachmentVersionId: renamedVersion.id }]);
+
+      for (const pageId of [pageA.id, pageB.id]) {
+        const current = await prisma.page.findUniqueOrThrow({ where: { id: pageId } });
+        await request(`/pages/${pageId}`, {
+          method: 'PATCH', token: owner.token,
+          body: { expectedUpdatedAt: current.updatedAt.toISOString(), content: `# Detached ${pageId}\n` },
+        });
+      }
+      const detachedHead = await prisma.spaceKnowledgeRevision.findFirstOrThrow({
+        where: { spaceId: space.id }, orderBy: { sequence: 'desc' },
+      });
+      assert.equal(detachedHead.schemaVersion, 'content-tree@3');
+      assert.equal(detachedHead.recipeVersion, 'referenced-images-v1');
+      assert.equal(detachedHead.attachmentCount, 0n);
+      assert.equal(await prisma.syncRevisionAttachmentRow.count({
+        where: { revisionId: detachedHead.id },
+      }), 0);
+
+      const snapshotPagePublication = async (pageId) => ({
+        page: await prisma.page.findUniqueOrThrow({ where: { id: pageId } }),
+        pageVersions: await prisma.pageVersion.count({ where: { page: { spaceId: space.id } } }),
+        revisions: await prisma.spaceKnowledgeRevision.count({ where: { spaceId: space.id } }),
+        treeRevision: (await prisma.space.findUniqueOrThrow({ where: { id: space.id } })).contentTreeRevision,
+      });
+      const assertRejectedPageSaveRolledBack = async (content, before, code, status) => {
+        const rejected = await request(`/pages/${before.page.id}`, {
+          method: 'PATCH', token: owner.token,
+          body: { expectedUpdatedAt: before.page.updatedAt.toISOString(), content },
+          expected: [status],
+        });
+        assert.equal(rejected.data?.error?.code, code);
+        assert.doesNotMatch(JSON.stringify(rejected.data), /storageKey|contentHash|markdown_test_/iu);
+        const after = await snapshotPagePublication(before.page.id);
+        assert.equal(after.page.content, before.page.content);
+        assert.equal(after.page.updatedAt.getTime(), before.page.updatedAt.getTime());
+        assert.equal(after.pageVersions, before.pageVersions);
+        assert.equal(after.revisions, before.revisions);
+        assert.equal(after.treeRevision, before.treeRevision);
+      };
+
+      await assertRejectedPageSaveRolledBack(
+        '![[assets/missing.png]]\n', await snapshotPagePublication(pageA.id),
+        'ATTACHMENT_MISSING', 409,
+      );
+      await prisma.$executeRawUnsafe(
+        'DROP INDEX "SpaceAttachment_spaceId_nameKey_key"',
+      );
+      const duplicate = await prisma.spaceAttachment.create({ data: {
+        spaceId: space.id, displayName: 'Beta renamed.png', nameKey: 'beta renamed.png',
+        contentHash: renamedVersion.contentHash, storageKey: renamedVersion.storageKey, mimeType: beta.mimeType,
+        sizeBytes: BigInt(beta.sizeBytes), width: beta.width, height: beta.height,
+        uploadedByUserId: owner.id,
+      } });
+      await assertRejectedPageSaveRolledBack(
+        '![[assets/Beta renamed.png]]\n', await snapshotPagePublication(pageA.id),
+        'ATTACHMENT_REFERENCE_INVALID', 400,
+      );
+      await prisma.spaceAttachment.delete({ where: { id: duplicate.id } });
+      await prisma.$executeRawUnsafe(
+        'CREATE UNIQUE INDEX "SpaceAttachment_spaceId_nameKey_key" ON "SpaceAttachment"("spaceId", "nameKey")',
+      );
+      await prisma.spaceAttachment.update({
+        where: { id: beta.id }, data: { status: 'archived', archivedAt: new Date() },
+      });
+      await assertRejectedPageSaveRolledBack(
+        '![[assets/Beta renamed.png]]\n', await snapshotPagePublication(pageA.id),
+        'ATTACHMENT_MISSING', 409,
+      );
+      await prisma.spaceAttachment.update({
+        where: { id: beta.id }, data: { status: 'active', archivedAt: null },
+      });
+
+      const treeBeforeLifecycleCreate = await prisma.space.findUniqueOrThrow({
+        where: { id: space.id }, select: { contentTreeRevision: true },
+      });
+      const lifecyclePage = (await request('/pages', {
+        method: 'POST', token: owner.token,
+        body: {
+          spaceId: space.id, title: 'Lifecycle image', content: '![[assets/Beta renamed.png]]\n',
+          expectedTreeRevision: treeBeforeLifecycleCreate.contentTreeRevision.toString(10),
+        },
+      })).data;
+      let lifecycleCurrent = await prisma.page.findUniqueOrThrow({ where: { id: lifecyclePage.id } });
+      await request(`/pages/${lifecyclePage.id}`, {
+        method: 'PATCH', token: owner.token,
+        body: { expectedUpdatedAt: lifecycleCurrent.updatedAt.toISOString(), content: '# Temporarily detached\n' },
+      });
+      const imageVersion = await prisma.pageVersion.findFirstOrThrow({
+        where: { pageId: lifecyclePage.id }, orderBy: { createdAt: 'desc' },
+      });
+      const treeBeforeLifecycleRestore = await prisma.space.findUniqueOrThrow({
+        where: { id: space.id }, select: { contentTreeRevision: true },
+      });
+      await request(`/pages/${lifecyclePage.id}/versions/${imageVersion.id}/restore`, {
+        method: 'POST', token: owner.token,
+        body: { expectedTreeRevision: treeBeforeLifecycleRestore.contentTreeRevision.toString(10) },
+      });
+      lifecycleCurrent = await prisma.page.findUniqueOrThrow({ where: { id: lifecyclePage.id } });
+      assert.equal(lifecycleCurrent.content, '![[assets/Beta renamed.png]]\n');
+      const lifecycleHeads = await prisma.spaceKnowledgeRevision.findMany({
+        where: { spaceId: space.id }, orderBy: { sequence: 'desc' }, take: 3,
+      });
+      assert.equal(lifecycleHeads.length, 3);
+      assert.ok(lifecycleHeads.every((revision) => (
+        revision.schemaVersion === 'content-tree@3'
+        && revision.recipeVersion === 'referenced-images-v1'
+      )));
+      assert.deepEqual(lifecycleHeads.map((revision) => revision.attachmentCount), [1n, 0n, 1n]);
+
       const archived = (await request(
         `/spaces/${space.id}/attachments/${alpha.id}/archive`,
         { method: 'POST', token: owner.token, body: { expectedUpdatedAt: alpha.updatedAt } },
@@ -443,8 +682,6 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
           archivedAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000),
         },
       });
-      const storage = app.get(ATTACHMENT_STORAGE);
-      const attachmentConfig = app.get(ATTACHMENT_CONFIG);
       const runtimeConfig = app.get(ConfigService);
       const originalPublish = storage.publish.bind(storage);
       let signalPublished;

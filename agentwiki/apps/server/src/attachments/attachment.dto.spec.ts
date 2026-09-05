@@ -2,7 +2,12 @@ import 'reflect-metadata';
 import { ValidationPipe } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { AttachmentListQueryDto, AttachmentStateDto } from './attachment.dto';
+import {
+  AttachmentListQueryDto,
+  AttachmentRenameConfirmDto,
+  AttachmentRenamePreviewDto,
+  AttachmentStateDto,
+} from './attachment.dto';
 
 const productionPipe = new ValidationPipe({
   whitelist: true,
@@ -70,5 +75,33 @@ describe('attachment DTO validation', () => {
     await expect(transformBody(AttachmentStateDto, {
       expectedUpdatedAt: '2026-08-27T01:02:03.000Z', extra: 'no',
     })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('accepts a strict rename preview name and no concurrency fields', async () => {
+    await expect(transformBody(AttachmentRenamePreviewDto, {
+      displayName: 'Renamed image.png',
+    })).resolves.toEqual({ displayName: 'Renamed image.png' });
+    await expect(transformBody(AttachmentRenamePreviewDto, {
+      displayName: 'Renamed image.png', expectedUpdatedAt: '2026-09-05T00:00:00.000Z',
+    })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('requires exact preview concurrency tokens for rename confirmation', async () => {
+    const valid = {
+      displayName: 'Renamed image.png',
+      expectedUpdatedAt: '2026-09-05T00:00:00.000Z',
+      expectedTreeRevision: '17',
+    };
+    await expect(transformBody(AttachmentRenameConfirmDto, valid))
+      .resolves.toEqual(valid);
+    for (const input of [
+      { ...valid, expectedUpdatedAt: 'today' },
+      { ...valid, expectedTreeRevision: 17 },
+      { ...valid, expectedTreeRevision: '01' },
+      { ...valid, extra: 'not-allowed' },
+    ]) {
+      await expect(transformBody(AttachmentRenameConfirmDto, input))
+        .rejects.toMatchObject({ status: 400 });
+    }
   });
 });

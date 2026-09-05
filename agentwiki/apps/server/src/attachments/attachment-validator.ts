@@ -117,7 +117,7 @@ export interface PreparedAttachment {
   tempPath: string;
 }
 
-function validateFilename(originalName: string): { displayName: string; nameKey: string } {
+export function validateAttachmentFilename(originalName: string): { displayName: string; nameKey: string } {
   const displayName = originalName.normalize('NFC');
   if (
     displayName.length === 0 ||
@@ -298,7 +298,7 @@ export async function validateStagedImage(
   file: StagedImageFile,
   config: AttachmentConfig,
 ): Promise<PreparedAttachment> {
-  const { displayName, nameKey } = validateFilename(file.originalname);
+  const { displayName, nameKey } = validateAttachmentFilename(file.originalname);
   const expectedMime = MIME_BY_EXTENSION.get(extname(displayName).toLowerCase());
   if (!expectedMime || file.mimetype !== expectedMime) {
     throw new AttachmentValidationError('Unsupported attachment image type or MIME disagreement');

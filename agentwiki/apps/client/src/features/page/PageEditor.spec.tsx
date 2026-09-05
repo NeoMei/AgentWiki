@@ -1031,7 +1031,7 @@ describe('PageEditor remote update safety', () => {
     fireEvent.click(trigger);
     fireEvent.click(await screen.findByRole('button', { name: 'Insert diagram.png' }));
 
-    await waitFor(() => expect(contentEditorValue()).toBe('Original ![[diagram.png]]'));
+    await waitFor(() => expect(contentEditorValue()).toBe('Original ![[assets/diagram.png]]'));
     expect(screen.queryByRole('dialog', { name: 'Image attachments' })).not.toBeInTheDocument();
     await waitFor(() => expect(trigger).toHaveFocus());
     expect(screen.getByText(/Unsaved/)).toBeInTheDocument();
@@ -1076,7 +1076,7 @@ describe('PageEditor remote update safety', () => {
 
     fireEvent.change(screen.getByLabelText('Upload image'), { target: { files: [localFile] } });
 
-    await waitFor(() => expect(contentEditorValue()).toBe('![[diagram-2.png]]Original content'));
+    await waitFor(() => expect(contentEditorValue()).toBe('![[assets/diagram-2.png]]Original content'));
     expect(attachmentMocks.uploadAttachment).toHaveBeenCalledWith('space-1', localFile, expect.any(Object));
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
   });
@@ -1094,7 +1094,7 @@ describe('PageEditor remote update safety', () => {
     const event = pasteImages([first, second]);
 
     expect(event.defaultPrevented).toBe(true);
-    await waitFor(() => expect(contentEditorValue()).toBe('![[first-2.png]]\n![[second.gif]]Original content'));
+    await waitFor(() => expect(contentEditorValue()).toBe('![[assets/first-2.png]]\n![[assets/second.gif]]Original content'));
     expect(attachmentMocks.uploadAttachment.mock.calls.map(([spaceId, file]) => [spaceId, file])).toEqual([
       ['space-1', first],
       ['space-1', second],
@@ -1365,7 +1365,7 @@ describe('PageEditor remote update safety', () => {
     await waitFor(() => expect(attachmentMocks.uploadAttachment).toHaveBeenCalledWith(
       'space-2', file, expect.any(Object),
     ));
-    await waitFor(() => expect(contentEditorValue()).toBe('![[new-space.png]]Moved content'));
+    await waitFor(() => expect(contentEditorValue()).toBe('![[assets/new-space.png]]Moved content'));
   });
 
   it('unmount aborts task-owned uploads and ignores late completion', async () => {

@@ -525,7 +525,7 @@ function classifyTarget(
   } else if (decoded.startsWith('assets/')) {
     candidate = decoded;
   } else {
-    const pagePath = sourceSyncPath.normalize('NFC').replace(/^pages\//u, '');
+    const pagePath = sourceSyncPath.normalize('NFC');
     const directory = posix.dirname(pagePath);
     candidate = posix.normalize(posix.join(directory === '.' ? '' : directory, decoded));
   }

@@ -5,8 +5,15 @@ import type {
   StoredAttachment,
 } from './attachment-storage';
 import { BusinessException } from '../core/filters/business-error';
-import * as validator from './attachment-validator';
+import type { SearchService } from '../core/search/search.service';
+import type { GraphMaintenance } from '../knowledge-graph/graph-maintenance';
+import { AttachmentValidationError, validateUploadedImage } from './attachment-validator';
 import { AttachmentService } from './attachment.service';
+
+jest.mock('./attachment-validator', () => ({
+  ...jest.requireActual('./attachment-validator'),
+  validateUploadedImage: jest.fn(),
+}));
 
 const NOW = new Date('2026-08-27T01:02:03.000Z');
 const PNG = {
@@ -83,16 +90,29 @@ function harness() {
   const spaceKnowledgeRevision = { findFirst: jest.fn().mockResolvedValue(null) };
   const syncRevisionAttachmentRow = { findUnique: jest.fn().mockResolvedValue(null) };
   const legacyRevisionSidecar = { findUnique: jest.fn().mockResolvedValue(null) };
-  const page = { findMany: jest.fn().mockResolvedValue([]) };
+  const page = {
+    findMany: jest.fn().mockResolvedValue([]),
+    updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+  };
+  const pageVersion = { create: jest.fn().mockResolvedValue({ id: 'page-version-1' }) };
+  const pageSearchDocument = { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) };
+  const space = { findUnique: jest.fn().mockResolvedValue({ contentTreeRevision: 7n }) };
   const tx = {
     spaceAttachment: attachment,
     spaceKnowledgeRevision,
     syncRevisionAttachmentRow,
     legacyRevisionSidecar,
     page,
+    pageVersion,
+    pageSearchDocument,
+    space,
   } as any;
   const prisma = {
     spaceAttachment: attachment,
+    space,
+    page,
+    pageVersion,
+    pageSearchDocument,
     $transaction: jest.fn(async (work: (db: typeof tx) => unknown) => work(tx)),
   } as any;
   const authorization = {
@@ -139,24 +159,32 @@ function harness() {
   } as unknown as jest.Mocked<AttachmentStorage>;
   const revisionWriter = {
     lockSpace: jest.fn(async (db) => db),
+    lockContentTreeSpace: jest.fn(async (db) => Object.assign(db, { contentTreeRevision: 7n })),
+    advanceLocked: jest.fn().mockResolvedValue({ revisionId: 'revision-new' }),
   } as any;
+  const search = { indexPage: jest.fn().mockResolvedValue({ lexicalIndexed: true }) };
+  const graph = { enqueue: jest.fn() };
   const service = new AttachmentService(
     prisma,
     authorization,
     revisionWriter,
     storage,
     config,
+    search as unknown as SearchService,
+    graph as unknown as GraphMaintenance,
   );
   return {
     service, prisma, tx, attachment, authorization, revisionWriter, storage, published,
     spaceKnowledgeRevision, syncRevisionAttachmentRow, legacyRevisionSidecar, page,
+    pageVersion, pageSearchDocument, space, search, graph,
   };
 }
 
 describe('AttachmentService', () => {
   beforeEach(() => {
     jest.restoreAllMocks();
-    jest.spyOn(validator, 'validateUploadedImage').mockResolvedValue({ ...PNG });
+    jest.clearAllMocks();
+    jest.mocked(validateUploadedImage).mockResolvedValue({ ...PNG });
   });
 
   it('authorizes readable humans and Agents, paginates, and serializes bigint sizes', async () => {
@@ -206,7 +234,7 @@ describe('AttachmentService', () => {
 
     await h.service.upload('space-1', file, principal());
 
-    expect(validator.validateUploadedImage).toHaveBeenCalledWith(
+    expect(validateUploadedImage).toHaveBeenCalledWith(
       expect.objectContaining({ originalname: 'Café.PNG' }),
       config,
     );
@@ -214,8 +242,8 @@ describe('AttachmentService', () => {
 
   it('maps only recognizable client image validation failures to HTTP 400', async () => {
     const h = harness();
-    jest.mocked(validator.validateUploadedImage).mockRejectedValue(
-      new validator.AttachmentValidationError('Attachment MIME is invalid'),
+    jest.mocked(validateUploadedImage).mockRejectedValue(
+      new AttachmentValidationError('Attachment MIME is invalid'),
     );
 
     await expect(h.service.upload('space-1', uploadFile(), principal())).rejects.toMatchObject({
@@ -229,7 +257,7 @@ describe('AttachmentService', () => {
   it('rethrows validator I/O failures instead of misclassifying them as client input', async () => {
     const h = harness();
     const ioFailure = Object.assign(new Error('attachment disk read failed'), { code: 'EIO' });
-    jest.mocked(validator.validateUploadedImage).mockRejectedValue(ioFailure);
+    jest.mocked(validateUploadedImage).mockRejectedValue(ioFailure);
 
     await expect(h.service.upload('space-1', uploadFile(), principal())).rejects.toBe(ioFailure);
     expect(h.storage.publish).not.toHaveBeenCalled();
@@ -252,7 +280,7 @@ describe('AttachmentService', () => {
     );
     await expect(h.service.upload('space-1', uploadFile(), agent))
       .rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
-    expect(validator.validateUploadedImage).not.toHaveBeenCalled();
+    expect(validateUploadedImage).not.toHaveBeenCalled();
     expect(h.storage.publish).not.toHaveBeenCalled();
     expect(h.storage.releaseTempReservation).toHaveBeenCalledWith(TEMP_RESERVATION);
   });
@@ -312,7 +340,7 @@ describe('AttachmentService', () => {
 
   it('suffixes same-name different content against NFC, trim, case-insensitive archived reservations', async () => {
     const h = harness();
-    jest.mocked(validator.validateUploadedImage).mockResolvedValue({
+    jest.mocked(validateUploadedImage).mockResolvedValue({
       ...PNG,
       displayName: ' Cafe\u0301.PNG ',
       nameKey: ' cafe\u0301.png ',
@@ -332,7 +360,7 @@ describe('AttachmentService', () => {
 
   it('reuses an active same-content suffix created by an earlier name conflict', async () => {
     const h = harness();
-    jest.mocked(validator.validateUploadedImage).mockResolvedValue({
+    jest.mocked(validateUploadedImage).mockResolvedValue({
       ...PNG,
       contentHash: 'b'.repeat(64),
     });
@@ -378,7 +406,7 @@ describe('AttachmentService', () => {
     expectedId,
   ) => {
     const h = harness();
-    jest.mocked(validator.validateUploadedImage).mockResolvedValue({
+    jest.mocked(validateUploadedImage).mockResolvedValue({
       ...PNG,
       contentHash: 'c'.repeat(64),
     });
@@ -393,7 +421,7 @@ describe('AttachmentService', () => {
 
   it('reserves but does not reuse an archived same-content family suffix', async () => {
     const h = harness();
-    jest.mocked(validator.validateUploadedImage).mockResolvedValue({
+    jest.mocked(validateUploadedImage).mockResolvedValue({
       ...PNG,
       contentHash: 'c'.repeat(64),
     });
@@ -417,7 +445,7 @@ describe('AttachmentService', () => {
 
   it('does not treat unrelated or malformed numeric-looking names as suffix-family matches', async () => {
     const h = harness();
-    jest.mocked(validator.validateUploadedImage).mockResolvedValue({
+    jest.mocked(validateUploadedImage).mockResolvedValue({
       ...PNG,
       contentHash: 'c'.repeat(64),
     });
@@ -442,7 +470,7 @@ describe('AttachmentService', () => {
     expectedName,
   ) => {
     const h = harness();
-    jest.mocked(validator.validateUploadedImage).mockResolvedValue({
+    jest.mocked(validateUploadedImage).mockResolvedValue({
       ...PNG,
       displayName,
       nameKey: displayName.toLocaleLowerCase('und'),
@@ -508,7 +536,7 @@ describe('AttachmentService', () => {
       records.push(created);
       return created;
     });
-    jest.mocked(validator.validateUploadedImage)
+    jest.mocked(validateUploadedImage)
       .mockResolvedValueOnce({ ...PNG, contentHash: 'a'.repeat(64) })
       .mockResolvedValueOnce({ ...PNG, contentHash: 'b'.repeat(64) });
     h.storage.publish
@@ -626,6 +654,215 @@ describe('AttachmentService', () => {
       /secret markdown|storageKey|\/var\/lib|credential|sha256/iu,
     );
     expect(h.attachment.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('previews and atomically renames one attachment across exact Page A/B source ranges', async () => {
+    const h = harness();
+    const pageA = {
+      id: 'page-a', knowledgeKey: 'key-a', title: 'Page A',
+      content: 'before Photo.png\r\n![[  assets/Photo.png  | cover | 320x200  ]]\r\n![root](<../assets/Photo.png> "root title")\r\nafter Photo.png',
+      authorId: 'owner-1', slug: 'page-a', format: 'markdown', parentId: null, folderId: null,
+      syncPath: 'pages/a.md', syncPathKey: 'pages/a.md', updatedAt: NOW,
+    };
+    const pageB = {
+      ...pageA, id: 'page-b', knowledgeKey: 'key-b', title: 'Page B', slug: 'page-b',
+      content: 'prefix ![alt](<../../assets/Photo.png> "title") suffix',
+      syncPath: 'pages/topic/b.md', syncPathKey: 'pages/topic/b.md',
+    };
+    h.attachment.findFirst.mockImplementation(async ({ where }: any) => (
+      where.id === 'attachment-1' ? row() : null
+    ));
+    h.attachment.findMany.mockResolvedValue([row()]);
+    h.page.findMany.mockResolvedValue([pageA, pageB]);
+    h.attachment.findUnique.mockResolvedValue(row({
+      displayName: 'Renamed.png', nameKey: 'renamed.png', updatedAt: new Date(NOW.getTime() + 1),
+    }));
+
+    const preview = await h.service.previewRename('space-1', 'attachment-1', {
+      displayName: 'Renamed.png',
+    }, principal('editor'));
+    expect(preview).toEqual({
+      attachmentId: 'attachment-1', displayName: 'Renamed.png', path: 'assets/Renamed.png',
+      expectedUpdatedAt: NOW.toISOString(), expectedTreeRevision: '7',
+      impactedPages: [{ id: 'page-a', title: 'Page A' }, { id: 'page-b', title: 'Page B' }],
+    });
+
+    const result = await h.service.rename('space-1', 'attachment-1', {
+      displayName: preview.displayName,
+      expectedUpdatedAt: preview.expectedUpdatedAt,
+      expectedTreeRevision: preview.expectedTreeRevision,
+    }, principal('editor'));
+    expect(result.path).toBe('assets/Renamed.png');
+    expect(result.impactedPages.map((page: { id: string }) => page.id)).toEqual(['page-a', 'page-b']);
+    expect(h.attachment.updateMany).toHaveBeenCalledWith({
+      where: { id: 'attachment-1', spaceId: 'space-1', status: 'active', updatedAt: NOW },
+      data: { displayName: 'Renamed.png', nameKey: 'renamed.png' },
+    });
+    expect(h.pageVersion.create.mock.calls.map(([call]) => call.data)).toEqual([
+      expect.objectContaining({ pageId: 'page-a', content: pageA.content, title: 'Page A' }),
+      expect.objectContaining({ pageId: 'page-b', content: pageB.content, title: 'Page B' }),
+    ]);
+    const rewrittenA = 'before Photo.png\r\n![[  assets/Renamed.png  | cover | 320x200  ]]\r\n![root](<../assets/Renamed.png> "root title")\r\nafter Photo.png';
+    const rewrittenB = 'prefix ![alt](<../../assets/Renamed.png> "title") suffix';
+    expect(h.page.updateMany.mock.calls.map(([call]) => call.data.content)).toEqual([
+      rewrittenA,
+      rewrittenB,
+    ]);
+    expect(h.revisionWriter.advanceLocked).toHaveBeenCalledTimes(1);
+    expect(h.revisionWriter.advanceLocked).toHaveBeenCalledWith(
+      h.tx,
+      'space-1',
+      [
+        { operation: 'upsert', pageId: 'key-a', path: 'pages/a.md', title: 'Page A', body: rewrittenA },
+        { operation: 'upsert', pageId: 'key-b', path: 'pages/topic/b.md', title: 'Page B', body: rewrittenB },
+      ],
+      { origin: 'web_editor', createdByUserId: 'editor-1' },
+    );
+    expect(h.search.indexPage.mock.calls.map(([pageId]: [string]) => pageId)).toEqual(['page-a', 'page-b']);
+    expect(h.graph.enqueue).toHaveBeenCalledTimes(1);
+    expect(h.graph.enqueue).toHaveBeenCalledWith('space-1');
+  });
+
+  it('keeps a committed rename successful and attempts every post-commit refresh when indexing fails', async () => {
+    const h = harness();
+    const basePage = {
+      knowledgeKey: 'key', title: 'Page', content: '![[assets/Photo.png]]',
+      authorId: 'owner-1', slug: 'page', format: 'markdown', parentId: null, folderId: null,
+      syncPath: 'pages/page.md', syncPathKey: 'pages/page.md', updatedAt: NOW,
+    };
+    h.attachment.findFirst.mockImplementation(async ({ where }: any) => (
+      where.id === 'attachment-1' ? row() : null
+    ));
+    h.attachment.findMany.mockResolvedValue([row()]);
+    h.page.findMany.mockResolvedValue([
+      { ...basePage, id: 'page-a', knowledgeKey: 'key-a' },
+      { ...basePage, id: 'page-b', knowledgeKey: 'key-b' },
+    ]);
+    h.attachment.findUnique.mockResolvedValue(row({
+      displayName: 'Renamed.png', nameKey: 'renamed.png', updatedAt: new Date(NOW.getTime() + 1),
+    }));
+    h.search.indexPage.mockRejectedValueOnce(new Error('embedding offline'));
+    h.graph.enqueue.mockImplementationOnce(() => { throw new Error('graph queue offline'); });
+
+    await expect(h.service.rename('space-1', 'attachment-1', {
+      displayName: 'Renamed.png',
+      expectedUpdatedAt: NOW.toISOString(),
+      expectedTreeRevision: '7',
+    }, principal('editor'))).resolves.toEqual(expect.objectContaining({ displayName: 'Renamed.png' }));
+    expect(h.search.indexPage.mock.calls.map(([pageId]: [string]) => pageId)).toEqual(['page-a', 'page-b']);
+    expect(h.graph.enqueue).toHaveBeenCalledTimes(1);
+    expect(h.graph.enqueue).toHaveBeenCalledWith('space-1');
+  });
+
+  it('rolls back the attachment name and every Page when Page B rewrite persistence fails', async () => {
+    const h = harness();
+    const injected = new Error('forced Page B failure');
+    const basePage = {
+      knowledgeKey: 'key', title: 'Page', content: '![[assets/Photo.png]]',
+      authorId: 'owner-1', slug: 'page', format: 'markdown', parentId: null, folderId: null,
+      syncPath: 'pages/page.md', syncPathKey: 'pages/page.md', updatedAt: NOW,
+    };
+    h.attachment.findFirst.mockImplementation(async ({ where }: any) => (
+      where.id === 'attachment-1' ? row() : null
+    ));
+    h.attachment.findMany.mockResolvedValue([row()]);
+    h.page.findMany.mockResolvedValue([
+      { ...basePage, id: 'page-a', title: 'Page A' },
+      { ...basePage, id: 'page-b', title: 'Page B' },
+    ]);
+    h.page.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockRejectedValueOnce(injected);
+
+    await expect(h.service.rename('space-1', 'attachment-1', {
+      displayName: 'Renamed.png', expectedUpdatedAt: NOW.toISOString(), expectedTreeRevision: '7',
+    }, principal('editor'))).rejects.toBe(injected);
+    expect(h.revisionWriter.advanceLocked).not.toHaveBeenCalled();
+  });
+
+  it('rejects stale tree and attachment tokens before any rename writes', async () => {
+    const h = harness();
+    h.attachment.findFirst.mockResolvedValue(row());
+    await expect(h.service.rename('space-1', 'attachment-1', {
+      displayName: 'Renamed.png', expectedUpdatedAt: NOW.toISOString(), expectedTreeRevision: '8',
+    }, principal('editor'))).rejects.toMatchObject({ businessCode: 'CONTENT_TREE_CONFLICT' });
+    await expect(h.service.rename('space-1', 'attachment-1', {
+      displayName: 'Renamed.png', expectedUpdatedAt: '2026-08-27T01:02:04.000Z', expectedTreeRevision: '7',
+    }, principal('editor'))).rejects.toMatchObject({ businessCode: 'RESOURCE_CONFLICT' });
+    expect(h.attachment.updateMany).not.toHaveBeenCalled();
+    expect(h.page.updateMany).not.toHaveBeenCalled();
+    expect(h.revisionWriter.advanceLocked).not.toHaveBeenCalled();
+  });
+
+  it('rejects live or archived target-name conflicts and never exposes conflicting metadata', async () => {
+    for (const status of ['active', 'archived'] as const) {
+      const h = harness();
+      h.attachment.findFirst
+        .mockResolvedValueOnce(row())
+        .mockResolvedValueOnce(row({ id: `conflict-${status}`, displayName: 'Renamed.png', nameKey: 'renamed.png', status }));
+      await expect(h.service.previewRename('space-1', 'attachment-1', {
+        displayName: 'Renamed.png',
+      }, principal('editor'))).rejects.toMatchObject({ businessCode: 'ATTACHMENT_NAME_CONFLICT' });
+      expect(h.page.findMany).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each(['admin', 'viewer'] as const)('denies %s rename before resolving Page bodies', async (role) => {
+    const h = harness();
+    await expect(h.service.previewRename('space-1', 'attachment-1', {
+      displayName: 'Renamed.png',
+    }, principal(role))).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+    expect(h.attachment.findFirst).not.toHaveBeenCalled();
+    expect(h.page.findMany).not.toHaveBeenCalled();
+  });
+
+  it('route-safely rejects a cross-Space attachment id as not found', async () => {
+    const h = harness();
+    h.attachment.findFirst.mockResolvedValue(null);
+    await expect(h.service.previewRename('space-1', 'attachment-from-other-space', {
+      displayName: 'Renamed.png',
+    }, principal('editor'))).rejects.toMatchObject({ businessCode: 'RESOURCE_NOT_FOUND' });
+  });
+
+  it.each([
+    ['missing', []],
+    ['ambiguous', [row(), row({ id: 'attachment-duplicate' })]],
+  ] as const)('fails closed on %s managed references before rename writes', async (_name, candidates) => {
+    const h = harness();
+    h.attachment.findFirst.mockImplementation(async ({ where }: any) => (
+      where.id === 'attachment-1' ? row() : null
+    ));
+    h.attachment.findMany.mockResolvedValue(candidates);
+    h.page.findMany.mockResolvedValue([{
+      id: 'page-a', knowledgeKey: 'key-a', title: 'Page A', content: '![[assets/Photo.png]]',
+      authorId: 'owner-1', slug: 'page-a', format: 'markdown', parentId: null, folderId: null,
+      syncPath: 'pages/a.md', syncPathKey: 'pages/a.md', updatedAt: NOW,
+    }]);
+    await expect(h.service.rename('space-1', 'attachment-1', {
+      displayName: 'Renamed.png', expectedUpdatedAt: NOW.toISOString(), expectedTreeRevision: '7',
+    }, principal('editor'))).rejects.toMatchObject({
+      businessCode: _name === 'missing' ? 'ATTACHMENT_MISSING' : 'ATTACHMENT_REFERENCE_INVALID',
+    });
+    expect(h.attachment.updateMany).not.toHaveBeenCalled();
+    expect(h.revisionWriter.advanceLocked).not.toHaveBeenCalled();
+  });
+
+  it('treats a Page body compare-and-set miss as range drift and publishes no revision', async () => {
+    const h = harness();
+    h.attachment.findFirst.mockImplementation(async ({ where }: any) => (
+      where.id === 'attachment-1' ? row() : null
+    ));
+    h.attachment.findMany.mockResolvedValue([row()]);
+    h.page.findMany.mockResolvedValue([{
+      id: 'page-a', knowledgeKey: 'key-a', title: 'Page A', content: '![[assets/Photo.png]]',
+      authorId: 'owner-1', slug: 'page-a', format: 'markdown', parentId: null, folderId: null,
+      syncPath: 'pages/a.md', syncPathKey: 'pages/a.md', updatedAt: NOW,
+    }]);
+    h.page.updateMany.mockResolvedValue({ count: 0 });
+    await expect(h.service.rename('space-1', 'attachment-1', {
+      displayName: 'Renamed.png', expectedUpdatedAt: NOW.toISOString(), expectedTreeRevision: '7',
+    }, principal('editor'))).rejects.toMatchObject({ businessCode: 'ATTACHMENT_REFERENCE_INVALID' });
+    expect(h.revisionWriter.advanceLocked).not.toHaveBeenCalled();
   });
 
   it.each(['admin', 'viewer'] as const)('denies %s archive and restore mutations', async (role) => {

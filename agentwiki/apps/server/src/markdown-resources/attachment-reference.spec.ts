@@ -5,7 +5,7 @@ import {
   rewriteAttachmentReferenceRanges,
 } from './attachment-reference';
 
-const sourcePath = 'pages/topic/note.md';
+const sourcePath = 'pages/note.md';
 
 function countIndexedReads(raw: string): { value: string; reads: () => number } {
   let indexedReads = 0;
@@ -21,6 +21,13 @@ function countIndexedReads(raw: string): { value: string; reads: () => number } 
 }
 
 describe('parseImageReferences', () => {
+  it('resolves standard Markdown paths from the full root and nested Page directories', () => {
+    expect(parseImageReferences('![](../assets/root.png)', 'pages/root.md'))
+      .toEqual([expect.objectContaining({ resolvedPath: 'assets/root.png', classification: 'managed_candidate' })]);
+    expect(parseImageReferences('![](../../assets/nested.png)', 'pages/topic/note.md'))
+      .toEqual([expect.objectContaining({ resolvedPath: 'assets/nested.png', classification: 'managed_candidate' })]);
+  });
+
   it.each([
     ['![[assets/a.png|320]]', 'assets/a.png', 'managed_candidate'],
     ['![alt](../assets/a.png "title")', 'assets/a.png', 'managed_candidate'],

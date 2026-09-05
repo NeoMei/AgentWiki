@@ -54,6 +54,13 @@ export const normalizeMarkdownAttachmentIdentity = (value: string | null | undef
   value?.normalize('NFC').trim().toLocaleLowerCase('und') ?? ''
 );
 
+export const attachmentDisplayNameFromWikiTarget = (value: string): string => {
+  const target = value.trim();
+  const prefix = 'assets/';
+  const displayName = target.startsWith(prefix) ? target.slice(prefix.length) : target;
+  return displayName && !displayName.includes('/') ? displayName : target;
+};
+
 export const markdownWikiIdentityToken = (value: string): string => (
   Array.from(normalizeMarkdownPageIdentity(value), (character) => (
     character.codePointAt(0)!.toString(16).padStart(6, '0')
@@ -79,7 +86,7 @@ export const canonicalWikiReferenceKey = (reference: WikiReference): string => {
   return JSON.stringify([
     kind,
     kind === 'attachment'
-      ? normalizeMarkdownAttachmentIdentity(reference.target)
+      ? normalizeMarkdownAttachmentIdentity(attachmentDisplayNameFromWikiTarget(reference.target))
       : normalizeMarkdownPageIdentity(reference.target),
     normalizeMarkdownPageIdentity(reference.heading),
     normalizeMarkdownPageIdentity(reference.blockId),

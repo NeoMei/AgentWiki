@@ -270,6 +270,24 @@ const cleanupFixtures = async () => {
   try {
     if (primarySpaceId && owner?.access_token) {
       try {
+        // Remove the Pages that own the current v3 references before exercising
+        // attachment cleanup. The archive guard is product behavior, not a
+        // cleanup failure to bypass.
+        for (const referencedPage of [editorPage, anchorPage]) {
+          if (!referencedPage?.id) continue;
+          const current = await json<PersistedPage>(
+            await api.get(`pages/${referencedPage.id}`, { headers: headers(owner) }),
+            `read ${referencedPage.title} for cleanup`,
+          );
+          const response = await api.delete(`pages/${referencedPage.id}`, {
+            headers: headers(owner),
+            data: {
+              expectedUpdatedAt: current.updatedAt,
+              expectedTreeRevision: await getTreeRevision(primarySpaceId),
+            },
+          });
+          if (!response.ok()) cleanupFailures.push(`archive Page ${referencedPage.id}: ${response.status()} ${await response.text()}`);
+        }
         const listed = await json<AttachmentList>(await api.get(
           `spaces/${primarySpaceId}/attachments?status=active&skip=0&take=100`,
           { headers: headers(owner) },
@@ -339,6 +357,7 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
         data: { email: account.user.email, role },
       }), `add ${role}`);
     }
+    sameNameAttachment = await uploadByApi(owner, primarySpaceId, 'same-name.png');
 
     const targetTitle = `Embed Target ${runId}`;
     targetPage = await createPage(primarySpaceId, targetTitle, '# Section\n\nInitial target content.\n\n## Later\n\nLater target content.');
@@ -378,10 +397,9 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
 
     versionEmbedPage = await createPage(primarySpaceId, `Version Embed ${runId}`, `# Version embed\n\n![[${targetTitle}#Section]]`);
     versionEmbedPage = await updatePage(versionEmbedPage, `${versionEmbedPage.content}\n\nCurrent root revision.`);
-    sameNameAttachment = await uploadByApi(owner, primarySpaceId, 'same-name.png');
     anchorPage = await updatePage(
       anchorPage,
-      `${anchorPage.content}\n\n![[same-name.png]]\n`,
+      `${anchorPage.content}\n\n![[assets/same-name.png]]\n`,
     );
   });
 
@@ -496,23 +514,23 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       await page.getByLabel('Upload image').setInputFiles({
         name: 'same-name.png', mimeType: 'image/png', buffer: alternatePng,
       });
-      await expectMarker(page, '![[same-name (2).png]]');
+      await expectMarker(page, '![[assets/same-name (2).png]]');
 
       await page.getByRole('button', { name: 'Image attachments' }).click();
       await page.getByRole('button', { name: 'Insert same-name.png' }).click();
-      await expectMarker(page, '![[same-name.png]]');
+      await expectMarker(page, '![[assets/same-name.png]]');
 
       await dispatchImageTransfer(page, 'paste', 'clipboard.png');
-      await expectMarker(page, '![[clipboard.png]]');
+      await expectMarker(page, '![[assets/clipboard.png]]');
       await dispatchImageTransfer(page, 'drop', 'coordinate-drop.png');
-      await expectMarker(page, '![[coordinate-drop.png]]');
+      await expectMarker(page, '![[assets/coordinate-drop.png]]');
 
       const draft = await page.locator('.cm-content').innerText();
       const markers = [
-        '![[same-name (2).png]]',
-        '![[same-name.png]]',
-        '![[clipboard.png]]',
-        '![[coordinate-drop.png]]',
+        '![[assets/same-name (2).png]]',
+        '![[assets/same-name.png]]',
+        '![[assets/clipboard.png]]',
+        '![[assets/coordinate-drop.png]]',
       ];
       let previous = -1;
       for (const marker of markers) {
@@ -568,7 +586,7 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       await editorSession.page.getByLabel('Upload image').setInputFiles({
         name: 'editor-upload.png', mimeType: 'image/png', buffer: png,
       });
-      await expectMarker(editorSession.page, '![[editor-upload.png]]');
+      await expectMarker(editorSession.page, '![[assets/editor-upload.png]]');
       const listed = await json<AttachmentList>(await api.get(
         `spaces/${primarySpaceId}/attachments?status=active&skip=0&take=100`,
         { headers: headers(editor) },
@@ -578,6 +596,60 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       expect(editorSession.externalRequests).toEqual([]);
     } finally {
       await editorSession.context.close();
+    }
+  });
+
+  test('previews and confirms a referenced rename, then blocks archive without a force action', async ({ browser }) => {
+    test.setTimeout(120_000);
+    const ownerSession = await authenticatedPage(browser, owner);
+    try {
+      const page = ownerSession.page;
+      await page.goto(`/pages/${editorPage.id}/edit`);
+      await page.getByRole('button', { name: 'Image attachments' }).click();
+      const picker = page.getByRole('dialog', { name: 'Image attachments' });
+      await expect(picker).toBeVisible();
+
+      await picker.getByRole('button', { name: 'Rename same-name.png' }).click();
+      await picker.getByRole('textbox', { name: 'New attachment name' }).fill('renamed-reference.png');
+      await picker.getByRole('button', { name: 'Preview rename' }).click();
+      await expect(picker.getByText('assets/renamed-reference.png')).toBeVisible();
+      await expect(picker.getByText(editorPage.title, { exact: true })).toHaveCount(1);
+      await expect(picker.getByText(anchorPage.title, { exact: true })).toHaveCount(1);
+      await expect(picker.getByRole('button', { name: /force/iu })).toHaveCount(0);
+
+      await picker.getByRole('button', { name: 'Confirm rename' }).click();
+      await expect(picker.getByRole('listitem', { name: 'renamed-reference.png' })).toBeVisible();
+      await expect(picker.getByRole('listitem', { name: 'same-name.png' })).toHaveCount(0);
+      await picker.getByRole('button', { name: 'Close attachment picker' }).click();
+
+      await page.reload();
+      await expect(page.locator('.cm-content')).toContainText('assets/renamed-reference.png');
+      const persisted = await json<PersistedPage>(
+        await api.get(`pages/${editorPage.id}`, { headers: headers(owner) }),
+        'read renamed attachment Page',
+      );
+      expect(persisted.content).toContain('![[assets/renamed-reference.png]]');
+      expect(persisted.content).not.toContain('![[assets/same-name.png]]');
+
+      await page.getByRole('button', { name: 'Image attachments' }).click();
+      const reopened = page.getByRole('dialog', { name: 'Image attachments' });
+      const archiveResponse = page.waitForResponse((response) => (
+        response.request().method() === 'POST'
+        && response.url().endsWith('/archive')
+      ));
+      await reopened.getByRole('button', { name: 'Archive renamed-reference.png' }).click();
+      expect((await archiveResponse).status()).toBe(409);
+      const guard = reopened.getByRole('alert');
+      await expect(guard).toContainText(editorPage.title);
+      await expect(guard).toContainText(anchorPage.title);
+      await expect(reopened.getByRole('listitem', { name: 'renamed-reference.png' })).toBeVisible();
+      await expect(reopened.getByRole('button', { name: /force/iu })).toHaveCount(0);
+      await expect.poll(() => consoleIssues.filter((issue) => issue.includes('409 (Conflict)')).length).toBe(1);
+      consoleIssues = consoleIssues.filter((issue) => !issue.includes('409 (Conflict)'));
+      await recordCredentialSurface(page);
+      expect(ownerSession.externalRequests).toEqual([]);
+    } finally {
+      await ownerSession.context.close();
     }
   });
 

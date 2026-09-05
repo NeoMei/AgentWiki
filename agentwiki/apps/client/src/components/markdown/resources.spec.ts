@@ -305,6 +305,12 @@ describe('collectMarkdownResourceRefs', () => {
     ]);
   });
 
+  it('resolves canonical assets references through the attachment display-name contract', () => {
+    expect(collectMarkdownResourceRefs('![[assets/diagram.png]]')).toEqual([
+      expect.objectContaining({ kind: 'attachment', target: 'diagram.png' }),
+    ]);
+  });
+
   it('dedupes canonical NFC/case-insensitive identities without treating aliases as identity', () => {
     const refs = collectMarkdownResourceRefs('[[  CAFÉ |One]] [[cafe\u0301|Two]] ![[PIC.PNG|One]] ![[pic.png|Two]]');
 

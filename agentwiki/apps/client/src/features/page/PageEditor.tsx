@@ -15,6 +15,7 @@ import { truncateValidatorLength } from '../page-templates/validatorLength';
 import { AgentAssistPanel } from './AgentAssistPanel';
 import { AttachmentPickerDialog } from '../attachments/AttachmentPickerDialog';
 import { uploadAttachment } from '../attachments/attachmentApi';
+import { formatAttachmentReference } from '../attachments/attachmentReference';
 import 'highlight.js/styles/github.css';
 
 interface Page {
@@ -947,7 +948,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
           onClose={() => setAttachmentPickerOpen(false)}
           onInsert={(displayName) => {
             if (!attachmentEnabled) return;
-            internalWorkspaceRef.current?.insertText(`![[${displayName}]]`);
+            internalWorkspaceRef.current?.insertText(formatAttachmentReference(displayName));
             setAttachmentPickerOpen(false);
           }}
         />

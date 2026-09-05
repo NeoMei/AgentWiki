@@ -5,6 +5,9 @@ import type {
   AttachmentStatus,
   AttachmentSummary,
   AttachmentUploadOptions,
+  AttachmentRenameConfirm,
+  AttachmentRenamePreview,
+  AttachmentRenameResult,
 } from './attachmentTypes';
 
 const invalidResponse = () => new Error('Invalid attachment response');
@@ -59,6 +62,14 @@ const normalizeAttachment = (value: unknown): AttachmentSummary => {
 };
 
 const encoded = (value: string) => encodeURIComponent(value);
+
+const impactedPages = (value: unknown) => {
+  if (!Array.isArray(value)) throw invalidResponse();
+  return value.map((page) => {
+    if (!isRecord(page)) throw invalidResponse();
+    return { id: stringField(page, 'id'), title: stringField(page, 'title') };
+  });
+};
 
 export async function listAttachments(
   spaceId: string,
@@ -132,6 +143,47 @@ export const restoreAttachment = (
   expectedUpdatedAt: string,
   signal?: AbortSignal,
 ) => changeAttachmentState('restore', spaceId, attachmentId, expectedUpdatedAt, signal);
+
+export async function previewAttachmentRename(
+  spaceId: string,
+  attachmentId: string,
+  displayName: string,
+  signal?: AbortSignal,
+): Promise<AttachmentRenamePreview> {
+  const response = await api.post(
+    `/spaces/${encoded(spaceId)}/attachments/${encoded(attachmentId)}/rename/preview`,
+    { displayName },
+    { signal },
+  );
+  if (!isRecord(response.data)) throw invalidResponse();
+  return {
+    attachmentId: stringField(response.data, 'attachmentId'),
+    displayName: stringField(response.data, 'displayName'),
+    path: stringField(response.data, 'path'),
+    expectedUpdatedAt: stringField(response.data, 'expectedUpdatedAt'),
+    expectedTreeRevision: stringField(response.data, 'expectedTreeRevision'),
+    impactedPages: impactedPages(response.data.impactedPages),
+  };
+}
+
+export async function renameAttachment(
+  spaceId: string,
+  attachmentId: string,
+  body: AttachmentRenameConfirm,
+  signal?: AbortSignal,
+): Promise<AttachmentRenameResult> {
+  const response = await api.post(
+    `/spaces/${encoded(spaceId)}/attachments/${encoded(attachmentId)}/rename`,
+    body,
+    { signal },
+  );
+  if (!isRecord(response.data)) throw invalidResponse();
+  return {
+    ...normalizeAttachment(response.data),
+    path: stringField(response.data, 'path'),
+    impactedPages: impactedPages(response.data.impactedPages),
+  };
+}
 
 export async function fetchAttachmentBlob(attachmentId: string, signal?: AbortSignal): Promise<Blob> {
   const response = await api.get(`/attachments/${encoded(attachmentId)}/content`, {

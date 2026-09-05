@@ -733,7 +733,7 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
 
     expect(event.defaultPrevented).toBe(true);
     expect(onUploadImages).toHaveBeenCalledWith([file]);
-    await waitFor(() => expect(view.state.doc.toString()).toBe('before ![[server-name-2.png]]after'));
+    await waitFor(() => expect(view.state.doc.toString()).toBe('before ![[assets/server-name-2.png]]after'));
   });
 
   it('preserves pasted image order and inserts one newline-separated marker batch', async () => {
@@ -747,7 +747,7 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     const event = dispatchPaste(view.contentDOM, [textItem(), fileItem(first), fileItem(second)]);
 
     expect(event.defaultPrevented).toBe(true);
-    await waitFor(() => expect(view.state.doc.toString()).toBe('![[first-2.png]]\n![[second.gif]]'));
+    await waitFor(() => expect(view.state.doc.toString()).toBe('![[assets/first-2.png]]\n![[assets/second.gif]]'));
     expect(onUploadImages).toHaveBeenCalledWith([first, second]);
     expect(onChange).toHaveBeenCalledTimes(1);
   });
@@ -761,7 +761,7 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     const unsupported = new File(['bmp'], 'unsupported.bmp', { type: 'image/bmp' });
 
     const fallbackEvent = dispatchPaste(view.contentDOM, [fileItem(fallback, '')]);
-    await waitFor(() => expect(view.state.doc.toString()).toBe('![[accepted.webp]]'));
+    await waitFor(() => expect(view.state.doc.toString()).toBe('![[assets/accepted.webp]]'));
     const spoofedEvent = dispatchPaste(view.contentDOM, [fileItem(spoofed)]);
     const unsupportedEvent = dispatchPaste(view.contentDOM, [fileItem(unsupported)]);
 
@@ -771,7 +771,7 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     expect(spoofedEvent.defaultPrevented).toBe(true);
     expect(unsupportedEvent.defaultPrevented).toBe(true);
     expect(onUploadImages).toHaveBeenCalledTimes(1);
-    expect(view.state.doc.toString()).toBe('![[accepted.webp]]');
+    expect(view.state.doc.toString()).toBe('![[assets/accepted.webp]]');
   });
 
   it('leaves ordinary text paste and non-image drop completely untouched', () => {
@@ -803,7 +803,7 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     expect(position).toHaveBeenCalledWith({ x: 70, y: 40 });
     await waitFor(() => expect(onUploadImages).toHaveBeenCalledWith([file]));
     expect(onUploadError).not.toHaveBeenCalled();
-    await waitFor(() => expect(view.state.doc.toString()).toBe('abc![[drop.png]]def'));
+    await waitFor(() => expect(view.state.doc.toString()).toBe('abc![[assets/drop.png]]def'));
   });
 
   it.each([
@@ -843,7 +843,7 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     await waitFor(() => expect(onUploadImages).toHaveBeenCalledTimes(2));
     await act(async () => second.resolve(['second.png']));
 
-    await waitFor(() => expect(view.state.doc.toString()).toBe('![[first.png]]![[second.png]]'));
+    await waitFor(() => expect(view.state.doc.toString()).toBe('![[assets/first.png]]![[assets/second.png]]'));
   });
 
   it('moves a later upload at the same non-empty selection behind the first marker', async () => {
@@ -865,7 +865,7 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     await act(async () => second.resolve(['second.png']));
 
     await waitFor(() => expect(view.state.doc.toString()).toBe(
-      'before ![[first.png]]![[second.png]] after',
+      'before ![[assets/first.png]]![[assets/second.png]] after',
     ));
   });
 
@@ -902,7 +902,7 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     act(() => view.dispatch({ changes: { from: 0, insert: 'new ' } }));
     await act(async () => upload.resolve(['mapped.png']));
 
-    await waitFor(() => expect(view.state.doc.toString()).toBe('new left ![[mapped.png]]right'));
+    await waitFor(() => expect(view.state.doc.toString()).toBe('new left ![[assets/mapped.png]]right'));
   });
 
   it('suppresses a late upload when preview replaces the editor', async () => {

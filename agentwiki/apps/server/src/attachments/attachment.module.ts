@@ -18,6 +18,8 @@ import {
 } from './attachment-upload.storage';
 import { PrismaService } from '../database/prisma.service';
 import { AttachmentStorageModule } from './attachment-storage.module';
+import { SearchCoreModule } from '../core/search/search-core.module';
+import { KnowledgeGraphModule } from '../knowledge-graph/knowledge-graph.module';
 
 @Module({
   imports: [
@@ -26,6 +28,8 @@ import { AttachmentStorageModule } from './attachment-storage.module';
     AuthModule,
     AuthorizationModule,
     SyncModule,
+    SearchCoreModule,
+    KnowledgeGraphModule,
     AttachmentStorageModule,
     MulterModule.registerAsync({
       imports: [AttachmentStorageModule, DatabaseModule],

@@ -56,7 +56,7 @@ describe('MarkdownResourceService', () => {
 
     await expect(service.resolveReferencedAttachmentsBatch([
       { spaceId: 'space-1', sourceSyncPath: 'pages/A.md', body: '![[assets/a.png]]' },
-      { spaceId: 'space-1', sourceSyncPath: 'pages/topic/B.md', body: '![B](../assets/b.png)' },
+      { spaceId: 'space-1', sourceSyncPath: 'pages/topic/B.md', body: '![B](../../assets/b.png)' },
     ], prisma)).resolves.toEqual([
       expect.objectContaining({ attachmentIds: ['attachment-a'], errors: [] }),
       expect.objectContaining({ attachmentIds: ['attachment-b'], errors: [] }),
@@ -341,11 +341,11 @@ describe('MarkdownResourceService', () => {
     await expect(service.resolveReferencedAttachments({
       spaceId: 'space-1',
       sourceSyncPath: 'pages/topic/note.md',
-      body: '![](../assets/CAFE\u0301.PNG "title")',
+      body: '![](../../assets/CAFE\u0301.PNG "title")',
     })).resolves.toEqual({
       attachmentIds: ['active-image'],
       references: [expect.objectContaining({
-        rawTarget: '../assets/CAFE\u0301.PNG',
+        rawTarget: '../../assets/CAFE\u0301.PNG',
         resolvedPath: 'assets/CAFÉ.PNG',
         attachmentId: 'active-image',
       })],
