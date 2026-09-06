@@ -4,7 +4,7 @@
 
 ## 活跃任务
 
-- 无。
+- [composite-page-group-agent-collaboration-templates](active/composite-page-group-agent-collaboration-templates/brief.md)：A+ 实现与本地验收完成；17f28da修复后限定复审9/9关闭，无新阻塞；4861pass/0fail/3skip及Chrome4通过。保留分支待用户整合决定，未合并、推送或部署。
 
 ## 最近完成
 

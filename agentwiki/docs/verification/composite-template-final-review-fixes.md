@@ -57,3 +57,11 @@ The skips are the opt-in independently installed CodeGraph acceptance, Windows-o
 After the final suite: zero public tables, zero non-system random test schemas, zero other connections in the dedicated database; final browser ports 63500/63501 have no listeners and no acceptance/repository-test child remains. Task PostgreSQL/Redis containers are intentionally retained. Whole-branch `git diff --check 711cae77277af1f79c6f4c16f998dbc66f6e2dae` passes.
 
 Earlier external Codex/OpenCode acceptance evidence remains historical and separate; UI-only `ACCEPTANCE_PARTIAL` must not be promoted to fresh external-Agent acceptance. Independent scoped final review belongs to the controller after this fix commit; merge/push/release remain unperformed.
+
+## Independent review and handoff
+
+The single independent scoped re-review of `f4432ea..17f28da` is complete: I1–I5 and M1–M4 are all ADDRESSED, with no new Critical, Important or actionable Minor finding. This closes the prior whole-branch blockers from a code-review perspective, not a production acceptance or integration authorization.
+
+The controller additionally verified immutable commit `17f28da`: 45/45 pure/harness tests and 41/41 focused client tests passed, whole-range `711cae7..17f28da` whitespace checks passed, and a fresh read-only query found zero public tables, zero random test schemas and zero other database connections. The detailed independent report and ruling ledger remain in the preserved local plan workspace; this final documentation update changes no product/test source.
+
+Local implementation and acceptance are complete. Branch `codex/composite-page-group-agent-collaboration` and its host-owned worktree are preserved pending the user's integration choice. No merge, push, package publication, production migration or deployment was performed.
