@@ -4,9 +4,11 @@
 
 ## 活跃任务
 
-- [composite-page-group-agent-collaboration-templates](active/composite-page-group-agent-collaboration-templates/brief.md)：A+ 实现与本地验收完成；17f28da修复后限定复审9/9关闭，无新阻塞；4861pass/0fail/3skip及Chrome4通过。保留分支待用户整合决定，未合并、推送或部署。
+- 无。
 
 ## 最近完成
+
+- [composite-page-group-agent-collaboration-templates](archive/composite-page-group-agent-collaboration-templates/brief.md)：A+实现、v0.8.0+PR9整合和本地master合并完成；独立审查无未关闭问题，主目录5212pass/0fail/3skip、DB175零skip、原有46文件/5子模块哈希保留。未push/发布/部署，验收与工作树保留。
 
 - [post-sync-final-audit-2026-09-04](archive/post-sync-final-audit-2026-09-04/brief.md)：整合 GitHub onboarding 热修复后完成四轮任务/代码/全栈/真实 UI 审查，修复四类问题；`206d285` clean worktree 4266 pass / 0 fail / 3 skip，Chrome 28/28，静态、audit、CodeGraph 和精确清理通过。Mac PASS，未 push。
 - [final-release-candidate-audit-2026-09-04](archive/final-release-candidate-audit-2026-09-04/brief.md)：最终代码 `e94fa7b` 完成多轮任务、整分支代码、前后端和真实 UI 审查；工作树与 clean clone 均 4262 pass / 0 fail / 3 skip，Chrome 26/26，静态、CodeGraph、audit 和精确清理通过。Mac PASS；Windows same-code native 与 Assist 外部凭据仍为独立边界，未 push。

@@ -2,6 +2,11 @@
 
 # 参考
 
+- 最终本地master合并验收：`agentwiki/docs/verification/composite-v080-master-merge.md`
+- v0.8.0及PR9整合全过程：`agentwiki/docs/verification/composite-v080-local-integration.md`
+- 本轮账本/审查：`.superpowers/sdd/2026-09-06-composite-v080-local-integration/`，`final-integration-review.md`与`upstream-tail-review.md`
+- 主目录验收候选：`f84d576e08cc26c6a2c8ef22c1cb5ae238e99dbd`；产品merge `1a25bfb5426a77bb49a8b3600bd71606cd0e33a7`
+
 - `agentwiki/docs/superpowers/specs/2026-09-05-composite-page-group-agent-collaboration-templates-design.md`
 - `agentwiki/docs/superpowers/specs/2026-08-25-page-template-library-design.md`
 - `agentwiki/docs/superpowers/specs/2026-08-22-agent-collaboration-templates-design.md`

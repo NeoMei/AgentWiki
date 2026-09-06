@@ -1,6 +1,6 @@
 <!-- codex-memory:template=task-brief:v1 -->
 
-# 组合式页面组模板与 Agent 协作
+# 组合式页面组模板与 Agent 协作（本地整合已完成）
 
 ## 目标
 
@@ -9,6 +9,8 @@
 - 页面任务经 Artifact、ChangeSet 和一次人工审核发布。
 
 ## 当前状态
+
+- 2026-09-06：用户授权本地合并与最新主线必要整合，已完成v0.8.0+PR9最终快照e0f7acaf，主master711cae7→f84d576e，所有任务/最终/增量审查通过，无未关闭问题。新鲜主目录typecheck/lint/build/test:full exit0，5212pass/0fail/3skip，DB175零skip；原有46文件/5子模块哈希全部保留。最终交接提交仅文档，未push/发布/部署。详见agentwiki/docs/verification/composite-v080-master-merge.md。以下为原功能阶段历史基线。
 
 - 需求、架构、交互、后绑定、参与者规则、保存目录模板及兼容迁移均已逐项确认。
 - 正式设计文档：`agentwiki/docs/superpowers/specs/2026-09-05-composite-page-group-agent-collaboration-templates-design.md`，隔离分支提交 `d5538e5`。
@@ -23,5 +25,5 @@
 
 ## 边界
 
-- 不修改 Sync v3、Folder 同步语义、附件和 Markdown 图片引用。
+- 原功能阶段不修改 Sync v3、Folder 同步语义、附件和 Markdown 图片引用；用户后续明确授权与新主线的必要兼容整合，不扩展为重设计。
 - 不 push、不发布、不部署，除非用户分别授权。
