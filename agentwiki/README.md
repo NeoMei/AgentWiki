@@ -370,8 +370,9 @@ AgentWiki uses direct deployment with systemd (no Docker for the application):
    its exact `@neomei/agentwiki-sync-protocol@0.6.0` dependency. Run the Local Sync
    registry-availability gate with `pnpm test:release:sync-v3-registry`, and check
    already-published protocol 0.6.0 separately against the explicit public registry.
-   Only an `E404` proves the Local Sync candidate is absent; network or registry
-   metadata failures block release.
+   A successful explicit-registry metadata response whose version list omits `0.9.1`
+   proves the Local Sync candidate is unoccupied. Request failures, non-2xx responses,
+   and invalid registry metadata block release.
    Controller-only publication follows authenticated production preflight and review.
    Do not republish sync-protocol 0.6.0. First run
    `pnpm test:release:sync-protocol-registry-parity`, then run

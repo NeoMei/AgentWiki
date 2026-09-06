@@ -148,3 +148,12 @@ help all verified, exit 0. Preserved install root:
 
 No full regression, push, publish, deploy, production access or production writes were
 performed by Task 1.
+
+## Independent review remediation
+
+The Task 1 independent review found one Important documentation mismatch in the active
+deployment runbook. The README now matches the implemented collision gate: a successful
+explicit-registry metadata response proves availability only when its version list omits
+`0.9.1`; request failures, non-2xx responses (including `E404`) and invalid metadata fail
+closed. No source or package artifact changed, so the frozen tarball hashes above remain
+valid.
