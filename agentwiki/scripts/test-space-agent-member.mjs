@@ -77,7 +77,7 @@ export async function runSpaceAgentMemberUI(environment = process.env) {
     fixture.userId = registration.user.id;
 
     const space = await request(apiUrl, '/spaces', {
-      method: 'POST', token, body: { name: `Space Agent UI ${suffix}` },
+      method: 'POST', token, body: { name: `Space Agent UI ${suffix.slice(-8)}` },
     });
     fixture.spaceId = space.id;
     const agent = await request(apiUrl, '/agents', {

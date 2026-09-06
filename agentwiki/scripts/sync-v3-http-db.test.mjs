@@ -90,7 +90,7 @@ test('real isolated HTTP Sync v3 lifecycle is durable, idempotent, guarded, and 
         JWT_SECRET: `sync-v3-http-jwt-${randomUUID()}-${randomUUID()}`,
         AGENTWIKI_SERVER_PEPPER: `sync-v3-http-pepper-${randomUUID()}`,
         AGENTWIKI_DEPLOYMENT_SEED: randomBytes(32).toString('base64'),
-        LOCAL_SYNC_PACKAGE_VERSION: '0.9.0',
+        LOCAL_SYNC_PACKAGE_VERSION: '0.9.1',
         ATTACHMENT_STORAGE_PATH: storageRoot,
         ATTACHMENT_MIN_FREE_BYTES: '1',
       });
@@ -131,7 +131,7 @@ test('real isolated HTTP Sync v3 lifecycle is durable, idempotent, guarded, and 
       });
       const humanToken = registration.data.access_token;
       const space = (await requestJson(baseUrl, '/spaces', {
-        method: 'POST', token: humanToken, body: { name: `Sync v3 ${randomUUID()}` },
+        method: 'POST', token: humanToken, body: { name: `Sync v3 ${randomUUID().slice(0, 8)}` },
       })).data;
 
       const installation = (await requestJson(baseUrl, '/integrations/obsidian/installations', {

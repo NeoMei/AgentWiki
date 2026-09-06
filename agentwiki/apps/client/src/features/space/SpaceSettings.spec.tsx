@@ -68,6 +68,50 @@ describe('SpaceSettings auto graph card', () => {
     expect(graph?.nextElementSibling).toBe(templates);
   });
 
+  it('keeps a historical long name unchanged while saving other settings, including repeated saves', async () => {
+    const legacy = { ...spaceSettings, name: '旧'.repeat(60) };
+    api.get.mockImplementation((url: string) => Promise.resolve({ data: url.endsWith('/graph/settings') ? graphSettings : legacy }));
+    api.patch.mockImplementation((_url, body) => Promise.resolve({ data: { ...legacy, ...body } }));
+    renderSettings();
+    const input = await screen.findByLabelText('名称');
+    expect(input).toHaveValue(legacy.name);
+    fireEvent.change(screen.getByLabelText('描述'), { target: { value: 'New description' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存设置' }));
+    await screen.findByText('已保存');
+    expect(api.patch).toHaveBeenLastCalledWith('/spaces/space-1', {
+      description: 'New description', approvalPolicy: 'always-review',
+    });
+    expect(input).toHaveValue(legacy.name);
+    fireEvent.change(input, { target: { value: '改'.repeat(33) } });
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('button', { name: '保存设置' })).toBeDisabled();
+    api.patch.mockClear();
+    fireEvent.submit(input.closest('form')!);
+    expect(api.patch).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: `  ${'😀'.repeat(32)}  ` } });
+    fireEvent.click(screen.getByRole('button', { name: '保存设置' }));
+    await screen.findByText('已保存');
+    expect(api.patch).toHaveBeenLastCalledWith('/spaces/space-1', {
+      name: '😀'.repeat(32), description: 'New description', approvalPolicy: 'always-review',
+    });
+    api.patch.mockClear();
+    fireEvent.change(screen.getByLabelText('描述'), { target: { value: 'Second description' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存设置' }));
+    await screen.findByText('已保存');
+    expect(api.patch).toHaveBeenLastCalledWith('/spaces/space-1', {
+      description: 'Second description', approvalPolicy: 'always-review',
+    });
+  });
+
+  it('does not submit a whitespace-only rename', async () => {
+    renderSettings();
+    const input = await screen.findByLabelText('名称');
+    fireEvent.change(input, { target: { value: '   ' } });
+    expect(screen.getByRole('button', { name: '保存设置' })).toBeDisabled();
+    fireEvent.submit(input.closest('form')!);
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
   it('patches graph settings and runs a manual refresh', async () => {
     api.get.mockImplementation((url: string) => {
       if (url === '/spaces/space-1') {

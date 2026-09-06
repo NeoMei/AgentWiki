@@ -18,7 +18,7 @@ const CAPABILITIES = [
 const context = {
   sessionId: 'device-session-12345678',
   userId: 'user-1',
-  packageVersion: '0.9.0',
+  packageVersion: '0.9.1',
   purpose: 'full-onboarding',
   requestedCapabilities: CAPABILITIES,
 };
@@ -27,7 +27,7 @@ const createPlan: ServerPlan = {
   space: { mode: 'create', name: '研发知识库' },
   agentName: 'Codex',
   role: 'editor',
-  packageVersion: '0.9.0',
+  packageVersion: '0.9.1',
 };
 
 const installation = {
@@ -179,6 +179,16 @@ describe('OnboardBootstrapService', () => {
     jest.useRealTimers();
   });
 
+  it('stores a trimmed Space name while authorizing the original confirmed plan hash', async () => {
+    const plan: ServerPlan = { ...createPlan, space: { mode: 'create', name: '  研发知识库  ' } };
+    const result = await service.bootstrap(context, 'bootstrap-trim-01', plan, hashServerPlan(plan));
+    expect(result.space.name).toBe('  研发知识库  ');
+    const replayPayload = redis.setStrict.mock.calls.map((call) => call[1]).find((value) => typeof value === 'string' && value.includes('installation-1'));
+    expect(JSON.parse(replayPayload).space.name).toBe('  研发知识库  ');
+    expect(tx.space.create).toHaveBeenCalledWith({ data: expect.objectContaining({ name: '研发知识库' }) });
+    expect(bootstrapRecord.serverPlanHash).toBe(hashServerPlan(plan));
+  });
+
   it('creates a private always-review Space and active Agent without creating a Grant', async () => {
     const normalized = normalizeServerPlan(createPlan);
     const result = await service.bootstrap(context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan));
@@ -203,7 +213,7 @@ describe('OnboardBootstrapService', () => {
     expect(tx.agentGrant.upsert).not.toHaveBeenCalled();
     expect(installations.issueForBootstrap).toHaveBeenCalledWith({
       ownerId: 'user-1', agentId: 'agent-1', spaceId: 'space-1', role: 'editor',
-      pluginVersion: '0.9.0', serverUrl: 'https://agentwiki.example/api',
+      pluginVersion: '0.9.1', serverUrl: 'https://agentwiki.example/api',
     });
     expect(result).toEqual({
       space: { id: 'space-1', name: '研发知识库' },
@@ -217,6 +227,25 @@ describe('OnboardBootstrapService', () => {
     });
     expect(JSON.stringify(result)).not.toContain('apiKey');
   });
+
+  it.each(['0.9.0', '0.9.1'] as const)(
+    'issues the requested supported Local Sync %s package for a matching onboarding session',
+    async (packageVersion) => {
+      const versionContext = { ...context, packageVersion };
+      const versionPlan: ServerPlan = { ...createPlan, packageVersion };
+
+      await service.bootstrap(
+        versionContext,
+        `bootstrap-${packageVersion}-key`,
+        versionPlan,
+        hashServerPlan(versionPlan),
+      );
+
+      expect(installations.issueForBootstrap).toHaveBeenCalledWith(expect.objectContaining({
+        pluginVersion: packageVersion,
+      }));
+    },
+  );
 
   it.each([
     ['reader', false, 'always-review'],

@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { ValidationPipe } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { readFileSync } from 'fs';
@@ -30,7 +31,7 @@ const createPlan: ServerPlan = {
   space: { mode: 'create', name: '研发知识库' },
   agentName: 'Codex',
   role: 'editor',
-  packageVersion: '0.9.0',
+  packageVersion: '0.9.1',
 };
 
 const planHashGolden = JSON.parse(readFileSync(join(
@@ -39,7 +40,7 @@ const planHashGolden = JSON.parse(readFileSync(join(
 ), 'utf8')) as { plan: ServerPlan; sha256: string };
 
 describe('onboarding DTO contract', () => {
-  it.each(['0.9.0'] as const)(
+  it.each(['0.9.0', '0.9.1'] as const)(
     'accepts supported package version %s from every client',
     async (packageVersion) => {
       for (const clientType of ['codex', 'claude', 'opencode'] as const) {
@@ -49,6 +50,16 @@ describe('onboarding DTO contract', () => {
           purpose: 'full-onboarding',
         })).resolves.toEqual([]);
       }
+    },
+  );
+
+  it.each(['0.9.0', '0.9.1'] as const)(
+    'accepts a bootstrap plan from supported package version %s',
+    async (packageVersion) => {
+      await expect(validationErrors(BootstrapDto, {
+        serverPlan: { ...createPlan, packageVersion },
+        serverPlanHash: 'a'.repeat(64),
+      })).resolves.toEqual([]);
     },
   );
 
@@ -203,5 +214,26 @@ describe('onboarding roles and canonical plan hashing', () => {
 
   it('matches the shared raw-plan golden vector', () => {
     expect(hashServerPlan(planHashGolden.plan)).toBe(planHashGolden.sha256);
+  });
+});
+
+
+describe('onboarding Space name boundary without changing confirmed plan bytes', () => {
+  const pipe = new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true,
+    transformOptions: { enableImplicitConversion: true } });
+  const parse = (name: unknown) => pipe.transform({
+    serverPlan: { ...createPlan, space: { mode: 'create', name } }, serverPlanHash: 'a'.repeat(64),
+  }, { type: 'body', metatype: BootstrapDto });
+
+  it.each(['a', '空', '😀', '✈️'])('accepts 32 trimmed units and rejects 33 units of %s', async (unit) => {
+    const name = `  ${unit.repeat(32)}  `;
+    const dto = await parse(name);
+    expect(dto.serverPlan.space.name).toBe(name);
+    expect(hashServerPlan(dto.serverPlan)).toBe(hashServerPlan({ ...createPlan, space: { mode: 'create', name } }));
+    await expect(parse(unit.repeat(33))).rejects.toMatchObject({ status: 400 });
+  });
+
+  it.each(['', ' \t\n ', null, 123, true, [], {}])('rejects blank or non-string %p', async (name) => {
+    await expect(parse(name)).rejects.toMatchObject({ status: 400 });
   });
 });

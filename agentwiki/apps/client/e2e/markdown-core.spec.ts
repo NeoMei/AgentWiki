@@ -274,7 +274,7 @@ test.describe.serial('Markdown core browser acceptance', () => {
     const space = await json<{ id: string }>(await api.post('spaces', {
       headers: ownerHeaders(),
       data: {
-        name: `Markdown Core QA ${runId}`,
+        name: `Markdown Core QA ${runId.slice(-8)}`,
         description: 'Disposable Markdown browser acceptance',
       },
     }), 'create Space');

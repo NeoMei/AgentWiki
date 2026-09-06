@@ -58,7 +58,7 @@ function confirmedCheckpoint(
   } as const;
   const serverPlan = {
     space: { mode: 'create' as const, name: 'Space' }, agentName: 'Agent', role: 'editor' as const,
-    packageVersion: '0.9.0' as const,
+    packageVersion: '0.9.1' as const,
   };
   const serverPlanHash = hashServerPlan(serverPlan);
   const localScanPlanHash = 'b'.repeat(64);

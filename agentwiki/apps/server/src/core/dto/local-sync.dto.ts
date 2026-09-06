@@ -1,7 +1,6 @@
 import {
   IsIn,
   IsString,
-  Matches,
   MaxLength,
   MinLength,
 } from 'class-validator';
@@ -9,6 +8,10 @@ import {
   AGENT_ACCESS_ROLES,
   type AgentAccessRole,
 } from '@neomei/agentwiki-sync-protocol';
+import {
+  SUPPORTED_LOCAL_SYNC_VERSIONS,
+  type SupportedLocalSyncVersion,
+} from '../local-sync-version';
 
 export class CreateLocalSyncInstallationDto {
   @IsString()
@@ -18,9 +21,8 @@ export class CreateLocalSyncInstallationDto {
   @IsIn(AGENT_ACCESS_ROLES)
   role: AgentAccessRole;
 
-  @IsString()
-  @Matches(/^0\.9\.0$/)
-  pluginVersion: '0.9.0';
+  @IsIn(SUPPORTED_LOCAL_SYNC_VERSIONS)
+  pluginVersion: SupportedLocalSyncVersion;
 }
 
 export class ExchangeLocalSyncInstallationDto {

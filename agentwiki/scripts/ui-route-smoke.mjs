@@ -81,7 +81,7 @@ export async function runUiRouteSmoke(environment = process.env) {
     token = registration.access_token;
     fixture.userId = registration.user.id;
     const space = await request(apiUrl, '/spaces', {
-      method: 'POST', token, body: { name: `UI Route Space ${suffix}` },
+      method: 'POST', token, body: { name: `UI Route Space ${suffix.slice(-8)}` },
     });
     fixture.spaceId = space.id;
     const contentTree = await request(

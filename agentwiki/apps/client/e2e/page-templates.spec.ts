@@ -45,7 +45,7 @@ interface PersistedPage {
 const runId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const artifacts = path.join(os.tmpdir(), 'agentwiki-page-template-qa', runId);
 const customTemplateName = `团队任务模板-${runId}`;
-const spaceName = `Page Template QA ${runId}`;
+const spaceName = `Page Template QA ${runId.slice(-8)}`;
 
 let api: APIRequestContext;
 let spaceId = '';

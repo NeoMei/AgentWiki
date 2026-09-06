@@ -23,6 +23,9 @@ const apiProxyTarget = localApiProxyTarget(process.env.AGENTWIKI_DEV_API_ORIGIN)
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // The linked shared workspace package emits CommonJS, including runtime limits.
+  optimizeDeps: { include: ['@agentwiki/shared'] },
+  build: { commonjsOptions: { include: [/node_modules/, /packages\/shared\/dist/] } },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

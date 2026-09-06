@@ -137,7 +137,7 @@ export async function runSmoke(environment = process.env) {
     });
 
     const space = await request(apiUrl, '/spaces', {
-      method: 'POST', token, body: { name: `Smoke ${suffix}` },
+      method: 'POST', token, body: { name: `Smoke ${suffix.slice(-8)}` },
     });
     fixture.spaceId = space.data.id;
     const spaces = await request(apiUrl, '/spaces', { token });
@@ -178,7 +178,7 @@ export async function runSmoke(environment = process.env) {
     fixture.agentId = agent.data.id;
     const installation = await request(apiUrl, `/agents/${agent.data.id}/local-sync-installations`, {
       method: 'POST', token,
-      body: { spaceId: space.data.id, role: 'editor', pluginVersion: '0.9.0' },
+      body: { spaceId: space.data.id, role: 'editor', pluginVersion: '0.9.1' },
     });
     const credential = await request(apiUrl, '/integrations/local-sync/exchange', {
       method: 'POST', body: { code: installation.data.code },

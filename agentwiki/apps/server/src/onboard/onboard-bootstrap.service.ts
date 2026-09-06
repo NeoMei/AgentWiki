@@ -12,6 +12,7 @@ import {
 } from '@neomei/agentwiki-sync-protocol';
 import { LocalSyncInstallationService } from '../core/agent/local-sync-installation.service';
 import { BusinessException } from '../core/filters/business-error';
+import { isSupportedLocalSyncVersion } from '../core/local-sync-version';
 import { PrismaService } from '../database/prisma.service';
 import { RedisService } from '../database/redis.service';
 import type { OnboardingPrincipal } from './onboarding-token.guard';
@@ -174,6 +175,9 @@ export class OnboardBootstrapService {
       await this.persistResourceIds(claim.record.id, fence, resources.ids);
       issuedInstallationPersisted = true;
       const response = this.response(resources, plan.role, plan.scopes, installation);
+      // Bootstrap is the receipt for the exact confirmed plan. Older CLI versions
+      // compare this name byte-for-byte; the Space record itself is trimmed.
+      if (plan.space.mode === 'create') response.space.name = plan.space.name;
       const serialized = JSON.stringify(response);
       const resultHash = this.hash(serialized);
 
@@ -438,7 +442,7 @@ export class OnboardBootstrapService {
       const space = plan.space.mode === 'create'
         ? await tx.space.create({
           data: {
-            name: plan.space.name,
+            name: plan.space.name.trim(),
             slug: `${this.slugify(plan.space.name) || 'space'}-${this.hash(deviceSessionId).slice(0, 16)}`,
             visibility: 'private',
             approvalPolicy: 'always-review',
@@ -737,7 +741,7 @@ export class OnboardBootstrapService {
     if (
       suppliedPlanHash !== canonicalPlanHash
       || plan.packageVersion !== context.packageVersion
-      || context.packageVersion !== '0.9.0'
+      || !isSupportedLocalSyncVersion(context.packageVersion)
       || context.purpose !== 'full-onboarding'
       || capabilities.length !== REQUIRED_CAPABILITIES.length
       || capabilities.some((capability, index) => capability !== REQUIRED_CAPABILITIES[index])

@@ -43,7 +43,7 @@ await withCollaborationTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schem
     JWT_SECRET: `collaboration-e2e-jwt-${randomUUID()}-${randomUUID()}`,
     AGENTWIKI_SERVER_PEPPER: `collaboration-e2e-pepper-${randomUUID()}`,
     AGENTWIKI_DEPLOYMENT_SEED: deploymentSeed,
-    LOCAL_SYNC_PACKAGE_VERSION: '0.9.0',
+    LOCAL_SYNC_PACKAGE_VERSION: '0.9.1',
     PUBLIC_API_URL: `http://127.0.0.1:${port}/api`,
     MCP_ALLOWED_HOSTS: '127.0.0.1,localhost',
     CORS_ORIGINS: `http://127.0.0.1:${port}`,
@@ -60,7 +60,7 @@ await withCollaborationTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schem
     const editorHuman = await register(apiUrl, `editor-${suffix}@example.test`, `Editor-${suffix}!`, 'Workflow Editor');
     const viewerHuman = await register(apiUrl, `viewer-${suffix}@example.test`, `Viewer-${suffix}!`, 'Workflow Viewer');
     const space = (await request(apiUrl, '/spaces', {
-      method: 'POST', token: owner.token, body: { name: `Collaboration E2E ${suffix}` },
+      method: 'POST', token: owner.token, body: { name: `Collaboration E2E ${suffix.slice(-8)}` },
     })).data;
     await request(apiUrl, `/spaces/${space.id}/members`, {
       method: 'POST', token: owner.token, body: { email: editorHuman.email, role: 'editor' },
@@ -313,7 +313,7 @@ async function verifyToolManifest(apiUrl, apiKey) {
 async function createConnectedAgent(apiUrl, token, spaceId, name, role) {
   const agent = (await request(apiUrl, '/agents', { method: 'POST', token, body: { name } })).data;
   const installation = (await request(apiUrl, `/agents/${agent.id}/local-sync-installations`, {
-    method: 'POST', token, body: { spaceId, role, pluginVersion: '0.9.0' },
+    method: 'POST', token, body: { spaceId, role, pluginVersion: '0.9.1' },
   })).data;
   const exchange = (await request(apiUrl, '/integrations/local-sync/exchange', {
     method: 'POST', body: { code: installation.code },
@@ -331,7 +331,7 @@ async function register(apiUrl, email, password, name) {
 }
 
 async function connectMcp(apiUrl, apiKey, name) {
-  const client = new Client({ name: `collaboration-e2e-${name}`, version: '0.9.0' });
+  const client = new Client({ name: `collaboration-e2e-${name}`, version: '0.9.1' });
   const transport = new StreamableHTTPClientTransport(new URL(`${apiUrl}/mcp`), {
     requestInit: { headers: { Authorization: `Bearer ${apiKey}` } },
   });

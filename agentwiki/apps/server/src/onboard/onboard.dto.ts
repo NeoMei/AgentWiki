@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsDefined,
   IsIn,
@@ -6,7 +6,15 @@ import {
   IsString,
   Matches,
   ValidateNested,
+  ValidateBy,
+  minLength,
+  maxLength,
 } from 'class-validator';
+import { SPACE_NAME_MAX_LENGTH } from '@agentwiki/shared';
+import {
+  SUPPORTED_LOCAL_SYNC_VERSIONS,
+  type SupportedLocalSyncVersion,
+} from '../core/local-sync-version';
 import type {
   BootstrapInput,
   DeviceDecisionInput,
@@ -16,8 +24,8 @@ import type {
 } from './onboard.types';
 
 export class StartDeviceDto implements StartDeviceInput {
-  @IsIn(['0.9.0'])
-  packageVersion: '0.9.0';
+  @IsIn(SUPPORTED_LOCAL_SYNC_VERSIONS)
+  packageVersion: SupportedLocalSyncVersion;
 
   @IsIn(['codex', 'claude', 'opencode'])
   clientType: 'codex' | 'claude' | 'opencode';
@@ -43,7 +51,17 @@ class CreateSpacePlanDto {
   @IsIn(['create'])
   mode: 'create';
 
-  @IsString()
+  // Preserve the confirmed raw plan for hashing, including surrounding spaces.
+  // Restore the raw type so implicit conversion cannot authorize numeric names.
+  @Transform(({ obj, key }) => obj[key], { toClassOnly: true })
+  @ValidateBy({
+    name: 'spaceName',
+    validator: {
+      validate: (value: unknown) => typeof value === 'string'
+        && minLength(value.trim(), 1) && maxLength(value.trim(), SPACE_NAME_MAX_LENGTH),
+      defaultMessage: () => `Space name must contain 1 to ${SPACE_NAME_MAX_LENGTH} characters after trimming`,
+    },
+  })
   name: string;
 }
 
@@ -77,8 +95,8 @@ export class ServerPlanDto implements ServerPlan {
   @IsIn(['reader', 'editor', 'publisher'])
   role: 'reader' | 'editor' | 'publisher';
 
-  @IsIn(['0.9.0'])
-  packageVersion: '0.9.0';
+  @IsIn(SUPPORTED_LOCAL_SYNC_VERSIONS)
+  packageVersion: SupportedLocalSyncVersion;
 }
 
 export class BootstrapDto implements BootstrapInput {

@@ -203,7 +203,7 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
         JWT_SECRET: `attachment-http-jwt-${randomUUID()}-${randomUUID()}`,
         AGENTWIKI_SERVER_PEPPER: `attachment-http-pepper-${randomUUID()}`,
         AGENTWIKI_DEPLOYMENT_SEED: randomBytes(32).toString('base64'),
-        LOCAL_SYNC_PACKAGE_VERSION: '0.9.0',
+        LOCAL_SYNC_PACKAGE_VERSION: '0.9.1',
         ATTACHMENT_STORAGE_PATH: storageRoot,
         ATTACHMENT_MAX_SPACE_BYTES: String(PNG.length * 2),
         ATTACHMENT_MIN_FREE_BYTES: '1',
@@ -301,14 +301,41 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
       };
 
       const owner = await register('owner');
+      // Space naming goes through the real HTTP validation pipeline and database.
+      const boundaryName = '空'.repeat(32);
+      const namedSpace = (await request('/spaces', {
+        method: 'POST', token: owner.token, body: { name: `  ${boundaryName}  ` },
+      })).data;
+      assert.equal(namedSpace.name, boundaryName);
+      for (const name of ['空'.repeat(33), '   ', 123]) {
+        await request('/spaces', {
+          method: 'POST', token: owner.token, body: { name }, expected: [400],
+        });
+        await request(`/spaces/${namedSpace.id}`, {
+          method: 'PATCH', token: owner.token, body: { name }, expected: [400],
+        });
+      }
+      assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: namedSpace.id } })).name, boundaryName);
+      const legacyName = 'Existing long Space '.repeat(4);
+      await prisma.space.update({ where: { id: namedSpace.id }, data: { name: legacyName } });
+      await request(`/spaces/${namedSpace.id}`, {
+        method: 'PATCH', token: owner.token, body: { description: 'Name preserved' },
+      });
+      const preserved = (await request(`/spaces/${namedSpace.id}`, { token: owner.token })).data;
+      assert.equal(preserved.name, legacyName);
+      assert.equal(preserved.description, 'Name preserved');
+      await request(`/spaces/${namedSpace.id}`, {
+        method: 'PATCH', token: owner.token, body: { name: '  重命名  ' },
+      });
+      assert.equal((await request(`/spaces/${namedSpace.id}`, { token: owner.token })).data.name, '重命名');
       const editor = await register('editor');
       const viewer = await register('viewer');
       const outsider = await register('outsider');
       const space = (await request('/spaces', {
-        method: 'POST', token: owner.token, body: { name: `Attachment ${randomUUID()}` },
+        method: 'POST', token: owner.token, body: { name: `Attachment ${randomUUID().slice(0, 8)}` },
       })).data;
       const outsiderSpace = (await request('/spaces', {
-        method: 'POST', token: outsider.token, body: { name: `Outsider ${randomUUID()}` },
+        method: 'POST', token: outsider.token, body: { name: `Outsider ${randomUUID().slice(0, 8)}` },
       })).data;
       for (const [human, role] of [[editor, 'editor'], [viewer, 'viewer']]) {
         await request(`/spaces/${space.id}/members`, {
@@ -323,7 +350,7 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
         `/agents/${agentRecord.id}/local-sync-installations`,
         {
           method: 'POST', token: owner.token,
-          body: { spaceId: space.id, role: 'editor', pluginVersion: '0.9.0' },
+          body: { spaceId: space.id, role: 'editor', pluginVersion: '0.9.1' },
         },
       )).data;
       const exchange = (await request('/integrations/local-sync/exchange', {
@@ -684,7 +711,7 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
       });
 
       const legacyUnsafeSpace = (await request('/spaces', {
-        method: 'POST', token: owner.token, body: { name: `Legacy unsafe ${randomUUID()}` },
+        method: 'POST', token: owner.token, body: { name: `Legacy unsafe ${randomUUID().slice(0, 8)}` },
       })).data;
       const reusableBlob = await prisma.spaceAttachment.findUniqueOrThrow({ where: { id: beta.id } });
       const unsafeNames = [
@@ -755,7 +782,7 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
       assert.equal(repairHeads[0].recipeVersion, 'referenced-images-v1');
 
       const unsafeMarkerSpace = (await request('/spaces', {
-        method: 'POST', token: owner.token, body: { name: `Legacy marker ${randomUUID()}` },
+        method: 'POST', token: owner.token, body: { name: `Legacy marker ${randomUUID().slice(0, 8)}` },
       })).data;
       const unsafeMarkerAttachment = await prisma.spaceAttachment.create({ data: {
         spaceId: unsafeMarkerSpace.id,
@@ -872,7 +899,7 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
       }
 
       const noHeadSpace = (await request('/spaces', {
-        method: 'POST', token: owner.token, body: { name: `No-head rename ${randomUUID()}` },
+        method: 'POST', token: owner.token, body: { name: `No-head rename ${randomUUID().slice(0, 8)}` },
       })).data;
       const noHeadAttachment = (await request(`/spaces/${noHeadSpace.id}/attachments`, {
         method: 'POST', token: owner.token,
@@ -893,7 +920,7 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
       assert.equal(noHeadRevisions[0].recipeVersion, 'referenced-images-v1');
 
       const legacySpace = (await request('/spaces', {
-        method: 'POST', token: owner.token, body: { name: `Legacy rename ${randomUUID()}` },
+        method: 'POST', token: owner.token, body: { name: `Legacy rename ${randomUUID().slice(0, 8)}` },
       })).data;
       const legacyAttachment = (await request(`/spaces/${legacySpace.id}/attachments`, {
         method: 'POST', token: owner.token,
@@ -961,7 +988,7 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
       assert.equal(legacyRevisions[1].recipeVersion, 'referenced-images-v1');
 
       const raceSpace = (await request('/spaces', {
-        method: 'POST', token: owner.token, body: { name: `Race ${randomUUID()}` },
+        method: 'POST', token: owner.token, body: { name: `Race ${randomUUID().slice(0, 8)}` },
       })).data;
       const raceHash = createHash('sha256').update(RACE_PNG).digest('hex');
       const raceStorageKey = `sha256/${raceHash.slice(0, 2)}/${raceHash.slice(2, 4)}/${raceHash}`;

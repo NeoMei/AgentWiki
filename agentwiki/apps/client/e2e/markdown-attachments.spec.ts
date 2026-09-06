@@ -368,12 +368,12 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
 
     const primary = await json<{ id: string }>(await api.post('spaces', {
       headers: headers(owner),
-      data: { name: `Attachment QA ${runId}`, description: 'Disposable browser acceptance' },
+      data: { name: `Attachment QA ${runId.slice(-8)}`, description: 'Disposable browser acceptance' },
     }), 'create primary Space');
     primarySpaceId = primary.id;
     const hidden = await json<{ id: string }>(await api.post('spaces', {
       headers: headers(owner),
-      data: { name: `Hidden Attachment QA ${runId}`, description: 'Cross-Space scope fixture' },
+      data: { name: `Hidden Attachment QA ${runId.slice(-8)}`, description: 'Cross-Space scope fixture' },
     }), 'create hidden Space');
     hiddenSpaceId = hidden.id;
 

@@ -76,7 +76,7 @@ export interface CoordinatorDeps {
   encoder: ProtocolEncoder;
   source: ProtocolSource;
   serverBaseUrl: string;
-  packageVersion: '0.9.0';
+  packageVersion: '0.9.1';
   home: string;
   preflight: PreflightFn;
   bootstrapInstall: BootstrapInstallFn;
@@ -417,7 +417,7 @@ export class OnboardingCoordinator {
         : { mode: 'create', name: inputs.spaceName as string },
       agentName: inputs.agentName as string,
       role: inputs.role as 'reader' | 'editor' | 'publisher',
-      packageVersion: '0.9.0',
+      packageVersion: '0.9.1',
     };
   }
 
@@ -441,6 +441,16 @@ export class OnboardingCoordinator {
     }
     if (spaceMode === 'create' && !isNonEmptyString(raw.spaceName)) {
       throw this.fail('PROTOCOL_UNSUPPORTED', 'spaceName is required when creating a Space', false);
+    }
+    if (spaceMode === 'create') {
+      const name = (raw.spaceName as string).trim();
+      // Match server class-validator/validator.js units without adding a CLI dependency.
+      const units = name.length
+        - (name.match(/[^\uFE0F\uFE0E][\uFE0F\uFE0E]/g)?.length ?? 0)
+        - (name.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g)?.length ?? 0);
+      if (units > 32) {
+        throw this.fail('PROTOCOL_UNSUPPORTED', 'Space name must contain at most 32 characters after trimming', false);
+      }
     }
     if (spaceMode === 'existing' && !isNonEmptyString(raw.spaceId)) {
       throw this.fail('PROTOCOL_UNSUPPORTED', 'spaceId is required when using an existing Space', false);
@@ -466,7 +476,7 @@ export class OnboardingCoordinator {
     try {
       return OnboardingInputsSchema.parse({
       spaceMode,
-      ...(spaceMode === 'create' ? { spaceName: raw.spaceName as string } : { spaceId: raw.spaceId as string }),
+      ...(spaceMode === 'create' ? { spaceName: (raw.spaceName as string).trim() } : { spaceId: raw.spaceId as string }),
       agentName: raw.agentName as string,
       role,
       clientType,

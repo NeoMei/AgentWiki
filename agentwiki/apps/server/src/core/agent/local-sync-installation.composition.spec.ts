@@ -145,7 +145,7 @@ function composeInstallationFlow(input?: {
   };
   const config = {
     get: jest.fn((key: string) => key === 'LOCAL_SYNC_PACKAGE_VERSION'
-      ? '0.9.0'
+      ? '0.9.1'
       : key === 'JWT_SECRET'
         ? 'composition-test-secret'
         : undefined),
@@ -171,7 +171,7 @@ async function issueInstallation(
     'agent-1',
     'space-1',
     'editor',
-    '0.9.0',
+    '0.9.1',
     'https://wiki.test/api',
     isSuperAdmin,
   );

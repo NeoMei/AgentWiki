@@ -7,6 +7,8 @@ import { ModalDialog } from '../../components/ModalDialog';
 import { useAuth } from '../../context/AuthContext';
 import { Plus, Folder, X, Trash2, Network } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { SPACE_NAME_MAX_LENGTH } from '@agentwiki/shared';
+import { validatorLength } from '../page-templates/validatorLength';
 
 const PAGE_SIZE = 20;
 const OPTIMISTIC_SPACE_TTL_MS = 5 * 60_000;
@@ -38,6 +40,8 @@ export const Dashboard: React.FC = () => {
   const [createError, setCreateError] = useState<string | null>(null);
   const [deletingSpace, setDeletingSpace] = useState<string | null>(null);
   const [newSpace, setNewSpace] = useState({ name: '', description: '' });
+  const nameLength = validatorLength(newSpace.name.trim());
+  const nameTooLong = nameLength > SPACE_NAME_MAX_LENGTH;
   const mutationVersionRef = useRef(0);
   const activeListRequestRef = useRef(0);
   const nextCursorRef = useRef<string | null>(null);
@@ -136,7 +140,7 @@ export const Dashboard: React.FC = () => {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newSpace.name.trim()) return;
+    if (!nameLength || nameTooLong || creating) return;
     setCreating(true);
     setCreateError(null);
     try {
@@ -227,12 +231,12 @@ export const Dashboard: React.FC = () => {
             {spaces.map((space) => (
               <div
                 key={space.id}
-                className="group relative block p-6 bg-white rounded-lg shadow hover:shadow-md transition border border-gray-100"
+                className="group relative block min-w-0 p-6 bg-white rounded-lg shadow hover:shadow-md transition border border-gray-100"
               >
                 <Link to={`/spaces/${space.id}`} className="block">
                   <div className="flex items-center gap-3 mb-2">
-                    <Folder className="text-blue-600" size={24} />
-                    <h3 className="text-lg font-semibold">{space.name}</h3>
+                    <Folder className="shrink-0 text-blue-600" size={24} />
+                    <h3 title={space.name} className="min-w-0 truncate text-lg font-semibold">{space.name}</h3>
                   </div>
                   <p className="text-gray-500 text-sm line-clamp-2">{space.description || t('common.noDescription')}</p>
                 </Link>
@@ -302,12 +306,18 @@ export const Dashboard: React.FC = () => {
                   data-modal-autofocus
                   type="text"
                   value={newSpace.name}
+                  aria-invalid={nameTooLong}
+                  aria-describedby="create-space-name-hint"
                   onChange={(e) => setNewSpace({ ...newSpace, name: e.target.value })}
                   className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder={t('dashboard.namePlaceholder')}
                   required
                   autoFocus
                 />
+                <p id="create-space-name-hint" className={`mt-1 text-sm ${nameTooLong ? 'text-red-600' : 'text-gray-500'}`} aria-live="polite">
+                  {t('space.nameLength', { count: nameLength, max: SPACE_NAME_MAX_LENGTH })}
+                  {nameTooLong ? ` · ${t('space.nameTooLong', { max: SPACE_NAME_MAX_LENGTH })}` : ''}
+                </p>
               </div>
               <div>
                 <label htmlFor="create-space-description" className="block text-sm font-medium mb-1">{t('common.description')}</label>
@@ -331,7 +341,7 @@ export const Dashboard: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={creating || !newSpace.name.trim()}
+                  disabled={creating || !nameLength || nameTooLong}
                   className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
                 >
                   {creating ? t('common.creating') : t('common.create')}
