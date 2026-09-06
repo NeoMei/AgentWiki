@@ -128,3 +128,51 @@ migrations, private paired backup/restore procedure and explicit Space rollout,
 then continue the publication order above. Registry artifacts, GitHub release,
 deployment and real public browser acceptance are still unperformed. The isolated
 worktree, local commits and this plan's review/log evidence are retained for resume.
+
+## Public npm publication — 2026-09-06 resumed execution
+
+This checkpoint supersedes the earlier unperformed-publication status, without
+changing the historical local-test evidence above.
+
+- User browser authentication succeeded. Sync Protocol `0.6.0` publication exited
+  0; public parity reports `identical`. Published SHA1 is
+  `31939262b7683a664fa9f7b524a286f64f0da772` (only staged prepack normalization).
+- Candidate registry-protocol clean install passed, including source prepack
+  tests: 877 passed, 1 skipped. Local Sync `0.9.0` publication exited 0.
+- npm initially reported processing and exact version lookup/install returned
+  E404/ETARGET. No duplicate publication was attempted. Subsequent public metadata
+  confirms Local Sync `0.9.0`, exact protocol dependency `0.6.0` and SHA1
+  `25bd00921741dbd2f205146dc19fdd873b796a53`, identical to the tested candidate.
+- Separate actual-public installation in fresh install/cache directories added
+  96 packages and exited 0. Installed versions, exact dependency and CLI `--help`
+  were asserted successfully in `/tmp/agentwiki-v090-public-verified.aLUwgR`.
+  Logs are retained in the release SDD workspace: `protocol-registry-parity.log`,
+  `local-sync-registry-protocol.log`, `public-local-sync-install.log` (initial
+  processing failure), and `public-local-sync-install-final.log`.
+
+SSH was restored long enough to verify the live target read-only, but its control
+session has now expired; BatchMode authentication is denied. No production backup,
+restart, migration or deployment has occurred. No source push/tag/GitHub Release
+has occurred in this attempt. Production and browser acceptance remain pending.
+
+Operational review closed failure-stop cleanup and sanitized-error issues. The
+restore operator lock instructions now fail closed. Old-dump restore readiness
+still needs closure: new composite schema objects prevent an old archive's plain
+`pg_restore --clean` from restoring successfully. An isolated PG16/vector experiment
+proved transactional schema reset plus complete SQL restore and failure rollback;
+before implementing the production-specific variant, refresh actual database,
+schema/ACL and extension ownership/version plus local postgres socket identity.
+The manual disaster procedure is not approved to execute and is never automatic.
+
+## Refreshed integration gate — 2026-09-06 15:44 CST
+
+The same complete dedicated-database command above ran again before source
+publication and exited 0: runtime 258 passed / 1 skipped, DB 175 passed / 0 skipped,
+server 2,499 passed / 1 skipped, client 1,264 passed, protocol 140 passed, local-sync
+877 passed / 1 skipped; total 5,213 passed, 3 skipped, 0 failed. Log:
+`.superpowers/sdd/2026-09-06-composite-v090-release/final-prepublish-full.log`.
+
+SSH master was re-established and live 0.8.0 read-only preflight confirmed the same
+target and healthy services. Recovery implementation/re-review and actual deployment
+remain separate gates. Only release-owned public-API fixture bootstrap has occurred:
+new composite/legacy test Spaces; no existing user pages were changed.
