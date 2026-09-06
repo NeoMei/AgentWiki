@@ -6,15 +6,18 @@ import {
 } from './local-sync.dto';
 
 describe('local sync installation DTOs and business errors', () => {
-  it('accepts a Space-bound role and the 0.9.0 protocol version', async () => {
+  it.each(['0.9.0', '0.9.1'] as const)(
+    'accepts a Space-bound role for supported Local Sync %s',
+    async (pluginVersion) => {
     const dto = Object.assign(new CreateLocalSyncInstallationDto(), {
       spaceId: 'space-1',
       role: 'editor',
-      pluginVersion: '0.9.0',
+      pluginVersion,
     });
 
     await expect(validate(dto)).resolves.toEqual([]);
-  });
+    },
+  );
 
   it('rejects an empty Space, unknown role and any other protocol version', async () => {
     const dto = Object.assign(new CreateLocalSyncInstallationDto(), {

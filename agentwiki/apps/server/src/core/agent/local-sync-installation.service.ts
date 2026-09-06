@@ -12,6 +12,10 @@ import {
 } from '@neomei/agentwiki-sync-protocol';
 import { RedisService } from '../../database/redis.service';
 import { BusinessException } from '../filters/business-error';
+import {
+  isSupportedLocalSyncVersion,
+  type SupportedLocalSyncVersion,
+} from '../local-sync-version';
 import { AuditService } from '../security/audit.service';
 import { AgentService } from './agent.service';
 
@@ -34,7 +38,7 @@ interface ExchangeReceipt {
   grantId: string;
   role: AgentAccessRole;
   serverUrl: string;
-  pluginVersion: '0.9.0';
+  pluginVersion: SupportedLocalSyncVersion;
   expiresAt: string;
 }
 
@@ -45,7 +49,7 @@ export interface InstallationExchangeResult {
   credentialId: string;
   role: AgentAccessRole;
   serverUrl: string;
-  pluginVersion: '0.9.0';
+  pluginVersion: SupportedLocalSyncVersion;
   scopes: string[];
 }
 
@@ -113,7 +117,6 @@ export class LocalSyncInstallationService {
     expiresAt: string;
     instructions: string;
   }> {
-    this.assertExactProtocolVersion(pluginVersion);
     this.assertSupportedVersion(pluginVersion);
     const canonicalServerUrl = serverUrl.replace(/\/+$/, '');
     this.assertSafeServerUrl(canonicalServerUrl);
@@ -218,7 +221,6 @@ export class LocalSyncInstallationService {
     if (new Date(payload.expiresAt).getTime() <= Date.now()) {
       throw new BusinessException('LOCAL_SYNC_CODE_EXPIRED');
     }
-    this.assertExactProtocolVersion(payload.pluginVersion);
     this.assertSupportedVersion(payload.pluginVersion);
     const rawKey = this.installationApiKey(installationId);
     const credential = await this.agents.exchangeConnectionIntent({
@@ -311,7 +313,7 @@ export class LocalSyncInstallationService {
         || typeof value.grantId !== 'string'
         || !AgentAccessRoleSchema.safeParse(value.role).success
         || typeof value.serverUrl !== 'string'
-        || value.pluginVersion !== '0.9.0'
+        || !isSupportedLocalSyncVersion(value.pluginVersion)
         || typeof value.expiresAt !== 'string'
       ) {
         throw new Error('invalid exchange receipt');
@@ -362,15 +364,14 @@ export class LocalSyncInstallationService {
     ]);
   }
 
-  private assertSupportedVersion(pluginVersion: string): void {
-    const supported = this.config.get<string>('LOCAL_SYNC_PACKAGE_VERSION');
-    if (!supported || pluginVersion !== supported) {
-      throw new BusinessException('LOCAL_SYNC_VERSION_UNSUPPORTED');
-    }
-  }
-
-  private assertExactProtocolVersion(pluginVersion: string): asserts pluginVersion is '0.9.0' {
-    if (pluginVersion !== '0.9.0') {
+  private assertSupportedVersion(
+    pluginVersion: string,
+  ): asserts pluginVersion is SupportedLocalSyncVersion {
+    const configured = this.config.get<string>('LOCAL_SYNC_PACKAGE_VERSION');
+    if (
+      !isSupportedLocalSyncVersion(configured)
+      || !isSupportedLocalSyncVersion(pluginVersion)
+    ) {
       throw new BusinessException('LOCAL_SYNC_VERSION_UNSUPPORTED');
     }
   }

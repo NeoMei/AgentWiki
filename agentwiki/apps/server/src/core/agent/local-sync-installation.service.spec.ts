@@ -35,7 +35,7 @@ describe('LocalSyncInstallationService', () => {
     agentId: 'agent-1',
     spaceId: 'space-1',
     role: 'editor' as const,
-    pluginVersion: '0.9.0',
+    pluginVersion: '0.9.1',
     serverUrl: 'https://wiki.test/api',
     expiresAt: '2030-01-01T00:10:00.000Z',
   };
@@ -46,7 +46,7 @@ describe('LocalSyncInstallationService', () => {
     jest.useFakeTimers().setSystemTime(new Date('2030-01-01T00:00:00.000Z'));
     jest.clearAllMocks();
     config.get.mockImplementation((key: string) => (
-      key === 'LOCAL_SYNC_PACKAGE_VERSION' ? '0.9.0'
+      key === 'LOCAL_SYNC_PACKAGE_VERSION' ? '0.9.1'
         : key === 'JWT_SECRET' ? 'test-only-local-sync-receipt-secret'
           : undefined
     ));
@@ -83,7 +83,7 @@ describe('LocalSyncInstallationService', () => {
       'agent-1',
       'space-1',
       'editor',
-      '0.9.0',
+      '0.9.1',
       'https://wiki.test/api/',
     );
 
@@ -102,12 +102,12 @@ describe('LocalSyncInstallationService', () => {
       agentId: 'agent-1',
       spaceId: 'space-1',
       role: 'editor',
-      pluginVersion: '0.9.0',
+      pluginVersion: '0.9.1',
       serverUrl: 'https://wiki.test/api',
     }));
     expect(stored).not.toHaveProperty('code');
     expect(stored).not.toHaveProperty('scopes');
-    expect(result.instructions).toContain('@neomei/agentwiki-local-sync@0.9.0 onboard');
+    expect(result.instructions).toContain('@neomei/agentwiki-local-sync@0.9.1 onboard');
     expect(result.instructions).toContain(`--code ${result.code}`);
     expect(result.instructions).toContain('--protocol ndjson');
     expect(result.instructions).not.toMatch(/\bconnect\b/);
@@ -120,9 +120,39 @@ describe('LocalSyncInstallationService', () => {
     );
   });
 
+  it.each(['0.9.0', '0.9.1'] as const)(
+    'issues installation instructions and payload for requested supported version %s',
+    async (pluginVersion) => {
+      const result = await service.create(
+        'owner-1', 'agent-1', 'space-1', 'editor', pluginVersion, 'https://wiki.test/api',
+      );
+
+      const stored = JSON.parse(redis.setOnce.mock.calls[0][1]);
+      expect(stored.pluginVersion).toBe(pluginVersion);
+      expect(result.instructions).toContain(`@neomei/agentwiki-local-sync@${pluginVersion} onboard`);
+    },
+  );
+
+  it.each(['0.9.0', '0.9.1'] as const)(
+    'keeps supported request %s valid while the deployed default remains 0.9.0',
+    async (pluginVersion) => {
+      config.get.mockImplementation((key: string) => (
+        key === 'LOCAL_SYNC_PACKAGE_VERSION' ? '0.9.0'
+          : key === 'JWT_SECRET' ? 'test-only-local-sync-receipt-secret'
+            : undefined
+      ));
+
+      await expect(service.create(
+        'owner-1', 'agent-1', 'space-1', 'editor', pluginVersion, 'https://wiki.test/api',
+      )).resolves.toEqual(expect.objectContaining({
+        instructions: expect.stringContaining(`@neomei/agentwiki-local-sync@${pluginVersion}`),
+      }));
+    },
+  );
+
   it('passes the trusted Super Admin flag to the Agent authorization check', async () => {
     await service.create(
-      'owner-1', 'agent-1', 'space-1', 'editor', '0.9.0',
+      'owner-1', 'agent-1', 'space-1', 'editor', '0.9.1',
       'https://wiki.test/api', true,
     );
 
@@ -135,7 +165,7 @@ describe('LocalSyncInstallationService', () => {
     config.get.mockReturnValue(supported);
 
     await expect(service.create(
-      'owner-1', 'agent-1', 'space-1', 'reader', '0.9.0', 'https://wiki.test/api',
+      'owner-1', 'agent-1', 'space-1', 'reader', '0.9.1', 'https://wiki.test/api',
     )).rejects.toMatchObject({ businessCode: 'LOCAL_SYNC_VERSION_UNSUPPORTED' });
     expect(redis.setOnce).not.toHaveBeenCalled();
   });
@@ -144,7 +174,7 @@ describe('LocalSyncInstallationService', () => {
     redis.setOnce.mockResolvedValue(false);
 
     await expect(service.create(
-      'owner-1', 'agent-1', 'space-1', 'reader', '0.9.0', 'https://wiki.test/api',
+      'owner-1', 'agent-1', 'space-1', 'reader', '0.9.1', 'https://wiki.test/api',
     )).rejects.toThrow('Could not issue a unique local sync installation code');
     expect(redis.setOnce).toHaveBeenCalledTimes(3);
   });
@@ -153,7 +183,7 @@ describe('LocalSyncInstallationService', () => {
     agents.assertCanIssueConnection.mockRejectedValue(new ForbiddenException('not admin'));
 
     await expect(service.create(
-      'owner-1', 'agent-1', 'space-1', 'publisher', '0.9.0', 'https://wiki.test/api',
+      'owner-1', 'agent-1', 'space-1', 'publisher', '0.9.1', 'https://wiki.test/api',
     )).rejects.toBeInstanceOf(ForbiddenException);
     expect(redis.setOnce).not.toHaveBeenCalled();
   });
@@ -193,7 +223,7 @@ describe('LocalSyncInstallationService', () => {
       serverUrl: 'https://wiki.test/api',
       spaceId: 'space-1',
       role: 'editor',
-      pluginVersion: '0.9.0',
+      pluginVersion: '0.9.1',
       scopes: scopesForAgentAccessRole('editor'),
     });
     expect(redis.setStrict).toHaveBeenCalledWith(
@@ -438,6 +468,27 @@ describe('LocalSyncInstallationService', () => {
     expect(agents.exchangeConnectionIntent).not.toHaveBeenCalled();
   });
 
+  it.each(['0.9.0', '0.9.1'] as const)(
+    'exchanges and replays a supported Local Sync %s installation without changing its version',
+    async (pluginVersion) => {
+      const versionPayload = { ...payload, pluginVersion };
+      redis.getStrict.mockImplementation(async (key: string) => (
+        key === installationKey ? JSON.stringify(versionPayload) : null
+      ));
+
+      const exchanged = await service.exchange(exchangeCode, '127.0.0.1');
+      expect(exchanged.pluginVersion).toBe(pluginVersion);
+
+      const receipt = redis.setStrict.mock.calls.find(([key]) => key === receiptKey)?.[1];
+      redis.getStrict.mockImplementation(async (key: string) => (
+        key === receiptKey ? receipt : null
+      ));
+      await expect(service.exchange(exchangeCode, '127.0.0.1')).resolves.toMatchObject({
+        pluginVersion,
+      });
+    },
+  );
+
   it('does not write a success receipt when the database transaction fails', async () => {
     agents.exchangeConnectionIntent.mockRejectedValue(new ForbiddenException('stale authority'));
 
@@ -523,7 +574,7 @@ describe('LocalSyncInstallationService', () => {
       'agent-1',
       'space-1',
       'reader',
-      '0.9.0',
+      '0.9.1',
       'https://wiki.test/api;rm -rf /',
     )).rejects.toMatchObject({
       businessCode: 'LOCAL_SYNC_VERSION_UNSUPPORTED',

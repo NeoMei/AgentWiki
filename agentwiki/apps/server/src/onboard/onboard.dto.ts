@@ -11,6 +11,10 @@ import {
   maxLength,
 } from 'class-validator';
 import { SPACE_NAME_MAX_LENGTH } from '@agentwiki/shared';
+import {
+  SUPPORTED_LOCAL_SYNC_VERSIONS,
+  type SupportedLocalSyncVersion,
+} from '../core/local-sync-version';
 import type {
   BootstrapInput,
   DeviceDecisionInput,
@@ -20,8 +24,8 @@ import type {
 } from './onboard.types';
 
 export class StartDeviceDto implements StartDeviceInput {
-  @IsIn(['0.9.0'])
-  packageVersion: '0.9.0';
+  @IsIn(SUPPORTED_LOCAL_SYNC_VERSIONS)
+  packageVersion: SupportedLocalSyncVersion;
 
   @IsIn(['codex', 'claude', 'opencode'])
   clientType: 'codex' | 'claude' | 'opencode';
@@ -91,8 +95,8 @@ export class ServerPlanDto implements ServerPlan {
   @IsIn(['reader', 'editor', 'publisher'])
   role: 'reader' | 'editor' | 'publisher';
 
-  @IsIn(['0.9.0'])
-  packageVersion: '0.9.0';
+  @IsIn(SUPPORTED_LOCAL_SYNC_VERSIONS)
+  packageVersion: SupportedLocalSyncVersion;
 }
 
 export class BootstrapDto implements BootstrapInput {

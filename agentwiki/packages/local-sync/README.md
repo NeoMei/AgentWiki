@@ -39,12 +39,12 @@ version-decoupled: it reads supported structural scan results, deterministically
 and decides which generated knowledge may enter an AgentWiki Preview. Do not add a second
 CodeGraph MCP to AgentWiki.
 
-## Onboarding (0.9.0)
+## Onboarding (0.9.1)
 
 Use the pinned onboarding command to complete the full self-service flow:
 
 ```bash
-npx --yes @neomei/agentwiki-local-sync@0.9.0 onboard \
+npx --yes @neomei/agentwiki-local-sync@0.9.1 onboard \
   --server https://agentwiki.quukk.com/api \
   --protocol ndjson
 ```
@@ -55,7 +55,7 @@ with a read-only pull after gateway verification and never calls the write-sync 
 Editor and Publisher run the first local scan and sync after explicit preview
 confirmation. Passwords and login information never enter the Agent conversation.
 
-Every 0.9.0 plan contains one role: `reader`, `editor`, or `publisher`. For an existing
+Every 0.9.1 plan contains one role: `reader`, `editor`, or `publisher`. For an existing
 Agent, the user chooses the Space and role before generating the one-time code; exchange
 atomically creates or updates the Space Grant and binds an identity-only Credential to it.
 Only the Grant stores a role; the server derives all scopes at request time. Legacy `viewer`, `full`, `permissionPreset`, `approvalMode`, and custom-scope
@@ -73,7 +73,7 @@ deterministically routes `wiki_*`, `local_*`, and `knowledge_*` tools.
 When an Agent already exists in AgentWiki, generate the one-time unified-gateway instruction from that Agent's access page. The generated command uses the same `onboard` entry point with `--code`; it attaches the existing identity without creating a second MCP:
 
 ```bash
-npx --yes @neomei/agentwiki-local-sync@0.9.0 onboard \
+npx --yes @neomei/agentwiki-local-sync@0.9.1 onboard \
   --server https://agentwiki.quukk.com/api \
   --code <one-time-code> \
   --protocol ndjson \
@@ -147,10 +147,10 @@ and connection ID, never the API key.
 These versions were tested with isolated temporary HOME directories on 2026-08-15. The
 package uses an exact version in every registered gateway command.
 
-The 0.9.0 package requires `@neomei/agentwiki-sync-protocol@0.6.0`, which contains the
-collaboration and Sync v3 contracts. Release verification first packs both packages and
-installs them into an empty directory. Local Sync 0.9.0 is only a local candidate in this
-release plan; publishing it requires later explicit authorization and a separate plan.
+The 0.9.1 package requires the already-published
+`@neomei/agentwiki-sync-protocol@0.6.0`, which contains the collaboration and Sync v3
+contracts. Release verification packs the Local Sync candidate, installs it with the
+public protocol into an empty directory, and runs the CLI before publication.
 
 ## Package contents
 

@@ -18,7 +18,7 @@ const CAPABILITIES = [
 const context = {
   sessionId: 'device-session-12345678',
   userId: 'user-1',
-  packageVersion: '0.9.0',
+  packageVersion: '0.9.1',
   purpose: 'full-onboarding',
   requestedCapabilities: CAPABILITIES,
 };
@@ -27,7 +27,7 @@ const createPlan: ServerPlan = {
   space: { mode: 'create', name: '研发知识库' },
   agentName: 'Codex',
   role: 'editor',
-  packageVersion: '0.9.0',
+  packageVersion: '0.9.1',
 };
 
 const installation = {
@@ -213,7 +213,7 @@ describe('OnboardBootstrapService', () => {
     expect(tx.agentGrant.upsert).not.toHaveBeenCalled();
     expect(installations.issueForBootstrap).toHaveBeenCalledWith({
       ownerId: 'user-1', agentId: 'agent-1', spaceId: 'space-1', role: 'editor',
-      pluginVersion: '0.9.0', serverUrl: 'https://agentwiki.example/api',
+      pluginVersion: '0.9.1', serverUrl: 'https://agentwiki.example/api',
     });
     expect(result).toEqual({
       space: { id: 'space-1', name: '研发知识库' },
@@ -227,6 +227,25 @@ describe('OnboardBootstrapService', () => {
     });
     expect(JSON.stringify(result)).not.toContain('apiKey');
   });
+
+  it.each(['0.9.0', '0.9.1'] as const)(
+    'issues the requested supported Local Sync %s package for a matching onboarding session',
+    async (packageVersion) => {
+      const versionContext = { ...context, packageVersion };
+      const versionPlan: ServerPlan = { ...createPlan, packageVersion };
+
+      await service.bootstrap(
+        versionContext,
+        `bootstrap-${packageVersion}-key`,
+        versionPlan,
+        hashServerPlan(versionPlan),
+      );
+
+      expect(installations.issueForBootstrap).toHaveBeenCalledWith(expect.objectContaining({
+        pluginVersion: packageVersion,
+      }));
+    },
+  );
 
   it.each([
     ['reader', false, 'always-review'],

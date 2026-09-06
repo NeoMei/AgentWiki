@@ -4,9 +4,10 @@ import {
   scopesForAgentAccessRole,
   type AgentAccessRole,
 } from '@neomei/agentwiki-sync-protocol';
+import type { SupportedLocalSyncVersion } from '../core/local-sync-version';
 
 export type StartDeviceInput = {
-  packageVersion: '0.9.0';
+  packageVersion: SupportedLocalSyncVersion;
   clientType: 'codex' | 'claude' | 'opencode';
   purpose: 'full-onboarding';
 };
@@ -24,7 +25,7 @@ export type ServerPlan = {
   space: { mode: 'create'; name: string } | { mode: 'existing'; id: string };
   agentName: string;
   role: AgentAccessRole;
-  packageVersion: '0.9.0';
+  packageVersion: SupportedLocalSyncVersion;
 };
 
 export type BootstrapInput = {

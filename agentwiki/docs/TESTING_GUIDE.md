@@ -1,4 +1,4 @@
-# AgentWiki 功能测试指南 v0.9.0
+# AgentWiki 功能测试指南 v0.9.1
 
 > 面向测试人员的系统功能说明与按功能分类的测试用例清单
 > 生产地址：https://agentwiki.quukk.com
@@ -110,7 +110,7 @@
 | 4.8 | Space 成员授权 | `PUT /agents/:id/grants/:spaceId` | 仅 Space 成员管理流程使用；仅接受 `reader/editor/publisher` |
 | 4.9 | 撤销授权 | `DELETE /agents/:id/grants/:spaceId` | Agent 失去该 Space 访问权 |
 | 4.10 | 活动记录 | `GET /agents/:id/activity` | 查看 Agent 的 MCP 调用和 API 活动 |
-| 4.11 | 统一连接授权 | `POST /agents/:agentId/local-sync-installations` | 提交 `spaceId+role+pluginVersion:0.9.0`，生成一次性安装码（10分钟过期） |
+| 4.11 | 统一连接授权 | `POST /agents/:agentId/local-sync-installations` | 提交 `spaceId+role+pluginVersion:0.9.1`，生成一次性安装码（10分钟过期）；服务端兼容 0.9.0 |
 | 4.12 | 撤销安装 | `DELETE /agents/:agentId/local-sync-installations/:id` | 撤销安装码 |
 | 4.13 | 安装码交换 | `POST /integrations/local-sync/exchange` | 用一次性码原子创建同角色 Credential + Grant；失败不留半套授权 |
 | 4.14 | 禁止手工签发 | `POST /agents/:id/credentials` | 路由不存在；Credential 只能由统一连接兑换产生 |
@@ -253,7 +253,7 @@
 | 12.6 | 跨机器同步 | 不同机器通过同一 Space 读写同一套 Wiki |
 | 12.7 | 知识修订 | `GET /spaces/:spaceId/knowledge-revisions/current` 返回当前 revision |
 | 12.8 | 快照/Delta | `GET .../snapshot`、`GET .../delta?from=xxx` 增量同步 |
-| 12.9 | npm 包 | `pnpm test:package:local-sync-clean-install` 在空目录联合安装 sync-protocol 0.6.0 与 local-sync 0.9.0 并启动 CLI；发布前分别确认 protocol 0.6.0 和 Local Sync 0.9.0 在显式 registry 中未被占用，网络或元数据错误必须 fail closed。Controller 在认证生产预检和评审后先发布 protocol 0.6.0，再运行 `pnpm test:release:sync-protocol-registry-parity` 逐字节验证公网 protocol；然后在发布 Local Sync 前运行 `pnpm test:package:local-sync-registry-protocol`，用当前 Local Sync 候选包验证公网 protocol。候选兼容门通过后才发布 Local Sync 0.9.0；发布后使用全新的安装目录和缓存运行 `npm install --prefix <empty-install-dir> --cache <empty-cache-dir> --registry=https://registry.npmjs.org/ --ignore-scripts --no-audit --no-fund @neomei/agentwiki-local-sync@0.9.0`，再运行 `<empty-install-dir>/node_modules/.bin/agentwiki-local-sync --help`，单独验证实际公网 Local Sync 包。禁止绕过任一 registry 检查。 |
+| 12.9 | npm 包 | `pnpm test:package:local-sync-clean-install` 在空目录联合安装 sync-protocol 0.6.0 与 local-sync 0.9.1 并启动 CLI；发布前确认 Local Sync 0.9.1 在显式 registry 中未被占用，网络或元数据错误必须 fail closed。不得重发 protocol 0.6.0；先运行 `pnpm test:release:sync-protocol-registry-parity` 逐字节验证公网 protocol，再运行 `pnpm test:package:local-sync-registry-protocol`，用当前 Local Sync 候选包验证公网 protocol。候选兼容门通过后才发布 Local Sync 0.9.1；发布后使用全新的安装目录和缓存运行 `npm install --prefix <empty-install-dir> --cache <empty-cache-dir> --registry=https://registry.npmjs.org/ --ignore-scripts --no-audit --no-fund @neomei/agentwiki-local-sync@0.9.1`，再运行 `<empty-install-dir>/node_modules/.bin/agentwiki-local-sync --help`，单独验证实际公网 Local Sync 包。禁止绕过任一 registry 检查。 |
 
 ---
 

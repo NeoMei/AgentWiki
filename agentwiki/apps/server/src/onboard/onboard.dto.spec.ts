@@ -31,7 +31,7 @@ const createPlan: ServerPlan = {
   space: { mode: 'create', name: '研发知识库' },
   agentName: 'Codex',
   role: 'editor',
-  packageVersion: '0.9.0',
+  packageVersion: '0.9.1',
 };
 
 const planHashGolden = JSON.parse(readFileSync(join(
@@ -40,7 +40,7 @@ const planHashGolden = JSON.parse(readFileSync(join(
 ), 'utf8')) as { plan: ServerPlan; sha256: string };
 
 describe('onboarding DTO contract', () => {
-  it.each(['0.9.0'] as const)(
+  it.each(['0.9.0', '0.9.1'] as const)(
     'accepts supported package version %s from every client',
     async (packageVersion) => {
       for (const clientType of ['codex', 'claude', 'opencode'] as const) {
@@ -50,6 +50,16 @@ describe('onboarding DTO contract', () => {
           purpose: 'full-onboarding',
         })).resolves.toEqual([]);
       }
+    },
+  );
+
+  it.each(['0.9.0', '0.9.1'] as const)(
+    'accepts a bootstrap plan from supported package version %s',
+    async (packageVersion) => {
+      await expect(validationErrors(BootstrapDto, {
+        serverPlan: { ...createPlan, packageVersion },
+        serverPlanHash: 'a'.repeat(64),
+      })).resolves.toEqual([]);
     },
   );
 
