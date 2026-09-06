@@ -18,6 +18,9 @@ import {
 } from './attachment-upload.storage';
 import { PrismaService } from '../database/prisma.service';
 import { AttachmentStorageModule } from './attachment-storage.module';
+import { SearchCoreModule } from '../core/search/search-core.module';
+import { KnowledgeGraphModule } from '../knowledge-graph/knowledge-graph.module';
+import { AttachmentRenamePreviewTokenService } from './attachment-rename-preview-token.service';
 
 @Module({
   imports: [
@@ -26,6 +29,8 @@ import { AttachmentStorageModule } from './attachment-storage.module';
     AuthModule,
     AuthorizationModule,
     SyncModule,
+    SearchCoreModule,
+    KnowledgeGraphModule,
     AttachmentStorageModule,
     MulterModule.registerAsync({
       imports: [AttachmentStorageModule, DatabaseModule],
@@ -48,7 +53,7 @@ import { AttachmentStorageModule } from './attachment-storage.module';
     }),
   ],
   controllers: [SpaceAttachmentController, AttachmentContentController],
-  providers: [AttachmentService],
-  exports: [AttachmentService, AttachmentStorageModule],
+  providers: [AttachmentService, AttachmentRenamePreviewTokenService],
+  exports: [AttachmentService, AttachmentRenamePreviewTokenService, AttachmentStorageModule],
 })
 export class AttachmentModule {}

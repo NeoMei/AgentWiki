@@ -34,6 +34,8 @@ describe('attachment controllers', () => {
     upload: jest.fn(),
     archive: jest.fn(),
     restore: jest.fn(),
+    previewRename: jest.fn(),
+    rename: jest.fn(),
     content: jest.fn(),
   } as any;
   const spaces = new SpaceAttachmentController(service);
@@ -59,6 +61,8 @@ describe('attachment controllers', () => {
       [SpaceAttachmentController, 'upload', '/', RequestMethod.POST, [HumanOnlyGuard]],
       [SpaceAttachmentController, 'archive', ':attachmentId/archive', RequestMethod.POST, [HumanOnlyGuard]],
       [SpaceAttachmentController, 'restore', ':attachmentId/restore', RequestMethod.POST, [HumanOnlyGuard]],
+      [SpaceAttachmentController, 'previewRename', ':attachmentId/rename/preview', RequestMethod.POST, [HumanOnlyGuard]],
+      [SpaceAttachmentController, 'rename', ':attachmentId/rename', RequestMethod.POST, [HumanOnlyGuard]],
       [AttachmentContentController, 'getContent', ':attachmentId/content', RequestMethod.GET, undefined],
     ] as const;
 
@@ -86,7 +90,7 @@ describe('attachment controllers', () => {
     routeArguments(SpaceAttachmentController, 'upload', [
       req, spaceId, { type: RouteParamtypes.FILE, index: 2 },
     ]);
-    for (const methodName of ['archive', 'restore']) {
+    for (const methodName of ['archive', 'restore', 'previewRename', 'rename']) {
       routeArguments(SpaceAttachmentController, methodName, [
         req, spaceId, attachmentIdAt2, { type: RouteParamtypes.BODY, index: 3 },
       ]);
@@ -107,11 +111,17 @@ describe('attachment controllers', () => {
     await spaces.upload(request, 'space-1', file);
     await spaces.archive(request, 'space-1', 'attachment-1', state);
     await spaces.restore(request, 'space-1', 'attachment-1', state);
+    const preview = { displayName: 'renamed.png' };
+    const confirm = { previewToken: 'signed-preview-token' };
+    await spaces.previewRename(request, 'space-1', 'attachment-1', preview);
+    await spaces.rename(request, 'space-1', 'attachment-1', confirm);
 
     expect(service.list).toHaveBeenCalledWith('space-1', query, request.user);
     expect(service.upload).toHaveBeenCalledWith('space-1', file, request.user);
     expect(service.archive).toHaveBeenCalledWith('space-1', 'attachment-1', state, request.user);
     expect(service.restore).toHaveBeenCalledWith('space-1', 'attachment-1', state, request.user);
+    expect(service.previewRename).toHaveBeenCalledWith('space-1', 'attachment-1', preview, request.user);
+    expect(service.rename).toHaveBeenCalledWith('space-1', 'attachment-1', confirm, request.user);
   });
 
   it('rejects a missing multipart file before calling the upload service', () => {

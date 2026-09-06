@@ -5,6 +5,7 @@ import {
   BlobChunkReceiptV3Schema,
   CompletedBlobV3Schema,
   CreateTreePushSessionRequestV3Schema,
+  FlatAttachmentPathSchema,
   SYNC_ERROR_CODES,
   SYNC_V3_ERROR_CODES,
   SYNC_PROTOCOL_V3,
@@ -41,6 +42,8 @@ import {
   treeRevisionContentHashV3,
   treeRevisionDeltaHashV3,
   treeRevisionDeltaV3,
+  type BlobRequirementV3,
+  type CreateTreePushSessionRequestV3,
   type TreeDeltaItemV3,
   type SyncErrorCode,
   type SyncV3WireErrorCode,
@@ -183,6 +186,47 @@ const capabilities = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+type BlobRequirementSchemaLike = {
+  parse(value: unknown): BlobRequirementV3;
+  safeParse(value: unknown): { success: boolean };
+};
+
+const blobRequirement = (overrides: Record<string, unknown> = {}): BlobRequirementV3 => ({
+  contentHash: hash,
+  sizeBytes: "4",
+  mimeType: "image/png",
+  width: 1,
+  height: 1,
+  ...overrides,
+} as BlobRequirementV3);
+
+const blobRequirementSchema = (): BlobRequirementSchemaLike => {
+  const schema = (protocol as unknown as {
+    BlobRequirementV3Schema?: BlobRequirementSchemaLike;
+  }).BlobRequirementV3Schema;
+  expect(schema).toBeDefined();
+  return schema!;
+};
+
+const createPushSessionRequest = (
+  overrides: Record<string, unknown> = {},
+): CreateTreePushSessionRequestV3 => ({
+  protocolVersion: "3",
+  baseRevision: "rev-1",
+  idempotencyKey: "11111111-1111-4111-8111-111111111111",
+  capabilitiesHash: hash,
+  confirmationHash: hash,
+  confirmationByteLength: 1,
+  changeCount: 1,
+  totalBodyBytes: 0,
+  attachmentCount: 1,
+  transferBlobBytes: 4,
+  blobRequirements: [blobRequirement()],
+  ...overrides,
+} as CreateTreePushSessionRequestV3);
+
+const indexedHash = (index: number): string => index.toString(16).padStart(64, "0");
+
 describe("Sync Protocol v3", () => {
   it("exports the shared Public ID schema and accepts existing CUID attachment identities", () => {
     const publicIdSchema = (protocol as unknown as {
@@ -304,6 +348,26 @@ describe("Sync Protocol v3", () => {
       SyncAttachmentV3Schema.parse({ ...valid, path: "assets/nested/photo.png" }),
     ).toThrow();
     expect(SyncAttachmentV3Schema.parse(valid).path).toBe("assets/photo.png");
+  });
+
+  it.each([
+    "assets/bad|alias.png",
+    "assets/bad]]close.png",
+    "assets/bad%.png",
+    "assets/bad%2G.png",
+    "assets/a%20b.png",
+    "assets/a#b.png",
+    "assets/bad:name.png",
+  ])("rejects managed attachment paths that cannot round-trip through Markdown %j", (path) => {
+    expect(() => FlatAttachmentPathSchema.parse(path)).toThrow();
+  });
+
+  it.each([
+    "assets/road map (final).png",
+    "assets/路线图（最终）.webp",
+    "assets/emoji 🖼️.gif",
+  ])("accepts managed attachment paths that round-trip through Markdown %j", (path) => {
+    expect(FlatAttachmentPathSchema.parse(path)).toBe(path.normalize("NFC"));
   });
 
   it("requires sorted unique page attachment ids", () => {
@@ -449,11 +513,12 @@ describe("Sync Protocol v3", () => {
       toRevisionManifestByteLength: "2", toRevisionBodyBytes: "0", toRevisionAttachmentBytes: "0",
       items: [], nextCursor: null,
     }).items).toEqual([]);
-    expect(CreateTreePushSessionRequestV3Schema.parse({
-      protocolVersion: "3", baseRevision: "rev-1", idempotencyKey: "11111111-1111-4111-8111-111111111111",
-      capabilitiesHash: hash, confirmationHash: hash, confirmationByteLength: 1, changeCount: 0,
-      totalBodyBytes: 0, attachmentCount: 0, transferBlobBytes: 0, contentHashes: [],
-    }).contentHashes).toEqual([]);
+    expect(CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      changeCount: 0,
+      attachmentCount: 0,
+      transferBlobBytes: 0,
+      blobRequirements: [],
+    })).blobRequirements).toEqual([]);
     expect(TreePushBatchV3Schema.parse({
       protocolVersion: "3", batchIndex: 0,
       changes: [{ operation: "upsert_attachment", attachment: attachment() }], batchHash: hash,
@@ -479,6 +544,187 @@ describe("Sync Protocol v3", () => {
     expect(() => TreeFinalizePushRequestV3Schema.parse({
       protocolVersion: "3", confirmationHash: hash, userConfirmed: true, extra: true,
     })).toThrow();
+  });
+
+  it("publishes a strict BlobRequirementV3 schema and accepts canonical metadata", () => {
+    expect(blobRequirementSchema().parse(blobRequirement())).toEqual(blobRequirement());
+  });
+
+  it.each([
+    ["zero size", { sizeBytes: "0" }],
+    ["non-canonical size", { sizeBytes: "01" }],
+    ["oversized Blob", { sizeBytes: String(TREE_SYNC_V3_HARD_LIMITS.maxAttachmentBytes + 1) }],
+    ["unsupported MIME", { mimeType: "image/svg+xml" }],
+    ["zero width", { width: 0 }],
+    ["oversized height", { height: TREE_SYNC_V3_HARD_LIMITS.maxImageDimension + 1 }],
+    ["decoded pixel overflow", { width: 10_000, height: 4_001 }],
+    ["malformed content hash", { contentHash: "A".repeat(64) }],
+  ])("rejects BlobRequirementV3 %s", (_label, overrides) => {
+    expect(() => blobRequirementSchema().parse(blobRequirement(overrides))).toThrow();
+  });
+
+  it.each(["attachmentId", "path", "updatedAt"])(
+    "keeps BlobRequirementV3 content-addressed by rejecting %s",
+    (field) => {
+      expect(() => blobRequirementSchema().parse({
+        ...blobRequirement(),
+        [field]: "not-part-of-the-blob-contract",
+      })).toThrow();
+    },
+  );
+
+  it.each(["x", "1e2"])(
+    "returns safe Zod failures for malformed decimal size %j at every public request boundary",
+    (sizeBytes) => {
+      const parseOperations = [
+        () => SyncAttachmentV3Schema.safeParse(attachment({ sizeBytes })),
+        () => blobRequirementSchema().safeParse(blobRequirement({ sizeBytes })),
+        () => TreePushBatchV3Schema.safeParse({
+          protocolVersion: "3",
+          batchIndex: 0,
+          changes: [{ operation: "upsert_attachment", attachment: attachment({ sizeBytes }) }],
+          batchHash: hash,
+        }),
+        () => CreateTreePushSessionRequestV3Schema.safeParse(createPushSessionRequest({
+          transferBlobBytes: 0,
+          blobRequirements: [blobRequirement({ sizeBytes })],
+        })),
+      ];
+      for (const safeParse of parseOperations) {
+        let result: { success: boolean } | undefined;
+        expect(() => {
+          result = safeParse();
+        }).not.toThrow();
+        expect(result?.success).toBe(false);
+      }
+    },
+  );
+
+  it("accepts zero requirements and one canonical requirement", () => {
+    expect(CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      changeCount: 0,
+      attachmentCount: 0,
+      transferBlobBytes: 0,
+      blobRequirements: [],
+    })).blobRequirements).toEqual([]);
+    expect(CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest()).blobRequirements)
+      .toEqual([blobRequirement()]);
+  });
+
+  it("allows multiple attachment upserts to share one required Blob", () => {
+    expect(CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      changeCount: 2,
+      attachmentCount: 2,
+    })).blobRequirements).toEqual([blobRequirement()]);
+  });
+
+  it("requires attachment upserts to fit within the total change count", () => {
+    expect(CreateTreePushSessionRequestV3Schema.safeParse(createPushSessionRequest({
+      changeCount: 1,
+      attachmentCount: 2,
+    })).success).toBe(false);
+  });
+
+  it("requires a nonempty Blob requirement set when attachment upserts exist", () => {
+    expect(CreateTreePushSessionRequestV3Schema.safeParse(createPushSessionRequest({
+      attachmentCount: 1,
+      transferBlobBytes: 0,
+      blobRequirements: [],
+    })).success).toBe(false);
+  });
+
+  it("rejects the legacy contentHashes field", () => {
+    expect(() => CreateTreePushSessionRequestV3Schema.parse({
+      ...createPushSessionRequest(),
+      contentHashes: [hash],
+    })).toThrow();
+  });
+
+  it("requires Blob requirements to be strictly sorted and unique by content hash", () => {
+    const first = blobRequirement({ contentHash: "a".repeat(64) });
+    const second = blobRequirement({ contentHash: "b".repeat(64) });
+    expect(() => CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      attachmentCount: 2,
+      transferBlobBytes: 8,
+      blobRequirements: [second, first],
+    }))).toThrow(/sorted/iu);
+    expect(() => CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      attachmentCount: 2,
+      transferBlobBytes: 8,
+      blobRequirements: [first, first],
+    }))).toThrow(/unique/iu);
+  });
+
+  it("rejects more Blob requirements than attachment upserts", () => {
+    expect(() => CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      attachmentCount: 1,
+      transferBlobBytes: 8,
+      blobRequirements: [
+        blobRequirement({ contentHash: "a".repeat(64) }),
+        blobRequirement({ contentHash: "b".repeat(64) }),
+      ],
+    }))).toThrow(/attachment/iu);
+  });
+
+  it("binds transferBlobBytes to the exact unique requirement sum", () => {
+    expect(() => CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      transferBlobBytes: 3,
+    }))).toThrow(/sum/iu);
+  });
+
+  it("accepts the 100 MiB transfer edge and rejects overflow", () => {
+    const edgeRequirements = Array.from({ length: 10 }, (_, index) => blobRequirement({
+      contentHash: indexedHash(index + 1),
+      sizeBytes: String(TREE_SYNC_V3_HARD_LIMITS.maxAttachmentBytes),
+    }));
+    expect(CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      changeCount: edgeRequirements.length,
+      attachmentCount: edgeRequirements.length,
+      transferBlobBytes: TREE_SYNC_V3_HARD_LIMITS.maxTransferBlobBytes,
+      blobRequirements: edgeRequirements,
+    })).transferBlobBytes).toBe(TREE_SYNC_V3_HARD_LIMITS.maxTransferBlobBytes);
+
+    const overflowRequirements = [...edgeRequirements, blobRequirement({
+      contentHash: indexedHash(11),
+      sizeBytes: String(TREE_SYNC_V3_HARD_LIMITS.maxAttachmentBytes),
+    })];
+    expect(() => CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      attachmentCount: overflowRequirements.length,
+      transferBlobBytes: TREE_SYNC_V3_HARD_LIMITS.maxTransferBlobBytes
+        + TREE_SYNC_V3_HARD_LIMITS.maxAttachmentBytes,
+      blobRequirements: overflowRequirements,
+    }))).toThrow();
+  });
+
+  it("allows at most 1,000 unique Blob requirements", () => {
+    const maximum = Array.from(
+      { length: TREE_SYNC_V3_HARD_LIMITS.maxRevisionAttachments },
+      (_, index) => blobRequirement({ contentHash: indexedHash(index + 1), sizeBytes: "1" }),
+    );
+    expect(CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      changeCount: maximum.length,
+      attachmentCount: maximum.length,
+      transferBlobBytes: maximum.length,
+      blobRequirements: maximum,
+    })).blobRequirements).toHaveLength(1_000);
+    expect(() => CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      attachmentCount: maximum.length,
+      transferBlobBytes: maximum.length + 1,
+      blobRequirements: [
+        ...maximum,
+        blobRequirement({ contentHash: indexedHash(maximum.length + 1), sizeBytes: "1" }),
+      ],
+    }))).toThrow();
+  });
+
+  it("rejects unknown create-session request and Blob requirement fields", () => {
+    expect(() => CreateTreePushSessionRequestV3Schema.parse({
+      ...createPushSessionRequest(),
+      unexpected: true,
+    })).toThrow();
+    expect(() => CreateTreePushSessionRequestV3Schema.parse(createPushSessionRequest({
+      blobRequirements: [{ ...blobRequirement(), unexpected: true }],
+    }))).toThrow();
   });
 
   it("enforces MIME, decoded-pixel and flat path identity invariants", () => {
@@ -588,26 +834,60 @@ describe("Sync Protocol v3", () => {
     expect(source).not.toContain("BLOB_CHUNK_TOO_LARGE");
   });
 
-  it("canonicalizes a 10,000-folder parent chain without recursive depth walks", () => {
-    const folders = Array.from({ length: 10_000 }, (_, index) => {
+  it("accepts 10,000 active Folders and rejects 10,001", () => {
+    const folders = Array.from({ length: 10_001 }, (_, index) => {
       const id = `folder-${String(index).padStart(5, "0")}`;
       return folder({
         folderId: id,
-        parentFolderId: index === 0 ? null : `folder-${String(index - 1).padStart(5, "0")}`,
+        parentFolderId: null,
         name: id,
         path: `pages/${id}`,
       });
-    }).reverse();
+    });
     const manifest = canonicalTreeRevisionManifestV3({
       protocolVersion: "3",
       spaceId: "space-a",
-      folders,
+      folders: folders.slice(0, 10_000).reverse(),
       pages: [],
       attachments: [],
     });
     expect(manifest.folders[0]?.folderId).toBe("folder-00000");
     expect(manifest.folders.at(-1)?.folderId).toBe("folder-09999");
+    expect(() => canonicalTreeRevisionManifestV3({
+      protocolVersion: "3",
+      spaceId: "space-a",
+      folders,
+      pages: [],
+      attachments: [],
+    })).toThrow(/10,000 active Folders/iu);
   }, 10_000);
+
+  it("accepts exactly 32 Folder levels and rejects level 33", () => {
+    const nestedFolders = Array.from({ length: 33 }, (_, index) => {
+      const folderId = `level-${String(index + 1).padStart(2, "0")}`;
+      const segments = Array.from(
+        { length: index + 1 },
+        (_unused, segment) => `level-${String(segment + 1).padStart(2, "0")}`,
+      );
+      return folder({
+        folderId,
+        parentFolderId: index === 0 ? null : `level-${String(index).padStart(2, "0")}`,
+        name: folderId,
+        path: `pages/${segments.join("/")}`,
+      });
+    });
+    const manifest = (folders: ReturnType<typeof folder>[]) => ({
+      protocolVersion: "3" as const,
+      spaceId: "space-a",
+      folders,
+      pages: [],
+      attachments: [],
+    });
+    expect(canonicalTreeRevisionManifestV3(manifest(nestedFolders.slice(0, 32))).folders)
+      .toHaveLength(32);
+    expect(() => canonicalTreeRevisionManifestV3(manifest(nestedFolders)))
+      .toThrow(/32 levels/iu);
+  });
 
   it("fails closed for folder cycles and missing parents", () => {
     const manifest = (folders: ReturnType<typeof folder>[]) => ({
@@ -624,5 +904,45 @@ describe("Sync Protocol v3", () => {
     expect(() => canonicalTreeRevisionManifestV3(manifest([
       folder({ folderId: "a", parentFolderId: "missing", path: "pages/a" }),
     ]))).toThrow(/unknown parent/iu);
+  });
+
+  it("enforces the complete Folder and Page placement invariants", () => {
+    const manifest = (folders: ReturnType<typeof folder>[], pages: ReturnType<typeof page>[] = []) => ({
+      protocolVersion: "3" as const,
+      spaceId: "space-a",
+      folders,
+      pages,
+      attachments: [],
+    });
+    expect(() => canonicalTreeRevisionManifestV3(manifest([
+      folder({ folderId: "duplicate", name: "first", path: "pages/first" }),
+      folder({ folderId: "duplicate", name: "second", path: "pages/second" }),
+    ]))).toThrow(/duplicate IDs/iu);
+    expect(() => canonicalTreeRevisionManifestV3(manifest([
+      folder({ folderId: "a", name: "same", path: "pages/same" }),
+      folder({ folderId: "b", name: "same", path: "pages/same" }),
+    ]))).toThrow(/folder path/iu);
+    expect(() => canonicalTreeRevisionManifestV3(manifest([
+      folder({ folderId: "parent", name: "parent", path: "pages/parent" }),
+      folder({ folderId: "child", parentFolderId: "parent", name: "child", path: "pages/wrong/child" }),
+    ]))).toThrow(/parent path/iu);
+    expect(() => canonicalTreeRevisionManifestV3(manifest([
+      folder({ folderId: "a", name: "wrong", path: "pages/actual" }),
+    ]))).toThrow(/folder name/iu);
+    expect(() => canonicalTreeRevisionManifestV3(manifest([
+      folder({ folderId: "a", name: "a.md", path: "pages/a.md" }),
+    ], [page({ pageId: "page-a", folderId: null, path: "pages/a.md", referencedAttachmentIds: [] })])))
+      .toThrow(/folder and page paths/iu);
+    expect(() => canonicalTreeRevisionManifestV3(manifest([
+      folder({ folderId: "a", name: "a", path: "pages/a" }),
+    ], [page({ pageId: "page-a", folderId: "a", path: "pages/wrong.md", referencedAttachmentIds: [] })])))
+      .toThrow(/page folder path/iu);
+    expect(() => canonicalTreeRevisionManifestV3(manifest([], [
+      page({ pageId: "page-a", folderId: null, path: "pages/nested/a.md", referencedAttachmentIds: [] }),
+    ]))).toThrow(/root page path/iu);
+    expect(() => canonicalTreeRevisionManifestV3(manifest([], [
+      page({ pageId: "page-a", folderId: null, path: "pages/same.md", referencedAttachmentIds: [] }),
+      page({ pageId: "page-b", folderId: null, path: "pages/same.md", referencedAttachmentIds: [] }),
+    ]))).toThrow(/duplicate paths/iu);
   });
 });

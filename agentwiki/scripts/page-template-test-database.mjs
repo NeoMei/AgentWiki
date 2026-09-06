@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { rename } from 'node:fs/promises';
+import { mkdir, readdir, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   assertFolderDatabaseSafetyInventoryUnchanged,
@@ -16,6 +16,24 @@ import { assertLoopbackDatabaseHost } from './test-database-url-safety.mjs';
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
 const SAFE_SCHEMA = /^page_template_test_[a-z0-9_]+$/u;
+const SAFE_MIGRATION_NAME = /^\d{14}_[a-z0-9_]+$/u;
+
+const compareByteStrings = (left, right) => Buffer.compare(
+  Buffer.from(left, 'utf8'),
+  Buffer.from(right, 'utf8'),
+);
+
+export function selectMigrationNamesFromTarget(migrationNames, targetMigrationName) {
+  if (!SAFE_MIGRATION_NAME.test(targetMigrationName ?? '')) {
+    throw new Error('targetMigrationName must be a safe Prisma migration name');
+  }
+  const orderedNames = [...migrationNames].sort(compareByteStrings);
+  const targetIndex = orderedNames.indexOf(targetMigrationName);
+  if (targetIndex < 0) {
+    throw new Error(`targetMigrationName does not exist: ${targetMigrationName}`);
+  }
+  return orderedNames.slice(targetIndex);
+}
 
 export function validatePageTemplateTestDatabaseUrl(value) {
   if (!value) throw new Error('PAGE_TEMPLATE_TEST_DATABASE_URL is required');
@@ -52,8 +70,8 @@ const quoteIdentifier = (value) => {
 };
 
 export async function withPageTemplateTestDatabase(baseDatabaseUrl, callback, {
-  latestMigrationName,
-  beforeLatestMigration,
+  targetMigrationName,
+  beforeTargetMigration,
 } = {}) {
   const parsed = validatePageTemplateTestDatabaseUrl(baseDatabaseUrl);
   parsed.searchParams.delete('schema');
@@ -93,21 +111,38 @@ export async function withPageTemplateTestDatabase(baseDatabaseUrl, callback, {
           );
         }
       };
-      if (beforeLatestMigration !== undefined) {
-        if (typeof beforeLatestMigration !== 'function') {
-          throw new Error('beforeLatestMigration must be a function');
+      if (beforeTargetMigration !== undefined) {
+        if (typeof beforeTargetMigration !== 'function') {
+          throw new Error('beforeTargetMigration must be a function');
         }
-        if (!/^\d{14}_[a-z0-9_]+$/u.test(latestMigrationName ?? '')) {
-          throw new Error('latestMigrationName must be a safe Prisma migration name');
-        }
-        const migrationPath = join(preparedMigrations.migrationsRoot, latestMigrationName);
-        const heldMigrationPath = join(preparedMigrations.temporaryRoot, `.held-${latestMigrationName}`);
-        await rename(migrationPath, heldMigrationPath);
+        const migrationEntries = await readdir(preparedMigrations.migrationsRoot, { withFileTypes: true });
+        const heldMigrationNames = selectMigrationNamesFromTarget(
+          migrationEntries.filter((entry) => entry.isDirectory()).map((entry) => entry.name),
+          targetMigrationName,
+        );
+        const heldMigrationsRoot = join(
+          preparedMigrations.temporaryRoot,
+          `.held-from-${targetMigrationName}`,
+        );
+        await mkdir(heldMigrationsRoot);
+        const movedMigrationNames = [];
         try {
+          for (const migrationName of heldMigrationNames) {
+            await rename(
+              join(preparedMigrations.migrationsRoot, migrationName),
+              join(heldMigrationsRoot, migrationName),
+            );
+            movedMigrationNames.push(migrationName);
+          }
           migrate();
-          await beforeLatestMigration({ databaseUrl, schemaName });
+          await beforeTargetMigration({ databaseUrl, schemaName });
         } finally {
-          await rename(heldMigrationPath, migrationPath);
+          for (const migrationName of movedMigrationNames) {
+            await rename(
+              join(heldMigrationsRoot, migrationName),
+              join(preparedMigrations.migrationsRoot, migrationName),
+            );
+          }
         }
       }
       migrate();

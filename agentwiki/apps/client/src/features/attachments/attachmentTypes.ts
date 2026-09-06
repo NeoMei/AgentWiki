@@ -5,6 +5,8 @@ export interface AttachmentSummary {
   id: string;
   spaceId: string;
   displayName: string;
+  canonicalPath: string | null;
+  referenceable: boolean;
   mimeType: string;
   sizeBytes: bigint;
   width: number;
@@ -33,4 +35,24 @@ export interface AttachmentListQuery {
 export interface AttachmentUploadOptions {
   signal?: AbortSignal;
   onProgress?: (percentage: number) => void;
+}
+
+export interface AttachmentImpactedPage {
+  id: string;
+  title: string;
+}
+
+export interface AttachmentRenamePreview {
+  attachmentId: string;
+  displayName: string;
+  path: string;
+  previewToken: string;
+  impactedPages: AttachmentImpactedPage[];
+}
+
+export interface AttachmentRenameConfirm { previewToken: string }
+
+export interface AttachmentRenameResult extends AttachmentSummary {
+  path: string;
+  impactedPages: AttachmentImpactedPage[];
 }

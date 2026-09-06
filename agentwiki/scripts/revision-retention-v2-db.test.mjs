@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 import { withFolderTestDatabase } from './folder-test-database.mjs';
+import { createSyncV3TestRuntime } from './sync-v3-test-runtime.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
@@ -15,11 +16,9 @@ const {
   treeConfirmationHashV2,
 } = requireFromServer('@neomei/agentwiki-sync-protocol');
 const { ReadableSyncPathService } = requireFromServer('./dist/core/sync/readable-sync-path.service.js');
-const { SpaceRevisionWriterService } = requireFromServer('./dist/core/sync/space-revision-writer.service.js');
 const { RevisionRetentionService } = requireFromServer('./dist/core/sync/revision-retention.service.js');
 const { ContentTreeService } = requireFromServer('./dist/content-tree/content-tree.service.js');
 const { PushSessionService } = requireFromServer('./dist/integrations/obsidian/push-session.service.js');
-const { SyncV2RevisionService } = requireFromServer('./dist/integrations/obsidian/sync-v2-revision.service.js');
 
 const databaseUrl = process.env.FOLDER_TEST_DATABASE_URL;
 const DAY_MS = 24 * 60 * 60 * 1_000;
@@ -66,6 +65,7 @@ test('v2 revision retention checkpoints are bounded, atomic, and fail closed', {
 }, async () => {
   await withFolderTestDatabase(databaseUrl, async ({ databaseUrl: isolatedUrl, schemaName }) => {
     const prisma = new PrismaClient({ datasources: { db: { url: isolatedUrl } } });
+    const runtime = await createSyncV3TestRuntime(prisma, `revision-retention-v2-${schemaName}`);
     try {
       const suffix = schemaName.slice('folder_test_'.length);
       const userId = `retention-user-${suffix}`;
@@ -95,7 +95,7 @@ test('v2 revision retention checkpoints are bounded, atomic, and fail closed', {
         activatedAt: new Date(),
       } });
 
-      const writer = SpaceRevisionWriterService.legacyOnly(prisma);
+      const { v3Writer, syncCapabilities, writer } = runtime;
       const tree = new ContentTreeService(prisma, writer, new ReadableSyncPathService());
       const retention = new RevisionRetentionService(prisma);
       const pushes = new PushSessionService(
@@ -105,12 +105,11 @@ test('v2 revision retention checkpoints are bounded, atomic, and fail closed', {
         { indexPage: async () => undefined, deletePageIndex: async () => undefined },
         undefined,
         { enqueue: () => undefined },
+        syncCapabilities,
+        v3Writer,
       );
-      const reader = new SyncV2RevisionService(
-        prisma,
-        cursorCodec,
-        { capabilitiesV2: () => ({ maxResponseBytes: 4 * 1024 * 1024 }) },
-      );
+      const createV2Reader = (database) => runtime.createV2Reader(database, cursorCodec);
+      const reader = createV2Reader(prisma);
       const principal = { userId, platformRole: 'user' };
       const devicePrincipal = {
         userId,
@@ -465,11 +464,7 @@ test('v2 revision retention checkpoints are bounded, atomic, and fail closed', {
         },
       });
       try {
-        const latchedReader = new SyncV2RevisionService(
-          latchedPrisma,
-          cursorCodec,
-          { capabilitiesV2: () => ({ maxResponseBytes: 4 * 1024 * 1024 }) },
-        );
+        const latchedReader = createV2Reader(latchedPrisma);
         const inFlightRead = latchedReader.snapshot(readRaceSpace, readRace3, undefined, 100);
         void inFlightRead.catch(() => undefined);
         await checkpointEntered;
@@ -921,6 +916,7 @@ test('v2 revision retention checkpoints are bounded, atomic, and fail closed', {
 
       assert.equal(await prisma.spaceRevisionChainCheckpoint.count(), 6);
     } finally {
+      await runtime.dispose();
       await prisma.$disconnect();
     }
   });

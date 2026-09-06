@@ -470,6 +470,25 @@ export class SpaceRevisionWriterService {
     });
   }
 
+  async advanceReferencedImagesLocked(
+    tx: SpaceLockedTransaction,
+    spaceId: string,
+    changes: PageChange[],
+    origin: RevisionOrigin,
+  ): Promise<RevisionWriteResult> {
+    const result = await this.v3Writer.advanceCurrentIfRequiredLocked(
+      tx,
+      spaceId,
+      changes,
+      origin,
+      { forceNative: true },
+    );
+    if (!result) {
+      throw new Error('Forced referenced-image publication did not produce a Sync v3 revision');
+    }
+    return result;
+  }
+
   async advanceStructuralPages(
     tx: Prisma.TransactionClient,
     spaceId: string,

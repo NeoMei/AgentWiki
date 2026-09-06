@@ -1,15 +1,20 @@
 import { randomUUID } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
 import { cp, mkdtemp, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { boundedMigrationOptions, spawnPnpmSync } from './package-manager-process.mjs';
+import { assertLoopbackDatabaseHost } from './test-database-url-safety.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
 const SAFE_SCHEMA = /^sync_v3_test_[a-z0-9_]+$/u;
 const EMPTY_AUTHORITY_SOCKET_URL = /^(postgres(?:ql)?:\/\/)([^/?#]+@)\/([^?#]+)(\?[^#]*)?$/iu;
 const SYNC_V3_MIGRATION = '20260904120000_add_sync_v3_attachments';
+const SYNC_V3_PUSH_ORDINAL_MIGRATION = '20260905120000_expand_sync_v3_push_change_ordinal';
+const SYNC_V3_BLOB_REFERENCE_INDEX_MIGRATION = '20260905180000_add_attachment_blob_reference_indexes';
+const SYNC_V3_ATTACHMENT_CLEANUP_CURSOR_MIGRATION = '20260905200000_add_attachment_cleanup_cursor';
+const SYNC_V3_ATTACHMENT_CLEANUP_LEASE_MIGRATION = '20260905210000_harden_attachment_cleanup_claim';
 
 export function redactMigrationDiagnostics(value, sensitiveValues) {
   let redacted = value;
@@ -23,23 +28,21 @@ export function buildMigrationDeployProcess({ databaseUrl, prismaRoot }) {
   const childEnvironment = { ...process.env, DATABASE_URL: databaseUrl };
   delete childEnvironment.SYNC_V3_TEST_DATABASE_URL;
   return {
-    command: 'pnpm',
     args: [
       '--filter', '@agentwiki/server', 'exec', 'prisma', 'migrate', 'deploy',
       '--schema', join(prismaRoot, 'schema.prisma'),
     ],
-    options: {
+    options: boundedMigrationOptions({
       cwd: new URL('..', import.meta.url),
       encoding: 'utf8',
-      timeout: 120_000,
       env: childEnvironment,
-    },
+    }),
   };
 }
 
 function runMigrationDeploy({ databaseUrl, prismaRoot, sensitiveValues, stage }) {
   const invocation = buildMigrationDeployProcess({ databaseUrl, prismaRoot });
-  const migration = spawnSync(invocation.command, invocation.args, invocation.options);
+  const migration = spawnPnpmSync(invocation.args, invocation.options);
   const diagnostics = redactMigrationDiagnostics(
     [migration.error?.message, migration.stdout, migration.stderr]
       .filter(Boolean)
@@ -74,6 +77,7 @@ export function validateSyncV3TestDatabaseUrl(value) {
   if (!['postgres:', 'postgresql:'].includes(parsed.protocol)) {
     throw new Error('SYNC_V3_TEST_DATABASE_URL must use PostgreSQL');
   }
+  assertLoopbackDatabaseHost(parsed, 'SYNC_V3_TEST_DATABASE_URL');
   const databaseName = decodeURIComponent(parsed.pathname.replace(/^\//u, ''));
   if (!databaseName || !databaseName.toLowerCase().includes('test')) {
     throw new Error('SYNC_V3_TEST_DATABASE_URL database name must contain test');
@@ -138,6 +142,22 @@ export async function withSyncV3TestDatabase(baseDatabaseUrl, callback) {
       recursive: true,
       force: true,
     });
+    await rm(join(temporaryPrismaRoot, 'migrations', SYNC_V3_PUSH_ORDINAL_MIGRATION), {
+      recursive: true,
+      force: true,
+    });
+    await rm(join(temporaryPrismaRoot, 'migrations', SYNC_V3_BLOB_REFERENCE_INDEX_MIGRATION), {
+      recursive: true,
+      force: true,
+    });
+    await rm(join(temporaryPrismaRoot, 'migrations', SYNC_V3_ATTACHMENT_CLEANUP_CURSOR_MIGRATION), {
+      recursive: true,
+      force: true,
+    });
+    await rm(join(temporaryPrismaRoot, 'migrations', SYNC_V3_ATTACHMENT_CLEANUP_LEASE_MIGRATION), {
+      recursive: true,
+      force: true,
+    });
     runMigrationDeploy({
       databaseUrl,
       prismaRoot: temporaryPrismaRoot,
@@ -164,7 +184,95 @@ export async function withSyncV3TestDatabase(baseDatabaseUrl, callback) {
       });
       return { firstDeployOutput, secondDeployOutput };
     };
-    return await callback({ applySyncV3Migration, databaseUrl, schemaName });
+    const applySyncV3PushOrdinalMigration = async () => {
+      await cp(
+        new URL(`../apps/server/prisma/migrations/${SYNC_V3_PUSH_ORDINAL_MIGRATION}/`, import.meta.url),
+        join(temporaryPrismaRoot, 'migrations', SYNC_V3_PUSH_ORDINAL_MIGRATION),
+        { recursive: true },
+      );
+      const firstDeployOutput = runMigrationDeploy({
+        databaseUrl,
+        prismaRoot: temporaryPrismaRoot,
+        sensitiveValues,
+        stage: 'Push change ordinal',
+      });
+      const secondDeployOutput = runMigrationDeploy({
+        databaseUrl,
+        prismaRoot: temporaryPrismaRoot,
+        sensitiveValues,
+        stage: 'Push change ordinal no-op verification',
+      });
+      return { firstDeployOutput, secondDeployOutput };
+    };
+    const applySyncV3BlobReferenceIndexMigration = async () => {
+      await cp(
+        new URL(`../apps/server/prisma/migrations/${SYNC_V3_BLOB_REFERENCE_INDEX_MIGRATION}/`, import.meta.url),
+        join(temporaryPrismaRoot, 'migrations', SYNC_V3_BLOB_REFERENCE_INDEX_MIGRATION),
+        { recursive: true },
+      );
+      const firstDeployOutput = runMigrationDeploy({
+        databaseUrl,
+        prismaRoot: temporaryPrismaRoot,
+        sensitiveValues,
+        stage: 'Blob reference indexes',
+      });
+      const secondDeployOutput = runMigrationDeploy({
+        databaseUrl,
+        prismaRoot: temporaryPrismaRoot,
+        sensitiveValues,
+        stage: 'Blob reference indexes no-op verification',
+      });
+      return { firstDeployOutput, secondDeployOutput };
+    };
+    const applySyncV3AttachmentCleanupCursorMigration = async () => {
+      await cp(
+        new URL(`../apps/server/prisma/migrations/${SYNC_V3_ATTACHMENT_CLEANUP_CURSOR_MIGRATION}/`, import.meta.url),
+        join(temporaryPrismaRoot, 'migrations', SYNC_V3_ATTACHMENT_CLEANUP_CURSOR_MIGRATION),
+        { recursive: true },
+      );
+      const firstDeployOutput = runMigrationDeploy({
+        databaseUrl,
+        prismaRoot: temporaryPrismaRoot,
+        sensitiveValues,
+        stage: 'attachment cleanup cursor',
+      });
+      const secondDeployOutput = runMigrationDeploy({
+        databaseUrl,
+        prismaRoot: temporaryPrismaRoot,
+        sensitiveValues,
+        stage: 'attachment cleanup cursor no-op verification',
+      });
+      return { firstDeployOutput, secondDeployOutput };
+    };
+    const applySyncV3AttachmentCleanupLeaseMigration = async () => {
+      await cp(
+        new URL(`../apps/server/prisma/migrations/${SYNC_V3_ATTACHMENT_CLEANUP_LEASE_MIGRATION}/`, import.meta.url),
+        join(temporaryPrismaRoot, 'migrations', SYNC_V3_ATTACHMENT_CLEANUP_LEASE_MIGRATION),
+        { recursive: true },
+      );
+      const firstDeployOutput = runMigrationDeploy({
+        databaseUrl,
+        prismaRoot: temporaryPrismaRoot,
+        sensitiveValues,
+        stage: 'attachment cleanup claim lease',
+      });
+      const secondDeployOutput = runMigrationDeploy({
+        databaseUrl,
+        prismaRoot: temporaryPrismaRoot,
+        sensitiveValues,
+        stage: 'attachment cleanup claim lease no-op verification',
+      });
+      return { firstDeployOutput, secondDeployOutput };
+    };
+    return await callback({
+      applySyncV3AttachmentCleanupLeaseMigration,
+      applySyncV3AttachmentCleanupCursorMigration,
+      applySyncV3BlobReferenceIndexMigration,
+      applySyncV3Migration,
+      applySyncV3PushOrdinalMigration,
+      databaseUrl,
+      schemaName,
+    });
   } finally {
     try {
       if (created) await prisma.$executeRawUnsafe(`DROP SCHEMA ${schemaSql} CASCADE`);

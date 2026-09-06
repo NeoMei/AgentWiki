@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.7.0** — Space page templates, folder hierarchies, rich Markdown rendering (math, Mermaid, embeds), attachments, and folder-aware local sync.
+> **v0.8.0** — Space page templates, folder hierarchies, rich Markdown rendering (math, Mermaid, embeds), attachments, and folder-aware local sync.
 
 
 ## Hosted Service
@@ -165,7 +165,7 @@ into reviewable AgentWiki knowledge. It installs the shared Agent Skill and the 
 The generated installation code is single-use and expires after 10 minutes. It is not
 a reusable API key. The public package page is
 [`@neomei/agentwiki-local-sync`](https://www.npmjs.com/package/@neomei/agentwiki-local-sync).
-Source and generated instructions target 0.7.0; the unified `onboard` command is the only recommended Agent connection path. Exchanging its one-time code atomically creates or updates the Space Grant, then creates an identity-only Credential bound to that Grant. There is no second Credential authorization or custom-scope path.
+Source and generated instructions target 0.8.0; the unified `onboard` command is the only recommended Agent connection path. Exchanging its one-time code atomically creates or updates the Space Grant, then creates an identity-only Credential bound to that Grant. There is no second Credential authorization or custom-scope path.
 
 ### Example local workflow
 
@@ -232,7 +232,7 @@ Or via API:
 curl -X POST $BASE/agents/AGENT_ID/local-sync-installations \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"spaceId":"SPACE_ID","role":"editor","pluginVersion":"0.7.0"}'
+  -d '{"spaceId":"SPACE_ID","role":"editor","pluginVersion":"0.8.0"}'
 ```
 
 Paste the returned one-time instruction into Codex, Claude Code, or OpenCode. On
@@ -366,12 +366,15 @@ AgentWiki uses direct deployment with systemd (no Docker for the application):
    coordinated PostgreSQL custom-format backup, attachment-filesystem snapshot and
    path/size/SHA-256 manifest. A database-only or filesystem-only backup is incomplete.
 2. Build and test the exact release commit: `pnpm build && pnpm test`.
-3. Pack `@neomei/agentwiki-sync-protocol@0.4.0` and
-   `@neomei/agentwiki-local-sync@0.7.0`, then run
-   `pnpm test:package:local-sync-clean-install`. Publish and verify the audited
-   sync-protocol `0.3.0` tarball first, run
-   `pnpm test:package:local-sync-registry-protocol`, and only then publish the
-   audited local-sync tarball that pins protocol `0.3.0`.
+3. Pack and audit the `@neomei/agentwiki-local-sync@0.8.0` candidate. Run its
+   explicit registry-availability gate with `pnpm test:release:sync-v3-registry`,
+   verify the immutable public protocol with
+   `pnpm test:release:sync-protocol-registry-parity`, and verify the Local Sync
+   consumer against that public protocol with
+   `pnpm test:package:local-sync-registry-protocol`. Protocol 0.5.1 must never be
+   republished. Local Sync publication remains a separately authorized registry
+   write, and deployment remains blocked until Local Sync 0.8.0 is published,
+   publicly available and passes the public-registry clean-install gate.
 4. Run database migrations: `cd apps/server && npx prisma migrate deploy`.
 5. Configure three systemd services (templates in `deploy/systemd/`):
    - `agentwiki-api.service` — NestJS API server
@@ -379,8 +382,8 @@ AgentWiki uses direct deployment with systemd (no Docker for the application):
    - `agentwiki-frontend.service` — static file server for the built frontend
 
 The 0.5.0 role migration deliberately resets every existing Agent Credential and Grant
-role to `reader`; it never infers a new role from legacy scopes. The 0.7.0 onboarding
-protocol requires the matching 0.7.0 client. Treat rollback as a coordinated restore of
+role to `reader`; it never infers a new role from legacy scopes. The 0.8.0 onboarding
+protocol requires the matching 0.8.0 client. Treat rollback as a coordinated restore of
 the verified database backup and matching application archive, not as a schema-only
 downgrade.
 

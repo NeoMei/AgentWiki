@@ -2,7 +2,12 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { extname, join } from 'node:path';
 import type { AttachmentConfig } from './attachment.config';
-import { AttachmentValidationError, validateUploadedImage } from './attachment-validator';
+import {
+  AttachmentValidationError,
+  validateAttachmentFilename,
+  validateStagedImage,
+  validateUploadedImage,
+} from './attachment-validator';
 
 type MulterFile = Express.Multer.File;
 
@@ -111,6 +116,23 @@ describe('validateUploadedImage', () => {
       expect(prepared.contentHash).toMatch(/^[0-9a-f]{64}$/);
     },
   );
+
+  it('validates an internal staged image without fabricating Multer transport fields', async () => {
+    const root = await makeRoot();
+    const file = await uploadedFile(root, 'photo.png', 'image/png', FIXTURES.png);
+
+    await expect(validateStagedImage({
+      path: file.path,
+      originalname: file.originalname,
+      mimetype: file.mimetype,
+    }, config(root))).resolves.toMatchObject({
+      contentHash: expect.stringMatching(/^[0-9a-f]{64}$/u),
+      mimeType: 'image/png',
+      sizeBytes: BigInt(FIXTURES.png.length),
+      width: 1,
+      height: 1,
+    });
+  });
 
   it('normalizes a filename to NFC for display and key identity', async () => {
     const root = await makeRoot();
@@ -232,5 +254,30 @@ describe('validateUploadedImage', () => {
     );
 
     await expect(validateUploadedImage(file, config(root))).rejects.toThrow('image');
+  });
+});
+
+describe('validateAttachmentFilename', () => {
+  it.each([
+    'bad|alias.png',
+    'bad]]close.png',
+    'bad%.png',
+    'bad%2G.png',
+    'a%20b.png',
+    'a#b.png',
+    'bad:name.png',
+  ])('rejects a managed filename that cannot round-trip through Markdown %j', (filename) => {
+    expect(() => validateAttachmentFilename(filename)).toThrow(AttachmentValidationError);
+  });
+
+  it.each([
+    'road map (final).png',
+    '路线图（最终）.webp',
+    'emoji 🖼️.gif',
+  ])('accepts a managed filename that round-trips through Markdown %j', (filename) => {
+    expect(validateAttachmentFilename(filename)).toEqual({
+      displayName: filename.normalize('NFC'),
+      nameKey: filename.normalize('NFC').toLocaleLowerCase('und'),
+    });
   });
 });

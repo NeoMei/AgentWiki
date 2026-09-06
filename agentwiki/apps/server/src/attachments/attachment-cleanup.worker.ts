@@ -6,9 +6,11 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { randomUUID } from 'node:crypto';
 import { lstat, opendir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { PrismaService } from '../database/prisma.service';
+import { isAttachmentBlobReferenced } from '../core/sync/revision-retention.service';
 import type { AttachmentConfig } from './attachment.config';
 import {
   ATTACHMENT_STORAGE,
@@ -16,7 +18,9 @@ import {
 } from './attachment-storage';
 import { ATTACHMENT_CONFIG } from './attachment.config';
 
-const BATCH_SIZE = 100;
+const ARCHIVED_SCAN_VISIT_LIMIT = 100;
+const ARCHIVED_CLAIM_HEARTBEAT_MS = 15_000;
+const ARCHIVED_CURSOR_KEY = 'archived-attachments-v1';
 const ORPHAN_SCAN_VISIT_LIMIT = 100;
 const ORPHAN_DELETE_LIMIT = 100;
 const DEFAULT_POLL_MS = 60 * 60 * 1000;
@@ -26,9 +30,26 @@ const SHARD_PATTERN = /^[0-9a-f]{2}$/u;
 
 type ArchivedAttachment = {
   id: string;
+  spaceId: string;
   contentHash: string;
   storageKey: string;
   archivedAt: Date | null;
+};
+
+type ArchivedCursorPosition = {
+  archivedAt: Date | null;
+  attachmentId: string | null;
+};
+
+type ArchivedPageClaim = {
+  ownerToken: string;
+  attachments: ArchivedAttachment[];
+};
+
+type ArchivedLeaseHeartbeat = {
+  assertActive(): Promise<boolean>;
+  markLost(): void;
+  stop(): Promise<void>;
 };
 
 type OrphanCandidate = {
@@ -114,13 +135,20 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
   private async runTick(): Promise<void> {
     if (this.shuttingDown) return;
     const now = Date.now();
+    const referenceTime = new Date(now);
     await this.storage.cleanupExpiredTempReservations(
       new Date(now - this.attachmentConfig.orphanGraceMs),
     );
     if (this.shuttingDown) return;
-    await this.cleanupArchived(new Date(now - this.attachmentConfig.retentionMs));
+    await this.cleanupArchived(
+      new Date(now - this.attachmentConfig.retentionMs),
+      referenceTime,
+    );
     if (this.shuttingDown) return;
-    await this.cleanupOrphans(new Date(now - this.attachmentConfig.orphanGraceMs));
+    await this.cleanupOrphans(
+      new Date(now - this.attachmentConfig.orphanGraceMs),
+      referenceTime,
+    );
   }
 
   private async safeTick(): Promise<void> {
@@ -132,43 +160,278 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async cleanupArchived(cutoff: Date): Promise<void> {
+  private async cleanupArchived(cutoff: Date, referenceTime: Date): Promise<void> {
     if (this.shuttingDown) return;
-    const archived = await this.prisma.spaceAttachment.findMany({
-      where: { status: 'archived', archivedAt: { lte: cutoff } },
-      orderBy: [{ archivedAt: 'asc' }, { id: 'asc' }],
-      take: BATCH_SIZE,
-      select: { id: true, contentHash: true, storageKey: true, archivedAt: true },
-    }) as ArchivedAttachment[];
-    if (this.shuttingDown) return;
-
-    for (const attachment of archived) {
+    const claim = await this.claimArchivedPage(cutoff);
+    if (!claim) return;
+    const heartbeat = this.startArchivedLeaseHeartbeat(claim.ownerToken);
+    try {
       if (this.shuttingDown) return;
-      try {
-        const deleted = await this.prisma.$transaction((tx) =>
-          tx.spaceAttachment.deleteMany({
-            where: {
-              id: attachment.id,
-              status: 'archived',
-              archivedAt: { lte: cutoff },
-            },
-          }),
-        );
-        if (deleted.count !== 1) continue;
-        if (this.shuttingDown) return;
-        await this.removeBlobWhenUnreferenced(
-          attachment.storageKey,
-          attachment.contentHash,
-        );
-      } catch (error) {
-        this.logger.error(
-          `Attachment cleanup failed for metadata ${attachment.id}: ${safeMessage(error)}`,
-        );
+      for (const attachment of claim.attachments) {
+        if (this.shuttingDown || !await heartbeat.assertActive()) return;
+        try {
+          if (await this.hasRevisionOwner(this.prisma, attachment)) continue;
+          const deleted = await this.prisma.$transaction(async (tx) => {
+            const lease = await tx.$queryRaw<Array<{ key: string }>>`
+              UPDATE "AttachmentCleanupCursor"
+              SET "leaseExpiresAt" = clock_timestamp() + INTERVAL '60 seconds',
+                  "updatedAt" = clock_timestamp()
+              WHERE key = ${ARCHIVED_CURSOR_KEY}
+                AND "leaseOwner" = ${claim.ownerToken}
+                AND "leaseExpiresAt" > clock_timestamp()
+              RETURNING key
+            `;
+            if (lease.length !== 1) return { count: 0, leaseLost: true };
+            const locked = await tx.$queryRaw<Array<{ id: string }>>`
+              SELECT id
+              FROM "SpaceAttachment"
+              WHERE id = ${attachment.id}
+                AND status = 'archived'::"SpaceAttachmentStatus"
+                AND "archivedAt" <= ${cutoff}
+              FOR UPDATE
+            `;
+            if (locked.length !== 1) return { count: 0, leaseLost: false };
+            if (await this.hasRevisionOwner(tx, attachment)) {
+              return { count: 0, leaseLost: false };
+            }
+            await tx.attachmentVersion.deleteMany({
+              where: {
+                attachmentId: attachment.id,
+                revisionRows: { none: {} },
+              },
+            });
+            const result = await tx.spaceAttachment.deleteMany({
+              where: {
+                id: attachment.id,
+                status: 'archived',
+                archivedAt: { lte: cutoff },
+              },
+            });
+            return { count: result.count, leaseLost: false };
+          });
+          if (deleted.leaseLost) {
+            heartbeat.markLost();
+            return;
+          }
+          if (deleted.count !== 1) continue;
+          if (this.shuttingDown || !await heartbeat.assertActive()) return;
+          await this.removeBlobWhenUnreferenced(
+            attachment.storageKey,
+            attachment.contentHash,
+            referenceTime,
+            () => heartbeat.assertActive(),
+          );
+        } catch (error) {
+          this.logger.error(
+            `Attachment cleanup failed for metadata ${attachment.id}: ${safeMessage(error)}`,
+          );
+        }
       }
+    } finally {
+      await heartbeat.stop();
     }
   }
 
-  private async cleanupOrphans(cutoff: Date): Promise<void> {
+  private async claimArchivedPage(cutoff: Date): Promise<ArchivedPageClaim | null> {
+    const ownerToken = randomUUID();
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        INSERT INTO "AttachmentCleanupCursor" ("key")
+        VALUES (${ARCHIVED_CURSOR_KEY})
+        ON CONFLICT ("key") DO NOTHING
+      `;
+      const positions = await tx.$queryRaw<Array<{
+        archivedAt: Date | null;
+        attachmentId: string | null;
+        sweepArchivedAt: Date | null;
+        sweepAttachmentId: string | null;
+        leaseOwner: string | null;
+        leaseExpiresAt: Date | null;
+      }>>`
+        UPDATE "AttachmentCleanupCursor"
+        SET "leaseOwner" = ${ownerToken},
+            "leaseExpiresAt" = clock_timestamp() + INTERVAL '60 seconds',
+            "updatedAt" = clock_timestamp()
+        WHERE key = ${ARCHIVED_CURSOR_KEY}
+          AND (
+            "leaseOwner" IS NULL
+            OR "leaseExpiresAt" <= clock_timestamp()
+          )
+        RETURNING "archivedAt", "attachmentId", "sweepArchivedAt", "sweepAttachmentId",
+                  "leaseOwner", "leaseExpiresAt"
+      `;
+      if (positions.length === 0) return null;
+      const position = positions[0];
+      if (
+        positions.length !== 1
+        || !position
+        || ((position.archivedAt === null) !== (position.attachmentId === null))
+        || ((position.sweepArchivedAt === null) !== (position.sweepAttachmentId === null))
+        || ((position.leaseOwner === null) !== (position.leaseExpiresAt === null))
+      ) throw new Error('ATTACHMENT_CLEANUP_CURSOR_INVALID');
+
+      const select = {
+        id: true,
+        spaceId: true,
+        contentHash: true,
+        storageKey: true,
+        archivedAt: true,
+      } as const;
+      const findTail = () => tx.spaceAttachment.findFirst({
+        where: { status: 'archived', archivedAt: { lte: cutoff } },
+        orderBy: [{ archivedAt: 'desc' as const }, { id: 'desc' as const }],
+        select,
+      }) as Promise<ArchivedAttachment | null>;
+      const findPage = (
+        current: ArchivedCursorPosition | null,
+        sweep: ArchivedCursorPosition,
+      ) =>
+        tx.spaceAttachment.findMany({
+          where: {
+            status: 'archived',
+            archivedAt: { lte: cutoff },
+            AND: [
+              ...(current?.archivedAt && current.attachmentId
+                ? [{
+                  OR: [
+                    { archivedAt: { gt: current.archivedAt } },
+                    { archivedAt: current.archivedAt, id: { gt: current.attachmentId } },
+                  ],
+                }]
+                : []),
+              {
+                OR: [
+                  { archivedAt: { lt: sweep.archivedAt! } },
+                  { archivedAt: sweep.archivedAt!, id: { lte: sweep.attachmentId! } },
+                ],
+              },
+            ],
+          },
+          orderBy: [{ archivedAt: 'asc' as const }, { id: 'asc' as const }],
+          take: ARCHIVED_SCAN_VISIT_LIMIT,
+          select,
+        }) as Promise<ArchivedAttachment[]>;
+
+      let sweep: ArchivedCursorPosition | null = position.sweepArchivedAt
+        ? { archivedAt: position.sweepArchivedAt, attachmentId: position.sweepAttachmentId }
+        : null;
+      let current: ArchivedCursorPosition | null = position.archivedAt
+        ? { archivedAt: position.archivedAt, attachmentId: position.attachmentId }
+        : null;
+      if (!sweep) {
+        const tail = await findTail();
+        if (!tail?.archivedAt) {
+          await tx.attachmentCleanupCursor.update({
+            where: { key: ARCHIVED_CURSOR_KEY },
+            data: {
+              archivedAt: null, attachmentId: null,
+              sweepArchivedAt: null, sweepAttachmentId: null,
+              leaseOwner: null, leaseExpiresAt: null,
+            },
+          });
+          return null;
+        }
+        sweep = { archivedAt: tail.archivedAt, attachmentId: tail.id };
+      }
+      let page = await findPage(current, sweep);
+      if (page.length === 0 && current) {
+        const tail = await findTail();
+        if (!tail?.archivedAt) {
+          await tx.attachmentCleanupCursor.update({
+            where: { key: ARCHIVED_CURSOR_KEY },
+            data: {
+              archivedAt: null, attachmentId: null,
+              sweepArchivedAt: null, sweepAttachmentId: null,
+              leaseOwner: null, leaseExpiresAt: null,
+            },
+          });
+          return null;
+        }
+        current = null;
+        sweep = { archivedAt: tail.archivedAt, attachmentId: tail.id };
+        page = await findPage(current, sweep);
+      }
+      if (page.length === 0) {
+        await tx.attachmentCleanupCursor.updateMany({
+          where: { key: ARCHIVED_CURSOR_KEY, leaseOwner: ownerToken },
+          data: { leaseOwner: null, leaseExpiresAt: null },
+        });
+        return null;
+      }
+      const last = page[page.length - 1];
+      await tx.attachmentCleanupCursor.update({
+        where: { key: ARCHIVED_CURSOR_KEY },
+        data: {
+          archivedAt: last!.archivedAt,
+          attachmentId: last!.id,
+          sweepArchivedAt: sweep.archivedAt,
+          sweepAttachmentId: sweep.attachmentId,
+        },
+      });
+      return { ownerToken, attachments: page };
+    });
+  }
+
+  private async renewArchivedLease(ownerToken: string): Promise<boolean> {
+    const renewed = await this.prisma.$queryRaw<Array<{ key: string }>>`
+      UPDATE "AttachmentCleanupCursor"
+      SET "leaseExpiresAt" = clock_timestamp() + INTERVAL '60 seconds',
+          "updatedAt" = clock_timestamp()
+      WHERE key = ${ARCHIVED_CURSOR_KEY}
+        AND "leaseOwner" = ${ownerToken}
+        AND "leaseExpiresAt" > clock_timestamp()
+      RETURNING key
+    `;
+    return renewed.length === 1;
+  }
+
+  private async releaseArchivedLease(ownerToken: string): Promise<void> {
+    await this.prisma.attachmentCleanupCursor.updateMany({
+      where: { key: ARCHIVED_CURSOR_KEY, leaseOwner: ownerToken },
+      data: { leaseOwner: null, leaseExpiresAt: null },
+    });
+  }
+
+  private startArchivedLeaseHeartbeat(ownerToken: string): ArchivedLeaseHeartbeat {
+    let lost = false;
+    let heartbeat = Promise.resolve();
+    const beat = () => {
+      heartbeat = heartbeat.then(async () => {
+        if (!lost && !await this.renewArchivedLease(ownerToken)) lost = true;
+      }).catch(() => {
+        lost = true;
+      });
+    };
+    const timer = setInterval(beat, ARCHIVED_CLAIM_HEARTBEAT_MS);
+    timer.unref?.();
+    return {
+      assertActive: async () => {
+        await heartbeat;
+        if (lost) return false;
+        if (!await this.renewArchivedLease(ownerToken)) lost = true;
+        return !lost;
+      },
+      markLost: () => { lost = true; },
+      stop: async () => {
+        clearInterval(timer);
+        await heartbeat;
+        await this.releaseArchivedLease(ownerToken);
+      },
+    };
+  }
+
+  private async hasRevisionOwner(
+    db: Pick<PrismaService, 'syncRevisionAttachmentRow'>,
+    attachment: Pick<ArchivedAttachment, 'id' | 'spaceId'>,
+  ): Promise<boolean> {
+    const owner = await db.syncRevisionAttachmentRow.findFirst({
+      where: { attachmentId: attachment.id, spaceId: attachment.spaceId },
+      select: { attachmentId: true },
+    });
+    return owner !== null;
+  }
+
+  private async cleanupOrphans(cutoff: Date, referenceTime: Date): Promise<void> {
     let visited = 0;
     let deletions = 0;
     while (
@@ -199,6 +462,12 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
       const candidate = next.value.candidate;
       if (!candidate) continue;
       try {
+        if (await isAttachmentBlobReferenced(
+          this.prisma,
+          candidate.storageKey,
+          referenceTime,
+          this.attachmentConfig.orphanGraceMs,
+        )) continue;
         let removed = false;
         if (this.shuttingDown) return;
         await this.storage.withContentLock(candidate.contentHash, async (lease) => {
@@ -210,11 +479,14 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
             || !metadata.isFile()
             || metadata.mtimeMs > cutoff.getTime()
           ) return;
-          const references = await this.prisma.spaceAttachment.count({
-            where: { storageKey: candidate.storageKey },
-          });
+          const referenced = await isAttachmentBlobReferenced(
+            this.prisma,
+            candidate.storageKey,
+            referenceTime,
+            this.attachmentConfig.orphanGraceMs,
+          );
           if (this.shuttingDown) return;
-          if (references === 0) {
+          if (!referenced) {
             await this.storage.removeIfUnreferenced(candidate.storageKey, lease);
             removed = true;
           }
@@ -231,15 +503,20 @@ export class AttachmentCleanupWorker implements OnModuleInit, OnModuleDestroy {
   private async removeBlobWhenUnreferenced(
     storageKey: string,
     contentHash: string,
+    referenceTime: Date,
+    leaseActive: () => Promise<boolean> = async () => true,
   ): Promise<void> {
-    if (this.shuttingDown) return;
+    if (this.shuttingDown || !await leaseActive()) return;
     await this.storage.withContentLock(contentHash, async (lease) => {
-      if (this.shuttingDown) return;
-      const references = await this.prisma.spaceAttachment.count({
-        where: { storageKey },
-      });
-      if (this.shuttingDown) return;
-      if (references === 0) {
+      if (this.shuttingDown || !await leaseActive()) return;
+      const referenced = await isAttachmentBlobReferenced(
+        this.prisma,
+        storageKey,
+        referenceTime,
+        this.attachmentConfig.orphanGraceMs,
+      );
+      if (this.shuttingDown || !await leaseActive()) return;
+      if (!referenced) {
         await this.storage.removeIfUnreferenced(storageKey, lease);
       }
     });

@@ -608,8 +608,8 @@ test('composite-template migration preserves legacy runs and enforces source and
       await prisma.$disconnect();
     }
   }, {
-    latestMigrationName: '20260905120000_composite_templates',
-    beforeLatestMigration: async ({ databaseUrl, schemaName }) => {
+    targetMigrationName: '20260905120000_composite_templates',
+    beforeTargetMigration: async ({ databaseUrl, schemaName }) => {
       const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
       const suffix = schemaName.replace('page_template_test_', '');
       const id = (prefix) => `${prefix}_${suffix}`;

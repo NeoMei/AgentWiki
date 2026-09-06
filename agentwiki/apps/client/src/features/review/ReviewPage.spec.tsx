@@ -130,6 +130,21 @@ describe('ReviewPage detail refresh', () => {
     expect(screen.getByRole('button', { name: 'Revert' })).toBeVisible();
   });
 
+  it('routes a published v3 collaboration ChangeSet without exposing legacy revert', async () => {
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve({
+      data: url === '/review'
+        ? [{ ...summary(), status: 'published' }]
+        : { ...linkedChangeSet('published', 'accepted'), revertible: false },
+    } as any));
+    renderReview();
+    await expand();
+    expect(screen.getByRole('link', { name: 'Go to collaboration review' })).toHaveAttribute(
+      'href', '/spaces/space-1/collaboration/runs/collaboration-run-1',
+    );
+    expect(screen.queryByRole('button', { name: 'Publish' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Revert' })).not.toBeInTheDocument();
+  });
+
   it('disables approve-only until every candidate is decided', async () => {
     vi.mocked(api.get).mockImplementation((url) => Promise.resolve({
       data: url === '/review' ? [summary()] : changeSet(),
@@ -211,6 +226,17 @@ describe('ReviewPage detail refresh', () => {
     expect(screen.queryByText('Approval was rejected')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Publish' })).not.toBeInTheDocument();
     expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/change-sets/cs-1')).toHaveLength(1);
+  });
+
+  it('does not offer revert for an explicitly non-revertible v3 Push ChangeSet', async () => {
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve({
+      data: url === '/review'
+        ? [{ ...summary(), status: 'published' }]
+        : { ...changeSet('published', 'accepted'), revertible: false },
+    } as any));
+    renderReview();
+    await expand();
+    expect(screen.queryByRole('button', { name: 'Revert' })).not.toBeInTheDocument();
   });
 
   it('replaces an earlier success toast with the latest action failure', async () => {

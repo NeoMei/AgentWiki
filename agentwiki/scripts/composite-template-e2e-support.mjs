@@ -15,7 +15,9 @@ import { withTestDatabaseCleanup } from './test-database-lifecycle.mjs';
 
 const SAFE_SCHEMA = /^mac_e2e_[A-Za-z0-9_]+$/u;
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
+const requireFromLocalSync = createRequire(new URL('../packages/local-sync/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
+export const LOCAL_SYNC_PACKAGE_VERSION = requireFromLocalSync('./package.json').version;
 
 export function validateCompositeTemplateE2EDatabaseUrl(value) {
   if (!value) throw new Error('COMPOSITE_TEMPLATE_E2E_DATABASE_URL is required');
@@ -63,7 +65,7 @@ export function acceptanceChildEnvironment({
     JWT_SECRET: `composite-e2e-jwt-${randomUUID()}-${randomUUID()}`,
     AGENTWIKI_SERVER_PEPPER: `composite-e2e-pepper-${randomUUID()}`,
     AGENTWIKI_DEPLOYMENT_SEED: randomBytes(32).toString('base64'),
-    LOCAL_SYNC_PACKAGE_VERSION: '0.7.0',
+    LOCAL_SYNC_PACKAGE_VERSION,
     PUBLIC_API_URL: `http://127.0.0.1:${apiPort}/api`,
     MCP_ALLOWED_HOSTS: '127.0.0.1,localhost',
     CORS_ORIGINS: webOrigin,
@@ -690,7 +692,7 @@ export function externalAgentGatewayFiles({
           serverUrl: apiUrl,
           agentId: agent.id,
           credentialId: agent.credentialId,
-          pluginVersion: '0.7.0',
+          pluginVersion: LOCAL_SYNC_PACKAGE_VERSION,
           client,
           mcpName: 'agentwiki',
         },

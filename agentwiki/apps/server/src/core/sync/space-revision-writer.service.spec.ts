@@ -62,6 +62,28 @@ describe('SpaceRevisionWriterService', () => {
     expect(tx.$executeRaw).not.toHaveBeenCalled();
   });
 
+  it('force-publishes an unreferenced image rename as exactly one native v3 head', async () => {
+    const result = {
+      revisionId: 'rev-v3', sequence: 1, revisionContentHash: 'a'.repeat(64),
+      pageCount: 0n, attachmentCount: 1n, revisionManifestByteLength: 100n,
+      revisionBodyBytes: 0n, revisionAttachmentBytes: 40n,
+      publishedAt: new Date('2026-09-04T00:00:00.000Z'),
+    };
+    const v3Writer = {
+      advanceCurrentIfRequiredLocked: jest.fn().mockResolvedValue(result),
+    };
+    service = new SpaceRevisionWriterService(prisma, v3Writer as any);
+    const tx = { spaceKnowledgeRevision: { create: jest.fn() }, $executeRaw: jest.fn() };
+
+    await expect(service.advanceReferencedImagesLocked(
+      tx as any, 'space-1', [], { origin: 'web_editor', createdByUserId: 'user-1' },
+    )).resolves.toBe(result);
+    expect(v3Writer.advanceCurrentIfRequiredLocked).toHaveBeenCalledWith(
+      tx, 'space-1', [], { origin: 'web_editor', createdByUserId: 'user-1' }, { forceNative: true },
+    );
+    expect(tx.spaceKnowledgeRevision.create).not.toHaveBeenCalled();
+  });
+
   it('locks a space with a transaction-scoped advisory lock', async () => {
     const tx = { $executeRaw: jest.fn() };
     const locked = await service.lockSpace(tx as any, 'space-1');

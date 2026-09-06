@@ -300,6 +300,30 @@ describe('OpencodeCliRunner', () => {
     }
   });
 
+  it('resolves the native Linux package when the generic package target is a POSIX shim', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-linux-native-'));
+    const packageRoot = join(fixture, 'node_modules');
+    const genericDir = join(packageRoot, 'opencode-ai');
+    const native = join(packageRoot, 'opencode-linux-x64', 'bin', 'opencode');
+    mkdirSync(join(genericDir, 'bin'), { recursive: true });
+    mkdirSync(join(packageRoot, 'opencode-linux-x64', 'bin'), { recursive: true });
+    writeFileSync(join(genericDir, 'package.json'), JSON.stringify({
+      name: 'opencode-ai', bin: { opencode: './bin/opencode.exe' },
+    }));
+    writeFileSync(join(genericDir, 'bin', 'opencode.exe'), '#!/bin/sh\nexit 1\n');
+    writeFileSync(native, Buffer.from([0x7f, 0x45, 0x4c, 0x46]));
+
+    try {
+      const runner = new OpencodeCliRunner({ get: jest.fn(() => undefined) } as any);
+      expect((runner as any).resolveBundledLaunch(fixture, 'linux', 'x64')).toEqual({
+        command: realpathSync(native),
+        argsPrefix: [],
+      });
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
   (process.platform === 'win32' ? it : it.skip)(
     'starts the resolved bundled Windows executable without a shell',
     () => {

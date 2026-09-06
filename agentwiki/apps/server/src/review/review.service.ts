@@ -155,7 +155,23 @@ export class ReviewService {
       rejected: 3,
       reverted: 4,
     };
-    return changeSets.sort((left, right) =>
+    const publishedIds = changeSets
+      .filter((changeSet) => changeSet.status === 'published')
+      .map((changeSet) => changeSet.id);
+    const pushSessionRepository = (this.prisma as any).pushSession;
+    const v3Sessions = publishedIds.length > 0 && pushSessionRepository?.findMany
+      ? await pushSessionRepository.findMany({
+        where: { protocolVersion: '3', publishedChangeSetId: { in: publishedIds } },
+        select: { publishedChangeSetId: true },
+      }) ?? []
+      : [];
+    const nonRevertibleIds = new Set<string>(v3Sessions
+      .map((session: { publishedChangeSetId: string | null }) => session.publishedChangeSetId)
+      .filter((id: string | null): id is string => id !== null));
+    return changeSets.map((changeSet) => ({
+      ...changeSet,
+      revertible: !nonRevertibleIds.has(changeSet.id),
+    })).sort((left, right) =>
       (priority[left.status] ?? 99) - (priority[right.status] ?? 99) ||
       right.createdAt.getTime() - left.createdAt.getTime(),
     );
@@ -190,8 +206,16 @@ export class ReviewService {
       },
     });
     if (!changeSet) throw new BusinessException('RESOURCE_NOT_FOUND', 'Change set not found');
+    const pushSessionRepository = (this.prisma as any).pushSession;
+    const v3Session = changeSet.status === 'published' && pushSessionRepository?.findFirst
+      ? await pushSessionRepository.findFirst({
+        where: { protocolVersion: '3', publishedChangeSetId: changeSet.id },
+        select: { id: true },
+      })
+      : null;
     return {
       ...changeSet,
+      revertible: !v3Session,
       collaborationArtifactLink: changeSet.collaborationArtifactLink ? {
         ...changeSet.collaborationArtifactLink,
         reviewPath: `/spaces/${changeSet.collaborationArtifactLink.spaceId}/collaboration/runs/${changeSet.collaborationArtifactLink.runId}`,
@@ -1593,6 +1617,12 @@ export class ReviewService {
     }
     const requestedTreeRevision = BigInt(expectedTreeRevision);
     const changeSet = await this.get(id);
+    if (!changeSet.revertible) {
+      throw new BusinessException(
+        'CHANGESET_INVALID_STATE',
+        'Sync v3 change sets cannot be reverted through the legacy review contract',
+      );
+    }
     if (changeSet.status !== 'published') {
       throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is already being reverted or is no longer published');
     }

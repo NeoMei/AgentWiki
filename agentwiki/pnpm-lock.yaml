@@ -43,6 +43,9 @@ importers:
       playwright:
         specifier: ^1.62.1
         version: 1.62.1
+      semver:
+        specifier: 7.8.5
+        version: 7.8.5
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
@@ -325,8 +328,8 @@ importers:
         specifier: ^1.30.0
         version: 1.30.0(zod@3.25.76)
       '@neomei/agentwiki-sync-protocol':
-        specifier: 0.4.0
-        version: 0.4.0
+        specifier: 0.5.1
+        version: link:../sync-protocol
       zod:
         specifier: ^3.25.76
         version: 3.25.76

@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
+import type { ConfigService } from '@nestjs/config';
 import {
   TreeFinalizePushResponseV3Schema,
   contentHash,
@@ -14,6 +15,8 @@ import { MarkdownResourceService } from '../../markdown-resources/markdown-resou
 import { SyncV3BootstrapService } from '../../integrations/obsidian/sync-v3-bootstrap.service';
 import type { AttachmentConfig } from '../../attachments/attachment.config';
 import { LocalAttachmentStorage } from '../../attachments/local-attachment.storage';
+import { AttachmentService } from '../../attachments/attachment.service';
+import { AttachmentRenamePreviewTokenService } from '../../attachments/attachment-rename-preview-token.service';
 import { SpaceRevisionWriterService } from './space-revision-writer.service';
 import { PageService } from '../page/page.service';
 import { ReadableSyncPathService } from './readable-sync-path.service';
@@ -1046,6 +1049,206 @@ describe('SyncV3RevisionWriterService PostgreSQL integration', () => {
       ]);
       expect(search.indexPage).toHaveBeenCalledWith(page.id);
       expect(graph.enqueue).toHaveBeenCalledWith(spaceId);
+
+      const withImage = await prisma.page.findUniqueOrThrow({ where: { id: page.id } });
+      await pages.update(page.id, {
+        expectedUpdatedAt: withImage.updatedAt.toISOString(),
+        content: '# Detached again\n',
+      }, { userId });
+      let lifecycleHeads = await prisma.spaceKnowledgeRevision.findMany({
+        where: { spaceId }, orderBy: { sequence: 'asc' },
+      });
+      expect(lifecycleHeads).toHaveLength(beforeCount + 2);
+      expect(lifecycleHeads[lifecycleHeads.length - 1]).toMatchObject({
+        schemaVersion: 'content-tree@3', recipeVersion: 'referenced-images-v1', attachmentCount: 0n,
+      });
+
+      const stablePage = await prisma.page.findUniqueOrThrow({ where: { id: page.id } });
+      const stableVersionCount = await prisma.pageVersion.count({ where: { pageId: page.id } });
+      const stableRevisionCount = lifecycleHeads.length;
+      await expect(pages.update(page.id, {
+        expectedUpdatedAt: stablePage.updatedAt.toISOString(),
+        content: '![[assets/missing.png]]\n',
+      }, { userId })).rejects.toMatchObject({ syncCode: 'ATTACHMENT_MISSING' });
+      expect(await prisma.page.findUniqueOrThrow({ where: { id: page.id } }))
+        .toMatchObject({ content: stablePage.content, updatedAt: stablePage.updatedAt });
+      expect(await prisma.pageVersion.count({ where: { pageId: page.id } })).toBe(stableVersionCount);
+      expect(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } })).toBe(stableRevisionCount);
+
+      await prisma.spaceAttachment.update({
+        where: { id: attachment.id }, data: { status: 'archived', archivedAt: new Date() },
+      });
+      await expect(pages.update(page.id, {
+        expectedUpdatedAt: stablePage.updatedAt.toISOString(),
+        content: '![[assets/photo.png]]\n',
+      }, { userId })).rejects.toMatchObject({ syncCode: 'ATTACHMENT_MISSING' });
+      expect(await prisma.page.findUniqueOrThrow({ where: { id: page.id } }))
+        .toMatchObject({ content: stablePage.content, updatedAt: stablePage.updatedAt });
+      expect(await prisma.pageVersion.count({ where: { pageId: page.id } })).toBe(stableVersionCount);
+      expect(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } })).toBe(stableRevisionCount);
+      await prisma.spaceAttachment.update({
+        where: { id: attachment.id }, data: { status: 'active', archivedAt: null },
+      });
+
+      const treeBeforeCreate = await prisma.space.findUniqueOrThrow({
+        where: { id: spaceId }, select: { contentTreeRevision: true },
+      });
+      const created = await pages.create({
+        spaceId,
+        title: 'Lifecycle image',
+        content: '![[assets/photo.png]]\n',
+        expectedTreeRevision: treeBeforeCreate.contentTreeRevision.toString(10),
+      }, { userId });
+      lifecycleHeads = await prisma.spaceKnowledgeRevision.findMany({
+        where: { spaceId }, orderBy: { sequence: 'asc' },
+      });
+      expect(lifecycleHeads).toHaveLength(stableRevisionCount + 1);
+      expect(lifecycleHeads[lifecycleHeads.length - 1]).toMatchObject({
+        schemaVersion: 'content-tree@3', recipeVersion: 'referenced-images-v1', attachmentCount: 1n,
+      });
+
+      const createdCurrent = await prisma.page.findUniqueOrThrow({ where: { id: created.id } });
+      await pages.update(created.id, {
+        expectedUpdatedAt: createdCurrent.updatedAt.toISOString(), content: '# Temporarily detached\n',
+      }, { userId });
+      const imageVersion = await prisma.pageVersion.findFirstOrThrow({
+        where: { pageId: created.id }, orderBy: { createdAt: 'desc' },
+      });
+      const treeBeforeRestore = await prisma.space.findUniqueOrThrow({
+        where: { id: spaceId }, select: { contentTreeRevision: true },
+      });
+      await pages.restoreVersion(
+        created.id,
+        imageVersion.id,
+        treeBeforeRestore.contentTreeRevision.toString(10),
+        { userId },
+      );
+      lifecycleHeads = await prisma.spaceKnowledgeRevision.findMany({
+        where: { spaceId }, orderBy: { sequence: 'asc' },
+      });
+      expect(lifecycleHeads).toHaveLength(stableRevisionCount + 3);
+      expect(lifecycleHeads.slice(-3).every((revision) => (
+        revision.schemaVersion === 'content-tree@3'
+        && revision.recipeVersion === 'referenced-images-v1'
+      ))).toBe(true);
+      expect(await prisma.page.findUniqueOrThrow({ where: { id: created.id } }))
+        .toMatchObject({ content: '![[assets/photo.png]]\n' });
+    } finally {
+      await prisma.syncRevisionAttachmentRow.deleteMany({ where: { spaceId } });
+      await prisma.attachmentVersion.deleteMany({ where: { attachment: { spaceId } } });
+      await prisma.space.deleteMany({ where: { id: spaceId } });
+      await prisma.user.deleteMany({ where: { id: userId } });
+      await prisma.$disconnect();
+      await storage.onModuleDestroy();
+      await rm(storageRoot, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  dbIt('atomically renames Page A/B, rolls back an injected PageVersion failure, and serializes duplicate confirms', async () => {
+    const prisma = new PrismaClient({ datasources: { db: { url: syncV3DatabaseUrl } } });
+    const storageRoot = await mkdtemp(join(tmpdir(), 'agentwiki-rename-test-'));
+    const storage = new LocalAttachmentStorage(syncV3StorageConfig(storageRoot));
+    const suffix = randomUUID().replaceAll('-', '');
+    const userId = `user_${suffix}`;
+    const spaceId = `space_${suffix}`;
+    const principal = { userId };
+    try {
+      const blob = await publishSyncV3Blob(storage, Buffer.from('rename-v3-image'));
+      await prisma.user.create({ data: { id: userId, email: `${suffix}@rename.sync-v3.test` } });
+      await prisma.space.create({ data: { id: spaceId, name: 'Rename v3', slug: spaceId } });
+      await prisma.spaceMember.create({ data: { userId, spaceId, role: 'owner' } });
+      const pageBFolder = await prisma.folder.create({ data: {
+        spaceId, name: 'topic', nameKey: 'topic', path: 'pages/topic', pathKey: 'pages/topic',
+        createdByUserId: userId,
+      } });
+      const pageAContent = '![[  assets/photo.png  | cover | 320x200  ]]\r\n![root](<../assets/photo.png> "title")';
+      const pageBContent = 'prefix ![nested](<../../assets/photo.png> "nested title") suffix';
+      const pageA = await prisma.page.create({ data: {
+        knowledgeKey: `page_a_${suffix}`, title: 'Page A', slug: `page-a-${suffix}`,
+        content: pageAContent, spaceId, authorId: userId,
+        syncPath: 'pages/Page A.md', syncPathKey: 'pages/page a.md',
+      } });
+      const pageB = await prisma.page.create({ data: {
+        knowledgeKey: `page_b_${suffix}`, title: 'Page B', slug: `page-b-${suffix}`,
+        content: pageBContent, spaceId, authorId: userId,
+        folderId: pageBFolder.id,
+        syncPath: 'pages/topic/Page B.md', syncPathKey: 'pages/topic/page b.md',
+      } });
+      const attachment = await prisma.spaceAttachment.create({ data: {
+        spaceId, displayName: 'photo.png', nameKey: 'photo.png',
+        contentHash: blob.contentHash, storageKey: blob.storageKey,
+        mimeType: 'image/png', sizeBytes: BigInt(Buffer.byteLength('rename-v3-image')),
+        width: 1, height: 1, uploadedByUserId: userId,
+      } });
+      await prisma.attachmentVersion.create({ data: {
+        attachmentId: attachment.id, contentHash: attachment.contentHash,
+        storageKey: attachment.storageKey, mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes, width: attachment.width, height: attachment.height,
+      } });
+      const authorization = new AuthorizationService(prisma as any);
+      const markdownResources = new MarkdownResourceService(prisma as any, authorization);
+      const v3Writer = new SyncV3RevisionWriterService(markdownResources, storage);
+      const writer = new SpaceRevisionWriterService(prisma as any, v3Writer);
+      const renameSearch = { indexPage: jest.fn().mockResolvedValue(undefined) };
+      const renameGraph = { enqueue: jest.fn() };
+      const renamePreviewTokens = new AttachmentRenamePreviewTokenService({
+        get: (key: string) => key === 'AGENTWIKI_SERVER_PEPPER' ? 'rename-v3-test-pepper' : undefined,
+      } as unknown as ConfigService);
+      const service = new AttachmentService(
+        prisma as any, authorization, writer, storage, syncV3StorageConfig(storageRoot),
+        renameSearch as any, renameGraph as any, renamePreviewTokens,
+      );
+      const preview = await service.previewRename(spaceId, attachment.id, {
+        displayName: 'renamed.png',
+      }, principal);
+      expect(preview).toMatchObject({
+        path: 'assets/renamed.png',
+        impactedPages: [{ id: pageA.id, title: 'Page A' }, { id: pageB.id, title: 'Page B' }],
+      });
+
+      const failingPrisma = new Proxy(prisma, {
+        get(target, property, receiver) {
+          if (property !== '$transaction') return Reflect.get(target, property, receiver);
+          return (work: (tx: unknown) => Promise<unknown>) => target.$transaction(async (tx) => (
+            work(failDelegate(tx, 'pageVersion', 'create'))
+          ));
+        },
+      });
+      const failingService = new AttachmentService(
+        failingPrisma as any, authorization, writer, storage, syncV3StorageConfig(storageRoot),
+        renameSearch as any, renameGraph as any, renamePreviewTokens,
+      );
+      await expect(failingService.rename(spaceId, attachment.id, {
+        previewToken: preview.previewToken,
+      }, principal))
+        .rejects.toThrow('injected:pageVersion.create');
+      expect(await prisma.spaceAttachment.findUniqueOrThrow({ where: { id: attachment.id } }))
+        .toMatchObject({ displayName: 'photo.png', nameKey: 'photo.png' });
+      expect(await prisma.page.findUniqueOrThrow({ where: { id: pageA.id } }))
+        .toMatchObject({ content: pageAContent });
+      expect(await prisma.page.findUniqueOrThrow({ where: { id: pageB.id } }))
+        .toMatchObject({ content: pageBContent });
+      expect(await prisma.pageVersion.count({ where: { pageId: { in: [pageA.id, pageB.id] } } })).toBe(0);
+      expect(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } })).toBe(0);
+
+      const confirmations = await Promise.allSettled([
+        service.rename(spaceId, attachment.id, { previewToken: preview.previewToken }, principal),
+        service.rename(spaceId, attachment.id, { previewToken: preview.previewToken }, principal),
+      ]);
+      expect(confirmations.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
+      expect(confirmations.filter(({ status }) => status === 'rejected')).toHaveLength(1);
+      expect(await prisma.spaceAttachment.findUniqueOrThrow({ where: { id: attachment.id } }))
+        .toMatchObject({ displayName: 'renamed.png', nameKey: 'renamed.png' });
+      expect(await prisma.page.findUniqueOrThrow({ where: { id: pageA.id } }))
+        .toMatchObject({ content: '![[  assets/renamed.png  | cover | 320x200  ]]\r\n![root](<../assets/renamed.png> "title")' });
+      expect(await prisma.page.findUniqueOrThrow({ where: { id: pageB.id } }))
+        .toMatchObject({ content: 'prefix ![nested](<../../assets/renamed.png> "nested title") suffix' });
+      expect(await prisma.pageVersion.count({ where: { pageId: { in: [pageA.id, pageB.id] } } })).toBe(2);
+      const revisions = await prisma.spaceKnowledgeRevision.findMany({ where: { spaceId } });
+      expect(revisions).toHaveLength(1);
+      expect(revisions[0]).toMatchObject({
+        schemaVersion: 'content-tree@3', recipeVersion: 'referenced-images-v1', attachmentCount: 1n,
+      });
     } finally {
       await prisma.syncRevisionAttachmentRow.deleteMany({ where: { spaceId } });
       await prisma.attachmentVersion.deleteMany({ where: { attachment: { spaceId } } });

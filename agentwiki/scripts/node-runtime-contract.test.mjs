@@ -584,7 +584,7 @@ test('local-sync builds and packs without retired modules or public subpaths', a
 
 test('every active local-sync release surface uses the package version', async () => {
   const version = JSON.parse(await read('packages/local-sync/package.json')).version;
-  assert.equal(version, '0.7.0');
+  assert.equal(version, '0.8.0');
   for (const path of [
     '.env.example',
     'package.json',
@@ -615,13 +615,8 @@ test('the local-sync release remains pinned to its compatible sync protocol rele
   const rootPackage = JSON.parse(await read('package.json'));
   const cleanInstallGate = await read('scripts/verify-local-sync-clean-install.mjs');
 
-  assert.equal(protocolPackage.version, '0.5.0');
-  assert.equal(localSyncPackage.dependencies[protocolPackage.name], '0.4.0');
-  assert.notEqual(
-    localSyncPackage.dependencies[protocolPackage.name],
-    protocolPackage.version,
-    'the v2 local-sync client must not silently adopt the v3 protocol package',
-  );
+  assert.equal(protocolPackage.version, '0.5.1');
+  assert.equal(localSyncPackage.dependencies[protocolPackage.name], '0.5.1');
   assert.doesNotMatch(
     localSyncPackage.dependencies[protocolPackage.name],
     /^workspace:/u,
@@ -652,9 +647,9 @@ test('every user-facing local-sync surface uses the published npm package name',
 
 
 
-test('the onboard controller advertises the pinned 0.7.0 onboarding command', async () => {
+test('the onboard controller advertises the pinned 0.8.0 onboarding command', async () => {
   const source = await read('apps/server/src/onboard/onboard.controller.ts');
-  assert.match(source, /0\.7\.0/, 'onboard controller must reference 0.7.0');
+  assert.match(source, /0\.8\.0/, 'onboard controller must reference 0.8.0');
   assert.match(source, /onboard --server/, 'onboard controller must advertise the pinned onboard command');
   assert.doesNotMatch(source, /connect --server/, 'onboard controller must not advertise the retired connect command');
   assert.doesNotMatch(source, /--orchestrator/, 'onboard controller must not advertise --orchestrator');
@@ -668,13 +663,13 @@ test('collaboration release surfaces and executable gates stay version-aligned',
   const syncProtocolPackage = JSON.parse(await read('packages/sync-protocol/package.json'));
   assert.deepEqual(
     [rootPackage.version, serverPackage.version, clientPackage.version, localSyncPackage.version],
-    ['0.7.0', '0.7.0', '0.7.0', '0.7.0'],
+    ['0.8.0', '0.8.0', '0.8.0', '0.8.0'],
   );
-  assert.equal(syncProtocolPackage.version, '0.5.0');
+  assert.equal(syncProtocolPackage.version, '0.5.1');
   assert.equal(rootPackage.scripts['test:e2e:collaboration-db'], 'node --test scripts/collaboration-workflows-db.test.mjs');
   assert.equal(rootPackage.scripts['test:e2e:collaboration'], 'node scripts/collaboration-workflows-e2e.mjs');
-  assert.match(await read('.env.example'), /LOCAL_SYNC_PACKAGE_VERSION=0\.7\.0/u);
-  assert.match(await read('docker-compose.yml'), /LOCAL_SYNC_PACKAGE_VERSION:-0\.7\.0/u);
+  assert.match(await read('.env.example'), /LOCAL_SYNC_PACKAGE_VERSION=0\.8\.0/u);
+  assert.match(await read('docker-compose.yml'), /LOCAL_SYNC_PACKAGE_VERSION:-0\.8\.0/u);
 });
 
 test('the local-sync CLI exposes gateway and onboard commands without connect', async () => {

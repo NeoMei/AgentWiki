@@ -19,6 +19,7 @@ if (command === 'plan') {
   process.stdout.write(`${JSON.stringify({
     status: 'ready',
     databaseIsolation: 'random collaboration_test_* schema',
+    syncV3DatabaseBinding: 'same random collaboration_test_* schema',
   })}\n`);
 } else if (command === 'run') {
   const testExit = await withCollaborationTestDatabase(baseDatabaseUrl, async ({ databaseUrl }) => {

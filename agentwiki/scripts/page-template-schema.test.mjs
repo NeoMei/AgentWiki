@@ -3,9 +3,24 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import * as pageTemplateDatabase from './page-template-test-database.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (relative) => readFile(path.join(root, relative), 'utf8');
+
+test('page-template migration fixture holds the target and every later migration', () => {
+  assert.equal(typeof pageTemplateDatabase.selectMigrationNamesFromTarget, 'function');
+  assert.deepEqual(pageTemplateDatabase.selectMigrationNamesFromTarget([
+    '20260905210000_harden_attachment_cleanup_claim',
+    '20260905120000_expand_sync_v3_push_change_ordinal',
+    '20260905120000_composite_templates',
+    '20260904120000_add_sync_v3_attachments',
+  ], '20260905120000_composite_templates'), [
+    '20260905120000_composite_templates',
+    '20260905120000_expand_sync_v3_push_change_ordinal',
+    '20260905210000_harden_attachment_cleanup_claim',
+  ]);
+});
 
 test('page templates keep immutable versions and compound Page provenance', async () => {
   const schema = await read('apps/server/prisma/schema.prisma');

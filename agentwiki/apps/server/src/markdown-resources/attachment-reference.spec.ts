@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   AttachmentReferenceError,
   parseImageReferences,
@@ -5,7 +7,31 @@ import {
   rewriteAttachmentReferenceRanges,
 } from './attachment-reference';
 
-const sourcePath = 'pages/topic/note.md';
+const sourcePath = 'pages/note.md';
+
+interface ConformanceCase {
+  name: string;
+  body: string;
+  expected: Array<{
+    syntax: 'obsidian' | 'markdown';
+    classification: 'managed' | 'page_embed' | 'external' | 'invalid';
+    rawTarget: string;
+    resolvedPath: string | null;
+  }>;
+}
+
+const conformanceCases = JSON.parse(readFileSync(
+  join(__dirname, 'attachment-reference.conformance.json'),
+  'utf8',
+)) as ConformanceCase[];
+
+function normalizeClassification(
+  classification: ReturnType<typeof parseImageReferences>[number]['classification'],
+): ConformanceCase['expected'][number]['classification'] {
+  if (classification === 'managed_candidate') return 'managed';
+  if (classification === 'invalid_local' || classification === 'unsupported') return 'invalid';
+  return classification;
+}
 
 function countIndexedReads(raw: string): { value: string; reads: () => number } {
   let indexedReads = 0;
@@ -21,6 +47,29 @@ function countIndexedReads(raw: string): { value: string; reads: () => number } 
 }
 
 describe('parseImageReferences', () => {
+  it.each(conformanceCases)('matches neutral conformance case $name', ({ body, expected }) => {
+    const references = parseImageReferences(body, sourcePath);
+
+    expect(references.map((reference) => ({
+      syntax: reference.syntax,
+      classification: normalizeClassification(reference.classification),
+      rawTarget: reference.rawTarget,
+      resolvedPath: reference.resolvedPath,
+    }))).toEqual(expected);
+    for (const reference of references) {
+      expect(body.slice(reference.targetStart, reference.targetEnd)).toBe(reference.rawTarget);
+      expect(reference.targetStart).toBe(body.indexOf(reference.rawTarget));
+      expect(reference.targetEnd).toBe(reference.targetStart + reference.rawTarget.length);
+    }
+  });
+
+  it('resolves standard Markdown paths from the full root and nested Page directories', () => {
+    expect(parseImageReferences('![](../assets/root.png)', 'pages/root.md'))
+      .toEqual([expect.objectContaining({ resolvedPath: 'assets/root.png', classification: 'managed_candidate' })]);
+    expect(parseImageReferences('![](../../assets/nested.png)', 'pages/topic/note.md'))
+      .toEqual([expect.objectContaining({ resolvedPath: 'assets/nested.png', classification: 'managed_candidate' })]);
+  });
+
   it.each([
     ['![[assets/a.png|320]]', 'assets/a.png', 'managed_candidate'],
     ['![alt](../assets/a.png "title")', 'assets/a.png', 'managed_candidate'],
@@ -140,8 +189,74 @@ describe('parseImageReferences', () => {
     '![alt](../assets/a.png (unterminated)',
     '![alt](<../assets/a.png> trailing-text)',
     '![alt](<../assets/a.png> "one" "two")',
-  ])('rejects invalid Markdown image destination suffix in %s', (body) => {
-    expect(parseImageReferences(body, sourcePath)).toEqual([]);
+  ])('preserves invalid Markdown image destination suffix evidence in %s', (body) => {
+    const targetStart = body.indexOf('../assets/a.png');
+
+    expect(parseImageReferences(body, sourcePath)).toEqual([{
+      syntax: 'markdown',
+      rawTarget: '../assets/a.png',
+      targetStart,
+      targetEnd: targetStart + '../assets/a.png'.length,
+      resolvedPath: null,
+      classification: 'invalid_local',
+    }]);
+    expect(resolveReferencedAttachments(body, sourcePath, []).errors).toEqual([{
+      code: 'ATTACHMENT_REFERENCE_INVALID',
+      targetStart,
+      targetEnd: targetStart + '../assets/a.png'.length,
+    }]);
+    expect(() => rewriteAttachmentReferenceRanges(body, [{
+      start: targetStart,
+      end: targetStart + '../assets/a.png'.length,
+      target: '../assets/b.png',
+    }])).toThrow(expect.objectContaining({ code: 'ATTACHMENT_REFERENCE_INVALID' }));
+  });
+
+  it.each([
+    '![](../assets/a.png raw title)',
+    '![](<../assets/a.png)',
+    '![](<../assets/a.png "title")',
+  ])('preserves malformed destination evidence without making it rewriteable in %s', (body) => {
+    const targetStart = body.indexOf('../assets/a.png');
+    const [reference] = parseImageReferences(body, sourcePath);
+
+    expect(reference).toEqual({
+      syntax: 'markdown',
+      rawTarget: '../assets/a.png',
+      targetStart,
+      targetEnd: targetStart + '../assets/a.png'.length,
+      resolvedPath: null,
+      classification: 'invalid_local',
+    });
+    expect(() => rewriteAttachmentReferenceRanges(body, [{
+      start: reference.targetStart,
+      end: reference.targetEnd,
+      target: '../assets/b.png',
+    }])).toThrow(expect.objectContaining({ code: 'ATTACHMENT_REFERENCE_INVALID' }));
+  });
+
+  it('accepts escaped destination whitespace but rejects the equivalent raw whitespace', () => {
+    expect(parseImageReferences('![](../assets/a\\ b.png)', sourcePath)).toEqual([
+      expect.objectContaining({
+        rawTarget: '../assets/a\\ b.png',
+        resolvedPath: 'assets/a b.png',
+        classification: 'managed_candidate',
+      }),
+    ]);
+    expect(parseImageReferences('![](../assets/a b.png)', sourcePath)).toEqual([
+      expect.objectContaining({
+        rawTarget: '../assets/a',
+        resolvedPath: null,
+        classification: 'invalid_local',
+      }),
+    ]);
+    expect(parseImageReferences('![[assets/a\\ b.png]]', sourcePath)).toEqual([
+      expect.objectContaining({
+        rawTarget: 'assets/a\\ b.png',
+        resolvedPath: null,
+        classification: 'invalid_local',
+      }),
+    ]);
   });
 
   it('does not parse image-like text inside an angle-bracket destination title', () => {
@@ -343,6 +458,18 @@ describe('parseImageReferences', () => {
       resolvedPath: 'assets/a.png',
     })]);
     expect(counted.reads()).toBeLessThanOrEqual(raw.length * 20);
+  });
+
+  it('matches deep list-fence blank lines in a linear number of indexed reads', () => {
+    const depth = 512;
+    const raw = `${'- '.repeat(depth)}\`\`\`md\r\n${'\r\n'.repeat(depth)}![[assets/real.png]]`;
+    const counted = countIndexedReads(raw);
+
+    expect(parseImageReferences(counted.value, sourcePath)).toEqual([expect.objectContaining({
+      rawTarget: 'assets/real.png',
+      resolvedPath: 'assets/real.png',
+    })]);
+    expect(counted.reads()).toBeLessThanOrEqual(raw.length * 40);
   });
 });
 

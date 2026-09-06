@@ -45,8 +45,9 @@ test('snapshot keyset pagination returns fixed pages in pageId order', { skip },
     const require = createRequire(resolve(root, 'apps/server/package.json'));
     const { PrismaClient } = require('@prisma/client');
     const { SyncRevisionService } = await import('../apps/server/dist/integrations/obsidian/sync-revision.service.js');
+    const { SyncV3ImmutableRevisionService } = await import('../apps/server/dist/integrations/obsidian/sync-v3-immutable-revision.service.js');
     const prisma = new PrismaClient({ datasources: { db: { url: url.href } } });
-    const service = new SyncRevisionService(prisma);
+    const service = new SyncRevisionService(prisma, new SyncV3ImmutableRevisionService());
     try {
       const spaceId = randomUUID();
       const revisionId = randomUUID();

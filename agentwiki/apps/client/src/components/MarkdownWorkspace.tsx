@@ -18,6 +18,7 @@ import {
   type MarkdownResourceOccurrence,
   type MarkdownResourceMap,
 } from './markdown/resources';
+import { formatAttachmentReference } from '../features/attachments/attachmentReference';
 
 export type MarkdownMode = 'edit' | 'preview';
 
@@ -437,7 +438,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
           ) throw new Error('Invalid image upload result');
           const anchor = view.state.field(uploadAnchors).get(id);
           if (!anchor) throw new Error('Image upload position is no longer available');
-          const markers = names.map((name) => `![[${name}]]`).join('\n');
+          const markers = names.map(formatAttachmentReference).join('\n');
           insertUploadedText(view, id, anchor, markers);
           view.focus();
         } catch (error) {

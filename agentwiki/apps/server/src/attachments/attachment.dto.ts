@@ -9,6 +9,7 @@ import {
   Max,
   MaxLength,
   Min,
+  MinLength,
 } from 'class-validator';
 
 const PreserveRawInput = () => Transform(({ obj, key }) => obj[key], { toClassOnly: true });
@@ -29,10 +30,41 @@ export class AttachmentStateDto {
   expectedUpdatedAt!: string;
 }
 
+export class AttachmentRenamePreviewDto {
+  @PreserveRawInput()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(512)
+  displayName!: string;
+}
+
+export class AttachmentRenameConfirmDto {
+  @PreserveRawInput()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(16_384)
+  previewToken!: string;
+}
+
+export interface AttachmentImpactedPage {
+  id: string;
+  title: string;
+}
+
+export interface AttachmentRenamePreview {
+  attachmentId: string;
+  displayName: string;
+  path: string;
+  previewToken: string;
+  impactedPages: AttachmentImpactedPage[];
+}
+
 export interface AttachmentSummary {
   id: string;
   spaceId: string;
   displayName: string;
+  canonicalPath: string | null;
+  referenceable: boolean;
   mimeType: string;
   sizeBytes: string;
   width: number;

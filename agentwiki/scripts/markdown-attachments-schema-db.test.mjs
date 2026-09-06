@@ -207,7 +207,8 @@ test('attachment migration enforces Space-scoped names, metadata checks, and del
            'SpaceAttachment_spaceId_nameKey_key',
            'SpaceAttachment_spaceId_status_updatedAt_idx',
            'SpaceAttachment_contentHash_idx',
-           'SpaceAttachment_status_archivedAt_idx'
+           'SpaceAttachment_status_archivedAt_idx',
+           'SpaceAttachment_status_archivedAt_id_idx'
          )
          ORDER BY name`,
         schemaName,
@@ -220,7 +221,7 @@ test('attachment migration enforces Space-scoped names, metadata checks, and del
         'SpaceAttachment_spaceId_nameKey_key',
         'SpaceAttachment_spaceId_status_updatedAt_idx',
         'SpaceAttachment_state_check',
-        'SpaceAttachment_status_archivedAt_idx',
+        'SpaceAttachment_status_archivedAt_id_idx',
       ]);
 
       await prisma.user.createMany({ data: [

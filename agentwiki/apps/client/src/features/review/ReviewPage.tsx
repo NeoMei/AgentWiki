@@ -301,7 +301,7 @@ export const ReviewPage: React.FC = () => {
                     <button disabled={mutatingIds.has(changeSet.id)} onClick={() => void action(changeSet.id, 'review-publish')} className="h-8 px-3 bg-blue-600 text-white rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"><Send size={14} /> {zh ? '通过并发布' : 'Approve & publish'}</button>
                   </> : null}
                   {!changeSet.collaborationArtifactLink && changeSet.status === 'approved' ? <button disabled={mutatingIds.has(changeSet.id)} onClick={() => void action(changeSet.id, 'publish')} className="h-8 px-3 bg-blue-600 text-white rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"><Send size={14} /> {zh ? '发布' : 'Publish'}</button> : null}
-                  {changeSet.status === 'published' ? <button disabled={mutatingIds.has(changeSet.id)} onClick={() => void action(changeSet.id, 'revert')} className="h-8 px-3 border rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"><RotateCcw size={14} /> {zh ? '回滚' : 'Revert'}</button> : null}
+                  {changeSet.status === 'published' && changeSet.revertible !== false ? <button disabled={mutatingIds.has(changeSet.id)} onClick={() => void action(changeSet.id, 'revert')} className="h-8 px-3 border rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"><RotateCcw size={14} /> {zh ? '回滚' : 'Revert'}</button> : null}
                 </div>
               </div>
             ) : null}

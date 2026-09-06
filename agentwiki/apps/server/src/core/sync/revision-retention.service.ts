@@ -22,6 +22,55 @@ const RETENTION_WINDOW_MS = 31 * 24 * 60 * 60 * 1_000;
 const CURSOR_SAFETY_MS = 25 * 60 * 60 * 1_000;
 export const REVISION_RETENTION_BATCH_SIZE = 64;
 
+type BlobReferenceDatabase = Pick<PrismaService, '$queryRaw'>
+  | Pick<Prisma.TransactionClient, '$queryRaw'>;
+
+/**
+ * A single, fail-closed ownership test shared by retention-aware Blob GC
+ * candidate selection and the final check made under the content lease.
+ *
+ * Archived SpaceAttachment rows remain owners until their retention cleanup
+ * transaction removes both the metadata and every unreferenced immutable
+ * version. Revision foreign keys prevent that transaction from deleting a
+ * version that is still readable.
+ */
+export async function isAttachmentBlobReferenced(
+  db: BlobReferenceDatabase,
+  storageKey: string,
+  now: Date,
+  expiredSessionGraceMs: number,
+): Promise<boolean> {
+  const sessionCutoff = new Date(now.getTime() - expiredSessionGraceMs);
+  const rows = await db.$queryRaw<Array<{ referenced: boolean }>>`
+    SELECT (
+      EXISTS (
+        SELECT 1 FROM "SpaceAttachment" a
+        WHERE a."storageKey" = ${storageKey}
+      ) OR EXISTS (
+        SELECT 1 FROM "AttachmentVersion" v
+        WHERE v."storageKey" = ${storageKey}
+      ) OR EXISTS (
+        SELECT 1
+        FROM "SyncRevisionAttachmentRow" r
+        JOIN "AttachmentVersion" v
+          ON v.id = r."attachmentVersionId"
+         AND v."attachmentId" = r."attachmentId"
+        WHERE v."storageKey" = ${storageKey}
+      ) OR EXISTS (
+        SELECT 1
+        FROM "PushSessionBlob" b
+        JOIN "PushSession" s ON s.id = b."sessionId"
+        WHERE b."storageKey" = ${storageKey}
+          AND s."expiresAt" > ${sessionCutoff}
+      )
+    ) AS referenced
+  `;
+  if (rows.length !== 1 || typeof rows[0]?.referenced !== 'boolean') {
+    throw new Error('ATTACHMENT_BLOB_REFERENCE_QUERY_INVALID');
+  }
+  return rows[0].referenced;
+}
+
 type RetentionRevision = RevisionV2ScalarMetadata & {
   createdAt: Date;
   supersededAt: Date | null;
@@ -206,6 +255,7 @@ export class RevisionRetentionService {
     }
 
     const ids = candidates.map((revision) => revision.id);
+    await tx.syncRevisionAttachmentRow.deleteMany({ where: { revisionId: { in: ids } } });
     await tx.syncRevisionDeltaRow.deleteMany({ where: { revisionId: { in: ids } } });
     await tx.syncRevisionTreeDeltaRow.deleteMany({ where: { revisionId: { in: ids } } });
     await tx.syncRevisionFolderRow.deleteMany({ where: { revisionId: { in: ids } } });

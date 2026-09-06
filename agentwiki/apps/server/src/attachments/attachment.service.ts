@@ -1,12 +1,24 @@
-import { extname } from 'node:path';
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { extname, posix } from 'node:path';
+import { createHash } from 'node:crypto';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma, SpaceAttachmentStatus, type SpaceAttachment } from '@prisma/client';
+import { canonicalBytes, FlatAttachmentPathSchema } from '@neomei/agentwiki-sync-protocol';
 import { AuthorizationService, type Principal } from '../core/authorization/authorization.service';
 import { BusinessException } from '../core/filters/business-error';
 import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.service';
+import { SearchService } from '../core/search/search.service';
+import { GraphMaintenance } from '../knowledge-graph/graph-maintenance';
+import { isSyncV3RevisionFormat } from '../core/sync/sync-revision-format';
 import { PrismaService } from '../database/prisma.service';
 import { ATTACHMENT_CONFIG, type AttachmentConfig } from './attachment.config';
-import { type AttachmentListQueryDto, type AttachmentStateDto, type AttachmentSummary } from './attachment.dto';
+import {
+  type AttachmentListQueryDto,
+  type AttachmentRenameConfirmDto,
+  type AttachmentRenamePreview,
+  type AttachmentRenamePreviewDto,
+  type AttachmentStateDto,
+  type AttachmentSummary,
+} from './attachment.dto';
 import {
   ATTACHMENT_STORAGE,
   type AttachmentContentLease,
@@ -17,10 +29,22 @@ import {
 } from './attachment-storage';
 import {
   AttachmentValidationError,
+  validateAttachmentFilename,
   validateUploadedImage,
   type PreparedAttachment,
 } from './attachment-validator';
 import { normalizeAttachmentName } from './attachment-name';
+import {
+  AttachmentRenamePreviewTokenService,
+  type AttachmentRenamePreviewTokenPayload,
+} from './attachment-rename-preview-token.service';
+import {
+  hasImageReferenceLiteral,
+  parseImageReferences,
+  resolveParsedAttachmentReferences,
+  rewriteAttachmentReferenceRanges,
+  type ParsedImageReference,
+} from '../markdown-resources/attachment-reference';
 
 const READ_ROLES = ['owner', 'admin', 'editor', 'viewer'] as const;
 const WRITE_ROLES = ['owner', 'editor'] as const;
@@ -32,6 +56,7 @@ type AttachmentRow = Pick<
   | 'id'
   | 'spaceId'
   | 'displayName'
+  | 'nameKey'
   | 'mimeType'
   | 'sizeBytes'
   | 'width'
@@ -42,6 +67,38 @@ type AttachmentRow = Pick<
   | 'updatedAt'
   | 'archivedAt'
 >;
+
+type RenamePage = {
+  id: string;
+  knowledgeKey: string;
+  title: string;
+  content: string;
+  authorId: string;
+  slug: string;
+  format: string;
+  parentId: string | null;
+  folderId: string | null;
+  syncPath: string;
+  syncPathKey: string;
+  updatedAt: Date;
+};
+
+type RenamePageChange = {
+  page: RenamePage;
+  content: string;
+  sourceRanges: Array<{ start: number; end: number }>;
+  bodyHash: string;
+};
+
+type RevisionHeadEvidence = { id: string; hash: string } | null;
+
+const MIME_EXTENSION = new Map([
+  ['.png', 'image/png'],
+  ['.jpg', 'image/jpeg'],
+  ['.jpeg', 'image/jpeg'],
+  ['.webp', 'image/webp'],
+  ['.gif', 'image/gif'],
+]);
 
 export interface AttachmentContent {
   stream: NodeJS.ReadableStream;
@@ -104,10 +161,13 @@ function attachmentFamilySuffix(
 }
 
 function summary(row: AttachmentRow): AttachmentSummary {
+  const canonicalPath = managedAttachmentPath(row.displayName);
   return {
     id: row.id,
     spaceId: row.spaceId,
     displayName: row.displayName,
+    canonicalPath,
+    referenceable: canonicalPath !== null,
     mimeType: row.mimeType,
     sizeBytes: row.sizeBytes.toString(10),
     width: row.width,
@@ -120,14 +180,64 @@ function summary(row: AttachmentRow): AttachmentSummary {
   };
 }
 
+function managedAttachmentPath(displayName: string): string | null {
+  const parsed = FlatAttachmentPathSchema.safeParse(`assets/${displayName}`);
+  return parsed.success ? parsed.data : null;
+}
+
+function attachmentSourceIdentityHash(row: Pick<SpaceAttachment, 'id' | 'displayName' | 'nameKey' | 'updatedAt'>): string {
+  return createHash('sha256').update(canonicalBytes({
+    attachmentId: row.id,
+    displayName: row.displayName,
+    nameKey: row.nameKey,
+    updatedAt: row.updatedAt.toISOString(),
+  })).digest('hex');
+}
+
+function markdownRenameTarget(
+  body: string,
+  sourceSyncPath: string,
+  reference: ParsedImageReference,
+  canonicalPath: string,
+): string {
+  if (reference.syntax === 'obsidian') return canonicalPath;
+  const pagePath = sourceSyncPath.normalize('NFC');
+  const directory = posix.dirname(pagePath);
+  const relative = posix.relative(directory === '.' ? '' : directory, canonicalPath);
+  if (body[reference.targetStart - 1] === '<') return relative;
+  if (/\\[!"#$%&'()*+,\-./:;<=>?@[\]^_`{|}~]/u.test(reference.rawTarget)) {
+    return relative.replace(/[()]/gu, '\\$&').replace(/ /gu, '%20');
+  }
+  return relative.split('/').map((segment) => encodeURIComponent(segment)
+    .replace(/[!'()*]/gu, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`))
+    .join('/');
+}
+
+function renameEvidenceHash(changes: readonly RenamePageChange[]): string {
+  const evidence = [...changes]
+    .sort((left, right) => left.page.id.localeCompare(right.page.id))
+    .map(({ page, bodyHash, sourceRanges }) => ({
+      pageId: page.id,
+      updatedAt: page.updatedAt.toISOString(),
+      bodyHash,
+      sourceRanges: [...sourceRanges].sort((left, right) => left.start - right.start || left.end - right.end),
+    }));
+  return createHash('sha256').update(canonicalBytes(evidence)).digest('hex');
+}
+
 @Injectable()
 export class AttachmentService {
+  private readonly logger = new Logger(AttachmentService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly authorization: AuthorizationService,
     private readonly revisionWriter: SpaceRevisionWriterService,
     @Inject(ATTACHMENT_STORAGE) private readonly storage: AttachmentStorage,
     @Inject(ATTACHMENT_CONFIG) private readonly config: AttachmentConfig,
+    private readonly searchService: SearchService,
+    private readonly graphMaintenance: GraphMaintenance,
+    private readonly renamePreviewTokens: AttachmentRenamePreviewTokenService,
   ) {}
 
   async list(
@@ -232,6 +342,180 @@ export class AttachmentService {
       SpaceAttachmentStatus.archived,
       SpaceAttachmentStatus.active,
     );
+  }
+
+  async previewRename(
+    spaceId: string,
+    attachmentId: string,
+    body: AttachmentRenamePreviewDto,
+    principal: Principal,
+  ): Promise<AttachmentRenamePreview> {
+    await this.assertWritableHuman(this.prisma, principal, spaceId);
+    const space = await this.prisma.space.findUnique({
+      where: { id: spaceId, deletedAt: null },
+      select: { contentTreeRevision: true },
+    });
+    if (!space) throw new BusinessException('SPACE_NOT_FOUND');
+    const attachment = await this.prisma.spaceAttachment.findFirst({
+      where: { id: attachmentId, spaceId, status: SpaceAttachmentStatus.active },
+    });
+    if (!attachment) throw new BusinessException('RESOURCE_NOT_FOUND', 'Attachment not found');
+    const target = this.renameTarget(body.displayName, attachment.mimeType);
+    await this.assertRenameNameAvailable(this.prisma, spaceId, attachmentId, target.nameKey);
+    const pageChanges = await this.buildRenamePageChanges(
+      this.prisma, spaceId, attachmentId, target.displayName,
+      managedAttachmentPath(attachment.displayName) === null ? attachment.displayName : undefined,
+    );
+    const head = await this.currentRevisionHead(this.prisma, spaceId);
+    const previewToken = this.renamePreviewTokens.encode({
+      spaceId,
+      attachmentId,
+      sourceIdentityHash: attachmentSourceIdentityHash(attachment),
+      targetPath: target.path,
+      displayName: target.displayName,
+      attachmentUpdatedAt: attachment.updatedAt.toISOString(),
+      contentTreeRevision: space.contentTreeRevision.toString(10),
+      head,
+      evidenceHash: renameEvidenceHash(pageChanges),
+    });
+    return {
+      attachmentId,
+      displayName: target.displayName,
+      path: target.path,
+      previewToken,
+      impactedPages: pageChanges.map(({ page }) => ({ id: page.id, title: page.title })),
+    };
+  }
+
+  async rename(
+    spaceId: string,
+    attachmentId: string,
+    body: AttachmentRenameConfirmDto,
+    principal: Principal,
+  ): Promise<AttachmentSummary & { path: string; impactedPages: Array<{ id: string; title: string }> }> {
+    const preview = this.renamePreviewTokens.decode(body.previewToken, spaceId, attachmentId);
+    const result = await this.prisma.$transaction(async (tx) => {
+      await this.authorization.lockLiveHumanPrincipal(tx, principal);
+      const lockedTx = await this.revisionWriter.lockContentTreeSpace(tx, spaceId);
+      if (!lockedTx) throw new BusinessException('SPACE_NOT_FOUND');
+      await this.assertWritableHuman(lockedTx, principal, spaceId);
+      if (lockedTx.contentTreeRevision.toString(10) !== preview.contentTreeRevision) {
+        throw new BusinessException('CONTENT_TREE_CONFLICT');
+      }
+      const attachment = await lockedTx.spaceAttachment.findFirst({
+        where: { id: attachmentId, spaceId, status: SpaceAttachmentStatus.active },
+      });
+      if (!attachment) throw new BusinessException('RESOURCE_NOT_FOUND', 'Attachment not found');
+      if (attachment.updatedAt.toISOString() !== preview.attachmentUpdatedAt) {
+        throw new BusinessException('RESOURCE_CONFLICT', 'Attachment changed; preview again');
+      }
+      if (attachmentSourceIdentityHash(attachment) !== preview.sourceIdentityHash) {
+        throw new BusinessException('RESOURCE_CONFLICT', 'Attachment changed; preview again');
+      }
+      const currentHead = await this.currentRevisionHead(lockedTx, spaceId);
+      if (!this.sameRevisionHead(currentHead, preview.head)) {
+        throw new BusinessException('CONTENT_TREE_CONFLICT', 'Space content changed; preview again');
+      }
+      const target = this.renameTarget(preview.displayName, attachment.mimeType);
+      if (target.path !== preview.targetPath) {
+        throw new BusinessException('RESOURCE_CONFLICT', 'Rename preview target is invalid; preview again');
+      }
+      await this.assertRenameNameAvailable(lockedTx, spaceId, attachmentId, target.nameKey);
+      const pageChanges = await this.buildRenamePageChanges(
+        lockedTx, spaceId, attachmentId, target.displayName,
+        managedAttachmentPath(attachment.displayName) === null ? attachment.displayName : undefined,
+      );
+      if (renameEvidenceHash(pageChanges) !== preview.evidenceHash) {
+        throw new BusinessException('CONTENT_TREE_CONFLICT', 'Page references changed; preview again');
+      }
+
+      const changedAttachment = await lockedTx.spaceAttachment.updateMany({
+        where: {
+          id: attachmentId,
+          spaceId,
+          status: SpaceAttachmentStatus.active,
+          updatedAt: attachment.updatedAt,
+        },
+        data: { displayName: target.displayName, nameKey: target.nameKey },
+      });
+      if (changedAttachment.count !== 1) {
+        throw new BusinessException('RESOURCE_CONFLICT', 'Attachment changed; preview again');
+      }
+
+      const changedAt = new Date();
+      for (const change of pageChanges) {
+        const { page } = change;
+        await lockedTx.pageVersion.create({ data: {
+          pageId: page.id,
+          title: page.title,
+          content: page.content,
+          authorId: page.authorId,
+          slug: page.slug,
+          format: page.format,
+          parentId: page.parentId,
+          folderId: page.folderId,
+          syncPath: page.syncPath,
+          syncPathKey: page.syncPathKey,
+        } });
+        const updated = await lockedTx.page.updateMany({
+          where: {
+            id: page.id,
+            spaceId,
+            deletedAt: null,
+            updatedAt: page.updatedAt,
+            content: page.content,
+          },
+          data: {
+            content: change.content,
+            lastModifiedByUserId: principal.userId,
+            lastModifiedByAgentId: null,
+            lastChangeSetId: null,
+            lastModifiedAt: changedAt,
+          },
+        });
+        if (updated.count !== 1) {
+          throw new BusinessException('ATTACHMENT_REFERENCE_INVALID', 'Page changed; preview again');
+        }
+        await lockedTx.pageSearchDocument.deleteMany({ where: { pageId: page.id } });
+      }
+
+      await this.revisionWriter.advanceReferencedImagesLocked(lockedTx, spaceId, pageChanges.map(({ page, content }) => ({
+        operation: 'upsert' as const,
+        pageId: page.knowledgeKey,
+        path: page.syncPath,
+        title: page.title,
+        body: content,
+      })), {
+        origin: 'web_editor',
+        createdByUserId: principal.userId,
+      });
+      const updatedAttachment = await lockedTx.spaceAttachment.findUnique({ where: { id: attachmentId } });
+      if (!updatedAttachment || updatedAttachment.spaceId !== spaceId) {
+        throw new BusinessException('RESOURCE_CONFLICT', 'Attachment changed; preview again');
+      }
+      return {
+        ...summary(updatedAttachment),
+        path: target.path,
+        impactedPages: pageChanges.map(({ page }) => ({ id: page.id, title: page.title })),
+      };
+    });
+    for (const page of result.impactedPages) {
+      try {
+        await this.searchService.indexPage(page.id);
+      } catch (error) {
+        this.logger.warn(
+          `Attachment rename search refresh failed for ${page.id}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    try {
+      this.graphMaintenance.enqueue(spaceId);
+    } catch (error) {
+      this.logger.warn(
+        `Attachment rename graph refresh failed for ${spaceId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return result;
   }
 
   async content(attachmentId: string, principal: Principal): Promise<AttachmentContent> {
@@ -398,6 +682,10 @@ export class AttachmentService {
       await this.revisionWriter.lockSpace(tx, spaceId);
       await this.assertWritableHuman(tx, principal, spaceId);
 
+      if (to === SpaceAttachmentStatus.archived) {
+        await this.assertNotReferencedByCurrentV3(tx, spaceId, attachmentId);
+      }
+
       if (to === SpaceAttachmentStatus.active) {
         const candidate = await tx.spaceAttachment.findUnique({
           where: { id: attachmentId },
@@ -433,6 +721,197 @@ export class AttachmentService {
       }
       return summary(updated);
     });
+  }
+
+  private async assertNotReferencedByCurrentV3(
+    tx: Prisma.TransactionClient,
+    spaceId: string,
+    attachmentId: string,
+  ): Promise<void> {
+    const current = await tx.spaceKnowledgeRevision.findFirst({
+      where: { spaceId },
+      orderBy: { sequence: 'desc' },
+      select: { id: true, schemaVersion: true, recipeVersion: true },
+    });
+    if (!current || !isSyncV3RevisionFormat(current)) return;
+
+    const revisionReference = await tx.syncRevisionAttachmentRow.findUnique({
+      where: {
+        revisionId_attachmentId: { revisionId: current.id, attachmentId },
+      },
+      select: { attachmentId: true },
+    });
+    if (!revisionReference) return;
+
+    const sidecar = await tx.legacyRevisionSidecar.findUnique({
+      where: { revisionId: current.id },
+      select: { sidecar: true },
+    });
+    const record = sidecar?.sidecar;
+    const syncV3 = record && typeof record === 'object' && !Array.isArray(record)
+      ? (record as Record<string, unknown>).syncV3Revision
+      : undefined;
+    const rawPageReferences = syncV3 && typeof syncV3 === 'object' && !Array.isArray(syncV3)
+      ? (syncV3 as Record<string, unknown>).pageAttachmentIds
+      : undefined;
+    const pageKeys = new Set<string>();
+    if (Array.isArray(rawPageReferences)) {
+      for (const entry of rawPageReferences) {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+        const pageId = (entry as Record<string, unknown>).pageId;
+        const referencedAttachmentIds = (entry as Record<string, unknown>).referencedAttachmentIds;
+        if (
+          typeof pageId === 'string'
+          && Array.isArray(referencedAttachmentIds)
+          && referencedAttachmentIds.includes(attachmentId)
+        ) pageKeys.add(pageId);
+      }
+    }
+    const pages = pageKeys.size === 0 ? [] : await tx.page.findMany({
+      where: {
+        spaceId,
+        deletedAt: null,
+        knowledgeKey: { in: [...pageKeys] },
+      },
+      select: { id: true, title: true },
+    });
+    const safePages = [...new Map(
+      pages.map((page) => [page.id, { id: page.id, title: page.title }]),
+    ).values()].sort((left, right) => left.id.localeCompare(right.id));
+    throw new BusinessException(
+      'ATTACHMENT_REFERENCED',
+      undefined,
+      { pages: safePages },
+    );
+  }
+
+  private renameTarget(value: string, mimeType: string) {
+    let normalized: { displayName: string; nameKey: string };
+    try {
+      normalized = validateAttachmentFilename(value.normalize('NFC').trim());
+    } catch (error) {
+      if (error instanceof AttachmentValidationError) throw new BadRequestException(error.message);
+      throw error;
+    }
+    const path = FlatAttachmentPathSchema.safeParse(`assets/${normalized.displayName}`);
+    if (!path.success || MIME_EXTENSION.get(extname(normalized.displayName).toLowerCase()) !== mimeType) {
+      throw new BadRequestException('Attachment filename extension must match its image type');
+    }
+    return { ...normalized, path: path.data };
+  }
+
+  private async assertRenameNameAvailable(
+    db: Prisma.TransactionClient,
+    spaceId: string,
+    attachmentId: string,
+    nameKey: string,
+  ): Promise<void> {
+    const conflict = await db.spaceAttachment.findFirst({
+      where: { spaceId, nameKey, id: { not: attachmentId } },
+      select: { id: true },
+    });
+    if (conflict) throw new BusinessException('ATTACHMENT_NAME_CONFLICT');
+  }
+
+  private async buildRenamePageChanges(
+    db: Prisma.TransactionClient,
+    spaceId: string,
+    attachmentId: string,
+    displayName: string,
+    legacyUnsafeDisplayName?: string,
+  ): Promise<RenamePageChange[]> {
+    const [attachments, pages] = await Promise.all([
+      db.spaceAttachment.findMany({
+        where: { spaceId, status: SpaceAttachmentStatus.active },
+        select: { id: true, displayName: true, nameKey: true },
+      }),
+      db.page.findMany({
+        where: { spaceId, deletedAt: null },
+        select: {
+          id: true,
+          knowledgeKey: true,
+          title: true,
+          content: true,
+          authorId: true,
+          slug: true,
+          format: true,
+          parentId: true,
+          folderId: true,
+          syncPath: true,
+          syncPathKey: true,
+          updatedAt: true,
+        },
+        orderBy: { id: 'asc' },
+      }),
+    ]);
+    if (legacyUnsafeDisplayName !== undefined) {
+      const impactedPages = pages
+        .filter((page) => hasImageReferenceLiteral(
+          page.content,
+          [legacyUnsafeDisplayName, `assets/${legacyUnsafeDisplayName}`],
+        ))
+        .map((page) => ({ id: page.id, title: page.title }));
+      if (impactedPages.length > 0) {
+        throw new BusinessException(
+          'ATTACHMENT_REFERENCE_INVALID',
+          'Repair the legacy Page references before renaming this attachment',
+          { pages: impactedPages },
+        );
+      }
+    }
+    const canonicalPath = `assets/${displayName}`;
+    const changes: RenamePageChange[] = [];
+    for (const page of pages) {
+      const parsed = parseImageReferences(page.content, page.syncPath);
+      const resolved = resolveParsedAttachmentReferences(parsed, attachments);
+      if (resolved.errors.length > 0) {
+        throw new BusinessException(resolved.errors[0].code);
+      }
+      const references = resolved.references.filter((reference) => reference.attachmentId === attachmentId);
+      if (references.length === 0) continue;
+      const content = rewriteAttachmentReferenceRanges(page.content, references.map((reference) => ({
+        start: reference.targetStart,
+        end: reference.targetEnd,
+        target: markdownRenameTarget(page.content, page.syncPath, reference, canonicalPath),
+      })));
+      const verified = resolveParsedAttachmentReferences(
+        parseImageReferences(content, page.syncPath),
+        attachments.map((attachment) => attachment.id === attachmentId
+          ? { ...attachment, displayName, nameKey: normalizeAttachmentName(displayName).nameKey }
+          : attachment),
+      );
+      if (verified.errors.length > 0 || !verified.attachmentIds.includes(attachmentId)) {
+        throw new BusinessException('ATTACHMENT_REFERENCE_INVALID');
+      }
+      changes.push({
+        page,
+        content,
+        sourceRanges: references.map(({ targetStart: start, targetEnd: end }) => ({ start, end })),
+        bodyHash: createHash('sha256').update(page.content, 'utf8').digest('hex'),
+      });
+    }
+    return changes;
+  }
+
+  private async currentRevisionHead(
+    db: Prisma.TransactionClient | PrismaService,
+    spaceId: string,
+  ): Promise<RevisionHeadEvidence> {
+    const head = await db.spaceKnowledgeRevision.findFirst({
+      where: { spaceId },
+      orderBy: { sequence: 'desc' },
+      select: { id: true, revisionContentHash: true },
+    });
+    return head ? { id: head.id, hash: head.revisionContentHash } : null;
+  }
+
+  private sameRevisionHead(
+    current: RevisionHeadEvidence,
+    preview: AttachmentRenamePreviewTokenPayload['head'],
+  ): boolean {
+    return current === null
+      ? preview === null
+      : preview !== null && current.id === preview.id && current.hash === preview.hash;
   }
 
   private async assertWritableHuman(

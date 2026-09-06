@@ -212,6 +212,8 @@ test('page identity migration matches Unicode 15.1 folding and exposes indexed l
         { key: 'trim-title', status: 'resolved', kind: 'page' },
         { key: 'trim-slug', status: 'resolved', kind: 'page' },
         { key: 'unicode-path', status: 'resolved', kind: 'page' },
+        // Markdown lookup identity trims comparison values while the stored portable path
+        // preserves its leading space for display and filesystem identity.
         { key: 'trim-path', status: 'resolved', kind: 'page' },
         { key: 'unicode-title', status: 'resolved', kind: 'page' },
         { key: 'unicode-slug', status: 'resolved', kind: 'page' },
@@ -221,6 +223,34 @@ test('page identity migration matches Unicode 15.1 folding and exposes indexed l
       const resolverQueryCounts = await waitForResolverQueryEvents(queries);
       assert.equal(resolverQueryCounts.page, 3);
       assert.equal(resolverQueryCounts.attachment, 1);
+
+      const trimPathCollisionId = `trim-path-collision_${schemaName}`;
+      await prisma.page.create({ data: {
+        id: trimPathCollisionId, spaceId, authorId: userId,
+        title: 'Trim path collision', slug: `trim-path-collision-${schemaName}`,
+        syncPath: 'Guide.md', syncPathKey: 'guide.md',
+      } });
+      try {
+        const collision = await resolver.resolve(spaceId, [
+          { key: 'trim-path-collision', kind: 'page', target: ' Guide.md ' },
+        ], { userId });
+        assert.deepEqual(collision, [{
+          key: 'trim-path-collision', status: 'ambiguous', candidates: [
+            {
+              pageId: `trim-path_${schemaName}`,
+              title: 'Trimmed path',
+              path: ' Guide.md',
+            },
+            {
+              pageId: trimPathCollisionId,
+              title: 'Trim path collision',
+              path: 'Guide.md',
+            },
+          ],
+        }]);
+      } finally {
+        await prisma.page.delete({ where: { id: trimPathCollisionId } });
+      }
 
       const sourceRelative = await resolver.resolve(spaceId, [
         { key: 'target', kind: 'page', target: 'Target.md' },

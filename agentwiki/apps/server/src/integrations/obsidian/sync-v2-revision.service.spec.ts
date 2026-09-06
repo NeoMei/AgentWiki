@@ -1,12 +1,16 @@
 import {
   canonicalBytes,
+  canonicalTreeRevisionManifestV3,
   canonicalTreeRevisionManifestV2,
   contentHash,
   treeRevisionContentHashV2,
+  treeRevisionContentHashV3,
+  treeRevisionDeltaV3,
 } from '@neomei/agentwiki-sync-protocol';
 import { RevisionV2IntegrityError } from '../../core/sync/revision-v2-integrity';
 import { SyncApiException } from './sync-error';
 import { SyncV2RevisionService } from './sync-v2-revision.service';
+import { SyncV3ImmutableRevisionService } from './sync-v3-immutable-revision.service';
 
 const at = (value: string) => new Date(value);
 const root = {
@@ -108,7 +112,7 @@ async function fixture(maxResponseBytes = 4 * 1024 * 1024, maxDeltaItems = 15_00
     ]],
   ]);
   const deltaCounts = new Map([...deltaRows].map(([revisionId, rows]) => [revisionId, rows.length]));
-  const sidecars = new Map([...revisions].map(([revisionId, revision]) => {
+  const sidecars = new Map<string, any>([...revisions].map(([revisionId, revision]) => {
     const manifest = manifests.get(revisionId)!;
     return [revisionId, { sidecar: { spaceFolderMigration: {
       version: 1,
@@ -148,6 +152,9 @@ async function fixture(maxResponseBytes = 4 * 1024 * 1024, maxDeltaItems = 15_00
         return ids.flatMap((revisionId: string) => pagesByRevision.get(revisionId) ?? []);
       }),
     },
+    syncRevisionAttachmentRow: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     legacyRevisionSidecar: {
       findUnique: jest.fn(async ({ where }: any) => sidecars.get(where.revisionId) ?? null),
       findMany: jest.fn(async ({ where }: any) => where.revisionId.in.flatMap((revisionId: string) => {
@@ -167,9 +174,56 @@ async function fixture(maxResponseBytes = 4 * 1024 * 1024, maxDeltaItems = 15_00
   const cursors = cursorCodec();
   const capabilities = { capabilitiesV2: jest.fn(() => ({ maxResponseBytes, maxDeltaItems })) };
   return {
-    service: new SyncV2RevisionService(prisma, cursors as any, capabilities as any),
+    service: new SyncV2RevisionService(
+      prisma, cursors as any, capabilities as any, undefined,
+      new SyncV3ImmutableRevisionService(),
+    ),
     prisma, cursors, revisions, foldersByRevision, pagesByRevision, sidecars, deltaCounts, deltaRows,
   };
+}
+
+async function convertCurrentToNativeV3(state: Awaited<ReturnType<typeof fixture>>) {
+  const revision = state.revisions.get('rev-2');
+  state.foldersByRevision.set('rev-2', []);
+  state.pagesByRevision.get('rev-2')!.forEach((item) => {
+    item.folderId = null;
+    item.path = 'pages/Page.md';
+    item.pathKey = 'pages/page.md';
+  });
+  const folders: any[] = [];
+  const pages = state.pagesByRevision.get('rev-2')!.map((item) => ({
+    pageId: item.pageId, folderId: item.folderId, path: item.path,
+    title: item.title, body: item.content.body, contentHash: item.contentHash,
+    updatedAt: item.updatedAt.toISOString(), referencedAttachmentIds: [],
+  }));
+  const manifest = canonicalTreeRevisionManifestV3({
+    protocolVersion: '3', spaceId: 'space-1', folders, pages, attachments: [],
+  });
+  const revisionHash = await treeRevisionContentHashV3(manifest);
+  const delta = treeRevisionDeltaV3(null, manifest);
+  Object.assign(revision, {
+    schemaVersion: 'content-tree@3', recipeVersion: 'referenced-images-v1',
+    contentHash: revisionHash, revisionContentHash: revisionHash,
+    pageCount: BigInt(pages.length), attachmentCount: 0n,
+    revisionManifestByteLength: BigInt(canonicalBytes(manifest).byteLength),
+    revisionBodyBytes: BigInt(pages.reduce(
+      (sum, item) => sum + Buffer.byteLength(item.body, 'utf8'), 0,
+    )),
+    revisionAttachmentBytes: 0n, delta,
+  });
+  state.sidecars.set('rev-2', { sidecar: { syncV3Revision: {
+    protocolVersion: '3', manifestSchema: 'TreeRevisionContentManifestV3',
+    revisionContentHash: revisionHash, folderCount: String(folders.length),
+    pageCount: String(pages.length), attachmentCount: '0',
+    revisionManifestByteLength: String(revision.revisionManifestByteLength),
+    revisionBodyBytes: String(revision.revisionBodyBytes), revisionAttachmentBytes: '0',
+    treeDeltaCount: String(delta.length),
+    pageAttachmentIds: pages.map((item) => ({
+      pageId: item.pageId, referencedAttachmentIds: [],
+    })),
+    attachmentUpdatedAt: [],
+  } } });
+  return { revision, manifest };
 }
 
 function replaceWithInitialV2Delta(state: Awaited<ReturnType<typeof fixture>>, revisionId = 'rev-2') {
@@ -623,11 +677,7 @@ describe('SyncV2RevisionService', () => {
 
   it('returns a v2 projection hash instead of a native v3 authority hash when attachments are absent', async () => {
     const state = await fixture();
-    const revision = state.revisions.get('rev-2');
-    revision.schemaVersion = 'content-tree@3';
-    revision.recipeVersion = 'referenced-images-v1';
-    revision.revisionContentHash = 'f'.repeat(64);
-    revision.contentHash = 'f'.repeat(64);
+    const { revision } = await convertCurrentToNativeV3(state);
 
     const response = await state.service.head('space-1');
 
@@ -649,6 +699,34 @@ describe('SyncV2RevisionService', () => {
     ));
   });
 
+  it.each([
+    ['v3 sidecar', (state: Awaited<ReturnType<typeof fixture>>) => {
+      state.sidecars.get('rev-2')!.sidecar.syncV3Revision.unexpected = true;
+    }],
+    ['stored canonical delta', (state: Awaited<ReturnType<typeof fixture>>) => {
+      state.revisions.get('rev-2').delta = [];
+    }],
+    ['revision hash metadata', (state: Awaited<ReturnType<typeof fixture>>) => {
+      state.revisions.get('rev-2').revisionContentHash = 'f'.repeat(64);
+    }],
+    ['Page attachment evidence', (state: Awaited<ReturnType<typeof fixture>>) => {
+      state.sidecars.get('rev-2')!.sidecar.syncV3Revision.pageAttachmentIds = [];
+    }],
+    ['Page content', (state: Awaited<ReturnType<typeof fixture>>) => {
+      state.pagesByRevision.get('rev-2')![0].content.body = '# Corrupt\n';
+    }],
+    ['Page content hash', (state: Awaited<ReturnType<typeof fixture>>) => {
+      state.pagesByRevision.get('rev-2')![0].contentHash = 'f'.repeat(64);
+    }],
+  ])('fails closed with REVISION_GONE when an attachment-free native v3 projection has corrupt %s', async (_label, mutate) => {
+    const state = await fixture();
+    await convertCurrentToNativeV3(state);
+    mutate(state);
+
+    await expect(state.service.snapshot('space-1', 'rev-2', undefined, 100))
+      .rejects.toMatchObject({ syncCode: 'REVISION_GONE', retryable: false });
+  });
+
   it('blocks the current legacy endpoint while Markdown attachment candidates require bootstrap', async () => {
     const state = await fixture();
     const v3Writer = {
@@ -659,6 +737,7 @@ describe('SyncV2RevisionService', () => {
       state.cursors as any,
       { capabilitiesV2: () => ({ maxResponseBytes: 4_194_304, maxDeltaItems: 15_000 }) } as any,
       v3Writer as any,
+      new SyncV3ImmutableRevisionService(),
     );
 
     await expect(service.head('space-1'))

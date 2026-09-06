@@ -4,6 +4,7 @@ import { lstat, open } from 'node:fs/promises';
 import { extname } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import type * as FileType from 'file-type';
+import { FlatAttachmentPathSchema } from '@neomei/agentwiki-sync-protocol';
 import type { AttachmentConfig } from './attachment.config';
 
 const MAX_FILENAME_CODE_POINTS = 200;
@@ -117,7 +118,7 @@ export interface PreparedAttachment {
   tempPath: string;
 }
 
-function validateFilename(originalName: string): { displayName: string; nameKey: string } {
+export function validateAttachmentFilename(originalName: string): { displayName: string; nameKey: string } {
   const displayName = originalName.normalize('NFC');
   if (
     displayName.length === 0 ||
@@ -132,6 +133,12 @@ function validateFilename(originalName: string): { displayName: string; nameKey:
   }
   if (Buffer.byteLength(displayName, 'utf8') > MAX_FILENAME_UTF8_BYTES) {
     throw new AttachmentValidationError('Attachment filename exceeds 512 UTF-8 bytes');
+  }
+  if (
+    /\.(?:png|jpe?g|webp|gif)$/iu.test(displayName)
+    && !FlatAttachmentPathSchema.safeParse(`assets/${displayName}`).success
+  ) {
+    throw new AttachmentValidationError('Attachment filename cannot round-trip through Markdown');
   }
   return { displayName, nameKey: displayName.toLocaleLowerCase('und') };
 }
@@ -288,11 +295,17 @@ function parseImageDimensions(
   }
 }
 
-export async function validateUploadedImage(
-  file: Express.Multer.File,
+export interface StagedImageFile {
+  originalname: string;
+  mimetype: string;
+  path: string;
+}
+
+export async function validateStagedImage(
+  file: StagedImageFile,
   config: AttachmentConfig,
 ): Promise<PreparedAttachment> {
-  const { displayName, nameKey } = validateFilename(file.originalname);
+  const { displayName, nameKey } = validateAttachmentFilename(file.originalname);
   const expectedMime = MIME_BY_EXTENSION.get(extname(displayName).toLowerCase());
   if (!expectedMime || file.mimetype !== expectedMime) {
     throw new AttachmentValidationError('Unsupported attachment image type or MIME disagreement');
@@ -394,4 +407,11 @@ export async function validateUploadedImage(
   } finally {
     await handle.close();
   }
+}
+
+export async function validateUploadedImage(
+  file: Express.Multer.File,
+  config: AttachmentConfig,
+): Promise<PreparedAttachment> {
+  return validateStagedImage(file, config);
 }

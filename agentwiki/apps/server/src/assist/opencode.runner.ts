@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'fs';
+import { existsSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
-import { dirname, extname, join, resolve } from 'path';
+import { join } from 'path';
 import {
   AssistInput,
   AssistRunResult,
@@ -15,6 +15,11 @@ import {
   OpencodeRunner,
   StreamChunkCallback,
 } from './opencode.types';
+import {
+  OpencodeLaunch,
+  resolveBundledOpencodeLaunch,
+  resolveOpencodeLaunchFile,
+} from './opencode-launch';
 
 const MAX_OUTPUT_BYTES = 2_000_000;
 const TERMINATION_GRACE_MS = 5_000;
@@ -70,7 +75,7 @@ export class OpencodeCliRunner implements OpencodeRunner {
    * node_modules/.bin locations including the pnpm .pnpm virtual store where
    * pnpm places bins when the top-level .bin is not linked.
    */
-  private resolveLaunch(): { command: string; argsPrefix: string[] } {
+  private resolveLaunch(): OpencodeLaunch {
     const configured = this.config.get<string>('OPENCODE_BIN');
     if (configured) {
       if (!existsSync(configured)) return { command: configured, argsPrefix: [] };
@@ -92,63 +97,15 @@ export class OpencodeCliRunner implements OpencodeRunner {
     cwd: string,
     platform: NodeJS.Platform,
     arch: string,
-  ): { command: string; argsPrefix: string[] } | undefined {
-    for (const root of [cwd, join(cwd, '..'), join(cwd, '..', '..')]) {
-      const packageJsonPath = join(root, 'node_modules', 'opencode-ai', 'package.json');
-      try {
-        if (!existsSync(packageJsonPath)) continue;
-        const manifest = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {
-          bin?: string | Record<string, string>;
-        };
-        const bin = typeof manifest.bin === 'string' ? manifest.bin : manifest.bin?.opencode;
-        if (!bin) continue;
-        const realPackageJson = realpathSync(packageJsonPath);
-        // opencode-ai's postinstall selects the CPU/libc-compatible package,
-        // copies it here, and verifies that it starts. Trust that selection
-        // before falling back to an optional platform package.
-        const target = resolve(dirname(realPackageJson), bin);
-        const genericLaunch = existsSync(target) ? this.launchFile(target, platform) : undefined;
-        if (genericLaunch) return genericLaunch;
-
-        const platformName = platform === 'win32' ? 'windows' : platform;
-        const executableName = platform === 'win32' ? 'opencode.exe' : 'opencode';
-        for (const suffix of ['', '-baseline']) {
-          const nativeTarget = resolve(
-            dirname(realPackageJson), '..', `opencode-${platformName}-${arch}${suffix}`,
-            'bin', executableName,
-          );
-          const nativeLaunch = existsSync(nativeTarget)
-            ? this.launchFile(nativeTarget, platform)
-            : undefined;
-          if (nativeLaunch) return nativeLaunch;
-        }
-      } catch {
-        // Ignore an invalid or inaccessible package and try the next root.
-      }
-    }
-    return undefined;
+  ): OpencodeLaunch | undefined {
+    return resolveBundledOpencodeLaunch(cwd, platform, arch);
   }
 
   private launchFile(
     target: string,
     platform: NodeJS.Platform,
-  ): { command: string; argsPrefix: string[] } | undefined {
-    const extension = extname(target).toLowerCase();
-    if (['.js', '.cjs', '.mjs'].includes(extension)) {
-      return { command: process.execPath, argsPrefix: [target] };
-    }
-    const header = readFileSync(target).subarray(0, 128);
-    if (/^#!.*\bnode\b/u.test(header.toString('utf8'))) {
-      return { command: process.execPath, argsPrefix: [target] };
-    }
-    const native = platform === 'win32'
-      ? header[0] === 0x4d && header[1] === 0x5a
-      : platform === 'linux'
-        ? header[0] === 0x7f && header.subarray(1, 4).toString('ascii') === 'ELF'
-        : platform === 'darwin' && [
-          'feedface', 'feedfacf', 'cefaedfe', 'cffaedfe', 'cafebabe',
-        ].includes(header.subarray(0, 4).toString('hex'));
-    return native ? { command: target, argsPrefix: [] } : undefined;
+  ): OpencodeLaunch | undefined {
+    return resolveOpencodeLaunchFile(target, platform);
   }
 
   private exec(args: string[], timeoutMs: number, invocation: 'catalog' | 'model', onStreamChunk?: StreamChunkCallback): Promise<string> {

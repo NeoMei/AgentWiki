@@ -28,6 +28,7 @@ import {
   createBrowserFailureCollector,
   partitionExpectedConsoleIssues,
   buildExternalAgentStagePrompt,
+  LOCAL_SYNC_PACKAGE_VERSION,
   collectContentTree,
   externalAgentClientArgs,
   externalAgentClientEnvironment,
@@ -185,7 +186,7 @@ async function prepareFixture(apiUrl) {
 async function createConnectedAgent(apiUrl, token, spaceId, name) {
   const agent = await request(apiUrl, '/agents', { method: 'POST', token, body: { name } });
   const installation = await request(apiUrl, `/agents/${agent.id}/local-sync-installations`, {
-    method: 'POST', token, body: { spaceId, role: 'publisher', pluginVersion: '0.7.0' },
+    method: 'POST', token, body: { spaceId, role: 'publisher', pluginVersion: LOCAL_SYNC_PACKAGE_VERSION },
   });
   const exchange = await request(apiUrl, '/integrations/local-sync/exchange', {
     method: 'POST', body: { code: installation.code },

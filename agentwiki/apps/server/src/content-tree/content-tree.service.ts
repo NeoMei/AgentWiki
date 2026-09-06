@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import {
+  CONTENT_TREE_HARD_LIMITS,
   canonicalBytes,
   contentHash,
   foldCase,
@@ -58,8 +59,8 @@ import {
 
 const DEFAULT_TAKE = 100;
 const MAX_TAKE = 200;
-const MAX_FOLDER_DEPTH = 32;
-const MAX_ACTIVE_FOLDERS = 10_000n;
+const MAX_FOLDER_DEPTH = CONTENT_TREE_HARD_LIMITS.maxFolderDepth;
+const MAX_ACTIVE_FOLDERS = BigInt(CONTENT_TREE_HARD_LIMITS.maxActiveFolders);
 const MAX_MUTATION_NODES = 10_000;
 const MAX_PAGE_ALIASES = 20;
 const MUTATION_TRANSACTION_TIMEOUT_MS = 120_000;

@@ -9,6 +9,7 @@ import {
   validateFolderTestDatabaseUrl,
   withFolderTestDatabase,
 } from './folder-test-database.mjs';
+import { createSyncV3TestRuntime } from './sync-v3-test-runtime.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
@@ -20,16 +21,13 @@ const {
   pathKey,
   scopesForAgentAccessRole,
 } = requireFromServer('@neomei/agentwiki-sync-protocol');
-const { AuthorizationService } = requireFromServer('./dist/core/authorization/authorization.service.js');
 const { AgentService } = requireFromServer('./dist/core/agent/agent.service.js');
 const { PageService } = requireFromServer('./dist/core/page/page.service.js');
 const { ReadableSyncPathService } = requireFromServer('./dist/core/sync/readable-sync-path.service.js');
-const { SpaceRevisionWriterService } = requireFromServer('./dist/core/sync/space-revision-writer.service.js');
 const { ContentTreeService } = requireFromServer('./dist/content-tree/content-tree.service.js');
 const { PageTemplateService } = requireFromServer('./dist/page-templates/page-template.service.js');
 const { ReviewService } = requireFromServer('./dist/review/review.service.js');
 const { PushSessionService } = requireFromServer('./dist/integrations/obsidian/push-session.service.js');
-const { SyncV2RevisionService } = requireFromServer('./dist/integrations/obsidian/sync-v2-revision.service.js');
 const { KnowledgeSubmissionService } = requireFromServer('./dist/knowledge-pipeline/knowledge-submission.service.js');
 const { SourceService } = requireFromServer('./dist/knowledge-pipeline/source.service.js');
 const { McpService } = requireFromServer('./dist/mcp/mcp.service.js');
@@ -84,10 +82,11 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
   try {
     await withFolderTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schemaName }) => {
       const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
-      const writer = SpaceRevisionWriterService.legacyOnly(prisma);
+      const runtime = await createSyncV3TestRuntime(prisma, `content-tree-consumers-${schemaName}`);
+      const writer = runtime.writer;
       const syncPaths = new ReadableSyncPathService();
       const contentTree = new ContentTreeService(prisma, writer, syncPaths);
-      const authorization = new AuthorizationService(prisma);
+      const authorization = runtime.authorization;
       const config = { get: (_key, fallback) => fallback };
       const templates = new PageTemplateService(
         prisma, authorization, config, writer, { canCreate: () => true },
@@ -105,8 +104,9 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
       );
       const pushes = new PushSessionService(
         prisma, {}, contentTree, search, undefined, graph,
+        runtime.syncCapabilities, runtime.v3Writer,
       );
-      const syncV2Revisions = new SyncV2RevisionService(
+      const syncV2Revisions = runtime.createV2Reader(
         prisma,
         {
           encode: (payload) => Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url'),
@@ -1030,7 +1030,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           const spaceId = await createSpace('knowledge-producer');
           const bundle = {
             schemaVersion: 'knowledge-bundle@1',
-            recipeVersion: 'folder-test',
+            recipeVersion: 'none',
             spaceId,
             baseRevision: '0',
             pages: [{
@@ -1966,6 +1966,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           )).revision, applied.appliedRevisionId);
         });
       } finally {
+        await runtime.dispose();
         await prisma.$disconnect();
       }
     });

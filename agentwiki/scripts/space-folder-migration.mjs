@@ -998,15 +998,36 @@ export async function preflightSpaceFolderMigration(prisma, spaceId) {
   return buildSpaceFolderMigrationPlan(await loadSpaceSnapshot(prisma, spaceId));
 }
 
-async function loadRevisionWriter() {
-  const module = await import(pathToFileURL(resolve(
-    root,
-    'apps/server/dist/core/sync/space-revision-writer.service.js',
-  )).href);
-  if (!module.SpaceRevisionWriterService) {
-    throw new Error('Compiled SpaceRevisionWriterService is unavailable; build @agentwiki/server first');
+async function loadRevisionRuntime(prisma) {
+  const load = (relativePath) => import(pathToFileURL(resolve(root, relativePath)).href);
+  const [writerModule, v3Module, authorizationModule, markdownModule, storageModule, configModule] =
+    await Promise.all([
+      load('apps/server/dist/core/sync/space-revision-writer.service.js'),
+      load('apps/server/dist/core/sync/sync-v3-revision-writer.service.js'),
+      load('apps/server/dist/core/authorization/authorization.service.js'),
+      load('apps/server/dist/markdown-resources/markdown-resource.service.js'),
+      load('apps/server/dist/attachments/local-attachment.storage.js'),
+      load('apps/server/dist/attachments/attachment.config.js'),
+    ]);
+  const required = [
+    writerModule.SpaceRevisionWriterService,
+    v3Module.SyncV3RevisionWriterService,
+    authorizationModule.AuthorizationService,
+    markdownModule.MarkdownResourceService,
+    storageModule.LocalAttachmentStorage,
+    configModule.loadAttachmentConfig,
+  ];
+  if (required.some((value) => typeof value !== 'function')) {
+    throw new Error('Compiled Sync v3 revision runtime is unavailable; build @agentwiki/server first');
   }
-  return module.SpaceRevisionWriterService;
+  const storage = new storageModule.LocalAttachmentStorage(configModule.loadAttachmentConfig());
+  const authorization = new authorizationModule.AuthorizationService(prisma);
+  const markdown = new markdownModule.MarkdownResourceService(prisma, authorization);
+  const v3Writer = new v3Module.SyncV3RevisionWriterService(markdown, storage);
+  return {
+    storage,
+    writer: new writerModule.SpaceRevisionWriterService(prisma, v3Writer),
+  };
 }
 
 function appliedCounts(plan, overrides = {}) {
@@ -1194,8 +1215,7 @@ export async function migrateSpaceFolders(prisma, spaceId, options = {}) {
   if (!/^[0-9a-f]{64}$/u.test(options.expectedInputHash)) {
     throw new TypeError('expectedInputHash must be a lowercase SHA-256 digest');
   }
-  const SpaceRevisionWriterService = await loadRevisionWriter();
-  const writer = SpaceRevisionWriterService.legacyOnly(prisma);
+  const { writer, storage } = await loadRevisionRuntime(prisma);
   let stableReport = null;
   try {
     return await prisma.$transaction(async (tx) => {
@@ -1426,6 +1446,8 @@ export async function migrateSpaceFolders(prisma, spaceId, options = {}) {
     wrapped.message = `${wrapped.message}: ${message}`;
     wrapped.cause = error;
     throw wrapped;
+  } finally {
+    await storage.onModuleDestroy?.();
   }
 }
 

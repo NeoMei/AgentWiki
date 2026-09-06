@@ -132,6 +132,38 @@ read_attachment_min_free_bytes() {
   esac
 }
 
+validate_attachment_content_roots() {
+  local resolved_root child_name child_path resolved_child
+  resolved_root="\$(readlink -f "\$attachment_storage_path")"
+  if [ -z "\$resolved_root" ] || [ ! -d "\$resolved_root" ]; then
+    echo "Attachment storage root cannot be resolved." >&2
+    return 1
+  fi
+  for child_name in .tmp .locks sha256; do
+    child_path="\$attachment_storage_path/\$child_name"
+    if [ -L "\$child_path" ]; then
+      echo "Attachment content root must not be a symbolic link: \$child_path" >&2
+      return 1
+    fi
+    if [ -e "\$child_path" ] && [ ! -d "\$child_path" ]; then
+      echo "Attachment content root exists but is not a directory: \$child_path" >&2
+      return 1
+    fi
+    if [ ! -d "\$child_path" ]; then
+      install -d -m 0700 -- "\$child_path" || return 1
+    fi
+    resolved_child="\$(readlink -f "\$child_path")"
+    case "\$resolved_child" in
+      "\$resolved_root"/*) ;;
+      *)
+        echo "Attachment content root escaped persistent storage: \$child_path" >&2
+        return 1
+        ;;
+    esac
+    chmod 0700 "\$child_path"
+  done
+}
+
 attachment_storage_path="/var/lib/agentwiki/attachments"
 attachment_min_free_bytes="\${ATTACHMENT_MIN_FREE_BYTES:-1073741824}"
 read_attachment_min_free_bytes
@@ -161,6 +193,7 @@ if [ "\$resolved_attachment_storage_path" != "\$attachment_storage_path" ]; then
   exit 1
 fi
 chmod 0700 -- "\$attachment_storage_path"
+validate_attachment_content_roots
 attachment_storage_mode="\$(stat -c '%a' -- "\$attachment_storage_path")"
 if [ "\$attachment_storage_mode" != 700 ]; then
   echo "Attachment storage must have effective mode 0700." >&2
@@ -285,6 +318,7 @@ pnpm --filter @agentwiki/shared build
 pnpm --filter @neomei/agentwiki-sync-protocol build
 pnpm --filter @agentwiki/server build
 pnpm --filter @agentwiki/client build
+"\$node_binary" apps/server/dist/assist/opencode-deployment-preflight.js "\$release_dir" "\$live_dir"
 
 mkdir -p "\$HOME/.config/systemd/user"
 install -m 0644 deploy/systemd/*.service "\$HOME/.config/systemd/user/"
@@ -353,15 +387,20 @@ systemctl --user restart agentwiki-frontend.service
 for attempt in \$(seq 1 30); do
   api_body=""
   api_ok=0
+  worker_ok=0
   if api_body="\$(curl -fsS http://127.0.0.1:3000/api/health)" && \
      "\$node_binary" -e 'const body = JSON.parse(process.argv[1]); if (body.status !== "ok" || body.attachmentStorage !== "ok") process.exit(1)' "\$api_body"; then
     api_ok=1
   fi
+  if systemctl --user is-active --quiet agentwiki-worker.service; then
+    worker_ok=1
+  fi
   ui="\$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:5173/ || true)"
-  if [ "\$api_ok" = 1 ] && [ "\$ui" = 200 ]; then break; fi
+  if [ "\$api_ok" = 1 ] && [ "\$worker_ok" = 1 ] && [ "\$ui" = 200 ]; then break; fi
   sleep 2
 done
 test "\${api_ok:-0}" = 1
+test "\${worker_ok:-0}" = 1
 test "\${ui:-}" = 200
 systemctl --user --no-pager --full status agentwiki-api.service agentwiki-worker.service agentwiki-frontend.service
 echo "Previous application tree retained at \$previous_dir; do not reactivate it without restoring its matching database backup."
