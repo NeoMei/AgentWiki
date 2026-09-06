@@ -741,6 +741,14 @@ function classifyTarget(
   };
 }
 
+export function classifyImageReferenceTarget(
+  rawTarget: string,
+  syntax: ParsedImageReference['syntax'],
+  sourceSyncPath: string,
+): Pick<ParsedImageReference, 'resolvedPath' | 'classification'> {
+  return classifyTarget(rawTarget, syntax, sourceSyncPath);
+}
+
 export function parseImageReferences(
   body: string,
   sourceSyncPath: string,
@@ -752,7 +760,9 @@ export function parseImageReferences(
       rawTarget,
       targetStart: token.targetStart,
       targetEnd: token.targetEnd,
-      ...classifyTarget(rawTarget, token.syntax, sourceSyncPath, token.syntaxValid),
+      ...(token.syntaxValid
+        ? classifyImageReferenceTarget(rawTarget, token.syntax, sourceSyncPath)
+        : { resolvedPath: null, classification: 'invalid_local' as const }),
     };
   });
 }

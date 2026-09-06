@@ -362,6 +362,92 @@ describe('MarkdownResourceService', () => {
     });
   });
 
+  it('resolves a standard Markdown attachment target from the authorized source Page path', async () => {
+    prisma.page.findFirst.mockResolvedValue(page({
+      id: 'source-page',
+      syncPath: 'pages/topic/note.md',
+      syncPathKey: 'pages/topic/note.md',
+    }));
+    prisma.spaceAttachment.findMany.mockResolvedValue([
+      attachment({
+        id: 'first-local',
+        displayName: 'Café photo.PNG',
+        nameKey: 'café photo.png',
+      }),
+    ]);
+
+    await expect(service.resolve('space-1', [{
+      key: 'relative-image',
+      kind: 'attachment',
+      syntax: 'markdown',
+      target: '../../assets/Caf%C3%A9 photo.PNG',
+    }], principal, 'source-page')).resolves.toEqual([{
+      key: 'relative-image',
+      status: 'resolved',
+      kind: 'attachment',
+      attachmentId: 'first-local',
+      displayName: 'Café photo.PNG',
+      mimeType: 'image/png',
+      width: 640,
+      height: 480,
+    }]);
+    expect(prisma.spaceAttachment.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { spaceId: 'space-1', nameKey: { in: ['café photo.png'] } },
+    }));
+  });
+
+  it('fails relative attachment traversal closed without querying arbitrary attachment names', async () => {
+    prisma.page.findFirst.mockResolvedValue(page({
+      id: 'source-page',
+      syncPath: 'pages/topic/note.md',
+      syncPathKey: 'pages/topic/note.md',
+    }));
+
+    await expect(service.resolve('space-1', [{
+      key: 'traversal',
+      kind: 'attachment',
+      syntax: 'markdown',
+      target: '../../../secret.png',
+    }], principal, 'source-page')).resolves.toEqual([{ key: 'traversal', status: 'unresolved' }]);
+    expect(prisma.spaceAttachment.findMany).not.toHaveBeenCalled();
+  });
+
+  it('does not let a standard same-name target reuse the Wiki attachment result', async () => {
+    prisma.page.findFirst.mockResolvedValue(page({
+      id: 'source-page',
+      syncPath: 'pages/topic/note.md',
+      syncPathKey: 'pages/topic/note.md',
+    }));
+    prisma.spaceAttachment.findMany.mockResolvedValue([
+      attachment({ id: 'wiki-image', displayName: 'image.png', nameKey: 'image.png' }),
+    ]);
+
+    await expect(service.resolve('space-1', [
+      { key: 'wiki', kind: 'attachment', target: 'image.png' },
+      { key: 'markdown', kind: 'attachment', syntax: 'markdown', target: 'image.png' },
+    ], principal, 'source-page')).resolves.toEqual([
+      expect.objectContaining({ key: 'wiki', status: 'resolved', attachmentId: 'wiki-image' }),
+      { key: 'markdown', status: 'unresolved' },
+    ]);
+  });
+
+  it.each([
+    '../assets/a%0Aevil.png',
+    '../assets/a%5Cevil.png',
+    '../assets/%E0%A4%A.png',
+  ])('fails malformed or decoded-unsafe standard target %s closed', async (target) => {
+    prisma.page.findFirst.mockResolvedValue(page({
+      id: 'source-page',
+      syncPath: 'pages/note.md',
+      syncPathKey: 'pages/note.md',
+    }));
+
+    await expect(service.resolve('space-1', [{
+      key: 'unsafe', kind: 'attachment', syntax: 'markdown', target,
+    }], principal, 'source-page')).resolves.toEqual([{ key: 'unsafe', status: 'unresolved' }]);
+    expect(prisma.spaceAttachment.findMany).not.toHaveBeenCalled();
+  });
+
   it('does not query attachments when a body has no local image references', async () => {
     await expect(service.resolveReferencedAttachments({
       spaceId: 'space-1',

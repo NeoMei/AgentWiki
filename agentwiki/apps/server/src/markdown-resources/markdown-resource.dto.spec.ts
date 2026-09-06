@@ -30,6 +30,18 @@ describe('Markdown resource DTO validation', () => {
       .resolves.toEqual({ sourcePageId: 'source-page', references });
   });
 
+  it('accepts the backward-compatible standard Markdown attachment discriminator', async () => {
+    const references = [{
+      key: 'relative-image',
+      kind: 'attachment' as const,
+      syntax: 'markdown' as const,
+      target: '../assets/first-local.png',
+    }];
+
+    await expect(transformBody({ sourcePageId: 'source-page', references }))
+      .resolves.toEqual({ sourcePageId: 'source-page', references });
+  });
+
   it.each([
     { references: [] },
     { references: Array.from({ length: 101 }, (_, index) => ({ key: `k-${index}`, kind: 'page', target: `p-${index}` })) },
@@ -53,6 +65,9 @@ describe('Markdown resource DTO validation', () => {
     { key: 'key', kind: 'page', target: 'Page', heading: 'H', blockId: 'block' },
     { key: 'key', kind: 'attachment', target: 'image.png', heading: 'H' },
     { key: 'key', kind: 'attachment', target: 'image.png', blockId: 'block' },
+    { key: 'key', kind: 'page', syntax: 'markdown', target: 'Page' },
+    { key: 'key', kind: 'attachment', syntax: 'wiki', target: 'image.png' },
+    { key: 'key', kind: 'attachment', syntax: null, target: 'image.png' },
     { key: 'key', kind: 'page', target: 'Page', heading: null },
     { key: 'key', kind: 'page', target: 'Page', blockId: null },
   ])('rejects malformed or over-limit reference %j', async (reference) => {
@@ -107,6 +122,15 @@ describe('Markdown resource DTO validation', () => {
       { key: 'heading-a', kind: 'page', target: 'Asset', heading: 'A' },
       { key: 'heading-b', kind: 'page', target: 'Asset', heading: 'B' },
     ];
+    await expect(transformBody({ references })).resolves.toEqual({ references });
+  });
+
+  it('keeps Wiki and standard Markdown attachment identities distinct', async () => {
+    const references = [
+      { key: 'wiki', kind: 'attachment', target: 'image.png' },
+      { key: 'markdown', kind: 'attachment', syntax: 'markdown', target: 'image.png' },
+    ];
+
     await expect(transformBody({ references })).resolves.toEqual({ references });
   });
 

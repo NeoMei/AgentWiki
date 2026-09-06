@@ -311,6 +311,55 @@ describe('collectMarkdownResourceRefs', () => {
     ]);
   });
 
+  it('collects standard Markdown image destinations without rewriting nested or encoded paths', () => {
+    expect(collectMarkdownResourceRefs([
+      '![First local image](../assets/first-local.png "Cover")',
+      '![Nested](<../../assets/Caf%C3%A9 photo.PNG> "Encoded")',
+      '![Escaped](../../assets/diagram\\(final\\).webp)',
+    ].join('\n'))).toEqual([
+      expect.objectContaining({
+        kind: 'attachment',
+        syntax: 'markdown',
+        target: '../assets/first-local.png',
+      }),
+      expect.objectContaining({
+        kind: 'attachment',
+        syntax: 'markdown',
+        target: '../../assets/Caf%C3%A9 photo.PNG',
+      }),
+      expect.objectContaining({
+        kind: 'attachment',
+        syntax: 'markdown',
+        target: '../../assets/diagram(final).webp',
+      }),
+    ]);
+  });
+
+  it('does not collect external, rooted or unsafe standard Markdown image destinations', () => {
+    expect(collectMarkdownResourceRefs([
+      '![HTTPS](https://example.test/image.png)',
+      '![API](/api/assets/image.png)',
+      '![Protocol](//example.test/image.png)',
+      '![Backslash](..\\assets\\image.png)',
+    ].join('\n'))).toEqual([]);
+  });
+
+  it('keeps Wiki and standard Markdown image identities distinct for the same raw target', () => {
+    expect(collectMarkdownResourceRefs('![[image.png]]\n\n![Standard](image.png)')).toEqual([
+      expect.objectContaining({ kind: 'attachment', target: 'image.png' }),
+      expect.objectContaining({ kind: 'attachment', target: 'image.png', syntax: 'markdown' }),
+    ]);
+  });
+
+  it('applies the shared one-hundred-resource bound across Wiki and standard images', () => {
+    const source = [
+      ...Array.from({ length: 100 }, (_, index) => `[[Page ${index}]]`),
+      '![Overflow](../assets/overflow.png)',
+    ].join('\n');
+
+    expect(() => collectMarkdownResourceRefs(source)).toThrow('Markdown resource limit exceeded');
+  });
+
   it('dedupes canonical NFC/case-insensitive identities without treating aliases as identity', () => {
     const refs = collectMarkdownResourceRefs('[[  CAFÉ |One]] [[cafe\u0301|Two]] ![[PIC.PNG|One]] ![[pic.png|Two]]');
 

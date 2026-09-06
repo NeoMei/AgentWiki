@@ -49,6 +49,11 @@ export class MarkdownResourceReferenceDto {
 
   @PreserveRawInput()
   @ValidateIf((_object, value) => value !== undefined)
+  @IsIn(['markdown'])
+  syntax?: 'markdown';
+
+  @PreserveRawInput()
+  @ValidateIf((_object, value) => value !== undefined)
   @IsString()
   @MinLength(1)
   @Matches(/\S/u)
@@ -74,6 +79,9 @@ class UniqueMarkdownResourceReferences implements ValidatorConstraintInterface {
       if (!item || typeof item !== 'object') continue;
       const reference = item as Partial<MarkdownResourceReferenceDto>;
       if (reference.heading !== undefined && reference.blockId !== undefined) return false;
+      if (reference.syntax !== undefined && (
+        reference.syntax !== 'markdown' || reference.kind !== 'attachment'
+      )) return false;
       if (
         reference.kind === 'attachment'
         && (reference.heading !== undefined || reference.blockId !== undefined)
@@ -86,6 +94,7 @@ class UniqueMarkdownResourceReferences implements ValidatorConstraintInterface {
       const key = normalizeMarkdownPageIdentity(reference.key);
       const signature = [
         reference.kind,
+        reference.syntax ?? '',
         reference.kind === 'attachment'
           ? normalizeAttachmentReferenceIdentity(reference.target)
           : normalizeMarkdownPageIdentity(reference.target),

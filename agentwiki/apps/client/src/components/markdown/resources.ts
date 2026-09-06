@@ -47,6 +47,7 @@ export interface MarkdownResourceRef {
   canonicalKey: string;
   kind: 'page' | 'attachment';
   target: string;
+  syntax?: 'markdown';
   heading?: string;
   blockId?: string;
 }
@@ -61,6 +62,7 @@ export interface MarkdownResourceRequest {
   key: string;
   kind: 'page' | 'attachment';
   target: string;
+  syntax?: 'markdown';
   heading?: string;
   blockId?: string;
 }
@@ -1054,6 +1056,29 @@ const markdownResourceRefFromNode = (node: MarkdownAstNode): MarkdownResourceRef
   };
 };
 
+export const standardMarkdownImageResourceRef = (
+  target: string | null | undefined,
+): MarkdownResourceRef | null => {
+  const normalized = target?.normalize('NFC').trim() ?? '';
+  if (
+    !normalized
+    || normalized.startsWith('/')
+    || normalized.startsWith('#')
+    || /\\|%5c/iu.test(normalized)
+    || /^[a-z][a-z\d+.-]*:/iu.test(normalized)
+  ) return null;
+  return {
+    canonicalKey: JSON.stringify([
+      'attachment',
+      'markdown',
+      normalizeMarkdownAttachmentIdentity(normalized),
+    ]),
+    kind: 'attachment',
+    syntax: 'markdown',
+    target: normalized,
+  };
+};
+
 export function collectMarkdownResourceOccurrences(source: string): MarkdownResourceOccurrence[] {
   const occurrences: MarkdownResourceOccurrence[] = [];
   const uniqueReferences = new Set<string>();
@@ -1086,6 +1111,16 @@ export function collectMarkdownResourceRefs(
       refs.set(reference.canonicalKey, reference);
       if (refs.size > maxReferences) throw new Error('Markdown resource limit exceeded');
     }
+  }
+
+  if (source.includes('![')) {
+    const tree = parser.parse(source) as MarkdownAstNode;
+    visit(tree as never, 'image', (node: MarkdownAstNode & { url?: string }) => {
+      const reference = standardMarkdownImageResourceRef(node.url);
+      if (!reference || refs.has(reference.canonicalKey)) return;
+      refs.set(reference.canonicalKey, reference);
+      if (refs.size > maxReferences) throw new Error('Markdown resource limit exceeded');
+    });
   }
 
   return [...refs.values()];
@@ -1165,6 +1200,9 @@ export async function resolveMarkdownResources(
         || !/^[\p{L}\p{N}_-]+$/u.test(reference.blockId)
       ))
       || (reference.heading !== undefined && reference.blockId !== undefined)
+      || (reference.syntax !== undefined && (
+        reference.syntax !== 'markdown' || reference.kind !== 'attachment'
+      ))
       || (reference.kind === 'attachment' && (
         reference.heading !== undefined || reference.blockId !== undefined
       ))) {
@@ -1175,6 +1213,7 @@ export async function resolveMarkdownResources(
     assertBoundedPart(reference.blockId);
     const identity = [
       reference.kind,
+      reference.syntax ?? '',
       reference.kind === 'attachment'
         ? normalizeMarkdownAttachmentIdentity(reference.target)
         : normalizeMarkdownPageIdentity(reference.target),
@@ -1188,6 +1227,7 @@ export async function resolveMarkdownResources(
     key: `r${index}`,
     kind: reference.kind,
     target: reference.target,
+    ...(reference.syntax ? { syntax: reference.syntax } : {}),
     ...(reference.heading ? { heading: reference.heading } : {}),
     ...(reference.blockId ? { blockId: reference.blockId } : {}),
   }));
