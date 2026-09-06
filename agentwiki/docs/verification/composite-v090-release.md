@@ -1,0 +1,91 @@
+# AgentWiki 0.9.0 / Sync Protocol 0.6.0 local release preparation
+
+Date: 2026-09-06
+
+Status: **local source and package candidate verified; not published, released, deployed, or UI-accepted**.
+
+## Candidate scope
+
+- AgentWiki root, server, client, Local Sync, active onboarding/install surfaces, and current fixtures are pinned to `0.9.0`.
+- `@neomei/agentwiki-sync-protocol` and Local Sync's exact protocol dependency are pinned to `0.6.0`.
+- Composite templates still require an explicit Space ID. This preparation does not add wildcard rollout, automatic privilege expansion, product behavior, permission, template-content, or migration changes.
+- Historical verification records and compatibility fixtures unrelated to the current Local Sync release remain unchanged.
+- The retired external-compiler contract now scans only active product/install surfaces and explicitly targets this worktree. Its regression proves an active instruction is retained for rejection while historical preservation inventory is ignored.
+
+## RED and recovery evidence
+
+The version expectations were updated before the release surfaces. The focused runtime command was:
+
+```bash
+node --test scripts/node-runtime-contract.test.mjs
+```
+
+It failed as expected on the still-`0.8.0` application/Local Sync surfaces and still-`0.5.1` protocol surfaces: 32 tests, 27 passed, 5 failed. One of those five failures also exposed a pre-existing test-harness false positive against a preserved historical `OpenWiki` inventory mention. The historical record was not edited. After the bounded harness correction and version edits, the same command passed 33/33. Logs:
+
+- `.superpowers/sdd/2026-09-06-composite-v090-release/logs/task-1-red-runtime.log`
+- `.superpowers/sdd/2026-09-06-composite-v090-release/logs/task-1-green-runtime.log`
+- `.superpowers/sdd/2026-09-06-composite-v090-release/logs/task-1-harness-regression.log` (2/2)
+
+The first full-suite run reached the database phase and reported 172 passed / 3 failed. All three failures were the same release-fixture defect: the compiled server still enforced the escaped DTO regex for `0.8.0`, so the collaboration real-client harness, composite acceptance startup, and attachment HTTP lifecycle rejected their new `0.9.0` installation requests. Updating that active DTO pin fixed the root cause. The three focused database files then passed 10/10, and a fresh full suite passed on the corrected final tree. Logs:
+
+- `.superpowers/sdd/2026-09-06-composite-v090-release/logs/task-1-test-full.log`
+- `.superpowers/sdd/2026-09-06-composite-v090-release/logs/task-1-focused-full-failures.log`
+- `.superpowers/sdd/2026-09-06-composite-v090-release/logs/task-1-test-full-final.log`
+
+## Local verification
+
+Dependency and build gates:
+
+```bash
+pnpm install --lockfile-only
+pnpm install --frozen-lockfile
+pnpm --filter shared build
+pnpm --filter @neomei/agentwiki-sync-protocol build
+pnpm typecheck
+pnpm lint
+pnpm build
+```
+
+All exited 0. The production build emitted Vite's existing large-chunk advisory; dependency installation emitted deprecation/update advisories and recovered from one transient optional-package registry retry. Logs use the matching `task-1-pnpm-*`, `task-1-build-*`, `task-1-typecheck.log`, and `task-1-lint.log` names in the SDD log directory.
+
+The final full-suite command used only the dedicated loopback PostgreSQL and Redis containers (`agentwiki-composite-69d8-db` on port 50415 and `agentwiki-composite-69d8-redis` on port 50416):
+
+```bash
+DATABASE_URL=postgresql://postgres@127.0.0.1:50415/agentwiki_composite_test \
+FOLDER_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:50415/agentwiki_composite_test \
+MARKDOWN_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:50415/agentwiki_composite_test \
+COLLABORATION_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:50415/agentwiki_composite_test \
+PAGE_TEMPLATE_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:50415/agentwiki_composite_test \
+SYNC_V3_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:50415/agentwiki_composite_test \
+TEST_REDIS_URL=redis://127.0.0.1:50416/0 \
+PG_DUMP_BIN=/opt/homebrew/opt/postgresql@16/bin/pg_dump \
+PSQL_BIN=/opt/homebrew/opt/postgresql@16/bin/psql \
+AGENTWIKI_PSQL_BIN=/opt/homebrew/opt/postgresql@16/bin/psql \
+pnpm test:full
+```
+
+Final result: **5,213 passed, 3 skipped, 0 failed** across the repository runtime (258 passed / 1 skipped), database (175 passed), server (2,499 passed / 1 skipped), client (1,264 passed), Sync Protocol (140 passed), and Local Sync (877 passed / 1 skipped) phases.
+
+## Package evidence and publication order
+
+```bash
+pnpm test:package:local-sync-clean-install
+pnpm test:release:sync-v3-registry
+npm view @neomei/agentwiki-sync-protocol@0.6.0 version --registry=https://registry.npmjs.org/
+```
+
+- Clean install passed from paired local tarballs: Local Sync `0.9.0`, Sync Protocol `0.6.0`, CLI help runnable. The protocol tarball contained 69 files with shasum `27ab0950815f6a908aced1c176ddda8e24a0b048`; Local Sync contained 153 files with shasum `25bd00921741dbd2f205146dc19fdd873b796a53`.
+- The fail-closed registry collision gate reported Local Sync `0.9.0` available.
+- The explicit protocol lookup returned npm `E404`, proving Sync Protocol `0.6.0` absent at that check. A network failure would not have counted as absence.
+
+The source protocol manifest intentionally retains its `prepack` gate. To create the allowed publication artifact, the controller must run the source `prepack` through `npm pack`, extract that verified tarball into an isolated staging directory, remove only `scripts.prepack` from the staged `package.json`, and run `npm pack --ignore-scripts` on the staged package. The post-publication parity gate deliberately normalizes exactly this one source-vs-registry manifest difference while comparing every other manifest field and every non-manifest file byte-for-byte.
+
+Controller-only publication, after authenticated production preflight and review, must be ordered as follows:
+
+1. Publish the staged Sync Protocol `0.6.0` artifact.
+2. Run `pnpm test:release:sync-protocol-registry-parity` against the public registry.
+3. Publish Local Sync `0.9.0` only after protocol parity passes.
+4. Run `pnpm test:package:local-sync-registry-protocol` against the public protocol.
+5. Only then proceed separately to source push/tag/GitHub Release, production deployment, and browser/UI acceptance.
+
+No npm publication, Git push/tag/release, production write, deployment, or UI acceptance was performed here. Direct BatchMode production SSH authentication is currently blocked, so production preflight and deployment remain controller blockers after independent review.

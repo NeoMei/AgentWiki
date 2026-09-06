@@ -100,8 +100,8 @@ export async function verifyPublishedProtocolParity({ registryUrl }) {
     throw new Error('Protocol parity registry must be an HTTP(S) URL without credentials');
   }
   const manifest = JSON.parse(await readFile(join(protocolRoot, 'package.json'), 'utf8'));
-  if (manifest.name !== '@neomei/agentwiki-sync-protocol' || manifest.version !== '0.5.1') {
-    throw new Error('Protocol parity is pinned to immutable @neomei/agentwiki-sync-protocol@0.5.1');
+  if (manifest.name !== '@neomei/agentwiki-sync-protocol' || manifest.version !== '0.6.0') {
+    throw new Error('Protocol parity is pinned to immutable @neomei/agentwiki-sync-protocol@0.6.0');
   }
   const temporaryRoot = await mkdtemp(join(tmpdir(), 'agentwiki-protocol-parity-'));
   try {

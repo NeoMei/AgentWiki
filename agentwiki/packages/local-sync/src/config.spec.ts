@@ -36,7 +36,7 @@ describe('secure local state', () => {
       connections: {
         local: {
           id: 'local', serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'cred-1',
-          pluginVersion: '0.8.0', client: 'codex', mcpName: 'agentwiki',
+          pluginVersion: '0.9.0', client: 'codex', mcpName: 'agentwiki',
         },
       },
     });

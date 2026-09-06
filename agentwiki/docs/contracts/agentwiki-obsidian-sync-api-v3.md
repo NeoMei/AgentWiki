@@ -1,6 +1,6 @@
 # AgentWiki–Obsidian Sync API v3
 
-Status: local release-candidate contract for `@neomei/agentwiki-sync-protocol` 0.5.1. The package schemas and canonical hashing functions are normative; this document is the public HTTP map.
+Status: local release-candidate contract for `@neomei/agentwiki-sync-protocol` 0.6.0. The package schemas and canonical hashing functions are normative; this document is the public HTTP map.
 
 ## Transport, authentication, and authorization
 

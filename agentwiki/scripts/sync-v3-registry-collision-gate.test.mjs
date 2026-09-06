@@ -4,7 +4,7 @@ import { once } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const candidates = [{ name: '@neomei/agentwiki-local-sync', version: '0.8.0' }];
+const candidates = [{ name: '@neomei/agentwiki-local-sync', version: '0.9.0' }];
 
 async function loadGate() {
   return import('./sync-v3-registry-collision-gate.mjs');
@@ -30,9 +30,9 @@ test('release manifests and the explicit registry command check only unpublished
     readFile(new URL('../packages/sync-protocol/package.json', import.meta.url), 'utf8').then(JSON.parse),
     readFile(new URL('../packages/local-sync/package.json', import.meta.url), 'utf8').then(JSON.parse),
   ]);
-  assert.equal(protocol.version, '0.5.1');
-  assert.equal(localSync.version, '0.8.0');
-  assert.equal(localSync.dependencies[protocol.name], '0.5.1');
+  assert.equal(protocol.version, '0.6.0');
+  assert.equal(localSync.version, '0.9.0');
+  assert.equal(localSync.dependencies[protocol.name], '0.6.0');
   assert.equal(root.devDependencies.semver, '7.8.5');
   assert.equal(
     root.scripts['test:release:sync-v3-registry'],
@@ -42,15 +42,15 @@ test('release manifests and the explicit registry command check only unpublished
   assert.deepEqual(await releaseCandidates(), candidates);
 });
 
-test('deployment runbook names all package gates and never republishes immutable protocol', async () => {
+test('deployment runbook sequences protocol and Local Sync publication gates', async () => {
   const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
   assert.match(readme, /`pnpm test:release:sync-v3-registry`/u);
   assert.match(readme, /`pnpm test:release:sync-protocol-registry-parity`/u);
   assert.match(readme, /`pnpm test:package:local-sync-registry-protocol`/u);
-  assert.match(readme, /protocol 0\.5\.1 must never be\s+republished/iu);
+  assert.match(readme, /publish sync-protocol 0\.6\.0 first/iu);
   assert.match(
     readme,
-    /deployment remains blocked until Local Sync 0\.8\.0 is published,\s+publicly available and passes the public-registry clean-install gate/iu,
+    /deployment remains blocked\s+until both packages are publicly available and pass their post-publication gates/iu,
   );
 });
 
@@ -59,7 +59,7 @@ test('registry collision gate rejects an occupied candidate', async () => {
   await withRegistry((request, response) => {
     response.writeHead(200, { 'content-type': 'application/json' });
     assert.match(request.url ?? '', /local-sync/u);
-    response.end(JSON.stringify({ versions: { '0.8.0': {} } }));
+    response.end(JSON.stringify({ versions: { '0.9.0': {} } }));
   }, async (registryUrl) => {
     await assert.rejects(
       assertNpmReleaseCandidatesAvailable({ registryUrl, candidates }),

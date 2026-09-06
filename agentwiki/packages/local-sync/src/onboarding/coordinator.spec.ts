@@ -89,7 +89,7 @@ function mockDeps(overrides?: Partial<CoordinatorDeps> & { source?: ProtocolSour
     encoder,
     source: overrides?.source ?? scriptedSource([]),
     serverBaseUrl: 'https://test/api',
-    packageVersion: '0.8.0',
+    packageVersion: '0.9.0',
     home: tmpHome,
     preflight: vi.fn(async () => ({ configHash: CONFIG_HASH, oldEntries: [], hasConflict: false, archivePath: null, reloadRequired: false })),
     bootstrapInstall: vi.fn(async (input) => ({
@@ -158,7 +158,7 @@ describe('OnboardingCoordinator happy path', () => {
     expect(fixture.deps.bootstrapInstall).toHaveBeenCalledWith(expect.objectContaining({
       serverPlan: expect.objectContaining({ role }),
       serverPlanHash: hashServerPlan({
-        space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', role, packageVersion: '0.8.0',
+        space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', role, packageVersion: '0.9.0',
       }),
     }));
     await expect(vi.mocked(fixture.deps.bootstrapInstall).mock.results[0]?.value).resolves.toMatchObject({
@@ -305,9 +305,9 @@ describe('OnboardingCoordinator happy path', () => {
         clientType: 'codex', sourcePaths: [resolve('/tmp/source')], sourceType: 'documents', analysisMode: 'standard',
         configHash: CONFIG_HASH, oldEntries: [], reloadRequired: false,
       },
-      serverPlan: { space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', role: 'editor', packageVersion: '0.8.0' },
-      serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', role: 'editor', packageVersion: '0.8.0' }),
-      onboardingPlanHash: hashOnboardingPlan({ serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', role: 'editor', packageVersion: '0.8.0' }) }),
+      serverPlan: { space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', role: 'editor', packageVersion: '0.9.0' },
+      serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', role: 'editor', packageVersion: '0.9.0' }),
+      onboardingPlanHash: hashOnboardingPlan({ serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', role: 'editor', packageVersion: '0.9.0' }) }),
       bootstrapResult: {
         space: { id: 'space-1', name: 'R&D' },
         agent: { id: 'agent-1', name: 'Codex' },
@@ -410,7 +410,7 @@ describe('OnboardingCoordinator failure handling', () => {
 
   it('rejects and preserves a scanning checkpoint without composite confirmation evidence before any side effect', async () => {
     const fixture = mockDeps();
-    const serverPlan = { space: { mode: 'create' as const, name: 'S' }, agentName: 'A', role: 'editor' as const, packageVersion: '0.8.0' as const };
+    const serverPlan = { space: { mode: 'create' as const, name: 'S' }, agentName: 'A', role: 'editor' as const, packageVersion: '0.9.0' as const };
     const raw = JSON.stringify({
       sessionId: 'sess-test', state: 'scanning', protocolVersion: 1, serverUrl: 'https://test/api', clientType: 'codex',
       createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
@@ -508,7 +508,7 @@ describe('OnboardingCoordinator local scan consent', () => {
     expect(preview.plan).toMatchObject({ serverPlan: expect.any(Object), localScanPlan: { localScanPlanHash: 'a'.repeat(64) } });
     expect(confirmation.planHash).not.toBe('a'.repeat(64));
     expect(fixture.deps.bootstrapInstall).toHaveBeenCalledWith(expect.objectContaining({
-      serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.8.0' }),
+      serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.9.0' }),
     }));
     expect(fixture.deps.knowledge.prepare).toHaveBeenCalledWith(expect.objectContaining({ analysisMode: 'standard', localScanPlanHash: 'a'.repeat(64), confirmedLocalScan: true }));
   });
@@ -566,7 +566,7 @@ describe('OnboardingCoordinator local scan consent', () => {
     } });
     await fixture.store.save({
       sessionId: 'sess-test', state: 'scanning', protocolVersion: 1, serverUrl: 'https://test/api', clientType: 'codex', createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
-      inputs: { ...codeInputs }, serverPlan: { space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.8.0' }, serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.8.0' }), localScanPlanHash: 'b'.repeat(64), onboardingPlanHash: hashOnboardingPlan({ serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.8.0' }), localScanPlanHash: 'b'.repeat(64) }),
+      inputs: { ...codeInputs }, serverPlan: { space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.9.0' }, serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.9.0' }), localScanPlanHash: 'b'.repeat(64), onboardingPlanHash: hashOnboardingPlan({ serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.9.0' }), localScanPlanHash: 'b'.repeat(64) }),
       localScanPlan: localPlanPreview('b'.repeat(64)), bootstrapResult: { space: { id: 'space-1', name: 'S' } },
     });
     await expect(new OnboardingCoordinator(fixture.deps).run()).rejects.toMatchObject({ code: 'CODEGRAPH_SCAN_PLAN_CHANGED' });
@@ -585,7 +585,7 @@ describe('OnboardingCoordinator local scan consent', () => {
     } });
     await fixture.store.save({
       sessionId: 'sess-test', state: 'scanning', protocolVersion: 1, serverUrl: 'https://test/api', clientType: 'codex', createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
-      inputs: { ...codeInputs }, serverPlan: { space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.8.0' }, serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.8.0' }), localScanPlanHash: 'b'.repeat(64), onboardingPlanHash: hashOnboardingPlan({ serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.8.0' }), localScanPlanHash: 'b'.repeat(64) }),
+      inputs: { ...codeInputs }, serverPlan: { space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.9.0' }, serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.9.0' }), localScanPlanHash: 'b'.repeat(64), onboardingPlanHash: hashOnboardingPlan({ serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.9.0' }), localScanPlanHash: 'b'.repeat(64) }),
       localScanPlan: localPlanPreview('b'.repeat(64)), bootstrapResult: { space: { id: 'space-1', name: 'S' } },
     });
 

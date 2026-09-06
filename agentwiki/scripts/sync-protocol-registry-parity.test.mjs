@@ -17,14 +17,14 @@ test('protocol registry parity compares extracted paths and bytes', async () => 
     ]);
     await Promise.all([
       writeFile(join(local, 'package.json'), `${JSON.stringify({
-        version: '0.5.1',
+        version: '0.6.0',
         scripts: { test: 'vitest run', prepack: 'pnpm build && pnpm test && pnpm verify:sync-v3-builds' },
         dependencies: { zod: '^3.25.76' },
       }, null, 2)}\n`),
       writeFile(join(registry, 'package.json'), JSON.stringify({
         dependencies: { zod: '^3.25.76' },
         scripts: { test: 'vitest run' },
-        version: '0.5.1',
+        version: '0.6.0',
       })),
       writeFile(join(local, 'dist/index.js'), 'export const version = 3;\n'),
       writeFile(join(registry, 'dist/index.js'), 'export const version = 3;\n'),

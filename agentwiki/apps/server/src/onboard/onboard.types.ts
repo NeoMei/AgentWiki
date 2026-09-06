@@ -6,7 +6,7 @@ import {
 } from '@neomei/agentwiki-sync-protocol';
 
 export type StartDeviceInput = {
-  packageVersion: '0.8.0';
+  packageVersion: '0.9.0';
   clientType: 'codex' | 'claude' | 'opencode';
   purpose: 'full-onboarding';
 };
@@ -24,7 +24,7 @@ export type ServerPlan = {
   space: { mode: 'create'; name: string } | { mode: 'existing'; id: string };
   agentName: string;
   role: AgentAccessRole;
-  packageVersion: '0.8.0';
+  packageVersion: '0.9.0';
 };
 
 export type BootstrapInput = {

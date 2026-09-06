@@ -11,6 +11,30 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = resolve(root, '..');
 const read = (path) => readFile(resolve(root, path), 'utf8');
 
+const ACTIVE_PRODUCT_PATHS = new Set([
+  'agentwiki/.env.example',
+  'agentwiki/README.md',
+  'agentwiki/docker-compose.yml',
+  'agentwiki/package.json',
+  'agentwiki/pnpm-workspace.yaml',
+]);
+const ACTIVE_PRODUCT_PREFIXES = [
+  'agentwiki/apps/',
+  'agentwiki/packages/',
+  'agentwiki/scripts/',
+];
+
+function activeExternalCompilerMatches(output, retiredName) {
+  return output.split(/(?<=\n)/u).filter((line) => {
+    const separator = line.indexOf(':');
+    if (separator < 0) return false;
+    const path = line.slice(0, separator);
+    const active = ACTIVE_PRODUCT_PATHS.has(path)
+      || ACTIVE_PRODUCT_PREFIXES.some((prefix) => path.startsWith(prefix));
+    return active && line.slice(separator + 1).toLowerCase().includes(retiredName.toLowerCase());
+  }).join('');
+}
+
 function pnpmInvocation(args) {
   const candidates = [
     process.env.npm_execpath,
@@ -440,15 +464,30 @@ test('Compose forwards onboarding and OpenCode routing configuration to the API'
   assert.match(compose, /OPENROUTER_API_KEY: \$\{OPENROUTER_API_KEY:-\}/);
 });
 
+test('retired external wiki matching keeps active instructions and ignores historical inventory', () => {
+  const retiredName = ['Open', 'Wiki'].join('');
+  const active = `agentwiki/apps/server/src/current.ts:1:Use ${retiredName} compiler\n`;
+  const output = [
+    active.trimEnd(),
+    `agentwiki/docs/verification/old-release.md:2:Preserved ${retiredName} migration note`,
+    `${retiredName.toLowerCase()}:1:preserved submodule inventory`,
+  ].join('\n') + '\n';
+  assert.equal(activeExternalCompilerMatches(output, retiredName), active);
+});
+
 test('the product no longer carries the retired external wiki compiler path', () => {
   const retiredName = ['Open', 'Wiki'].join('');
   let matches = '';
   try {
-    matches = execFileSync('git', ['grep', '-in', retiredName, '--', '.'], {
-      cwd: repositoryRoot,
+    const output = execFileSync('git', [
+      '-C', repositoryRoot,
+      `--work-tree=${repositoryRoot}`,
+      'grep', '-in', retiredName, '--', '.',
+    ], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     });
+    matches = activeExternalCompilerMatches(output, retiredName);
   } catch (error) {
     if (error?.status !== 1) throw error;
   }
@@ -584,7 +623,7 @@ test('local-sync builds and packs without retired modules or public subpaths', a
 
 test('every active local-sync release surface uses the package version', async () => {
   const version = JSON.parse(await read('packages/local-sync/package.json')).version;
-  assert.equal(version, '0.8.0');
+  assert.equal(version, '0.9.0');
   for (const path of [
     '.env.example',
     'package.json',
@@ -615,8 +654,8 @@ test('the local-sync release remains pinned to its compatible sync protocol rele
   const rootPackage = JSON.parse(await read('package.json'));
   const cleanInstallGate = await read('scripts/verify-local-sync-clean-install.mjs');
 
-  assert.equal(protocolPackage.version, '0.5.1');
-  assert.equal(localSyncPackage.dependencies[protocolPackage.name], '0.5.1');
+  assert.equal(protocolPackage.version, '0.6.0');
+  assert.equal(localSyncPackage.dependencies[protocolPackage.name], '0.6.0');
   assert.doesNotMatch(
     localSyncPackage.dependencies[protocolPackage.name],
     /^workspace:/u,
@@ -647,9 +686,9 @@ test('every user-facing local-sync surface uses the published npm package name',
 
 
 
-test('the onboard controller advertises the pinned 0.8.0 onboarding command', async () => {
+test('the onboard controller advertises the pinned 0.9.0 onboarding command', async () => {
   const source = await read('apps/server/src/onboard/onboard.controller.ts');
-  assert.match(source, /0\.8\.0/, 'onboard controller must reference 0.8.0');
+  assert.match(source, /0\.9\.0/, 'onboard controller must reference 0.9.0');
   assert.match(source, /onboard --server/, 'onboard controller must advertise the pinned onboard command');
   assert.doesNotMatch(source, /connect --server/, 'onboard controller must not advertise the retired connect command');
   assert.doesNotMatch(source, /--orchestrator/, 'onboard controller must not advertise --orchestrator');
@@ -663,13 +702,13 @@ test('collaboration release surfaces and executable gates stay version-aligned',
   const syncProtocolPackage = JSON.parse(await read('packages/sync-protocol/package.json'));
   assert.deepEqual(
     [rootPackage.version, serverPackage.version, clientPackage.version, localSyncPackage.version],
-    ['0.8.0', '0.8.0', '0.8.0', '0.8.0'],
+    ['0.9.0', '0.9.0', '0.9.0', '0.9.0'],
   );
-  assert.equal(syncProtocolPackage.version, '0.5.1');
+  assert.equal(syncProtocolPackage.version, '0.6.0');
   assert.equal(rootPackage.scripts['test:e2e:collaboration-db'], 'node --test scripts/collaboration-workflows-db.test.mjs');
   assert.equal(rootPackage.scripts['test:e2e:collaboration'], 'node scripts/collaboration-workflows-e2e.mjs');
-  assert.match(await read('.env.example'), /LOCAL_SYNC_PACKAGE_VERSION=0\.8\.0/u);
-  assert.match(await read('docker-compose.yml'), /LOCAL_SYNC_PACKAGE_VERSION:-0\.8\.0/u);
+  assert.match(await read('.env.example'), /LOCAL_SYNC_PACKAGE_VERSION=0\.9\.0/u);
+  assert.match(await read('docker-compose.yml'), /LOCAL_SYNC_PACKAGE_VERSION:-0\.9\.0/u);
 });
 
 test('the local-sync CLI exposes gateway and onboard commands without connect', async () => {

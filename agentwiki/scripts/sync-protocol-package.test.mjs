@@ -13,9 +13,9 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const protocolRoot = resolve(root, 'packages/sync-protocol');
 const requireFromProtocol = createRequire(resolve(protocolRoot, 'package.json'));
 
-test('sync protocol release manifest is exactly 0.5.1', async () => {
+test('sync protocol release manifest is exactly 0.6.0', async () => {
   const manifest = JSON.parse(await readFile(resolve(protocolRoot, 'package.json'), 'utf8'));
-  assert.equal(manifest.version, '0.5.1');
+  assert.equal(manifest.version, '0.6.0');
 });
 
 test('clean protocol pack contains only public artifacts and works for ESM, CJS, vectors, and types', {
