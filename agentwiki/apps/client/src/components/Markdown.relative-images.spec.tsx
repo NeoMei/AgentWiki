@@ -82,6 +82,59 @@ describe('standard Markdown attachment image rendering', () => {
   });
 
   it.each([
+    ['valid reference first', [
+      '![Valid](../assets/first-local.png)',
+      '![Invalid](../assets/first-local.png%20)',
+    ], ['../assets/first-local.png', '../assets/first-local.png%20']],
+    ['invalid reference first', [
+      '![Invalid](../assets/first-local.png%20)',
+      '![Valid](../assets/first-local.png)',
+    ], ['../assets/first-local.png%20', '../assets/first-local.png']],
+  ])('keeps valid and rejected trailing-encoded-whitespace images independent with %s', async (
+    _case,
+    images,
+    targets,
+  ) => {
+    vi.mocked(api.post).mockImplementation(async (_url, body) => ({
+      data: (body as { references: Array<{ key: string; target: string }> }).references.map((reference) => (
+        reference.target === '../assets/first-local.png'
+          ? {
+              key: reference.key,
+              status: 'resolved',
+              kind: 'attachment',
+              attachmentId: 'attachment-first-local',
+              displayName: 'first-local.png',
+              mimeType: 'image/png',
+              width: 480,
+              height: 270,
+            }
+          : { key: reference.key, status: 'unresolved' }
+      )),
+    }));
+    vi.mocked(fetchAttachmentBlob).mockResolvedValue(new Blob(['png'], { type: 'image/png' }));
+
+    renderMarkdown(images.join('\n\n'));
+
+    expect(await screen.findByRole('img', { name: 'Valid' })).toHaveAttribute('src', 'blob:first-local');
+    expect(screen.getByRole('img', { name: 'Image unavailable: Invalid' })).toBeInTheDocument();
+    expect(api.post).toHaveBeenCalledWith(
+      '/spaces/space-1/markdown/resolve',
+      {
+        sourcePageId: 'source-page',
+        references: targets.map((target, index) => ({
+          key: `r${index}`,
+          kind: 'attachment',
+          syntax: 'markdown',
+          target,
+        })),
+      },
+      { signal: expect.any(AbortSignal) },
+    );
+    expect(fetchAttachmentBlob).toHaveBeenCalledTimes(1);
+    expect(fetchAttachmentBlob).toHaveBeenCalledWith('attachment-first-local', expect.any(AbortSignal));
+  });
+
+  it.each([
     ['raw Unicode and spaces', '![Raw](<../assets/图片 one.png>)', '../assets/图片 one.png', 'Raw'],
     ['raw spaces', '![Space](<../assets/plain name.png>)', '../assets/plain name.png', 'Space'],
     ['mixed encoding', '![Mixed](<../assets/图片%20two.png>)', '../assets/图片%20two.png', 'Mixed'],

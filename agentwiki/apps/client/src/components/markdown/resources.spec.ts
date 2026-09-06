@@ -372,6 +372,35 @@ describe('collectMarkdownResourceRefs', () => {
     expect(standardMarkdownImageResourceRef('..\\assets\\image.png')).toBeNull();
   });
 
+  it.each([
+    ['valid reference first', [
+      '![Valid](../assets/first-local.png)',
+      '![Invalid](../assets/first-local.png%20)',
+    ], ['../assets/first-local.png', '../assets/first-local.png%20']],
+    ['invalid reference first', [
+      '![Invalid](../assets/first-local.png%20)',
+      '![Valid](../assets/first-local.png)',
+    ], ['../assets/first-local.png%20', '../assets/first-local.png']],
+  ])('keeps decoded-edge-whitespace standard image identities distinct with %s', (_case, images, targets) => {
+    const refs = collectMarkdownResourceRefs(images.join('\n\n'));
+
+    expect(refs.map(({ target }) => target)).toEqual(targets);
+    expect(new Set(refs.map(({ canonicalKey }) => canonicalKey))).toHaveProperty('size', 2);
+  });
+
+  it.each([
+    ['leading space', '%20../assets/first-local.png'],
+    ['trailing horizontal tab', '../assets/first-local.png%09'],
+    ['trailing line feed', '../assets/first-local.png%0A'],
+    ['trailing non-breaking space', '../assets/first-local.png%C2%A0'],
+  ])('preserves encoded %s in standard image identity without rewriting its request target', (_case, target) => {
+    const valid = standardMarkdownImageResourceRef('../assets/first-local.png');
+    const control = standardMarkdownImageResourceRef(target);
+
+    expect(control?.target).toBe(target);
+    expect(control?.canonicalKey).not.toBe(valid?.canonicalKey);
+  });
+
   it('applies the shared one-hundred-resource bound across Wiki and standard images', () => {
     const source = [
       ...Array.from({ length: 100 }, (_, index) => `[[Page ${index}]]`),

@@ -1069,7 +1069,7 @@ export const standardMarkdownImageResourceRef = (
   ) return null;
   let identityTarget = normalized;
   try {
-    identityTarget = decodeURIComponent(normalized).normalize('NFC').trim();
+    identityTarget = decodeURIComponent(normalized);
   } catch {
     // Keep malformed encoding stable so the server can reject it without a raw browser fetch.
   }
@@ -1077,7 +1077,7 @@ export const standardMarkdownImageResourceRef = (
     canonicalKey: JSON.stringify([
       'attachment',
       'markdown',
-      normalizeMarkdownAttachmentIdentity(identityTarget),
+      identityTarget.normalize('NFC').toLocaleLowerCase('und'),
     ]),
     kind: 'attachment',
     syntax: 'markdown',
