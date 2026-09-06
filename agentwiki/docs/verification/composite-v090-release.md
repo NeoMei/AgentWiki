@@ -90,3 +90,41 @@ Controller-only publication, after authenticated production preflight and review
 6. Only then proceed separately to source push/tag/GitHub Release, production deployment, and browser/UI acceptance.
 
 No npm publication, Git push/tag/release, production write, deployment, or UI acceptance was performed here. Direct BatchMode production SSH authentication is currently blocked, so production preflight and deployment remain controller blockers after independent review.
+
+## Reviewed candidate and execution checkpoint
+
+Reviewed candidate: `d474b13c7caeb0cfa1b35cb0b9c3c5899eb7becd` on
+`codex/composite-page-group-agent-collaboration`. Version preparation commit is
+`0ad6593a347e20bb2a3cc367ec79144a36e94cc9`; the final correction changes only
+three release guides and their ordering regression test.
+
+Independent task review found one publication-order issue; its scoped fix review
+approved the corrected order with 14/14 ordering tests and 33/33 runtime contracts.
+The final whole-release-delta review approved Spec and Quality: Critical 0,
+Important 0, Minor 1 (the already documented build/dependency advisories).
+The full 5,213-pass evidence applies to the unchanged executable product tree;
+the final documentation/test-only correction has its separate focused evidence.
+
+Controller checks confirmed a clean candidate, no migration/template/permission
+changes in release preparation, and dedicated test DB cleanup: public tables 0,
+generated test schemas 0, other connections 0. Main checkout remains `7c969d6b`;
+no main checkout merge, push or submodule modification was performed in this attempt.
+
+**Local candidate: GO. Actual release: BLOCKED_ENVIRONMENT.** The production SSH
+control socket is absent, and noninteractive authentication (including the normal
+macOS Keychain-backed attempt) was denied. Existing public health remained all ok;
+that is the previous deployment, not acceptance of 0.9.0. User release authorization
+is already granted; restoring SSH login is the missing prerequisite, not another
+request for publication permission.
+
+The user can restore the authenticated session in a local terminal:
+
+```sh
+ssh -M -S /tmp/agentwiki-release-ssh/control -o ControlPersist=2h root@113.249.120.24
+```
+
+No passwords should be sent in chat. After login, revalidate the production target,
+migrations, private paired backup/restore procedure and explicit Space rollout,
+then continue the publication order above. Registry artifacts, GitHub release,
+deployment and real public browser acceptance are still unperformed. The isolated
+worktree, local commits and this plan's review/log evidence are retained for resume.
