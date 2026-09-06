@@ -78,3 +78,23 @@ git -C '/Users/neomei/项目/codexprojects/AgentWiki ' --work-tree='/Users/neome
 
 - [ ] On merged master rerun `pnpm test:full` with the same dedicated explicit environment (and frozen dependency install/build as required), inspect exact exit/counts, and verify preserved user file manifest and other worktree refs. No production environment fallback. If merged result fails, retain branch/worktree and diagnose before claiming completion.
 - [ ] Update project handoff with actual local merge result and evidence. Preserve host-owned worktree and unique local proof artifacts; no forced cleanup. State local master SHA, test result and that remote/release/deployment remain unchanged.
+
+## Bounded upstream advance observed before local merge
+
+During final review, another active task advanced `origin/master` to
+`e0f7acaf0b6cbbeb8bc56f33e5da2991a9b40991` through published PR9. Relative to the
+original pinned v0.8.0 parent, it changes only two executable expressions in
+`sync-v3-revision.service.ts`, their tests, and two hotfix documents: preserve a
+persisted root Folder's null parent and serialize Prisma dates for the strict
+legacy Space-list projection. There is no migration, wire-schema, dependency,
+version, or UI change. Read-only merge-tree against reviewed `fe99a4ac` is clean.
+
+This is a bounded continuation of the user's authorized latest-master integration,
+not authorization to modify the other task or deploy its code again. The sole
+integration worker may merge this exact upstream commit, run the affected service
+and real Sync v3 HTTP tests plus the final full gate, and document the new source
+identity. An exact incremental independent review precedes controller-owned main
+FF and main-checkout full verification. Preserve all prior review/evidence; no
+reopening of unchanged product work or paid-model/Chrome replay is required for
+this non-UI delta. Further upstream movement is reported separately instead of
+indefinitely extending this snapshot.
