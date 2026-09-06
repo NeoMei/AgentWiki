@@ -131,7 +131,7 @@ test('real isolated HTTP Sync v3 lifecycle is durable, idempotent, guarded, and 
       });
       const humanToken = registration.data.access_token;
       const space = (await requestJson(baseUrl, '/spaces', {
-        method: 'POST', token: humanToken, body: { name: `Sync v3 ${randomUUID()}` },
+        method: 'POST', token: humanToken, body: { name: `Sync v3 ${randomUUID().slice(0, 8)}` },
       })).data;
 
       const installation = (await requestJson(baseUrl, '/integrations/obsidian/installations', {

@@ -174,6 +174,9 @@ export class OnboardBootstrapService {
       await this.persistResourceIds(claim.record.id, fence, resources.ids);
       issuedInstallationPersisted = true;
       const response = this.response(resources, plan.role, plan.scopes, installation);
+      // Bootstrap is the receipt for the exact confirmed plan. Older CLI versions
+      // compare this name byte-for-byte; the Space record itself is trimmed.
+      if (plan.space.mode === 'create') response.space.name = plan.space.name;
       const serialized = JSON.stringify(response);
       const resultHash = this.hash(serialized);
 
@@ -438,7 +441,7 @@ export class OnboardBootstrapService {
       const space = plan.space.mode === 'create'
         ? await tx.space.create({
           data: {
-            name: plan.space.name,
+            name: plan.space.name.trim(),
             slug: `${this.slugify(plan.space.name) || 'space'}-${this.hash(deviceSessionId).slice(0, 16)}`,
             visibility: 'private',
             approvalPolicy: 'always-review',

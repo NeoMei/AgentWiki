@@ -430,13 +430,13 @@ export const SpaceView: React.FC = () => {
       )}
       <div className="mb-6">
         <div className="flex items-center gap-2 text-sm text-gray-400 mb-2">
-          <Link to="/" className="hover:text-blue-600">{t('nav.spaces')}</Link>
+          <Link to="/" className="shrink-0 hover:text-blue-600">{t('nav.spaces')}</Link>
           <span>/</span>
-          <span className="text-gray-600 font-medium">{space.name}</span>
+          <span title={space.name} className="min-w-0 truncate text-gray-600 font-medium">{space.name}</span>
         </div>
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
           <div className="min-w-0 w-full lg:w-auto">
-            <h1 className="text-2xl font-bold truncate">{space.name}</h1>
+            <h1 title={space.name} className="text-2xl font-bold truncate">{space.name}</h1>
             {space.description && <p className="text-gray-500 mt-1">{space.description}</p>}
           </div>
         </div>

@@ -5,6 +5,8 @@ import { SpaceNav } from '../../components/SpaceNav';
 import { PageTemplateSettingsCard } from '../page-templates/PageTemplateSettingsCard';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { SPACE_NAME_MAX_LENGTH } from '@agentwiki/shared';
+import { validatorLength } from '../page-templates/validatorLength';
 
 interface SpaceSettingsModel {
   name: string;
@@ -181,12 +183,17 @@ export const SpaceSettings: React.FC = () => {
   const { t } = useLanguage();
   const [space, setSpace] = useState<SpaceSettingsModel | null>(null);
   const [loadedSpaceId, setLoadedSpaceId] = useState<string | null>(null);
+  const [confirmedName, setConfirmedName] = useState('');
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const activeSpaceId = useRef(id);
   activeSpaceId.current = id;
   const currentSpace = loadedSpaceId === id ? space : null;
+  const nameChanged = currentSpace !== null && currentSpace.name !== confirmedName;
+  const nameLength = validatorLength(currentSpace?.name.trim() ?? '');
+  const nameTooLong = nameLength > SPACE_NAME_MAX_LENGTH;
+  const invalidName = nameChanged && (!nameLength || nameTooLong);
   const memberRole = currentSpace?.members?.find((member) => member.userId === user?.id)?.role;
   const isSuperAdmin = user?.platformRole === 'super_admin';
   const canEditSpace = isSuperAdmin || memberRole === 'owner';
@@ -204,6 +211,7 @@ export const SpaceSettings: React.FC = () => {
       .then((response) => {
         if (active) {
           setSpace(response.data);
+          setConfirmedName(response.data.name);
           setLoadedSpaceId(id);
         }
       })
@@ -217,18 +225,19 @@ export const SpaceSettings: React.FC = () => {
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!id || !currentSpace?.name.trim() || !canEditSpace) return;
+    if (!id || !currentSpace || invalidName || !canEditSpace || saving) return;
     setSaving(true);
     setSaved(false);
     setError('');
     try {
       const response = await api.patch(`/spaces/${id}`, {
-        name: currentSpace.name.trim(),
+        ...(nameChanged ? { name: currentSpace.name.trim() } : {}),
         description: currentSpace.description?.trim() || undefined,
         approvalPolicy: currentSpace.approvalPolicy,
       });
       if (activeSpaceId.current !== id) return;
       setSpace((current) => current ? { ...current, ...response.data } : current);
+      setConfirmedName(response.data.name ?? (nameChanged ? currentSpace.name.trim() : confirmedName));
       setSaved(true);
     } catch (requestError: any) {
       if (activeSpaceId.current !== id) return;
@@ -255,7 +264,12 @@ export const SpaceSettings: React.FC = () => {
       <form onSubmit={save} className="space-y-5 border rounded-[14px] bg-white p-5">
         <div>
           <label className="block text-sm font-medium mb-1" htmlFor="space-name">{t('common.name')}</label>
-          <input id="space-name" value={currentSpace.name} onChange={(event) => updateDraft({ name: event.target.value })} className="w-full border rounded-lg px-3 py-2" required disabled={saving || !canEditSpace} />
+          <input id="space-name" value={currentSpace.name} onChange={(event) => updateDraft({ name: event.target.value })} className="w-full border rounded-lg px-3 py-2" required disabled={saving || !canEditSpace} aria-invalid={invalidName} aria-describedby="space-name-hint" />
+          <p id="space-name-hint" className={`mt-1 text-sm ${invalidName ? 'text-red-600' : 'text-gray-500'}`} aria-live="polite">
+            {t('space.nameLength', { count: nameLength, max: SPACE_NAME_MAX_LENGTH })}
+            {nameTooLong ? ` · ${t(nameChanged ? 'space.nameTooLong' : 'space.legacyLongName', { max: SPACE_NAME_MAX_LENGTH })}` : ''}
+            {nameChanged && !nameLength ? ` · ${t('space.nameRequired')}` : ''}
+          </p>
         </div>
         <div>
           <label className="block text-sm font-medium mb-1" htmlFor="space-description">{t('common.description')}</label>
@@ -271,7 +285,7 @@ export const SpaceSettings: React.FC = () => {
         </div>
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
         <div className="flex items-center gap-3">
-          <button type="submit" disabled={saving || !canEditSpace} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm disabled:opacity-50">{saving ? t('common.saving') : t('settings.save')}</button>
+          <button type="submit" disabled={saving || !canEditSpace || invalidName} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm disabled:opacity-50">{saving ? t('common.saving') : t('settings.save')}</button>
           {saved ? <span className="text-sm text-green-600">{t('common.saved')}</span> : null}
         </div>
       </form>

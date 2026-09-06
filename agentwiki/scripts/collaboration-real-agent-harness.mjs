@@ -117,7 +117,7 @@ async function prepareAcceptanceState({ apiUrl, schemaName, resourceRoot }) {
   const space = await request(apiUrl, '/spaces', {
     method: 'POST',
     token: owner.token,
-    body: { name: `Release acceptance ${suffix}` },
+    body: { name: `Release acceptance ${suffix.slice(-8)}` },
   });
   const agents = {
     codex: await createConnectedAgent(apiUrl, owner.token, space.id, `Codex acceptance ${suffix}`),

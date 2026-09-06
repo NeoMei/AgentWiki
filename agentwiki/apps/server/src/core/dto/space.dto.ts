@@ -1,9 +1,18 @@
-import { IsString, IsOptional, IsIn, MaxLength, MinLength } from 'class-validator';
+import { IsString, IsOptional, IsIn, MaxLength, MinLength, ValidateIf } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { SPACE_NAME_MAX_LENGTH } from '@agentwiki/shared';
+
+// Read the raw input so implicit conversion cannot turn numbers into names.
+const TrimSpaceName = () => Transform(({ obj, key }) => {
+  const value = obj[key];
+  return typeof value === 'string' ? value.trim() : value;
+}, { toClassOnly: true });
 
 export class CreateSpaceDto {
+  @TrimSpaceName()
   @IsString()
   @MinLength(1)
-  @MaxLength(100)
+  @MaxLength(SPACE_NAME_MAX_LENGTH)
   name: string;
 
   @IsOptional()
@@ -26,10 +35,11 @@ export class CreateSpaceDto {
 }
 
 export class UpdateSpaceDto {
-  @IsOptional()
+  @TrimSpaceName()
+  @ValidateIf((_object, value) => value !== undefined)
   @IsString()
   @MinLength(1)
-  @MaxLength(100)
+  @MaxLength(SPACE_NAME_MAX_LENGTH)
   name?: string;
 
   @IsOptional()

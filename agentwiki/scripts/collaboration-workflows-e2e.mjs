@@ -60,7 +60,7 @@ await withCollaborationTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schem
     const editorHuman = await register(apiUrl, `editor-${suffix}@example.test`, `Editor-${suffix}!`, 'Workflow Editor');
     const viewerHuman = await register(apiUrl, `viewer-${suffix}@example.test`, `Viewer-${suffix}!`, 'Workflow Viewer');
     const space = (await request(apiUrl, '/spaces', {
-      method: 'POST', token: owner.token, body: { name: `Collaboration E2E ${suffix}` },
+      method: 'POST', token: owner.token, body: { name: `Collaboration E2E ${suffix.slice(-8)}` },
     })).data;
     await request(apiUrl, `/spaces/${space.id}/members`, {
       method: 'POST', token: owner.token, body: { email: editorHuman.email, role: 'editor' },

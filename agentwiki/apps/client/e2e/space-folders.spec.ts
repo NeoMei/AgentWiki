@@ -39,7 +39,7 @@ interface TreeNode {
 
 const runId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const artifacts = path.join(os.tmpdir(), 'agentwiki-space-folder-qa', runId);
-const spaceName = `Space Folder QA ${runId}`;
+const spaceName = `Space Folder QA ${runId.slice(-8)}`;
 const rootFolderName = '产品资料';
 const subFolderName = '草稿';
 const folderPageTitle = '产品路线';

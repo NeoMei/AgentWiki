@@ -179,6 +179,16 @@ describe('OnboardBootstrapService', () => {
     jest.useRealTimers();
   });
 
+  it('stores a trimmed Space name while authorizing the original confirmed plan hash', async () => {
+    const plan: ServerPlan = { ...createPlan, space: { mode: 'create', name: '  研发知识库  ' } };
+    const result = await service.bootstrap(context, 'bootstrap-trim-01', plan, hashServerPlan(plan));
+    expect(result.space.name).toBe('  研发知识库  ');
+    const replayPayload = redis.setStrict.mock.calls.map((call) => call[1]).find((value) => typeof value === 'string' && value.includes('installation-1'));
+    expect(JSON.parse(replayPayload).space.name).toBe('  研发知识库  ');
+    expect(tx.space.create).toHaveBeenCalledWith({ data: expect.objectContaining({ name: '研发知识库' }) });
+    expect(bootstrapRecord.serverPlanHash).toBe(hashServerPlan(plan));
+  });
+
   it('creates a private always-review Space and active Agent without creating a Grant', async () => {
     const normalized = normalizeServerPlan(createPlan);
     const result = await service.bootstrap(context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan));

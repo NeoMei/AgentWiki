@@ -174,7 +174,7 @@ async function prepareFixture(apiUrl) {
   });
   const space = await request(apiUrl, '/spaces', {
     method: 'POST', token: owner.access_token,
-    body: { name: `Composite acceptance ${suffix}` },
+    body: { name: `Composite acceptance ${suffix.slice(-8)}` },
   });
   const agents = {
     codex: await createConnectedAgent(apiUrl, owner.access_token, space.id, `Codex composite ${suffix}`),

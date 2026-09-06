@@ -63,6 +63,25 @@ describe('Dashboard Space pagination and creation', () => {
     vi.mocked(api.get).mockResolvedValue(spacePage(spaces, 25));
   });
 
+  it.each(['空', 'a', '😀', '✈️'])('blocks overlong creation without truncating %s input', async (unit) => {
+    renderDashboard();
+    fireEvent.click(await screen.findByRole('button', { name: '新建空间' }));
+    const input = screen.getByPlaceholderText('例如：我的知识库');
+    fireEvent.change(input, { target: { value: unit.repeat(33) } });
+    expect(input).toHaveValue(unit.repeat(33));
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText(/33 \/ 32/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '创建' })).toBeDisabled();
+    fireEvent.submit(input.closest('form')!);
+    expect(api.post).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: `  ${unit.repeat(32)}  ` } });
+    expect(screen.getByRole('button', { name: '创建' })).toBeEnabled();
+    vi.mocked(api.post).mockResolvedValue({ data: { id: 'boundary', name: unit.repeat(32), slug: 'boundary' } });
+    fireEvent.submit(input.closest('form')!);
+    await screen.findByRole('heading', { name: unit.repeat(32) });
+    expect(api.post).toHaveBeenCalledWith('/spaces', { name: unit.repeat(32), description: undefined });
+  });
+
   it('prepends the POST response without depending on a second list request', async () => {
     vi.mocked(api.post).mockResolvedValue({
       data: { id: 'space-new', name: '新建空间', slug: 'new-space' },

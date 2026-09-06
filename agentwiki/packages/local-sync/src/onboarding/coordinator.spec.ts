@@ -117,6 +117,42 @@ function mockDeps(overrides?: Partial<CoordinatorDeps> & { source?: ProtocolSour
 }
 
 describe('OnboardingCoordinator happy path', () => {
+  it.each(['a', '空', '😀', '✈️'])('accepts 32 trimmed units of %s before confirmation', async (unit) => {
+    const fixture = mockDeps();
+    fixture.deps.source = successfulSource(fixture.sink, {
+      spaceMode: 'create', spaceName: `  ${unit.repeat(32)}  `, agentName: 'Codex', role: 'editor',
+      clientType: 'codex', sourcePaths: ['.'],
+    });
+    await new OnboardingCoordinator(fixture.deps).run();
+    expect(fixture.deps.bootstrapInstall).toHaveBeenCalledWith(expect.objectContaining({
+      serverPlan: expect.objectContaining({ space: { mode: 'create', name: unit.repeat(32) } }),
+    }));
+  });
+
+  it.each(['a', '空', '😀', '✈️'])('rejects 33 units of %s before authorization or confirmation', async (unit) => {
+    const fixture = mockDeps();
+    fixture.deps.source = successfulSource(fixture.sink, {
+      spaceMode: 'create', spaceName: unit.repeat(33), agentName: 'Codex', role: 'editor',
+      clientType: 'codex', sourcePaths: ['.'],
+    });
+    await expect(new OnboardingCoordinator(fixture.deps).run()).rejects.toMatchObject({ code: 'PROTOCOL_UNSUPPORTED' });
+    expect(fixture.deps.client.start).not.toHaveBeenCalled();
+    expect(fixture.deps.bootstrapInstall).not.toHaveBeenCalled();
+    expect(fixture.sink.lines.map((line) => JSON.parse(line).type)).not.toContain('confirmation_required');
+  });
+
+  it('trims Space names before preview, confirmation hashing and bootstrap', async () => {
+    const fixture = mockDeps();
+    fixture.deps.source = successfulSource(fixture.sink, {
+      spaceMode: 'create', spaceName: '  R&D  ', agentName: 'Codex', role: 'editor',
+      clientType: 'codex', sourcePaths: ['.'],
+    });
+    await new OnboardingCoordinator(fixture.deps).run();
+    expect(fixture.deps.bootstrapInstall).toHaveBeenCalledWith(expect.objectContaining({
+      serverPlan: expect.objectContaining({ space: { mode: 'create', name: 'R&D' } }),
+    }));
+  });
+
   it('runs the full state machine to completed', async () => {
     const fixture = mockDeps();
     fixture.deps.source = successfulSource(fixture.sink, {

@@ -137,7 +137,7 @@ export async function runSmoke(environment = process.env) {
     });
 
     const space = await request(apiUrl, '/spaces', {
-      method: 'POST', token, body: { name: `Smoke ${suffix}` },
+      method: 'POST', token, body: { name: `Smoke ${suffix.slice(-8)}` },
     });
     fixture.spaceId = space.data.id;
     const spaces = await request(apiUrl, '/spaces', { token });

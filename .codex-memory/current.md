@@ -2,27 +2,24 @@
 
 # 当前目标
 
-- 组合式单页/多页面模板与可选 Agent 协作已完成本地整合；本地 master 已快进到通过审查和主目录验收的 f84d576e，最终文档交接提交不改产品。
-- 本次范围已完成；后续 push、npm 发布、生产部署需要新的明确请求。
+- 从原 Session 恢复空间名 32 字符限制：完成普通新建/改名、Agent 自助接入校验、旧长名称兼容及窄屏布局修复。
 
 # 范围 / 不做
 
-- A+ 统一组合 TemplateVersion，创建真实多层 Folder/Page 树，支持历史页面后绑定和按任务纳入参与 Agent。
-- 已整合 v0.8.0 及最终锁定的上游 e0f7acaf（PR9 legacy v3 Space-list root-null/date 修复）。
-- 本任务没有 push、发布、部署、生产迁移、账户修改或付费模型重放；其他并行任务的上游发布不属于本任务执行。
+- 本轮只完成本地实现、验证、独立审查和功能分支提交；不自动合并 master、push、发布 npm 或部署生产。
+- 不移动原工作树，不重做已完成的组合模板功能，不修改其他并行工作树。
 
 # 当前状态
 
-- 原 Task1–13、17f28da 最终功能修复与9/9限定复审已完成，不重做。
-- 双父整合069eb126、证据文档修复fe99a4ac及最后上游合并1a25bfb5/文档f84d576e全部独立审查通过，无 Critical/Important/延期问题。
-- 主目录 master 从711cae7快进到f84d576e；主目录 frozen install、依赖预构建、typecheck/lint/build/test:full 均已完成，最终命令exit0。
-- 新鲜主目录结果：5212pass/0fail/3明确skip；runtime257+1、DB175零skip、server2499+1、client1264、protocol140、local-sync877+1。三个skip为CodeGraph opt-in/Windows OpenCode/Windows ACL。
-- 首次main typecheck因旧protocol dist缺导出exit2；源码具有新导出，预构建shared/protocol后通过，无产品修复。失败日志与成功日志分开保留。
-- Chrome6旅程与390px英文/键盘、3次精确预期409、0未知console/pageerror已在069eb126执行并CLEANED。最后2表达式非UI热修复有真实HTTP2/2和完整测试，未宣称另跑最终源码Chrome。旧Codex/OpenCode真实模型回执保留为不同历史fixture证据。
-- 主目录46个原有文件哈希、5脏子模块HEAD/status/diff、原status哈希全部保留；未stash/clean/reset/submodule update。独立hotfix工作树由另一任务推进，本任务未修改。
-- 专用PG50415数据库agentwiki_composite_test和Redis50416保留；post-main public0表、随机schema0、额外connection0，protected digest887e5d38ed14a3945866940b88cb74236e4f56f7636235f53d289095ba0ef73b保持。工作树及唯一验收资料保留。
+- 原任务 ID：01a06f37-1d32-7231-9e99-a9c0a1c6312a；实际工作树 `/Users/neomei/.codex/worktrees/69d8/AgentWiki ` 末尾带空格，缺空格路径已建立兼容符号链接。
+- 分支 `codex/composite-page-group-agent-collaboration`，本轮起点 9e6dc9a9（v0.9.0 发布验收记录）；先前 current.md 的“未发布”描述已过时，线上本轮未复验。
+- 新建、改名以及 onboarding 创建均按 trim 后最多32个 validator.js 单位校验；不静默截断。旧名称不变时，设置 PATCH 不携带 name，允许保存其他设置。
+- CLI 在授权和确认之前校验长度并trim。服务端以原始确认计划算 hash；Space 存储trim后的名称，但 bootstrap回执及replay保留原始确认名称，兼容已发布旧CLI严格比对。
+- 列表、标题、面包屑窄屏布局及中英文提示已验证。Chrome 390x844 / 1440x900，dev 5189及本地生产构建5190；UI使用隔离HTTP fixtures，无生产写入。
+- 独立审查已修正遗漏的Local Sync E2E测试名、旧CLI回执兼容和CLI提前校验；最终独立审查 Critical/Important 0。分阶段检查5265通过/3跳过；runtime258+1、DB175零skip、server2536+1、client1270、protocol140、local-sync886+1。
 
 # 稳定约束
+
 
 - Folder只表达目录结构；只有Page可以绑定Agent或成为任务目标。
 - PageAgentBinding不授予权限；活动Run冻结负责人；参与者仅来自本次启用任务并按Agent去重。
@@ -32,18 +29,21 @@
 - v3已发布ChangeSet禁止旧入口回滚；协作候选不可走普通入口绕过协作审核发布。
 - AgentGrant.role是权限事实源，Agent没有review:decide；外部Agent人工审核后的恢复仍需用户明确唤醒。
 
+- 空间名称长度按 class-validator/validator.js 规则计数，包含 surrogate pair / variation selector；不要改成 HTML UTF-16 maxLength 或静默截断。
+- Onboarding raw plan hash与精确replay不允许因名称规范化改变。
+
 # 关键索引
 
-- 最终本地合并验收：`agentwiki/docs/verification/composite-v080-master-merge.md`
-- 完整整合证据：`agentwiki/docs/verification/composite-v080-local-integration.md`
-- 设计：`agentwiki/docs/superpowers/specs/2026-09-05-composite-page-group-agent-collaboration-templates-design.md`
-- 本轮计划：`agentwiki/docs/superpowers/plans/2026-09-06-composite-v080-local-integration.md`
-- 已完成任务：`.codex-memory/tasks/archive/composite-page-group-agent-collaboration-templates/`
-- 隔离工作树执行账本：`.superpowers/sdd/2026-09-06-composite-v080-local-integration/progress.md`
+- 原任务恢复备份：`/Users/neomei/.codex/recovery/agentwiki-session-20260906-180349/恢复记录.md`
+- 验证日志、浏览器脚本和截图持久副本：`/Users/neomei/.codex/recovery/agentwiki-session-20260906-180349/completed-validation/`。
+- 既有发布记录：`agentwiki/docs/verification/composite-v090-release.md`
+- 原组合模板设计：`agentwiki/docs/superpowers/specs/2026-09-05-composite-page-group-agent-collaboration-templates-design.md`
 
 # 风险 / 下一步
 
-- 不自动发布。后续发布必须重新核对远端、版本、生产备份、灰度与实际线上验收，不能把本次本地通过当作上线。
-- 主目录真实路径和本任务worktree都以空格结尾；共享core.worktree指向主目录，每次Git显式--work-tree，不修plain git产生的虚假删除。
-- Vite保留既有chunk-size建议；测试负例WARN/ERROR已分类，不代表零警告输出。
-- 最终文档提交仅更新交接/归档和本地合并证据，产品树与已通过5212测试的f84d576e一致。
+- 本地修复及独立审查完成，待有明确请求再合并、push、发布或上线。
+- 全量命令前端阶段曾出现未改动PageEditor测试的1秒等待超时；单文件53通过，随后低并发完整前端93文件/1270测试通过。保留失败日志，不能称首次全量命令exit0；其余阶段全部通过。
+- 类型检查、lint、server/client/Local Sync构建通过。数据库清理后public表0、临时测试schema0、额外连接0；Vite保留既有chunk-size建议。
+- 实际根目录和worktree均以空格结尾；共享core.worktree会误导默认Git命令，每次显式 --work-tree 指定实际工作树。
+- 专用验证PG 127.0.0.1:50415 / agentwiki_composite_test、Redis50416；必须随机schema并清理，禁止业务库与共享public测试写入。
+- 原任务 adapter_eof 仍是独立运行时问题，目录链接恢复不代表已解决模型流断开。

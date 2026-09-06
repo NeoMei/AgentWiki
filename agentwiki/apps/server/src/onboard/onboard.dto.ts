@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsDefined,
   IsIn,
@@ -6,7 +6,11 @@ import {
   IsString,
   Matches,
   ValidateNested,
+  ValidateBy,
+  minLength,
+  maxLength,
 } from 'class-validator';
+import { SPACE_NAME_MAX_LENGTH } from '@agentwiki/shared';
 import type {
   BootstrapInput,
   DeviceDecisionInput,
@@ -43,7 +47,17 @@ class CreateSpacePlanDto {
   @IsIn(['create'])
   mode: 'create';
 
-  @IsString()
+  // Preserve the confirmed raw plan for hashing, including surrounding spaces.
+  // Restore the raw type so implicit conversion cannot authorize numeric names.
+  @Transform(({ obj, key }) => obj[key], { toClassOnly: true })
+  @ValidateBy({
+    name: 'spaceName',
+    validator: {
+      validate: (value: unknown) => typeof value === 'string'
+        && minLength(value.trim(), 1) && maxLength(value.trim(), SPACE_NAME_MAX_LENGTH),
+      defaultMessage: () => `Space name must contain 1 to ${SPACE_NAME_MAX_LENGTH} characters after trimming`,
+    },
+  })
   name: string;
 }
 

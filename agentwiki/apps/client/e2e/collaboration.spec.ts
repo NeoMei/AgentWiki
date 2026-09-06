@@ -48,7 +48,7 @@ interface SocketRunHint {
 const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const ownerEmail = `collaboration-owner-${suffix}@example.com`;
 const ownerPassword = 'AgentWiki9Test';
-const spaceName = `Collaboration browser QA ${suffix}`;
+const spaceName = `Collaboration QA ${suffix.slice(-8)}`;
 const agentName = `Collaboration Agent ${suffix}`;
 const runName = `Browser collaboration run ${suffix}`;
 const pauseReason = `Socket refresh proof ${suffix}`;

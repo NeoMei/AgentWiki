@@ -69,7 +69,7 @@ test.describe('local sync enrollment card', () => {
     fixture.userId = registration.user.id;
     const space = await requestJson<{ id: string }>(request, '/spaces', {
       token: fixture.token,
-      data: { name: `Local sync E2E ${suffix}`, visibility: 'private', approvalPolicy: 'always-review' },
+      data: { name: `Local sync E2E ${suffix.slice(-8)}`, visibility: 'private', approvalPolicy: 'always-review' },
     });
     fixture.spaceId = space.id;
     const agent = await requestJson<{ id: string }>(request, '/agents', {

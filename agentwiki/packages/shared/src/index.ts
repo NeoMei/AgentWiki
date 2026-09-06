@@ -1,3 +1,5 @@
+export const SPACE_NAME_MAX_LENGTH = 32;
+
 export interface User {
   id: string;
   email: string;
