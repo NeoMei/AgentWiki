@@ -206,11 +206,11 @@ export class SyncV3RevisionService {
           {
             folders: revisionFolders.map((folder: any) => ({
               folderId: folder.folderId ?? folder.id,
-              parentFolderId: folder.parentFolderId ?? folder.parentId,
+              parentFolderId: latest ? folder.parentFolderId : folder.parentId,
               name: folder.name,
               path: folder.path,
               sortOrder: folder.sortOrder,
-              updatedAt: folder.updatedAt,
+              updatedAt: folder.updatedAt.toISOString(),
             })),
             pages: revisionPages.map((page: any) => ({
               pageId: page.pageId ?? page.knowledgeKey,
