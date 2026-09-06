@@ -373,3 +373,107 @@ All database work targeted `agentwiki_composite_test` through generated task-own
 - Protected structural inventory digest: `887e5d38ed14a3945866940b88cb74236e4f56f7636235f53d289095ba0ef73b`, unchanged.
 
 No `.codex-memory` file belongs to or is staged by this integration. The controller-owned working-tree edit remains outside the commit.
+
+## Bounded upstream advance to the reviewed PR9 snapshot
+
+During final review, `origin/master` advanced from the original upstream parent to
+the exact locked snapshot `e0f7acaf0b6cbbeb8bc56f33e5da2991a9b40991`.
+The bounded continuation started from controller plan commit
+`b2a7b096c6d604318c55c12765201a974cd89d91`, whose parent is the reviewed
+integration candidate `fe99a4ac2ea2e5ea729d90768a746788ae148d57`.
+The clean no-FF merge result is
+`1a25bfb5426a77bb49a8b3600bd71606cd0e33a7`, with parents exactly
+`b2a7b096c6d604318c55c12765201a974cd89d91` and
+`e0f7acaf0b6cbbeb8bc56f33e5da2991a9b40991`.
+
+The upstream range changed exactly four paths: the Sync v3 revision service and its
+spec, plus the upstream hotfix plan and verification document. It added no
+migration, protocol wire schema, UI, dependency, lockfile, package, or version
+change. The two executable-expression changes are:
+
+```ts
+parentFolderId: latest ? folder.parentFolderId : folder.parentId,
+updatedAt: folder.updatedAt.toISOString(),
+```
+
+They preserve a persisted root Folder's explicit `null` parent instead of falling
+through to an absent live-row field, and serialize Prisma dates for the strict
+canonical legacy Space-list projection. The merged regression uses the real writer
+across persisted legacy, live, empty, and native-v3 Spaces, validates the published
+list schema and exact modes/counts/permissions/folder projections, and asserts no
+writes. Reinspection also confirmed the unchanged composite linked-publication
+guard, v3 non-revertibility, independent protocol exports, and all three reviewed
+migration digest locks.
+
+All commands below ran from
+`/Users/neomei/.codex/worktrees/69d8/AgentWiki /agentwiki`. The affected service
+command was:
+
+```sh
+set -o pipefail
+pnpm --filter @agentwiki/server exec jest --runInBand src/integrations/obsidian/sync-v3-revision.service.spec.ts 2>&1 | tee /tmp/agentwiki-composite-v080-tail-focused-server.log
+```
+
+Result: one suite passed, 23 tests passed, one existing conditional test skipped,
+zero failed, exit 0.
+
+The affected real Sync v3 HTTP command was:
+
+```sh
+set -o pipefail
+export DATABASE_URL='postgresql://postgres@127.0.0.1:50415/agentwiki_composite_test'
+export FOLDER_TEST_DATABASE_URL="$DATABASE_URL"
+export MARKDOWN_TEST_DATABASE_URL="$DATABASE_URL"
+export COLLABORATION_TEST_DATABASE_URL="$DATABASE_URL"
+export PAGE_TEMPLATE_TEST_DATABASE_URL="$DATABASE_URL"
+export SYNC_V3_TEST_DATABASE_URL="$DATABASE_URL"
+export TEST_REDIS_URL='redis://127.0.0.1:50416/0'
+export PG_DUMP_BIN='/opt/homebrew/opt/postgresql@16/bin/pg_dump'
+export PSQL_BIN='/opt/homebrew/opt/postgresql@16/bin/psql'
+export AGENTWIKI_PSQL_BIN="$PSQL_BIN"
+node --test --test-concurrency=1 scripts/sync-v3-http-db.test.mjs 2>&1 | tee /tmp/agentwiki-composite-v080-tail-sync-v3-http-db.log
+```
+
+Result: 2/2 passed, zero failed/skipped, exit 0. Its logged validation, conflict,
+and fail-safe HTTP responses are expected assertions. Immediate cleanup is retained
+at `/tmp/agentwiki-composite-v080-tail-post-focused-db.log`: public tables 0,
+generated test schemas 0, and other database connections 0.
+
+The final frozen gate used the same six aliases, Redis and PostgreSQL 16 binaries:
+
+```sh
+set -o pipefail
+export DATABASE_URL='postgresql://postgres@127.0.0.1:50415/agentwiki_composite_test'
+export FOLDER_TEST_DATABASE_URL="$DATABASE_URL"
+export MARKDOWN_TEST_DATABASE_URL="$DATABASE_URL"
+export COLLABORATION_TEST_DATABASE_URL="$DATABASE_URL"
+export PAGE_TEMPLATE_TEST_DATABASE_URL="$DATABASE_URL"
+export SYNC_V3_TEST_DATABASE_URL="$DATABASE_URL"
+export TEST_REDIS_URL='redis://127.0.0.1:50416/0'
+export PG_DUMP_BIN='/opt/homebrew/opt/postgresql@16/bin/pg_dump'
+export PSQL_BIN='/opt/homebrew/opt/postgresql@16/bin/psql'
+export AGENTWIKI_PSQL_BIN="$PSQL_BIN"
+pnpm typecheck 2>&1 | tee /tmp/agentwiki-composite-v080-tail-typecheck.log &&
+pnpm lint 2>&1 | tee /tmp/agentwiki-composite-v080-tail-lint.log &&
+pnpm build 2>&1 | tee /tmp/agentwiki-composite-v080-tail-build.log &&
+pnpm test:full 2>&1 | tee /tmp/agentwiki-composite-v080-tail-full.log
+```
+
+The shell exited 0. Typecheck, lint and all builds passed; Vite emitted only its
+existing large-chunk advisory. Fresh `test:full` results remained 5212 passed, zero
+failed, and three existing non-DB/platform skips: repository TAP 257 pass/1 gated
+CodeGraph skip, real DB 175/175 with zero skip, server 2499 pass/1 Windows-only
+skip, client 1264/1264, protocol 140/140, and Local Sync 877 pass/1 Windows ACL
+skip. Post-full cleanup at
+`/tmp/agentwiki-composite-v080-tail-post-full-db.log` again records public tables 0,
+generated schemas 0, and other connections 0; the protected inventory digest at
+`/tmp/agentwiki-composite-v080-tail-post-full-inventory.log` remains
+`887e5d38ed14a3945866940b88cb74236e4f56f7636235f53d289095ba0ef73b`.
+
+No Chrome or paid-model replay was performed. The earlier Chrome result remains
+evidence for the unchanged client/UI journeys at executable source boundary
+`069eb126...`; it is not represented as an exact-source browser run for the final
+server tail. This upstream delta has no UI path, and its changed server projection
+is covered by the affected real-writer unit test, real HTTP DB test, and frozen full
+gate above. No push, deployment, production migration, account change, package
+publication, or other-worktree write occurred in this bounded continuation.
