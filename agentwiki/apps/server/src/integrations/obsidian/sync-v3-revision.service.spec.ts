@@ -10,6 +10,7 @@ import {
   TreeDeltaPageV3Schema,
   TreeRevisionHeadResponseV3Schema,
   TreeSnapshotPageV3Schema,
+  TreeSyncSpaceListResponseV3Schema,
   treeRevisionContentHashV3,
   treeRevisionDeltaV3,
 } from '@neomei/agentwiki-sync-protocol';
@@ -127,61 +128,68 @@ describe('SyncV3RevisionService', () => {
     return { service, prisma, tx, revision, manifest, pageRows, attachmentRows, sidecar };
   }
 
-  it('batches Space discovery and reports native, bootstrap, and legacy modes without writing', async () => {
-    const body = '# Bootstrap\n';
+  it('projects persisted and live folders canonically during mixed Space discovery without writing', async () => {
+    const write = jest.fn();
     const tx: any = {
       humanDeviceCredential: { findUnique: jest.fn().mockResolvedValue({
         id: 'cred-1', userId: 'user-1', status: 'active', provisionalExpiresAt: null,
-        user: { deletedAt: null, lockedAt: null, type: 'human', platformRole: 'super_admin' },
+        user: { deletedAt: null, lockedAt: null, type: 'human', platformRole: 'user' },
       }) },
-      space: { findMany: jest.fn().mockResolvedValue([
-        { id: 'native', name: 'Native', createdAt: new Date('2026-09-01T00:00:00.000Z') },
-        { id: 'bootstrap', name: 'Bootstrap', createdAt: new Date('2026-09-02T00:00:00.000Z') },
-        { id: 'legacy', name: 'Legacy', createdAt: new Date('2026-09-03T00:00:00.000Z') },
-      ]) },
+      spaceMember: { findMany: jest.fn().mockResolvedValue([
+        { role: 'owner', createdAt: new Date('2026-09-01T00:00:00.000Z'), space: { id: 'legacy', name: 'Legacy' } },
+        { role: 'editor', createdAt: new Date('2026-09-02T00:00:00.000Z'), space: { id: 'live', name: 'Live' } },
+        { role: 'viewer', createdAt: new Date('2026-09-03T00:00:00.000Z'), space: { id: 'empty', name: 'Empty' } },
+        { role: 'admin', createdAt: new Date('2026-09-04T00:00:00.000Z'), space: { id: 'native', name: 'Native' } },
+      ]), create: write, update: write, delete: write },
+      space: { create: write, update: write, delete: write },
       $queryRaw: jest.fn()
         .mockResolvedValueOnce([
+          {
+            id: 'rev-legacy', spaceId: 'legacy', sequence: 2,
+            schemaVersion: 'content-tree@2', recipeVersion: 'space-folders-v1',
+          },
           {
             id: 'rev-native', spaceId: 'native', sequence: 3,
             schemaVersion: 'content-tree@3', recipeVersion: 'referenced-images-v1',
             pageCount: 2n, attachmentCount: 1n, revisionManifestByteLength: 100n,
             revisionBodyBytes: 20n, revisionAttachmentBytes: 4n,
           },
-          {
-            id: 'rev-legacy', spaceId: 'legacy', sequence: 2,
-            schemaVersion: 'content-tree@2', recipeVersion: 'space-folders-v1',
-          },
         ])
         .mockResolvedValueOnce([{ spaceId: 'native' }]),
       syncRevisionFolderRow: { findMany: jest.fn().mockResolvedValue([
+        {
+          revisionId: 'rev-legacy', folderId: 'legacy-root', parentFolderId: null,
+          name: 'Legacy', path: 'pages/Legacy', sortOrder: 1,
+          updatedAt: new Date('2026-08-01T01:02:03.004Z'),
+        },
+        {
+          revisionId: 'rev-legacy', folderId: 'legacy-child', parentFolderId: 'legacy-root',
+          name: 'Child', path: 'pages/Legacy/Child', sortOrder: 2,
+          updatedAt: new Date('2026-08-02T01:02:03.004Z'),
+        },
         { revisionId: 'rev-native' },
-      ]) },
-      syncRevisionPageRow: { findMany: jest.fn().mockResolvedValue([]) },
-      folder: { findMany: jest.fn().mockResolvedValue([]) },
-      page: { findMany: jest.fn().mockResolvedValue([]) },
+      ]), create: write, update: write, delete: write },
+      syncRevisionPageRow: { findMany: jest.fn().mockResolvedValue([]), create: write, update: write, delete: write },
+      folder: { findMany: jest.fn().mockResolvedValue([
+        {
+          id: 'live-root', spaceId: 'live', parentId: null,
+          name: 'Live', path: 'pages/Live', sortOrder: 3,
+          updatedAt: new Date('2026-08-03T01:02:03.004Z'),
+        },
+        {
+          id: 'live-child', spaceId: 'live', parentId: 'live-root',
+          name: 'Child', path: 'pages/Live/Child', sortOrder: 4,
+          updatedAt: new Date('2026-08-04T01:02:03.004Z'),
+        },
+      ]), create: write, update: write, delete: write },
+      page: { findMany: jest.fn().mockResolvedValue([]), create: write, update: write, delete: write },
+      spaceKnowledgeRevision: { create: write, update: write, delete: write },
+      $executeRaw: write,
+      $executeRawUnsafe: write,
     };
-    const writer = {
-      inspectCandidate: jest.fn(async (_tx: unknown, spaceId: string) => spaceId === 'bootstrap'
-        ? {
-          mode: 'bootstrap_required', baseRevision: '0', candidate: {
-            folders: [],
-            pages: [{
-              pageId: 'page-1', folderId: null, path: 'pages/bootstrap.md', title: 'Bootstrap',
-              body, contentHash: await contentHash(body), updatedAt: '2026-09-04T00:00:00.000Z',
-              referencedAttachmentIds: ['attachment-1'],
-            }],
-            attachments: [{
-              attachmentId: 'attachment-1', path: 'assets/pic.png', mimeType: 'image/png',
-              sizeBytes: '4', width: 1, height: 1, contentHash: 'b'.repeat(64),
-              updatedAt: '2026-09-04T00:00:00.000Z',
-            }],
-          },
-        }
-        : {
-          mode: 'legacy_v2', baseRevision: 'rev-legacy',
-          candidate: { folders: [], pages: [], attachments: [] },
-        }),
-    };
+    const markdownResources = new MarkdownResourceService({} as any, {} as AuthorizationService);
+    const writer = new SyncV3RevisionWriterService(markdownResources, {} as LocalAttachmentStorage);
+    const inspectCandidate = jest.spyOn(writer, 'inspectCandidate');
     const service = new SyncV3RevisionService(
       { $transaction: jest.fn((callback: (value: unknown) => unknown) => callback(tx)) } as any,
       new SyncCursorService({ get: () => 'test-pepper' } as any),
@@ -191,18 +199,77 @@ describe('SyncV3RevisionService', () => {
 
     const response = await service.listSpaces(principal);
 
-    expect(response.spaces.map((space) => [space.spaceId, space.syncMode])).toEqual([
-      ['native', 'native_v3'], ['bootstrap', 'bootstrap_required'], ['legacy', 'legacy_v2'],
+    expect(TreeSyncSpaceListResponseV3Schema.parse(response)).toEqual(response);
+    expect(response.spaces.map((space) => ({
+      spaceId: space.spaceId,
+      role: space.role,
+      canRead: space.canRead,
+      canPublish: space.canPublish,
+      syncMode: space.syncMode,
+      currentRevision: space.currentRevision,
+      folderCount: space.folderCount,
+      pageCount: space.pageCount,
+      attachmentCount: space.attachmentCount,
+      revisionManifestByteLength: space.revisionManifestByteLength,
+      revisionBodyBytes: space.revisionBodyBytes,
+      revisionAttachmentBytes: space.revisionAttachmentBytes,
+    }))).toEqual([
+      {
+        spaceId: 'legacy', role: 'owner', canRead: true, canPublish: true,
+        syncMode: 'legacy_v2', currentRevision: 'rev-legacy',
+        folderCount: '2', pageCount: '0', attachmentCount: '0',
+        revisionManifestByteLength: '377', revisionBodyBytes: '0', revisionAttachmentBytes: '0',
+      },
+      {
+        spaceId: 'live', role: 'editor', canRead: true, canPublish: true,
+        syncMode: 'legacy_v2', currentRevision: '0',
+        folderCount: '2', pageCount: '0', attachmentCount: '0',
+        revisionManifestByteLength: '363', revisionBodyBytes: '0', revisionAttachmentBytes: '0',
+      },
+      {
+        spaceId: 'empty', role: 'viewer', canRead: true, canPublish: false,
+        syncMode: 'legacy_v2', currentRevision: '0',
+        folderCount: '0', pageCount: '0', attachmentCount: '0',
+        revisionManifestByteLength: '82', revisionBodyBytes: '0', revisionAttachmentBytes: '0',
+      },
+      {
+        spaceId: 'native', role: 'admin', canRead: true, canPublish: false,
+        syncMode: 'native_v3', currentRevision: 'rev-native',
+        folderCount: '1', pageCount: '2', attachmentCount: '1',
+        revisionManifestByteLength: '100', revisionBodyBytes: '20', revisionAttachmentBytes: '4',
+      },
     ]);
-    expect(response.spaces[1]).toEqual(expect.objectContaining({
-      pageCount: '1', attachmentCount: '1', revisionAttachmentBytes: '4',
-    }));
+    const inspections = await Promise.all(inspectCandidate.mock.results.map((result) => result.value));
+    expect(inspections.map(({ candidate }) => candidate.folders)).toEqual([
+      [
+        {
+          folderId: 'legacy-root', parentFolderId: null, name: 'Legacy',
+          path: 'pages/Legacy', sortOrder: 1, updatedAt: '2026-08-01T01:02:03.004Z',
+        },
+        {
+          folderId: 'legacy-child', parentFolderId: 'legacy-root', name: 'Child',
+          path: 'pages/Legacy/Child', sortOrder: 2, updatedAt: '2026-08-02T01:02:03.004Z',
+        },
+      ],
+      [
+        {
+          folderId: 'live-root', parentFolderId: null, name: 'Live',
+          path: 'pages/Live', sortOrder: 3, updatedAt: '2026-08-03T01:02:03.004Z',
+        },
+        {
+          folderId: 'live-child', parentFolderId: 'live-root', name: 'Child',
+          path: 'pages/Live/Child', sortOrder: 4, updatedAt: '2026-08-04T01:02:03.004Z',
+        },
+      ],
+      [],
+    ]);
     expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
     expect(tx.syncRevisionFolderRow.findMany).toHaveBeenCalledTimes(1);
     expect(tx.syncRevisionPageRow.findMany).toHaveBeenCalledTimes(1);
     expect(tx.folder.findMany).toHaveBeenCalledTimes(1);
     expect(tx.page.findMany).toHaveBeenCalledTimes(1);
-    expect(writer.inspectCandidate).toHaveBeenCalledTimes(2);
+    expect(inspectCandidate).toHaveBeenCalledTimes(3);
+    expect(write).not.toHaveBeenCalled();
   });
 
   it('rebuilds an immutable v3 revision and returns strict head/snapshot/delta envelopes', async () => {
