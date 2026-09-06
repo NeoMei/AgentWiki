@@ -253,7 +253,7 @@
 | 12.6 | 跨机器同步 | 不同机器通过同一 Space 读写同一套 Wiki |
 | 12.7 | 知识修订 | `GET /spaces/:spaceId/knowledge-revisions/current` 返回当前 revision |
 | 12.8 | 快照/Delta | `GET .../snapshot`、`GET .../delta?from=xxx` 增量同步 |
-| 12.9 | npm 包 | `pnpm test:package:local-sync-clean-install` 在空目录联合安装 sync-protocol 0.6.0 与 local-sync 0.9.0 并启动 CLI；发布前分别确认 protocol 0.6.0 和 Local Sync 0.9.0 在显式 registry 中未被占用，网络或元数据错误必须 fail closed。发布 protocol 后，运行 `pnpm test:release:sync-protocol-registry-parity` 从 registry 下载其 tarball 并与当前候选产物解包后逐字节比较，再发布 Local Sync，并运行 `pnpm test:package:local-sync-registry-protocol` 验证公网协议包的干净消费者兼容性。禁止绕过任一 registry 检查。 |
+| 12.9 | npm 包 | `pnpm test:package:local-sync-clean-install` 在空目录联合安装 sync-protocol 0.6.0 与 local-sync 0.9.0 并启动 CLI；发布前分别确认 protocol 0.6.0 和 Local Sync 0.9.0 在显式 registry 中未被占用，网络或元数据错误必须 fail closed。Controller 在认证生产预检和评审后先发布 protocol 0.6.0，再运行 `pnpm test:release:sync-protocol-registry-parity` 逐字节验证公网 protocol；然后在发布 Local Sync 前运行 `pnpm test:package:local-sync-registry-protocol`，用当前 Local Sync 候选包验证公网 protocol。候选兼容门通过后才发布 Local Sync 0.9.0；发布后使用全新的安装目录和缓存运行 `npm install --prefix <empty-install-dir> --cache <empty-cache-dir> --registry=https://registry.npmjs.org/ --ignore-scripts --no-audit --no-fund @neomei/agentwiki-local-sync@0.9.0`，再运行 `<empty-install-dir>/node_modules/.bin/agentwiki-local-sync --help`，单独验证实际公网 Local Sync 包。禁止绕过任一 registry 检查。 |
 
 ---
 

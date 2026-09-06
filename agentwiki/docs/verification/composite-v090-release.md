@@ -84,8 +84,9 @@ Controller-only publication, after authenticated production preflight and review
 
 1. Publish the staged Sync Protocol `0.6.0` artifact.
 2. Run `pnpm test:release:sync-protocol-registry-parity` against the public registry.
-3. Publish Local Sync `0.9.0` only after protocol parity passes.
-4. Run `pnpm test:package:local-sync-registry-protocol` against the public protocol.
-5. Only then proceed separately to source push/tag/GitHub Release, production deployment, and browser/UI acceptance.
+3. Run `pnpm test:package:local-sync-registry-protocol` against the public protocol and current Local Sync candidate.
+4. Publish Local Sync `0.9.0` only after the candidate registry-protocol clean install passes.
+5. In fresh empty install and cache directories, run `npm install --prefix <empty-install-dir> --cache <empty-cache-dir> --registry=https://registry.npmjs.org/ --ignore-scripts --no-audit --no-fund @neomei/agentwiki-local-sync@0.9.0`, then `<empty-install-dir>/node_modules/.bin/agentwiki-local-sync --help`, to verify the actual public Local Sync artifact separately.
+6. Only then proceed separately to source push/tag/GitHub Release, production deployment, and browser/UI acceptance.
 
 No npm publication, Git push/tag/release, production write, deployment, or UI acceptance was performed here. Direct BatchMode production SSH authentication is currently blocked, so production preflight and deployment remain controller blockers after independent review.

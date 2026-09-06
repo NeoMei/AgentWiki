@@ -371,11 +371,16 @@ AgentWiki uses direct deployment with systemd (no Docker for the application):
    registry-availability gate with `pnpm test:release:sync-v3-registry`, and check
    protocol 0.6.0 separately against the explicit public registry. Only an `E404`
    proves a version is absent; network or registry metadata failures block release.
-   Under separate publication authorization, publish sync-protocol 0.6.0 first,
-   then run `pnpm test:release:sync-protocol-registry-parity`. Publish Local Sync
-   0.9.0 only after protocol parity succeeds, then run
-   `pnpm test:package:local-sync-registry-protocol`. Deployment remains blocked
-   until both packages are publicly available and pass their post-publication gates.
+   Controller-only publication follows authenticated production preflight and review.
+   Publish sync-protocol 0.6.0 first, then run
+   `pnpm test:release:sync-protocol-registry-parity`. Next run
+   `pnpm test:package:local-sync-registry-protocol` against the current Local Sync
+   candidate and public protocol. Publish Local Sync 0.9.0 only after that candidate
+   gate passes. Finally, use fresh empty install and cache directories to install the
+   public Local Sync artifact and run its CLI:
+   `npm install --prefix <empty-install-dir> --cache <empty-cache-dir> --registry=https://registry.npmjs.org/ --ignore-scripts --no-audit --no-fund @neomei/agentwiki-local-sync@0.9.0`, then
+   `<empty-install-dir>/node_modules/.bin/agentwiki-local-sync --help`.
+   Deployment remains blocked until both packages are publicly available and pass their post-publication gates.
 4. Run database migrations: `cd apps/server && npx prisma migrate deploy`.
 5. Configure three systemd services (templates in `deploy/systemd/`):
    - `agentwiki-api.service` — NestJS API server

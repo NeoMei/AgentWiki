@@ -42,12 +42,25 @@ test('release manifests and the explicit registry command check only unpublished
   assert.deepEqual(await releaseCandidates(), candidates);
 });
 
-test('deployment runbook sequences protocol and Local Sync publication gates', async () => {
+test('deployment runbook gates Local Sync publication on candidate registry-protocol install', async () => {
   const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
+  const runbook = readme.replace(/\s+/gu, ' ').toLowerCase();
+  const orderedMarkers = [
+    'publish sync-protocol 0.6.0 first',
+    '`pnpm test:release:sync-protocol-registry-parity`',
+    '`pnpm test:package:local-sync-registry-protocol`',
+    'publish local sync 0.9.0',
+    'npm install --prefix <empty-install-dir>',
+    '<empty-install-dir>/node_modules/.bin/agentwiki-local-sync --help',
+  ];
+  let previous = -1;
+  for (const marker of orderedMarkers) {
+    const index = runbook.indexOf(marker);
+    assert.ok(index >= 0, `deployment runbook must include ${marker}`);
+    assert.ok(index > previous, `deployment runbook must order ${marker} after the prior gate`);
+    previous = index;
+  }
   assert.match(readme, /`pnpm test:release:sync-v3-registry`/u);
-  assert.match(readme, /`pnpm test:release:sync-protocol-registry-parity`/u);
-  assert.match(readme, /`pnpm test:package:local-sync-registry-protocol`/u);
-  assert.match(readme, /publish sync-protocol 0\.6\.0 first/iu);
   assert.match(
     readme,
     /deployment remains blocked\s+until both packages are publicly available and pass their post-publication gates/iu,
