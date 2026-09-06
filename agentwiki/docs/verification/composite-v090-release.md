@@ -176,3 +176,80 @@ SSH master was re-established and live 0.8.0 read-only preflight confirmed the s
 target and healthy services. Recovery implementation/re-review and actual deployment
 remain separate gates. Only release-owned public-API fixture bootstrap has occurred:
 new composite/legacy test Spaces; no existing user pages were changed.
+
+## Released and deployed — 2026-09-06 16:04 CST
+
+Source and immutable `v0.9.0` tag target:
+`d8bddc3528bf719d1d03abede58e0fdd46db4fac`. Local master was fast-forwarded and
+remote master/tag verified; the main checkout's before/after uncommitted status was
+identical (user submodules and untracked files retained). GitHub Release:
+https://github.com/NeoMei/AgentWiki/releases/tag/v0.9.0 .
+
+### Operations and recovery evidence
+
+- Independent operational review closed all findings, C0/I0/M0. A subsequent actual
+  read-only production check caught PostgreSQL's `inet` text `/32` suffix; the narrow
+  `host(inet_server_addr())` fix passed real TCP regression, scoped re-review and live
+  same-cluster/ownership/extension verification before service shutdown.
+- Deployment wrapper SHA256:
+  `f388ab4431447af0372682b06d57c07be89d1de38eab1ae0c0a810dd4d013de4`.
+  Recovery module SHA256:
+  `888ff26aadb00bf787fa515f52663c1131d9f75d82681af8d8abd73260c5d4d6`.
+  Four sibling helpers and operator instructions are retained privately on the host
+  under `/root/agentwiki-release-tools-v090/`.
+- Staged build and OpenCode runtime preflight passed before downtime. The three
+  services were confirmed inactive before capturing the custom PostgreSQL dump,
+  attachment tree/manifest, old application archive and unit/drop-in archive.
+- Verified paired backup: `/var/backups/agentwiki/composite-v090.ISRh9s`.
+  Manifest SHA256 `2618e396fc2f0fd8d40bd4a80abe0fafb82b8bd818fcc38d2b04a58cfd63afb2`.
+  Previous application: `/root/agentwiki-previous-20260906155937`.
+  These are recovery references, not authority to discard post-backup writes.
+- Only pending migration `20260905120000_composite_templates` applied. Final history:
+  55 successful migrations, no unresolved failures; historical resolved attempts kept.
+- Deployment exited 0. All three services are active with NRestarts 0; existing
+  exact-runtime bind drop-ins/security hardening remain. Source parity checked 1,030
+  deployed input files with zero mismatches. Public health reports status/database/
+  Redis/audit/attachmentStorage all `ok` after cleanup and restart.
+- Final feature allowlist contains **only NeoMei-Space**
+  `cmt024s4808nm3gmnko5v9gj5`; it is not a wildcard/global rollout. Temporary fixture
+  allowlisting was removed, original env snapshots retained at
+  `/root/agentwiki-release-tools-v090/allowlist-env-before.kWEpN9`.
+
+### Public API and browser acceptance
+
+Browser plugin unavailable; used repository Playwright with installed Chrome against
+`https://agentwiki.quukk.com`, desktop 1440×900 and mobile 390×844. No product UI was
+changed during this release verification. Evidence directory:
+`/tmp/agentwiki-v090-browser.NCobO4` (private fixtures, screenshots and results).
+
+| Check | Observed result |
+| --- | --- |
+| Authenticated API smoke | 32 checks passed; its own fixtures cleaned |
+| Page identity / meaningful render / framework overlay | AgentWiki page, meaningful content, no overlay |
+| Single/multi template categories | Filter controls respond; project workspace appears under multi-page |
+| Collaboration off | One project creates 11 nested nodes; zero Runs; edit/save/API readback/reload agree |
+| Late Page binding | Binding survives reload; selected single-page Run has exactly its one Agent |
+| Participation boundary | Agent bound to a different Page is excluded; rebinding does not change active Run assignee |
+| Collaboration on | 7 tasks, 2 deduplicated participants; UI result and authoritative Run agree |
+| Legacy creation | Non-allowlisted Space retains old entry and creates an ordinary editable Page |
+| Protected attachment | Upload, authenticated exact byte readback and browser blob image render passed |
+| Console / runtime | No page errors or relevant console errors in completed journeys |
+| Mobile layout | Normal-length fixture name fits; existing long-name breadcrumb overflow reproduced |
+
+Known non-blocking issue: a ~70-character Space name expands the existing content
+breadcrumb to 510px on a 390px viewport. `ContentBreadcrumbs.tsx` is byte-identical to
+the previous production source `e0f7acaf`; the original failed screenshot/DOM and widths
+were retained. Rechecking with a normal-length fixture name passed without modifying
+product code. This is **not** an all-input/mobile-layout pass.
+
+Test cleanup cancelled two fixture Runs, revoked two fixture Agents, soft-deleted two
+fixture Spaces, and deleted the fixture user. Only release-owned records were targeted;
+soft-deleted content/audit and archived attachments follow normal retention. Existing
+user data and permissions were not widened. All test Space allowlisting was removed.
+
+Boundary: this production run verifies creation/binding/participant freezing and public
+API publication smoke, not a fresh end-to-end external-model multi-client execution.
+Earlier local real-Agent evidence remains historical. No disaster restore was executed.
+
+**Outcome: source + npm + GitHub Release + production deployment complete; core public
+business acceptance passed, with the explicitly retained pre-existing mobile layout issue.**
