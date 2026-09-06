@@ -15,6 +15,7 @@ export interface CompositeTemplateSummary {
   stableKey: string;
   category: 'planning' | 'reporting' | 'knowledge' | 'other';
   kind: CompositeTemplateKind;
+  storageKind?: 'legacy_content' | 'definition';
   supportsCollaboration: boolean;
   effectiveSupportsCollaboration: boolean;
   pageCount: number;

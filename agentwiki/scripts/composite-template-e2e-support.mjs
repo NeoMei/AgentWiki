@@ -196,6 +196,7 @@ export function assertSavedFolderTemplatePersistence({
   instantiatedRootName,
   instantiatedNodes,
   concreteAgentIds,
+  unassignedPageSourceIds = [],
 }) {
   const byId = new Map(sourceNodes.map((node) => [node.sourceNodeId, node]));
   const excludedFolders = new Set(excludedFolderIds);
@@ -236,9 +237,12 @@ export function assertSavedFolderTemplatePersistence({
     return paths.sort();
   };
   const compareTreeOrder = (left, right) => left.order - right.order
-    || (left.kind === right.kind ? 0 : left.kind === 'folder' ? 1 : -1)
     || left.nodeId.localeCompare(right.nodeId);
-  const logicalSiblingOrder = (nodes) => {
+  const compareSourceOrder = (left, right) => (left.kind === right.kind ? 0 : left.kind === 'folder' ? -1 : 1)
+    || left.order - right.order
+    || (left.createdAt ? new Date(left.createdAt).getTime() : 0) - (right.createdAt ? new Date(right.createdAt).getTime() : 0)
+    || left.nodeId.localeCompare(right.nodeId);
+  const logicalSiblingOrder = (nodes, comparator = compareTreeOrder) => {
     const byParent = new Map();
     for (const node of nodes) {
       const siblings = byParent.get(node.parentNodeId) ?? [];
@@ -247,7 +251,7 @@ export function assertSavedFolderTemplatePersistence({
     }
     const rows = [];
     const visit = (parentNodeId, parentPath) => {
-      const siblings = [...(byParent.get(parentNodeId) ?? [])].sort(compareTreeOrder);
+      const siblings = [...(byParent.get(parentNodeId) ?? [])].sort(comparator);
       rows.push({
         parentPath,
         children: siblings.map((node) => `${node.kind}:${node.label}`),
@@ -264,6 +268,7 @@ export function assertSavedFolderTemplatePersistence({
     parentNodeId: node.parentSourceNodeId,
     kind: node.kind,
     order: node.order,
+    createdAt: node.createdAt,
     label: node.kind === 'folder' ? node.name : node.title,
   }));
   const sortTree = (nodes) => [...nodes].sort((left, right) => left.nodeId.localeCompare(right.nodeId));
@@ -282,7 +287,7 @@ export function assertSavedFolderTemplatePersistence({
   if (!isDeepStrictEqual(logicalPaths(definitionTree), logicalPaths(expectedTree))) {
     throw new Error('Saved Folder template must preserve the exact pruned tree structure');
   }
-  if (!isDeepStrictEqual(logicalSiblingOrder(definitionTree), logicalSiblingOrder(expectedTree))) {
+  if (!isDeepStrictEqual(logicalSiblingOrder(definitionTree), logicalSiblingOrder(expectedTree, compareSourceOrder))) {
     throw new Error('Saved Folder template must preserve source sibling order after pruning');
   }
   const instantiatedTree = sortTree(instantiatedNodes.map((node) => ({
@@ -293,7 +298,7 @@ export function assertSavedFolderTemplatePersistence({
     label: node.kind === 'folder' ? node.name : node.title,
     content: node.kind === 'page' ? node.content : undefined,
   })));
-  const rankSiblingOrder = (nodes) => {
+  const rankSiblingOrder = (nodes, comparator = compareTreeOrder) => {
     const ranked = new Map();
     const byParent = new Map();
     for (const node of nodes) {
@@ -302,7 +307,7 @@ export function assertSavedFolderTemplatePersistence({
       byParent.set(node.parentNodeId, siblings);
     }
     for (const siblings of byParent.values()) {
-      siblings.sort(compareTreeOrder);
+      siblings.sort(comparator);
       siblings.forEach((node, index) => ranked.set(node.nodeId, index));
     }
     return sortTree(nodes.map((node) => ({ ...node, order: ranked.get(node.nodeId) })));
@@ -311,7 +316,7 @@ export function assertSavedFolderTemplatePersistence({
     && node.kind === 'folder' && instantiatedRootName
     ? { ...node, label: instantiatedRootName }
     : node);
-  if (!isDeepStrictEqual(rankSiblingOrder(instantiatedTree), expectedInstantiationTree)) {
+  if (!isDeepStrictEqual(rankSiblingOrder(instantiatedTree, compareSourceOrder), expectedInstantiationTree)) {
     throw new Error('Saved Folder re-instantiation must reproduce the exact tree structure');
   }
   const retainedPages = retained.filter((node) => node.kind === 'page');
@@ -334,7 +339,15 @@ export function assertSavedFolderTemplatePersistence({
   const agentTasks = collaboration?.workflow?.nodes?.filter((node) => node.kind === 'agent_task') ?? [];
   const taskTargets = collaboration?.taskTargets ?? [];
   const roleIds = roleSlots.map((role) => role.id);
-  const pageRoleIds = definitionPages.map((page) => page.roleSlotKey);
+  const workingPages = definitionPages.filter((page) => page.roleSlotKey !== null);
+  const pageRoleIds = workingPages.map((page) => page.roleSlotKey);
+  const referencePageContents = retainedPages.filter((page) => unassignedPageSourceIds.includes(page.sourceNodeId))
+    .map((page) => ({ title: page.title, content: page.content }));
+  const actualReferenceContents = definitionPages.filter((page) => page.roleSlotKey === null)
+    .map((page) => ({ title: page.titleI18n?.['zh-CN'] ?? page.titleI18n?.en, content: page.contentI18n?.['zh-CN'] ?? page.contentI18n?.en }));
+  if (referencePageContents.length !== unassignedPageSourceIds.length || !isDeepStrictEqual(referencePageContents, actualReferenceContents)) {
+    throw new Error('Saved Folder ordinary reference Pages must retain their explicit unassigned state');
+  }
   const taskById = new Map(agentTasks.map((task) => [task.id, task]));
   const targetsByPage = new Map();
   for (const target of taskTargets) {
@@ -342,16 +355,17 @@ export function assertSavedFolderTemplatePersistence({
     targets.push(target);
     targetsByPage.set(target.pageNodeId, targets);
   }
-  const pageRoleTaskValid = roleIds.length === definitionPages.length
+  const pageRoleTaskValid = roleIds.length === workingPages.length
     && new Set(roleIds).size === roleIds.length
     && pageRoleIds.every((roleId) => typeof roleId === 'string' && roleIds.includes(roleId))
-    && new Set(pageRoleIds).size === definitionPages.length
+    && new Set(pageRoleIds).size === workingPages.length
     && roleIds.every((roleId) => pageRoleIds.includes(roleId))
-    && agentTasks.length === definitionPages.length
-    && taskTargets.length === definitionPages.length
-    && new Set(taskTargets.map((target) => target.taskNodeId)).size === definitionPages.length
+    && agentTasks.length === workingPages.length
+    && taskTargets.length === workingPages.length
+    && new Set(taskTargets.map((target) => target.taskNodeId)).size === workingPages.length
     && definitionPages.every((page) => {
       const targets = targetsByPage.get(page.nodeId) ?? [];
+      if (page.roleSlotKey === null) return targets.length === 0;
       const task = targets.length === 1 ? taskById.get(targets[0].taskNodeId) : undefined;
       return task?.roleSlotId === page.roleSlotKey;
     });
@@ -509,6 +523,19 @@ export function partitionExpectedConsoleIssues(consoleIssues, failedResponses, e
     }
   }
   return { expected, unexpected, unexpectedResponses: remainingFailures };
+}
+
+export async function waitForExpectedConflictEvents(page, url, responsePromise, trigger) {
+  // Response headers can precede Chromium's console event. Keep runAction alive
+  // for both; a missing event fails with a bounded wait, never an attribution bypass.
+  const consolePromise = page.waitForEvent('console', { timeout: 15_000,
+    predicate: (message) => message.type() === 'error'
+      && message.text() === 'Failed to load resource: the server responded with a status of 409 (Conflict)'
+      && message.location().url === url });
+  const events = Promise.all([responsePromise, consolePromise]);
+  await trigger();
+  const [response] = await events;
+  return response;
 }
 
 export function createBrowserFailureCollector(context) {

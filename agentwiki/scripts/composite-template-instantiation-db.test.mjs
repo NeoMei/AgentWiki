@@ -155,6 +155,7 @@ async function createService(prisma, failAt) {
   }).compile();
   return {
     service: moduleRef.get(TemplateInstantiationService),
+    contentTree: moduleRef.get(ContentTreeService),
     runExpansion: moduleRef.get(RunExpansionService),
     pageBindings: moduleRef.get(PageAgentBindingService),
     existingRuns: moduleRef.get(ExistingRunOrchestrationService),
@@ -254,6 +255,71 @@ async function counts(prisma, spaceId) {
   ]);
   return { folders, pages, pageVersions, instances, mappings, bindings, runs, effects };
 }
+
+test('saved duplicate-order siblings retain source order in real instances and mixed duties create only one participant', { timeout: 180_000 }, async () => {
+  await withPageTemplateTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schemaName }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+    const services = await createService(prisma);
+    try {
+      for (const mixed of [false, true]) {
+        const fixture = await createFixture(prisma, `${schemaName.slice(-10)}_${mixed}`);
+        const principal = { userId: fixture.userId };
+        const authorization = new AuthorizationService(prisma);
+        const writer = SpaceRevisionWriterService.legacyOnly(prisma);
+        const snapshots = new FolderTemplateSnapshotService(prisma, authorization, writer,
+          new MarkdownResourceService(prisma, authorization),
+          new PageTemplateService(prisma, authorization, { get: (_key, fallback) => fallback }, writer, { canCreate: () => true }));
+        const root = await prisma.folder.create({ data: { spaceId: fixture.spaceId, name: 'Source', nameKey: 'source', path: 'pages/Source', pathKey: 'pages/source', sortOrder: 0 } });
+        if (!mixed) await prisma.folder.create({ data: { spaceId: fixture.spaceId, parentId: root.id, name: 'Folder first', nameKey: 'folder first', path: 'pages/Source/Folder first', pathKey: 'pages/source/folder first', sortOrder: 99 } });
+        const pages = [];
+        for (let n = 1; n <= (mixed ? 2 : 11); n++) {
+          pages.push(await prisma.page.create({ data: {
+            // Reverse lexical IDs expose createdAt precedence in the real source comparator.
+            id: `${fixture.spaceId}_p${String(20 - n).padStart(2, '0')}`,
+            spaceId: fixture.spaceId, folderId: root.id, authorId: fixture.userId,
+            title: `Page ${n}`, slug: `page-${n}`, content: `# Page ${n}`, format: 'markdown',
+            syncPath: `pages/Source/Page ${n}.md`, syncPathKey: `pages/source/page ${n}.md`,
+            sortOrder: 0, createdAt: new Date(Date.UTC(2026, 0, n)),
+          } }));
+        }
+        const expected = mixed ? ['Page 1', 'Page 2']
+          : ['Folder first', 'Page 1', 'Page 2', 'Page 3', 'Page 4', 'Page 5', 'Page 6', 'Page 7', 'Page 8', 'Page 9', 'Page 10', 'Page 11'];
+        const sourceTree = await services.contentTree.listChildren({ spaceId: fixture.spaceId, parentFolderId: root.id });
+        assert.deepEqual(sourceTree.data.map((node) => node.kind === 'folder' ? node.name : node.title), expected);
+        const agentId = mixed ? await prepareAgent(prisma, fixture, `${schemaName.slice(-10)}_mixed`) : null;
+        if (mixed) await prisma.pageAgentBinding.create({ data: {
+          pageId: pages[1].id, spaceId: fixture.spaceId, agentId, assignedByUserId: fixture.userId,
+        } });
+        const selection = { excludedPageIds: [], excludedFolderIds: [], locale: 'en',
+          source: { kind: mixed ? 'simple_pages' : 'structure_only' },
+          ...(mixed ? { roleSlotsByPage: [{ pageId: pages[0].id, roleSlotKey: 'writer' }, { pageId: pages[1].id, roleSlotKey: null }] } : {}),
+        };
+        const preview = await snapshots.preview(fixture.spaceId, root.id, selection, principal);
+        const saved = await snapshots.save(fixture.spaceId, { rootFolderId: root.id, selection,
+          sourceToken: preview.sourceToken, acknowledgedWarnings: [], name: 'Saved source', description: '',
+          defaultTitle: 'Saved instance', category: 'knowledge', locale: 'en' }, principal);
+        const version = await prisma.pageTemplateVersion.findUniqueOrThrow({ where: { templateId_version: { templateId: saved.id, version: 1 } } });
+        const rootNode = version.definition.nodes.find((node) => node.parentNodeId === null);
+        assert.deepEqual(version.definition.nodes.filter((node) => node.parentNodeId === rootNode.nodeId)
+          .sort((a, b) => a.order - b.order).map((node) => node.kind === 'folder' ? node.nameI18n.en : node.titleI18n.en), expected);
+        const instance = await services.service.instantiate(fixture.spaceId, saved.id, request(`saved-${mixed}`, {
+          rootName: 'Instance', collaborationEnabled: mixed,
+          ...(mixed ? { roleBindings: [{ kind: 'role_override', roleSlotId: 'page-1-writer', agentId }] } : {}),
+        }), principal);
+        const actual = await services.contentTree.listChildren({ spaceId: fixture.spaceId, parentFolderId: instance.rootFolderId });
+        assert.deepEqual(actual.data.map((node) => node.kind === 'folder' ? node.name : node.title), expected);
+        if (mixed) {
+          assert.equal(instance.pageIds.length, 2);
+          const tasks = await prisma.collaborationRunTask.findMany({ where: { runId: instance.runId } });
+          assert.equal(tasks.length, 1);
+          assert.equal(tasks[0].assigneeAgentId, agentId);
+          assert.equal(await prisma.collaborationRoleBinding.count({ where: { runId: instance.runId } }), 1);
+          assert.equal(version.definition.nodes.find((node) => node.kind === 'page' && node.titleI18n.en === 'Page 2').roleSlotKey, null);
+        }
+      }
+    } finally { await services.close(); await prisma.$disconnect(); }
+  });
+});
 
 test('composite instantiation is atomic, idempotent, stale-safe, and permission-safe in PostgreSQL', {
   timeout: 120_000,

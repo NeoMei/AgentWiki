@@ -105,13 +105,13 @@ test('folder snapshot detects body-only changes, prunes full subtrees, and persi
         kind: node.kind,
       })), [
         { sourceNodeId: rootId, parentSourceNodeId: null, kind: 'folder' },
-        { sourceNodeId: rootPageId, parentSourceNodeId: rootId, kind: 'page' },
         { sourceNodeId: keptFolderId, parentSourceNodeId: rootId, kind: 'folder' },
         { sourceNodeId: keptPageId, parentSourceNodeId: keptFolderId, kind: 'page' },
         { sourceNodeId: excludedFolderId, parentSourceNodeId: rootId, kind: 'folder' },
-        { sourceNodeId: excludedPageId, parentSourceNodeId: excludedFolderId, kind: 'page' },
         { sourceNodeId: excludedChildId, parentSourceNodeId: excludedFolderId, kind: 'folder' },
         { sourceNodeId: excludedGrandchildPageId, parentSourceNodeId: excludedChildId, kind: 'page' },
+        { sourceNodeId: excludedPageId, parentSourceNodeId: excludedFolderId, kind: 'page' },
+        { sourceNodeId: rootPageId, parentSourceNodeId: rootId, kind: 'page' },
       ]);
       assert.doesNotMatch(JSON.stringify(preview.definition), new RegExp([
         rootId, keptFolderId, excludedFolderId, rootPageId, keptPageId,

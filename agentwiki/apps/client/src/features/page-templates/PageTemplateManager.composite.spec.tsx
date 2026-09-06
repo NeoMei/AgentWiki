@@ -51,6 +51,41 @@ const renderManager = () => {
 };
 
 describe('PageTemplateManager composite catalog', () => {
+  it('manages JSON-backed single pages through definition metadata archive and version routes', async () => {
+    const single = { ...summary, kind: 'single_page', storageKind: 'definition', name: 'JSON note', pageCount: 1, folderCount: 0, roleCount: 0 };
+    const singleDefinition = { schemaVersion: 1, kind: 'single_page', nodes: [
+      { nodeId: 'page', parentNodeId: null, kind: 'page', order: 0, titleI18n: { en: 'Note' }, contentI18n: { en: '# Note' }, roleSlotKey: null },
+    ], collaboration: null };
+    mocks.listCompositeTemplates.mockResolvedValue({ data: [single], total: 1, skip: 0, take: 50, capabilities: { canManage: true, canCreate: true } });
+    mocks.getCompositeTemplateManagement.mockResolvedValue({ ...single, templateId: single.id, version: 2, locale: 'en', definitionHash: 'a'.repeat(64), definition: singleDefinition });
+    mocks.updateCompositeTemplateMetadata.mockResolvedValue(single);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderManager();
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit JSON note' }));
+    fireEvent.change(screen.getByLabelText('Template name'), { target: { value: 'Updated JSON note' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(mocks.updateCompositeTemplateMetadata).toHaveBeenCalledWith('space-1', single.id, expect.objectContaining({ name: 'Updated JSON note' })));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit structure JSON note' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Note page/ }));
+    fireEvent.change(screen.getByLabelText('Page title page'), { target: { value: 'New note title' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create new version' }));
+    await waitFor(() => expect(mocks.createCompositeTemplateVersion).toHaveBeenCalledWith('space-1', single.id, expect.objectContaining({ definition: expect.objectContaining({ kind: 'single_page' }) })));
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive JSON note' }));
+    await waitFor(() => expect(mocks.archiveCompositeTemplate).toHaveBeenCalledWith('space-1', single.id, expect.anything()));
+    expect(mocks.updatePageTemplate).not.toHaveBeenCalled();
+    expect(mocks.createPageTemplateVersion).not.toHaveBeenCalled();
+    expect(mocks.archivePageTemplate).not.toHaveBeenCalled();
+    vi.mocked(window.confirm).mockRestore();
+  });
+  it('keeps wrapped legacy single pages on their source-Page management route with unified catalog enabled', async () => {
+    const wrapped = { ...summary, kind: 'single_page', storageKind: 'legacy_content', name: 'Wrapped note' };
+    mocks.listCompositeTemplates.mockResolvedValue({ data: [wrapped], total: 1, skip: 0, take: 50, capabilities: { canManage: true, canCreate: true } });
+    renderManager();
+    fireEvent.click(await screen.findByRole('button', { name: 'Update content from page Wrapped note' }));
+    expect(await screen.findByLabelText('Source page')).toBeVisible();
+    await waitFor(() => expect(mocks.listPageTemplateSourcePages).toHaveBeenCalled());
+    expect(mocks.getCompositeTemplateManagement).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.listCompositeTemplates.mockResolvedValue({ data: [summary], total: 1, skip: 0, take: 50, capabilities: { canManage: true, canCreate: true } });

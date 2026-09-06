@@ -7,6 +7,7 @@ import { withPageTemplateTestDatabase } from './page-template-test-database.mjs'
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
 const { AuthorizationService } = requireFromServer('./dist/core/authorization/authorization.service.js');
+const { AgentService } = requireFromServer('./dist/core/agent/agent.service.js');
 const { ArtifactValidator } = requireFromServer('./dist/collaboration-workflows/artifact-validator.js');
 const { CollaborationEventsService } = requireFromServer('./dist/collaboration-workflows/collaboration-events.service.js');
 const { ExecutionService } = requireFromServer('./dist/collaboration-workflows/execution.service.js');
@@ -290,6 +291,152 @@ test('Run cancellation invalidates a pending Page candidate without rewriting a 
   });
 });
 
+test('new Page approvals reject post-submission authority loss and preserve the candidate', { timeout: 180_000 }, async () => {
+  await withPageTemplateTestDatabase(baseDatabaseUrl, async ({ databaseUrl }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+    const services = createServices(prisma);
+    try {
+      const mutations = {
+        revoked: (f) => prisma.agent.update({ where: { id: f.agentId }, data: { status: 'revoked', revokedAt: new Date() } }),
+        ownerLocked: (f) => prisma.user.update({ where: { id: f.agentPrincipal.userId }, data: { lockedAt: new Date() } }),
+        ownerDeleted: (f) => prisma.user.update({ where: { id: f.agentPrincipal.userId }, data: { deletedAt: new Date() } }),
+        grantReader: (f) => prisma.agentGrant.update({ where: { id: f.agentPrincipal.authorizationId }, data: { role: 'reader' } }),
+        grantRemoved: (f) => prisma.agentGrant.delete({ where: { id: f.agentPrincipal.authorizationId } }),
+        credentialRevoked: (f) => prisma.agentCredential.update({ where: { id: f.agentPrincipal.credentialId }, data: { revokedAt: new Date() } }),
+        credentialExpired: (f) => prisma.agentCredential.update({ where: { id: f.agentPrincipal.credentialId }, data: { expiresAt: new Date(0) } }),
+      };
+      for (const [name, mutate] of Object.entries(mutations)) {
+        const fixture = await createFixture(prisma);
+        const run = await createRun(prisma, fixture);
+        const submitted = await claimAndSubmit(services, fixture, run, `# Candidate ${name}`, name);
+        await mutate(fixture);
+        // A healthy default binding/assignee must never substitute for the actual submitting Attempt.
+        const replacement = await prisma.agent.create({ data: { name: 'Replacement', ownerId: fixture.humanPrincipals[1].userId } });
+        const replacementGrant = await prisma.agentGrant.create({ data: { agentId: replacement.id, spaceId: fixture.spaceId, role: 'editor' } });
+        await prisma.agentCredential.create({ data: { name: 'Replacement credential', prefix: `r${randomUUID().slice(0, 8)}`, keyHash: hash(randomUUID()), agentId: replacement.id, authorizationId: replacementGrant.id } });
+        await prisma.collaborationRunTask.update({ where: { id: run.taskId }, data: { assigneeAgentId: replacement.id } });
+        await prisma.pageAgentBinding.create({ data: { pageId: fixture.pageId, spaceId: fixture.spaceId, agentId: replacement.id, assignedByUserId: fixture.humanPrincipals[1].userId } });
+        await assertBusinessCode(services.reviews.decide(fixture.spaceId, run.runId, submitted.reviewId,
+          { kind: 'approve', reason: name, idempotencyKey: `deny-${name}` }, fixture.humanPrincipals[1]), 'SPACE_ACCESS_DENIED');
+        assert.equal((await prisma.page.findUniqueOrThrow({ where: { id: fixture.pageId } })).content, '# Initial', name);
+        assert.equal((await prisma.collaborationReview.findUniqueOrThrow({ where: { id: submitted.reviewId } })).status, 'pending', name);
+        assert.equal((await prisma.collaborationTaskArtifact.findUniqueOrThrow({ where: { id: submitted.artifactId } })).status, 'pending', name);
+        assert.equal((await prisma.changeSet.findUniqueOrThrow({ where: { id: submitted.changeSetId } })).status, 'pending_review', name);
+        assert.equal(await prisma.approval.count({ where: { changeSetId: submitted.changeSetId } }), 0, name);
+      }
+      const fixture = await createFixture(prisma);
+      const run = await createRun(prisma, fixture);
+      const submitted = await claimAndSubmit(services, fixture, run, '# Published before revocation', 'replay');
+      const input = { kind: 'approve', reason: 'publish', idempotencyKey: 'publish-replay' };
+      const receipt = await services.reviews.decide(fixture.spaceId, run.runId, submitted.reviewId, input, fixture.humanPrincipals[1]);
+      await mutations.revoked(fixture);
+      assert.deepEqual(await services.reviews.decide(fixture.spaceId, run.runId, submitted.reviewId, input, fixture.humanPrincipals[1]), receipt);
+      assert.equal(await prisma.approval.count({ where: { changeSetId: submitted.changeSetId } }), 1);
+    } finally { await prisma.$disconnect(); }
+  });
+});
+
+test('actual Agent revocation and Page approval linearize at the shared authority locks in both orders', { timeout: 180_000 }, async () => {
+  await withPageTemplateTestDatabase(baseDatabaseUrl, async ({ databaseUrl }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+    const contenderUrl = new URL(databaseUrl);
+    contenderUrl.searchParams.set('application_name', 'composite_review_lock_contender');
+    const contender = new PrismaClient({ datasources: { db: { url: contenderUrl.toString() } } });
+    const services = createServices(prisma);
+    try {
+      for (const first of ['revoke', 'approve']) {
+        const fixture = await createFixture(prisma);
+        const run = await createRun(prisma, fixture);
+        const submitted = await claimAndSubmit(services, fixture, run, `# ${first} wins`, `lock-${first}`);
+        const entered = Promise.withResolvers();
+        const release = Promise.withResolvers();
+        const order = [];
+        const approve = (service) => service.decide(fixture.spaceId, run.runId, submitted.reviewId,
+          { kind: 'approve', reason: first, idempotencyKey: `lock-approve-${first}` }, fixture.humanPrincipals[1]);
+        let holder;
+        let waiter;
+        if (first === 'revoke') {
+          const intercepted = new Proxy(prisma, { get(target, key) {
+            if (key !== '$transaction') { const value = Reflect.get(target, key); return typeof value === 'function' ? value.bind(target) : value; }
+            return (callback, options) => target.$transaction((tx) => callback(new Proxy(tx, { get(transaction, field) {
+              if (field !== '$queryRaw') return Reflect.get(transaction, field);
+              return async (query) => {
+                const result = await transaction.$queryRaw(query);
+                if (query.sql.includes('FROM "Agent"')) { order.push('revoke-locked'); entered.resolve(); await release.promise; }
+                return result;
+              };
+            } })), { ...options, timeout: 15_000 });
+          } });
+          holder = new AgentService(intercepted).revoke(fixture.agentPrincipal.userId, fixture.agentId).then(() => order.push('revoke-committed'));
+          await entered.promise;
+          waiter = approve(createServices(contender).reviews).then(() => ({ ok: true }), (error) => ({ code: error.businessCode }));
+        } else {
+          const original = services.publication.publishLocked.bind(services.publication);
+          services.publication.publishLocked = async (...args) => {
+            order.push('approve-authorized'); entered.resolve(); await release.promise;
+            return original(...args);
+          };
+          holder = approve(services.reviews).then(() => order.push('approve-committed'));
+          await entered.promise;
+          waiter = new AgentService(contender).revoke(fixture.agentPrincipal.userId, fixture.agentId).then(() => ({ ok: true }));
+        }
+        try {
+          // Observe an actual database lock wait, not an arbitrary timing delay.
+          const deadline = Date.now() + 5000;
+          let blocked = false;
+          while (Date.now() < deadline) {
+            const rows = await prisma.$queryRawUnsafe(`SELECT 1 FROM pg_stat_activity WHERE application_name = 'composite_review_lock_contender' AND wait_event_type = 'Lock' AND cardinality(pg_blocking_pids(pid)) > 0`);
+            if (rows.length) { blocked = true; break; }
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          }
+          assert.equal(blocked, true, `${first}: second operation must wait on the authority prefix`);
+          order.push('contender-blocked');
+        } finally { release.resolve(); }
+        await holder;
+        const result = await waiter;
+        assert.deepEqual(result, first === 'revoke' ? { code: 'SPACE_ACCESS_DENIED' } : { ok: true });
+        assert.deepEqual(order, first === 'revoke'
+          ? ['revoke-locked', 'contender-blocked', 'revoke-committed']
+          : ['approve-authorized', 'contender-blocked', 'approve-committed']);
+        assert.equal((await prisma.page.findUniqueOrThrow({ where: { id: fixture.pageId } })).content,
+          first === 'revoke' ? '# Initial' : '# approve wins');
+        assert.equal((await prisma.collaborationReview.findUniqueOrThrow({ where: { id: submitted.reviewId } })).status,
+          first === 'revoke' ? 'pending' : 'approved');
+        assert.equal((await prisma.agent.findUniqueOrThrow({ where: { id: fixture.agentId } })).status, 'revoked');
+      }
+    } finally { await Promise.all([prisma.$disconnect(), contender.$disconnect()]); }
+  });
+});
+
+test('completed adopt-current replays its exact receipt after notification loss and rejects changed bodies', { timeout: 180_000 }, async () => {
+  await withPageTemplateTestDatabase(baseDatabaseUrl, async ({ databaseUrl }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+    const services = createServices(prisma);
+    try {
+      const fixture = await createFixture(prisma);
+      const run = await createRun(prisma, fixture);
+      const submitted = await claimAndSubmit(services, fixture, run, '# Candidate', 'adoption-retry');
+      await prisma.page.update({ where: { id: fixture.pageId }, data: { content: '# Human edit' } });
+      await assertBusinessCode(services.reviews.decide(fixture.spaceId, run.runId, submitted.reviewId,
+        { kind: 'approve', reason: 'conflict', idempotencyKey: 'conflict-for-adoption' }, fixture.humanPrincipals[0]), 'PAGE_VERSION_CONFLICT');
+      const input = { kind: 'adopt_current', expectedPageVersionId: null, expectedContentHash: hash('# Human edit'), idempotencyKey: 'adopt-retry' };
+      services.notifications.publishCurrentRun = async () => { throw new Error('injected lost notification'); };
+      await assert.rejects(services.reviews.resolvePageConflict(fixture.spaceId, run.runId, run.taskId, input, fixture.humanPrincipals[0]), /injected lost notification/);
+      services.notifications.publishCurrentRun = async () => undefined;
+      const event = await prisma.collaborationRunEvent.findFirstOrThrow({ where: { runId: run.runId, idempotencyKey: input.idempotencyKey } });
+      assert.equal(event.response.kind, 'adopt_current');
+      const replay = await services.reviews.resolvePageConflict(fixture.spaceId, run.runId, run.taskId, input, fixture.humanPrincipals[0]);
+      assert.deepEqual(replay, event.response);
+      assert.deepEqual(await services.reviews.resolvePageConflict(fixture.spaceId, run.runId, run.taskId, input, fixture.humanPrincipals[0]), replay);
+      await assertBusinessCode(services.reviews.resolvePageConflict(fixture.spaceId, run.runId, run.taskId,
+        { ...input, expectedContentHash: hash('different') }, fixture.humanPrincipals[0]), 'COLLABORATION_IDEMPOTENCY_MISMATCH');
+      assert.equal(await prisma.collaborationTaskArtifact.count({ where: { taskId: run.taskId, status: 'accepted' } }), 1);
+      await prisma.spaceMember.delete({ where: { userId_spaceId: { userId: fixture.humanPrincipals[0].userId, spaceId: fixture.spaceId } } });
+      await assertBusinessCode(services.reviews.resolvePageConflict(fixture.spaceId, run.runId, run.taskId, input, fixture.humanPrincipals[0]), 'COLLABORATION_REVIEWER_DENIED');
+    } finally { await prisma.$disconnect(); }
+  });
+});
+
 function createServices(prisma) {
   const config = { get: (key) => key === 'JWT_SECRET' ? 'page-conflict-db-test-secret' : undefined };
   const notifications = new CollaborationEventsService(prisma, { publish: async () => undefined });
@@ -302,6 +449,8 @@ function createServices(prisma) {
   const publication = new PagePublicationService(contentTree);
   return {
     prisma,
+    notifications,
+    publication,
     contentTree,
     execution: new ExecutionService(
       prisma, authorization, config, events, new ArtifactValidator(), progression,

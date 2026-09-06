@@ -79,19 +79,27 @@ export const SaveFolderAsTemplateDialog: React.FC<SaveFolderAsTemplateDialogProp
     return { kind: sourceKind };
   }, [exactSource, legacySource, legacyTargets, sourceKind]);
 
-  const buildSelection = useCallback((overrides: Partial<FolderSnapshotSelection> = {}): FolderSnapshotSelection => {
-    const roles = Object.entries(duties)
-      .filter(([, role]) => role.trim())
-      .map(([pageId, roleSlotKey]) => ({ pageId, roleSlotKey: roleSlotKey.trim() }));
-    return {
+  const buildSelection = useCallback((
+    overrides: Partial<FolderSnapshotSelection> = {},
+    dutyDrafts = duties,
+    nodes = authoritativeNodes,
+  ): FolderSnapshotSelection => {
+    const selection = {
       excludedFolderIds: [...excludedFolderIds],
       excludedPageIds: [...excludedPageIds],
       locale: language,
-      ...(sourceKind === 'simple_pages' ? { roleSlotsByPage: roles } : {}),
       source,
       ...overrides,
     };
-  }, [duties, excludedFolderIds, excludedPageIds, language, source, sourceKind]);
+    const retained = retainedPageIdsFor(nodes, new Set(selection.excludedFolderIds), new Set(selection.excludedPageIds));
+    return {
+      ...selection,
+      roleSlotsByPage: selection.source.kind === 'simple_pages'
+        ? Object.entries(dutyDrafts).filter(([pageId]) => retained.has(pageId))
+          .map(([pageId, role]) => ({ pageId, roleSlotKey: role.trim() || null }))
+        : undefined,
+    };
+  }, [authoritativeNodes, duties, excludedFolderIds, excludedPageIds, language, source]);
 
   const requestPreview = useCallback(async (
     selection: FolderSnapshotSelection,
@@ -265,10 +273,7 @@ export const SaveFolderAsTemplateDialog: React.FC<SaveFolderAsTemplateDialogProp
   const changeDuty = (pageId: string, role: string) => {
     const next = { ...duties, [pageId]: role };
     setDuties(next);
-    const roleSlotsByPage = Object.entries(next)
-      .filter(([, value]) => value.trim())
-      .map(([id, roleSlotKey]) => ({ pageId: id, roleSlotKey: roleSlotKey.trim() }));
-    previewSelection(buildSelection({ roleSlotsByPage }));
+    previewSelection(buildSelection({}, next));
   };
 
   const refreshAuthoritative = async () => {
@@ -313,22 +318,18 @@ export const SaveFolderAsTemplateDialog: React.FC<SaveFolderAsTemplateDialogProp
       && !legacyMarkdownTasks(legacySource).every((task) => nextRetainedPageIds.has(nextLegacyTargets[task.id] ?? ''))) {
       return;
     }
-    const roles = Object.entries(nextDuties).filter(([, value]) => value.trim()).map(([pageId, roleSlotKey]) => ({ pageId, roleSlotKey }));
-    await requestPreview({
+    await requestPreview(buildSelection({
       excludedFolderIds: [...nextFolders], excludedPageIds: [...nextPages], locale: language,
       source: sourceKind === 'legacy_workflow' && legacySource
         ? legacySelectionSource(legacySource, nextLegacyTargets)
         : source,
-      ...(sourceKind === 'simple_pages' ? { roleSlotsByPage: roles } : {}),
-    });
+    }, nextDuties, full.sourceNodes));
   };
 
   const retainedPageIds = useMemo(() => authoritativeNodes.filter((node) => node.kind === 'page'
     && !excludedPageIds.has(node.sourceNodeId)
     && !hasExcludedAncestor(node, authoritativeNodes, excludedFolderIds))
     .map((node) => node.sourceNodeId), [authoritativeNodes, excludedFolderIds, excludedPageIds]);
-  const dutiesComplete = sourceKind !== 'simple_pages'
-    || (retainedPageIds.length > 0 && retainedPageIds.every((id) => duties[id]?.trim()));
   const advancedSourceComplete = sourceKind === 'template'
     ? !!exactSource
     : sourceKind === 'legacy_workflow'
@@ -336,7 +337,7 @@ export const SaveFolderAsTemplateDialog: React.FC<SaveFolderAsTemplateDialogProp
       : true;
   const attachmentWarning = preview?.warnings.some((warning) => warning.code === 'ATTACHMENTS_NOT_COPIED') ?? false;
   const canSave = !!preview && !loading && !submitting && !sourceChanged && draft.name.trim() && draft.defaultTitle.trim()
-    && dutiesComplete && advancedSourceComplete && (!attachmentWarning || attachmentAcknowledged);
+    && advancedSourceComplete && (!attachmentWarning || attachmentAcknowledged);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -416,7 +417,10 @@ export const SaveFolderAsTemplateDialog: React.FC<SaveFolderAsTemplateDialogProp
       {sourceKind === 'simple_pages' ? <section aria-labelledby="folder-template-duties-heading" className="rounded-[14px] border p-4">
         <h3 id="folder-template-duties-heading" className="font-semibold">{t('pageTemplate.folderSave.duties')}</h3>
         <p className="mt-1 text-sm text-gray-600">{t('pageTemplate.folderSave.dutiesHelp')}</p>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">{authoritativeNodes.filter(isSourcePage).filter((node) => retainedPageIds.includes(node.sourceNodeId)).map((node) => <label key={node.sourceNodeId} className="text-sm font-medium">{t('pageTemplate.folderSave.dutyFor', { name: node.title, id: node.sourceNodeId })}<input aria-label={t('pageTemplate.folderSave.dutyFor', { name: node.title, id: node.sourceNodeId })} value={duties[node.sourceNodeId] ?? ''} onChange={(event) => changeDuty(node.sourceNodeId, event.target.value)} className="mt-1 h-10 w-full rounded-lg border px-3 font-normal" /></label>)}</div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">{authoritativeNodes.filter(isSourcePage).filter((node) => retainedPageIds.includes(node.sourceNodeId)).map((node) => <div key={node.sourceNodeId}>
+          <label className="text-sm font-medium">{t('pageTemplate.folderSave.dutyFor', { name: node.title, id: node.sourceNodeId })}<input aria-label={t('pageTemplate.folderSave.dutyFor', { name: node.title, id: node.sourceNodeId })} value={duties[node.sourceNodeId] ?? ''} onChange={(event) => changeDuty(node.sourceNodeId, event.target.value)} className="mt-1 h-10 w-full rounded-lg border px-3 font-normal" /></label>
+          <button type="button" aria-label={t('pageTemplate.folderSave.noDuty', { name: node.title, id: node.sourceNodeId })} aria-pressed={duties[node.sourceNodeId] === ''} onClick={() => changeDuty(node.sourceNodeId, '')} className="mt-1 rounded-lg border px-3 py-2 text-sm">{t('pageTemplate.folderSave.noDutyButton')}</button>
+        </div>)}</div>
       </section> : null}
 
       <div className="space-y-2 rounded-[14px] border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">

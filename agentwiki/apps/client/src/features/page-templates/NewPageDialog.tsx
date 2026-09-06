@@ -252,7 +252,9 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
   };
   const chooseComposite = (template: CompositeTemplateSummary) => {
     setSelected({ source: 'composite', value: template });
-    setRootName(truncateValidatorLength(template.defaultTitle, PAGE_TITLE_LIMIT));
+    setRootName(truncateValidatorLength(template.scope === 'system' && template.kind === 'single_page'
+      ? interpolateDefaultPageTitle(template.defaultTitle, now)
+      : template.defaultTitle, PAGE_TITLE_LIMIT));
     setPreview(null);
     setPreviewStale(false);
     setCollaborationEnabled(false);

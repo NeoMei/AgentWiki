@@ -47,6 +47,27 @@ const workflow = () => CollaborationTemplateDefinitionSchema.parse({
 });
 
 describe("composite template definition", () => {
+  it("counts exactly 5 MiB of UTF-8 string values without JSON property names", () => {
+    // Values outside the bodies: page_group (10), root/folder/R (11), and
+    // 30 pages each with pNN/root/page/T (12) = 381 bytes. Keys are structural.
+    const budget = 5 * 1024 * 1024;
+    const bodies = Array.from({ length: 30 }, (_, i) => i === 29
+      ? "x".repeat(budget - 381 - 29 * 180_000)
+      : "x".repeat(180_000));
+    const value = {
+      schemaVersion: 1, kind: "page_group", collaboration: null,
+      nodes: [
+        { nodeId: "root", parentNodeId: null, kind: "folder", order: 0, nameI18n: { en: "R" } },
+        ...bodies.map((body, i) => page({ nodeId: `p${String(i).padStart(2, "0")}`, parentNodeId: "root", titleI18n: { en: "T" }, contentI18n: { en: body } })),
+      ],
+    };
+    expect(CompositeTemplateDefinitionSchema.safeParse(value).success).toBe(true);
+    const last = value.nodes.at(-1)! as { contentI18n: Record<string, string> };
+    last.contentI18n = { en: bodies[29] + "x" };
+    expect(CompositeTemplateDefinitionSchema.safeParse(value).success).toBe(false);
+    last.contentI18n = { en: bodies[29].slice(0, -3) + "中" };
+    expect(CompositeTemplateDefinitionSchema.safeParse(value).success).toBe(true);
+  });
   it("accepts a strict single-page definition", () => {
     expect(CompositeTemplateDefinitionSchema.safeParse(single()).success).toBe(true);
     expect(CompositeTemplateDefinitionSchema.safeParse({ ...single(), agentId: "secret" }).success).toBe(false);

@@ -86,6 +86,7 @@ type SnapshotFolderRow = {
   parentId: string | null;
   name: string;
   sortOrder: number;
+  createdAt: Date;
   updatedAt: Date;
   depth: number;
 };
@@ -98,6 +99,7 @@ type SnapshotPageRow = {
   format: string;
   syncPath: string;
   sortOrder: number;
+  createdAt: Date;
   updatedAt: Date;
 };
 
@@ -475,6 +477,7 @@ export class FolderTemplateSnapshotService {
           parentSourceId: folder.id === rootFolderId ? null : folder.parentId,
           kind: 'folder' as const,
           order: folder.sortOrder,
+          createdAt: folder.createdAt,
           name: folder.name,
         })),
         ...pages.map((page) => ({
@@ -482,6 +485,7 @@ export class FolderTemplateSnapshotService {
           parentSourceId: page.folderId!,
           kind: 'page' as const,
           order: page.sortOrder,
+          createdAt: page.createdAt,
           title: page.title,
           content: page.content,
           sourceSyncPath: page.syncPath,
@@ -583,14 +587,14 @@ export class FolderTemplateSnapshotService {
     const rows = await tx.$queryRaw<SnapshotFolderRow[]>(Prisma.sql`
       WITH RECURSIVE selected AS (
         SELECT folder."id", folder."parentId", folder."name", folder."sortOrder",
-               folder."updatedAt", 1::integer AS depth
+               folder."createdAt", folder."updatedAt", 1::integer AS depth
         FROM "Folder" AS folder
         WHERE folder."id" = ${rootFolderId}
           AND folder."spaceId" = ${spaceId}
           AND folder."deletedAt" IS NULL
         UNION ALL
         SELECT child."id", child."parentId", child."name", child."sortOrder",
-               child."updatedAt", selected.depth + 1
+               child."createdAt", child."updatedAt", selected.depth + 1
         FROM "Folder" AS child
         INNER JOIN selected ON selected."id" = child."parentId"
         WHERE child."spaceId" = ${spaceId}
@@ -598,7 +602,7 @@ export class FolderTemplateSnapshotService {
           AND selected.depth < ${COMPOSITE_TEMPLATE_LIMITS.depth + 1}
           ${exclusion}
       )
-      SELECT "id", "parentId", "name", "sortOrder", "updatedAt", depth
+      SELECT "id", "parentId", "name", "sortOrder", "createdAt", "updatedAt", depth
       FROM selected
       ORDER BY depth ASC, "sortOrder" ASC, "id" ASC
       LIMIT ${COMPOSITE_TEMPLATE_LIMITS.nodes + 1}
@@ -638,7 +642,7 @@ export class FolderTemplateSnapshotService {
       },
       select: {
         id: true, folderId: true, title: true, format: true, syncPath: true,
-        sortOrder: true, updatedAt: true,
+        sortOrder: true, createdAt: true, updatedAt: true,
       },
       orderBy: [{ folderId: 'asc' }, { sortOrder: 'asc' }, { id: 'asc' }],
       take: COMPOSITE_TEMPLATE_LIMITS.pages + 1,
@@ -661,7 +665,7 @@ export class FolderTemplateSnapshotService {
         where: { id: item.id },
         select: {
           id: true, folderId: true, title: true, content: true, format: true,
-          syncPath: true, sortOrder: true, updatedAt: true, spaceId: true, deletedAt: true,
+          syncPath: true, sortOrder: true, createdAt: true, updatedAt: true, spaceId: true, deletedAt: true,
         },
       });
       if (!current || current.spaceId !== spaceId || current.deletedAt

@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 
-import { assertConcurrentPageConflictPersistence } from './composite-template-e2e-support.mjs';
+import { assertConcurrentPageConflictPersistence, waitForExpectedConflictEvents } from './composite-template-e2e-support.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
@@ -239,10 +239,8 @@ async function attemptApprovalConflict({
   const response = await browserFailures.runAction(
     page,
     'review-decision-page-conflict',
-    async () => {
-      await actionDialog.getByRole('button', { name: '确认 通过' }).click();
-      return responsePromise;
-    },
+    () => waitForExpectedConflictEvents(page, `${webOrigin}${pathname}`, responsePromise,
+      () => actionDialog.getByRole('button', { name: '确认 通过' }).click()),
   );
   const body = await response.json();
   assert.equal(response.status(), 409);

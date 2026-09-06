@@ -15,4 +15,3 @@
 - NewPageDialog.spec.tsx：18/18 通过。
 - 数据库与真实浏览器/Agent 验收尚未执行。
 - 受保护范围：Sync v3 协议、manifest、附件及 Markdown 图片引用；新模板契约模块独立增量。
-

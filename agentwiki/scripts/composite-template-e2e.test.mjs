@@ -13,6 +13,7 @@ import {
   assertCompatibilityPersistence,
   assertConcurrentPageConflictPersistence,
   createBrowserFailureCollector,
+  waitForExpectedConflictEvents,
   partitionExpectedConsoleIssues,
   assertExternalAgentSuccessfulSequence,
   assertExternalAgentReceipt,
@@ -233,7 +234,7 @@ test('saved Folder proof prunes descendants, abstracts Agents, and preserves ret
     nodes: [
       { nodeId: 'folder-1', parentNodeId: null, kind: 'folder', order: 0, nameI18n: { 'zh-CN': 'Root' } },
       { nodeId: 'page-3', parentNodeId: 'folder-1', kind: 'page', order: 1, titleI18n: { 'zh-CN': 'Keep page' }, contentI18n: { 'zh-CN': '# updated body' }, roleSlotKey: 'page-3-owner' },
-      { nodeId: 'folder-3', parentNodeId: 'folder-1', kind: 'folder', order: 2, nameI18n: { 'zh-CN': 'Keep folder' } },
+      { nodeId: 'folder-3', parentNodeId: 'folder-1', kind: 'folder', order: 0, nameI18n: { 'zh-CN': 'Keep folder' } },
     ],
     collaboration: {
       workflow: {
@@ -261,6 +262,23 @@ test('saved Folder proof prunes descendants, abstracts Agents, and preserves ret
     roleCount: 1,
     instantiatedNodeCount: 3,
   });
+  const referenceDefinition = {
+    ...definition,
+    nodes: definition.nodes.map((node) => node.kind === 'page' ? { ...node, roleSlotKey: null } : node),
+    collaboration: null,
+  };
+  const referenceProof = {
+    sourceNodes, excludedFolderIds: ['drop-folder'], excludedPageIds: ['drop-page'],
+    definition: referenceDefinition, concreteAgentIds: [],
+    instantiatedNodes: [
+      { nodeId: 'folder-1', parentNodeId: null, kind: 'folder', order: 0, name: 'Root' },
+      { nodeId: 'folder-3', parentNodeId: 'folder-1', kind: 'folder', order: 0, name: 'Keep folder' },
+      { nodeId: 'page-3', parentNodeId: 'folder-1', kind: 'page', order: 1, title: 'Keep page', content: '# updated body' },
+    ],
+  };
+  assert.equal(assertSavedFolderTemplatePersistence({ ...referenceProof, unassignedPageSourceIds: ['keep-page'] }).roleCount, 0);
+  assert.throws(() => assertSavedFolderTemplatePersistence(referenceProof), /explicit unassigned state/u);
+  assert.throws(() => assertSavedFolderTemplatePersistence({ ...referenceProof, definition, unassignedPageSourceIds: ['keep-page'] }), /explicit unassigned state/u);
   assert.throws(() => assertSavedFolderTemplatePersistence({
     sourceNodes,
     excludedFolderIds: ['drop-folder'],
@@ -301,7 +319,7 @@ test('saved Folder proof prunes descendants, abstracts Agents, and preserves ret
     definition: {
       ...definition,
       nodes: definition.nodes.map((node) => node.nodeId === 'page-3'
-        ? { ...node, order: 2 }
+        ? { ...node, order: 0 }
         : node.nodeId === 'folder-3' ? { ...node, order: 1 } : node),
     },
     instantiatedRootName: 'Created Root',
@@ -530,6 +548,45 @@ test('browser failure collector captures a second context Page before its first 
     url: 'http://127.0.0.1/api/editor-save', status: 409, code: 'EDITOR_CONFLICT',
   }]);
   assert.throws(() => collector.assertNoPageErrors(), /page-2.*second-page-crash/u);
+});
+
+test('expected conflict action survives headers before its delayed console and rejects unrelated events', async () => {
+  const context = new EventEmitter();
+  const page = new EventEmitter();
+  page.url = () => 'http://local/run';
+  page.waitForEvent = (event, { predicate, timeout }) => {
+    assert.equal(timeout, 15_000);
+    return new Promise((resolve) => {
+      const listener = (message) => { if (predicate(message)) { page.off(event, listener); resolve(message); } };
+      page.on(event, listener);
+    });
+  };
+  const collector = createBrowserFailureCollector(context);
+  context.emit('page', page);
+  const url = 'http://local/api/spaces/space/collaboration/runs/run/reviews/review/decision';
+  const message = (locationUrl) => ({ type: () => 'error',
+    text: () => 'Failed to load resource: the server responded with a status of 409 (Conflict)',
+    location: () => ({ url: locationUrl }) });
+  const headers = Promise.withResolvers();
+  const response = { status: () => 409, url: () => url, json: async () => ({ code: 'PAGE_VERSION_CONFLICT' }),
+    request: () => ({ method: () => 'POST', frame: () => ({ page: () => page }) }) };
+  let completed = false;
+  const action = collector.runAction(page, 'review-decision-page-conflict', () => waitForExpectedConflictEvents(
+    page, url, headers.promise, async () => { context.emit('response', response); headers.resolve(response); },
+  )).then(() => { completed = true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(completed, false, 'headers alone must not end action attribution');
+  page.emit('console', message('http://local/unrelated'));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(completed, false, 'unrelated URL cannot release the exact-event barrier');
+  page.emit('console', message(url));
+  await action;
+  await collector.settleResponses();
+  const classified = partitionExpectedConsoleIssues(collector.consoleIssues, collector.failedResponses);
+  assert.equal(classified.expected.length, 1);
+  assert.equal(classified.unexpected.length, 1, 'unrelated console must remain visible, not allowlisted');
+  assert.equal(classified.unexpectedResponses.length, 0);
+  assert.equal(collector.consoleIssues[1].action, 'review-decision-page-conflict');
 });
 
 test('concurrent Page conflict proof preserves both human edits and supersedes both stale candidates', () => {

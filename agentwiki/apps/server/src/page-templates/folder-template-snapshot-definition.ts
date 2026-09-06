@@ -39,6 +39,7 @@ export type FolderSnapshotSourceNode =
     parentSourceId: string | null;
     kind: 'folder';
     order: number;
+    createdAt?: Date;
     name: string;
   }
   | {
@@ -46,6 +47,7 @@ export type FolderSnapshotSourceNode =
     parentSourceId: string;
     kind: 'page';
     order: number;
+    createdAt?: Date;
     title: string;
     content: string;
     sourceSyncPath: string;
@@ -114,7 +116,10 @@ export function snapshotDefinitionWithSourceMap(
       node.kind === 'folder' ? `folder-${folderNumber += 1}` : `page-${pageNumber += 1}`,
     );
   }
+  const siblingRanks = new Map<string | null, number>();
   const nodes: TemplateNode[] = ordered.map((node) => {
+    const order = siblingRanks.get(node.parentSourceId) ?? 0;
+    siblingRanks.set(node.parentSourceId, order + 1);
     const nodeId = templateIdBySource.get(node.sourceId)!;
     const parentNodeId = node.parentSourceId === null
       ? null
@@ -122,12 +127,12 @@ export function snapshotDefinitionWithSourceMap(
     if (parentNodeId === undefined) throw invalidSnapshot([{ code: 'TEMPLATE_PARENT_MISSING', nodeId }]);
     if (node.kind === 'folder') {
       return {
-        nodeId, parentNodeId, kind: 'folder', order: node.order,
+        nodeId, parentNodeId, kind: 'folder', order,
         nameI18n: { [locale]: node.name },
       };
     }
     return {
-      nodeId, parentNodeId, kind: 'page', order: node.order,
+      nodeId, parentNodeId, kind: 'page', order,
       titleI18n: { [locale]: node.title },
       contentI18n: { [locale]: node.content },
       roleSlotKey: null,
@@ -238,8 +243,11 @@ function orderSnapshotNodes(nodes: readonly FolderSnapshotSourceNode[]): FolderS
     children.set(node.parentSourceId, siblings);
   }
   for (const siblings of children.values()) {
-    siblings.sort((left, right) => left.order - right.order
-      || (left.kind === right.kind ? 0 : left.kind === 'folder' ? 1 : -1)
+    // ContentTreeService.listChildren: folders first, then order/createdAt/id
+    // within each kind. Persist ranks so generated IDs cannot reorder ties.
+    siblings.sort((left, right) => (left.kind === right.kind ? 0 : left.kind === 'folder' ? -1 : 1)
+      || left.order - right.order
+      || (left.createdAt?.getTime() ?? 0) - (right.createdAt?.getTime() ?? 0)
       || left.sourceId.localeCompare(right.sourceId));
   }
   const ordered: FolderSnapshotSourceNode[] = [];

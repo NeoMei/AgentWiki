@@ -38,13 +38,30 @@ export class ReviewService {
   ) {
     if (principal.agentId) throw new BusinessException('HUMAN_AUTH_REQUIRED');
     const result = await withCollaborationSerializableRetry(() => this.prisma.$transaction(async (tx) => {
-      await this.authorization.lockLiveHumanPrincipal(tx, principal);
       const currentRun = await tx.collaborationRun.findUnique({ where: { id: runId } });
       if (!currentRun || currentRun.spaceId !== spaceId) {
         throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
       }
       const currentReview = await tx.collaborationReview.findFirst({ where: { id: reviewId, runId } });
       if (!currentReview) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration review not found');
+      const pageLink = await tx.collaborationArtifactChangeSetLink.findUnique({
+        where: { artifactId: currentReview.artifactId },
+        select: {
+          changeSetId: true, runId: true, taskId: true, spaceId: true, pageId: true,
+          artifact: { select: { attempt: { select: { agent: { select: { id: true, ownerId: true } } } } } },
+        },
+      });
+      const submittedAgent = input.kind === 'approve' ? pageLink?.artifact.attempt.agent : undefined;
+      // A human can review another owner's Agent. Lock both Users in stable
+      // order before the shared owner -> Agent -> Grant -> Credential prefix.
+      if (submittedAgent) {
+        await tx.$queryRaw(Prisma.sql`
+          SELECT "id" FROM "User"
+          WHERE "id" IN (${Prisma.join([...new Set([principal.userId, submittedAgent.ownerId])].sort())})
+          ORDER BY "id" FOR NO KEY UPDATE
+        `);
+      }
+      await this.authorization.lockLiveHumanPrincipal(tx, principal);
       let member: { role: SpaceRole };
       try {
         member = await this.authorization.assertLiveHumanSpaceAccess(
@@ -60,21 +77,14 @@ export class ReviewService {
         throw error;
       }
       const reviewerOverride = await this.assertReviewer(tx, spaceId, currentReview, member.role, principal.userId);
-      const pageLink = await tx.collaborationArtifactChangeSetLink.findUnique({
-        where: { artifactId: currentReview.artifactId },
-        select: { changeSetId: true, runId: true, taskId: true, spaceId: true, pageId: true },
-      });
       if (pageLink && (
         pageLink.runId !== runId
         || pageLink.taskId !== currentReview.sourceTaskId
         || pageLink.spaceId !== spaceId
       )) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Page result Link does not match the Review');
-      const mutationTx = pageLink
-        ? await this.pagePublication.lockChangeSetSpace(tx, pageLink.changeSetId)
-        : tx;
-      return this.events.executeIdempotent(mutationTx, {
+      const scope = {
         runId,
-        actorKind: 'human',
+        actorKind: 'human' as const,
         actorId: principal.userId,
         actorUserId: principal.userId,
         operation: `review_${input.kind}`,
@@ -82,7 +92,30 @@ export class ReviewService {
         key: input.idempotencyKey,
         requestHash: canonicalRequestHash(input),
         metadata: { reviewId, kind: input.kind, reason: input.reason, reviewerOverride },
-      }, async () => {
+      };
+      const replay = await this.events.findReplay(tx, scope);
+      if (replay !== undefined) return replay;
+      const lockSpace = () => pageLink ? this.pagePublication.lockChangeSetSpace(tx, pageLink.changeSetId) : Promise.resolve(tx);
+      let mutationTx: Tx;
+      if (submittedAgent) {
+        // Attempts freeze Agent identity, not credentials. Require a currently
+        // usable credential of that same Agent and its live grant in this Space.
+        const credential = await tx.agentCredential.findFirst({
+          where: {
+            agentId: submittedAgent.id, authorization: { spaceId }, revokedAt: null,
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+          },
+          select: { id: true, authorizationId: true }, orderBy: { id: 'asc' },
+        });
+        if (!credential) throw new BusinessException('SPACE_ACCESS_DENIED', 'Submitted Agent has no usable Space credential');
+        mutationTx = await this.authorization.lockLiveAgentWriteAccessAcrossSpaceBoundary(tx, {
+          userId: submittedAgent.ownerId, agentId: submittedAgent.id,
+          credentialId: credential.id, authorizationId: credential.authorizationId, authorizationSpaceId: spaceId,
+        }, spaceId, ['collaboration:execute'], lockSpace);
+      } else {
+        mutationTx = await lockSpace();
+      }
+      return this.events.executeIdempotent(mutationTx, scope, async () => {
         const mutationRun = await mutationTx.collaborationRun.findUnique({ where: { id: runId } });
         const current = await mutationTx.collaborationReview.findFirst({ where: { id: reviewId, runId, status: 'pending' } });
         if (!mutationRun || mutationRun.spaceId !== spaceId || !current) {
@@ -224,6 +257,26 @@ export class ReviewService {
       if (!initialTask || initialTask.targetSpaceId !== spaceId || !initialTask.targetPageId) {
         throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration Page task not found');
       }
+      let member: { role: SpaceRole };
+      try {
+        member = await this.authorization.assertLiveHumanSpaceAccess(
+          tx, principal, spaceId, ['owner', 'admin', 'editor'],
+        );
+      } catch (error) {
+        if (error instanceof BusinessException && error.businessCode === 'SPACE_ACCESS_DENIED') {
+          throw new BusinessException('COLLABORATION_REVIEWER_DENIED');
+        }
+        throw error;
+      }
+      const scope = {
+        runId, actorKind: 'human' as const, actorId: principal.userId, actorUserId: principal.userId,
+        operation: `resolve_page_conflict_${input.kind}`, target: taskId,
+        key: input.idempotencyKey, requestHash: canonicalRequestHash(input),
+      };
+      // Adoption intentionally replaces the pending Artifact/Link. Stable task
+      // scope and live access suffice to recover an already committed receipt.
+      const replay = await this.events.findReplay(tx, scope);
+      if (replay !== undefined) return replay;
       const initialReview = await tx.collaborationReview.findFirst({
         where: { runId, sourceTaskId: taskId },
         orderBy: [{ revision: 'desc' }, { createdAt: 'desc' }],
@@ -240,29 +293,11 @@ export class ReviewService {
         || pageLink.pageId !== initialTask.targetPageId
       ) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration Page publication not found');
       const lockedTx = await this.pagePublication.lockChangeSetSpace(tx, pageLink.changeSetId);
-      let member: { role: SpaceRole };
-      try {
-        member = await this.authorization.assertLiveHumanSpaceAccess(
-          lockedTx, principal, spaceId, ['owner', 'admin', 'editor'],
-        );
-      } catch (error) {
-        if (error instanceof BusinessException && error.businessCode === 'SPACE_ACCESS_DENIED') {
-          throw new BusinessException('COLLABORATION_REVIEWER_DENIED');
-        }
-        throw error;
-      }
       const reviewerOverride = await this.assertReviewer(
         lockedTx, spaceId, initialReview, member.role, principal.userId,
       );
       return this.events.executeIdempotent(lockedTx, {
-        runId,
-        actorKind: 'human',
-        actorId: principal.userId,
-        actorUserId: principal.userId,
-        operation: `resolve_page_conflict_${input.kind}`,
-        target: taskId,
-        key: input.idempotencyKey,
-        requestHash: canonicalRequestHash(input),
+        ...scope,
         metadata: { taskId, kind: input.kind, reviewerOverride },
       }, async () => {
         const [run, task, review] = await Promise.all([

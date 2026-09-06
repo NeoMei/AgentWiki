@@ -9,6 +9,7 @@ import {
 } from './folder-template-snapshot.service';
 import type { Principal } from '../core/authorization/authorization.service';
 import { hashCompositeDefinition } from './composite-template-validator';
+import { expandTemplateDefinition } from './template-instantiation.service';
 
 const workflow: CollaborationTemplateDefinition = {
   schemaVersion: 1,
@@ -48,6 +49,22 @@ const source = (): FolderSnapshotSource => ({
 });
 
 describe('folder template snapshot transformation', () => {
+  it('preserves eleven equal-order Pages and folder-first source sibling order with deterministic ranks', () => {
+    const input: FolderSnapshotSource = { bindings: [], nodes: [
+      { sourceId: 'root', parentSourceId: null, kind: 'folder', name: 'Root', order: 0 },
+      ...Array.from({ length: 11 }, (_, index) => ({
+        sourceId: `p${String(index + 1).padStart(2, '0')}`, parentSourceId: 'root', kind: 'page' as const,
+        order: 0, title: `Page ${index + 1}`, content: '', sourceSyncPath: '',
+      })),
+      { sourceId: 'child', parentSourceId: 'root', kind: 'folder', name: 'Folder first', order: 0 },
+    ] };
+    const saved = snapshotDefinition(input, { kind: 'structure_only' });
+    const expanded = expandTemplateDefinition(saved, 'en');
+    expect(expanded.filter((node) => node.parentNodeId !== null).map((node) => node.kind === 'page' ? node.title : node.name))
+      .toEqual(['Folder first', 'Page 1', 'Page 2', 'Page 3', 'Page 4', 'Page 5', 'Page 6', 'Page 7', 'Page 8', 'Page 9', 'Page 10', 'Page 11']);
+    expect(saved.nodes.filter((node) => node.parentNodeId !== null).map((node) => node.order))
+      .toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+  });
   it('strips every role and collaboration field for structure-only snapshots', () => {
     const input = source();
     const before = structuredClone(input);
@@ -57,8 +74,8 @@ describe('folder template snapshot transformation', () => {
     expect(saved.collaboration).toBeNull();
     expect(saved.nodes.filter((node) => node.kind === 'page')
       .every((node) => node.roleSlotKey === null)).toBe(true);
-    expect(saved.nodes.map((node) => node.nodeId)).toEqual(['folder-1', 'page-1', 'folder-2', 'page-2']);
-    expect(saved.nodes.find((node) => node.kind === 'page' && node.nodeId === 'page-1'))
+    expect(saved.nodes.map((node) => node.nodeId)).toEqual(['folder-1', 'folder-2', 'page-1', 'page-2']);
+    expect(saved.nodes.find((node) => node.kind === 'page' && node.nodeId === 'page-2'))
       .toEqual(expect.objectContaining({ contentI18n: { en: '# Saved\n![[assets/chart.png]]' } }));
     expect(JSON.stringify(saved)).not.toMatch(/root-id|page-a|agent-secret/u);
     expect(input).toEqual(before);
@@ -78,8 +95,8 @@ describe('folder template snapshot transformation', () => {
     expect(saved.collaboration?.workflow.nodes.filter((node) => node.kind === 'agent_task')).toHaveLength(2);
     expect(saved.collaboration?.workflow.nodes.filter((node) => node.kind === 'human_review')).toHaveLength(2);
     expect(saved.collaboration?.workflow.roleSlots.map((slot) => slot.id)).toEqual([
-      'page-1-lead',
-      'page-2-owner',
+      'page-2-lead',
+      'page-1-owner',
     ]);
     expect(JSON.stringify(saved)).not.toMatch(/agent-secret/u);
   });
@@ -91,7 +108,7 @@ describe('folder template snapshot transformation', () => {
     expect(snapshotDefinition(prepared, {
       kind: 'legacy_workflow', templateId: 'legacy', version: 1,
       taskTargets: [{ taskNodeId: 'draft', pageId: 'page-a' }],
-    }).collaboration?.taskTargets).toEqual([{ taskNodeId: 'draft', pageNodeId: 'page-1' }]);
+    }).collaboration?.taskTargets).toEqual([{ taskNodeId: 'draft', pageNodeId: 'page-2' }]);
 
     prepared.nodes = prepared.nodes.filter((node) => node.sourceId !== 'page-a');
     expect(() => snapshotDefinition(prepared, {
@@ -125,16 +142,16 @@ describe('folder template snapshot transformation', () => {
         parentTemplateNodeId: null, kind: 'folder', name: 'Repeated',
       },
       {
-        templateNodeId: 'page-1', sourceNodeId: 'page-root', parentSourceNodeId: 'folder-root',
-        parentTemplateNodeId: 'folder-1', kind: 'page', title: 'Repeated',
-      },
-      {
         templateNodeId: 'folder-2', sourceNodeId: 'folder-child', parentSourceNodeId: 'folder-root',
         parentTemplateNodeId: 'folder-1', kind: 'folder', name: 'Repeated',
       },
       {
-        templateNodeId: 'page-2', sourceNodeId: 'page-child', parentSourceNodeId: 'folder-child',
+        templateNodeId: 'page-1', sourceNodeId: 'page-child', parentSourceNodeId: 'folder-child',
         parentTemplateNodeId: 'folder-2', kind: 'page', title: 'Repeated',
+      },
+      {
+        templateNodeId: 'page-2', sourceNodeId: 'page-root', parentSourceNodeId: 'folder-root',
+        parentTemplateNodeId: 'folder-1', kind: 'page', title: 'Repeated',
       },
     ]);
     expect(JSON.stringify(result.definition)).not.toMatch(/folder-root|folder-child|page-root|page-child/u);

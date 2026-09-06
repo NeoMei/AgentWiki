@@ -54,6 +54,17 @@ describe('SaveFolderAsTemplateDialog', () => {
     mocks.listTemplates.mockResolvedValue([{ id: 'legacy-1', spaceId: 'space-1', slug: 'legacy', name: 'Legacy plan', description: '', system: false, version: 5 }]);
   });
 
+  it.each([
+    ['en', 'Independent page duties', 'Responsibilities are optional. Clear an entered duty or choose No responsibility to keep an ordinary Page and clear any existing default. Only Pages with a duty generate tasks. Agent IDs, grants, credentials, and Run state are never saved.'],
+    ['zh-CN', '各页面独立职责', '职责可选。清空已填写职责或选择“不分配职责”将保留为普通页面并清除已有默认职责；只有分配职责的页面才生成任务。Agent ID、授权、凭据和 Run 状态不会保存。'],
+  ])('explains optional duties accurately in %s', async (language, choice, help) => {
+    localStorage.setItem('agentwiki.language.v1', language);
+    renderDialog();
+    await waitFor(() => expect(screen.getByRole('radio', { name: choice })).toBeEnabled());
+    fireEvent.click(screen.getByRole('radio', { name: choice }));
+    expect(await screen.findByText(help)).toBeVisible();
+  });
+
   it('keeps source choices disabled until the authoritative source tree is ready', async () => {
     let resolveInitial!: (value: ReturnType<typeof preview>) => void;
     mocks.previewFolderTemplate.mockReturnValueOnce(new Promise((resolve) => { resolveInitial = resolve; }));
@@ -86,7 +97,64 @@ describe('SaveFolderAsTemplateDialog', () => {
     expect(screen.queryByLabelText(/Responsibility for/)).not.toBeInTheDocument();
   });
 
-  it('requires explicit simple-page duties and attachment acknowledgement before save', async () => {
+  it.each(['page', 'folder'])('drops excluded %s duties from every request and restores drafts on reinclusion', async (kind) => {
+    mocks.previewFolderTemplate.mockResolvedValue({ ...preview(), warnings: [] });
+    renderDialog();
+    await screen.findByText('Workspace');
+    fireEvent.click(screen.getByRole('radio', { name: 'Independent page duties' }));
+    fireEvent.change(await screen.findByLabelText('Responsibility for Brief (page-a)'), { target: { value: 'writer' } });
+    fireEvent.change(screen.getByLabelText('Responsibility for Brief (page-b)'), { target: { value: 'reviewer' } });
+    const toggleName = kind === 'page' ? 'Include page Brief (page-b)' : 'Include folder Repeated (nested-b)';
+    fireEvent.click(screen.getByRole('checkbox', { name: toggleName }));
+    const expected = [{ pageId: 'page-a', roleSlotKey: 'writer' }];
+    await waitFor(() => expect(mocks.previewFolderTemplate.mock.lastCall?.[2].roleSlotsByPage).toEqual(expected));
+    fireEvent.change(screen.getByLabelText('Responsibility for Brief (page-a)'), { target: { value: 'lead' } });
+    expected[0]!.roleSlotKey = 'lead';
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh source' }));
+    await waitFor(() => expect(mocks.previewFolderTemplate.mock.lastCall?.[2].roleSlotsByPage).toEqual(expected));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save template' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Save template' }));
+    await waitFor(() => expect(mocks.saveFolderTemplate.mock.lastCall?.[1].selection.roleSlotsByPage).toEqual(expected));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save template' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('checkbox', { name: toggleName }));
+    expect(await screen.findByLabelText('Responsibility for Brief (page-b)')).toHaveValue('reviewer');
+    await waitFor(() => expect(mocks.previewFolderTemplate.mock.lastCall?.[2].roleSlotsByPage).toEqual([
+      ...expected, { pageId: 'page-b', roleSlotKey: 'reviewer' },
+    ]));
+  });
+
+  it('saves working and reference Pages together and sends explicit null when clearing a duty', async () => {
+    mocks.previewFolderTemplate.mockResolvedValue({ ...preview(), warnings: [] });
+    renderDialog();
+    await screen.findByText('Workspace');
+    fireEvent.click(screen.getByRole('radio', { name: 'Independent page duties' }));
+    fireEvent.change(await screen.findByLabelText('Responsibility for Brief (page-a)'), { target: { value: 'writer' } });
+    fireEvent.change(screen.getByLabelText('Responsibility for Brief (page-b)'), { target: { value: 'reader' } });
+    fireEvent.change(screen.getByLabelText('Responsibility for Brief (page-b)'), { target: { value: '' } });
+    await waitFor(() => expect(mocks.previewFolderTemplate.mock.lastCall?.[2].roleSlotsByPage).toEqual([
+      { pageId: 'page-a', roleSlotKey: 'writer' }, { pageId: 'page-b', roleSlotKey: null },
+    ]));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save template' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Save template' }));
+    await waitFor(() => expect(mocks.saveFolderTemplate.mock.lastCall?.[1].selection).toMatchObject({
+      excludedPageIds: [], excludedFolderIds: [], roleSlotsByPage: [
+        { pageId: 'page-a', roleSlotKey: 'writer' }, { pageId: 'page-b', roleSlotKey: null },
+      ],
+    }));
+  });
+
+  it('explicitly removes an inferred default even when no local responsibility text was entered', async () => {
+    mocks.previewFolderTemplate.mockResolvedValue({ ...preview(), warnings: [] });
+    renderDialog();
+    await screen.findByText('Workspace');
+    fireEvent.click(screen.getByRole('radio', { name: 'Independent page duties' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'No responsibility for Brief (page-b)' }));
+    await waitFor(() => expect(mocks.previewFolderTemplate.mock.lastCall?.[2].roleSlotsByPage).toEqual([
+      { pageId: 'page-b', roleSlotKey: null },
+    ]));
+  });
+
+  it('requires attachment acknowledgement before saving simple-page duties', async () => {
     renderDialog();
     await screen.findByText('Workspace');
     fireEvent.click(screen.getByRole('radio', { name: 'Independent page duties' }));

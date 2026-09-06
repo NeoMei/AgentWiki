@@ -60,6 +60,7 @@ export type CompositeTemplateSummary = {
   stableKey: string;
   category: PageTemplateCategory;
   kind: 'single_page' | 'page_group';
+  storageKind: 'legacy_content' | 'definition';
   supportsCollaboration: boolean;
   effectiveSupportsCollaboration: boolean;
   pageCount: number;
@@ -135,6 +136,7 @@ export class CompositeTemplateCatalogService {
         stableKey: template.stableKey,
         category: template.category,
         kind: template.kind,
+        storageKind: summaries[index]!.storageKind,
         supportsCollaboration: template.supportsCollaboration,
         effectiveSupportsCollaboration: summaries[index]!.effectiveSupportsCollaboration,
         pageCount: summaries[index]!.pageCount,
@@ -265,6 +267,7 @@ export class CompositeTemplateCatalogService {
     folderCount: number;
     roleCount: number;
     effectiveSupportsCollaboration: boolean;
+    storageKind: 'legacy_content' | 'definition';
   }>> {
     const summaries = [];
     for (const row of rows) {
@@ -281,6 +284,7 @@ export class CompositeTemplateCatalogService {
         throw new BusinessException('PAGE_TEMPLATE_INVALID');
       }
       summaries.push({
+        storageKind: stored.definition == null ? 'legacy_content' as const : 'definition' as const,
         pageCount: validated.definition.nodes.filter((node) => node.kind === 'page').length,
         folderCount: validated.definition.nodes.filter((node) => node.kind === 'folder').length,
         roleCount: validated.definition.collaboration?.workflow.roleSlots.length ?? 0,

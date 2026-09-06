@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   assertHistoricalBindingPersistence,
   assertSavedFolderTemplatePersistence,
+  waitForExpectedConflictEvents,
 } from './composite-template-e2e-support.mjs';
 
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
@@ -172,6 +173,10 @@ export async function runSavedFolderTemplateJourney({
     await dialog.waitFor();
     await dialog.locator('label').filter({ hasText: rootFolderId }).getByRole('checkbox').waitFor();
     await dialog.getByRole('radio', { name: '各页面独立职责' }).check();
+    // Enter every draft before pruning, including the two hidden-after-prune cases.
+    for (const node of sourceNodes.filter((item) => item.kind === 'page')) {
+      await dialog.getByLabel(`${node.title}（${node.sourceNodeId}）的职责`).fill('裁剪前职责');
+    }
     const folderCheckbox = dialog.locator('label').filter({ hasText: folderToExclude.sourceNodeId }).getByRole('checkbox');
     await folderCheckbox.waitFor();
     await folderCheckbox.uncheck();
@@ -186,7 +191,8 @@ export async function runSavedFolderTemplateJourney({
     await dialog.getByLabel('模板名称').fill(templateName);
     await dialog.getByLabel('默认页面标题').fill('保存模板再实例化');
     for (const [index, node] of retainedPageNodes.entries()) {
-      await dialog.getByLabel(`${node.title}（${node.sourceNodeId}）的职责`).fill(`职责-${index + 1}`);
+      if (index === 0) await dialog.getByLabel(`${node.title}（${node.sourceNodeId}）的职责`).fill('职责-1');
+      else await dialog.getByRole('button', { name: `${node.title}（${node.sourceNodeId}）不分配职责`, exact: true }).click();
     }
     const saveTemplate = dialog.getByRole('button', { name: '保存模板' });
     await saveTemplate.waitFor({ state: 'visible' });
@@ -212,10 +218,8 @@ export async function runSavedFolderTemplateJourney({
     const sourceChangedResponse = await browserFailures.runAction(
       page,
       'saved-folder-source-change',
-      async () => {
-        await saveTemplate.click();
-        return sourceChangedResponsePromise;
-      },
+      () => waitForExpectedConflictEvents(page, `${webOrigin}/api/spaces/${fixture.space.id}/templates/from-folder`,
+        sourceChangedResponsePromise, () => saveTemplate.click()),
     );
     const sourceChangedBody = await sourceChangedResponse.json();
     assert.equal(sourceChangedResponse.status(), 409);
@@ -225,7 +229,7 @@ export async function runSavedFolderTemplateJourney({
     assert.equal(await folderCheckbox.isChecked(), false);
     assert.equal(await pageCheckbox.isChecked(), false);
     for (const [index, node] of retainedPageNodes.entries()) {
-      assert.equal(await dialog.getByLabel(`${node.title}（${node.sourceNodeId}）的职责`).inputValue(), `职责-${index + 1}`);
+      assert.equal(await dialog.getByLabel(`${node.title}（${node.sourceNodeId}）的职责`).inputValue(), index === 0 ? '职责-1' : '');
     }
     await refreshChanged.click();
     await expectEnabled(saveTemplate);
@@ -310,11 +314,11 @@ export async function runSavedFolderTemplateJourney({
     const [currentSourceFolders, currentSourcePages] = await Promise.all([
       prisma.folder.findMany({
         where: { id: { in: sourceNodes.filter((node) => node.kind === 'folder').map((node) => node.sourceNodeId) } },
-        select: { id: true, sortOrder: true },
+        select: { id: true, sortOrder: true, createdAt: true },
       }),
       prisma.page.findMany({
         where: { id: { in: sourceNodes.filter((node) => node.kind === 'page').map((node) => node.sourceNodeId) } },
-        select: { id: true, content: true, sortOrder: true },
+        select: { id: true, content: true, sortOrder: true, createdAt: true },
       }),
     ]);
     const contents = new Map(currentSourcePages.map((item) => [item.id, item.content]));
@@ -322,13 +326,14 @@ export async function runSavedFolderTemplateJourney({
       ...currentSourceFolders.map((item) => [item.id, item.sortOrder]),
       ...currentSourcePages.map((item) => [item.id, item.sortOrder]),
     ]);
+    const sourceCreatedAt = new Map([...currentSourceFolders, ...currentSourcePages].map((item) => [item.id, item.createdAt]));
     const proof = assertSavedFolderTemplatePersistence({
       sourceNodes: sourceNodes.map((node) => {
         const order = sourceOrder.get(node.sourceNodeId);
         assert.equal(Number.isInteger(order), true, `source node ${node.sourceNodeId} needs its real database order`);
         return node.kind === 'page'
-          ? { ...node, content: contents.get(node.sourceNodeId), order }
-          : { ...node, order };
+          ? { ...node, content: contents.get(node.sourceNodeId), order, createdAt: sourceCreatedAt.get(node.sourceNodeId) }
+          : { ...node, order, createdAt: sourceCreatedAt.get(node.sourceNodeId) };
       }),
       excludedFolderIds: [folderToExclude.sourceNodeId],
       excludedPageIds: [pageToExclude.sourceNodeId],
@@ -336,9 +341,12 @@ export async function runSavedFolderTemplateJourney({
       instantiatedRootName: '保存模板再实例化',
       instantiatedNodes,
       concreteAgentIds: [fixture.agents.codex.id, fixture.agents.opencode.id],
+      unassignedPageSourceIds: retainedPageNodes.slice(1).map((node) => node.sourceNodeId),
     });
     assert.match(JSON.stringify(definition), new RegExp(bodyMarker, 'u'));
+    const singlePageCompatibility = await verifySinglePageCompatibility({ page, prisma, webOrigin, apiUrl, fixture, artifactsDirectory });
     return {
+      singlePageCompatibility,
       templateId: saved.id,
       templateVersionId: saved.versions[0].id,
       excludedFolderId: folderToExclude.sourceNodeId,
@@ -359,6 +367,49 @@ export async function runSavedFolderTemplateJourney({
   } finally {
     await prisma.$disconnect();
   }
+}
+
+async function verifySinglePageCompatibility({ page, prisma, webOrigin, apiUrl, fixture, artifactsDirectory }) {
+  await page.goto(`${webOrigin}/spaces/${fixture.space.id}`);
+  await page.getByRole('button', { name: '新建页面' }).click();
+  const creation = page.getByRole('dialog', { name: '创建新页面' });
+  await creation.getByRole('button').filter({ hasText: '日报' }).click();
+  await creation.getByRole('button', { name: '下一步' }).click();
+  const title = await creation.getByLabel('根名称').inputValue();
+  assert.match(title, /^日报 \d{4}-\d{2}-\d{2}$/u);
+  await page.screenshot({ path: join(artifactsDirectory, '29-system-single-title.png'), fullPage: true });
+  const name = `JSON单页-${fixture.suffix}`;
+  const created = await request(apiUrl, `/spaces/${fixture.space.id}/templates`, {
+    method: 'POST', token: fixture.owner.access_token,
+    body: { name, defaultTitle: name, category: 'knowledge', locale: 'zh-CN', definition: {
+      schemaVersion: 1, kind: 'single_page', nodes: [{ nodeId: 'page', parentNodeId: null,
+        kind: 'page', order: 0, titleI18n: { 'zh-CN': '单页内容' }, contentI18n: { 'zh-CN': '# 内容' }, roleSlotKey: null }], collaboration: null,
+    } },
+  });
+  await page.goto(`${webOrigin}/spaces/${fixture.space.id}/settings/page-templates`);
+  await page.getByRole('button', { name: `编辑 ${name}`, exact: true }).click();
+  const metadata = page.getByRole('dialog');
+  await metadata.getByLabel('模板名称').fill(`${name}-已编辑`);
+  await metadata.getByRole('button', { name: '保存', exact: true }).click();
+  await metadata.waitFor({ state: 'hidden' });
+  assert.equal((await prisma.pageTemplate.findUniqueOrThrow({ where: { id: created.id } })).nameI18n['zh-CN'], `${name}-已编辑`);
+  await page.getByRole('button', { name: `编辑结构 ${name}-已编辑`, exact: true }).click();
+  const versionDialog = page.getByRole('dialog');
+  await versionDialog.getByRole('button', { name: /单页内容 page/u }).click();
+  await versionDialog.getByLabel('页面标题 page').fill('单页内容已更新');
+  await versionDialog.getByRole('button', { name: '创建新版本' }).click();
+  await versionDialog.waitFor({ state: 'hidden' });
+  const version = await prisma.pageTemplateVersion.findUniqueOrThrow({ where: { templateId_version: { templateId: created.id, version: 2 } } });
+  assert.equal(version.definition.kind, 'single_page');
+  assert.equal(version.definition.nodes[0].titleI18n['zh-CN'], '单页内容已更新');
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: `归档 ${name}-已编辑`, exact: true }).click();
+  await page.getByRole('button', { name: `归档 ${name}-已编辑`, exact: true }).waitFor({ state: 'hidden' });
+  assert.ok((await prisma.pageTemplate.findUniqueOrThrow({ where: { id: created.id } })).archivedAt);
+  await page.getByLabel('显示已归档模板').check();
+  await page.getByText(`${name}-已编辑`, { exact: true }).waitFor();
+  await page.screenshot({ path: join(artifactsDirectory, '30-json-single-managed.png'), fullPage: true });
+  return { title, jsonTemplateId: created.id, currentVersion: 2, metadataEdited: true, archived: true };
 }
 
 async function openPageBinding(page, webOrigin, pageId) {

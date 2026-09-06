@@ -94,8 +94,8 @@ function totalTextBytes(value: unknown): number {
   if (typeof value === "string") return utf8Bytes(value);
   if (Array.isArray(value)) return value.reduce((total, item) => total + totalTextBytes(item), 0);
   if (value !== null && typeof value === "object") {
-    return Object.entries(value).reduce(
-      (total, [key, item]) => total + utf8Bytes(key) + totalTextBytes(item),
+    return Object.values(value).reduce(
+      (total: number, item) => total + totalTextBytes(item),
       0,
     );
   }

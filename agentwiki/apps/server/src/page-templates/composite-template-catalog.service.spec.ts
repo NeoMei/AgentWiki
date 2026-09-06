@@ -185,9 +185,18 @@ describe('CompositeTemplateCatalogService', () => {
     }, principal)).resolves.toEqual(expect.objectContaining({
       data: [expect.objectContaining({
         kind: 'single_page', supportsCollaboration: true,
+        storageKind: 'definition',
         effectiveSupportsCollaboration: true, pageCount: 1, folderCount: 0, roleCount: 0,
       })],
     }));
+  });
+
+  it('distinguishes wrapped legacy content storage in the enabled unified catalog', async () => {
+    prisma.$queryRaw.mockResolvedValueOnce([{ ...template(), kind: 'single_page', supportsCollaboration: true }])
+      .mockResolvedValueOnce([{ total: 1n }]);
+    pageTemplateVersion.findUnique.mockResolvedValue({ definition: null, schemaVersion: null, definitionHash: null, contentI18n: { en: '# Legacy' } });
+    const result = await service.list('space-1', { locale: 'en', skip: 0, take: 1 }, principal);
+    expect(result.data[0]).toMatchObject({ kind: 'single_page', storageKind: 'legacy_content', pageCount: 1 });
   });
 
   it('rejects a selected catalog page when a current composite definition has corrupt schema or hash', async () => {

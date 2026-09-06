@@ -47,6 +47,16 @@ const renderDialog = () => {
 };
 
 describe('NewPageDialog composite flow', () => {
+  it.each([true, false])('interpolates system single-page default titles with catalog enabled=%s', async (enabled) => {
+    const daily = { ...weekly, name: 'Daily', defaultTitle: 'Daily {date} / {year} W{week}' };
+    mocks.listComposite.mockResolvedValue({ data: [daily], total: 1, skip: 0, take: 100, capabilities: { canManage: true, canCreate: enabled } });
+    mocks.listLegacy.mockResolvedValue({ system: [daily], space: [], totalSpace: 0, skip: 0, take: 100, capabilities: { canManage: true } });
+    render(<LanguageProvider><MemoryRouter><NewPageDialog spaceId="space-1" folderId={null}
+      now={new Date(2026, 7, 25, 12)} onClose={() => undefined} onCreated={() => undefined} /></MemoryRouter></LanguageProvider>);
+    fireEvent.click(await screen.findByRole('button', { name: /Daily/ }));
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    expect(await screen.findByLabelText(enabled ? '根名称' : '标题')).toHaveValue('Daily 2026-08-25 / 2026 W35');
+  });
   beforeEach(() => {
     vi.clearAllMocks(); localStorage.setItem('agentwiki.language.v1', 'zh-CN');
     mocks.listComposite.mockResolvedValue({ data: [project, weekly], total: 2, skip: 0, take: 100, capabilities: { canManage: true, canCreate: true } });

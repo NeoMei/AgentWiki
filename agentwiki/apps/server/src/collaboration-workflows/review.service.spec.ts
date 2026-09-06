@@ -35,6 +35,8 @@ describe('ReviewService', () => {
     { id: 'task-publish', runId: 'run-1', nodeId: 'publish', generation: 1, status: 'blocked' },
   ];
   const tx = {
+    $queryRaw: jest.fn(),
+    agentCredential: { findFirst: jest.fn().mockResolvedValue({ id: 'credential-1', authorizationId: 'grant-1' }) },
     collaborationRun: { findUnique: jest.fn(), update: jest.fn() },
     collaborationReview: { findFirst: jest.fn(), findMany: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
     collaborationTaskArtifact: { findFirst: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
@@ -47,8 +49,10 @@ describe('ReviewService', () => {
     spaceMember: { count: jest.fn() },
   } as any;
   const prisma = { ...tx, $transaction: jest.fn(async (callback: (value: any) => unknown) => callback(tx)) } as any;
-  const authorization = { lockLiveHumanPrincipal: jest.fn(), assertSpaceAccess: jest.fn(), assertLiveHumanSpaceAccess: jest.fn() } as any;
-  const events = { executeIdempotent: jest.fn(async (_tx: any, _scope: any, mutation: () => unknown) => mutation()) } as any;
+  const authorization = { lockLiveHumanPrincipal: jest.fn(), assertSpaceAccess: jest.fn(), assertLiveHumanSpaceAccess: jest.fn(),
+    lockLiveAgentWriteAccessAcrossSpaceBoundary: jest.fn(async (_tx, _principal, _spaceId, _scopes, lock) => lock()),
+  } as any;
+  const events = { findReplay: jest.fn(), executeIdempotent: jest.fn(async (_tx: any, _scope: any, mutation: () => unknown) => mutation()) } as any;
   const progression = { advanceRun: jest.fn() } as any;
   const notifications = { publishCurrentRun: jest.fn() } as any;
   const pagePublication = {
@@ -144,6 +148,7 @@ describe('ReviewService', () => {
 
   it('publishes a linked Page result in the same review transaction and runs effects after commit', async () => {
     tx.collaborationArtifactChangeSetLink.findUnique.mockResolvedValue({
+      artifact: { attempt: { agent: { id: 'agent-1', ownerId: 'owner-1' } } },
       changeSetId: 'change-set-1', artifactId: 'artifact-1', runId: 'run-1', taskId: 'task-polish',
       spaceId: 'space-1', pageId: 'page-1',
     });

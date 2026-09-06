@@ -58,9 +58,10 @@ const TEMPLATE_SEARCH_LIMIT = 80;
 const SOURCE_PAGE_TAKE = 100;
 
 type ManagedTemplate = PageTemplateSummary & Partial<Pick<CompositeTemplateSummary,
-  'kind' | 'pageCount' | 'folderCount' | 'roleCount' | 'supportsCollaboration' | 'effectiveSupportsCollaboration'>>;
+  'kind' | 'storageKind' | 'pageCount' | 'folderCount' | 'roleCount' | 'supportsCollaboration' | 'effectiveSupportsCollaboration'>>;
 
-const templateKind = (template: PageTemplateSummary) => (template as ManagedTemplate).kind ?? 'single_page';
+const usesDefinitionStorage = (template: PageTemplateSummary) => (template as ManagedTemplate).storageKind === 'definition'
+  || ((template as ManagedTemplate).storageKind === undefined && (template as ManagedTemplate).kind === 'page_group');
 
 export const PageTemplateManager: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -303,7 +304,7 @@ export const PageTemplateManager: React.FC = () => {
   const openVersion = (template: PageTemplateSummary) => {
     const operationKey = `${id ?? ''}\u0000${template.id}`;
     if (!visibleTemplates.capabilities.canManage || archiveOperationRef.current.has(operationKey)) return;
-    if (templateKind(template) === 'page_group') {
+    if (usesDefinitionStorage(template)) {
       const operationSpaceId = id ?? '';
       const operationKey = `${operationSpaceId}\u0000${template.id}`;
       const operationEpoch = ++compositeDialogEpochRef.current;
@@ -371,7 +372,7 @@ export const PageTemplateManager: React.FC = () => {
         defaultTitle,
         expectedUpdatedAt: template.updatedAt,
       };
-      if (templateKind(template) === 'page_group') await updateCompositeTemplateMetadata(id, template.id, metadataInput);
+      if (usesDefinitionStorage(template)) await updateCompositeTemplateMetadata(id, template.id, metadataInput);
       else await updatePageTemplate(id, template.id, metadataInput);
       if (spaceIdRef.current !== operationSpaceId) return;
       invalidateCatalog();
@@ -390,7 +391,7 @@ export const PageTemplateManager: React.FC = () => {
   const submitVersion = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!id || pendingDialog?.type !== 'version' || submitting || !visibleTemplates.capabilities.canManage) return;
-    if (templateKind(pendingDialog.template) === 'page_group') {
+    if (usesDefinitionStorage(pendingDialog.template)) {
       if (!compositeDetail || !compositeDraft || definitionReferenceIssues(compositeDraft).length) return;
       const operationSpaceId = id;
       const templateId = pendingDialog.template.id;
@@ -489,7 +490,7 @@ export const PageTemplateManager: React.FC = () => {
     const operationSpaceId = id;
     const operationType = pendingDialog.type;
     const templateId = pendingDialog.template.id;
-    const composite = templateKind(pendingDialog.template) === 'page_group';
+    const composite = usesDefinitionStorage(pendingDialog.template);
     const operationKey = `${operationSpaceId}\u0000${templateId}`;
     const operationEpoch = composite ? ++compositeDialogEpochRef.current : 0;
     if (composite) compositeDialogKeyRef.current = operationKey;
@@ -566,7 +567,7 @@ export const PageTemplateManager: React.FC = () => {
     const operationSpaceId = id;
     setError(null);
     try {
-      if (templateKind(template) === 'page_group') {
+      if (usesDefinitionStorage(template)) {
         if (restore) await restoreCompositeTemplate(id, template.id, template.updatedAt);
         else await archiveCompositeTemplate(id, template.id, template.updatedAt);
       } else if (restore) await restorePageTemplate(id, template.id, template.updatedAt);
@@ -610,7 +611,7 @@ export const PageTemplateManager: React.FC = () => {
                   {t('common.edit')} {template.name}
                 </button>
                 <button type="button" disabled={archivePending} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => openVersion(template)}>
-                  {templateKind(template) === 'page_group' ? t('pageTemplate.composite.editStructure') : t('pageTemplate.updateFromPage')} {template.name}
+                  {usesDefinitionStorage(template) ? t('pageTemplate.composite.editStructure') : t('pageTemplate.updateFromPage')} {template.name}
                 </button>
                 <button type="button" disabled={archivePending} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm text-red-600 break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => void changeArchiveState(template, false)}>
                   {t('pageTemplate.archive')} {template.name}
@@ -618,7 +619,7 @@ export const PageTemplateManager: React.FC = () => {
               </>
             ) : (
               <>
-                {templateKind(template) === 'page_group' ? <button type="button" disabled={archivePending} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => inspectComposite(template)}>{t('pageTemplate.composite.inspect')} {template.name}</button> : null}
+                {usesDefinitionStorage(template) ? <button type="button" disabled={archivePending} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => inspectComposite(template)}>{t('pageTemplate.composite.inspect')} {template.name}</button> : null}
                 <button type="button" disabled={archivePending} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => void changeArchiveState(template, true)}>
                   {t('pageTemplate.restore')} {template.name}
                 </button>
@@ -772,13 +773,13 @@ export const PageTemplateManager: React.FC = () => {
       ) : null}
 
       {visibleTemplates.capabilities.canManage && pendingDialog?.type === 'version' ? (
-        <ModalDialog labelledBy="version-dialog-title" onRequestClose={closeDialog} closeDisabled={submitting || conflictReloading} fallbackFocusRef={fallbackFocusRef} className={`max-h-[calc(100vh-2rem)] w-full overflow-y-auto rounded-[14px] bg-white p-5 ${templateKind(pendingDialog.template) === 'page_group' ? 'max-w-5xl' : 'max-w-lg'}`}>
+        <ModalDialog labelledBy="version-dialog-title" onRequestClose={closeDialog} closeDisabled={submitting || conflictReloading} fallbackFocusRef={fallbackFocusRef} className={`max-h-[calc(100vh-2rem)] w-full overflow-y-auto rounded-[14px] bg-white p-5 ${usesDefinitionStorage(pendingDialog.template) ? 'max-w-5xl' : 'max-w-lg'}`}>
           <div className="flex items-start justify-between gap-3">
-            <h2 id="version-dialog-title" className="min-w-0 break-all text-xl font-semibold [overflow-wrap:anywhere]">{templateKind(pendingDialog.template) === 'page_group' ? t('pageTemplate.composite.definition') : t('pageTemplate.updateFromPage')} {pendingDialog.template.name}</h2>
+            <h2 id="version-dialog-title" className="min-w-0 break-all text-xl font-semibold [overflow-wrap:anywhere]">{usesDefinitionStorage(pendingDialog.template) ? t('pageTemplate.composite.definition') : t('pageTemplate.updateFromPage')} {pendingDialog.template.name}</h2>
             <button type="button" aria-label={t('common.close')} disabled={submitting || conflictReloading} onClick={closeDialog} className="h-8 w-8 shrink-0 rounded-lg border disabled:opacity-50">×</button>
           </div>
           <form className="mt-5 space-y-4" onSubmit={submitVersion}>
-            {templateKind(pendingDialog.template) === 'page_group' ? <>
+            {usesDefinitionStorage(pendingDialog.template) ? <>
               <h3 className="font-semibold">{t('pageTemplate.composite.nestedDefinition')}</h3>
               {!compositeDraft ? <p className="text-sm text-gray-500">{t('common.loading')}</p> : pendingDialog.template.archivedAt
                 ? <TemplateTreePreview nodes={compositeDraft.nodes.map((node) => node.kind === 'folder'
@@ -815,10 +816,10 @@ export const PageTemplateManager: React.FC = () => {
             </div></>}
             {dialogError ? <p role="alert" className="text-sm text-red-600">{dialogError}</p> : null}
             <div className="flex justify-end gap-2">
-              {templateKind(pendingDialog.template) === 'single_page' && sourcePagesFailed ? <button type="button" disabled={sourcePagesLoading || submitting} onClick={() => void loadSourcePage(sourceRetrySkipRef.current)} className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('pageTemplate.retry')}</button> : null}
+              {!usesDefinitionStorage(pendingDialog.template) && sourcePagesFailed ? <button type="button" disabled={sourcePagesLoading || submitting} onClick={() => void loadSourcePage(sourceRetrySkipRef.current)} className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('pageTemplate.retry')}</button> : null}
               {dialogConflict ? <button type="button" disabled={conflictReloading} onClick={() => void reloadConflict()} className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('pageTemplate.reload')}</button> : null}
               <button type="button" disabled={submitting || conflictReloading} onClick={closeDialog} className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('common.cancel')}</button>
-              {!pendingDialog.template.archivedAt ? <button type="submit" disabled={submitting || conflictReloading || dialogConflict || (templateKind(pendingDialog.template) === 'single_page' ? sourcePagesLoading || !sourcePageId : !compositeDraft || definitionReferenceIssues(compositeDraft).length > 0)} className="h-10 rounded-lg bg-blue-600 px-4 text-sm text-white disabled:opacity-50">{t('pageTemplate.createVersion')}</button> : null}
+              {!pendingDialog.template.archivedAt ? <button type="submit" disabled={submitting || conflictReloading || dialogConflict || (!usesDefinitionStorage(pendingDialog.template) ? sourcePagesLoading || !sourcePageId : !compositeDraft || definitionReferenceIssues(compositeDraft).length > 0)} className="h-10 rounded-lg bg-blue-600 px-4 text-sm text-white disabled:opacity-50">{t('pageTemplate.createVersion')}</button> : null}
             </div>
           </form>
         </ModalDialog>
