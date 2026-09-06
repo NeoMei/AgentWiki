@@ -7,6 +7,7 @@ import {
   editorMarkdownResourceParser,
   extractMarkdownSection,
   resolveMarkdownResources,
+  standardMarkdownImageResourceRef,
 } from './resources';
 
 vi.mock('../../api/client', () => ({
@@ -349,6 +350,26 @@ describe('collectMarkdownResourceRefs', () => {
       expect.objectContaining({ kind: 'attachment', target: 'image.png' }),
       expect.objectContaining({ kind: 'attachment', target: 'image.png', syntax: 'markdown' }),
     ]);
+  });
+
+  it('uses one decoded URI semantic for standard image identity while preserving request targets', () => {
+    const raw = standardMarkdownImageResourceRef('../assets/图片 one.png');
+    const mixed = standardMarkdownImageResourceRef('../assets/图片%20one.png');
+    const encoded = standardMarkdownImageResourceRef('../assets/%E5%9B%BE%E7%89%87%20one.png');
+    const onceEncodedSpace = standardMarkdownImageResourceRef('../assets/literal%20space.png');
+    const twiceEncodedSpace = standardMarkdownImageResourceRef('../assets/literal%2520space.png');
+    const onceEncodedDelimiter = standardMarkdownImageResourceRef('../assets/literal%28name%29.png');
+    const twiceEncodedDelimiter = standardMarkdownImageResourceRef('../assets/literal%2528name%2529.png');
+
+    expect(raw?.target).toBe('../assets/图片 one.png');
+    expect(mixed?.target).toBe('../assets/图片%20one.png');
+    expect(encoded?.target).toBe('../assets/%E5%9B%BE%E7%89%87%20one.png');
+    expect(raw?.canonicalKey).toBe(mixed?.canonicalKey);
+    expect(raw?.canonicalKey).toBe(encoded?.canonicalKey);
+    expect(onceEncodedSpace?.canonicalKey).not.toBe(twiceEncodedSpace?.canonicalKey);
+    expect(onceEncodedDelimiter?.canonicalKey).not.toBe(twiceEncodedDelimiter?.canonicalKey);
+    expect(standardMarkdownImageResourceRef('../assets/folder%5Cimage.png')).toBeNull();
+    expect(standardMarkdownImageResourceRef('..\\assets\\image.png')).toBeNull();
   });
 
   it('applies the shared one-hundred-resource bound across Wiki and standard images', () => {

@@ -81,6 +81,50 @@ describe('standard Markdown attachment image rendering', () => {
     expect(fetchAttachmentBlob).toHaveBeenCalledWith('attachment-first-local', expect.any(AbortSignal));
   });
 
+  it.each([
+    ['raw Unicode and spaces', '![Raw](<../assets/图片 one.png>)', '../assets/图片 one.png', 'Raw'],
+    ['raw spaces', '![Space](<../assets/plain name.png>)', '../assets/plain name.png', 'Space'],
+    ['mixed encoding', '![Mixed](<../assets/图片%20two.png>)', '../assets/图片%20two.png', 'Mixed'],
+    ['already encoded', '![Encoded](../assets/%E5%9B%BE%E7%89%87%20three.png)', '../assets/%E5%9B%BE%E7%89%87%20three.png', 'Encoded'],
+  ])('matches the resolver result after HAST URI normalization for %s', async (
+    _case,
+    markdown,
+    requestTarget,
+    alt,
+  ) => {
+    vi.mocked(api.post).mockImplementation(async (_url, body) => ({
+      data: (body as { references: Array<{ key: string }> }).references.map(({ key }) => ({
+        key,
+        status: 'resolved',
+        kind: 'attachment',
+        attachmentId: 'attachment-normalized',
+        displayName: 'normalized.png',
+        mimeType: 'image/png',
+        width: 480,
+        height: 270,
+      })),
+    }));
+    vi.mocked(fetchAttachmentBlob).mockResolvedValue(new Blob(['png'], { type: 'image/png' }));
+
+    const { container } = renderMarkdown(markdown);
+
+    expect(await screen.findByRole('img', { name: alt })).toHaveAttribute('src', 'blob:first-local');
+    expect(container.querySelector(`img[src="${requestTarget}"]`)).toBeNull();
+    expect(api.post).toHaveBeenCalledWith(
+      '/spaces/space-1/markdown/resolve',
+      {
+        sourcePageId: 'source-page',
+        references: [{
+          key: 'r0',
+          kind: 'attachment',
+          syntax: 'markdown',
+          target: requestTarget,
+        }],
+      },
+      { signal: expect.any(AbortSignal) },
+    );
+  });
+
   it('preserves an explicitly empty alt while using the protected Blob renderer', async () => {
     vi.mocked(api.post).mockImplementation(async (_url, body) => ({
       data: (body as { references: Array<{ key: string }> }).references.map(({ key }) => ({
@@ -124,6 +168,48 @@ describe('standard Markdown attachment image rendering', () => {
     expect(screen.getByRole('img', { name: 'External' })).toHaveAttribute(
       'src',
       'https://cdn.example.test/safe.png',
+    );
+    expect(fetchAttachmentBlob).not.toHaveBeenCalled();
+  });
+
+  it('fails encoded backslashes and encoded traversal closed without double decoding', async () => {
+    vi.mocked(api.post).mockImplementation(async (_url, body) => ({
+      data: (body as { references: Array<{ key: string }> }).references.map(({ key }) => ({
+        key,
+        status: 'unresolved',
+      })),
+    }));
+
+    const { container } = renderMarkdown([
+      '![Backslash](../assets/folder%5Cimage.png)',
+      '![Traversal](%2E%2E/%2E%2E/secret.png)',
+      '![Encoded delimiters](../assets/literal%2528name%2529.png)',
+    ].join('\n\n'));
+
+    expect(await screen.findByText('Image unavailable: Traversal')).toBeInTheDocument();
+    expect(screen.getByText('Image unavailable: Backslash')).toBeInTheDocument();
+    expect(screen.getByText('Image unavailable: Encoded delimiters')).toBeInTheDocument();
+    expect(container.querySelector('img')).toBeNull();
+    expect(api.post).toHaveBeenCalledWith(
+      '/spaces/space-1/markdown/resolve',
+      {
+        sourcePageId: 'source-page',
+        references: [
+          {
+            key: 'r0',
+            kind: 'attachment',
+            syntax: 'markdown',
+            target: '%2E%2E/%2E%2E/secret.png',
+          },
+          {
+            key: 'r1',
+            kind: 'attachment',
+            syntax: 'markdown',
+            target: '../assets/literal%2528name%2529.png',
+          },
+        ],
+      },
+      { signal: expect.any(AbortSignal) },
     );
     expect(fetchAttachmentBlob).not.toHaveBeenCalled();
   });
