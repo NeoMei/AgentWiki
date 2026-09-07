@@ -14,6 +14,7 @@ import { legacyBundleHash, type LegacyPageProjection } from './legacy-serializer
 import { isLegacyUnifiedRevisionFormat } from './sync-revision-format';
 
 const EMPTY_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+const BACKFILL_BATCH_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 export class LegacyUnifiedRevisionIntegrityError extends Error {
   constructor() {
@@ -86,12 +87,35 @@ function exactKeys(value: Record<string, unknown>, expected: readonly string[]):
   return Object.keys(value).sort().join('\0') === [...expected].sort().join('\0');
 }
 
-function migrationBatchPrefix(revision: LegacyUnifiedRevision): string | null {
+function sealedMigrationBatch(revision: LegacyUnifiedRevision): string | null {
   if (!revision.migrationBatchId) return null;
   const suffix = `:${revision.id}`;
   if (!revision.migrationBatchId.endsWith(suffix)) return null;
   const prefix = revision.migrationBatchId.slice(0, -suffix.length);
-  return prefix.length > 0 ? prefix : null;
+  return BACKFILL_BATCH_UUID.test(prefix) ? prefix : null;
+}
+
+/**
+ * The original Release-A writer stored one bare randomUUID batch on each
+ * completed revision. Its resumability fix kept those completed rows and
+ * sealed only newly processed rows as `<newBatch>:<revisionId>`. The per-Space
+ * uniqueness constraint allowed that old writer to commit only
+ * revision 1 before revision 2 aborted. A later run can therefore contain one
+ * bare-batch genesis followed by one consistently sealed resume suffix.
+ */
+function hasTrustedMigrationBatchSequence(revisions: LegacyUnifiedRevision[]): boolean {
+  const first = revisions[0];
+  if (!first?.migrationBatchId) return false;
+  const firstSealedBatch = sealedMigrationBatch(first);
+  if (firstSealedBatch) {
+    return revisions.every((revision) => sealedMigrationBatch(revision) === firstSealedBatch);
+  }
+  const earlyBatch = first.migrationBatchId;
+  if (!BACKFILL_BATCH_UUID.test(earlyBatch)) return false;
+  if (revisions.length === 1) return true;
+  const resumeBatch = sealedMigrationBatch(revisions[1]!);
+  return resumeBatch !== null
+    && revisions.slice(1).every((revision) => sealedMigrationBatch(revision) === resumeBatch);
 }
 
 /**
@@ -118,19 +142,17 @@ export async function verifyLegacyUnifiedRevisionChain(
   }) as LegacyUnifiedRevision[];
   if (revisions.length !== current.sequence) fail();
   if (revisions[revisions.length - 1]?.id !== current.id) fail();
-  const prefix = migrationBatchPrefix(current as LegacyUnifiedRevision);
-  if (!prefix) fail();
   for (const [index, revision] of revisions.entries()) {
     if (
       revision.spaceId !== spaceId
       || revision.sequence !== index + 1
       || revision.parentRevisionId !== null
       || !isLegacyUnifiedRevisionFormat(revision)
-      || migrationBatchPrefix(revision) !== prefix
       || revision.attachmentCount !== 0n
       || revision.revisionAttachmentBytes !== 0n
     ) fail();
   }
+  if (!hasTrustedMigrationBatchSequence(revisions)) fail();
 
   const ids = revisions.map((revision) => revision.id);
   const [pageRows, sidecarRows, extras, folderRow, attachmentRow, treeDeltaRow] = await Promise.all([

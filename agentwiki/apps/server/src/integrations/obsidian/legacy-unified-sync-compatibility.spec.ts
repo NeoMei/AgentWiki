@@ -27,7 +27,7 @@ const databaseUrl = safeDatabaseUrl();
 const dbIt = databaseUrl ? it : it.skip;
 
 describe('legacy unified-knowledge compatibility', () => {
-  dbIt('discovers and upgrades a verified flat migrated chain without weakening unrelated Spaces', async () => {
+  dbIt('discovers and upgrades a verified resumed flat migration without weakening unrelated Spaces', async () => {
     const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
     const storageRoot = await mkdtemp(join(tmpdir(), 'agentwiki-legacy-unified-'));
     const storage = new LocalAttachmentStorage(storageConfig(storageRoot));
@@ -38,6 +38,7 @@ describe('legacy unified-knowledge compatibility', () => {
     const credentialFamilyId = randomUUID();
     const credentialId = randomUUID();
     const batchId = randomUUID();
+    const earlyBatchId = randomUUID();
     const revisionIds = Array.from({ length: 5 }, (_, index) => `legacy_rev_${index + 1}_${suffix}`);
     const pageIds = Array.from({ length: 3 }, (_, index) => `legacy_page_${index + 1}_${suffix}`);
     const principal = {
@@ -167,7 +168,9 @@ describe('legacy unified-knowledge compatibility', () => {
           attachmentCount: 0n,
           revisionAttachmentBytes: 0n,
           origin: 'migration',
-          migrationBatchId: `${batchId}:${revisionId}`,
+          migrationBatchId: revisionIndex === 0
+            ? earlyBatchId
+            : `${batchId}:${revisionId}`,
           createdAt: updatedAt,
         } });
         await prisma.syncRevisionPageRow.createMany({ data: pages.map((page) => ({
@@ -317,12 +320,17 @@ describe('legacy unified-knowledge compatibility', () => {
       const ancestor = await prisma.spaceKnowledgeRevision.findUniqueOrThrow({
         where: { id: revisionIds[3] },
       });
-      await prisma.spaceKnowledgeRevision.update({
-        where: { id: revisionIds[3] },
-        data: { migrationBatchId: `other-batch:${revisionIds[3]}` },
-      });
-      await expect(v2Reader.snapshot(spaceId, revisionIds[4], undefined, 100))
-        .rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
+      for (const corruptBatch of [
+        randomUUID(),
+        `${randomUUID()}:${revisionIds[3]}`,
+      ]) {
+        await prisma.spaceKnowledgeRevision.update({
+          where: { id: revisionIds[3] },
+          data: { migrationBatchId: corruptBatch },
+        });
+        await expect(v2Reader.snapshot(spaceId, revisionIds[4], undefined, 100))
+          .rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
+      }
       await prisma.spaceKnowledgeRevision.update({
         where: { id: revisionIds[3] },
         data: { migrationBatchId: ancestor.migrationBatchId },
