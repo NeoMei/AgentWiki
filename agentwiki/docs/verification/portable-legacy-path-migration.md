@@ -16,12 +16,14 @@ deleted; Page titles, bodies, IDs, attribution and timestamps are preserved.
 One explicitly approved forward migration changes the alias CHECK:
 `20260907120000_allow_portable_legacy_page_aliases`.
 Its SQL SHA-256 is
-`081058ca51f075242eab32c20108675feb883fa0e002ca0775c28fb184d27716`.
+`531a6edae8aa486a01a68ef6bf7bb16bf2703cb40789cb88aef00113ad32d02b`.
 It removes the `pages/` restriction, retains nonempty paths/keys, and adds
-1024-byte bounds plus absolute, empty-segment, dot-segment, control-character,
+the original path's 1024-byte bound plus absolute, empty-segment, dot-segment, control-character,
 colon and backslash rejection. Full portable Markdown validation and canonical
 casefold key matching remain application responsibilities. No previously
 applied migration was edited; no dependency, package version or wire schema changed.
+Full Unicode casefold keys may legitimately exceed 1024 bytes. Their SQL
+requirement is nonempty, matching the public validator's derived-key contract.
 
 Raw legacy-history verification is separated from its optional strict v2 view.
 Both retain the complete five-revision resumed-batch integrity contract. The
@@ -92,7 +94,35 @@ PG_DUMP_BIN=/opt/homebrew/bin/pg_dump node scripts/server-test-harness.mjs run
 ```
 
 The new migration changes the reviewed full migration-corpus digest to
-`7f5189fbd80ecd3972a97624afa247b1557200f8073cdc41dd3fe5b34dffdadc`.
+`56d7d4e6a8b1f3a904e9818f905e6129d406c398e658881b3ecd410ec8655333`.
 The three existing safety-gate constants were updated to this exact digest.
 The database helpers own fresh schemas and verify cleanup; no production
 credentials, private content, remote writes or other worktrees were accessed.
+
+## Whole-branch review fixes
+
+The unpublished candidate SQL was corrected after review found that its key
+budget rejected valid full Unicode casefold expansions. Actual PostgreSQL RED
+showed an existing valid managed alias (812-byte path, 1212-byte key) prevented
+the forward CHECK upgrade. GREEN proves that exact alias survives the actual
+DDL unchanged and a new outside-path alias (810 / 1210 bytes) persists. Direct
+SQL malformed aliases remain rejected; no key truncation or rewrite occurs.
+
+The new canonical Page timestamp SQL now decodes the script's UTC ISO values
+as `timestamp`, matching the current Page update and Prisma's timestamp columns.
+RED showed `2026-08-28T01:02:03.123Z` becoming `09:02:03.123Z` in an explicitly
+verified Asia/Shanghai session, while UTC passed. The same three focused
+regressions now pass 3/3, zero skips. Both timezone tests compare plan, current
+Page, immutable Page row and public snapshot timestamps exactly, and verify
+generated Folder/current/immutable/snapshot millisecond values too. No global
+database timezone or historical records were changed.
+
+This wave changes only the candidate SQL, the migration script and regression
+fixtures/corpus identities. The full server result above belongs to the prior
+wave; it was not rerun for these SQL/script-only fixes.
+
+Final focused planner, migration DB, Folder schema, ContentTree corpus/locking
+and collaboration schema gates: **59 passed, zero skipped**, 23.173 seconds.
+The helper reported zero generated Folder schemas and unchanged protected
+public-schema inventory after cleanup. Changed JavaScript syntax checks and
+Git whitespace checks passed. No server TypeScript changed in this wave.

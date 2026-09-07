@@ -16,6 +16,7 @@ import {
   pathKey,
   revisionContentHash,
   treeRevisionContentHashV2,
+  validatePortableMarkdownPath,
 } from '../packages/sync-protocol/dist/esm/index.js';
 
 import { withFolderTestDatabase } from './folder-test-database.mjs';
@@ -35,6 +36,98 @@ const requireFromServer = createRequire(new URL('../apps/server/package.json', i
 const { PrismaClient } = requireFromServer('@prisma/client');
 const skip = databaseUrl ? false : 'FOLDER_TEST_DATABASE_URL is required';
 const execFileAsync = promisify(execFile);
+
+test('forward alias CHECK preserves existing and new valid expanded Unicode keys', { skip, timeout: 180_000 }, async () => {
+  await withFolderTestDatabase(databaseUrl, async ({ databaseUrl: schemaUrl }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: schemaUrl } } });
+    try {
+      const seeded = await seedUserAndSpace(prisma, 'UnicodeAlias');
+      const owner = await createPage(prisma, seeded, { title: 'Owner', syncPath: 'pages/Owner.md' });
+      const suffix = `${Array(4).fill('\u0130'.repeat(100)).join('/')}.md`;
+      const existing = validatePortableMarkdownPath(`pages/${suffix}`);
+      const incoming = validatePortableMarkdownPath(`old/${suffix}`);
+      assert.deepEqual([Buffer.byteLength(existing.path), Buffer.byteLength(existing.key)], [812, 1212]);
+      assert.deepEqual([Buffer.byteLength(incoming.path), Buffer.byteLength(incoming.key)], [810, 1210]);
+      // Recreate the previously deployed CHECK and store a valid pre-upgrade alias.
+      await prisma.$executeRawUnsafe('ALTER TABLE "PagePathAlias" DROP CONSTRAINT "PagePathAlias_non_empty_path"');
+      await prisma.$executeRawUnsafe(`ALTER TABLE "PagePathAlias" ADD CONSTRAINT "PagePathAlias_non_empty_path"
+        CHECK (char_length("path") > 0 AND char_length("pathKey") > 0 AND "path" LIKE 'pages/%')`);
+      const before = await prisma.pagePathAlias.create({ data: {
+        spaceId: seeded.spaceId, pageId: owner.id, path: existing.path, pathKey: existing.key,
+      } });
+      const sql = await readFile(new URL('../apps/server/prisma/migrations/20260907120000_allow_portable_legacy_page_aliases/migration.sql', import.meta.url), 'utf8');
+      await prisma.$transaction(async (tx) => {
+        for (const statement of sql.split(';').filter((part) => part.trim())) {
+          await tx.$executeRawUnsafe(statement);
+        }
+      });
+      assert.deepEqual(await prisma.pagePathAlias.findUniqueOrThrow({ where: { id: before.id } }), before);
+      const inserted = await prisma.pagePathAlias.create({ data: {
+        spaceId: seeded.spaceId, pageId: owner.id, path: incoming.path, pathKey: incoming.key,
+      } });
+      assert.equal(inserted.pathKey, incoming.key);
+      for (const invalid of ['/absolute.md', '../escape.md', 'a/../escape.md', 'a\\escape.md', 'a//escape.md', `${'a'.repeat(1025)}.md`]) {
+        await assert.rejects(() => prisma.pagePathAlias.create({ data: {
+          spaceId: seeded.spaceId, pageId: owner.id, path: invalid, pathKey: invalid,
+        } }));
+      }
+      await assert.rejects(() => prisma.pagePathAlias.create({ data: {
+        spaceId: seeded.spaceId, pageId: owner.id, path: 'old/empty-key.md', pathKey: '',
+      } }));
+      assert.deepEqual(await prisma.pagePathAlias.findUniqueOrThrow({ where: { id: before.id } }), before);
+    } finally { await prisma.$disconnect(); }
+  });
+});
+
+for (const timezone of ['UTC', 'Asia/Shanghai']) {
+  test(`migration preserves exact Page and Folder timestamps in ${timezone}`, { skip, timeout: 180_000 }, async () => {
+    const zonedUrl = new URL(databaseUrl);
+    zonedUrl.searchParams.set('options', `-ctimezone=${timezone}`);
+    await withFolderTestDatabase(zonedUrl.toString(), async ({ databaseUrl: schemaUrl }) => {
+      const prisma = new PrismaClient({ datasources: { db: { url: schemaUrl } } });
+      const runtime = await createSyncV3TestRuntime(prisma, 'timezone-migration');
+      try {
+        assert.equal((await prisma.$queryRawUnsafe('SHOW timezone'))[0].TimeZone, timezone);
+        const seeded = await seedUserAndSpace(prisma, 'TimezoneMigration');
+        const parent = await createPage(prisma, seeded, {
+          id: 'timezone-parent', title: 'Parent', syncPath: 'legacy/parent.md',
+          createdAt: new Date('2026-08-28T01:02:03.123Z'),
+        });
+        const child = await createPage(prisma, seeded, {
+          id: 'timezone-child', title: 'Child', syncPath: 'legacy/child.md', parentId: parent.id,
+          createdAt: new Date('2026-08-29T22:23:24.987Z'),
+        });
+        const sourcePages = [parent, child];
+        const plan = await preflightSpaceFolderMigration(prisma, seeded.spaceId);
+        const applied = await migrateSpaceFolders(prisma, seeded.spaceId, { expectedInputHash: plan.inputHash });
+        const snapshot = await runtime.createV2Reader().snapshot(seeded.spaceId, applied.revisionId, undefined, 100);
+        for (const source of sourcePages) {
+          const current = await prisma.page.findUniqueOrThrow({ where: { id: source.id } });
+          const immutable = await prisma.syncRevisionPageRow.findUniqueOrThrow({
+            where: { revisionId_pageId: { revisionId: applied.revisionId, pageId: source.knowledgeKey } },
+          });
+          const expected = source.updatedAt.toISOString();
+          assert.equal(plan.pages.find((page) => page.id === source.id).updatedAt.toISOString(), expected);
+          assert.equal(current.updatedAt.toISOString(), expected);
+          assert.equal(immutable.updatedAt.toISOString(), expected);
+          assert.equal(snapshot.pages.find((page) => page.pageId === source.knowledgeKey).updatedAt, expected);
+        }
+        const folderPlan = plan.folders[0];
+        assert.equal(folderPlan.updatedAt.toISOString(), '2026-08-28T01:02:03.123Z');
+        const folder = await prisma.folder.findUniqueOrThrow({ where: { id: folderPlan.id } });
+        const folderRow = await prisma.syncRevisionFolderRow.findUniqueOrThrow({
+          where: { revisionId_folderId: { revisionId: applied.revisionId, folderId: folder.id } },
+        });
+        assert.equal(folder.updatedAt.toISOString(), '2026-08-28T01:02:03.123Z');
+        assert.equal(folderRow.updatedAt.toISOString(), '2026-08-28T01:02:03.123Z');
+        assert.equal(snapshot.folders[0].updatedAt, '2026-08-28T01:02:03.123Z');
+      } finally {
+        await runtime.dispose();
+        await prisma.$disconnect();
+      }
+    });
+  });
+}
 
 test('portable resumed legacy history migrates current pages through trusted v2 cutover', { skip, timeout: 180_000 }, async () => {
   await withFolderTestDatabase(databaseUrl, async ({ databaseUrl: schemaUrl }) => {

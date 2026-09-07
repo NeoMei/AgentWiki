@@ -1064,7 +1064,7 @@ async function persistInitialTreeRevisionV2(tx, spaceId, revisionId, plan) {
           "updatedAt" = input."updatedAt"
       FROM jsonb_to_recordset($1::jsonb) AS input(
         "pageId" text, "folderId" text, "path" text, "pathKey" text,
-        "title" text, "updatedAt" timestamptz
+        "title" text, "updatedAt" timestamp
       )
       WHERE row."revisionId" = $2 AND row."pageId" = input."pageId"
     `, JSON.stringify(plan.pages.map((page) => ({
