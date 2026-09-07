@@ -35,11 +35,13 @@ import type {
 } from './space-revision-writer.service';
 import type { SpaceLockedTransaction } from './readable-sync-path.service';
 import {
+  isLegacyUnifiedRevisionFormat,
   isSupportedSyncRevisionFormat,
   isSyncV3RevisionFormat,
   SYNC_V3_RECIPE_VERSION,
   SYNC_V3_SCHEMA_VERSION,
 } from './sync-revision-format';
+import { verifyLegacyUnifiedRevisionChain } from './legacy-unified-revision-integrity';
 
 const WRITE_BATCH_SIZE = 500;
 const encoder = new TextEncoder();
@@ -215,6 +217,9 @@ export class SyncV3RevisionWriterService {
     ]);
     assertSupportedRevisionHead(latest);
     if (!latest) return this.inspectLiveCurrentLocked(tx, spaceId, historicalV3 !== null);
+    if (isLegacyUnifiedRevisionFormat(latest)) {
+      await verifyLegacyUnifiedRevisionChain(tx as any, spaceId, latest.id);
+    }
     const [folders, pages] = await Promise.all([
       tx.syncRevisionFolderRow.findMany({
         where: { revisionId: latest.id },
@@ -515,6 +520,9 @@ export class SyncV3RevisionWriterService {
       select: { id: true, sequence: true, schemaVersion: true, recipeVersion: true },
     });
     assertSupportedRevisionHead(latest);
+    if (latest && isLegacyUnifiedRevisionFormat(latest)) {
+      await verifyLegacyUnifiedRevisionChain(tx as any, spaceId, latest.id);
+    }
     const parentManifest = latest && isSyncV3RevisionFormat(latest)
       ? await this.loadManifest(tx, spaceId, latest.id)
       : null;

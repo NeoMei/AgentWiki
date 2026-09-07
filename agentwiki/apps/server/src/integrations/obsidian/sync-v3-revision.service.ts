@@ -23,12 +23,17 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { SyncV3RevisionWriterService } from '../../core/sync/sync-v3-revision-writer.service';
 import {
+  isLegacyUnifiedRevisionFormat,
   isSupportedLegacySyncRevisionFormat,
   isSupportedSyncRevisionFormat,
   isSyncV3RevisionFormat,
   SYNC_V3_RECIPE_VERSION,
   SYNC_V3_SCHEMA_VERSION,
 } from '../../core/sync/sync-revision-format';
+import {
+  LegacyUnifiedRevisionIntegrityError,
+  verifyLegacyUnifiedRevisionChain,
+} from '../../core/sync/legacy-unified-revision-integrity';
 import type { HumanDevicePrincipal } from './human-device.guard';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
 import { SyncCursorService } from './sync-cursor.service';
@@ -195,6 +200,9 @@ export class SyncV3RevisionService {
             undefined,
             '3',
           );
+        }
+        if (latest && isLegacyUnifiedRevisionFormat(latest)) {
+          await verifyLegacyUnifiedRevisionChain(tx, space.id, latest as any);
         }
         const revisionFolders = latest ? foldersByRevision.get(latest.id) ?? [] : liveFoldersBySpace.get(space.id) ?? [];
         const revisionPages = latest ? pagesByRevision.get(latest.id) ?? [] : livePagesBySpace.get(space.id) ?? [];
@@ -404,7 +412,10 @@ export class SyncV3RevisionService {
       });
     } catch (error) {
       if (error instanceof SyncApiException) throw error;
-      if (error instanceof RevisionV3IntegrityError) throw revisionGone();
+      if (
+        error instanceof RevisionV3IntegrityError
+        || error instanceof LegacyUnifiedRevisionIntegrityError
+      ) throw revisionGone();
       throw readUnavailable();
     }
   }
@@ -500,6 +511,13 @@ export class SyncV3RevisionService {
         || parent.sequence !== revision.sequence - 1
         || !isSupportedSyncRevisionFormat(parent)
       ) throw new RevisionV3IntegrityError();
+      if (isLegacyUnifiedRevisionFormat(parent)) {
+        try {
+          await verifyLegacyUnifiedRevisionChain(tx, spaceId, parent as any);
+        } catch {
+          throw new RevisionV3IntegrityError();
+        }
+      }
     }
     const [folderRows, pageRows, attachmentRows, sidecarRow] = await Promise.all([
       tx.syncRevisionFolderRow.findMany({ where: { revisionId: revision.id } }),

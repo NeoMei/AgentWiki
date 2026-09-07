@@ -29,9 +29,14 @@ import {
 } from '../../core/sync/revision-v2-integrity';
 import { SyncV3RevisionWriterService } from '../../core/sync/sync-v3-revision-writer.service';
 import {
+  isLegacyUnifiedRevisionFormat,
   isSupportedLegacySyncRevisionFormat,
   isSyncV3RevisionFormat,
 } from '../../core/sync/sync-revision-format';
+import {
+  LegacyUnifiedRevisionIntegrityError,
+  verifyLegacyUnifiedRevisionChain,
+} from '../../core/sync/legacy-unified-revision-integrity';
 import {
   SyncV3AuthorityError,
   SyncV3ImmutableRevisionService,
@@ -218,7 +223,11 @@ export class SyncV2RevisionService {
       });
     } catch (error) {
       if (error instanceof SyncApiException) throw error;
-      if (error instanceof RevisionV2IntegrityError || error instanceof SyncV3AuthorityError) {
+      if (
+        error instanceof RevisionV2IntegrityError
+        || error instanceof SyncV3AuthorityError
+        || error instanceof LegacyUnifiedRevisionIntegrityError
+      ) {
         throw revisionGone();
       }
       throw revisionReadUnavailable();
@@ -273,6 +282,18 @@ export class SyncV2RevisionService {
     const isNativeV3 = isSyncV3RevisionFormat(revision);
     const isKnownLegacy = isSupportedLegacySyncRevisionFormat(revision);
     try {
+      if (isLegacyUnifiedRevisionFormat(revision)) {
+        const verified = await verifyLegacyUnifiedRevisionChain(tx, spaceId, revision as any);
+        return {
+          revision: revision.id,
+          sequence: revision.sequence,
+          publishedAt: revision.createdAt.toISOString(),
+          manifest: verified.manifest,
+          revisionContentHash: verified.revisionContentHash,
+          revisionManifestByteLength: verified.revisionManifestByteLength,
+          revisionBodyBytes: verified.revisionBodyBytes,
+        };
+      }
       if (isNativeV3) {
         await this.immutableV3.verify(tx, spaceId, revision);
       }
@@ -392,7 +413,8 @@ export class SyncV2RevisionService {
     } catch (error) {
       if (error instanceof SyncApiException
         || error instanceof RevisionV2IntegrityError
-        || error instanceof SyncV3AuthorityError) {
+        || error instanceof SyncV3AuthorityError
+        || error instanceof LegacyUnifiedRevisionIntegrityError) {
         throw error;
       }
       throw revisionReadUnavailable();

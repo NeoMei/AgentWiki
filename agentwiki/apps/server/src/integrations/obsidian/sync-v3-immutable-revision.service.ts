@@ -16,9 +16,11 @@ import {
   type TreeRevisionContentManifestV3,
 } from '@neomei/agentwiki-sync-protocol';
 import {
+  isLegacyUnifiedRevisionFormat,
   isSupportedLegacySyncRevisionFormat,
   isSyncV3RevisionFormat,
 } from '../../core/sync/sync-revision-format';
+import { verifyLegacyUnifiedRevisionChain } from '../../core/sync/legacy-unified-revision-integrity';
 
 const encoder = new TextEncoder();
 
@@ -82,6 +84,13 @@ export class SyncV3ImmutableRevisionService {
       if (!isSyncV3RevisionFormat(parent) && !isSupportedLegacySyncRevisionFormat(parent)) {
         throw new SyncV3AuthorityError();
       }
+      if (isLegacyUnifiedRevisionFormat(parent)) {
+        try {
+          await verifyLegacyUnifiedRevisionChain(tx as any, spaceId, parent);
+        } catch {
+          throw new SyncV3AuthorityError();
+        }
+      }
     }
     const current = await this.rebuild(tx, spaceId, revision as any);
     const parentManifest = parent
@@ -120,6 +129,12 @@ export class SyncV3ImmutableRevisionService {
     const parents = parentIds.length === 0 ? [] : await tx.spaceKnowledgeRevision.findMany({
       where: { id: { in: parentIds } },
     });
+    if (parents.some(isLegacyUnifiedRevisionFormat)) {
+      const entries = await Promise.all(targets.map(async ({ spaceId, revision }) => (
+        [spaceId, await this.verify(tx, spaceId, revision)] as const
+      )));
+      return new Map(entries);
+    }
     const revisions = [...targets.map(({ revision }) => revision), ...parents];
     const ids = revisions.map((revision) => revision.id);
     const [folders, pages, attachments, sidecars] = await Promise.all([
