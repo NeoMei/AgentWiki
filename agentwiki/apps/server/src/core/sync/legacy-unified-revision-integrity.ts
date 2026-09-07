@@ -6,6 +6,7 @@ import {
   normalizeMarkdown,
   pathKey,
   revisionContentHash,
+  SnapshotPageSchema,
   treeRevisionContentHashV2,
   validatePortableMarkdownPath,
   type TreeRevisionContentManifestV2,
@@ -123,11 +124,11 @@ function hasTrustedMigrationBatchSequence(revisions: LegacyUnifiedRevision[]): b
  * revisions retained a null SQL parent, while the original logical chain is
  * sealed by sidecar.baseRevision and one backfill batch prefix.
  */
-export async function verifyLegacyUnifiedRevisionChain(
+export async function verifyLegacyUnifiedHistoryChain(
   tx: Prisma.TransactionClient,
   spaceId: string,
   revisionRef: string | LegacyUnifiedRevision,
-): Promise<VerifiedLegacyUnifiedRevision> {
+): Promise<{ revision: LegacyUnifiedRevision; pages: TreeRevisionContentManifestV2['pages']; revisionBodyBytes: number }> {
   const revisionId = typeof revisionRef === 'string' ? revisionRef : revisionRef.id;
   const current = await tx.spaceKnowledgeRevision.findUnique({
     where: { id: revisionId },
@@ -189,7 +190,7 @@ export async function verifyLegacyUnifiedRevisionChain(
   const extrasByRevision = groupByRevision(extras as Array<{ revisionId: string }>);
   const sidecarByRevision = new Map(sidecarRows.map((row) => [row.revisionId, row.sidecar]));
   const legacyBodyByHash = new Map(legacyBodies.map((row) => [row.contentHash, row.body]));
-  let verifiedCurrent: VerifiedLegacyUnifiedRevision | null = null;
+  let verifiedCurrent: { revision: LegacyUnifiedRevision; pages: TreeRevisionContentManifestV2['pages']; revisionBodyBytes: number } | null = null;
 
   for (const [index, revision] of revisions.entries()) {
     const sidecar = record(sidecarByRevision.get(revision.id));
@@ -234,44 +235,38 @@ export async function verifyLegacyUnifiedRevisionChain(
         updatedAt: raw.updatedAt.toISOString(),
       });
     }
-    let manifest: TreeRevisionContentManifestV2;
     try {
-      manifest = canonicalTreeRevisionManifestV2({
-        protocolVersion: '2',
-        spaceId,
-        folders: [],
-        pages: immutablePages,
-      });
+      SnapshotPageSchema.shape.items.parse(immutablePages);
     } catch {
       fail();
     }
     const v1Manifest = {
       protocolVersion: '1' as const,
       spaceId,
-      pages: manifest.pages.map((page) => ({
+      pages: immutablePages.map((page) => ({
         pageId: page.pageId,
         path: page.path,
         title: page.title,
         contentHash: page.contentHash,
       })),
     };
-    const empty = manifest.pages.length === 0;
+    const empty = immutablePages.length === 0;
     const storedRevisionHash = empty ? EMPTY_HASH : await revisionContentHash(v1Manifest);
     const storedManifestBytes = empty ? 0 : canonicalBytes(v1Manifest).byteLength;
-    const bodyBytes = manifest.pages.reduce(
+    const bodyBytes = immutablePages.reduce(
       (total, page) => total + Buffer.byteLength(page.body, 'utf8'),
       0,
     );
     if (
       revision.revisionContentHash !== storedRevisionHash
-      || revision.pageCount !== BigInt(manifest.pages.length)
+      || revision.pageCount !== BigInt(immutablePages.length)
       || revision.revisionManifestByteLength !== BigInt(storedManifestBytes)
       || revision.revisionBodyBytes !== BigInt(bodyBytes)
     ) fail();
 
     const revisionExtras = extrasByRevision.get(revision.id) ?? [];
-    if (revisionExtras.length !== manifest.pages.length) fail();
-    const immutableByPageId = new Map(manifest.pages.map((page) => [page.pageId, page]));
+    if (revisionExtras.length !== immutablePages.length) fail();
+    const immutableByPageId = new Map(immutablePages.map((page) => [page.pageId, page]));
     const legacyPages: LegacyPageProjection[] = [];
     const seenIds = new Set<string>();
     for (const [ordinal, rawExtra] of (revisionExtras as any[]).entries()) {
@@ -316,7 +311,7 @@ export async function verifyLegacyUnifiedRevisionChain(
         updatedAt: extra.updatedAt,
       });
     }
-    if (manifest.pages.some((page) => !seenIds.has(page.pageId))) fail();
+    if (immutablePages.some((page) => !seenIds.has(page.pageId))) fail();
     if (revision.contentHash !== legacyBundleHash({
       schemaVersion: revision.schemaVersion,
       recipeVersion: revision.recipeVersion,
@@ -332,14 +327,33 @@ export async function verifyLegacyUnifiedRevisionChain(
     if (revision.id === current.id) {
       verifiedCurrent = {
         revision,
-        manifest,
-        revisionContentHash: empty ? EMPTY_HASH : await treeRevisionContentHashV2(manifest),
-        revisionManifestByteLength: empty ? 0 : canonicalBytes(manifest).byteLength,
+        pages: immutablePages,
         revisionBodyBytes: bodyBytes,
       };
     }
   }
   return verifiedCurrent ?? fail();
+}
+
+/** The v2 view is available only when the original, fully verified paths satisfy v2. */
+export async function verifyLegacyUnifiedRevisionChain(
+  tx: Prisma.TransactionClient,
+  spaceId: string,
+  revisionRef: string | LegacyUnifiedRevision,
+): Promise<VerifiedLegacyUnifiedRevision> {
+  const verified = await verifyLegacyUnifiedHistoryChain(tx, spaceId, revisionRef);
+  let manifest: TreeRevisionContentManifestV2;
+  try {
+    manifest = canonicalTreeRevisionManifestV2({ protocolVersion: '2', spaceId, folders: [], pages: verified.pages });
+  } catch { fail(); }
+  const empty = manifest.pages.length === 0;
+  return {
+    revision: verified.revision,
+    manifest,
+    revisionContentHash: empty ? EMPTY_HASH : await treeRevisionContentHashV2(manifest),
+    revisionManifestByteLength: empty ? 0 : canonicalBytes(manifest).byteLength,
+    revisionBodyBytes: verified.revisionBodyBytes,
+  };
 }
 
 function groupByRevision<T extends { revisionId: string }>(rows: T[]): Map<string, T[]> {

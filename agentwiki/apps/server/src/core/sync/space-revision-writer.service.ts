@@ -36,6 +36,8 @@ import {
 } from './revision-v2-integrity';
 import { lockContentStore } from './content-store-lock';
 import { SyncV3RevisionWriterService } from './sync-v3-revision-writer.service';
+import { isLegacyUnifiedRevisionFormat, isSyncV3RevisionFormat, isSupportedLegacySyncRevisionFormat } from './sync-revision-format';
+import { verifyLegacyUnifiedHistoryChain } from './legacy-unified-revision-integrity';
 
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
@@ -520,6 +522,20 @@ export class SpaceRevisionWriterService {
     changes: StructuralPageChange[],
     origin: RevisionOrigin & { origin: 'migration' },
   ): Promise<RevisionWriteResult> {
+    const latest = await tx.spaceKnowledgeRevision.findFirst({
+      where: { spaceId }, orderBy: { sequence: 'desc' },
+      select: { id: true, schemaVersion: true, recipeVersion: true },
+    });
+    const historicalV3 = await tx.spaceKnowledgeRevision.findFirst({
+      where: { spaceId, schemaVersion: 'content-tree@3', recipeVersion: 'referenced-images-v1' },
+      select: { id: true },
+    });
+    if (historicalV3 || (latest && (isSyncV3RevisionFormat(latest) || !isSupportedLegacySyncRevisionFormat(latest)))) {
+      throw this.invalidRevisionChain();
+    }
+    if (latest && isLegacyUnifiedRevisionFormat(latest)) {
+      await verifyLegacyUnifiedHistoryChain(tx, spaceId, latest.id);
+    }
     return this.advanceStructuralPagesLockedInternal(tx, spaceId, changes, origin, true);
   }
 
@@ -567,7 +583,10 @@ export class SpaceRevisionWriterService {
     deferTreeV2Finalization: boolean,
   ): Promise<RevisionWriteResult> {
     const v3Result = await this.v3Writer.advanceCurrentIfRequiredLocked(tx, spaceId, changes, origin);
-    if (v3Result) return v3Result;
+    if (v3Result) {
+      if (deferTreeV2Finalization) throw this.invalidRevisionChain();
+      return v3Result;
+    }
     await lockContentStore(tx);
     const latest = await tx.spaceKnowledgeRevision.findFirst({
       where: { spaceId },
@@ -622,10 +641,13 @@ export class SpaceRevisionWriterService {
         FROM "LegacyRevisionSidecar"
         WHERE "revisionId" = ${parentRevisionId}
       `;
-      await tx.spaceKnowledgeRevision.update({
-        where: { id: parentRevisionId },
-        data: { supersededAt: new Date() },
-      });
+      // The explicit historical cutover preserves the old revision rows verbatim.
+      if (!deferTreeV2Finalization) {
+        await tx.spaceKnowledgeRevision.update({
+          where: { id: parentRevisionId },
+          data: { supersededAt: new Date() },
+        });
+      }
     }
 
     if (origin.legacySidecarOverride) {

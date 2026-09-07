@@ -320,7 +320,7 @@ export class SyncV2RevisionService {
         ? ancestorById.get(revision.parentRevisionId) ?? null
         : null;
       const { manifest, calculatedHash, manifestBytes, bodyBytes } = immutable;
-      const parentEvidence = parentRevision ? await Promise.all([
+      const parentEvidence = parentRevision && chainTrust.trustedGenesis?.id !== revision.id ? await Promise.all([
         tx.legacyRevisionSidecar.findUnique({ where: { revisionId: parentRevision.id } }),
         this.rebuildImmutableManifest(tx, spaceId, parentRevision.id),
         tx.syncRevisionTreeDeltaRow.findMany({
@@ -330,7 +330,7 @@ export class SyncV2RevisionService {
       const grandparentRevision = parentRevision?.parentRevisionId
         ? ancestorById.get(parentRevision.parentRevisionId) ?? null
         : null;
-      const grandparentEvidence = grandparentRevision ? await Promise.all([
+      const grandparentEvidence = grandparentRevision && chainTrust.trustedGenesis?.id !== parentRevision?.id ? await Promise.all([
         tx.legacyRevisionSidecar.findUnique({ where: { revisionId: grandparentRevision.id } }),
         this.rebuildImmutableManifest(tx, spaceId, grandparentRevision.id),
         tx.syncRevisionTreeDeltaRow.findMany({

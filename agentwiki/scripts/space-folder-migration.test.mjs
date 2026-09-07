@@ -76,6 +76,34 @@ function expectPreflightCode(input, code) {
   );
 }
 
+test('migrates portable legacy paths using titles and real placement, retaining old-path aliases', () => {
+  const pages = [
+    page('a', 'Same: title', null, { syncPath: 'archive/arbitrary/a.md', syncPathKey: 'archive/arbitrary/a.md' }),
+    page('b', 'Same: title', null, { syncPath: 'other/b.md', syncPathKey: 'other/b.md' }),
+    page('c', 'Child', 'a', { syncPath: 'unrelated/c.md', syncPathKey: 'unrelated/c.md' }),
+    page('deleted', 'Deleted', null, { deletedAt: date, syncPath: 'deleted.md', syncPathKey: 'deleted.md' }),
+  ];
+  const plan = buildSpaceFolderMigrationPlan(snapshot({ pages }));
+  assert.deepEqual(plan.pages.map((entry) => entry.syncPath), [
+    'pages/Same title.md', 'pages/Same title (2).md', 'pages/Same title/Child.md',
+  ]);
+  assert.equal(plan.folders.length, 1);
+  assert.deepEqual(plan.aliases.map((entry) => entry.path), pages.slice(0, 3).map((entry) => entry.syncPath));
+  for (const entry of plan.pages) {
+    const source = pages.find((item) => item.id === entry.id);
+    assert.equal(entry.content, source.content);
+    assert.equal(entry.title, source.title);
+    assert.equal(entry.knowledgeKey, source.knowledgeKey);
+  }
+});
+
+test('portable legacy source allowance still rejects invalid paths and mismatched keys', () => {
+  for (const value of ['/absolute.md', '../escape.md', 'a/../escape.md', 'a\\b.md', `${'x'.repeat(256)}.md`]) {
+    expectPreflightCode(snapshot({ pages: [page('a', 'Safe', null, { syncPath: value, syncPathKey: value })] }), 'PAGE_PATH_INVALID');
+  }
+  expectPreflightCode(snapshot({ pages: [page('a', 'Safe', null, { syncPath: 'old/a.md', syncPathKey: 'old/b.md' })] }), 'PAGE_PATH_INVALID');
+});
+
 test('translates a legacy Page chain without changing Page identity or content evidence', () => {
   const pages = [
     page('page-a', '项目'),
