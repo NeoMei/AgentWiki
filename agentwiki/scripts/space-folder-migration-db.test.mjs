@@ -129,7 +129,12 @@ for (const timezone of ['UTC', 'Asia/Shanghai']) {
   });
 }
 
-test('portable resumed legacy history migrates current pages through trusted v2 cutover', { skip, timeout: 180_000 }, async () => {
+for (const { label, displayOrders } of [
+  { label: 'sequential', displayOrders: [0, 1, 2] },
+  { label: 'repeated zero', displayOrders: [0, 0, 0] },
+  { label: 'out-of-order and gapped', displayOrders: [20, -3, 20_000_000_000] },
+]) {
+test(`portable resumed legacy history migrates current pages with ${label} display orders`, { skip, timeout: 180_000 }, async () => {
   await withFolderTestDatabase(databaseUrl, async ({ databaseUrl: schemaUrl }) => {
     const prisma = new PrismaClient({ datasources: { db: { url: schemaUrl } } });
     const runtime = await createSyncV3TestRuntime(prisma, 'portable-legacy-cutover');
@@ -173,7 +178,8 @@ test('portable resumed legacy history migrates current pages through trusted v2 
           const body = `# Historical ${index}\n\nRevision ${sequence}\n`;
           return { pageId: page.knowledgeKey, spaceId: seeded.spaceId,
             path: sequence === 2 ? `pages/Former ${index}.md` : page.syncPath,
-            title: `Historical ${index}`, body, order: index, metadata: null, artifactIds: [],
+            title: `Historical ${index}`, body, order: displayOrders[index],
+            metadata: { parentId: `historical-parent-${index}` }, artifactIds: [`historical-artifact-${index}`],
             contentHash: await contentHash(body), updatedAt: updatedAt.toISOString() };
         }));
         const sidecar = { schemaVersion: 'knowledge-bundle@1', recipeVersion: 'unified-knowledge@1',
@@ -198,10 +204,10 @@ test('portable resumed legacy history migrates current pages through trusted v2 
           revisionId: id, pageId: page.pageId, folderId: null, path: page.path, pathKey: pathKey(page.path),
           title: page.title, contentHash: page.contentHash, updatedAt,
         })) });
-        await prisma.legacyRevisionPageExtra.createMany({ data: historicalPages.map((page) => ({
-          revisionId: id, pageId: page.pageId, ordinal: page.order, legacyBodyHash: page.contentHash,
-          extra: { spaceId: seeded.spaceId, title: page.title, order: page.order, metadata: null,
-            artifactIds: [], legacyBodyHash: page.contentHash, contentHash: page.contentHash, path: page.path, updatedAt: page.updatedAt },
+        await prisma.legacyRevisionPageExtra.createMany({ data: historicalPages.map((page, ordinal) => ({
+          revisionId: id, pageId: page.pageId, ordinal, legacyBodyHash: page.contentHash,
+          extra: { spaceId: seeded.spaceId, title: page.title, order: page.order, metadata: page.metadata,
+            artifactIds: page.artifactIds, legacyBodyHash: page.contentHash, contentHash: page.contentHash, path: page.path, updatedAt: page.updatedAt },
         })) });
         await prisma.legacyRevisionSidecar.create({ data: { revisionId: id, sidecar } });
         revisionIds.push(id);
@@ -216,6 +222,7 @@ test('portable resumed legacy history migrates current pages through trusted v2 
       ]);
       const before = await historicalState();
       const currentBefore = await prisma.page.findMany({ where: { spaceId: seeded.spaceId }, orderBy: { id: 'asc' } });
+      const membershipsBefore = await prisma.spaceMember.findMany({ where: { userId: seeded.userId }, orderBy: { spaceId: 'asc' } });
       const plan = await preflightSpaceFolderMigration(prisma, seeded.spaceId);
       assert.equal(plan.status, 'ready');
       assert.equal(plan.counts.pagesMoved, 3);
@@ -258,6 +265,14 @@ test('portable resumed legacy history migrates current pages through trusted v2 
       assert.equal(revision.schemaVersion, 'content-tree@2');
       assert.equal(revision.sequence, 6);
       assert.equal(revision.parentRevisionId, revisionIds[4]);
+      const assertExtraOrders = async (revisionId) => {
+        const rows = await prisma.legacyRevisionPageExtra.findMany({ where: { revisionId }, orderBy: { ordinal: 'asc' } });
+        assert.deepEqual(rows.map((row) => ({ ordinal: row.ordinal, pageId: row.pageId,
+          order: row.extra.order, metadata: row.extra.metadata, artifactIds: row.extra.artifactIds })),
+        pages.map((page, index) => ({ ordinal: index, pageId: page.knowledgeKey, order: displayOrders[index],
+          metadata: { parentId: `historical-parent-${index}` }, artifactIds: [`historical-artifact-${index}`] })));
+      };
+      await assertExtraOrders(applied.revisionId);
       const v2 = runtime.createV2Reader();
       const snapshot = await v2.snapshot(seeded.spaceId, applied.revisionId, undefined, 100);
       assert.deepEqual(snapshot.pages.map((page) => page.path).sort(), ['pages/Current 0.md', 'pages/Current 1.md', 'pages/Current 2.md']);
@@ -268,6 +283,7 @@ test('portable resumed legacy history migrates current pages through trusted v2 
       for (const page of pages) {
         const current = await prisma.page.findUniqueOrThrow({ where: { id: page.id } });
         assert.deepEqual({ ...current, syncPath: page.syncPath, syncPathKey: page.syncPathKey }, page);
+        assert.equal(snapshot.pages.find((item) => item.pageId === page.knowledgeKey).body, page.content);
         const resolved = await runtime.markdown.resolve(seeded.spaceId, [{ kind: 'page', target: page.syncPath }],
           { kind: 'human', userId: seeded.userId });
         assert.equal(resolved[0].status, 'resolved');
@@ -283,17 +299,36 @@ test('portable resumed legacy history migrates current pages through trusted v2 
       assert.equal((await migrateSpaceFolders(prisma, seeded.spaceId, { expectedInputHash: plan.inputHash })).status, 'completed');
       const after = await historicalState();
       assert.deepEqual(after, before);
+      assert.deepEqual(await prisma.spaceMember.findMany({ where: { userId: seeded.userId }, orderBy: { spaceId: 'asc' } }), membershipsBefore);
+      assert.deepEqual(await prisma.page.findMany({ where: { spaceId: seeded.spaceId, deletedAt: { not: null } }, orderBy: { id: 'asc' } }),
+        currentBefore.filter((page) => page.deletedAt !== null));
       // Subsequent ordinary edits must retain the trusted cutover boundary too.
-      const next = await prisma.$transaction((tx) => runtime.writer.advanceStructuralPages(tx, seeded.spaceId, [{
-        operation: 'upsert', pageId: pages[0].knowledgeKey, folderId: null,
-        path: 'pages/Current 0.md', title: pages[0].title, body: 'Next canonical revision',
-      }], { origin: 'web_editor' }));
+      const next = await prisma.$transaction(async (tx) => {
+        const locked = await runtime.writer.lockSpace(tx, seeded.spaceId);
+        for (const page of pages) await tx.page.update({ where: { id: page.id }, data: { content: `Next canonical revision ${page.id}` } });
+        return runtime.writer.advanceStructuralPagesLocked(locked, seeded.spaceId,
+          [...pages].reverse().map((page) => ({ operation: 'upsert', pageId: page.knowledgeKey, folderId: null,
+            path: `pages/${page.title}.md`, title: page.title, body: `Next canonical revision ${page.id}` })),
+          { origin: 'web_editor' });
+      });
       assert.equal((await v2.snapshot(seeded.spaceId, next.revisionId, undefined, 100)).sequence, 7);
+      await assertExtraOrders(next.revisionId);
+      const single = await prisma.$transaction(async (tx) => {
+        const locked = await runtime.writer.lockSpace(tx, seeded.spaceId);
+        for (const page of pages) await tx.page.update({ where: { id: page.id }, data: { content: `Single writer revision ${page.id}` } });
+        return runtime.writer.advanceLocked(locked, seeded.spaceId,
+          [...pages].reverse().map((page) => ({ operation: 'upsert', pageId: page.knowledgeKey,
+            path: `pages/${page.title}.md`, title: page.title, body: `Single writer revision ${page.id}` })),
+          { origin: 'web_editor' });
+      });
+      assert.equal((await v2.snapshot(seeded.spaceId, single.revisionId, undefined, 100)).sequence, 8);
+      await assertExtraOrders(single.revisionId);
+      assert.deepEqual(await historicalState(), before);
       const native = await prisma.$transaction(async (tx) => {
         const locked = await runtime.writer.lockSpace(tx, seeded.spaceId);
         return runtime.writer.advanceReferencedImagesLocked(locked, seeded.spaceId, [], { origin: 'web_editor' });
       });
-      assert.equal((await v3.snapshot(principal, seeded.spaceId, native.revisionId, undefined, 100)).sequence, 8);
+      assert.equal((await v3.snapshot(principal, seeded.spaceId, native.revisionId, undefined, 100)).sequence, 9);
       await runtime.immutableV3.verify(prisma, seeded.spaceId, await prisma.spaceKnowledgeRevision.findUniqueOrThrow({ where: { id: native.revisionId } }));
     } finally {
       await runtime.dispose();
@@ -301,6 +336,7 @@ test('portable resumed legacy history migrates current pages through trusted v2 
     }
   });
 });
+}
 
 async function seedUserAndSpace(prisma, label) {
   const userId = randomUUID();

@@ -348,9 +348,7 @@ export class SpaceRevisionWriterService {
         },
       });
       let legacyOrdinal: number;
-      if (existingExtraValue && typeof existingExtraValue.order === 'number') {
-        legacyOrdinal = existingExtraValue.order;
-      } else if (existingExtra) {
+      if (existingExtra) {
         legacyOrdinal = existingExtra.ordinal;
       } else {
         if (nextLegacyOrdinal === null) {
@@ -362,6 +360,9 @@ export class SpaceRevisionWriterService {
         }
         legacyOrdinal = nextLegacyOrdinal++;
       }
+      const legacyOrder = typeof existingExtraValue?.order === 'number'
+        ? existingExtraValue.order
+        : legacyOrdinal;
       await tx.legacyRevisionPageExtra.upsert({
         where: { revisionId_pageId: { revisionId: created.id, pageId: change.pageId } },
         create: {
@@ -372,7 +373,7 @@ export class SpaceRevisionWriterService {
           extra: {
             spaceId,
             title: change.title ?? '',
-            order: legacyOrdinal,
+            order: legacyOrder,
             metadata: null,
             artifactIds: [],
             legacyBodyHash: hash,
@@ -387,7 +388,7 @@ export class SpaceRevisionWriterService {
             ...existingExtraValue,
             spaceId,
             title: change.title ?? existingExtraValue?.title,
-            order: legacyOrdinal,
+            order: legacyOrder,
             metadata: existingExtraValue?.metadata ?? null,
             artifactIds: existingExtraValue?.artifactIds ?? [],
             legacyBodyHash: hash,
@@ -794,9 +795,8 @@ export class SpaceRevisionWriterService {
           SELECT
             input.*,
             existing."extra" AS "existingExtra",
+            -- Physical array position is independent of semantic display order.
             CASE
-              WHEN jsonb_typeof(existing."extra"->'order') = 'number'
-                THEN ((existing."extra"->>'order')::numeric)::integer
               WHEN existing."pageId" IS NOT NULL THEN existing."ordinal"
               ELSE maximum.value + ROW_NUMBER() OVER (
                 PARTITION BY (existing."pageId" IS NULL)
@@ -817,7 +817,11 @@ export class SpaceRevisionWriterService {
           COALESCE(planned."existingExtra", '{}'::jsonb) || jsonb_build_object(
             'spaceId', ${spaceId},
             'title', planned."title",
-            'order', planned."legacyOrdinal",
+            'order', CASE
+              WHEN jsonb_typeof(planned."existingExtra"->'order') = 'number'
+                THEN planned."existingExtra"->'order'
+              ELSE to_jsonb(planned."legacyOrdinal")
+            END,
             'metadata', COALESCE(planned."existingExtra"->'metadata', 'null'::jsonb),
             'artifactIds', COALESCE(planned."existingExtra"->'artifactIds', '[]'::jsonb),
             'legacyBodyHash', planned."contentHash",

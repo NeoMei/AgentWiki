@@ -126,3 +126,34 @@ and collaboration schema gates: **59 passed, zero skipped**, 23.173 seconds.
 The helper reported zero generated Folder schemas and unchanged protected
 public-schema inventory after cleanup. Changed JavaScript syntax checks and
 Git whitespace checks passed. No server TypeScript changed in this wave.
+
+## Task 4: independent physical ordinal and display order
+
+The Release-A backfill explicitly stores snapshot array position in the unique
+`LegacyRevisionPageExtra.ordinal` column and the original display value in
+`extra.order`. Display order may repeat or contain gaps. The current bulk writer
+incorrectly preferred display order as physical ordinal; three historical pages
+with physical positions 0/1/2 and display orders 0/0/0 reproduced PostgreSQL 23505.
+An out-of-order/gapped display-order case also exposed an INT4 conversion in the
+single writer's upsert create parameters. Both writers now preserve existing
+physical ordinals independently from numeric display order. New-page ordinal
+allocation, ordinal uniqueness and immutable-history checks are unchanged.
+
+Real PostgreSQL regressions cover sequential, repeated-zero and out-of-order/
+gapped display orders, including a 20-billion JSON number. All three complete
+the five-revision resumed-history cutover, strict v2 reads/public v3 Space list,
+old-path alias resolution, and subsequent bulk and single writes with reversed
+input order. Assertions compare every old history field (including
+`supersededAt`), original current bodies/attribution/timestamps, deleted Pages,
+Space memberships, and retained extra metadata/artifact IDs. Later intentional
+ordinary edits update live Page content under the writer lock before snapshot
+creation. No old history row or semantic display order is normalized.
+
+Final Task 4 gates: 32/32 planner and real-DB tests, zero skipped; six focused
+sync suites with 174 passed/one pre-existing environment-gated skip; one full
+server harness run with 148 suites, 2561 passed/one skipped (32.054 seconds).
+Server typecheck, lint, build, changed JavaScript syntax and Git whitespace
+checks passed. The prior Unicode-key, timezone and unsafe-alias regressions
+remain included in the real-DB gate. No SQL, migration corpus, dependency,
+version or wire schema changed in Task 4. This is local synthetic-data evidence,
+not a claim that production migration or deployment has succeeded.
