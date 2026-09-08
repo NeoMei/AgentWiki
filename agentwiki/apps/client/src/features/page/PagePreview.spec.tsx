@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter, Route, Router, Routes, useNavigate } from 'react-router-dom';
@@ -7,6 +7,7 @@ import api from '../../api/client';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { PagePreview } from './PagePreview';
+import { SpaceWorkspaceProvider, SpaceWorkspaceScope, useSpaceWorkspace } from '../space-workspace/SpaceWorkspaceContext';
 
 vi.mock('../../api/client', () => ({
   default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
@@ -59,6 +60,37 @@ const renderPreview = () => render(
         <Route path="/pages/:id" element={<PagePreview />} />
         <Route path="/spaces/:spaceId" element={<p>Space destination</p>} />
       </Routes>
+    </MemoryRouter>
+  </LanguageProvider>,
+);
+
+const CrumbReporter = () => {
+  const workspace = useSpaceWorkspace();
+  return <button type="button" onClick={() => workspace.reportDirectoryCrumbs([
+    { id: null, name: 'Product knowledge' },
+    { id: 'folder-parent', name: 'Guides' },
+    { id: 'folder-child', name: 'Reading' },
+  ])}>Report crumbs</button>;
+};
+
+const renderPreviewWithCrumbs = () => render(
+  <LanguageProvider>
+    <MemoryRouter initialEntries={['/pages/page-1']}>
+      <SpaceWorkspaceProvider userId="user-1">
+        <SpaceWorkspaceScope
+          mode="read"
+          spaceId="space-1"
+          activeSection="pages"
+          selectedFolderId={null}
+          selectedPageId="page-1"
+          selectedPageFolderId="folder-child"
+          selectFolder={() => undefined}
+          reportPageIdentity={() => undefined}
+        >
+          <CrumbReporter />
+          <Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes>
+        </SpaceWorkspaceScope>
+      </SpaceWorkspaceProvider>
     </MemoryRouter>
   </LanguageProvider>,
 );
@@ -179,6 +211,8 @@ describe('PagePreview checklist saves', () => {
     expect(savedFirst).toBeChecked();
     expect(savedFirst).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete page' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Page information' }));
     expect(screen.getByRole('button', { name: 'Delete page' })).toBeInTheDocument();
   });
 
@@ -194,13 +228,48 @@ describe('PagePreview checklist saves', () => {
     expect(screen.queryByRole('button', { name: 'Delete page' })).not.toBeInTheDocument();
   });
 
+  it('uses a centered reading surface with readable actions and on-demand outline and page information', async () => {
+    queuePages({ data: page({
+      content: '# Intro\n\n## Details\n\n```md\n# not an outline heading\n```',
+      provenance: { run: { source: { name: 'Docs', type: 'markdown' } }, approvals: [] },
+    }) });
+    renderPreview();
+
+    expect(await screen.findByRole('heading', { name: 'Checklist' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit' })).toHaveTextContent('Edit');
+    expect(screen.queryByText('Docs · markdown')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Contents' }));
+    expect(screen.getByRole('button', { name: 'Intro' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Details' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'not an outline heading' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Page information' }));
+    expect(screen.getByText('Docs · markdown')).toBeInTheDocument();
+
+    const article = screen.getByRole('article');
+    expect(article).toHaveClass('mx-auto', 'max-w-[860px]', 'bg-white');
+    expect(article).not.toHaveClass('shadow-sm', 'border');
+  });
+
+  it('renders links from the authoritative workspace breadcrumb chain', async () => {
+    queuePages({ data: page({ folderId: 'folder-child' }) });
+    renderPreviewWithCrumbs();
+    expect(await screen.findByRole('heading', { name: 'Checklist' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Report crumbs' }));
+
+    const breadcrumbs = await screen.findByRole('navigation', { name: 'breadcrumb' });
+    expect(within(breadcrumbs).getByRole('link', { name: 'Product knowledge' })).toHaveAttribute('href', '/spaces/space-1');
+    expect(within(breadcrumbs).getByRole('link', { name: 'Guides' })).toHaveAttribute('href', '/spaces/space-1?folder=folder-parent');
+    expect(within(breadcrumbs).getByRole('link', { name: 'Reading' })).toHaveAttribute('href', '/spaces/space-1?folder=folder-child');
+  });
+
   it('archives the page with updated-at and tree compare-and-swap tokens in the DELETE body', async () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     queuePages({ data: page() });
     vi.mocked(api.delete).mockResolvedValue({ data: {} } as any);
     renderPreview();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Delete page' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Page information' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete page' }));
 
     await waitFor(() => expect(api.delete).toHaveBeenCalledWith('/pages/page-1', {
       data: {
@@ -228,7 +297,8 @@ describe('PagePreview checklist saves', () => {
       </LanguageProvider>,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Delete page' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Page information' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete page' }));
     await waitFor(() => expect(contentTreeMocks.getContentTreeRevision).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole('button', { name: 'Open second page' }));
     expect(await screen.findByRole('heading', { name: 'Second page' })).toBeInTheDocument();
@@ -248,7 +318,8 @@ describe('PagePreview checklist saves', () => {
     );
     const harness = await renderCommitNavigablePreview();
     try {
-      fireEvent.click(await screen.findByRole('button', { name: 'Delete page' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Page information' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Delete page' }));
       await waitFor(() => expect(contentTreeMocks.getContentTreeRevision).toHaveBeenCalledTimes(1));
       harness.commitNavigateTo('page-2');
       head.resolve('47');

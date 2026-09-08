@@ -2,14 +2,16 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { getContentTreeRevision } from '../../api/content-tree';
-import { ArrowLeft, Clock, User, Trash2, FileText, Database } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Clock, Folder, User, PenLine, FileText } from 'lucide-react';
 import 'highlight.js/styles/github.css';
 import { useLanguage } from '../../context/LanguageContext';
 import { Markdown } from '../../components/Markdown';
 import type { MarkdownTaskRef, MarkdownTaskToggle } from '../../components/markdown/markdownTypes';
 import { rebaseMarkdownTask, toggleMarkdownTask } from '../../components/markdown/tasks';
-import { ModeToggleButton } from '../../components/ModeToggleButton';
-import { usePageWorkspaceIdentity } from '../space-workspace/SpaceWorkspaceContext';
+import { useOptionalSpaceWorkspace, usePageWorkspaceIdentity } from '../space-workspace/SpaceWorkspaceContext';
+import { ArticleContentsPopover } from '../space-workspace/ArticleContentsPopover';
+import { PageInfoPanel } from '../space-workspace/PageInfoPanel';
+import { spaceFolderHref } from '../space-workspace/workspaceNavigation';
 
 interface Page {
   id: string;
@@ -45,6 +47,7 @@ export const PagePreview: React.FC = () => {
   const navigate = useNavigate();
   const { t, language } = useLanguage();
   const reportPageIdentity = usePageWorkspaceIdentity();
+  const workspace = useOptionalSpaceWorkspace();
   const tRef = useRef(t);
   tRef.current = t;
   const [page, setPage] = useState<Page | null>(null);
@@ -450,48 +453,77 @@ export const PagePreview: React.FC = () => {
   if (!page) return <div className="text-center py-8 text-gray-500">{t('editor.notFound')}</div>;
 
   return (
-    <div className="max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          {page.spaceId && (
-            <Link to={`/spaces/${page.spaceId}`} className="p-2 hover:bg-gray-100 rounded" title={t('editor.backToSpace')}>
-              <ArrowLeft size={20} />
-            </Link>
-          )}
-          <div>
-            <h1 className="text-3xl font-bold">{page.title}</h1>
-            <div className="flex items-center gap-4 text-sm text-gray-400 mt-1">
-              {page.author && (
-                <span className="flex items-center gap-1">
-                  <User size={14} />
-                  {page.author.name || page.author.email || t('page.unknown')}
-                </span>
-              )}
-              <span className="flex items-center gap-1">
-                <Clock size={14} />
-                {new Date(page.updatedAt).toLocaleDateString(language)}
-              </span>
-            </div>
-          </div>
+    <div className="mx-auto max-w-6xl">
+      <div data-reading-toolbar className="sticky top-16 z-20 -mx-4 mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white/95 px-4 py-3 backdrop-blur lg:-mx-6 lg:px-6">
+        {workspace?.directoryCrumbs.length ? (
+          <nav aria-label="breadcrumb" className="flex min-w-0 flex-1 flex-wrap items-center gap-1 text-sm text-gray-500">
+            {workspace.directoryCrumbs.map((crumb, index) => (
+              <React.Fragment key={crumb.id ?? 'root'}>
+                {index > 0 ? <ChevronRight size={14} className="shrink-0 text-gray-300" aria-hidden="true" /> : null}
+                <Link
+                  to={spaceFolderHref(page.spaceId, crumb.id)}
+                  title={crumb.name}
+                  className="flex min-w-0 items-center gap-1 rounded px-1.5 py-1 hover:bg-gray-100 hover:text-blue-700"
+                >
+                  <Folder size={14} className="shrink-0 text-gray-400" aria-hidden="true" />
+                  <span className="max-w-40 truncate">{crumb.name}</span>
+                </Link>
+              </React.Fragment>
+            ))}
+          </nav>
+        ) : page.spaceId ? (
+          <Link to={`/spaces/${page.spaceId}`} className="inline-flex min-h-9 items-center gap-2 rounded-lg px-2 text-sm text-gray-600 hover:bg-gray-100 hover:text-blue-700" title={t('editor.backToSpace')}>
+            <ArrowLeft size={18} aria-hidden="true" />
+            {t('editor.backToSpace')}
+          </Link>
+        ) : <span />}
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          {page.capabilities?.canEdit === true ? (
+            <button
+              type="button"
+              onClick={() => navigate(`/pages/${id}/edit`)}
+              aria-label={t('common.edit')}
+              className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            >
+              <PenLine size={17} aria-hidden="true" />
+              {t('common.edit')}
+            </button>
+          ) : null}
+          <ArticleContentsPopover articleRootRef={markdownRootRef} pageKey={page.id} />
+          <PageInfoPanel
+            key={page.id}
+            spaceId={page.spaceId}
+            provenance={page.provenance}
+            evidence={page.evidence}
+            lastChange={page.lastChange}
+            lastModifiedByUser={page.lastModifiedByUser}
+            lastModifiedByAgent={page.lastModifiedByAgent}
+            lastModifiedAt={page.lastModifiedAt}
+            canEdit={page.capabilities?.canEdit === true}
+            deleting={deleting}
+            onDelete={handleDelete}
+          />
         </div>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px] items-start">
-      <div className="relative min-w-0 bg-white rounded-lg shadow-sm border p-8 min-h-[300px]">
-        {page.capabilities?.canEdit === true ? <div className="absolute right-4 top-4 flex items-center gap-1">
-          <ModeToggleButton mode="preview" onToggle={() => navigate(`/pages/${id}/edit`)} />
-          <button
-            onClick={handleDelete}
-            disabled={deleting}
-            aria-label={t('page.delete')}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            title={t('page.delete')}
-          >
-            <Trash2 size={18} />
-          </button>
-        </div> : null}
+      <article className="mx-auto min-h-[300px] min-w-0 max-w-[860px] bg-white px-1 py-5 sm:px-5 lg:px-8">
+        <header className="mb-8 border-b border-gray-200 pb-5">
+          <h1 title={page.title} className="break-words text-3xl font-semibold leading-tight text-gray-950">{page.title}</h1>
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500">
+            {page.author ? (
+              <span className="flex items-center gap-1">
+                <User size={14} aria-hidden="true" />
+                {page.author.name || page.author.email || t('page.unknown')}
+              </span>
+            ) : null}
+            <span className="flex items-center gap-1">
+              <Clock size={14} aria-hidden="true" />
+              {new Date(page.updatedAt).toLocaleDateString(language)}
+            </span>
+          </div>
+        </header>
         {taskSaveError ? <p role="alert" className="mb-4 text-sm text-red-600">{taskSaveError}</p> : null}
-        <div ref={markdownRootRef} className="prose prose-sm max-w-none
+        <div ref={markdownRootRef} className="prose prose-sm max-w-none break-words
           [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:mb-4 [&_h1]:mt-6
           [&_h2]:text-2xl [&_h2]:font-bold [&_h2]:mb-3 [&_h2]:mt-5
           [&_h3]:text-xl [&_h3]:font-bold [&_h3]:mb-2 [&_h3]:mt-4
@@ -503,10 +535,11 @@ export const PagePreview: React.FC = () => {
           [&_strong]:font-bold
           [&_em]:italic
           [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:text-gray-600 [&_blockquote]:italic [&_blockquote]:my-4
-          [&_pre]:bg-gray-50 [&_pre]:p-4 [&_pre]:rounded-lg [&_pre]:overflow-x-auto [&_pre]:mb-4
+          [&_img]:max-w-full [&_img]:h-auto
+          [&_pre]:max-w-full [&_pre]:bg-gray-50 [&_pre]:p-4 [&_pre]:rounded-lg [&_pre]:overflow-x-auto [&_pre]:mb-4
           [&_code]:bg-gray-100 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-sm [&_code]:font-mono
           [&_pre_code]:bg-transparent [&_pre_code]:p-0
-          [&_table]:w-full [&_table]:border-collapse [&_table]:mb-4
+          [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_table]:border-collapse [&_table]:mb-4
           [&_th]:border [&_th]:border-gray-300 [&_th]:px-3 [&_th]:py-2 [&_th]:bg-gray-50 [&_th]:font-semibold [&_th]:text-left
           [&_td]:border [&_td]:border-gray-300 [&_td]:px-3 [&_td]:py-2
           [&_hr]:border-gray-300 [&_hr]:my-6
@@ -528,38 +561,10 @@ export const PagePreview: React.FC = () => {
             <p className="text-gray-400">{t('page.emptyContent')}</p>
           )}
         </div>
-      </div>
-
-      <aside className="border rounded-[14px] bg-white p-4 lg:sticky lg:top-20" aria-label={t('page.sourceChanges')}>
-        <h2 className="font-medium flex items-center gap-2"><Database size={16} /> {t('page.sourceChanges')}</h2>
-        {page.provenance ? (
-          <div className="space-y-4 text-sm mt-4">
-            <div><span className="text-xs uppercase tracking-wide text-gray-400">{t('page.createdBy')}</span><p className="mt-1">{page.provenance.createdByAgent?.name ? `Agent · ${page.provenance.createdByAgent.name}` : t('page.human')}</p></div>
-            <div><span className="text-xs uppercase tracking-wide text-gray-400">{t('page.source')}</span><p className="mt-1 break-words">{page.provenance.run?.source?.name || t('page.unknown')} · {page.provenance.run?.source?.type || t('page.unknown')}</p>{page.provenance.run?.source?.uri ? <p className="text-xs text-gray-500 break-all mt-1">{page.provenance.run.source.uri}</p> : null}</div>
-            <div><span className="text-xs uppercase tracking-wide text-gray-400">{t('page.extractionRun')}</span><p className="mt-1"><Link className="text-blue-600 hover:underline" to={`/spaces/${page.spaceId}/runs`}>{page.provenance.run?.id || t('page.unknown')}</Link> · {page.provenance.run?.stage || page.provenance.run?.status}</p></div>
-            <div><span className="text-xs uppercase tracking-wide text-gray-400">{t('page.candidateChange')}</span><p className="mt-1">{page.provenance.title} · {page.provenance.status}</p></div>
-            <div><span className="text-xs uppercase tracking-wide text-gray-400">{t('page.approval')}</span><p className="mt-1">{page.provenance.approvals?.[0]?.reviewer?.name || page.provenance.approvals?.[0]?.reviewer?.email || (page.provenance.status === 'published' ? t('page.autoPublished') : t('page.notApproved'))}</p>{page.provenance.publishedAt ? <p className="text-xs text-gray-500 mt-1">{t('page.published', { date: new Date(page.provenance.publishedAt).toLocaleString(language) })}</p> : null}</div>
-            <div><span className="text-xs uppercase tracking-wide text-gray-400">{t('page.latestChange')}</span><p className="mt-1">{page.lastModifiedByAgent?.name ? `Agent · ${page.lastModifiedByAgent.name}` : page.lastModifiedByUser?.name || page.lastModifiedByUser?.email || t('page.human')}</p>{page.lastChange ? <p className="text-xs mt-1"><Link className="text-blue-600 hover:underline" to={`/review?changeSet=${page.lastChange.id}`}>{page.lastChange.title}</Link> · {page.lastChange.status}</p> : <p className="text-xs text-gray-500 mt-1">{t('page.directEdit')}</p>}{page.lastModifiedAt ? <p className="text-xs text-gray-500 mt-1">{t('page.changed', { date: new Date(page.lastModifiedAt).toLocaleString(language) })}</p> : null}</div>
-            <div><span className="text-xs uppercase tracking-wide text-gray-400">{t('page.evidence', { count: page.evidence?.length || 0 })}</span>
-              {page.evidence?.length ? page.evidence.map((item) => {
-                const metadata = item.sourceVersion?.metadata || {};
-                const files = item.sourceVersion?.files || [];
-                return <blockquote key={item.id} className="mt-2 border-l-2 pl-3 text-xs text-gray-600">
-                  <p>{item.quote || t('page.noExcerpt')}</p>
-                  <p className="mt-1 text-gray-400">{t('page.confidenceVersion', { confidence: Math.round((item.confidence ?? 1) * 100), version: item.sourceVersion?.version })}</p>
-                  {item.location ? <p className="mt-1 text-gray-400 break-all">{t('page.location')}: {JSON.stringify(item.location)}</p> : null}
-                  {metadata.commit ? <p className="mt-1 text-gray-400 break-all">Commit: {metadata.commit}</p> : null}
-                  {files.length ? <p className="mt-1 text-gray-400">{t('page.files')}: {files.slice(0, 3).map((file: any) => file.path).join(', ')}{files.length > 3 ? ` +${files.length - 3}` : ''}</p> : null}
-                </blockquote>;
-              }) : <p className="mt-1 text-gray-500">{t('page.noEvidence')}</p>}
-            </div>
-          </div>
-        ) : <div className="text-sm mt-3 space-y-3"><p className="text-gray-500">{t('page.humanCreated')}</p><div><span className="text-xs uppercase tracking-wide text-gray-400">{t('page.latestChange')}</span><p className="mt-1">{page.lastModifiedByUser?.name || page.lastModifiedByUser?.email || t('page.human')}</p>{page.lastModifiedAt ? <p className="text-xs text-gray-500 mt-1">{t('page.changed', { date: new Date(page.lastModifiedAt).toLocaleString(language) })}</p> : null}</div></div>}
-      </aside>
-      </div>
+      </article>
 
       {relatedPages.length > 0 && (
-        <div className="mt-6">
+        <div className="mx-auto mt-6 max-w-[860px] px-1 sm:px-5 lg:px-8">
           <h2 className="text-lg font-semibold mb-3">{t('page.related')}</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {relatedPages.map((rp, idx) => (
