@@ -471,7 +471,12 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     } else {
       const editorOrigin = editorPreviewOriginRef.current;
       pendingWorkspacePositionRef.current = currentPosition && editorOrigin
-        ? { ...currentPosition, cursorOffset: editorOrigin.cursorOffset }
+        ? {
+          ...currentPosition,
+          cursorOffset: currentPosition.sourceOffset === editorOrigin.sourceOffset
+            ? editorOrigin.cursorOffset
+            : null,
+        }
         : currentPosition;
       editorPreviewOriginRef.current = null;
     }

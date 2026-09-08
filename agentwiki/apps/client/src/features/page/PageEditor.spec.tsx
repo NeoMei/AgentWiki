@@ -399,9 +399,38 @@ describe('PageEditor remote update safety', () => {
 
     fireEvent.keyDown(window, { key: 'e', ctrlKey: true });
     await screen.findByRole('heading', { name: /Details/ });
+    const deepParagraph = screen.getByText('Deep body text');
+    for (const block of document.querySelectorAll<HTMLElement>('[data-markdown-source-start]')) {
+      vi.spyOn(block, 'getBoundingClientRect').mockReturnValue({
+        top: block === deepParagraph ? 178 : -300,
+      } as DOMRect);
+    }
     fireEvent.keyDown(window, { key: 'e', metaKey: true });
 
     await waitFor(() => expect(currentEditorView().state.selection.main.head).toBe(deepCursor));
+  });
+
+  it('returns to the preview block selected after moving away from the original editor cursor', async () => {
+    const body = '# Long section\n\nParagraph A.\n\nParagraph B.\n\nParagraph C.';
+    const paragraphAOffset = body.indexOf('Paragraph A');
+    const paragraphBOffset = body.indexOf('Paragraph B');
+    queuePages({ data: page({ content: body, capabilities: { canEdit: true } }) });
+    renderEditor();
+    await screen.findByDisplayValue('Original title');
+    act(() => currentEditorView().dispatch({ selection: EditorSelection.cursor(paragraphAOffset + 4) }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await screen.findByText('Paragraph B.');
+    for (const block of document.querySelectorAll<HTMLElement>('[data-markdown-source-start]')) {
+      const sourceOffset = Number(block.dataset.markdownSourceStart);
+      vi.spyOn(block, 'getBoundingClientRect').mockReturnValue({
+        top: sourceOffset === paragraphBOffset ? 178 : sourceOffset < paragraphBOffset ? -300 : 500,
+      } as DOMRect);
+    }
+
+    fireEvent.click(screen.getByRole('button', { name: 'Return to edit' }));
+
+    await waitFor(() => expect(currentEditorView().state.selection.main.head).toBe(paragraphBOffset));
   });
 
   it('keeps the second repeated heading identity through reading, edit, preview, and reading', async () => {

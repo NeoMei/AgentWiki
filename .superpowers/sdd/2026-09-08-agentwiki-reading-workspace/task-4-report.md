@@ -162,3 +162,15 @@ Focused round-1 verification after the sticky-boundary fixes:
 The final boundary correction keeps the pre-preview editor cursor when Ctrl/Cmd+E returns to edit, so a paragraph exactly below the preview toolbar cannot select its preceding block. Return-to-reading then offsets `scrollIntoView` upward by the actual sticky-toolbar overlap; this keeps a restored duplicate heading below the toolbar instead of hidden under it. Hash targets remain owned by the existing hash effect, preventing the semantic restore effect from issuing a second scroll.
 
 The controller then repeated the real browser flow against the prepared long-section/duplicate-heading fixture. A paragraph near the end of the long section stayed on that paragraph through Edit -> Meta+E preview -> Meta+E edit, with the preview block at 178px. The second `同名标题` (`id="同名标题-1"`) restored to the second Markdown occurrence in edit, stayed the second rendered heading in preview, and returned to reading at 185px while the first duplicate remained at 93px. The restored second heading was below the sticky toolbar and was not replaced by the first equal label.
+
+## Review fix round 2
+
+The first fix round always copied the pre-preview editor cursor over the visible preview capture. That preserved exact cursor position when preview had not moved, but incorrectly returned to the old block after a user scrolled the preview. PageEditor now retains the exact cursor only when the preview and editor captures have the same Markdown `sourceOffset`. When they differ, it clears `cursorOffset`, allowing the existing MarkdownWorkspace source-offset restore to select the newly visible preview block.
+
+The PageEditor integration test first failed with the editor returning to paragraph A at offset 20 after preview moved to paragraph B at offset 30. It passes after the conditional merge. The existing Ctrl/Cmd+E test still proves that an unchanged preview block restores its non-top cursor at offset 36.
+
+Fresh scoped verification:
+
+- `pnpm --filter @agentwiki/client test src/features/page/PageEditor.spec.tsx src/components/MarkdownWorkspace.spec.tsx`: 2 files passed, 125 tests passed, 0 failed.
+- `pnpm --filter @agentwiki/client exec tsc --noEmit`: exited 0.
+- scoped ESLint over PageEditor and MarkdownWorkspace source/tests: exited 0 with no diagnostics.
