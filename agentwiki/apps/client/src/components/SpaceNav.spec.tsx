@@ -17,4 +17,18 @@ describe('SpaceNav', () => {
     expect(screen.getByRole('link', { name: 'Runs' })).toHaveAttribute('href', '/spaces/space-1/runs');
     expect(screen.getByRole('link', { name: 'Graph' })).toHaveAttribute('aria-current', 'page');
   });
+
+  it('can explicitly keep Pages active on a page route', () => {
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/pages/page-1/edit']}>
+          <SpaceNav spaceId="space-1" activeSection="pages" />
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole('link', { name: 'Pages' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'Settings' })).not.toHaveAttribute('aria-current');
+  });
 });

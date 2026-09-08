@@ -3,7 +3,7 @@ import { Language, messages } from '../i18n/messages';
 
 const STORAGE_KEY = 'agentwiki.language.v1';
 
-interface LanguageContextValue {
+export interface LanguageContextValue {
   language: Language;
   setLanguage: (language: Language) => void;
   toggleLanguage: () => void;

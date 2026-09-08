@@ -1,5 +1,5 @@
 import React, { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import { Layout } from './components/Layout';
@@ -23,6 +23,11 @@ import { DocsSecurity } from './features/docs/DocsSecurity';
 import { DocsSync } from './features/docs/DocsSync';
 import { SpaceSettings } from './features/space/SpaceSettings';
 import { AdminPage } from './features/admin/AdminPage';
+import { SpaceWorkspace } from './features/space-workspace/SpaceWorkspace';
+import {
+  SpaceWorkspaceProvider,
+  type SpaceWorkspaceMode,
+} from './features/space-workspace/SpaceWorkspaceContext';
 
 const AgentList = lazy(() => import('./features/agent/AgentList').then((module) => ({ default: module.AgentList })));
 const AgentDetail = lazy(() => import('./features/agent/AgentDetail').then((module) => ({ default: module.AgentDetail })));
@@ -45,6 +50,23 @@ const RouteLoading: React.FC = () => {
   return <div className="py-8 text-center text-gray-500">{t('common.loading')}</div>;
 };
 
+const WorkspaceRoute: React.FC<{
+  mode: SpaceWorkspaceMode;
+  pageRoute?: boolean;
+  children: React.ReactNode;
+}> = ({ mode, pageRoute = false, children }) => {
+  const { id, spaceId } = useParams<{ id?: string; spaceId?: string }>();
+  return (
+    <SpaceWorkspace
+      mode={mode}
+      spaceId={pageRoute ? undefined : (spaceId ?? id)}
+      pageId={pageRoute ? id : undefined}
+    >
+      {children}
+    </SpaceWorkspace>
+  );
+};
+
 export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { token, user } = useAuth();
   const location = useLocation();
@@ -56,31 +78,34 @@ export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ childr
 };
 
 const AppRoutes: React.FC = () => {
+  const { user } = useAuth();
+  const workspaceUserId = typeof user?.id === 'string' && user.id ? user.id : 'authenticated';
   return (
+    <SpaceWorkspaceProvider key={workspaceUserId} userId={workspaceUserId}>
     <Routes>
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/spaces/:id" element={<SpaceView />} />
-        <Route path="/pages/:id" element={<Suspense fallback={<RouteLoading />}><PagePreview /></Suspense>} />
-        <Route path="/pages/:id/edit" element={<Suspense fallback={<RouteLoading />}><PageEditor /></Suspense>} />
-        <Route path="/pages/:id/versions" element={<Suspense fallback={<RouteLoading />}><PageVersionHistory /></Suspense>} />
+        <Route path="/spaces/:id" element={<WorkspaceRoute mode="directory"><SpaceView /></WorkspaceRoute>} />
+        <Route path="/pages/:id" element={<WorkspaceRoute mode="read" pageRoute><Suspense fallback={<RouteLoading />}><PagePreview /></Suspense></WorkspaceRoute>} />
+        <Route path="/pages/:id/edit" element={<WorkspaceRoute mode="edit" pageRoute><Suspense fallback={<RouteLoading />}><PageEditor /></Suspense></WorkspaceRoute>} />
+        <Route path="/pages/:id/versions" element={<WorkspaceRoute mode="versions" pageRoute><Suspense fallback={<RouteLoading />}><PageVersionHistory /></Suspense></WorkspaceRoute>} />
         <Route path="/search" element={<SearchResults />} />
-        <Route path="/spaces/:spaceId/graph" element={<Suspense fallback={<RouteLoading />}><KnowledgeGraph /></Suspense>} />
-        <Route path="/spaces/:id/members" element={<SpaceMembers />} />
-        <Route path="/spaces/:id/settings" element={<SpaceSettings />} />
-        <Route path="/spaces/:id/settings/page-templates" element={<Suspense fallback={<RouteLoading />}><PageTemplateManager /></Suspense>} />
-        <Route path="/spaces/:id/docs" element={<Navigate to="../sources" relative="path" replace />} />
+        <Route path="/spaces/:spaceId/graph" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><KnowledgeGraph /></Suspense></WorkspaceRoute>} />
+        <Route path="/spaces/:id/members" element={<WorkspaceRoute mode="section"><SpaceMembers /></WorkspaceRoute>} />
+        <Route path="/spaces/:id/settings" element={<WorkspaceRoute mode="section"><SpaceSettings /></WorkspaceRoute>} />
+        <Route path="/spaces/:id/settings/page-templates" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><PageTemplateManager /></Suspense></WorkspaceRoute>} />
+        <Route path="/spaces/:id/docs" element={<WorkspaceRoute mode="section"><Navigate to="../sources" relative="path" replace /></WorkspaceRoute>} />
         <Route path="/change-password" element={<ForcePasswordChange />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/agents" element={<Suspense fallback={<RouteLoading />}><AgentList /></Suspense>} />
         <Route path="/agents/:id" element={<Suspense fallback={<RouteLoading />}><AgentDetail /></Suspense>} />
-        <Route path="/spaces/:id/sources" element={<Suspense fallback={<RouteLoading />}><SourcesPage /></Suspense>} />
-        <Route path="/spaces/:id/runs" element={<Suspense fallback={<RouteLoading />}><RunsPage /></Suspense>} />
-        <Route path="/spaces/:id/collaboration" element={<Suspense fallback={<RouteLoading />}><CollaborationWorkspace /></Suspense>} />
-        <Route path="/spaces/:id/collaboration/templates/new" element={<Suspense fallback={<RouteLoading />}><TemplateEditor mode="create" /></Suspense>} />
-        <Route path="/spaces/:id/collaboration/templates/:templateId" element={<Suspense fallback={<RouteLoading />}><TemplateEditor mode="edit" /></Suspense>} />
-        <Route path="/spaces/:id/collaboration/templates/:templateId/start" element={<Suspense fallback={<RouteLoading />}><RunStartWizard /></Suspense>} />
-        <Route path="/spaces/:id/collaboration/runs/:runId" element={<Suspense fallback={<RouteLoading />}><RunDashboard /></Suspense>} />
+        <Route path="/spaces/:id/sources" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><SourcesPage /></Suspense></WorkspaceRoute>} />
+        <Route path="/spaces/:id/runs" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><RunsPage /></Suspense></WorkspaceRoute>} />
+        <Route path="/spaces/:id/collaboration" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><CollaborationWorkspace /></Suspense></WorkspaceRoute>} />
+        <Route path="/spaces/:id/collaboration/templates/new" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><TemplateEditor mode="create" /></Suspense></WorkspaceRoute>} />
+        <Route path="/spaces/:id/collaboration/templates/:templateId" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><TemplateEditor mode="edit" /></Suspense></WorkspaceRoute>} />
+        <Route path="/spaces/:id/collaboration/templates/:templateId/start" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><RunStartWizard /></Suspense></WorkspaceRoute>} />
+        <Route path="/spaces/:id/collaboration/runs/:runId" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><RunDashboard /></Suspense></WorkspaceRoute>} />
         <Route path="/review" element={<Suspense fallback={<RouteLoading />}><ReviewPage /></Suspense>} />
         <Route path="/admin" element={<Suspense fallback={<RouteLoading />}><AdminPage /></Suspense>} />
       </Route>
@@ -103,6 +128,7 @@ const AppRoutes: React.FC = () => {
       <Route path="/docs/sync" element={<Navigate to="/guide/docs/sync" replace />} />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
+    </SpaceWorkspaceProvider>
   );
 };
 
