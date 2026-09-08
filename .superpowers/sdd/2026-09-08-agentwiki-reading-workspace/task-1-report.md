@@ -158,3 +158,25 @@ Observed exit 0: 8 files passed, 111 tests passed, 0 failed. This includes the t
 Fresh `pnpm --filter @agentwiki/client exec tsc --noEmit` exited 0 with no diagnostics. Focused ESLint over all Task 1 and impacted page files exited 0 with no diagnostics.
 
 The earlier report's duplicate-GET concern is now resolved. No server, schema, authorization policy, audit, sync, editor behavior, version-diff, dependency or runtime-environment changes were introduced.
+
+## Fix round 2: accepted editor identity
+
+The first scoped re-review found that `PageEditor.loadPage()` reported a response's Space before `offerRemotePage()` decided whether the editor would adopt that response. This could switch the shell to a moved page's new Space while dirty content still belonged to the accepted old-Space baseline. It also cleared the accepted shell identity after an ordinary transient background-refresh failure.
+
+The fix now derives shell identity from `pageRef.current` after `offerRemotePage()` returns. `adoptRemotePage()` remains the only path that installs a response as the current editable baseline and reports its identity. A dirty editor that offers a remote response therefore retains its old Space until the user accepts the remote page. Background request failures retain the accepted identity, while initial/route loading failures and explicit HTTP 401/403 responses clear it.
+
+RED command:
+
+```sh
+pnpm --filter @agentwiki/client test src/features/page/PageEditor.spec.tsx
+```
+
+Observed exit 1: 54 tests passed and the two new tests failed. A transient refresh removed Space navigation, and a dirty editor's Pages link changed from `/spaces/space-1` to `/spaces/space-2` before remote adoption.
+
+Fresh GREEN command:
+
+```sh
+pnpm --filter @agentwiki/client test src/features/page/PageEditor.spec.tsx src/features/space-workspace/SpaceWorkspace.spec.tsx
+```
+
+Observed exit 0: 2 files passed, 61 tests passed, 0 failed. The test covers transient failure retention followed by explicit 403 clearing, and dirty same-page/different-Space refresh retaining the old Space until “Accept remote version”. Fresh client TypeScript and scoped ESLint checks both exited 0 with no diagnostics.

@@ -293,12 +293,17 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         navigate(`/pages/${requestedId}`, { replace: true });
         return;
       }
-      reportPageIdentity(requestedId, res.data.spaceId || null);
       setError(null);
       offerRemotePage(res.data, pageRevision(res.data), forcePrompt);
+      const acceptedPage = pageRef.current;
+      if (acceptedPage?.id === requestedId) {
+        reportPageIdentity(requestedId, acceptedPage.spaceId || null);
+      }
     } catch (err: any) {
       if (controller.signal.aborted || !mountedRef.current || activePageIdRef.current !== requestedId) return;
-      reportPageIdentity(requestedId, null);
+      if (showLoading || err.response?.status === 401 || err.response?.status === 403) {
+        reportPageIdentity(requestedId, null);
+      }
       if (showLoading) setError(err.response?.data?.message || tRef.current('editor.loadFailed'));
     } finally {
       requestControllersRef.current.delete(controller);

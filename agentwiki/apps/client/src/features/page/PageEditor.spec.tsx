@@ -256,7 +256,7 @@ describe('PageEditor remote update safety', () => {
     expect(screen.getByRole('link', { name: 'Pages' })).toHaveAttribute('href', '/spaces/space-1');
   });
 
-  it('clears a registered workspace identity when the authoritative page refresh fails', async () => {
+  it('keeps the accepted workspace identity when an ordinary background refresh fails', async () => {
     queuePages({ data: page({ capabilities: { canEdit: true } }) });
     render(
       <LanguageProvider>
@@ -271,14 +271,49 @@ describe('PageEditor remote update safety', () => {
     );
 
     expect(await screen.findByRole('navigation', { name: 'Space navigation' })).toBeInTheDocument();
-    vi.mocked(api.get).mockRejectedValue(new Error('access revoked'));
+    vi.mocked(api.get).mockRejectedValue(new Error('transient offline'));
     await act(async () => window.dispatchEvent(new Event('focus')));
-    await waitFor(() => expect(screen.queryByRole('navigation', { name: 'Space navigation' })).not.toBeInTheDocument());
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole('navigation', { name: 'Space navigation' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Pages' })).toHaveAttribute('href', '/spaces/space-1');
     expect(screen.getByDisplayValue('Original title')).toBeInTheDocument();
 
-    vi.mocked(api.get).mockResolvedValue({ data: page({ capabilities: { canEdit: true } }) } as any);
+    vi.mocked(api.get).mockRejectedValue({ response: { status: 403 } });
     await act(async () => window.dispatchEvent(new Event('focus')));
-    expect(await screen.findByRole('navigation', { name: 'Space navigation' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('navigation', { name: 'Space navigation' })).not.toBeInTheDocument());
+  });
+
+  it('keeps a dirty editor in its accepted Space until a different-Space remote page is adopted', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/pages/page-1/edit']}>
+          <SpaceWorkspaceProvider userId="user-1">
+            <Routes><Route path="/pages/:id/edit" element={
+              <SpaceWorkspace mode="edit" pageId="page-1"><PageEditor workspaceRef={workspaceRef} /></SpaceWorkspace>
+            } /></Routes>
+          </SpaceWorkspaceProvider>
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    expect(await screen.findByRole('link', { name: 'Pages' })).toHaveAttribute('href', '/spaces/space-1');
+    editContent('Dirty local draft');
+    vi.mocked(api.get).mockResolvedValue({ data: page({
+      content: 'Remote moved content',
+      spaceId: 'space-2',
+      updatedAt: '2026-09-08T09:00:00.000Z',
+      capabilities: { canEdit: true },
+    }) } as any);
+
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    expect(await screen.findByRole('alert')).toHaveTextContent('A newer remote version is available');
+    expect(contentEditorValue()).toBe('Dirty local draft');
+    expect(screen.getByRole('link', { name: 'Pages' })).toHaveAttribute('href', '/spaces/space-1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Accept remote version' }));
+    expect(contentEditorValue()).toBe('Remote moved content');
+    expect(screen.getByRole('link', { name: 'Pages' })).toHaveAttribute('href', '/spaces/space-2');
   });
 
   it('opens late-binding settings from the Page editor without requiring template-management permission', async () => {
