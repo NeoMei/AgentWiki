@@ -444,7 +444,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   ) : <div className="text-center py-8 text-gray-500">{t('common.loading')}</div>;
   if (error && workspaceContent) return (
     <div>
-      <div key="workspace-layout" className="flex flex-col lg:flex-row">
+      <div key="workspace-layout" className={showDirectory ? 'flex flex-col lg:flex-row' : 'flex flex-col'}>
         <div className={showDirectory
           ? 'w-full border-b border-gray-200 p-4 lg:min-h-[calc(100vh-4rem)] lg:w-[260px] lg:shrink-0 lg:border-b-0 lg:border-r'
           : 'w-full border-b border-gray-200 p-4'}>

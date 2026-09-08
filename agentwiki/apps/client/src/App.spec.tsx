@@ -165,5 +165,8 @@ describe('ProtectedRoute', () => {
     expect(screen.getByRole('heading', { name: 'Sources body' })).toBeVisible();
     expect(screen.queryByRole('navigation', { name: 'Space navigation' })).not.toBeInTheDocument();
     expect(document.querySelector('aside')).not.toBeInTheDocument();
+    const errorLayout = screen.getByText('Space temporarily unavailable').parentElement?.parentElement;
+    expect(errorLayout).toHaveClass('flex-col');
+    expect(errorLayout).not.toHaveClass('lg:flex-row');
   });
 });

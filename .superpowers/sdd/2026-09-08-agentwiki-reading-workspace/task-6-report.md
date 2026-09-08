@@ -92,12 +92,52 @@ Test Files  1 passed (1)
 Tests       8 passed (8)
 ```
 
-The final fresh verification after all edits is recorded below before commit:
+Final fresh verification after all code and test edits, before the Task 6 code commit:
 
-- `pnpm --filter @agentwiki/client exec tsc --noEmit`
-- scoped ESLint over every changed TypeScript/TSX file
-- exact affected-section + App test command
-- `git diff --check`
+```text
+pnpm --filter @agentwiki/client test \
+  src/features/knowledge \
+  src/features/source \
+  src/features/space \
+  src/features/collaboration \
+  src/features/page-templates/PageTemplateManager \
+  src/App.spec.tsx
+
+Test Files  28 passed (28)
+Tests       396 passed (396)
+Exit status 0
+```
+
+```text
+pnpm --filter @agentwiki/client exec tsc --noEmit
+Exit status 0; no diagnostics
+```
+
+```text
+pnpm --filter @agentwiki/client exec eslint \
+  src/App.spec.tsx \
+  src/features/space-workspace/SpaceWorkspace.tsx \
+  src/features/space-workspace/SpaceWorkspace.spec.tsx \
+  src/features/space/SpaceView.tsx \
+  src/features/knowledge/KnowledgeGraph.tsx \
+  src/features/source/SourcesPage.tsx \
+  src/features/source/RunsPage.tsx \
+  src/features/space/SpaceMembers.tsx \
+  src/features/space/SpaceSettings.tsx \
+  src/features/collaboration/CollaborationWorkspace.tsx \
+  src/features/collaboration/CollaborationWorkspace.test.tsx \
+  src/features/collaboration/TemplateEditor.tsx \
+  src/features/collaboration/RunStartWizard.tsx \
+  src/features/collaboration/RunDashboard.tsx \
+  src/features/page-templates/PageTemplateManager.tsx
+
+Exit status 0; no diagnostics
+```
+
+```text
+git --work-tree="$PWD" diff --check
+Exit status 0; no diagnostics
+```
 
 ## Self-review
 
@@ -120,3 +160,60 @@ The controller was notified as soon as the section shell and route suite were st
 - This route walkthrough performed no business writes.
 
 The controller owns full client-suite execution and final Task 7 acceptance. This report does not extend the browser evidence beyond the routes and observations above.
+
+## Review fix round 1
+
+Independent review found that the Space-metadata error branch still used `lg:flex-row` in section mode. Its full-width error message and flexing business `main` could therefore share one desktop row, contradicting the section's full-width body requirement.
+
+TDD RED added a structure assertion to the existing real App Sources error-route test:
+
+```text
+pnpm --filter @agentwiki/client test src/App.spec.tsx \
+  -t "keeps section content and a retry path visible when Space metadata fails"
+
+Test Files  1 failed (1)
+Tests       1 failed | 17 skipped (18)
+Failure: expected the error layout not to have class `lg:flex-row`; received `flex flex-col lg:flex-row`
+```
+
+The fix conditions the outer error-layout classes on `showDirectory`: directory mode retains its existing responsive row, while a no-directory section uses `flex flex-col`. The message and Retry stay above a full-width business `main` at desktop sizes.
+
+Focused GREEN:
+
+```text
+pnpm --filter @agentwiki/client test src/App.spec.tsx \
+  -t "keeps section content and a retry path visible when Space metadata fails"
+
+Test Files  1 passed (1)
+Tests       1 passed | 17 skipped (18)
+```
+
+Fresh related verification:
+
+```text
+pnpm --filter @agentwiki/client test \
+  src/App.spec.tsx \
+  src/features/space-workspace/SpaceWorkspace.spec.tsx \
+  src/features/space/SpaceView.spec.tsx
+
+Test Files  3 passed (3)
+Tests       49 passed (49)
+Exit status 0
+```
+
+```text
+pnpm --filter @agentwiki/client exec tsc --noEmit
+Exit status 0; no diagnostics
+```
+
+```text
+pnpm --filter @agentwiki/client exec eslint \
+  src/App.spec.tsx \
+  src/features/space/SpaceView.tsx \
+  src/features/space-workspace/SpaceWorkspace.spec.tsx \
+  src/features/space-workspace/SpaceWorkspace.tsx
+
+Exit status 0; no diagnostics
+```
+
+Controller real-browser retest hook: inject a failing `GET /spaces/:spaceId` response on a section route such as `/spaces/:id/sources`, then verify at desktop width that the error message and Retry render above the full-width Sources body, with no directory rail or horizontal side-by-side split.
