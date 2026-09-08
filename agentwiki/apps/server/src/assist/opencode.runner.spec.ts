@@ -229,19 +229,21 @@ describe('OpencodeCliRunner', () => {
 
   it('uses the server-bundled OpenCode binary when OPENCODE_BIN is not configured', async () => {
     const fixture = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-bundled-'));
-    const packageDir = join(fixture, 'node_modules', 'opencode-ai');
-    const cli = join(packageDir, 'bin', 'opencode.js');
-    mkdirSync(join(packageDir, 'bin'), { recursive: true });
-    writeFileSync(join(packageDir, 'package.json'), JSON.stringify({
-      name: 'opencode-ai',
-      bin: { opencode: './bin/opencode.js' },
-    }));
-    writeFileSync(cli, '#!/usr/bin/env node\n');
-    const cwd = jest.spyOn(process, 'cwd').mockReturnValue(fixture);
-    const bundledConfig = { get: jest.fn(() => undefined) } as any;
-    const child = childProcess();
+    let cwd: jest.SpyInstance | undefined;
 
     try {
+      const packageDir = join(fixture, 'node_modules', 'opencode-ai');
+      const cli = join(packageDir, 'bin', 'opencode.js');
+      mkdirSync(join(packageDir, 'bin'), { recursive: true });
+      writeFileSync(join(packageDir, 'package.json'), JSON.stringify({
+        name: 'opencode-ai',
+        bin: { opencode: './bin/opencode.js' },
+      }));
+      writeFileSync(cli, '#!/usr/bin/env node\n');
+      cwd = jest.spyOn(process, 'cwd').mockReturnValue(fixture);
+      const bundledConfig = { get: jest.fn(() => undefined) } as any;
+      const child = childProcess();
+
       const runner = new OpencodeCliRunner(bundledConfig);
       const execution = (runner as any).exec([], 10_000, 'catalog');
       child.stdout.write('ok');
@@ -254,7 +256,7 @@ describe('OpencodeCliRunner', () => {
         expect.objectContaining({ shell: false }),
       );
     } finally {
-      cwd.mockRestore();
+      cwd?.mockRestore();
       rmSync(fixture, { recursive: true, force: true });
     }
   });
