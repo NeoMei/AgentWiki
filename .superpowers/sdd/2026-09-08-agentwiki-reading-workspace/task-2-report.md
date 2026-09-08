@@ -174,3 +174,11 @@ The snapshot now restores only expanded folders discovered through already loade
 TDD RED reproduced a target switch returning only `[root]`; GREEN retains `[root, a, b, c]`. Added tests cover target switching, transient unresolved identity, unopened/unreachable pruning, and revision drift in a restored branch. Fresh focused results: hook 1 file / 9 tests passed; hook + `SpaceWorkspace` + `SpaceView` 3 files / 38 tests passed. Client TypeScript, scoped ESLint, and `git diff --check` exited 0. Full evidence and review boundary are in `task-2-continuity-fix-report.md`.
 
 Controller real-browser verification passed `main -> deep -> sibling -> main`, preserving the old deep page. A further navigation to a same-title page under `项目文档` retained both previously expanded branches and displayed the correct article by ID. Sidebar scroll restoration remains for the controller's final acceptance pass.
+
+## Sidebar scroll fix round 3
+
+Page navigation can temporarily unmount the directory while accepted Space identity resolves. The remounted scroller previously applied its persisted offset before root nodes existed, so the browser clamped it to zero; root-level installation did not retrigger restoration. `SpaceDirectory` now replays the saved offset when the root snapshot installs and ignores loading-time scroll events that could persist the transient zero. A first deep link with no saved position reveals the selected row using nearest scrolling, while every nonzero saved offset takes priority and never invokes selected-row scrolling.
+
+TDD RED covered empty/loading mount, transient zero, unchanged scroll prop, later populated levels, and missing initial selected-row visibility. GREEN results: `SpaceDirectory` 6/6 tests; `SpaceDirectory` plus `SpaceWorkspace` 2 files / 13 tests. TypeScript, scoped ESLint, and `git diff --check` exited 0.
+
+Controller native-browser verification separated product behavior from locator auto-scroll: after a native sidebar scroll to `2460`, a native coordinate click on visible page 002 selected the new article while the sidebar remained exactly `2460`; the selected row stayed visible. Full evidence and boundaries are in `task-2-scroll-fix-report.md`.

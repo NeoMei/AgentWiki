@@ -47,13 +47,18 @@ export const SpaceDirectory: React.FC<SpaceDirectoryProps> = ({
   const desktopScrollRef = useRef<HTMLDivElement>(null);
   const drawerScrollRef = useRef<HTMLDivElement>(null);
   const locationKey = `${location.pathname}${location.search}${location.hash}`;
+  const rootLevel = levels.get(null);
   useLayoutEffect(() => {
     for (const scrollElement of [desktopScrollRef.current, drawerScrollRef.current]) {
       if (scrollElement && scrollElement.scrollTop !== directoryScrollTop) {
         scrollElement.scrollTop = directoryScrollTop;
       }
+      if (scrollElement && rootLevel && directoryScrollTop === 0 && (selectedPageId || selectedFolderId)) {
+        const selectedItem = scrollElement.querySelector<HTMLElement>('[role="treeitem"][aria-selected="true"]');
+        if (typeof selectedItem?.scrollIntoView === 'function') selectedItem.scrollIntoView({ block: 'nearest' });
+      }
     }
-  }, [directoryScrollTop, drawerOpen]);
+  }, [directoryScrollTop, drawerOpen, rootLevel, selectedFolderId, selectedPageId]);
   useEffect(() => {
     if (drawerOpen && openedAtLocationRef.current !== locationKey) setDrawerOpen(false);
   }, [drawerOpen, locationKey]);
@@ -83,12 +88,14 @@ export const SpaceDirectory: React.FC<SpaceDirectoryProps> = ({
           {t('folder.createTitle')}
         </button> : null}
       </div> : null}
-      <div ref={scrollRef} data-testid={scrollTestId} onScroll={(event) => onDirectoryScrollTopChange?.(event.currentTarget.scrollTop)}
+      <div ref={scrollRef} data-testid={scrollTestId} onScroll={(event) => {
+        if (!treeProps.loading) onDirectoryScrollTopChange?.(event.currentTarget.scrollTop);
+      }}
         className="min-h-0 flex-1 overflow-y-auto p-3">
         {treeProps.error && onRetry ? <button type="button" onClick={onRetry} className="mb-2 text-sm font-medium text-blue-700 underline">{t('common.retry')}</button> : null}
         <ContentTree
           {...treeProps}
-          nodes={levels.get(null)?.nodes ?? []}
+          nodes={rootLevel?.nodes ?? []}
           levelParentFolderId={null}
           currentPageId={selectedPageId ?? undefined}
           selectedFolderId={selectedFolderId}

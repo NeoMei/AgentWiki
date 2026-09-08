@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { FC, ReactNode } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { LanguageProvider } from '../../context/LanguageContext';
 import type { DirectoryLevel } from './useSpaceDirectory';
@@ -13,6 +13,12 @@ const Providers: FC<{ children: ReactNode }> = ({ children }) => (
 );
 
 describe('SpaceDirectory', () => {
+  const originalScrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (originalScrollIntoView) Object.defineProperty(Element.prototype, 'scrollIntoView', originalScrollIntoView);
+    else delete (Element.prototype as Partial<Element>).scrollIntoView;
+  });
   it('renders a persistent nested tree and expansion does not select the folder', () => {
     const levels = new Map<string | null, DirectoryLevel>([
       [null, { parentFolderId: null, treeRevision: '3', nodes: [folder] }],
@@ -75,6 +81,50 @@ describe('SpaceDirectory', () => {
       onRenameFolder={() => undefined} onDeleteFolder={() => undefined} onMove={() => undefined} />
     </Providers>);
     expect(scroller.scrollTop).toBe(80);
+  });
+
+  it('replays a persisted scroll position after the directory levels finish loading', () => {
+    const onDirectoryScrollTopChange = vi.fn();
+    const commonProps = {
+      spaceName: 'Product Wiki', expandedFolderIds: new Set<string>(), selectedFolderId: null,
+      selectedPageId: 'page-a', error: null, canEdit: false, directoryScrollTop: 245,
+      onDirectoryScrollTopChange, onToggleFolder: () => undefined, onSelectFolder: () => undefined,
+      onOpenPage: () => undefined, onEditPage: () => undefined, onDeletePage: () => undefined,
+      onCreateSubfolder: () => undefined, onRenameFolder: () => undefined,
+      onDeleteFolder: () => undefined, onMove: () => undefined,
+    };
+    const { rerender } = render(<Providers><SpaceDirectory {...commonProps} levels={new Map()} loading /></Providers>);
+    const scroller = screen.getByTestId('space-directory-scroll');
+    scroller.scrollTop = 0;
+    fireEvent.scroll(scroller);
+    expect(onDirectoryScrollTopChange).not.toHaveBeenCalled();
+
+    rerender(<Providers><SpaceDirectory {...commonProps} levels={new Map([
+      [null, { parentFolderId: null, treeRevision: '3', nodes: [page] }],
+    ])} loading={false} /></Providers>);
+
+    expect(scroller.scrollTop).toBe(245);
+  });
+
+  it('reveals the selected item only when no directory scroll position has been saved', () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView });
+    const levels = new Map<string | null, DirectoryLevel>([
+      [null, { parentFolderId: null, treeRevision: '3', nodes: [page] }],
+    ]);
+    const commonProps = {
+      spaceName: 'Product Wiki', levels, expandedFolderIds: new Set<string>(), selectedFolderId: null,
+      selectedPageId: 'page-a', loading: false, error: null, canEdit: false,
+      onToggleFolder: () => undefined, onSelectFolder: () => undefined, onOpenPage: () => undefined,
+      onEditPage: () => undefined, onDeletePage: () => undefined, onCreateSubfolder: () => undefined,
+      onRenameFolder: () => undefined, onDeleteFolder: () => undefined, onMove: () => undefined,
+    };
+    const { rerender } = render(<Providers><SpaceDirectory {...commonProps} directoryScrollTop={0} /></Providers>);
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+
+    scrollIntoView.mockClear();
+    rerender(<Providers><SpaceDirectory {...commonProps} selectedPageId="page-b" directoryScrollTop={245} /></Providers>);
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 
   it('opens the mobile directory as a modal drawer, closes on navigation, and restores focus on Escape', async () => {
