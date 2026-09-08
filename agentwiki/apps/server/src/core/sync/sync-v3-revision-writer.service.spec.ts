@@ -55,6 +55,55 @@ describe('SyncV3RevisionWriterService', () => {
     });
   });
 
+  it('publishes parser-derived attachment IDs for an image after a mixed backtick span', async () => {
+    const body = '``a ``` b`` ![A](../assets/photo.png) `c`';
+    const storedAttachment = {
+      id: attachmentId,
+      displayName: 'photo.png',
+      nameKey: 'photo.png',
+      mimeType: 'image/png',
+      sizeBytes: 4n,
+      width: 1,
+      height: 1,
+      contentHash: 'b'.repeat(64),
+      updatedAt: new Date('2026-09-08T00:00:00.000Z'),
+    };
+    const tx = {
+      spaceAttachment: {
+        findMany: jest.fn().mockResolvedValue([storedAttachment]),
+      },
+    };
+    const markdownResources = new MarkdownResourceService(tx as any, {} as any);
+    const service = new SyncV3RevisionWriterService(markdownResources, {} as any);
+
+    await expect(service.inspectCandidate(
+      tx as any,
+      'space-1',
+      '0',
+      false,
+      {
+        folders: [],
+        pages: [{
+          pageId: 'page-1',
+          folderId: null,
+          path: 'pages/note.md',
+          title: 'Note',
+          body,
+          updatedAt: new Date('2026-09-08T00:00:00.000Z'),
+        }],
+      },
+    )).resolves.toMatchObject({
+      mode: 'bootstrap_required',
+      candidate: {
+        pages: [{ referencedAttachmentIds: [attachmentId] }],
+        attachments: [{ attachmentId, path: 'assets/photo.png' }],
+      },
+    });
+    expect(tx.spaceAttachment.findMany).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      where: { spaceId: 'space-1', status: 'active', nameKey: { in: ['photo.png'] } },
+    }));
+  });
+
   it('rejects a Page whose declared attachment IDs differ from authoritative Markdown parsing', async () => {
     const body = '![[assets/photo.png]]\n';
     const page: SyncPageV3 = {

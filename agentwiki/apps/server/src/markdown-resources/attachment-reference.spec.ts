@@ -497,6 +497,36 @@ describe('resolveReferencedAttachments', () => {
     });
   });
 
+  it('resolves the image after a mixed backtick span with its exact source range', () => {
+    const body = '``a ``` b`` ![A](../assets/photo.png) `c`';
+
+    expect(resolveReferencedAttachments(body, sourcePath, [
+      attachment('stable-photo-id', 'photo.png'),
+    ])).toEqual({
+      attachmentIds: ['stable-photo-id'],
+      references: [{
+        syntax: 'markdown',
+        rawTarget: '../assets/photo.png',
+        targetStart: 17,
+        targetEnd: 36,
+        resolvedPath: 'assets/photo.png',
+        classification: 'managed_candidate',
+        attachmentId: 'stable-photo-id',
+      }],
+      errors: [],
+    });
+  });
+
+  it('returns ATTACHMENT_MISSING for the image after a mixed backtick span', () => {
+    const body = '``a ``` b`` ![A](../assets/photo.png) `c`';
+
+    expect(resolveReferencedAttachments(body, sourcePath, [])).toEqual({
+      attachmentIds: [],
+      references: [],
+      errors: [{ code: 'ATTACHMENT_MISSING', targetStart: 17, targetEnd: 36 }],
+    });
+  });
+
   it('fails historical bare-name case-fold ambiguity closed', () => {
     const body = '![[STRASSE.png]]';
     const result = resolveReferencedAttachments(body, sourcePath, [

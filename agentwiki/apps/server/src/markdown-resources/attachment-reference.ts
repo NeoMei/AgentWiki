@@ -442,6 +442,19 @@ function activeFenceLineContext(
   return { inContainer: true, position };
 }
 
+function findClosingBacktickRun(body: string, start: number, length: number): number {
+  let cursor = start;
+  while (cursor < body.length) {
+    const runStart = body.indexOf('`', cursor);
+    if (runStart === -1) return -1;
+    let runEnd = runStart;
+    while (body[runEnd] === '`') runEnd += 1;
+    if (runEnd - runStart === length) return runStart;
+    cursor = runEnd;
+  }
+  return -1;
+}
+
 function scanImageTargetTokens(body: string): ImageTargetToken[] {
   const tokens: ImageTargetToken[] = [];
   let cursor = 0;
@@ -540,9 +553,9 @@ function scanImageTargetTokens(body: string): ImageTargetToken[] {
     if (character === '`') {
       let runEnd = cursor;
       while (body[runEnd] === '`') runEnd += 1;
-      const delimiter = body.slice(cursor, runEnd);
-      const close = body.indexOf(delimiter, runEnd);
-      cursor = close === -1 ? runEnd : close + delimiter.length;
+      const runLength = runEnd - cursor;
+      const close = findClosingBacktickRun(body, runEnd, runLength);
+      cursor = close === -1 ? runEnd : close + runLength;
       continue;
     }
 

@@ -362,6 +362,31 @@ describe('MarkdownResourceService', () => {
     });
   });
 
+  it('uses the real body parser to resolve the image after a mixed backtick span', async () => {
+    prisma.spaceAttachment.findMany.mockResolvedValue([
+      attachment({ id: 'stable-photo-id', displayName: 'photo.png', nameKey: 'photo.png' }),
+    ]);
+
+    await expect(service.resolveReferencedAttachments({
+      spaceId: 'space-1',
+      sourceSyncPath: 'pages/note.md',
+      body: '``a ``` b`` ![A](../assets/photo.png) `c`',
+    })).resolves.toEqual({
+      attachmentIds: ['stable-photo-id'],
+      references: [expect.objectContaining({
+        rawTarget: '../assets/photo.png',
+        targetStart: 17,
+        targetEnd: 36,
+        resolvedPath: 'assets/photo.png',
+        attachmentId: 'stable-photo-id',
+      })],
+      errors: [],
+    });
+    expect(prisma.spaceAttachment.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { spaceId: 'space-1', status: 'active', nameKey: { in: ['photo.png'] } },
+    }));
+  });
+
   it('resolves a standard Markdown attachment target from the authorized source Page path', async () => {
     prisma.page.findFirst.mockResolvedValue(page({
       id: 'source-page',
