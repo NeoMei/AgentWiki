@@ -2,22 +2,21 @@
 
 # 当前目标
 
-- v0.9.1空间名称修复已发布、部署并通过公网验收；本轮发布工作完成。
+- 对齐 AgentWiki 本地主仓、GitHub master 与已部署的图片同步配套修正；运行代码冻结于 287bcd803d52cf1153fe446fe4d681db58ed1652。
 
 # 范围 / 不做
 
-- 已完成源码合并/push、npm、GitHub Release、生产备份部署和真实API/浏览器验收。
-- 保留原隔离工作树和用户其他未提交文件，不修改其他并行任务；未重复外部模型执行或灾备恢复演练。
+- 本轮整合既有提交并快进同步主分支，保留其他任务工作树、未提交文件和既有发布标签。
+- 生产源码及编译文件已经与冻结候选一致，本轮无需生产写入、重启、迁移或重新发布 npm。
 
 # 当前状态
 
-- 发布源码/tag v0.9.1目标072a93c0，功能准备8784acd2、README修正6dc3fb4b。master已快进并push，后续仅提交发布记录。
-- 应用/server/client/LocalSync0.9.1；protocol0.6.0不变。服务端兼容0.9.0和0.9.1，签发/交换/replay保持实际请求版本。
-- 新建/改名trim后1–32个validator.js单位，不截断。旧长名保存其他设置不带name；Agent原始确认计划hash和原始回执/replay不变，落库名称trim。
-- 本地完整分阶段回归5277通过/3skip；类型/lint/build、公开包全新安装和最终源码/运维审查通过。
-- 生产root@113.249.120.24:/root/agentwiki为0.9.1；55个成功迁移、无pending；1032部署输入文件哈希匹配。三个服务active/NRestarts0，public health全部ok。
-- 双env只变LOCAL_SYNC_PACKAGE_VERSION；既有白名单cmt024s4808nm3gmnko5v9gj5和其他配置保留。
-- 真实公网Chrome390x844/1440x900、中英文、32/33字符、旧69字符名称、设置/改名持久化、两版本onboarding/raw replay均通过；API smoke32通过。4Agent/4Space/1User测试资源已清理，DB只读核验活跃记录0，测试凭据销毁。
+- 原 GitHub master 975c1dd4、本地主仓 b776b830 均为冻结候选祖先；补入解析器与测试隔离 4 个提交，主分支包含本轮验证记录。
+- 新运行 server harness：148 suites / 2570 tests 通过、1 Windows skip；前端 94 files / 1292 tests 通过；server build/typecheck/lint 与独立审查通过。
+- 1032 个实际生产部署文件与候选 SHA-256 全部相同；238 个干净构建的服务端 JS 与生产 dist 全部相同。
+- root user systemd 的 API/worker/frontend 均 active/running、NRestarts 0；内外网 health 五项均 ok。
+- 服务端/客户端/Local Sync 仍为 0.9.1；protocol 0.6.0。独立 Obsidian 插件正式版 0.4.0 已发布，Mac NeoMei-Docs 已安装并确认加载。
+- 主目录原有未跟踪文件与 submodule 修改保留；本轮 PostgreSQL/Redis 为独立测试实例，没有使用生产库。
 
 # 稳定约束
 
@@ -32,14 +31,14 @@
 
 # 关键索引
 
-- 发布记录：agentwiki/docs/verification/space-name-v091-release.md
-- GitHub Release：https://github.com/NeoMei/AgentWiki/releases/tag/v0.9.1
-- 持久私有证据：/Users/neomei/.codex/recovery/agentwiki-v091-release-20260906/
-- 生产备份：/var/backups/agentwiki/space-name-v091.qj7XtW；恢复工具：/root/agentwiki-release-tools-v091/；原应用：/root/agentwiki-previous-20260906205927。
-- 原任务01a06f37-1d32-7231-9e99-a9c0a1c6312a，工作树/Users/neomei/.codex/worktrees/69d8/AgentWiki （末尾空格）；目录兼容链接和恢复备份保留。
+- 本轮记录：agentwiki/docs/verification/2026-09-08-source-production-alignment.md
+- 本轮私有证据：/Users/neomei/.codex/recovery/agentwiki-source-align-20260908/
+- 既有 v0.9.1 发布：agentwiki/docs/verification/space-name-v091-release.md
+- 插件服务端部署证据：/Users/neomei/项目/codexprojects/AgentWiki-Obsidian/docs/verification/2026-09-08-server-parser-deployment.md
+- 插件 0.4.0 发布验收：/Users/neomei/项目/codexprojects/AgentWiki-Obsidian/docs/verification/2026-09-08-release-040.md
 
 # 风险 / 下一步
 
-- 当前发布范围无未解决阻塞。旧0.9.0客户端仍受支持；备份不授权丢弃备份后的生产写入。
-- 失败尝试与修正记录均保留：首轮回归漏PG_DUMP_BIN、npm认证/传播延迟和验收脚本元数据/DB字段修正，不将失败尝试算作成功。
-- 主目录其他文件及5个submodule状态已保持；专用测试库PG50415/Redis50416最终无测试遗留。
+- 生产没有 Git 元数据，使用源码与编译产物哈希验证；GitHub master 的最新代码不等于旧的不可变 v0.9.1 tag。
+- 本轮没有重新执行真实 Vault 写入或全套公网同步验收；生产没有代码变化，同一候选此前验收证据仍保留。
+- 六个未部署仓库配置文件及首次测试库 vector 扩展预检失败已在验证记录中明确，不据此宣称所有仓库文件在服务器存在。
