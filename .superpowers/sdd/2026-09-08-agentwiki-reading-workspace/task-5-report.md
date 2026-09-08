@@ -88,3 +88,27 @@ pnpm --filter @agentwiki/client test \
 Result: 3 files passed, 27 tests passed, 0 failed. `pnpm --filter @agentwiki/client exec tsc --noEmit`, scoped ESLint over the four fix-round files, and `git diff --check` each exited 0 with no diagnostics.
 
 Controller real-browser validation of this fix is pending on the same delete/restore fixture.
+
+## Fix round 2: await the installed accepted revision
+
+Rereview showed that round 1 awaited the wrong completion signal. `acceptTreeRevision` clears the directory and starts a retry snapshot, whose effect aborts the already-started explicit `reloadLevel`. That aborted reload resolves normally, so its Promise could finish before the retry snapshot had rendered the valid parent. The dialog then closed and the resolver correctly found only the Space root.
+
+`SpaceView` now records the delete response revision and the real parent ID as a pending refresh. A layout effect resolves that operation only after React has committed the same accepted `treeRevision` and the replacement directory contains the saved parent ID (or the root level for a root folder). The existing explicit level reload remains as a fast refresh request, but its completion no longer means that the refreshed directory was installed. Route changes, unmount, and directory errors clear the pending operation without polling or guessed delays. DELETE/CAS fields, delete impact, restore data and destination, cancel, and Escape behavior are unchanged.
+
+The regression test uses two independently controlled post-delete root requests. The explicit reload observes its real `AbortSignal` and rejects when the retry effect aborts it; the replacement snapshot remains pending. The test proves that the dialog remains mounted after that abort, then resolves the retry snapshot at revision `8` and verifies that the deleted trigger is gone and the newly rendered `content-node-parent` owns focus. This reproduces the race that the round 1 shared Promise had masked.
+
+Fresh affected command:
+
+```sh
+pnpm --filter @agentwiki/client test \
+  src/features/space/SpaceView.spec.tsx \
+  src/features/content-tree/FolderDialog.spec.tsx \
+  src/components/ModalDialog.test.tsx \
+  src/features/space-workspace/useSpaceDirectory.spec.tsx
+```
+
+Result: 4 files passed, 36 tests passed, 0 failed. `pnpm --filter @agentwiki/client exec tsc --noEmit`, scoped ESLint over `SpaceView.tsx`, `SpaceView.spec.tsx`, `FolderDeleteDialog.tsx`, and `ModalDialog.tsx`, and `git diff --check` each exited 0 with no diagnostics.
+
+Controller real-browser validation on the same management-folder fixture passed: after confirming deletion the dialog was absent, `document.activeElement` was the connected element `content-node-cmtskrthh001s12tr43491ic2` with text `内容组织`, and `isConnected` was `true`. The controller then used the existing restore action and restored the composite subtree. The round 1 successful-delete focus concern is closed.
+
+The earlier restore-confirmation capture limitation remains unchanged; this fix does not modify restore behavior. No further Task 5 concern remains for successful folder-delete focus.

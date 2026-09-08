@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { Plus, RotateCcw, X } from 'lucide-react';
@@ -58,6 +58,12 @@ interface RestoreInfo {
   folderUpdatedAt: string;
 }
 
+interface PendingDeleteRefresh {
+  revision: string;
+  parentId: string | null;
+  resolve: (installed: boolean) => void;
+}
+
 export interface SpaceViewProps {
   spaceId?: string | null;
   workspaceContent?: React.ReactNode;
@@ -96,6 +102,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   const [deleteFallbackFocus, setDeleteFallbackFocus] = useState<HTMLElement | null>(null);
   const [deleteParentId, setDeleteParentId] = useState<string | null>(null);
   const [deleteParentLevelId, setDeleteParentLevelId] = useState<string | null>(null);
+  const pendingDeleteRefreshRef = useRef<PendingDeleteRefresh | null>(null);
   const [restoreInfo, setRestoreInfo] = useState<RestoreInfo | null>(null);
   const [restoring, setRestoring] = useState(false);
   const [bindingScope, setBindingScope] = useState<BindingDialogScope | null>(null);
@@ -156,6 +163,15 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     return document.querySelector<HTMLElement>(`[data-testid="content-node-${CSS.escape(deleteParentId)}"]`)
       ?? rootTarget;
   }, [deleteParentId]);
+  useLayoutEffect(() => {
+    const pending = pendingDeleteRefreshRef.current;
+    if (!pending) return;
+    const installed = directory.treeRevision === pending.revision
+      && (pending.parentId ? directory.folderIndex.has(pending.parentId) : directory.levels.has(null));
+    if (!installed && !directory.error) return;
+    pendingDeleteRefreshRef.current = null;
+    pending.resolve(installed);
+  }, [directory.error, directory.folderIndex, directory.levels, directory.treeRevision]);
   useEffect(() => {
     workspace?.reportDirectoryCrumbs(crumbs);
   }, [crumbs, workspace?.reportDirectoryCrumbs]);
@@ -166,6 +182,8 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      pendingDeleteRefreshRef.current?.resolve(false);
+      pendingDeleteRefreshRef.current = null;
       archiveOperationRef.current += 1;
       archiveControllerRef.current?.abort();
       archiveControllerRef.current = null;
@@ -205,6 +223,8 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     const routeChanged = fetchedRouteIdRef.current !== id;
     fetchedRouteIdRef.current = id;
     if (routeChanged) {
+      pendingDeleteRefreshRef.current?.resolve(false);
+      pendingDeleteRefreshRef.current = null;
       archiveOperationRef.current += 1;
       archiveControllerRef.current?.abort();
       archiveControllerRef.current = null;
@@ -296,8 +316,17 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
       deletionBatchId: result.batch.id,
       folderUpdatedAt: impact.rootUpdatedAt,
     });
+    const refreshed = new Promise<boolean>((resolve) => {
+      pendingDeleteRefreshRef.current?.resolve(false);
+      pendingDeleteRefreshRef.current = {
+        revision: result.treeRevision,
+        parentId: deleteParentId,
+        resolve,
+      };
+    });
     directory.acceptTreeRevision(result.treeRevision);
-    await directory.reloadLevel(deleteParentLevelId);
+    void directory.reloadLevel(deleteParentLevelId);
+    await refreshed;
   };
 
   const handleRestore = async () => {

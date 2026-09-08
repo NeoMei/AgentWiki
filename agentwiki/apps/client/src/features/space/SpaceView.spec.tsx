@@ -324,14 +324,24 @@ describe('SpaceView new-page flow', () => {
     };
     const refreshedTree = deferred<ReturnType<typeof treeResponse>>();
     let deleted = false;
-    mocks.api.get.mockImplementation(async (url: string, config?: { params?: { parentFolderId?: string } }) => {
+    let deletedRootReads = 0;
+    let explicitReloadSignal: AbortSignal | undefined;
+    mocks.api.get.mockImplementation(async (url: string, config?: { params?: { parentFolderId?: string }; signal?: AbortSignal }) => {
       if (url === '/spaces/space-1') return spaceResponse('space-1', 'Owner Space', 'owner');
       if (url === '/spaces/space-1/content-tree') {
         if (config?.params?.parentFolderId === 'parent') return { data: {
           ...treeResponse('space-1', deleted ? [] : [folder]).data,
           parentFolderId: 'parent', treeRevision: deleted ? '8' : '7',
         } };
-        return deleted ? refreshedTree.promise : treeResponse('space-1', [parent]);
+        if (!deleted) return treeResponse('space-1', [parent]);
+        deletedRootReads += 1;
+        if (deletedRootReads === 1) {
+          explicitReloadSignal = config?.signal;
+          return new Promise((_resolve, reject) => config?.signal?.addEventListener('abort', () => {
+            reject(Object.assign(new Error('explicit reload aborted'), { name: 'CanceledError' }));
+          }, { once: true }));
+        }
+        return refreshedTree.promise;
       }
       if (url === '/spaces/space-1/folders/folder-1/delete-impact') return { data: {
         treeRevision: '7', rootUpdatedAt: folder.updatedAt, folderCount: 1, pageCount: 0, impactHash: 'impact-1',
@@ -355,6 +365,9 @@ describe('SpaceView new-page flow', () => {
 
     await waitFor(() => expect(mocks.api.delete).toHaveBeenCalledTimes(1));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+    await waitFor(() => expect(explicitReloadSignal?.aborted).toBe(true));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(deletedRootReads).toBe(2);
     await act(async () => refreshedTree.resolve({
       ...treeResponse('space-1', [parent]),
       data: { ...treeResponse('space-1', [parent]).data, treeRevision: '8' },
