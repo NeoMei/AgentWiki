@@ -94,6 +94,8 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   const [deleteTarget, setDeleteTarget] = useState<ContentTreeFolderNode | null>(null);
   const [deleteReturnFocus, setDeleteReturnFocus] = useState<HTMLElement | null>(null);
   const [deleteFallbackFocus, setDeleteFallbackFocus] = useState<HTMLElement | null>(null);
+  const [deleteParentId, setDeleteParentId] = useState<string | null>(null);
+  const [deleteParentLevelId, setDeleteParentLevelId] = useState<string | null>(null);
   const [restoreInfo, setRestoreInfo] = useState<RestoreInfo | null>(null);
   const [restoring, setRestoring] = useState(false);
   const [bindingScope, setBindingScope] = useState<BindingDialogScope | null>(null);
@@ -143,8 +145,17 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
       ?? folderOpenerRef.current;
     setDeleteReturnFocus(document.activeElement instanceof HTMLElement ? document.activeElement : null);
     setDeleteFallbackFocus(parentTarget ?? rootTarget);
+    setDeleteParentId(parentId);
+    setDeleteParentLevelId(parentId ? folderIndex.get(parentId)?.parentId ?? null : null);
     setDeleteTarget(folder);
   };
+  const resolveDeleteSuccessFocus = useCallback(() => {
+    const rootTarget = document.querySelector<HTMLElement>('[data-testid="space-root-focus"]')
+      ?? folderOpenerRef.current;
+    if (!deleteParentId) return rootTarget;
+    return document.querySelector<HTMLElement>(`[data-testid="content-node-${CSS.escape(deleteParentId)}"]`)
+      ?? rootTarget;
+  }, [deleteParentId]);
   useEffect(() => {
     workspace?.reportDirectoryCrumbs(crumbs);
   }, [crumbs, workspace?.reportDirectoryCrumbs]);
@@ -286,7 +297,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
       folderUpdatedAt: impact.rootUpdatedAt,
     });
     directory.acceptTreeRevision(result.treeRevision);
-    reloadTree();
+    await directory.reloadLevel(deleteParentLevelId);
   };
 
   const handleRestore = async () => {
@@ -666,10 +677,13 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
           targetLocation={crumbsForFolder(folderIndex, deleteTarget.id, space.name).map((crumb) => crumb.name).join(' / ')}
           returnFocusTo={deleteReturnFocus}
           fallbackFocusTo={deleteFallbackFocus}
+          resolveSuccessFocus={resolveDeleteSuccessFocus}
           onClose={() => {
             setDeleteTarget(null);
             setDeleteReturnFocus(null);
             setDeleteFallbackFocus(null);
+            setDeleteParentId(null);
+            setDeleteParentLevelId(null);
           }}
           onConfirm={handleDeleteFolderConfirm}
         />

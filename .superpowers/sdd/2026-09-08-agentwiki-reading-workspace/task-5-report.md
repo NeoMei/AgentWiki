@@ -67,3 +67,24 @@ Result: 4 files passed, 125 tests passed, 0 failed.
 
 - The successful restore confirmation click was not independently captured in browser automation, although the unchanged confirmation/CAS code, focused tests, final `/edit` route, and GET result were verified.
 - Cancel/Escape focus return and connected-parent fallback are covered by component behavior, and controller verified create-dialog focus. A real-browser assertion specifically sampling focus after successful folder deletion was not recorded.
+
+## Fix round 1: successful-delete parent focus
+
+Independent review and controller validation reproduced the remaining focus concern: after a nested folder DELETE succeeded, the modal closed while its trigger and saved parent DOM nodes were still from the old directory snapshot. The asynchronous refresh later removed them and left `document.activeElement` at `BODY`.
+
+The fix keeps the mutation contract unchanged. `SpaceView` records the deleted folder's real `parentId` and the level that contains that parent before mutation. After the existing DELETE and `acceptTreeRevision`, it awaits that real level refresh before allowing the success close. `FolderDeleteDialog` distinguishes success from cancel, and `ModalDialog` resolves the success return target during its existing cleanup microtask. It selects the refreshed connected parent by the saved real ID, falling back to the stable Space root only when no connected parent exists. Cancel and Escape still return to the original trigger. CAS fields, delete impact, restore batch, reload implementation, and restore behavior are unchanged.
+
+RED used a nested parent/child tree with the post-delete level response deliberately held. After the dialog closed and the refreshed parent replaced the old nodes, the expected connected parent was present but `document.activeElement` was `BODY` (1 failed, 22 skipped). GREEN keeps the dialog mounted until the held refresh installs, removes the deleted child, and focuses the refreshed `content-node-parent` (1 passed, 22 skipped).
+
+Fresh affected command:
+
+```sh
+pnpm --filter @agentwiki/client test \
+  src/features/space/SpaceView.spec.tsx \
+  src/features/content-tree/FolderDialog.spec.tsx \
+  src/components/ModalDialog.test.tsx
+```
+
+Result: 3 files passed, 27 tests passed, 0 failed. `pnpm --filter @agentwiki/client exec tsc --noEmit`, scoped ESLint over the four fix-round files, and `git diff --check` each exited 0 with no diagnostics.
+
+Controller real-browser validation of this fix is pending on the same delete/restore fixture.

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { ModalDialog } from '../../components/ModalDialog';
@@ -12,6 +12,7 @@ export interface FolderDeleteDialogProps {
   targetLocation?: string;
   returnFocusTo?: HTMLElement | null;
   fallbackFocusTo?: HTMLElement | null;
+  resolveSuccessFocus?: () => HTMLElement | null;
   onClose: () => void;
   onConfirm: (impact: DeleteImpactResponse) => Promise<void>;
 }
@@ -23,6 +24,7 @@ export const FolderDeleteDialog: React.FC<FolderDeleteDialogProps> = ({
   targetLocation,
   returnFocusTo,
   fallbackFocusTo,
+  resolveSuccessFocus,
   onClose,
   onConfirm,
 }) => {
@@ -32,8 +34,12 @@ export const FolderDeleteDialog: React.FC<FolderDeleteDialogProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sessionActiveRef = useRef(true);
+  const deleteSucceededRef = useRef(false);
   const fallbackFocusRef = useRef<HTMLElement | null>(fallbackFocusTo ?? null);
   fallbackFocusRef.current = fallbackFocusTo ?? null;
+  const resolveReturnFocus = useCallback(() => (
+    deleteSucceededRef.current ? resolveSuccessFocus?.() ?? null : returnFocusTo ?? null
+  ), [resolveSuccessFocus, returnFocusTo]);
 
   useEffect(() => {
     sessionActiveRef.current = true;
@@ -59,7 +65,10 @@ export const FolderDeleteDialog: React.FC<FolderDeleteDialogProps> = ({
     setError(null);
     try {
       await onConfirm(impact);
-      if (sessionActiveRef.current) onClose();
+      if (sessionActiveRef.current) {
+        deleteSucceededRef.current = true;
+        onClose();
+      }
     } catch (err) {
       if (sessionActiveRef.current) {
         setError(errorMessage(err, t('folder.deleteFailed')));
@@ -74,6 +83,7 @@ export const FolderDeleteDialog: React.FC<FolderDeleteDialogProps> = ({
       onRequestClose={() => { if (!submitting) onClose(); }}
       closeDisabled={submitting}
       returnFocusTo={returnFocusTo}
+      resolveReturnFocus={resolveReturnFocus}
       fallbackFocusRef={fallbackFocusRef}
       className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-[14px] bg-white shadow-xl"
     >

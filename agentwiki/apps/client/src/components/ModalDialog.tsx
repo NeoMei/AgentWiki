@@ -15,6 +15,7 @@ export interface ModalDialogProps {
   onRequestClose: () => void;
   closeDisabled?: boolean;
   returnFocusTo?: HTMLElement | null;
+  resolveReturnFocus?: () => HTMLElement | null;
   fallbackFocusRef?: React.RefObject<HTMLElement | null>;
   overlayClassName?: string;
   className: string;
@@ -26,6 +27,7 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({
   onRequestClose,
   closeDisabled = false,
   returnFocusTo,
+  resolveReturnFocus,
   fallbackFocusRef,
   overlayClassName = 'fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4',
   className,
@@ -60,13 +62,13 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({
         else element.setAttribute('inert', inert);
       }
       portalNode.remove();
-      const preferredReturnTarget = returnFocusTo ?? returnFocus;
       queueMicrotask(() => {
+        const preferredReturnTarget = resolveReturnFocus?.() ?? returnFocusTo ?? returnFocus;
         if (preferredReturnTarget?.isConnected) preferredReturnTarget.focus();
         else if (fallbackFocusRef?.current?.isConnected) fallbackFocusRef.current.focus();
       });
     };
-  }, [fallbackFocusRef, portalNode, returnFocus, returnFocusTo]);
+  }, [fallbackFocusRef, portalNode, resolveReturnFocus, returnFocus, returnFocusTo]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape') {

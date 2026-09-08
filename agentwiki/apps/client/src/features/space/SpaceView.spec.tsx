@@ -313,6 +313,57 @@ describe('SpaceView new-page flow', () => {
     confirm.mockRestore();
   });
 
+  it('returns focus to a connected parent after a successful folder delete refreshes the tree', async () => {
+    const parent: ContentTreeNode = {
+      kind: 'folder', id: 'parent', name: 'Parent', path: '/Parent', sortOrder: 0,
+      createdAt: '2026-09-05T00:00:00.000Z', updatedAt: '2026-09-05T00:00:00.000Z', hasChildren: true,
+    };
+    const folder: ContentTreeNode = {
+      kind: 'folder', id: 'folder-1', name: 'Delete me', path: '/Parent/Delete me', sortOrder: 0,
+      createdAt: '2026-09-05T00:00:00.000Z', updatedAt: '2026-09-05T00:00:00.000Z', hasChildren: false,
+    };
+    const refreshedTree = deferred<ReturnType<typeof treeResponse>>();
+    let deleted = false;
+    mocks.api.get.mockImplementation(async (url: string, config?: { params?: { parentFolderId?: string } }) => {
+      if (url === '/spaces/space-1') return spaceResponse('space-1', 'Owner Space', 'owner');
+      if (url === '/spaces/space-1/content-tree') {
+        if (config?.params?.parentFolderId === 'parent') return { data: {
+          ...treeResponse('space-1', deleted ? [] : [folder]).data,
+          parentFolderId: 'parent', treeRevision: deleted ? '8' : '7',
+        } };
+        return deleted ? refreshedTree.promise : treeResponse('space-1', [parent]);
+      }
+      if (url === '/spaces/space-1/folders/folder-1/delete-impact') return { data: {
+        treeRevision: '7', rootUpdatedAt: folder.updatedAt, folderCount: 1, pageCount: 0, impactHash: 'impact-1',
+      } };
+      throw new Error(`Unexpected GET ${url}`);
+    });
+    mocks.api.delete.mockImplementation(async () => {
+      deleted = true;
+      return { data: {
+        treeRevision: '8', syncRevisionId: 'sync-8',
+        batch: { id: 'batch-1', folderCount: 1, pageCount: 0, impactHash: 'impact-1', createdAt: '2026-09-09T00:00:00.000Z' },
+      } };
+    });
+    renderSpaceView();
+
+    fireEvent.click(await screen.findByTestId('content-toggle-parent'));
+    const trigger = await screen.findByTestId('content-deletefolder-folder-1');
+    trigger.focus();
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByTestId('folder-delete-confirm'));
+
+    await waitFor(() => expect(mocks.api.delete).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    await act(async () => refreshedTree.resolve({
+      ...treeResponse('space-1', [parent]),
+      data: { ...treeResponse('space-1', [parent]).data, treeRevision: '8' },
+    }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId('content-deletefolder-folder-1')).not.toBeInTheDocument());
+    expect(screen.getByTestId('content-node-parent')).toHaveFocus();
+  });
+
   it('does not DELETE after changing Space while the tree head is pending', async () => {
     const head = deferred<string>();
     vi.spyOn(window, 'confirm').mockReturnValue(true);
