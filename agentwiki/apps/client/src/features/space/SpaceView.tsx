@@ -95,6 +95,8 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   const [archivingPageId, setArchivingPageId] = useState<string | null>(null);
 
   const workspace = useOptionalSpaceWorkspace();
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
   const [localCurrentFolderId, setLocalCurrentFolderId] = useState<string | null>(null);
   const [localExpandedFolderIds, setLocalExpandedFolderIds] = useState<ReadonlySet<string>>(new Set());
   const [folderDialog, setFolderDialog] = useState<PendingFolderDialog | null>(null);
@@ -369,6 +371,16 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
         expectedUpdatedAt: dragNode.updatedAt,
       });
       directory.acceptTreeRevision(result.treeRevision);
+      const activeWorkspace = workspaceRef.current;
+      if (
+        mountedRef.current
+        && activeRouteIdRef.current === id
+        && request.kind === 'page'
+        && activeWorkspace?.mode === 'read'
+        && activeWorkspace.selectedPageId === request.id
+      ) {
+        activeWorkspace.requestPageRefresh(request.id);
+      }
     } catch (err: any) {
       setActionError(err.response?.data?.message || t('folder.moveFailed'));
     } finally {

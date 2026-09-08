@@ -85,8 +85,10 @@ const renderPreviewWithCrumbs = () => render(
           selectedFolderId={null}
           selectedPageId="page-1"
           selectedPageFolderId="folder-child"
+          pageRefreshRequest={0}
           selectFolder={() => undefined}
           reportPageIdentity={() => undefined}
+          requestPageRefresh={() => undefined}
         >
           <CrumbReporter />
           <Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes>
@@ -233,6 +235,28 @@ describe('PagePreview checklist saves', () => {
     expect(checkboxes[1]).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Delete page' })).not.toBeInTheDocument();
+  });
+
+  it('retries the same Page in place after a transient load failure', async () => {
+    let pageLoads = 0;
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
+      if (url === '/pages/page-1') {
+        pageLoads += 1;
+        return pageLoads === 1
+          ? Promise.reject(new Error('connection refused'))
+          : Promise.resolve({ data: page({ title: 'Recovered page', folderId: 'folder-recovered' }) } as any);
+      }
+      return Promise.reject(new Error(`unexpected get ${url}`));
+    });
+    renderPreview();
+
+    expect(await screen.findByText('Failed to load page')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByRole('heading', { name: 'Recovered page' })).toBeVisible();
+    expect(screen.queryByText('Failed to load page')).not.toBeInTheDocument();
+    expect(pageLoads).toBe(2);
   });
 
   it('uses a centered reading surface with readable actions and on-demand outline and page information', async () => {

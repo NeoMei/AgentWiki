@@ -250,8 +250,10 @@ const renderEditorWithCrumbs = () => render(
           selectedFolderId={null}
           selectedPageId="page-1"
           selectedPageFolderId="folder-guides"
+          pageRefreshRequest={0}
           selectFolder={() => undefined}
           reportPageIdentity={() => undefined}
+          requestPageRefresh={() => undefined}
         >
           <EditorCrumbReporter />
           <Routes><Route path="/pages/:id/edit" element={<PageEditor workspaceRef={workspaceRef} />} /></Routes>

@@ -62,13 +62,16 @@ export const PagePreview: React.FC = () => {
   const [page, setPage] = useState<Page | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadRequest, setLoadRequest] = useState(0);
   const [taskSaveError, setTaskSaveError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [relatedPages, setRelatedPages] = useState<any[]>([]);
   const [pendingTaskIndexes, setPendingTaskIndexes] = useState<ReadonlySet<number>>(new Set());
   const mountedRef = useRef(false);
   const activePageIdRef = useRef<string | undefined>(id);
+  const loadedRouteIdRef = useRef<string | undefined>(undefined);
   const routeGenerationRef = useRef(0);
+  const pageLoadSequenceRef = useRef(0);
   const pageRef = useRef<Page | null>(null);
   const markdownRootRef = useRef<HTMLDivElement | null>(null);
   const lastScrolledHashRef = useRef<string | null>(null);
@@ -281,26 +284,32 @@ export const PagePreview: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const generation = routeGenerationRef.current + 1;
-    routeGenerationRef.current = generation;
-    deleteOperationRef.current += 1;
-    deleteControllerRef.current?.abort();
-    deleteControllerRef.current = null;
-    deleteInFlightRef.current = false;
+    const routeChanged = loadedRouteIdRef.current !== id;
+    loadedRouteIdRef.current = id;
+    const generation = routeChanged ? routeGenerationRef.current + 1 : routeGenerationRef.current;
+    if (routeChanged) routeGenerationRef.current = generation;
+    const loadSequence = pageLoadSequenceRef.current + 1;
+    pageLoadSequenceRef.current = loadSequence;
     activePageIdRef.current = id;
-    pendingTaskOperationsRef.current = [];
-    saveChainRef.current = Promise.resolve();
-    lastCommittedPageRef.current = null;
-    pageRef.current = null;
-    lastScrolledHashRef.current = null;
-    setPage(null);
+    if (routeChanged) {
+      deleteOperationRef.current += 1;
+      deleteControllerRef.current?.abort();
+      deleteControllerRef.current = null;
+      deleteInFlightRef.current = false;
+      pendingTaskOperationsRef.current = [];
+      saveChainRef.current = Promise.resolve();
+      lastCommittedPageRef.current = null;
+      pageRef.current = null;
+      lastScrolledHashRef.current = null;
+      setPage(null);
+      setTaskSaveError(null);
+      setDeleting(false);
+      setPendingTaskIndexes(new Set());
+      setRelatedPages([]);
+      if (id) reportPageIdentity(id, null);
+    }
     setLoading(true);
     setError(null);
-    setTaskSaveError(null);
-    setDeleting(false);
-    setPendingTaskIndexes(new Set());
-    setRelatedPages([]);
-    if (id) reportPageIdentity(id, null);
     if (!id) {
       setLoading(false);
       return;
@@ -309,21 +318,33 @@ export const PagePreview: React.FC = () => {
     const requestedId = id;
     api.get(`/pages/${requestedId}`)
       .then((response) => {
-        if (!routeIsActive(requestedId, generation)) return;
+        if (!routeIsActive(requestedId, generation) || pageLoadSequenceRef.current !== loadSequence) return;
         lastCommittedPageRef.current = response.data;
         pageRef.current = response.data;
-        setPage(response.data);
+        const hasPendingTasks = pendingTaskOperationsRef.current.some(
+          (operation) => operation.pageId === requestedId && operation.generation === generation,
+        );
+        if (hasPendingTasks) {
+          for (const operation of pendingTaskOperationsRef.current) {
+            if (operation.pageId === requestedId && operation.generation === generation) operation.requiresRebase = true;
+          }
+          replayPendingOperations(requestedId, generation);
+        } else {
+          setPage(response.data);
+        }
+        setError(null);
         reportPageIdentity(requestedId, response.data?.spaceId || null, response.data?.folderId ?? null);
       })
       .catch((loadError: any) => {
-        if (!routeIsActive(requestedId, generation)) return;
-        reportPageIdentity(requestedId, null);
+        if (!routeIsActive(requestedId, generation) || pageLoadSequenceRef.current !== loadSequence) return;
+        const status = loadError.response?.status;
+        if (status === 401 || status === 403) reportPageIdentity(requestedId, null);
         setError(loadError.response?.data?.message || tRef.current('editor.loadFailed'));
       })
       .finally(() => {
-        if (routeIsActive(requestedId, generation)) setLoading(false);
+        if (routeIsActive(requestedId, generation) && pageLoadSequenceRef.current === loadSequence) setLoading(false);
       });
-  }, [id, reportPageIdentity]);
+  }, [id, loadRequest, reportPageIdentity, workspace?.pageRefreshRequest]);
 
   useEffect(() => {
     setRelatedPages([]);
@@ -512,6 +533,9 @@ export const PagePreview: React.FC = () => {
   if (error) return (
     <div className="text-center py-8">
       <p className="text-red-500 mb-2">{error}</p>
+      <button type="button" onClick={() => setLoadRequest((current) => current + 1)} className="mr-3 text-blue-600 hover:underline">
+        {t('common.retry')}
+      </button>
       {page?.spaceId ? (
         <Link to={`/spaces/${page.spaceId}`} className="text-blue-600 hover:underline">{t('editor.backToSpace')}</Link>
       ) : (

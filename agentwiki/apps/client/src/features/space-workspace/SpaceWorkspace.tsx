@@ -32,6 +32,7 @@ export const SpaceWorkspace: React.FC<SpaceWorkspaceProps> = ({
   const location = useLocation();
   const navigate = useNavigate();
   const [pageResolution, setPageResolution] = useState<{ pageId: string; spaceId: string; folderId: string | null } | null>(null);
+  const [pageRefreshRequest, setPageRefreshRequest] = useState(0);
   const resolvedSpaceId = spaceId ?? (
     pageResolution && pageResolution.pageId === pageId ? pageResolution.spaceId : null
   );
@@ -48,6 +49,10 @@ export const SpaceWorkspace: React.FC<SpaceWorkspaceProps> = ({
     });
   }, [pageId]);
 
+  const requestPageRefresh = useCallback((requestedPageId: string) => {
+    if (requestedPageId === pageId && mode === 'read') setPageRefreshRequest((current) => current + 1);
+  }, [mode, pageId]);
+
   const selectFolder = useCallback((folderId: string | null) => {
     if (resolvedSpaceId) navigate(spaceFolderHref(resolvedSpaceId, folderId));
   }, [navigate, resolvedSpaceId]);
@@ -60,8 +65,10 @@ export const SpaceWorkspace: React.FC<SpaceWorkspaceProps> = ({
       selectedFolderId={selectedFolderId}
       selectedPageId={pageId ?? null}
       selectedPageFolderId={pageResolution && pageResolution.pageId === pageId ? pageResolution.folderId : null}
+      pageRefreshRequest={pageRefreshRequest}
       selectFolder={selectFolder}
       reportPageIdentity={reportPageIdentity}
+      requestPageRefresh={requestPageRefresh}
     >
       <div data-space-workspace={mode} data-space-id={resolvedSpaceId ?? undefined}>
         {showNavigation && resolvedSpaceId && !useSharedSpaceShell ? <SpaceNav spaceId={resolvedSpaceId} activeSection={resolvedSection} /> : null}

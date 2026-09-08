@@ -22,12 +22,14 @@ export interface SpaceWorkspaceContextValue extends BrowsingState {
   selectedFolderId: string | null;
   selectedPageId: string | null;
   selectedPageFolderId: string | null;
+  pageRefreshRequest: number;
   setFolderExpanded: (folderId: string, expanded: boolean) => void;
   setDirectoryScrollTop: (scrollTop: number) => void;
   directoryCollapsed: boolean;
   setDirectoryCollapsed: (collapsed: boolean) => void;
   selectFolder: (folderId: string | null) => void;
   reportPageIdentity: (pageId: string, spaceId: string | null, folderId?: string | null) => void;
+  requestPageRefresh: (pageId: string) => void;
   directoryCrumbs: ReadonlyArray<{ id: string | null; name: string }>;
   reportDirectoryCrumbs: (crumbs: ReadonlyArray<{ id: string | null; name: string }>) => void;
 }
@@ -67,8 +69,10 @@ interface SpaceWorkspaceScopeProps {
   selectedFolderId: string | null;
   selectedPageId: string | null;
   selectedPageFolderId: string | null;
+  pageRefreshRequest: number;
   selectFolder: (folderId: string | null) => void;
   reportPageIdentity: (pageId: string, spaceId: string | null, folderId?: string | null) => void;
+  requestPageRefresh: (pageId: string) => void;
   children: React.ReactNode;
 }
 
@@ -79,8 +83,10 @@ export const SpaceWorkspaceScope: React.FC<SpaceWorkspaceScopeProps> = ({
   selectedFolderId,
   selectedPageId,
   selectedPageFolderId,
+  pageRefreshRequest,
   selectFolder,
   reportPageIdentity,
+  requestPageRefresh,
   children,
 }) => {
   const registry = useContext(WorkspaceRegistryContext);
@@ -113,11 +119,13 @@ export const SpaceWorkspaceScope: React.FC<SpaceWorkspaceScopeProps> = ({
     selectedFolderId,
     selectedPageId,
     selectedPageFolderId,
+    pageRefreshRequest,
     setFolderExpanded,
     setDirectoryScrollTop,
     setDirectoryCollapsed,
     selectFolder,
     reportPageIdentity,
+    requestPageRefresh,
     directoryCrumbs,
     reportDirectoryCrumbs: setDirectoryCrumbs,
   }), [
@@ -126,8 +134,10 @@ export const SpaceWorkspaceScope: React.FC<SpaceWorkspaceScopeProps> = ({
     directoryCrumbs,
     directoryCollapsed,
     mode,
+    pageRefreshRequest,
     registry.userId,
     reportPageIdentity,
+    requestPageRefresh,
     selectFolder,
     selectedFolderId,
     selectedPageId,
