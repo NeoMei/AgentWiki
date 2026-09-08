@@ -31,6 +31,8 @@ const WorkspaceProbe = () => {
       <button type="button" onClick={() => navigate('/pages/page-2/edit')}>edit next</button>
       <button type="button" onClick={() => navigate('/pages/page-2')}>read second</button>
       <button type="button" onClick={() => navigate('/pages/page-3')}>read third</button>
+      <button type="button" onClick={() => navigate('/spaces/space-1/sources')}>open sources</button>
+      <button type="button" onClick={() => navigate('/pages/page-1')}>return to page</button>
       <button type="button" onClick={() => navigate('/spaces/space-2')}>other space</button>
     </>
   );
@@ -55,6 +57,7 @@ const UserHarness = () => {
         <Route path="/pages/:id" element={<SpaceWorkspace mode="read" spaceId="space-1"><WorkspaceProbe /></SpaceWorkspace>} />
         <Route path="/pages/:id/edit" element={<SpaceWorkspace mode="edit" spaceId="space-1"><WorkspaceProbe /></SpaceWorkspace>} />
         <Route path="/spaces/space-2" element={<SpaceWorkspace mode="directory" spaceId="space-2"><WorkspaceProbe /></SpaceWorkspace>} />
+        <Route path="/spaces/space-1/sources" element={<SpaceWorkspace mode="section" spaceId="space-1"><WorkspaceProbe /></SpaceWorkspace>} />
         <Route path="/spaces/:id" element={<SpaceWorkspace mode="directory" spaceId="space-1"><WorkspaceProbe /></SpaceWorkspace>} />
       </Routes>
     </SpaceWorkspaceProvider>
@@ -114,6 +117,35 @@ describe('SpaceWorkspace', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'other space' }));
     expect(screen.getByTestId('expanded')).toBeEmptyDOMElement();
+  });
+
+  it('restores the Space browse state after visiting a wide section without loading its directory', async () => {
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === '/spaces/space-1') return { data: {
+        id: 'space-1', name: 'Space one', description: '', members: [],
+      } };
+      throw new Error(`unexpected get ${url}`);
+    });
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/pages/page-1']}>
+          <UserHarness />
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'expand' }));
+    fireEvent.click(screen.getByRole('button', { name: 'remember scroll' }));
+    fireEvent.click(screen.getByRole('button', { name: 'open sources' }));
+    expect(await screen.findByRole('heading', { name: 'Space one' })).toBeVisible();
+    expect(screen.getByTestId('expanded')).toHaveTextContent('folder-a');
+    expect(screen.getByTestId('directory-scroll')).toHaveTextContent('120');
+    expect(vi.mocked(api.get).mock.calls.map(([url]) => url)).toEqual(['/spaces/space-1']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'return to page' }));
+    expect(screen.getByTestId('expanded')).toHaveTextContent('folder-a');
+    expect(screen.getByTestId('directory-scroll')).toHaveTextContent('120');
   });
 
   it('follows the folder query when browser history moves backward', async () => {

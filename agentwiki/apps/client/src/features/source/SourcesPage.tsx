@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { FileUp, GitBranch, Globe, Play, Plus, Type } from 'lucide-react';
 import api from '../../api/client';
-import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
 import { apiErrorMessage } from '../../api/error-message';
 
@@ -120,7 +119,6 @@ export const SourcesPage: React.FC = () => {
 
   return (
     <div className="max-w-5xl mx-auto">
-      <SpaceNav spaceId={id} />
       <div className="flex items-start justify-between mb-6">
         <div><Link to={'/spaces/' + id} className="text-sm text-gray-500">← {t('common.space')}</Link><h1 className="text-2xl font-semibold mt-3">{t('source.title')}</h1><p className="text-sm text-gray-500 mt-1">{t('source.description')}</p></div>
         <button disabled={submitting} onClick={() => setShowCreate(!showCreate)} className="h-8 px-3 rounded-lg bg-blue-600 text-white text-sm flex items-center gap-2 disabled:opacity-50"><Plus size={15} /> {t('source.add')}</button>

@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Ban, RefreshCw, RotateCcw } from 'lucide-react';
 import api from '../../api/client';
-import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
 import { apiErrorMessage } from '../../api/error-message';
 
@@ -86,7 +85,6 @@ export const RunsPage: React.FC = () => {
 
   return (
     <div className="max-w-5xl mx-auto">
-      <SpaceNav spaceId={id} />
       <Link to={'/spaces/' + id} className="text-sm text-gray-500">← {t('common.space')}</Link>
       <div className="flex items-center justify-between mt-3 mb-6">
         <div>

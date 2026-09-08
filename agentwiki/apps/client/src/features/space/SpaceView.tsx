@@ -67,9 +67,10 @@ interface PendingDeleteRefresh {
 export interface SpaceViewProps {
   spaceId?: string | null;
   workspaceContent?: React.ReactNode;
+  showDirectory?: boolean;
 }
 
-export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, workspaceContent }) => {
+export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, workspaceContent, showDirectory = true }) => {
   const { id: routeId } = useParams<{ id: string }>();
   const id = providedSpaceId !== undefined ? (providedSpaceId ?? undefined) : routeId;
   const navigate = useNavigate();
@@ -130,7 +131,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   const setFolderExpanded = workspace?.setFolderExpanded ?? setLocalFolderExpanded;
   const targetFolderId = workspace?.selectedPageFolderId ?? currentFolderId;
   const directory = useSpaceDirectory({
-    spaceId: space?.id === id && id ? id : null,
+    spaceId: showDirectory && space?.id === id && id ? id : null,
     targetFolderId,
     expandedFolderIds,
     setFolderExpanded,
@@ -250,7 +251,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     setBindingReturnFocus(null);
     setTemplateFolder(null);
     setTemplateReturnFocus(null);
-    if (!id) return;
+    if (!id || !showDirectory) return;
     const requestIdentity = `${id}\u0000${language}`;
     let active = true;
     void listCompositeTemplates(id, { locale: language, take: 1 })
@@ -268,7 +269,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     return () => {
       active = false;
     };
-  }, [id, language]);
+  }, [id, language, showDirectory]);
 
   const requireTreeRevision = (): string | null => {
     if (treeRevision) return treeRevision;
@@ -436,7 +437,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     <div>
       <div className="mb-6" />
       <div key="workspace-layout" className="flex flex-col lg:flex-row">
-        <aside className="hidden w-[260px] shrink-0 border-r border-gray-200 lg:block" />
+        {showDirectory ? <aside className="hidden w-[260px] shrink-0 border-r border-gray-200 lg:block" /> : null}
         <main className="min-w-0 flex-1 px-4 py-4 lg:px-6">{workspaceContent}</main>
       </div>
     </div>
@@ -444,12 +445,14 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   if (error && workspaceContent) return (
     <div>
       <div key="workspace-layout" className="flex flex-col lg:flex-row">
-        <aside className="w-full border-b border-gray-200 p-4 lg:min-h-[calc(100vh-4rem)] lg:w-[260px] lg:shrink-0 lg:border-b-0 lg:border-r">
+        <div className={showDirectory
+          ? 'w-full border-b border-gray-200 p-4 lg:min-h-[calc(100vh-4rem)] lg:w-[260px] lg:shrink-0 lg:border-b-0 lg:border-r'
+          : 'w-full border-b border-gray-200 p-4'}>
           <p className="mb-3 text-sm text-red-600">{error}</p>
           <button type="button" onClick={() => { void fetchSpace(false); }} className="text-sm font-medium text-blue-700 underline">
             {t('common.retry')}
           </button>
-        </aside>
+        </div>
         <main className="min-w-0 flex-1 px-4 py-4 lg:px-6">{workspaceContent}</main>
       </div>
     </div>
@@ -525,7 +528,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
       </div> : null}
 
       <div key="workspace-layout" className="flex flex-col lg:flex-row">
-        {workspace && !workspace.directoryCollapsed ? <SpaceDirectory
+        {workspace && showDirectory && !workspace.directoryCollapsed ? <SpaceDirectory
           spaceName={space.name}
           levels={directory.levels}
           expandedFolderIds={expandedFolderIds}

@@ -3,7 +3,6 @@ import { Plus, RefreshCw } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { apiErrorMessage } from '../../api/error-message';
 import { ModalDialog } from '../../components/ModalDialog';
-import { SpaceNav } from '../../components/SpaceNav';
 import { Toast } from '../../components/Toast';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -197,7 +196,6 @@ export const CollaborationWorkspace: React.FC = () => {
 
   return (
     <div className="mx-auto max-w-6xl min-w-0">
-      <SpaceNav spaceId={id} />
       <section aria-labelledby="collaboration-title">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>

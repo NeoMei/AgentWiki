@@ -3,7 +3,6 @@ import { useParams, Link } from 'react-router-dom';
 import { AGENT_ACCESS_ROLES, type AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import api from '../../api/client';
 import { Users, Plus, Trash2, Shield, Loader2, Bot } from 'lucide-react';
-import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { AddSpaceMemberDialog } from './AddSpaceMemberDialog';
@@ -165,7 +164,6 @@ export const SpaceMembers: React.FC = () => {
 
   return (
     <div>
-      <SpaceNav spaceId={id} />
       <div className="mb-6 flex items-center justify-between">
         <div>
           <div className="mb-2 flex items-center gap-2 text-sm text-gray-400">

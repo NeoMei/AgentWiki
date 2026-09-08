@@ -3,7 +3,6 @@ import { CollaborationTemplateDefinitionSchema, type CollaborationTemplateDefini
 import { ArrowLeft, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ModalDialog } from '../../components/ModalDialog';
-import { SpaceNav } from '../../components/SpaceNav';
 import { Toast } from '../../components/Toast';
 import { useLanguage } from '../../context/LanguageContext';
 import { collaborationApi } from './api';
@@ -157,7 +156,6 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ mode }) => {
 
   return (
     <div className="mx-auto max-w-6xl min-w-0">
-      <SpaceNav spaceId={id} />
       <Link to={`/spaces/${id}/collaboration`} className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-blue-700"><ArrowLeft size={15} />{t('collaboration.title')}</Link>
       <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div><h1 className="text-2xl font-semibold">{creating ? t('collaboration.editor.createTitle') : t('collaboration.editor.title')}</h1><p className="mt-1 text-sm text-gray-600">{t('collaboration.editor.subtitle')}</p></div>

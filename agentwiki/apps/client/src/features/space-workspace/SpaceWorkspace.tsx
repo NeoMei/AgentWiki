@@ -37,6 +37,7 @@ export const SpaceWorkspace: React.FC<SpaceWorkspaceProps> = ({
   );
   const resolvedSection = activeSection ?? workspaceSectionFromPath(location.pathname) ?? 'pages';
   const selectedFolderId = folderIdFromSearch(location.search);
+  const useSharedSpaceShell = showDirectory || mode === 'section';
 
   const reportPageIdentity = useCallback((reportedPageId: string, reportedSpaceId: string | null, folderId: string | null = null) => {
     if (!pageId || reportedPageId !== pageId) return;
@@ -63,9 +64,9 @@ export const SpaceWorkspace: React.FC<SpaceWorkspaceProps> = ({
       reportPageIdentity={reportPageIdentity}
     >
       <div data-space-workspace={mode} data-space-id={resolvedSpaceId ?? undefined}>
-        {showNavigation && resolvedSpaceId && !showDirectory ? <SpaceNav spaceId={resolvedSpaceId} activeSection={resolvedSection} /> : null}
-        {showDirectory
-          ? <SpaceView spaceId={resolvedSpaceId} workspaceContent={mode === 'directory' ? undefined : children} />
+        {showNavigation && resolvedSpaceId && !useSharedSpaceShell ? <SpaceNav spaceId={resolvedSpaceId} activeSection={resolvedSection} /> : null}
+        {useSharedSpaceShell
+          ? <SpaceView spaceId={resolvedSpaceId} workspaceContent={mode === 'directory' ? undefined : children} showDirectory={showDirectory} />
           : children}
       </div>
     </SpaceWorkspaceScope>

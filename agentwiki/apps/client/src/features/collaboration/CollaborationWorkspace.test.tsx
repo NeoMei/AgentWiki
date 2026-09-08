@@ -1,15 +1,19 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { collaborationApi } from './api';
 import { validDefinition } from './collaboration-test-fixtures';
 import { CollaborationWorkspace } from './CollaborationWorkspace';
+import { SpaceWorkspace } from '../space-workspace/SpaceWorkspace';
+import { SpaceWorkspaceProvider } from '../space-workspace/SpaceWorkspaceContext';
 
 const pageDialogProps = vi.hoisted(() => ({ current: null as null | Record<string, any> }));
 const compositeMocks = vi.hoisted(() => ({ listCompositeTemplates: vi.fn() }));
+const shellApi = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() }));
 
+vi.mock('../../api/client', () => ({ default: shellApi }));
 vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
 vi.mock('../page-templates/UpgradeWorkflowTemplateDialog', () => ({
   UpgradeWorkflowTemplateDialog: ({ legacyTemplate }: { legacyTemplate: { name: string } }) => <div role="dialog">Upgrade dialog {legacyTemplate.name}</div>,
@@ -50,6 +54,11 @@ const NavigationCapture = () => {
   return null;
 };
 
+const CollaborationSectionRoute = () => {
+  const { id } = useParams<{ id: string }>();
+  return <SpaceWorkspace mode="section" spaceId={id}><CollaborationWorkspace /></SpaceWorkspace>;
+};
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
@@ -65,13 +74,15 @@ function renderWorkspace(language: 'en' | 'zh-CN' = 'en') {
   return render(
     <LanguageProvider>
       <MemoryRouter initialEntries={['/spaces/space-1/collaboration']}>
-        <NavigationCapture />
-        <Routes>
-          <Route path="/spaces/:id/collaboration" element={<CollaborationWorkspace />} />
-          <Route path="/spaces/:id/collaboration/runs/:runId" element={<div data-testid="opened-atomic-run" />} />
-          <Route path="/spaces/:id" element={<div data-testid="opened-space-root" />} />
-          <Route path="/pages/:pageId/edit" element={<div data-testid="opened-created-group-page" />} />
-        </Routes>
+        <SpaceWorkspaceProvider userId="owner-1">
+          <NavigationCapture />
+          <Routes>
+            <Route path="/spaces/:id/collaboration" element={<CollaborationSectionRoute />} />
+            <Route path="/spaces/:id/collaboration/runs/:runId" element={<div data-testid="opened-atomic-run" />} />
+            <Route path="/spaces/:id" element={<div data-testid="opened-space-root" />} />
+            <Route path="/pages/:pageId/edit" element={<div data-testid="opened-created-group-page" />} />
+          </Routes>
+        </SpaceWorkspaceProvider>
       </MemoryRouter>
     </LanguageProvider>,
   );
@@ -81,6 +92,11 @@ describe('CollaborationWorkspace', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     pageDialogProps.current = null;
+    shellApi.get.mockImplementation(async (url: string) => {
+      const spaceId = url.match(/^\/spaces\/([^/]+)$/u)?.[1];
+      if (!spaceId) throw new Error(`unexpected get ${url}`);
+      return { data: { id: spaceId, name: `Space ${spaceId}`, description: '', members: [] } };
+    });
     vi.mocked(useAuth).mockReturnValue({ user: { id: 'owner-1' } } as ReturnType<typeof useAuth>);
     vi.mocked(collaborationApi.listTemplates).mockResolvedValue([systemCodingTemplate, spaceTemplate]);
     vi.mocked(collaborationApi.listMembers).mockResolvedValue([

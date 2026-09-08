@@ -3,7 +3,6 @@ import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { ModalDialog } from '../../components/ModalDialog';
 import { apiErrorCode, apiErrorMessage } from '../../api/error-message';
-import { SpaceNav } from '../../components/SpaceNav';
 import { Toast } from '../../components/Toast';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -317,7 +316,6 @@ export const RunDashboard: React.FC = () => {
 
   return (
     <div className="mx-auto max-w-7xl min-w-0 overflow-x-clip">
-      <SpaceNav spaceId={id} />
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="min-w-0"><Link to={`/spaces/${id}/collaboration`} className="inline-flex items-center gap-1 text-sm text-gray-500"><ArrowLeft size={15} />{t('collaboration.title')}</Link><h1 className="mt-2 break-words text-2xl font-semibold">{t('collaboration.dashboard.title')}</h1></div>
         {state.kind === 'ready' && state.updating ? <span role="status" className="text-sm text-gray-500">{t('collaboration.dashboard.updating')}</span> : <button type="button" aria-label={t('common.refresh')} onClick={() => void Promise.all([refresh(), loadMembers()])} className="rounded-lg border p-2"><RefreshCw size={16} /></button>}

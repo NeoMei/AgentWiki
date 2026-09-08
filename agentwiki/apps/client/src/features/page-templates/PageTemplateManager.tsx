@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { apiErrorCode, apiErrorMessage } from '../../api/error-message';
 import { ModalDialog } from '../../components/ModalDialog';
-import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
 import { CompositeDefinitionEditor, definitionReferenceIssues } from './CompositeDefinitionEditor';
 import {
@@ -634,7 +633,6 @@ export const PageTemplateManager: React.FC = () => {
 
   return (
     <div className="mx-auto max-w-5xl">
-      <SpaceNav spaceId={id} />
       <Link to={`/spaces/${id}/settings`} className="text-sm text-gray-500 hover:text-blue-600">
         ← {t('settings.spaceTitle')}
       </Link>

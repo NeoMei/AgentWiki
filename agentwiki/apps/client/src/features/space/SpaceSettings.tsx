@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import api from '../../api/client';
-import { SpaceNav } from '../../components/SpaceNav';
 import { PageTemplateSettingsCard } from '../page-templates/PageTemplateSettingsCard';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -258,7 +257,6 @@ export const SpaceSettings: React.FC = () => {
 
   return (
     <div className="max-w-3xl mx-auto">
-      <SpaceNav spaceId={id} />
       <Link to={`/spaces/${id}`} className="text-sm text-gray-500 hover:text-blue-600">← {t('common.space')}</Link>
       <h1 className="text-2xl font-semibold mt-3 mb-6">{t('settings.spaceTitle')}</h1>
       <form onSubmit={save} className="space-y-5 border rounded-[14px] bg-white p-5">

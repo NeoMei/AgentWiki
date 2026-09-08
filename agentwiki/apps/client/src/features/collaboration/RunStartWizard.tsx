@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CollaborationInputValuesSchema } from '@neomei/agentwiki-sync-protocol';
 import { ArrowLeft, CheckCircle2, Copy, RefreshCw } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
-import { SpaceNav } from '../../components/SpaceNav';
 import { Toast } from '../../components/Toast';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -627,7 +626,6 @@ export const RunStartWizard: React.FC = () => {
 
   return (
     <div className="mx-auto max-w-4xl min-w-0">
-      <SpaceNav spaceId={id} />
       <Link to={`/spaces/${id}/collaboration`} className="inline-flex items-center gap-1 text-sm text-gray-500"><ArrowLeft size={15} />{t('collaboration.title')}</Link>
       <div className="mt-3"><h1 className="text-2xl font-semibold">{t('collaboration.wizard.title')}</h1><p className="mt-1 text-sm text-gray-600">{template.name}</p></div>
       <ol aria-label={t('collaboration.wizard.progress')} className="mt-6 grid grid-cols-3 gap-2 text-center text-xs sm:text-sm">

@@ -3,7 +3,6 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { ArrowLeft, Plus, X, Link2, Trash2 } from 'lucide-react';
 import { ModalDialog } from '../../components/ModalDialog';
-import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
 
 interface KnowledgeNode {
@@ -257,7 +256,6 @@ export const KnowledgeGraph: React.FC = () => {
 
   return (
     <div>
-      <SpaceNav spaceId={spaceId} />
       <div className='flex flex-wrap items-center gap-2 mb-3'>
         {[...new Set(edges.map((edge) => edge.origin))].map((origin) => {
           const hidden = hiddenOrigins.has(origin);
