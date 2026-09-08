@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App, { ProtectedRoute, createAppMemoryRouter } from './App';
@@ -156,7 +156,9 @@ describe('ProtectedRoute', () => {
   it('keeps section content and a retry path visible when Space metadata fails', async () => {
     authState.token = 'signed-in';
     authState.user = { id: 'user-1' };
-    api.get.mockRejectedValueOnce({ response: { status: 503, data: { message: 'Space temporarily unavailable' } } });
+    api.get
+      .mockRejectedValueOnce({ response: { status: 503, data: { message: 'Space temporarily unavailable' } } })
+      .mockResolvedValueOnce({ data: { id: 'space-error', name: 'Recovered Space', description: '', members: [] } });
 
     render(<App router={createAppMemoryRouter('/spaces/space-error/sources')} />);
 
@@ -168,5 +170,10 @@ describe('ProtectedRoute', () => {
     const errorLayout = screen.getByText('Space temporarily unavailable').parentElement?.parentElement;
     expect(errorLayout).toHaveClass('flex-col');
     expect(errorLayout).not.toHaveClass('lg:flex-row');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('heading', { name: 'Recovered Space' })).toBeVisible();
+    expect(screen.queryByText('Space temporarily unavailable')).not.toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Space navigation' })).toBeVisible();
   });
 });

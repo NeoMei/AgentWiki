@@ -217,3 +217,47 @@ Exit status 0; no diagnostics
 ```
 
 Controller real-browser retest hook: inject a failing `GET /spaces/:spaceId` response on a section route such as `/spaces/:id/sources`, then verify at desktop width that the error message and Retry render above the full-width Sources body, with no directory rail or horizontal side-by-side split.
+
+### Retry recovery follow-up
+
+The controller's desktop failure injection confirmed the vertical geometry at 1440 px: the error panel and business body both measured 1408 px wide and were vertically adjacent. Clearing the interception and clicking Retry exposed a related recovery defect: the real Space request returned 200, but the old error remained because `fetchSpace(false)` installed the Space without clearing its prior error.
+
+The existing section metadata error test was extended before production code changed. It now returns a 503 first, clicks Retry, returns the real-shaped Space response, and requires the prior error to disappear while the recovered Space title and shared navigation appear.
+
+RED:
+
+```text
+pnpm --filter @agentwiki/client test src/App.spec.tsx \
+  -t "keeps section content and a retry path visible when Space metadata fails"
+
+Test Files  1 failed (1)
+Tests       1 failed | 17 skipped (18)
+Failure: Unable to find role="heading" and name "Recovered Space"
+```
+
+The minimal fix clears `error` only after the current Space metadata request succeeds and passes its existing request-sequence guard. Stale or failed requests do not clear the active error.
+
+Focused GREEN:
+
+```text
+pnpm --filter @agentwiki/client test src/App.spec.tsx \
+  -t "keeps section content and a retry path visible when Space metadata fails"
+
+Test Files  1 passed (1)
+Tests       1 passed | 17 skipped (18)
+```
+
+Fresh related verification after this follow-up:
+
+```text
+pnpm --filter @agentwiki/client test \
+  src/App.spec.tsx \
+  src/features/space-workspace/SpaceWorkspace.spec.tsx \
+  src/features/space/SpaceView.spec.tsx
+
+Test Files  3 passed (3)
+Tests       49 passed (49)
+Exit status 0
+```
+
+`pnpm --filter @agentwiki/client exec tsc --noEmit` and scoped ESLint over `App.spec.tsx`, `SpaceView.tsx`, `SpaceWorkspace.spec.tsx`, and `SpaceWorkspace.tsx` each exited 0 with no diagnostics.

@@ -211,6 +211,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
       const spaceRes = await api.get('/spaces/' + id);
       if (requestSequenceRef.current !== requestSequence) return;
       setSpace(spaceRes.data);
+      setError(null);
     } catch (err: any) {
       if (requestSequenceRef.current !== requestSequence) return;
       if (err.response?.status === 401 || err.response?.status === 403) setSpace(null);
