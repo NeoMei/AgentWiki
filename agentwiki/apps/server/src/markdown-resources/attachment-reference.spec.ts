@@ -460,6 +460,15 @@ describe('parseImageReferences', () => {
     expect(counted.reads()).toBeLessThanOrEqual(raw.length * 20);
   });
 
+  it('scans distinct unmatched backtick runs linearly while keeping the following image visible', () => {
+    const raw = `${Array.from({ length: 96 }, (_, index) => '`'.repeat(index + 1)).join('x')} ![A](../assets/photo.png)`;
+    const counted = countIndexedReads(raw);
+
+    expect(parseImageReferences(counted.value, sourcePath).map((reference) => reference.rawTarget))
+      .toEqual(['../assets/photo.png']);
+    expect(counted.reads()).toBeLessThanOrEqual(raw.length * 20);
+  });
+
   it('matches deep list-fence blank lines in a linear number of indexed reads', () => {
     const depth = 512;
     const raw = `${'- '.repeat(depth)}\`\`\`md\r\n${'\r\n'.repeat(depth)}![[assets/real.png]]`;
