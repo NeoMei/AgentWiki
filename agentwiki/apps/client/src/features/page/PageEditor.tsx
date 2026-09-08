@@ -20,6 +20,7 @@ import 'highlight.js/styles/github.css';
 import { useOptionalSpaceWorkspace, usePageWorkspaceIdentity } from '../space-workspace/SpaceWorkspaceContext';
 import {
   readWorkspacePosition,
+  nearestMarkdownSourceBlock,
   rememberWorkspacePosition,
   spaceFolderHref,
   useDirtyNavigationGuard,
@@ -133,6 +134,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const bindingButtonRef = useRef<HTMLButtonElement>(null);
   const internalWorkspaceRef = useRef<MarkdownWorkspaceHandle | null>(null);
   const pendingWorkspacePositionRef = useRef<ReturnType<MarkdownWorkspaceHandle['capturePosition']> | null>(null);
+  const editorPreviewOriginRef = useRef<ReturnType<MarkdownWorkspaceHandle['capturePosition']> | null>(null);
   const restoredEntryRef = useRef<string | null>(null);
 
   const [page, setPage] = useState<Page | null>(null);
@@ -454,17 +456,6 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     abortAttachmentUploads();
   }, [abortAttachmentUploads, page?.id, page?.spaceId]);
 
-  useEffect(() => {
-    const handleModeShortcut = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'e') {
-        event.preventDefault();
-        setMode((currentMode) => currentMode === 'edit' ? 'preview' : 'edit');
-      }
-    };
-    window.addEventListener('keydown', handleModeShortcut);
-    return () => window.removeEventListener('keydown', handleModeShortcut);
-  }, []);
-
   useLayoutEffect(() => {
     const position = pendingWorkspacePositionRef.current;
     if (!position) return;
@@ -473,9 +464,30 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   }, [mode]);
 
   const togglePreview = useCallback(() => {
-    pendingWorkspacePositionRef.current = internalWorkspaceRef.current?.capturePosition() ?? null;
+    const currentPosition = internalWorkspaceRef.current?.capturePosition() ?? null;
+    if (mode === 'edit') {
+      editorPreviewOriginRef.current = currentPosition;
+      pendingWorkspacePositionRef.current = currentPosition;
+    } else {
+      const editorOrigin = editorPreviewOriginRef.current;
+      pendingWorkspacePositionRef.current = currentPosition && editorOrigin
+        ? { ...currentPosition, cursorOffset: editorOrigin.cursorOffset }
+        : currentPosition;
+      editorPreviewOriginRef.current = null;
+    }
     setMode((currentMode) => currentMode === 'edit' ? 'preview' : 'edit');
-  }, []);
+  }, [mode]);
+
+  useEffect(() => {
+    const handleModeShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'e') {
+        event.preventDefault();
+        togglePreview();
+      }
+    };
+    window.addEventListener('keydown', handleModeShortcut);
+    return () => window.removeEventListener('keydown', handleModeShortcut);
+  }, [togglePreview]);
 
   useLayoutEffect(() => {
     if (loading || !page || page.id !== id || restoredEntryRef.current === location.key) return;
@@ -486,7 +498,9 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     if (!requested) return;
     internalWorkspaceRef.current?.restorePosition({
       cursorOffset: requested.cursorOffset,
+      headingId: requested.headingId,
       headingText: requested.headingText,
+      sourceOffset: requested.sourceOffset,
       scrollTop: requested.scrollTop,
     });
   }, [loading, location.key, location.state, navigationType, page]);
@@ -497,7 +511,6 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     rememberWorkspacePosition(location.key, {
       ...position,
       pageId: pageRef.current?.id ?? '',
-      headingId: null,
     });
   }, [location.key]);
 
@@ -847,9 +860,20 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
           <button
             type="button"
             onClick={() => {
-              const position = internalWorkspaceRef.current?.capturePosition();
+              let position = internalWorkspaceRef.current?.capturePosition();
+              if (mode === 'preview') {
+                const previewRoot = document.querySelector<HTMLElement>('[data-testid="md-preview"]');
+                const boundary = (document.querySelector<HTMLElement>('[data-testid="editor-toolbar"]')
+                  ?.getBoundingClientRect().bottom ?? 0) + 12;
+                const nearestBlock = nearestMarkdownSourceBlock(
+                  previewRoot?.querySelectorAll<HTMLElement>('[data-markdown-source-start]') ?? [],
+                  boundary,
+                );
+                const sourceOffset = Number(nearestBlock?.dataset.markdownSourceStart);
+                if (position && Number.isFinite(sourceOffset)) position = { ...position, sourceOffset };
+              }
               guardedNavigate(`/pages/${id}`, {
-                state: { workspacePosition: position ? { ...position, pageId: page.id, headingId: null } : null },
+                state: { workspacePosition: position ? { ...position, pageId: page.id } : null },
               });
             }}
             className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"

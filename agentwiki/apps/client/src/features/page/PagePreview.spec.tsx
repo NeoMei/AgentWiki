@@ -171,6 +171,7 @@ describe('PagePreview checklist saves', () => {
 
   beforeEach(() => {
     vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
+    vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined);
     scrollIntoViewMock = vi.fn();
     Object.defineProperty(Element.prototype, 'scrollIntoView', {
       configurable: true,
@@ -260,14 +261,34 @@ describe('PagePreview checklist saves', () => {
     queuePages({ data: page({ content: '# Intro\n\n## Details\n\nBody' }) });
     render(<LanguageProvider><MemoryRouter initialEntries={[{
       pathname: '/pages/page-1',
+      key: 'heading-return-test',
       state: { workspacePosition: {
-        pageId: 'page-1', cursorOffset: 24, headingId: null, headingText: 'Details', scrollTop: 900,
+        pageId: 'page-1', cursorOffset: 24, headingId: null, headingText: 'Details', sourceOffset: null, scrollTop: 900,
       } },
     }]}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></LanguageProvider>);
 
     const details = await screen.findByRole('heading', { name: 'Details' });
     await waitFor(() => expect(scrollIntoViewMock).toHaveBeenCalled());
     expect(scrollIntoViewMock.mock.instances[scrollIntoViewMock.mock.instances.length - 1]).toBe(details);
+    expect(window.scrollBy).toHaveBeenCalledWith({ top: -12, left: 0, behavior: 'instant' });
+  });
+
+  it('restores a paragraph inside a long section from its Markdown source offset before heading or pixels', async () => {
+    const content = '# Long section\n\nFirst paragraph.\n\nParagraph position 12.\n\nLater paragraph.';
+    const targetOffset = content.indexOf('Paragraph position 12');
+    queuePages({ data: page({ content }) });
+    render(<LanguageProvider><MemoryRouter initialEntries={[{
+      pathname: '/pages/page-1',
+      key: 'paragraph-return-test',
+      state: { workspacePosition: {
+        pageId: 'page-1', cursorOffset: null, headingId: 'long-section', headingText: 'Long section',
+        sourceOffset: targetOffset, scrollTop: 2600,
+      } },
+    }]}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></LanguageProvider>);
+
+    const target = await screen.findByText('Paragraph position 12.');
+    await waitFor(() => expect(scrollIntoViewMock).toHaveBeenCalled());
+    expect(scrollIntoViewMock.mock.instances[scrollIntoViewMock.mock.instances.length - 1]).toBe(target);
   });
 
   it('starts an ordinary push to another article at the top', async () => {
@@ -292,7 +313,7 @@ describe('PagePreview checklist saves', () => {
     await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: 0, left: 0, behavior: 'instant' }));
   });
 
-  it('restores the prior article heading after browser history returns to that entry', async () => {
+  it('restores the prior article block after browser history returns to that entry', async () => {
     queuePages(
       { data: page({ content: '# First position\n\nBody' }) },
       { data: page({ id: 'page-2', title: 'Second page', content: '# Second position' }) },
@@ -318,9 +339,10 @@ describe('PagePreview checklist saves', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Back to previous page' }));
 
-    const restoredHeading = await screen.findByRole('heading', { name: 'First position' });
+    await screen.findByRole('heading', { name: 'First position' });
+    const restoredBlock = screen.getByText('Body');
     await waitFor(() => expect(scrollIntoViewMock).toHaveBeenCalled());
-    expect(scrollIntoViewMock.mock.instances[scrollIntoViewMock.mock.instances.length - 1]).toBe(restoredHeading);
+    expect(scrollIntoViewMock.mock.instances[scrollIntoViewMock.mock.instances.length - 1]).toBe(restoredBlock);
   });
 
   it('renders links from the authoritative workspace breadcrumb chain', async () => {
@@ -854,6 +876,7 @@ describe('PagePreview checklist saves', () => {
       return Promise.reject(new Error(`unexpected get ${url}`));
     });
     window.history.replaceState(null, '', '/pages/page-1#intro');
+    scrollIntoViewMock.mockClear();
     renderPreview();
 
     expect(scrollIntoViewMock).not.toHaveBeenCalled();
@@ -885,6 +908,7 @@ describe('PagePreview checklist saves', () => {
     );
     renderPreview();
     await screen.findByRole('heading', { name: 'Checklist' });
+    scrollIntoViewMock.mockClear();
     expect(scrollIntoViewMock).not.toHaveBeenCalled();
 
     const loading = await screen.findByText('Loading embedded content…');
@@ -915,6 +939,7 @@ describe('PagePreview checklist saves', () => {
     queuePages({ data: page({ content: '## Straße\n\nParagraph ^Block-One' }) });
     const view = renderPreview();
     await screen.findByRole('heading', { name: 'Straße' });
+    scrollIntoViewMock.mockClear();
 
     const targets = [
       'agentwiki:heading:000073000074000072000061000073000073000065',
@@ -944,6 +969,7 @@ describe('PagePreview checklist saves', () => {
     window.history.replaceState(null, '', '/pages/page-1#outside-target');
     renderPreview();
     await screen.findByRole('heading', { name: 'Present' });
+    scrollIntoViewMock.mockClear();
 
     expect(document.getElementById('outside-target')).toBe(outsideTarget);
     expect(scrollIntoViewMock).not.toHaveBeenCalled();

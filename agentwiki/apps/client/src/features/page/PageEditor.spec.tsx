@@ -174,7 +174,12 @@ const renderEditor = (withLanguageSwitcher = false) => render(
 const DirectEditRedirectTarget = () => {
   const location = useLocation();
   const navigationType = useNavigationType();
-  return <p>{`${location.pathname}:${navigationType}`}</p>;
+  return <>
+    <p>{`${location.pathname}:${navigationType}`}</p>
+    <output data-testid="returned-workspace-position">
+      {JSON.stringify((location.state as { workspacePosition?: unknown } | null)?.workspacePosition ?? null)}
+    </output>
+  </>;
 };
 
 const expectNoWritableWorkspace = (container: HTMLElement) => {
@@ -382,6 +387,65 @@ describe('PageEditor remote update safety', () => {
     const expectedHeadingOffset = body.indexOf('## Details') + '## Details'.length;
     await waitFor(() => expect(currentEditorView().state.selection.main.head).toBe(expectedHeadingOffset));
     expect(currentEditorView().scrollDOM.scrollTop).not.toBe(2380);
+  });
+
+  it('preserves a non-top cursor when Ctrl/Cmd+E toggles preview in both directions', async () => {
+    const body = '# Intro\n\nOpening.\n\n## Details\n\nDeep body text';
+    queuePages({ data: page({ content: body, capabilities: { canEdit: true } }) });
+    renderEditor();
+    await screen.findByDisplayValue('Original title');
+    const deepCursor = body.indexOf('Deep body') + 5;
+    act(() => currentEditorView().dispatch({ selection: EditorSelection.cursor(deepCursor) }));
+
+    fireEvent.keyDown(window, { key: 'e', ctrlKey: true });
+    await screen.findByRole('heading', { name: /Details/ });
+    fireEvent.keyDown(window, { key: 'e', metaKey: true });
+
+    await waitFor(() => expect(currentEditorView().state.selection.main.head).toBe(deepCursor));
+  });
+
+  it('keeps the second repeated heading identity through reading, edit, preview, and reading', async () => {
+    const body = '## Repeat\n\nFirst section.\n\n## Repeat\n\nSecond section.';
+    const secondHeadingOffset = body.lastIndexOf('## Repeat');
+    queuePages({ data: page({ content: body, capabilities: { canEdit: true } }) });
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={[{
+          pathname: '/pages/page-1/edit',
+          state: { workspacePosition: {
+            pageId: 'page-1', cursorOffset: null, headingId: 'repeat-1', headingText: 'Repeat',
+            sourceOffset: secondHeadingOffset, scrollTop: 2400,
+          } },
+        }]}>
+          <Routes>
+            <Route path="/pages/:id/edit" element={<PageEditor workspaceRef={workspaceRef} />} />
+            <Route path="/pages/:id" element={<DirectEditRedirectTarget />} />
+          </Routes>
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    await screen.findByDisplayValue('Original title');
+    await waitFor(() => expect(currentEditorView().state.selection.main.head).toBe(secondHeadingOffset));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    const repeatedHeadings = await screen.findAllByRole('heading', { name: /Repeat/ });
+    vi.spyOn(repeatedHeadings[0], 'getBoundingClientRect').mockReturnValue({ top: -400 } as DOMRect);
+    vi.spyOn(repeatedHeadings[1], 'getBoundingClientRect').mockReturnValue({ top: 0 } as DOMRect);
+    for (const paragraph of document.querySelectorAll<HTMLElement>('p[data-markdown-source-start]')) {
+      const sourceOffset = Number(paragraph.dataset.markdownSourceStart);
+      vi.spyOn(paragraph, 'getBoundingClientRect').mockReturnValue({
+        top: sourceOffset < secondHeadingOffset ? -200 : 400,
+      } as DOMRect);
+    }
+
+    fireEvent.click(screen.getByRole('button', { name: 'Return to reading' }));
+    const returned = JSON.parse(screen.getByTestId('returned-workspace-position').textContent ?? 'null');
+    expect(returned).toEqual(expect.objectContaining({
+      pageId: 'page-1',
+      headingId: 'repeat-1',
+      headingText: 'Repeat',
+      sourceOffset: secondHeadingOffset,
+    }));
   });
 
   it('keeps the accepted workspace identity when an ordinary background refresh fails', async () => {

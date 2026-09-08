@@ -417,13 +417,28 @@ export const PagePreview: React.FC = () => {
       }
       return;
     }
+    // The hash-scrolling effect owns hash targets. `window.location.hash` also
+    // covers memory-router tests and embedded hosts whose router location can
+    // lag the browser history update for one render.
+    if (location.hash || window.location.hash) return;
+    const sourceBlock = requested.sourceOffset === null ? null : [
+      ...markdownRootRef.current.querySelectorAll<HTMLElement>('[data-markdown-source-start]'),
+    ].reduce<HTMLElement | null>((nearest, candidate) => (
+      Number(candidate.dataset.markdownSourceStart) <= requested.sourceOffset! ? candidate : nearest
+    ), null);
     const headingById = requested.headingId ? document.getElementById(requested.headingId) : null;
     const heading = headingById ?? (requested.headingText
       ? [...markdownRootRef.current.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6')]
         .find((candidate) => renderedHeadingText(candidate) === requested.headingText) ?? null
       : null);
-    if (heading && markdownRootRef.current.contains(heading)) heading.scrollIntoView({ block: 'start' });
-    else if (requested.scrollTop > 0) window.scrollTo({ top: requested.scrollTop, left: 0, behavior: 'instant' });
+    const target = sourceBlock ?? heading;
+    if (target && markdownRootRef.current.contains(target)) {
+      target.scrollIntoView({ block: 'start' });
+      const toolbarBottom = document.querySelector<HTMLElement>('[data-reading-toolbar]')
+        ?.getBoundingClientRect().bottom ?? 0;
+      const hiddenByToolbar = toolbarBottom - target.getBoundingClientRect().top + 12;
+      if (hiddenByToolbar > 0) window.scrollBy({ top: -hiddenByToolbar, left: 0, behavior: 'instant' });
+    } else if (requested.scrollTop > 0) window.scrollTo({ top: requested.scrollTop, left: 0, behavior: 'instant' });
   }, [loading, location.key, location.state, navigationType, page]);
 
   useEffect(() => {

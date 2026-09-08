@@ -175,25 +175,103 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     });
 
     const position = workspaceRef.current?.capturePosition();
-    expect(position).toEqual({ cursorOffset: detailsBodyOffset, headingText: 'Details', scrollTop: 240 });
+    expect(position).toEqual(expect.objectContaining({ cursorOffset: detailsBodyOffset, headingText: 'Details', scrollTop: 240 }));
 
     fireEvent.click(screen.getByTestId('mode-toggle'));
     const previewHeading = await screen.findByRole('heading', { name: /Details/ });
+    const previewParagraph = screen.getByText('Body text');
     const scrollIntoView = vi.fn();
-    Object.defineProperty(previewHeading, 'scrollIntoView', { configurable: true, value: scrollIntoView });
+    Object.defineProperty(previewParagraph, 'scrollIntoView', { configurable: true, value: scrollIntoView });
     act(() => workspaceRef.current?.restorePosition(position!));
     expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' });
     vi.spyOn(previewHeading, 'getBoundingClientRect').mockReturnValue({ top: 0 } as DOMRect);
-    expect(workspaceRef.current?.capturePosition()).toEqual({
+    vi.spyOn(previewParagraph, 'getBoundingClientRect').mockReturnValue({ top: 0 } as DOMRect);
+    expect(workspaceRef.current?.capturePosition()).toEqual(expect.objectContaining({
       cursorOffset: null,
       headingText: 'Details',
       scrollTop: 0,
-    });
+    }));
 
     fireEvent.click(screen.getByTestId('mode-toggle'));
     act(() => workspaceRef.current?.restorePosition(position!));
     expect(currentEditorView(document.body).state.selection.main.head).toBe(detailsBodyOffset);
     expect(currentEditorView(document.body).scrollDOM.scrollTop).not.toBe(240);
+  });
+
+  it('restores the second repeated heading by its rendered identity instead of the first label match', async () => {
+    const workspaceRef = createRef<MarkdownWorkspaceHandle>();
+    const source = '## Repeat\n\nFirst section.\n\n## Repeat\n\nSecond section.';
+    renderWYS({ initial: source, workspaceRef });
+    const secondHeadingOffset = source.lastIndexOf('## Repeat');
+
+    act(() => workspaceRef.current?.restorePosition({
+      cursorOffset: null,
+      headingId: 'repeat-1',
+      headingText: 'Repeat',
+      sourceOffset: secondHeadingOffset,
+      scrollTop: 0,
+    } as any));
+    expect(currentEditorView(document.body).state.selection.main.head).toBe(secondHeadingOffset);
+
+    fireEvent.click(screen.getByTestId('mode-toggle'));
+    const repeatedHeadings = await screen.findAllByRole('heading', { name: /Repeat/ });
+    const firstScroll = vi.fn();
+    const secondScroll = vi.fn();
+    Object.defineProperty(repeatedHeadings[0], 'scrollIntoView', { configurable: true, value: firstScroll });
+    Object.defineProperty(repeatedHeadings[1], 'scrollIntoView', { configurable: true, value: secondScroll });
+    act(() => workspaceRef.current?.restorePosition({
+      cursorOffset: null,
+      headingId: 'repeat-1',
+      headingText: 'Repeat',
+      sourceOffset: secondHeadingOffset,
+      scrollTop: 0,
+    } as any));
+
+    expect(secondScroll).toHaveBeenCalledWith({ block: 'start' });
+    expect(firstScroll).not.toHaveBeenCalled();
+  });
+
+  it('round-trips the current paragraph within a long section through its Markdown AST source offset', async () => {
+    const workspaceRef = createRef<MarkdownWorkspaceHandle>();
+    const paragraphs = Array.from({ length: 20 }, (_, index) => (
+      `Paragraph position ${String(index + 1).padStart(2, '0')} contains **formatted text** and enough detail to identify this block.`
+    ));
+    const source = `# Long section\n\n${paragraphs.join('\n\n')}`;
+    const targetOffset = source.indexOf('Paragraph position 12');
+    renderWYS({ initial: source, workspaceRef });
+    const view = currentEditorView(document.body);
+    act(() => view.dispatch({ selection: EditorSelection.cursor(targetOffset + 24) }));
+
+    const editPosition = workspaceRef.current?.capturePosition();
+    expect(editPosition).toEqual(expect.objectContaining({
+      cursorOffset: targetOffset + 24,
+      headingText: 'Long section',
+      sourceOffset: targetOffset,
+    }));
+
+    fireEvent.click(screen.getByTestId('mode-toggle'));
+    const targetParagraph = screen.getByText((_, element) => (
+      element?.tagName === 'P' && element.textContent?.startsWith('Paragraph position 12') === true
+    ));
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(targetParagraph, 'scrollIntoView', { configurable: true, value: scrollIntoView });
+    act(() => workspaceRef.current?.restorePosition(editPosition!));
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' });
+
+    const renderedBlocks = document.querySelectorAll<HTMLElement>('[data-markdown-source-start]');
+    renderedBlocks.forEach((block) => {
+      const offset = Number(block.dataset.markdownSourceStart);
+      vi.spyOn(block, 'getBoundingClientRect').mockReturnValue({
+        top: offset <= targetOffset ? -20 : 300,
+      } as DOMRect);
+    });
+    vi.spyOn(targetParagraph, 'getBoundingClientRect').mockReturnValue({ top: 8 } as DOMRect);
+    const previewPosition = workspaceRef.current?.capturePosition();
+    expect(previewPosition).toEqual(expect.objectContaining({ sourceOffset: targetOffset }));
+
+    fireEvent.click(screen.getByTestId('mode-toggle'));
+    act(() => workspaceRef.current?.restorePosition(previewPosition!));
+    expect(currentEditorView(document.body).state.selection.main.head).toBe(targetOffset);
   });
 
   it('renders syntax-aware Wiki widgets with alias text and preview-equivalent fragments', async () => {

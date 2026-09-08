@@ -22,6 +22,7 @@ export interface WorkspacePosition {
   cursorOffset: number | null;
   headingId: string | null;
   headingText: string | null;
+  sourceOffset: number | null;
   scrollTop: number;
 }
 
@@ -42,19 +43,39 @@ export const readWorkspacePosition = (entryKey: string, pageId: string): Workspa
   return position?.pageId === pageId ? position : null;
 };
 
+export const nearestMarkdownSourceBlock = (
+  blocks: Iterable<HTMLElement>,
+  boundary: number,
+): HTMLElement | null => {
+  let nearest: HTMLElement | null = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  for (const block of blocks) {
+    const distance = Math.abs(block.getBoundingClientRect().top - boundary);
+    if (distance < nearestDistance) {
+      nearest = block;
+      nearestDistance = distance;
+    }
+  }
+  return nearest;
+};
+
 export const captureReadingPosition = (root: HTMLElement, stickyBottom = 0, pageId = ''): WorkspacePosition => {
   const headings = [...root.querySelectorAll<HTMLElement>('h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]')];
+  const blocks = [...root.querySelectorAll<HTMLElement>('[data-markdown-source-start]')];
   const currentHeadingBoundary = stickyBottom + 12;
   let nearest: HTMLElement | null = null;
   for (const heading of headings) {
     if (heading.getBoundingClientRect().top <= currentHeadingBoundary) nearest = heading;
     else break;
   }
+  const nearestBlock = nearestMarkdownSourceBlock(blocks, currentHeadingBoundary);
+  const sourceOffset = Number(nearestBlock?.dataset.markdownSourceStart);
   return {
     pageId,
     cursorOffset: null,
     headingId: nearest?.id ?? null,
     headingText: nearest ? renderedHeadingText(nearest) || null : null,
+    sourceOffset: Number.isFinite(sourceOffset) ? sourceOffset : null,
     scrollTop: window.scrollY,
   };
 };

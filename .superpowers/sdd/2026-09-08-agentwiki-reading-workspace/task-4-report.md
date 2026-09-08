@@ -133,3 +133,32 @@ The controller exercised the real client at port 5188 against the real API at po
 - Native close/reload prompts are browser-controlled and cannot expose custom text; the code installs the standard `beforeunload` contract while dirty.
 - Position storage is intentionally in-memory and scoped to the current application lifetime. Refresh does not persist the editor cursor or reading position across sessions.
 - The data-router confirmation continuation test uses a minimal test-only Request shim because Node 24's native `Request` rejects jsdom's cross-realm `AbortSignal`. Production uses the browser's native same-realm Request/AbortSignal and the controller verified real Link, programmatic, and POP blocking.
+
+## Review fix round 1
+
+Independent review found three Important position-continuity gaps. The fixes retain the same router guard and save path:
+
+- The existing Markdown pipeline now copies remark/rehype's own `node.position.start.offset` onto real rendered block elements. Reading capture selects the block nearest the sticky reading boundary, while editor capture parses the same source with the existing remark parser and records the cursor's enclosing block offset. Reading, edit, preview, and POP records carry this `sourceOffset`; headings and pixels remain fallbacks. A block just below the sticky boundary is selected when it is closer than the preceding block, preventing a one-paragraph regression at the preview boundary.
+- `MarkdownWorkspacePosition` also carries the real `headingId` produced by the existing `rehype-slug` pipeline. No new slugger or renderer exists. A repeated-heading restore uses the source block first and the real ID second, so the second duplicate does not fall back to the first equal label.
+- Ctrl/Cmd+E now calls the same capture-and-toggle function as the visible Preview/Return to edit button. Returning directly from the preview keeps the exact editor cursor while changing the preview position still maps through the visible Markdown block.
+
+RED evidence before implementation: four expected failures across three test files showed missing `sourceOffset`, second repeated-heading restore receiving the first heading offset, and Ctrl/Cmd+E returning cursor `0` instead of the non-top cursor `36`.
+
+GREEN coverage added:
+
+- a 20-paragraph section round-trips paragraph 12 through editor and rendered preview using the Markdown AST source offset;
+- a block 12px below the sticky boundary wins over the farther previous paragraph;
+- Ctrl+E into preview and Cmd+E back to edit retain a non-top cursor;
+- the second of two `Repeat` headings stays the second occurrence across reading -> edit -> preview -> reading;
+- PagePreview restores a long-section paragraph from source offset before heading or pixels.
+
+Focused round-1 verification after the sticky-boundary fixes:
+
+- `pnpm --filter @agentwiki/client test src/features/space-workspace/workspaceNavigation.spec.ts src/components/MarkdownWorkspace.spec.tsx src/features/page/PageEditor.spec.tsx src/features/page/PagePreview.spec.tsx`: 4 files passed, 166 tests passed, 0 failed.
+- `pnpm --filter @agentwiki/client exec tsc --noEmit`: exited 0.
+- scoped ESLint over the nine round-1 source/test files: exited 0 with no diagnostics.
+- `git diff --check`: exited 0.
+
+The final boundary correction keeps the pre-preview editor cursor when Ctrl/Cmd+E returns to edit, so a paragraph exactly below the preview toolbar cannot select its preceding block. Return-to-reading then offsets `scrollIntoView` upward by the actual sticky-toolbar overlap; this keeps a restored duplicate heading below the toolbar instead of hidden under it. Hash targets remain owned by the existing hash effect, preventing the semantic restore effect from issuing a second scroll.
+
+The controller then repeated the real browser flow against the prepared long-section/duplicate-heading fixture. A paragraph near the end of the long section stayed on that paragraph through Edit -> Meta+E preview -> Meta+E edit, with the preview block at 178px. The second `同名标题` (`id="同名标题-1"`) restored to the second Markdown occurrence in edit, stayed the second rendered heading in preview, and returned to reading at 185px while the first duplicate remained at 93px. The restored second heading was below the sticky toolbar and was not replaced by the first equal label.

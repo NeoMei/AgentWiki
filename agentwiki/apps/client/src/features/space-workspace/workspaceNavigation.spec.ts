@@ -73,15 +73,52 @@ describe('workspaceNavigation', () => {
       cursorOffset: null,
       headingId: 'details',
       headingText: 'Details',
+      sourceOffset: null,
       scrollTop: window.scrollY,
     });
   });
 
-  it('restores history positions only for the matching route entry key', () => {
-    rememberWorkspacePosition('entry-a', { pageId: 'page-a', cursorOffset: 12, headingId: null, headingText: 'A', scrollTop: 80 });
-    rememberWorkspacePosition('entry-b', { pageId: 'page-b', cursorOffset: null, headingId: 'b', headingText: 'B', scrollTop: 240 });
+  it('captures the visible paragraph inside a long section instead of jumping back to its heading', () => {
+    const root = document.createElement('div');
+    root.innerHTML = [
+      '<h2 id="long" data-markdown-source-start="0">Long section</h2>',
+      '<p data-markdown-source-start="17">Early paragraph</p>',
+      '<p data-markdown-source-start="1800">Paragraph currently being read</p>',
+      '<p data-markdown-source-start="2600">Later paragraph</p>',
+    ].join('');
+    const blocks = root.querySelectorAll<HTMLElement>('[data-markdown-source-start]');
+    [-900, -420, 116, 420].forEach((top, index) => {
+      vi.spyOn(blocks[index], 'getBoundingClientRect').mockReturnValue({ top } as DOMRect);
+    });
 
-    expect(readWorkspacePosition('entry-a', 'page-a')).toEqual({ pageId: 'page-a', cursorOffset: 12, headingId: null, headingText: 'A', scrollTop: 80 });
+    expect(captureReadingPosition(root, 120, 'page-long')).toEqual({
+      pageId: 'page-long',
+      cursorOffset: null,
+      headingId: 'long',
+      headingText: 'Long section',
+      sourceOffset: 1800,
+      scrollTop: window.scrollY,
+    });
+  });
+
+  it('keeps the nearest paragraph when its top is just below the sticky boundary', () => {
+    const root = document.createElement('div');
+    root.innerHTML = [
+      '<p data-markdown-source-start="900">Previous paragraph</p>',
+      '<p data-markdown-source-start="1200">Current paragraph</p>',
+    ].join('');
+    const blocks = root.querySelectorAll<HTMLElement>('[data-markdown-source-start]');
+    vi.spyOn(blocks[0], 'getBoundingClientRect').mockReturnValue({ top: 58 } as DOMRect);
+    vi.spyOn(blocks[1], 'getBoundingClientRect').mockReturnValue({ top: 178 } as DOMRect);
+
+    expect(captureReadingPosition(root, 166, 'page-edge').sourceOffset).toBe(1200);
+  });
+
+  it('restores history positions only for the matching route entry key', () => {
+    rememberWorkspacePosition('entry-a', { pageId: 'page-a', cursorOffset: 12, headingId: null, headingText: 'A', sourceOffset: 12, scrollTop: 80 });
+    rememberWorkspacePosition('entry-b', { pageId: 'page-b', cursorOffset: null, headingId: 'b', headingText: 'B', sourceOffset: 220, scrollTop: 240 });
+
+    expect(readWorkspacePosition('entry-a', 'page-a')).toEqual({ pageId: 'page-a', cursorOffset: 12, headingId: null, headingText: 'A', sourceOffset: 12, scrollTop: 80 });
     expect(readWorkspacePosition('entry-a', 'page-b')).toBeNull();
     expect(readWorkspacePosition('missing', 'page-a')).toBeNull();
   });

@@ -65,6 +65,10 @@ const CODE_BLOCK_PROPERTY = 'data-markdown-code-block';
 const CODE_PARENT_PROPERTY = 'data-markdown-code-parent';
 const CODE_LANGUAGE_PROPERTY = 'data-markdown-language';
 const MERMAID_INDEX_PROPERTY = 'data-mermaid-index';
+const MARKDOWN_SOURCE_START_PROPERTY = 'data-markdown-source-start';
+const MARKDOWN_BLOCK_TAGS = new Set([
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'li', 'blockquote', 'pre', 'table', 'hr',
+]);
 
 interface HastNode {
   type: string;
@@ -129,6 +133,18 @@ const rehypeAnnotateCodeBlocks = () => (tree: HastNode) => {
       }
     }
     for (const child of node.children ?? []) annotate(child, isElementNode(node) ? node : undefined);
+  };
+  annotate(tree);
+};
+
+const rehypeAnnotateMarkdownBlocks = () => (tree: HastNode) => {
+  const annotate = (node: HastNode) => {
+    if (isElementNode(node) && MARKDOWN_BLOCK_TAGS.has(node.tagName)) {
+      const sourceStart = (node as HastElementNode & { position?: { start?: { offset?: number } } })
+        .position?.start?.offset;
+      if (typeof sourceStart === 'number') node.properties[MARKDOWN_SOURCE_START_PROPERTY] = sourceStart;
+    }
+    for (const child of node.children ?? []) annotate(child);
   };
   annotate(tree);
 };
@@ -545,6 +561,7 @@ export const Markdown: React.FC<MarkdownProps> = ({
         rehypePlugins={[
           rehypeSlug,
           rehypeAgentWikiHeadingAliases,
+          rehypeAnnotateMarkdownBlocks,
           [rehypeKatex, KATEX_OPTIONS],
           [rehypeAutolinkHeadings, {
             behavior: 'append',

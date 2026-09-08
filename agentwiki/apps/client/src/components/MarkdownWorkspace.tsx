@@ -7,6 +7,10 @@ import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetTy
 import { ChangeDesc, EditorSelection, Range, StateEffect, StateField } from '@codemirror/state';
 import { tags } from '@lezer/highlight';
 import { syntaxTree } from '@codemirror/language';
+import { unified } from 'unified';
+import remarkParse from 'remark-parse';
+import remarkGfm from 'remark-gfm';
+import { visit } from 'unist-util-visit';
 import { useLanguage } from '../context/LanguageContext';
 import { Markdown } from './Markdown';
 import { toggleMarkdownTask } from './markdown/tasks';
@@ -19,6 +23,7 @@ import {
   type MarkdownResourceMap,
 } from './markdown/resources';
 import { formatAttachmentReference } from '../features/attachments/attachmentReference';
+import { nearestMarkdownSourceBlock } from '../features/space-workspace/workspaceNavigation';
 
 export type MarkdownMode = 'edit' | 'preview';
 
@@ -45,7 +50,9 @@ export interface MarkdownWorkspaceHandle {
 
 export interface MarkdownWorkspacePosition {
   cursorOffset: number | null;
+  headingId: string | null;
   headingText: string | null;
+  sourceOffset: number | null;
   scrollTop: number;
 }
 
@@ -75,6 +82,41 @@ const renderedHeadingLabel = (heading: HTMLElement): string => {
   const clone = heading.cloneNode(true) as HTMLElement;
   clone.querySelectorAll('[aria-hidden="true"], .heading-anchor').forEach((node) => node.remove());
   return clone.textContent?.trim() ?? '';
+};
+
+const markdownBlockSourceStart = (source: string, cursorOffset: number): number => {
+  const tree = unified().use(remarkParse).use(remarkGfm).parse(source);
+  const blockTypes = new Set([
+    'heading', 'paragraph', 'code', 'listItem', 'blockquote', 'table', 'thematicBreak', 'html',
+  ]);
+  let bestStart: number | null = null;
+  let bestLength = Number.POSITIVE_INFINITY;
+  visit(tree, (node) => {
+    if (!blockTypes.has(node.type)) return;
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    if (typeof start !== 'number' || typeof end !== 'number' || cursorOffset < start || cursorOffset > end) return;
+    if (end - start < bestLength) {
+      bestStart = start;
+      bestLength = end - start;
+    }
+  });
+  return bestStart ?? cursorOffset;
+};
+
+const markdownSourceStart = (element: HTMLElement | null): number | null => {
+  const offset = Number(element?.dataset.markdownSourceStart);
+  return Number.isFinite(offset) ? offset : null;
+};
+
+const renderedBlockAtOffset = (root: HTMLElement, sourceOffset: number): HTMLElement | null => {
+  let nearest: HTMLElement | null = null;
+  for (const block of root.querySelectorAll<HTMLElement>('[data-markdown-source-start]')) {
+    const blockOffset = markdownSourceStart(block);
+    if (blockOffset === null || blockOffset > sourceOffset) break;
+    nearest = block;
+  }
+  return nearest;
 };
 
 interface UploadAnchor {
@@ -445,9 +487,15 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
         if (heading.getBoundingClientRect().top <= boundary) nearest = heading;
         else break;
       }
+      const nearestBlock = nearestMarkdownSourceBlock(
+        root?.querySelectorAll<HTMLElement>('[data-markdown-source-start]') ?? [],
+        boundary,
+      );
       return {
         cursorOffset: null,
+        headingId: nearest?.id || null,
         headingText: nearest ? renderedHeadingLabel(nearest) || null : null,
+        sourceOffset: markdownSourceStart(nearestBlock),
         scrollTop: surface?.scrollTop ?? window.scrollY,
       };
     }
@@ -455,7 +503,9 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
     const cursorOffset = view?.state.selection.main.head ?? 0;
     return {
       cursorOffset,
+      headingId: null,
       headingText: nearestMarkdownHeading(value, cursorOffset),
+      sourceOffset: markdownBlockSourceStart(value, cursorOffset),
       scrollTop: view?.scrollDOM.scrollTop ?? 0,
     };
   }, [isEdit, value]);
@@ -465,8 +515,13 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
     const view = candidateView?.dom.isConnected ? candidateView : null;
     if (view) {
       pendingRestoreRef.current = null;
-      const hasSemanticPosition = position.cursorOffset !== null || Boolean(position.headingText);
-      const requestedOffset = position.cursorOffset ?? cursorForHeading(view.state.doc.toString(), position.headingText);
+      const hasSemanticPosition = position.cursorOffset !== null
+        || position.sourceOffset !== null
+        || Boolean(position.headingId)
+        || Boolean(position.headingText);
+      const requestedOffset = position.cursorOffset
+        ?? position.sourceOffset
+        ?? cursorForHeading(view.state.doc.toString(), position.headingText);
       const cursorOffset = Math.min(Math.max(requestedOffset, 0), view.state.doc.length);
       view.dispatch({
         selection: EditorSelection.cursor(cursorOffset),
@@ -489,10 +544,16 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
       return;
     }
     pendingRestoreRef.current = null;
-    if (!position.headingText) return;
-    const headings = previewRootRef.current?.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6') ?? [];
-    const heading = [...headings].find((candidate) => renderedHeadingLabel(candidate) === position.headingText);
-    heading?.scrollIntoView({ block: 'start' });
+    const root = previewRootRef.current;
+    if (!root) return;
+    const sourceBlock = position.sourceOffset === null ? null : renderedBlockAtOffset(root, position.sourceOffset);
+    const headingById = position.headingId ? document.getElementById(position.headingId) : null;
+    const headings = root.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6');
+    const headingByText = position.headingText
+      ? [...headings].find((candidate) => renderedHeadingLabel(candidate) === position.headingText) ?? null
+      : null;
+    const target = sourceBlock ?? (headingById && root.contains(headingById) ? headingById : null) ?? headingByText;
+    if (typeof target?.scrollIntoView === 'function') target.scrollIntoView({ block: 'start' });
   }, [isEdit]);
 
   useImperativeHandle(ref, () => ({
