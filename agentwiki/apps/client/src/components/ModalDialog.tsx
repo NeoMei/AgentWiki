@@ -16,6 +16,7 @@ export interface ModalDialogProps {
   closeDisabled?: boolean;
   returnFocusTo?: HTMLElement | null;
   fallbackFocusRef?: React.RefObject<HTMLElement | null>;
+  overlayClassName?: string;
   className: string;
   children: React.ReactNode;
 }
@@ -26,6 +27,7 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({
   closeDisabled = false,
   returnFocusTo,
   fallbackFocusRef,
+  overlayClassName = 'fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4',
   className,
   children,
 }) => {
@@ -95,7 +97,7 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className={overlayClassName}
       onClick={(event) => {
         if (event.target === event.currentTarget && !closeDisabled) onRequestClose();
       }}

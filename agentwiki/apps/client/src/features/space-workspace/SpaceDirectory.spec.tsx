@@ -1,7 +1,7 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { FC, ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { LanguageProvider } from '../../context/LanguageContext';
 import type { DirectoryLevel } from './useSpaceDirectory';
 import { SpaceDirectory } from './SpaceDirectory';
@@ -75,5 +75,55 @@ describe('SpaceDirectory', () => {
       onRenameFolder={() => undefined} onDeleteFolder={() => undefined} onMove={() => undefined} />
     </Providers>);
     expect(scroller.scrollTop).toBe(80);
+  });
+
+  it('opens the mobile directory as a modal drawer, closes on navigation, and restores focus on Escape', async () => {
+    const levels = new Map<string | null, DirectoryLevel>([
+      [null, { parentFolderId: null, treeRevision: '3', nodes: [folder] }],
+      ['guide', { parentFolderId: 'guide', treeRevision: '3', nodes: [page] }],
+    ]);
+    const Harness = () => {
+      const navigate = useNavigate();
+      return <SpaceDirectory spaceName="Product Wiki" levels={levels} expandedFolderIds={new Set(['guide'])}
+        selectedFolderId={null} selectedPageId={null} loading={false} error={null} canEdit={false}
+        onToggleFolder={() => undefined} onSelectFolder={(folderId) => navigate(`/spaces/space-1?folder=${folderId}`)}
+        onOpenPage={(selectedPage) => navigate(`/pages/${selectedPage.id}`)} onEditPage={() => undefined}
+        onDeletePage={() => undefined} onCreateSubfolder={() => undefined} onRenameFolder={() => undefined}
+        onDeleteFolder={() => undefined} onMove={() => undefined} />;
+    };
+    render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1']}><Routes>
+      <Route path="/spaces/:id" element={<Harness />} />
+      <Route path="/pages/:id" element={<p>Article route</p>} />
+    </Routes></MemoryRouter></LanguageProvider>);
+
+    const opener = screen.getByRole('button', { name: 'Open directory' });
+    opener.focus();
+    fireEvent.click(opener);
+    const dialog = screen.getByRole('dialog', { name: 'Directory' });
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Close directory' })).toBeInTheDocument();
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Directory' })).not.toBeInTheDocument());
+    await waitFor(() => expect(opener).toHaveFocus());
+
+    fireEvent.click(opener);
+    const reopenedDialog = screen.getByRole('dialog', { name: 'Directory' });
+    fireEvent.click(reopenedDialog.parentElement!);
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Directory' })).not.toBeInTheDocument());
+    await waitFor(() => expect(opener).toHaveFocus());
+
+    fireEvent.click(opener);
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Directory' })).getByTestId('content-node-guide'));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Directory' })).not.toBeInTheDocument());
+    await waitFor(() => expect(opener).toHaveFocus());
+
+    fireEvent.click(opener);
+    const dialogBeforeCancelledNavigation = screen.getByRole('dialog', { name: 'Directory' });
+    fireEvent.click(within(dialogBeforeCancelledNavigation).getByTestId('content-node-guide'));
+    expect(dialogBeforeCancelledNavigation).toBeInTheDocument();
+
+    fireEvent.click(within(dialogBeforeCancelledNavigation).getByTestId('content-node-page-a'));
+    expect(await screen.findByText('Article route')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Directory' })).not.toBeInTheDocument();
   });
 });

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { ContentTree } from './ContentTree';
@@ -93,7 +93,7 @@ describe('ContentTree directory navigation', () => {
     expect(second).toHaveFocus();
   });
 
-  it('keeps row actions behind one keyboard-focusable and touch-clickable menu entry', () => {
+  it('keeps row actions behind one keyboard-focusable menu and closes it with Escape', async () => {
     render(<LanguageProvider><ContentTree nodes={[folder]} loading={false} error={null} canEdit
       levelParentFolderId={null} pageDeleteDisabled={false} emptyText="Empty"
       onOpenFolder={() => undefined} onOpenPage={() => undefined} onEditPage={() => undefined}
@@ -106,5 +106,10 @@ describe('ContentTree directory navigation', () => {
     expect(actions).toHaveClass('focus-visible:ring-2');
     fireEvent.click(actions);
     expect(actions.closest('details')).toHaveAttribute('open');
+    const rename = screen.getByTestId('content-rename-folder-1');
+    rename.focus();
+    fireEvent.keyDown(rename, { key: 'Escape' });
+    expect(actions.closest('details')).not.toHaveAttribute('open');
+    await waitFor(() => expect(actions).toHaveFocus());
   });
 });

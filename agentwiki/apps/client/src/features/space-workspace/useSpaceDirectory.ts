@@ -54,6 +54,8 @@ export const useSpaceDirectory = ({
   rootLabel = '',
 }: UseSpaceDirectoryOptions): SpaceDirectoryState => {
   const generationRef = useRef(0);
+  const snapshotControllerRef = useRef<AbortController | null>(null);
+  const reloadControllersRef = useRef<Map<string, AbortController>>(new Map());
   const revisionRef = useRef<string | null>(null);
   const levelsRef = useRef<ReadonlyMap<string | null, DirectoryLevel>>(new Map());
   const indexRef = useRef<FolderIndex>(new Map());
@@ -71,6 +73,14 @@ export const useSpaceDirectory = ({
     setTreeRevision(revision);
     setLevels(new Map());
     setFolderIndex(new Map());
+  }, []);
+
+  const invalidateRequests = useCallback(() => {
+    generationRef.current += 1;
+    snapshotControllerRef.current?.abort();
+    snapshotControllerRef.current = null;
+    for (const reloadController of reloadControllersRef.current.values()) reloadController.abort();
+    reloadControllersRef.current.clear();
   }, []);
 
   const installSnapshot = useCallback((
@@ -105,25 +115,40 @@ export const useSpaceDirectory = ({
   const reloadLevel = useCallback(async (parentFolderId: string | null) => {
     if (!spaceId) return;
     const generation = generationRef.current;
+    const requestKey = parentFolderId ?? '__root__';
+    reloadControllersRef.current.get(requestKey)?.abort();
+    const controller = new AbortController();
+    reloadControllersRef.current.set(requestKey, controller);
     setError(null);
     try {
-      const response = await listTreeChildren(spaceId, parentFolderId);
+      const response = await listTreeChildren(spaceId, parentFolderId, controller.signal);
+      if (controller.signal.aborted) return;
       installLevel({ parentFolderId, nodes: response.data, treeRevision: response.treeRevision }, generation);
     } catch (loadError) {
-      if (generationRef.current !== generation) return;
-      if (responseStatus(loadError) === 401 || responseStatus(loadError) === 403) clearDirectory(null);
+      if (controller.signal.aborted || generationRef.current !== generation) return;
+      if (responseStatus(loadError) === 401 || responseStatus(loadError) === 403) {
+        invalidateRequests();
+        clearDirectory(null);
+      }
       setError(errorMessage(loadError));
+    } finally {
+      if (reloadControllersRef.current.get(requestKey) === controller) {
+        reloadControllersRef.current.delete(requestKey);
+      }
     }
-  }, [clearDirectory, installLevel, spaceId]);
+  }, [clearDirectory, installLevel, invalidateRequests, spaceId]);
 
   useEffect(() => {
     const generation = generationRef.current + 1;
     generationRef.current = generation;
+    for (const reloadController of reloadControllersRef.current.values()) reloadController.abort();
+    reloadControllersRef.current.clear();
     clearDirectory(null);
     setError(null);
     setLocating(Boolean(spaceId));
     if (!spaceId) return undefined;
     const controller = new AbortController();
+    snapshotControllerRef.current = controller;
     void (async () => {
       try {
         for (let attempt = 0; attempt < SNAPSHOT_ATTEMPTS; attempt += 1) {
@@ -161,15 +186,24 @@ export const useSpaceDirectory = ({
         }
       } catch (loadError) {
         if (!controller.signal.aborted && generationRef.current === generation) {
-          if (responseStatus(loadError) === 401 || responseStatus(loadError) === 403) clearDirectory(null);
+          if (responseStatus(loadError) === 401 || responseStatus(loadError) === 403) {
+            invalidateRequests();
+            clearDirectory(null);
+            setLocating(false);
+          }
           setError(errorMessage(loadError));
         }
       } finally {
         if (!controller.signal.aborted && generationRef.current === generation) setLocating(false);
       }
     })();
-    return () => controller.abort();
-  }, [clearDirectory, installSnapshot, retryKey, setFolderExpanded, spaceId, targetFolderId]);
+    return () => {
+      controller.abort();
+      if (snapshotControllerRef.current === controller) snapshotControllerRef.current = null;
+      for (const reloadController of reloadControllersRef.current.values()) reloadController.abort();
+      reloadControllersRef.current.clear();
+    };
+  }, [clearDirectory, installSnapshot, invalidateRequests, retryKey, setFolderExpanded, spaceId, targetFolderId]);
 
   const toggleFolder = useCallback(async (folderId: string) => {
     const expanded = expandedFolderIds.has(folderId);

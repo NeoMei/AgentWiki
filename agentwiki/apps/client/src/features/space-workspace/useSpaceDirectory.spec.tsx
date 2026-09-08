@@ -99,4 +99,65 @@ describe('useSpaceDirectory', () => {
     expect(result.current.treeRevision).toBeNull();
     expect(result.current.error).toBeTruthy();
   });
+
+  it('aborts a lazy level request when the Space generation changes and ignores its late result', async () => {
+    let resolveLazy!: (value: ContentTreeListResponse) => void;
+    const lazy = new Promise<ContentTreeListResponse>((resolve) => { resolveLazy = resolve; });
+    let lazySignal: AbortSignal | undefined;
+    vi.mocked(listTreeChildren).mockImplementation(async (spaceId, parentFolderId, signal) => {
+      if (spaceId === 'space-1' && parentFolderId === null) return level(null, 'folder-a', '7');
+      if (spaceId === 'space-1' && parentFolderId === 'folder-a') {
+        lazySignal = signal;
+        return lazy;
+      }
+      return { ...level(null, 'space-2-root', '9'), spaceId: 'space-2' };
+    });
+    const setFolderExpanded = vi.fn();
+    const { result, rerender } = renderHook(({ spaceId }) => useSpaceDirectory({
+      spaceId, targetFolderId: null, expandedFolderIds: new Set(), setFolderExpanded,
+    }), { initialProps: { spaceId: 'space-1' as string | null } });
+    await waitFor(() => expect(result.current.levels.has(null)).toBe(true));
+
+    let lazyRequest!: Promise<void>;
+    act(() => { lazyRequest = result.current.reloadLevel('folder-a'); });
+    await waitFor(() => expect(lazySignal).toBeDefined());
+    rerender({ spaceId: 'space-2' });
+
+    expect(lazySignal?.aborted).toBe(true);
+    resolveLazy(level('folder-a', 'stale-child', '7'));
+    await act(() => lazyRequest);
+    await waitFor(() => expect(result.current.treeRevision).toBe('9'));
+    expect(result.current.levels.get('folder-a')).toBeUndefined();
+    expect(result.current.levels.get(null)?.nodes[0]?.id).toBe('space-2-root');
+  });
+
+  it('aborts sibling reloads and prevents cache refill after authorization is revoked', async () => {
+    let resolveSibling!: (value: ContentTreeListResponse) => void;
+    const sibling = new Promise<ContentTreeListResponse>((resolve) => { resolveSibling = resolve; });
+    let siblingSignal: AbortSignal | undefined;
+    vi.mocked(listTreeChildren).mockImplementation(async (_spaceId, parentFolderId, signal) => {
+      if (parentFolderId === null) return level(null, 'folder-a', '7');
+      if (parentFolderId === 'folder-a') {
+        siblingSignal = signal;
+        return sibling;
+      }
+      throw { response: { status: 403 } };
+    });
+    const setFolderExpanded = vi.fn();
+    const { result } = renderHook(() => useSpaceDirectory({
+      spaceId: 'space-1', targetFolderId: null, expandedFolderIds: new Set(), setFolderExpanded,
+    }));
+    await waitFor(() => expect(result.current.levels.has(null)).toBe(true));
+
+    let siblingRequest!: Promise<void>;
+    act(() => { siblingRequest = result.current.reloadLevel('folder-a'); });
+    await waitFor(() => expect(siblingSignal).toBeDefined());
+    await act(() => result.current.reloadLevel('folder-b'));
+
+    expect(siblingSignal?.aborted).toBe(true);
+    resolveSibling(level('folder-a', 'must-not-return', '7'));
+    await act(() => siblingRequest);
+    expect(result.current.levels.size).toBe(0);
+    expect(result.current.folderIndex.size).toBe(0);
+  });
 });

@@ -23,6 +23,7 @@ The tree supports nested expansion independently from folder selection, page sel
 - `useSpaceDirectory()` stages folders, root, and ancestor levels as one snapshot. It commits only when every level has the same `treeRevision`; one cross-level change retries the complete snapshot and repeated change exposes the existing retry entry.
 - Level caches are invalidated on a new revision. A Space change uses an AbortController plus a generation check, so late responses cannot install into another Space.
 - A 401/403 directory response clears every cached level and folder index. A 401/403 Space metadata response removes the Space identity that authorizes directory loading.
+- Lazy and post-mutation level reloads have per-level AbortControllers. Replacing a level read aborts the previous request; changing Space, unmounting, or receiving 401/403 aborts the snapshot and every outstanding level read, advances the generation, and prevents any late response from rebuilding cleared cache.
 - Page content stays mounted while Space metadata is unresolved or fails, preventing the child identity unmount/remount request loop.
 
 ## Existing mutation ownership
@@ -88,6 +89,7 @@ interface SpaceDirectoryState {
 - `reportPageIdentity(pageId, spaceId, folderId?)` is the authoritative identity interface.
 - `SpaceNav` adds `embedded?: boolean` for the compact shared header row.
 - `NewPageDialog` adds `targetLocation?: string` for the explicit creation destination.
+- `ModalDialog` adds optional `overlayClassName?: string`; existing dialogs retain the centered default, while the directory supplies a left-aligned full-height overlay for its drawer.
 
 ## TDD evidence
 
@@ -100,9 +102,14 @@ Additional RED/GREEN coverage caught and fixed:
 - deep-link target folder itself not expanded;
 - mixed revisions between folder metadata, root, and ancestor levels;
 - cached hierarchy retained after 403;
+- lazy reloads continuing after a Space scope change, and sibling reloads refilling the cache after 403;
 - directory scroll state stored but not connected to the actual scroller;
 - Space metadata failure replacing already loaded page content;
 - crowded row operations and missing readable sidebar create/search entries.
+- the row actions disclosure remaining open after Escape; Escape now closes it and returns focus to its summary.
+- the 390px layout stacking the complete directory above the article; narrow screens now show a localized directory button and an accessible modal drawer. Escape, close, or outside click closes it and restores focus. Folder/page selection closes only after the route location changes, so a cancelled future dirty-editor navigation leaves the drawer and selection intact.
+
+The cancellation and mobile work followed an additional RED/GREEN pass. The mobile test initially failed because no `Open directory` button existed. The concurrent-revocation test initially showed that a 403 cleared cache without cancelling a sibling level read; the late sibling could reinstall data. Both fail for their intended reason before the implementation and pass after it. One intermediate test fixture created `setFolderExpanded` inline inside `renderHook`, causing the test itself to restart its effect until Node exhausted its heap. The fixture now uses the same stable callback identity as production callers; every `useSpaceDirectory` test was checked for this dependency.
 
 Fresh Task 2 and affected-core command:
 
@@ -119,7 +126,7 @@ pnpm --filter @agentwiki/client test \
   src/App.spec.tsx
 ```
 
-Result: 9 files passed, 68 tests passed, 0 failed.
+Result after the fix round: 10 files passed, 72 tests passed, 0 failed (including `ModalDialog.test.tsx`).
 
 Affected page-identity regression command:
 
@@ -153,6 +160,7 @@ Scoped ESLint over all changed Task 2 TypeScript/TSX files exited 0 with no diag
 
 ## Review notes and concerns
 
-- The latest sticky-height, readable search/create entries, and row actions-menu polish is covered by component tests and awaits the controller's final independent visual pass.
+- Sticky height, readable search/create entries, row actions-menu Escape behavior, and the narrow-screen drawer are covered by component tests. The controller independently passed the drawer flow; the final real-browser actions-menu Escape check remains pending after an HMR interruption.
+- Controller mobile acceptance at 390×844 confirmed the first screen no longer stacks the tree; opening the drawer, selecting a page, and navigating removed the drawer, while Escape closed it and returned focus to `打开目录`.
 - Directory levels intentionally remain owned by the one mounted `SpaceView` controller; provider state owns expanded IDs and scroll position across core route changes. If React remounts a route subtree, levels are fetched again as one coherent bounded snapshot rather than persisted across accounts or Spaces.
 - The directory reads folder metadata and content-tree summaries only. It does not recursively load page bodies.

@@ -270,7 +270,17 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
           </button>
         )}
         {canEdit ? (
-          <details className="relative shrink-0">
+          <details
+            className="relative shrink-0"
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape') return;
+              event.preventDefault();
+              event.stopPropagation();
+              const details = event.currentTarget;
+              details.open = false;
+              details.querySelector<HTMLElement>('summary')?.focus();
+            }}
+          >
             <summary
               className="inline-flex h-7 w-7 cursor-pointer list-none items-center justify-center rounded text-gray-500 hover:bg-gray-200 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 [&::-webkit-details-marker]:hidden"
               aria-label={`${labels.actions}: ${isPage ? node.title : node.name}`}
