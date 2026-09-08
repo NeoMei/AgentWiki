@@ -56,6 +56,7 @@ export const useSpaceDirectory = ({
   const generationRef = useRef(0);
   const snapshotControllerRef = useRef<AbortController | null>(null);
   const reloadControllersRef = useRef<Map<string, AbortController>>(new Map());
+  const expandedFolderIdsRef = useRef(expandedFolderIds);
   const revisionRef = useRef<string | null>(null);
   const levelsRef = useRef<ReadonlyMap<string | null, DirectoryLevel>>(new Map());
   const indexRef = useRef<FolderIndex>(new Map());
@@ -65,6 +66,7 @@ export const useSpaceDirectory = ({
   const [locating, setLocating] = useState(Boolean(spaceId));
   const [error, setError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
+  expandedFolderIdsRef.current = expandedFolderIds;
 
   const clearDirectory = useCallback((revision: string | null = null) => {
     revisionRef.current = revision;
@@ -149,6 +151,7 @@ export const useSpaceDirectory = ({
     if (!spaceId) return undefined;
     const controller = new AbortController();
     snapshotControllerRef.current = controller;
+    const expandedFolderIdsAtStart = expandedFolderIdsRef.current;
     void (async () => {
       try {
         for (let attempt = 0; attempt < SNAPSHOT_ATTEMPTS; attempt += 1) {
@@ -161,6 +164,15 @@ export const useSpaceDirectory = ({
           const nextIndex = new Map(ancestry?.folders ?? []);
           let revision = ancestry?.treeRevision || null;
           let changed = false;
+          const pendingExpandedFolderIds: string[] = [];
+          const queuedExpandedFolderIds = new Set<string>();
+          const enqueueExpandedFolders = (nodes: ContentTreeNode[]) => {
+            for (const node of nodes) {
+              if (node.kind !== 'folder' || !expandedFolderIdsAtStart.has(node.id) || queuedExpandedFolderIds.has(node.id)) continue;
+              queuedExpandedFolderIds.add(node.id);
+              pendingExpandedFolderIds.push(node.id);
+            }
+          };
 
           for (const parentFolderId of [null, ...ancestorIds] as Array<string | null>) {
             const response = await listTreeChildren(spaceId, parentFolderId, controller.signal);
@@ -173,6 +185,23 @@ export const useSpaceDirectory = ({
             const level = { parentFolderId, nodes: response.data, treeRevision: response.treeRevision };
             nextLevels.set(parentFolderId, level);
             registerFolders(nextIndex, response.data, parentFolderId);
+            enqueueExpandedFolders(response.data);
+          }
+
+          while (!changed && pendingExpandedFolderIds.length) {
+            const parentFolderId = pendingExpandedFolderIds.shift()!;
+            if (nextLevels.has(parentFolderId)) continue;
+            const response = await listTreeChildren(spaceId, parentFolderId, controller.signal);
+            if (generationRef.current !== generation) return;
+            revision ??= response.treeRevision;
+            if (response.treeRevision !== revision) {
+              changed = true;
+              break;
+            }
+            const level = { parentFolderId, nodes: response.data, treeRevision: response.treeRevision };
+            nextLevels.set(parentFolderId, level);
+            registerFolders(nextIndex, response.data, parentFolderId);
+            enqueueExpandedFolders(response.data);
           }
 
           if (changed) {

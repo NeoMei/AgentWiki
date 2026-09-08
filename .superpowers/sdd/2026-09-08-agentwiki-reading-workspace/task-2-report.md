@@ -164,3 +164,13 @@ Scoped ESLint over all changed Task 2 TypeScript/TSX files exited 0 with no diag
 - Controller mobile acceptance at 390×844 confirmed the first screen no longer stacks the tree; opening the drawer, selecting a page, and navigating removed the drawer, while Escape closed it and returned focus to `打开目录`.
 - Directory levels intentionally remain owned by the one mounted `SpaceView` controller; provider state owns expanded IDs and scroll position across core route changes. If React remounts a route subtree, levels are fetched again as one coherent bounded snapshot rather than persisted across accounts or Spaces.
 - The directory reads folder metadata and content-tree summaries only. It does not recursively load page bodies.
+
+## Continuity fix round 2
+
+After Task 3 landed, real navigation exposed a cache-continuity gap: the workspace provider preserved expanded folder IDs across page/folder targets, while `useSpaceDirectory` reset its levels and rebuilt only the new target chain. Folders that stayed expanded could then render empty because no collapse-to-expand transition remained to trigger lazy loading.
+
+The snapshot now restores only expanded folders discovered through already loaded levels, including deeper expanded descendants. The restoration remains inside the same AbortSignal, generation, revision-consistency, and two-attempt snapshot boundary. It does not request unopened branches or stale expanded IDs, and it also covers recovery after the accepted page identity temporarily leaves `spaceId` unresolved.
+
+TDD RED reproduced a target switch returning only `[root]`; GREEN retains `[root, a, b, c]`. Added tests cover target switching, transient unresolved identity, unopened/unreachable pruning, and revision drift in a restored branch. Fresh focused results: hook 1 file / 9 tests passed; hook + `SpaceWorkspace` + `SpaceView` 3 files / 38 tests passed. Client TypeScript, scoped ESLint, and `git diff --check` exited 0. Full evidence and review boundary are in `task-2-continuity-fix-report.md`.
+
+Controller real-browser verification passed `main -> deep -> sibling -> main`, preserving the old deep page. A further navigation to a same-title page under `项目文档` retained both previously expanded branches and displayed the correct article by ID. Sidebar scroll restoration remains for the controller's final acceptance pass.
