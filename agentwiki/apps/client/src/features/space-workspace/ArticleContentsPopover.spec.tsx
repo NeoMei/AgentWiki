@@ -131,4 +131,35 @@ describe('ArticleContentsPopover', () => {
     const popover = screen.getByRole('navigation', { name: 'Contents' });
     expect(popover).toHaveStyle({ left: '16px', top: '133px', width: '280px' });
   });
+
+  it('limits a mobile popover to the viewport space below a wrapped toolbar', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 844 });
+    render(<Harness>{Array.from({ length: 18 }, (_, index) => (
+      <h2 id={`mobile-${index}`} key={index}>Mobile heading {index}</h2>
+    ))}</Harness>);
+    const trigger = await screen.findByRole('button', { name: 'Contents' });
+    vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue({ right: 296, bottom: 353 } as DOMRect);
+    fireEvent.click(trigger);
+
+    const popover = screen.getByRole('navigation', { name: 'Contents' });
+    expect(popover).toHaveStyle({ top: '361px', maxHeight: '467px' });
+    expect(popover.lastElementChild).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto');
+  });
+
+  it('renders the fixed popover outside a filtered reading toolbar', async () => {
+    const articleRef = React.createRef<HTMLDivElement>();
+    render(<LanguageProvider>
+      <div data-testid="filtered-toolbar" data-reading-toolbar style={{ backdropFilter: 'blur(8px)' }}>
+        <ArticleContentsPopover articleRootRef={articleRef} pageKey="page-1" />
+      </div>
+      <div ref={articleRef}><h2 id="portal-heading">Portal heading</h2></div>
+    </LanguageProvider>);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Contents' }));
+    const toolbar = screen.getByTestId('filtered-toolbar');
+    const popover = screen.getByRole('navigation', { name: 'Contents' });
+    expect(toolbar).not.toContainElement(popover);
+    expect(popover.parentElement).toBe(document.body);
+  });
 });

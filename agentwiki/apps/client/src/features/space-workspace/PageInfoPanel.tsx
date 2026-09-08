@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Database, Info, Trash2, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useLanguage } from '../../context/LanguageContext';
@@ -40,11 +41,13 @@ export const PageInfoPanel: React.FC<PageInfoPanelProps> = ({
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const closeFromOutside = (event: PointerEvent) => {
-      if (!wrapperRef.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (!wrapperRef.current?.contains(target) && !panelRef.current?.contains(target)) setOpen(false);
     };
     const closeFromEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
@@ -73,8 +76,9 @@ export const PageInfoPanel: React.FC<PageInfoPanelProps> = ({
         <Info size={17} aria-hidden="true" />
         {t('page.information')}
       </button>
-      {open ? (
+      {open ? createPortal((
         <aside
+          ref={panelRef}
           aria-label={t('page.information')}
           className="fixed bottom-0 right-0 top-16 z-40 w-full max-w-sm overflow-y-auto border-l border-gray-200 bg-white p-5 shadow-xl"
         >
@@ -138,7 +142,7 @@ export const PageInfoPanel: React.FC<PageInfoPanelProps> = ({
             </div>
           ) : null}
         </aside>
-      ) : null}
+      ), document.body) : null}
     </div>
   );
 };

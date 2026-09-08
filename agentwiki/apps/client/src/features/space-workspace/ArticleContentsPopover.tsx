@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { List, X } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 
@@ -18,6 +19,7 @@ interface PopoverPosition {
   left: number;
   top: number;
   width: number;
+  maxHeight: number;
 }
 
 const STICKY_OFFSET = 88;
@@ -60,9 +62,10 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
   const [items, setItems] = useState<OutlineItem[]>([]);
   const [open, setOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [position, setPosition] = useState<PopoverPosition>({ left: 16, top: 88, width: 280 });
+  const [position, setPosition] = useState<PopoverPosition>({ left: 16, top: 88, width: 280, maxHeight: 0 });
   const wrapperRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLElement>(null);
 
   const updatePosition = useCallback(() => {
     const trigger = triggerRef.current;
@@ -70,10 +73,12 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
     const bounds = trigger.getBoundingClientRect();
     const width = Math.min(280, Math.max(0, window.innerWidth - 32));
     const rightmostLeft = Math.max(16, window.innerWidth - width - 16);
+    const top = Math.min(bounds.bottom + 8, Math.max(16, window.innerHeight - 16));
     setPosition({
       left: Math.min(Math.max(16, bounds.right - width), rightmostLeft),
-      top: Math.min(bounds.bottom + 8, Math.max(16, window.innerHeight - 16)),
+      top,
       width,
+      maxHeight: Math.max(0, window.innerHeight - top - 16),
     });
   }, []);
 
@@ -121,7 +126,8 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
     if (!open) return;
     updatePosition();
     const closeFromOutside = (event: PointerEvent) => {
-      if (!wrapperRef.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (!wrapperRef.current?.contains(target) && !popoverRef.current?.contains(target)) setOpen(false);
     };
     const closeFromEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
@@ -172,13 +178,14 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
         <List size={17} aria-hidden="true" />
         {t('page.contents')}
       </button>
-      {open ? (
+      {open ? createPortal((
         <nav
+          ref={popoverRef}
           aria-label={t('page.contents')}
-          className="fixed z-30 max-h-[calc(100vh-2rem)] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg"
-          style={{ left: position.left, top: position.top, width: position.width }}
+          className="fixed z-30 flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg"
+          style={{ left: position.left, top: position.top, width: position.width, maxHeight: position.maxHeight }}
         >
-          <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+          <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-4 py-3">
             <h2 className="text-base font-semibold text-gray-900">{t('page.contents')}</h2>
             <button
               type="button"
@@ -189,7 +196,7 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
               <X size={17} aria-hidden="true" />
             </button>
           </div>
-          <div className="max-h-[min(60vh,32rem)] overflow-y-auto p-2">
+          <div className="min-h-0 flex-1 overflow-y-auto p-2">
             {items.map((item) => (
               <button
                 key={`${item.id}:${item.level}`}
@@ -205,7 +212,7 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
             ))}
           </div>
         </nav>
-      ) : null}
+      ), document.body) : null}
     </div>
   );
 };

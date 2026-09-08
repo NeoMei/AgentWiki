@@ -58,4 +58,18 @@ describe('PageInfoPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Page information' }));
     expect(screen.getByText('Human-created page. No automated source or approval record.')).toBeInTheDocument();
   });
+
+  it('renders the fixed panel outside a filtered reading toolbar', () => {
+    render(<LanguageProvider><MemoryRouter>
+      <div data-testid="filtered-toolbar" data-reading-toolbar style={{ backdropFilter: 'blur(8px)' }}>
+        <PageInfoPanel {...details} onDelete={vi.fn()} deleting={false} />
+      </div>
+    </MemoryRouter></LanguageProvider>);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Page information' }));
+    const toolbar = screen.getByTestId('filtered-toolbar');
+    const panel = screen.getByRole('complementary', { name: 'Page information' });
+    expect(toolbar).not.toContainElement(panel);
+    expect(panel.parentElement).toBe(document.body);
+  });
 });
