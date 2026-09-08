@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { PageVersionHistory } from './PageVersionHistory';
+import { SpaceWorkspace } from '../space-workspace/SpaceWorkspace';
+import { SpaceWorkspaceProvider } from '../space-workspace/SpaceWorkspaceContext';
 
 vi.mock('../../api/client', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 const contentTreeMocks = vi.hoisted(() => ({ getContentTreeRevision: vi.fn() }));
@@ -42,6 +44,21 @@ describe('PageVersionHistory', () => {
     vi.mocked(api.get).mockImplementation(async (url: string) => url.endsWith('/versions')
       ? { data: [{ id: 'v1', title: '旧版本', content: '# 旧标题\n\n旧正文\n\n- [ ] 历史任务', createdAt: '2026-08-19T00:00:00Z' }] }
       : { data: { id: 'page-1', title: '当前页面', spaceId: 'space-1', capabilities: { canEdit: false } } });
+  });
+
+  it('registers its page response with the workspace shell without a duplicate identity request', async () => {
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    render(<MemoryRouter initialEntries={['/pages/page-1/versions']}><LanguageProvider>
+      <SpaceWorkspaceProvider userId="user-1">
+        <Routes><Route path="/pages/:id/versions" element={
+          <SpaceWorkspace mode="versions" pageId="page-1"><PageVersionHistory /></SpaceWorkspace>
+        } /></Routes>
+      </SpaceWorkspaceProvider>
+    </LanguageProvider></MemoryRouter>);
+
+    expect(await screen.findByText('旧版本')).toBeInTheDocument();
+    expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/pages/page-1')).toHaveLength(1);
+    expect(screen.getByRole('link', { name: 'Pages' })).toHaveAttribute('href', '/spaces/space-1');
   });
 
   it('previews a historical Markdown version without restoring it', async () => {

@@ -121,3 +121,40 @@ Focused ESLint over all changed TypeScript/TSX files also exited 0 with no diagn
 - No existing Space/page route was removed or renamed.
 - Resolution requests are abort-scoped and stale page responses cannot install another page's Space identity.
 - The duplicate page identity GET is the material staging cost. Task 2 may consume the resolved identity from context to remove the child request only if it can preserve every existing page loading, refresh, permission and conflict behavior; this task deliberately leaves those owners unchanged.
+
+## Fix round 1: authoritative child page identity
+
+Review finding source: `task-1-review.md`. The review correctly found that the shell's independent page lookup could fail while page content loaded successfully, leaving rendered content without Space navigation or scoped state.
+
+### Fix
+
+- Removed the shell-owned `GET /pages/:pageId` entirely.
+- Added `reportPageIdentity(pageId, spaceId | null)` to the workspace context and the optional `usePageWorkspaceIdentity()` consumer hook. Outside a workspace the hook is a no-op, preserving all existing isolated page tests and component reuse.
+- `PagePreview`, `PageEditor`, and `PageVersionHistory` now report identity only from their existing authoritative page loads. They clear it at a new page route/load, an active load failure, and editor permission revocation.
+- The shell accepts reports only for its current `pageId`; stale page results cannot install another page's Space. Repeating the same identity returns the existing state object to avoid render/effect loops.
+- A page route change clears the old shell identity before the new request completes. The navigation is absent during this unresolved interval rather than showing the prior Space.
+- Added real route integration coverage for page-1 to page-2 in the same Space, with expanded state retained, followed by page-3 in another Space, with state isolated. The third response is deferred to assert stale Space navigation is cleared immediately.
+
+### RED evidence
+
+Command:
+
+```sh
+pnpm --filter @agentwiki/client test src/features/space-workspace/SpaceWorkspace.spec.tsx src/features/page/PageEditor.spec.tsx src/features/page/PageVersionHistory.spec.tsx
+```
+
+Observed exit 1: all three new integration tests counted two `/pages/:id` requests instead of one. The shell test also showed that content success depended on the second shell request. Existing impacted tests were otherwise green: 69 passed, 3 failed.
+
+### GREEN evidence
+
+Fresh final focused command:
+
+```sh
+pnpm --filter @agentwiki/client test src/features/space-workspace/SpaceWorkspace.spec.tsx src/features/space-workspace/workspaceNavigation.spec.ts src/components/SpaceNav.spec.tsx src/components/Layout.spec.tsx src/App.spec.tsx src/features/page/PagePreview.spec.tsx src/features/page/PageEditor.spec.tsx src/features/page/PageVersionHistory.spec.tsx
+```
+
+Observed exit 0: 8 files passed, 111 tests passed, 0 failed. This includes the three single-request identity integrations, same-Space/cross-Space real page routing, unresolved transition clearing, editor refresh failure clearing and subsequent successful identity recovery, and all impacted PagePreview/PageEditor/PageVersionHistory regressions.
+
+Fresh `pnpm --filter @agentwiki/client exec tsc --noEmit` exited 0 with no diagnostics. Focused ESLint over all Task 1 and impacted page files exited 0 with no diagnostics.
+
+The earlier report's duplicate-GET concern is now resolved. No server, schema, authorization policy, audit, sync, editor behavior, version-diff, dependency or runtime-environment changes were introduced.

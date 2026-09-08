@@ -1,16 +1,19 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
-import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { LanguageProvider } from '../../context/LanguageContext';
+import { PagePreview } from '../page/PagePreview';
 import { SpaceWorkspace } from './SpaceWorkspace';
 import {
   SpaceWorkspaceProvider,
   useSpaceWorkspace,
 } from './SpaceWorkspaceContext';
 
-vi.mock('../../api/client', () => ({ default: { get: vi.fn() } }));
+vi.mock('../../api/client', () => ({ default: {
+  get: vi.fn(), patch: vi.fn(), post: vi.fn(), delete: vi.fn(),
+} }));
 
 const WorkspaceProbe = () => {
   const workspace = useSpaceWorkspace();
@@ -26,8 +29,20 @@ const WorkspaceProbe = () => {
       <button type="button" onClick={() => workspace.selectFolder('folder-next')}>select next</button>
       <button type="button" onClick={() => navigate(-1)}>history back</button>
       <button type="button" onClick={() => navigate('/pages/page-2/edit')}>edit next</button>
+      <button type="button" onClick={() => navigate('/pages/page-2')}>read second</button>
+      <button type="button" onClick={() => navigate('/pages/page-3')}>read third</button>
       <button type="button" onClick={() => navigate('/spaces/space-2')}>other space</button>
     </>
+  );
+};
+
+const RoutedPreviewWorkspace = () => {
+  const { id } = useParams<{ id: string }>();
+  return (
+    <SpaceWorkspace mode="read" pageId={id}>
+      <WorkspaceProbe />
+      <PagePreview />
+    </SpaceWorkspace>
   );
 };
 
@@ -118,22 +133,86 @@ describe('SpaceWorkspace', () => {
     await waitFor(() => expect(screen.getByTestId('selected-folder')).toHaveTextContent('folder-first'));
   });
 
-  it('resolves a page route from the page response space id before presenting space navigation', async () => {
+  it('uses the successful content load as the only page identity request', async () => {
     localStorage.setItem('agentwiki.language.v1', 'en');
-    vi.mocked(api.get).mockResolvedValue({ data: { id: 'page-77', spaceId: 'space-real' } });
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === '/pages/page-77') return { data: {
+        id: 'page-77', title: 'Loaded content', content: 'Body', format: 'markdown',
+        spaceId: 'space-real', createdAt: '2026-09-08T00:00:00Z', updatedAt: '2026-09-08T00:00:00Z',
+        capabilities: { canEdit: true },
+      } };
+      if (url === '/knowledge/related/page-77') return { data: [] };
+      throw new Error(`unexpected get ${url}`);
+    });
 
     render(
       <LanguageProvider>
         <MemoryRouter initialEntries={['/pages/page-77']}>
           <SpaceWorkspaceProvider userId="user-1">
-            <SpaceWorkspace mode="read" pageId="page-77"><WorkspaceProbe /></SpaceWorkspace>
+            <Routes>
+              <Route path="/pages/:id" element={
+                <SpaceWorkspace mode="read" pageId="page-77"><PagePreview /></SpaceWorkspace>
+              } />
+            </Routes>
           </SpaceWorkspaceProvider>
         </MemoryRouter>
       </LanguageProvider>,
     );
 
-    await waitFor(() => expect(screen.getByTestId('scope')).toHaveTextContent('user-1:space-real:read'));
-    expect(api.get).toHaveBeenCalledWith('/pages/page-77', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(await screen.findByRole('heading', { name: 'Loaded content' })).toBeInTheDocument();
+    expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/pages/page-77')).toHaveLength(1);
     expect(screen.getByRole('link', { name: 'Pages' })).toHaveAttribute('href', '/spaces/space-real');
+  });
+
+  it('preserves browse state across two loaded pages in one Space and isolates a third page in another', async () => {
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    let resolveThird!: (value: any) => void;
+    const thirdPage = new Promise<any>((resolve) => { resolveThird = resolve; });
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      const match = url.match(/^\/pages\/(page-[123])$/u);
+      if (match) {
+        const pageId = match[1];
+        const response = { data: {
+          id: pageId,
+          title: `Title ${pageId}`,
+          content: 'Body',
+          format: 'markdown',
+          spaceId: pageId === 'page-3' ? 'space-b' : 'space-a',
+          createdAt: '2026-09-08T00:00:00Z',
+          updatedAt: '2026-09-08T00:00:00Z',
+          capabilities: { canEdit: true },
+        } };
+        return pageId === 'page-3' ? thirdPage : response;
+      }
+      if (url.startsWith('/knowledge/related/')) return { data: [] };
+      throw new Error(`unexpected get ${url}`);
+    });
+
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/pages/page-1']}>
+          <SpaceWorkspaceProvider userId="user-1">
+            <Routes><Route path="/pages/:id" element={<RoutedPreviewWorkspace />} /></Routes>
+          </SpaceWorkspaceProvider>
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Title page-1' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'expand' }));
+    fireEvent.click(screen.getByRole('button', { name: 'read second' }));
+    expect(await screen.findByRole('heading', { name: 'Title page-2' })).toBeInTheDocument();
+    expect(screen.getByTestId('expanded')).toHaveTextContent('folder-a');
+    expect(screen.getByRole('link', { name: 'Pages' })).toHaveAttribute('href', '/spaces/space-a');
+
+    fireEvent.click(screen.getByRole('button', { name: 'read third' }));
+    expect(screen.queryByRole('navigation', { name: 'Space navigation' })).not.toBeInTheDocument();
+    resolveThird({ data: {
+      id: 'page-3', title: 'Title page-3', content: 'Body', format: 'markdown', spaceId: 'space-b',
+      createdAt: '2026-09-08T00:00:00Z', updatedAt: '2026-09-08T00:00:00Z', capabilities: { canEdit: true },
+    } });
+    expect(await screen.findByRole('heading', { name: 'Title page-3' })).toBeInTheDocument();
+    expect(screen.getByTestId('expanded')).toBeEmptyDOMElement();
+    expect(screen.getByRole('link', { name: 'Pages' })).toHaveAttribute('href', '/spaces/space-b');
   });
 });

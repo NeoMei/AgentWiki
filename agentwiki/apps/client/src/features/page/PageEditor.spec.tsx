@@ -8,6 +8,8 @@ import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { LanguageProvider } from '../../context/LanguageContext';
 import type { PageTemplateListResponse } from '../page-templates/pageTemplateTypes';
 import { PageEditor } from './PageEditor';
+import { SpaceWorkspace } from '../space-workspace/SpaceWorkspace';
+import { SpaceWorkspaceProvider } from '../space-workspace/SpaceWorkspaceContext';
 
 const templateMocks = vi.hoisted(() => ({
   listPageTemplates: vi.fn(),
@@ -233,6 +235,50 @@ describe('PageEditor remote update safety', () => {
       if (!next) return Promise.reject(new Error('unexpected get ' + url));
       return Promise.resolve(next);
     });
+  });
+
+  it('registers its successful page load with the workspace shell without another page request', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/pages/page-1/edit']}>
+          <SpaceWorkspaceProvider userId="user-1">
+            <Routes><Route path="/pages/:id/edit" element={
+              <SpaceWorkspace mode="edit" pageId="page-1"><PageEditor /></SpaceWorkspace>
+            } /></Routes>
+          </SpaceWorkspaceProvider>
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    expect(await screen.findByDisplayValue('Original title')).toBeInTheDocument();
+    expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/pages/page-1')).toHaveLength(1);
+    expect(screen.getByRole('link', { name: 'Pages' })).toHaveAttribute('href', '/spaces/space-1');
+  });
+
+  it('clears a registered workspace identity when the authoritative page refresh fails', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/pages/page-1/edit']}>
+          <SpaceWorkspaceProvider userId="user-1">
+            <Routes><Route path="/pages/:id/edit" element={
+              <SpaceWorkspace mode="edit" pageId="page-1"><PageEditor /></SpaceWorkspace>
+            } /></Routes>
+          </SpaceWorkspaceProvider>
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    expect(await screen.findByRole('navigation', { name: 'Space navigation' })).toBeInTheDocument();
+    vi.mocked(api.get).mockRejectedValue(new Error('access revoked'));
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    await waitFor(() => expect(screen.queryByRole('navigation', { name: 'Space navigation' })).not.toBeInTheDocument());
+    expect(screen.getByDisplayValue('Original title')).toBeInTheDocument();
+
+    vi.mocked(api.get).mockResolvedValue({ data: page({ capabilities: { canEdit: true } }) } as any);
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    expect(await screen.findByRole('navigation', { name: 'Space navigation' })).toBeInTheDocument();
   });
 
   it('opens late-binding settings from the Page editor without requiring template-management permission', async () => {

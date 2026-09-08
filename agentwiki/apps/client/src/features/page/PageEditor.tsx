@@ -19,6 +19,7 @@ import { AttachmentPickerDialog } from '../attachments/AttachmentPickerDialog';
 import { uploadAttachment } from '../attachments/attachmentApi';
 import { formatAttachmentReference } from '../attachments/attachmentReference';
 import 'highlight.js/styles/github.css';
+import { usePageWorkspaceIdentity } from '../space-workspace/SpaceWorkspaceContext';
 
 interface Page {
   id: string;
@@ -81,6 +82,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const navigate = useNavigate();
   const { user } = useAuth();
   const { language, t } = useLanguage();
+  const reportPageIdentity = usePageWorkspaceIdentity();
   const socketRef = useRef<Socket | null>(null);
   const contentRef = useRef<string>('');
   const tRef = useRef(t);
@@ -240,7 +242,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     dismissedRemoteRevisionRef.current = null;
     setRemoteUpdate(null);
     updateDirty(false);
-  }, [abortAttachmentUploads, clearAttachmentStatus, updateDirty]);
+    reportPageIdentity(nextPage.id, nextPage.spaceId || null);
+  }, [abortAttachmentUploads, clearAttachmentStatus, reportPageIdentity, updateDirty]);
 
   const adoptRemoteDraft = useCallback((nextContent: string, revision: string) => {
     abortAttachmentUploads();
@@ -285,14 +288,17 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       const res = await api.get(`/pages/${requestedId}`, { signal: controller.signal });
       if (!mountedRef.current || controller.signal.aborted || sequence !== loadSequenceRef.current || activePageIdRef.current !== requestedId) return;
       if (res.data.capabilities?.canEdit === false) {
+        reportPageIdentity(requestedId, null);
         window.alert(tRef.current('common.forbidden'));
         navigate(`/pages/${requestedId}`, { replace: true });
         return;
       }
+      reportPageIdentity(requestedId, res.data.spaceId || null);
       setError(null);
       offerRemotePage(res.data, pageRevision(res.data), forcePrompt);
     } catch (err: any) {
       if (controller.signal.aborted || !mountedRef.current || activePageIdRef.current !== requestedId) return;
+      reportPageIdentity(requestedId, null);
       if (showLoading) setError(err.response?.data?.message || tRef.current('editor.loadFailed'));
     } finally {
       requestControllersRef.current.delete(controller);
@@ -300,7 +306,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         setLoading(false);
       }
     }
-  }, [id, navigate, offerRemotePage]);
+  }, [id, navigate, offerRemotePage, reportPageIdentity]);
 
   useEffect(() => {
     contentRef.current = content;
@@ -477,12 +483,13 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     setRemoteUpdate(null);
     setAttachmentPickerOpen(false);
     updateDirty(false);
+    if (id) reportPageIdentity(id, null);
     if (!id) {
       setLoading(false);
       return;
     }
     void loadPage(true);
-  }, [abortAttachmentUploads, clearAttachmentStatus, id, loadPage, updateDirty]);
+  }, [abortAttachmentUploads, clearAttachmentStatus, id, loadPage, reportPageIdentity, updateDirty]);
 
   // Refresh persisted state on focus and periodically without replacing dirty fields.
   useEffect(() => {

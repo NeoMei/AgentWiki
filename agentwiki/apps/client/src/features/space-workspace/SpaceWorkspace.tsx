@@ -1,6 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import api from '../../api/client';
 import { SpaceNav } from '../../components/SpaceNav';
 import { SpaceWorkspaceScope, type SpaceWorkspaceMode } from './SpaceWorkspaceContext';
 import {
@@ -36,21 +35,14 @@ export const SpaceWorkspace: React.FC<SpaceWorkspaceProps> = ({
   const resolvedSection = activeSection ?? workspaceSectionFromPath(location.pathname) ?? 'pages';
   const selectedFolderId = folderIdFromSearch(location.search);
 
-  useEffect(() => {
-    if (spaceId || !pageId) return;
-    const controller = new AbortController();
-    api.get(`/pages/${pageId}`, { signal: controller.signal })
-      .then((response) => {
-        const resolved = response.data?.spaceId;
-        if (!controller.signal.aborted && typeof resolved === 'string' && resolved) {
-          setPageResolution({ pageId, spaceId: resolved });
-        }
-      })
-      .catch(() => {
-        // The routed page remains responsible for its established loading and error UI.
-      });
-    return () => controller.abort();
-  }, [pageId, spaceId]);
+  const reportPageIdentity = useCallback((reportedPageId: string, reportedSpaceId: string | null) => {
+    if (!pageId || reportedPageId !== pageId) return;
+    setPageResolution((current) => {
+      if (!reportedSpaceId) return current?.pageId === reportedPageId ? null : current;
+      if (current?.pageId === reportedPageId && current.spaceId === reportedSpaceId) return current;
+      return { pageId: reportedPageId, spaceId: reportedSpaceId };
+    });
+  }, [pageId]);
 
   const selectFolder = useCallback((folderId: string | null) => {
     if (resolvedSpaceId) navigate(spaceFolderHref(resolvedSpaceId, folderId));
@@ -63,6 +55,7 @@ export const SpaceWorkspace: React.FC<SpaceWorkspaceProps> = ({
       activeSection={resolvedSection}
       selectedFolderId={selectedFolderId}
       selectFolder={selectFolder}
+      reportPageIdentity={reportPageIdentity}
     >
       <div data-space-workspace={mode} data-space-id={resolvedSpaceId ?? undefined}>
         {showNavigation && resolvedSpaceId ? <SpaceNav spaceId={resolvedSpaceId} activeSection={resolvedSection} /> : null}

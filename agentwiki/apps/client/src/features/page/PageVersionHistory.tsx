@@ -7,6 +7,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { Markdown } from '../../components/Markdown';
 import { apiErrorMessage } from '../../api/error-message';
 import { ModalDialog } from '../../components/ModalDialog';
+import { usePageWorkspaceIdentity } from '../space-workspace/SpaceWorkspaceContext';
 
 interface PageVersion {
   id: string;
@@ -28,6 +29,7 @@ export const PageVersionHistory: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { t, language } = useLanguage();
+  const reportPageIdentity = usePageWorkspaceIdentity();
   const [versions, setVersions] = useState<PageVersion[]>([]);
   const [page, setPage] = useState<Page | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,6 +69,7 @@ export const PageVersionHistory: React.FC = () => {
     restoringRef.current = null;
     setRestoring(null);
     setLoading(true);
+    reportPageIdentity(id, null);
     const fetchData = async () => {
       try {
         const [pageRes, versionsRes] = await Promise.all([
@@ -76,8 +79,12 @@ export const PageVersionHistory: React.FC = () => {
         if (!active) return;
         setPage(pageRes.data);
         setVersions(versionsRes.data || []);
+        reportPageIdentity(id, pageRes.data?.spaceId || null);
       } catch (err: unknown) {
-        if (active) setError(apiErrorMessage(err, t, 'version.loadFailed'));
+        if (active) {
+          reportPageIdentity(id, null);
+          setError(apiErrorMessage(err, t, 'version.loadFailed'));
+        }
       } finally {
         if (active) setLoading(false);
       }
@@ -86,7 +93,7 @@ export const PageVersionHistory: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [id]);
+  }, [id, reportPageIdentity]);
 
   const handleRestore = async (versionId: string) => {
     if (!id || !page?.spaceId || restoringRef.current !== null || !window.confirm(t('version.restoreConfirm'))) return;

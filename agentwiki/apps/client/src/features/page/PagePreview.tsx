@@ -9,6 +9,7 @@ import { Markdown } from '../../components/Markdown';
 import type { MarkdownTaskRef, MarkdownTaskToggle } from '../../components/markdown/markdownTypes';
 import { rebaseMarkdownTask, toggleMarkdownTask } from '../../components/markdown/tasks';
 import { ModeToggleButton } from '../../components/ModeToggleButton';
+import { usePageWorkspaceIdentity } from '../space-workspace/SpaceWorkspaceContext';
 
 interface Page {
   id: string;
@@ -42,6 +43,7 @@ export const PagePreview: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { t, language } = useLanguage();
+  const reportPageIdentity = usePageWorkspaceIdentity();
   const tRef = useRef(t);
   tRef.current = t;
   const [page, setPage] = useState<Page | null>(null);
@@ -284,6 +286,7 @@ export const PagePreview: React.FC = () => {
     setDeleting(false);
     setPendingTaskIndexes(new Set());
     setRelatedPages([]);
+    if (id) reportPageIdentity(id, null);
     if (!id) {
       setLoading(false);
       return;
@@ -296,15 +299,17 @@ export const PagePreview: React.FC = () => {
         lastCommittedPageRef.current = response.data;
         pageRef.current = response.data;
         setPage(response.data);
+        reportPageIdentity(requestedId, response.data?.spaceId || null);
       })
       .catch((loadError: any) => {
         if (!routeIsActive(requestedId, generation)) return;
+        reportPageIdentity(requestedId, null);
         setError(loadError.response?.data?.message || tRef.current('editor.loadFailed'));
       })
       .finally(() => {
         if (routeIsActive(requestedId, generation)) setLoading(false);
       });
-  }, [id]);
+  }, [id, reportPageIdentity]);
 
   useEffect(() => {
     setRelatedPages([]);
