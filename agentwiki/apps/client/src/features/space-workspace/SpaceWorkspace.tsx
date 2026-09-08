@@ -33,7 +33,7 @@ export const SpaceWorkspace: React.FC<SpaceWorkspaceProps> = ({
   const navigate = useNavigate();
   const [pageResolution, setPageResolution] = useState<{ pageId: string; spaceId: string; folderId: string | null } | null>(null);
   const [deletedPageId, setDeletedPageId] = useState<string | null>(null);
-  const [pageRefreshRequest, setPageRefreshRequest] = useState(0);
+  const [pageRefresh, setPageRefresh] = useState<{ pageId: string | null; request: number }>({ pageId: null, request: 0 });
   const resolvedSpaceId = spaceId ?? (
     pageResolution && pageResolution.pageId === pageId ? pageResolution.spaceId : null
   );
@@ -52,8 +52,9 @@ export const SpaceWorkspace: React.FC<SpaceWorkspaceProps> = ({
 
   const requestPageRefresh = useCallback((requestedPageId: string, options?: { deleted?: boolean }) => {
     if (requestedPageId !== pageId) return;
-    if (options?.deleted) setDeletedPageId(requestedPageId);
-    setPageRefreshRequest((current) => current + 1);
+    if (options?.deleted === true) setDeletedPageId(requestedPageId);
+    else if (options?.deleted === false) setDeletedPageId((current) => current === requestedPageId ? null : current);
+    setPageRefresh((current) => ({ pageId: requestedPageId, request: current.request + 1 }));
   }, [pageId]);
 
   const selectFolder = useCallback((folderId: string | null) => {
@@ -68,7 +69,7 @@ export const SpaceWorkspace: React.FC<SpaceWorkspaceProps> = ({
       selectedFolderId={selectedFolderId}
       selectedPageId={pageId ?? null}
       selectedPageFolderId={pageResolution && pageResolution.pageId === pageId ? pageResolution.folderId : null}
-      pageRefreshRequest={pageRefreshRequest}
+      pageRefreshRequest={pageRefresh.pageId === pageId ? pageRefresh.request : 0}
       pageDeleted={deletedPageId !== null && deletedPageId === pageId}
       selectFolder={selectFolder}
       reportPageIdentity={reportPageIdentity}

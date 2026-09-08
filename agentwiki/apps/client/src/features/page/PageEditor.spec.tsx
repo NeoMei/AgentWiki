@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { EditorSelection } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
-import { Link, MemoryRouter, Outlet, Route, RouterProvider, Routes, createMemoryRouter, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
+import { Link, MemoryRouter, Outlet, Route, RouterProvider, Routes, createMemoryRouter, useLocation, useNavigate, useNavigationType, useParams } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
@@ -392,6 +392,108 @@ describe('PageEditor remote update safety', () => {
     expect(screen.getByTestId('assist-toggle')).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Image attachments' })).not.toBeInTheDocument();
     expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/pages/page-1')).toHaveLength(1);
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it.each(['restored', 401, 403, 'late'])('rechecks authoritative capabilities after ancestor restore while retaining the draft: %s', async (outcome) => {
+    if (outcome === 'late') {
+      class RouterTestRequest {
+        readonly url: string;
+        readonly signal: AbortSignal | null;
+        readonly method: string;
+        constructor(input: string | URL | Request, init?: RequestInit) {
+          this.url = typeof input === 'string' || input instanceof URL ? input.toString() : input.url;
+          this.signal = init?.signal ?? null;
+          this.method = init?.method ?? 'GET';
+        }
+      }
+      vi.stubGlobal('Request', RouterTestRequest as unknown as typeof Request);
+    }
+    let deleted = false;
+    let restored = false;
+    let reads = 0;
+    const staleRead = deferred<{ data: ReturnType<typeof page> }>();
+    const restoredRead = deferred<{ data: ReturnType<typeof page> }>();
+    const restoreResult = deferred<{ data: { treeRevision: string } }>();
+    const original = page({ folderId: 'child', capabilities: { canEdit: true, canManageAttachments: true } });
+    const parent = { id: 'parent', parentId: null, name: 'Parent', path: '/Parent', updatedAt: 'now', createdAt: 'now' };
+    const child = { ...parent, id: 'child', parentId: 'parent', name: 'Child', path: '/Parent/Child' };
+    const revision = () => restored ? '33' : deleted ? '32' : '31';
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.mocked(api.get).mockImplementation(async (url: string, config?: { params?: { parentFolderId?: string } }) => {
+      if (url === '/pages/page-1') {
+        reads += 1;
+        if (restored) return restoredRead.promise;
+        if (reads > 1) return staleRead.promise;
+        return { data: original };
+      }
+      if (url === '/pages/page-2') return { data: page({ id: 'page-2', title: 'Unrelated page', content: 'Unrelated content', folderId: null, capabilities: { canEdit: true } }) };
+      if (url === '/spaces/space-1') return { data: { id: 'space-1', name: 'Wiki', members: [{ userId: 'user-1', role: 'owner' }] } };
+      if (url === '/spaces/space-1/folders') return { data: { treeRevision: revision(), data: deleted && !restored ? [] : [parent, child], nextCursor: null } };
+      if (url === '/spaces/space-1/content-tree') {
+        const parentId = config?.params?.parentFolderId ?? null;
+        return { data: { treeRevision: revision(), parentFolderId: parentId, nextCursor: null,
+          data: deleted && !restored ? [] : parentId === null ? [{ ...parent, kind: 'folder', sortOrder: 0, hasChildren: true }]
+            : parentId === 'parent' ? [{ ...child, kind: 'folder', sortOrder: 0, hasChildren: true }]
+              : [{ ...original, kind: 'page', sortOrder: 0, path: '/Parent/Child/Original title', createdAt: 'now' }],
+        } };
+      }
+      if (url.endsWith('/delete-impact')) return { data: { treeRevision: '31', rootUpdatedAt: 'now', folderCount: 2, pageCount: 1, impactHash: 'impact' } };
+      if (url.includes('spaceId=')) return { data: { data: [] } };
+      throw new Error(`Unexpected GET ${url}`);
+    });
+    vi.mocked(api.delete).mockImplementation(async () => { deleted = true; return { data: { treeRevision: '32', batch: { id: 'batch' } } }; });
+    vi.mocked(api.post).mockImplementation(async () => { const result = await restoreResult.promise; restored = true; return result; });
+    const RestorableEditor = () => {
+      const { id } = useParams();
+      return <SpaceWorkspace mode="edit" pageId={id} showDirectory><PageEditor workspaceRef={workspaceRef} /></SpaceWorkspace>;
+    };
+    const router = createMemoryRouter([{
+      element: <NavigationGuardProvider><SpaceWorkspaceProvider userId="user-1"><Outlet /></SpaceWorkspaceProvider></NavigationGuardProvider>,
+      children: [{ path: '/pages/:id/edit', element: <RestorableEditor /> }],
+    }], { initialEntries: ['/pages/page-1/edit'] });
+    render(<LanguageProvider><RouterProvider router={router} /></LanguageProvider>);
+    await screen.findByDisplayValue('Original title');
+    editContent('Draft surviving delete and restore');
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    expect(reads).toBe(2);
+    fireEvent.click(await screen.findByTestId('content-deletefolder-parent'));
+    fireEvent.click(await screen.findByTestId('folder-delete-confirm'));
+    await waitFor(() => expect(screen.getByTestId('save-button')).toBeDisabled());
+    await waitFor(() => expect(screen.queryByTestId('folder-delete-dialog')).not.toBeInTheDocument());
+    await act(async () => staleRead.resolve({ data: original }));
+    expect(screen.getByTestId('save-button')).toBeDisabled();
+    expect(contentEditorValue()).toBe('Draft surviving delete and restore');
+    fireEvent.click(screen.getByTestId('folder-restore-button'));
+    await waitFor(() => expect(api.post).toHaveBeenCalled());
+    if (outcome === 'late') {
+      await act(async () => router.navigate('/pages/page-2/edit'));
+      await screen.findByDisplayValue('Unrelated page');
+      await act(async () => restoreResult.resolve({ data: { treeRevision: '33' } }));
+      expect(contentEditorValue()).toBe('Unrelated content');
+      expect(reads).toBe(2);
+      expect(screen.queryByTestId('editor-write-unavailable')).not.toBeInTheDocument();
+      return;
+    }
+    await act(async () => restoreResult.resolve({ data: { treeRevision: '33' } }));
+    await waitFor(() => expect(reads).toBe(3));
+    expect(screen.getByTestId('save-button')).toBeDisabled();
+    expect(screen.getByTestId('assist-toggle')).toBeDisabled();
+    if (typeof outcome === 'number') {
+      await act(async () => restoredRead.reject({ response: { status: outcome } }));
+      expect(screen.getByTestId('save-button')).toBeDisabled();
+      expect(screen.getByTestId('assist-toggle')).toBeDisabled();
+      expect(screen.queryByRole('button', { name: 'Image attachments' })).not.toBeInTheDocument();
+    } else {
+      await act(async () => restoredRead.resolve({ data: page({ folderId: 'child', content: 'Restored server content', updatedAt: '2026-09-09T00:00:00.000Z', capabilities: { canEdit: true, canManageAttachments: true } }) }));
+      expect(screen.queryByTestId('editor-write-unavailable')).not.toBeInTheDocument();
+      expect(screen.getByTestId('assist-toggle')).toBeEnabled();
+      expect(screen.getByTestId('save-button')).toBeDisabled(); // Existing remote revision decision remains required.
+      fireEvent.click(screen.getByRole('button', { name: 'Keep local draft' }));
+      expect(screen.getByTestId('save-button')).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Image attachments' })).toBeEnabled();
+    }
+    expect(contentEditorValue()).toBe('Draft surviving delete and restore');
     expect(api.patch).not.toHaveBeenCalled();
   });
 

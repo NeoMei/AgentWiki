@@ -56,6 +56,7 @@ interface RestoreInfo {
   folderName: string;
   deletionBatchId: string;
   folderUpdatedAt: string;
+  retainedPageId: string | null;
 }
 
 interface PendingDeleteRefresh {
@@ -324,14 +325,16 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     });
     if (!mountedRef.current || activeRouteIdRef.current !== id) return;
     const active = workspaceRef.current;
-    if (active?.selectedPageId && isSelfOrDescendantFolder(directoryRef.current.folderIndex, deleteTarget.id, active.selectedPageFolderId)) {
-      reconcileDeletedPage(id, active.selectedPageId);
-    }
+    const affectedPageId = active?.selectedPageId
+      && isSelfOrDescendantFolder(directoryRef.current.folderIndex, deleteTarget.id, active.selectedPageFolderId)
+      ? active.selectedPageId : null;
+    if (affectedPageId) reconcileDeletedPage(id, affectedPageId);
     setRestoreInfo({
       folderId: deleteTarget.id,
       folderName: deleteTarget.name,
       deletionBatchId: result.batch.id,
       folderUpdatedAt: impact.rootUpdatedAt,
+      retainedPageId: active?.mode === 'edit' ? affectedPageId : null,
     });
     const refreshed = new Promise<boolean>((resolve) => {
       pendingDeleteRefreshRef.current?.resolve(false);
@@ -357,6 +360,11 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
         expectedTreeRevision: treeRevision ?? (await getContentTreeRevision(id)),
         mode: 'original',
       });
+      if (!mountedRef.current || activeRouteIdRef.current !== id) return;
+      const active = workspaceRef.current;
+      if (restoreInfo.retainedPageId && active?.pageDeleted && active.selectedPageId === restoreInfo.retainedPageId) {
+        active.requestPageRefresh(restoreInfo.retainedPageId, { deleted: false });
+      }
       setRestoreInfo(null);
       directory.acceptTreeRevision(result.treeRevision);
       reloadTree();
