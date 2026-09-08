@@ -456,6 +456,9 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       <button ref={closeButtonRef} type="button" aria-label={t('common.close')} disabled={legacyCreating} onClick={close}
         className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-50"><X size={20} /></button>
     </div>
+    {targetLocation ? <p className="mt-2 break-words text-sm text-gray-500" data-testid="new-page-folder-hint">
+      {t('page.createLocation', { location: targetLocation })}
+    </p> : null}
 
     {phase === 'select' ? <SelectPhase
       selected={selected}
@@ -492,8 +495,8 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
           placeholder={t('page.titlePlaceholder')}
           className="mt-1 min-h-10 w-full rounded-lg border border-gray-300 px-3 outline-none focus:ring-2 focus:ring-blue-500" />
       </label>
-      {folderId ? <p className="mt-4 text-xs text-gray-500" data-testid="new-page-folder-hint">
-        {targetLocation ?? t('page.intoCurrentFolder')}
+      {folderId && !targetLocation ? <p className="mt-4 text-xs text-gray-500" data-testid="new-page-folder-hint">
+        {t('page.intoCurrentFolder')}
       </p> : null}
       <ErrorNotice message={error} />
       <WizardActions backDisabled={legacyCreating} onBack={() => { focusCloseAfterBackRef.current = true; dispatchPhase({ type: 'back' }); }}>

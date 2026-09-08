@@ -1,13 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { getContentTreeRevision } from '../../api/content-tree';
-import { ArrowLeft, History, RotateCcw, Clock, User, Eye, X } from 'lucide-react';
+import { ArrowLeft, History, RotateCcw, Clock, User, Eye, X, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { Markdown } from '../../components/Markdown';
 import { apiErrorMessage } from '../../api/error-message';
 import { ModalDialog } from '../../components/ModalDialog';
-import { usePageWorkspaceIdentity } from '../space-workspace/SpaceWorkspaceContext';
+import { useOptionalSpaceWorkspace, usePageWorkspaceIdentity } from '../space-workspace/SpaceWorkspaceContext';
+import type { WorkspacePosition } from '../space-workspace/workspaceNavigation';
 
 interface PageVersion {
   id: string;
@@ -26,11 +27,19 @@ interface Page {
   capabilities?: { canEdit?: boolean };
 }
 
+interface PageHistorySource {
+  pageId: string;
+  mode: 'read' | 'edit';
+  workspacePosition: WorkspacePosition | null;
+}
+
 export const PageVersionHistory: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { t, language } = useLanguage();
   const reportPageIdentity = usePageWorkspaceIdentity();
+  const workspace = useOptionalSpaceWorkspace();
   const [versions, setVersions] = useState<PageVersion[]>([]);
   const [page, setPage] = useState<Page | null>(null);
   const [loading, setLoading] = useState(true);
@@ -155,6 +164,14 @@ export const PageVersionHistory: React.FC = () => {
   const previewVersion = versions.find((version) => version.id === previewVersionId);
   const previewIndex = previewVersion ? versions.findIndex((version) => version.id === previewVersion.id) : -1;
   const previewNumber = previewIndex >= 0 ? versions.length - previewIndex : 0;
+  const validSource = readPageHistorySource(location.state, id);
+  const sourceMode = validSource
+    ? validSource.mode
+    : 'edit';
+  const sourcePosition = validSource?.workspacePosition ?? null;
+  const returnToSource = () => navigate(sourceMode === 'read' ? `/pages/${id}` : `/pages/${id}/edit`, {
+    state: sourcePosition ? { workspacePosition: sourcePosition } : null,
+  });
 
   if (loading) return <div className="text-center py-8 text-gray-500">{t('common.loading')}</div>;
   if (error) return (
@@ -167,9 +184,9 @@ export const PageVersionHistory: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto">
       <div className="flex items-center gap-3 mb-6">
-        <Link to={`/pages/${id}/edit`} className="p-2 hover:bg-gray-100 rounded">
+        <button type="button" onClick={returnToSource} aria-label={t(sourceMode === 'read' ? 'version.backToRead' : 'version.backToEdit')} className="p-2 hover:bg-gray-100 rounded">
           <ArrowLeft size={20} />
-        </Link>
+        </button>
         <div>
           <div className="flex items-center gap-2 text-sm text-gray-400">
             <History size={14} />
@@ -177,7 +194,25 @@ export const PageVersionHistory: React.FC = () => {
           </div>
           <h1 className="text-2xl font-bold">{t('version.heading', { title: page?.title || t('space.pages') })}</h1>
         </div>
+        {workspace ? <button
+          type="button"
+          aria-pressed={workspace.directoryCollapsed}
+          onClick={() => workspace.setDirectoryCollapsed(!workspace.directoryCollapsed)}
+          className="ml-auto inline-flex min-h-9 items-center gap-2 rounded-lg border border-gray-300 px-3 text-sm text-gray-600 hover:bg-gray-50"
+        >
+          {workspace.directoryCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+          {t(workspace.directoryCollapsed ? 'version.showDirectory' : 'version.hideDirectory')}
+        </button> : null}
       </div>
+
+      {workspace?.directoryCrumbs.length ? <nav aria-label={t('version.pageContext')} className="mb-5 flex min-w-0 flex-wrap items-center gap-1 text-sm text-gray-500">
+        {workspace.directoryCrumbs.map((crumb) => <React.Fragment key={crumb.id ?? 'root'}>
+          <span aria-hidden="true">/</span>
+          <span title={crumb.name} className="max-w-48 truncate">{crumb.name}</span>
+        </React.Fragment>)}
+        <span aria-hidden="true">/</span>
+        <span title={page?.title} className="max-w-64 truncate font-medium text-gray-700">{page?.title}</span>
+      </nav> : null}
 
       {versions.length === 0 ? (
         <div className="text-center py-12">
@@ -248,4 +283,30 @@ export const PageVersionHistory: React.FC = () => {
       ) : null}
     </div>
   );
+};
+
+const isWorkspacePosition = (value: unknown, pageId: string): value is WorkspacePosition => {
+  if (!value || typeof value !== 'object') return false;
+  const position = value as Partial<WorkspacePosition>;
+  return position.pageId === pageId
+    && (position.cursorOffset === null || typeof position.cursorOffset === 'number')
+    && (position.headingId === null || typeof position.headingId === 'string')
+    && (position.headingText === null || typeof position.headingText === 'string')
+    && (position.sourceOffset === null || typeof position.sourceOffset === 'number')
+    && typeof position.scrollTop === 'number';
+};
+
+const readPageHistorySource = (state: unknown, pageId?: string): PageHistorySource | null => {
+  if (!pageId || !state || typeof state !== 'object') return null;
+  const source = (state as { pageHistorySource?: unknown }).pageHistorySource;
+  if (!source || typeof source !== 'object') return null;
+  const candidate = source as { pageId?: unknown; mode?: unknown; workspacePosition?: unknown };
+  if (candidate.pageId !== pageId || (candidate.mode !== 'read' && candidate.mode !== 'edit')) return null;
+  return {
+    pageId,
+    mode: candidate.mode,
+    workspacePosition: isWorkspacePosition(candidate.workspacePosition, pageId)
+      ? candidate.workspacePosition
+      : null,
+  };
 };

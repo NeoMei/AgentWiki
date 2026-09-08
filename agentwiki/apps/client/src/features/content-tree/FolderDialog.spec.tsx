@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { FolderDeleteDialog } from './FolderDeleteDialog';
@@ -17,6 +17,7 @@ describe('folder dialogs', () => {
     renderWithLanguage(
       <FolderDialog
         mode="create"
+        targetLocation="产品知识库 / 设计资料"
         onClose={vi.fn()}
         onSubmit={vi.fn()}
       />,
@@ -29,6 +30,33 @@ describe('folder dialogs', () => {
       'bg-white',
       'shadow-xl',
     );
+    expect(screen.getByText('创建位置：产品知识库 / 设计资料')).toBeInTheDocument();
+  });
+
+  it('identifies the folder being renamed by its full Space path and restores trigger focus', async () => {
+    const trigger = document.createElement('button');
+    trigger.textContent = 'Rename design assets';
+    document.body.append(trigger);
+    const onClose = vi.fn();
+    const { unmount } = renderWithLanguage(
+      <FolderDialog
+        mode="rename"
+        initialName="设计资料"
+        targetLocation="产品知识库 / 项目甲 / 设计资料"
+        returnFocusTo={trigger}
+        onClose={onClose}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('重命名对象：产品知识库 / 项目甲 / 设计资料')).toBeInTheDocument();
+    const cancelButtons = screen.getAllByRole('button', { name: '取消' });
+    fireEvent.click(cancelButtons[cancelButtons.length - 1]);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    unmount();
+    await act(async () => Promise.resolve());
+    expect(trigger).toHaveFocus();
+    trigger.remove();
   });
 
   it('renders the delete dialog as an opaque, bounded modal surface', () => {
@@ -37,6 +65,7 @@ describe('folder dialogs', () => {
         spaceId="space-1"
         folderId="folder-1"
         folderName="设计资料"
+        targetLocation="产品知识库 / 项目甲 / 设计资料"
         onClose={vi.fn()}
         onConfirm={vi.fn()}
       />,
@@ -49,5 +78,6 @@ describe('folder dialogs', () => {
       'bg-white',
       'shadow-xl',
     );
+    expect(screen.getByText('删除对象：产品知识库 / 项目甲 / 设计资料')).toBeInTheDocument();
   });
 });

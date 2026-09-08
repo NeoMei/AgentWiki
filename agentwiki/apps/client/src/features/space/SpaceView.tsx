@@ -18,6 +18,7 @@ import {
   restoreFolder,
 } from '../content-tree/contentTreeApi';
 import { ContentBreadcrumbs } from '../content-tree/ContentBreadcrumbs';
+import { crumbsForFolder } from '../content-tree/contentTreeState';
 import { ContentTree } from '../content-tree/ContentTree';
 import type { ContentMoveRequest } from '../content-tree/ContentTree';
 import { FolderDialog } from '../content-tree/FolderDialog';
@@ -47,6 +48,7 @@ interface PendingFolderDialog {
   mode: 'create' | 'rename';
   parent: Pick<ContentTreeFolderNode, 'id' | 'name'> | null;
   target?: ContentTreeFolderNode;
+  returnFocusTo?: HTMLElement | null;
 }
 
 interface RestoreInfo {
@@ -90,6 +92,8 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   const [localExpandedFolderIds, setLocalExpandedFolderIds] = useState<ReadonlySet<string>>(new Set());
   const [folderDialog, setFolderDialog] = useState<PendingFolderDialog | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ContentTreeFolderNode | null>(null);
+  const [deleteReturnFocus, setDeleteReturnFocus] = useState<HTMLElement | null>(null);
+  const [deleteFallbackFocus, setDeleteFallbackFocus] = useState<HTMLElement | null>(null);
   const [restoreInfo, setRestoreInfo] = useState<RestoreInfo | null>(null);
   const [restoring, setRestoring] = useState(false);
   const [bindingScope, setBindingScope] = useState<BindingDialogScope | null>(null);
@@ -129,6 +133,18 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   const treeRevision = directory.treeRevision;
   const folderIndex = directory.folderIndex;
   const crumbs = directory.crumbs;
+  const openFolderDelete = (folder: ContentTreeFolderNode) => {
+    const parentId = folderIndex.get(folder.id)?.parentId ?? null;
+    const parentTarget = parentId
+      ? [...document.querySelectorAll<HTMLElement>('[data-testid^="content-node-"]')]
+        .find((element) => element.dataset.testid === `content-node-${parentId}`) ?? null
+      : null;
+    const rootTarget = document.querySelector<HTMLElement>('[data-testid="space-root-focus"]')
+      ?? folderOpenerRef.current;
+    setDeleteReturnFocus(document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    setDeleteFallbackFocus(parentTarget ?? rootTarget);
+    setDeleteTarget(folder);
+  };
   useEffect(() => {
     workspace?.reportDirectoryCrumbs(crumbs);
   }, [crumbs, workspace?.reportDirectoryCrumbs]);
@@ -463,13 +479,13 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
       {!workspace ? <SpaceNav spaceId={id} /> : null}
       {workspace ? <div className="flex flex-col border-b border-gray-200 lg:flex-row lg:items-stretch">
         <div className="flex min-h-12 w-full items-center border-b border-gray-100 px-4 lg:w-[260px] lg:shrink-0 lg:border-b-0 lg:border-r">
-          <h1 title={space.name} className="truncate text-base font-semibold text-gray-900">{space.name}</h1>
+          <h1 tabIndex={-1} data-testid="space-root-focus" title={space.name} className="truncate text-base font-semibold text-gray-900">{space.name}</h1>
         </div>
         <div className="min-w-0 flex-1 px-3"><SpaceNav spaceId={id} activeSection={workspace.activeSection} embedded /></div>
       </div> : null}
 
       <div key="workspace-layout" className="flex flex-col lg:flex-row">
-        {workspace ? <SpaceDirectory
+        {workspace && !workspace.directoryCollapsed ? <SpaceDirectory
           spaceName={space.name}
           levels={directory.levels}
           expandedFolderIds={expandedFolderIds}
@@ -489,14 +505,15 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
             parent: targetFolderId
               ? { id: targetFolderId, name: folderIndex.get(targetFolderId)?.name ?? '' }
               : null,
+            returnFocusTo: document.activeElement instanceof HTMLElement ? document.activeElement : null,
           })}
           onSelectFolder={(folderId) => setCurrentFolderId(folderId)}
           onOpenPage={(page) => navigate('/pages/' + page.id)}
           onEditPage={(page) => navigate('/pages/' + page.id + '/edit')}
           onDeletePage={(page) => { void handleDeletePage(page); }}
-          onCreateSubfolder={(parent) => setFolderDialog({ mode: 'create', parent })}
-          onRenameFolder={(folder) => setFolderDialog({ mode: 'rename', parent: null, target: folder })}
-          onDeleteFolder={(folder) => setDeleteTarget(folder)}
+          onCreateSubfolder={(parent) => setFolderDialog({ mode: 'create', parent, returnFocusTo: document.activeElement instanceof HTMLElement ? document.activeElement : null })}
+          onRenameFolder={(folder) => setFolderDialog({ mode: 'rename', parent: null, target: folder, returnFocusTo: document.activeElement instanceof HTMLElement ? document.activeElement : null })}
+          onDeleteFolder={openFolderDelete}
           onMove={(request) => { void handleContentMove(request); }}
         /> : null}
         <main className="min-w-0 flex-1 px-4 py-4 lg:px-6">
@@ -516,6 +533,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
                 parent: currentFolderId
                   ? { id: currentFolderId, name: folderIndex.get(currentFolderId)?.name ?? '' }
                   : null,
+                returnFocusTo: document.activeElement instanceof HTMLElement ? document.activeElement : null,
               })}
               data-testid="new-folder-button"
               className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-gray-300 px-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
@@ -558,9 +576,9 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
           onOpenPage={(page) => navigate('/pages/' + page.id)}
           onEditPage={(page) => navigate('/pages/' + page.id + '/edit')}
           onDeletePage={(page) => { void handleDeletePage(page); }}
-          onCreateSubfolder={(parent) => setFolderDialog({ mode: 'create', parent })}
-          onRenameFolder={(folder) => setFolderDialog({ mode: 'rename', parent: null, target: folder })}
-          onDeleteFolder={(folder) => setDeleteTarget(folder)}
+          onCreateSubfolder={(parent) => setFolderDialog({ mode: 'create', parent, returnFocusTo: document.activeElement instanceof HTMLElement ? document.activeElement : null })}
+          onRenameFolder={(folder) => setFolderDialog({ mode: 'rename', parent: null, target: folder, returnFocusTo: document.activeElement instanceof HTMLElement ? document.activeElement : null })}
+          onDeleteFolder={openFolderDelete}
           onConfigurePageAgent={compositeCreationEnabled ? (page) => {
             setBindingReturnFocus(document.activeElement instanceof HTMLElement ? document.activeElement : null);
             setBindingScope({ kind: 'page', pageId: page.id, title: page.title });
@@ -628,7 +646,10 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
         <FolderDialog
           mode={folderDialog.mode}
           initialName={folderDialog.target?.name ?? ''}
-          returnFocusTo={folderOpenerRef.current}
+          targetLocation={folderDialog.mode === 'rename' && folderDialog.target
+            ? crumbsForFolder(folderIndex, folderDialog.target.id, space.name).map((crumb) => crumb.name).join(' / ')
+            : crumbsForFolder(folderIndex, folderDialog.parent?.id ?? null, space.name).map((crumb) => crumb.name).join(' / ')}
+          returnFocusTo={folderDialog.returnFocusTo ?? folderOpenerRef.current}
           onClose={() => setFolderDialog(null)}
           onSubmit={async (name) => {
             if (folderDialog.mode === 'create') await handleCreateFolder(name);
@@ -642,7 +663,14 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
           spaceId={id}
           folderId={deleteTarget.id}
           folderName={deleteTarget.name}
-          onClose={() => setDeleteTarget(null)}
+          targetLocation={crumbsForFolder(folderIndex, deleteTarget.id, space.name).map((crumb) => crumb.name).join(' / ')}
+          returnFocusTo={deleteReturnFocus}
+          fallbackFocusTo={deleteFallbackFocus}
+          onClose={() => {
+            setDeleteTarget(null);
+            setDeleteReturnFocus(null);
+            setDeleteFallbackFocus(null);
+          }}
           onConfirm={handleDeleteFolderConfirm}
         />
       ) : null}

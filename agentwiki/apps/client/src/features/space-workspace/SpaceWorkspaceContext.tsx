@@ -24,6 +24,8 @@ export interface SpaceWorkspaceContextValue extends BrowsingState {
   selectedPageFolderId: string | null;
   setFolderExpanded: (folderId: string, expanded: boolean) => void;
   setDirectoryScrollTop: (scrollTop: number) => void;
+  directoryCollapsed: boolean;
+  setDirectoryCollapsed: (collapsed: boolean) => void;
   selectFolder: (folderId: string | null) => void;
   reportPageIdentity: (pageId: string, spaceId: string | null, folderId?: string | null) => void;
   directoryCrumbs: ReadonlyArray<{ id: string | null; name: string }>;
@@ -85,7 +87,9 @@ export const SpaceWorkspaceScope: React.FC<SpaceWorkspaceScopeProps> = ({
   if (!registry) throw new Error('SpaceWorkspace must be rendered within SpaceWorkspaceProvider');
   const browsingState = spaceId ? registry.stateFor(spaceId) : EMPTY_STATE;
   const [directoryCrumbs, setDirectoryCrumbs] = useState<ReadonlyArray<{ id: string | null; name: string }>>([]);
+  const [directoryCollapsed, setDirectoryCollapsed] = useState(false);
   useEffect(() => setDirectoryCrumbs([]), [spaceId]);
+  useEffect(() => setDirectoryCollapsed(false), [mode, spaceId]);
   const setFolderExpanded = useCallback((folderId: string, expanded: boolean) => {
     if (!spaceId) return;
     registry.updateState(spaceId, (current) => {
@@ -101,6 +105,7 @@ export const SpaceWorkspaceScope: React.FC<SpaceWorkspaceScopeProps> = ({
   }, [registry.updateState, spaceId]);
   const value = useMemo<SpaceWorkspaceContextValue>(() => ({
     ...browsingState,
+    directoryCollapsed,
     userId: registry.userId,
     spaceId,
     mode,
@@ -110,6 +115,7 @@ export const SpaceWorkspaceScope: React.FC<SpaceWorkspaceScopeProps> = ({
     selectedPageFolderId,
     setFolderExpanded,
     setDirectoryScrollTop,
+    setDirectoryCollapsed,
     selectFolder,
     reportPageIdentity,
     directoryCrumbs,
@@ -118,6 +124,7 @@ export const SpaceWorkspaceScope: React.FC<SpaceWorkspaceScopeProps> = ({
     activeSection,
     browsingState,
     directoryCrumbs,
+    directoryCollapsed,
     mode,
     registry.userId,
     reportPageIdentity,

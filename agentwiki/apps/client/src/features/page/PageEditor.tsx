@@ -904,7 +904,12 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
               </div>
             </div>
           )}
-          <button onClick={() => guardedNavigate(`/pages/${id}/versions`)} aria-label={t('editor.versions')} title={t('editor.versions')} data-testid="history-button" className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-gray-600 transition hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <button onClick={() => {
+            const position = internalWorkspaceRef.current?.capturePosition() ?? null;
+            guardedNavigate(`/pages/${id}/versions`, {
+              state: { pageHistorySource: { pageId: page.id, mode: 'edit', workspacePosition: position ? { ...position, pageId: page.id } : null } },
+            });
+          }} aria-label={t('editor.versions')} title={t('editor.versions')} data-testid="history-button" className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-gray-600 transition hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500">
             <History size={17} aria-hidden="true" />
             <span>{t('editor.versions')}</span>
           </button>

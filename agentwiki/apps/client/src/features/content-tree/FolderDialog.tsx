@@ -6,6 +6,7 @@ import { ModalDialog } from '../../components/ModalDialog';
 export interface FolderDialogProps {
   mode: 'create' | 'rename';
   initialName?: string;
+  targetLocation?: string;
   submitDisabled?: boolean;
   returnFocusTo?: HTMLElement | null;
   onClose: () => void;
@@ -17,6 +18,7 @@ const FOLDER_NAME_LIMIT = 200;
 export const FolderDialog: React.FC<FolderDialogProps> = ({
   mode,
   initialName = '',
+  targetLocation,
   submitDisabled = false,
   returnFocusTo,
   onClose,
@@ -77,6 +79,9 @@ export const FolderDialog: React.FC<FolderDialogProps> = ({
             <X size={18} />
           </button>
         </div>
+        {targetLocation ? <p className="mt-2 break-words text-sm text-gray-500">
+          {t(mode === 'create' ? 'folder.createLocation' : 'folder.renameTarget', { location: targetLocation })}
+        </p> : null}
         <form onSubmit={submit} className="mt-5">
           <label htmlFor="folder-dialog-name" className="block text-sm font-medium text-gray-700">
             {t('folder.nameLabel')}

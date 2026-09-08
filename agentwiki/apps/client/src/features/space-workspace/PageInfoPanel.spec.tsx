@@ -18,6 +18,7 @@ const details = {
   lastModifiedByUser: { id: 'u-1', name: 'Editor' },
   lastChange: { id: 'change-1', title: 'Reviewed change', status: 'accepted' },
   canEdit: true,
+  onOpenHistory: vi.fn(),
 };
 
 const renderPanel = (props: Partial<React.ComponentProps<typeof PageInfoPanel>> = {}) => render(
@@ -29,7 +30,8 @@ describe('PageInfoPanel', () => {
 
   it('keeps provenance, evidence, changes, and operations on demand', () => {
     const onDelete = vi.fn();
-    renderPanel({ onDelete });
+    const onOpenHistory = vi.fn();
+    renderPanel({ onDelete, onOpenHistory });
     const trigger = screen.getByRole('button', { name: 'Page information' });
     expect(screen.queryByText('Evidence quote')).not.toBeInTheDocument();
     fireEvent.click(trigger);
@@ -38,6 +40,9 @@ describe('PageInfoPanel', () => {
     expect(screen.getByText('Repository · git')).toBeInTheDocument();
     expect(screen.getByText('Evidence quote')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Reviewed change/ })).toHaveAttribute('href', '/review?changeSet=change-1');
+    fireEvent.click(screen.getByRole('button', { name: 'Version history' }));
+    expect(onOpenHistory).toHaveBeenCalledTimes(1);
+    fireEvent.click(trigger);
     fireEvent.click(screen.getByRole('button', { name: 'Delete page' }));
     expect(onDelete).toHaveBeenCalledTimes(1);
   });
@@ -47,6 +52,7 @@ describe('PageInfoPanel', () => {
     const trigger = screen.getByRole('button', { name: 'Page information' });
     fireEvent.click(trigger);
     expect(screen.queryByRole('button', { name: 'Delete page' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Version history' })).not.toBeInTheDocument();
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('complementary', { name: 'Page information' })).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();

@@ -9,7 +9,9 @@ export interface FolderDeleteDialogProps {
   spaceId: string;
   folderId: string;
   folderName: string;
+  targetLocation?: string;
   returnFocusTo?: HTMLElement | null;
+  fallbackFocusTo?: HTMLElement | null;
   onClose: () => void;
   onConfirm: (impact: DeleteImpactResponse) => Promise<void>;
 }
@@ -18,7 +20,9 @@ export const FolderDeleteDialog: React.FC<FolderDeleteDialogProps> = ({
   spaceId,
   folderId,
   folderName,
+  targetLocation,
   returnFocusTo,
+  fallbackFocusTo,
   onClose,
   onConfirm,
 }) => {
@@ -28,6 +32,8 @@ export const FolderDeleteDialog: React.FC<FolderDeleteDialogProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sessionActiveRef = useRef(true);
+  const fallbackFocusRef = useRef<HTMLElement | null>(fallbackFocusTo ?? null);
+  fallbackFocusRef.current = fallbackFocusTo ?? null;
 
   useEffect(() => {
     sessionActiveRef.current = true;
@@ -68,6 +74,7 @@ export const FolderDeleteDialog: React.FC<FolderDeleteDialogProps> = ({
       onRequestClose={() => { if (!submitting) onClose(); }}
       closeDisabled={submitting}
       returnFocusTo={returnFocusTo}
+      fallbackFocusRef={fallbackFocusRef}
       className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-[14px] bg-white shadow-xl"
     >
       <div className="p-6" data-testid="folder-delete-dialog">
@@ -84,6 +91,9 @@ export const FolderDeleteDialog: React.FC<FolderDeleteDialogProps> = ({
             <X size={18} />
           </button>
         </div>
+        {targetLocation ? <p className="mt-2 break-words text-sm text-gray-500">
+          {t('folder.deleteTarget', { location: targetLocation })}
+        </p> : null}
         {loadError ? (
           <p className="mt-4 text-sm text-red-600" data-testid="folder-delete-load-error">{loadError}</p>
         ) : impact ? (

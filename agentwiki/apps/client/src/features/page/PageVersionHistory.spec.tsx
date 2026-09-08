@@ -1,11 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { PageVersionHistory } from './PageVersionHistory';
 import { SpaceWorkspace } from '../space-workspace/SpaceWorkspace';
-import { SpaceWorkspaceProvider } from '../space-workspace/SpaceWorkspaceContext';
+import { SpaceWorkspaceProvider, useOptionalSpaceWorkspace } from '../space-workspace/SpaceWorkspaceContext';
 
 vi.mock('../../api/client', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 const contentTreeMocks = vi.hoisted(() => ({ getContentTreeRevision: vi.fn() }));
@@ -36,6 +36,21 @@ const NavigationHarness = () => {
   );
 };
 
+const Destination = ({ label }: { label: string }) => {
+  const location = useLocation();
+  return <p>{label}:{JSON.stringify(location.state)}</p>;
+};
+
+const HistoryWorkspaceHarness = () => {
+  const workspace = useOptionalSpaceWorkspace();
+  if (!workspace) return null;
+  return <>
+    <button type="button" onClick={() => workspace.setFolderExpanded('folder-open', true)}>Keep folder expanded</button>
+    <p data-testid="expanded-folders">{[...workspace.expandedFolderIds].join(',')}</p>
+    <PageVersionHistory />
+  </>;
+};
+
 describe('PageVersionHistory', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -44,6 +59,61 @@ describe('PageVersionHistory', () => {
     vi.mocked(api.get).mockImplementation(async (url: string) => url.endsWith('/versions')
       ? { data: [{ id: 'v1', title: '旧版本', content: '# 旧标题\n\n旧正文\n\n- [ ] 历史任务', createdAt: '2026-08-19T00:00:00Z' }] }
       : { data: { id: 'page-1', title: '当前页面', spaceId: 'space-1', capabilities: { canEdit: false } } });
+  });
+
+  it.each([
+    ['read', 'Reading'],
+    ['edit', 'Editing'],
+  ] as const)('returns to the same-page %s source with its workspace position', async (mode, label) => {
+    const workspacePosition = { pageId: 'page-1', sourceOffset: 42, cursorOffset: null, headingId: 'part', headingText: 'Part', scrollTop: 300 };
+    render(<MemoryRouter initialEntries={[{
+      pathname: '/pages/page-1/versions',
+      state: { pageHistorySource: { pageId: 'page-1', mode, workspacePosition } },
+    }]}><LanguageProvider>
+      <Routes>
+        <Route path="/pages/:id/versions" element={<PageVersionHistory />} />
+        <Route path="/pages/:id" element={<Destination label="Reading" />} />
+        <Route path="/pages/:id/edit" element={<Destination label="Editing" />} />
+      </Routes>
+    </LanguageProvider></MemoryRouter>);
+
+    fireEvent.click(await screen.findByRole('button', { name: mode === 'read' ? '返回阅读' : '返回编辑' }));
+    expect(screen.getByText(new RegExp(`^${label}:`))).toHaveTextContent(JSON.stringify({ workspacePosition }));
+  });
+
+  it('defaults direct and untrusted history entries to the same-page editor', async () => {
+    render(<MemoryRouter initialEntries={[{
+      pathname: '/pages/page-1/versions',
+      state: { pageHistorySource: { pageId: 'page-2', mode: 'read', returnTo: '/outside' } },
+    }]}><LanguageProvider>
+      <Routes>
+        <Route path="/pages/:id/versions" element={<PageVersionHistory />} />
+        <Route path="/pages/:id/edit" element={<Destination label="Editing" />} />
+        <Route path="/outside" element={<p>Outside</p>} />
+      </Routes>
+    </LanguageProvider></MemoryRouter>);
+
+    fireEvent.click(await screen.findByRole('button', { name: '返回编辑' }));
+    expect(screen.getByText(/^Editing:/)).toBeInTheDocument();
+    expect(screen.queryByText('Outside')).not.toBeInTheDocument();
+  });
+
+  it('temporarily collapses the history directory without changing expanded folders', async () => {
+    render(<MemoryRouter initialEntries={['/pages/page-1/versions']}><LanguageProvider>
+      <SpaceWorkspaceProvider userId="user-1">
+        <Routes><Route path="/pages/:id/versions" element={
+          <SpaceWorkspace mode="versions" pageId="page-1" spaceId="space-1">
+            <HistoryWorkspaceHarness />
+          </SpaceWorkspace>
+        } /></Routes>
+      </SpaceWorkspaceProvider>
+    </LanguageProvider></MemoryRouter>);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Keep folder expanded' }));
+    expect(screen.getByTestId('expanded-folders')).toHaveTextContent('folder-open');
+    fireEvent.click(await screen.findByRole('button', { name: '收起目录' }));
+    expect(screen.getByRole('button', { name: '展开目录' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('expanded-folders')).toHaveTextContent('folder-open');
   });
 
   it('registers its page response with the workspace shell without a duplicate identity request', async () => {

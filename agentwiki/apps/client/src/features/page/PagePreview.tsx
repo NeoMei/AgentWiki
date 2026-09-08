@@ -578,6 +578,16 @@ export const PagePreview: React.FC = () => {
             canEdit={page.capabilities?.canEdit === true}
             deleting={deleting}
             onDelete={handleDelete}
+            onOpenHistory={() => {
+              const toolbarBottom = document.querySelector<HTMLElement>('[data-reading-toolbar]')
+                ?.getBoundingClientRect().bottom ?? 88;
+              const workspacePosition = markdownRootRef.current
+                ? captureReadingPosition(markdownRootRef.current, toolbarBottom, page.id)
+                : null;
+              navigate(`/pages/${page.id}/versions`, {
+                state: { pageHistorySource: { pageId: page.id, mode: 'read', workspacePosition } },
+              });
+            }}
           />
         </div>
       </div>

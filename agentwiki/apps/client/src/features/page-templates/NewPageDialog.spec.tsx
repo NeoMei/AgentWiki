@@ -215,6 +215,12 @@ describe('NewPageDialog', () => {
     })));
   });
 
+  it('shows the exact root Space target before template selection', async () => {
+    renderDialog({ targetLocation: '产品知识库' });
+
+    expect(await screen.findByText('创建位置：产品知识库')).toBeInTheDocument();
+  });
+
   it('does not create after the dialog unmounts while the tree head is pending', async () => {
     const head = deferred<string>();
     mocks.listPageTemplates.mockRejectedValue(new Error('offline'));

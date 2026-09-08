@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Database, Info, Trash2, X } from 'lucide-react';
+import { Database, History, Info, Trash2, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useLanguage } from '../../context/LanguageContext';
 
@@ -23,6 +23,7 @@ export interface PageInfoPanelProps {
   canEdit: boolean;
   deleting: boolean;
   onDelete: () => void;
+  onOpenHistory: () => void;
 }
 
 export const PageInfoPanel: React.FC<PageInfoPanelProps> = ({
@@ -36,6 +37,7 @@ export const PageInfoPanel: React.FC<PageInfoPanelProps> = ({
   canEdit,
   deleting,
   onDelete,
+  onOpenHistory,
 }) => {
   const { t, language } = useLanguage();
   const [open, setOpen] = useState(false);
@@ -129,7 +131,18 @@ export const PageInfoPanel: React.FC<PageInfoPanelProps> = ({
           </div>
 
           {canEdit ? (
-            <div className="mt-6 border-t border-gray-100 pt-5">
+            <div className="mt-6 flex flex-wrap gap-2 border-t border-gray-100 pt-5">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  onOpenHistory();
+                }}
+                className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-gray-300 px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <History size={17} aria-hidden="true" />
+                {t('version.title')}
+              </button>
               <button
                 type="button"
                 onClick={onDelete}

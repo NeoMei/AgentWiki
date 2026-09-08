@@ -214,11 +214,17 @@ const GuardedEditorHarness = () => {
   </>;
 };
 
+const HistoryDestination = () => {
+  const location = useLocation();
+  return <output data-testid="history-source-state">{JSON.stringify(location.state)}</output>;
+};
+
 const renderGuardedEditor = () => {
   const router = createMemoryRouter([{
     element: <NavigationGuardProvider><Outlet /></NavigationGuardProvider>,
     children: [
       { path: '/pages/:id/edit', element: <GuardedEditorHarness /> },
+      { path: '/pages/:id/versions', element: <HistoryDestination /> },
       { path: '*', element: <p>Destination</p> },
     ],
   }], { initialEntries: ['/pages/previous', '/pages/page-1/edit'], initialIndex: 1 });
@@ -333,6 +339,32 @@ describe('PageEditor remote update safety', () => {
     await waitFor(() => expect(confirm).toHaveBeenCalledWith('You have unsaved changes. Leave anyway?'));
     expect(screen.getByTestId('guarded-location')).toHaveTextContent('/pages/page-1/edit');
     expect(contentEditorValue()).toBe('Unsaved guarded content');
+  });
+
+  it('records the edit source only after the dirty navigation is confirmed', async () => {
+    class RouterTestRequest {
+      readonly url: string;
+      readonly signal: AbortSignal | null;
+      readonly method: string;
+
+      constructor(input: string | URL | Request, init?: RequestInit) {
+        this.url = typeof input === 'string' || input instanceof URL ? input.toString() : input.url;
+        this.signal = init?.signal ?? null;
+        this.method = init?.method ?? 'GET';
+      }
+    }
+    vi.stubGlobal('Request', RouterTestRequest as unknown as typeof Request);
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderGuardedEditor();
+    await screen.findByDisplayValue('Original title');
+    editContent('Confirmed history draft');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Versions' }));
+
+    const state = JSON.parse(await screen.findByTestId('history-source-state').then((element) => element.textContent ?? 'null'));
+    expect(state.pageHistorySource).toMatchObject({ pageId: 'page-1', mode: 'edit' });
+    expect(state.pageHistorySource.workspacePosition.pageId).toBe('page-1');
   });
 
   it('keeps preview and return-to-reading separate, with visible actions and no preview write', async () => {
