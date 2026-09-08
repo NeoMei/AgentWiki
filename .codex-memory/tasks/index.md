@@ -8,6 +8,8 @@
 
 ## 最近完成
 
+- [reading-workspace](archive/reading-workspace/brief.md)：最终代码9d66a123、本地候选完成；1390测试/lint/build/typecheck通过、无剩余P2；原生拖拽浏览验证未闭环、P3缓存明确保留，未合并/推送/部署。
+
 - [composite-page-group-agent-collaboration-templates](archive/composite-page-group-agent-collaboration-templates/brief.md)：A+实现、v0.8.0+PR9整合和本地master合并完成；独立审查无未关闭问题，主目录5212pass/0fail/3skip、DB175零skip、原有46文件/5子模块哈希保留。未push/发布/部署，验收与工作树保留。
 
 - [post-sync-final-audit-2026-09-04](archive/post-sync-final-audit-2026-09-04/brief.md)：整合 GitHub onboarding 热修复后完成四轮任务/代码/全栈/真实 UI 审查，修复四类问题；`206d285` clean worktree 4266 pass / 0 fail / 3 skip，Chrome 28/28，静态、audit、CodeGraph 和精确清理通过。Mac PASS，未 push。

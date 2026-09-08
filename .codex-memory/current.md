@@ -1,45 +1,42 @@
-<!-- codex-memory:template=current:v1 -->
-
 # 当前目标
 
-- v0.9.1空间名称修复已发布、部署并通过公网验收；本轮发布工作完成。
+- 实现已确认的 AgentWiki 目录与文章工作区（方案2），以及相关空间子页面的呈现衔接。
 
 # 范围 / 不做
 
-- 已完成源码合并/push、npm、GitHub Release、生产备份部署和真实API/浏览器验收。
-- 保留原隔离工作树和用户其他未提交文件，不修改其他并行任务；未重复外部模型执行或灾备恢复演练。
+- 仅当前隔离工作树本地前端候选；不合并、push、发布或部署。
+- 不改变模型/权限/Agent绑定/协作审核/版本冲突/同步协议/目录修订与写入语义。
+- 保留主目录其他并行任务与dirty子模块。
 
 # 当前状态
 
-- 发布源码/tag v0.9.1目标072a93c0，功能准备8784acd2、README修正6dc3fb4b。master已快进并push，后续仅提交发布记录。
-- 应用/server/client/LocalSync0.9.1；protocol0.6.0不变。服务端兼容0.9.0和0.9.1，签发/交换/replay保持实际请求版本。
-- 新建/改名trim后1–32个validator.js单位，不截断。旧长名保存其他设置不带name；Agent原始确认计划hash和原始回执/replay不变，落库名称trim。
-- 本地完整分阶段回归5277通过/3skip；类型/lint/build、公开包全新安装和最终源码/运维审查通过。
-- 生产root@113.249.120.24:/root/agentwiki为0.9.1；55个成功迁移、无pending；1032部署输入文件哈希匹配。三个服务active/NRestarts0，public health全部ok。
-- 双env只变LOCAL_SYNC_PACKAGE_VERSION；既有白名单cmt024s4808nm3gmnko5v9gj5和其他配置保留。
-- 真实公网Chrome390x844/1440x900、中英文、32/33字符、旧69字符名称、设置/改名持久化、两版本onboarding/raw replay均通过；API smoke32通过。4Agent/4Space/1User测试资源已清理，DB只读核验活跃记录0，测试凭据销毁。
+- 隔离分支codex/reading-workspace-20260908；基线b776b830；Task1–7本地候选完成，最终代码9d66a123。
+- 逐任务审查与最终限定复审通过；最终R1–R4及恢复回归R6均关闭，无剩余P2；R5位置缓存为明确延期P3。
+- 最终代码客户端101文件1390测试、lint/build、仓库typecheck均通过；构建保留既有大chunk提醒。
+- 真实浏览覆盖目录分页/定位、浮窗、保存服务端回读、409、只读/撤销、历史/恢复、子页、局部错误/Retry、390px与双语。最终截图已保存并核对。
+- 原生拖拽最后复测未发出请求，因此浏览器移动未闭环；当前文章移动后面包屑/checkbox CAS由集成测试覆盖。新删除回归由真实组件集成测试覆盖，最后浏览器删除确认已取消。
+- 本地API53088/client5188/PG55438/Redis56388，仅合成数据；未合并/推送/发布。
 
 # 稳定约束
 
-- Folder只表达目录结构；只有Page可以绑定Agent或成为任务目标。
-- PageAgentBinding不授予权限；活动Run冻结负责人；参与者仅来自本次启用任务并按Agent去重。
-- 模板实例化Folder/Page/Binding/Run和一次tree revision全有或全无；外围任务提交后重试。
-- 页面目标产物走Artifact+ChangeSet+一次人类审核；实时权限与版本冲突检查不得绕过，精确receipt重试保留。
-- v3已发布ChangeSet禁止旧入口回滚；协作候选不可走普通入口绕过协作审核发布。
-- AgentGrant.role是权限事实源；外部Agent人工审核后的恢复仍需用户明确唤醒。
-- 空间名长度采用validator.js surrogate pair/variation selector规则，不使用HTML UTF-16 maxLength替代。
-- 本地root/worktree末尾带空格，共享core.worktree会误导Git；每次显式--work-tree指定实际工作树。
+- Folder只表达真实目录；Page承载正文，folderId为关系事实源，不解析path构造虚拟目录。
+- 保存留在编辑；预览不保存；未保存保护覆盖所有导航和浏览器history。
+- 当前蓝色AgentWiki视觉及原编辑器保持；本文目录右上角按需浮窗，不缩正文。
+- 所有写入继续使用现有expectedTreeRevision/expectedUpdatedAt/删除影响和权限校验。
+- 仓库原路径末尾有空格；隔离工作树下Git必须显式--work-tree，避免共享core.worktree指向主目录。
 
 # 关键索引
 
-- 发布记录：agentwiki/docs/verification/space-name-v091-release.md
-- GitHub Release：https://github.com/NeoMei/AgentWiki/releases/tag/v0.9.1
-- 持久私有证据：/Users/neomei/.codex/recovery/agentwiki-v091-release-20260906/
-- 生产备份：/var/backups/agentwiki/space-name-v091.qj7XtW；恢复工具：/root/agentwiki-release-tools-v091/；原应用：/root/agentwiki-previous-20260906205927。
-- 原任务01a06f37-1d32-7231-9e99-a9c0a1c6312a，工作树/Users/neomei/.codex/worktrees/69d8/AgentWiki （末尾空格）；目录兼容链接和恢复备份保留。
+- agentwiki/docs/verification/reading-workspace-acceptance.md（最终验收及截图）
+
+- tasks/archive/reading-workspace/brief.md
+- docs/superpowers/specs/2026-09-08-agentwiki-reading-workspace-design.md
+- docs/superpowers/plans/2026-09-08-agentwiki-reading-workspace.md
+- .superpowers/sdd/2026-09-08-agentwiki-reading-workspace/progress.md（逐任务精确续接）
+- .superpowers/sdd/2026-09-08-agentwiki-reading-workspace/acceptance-notes.md（合成验收环境，不提交凭据）
 
 # 风险 / 下一步
 
-- 当前发布范围无未解决阻塞。旧0.9.0客户端仍受支持；备份不授权丢弃备份后的生产写入。
-- 失败尝试与修正记录均保留：首轮回归漏PG_DUMP_BIN、npm认证/传播延迟和验收脚本元数据/DB字段修正，不将失败尝试算作成功。
-- 主目录其他文件及5个submodule状态已保持；专用测试库PG50415/Redis50416最终无测试遗留。
+- 本地候选供查看，分支与工作树保留。后续整合/发布另行处理。
+- 原生拖拽浏览器验收、P3定位缓存、外部Agent运行边界见验收报告；不能把这些算作已验证。
+- 既有v0.9.1发布事实见agentwiki/docs/verification/space-name-v091-release.md，与本轮本地候选分开。
