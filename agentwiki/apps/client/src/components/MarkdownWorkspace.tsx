@@ -39,7 +39,43 @@ export interface MarkdownWorkspaceHandle {
   simulateChange: (next: string) => void;
   currentValue: () => string;
   insertText: (text: string) => void;
+  capturePosition: () => MarkdownWorkspacePosition;
+  restorePosition: (position: MarkdownWorkspacePosition) => void;
 }
+
+export interface MarkdownWorkspacePosition {
+  cursorOffset: number | null;
+  headingText: string | null;
+  scrollTop: number;
+}
+
+const cursorForHeading = (value: string, headingText: string | null): number => {
+  if (!headingText) return 0;
+  let offset = 0;
+  for (const line of value.split('\n')) {
+    const match = line.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/u);
+    const label = match?.[1].replace(/[*_~`]/gu, '').trim();
+    if (label === headingText) return offset + line.length;
+    offset += line.length + 1;
+  }
+  return 0;
+};
+
+const nearestMarkdownHeading = (value: string, cursorOffset: number): string | null => {
+  const beforeCursor = value.slice(0, Math.max(0, cursorOffset));
+  let nearest: string | null = null;
+  for (const line of beforeCursor.split('\n')) {
+    const match = line.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/u);
+    if (match) nearest = match[1].replace(/[*_~`]/gu, '').trim() || null;
+  }
+  return nearest;
+};
+
+const renderedHeadingLabel = (heading: HTMLElement): string => {
+  const clone = heading.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll('[aria-hidden="true"], .heading-anchor').forEach((node) => node.remove());
+  return clone.textContent?.trim() ?? '';
+};
 
 interface UploadAnchor {
   id: number;
@@ -312,6 +348,8 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   const { t } = useLanguage();
   const isEdit = mode === 'edit';
   const editorViewRef = useRef<EditorView | null>(null);
+  const previewRootRef = useRef<HTMLDivElement | null>(null);
+  const pendingRestoreRef = useRef<MarkdownWorkspacePosition | null>(null);
   const uploadGenerationRef = useRef(0);
   const uploadOperationRef = useRef(0);
   const pendingUploadsRef = useRef<Array<() => Promise<void>>>([]);
@@ -396,11 +434,74 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
     view.focus();
   }, []);
 
+  const capturePosition = useCallback((): MarkdownWorkspacePosition => {
+    if (!isEdit) {
+      const root = previewRootRef.current;
+      const surface = root?.closest<HTMLElement>('[data-testid="md-editor-surface"]') ?? null;
+      const boundary = (document.querySelector<HTMLElement>('[data-testid="editor-toolbar"]')
+        ?.getBoundingClientRect().bottom ?? 0) + 12;
+      let nearest: HTMLElement | null = null;
+      for (const heading of root?.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6') ?? []) {
+        if (heading.getBoundingClientRect().top <= boundary) nearest = heading;
+        else break;
+      }
+      return {
+        cursorOffset: null,
+        headingText: nearest ? renderedHeadingLabel(nearest) || null : null,
+        scrollTop: surface?.scrollTop ?? window.scrollY,
+      };
+    }
+    const view = editorViewRef.current;
+    const cursorOffset = view?.state.selection.main.head ?? 0;
+    return {
+      cursorOffset,
+      headingText: nearestMarkdownHeading(value, cursorOffset),
+      scrollTop: view?.scrollDOM.scrollTop ?? 0,
+    };
+  }, [isEdit, value]);
+
+  const restorePosition = useCallback((position: MarkdownWorkspacePosition) => {
+    const candidateView = isEdit ? editorViewRef.current : null;
+    const view = candidateView?.dom.isConnected ? candidateView : null;
+    if (view) {
+      pendingRestoreRef.current = null;
+      const hasSemanticPosition = position.cursorOffset !== null || Boolean(position.headingText);
+      const requestedOffset = position.cursorOffset ?? cursorForHeading(view.state.doc.toString(), position.headingText);
+      const cursorOffset = Math.min(Math.max(requestedOffset, 0), view.state.doc.length);
+      view.dispatch({
+        selection: EditorSelection.cursor(cursorOffset),
+        effects: EditorView.scrollIntoView(cursorOffset, { y: 'center' }),
+      });
+      if (hasSemanticPosition) {
+        requestAnimationFrame(() => {
+          if (view.dom.isConnected) {
+            view.dispatch({ effects: EditorView.scrollIntoView(cursorOffset, { y: 'center' }) });
+          }
+        });
+      } else if (position.scrollTop > 0) {
+        view.scrollDOM.scrollTop = position.scrollTop;
+      }
+      view.focus();
+      return;
+    }
+    if (isEdit) {
+      pendingRestoreRef.current = position;
+      return;
+    }
+    pendingRestoreRef.current = null;
+    if (!position.headingText) return;
+    const headings = previewRootRef.current?.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6') ?? [];
+    const heading = [...headings].find((candidate) => renderedHeadingLabel(candidate) === position.headingText);
+    heading?.scrollIntoView({ block: 'start' });
+  }, [isEdit]);
+
   useImperativeHandle(ref, () => ({
     simulateChange: (next: string) => onChange(next),
     currentValue: () => editorViewRef.current?.state.doc.toString() ?? value,
     insertText,
-  }), [insertText, onChange, value]);
+    capturePosition,
+    restorePosition,
+  }), [capturePosition, insertText, onChange, restorePosition, value]);
 
   const uploadHandlers = useMemo(() => {
     if (!isEdit || !onUploadImages) return null;
@@ -511,6 +612,8 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
             onCreateEditor={(view) => {
               editorViewRef.current = view;
               uploadGenerationRef.current += 1;
+              const pendingPosition = pendingRestoreRef.current;
+              if (pendingPosition) restorePosition(pendingPosition);
             }}
             extensions={[
               markdown({ base: markdownLanguage, codeLanguages: languages }),
@@ -531,7 +634,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
             className="h-full [&_.cm-editor]:h-full [&_.cm-scroller]:leading-7 [&_.cm-scroller]:text-[15px] [&_.cm-scroller]:text-gray-800 [&_.cm-content]:mx-auto [&_.cm-content]:max-w-4xl [&_.cm-content]:px-6 [&_.cm-content]:py-6 [&_.cm-content]:md:px-10 [&_.cm-content]:md:py-8"
           />
         ) : (
-          <div className="px-6 py-6 md:px-10 md:py-8" data-testid="md-preview">
+          <div ref={previewRootRef} className="px-6 py-6 md:px-10 md:py-8" data-testid="md-preview">
             <div className="mx-auto max-w-4xl">
               {value ? (
                 <Markdown

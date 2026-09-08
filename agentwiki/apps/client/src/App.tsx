@@ -1,5 +1,5 @@
-import React, { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
+import React, { lazy, Suspense, useState } from 'react';
+import { RouterProvider, Routes, Route, Navigate, createBrowserRouter, createMemoryRouter, useLocation, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import { Layout } from './components/Layout';
@@ -27,6 +27,7 @@ import {
   SpaceWorkspaceProvider,
   type SpaceWorkspaceMode,
 } from './features/space-workspace/SpaceWorkspaceContext';
+import { NavigationGuardProvider } from './features/space-workspace/workspaceNavigation';
 
 const AgentList = lazy(() => import('./features/agent/AgentList').then((module) => ({ default: module.AgentList })));
 const AgentDetail = lazy(() => import('./features/agent/AgentDetail').then((module) => ({ default: module.AgentDetail })));
@@ -132,17 +133,33 @@ const AppRoutes: React.FC = () => {
   );
 };
 
-function App() {
+const AppProviders: React.FC = () => (
+  <LanguageProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <NavigationGuardProvider>
+          <AppRoutes />
+        </NavigationGuardProvider>
+      </AuthProvider>
+    </ErrorBoundary>
+  </LanguageProvider>
+);
+
+const appShellRoutes = [{
+  path: '*',
+  element: <AppProviders />,
+}];
+
+export const createAppRouter = () => createBrowserRouter(appShellRoutes);
+export const createAppMemoryRouter = (initialEntry: string) => createMemoryRouter(
+  appShellRoutes,
+  { initialEntries: [initialEntry] },
+);
+
+function App({ router: suppliedRouter }: { router?: ReturnType<typeof createAppRouter> } = {}) {
+  const [router] = useState(() => suppliedRouter ?? createAppRouter());
   return (
-    <BrowserRouter>
-      <LanguageProvider>
-        <ErrorBoundary>
-          <AuthProvider>
-            <AppRoutes />
-          </AuthProvider>
-        </ErrorBoundary>
-      </LanguageProvider>
-    </BrowserRouter>
+    <RouterProvider router={router} />
   );
 }
 

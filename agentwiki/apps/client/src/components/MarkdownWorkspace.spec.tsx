@@ -164,6 +164,38 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     expect(screen.getByTestId('md-preview')).toBeInTheDocument();
   });
 
+  it('captures the nearest heading and cursor, then restores the semantic position across preview and edit', async () => {
+    const workspaceRef = createRef<MarkdownWorkspaceHandle>();
+    renderWYS({ initial: '# Intro\n\n## Details\n\nBody text', workspaceRef });
+    const view = currentEditorView(document.body);
+    const detailsBodyOffset = view.state.doc.toString().indexOf('Body text') + 3;
+    act(() => {
+      view.dispatch({ selection: EditorSelection.cursor(detailsBodyOffset) });
+      view.scrollDOM.scrollTop = 240;
+    });
+
+    const position = workspaceRef.current?.capturePosition();
+    expect(position).toEqual({ cursorOffset: detailsBodyOffset, headingText: 'Details', scrollTop: 240 });
+
+    fireEvent.click(screen.getByTestId('mode-toggle'));
+    const previewHeading = await screen.findByRole('heading', { name: /Details/ });
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(previewHeading, 'scrollIntoView', { configurable: true, value: scrollIntoView });
+    act(() => workspaceRef.current?.restorePosition(position!));
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' });
+    vi.spyOn(previewHeading, 'getBoundingClientRect').mockReturnValue({ top: 0 } as DOMRect);
+    expect(workspaceRef.current?.capturePosition()).toEqual({
+      cursorOffset: null,
+      headingText: 'Details',
+      scrollTop: 0,
+    });
+
+    fireEvent.click(screen.getByTestId('mode-toggle'));
+    act(() => workspaceRef.current?.restorePosition(position!));
+    expect(currentEditorView(document.body).state.selection.main.head).toBe(detailsBodyOffset);
+    expect(currentEditorView(document.body).scrollDOM.scrollTop).not.toBe(240);
+  });
+
   it('renders syntax-aware Wiki widgets with alias text and preview-equivalent fragments', async () => {
     resourceMocks.post.mockImplementation(async (_url: string, body: any) => ({
       data: body.references.map((reference: any) => ({

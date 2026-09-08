@@ -1,14 +1,12 @@
 import React, { useCallback, useEffect, useLayoutEffect, useState, useRef } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useNavigationType, useParams } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import api from '../../api/client';
 import { getContentTreeRevision } from '../../api/content-tree';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { MarkdownMode, MarkdownWorkspace, MarkdownWorkspaceHandle } from '../../components/MarkdownWorkspace';
-import { Save, ArrowLeft, History, Users, Bot, Ellipsis, ImagePlus } from 'lucide-react';
-import { IconButton } from '../../components/IconButton';
-import { ModeToggleButton } from '../../components/ModeToggleButton';
+import { Save, ArrowLeft, History, Users, Bot, Ellipsis, ImagePlus, BookOpen, PenLine, ChevronRight, Folder } from 'lucide-react';
 import { SavePageAsTemplateDialog } from '../page-templates/SavePageAsTemplateDialog';
 import { PageAgentBindingDialog } from '../page-templates/PageAgentBindingDialog';
 import { listPageTemplates } from '../page-templates/pageTemplateApi';
@@ -19,7 +17,15 @@ import { AttachmentPickerDialog } from '../attachments/AttachmentPickerDialog';
 import { uploadAttachment } from '../attachments/attachmentApi';
 import { formatAttachmentReference } from '../attachments/attachmentReference';
 import 'highlight.js/styles/github.css';
-import { usePageWorkspaceIdentity } from '../space-workspace/SpaceWorkspaceContext';
+import { useOptionalSpaceWorkspace, usePageWorkspaceIdentity } from '../space-workspace/SpaceWorkspaceContext';
+import {
+  readWorkspacePosition,
+  rememberWorkspacePosition,
+  spaceFolderHref,
+  useDirtyNavigationGuard,
+  useGuardedNavigate,
+  type WorkspacePosition,
+} from '../space-workspace/workspaceNavigation';
 
 interface Page {
   id: string;
@@ -81,9 +87,13 @@ class StaleAttachmentUploadError extends Error {
 export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<MarkdownWorkspaceHandle | null> }> = ({ workspaceRef } = {}) => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const guardedNavigate = useGuardedNavigate();
+  const location = useLocation();
+  const navigationType = useNavigationType();
   const { user } = useAuth();
   const { language, t } = useLanguage();
   const reportPageIdentity = usePageWorkspaceIdentity();
+  const workspace = useOptionalSpaceWorkspace();
   const socketRef = useRef<Socket | null>(null);
   const contentRef = useRef<string>('');
   const tRef = useRef(t);
@@ -122,6 +132,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const attachmentButtonRef = useRef<HTMLButtonElement>(null);
   const bindingButtonRef = useRef<HTMLButtonElement>(null);
   const internalWorkspaceRef = useRef<MarkdownWorkspaceHandle | null>(null);
+  const pendingWorkspacePositionRef = useRef<ReturnType<MarkdownWorkspaceHandle['capturePosition']> | null>(null);
+  const restoredEntryRef = useRef<string | null>(null);
 
   const [page, setPage] = useState<Page | null>(null);
   const [title, setTitle] = useState('');
@@ -162,6 +174,13 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     && mode === 'edit'
     && !remoteUpdate
     && !saving;
+  const saveButtonText = saving
+    ? t('common.saving')
+    : !isDirty && saveStatus?.kind === 'success' && statusSourceRef.current === 'save'
+      ? t('common.saved')
+      : t('common.save');
+
+  useDirtyNavigationGuard(isDirty, t('editor.unsavedWarning'));
 
   useLayoutEffect(() => {
     attachmentContextRef.current = {
@@ -446,24 +465,41 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     return () => window.removeEventListener('keydown', handleModeShortcut);
   }, []);
 
-  // Warn before leaving with unsaved changes
-  useEffect(() => {
-    const handler = (e: BeforeUnloadEvent) => {
-      if (isDirty) {
-        e.preventDefault();
-        e.returnValue = '';
-      }
-    };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [isDirty]);
+  useLayoutEffect(() => {
+    const position = pendingWorkspacePositionRef.current;
+    if (!position) return;
+    pendingWorkspacePositionRef.current = null;
+    internalWorkspaceRef.current?.restorePosition(position);
+  }, [mode]);
 
-  // Guard SPA navigation when there are unsaved changes.
-  const guardNavigate = useCallback((target: string) => {
-    if (isDirty && !window.confirm(t('editor.unsavedWarning'))) return;
-    // Use a full navigation so React Router unmounts and state resets cleanly.
-    window.location.assign(target);
-  }, [isDirty, t]);
+  const togglePreview = useCallback(() => {
+    pendingWorkspacePositionRef.current = internalWorkspaceRef.current?.capturePosition() ?? null;
+    setMode((currentMode) => currentMode === 'edit' ? 'preview' : 'edit');
+  }, []);
+
+  useLayoutEffect(() => {
+    if (loading || !page || page.id !== id || restoredEntryRef.current === location.key) return;
+    const requestedFromState = (location.state as { workspacePosition?: WorkspacePosition } | null)?.workspacePosition;
+    const requested = (requestedFromState?.pageId === page.id ? requestedFromState : null)
+      ?? (navigationType === 'POP' ? readWorkspacePosition(location.key, page.id) : null);
+    restoredEntryRef.current = location.key;
+    if (!requested) return;
+    internalWorkspaceRef.current?.restorePosition({
+      cursorOffset: requested.cursorOffset,
+      headingText: requested.headingText,
+      scrollTop: requested.scrollTop,
+    });
+  }, [loading, location.key, location.state, navigationType, page]);
+
+  useEffect(() => () => {
+    const position = internalWorkspaceRef.current?.capturePosition();
+    if (!position) return;
+    rememberWorkspacePosition(location.key, {
+      ...position,
+      pageId: pageRef.current?.id ?? '',
+      headingId: null,
+    });
+  }, [location.key]);
 
   // Load page data and reset state when navigating to another page.
   useEffect(() => {
@@ -769,33 +805,59 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   if (error) return (
     <div className="text-center py-8">
       <p className="text-red-500 mb-2">{error}</p>
-      <button onClick={() => guardNavigate(page?.spaceId ? `/spaces/${page.spaceId}` : '/')} className="text-blue-600 hover:underline">{t('common.back')}</button>
+      <button onClick={() => guardedNavigate(page?.spaceId ? `/spaces/${page.spaceId}` : '/')} className="text-blue-600 hover:underline">{t('common.back')}</button>
     </div>
   );
   if (!page) return <div className="text-center py-8 text-gray-500">{t('editor.notFound')}</div>;
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <div className="flex items-center gap-2">
+    <div className="mx-auto max-w-6xl">
+      <div
+        data-testid="editor-toolbar"
+        className="sticky top-16 z-20 -mx-4 mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white px-4 py-3 lg:-mx-6 lg:px-6"
+      >
+        {workspace?.directoryCrumbs.length ? (
+          <nav aria-label="breadcrumb" className="flex min-w-0 flex-1 flex-wrap items-center gap-1 text-sm text-gray-500">
+            {workspace.directoryCrumbs.map((crumb, index) => (
+              <React.Fragment key={crumb.id ?? 'root'}>
+                {index > 0 ? <ChevronRight size={14} className="shrink-0 text-gray-300" aria-hidden="true" /> : null}
+                <Link
+                  to={spaceFolderHref(page.spaceId, crumb.id)}
+                  title={crumb.name}
+                  className="flex min-w-0 items-center gap-1 rounded px-1.5 py-1 hover:bg-gray-100 hover:text-blue-700"
+                >
+                  <Folder size={14} className="shrink-0 text-gray-400" aria-hidden="true" />
+                  <span className="max-w-40 truncate">{crumb.name}</span>
+                </Link>
+              </React.Fragment>
+            ))}
+          </nav>
+        ) : (
           <button
-            onClick={() => guardNavigate(page.spaceId ? `/spaces/${page.spaceId}` : '/')}
-            className="p-2 hover:bg-gray-100 rounded"
+            type="button"
+            onClick={() => guardedNavigate(`/spaces/${page.spaceId}`)}
+            className="inline-flex min-h-9 items-center gap-2 rounded-lg px-2 text-sm text-gray-600 hover:bg-gray-100 hover:text-blue-700"
             title={t('editor.backToSpace')}
           >
-            <ArrowLeft size={20} />
+            <ArrowLeft size={18} aria-hidden="true" />
+            {t('editor.backToSpace')}
           </button>
-          <input
-            type="text"
-            value={title}
-            onChange={handleTitleChange}
-            className="text-2xl font-bold border-none focus:outline-none bg-transparent min-w-0"
-          />
-          {isDirty && (
-            <span className="text-xs text-orange-500 ml-2">● {t('editor.unsaved')}</span>
-          )}
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        )}
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end" data-testid="editor-actions">
+          <button
+            type="button"
+            onClick={() => {
+              const position = internalWorkspaceRef.current?.capturePosition();
+              guardedNavigate(`/pages/${id}`, {
+                state: { workspacePosition: position ? { ...position, pageId: page.id, headingId: null } : null },
+              });
+            }}
+            className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            title={t('editor.returnToReading')}
+          >
+            <ArrowLeft size={18} aria-hidden="true" />
+            <span>{t('editor.returnToReading')}</span>
+          </button>
           {activeUsers.length > 0 && (
             <div className="flex items-center gap-1 px-3 py-2 bg-green-50 rounded-md">
               <Users size={16} className="text-green-600" />
@@ -813,8 +875,9 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
               </div>
             </div>
           )}
-          <button onClick={() => guardNavigate(`/pages/${id}/versions`)} aria-label={t('editor.versions')} title={t('editor.versions')} data-testid="history-button" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition hover:bg-gray-100 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <History size={18} />
+          <button onClick={() => guardedNavigate(`/pages/${id}/versions`)} aria-label={t('editor.versions')} title={t('editor.versions')} data-testid="history-button" className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-gray-600 transition hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <History size={17} aria-hidden="true" />
+            <span>{t('editor.versions')}</span>
           </button>
           {compositeCreationEnabled ? <button
             ref={bindingButtonRef}
@@ -909,26 +972,51 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
               <ImagePlus size={18} />
             </button>
           ) : null}
-          <IconButton
-            label={saving ? t('common.saving') : t('common.save')}
+          <button
+            type="button"
+            aria-label={saving ? t('common.saving') : t('common.save')}
             onClick={handleSave}
             disabled={saving || !isDirty || !!remoteUpdate}
-            primary
-            testId="save-button"
+            data-testid="save-button"
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <Save size={18} />
-          </IconButton>
-          <ModeToggleButton mode={mode} onToggle={() => setMode(mode === 'edit' ? 'preview' : 'edit')} />
-          <IconButton
-            label={t('editor.assist')}
+            <Save size={17} aria-hidden="true" />
+            <span>{saveButtonText}</span>
+          </button>
+          <button
+            type="button"
+            onClick={togglePreview}
+            aria-label={mode === 'edit' ? t('common.preview') : t('editor.returnToEdit')}
+            data-testid="mode-toggle"
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-gray-300 px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            {mode === 'edit' ? <BookOpen size={17} aria-hidden="true" /> : <PenLine size={17} aria-hidden="true" />}
+            <span>{mode === 'edit' ? t('common.preview') : t('editor.returnToEdit')}</span>
+          </button>
+          <button
+            type="button"
+            aria-label={t('editor.assist')}
             onClick={() => setAssistOpen((open) => !open)}
-            active={assistOpen}
-            testId="assist-toggle"
+            aria-pressed={assistOpen}
+            data-testid="assist-toggle"
+            className={`inline-flex min-h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 ${assistOpen ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'}`}
           >
-            <Bot size={18} />
-          </IconButton>
+            <Bot size={17} aria-hidden="true" />
+            <span>{t('editor.assist')}</span>
+          </button>
         </div>
       </div>
+
+      <div className="mx-auto max-w-[860px]">
+        <div className="mb-4 flex min-w-0 items-center gap-2">
+          <input
+            type="text"
+            value={title}
+            onChange={handleTitleChange}
+            className="min-w-0 flex-1 border-none bg-transparent text-2xl font-bold focus:outline-none"
+          />
+          {isDirty ? <span className="shrink-0 text-xs text-orange-500">● {t('editor.unsaved')}</span> : null}
+        </div>
 
       {saveStatus && (
         <div
@@ -1014,6 +1102,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
           }}
         />
       ) : null}
+      </div>
     </div>
   );
 };

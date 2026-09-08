@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useParams, Link, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import api from '../../api/client';
 import { getContentTreeRevision } from '../../api/content-tree';
 import { ArrowLeft, ChevronRight, Clock, Folder, User, PenLine, FileText } from 'lucide-react';
@@ -11,7 +11,14 @@ import { rebaseMarkdownTask, toggleMarkdownTask } from '../../components/markdow
 import { useOptionalSpaceWorkspace, usePageWorkspaceIdentity } from '../space-workspace/SpaceWorkspaceContext';
 import { ArticleContentsPopover } from '../space-workspace/ArticleContentsPopover';
 import { PageInfoPanel } from '../space-workspace/PageInfoPanel';
-import { spaceFolderHref } from '../space-workspace/workspaceNavigation';
+import {
+  captureReadingPosition,
+  readWorkspacePosition,
+  rememberWorkspacePosition,
+  renderedHeadingText,
+  spaceFolderHref,
+  type WorkspacePosition,
+} from '../space-workspace/workspaceNavigation';
 
 interface Page {
   id: string;
@@ -45,6 +52,8 @@ interface PendingTaskOperation {
 export const PagePreview: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const navigationType = useNavigationType();
   const { t, language } = useLanguage();
   const reportPageIdentity = usePageWorkspaceIdentity();
   const workspace = useOptionalSpaceWorkspace();
@@ -63,6 +72,7 @@ export const PagePreview: React.FC = () => {
   const pageRef = useRef<Page | null>(null);
   const markdownRootRef = useRef<HTMLDivElement | null>(null);
   const lastScrolledHashRef = useRef<string | null>(null);
+  const restoredEntryRef = useRef<string | null>(null);
   const lastCommittedPageRef = useRef<Page | null>(null);
   const pendingTaskOperationsRef = useRef<PendingTaskOperation[]>([]);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
@@ -389,6 +399,50 @@ export const PagePreview: React.FC = () => {
     };
   }, [id, loading, page?.content, page?.id, page?.spaceId]);
 
+  useLayoutEffect(() => {
+    if (
+      loading
+      || !page
+      || page.id !== id
+      || !markdownRootRef.current
+      || restoredEntryRef.current === location.key
+    ) return;
+    const requestedFromState = (location.state as { workspacePosition?: WorkspacePosition } | null)?.workspacePosition;
+    const requested = (requestedFromState?.pageId === page.id ? requestedFromState : null)
+      ?? (navigationType === 'POP' ? readWorkspacePosition(location.key, page.id) : null);
+    restoredEntryRef.current = location.key;
+    if (!requested) {
+      if (navigationType !== 'POP' && window.scrollY > 0) {
+        window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+      }
+      return;
+    }
+    const headingById = requested.headingId ? document.getElementById(requested.headingId) : null;
+    const heading = headingById ?? (requested.headingText
+      ? [...markdownRootRef.current.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6')]
+        .find((candidate) => renderedHeadingText(candidate) === requested.headingText) ?? null
+      : null);
+    if (heading && markdownRootRef.current.contains(heading)) heading.scrollIntoView({ block: 'start' });
+    else if (requested.scrollTop > 0) window.scrollTo({ top: requested.scrollTop, left: 0, behavior: 'instant' });
+  }, [loading, location.key, location.state, navigationType, page]);
+
+  useEffect(() => {
+    if (loading || !page || page.id !== id) return;
+    const pageId = page.id;
+    const rememberCurrentPosition = () => {
+      const root = markdownRootRef.current;
+      if (!root) return;
+      const toolbarBottom = document.querySelector<HTMLElement>('[data-reading-toolbar]')
+        ?.getBoundingClientRect().bottom ?? 88;
+      rememberWorkspacePosition(location.key, captureReadingPosition(root, toolbarBottom, pageId));
+    };
+    window.addEventListener('scroll', rememberCurrentPosition, { passive: true });
+    return () => {
+      rememberCurrentPosition();
+      window.removeEventListener('scroll', rememberCurrentPosition);
+    };
+  }, [id, loading, location.key, page?.content, page?.id]);
+
   const handleDelete = async () => {
     if (
       !page
@@ -481,7 +535,14 @@ export const PagePreview: React.FC = () => {
           {page.capabilities?.canEdit === true ? (
             <button
               type="button"
-              onClick={() => navigate(`/pages/${id}/edit`)}
+              onClick={() => {
+                const root = markdownRootRef.current;
+                const toolbarBottom = document.querySelector<HTMLElement>('[data-reading-toolbar]')
+                  ?.getBoundingClientRect().bottom ?? 88;
+                navigate(`/pages/${id}/edit`, {
+                  state: { workspacePosition: root ? captureReadingPosition(root, toolbarBottom, page.id) : null },
+                });
+              }}
               aria-label={t('common.edit')}
               className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
             >

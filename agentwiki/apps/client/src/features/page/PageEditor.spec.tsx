@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { EditorSelection } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
-import { MemoryRouter, Route, Routes, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
+import { Link, MemoryRouter, Outlet, Route, RouterProvider, Routes, createMemoryRouter, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
@@ -9,7 +9,8 @@ import { LanguageProvider } from '../../context/LanguageContext';
 import type { PageTemplateListResponse } from '../page-templates/pageTemplateTypes';
 import { PageEditor } from './PageEditor';
 import { SpaceWorkspace } from '../space-workspace/SpaceWorkspace';
-import { SpaceWorkspaceProvider } from '../space-workspace/SpaceWorkspaceContext';
+import { SpaceWorkspaceProvider, SpaceWorkspaceScope, useSpaceWorkspace } from '../space-workspace/SpaceWorkspaceContext';
+import { NavigationGuardProvider } from '../space-workspace/workspaceNavigation';
 
 const templateMocks = vi.hoisted(() => ({
   listPageTemplates: vi.fn(),
@@ -196,6 +197,59 @@ const NavigationHarness = () => {
   </>;
 };
 
+const GuardedEditorHarness = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  return <>
+    <p data-testid="guarded-location">{`${location.pathname}${location.search}`}</p>
+    <PageEditor workspaceRef={workspaceRef} />
+    <Link to="/spaces/space-1?folder=parent-folder">Parent directory</Link>
+    <button type="button" onClick={() => navigate('/spaces/space-1/graph')}>Space graph</button>
+    <button type="button" onClick={() => navigate(-1)}>Browser back</button>
+  </>;
+};
+
+const renderGuardedEditor = () => {
+  const router = createMemoryRouter([{
+    element: <NavigationGuardProvider><Outlet /></NavigationGuardProvider>,
+    children: [
+      { path: '/pages/:id/edit', element: <GuardedEditorHarness /> },
+      { path: '*', element: <p>Destination</p> },
+    ],
+  }], { initialEntries: ['/pages/previous', '/pages/page-1/edit'], initialIndex: 1 });
+  return render(<LanguageProvider><RouterProvider router={router} /></LanguageProvider>);
+};
+
+const EditorCrumbReporter = () => {
+  const workspace = useSpaceWorkspace();
+  return <button type="button" onClick={() => workspace.reportDirectoryCrumbs([
+    { id: null, name: 'Product knowledge' },
+    { id: 'folder-guides', name: 'Guides' },
+  ])}>Report editor crumbs</button>;
+};
+
+const renderEditorWithCrumbs = () => render(
+  <LanguageProvider>
+    <MemoryRouter initialEntries={['/pages/page-1/edit']}>
+      <SpaceWorkspaceProvider userId="user-1">
+        <SpaceWorkspaceScope
+          mode="edit"
+          spaceId="space-1"
+          activeSection="pages"
+          selectedFolderId={null}
+          selectedPageId="page-1"
+          selectedPageFolderId="folder-guides"
+          selectFolder={() => undefined}
+          reportPageIdentity={() => undefined}
+        >
+          <EditorCrumbReporter />
+          <Routes><Route path="/pages/:id/edit" element={<PageEditor workspaceRef={workspaceRef} />} /></Routes>
+        </SpaceWorkspaceScope>
+      </SpaceWorkspaceProvider>
+    </MemoryRouter>
+  </LanguageProvider>,
+);
+
 describe('PageEditor remote update safety', () => {
   afterEach(() => {
     cleanup();
@@ -254,6 +308,80 @@ describe('PageEditor remote update safety', () => {
     expect(await screen.findByDisplayValue('Original title')).toBeInTheDocument();
     expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/pages/page-1')).toHaveLength(1);
     expect(screen.getByRole('link', { name: 'Pages' })).toHaveAttribute('href', '/spaces/space-1');
+  });
+
+  it.each([
+    'Parent directory',
+    'Space graph',
+    'Versions',
+    'Return to reading',
+    'Browser back',
+  ])('keeps the dirty editor and route intact when %s navigation is cancelled', async (actionName) => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    renderGuardedEditor();
+    await screen.findByDisplayValue('Original title');
+    editContent('Unsaved guarded content');
+
+    fireEvent.click(screen.getByRole(actionName === 'Parent directory' ? 'link' : 'button', { name: actionName }));
+
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith('You have unsaved changes. Leave anyway?'));
+    expect(screen.getByTestId('guarded-location')).toHaveTextContent('/pages/page-1/edit');
+    expect(contentEditorValue()).toBe('Unsaved guarded content');
+  });
+
+  it('keeps preview and return-to-reading separate, with visible actions and no preview write', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor();
+    await screen.findByDisplayValue('Original title');
+    editContent('Unsaved preview body');
+
+    expect(screen.getByRole('button', { name: 'Save' })).toHaveTextContent('Save');
+    expect(screen.getByRole('button', { name: 'Preview' })).toHaveTextContent('Preview');
+    expect(screen.getByRole('button', { name: 'Return to reading' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+    expect(screen.getByTestId('md-preview')).toHaveTextContent('Unsaved preview body');
+    expect(screen.getByRole('button', { name: 'Return to edit' })).toBeVisible();
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('keeps real directory crumbs and primary editor actions in the sticky workspace toolbar', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditorWithCrumbs();
+    await screen.findByDisplayValue('Original title');
+    fireEvent.click(screen.getByRole('button', { name: 'Report editor crumbs' }));
+
+    const toolbar = await screen.findByTestId('editor-toolbar');
+    expect(toolbar).toHaveClass('sticky');
+    expect(toolbar).toContainElement(screen.getByRole('link', { name: 'Product knowledge' }));
+    expect(toolbar).toContainElement(screen.getByRole('link', { name: 'Guides' }));
+    expect(toolbar).toContainElement(screen.getByRole('button', { name: 'Return to reading' }));
+    expect(toolbar).toContainElement(screen.getByRole('button', { name: 'Save' }));
+    expect(toolbar).toContainElement(screen.getByRole('button', { name: 'Preview' }));
+    expect(toolbar).not.toContainElement(screen.getByDisplayValue('Original title'));
+  });
+
+  it('applies a semantic reading position after the CodeMirror view finishes mounting', async () => {
+    const body = '# Intro\n\n## Details\n\nBody text';
+    queuePages({ data: page({ content: body, capabilities: { canEdit: true } }) });
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={[{
+          pathname: '/pages/page-1/edit',
+          state: { workspacePosition: {
+            pageId: 'page-1', cursorOffset: null, headingId: 'details', headingText: 'Details', scrollTop: 2380,
+          } },
+        }]}>
+          <Routes><Route path="/pages/:id/edit" element={<PageEditor workspaceRef={workspaceRef} />} /></Routes>
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    await screen.findByDisplayValue('Original title');
+    const expectedHeadingOffset = body.indexOf('## Details') + '## Details'.length;
+    await waitFor(() => expect(currentEditorView().state.selection.main.head).toBe(expectedHeadingOffset));
+    expect(currentEditorView().scrollDOM.scrollTop).not.toBe(2380);
   });
 
   it('keeps the accepted workspace identity when an ordinary background refresh fails', async () => {

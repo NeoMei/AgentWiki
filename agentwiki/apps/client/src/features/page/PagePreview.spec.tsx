@@ -1,13 +1,14 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import { MemoryRouter, Route, Router, Routes, useNavigate } from 'react-router-dom';
+import { MemoryRouter, Route, Router, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { PagePreview } from './PagePreview';
 import { SpaceWorkspaceProvider, SpaceWorkspaceScope, useSpaceWorkspace } from '../space-workspace/SpaceWorkspaceContext';
+import { readWorkspacePosition } from '../space-workspace/workspaceNavigation';
 
 vi.mock('../../api/client', () => ({
   default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
@@ -105,9 +106,12 @@ const taskCheckboxes = async () => {
 
 const NavigationHarness = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   return (
     <>
+      <output data-testid="navigation-entry-key">{location.key}</output>
       <button type="button" onClick={() => navigate('/pages/page-2')}>Open second page</button>
+      <button type="button" onClick={() => navigate(-1)}>Back to previous page</button>
       <Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes>
     </>
   );
@@ -155,6 +159,7 @@ const AbaNavigationHarness = () => {
 describe('PagePreview checklist saves', () => {
   afterEach(() => {
     cleanup();
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 0 });
     document.querySelectorAll('[data-page-preview-test-outside]').forEach((node) => node.remove());
     window.history.replaceState(null, '', '/');
     if (originalScrollIntoView) {
@@ -165,6 +170,7 @@ describe('PagePreview checklist saves', () => {
   });
 
   beforeEach(() => {
+    vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
     scrollIntoViewMock = vi.fn();
     Object.defineProperty(Element.prototype, 'scrollIntoView', {
       configurable: true,
@@ -248,6 +254,73 @@ describe('PagePreview checklist saves', () => {
     const article = screen.getByRole('article');
     expect(article).toHaveClass('mx-auto', 'max-w-[860px]', 'bg-white');
     expect(article).not.toHaveClass('shadow-sm', 'border');
+  });
+
+  it('restores an editor return to the matching rendered heading before using scroll pixels', async () => {
+    queuePages({ data: page({ content: '# Intro\n\n## Details\n\nBody' }) });
+    render(<LanguageProvider><MemoryRouter initialEntries={[{
+      pathname: '/pages/page-1',
+      state: { workspacePosition: {
+        pageId: 'page-1', cursorOffset: 24, headingId: null, headingText: 'Details', scrollTop: 900,
+      } },
+    }]}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></LanguageProvider>);
+
+    const details = await screen.findByRole('heading', { name: 'Details' });
+    await waitFor(() => expect(scrollIntoViewMock).toHaveBeenCalled());
+    expect(scrollIntoViewMock.mock.instances[scrollIntoViewMock.mock.instances.length - 1]).toBe(details);
+  });
+
+  it('starts an ordinary push to another article at the top', async () => {
+    queuePages(
+      { data: page() },
+      { data: page({ id: 'page-2', title: 'Second page' }) },
+    );
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 420 });
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/pages/page-1']}>
+          <NavigationHarness />
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    await screen.findByRole('heading', { name: 'Checklist' });
+    fireEvent.click(screen.getByRole('button', { name: 'Open second page' }));
+
+    expect(await screen.findByRole('heading', { name: 'Second page' })).toBeInTheDocument();
+    await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: 0, left: 0, behavior: 'instant' }));
+  });
+
+  it('restores the prior article heading after browser history returns to that entry', async () => {
+    queuePages(
+      { data: page({ content: '# First position\n\nBody' }) },
+      { data: page({ id: 'page-2', title: 'Second page', content: '# Second position' }) },
+      { data: page({ content: '# First position\n\nBody' }) },
+    );
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/pages/page-1']}>
+          <NavigationHarness />
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    const firstHeading = await screen.findByRole('heading', { name: 'First position' });
+    const firstEntryKey = screen.getByTestId('navigation-entry-key').textContent!;
+    vi.spyOn(firstHeading, 'getBoundingClientRect').mockReturnValue({ top: -1 } as DOMRect);
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 360 });
+    fireEvent.scroll(window);
+    fireEvent.click(screen.getByRole('button', { name: 'Open second page' }));
+    await screen.findByRole('heading', { name: 'Second page' });
+    await waitFor(() => expect(readWorkspacePosition(firstEntryKey, 'page-1')?.headingText).toBe('First position'));
+    scrollIntoViewMock.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to previous page' }));
+
+    const restoredHeading = await screen.findByRole('heading', { name: 'First position' });
+    await waitFor(() => expect(scrollIntoViewMock).toHaveBeenCalled());
+    expect(scrollIntoViewMock.mock.instances[scrollIntoViewMock.mock.instances.length - 1]).toBe(restoredHeading);
   });
 
   it('renders links from the authoritative workspace breadcrumb chain', async () => {

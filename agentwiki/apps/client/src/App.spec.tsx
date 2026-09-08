@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Outlet, Route, Routes, useLocation } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import App, { ProtectedRoute } from './App';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import App, { ProtectedRoute, createAppMemoryRouter } from './App';
 
 const authState = vi.hoisted(() => ({ token: null as string | null, user: null as { mustChangePassword?: boolean } | null }));
 
@@ -26,8 +26,26 @@ const LocationProbe = () => {
   return <p>{location.pathname + location.search + location.hash}</p>;
 };
 
+const installDataRouterRequestShim = () => {
+  class RouterTestRequest {
+    readonly url: string;
+    readonly signal: AbortSignal | null;
+    readonly method: string;
+
+    constructor(input: string | URL | Request, init?: RequestInit) {
+      this.url = typeof input === 'string' || input instanceof URL ? input.toString() : input.url;
+      this.signal = init?.signal ?? null;
+      this.method = init?.method ?? 'GET';
+    }
+  }
+  vi.stubGlobal('Request', RouterTestRequest as unknown as typeof Request);
+};
+
 describe('ProtectedRoute', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   beforeEach(() => {
+    vi.unstubAllGlobals();
     authState.token = null;
     authState.user = null;
     window.history.replaceState({}, '', '/');
@@ -65,27 +83,23 @@ describe('ProtectedRoute', () => {
 
   it('routes the static new-template URL to explicit create mode', async () => {
     authState.token = 'signed-in';
-    window.history.replaceState({}, '', '/spaces/space-1/collaboration/templates/new');
-
-    render(<App />);
+    render(<App router={createAppMemoryRouter('/spaces/space-1/collaboration/templates/new')} />);
 
     expect(await screen.findByRole('heading', { name: 'Template editor mode: create' })).toBeVisible();
   });
 
   it('routes the settings page to PageTemplateManager', async () => {
     authState.token = 'signed-in';
-    window.history.replaceState({}, '', '/spaces/space-1/settings/page-templates');
-
-    render(<App />);
+    render(<App router={createAppMemoryRouter('/spaces/space-1/settings/page-templates')} />);
 
     expect(await screen.findByRole('heading', { name: 'Space 页面模板' })).toBeInTheDocument();
   });
 
   it('redirects the legacy integrations URL to the Obsidian guide', async () => {
-    window.history.replaceState({}, '', '/settings/integrations');
+    installDataRouterRequestShim();
+    const router = createAppMemoryRouter('/settings/integrations');
+    render(<App router={router} />);
 
-    render(<App />);
-
-    await waitFor(() => expect(window.location.pathname).toBe('/guide/obsidian'));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/guide/obsidian'));
   });
 });
