@@ -24,6 +24,9 @@ export interface SpaceDirectoryState {
   locating: boolean;
   error: string | null;
   crumbs: Crumb[];
+  branchErrors: ReadonlyMap<string, string>;
+  loadingBranches: ReadonlySet<string>;
+  completedRefresh: number;
   toggleFolder: (folderId: string) => Promise<void>;
   retry: () => void;
   reloadLevel: (parentFolderId: string | null) => Promise<void>;
@@ -65,6 +68,9 @@ export const useSpaceDirectory = ({
   const [treeRevision, setTreeRevision] = useState<string | null>(null);
   const [locating, setLocating] = useState(Boolean(spaceId));
   const [error, setError] = useState<string | null>(null);
+  const [branchErrors, setBranchErrors] = useState<ReadonlyMap<string, string>>(new Map());
+  const [loadingBranches, setLoadingBranches] = useState<ReadonlySet<string>>(new Set());
+  const [completedRefresh, setCompletedRefresh] = useState(0);
   const [retryKey, setRetryKey] = useState(0);
   expandedFolderIdsRef.current = expandedFolderIds;
 
@@ -75,6 +81,8 @@ export const useSpaceDirectory = ({
     setTreeRevision(revision);
     setLevels(new Map());
     setFolderIndex(new Map());
+    setBranchErrors(new Map());
+    setLoadingBranches(new Set());
   }, []);
 
   const invalidateRequests = useCallback(() => {
@@ -121,7 +129,10 @@ export const useSpaceDirectory = ({
     reloadControllersRef.current.get(requestKey)?.abort();
     const controller = new AbortController();
     reloadControllersRef.current.set(requestKey, controller);
-    setError(null);
+    if (parentFolderId) {
+      setBranchErrors((current) => { const next = new Map(current); next.delete(parentFolderId); return next; });
+      setLoadingBranches((current) => new Set(current).add(parentFolderId));
+    } else setError(null);
     try {
       const response = await listTreeChildren(spaceId, parentFolderId, controller.signal);
       if (controller.signal.aborted) return;
@@ -131,11 +142,14 @@ export const useSpaceDirectory = ({
       if (responseStatus(loadError) === 401 || responseStatus(loadError) === 403) {
         invalidateRequests();
         clearDirectory(null);
-      }
-      setError(errorMessage(loadError));
+        setError(errorMessage(loadError));
+      } else if (parentFolderId) {
+        setBranchErrors((current) => new Map(current).set(parentFolderId, errorMessage(loadError)));
+      } else setError(errorMessage(loadError));
     } finally {
       if (reloadControllersRef.current.get(requestKey) === controller) {
         reloadControllersRef.current.delete(requestKey);
+        if (parentFolderId) setLoadingBranches((current) => { const next = new Set(current); next.delete(parentFolderId); return next; });
       }
     }
   }, [clearDirectory, installLevel, invalidateRequests, spaceId]);
@@ -162,6 +176,7 @@ export const useSpaceDirectory = ({
           const ancestorIds = ancestry?.ancestorIds ?? [];
           const nextLevels = new Map<string | null, DirectoryLevel>();
           const nextIndex = new Map(ancestry?.folders ?? []);
+          const nextBranchErrors = new Map<string, string>();
           let revision = ancestry?.treeRevision || null;
           let changed = false;
           const pendingExpandedFolderIds: string[] = [];
@@ -191,7 +206,15 @@ export const useSpaceDirectory = ({
           while (!changed && pendingExpandedFolderIds.length) {
             const parentFolderId = pendingExpandedFolderIds.shift()!;
             if (nextLevels.has(parentFolderId)) continue;
-            const response = await listTreeChildren(spaceId, parentFolderId, controller.signal);
+            let response;
+            try {
+              response = await listTreeChildren(spaceId, parentFolderId, controller.signal);
+            } catch (branchError) {
+              if (controller.signal.aborted || generationRef.current !== generation) return;
+              if (responseStatus(branchError) === 401 || responseStatus(branchError) === 403) throw branchError;
+              nextBranchErrors.set(parentFolderId, errorMessage(branchError));
+              continue;
+            }
             if (generationRef.current !== generation) return;
             revision ??= response.treeRevision;
             if (response.treeRevision !== revision) {
@@ -209,6 +232,7 @@ export const useSpaceDirectory = ({
             continue;
           }
           if (!revision) throw new Error('The directory response did not include a revision.');
+          setBranchErrors(nextBranchErrors);
           installSnapshot(nextLevels, nextIndex, revision, generation);
           for (const ancestorId of ancestorIds) setFolderExpanded(ancestorId, true);
           return;
@@ -223,7 +247,10 @@ export const useSpaceDirectory = ({
           setError(errorMessage(loadError));
         }
       } finally {
-        if (!controller.signal.aborted && generationRef.current === generation) setLocating(false);
+        if (!controller.signal.aborted && generationRef.current === generation) {
+          setLocating(false);
+          setCompletedRefresh((current) => current + 1);
+        }
       }
     })();
     return () => {
@@ -241,15 +268,15 @@ export const useSpaceDirectory = ({
   }, [expandedFolderIds, reloadLevel, setFolderExpanded]);
 
   const acceptTreeRevision = useCallback((revision: string) => {
-    if (revisionRef.current === revision) return;
+    invalidateRequests();
     clearDirectory(revision);
     setRetryKey((value) => value + 1);
-  }, [clearDirectory]);
+  }, [clearDirectory, invalidateRequests]);
 
   const crumbs = useMemo(() => crumbsForFolder(folderIndex, targetFolderId, rootLabel), [folderIndex, rootLabel, targetFolderId]);
 
   return {
-    levels, folderIndex, treeRevision, locating, error, crumbs,
+    levels, folderIndex, treeRevision, locating, error, crumbs, branchErrors, loadingBranches, completedRefresh,
     toggleFolder,
     retry: () => setRetryKey((value) => value + 1),
     reloadLevel,

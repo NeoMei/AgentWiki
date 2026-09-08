@@ -313,7 +313,7 @@ describe('SpaceView new-page flow', () => {
     confirm.mockRestore();
   });
 
-  it('returns focus to a connected parent after a successful folder delete refreshes the tree', async () => {
+  it.each([false, true])('returns focus after a newer delete snapshot even when parent disappears: %s', async (parentGone) => {
     const parent: ContentTreeNode = {
       kind: 'folder', id: 'parent', name: 'Parent', path: '/Parent', sortOrder: 0,
       createdAt: '2026-09-05T00:00:00.000Z', updatedAt: '2026-09-05T00:00:00.000Z', hasChildren: true,
@@ -331,7 +331,7 @@ describe('SpaceView new-page flow', () => {
       if (url === '/spaces/space-1/content-tree') {
         if (config?.params?.parentFolderId === 'parent') return { data: {
           ...treeResponse('space-1', deleted ? [] : [folder]).data,
-          parentFolderId: 'parent', treeRevision: deleted ? '8' : '7',
+          parentFolderId: 'parent', treeRevision: deleted ? '9' : '7',
         } };
         if (!deleted) return treeResponse('space-1', [parent]);
         deletedRootReads += 1;
@@ -369,12 +369,12 @@ describe('SpaceView new-page flow', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(deletedRootReads).toBe(2);
     await act(async () => refreshedTree.resolve({
-      ...treeResponse('space-1', [parent]),
-      data: { ...treeResponse('space-1', [parent]).data, treeRevision: '8' },
+      ...treeResponse('space-1', parentGone ? [] : [parent]),
+      data: { ...treeResponse('space-1', parentGone ? [] : [parent]).data, treeRevision: '9' },
     }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     await waitFor(() => expect(screen.queryByTestId('content-deletefolder-folder-1')).not.toBeInTheDocument());
-    expect(screen.getByTestId('content-node-parent')).toHaveFocus();
+    expect(screen.getByTestId(parentGone ? 'new-folder-button' : 'content-node-parent')).toHaveFocus();
   });
 
   it('does not DELETE after changing Space while the tree head is pending', async () => {

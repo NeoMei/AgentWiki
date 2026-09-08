@@ -143,6 +143,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [writeUnavailable, setWriteUnavailable] = useState(false);
   const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([]);
   const [saveStatus, setSaveStatus] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [isDirty, setIsDirty] = useState(false);
@@ -163,14 +164,14 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const templateCapabilityIdentity = page
     ? `${page.id}\u0000${page.spaceId}\u0000${page.format}\u0000${language}`
     : null;
-  const canManageTemplates = templateCapabilityIdentity !== null
+  const canManageTemplates = !writeUnavailable && templateCapabilityIdentity !== null
     && templateCapability?.identity === templateCapabilityIdentity
     && templateCapability.canManage;
-  const compositeCreationEnabled = templateCapabilityIdentity !== null
+  const compositeCreationEnabled = !writeUnavailable && templateCapabilityIdentity !== null
     && compositeCapability?.identity === templateCapabilityIdentity
     && compositeCapability.canCreate;
   const templateCreationBlocked = isDirty || saving || remoteUpdate !== null;
-  const attachmentEnabled = page?.capabilities?.canManageAttachments === true
+  const attachmentEnabled = !writeUnavailable && page?.capabilities?.canManageAttachments === true
     && page.id === id
     && page.format === 'markdown'
     && mode === 'edit'
@@ -299,6 +300,28 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     }
   }, [abortAttachmentUploads, adoptRemoteDraft, adoptRemotePage]);
 
+  // Capability invalidation must take effect even if the dirty guard cancels navigation.
+  const invalidateWriteCapability = useCallback(() => {
+    const accepted = pageRef.current;
+    if (accepted) {
+      const revoked = { ...accepted, capabilities: { ...accepted.capabilities, canEdit: false, canManageAttachments: false } };
+      pageRef.current = revoked;
+      setPage(revoked);
+    }
+    setWriteUnavailable(true);
+    abortAttachmentUploads();
+    saveControllerRef.current?.abort();
+    saveOperationRef.current += 1;
+    setSaving(false);
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    setAssistOpen(false);
+    setAttachmentPickerOpen(false);
+    setBindingDialogOpen(false);
+    setTemplateDialogSnapshot(null);
+    setMoreActionsOpen(false);
+    setRemoteUpdate(null);
+  }, [abortAttachmentUploads]);
+
   const loadPage = useCallback(async (showLoading = false, forcePrompt = false) => {
     if (!id) return;
     const requestedId = id;
@@ -310,10 +333,18 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       const res = await api.get(`/pages/${requestedId}`, { signal: controller.signal });
       if (!mountedRef.current || controller.signal.aborted || sequence !== loadSequenceRef.current || activePageIdRef.current !== requestedId) return;
       if (res.data.capabilities?.canEdit === false) {
+        invalidateWriteCapability();
         reportPageIdentity(requestedId, null);
         window.alert(tRef.current('common.forbidden'));
         navigate(`/pages/${requestedId}`, { replace: true });
         return;
+      }
+      if (res.data.capabilities?.canEdit === true) {
+        setWriteUnavailable(false);
+        if (pageRef.current?.id === requestedId) {
+          pageRef.current = { ...pageRef.current, capabilities: res.data.capabilities };
+          setPage(pageRef.current);
+        }
       }
       setError(null);
       offerRemotePage(res.data, pageRevision(res.data), forcePrompt);
@@ -322,7 +353,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         reportPageIdentity(requestedId, acceptedPage.spaceId || null, acceptedPage.folderId ?? null);
       }
     } catch (err: any) {
-      if (controller.signal.aborted || !mountedRef.current || activePageIdRef.current !== requestedId) return;
+      if (controller.signal.aborted || !mountedRef.current || sequence !== loadSequenceRef.current || activePageIdRef.current !== requestedId) return;
+      if ([401, 403, 404].includes(err.response?.status)) invalidateWriteCapability();
       if (showLoading || err.response?.status === 401 || err.response?.status === 403) {
         reportPageIdentity(requestedId, null);
       }
@@ -333,7 +365,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         setLoading(false);
       }
     }
-  }, [id, navigate, offerRemotePage, reportPageIdentity]);
+  }, [id, invalidateWriteCapability, navigate, offerRemotePage, reportPageIdentity]);
 
   useEffect(() => {
     contentRef.current = content;
@@ -538,6 +570,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     setPage(null);
     setTitle('');
     setContent('');
+    setWriteUnavailable(false);
     contentRef.current = '';
     setError(null);
     setRemoteUpdate(null);
@@ -551,9 +584,22 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     void loadPage(true);
   }, [abortAttachmentUploads, clearAttachmentStatus, id, loadPage, reportPageIdentity, updateDirty]);
 
+  const pageRefreshRequest = workspace?.pageRefreshRequest ?? 0;
+  const pageDeleted = workspace?.pageDeleted ?? false;
+  useLayoutEffect(() => {
+    if (!pageDeleted) return;
+    loadSequenceRef.current += 1;
+    for (const controller of requestControllersRef.current) controller.abort();
+    setLoading(false);
+    invalidateWriteCapability();
+  }, [invalidateWriteCapability, pageDeleted]);
+  useEffect(() => {
+    if (pageRefreshRequest > 0 && !pageDeleted) void loadPage(false);
+  }, [loadPage, pageDeleted, pageRefreshRequest]);
+
   // Refresh persisted state on focus and periodically without replacing dirty fields.
   useEffect(() => {
-    if (!id) return;
+    if (!id || pageDeleted) return;
     const refresh = () => { void loadPage(false); };
     window.addEventListener('focus', refresh);
     const timer = window.setInterval(refresh, 30_000);
@@ -561,7 +607,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       window.removeEventListener('focus', refresh);
       window.clearInterval(timer);
     };
-  }, [id, loadPage]);
+  }, [id, loadPage, pageDeleted]);
 
   // WebSocket collaboration
   useEffect(() => {
@@ -624,7 +670,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
 
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
-      if (socketRef.current && socketRef.current.connected) {
+      if (pageRef.current?.capabilities?.canEdit !== false && socketRef.current && socketRef.current.connected) {
         socketRef.current.emit('contentChange', {
           pageId: id,
           content: newContent,
@@ -713,18 +759,20 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   // polling are not recreated on every editor render (which would drop the
   // live stream events).
   const applyAgentChanges = useCallback((changes: string) => {
+    if (pageRef.current?.capabilities?.canEdit === false) return;
     handleContentChange(changes);
     setMode('edit');
   }, [handleContentChange]);
 
   const streamAgentChanges = useCallback((partial: string) => {
+    if (pageRef.current?.capabilities?.canEdit === false) return;
     handleContentChange(partial);
     setMode('edit');
   }, [handleContentChange]);
 
   const handleSave = async () => {
     const baseline = pageRef.current;
-    if (!id || !baseline?.updatedAt || remoteUpdate) return;
+    if (!id || !baseline?.updatedAt || baseline.capabilities?.canEdit === false || remoteUpdate) return;
     const requestedId = id;
     const requestedSpaceId = baseline.spaceId;
     const requestedRouteGeneration = routeGenerationRef.current;
@@ -752,6 +800,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         || activePageIdRef.current !== requestedId
         || currentPage?.id !== requestedId
         || currentPage.spaceId !== requestedSpaceId
+        || currentPage.capabilities?.canEdit === false
         || currentPage.updatedAt !== baseline.updatedAt
       ) return;
       const response = await api.patch(`/pages/${requestedId}`, {
@@ -1010,7 +1059,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             type="button"
             aria-label={saving ? t('common.saving') : t('common.save')}
             onClick={handleSave}
-            disabled={saving || !isDirty || !!remoteUpdate}
+            disabled={writeUnavailable || saving || !isDirty || !!remoteUpdate}
             data-testid="save-button"
             className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -1032,6 +1081,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             aria-label={t('editor.assist')}
             onClick={() => setAssistOpen((open) => !open)}
             aria-pressed={assistOpen}
+            disabled={writeUnavailable}
             data-testid="assist-toggle"
             className={`inline-flex min-h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 ${assistOpen ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'}`}
           >
@@ -1051,6 +1101,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
           />
           {isDirty ? <span className="shrink-0 text-xs text-orange-500">● {t('editor.unsaved')}</span> : null}
         </div>
+
+      {writeUnavailable ? <p role="alert" data-testid="editor-write-unavailable" className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{t('editor.writeUnavailable')}</p> : null}
 
       {saveStatus && (
         <div

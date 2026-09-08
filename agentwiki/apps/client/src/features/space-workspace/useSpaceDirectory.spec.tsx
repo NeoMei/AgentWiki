@@ -154,6 +154,30 @@ describe('useSpaceDirectory', () => {
     expect([...result.current.levels.values()].every((entry) => entry.treeRevision === '8')).toBe(true);
   });
 
+  it('keeps successful branches usable when one lazy branch fails and retries only that branch', async () => {
+    let fail = true;
+    vi.mocked(listTreeChildren).mockImplementation(async (_space, parent) => {
+      if (parent === 'bad' && fail) throw new Error('branch unavailable');
+      return level(parent, parent ? `${parent}-child` : 'root');
+    });
+    const setFolderExpanded = vi.fn();
+    const { result } = renderHook(() => useSpaceDirectory({
+      spaceId: 'space-1', targetFolderId: null, expandedFolderIds: new Set(), setFolderExpanded,
+    }));
+    await waitFor(() => expect(result.current.locating).toBe(false));
+    await act(() => result.current.reloadLevel('good'));
+    await act(() => result.current.reloadLevel('bad'));
+    expect(result.current.error).toBeNull();
+    expect(result.current.levels.get('good')?.nodes[0].id).toBe('good-child');
+    expect(result.current.branchErrors.get('bad')).toBe('branch unavailable');
+    const calls = vi.mocked(listTreeChildren).mock.calls.length;
+    fail = false;
+    await act(() => result.current.reloadLevel('bad'));
+    expect(result.current.branchErrors.has('bad')).toBe(false);
+    expect(result.current.levels.get('bad')?.nodes[0].id).toBe('bad-child');
+    expect(vi.mocked(listTreeChildren).mock.calls.slice(calls).map((call) => call[1])).toEqual(['bad']);
+  });
+
   it('clears every cached level after directory authorization is revoked', async () => {
     vi.mocked(listTreeChildren)
       .mockResolvedValueOnce(level(null, 'folder-a', '7'))

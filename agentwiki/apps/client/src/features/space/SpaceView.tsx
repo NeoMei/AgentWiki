@@ -18,7 +18,7 @@ import {
   restoreFolder,
 } from '../content-tree/contentTreeApi';
 import { ContentBreadcrumbs } from '../content-tree/ContentBreadcrumbs';
-import { crumbsForFolder } from '../content-tree/contentTreeState';
+import { crumbsForFolder, isSelfOrDescendantFolder } from '../content-tree/contentTreeState';
 import { ContentTree } from '../content-tree/ContentTree';
 import type { ContentMoveRequest } from '../content-tree/ContentTree';
 import { FolderDialog } from '../content-tree/FolderDialog';
@@ -59,8 +59,8 @@ interface RestoreInfo {
 }
 
 interface PendingDeleteRefresh {
-  revision: string;
-  parentId: string | null;
+  afterRefresh: number;
+  spaceId: string;
   resolve: (installed: boolean) => void;
 }
 
@@ -144,6 +144,8 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   const pageCount = nodes.filter((node) => node.kind === 'page').length;
   const treeRevision = directory.treeRevision;
   const folderIndex = directory.folderIndex;
+  const directoryRef = useRef(directory);
+  directoryRef.current = directory;
   const crumbs = directory.crumbs;
   const openFolderDelete = (folder: ContentTreeFolderNode) => {
     const parentId = folderIndex.get(folder.id)?.parentId ?? null;
@@ -169,12 +171,11 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   useLayoutEffect(() => {
     const pending = pendingDeleteRefreshRef.current;
     if (!pending) return;
-    const installed = directory.treeRevision === pending.revision
-      && (pending.parentId ? directory.folderIndex.has(pending.parentId) : directory.levels.has(null));
-    if (!installed && !directory.error) return;
+    const installed = directory.completedRefresh > pending.afterRefresh;
+    if (!installed && !directory.error && id === pending.spaceId) return;
     pendingDeleteRefreshRef.current = null;
     pending.resolve(installed);
-  }, [directory.error, directory.folderIndex, directory.levels, directory.treeRevision]);
+  }, [directory.completedRefresh, directory.error, id]);
   useEffect(() => {
     workspace?.reportDirectoryCrumbs(crumbs);
   }, [crumbs, workspace?.reportDirectoryCrumbs]);
@@ -307,6 +308,13 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     reloadTree();
   };
 
+  const reconcileDeletedPage = (requestedSpaceId: string, pageId: string) => {
+    const active = workspaceRef.current;
+    if (!mountedRef.current || activeRouteIdRef.current !== requestedSpaceId || active?.selectedPageId !== pageId) return;
+    if (active.mode === 'edit') active.requestPageRefresh(pageId, { deleted: true });
+    else if (active.mode === 'read' || active.mode === 'versions') navigate(`/spaces/${requestedSpaceId}`, { replace: true });
+  };
+
   const handleDeleteFolderConfirm = async (impact: DeleteImpactResponse) => {
     if (!id || !deleteTarget) return;
     const result = await deleteFolder(id, deleteTarget.id, {
@@ -314,6 +322,11 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
       expectedUpdatedAt: impact.rootUpdatedAt,
       expectedImpactHash: impact.impactHash,
     });
+    if (!mountedRef.current || activeRouteIdRef.current !== id) return;
+    const active = workspaceRef.current;
+    if (active?.selectedPageId && isSelfOrDescendantFolder(directoryRef.current.folderIndex, deleteTarget.id, active.selectedPageFolderId)) {
+      reconcileDeletedPage(id, active.selectedPageId);
+    }
     setRestoreInfo({
       folderId: deleteTarget.id,
       folderName: deleteTarget.name,
@@ -323,8 +336,8 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     const refreshed = new Promise<boolean>((resolve) => {
       pendingDeleteRefreshRef.current?.resolve(false);
       pendingDeleteRefreshRef.current = {
-        revision: result.treeRevision,
-        parentId: deleteParentId,
+        afterRefresh: directoryRef.current.completedRefresh,
+        spaceId: id,
         resolve,
       };
     });
@@ -424,6 +437,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
         || activeRouteIdRef.current !== requestedSpaceId
         || fetchedRouteIdRef.current !== requestedSpaceId
       ) return;
+      reconcileDeletedPage(requestedSpaceId, requestedPageId);
       await directory.reloadLevel(page.folderId);
     } catch (err: any) {
       if (
@@ -555,6 +569,9 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
           pageDeleteDisabled={archivingPageId !== null}
           onToggleFolder={(folderId) => { void directory.toggleFolder(folderId); }}
           onRetry={directory.retry}
+          branchErrors={directory.branchErrors}
+          loadingBranches={directory.loadingBranches}
+          onRetryBranch={(folderId) => { void directory.reloadLevel(folderId); }}
           onCreatePage={() => setShowCreate(true)}
           onCreateFolder={() => setFolderDialog({
             mode: 'create',

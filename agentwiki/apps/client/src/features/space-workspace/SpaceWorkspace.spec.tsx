@@ -11,6 +11,8 @@ import {
   useSpaceWorkspace,
 } from './SpaceWorkspaceContext';
 
+vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ user: { id: 'user-1', name: 'Owner' } }) }));
+
 vi.mock('../../api/client', () => ({ default: {
   get: vi.fn(), patch: vi.fn(), post: vi.fn(), delete: vi.fn(),
 } }));
@@ -46,6 +48,11 @@ const RoutedPreviewWorkspace = () => {
       <PagePreview />
     </SpaceWorkspace>
   );
+};
+
+const RoutedDeletionWorkspace = () => {
+  const { id } = useParams<{ id: string }>();
+  return <SpaceWorkspace mode="read" pageId={id} showDirectory><WorkspaceProbe /><PagePreview /></SpaceWorkspace>;
 };
 
 const PageRefreshProbe = () => {
@@ -322,6 +329,60 @@ describe('SpaceWorkspace', () => {
     expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/spaces/space-real')).toHaveLength(1);
     expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/spaces/space-real/folders')).toHaveLength(1);
     expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/spaces/space-real/content-tree')).toHaveLength(3);
+  });
+
+  it.each(['page', 'ancestor', 'unrelated', 'late'])('reconciles the mounted article after confirmed directory deletion: %s', async (target) => {
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    let deleted = false;
+    let finishDelete!: () => void;
+    const pendingDelete = new Promise<void>((resolve) => { finishDelete = resolve; });
+    const folder = { id: 'parent', parentId: null, name: 'Parent', path: '/Parent', createdAt: 'now', updatedAt: 'now' };
+    const child = { ...folder, id: 'child', parentId: 'parent', name: 'Child', path: '/Parent/Child' };
+    const folderNode = (f: Omit<typeof folder, 'parentId'> & { parentId: string | null }) => ({ ...f, kind: 'folder', sortOrder: 0, hasChildren: true });
+    const node = (id: string) => ({ kind: 'page', id, title: id, folderId: 'child', path: `/${id}`, sortOrder: 0, createdAt: 'now', updatedAt: 'now' });
+    vi.mocked(api.get).mockImplementation(async (url: string, config?: { params?: { parentFolderId?: string } }) => {
+      if (url === '/pages/page-2') return { data: { id: 'page-2', title: 'Second article', content: 'Unrelated active article', format: 'markdown', spaceId: 'space-1', folderId: null, updatedAt: 'now', capabilities: { canEdit: true } } };
+      if (url === '/pages/deletion-current') return { data: { id: 'deletion-current', title: 'Live article', content: 'Mounted editable article body', format: 'markdown', spaceId: 'space-1', folderId: 'child', updatedAt: 'now', capabilities: { canEdit: true } } };
+      if (url === '/spaces/space-1') return { data: { id: 'space-1', name: 'Wiki', members: [{ userId: 'user-1', role: 'owner' }] } };
+      if (url === '/spaces/space-1/folders') return { data: { spaceId: 'space-1', treeRevision: deleted ? '8' : '7', data: [folder, child], nextCursor: null } };
+      if (url === '/spaces/space-1/content-tree') {
+        const parent = config?.params?.parentFolderId ?? null;
+        return { data: { spaceId: 'space-1', treeRevision: deleted ? '8' : '7', parentFolderId: parent, nextCursor: null,
+          data: parent === null ? (deleted && target === 'ancestor' ? [] : [folderNode(folder)])
+            : parent === 'parent' ? [folderNode(child)] : [node('deletion-current'), node('other-page')].filter((n) => !deleted || n.id !== (target === 'page' || target === 'late' ? 'deletion-current' : 'other-page')) } };
+      }
+      if (url.endsWith('/delete-impact')) return { data: { treeRevision: '7', rootUpdatedAt: 'now', folderCount: 2, pageCount: 2, impactHash: 'impact' } };
+      if (url.includes('/page-templates/composite')) return { data: { templates: [], total: 0, skip: 0, take: 1, capabilities: { canCreate: false } } };
+      if (url.startsWith('/knowledge/related')) return { data: [] };
+      throw new Error(`Unexpected GET ${url}`);
+    });
+    vi.mocked(api.delete).mockImplementation(async () => { if (target === 'late') await pendingDelete; deleted = true; return { data: { treeRevision: '8', batch: { id: 'deleted-batch' } } }; });
+    render(<LanguageProvider><MemoryRouter initialEntries={['/pages/deletion-current']}>
+      <SpaceWorkspaceProvider userId="user-1"><Routes>
+        <Route path="/pages/:id" element={<RoutedDeletionWorkspace />} />
+        <Route path="/spaces/space-1" element={<p>Valid Space root</p>} />
+      </Routes></SpaceWorkspaceProvider>
+    </MemoryRouter></LanguageProvider>);
+    await screen.findByText('Mounted editable article body');
+    const testId = target === 'ancestor' ? 'content-deletefolder-parent' : `content-deletepage-${target === 'page' || target === 'late' ? 'deletion-current' : 'other-page'}`;
+    fireEvent.click(await screen.findByTestId(testId));
+    if (target === 'ancestor') fireEvent.click(await screen.findByTestId('folder-delete-confirm'));
+    await waitFor(() => expect(api.delete).toHaveBeenCalled());
+    if (target === 'late') {
+      fireEvent.click(screen.getByRole('button', { name: 'read second' }));
+      await screen.findByText('Unrelated active article');
+      await act(async () => finishDelete());
+      expect(screen.getByText('Unrelated active article')).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Edit' })).toBeEnabled();
+    } else if (target === 'unrelated') {
+      await waitFor(() => expect(screen.queryByTestId('content-node-other-page')).not.toBeInTheDocument());
+      expect(screen.getByText('Mounted editable article body')).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Edit' })).toBeEnabled();
+    } else {
+      expect(await screen.findByText('Valid Space root')).toBeVisible();
+      expect(screen.queryByText('Mounted editable article body')).not.toBeInTheDocument();
+    }
   });
 
   it('refreshes the accepted current Page after moving it to a different real parent', async () => {

@@ -17,6 +17,9 @@ export interface ContentTreeProps {
   currentPageId?: string;
   selectedFolderId?: string | null;
   expandedFolderIds?: ReadonlySet<string>;
+  branchErrors?: ReadonlyMap<string, string>;
+  loadingBranches?: ReadonlySet<string>;
+  onRetryBranch?: (folderId: string) => void;
   childLevels?: ReadonlyMap<string, ContentTreeNode[]>;
   onToggleFolder?: (folderId: string) => void;
   pageDeleteDisabled: boolean;
@@ -58,6 +61,9 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
   expandedFolderIds = new Set<string>(),
   childLevels = new Map<string, ContentTreeNode[]>(),
   onToggleFolder,
+  branchErrors,
+  loadingBranches,
+  onRetryBranch,
   pageDeleteDisabled,
   emptyText,
   onOpenFolder,
@@ -147,7 +153,14 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
             if (request) onMove(request);
           }}
         >
-          {expanded ? renderNodes(childLevels.get(node.id) ?? [], node.id, true) : null}
+          {expanded ? <>
+            {renderNodes(childLevels.get(node.id) ?? [], node.id, true)}
+            {loadingBranches?.has(node.id) ? <p role="status" className="ml-6 text-sm text-gray-400">{t('common.loading')}</p> : null}
+            {branchErrors?.has(node.id) ? <div className="ml-6 text-sm text-red-500" role="alert">
+              <p>{branchErrors.get(node.id)}</p>
+              <button type="button" onClick={() => onRetryBranch?.(node.id)}>{t('common.retry')}</button>
+            </div> : null}
+          </> : null}
         </NodeRow>
       )})}
     </ul>

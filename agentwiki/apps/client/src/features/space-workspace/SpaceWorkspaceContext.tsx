@@ -23,13 +23,14 @@ export interface SpaceWorkspaceContextValue extends BrowsingState {
   selectedPageId: string | null;
   selectedPageFolderId: string | null;
   pageRefreshRequest: number;
+  pageDeleted?: boolean;
   setFolderExpanded: (folderId: string, expanded: boolean) => void;
   setDirectoryScrollTop: (scrollTop: number) => void;
   directoryCollapsed: boolean;
   setDirectoryCollapsed: (collapsed: boolean) => void;
   selectFolder: (folderId: string | null) => void;
   reportPageIdentity: (pageId: string, spaceId: string | null, folderId?: string | null) => void;
-  requestPageRefresh: (pageId: string) => void;
+  requestPageRefresh: (pageId: string, options?: { deleted?: boolean }) => void;
   directoryCrumbs: ReadonlyArray<{ id: string | null; name: string }>;
   reportDirectoryCrumbs: (crumbs: ReadonlyArray<{ id: string | null; name: string }>) => void;
 }
@@ -70,9 +71,10 @@ interface SpaceWorkspaceScopeProps {
   selectedPageId: string | null;
   selectedPageFolderId: string | null;
   pageRefreshRequest: number;
+  pageDeleted?: boolean;
   selectFolder: (folderId: string | null) => void;
   reportPageIdentity: (pageId: string, spaceId: string | null, folderId?: string | null) => void;
-  requestPageRefresh: (pageId: string) => void;
+  requestPageRefresh: (pageId: string, options?: { deleted?: boolean }) => void;
   children: React.ReactNode;
 }
 
@@ -84,6 +86,7 @@ export const SpaceWorkspaceScope: React.FC<SpaceWorkspaceScopeProps> = ({
   selectedPageId,
   selectedPageFolderId,
   pageRefreshRequest,
+  pageDeleted = false,
   selectFolder,
   reportPageIdentity,
   requestPageRefresh,
@@ -120,6 +123,7 @@ export const SpaceWorkspaceScope: React.FC<SpaceWorkspaceScopeProps> = ({
     selectedPageId,
     selectedPageFolderId,
     pageRefreshRequest,
+    pageDeleted,
     setFolderExpanded,
     setDirectoryScrollTop,
     setDirectoryCollapsed,
@@ -135,6 +139,7 @@ export const SpaceWorkspaceScope: React.FC<SpaceWorkspaceScopeProps> = ({
     directoryCollapsed,
     mode,
     pageRefreshRequest,
+    pageDeleted,
     registry.userId,
     reportPageIdentity,
     requestPageRefresh,

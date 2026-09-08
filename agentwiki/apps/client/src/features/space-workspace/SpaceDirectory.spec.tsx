@@ -40,6 +40,25 @@ describe('SpaceDirectory', () => {
     expect(onSelectFolder).not.toHaveBeenCalled();
   });
 
+  it('shows retry inside a failed expanded branch without replacing navigable siblings', () => {
+    const onOpenPage = vi.fn();
+    const onRetryBranch = vi.fn();
+    render(<Providers><SpaceDirectory spaceName="Wiki" levels={new Map([
+      [null, { parentFolderId: null, treeRevision: '3', nodes: [folder, page] }],
+    ])} expandedFolderIds={new Set(['guide'])} selectedFolderId={null} selectedPageId={null}
+      loading={false} error={null} canEdit={false} branchErrors={new Map([['guide', 'Branch unavailable']])}
+      onRetryBranch={onRetryBranch} onToggleFolder={() => undefined} onSelectFolder={() => undefined}
+      onOpenPage={onOpenPage} onEditPage={() => undefined} onDeletePage={() => undefined}
+      onCreateSubfolder={() => undefined} onRenameFolder={() => undefined} onDeleteFolder={() => undefined} onMove={() => undefined} />
+    </Providers>);
+    const branch = screen.getByTestId('content-item-guide');
+    expect(within(branch).getByText('Branch unavailable')).toBeInTheDocument();
+    fireEvent.click(within(branch).getByRole('button', { name: 'Retry' }));
+    expect(onRetryBranch).toHaveBeenCalledWith('guide');
+    fireEvent.click(screen.getByTestId('content-node-page-a'));
+    expect(onOpenPage).toHaveBeenCalledWith(page);
+  });
+
   it('exposes the shared new-page intent from a page route', () => {
     const onCreatePage = vi.fn();
     const onCreateFolder = vi.fn();

@@ -50,7 +50,7 @@ const socketMock = vi.hoisted(() => {
   return { handlers, socket };
 });
 
-vi.mock('../../api/client', () => ({ default: { get: vi.fn(), patch: vi.fn(), post: vi.fn() } }));
+vi.mock('../../api/client', () => ({ default: { get: vi.fn(), patch: vi.fn(), post: vi.fn(), delete: vi.fn() } }));
 vi.mock('../../context/AuthContext', () => ({
   useAuth: () => ({ user: { id: 'user-1', name: 'Editor', email: 'editor@example.com' } }),
 }));
@@ -277,6 +277,7 @@ describe('PageEditor remote update safety', () => {
     socketMock.socket.disconnect.mockClear();
     vi.mocked(api.get).mockReset();
     vi.mocked(api.patch).mockReset();
+    vi.mocked(api.delete).mockReset();
     vi.mocked(api.post).mockReset();
     contentTreeMocks.getContentTreeRevision.mockReset();
     contentTreeMocks.getContentTreeRevision.mockResolvedValue('31');
@@ -341,6 +342,82 @@ describe('PageEditor remote update safety', () => {
     await waitFor(() => expect(confirm).toHaveBeenCalledWith('You have unsaved changes. Leave anyway?'));
     expect(screen.getByTestId('guarded-location')).toHaveTextContent('/pages/page-1/edit');
     expect(contentEditorValue()).toBe('Unsaved guarded content');
+  });
+
+  it.each(['readonly', 401, 403, 404])('retains the dirty draft but locks writes after background capability loss: %s', async (loss) => {
+    queuePages({ data: page({ capabilities: { canEdit: true, canManageAttachments: true } }) });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    renderGuardedEditor();
+    await screen.findByDisplayValue('Original title');
+    editContent('Draft must survive permission loss');
+    expect(screen.getByTestId('save-button')).toBeEnabled();
+    if (loss === 'readonly') queuePages({ data: page({ capabilities: { canEdit: false, canManageAttachments: true } }) });
+    else vi.mocked(api.get).mockRejectedValueOnce({ response: { status: loss } });
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    if (loss === 'readonly') expect(confirm).toHaveBeenCalled();
+    expect(screen.getByTestId('guarded-location')).toHaveTextContent('/pages/page-1/edit');
+    expect(contentEditorValue()).toBe('Draft must survive permission loss');
+    expect(screen.getByTestId('save-button')).toBeDisabled();
+    expect(screen.getByTestId('assist-toggle')).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Image attachments' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('editor-write-unavailable')).toBeVisible();
+    fireEvent.click(screen.getByTestId('save-button'));
+    fireEvent.click(screen.getByTestId('assist-toggle'));
+    expect(api.patch).not.toHaveBeenCalled();
+    expect(attachmentMocks.uploadAttachment).not.toHaveBeenCalled();
+  });
+
+  it('immediately locks a dirty mounted editor after its sidebar page deletion without reloading away the draft', async () => {
+    let deleted = false;
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === '/pages/page-1') return { data: page({ folderId: null, capabilities: { canEdit: true, canManageAttachments: true } }) };
+      if (url === '/spaces/space-1') return { data: { id: 'space-1', name: 'Wiki', members: [{ userId: 'user-1', role: 'owner' }] } };
+      if (url === '/spaces/space-1/content-tree') return { data: { spaceId: 'space-1', treeRevision: deleted ? '32' : '31', parentFolderId: null, nextCursor: null, data: deleted ? [] : [{ ...page(), kind: 'page', folderId: null, path: '/Original title', sortOrder: 0, createdAt: 'now' }] } };
+      if (url.includes('spaceId=')) return { data: { data: [] } };
+      throw new Error(`Unexpected GET ${url}`);
+    });
+    vi.mocked(api.delete).mockImplementation(async () => { deleted = true; return { data: {} }; });
+    const router = createMemoryRouter([{
+      element: <NavigationGuardProvider><SpaceWorkspaceProvider userId="user-1"><Outlet /></SpaceWorkspaceProvider></NavigationGuardProvider>,
+      children: [{ path: '/pages/:id/edit', element: <SpaceWorkspace mode="edit" pageId="page-1" showDirectory><PageEditor workspaceRef={workspaceRef} /></SpaceWorkspace> }],
+    }], { initialEntries: ['/pages/page-1/edit'] });
+    render(<LanguageProvider><RouterProvider router={router} /></LanguageProvider>);
+    await screen.findByDisplayValue('Original title');
+    editContent('Deleted server page, retained local draft');
+    fireEvent.click(await screen.findByTestId('content-deletepage-page-1'));
+    await waitFor(() => expect(screen.getByTestId('save-button')).toBeDisabled());
+    expect(contentEditorValue()).toBe('Deleted server page, retained local draft');
+    expect(screen.getByTestId('assist-toggle')).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Image attachments' })).not.toBeInTheDocument();
+    expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/pages/page-1')).toHaveLength(1);
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('aborts a pending image upload on capability loss and ignores its late success after dirty cancel', async () => {
+    const upload = deferred<ReturnType<typeof attachment>>();
+    let signal: AbortSignal | undefined;
+    attachmentMocks.uploadAttachment.mockImplementation((_spaceId, _file, options) => {
+      signal = options?.signal;
+      return upload.promise;
+    });
+    queuePages({ data: page({ capabilities: { canEdit: true, canManageAttachments: true } }) });
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    renderGuardedEditor();
+    await screen.findByRole('button', { name: 'Image attachments' });
+    editContent('Retained draft');
+    pasteImage(new File(['png'], 'late.png', { type: 'image/png' }));
+    await waitFor(() => expect(signal).toBeDefined());
+    queuePages({ data: page({ capabilities: { canEdit: false, canManageAttachments: false } }) });
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    expect(signal?.aborted).toBe(true);
+    await act(async () => upload.resolve(attachment('late.png')));
+    pasteImage(new File(['png'], 'blocked.png', { type: 'image/png' }));
+    expect(attachmentMocks.uploadAttachment).toHaveBeenCalledTimes(1);
+    expect(contentEditorValue()).toBe('Retained draft');
+    expect(screen.getByTestId('save-button')).toBeDisabled();
   });
 
   it('records the edit source only after the dirty navigation is confirmed', async () => {
