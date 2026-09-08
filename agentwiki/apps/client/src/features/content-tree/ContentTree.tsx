@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bot, Edit, FileText, Folder, FolderPlus, Pencil, Save, Trash2 } from 'lucide-react';
+import { Bot, ChevronDown, ChevronRight, Edit, FileText, Folder, FolderPlus, MoreHorizontal, Pencil, Save, Trash2 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { buildMoveRequest, sortNodes } from './contentTreeState';
 import type { ContentMoveRequest, DragInfo, MovePosition } from './contentTreeState';
@@ -15,6 +15,10 @@ export interface ContentTreeProps {
   /** Parent folder of the currently listed level; reorder target for before/after drops. */
   levelParentFolderId: string | null;
   currentPageId?: string;
+  selectedFolderId?: string | null;
+  expandedFolderIds?: ReadonlySet<string>;
+  childLevels?: ReadonlyMap<string, ContentTreeNode[]>;
+  onToggleFolder?: (folderId: string) => void;
   pageDeleteDisabled: boolean;
   emptyText: string;
   onOpenFolder: (folderId: string) => void;
@@ -31,6 +35,7 @@ export interface ContentTreeProps {
 }
 
 interface NodeRowLabels {
+  actions: string;
   edit: string;
   delete: string;
   rename: string;
@@ -38,6 +43,8 @@ interface NodeRowLabels {
   newSubfolder: string;
   configureAgent: string;
   saveAsTemplate: string;
+  expand: (name: string) => string;
+  collapse: (name: string) => string;
 }
 
 export const ContentTree: React.FC<ContentTreeProps> = ({
@@ -47,6 +54,10 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
   canEdit,
   levelParentFolderId,
   currentPageId,
+  selectedFolderId,
+  expandedFolderIds = new Set<string>(),
+  childLevels = new Map<string, ContentTreeNode[]>(),
+  onToggleFolder,
   pageDeleteDisabled,
   emptyText,
   onOpenFolder,
@@ -75,7 +86,7 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
       <div className="py-10 text-center" data-testid="content-tree-empty">
         <Folder size={36} className="mx-auto mb-3 text-gray-300" />
         <p className="text-gray-500">{emptyText}</p>
-        {canEdit ? (
+        {canEdit && emptyText ? (
           <button
             type="button"
             onClick={() => onCreateSubfolder(null)}
@@ -90,6 +101,7 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
   }
 
   const labels: NodeRowLabels = {
+    actions: t('common.actions'),
     edit: t('page.edit'),
     delete: t('page.delete'),
     rename: t('folder.rename'),
@@ -97,16 +109,23 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
     newSubfolder: t('folder.createTitle'),
     configureAgent: t('pageTemplate.binding.action'),
     saveAsTemplate: t('pageTemplate.folderSave.action'),
+    expand: (name) => t('folder.expand', { name }),
+    collapse: (name) => t('folder.collapse', { name }),
   };
 
-  return (
-    <ul className="space-y-0.5" data-testid="content-tree">
-      {sortNodes(nodes).map((node) => (
+  const renderNodes = (levelNodes: ContentTreeNode[], parentFolderId: string | null, nested = false): React.ReactNode => (
+    <ul className={nested ? 'ml-4 space-y-0.5' : 'space-y-0.5'} role={nested ? 'group' : 'tree'} data-testid={nested ? undefined : 'content-tree'}>
+      {sortNodes(levelNodes).map((node) => {
+        const expanded = node.kind === 'folder' && expandedFolderIds.has(node.id);
+        return (
         <NodeRow
           key={node.id}
           node={node}
           canEdit={canEdit}
           currentPageId={currentPageId}
+          selectedFolderId={selectedFolderId}
+          expanded={expanded}
+          onToggleFolder={onToggleFolder}
           pageDeleteDisabled={pageDeleteDisabled}
           dragActive={drag}
           labels={labels}
@@ -123,20 +142,26 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
           onDragStart={setDrag}
           onDragEnd={() => setDrag(null)}
           onDrop={(_event, target, position) => {
-            const request = buildMoveRequest(drag, target, position, levelParentFolderId);
+            const request = buildMoveRequest(drag, target, position, parentFolderId);
             setDrag(null);
             if (request) onMove(request);
           }}
-        />
-      ))}
+        >
+          {expanded ? renderNodes(childLevels.get(node.id) ?? [], node.id, true) : null}
+        </NodeRow>
+      )})}
     </ul>
   );
+  return <>{renderNodes(nodes, levelParentFolderId)}</>;
 };
 
 interface NodeRowProps {
   node: ContentTreeNode;
   canEdit: boolean;
   currentPageId?: string;
+  selectedFolderId?: string | null;
+  expanded: boolean;
+  onToggleFolder?: (folderId: string) => void;
   pageDeleteDisabled: boolean;
   dragActive: DragInfo | null;
   labels: NodeRowLabels;
@@ -153,13 +178,14 @@ interface NodeRowProps {
   onDragStart: (drag: DragInfo) => void;
   onDragEnd: () => void;
   onDrop: (event: React.DragEvent, target: ContentTreeNode, position: MovePosition) => void;
+  children?: React.ReactNode;
 }
 
 const NodeRow: React.FC<NodeRowProps> = (props) => {
-  const { node, canEdit, currentPageId, pageDeleteDisabled, dragActive, labels } = props;
+  const { node, canEdit, currentPageId, selectedFolderId, pageDeleteDisabled, dragActive, labels } = props;
   const [dropHint, setDropHint] = useState<MovePosition | null>(null);
   const isPage = node.kind === 'page';
-  const isCurrent = isPage && node.id === currentPageId;
+  const isCurrent = isPage ? node.id === currentPageId : node.id === selectedFolderId;
   const selfDrag = dragActive?.id === node.id;
   const rowClass = 'group flex items-center gap-1 rounded-md py-1 pr-1 text-sm transition '
     + (isCurrent ? 'bg-blue-50 font-medium text-blue-700' : 'text-gray-700 hover:bg-gray-100')
@@ -181,7 +207,13 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
   };
 
   return (
-    <li className="relative" data-testid={'content-item-' + node.id}>
+    <li
+      className="relative"
+      data-testid={'content-item-' + node.id}
+      role="treeitem"
+      aria-expanded={isPage ? undefined : props.expanded}
+      aria-selected={isCurrent}
+    >
       {dropHint === 'before' ? <div className="pointer-events-none absolute -top-px left-2 right-2 h-0.5 rounded bg-blue-500" data-testid="drop-before" /> : null}
       {dropHint === 'after' ? <div className="pointer-events-none absolute -bottom-px left-2 right-2 h-0.5 rounded bg-blue-500" data-testid="drop-after" /> : null}
       <div
@@ -206,15 +238,21 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
         }}
         className={rowClass}
       >
-        <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
-          {isPage ? <FileText size={14} className="text-gray-400" /> : <Folder size={14} className="text-amber-500" />}
-        </span>
+        {isPage ? <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center"><FileText size={14} className="text-gray-400" /></span> : (
+          <button type="button" data-testid={'content-toggle-' + node.id} aria-label={props.expanded ? labels.collapse(node.name) : labels.expand(node.name)}
+            onClick={() => props.onToggleFolder?.(node.id)} className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+            {props.expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </button>
+        )}
         {isPage ? (
           <button
             type="button"
             onClick={() => props.onOpenPage(node as ContentTreePageNode)}
-            className="min-w-0 flex-1 truncate text-left"
+            onKeyDown={(event) => handleTreeKeyDown(event, node, props)}
+            className="min-w-0 flex-1 truncate rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             data-testid={'content-node-' + node.id}
+            data-tree-focus
+            title={node.title}
           >
             {node.title}
           </button>
@@ -222,14 +260,25 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
           <button
             type="button"
             onClick={() => props.onOpenFolder(node.id)}
-            className="min-w-0 flex-1 truncate text-left"
+            onKeyDown={(event) => handleTreeKeyDown(event, node, props)}
+            className="min-w-0 flex-1 truncate rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             data-testid={'content-node-' + node.id}
+            data-tree-focus
+            title={node.name}
           >
             {node.name}
           </button>
         )}
         {canEdit ? (
-          <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
+          <details className="relative shrink-0">
+            <summary
+              className="inline-flex h-7 w-7 cursor-pointer list-none items-center justify-center rounded text-gray-500 hover:bg-gray-200 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 [&::-webkit-details-marker]:hidden"
+              aria-label={`${labels.actions}: ${isPage ? node.title : node.name}`}
+              title={labels.actions}
+            >
+              <MoreHorizontal size={16} />
+            </summary>
+          <span className="absolute right-0 top-full z-20 mt-1 flex items-center gap-0.5 rounded-md border border-gray-200 bg-white p-1 shadow-lg">
             {!isPage ? (
               <>
                 {props.onConfigureFolderAgents ? <IconButton
@@ -294,10 +343,47 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
               </>
             )}
           </span>
+          </details>
         ) : null}
       </div>
+      {props.children}
     </li>
   );
+};
+
+const handleTreeKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, node: ContentTreeNode, props: NodeRowProps) => {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    if (node.kind === 'page') props.onOpenPage(node);
+    else props.onOpenFolder(node.id);
+    return;
+  }
+  if (node.kind === 'folder' && event.key === 'ArrowRight') {
+    event.preventDefault();
+    if (!props.expanded) props.onToggleFolder?.(node.id);
+    else event.currentTarget.closest('li[role="treeitem"]')
+      ?.querySelector<HTMLButtonElement>(':scope > [role="group"] [data-tree-focus]')?.focus();
+    return;
+  }
+  if (node.kind === 'folder' && event.key === 'ArrowLeft') {
+    event.preventDefault();
+    if (props.expanded) props.onToggleFolder?.(node.id);
+    else event.currentTarget.closest('li[role="treeitem"]')?.parentElement
+      ?.closest('li[role="treeitem"]')
+      ?.querySelector<HTMLButtonElement>(':scope > div [data-tree-focus]')?.focus();
+    return;
+  }
+  const tree = event.currentTarget.closest('[role="tree"]');
+  const items = tree ? [...tree.querySelectorAll<HTMLButtonElement>('[data-tree-focus]')] : [];
+  const index = items.indexOf(event.currentTarget);
+  const target = event.key === 'Home' ? items[0]
+    : event.key === 'End' ? items[items.length - 1]
+      : event.key === 'ArrowDown' ? items[index + 1]
+        : event.key === 'ArrowUp' ? items[index - 1] : undefined;
+  if (target) {
+    event.preventDefault();
+    target.focus();
+  }
 };
 
 const IconButton: React.FC<{
@@ -316,7 +402,7 @@ const IconButton: React.FC<{
     aria-label={title}
     data-testid={testId}
     className={
-      'inline-flex h-5 w-5 items-center justify-center rounded text-gray-400 disabled:cursor-not-allowed disabled:opacity-50 '
+      'inline-flex h-6 w-6 items-center justify-center rounded text-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50 '
       + (danger ? 'hover:bg-red-50 hover:text-red-600' : 'hover:bg-blue-50 hover:text-blue-600')
     }
   >

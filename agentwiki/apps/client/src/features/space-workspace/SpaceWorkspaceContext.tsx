@@ -20,10 +20,14 @@ export interface SpaceWorkspaceContextValue extends BrowsingState {
   mode: SpaceWorkspaceMode;
   activeSection: SpaceNavSection;
   selectedFolderId: string | null;
+  selectedPageId: string | null;
+  selectedPageFolderId: string | null;
   setFolderExpanded: (folderId: string, expanded: boolean) => void;
   setDirectoryScrollTop: (scrollTop: number) => void;
   selectFolder: (folderId: string | null) => void;
-  reportPageIdentity: (pageId: string, spaceId: string | null) => void;
+  reportPageIdentity: (pageId: string, spaceId: string | null, folderId?: string | null) => void;
+  directoryCrumbs: ReadonlyArray<{ id: string | null; name: string }>;
+  reportDirectoryCrumbs: (crumbs: ReadonlyArray<{ id: string | null; name: string }>) => void;
 }
 
 const EMPTY_STATE: BrowsingState = {
@@ -59,8 +63,10 @@ interface SpaceWorkspaceScopeProps {
   spaceId: string | null;
   activeSection: SpaceNavSection;
   selectedFolderId: string | null;
+  selectedPageId: string | null;
+  selectedPageFolderId: string | null;
   selectFolder: (folderId: string | null) => void;
-  reportPageIdentity: (pageId: string, spaceId: string | null) => void;
+  reportPageIdentity: (pageId: string, spaceId: string | null, folderId?: string | null) => void;
   children: React.ReactNode;
 }
 
@@ -69,6 +75,8 @@ export const SpaceWorkspaceScope: React.FC<SpaceWorkspaceScopeProps> = ({
   spaceId,
   activeSection,
   selectedFolderId,
+  selectedPageId,
+  selectedPageFolderId,
   selectFolder,
   reportPageIdentity,
   children,
@@ -76,6 +84,8 @@ export const SpaceWorkspaceScope: React.FC<SpaceWorkspaceScopeProps> = ({
   const registry = useContext(WorkspaceRegistryContext);
   if (!registry) throw new Error('SpaceWorkspace must be rendered within SpaceWorkspaceProvider');
   const browsingState = spaceId ? registry.stateFor(spaceId) : EMPTY_STATE;
+  const [directoryCrumbs, setDirectoryCrumbs] = useState<ReadonlyArray<{ id: string | null; name: string }>>([]);
+  useEffect(() => setDirectoryCrumbs([]), [spaceId]);
   const setFolderExpanded = useCallback((folderId: string, expanded: boolean) => {
     if (!spaceId) return;
     registry.updateState(spaceId, (current) => {
@@ -84,11 +94,11 @@ export const SpaceWorkspaceScope: React.FC<SpaceWorkspaceScopeProps> = ({
       else expandedFolderIds.delete(folderId);
       return { ...current, expandedFolderIds };
     });
-  }, [registry, spaceId]);
+  }, [registry.updateState, spaceId]);
   const setDirectoryScrollTop = useCallback((directoryScrollTop: number) => {
     if (!spaceId) return;
     registry.updateState(spaceId, (current) => ({ ...current, directoryScrollTop }));
-  }, [registry, spaceId]);
+  }, [registry.updateState, spaceId]);
   const value = useMemo<SpaceWorkspaceContextValue>(() => ({
     ...browsingState,
     userId: registry.userId,
@@ -96,18 +106,25 @@ export const SpaceWorkspaceScope: React.FC<SpaceWorkspaceScopeProps> = ({
     mode,
     activeSection,
     selectedFolderId,
+    selectedPageId,
+    selectedPageFolderId,
     setFolderExpanded,
     setDirectoryScrollTop,
     selectFolder,
     reportPageIdentity,
+    directoryCrumbs,
+    reportDirectoryCrumbs: setDirectoryCrumbs,
   }), [
     activeSection,
     browsingState,
+    directoryCrumbs,
     mode,
     registry.userId,
     reportPageIdentity,
     selectFolder,
     selectedFolderId,
+    selectedPageId,
+    selectedPageFolderId,
     setDirectoryScrollTop,
     setFolderExpanded,
     spaceId,
@@ -120,6 +137,8 @@ export const useSpaceWorkspace = (): SpaceWorkspaceContextValue => {
   if (!value) throw new Error('useSpaceWorkspace must be used within SpaceWorkspace');
   return value;
 };
+
+export const useOptionalSpaceWorkspace = (): SpaceWorkspaceContextValue | null => useContext(SpaceWorkspaceContext);
 
 const ignorePageIdentity = () => undefined;
 

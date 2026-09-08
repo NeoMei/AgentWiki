@@ -1,0 +1,102 @@
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { listFolderAncestry, listTreeChildren } from '../content-tree/contentTreeApi';
+import type { ContentTreeListResponse } from '../content-tree/contentTreeTypes';
+import { useSpaceDirectory } from './useSpaceDirectory';
+
+vi.mock('../content-tree/contentTreeApi', () => ({ listFolderAncestry: vi.fn(), listTreeChildren: vi.fn() }));
+
+const level = (parentFolderId: string | null, id: string, revision = '7'): ContentTreeListResponse => ({
+  spaceId: 'space-1', treeRevision: revision, parentFolderId,
+  data: [{ kind: 'folder', id, name: id, path: `/${id}`, sortOrder: 0, createdAt: 'now', updatedAt: 'now', hasChildren: true }],
+  nextCursor: null,
+});
+
+describe('useSpaceDirectory', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('loads only the root and the real ancestor levels needed for a deep link', async () => {
+    vi.mocked(listFolderAncestry).mockResolvedValue({
+      folders: new Map([
+        ['a', { id: 'a', parentId: null, name: 'A', path: '/A', createdAt: 'now', updatedAt: 'now' }],
+        ['b', { id: 'b', parentId: 'a', name: 'B', path: '/A/B', createdAt: 'now', updatedAt: 'now' }],
+        ['c', { id: 'c', parentId: 'b', name: 'C', path: '/A/B/C', createdAt: 'now', updatedAt: 'now' }],
+      ]),
+      ancestorIds: ['a', 'b', 'c'], treeRevision: '7',
+    });
+    vi.mocked(listTreeChildren).mockImplementation(async (_spaceId, parent) => level(parent, parent ? `${parent}-child` : 'a'));
+    const setFolderExpanded = vi.fn();
+
+    const { result } = renderHook(() => useSpaceDirectory({
+      spaceId: 'space-1', targetFolderId: 'c', expandedFolderIds: new Set(), setFolderExpanded,
+    }));
+
+    await waitFor(() => expect(result.current.locating).toBe(false));
+    expect(vi.mocked(listTreeChildren).mock.calls.map((call) => call[1])).toEqual([null, 'a', 'b', 'c']);
+    expect(setFolderExpanded.mock.calls).toEqual([['a', true], ['b', true], ['c', true]]);
+    expect(result.current.crumbs.map((crumb) => crumb.id)).toEqual([null, 'a', 'b', 'c']);
+  });
+
+  it('drops cached levels and refreshes the root when an expanded level has a different revision', async () => {
+    vi.mocked(listTreeChildren)
+      .mockResolvedValueOnce(level(null, 'folder-a', '7'))
+      .mockResolvedValueOnce(level('folder-a', 'changed-child', '8'))
+      .mockResolvedValueOnce(level(null, 'fresh-root', '8'));
+    const expanded = new Set<string>();
+    const setFolderExpanded = vi.fn((id: string, open: boolean) => { if (open) expanded.add(id); });
+    const { result } = renderHook(() => useSpaceDirectory({
+      spaceId: 'space-1', targetFolderId: null, expandedFolderIds: expanded,
+      setFolderExpanded,
+    }));
+    await waitFor(() => expect(result.current.levels.has(null)).toBe(true));
+
+    await act(() => result.current.toggleFolder('folder-a'));
+
+    await waitFor(() => expect(result.current.treeRevision).toBe('8'));
+    expect(result.current.treeRevision).toBe('8');
+    expect(result.current.levels.get(null)?.nodes[0]?.id).toBe('fresh-root');
+    expect(result.current.levels.has('folder-a')).toBe(false);
+  });
+
+  it('retries the whole deep-link snapshot instead of mixing revisions between levels', async () => {
+    vi.mocked(listFolderAncestry)
+      .mockResolvedValueOnce({ folders: new Map(), ancestorIds: ['a'], treeRevision: '7' })
+      .mockResolvedValueOnce({ folders: new Map(), ancestorIds: ['a'], treeRevision: '8' });
+    vi.mocked(listTreeChildren)
+      .mockResolvedValueOnce(level(null, 'stale-root', '7'))
+      .mockResolvedValueOnce(level('a', 'changed-child', '8'))
+      .mockResolvedValueOnce(level(null, 'fresh-root', '8'))
+      .mockResolvedValueOnce(level('a', 'fresh-child', '8'));
+    const setFolderExpanded = vi.fn();
+
+    const { result } = renderHook(() => useSpaceDirectory({
+      spaceId: 'space-1', targetFolderId: 'a', expandedFolderIds: new Set(),
+      setFolderExpanded,
+    }));
+
+    await waitFor(() => expect(result.current.locating).toBe(false));
+    expect(result.current.treeRevision).toBe('8');
+    expect(result.current.levels.get(null)?.nodes[0]?.id).toBe('fresh-root');
+    expect(result.current.levels.get('a')?.nodes[0]?.id).toBe('fresh-child');
+    expect([...result.current.levels.values()].every((entry) => entry.treeRevision === '8')).toBe(true);
+  });
+
+  it('clears every cached level after directory authorization is revoked', async () => {
+    vi.mocked(listTreeChildren)
+      .mockResolvedValueOnce(level(null, 'folder-a', '7'))
+      .mockRejectedValueOnce({ response: { status: 403 } });
+    const setFolderExpanded = vi.fn();
+    const { result } = renderHook(() => useSpaceDirectory({
+      spaceId: 'space-1', targetFolderId: null, expandedFolderIds: new Set(),
+      setFolderExpanded,
+    }));
+    await waitFor(() => expect(result.current.levels.has(null)).toBe(true));
+
+    await act(() => result.current.reloadLevel('folder-a'));
+
+    expect(result.current.levels.size).toBe(0);
+    expect(result.current.folderIndex.size).toBe(0);
+    expect(result.current.treeRevision).toBeNull();
+    expect(result.current.error).toBeTruthy();
+  });
+});

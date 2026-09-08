@@ -5,7 +5,6 @@ import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import { Layout } from './components/Layout';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Dashboard } from './features/dashboard/Dashboard';
-import { SpaceView } from './features/space/SpaceView';
 import { SearchResults } from './features/search/SearchResults';
 import { Profile } from './features/profile/Profile';
 import { ForcePasswordChange } from './features/auth/ForcePasswordChange';
@@ -61,6 +60,7 @@ const WorkspaceRoute: React.FC<{
       mode={mode}
       spaceId={pageRoute ? undefined : (spaceId ?? id)}
       pageId={pageRoute ? id : undefined}
+      showDirectory={mode !== 'section'}
     >
       {children}
     </SpaceWorkspace>
@@ -85,7 +85,7 @@ const AppRoutes: React.FC = () => {
     <Routes>
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/spaces/:id" element={<WorkspaceRoute mode="directory"><SpaceView /></WorkspaceRoute>} />
+        <Route path="/spaces/:id" element={<WorkspaceRoute mode="directory"><></></WorkspaceRoute>} />
         <Route path="/pages/:id" element={<WorkspaceRoute mode="read" pageRoute><Suspense fallback={<RouteLoading />}><PagePreview /></Suspense></WorkspaceRoute>} />
         <Route path="/pages/:id/edit" element={<WorkspaceRoute mode="edit" pageRoute><Suspense fallback={<RouteLoading />}><PageEditor /></Suspense></WorkspaceRoute>} />
         <Route path="/pages/:id/versions" element={<WorkspaceRoute mode="versions" pageRoute><Suspense fallback={<RouteLoading />}><PageVersionHistory /></Suspense></WorkspaceRoute>} />

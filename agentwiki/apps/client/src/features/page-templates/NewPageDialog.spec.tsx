@@ -200,11 +200,11 @@ describe('NewPageDialog', () => {
   it('passes the current folder into the create payload', async () => {
     mocks.listPageTemplates.mockResolvedValue(catalog);
     mocks.api.post.mockResolvedValue({ data: { id: 'page-new' } });
-    renderDialog({ folderId: 'folder-9' });
+    renderDialog({ folderId: 'folder-9', targetLocation: '产品知识库 / 使用指南' });
 
     fireEvent.click(await screen.findByRole('button', { name: '下一步' }));
     fireEvent.change(screen.getByLabelText('标题'), { target: { value: 'Nested page' } });
-    expect(screen.getByTestId('new-page-folder-hint')).toBeInTheDocument();
+    expect(screen.getByTestId('new-page-folder-hint')).toHaveTextContent('产品知识库 / 使用指南');
     fireEvent.click(screen.getByRole('button', { name: '创建' }));
 
     await waitFor(() => expect(mocks.api.post).toHaveBeenCalledWith('/pages', expect.objectContaining({

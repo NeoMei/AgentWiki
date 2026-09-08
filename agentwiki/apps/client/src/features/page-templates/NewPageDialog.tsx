@@ -39,6 +39,7 @@ export interface NewPageCreationTarget {
 export interface NewPageDialogProps {
   spaceId: string;
   folderId?: string | null;
+  targetLocation?: string;
   returnFocusTo?: HTMLElement | null;
   onClose: () => void;
   onCreated: (target: string | NewPageCreationTarget) => void;
@@ -96,6 +97,7 @@ export const NewPageDialog: React.FC<NewPageDialogProps> = ({ spaceId, ...props 
 const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
   spaceId,
   folderId,
+  targetLocation,
   returnFocusTo,
   onClose,
   onCreated,
@@ -490,7 +492,9 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
           placeholder={t('page.titlePlaceholder')}
           className="mt-1 min-h-10 w-full rounded-lg border border-gray-300 px-3 outline-none focus:ring-2 focus:ring-blue-500" />
       </label>
-      {folderId ? <p className="mt-4 text-xs text-gray-500" data-testid="new-page-folder-hint">{t('page.intoCurrentFolder')}</p> : null}
+      {folderId ? <p className="mt-4 text-xs text-gray-500" data-testid="new-page-folder-hint">
+        {targetLocation ?? t('page.intoCurrentFolder')}
+      </p> : null}
       <ErrorNotice message={error} />
       <WizardActions backDisabled={legacyCreating} onBack={() => { focusCloseAfterBackRef.current = true; dispatchPhase({ type: 'back' }); }}>
         <button type="button" disabled={legacyCreating} onClick={onClose} className="min-h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('common.cancel')}</button>

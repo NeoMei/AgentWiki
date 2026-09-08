@@ -13,7 +13,6 @@ import {
   createFolder,
   deleteFolder,
   getContentTreeRevision,
-  listTreeChildren,
   moveTreeNode,
   renameFolder,
   restoreFolder,
@@ -21,16 +20,16 @@ import {
 import { ContentBreadcrumbs } from '../content-tree/ContentBreadcrumbs';
 import { ContentTree } from '../content-tree/ContentTree';
 import type { ContentMoveRequest } from '../content-tree/ContentTree';
-import { crumbsForFolder, createFolderIndex, registerFolders } from '../content-tree/contentTreeState';
-import type { FolderIndex } from '../content-tree/contentTreeState';
 import { FolderDialog } from '../content-tree/FolderDialog';
 import { FolderDeleteDialog } from '../content-tree/FolderDeleteDialog';
 import type {
-  ContentTreeNode,
   ContentTreePageNode,
   ContentTreeFolderNode,
   DeleteImpactResponse,
 } from '../content-tree/contentTreeTypes';
+import { useOptionalSpaceWorkspace } from '../space-workspace/SpaceWorkspaceContext';
+import { useSpaceDirectory } from '../space-workspace/useSpaceDirectory';
+import { SpaceDirectory } from '../space-workspace/SpaceDirectory';
 
 interface SpaceMemberSummary {
   userId: string;
@@ -57,14 +56,19 @@ interface RestoreInfo {
   folderUpdatedAt: string;
 }
 
-export const SpaceView: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
+export interface SpaceViewProps {
+  spaceId?: string | null;
+  workspaceContent?: React.ReactNode;
+}
+
+export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, workspaceContent }) => {
+  const { id: routeId } = useParams<{ id: string }>();
+  const id = providedSpaceId !== undefined ? (providedSpaceId ?? undefined) : routeId;
   const navigate = useNavigate();
   const { language, t } = useLanguage();
   const { user } = useAuth();
   const createPageOpenerRef = useRef<HTMLButtonElement | null>(null);
   const requestSequenceRef = useRef(0);
-  const treeSequenceRef = useRef(0);
   const fetchedRouteIdRef = useRef<string | undefined>(undefined);
   const activeRouteIdRef = useRef<string | undefined>(id);
   const mountedRef = useRef(false);
@@ -81,13 +85,9 @@ export const SpaceView: React.FC = () => {
   const [requestSpaceId, setRequestSpaceId] = useState<string | undefined>(undefined);
   const [archivingPageId, setArchivingPageId] = useState<string | null>(null);
 
-  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
-  const [nodes, setNodes] = useState<ContentTreeNode[]>([]);
-  const [pageCount, setPageCount] = useState(0);
-  const [treeLoading, setTreeLoading] = useState(true);
-  const [treeError, setTreeError] = useState<string | null>(null);
-  const [treeRevision, setTreeRevision] = useState<string | null>(null);
-  const [folderIndex, setFolderIndex] = useState<FolderIndex>(() => createFolderIndex());
+  const workspace = useOptionalSpaceWorkspace();
+  const [localCurrentFolderId, setLocalCurrentFolderId] = useState<string | null>(null);
+  const [localExpandedFolderIds, setLocalExpandedFolderIds] = useState<ReadonlySet<string>>(new Set());
   const [folderDialog, setFolderDialog] = useState<PendingFolderDialog | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ContentTreeFolderNode | null>(null);
   const [restoreInfo, setRestoreInfo] = useState<RestoreInfo | null>(null);
@@ -100,6 +100,38 @@ export const SpaceView: React.FC = () => {
     identity: string;
     canCreate: boolean;
   } | null>(null);
+
+  const currentFolderId = workspace?.mode === 'directory' ? workspace.selectedFolderId : localCurrentFolderId;
+  const setCurrentFolderId = useCallback((folderId: string | null) => {
+    if (workspace) workspace.selectFolder(folderId);
+    else setLocalCurrentFolderId(folderId);
+  }, [workspace]);
+  const setLocalFolderExpanded = useCallback((folderId: string, expanded: boolean) => {
+    setLocalExpandedFolderIds((current) => {
+      const next = new Set(current);
+      if (expanded) next.add(folderId); else next.delete(folderId);
+      return next;
+    });
+  }, []);
+  const expandedFolderIds = workspace?.expandedFolderIds ?? localExpandedFolderIds;
+  const setFolderExpanded = workspace?.setFolderExpanded ?? setLocalFolderExpanded;
+  const targetFolderId = workspace?.selectedPageFolderId ?? currentFolderId;
+  const directory = useSpaceDirectory({
+    spaceId: space?.id === id && id ? id : null,
+    targetFolderId,
+    expandedFolderIds,
+    setFolderExpanded,
+    rootLabel: space?.name ?? '',
+  });
+  const currentLevel = directory.levels.get(currentFolderId);
+  const nodes = currentLevel?.nodes ?? [];
+  const pageCount = nodes.filter((node) => node.kind === 'page').length;
+  const treeRevision = directory.treeRevision;
+  const folderIndex = directory.folderIndex;
+  const crumbs = directory.crumbs;
+  useEffect(() => {
+    workspace?.reportDirectoryCrumbs(crumbs);
+  }, [crumbs, workspace?.reportDirectoryCrumbs]);
 
   activeRouteIdRef.current = id;
 
@@ -122,7 +154,7 @@ export const SpaceView: React.FC = () => {
       setError(null);
       setActionError(null);
       setSpace(null);
-      setCurrentFolderId(null);
+      setLocalCurrentFolderId(null);
       setRestoreInfo(null);
     }
     if (!id) {
@@ -135,34 +167,12 @@ export const SpaceView: React.FC = () => {
       setSpace(spaceRes.data);
     } catch (err: any) {
       if (requestSequenceRef.current !== requestSequence) return;
+      if (err.response?.status === 401 || err.response?.status === 403) setSpace(null);
       setError(err.response?.data?.message || t('page.loadSpaceFailed'));
     } finally {
       if (requestSequenceRef.current === requestSequence) setLoading(false);
     }
   }, [id, t]);
-
-  const loadTreeLevel = useCallback(async (spaceId: string, folderId: string | null) => {
-    const sequence = ++treeSequenceRef.current;
-    setTreeLoading(true);
-    setTreeError(null);
-    try {
-      const level = await listTreeChildren(spaceId, folderId);
-      if (treeSequenceRef.current !== sequence) return;
-      setNodes(level.data);
-      setTreeRevision(level.treeRevision);
-      setPageCount(level.data.filter((node) => node.kind === 'page').length);
-      setFolderIndex((prev) => {
-        const next = new Map(prev);
-        registerFolders(next, level.data, folderId);
-        return next;
-      });
-    } catch (err: any) {
-      if (treeSequenceRef.current !== sequence) return;
-      setTreeError(err.response?.data?.message || t('page.loadSpaceFailed'));
-    } finally {
-      if (treeSequenceRef.current === sequence) setTreeLoading(false);
-    }
-  }, [t]);
 
   useEffect(() => {
     const routeChanged = fetchedRouteIdRef.current !== id;
@@ -213,11 +223,6 @@ export const SpaceView: React.FC = () => {
     };
   }, [id, language]);
 
-  useEffect(() => {
-    if (!id || requestSpaceId !== id) return;
-    void loadTreeLevel(id, currentFolderId);
-  }, [id, currentFolderId, requestSpaceId, loadTreeLevel]);
-
   const requireTreeRevision = (): string | null => {
     if (treeRevision) return treeRevision;
     setActionError(t('folder.revisionMissing'));
@@ -225,7 +230,7 @@ export const SpaceView: React.FC = () => {
   };
 
   const reloadTree = () => {
-    if (id) void loadTreeLevel(id, currentFolderId);
+    if (id) void directory.reloadLevel(currentFolderId);
   };
 
   const handleCreateFolder = async (name: string) => {
@@ -234,17 +239,9 @@ export const SpaceView: React.FC = () => {
     if (!revision) throw new Error('missing revision');
     const parent = folderDialog.parent;
     const result = await createFolder(id, name, parent?.id ?? null, revision);
-    setTreeRevision(result.treeRevision);
+    directory.acceptTreeRevision(result.treeRevision);
     if (parent && parent.id !== currentFolderId) {
-      setFolderIndex((prev) => {
-        const next = new Map(prev);
-        next.set(result.folder.id, {
-          id: result.folder.id,
-          parentId: parent.id,
-          name: result.folder.name,
-        });
-        return next;
-      });
+      await directory.reloadLevel(parent.id);
     } else {
       reloadTree();
     }
@@ -255,7 +252,7 @@ export const SpaceView: React.FC = () => {
     const revision = requireTreeRevision();
     if (!revision) throw new Error('missing revision');
     const result = await renameFolder(id, folderDialog.target.id, name, revision, folderDialog.target.updatedAt);
-    setTreeRevision(result.treeRevision);
+    directory.acceptTreeRevision(result.treeRevision);
     reloadTree();
   };
 
@@ -272,7 +269,7 @@ export const SpaceView: React.FC = () => {
       deletionBatchId: result.batch.id,
       folderUpdatedAt: impact.rootUpdatedAt,
     });
-    setTreeRevision(result.treeRevision);
+    directory.acceptTreeRevision(result.treeRevision);
     reloadTree();
   };
 
@@ -288,7 +285,7 @@ export const SpaceView: React.FC = () => {
         mode: 'original',
       });
       setRestoreInfo(null);
-      setTreeRevision(result.treeRevision);
+      directory.acceptTreeRevision(result.treeRevision);
       reloadTree();
     } catch (err: any) {
       setActionError(err.response?.data?.message || t('folder.restoreFailed'));
@@ -299,7 +296,9 @@ export const SpaceView: React.FC = () => {
 
   const handleContentMove = async (request: ContentMoveRequest) => {
     if (!id || !treeRevision) return;
-    const dragNode = nodes.find((node) => node.id === request.id);
+    const dragNode = [...directory.levels.values()]
+      .flatMap((level) => level.nodes)
+      .find((node) => node.id === request.id);
     if (!dragNode) return;
     setActionError(null);
     try {
@@ -311,7 +310,7 @@ export const SpaceView: React.FC = () => {
         expectedTreeRevision: treeRevision,
         expectedUpdatedAt: dragNode.updatedAt,
       });
-      setTreeRevision(result.treeRevision);
+      directory.acceptTreeRevision(result.treeRevision);
     } catch (err: any) {
       setActionError(err.response?.data?.message || t('folder.moveFailed'));
     } finally {
@@ -355,8 +354,7 @@ export const SpaceView: React.FC = () => {
         || activeRouteIdRef.current !== requestedSpaceId
         || fetchedRouteIdRef.current !== requestedSpaceId
       ) return;
-      setNodes((prev) => prev.filter((node) => node.id !== requestedPageId));
-      setPageCount((prev) => Math.max(0, prev - 1));
+      await directory.reloadLevel(page.folderId);
     } catch (err: any) {
       if (
         mountedRef.current
@@ -378,7 +376,28 @@ export const SpaceView: React.FC = () => {
     }
   };
 
-  if (requestSpaceId !== id || loading) return <div className="text-center py-8 text-gray-500">{t('common.loading')}</div>;
+  if (requestSpaceId !== id || loading || !id) return workspaceContent ? (
+    <div>
+      <div className="mb-6" />
+      <div key="workspace-layout" className="flex flex-col lg:flex-row">
+        <aside className="hidden w-[260px] shrink-0 border-r border-gray-200 lg:block" />
+        <main className="min-w-0 flex-1 px-4 py-4 lg:px-6">{workspaceContent}</main>
+      </div>
+    </div>
+  ) : <div className="text-center py-8 text-gray-500">{t('common.loading')}</div>;
+  if (error && workspaceContent) return (
+    <div>
+      <div key="workspace-layout" className="flex flex-col lg:flex-row">
+        <aside className="w-full border-b border-gray-200 p-4 lg:min-h-[calc(100vh-4rem)] lg:w-[260px] lg:shrink-0 lg:border-b-0 lg:border-r">
+          <p className="mb-3 text-sm text-red-600">{error}</p>
+          <button type="button" onClick={() => { void fetchSpace(false); }} className="text-sm font-medium text-blue-700 underline">
+            {t('common.retry')}
+          </button>
+        </aside>
+        <main className="min-w-0 flex-1 px-4 py-4 lg:px-6">{workspaceContent}</main>
+      </div>
+    </div>
+  );
   if (error) return (
     <div className="text-center py-8">
       <p className="text-red-500 mb-2">{error}</p>
@@ -401,7 +420,6 @@ export const SpaceView: React.FC = () => {
   );
   const compositeCreationEnabled = compositeCapability?.identity === `${id}\u0000${language}`
     && compositeCapability.canCreate;
-  const crumbs = crumbsForFolder(folderIndex, currentFolderId, space.name);
 
   return (
     <div>
@@ -428,7 +446,7 @@ export const SpaceView: React.FC = () => {
           </button>
         </div>
       )}
-      <div className="mb-6">
+      {!workspace ? <div className="mb-6">
         <div className="flex items-center gap-2 text-sm text-gray-400 mb-2">
           <Link to="/" className="shrink-0 hover:text-blue-600">{t('nav.spaces')}</Link>
           <span>/</span>
@@ -440,10 +458,49 @@ export const SpaceView: React.FC = () => {
             {space.description && <p className="text-gray-500 mt-1">{space.description}</p>}
           </div>
         </div>
-      </div>
+      </div> : null}
 
-      <SpaceNav spaceId={id} />
+      {!workspace ? <SpaceNav spaceId={id} /> : null}
+      {workspace ? <div className="flex flex-col border-b border-gray-200 lg:flex-row lg:items-stretch">
+        <div className="flex min-h-12 w-full items-center border-b border-gray-100 px-4 lg:w-[260px] lg:shrink-0 lg:border-b-0 lg:border-r">
+          <h1 title={space.name} className="truncate text-base font-semibold text-gray-900">{space.name}</h1>
+        </div>
+        <div className="min-w-0 flex-1 px-3"><SpaceNav spaceId={id} activeSection={workspace.activeSection} embedded /></div>
+      </div> : null}
 
+      <div key="workspace-layout" className="flex flex-col lg:flex-row">
+        {workspace ? <SpaceDirectory
+          spaceName={space.name}
+          levels={directory.levels}
+          expandedFolderIds={expandedFolderIds}
+          selectedFolderId={workspace.selectedFolderId}
+          selectedPageId={workspace.selectedPageId}
+          loading={!directory.levels.has(null) && directory.locating}
+          error={directory.error}
+          canEdit={canEdit}
+          directoryScrollTop={workspace.directoryScrollTop}
+          onDirectoryScrollTopChange={workspace.setDirectoryScrollTop}
+          pageDeleteDisabled={archivingPageId !== null}
+          onToggleFolder={(folderId) => { void directory.toggleFolder(folderId); }}
+          onRetry={directory.retry}
+          onCreatePage={() => setShowCreate(true)}
+          onCreateFolder={() => setFolderDialog({
+            mode: 'create',
+            parent: targetFolderId
+              ? { id: targetFolderId, name: folderIndex.get(targetFolderId)?.name ?? '' }
+              : null,
+          })}
+          onSelectFolder={(folderId) => setCurrentFolderId(folderId)}
+          onOpenPage={(page) => navigate('/pages/' + page.id)}
+          onEditPage={(page) => navigate('/pages/' + page.id + '/edit')}
+          onDeletePage={(page) => { void handleDeletePage(page); }}
+          onCreateSubfolder={(parent) => setFolderDialog({ mode: 'create', parent })}
+          onRenameFolder={(folder) => setFolderDialog({ mode: 'rename', parent: null, target: folder })}
+          onDeleteFolder={(folder) => setDeleteTarget(folder)}
+          onMove={(request) => { void handleContentMove(request); }}
+        /> : null}
+        <main className="min-w-0 flex-1 px-4 py-4 lg:px-6">
+        {workspaceContent ?? <>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <ContentBreadcrumbs
           crumbs={crumbs}
@@ -486,10 +543,15 @@ export const SpaceView: React.FC = () => {
         </div>
         <ContentTree
           nodes={nodes}
-          loading={treeLoading}
-          error={treeError}
+          loading={!currentLevel && directory.locating}
+          error={directory.error}
           canEdit={canEdit}
           levelParentFolderId={currentFolderId}
+          selectedFolderId={workspace?.selectedFolderId}
+          currentPageId={workspace?.selectedPageId ?? undefined}
+          expandedFolderIds={expandedFolderIds}
+          childLevels={new Map([...directory.levels.entries()].flatMap(([parent, value]) => parent ? [[parent, value.nodes] as const] : []))}
+          onToggleFolder={(folderId) => { void directory.toggleFolder(folderId); }}
           pageDeleteDisabled={archivingPageId !== null}
           emptyText={t('page.empty')}
           onOpenFolder={(folderId) => setCurrentFolderId(folderId)}
@@ -514,11 +576,15 @@ export const SpaceView: React.FC = () => {
           onMove={(request) => { void handleContentMove(request); }}
         />
       </div>
+      </>}
+        </main>
+      </div>
 
       {showCreate && canEdit && id ? (
         <NewPageDialog
           spaceId={id}
-          folderId={currentFolderId}
+          folderId={targetFolderId}
+          targetLocation={directory.crumbs.map((crumb) => crumb.name).filter(Boolean).join(' / ')}
           returnFocusTo={createPageOpenerRef.current}
           onClose={() => setShowCreate(false)}
           onCreated={(target) => {

@@ -14,13 +14,13 @@ const ITEMS = [
   { key: 'settings', labelKey: 'space.settings', suffix: '/settings', icon: Settings },
 ] as const;
 
-export const SpaceNav: React.FC<{ spaceId?: string; activeSection?: SpaceNavSection }> = ({ spaceId, activeSection }) => {
+export const SpaceNav: React.FC<{ spaceId?: string; activeSection?: SpaceNavSection; embedded?: boolean }> = ({ spaceId, activeSection, embedded = false }) => {
   const { t } = useLanguage();
   const location = useLocation();
   if (!spaceId) return null;
   const selectedSection = activeSection ?? workspaceSectionFromPath(location.pathname);
   return (
-    <nav aria-label={t('space.navigation')} className="mb-6 overflow-x-auto border-b">
+    <nav aria-label={t('space.navigation')} className={`${embedded ? '' : 'mb-6 border-b'} overflow-x-auto`}>
       <div className="flex min-w-max gap-1">
         {ITEMS.map(({ key, labelKey, suffix, icon: Icon }) => (
           <Link

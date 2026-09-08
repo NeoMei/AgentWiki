@@ -164,6 +164,76 @@ describe('SpaceWorkspace', () => {
     expect(screen.getByRole('link', { name: 'Pages' })).toHaveAttribute('href', '/spaces/space-real');
   });
 
+  it('keeps directory requests bounded after a page identity installs its folder', async () => {
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === '/pages/page-deep') return { data: {
+        id: 'page-deep', title: 'Deep page', content: 'Body', format: 'markdown',
+        spaceId: 'space-real', folderId: 'folder-b', createdAt: 'now', updatedAt: 'now', capabilities: { canEdit: true },
+      } };
+      if (url === '/spaces/space-real') return { data: {
+        id: 'space-real', name: 'Space real', description: '', members: [{ userId: 'user-1', role: 'viewer' }],
+      } };
+      if (url === '/spaces/space-real/folders') return { data: {
+        spaceId: 'space-real', treeRevision: '7', data: [
+          { id: 'folder-a', parentId: null, name: 'A', path: '/A', createdAt: 'now', updatedAt: 'now' },
+          { id: 'folder-b', parentId: 'folder-a', name: 'B', path: '/A/B', createdAt: 'now', updatedAt: 'now' },
+        ], nextCursor: null,
+      } };
+      if (url === '/spaces/space-real/content-tree') return { data: {
+        spaceId: 'space-real', treeRevision: '7', parentFolderId: null, data: [], nextCursor: null,
+      } };
+      if (url === '/spaces/space-real/page-templates/composite') return { data: {
+        templates: [], total: 0, skip: 0, take: 1, capabilities: { canCreate: false },
+      } };
+      if (url === '/knowledge/related/page-deep') return { data: [] };
+      throw new Error(`unexpected get ${url}`);
+    });
+
+    render(<LanguageProvider><MemoryRouter initialEntries={['/pages/page-deep']}>
+      <SpaceWorkspaceProvider userId="user-1"><Routes><Route path="/pages/:id" element={
+        <SpaceWorkspace mode="read" pageId="page-deep" showDirectory><PagePreview /></SpaceWorkspace>
+      } /></Routes></SpaceWorkspaceProvider>
+    </MemoryRouter></LanguageProvider>);
+
+    expect(await screen.findByRole('heading', { name: 'Deep page' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Space real' })).toBeInTheDocument());
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/pages/page-deep')).toHaveLength(1);
+    expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/spaces/space-real')).toHaveLength(1);
+    expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/spaces/space-real/folders')).toHaveLength(1);
+    expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/spaces/space-real/content-tree')).toHaveLength(3);
+  });
+
+  it('keeps page content mounted when Space metadata access fails', async () => {
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === '/pages/page-locked') return { data: {
+        id: 'page-locked', title: 'Still readable', content: 'Body', format: 'markdown',
+        spaceId: 'space-locked', folderId: 'folder-private', createdAt: 'now', updatedAt: 'now', capabilities: { canEdit: false },
+      } };
+      if (url === '/spaces/space-locked') throw { response: { status: 403, data: { message: 'Space forbidden' } } };
+      if (url === '/knowledge/related/page-locked') return { data: [] };
+      if (url === '/spaces/space-locked/page-templates/composite') return { data: {
+        templates: [], total: 0, skip: 0, take: 1, capabilities: { canCreate: false },
+      } };
+      throw new Error(`unexpected get ${url}`);
+    });
+
+    render(<LanguageProvider><MemoryRouter initialEntries={['/pages/page-locked']}>
+      <SpaceWorkspaceProvider userId="user-1"><Routes><Route path="/pages/:id" element={
+        <SpaceWorkspace mode="read" pageId="page-locked" showDirectory><PagePreview /></SpaceWorkspace>
+      } /></Routes></SpaceWorkspaceProvider>
+    </MemoryRouter></LanguageProvider>);
+
+    expect(await screen.findByRole('heading', { name: 'Still readable' })).toBeInTheDocument();
+    expect(await screen.findByText('Space forbidden')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Still readable' })).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/pages/page-locked')).toHaveLength(1);
+    expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/spaces/space-locked')).toHaveLength(1);
+  });
+
   it('preserves browse state across two loaded pages in one Space and isolates a third page in another', async () => {
     localStorage.setItem('agentwiki.language.v1', 'en');
     let resolveThird!: (value: any) => void;

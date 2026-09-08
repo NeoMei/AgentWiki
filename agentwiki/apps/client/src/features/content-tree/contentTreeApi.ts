@@ -4,6 +4,7 @@ import type {
   ContentTreeListResponse,
   DeletedFolderResponse,
   DeleteImpactResponse,
+  FolderListResponse,
   FolderMutationResponse,
   MoveNodePayload,
   RestoreFolderPayload,
@@ -14,6 +15,38 @@ export { getContentTreeRevision };
 
 /** The server caps content-tree page size at 200. */
 const TREE_PAGE_SIZE = 200;
+const COHERENT_READ_ATTEMPTS = 2;
+
+export class TreeRevisionChangedError extends Error {
+  constructor() {
+    super('The directory changed while it was loading. Please retry.');
+  }
+}
+
+async function listCoherentPages<T extends { treeRevision: string; data: unknown[]; nextCursor: string | null }>(
+  readPage: (cursor?: string) => Promise<T>,
+): Promise<T> {
+  for (let attempt = 0; attempt < COHERENT_READ_ATTEMPTS; attempt += 1) {
+    let cursor: string | undefined;
+    let first: T | undefined;
+    let last: T | undefined;
+    const data: unknown[] = [];
+    try {
+      do {
+        const page = await readPage(cursor);
+        first ??= page;
+        if (page.treeRevision !== first.treeRevision) throw new TreeRevisionChangedError();
+        last = page;
+        data.push(...page.data);
+        cursor = page.nextCursor ?? undefined;
+      } while (cursor);
+      return { ...last!, treeRevision: first.treeRevision, data } as T;
+    } catch (error) {
+      if (!(error instanceof TreeRevisionChangedError) || attempt + 1 === COHERENT_READ_ATTEMPTS) throw error;
+    }
+  }
+  throw new TreeRevisionChangedError();
+}
 
 export async function listTreeChildren(
   spaceId: string,
@@ -21,10 +54,7 @@ export async function listTreeChildren(
   signal?: AbortSignal,
 ): Promise<ContentTreeListResponse> {
   const encodedSpaceId = encodeURIComponent(spaceId);
-  let cursor: string | undefined;
-  let merged: ContentTreeListResponse | undefined;
-  const nodes: ContentTreeListResponse['data'] = [];
-  do {
+  return listCoherentPages(async (cursor) => {
     const response = await api.get<ContentTreeListResponse>(
       `/spaces/${encodedSpaceId}/content-tree`,
       {
@@ -36,11 +66,63 @@ export async function listTreeChildren(
         signal,
       },
     );
-    merged = response.data;
-    nodes.push(...merged.data);
-    cursor = merged.nextCursor ?? undefined;
-  } while (cursor);
-  return { ...merged!, data: nodes };
+    return response.data;
+  });
+}
+
+export interface FolderAncestryResult {
+  folders: ReadonlyMap<string, FolderListResponse['data'][number]>;
+  ancestorIds: string[];
+  treeRevision: string;
+}
+
+const ancestryFrom = (
+  folders: ReadonlyMap<string, FolderListResponse['data'][number]>,
+  targetFolderId: string,
+): string[] | null => {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  let cursor: string | null = targetFolderId;
+  while (cursor) {
+    if (seen.has(cursor)) return null;
+    seen.add(cursor);
+    const folder = folders.get(cursor);
+    if (!folder) return null;
+    result.unshift(folder.id);
+    cursor = folder.parentId;
+  }
+  return result;
+};
+
+export async function listFolderAncestry(
+  spaceId: string,
+  targetFolderId: string,
+  signal?: AbortSignal,
+): Promise<FolderAncestryResult> {
+  const encodedSpaceId = encodeURIComponent(spaceId);
+  for (let attempt = 0; attempt < COHERENT_READ_ATTEMPTS; attempt += 1) {
+    let cursor: string | undefined;
+    let revision: string | null = null;
+    const folders = new Map<string, FolderListResponse['data'][number]>();
+    try {
+      do {
+        const response = await api.get<FolderListResponse>(`/spaces/${encodedSpaceId}/folders`, {
+          params: { take: TREE_PAGE_SIZE, ...(cursor ? { cursor } : {}) },
+          signal,
+        });
+        revision ??= response.data.treeRevision;
+        if (response.data.treeRevision !== revision) throw new TreeRevisionChangedError();
+        for (const folder of response.data.data) folders.set(folder.id, folder);
+        const ancestorIds = ancestryFrom(folders, targetFolderId);
+        if (ancestorIds) return { folders, ancestorIds, treeRevision: revision };
+        cursor = response.data.nextCursor ?? undefined;
+      } while (cursor);
+      return { folders, ancestorIds: [], treeRevision: revision ?? '', };
+    } catch (error) {
+      if (!(error instanceof TreeRevisionChangedError) || attempt + 1 === COHERENT_READ_ATTEMPTS) throw error;
+    }
+  }
+  throw new TreeRevisionChangedError();
 }
 
 export async function createFolder(

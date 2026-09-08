@@ -21,6 +21,7 @@ interface Page {
   createdAt: string;
   updatedAt: string;
   spaceId: string;
+  folderId?: string | null;
   provenance?: any;
   evidence?: any[];
   lastChange?: { id: string; title: string; status: string } | null;
@@ -299,7 +300,7 @@ export const PagePreview: React.FC = () => {
         lastCommittedPageRef.current = response.data;
         pageRef.current = response.data;
         setPage(response.data);
-        reportPageIdentity(requestedId, response.data?.spaceId || null);
+        reportPageIdentity(requestedId, response.data?.spaceId || null, response.data?.folderId ?? null);
       })
       .catch((loadError: any) => {
         if (!routeIsActive(requestedId, generation)) return;

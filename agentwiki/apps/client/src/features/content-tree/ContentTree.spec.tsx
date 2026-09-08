@@ -48,3 +48,63 @@ describe('ContentTree Agent binding entry points', () => {
     expect(onSaveFolderAsTemplate).toHaveBeenCalledWith(folder, opener);
   });
 });
+
+describe('ContentTree directory navigation', () => {
+  it('keeps folder expansion separate from folder selection and exposes the real tree state', () => {
+    const onToggleFolder = vi.fn();
+    const onOpenFolder = vi.fn();
+    render(<LanguageProvider><ContentTree nodes={[folder]} loading={false} error={null} canEdit={false}
+      levelParentFolderId={null} pageDeleteDisabled={false} emptyText="Empty"
+      expandedFolderIds={new Set()} onToggleFolder={onToggleFolder}
+      childLevels={new Map()}
+      onOpenFolder={onOpenFolder} onOpenPage={() => undefined} onEditPage={() => undefined}
+      onDeletePage={() => undefined} onCreateSubfolder={() => undefined} onRenameFolder={() => undefined}
+      onDeleteFolder={() => undefined} onMove={() => undefined} />
+    </LanguageProvider>);
+
+    const item = screen.getByRole('treeitem', { name: /Project/u });
+    expect(item).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByTestId('content-toggle-folder-1'));
+    expect(onToggleFolder).toHaveBeenCalledWith('folder-1');
+    expect(onOpenFolder).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByTestId('content-node-folder-1'), { key: 'ArrowRight' });
+    expect(onToggleFolder).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByTestId('content-node-folder-1'));
+    expect(onOpenFolder).toHaveBeenCalledWith('folder-1');
+  });
+
+  it('uses page ids for duplicate titles and supports keyboard open', () => {
+    const duplicate = { ...page, id: 'page-2' };
+    const onOpenPage = vi.fn();
+    render(<LanguageProvider><ContentTree nodes={[page, duplicate]} loading={false} error={null} canEdit={false}
+      levelParentFolderId={null} pageDeleteDisabled={false} emptyText="Empty"
+      onOpenFolder={() => undefined} onOpenPage={onOpenPage} onEditPage={() => undefined}
+      onDeletePage={() => undefined} onCreateSubfolder={() => undefined} onRenameFolder={() => undefined}
+      onDeleteFolder={() => undefined} onMove={() => undefined} />
+    </LanguageProvider>);
+
+    const second = screen.getByTestId('content-node-page-2');
+    fireEvent.keyDown(second, { key: 'Enter' });
+    expect(onOpenPage).toHaveBeenCalledWith(duplicate);
+    expect(screen.getByTestId('content-node-page-1')).toHaveAttribute('title', 'Brief');
+    expect(second).toHaveAttribute('title', 'Brief');
+    screen.getByTestId('content-node-page-1').focus();
+    fireEvent.keyDown(screen.getByTestId('content-node-page-1'), { key: 'ArrowDown' });
+    expect(second).toHaveFocus();
+  });
+
+  it('keeps row actions behind one keyboard-focusable and touch-clickable menu entry', () => {
+    render(<LanguageProvider><ContentTree nodes={[folder]} loading={false} error={null} canEdit
+      levelParentFolderId={null} pageDeleteDisabled={false} emptyText="Empty"
+      onOpenFolder={() => undefined} onOpenPage={() => undefined} onEditPage={() => undefined}
+      onDeletePage={() => undefined} onCreateSubfolder={() => undefined} onRenameFolder={() => undefined}
+      onDeleteFolder={() => undefined} onMove={() => undefined} />
+    </LanguageProvider>);
+
+    const actions = screen.getByLabelText('Actions: Project');
+    expect(actions.tagName).toBe('SUMMARY');
+    expect(actions).toHaveClass('focus-visible:ring-2');
+    fireEvent.click(actions);
+    expect(actions.closest('details')).toHaveAttribute('open');
+  });
+});

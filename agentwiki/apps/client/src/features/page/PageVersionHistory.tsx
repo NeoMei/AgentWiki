@@ -22,6 +22,7 @@ interface Page {
   id: string;
   title: string;
   spaceId: string;
+  folderId?: string | null;
   capabilities?: { canEdit?: boolean };
 }
 
@@ -79,7 +80,7 @@ export const PageVersionHistory: React.FC = () => {
         if (!active) return;
         setPage(pageRes.data);
         setVersions(versionsRes.data || []);
-        reportPageIdentity(id, pageRes.data?.spaceId || null);
+        reportPageIdentity(id, pageRes.data?.spaceId || null, pageRes.data?.folderId ?? null);
       } catch (err: unknown) {
         if (active) {
           reportPageIdentity(id, null);

@@ -8,6 +8,7 @@ import {
   workspaceSectionFromPath,
   type SpaceNavSection,
 } from './workspaceNavigation';
+import { SpaceView } from '../space/SpaceView';
 
 export interface SpaceWorkspaceProps {
   mode: SpaceWorkspaceMode;
@@ -16,6 +17,7 @@ export interface SpaceWorkspaceProps {
   children: React.ReactNode;
   activeSection?: SpaceNavSection;
   showNavigation?: boolean;
+  showDirectory?: boolean;
 }
 
 export const SpaceWorkspace: React.FC<SpaceWorkspaceProps> = ({
@@ -25,22 +27,23 @@ export const SpaceWorkspace: React.FC<SpaceWorkspaceProps> = ({
   children,
   activeSection,
   showNavigation = mode === 'read' || mode === 'edit' || mode === 'versions',
+  showDirectory = false,
 }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const [pageResolution, setPageResolution] = useState<{ pageId: string; spaceId: string } | null>(null);
+  const [pageResolution, setPageResolution] = useState<{ pageId: string; spaceId: string; folderId: string | null } | null>(null);
   const resolvedSpaceId = spaceId ?? (
     pageResolution && pageResolution.pageId === pageId ? pageResolution.spaceId : null
   );
   const resolvedSection = activeSection ?? workspaceSectionFromPath(location.pathname) ?? 'pages';
   const selectedFolderId = folderIdFromSearch(location.search);
 
-  const reportPageIdentity = useCallback((reportedPageId: string, reportedSpaceId: string | null) => {
+  const reportPageIdentity = useCallback((reportedPageId: string, reportedSpaceId: string | null, folderId: string | null = null) => {
     if (!pageId || reportedPageId !== pageId) return;
     setPageResolution((current) => {
       if (!reportedSpaceId) return current?.pageId === reportedPageId ? null : current;
-      if (current?.pageId === reportedPageId && current.spaceId === reportedSpaceId) return current;
-      return { pageId: reportedPageId, spaceId: reportedSpaceId };
+      if (current?.pageId === reportedPageId && current.spaceId === reportedSpaceId && current.folderId === folderId) return current;
+      return { pageId: reportedPageId, spaceId: reportedSpaceId, folderId };
     });
   }, [pageId]);
 
@@ -54,12 +57,16 @@ export const SpaceWorkspace: React.FC<SpaceWorkspaceProps> = ({
       spaceId={resolvedSpaceId}
       activeSection={resolvedSection}
       selectedFolderId={selectedFolderId}
+      selectedPageId={pageId ?? null}
+      selectedPageFolderId={pageResolution && pageResolution.pageId === pageId ? pageResolution.folderId : null}
       selectFolder={selectFolder}
       reportPageIdentity={reportPageIdentity}
     >
       <div data-space-workspace={mode} data-space-id={resolvedSpaceId ?? undefined}>
-        {showNavigation && resolvedSpaceId ? <SpaceNav spaceId={resolvedSpaceId} activeSection={resolvedSection} /> : null}
-        {children}
+        {showNavigation && resolvedSpaceId && !showDirectory ? <SpaceNav spaceId={resolvedSpaceId} activeSection={resolvedSection} /> : null}
+        {showDirectory
+          ? <SpaceView spaceId={resolvedSpaceId} workspaceContent={mode === 'directory' ? undefined : children} />
+          : children}
       </div>
     </SpaceWorkspaceScope>
   );

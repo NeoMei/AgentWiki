@@ -27,6 +27,7 @@ interface Page {
   content: string;
   format: string;
   spaceId: string;
+  folderId?: string | null;
   updatedAt: string;
   capabilities?: { canEdit?: boolean; canManageAttachments?: boolean };
 }
@@ -242,7 +243,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     dismissedRemoteRevisionRef.current = null;
     setRemoteUpdate(null);
     updateDirty(false);
-    reportPageIdentity(nextPage.id, nextPage.spaceId || null);
+    reportPageIdentity(nextPage.id, nextPage.spaceId || null, nextPage.folderId ?? null);
   }, [abortAttachmentUploads, clearAttachmentStatus, reportPageIdentity, updateDirty]);
 
   const adoptRemoteDraft = useCallback((nextContent: string, revision: string) => {
@@ -297,7 +298,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       offerRemotePage(res.data, pageRevision(res.data), forcePrompt);
       const acceptedPage = pageRef.current;
       if (acceptedPage?.id === requestedId) {
-        reportPageIdentity(requestedId, acceptedPage.spaceId || null);
+        reportPageIdentity(requestedId, acceptedPage.spaceId || null, acceptedPage.folderId ?? null);
       }
     } catch (err: any) {
       if (controller.signal.aborted || !mountedRef.current || activePageIdRef.current !== requestedId) return;

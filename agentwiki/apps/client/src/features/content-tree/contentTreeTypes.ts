@@ -39,6 +39,13 @@ export interface FolderListItem {
   updatedAt: string;
 }
 
+export interface FolderListResponse {
+  spaceId: string;
+  treeRevision: string;
+  data: FolderListItem[];
+  nextCursor: string | null;
+}
+
 export interface FolderMutationResponse {
   folder: FolderListItem;
   treeRevision: string;
