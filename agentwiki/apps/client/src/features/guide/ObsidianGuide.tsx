@@ -1,141 +1,58 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Download, ExternalLink, Gem, Globe, Link2, ShieldCheck } from 'lucide-react';
+import { Download, ExternalLink, Gem, ShieldCheck } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { ObsidianConnectionPanel } from './ObsidianConnectionPanel';
 
 const GITHUB_RELEASE_URL = 'https://github.com/NeoMei/agentwiki-sync/releases/latest';
 const OBSIDIAN_PLUGIN_URL = 'obsidian://show-plugin?id=agentwiki-sync';
-const SERVER_URL = 'https://agentwiki.quukk.com/api';
 
 export const ObsidianGuide: React.FC = () => {
   const { language } = useLanguage();
   const { token } = useAuth();
   const zh = language === 'zh-CN';
-
-  const steps = [
-    {
-      title: zh ? '在第三方插件市场安装' : 'Install from Community Plugins',
-      body: zh
-        ? '打开 Obsidian → 设置 → 第三方插件 → 浏览，搜索 AgentWiki Sync，点击安装。'
-        : 'Open Obsidian → Settings → Community plugins → Browse, search for AgentWiki Sync, then install it.',
-    },
-    {
-      title: zh ? '启用 AgentWiki Sync' : 'Enable AgentWiki Sync',
-      body: zh
-        ? '安装完成后返回第三方插件列表，启用 AgentWiki Sync，然后打开插件设置。'
-        : 'After installation, return to the Community plugins list, enable AgentWiki Sync, and open its settings.',
-    },
-    {
-      title: zh ? '连接你的 AgentWiki' : 'Connect to your AgentWiki',
-      body: zh
-        ? '在插件中填入服务器地址，按提示完成设备授权：浏览器登录 AgentWiki 并确认一次性连接码。授权在浏览器完成，插件不保存账号密码。'
-        : 'Enter the server URL in the plugin and complete device authorization: sign in to AgentWiki in the browser and confirm the one-time connection code. Authorization happens in the browser; the plugin never stores your password.',
-    },
+  const steps = zh ? [
+    ['在第三方插件市场安装', '在 Obsidian 的第三方插件市场搜索 AgentWiki Sync，安装并启用。'],
+    ['在浏览器中批准', '打开插件设置，点击“连接 AgentWiki”。在浏览器登录并允许连接，然后回到 Obsidian。'],
+    ['选择空间和本地文件夹', '连接成功后，在插件中选择空间和要映射的本地文件夹，再按提示同步。'],
+  ] : [
+    ['Install from Community Plugins', 'Search for AgentWiki Sync in Obsidian Community Plugins, then install and enable it.'],
+    ['Approve in your browser', 'Open the plugin settings and click “Connect AgentWiki”. Sign in and approve in your browser, then return to Obsidian.'],
+    ['Choose a space and local folder', 'Once connected, choose a space and the local folder to map, then follow the sync instructions.'],
   ];
-
   return (
-    <article className="text-gray-900">
+    <article className="min-w-0 text-gray-900">
       <header>
-        <span className="inline-flex items-center gap-2 rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-xs font-medium text-purple-700">
-          <Gem size={14} /> Obsidian Plugin
-        </span>
-        <h1 className="mt-5 text-3xl font-bold tracking-tight sm:text-4xl">
-          {zh ? '用 Obsidian 插件同步知识库' : 'Sync your vault with AgentWiki'}
-        </h1>
-        <p className="mt-4 max-w-2xl text-base leading-7 text-gray-600">
-          {zh
-            ? 'AgentWiki Sync 是官方 Obsidian 插件，把 Obsidian 笔记库与 AgentWiki Space 连接起来：在 Obsidian 中写作，把整理好的知识同步给所有 Agent 共用。'
-            : 'AgentWiki Sync is the official Obsidian plugin that connects an Obsidian vault to an AgentWiki Space: keep writing in Obsidian and share the curated knowledge with every Agent.'}
-        </p>
+        <p className="flex items-center gap-2 text-sm text-gray-500"><Gem size={18} /> AgentWiki Sync</p>
+        <h1 className="mt-4 text-2xl font-semibold">{zh ? '连接 Obsidian' : 'Connect Obsidian'}</h1>
+        <p className="mt-3 max-w-2xl text-base leading-6 text-gray-600">{zh ? '在 Obsidian 中写作，与 AgentWiki 空间同步。先连接账号，再选择空间和本地文件夹。' : 'Write in Obsidian and sync with an AgentWiki space. Connect your account, then choose a space and local folder.'}</p>
       </header>
-
-      <section className="mt-10 grid gap-4 sm:grid-cols-2" aria-label={zh ? '插件资源' : 'Plugin resources'}>
-        <a
-          href={OBSIDIAN_PLUGIN_URL}
-          aria-label={zh ? '在 Obsidian 中打开' : 'Open in Obsidian'}
-          className="group rounded-2xl border border-purple-200 bg-purple-50 p-5 shadow-sm transition hover:border-purple-400 hover:shadow"
-        >
-          <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50">
-            <Globe size={18} className="text-blue-600" />
-          </div>
-          <h2 className="font-semibold leading-6">{zh ? '已上架第三方插件市场' : 'Available in Community Plugins'}</h2>
-          <p className="mt-2 text-sm text-purple-800">{zh ? '搜索 AgentWiki Sync 即可安装。' : 'Search for AgentWiki Sync and install it directly.'}</p>
-          <span className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-purple-700">
-            {zh ? '在 Obsidian 中打开' : 'Open in Obsidian'} <ExternalLink size={14} />
-          </span>
-        </a>
-        <a
-          href={GITHUB_RELEASE_URL}
-          aria-label={zh ? '下载最新 Release' : 'Download latest Release'}
-          target="_blank"
-          rel="noreferrer"
-          className="group rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:border-blue-300 hover:shadow"
-        >
-          <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100">
-            <Download size={18} className="text-gray-700" />
-          </div>
-          <h2 className="font-semibold leading-6">{zh ? 'GitHub 备用安装' : 'GitHub fallback'}</h2>
-          <p className="mt-1 break-all text-xs text-gray-500">github.com/NeoMei/agentwiki-sync/releases/latest</p>
-          <span className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-blue-600">
-            {zh ? '下载最新 Release' : 'Download latest Release'} <ExternalLink size={14} />
-          </span>
-        </a>
-      </section>
-
-      <section className="mt-8 space-y-4">
-        {steps.map((step, index) => (
-          <article key={step.title} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
-            <div className="flex items-start gap-4">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-purple-600 text-sm font-semibold text-white">
-                {index + 1}
-              </div>
-              <div className="min-w-0">
-                <h2 className="font-semibold leading-6">{step.title}</h2>
-                <p className="mt-1 text-sm leading-6 text-gray-600">{step.body}</p>
-              </div>
-            </div>
-          </article>
-        ))}
-      </section>
-
-      <section className="mt-8 rounded-2xl border border-blue-100 bg-blue-50 p-5 sm:flex sm:items-start sm:gap-4">
-        <ShieldCheck className="mb-3 shrink-0 text-blue-600 sm:mb-0" size={24} />
-        <div>
-          <h2 className="font-semibold text-blue-950">{zh ? '同步规则' : 'Sync rules'}</h2>
-          <p className="mt-1 text-sm leading-6 text-blue-800">
-            {zh
-              ? '服务端 Revision 是权威版本：推送前先拉取，检测到冲突时必须人工确认后才会继续；只有你确认的变更会被同步。'
-              : 'The server revision is authoritative: pull before push, and detected conflicts always require explicit human confirmation. Only changes you approve are synchronized.'}
-          </p>
+      <section className="mt-6 rounded-xl border border-gray-200 bg-white p-4 sm:p-6" aria-label={zh ? '开始连接' : 'Start connecting'}>
+        <h2 className="text-lg font-semibold">{zh ? '在插件设置中点击“连接 AgentWiki”' : 'Click “Connect AgentWiki” in the plugin settings'}</h2>
+        <p className="mt-2 text-sm leading-6 text-gray-600">{zh ? '插件会打开浏览器授权页。批准后回到 Obsidian，连接会自动完成。' : 'The plugin opens browser authorization. Approve and return to Obsidian; the connection finishes automatically.'}</p>
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+          <a href={OBSIDIAN_PLUGIN_URL} aria-label={zh ? '在 Obsidian 中打开' : 'Open in Obsidian'} className="inline-flex items-center justify-center gap-2 rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800">{zh ? '在 Obsidian 中打开' : 'Open in Obsidian'}<ExternalLink size={15} /></a>
+          <a href="#connect" className="text-center text-sm font-medium text-gray-700 underline underline-offset-4">{zh ? '使用手动连接码' : 'Use a manual connection code'}</a>
         </div>
+        <p className="mt-3 text-sm leading-6 text-gray-500">{zh ? '找不到连接按钮？更新插件，或使用手动连接码。' : 'No connection button? Update the plugin or use a manual connection code.'}</p>
       </section>
-
-      <section className="mt-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-        <div className="flex items-start gap-4">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-green-50">
-            <Link2 size={18} className="text-green-600" />
-          </div>
-          <div className="min-w-0">
-            <h2 className="font-semibold leading-6">{zh ? '服务器地址' : 'Server URL'}</h2>
-            <p className="mt-1 text-sm text-gray-600">{zh ? '插件连接当前官方部署时使用：' : 'Use the following URL for the current official deployment:'}</p>
-            <code className="mt-2 inline-block max-w-full overflow-x-auto rounded-lg bg-gray-950 px-3 py-2 text-sm text-green-300">{SERVER_URL}</code>
-          </div>
-        </div>
+      <ol className="mt-6 grid gap-3 lg:grid-cols-3">
+        {steps.map(([title,body],index)=><li key={title} className="rounded-xl border border-gray-200 p-4"><p className="text-sm text-gray-500">0{index+1}</p><h2 className="mt-2 font-semibold">{title}</h2><p className="mt-2 text-sm leading-6 text-gray-600">{body}</p></li>)}
+      </ol>
+      <section id="connect" className="scroll-mt-6" aria-label={zh ? '手动连接后备' : 'Manual connection fallback'}>
+        {token ? <ObsidianConnectionPanel /> : <div className="mt-6 rounded-xl border border-gray-200 bg-white p-4 sm:p-6">
+          <h2 className="text-lg font-semibold">{zh ? '手动连接码' : 'Manual connection code'}</h2>
+          <p className="mt-2 text-sm leading-6 text-gray-600">{zh ? '浏览器授权不可用时，登录后生成十分钟有效的连接码，粘贴到插件的手动连接入口。' : 'If browser authorization is unavailable, sign in to generate a code valid for ten minutes and paste it into the plugin’s manual connection option.'}</p>
+          <Link to="/?intent=workspace&returnTo=%2Fguide%2Fobsidian%23connect#login" className="mt-4 inline-flex rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700">{zh ? '登录后生成连接码' : 'Sign in to generate a code'}</Link>
+        </div>}
       </section>
-
-      {token ? <ObsidianConnectionPanel /> : (
-        <section className="mt-8 rounded-2xl border border-purple-200 bg-purple-50 p-5 sm:p-6">
-          <h2 className="font-semibold text-purple-950">{zh ? '登录后生成连接码' : 'Sign in to generate a connection code'}</h2>
-          <p className="mt-1 text-sm leading-6 text-purple-800">
-            {zh ? '安装好插件后，登录 AgentWiki，即可在本页生成一次性连接码并管理已连接设备。' : 'After installing the plugin, sign in to generate a one-time code and manage connected devices on this page.'}
-          </p>
-          <Link to="/?intent=workspace&returnTo=%2Fguide%2Fobsidian#login" className="mt-3 inline-flex rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700">
-            {zh ? '登录 AgentWiki' : 'Sign in to AgentWiki'}
-          </Link>
-        </section>
-      )}
+      <section className="mt-6 rounded-xl border border-gray-200 bg-gray-50 p-4 sm:p-6">
+        <h2 className="flex items-center gap-2 font-semibold"><ShieldCheck size={18} />{zh ? '同步前确认变更' : 'Review changes before syncing'}</h2>
+        <p className="mt-2 text-sm leading-6 text-gray-600">{zh ? '连接不会自动同步笔记。先选择空间和文件夹；同步时检查变更，冲突需要你确认。' : 'Connecting does not sync notes automatically. Choose a space and folder first, review changes when syncing, and confirm conflicts yourself.'}</p>
+        <p className="mt-3 text-sm text-gray-600">{zh ? '本服务器地址：' : 'This server’s address:'}</p><code className="mt-1 block break-all text-sm text-gray-700">{window.location.origin}</code>
+      </section>
+      <a href={GITHUB_RELEASE_URL} aria-label={zh ? '下载最新 Release' : 'Download latest Release'} target="_blank" rel="noreferrer" className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-gray-600 underline underline-offset-4"><Download size={16} />{zh ? '下载最新 Release' : 'Download latest Release'}</a>
     </article>
   );
 };

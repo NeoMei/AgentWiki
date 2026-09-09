@@ -96,48 +96,60 @@ export class OnboardController {
 
 const BASE_URL = 'https://agentwiki.quukk.com';
 const API_BASE = `${BASE_URL}/api`;
-const PACKAGE_VERSION = '0.9.1';
-const PUBLIC_COMMAND = `npx --yes @neomei/agentwiki-local-sync@${PACKAGE_VERSION} onboard --server ${API_BASE} --protocol ndjson`;
+const PACKAGE_VERSION = '0.10.0';
+const PUBLIC_COMMAND = `npx --yes @neomei/agentwiki-local-sync@${PACKAGE_VERSION} onboard start --server ${API_BASE} --client codex --protocol json`;
 
-const ONBOARD_MD = `# AgentWiki Agent 接入
+const ONBOARD_MD = `# AgentWiki Agent 接入 / Connect your Agent
 
-> v${PACKAGE_VERSION} — 2026-09-06
+将本页完整交给你的本地 Agent。默认使用 Codex；如果使用 Claude Code 或 OpenCode，把启动命令中的客户端分别改为 claude 或 opencode。
+Give this complete guide to your local Agent. Change the start command client to claude or opencode when using Claude Code or OpenCode.
 
-把下面这一条命令交给你的本地 Agent（Codex、Claude Code、OpenCode 等）：
+1. 执行启动命令，每条命令结束后读取一个 JSON 对象并保存 sessionId。后续使用同一会话，不并行重复启动。
+Run the start command, read its single JSON response, and preserve sessionId. Continue that same session throughout.
 
-\`\`\`bash
+\`\`\`sh
 ${PUBLIC_COMMAND}
 \`\`\`
 
-Agent 会自动完成网页授权、收集参数、确认计划并安装单一 \`agentwiki\` 网关 MCP。Reader 在验证网关后只执行远程知识拉取并完成，不会发起写同步；Editor 和 Publisher 才会进入首次本地扫描和知识同步预览确认。
+2. 将 <sessionId> 替换为返回的会话 ID；<absolute-json-file> 替换为实际绝对文件路径，并安全引用 shell 参数。
+Replace placeholders with the returned session ID or actual absolute file path, quoting shell arguments safely.
+只读查看进度 / Inspect progress:
+\`\`\`sh
+npx --yes @neomei/agentwiki-local-sync@${PACKAGE_VERSION} onboard status --session <sessionId> --protocol json
+\`\`\`
+推进一个阶段 / Advance one phase:
+\`\`\`sh
+npx --yes @neomei/agentwiki-local-sync@${PACKAGE_VERSION} onboard continue --session <sessionId> --protocol json
+\`\`\`
 
-1. 在浏览器中批准授权
-2. 确认接入计划
-3. 如选择 Editor 或 Publisher，确认首次知识同步预览
+3. authorization_required / authorization_expired：把 authorizationUrl 给用户，在浏览器登录并批准；等待 retryAfterMs 再 continue。过期重新授权也保留原 sessionId、计划和配置。不要索取密码。
+Give the user authorizationUrl to approve in their browser. Wait retryAfterMs and continue the same session. Renew expired authorization without starting another session. Never ask for passwords.
 
-密码和登录信息不会进入 Agent 对话。
+4. input_required：按 spaces 的名称让用户选择空间，填入对应 spaceId，或创建空间；询问 agentName 与最小必要 role（reader/editor/publisher）。使用当前 requestId/fields 写绝对路径 JSON 回复文件，POSIX 权限0600，Windows仅当前用户可读写。不要把用户输入拼接到shell中。
+Show spaces by name, fill the selected spaceId or create a space, and ask for agentName and the least privilege role. Write the current requestId and values to an absolute JSON file, restricted to its owner (POSIX 0600). Do not interpolate user text into shell commands.
 
----
+新空间 / New space: {"requestId":"current","values":{"spaceMode":"create","spaceName":"My space","agentName":"My Agent","role":"reader"}}
+已有空间 / Existing space: {"requestId":"current","values":{"spaceMode":"existing","spaceId":"selected ID","agentName":"My Agent","role":"reader"}}
 
-## 本地与远程执行平面
+5. confirmation_required：向用户展示完整 plan（授权账号/服务器、空间、Agent、角色、配置路径），取得明确确认后写 {"requestId":"current","confirmed":true,"planHash":"current"}；拒绝用 false。精确使用当前 requestId/planHash；replyExpiresAt 过期需读取新请求。不得代用户批准。
+Show the complete plan, including account/server, space, Agent, role and configuration path. Only after explicit approval submit the current requestId, confirmed boolean and exact planHash. Never reuse an expired reply or approve for the user.
 
-安装完成后只有一个名为 \`agentwiki\` 的本地 MCP 网关。它确定性地区分：
+提交回复文件 / Submit the reply file:
+\`\`\`sh
+npx --yes @neomei/agentwiki-local-sync@${PACKAGE_VERSION} onboard continue --session <sessionId> --reply-file <absolute-json-file> --protocol json
+\`\`\`
 
-- \`wiki_*\` — 远程 AgentWiki 工具（页面、图谱、审核、记忆）
-- \`local_*\` — 本地工具（扫描源、读取工件）
-- \`knowledge_*\` — 组合工作流（扫描→预览→同步→拉取）
+6. configuration_pending 时继续同一会话。网络中断或 error.retryable:true 时先 status 后重试 continue；不可重试错误报告 code/nextAction。保留原计划和配置，不重复创建 Agent/Space。
+For configuration_pending, continue the same session. After interruptions or retryable errors, inspect status and retry continue. Report code/nextAction for permanent errors. Preserve the original plan and configuration; do not recreate resources.
 
-Agent 不需要选择 MCP server，网关自动路由。
+7. completed 只表示配置结束，分别报告 connectionStatus、gatewayVerification、clientReloadRequired、knowledgeImport、hostVerification。按需重载客户端后，必须使用当前宿主的 agentwiki MCP wiki_* 工具实际读取一篇已知页面，核对标题/内容，才能报告宿主读取成功。仅工具列表或握手不算实际读取。
+Report configuration and gateway checks separately. Reload the client if needed, then actually read a known page through this host's agentwiki MCP wiki_* tools and verify title/content. A handshake or tools/list is not a successful page read.
 
----
+基础连接不扫描、不导入、不上传。知识导入可稍后使用 knowledge_* 工具预览并明确确认。不要为验证创建伪文档。
+Basic connection does not scan, import or upload. Knowledge import is a later, separately confirmed knowledge_* workflow; do not create placeholder documents for verification.
 
-## 其他命令
+旧 NDJSON/human 接口继续兼容已有客户端；新接入默认使用以上分步 JSON 命令。
+Legacy NDJSON/human interfaces remain compatible with existing clients. New connections use the bounded JSON steps above.
 
-- \`onboard resume <sessionId>\` — 恢复中断的接入
-- \`doctor\` — 检查安装健康状态
-- \`uninstall\` — 移除网关 MCP 并恢复配置
-
----
-
-完整文档：${BASE_URL}
+网页指南 / Web guide: ${BASE_URL}/guide/agent-onboard
 `;

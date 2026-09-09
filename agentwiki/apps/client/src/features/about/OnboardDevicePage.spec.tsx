@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { LanguageProvider } from '../../context/LanguageContext';
@@ -23,7 +23,7 @@ const session = {
   purpose: 'full-onboarding',
   packageVersion: '0.3.1',
   status: 'pending',
-  expiresAt: '2026-08-10T12:30:00.000Z',
+  expiresAt: '2099-08-10T12:30:00.000Z',
 };
 
 const renderPage = (entry = '/onboard/device?user_code=ABCD-EFGH') => render(
@@ -63,7 +63,7 @@ describe('OnboardDevicePage', () => {
     renderPage();
 
     expect(await screen.findByText('Codex')).toBeInTheDocument();
-    expect(screen.getByText('https://agentwiki.quukk.com')).toBeInTheDocument();
+    expect(screen.getByText(window.location.origin)).toBeInTheDocument();
     expect(screen.getByText('完整 Agent 接入')).toBeInTheDocument();
     expect(screen.getByText('0.3.1')).toBeInTheDocument();
     expect(document.body.textContent).not.toContain('ABCD-EFGH');
@@ -131,6 +131,46 @@ describe('OnboardDevicePage', () => {
     renderPage();
     expect(await screen.findByText(expected)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '允许接入' })).not.toBeInTheDocument();
+  });
+
+  it.each(['zh-CN','en'] as const)('explains Obsidian authorization and plugin return in %s',async language=>{
+    localStorage.setItem('agentwiki.language.v1',language);
+    vi.mocked(api.get).mockResolvedValue({data:{...session,clientType:'obsidian',purpose:'obsidian-connect'}});
+    vi.mocked(api.post).mockResolvedValue({data:{status:'approved'}});
+    renderPage();
+    expect(await screen.findByRole('heading',{name:language==='zh-CN'?'连接 Obsidian':'Connect Obsidian'})).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('扫描计划');
+    fireEvent.click(screen.getByRole('button',{name:language==='zh-CN'?'允许接入':'Authorize connection'}));
+    expect(await screen.findByText(language==='zh-CN'?'已授权，请回到 Obsidian 完成连接':'Authorized. Return to Obsidian to finish connecting')).toBeInTheDocument();
+  });
+
+  it('expires an old pending request and gives purpose-specific retry guidance',async()=>{
+    vi.mocked(api.get).mockResolvedValue({data:{...session,clientType:'obsidian',purpose:'obsidian-connect',expiresAt:new Date(Date.now()-1).toISOString()}});
+    renderPage();
+    expect(await screen.findByText('授权请求已过期')).toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'允许接入'})).not.toBeInTheDocument();
+    expect(screen.getByText('请回到 Obsidian，重新点击“连接 AgentWiki”。')).toBeInTheDocument();
+  });
+
+  it('ignores a delayed decision when navigating to another authorization request',async()=>{
+    let finish!: (value: unknown) => void;
+    vi.mocked(api.post).mockReturnValue(new Promise(resolve=>{finish=resolve;}) as any);
+    const NextRequest=()=>{const navigate=useNavigate();return <button onClick={()=>navigate('/onboard/device?user_code=JKLM-NPQR')}>Next request</button>;};
+    render(<LanguageProvider><MemoryRouter initialEntries={['/onboard/device?user_code=ABCD-EFGH']}><OnboardDevicePage/><NextRequest/></MemoryRouter></LanguageProvider>);
+    await screen.findByText('Codex');
+    fireEvent.click(screen.getByRole('button',{name:'允许接入'}));
+    fireEvent.click(screen.getByRole('button',{name:'Next request'}));
+    await screen.findByRole('button',{name:'允许接入'});
+    finish({data:{status:'approved'}});
+    await waitFor(()=>expect(screen.getByRole('button',{name:'允许接入'})).toBeEnabled());
+    expect(screen.queryByText('已允许此 Agent 接入')).not.toBeInTheDocument();
+  });
+
+  it('rejects mismatched purpose/client contracts instead of presenting approval',async()=>{
+    vi.mocked(api.get).mockResolvedValue({data:{...session,clientType:'obsidian',purpose:'agent-connect'}});
+    renderPage();
+    expect(await screen.findByText('授权链接无效或已失效')).toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'允许接入'})).not.toBeInTheDocument();
   });
 
   it('shows an invalid-link state when the session lookup fails', async () => {

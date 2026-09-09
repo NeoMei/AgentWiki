@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Compatibility fixture for the legacy NDJSON driver. The default web guide uses bounded JSON steps.
 /** Offline NDJSON fixture for pressure-testing the copied Agent onboarding prompt. */
 import readline from 'node:readline';
 

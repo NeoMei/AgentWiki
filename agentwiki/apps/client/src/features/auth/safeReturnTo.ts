@@ -29,14 +29,14 @@ export const safeReturnTo = (value: unknown): string | null => {
     return null;
   }
 
-  if (parsed.origin !== 'https://agentwiki.invalid' || parsed.hash) {
+  if (parsed.origin !== 'https://agentwiki.invalid') {
     return null;
   }
 
   if (parsed.pathname === OBSIDIAN_GUIDE_PATH) {
-    return parsed.search ? null : OBSIDIAN_GUIDE_PATH;
+    return parsed.search || (parsed.hash && parsed.hash !== '#connect') ? null : `${OBSIDIAN_GUIDE_PATH}${parsed.hash}`;
   }
-  if (parsed.pathname !== DEVICE_AUTH_PATH) return null;
+  if (parsed.pathname !== DEVICE_AUTH_PATH || parsed.hash) return null;
 
   const keys = [...parsed.searchParams.keys()];
   if (keys.some((key) => key !== 'user_code') || parsed.searchParams.getAll('user_code').length > 1) {

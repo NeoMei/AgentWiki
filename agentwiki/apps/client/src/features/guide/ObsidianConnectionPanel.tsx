@@ -20,8 +20,9 @@ export const ObsidianConnectionPanel: React.FC = () => {
   const [codeData, setCodeData] = useState<{ code: string; expiresAt: string } | null>(null);
   const [codeCopied, setCodeCopied] = useState(false);
   const [countdown, setCountdown] = useState('');
+  const [expired, setExpired] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
-  const apiBaseUrl = `${window.location.origin}/api`;
+  const serverOrigin = window.location.origin;
 
   const loadDevices = useCallback(async () => {
     setLoadingDevices(true);
@@ -42,6 +43,7 @@ export const ObsidianConnectionPanel: React.FC = () => {
     if (!codeData) return;
     const update = () => {
       const ms = new Date(codeData.expiresAt).getTime() - Date.now();
+      setExpired(ms <= 0);
       if (ms <= 0) {
         setCountdown(t('integration.expired'));
         return;
@@ -73,7 +75,7 @@ export const ObsidianConnectionPanel: React.FC = () => {
   };
 
   const copyCode = async () => {
-    if (!codeData) return;
+    if (!codeData || expired || generating) return;
     try {
       await navigator.clipboard.writeText(codeData.code);
       setCodeCopied(true);
@@ -98,33 +100,33 @@ export const ObsidianConnectionPanel: React.FC = () => {
   };
 
   return (
-    <section className="mt-8 rounded-2xl border border-purple-200 bg-white p-5 shadow-sm sm:p-6" aria-labelledby="obsidian-connect-title">
+    <section className="mt-8 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6" aria-labelledby="obsidian-connect-title">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 id="obsidian-connect-title" className="text-lg font-semibold">{t('integration.obsidianSync')}</h2>
-          <p className="mt-1 text-sm text-gray-600">{t('integration.obsidianSyncDesc')}</p>
+          <h2 id="obsidian-connect-title" className="text-lg font-semibold">{t('integration.manualConnection')}</h2>
+          <p className="mt-1 text-sm text-gray-600">{t('integration.manualConnectionDesc')}</p>
         </div>
         <button
           type="button"
           onClick={() => void generateCode()}
           disabled={generating}
-          className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+          className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
         >
-          {generating ? t('integration.generating') : t('integration.generateCode')}
+          {generating ? t('integration.generating') : expired && codeData ? t('integration.regenerateCode') : t('integration.generateCode')}
         </button>
       </div>
 
       {error ? <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p> : null}
 
       {codeData ? (
-        <div className="relative mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4">
+        <div className="relative mt-5 rounded-xl border border-gray-200 bg-gray-50 p-4">
           <button type="button" aria-label={t('common.close')} onClick={() => setCodeData(null)} className="absolute right-2 top-2 text-gray-400 hover:text-gray-600">
             <X size={16} />
           </button>
           <p className="mb-2 text-sm font-medium">{t('integration.connectionCode')}</p>
           <div className="flex flex-col gap-2 sm:flex-row">
             <code className="min-w-0 flex-1 break-all rounded border bg-white px-3 py-2 font-mono text-sm">{codeData.code}</code>
-            <button type="button" onClick={() => void copyCode()} className="inline-flex shrink-0 items-center justify-center gap-1 rounded border bg-white px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-50">
+            <button type="button" onClick={() => void copyCode()} disabled={expired || generating} className="inline-flex shrink-0 items-center justify-center gap-1 rounded border bg-white px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-50">
               <Copy size={14} /> {codeCopied ? t('integration.copied') : t('integration.copyCode')}
             </button>
           </div>
@@ -132,7 +134,7 @@ export const ObsidianConnectionPanel: React.FC = () => {
           <div className="mt-3 space-y-1 text-xs text-gray-600">
             <p className="font-medium">{t('integration.connectSteps')}</p>
             <p>{t('integration.step1')}</p>
-            <p>{t('integration.step2', { origin: apiBaseUrl })}</p>
+            <p>{t('integration.step2', { origin: serverOrigin })}</p>
             <p>{t('integration.step3')}</p>
           </div>
         </div>
@@ -151,7 +153,7 @@ export const ObsidianConnectionPanel: React.FC = () => {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="truncate text-sm font-medium">{device.deviceName}</span>
-                <span className={device.status === 'active' ? 'text-xs text-green-700' : device.status === 'provisional' ? 'text-xs text-blue-700' : 'text-xs text-gray-400'}>{device.status}</span>
+                <span className={device.status === 'active' ? 'text-xs text-green-700' : device.status === 'provisional' ? 'text-xs text-blue-700' : 'text-xs text-gray-400'}>{t(`integration.deviceStatus.${device.status}`)}</span>
               </div>
               <p className="mt-1 truncate text-xs text-gray-500">
                 {t('integration.deviceVault')}: {device.vaultId ? `${device.vaultId.slice(0, 8)}…` : '—'} · {t('integration.lastUsed')}: {device.lastUsedAt ? new Date(device.lastUsedAt).toLocaleString(language) : t('integration.never')}

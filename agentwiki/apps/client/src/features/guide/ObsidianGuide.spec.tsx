@@ -30,6 +30,14 @@ describe('ObsidianGuide availability', () => {
     );
   });
 
+  it('leads with plugin-initiated connection and a nearby manual fallback',()=>{
+    const {container}=render(<MemoryRouter><LanguageProvider><ObsidianGuide /></LanguageProvider></MemoryRouter>);
+    expect(screen.getByRole('heading',{name:'连接 Obsidian'})).toBeInTheDocument();
+    expect(screen.getByText('在插件设置中点击“连接 AgentWiki”')).toBeInTheDocument();
+    expect(screen.getByRole('link',{name:'使用手动连接码'})).toHaveAttribute('href','#connect');
+    expect(container.querySelector('#connect')).toBeInTheDocument();
+  });
+
   it('keeps installation, code generation, and device management on the same page', async () => {
     render(<MemoryRouter><LanguageProvider><ObsidianGuide /></LanguageProvider></MemoryRouter>);
 
@@ -38,11 +46,21 @@ describe('ObsidianGuide availability', () => {
     expect(screen.queryByRole('link', { name: '打开集成管理' })).not.toBeInTheDocument();
   });
 
-  it('shows the API base URL required by the local sync client after generating a code', async () => {
+  it('disables an expired manual code and offers regeneration',async()=>{
+    apiMock.post.mockResolvedValueOnce({data:{code:'EXPIRED-CODE',expiresAt:new Date(Date.now()-1).toISOString()}});
+    render(<MemoryRouter><LanguageProvider><ObsidianGuide /></LanguageProvider></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button',{name:'生成连接码'}));
+    expect(await screen.findByText('连接码已过期，请重新生成。')).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'复制'})).toBeDisabled();
+    fireEvent.click(screen.getByRole('button',{name:'重新生成连接码'}));
+    expect(await screen.findByText('AW-TEST-CODE')).toBeInTheDocument();
+  });
+
+  it('shows the server origin required by the Obsidian plugin after generating a code', async () => {
     render(<MemoryRouter><LanguageProvider><ObsidianGuide /></LanguageProvider></MemoryRouter>);
 
     fireEvent.click(await screen.findByRole('button', { name: '生成连接码' }));
 
-    expect(await screen.findByText(`2. 服务器地址：${window.location.origin}/api`)).toBeInTheDocument();
+    expect(await screen.findByText(`2. 服务器地址：${window.location.origin}`)).toBeInTheDocument();
   });
 });

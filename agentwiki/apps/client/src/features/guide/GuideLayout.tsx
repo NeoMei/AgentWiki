@@ -42,8 +42,8 @@ export const guideGroups: GuideGroup[] = [
       {
         to: '/guide/obsidian',
         icon: Gem,
-        titleZh: 'Obsidian 插件',
-        titleEn: 'Obsidian Plugin',
+        titleZh: '连接 Obsidian',
+        titleEn: 'Connect Obsidian',
       },
     ],
   },

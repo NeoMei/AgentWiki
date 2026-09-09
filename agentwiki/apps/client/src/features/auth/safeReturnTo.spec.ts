@@ -9,8 +9,9 @@ describe('safeReturnTo', () => {
     expect(safeReturnTo('/onboard/device')).toBe('/onboard/device');
   });
 
-  it('accepts the exact Obsidian connection page without query or fragment', () => {
+  it('accepts only the Obsidian connection page and its manual-connection anchor', () => {
     expect(safeReturnTo('/guide/obsidian')).toBe('/guide/obsidian');
+    expect(safeReturnTo('/guide/obsidian#connect')).toBe('/guide/obsidian#connect');
     expect(safeReturnTo('/guide/obsidian?next=/dashboard')).toBeNull();
     expect(safeReturnTo('/guide/obsidian#devices')).toBeNull();
   });

@@ -32,7 +32,7 @@ describe('UsageGuide Agent connection flow', () => {
     expect(screen.getByRole('link', { name: '工作台' })).toHaveAttribute('href', '/?intent=workspace#login');
     expect(screen.getByRole('link', { name: '快速开始' })).toHaveAttribute('href', '/guide');
     expect(screen.getByRole('link', { name: 'Agent 自助接入' })).toHaveAttribute('href', '/guide/agent-onboard');
-    expect(screen.getByRole('link', { name: 'Obsidian 插件' })).toHaveAttribute('href', '/guide/obsidian');
+    expect(screen.getByRole('link', { name: '连接 Obsidian' })).toHaveAttribute('href', '/guide/obsidian');
     expect(screen.getByRole('link', { name: '项目解读' })).toHaveAttribute('href', '/guide/docs');
     expect(screen.getByRole('heading', { name: '生成统一网关接入指令' })).toBeInTheDocument();
     const gatewayStepHeading = screen.getByRole('heading', { name: '生成统一网关接入指令' });

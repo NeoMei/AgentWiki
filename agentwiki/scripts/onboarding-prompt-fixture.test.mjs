@@ -78,7 +78,7 @@ function runFixture({
   });
 }
 
-describe('onboarding prompt consumer fixture', () => {
+describe('legacy NDJSON onboarding prompt consumer fixture (compatibility only)', () => {
   test('reaches completed only with the documented input and confirmation shapes', async () => {
     const result = await runFixture({ startupDelayMs: 0, authorizationDelayMs: 0 });
     assert.equal(result.code, 0);
