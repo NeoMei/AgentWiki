@@ -30,10 +30,10 @@
 ## 安装体验
 
 - 首页“Agent 自助接入”的默认交付物必须是一段可直接粘贴到本地 Agent 对话的完整任务提示词，不是让人在普通终端直接运行的裸 CLI 命令。
-- 提示词内包含当前精确版本的 `onboard --protocol ndjson` 命令，并明确要求 Agent 使用 stdout 可轮询、stdin 可写的持久进程会话；首次 `npx` 安装期间无 stdout 不能被误判为失败或触发并行重启。
-- 提示词必须给出协议回复的精确 JSON 形状：`input_required` 使用同一 `requestId` 和 `values`；`confirmation_required` 使用同一 `requestId`、布尔字段 `confirmed` 和事件原始 `planHash`。不得让 Agent 猜测为 `approved` 或遗漏 hash。
-- 首页提示词发布前必须由一个新的 Agent 消费者从 Git 根目录运行 `cd agentwiki && node scripts/onboarding-prompt-fixture.mjs`，驱动受控 NDJSON fixture 依次通过输入、授权等待、计划确认、同步确认和 `completed`；同时运行 `cd agentwiki && node --test scripts/onboarding-prompt-fixture.test.mjs`。页面字符串测试、复制测试或 CLI 自测不能代替 Agent 消费者验收，脱敏结果记录到当次验证文档。
-- `--protocol ndjson` 是 Agent 驱动协议；不得将它文案化为“在本地终端运行”。人类直接终端后备才使用 `--protocol human`。
+- Local Sync0.10.0起，新接入提示词使用当前精确版本的 `onboard start/status/continue --protocol json`，每一步有界执行并持久化session；按返回的回复模板提供绝对reply-file路径，保留requestId、confirmed与planHash，不猜测字段。
+- 基础连接只完成授权、空间/角色选择、确认、安装与网关检查；不要求本地目录、扫描或知识上传。配置完成、当前远程连接状态、宿主实际读取必须区分，历史completed不能证明当前远程可用。
+- 首页提示词发布前必须由新的真实Agent消费者执行网页复制的完整提示词，并由真实宿主调用wiki工具验证读取。页面字符串测试、复制测试或CLI自测不能代替消费者验收，脱敏结果记录到当次验证文档。
+- 旧 `--protocol ndjson`、`--protocol human` 和 `--code` 保留兼容。NDJSON仍需持久stdin/stdout并使用同一requestId、confirmed和planHash；旧fixture只证明兼容路径，不替代新的分步JSON接入验收。首次npx安装期间无stdout不能被误判为失败或触发并行重启。
 - `0.5.0` 接入时一次选择 Space 和 `reader` / `editor` / `publisher`；兑换必须原子创建/更新 Grant 并把身份型 Credential 绑定到该 Grant，只有 Grant 存 role，scopes 实时派生。
 - 本地 Agent 只安装一个名为 `agentwiki` 的 stdio MCP gateway；它统一提供 `wiki_*`、`local_*`、`knowledge_*`，远程 `/api/mcp` 只作为 gateway 内部桥接目标。
 - Agent Credential 不提供独立权限设置，只作为绑定一条 Space Grant 的连接身份。已有 Agent 使用精确版本 `onboard --code` 接入；全局新 Agent 使用 Device Auth `onboard`。
