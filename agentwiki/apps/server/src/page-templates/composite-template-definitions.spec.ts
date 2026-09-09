@@ -9,7 +9,7 @@ describe('built-in composite page-group templates', () => {
       'paper-workspace', 'video-script-workspace', 'novel-workspace',
     ]);
     for (const seed of BUILT_IN_COMPOSITE_TEMPLATES) {
-      expect(seed.seedVersion).toBe(1);
+      expect(seed.seedVersion).toBe(2);
       expect(seed.name['zh-CN']).toBeTruthy();
       expect(seed.name.en).toBeTruthy();
       expect(seed.definition.kind).toBe('page_group');
@@ -23,6 +23,27 @@ describe('built-in composite page-group templates', () => {
       }
       expect(validateCompositeDefinition(seed.definition)).toEqual([]);
       expect(Object.isFrozen(seed.definition)).toBe(true);
+    }
+  });
+
+  it('gives every document localized filling guidance, an example and a completion checklist', () => {
+    const expectedCounts = [7, 8, 7, 6, 7, 6];
+    for (const [index, seed] of BUILT_IN_COMPOSITE_TEMPLATES.entries()) {
+      const pages = seed.definition.nodes.filter((node) => node.kind === 'page');
+      expect(pages).toHaveLength(expectedCounts[index]);
+      for (const node of pages) {
+        for (const locale of ['zh-CN', 'en'] as const) {
+          const body = node.contentI18n[locale] as string;
+          const sections = locale === 'zh-CN'
+            ? ['## 填写前', '## 填写示例', '## 完成检查', '## 文档衔接']
+            : ['## Before you start', '## Worked example', '## Completion checklist', '## Related documents'];
+          for (const section of sections) expect({ page: node.nodeId, body }).toEqual(expect.objectContaining({ body: expect.stringContaining(section) }));
+          expect((body.match(/^## /gm) ?? []).length).toBeGreaterThanOrEqual(7);
+          expect(body).toMatch(/\|[^\n]+\|/);
+          expect((body.match(/^- \[ \]/gm) ?? []).length).toBeGreaterThanOrEqual(3);
+          expect(body).toContain(locale === 'zh-CN' ? '示例' : 'example');
+        }
+      }
     }
   });
 

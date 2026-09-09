@@ -198,7 +198,9 @@ describe('PageTemplateService', () => {
     jest.clearAllMocks();
     pageTemplate.findUnique.mockImplementation(async ({ where }: any) => ({
       id: `existing-${where.scopeKey_stableKey.stableKey}`,
-      scope: 'system', currentVersion: 1,
+      scope: 'system', currentVersion: BUILT_IN_COMPOSITE_TEMPLATES.find(
+        (seed) => seed.stableKey === where.scopeKey_stableKey.stableKey,
+      )?.seedVersion ?? 1,
     }));
     await service.seedBuiltIns();
     expect(pageTemplateVersion.create).not.toHaveBeenCalled();

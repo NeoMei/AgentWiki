@@ -9,6 +9,7 @@ import {
 } from '@neomei/agentwiki-sync-protocol';
 import { BUILT_IN_COLLABORATION_TEMPLATES } from '../collaboration-workflows/template-definitions';
 import { deepFreeze, systemLocalizedValue } from './page-template.types';
+import { compositePageGuide } from './guides';
 
 type SystemText = Readonly<{ 'zh-CN': string; en: string }>;
 
@@ -44,7 +45,7 @@ const page = (spec: PageSpec): TemplateNode => ({
   kind: 'page',
   order: spec.order,
   titleI18n: localized(spec.zh, spec.en),
-  contentI18n: localized(`# ${spec.zh}\n`, `# ${spec.en}\n`),
+  contentI18n: localized(`# ${spec.zh}\n\n${compositePageGuide(spec.nodeId).zh}\n`, `# ${spec.en}\n\n${compositePageGuide(spec.nodeId).en}\n`),
   roleSlotKey: spec.roleSlotKey,
 });
 
@@ -203,41 +204,41 @@ function defineSeed(seed: Omit<BuiltInCompositeTemplate, 'definition'> & { defin
 
 export const BUILT_IN_COMPOSITE_TEMPLATES = deepFreeze([
   defineSeed({
-    stableKey: 'project-workspace', category: PageTemplateCategory.planning, displayOrder: 101, seedVersion: 1,
+    stableKey: 'project-workspace', category: PageTemplateCategory.planning, displayOrder: 101, seedVersion: 2,
     name: localized('项目管理工作区', 'Project management workspace'),
     description: localized('项目概况、计划、治理和进展的一体化工作区', 'Workspace for project overview, planning, governance, and progress'),
     defaultTitle: localized('项目工作区', 'Project workspace'), definition: projectDefinition(),
   }),
   defineSeed({
-    stableKey: 'coding-workspace', category: PageTemplateCategory.planning, displayOrder: 102, seedVersion: 1,
+    stableKey: 'coding-workspace', category: PageTemplateCategory.planning, displayOrder: 102, seedVersion: 2,
     name: localized('编码协作工作区', 'Coding collaboration workspace'),
     description: localized('从需求到发布审阅的协作页面组', 'Collaborative page group from requirements to release review'),
     defaultTitle: localized('编码工作区', 'Coding workspace'), legacyWorkflowSlug: 'coding',
     definition: workflowDefinition('coding', localized('编码协作', 'Coding collaboration')),
   }),
   defineSeed({
-    stableKey: 'bid-workspace', category: PageTemplateCategory.knowledge, displayOrder: 103, seedVersion: 1,
+    stableKey: 'bid-workspace', category: PageTemplateCategory.knowledge, displayOrder: 103, seedVersion: 2,
     name: localized('标书撰写工作区', 'Bid writing workspace'),
     description: localized('招标资料、章节稿、合规审核和交付页面组', 'Tender materials, drafts, compliance review, and delivery pages'),
     defaultTitle: localized('标书工作区', 'Bid workspace'), legacyWorkflowSlug: 'bid-writing',
     definition: workflowDefinition('bid-writing', localized('标书撰写', 'Bid writing')),
   }),
   defineSeed({
-    stableKey: 'paper-workspace', category: PageTemplateCategory.knowledge, displayOrder: 104, seedVersion: 1,
+    stableKey: 'paper-workspace', category: PageTemplateCategory.knowledge, displayOrder: 104, seedVersion: 2,
     name: localized('论文撰写工作区', 'Paper writing workspace'),
     description: localized('研究、文献、方法、章节和审校页面组', 'Research, literature, method, drafting, and review pages'),
     defaultTitle: localized('论文工作区', 'Paper workspace'), legacyWorkflowSlug: 'paper-writing',
     definition: workflowDefinition('paper-writing', localized('论文撰写', 'Paper writing')),
   }),
   defineSeed({
-    stableKey: 'video-script-workspace', category: PageTemplateCategory.knowledge, displayOrder: 105, seedVersion: 1,
+    stableKey: 'video-script-workspace', category: PageTemplateCategory.knowledge, displayOrder: 105, seedVersion: 2,
     name: localized('视频脚本工作区', 'Video script workspace'),
     description: localized('创意、资料、分镜、脚本和审校页面组', 'Creative, research, storyboard, script, and review pages'),
     defaultTitle: localized('视频脚本工作区', 'Video script workspace'), legacyWorkflowSlug: 'video-script-writing',
     definition: workflowDefinition('video-script-writing', localized('视频脚本', 'Video script')),
   }),
   defineSeed({
-    stableKey: 'novel-workspace', category: PageTemplateCategory.knowledge, displayOrder: 106, seedVersion: 1,
+    stableKey: 'novel-workspace', category: PageTemplateCategory.knowledge, displayOrder: 106, seedVersion: 2,
     name: localized('小说撰写工作区', 'Novel writing workspace'),
     description: localized('世界观、人物、情节、章节和连续性页面组', 'World, character, plot, chapter, and continuity pages'),
     defaultTitle: localized('小说工作区', 'Novel workspace'), legacyWorkflowSlug: 'novel-writing',

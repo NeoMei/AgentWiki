@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.11.1** — Creates pages and page groups in a dedicated Space navigation page, with searchable system and Space templates. Local Sync remains 0.10.0 and sync protocol 0.6.0.
+> **v0.11.2** — Adds bilingual filling guides, worked examples and completion checks to all 41 documents in the six built-in page groups. Template version 2 preserves existing documents and version 1 snapshots. Local Sync remains 0.10.0 and sync protocol 0.6.0.
 
 
 ## Hosted Service

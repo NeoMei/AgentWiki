@@ -892,3 +892,70 @@ test('composite instantiation is atomic, idempotent, stale-safe, and permission-
     }
   });
 });
+
+test('guided built-ins upgrade immutably and persist all 41 document bodies in both languages', {
+  timeout: 120_000,
+}, async () => {
+  const { BUILT_IN_COMPOSITE_TEMPLATES } = requireFromServer('./dist/page-templates/composite-template-definitions.js');
+  await withPageTemplateTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schemaName }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+    const services = await createService(prisma, null);
+    // Seeding only depends on Prisma; no authorization or runtime collaborators are called.
+    const seeder = new PageTemplateService(prisma, null, null, null, null);
+    let documentsChecked = 0;
+    try {
+      for (const [index, seed] of BUILT_IN_COMPOSITE_TEMPLATES.entries()) {
+        const oldDefinition = structuredClone(seed.definition);
+        for (const node of oldDefinition.nodes) {
+          if (node.kind === 'page') node.contentI18n = {
+            'zh-CN': `# ${node.titleI18n['zh-CN']}\n`, en: `# ${node.titleI18n.en}\n`,
+          };
+        }
+        const fixture = await createFixture(prisma, `${schemaName.slice(-8)}_guide_${index}`, oldDefinition);
+        await prisma.pageTemplate.update({ where: { id: fixture.templateId }, data: { stableKey: seed.stableKey } });
+        const principal = { userId: fixture.userId, platformRole: 'user' };
+        const oldInstance = await services.service.instantiate(fixture.spaceId, fixture.templateId,
+          request(`old-guide-${index}`, { rootName: 'Existing documents' }), principal);
+        await prisma.page.update({ where: { id: oldInstance.pageIds[0] }, data: { content: '# Human edits\n\nKeep my notes exactly.' } });
+        const oldPages = await prisma.page.findMany({ where: { id: { in: oldInstance.pageIds } }, orderBy: { id: 'asc' } });
+        const oldVersion = await prisma.pageTemplateVersion.findUniqueOrThrow({
+          where: { templateId_version: { templateId: fixture.templateId, version: 1 } },
+        });
+        await seeder.seedCompositeOne(seed);
+        await seeder.seedCompositeOne(seed);
+        assert.equal((await prisma.pageTemplate.findUniqueOrThrow({ where: { id: fixture.templateId } })).currentVersion, 2);
+        assert.equal(await prisma.pageTemplateVersion.count({ where: { templateId: fixture.templateId } }), 2);
+        assert.deepEqual(await prisma.pageTemplateVersion.findUniqueOrThrow({
+          where: { templateId_version: { templateId: fixture.templateId, version: 1 } },
+        }), oldVersion);
+        assert.deepEqual(await prisma.page.findMany({ where: { id: { in: oldInstance.pageIds } }, orderBy: { id: 'asc' } }), oldPages);
+
+        for (const locale of ['zh-CN', 'en']) {
+          const space = await prisma.space.findUniqueOrThrow({ where: { id: fixture.spaceId } });
+          const instance = await services.service.instantiate(fixture.spaceId, fixture.templateId,
+            request(`new-guide-${index}-${locale}`, {
+              templateVersion: 2, locale, rootName: `Guided ${locale}`,
+              expectedTreeRevision: space.contentTreeRevision,
+            }), principal);
+          assert.equal(instance.runId, null);
+          const pages = await prisma.page.findMany({ where: { id: { in: instance.pageIds } }, include: { versions: true } });
+          const expected = seed.definition.nodes.filter((node) => node.kind === 'page');
+          assert.equal(pages.length, expected.length);
+          for (const node of expected) {
+            const page = pages.find((candidate) => candidate.title === node.titleI18n[locale]);
+            assert.ok(page, `${seed.stableKey}/${node.nodeId}/${locale} missing`);
+            assert.equal(page.content, node.contentI18n[locale]);
+            assert.equal(page.versions.length, 1);
+            assert.equal(page.versions[0].content, page.content);
+            assert.match(page.content, locale === 'zh-CN' ? /## 填写示例/ : /## Worked example/);
+            documentsChecked += 1;
+          }
+        }
+      }
+      assert.equal(documentsChecked, 82);
+    } finally {
+      await services.close();
+      await prisma.$disconnect();
+    }
+  });
+});
