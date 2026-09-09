@@ -1,4 +1,5 @@
 import React from 'react';
+import { AuthProvider, useAuth } from '../../context/AuthContext';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Link, RouterProvider, createMemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -9,6 +10,7 @@ import {
   NavigationGuardProvider,
   readWorkspacePosition,
   rememberWorkspacePosition,
+  createWorkspacePositionRecorder,
   spaceFolderHref,
   useDirtyNavigationGuard,
   workspaceSectionFromPath,
@@ -121,6 +123,62 @@ describe('workspaceNavigation', () => {
     expect(readWorkspacePosition('entry-a', 'page-a')).toEqual({ pageId: 'page-a', cursorOffset: 12, headingId: null, headingText: 'A', sourceOffset: 12, scrollTop: 80 });
     expect(readWorkspacePosition('entry-a', 'page-b')).toBeNull();
     expect(readWorkspacePosition('missing', 'page-a')).toBeNull();
+  });
+
+
+  it('evicts the least recently used position while preserving reads and updates', () => {
+    const position = { pageId: 'bounded-page', cursorOffset: 12, headingId: null, headingText: 'Position', sourceOffset: 12, scrollTop: 80 };
+    for (let index = 0; index < 100; index += 1) rememberWorkspacePosition(`bounded-${index}`, position);
+    expect(readWorkspacePosition('bounded-0', 'bounded-page')).toEqual(position);
+    rememberWorkspacePosition('bounded-1', { ...position, scrollTop: 160 });
+    rememberWorkspacePosition('bounded-100', position);
+    expect(readWorkspacePosition('bounded-2', 'bounded-page')).toBeNull();
+    expect(readWorkspacePosition('bounded-0', 'bounded-page')).toEqual(position);
+    expect(readWorkspacePosition('bounded-1', 'bounded-page')?.scrollTop).toBe(160);
+    expect(readWorkspacePosition('bounded-100', 'bounded-page')).toEqual(position);
+  });
+
+  it.each(['switch user', 'logout'])('clears positions on %s', (action) => {
+    localStorage.clear();
+    const position = { pageId: 'shared-page', cursorOffset: 12, headingId: null, headingText: 'Private position label', sourceOffset: 12, scrollTop: 80 };
+    const AuthHarness = () => {
+      const auth = useAuth();
+      return React.createElement('button', { onClick: () => {
+        if (action === 'logout') auth.logout();
+        else auth.login('token-b', { id: 'user-b' });
+      } }, 'Change session');
+    };
+    localStorage.setItem('token', 'token-a');
+    localStorage.setItem('user', JSON.stringify({ id: 'user-a' }));
+    render(React.createElement(AuthProvider, null, React.createElement(AuthHarness)));
+    rememberWorkspacePosition('shared-entry', position);
+    const oldSessionRecorder = createWorkspacePositionRecorder();
+
+    fireEvent.click(screen.getByText('Change session'));
+    expect(readWorkspacePosition('shared-entry', 'shared-page')).toBeNull();
+    oldSessionRecorder('shared-entry', position);
+    expect(readWorkspacePosition('shared-entry', 'shared-page')).toBeNull();
+    createWorkspacePositionRecorder()('new-session-entry', position);
+    expect(readWorkspacePosition('new-session-entry', 'shared-page')).toEqual(position);
+    localStorage.clear();
+  });
+
+  it('preserves positions when the same authenticated user refreshes their token', () => {
+    localStorage.setItem('token', 'token-a');
+    localStorage.setItem('user', JSON.stringify({ id: 'user-a' }));
+    const position = { pageId: 'refresh-page', cursorOffset: 12, headingId: null, headingText: 'Same user', sourceOffset: 12, scrollTop: 80 };
+    const AuthHarness = () => {
+      const auth = useAuth();
+      return React.createElement('button', { onClick: () => auth.login('refreshed-token', { id: 'user-a', name: 'Updated name' }) }, 'Refresh token');
+    };
+    render(React.createElement(AuthProvider, null, React.createElement(AuthHarness)));
+    rememberWorkspacePosition('refresh-entry', position);
+    const recorder = createWorkspacePositionRecorder();
+    fireEvent.click(screen.getByText('Refresh token'));
+    expect(readWorkspacePosition('refresh-entry', 'refresh-page')).toEqual(position);
+    recorder('refresh-entry', { ...position, cursorOffset: 48 });
+    expect(readWorkspacePosition('refresh-entry', 'refresh-page')?.cursorOffset).toBe(48);
+    localStorage.clear();
   });
 
   it.each([

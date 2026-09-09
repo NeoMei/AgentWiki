@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { LanguageProvider } from '../../context/LanguageContext';
+import { AuthProvider, useAuth } from '../../context/AuthContext';
 import { PagePreview } from './PagePreview';
 import { SpaceWorkspaceProvider, SpaceWorkspaceScope, useSpaceWorkspace } from '../space-workspace/SpaceWorkspaceContext';
 import { readWorkspacePosition } from '../space-workspace/workspaceNavigation';
@@ -335,6 +336,36 @@ describe('PagePreview checklist saves', () => {
 
     expect(await screen.findByRole('heading', { name: 'Second page' })).toBeInTheDocument();
     await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: 0, left: 0, behavior: 'instant' }));
+  });
+
+  it('cannot refill the cleared cache from a previous session scroll callback during logout', async () => {
+    queuePages({ data: page({ content: '# Previous session position' }) });
+    localStorage.setItem('token', 'token-a');
+    localStorage.setItem('user', JSON.stringify({ id: 'user-a' }));
+    const SessionHarness = () => {
+      const { user, logout } = useAuth();
+      return <>
+        <button type="button" onClick={() => {
+          logout();
+          // Existing listeners can still run before React commits the auth transition.
+          fireEvent.scroll(window);
+        }}>Logout</button>
+        {user && <NavigationHarness />}
+      </>;
+    };
+    render(
+      <AuthProvider>
+        <LanguageProvider>
+          <MemoryRouter initialEntries={['/pages/page-1']}><SessionHarness /></MemoryRouter>
+        </LanguageProvider>
+      </AuthProvider>,
+    );
+    await screen.findByRole('heading', { name: 'Previous session position' });
+    const entryKey = screen.getByTestId('navigation-entry-key').textContent!;
+    fireEvent.scroll(window);
+    expect(readWorkspacePosition(entryKey, 'page-1')).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Logout' }));
+    expect(readWorkspacePosition(entryKey, 'page-1')).toBeNull();
   });
 
   it('restores the prior article block after browser history returns to that entry', async () => {

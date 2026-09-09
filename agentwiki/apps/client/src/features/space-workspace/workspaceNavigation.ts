@@ -26,7 +26,14 @@ export interface WorkspacePosition {
   scrollTop: number;
 }
 
+const WORKSPACE_POSITION_LIMIT = 100;
 const workspacePositions = new Map<string, WorkspacePosition>();
+let workspacePositionGeneration = 0;
+
+export const resetWorkspacePositions = () => {
+  workspacePositionGeneration += 1;
+  workspacePositions.clear();
+};
 
 export const renderedHeadingText = (heading: HTMLElement): string => {
   const clone = heading.cloneNode(true) as HTMLElement;
@@ -35,12 +42,27 @@ export const renderedHeadingText = (heading: HTMLElement): string => {
 };
 
 export const rememberWorkspacePosition = (entryKey: string, position: WorkspacePosition) => {
+  workspacePositions.delete(entryKey);
   workspacePositions.set(entryKey, position);
+  if (workspacePositions.size > WORKSPACE_POSITION_LIMIT) {
+    workspacePositions.delete(workspacePositions.keys().next().value!);
+  }
+};
+
+/** Bind scroll/unmount callbacks to the auth session that created them. */
+export const createWorkspacePositionRecorder = () => {
+  const generation = workspacePositionGeneration;
+  return (entryKey: string, position: WorkspacePosition) => {
+    if (generation === workspacePositionGeneration) rememberWorkspacePosition(entryKey, position);
+  };
 };
 
 export const readWorkspacePosition = (entryKey: string, pageId: string): WorkspacePosition | null => {
   const position = workspacePositions.get(entryKey);
-  return position?.pageId === pageId ? position : null;
+  if (position?.pageId !== pageId) return null;
+  workspacePositions.delete(entryKey);
+  workspacePositions.set(entryKey, position);
+  return position;
 };
 
 export const nearestMarkdownSourceBlock = (

@@ -14,7 +14,7 @@ import { PageInfoPanel } from '../space-workspace/PageInfoPanel';
 import {
   captureReadingPosition,
   readWorkspacePosition,
-  rememberWorkspacePosition,
+  createWorkspacePositionRecorder,
   renderedHeadingText,
   spaceFolderHref,
   type WorkspacePosition,
@@ -465,6 +465,7 @@ export const PagePreview: React.FC = () => {
   useEffect(() => {
     if (loading || !page || page.id !== id) return;
     const pageId = page.id;
+    const rememberWorkspacePosition = createWorkspacePositionRecorder();
     const rememberCurrentPosition = () => {
       const root = markdownRootRef.current;
       if (!root) return;

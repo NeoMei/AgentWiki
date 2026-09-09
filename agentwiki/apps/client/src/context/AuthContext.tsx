@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
+import { resetWorkspacePositions } from '../features/space-workspace/workspaceNavigation';
 
 interface AuthContextType {
   token: string | null;
@@ -17,6 +18,7 @@ const AuthContext = createContext<AuthContextType>({
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
   const [user, setUser] = useState<any | null>(() => {
+    resetWorkspacePositions();
     const saved = localStorage.getItem('user');
     if (!saved) return null;
     try {
@@ -27,13 +29,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const login = useCallback((newToken: string, newUser: any) => {
+    if (user?.id !== newUser?.id) resetWorkspacePositions();
     localStorage.setItem('token', newToken);
     localStorage.setItem('user', JSON.stringify(newUser));
     setToken(newToken);
     setUser(newUser);
-  }, []);
+  }, [user?.id]);
 
   const logout = useCallback(() => {
+    resetWorkspacePositions();
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setToken(null);

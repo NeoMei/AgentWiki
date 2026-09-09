@@ -21,7 +21,7 @@ import { useOptionalSpaceWorkspace, usePageWorkspaceIdentity } from '../space-wo
 import {
   readWorkspacePosition,
   nearestMarkdownSourceBlock,
-  rememberWorkspacePosition,
+  createWorkspacePositionRecorder,
   spaceFolderHref,
   useDirtyNavigationGuard,
   useGuardedNavigate,
@@ -542,13 +542,16 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     });
   }, [loading, location.key, location.state, navigationType, page]);
 
-  useEffect(() => () => {
-    const position = internalWorkspaceRef.current?.capturePosition();
-    if (!position) return;
-    rememberWorkspacePosition(location.key, {
-      ...position,
-      pageId: pageRef.current?.id ?? '',
-    });
+  useEffect(() => {
+    const rememberWorkspacePosition = createWorkspacePositionRecorder();
+    return () => {
+      const position = internalWorkspaceRef.current?.capturePosition();
+      if (!position) return;
+      rememberWorkspacePosition(location.key, {
+        ...position,
+        pageId: pageRef.current?.id ?? '',
+      });
+    };
   }, [location.key]);
 
   // Load page data and reset state when navigating to another page.
