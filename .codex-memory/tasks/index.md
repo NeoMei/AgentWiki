@@ -8,7 +8,7 @@
 
 ## 最近完成
 
-- [new-content-page-20260910](archive/new-content-page-20260910/brief.md)：独立新建内容页本地完成，Space 自定义模板保留；1458 客户端测试和 Chrome 桌面/手机隔离数据验收通过，未合并/发布/部署。
+- [new-content-page-20260910](archive/new-content-page-20260910/brief.md)：v0.11.1已合并、发布并部署；Space自定义模板能力保留，生产真实Chrome桌面/手机尺寸验收通过，详见发布记录。
 
 - [connection-ux-20260909](archive/connection-ux-20260909/brief.md)：应用0.11.0、npm0.10.0、独立插件0.5.0及生产部署完成；5588+1353项检查、真实客户端成功路径、正式包线上接入读页、32 API烟测及官方资产验证通过。
 
