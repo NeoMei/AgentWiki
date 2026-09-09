@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.10.1** — Faster workspace startup with lazy-loaded pages and enforced bundle budgets. Client tests now rebuild workspace dependencies automatically. Local Sync stays at 0.9.1 and sync protocol at 0.6.0; existing permissions, saving and synchronization rules are preserved.
+> **v0.10.2** — Fixes delayed editor reads, cursor restoration, concurrent search indexing, and live permission checks for directory writes. Local Sync stays at 0.9.1 and sync protocol at 0.6.0; existing role and save rules are preserved.
 
 
 ## Hosted Service
