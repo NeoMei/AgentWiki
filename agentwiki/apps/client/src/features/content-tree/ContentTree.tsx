@@ -120,7 +120,7 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
   };
 
   const renderNodes = (levelNodes: ContentTreeNode[], parentFolderId: string | null, nested = false): React.ReactNode => (
-    <ul className={nested ? 'ml-4 space-y-0.5' : 'space-y-0.5'} role={nested ? 'group' : 'tree'} data-testid={nested ? undefined : 'content-tree'}>
+    <ul className={nested ? 'ml-[15px] space-y-0.5 border-l border-gray-200' : 'space-y-0.5'} role={nested ? 'group' : 'tree'} data-testid={nested ? undefined : 'content-tree'}>
       {sortNodes(levelNodes).map((node) => {
         const expanded = node.kind === 'folder' && expandedFolderIds.has(node.id);
         return (
