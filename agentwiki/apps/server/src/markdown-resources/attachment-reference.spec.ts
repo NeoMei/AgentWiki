@@ -460,6 +460,15 @@ describe('parseImageReferences', () => {
     expect(counted.reads()).toBeLessThanOrEqual(raw.length * 20);
   });
 
+  it('scans distinct unmatched backtick runs linearly while keeping the following image visible', () => {
+    const raw = `${Array.from({ length: 96 }, (_, index) => '`'.repeat(index + 1)).join('x')} ![A](../assets/photo.png)`;
+    const counted = countIndexedReads(raw);
+
+    expect(parseImageReferences(counted.value, sourcePath).map((reference) => reference.rawTarget))
+      .toEqual(['../assets/photo.png']);
+    expect(counted.reads()).toBeLessThanOrEqual(raw.length * 20);
+  });
+
   it('matches deep list-fence blank lines in a linear number of indexed reads', () => {
     const depth = 512;
     const raw = `${'- '.repeat(depth)}\`\`\`md\r\n${'\r\n'.repeat(depth)}![[assets/real.png]]`;
@@ -494,6 +503,36 @@ describe('resolveReferencedAttachments', () => {
         expect.objectContaining({ rawTarget: 'assets/photo.png', attachmentId: 'z-photo' }),
       ],
       errors: [],
+    });
+  });
+
+  it('resolves the image after a mixed backtick span with its exact source range', () => {
+    const body = '``a ``` b`` ![A](../assets/photo.png) `c`';
+
+    expect(resolveReferencedAttachments(body, sourcePath, [
+      attachment('stable-photo-id', 'photo.png'),
+    ])).toEqual({
+      attachmentIds: ['stable-photo-id'],
+      references: [{
+        syntax: 'markdown',
+        rawTarget: '../assets/photo.png',
+        targetStart: 17,
+        targetEnd: 36,
+        resolvedPath: 'assets/photo.png',
+        classification: 'managed_candidate',
+        attachmentId: 'stable-photo-id',
+      }],
+      errors: [],
+    });
+  });
+
+  it('returns ATTACHMENT_MISSING for the image after a mixed backtick span', () => {
+    const body = '``a ``` b`` ![A](../assets/photo.png) `c`';
+
+    expect(resolveReferencedAttachments(body, sourcePath, [])).toEqual({
+      attachmentIds: [],
+      references: [],
+      errors: [{ code: 'ATTACHMENT_MISSING', targetStart: 17, targetEnd: 36 }],
     });
   });
 

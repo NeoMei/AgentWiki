@@ -36,6 +36,8 @@ import {
 } from './revision-v2-integrity';
 import { lockContentStore } from './content-store-lock';
 import { SyncV3RevisionWriterService } from './sync-v3-revision-writer.service';
+import { isLegacyUnifiedRevisionFormat, isSyncV3RevisionFormat, isSupportedLegacySyncRevisionFormat } from './sync-revision-format';
+import { verifyLegacyUnifiedHistoryChain } from './legacy-unified-revision-integrity';
 
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
@@ -346,9 +348,7 @@ export class SpaceRevisionWriterService {
         },
       });
       let legacyOrdinal: number;
-      if (existingExtraValue && typeof existingExtraValue.order === 'number') {
-        legacyOrdinal = existingExtraValue.order;
-      } else if (existingExtra) {
+      if (existingExtra) {
         legacyOrdinal = existingExtra.ordinal;
       } else {
         if (nextLegacyOrdinal === null) {
@@ -360,6 +360,9 @@ export class SpaceRevisionWriterService {
         }
         legacyOrdinal = nextLegacyOrdinal++;
       }
+      const legacyOrder = typeof existingExtraValue?.order === 'number'
+        ? existingExtraValue.order
+        : legacyOrdinal;
       await tx.legacyRevisionPageExtra.upsert({
         where: { revisionId_pageId: { revisionId: created.id, pageId: change.pageId } },
         create: {
@@ -370,7 +373,7 @@ export class SpaceRevisionWriterService {
           extra: {
             spaceId,
             title: change.title ?? '',
-            order: legacyOrdinal,
+            order: legacyOrder,
             metadata: null,
             artifactIds: [],
             legacyBodyHash: hash,
@@ -385,7 +388,7 @@ export class SpaceRevisionWriterService {
             ...existingExtraValue,
             spaceId,
             title: change.title ?? existingExtraValue?.title,
-            order: legacyOrdinal,
+            order: legacyOrder,
             metadata: existingExtraValue?.metadata ?? null,
             artifactIds: existingExtraValue?.artifactIds ?? [],
             legacyBodyHash: hash,
@@ -520,6 +523,20 @@ export class SpaceRevisionWriterService {
     changes: StructuralPageChange[],
     origin: RevisionOrigin & { origin: 'migration' },
   ): Promise<RevisionWriteResult> {
+    const latest = await tx.spaceKnowledgeRevision.findFirst({
+      where: { spaceId }, orderBy: { sequence: 'desc' },
+      select: { id: true, schemaVersion: true, recipeVersion: true },
+    });
+    const historicalV3 = await tx.spaceKnowledgeRevision.findFirst({
+      where: { spaceId, schemaVersion: 'content-tree@3', recipeVersion: 'referenced-images-v1' },
+      select: { id: true },
+    });
+    if (historicalV3 || (latest && (isSyncV3RevisionFormat(latest) || !isSupportedLegacySyncRevisionFormat(latest)))) {
+      throw this.invalidRevisionChain();
+    }
+    if (latest && isLegacyUnifiedRevisionFormat(latest)) {
+      await verifyLegacyUnifiedHistoryChain(tx, spaceId, latest.id);
+    }
     return this.advanceStructuralPagesLockedInternal(tx, spaceId, changes, origin, true);
   }
 
@@ -567,7 +584,10 @@ export class SpaceRevisionWriterService {
     deferTreeV2Finalization: boolean,
   ): Promise<RevisionWriteResult> {
     const v3Result = await this.v3Writer.advanceCurrentIfRequiredLocked(tx, spaceId, changes, origin);
-    if (v3Result) return v3Result;
+    if (v3Result) {
+      if (deferTreeV2Finalization) throw this.invalidRevisionChain();
+      return v3Result;
+    }
     await lockContentStore(tx);
     const latest = await tx.spaceKnowledgeRevision.findFirst({
       where: { spaceId },
@@ -622,10 +642,13 @@ export class SpaceRevisionWriterService {
         FROM "LegacyRevisionSidecar"
         WHERE "revisionId" = ${parentRevisionId}
       `;
-      await tx.spaceKnowledgeRevision.update({
-        where: { id: parentRevisionId },
-        data: { supersededAt: new Date() },
-      });
+      // The explicit historical cutover preserves the old revision rows verbatim.
+      if (!deferTreeV2Finalization) {
+        await tx.spaceKnowledgeRevision.update({
+          where: { id: parentRevisionId },
+          data: { supersededAt: new Date() },
+        });
+      }
     }
 
     if (origin.legacySidecarOverride) {
@@ -772,9 +795,8 @@ export class SpaceRevisionWriterService {
           SELECT
             input.*,
             existing."extra" AS "existingExtra",
+            -- Physical array position is independent of semantic display order.
             CASE
-              WHEN jsonb_typeof(existing."extra"->'order') = 'number'
-                THEN ((existing."extra"->>'order')::numeric)::integer
               WHEN existing."pageId" IS NOT NULL THEN existing."ordinal"
               ELSE maximum.value + ROW_NUMBER() OVER (
                 PARTITION BY (existing."pageId" IS NULL)
@@ -795,7 +817,11 @@ export class SpaceRevisionWriterService {
           COALESCE(planned."existingExtra", '{}'::jsonb) || jsonb_build_object(
             'spaceId', ${spaceId},
             'title', planned."title",
-            'order', planned."legacyOrdinal",
+            'order', CASE
+              WHEN jsonb_typeof(planned."existingExtra"->'order') = 'number'
+                THEN planned."existingExtra"->'order'
+              ELSE to_jsonb(planned."legacyOrdinal")
+            END,
             'metadata', COALESCE(planned."existingExtra"->'metadata', 'null'::jsonb),
             'artifactIds', COALESCE(planned."existingExtra"->'artifactIds', '[]'::jsonb),
             'legacyBodyHash', planned."contentHash",

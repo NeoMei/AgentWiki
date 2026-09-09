@@ -7,10 +7,12 @@ import {
 } from '@neomei/agentwiki-sync-protocol';
 import { PrismaService } from '../../database/prisma.service';
 import {
+  isLegacyUnifiedRevisionFormat,
   isSyncV1RevisionFormat,
   isSyncV2RevisionFormat,
   isSyncV3RevisionFormat,
 } from '../../core/sync/sync-revision-format';
+import { verifyLegacyUnifiedHistoryChain } from '../../core/sync/legacy-unified-revision-integrity';
 import { SyncApiException } from './sync-error';
 import {
   SyncV3AuthorityError,
@@ -61,7 +63,7 @@ export class SyncRevisionService {
     spaceId: string,
     revision: any,
   ): Promise<SyncHead> {
-    this.assertV1Compatible(revision);
+    await this.assertV1Compatible(tx, spaceId, revision);
     const isV2 = isSyncV2RevisionFormat(revision);
     const isV3 = isSyncV3RevisionFormat(revision);
     if (isV3) await this.verifyNativeV3(tx, spaceId, revision);
@@ -106,7 +108,7 @@ export class SyncRevisionService {
       if (!found || found.spaceId !== spaceId) {
         throw new SyncApiException('REVISION_GONE', 'Revision is not available');
       }
-      this.assertV1Compatible(found);
+      await this.assertV1Compatible(tx, spaceId, found);
       if (isSyncV3RevisionFormat(found)) await this.verifyNativeV3(tx, spaceId, found);
       return found.id;
     });
@@ -164,7 +166,7 @@ export class SyncRevisionService {
       if (!from || from.spaceId !== spaceId) {
         throw new SyncApiException('REVISION_GONE', 'from revision is not available');
       }
-      this.assertV1Compatible(from);
+      await this.assertV1Compatible(tx, spaceId, from);
       if (isSyncV3RevisionFormat(from)) await this.verifyNativeV3(tx, spaceId, from);
       if (from.sequence >= head.sequence) {
         return { items: [], nextPageId: undefined, toRevision: head.revision, head };
@@ -235,17 +237,22 @@ export class SyncRevisionService {
     };
   }
 
-  private assertV1Compatible(revision: any): void {
+  private async assertV1Compatible(tx: Prisma.TransactionClient, spaceId: string, revision: any): Promise<void> {
     if (revision.attachmentCount > 0n) {
       throw new SyncApiException('SYNC_PROTOCOL_UPGRADE_REQUIRED', 'This revision requires Sync v3');
     }
     if (!isSyncV1RevisionFormat(revision)
+      && !isLegacyUnifiedRevisionFormat(revision)
       && !isSyncV2RevisionFormat(revision)
       && !isSyncV3RevisionFormat(revision)) {
       throw new SyncApiException(
         'SYNC_PROTOCOL_UPGRADE_REQUIRED',
         'Revision uses a newer or unsupported Sync protocol',
       );
+    }
+    if (isLegacyUnifiedRevisionFormat(revision)) {
+      try { await verifyLegacyUnifiedHistoryChain(tx, spaceId, revision.id); }
+      catch { throw new SyncApiException('REVISION_GONE', 'Revision is not available'); }
     }
   }
 

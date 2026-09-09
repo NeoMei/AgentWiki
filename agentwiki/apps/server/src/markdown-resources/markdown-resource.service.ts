@@ -14,6 +14,7 @@ import {
   normalizeMarkdownPageIdentity,
 } from './markdown-resource.dto';
 import {
+  classifyImageReferenceTarget,
   parseImageReferences,
   resolveParsedAttachmentReferences,
   type ResolvedAttachmentReferences,
@@ -187,9 +188,6 @@ export class MarkdownResourceService {
     )));
     const pageFallbackTargets = unique(pageTargets.map(withoutMarkdownSuffix));
     const titleTargets = unique([...pageTargets, ...pageFallbackTargets]);
-    const attachmentTargets = unique(attachmentReferences.map((reference) => (
-      normalizeAttachmentName(reference.target).nameKey
-    )));
     const exactIdTargets = pageTargets;
 
     const sourcePage = sourcePageId
@@ -207,6 +205,18 @@ export class MarkdownResourceService {
     ) {
       throw new ContentTreeError('CONTENT_TREE_PAGE_NOT_FOUND', 'Source Page not found');
     }
+    const attachmentTarget = (reference: MarkdownResourceReferenceDto): string | null => {
+      if (reference.syntax !== 'markdown') return normalizeAttachmentName(reference.target).nameKey;
+      if (!sourcePage) return null;
+      const parsed = classifyImageReferenceTarget(reference.target, 'markdown', sourcePage.syncPath);
+      return parsed.classification === 'managed_candidate' && parsed.resolvedPath !== null
+        ? normalizeAttachmentName(parsed.resolvedPath.slice('assets/'.length)).nameKey
+        : null;
+    };
+    const attachmentTargets = unique(attachmentReferences.flatMap((reference) => {
+      const target = attachmentTarget(reference);
+      return target === null ? [] : [target];
+    }));
     const resolvedPathTargets = unique(pageReferences.flatMap((reference) => (
       referencePathKeys(reference.target, sourcePage?.syncPath)
     )));
@@ -291,7 +301,8 @@ export class MarkdownResourceService {
 
     return references.map((reference) => {
       if (reference.kind === 'attachment') {
-        const target = normalizeAttachmentName(reference.target).nameKey;
+        const target = attachmentTarget(reference);
+        if (target === null) return { key: reference.key, status: 'unresolved' };
         const matches = scopedAttachments.filter((candidate) => candidate.nameKey === target);
         if (matches.length !== 1) {
           return matches.length > 1

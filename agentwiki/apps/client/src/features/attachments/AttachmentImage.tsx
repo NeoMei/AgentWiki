@@ -5,6 +5,7 @@ export interface AttachmentImageProps extends Omit<React.ImgHTMLAttributes<HTMLI
   attachmentId: string;
   displayName: string;
   alt?: string;
+  preserveEmptyAlt?: boolean;
   mimeType?: string;
   width?: number;
   height?: number;
@@ -16,6 +17,7 @@ export const AttachmentImage: React.FC<AttachmentImageProps> = ({
   attachmentId,
   displayName,
   alt,
+  preserveEmptyAlt = false,
   mimeType: _mimeType,
   width,
   height,
@@ -51,7 +53,7 @@ export const AttachmentImage: React.FC<AttachmentImageProps> = ({
     };
   }, [attachmentId]);
 
-  const accessibleAlt = alt?.trim() || displayName;
+  const accessibleAlt = preserveEmptyAlt && alt !== undefined ? alt : alt?.trim() || displayName;
   if (state.status === 'loading') {
     return <span role="status" aria-label={accessibleAlt} className={`inline-flex min-h-16 max-w-full items-center justify-center overflow-hidden rounded border bg-gray-50 text-sm text-gray-500 ${className}`} style={frameStyle}>{displayName}</span>;
   }

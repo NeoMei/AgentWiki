@@ -4,13 +4,13 @@
 
 # 范围 / 不做
 
-- 仅当前隔离工作树本地前端候选；不合并、push、发布或部署。
+- 2026-09-09用户授权完成整合、版本整理、备份、发布、部署和公网验收。
 - 不改变模型/权限/Agent绑定/协作审核/版本冲突/同步协议/目录修订与写入语义。
 - 保留主目录其他并行任务与dirty子模块。
 
 # 当前状态
 
-- 隔离分支codex/reading-workspace-20260908；基线b776b830；Task1–7本地候选完成，最终代码1d1b0a81。
+- 隔离分支codex/reading-workspace-20260908；基线b776b830；Task1–7本地候选完成，功能代码a76b9971（含目录层级线）。
 - 逐任务审查与最终限定复审通过；最终R1–R4及恢复回归R6均关闭，无剩余P2；R5位置缓存已修复并经独立限定复审关闭。
 - 最终代码客户端101文件1395测试、lint/build、仓库typecheck均通过；构建保留既有大chunk提醒。
 - 真实浏览覆盖目录分页/定位、浮窗、保存服务端回读、409、只读/撤销、历史/恢复、子页、局部错误/Retry、390px与双语。最终截图已保存并核对。
@@ -27,6 +27,8 @@
 
 # 关键索引
 
+- agentwiki/docs/verification/2026-09-08-source-production-alignment.md（已上线的图片和同步修正，发布必须保留）
+
 - agentwiki/docs/verification/reading-workspace-acceptance.md（最终验收及截图）
 
 - tasks/archive/reading-workspace/brief.md
@@ -37,6 +39,6 @@
 
 # 风险 / 下一步
 
-- 本地候选供查看，分支与工作树保留。后续整合/发布另行处理。
+- 正在准备应用v0.10.0；合入origin/master cffe52aa，保留已上线图片解析与legacy同步修正。Local Sync0.9.1、protocol0.6.0、Obsidian0.4.0保持；生产SSH认证恢复等待用户完成控制连接。
 - 外部Agent运行与当前页删除原生确认等剩余验证边界见验收报告；不能把这些算作已验证。
 - 既有v0.9.1发布事实见agentwiki/docs/verification/space-name-v091-release.md，与本轮本地候选分开。

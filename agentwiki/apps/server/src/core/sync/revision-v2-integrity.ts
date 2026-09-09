@@ -14,6 +14,8 @@ import {
   type TreeDeltaItemV2,
   type TreeRevisionContentManifestV2,
 } from '@neomei/agentwiki-sync-protocol';
+import { isLegacyUnifiedRevisionFormat } from './sync-revision-format';
+import { verifyLegacyUnifiedHistoryChain } from './legacy-unified-revision-integrity';
 
 export const REVISION_CHAIN_CHECKPOINT_VERSION = 'revision-chain-checkpoint@1';
 const REVISION_CHAIN_ENTRY_VERSION = 'revision-chain-entry@1';
@@ -559,6 +561,15 @@ export async function hasTrustedV2GenesisBoundary(
     bySequence.set(revision.sequence, revision);
   }
   if (await hasRetainedRevisionV2Evidence(tx, retainedBeforeGenesis)) return false;
+
+  const legacyParent = bySequence.get(candidate.sequence - 1);
+  if (legacyParent && isLegacyUnifiedRevisionFormat(legacyParent)) {
+    if (!hasExactRevisionPredecessor(candidate, legacyParent)) return false;
+    try {
+      await verifyLegacyUnifiedHistoryChain(tx, spaceId, legacyParent.id);
+      return true;
+    } catch { return false; }
+  }
 
   let child: RevisionChainNode = candidate;
   for (let sequence = candidate.sequence - 1; sequence >= 1; sequence -= 1) {

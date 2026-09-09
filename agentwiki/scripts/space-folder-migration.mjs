@@ -324,7 +324,7 @@ function validateExistingFolders(snapshot, activeFolders, allFoldersById, reject
 function allocatePagePath(page, directory, occupied) {
   const oldName = String(page.syncPath).slice(String(page.syncPath).lastIndexOf('/') + 1);
   let basename;
-  if (oldName.toLowerCase().endsWith('.md')) {
+  if (String(page.syncPath).startsWith('pages/') && oldName.toLowerCase().endsWith('.md')) {
     basename = oldName.slice(0, -3).normalize('NFC');
   } else {
     basename = safePageBasename(page.title);
@@ -678,8 +678,8 @@ export function buildSpaceFolderMigrationPlan(snapshot) {
   const provisionalPages = activePages.map((page) => {
     try {
       const currentPath = validatePortableMarkdownPath(page.syncPath);
-      if (!currentPath.path.startsWith('pages/') || currentPath.key !== page.syncPathKey) {
-        reject(rejections, 'PAGE_PATH_INVALID', 'Page path is outside pages/ or its key is inconsistent', {
+      if (currentPath.path !== page.syncPath || currentPath.key !== page.syncPathKey) {
+        reject(rejections, 'PAGE_PATH_INVALID', 'Page path or its key is inconsistent', {
           pageId: page.id,
         });
       }
@@ -1064,7 +1064,7 @@ async function persistInitialTreeRevisionV2(tx, spaceId, revisionId, plan) {
           "updatedAt" = input."updatedAt"
       FROM jsonb_to_recordset($1::jsonb) AS input(
         "pageId" text, "folderId" text, "path" text, "pathKey" text,
-        "title" text, "updatedAt" timestamptz
+        "title" text, "updatedAt" timestamp
       )
       WHERE row."revisionId" = $2 AND row."pageId" = input."pageId"
     `, JSON.stringify(plan.pages.map((page) => ({

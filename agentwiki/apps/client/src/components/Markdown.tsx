@@ -29,6 +29,7 @@ import {
   type MarkdownResourceMap,
   type MarkdownResourceState,
   type ResolvedMarkdownResource,
+  standardMarkdownImageResourceRef,
 } from './markdown/resources';
 
 export const markdownClass = `prose prose-sm min-w-0 max-w-none
@@ -417,12 +418,47 @@ const isInternalImage = (src: string): boolean => {
   return !/^[a-z][a-z\d+.-]*:/i.test(src);
 };
 
-const SafeImage = ({ src, alt = '', ...rest }: React.ImgHTMLAttributes<HTMLImageElement>) => {
+type SafeImageProps = React.ImgHTMLAttributes<HTMLImageElement> & ExtraProps;
+
+const SafeImage = ({ src, alt = '', node: _node, ...rest }: SafeImageProps) => {
+  const runtime = useContext(MarkdownRuntimeContext);
   const source = typeof src === 'string' ? src.trim() : '';
   const external = isExternalHttpsImage(source);
   if (!external && !isInternalImage(source)) {
     const message = `Image unavailable${alt ? `: ${alt}` : ''}`;
     return <span role="img" aria-label={message} className="markdown-image-fallback">{message}</span>;
+  }
+
+  const reference = standardMarkdownImageResourceRef(source);
+  if (reference) {
+    const message = `Image unavailable${alt ? `: ${alt}` : ''}`;
+    if (!runtime?.tree.spaceId) {
+      return <span role="img" aria-label={message} className="markdown-image-fallback">{message}</span>;
+    }
+    const resource = runtime.resourceState.status === 'ready'
+      ? runtime.resourceState.resources.get(reference.canonicalKey)
+      : null;
+    if (!resource) {
+      return runtime.resourceState.status === 'loading'
+        ? <span role="status" aria-label={alt} className="markdown-image-loading" />
+        : <span role="img" aria-label={message} className="markdown-image-fallback">{message}</span>;
+    }
+    if (resource.status !== 'resolved' || resource.kind !== 'attachment') {
+      return <span role="img" aria-label={message} className="markdown-image-fallback">{message}</span>;
+    }
+    return (
+      <AttachmentImage
+        {...rest}
+        attachmentId={resource.attachmentId}
+        displayName={resource.displayName}
+        mimeType={resource.mimeType}
+        width={resource.width}
+        height={resource.height}
+        alt={alt}
+        preserveEmptyAlt
+        className="markdown-attachment-image h-auto max-w-full rounded-md"
+      />
+    );
   }
 
   return (

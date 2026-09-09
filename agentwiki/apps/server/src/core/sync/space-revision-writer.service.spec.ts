@@ -62,6 +62,16 @@ describe('SpaceRevisionWriterService', () => {
     expect(tx.$executeRaw).not.toHaveBeenCalled();
   });
 
+  it('aborts a first-v2 migration if attachment bootstrap produced native v3', async () => {
+    const writer = new SpaceRevisionWriterService(prisma, {
+      advanceCurrentIfRequiredLocked: async () => ({ revisionId: 'native-v3' }),
+    } as any);
+    const tx = { spaceKnowledgeRevision: { findFirst: async () => null } };
+    await expect(writer.advanceMigrationStructuralPagesLocked(
+      tx as any, 'space-1', [], { origin: 'migration' },
+    )).rejects.toThrow();
+  });
+
   it('force-publishes an unreferenced image rename as exactly one native v3 head', async () => {
     const result = {
       revisionId: 'rev-v3', sequence: 1, revisionContentHash: 'a'.repeat(64),

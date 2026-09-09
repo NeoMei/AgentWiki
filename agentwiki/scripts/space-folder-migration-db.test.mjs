@@ -12,8 +12,11 @@ import { fileURLToPath } from 'node:url';
 import {
   TreeRevisionContentManifestV2Schema,
   canonicalBytes,
+  contentHash,
   pathKey,
+  revisionContentHash,
   treeRevisionContentHashV2,
+  validatePortableMarkdownPath,
 } from '../packages/sync-protocol/dist/esm/index.js';
 
 import { withFolderTestDatabase } from './folder-test-database.mjs';
@@ -33,6 +36,307 @@ const requireFromServer = createRequire(new URL('../apps/server/package.json', i
 const { PrismaClient } = requireFromServer('@prisma/client');
 const skip = databaseUrl ? false : 'FOLDER_TEST_DATABASE_URL is required';
 const execFileAsync = promisify(execFile);
+
+test('forward alias CHECK preserves existing and new valid expanded Unicode keys', { skip, timeout: 180_000 }, async () => {
+  await withFolderTestDatabase(databaseUrl, async ({ databaseUrl: schemaUrl }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: schemaUrl } } });
+    try {
+      const seeded = await seedUserAndSpace(prisma, 'UnicodeAlias');
+      const owner = await createPage(prisma, seeded, { title: 'Owner', syncPath: 'pages/Owner.md' });
+      const suffix = `${Array(4).fill('\u0130'.repeat(100)).join('/')}.md`;
+      const existing = validatePortableMarkdownPath(`pages/${suffix}`);
+      const incoming = validatePortableMarkdownPath(`old/${suffix}`);
+      assert.deepEqual([Buffer.byteLength(existing.path), Buffer.byteLength(existing.key)], [812, 1212]);
+      assert.deepEqual([Buffer.byteLength(incoming.path), Buffer.byteLength(incoming.key)], [810, 1210]);
+      // Recreate the previously deployed CHECK and store a valid pre-upgrade alias.
+      await prisma.$executeRawUnsafe('ALTER TABLE "PagePathAlias" DROP CONSTRAINT "PagePathAlias_non_empty_path"');
+      await prisma.$executeRawUnsafe(`ALTER TABLE "PagePathAlias" ADD CONSTRAINT "PagePathAlias_non_empty_path"
+        CHECK (char_length("path") > 0 AND char_length("pathKey") > 0 AND "path" LIKE 'pages/%')`);
+      const before = await prisma.pagePathAlias.create({ data: {
+        spaceId: seeded.spaceId, pageId: owner.id, path: existing.path, pathKey: existing.key,
+      } });
+      const sql = await readFile(new URL('../apps/server/prisma/migrations/20260907120000_allow_portable_legacy_page_aliases/migration.sql', import.meta.url), 'utf8');
+      await prisma.$transaction(async (tx) => {
+        for (const statement of sql.split(';').filter((part) => part.trim())) {
+          await tx.$executeRawUnsafe(statement);
+        }
+      });
+      assert.deepEqual(await prisma.pagePathAlias.findUniqueOrThrow({ where: { id: before.id } }), before);
+      const inserted = await prisma.pagePathAlias.create({ data: {
+        spaceId: seeded.spaceId, pageId: owner.id, path: incoming.path, pathKey: incoming.key,
+      } });
+      assert.equal(inserted.pathKey, incoming.key);
+      for (const invalid of ['/absolute.md', '../escape.md', 'a/../escape.md', 'a\\escape.md', 'a//escape.md', `${'a'.repeat(1025)}.md`]) {
+        await assert.rejects(() => prisma.pagePathAlias.create({ data: {
+          spaceId: seeded.spaceId, pageId: owner.id, path: invalid, pathKey: invalid,
+        } }));
+      }
+      await assert.rejects(() => prisma.pagePathAlias.create({ data: {
+        spaceId: seeded.spaceId, pageId: owner.id, path: 'old/empty-key.md', pathKey: '',
+      } }));
+      assert.deepEqual(await prisma.pagePathAlias.findUniqueOrThrow({ where: { id: before.id } }), before);
+    } finally { await prisma.$disconnect(); }
+  });
+});
+
+for (const timezone of ['UTC', 'Asia/Shanghai']) {
+  test(`migration preserves exact Page and Folder timestamps in ${timezone}`, { skip, timeout: 180_000 }, async () => {
+    const zonedUrl = new URL(databaseUrl);
+    zonedUrl.searchParams.set('options', `-ctimezone=${timezone}`);
+    await withFolderTestDatabase(zonedUrl.toString(), async ({ databaseUrl: schemaUrl }) => {
+      const prisma = new PrismaClient({ datasources: { db: { url: schemaUrl } } });
+      const runtime = await createSyncV3TestRuntime(prisma, 'timezone-migration');
+      try {
+        assert.equal((await prisma.$queryRawUnsafe('SHOW timezone'))[0].TimeZone, timezone);
+        const seeded = await seedUserAndSpace(prisma, 'TimezoneMigration');
+        const parent = await createPage(prisma, seeded, {
+          id: 'timezone-parent', title: 'Parent', syncPath: 'legacy/parent.md',
+          createdAt: new Date('2026-08-28T01:02:03.123Z'),
+        });
+        const child = await createPage(prisma, seeded, {
+          id: 'timezone-child', title: 'Child', syncPath: 'legacy/child.md', parentId: parent.id,
+          createdAt: new Date('2026-08-29T22:23:24.987Z'),
+        });
+        const sourcePages = [parent, child];
+        const plan = await preflightSpaceFolderMigration(prisma, seeded.spaceId);
+        const applied = await migrateSpaceFolders(prisma, seeded.spaceId, { expectedInputHash: plan.inputHash });
+        const snapshot = await runtime.createV2Reader().snapshot(seeded.spaceId, applied.revisionId, undefined, 100);
+        for (const source of sourcePages) {
+          const current = await prisma.page.findUniqueOrThrow({ where: { id: source.id } });
+          const immutable = await prisma.syncRevisionPageRow.findUniqueOrThrow({
+            where: { revisionId_pageId: { revisionId: applied.revisionId, pageId: source.knowledgeKey } },
+          });
+          const expected = source.updatedAt.toISOString();
+          assert.equal(plan.pages.find((page) => page.id === source.id).updatedAt.toISOString(), expected);
+          assert.equal(current.updatedAt.toISOString(), expected);
+          assert.equal(immutable.updatedAt.toISOString(), expected);
+          assert.equal(snapshot.pages.find((page) => page.pageId === source.knowledgeKey).updatedAt, expected);
+        }
+        const folderPlan = plan.folders[0];
+        assert.equal(folderPlan.updatedAt.toISOString(), '2026-08-28T01:02:03.123Z');
+        const folder = await prisma.folder.findUniqueOrThrow({ where: { id: folderPlan.id } });
+        const folderRow = await prisma.syncRevisionFolderRow.findUniqueOrThrow({
+          where: { revisionId_folderId: { revisionId: applied.revisionId, folderId: folder.id } },
+        });
+        assert.equal(folder.updatedAt.toISOString(), '2026-08-28T01:02:03.123Z');
+        assert.equal(folderRow.updatedAt.toISOString(), '2026-08-28T01:02:03.123Z');
+        assert.equal(snapshot.folders[0].updatedAt, '2026-08-28T01:02:03.123Z');
+      } finally {
+        await runtime.dispose();
+        await prisma.$disconnect();
+      }
+    });
+  });
+}
+
+for (const { label, displayOrders } of [
+  { label: 'sequential', displayOrders: [0, 1, 2] },
+  { label: 'repeated zero', displayOrders: [0, 0, 0] },
+  { label: 'out-of-order and gapped', displayOrders: [20, -3, 20_000_000_000] },
+]) {
+test(`portable resumed legacy history migrates current pages with ${label} display orders`, { skip, timeout: 180_000 }, async () => {
+  await withFolderTestDatabase(databaseUrl, async ({ databaseUrl: schemaUrl }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: schemaUrl } } });
+    const runtime = await createSyncV3TestRuntime(prisma, 'portable-legacy-cutover');
+    const { legacyBundleHash } = requireFromServer('./dist/core/sync/legacy-serializer.js');
+    const { SyncV3RevisionService } = requireFromServer('./dist/integrations/obsidian/sync-v3-revision.service.js');
+    const { SyncRevisionService } = requireFromServer('./dist/integrations/obsidian/sync-revision.service.js');
+    const { SyncCursorService } = requireFromServer('./dist/integrations/obsidian/sync-cursor.service.js');
+    try {
+      const seeded = await seedUserAndSpace(prisma, 'PortableLegacy');
+      const ordinary = await seedUserAndSpace(prisma, 'Ordinary');
+      await prisma.spaceMember.createMany({ data: [
+        { userId: seeded.userId, spaceId: seeded.spaceId, role: 'owner' },
+        { userId: seeded.userId, spaceId: ordinary.spaceId, role: 'viewer' },
+      ] });
+      const principal = { userId: seeded.userId, credentialId: randomUUID(), credentialFamilyId: randomUUID(),
+        deviceId: randomUUID(), vaultId: randomUUID(), status: 'active', platformRole: 'user' };
+      await prisma.humanDeviceCredentialFamily.create({ data: {
+        id: principal.credentialFamilyId, userId: seeded.userId, deviceId: principal.deviceId, vaultId: principal.vaultId,
+      } });
+      await prisma.humanDeviceCredential.create({ data: {
+        id: principal.credentialId, credentialFamilyId: principal.credentialFamilyId, userId: seeded.userId,
+        deviceId: principal.deviceId, vaultId: principal.vaultId, deviceName: 'Synthetic migration test',
+        credentialHash: randomUUID(), status: 'active', activatedAt: new Date(),
+      } });
+      const pages = [];
+      for (let index = 0; index < 3; index += 1) {
+        pages.push(await createPage(prisma, seeded, {
+          id: `portable-${index}`, title: `Current ${index}`, syncPath: `old/branch-${index}/note.md`,
+          content: `# Current ${index}\n\n[Old link](old/branch-1/note.md)\n`,
+        }));
+        await createPage(prisma, seeded, { title: `Deleted ${index}`, syncPath: `deleted/${index}.md`, deletedAt: new Date() });
+      }
+      const earlyBatch = randomUUID();
+      const resumedBatch = randomUUID();
+      const revisionIds = [];
+      const historicalBodyHashes = [];
+      for (let sequence = 1; sequence <= 5; sequence += 1) {
+        const id = randomUUID();
+        const updatedAt = new Date(`2026-08-0${sequence}T00:00:00.000Z`);
+        const historicalPages = await Promise.all(pages.map(async (page, index) => {
+          const body = `# Historical ${index}\n\nRevision ${sequence}\n`;
+          return { pageId: page.knowledgeKey, spaceId: seeded.spaceId,
+            path: sequence === 2 ? `pages/Former ${index}.md` : page.syncPath,
+            title: `Historical ${index}`, body, order: displayOrders[index],
+            metadata: { parentId: `historical-parent-${index}` }, artifactIds: [`historical-artifact-${index}`],
+            contentHash: await contentHash(body), updatedAt: updatedAt.toISOString() };
+        }));
+        const sidecar = { schemaVersion: 'knowledge-bundle@1', recipeVersion: 'unified-knowledge@1',
+          baseRevision: revisionIds.at(-1) ?? '0', memories: [], relations: [], provenance: [], deletions: [] };
+        const manifest = { protocolVersion: '1', spaceId: seeded.spaceId,
+          pages: historicalPages.map(({ pageId, path, title, contentHash: hash }) => ({ pageId, path, title, contentHash: hash })) };
+        historicalBodyHashes.push(...historicalPages.map((page) => page.contentHash));
+        await prisma.syncPageContentRow.createMany({ data: historicalPages.map((page) => ({
+          contentHash: page.contentHash, body: page.body, byteLength: Buffer.byteLength(page.body),
+        })) });
+        await prisma.legacyPageBodyRow.createMany({ data: historicalPages.map((page) => ({ contentHash: page.contentHash, body: page.body })) });
+        await prisma.spaceKnowledgeRevision.create({ data: {
+          id, spaceId: seeded.spaceId, sequence, parentRevisionId: null,
+          schemaVersion: sidecar.schemaVersion, recipeVersion: sidecar.recipeVersion,
+          contentHash: legacyBundleHash({ ...sidecar, spaceId: seeded.spaceId, pages: historicalPages }),
+          revisionContentHash: await revisionContentHash(manifest), pageCount: 3n,
+          revisionBodyBytes: BigInt(historicalPages.reduce((sum, page) => sum + Buffer.byteLength(page.body), 0)),
+          revisionManifestByteLength: BigInt(canonicalBytes(manifest).byteLength),
+          origin: 'migration', migrationBatchId: sequence === 1 ? earlyBatch : `${resumedBatch}:${id}`, createdAt: updatedAt,
+        } });
+        await prisma.syncRevisionPageRow.createMany({ data: historicalPages.map((page) => ({
+          revisionId: id, pageId: page.pageId, folderId: null, path: page.path, pathKey: pathKey(page.path),
+          title: page.title, contentHash: page.contentHash, updatedAt,
+        })) });
+        await prisma.legacyRevisionPageExtra.createMany({ data: historicalPages.map((page, ordinal) => ({
+          revisionId: id, pageId: page.pageId, ordinal, legacyBodyHash: page.contentHash,
+          extra: { spaceId: seeded.spaceId, title: page.title, order: page.order, metadata: page.metadata,
+            artifactIds: page.artifactIds, legacyBodyHash: page.contentHash, contentHash: page.contentHash, path: page.path, updatedAt: page.updatedAt },
+        })) });
+        await prisma.legacyRevisionSidecar.create({ data: { revisionId: id, sidecar } });
+        revisionIds.push(id);
+      }
+      const historicalState = () => Promise.all([
+        prisma.spaceKnowledgeRevision.findMany({ where: { id: { in: revisionIds } }, orderBy: { sequence: 'asc' } }),
+        prisma.syncRevisionPageRow.findMany({ where: { revisionId: { in: revisionIds } }, orderBy: [{ revisionId: 'asc' }, { pageId: 'asc' }] }),
+        prisma.legacyRevisionSidecar.findMany({ where: { revisionId: { in: revisionIds } }, orderBy: { revisionId: 'asc' } }),
+        prisma.legacyRevisionPageExtra.findMany({ where: { revisionId: { in: revisionIds } }, orderBy: [{ revisionId: 'asc' }, { ordinal: 'asc' }] }),
+        prisma.syncPageContentRow.findMany({ where: { contentHash: { in: historicalBodyHashes } }, orderBy: { contentHash: 'asc' } }),
+        prisma.legacyPageBodyRow.findMany({ where: { contentHash: { in: historicalBodyHashes } }, orderBy: { contentHash: 'asc' } }),
+      ]);
+      const before = await historicalState();
+      const currentBefore = await prisma.page.findMany({ where: { spaceId: seeded.spaceId }, orderBy: { id: 'asc' } });
+      const membershipsBefore = await prisma.spaceMember.findMany({ where: { userId: seeded.userId }, orderBy: { spaceId: 'asc' } });
+      const plan = await preflightSpaceFolderMigration(prisma, seeded.spaceId);
+      assert.equal(plan.status, 'ready');
+      assert.equal(plan.counts.pagesMoved, 3);
+      assert.equal(plan.counts.foldersToCreate, 0);
+      assert.equal(plan.counts.deletedPagesSkipped, 3);
+      const head = before[0].at(-1);
+      await prisma.spaceKnowledgeRevision.update({ where: { id: head.id }, data: { contentHash: 'f'.repeat(64) } });
+      await assert.rejects(() => migrateSpaceFolders(prisma, seeded.spaceId, { expectedInputHash: plan.inputHash }), /INTEGRITY/);
+      await prisma.spaceKnowledgeRevision.update({ where: { id: head.id }, data: { contentHash: head.contentHash } });
+      for (const data of [
+        { schemaVersion: 'unknown@9', recipeVersion: head.recipeVersion },
+        { schemaVersion: 'content-tree@3', recipeVersion: 'referenced-images-v1' },
+      ]) {
+        await prisma.spaceKnowledgeRevision.update({ where: { id: head.id }, data });
+        await assert.rejects(() => migrateSpaceFolders(prisma, seeded.spaceId, { expectedInputHash: plan.inputHash }));
+      }
+      await prisma.spaceKnowledgeRevision.update({ where: { id: head.id }, data: {
+        schemaVersion: head.schemaVersion, recipeVersion: head.recipeVersion,
+      } });
+      for (const invalidPath of ['/absolute.md', '../escape.md', 'old/../escape.md', 'old\\escape.md', `${'a'.repeat(1025)}.md`]) {
+        await assert.rejects(() => prisma.pagePathAlias.create({ data: {
+          spaceId: seeded.spaceId, pageId: pages[0].id, path: invalidPath, pathKey: invalidPath,
+        } }));
+      }
+      await prisma.page.update({ where: { id: pages[0].id }, data: { title: 'Input changed after review' } });
+      await assert.rejects(() => migrateSpaceFolders(prisma, seeded.spaceId, { expectedInputHash: plan.inputHash }),
+        (error) => error.report.rejections.some((entry) => entry.code === 'MIGRATION_INPUT_CHANGED'));
+      await prisma.page.update({ where: { id: pages[0].id }, data: { title: pages[0].title, updatedAt: pages[0].updatedAt } });
+      await assert.rejects(() => migrateSpaceFolders(prisma, seeded.spaceId, {
+        expectedInputHash: '0'.repeat(64),
+      }), (error) => error.report.rejections.some((entry) => entry.code === 'MIGRATION_INPUT_CHANGED'));
+      await assert.rejects(() => migrateSpaceFolders(prisma, seeded.spaceId, {
+        expectedInputHash: plan.inputHash, persistReport: () => { throw new Error('synthetic report rollback'); },
+      }), /synthetic report rollback/);
+      assert.deepEqual(await historicalState(), before);
+      assert.deepEqual(await prisma.page.findMany({ where: { spaceId: seeded.spaceId }, orderBy: { id: 'asc' } }), currentBefore);
+      assert.equal(await prisma.pagePathAlias.count({ where: { spaceId: seeded.spaceId } }), 0);
+      const applied = await migrateSpaceFolders(prisma, seeded.spaceId, { expectedInputHash: plan.inputHash });
+      const revision = await prisma.spaceKnowledgeRevision.findUniqueOrThrow({ where: { id: applied.revisionId } });
+      assert.equal(revision.schemaVersion, 'content-tree@2');
+      assert.equal(revision.sequence, 6);
+      assert.equal(revision.parentRevisionId, revisionIds[4]);
+      const assertExtraOrders = async (revisionId) => {
+        const rows = await prisma.legacyRevisionPageExtra.findMany({ where: { revisionId }, orderBy: { ordinal: 'asc' } });
+        assert.deepEqual(rows.map((row) => ({ ordinal: row.ordinal, pageId: row.pageId,
+          order: row.extra.order, metadata: row.extra.metadata, artifactIds: row.extra.artifactIds })),
+        pages.map((page, index) => ({ ordinal: index, pageId: page.knowledgeKey, order: displayOrders[index],
+          metadata: { parentId: `historical-parent-${index}` }, artifactIds: [`historical-artifact-${index}`] })));
+      };
+      await assertExtraOrders(applied.revisionId);
+      const v2 = runtime.createV2Reader();
+      const snapshot = await v2.snapshot(seeded.spaceId, applied.revisionId, undefined, 100);
+      assert.deepEqual(snapshot.pages.map((page) => page.path).sort(), ['pages/Current 0.md', 'pages/Current 1.md', 'pages/Current 2.md']);
+      await prisma.spaceKnowledgeRevision.update({ where: { id: head.id }, data: { contentHash: 'f'.repeat(64) } });
+      await assert.rejects(() => v2.snapshot(seeded.spaceId, applied.revisionId, undefined, 100));
+      await assert.rejects(() => new SyncRevisionService(prisma, runtime.immutableV3).snapshotPage(seeded.spaceId, head.id, 100));
+      await prisma.spaceKnowledgeRevision.update({ where: { id: head.id }, data: { contentHash: head.contentHash } });
+      for (const page of pages) {
+        const current = await prisma.page.findUniqueOrThrow({ where: { id: page.id } });
+        assert.deepEqual({ ...current, syncPath: page.syncPath, syncPathKey: page.syncPathKey }, page);
+        assert.equal(snapshot.pages.find((item) => item.pageId === page.knowledgeKey).body, page.content);
+        const resolved = await runtime.markdown.resolve(seeded.spaceId, [{ kind: 'page', target: page.syncPath }],
+          { kind: 'human', userId: seeded.userId });
+        assert.equal(resolved[0].status, 'resolved');
+        assert.equal(resolved[0].pageId, page.id);
+      }
+      const v3 = new SyncV3RevisionService(prisma, new SyncCursorService({ get: () => 'synthetic-migration-pepper' }), runtime.syncCapabilities, runtime.v3Writer);
+      const listed = await v3.listSpaces(principal);
+      assert.equal(listed.spaces.find((space) => space.spaceId === seeded.spaceId).currentRevision, applied.revisionId);
+      assert.equal(listed.spaces.find((space) => space.spaceId === ordinary.spaceId).currentRevision, '0');
+      const old = await new SyncRevisionService(prisma, runtime.immutableV3).snapshotPage(seeded.spaceId, revisionIds[4], 100);
+      assert.deepEqual(old.items.map((page) => page.path).sort(), pages.map((page) => page.syncPath).sort());
+      await assert.rejects(() => v2.snapshot(seeded.spaceId, revisionIds[4], undefined, 100));
+      assert.equal((await migrateSpaceFolders(prisma, seeded.spaceId, { expectedInputHash: plan.inputHash })).status, 'completed');
+      const after = await historicalState();
+      assert.deepEqual(after, before);
+      assert.deepEqual(await prisma.spaceMember.findMany({ where: { userId: seeded.userId }, orderBy: { spaceId: 'asc' } }), membershipsBefore);
+      assert.deepEqual(await prisma.page.findMany({ where: { spaceId: seeded.spaceId, deletedAt: { not: null } }, orderBy: { id: 'asc' } }),
+        currentBefore.filter((page) => page.deletedAt !== null));
+      // Subsequent ordinary edits must retain the trusted cutover boundary too.
+      const next = await prisma.$transaction(async (tx) => {
+        const locked = await runtime.writer.lockSpace(tx, seeded.spaceId);
+        for (const page of pages) await tx.page.update({ where: { id: page.id }, data: { content: `Next canonical revision ${page.id}` } });
+        return runtime.writer.advanceStructuralPagesLocked(locked, seeded.spaceId,
+          [...pages].reverse().map((page) => ({ operation: 'upsert', pageId: page.knowledgeKey, folderId: null,
+            path: `pages/${page.title}.md`, title: page.title, body: `Next canonical revision ${page.id}` })),
+          { origin: 'web_editor' });
+      });
+      assert.equal((await v2.snapshot(seeded.spaceId, next.revisionId, undefined, 100)).sequence, 7);
+      await assertExtraOrders(next.revisionId);
+      const single = await prisma.$transaction(async (tx) => {
+        const locked = await runtime.writer.lockSpace(tx, seeded.spaceId);
+        for (const page of pages) await tx.page.update({ where: { id: page.id }, data: { content: `Single writer revision ${page.id}` } });
+        return runtime.writer.advanceLocked(locked, seeded.spaceId,
+          [...pages].reverse().map((page) => ({ operation: 'upsert', pageId: page.knowledgeKey,
+            path: `pages/${page.title}.md`, title: page.title, body: `Single writer revision ${page.id}` })),
+          { origin: 'web_editor' });
+      });
+      assert.equal((await v2.snapshot(seeded.spaceId, single.revisionId, undefined, 100)).sequence, 8);
+      await assertExtraOrders(single.revisionId);
+      assert.deepEqual(await historicalState(), before);
+      const native = await prisma.$transaction(async (tx) => {
+        const locked = await runtime.writer.lockSpace(tx, seeded.spaceId);
+        return runtime.writer.advanceReferencedImagesLocked(locked, seeded.spaceId, [], { origin: 'web_editor' });
+      });
+      assert.equal((await v3.snapshot(principal, seeded.spaceId, native.revisionId, undefined, 100)).sequence, 9);
+      await runtime.immutableV3.verify(prisma, seeded.spaceId, await prisma.spaceKnowledgeRevision.findUniqueOrThrow({ where: { id: native.revisionId } }));
+    } finally {
+      await runtime.dispose();
+      await prisma.$disconnect();
+    }
+  });
+});
+}
 
 async function seedUserAndSpace(prisma, label) {
   const userId = randomUUID();

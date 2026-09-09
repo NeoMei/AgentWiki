@@ -228,20 +228,37 @@ describe('OpencodeCliRunner', () => {
   );
 
   it('uses the server-bundled OpenCode binary when OPENCODE_BIN is not configured', async () => {
-    const child = childProcess();
-    const bundledConfig = { get: jest.fn(() => undefined) } as any;
-    const runner = new OpencodeCliRunner(bundledConfig);
-    const execution = (runner as any).exec([], 10_000, 'catalog');
+    const fixture = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-bundled-'));
+    let cwd: jest.SpyInstance | undefined;
 
-    child.stdout.write('ok');
-    child.emit('close', 0);
+    try {
+      const packageDir = join(fixture, 'node_modules', 'opencode-ai');
+      const cli = join(packageDir, 'bin', 'opencode.js');
+      mkdirSync(join(packageDir, 'bin'), { recursive: true });
+      writeFileSync(join(packageDir, 'package.json'), JSON.stringify({
+        name: 'opencode-ai',
+        bin: { opencode: './bin/opencode.js' },
+      }));
+      writeFileSync(cli, '#!/usr/bin/env node\n');
+      cwd = jest.spyOn(process, 'cwd').mockReturnValue(fixture);
+      const bundledConfig = { get: jest.fn(() => undefined) } as any;
+      const child = childProcess();
 
-    await expect(execution).resolves.toBe('ok');
-    expect(spawn).toHaveBeenCalledWith(
-      expect.stringContaining('opencode-ai/bin/opencode.exe'),
-      ['--pure'],
-      expect.any(Object),
-    );
+      const runner = new OpencodeCliRunner(bundledConfig);
+      const execution = (runner as any).exec([], 10_000, 'catalog');
+      child.stdout.write('ok');
+      child.emit('close', 0);
+
+      await expect(execution).resolves.toBe('ok');
+      expect(spawn).toHaveBeenCalledWith(
+        process.execPath,
+        [realpathSync(cli), '--pure'],
+        expect.objectContaining({ shell: false }),
+      );
+    } finally {
+      cwd?.mockRestore();
+      rmSync(fixture, { recursive: true, force: true });
+    }
   });
 
   it('resolves a bundled Node CLI directly on Windows without invoking a command shim', async () => {

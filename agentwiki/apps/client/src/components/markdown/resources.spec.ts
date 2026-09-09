@@ -7,6 +7,7 @@ import {
   editorMarkdownResourceParser,
   extractMarkdownSection,
   resolveMarkdownResources,
+  standardMarkdownImageResourceRef,
 } from './resources';
 
 vi.mock('../../api/client', () => ({
@@ -309,6 +310,104 @@ describe('collectMarkdownResourceRefs', () => {
     expect(collectMarkdownResourceRefs('![[assets/diagram.png]]')).toEqual([
       expect.objectContaining({ kind: 'attachment', target: 'diagram.png' }),
     ]);
+  });
+
+  it('collects standard Markdown image destinations without rewriting nested or encoded paths', () => {
+    expect(collectMarkdownResourceRefs([
+      '![First local image](../assets/first-local.png "Cover")',
+      '![Nested](<../../assets/Caf%C3%A9 photo.PNG> "Encoded")',
+      '![Escaped](../../assets/diagram\\(final\\).webp)',
+    ].join('\n'))).toEqual([
+      expect.objectContaining({
+        kind: 'attachment',
+        syntax: 'markdown',
+        target: '../assets/first-local.png',
+      }),
+      expect.objectContaining({
+        kind: 'attachment',
+        syntax: 'markdown',
+        target: '../../assets/Caf%C3%A9 photo.PNG',
+      }),
+      expect.objectContaining({
+        kind: 'attachment',
+        syntax: 'markdown',
+        target: '../../assets/diagram(final).webp',
+      }),
+    ]);
+  });
+
+  it('does not collect external, rooted or unsafe standard Markdown image destinations', () => {
+    expect(collectMarkdownResourceRefs([
+      '![HTTPS](https://example.test/image.png)',
+      '![API](/api/assets/image.png)',
+      '![Protocol](//example.test/image.png)',
+      '![Backslash](..\\assets\\image.png)',
+    ].join('\n'))).toEqual([]);
+  });
+
+  it('keeps Wiki and standard Markdown image identities distinct for the same raw target', () => {
+    expect(collectMarkdownResourceRefs('![[image.png]]\n\n![Standard](image.png)')).toEqual([
+      expect.objectContaining({ kind: 'attachment', target: 'image.png' }),
+      expect.objectContaining({ kind: 'attachment', target: 'image.png', syntax: 'markdown' }),
+    ]);
+  });
+
+  it('uses one decoded URI semantic for standard image identity while preserving request targets', () => {
+    const raw = standardMarkdownImageResourceRef('../assets/图片 one.png');
+    const mixed = standardMarkdownImageResourceRef('../assets/图片%20one.png');
+    const encoded = standardMarkdownImageResourceRef('../assets/%E5%9B%BE%E7%89%87%20one.png');
+    const onceEncodedSpace = standardMarkdownImageResourceRef('../assets/literal%20space.png');
+    const twiceEncodedSpace = standardMarkdownImageResourceRef('../assets/literal%2520space.png');
+    const onceEncodedDelimiter = standardMarkdownImageResourceRef('../assets/literal%28name%29.png');
+    const twiceEncodedDelimiter = standardMarkdownImageResourceRef('../assets/literal%2528name%2529.png');
+
+    expect(raw?.target).toBe('../assets/图片 one.png');
+    expect(mixed?.target).toBe('../assets/图片%20one.png');
+    expect(encoded?.target).toBe('../assets/%E5%9B%BE%E7%89%87%20one.png');
+    expect(raw?.canonicalKey).toBe(mixed?.canonicalKey);
+    expect(raw?.canonicalKey).toBe(encoded?.canonicalKey);
+    expect(onceEncodedSpace?.canonicalKey).not.toBe(twiceEncodedSpace?.canonicalKey);
+    expect(onceEncodedDelimiter?.canonicalKey).not.toBe(twiceEncodedDelimiter?.canonicalKey);
+    expect(standardMarkdownImageResourceRef('../assets/folder%5Cimage.png')).toBeNull();
+    expect(standardMarkdownImageResourceRef('..\\assets\\image.png')).toBeNull();
+  });
+
+  it.each([
+    ['valid reference first', [
+      '![Valid](../assets/first-local.png)',
+      '![Invalid](../assets/first-local.png%20)',
+    ], ['../assets/first-local.png', '../assets/first-local.png%20']],
+    ['invalid reference first', [
+      '![Invalid](../assets/first-local.png%20)',
+      '![Valid](../assets/first-local.png)',
+    ], ['../assets/first-local.png%20', '../assets/first-local.png']],
+  ])('keeps decoded-edge-whitespace standard image identities distinct with %s', (_case, images, targets) => {
+    const refs = collectMarkdownResourceRefs(images.join('\n\n'));
+
+    expect(refs.map(({ target }) => target)).toEqual(targets);
+    expect(new Set(refs.map(({ canonicalKey }) => canonicalKey))).toHaveProperty('size', 2);
+  });
+
+  it.each([
+    ['leading space', '%20../assets/first-local.png'],
+    ['trailing horizontal tab', '../assets/first-local.png%09'],
+    ['trailing line feed', '../assets/first-local.png%0A'],
+    ['trailing non-breaking space', '../assets/first-local.png%C2%A0'],
+  ])('preserves encoded %s in standard image identity without rewriting its request target', (_case, target) => {
+    const valid = standardMarkdownImageResourceRef('../assets/first-local.png');
+    const control = standardMarkdownImageResourceRef(target);
+
+    expect(control?.target).toBe(target);
+    expect(control?.canonicalKey).not.toBe(valid?.canonicalKey);
+  });
+
+  it('applies the shared one-hundred-resource bound across Wiki and standard images', () => {
+    const source = [
+      ...Array.from({ length: 100 }, (_, index) => `[[Page ${index}]]`),
+      '![Overflow](../assets/overflow.png)',
+    ].join('\n');
+
+    expect(() => collectMarkdownResourceRefs(source)).toThrow('Markdown resource limit exceeded');
   });
 
   it('dedupes canonical NFC/case-insensitive identities without treating aliases as identity', () => {

@@ -442,8 +442,40 @@ function activeFenceLineContext(
   return { inContainer: true, position };
 }
 
+interface BacktickRunIndex {
+  positionsByLength: Map<number, number[]>;
+  nextByLength: Map<number, number>;
+}
+
+function indexBacktickRuns(body: string): BacktickRunIndex {
+  const positionsByLength = new Map<number, number[]>();
+  let cursor = 0;
+  while (cursor < body.length) {
+    const runStart = body.indexOf('`', cursor);
+    if (runStart === -1) break;
+    let runEnd = runStart;
+    while (body[runEnd] === '`') runEnd += 1;
+    const length = runEnd - runStart;
+    const positions = positionsByLength.get(length) ?? [];
+    positions.push(runStart);
+    positionsByLength.set(length, positions);
+    cursor = runEnd;
+  }
+  return { positionsByLength, nextByLength: new Map() };
+}
+
+function findClosingBacktickRun(index: BacktickRunIndex, start: number, length: number): number {
+  const positions = index.positionsByLength.get(length) ?? [];
+  let next = index.nextByLength.get(length) ?? 0;
+  while (next < positions.length && positions[next] < start) next += 1;
+  const close = positions[next] ?? -1;
+  index.nextByLength.set(length, close === -1 ? next : next + 1);
+  return close;
+}
+
 function scanImageTargetTokens(body: string): ImageTargetToken[] {
   const tokens: ImageTargetToken[] = [];
+  const backtickRuns = indexBacktickRuns(body);
   let cursor = 0;
   let lineStart = true;
   const scannerState: { fence: MarkdownFenceState | null } = { fence: null };
@@ -540,9 +572,9 @@ function scanImageTargetTokens(body: string): ImageTargetToken[] {
     if (character === '`') {
       let runEnd = cursor;
       while (body[runEnd] === '`') runEnd += 1;
-      const delimiter = body.slice(cursor, runEnd);
-      const close = body.indexOf(delimiter, runEnd);
-      cursor = close === -1 ? runEnd : close + delimiter.length;
+      const runLength = runEnd - cursor;
+      const close = findClosingBacktickRun(backtickRuns, runEnd, runLength);
+      cursor = close === -1 ? runEnd : close + runLength;
       continue;
     }
 
@@ -741,6 +773,14 @@ function classifyTarget(
   };
 }
 
+export function classifyImageReferenceTarget(
+  rawTarget: string,
+  syntax: ParsedImageReference['syntax'],
+  sourceSyncPath: string,
+): Pick<ParsedImageReference, 'resolvedPath' | 'classification'> {
+  return classifyTarget(rawTarget, syntax, sourceSyncPath);
+}
+
 export function parseImageReferences(
   body: string,
   sourceSyncPath: string,
@@ -752,7 +792,9 @@ export function parseImageReferences(
       rawTarget,
       targetStart: token.targetStart,
       targetEnd: token.targetEnd,
-      ...classifyTarget(rawTarget, token.syntax, sourceSyncPath, token.syntaxValid),
+      ...(token.syntaxValid
+        ? classifyImageReferenceTarget(rawTarget, token.syntax, sourceSyncPath)
+        : { resolvedPath: null, classification: 'invalid_local' as const }),
     };
   });
 }

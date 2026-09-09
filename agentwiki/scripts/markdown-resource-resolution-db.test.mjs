@@ -257,6 +257,43 @@ test('page identity migration matches Unicode 15.1 folding and exposes indexed l
       ], { userId }, `source-project_${schemaName}`);
       assert.equal(sourceRelative[0].pageId, `target-project_${schemaName}`);
 
+      const attachmentRelative = await resolver.resolve(spaceId, [{
+        key: 'relative-image', kind: 'attachment', syntax: 'markdown',
+        target: '../../assets/Diagram.png',
+      }], { userId }, `source-project_${schemaName}`);
+      assert.equal(attachmentRelative[0].attachmentId, `attachment_${schemaName}`);
+
+      const attachmentWithoutSource = await resolver.resolve(spaceId, [{
+        key: 'relative-image', kind: 'attachment', syntax: 'markdown',
+        target: '../assets/Diagram.png',
+      }], { userId });
+      assert.deepEqual(attachmentWithoutSource, [{ key: 'relative-image', status: 'unresolved' }]);
+
+      const attachmentTraversal = await resolver.resolve(spaceId, [{
+        key: 'relative-image', kind: 'attachment', syntax: 'markdown',
+        target: '../../../Diagram.png',
+      }], { userId }, `source-project_${schemaName}`);
+      assert.deepEqual(attachmentTraversal, [{ key: 'relative-image', status: 'unresolved' }]);
+
+      const foreignSpaceId = `markdown_foreign_space_${schemaName}`;
+      await prisma.space.create({ data: {
+        id: foreignSpaceId, name: 'Foreign Markdown resolver', slug: foreignSpaceId,
+      } });
+      const foreignPageId = `foreign_source_${schemaName}`;
+      await prisma.page.create({ data: {
+        id: foreignPageId, spaceId: foreignSpaceId, authorId: userId,
+        title: 'Foreign source', slug: `foreign-source-${schemaName}`,
+        syncPath: 'pages/Foreign.md', syncPathKey: 'pages/foreign.md',
+      } });
+      await assert.rejects(
+        resolver.resolve(spaceId, [{
+          key: 'relative-image', kind: 'attachment', syntax: 'markdown',
+          target: '../assets/Diagram.png',
+        }], { userId }, foreignPageId),
+        (error) => error?.code === 'CONTENT_TREE_PAGE_NOT_FOUND'
+          || error?.businessCode === 'CONTENT_TREE_PAGE_NOT_FOUND',
+      );
+
       const historicalRelative = await resolver.resolve(spaceId, [
         { key: 'old-link', kind: 'page', target: 'Weekly.md' },
       ], { userId }, `source-project_${schemaName}`);
