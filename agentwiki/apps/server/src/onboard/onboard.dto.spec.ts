@@ -40,7 +40,7 @@ const planHashGolden = JSON.parse(readFileSync(join(
 ), 'utf8')) as { plan: ServerPlan; sha256: string };
 
 describe('onboarding DTO contract', () => {
-  it.each(['0.9.0', '0.9.1'] as const)(
+  it.each(['0.9.0', '0.9.1', '0.10.0'] as const)(
     'accepts supported package version %s from every client',
     async (packageVersion) => {
       for (const clientType of ['codex', 'claude', 'opencode'] as const) {
@@ -53,7 +53,7 @@ describe('onboarding DTO contract', () => {
     },
   );
 
-  it.each(['0.9.0', '0.9.1'] as const)(
+  it.each(['0.9.0', '0.9.1', '0.10.0'] as const)(
     'accepts a bootstrap plan from supported package version %s',
     async (packageVersion) => {
       await expect(validationErrors(BootstrapDto, {

@@ -228,7 +228,7 @@ describe('OnboardBootstrapService', () => {
     expect(JSON.stringify(result)).not.toContain('apiKey');
   });
 
-  it.each(['0.9.0', '0.9.1'] as const)(
+  it.each(['0.9.0', '0.9.1', '0.10.0'] as const)(
     'issues the requested supported Local Sync %s package for a matching onboarding session',
     async (packageVersion) => {
       const versionContext = { ...context, packageVersion };

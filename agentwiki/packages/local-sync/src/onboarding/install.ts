@@ -152,7 +152,7 @@ export interface ExchangedGatewayInstallInput {
   expectedSpaceId: string;
   expectedRole: AgentAccessRole;
   expectedScopes: string[];
-  expectedPluginVersion: '0.9.1';
+  expectedPluginVersion: '0.10.0';
   exchange: ExchangeResult;
   /** Step sessions keep durable credentials/configuration so verification can resume. Legacy callers retain rollback semantics. */
   retainOnFailure?: boolean;
@@ -393,7 +393,7 @@ export function productionDependencies(request?: typeof fetch): BootstrapInstall
   };
 }
 
-function assertExchange(exchange: ExchangeResult, bootstrap: BootstrapResult, version: '0.9.1'): void {
+function assertExchange(exchange: ExchangeResult, bootstrap: BootstrapResult, version: '0.10.0'): void {
   assertExchangePackage(exchange, {
     agentId: bootstrap.agent.id,
     spaceId: bootstrap.space.id,
@@ -429,13 +429,13 @@ function assertExchangePackage(
     spaceId: string;
     role: AgentAccessRole;
     scopes: string[];
-    pluginVersion: '0.9.1';
+    pluginVersion: '0.10.0';
   },
 ): void {
   const canonicalScopes = scopesForAgentAccessRole(expected.role);
   if (
-    expected.pluginVersion !== '0.9.1'
-    || exchange.pluginVersion !== '0.9.1'
+    expected.pluginVersion !== '0.10.0'
+    || exchange.pluginVersion !== '0.10.0'
     || exchange.pluginVersion !== expected.pluginVersion
     || exchange.agentId !== expected.agentId
     || exchange.spaceId !== expected.spaceId

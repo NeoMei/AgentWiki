@@ -113,7 +113,7 @@ beforeAll(async () => {
         spaceId: 's1',
         role: 'editor',
         serverUrl: base,
-        pluginVersion: '0.9.1',
+        pluginVersion: '0.10.0',
         scopes,
       });
     }

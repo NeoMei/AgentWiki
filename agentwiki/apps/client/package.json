@@ -1,6 +1,6 @@
 {
   "name": "@agentwiki/client",
-  "version": "0.10.2",
+  "version": "0.11.0",
   "type": "module",
   "scripts": {
     "dev": "vite --config vite.config.ts",

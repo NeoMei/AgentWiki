@@ -50,7 +50,7 @@ describe('local sync command orchestration', () => {
   it('returns the package version for --version without requiring a connection', async () => {
     const home = await temporaryDirectory('agentwiki-version-');
 
-    await expect(runCli(['--version'], home)).resolves.toEqual({ version: '0.9.1' });
+    await expect(runCli(['--version'], home)).resolves.toEqual({ version: '0.10.0' });
   });
 
   it('redacts secrets in MCP output before serializing it', () => {
@@ -326,7 +326,7 @@ it('doctor checks required tool availability without invoking remote model provi
     const home = await temporaryDirectory('agentwiki-doctor-windows-acl-');
     const connection = {
       id: randomUUID(), serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'credential-1',
-      pluginVersion: '0.9.1', client: 'codex' as const, mcpName: 'agentwiki',
+      pluginVersion: '0.10.0', client: 'codex' as const, mcpName: 'agentwiki',
     };
     await saveConfig(home, { version: 1, defaultConnectionId: connection.id, connections: { [connection.id]: connection } });
     await saveCredentials(home, { version: 1, credentials: { [connection.credentialId]: { apiKey: 'agk_doctor_secret' } } });

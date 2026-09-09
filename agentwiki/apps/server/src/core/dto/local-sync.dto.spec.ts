@@ -6,7 +6,7 @@ import {
 } from './local-sync.dto';
 
 describe('local sync installation DTOs and business errors', () => {
-  it.each(['0.9.0', '0.9.1'] as const)(
+  it.each(['0.9.0', '0.9.1', '0.10.0'] as const)(
     'accepts a Space-bound role for supported Local Sync %s',
     async (pluginVersion) => {
     const dto = Object.assign(new CreateLocalSyncInstallationDto(), {

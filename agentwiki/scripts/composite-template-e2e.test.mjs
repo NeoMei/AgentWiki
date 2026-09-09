@@ -122,7 +122,7 @@ test('acceptance child environment is bound to one generated schema, exact ports
   assert.equal(result.PUBLIC_API_URL, 'http://127.0.0.1:43123/api');
   assert.equal(result.CORS_ORIGINS, 'http://127.0.0.1:43124');
   assert.equal(result.AGENTWIKI_E2E_API_RATE_LIMIT, '10000');
-  assert.equal(result.LOCAL_SYNC_PACKAGE_VERSION, '0.9.1');
+  assert.equal(result.LOCAL_SYNC_PACKAGE_VERSION, '0.10.0');
   assert.doesNotMatch(JSON.stringify(result), /127\.0\.0\.1:6379/u);
 });
 
@@ -650,7 +650,7 @@ test('external Agent gateway files pass an explicit fixture home without repurpo
   });
   assert.equal(files.localSync.version, 1);
   assert.equal(files.localSync.connections['acceptance-claude'].serverUrl, 'http://127.0.0.1:43123/api');
-  assert.equal(files.localSync.connections['acceptance-claude'].pluginVersion, '0.9.1');
+  assert.equal(files.localSync.connections['acceptance-claude'].pluginVersion, '0.10.0');
   assert.equal(files.credentials.credentials['credential-1'].apiKey, 'fixture-secret');
   assert.match(files.wrapperSource, /runCli\(\['gateway','--connection',["']acceptance-claude["']\],\s*["']\/tmp\/agentwiki-fixture-home["']\)/u);
   assert.deepEqual(files.mcpConfig, {

@@ -120,7 +120,7 @@ describe('LocalSyncInstallationService', () => {
     );
   });
 
-  it.each(['0.9.0', '0.9.1'] as const)(
+  it.each(['0.9.0', '0.9.1', '0.10.0'] as const)(
     'issues installation instructions and payload for requested supported version %s',
     async (pluginVersion) => {
       const result = await service.create(
@@ -133,7 +133,7 @@ describe('LocalSyncInstallationService', () => {
     },
   );
 
-  it.each(['0.9.0', '0.9.1'] as const)(
+  it.each(['0.9.0', '0.9.1', '0.10.0'] as const)(
     'keeps supported request %s valid while the deployed default remains 0.9.0',
     async (pluginVersion) => {
       config.get.mockImplementation((key: string) => (
@@ -468,7 +468,7 @@ describe('LocalSyncInstallationService', () => {
     expect(agents.exchangeConnectionIntent).not.toHaveBeenCalled();
   });
 
-  it.each(['0.9.0', '0.9.1'] as const)(
+  it.each(['0.9.0', '0.9.1', '0.10.0'] as const)(
     'exchanges and replays a supported Local Sync %s installation without changing its version',
     async (pluginVersion) => {
       const versionPayload = { ...payload, pluginVersion };
