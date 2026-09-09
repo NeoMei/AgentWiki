@@ -34,6 +34,7 @@
 
 # 风险 / 下一步
 
-- 剩余真实客户端验收仅Codex实际wiki_get_page读取；Computer Use明确拒绝访问Terminal和Codex应用（for safety reasons），无法代点击审批，未绕过。已准备交互验收脚本，并询问用户是否允许仅隔离进程临时放行这一只读工具；完成后再决定公开发布和生产部署。
+- 用户手工OpenCode读页失败已定位：运行公开0.9.1与生产旧连接，远程MCP返回401，网关静默退化为六个本地工具。候选测试连接实际SDK stdio发现27工具（21远程）且wiki_get_page读回正确标题/标记；这不等于OpenCode宿主验收通过。正在补脱敏实时网关诊断。
+- Computer Use明确拒绝Terminal、Codex、Warp（for safety reasons），未绕过。已准备start-opencode-acceptance.py临时配置启动器，保留wiki_get_page交互审批，用户可在Warp新标签页执行；不改日常配置。真实宿主结果仍待回传。
 - 0.10.0 尚未在 npm 公开发布；当前真实 Agent 验收仅将固定版本 npx 替换为相同候选 CLI 的隔离 home 包装器，不声称公开安装已经可用。
 - 全新独立只读Codex审查（固定bbe5c1f5..735c58d8）原C0/I1/M0，唯一fix wave已复审关闭，见SDD/final-whole-fix-review.md。CU截图与computer-use-acceptance-result.json保存在本轮私有证据目录。

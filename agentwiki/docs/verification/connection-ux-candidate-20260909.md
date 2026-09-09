@@ -1,6 +1,6 @@
 # 接入体验候选验收 — 2026-09-09
 
-状态：候选实现、自动验证与独立代码审查完成；真实客户端最终验收仍有两项等待，尚未正式发布或部署。本记录区分代码、打包、实际宿主与上线证据。
+状态：候选实现、自动验证与独立代码审查已完成；Obsidian真实成功路径已通过，Agent真实读取仍待通过，OpenCode反馈引出的网关诊断缺口正在修复。尚未正式发布或部署。本记录区分代码、打包、实际宿主与上线证据。
 
 ## 用户可见变化
 
@@ -70,4 +70,14 @@ LocalSync候选tarball已保存于私有证据release-candidates/neomei-agentwik
 - 设置重开显示ConnectionAcceptance已激活；再通过第三方插件开关停用/启用，确认原连接与映射仍已激活。截图obsidian-final-page-read.png、obsidian-final-reloaded-mapping.png；computer-use-acceptance-result.json记录产物hash与结果。
 - Agent交互验收脚本已准备，仅暴露测试服务的wiki_get_page，保留on-request审批和read-only。Computer Use分别拒绝访问com.apple.Terminal和com.openai.codex，均返回“for safety reasons”，故无法代操作交互审批。未改用其他终端绕过限制、未降低审批要求。脚本尚未启动。
 
-剩余：真实Codex的wiki_get_page读取，需要用户在可访问的客户端界面完成单次审批，或明确允许隔离测试进程对这一只读工具使用临时授权。Obsidian成功路径、映射、拉取、实际正文及插件重新加载恢复已验收通过。尚未发布或部署。
+Obsidian成功路径、映射、拉取、实际正文及插件重新加载恢复已验收通过。尚未发布或部署。
+
+## OpenCode 真实反馈与定位
+
+用户手工在Warp中的OpenCode执行测试页只读任务，报告仅六个local工具。只读现场检查确认：
+
+- 实际配置为npx @neomei/agentwiki-local-sync@latest gateway，运行版本为0.9.1；连接340ed189-91ec-59a4-af9f-fda468e3748b指向生产https://agentwiki.quukk.com/api，未使用候选测试连接。
+- 使用这条现有连接只做MCP工具发现，生产返回HTTP401 / UNAUTHENTICATED；当前凭据不被接受，未调用生产页面工具、未写生产数据。RemoteMcpBridge.listTools吞掉远程发现错误并返回空集合，六个local工具仍能加载。不存在需要手动开启wiki_*的开关。
+- 候选测试连接4216b0c6-6dad-4fc7-9f40-90a303542a09通过真实SDK stdio发现27个工具（21远程），实际wiki_get_page返回正确标题与验证标记。证据agent-consumer/opencode-preflight-read.json；SDK探针不代表OpenCode宿主验收通过。
+- Computer Use访问Warp亦明确被拒绝（for safety reasons），没有换技术绕过。准备agent-consumer/start-opencode-acceptance.py供用户在Warp新标签页启动；使用临时OPENCODE_CONFIG_CONTENT覆盖MCP连接，不改全局文件，只允许wiki_get_page弹出单次审批。已用OpenCode debug config验证最终配置及权限合并。
+- 正在补充网关脱敏实时连接诊断与恢复建议，避免把工具进程已加载误报为平台连接成功。真实OpenCode宿主结果仍待回传。
