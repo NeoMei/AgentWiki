@@ -8,6 +8,8 @@
 
 ## 最近完成
 
+- [new-content-page-20260910](archive/new-content-page-20260910/brief.md)：独立新建内容页本地完成，Space 自定义模板保留；1458 客户端测试和 Chrome 桌面/手机隔离数据验收通过，未合并/发布/部署。
+
 - [connection-ux-20260909](archive/connection-ux-20260909/brief.md)：应用0.11.0、npm0.10.0、独立插件0.5.0及生产部署完成；5588+1353项检查、真实客户端成功路径、正式包线上接入读页、32 API烟测及官方资产验证通过。
 
 - [full-audit-20260909](archive/full-audit-20260909/brief.md)：0.10.2全面复审修复及生产验收完成；5494pass，DB207零skip；2项Windows原生未运行；依赖audit0、独立审查C0/I0/M0。

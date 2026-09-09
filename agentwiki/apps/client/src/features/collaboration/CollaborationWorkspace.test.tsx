@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -9,7 +9,6 @@ import { CollaborationWorkspace } from './CollaborationWorkspace';
 import { SpaceWorkspace } from '../space-workspace/SpaceWorkspace';
 import { SpaceWorkspaceProvider } from '../space-workspace/SpaceWorkspaceContext';
 
-const pageDialogProps = vi.hoisted(() => ({ current: null as null | Record<string, any> }));
 const compositeMocks = vi.hoisted(() => ({ listCompositeTemplates: vi.fn() }));
 const shellApi = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() }));
 
@@ -17,12 +16,6 @@ vi.mock('../../api/client', () => ({ default: shellApi }));
 vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
 vi.mock('../page-templates/UpgradeWorkflowTemplateDialog', () => ({
   UpgradeWorkflowTemplateDialog: ({ legacyTemplate }: { legacyTemplate: { name: string } }) => <div role="dialog">Upgrade dialog {legacyTemplate.name}</div>,
-}));
-vi.mock('../page-templates/NewPageDialog', () => ({
-  NewPageDialog: (props: Record<string, any>) => {
-    pageDialogProps.current = props;
-    return <div role="dialog">Unified page and collaboration flow</div>;
-  },
 }));
 vi.mock('../page-templates/compositeTemplateApi', () => ({
   listCompositeTemplates: compositeMocks.listCompositeTemplates,
@@ -48,6 +41,8 @@ const spaceBTemplate = {
 };
 
 let navigateWorkspace!: ReturnType<typeof useNavigate>;
+
+const CreationDestination = () => { const location = useLocation(); return <h1>{location.pathname + location.search}</h1>; };
 
 const NavigationCapture = () => {
   navigateWorkspace = useNavigate();
@@ -77,6 +72,7 @@ function renderWorkspace(language: 'en' | 'zh-CN' = 'en') {
         <SpaceWorkspaceProvider userId="owner-1">
           <NavigationCapture />
           <Routes>
+            <Route path="/spaces/:id/new" element={<CreationDestination />} />
             <Route path="/spaces/:id/collaboration" element={<CollaborationSectionRoute />} />
             <Route path="/spaces/:id/collaboration/runs/:runId" element={<div data-testid="opened-atomic-run" />} />
             <Route path="/spaces/:id" element={<div data-testid="opened-space-root" />} />
@@ -91,7 +87,6 @@ function renderWorkspace(language: 'en' | 'zh-CN' = 'en') {
 describe('CollaborationWorkspace', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    pageDialogProps.current = null;
     shellApi.get.mockImplementation(async (url: string) => {
       const spaceId = url.match(/^\/spaces\/([^/]+)$/u)?.[1];
       if (!spaceId) throw new Error(`unexpected get ${url}`);
@@ -109,26 +104,15 @@ describe('CollaborationWorkspace', () => {
     });
   });
 
-  it('opens the shared composite creation flow and sends Open group to a created group Page', async () => {
+  it('routes the collaboration entry to the creation page with its source context', async () => {
     renderWorkspace();
     await screen.findByText('Coding collaboration');
-
     fireEvent.click(screen.getByRole('button', { name: 'Create page group collaboration' }));
-    expect(await screen.findByRole('dialog')).toHaveTextContent('Unified page and collaboration flow');
-    expect(pageDialogProps.current).toEqual(expect.objectContaining({ spaceId: 'space-1' }));
-
-    await act(async () => pageDialogProps.current?.onCreated({
-      firstPageId: 'page-1', rootFolderId: 'folder-1', pageIds: ['page-1', 'page-2'], runId: 'run-atomic',
-    }));
-    expect(await screen.findByTestId('opened-created-group-page')).toBeVisible();
-    expect(screen.queryByTestId('opened-atomic-run')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('opened-space-root')).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '/spaces/space-1/new?from=collaboration' })).toBeVisible();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
+  afterEach(() => { vi.restoreAllMocks(); });
 
   it('shows system and Space templates and copies a system template', async () => {
     vi.mocked(collaborationApi.copyTemplate).mockResolvedValue({ ...spaceTemplate, id: 'copy-1' });

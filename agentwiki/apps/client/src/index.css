@@ -1,1 +1,30 @@
 @import "tailwindcss";
+
+/* The creation route shares the Space shell; only its action row sticks. */
+.creation-page .creation-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  padding-top: 16px;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  background: white;
+}
+.creation-page .creation-details {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+.creation-page .creation-details > * { min-width: 0; }
+.creation-page .creation-details > .creation-actions { margin-top: 0; }
+@media (min-width: 1280px) {
+  .creation-page .creation-details { grid-template-columns: minmax(0, 1fr) 256px; }
+  .creation-page .creation-details > * { grid-column: 1; }
+  .creation-page .creation-details > :first-child { grid-column: 2; grid-row: 1 / span 3; align-self: start; }
+  .creation-page .creation-details > .creation-actions { grid-column: 1 / -1; }
+}
+.creation-page .creation-actions,
+.creation-page .creation-actions button,
+.creation-page .creation-details input,
+.creation-page .creation-details > .border {
+  border-color: #e5e5e5;
+}

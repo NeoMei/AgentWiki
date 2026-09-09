@@ -46,6 +46,8 @@ const RunDashboard = lazy(() => import('./features/collaboration/RunDashboard').
 const PageTemplateManager = lazy(() => import('./features/page-templates/PageTemplateManager')
   .then((module) => ({ default: module.PageTemplateManager })));
 
+const NewContentPage = lazy(() => import('./features/page-templates/NewContentPage').then((module) => ({ default: module.NewContentPage })));
+
 const RouteLoading: React.FC = () => {
   const { t } = useLanguage();
   return <div className="py-8 text-center text-gray-500">{t('common.loading')}</div>;
@@ -87,6 +89,7 @@ const AppRoutes: React.FC = () => {
     <Routes>
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route path="/dashboard" element={<Suspense fallback={<RouteLoading />}><Dashboard /></Suspense>} />
+        <Route path="/spaces/:id/new" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><NewContentPage /></Suspense></WorkspaceRoute>} />
         <Route path="/spaces/:id" element={<WorkspaceRoute mode="directory"><></></WorkspaceRoute>} />
         <Route path="/pages/:id" element={<WorkspaceRoute mode="read" pageRoute><Suspense fallback={<RouteLoading />}><PagePreview /></Suspense></WorkspaceRoute>} />
         <Route path="/pages/:id/edit" element={<WorkspaceRoute mode="edit" pageRoute><Suspense fallback={<RouteLoading />}><PageEditor /></Suspense></WorkspaceRoute>} />

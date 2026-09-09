@@ -5,7 +5,7 @@ import { Plus, RotateCcw, X } from 'lucide-react';
 import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
-import { NewPageDialog, type NewPageCreationTarget } from '../page-templates/NewPageDialog';
+import { newContentHref } from '../page-templates/newContentNavigation';
 import { PageAgentBindingDialog, type BindingDialogScope } from '../page-templates/PageAgentBindingDialog';
 import { SaveFolderAsTemplateDialog } from '../page-templates/SaveFolderAsTemplateDialog';
 import { listCompositeTemplates } from '../page-templates/compositeTemplateApi';
@@ -91,7 +91,6 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
   const [requestSpaceId, setRequestSpaceId] = useState<string | undefined>(undefined);
   const [archivingPageId, setArchivingPageId] = useState<string | null>(null);
 
@@ -236,7 +235,6 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
       archiveControllerRef.current = null;
       archiveInFlightRef.current = null;
       setArchivingPageId(null);
-      setShowCreate(false);
       setFolderDialog(null);
       setDeleteTarget(null);
       setBindingScope(null);
@@ -580,7 +578,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
           branchErrors={directory.branchErrors}
           loadingBranches={directory.loadingBranches}
           onRetryBranch={(folderId) => { void directory.reloadLevel(folderId); }}
-          onCreatePage={() => setShowCreate(true)}
+          onCreatePage={() => navigate(newContentHref(id, targetFolderId))}
           onCreateFolder={() => setFolderDialog({
             mode: 'create',
             parent: targetFolderId
@@ -626,7 +624,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
             <button
               ref={createPageOpenerRef}
               type="button"
-              onClick={() => setShowCreate(true)}
+              onClick={() => navigate(newContentHref(id, targetFolderId))}
               className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white"
             >
               <Plus size={18} />
@@ -678,33 +676,6 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
       </>}
         </main>
       </div>
-
-      {showCreate && canEdit && id ? (
-        <NewPageDialog
-          spaceId={id}
-          folderId={targetFolderId}
-          targetLocation={directory.crumbs.map((crumb) => crumb.name).filter(Boolean).join(' / ')}
-          returnFocusTo={createPageOpenerRef.current}
-          onClose={() => setShowCreate(false)}
-          onCreated={(target) => {
-            setShowCreate(false);
-            if (typeof target === 'string') {
-              reloadTree();
-              navigate('/pages/' + target + '/edit');
-              return;
-            }
-            const created = target as NewPageCreationTarget;
-            if (created.rootFolderId) {
-              setCurrentFolderId(created.rootFolderId);
-            } else if (created.firstPageId) {
-              reloadTree();
-              navigate('/pages/' + created.firstPageId + '/edit');
-            } else {
-              reloadTree();
-            }
-          }}
-        />
-      ) : null}
 
       {bindingScope && canEdit && compositeCreationEnabled && id ? <PageAgentBindingDialog
         spaceId={id}

@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Router, Routes, useNavigate } from 'react-router-d
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { SpaceView } from './SpaceView';
+import { NewContentPage } from '../page-templates/NewContentPage';
 import type { ContentTreeNode } from '../content-tree/contentTreeTypes';
 
 const mocks = vi.hoisted(() => ({
@@ -87,6 +88,7 @@ const renderSpaceView = () => render(
     <MemoryRouter initialEntries={['/spaces/space-1']}>
       <Routes>
         <Route path="/spaces/:id" element={<SpaceView />} />
+        <Route path="/spaces/:id/new" element={<NewContentPage />} />
         <Route path="/pages/:pageId/edit" element={<h1>Editing created page</h1>} />
       </Routes>
     </MemoryRouter>
@@ -104,7 +106,8 @@ const renderNavigableSpaceView = () => {
       <MemoryRouter initialEntries={['/spaces/space-a']}>
         <Routes>
           <Route path="/spaces/:id" element={<Harness />} />
-          <Route path="/pages/:pageId/edit" element={<h1>Editing created page</h1>} />
+          <Route path="/spaces/:id/new" element={<NewContentPage />} />
+        <Route path="/pages/:pageId/edit" element={<h1>Editing created page</h1>} />
         </Routes>
       </MemoryRouter>
     </LanguageProvider>,
@@ -193,7 +196,7 @@ describe('SpaceView new-page flow', () => {
     expect(screen.getByRole('button', { name: '新建页面' })).toBeInTheDocument();
   });
 
-  it('opens the two-step dialog and preserves navigation to the created page editor', async () => {
+  it('opens the creation page and preserves navigation to the created page editor', async () => {
     mocks.api.get.mockImplementation(async (url: string) => {
       if (url === '/spaces/space-1') {
         return { data: { id: 'space-1', name: 'Role Space', members: [{ userId: 'user-1', role: 'owner' }] } };
@@ -206,7 +209,7 @@ describe('SpaceView new-page flow', () => {
     renderSpaceView();
 
     fireEvent.click(await screen.findByRole('button', { name: '新建页面' }));
-    fireEvent.click(await screen.findByRole('button', { name: '下一步' }));
+    await screen.findByLabelText('标题');
     fireEvent.change(screen.getByLabelText('标题'), { target: { value: 'Created page' } });
     fireEvent.click(screen.getByRole('button', { name: '创建' }));
 
@@ -500,7 +503,7 @@ describe('SpaceView new-page flow', () => {
     expect(screen.queryByRole('button', { name: '新建页面' })).not.toBeInTheDocument();
   });
 
-  it('closes an old dialog on route change and creates only against the newly loaded Space', async () => {
+  it('leaves the old creation page on route change and creates only against the newly loaded Space', async () => {
     const ownerB = deferred<ReturnType<typeof spaceResponse>>();
     mockNavigableGets({
       'space-a': Promise.resolve(spaceResponse('space-a', 'Owner A', 'owner')),
@@ -509,7 +512,7 @@ describe('SpaceView new-page flow', () => {
     mocks.api.post.mockResolvedValue({ data: { id: 'page-new' } });
     const { navigateTo } = renderNavigableSpaceView();
     fireEvent.click(await screen.findByRole('button', { name: '新建页面' }));
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '新建内容' })).toBeInTheDocument();
 
     navigateTo('space-b');
 
@@ -518,7 +521,7 @@ describe('SpaceView new-page flow', () => {
     expect(mocks.api.post).not.toHaveBeenCalled();
     await act(async () => ownerB.resolve(spaceResponse('space-b', 'Owner B', 'owner')));
     fireEvent.click(await screen.findByRole('button', { name: '新建页面' }));
-    fireEvent.click(await screen.findByRole('button', { name: '下一步' }));
+    await screen.findByLabelText('标题');
     fireEvent.change(screen.getByLabelText('标题'), { target: { value: 'B page' } });
     fireEvent.click(screen.getByRole('button', { name: '创建' }));
 
@@ -543,7 +546,7 @@ describe('SpaceView new-page flow', () => {
     const { navigateTo } = renderNavigableSpaceView();
 
     fireEvent.click(await screen.findByRole('button', { name: '新建页面' }));
-    fireEvent.click(await screen.findByRole('button', { name: '下一步' }));
+    await screen.findByLabelText('标题');
     fireEvent.change(screen.getByLabelText('标题'), { target: { value: 'Late A page' } });
     fireEvent.click(screen.getByRole('button', { name: '创建' }));
     await waitFor(() => expect(mocks.api.post).toHaveBeenCalledWith('/pages', {
