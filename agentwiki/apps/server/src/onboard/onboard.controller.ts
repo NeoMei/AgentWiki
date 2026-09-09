@@ -122,8 +122,8 @@ npx --yes @neomei/agentwiki-local-sync@${PACKAGE_VERSION} onboard status --sessi
 npx --yes @neomei/agentwiki-local-sync@${PACKAGE_VERSION} onboard continue --session <sessionId> --protocol json
 \`\`\`
 
-3. authorization_required / authorization_expired：把 authorizationUrl 给用户，在浏览器登录并批准；等待 retryAfterMs 再 continue。过期重新授权也保留原 sessionId、计划和配置。不要索取密码。
-Give the user authorizationUrl to approve in their browser. Wait retryAfterMs and continue the same session. Renew expired authorization without starting another session. Never ask for passwords.
+3. authorization_expired：该响应没有授权链接；保留原 sessionId、计划和配置，按 nextAction 执行不带 --reply-file 的 continue 续授权。收到新的 authorization_required 后，才把其中的 authorizationUrl 给用户，在 expiresAt 前登录浏览器并批准，等待 retryAfterMs 再 continue。首次收到 authorization_required 也按此方式处理。不要新建会话或索取密码。
+For authorization_expired, the response has no authorization link. Preserve sessionId, the plan, and configuration; follow nextAction by running continue without --reply-file to renew. Only after the new authorization_required response, give the user its authorizationUrl to approve before expiresAt, then wait retryAfterMs before continuing. Handle an initial authorization_required the same way. Never start another session or ask for passwords.
 
 4. input_required：按 spaces 的名称让用户选择空间，填入对应 spaceId，或创建空间；询问 agentName 与最小必要 role（reader/editor/publisher）。使用当前 requestId/fields 写绝对路径 JSON 回复文件，POSIX 权限0600，Windows仅当前用户可读写。不要把用户输入拼接到shell中。
 Show spaces by name, fill the selected spaceId or create a space, and ask for agentName and the least privilege role. Write the current requestId and values to an absolute JSON file, restricted to its owner (POSIX 0600). Do not interpolate user text into shell commands.

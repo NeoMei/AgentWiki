@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { LanguageProvider } from '../../context/LanguageContext';
+import { OnboardDevicePage } from './OnboardDevicePage';
 import { ProductPage } from './ProductPage';
 
 const login = vi.fn();
@@ -11,7 +12,7 @@ vi.mock('../../context/AuthContext', () => ({
 }));
 
 vi.mock('../../api/client', () => ({
-  default: { post: vi.fn() },
+  default: { post: vi.fn(), get: vi.fn() },
 }));
 
 const LocationProbe = () => {
@@ -110,7 +111,7 @@ describe('ProductPage workspace intent', () => {
       </LanguageProvider>,
     );
 
-    expect(screen.getByText('登录或注册后返回 Agent 授权页面。')).toBeInTheDocument();
+    expect(screen.getByText('登录或注册后返回连接授权页面。')).toBeInTheDocument();
     if (mode === 'register') {
       fireEvent.click(screen.getByRole('tab', { name: '切换到注册' }));
       fireEvent.change(screen.getByPlaceholderText('名称'), { target: { value: 'Neo' } });
@@ -126,6 +127,28 @@ describe('ProductPage workspace intent', () => {
         ? { email: 'neo@example.com', password: 'Password1' }
         : { email: 'neo@example.com', password: 'Password1', name: 'Neo' },
     );
+  });
+
+  it.each([['zh-CN','login'],['zh-CN','register'],['en','login'],['en','register']] as const)('preserves Obsidian device context through %s %s', async (language, mode) => {
+    const zh = language === 'zh-CN';
+    localStorage.setItem('agentwiki.language.v1',language);
+    vi.mocked(api.get).mockResolvedValue({data:{clientType:'obsidian',purpose:'obsidian-connect',packageVersion:'0.4.0',status:'pending',expiresAt:'2099-01-01T00:00:00Z'}});
+    vi.mocked(api.post).mockResolvedValue({data:{access_token:'human-token',user:{id:'user-1'}}});
+    render(<LanguageProvider><MemoryRouter initialEntries={['/onboard/device?user_code=ABCD-EFGH']}><Routes>
+      <Route path="/" element={<ProductPage/>}/>
+      <Route path="/onboard/device" element={<><OnboardDevicePage/><LocationProbe/></>}/>
+    </Routes></MemoryRouter></LanguageProvider>);
+    fireEvent.click(await screen.findByRole('link',{name:zh?'登录或注册后授权':'Sign in or register to authorize'}));
+    expect(screen.getByRole('status')).toHaveTextContent(zh?'登录或注册后返回连接授权页面。':'Sign in or register to return to connection authorization.');
+    if(mode === 'register') {
+      fireEvent.click(screen.getByRole('tab',{name:zh?'切换到注册':'Switch to register'}));
+      fireEvent.change(screen.getByPlaceholderText(zh?'名称':'Name'),{target:{value:'Fixture'}});
+    }
+    fireEvent.change(screen.getByPlaceholderText(zh?'邮箱':'Email'),{target:{value:'fixture@example.invalid'}});
+    fireEvent.change(screen.getByPlaceholderText(zh?'密码':'Password'),{target:{value:'Password1'}});
+    fireEvent.click(screen.getByRole('button',{name:zh?(mode==='login'?'登录':'注册'):(mode==='login'?'Sign in':'Register')}));
+    expect(await screen.findByRole('heading',{name:zh?'连接 Obsidian':'Connect Obsidian'})).toBeInTheDocument();
+    expect(screen.getByText('/onboard/device?user_code=ABCD-EFGH')).toBeInTheDocument();
   });
 
   it('ignores an unsafe return target after login', async () => {

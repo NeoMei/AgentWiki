@@ -24,7 +24,7 @@ ${status}
 ${advance}
 每次 continue 只推进一个阶段；configuration_pending 时继续同一会话，直到需要我的输入、确认或浏览器授权。
 
-3. 收到 authorization_required 或 authorization_expired：把 authorizationUrl 给我，让我在浏览器登录并批准。等待 retryAfterMs 后再执行 continue，遵守新的等待时间。过期也保留同一会话和已确认计划，按 nextAction 重新在浏览器授权；不要新建会话或索取密码。
+3. 收到 authorization_expired：该响应没有授权链接；保留同一 sessionId、计划和配置，按 nextAction 执行不带 --reply-file 的 continue 续授权。收到新的 authorization_required 后，才把其中的 authorizationUrl 给我，让我在 expiresAt 前登录浏览器并批准，等待 retryAfterMs 再 continue。首次收到 authorization_required 也按此方式处理，遵守新的等待时间；不要新建会话或索取密码。
 
 4. 收到 input_required：按 spaces 的名称让我选择已有空间（代填对应 spaceId），或创建空间；再询问 agentName 和 role（reader、editor、publisher，按需要选择最小权限）。基础接入不扫描本地目录，不导入或上传。使用当前 requestId 与 fields，写入绝对路径 JSON 文件；POSIX 权限设为 0600，Windows 限当前用户可读写。通过文件工具写 JSON，不将我的原始输入拼接进 shell。
 新空间回复形状：{"requestId":"当前值","values":{"spaceMode":"create","spaceName":"我的空间","agentName":"我的 Agent","role":"reader"}}
@@ -50,7 +50,7 @@ Advance one phase:
 ${advance}
 Each continue advances at most one phase. For configuration_pending, continue the same session until input, confirmation, or browser authorization is needed.
 
-3. For authorization_required or authorization_expired, give me authorizationUrl to sign in and approve in my browser. Wait retryAfterMs before the next continue and honor updated intervals. Expiry keeps the same session and confirmed plan; follow nextAction for fresh browser approval. Never create another session or ask for my password.
+3. For authorization_expired, the response has no authorization link. Preserve sessionId, the plan, and configuration; follow nextAction by running continue without --reply-file to renew. Only after the new authorization_required response, give me its authorizationUrl to sign in and approve before expiresAt, then wait retryAfterMs before continuing. Handle an initial authorization_required the same way and honor updated intervals. Never create another session or ask for my password.
 
 4. For input_required, show spaces by name and fill the chosen spaceId, or let me create a space. Ask for agentName and role (reader, editor, publisher, using the least privilege needed). Basic connection does not scan, import, or upload. Use the current requestId and fields to write an absolute-path JSON file. Set POSIX permissions to 0600; on Windows restrict access to the current user. Write JSON using a file tool rather than embedding my raw text in shell code.
 New-space reply: {"requestId":"current value","values":{"spaceMode":"create","spaceName":"My space","agentName":"My Agent","role":"reader"}}

@@ -56,6 +56,19 @@ describe('ObsidianGuide availability', () => {
     expect(await screen.findByText('AW-TEST-CODE')).toBeInTheDocument();
   });
 
+  it.each(['zh-CN','en'] as const)('keeps the generated code usable after clipboard failure in %s', async language => {
+    const zh = language === 'zh-CN';
+    localStorage.setItem('agentwiki.language.v1',language);
+    Object.assign(navigator,{clipboard:{writeText:vi.fn().mockRejectedValue(new Error('clipboard denied'))}});
+    render(<MemoryRouter><LanguageProvider><ObsidianGuide/></LanguageProvider></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button',{name:zh?'生成连接码':'Generate Connection Code'}));
+    expect(await screen.findByText('AW-TEST-CODE')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:zh?'复制':'Copy'}));
+    expect(await screen.findByRole('alert')).toHaveTextContent(zh?'请手动选择并复制上方连接码':'Select and copy the visible connection code manually');
+    expect(screen.getByText('AW-TEST-CODE')).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:zh?'复制':'Copy'})).toBeEnabled();
+  });
+
   it('shows the server origin required by the Obsidian plugin after generating a code', async () => {
     render(<MemoryRouter><LanguageProvider><ObsidianGuide /></LanguageProvider></MemoryRouter>);
 

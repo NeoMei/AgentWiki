@@ -44,6 +44,7 @@ export const OnboardDevicePage: React.FC = () => {
   const [now, setNow] = useState(Date.now);
   const requestGeneration = useRef(0);
   const obsidian = session?.purpose === 'obsidian-connect';
+  const legacy = session?.purpose === 'full-onboarding';
   const effectiveStatus = session?.status === 'pending' && new Date(session.expiresAt).getTime() <= now ? 'expired' : session?.status;
   useEffect(() => {
     if (!session || session.status !== 'pending') return;
@@ -152,7 +153,7 @@ export const OnboardDevicePage: React.FC = () => {
                     <Bot size={22} className="text-blue-600" />
                     <div>
                       <div className="font-semibold">{CLIENT_LABELS[session.clientType]}</div>
-                      <div className="text-sm text-gray-500">{obsidian ? (zh ? '连接当前账号' : 'Connect your account') : (zh ? '完整 Agent 接入' : 'Full Agent onboarding')}</div>
+                      <div className="text-sm text-gray-500">{obsidian ? (zh ? '连接当前账号' : 'Connect your account') : legacy ? (zh ? '完整 Agent 接入' : 'Full Agent onboarding') : (zh ? 'Agent 连接' : 'Agent connection')}</div>
                     </div>
                     <span className="ml-auto rounded-full border border-gray-200 bg-white px-2.5 py-1 text-xs text-gray-600">{session.packageVersion}</span>
                   </div>
@@ -161,6 +162,7 @@ export const OnboardDevicePage: React.FC = () => {
                 <p className="text-sm leading-6 text-gray-600">
                   {obsidian
                     ? (zh ? '允许后，Obsidian 将连接当前登录账号。回到插件后选择空间和本地文件夹。' : 'Approval connects Obsidian to your signed-in account. Return to the plugin to choose a space and local folder.')
+                    : legacy ? (zh ? '允许后，本地 Agent 将继续让你确认 Agent、Space、权限和扫描计划。当前页面不会展示或保存接入密钥。' : 'After approval, your local Agent will ask you to confirm the Agent, Space, permissions, and scan plan. This page never displays or stores connection credentials.')
                     : (zh ? '允许后，本地 Agent 将继续让你确认空间、角色与客户端配置。知识导入可以稍后进行。' : 'After approval, your Agent asks you to confirm the space, role, and client configuration. Knowledge import can wait until later.')}
                 </p>
 
@@ -194,8 +196,8 @@ export const OnboardDevicePage: React.FC = () => {
                     </button>
                   </div>
                 )}
-                {effectiveStatus === 'expired' || effectiveStatus === 'denied' ? <p className="text-sm leading-6 text-gray-600">{obsidian ? (zh ? '请回到 Obsidian，重新点击“连接 AgentWiki”。' : 'Return to Obsidian and click “Connect AgentWiki” again.') : (zh ? '请让本地 Agent 继续原会话，获取新的浏览器授权链接。' : 'Ask your local Agent to continue the same session for a fresh authorization link.')}</p> : null}
-                {(effectiveStatus === 'approved' || effectiveStatus === 'authorized') && !decisionMessage ? <p className="text-sm leading-6 text-gray-600">{obsidian ? (zh ? '请回到 Obsidian，等待连接完成。' : 'Return to Obsidian and wait for the connection to finish.') : (zh ? '请回到本地 Agent 继续确认空间与配置。' : 'Return to your local Agent to continue space and configuration setup.')}</p> : null}
+                {effectiveStatus === 'expired' || effectiveStatus === 'denied' ? <p className="text-sm leading-6 text-gray-600">{obsidian ? (zh ? '请回到 Obsidian，重新点击“连接 AgentWiki”。' : 'Return to Obsidian and click “Connect AgentWiki” again.') : legacy ? (zh ? '请回到本地 Agent，按原接入流程重新获取授权链接。' : 'Return to your local Agent and follow the original onboarding flow for a fresh authorization link.') : (zh ? '请让本地 Agent 继续原会话，获取新的浏览器授权链接。' : 'Ask your local Agent to continue the same session for a fresh authorization link.')}</p> : null}
+                {(effectiveStatus === 'approved' || effectiveStatus === 'authorized') && !decisionMessage ? <p className="text-sm leading-6 text-gray-600">{obsidian ? (zh ? '请回到 Obsidian，等待连接完成。' : 'Return to Obsidian and wait for the connection to finish.') : legacy ? (zh ? '请回到本地 Agent 继续确认 Agent、Space、权限和扫描计划。' : 'Return to your local Agent to confirm the Agent, Space, permissions, and scan plan.') : (zh ? '请回到本地 Agent 继续确认空间与配置。' : 'Return to your local Agent to continue space and configuration setup.')}</p> : null}
                 {actionError ? <p role="alert" className="text-sm text-red-600">{actionError}</p> : null}
               </div>
             )}

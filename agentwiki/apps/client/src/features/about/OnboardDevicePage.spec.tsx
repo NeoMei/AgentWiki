@@ -144,6 +144,28 @@ describe('OnboardDevicePage', () => {
     expect(await screen.findByText(language==='zh-CN'?'已授权，请回到 Obsidian 完成连接':'Authorized. Return to Obsidian to finish connecting')).toBeInTheDocument();
   });
 
+  it.each(['zh-CN','en'] as const)('keeps legacy and bounded Agent purposes distinct in %s', async language => {
+    localStorage.setItem('agentwiki.language.v1',language);
+    const zh = language === 'zh-CN';
+    const legacy = renderPage();
+    expect(await screen.findByText(zh ? '完整 Agent 接入' : 'Full Agent onboarding')).toBeInTheDocument();
+    expect(screen.getByText(zh ? /确认 Agent、Space、权限和扫描计划/ : /confirm the Agent, Space, permissions, and scan plan/)).toBeInTheDocument();
+    expect(screen.queryByText(zh ? /知识导入可以稍后进行/ : /Knowledge import can wait/)).not.toBeInTheDocument();
+    legacy.unmount();
+    vi.mocked(api.get).mockResolvedValue({data:{...session,purpose:'agent-connect'}});
+    renderPage();
+    expect(await screen.findByText(zh ? 'Agent 连接' : 'Agent connection')).toBeInTheDocument();
+    expect(screen.getByText(zh ? /知识导入可以稍后进行/ : /Knowledge import can wait/)).toBeInTheDocument();
+  });
+  it.each(['zh-CN','en'] as const)('does not promise legacy same-session renewal in %s', async language => {
+    localStorage.setItem('agentwiki.language.v1',language);
+    vi.mocked(api.get).mockResolvedValue({data:{...session,status:'expired'}});
+    renderPage();
+    expect(await screen.findByText(language === 'zh-CN' ? '授权请求已过期' : 'The authorization request has expired')).toBeInTheDocument();
+    expect(screen.getByText(language === 'zh-CN' ? /按原接入流程重新获取授权链接/ : /original onboarding flow for a fresh authorization link/)).toBeInTheDocument();
+    expect(screen.queryByText(/continue the same session|继续原会话/)).not.toBeInTheDocument();
+  });
+
   it('expires an old pending request and gives purpose-specific retry guidance',async()=>{
     vi.mocked(api.get).mockResolvedValue({data:{...session,clientType:'obsidian',purpose:'obsidian-connect',expiresAt:new Date(Date.now()-1).toISOString()}});
     renderPage();

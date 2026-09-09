@@ -8,17 +8,17 @@ export const OnboardPage: React.FC = () => {
   const { language } = useLanguage();
   const zh = language === 'zh-CN';
   const [client, setClient] = useState<OnboardClient>('codex');
-  const [copiedClient, setCopiedClient] = useState<OnboardClient | null>(null);
-  const copied = copiedClient === client;
+  const [copiedPrompt, setCopiedPrompt] = useState<string | null>(null);
   const [copyFailed, setCopyFailed] = useState(false);
   const serverUrl = `${window.location.origin}/api`;
   const prompt = buildOnboardPrompt(zh, client, serverUrl);
+  const copied = copiedPrompt === prompt;
   const copyPrompt = async () => {
     setCopyFailed(false);
     try {
       if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable');
       await navigator.clipboard.writeText(prompt);
-      setCopiedClient(client);
+      setCopiedPrompt(prompt);
     } catch { setCopyFailed(true); }
   };
   const steps = zh ? [
@@ -44,7 +44,7 @@ export const OnboardPage: React.FC = () => {
       <section className="mt-6 rounded-xl border border-gray-200 bg-white p-4 sm:p-6" aria-labelledby="agent-connect-title">
         <h2 id="agent-connect-title" className="text-lg font-semibold">{zh ? '复制整段提示词到你的 Agent' : 'Copy the full prompt into your Agent'}</h2>
         <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label={zh ? '选择客户端' : 'Choose a client'}>
-          {ONBOARD_CLIENTS.map(item => <button key={item.id} type="button" aria-pressed={client === item.id} onClick={() => { setClient(item.id); setCopiedClient(null); setCopyFailed(false); }} className={`rounded-lg border px-4 py-2 text-sm font-medium ${client === item.id ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'}`}>{item.label}</button>)}
+          {ONBOARD_CLIENTS.map(item => <button key={item.id} type="button" aria-pressed={client === item.id} onClick={() => { setClient(item.id); setCopiedPrompt(null); setCopyFailed(false); }} className={`rounded-lg border px-4 py-2 text-sm font-medium ${client === item.id ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'}`}>{item.label}</button>)}
         </div>
         <button type="button" onClick={() => void copyPrompt()} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800 sm:w-auto">
           {copied ? <Check size={16} /> : <Copy size={16} />}{zh ? '复制提示词' : 'Copy prompt'}

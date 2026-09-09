@@ -10,6 +10,8 @@ describe('public Agent connection guide', () => {
     expect(guide).toContain('planHash'); expect(guide).toContain('0600'); expect(guide).toContain('hostVerification');
     expect(guide).toContain('Legacy NDJSON');
     expect(guide).not.toContain('sourcePaths'); expect(guide).not.toContain('onboard --server');
+    expect(guide).toMatch(/authorization_expired.*不带 --reply-file.*continue.*authorization_required.*authorizationUrl/);
+    expect(guide).toMatch(/authorization_expired.*continue.*without --reply-file.*authorization_required.*authorizationUrl/);
     expect(controller.getJsonRedirect().replacement).toContain('onboard start');
   });
 });

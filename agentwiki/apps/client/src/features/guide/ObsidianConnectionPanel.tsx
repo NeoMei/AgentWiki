@@ -76,12 +76,13 @@ export const ObsidianConnectionPanel: React.FC = () => {
 
   const copyCode = async () => {
     if (!codeData || expired || generating) return;
+    setError(null);
     try {
       await navigator.clipboard.writeText(codeData.code);
       setCodeCopied(true);
       window.setTimeout(() => setCodeCopied(false), 2_000);
     } catch {
-      setError(t('integration.generateFailed'));
+      setError(t('integration.copyFailed'));
     }
   };
 

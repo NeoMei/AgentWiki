@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { LanguageProvider } from '../../context/LanguageContext';
+import { LanguageProvider, useLanguage } from '../../context/LanguageContext';
 import { OnboardPage } from './OnboardPage';
 
 function renderPage(language: 'zh-CN'|'en') {
@@ -27,6 +27,28 @@ describe('Agent connection steps guide',()=>{
       expect(prompt).not.toContain('sourcePaths');expect(prompt).not.toContain('NDJSON');expect(prompt).not.toContain('stdin');
       expect(prompt).not.toContain('onboard resume');
     }
+  });
+  it.each(['zh-CN','en'] as const)('renews an expired session before reading the fresh authorization URL in %s', async language => {
+    renderPage(language);
+    fireEvent.click(screen.getByRole('button', {name: language === 'zh-CN' ? '复制提示词' : 'Copy prompt'}));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalled());
+    const prompt = vi.mocked(navigator.clipboard.writeText).mock.calls[0][0];
+    const renewal = prompt.split('\n').find(line => line.startsWith('3.'))!;
+    expect(renewal).toMatch(language === 'zh-CN'
+      ? /authorization_expired.*不带 --reply-file.*continue.*authorization_required.*authorizationUrl/
+      : /authorization_expired.*continue.*without --reply-file.*authorization_required.*authorizationUrl/);
+  });
+  it('does not claim the translated prompt was copied when only the prior locale reached the clipboard', async () => {
+    localStorage.setItem('agentwiki.language.v1','zh-CN');
+    const Switch = () => { const {toggleLanguage} = useLanguage(); return <button onClick={toggleLanguage}>Switch locale</button>; };
+    render(<MemoryRouter><LanguageProvider><OnboardPage/><Switch/></LanguageProvider></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button',{name:'复制提示词'}));
+    expect(await screen.findByRole('status')).toHaveTextContent('已复制');
+    fireEvent.click(screen.getByRole('button',{name:'Switch locale'}));
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'Copy prompt'}));
+    expect(await screen.findByRole('status')).toHaveTextContent('Copied');
+    expect(vi.mocked(navigator.clipboard.writeText).mock.calls.slice(-1)[0][0]).toMatch(/^Connect this client/);
   });
   it('keeps source import optional and actual host reading separate from configuration',()=>{
     renderPage('zh-CN');
