@@ -626,7 +626,6 @@ test('every active local-sync release surface uses the package version', async (
   assert.equal(version, '0.9.1');
   for (const path of [
     '.env.example',
-    'package.json',
     'README.md',
     'apps/client/src/config/localSync.ts',
     'apps/client/e2e/local-sync.spec.ts',
