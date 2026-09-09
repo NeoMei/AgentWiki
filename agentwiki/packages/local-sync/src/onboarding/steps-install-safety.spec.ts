@@ -32,7 +32,7 @@ afterEach(async () => {
 const scopes = scopesForAgentAccessRole('reader');
 const exchange: ExchangeResult = {
   apiKey: 'agk_new', agentId: 'new-agent', credentialId: 'new-key', spaceId: 'space-1',
-  role: 'reader', scopes, serverUrl: 'https://wiki.test/api', pluginVersion: '0.9.1',
+  role: 'reader', scopes, serverUrl: 'https://wiki.test/api', pluginVersion: '0.10.0',
 };
 
 async function fixture(cachedExchange = true, archiveStarted = false) {
