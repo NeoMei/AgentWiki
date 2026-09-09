@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.11.0 candidate** — Adds browser authorization for Obsidian and resumable Agent connection steps in Local Sync 0.10.0. Sync protocol stays at 0.6.0; existing content, role, and save rules are preserved. Publication and production deployment remain separate acceptance gates.
+> **v0.11.1** — Creates pages and page groups in a dedicated Space navigation page, with searchable system and Space templates. Local Sync remains 0.10.0 and sync protocol 0.6.0.
 
 
 ## Hosted Service
