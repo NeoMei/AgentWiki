@@ -1,6 +1,6 @@
 # AgentWiki v0.10.0 release
 
-Status: deployed and publicly accepted; final documentation and immutable v0.10.0 release publication in progress.
+Status: published, deployed and publicly accepted. Immutable v0.10.0 tag targets5a4804e9. GitHub Release: https://github.com/NeoMei/AgentWiki/releases/tag/v0.10.0 (published2026-09-09T04:51:55Z). Later master commits only finalize these release records.
 
 User authorized integration, version preparation, backup, release, deployment and public acceptance on 2026-09-09. Functional release candidate eeb3f73d includes master cffe52aa and reading workspace a76b9971. Root/server/client are0.10.0; Local Sync0.9.1, protocol0.6.0 and independently released Obsidian0.4.0 remain unchanged. Relative image and legacy synchronization fixes on master are retained. No new server runtime, migration, protocol, npm package or authorization rule changes.
 

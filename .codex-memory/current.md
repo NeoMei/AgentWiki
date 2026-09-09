@@ -1,6 +1,6 @@
 # 当前目标
 
-- AgentWiki目录与文章工作区v0.10.0已部署并完成公网验收，完成GitHub发布记录。
+- AgentWiki目录与文章工作区v0.10.0已部署并完成公网验收，GitHub v0.10.0已发布。
 
 # 范围 / 不做
 
@@ -33,6 +33,6 @@
 
 # 风险 / 下一步
 
-- 完成不可变v0.10.0 tag和GitHub Release；生产已验收。
+- 不可变v0.10.0 tag与GitHub Release均已发布（tag5a4804e9）；生产已验收。
 - 原有49未跟踪文件/5dirty子模块均保留；冲突的原spec/plan存私有main-originals，主仓使用最终跟踪版本。
 - 外部Agent模型流程、灾难恢复演练未在本次重跑；详见验收边界。

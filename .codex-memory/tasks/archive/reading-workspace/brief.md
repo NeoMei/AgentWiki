@@ -13,4 +13,4 @@ Task1–7本地候选完成，最终代码1d1b0a81。最终1395测试、lint/bui
 应用v0.10.0已整合master cffe52aa并保留既有图片/同步修正；Local Sync0.9.1/protocol0.6.0/Obsidian0.4.0保持。完整回归、发布审查与生产SSH恢复进行中。私有发布证据：/Users/neomei/.codex/recovery/agentwiki-v0100-release-20260909/。
 
 ## v0.10.0发布验收
-生产部署、公网保存/目录/历史/子页/390px完成；5454pass/3平台skip/0fail，独立审查0问题。成套备份、环境字节保持、1326文件哈希及合成数据清理完成。详细证据见agentwiki/docs/verification/reading-workspace-v0100-release.md。GitHub发布收尾，sync/npm/plugin版本保持。
+生产部署、公网保存/目录/历史/子页/390px完成；5454pass/3平台skip/0fail，独立审查0问题。成套备份、环境字节保持、1326文件哈希及合成数据清理完成。详细证据见agentwiki/docs/verification/reading-workspace-v0100-release.md。GitHub v0.10.0已发布（tag5a4804e9），sync/npm/plugin版本保持。
