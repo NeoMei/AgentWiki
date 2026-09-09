@@ -19,3 +19,6 @@ Task1补充：同文件passive cleanup在ref解绑后读取handle导致离开编
 
 ## Task 5: 依赖安全补修
 发布门禁发现Hono/Multer运行依赖通告，扩展全依赖审查又发现js-yaml与Vitest工具链通告。按官方修复版本最小升级、保留全部测试覆盖及构建策略，分别复验运行依赖和全依赖audit；测试工具主版本升级需验证全部现有配置和套件。独立复审后重新验收。应用0.10.2，同步包版本保持。
+
+## Task 6: 参考仓库元数据
+完成260985f9：补缺失.gitmodules，修复submodule status路径映射错误。5个原始URL和gitlink保持，登记后main5个参考仓库均HEAD一致且干净。无运行源码、版本或发布标签变更。

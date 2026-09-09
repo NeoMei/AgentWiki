@@ -9,3 +9,5 @@
 主分支冻结安装/build/lint/typecheck/runtime264/client1426/protocol140/LocalSync886再次通过。0.10.2已部署，公网HTTP32/目录权限7/桌面移动路由及实际编辑保存通过；1412文件、447旧资源与env校验一致；配套备份完成，合成数据清理复核。
 
 完整报告：agentwiki/docs/verification/full-audit-v0102-20260909.md。发布版本v0.10.2，LocalSync/protocol/npm/Obsidian独立发行链保持不变。外部模型、Windows、实际Vault和灾难恢复边界见报告。
+
+最终Git复核补修260985f9：新增.gitmodules5个参考仓库映射，原HEAD与内容不变；主仓与5个参考仓库干净。此主线元数据补充不改变生产运行输入，也不改写v0.10.2标签。
