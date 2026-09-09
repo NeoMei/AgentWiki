@@ -8,6 +8,8 @@
 
 ## 最近完成
 
+- [template-guidance-20260910](archive/template-guidance-20260910/brief.md)：v0.11.2 已发布部署；六套 41 篇文档双语指南补齐，版本保护及生产验收通过；已有 7 篇空页面保持，补入指南待用户选择。
+
 - [new-content-page-20260910](archive/new-content-page-20260910/brief.md)：v0.11.1已合并、发布并部署；Space自定义模板能力保留，生产真实Chrome桌面/手机尺寸验收通过，详见发布记录。
 
 - [connection-ux-20260909](archive/connection-ux-20260909/brief.md)：应用0.11.0、npm0.10.0、独立插件0.5.0及生产部署完成；5588+1353项检查、真实客户端成功路径、正式包线上接入读页、32 API烟测及官方资产验证通过。
