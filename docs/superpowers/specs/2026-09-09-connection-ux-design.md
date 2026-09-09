@@ -40,7 +40,9 @@ onboard continue --session <uuid> --protocol json
 - continue 每次推进到下一次用户决策/授权等待/阶段结果；无 reply 用于轮询授权或继续已确认动作。
 - reply 文件承载当前 requestId + values，或 requestId + confirmed + planHash。严格校验、权限限制、一次性消费和过期/错误回复拒绝；shell 字符串中不嵌入任意用户文本或秘密。
 - 进度与确认意图落盘、并发 session 锁、故障恢复、配置哈希保护；超时或网络中断不重复创建 Agent/Space，也不能绕过用户确认。旧 session 可继续原流程。
-- 授权后 `GET /api/onboard/spaces`（OnboardingTokenGuard、仅 full-onboarding purpose）返回 `{spaces:[{id,name}]}`，只列当前用户可用于现有 bootstrap 的空间。Agent 以名称给用户选择并代填 ID；最终 bootstrap 仍实时鉴权。
+- 新分步授权使用 `purpose:agent-connect`，旧 `full-onboarding` 保持原语义。新 purpose 的 token 在有效期内支持仅凭原 deviceCode 安全重取，避免丢包后永久卡在 authorization_consumed；Obsidian purpose 不可调用 Agent bootstrap。
+- `POST /api/onboard/device/renew {deviceCode}` 仅为新 agent-connect 提供重新授权：保留同一服务端 session 和先前已授权 owner，更新 public userCode/期限，要求该 owner 在浏览器重新确认。不能换另一个设备 session 重放先前 bootstrap 并重复创建资源。已完成 bootstrap 的安装包重取也应在原资源/计划/owner 边界内安全恢复，不能依赖只有 600 秒的 Redis replay 缓存永久可用。
+- 授权后 `GET /api/onboard/spaces`（OnboardingTokenGuard、仅 full-onboarding/agent-connect purpose）返回 `{spaces:[{id,name}]}`，只列当前用户可用于现有 bootstrap 的空间。Agent 以名称给用户选择并代填 ID；最终 bootstrap 仍实时鉴权。
 - 新流程只收集 spaceMode/spaceName 或选中的 spaceId、agentName、role；clientType 在 start 给出；sourcePaths/sourceType/analysisMode 不属于基础连接。
 - 确认显示账号授权对象、空间、角色与将修改的客户端配置；只在明确确认后写入。配置重载需求明确输出。
 - 完成结果包含 connectionStatus、gatewayVerification、clientReloadRequired、knowledgeImport:'not_started' 等可辨别状态，不能称完成扫描或宿主实际使用。实际宿主工具调用验证仍由外部消费者完成。
