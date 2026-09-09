@@ -1,6 +1,6 @@
 # AgentWiki v0.10.1
 
-状态：候选88a8fe4c已推送、部署并完成公网验收；准备发布不可变v0.10.1标签及GitHub Release。
+状态：已发布、部署并完成公网验收。运行源88a8fe4c；不可变v0.10.1标签指向05f3de29，后续仅补充发布记录。GitHub Release：https://github.com/NeoMei/AgentWiki/releases/tag/v0.10.1 ，发布时间2026-09-09T06:19:49Z，非草稿/预发布。
 
 用户2026-09-09授权“把问题都解决了再发布”。本版在680083e9基础上同步root/server/client为0.10.1；Local Sync0.9.1、protocol0.6.0、Obsidian0.4.0保持，不发布npm。后台业务、权限、CAS保存、同步和数据库迁移不变。
 
