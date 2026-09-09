@@ -329,7 +329,7 @@ export class OnboardDeviceService {
           status: stored.status,
           lastPolledAt: stored.lastPolledAt,
           pollIntervalSeconds: stored.pollIntervalSeconds,
-          expiresAt: { gt: now },
+          expiresAt: { equals: stored.expiresAt, gt: now },
         },
         data: { pollIntervalSeconds: interval },
       });
@@ -408,7 +408,7 @@ export class OnboardDeviceService {
         status: stored.status,
         lastPolledAt: stored.lastPolledAt,
         pollIntervalSeconds: stored.pollIntervalSeconds,
-        expiresAt: { gt: now },
+        expiresAt: { equals: stored.expiresAt, gt: now },
       },
       data: { lastPolledAt: now, pollCount: { increment: 1 } },
     });

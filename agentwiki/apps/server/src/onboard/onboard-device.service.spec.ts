@@ -281,10 +281,54 @@ describe('OnboardDeviceService', () => {
     expect(prisma.onboardingDeviceSession.updateMany).toHaveBeenCalledWith({
       where: {
         id: 'session-1', status: 'pending', lastPolledAt: null,
-        pollIntervalSeconds: 5, expiresAt: { gt: NOW },
+        pollIntervalSeconds: 5, expiresAt: { equals: new Date(NOW.getTime() + 600_000), gt: NOW },
       },
       data: { lastPolledAt: NOW, pollCount: { increment: 1 } },
     });
+  });
+
+  it.each([false, true])('does not let a paused old-generation poll write renewal bookkeeping (early=%s)', async (early) => {
+    let current = session({ purpose: 'agent-connect', lastPolledAt: early ? NOW : null });
+    let releaseOldWrite!: () => void;
+    let oldWritePaused!: () => void;
+    const paused = new Promise<void>(resolve => { oldWritePaused = resolve; });
+    const resume = new Promise<void>(resolve => { releaseOldWrite = resolve; });
+    let pauseNextPoll = true;
+    let afterOldWrite: ReturnType<typeof session> | undefined;
+    prisma.onboardingDeviceSession.findUnique.mockImplementation(async () => ({ ...current }));
+    prisma.onboardingDeviceSession.updateMany.mockImplementation(async ({ where, data }: any) => {
+      const oldWrite = pauseNextPoll && where.status === 'pending' && !data.status;
+      if (oldWrite) { pauseNextPoll = false; oldWritePaused(); await resume; }
+      const matches = Object.entries(where).every(([key, value]: [string, any]) => {
+        const actual = current[key as keyof typeof current];
+        if (value instanceof Date) return actual instanceof Date && actual.getTime() === value.getTime();
+        if (key === 'expiresAt' && value && typeof value === 'object') {
+          return (!value.gt || current.expiresAt > value.gt)
+            && (!value.equals || current.expiresAt.getTime() === value.equals.getTime());
+        }
+        return actual === value;
+      });
+      if (matches) current = {
+        ...current, ...data,
+        pollCount: data.pollCount ? Number(current.pollCount) + data.pollCount.increment : current.pollCount,
+      };
+      if (oldWrite) afterOldWrite = { ...current };
+      return { count: matches ? 1 : 0 };
+    });
+    const input = { deviceCode: `awd_${'a'.repeat(43)}` };
+    const oldPoll = service.poll(input, '127.0.0.1');
+    await paused;
+    // A denial followed by renewal can reuse all pending bookkeeping fields.
+    current = { ...current, status: 'denied' };
+    await service.renew(input, '127.0.0.1');
+    if (early) {
+      // At fixed time, the renewed generation's first normal poll recreates the old timestamp.
+      await service.poll(input, '127.0.0.2');
+    }
+    const renewed = { ...current };
+    releaseOldWrite();
+    await oldPoll;
+    expect(afterOldWrite).toEqual(renewed);
   });
 
   it('re-reads a normal-poll CAS loser so only one concurrent caller returns pending', async () => {
@@ -326,14 +370,14 @@ describe('OnboardDeviceService', () => {
     expect(prisma.onboardingDeviceSession.updateMany).toHaveBeenNthCalledWith(1, {
       where: {
         id: 'session-1', status: 'pending', lastPolledAt: new Date(NOW.getTime() - 2_000),
-        pollIntervalSeconds: 5, expiresAt: { gt: NOW },
+        pollIntervalSeconds: 5, expiresAt: { equals: new Date(NOW.getTime() + 600_000), gt: NOW },
       },
       data: { pollIntervalSeconds: 10 },
     });
     expect(prisma.onboardingDeviceSession.updateMany).toHaveBeenNthCalledWith(2, {
       where: {
         id: 'session-1', status: 'pending', lastPolledAt: new Date(NOW.getTime() - 2_000),
-        pollIntervalSeconds: 30, expiresAt: { gt: NOW },
+        pollIntervalSeconds: 30, expiresAt: { equals: new Date(NOW.getTime() + 600_000), gt: NOW },
       },
       data: { pollIntervalSeconds: 30 },
     });
