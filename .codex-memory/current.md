@@ -1,14 +1,16 @@
 # 当前目标
 
-- AgentWiki v0.10.1已发布、部署并完成公网验收；代码整理与本轮技术债修复完成。
+- 完成2026-09-09追加的全面任务/代码/系统复审；基于已发布v0.10.1补修5类已确证bug，再完成v0.10.2验证与发布。
 
 # 范围 / 不做
 
 - 用户已授权修复、整合、发布、备份、部署与公网验收。
-- 应用root/server/client0.10.1；Local Sync0.9.1、protocol0.6.0、Obsidian0.4.0保持，未发布npm。
+- 应用root/server/client候选0.10.2；Local Sync0.9.1、protocol0.6.0、Obsidian0.4.0保持，未发布npm。
 - 后台模型、权限、目录修订、CAS保存、同步和数据库迁移不变。
 
 # 当前状态
+
+- 本轮隔离分支codex/full-audit-20260909；详情tasks/active/full-audit-20260909。编辑器迟到GET/光标、搜索并发/向量失效已修复并复审；目录写实时权限及原超时已补齐；完整5493pass/3skip/0fail，整分支审查通过。依赖补修74f885ed复审/回归通过，prod/all审计0；额外CodeGraph1pass，合计5494pass，仅2项Windows原生未运行。主分支复验与发布中。以下为已发布基线证据。
 
 - 运行源码88a8fe4c已合并并推送master；v0.10.1不可变标签05f3de29，GitHub正式Release已发布，后续仅整理记录。
 - 完整候选5463pass/3平台skip/0fail；DB181零skip；全仓build/lint/typecheck通过。主分支额外client1423pass、runtime非DB263pass/1skip、全仓build通过。独立审查C0/I0/M0。
