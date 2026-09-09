@@ -8,7 +8,7 @@
 
 ## 最近完成
 
-- [reading-workspace](archive/reading-workspace/brief.md)：应用v0.10.0发布准备中，用户已授权；已整合master cffe52aa，目录层级线与R1–R6修复完成。完整回归和独立发布审查进行中，等待恢复生产SSH。
+- [reading-workspace](archive/reading-workspace/brief.md)：v0.10.0已部署及公网验收，5454pass/3平台skip，独立审查0问题；GitHub发布记录收尾，未改同步包版本。
 
 - [composite-page-group-agent-collaboration-templates](archive/composite-page-group-agent-collaboration-templates/brief.md)：A+实现、v0.8.0+PR9整合和本地master合并完成；独立审查无未关闭问题，主目录5212pass/0fail/3skip、DB175零skip、原有46文件/5子模块哈希保留。未push/发布/部署，验收与工作树保留。
 

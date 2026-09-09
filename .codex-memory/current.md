@@ -1,44 +1,38 @@
 # 当前目标
 
-- 实现已确认的 AgentWiki 目录与文章工作区（方案2），以及相关空间子页面的呈现衔接。
+- AgentWiki目录与文章工作区v0.10.0已部署并完成公网验收，完成GitHub发布记录。
 
 # 范围 / 不做
 
-- 2026-09-09用户授权完成整合、版本整理、备份、发布、部署和公网验收。
-- 不改变模型/权限/Agent绑定/协作审核/版本冲突/同步协议/目录修订与写入语义。
-- 保留主目录其他并行任务与dirty子模块。
+- 用户已授权整合、发布、备份、部署及公网验收。
+- 本次应用root/server/client0.10.0；Local Sync0.9.1、protocol0.6.0、Obsidian0.4.0保持，未发布npm。
+- 后台模型、权限、目录修订、保存冲突、同步协议不变；保留master已上线图片/legacy同步修正。
 
 # 当前状态
 
-- 隔离分支codex/reading-workspace-20260908；基线b776b830；Task1–7本地候选完成，功能代码a76b9971（含目录层级线）。
-- 逐任务审查与最终限定复审通过；最终R1–R4及恢复回归R6均关闭，无剩余P2；R5位置缓存已修复并经独立限定复审关闭。
-- 最终代码客户端101文件1395测试、lint/build、仓库typecheck均通过；构建保留既有大chunk提醒。
-- 真实浏览覆盖目录分页/定位、浮窗、保存服务端回读、409、只读/撤销、历史/恢复、子页、局部错误/Retry、390px与双语。最终截图已保存并核对。
-- 2026-09-09原生拖拽及移动后checkbox保存均通过浏览器操作与API回读，目录选中和面包屑正确。新删除回归由真实组件集成测试覆盖，最后浏览器删除确认已取消。
-- 本地API53088/client5188/PG55438/Redis56388，仅合成数据；本次独立数据库reading_resume_20260909，旧reading_test保留；未合并/推送/发布。
+- 本地master和GitHubmaster已整合7442f458；功能源eeb3f73d，后续仅交付记录。
+- 完整回归5454pass/3平台skip/0fail，DB181零skip；全仓build/lint/typecheck通过。整合及部署工具独立审查C0/I0/M0。
+- 主仓重建旧shared/protocol产物后前端1417pass；源与完整测试候选一致。
+- 生产0.10.0，1326部署文件哈希一致；三服务active/running且NRestarts0，公网health全部ok，56迁移无pending/unresolved。
+- 公网三层目录/层级线/浮窗跳转/编辑保存API回读/历史/来源返回/390px验证通过；合成用户空间已清理并DB复核。
+- 成套备份/var/backups/agentwiki/space-name-v0100.ryGZVf；两份env与备份字节一致。
 
 # 稳定约束
 
-- Folder只表达真实目录；Page承载正文，folderId为关系事实源，不解析path构造虚拟目录。
-- 保存留在编辑；预览不保存；未保存保护覆盖所有导航和浏览器history。
-- 当前蓝色AgentWiki视觉及原编辑器保持；本文目录右上角按需浮窗，不缩正文。
-- 所有写入继续使用现有expectedTreeRevision/expectedUpdatedAt/删除影响和权限校验。
-- 仓库原路径末尾有空格；隔离工作树下Git必须显式--work-tree，避免共享core.worktree指向主目录。
+- Folder表达目录，Page承载正文；folderId为事实源。
+- 预览不保存、保存留在编辑，离开保护/权限/写入校验保持。
+- 本文目录右上角按需浮窗，目录层级细线。
+- 本地路径末尾空格；Git必须显式--work-tree，保留他人工作及子模块。
 
 # 关键索引
 
-- agentwiki/docs/verification/2026-09-08-source-production-alignment.md（已上线的图片和同步修正，发布必须保留）
-
-- agentwiki/docs/verification/reading-workspace-acceptance.md（最终验收及截图）
-
+- agentwiki/docs/verification/reading-workspace-v0100-release.md
+- agentwiki/docs/verification/reading-workspace-acceptance.md
 - tasks/archive/reading-workspace/brief.md
-- docs/superpowers/specs/2026-09-08-agentwiki-reading-workspace-design.md
-- docs/superpowers/plans/2026-09-08-agentwiki-reading-workspace.md
-- .superpowers/sdd/2026-09-08-agentwiki-reading-workspace/progress.md（逐任务精确续接）
-- .superpowers/sdd/2026-09-08-agentwiki-reading-workspace/acceptance-notes.md（合成验收环境，不提交凭据）
+- 私有证据/Users/neomei/.codex/recovery/agentwiki-v0100-release-20260909/
 
 # 风险 / 下一步
 
-- 正在准备应用v0.10.0；合入origin/master cffe52aa，保留已上线图片解析与legacy同步修正。Local Sync0.9.1、protocol0.6.0、Obsidian0.4.0保持；生产SSH认证恢复等待用户完成控制连接。
-- 外部Agent运行与当前页删除原生确认等剩余验证边界见验收报告；不能把这些算作已验证。
-- 既有v0.9.1发布事实见agentwiki/docs/verification/space-name-v091-release.md，与本轮本地候选分开。
+- 完成不可变v0.10.0 tag和GitHub Release；生产已验收。
+- 原有49未跟踪文件/5dirty子模块均保留；冲突的原spec/plan存私有main-originals，主仓使用最终跟踪版本。
+- 外部Agent模型流程、灾难恢复演练未在本次重跑；详见验收边界。
