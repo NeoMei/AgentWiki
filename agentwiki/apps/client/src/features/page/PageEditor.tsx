@@ -542,7 +542,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     });
   }, [loading, location.key, location.state, navigationType, page]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const rememberWorkspacePosition = createWorkspacePositionRecorder();
     return () => {
       const position = internalWorkspaceRef.current?.capturePosition();
@@ -823,6 +823,9 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         title: submittedTitle,
         content: submittedContent,
       };
+      loadSequenceRef.current += 1;
+      requestControllersRef.current.forEach((requestController) => requestController.abort());
+      requestControllersRef.current.clear();
       pageRef.current = savedPage;
       baselineRevisionRef.current = pageRevision(savedPage);
       setPage(savedPage);

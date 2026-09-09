@@ -10,7 +10,7 @@ import type { PageTemplateListResponse } from '../page-templates/pageTemplateTyp
 import { PageEditor } from './PageEditor';
 import { SpaceWorkspace } from '../space-workspace/SpaceWorkspace';
 import { SpaceWorkspaceProvider, SpaceWorkspaceScope, useSpaceWorkspace } from '../space-workspace/SpaceWorkspaceContext';
-import { NavigationGuardProvider } from '../space-workspace/workspaceNavigation';
+import { NavigationGuardProvider, resetWorkspacePositions } from '../space-workspace/workspaceNavigation';
 
 const templateMocks = vi.hoisted(() => ({
   listPageTemplates: vi.fn(),
@@ -271,6 +271,7 @@ describe('PageEditor remote update safety', () => {
 
   beforeEach(() => {
     localStorage.setItem('agentwiki.language.v1', 'en');
+    resetWorkspacePositions();
     workspaceRef = { current: null };
     socketMock.handlers.clear();
     socketMock.socket.emit.mockClear();
@@ -1189,6 +1190,73 @@ describe('PageEditor remote update safety', () => {
       expectedUpdatedAt: '2026-07-27T08:01:00.000Z',
     }));
     expect(contentTreeMocks.getContentTreeRevision).not.toHaveBeenCalled();
+  });
+
+  it('ignores a page read started before save when it resolves after the save', async () => {
+    const staleRead = deferred<any>();
+    queuePages({ data: page() }, staleRead.promise);
+    vi.mocked(api.patch).mockResolvedValueOnce({
+      data: page({ content: 'Saved content', updatedAt: '2026-07-27T08:01:00.000Z' }),
+    } as any);
+    renderEditor();
+    await screen.findByDisplayValue('Original title');
+    editContent('Saved content');
+
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toHaveTextContent('Saved'));
+
+    await act(async () => staleRead.resolve({ data: page() }));
+
+    expect(contentEditorValue()).toBe('Saved content');
+    expect(screen.getByDisplayValue('Original title')).toBeInTheDocument();
+  });
+
+  it('ignores a page read started during save when it resolves after the save', async () => {
+    const save = deferred<any>();
+    const staleRead = deferred<any>();
+    queuePages({ data: page() }, staleRead.promise);
+    vi.mocked(api.patch).mockImplementationOnce(() => save.promise);
+    renderEditor();
+    await screen.findByDisplayValue('Original title');
+    editContent('Submitted content');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    await act(async () => save.resolve({
+      data: page({ content: 'Submitted content', updatedAt: '2026-07-27T08:01:00.000Z' }),
+    }));
+    await act(async () => staleRead.resolve({ data: page() }));
+
+    expect(contentEditorValue()).toBe('Submitted content');
+  });
+
+  it('restores the editor cursor after leaving the route and navigating back', async () => {
+    queuePages({ data: page() }, { data: page() });
+    const Away = () => {
+      const navigate = useNavigate();
+      return <button type="button" onClick={() => navigate(-1)}>Back now</button>;
+    };
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/pages/page-1/edit']}>
+          <Routes>
+            <Route path="/pages/:id/edit" element={<><PageEditor workspaceRef={workspaceRef} /><Link to="/away">Leave editor</Link></>} />
+            <Route path="/away" element={<Away />} />
+          </Routes>
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+    await screen.findByDisplayValue('Original title');
+    await waitFor(() => expect(document.querySelector('.cm-editor')).not.toBeNull());
+    act(() => currentEditorView().dispatch({ selection: EditorSelection.cursor(9) }));
+
+    fireEvent.click(screen.getByRole('link', { name: 'Leave editor' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Back now' }));
+    await screen.findByDisplayValue('Original title');
+
+    await waitFor(() => expect(currentEditorView().state.selection.main.head).toBe(9));
   });
 
   it('ignores a late page response after navigation and aborts the obsolete request', async () => {
