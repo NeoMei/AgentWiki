@@ -30,7 +30,7 @@ import {
   RestoreFolderDto,
   parseTreeRevision,
 } from './content-tree.dto';
-import { ContentTreeService } from './content-tree.service';
+import { ContentTreeService, MUTATION_TRANSACTION_TIMEOUT_MS } from './content-tree.service';
 
 const READ_ROLES = ['owner', 'admin', 'editor', 'viewer'] as const;
 const EDIT_ROLES = ['owner', 'editor'] as const;
@@ -205,7 +205,7 @@ export class ContentTreeController {
         throw new BusinessException('SPACE_ACCESS_DENIED', 'You do not have permission to modify Folders in this space');
       }
       return mutate(lockedTx);
-    });
+    }, { timeout: MUTATION_TRANSACTION_TIMEOUT_MS });
   }
 
   private async authorize(

@@ -123,6 +123,7 @@ describe('ContentTreeController HTTP contract', () => {
     expect(authorization.assertLiveHumanSpaceAccess.mock.invocationCallOrder[0])
       .toBeLessThan(tree.createFolder.mock.invocationCallOrder[0]);
     expect(tree.createFolder).toHaveBeenCalledWith(expect.any(Object), lockedTx);
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { timeout: 120_000 });
   });
 
   it('declares the exact Space base path and human-only authentication boundary', () => {

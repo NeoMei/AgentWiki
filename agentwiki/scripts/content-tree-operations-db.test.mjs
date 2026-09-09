@@ -1035,18 +1035,20 @@ test('ContentTree lifecycle operations are atomic in real PostgreSQL', {
             FROM generate_series(1, 9999) AS value
           `;
 
+          await prisma.spaceMember.create({ data: { spaceId, userId, role: 'owner' } });
+          const controller = new ContentTreeController(service, new AuthorizationService(prisma), prisma);
           trackedQueryCount = 0;
           trackQueries = true;
           let renamed;
           try {
-            renamed = await service.renameFolder({
-              spaceId, folderId: root.id, name: 'Renamed boundary',
-              expectedTreeRevision: 0n, expectedUpdatedAt: root.updatedAt, actor,
+            renamed = await controller.renameFolder({ user: { userId } }, spaceId, root.id, {
+              name: 'Renamed boundary',
+              expectedTreeRevision: '0', expectedUpdatedAt: root.updatedAt.toISOString(),
             });
           } finally {
             trackQueries = false;
           }
-          assert.equal(renamed.treeRevision, 1n);
+          assert.equal(renamed.treeRevision, '1');
           assert.ok(trackedQueryCount <= 60, `expected bounded queries, received ${trackedQueryCount}`);
           console.log(`structural_revision_queries=${trackedQueryCount}`);
           const revision = await prisma.spaceKnowledgeRevision.findFirstOrThrow({ where: { spaceId } });
