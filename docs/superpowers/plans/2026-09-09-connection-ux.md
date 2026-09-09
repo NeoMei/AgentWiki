@@ -63,17 +63,17 @@ expect(JSON.stringify(status)).not.toMatch(/awo_|awd_/);
 
 **Interfaces:** Consumes Task1 start/poll + existing exchange/activate. Existing plugin `connect(code)` 为自动授权完成后的安全连接入口，保留人工输入码。
 
-- [ ] 写浏览器授权、取消、超时/过期、插件重载、旧服务404后备测试：
+- [x] 写浏览器授权、取消、超时/过期、插件重载、旧服务404后备测试：
 ```ts
 // 成功授权后把 code 交给现有 connect，不改变同步数据。
 expect(result.state).toBe('connected');
 // 公共返回和授权链接不得含 deviceCode；取消/卸载不再继续连接。
 // 5s 轮询与服务端 slow_down 生效，失败重试不启动第二个 loop。
 ```
-- [ ] 跑聚焦测试 RED。
-- [ ] 新增“连接 AgentWiki”主操作和授权进度；默认地址/高级自建地址；可打开浏览器和复制授权链接；后备链接到当前服务器指南并解释一次性码用途/10分钟期限。
-- [ ] 将 pending device secret 放现有 SecretPort，持久化恢复元数据；使用本地环境安全 URL 校验。完成后进入空间选择与已有映射流程。
-- [ ] 运行插件 format/lint/typecheck/tests/build/bundle 门禁。自审提交 `feat(obsidian): connect through browser authorization`，报告可供真实新 Vault 验收的产物绝对路径。
+- [x] 跑聚焦测试 RED。
+- [x] 新增“连接 AgentWiki”主操作和授权进度；默认地址/高级自建地址；可打开浏览器和复制授权链接；后备链接到当前服务器指南并解释一次性码用途/10分钟期限。
+- [x] 将 pending device secret 放现有 SecretPort，持久化恢复元数据；使用本地环境安全 URL 校验。完成后进入空间选择与已有映射流程。
+- [x] 运行插件 format/lint/typecheck/tests/build/bundle 门禁。自审提交 `feat(obsidian): connect through browser authorization`，报告可供真实新 Vault 验收的产物绝对路径。
 
 ### Task 4: 网页接入入口、授权页与 Agent 提示词
 

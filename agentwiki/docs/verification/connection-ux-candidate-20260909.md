@@ -1,6 +1,6 @@
 # 接入体验候选验收 — 2026-09-09
 
-状态：候选集成进行中，尚未正式发布或部署。用户已批准浏览器授权与可恢复分步接入方案。本记录区分代码、打包、实际宿主与上线证据。
+状态：候选实现、自动验证与独立代码审查完成；真实客户端最终验收仍有两项等待，尚未正式发布或部署。本记录区分代码、打包、实际宿主与上线证据。
 
 ## 用户可见变化
 
@@ -11,9 +11,9 @@
 
 ## 候选范围
 
-主仓基线 `bbe5c1f5`，集成分支 `codex/connection-ux-20260909`。应用0.11.0、Local Sync0.10.0；服务端继续支持0.9.0/0.9.1，Sync Protocol0.6.0不变。插件独立仓基线7f628b5，已固定0.5.0候选c37294ec，仍有生命周期复审问题待修复。无数据库迁移、领域权限或同步协议改动。
+主仓基线 `bbe5c1f5`，集成分支 `codex/connection-ux-20260909`。应用0.11.0、Local Sync0.10.0；服务端继续支持0.9.0/0.9.1，Sync Protocol0.6.0不变。插件独立仓基线7f628b5，最终0.5.0候选5751424，依赖协议仍0.5.1。无数据库迁移、领域权限或同步协议改动。
 
-当前主运行提交d36d7b4e；网页IPv6 shell引用修复已集成并复审通过，插件生命周期修复仍待集成/审查。精确最终HEAD以本记录后续验收条目为准。
+当前主运行提交d36d7b4e；网页IPv6 shell引用修复、插件生命周期修复均已完成并独立复审关闭。
 
 ## 自动验证
 
@@ -40,15 +40,15 @@ server首次完整测试在 `PG_DUMP_BIN` 必填预检停止，配置本机Postg
 - 因0.10.0未发布，只将提示词固定版本npx入口替换为相同本地候选CLI的测试home包装器。干净安装另行验证；不声称公开npx安装可用。
 - 新Codex进程确实发现并调用wiki_get_page，但被隔离进程的MCP审批策略阻止，返回“requires approval, but approval policy is never”。不能算宿主读取通过。已请求用户仅放行本次测试读取，未修改日常配置。
 - 新Vault `AgentWiki-Connection-UX-20260909` 已真实从插件按钮打开浏览器授权，exchange/activate后网页设备列表显示已连接。首轮发现Obsidian SecretStorage拒绝带下划线密钥ID，已用native允许的小写/数字/破折号格式修正。旧失败截图保留。
-- 插件取消/卸载/换服务器的迟到请求修复及空间映射验收仍待完成。Obsidian前台被另一个项目任务使用，暂未再操作该窗口。
+- 插件取消/卸载/换服务器的迟到请求代码修复及自动回归已完成；最终bundle的空间映射/重载恢复验收仍待完成。Obsidian前台被另一个项目任务使用，暂未再操作该窗口。
 
 ## 独立复审
 
 - Task1：原M1授权代际轮询问题修复，增量C0/I0/M0。
 - Task2：配置冲突及归档部分失败两轮修复后C0/I0/M0。复审实际重演0500目录：ARCHIVE_FAILED、安装未执行、旧key/connection/content/config保留；解除故障后同凭据重试成功。
-- Task3：6a707bc7修复、c37294ec候选0.5.0的全量check为1345通过/67files，format/typecheck/build/bundle通过，0lint errors/17基线warnings。累计独立复审关闭I1/I4，仍有I2存储await在stop后复活、I3激活时重开触发并发connect破坏旧key，原作者修复中。
+- Task3：原I1–I4及修复引入的终态恢复回归全部关闭，最终5751424累计C0/I0/M1，M1仅17条基线lint warning。前一提交6a7b142完整check1350通过/67files；最后增量65项、format/typecheck/lint/build/bundle通过；控制器独立65项及bundle/metadata通过，不冒称1350在最后HEAD重跑。
 - Task4：最终整分支server/web审查C0/I0/M0，IPv6引用修复已独立增量复审关闭；原五项问题另由原审查者补增量。真实zsh probe2项、页面7项、服务端指南1项通过，最终server/client再build通过。浏览器实际复制中文Codex/英文Claude提示词，引用与客户端字段正确，切换语言清除旧复制成功状态。
-- 最终CLI/版本累计审查 `bbe5c1f5..6c1ccda3` C0/I0/M0；server/web累计审查亦C0/I0/M0。另由全新独立Codex只读进程审查主分支bbe5c1f5..735c58d8，C0/I1/M0：token过期/code有效/config conflict组合生成过期confirmation，确认和取消都不能进行；已在d36d7b4e修复，独立43项测试与最终增量审查C0/I0/M0；中央相关23项、build及全lint通过。插件最终跨仓审查未完成。
+- 最终CLI/版本累计审查 `bbe5c1f5..6c1ccda3` C0/I0/M0；server/web累计审查亦C0/I0/M0。另由全新独立Codex只读进程审查主分支bbe5c1f5..735c58d8，发现token过期/code有效/config conflict组合生成过期confirmation；已在d36d7b4e修复，独立43项测试与最终增量审查C0/I0/M0；中央相关23项、build及全lint通过。插件最终累计跨仓审查亦已完成，无Critical/Important遗留。
 
 ## 证据与下一步
 
@@ -58,4 +58,6 @@ server首次完整测试在 `PG_DUMP_BIN` 必填预检停止，配置本机Postg
 
 LocalSync候选tarball已保存于私有证据release-candidates/neomei-agentwiki-local-sync-0.10.0.tgz，SHA256 9483d4fbfcf38b7bc9f942832c927596b1dfe6f3ae9ed7af261a7c781aa30a4e，源运行提交d36d7b4e（之前tarball保留为pre-expiry-fix）。
 
-剩余：插件最终修复与0.5.0重新打包、相关独立复审、真实MCP读取及Obsidian映射/恢复。之后明确候选交付与三个发行链的发布边界。
+插件最终产物已归档在私有证据release-candidates/agentwiki-sync-0.5.0-5751424/，main.js SHA256 02f62415af0d0c054355d17714a7d6a3e25633a3e476cae6857e988bab859d1b；manifest/styles哈希见同目录sha256.json。未安装最终bundle到Vault。
+
+剩余：允许隔离Codex读取测试页，以及Obsidian窗口空闲后安装最终测试插件并完成空间映射/重载恢复。之后明确三个发行链的发布边界。
