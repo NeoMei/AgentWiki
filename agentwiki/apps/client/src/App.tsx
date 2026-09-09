@@ -4,30 +4,31 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import { Layout } from './components/Layout';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { Dashboard } from './features/dashboard/Dashboard';
-import { SearchResults } from './features/search/SearchResults';
-import { Profile } from './features/profile/Profile';
-import { ForcePasswordChange } from './features/auth/ForcePasswordChange';
-import { SpaceMembers } from './features/space/SpaceMembers';
 import { ProductPage } from './features/about/ProductPage';
-import { UsageGuide } from './features/about/UsageGuide';
-import { OnboardPage } from './features/about/OnboardPage';
-import { OnboardDevicePage } from './features/about/OnboardDevicePage';
 import { GuideLayout } from './features/guide/GuideLayout';
-import { ObsidianGuide } from './features/guide/ObsidianGuide';
-import { DocsOverview } from './features/docs/DocsOverview';
-import { DocsArchitecture } from './features/docs/DocsArchitecture';
-import { DocsFeatures } from './features/docs/DocsFeatures';
-import { DocsSecurity } from './features/docs/DocsSecurity';
-import { DocsSync } from './features/docs/DocsSync';
-import { SpaceSettings } from './features/space/SpaceSettings';
-import { AdminPage } from './features/admin/AdminPage';
-import { SpaceWorkspace } from './features/space-workspace/SpaceWorkspace';
 import {
   SpaceWorkspaceProvider,
   type SpaceWorkspaceMode,
 } from './features/space-workspace/SpaceWorkspaceContext';
 import { NavigationGuardProvider } from './features/space-workspace/workspaceNavigation';
+
+const Dashboard = lazy(() => import('./features/dashboard/Dashboard').then((module) => ({ default: module.Dashboard })));
+const SearchResults = lazy(() => import('./features/search/SearchResults').then((module) => ({ default: module.SearchResults })));
+const Profile = lazy(() => import('./features/profile/Profile').then((module) => ({ default: module.Profile })));
+const ForcePasswordChange = lazy(() => import('./features/auth/ForcePasswordChange').then((module) => ({ default: module.ForcePasswordChange })));
+const SpaceMembers = lazy(() => import('./features/space/SpaceMembers').then((module) => ({ default: module.SpaceMembers })));
+const UsageGuide = lazy(() => import('./features/about/UsageGuide').then((module) => ({ default: module.UsageGuide })));
+const OnboardPage = lazy(() => import('./features/about/OnboardPage').then((module) => ({ default: module.OnboardPage })));
+const OnboardDevicePage = lazy(() => import('./features/about/OnboardDevicePage').then((module) => ({ default: module.OnboardDevicePage })));
+const ObsidianGuide = lazy(() => import('./features/guide/ObsidianGuide').then((module) => ({ default: module.ObsidianGuide })));
+const DocsOverview = lazy(() => import('./features/docs/DocsOverview').then((module) => ({ default: module.DocsOverview })));
+const DocsArchitecture = lazy(() => import('./features/docs/DocsArchitecture').then((module) => ({ default: module.DocsArchitecture })));
+const DocsFeatures = lazy(() => import('./features/docs/DocsFeatures').then((module) => ({ default: module.DocsFeatures })));
+const DocsSecurity = lazy(() => import('./features/docs/DocsSecurity').then((module) => ({ default: module.DocsSecurity })));
+const DocsSync = lazy(() => import('./features/docs/DocsSync').then((module) => ({ default: module.DocsSync })));
+const SpaceSettings = lazy(() => import('./features/space/SpaceSettings').then((module) => ({ default: module.SpaceSettings })));
+const AdminPage = lazy(() => import('./features/admin/AdminPage').then((module) => ({ default: module.AdminPage })));
+const SpaceWorkspace = lazy(() => import('./features/space-workspace/SpaceWorkspace').then((module) => ({ default: module.SpaceWorkspace })));
 
 const AgentList = lazy(() => import('./features/agent/AgentList').then((module) => ({ default: module.AgentList })));
 const AgentDetail = lazy(() => import('./features/agent/AgentDetail').then((module) => ({ default: module.AgentDetail })));
@@ -57,14 +58,14 @@ const WorkspaceRoute: React.FC<{
 }> = ({ mode, pageRoute = false, children }) => {
   const { id, spaceId } = useParams<{ id?: string; spaceId?: string }>();
   return (
-    <SpaceWorkspace
+    <Suspense fallback={<RouteLoading />}><SpaceWorkspace
       mode={mode}
       spaceId={pageRoute ? undefined : (spaceId ?? id)}
       pageId={pageRoute ? id : undefined}
       showDirectory={mode !== 'section'}
     >
       {children}
-    </SpaceWorkspace>
+    </SpaceWorkspace></Suspense>
   );
 };
 
@@ -85,19 +86,19 @@ const AppRoutes: React.FC = () => {
     <SpaceWorkspaceProvider key={workspaceUserId} userId={workspaceUserId}>
     <Routes>
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/dashboard" element={<Suspense fallback={<RouteLoading />}><Dashboard /></Suspense>} />
         <Route path="/spaces/:id" element={<WorkspaceRoute mode="directory"><></></WorkspaceRoute>} />
         <Route path="/pages/:id" element={<WorkspaceRoute mode="read" pageRoute><Suspense fallback={<RouteLoading />}><PagePreview /></Suspense></WorkspaceRoute>} />
         <Route path="/pages/:id/edit" element={<WorkspaceRoute mode="edit" pageRoute><Suspense fallback={<RouteLoading />}><PageEditor /></Suspense></WorkspaceRoute>} />
         <Route path="/pages/:id/versions" element={<WorkspaceRoute mode="versions" pageRoute><Suspense fallback={<RouteLoading />}><PageVersionHistory /></Suspense></WorkspaceRoute>} />
-        <Route path="/search" element={<SearchResults />} />
+        <Route path="/search" element={<Suspense fallback={<RouteLoading />}><SearchResults /></Suspense>} />
         <Route path="/spaces/:spaceId/graph" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><KnowledgeGraph /></Suspense></WorkspaceRoute>} />
-        <Route path="/spaces/:id/members" element={<WorkspaceRoute mode="section"><SpaceMembers /></WorkspaceRoute>} />
-        <Route path="/spaces/:id/settings" element={<WorkspaceRoute mode="section"><SpaceSettings /></WorkspaceRoute>} />
+        <Route path="/spaces/:id/members" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><SpaceMembers /></Suspense></WorkspaceRoute>} />
+        <Route path="/spaces/:id/settings" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><SpaceSettings /></Suspense></WorkspaceRoute>} />
         <Route path="/spaces/:id/settings/page-templates" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><PageTemplateManager /></Suspense></WorkspaceRoute>} />
         <Route path="/spaces/:id/docs" element={<WorkspaceRoute mode="section"><Navigate to="../sources" relative="path" replace /></WorkspaceRoute>} />
-        <Route path="/change-password" element={<ForcePasswordChange />} />
-        <Route path="/profile" element={<Profile />} />
+        <Route path="/change-password" element={<Suspense fallback={<RouteLoading />}><ForcePasswordChange /></Suspense>} />
+        <Route path="/profile" element={<Suspense fallback={<RouteLoading />}><Profile /></Suspense>} />
         <Route path="/agents" element={<Suspense fallback={<RouteLoading />}><AgentList /></Suspense>} />
         <Route path="/agents/:id" element={<Suspense fallback={<RouteLoading />}><AgentDetail /></Suspense>} />
         <Route path="/spaces/:id/sources" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><SourcesPage /></Suspense></WorkspaceRoute>} />
@@ -111,17 +112,17 @@ const AppRoutes: React.FC = () => {
         <Route path="/admin" element={<Suspense fallback={<RouteLoading />}><AdminPage /></Suspense>} />
       </Route>
       <Route path="/" element={<ProductPage />} />
-      <Route path="/guide" element={<GuideLayout><UsageGuide /></GuideLayout>} />
-      <Route path="/guide/agent-onboard" element={<GuideLayout><OnboardPage /></GuideLayout>} />
-      <Route path="/guide/obsidian" element={<GuideLayout><ObsidianGuide /></GuideLayout>} />
+      <Route path="/guide" element={<GuideLayout><Suspense fallback={<RouteLoading />}><UsageGuide /></Suspense></GuideLayout>} />
+      <Route path="/guide/agent-onboard" element={<GuideLayout><Suspense fallback={<RouteLoading />}><OnboardPage /></Suspense></GuideLayout>} />
+      <Route path="/guide/obsidian" element={<GuideLayout><Suspense fallback={<RouteLoading />}><ObsidianGuide /></Suspense></GuideLayout>} />
       <Route path="/settings/integrations" element={<Navigate to="/guide/obsidian" replace />} />
-      <Route path="/guide/docs" element={<GuideLayout><DocsOverview /></GuideLayout>} />
-      <Route path="/guide/docs/architecture" element={<GuideLayout><DocsArchitecture /></GuideLayout>} />
-      <Route path="/guide/docs/features" element={<GuideLayout><DocsFeatures /></GuideLayout>} />
-      <Route path="/guide/docs/security" element={<GuideLayout><DocsSecurity /></GuideLayout>} />
-      <Route path="/guide/docs/sync" element={<GuideLayout><DocsSync /></GuideLayout>} />
+      <Route path="/guide/docs" element={<GuideLayout><Suspense fallback={<RouteLoading />}><DocsOverview /></Suspense></GuideLayout>} />
+      <Route path="/guide/docs/architecture" element={<GuideLayout><Suspense fallback={<RouteLoading />}><DocsArchitecture /></Suspense></GuideLayout>} />
+      <Route path="/guide/docs/features" element={<GuideLayout><Suspense fallback={<RouteLoading />}><DocsFeatures /></Suspense></GuideLayout>} />
+      <Route path="/guide/docs/security" element={<GuideLayout><Suspense fallback={<RouteLoading />}><DocsSecurity /></Suspense></GuideLayout>} />
+      <Route path="/guide/docs/sync" element={<GuideLayout><Suspense fallback={<RouteLoading />}><DocsSync /></Suspense></GuideLayout>} />
       <Route path="/onboard" element={<Navigate to="/guide/agent-onboard" replace />} />
-      <Route path="/onboard/device" element={<OnboardDevicePage />} />
+      <Route path="/onboard/device" element={<Suspense fallback={<RouteLoading />}><OnboardDevicePage /></Suspense>} />
       <Route path="/docs" element={<Navigate to="/guide/docs" replace />} />
       <Route path="/docs/architecture" element={<Navigate to="/guide/docs/architecture" replace />} />
       <Route path="/docs/features" element={<Navigate to="/guide/docs/features" replace />} />
