@@ -60,4 +60,14 @@ LocalSync候选tarball已保存于私有证据release-candidates/neomei-agentwik
 
 插件最终产物已归档在私有证据release-candidates/agentwiki-sync-0.5.0-5751424/，main.js SHA256 02f62415af0d0c054355d17714a7d6a3e25633a3e476cae6857e988bab859d1b；manifest/styles哈希见同目录sha256.json。未安装最终bundle到Vault。
 
-剩余：允许隔离Codex读取测试页，以及Obsidian窗口空闲后安装最终测试插件并完成空间映射/重载恢复。之后明确三个发行链的发布边界。
+## Computer Use 实际验收补充
+
+用户要求通过 Computer Use 完成真实客户端验证后，已通过 Obsidian 的 Window 菜单选择本轮专用 Vault，未操作日常 Vault 内容。专用 API/前端重新启动，health 五项正常。
+
+- 停用旧测试插件，保留旧三件套备份，将最终5751424产物复制到测试Vault。界面刷新显示v0.5.0，重新启用后原连接自动恢复。
+- 实际空间下拉显示「接入验收知识库（所有者）」，添加到ConnectionAcceptance；新路径需先创建文件夹，映射状态提示清楚显示该要求。通过文件列表新建文件夹。
+- 同步面板实际预览创建pages/连接验证说明.md，确认后拉取。通过快速切换打开该笔记，正文实际显示CONNECTION-UX-20260909-READ-OK。
+- 设置重开显示ConnectionAcceptance已激活；再通过第三方插件开关停用/启用，确认原连接与映射仍已激活。截图obsidian-final-page-read.png、obsidian-final-reloaded-mapping.png；computer-use-acceptance-result.json记录产物hash与结果。
+- Agent交互验收脚本已准备，仅暴露测试服务的wiki_get_page，保留on-request审批和read-only。Computer Use分别拒绝访问com.apple.Terminal和com.openai.codex，均返回“for safety reasons”，故无法代操作交互审批。未改用其他终端绕过限制、未降低审批要求。脚本尚未启动。
+
+剩余：真实Codex的wiki_get_page读取，需要用户在可访问的客户端界面完成单次审批，或明确允许隔离测试进程对这一只读工具使用临时授权。Obsidian成功路径、映射、拉取、实际正文及插件重新加载恢复已验收通过。尚未发布或部署。
