@@ -1,11 +1,11 @@
 # 当前目标
 
-- AgentWiki v0.10.0已发布；后续本地代码整理、客户端测试入口和前端包体积技术债处理完成，已完成验证并集成本地主分支。
+- 已获授权完成剩余问题后发布v0.10.1；候选5463pass/3平台skip/0fail，独立审查无剩余问题；待完成主分支复核、备份部署与公网验收。
 
 # 范围 / 不做
 
 - 用户已授权整合、发布、备份、部署及公网验收。
-- 本次应用root/server/client0.10.0；Local Sync0.9.1、protocol0.6.0、Obsidian0.4.0保持，未发布npm。
+- 本次应用root/server/client0.10.1；Local Sync0.9.1、protocol0.6.0、Obsidian0.4.0保持，未发布npm。
 - 后台模型、权限、目录修订、保存冲突、同步协议不变；保留master已上线图片/legacy同步修正。
 
 # 当前状态
@@ -27,6 +27,10 @@
 - 本地路径末尾空格；Git必须显式--work-tree，保留他人工作及子模块。
 
 # 关键索引
+
+- agentwiki/docs/verification/frontend-v0101-release.md
+
+- tasks/active/release-v0101/brief.md
 
 - agentwiki/docs/verification/workspace-cleanup-tech-debt-20260909.md
 - agentwiki/docs/verification/reading-workspace-v0100-release.md

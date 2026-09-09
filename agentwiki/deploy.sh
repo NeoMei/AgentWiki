@@ -318,6 +318,7 @@ pnpm --filter @agentwiki/shared build
 pnpm --filter @neomei/agentwiki-sync-protocol build
 pnpm --filter @agentwiki/server build
 pnpm --filter @agentwiki/client build
+"\$node_binary" scripts/preserve-client-assets.mjs "\$live_dir/apps/client/dist" "\$release_dir/apps/client/dist"
 "\$node_binary" apps/server/dist/assist/opencode-deployment-preflight.js "\$release_dir" "\$live_dir"
 
 mkdir -p "\$HOME/.config/systemd/user"
