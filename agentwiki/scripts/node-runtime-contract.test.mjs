@@ -792,7 +792,7 @@ test('production dependency floors exclude patched network and routing vulnerabi
   assert.match(workspace, /'@hono\/node-server': '2\.1\.0'/);
   assert.match(workspace, /body-parser: '1\.20\.6'/);
   assert.match(workspace, /fast-uri: '4\.1\.4'/);
-  assert.match(workspace, /hono: '4\.13\.1'/);
+  assert.match(workspace, /hono: '4\.13\.5'/);
   assert.match(workspace, /qs: '6\.16\.0'/);
 });
 
