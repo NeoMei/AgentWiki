@@ -1,6 +1,6 @@
 # 当前目标
 
-- 已获授权完成剩余问题后发布v0.10.1；候选5463pass/3平台skip/0fail，独立审查无剩余问题；待完成主分支复核、备份部署与公网验收。
+- v0.10.1已部署并完成公网验收，正在发布GitHub Release。
 
 # 范围 / 不做
 
@@ -10,14 +10,14 @@
 
 # 当前状态
 
-- 本轮基线为本地/GitHub master 9fc3fe5f；技术债分支codex/workspace-cleanup-tech-debt-20260909已集成本地master；本轮未推送、未另行发布或部署。
+- 候选88a8fe4c已合并并推送master，生产部署相同源；最终5463pass/3平台skip/0fail，发布独立审查C0/I0/M0。
 - 完整回归5454pass/3平台skip/0fail，DB181零skip；全仓build/lint/typecheck通过。整合及部署工具独立审查C0/I0/M0。
 - 客户端测试入口自动构建shared/protocol，已验证旧产物和缺失dist场景；最终1423pass/0fail，lint/全仓typecheck/build通过，独立复审C0/I0/M0。
 - 首屏静态JavaScript约927KB降至494.791KB；生产构建强制预算，完整Mermaid解析器690864字节仅保留懒加载的720KB受控例外。
 - 本地生产构建完成编辑保存/checkbox回读、公式/代码高亮/5类图表、相关子页面与390px浏览器验收。
-- 生产0.10.0，1326部署文件哈希一致；三服务active/running且NRestarts0，公网health全部ok，56迁移无pending/unresolved。
+- 生产0.10.1，1411部署文件哈希一致；262旧静态资源保留；两份env字节一致。三服务active/running且NRestarts0，公网health全部ok，56迁移无pending/unresolved。
 - 公网三层目录/层级线/浮窗跳转/编辑保存API回读/历史/来源返回/390px验证通过；合成用户空间已清理并DB复核。
-- 成套备份/var/backups/agentwiki/space-name-v0100.ryGZVf；两份env与备份字节一致。
+- 本次成套备份/var/backups/agentwiki/frontend-v0101.5Tt8XN；旧标签页无刷新加载旧编辑器并保存、新版编辑保存/图表/移动验收通过，合成数据清理后DB复核。
 
 # 稳定约束
 
@@ -30,7 +30,7 @@
 
 - agentwiki/docs/verification/frontend-v0101-release.md
 
-- tasks/active/release-v0101/brief.md
+- tasks/archive/release-v0101/brief.md
 
 - agentwiki/docs/verification/workspace-cleanup-tech-debt-20260909.md
 - agentwiki/docs/verification/reading-workspace-v0100-release.md

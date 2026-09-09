@@ -4,9 +4,11 @@
 
 ## 活跃任务
 
-- [release-v0101](active/release-v0101/brief.md)：技术债修复补丁版，完整回归和生产发布验收中。
+- 无。
 
 ## 最近完成
+
+- [release-v0101](archive/release-v0101/brief.md)：0.10.1生产部署与新旧标签页公网验收完成；5463pass/3平台skip，GitHub Release收尾。
 
 - [reading-workspace](archive/reading-workspace/brief.md)：v0.10.0已部署及公网验收，5454pass/3平台skip，独立审查0问题；GitHub v0.10.0已发布，未改同步包版本。
 

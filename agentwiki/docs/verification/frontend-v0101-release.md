@@ -1,6 +1,6 @@
 # AgentWiki v0.10.1
 
-状态：发布候选已验证，等待部署及公网验收。
+状态：候选88a8fe4c已推送、部署并完成公网验收；准备发布不可变v0.10.1标签及GitHub Release。
 
 用户2026-09-09授权“把问题都解决了再发布”。本版在680083e9基础上同步root/server/client为0.10.1；Local Sync0.9.1、protocol0.6.0、Obsidian0.4.0保持，不发布npm。后台业务、权限、CAS保存、同步和数据库迁移不变。
 
@@ -21,3 +21,15 @@
 - 生产发布前1051个源码输入文件与9fc3fe5f逐字节匹配，0漂移；56个已应用迁移与候选校验和一致，0pending/unresolved；数据库/Unix socket同簇恢复预检查通过；现有三服务active、磁盘323GiB可用。
 
 私有证据及恢复工具：`/Users/neomei/.codex/recovery/agentwiki-v0101-release-20260909/`。公网验收仅操作本版合成Space/Page；已有其他任务数据不动。灾难恢复脚本未在生产实际执行，Windows原生、所有Mermaid类型和外部Agent模型流程不在本次重新验证范围。
+
+## 部署与公网验收
+
+- 本地主分支额外客户端1423pass、runtime非DB263pass/1skip、全仓build通过；源与完整候选一致。
+- 成套备份 `/var/backups/agentwiki/frontend-v0101.5Tt8XN` 已验证；上版应用保留 `/root/agentwiki-previous-20260909141339`。无待执行迁移。
+- 1411个部署输入及新版产物文件与候选逐字节一致；旧版262个静态资源全部匹配，新增保留104个文件。两份生产env与备份字节一致；root/server/client0.10.1、Local Sync0.9.1。
+- API/worker/frontend全部active/running、NRestarts0；公网health五项全部ok。
+- 发布前新开旧版文章标签页，未加载编辑器；发布后不刷新，禁用缓存下请求旧PageEditor-D0bQOS3r.js获得200（非磁盘缓存），成功进入编辑并保存OLD-TAB-SAVE-V0101。
+- 新版页面实际编辑并保存NEW-TAB-SAVE-V0101、checkbox[x]；独立owner API GET确认两个标记及勾选。预览、返回阅读、公式、代码高亮、流程图/时序图/架构图均成功。
+- 桌面与390px目录抽屉、三层目录、右上浮窗通过，无横向溢出；两个标签页console错误/警告为空。浏览器通用viewport未作用于公网tab，改为该tab的CDP视口完成390px验证，结束时视口与缓存覆盖均已清除。
+- 仅本次合成Space/Page与账号被清理；独立生产DB只读确认账号已删除/不可用，Space软删除。公网界面恢复工作台。
+- GitHub Release发布后仅补充记录；没有npm、协议或Obsidian发布。
