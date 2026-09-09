@@ -224,4 +224,4 @@ pnpm typecheck
 - 小屏、双语、键盘、深链接与真实流程：Task 1–7，Task 7 汇总验收。
 
 
-最终交付：代码9d66a123，本地候选；1390测试及lint/build/仓库typecheck通过、无剩余P2。原生拖拽未闭环、P3缓存与外部Agent流程边界见agentwiki/docs/verification/reading-workspace-acceptance.md，不把这些项目算作浏览器通过。
+最终交付：代码1d1b0a81，本地候选；1395测试及lint/build/仓库typecheck通过。已报告R1–R6均关闭，原生拖拽与移动后保存经浏览器操作/API回读通过。外部Agent流程等验证边界见agentwiki/docs/verification/reading-workspace-acceptance.md。
