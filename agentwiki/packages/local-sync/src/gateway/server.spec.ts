@@ -216,3 +216,20 @@ it('onboard_status distinguishes historical completed state from a fresh remote 
   expect(handlers.scanSources).not.toHaveBeenCalled();
   await server.close();
 });
+
+it.each([
+  { initial: ['list_pages'], current: ['get_page'], reload: true },
+  { initial: ['list_pages', 'list_graph'], current: ['get_page'], reload: true },
+  { initial: ['list_pages', 'list_graph'], current: ['list_pages'], reload: true },
+  { initial: ['list_pages', 'list_graph'], current: ['list_graph', 'list_pages'], reload: false },
+  { initial: ['list_pages'], current: ['list_pages', 'start_knowledge_job'], reload: false },
+])('compares actual public remote names for reload guidance ($initial -> $current)', async ({ initial, current, reload }) => {
+  const bridge = onlineBridge(initial);
+  bridge.diagnostic = () => ({ status: 'connected', code: 'REMOTE_CONNECTED', checkedAt: new Date().toISOString(), cachedToolCount: current.length, recovery: 'Remote available.' });
+  const { server } = await createGatewayServer({ handlers: mockHandlers(), bridge });
+  bridge.listTools = async () => current.map((name) => ({ name }));
+  const status = (server as unknown as { _registeredTools: Record<string, { handler(input: unknown): Promise<{ content: Array<{ text: string }> }> }> })._registeredTools.onboard_status!;
+  const result = JSON.parse(JSON.parse((await status.handler({})).content[0]!.text));
+  expect(result.gateway).toMatchObject({ status: 'connected', clientReloadRequired: reload, registeredRemoteToolCount: initial.length });
+  await server.close();
+});

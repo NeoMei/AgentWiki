@@ -77,11 +77,15 @@ export async function createGatewayServer(context: GatewayContext): Promise<Gate
     'onboard_status',
     { description: toolDescription('onboard_status'), inputSchema: { sessionId: z.string().optional() } },
     async (input) => {
-      await context.bridge?.listTools();
+      const remoteTools = await context.bridge?.listTools() ?? [];
       const historical = await context.handlers.status(input as { sessionId?: string });
       const diagnostic = context.bridge?.diagnostic();
-      const registeredRemoteToolCount = toolNames.filter((name) => name.startsWith('wiki_')).length;
-      const clientReloadRequired = diagnostic?.status === 'connected' && diagnostic.cachedToolCount > registeredRemoteToolCount;
+      const registeredNames = new Set(toolNames.filter((name) => name.startsWith('wiki_')));
+      const discoveredNames = new Set(remoteTools.map((tool) => publicRemoteName(tool.name)).filter((name) => name !== null));
+      const registeredRemoteToolCount = registeredNames.size;
+      const clientReloadRequired = diagnostic?.status === 'connected' && (
+        discoveredNames.size !== registeredNames.size || [...discoveredNames].some((name) => !registeredNames.has(name))
+      );
       return text(formatMcpOutput({
         ...(historical && typeof historical === 'object' ? historical : { onboarding: historical }),
         onboardingStateMeaning: 'historical',
@@ -179,9 +183,8 @@ export async function createGatewayServer(context: GatewayContext): Promise<Gate
   if (context.bridge) {
     const remoteTools = await context.bridge.listTools();
     for (const remote of remoteTools) {
-      const gatewayName = toRemoteGatewayName(remote.name);
-      // Never expose a legacy name even if the remote somehow offers one.
-      if (isLegacyToolName(remote.name) || STATIC_TOOLS.some((t) => t.name === gatewayName)) continue;
+      const gatewayName = publicRemoteName(remote.name);
+      if (gatewayName === null) continue;
       const exactSchema = exactRemoteToolSchema(remote.name);
       toolNames.push(gatewayName);
       server.registerTool(
@@ -204,6 +207,12 @@ export async function createGatewayServer(context: GatewayContext): Promise<Gate
   }
 
   return { server, toolNames };
+}
+
+/** Use identical filtering for registration and subsequent reload checks. */
+function publicRemoteName(name: string): string | null {
+  const gatewayName = toRemoteGatewayName(name);
+  return isLegacyToolName(name) || STATIC_TOOLS.some((tool) => tool.name === gatewayName) ? null : gatewayName;
 }
 
 function toolDescription(name: string): string {
