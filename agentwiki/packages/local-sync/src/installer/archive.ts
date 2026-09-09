@@ -65,7 +65,7 @@ export async function archiveLegacyState(home: string = homedir()): Promise<Arch
           if (failure.code === 'ENOENT') return false;
           throw failure;
         });
-        if (exists) throw new Error('active child was replaced during archival');
+        if (exists) throw new Error('active child was replaced during archival', { cause: error });
         await rename(join(dest, child), target);
       } catch {
         restored = false;
