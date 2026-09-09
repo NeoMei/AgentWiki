@@ -694,7 +694,7 @@ test('the onboard controller advertises the pinned 0.9.1 onboarding command', as
   assert.doesNotMatch(source, /--orchestrator/, 'onboard controller must not advertise --orchestrator');
 });
 
-test('collaboration release surfaces and executable gates stay version-aligned', async () => {
+test('application release versions and independent sync versions stay aligned', async () => {
   const rootPackage = JSON.parse(await read('package.json'));
   const serverPackage = JSON.parse(await read('apps/server/package.json'));
   const clientPackage = JSON.parse(await read('apps/client/package.json'));
@@ -702,7 +702,7 @@ test('collaboration release surfaces and executable gates stay version-aligned',
   const syncProtocolPackage = JSON.parse(await read('packages/sync-protocol/package.json'));
   assert.deepEqual(
     [rootPackage.version, serverPackage.version, clientPackage.version, localSyncPackage.version],
-    ['0.9.1', '0.9.1', '0.9.1', '0.9.1'],
+    ['0.10.0', '0.10.0', '0.10.0', '0.9.1'],
   );
   assert.equal(syncProtocolPackage.version, '0.6.0');
   assert.equal(rootPackage.scripts['test:e2e:collaboration-db'], 'node --test scripts/collaboration-workflows-db.test.mjs');
