@@ -3,15 +3,18 @@ import { SearchService } from './search.service';
 describe('SearchService data minimization and durable index', () => {
   const prisma = {
     page: { findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
-    pageSearchDocument: { findMany: jest.fn(), upsert: jest.fn(), deleteMany: jest.fn() },
+    pageSearchDocument: { findUnique: jest.fn(), findMany: jest.fn(), upsert: jest.fn(), deleteMany: jest.fn() },
     $queryRaw: jest.fn(),
     $executeRaw: jest.fn(),
-    $transaction: jest.fn(async (ops: any[]) => Promise.all(ops)),
+    $transaction: jest.fn(async (ops: any) => typeof ops === 'function' ? ops(prisma) : Promise.all(ops)),
   } as any;
   const llm = { generateEmbedding: jest.fn() } as any;
   const service = new SearchService(prisma, llm);
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    prisma.pageSearchDocument.findUnique.mockResolvedValue(null);
+  });
 
   it('uses the persistent lexical index and selects only public author fields', async () => {
     llm.generateEmbedding.mockRejectedValue(new Error('offline'));
@@ -84,7 +87,7 @@ describe('SearchService data minimization and durable index', () => {
     const text = 'Title\nBody';
     const hash = require('crypto').createHash('sha256').update(text).digest('hex');
     prisma.page.findUnique.mockResolvedValue({ id: 'page-1', title: 'Title', content: 'Body' });
-    prisma.pageSearchDocument.findMany.mockResolvedValue([{ contentHash: hash }]);
+    prisma.pageSearchDocument.findUnique.mockResolvedValue({ contentHash: hash });
     prisma.$queryRaw.mockResolvedValue([{ exists: true }]);
 
     await expect(service.indexPage('page-1')).resolves.toEqual({
@@ -118,12 +121,12 @@ describe('SearchService data minimization and durable index', () => {
     prisma.page.findUnique.mockResolvedValue({ id: 'page-1', title: 'Title', content: 'Body' });
     prisma.pageSearchDocument.findMany.mockResolvedValue([]);
     llm.generateEmbedding.mockResolvedValue({ embedding: [0.1] });
-    prisma.$executeRaw.mockResolvedValueOnce(0);
+    prisma.$executeRaw.mockResolvedValueOnce(1).mockResolvedValueOnce(0);
 
     await expect(service.indexPage('page-1')).resolves.toEqual({
       lexicalIndexed: true, semanticIndexed: false, superseded: true,
     });
-    const vectorWrite = prisma.$executeRaw.mock.calls[0][0];
+    const vectorWrite = prisma.$executeRaw.mock.calls[1][0];
     expect(vectorWrite.strings.join(' ')).toContain('page."title"');
     expect(vectorWrite.strings.join(' ')).toContain('page."content"');
     expect(vectorWrite.values).toEqual(expect.arrayContaining(['Title', 'Body']));
@@ -133,7 +136,7 @@ describe('SearchService data minimization and durable index', () => {
     const text = 'Title\nBody';
     const hash = require('crypto').createHash('sha256').update(text).digest('hex');
     prisma.page.findUnique.mockResolvedValue({ id: 'page-1', title: 'Title', content: 'Body' });
-    prisma.pageSearchDocument.findMany.mockResolvedValue([{ contentHash: hash }]);
+    prisma.pageSearchDocument.findUnique.mockResolvedValue({ contentHash: hash });
     prisma.$queryRaw.mockResolvedValue([{ exists: true }]);
     prisma.$executeRaw.mockResolvedValue(1);
     prisma.pageSearchDocument.upsert.mockResolvedValue({});

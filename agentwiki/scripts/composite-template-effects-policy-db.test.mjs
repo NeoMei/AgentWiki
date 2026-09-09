@@ -131,6 +131,127 @@ function createEffectService(prisma, handlers = {}) {
   );
 }
 
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+test('search indexing cannot publish an older lexical snapshot after a newer index run', { timeout: 120_000 }, async () => {
+  await withPageTemplateTestDatabase(baseDatabaseUrl, async ({ databaseUrl }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+    const fixture = await createFixture(prisma, randomUUID().replaceAll('-', ''));
+    const paused = deferred();
+    const release = deferred();
+    // Delay the old implementation after its unprotected read; the atomic
+    // implementation is delayed before acquiring its transaction/row lock.
+    const delayedPrisma = new Proxy(prisma, {
+      get(target, key) {
+        if (key === 'page') return new Proxy(target.page, {
+          get(page, operation) {
+            if (operation === 'findUnique') return async (...args) => {
+              const snapshot = await page.findUnique(...args);
+              paused.resolve();
+              await release.promise;
+              return snapshot;
+            };
+            return page[operation];
+          },
+        });
+        if (key === '$transaction') return async (...args) => {
+          paused.resolve();
+          await release.promise;
+          return target.$transaction(...args);
+        };
+        const value = target[key];
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const llm = { generateEmbedding: async () => ({ embedding: Array(2048).fill(0.1) }) };
+    let oldAttempt;
+    try {
+      oldAttempt = new SearchService(delayedPrisma, llm).indexPage(fixture.pageId);
+      await paused.promise;
+      await prisma.page.update({ where: { id: fixture.pageId }, data: { title: 'Latest', content: '# Latest content' } });
+      await new SearchService(prisma, llm).indexPage(fixture.pageId);
+      release.resolve();
+      await oldAttempt;
+      const document = await prisma.pageSearchDocument.findUniqueOrThrow({ where: { pageId: fixture.pageId } });
+      assert.equal(document.text, 'Latest\n# Latest content');
+      assert.equal(document.contentHash, sha256(document.text));
+    } finally {
+      release.resolve();
+      await oldAttempt?.catch(() => undefined);
+      await prisma.$disconnect();
+    }
+  });
+});
+
+test('search invalidates a previous vector on text changes and retries a failed embedding', { timeout: 120_000 }, async () => {
+  await withPageTemplateTestDatabase(baseDatabaseUrl, async ({ databaseUrl }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+    const fixture = await createFixture(prisma, randomUUID().replaceAll('-', ''));
+    let fail = false;
+    let calls = 0;
+    const search = new SearchService(prisma, { generateEmbedding: async () => {
+      calls += 1;
+      if (fail) throw new Error('expected embedding failure');
+      return { embedding: Array(2048).fill(0.25) };
+    } });
+    try {
+      assert.equal((await search.indexPage(fixture.pageId)).semanticIndexed, true);
+      assert.equal((await search.indexPage(fixture.pageId)).skipped, true);
+      assert.equal(calls, 1);
+      await prisma.page.update({ where: { id: fixture.pageId }, data: { content: '# Changed content' } });
+      fail = true;
+      assert.deepEqual(await search.indexPage(fixture.pageId), { lexicalIndexed: true, semanticIndexed: false });
+      const [vector] = await prisma.$queryRawUnsafe('SELECT "embeddingVector" IS NULL AS invalidated FROM "Page" WHERE "id" = $1', fixture.pageId);
+      assert.equal(vector.invalidated, true, 'failed embedding must not leave a vector for older text');
+      fail = false;
+      assert.deepEqual(await search.indexPage(fixture.pageId), { lexicalIndexed: true, semanticIndexed: true });
+      assert.equal(calls, 3);
+      assert.equal((await search.indexPage(fixture.pageId)).skipped, true);
+      assert.equal((await search.indexPage(fixture.pageId, { requireSemanticWrite: true })).semanticIndexed, true);
+      assert.equal(calls, 4);
+    } finally { await prisma.$disconnect(); }
+  });
+});
+
+test('search embedding runs outside the page lock and cannot restore a deleted page index', { timeout: 120_000 }, async () => {
+  await withPageTemplateTestDatabase(baseDatabaseUrl, async ({ databaseUrl }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+    const fixture = await createFixture(prisma, randomUUID().replaceAll('-', ''));
+    const started = deferred();
+    const release = deferred();
+    let attempt;
+    try {
+      const search = new SearchService(prisma, { generateEmbedding: async () => {
+        started.resolve();
+        await release.promise;
+        return { embedding: Array(2048).fill(0.5) };
+      } });
+      attempt = search.indexPage(fixture.pageId);
+      await started.promise;
+      // This transaction must complete while embedding remains suspended.
+      await prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe("SET LOCAL lock_timeout = '1000ms'");
+        await tx.page.update({ where: { id: fixture.pageId }, data: { deletedAt: new Date() } });
+      });
+      assert.deepEqual(await search.indexPage(fixture.pageId), { lexicalIndexed: false, semanticIndexed: false });
+      release.resolve();
+      assert.deepEqual(await attempt, { lexicalIndexed: true, semanticIndexed: false, superseded: true });
+      assert.equal(await prisma.pageSearchDocument.count({ where: { pageId: fixture.pageId } }), 0);
+      const [vector] = await prisma.$queryRawUnsafe('SELECT "embeddingVector" IS NULL AS absent FROM "Page" WHERE "id" = $1', fixture.pageId);
+      assert.equal(vector.absent, true);
+      assert.deepEqual(await search.indexPage(`missing-${fixture.pageId}`), { lexicalIndexed: false, semanticIndexed: false });
+    } finally {
+      release.resolve();
+      await attempt?.catch(() => undefined);
+      await prisma.$disconnect();
+    }
+  });
+});
+
 test('durable effects use real PostgreSQL claim fences and deduplicate concurrent workers', {
   timeout: 120_000,
 }, async () => {

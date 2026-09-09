@@ -171,53 +171,46 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
   }> {
     this.logger.log('Indexing page: ' + pageId);
 
-    const page = await this.prisma.page.findUnique({
-      where: { id: pageId, deletedAt: null },
-    });
-
-    if (!page) {
-      // A missing/deleted page must drop the vector too, or soft-archived
-      // pages keep stale entries inside the HNSW index.
-      await this.prisma.$transaction([
-        this.prisma.$executeRaw(Prisma.sql`UPDATE "Page" SET "embeddingVector" = NULL WHERE "id" = ${pageId}`),
-        this.prisma.pageSearchDocument.deleteMany({ where: { pageId } }),
-      ]);
-      return { lexicalIndexed: false, semanticIndexed: false };
-    }
-
-    const text = `${page.title}\n${page.content ?? ''}`;
-    const contentHash = createHash('sha256').update(text).digest('hex');
-
-    // Hash short-circuit: when the lexical document already matches the page
-    // text and a vector exists, skip both the lexical rewrite and the
-    // embedding API call.
-    const [existingDoc] = await this.prisma.pageSearchDocument.findMany({
-      where: { pageId },
-      select: { contentHash: true },
-      take: 1,
-    });
-    if (!options.requireSemanticWrite && existingDoc?.contentHash === contentHash) {
-      const [vectorExists] = await this.prisma.$queryRaw<Array<{ exists: boolean }>>(
-        Prisma.sql`SELECT EXISTS (SELECT 1 FROM "Page" WHERE "id" = ${pageId} AND "embeddingVector" IS NOT NULL) AS "exists"`,
-      );
-      if (vectorExists?.exists) {
-        return { lexicalIndexed: true, semanticIndexed: true, skipped: true };
+    const snapshot = await this.prisma.$transaction(async (tx) => {
+      // Serialize lexical publication with Page edits/deletes and other indexers.
+      // Read the text only after acquiring the lock; a pre-lock snapshot could
+      // otherwise overwrite a newer document after waiting for another writer.
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Page" WHERE "id" = ${pageId} FOR UPDATE`);
+      const page = await tx.page.findUnique({
+        where: { id: pageId, deletedAt: null },
+      });
+      if (!page) {
+        await tx.$executeRaw(Prisma.sql`UPDATE "Page" SET "embeddingVector" = NULL WHERE "id" = ${pageId}`);
+        await tx.pageSearchDocument.deleteMany({ where: { pageId } });
+        return null;
       }
-    }
 
-    await this.prisma.pageSearchDocument.upsert({
-      where: { pageId },
-      create: {
-        pageId,
-        text,
-        contentHash,
-      },
-      update: {
-        text,
-        contentHash,
-        indexedAt: new Date(),
-      },
+      const text = `${page.title}\n${page.content ?? ''}`;
+      const contentHash = createHash('sha256').update(text).digest('hex');
+      const existingDoc = await tx.pageSearchDocument.findUnique({
+        where: { pageId }, select: { contentHash: true },
+      });
+      if (existingDoc?.contentHash !== contentHash) {
+        // The lexical hash also identifies the vector's source. Invalidate the
+        // old vector atomically with changing it so failures remain retryable.
+        await tx.$executeRaw(Prisma.sql`UPDATE "Page" SET "embeddingVector" = NULL WHERE "id" = ${pageId}`);
+      } else if (!options.requireSemanticWrite) {
+        const [vectorExists] = await tx.$queryRaw<Array<{ exists: boolean }>>(
+          Prisma.sql`SELECT "embeddingVector" IS NOT NULL AS "exists" FROM "Page" WHERE "id" = ${pageId}`,
+        );
+        if (vectorExists?.exists) return { page, contentHash, skipped: true };
+      }
+      await tx.pageSearchDocument.upsert({
+        where: { pageId },
+        create: { pageId, text, contentHash },
+        update: { text, contentHash, indexedAt: new Date() },
+      });
+      return { page, contentHash, skipped: false };
     });
+    if (!snapshot) return { lexicalIndexed: false, semanticIndexed: false };
+    if (snapshot.skipped) return { lexicalIndexed: true, semanticIndexed: true, skipped: true };
+    const { page, contentHash } = snapshot;
+    // Remote embedding generation must never hold the Page row lock.
 
     try {
       const embeddingResult = await this.llmService.generateEmbedding(
