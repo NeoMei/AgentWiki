@@ -1,6 +1,6 @@
 # 接入体验候选验收 — 2026-09-09
 
-状态：候选实现、自动验证与独立代码审查已完成；Obsidian真实成功路径已通过，Agent真实读取仍待通过，OpenCode反馈引出的网关诊断缺口正在修复。尚未正式发布或部署。本记录区分代码、打包、实际宿主与上线证据。
+状态：候选实现、自动验证与独立代码审查已完成；Obsidian真实成功路径已通过，Agent真实读取仍待通过，OpenCode反馈引出的网关诊断缺口已修复并复审关闭。尚未正式发布或部署。本记录区分代码、打包、实际宿主与上线证据。
 
 ## 用户可见变化
 
@@ -13,7 +13,7 @@
 
 主仓基线 `bbe5c1f5`，集成分支 `codex/connection-ux-20260909`。应用0.11.0、Local Sync0.10.0；服务端继续支持0.9.0/0.9.1，Sync Protocol0.6.0不变。插件独立仓基线7f628b5，最终0.5.0候选5751424，依赖协议仍0.5.1。无数据库迁移、领域权限或同步协议改动。
 
-当前主运行提交d36d7b4e；网页IPv6 shell引用修复、插件生命周期修复均已完成并独立复审关闭。
+当前主运行提交16db7cfd；网页IPv6 shell引用修复、插件生命周期修复、网关实时诊断及工具集合重载提示均已完成并独立复审关闭。
 
 ## 自动验证
 
@@ -34,7 +34,7 @@ server首次完整测试在 `PG_DUMP_BIN` 必填预检停止，配置本机Postg
 
 ## 真实浏览器与宿主
 
-- 预览5198/API53098，专用PG55448、Redis56398，两个测试DB使用原56迁移。最后health数据库/Redis/审计持久化/附件存储全部ok。无生产访问或生产修改。
+- 首轮验收使用预览5198/API53098，专用PG55448、Redis56398，两个测试DB使用原56迁移。最后health数据库/Redis/审计持久化/附件存储全部ok。该阶段无生产访问或生产修改；后来OpenCode旧连接诊断仅做生产MCP工具发现，见文末记录。
 - 中文/英文桌面与390px接入页，实际宽度390、scrollWidth390；语言切换、客户端切换、实际复制提示词、手动生成码及倒计时已操作。截图位于私有证据目录。
 - 真实Codex模型分三次独立进程消费网页实际复制的完整提示词，完成浏览器授权、选择「接入验收知识库」、reader权限、确认、bootstrap、安装、网关验证。session4216b0c6-6dad-4fc7-9f40-90a303542a09。知识导入not_started，宿主重载需求明确。
 - 因0.10.0未发布，只将提示词固定版本npx入口替换为相同本地候选CLI的测试home包装器。干净安装另行验证；不声称公开npx安装可用。
@@ -80,4 +80,7 @@ Obsidian成功路径、映射、拉取、实际正文及插件重新加载恢复
 - 使用这条现有连接只做MCP工具发现，生产返回HTTP401 / UNAUTHENTICATED；当前凭据不被接受，未调用生产页面工具、未写生产数据。RemoteMcpBridge.listTools吞掉远程发现错误并返回空集合，六个local工具仍能加载。不存在需要手动开启wiki_*的开关。
 - 候选测试连接4216b0c6-6dad-4fc7-9f40-90a303542a09通过真实SDK stdio发现27个工具（21远程），实际wiki_get_page返回正确标题与验证标记。证据agent-consumer/opencode-preflight-read.json；SDK探针不代表OpenCode宿主验收通过。
 - Computer Use访问Warp亦明确被拒绝（for safety reasons），没有换技术绕过。准备agent-consumer/start-opencode-acceptance.py供用户在Warp新标签页启动；使用临时OPENCODE_CONFIG_CONTENT覆盖MCP连接，不改全局文件，只允许wiki_get_page弹出单次审批。已用OpenCode debug config验证最终配置及权限合并。
-- 正在补充网关脱敏实时连接诊断与恢复建议，避免把工具进程已加载误报为平台连接成功。真实OpenCode宿主结果仍待回传。
+- 网关诊断已在101a4ef9补齐，16db7cfd修复工具集合等量变化时漏报重载。保留onboard_status原历史字段，新增onboardingStateMeaning与当前gateway诊断；401提示重新授权、403检查权限、503等故障建议重试，真实30秒总发现超时。本地工具离线仍可用，诊断不包含原始错误正文或凭据。
+- 作者35项、中央gateway目录66项及build通过。独立28项及deadline/cleanup实测通过；唯一M1已修复，作者新增5种集合变化回归，中央与独立各18项通过；最终C0/I0/M0。中央完整LocalSync回归首轮因直接调用vitest漏带项目20秒参数，14个文件恢复测试按默认5秒超时；保留证据后使用项目test脚本重跑：923通过/1跳过/1源码锁测试20秒超时。该源码与测试相对bbe5c1f5未改，原样单文件重跑29项在2.08秒内通过，超时未复现；不声称单次完整全绿。
+- 真实探针验证旧生产连接报告REMOTE_AUTH_REQUIRED。复测发现本地验收服务已停止，新诊断报告REMOTE_UNAVAILABLE；恢复专用服务后health五项ok、前端200、SDK stdio实际27工具/21远程、当前connected且读回正确标题与标记。分别保留gateway-diagnostic-service-stopped.json与gateway-diagnostic-read.json；不将SDK探针记为OpenCode宿主验收。
+- 最终候选包位于release-candidates/gateway-diagnostics-16db7cfd/neomei-agentwiki-local-sync-0.10.0.tgz，SHA256 f8f7bd1e8d91174695cc8507640e31acfefaffcd2988e7596ec625ddc7b4ae50；旧候选包保留。真实OpenCode宿主结果仍待回传，尚未发布或部署。

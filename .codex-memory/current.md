@@ -11,7 +11,7 @@
 # 当前状态
 
 - 集成分支 codex/connection-ux-20260909，工作树 .worktrees/connection-ux-20260909；原 master 基线 bbe5c1f5。服务端、CLI、网页已集成，独立插件工作树在 AgentWiki-Obsidian 仓库。
-- 主仓运行代码 d36d7b4e，Task1/2/4 及全新最终主分支审查的唯一修复增量均已独立复审关闭，无 Critical/Important 遗留。插件最终 5751424（0.5.0），原 I1–I4 及恢复回归全部关闭；累计 C0/I0/M1，M1 仅为 17 条基线 lint warning。
+- 主仓运行代码 16db7cfd，Task1/2/4 及全新最终主分支审查的唯一修复增量均已独立复审关闭，无 Critical/Important 遗留。插件最终 5751424（0.5.0），原 I1–I4 及恢复回归全部关闭；累计 C0/I0/M1，M1 仅为 17 条基线 lint warning。
 - 插件前一提交 6a7b142 完整 check 1350 通过；最终 5751424 的 65 项相关测试、typecheck/lint/build/bundle 通过，控制器独立重复 65 项及 bundle/metadata 通过。最终0.5.0已安装到本轮测试Vault，日常Vault未改。
 - 真实 Codex 消费网页复制提示词，已完成浏览器授权、空间选择、确认、配置安装、网关验证；真实 MCP 读取被隔离验收宿主的工具审批策略阻止，未记为通过。
 - Computer Use已在专用Vault完成最终插件加载、空间选择、ConnectionAcceptance映射、预览确认拉取、打开测试页读取正确标记；停用再启用插件后连接和映射仍已激活。Obsidian此成功路径验收通过。
@@ -34,7 +34,8 @@
 
 # 风险 / 下一步
 
-- 用户手工OpenCode读页失败已定位：运行公开0.9.1与生产旧连接，远程MCP返回401，网关静默退化为六个本地工具。候选测试连接实际SDK stdio发现27工具（21远程）且wiki_get_page读回正确标题/标记；这不等于OpenCode宿主验收通过。正在补脱敏实时网关诊断。
+- 用户手工OpenCode读页失败已定位：运行公开0.9.1与生产旧连接，远程MCP返回401，网关静默退化为六个本地工具。候选测试连接实际SDK stdio发现27工具（21远程）且wiki_get_page读回正确标题/标记；这不等于OpenCode宿主验收通过。已补脱敏实时网关诊断与工具集合重载提示，独立复审C0/I0/M0。
+- 新增网关回归中央66项通过，最后集合变化增量18项及build/lint通过；完整LocalSync923通过/1跳过/1源码锁旧测试超时，未改代码原样单文件重跑29通过，保留失败证据，不冒称单次完整全绿。
 - Computer Use明确拒绝Terminal、Codex、Warp（for safety reasons），未绕过。已准备start-opencode-acceptance.py临时配置启动器，保留wiki_get_page交互审批，用户可在Warp新标签页执行；不改日常配置。真实宿主结果仍待回传。
 - 0.10.0 尚未在 npm 公开发布；当前真实 Agent 验收仅将固定版本 npx 替换为相同候选 CLI 的隔离 home 包装器，不声称公开安装已经可用。
 - 全新独立只读Codex审查（固定bbe5c1f5..735c58d8）原C0/I1/M0，唯一fix wave已复审关闭，见SDD/final-whole-fix-review.md。CU截图与computer-use-acceptance-result.json保存在本轮私有证据目录。
