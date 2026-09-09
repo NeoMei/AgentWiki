@@ -95,13 +95,34 @@ describe('ContentTreeController HTTP contract', () => {
     deleteFolder: jest.fn(),
     restoreDeletionBatch: jest.fn(),
   } as any;
-  const authorization = { assertSpaceAccess: jest.fn() } as any;
-  const controller = new ContentTreeController(tree, authorization);
+  const lockedTx = {};
+  const prisma = { $transaction: jest.fn((fn: any) => fn(lockedTx)) } as any;
+  tree.lockFolderMutationSpace = jest.fn().mockResolvedValue(lockedTx);
+  const authorization = {
+    assertSpaceAccess: jest.fn(),
+    lockLiveHumanPrincipal: jest.fn().mockResolvedValue({ id: 'user-1' }),
+    assertLiveHumanSpaceAccess: jest.fn().mockResolvedValue({ role: 'owner' }),
+  } as any;
+  const controller = new ContentTreeController(tree, authorization, prisma);
   const request = { user: { userId: 'user-1', platformRole: 'user' } } as any;
 
   beforeEach(() => {
     jest.clearAllMocks();
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'owner' });
+  });
+
+  it('locks User before Space and rechecks live permissions before calling the mutation', async () => {
+    tree.createFolder.mockResolvedValue({ treeRevision: 1n });
+    await controller.createFolder(request, 'space-1', {
+      name: 'New', parentId: null, expectedTreeRevision: '0',
+    });
+    expect(authorization.lockLiveHumanPrincipal.mock.invocationCallOrder[0])
+      .toBeLessThan(tree.lockFolderMutationSpace.mock.invocationCallOrder[0]);
+    expect(tree.lockFolderMutationSpace.mock.invocationCallOrder[0])
+      .toBeLessThan(authorization.assertLiveHumanSpaceAccess.mock.invocationCallOrder[0]);
+    expect(authorization.assertLiveHumanSpaceAccess.mock.invocationCallOrder[0])
+      .toBeLessThan(tree.createFolder.mock.invocationCallOrder[0]);
+    expect(tree.createFolder).toHaveBeenCalledWith(expect.any(Object), lockedTx);
   });
 
   it('declares the exact Space base path and human-only authentication boundary', () => {
@@ -172,14 +193,14 @@ describe('ContentTreeController HTTP contract', () => {
     );
     expect(tree.createFolder).toHaveBeenCalledWith(expect.objectContaining({
       expectedTreeRevision: 1n, actor: { userId: 'user-1' },
-    }));
+    }), lockedTx);
     expect(tree.renameFolder).toHaveBeenCalledWith(expect.objectContaining({
       folderId: 'folder-1', expectedTreeRevision: 2n,
       expectedUpdatedAt: new Date('2026-08-28T00:00:00.000Z'),
-    }));
+    }), lockedTx);
     expect(tree.moveNode).toHaveBeenCalledWith(expect.objectContaining({
       nodeId: 'page-1', targetFolderId: null, expectedTreeRevision: 3n,
-    }));
+    }), lockedTx);
   });
 
   it('allows every reader to preview delete impact and uses the exact Owner/Editor policy for delete/restore', async () => {
@@ -209,7 +230,7 @@ describe('ContentTreeController HTTP contract', () => {
       spaceId: 'space-1', deletionBatchId: 'batch-1', strategy: { kind: 'original' },
       expectedUpdatedAt: new Date('2026-08-28T00:00:00.000Z'),
       expectedTreeRevision: 9n, actor: { userId: 'user-1' },
-    }));
+    }), lockedTx);
   });
 
   it('fails closed before mutations when Viewer or Admin authorization is denied', async () => {
@@ -241,15 +262,20 @@ describe('ContentTreeController HTTP contract', () => {
       role: where.userId_spaceId.userId === 'editor-1' ? 'editor' : 'admin',
       space: { deletedAt: null },
     }));
-    const exactAuthorization = new AuthorizationService({
+    const exactDb = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'editor-1' }]),
+      user: { findUnique: jest.fn().mockResolvedValue({ id: 'editor-1', type: 'human', platformRole: 'user' }) },
       space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
       spaceMember: { findUnique: memberRole },
-    } as any);
+    } as any;
+    const exactAuthorization = new AuthorizationService(exactDb);
     const exactTree = {
       deleteFolder: jest.fn().mockResolvedValue({ treeRevision: 2n }),
       restoreDeletionBatch: jest.fn().mockResolvedValue({ treeRevision: 3n }),
     } as any;
-    const exactController = new ContentTreeController(exactTree, exactAuthorization);
+    exactTree.lockFolderMutationSpace = jest.fn().mockResolvedValue(exactDb);
+    const exactController = new ContentTreeController(exactTree, exactAuthorization,
+      { $transaction: (fn: any) => fn(exactDb) } as any);
     const deleteBody = {
       expectedUpdatedAt: '2026-08-28T00:00:00.000Z',
       expectedTreeRevision: '1',

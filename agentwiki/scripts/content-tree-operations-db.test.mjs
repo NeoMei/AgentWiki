@@ -15,6 +15,8 @@ import { createSyncV3TestRuntime } from './sync-v3-test-runtime.mjs';
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
 const { contentHash, pathKey } = requireFromServer('@neomei/agentwiki-sync-protocol');
+const { ContentTreeController } = requireFromServer('./dist/content-tree/content-tree.controller.js');
+const { AuthorizationService } = requireFromServer('./dist/core/authorization/authorization.service.js');
 const { ContentTreeService } = requireFromServer('./dist/content-tree/content-tree.service.js');
 const { ReadableSyncPathService } = requireFromServer('./dist/core/sync/readable-sync-path.service.js');
 
@@ -125,6 +127,96 @@ test('ContentTree lifecycle operations are atomic in real PostgreSQL', {
           id: userId,
           email: `${userId}@content-tree-operations.test`,
         } });
+
+        for (const operation of ['create', 'rename', 'move', 'delete', 'restore']) {
+          for (const revokedRole of ['viewer', 'admin', 'owner', 'editor']) {
+            await t.test(`HTTP ${operation} rechecks ${revokedRole} after waiting for Space lock`, async () => {
+              const spaceId = await createSpace(`live-${operation}-${revokedRole}`);
+              await prisma.spaceMember.create({ data: { spaceId, userId, role: 'editor' } });
+              const root = await createFolder(spaceId, {
+                id: `${spaceId}-root`, name: 'Root', path: 'pages/Root',
+              });
+              const target = await createFolder(spaceId, {
+                id: `${spaceId}-target`, name: 'Target', path: 'pages/Target',
+              });
+              await createPage(spaceId, { id: `${spaceId}-page`, folderId: root.id, title: 'Evidence', syncPath: 'pages/Root/Evidence.md' });
+              const impact = await service.deleteImpact({ spaceId, folderId: root.id });
+              let deletion;
+              if (operation === 'restore') deletion = await service.deleteFolder({
+                spaceId, folderId: root.id, expectedTreeRevision: 0n,
+                expectedUpdatedAt: root.updatedAt, expectedImpactHash: impact.impactHash, actor,
+              });
+              const body = { expectedTreeRevision: deletion ? '1' : '0', expectedUpdatedAt: root.updatedAt.toISOString() };
+              const snapshot = async () => ({
+                folders: await prisma.folder.findMany({ where: { spaceId }, orderBy: { id: 'asc' } }),
+                pages: await prisma.page.findMany({ where: { spaceId }, orderBy: { id: 'asc' } }),
+                batches: await prisma.contentDeletionBatch.findMany({ where: { spaceId }, orderBy: { id: 'asc' } }),
+                aliases: await prisma.pagePathAlias.findMany({ where: { spaceId } }),
+                revisions: await prisma.spaceKnowledgeRevision.findMany({ where: { spaceId }, orderBy: { sequence: 'asc' } }),
+                space: await prisma.space.findUnique({ where: { id: spaceId } }),
+              });
+              const before = await snapshot();
+              const authorization = new AuthorizationService(prisma);
+              const controller = new ContentTreeController(service, authorization, prisma);
+              const request = { user: { userId, platformRole: 'user' } };
+              const invoke = () => ({
+                create: () => controller.createFolder(request, spaceId, { ...body, name: 'Created', parentId: null }),
+                rename: () => controller.renameFolder(request, spaceId, root.id, { ...body, name: 'Renamed' }),
+                move: () => controller.moveNode(request, spaceId, { ...body, kind: 'folder', id: root.id, targetParentFolderId: target.id }),
+                delete: () => controller.deleteFolder(request, spaceId, root.id, { ...body, expectedImpactHash: impact.impactHash }),
+                restore: () => controller.restoreFolder(request, spaceId, root.id, { ...body, deletionBatchId: deletion?.batch.id, mode: 'original' }),
+              })[operation]();
+              let pending;
+              await prisma.$transaction(async (tx) => {
+                await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${spaceId}))`;
+                await tx.spaceMember.update({ where: { userId_spaceId: { userId, spaceId } }, data: { role: revokedRole } });
+                pending = invoke().then(value => ({ value }), error => ({ error }));
+                // Prove the real controller transaction reached the blocked advisory lock.
+                let waiting = false;
+                for (let attempt = 0; attempt < 100; attempt += 1) {
+                  const rows = await tx.$queryRaw`SELECT COUNT(*)::int AS count FROM pg_locks WHERE locktype = 'advisory' AND NOT granted`;
+                  if (rows[0].count > 0) { waiting = true; break; }
+                  await new Promise(resolve => setTimeout(resolve, 10));
+                }
+                assert.ok(waiting, 'controller must wait on the held Space advisory lock');
+              });
+              const result = await pending;
+              if (revokedRole === 'owner' || revokedRole === 'editor') {
+                assert.equal(result.error, undefined);
+                assert.equal(result.value.treeRevision, deletion ? '2' : '1');
+              } else {
+                assert.equal(result.error?.businessCode, 'SPACE_ACCESS_DENIED');
+                assert.deepEqual(await snapshot(), before);
+              }
+            });
+          }
+        }
+
+        for (const state of ['locked', 'stale-super-admin', 'live-super-admin']) {
+          await t.test(`HTTP create uses live account state: ${state}`, async () => {
+            const spaceId = await createSpace(state);
+            await prisma.spaceMember.create({ data: { spaceId, userId, role: state === 'locked' ? 'editor' : 'viewer' } });
+            await prisma.user.update({ where: { id: userId }, data: {
+              lockedAt: state === 'locked' ? new Date() : null,
+              platformRole: state === 'live-super-admin' ? 'super_admin' : 'user',
+            } });
+            try {
+              const controller = new ContentTreeController(service, new AuthorizationService(prisma), prisma);
+              const pending = controller.createFolder({ user: { userId, platformRole: 'super_admin' } }, spaceId, {
+                name: 'Live account', parentId: null, expectedTreeRevision: '0',
+              });
+              if (state === 'live-super-admin') assert.equal((await pending).treeRevision, '1');
+              else {
+                await assert.rejects(pending, error => error.businessCode === 'SPACE_ACCESS_DENIED');
+                assert.equal(await prisma.folder.count({ where: { spaceId } }), 0);
+                assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 0);
+                assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 0n);
+              }
+            } finally {
+              await prisma.user.update({ where: { id: userId }, data: { lockedAt: null, platformRole: 'user' } });
+            }
+          });
+        }
 
         await t.test('rename rewrites the full subtree, aliases old Page paths, and trims to 20', async () => {
           const spaceId = await createSpace('rename');
