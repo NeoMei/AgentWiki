@@ -5,7 +5,7 @@
  * the active onboarding/ session directory), never deleted. If archiving
  * fails the legacy children are left untouched.
  */
-import { chmod, mkdir, readdir, rename, rm } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readdir, rename, rm, rmdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -33,31 +33,50 @@ export async function archiveLegacyState(home: string = homedir()): Promise<Arch
   let children: string[];
   try {
     children = await readdir(root);
-  } catch {
-    return null; // no legacy state
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw new Error('ARCHIVE_FAILED: unable to inspect active local state', { cause: error });
   }
+  children = children.filter((child) => child !== ACTIVE_ONBOARDING_DIR);
+  if (children.length === 0) return null;
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '');
-  const dest = join(archiveRoot(home), `state-${stamp}`);
+  await mkdir(archiveRoot(home), { recursive: true, mode: 0o700 });
+  // A separate directory per attempt cannot merge with an earlier archive.
+  const dest = await mkdtemp(join(archiveRoot(home), `state-${stamp}-`));
   const moved: string[] = [];
 
-  for (const child of children) {
-    if (child === ACTIVE_ONBOARDING_DIR) continue;
-    const src = join(root, child);
-    const dst = join(dest, child);
-    try {
-      await mkdir(dest, { recursive: true });
-      await rename(src, dst);
+  try {
+    for (const child of children) {
+      await rename(join(root, child), join(dest, child));
       moved.push(child);
-    } catch {
-      // Best-effort: leave the child in place if move fails.
     }
+    await chmod(dest, 0o500);
+    return { archivePath: dest, movedChildren: moved };
+  } catch (error) {
+    // initialize/save have not run: never use restoreArchivedState here, since
+    // it removes active children that may not have been archived at all.
+    let restored = true;
+    await chmod(dest, 0o700).catch(() => { restored = false; });
+    for (const child of moved.reverse()) {
+      try {
+        const target = join(root, child);
+        const exists = await lstat(target).then(() => true, (failure: NodeJS.ErrnoException) => {
+          if (failure.code === 'ENOENT') return false;
+          throw failure;
+        });
+        if (exists) throw new Error('active child was replaced during archival');
+        await rename(join(dest, child), target);
+      } catch {
+        restored = false;
+      }
+    }
+    if (restored) await rmdir(dest).catch(() => undefined);
+    throw Object.assign(new Error(restored
+      ? 'ARCHIVE_FAILED: local state archival failed; original active files were preserved'
+      : `ARCHIVE_FAILED: archival rollback incomplete; preserve and recover remaining files in ${dest} before retrying`,
+    { cause: error }), { retryable: restored });
   }
-
-  if (moved.length === 0) return null;
-
-  await chmod(dest, 0o500).catch(() => undefined); // read + execute, no write
-  return { archivePath: dest, movedChildren: moved };
 }
 
 /** Initialize a clean unified-gateway state layout beside the preserved onboarding dir. */

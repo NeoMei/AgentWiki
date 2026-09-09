@@ -23,6 +23,7 @@ afterEach(async () => {
   vi.mocked(fs.chmod).mockImplementation(realFs.chmod);
   vi.mocked(fs.rename).mockImplementation(realFs.rename);
   for (const home of homes.splice(0)) {
+    await fs.chmod(join(home, '.agentwiki'), 0o700);
     for (const name of await fs.readdir(join(home, '.agentwiki-archive')).catch(() => []))
       await fs.chmod(join(home, '.agentwiki-archive', name), 0o700);
     await fs.rm(home, { recursive: true, force: true });
@@ -154,6 +155,53 @@ it('retains only the successfully configured new state after gateway verificatio
   expect((await loadCredentials(f.home)).credentials['new-key']?.apiKey).toBe('agk_new');
   const client = JSON.parse(await fs.readFile(join(f.home, '.claude.json'), 'utf8'));
   expect(client.mcpServers.agentwiki.args).toContain(f.sessionId);
+  expect((await f.cont()).status).toBe('completed');
+  expect(f.counts()).toEqual({ bootstrapCalls: 1, exchangeCalls: 0 });
+});
+
+it.skipIf(process.platform === 'win32' || process.geteuid?.() === 0)('leaves every old active file in place when directory permissions prevent archival', async () => {
+  const f = await fixture();
+  const original = await fs.readFile(join(f.home, '.claude.json'), 'utf8');
+  await fs.chmod(join(f.home, '.agentwiki'), 0o500);
+  let installing = true;
+  vi.mocked(fs.chmod).mockImplementation(async (...args) => {
+    await realFs.chmod(...args);
+    if (installing && String(args[0]) === join(f.home, '.agentwiki') && args[1] === 0o700)
+      await fs.writeFile(join(f.home, '.claude.json'), f.changed);
+  });
+  const result = await f.cont();
+  installing = false;
+  expect(result).toMatchObject({ status: 'configuration_pending', error: { code: 'ARCHIVE_FAILED' } });
+  expect((await fs.stat(join(f.home, '.agentwiki'))).mode & 0o777).toBe(0o500);
+  expect((await loadConfig(f.home)).connections.old?.credentialId).toBe('old-key');
+  expect((await loadCredentials(f.home)).credentials['old-key']?.apiKey).toBe('agk_old');
+  expect(await fs.readFile(join(f.home, '.agentwiki', 'old-content'), 'utf8')).toBe('existing data');
+  expect(await fs.readFile(join(f.home, '.claude.json'), 'utf8')).toBe(original);
+  expect(await fs.readFile(join(f.home, '.agents', 'skills', 'agentwiki-local-sync', 'SKILL.md'), 'utf8')).toBe('old skill');
+  await fs.chmod(join(f.home, '.agentwiki'), 0o700);
+  expect((await f.cont()).status).toBe('completed');
+  expect(f.counts()).toEqual({ bootstrapCalls: 1, exchangeCalls: 0 });
+});
+
+it('restores only already moved children and leaves unmoved old files intact when archival fails partway', async () => {
+  const f = await fixture();
+  const original = await fs.readFile(join(f.home, '.claude.json'), 'utf8');
+  let moves = 0;
+  let rejectMove = true;
+  vi.mocked(fs.rename).mockImplementation(async (...args) => {
+    if (rejectMove && String(args[1]).includes('/.agentwiki-archive/state-')) {
+      moves++;
+      if (moves === 2) throw Object.assign(new Error('fixture denied'), { code: 'EACCES' });
+    }
+    await realFs.rename(...args);
+  });
+  const result = await f.cont();
+  expect(result).toMatchObject({ status: 'configuration_pending', error: { code: 'ARCHIVE_FAILED' } });
+  expect((await loadConfig(f.home)).connections.old?.credentialId).toBe('old-key');
+  expect((await loadCredentials(f.home)).credentials['old-key']?.apiKey).toBe('agk_old');
+  expect(await fs.readFile(join(f.home, '.agentwiki', 'old-content'), 'utf8')).toBe('existing data');
+  expect(await fs.readFile(join(f.home, '.claude.json'), 'utf8')).toBe(original);
+  rejectMove = false;
   expect((await f.cont()).status).toBe('completed');
   expect(f.counts()).toEqual({ bootstrapCalls: 1, exchangeCalls: 0 });
 });
