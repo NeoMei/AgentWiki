@@ -40,7 +40,7 @@ server首次完整测试在 `PG_DUMP_BIN` 必填预检停止，配置本机Postg
 - 因0.10.0未发布，只将提示词固定版本npx入口替换为相同本地候选CLI的测试home包装器。干净安装另行验证；不声称公开npx安装可用。
 - 新Codex进程确实发现并调用wiki_get_page，但被隔离进程的MCP审批策略阻止，返回“requires approval, but approval policy is never”。不能算宿主读取通过。已请求用户仅放行本次测试读取，未修改日常配置。
 - 新Vault `AgentWiki-Connection-UX-20260909` 已真实从插件按钮打开浏览器授权，exchange/activate后网页设备列表显示已连接。首轮发现Obsidian SecretStorage拒绝带下划线密钥ID，已用native允许的小写/数字/破折号格式修正。旧失败截图保留。
-- 插件取消/卸载/换服务器的迟到请求代码修复及自动回归已完成；最终bundle的空间映射/重载恢复验收仍待完成。Obsidian前台被另一个项目任务使用，暂未再操作该窗口。
+- 插件取消/卸载/换服务器的迟到请求代码修复及自动回归已完成。首轮因Obsidian前台被另一任务使用而暂缓的空间映射/重载恢复验收，已在下文Computer Use阶段完成。
 
 ## 独立复审
 
@@ -58,7 +58,7 @@ server首次完整测试在 `PG_DUMP_BIN` 必填预检停止，配置本机Postg
 
 LocalSync候选tarball已保存于私有证据release-candidates/neomei-agentwiki-local-sync-0.10.0.tgz，SHA256 9483d4fbfcf38b7bc9f942832c927596b1dfe6f3ae9ed7af261a7c781aa30a4e，源运行提交d36d7b4e（之前tarball保留为pre-expiry-fix）。
 
-插件最终产物已归档在私有证据release-candidates/agentwiki-sync-0.5.0-5751424/，main.js SHA256 02f62415af0d0c054355d17714a7d6a3e25633a3e476cae6857e988bab859d1b；manifest/styles哈希见同目录sha256.json。未安装最终bundle到Vault。
+插件最终产物已归档在私有证据release-candidates/agentwiki-sync-0.5.0-5751424/，main.js SHA256 02f62415af0d0c054355d17714a7d6a3e25633a3e476cae6857e988bab859d1b；manifest/styles哈希见同目录sha256.json。最终bundle已安装到本轮专用Vault并完成下文验收。
 
 ## Computer Use 实际验收补充
 
@@ -84,3 +84,4 @@ Obsidian成功路径、映射、拉取、实际正文及插件重新加载恢复
 - 作者35项、中央gateway目录66项及build通过。独立28项及deadline/cleanup实测通过；唯一M1已修复，作者新增5种集合变化回归，中央与独立各18项通过；最终C0/I0/M0。中央完整LocalSync回归首轮因直接调用vitest漏带项目20秒参数，14个文件恢复测试按默认5秒超时；保留证据后使用项目test脚本重跑：923通过/1跳过/1源码锁测试20秒超时。该源码与测试相对bbe5c1f5未改，原样单文件重跑29项在2.08秒内通过，超时未复现；不声称单次完整全绿。
 - 真实探针验证旧生产连接报告REMOTE_AUTH_REQUIRED。复测发现本地验收服务已停止，新诊断报告REMOTE_UNAVAILABLE；恢复专用服务后health五项ok、前端200、SDK stdio实际27工具/21远程、当前connected且读回正确标题与标记。分别保留gateway-diagnostic-service-stopped.json与gateway-diagnostic-read.json；不将SDK探针记为OpenCode宿主验收。
 - 最终候选包位于release-candidates/gateway-diagnostics-16db7cfd/neomei-agentwiki-local-sync-0.10.0.tgz，SHA256 f8f7bd1e8d91174695cc8507640e31acfefaffcd2988e7596ec625ddc7b4ae50；旧候选包保留。真实OpenCode宿主结果仍待回传，尚未发布或部署。
+- 用户继续后核对集成树aabe5852与最终代码16db7cfd，工作树干净、独立复审已关闭。再次通过最终构建的SDK stdio实际读取：27工具/21远程、REMOTE_CONNECTED、标题与标记正确；前端与API health均200。证据agent-consumer/gateway-diagnostic-final-read.json。此记录仍不替代OpenCode宿主读取。
