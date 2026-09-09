@@ -4,9 +4,11 @@
 
 ## 活跃任务
 
-- [full-audit-20260909](active/full-audit-20260909/brief.md)：多轮任务/代码/系统复审，5类确证问题修复、复验及补丁发布。
+- 无。
 
 ## 最近完成
+
+- [full-audit-20260909](archive/full-audit-20260909/brief.md)：0.10.2全面复审修复及生产验收完成；5494pass，DB207零skip；2项Windows原生未运行；依赖audit0、独立审查C0/I0/M0。
 
 - [release-v0101](archive/release-v0101/brief.md)：0.10.1生产部署与新旧标签页公网验收完成；5463pass/3平台skip，GitHub v0.10.1正式发布。
 
