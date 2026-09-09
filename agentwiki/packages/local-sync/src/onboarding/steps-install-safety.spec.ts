@@ -36,7 +36,8 @@ const exchange: ExchangeResult = {
   role: 'reader', scopes, serverUrl: 'https://wiki.test/api', pluginVersion: '0.10.0',
 };
 
-async function fixture(cachedExchange = true, archiveStarted = false) {
+async function fixture(cachedExchange = true, archiveStarted = false, tokenExpiresIn = 600) {
+  let now = Date.now();
   const home = await fs.mkdtemp(join(tmpdir(), 'aw-step-install-safety-'));
   homes.push(home);
   await saveConfig(home, { version: 1, defaultConnectionId: 'old', connections: {
@@ -55,14 +56,14 @@ async function fixture(cachedExchange = true, archiveStarted = false) {
   vi.spyOn(client, 'start').mockResolvedValue({ deviceCode: 'awd_private', userCode: 'CODE',
     verificationUri: 'https://wiki.test/onboard', verificationUriComplete: 'https://wiki.test/onboard?userCode=CODE',
     expiresIn: 600, interval: 0 });
-  vi.spyOn(client, 'poll').mockResolvedValue({ status: 'authorized', onboardingToken: 'awo_private', expiresIn: 600 });
+  vi.spyOn(client, 'poll').mockResolvedValue({ status: 'authorized', onboardingToken: 'awo_private', expiresIn: tokenExpiresIn });
   vi.spyOn(client, 'spaces').mockResolvedValue({ spaces: [{ id: 'space-1', name: 'Team' }] }.spaces);
   let bootstrapCalls = 0;
   vi.spyOn(client, 'bootstrap').mockImplementation(async () => {
     bootstrapCalls++;
     return { space: { id: 'space-1', name: 'Team' }, agent: { id: 'new-agent', name: 'Agent' },
       grant: { role: 'reader', scopes }, installation: { installationId: 'installation-1', code: 'once',
-        expiresAt: new Date(Date.now() + 600_000).toISOString() } };
+        expiresAt: new Date(now + 600_000).toISOString() } };
   });
   let exchangeCalls = 0;
   vi.spyOn(AgentWikiClient.prototype, 'exchange').mockImplementation(async () => { exchangeCalls++; return exchange; });
@@ -73,8 +74,8 @@ async function fixture(cachedExchange = true, archiveStarted = false) {
   vi.spyOn(AgentWikiClient.prototype, 'revokeCurrentCredential').mockImplementation(async () => {
     throw new Error('must retain the private receipt for retry');
   });
-  const start = await runOnboardingSteps({ action: 'start', home, clientType: 'claude', serverBaseUrl: 'https://wiki.test/api' }, { client });
-  const cont = (replyFile?: string) => runOnboardingSteps({ action: 'continue', home, sessionId: start.sessionId, replyFile }, { client });
+  const start = await runOnboardingSteps({ action: 'start', home, clientType: 'claude', serverBaseUrl: 'https://wiki.test/api' }, { client, now: () => now });
+  const cont = (replyFile?: string) => runOnboardingSteps({ action: 'continue', home, sessionId: start.sessionId, replyFile }, { client, now: () => now });
   const reply = async (body: unknown) => {
     const path = join(home, `reply-${Math.random()}.json`);
     await fs.writeFile(path, JSON.stringify(body), { mode: 0o600 });
@@ -99,6 +100,8 @@ async function fixture(cachedExchange = true, archiveStarted = false) {
     expect(await fs.readFile(join(home, '.claude.json'), 'utf8')).toBe(changed);
   };
   return { home, changed, cont, confirm, assertOld, statePath, sessionId: start.sessionId,
+    advanceTime: (milliseconds: number) => { now += milliseconds; }, now: () => now,
+    renew: vi.spyOn(client, 'renew').mockRejectedValue(new Error('valid receipt must not renew')),
     counts: () => ({ bootstrapCalls, exchangeCalls }) };
 }
 
@@ -204,4 +207,47 @@ it('restores only already moved children and leaves unmoved old files intact whe
   rejectMove = false;
   expect((await f.cont()).status).toBe('completed');
   expect(f.counts()).toEqual({ bootstrapCalls: 1, exchangeCalls: 0 });
+});
+
+it.each([true, false])('accepts a local config decision after token expiry while the unexchanged installation receipt remains valid (confirmed=%s)', async (confirmed) => {
+  const f = await fixture(false, false, 10);
+  f.advanceTime(11_000);
+  await fs.writeFile(join(f.home, '.claude.json'), f.changed);
+  const conflict = await f.cont();
+  expect(conflict).toMatchObject({ status: 'confirmation_required', error: { code: 'CONFIG_CONFLICT' } });
+  await f.assertOld();
+  expect(f.counts()).toEqual({ bootstrapCalls: 1, exchangeCalls: 0 });
+  expect(JSON.parse(await fs.readFile(f.statePath, 'utf8')).exchange).toBeUndefined();
+  expect(Date.parse(String(conflict.replyExpiresAt))).toBeGreaterThan(f.now());
+  // A no-reply continue must keep this usable request instead of issuing expired IDs forever.
+  const current = await f.cont();
+  expect(current.requestId).toBe(conflict.requestId);
+  const result = await f.confirm(current, confirmed);
+  expect(result.status).toBe(confirmed ? 'configuration_pending' : 'cancelled');
+  await f.assertOld();
+  if (confirmed) {
+    expect((await f.cont()).status).toBe('completed');
+    expect((await loadConfig(f.home)).connections[f.sessionId]?.credentialId).toBe('new-key');
+    expect((await loadCredentials(f.home)).credentials['new-key']?.apiKey).toBe('agk_new');
+  } else await f.assertOld();
+  expect(f.counts()).toEqual({ bootstrapCalls: 1, exchangeCalls: confirmed ? 1 : 0 });
+  expect(f.renew).not.toHaveBeenCalled();
+});
+
+it('refreshes an already persisted expired confirmation using the still-valid bootstrap receipt', async () => {
+  const f = await fixture(false, false, 10);
+  f.advanceTime(11_000);
+  await fs.writeFile(join(f.home, '.claude.json'), f.changed);
+  const conflict = await f.cont();
+  const state = JSON.parse(await fs.readFile(f.statePath, 'utf8'));
+  // Resume a session saved by a version that capped this local decision at token expiry.
+  state.request.expiresAt = state.tokenExpiresAt;
+  await fs.writeFile(f.statePath, JSON.stringify(state), { mode: 0o600 });
+  const refreshed = await f.cont();
+  expect(refreshed.requestId).not.toBe(conflict.requestId);
+  expect(Date.parse(String(refreshed.replyExpiresAt))).toBeGreaterThan(f.now());
+  expect((await f.confirm(refreshed, false)).status).toBe('cancelled');
+  await f.assertOld();
+  expect(f.counts()).toEqual({ bootstrapCalls: 1, exchangeCalls: 0 });
+  expect(f.renew).not.toHaveBeenCalled();
 });

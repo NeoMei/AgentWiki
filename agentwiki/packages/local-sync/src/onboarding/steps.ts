@@ -224,7 +224,11 @@ function request(state: StepState, kind: 'input' | 'confirmation', now: number, 
   state.request = {
     id: randomUUID(),
     kind,
-    expiresAt: state.exchange ? now + 30 * 60_000 : Math.min(now + 30 * 60_000, state.tokenExpiresAt!),
+    // Local installation confirmation remains usable while its bootstrap receipt or
+    // exchanged credential can advance without onboarding authorization.
+    expiresAt: needsBootstrap(state, now)
+      ? Math.min(now + 30 * 60_000, state.tokenExpiresAt!)
+      : now + 30 * 60_000,
     ...(kind === 'confirmation' ? { planHash: confirmedPlanHash(state, home) } : {}),
   };
   state.stage = kind;
