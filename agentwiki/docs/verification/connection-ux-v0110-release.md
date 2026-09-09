@@ -11,11 +11,26 @@
 
 ## 发布状态
 
-- 主仓master合入和GitHub v0.11.0：准备中。
-- npm @neomei/agentwiki-local-sync@0.10.0：准备中。初次身份检查401，用户已恢复登录，npm whoami确认neomei。
-- 独立插件main已快进至5751424；正式0.5.0标签与Release等待新服务端API上线后执行。
-- 生产部署：准备中。原SSH复用连接过期，用户已恢复登录；1,056个生产源码输入与bbe5c1f5一致，56个成功迁移校验一致（另2条历史rolled-back记录保留），无未解决迁移。239活跃文章词法索引0缺失/0陈旧。未停止生产服务。
-- 正式公开安装及线上接入复验：尚未执行。
+2026-09-10 正式发布与生产部署完成：
+
+- 主仓master已快进并推送fb632410；[GitHub v0.11.0](https://github.com/NeoMei/AgentWiki/releases/tag/v0.11.0)标签指向fb632410b58865c8320e522dd84c64878a2e07d4。后续仅补充本发布记录。
+- [npm @neomei/agentwiki-local-sync@0.10.0](https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/0.10.0)已公开。用户完成发布2FA，CLI返回202并短暂等待registry处理；随后公开元数据SHA-512与验收tgz一致。隔离缓存全新公开安装成功，159个文件逐一一致。
+- 独立插件main及[0.5.0 Release](https://github.com/NeoMei/agentwiki-sync/releases/tag/0.5.0)对应5751424；[发布CI](https://github.com/NeoMei/agentwiki-sync/actions/runs/34382147225)完整check、三资产attestation及发布全部成功。下载官方main.js/manifest.json/styles.css哈希与已验收资产一致，gh attestation verify main.js通过。
+- [生产网站](https://agentwiki.quukk.com)已切换0.11.0，API/Worker/Frontend均active、NRestarts=0。公开health五项全部ok；32项API烟测通过。
+- 1,423个部署输入/构建文件SHA-256逐项一致；前版542个静态资产逐项保留无漂移（构建阶段补复制296个，其余新旧已有同名内容）。两份env仅LocalSync版本变为0.10.0，其余字节相同。56条成功迁移及2条历史rolled-back记录完全一致，无新增迁移。验收后239活跃页面、239向量，词法索引0缺失/0陈旧。
+
+## 正式包与线上接入复验
+
+- 公开npm安装的CLI、隔离测试profile和生产API实际完成authorization_required → input_required → confirmation_required → configuration_pending:bootstrap → configuration_pending:install → completed。网关27工具，其中21个wiki_*；SDK经stdio调用wiki_get_page返回测试页正确标题和随机验证标记，knowledgeImport保持not_started。此项是正式包/生产API/SDK验证，真实OpenCode宿主验收仍引用前述用户回传输出，不混淆来源。
+- 首轮验证脚本错误地要求确认后立即completed，实际收到正常configuration_pending；已修正验收脚本按公开nextAction继续同一会话，无产品代码变更。原失败日志保留，首轮账号已清理；最终账号、Agent、Space均通过正常API删除，保留产品软删除历史。
+- Computer Use验证旧标签页切换Agent指南仍可加载；刷新后加载0.10.0新接入指南。OpenCode选择、完整提示词、固定版本start/status/continue与JSON协议均正确；复制按钮显示成功反馈。浏览器工具的clipboard读取为空，未将其记录为已读回剪贴板内容；实际提示词内容通过展开后的DOM核验。
+- Obsidian生产指南展示默认浏览器授权、三步说明、手动后备入口及十分钟用途说明，服务器地址为origin。手动入口点击正确跳到#connect。未触发日常Vault或修改日常OpenCode配置。
+
+## 配对恢复位置
+
+- 配对备份：/var/backups/agentwiki/connection-v0110.VRkTfs。
+- 前版应用：/root/agentwiki-previous-20260910011607。
+- 恢复必须使用配对DB、附件、应用、env和systemd包，不单独启动旧应用。本次未执行回滚。
 
 ## 发布顺序与恢复
 

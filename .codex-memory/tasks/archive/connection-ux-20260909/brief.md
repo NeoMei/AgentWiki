@@ -4,7 +4,7 @@
 Obsidian 默认浏览器授权自动连接；Agent 可恢复分步接入，连接与知识导入分开，实际客户端读取验证。
 
 ## 状态
-候选代码、必要自动验证及独立审查已完成；Obsidian真实成功路径通过，用户已回传OpenCode实际读取正确标题与验证标记，Agent宿主读取门禁通过。网关静默降级诊断缺口已修复并独立复审关闭。主分支 codex/connection-ux-20260909，代码 16db7cfd，应用0.11.0/LocalSync0.10.0/protocol0.6.0。独立插件5751424，候选0.5.0，插件协议依赖仍0.5.1。尚未公开发布、合入master或生产部署。
+候选代码、必要自动验证及独立审查已完成；Obsidian真实成功路径通过，用户已回传OpenCode实际读取正确标题与验证标记，Agent宿主读取门禁通过。网关静默降级诊断缺口已修复并独立复审关闭。主分支 codex/connection-ux-20260909，代码 16db7cfd，应用0.11.0/LocalSync0.10.0/protocol0.6.0。独立插件5751424，候选0.5.0，插件协议依赖仍0.5.1。已完成master合入、GitHub v0.11.0、npm0.10.0、插件GitHub0.5.0及生产部署；完整正式证据见agentwiki/docs/verification/connection-ux-v0110-release.md。
 
 ## 实现与复审
 Task1/2/4均完成，原作者修复后交叉复审C0/I0/M0。全新独立主分支审查的过期确认问题亦修复关闭。插件原I1-I4及终态恢复回归全部关闭，C0/I0/M1（17条基线lint warning）。所有失败历史保留。
@@ -17,3 +17,6 @@ client1447/server2602+专用DB3/LocalSync907通过，LocalSync1原有跳过；�
 
 ## 恢复入口
 读refs、SDD progress及最终review报告。私有release-candidates包含最终LocalSync tgz与插件三件套/hash，报告在agentwiki/docs/verification/connection-ux-candidate-20260909.md。不要重复派已完成实现，不删除旧handoff或失败证据。
+
+## 正式发布关闭（2026-09-10）
+用户明确授权后完成主仓最终5588项、插件1353项检查；正式npm完整性和全新安装159文件一致；生产1423文件一致、三服务健康、32 API烟测通过。正式npm+生产分步接入和SDK读取通过，21远程工具可用；测试数据正常API清理。官方插件发布CI、三资产哈希和main.js attestation通过，主仓v0.11.0已发布。原测试/认证/验收脚本失败记录保留；日常Vault未更新。任务归档，工作树与证据保留。
