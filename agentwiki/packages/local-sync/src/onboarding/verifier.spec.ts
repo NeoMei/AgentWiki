@@ -60,3 +60,17 @@ describe('verifyGateway', () => {
     expect(result.errors[0]).toContain('ENOENT');
   });
 });
+
+it('terminates a real unresponsive gateway child at its deadline', async () => {
+  const { mkdtemp, readFile, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const home=await mkdtemp(join(tmpdir(),'aw-verifier-timeout-'));
+  const pidFile=join(home,'pid');let pid:number|undefined;
+  try {
+    const result=await verifyGateway({command:[process.execPath,'-e',`require('node:fs').writeFileSync(${JSON.stringify(pidFile)},String(process.pid));setInterval(()=>{},1000)`],deadlineMs:500});
+    expect(result.ok).toBe(false);pid=Number(await readFile(pidFile,'utf8'));
+    await new Promise(r=>setTimeout(r,50));
+    expect(()=>process.kill(pid!,0)).toThrow();
+  } finally {if(pid)try{process.kill(pid,'SIGKILL');}catch{}await rm(home,{recursive:true,force:true});}
+});

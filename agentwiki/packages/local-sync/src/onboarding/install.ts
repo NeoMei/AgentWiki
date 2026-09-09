@@ -154,6 +154,9 @@ export interface ExchangedGatewayInstallInput {
   expectedScopes: string[];
   expectedPluginVersion: '0.9.1';
   exchange: ExchangeResult;
+  /** Step sessions keep durable credentials/configuration so verification can resume. Legacy callers retain rollback semantics. */
+  retainOnFailure?: boolean;
+  onConfigured?: (backupPath: string) => Promise<void>;
 }
 
 export async function installExchangedGateway(
@@ -201,6 +204,7 @@ export async function installExchangedGateway(
     }
     let rollbackConfig: (() => Promise<void>) | undefined;
     try {
+      if (input.retainOnFailure) await deps.installSkill(input.home, input.client);
       const installed = await deps.installClient(
         input.client,
         input.connectionId,
@@ -209,6 +213,7 @@ export async function installExchangedGateway(
         input.exchange.serverUrl,
       );
       rollbackConfig = installed.rollback;
+      await input.onConfigured?.(installed.backupPath);
       const verified = await deps.verify(input.connectionId, input.home);
       if (!verified.ok) {
         throw new OnboardingError({
@@ -229,6 +234,7 @@ export async function installExchangedGateway(
         manifestHash: verified.manifestHash,
       };
     } catch (error) {
+      if (input.retainOnFailure) throw error;
       let replayRollbackFailed = false;
       try {
         await rollbackConfig?.();
@@ -263,6 +269,7 @@ export async function installExchangedGateway(
       input.exchange.serverUrl,
     );
     rollbackConfig = installed.rollback;
+    await input.onConfigured?.(installed.backupPath);
     const verified = await deps.verify(input.connectionId, input.home);
     if (!verified.ok) {
       throw new OnboardingError({
@@ -283,6 +290,7 @@ export async function installExchangedGateway(
       manifestHash: verified.manifestHash,
     };
   } catch (error) {
+    if (input.retainOnFailure) throw error;
     let rollbackFailed = false;
     let restoreFailed = false;
     let revokeFailed = false;
@@ -320,9 +328,9 @@ export async function installExchangedGateway(
   }
 }
 
-function productionDependencies(): BootstrapInstallerDeps {
+export function productionDependencies(request?: typeof fetch): BootstrapInstallerDeps {
   const onboarding = new OnboardingClient();
-  const agentwiki = new AgentWikiClient();
+  const agentwiki = new AgentWikiClient(request);
   return {
     bootstrap: (input) => onboarding.bootstrap({
       serverBaseUrl: input.serverBaseUrl,
@@ -395,7 +403,7 @@ function assertExchange(exchange: ExchangeResult, bootstrap: BootstrapResult, ve
   });
 }
 
-function assertConfirmedBootstrap(bootstrap: BootstrapResult, plan: InstallInput['serverPlan']): void {
+export function assertConfirmedBootstrap(bootstrap: BootstrapResult, plan: InstallInput['serverPlan']): void {
   const canonicalScopes = scopesForAgentAccessRole(plan.role);
   const wrongExistingSpace = plan.space.mode === 'existing' && bootstrap.space.id !== plan.space.id;
   const wrongCreatedSpace = plan.space.mode === 'create' && bootstrap.space.name !== plan.space.name;

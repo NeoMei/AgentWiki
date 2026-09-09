@@ -24,14 +24,15 @@ import {
 } from './config.js';
 import { removeGatewayEntry } from './installer/client-config.js';
 import { runGateway } from './gateway/entry.js';
+import { runOnboardingSteps } from './onboarding/steps.js';
 import type { AttachCliInput } from './onboarding/attach.js';
 import { createCodeGraphProvider, safeCodeGraphVersion, type CodeGraphProvider } from './codegraph/provider.js';
 
-export const CLI_USAGE = 'Usage: agentwiki-local-sync <onboard|gateway|doctor|uninstall> [--server URL] [--code CODE] [--protocol ndjson|human] [--connection ID] [--source-path PATH]';
+export const CLI_USAGE = 'Usage: agentwiki-local-sync <onboard|gateway|doctor|uninstall> [--server URL] [--code CODE] [--protocol ndjson|human|json] [onboard start|status|continue] [--client codex|claude|opencode] [--session UUID] [--reply-file PATH] [--connection ID] [--source-path PATH]';
 const DEFAULT_SERVER_BASE_URL = 'https://agentwiki.quukk.com/api';
 const PUBLIC_COMMANDS = new Set(['onboard', 'gateway', 'doctor', 'uninstall']);
 const COMMAND_OPTIONS: Record<string, ReadonlySet<string>> = {
-  onboard: new Set(['server', 'protocol', 'agent', 'code', 'id']),
+  onboard: new Set(['server', 'protocol', 'agent', 'code', 'id', 'client', 'session', 'reply-file']),
   gateway: new Set(['connection']),
   doctor: new Set(['connection', 'source-path']),
   uninstall: new Set(['agent', 'delete-credential', 'delete-sync-state']),
@@ -121,10 +122,10 @@ function assertCommandOptions(command: string, values: Record<string, string | b
   }
 }
 
-function assertCommandPositionals(command: string, positionals: string[]): 'resume' | undefined {
+function assertCommandPositionals(command: string, positionals: string[]): 'resume' | 'start' | 'status' | 'continue' | undefined {
   if (command === 'onboard') {
     if (positionals.length === 0) return undefined;
-    if (positionals.length === 1 && positionals[0] === 'resume') return 'resume';
+    if (positionals.length === 1 && ['resume', 'start', 'status', 'continue'].includes(positionals[0])) return positionals[0] as 'resume' | 'start' | 'status' | 'continue';
     throw new Error(CLI_USAGE);
   }
   if (positionals.length !== 0) throw new Error(CLI_USAGE);
@@ -338,7 +339,7 @@ export async function runCli(
     options: {
       server: { type: 'string' }, protocol: { type: 'string' }, agent: { type: 'string' }, connection: { type: 'string' },
       code: { type: 'string' }, 'source-path': { type: 'string' },
-      id: { type: 'string' },
+      id: { type: 'string' }, client: { type: 'string' }, session: { type: 'string' }, 'reply-file': { type: 'string' },
       'delete-credential': { type: 'boolean', default: false }, 'delete-sync-state': { type: 'boolean', default: false },
     },
     strict: true,
@@ -348,6 +349,27 @@ export async function runCli(
   assertCommandOptions(command, values);
   const positional = assertCommandPositionals(command, parsed.positionals as string[]);
   if (command === 'onboard') {
+    if (positional === 'start' || positional === 'status' || positional === 'continue') {
+      const allowed = new Set(positional === 'start'
+        ? ['server', 'client', 'protocol']
+        : positional === 'status' ? ['session', 'protocol'] : ['session', 'reply-file', 'protocol']);
+      if (values.protocol !== 'json' || Object.entries(values).some(([key, value]) => (
+        value !== undefined && value !== false && !allowed.has(key)
+      ))) throw new Error(CLI_USAGE);
+      const client = values.client;
+      if (positional === 'start' && client !== 'codex' && client !== 'claude' && client !== 'opencode') {
+        throw new Error('--client must be codex, claude, or opencode');
+      }
+      return runOnboardingSteps({
+        action: positional,
+        home,
+        ...(positional === 'start'
+          ? { serverBaseUrl: required(values, 'server'), clientType: client as 'codex' | 'claude' | 'opencode' }
+          : { sessionId: required(values, 'session') }),
+        ...(values['reply-file'] ? { replyFile: values['reply-file'] } : {}),
+      });
+    }
+    if (values.client || values.session || values['reply-file']) throw new Error(CLI_USAGE);
     if (positional === 'resume' && values.code !== undefined) throw new Error(CLI_USAGE);
     const protocol = values.protocol ?? 'ndjson';
     if (protocol !== 'ndjson' && protocol !== 'human') {
@@ -390,12 +412,25 @@ export async function runCli(
 }
 
 async function main(): Promise<void> {
+  const stepCommand = process.argv[2] === 'onboard'
+    && ['start', 'status', 'continue'].includes(process.argv[3]);
   try {
     const result = await runCli();
-    if (result !== undefined && process.argv[2] !== 'onboard') process.stdout.write(`${formatOutput(result)}\n`);
+    if (result !== undefined && (process.argv[2] !== 'onboard' || stepCommand)) {
+      process.stdout.write(`${formatOutput(result)}\n`);
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`${formatOutput(message)}\n`);
+    if (stepCommand) {
+      const errorCode = typeof error === 'object' && error !== null && 'code' in error
+        ? String(error.code) : /^([A-Z_]+):/.exec(message)?.[1];
+      process.stdout.write(JSON.stringify({
+        protocolVersion: 1,
+        status: 'error',
+        code: errorCode && /^[A-Z][A-Z0-9_]{0,79}$/.test(errorCode) ? errorCode : 'INVALID_COMMAND',
+        knowledgeImport: 'not_started',
+      }) + '\n');
+    } else process.stderr.write(`${formatOutput(message)}\n`);
     process.exitCode = 1;
   }
 }

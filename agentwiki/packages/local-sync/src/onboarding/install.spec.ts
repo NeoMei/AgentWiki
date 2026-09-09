@@ -386,3 +386,16 @@ describe('installExchangedGateway', () => {
     });
   });
 });
+
+describe('resumable connection installation', () => {
+  it('retains configured credentials on verification failure and records the configured checkpoint', async () => {
+    const fixture = dependencies(false);
+    const configured = vi.fn(async () => undefined);
+    const exchange = await fixture.deps.exchange('https://wiki.test/api','install-code');
+    await expect(installExchangedGateway({home:'/tmp/home',client:'codex',connectionId:'connection-1',expectedConfigHash:'hash',expectedAgentId:'agent-1',expectedSpaceId:'space-1',expectedRole:'editor',expectedScopes:EDITOR_SCOPES,expectedPluginVersion:'0.9.1',exchange,retainOnFailure:true,onConfigured:configured},fixture.deps)).rejects.toMatchObject({code:'MCP_HANDSHAKE_FAILED'});
+    expect(configured).toHaveBeenCalledOnce();
+    expect(fixture.calls).not.toContain('revoke-credential');
+    expect(fixture.calls).not.toContain('restore-state');
+    expect(fixture.calls).not.toContain('rollback-config');
+  });
+});

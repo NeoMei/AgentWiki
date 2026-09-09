@@ -39,6 +39,67 @@ version-decoupled: it reads supported structural scan results, deterministically
 and decides which generated knowledge may enter an AgentWiki Preview. Do not add a second
 CodeGraph MCP to AgentWiki.
 
+## Resumable connection onboarding (candidate)
+
+The new finite-process flow is available in this source candidate. It requires the
+matching server with `agent-connect`, `/onboard/spaces`, and `/onboard/device/renew`
+support. The public 0.9.1 release does not contain these commands; run the built
+candidate below until a coordinated release supplies the new pinned version.
+
+```bash
+node dist/cli.js onboard start --server https://agentwiki.quukk.com/api --client codex --protocol json
+node dist/cli.js onboard status --session <uuid> --protocol json
+node dist/cli.js onboard continue --session <uuid> --reply-file /absolute/reply.json --protocol json
+node dist/cli.js onboard continue --session <uuid> --protocol json
+```
+
+Each command exits with one JSON object. Start checks local configuration and returns
+`authorization_required` with `authorizationUrl`, `expiresAt`, and `retryAfterMs`.
+Ask the user to authorize in the browser, then run continue after that delay. Status
+is strictly read-only and cannot poll, install, scan, or reveal credentials.
+
+After authorization, `input_required` contains `requestId`, `replyExpiresAt`, and
+eligible `spaces: [{id, name}]`. Present the names and ask for the Space, Agent name,
+and `reader`, `editor`, or `publisher` role. Write one of these private JSON replies
+using a file API (POSIX mode 0600), without interpolating user text into shell commands:
+
+```json
+{"requestId":"<current-request-id>","values":{"spaceMode":"existing","spaceId":"<selected-id>","agentName":"My Agent","role":"editor"}}
+```
+
+For a new Space use `spaceMode: "create"` and `spaceName` instead of `spaceId`.
+Do not add `sourcePaths`, source type, analysis mode, or client type to the reply.
+
+The next `confirmation_required` result contains the Space/role/configuration preview
+and an opaque `planHash`. After explicit user confirmation, create a fresh private file:
+
+```json
+{"requestId":"<current-request-id>","confirmed":true,"planHash":"<exact-returned-hash>"}
+```
+
+`confirmed: false` cancels. Reply files remain on disk; their request IDs are consumed
+in the durable session, so replay, expired replies, and wrong hashes are rejected.
+Each continue advances one phase. Continue without a reply while
+`status: "configuration_pending"`. An `error: {code, retryable}` preserves the
+current phase and connection state; inspect it before retrying. `authorization_expired`
+can be renewed with continue: approve the new browser URL and confirm again.
+The server session, plan, and bootstrap idempotency key stay unchanged.
+
+Completion reports separate evidence:
+
+- `connectionStatus: "connected"` and `gatewayVerification: "passed"`: installation,
+  local gateway MCP handshake, and remote identity/Space access checks passed.
+- `clientReloadRequired: true`, `hostVerification: "not_started"`: reload the actual
+  client's MCP configuration and make a real host tool call to read a known page.
+- `knowledgeImport: "not_started"`: no repository scan, read-only pull, or upload ran.
+  Optional import uses existing `knowledge_*` tools with its own preview and confirmation.
+
+A verification failure after config installation reports `connectionStatus: "configured"`
+and keeps the config/credentials for same-session retry. Local session files are private
+under `~/.agentwiki/onboarding/steps/`; never copy their contents into prompts or reports.
+Concurrent continuation is rejected with `SESSION_BUSY`; crashed process locks recover
+on the next command. Changed client configuration requires a fresh confirmation.
+
 ## Onboarding (0.9.1)
 
 Use the pinned onboarding command to complete the full self-service flow:
@@ -83,7 +144,7 @@ npx --yes @neomei/agentwiki-local-sync@0.9.1 onboard \
 ## Commands
 
 - `onboard` — Start the self-service onboarding flow
-- `onboard resume <sessionId>` — Resume an interrupted onboarding session
+- `onboard resume --id <sessionId>` — Resume an interrupted onboarding session
 - `gateway --connection <id>` — Run the unified gateway MCP server (stdio)
 - `doctor` — Check installation health
 - `uninstall` — Remove the gateway MCP and restore configuration

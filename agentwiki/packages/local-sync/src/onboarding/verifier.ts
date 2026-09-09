@@ -73,13 +73,15 @@ async function defaultListTools(options: VerifyOptions): Promise<string[]> {
     const done = (err: Error | null, result?: string[]) => {
       if (settled) return;
       settled = true;
+      clearTimeout(childTimer);
       child.kill('SIGKILL');
       if (err) { reject(err); } else { resolve(result ?? []); }
     };
 
+    const childTimer = setTimeout(() => done(new Error(`verification timed out after ${options.deadlineMs ?? VERIFY_DEADLINE_MS}ms`)), options.deadlineMs ?? VERIFY_DEADLINE_MS);
     child.on('error', (err) => done(err));
     child.on('exit', (code) => {
-      if (code !== 0 && code !== null) done(new Error(`gateway exited with code ${code}`));
+      done(new Error(`gateway exited before tools/list with code ${code}`));
     });
 
     child.stdout?.on('data', (data: Buffer) => {

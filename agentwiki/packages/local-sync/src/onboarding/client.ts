@@ -22,6 +22,7 @@ export interface StartParams {
   serverBaseUrl: string;
   packageVersion: '0.9.1';
   clientType: ClientType;
+  purpose?: 'full-onboarding' | 'agent-connect';
   fetchImpl?: typeof fetch;
   deadlineMs?: number;
 }
@@ -117,7 +118,7 @@ export class OnboardingClient {
         body: JSON.stringify({
           packageVersion: params.packageVersion,
           clientType: params.clientType,
-          purpose: 'full-onboarding',
+          purpose: params.purpose ?? 'full-onboarding',
         }),
         signal: controller.signal,
       });
@@ -127,6 +128,26 @@ export class OnboardingClient {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  async renew(serverBaseUrl: string, deviceCode: string): Promise<StartResult> {
+    const response = await (this.options.fetchImpl ?? fetch)(joinUrl(serverBaseUrl, '/onboard/device/renew'), {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ deviceCode }), signal: AbortSignal.timeout(DEFAULT_START_DEADLINE_MS),
+    });
+    return await this.parseJson(response, 'renew') as StartResult;
+  }
+
+  async spaces(serverBaseUrl: string, onboardingToken: string): Promise<Array<{ id: string; name: string }>> {
+    const response = await (this.options.fetchImpl ?? fetch)(joinUrl(serverBaseUrl, '/onboard/spaces'), {
+      headers: { authorization: `Bearer ${onboardingToken}` }, signal: AbortSignal.timeout(DEFAULT_START_DEADLINE_MS),
+    });
+    if (response.status === 401 || response.status === 403) throw failure('AUTH_EXPIRED', 'authorization expired', false);
+    const result = await this.parseJson(response, 'spaces') as { spaces: Array<{id: string; name: string}> };
+    if (!Array.isArray(result.spaces) || result.spaces.some(space => typeof space.id !== 'string' || typeof space.name !== 'string')) {
+      throw failure('REMOTE_UNAVAILABLE', 'invalid spaces response', false);
+    }
+    return result.spaces.map(({ id, name }) => ({ id, name }));
   }
 
   /** Poll once; the caller decides when to retry based on the returned status. */
