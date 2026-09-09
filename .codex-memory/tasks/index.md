@@ -8,7 +8,7 @@
 
 ## 最近完成
 
-- [reading-workspace](archive/reading-workspace/brief.md)：最终代码9d66a123、本地候选完成；1390测试/lint/build/typecheck通过、无剩余P2；原生拖拽浏览验证未闭环、P3缓存明确保留，未合并/推送/部署。
+- [reading-workspace](archive/reading-workspace/brief.md)：应用v0.10.0发布准备中，用户已授权；已整合master cffe52aa，目录层级线与R1–R6修复完成。完整回归和独立发布审查进行中，等待恢复生产SSH。
 
 - [composite-page-group-agent-collaboration-templates](archive/composite-page-group-agent-collaboration-templates/brief.md)：A+实现、v0.8.0+PR9整合和本地master合并完成；独立审查无未关闭问题，主目录5212pass/0fail/3skip、DB175零skip、原有46文件/5子模块哈希保留。未push/发布/部署，验收与工作树保留。
 
