@@ -20,6 +20,8 @@ import { HumanOnlyGuard } from '../core/auth/human-only.guard';
 import { AllExceptionsFilter } from '../core/filters/all-exceptions.filter';
 import { PrismaService } from '../database/prisma.service';
 import { RedisService } from '../database/redis.service';
+import { ObsidianDeviceController } from '../integrations/obsidian/obsidian-device.controller';
+import { ObsidianIntegrationService } from '../integrations/obsidian/obsidian-integration.service';
 import { OnboardController } from './onboard.controller';
 import { OnboardBootstrapService } from './onboard-bootstrap.service';
 import { OnboardDeviceService } from './onboard-device.service';
@@ -121,6 +123,18 @@ describe('OnboardDeviceService', () => {
     expect(JSON.stringify(audit.record.mock.calls)).not.toContain(started.userCode);
   });
 
+  it('starts Obsidian sessions without Agent bootstrap capabilities', async () => {
+    const started = await service.start({ packageVersion: '0.4.0', clientType: 'obsidian', purpose: 'obsidian-connect' } as any, '127.0.0.1');
+    expect(started.verificationUriComplete).toContain('/onboard/device?user_code=');
+    expect(prisma.onboardingDeviceSession.create.mock.calls[0][0].data.requestedCapabilities).toEqual([]);
+  });
+
+  it('does not let Agent polling consume an approved Obsidian session', async () => {
+    prisma.onboardingDeviceSession.findUnique.mockResolvedValue(session({ purpose: 'obsidian-connect', clientType: 'obsidian', status: 'approved', authorizedUserId: 'user-1' }));
+    expect(await service.poll({ deviceCode: 'awd_' + 'a'.repeat(43) }, '127.0.0.1')).toEqual({ status: 'expired' });
+    expect(prisma.onboardingDeviceSession.updateMany).not.toHaveBeenCalled();
+  });
+
   it('rate limits start after ten requests per IP in sixty seconds', async () => {
     redis.incrementWithWindow.mockResolvedValue(11);
     await expect(service.start({
@@ -196,7 +210,7 @@ describe('OnboardDeviceService', () => {
     await expect(service.decide({ userCode: 'ABCD-EFGH', decision }, 'user-1', '127.0.0.1', 'test-agent'))
       .resolves.toEqual({ status });
     expect(prisma.onboardingDeviceSession.updateMany).toHaveBeenCalledWith({
-      where: { id: 'session-1', status: 'pending', expiresAt: { gt: NOW } },
+      where: { id: 'session-1', status: 'pending', userCodeHash: 'u'.repeat(64), authorizedUserId: null, expiresAt: new Date(NOW.getTime() + 600_000), AND: {expiresAt: {gt: NOW}} },
       data: expect.objectContaining({ status, [timestampField]: NOW }),
     });
   });
@@ -510,6 +524,11 @@ describe('OnboardingTokenGuard', () => {
     await expect(guard.canActivate(context().execution)).rejects.toBeDefined();
   });
 
+  it('rejects Obsidian purpose even if an awo-shaped hash is present', async () => {
+    prisma.onboardingDeviceSession.findUnique.mockResolvedValue(session({purpose:'obsidian-connect', status:'authorized', authorizedUserId:'user-1', onboardingTokenHash:createHash('sha256').update(rawToken).digest('hex'), tokenExpiresAt:new Date(Date.now()+600000)}));
+    await expect(guard.canActivate(context().execution)).rejects.toMatchObject({businessCode:'AUTH_DENIED'});
+  });
+
   it('lets a consumed but unexpired token reach bootstrap replay handling', async () => {
     prisma.onboardingDeviceSession.findUnique.mockResolvedValue(session({
       status: 'authorized', authorizedUserId: 'user-1',
@@ -541,8 +560,11 @@ describe('OnboardController HTTP contract', () => {
     }),
     decide: jest.fn().mockResolvedValue({ status: 'approved' }),
     poll: jest.fn().mockResolvedValue({ status: 'authorization_pending' }),
+    pollObsidian: jest.fn().mockResolvedValue({status:'authorized',code:'c'.repeat(43),expiresIn:600}),
+    renew: jest.fn().mockResolvedValue({deviceCode:'awd_' + 'a'.repeat(43),userCode:'ABCD-EFGH',expiresIn:600,interval:5}),
   };
   const bootstrapService = {
+    listSpaces: jest.fn().mockResolvedValue({spaces:[{id:'space-1',name:'研发知识库'}]}),
     bootstrap: jest.fn().mockResolvedValue({
       space: { id: 'space-1', name: '研发知识库' },
       agent: { id: 'agent-1', name: 'Codex' },
@@ -566,8 +588,9 @@ describe('OnboardController HTTP contract', () => {
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
-      controllers: [OnboardController],
+      controllers: [OnboardController, ObsidianDeviceController],
       providers: [
+        { provide: ObsidianIntegrationService, useValue: {} },
         { provide: OnboardDeviceService, useValue: devices },
         { provide: OnboardBootstrapService, useValue: bootstrapService },
         HumanOnlyGuard,
@@ -614,6 +637,24 @@ describe('OnboardController HTTP contract', () => {
     expect(devices.start).toHaveBeenCalledWith(expect.anything(), '127.0.0.1');
     expect(devices.getPublicSession).toHaveBeenCalledWith('ABCD-EFGH', '127.0.0.1');
     expect(devices.poll).toHaveBeenCalledWith(expect.anything(), '127.0.0.1');
+  });
+
+  it('exposes the Obsidian DTO routes with no-store responses and keeps Agent start purpose validation separate', async () => {
+    const headers = {'content-type':'application/json'};
+    const start = await fetch(`${baseUrl}/api/integrations/obsidian/device/start`, {method:'POST', headers, body:JSON.stringify({pluginVersion:'0.4.0'})});
+    expect(start.status).toBe(201); expect(start.headers.get('cache-control')).toContain('no-store');
+    expect(devices.start).toHaveBeenCalledWith({packageVersion:'0.4.0',clientType:'obsidian',purpose:'obsidian-connect'}, '127.0.0.1');
+    const poll = await fetch(`${baseUrl}/api/integrations/obsidian/device/poll`, {method:'POST',headers,body:JSON.stringify({deviceCode:'awd_'+'a'.repeat(43)})});
+    expect(poll.status).toBe(200); expect(await poll.json()).toMatchObject({status:'authorized',code:'c'.repeat(43)});
+    const rejected = await fetch(`${baseUrl}/api/integrations/obsidian/device/start`, {method:'POST',headers,body:JSON.stringify({pluginVersion:'0.4.0',purpose:'full-onboarding'})});
+    expect(rejected.status).toBe(400);
+    const agent = await fetch(`${baseUrl}/api/onboard/device/start`, {method:'POST',headers,body:JSON.stringify({packageVersion:'0.9.1',clientType:'codex',purpose:'agent-connect'})});
+    expect(agent.status).toBe(201);
+    const renewed = await fetch(`${baseUrl}/api/onboard/device/renew`, {method:'POST',headers,body:JSON.stringify({deviceCode:'awd_'+'a'.repeat(43)})});
+    expect(renewed.status).toBe(201);
+    const spaces = await fetch(`${baseUrl}/api/onboard/spaces`);
+    expect(await spaces.json()).toEqual({spaces:[{id:'space-1',name:'研发知识库'}]});
+    expect(bootstrapService.listSpaces).toHaveBeenCalledWith(expect.objectContaining({userId:'user-1',purpose:'full-onboarding'}));
   });
 
   it('routes bootstrap only through the onboarding principal and Idempotency-Key', async () => {

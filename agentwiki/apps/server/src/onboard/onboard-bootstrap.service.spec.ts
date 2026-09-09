@@ -446,6 +446,20 @@ describe('OnboardBootstrapService', () => {
     expect(installations.issueForBootstrap).not.toHaveBeenCalled();
   });
 
+  it('recovers an expired Agent connection receipt on original resources without creating another Agent or Space', async () => {
+    prisma.onboardingBootstrap.create.mockRejectedValue(p2002());
+    bootstrapRecord.status = 'completed';
+    bootstrapRecord.idempotencyKeyHash = idempotencyKeyHash('bootstrap-key-01');
+    bootstrapRecord.resourceIds = {spaceId:'space-1', agentId:'agent-1', pendingInstallationId:'old-installation'};
+    bootstrapRecord.resultHash = 'a'.repeat(64);
+    prisma.space.findFirst.mockResolvedValue({id:'space-1', name:'研发知识库', approvalPolicy:'always-review'});
+    prisma.agent.findUnique.mockResolvedValue({id:'agent-1', ownerId:'user-1', name:'Codex', status:'active', memoryEnabled:false, approvalMode:'always-review'});
+    const result = await service.bootstrap({...context, purpose:'agent-connect'}, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan));
+    expect(result.space.id).toBe('space-1'); expect(result.agent.id).toBe('agent-1');
+    expect(bootstrapRecord.status).toBe('completed'); expect(bootstrapRecord.generation).toBe(2);
+    expect(tx.space.create).not.toHaveBeenCalled(); expect(tx.agent.create).not.toHaveBeenCalled();
+  });
+
   it('never returns extra credential material from replay storage', async () => {
     prisma.onboardingBootstrap.create.mockRejectedValue(p2002());
     bootstrapRecord.status = 'completed';

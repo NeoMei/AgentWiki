@@ -1,11 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, createHmac, randomBytes } from 'crypto';
 import { AuditService } from '../core/security/audit.service';
 import { BusinessException } from '../core/filters/business-error';
 import { PrismaService } from '../database/prisma.service';
 import { RedisService } from '../database/redis.service';
-import type { DeviceDecisionInput, PollDeviceInput, StartDeviceInput } from './onboard.types';
+import type { ObsidianIntegrationService } from '../integrations/obsidian/obsidian-integration.service';
+import type { DeviceDecisionInput, PollDeviceInput, StartDeviceInput, StartObsidianDeviceInput } from './onboard.types';
 
 export const DEVICE_TTL_SECONDS = 600;
 export const ONBOARDING_TOKEN_TTL_SECONDS = 600;
@@ -49,12 +50,14 @@ export class OnboardDeviceService {
     private readonly config: ConfigService,
   ) {}
 
-  async start(input: StartDeviceInput, ipAddress: string) {
+  async start(input: StartDeviceInput | StartObsidianDeviceInput, ipAddress: string) {
     await this.assertRateLimit('start-rate', ipAddress, 60, 10);
     const deviceCode = `awd_${randomBytes(32).toString('base64url')}`;
-    const userCode = this.generateUserCode();
     const now = new Date();
     const expiresAt = new Date(now.getTime() + DEVICE_TTL_SECONDS * 1_000);
+
+    const userCode = input.purpose === 'agent-connect'
+      ? this.renewalUserCode(deviceCode, expiresAt) : this.generateUserCode();
 
     await this.prisma.onboardingDeviceSession.create({
       data: {
@@ -63,7 +66,7 @@ export class OnboardDeviceService {
         packageVersion: input.packageVersion,
         clientType: input.clientType,
         purpose: input.purpose,
-        requestedCapabilities: [...REQUESTED_CAPABILITIES],
+        requestedCapabilities: input.purpose === 'obsidian-connect' ? [] : [...REQUESTED_CAPABILITIES],
         pollIntervalSeconds: POLL_INTERVAL_SECONDS,
         expiresAt,
       },
@@ -104,7 +107,7 @@ export class OnboardDeviceService {
     const current = stored.expiresAt.getTime() <= Date.now() ? 'expired' : stored.status;
     if (current === 'expired' && stored.status !== 'expired') {
       await this.prisma.onboardingDeviceSession.updateMany({
-        where: { id: stored.id, status: stored.status },
+        where: { id: stored.id, status: stored.status, expiresAt: stored.expiresAt },
         data: { status: 'expired' },
       });
     }
@@ -138,15 +141,16 @@ export class OnboardDeviceService {
       : null;
     if (!stored) throw new BusinessException('RESOURCE_NOT_FOUND', 'Device authorization session not found');
 
-    const desired = input.decision === 'approve' ? 'approved' : 'denied';
-    if (this.isEquivalentDecision(stored.status, desired)) {
-      return { status: desired };
+    if (stored.authorizedUserId && stored.authorizedUserId !== userId) {
+      throw new BusinessException('AUTH_DENIED', 'Authorization belongs to a different account');
     }
+    const desired = input.decision === 'approve' ? 'approved' : 'denied';
     if (stored.expiresAt.getTime() <= Date.now() || stored.status === 'expired') {
       await this.expire(stored);
       throw new BusinessException('AUTH_EXPIRED');
     }
 
+    if (this.isEquivalentDecision(stored.status, desired)) return { status: desired };
     if (stored.status !== 'pending') {
       throw new BusinessException('RESOURCE_CONFLICT', 'Device authorization already has a different decision');
     }
@@ -156,12 +160,16 @@ export class OnboardDeviceService {
       ? { status: 'approved', authorizedUserId: userId, approvedAt: now }
       : { status: 'denied', deniedAt: now };
     const changed = await this.prisma.onboardingDeviceSession.updateMany({
-      where: { id: stored.id, status: 'pending', expiresAt: { gt: now } },
+      where: { id: stored.id, status: 'pending', userCodeHash: stored.userCodeHash,
+        authorizedUserId: stored.authorizedUserId, expiresAt: stored.expiresAt, AND: { expiresAt: { gt: now } } },
       data,
     });
     if (!changed.count) {
       const latest = await this.prisma.onboardingDeviceSession.findUnique({ where: { id: stored.id } });
-      if (latest && this.isEquivalentDecision(latest.status, desired)) return { status: desired };
+      if (latest && this.isEquivalentDecision(latest.status, desired)
+        && latest.userCodeHash === stored.userCodeHash && latest.expiresAt.getTime() === stored.expiresAt.getTime()
+        && (!latest.authorizedUserId || latest.authorizedUserId === userId)
+        && latest.expiresAt.getTime() > Date.now()) return { status: desired };
       if (!latest || latest.expiresAt.getTime() <= Date.now() || latest.status === 'expired') {
         throw new BusinessException('AUTH_EXPIRED');
       }
@@ -187,11 +195,116 @@ export class OnboardDeviceService {
       const stored = await this.prisma.onboardingDeviceSession.findUnique({
         where: { deviceCodeHash },
       }) as DeviceSession | null;
-      if (!stored) return { status: 'expired' };
-      const result = await this.evaluatePoll(stored, now, ipAddress);
+      if (!stored || !['full-onboarding', 'agent-connect'].includes(stored.purpose)) return { status: 'expired' };
+      const result = stored.purpose === 'agent-connect'
+        ? await this.pollAgentConnection(stored, input.deviceCode, now, ipAddress)
+        : await this.evaluatePoll(stored, now, ipAddress);
       if (result !== POLL_CAS_RETRY) return result;
     }
     throw new BusinessException('RESOURCE_CONFLICT', 'Concurrent onboarding update; retry poll');
+  }
+
+  /** Replay secrets are derived from the client-only 256-bit device secret, never its stored hash.
+   * Domain, session and authorization expiry bind each value to one purpose and renewal. */
+  private connectionSecret(deviceCode: string, domain: string, stored: Pick<DeviceSession, 'id' | 'expiresAt'>): string {
+    return createHmac('sha256', deviceCode).update(domain).update('\0')
+      .update(stored.id).update('\0').update(stored.expiresAt.toISOString()).digest('base64url');
+  }
+
+  private async pollAgentConnection(stored: DeviceSession, deviceCode: string, now: Date, ipAddress: string) {
+    if (stored.expiresAt <= now || stored.status === 'expired') return { status: 'expired' };
+    if (stored.status !== 'approved' && stored.status !== 'authorized') return this.evaluatePoll(stored, now, ipAddress);
+    const user = stored.authorizedUserId ? await this.prisma.user.findUnique({ where: {id: stored.authorizedUserId} }) : null;
+    if (!this.isActiveHuman(user)) return {status: 'denied'};
+    const onboardingToken = `awo_${this.connectionSecret(deviceCode, 'agent-connect-token-v1', stored)}`;
+    if (stored.status === 'authorized') {
+      if (!stored.tokenExpiresAt || stored.tokenExpiresAt <= now || stored.onboardingTokenHash !== this.hash(onboardingToken)) return {status: 'expired'};
+    } else {
+      const changed = await this.prisma.onboardingDeviceSession.updateMany({
+        where: {id: stored.id, status: 'approved', purpose: 'agent-connect', authorizedUserId: stored.authorizedUserId, expiresAt: stored.expiresAt},
+        data: {status: 'authorized', onboardingTokenHash: this.hash(onboardingToken), tokenExpiresAt: stored.expiresAt, lastPolledAt: now, pollCount: {increment: 1}},
+      });
+      if (!changed.count) return POLL_CAS_RETRY;
+      await this.recordAuditBestEffort({action: 'onboarding.device.token-issued', outcome: 'success', actorUserId: stored.authorizedUserId!, ipAddress, metadata: {purpose: stored.purpose}}, 'Agent connection authorization');
+    }
+    return {status: 'authorized', onboardingToken, expiresIn: Math.max(0, Math.min(DEVICE_TTL_SECONDS, Math.ceil((stored.expiresAt.getTime() - now.getTime()) / 1000)))};
+  }
+
+  async pollObsidian(input: PollDeviceInput, ipAddress: string, installations: ObsidianIntegrationService): Promise<Record<string, unknown>> {
+    await this.assertRateLimit('poll-rate', ipAddress, 60, 120);
+    for (let attempt = 0; attempt < MAX_POLL_CAS_ATTEMPTS; attempt++) {
+      const result = await this.prisma.$transaction(async tx => {
+        const stored = await tx.onboardingDeviceSession.findUnique({where: {deviceCodeHash: this.hash(input.deviceCode)}});
+        const now = new Date();
+        if (!stored || stored.purpose !== 'obsidian-connect' || stored.clientType !== 'obsidian' || stored.expiresAt <= now || stored.status === 'expired') return {status: 'expired'};
+        if (stored.status === 'denied') return {status: 'denied'};
+        if (stored.status === 'pending') {
+          const early = this.isEarlyPoll(stored, now);
+          const interval = Math.min(stored.pollIntervalSeconds + POLL_INTERVAL_SECONDS, MAX_POLL_INTERVAL_SECONDS);
+          const changed = await tx.onboardingDeviceSession.updateMany({
+            where: {id: stored.id, status: 'pending', expiresAt: stored.expiresAt, lastPolledAt: stored.lastPolledAt, pollIntervalSeconds: stored.pollIntervalSeconds},
+            data: early ? {pollIntervalSeconds: interval} : {lastPolledAt: now, pollCount: {increment: 1}},
+          });
+          if (!changed.count) return POLL_CAS_RETRY;
+          return early ? {status: 'slow_down', interval} : {status: 'authorization_pending'};
+        }
+        if (!['approved', 'authorized'].includes(stored.status)) return {status: 'expired'};
+        const user = stored.authorizedUserId ? await tx.user.findUnique({where: {id: stored.authorizedUserId}}) : null;
+        if (!this.isActiveHuman(user)) return {status: 'denied'};
+        const code = this.connectionSecret(input.deviceCode, 'obsidian-installation-v1', stored);
+        if (stored.status === 'approved') {
+          const changed = await tx.onboardingDeviceSession.updateMany({
+            where: {id: stored.id, status: 'approved', purpose: 'obsidian-connect', authorizedUserId: stored.authorizedUserId, expiresAt: stored.expiresAt},
+            data: {status: 'authorized', lastPolledAt: now, pollCount: {increment: 1}},
+          });
+          if (!changed.count) return POLL_CAS_RETRY;
+          await installations.issueForDevice(tx, {code, userId: stored.authorizedUserId!, expiresAt: stored.expiresAt});
+        } else if (!await installations.canReplayDeviceCode(tx, code, stored.authorizedUserId!)) return {status: 'expired'};
+        return {status: 'authorized', code, expiresIn: Math.max(0, Math.min(DEVICE_TTL_SECONDS, Math.ceil((stored.expiresAt.getTime() - now.getTime()) / 1000)))};
+      });
+      if (result !== POLL_CAS_RETRY) {
+        if (result.status === 'authorized') await this.recordAuditBestEffort({action: 'onboarding.device.obsidian-authorized', outcome: 'success', ipAddress, metadata: {purpose: 'obsidian-connect'}}, 'Obsidian connection authorization');
+        return result;
+      }
+    }
+    throw new BusinessException('RESOURCE_CONFLICT', 'Concurrent connection update; retry poll');
+  }
+
+  async renew(input: PollDeviceInput, ipAddress: string) {
+    await this.assertRateLimit('renew-rate', ipAddress, 60, 10);
+    for (let attempt = 0; attempt < MAX_POLL_CAS_ATTEMPTS; attempt++) {
+      const stored = await this.prisma.onboardingDeviceSession.findUnique({where: {deviceCodeHash: this.hash(input.deviceCode)}});
+      if (!stored || stored.purpose !== 'agent-connect') throw new BusinessException('AUTH_DENIED');
+      if (stored.authorizedUserId) {
+        const user = await this.prisma.user.findUnique({where: {id: stored.authorizedUserId}});
+        if (!this.isActiveHuman(user)) throw new BusinessException('AUTH_DENIED');
+      }
+      const now = new Date();
+      if (stored.status === 'pending' && stored.expiresAt > now) return this.renewalResponse(input.deviceCode, stored.expiresAt);
+      if (stored.expiresAt > now && ['approved', 'authorized'].includes(stored.status) && (!stored.tokenExpiresAt || stored.tokenExpiresAt > now)) throw new BusinessException('RESOURCE_CONFLICT', 'Authorization is still active');
+      const expiresAt = new Date(Math.max(now.getTime() + DEVICE_TTL_SECONDS * 1000, stored.expiresAt.getTime() + 1));
+      const userCode = this.renewalUserCode(input.deviceCode, expiresAt);
+      const changed = await this.prisma.onboardingDeviceSession.updateMany({
+        where: {id: stored.id, status: stored.status, expiresAt: stored.expiresAt, authorizedUserId: stored.authorizedUserId},
+        data: {status: 'pending', userCodeHash: this.hash(this.normalizeUserCode(userCode)!), expiresAt, onboardingTokenHash: null, tokenExpiresAt: null, approvedAt: null, deniedAt: null, lastPolledAt: null, pollIntervalSeconds: POLL_INTERVAL_SECONDS},
+      });
+      if (!changed.count) continue;
+      await this.recordAuditBestEffort({action: 'onboarding.device.renew', outcome: 'success', actorUserId: stored.authorizedUserId || undefined, ipAddress, metadata: {purpose: stored.purpose}}, 'authorization renewal');
+      return this.renewalResponse(input.deviceCode, expiresAt);
+    }
+    throw new BusinessException('RESOURCE_CONFLICT', 'Concurrent authorization renewal; retry');
+  }
+
+  private renewalUserCode(deviceCode: string, expiresAt: Date): string {
+    const bytes = createHmac('sha256', deviceCode).update('agent-connect-user-code-v1\0').update(expiresAt.toISOString()).digest();
+    const code = Array.from(bytes.subarray(0, 8), byte => USER_CODE_ALPHABET[byte & 31]).join('');
+    return `${code.slice(0, 4)}-${code.slice(4)}`;
+  }
+
+  private renewalResponse(deviceCode: string, expiresAt: Date) {
+    const userCode = this.renewalUserCode(deviceCode, expiresAt);
+    const verificationUri = this.verificationUri();
+    return {deviceCode, userCode, verificationUri, verificationUriComplete: `${verificationUri}?user_code=${encodeURIComponent(userCode)}`, expiresIn: Math.max(0, Math.min(DEVICE_TTL_SECONDS, Math.ceil((expiresAt.getTime() - Date.now()) / 1000))), interval: POLL_INTERVAL_SECONDS};
   }
 
   private async evaluatePoll(
@@ -302,10 +415,10 @@ export class OnboardDeviceService {
     return changed.count > 0;
   }
 
-  private async expire(stored: Pick<DeviceSession, 'id' | 'status'>): Promise<void> {
+  private async expire(stored: Pick<DeviceSession, 'id' | 'status' | 'expiresAt'>): Promise<void> {
     if (stored.status === 'expired') return;
     await this.prisma.onboardingDeviceSession.updateMany({
-      where: { id: stored.id, status: stored.status },
+      where: { id: stored.id, status: stored.status, expiresAt: stored.expiresAt },
       data: { status: 'expired' },
     });
   }

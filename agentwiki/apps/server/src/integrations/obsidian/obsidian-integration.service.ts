@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { exchangeRequestHash } from '@neomei/agentwiki-sync-protocol';
 import type {
@@ -57,6 +58,18 @@ export class ObsidianIntegrationService {
       }
     }
     throw new SyncApiException('CREDENTIAL_COLLISION', 'Could not issue a unique installation code');
+  }
+
+  async issueForDevice(tx: Prisma.TransactionClient, input: {code: string; userId: string; expiresAt: Date}) {
+    await this.assertInstallationRateLimit(input.userId);
+    return tx.obsidianInstallation.create({data: {
+      codeHash: this.crypto.installationCodeHash(input.code), userId: input.userId, expiresAt: input.expiresAt,
+    }});
+  }
+
+  async canReplayDeviceCode(tx: Prisma.TransactionClient, code: string, userId: string): Promise<boolean> {
+    const installation = await tx.obsidianInstallation.findUnique({where: {codeHash: this.crypto.installationCodeHash(code)}});
+    return Boolean(installation && installation.userId === userId && ['pending', 'exchanged'].includes(installation.status) && installation.expiresAt > new Date());
   }
 
   async revokeInstallation(userId: string, installationId: string) {

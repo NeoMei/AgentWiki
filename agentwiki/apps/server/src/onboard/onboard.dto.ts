@@ -30,8 +30,15 @@ export class StartDeviceDto implements StartDeviceInput {
   @IsIn(['codex', 'claude', 'opencode'])
   clientType: 'codex' | 'claude' | 'opencode';
 
-  @IsIn(['full-onboarding'])
-  purpose: 'full-onboarding';
+  @IsIn(['full-onboarding', 'agent-connect'])
+  purpose: 'full-onboarding' | 'agent-connect';
+}
+
+export class StartObsidianDeviceDto {
+  @Transform(({ obj, key }) => obj[key], { toClassOnly: true })
+  @IsString()
+  @Matches(/^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/)
+  pluginVersion: string;
 }
 
 export class PollDeviceDto implements PollDeviceInput {

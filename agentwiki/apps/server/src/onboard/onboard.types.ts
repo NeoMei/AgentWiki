@@ -9,7 +9,13 @@ import type { SupportedLocalSyncVersion } from '../core/local-sync-version';
 export type StartDeviceInput = {
   packageVersion: SupportedLocalSyncVersion;
   clientType: 'codex' | 'claude' | 'opencode';
-  purpose: 'full-onboarding';
+  purpose: 'full-onboarding' | 'agent-connect';
+};
+
+export type StartObsidianDeviceInput = {
+  packageVersion: string;
+  clientType: 'obsidian';
+  purpose: 'obsidian-connect';
 };
 
 export type PollDeviceInput = {

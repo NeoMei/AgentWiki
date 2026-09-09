@@ -30,6 +30,19 @@ export class OnboardController {
     );
   }
 
+  @Get('onboard/spaces')
+  @UseGuards(OnboardingTokenGuard)
+  @Header('Cache-Control', 'no-store')
+  spaces(@Req() req: Request & {onboarding: OnboardingPrincipal}) {
+    return this.bootstrapService.listSpaces(req.onboarding);
+  }
+
+  @Post('onboard/device/renew')
+  @Header('Cache-Control', 'no-store')
+  renewDevice(@Body() dto: PollDeviceDto, @Req() req: Request) {
+    return this.devices.renew(dto, this.clientIp(req));
+  }
+
   @Post('onboard/device/start')
   startDevice(@Body() dto: StartDeviceDto, @Req() req: Request) {
     return this.devices.start(dto, this.clientIp(req));

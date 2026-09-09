@@ -92,6 +92,15 @@ export class OnboardBootstrapService {
     private readonly config: ConfigService,
   ) {}
 
+  async listSpaces(context: OnboardingPrincipal) {
+    if (!['full-onboarding', 'agent-connect'].includes(context.purpose)) throw new BusinessException('AUTH_DENIED');
+    const spaces = await this.prisma.space.findMany({
+      where: {deletedAt: null, members: {some: {userId: context.userId, role: {in: ['owner', 'admin']}}}},
+      select: {id: true, name: true}, orderBy: [{name: 'asc'}, {id: 'asc'}],
+    });
+    return {spaces};
+  }
+
   async bootstrap(
     context: OnboardingPrincipal,
     idempotencyKey: unknown,
@@ -110,7 +119,7 @@ export class OnboardBootstrapService {
     }
     if (!claim.fence) {
       if (claim.record.status === 'completed') {
-        return this.readCompletedReplay(claim.record, context.sessionId);
+        return this.readCompletedReplay(claim.record, context.sessionId, context, normalized);
       }
       const replay = await this.waitForWinner(
         context.sessionId,
@@ -385,6 +394,8 @@ export class OnboardBootstrapService {
   private async readCompletedReplay(
     record: BootstrapRecord,
     sessionId: string,
+    context?: OnboardingPrincipal,
+    plan?: NormalizedServerPlan,
   ): Promise<OnboardBootstrapResponse> {
     if (!record.executionId || !record.resultHash) {
       throw this.retryable('Completed onboarding result is unavailable');
@@ -396,7 +407,10 @@ export class OnboardBootstrapService {
     } catch {
       throw this.retryable('Completed onboarding result is temporarily unavailable');
     }
-    if (!serialized) throw this.retryable('Completed onboarding result is unavailable');
+    if (!serialized) {
+      if (context?.purpose === 'agent-connect' && plan) return this.reissueCompleted(record, context, plan);
+      throw this.retryable('Completed onboarding result is unavailable');
+    }
     const response = this.parseReplay(serialized);
     if (this.hash(JSON.stringify(response)) !== record.resultHash) {
       throw new BusinessException(
@@ -404,8 +418,29 @@ export class OnboardBootstrapService {
         'Saved onboarding result is inconsistent',
       );
     }
+    if (context?.purpose === 'agent-connect' && plan) {
+      await this.loadResources(this.resourceIds(record.resourceIds), context.userId, plan);
+      if (new Date(response.installation.expiresAt).getTime() <= Date.now()) return this.reissueCompleted(record, context, plan);
+    }
     await this.consumeToken(sessionId, fence);
     return response;
+  }
+
+  private async reissueCompleted(record: BootstrapRecord, context: OnboardingPrincipal, plan: NormalizedServerPlan) {
+    // Recheck the original resources before claiming a new installation generation.
+    // The unique deviceSessionId and unchanged plan/key fence prohibit creating duplicates.
+    await this.loadResources(this.resourceIds(record.resourceIds), context.userId, plan);
+    const fence = {executionId: randomUUID(), generation: record.generation + 1};
+    const leaseExpiresAt = this.newLease();
+    const changed = await this.prisma.onboardingBootstrap.updateMany({
+      where: {id: record.id, status: 'completed', executionId: record.executionId, generation: record.generation, resultHash: record.resultHash},
+      data: {status: 'running', executionId: fence.executionId, generation: fence.generation, leaseExpiresAt},
+    });
+    if (!changed.count) throw this.retryable('Concurrent onboarding receipt renewal; retry the same request');
+    return this.executeClaim(context, plan, {
+      record: {...record, status: 'running', ...fence, leaseExpiresAt}, fence,
+      previous: {...record, status: 'failed'},
+    });
   }
 
   private async waitForWinner(
@@ -742,7 +777,7 @@ export class OnboardBootstrapService {
       suppliedPlanHash !== canonicalPlanHash
       || plan.packageVersion !== context.packageVersion
       || !isSupportedLocalSyncVersion(context.packageVersion)
-      || context.purpose !== 'full-onboarding'
+      || !['full-onboarding', 'agent-connect'].includes(context.purpose)
       || capabilities.length !== REQUIRED_CAPABILITIES.length
       || capabilities.some((capability, index) => capability !== REQUIRED_CAPABILITIES[index])
     ) throw new BusinessException('ONBOARDING_PLAN_HASH_MISMATCH');

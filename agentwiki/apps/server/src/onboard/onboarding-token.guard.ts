@@ -34,6 +34,7 @@ export class OnboardingTokenGuard implements CanActivate {
     if (!stored || !stored.onboardingTokenHash || !this.sameHash(tokenHash, stored.onboardingTokenHash)) {
       throw new UnauthorizedException('Invalid onboarding token');
     }
+    if (!['full-onboarding', 'agent-connect'].includes(stored.purpose)) throw new BusinessException('AUTH_DENIED');
     if (stored.status !== 'authorized') {
       throw new BusinessException('AUTH_EXPIRED', 'Onboarding token is no longer active');
     }
