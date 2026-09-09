@@ -72,5 +72,14 @@ it('terminates a real unresponsive gateway child at its deadline', async () => {
     expect(result.ok).toBe(false);pid=Number(await readFile(pidFile,'utf8'));
     await new Promise(r=>setTimeout(r,50));
     expect(()=>process.kill(pid!,0)).toThrow();
-  } finally {if(pid)try{process.kill(pid,'SIGKILL');}catch{}await rm(home,{recursive:true,force:true});}
+  } finally {
+    if (pid) {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        // Successful verification has already terminated the child.
+      }
+    }
+    await rm(home, { recursive: true, force: true });
+  }
 });

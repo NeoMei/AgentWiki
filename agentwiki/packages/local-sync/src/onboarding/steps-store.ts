@@ -54,7 +54,7 @@ async function acquireLock(lock: string, depth = 0): Promise<() => Promise<void>
         const info = await stat(lock).catch(() => null);
         alive = info !== null && Date.now() - info.mtimeMs < 120_000;
       }
-      if (alive) throw new Error('SESSION_BUSY: another command owns this session');
+      if (alive) throw new Error('SESSION_BUSY: another command owns this session', { cause: error });
       await rm(lock, { force: true });
       try {
         await acquire();
