@@ -24,7 +24,7 @@
 
 **Interfaces:** Produces spec 所定义的 Obsidian start/poll 和 GET `/onboard/spaces`；公开授权 session 新增 obsidian clientType/purpose，已有 DTO/消费者继续兼容。Consumes existing installation/exchange and authorization services.
 
-- [ ] 编写失败测试，分别覆盖以下行为：
+- [x] 编写失败测试，分别覆盖以下行为：
 ```ts
 expect((await start({pluginVersion:'0.4.0'})).verificationUriComplete).toContain('/onboard/device?user_code=');
 expect(await poll(deviceCode)).toMatchObject({status:'authorization_pending'});
@@ -32,10 +32,10 @@ expect(await poll(deviceCode)).toMatchObject({status:'authorization_pending'});
 expect((await poll(deviceCode)).code).toBe((await poll(deviceCode)).code);
 // Space 列表只含能用于 bootstrap 的空间，不扩大权限。
 ```
-- [ ] 运行对应 Nest/Jest spec 并记录预期失败。
-- [ ] 实现 purpose 边界、受控生命周期、幂等安装码兑换入口、只读 spaces API。先向控制器报告公开类型确定结果，接口与 spec 差异须协调。
-- [ ] 运行相关 onboard/integrations 全部 spec、server typecheck，检查 module graph 依赖。记录真实 Redis/DB 测试所需 fixture，控制器统一调度。
-- [ ] 自审并提交 `feat(onboarding): add browser authorization for Obsidian`，报告文件/commit/测试和未完成证据。
+- [x] 运行对应 Nest/Jest spec 并记录预期失败。
+- [x] 实现 purpose 边界、受控生命周期、幂等安装码兑换入口、只读 spaces API。先向控制器报告公开类型确定结果，接口与 spec 差异须协调。
+- [x] 运行相关 onboard/integrations 全部 spec、server typecheck，检查 module graph 依赖。记录真实 Redis/DB 测试所需 fixture，控制器统一调度。
+- [x] 自审并提交 `feat(onboarding): add browser authorization for Obsidian`，报告文件/commit/测试和未完成证据。
 
 ### Task 2: Local Sync 可恢复分步接入
 
@@ -43,7 +43,7 @@ expect((await poll(deviceCode)).code).toBe((await poll(deviceCode)).code);
 
 **Interfaces:** Consumes Task1 GET `/onboard/spaces` and existing device/bootstrap APIs. Produces spec 的四条 `onboard start/status/continue` JSON 命令及可供页面提示词使用的准确示例，写入报告。
 
-- [ ] 先加真实文件 session 测试：
+- [x] 先加真实文件 session 测试：
 ```ts
 // start 返回 authorization_required 并结束；新进程可 status，同一 session continue。
 expect(status.sessionId).toBe(start.sessionId);
@@ -51,11 +51,11 @@ expect(JSON.stringify(status)).not.toMatch(/awo_|awd_/);
 // 未输入 sourcePaths 仍可完成配置；扫描/同步依赖若被调用则测试直接失败。
 // 重复确认、错 hash、并发 continue、重启恢复均不重复 bootstrap 或覆写配置。
 ```
-- [ ] 运行聚焦测试，保留 RED 证据。
-- [ ] 编写小型独立分步 runtime/持久化模块，复用现有 bootstrap installer、配置保护和 OnboardingClient；不重写旧 NDJSON coordinator。所有暂停点有恢复机制；有界返回、秘密本地保存，status 只读。
-- [ ] 以安装和握手结果报告连接；不要求扫描，不暴露未支持 deep。保留旧 NDJSON/human/--code 流程并回归。
-- [ ] 运行 Local Sync onboarding/CLI/installer spec、typecheck/build，然后全 Local Sync 测试一次；按实际 shell 平台验证命令文件输入和多进程恢复。
-- [ ] 自审提交 `feat(local-sync): add resumable step-based onboarding`，报告明确 CLI/JSON 形状和宿主重载/验证下一步。
+- [x] 运行聚焦测试，保留 RED 证据。
+- [x] 编写小型独立分步 runtime/持久化模块，复用现有 bootstrap installer、配置保护和 OnboardingClient；不重写旧 NDJSON coordinator。所有暂停点有恢复机制；有界返回、秘密本地保存，status 只读。
+- [x] 以安装和握手结果报告连接；不要求扫描，不暴露未支持 deep。保留旧 NDJSON/human/--code 流程并回归。
+- [x] 运行 Local Sync onboarding/CLI/installer spec、typecheck/build，然后全 Local Sync 测试一次；按实际 shell 平台验证命令文件输入和多进程恢复。
+- [x] 自审提交 `feat(local-sync): add resumable step-based onboarding`，报告明确 CLI/JSON 形状和宿主重载/验证下一步。
 
 ### Task 3: Obsidian 浏览器接入与恢复 UI
 
@@ -81,14 +81,14 @@ expect(result.state).toBe('connected');
 
 **Interfaces:** Consumes Task1 public session discriminants and Task2 exact JSON CLI. Produces complete bilingual user flows and copied Agent prompt.
 
-- [ ] 写入口首屏、授权 context 保留、Obsidian/Agent purpose 语义、过期重试、各客户端复制内容测试并确认 RED。
+- [x] 写入口首屏、授权 context 保留、Obsidian/Agent purpose 语义、过期重试、各客户端复制内容测试并确认 RED。
 ```tsx
 expect(screen.getByRole('heading', {name:'连接 Obsidian'})).toBeVisible();
 // 不把 Obsidian 连接解释为创建 Agent；复制提示词不得要求持久 stdin 或必填扫描路径。
 ```
-- [ ] Obsidian 首屏直接连接/安装/后备码，插件旧导航文字与页面一致；引导回插件发起浏览器授权，不制造相反操作链。
-- [ ] Agent 页面选择客户端、复制完整 steps 提示词，驱动授权→按名称选择空间/权限→确认配置→实际 MCP 读验证；显示导入可稍后进行和真实失败恢复。
-- [ ] 运行相关 client spec、typecheck 和 client build，记录桌面/390px 验收路线。自审提交 `feat(web): make connection setup discoverable and verifiable`。
+- [x] Obsidian 首屏直接连接/安装/后备码，插件旧导航文字与页面一致；引导回插件发起浏览器授权，不制造相反操作链。
+- [x] Agent 页面选择客户端、复制完整 steps 提示词，驱动授权→按名称选择空间/权限→确认配置→实际 MCP 读验证；显示导入可稍后进行和真实失败恢复。
+- [x] 运行相关 client spec、typecheck 和 client build，记录桌面/390px 验收路线。自审提交 `feat(web): make connection setup discoverable and verifiable`。
 
 ### Task 5: 跨仓集成与真实验收
 
