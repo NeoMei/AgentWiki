@@ -1,0 +1,15 @@
+[submodule "docmost"]
+	path = docmost
+	url = https://github.com/docmost/docmost.git
+[submodule "mnemon"]
+	path = mnemon
+	url = https://github.com/mnemon-dev/mnemon.git
+[submodule "openwiki"]
+	path = openwiki
+	url = https://github.com/langchain-ai/openwiki.git
+[submodule "outline"]
+	path = outline
+	url = https://github.com/outline/outline.git
+[submodule "swarmvault"]
+	path = swarmvault
+	url = https://github.com/swarmclawai/swarmvault.git
