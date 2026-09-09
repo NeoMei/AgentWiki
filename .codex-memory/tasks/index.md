@@ -4,7 +4,7 @@
 
 ## 活跃任务
 
-- 无。
+- [connection-ux-20260909](active/connection-ux-20260909/brief.md)：用户已批准Obsidian浏览器授权、Agent可恢复分步接入，当前在独立工作树实施；候选未发布/部署。
 
 ## 最近完成
 

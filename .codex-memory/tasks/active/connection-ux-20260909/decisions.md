@@ -1,0 +1,8 @@
+# 决策
+
+- 用户于2026-09-09同意完整方案并要求从根本上解决，直接实施。
+- 新Agent JSON flow使用 agent-connect purpose；保留旧 full-onboarding/ndjson/human/code兼容。
+- 授权重取/renew必须保留同 session 和先前 owner，避免丢包或缓存过期导致重复创建。
+- 基础连接不扫描、不上传、不要求本地目录；实际宿主读取才是客户端可用证明。
+- Obsidian保留人类设备身份，自动授权仍复用一次性安装码 exchange/activate，不共享Agent凭据。
+- 仅独立本地测试账号、Space、Vault和home；三发行链分别报告。原生产授权来自已结束任务，不自动复用做公开发布。
