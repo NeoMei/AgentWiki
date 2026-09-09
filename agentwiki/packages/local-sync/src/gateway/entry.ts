@@ -21,6 +21,7 @@ import { publicLocalScanPlan } from '../codegraph/contracts.js';
 export interface GatewayEntryDeps {
   home: string;
   connectionId: string;
+  reportRemoteDiagnostic?: (message: string) => void;
 }
 
 export interface GatewayEntry {
@@ -114,13 +115,16 @@ export async function createGatewayEntry(deps: GatewayEntryDeps): Promise<Gatewa
   const bridge = new RemoteMcpBridge({
     serverUrl: `${connection.serverUrl}/mcp`,
     readCredential: async () => credential.apiKey,
+    onDiagnostic: (diagnostic) => {
+      if (diagnostic.status !== 'connected') deps.reportRemoteDiagnostic?.(`[agentwiki] ${diagnostic.code}: ${diagnostic.recovery}`);
+    },
   });
 
   return { handlers, bridge };
 }
 
 export async function runGateway(deps: GatewayEntryDeps): Promise<void> {
-  const { handlers, bridge } = await createGatewayEntry(deps);
+  const { handlers, bridge } = await createGatewayEntry({ ...deps, reportRemoteDiagnostic: deps.reportRemoteDiagnostic ?? ((message) => { process.stderr.write(`${message}\n`); }) });
   const { server } = await createGatewayServer({ handlers, bridge, version: '0.10.0' });
   await server.connect(new StdioServerTransport());
 }

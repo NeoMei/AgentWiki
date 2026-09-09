@@ -1,7 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { RemoteMcpBridge } from './remote-mcp-bridge.js';
+import { RemoteMcpBridge } from './remote-mcp-bridge.js';
 import { createGatewayServer, type GatewayHandlers } from './server.js';
 
 const closeCallbacks: Array<() => Promise<void>> = [];
@@ -68,4 +68,21 @@ describe('collaboration gateway MCP integration', () => {
       waitSeconds: 0,
     });
   });
+});
+
+
+it('exposes safe remote failure alongside local tools through the actual MCP status call', async () => {
+  const bridge = new RemoteMcpBridge({ serverUrl: 'https://wiki.test/api/mcp', readCredential: async () => 'agk_private', fetchImpl: async () => new Response('sensitive upstream detail', { status: 503 }) });
+  const historical = handlers();
+  historical.status = async () => ({ state: 'completed' });
+  const { server } = await createGatewayServer({ handlers: historical, bridge });
+  const client = new Client({ name: 'status-integration-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  closeCallbacks.push(async () => { await client.close(); await server.close(); });
+  expect((await client.listTools()).tools.map((tool) => tool.name)).toContain('local_read_artifacts');
+  const result = await client.callTool({ name: 'onboard_status', arguments: {} });
+  const content = result.content as Array<{ text: string }>;
+  expect(JSON.parse(JSON.parse(content[0]!.text))).toMatchObject({ state: 'completed', onboardingStateMeaning: 'historical', gateway: { status: 'unavailable', code: 'REMOTE_UNAVAILABLE', localToolsAvailable: true } });
+  expect(JSON.stringify(result)).not.toContain('sensitive upstream detail');
 });

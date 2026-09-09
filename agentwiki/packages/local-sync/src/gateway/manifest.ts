@@ -46,7 +46,7 @@ export const STATIC_TOOLS: readonly ToolDeclaration[] = [
   {
     name: 'onboard_status',
     plane: 'control',
-    description: 'Read the non-secret completed onboarding session report.',
+    description: 'Check the current remote MCP connection with a bounded read-only probe and recovery guidance. Onboarding fields describe historical installation only; local tools remain available offline.',
     inputSchema: { sessionId: { type: 'string' } },
   },
   {

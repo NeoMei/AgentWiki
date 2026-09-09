@@ -169,3 +169,19 @@ describe('gateway entry', () => {
     expect(construction.syncEngines[1]!.pushTreeV2).toHaveBeenCalledWith(bundle);
   });
 });
+
+it('reports a short safe remote warning once per failure outcome without changing local configuration', async () => {
+  const home = await temporaryHome();
+  await saveConfig(home, { version: 1, connections: { primary: { id: 'primary', serverUrl: 'https://example.test/api', agentId: 'agent-1', credentialId: 'credential-1', pluginVersion: '0.9.1', client: 'codex', mcpName: 'agentwiki' } } });
+  await saveCredentials(home, { version: 1, credentials: { 'credential-1': { apiKey: 'agk_entry_private' } } });
+  const reportRemoteDiagnostic = vi.fn();
+  const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('unsafe upstream credential detail', { status: 401 }));
+  try {
+    const { bridge } = await createGatewayEntry({ home, connectionId: 'primary', reportRemoteDiagnostic });
+    await bridge.listTools();
+    await bridge.listTools();
+    expect(reportRemoteDiagnostic).toHaveBeenCalledOnce();
+    expect(reportRemoteDiagnostic.mock.calls[0]![0]).toMatch(/^\[agentwiki\] REMOTE_AUTH_REQUIRED: Reauthorize/);
+    expect(JSON.stringify(reportRemoteDiagnostic.mock.calls)).not.toMatch(/unsafe upstream|agk_entry_private|example.test|credential-1/);
+  } finally { fetchSpy.mockRestore(); }
+});

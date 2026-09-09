@@ -76,7 +76,24 @@ export async function createGatewayServer(context: GatewayContext): Promise<Gate
   server.registerTool(
     'onboard_status',
     { description: toolDescription('onboard_status'), inputSchema: { sessionId: z.string().optional() } },
-    async (input) => text(formatMcpOutput(await context.handlers.status(input as { sessionId?: string }))),
+    async (input) => {
+      await context.bridge?.listTools();
+      const historical = await context.handlers.status(input as { sessionId?: string });
+      const diagnostic = context.bridge?.diagnostic();
+      const registeredRemoteToolCount = toolNames.filter((name) => name.startsWith('wiki_')).length;
+      const clientReloadRequired = diagnostic?.status === 'connected' && diagnostic.cachedToolCount > registeredRemoteToolCount;
+      return text(formatMcpOutput({
+        ...(historical && typeof historical === 'object' ? historical : { onboarding: historical }),
+        onboardingStateMeaning: 'historical',
+        gateway: {
+          ...(diagnostic ?? { status: 'not_configured', code: 'REMOTE_NOT_CONFIGURED', checkedAt: null, cachedToolCount: 0, recovery: 'Configure an AgentWiki connection, then reload this client MCP gateway.' }),
+          localToolsAvailable: true,
+          registeredRemoteToolCount,
+          clientReloadRequired,
+          ...(clientReloadRequired ? { recovery: 'Remote MCP recovered. Reload this client MCP gateway to discover wiki tools, then verify with an actual wiki tool call.' } : {}),
+        },
+      }));
+    },
   );
 
   /* ---- local ---- */

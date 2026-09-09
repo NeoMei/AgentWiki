@@ -190,3 +190,29 @@ describe('gateway server tool registration', () => {
     expect(JSON.stringify(failure)).not.toContain(sentinel);
   });
 });
+
+it('onboard_status distinguishes historical completed state from a fresh remote failure and recovery', async () => {
+  let httpStatus = 401;
+  const bridge = new RemoteMcpBridge({ serverUrl: 'https://wiki.test/api/mcp', readCredential: async () => 'agk_private', fetchImpl: (async (_url, init) => {
+    if (httpStatus !== 200) return new Response('private-upstream agk_secret', { status: httpStatus });
+    if (init?.method === 'GET') return new Response('', { status: 405 });
+    const request = JSON.parse(String(init?.body));
+    if (request.id === undefined) return new Response(null, { status: 202 });
+    return Response.json({ jsonrpc: '2.0', id: request.id, result: request.method === 'initialize'
+      ? { protocolVersion: '2025-03-26', serverInfo: { name: 'fixture', version: '1' }, capabilities: { tools: {} } }
+      : { tools: [{ name: 'list_pages', inputSchema: { type: 'object' } }] } });
+  }) as typeof fetch });
+  const handlers = mockHandlers();
+  handlers.status = vi.fn(async () => ({ state: 'completed', connectionId: 'old-connection' }));
+  const { server, toolNames } = await createGatewayServer({ handlers, bridge });
+  expect(toolNames).toHaveLength(6);
+  const registered = (server as unknown as { _registeredTools: Record<string, { handler(input: unknown): Promise<{ content: Array<{ text: string }> }> }> })._registeredTools.onboard_status!;
+  const read = async () => JSON.parse(JSON.parse((await registered.handler({})).content[0]!.text));
+  const failed = await read();
+  expect(failed).toMatchObject({ state: 'completed', onboardingStateMeaning: 'historical', gateway: { status: 'authorization_required', localToolsAvailable: true, registeredRemoteToolCount: 0 } });
+  expect(JSON.stringify(failed)).not.toMatch(/private-upstream|agk_secret|agk_private/);
+  httpStatus = 200;
+  expect(await read()).toMatchObject({ gateway: { status: 'connected', clientReloadRequired: true, registeredRemoteToolCount: 0 } });
+  expect(handlers.scanSources).not.toHaveBeenCalled();
+  await server.close();
+});
