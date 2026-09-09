@@ -1,6 +1,6 @@
 # 接入体验候选验收 — 2026-09-09
 
-状态：候选实现、自动验证与独立代码审查已完成；Obsidian真实成功路径已通过，Agent真实读取仍待通过，OpenCode反馈引出的网关诊断缺口已修复并复审关闭。尚未正式发布或部署。本记录区分代码、打包、实际宿主与上线证据。
+状态：候选实现、自动验证与独立代码审查已完成；Obsidian真实成功路径通过，用户已回传OpenCode实际单页读取成功结果，Agent宿主读取门禁通过。OpenCode反馈引出的网关诊断缺口已修复并复审关闭。尚未正式发布或部署。本记录区分代码、打包、实际宿主与上线证据。
 
 ## 用户可见变化
 
@@ -85,3 +85,16 @@ Obsidian成功路径、映射、拉取、实际正文及插件重新加载恢复
 - 真实探针验证旧生产连接报告REMOTE_AUTH_REQUIRED。复测发现本地验收服务已停止，新诊断报告REMOTE_UNAVAILABLE；恢复专用服务后health五项ok、前端200、SDK stdio实际27工具/21远程、当前connected且读回正确标题与标记。分别保留gateway-diagnostic-service-stopped.json与gateway-diagnostic-read.json；不将SDK探针记为OpenCode宿主验收。
 - 最终候选包位于release-candidates/gateway-diagnostics-16db7cfd/neomei-agentwiki-local-sync-0.10.0.tgz，SHA256 f8f7bd1e8d91174695cc8507640e31acfefaffcd2988e7596ec625ddc7b4ae50；旧候选包保留。真实OpenCode宿主结果仍待回传，尚未发布或部署。
 - 用户继续后核对集成树aabe5852与最终代码16db7cfd，工作树干净、独立复审已关闭。再次通过最终构建的SDK stdio实际读取：27工具/21远程、REMOTE_CONNECTED、标题与标记正确；前端与API health均200。证据agent-consumer/gateway-diagnostic-final-read.json。此记录仍不替代OpenCode宿主读取。
+
+## OpenCode 宿主读取验收关闭
+
+用户在当前任务回传真实OpenCode执行记录，包含工具调用事件和实际结果：
+
+- 工具：agentwiki_wiki_get_page（MCP）。
+- 请求：spaceId cmttuwgxp001h65p8qeft2qtm；pageId 1b0a8e76-ae2d-4756-a2dc-944aafb35eb6；只读单页，不使用knowledge_pull。
+- 返回标题：连接验证说明。
+- 返回正文验证标记：CONNECTION-UX-20260909-READ-OK。
+
+两个返回值与测试fixture一致，Agent宿主实际读取门禁通过。证据来源明确为用户粘贴的客户端工具调用与结果；不是控制器直接操作Warp或另一次SDK探针。结构化记录保存在私有验收agent-consumer/opencode-user-reported-read.json。先前Codex审批失败、OpenCode旧生产连接401均保留为历史失败，不改记成功。
+
+至此，两条已选客户端成功路径的本地候选验收均完成。公开npm版本、master合入、生产部署、旧生产连接重新授权仍未执行，不能由候选验收推导正式环境已可用。
