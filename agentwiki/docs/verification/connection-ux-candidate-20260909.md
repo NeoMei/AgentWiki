@@ -11,9 +11,9 @@
 
 ## 候选范围
 
-主仓基线 `bbe5c1f5`，集成分支 `codex/connection-ux-20260909`。应用0.11.0、Local Sync0.10.0；服务端继续支持0.9.0/0.9.1，Sync Protocol0.6.0不变。插件独立仓基线7f628b5，候选0.5.0准备中。无数据库迁移、领域权限或同步协议改动。
+主仓基线 `bbe5c1f5`，集成分支 `codex/connection-ux-20260909`。应用0.11.0、Local Sync0.10.0；服务端继续支持0.9.0/0.9.1，Sync Protocol0.6.0不变。插件独立仓基线7f628b5，已固定0.5.0候选c37294ec，仍有生命周期复审问题待修复。无数据库迁移、领域权限或同步协议改动。
 
-当前主运行提交3bc92e26；网页IPv6 shell引用修复已集成并复审通过，插件生命周期修复仍待集成/审查。精确最终HEAD以本记录后续验收条目为准。
+当前主运行提交d36d7b4e；网页IPv6 shell引用修复已集成并复审通过，插件生命周期修复仍待集成/审查。精确最终HEAD以本记录后续验收条目为准。
 
 ## 自动验证
 
@@ -46,9 +46,9 @@ server首次完整测试在 `PG_DUMP_BIN` 必填预检停止，配置本机Postg
 
 - Task1：原M1授权代际轮询问题修复，增量C0/I0/M0。
 - Task2：配置冲突及归档部分失败两轮修复后C0/I0/M0。复审实际重演0500目录：ARCHIVE_FAILED、安装未执行、旧key/connection/content/config保留；解除故障后同凭据重试成功。
-- Task3：四项生命周期竞态修复中，未关闭。
+- Task3：6a707bc7修复、c37294ec候选0.5.0的全量check为1345通过/67files，format/typecheck/build/bundle通过，0lint errors/17基线warnings。累计独立复审关闭I1/I4，仍有I2存储await在stop后复活、I3激活时重开触发并发connect破坏旧key，原作者修复中。
 - Task4：最终整分支server/web审查C0/I0/M0，IPv6引用修复已独立增量复审关闭；原五项问题另由原审查者补增量。真实zsh probe2项、页面7项、服务端指南1项通过，最终server/client再build通过。浏览器实际复制中文Codex/英文Claude提示词，引用与客户端字段正确，切换语言清除旧复制成功状态。
-- 最终CLI/版本累计审查 `bbe5c1f5..6c1ccda3` C0/I0/M0；server/web累计审查亦C0/I0/M0。插件最终跨仓审查未完成。
+- 最终CLI/版本累计审查 `bbe5c1f5..6c1ccda3` C0/I0/M0；server/web累计审查亦C0/I0/M0。另由全新独立Codex只读进程审查主分支bbe5c1f5..735c58d8，C0/I1/M0：token过期/code有效/config conflict组合生成过期confirmation，确认和取消都不能进行；已在d36d7b4e修复，独立43项测试与最终增量审查C0/I0/M0；中央相关23项、build及全lint通过。插件最终跨仓审查未完成。
 
 ## 证据与下一步
 
@@ -56,4 +56,6 @@ server首次完整测试在 `PG_DUMP_BIN` 必填预检停止，配置本机Postg
 
 扩展DB首轮HTTP附件用例断言public中没有应用表，本轮server测试库已部署56迁移，与该特定fixture前提不符。新建connection_ux_markdown_test_20260909，预配置public.vector后仅重跑失败文件4/4通过，原共用库不动。新库初次缺vector的预检失败也保留。
 
-剩余：插件最终修复与0.5.0打包、相关独立复审、真实MCP读取及Obsidian映射/恢复。之后明确候选交付与三个发行链的发布边界。
+LocalSync候选tarball已保存于私有证据release-candidates/neomei-agentwiki-local-sync-0.10.0.tgz，SHA256 9483d4fbfcf38b7bc9f942832c927596b1dfe6f3ae9ed7af261a7c781aa30a4e，源运行提交d36d7b4e（之前tarball保留为pre-expiry-fix）。
+
+剩余：插件最终修复与0.5.0重新打包、相关独立复审、真实MCP读取及Obsidian映射/恢复。之后明确候选交付与三个发行链的发布边界。
