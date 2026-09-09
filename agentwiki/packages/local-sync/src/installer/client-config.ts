@@ -86,18 +86,8 @@ export async function installGatewayEntry(
 ): Promise<{ backupPath: string; rollback: () => Promise<void> }> {
   const configPath = clientConfigPath(client, home);
 
-  // Re-hash immediately before mutation.
-  const current = await readRawConfig(client, home);
-  const currentHash = current !== null ? hashConfig(current) : hashConfig('');
-  if (currentHash !== expectedHash) {
-    if (current !== null && hasExactGatewayEntry(client, current, connectionId)) {
-      const originalBackup = await findOriginalBackup(client, home);
-      if (originalBackup) {
-        return { backupPath: originalBackup, rollback: async () => undefined };
-      }
-    }
-    throw new Error('CONFIG_CONFLICT: client configuration changed since preflight');
-  }
+  const { current, originalBackup } = await inspectConfirmedConfig(client, connectionId, expectedHash, home);
+  if (originalBackup) return { backupPath: originalBackup, rollback: async () => undefined };
 
   const backup = await backupConfig(client, home);
   const next = buildConfigWithGateway(
@@ -107,12 +97,32 @@ export async function installGatewayEntry(
     serverBaseUrl,
     openCodeMajor ?? (client === 'opencode' ? installedOpenCodeMajor() : undefined),
   );
-  await writeAtomically(configPath, next, client === 'opencode' ? 0o600 : 0o600);
+  await writeAtomically(configPath, next, 0o600, current);
 
   return {
     backupPath: backup,
     rollback: rollbackFromBackup(configPath, backup),
   };
+}
+
+/** Recheck inside the installation lock before moving any active local state. */
+export async function assertConfirmedGatewayConfig(
+  client: AgentClient,
+  connectionId: string,
+  expectedHash: string,
+  home: string,
+): Promise<void> {
+  await inspectConfirmedConfig(client, connectionId, expectedHash, home);
+}
+
+async function inspectConfirmedConfig(client: AgentClient, connectionId: string, expectedHash: string, home: string) {
+  const current = await readRawConfig(client, home);
+  if (hashConfig(current ?? '') === expectedHash) return { current, originalBackup: null };
+  if (current !== null && hasExactGatewayEntry(client, current, connectionId)) {
+    const originalBackup = await findOriginalBackup(client, home);
+    if (originalBackup) return { current, originalBackup };
+  }
+  throw new Error('CONFIG_CONFLICT: client configuration changed since preflight');
 }
 
 /**
@@ -357,7 +367,7 @@ function removeOwnedOpenCodeGateway(current: string): string | null {
   return removed ? JSON.stringify(config, null, 2) + '\n' : null;
 }
 
-async function writeAtomically(path: string, contents: string, mode: 0o600): Promise<void> {
+async function writeAtomically(path: string, contents: string, mode: 0o600, expectedContents?: string | null): Promise<void> {
   const directory = dirname(path);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const temporary = `${path}.${randomUUID()}.tmp`;
@@ -370,6 +380,14 @@ async function writeAtomically(path: string, contents: string, mode: 0o600): Pro
       await file.close();
     }
     await chmod(temporary, mode);
+    if (expectedContents !== undefined) {
+      const current = await readFile(path, 'utf8').catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return null;
+        throw error;
+      });
+      if (current !== expectedContents)
+        throw new Error('CONFIG_CONFLICT: client configuration changed before commit');
+    }
     await rename(temporary, path);
   } catch (error) {
     await unlink(temporary).catch(() => undefined);

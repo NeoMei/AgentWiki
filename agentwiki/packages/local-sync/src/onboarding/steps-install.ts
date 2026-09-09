@@ -1,4 +1,5 @@
 import { AgentWikiClient } from '../agentwiki-client.js';
+import { assertConfirmedGatewayConfig } from '../installer/client-config.js';
 import { assertConfirmedBootstrap, installExchangedGateway, productionDependencies } from './install.js';
 import type { StepState } from './steps.js';
 
@@ -10,6 +11,7 @@ export async function installStepConnection(
 ): Promise<void> {
   const bootstrap = state.bootstrap!;
   assertConfirmedBootstrap(bootstrap, state.plan!);
+  await assertConfirmedGatewayConfig(state.clientType, state.sessionId, state.configHash!, home);
   const request: typeof fetch = (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(10_000) });
   const client = new AgentWikiClient(request);
   if (!state.exchange) {
@@ -38,17 +40,9 @@ export async function installStepConnection(
         await save();
       },
     },
-    {
-      ...deps,
-      // Do not repeatedly archive a partially installed state after a process crash.
-      archive: async () => {
-        if (state.archiveStarted) return null;
-        const archive = await deps.archive(home);
-        state.archiveStarted = true;
-        await save();
-        return archive;
-      },
-    },
+    // loadExisting identifies a replay of this exact connection. An old session
+    // archive flag cannot establish ownership of the current active state.
+    deps,
   );
   state.manifestHash = result.manifestHash;
 }

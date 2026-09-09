@@ -154,7 +154,7 @@ export interface ExchangedGatewayInstallInput {
   expectedScopes: string[];
   expectedPluginVersion: '0.10.0';
   exchange: ExchangeResult;
-  /** Step sessions keep durable credentials/configuration so verification can resume. Legacy callers retain rollback semantics. */
+  /** Retain only after the client entry switched successfully; pre-switch failures restore old active state. */
   retainOnFailure?: boolean;
   onConfigured?: (backupPath: string) => Promise<void>;
 }
@@ -204,7 +204,6 @@ export async function installExchangedGateway(
     }
     let rollbackConfig: (() => Promise<void>) | undefined;
     try {
-      if (input.retainOnFailure) await deps.installSkill(input.home, input.client);
       const installed = await deps.installClient(
         input.client,
         input.connectionId,
@@ -214,6 +213,7 @@ export async function installExchangedGateway(
       );
       rollbackConfig = installed.rollback;
       await input.onConfigured?.(installed.backupPath);
+      if (input.retainOnFailure) await deps.installSkill(input.home, input.client);
       const verified = await deps.verify(input.connectionId, input.home);
       if (!verified.ok) {
         throw new OnboardingError({
@@ -234,7 +234,7 @@ export async function installExchangedGateway(
         manifestHash: verified.manifestHash,
       };
     } catch (error) {
-      if (input.retainOnFailure) throw error;
+      if (input.retainOnFailure && rollbackConfig) throw error;
       let replayRollbackFailed = false;
       try {
         await rollbackConfig?.();
@@ -257,10 +257,10 @@ export async function installExchangedGateway(
   let activatedState = false;
   try {
     archive = await deps.archive(input.home);
-    await deps.initialize(input.home);
     activatedState = true;
+    await deps.initialize(input.home);
     await deps.saveConnection(input.home, connection, input.exchange.apiKey);
-    await deps.installSkill(input.home, input.client);
+    if (!input.retainOnFailure) await deps.installSkill(input.home, input.client);
     const installed = await deps.installClient(
       input.client,
       input.connectionId,
@@ -270,6 +270,7 @@ export async function installExchangedGateway(
     );
     rollbackConfig = installed.rollback;
     await input.onConfigured?.(installed.backupPath);
+    if (input.retainOnFailure) await deps.installSkill(input.home, input.client);
     const verified = await deps.verify(input.connectionId, input.home);
     if (!verified.ok) {
       throw new OnboardingError({
@@ -290,7 +291,7 @@ export async function installExchangedGateway(
       manifestHash: verified.manifestHash,
     };
   } catch (error) {
-    if (input.retainOnFailure) throw error;
+    if (input.retainOnFailure && rollbackConfig) throw error;
     let rollbackFailed = false;
     let restoreFailed = false;
     let revokeFailed = false;
@@ -299,10 +300,14 @@ export async function installExchangedGateway(
     } catch {
       rollbackFailed = true;
     }
-    try {
-      await deps.revokeCredential(connection, input.exchange.apiKey);
-    } catch {
-      revokeFailed = true;
+    // A step session privately owns the exchange receipt and will retry these
+    // same remote resources after fresh confirmation. Legacy rollback revokes it.
+    if (!input.retainOnFailure) {
+      try {
+        await deps.revokeCredential(connection, input.exchange.apiKey);
+      } catch {
+        revokeFailed = true;
+      }
     }
     if (activatedState) {
       try {
