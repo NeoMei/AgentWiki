@@ -9,7 +9,8 @@ export const ONBOARD_CLIENTS = [
 
 export function buildOnboardPrompt(zh: boolean, client: OnboardClient, serverUrl: string): string {
   const runner = `npx --yes ${LOCAL_SYNC_PACKAGE_NAME}@${LOCAL_SYNC_VERSION}`;
-  const start = `${runner} onboard start --server ${serverUrl} --client ${client} --protocol json`;
+  const serverArgument = `'${serverUrl.replace(/'/g, "'\\''")}'`;
+  const start = `${runner} onboard start --server ${serverArgument} --client ${client} --protocol json`;
   const status = `${runner} onboard status --session <sessionId> --protocol json`;
   const advance = `${runner} onboard continue --session <sessionId> --protocol json`;
   const reply = `${runner} onboard continue --session <sessionId> --reply-file <absolute-json-file> --protocol json`;

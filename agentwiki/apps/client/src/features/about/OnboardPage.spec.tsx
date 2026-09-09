@@ -18,7 +18,7 @@ describe('Agent connection steps guide',()=>{
       fireEvent.click(screen.getByRole('button',{name:zh?'复制提示词':'Copy prompt'}));
       await waitFor(()=>expect(navigator.clipboard.writeText).toHaveBeenCalled());
       const prompt=vi.mocked(navigator.clipboard.writeText).mock.calls.slice(-1)[0][0];
-      expect(prompt).toContain(`@neomei/agentwiki-local-sync@0.10.0 onboard start --server ${window.location.origin}/api --client ${client} --protocol json`);
+      expect(prompt).toContain(`@neomei/agentwiki-local-sync@0.10.0 onboard start --server '${window.location.origin}/api' --client ${client} --protocol json`);
       expect(prompt).toContain('onboard status --session');expect(prompt).toContain('onboard continue --session');
       expect(prompt).toContain('--reply-file');expect(prompt).toContain('0600');
       expect(prompt).toContain('authorizationUrl');expect(prompt).toContain('retryAfterMs');
