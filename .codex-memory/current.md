@@ -33,6 +33,8 @@
 
 # 风险 / 下一步
 
+- 2026-09-10用户另行授权后，NeoMei-Docs已更新并重新启用官方插件0.5.0；三件套与Release完全一致，data.json逐字节保持，原连接和空间映射在新版原生设置页仍激活，未触发同步。备份与截图：私有证据daily-vault-update-20260910-020052/。
+
 - 如用户选择补入现有 7 篇指南，须再次核对正文和更新时间，跳过新编辑并保留可回退版本；目前未修改。
 - 本轮未重新验收 Windows 原生、真实手机硬件；生产页面组创建受既有 allowlist 限制，实际实例化在隔离数据库验证。
 - 配对备份 /var/backups/agentwiki/template-guidance-v0112.QekvE5；前版 /root/agentwiki-previous-20260910044041。恢复须匹配数据库/附件/应用/env/systemd。
