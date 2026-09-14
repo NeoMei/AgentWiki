@@ -22,8 +22,13 @@ describe('unauthorizedRedirect', () => {
   it.each([
     ['/onboard/device', '?user_code=invalid'],
     ['/dashboard', ''],
+    ['/change-password', ''],
     ['//evil.example', ''],
   ])('falls back to the landing page for an unsafe or ordinary path', (pathname, search) => {
     expect(unauthorizedRedirect('/spaces', pathname, search)).toBe('/');
   });
+});
+
+it('invalidates a rejected required-password-change request rather than preserving an invalid session', () => {
+  expect(unauthorizedRedirect('/auth/change-required-password', '/change-password', '')).toBe('/');
 });

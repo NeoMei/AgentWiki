@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useParams, Link, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import api from '../../api/client';
+import { apiErrorMessage } from '../../api/error-message';
 import { getContentTreeRevision } from '../../api/content-tree';
 import { ArrowLeft, ChevronRight, Clock, Folder, User, PenLine, FileText } from 'lucide-react';
 import 'highlight.js/styles/github.css';
@@ -339,7 +340,7 @@ export const PagePreview: React.FC = () => {
         if (!routeIsActive(requestedId, generation) || pageLoadSequenceRef.current !== loadSequence) return;
         const status = loadError.response?.status;
         if (status === 401 || status === 403) reportPageIdentity(requestedId, null);
-        setError(loadError.response?.data?.message || tRef.current('editor.loadFailed'));
+        setError(apiErrorMessage(loadError, tRef.current, 'editor.loadFailed'));
       })
       .finally(() => {
         if (routeIsActive(requestedId, generation) && pageLoadSequenceRef.current === loadSequence) setLoading(false);
@@ -520,7 +521,7 @@ export const PagePreview: React.FC = () => {
         routeIsActive(requestedPageId, requestedGeneration)
         && !controller.signal.aborted
         && deleteOperationRef.current === operation
-      ) setError(err.response?.data?.message || t('page.deleteFailed'));
+      ) setError(apiErrorMessage(err, t, 'page.deleteFailed'));
     } finally {
       if (deleteControllerRef.current === controller) deleteControllerRef.current = null;
       if (deleteOperationRef.current === operation) deleteInFlightRef.current = false;

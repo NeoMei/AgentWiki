@@ -32,6 +32,13 @@ describe('SourcesPage file upload', () => {
     vi.mocked(api.post).mockResolvedValue({ data: {} });
   });
 
+  it('links a failed latest run in source details to the current space run diagnostics', async () => {
+    const source = { id: 'git-source', name: 'Repository', type: 'git', status: 'active', _count: { versions: 0, runs: 1 } };
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/sources/git-source' ? { ...source, versions: [], runs: [{ id: 'failed', status: 'failed', createdAt: '2026-09-14T00:00:00.000Z' }] } : [source] }));
+    renderPage(); fireEvent.click(await screen.findByRole('button', { name: /Repository/ }));
+    expect(await screen.findByRole('link', { name: '查看失败运行详情' })).toHaveAttribute('href', '/spaces/space-1/runs');
+  });
+
   it('shows an explicit selected file and upload button', async () => {
     renderPage();
     fireEvent.click(screen.getByRole('button', { name: '添加来源' }));

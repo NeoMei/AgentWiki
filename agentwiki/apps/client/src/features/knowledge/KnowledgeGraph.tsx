@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { ArrowLeft, Plus, X, Link2, Trash2 } from 'lucide-react';
 import { ModalDialog } from '../../components/ModalDialog';
+import { useGraphViewport } from './useGraphViewport';
 import { useLanguage } from '../../context/LanguageContext';
 
 interface KnowledgeNode {
@@ -77,6 +78,7 @@ export const KnowledgeGraph: React.FC = () => {
   const [linkStrength, setLinkStrength] = useState(0.8);
   const [creating, setCreating] = useState(false);
   const [hiddenOrigins, setHiddenOrigins] = useState<Set<string>>(new Set());
+  const viewport = useGraphViewport(canvasRef, nodes, setNodes, !loading && !error && nodes.length > 0);
   const visibleEdges = edges.filter((edge) => !hiddenOrigins.has(edge.origin));
 
   const fetchGraph = async () => {
@@ -107,13 +109,14 @@ export const KnowledgeGraph: React.FC = () => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    canvas.width = canvas.offsetWidth * 2;
-    canvas.height = canvas.offsetHeight * 2;
-    ctx.scale(2, 2);
-
-    const width = canvas.offsetWidth;
-    const height = canvas.offsetHeight;
+    const { width, height } = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
+    const { scale, x, y } = viewport.view;
+    ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * x, dpr * y);
 
     // Draw edges
     visibleEdges.forEach(edge => {
@@ -155,20 +158,12 @@ export const KnowledgeGraph: React.FC = () => {
       ctx.textAlign = 'center';
       ctx.fillText(node.title.length > 20 ? node.title.substring(0, 20) + '...' : node.title, node.x, node.y + node.radius + 15);
     });
-  }, [nodes, visibleEdges, selectedNode, linkingFrom]);
+  }, [nodes, visibleEdges, selectedNode, linkingFrom, viewport.view]);
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    const clicked = nodes.find(node => {
-      const dx = x - node.x;
-      const dy = y - node.y;
-      return Math.sqrt(dx * dx + dy * dy) < node.radius + 5;
-    });
+    if (!canvasRef.current || viewport.suppressClick.current) return;
+    if (e.detail <= 1) viewport.suppressDoubleClick.current = false;
+    const clicked = viewport.hit(e);
 
     if (clicked) {
       // If in linking mode and clicked a different node, open link modal
@@ -184,17 +179,8 @@ export const KnowledgeGraph: React.FC = () => {
   };
 
   const handleCanvasDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    const clicked = nodes.find(node => {
-      const dx = x - node.x;
-      const dy = y - node.y;
-      return Math.sqrt(dx * dx + dy * dy) < node.radius + 5;
-    });
+    if (!canvasRef.current || viewport.suppressClick.current || viewport.suppressDoubleClick.current) return;
+    const clicked = viewport.hit(e);
 
     if (clicked) {
       navigate(`/pages/${clicked.id}`);
@@ -313,11 +299,19 @@ export const KnowledgeGraph: React.FC = () => {
             <span className="hidden sm:inline">{zh ? '单击选择 · 双击打开 · 使用“建立关系”按钮连接页面' : 'Click to select · Double-click to open · Use “Link” to connect pages'}</span>
             <span className="sm:hidden">{zh ? '轻触选择 · 双击打开' : 'Tap to select · Double-tap to open'}</span>
           </div>
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
+            <button type="button" onClick={() => viewport.zoom(1 / 1.25)} aria-label={zh ? '缩小图谱' : 'Zoom out'} className="h-8 rounded-lg border px-3">−</button>
+            <output aria-label={zh ? '图谱缩放比例' : 'Graph zoom'}>{Math.round(viewport.view.scale * 100)}%</output>
+            <button type="button" onClick={() => viewport.zoom(1.25)} aria-label={zh ? '放大图谱' : 'Zoom in'} className="h-8 rounded-lg border px-3">+</button>
+            <button type="button" onClick={viewport.fit} className="h-8 rounded-lg border px-3">{zh ? '适应图谱' : 'Fit graph'}</button>
+            <button type="button" onClick={viewport.reset} className="h-8 rounded-lg border px-3">{zh ? '重置视图' : 'Reset view'}</button>
+          </div>
+          <p className="mb-2 text-sm text-gray-500">{zh ? '滚轮缩放 · 拖动空白处平移 · 拖动节点调整位置' : 'Scroll to zoom · Drag background to pan · Drag nodes to reposition'}</p>
           <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
             <canvas
               ref={canvasRef}
               aria-hidden="true"
-              className="w-full h-[500px] cursor-pointer"
+              className="block w-full h-[500px] cursor-grab touch-none select-none"
               onClick={handleCanvasClick}
               onDoubleClick={handleCanvasDoubleClick}
             />

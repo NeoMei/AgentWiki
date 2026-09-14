@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { messages } from '../../i18n/messages';
 import { SpaceMembers } from './SpaceMembers';
 
 vi.mock('../../api/client', () => ({
@@ -67,7 +68,7 @@ describe('SpaceMembers Agent addition', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useAuth).mockReturnValue({ user: { id: 'user-1' } } as ReturnType<typeof useAuth>);
-    vi.mocked(useLanguage).mockReturnValue({ language: 'zh-CN' } as ReturnType<typeof useLanguage>);
+    vi.mocked(useLanguage).mockReturnValue({ language: 'zh-CN', t: (key: string) => messages['zh-CN'][key] || key } as ReturnType<typeof useLanguage>);
   });
 
   afterEach(cleanup);
@@ -117,7 +118,7 @@ describe('SpaceMembers Agent addition', () => {
 
     const agentRow = await screen.findByTestId('member-agent-agent-existing');
     expect(screen.queryByRole('combobox', { name: 'Existing 的 Agent 角色' })).not.toBeInTheDocument();
-    expect(agentRow).toHaveTextContent('Publisher');
+    expect(agentRow).toHaveTextContent('发布者');
     expect(agentRow.querySelector('button[title="移除授权"]')).not.toBeInTheDocument();
     expect(api.put).not.toHaveBeenCalled();
     expect(api.delete).not.toHaveBeenCalled();

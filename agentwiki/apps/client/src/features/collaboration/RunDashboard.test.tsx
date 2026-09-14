@@ -22,7 +22,7 @@ function deferred<T>() {
 vi.mock('socket.io-client', () => ({ io: vi.fn(() => socket) }));
 vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
 vi.mock('./api', () => ({ collaborationApi: {
-  getRun: vi.fn(), listMembers: vi.fn(), pauseRun: vi.fn(), resumeRun: vi.fn(), failRun: vi.fn(),
+  getTemplate: vi.fn(), getRun: vi.fn(), listMembers: vi.fn(), pauseRun: vi.fn(), resumeRun: vi.fn(), failRun: vi.fn(),
   cancelRun: vi.fn(), retryTask: vi.fn(), reassignTask: vi.fn(), skipTask: vi.fn(), decideReview: vi.fn(),
   getRunHistory: vi.fn(), getArtifact: vi.fn(),
   getPageReviewComparison: vi.fn(), resolvePageConflict: vi.fn(),
@@ -85,6 +85,7 @@ function NavigationDashboard() {
 
 describe('RunDashboard', () => {
   beforeEach(() => {
+    vi.mocked(collaborationApi.getTemplate).mockRejectedValue(new Error('Template unavailable'));
     vi.clearAllMocks();
     socketHandlers.clear();
     managerHandlers.clear();
@@ -109,6 +110,15 @@ describe('RunDashboard', () => {
       }],
       nextCursor: null,
     });
+  });
+
+  it('uses confirmed system template provenance to localize the run task without changing stored content', async () => {
+    vi.mocked(collaborationApi.getTemplate).mockResolvedValue({ id: 'template-1', spaceId: null, slug: 'novel-writing', system: true, version: 1, name: 'Novel', description: '', definition: {} } as any);
+    const objective = 'Define setting rules, locations, factions, chronology, constraints, and unresolved world questions.';
+    renderDashboard({ ...runningRun, tasks: [{ ...runningRun.tasks[0], nodeId: 'world-bible', name: '世界观设定 / World bible', objectivePreview: objective }] });
+    expect(await screen.findByRole('heading', { name: 'World bible' })).toBeVisible();
+    expect(screen.getByText(objective)).toBeVisible();
+    expect(collaborationApi.getTemplate).toHaveBeenCalledWith('space-1', 'template-1');
   });
 
   it('shows non-color status, ordered Todos, lease time, reviews, artifacts, and activity', async () => {

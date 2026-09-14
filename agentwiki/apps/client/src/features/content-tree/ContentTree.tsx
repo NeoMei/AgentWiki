@@ -38,6 +38,7 @@ export interface ContentTreeProps {
 }
 
 interface NodeRowLabels {
+  untitledPage: string;
   actions: string;
   edit: string;
   delete: string;
@@ -107,6 +108,7 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
   }
 
   const labels: NodeRowLabels = {
+    untitledPage: t('page.untitled'),
     actions: t('common.actions'),
     edit: t('page.edit'),
     delete: t('page.delete'),
@@ -262,19 +264,19 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
             type="button"
             onClick={() => props.onOpenPage(node as ContentTreePageNode)}
             onKeyDown={(event) => handleTreeKeyDown(event, node, props)}
-            className="min-w-0 flex-1 truncate rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            className="min-h-8 min-w-0 flex-1 truncate rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             data-testid={'content-node-' + node.id}
             data-tree-focus
-            title={node.title}
+            title={node.title.trim() || labels.untitledPage}
           >
-            {node.title}
+            {node.title.trim() || labels.untitledPage}
           </button>
         ) : (
           <button
             type="button"
             onClick={() => props.onOpenFolder(node.id)}
             onKeyDown={(event) => handleTreeKeyDown(event, node, props)}
-            className="min-w-0 flex-1 truncate rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            className="min-h-8 min-w-0 flex-1 truncate rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             data-testid={'content-node-' + node.id}
             data-tree-focus
             title={node.name}

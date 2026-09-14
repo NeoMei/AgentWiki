@@ -43,13 +43,9 @@ const AGENT_ROLE_STYLES: Record<AgentAccessRole, string> = {
   publisher: 'bg-emerald-100 text-emerald-700',
 };
 
-const agentRoleName = (role: AgentAccessRole) => (
-  role === 'reader' ? 'Reader' : role === 'editor' ? 'Editor' : 'Publisher'
-);
-
 export const SpaceMembers: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const zh = language === 'zh-CN';
   const { user } = useAuth();
   const [members, setMembers] = useState<Member[]>([]);
@@ -220,11 +216,11 @@ export const SpaceMembers: React.FC = () => {
                       disabled={updatingId === member.agentId}
                       className="rounded-md border px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      {AGENT_ACCESS_ROLES.map((role) => <option key={role} value={role}>{agentRoleName(role)}</option>)}
+                      {AGENT_ACCESS_ROLES.map((role) => <option key={role} value={role}>{t(`agent.role.${role}.name`)}</option>)}
                     </select>
                   ) : (
                     <span className={`rounded-full px-2 py-1 text-xs font-medium ${AGENT_ROLE_STYLES[member.role]}`}>
-                      {agentRoleName(member.role)}
+                      {t(`agent.role.${member.role}.name`)}
                     </span>
                   )}
                   {member.canManageRole ? (

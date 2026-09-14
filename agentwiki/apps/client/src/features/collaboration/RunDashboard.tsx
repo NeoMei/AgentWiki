@@ -12,7 +12,7 @@ import { ArtifactPanel } from './components/ArtifactPanel';
 import { ReviewPanel, type ReviewDetail } from './components/ReviewPanel';
 import { RunSummary } from './components/RunSummary';
 import { TaskPanel } from './components/TaskPanel';
-import type { AgentInstruction, CollaborationArtifact, CollaborationHistoryKind, CollaborationPageReviewComparison, CollaborationReview, CollaborationRun, CollaborationTask, HumanSpaceRole, SpaceMemberSummary } from './types';
+import type { AgentInstruction, CollaborationArtifact, CollaborationHistoryKind, CollaborationPageReviewComparison, CollaborationReview, CollaborationRun, CollaborationTask, HumanSpaceRole, SpaceMemberSummary, TemplateSummary } from './types';
 import { useCollaborationRun } from './useCollaborationRun';
 import { buildAgentJoinInstructions } from './agentJoinInstructions';
 
@@ -105,6 +105,19 @@ export const RunDashboard: React.FC = () => {
   }, [loadMembers]);
 
   const run = state.kind === 'ready' ? state.value : state.kind === 'error' ? state.previous : undefined;
+  const [templatePresentation, setTemplatePresentation] = useState<{ spaceId: string; template: TemplateSummary } | null>(null);
+  useEffect(() => {
+    let active = true;
+    setTemplatePresentation(null);
+    if (!run?.templateId) return;
+    void collaborationApi.getTemplate(id, run.templateId).then((template) => {
+      if (active) setTemplatePresentation({ spaceId: id, template });
+    }).catch(() => { /* Unavailable provenance: preserve the stored display text. */ });
+    return () => { active = false; };
+  }, [id, run?.templateId]);
+  const systemTemplate = templatePresentation?.spaceId === id && templatePresentation.template.id === run?.templateId
+    ? templatePresentation.template : null;
+
   const humanRole = (user?.platformRole === 'super_admin'
     ? 'owner'
     : members.find((member) => member.type === 'human' && member.userId === user?.id)?.role) as HumanSpaceRole | undefined;
@@ -327,7 +340,7 @@ export const RunDashboard: React.FC = () => {
 
       <div className="mt-6 grid min-w-0 gap-4 lg:grid-cols-[minmax(15rem,0.8fr)_minmax(0,1.8fr)_minmax(17rem,1fr)]">
         <RunSummary run={run} role={humanRole} userId={user?.id} t={t} onAction={(kind) => openAction({ type: 'run', kind })} />
-        <TaskPanel run={run} role={humanRole} userId={user?.id} t={t} agentNames={agentNames} onHistory={(kind) => void openHistory(kind)} onAction={(kind, task) => openAction({ type: 'task', kind, task })} />
+        <TaskPanel run={run} systemTemplate={systemTemplate} role={humanRole} userId={user?.id} t={t} agentNames={agentNames} onHistory={(kind) => void openHistory(kind)} onAction={(kind, task) => openAction({ type: 'task', kind, task })} />
         <ReviewPanel run={run} spaceId={id} t={t} artifacts={reviewArtifacts} artifactErrors={reviewArtifactErrors} detail={reviewDetail} resolvingConflict={resolvingConflict} onHistory={() => void openHistory('reviews')} onLoadDetail={(review) => void loadReviewDetail(review)} onRetryArtifact={(review) => void loadReviewArtifact(review)} onDecision={(kind, review) => openAction({ type: 'review', kind, review })} onResolveConflict={(kind, review, comparison) => void resolvePageConflict(kind, review, comparison)} />
         <ArtifactPanel run={run} t={t} onHistory={() => void openHistory('artifacts')} />
         <AgentActivityPanel run={run} t={t} onHistory={() => void openHistory('events')} />

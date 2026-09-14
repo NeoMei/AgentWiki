@@ -65,7 +65,11 @@ export const LocalSyncGuideSection: React.FC<LocalSyncGuideSectionProps> = ({ zh
             </p>
           </div>
         </div>
-        <GuideScreenshot src="/screenshots/step4-generated-credential.png" alt={zh ? 'AgentWiki 生成的 Local Sync 接入指令' : 'Generated AgentWiki Local Sync instructions'} fit="contain" heightClassName="h-48 sm:h-64" />
+        <ol className="list-decimal space-y-2 pl-5 text-sm text-gray-700">
+          <li>{zh ? '打开智能体详情的“访问权限”，选择目标空间和 Agent 角色。' : 'Open Access on the Agent detail page, then choose the target space and Agent role.'}</li>
+          <li>{zh ? '点击“生成统一网关接入指令”，再点击“复制完整指令”；过期后重新生成。' : 'Click “Generate unified gateway instructions”, then “Copy complete instructions”; regenerate if expired.'}</li>
+          <li>{zh ? '检查指令中的空间与目标一致，再交给本地 Agent。现有凭证不会随新增空间授权自动扩展；每个连接凭证仅绑定所选空间。' : 'Check that the instructions name the intended space before passing them to your local Agent. New space grants do not expand existing credentials; each connection credential is bound to its selected space.'}</li>
+        </ol>
       </li>
 
       <li className="rounded-xl border border-gray-200 bg-white p-5 sm:p-8">

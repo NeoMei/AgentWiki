@@ -94,6 +94,8 @@ export const LocalSyncInstallCard: React.FC<{
         <PlugZap size={18} /> {title ?? t('agent.localSync.title')}
       </h2>
       <p className="mt-2 text-sm text-gray-500">{t('agent.localSync.description')}</p>
+      <p className="mt-2 text-sm text-gray-600">{t('agent.credentialSpaceBoundary')}</p>
+      <p className="mt-2 text-sm text-gray-600">{t('agent.localSync.singleSpaceGateway')}</p>
 
       <div className="mt-3 flex items-center gap-3 rounded-lg bg-gray-50 px-3 py-2">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600">

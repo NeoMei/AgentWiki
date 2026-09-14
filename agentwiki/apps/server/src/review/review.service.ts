@@ -1,3 +1,4 @@
+import { assertPageTitle } from '../core/page/page-title';
 import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { BusinessException } from '../core/filters/business-error';
 import type { Principal } from '../core/authorization/authorization.service';
@@ -30,7 +31,7 @@ import {
   type LockedAgentAuthorization,
 } from '../core/authorization/live-agent-authorization';
 import { lockContentStore } from '../core/sync/content-store-lock';
-import { publishPageUpdateLocked } from './page-update-publication';
+import { assertPageCandidateBaseline, publishPageUpdateLocked } from './page-update-publication';
 import { supersedePendingPagePublicationsLocked } from '../collaboration-workflows/page-publication-invalidation';
 
 interface AgentAutoPublishContext {
@@ -83,6 +84,11 @@ export class ReviewService {
     title: string,
     item: { type: string; payload: Record<string, unknown> },
   ) {
+    if (item.type === 'create_page') assertPageTitle(item.payload.title);
+    if (item.type === 'update_page') {
+      const changes = item.payload.changes as Record<string, unknown> | undefined;
+      if (changes?.title !== undefined) assertPageTitle(changes.title);
+    }
     const autoPublishContext = principal.agentId && principal.credentialId
       ? { ownerId: principal.userId, agentId: principal.agentId, credentialId: principal.credentialId }
       : null;
@@ -185,6 +191,57 @@ export class ReviewService {
   }
 
   async get(id: string) {
+    const changeSet = await this.loadChangeSet(id);
+    const groups = new Map<string, Array<{ itemId: string; excludePageId?: string }>>();
+    for (const item of changeSet.items) {
+      const payload = item.payload as any;
+      const body = item.type === 'create_page' ? payload?.content
+        : item.type === 'update_page' ? payload?.changes?.content : undefined;
+      if (typeof body !== 'string' || body.length === 0) continue;
+      const group = groups.get(body) ?? [];
+      group.push({ itemId: item.id,
+        excludePageId: item.type === 'update_page' ? payload.pageId : undefined });
+      groups.set(body, group);
+    }
+    const duplicateContentWarnings: Array<{ itemId: string; pages: Array<{ id: string; title: string }> }> = [];
+    if (groups.size) {
+      // Join the whole candidate set once, rather than one Page scan/round trip
+      // per body. Only bounded metadata is returned; raw Page bodies stay in SQL.
+      const pages = await this.prisma.$queryRaw<Array<{ groupIndex: number; id: string; title: string }>>(Prisma.sql`
+        WITH candidates AS (
+          SELECT value AS content, (ordinality - 1)::integer AS "groupIndex"
+          FROM jsonb_array_elements_text(${JSON.stringify([...groups.keys()])}::jsonb) WITH ORDINALITY
+        ), matches AS (
+          SELECT candidates."groupIndex", page."id", page."title",
+            ROW_NUMBER() OVER (PARTITION BY candidates."groupIndex" ORDER BY page."id") AS rank
+          FROM "Page" AS page
+          JOIN candidates ON candidates.content = page."content"
+          WHERE page."spaceId" = ${changeSet.spaceId} AND page."deletedAt" IS NULL
+        )
+        SELECT "groupIndex", "id", "title" FROM matches WHERE rank <= 6
+        ORDER BY "groupIndex", rank
+      `);
+      const examplesByGroup = new Map<number, Array<{ id: string; title: string }>>();
+      for (const { groupIndex, id, title } of pages) {
+        const examples = examplesByGroup.get(groupIndex) ?? [];
+        examples.push({ id, title });
+        examplesByGroup.set(groupIndex, examples);
+      }
+      [...groups.values()].forEach((items, groupIndex) => {
+        // Six matches suffice for five examples after excluding one update target.
+        for (const item of items) {
+          const examples = (examplesByGroup.get(groupIndex) ?? [])
+            .filter(page => page.id !== item.excludePageId).slice(0, 5);
+          if (examples.length) duplicateContentWarnings.push({ itemId: item.itemId, pages: examples });
+        }
+      });
+    }
+    return { ...changeSet, duplicateContentWarnings };
+  }
+
+  // Mutation paths deliberately load no advisory: duplicate content is never
+  // a publication condition or an extra post-commit query that could fail it.
+  private async loadChangeSet(id: string) {
     const changeSet = await this.prisma.changeSet.findUnique({
       where: { id },
       include: {
@@ -239,7 +296,7 @@ export class ReviewService {
       data: { status: 'pending_review' },
     });
     if (!changed.count) throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is not in draft state');
-    return this.get(id);
+    return this.loadChangeSet(id);
   }
 
   async approve(id: string, reviewerId: string, comment?: string) {
@@ -258,7 +315,7 @@ export class ReviewService {
       if (!changed.count) throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is not pending review');
       await tx.approval.create({ data: { changeSetId: id, reviewerId, decision: 'approved', comment } });
     });
-    return this.get(id);
+    return this.loadChangeSet(id);
   }
 
   async reject(id: string, reviewerId: string, comment?: string) {
@@ -271,7 +328,7 @@ export class ReviewService {
       if (!changed.count) throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is not pending review');
       await tx.approval.create({ data: { changeSetId: id, reviewerId, decision: 'rejected', comment } });
     });
-    return this.get(id);
+    return this.loadChangeSet(id);
   }
 
   /**
@@ -281,38 +338,41 @@ export class ReviewService {
    * selective review.
    */
   async reviewPublish(id: string, reviewerId: string, comment?: string) {
-    await this.prisma.$transaction(async (tx) => {
-      await this.assertOrdinaryReviewEntry(tx, id);
-      const claimed = await tx.changeSet.updateMany({
-        where: { id, status: 'pending_review' },
-        data: { status: 'approved', reviewedAt: new Date() },
-      });
-      if (!claimed.count) throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is not pending review');
-      await tx.changeItem.updateMany({
-        where: { changeSetId: id, status: 'pending' },
-        data: { status: 'accepted' },
-      });
-      const accepted = await tx.changeItem.count({ where: { changeSetId: id, status: 'accepted' } });
-      if (accepted === 0) throw new BadRequestException('At least one change item must be accepted before publishing');
-      await tx.approval.create({ data: { changeSetId: id, reviewerId, decision: 'approved', comment } });
-    });
-    return this.publish(id);
+    return this.publishWithReview(id, undefined, { reviewerId, comment });
   }
 
   async publish(id: string, autoPublishContext?: AgentAutoPublishContext | null) {
+    return this.publishWithReview(id, autoPublishContext);
+  }
+
+  private async publishWithReview(
+    id: string,
+    autoPublishContext?: AgentAutoPublishContext | null,
+    review?: { reviewerId: string; comment?: string },
+  ) {
     await this.assertOrdinaryReviewEntry(this.prisma, id);
-    const changeSet = await this.get(id);
-    if (['draft', 'pending_review'].includes(changeSet.status)) {
-      throw new BusinessException('APPROVAL_REQUIRED', 'Change set must be approved before publishing');
-    }
-    if (changeSet.status !== 'approved') {
-      throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is already being published or is no longer approved');
+    const changeSet = await this.loadChangeSet(id);
+    if (review) {
+      if (changeSet.status !== 'pending_review') {
+        throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is not pending review');
+      }
+    } else {
+      if (['draft', 'pending_review'].includes(changeSet.status)) {
+        throw new BusinessException('APPROVAL_REQUIRED', 'Change set must be approved before publishing');
+      }
+      if (changeSet.status !== 'approved') {
+        throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is already being published or is no longer approved');
+      }
     }
     const authorId = changeSet.createdByUserId || await this.resolveAgentOwner(changeSet.createdByAgentId);
     const liveAutoPublishContext = autoPublishContext
       ? { ...autoPublishContext, ownerId: autoPublishContext.ownerId ?? authorId }
       : null;
-    const acceptedItems = changeSet.items.filter((candidate) => candidate.status === 'accepted');
+    const acceptedItems = changeSet.items.filter((candidate) => candidate.status === 'accepted'
+      || (review && candidate.status === 'pending'));
+    if (review && acceptedItems.length === 0) {
+      throw new BadRequestException('At least one change item must be accepted before publishing');
+    }
     const pageItems = acceptedItems.filter((item) => ['create_page', 'update_page', 'archive_page'].includes(item.type));
     const folderItems = acceptedItems.filter((item) => [
       'create_folder', 'rename_folder', 'move_folder', 'delete_folder', 'restore_folder',
@@ -412,11 +472,31 @@ export class ReviewService {
       } else {
         lockedTx = await acquireSpaceMutationLock();
       }
+      await this.assertOrdinaryReviewEntry(tx, id);
       const claimed = await tx.changeSet.updateMany({
-        where: { id, status: 'approved' },
-        data: { status: 'publishing' },
+        where: { id, status: review ? 'pending_review' : 'approved' },
+        data: { status: 'publishing', ...(review ? { reviewedAt: new Date() } : {}) },
       });
       if (!claimed.count) throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is already being published or is no longer approved');
+      if (review) {
+        await tx.changeItem.updateMany({
+          where: { changeSetId: id, status: 'pending' },
+          data: { status: 'accepted' },
+        });
+        // A reviewer may have rejected an item after the initial snapshot.
+        // The acceptance update locks pending rows; verify the snapshot still
+        // names exactly publishable items before recording the approval.
+        const stillAccepted = await tx.changeItem.count({
+          where: { changeSetId: id, id: { in: acceptedItems.map(item => item.id) }, status: 'accepted' },
+        });
+        if (stillAccepted !== acceptedItems.length) {
+          throw new BusinessException('CHANGESET_CONFLICT',
+            '审核条目已变化，请刷新后重试 / Review items changed; refresh and retry');
+        }
+        await tx.approval.create({ data: {
+          changeSetId: id, reviewerId: review.reviewerId, decision: 'approved', comment: review.comment,
+        } });
+      }
       const pageIds: string[] = [];
       const pageIdBySourcePath = new Map<string, string>();
       const pageIdByKnowledgeKey = new Map<string, string>();
@@ -460,6 +540,7 @@ export class ReviewService {
         let resourceId: string;
         let publishedItemType = item.type;
         if (item.type === 'create_page') {
+          assertPageTitle(payload.title);
           let targetFolderId = payload.folderId ?? null;
           if (payload.parentId !== undefined) {
             if (
@@ -666,9 +747,7 @@ export class ReviewService {
         } else if (item.type === 'archive_page') {
           const page = await tx.page.findFirst({ where: { id: payload.pageId, spaceId: changeSet.spaceId, deletedAt: null } });
           if (!page) throw new BadRequestException('Archived page must belong to the change set space');
-          if (payload.expectedUpdatedAt && page.updatedAt.toISOString() !== payload.expectedUpdatedAt) {
-            throw new BusinessException('CHANGESET_INVALID_STATE', 'The page changed after this archive candidate was compiled');
-          }
+          assertPageCandidateBaseline(page, payload);
           const before = {
             title: page.title,
             slug: page.slug,
@@ -1084,10 +1163,10 @@ export class ReviewService {
       }
       throw error;
     }
-    if (publication.authorizationLost) return this.get(id);
+    if (publication.authorizationLost) return this.loadChangeSet(id);
     await Promise.allSettled(publication.pageIds.map((pageId) => this.search.indexPage(pageId)));
     this.graphMaintenance?.enqueue(changeSet.spaceId);
-    return this.get(id);
+    return this.loadChangeSet(id);
   }
 
   private async publishFolderItem(
@@ -1616,7 +1695,7 @@ export class ReviewService {
       );
     }
     const requestedTreeRevision = BigInt(expectedTreeRevision);
-    const changeSet = await this.get(id);
+    const changeSet = await this.loadChangeSet(id);
     if (!changeSet.revertible) {
       throw new BusinessException(
         'CHANGESET_INVALID_STATE',
@@ -2134,7 +2213,7 @@ export class ReviewService {
     });
     await Promise.allSettled(affectedPageIds.map((pageId) => this.search.indexPage(pageId)));
     this.graphMaintenance?.enqueue(changeSet.spaceId);
-    return this.get(id);
+    return this.loadChangeSet(id);
   }
 
   private assertRevertMutation(count: number, itemType: string) {

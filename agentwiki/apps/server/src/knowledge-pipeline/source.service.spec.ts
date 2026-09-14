@@ -155,10 +155,11 @@ describe('SourceService safety and idempotency', () => {
     expect(() => validateGitTreeInventory(tooManyBytes)).toThrow('Git repository exceeds');
   });
 
-  it('requests a partial clone and disables interactive checkout smudge filters', () => {
+  it('fetches shallow blobs together before offline inventory and disables smudge filters', () => {
     expect(gitCloneArguments('https://github.com/example/repo.git', '/tmp/repo')).toEqual(expect.arrayContaining([
-      '--no-checkout', '--filter=blob:none',
+      '--no-checkout', '--depth', '1', '--single-branch',
     ]));
+    expect(gitCloneArguments('https://github.com/example/repo.git', '/tmp/repo')).not.toContain('--filter=blob:none');
     const environment = gitSafeEnvironment({ PATH: '/usr/bin', HOME: '/sensitive/home' });
     expect(environment).toEqual(expect.objectContaining({
       PATH: '/usr/bin',
@@ -168,6 +169,25 @@ describe('SourceService safety and idempotency', () => {
       GIT_ATTR_NOSYSTEM: '1',
       GIT_TERMINAL_PROMPT: '0',
     }));
+  });
+
+  it('persists actionable safe diagnostics when the worker cannot execute Git', async () => {
+    const previousPath = process.env.PATH;
+    process.env.PATH = '/nonexistent-q3-git-worker';
+    try {
+      const failure = await (service as any).fetch({
+        type: 'git', uri: 'https://github.com/example/repo?token=private-value',
+      }).catch((error: unknown) => error);
+      expect(failure).toMatchObject({ code: 'GIT_UNAVAILABLE', stage: 'fetching' });
+      expect((service as any).failureResult(failure, 'queued')).toEqual({
+        failure: { stage: 'fetching', code: 'GIT_UNAVAILABLE' },
+        sourceMetadata: { finalUrl: 'https://github.com/example/repo' },
+      });
+      expect(failure.message).not.toContain('private-value');
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
   });
 
   it.each(['::ffff:7f00:1', '::ffff:a00:1', '0:0:0:0:0:ffff:c0a8:101'])(

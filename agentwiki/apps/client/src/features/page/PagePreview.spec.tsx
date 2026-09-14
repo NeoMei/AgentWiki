@@ -201,6 +201,15 @@ describe('PagePreview checklist saves', () => {
     });
   });
 
+  it('localizes a removed membership error without exposing server prose or page controls', async () => {
+    localStorage.setItem('agentwiki.language.v1', 'zh-CN');
+    vi.mocked(api.get).mockRejectedValue({ response: { status: 403, data: { code: 'SPACE_ACCESS_DENIED', message: 'Server English permission error' } } });
+    renderPreview();
+    expect(await screen.findByText('你没有权限执行此操作')).toBeVisible();
+    expect(screen.queryByText('Server English permission error')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '编辑' })).not.toBeInTheDocument();
+  });
+
   it('optimistically toggles an editable task and immediately saves page content', async () => {
     queuePages({ data: page() });
     vi.mocked(api.patch).mockResolvedValue({
@@ -252,7 +261,7 @@ describe('PagePreview checklist saves', () => {
     });
     renderPreview();
 
-    expect(await screen.findByText('Failed to load page')).toBeVisible();
+    expect(await screen.findByText('Network connection failed. Please try again.')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 
     expect(await screen.findByRole('heading', { name: 'Recovered page' })).toBeVisible();

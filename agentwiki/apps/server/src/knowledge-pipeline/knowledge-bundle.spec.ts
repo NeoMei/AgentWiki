@@ -37,6 +37,11 @@ describe('parseKnowledgeBundle', () => {
     expect(bundle.contentHash).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it.each(['   ', '\t\n', '\u3000'])('rejects explicit blank page title %p before knowledge submission', title => {
+    const input = { ...validBundle, pages: [{ ...validBundle.pages[0], title }] };
+    expect(() => parseKnowledgeBundle(Buffer.from(JSON.stringify(input)))).toThrow();
+  });
+
   it('rejects oversized payloads', () => {
     const huge = Buffer.from('x'.repeat(10 * 1024 * 1024 + 1));
     expect(() => parseKnowledgeBundle(huge)).toThrow(expect.objectContaining({ businessCode: 'SOURCE_TOO_LARGE' }));

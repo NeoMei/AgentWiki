@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useState, useRef } from
 import { Link, useLocation, useNavigate, useNavigationType, useParams } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import api from '../../api/client';
+import { apiErrorMessage } from '../../api/error-message';
 import { getContentTreeRevision } from '../../api/content-tree';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -358,7 +359,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       if (showLoading || err.response?.status === 401 || err.response?.status === 403) {
         reportPageIdentity(requestedId, null);
       }
-      if (showLoading) setError(err.response?.data?.message || tRef.current('editor.loadFailed'));
+      if (showLoading) setError(apiErrorMessage(err, tRef.current, 'editor.loadFailed'));
     } finally {
       requestControllersRef.current.delete(controller);
       if (showLoading && mountedRef.current && sequence === loadSequenceRef.current && activePageIdRef.current === requestedId) {
@@ -776,6 +777,10 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const handleSave = async () => {
     const baseline = pageRef.current;
     if (!id || !baseline?.updatedAt || baseline.capabilities?.canEdit === false || remoteUpdate) return;
+    if (!title.trim()) {
+      showStatus({ kind: 'error', text: t('editor.titleRequired') }, 'save');
+      return;
+    }
     const requestedId = id;
     const requestedSpaceId = baseline.spaceId;
     const requestedRouteGeneration = routeGenerationRef.current;
@@ -1101,9 +1106,11 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         <div className="mb-4 flex min-w-0 items-center gap-2">
           <input
             type="text"
+            aria-label={t('editor.titleLabel')}
+            placeholder={t('editor.titlePlaceholder')}
             value={title}
             onChange={handleTitleChange}
-            className="min-w-0 flex-1 border-none bg-transparent text-2xl font-bold focus:outline-none"
+            className="min-h-11 min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-2xl font-semibold focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
           />
           {isDirty ? <span className="shrink-0 text-xs text-orange-500">● {t('editor.unsaved')}</span> : null}
         </div>

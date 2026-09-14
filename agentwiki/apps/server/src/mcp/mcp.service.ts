@@ -1,3 +1,4 @@
+import { NON_BLANK_PAGE_TITLE } from '../core/page/page-title';
 import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
@@ -303,7 +304,7 @@ export class McpService {
       description: 'Propose a page ChangeSet. Editor proposals remain pending review. Publisher proposals auto-publish only when the bound Space Grant is publisher and both Agent mode and Space policy allow it.',
       inputSchema: {
         spaceId: z.string().describe(SPACE_ID),
-        title: z.string().min(1),
+        title: z.string().min(1).regex(NON_BLANK_PAGE_TITLE),
         content: z.string(),
         expectedTreeRevision: z.string().regex(/^(?:0|[1-9]\d*)$/u),
       },

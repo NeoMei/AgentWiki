@@ -1,3 +1,4 @@
+import { NON_BLANK_PAGE_TITLE } from '../page/page-title';
 import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsISO8601, IsInt, IsString, IsOptional, IsIn, Matches, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested, registerDecorator, type ValidationArguments } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { IsPageTemplateCreateShape } from './page-template-create.validator';
@@ -36,6 +37,7 @@ export class CreatePageDto {
   @IsString()
   @MinLength(1)
   @MaxLength(200)
+  @Matches(NON_BLANK_PAGE_TITLE)
   title: string;
 
   @IsOptional()
@@ -112,6 +114,7 @@ export class UpdatePageDto {
   @IsString()
   @MinLength(1)
   @MaxLength(200)
+  @Matches(NON_BLANK_PAGE_TITLE)
   title?: string;
 
   @IsOptional()

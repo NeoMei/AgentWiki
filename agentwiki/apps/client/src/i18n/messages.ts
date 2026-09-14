@@ -1,7 +1,32 @@
+import { systemCollaborationMessages } from './system-collaboration-messages';
 export type Language = 'zh-CN' | 'en';
 
 export const messages: Record<Language, Record<string, string>> = {
   en: {
+    "review.existingDuplicates": "Existing pages with identical content",
+    "review.existingDuplicatesHelp": "This candidate has exactly the same non-empty body as existing pages in this space. Up to five examples are shown. Check whether duplication is intended; this is not semantic similarity detection and does not block publication.",
+
+    ...systemCollaborationMessages.en,
+    "collaboration.manageTemplates": "Manage collaboration templates",
+    "collaboration.managePageTemplates": "Manage page templates",
+    "review.duplicateAdvisory": "Identical non-empty content appears in this change set. Check whether the duplication is intended. This advisory only compares the loaded candidates, not all pages in the space; it does not block publication.",
+    "source.failedRunDetails": "View failed run details",
+    "agent.credentialSpaceBoundary": "An Agent can have access to multiple spaces, but each connection credential is bound to one selected space. Connecting another space requires its corresponding authorization. Existing connections do not expand automatically.",
+    "agent.localSync.singleSpaceGateway": "The current unified gateway uses one space-bound connection. It does not aggregate all of this Agent’s space grants or provide automatic space switching.",
+    "run.failure.GIT_UNAVAILABLE": "Git is unavailable on the server. Ask the administrator to check the Git installation before retrying.",
+    "run.failure.GIT_TIMEOUT": "Git fetching timed out. Check repository size and server network access, then retry.",
+    "run.failure.GIT_ACCESS_FAILED": "Git repository access failed. Verify the repository address and server access; private repositories may require administrator configuration.",
+    "run.failure.GIT_FETCH_FAILED": "Git fetch failed. Check repository availability and server connectivity, then retry.",
+    "run.failure.GIT_CHECKOUT_FAILED": "Git checkout failed. Ask the administrator to check the repository contents and server storage before retrying.",
+    "run.failure.GIT_SOURCE_EMPTY": "The repository contains no supported documents within the source limits. Check its text files or choose another source.",
+
+    "editor.titleLabel": "Page title",
+    "editor.titlePlaceholder": "Enter a page title",
+    "editor.titleRequired": "Enter a non-blank page title.",
+    "page.untitled": "Untitled page",
+    "search.textMatch": "Text match",
+    "search.semanticRelevance": "Semantic relevance: {percent}%",
+
     'creation.title': 'New content',
     'creation.groupName': 'Page group name',
     'creation.description': 'Start blank, or reuse a page or a page group.',
@@ -1191,6 +1216,30 @@ export const messages: Record<Language, Record<string, string>> = {
     'auth.passwordMismatch': 'Passwords do not match',
   },
   'zh-CN': {
+    "review.existingDuplicates": "正文完全相同的已有页面",
+    "review.existingDuplicatesHelp": "此候选项的非空正文与当前空间中的已有页面完全相同，最多列出五个示例。请确认是否为有意重复；此提示不是语义相似检测，也不会阻止发布。",
+
+    ...systemCollaborationMessages['zh-CN'],
+    "collaboration.manageTemplates": "管理协作模板",
+    "collaboration.managePageTemplates": "管理页面模板",
+    "review.duplicateAdvisory": "此变更集中存在完全相同的非空正文，请确认是否为有意重复。此提示仅比较已加载的候选项，并未检查空间中的全部页面，不会阻止发布。",
+    "source.failedRunDetails": "查看失败运行详情",
+    "agent.credentialSpaceBoundary": "Agent 可以获得多个空间的授权，但每个连接凭证仅绑定一个选定空间。连接其他空间需要对应授权；已有连接不会随新增授权自动扩展。",
+    "agent.localSync.singleSpaceGateway": "当前统一网关使用一个绑定空间的连接，不会汇总此 Agent 的所有空间授权，也不提供自动切换空间功能。",
+    "run.failure.GIT_UNAVAILABLE": "服务器无法使用 Git。请管理员检查 Git 安装后重试。",
+    "run.failure.GIT_TIMEOUT": "Git 抓取超时。请检查仓库大小和服务器网络连通性后重试。",
+    "run.failure.GIT_ACCESS_FAILED": "无法访问 Git 仓库。请核对仓库地址与服务器访问权限；私有仓库可能需要管理员配置。",
+    "run.failure.GIT_FETCH_FAILED": "Git 抓取失败。请检查仓库是否可用及服务器网络后重试。",
+    "run.failure.GIT_CHECKOUT_FAILED": "Git 检出失败。请管理员检查仓库内容和服务器存储后重试。",
+    "run.failure.GIT_SOURCE_EMPTY": "仓库中没有符合来源限制的受支持文档。请检查文本文件或选择其他来源。",
+
+    "editor.titleLabel": "页面标题",
+    "editor.titlePlaceholder": "请输入页面标题",
+    "editor.titleRequired": "请输入非空白的页面标题。",
+    "page.untitled": "未命名页面",
+    "search.textMatch": "文字匹配",
+    "search.semanticRelevance": "语义相关性：{percent}%",
+
     'creation.title': '新建内容',
     'creation.groupName': '页面组名称',
     'creation.description': '从空白页面开始，或复用已有的页面和目录结构。',
@@ -2224,11 +2273,11 @@ export const messages: Record<Language, Record<string, string>> = {
     'agent.connectionRecords': '连接记录',
     'agent.noConnectionRecords': '尚无 Agent 连接记录。',
     'agent.roleLabel': 'Agent 角色',
-    'agent.role.reader.name': 'Reader',
+    'agent.role.reader.name': '读者',
     'agent.role.reader.description': '可读取空间、页面、知识图谱、来源、运行记录和审核状态。',
-    'agent.role.editor.name': 'Editor',
+    'agent.role.editor.name': '编辑者',
     'agent.role.editor.description': '包含 Reader 权限，并可提议页面、知识图谱、来源和运行变更。',
-    'agent.role.publisher.name': 'Publisher',
+    'agent.role.publisher.name': '发布者',
     'agent.role.publisher.description': '包含 Editor 权限，并增加限定自动发布和 Agent 记忆能力。',
     'agent.editor': '编辑者',
     'agent.removeGrantFor': '移除{space}授权',

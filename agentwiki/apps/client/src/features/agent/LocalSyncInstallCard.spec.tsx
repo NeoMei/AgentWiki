@@ -57,7 +57,7 @@ describe('LocalSyncInstallCard', () => {
 
     fireEvent.change(screen.getByLabelText('空间'), { target: { value: 'space-1' } });
     fireEvent.change(screen.getByLabelText('Agent 角色'), { target: { value: 'editor' } });
-    expect(screen.getByText(/Reader.*Editor/)).toBeInTheDocument();
+    expect(screen.getByText(/读者.*编辑者/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '生成统一网关接入指令' }));
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith(

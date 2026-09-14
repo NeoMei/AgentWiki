@@ -36,6 +36,17 @@ describe('RunsPage', () => {
     vi.mocked(api.post).mockResolvedValue({ data: {} });
   });
 
+  it.each([
+    ['GIT_UNAVAILABLE', /Git is unavailable/], ['GIT_TIMEOUT', /timed out/],
+    ['GIT_ACCESS_FAILED', /repository access/], ['GIT_FETCH_FAILED', /fetch failed/],
+    ['GIT_CHECKOUT_FAILED', /checkout failed/], ['GIT_SOURCE_EMPTY', /no supported documents/],
+  ])('explains %s without rendering raw stderr', async (code, explanation) => {
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    vi.mocked(api.get).mockResolvedValue({ data: [{ ...run('git', 'Repo', 'failed'), error: 'secret raw stderr', result: { failure: { stage: 'fetching', code } } }] });
+    renderPage(); expect(await screen.findByText(explanation)).toBeVisible();
+    expect(document.body).not.toHaveTextContent('secret raw stderr');
+  });
+
   it('offers cancel only for active stages and retry for terminal retryable runs', async () => {
     vi.mocked(api.get).mockResolvedValue({ data: [
       { id: 'active', status: 'fetching', stage: 'fetching', attempts: 1, maxAttempts: 3, createdAt: new Date().toISOString(), source: { name: 'Active' } },

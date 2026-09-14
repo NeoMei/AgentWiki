@@ -306,6 +306,17 @@ describe('PageEditor remote update safety', () => {
     });
   });
 
+  it('labels the title field and refuses whitespace without sending an update', async () => {
+    queuePages({ data: page() }); renderEditor();
+    const title = await screen.findByDisplayValue('Original title');
+    expect(title).toHaveAccessibleName('Page title');
+    expect(title).toHaveAttribute('placeholder', 'Enter a page title');
+    fireEvent.change(title, { target: { value: '  　 ' } });
+    fireEvent.click(screen.getByTestId('save-button'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a non-blank page title.');
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
   it('registers its successful page load with the workspace shell without another page request', async () => {
     queuePages({ data: page({ capabilities: { canEdit: true } }) });
     render(

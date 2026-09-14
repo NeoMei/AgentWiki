@@ -113,3 +113,12 @@ describe('ContentTree directory navigation', () => {
     await waitFor(() => expect(actions).toHaveFocus());
   });
 });
+
+ it('keeps a historical blank page visibly named and clickable without renaming it', () => {
+   localStorage.setItem('agentwiki.language.v1', 'en');
+   const onSelectPage = vi.fn(); const blank = { ...page, title: ' 　' };
+   render(<LanguageProvider><ContentTree nodes={[blank]} loading={false} error={null} canEdit={false} levelParentFolderId={null} pageDeleteDisabled={false} emptyText="Empty" onOpenPage={onSelectPage} onOpenFolder={vi.fn()} onEditPage={vi.fn()} onDeletePage={vi.fn()} onCreateSubfolder={vi.fn()} onRenameFolder={vi.fn()} onDeleteFolder={vi.fn()} onMove={vi.fn()} /></LanguageProvider>);
+   const button = screen.getByRole('button', { name: 'Untitled page' });
+   fireEvent.click(button); expect(onSelectPage).toHaveBeenCalledWith(blank);
+   expect(button).toHaveClass('min-h-8'); expect(blank.title).toBe(' 　');
+ });

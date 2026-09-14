@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, ChevronRight, RotateCcw, Send, X } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import api from '../../api/client';
+import { getContentTreeRevision } from '../../api/content-tree';
 import { apiErrorMessage } from '../../api/error-message';
 import { Toast } from '../../components/Toast';
 import { ChangeSetStatusBadge } from './ChangeSetStatusBadge';
@@ -176,9 +177,17 @@ export const ReviewPage: React.FC = () => {
     try {
       setError(null);
       setSuccess(null);
+      const body: { comment?: string; expectedTreeRevision?: string } = { comment: comments[id] || undefined };
+      if (name === 'revert') {
+        const changeSet = items.find((item) => item.id === id);
+        const targetSpaceId = changeSet?.spaceId || changeSet?.space?.id;
+        if (!targetSpaceId || changeSet.revertible === false) throw new Error('Revert unavailable');
+        body.expectedTreeRevision = await getContentTreeRevision(targetSpaceId, controller.signal);
+        if (!mountedRef.current || controller.signal.aborted) return;
+      }
       await api.post(
         `/change-sets/${id}/${name}`,
-        { comment: comments[id] || undefined },
+        body,
         { signal: controller.signal },
       );
       if (!mountedRef.current || controller.signal.aborted) return;
@@ -282,11 +291,13 @@ export const ReviewPage: React.FC = () => {
                   <p>{t('review.collaborationOwned')}</p>
                   <Link to={changeSet.collaborationArtifactLink.reviewPath} className="mt-2 inline-flex min-h-10 items-center font-medium text-blue-700 underline">{t('review.goToCollaboration')}</Link>
                 </div> : null}
+                {hasDuplicateCandidateContent(changeSet.items) ? <p role="note" className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{t('review.duplicateAdvisory')}</p> : null}
                 <div className="border rounded-lg divide-y mb-4">
                   {changeSet.items.map((item: any) => (
                     <div key={item.id} className="p-3">
                       <div className="flex justify-between gap-3"><p className="text-sm font-medium">{item.type.replaceAll('_', ' ')}</p><span className="text-xs text-gray-400">{item.status}</span></div>
                       <CandidateDiff item={item} />
+                      <ExistingContentWarning pages={changeSet.duplicateContentWarnings?.find((warning: { itemId: string }) => warning.itemId === item.id)?.pages} />
                       <EvidencePanel changeSet={changeSet} item={item} />
                       {!changeSet.collaborationArtifactLink && item.status === 'pending' && changeSet.status === 'pending_review' ? <div className="flex gap-3 mt-3"><button disabled={mutatingIds.has(changeSet.id)} onClick={() => void decide(changeSet.id, item.id, 'accepted')} className="text-xs font-medium text-green-700 disabled:opacity-50">{zh ? '接受候选项' : 'Accept candidate'}</button><button disabled={mutatingIds.has(changeSet.id)} onClick={() => void decide(changeSet.id, item.id, 'rejected')} className="text-xs font-medium text-red-700 disabled:opacity-50">{zh ? '拒绝候选项' : 'Reject candidate'}</button></div> : null}
                     </div>
@@ -311,4 +322,27 @@ export const ReviewPage: React.FC = () => {
       </div>
     </div>
   );
+};
+
+function hasDuplicateCandidateContent(items: any[]): boolean {
+  const seen = new Set<string>();
+  for (const item of items) {
+    const content = item.type === 'create_page' ? item.payload?.content : item.type === 'update_page' ? item.payload?.changes?.content : undefined;
+    if (typeof content !== 'string' || !content.trim() || item.status === 'rejected') continue;
+    if (seen.has(content)) return true;
+    seen.add(content);
+  }
+  return false;
+}
+
+const ExistingContentWarning: React.FC<{ pages?: Array<{ id: string; title: string }> }> = ({ pages }) => {
+  const { t } = useLanguage();
+  if (!pages?.length) return null;
+  return <aside role="note" aria-label={t('review.existingDuplicates')} className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+    <p className="font-medium">{t('review.existingDuplicates')}</p>
+    <p className="mt-1">{t('review.existingDuplicatesHelp')}</p>
+    <ul className="mt-2 list-disc pl-5">
+      {pages.map((page) => <li key={page.id}><Link to={`/pages/${encodeURIComponent(page.id)}`} className="inline-flex min-h-8 items-center text-blue-700 underline">{page.title.trim() || t('page.untitled')}</Link></li>)}
+    </ul>
+  </aside>;
 };

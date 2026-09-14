@@ -9,7 +9,7 @@ import { GlobalNavigation } from './GlobalNavigation';
 import { REVIEW_CHANGED_EVENT } from '../features/review/review-events';
 
 export const Navbar: React.FC = () => {
-  const { user, logout } = useAuth();
+  const { token, user, logout } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
@@ -17,6 +17,8 @@ export const Navbar: React.FC = () => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const reviewCountSequenceRef = useRef(0);
+
+  const canPoll = !!token && !!user && !user.mustChangePassword;
 
   const loadReviewCount = useCallback(async () => {
     const sequence = ++reviewCountSequenceRef.current;
@@ -29,6 +31,11 @@ export const Navbar: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (!canPoll) {
+      ++reviewCountSequenceRef.current;
+      setReviewCount(0);
+      return;
+    }
     void loadReviewCount();
     const refresh = () => { void loadReviewCount(); };
     const refreshWhenVisible = () => { if (document.visibilityState === 'visible') refresh(); };
@@ -37,12 +44,13 @@ export const Navbar: React.FC = () => {
     window.addEventListener(REVIEW_CHANGED_EVENT, refresh);
     document.addEventListener('visibilitychange', refreshWhenVisible);
     return () => {
+      ++reviewCountSequenceRef.current;
       window.clearInterval(timer);
       window.removeEventListener('focus', refresh);
       window.removeEventListener(REVIEW_CHANGED_EVENT, refresh);
       document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
-  }, [loadReviewCount, location.pathname]);
+  }, [canPoll, loadReviewCount, location.pathname]);
 
   useEffect(() => {
     const close = (event: MouseEvent) => { if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false); };

@@ -1,3 +1,4 @@
+import { NON_BLANK_PAGE_TITLE } from '../core/page/page-title';
 import { z } from 'zod';
 import { BusinessException } from '../core/filters/business-error';
 import { createHash } from 'crypto';
@@ -11,7 +12,7 @@ export const WikiPageSchema = z.object({
   pageId: KnowledgeIdSchema,
   spaceId: z.string().min(1).max(128),
   path: z.string().min(1).max(1024),
-  title: z.string().min(1).max(500),
+  title: z.string().min(1).max(500).regex(NON_BLANK_PAGE_TITLE),
   body: z.string().max(1024 * 1024),
   order: z.number().int().optional(),
   metadata: z.record(z.unknown()).optional(),

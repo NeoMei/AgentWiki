@@ -55,6 +55,30 @@ describe('TemplateEditor', () => {
     vi.mocked(collaborationApi.updateTemplate).mockResolvedValue({ ...template, version: 2, name: 'Release workflow' });
   });
 
+  it.each([['Roles', 'Role ID'], ['Inputs', 'Input key']])('preserves focused %s row identity during typing and paste', async (section, label) => {
+    renderEditor();
+    await screen.findByDisplayValue('Custom workflow');
+    fireEvent.click(screen.getByRole('button', { name: section }));
+    const field = screen.getAllByLabelText(label)[0] as HTMLInputElement;
+    field.focus();
+    for (const value of ['a', 'ab', 'abc', 'pasted-identifier']) {
+      fireEvent.input(field, { target: { value } });
+      fireEvent.change(field, { target: { value } });
+      expect(screen.getAllByLabelText(label)[0]).toBe(field);
+      expect(field).toHaveFocus(); expect(field).toHaveValue(value);
+    }
+  });
+
+  it('retains a surviving role row identity after deleting a preceding row', async () => {
+    renderEditor(); await screen.findByDisplayValue('Custom workflow');
+    fireEvent.click(screen.getByRole('button', { name: 'Roles' }));
+    const survivor = screen.getAllByLabelText('Role ID')[1];
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Writer' }));
+    expect(screen.getByLabelText('Role ID')).toBe(survivor);
+    survivor.focus(); fireEvent.change(survivor, { target: { value: 'reviewer-new' } });
+    expect(survivor).toHaveFocus(); expect(survivor).toHaveValue('reviewer-new');
+  });
+
   it('shows a retryable error instead of a permanent spinner when loading fails', async () => {
     vi.mocked(collaborationApi.getTemplate)
       .mockRejectedValueOnce(new Error('offline'))

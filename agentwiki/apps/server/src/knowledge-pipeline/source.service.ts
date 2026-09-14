@@ -18,6 +18,7 @@ import { AuthorizationService, Principal } from '../core/authorization/authoriza
 import { CreateSourceDto, UpdateSourceDto } from '../core/dto/source.dto';
 import { ReviewService } from '../review/review.service';
 import { extractHtmlText, isSupportedTextContentType } from './remote-source';
+import { GitSourceError, gitSourceError } from './git-source-error';
 import { agentRoleAllowsScope, agentRoleSpaceCapability, scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import {
   SpaceRevisionWriterService,
@@ -39,7 +40,10 @@ const MAX_GIT_TREE_DEPTH = 64;
 
 export function gitCloneArguments(url: string, target: string): string[] {
   return [
-    'clone', '--depth', '1', '--single-branch', '--no-checkout', '--filter=blob:none',
+    // ls-tree --long needs blob sizes. A blobless clone makes that synchronous
+    // inventory fetch missing blobs individually and time out on small repos.
+    // Fetch the shallow snapshot together, then enforce limits before checkout.
+    'clone', '--depth', '1', '--single-branch', '--no-checkout',
     url, target,
   ];
 }
@@ -737,12 +741,14 @@ export class SourceService {
     const allowedHosts = (this.config.get<string>('ALLOWED_GIT_HOSTS') || 'github.com,gitlab.com').split(',').map((value) => value.trim());
     if (url.protocol !== 'https:' || !allowedHosts.includes(url.hostname) || url.username || url.password) throw new BusinessException('SOURCE_INVALID', 'Git URL is not allowed');
     const root = mkdtempSync(resolve(tmpdir(), 'agentwiki-source-'));
+    let gitPhase: 'clone' | 'checkout' = 'clone';
     try {
       const target = resolve(root, 'repo');
       const gitEnvironment = gitSafeEnvironment();
       await execFileAsync('git', gitCloneArguments(url.toString(), target), {
         timeout: 120_000, maxBuffer: 1024 * 1024, env: gitEnvironment,
       });
+      gitPhase = 'checkout';
       const validateObjectStorage = () => {
         const objectStats = execFileSync('git', ['-C', target, 'count-objects', '-v'], {
           timeout: 10_000, encoding: 'utf8', maxBuffer: 64 * 1024, env: gitEnvironment,
@@ -809,12 +815,16 @@ export class SourceService {
         }
       };
       walk(target);
+      if (segments.length === 0) {
+        throw new GitSourceError('GIT_SOURCE_EMPTY', 'Git repository has no supported text files within the source limits', this.remoteDiagnosticUrl(url.toString()));
+      }
       const commit = execFileSync('git', ['-C', target, 'rev-parse', 'HEAD'], { timeout: 10_000, encoding: 'utf8' }).trim();
       files.forEach((file) => { file.commit = commit; });
       return { content: parts.join('\n'), metadata: { repository: url.toString(), commit, fileCount, bytes, skippedFiles }, files, segments, cleanup: root };
     } catch (error) {
       rmSync(root, { recursive: true, force: true });
-      throw error;
+      if (error instanceof BusinessException || error instanceof GitSourceError) throw error;
+      throw gitSourceError(error, gitPhase, url.toString());
     }
   }
 
@@ -918,6 +928,12 @@ export class SourceService {
   }
 
   private failureResult(error: unknown, fallbackStage: string): Prisma.InputJsonObject {
+    if (error instanceof GitSourceError) {
+      return {
+        failure: { stage: error.stage, code: error.code },
+        sourceMetadata: { finalUrl: error.repository },
+      };
+    }
     if (error instanceof RemoteSourceError) {
       return {
         failure: { stage: error.stage, code: error.code },

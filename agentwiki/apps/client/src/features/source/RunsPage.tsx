@@ -5,6 +5,8 @@ import api from '../../api/client';
 import { useLanguage } from '../../context/LanguageContext';
 import { apiErrorMessage } from '../../api/error-message';
 
+const GIT_FAILURE_CODES = new Set(['GIT_UNAVAILABLE', 'GIT_TIMEOUT', 'GIT_ACCESS_FAILED', 'GIT_FETCH_FAILED', 'GIT_CHECKOUT_FAILED', 'GIT_SOURCE_EMPTY']);
+
 const CANCELLABLE = new Set(['queued', 'reserved', 'fetching', 'extracting', 'compiling', 'indexing']);
 const RETRYABLE = new Set(['failed', 'partial', 'cancelled']);
 
@@ -101,7 +103,7 @@ export const RunsPage: React.FC = () => {
             <div className="flex-1">
               <p className="font-medium">{run.source.name}</p>
               <p className="text-xs text-gray-400 mt-1">{run.stage} · {t('run.attempt')} {run.attempts}/{run.maxAttempts} · {new Date(run.createdAt).toLocaleString(language)}</p>
-              {run.error ? <p className="text-xs text-red-600 mt-1">{t('run.failedSummary')}</p> : null}
+              {run.error || run.result?.failure ? <p className="text-xs text-red-600 mt-1">{t(GIT_FAILURE_CODES.has(run.result?.failure?.code) ? `run.failure.${run.result.failure.code}` : 'run.failedSummary')}</p> : null}
               {run.result?.sourceMetadata ? (
                 <div className="mt-2 space-y-0.5 rounded-lg bg-gray-50 p-2 text-xs text-gray-600">
                   <p className="break-all"><strong>{t('run.finalUrl')}:</strong> {safeDiagnosticUrl(run.result.sourceMetadata.finalUrl) || t('common.notAvailable')}</p>

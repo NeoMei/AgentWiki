@@ -1,3 +1,4 @@
+import { assertPageTitle } from '../core/page/page-title';
 import { Prisma } from '@prisma/client';
 import { BadRequestException } from '@nestjs/common';
 import { BusinessException } from '../core/filters/business-error';
@@ -29,13 +30,9 @@ export async function publishPageUpdateLocked(input: {
     where: { id: payload.pageId, spaceId: changeSet.spaceId, deletedAt: null },
   });
   if (!page) throw new BadRequestException('Updated page must belong to the change set space');
-  if (payload.expectedUpdatedAt && page.updatedAt.toISOString() !== payload.expectedUpdatedAt) {
-    throw new BusinessException('CHANGESET_INVALID_STATE', 'The page changed after this candidate was compiled; create a new run before publishing');
-  }
-  if (typeof payload.expectedContentHash === 'string' && canonicalPageContentHash(page.content) !== payload.expectedContentHash) {
-    throw new BusinessException('CHANGESET_CONFLICT', 'The target Page changed after the task was claimed');
-  }
+  assertPageCandidateBaseline(page, payload);
   const changes = objectValue(payload.changes);
+  if (changes.title !== undefined) assertPageTitle(changes.title);
   if (changes.parentId !== undefined) {
     throw new ContentTreeError('PAGE_PARENT_DEPRECATED', 'Legacy Page parent placement cannot be mapped safely');
   }
@@ -92,6 +89,25 @@ export async function publishPageUpdateLocked(input: {
     throw new BusinessException('CHANGESET_CONFLICT', 'The page changed while this change set was being published');
   }
   return { pageId: page.id, sourcePath: payload.sourcePath || page.sourcePath || null };
+}
+
+/** Require the producer's page revision, never a snapshot taken during publication. */
+export function assertPageCandidateBaseline(
+  page: { updatedAt: Date; content: string },
+  payload: Record<string, any>,
+): void {
+  if (typeof payload.expectedUpdatedAt !== 'string'
+    || !Number.isFinite(Date.parse(payload.expectedUpdatedAt))) {
+    throw new BusinessException('CHANGESET_CONFLICT',
+      '候选缺少有效页面基线，请重新生成 / Candidate has no valid page baseline; regenerate it');
+  }
+  if (page.updatedAt.getTime() !== Date.parse(payload.expectedUpdatedAt)
+    || (payload.expectedContentHash !== undefined
+      && (typeof payload.expectedContentHash !== 'string'
+        || canonicalPageContentHash(page.content) !== payload.expectedContentHash))) {
+    throw new BusinessException('CHANGESET_CONFLICT',
+      '页面已在候选生成后修改，请重新生成 / Page changed after the candidate was prepared; regenerate it');
+  }
 }
 
 export function pageVersionData(page: any): Prisma.PageVersionUncheckedCreateInput {

@@ -1,3 +1,4 @@
+import { ReviewService } from '../review/review.service';
 import { BadRequestException } from '@nestjs/common';
 import { McpController } from './mcp.controller';
 import { McpService } from './mcp.service';
@@ -366,4 +367,33 @@ describe('McpService Folder primitives', () => {
     }));
     expect(JSON.stringify(audit.record.mock.calls)).not.toContain('私密财务项目');
   });
+});
+
+
+describe('MCP page title schema', () => {
+  it('rejects whitespace in the actual registered propose_page schema', () => {
+    const dependency = {} as any;
+    const service = new McpService(dependency, dependency, dependency, dependency,
+      dependency, dependency, dependency, dependency, dependency, dependency,
+      dependency, dependency, dependency, dependency);
+    const server = (service as any).createServer({ userId: 'user' });
+    const schema = server._registeredTools.propose_page.inputSchema;
+    const args = { spaceId: 'space', title: ' \t\u3000', content: 'Body', expectedTreeRevision: '0' };
+    expect(schema.safeParse(args).success).toBe(false);
+    expect(schema.safeParse({ ...args, title: '  Valid title  ' }).success).toBe(true);
+  });
+  it('rejects a blank title in the registered handler through the real proposal service', async () => {
+    const dependency = {} as any;
+    const authorization = { assertSpaceAccess: jest.fn().mockResolvedValue(undefined) } as any;
+    const review = new ReviewService(dependency, dependency, dependency, dependency);
+    const audit = { record: jest.fn().mockResolvedValue(undefined) } as any;
+    const service = new McpService(dependency, authorization, dependency, dependency,
+      dependency, dependency, dependency, review, dependency, dependency,
+      audit, dependency, dependency, dependency);
+    const server = (service as any).createServer({ userId: 'user' });
+    await expect(server._registeredTools.propose_page.handler({
+      spaceId: 'space', title: '   ', content: 'Body', expectedTreeRevision: '0',
+    })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
 });

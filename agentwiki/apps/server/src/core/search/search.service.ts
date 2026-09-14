@@ -7,6 +7,7 @@ import { createHash } from 'crypto';
 export interface SearchResult {
   page: any;
   similarity: number;
+  matchType?: 'text' | 'semantic';
 }
 
 const SEARCH_AUTHOR_SELECT = {
@@ -87,77 +88,80 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
   ): Promise<SearchResult[]> {
     this.logger.log('Searching authorized page index');
 
-    // Try semantic search first (if LLM is available)
-    let queryEmbedding: number[] | null = null;
-    try {
-      const embeddingResult = await this.llmService.generateEmbedding(query);
-      queryEmbedding = embeddingResult?.embedding || null;
-    } catch {
-      this.logger.warn('Embedding generation failed, falling back to text search');
-    }
-
-    // If we have an embedding, try pgvector semantic search (HNSW cosine)
-    // Prisma.join throws on an empty array, so a principal without any
-    // accessible space (and no explicit spaceId) must skip the semantic
-    // branch; the lexical fallback handles the empty scope safely.
-    if (queryEmbedding && queryEmbedding.length > 0 && (spaceId || accessibleSpaceIds.length > 0)) {
-      const queryVector = vectorLiteral(queryEmbedding);
-      const rows = await this.prisma.$queryRaw<Array<{ id: string; similarity: number }>>(Prisma.sql`
-        SELECT "id", 1 - ("embeddingVector" <=> ${queryVector}::halfvec) AS "similarity"
-        FROM "Page"
-        WHERE "deletedAt" IS NULL
-          AND "embeddingVector" IS NOT NULL
-          AND 1 - ("embeddingVector" <=> ${queryVector}::halfvec) > 0.5
-          ${spaceId ? Prisma.sql`AND "spaceId" = ${spaceId}` : Prisma.sql`AND "spaceId" IN (${Prisma.join(accessibleSpaceIds)})`}
-        ORDER BY "embeddingVector" <=> ${queryVector}::halfvec
+    // An explicit space is authorized by the caller; global search uses its allowlist.
+    if ((!spaceId && accessibleSpaceIds.length === 0) || limit <= 0) return [];
+    const pageScope = { deletedAt: null, spaceId: spaceId ?? { in: accessibleSpaceIds } };
+    const pageInclude = {
+      author: { select: SEARCH_AUTHOR_SELECT },
+      space: { select: SEARCH_SPACE_SELECT },
+    };
+    type Candidate = { id: string; titleRank: number; similarity: number; textMatch: boolean };
+    const scope = spaceId ? Prisma.sql`page."spaceId" = ${spaceId}`
+      : Prisma.sql`page."spaceId" IN (${Prisma.join(accessibleSpaceIds)})`;
+    const titleRank = Prisma.sql`CASE
+      WHEN LOWER(page."title") = LOWER(${query}) THEN 2
+      WHEN POSITION(LOWER(${query}) IN LOWER(page."title")) > 0 THEN 1
+      ELSE 0 END`;
+    const textMatch = Prisma.sql`POSITION(LOWER(${query}) IN LOWER(document."text")) > 0`;
+    // SQL ranks the entire authorized match set before selecting its prefix.
+    // Only IDs/scores cross this boundary, never document text or Page bodies.
+    const lexicalPromise = this.prisma.$queryRaw<Candidate[]>(Prisma.sql`
+      SELECT page."id", ${titleRank} AS "titleRank", 0::float8 AS "similarity", TRUE AS "textMatch"
+      FROM "PageSearchDocument" AS document
+      JOIN "Page" AS page ON page."id" = document."pageId"
+      WHERE page."deletedAt" IS NULL AND ${scope} AND ${textMatch}
+      ORDER BY "titleRank" DESC, document."indexedAt" DESC, page."id" ASC
+      LIMIT ${limit}
+    `);
+    const semanticPromise = (async (): Promise<Candidate[]> => {
+      let embedding: number[] | undefined;
+      try {
+        embedding = (await this.llmService.generateEmbedding(query))?.embedding;
+      } catch {
+        this.logger.warn('Embedding generation failed; returning text matches');
+      }
+      if (!embedding?.length) return [];
+      const queryVector = vectorLiteral(embedding);
+      return this.prisma.$queryRaw<Candidate[]>(Prisma.sql`
+        SELECT page."id", ${titleRank} AS "titleRank",
+          1 - (page."embeddingVector" OPERATOR(public.<=>) ${queryVector}::public.halfvec) AS "similarity",
+          COALESCE(${textMatch}, FALSE) AS "textMatch"
+        FROM "Page" AS page
+        LEFT JOIN "PageSearchDocument" AS document ON document."pageId" = page."id"
+        WHERE page."deletedAt" IS NULL AND ${scope}
+          AND page."embeddingVector" IS NOT NULL
+          AND 1 - (page."embeddingVector" OPERATOR(public.<=>) ${queryVector}::public.halfvec) > 0.5
+        ORDER BY page."embeddingVector" OPERATOR(public.<=>) ${queryVector}::public.halfvec
         LIMIT ${limit}
       `);
-
-      if (rows.length > 0) {
-        const pages = await this.prisma.page.findMany({
-          where: { id: { in: rows.map((row) => row.id) } },
-          include: {
-            author: { select: SEARCH_AUTHOR_SELECT },
-            space: { select: SEARCH_SPACE_SELECT },
-          },
-        });
-        const byId = new Map(pages.map((page) => [page.id, page]));
-        const semanticResults = rows
-          .map((row) => ({
-            page: byId.get(row.id) ? withCanonicalPath(byId.get(row.id)!) : undefined,
-            similarity: row.similarity,
-          }))
-          .filter((row) => row.page);
-        if (semanticResults.length > 0) return semanticResults as SearchResult[];
-      }
+    })();
+    const [lexical, semantic] = await Promise.all([lexicalPromise, semanticPromise]);
+    const combined = new Map(lexical.map(candidate => [candidate.id, candidate]));
+    for (const candidate of semantic) {
+      combined.set(candidate.id, {
+        ...candidate,
+        textMatch: candidate.textMatch || combined.get(candidate.id)?.textMatch || false,
+      });
     }
-
-    // Fallback: text search using PostgreSQL ILIKE
-    this.logger.log('Using text search fallback');
-    const documents = await this.prisma.pageSearchDocument.findMany({
-      where: {
-        text: { contains: query, mode: 'insensitive' },
-        page: {
-          deletedAt: null,
-          spaceId: spaceId ?? { in: accessibleSpaceIds },
-        },
-      },
-      include: {
-        page: {
-          include: {
-            author: { select: SEARCH_AUTHOR_SELECT },
-            space: { select: SEARCH_SPACE_SELECT },
-          },
-        },
-      },
+    // Each route's ranked prefix is bounded by limit; semantic overlaps carry
+    // their measured score even if outside the lexical prefix. Text-only rows
+    // have zero (unmeasured) similarity and retain SQL order for ties.
+    const winners = [...combined.values()].sort((a, b) => b.titleRank - a.titleRank
+      || b.similarity - a.similarity).slice(0, limit);
+    if (!winners.length) return [];
+    const pages = await this.prisma.page.findMany({
+      where: { id: { in: winners.map(candidate => candidate.id) }, ...pageScope },
+      include: pageInclude,
       take: limit,
-      orderBy: { indexedAt: 'desc' },
     });
-
-    return documents.map((document) => ({
-      page: withCanonicalPath(document.page),
-      similarity: 1.0,
-    }));
+    const byId = new Map(pages.map(page => [page.id, page]));
+    return winners.flatMap(candidate => {
+      const page = byId.get(candidate.id);
+      return page ? [{
+        page: withCanonicalPath(page), similarity: candidate.similarity,
+        matchType: candidate.textMatch ? 'text' as const : 'semantic' as const,
+      }] : [];
+    });
   }
 
   async indexPage(

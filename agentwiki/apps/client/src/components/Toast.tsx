@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { CheckCircle2, X, XCircle } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -8,6 +8,13 @@ export const Toast: React.FC<{
   onClose: () => void;
 }> = ({ kind, message, onClose }) => {
   const { t } = useLanguage();
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    if (kind !== 'success') return;
+    const timer = window.setTimeout(() => closeRef.current(), 3000);
+    return () => window.clearTimeout(timer);
+  }, [kind, message]);
   return (
     <div
       role={kind === 'error' ? 'alert' : 'status'}

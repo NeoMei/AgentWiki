@@ -239,11 +239,11 @@ describe('SpaceWorkspace', () => {
     expect(await screen.findByRole('heading', { name: 'Known page' })).toBeVisible();
     expect(screen.getByRole('link', { name: 'Pages' })).toHaveAttribute('href', '/spaces/space-known');
     fireEvent.click(screen.getByRole('button', { name: 'refresh current page' }));
-    expect(await screen.findByText('Failed to load page')).toBeVisible();
+    expect(await screen.findByText('Network connection failed. Please try again.')).toBeVisible();
     expect(screen.getByRole('link', { name: 'Pages' })).toHaveAttribute('href', '/spaces/space-known');
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    expect(await screen.findByText('Access revoked')).toBeVisible();
+    expect(await screen.findByText('You do not have permission to perform this action.')).toBeVisible();
     expect(screen.queryByRole('link', { name: 'Pages' })).not.toBeInTheDocument();
   });
 

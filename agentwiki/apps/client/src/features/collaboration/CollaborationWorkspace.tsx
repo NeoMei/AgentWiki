@@ -24,6 +24,7 @@ export const CollaborationWorkspace: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { t, language } = useLanguage();
+  const templateTabRef = useRef<HTMLButtonElement>(null);
   const [tab, setTab] = useState<Tab>('templates');
   const [templates, setTemplates] = useState<TemplateSummary[]>([]);
   const [runs, setRuns] = useState<RunSummary[]>([]);
@@ -204,7 +205,8 @@ export const CollaborationWorkspace: React.FC = () => {
             {canCreateComposite ? <button type="button" onClick={() => navigate(newContentHref(id, null, 'collaboration'))} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white">
               <Plus size={16} aria-hidden="true" />{t('collaboration.createCompositeRun')}
             </button> : null}
-            <Link to={`/spaces/${id}/settings/page-templates`} className="inline-flex min-h-10 items-center justify-center rounded-lg border px-4 text-sm font-medium">{t('pageTemplate.manage')}</Link>
+            <button type="button" onClick={() => { setTab('templates'); templateTabRef.current?.focus(); }} className="inline-flex min-h-10 items-center justify-center rounded-lg border px-4 text-sm font-medium">{t('collaboration.manageTemplates')}</button>
+            <Link to={`/spaces/${id}/settings/page-templates`} className="inline-flex min-h-10 items-center justify-center rounded-lg border px-4 text-sm font-medium">{t('collaboration.managePageTemplates')}</Link>
             {canManage ? <Link to={`/spaces/${id}/collaboration/templates/new`} className="inline-flex min-h-10 items-center justify-center rounded-lg border px-4 text-sm font-medium">{t('collaboration.createLegacyTemplate')}</Link> : null}
           </div> : null}
         </div>
@@ -213,6 +215,7 @@ export const CollaborationWorkspace: React.FC = () => {
           {(['templates', 'active', 'history'] as const).map((value) => (
             <button
               key={value}
+              ref={value === 'templates' ? templateTabRef : undefined}
               type="button"
               role="tab"
               aria-selected={tab === value}

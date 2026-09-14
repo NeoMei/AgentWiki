@@ -124,3 +124,14 @@ describe('ArchivePageDto', () => {
     })).rejects.toMatchObject({ status: 400 });
   });
 });
+
+ describe('page title whitespace boundary', () => {
+   it.each([' ', '\t\n', '\u3000\u00a0'])('rejects whitespace title %j on create and update', async (title) => {
+     await expect(transformCreateBody({ title, spaceId: 'space-1', expectedTreeRevision: '1' })).rejects.toMatchObject({ status: 400 });
+     await expect(productionPipe.transform({ title, expectedUpdatedAt: '2026-09-14T00:00:00.000Z', expectedTreeRevision: '1' }, { type: 'body', metatype: UpdatePageDto })).rejects.toMatchObject({ status: 400 });
+   });
+   it('preserves non-blank titles and allows content-only edits of historical pages', async () => {
+     await expect(transformCreateBody({ title: '  我的页面  ', spaceId: 'space-1', expectedTreeRevision: '1' })).resolves.toMatchObject({ title: '  我的页面  ' });
+     await expect(productionPipe.transform({ content: 'Updated body', expectedUpdatedAt: '2026-09-14T00:00:00.000Z' }, { type: 'body', metatype: UpdatePageDto })).resolves.toMatchObject({ content: 'Updated body' });
+   });
+ });

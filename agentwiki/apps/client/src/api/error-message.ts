@@ -49,6 +49,7 @@ export function apiErrorMessage(error: unknown, t: Translate, fallbackKey: strin
   const response = (error as { response?: { status?: number; data?: { code?: unknown } } })?.response;
   const code = response?.data?.code;
   if (typeof code === 'string' && CODE_KEYS[code]) return t(CODE_KEYS[code]);
+  if (response?.status === 403) return t('error.spaceAccessDenied');
   if (response?.status === 429) return t('error.rateLimited');
   if (!response) return t('error.network');
   return t(fallbackKey);

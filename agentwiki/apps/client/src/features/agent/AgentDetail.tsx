@@ -141,6 +141,7 @@ export const AgentDetail: React.FC = () => {
 
           <section className="border rounded-[14px] bg-white p-5">
             <h2 className="font-semibold mb-4 flex items-center gap-2"><Shield size={18} /> {t('agent.authorizedSpaces')}</h2>
+            <p className="mb-3 text-sm text-gray-600">{t('agent.credentialSpaceBoundary')}</p>
             <div className="divide-y">
               {currentAgent.grants.map((item: any) => (
                 <div key={item.id} className="flex items-center justify-between gap-3 py-3 text-sm">

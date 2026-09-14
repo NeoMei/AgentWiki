@@ -104,6 +104,15 @@ describe('CollaborationWorkspace', () => {
     });
   });
 
+  it('manages collaboration templates in place while naming page templates separately', async () => {
+    renderWorkspace(); await screen.findByText('Coding collaboration');
+    const manage = screen.getByRole('button', { name: 'Manage collaboration templates' });
+    fireEvent.click(manage);
+    expect(screen.getByRole('tab', { name: 'Template library' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Template library' })).toHaveFocus();
+    expect(screen.getByRole('link', { name: 'Manage page templates' })).toHaveAttribute('href', '/spaces/space-1/settings/page-templates');
+  });
+
   it('routes the collaboration entry to the creation page with its source context', async () => {
     renderWorkspace();
     await screen.findByText('Coding collaboration');

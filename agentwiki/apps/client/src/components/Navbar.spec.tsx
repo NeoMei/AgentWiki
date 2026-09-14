@@ -6,9 +6,10 @@ import { Navbar } from './Navbar';
 import { REVIEW_CHANGED_EVENT } from '../features/review/review-events';
 
 const apiMock = vi.hoisted(() => ({ get: vi.fn() }));
+const auth = vi.hoisted(() => ({ user: { email: 'user@example.com', mustChangePassword: false } }));
 
 vi.mock('../context/AuthContext', () => ({
-  useAuth: () => ({ token: 'token', user: { email: 'user@example.com' }, logout: vi.fn() }),
+  useAuth: () => ({ token: 'token', user: auth.user, logout: vi.fn() }),
 }));
 
 vi.mock('../api/client', () => ({
@@ -18,6 +19,7 @@ vi.mock('../api/client', () => ({
 describe('Navbar global destinations', () => {
   beforeEach(() => {
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
+    auth.user.mustChangePassword = false;
     apiMock.get.mockResolvedValue({ data: { pending: 0 } });
   });
 
@@ -75,3 +77,19 @@ describe('Navbar global destinations', () => {
     expect(screen.getByText('2')).toBeInTheDocument();
   });
 });
+
+ it('does not poll during forced password change and resumes after completion', async () => {
+    vi.useFakeTimers();
+    auth.user.mustChangePassword = true;
+    const view = render(<LanguageProvider><MemoryRouter initialEntries={['/change-password']}><Navbar /></MemoryRouter></LanguageProvider>);
+    await act(async () => { window.dispatchEvent(new Event('focus')); window.dispatchEvent(new Event(REVIEW_CHANGED_EVENT)); await vi.advanceTimersByTimeAsync(10000); });
+    expect(apiMock.get).not.toHaveBeenCalled();
+    auth.user.mustChangePassword = false;
+    view.rerender(<LanguageProvider><MemoryRouter initialEntries={['/change-password']}><Navbar /></MemoryRouter></LanguageProvider>);
+    await act(async () => Promise.resolve());
+    expect(apiMock.get).toHaveBeenCalledTimes(1);
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(apiMock.get).toHaveBeenCalledTimes(2);
+    view.unmount();
+    vi.useRealTimers();
+ });

@@ -78,6 +78,71 @@ describe('ReviewPage detail refresh', () => {
 
   afterEach(cleanup);
 
+  it.each([
+    ['en', 'Existing pages with identical content'],
+    ['zh-CN', '正文完全相同的已有页面'],
+  ] as const)('renders optional existing-page duplicate examples in %s without blocking publishing', async (language, label) => {
+    const detail = { ...changeSet(), duplicateContentWarnings: [{ itemId: 'item-1', pages: [{ id: 'existing-1', title: 'Existing knowledge' }, { id: 'existing-2', title: '  ' }] }] };
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/review' ? [detail] : detail }));
+    renderReview(language); await expand();
+    expect(screen.getByRole('note', { name: label })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Existing knowledge' })).toHaveAttribute('href', '/pages/existing-1');
+    expect(screen.getByRole('link', { name: language === 'en' ? 'Untitled page' : '未命名页面' })).toHaveAttribute('href', '/pages/existing-2');
+    expect(screen.getByRole('button', { name: language === 'en' ? 'Approve & publish' : '通过并发布' })).toBeEnabled();
+    expect(api.get).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps older details without duplicate metadata usable and does not fetch a detector endpoint', async () => {
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/review' ? [changeSet()] : changeSet() }));
+    renderReview(); await expand();
+    expect(screen.queryByRole('note', { name: 'Existing pages with identical content' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve & publish' })).toBeEnabled();
+    expect(api.get).toHaveBeenCalledTimes(2);
+  });
+
+  it('advises about identical content within the loaded change set without blocking publication', async () => {
+    const detail = { ...changeSet(), items: [changeItem(), { ...changeItem(), id: 'item-2', payload: { title: 'Another page', content: 'Proposed content' } }] };
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve({ data: url === '/review' ? [detail] : detail } as any));
+    renderReview(); await expand();
+    expect(screen.getByText(/Identical non-empty content appears in this change set/)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Approve & publish' })).toBeEnabled();
+  });
+
+  it('reverts against the change set space tree head and prevents duplicate submissions', async () => {
+    const head = deferred<any>();
+    const detail = changeSet('published', 'accepted');
+    vi.mocked(api.get).mockImplementation((url) => {
+      if (url === '/spaces/space-1/content-tree') return head.promise;
+      return Promise.resolve({ data: url === '/review' ? [detail] : detail } as any);
+    });
+    vi.mocked(api.post).mockResolvedValue({ data: {} });
+    renderReview(); await expand();
+    const revert = screen.getByRole('button', { name: 'Revert' });
+    fireEvent.click(revert); fireEvent.click(revert);
+    expect(revert).toBeDisabled(); expect(api.post).not.toHaveBeenCalled();
+    await act(async () => head.resolve({ data: { treeRevision: '9007199254740993' } }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledExactlyOnceWith('/change-sets/cs-1/revert', { expectedTreeRevision: '9007199254740993', comment: undefined }, expect.objectContaining({ signal: expect.any(AbortSignal) })));
+    expect(api.get).toHaveBeenCalledWith('/spaces/space-1/content-tree', expect.objectContaining({ params: { take: 1 } }));
+  });
+
+  it('surfaces a revert tree conflict without retrying the mutation automatically', async () => {
+    const detail = changeSet('published', 'accepted');
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url.includes('/content-tree') ? { treeRevision: '7' } : url === '/review' ? [detail] : detail }));
+    vi.mocked(api.post).mockRejectedValue({ response: { status: 409, data: { code: 'CONTENT_TREE_CONFLICT' } } });
+    renderReview(); await expand(); fireEvent.click(screen.getByRole('button', { name: 'Revert' }));
+    expect(await screen.findByRole('alert')).toBeVisible();
+    expect(api.post).toHaveBeenCalledOnce();
+    expect(api.post).toHaveBeenCalledWith('/change-sets/cs-1/revert', { expectedTreeRevision: '7', comment: undefined }, expect.anything());
+    expect(screen.getByRole('button', { name: 'Revert' })).toBeEnabled();
+  });
+
+  it('does not send revert when the tree head is unavailable', async () => {
+    const detail = changeSet('published', 'accepted');
+    vi.mocked(api.get).mockImplementation((url) => url.includes('/content-tree') ? Promise.reject({ response: { status: 403, data: { code: 'SPACE_ACCESS_DENIED' } } }) : Promise.resolve({ data: url === '/review' ? [detail] : detail } as any));
+    renderReview(); await expand(); fireEvent.click(screen.getByRole('button', { name: 'Revert' }));
+    await screen.findByRole('alert'); expect(api.post).not.toHaveBeenCalled();
+  });
+
   it('refetches expanded detail after an item decision and renders the returned item state', async () => {
     const calls: string[] = [];
     let detailReads = 0;

@@ -1,16 +1,19 @@
 import React from 'react';
+import { systemTemplateText } from '../systemTemplateText';
 import { CheckCircle2, Circle, LoaderCircle, XCircle } from 'lucide-react';
-import type { CollaborationRun, CollaborationTask, HumanSpaceRole } from '../types';
+import type { CollaborationRun, CollaborationTask, HumanSpaceRole, TemplateSummary } from '../types';
 
 export const TaskPanel: React.FC<{
   run: CollaborationRun;
+  systemTemplate?: TemplateSummary | null;
   role?: HumanSpaceRole;
   userId?: string;
   t: (key: string, params?: Record<string, string | number>) => string;
   onHistory: (kind: 'todos' | 'attempts') => void;
   onAction: (kind: 'retry' | 'reassign' | 'skip', task: CollaborationTask) => void;
   agentNames?: Map<string, string>;
-}> = ({ run, role, userId, t, onHistory, onAction, agentNames = new Map() }) => {
+}> = ({ run, systemTemplate, role, userId, t, onHistory, onAction, agentNames = new Map() }) => {
+  const display = (value: string) => systemTemplateText(systemTemplate, value, t);
   const manager = role === 'owner' || role === 'admin';
   const canOperate = manager || run.startedById === userId;
   const tasks = [...(run.tasks ?? [])].sort((a, b) => a.ordinal - b.ordinal);
@@ -20,7 +23,7 @@ export const TaskPanel: React.FC<{
       {!tasks.length ? <div className="rounded-xl border bg-white py-10 text-center text-sm text-gray-500">{t('collaboration.dashboard.noTasks')}</div> : tasks.map((task) => {
         const activeAttempt = [...task.attempts].reverse().find((attempt) => ['claimed', 'running'].includes(attempt.status));
         return <article key={task.id} className="min-w-0 rounded-xl border bg-white p-4">
-          <div className="flex min-w-0 items-start justify-between gap-3"><div className="min-w-0"><p className="text-xs text-gray-500">{t('collaboration.dashboard.generation', { value: task.generation })}</p><h3 className="mt-1 break-words font-semibold">{task.name}</h3>{task.objectivePreview || task.objective ? <p className="mt-1 break-words text-sm text-gray-600">{task.objectivePreview ?? task.objective}</p> : null}</div><span className="shrink-0 rounded-full bg-gray-100 px-2 py-1 text-xs">{t(`collaboration.taskStatus.${task.status}`)}</span></div>
+          <div className="flex min-w-0 items-start justify-between gap-3"><div className="min-w-0"><p className="text-xs text-gray-500">{t('collaboration.dashboard.generation', { value: task.generation })}</p><h3 className="mt-1 break-words font-semibold">{display(task.name)}</h3>{task.objectivePreview || task.objective ? <p className="mt-1 break-words text-sm text-gray-600">{display(task.objectivePreview ?? task.objective ?? '')}</p> : null}</div><span className="shrink-0 rounded-full bg-gray-100 px-2 py-1 text-xs">{t(`collaboration.taskStatus.${task.status}`)}</span></div>
           <p className="mt-3 break-all text-xs text-gray-500">{t('collaboration.dashboard.frozenAssignee')}: {agentNames.get(task.assigneeAgentId) ?? task.assigneeAgentId}</p>
           {activeAttempt ? <p className="mt-1 text-xs text-gray-500">{t('collaboration.dashboard.leaseExpires', { date: new Date(activeAttempt.leaseExpiresAt).toLocaleString() })}</p> : null}
           <ol className="mt-4 space-y-2">{[...task.todos].sort((a, b) => a.ordinal - b.ordinal).map((todo, index) => <li key={todo.id} aria-label={`Todo ${index + 1}: ${todo.name}, ${t(`collaboration.todoStatus.${todo.status}`)}`} className="flex min-w-0 items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 text-sm">{todo.status === 'done' ? <CheckCircle2 size={15} className="shrink-0 text-green-600" aria-hidden="true" /> : todo.status === 'doing' ? <LoaderCircle size={15} className="shrink-0 text-blue-600" aria-hidden="true" /> : todo.status === 'failed' ? <XCircle size={15} className="shrink-0 text-red-600" aria-hidden="true" /> : <Circle size={15} className="shrink-0 text-gray-400" aria-hidden="true" />}<span className="min-w-0 break-words">{index + 1}. {todo.name}</span></li>)}</ol>

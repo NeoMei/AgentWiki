@@ -1,40 +1,36 @@
 # 当前目标
 
-- 多页模板填写指南 v0.11.2 已发布部署；六套 41 篇文档的中文与英文正文补齐。已有 7 篇空页面是否补入指南，待用户选择。
+- 完成 Q3 人工报告20项的代码修复、独立审查与回测，用户已授权“那修吧”。
 
 # 范围 / 不做
 
-- 新模板包含文档专属提示、表格、示例、完成检查与文档衔接；论文和小说终稿提供完整正文区域。
-- 应用 root/server/client 0.11.2；Local Sync 0.10.0、协议 0.6.0、独立 Obsidian 插件 0.5.0 保持。未发布 npm/插件，无 schema 变更，未扩大线上功能开关。
+- 主应用与独立 Obsidian 插件在 `codex/q3-fixes-20260914` 隔离工作树修复；不发布、部署、改生产数据或安装日常 Vault。
+- 原新3/4 Windows现场缺少实际版本和脱敏诊断，保留待原生复测；不删除控制文件或放宽完整性校验。
 
 # 当前状态
 
-- master 已合并推送；代码及 tag 59b77ba1 / v0.11.2；生产 https://agentwiki.quukk.com 已更新。
-- 模板与流程 19 suites / 288 通过，真实数据库 7 项零跳过覆盖 82 篇创建正文及版本保护；build/runtime contract/typecheck/lint 通过，独立审查无未关闭发现。
-- 生产新版及旧版各 82 份正文核对通过，三类文档桌面/手机尺寸渲染与 32 项冒烟通过。原有 7 篇空页面正文和更新时间保持。
-- 1078 源码文件匹配，734 旧资源保留；服务 active/NRestarts0、health 全 ok、迁移及两个 env 不变；247 有效页面搜索与向量正常。
-- v0.11.1 新建内容导航页继续有效；Space 自定义模板的保存/版本/复用能力保留为“空间自定义”来源。
+- 实现及最终检查收口中，详见活跃任务和验证报告；主应用7条Chrome隔离流程通过，最终前端1503项通过，typecheck/lint通过。
+- 历史发布基线仍为v0.11.2；应用0.11.2、Local Sync0.10.0、协议0.6.0、插件0.5.0，本轮不改版本。
+- 主目录原有 `.codex-memory/current.md` 修改和未跟踪 `HANDOFF.md` 保持；所有产品修改在工作树中。
+- 原目录记录：2026-09-10用户另行授权后NeoMei-Docs已更新并启用官方插件0.5.0，data.json保持、未触发同步。本轮未重新核验该历史记录，也未操作日常Vault。
 
 # 稳定约束
 
-- Folder 为目录，Page 承载正文；folderId 为事实源，权限/CAS/treeRevision 保持。
-- 模板版本不可变，升级追加版本，不覆盖已有用户页面。
-- 主仓路径末尾空格，Git 显式 --work-tree；保留根目录用户脏文件和其他工作树。
-- 浏览器隔离 fixture；发布、部署、真实客户端验收独立记录；页面组沿用 Space allowlist。
+- Folder为目录，Page承载正文；权限、候选基线、CAS与treeRevision必须保留。
+- 模板版本不可变，不覆盖已有用户页面。原有7篇空页面补入指南仍待用户选择。
+- 一凭证绑定一个Space Grant；完全重复正文只提示；自动合并保留删除语义，按服务器恢复为明确操作。
+- 主仓路径末尾空格，Git显式 `--work-tree`；保留用户脏文件和其他工作树。
+- 自动化、真实浏览器、Windows原生、发布、部署、安装为独立验收事实。
 
 # 关键索引
 
-- agentwiki/docs/verification/template-guidance-v0112-release.md
-- tasks/archive/template-guidance-20260910/brief.md
-- tasks/archive/template-guidance-20260910/decisions.md
-- tasks/archive/template-guidance-20260910/refs.md
-- agentwiki/docs/verification/new-content-v0111-release.md
-- 私有证据：/Users/neomei/.codex/recovery/agentwiki-template-guidance-20260910/
+- tasks/active/q3-regressions-20260914/brief.md
+- agentwiki/docs/verification/q3-regression-repair-20260914.md
+- docs/superpowers/plans/2026-09-14-q3-fixes.md
+- 历史发布：agentwiki/docs/verification/template-guidance-v0112-release.md
+- 当前私有证据：/Users/neomei/.codex/recovery/agentwiki-q3-20260914/
 
 # 风险 / 下一步
 
-- 2026-09-10用户另行授权后，NeoMei-Docs已更新并重新启用官方插件0.5.0；三件套与Release完全一致，data.json逐字节保持，原连接和空间映射在新版原生设置页仍激活，未触发同步。备份与截图：私有证据daily-vault-update-20260910-020052/。
-
-- 如用户选择补入现有 7 篇指南，须再次核对正文和更新时间，跳过新编辑并保留可回退版本；目前未修改。
-- 本轮未重新验收 Windows 原生、真实手机硬件；生产页面组创建受既有 allowlist 限制，实际实例化在隔离数据库验证。
-- 配对备份 /var/backups/agentwiki/template-guidance-v0112.QekvE5；前版 /root/agentwiki-previous-20260910044041。恢复须匹配数据库/附件/应用/env/systemd。
+- 完成搜索/查重与插件恢复保护独立复审、最终构建测试后本地提交；生产与日常安装另行处理。
+- 受影响Windows原生同步、原Git生产运行、多空间使用中的实际凭证身份本轮没有现场复现；不要据便携测试宣称历史现场全部关闭。

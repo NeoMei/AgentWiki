@@ -13,7 +13,8 @@ interface SearchResult {
     space?: { id: string; name: string };
     content?: string;
   };
-  similarity: number;
+  similarity?: number;
+  matchType?: 'text' | 'semantic';
 }
 
 export const SearchResults: React.FC = () => {
@@ -104,8 +105,9 @@ export const SearchResults: React.FC = () => {
                     {result.page.space.name}
                   </Link>
                 )}
-                {result.similarity > 0 && result.similarity < 1 && (
-                  <span className="text-xs text-gray-400">{t('search.match', { percent: (result.similarity * 100).toFixed(0) })}</span>
+                {result.matchType === 'text' ? <span className="text-xs text-gray-400">{t('search.textMatch')}</span> : null}
+                {result.matchType === 'semantic' && typeof result.similarity === 'number' && Number.isFinite(result.similarity) && result.similarity >= 0 && result.similarity <= 1 && (
+                  <span className="text-xs text-gray-400">{t('search.semanticRelevance', { percent: (result.similarity * 100).toFixed(0) })}</span>
                 )}
               </div>
             </div>

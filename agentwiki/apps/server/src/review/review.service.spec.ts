@@ -1622,7 +1622,7 @@ describe('ReviewService approval boundaries', () => {
   it('publishes an Agent page update with prior state captured for rollback', async () => {
     prisma.changeSet.findUnique.mockResolvedValue({
       id: 'cs-update', status: 'approved', spaceId: 'space-1', createdByUserId: null, createdByAgentId: 'agent-1',
-      items: [{ id: 'update', type: 'update_page', status: 'accepted', payload: { pageId: 'page-1', expectedTreeRevision: '0', changes: { title: 'After', content: 'New' } } }],
+      items: [{ id: 'update', type: 'update_page', status: 'accepted', payload: { pageId: 'page-1', expectedUpdatedAt: '2026-08-19T10:00:00.000Z', expectedTreeRevision: '0', changes: { title: 'After', content: 'New' } } }],
       approvals: [], space: {}, run: null,
     });
     (prisma as any).agent = { findUnique: jest.fn().mockResolvedValue({ ownerId: 'owner-1' }) };
@@ -1820,6 +1820,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    prisma.changeItem.count.mockResolvedValue(1);
     syncPaths.allocate.mockResolvedValue({
       path: 'pages/Generated.md',
       pathKey: pathKey('pages/Generated.md'),
@@ -1830,8 +1831,8 @@ describe('one-shot review-publish and agent auto-publish', () => {
 
   it('reviewPublish accepts pending items, approves and publishes in one call', async () => {
     prisma.changeSet.findUnique.mockResolvedValue({
-      id: 'cs-1', status: 'approved', spaceId: 'space-1', createdByUserId: 'user-1', createdByAgentId: null,
-      items: [{ id: 'i1', type: 'create_page', status: 'accepted', payload: { title: 'A', content: 'x', expectedTreeRevision: '0' } }],
+      id: 'cs-1', status: 'pending_review', spaceId: 'space-1', createdByUserId: 'user-1', createdByAgentId: null,
+      items: [{ id: 'i1', type: 'create_page', status: 'pending', payload: { title: 'A', content: 'x', expectedTreeRevision: '0' } }],
       approvals: [], space: {}, run: null,
     });
     prisma.page.create.mockResolvedValue({ id: 'page-1' });
@@ -1852,13 +1853,11 @@ describe('one-shot review-publish and agent auto-publish', () => {
   });
 
   it('reviewPublish refuses to approve and publish when no item is accepted', async () => {
-    prisma.changeItem.count.mockResolvedValue(0);
+    prisma.changeSet.findUnique.mockResolvedValue({ id: 'cs-empty', status: 'pending_review', createdByUserId: 'user-1', items: [] });
 
     await expect(service.reviewPublish('cs-empty', 'reviewer-1')).rejects.toBeInstanceOf(BadRequestException);
 
-    expect(prisma.changeItem.count).toHaveBeenCalledWith({
-      where: { changeSetId: 'cs-empty', status: 'accepted' },
-    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(prisma.approval.create).not.toHaveBeenCalled();
   });
 
@@ -2376,6 +2375,7 @@ describe('ReviewService readable page paths', () => {
       payload: {
         pageId: 'page-1',
         expectedTreeRevision: '0',
+        expectedUpdatedAt: updatedAt.toISOString(),
         changes: { title: 'New' },
       },
     }];
@@ -2531,6 +2531,7 @@ describe('ReviewService readable page paths', () => {
       payload: {
         pageId: 'page-1',
         expectedTreeRevision: '0',
+        expectedUpdatedAt: updatedAt.toISOString(),
         changes: { title: 'A <> B' },
       },
     }];
@@ -2968,7 +2969,7 @@ describe('ReviewService archive audit and provenance', () => {
     const changeSet = {
       id: 'cs-archive', status: 'approved', spaceId: 'space-1',
       createdByUserId: 'user-archive', createdByAgentId: null,
-      items: [{ id: 'item-archive', type: 'archive_page', status: 'accepted', payload: { pageId: 'page-1', expectedTreeRevision: '0' } }],
+      items: [{ id: 'item-archive', type: 'archive_page', status: 'accepted', payload: { pageId: 'page-1', expectedUpdatedAt: originalUpdatedAt.toISOString(), expectedTreeRevision: '0' } }],
       approvals: [], space: {}, run: null,
     };
     let committed = {

@@ -1,3 +1,4 @@
+import { assertPageTitle } from './page-title';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { CreatePageDto, UpdatePageDto } from '../dto/page.dto';
@@ -80,6 +81,7 @@ export class PageService {
   }
 
   async create(data: CreatePageDto, principal: Principal) {
+    assertPageTitle(data.title);
     const space = await this.prisma.space.findUnique({
       where: { id: data.spaceId, deletedAt: null },
     });
@@ -370,6 +372,7 @@ export class PageService {
   }
 
   async update(id: string, data: UpdatePageDto, principal: Principal) {
+    if (data.title !== undefined) assertPageTitle(data.title);
     const userId = principal.userId;
     const { expectedUpdatedAt, expectedTreeRevision, ...changes } = data;
     const expectedVersion = new Date(expectedUpdatedAt);
