@@ -4,7 +4,7 @@
 
 ## 活跃任务
 
-- [q3-regressions-20260914](active/q3-regressions-20260914/brief.md)：Q3人工报告20项修复；主应用和插件隔离工作树实施、独立审查与最终验收收口。未发布部署或安装日常Vault。
+- [q3-regressions-20260914](archive/q3-regressions-20260914/brief.md)：Q3人工报告20项代码修复、整分支独立复审与候选验收完成；未发布部署或安装日常Vault。
 
 ## 最近完成
 
