@@ -25,6 +25,10 @@ export interface Principal {
   credentialId?: string;
   platformRole?: 'user' | 'super_admin';
 }
+export interface SpaceAccessOptions {
+  /** Require a real SpaceMember row even when the human is a platform super admin. */
+  requireSpaceMembership?: boolean;
+}
 type PrincipalInput = string | Principal;
 
 @Injectable()
@@ -69,13 +73,14 @@ export class AuthorizationService {
     principal: Principal,
     spaceId: string,
     allowedRoles: SpaceRole[] = ['owner', 'admin', 'editor', 'viewer'],
+    options: SpaceAccessOptions = {},
   ): Promise<{ role: SpaceRole; userId: string; spaceId: string; isSuperAdmin?: true }> {
     const user = await this.lockLiveHumanPrincipal(db, principal);
     const space = await db.space.findUnique({ where: { id: spaceId }, select: { id: true, deletedAt: true } });
     if (!space || space.deletedAt) {
       throw new BusinessException('SPACE_ACCESS_DENIED', 'Human write authorization is no longer valid');
     }
-    if (user.platformRole === 'super_admin') {
+    if (user.platformRole === 'super_admin' && !options.requireSpaceMembership) {
       return { role: 'owner', userId: user.id, spaceId, isSuperAdmin: true };
     }
     const member = await db.spaceMember.findUnique({
@@ -94,6 +99,7 @@ export class AuthorizationService {
     spaceId: string,
     allowedRoles: SpaceRole[] = ['owner', 'admin', 'editor', 'viewer'],
     requiredScope?: string,
+    options: SpaceAccessOptions = {},
   ) {
     const principal = this.normalize(principalInput);
     const effectiveAllowedRoles = !principal.agentId ? humanAllowedRoles(allowedRoles) : allowedRoles;
@@ -110,7 +116,7 @@ export class AuthorizationService {
         `Space not found: "${spaceId}". spaceId must be the space's internal id (CUID), not its display name. Call list_spaces or GET /api/integrations/mcp to see the spaces you can access and their ids.`,
       );
     }
-    if (!principal.agentId && principal.platformRole === 'super_admin') {
+    if (!principal.agentId && principal.platformRole === 'super_admin' && !options.requireSpaceMembership) {
       return { role: 'owner' as const, spaceId, userId: principal.userId, isSuperAdmin: true };
     }
     if (principal.agentId) {

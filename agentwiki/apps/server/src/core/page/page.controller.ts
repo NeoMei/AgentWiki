@@ -28,7 +28,9 @@ export class PageController {
   @Post()
   async create(@Body() dto: CreatePageDto, @Req() req: Request) {
     const user = req.user as any;
-    await this.authorization.assertSpaceAccess(user, dto.spaceId, ['owner', 'editor'], 'pages:write');
+    await this.authorization.assertSpaceAccess(
+      user, dto.spaceId, ['owner', 'editor'], 'pages:write', { requireSpaceMembership: true },
+    );
     if (
       dto.parentId !== undefined
       && process.env.ALLOW_LEGACY_PAGE_PARENT_WRITE !== 'true'

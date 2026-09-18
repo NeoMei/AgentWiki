@@ -51,7 +51,7 @@ describe('Agent write review boundary', () => {
       .rejects.toMatchObject({ businessCode: 'PAGE_TEMPLATE_AGENT_UNSUPPORTED' });
 
     expect(authorization.assertSpaceAccess).toHaveBeenCalledWith(
-      expect.anything(), 'space-1', ['owner', 'editor'], 'pages:write',
+      expect.anything(), 'space-1', ['owner', 'editor'], 'pages:write', { requireSpaceMembership: true },
     );
     expect(review.propose).not.toHaveBeenCalled();
     expect(pages.create).not.toHaveBeenCalled();

@@ -98,7 +98,7 @@ export class PageService {
         expectedTreeRevision,
       );
       await this.authorization.assertLiveHumanSpaceAccess(
-        lockedTx, principal, data.spaceId, ['owner', 'editor'],
+        lockedTx, principal, data.spaceId, ['owner', 'editor'], { requireSpaceMembership: true },
       );
       let folderId = data.folderId ?? null;
       if (data.parentId !== undefined) {

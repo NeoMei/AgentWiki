@@ -81,6 +81,43 @@ describe('AuthorizationService', () => {
     expect(prisma.spaceMember.findUnique).not.toHaveBeenCalled();
   });
 
+  it('requires real Space membership when a write path opts out of platform-admin bypass', async () => {
+    prisma.spaceMember.findUnique.mockResolvedValue(null);
+
+    await expect(service.assertSpaceAccess(
+      { userId: 'super-admin', platformRole: 'super_admin' } as any,
+      'space-1',
+      ['owner', 'editor'],
+      'pages:write',
+      { requireSpaceMembership: true },
+    )).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+    expect(prisma.spaceMember.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      where: { userId_spaceId: { userId: 'super-admin', spaceId: 'space-1' } },
+    }));
+  });
+
+  it('requires live Space membership inside a mutation transaction when strict access is requested', async () => {
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'super-admin' }]),
+      user: { findUnique: jest.fn().mockResolvedValue({
+        id: 'super-admin', type: 'human', platformRole: 'super_admin', deletedAt: null, lockedAt: null,
+      }) },
+      space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
+      spaceMember: { findUnique: jest.fn().mockResolvedValue(null) },
+    } as any;
+
+    await expect(service.assertLiveHumanSpaceAccess(
+      tx,
+      { userId: 'super-admin', platformRole: 'super_admin' },
+      'space-1',
+      ['owner', 'editor'],
+      { requireSpaceMembership: true },
+    )).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+    expect(tx.spaceMember.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      where: { userId_spaceId: { userId: 'super-admin', spaceId: 'space-1' } },
+    }));
+  });
+
   it('reloads the live human, platform role, Space, and membership from the provided transaction', async () => {
     const tx = {
       $queryRaw: jest.fn().mockResolvedValue([{ id: 'user-1' }]),

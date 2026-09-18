@@ -138,7 +138,7 @@ export class TemplateInstantiationService {
           await this.authorization.lockLiveHumanPrincipal(tx, principal);
           const lockedTx = await this.contentTree.lockPageMutationSpace(tx, spaceId);
           await this.authorization.assertLiveHumanSpaceAccess(
-            lockedTx, principal, spaceId, ['owner', 'editor'],
+            lockedTx, principal, spaceId, ['owner', 'editor'], { requireSpaceMembership: true },
           );
           const existing = await lockedTx.templateInstantiation.findUnique({
             where: {

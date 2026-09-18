@@ -19,6 +19,9 @@ describe('PageController.create', () => {
     expect(pageService.create).toHaveBeenCalledWith(
       { title: 'Human page', spaceId: 'space-1', expectedTreeRevision: '0' }, principal,
     );
+    expect(authorization.assertSpaceAccess).toHaveBeenCalledWith(
+      principal, 'space-1', ['owner', 'editor'], 'pages:write', { requireSpaceMembership: true },
+    );
     expect(review.propose).not.toHaveBeenCalled();
   });
 

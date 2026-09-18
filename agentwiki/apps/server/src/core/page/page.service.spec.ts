@@ -611,7 +611,7 @@ describe('PageService', () => {
       }, principal);
 
       expect(mockAuthorization.assertLiveHumanSpaceAccess).toHaveBeenCalledWith(
-        mockPrisma, principal, 'space-1', ['owner', 'editor'],
+        mockPrisma, principal, 'space-1', ['owner', 'editor'], { requireSpaceMembership: true },
       );
       expect(mockAuthorization.lockLiveHumanPrincipal.mock.invocationCallOrder[0]).toBeLessThan(
         mockRevisionWriter.lockSpace.mock.invocationCallOrder[0],

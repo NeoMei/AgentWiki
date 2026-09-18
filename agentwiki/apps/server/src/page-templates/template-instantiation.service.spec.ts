@@ -290,6 +290,9 @@ describe('TemplateInstantiationService', () => {
 
     await expect(h.service.instantiate('space-1', 'template-1', input(), principal)).resolves.toEqual(first);
     expect(h.authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledTimes(2);
+    expect(h.authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledWith(
+      h.tx, principal, 'space-1', ['owner', 'editor'], { requireSpaceMembership: true },
+    );
     expect(h.tx.page.create).toHaveBeenCalledTimes(3);
   });
 
