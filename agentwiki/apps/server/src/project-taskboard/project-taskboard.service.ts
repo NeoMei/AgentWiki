@@ -281,6 +281,7 @@ export class ProjectTaskboardService {
         return { summary };
       },
       incoming.project,
+      Prisma.TransactionIsolationLevel.Serializable,
     );
     return { board, summary: result.summary, project: board.project };
   }
@@ -355,6 +356,7 @@ export class ProjectTaskboardService {
     actor: TaskboardActor,
     mutate: (board: TaskboardBoard, tx: PrismaTx, boardId: string, events: BoardEventInput[]) => Promise<T>,
     defaultProject?: string,
+    isolation: Prisma.TransactionIsolationLevel = Prisma.TransactionIsolationLevel.ReadCommitted,
   ): Promise<BoardMutationResult<T>> {
     const outcome = await withCollaborationSerializableRetry(() =>
       this.prisma.$transaction(
@@ -372,20 +374,6 @@ export class ProjectTaskboardService {
           const board = this.toBoardWire(boardRow, taskRows);
           const events: BoardEventInput[] = [];
           const result = await mutate(board, tx, boardRow.id, events);
-          for (let index = 0; index < events.length; index += 1) {
-            const event = events[index];
-            await tx.projectBoardEvent.create({
-              data: {
-                boardId: boardRow.id,
-                sequence: boardRow.eventSequence + index + 1,
-                actorKind: event.actorKind,
-                actorId: event.actorId,
-                operation: event.operation,
-                taskId: event.taskId ?? null,
-                detail: event.detail as Prisma.InputJsonValue,
-              },
-            });
-          }
           const updatedBoardRow = await tx.projectBoard.update({
             where: { id: boardRow.id },
             data: {
@@ -395,9 +383,24 @@ export class ProjectTaskboardService {
               eventSequence: { increment: events.length },
             },
           });
+          // The board-row lock serializes sequence allocation under concurrent writers.
+          for (let index = 0; index < events.length; index += 1) {
+            const event = events[index];
+            await tx.projectBoardEvent.create({
+              data: {
+                boardId: boardRow.id,
+                sequence: updatedBoardRow.eventSequence - events.length + index + 1,
+                actorKind: event.actorKind,
+                actorId: event.actorId,
+                operation: event.operation,
+                taskId: event.taskId ?? null,
+                detail: event.detail as Prisma.InputJsonValue,
+              },
+            });
+          }
           return { board, result, boardRow: updatedBoardRow, events };
         },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        { isolationLevel: isolation },
       ),
     );
     if (outcome.events.length > 0) {
