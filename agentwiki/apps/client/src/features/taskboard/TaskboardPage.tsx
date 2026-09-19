@@ -28,6 +28,7 @@ import {
 
 const STAGE_NAMES = ['前置验证', '功能实现', '集成验收'];
 const STAGE_KEYS = ['validation', 'implementation', 'acceptance'];
+const STAGE_SHORT = ['验证', '实现', '验收'];
 const TB_STATUS_ORDER = ['todo', 'in_progress', 'blocked', 'in_review', 'done', 'canceled', 'unknown'];
 
 function statusZh(s: string): string {
@@ -312,7 +313,7 @@ export const TaskboardPage: React.FC = () => {
           <div className="signals">
             {tbStages(tasks, task).map((v, i) => (
               <span key={STAGE_KEYS[i]} title={STAGE_NAMES[i] + '：' + statusZh(v)}>
-                <i className={'dot ' + v} />{STAGE_NAMES[i].slice(0, 2)}
+                <i className={'dot ' + v} />{STAGE_SHORT[i]}
               </span>
             ))}
           </div>
