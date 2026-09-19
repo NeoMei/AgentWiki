@@ -16,6 +16,7 @@ interface FakeDb {
   spaces: Array<Record<string, unknown>>;
   boards: Array<Record<string, any>>;
   tasks: Array<Record<string, any>>;
+  events: Array<Record<string, any>>;
 }
 
 function makeDb(): { prisma: any; db: FakeDb } {
@@ -23,6 +24,7 @@ function makeDb(): { prisma: any; db: FakeDb } {
     spaces: [{ id: 'space-1', name: '演示空间' }],
     boards: [],
     tasks: [],
+    events: [],
   };
   const sortTasks = () => [...db.tasks].sort((a, b) => a.ordinal - b.ordinal);
   const tx = {
@@ -37,6 +39,7 @@ function makeDb(): { prisma: any; db: FakeDb } {
           schemaVersion: 1,
           sourceType: 'manual',
           sources: [],
+          eventSequence: 0,
           updatedAt: new Date(),
           createdAt: new Date(),
           ...data,
@@ -46,7 +49,9 @@ function makeDb(): { prisma: any; db: FakeDb } {
       }),
       update: jest.fn(async ({ where, data }: any) => {
         const row = db.boards.find((b) => b.id === where.id)!;
-        Object.assign(row, data);
+        const { eventSequence, ...rest } = data;
+        Object.assign(row, rest);
+        if (eventSequence?.increment) row.eventSequence = (row.eventSequence ?? 0) + eventSequence.increment;
         row.updatedAt = new Date();
         return row;
       }),
@@ -68,20 +73,30 @@ function makeDb(): { prisma: any; db: FakeDb } {
         return row;
       }),
     },
+    projectBoardEvent: {
+      create: jest.fn(async ({ data }: any) => {
+        db.events.push({ createdAt: new Date(), ...data });
+        return data;
+      }),
+      findMany: jest.fn(async ({ where }: any) =>
+        db.events.filter((e) => e.boardId === where.boardId).sort((a, b) => b.sequence - a.sequence)),
+    },
   };
   const prisma = {
     $transaction: jest.fn(async (fn: any) => fn(tx)),
     projectBoard: tx.projectBoard,
     space: tx.space,
     projectBoardTask: tx.projectBoardTask,
+    projectBoardEvent: tx.projectBoardEvent,
   };
   return { prisma: prisma as any, db };
 }
 
 function makeService(db = makeDb()) {
   const authorization = { assertSpaceAccess: jest.fn(async () => ({ role: 'owner' })) };
-  const service = new ProjectTaskboardService(db.prisma, authorization as any);
-  return { service, authorization, ...db };
+  const redis = { publish: jest.fn(async () => undefined) };
+  const service = new ProjectTaskboardService(db.prisma, authorization as any, redis as any);
+  return { service, authorization, redis, ...db };
 }
 
 describe('ProjectTaskboardService', () => {
@@ -174,5 +189,70 @@ describe('ProjectTaskboardService', () => {
     expect(board.project).toBe('演示空间');
     expect(board.updated_at).toBeNull();
     expect(read_at).toBeTruthy();
+  });
+
+  it('attributes status history to the acting agent or user', async () => {
+    const { service } = makeService();
+    await service.createTask({ userId: 'u1' } as any, 'space-1', { id: 'task-1', title: '实现' });
+    await service.updateStatus({ agentId: 'a1' } as any, 'space-1', 'task-1', { status: 'in_progress' });
+    const board = await service.getBoard({ userId: 'u1' } as any, 'space-1');
+    const history = board.board.tasks[0].status_history ?? [];
+    expect(history[history.length - 1]).toMatchObject({ from: 'todo', to: 'in_progress', by: 'agent:a1' });
+
+    await service.updateStatus({ userId: 'u9' } as any, 'space-1', 'task-1', { status: 'done', takeover: true });
+    const after = await service.getBoard({ userId: 'u1' } as any, 'space-1');
+    const late = after.board.tasks[0].status_history ?? [];
+    expect(late[late.length - 1]).toMatchObject({ from: 'in_progress', to: 'done', by: 'user:u9' });
+  });
+
+  it('rejects stale expected_status with a conflict', async () => {
+    const { service } = makeService();
+    await service.createTask({ userId: 'u1' } as any, 'space-1', { id: 'task-1', title: '实现' });
+    await expect(service.updateStatus({ agentId: 'a1' } as any, 'space-1', 'task-1', {
+      status: 'done',
+      expected_status: 'in_progress',
+    })).rejects.toMatchObject({ businessCode: 'TASKBOARD_STATUS_CONFLICT' });
+    await expect(service.updateStatus({ agentId: 'a1' } as any, 'space-1', 'task-1', {
+      status: 'in_progress',
+      expected_status: 'todo',
+    })).resolves.toMatchObject({ task: { status: 'in_progress' } });
+  });
+
+  it('enforces task claims between agents with explicit takeover', async () => {
+    const { service } = makeService();
+    await service.createTask({ userId: 'u1' } as any, 'space-1', { id: 'task-1', title: '实现' });
+    await service.updateStatus({ agentId: 'a1' } as any, 'space-1', 'task-1', { status: 'in_progress' });
+    await expect(service.updateStatus({ agentId: 'a2' } as any, 'space-1', 'task-1', { status: 'in_progress' }))
+      .rejects.toMatchObject({ businessCode: 'TASKBOARD_TASK_CLAIMED' });
+    await expect(service.updateStatus({ agentId: 'a2' } as any, 'space-1', 'task-1', { status: 'in_progress', takeover: true }))
+      .resolves.toMatchObject({ task: { claim: { owner: 'agent:a2' } } });
+    await expect(service.updateStatus({ agentId: 'a1' } as any, 'space-1', 'task-1', { status: 'done' }))
+      .rejects.toMatchObject({ businessCode: 'TASKBOARD_TASK_CLAIMED' });
+    await service.updateStatus({ agentId: 'a2' } as any, 'space-1', 'task-1', { status: 'done' });
+  });
+
+  it('blocks in_progress until depends_on tasks are done', async () => {
+    const { service } = makeService();
+    await service.createTask({ userId: 'u1' } as any, 'space-1', { id: 'dep', title: '依赖任务' });
+    await service.createTask({ userId: 'u1' } as any, 'space-1', { id: 'main', title: '主任务', depends_on: ['dep'] });
+    await expect(service.updateStatus({ agentId: 'a1' } as any, 'space-1', 'main', { status: 'in_progress' }))
+      .rejects.toMatchObject({ businessCode: 'TASKBOARD_DEPENDENCY_UNMET' });
+    await service.updateStatus({ agentId: 'a1' } as any, 'space-1', 'dep', { status: 'done' });
+    await expect(service.updateStatus({ agentId: 'a1' } as any, 'space-1', 'main', { status: 'in_progress' }))
+      .resolves.toMatchObject({ task: { status: 'in_progress' } });
+  });
+
+  it('records actor-attributed events and publishes a change notification', async () => {
+    const { service, redis } = makeService();
+    await service.createTask({ userId: 'u1' } as any, 'space-1', { id: 'task-1', title: '实现' });
+    await service.updateStatus({ agentId: 'a1' } as any, 'space-1', 'task-1', { status: 'in_progress' });
+    const feed = await service.listEvents({ userId: 'u1' } as any, 'space-1');
+    expect(feed.event_sequence).toBe(2);
+    expect(feed.events[0]).toMatchObject({ operation: 'status', actor_kind: 'agent', actor_id: 'a1' });
+    expect(feed.events[1]).toMatchObject({ operation: 'create', actor_kind: 'user', actor_id: 'u1' });
+    expect(redis.publish).toHaveBeenCalledWith(
+      'agentwiki:taskboard:boards',
+      expect.stringContaining('eventSequence'),
+    );
   });
 });

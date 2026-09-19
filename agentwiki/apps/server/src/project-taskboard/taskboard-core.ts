@@ -26,10 +26,15 @@ export type TaskboardKind = (typeof TASKBOARD_KINDS)[number];
 
 export const TASKBOARD_CONCRETE_KINDS = new Set<string>(['task', 'implementation_task']);
 
+/** Redis pub/sub channel for board change notifications (spaceId + eventSequence). */
+export const TASKBOARD_CHANNEL = 'agentwiki:taskboard:boards';
+
 export interface TaskboardStatusHistoryEntry {
   from: string | null;
   to: string | null;
   at: string;
+  /** Actor identity that made the change, e.g. `agent:cuid` or `user:cuid`. */
+  by?: string | null;
 }
 
 /** Wire format task: mirrors the flat snake_case dict used by project-taskboard. */
@@ -159,10 +164,10 @@ export function makeTaskboardTask(
   return task;
 }
 
-/** Port of project-taskboard apply_patch. */
 export function applyTaskboardPatch(
   task: TaskboardTask,
   patch: Record<string, unknown>,
+  actor?: string | null,
 ): TaskboardTask {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
     throw invalid('更新请求体必须是 JSON 对象');
@@ -187,7 +192,7 @@ export function applyTaskboardPatch(
   if (task.status === 'done' && !task.completed_at) task.completed_at = now;
   if (task.status !== beforeStatus) {
     const history = task.status_history ?? (task.status_history = []);
-    history.push({ from: beforeStatus, to: task.status ?? null, at: now });
+    history.push({ from: beforeStatus, to: task.status ?? null, at: now, by: actor ?? null });
   }
   task.updated_at = now;
   return task;
@@ -281,12 +286,18 @@ function parseDate(value: unknown, field: string, taskId: string): Date | null {
   return date;
 }
 
+/** Server-managed collaboration fields: persisted, but never client-patchable. */
+export const TASKBOARD_INTERNAL_FIELDS = new Set<string>(['claim']);
+
+/** Transitions that require the task claim (or an explicit takeover). */
+export const TASKBOARD_CLAIM_GUARDED_STATUSES = new Set<string>(['in_progress', 'in_review', 'done']);
+
 /** Split a wire task into relational columns plus the free-form payload bucket. */
 export function toTaskboardColumns(task: TaskboardTask, ordinal: number): TaskboardTaskColumns {
   const payload: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(task)) {
     if (COLUMN_FIELD_SET.has(key)) continue;
-    if (!TASKBOARD_MUTABLE_FIELDS.has(key)) continue;
+    if (!TASKBOARD_MUTABLE_FIELDS.has(key) && !TASKBOARD_INTERNAL_FIELDS.has(key)) continue;
     payload[key] = value;
   }
   const history = Array.isArray(task.status_history) ? task.status_history : [];

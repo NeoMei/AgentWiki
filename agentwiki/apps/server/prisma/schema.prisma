@@ -1841,11 +1841,31 @@ model ProjectBoard {
   schemaVersion Int      @default(1)
   sourceType    String   @default("manual")
   sources       Json     @default("[]")
+  eventSequence Int      @default(0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   space Space              @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   tasks ProjectBoardTask[]
+  events ProjectBoardEvent[]
+}
+
+/// Append-only collaboration activity log for a project board (actor-attributed).
+model ProjectBoardEvent {
+  id        String   @id @default(cuid())
+  boardId   String
+  sequence  Int
+  actorKind String
+  actorId   String?
+  operation String
+  taskId    String?
+  detail    Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  board ProjectBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@unique([boardId, sequence])
+  @@index([boardId, createdAt])
 }
 
 model ProjectBoardTask {

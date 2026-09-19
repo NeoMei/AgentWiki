@@ -8,6 +8,7 @@ import { AuthService } from '../auth/auth.service';
 import { AuthorizationService, type Principal } from '../authorization/authorization.service';
 import { COLLABORATION_RUN_CHANNEL } from '../../collaboration-workflows/collaboration-events.service';
 import { CollaborationRunAccessService } from './collaboration-run-access.service';
+import { TASKBOARD_CHANNEL } from '../../project-taskboard/taskboard-core';
 
 const ASSIST_CHANNEL = 'agentwiki:collab:assist';
 const SOCKET_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:3000')
@@ -45,6 +46,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   private logger = new Logger('CollaborationGateway');
   private unsubscribeRedis: (() => void) | null = null;
   private unsubscribeRuns: (() => void) | null = null;
+  private unsubscribeTaskboard: (() => void) | null = null;
   private activeUsers = new Map<string, Map<string, CursorPosition>>();
   private userSockets = new Map<string, Set<string>>();
   private roomAuthorizationCheckedAt = new Map<string, number>();
@@ -95,6 +97,21 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
           /* ignore malformed refresh hints */
         }
       });
+      this.unsubscribeTaskboard = await this.redis.subscribe(TASKBOARD_CHANNEL, (raw) => {
+        try {
+          const message = JSON.parse(raw) as { spaceId?: unknown; boardId?: unknown; eventSequence?: unknown };
+          if (!this.validRunId(message.spaceId) || !Number.isSafeInteger(message.eventSequence)) return;
+          this.server
+            .to('taskboard:space:' + String(message.spaceId))
+            .emit('taskboardChanged', {
+              spaceId: message.spaceId,
+              boardId: message.boardId ?? null,
+              eventSequence: Number(message.eventSequence),
+            });
+        } catch {
+          /* ignore malformed board hints */
+        }
+      });
     } catch (error: any) {
       this.logger.error(`Failed to subscribe to assist channel: ${error?.message || error}`);
     }
@@ -105,6 +122,8 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
     this.unsubscribeRedis = null;
     this.unsubscribeRuns?.();
     this.unsubscribeRuns = null;
+    this.unsubscribeTaskboard?.();
+    this.unsubscribeTaskboard = null;
   }
 
   async handleConnection(client: Socket) {
@@ -268,6 +287,32 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   ) {
     if (!this.validRunId(body?.runId)) return;
     await client.leave(`collaboration:run:${body.runId}`);
+  }
+
+  @SubscribeMessage('taskboard:subscribe')
+  async handleTaskboardSubscribe(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { spaceId?: string },
+  ) {
+    if (!this.validRunId(body?.spaceId)) return;
+    const principal = await this.refreshSocketPrincipal(client);
+    if (!principal) return;
+    try {
+      await this.authorization.assertSpaceAccess(principal, String(body.spaceId), ['owner', 'admin', 'editor', 'viewer']);
+    } catch {
+      client.emit('collaborationError', { code: 'TASKBOARD_ACCESS_DENIED' });
+      return;
+    }
+    await client.join('taskboard:space:' + String(body.spaceId));
+  }
+
+  @SubscribeMessage('taskboard:unsubscribe')
+  async handleTaskboardUnsubscribe(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { spaceId?: string },
+  ) {
+    if (!this.validRunId(body?.spaceId)) return;
+    await client.leave('taskboard:space:' + String(body.spaceId));
   }
 
   @SubscribeMessage('contentChange')

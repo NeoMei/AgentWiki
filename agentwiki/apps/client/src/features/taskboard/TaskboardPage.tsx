@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { RefreshCw, Upload } from 'lucide-react';
+import { io, type Socket } from 'socket.io-client';
 import { useLanguage } from '../../context/LanguageContext';
 import { apiErrorMessage } from '../../api/error-message';
 import { taskboardApi } from './api';
@@ -175,6 +176,37 @@ export const TaskboardPage: React.FC = () => {
   useEffect(() => {
     scrollRailToPhase(effectivePhaseId);
   }, [effectivePhaseId, scrollRailToPhase, phaseSummaries.length]);
+
+  // Live sync: board changes published by any agent refresh this view (debounced).
+  useEffect(() => {
+    if (!spaceId) return undefined;
+    const socket: Socket = io(window.location.origin + '/collaboration', {
+      transports: ['websocket', 'polling'],
+      auth: { token: localStorage.getItem('token') },
+      autoConnect: false,
+    });
+    let timer: number | undefined;
+    const debouncedRefresh = () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+      timer = window.setTimeout(() => void load(), 150);
+    };
+    const onConnect = () => socket.emit('taskboard:subscribe', { spaceId });
+    const connectTimer = window.setTimeout(() => socket.connect(), 0);
+    socket.on('connect', onConnect);
+    socket.on('taskboardChanged', debouncedRefresh);
+    socket.io.on('reconnect', () => {
+      socket.emit('taskboard:subscribe', { spaceId });
+      debouncedRefresh();
+    });
+    return () => {
+      window.clearTimeout(connectTimer);
+      if (timer !== undefined) window.clearTimeout(timer);
+      socket.emit('taskboard:unsubscribe', { spaceId });
+      socket.off('connect', onConnect);
+      socket.off('taskboardChanged', debouncedRefresh);
+      socket.disconnect();
+    };
+  }, [spaceId, load]);
 
   useEffect(() => { setStatusDraft(selected?.status ?? ''); setStepDraft(selected?.current_step ?? ''); }, [selected?.id, selected?.status, selected?.current_step]);
 
@@ -372,6 +404,18 @@ export const TaskboardPage: React.FC = () => {
                   <div><dt className="inline text-gray-500">{zh ? '开始' : 'Started'}：</dt><dd className="inline">{formatTime(selected.started_at) ?? '—'}</dd></div>
                   <div><dt className="inline text-gray-500">{zh ? '完成' : 'Completed'}：</dt><dd className="inline">{formatTime(selected.completed_at) ?? '—'}</dd></div>
                   {selected.description && <div><dt className="mb-1 text-gray-500">{zh ? '说明' : 'Notes'}</dt><dd className="whitespace-pre-wrap text-gray-700">{selected.description}</dd></div>}
+                  {Array.isArray(selected.status_history) && selected.status_history.length > 0 && (
+                    <div>
+                      <dt className="mb-1 text-gray-500">{t('taskboard.statusHistory')}</dt>
+                      <dd className="grid gap-0.5">
+                        {[...selected.status_history].slice(-5).reverse().map((entry, index) => (
+                          <span key={entry.at + '-' + index} className="text-xs text-gray-500">
+                            {formatTime(entry.at) ?? ''} · {zh ? STATUS_STYLE[String(entry.to)]?.zh ?? String(entry.to) : STATUS_STYLE[String(entry.to)]?.en ?? String(entry.to)}{entry.by ? ' · ' + entry.by : ''}
+                          </span>
+                        ))}
+                      </dd>
+                    </div>
+                  )}
                 </dl>
               </section>
             )}

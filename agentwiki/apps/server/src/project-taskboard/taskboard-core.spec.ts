@@ -28,7 +28,7 @@ describe('taskboard-core', () => {
     const task = makeTaskboardTask({ title: '实现' });
     applyTaskboardPatch(task, { status: 'in_progress', current_step: '写失败测试' });
     expect(task.started_at).toBeTruthy();
-    expect(task.status_history).toEqual([{ from: 'todo', to: 'in_progress', at: expect.any(String) }]);
+    expect(task.status_history).toMatchObject([{ from: 'todo', to: 'in_progress', at: expect.any(String) }]);
 
     // Idempotent re-report must not append history.
     applyTaskboardPatch(task, { status: 'in_progress' });

@@ -43,6 +43,9 @@ const CODE_KEYS: Record<string, string> = {
   COLLABORATION_TEMPLATE_NOT_FOUND: 'pageTemplate.upgrade.sourceNotFound',
   PAGE_TEMPLATE_WARNING_CONFIRMATION_REQUIRED: 'pageTemplate.folderSave.warningConfirmationRequired',
   RESOURCE_NOT_FOUND: 'error.resourceNotFound',
+  TASKBOARD_STATUS_CONFLICT: 'taskboard.statusConflict',
+  TASKBOARD_TASK_CLAIMED: 'taskboard.taskClaimed',
+  TASKBOARD_DEPENDENCY_UNMET: 'taskboard.dependencyUnmet',
 };
 
 export function apiErrorMessage(error: unknown, t: Translate, fallbackKey: string): string {

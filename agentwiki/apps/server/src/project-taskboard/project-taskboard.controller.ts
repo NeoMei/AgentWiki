@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   Param,
+  Query,
   Patch,
   Post,
   Put,
@@ -44,6 +45,15 @@ export class ProjectTaskboardController {
   @Get('tasks')
   tasks(@Req() req: Request, @Param('spaceId') spaceId: string) {
     return this.taskboard.listTasks(req.user as Principal, spaceId);
+  }
+
+  @Get('events')
+  events(
+    @Req() req: Request,
+    @Param('spaceId') spaceId: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.taskboard.listEvents(req.user as Principal, spaceId, limit);
   }
 
   @Post('tasks')

@@ -7,6 +7,16 @@ import { TaskboardPage } from './TaskboardPage';
 
 vi.mock('../../api/client', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 
+const fakeSocket = {
+  on: vi.fn(),
+  off: vi.fn(),
+  emit: vi.fn(),
+  io: { on: vi.fn() },
+  connect: vi.fn(),
+  disconnect: vi.fn(),
+};
+vi.mock('socket.io-client', () => ({ io: vi.fn(() => fakeSocket) }));
+
 const PLAN = ['# Demo Plan', '', '### Task 1: 契约', '', '- [ ] **Step 1: 写测试**'].join('\n');
 
 const boardOf = (tasks: Array<Record<string, unknown>>) => ({

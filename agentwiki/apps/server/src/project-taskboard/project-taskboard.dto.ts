@@ -47,11 +47,17 @@ export class TaskboardTaskDto {
   @Allow() criteria?: unknown;
   @Allow() acceptance?: unknown;
   @Allow() depends_on?: unknown;
+  @IsOptional() @IsString() expected_status?: string;
+  @IsOptional() @IsBoolean() takeover?: boolean;
 }
 
 export class TaskboardStatusDto {
   @IsOptional() @IsString() status?: string;
   @IsOptional() @IsString() current_step?: string;
+  /** Optimistic concurrency: reject when the live status differs. */
+  @IsOptional() @IsString() expected_status?: string;
+  /** Explicitly take over a task claimed by another actor. */
+  @IsOptional() @IsBoolean() takeover?: boolean;
 }
 
 export class TaskboardImportPlanDto {
