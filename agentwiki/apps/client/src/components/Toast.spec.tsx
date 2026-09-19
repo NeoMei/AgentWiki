@@ -13,4 +13,15 @@ describe('Toast', () => {
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
     expect(onClose).toHaveBeenCalledOnce();
   });
+
+  it('automatically closes notifications after their visibility window', () => {
+    vi.useFakeTimers();
+    const onClose = vi.fn();
+    render(<LanguageProvider><Toast kind="success" message="已保存" onClose={onClose} /></LanguageProvider>);
+    vi.advanceTimersByTime(3999);
+    expect(onClose).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(onClose).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
 });

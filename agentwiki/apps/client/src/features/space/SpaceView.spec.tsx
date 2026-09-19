@@ -185,7 +185,7 @@ describe('SpaceView new-page flow', () => {
     expect(screen.queryByRole('button', { name: '新建页面' }) !== null).toBe(visible);
   });
 
-  it('shows the new-page trigger to a platform super admin without membership', async () => {
+  it('keeps a platform super admin without membership read-only', async () => {
     mocks.auth.user = { id: 'super-1', platformRole: 'super_admin' };
     mocks.api.get.mockImplementation(async (url: string) => url === '/spaces/space-1'
       ? { data: { id: 'space-1', name: 'Admin Space', members: [] } }
@@ -193,7 +193,7 @@ describe('SpaceView new-page flow', () => {
     renderSpaceView();
 
     await screen.findByRole('heading', { name: 'Admin Space' });
-    expect(screen.getByRole('button', { name: '新建页面' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '新建页面' })).not.toBeInTheDocument();
   });
 
   it('opens the creation page and preserves navigation to the created page editor', async () => {

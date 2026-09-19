@@ -16,6 +16,12 @@ export class SpaceController {
     private readonly authorization: AuthorizationService,
   ) {}
 
+  private assertWritableMember(principal: any): void {
+    if (!principal.agentId && principal.platformRole === 'super_admin') {
+      throw new ForbiddenException('Platform administrators have read-only access to member spaces');
+    }
+  }
+
   @Post()
   create(@Body() dto: CreateSpaceDto, @Req() req: Request) {
     const user = req.user as any;
@@ -51,6 +57,7 @@ export class SpaceController {
 
   @Patch(':id')
   async update(@Param('id') id: string, @Body() dto: UpdateSpaceDto, @Req() req: Request) {
+    this.assertWritableMember(req.user as any);
     await this.authorization.assertSpaceAccess(req.user as any, id, ['owner']);
     this.logger.log('Updating space: ' + id);
     return this.spaceService.update(id, dto);
@@ -59,6 +66,7 @@ export class SpaceController {
   @Delete(':id')
   async remove(@Param('id') id: string, @Req() req: Request) {
     const principal = req.user as any;
+    this.assertWritableMember(principal);
     await this.authorization.assertSpaceAccess(principal, id, ['owner']);
     this.logger.log('Removing space: ' + id);
     return this.spaceService.remove(id, principal);
@@ -79,6 +87,7 @@ export class SpaceController {
   @Post(':id/members')
   async addMember(@Param('id') id: string, @Body() dto: AddMemberDto, @Req() req: Request) {
     const principal = req.user as any;
+    this.assertWritableMember(principal);
     const member = await this.authorization.assertSpaceAccess(principal, id, ['owner', 'admin']);
     // Only an owner can grant the owner role; admins manage non-owner members.
     if (dto.role === 'owner' && member.role !== 'owner') throw new ForbiddenException('Only an owner can grant the owner role');
@@ -94,6 +103,7 @@ export class SpaceController {
     @Req() req: Request,
   ) {
     const principal = req.user as any;
+    this.assertWritableMember(principal);
     const member = await this.authorization.assertSpaceAccess(principal, id, ['owner', 'admin']);
     if (dto.role === 'owner' && member.role !== 'owner') throw new ForbiddenException('Only an owner can grant the owner role');
     this.logger.log('Updating member role: ' + userId + ' in space: ' + id);
@@ -108,6 +118,7 @@ export class SpaceController {
   @Delete(':id/members/:userId')
   async removeMember(@Param('id') id: string, @Param('userId') userId: string, @Req() req: Request) {
     const principal = req.user as any;
+    this.assertWritableMember(principal);
     await this.authorization.assertSpaceAccess(principal, id, ['owner', 'admin']);
     this.logger.log('Removing member: ' + userId + ' from space: ' + id);
     return this.spaceService.removeMemberAs(id, userId, principal);

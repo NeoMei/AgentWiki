@@ -43,8 +43,8 @@ const AGENT_ROLE_STYLES: Record<AgentAccessRole, string> = {
   publisher: 'bg-emerald-100 text-emerald-700',
 };
 
-const agentRoleName = (role: AgentAccessRole) => (
-  role === 'reader' ? 'Reader' : role === 'editor' ? 'Editor' : 'Publisher'
+const agentRoleName = (role: AgentAccessRole, zh: boolean) => (
+  role === 'reader' ? (zh ? '阅读者' : 'Reader') : role === 'editor' ? (zh ? '编辑者' : 'Editor') : (zh ? '发布者' : 'Publisher')
 );
 
 export const SpaceMembers: React.FC = () => {
@@ -220,11 +220,11 @@ export const SpaceMembers: React.FC = () => {
                       disabled={updatingId === member.agentId}
                       className="rounded-md border px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      {AGENT_ACCESS_ROLES.map((role) => <option key={role} value={role}>{agentRoleName(role)}</option>)}
+                      {AGENT_ACCESS_ROLES.map((role) => <option key={role} value={role}>{agentRoleName(role, zh)}</option>)}
                     </select>
                   ) : (
                     <span className={`rounded-full px-2 py-1 text-xs font-medium ${AGENT_ROLE_STYLES[member.role]}`}>
-                      {agentRoleName(member.role)}
+                      {agentRoleName(member.role, zh)}
                     </span>
                   )}
                   {member.canManageRole ? (
@@ -300,7 +300,7 @@ export const SpaceMembers: React.FC = () => {
             </div>
             <div>
               <p className="font-medium text-gray-700">{zh ? 'Agent 访问角色' : 'Agent access roles'}</p>
-              <p className="mt-1 text-xs">Reader · Editor · Publisher — {zh ? 'Publisher 自动发布仍受 Space 发布策略限制，且 Agent 不能人工审批或管理成员。' : 'Publisher auto-publishing remains subject to Space policy, and Agents cannot approve reviews or manage members.'}</p>
+              <p className="mt-1 text-xs">{zh ? '阅读者 · 编辑者 · 发布者 — 发布者自动发布仍受 Space 发布策略限制，且 Agent 不能人工审批或管理成员。' : 'Reader · Editor · Publisher — Publisher auto-publishing remains subject to Space policy, and Agents cannot approve reviews or manage members.'}</p>
             </div>
           </div>
         </div>

@@ -260,7 +260,7 @@ describe('AgentDetail', () => {
     const grants = screen.getByRole('heading', { name: '已授权空间' }).closest('section');
     expect(grants).not.toBeNull();
     expect(within(grants!).getByText('团队知识库')).toBeInTheDocument();
-    expect(within(grants!).getByText('Reader')).toBeInTheDocument();
+    expect(within(grants!).getByText('阅读者')).toBeInTheDocument();
     expect(within(grants!).queryByRole('combobox')).not.toBeInTheDocument();
     expect(within(grants!).getByRole('button', { name: '移除团队知识库授权' })).toBeInTheDocument();
   });
@@ -296,7 +296,7 @@ describe('AgentDetail', () => {
     expect(credentialRow).not.toBeNull();
     expect(credentialRow).toHaveTextContent('Deploy key');
     expect(credentialRow).toHaveTextContent('团队知识库');
-    expect(credentialRow).toHaveTextContent('Publisher');
+    expect(credentialRow).toHaveTextContent('发布者');
     expect(credentialRow).toHaveTextContent('agk_preview…');
     expect(credentialRow).toHaveTextContent('上次使用: 从未');
     expect(credentialRow).toHaveTextContent('到期时间:');

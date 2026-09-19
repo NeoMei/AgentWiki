@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, RefreshCw } from 'lucide-react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { RefreshCw } from 'lucide-react';
+import { Link, useParams } from 'react-router-dom';
 import { apiErrorMessage } from '../../api/error-message';
 import { ModalDialog } from '../../components/ModalDialog';
 import { Toast } from '../../components/Toast';
@@ -10,7 +10,6 @@ import { collaborationApi } from './api';
 import { RunList } from './components/RunList';
 import { TemplateCard } from './components/TemplateCard';
 import { UpgradeWorkflowTemplateDialog } from '../page-templates/UpgradeWorkflowTemplateDialog';
-import { newContentHref } from '../page-templates/newContentNavigation';
 import { listCompositeTemplates } from '../page-templates/compositeTemplateApi';
 import type { RunListKind, RunSummary, TemplateSummary } from './types';
 
@@ -21,7 +20,6 @@ const SYSTEM_TEMPLATE_SLUGS = new Set(['coding', 'bid-writing', 'paper-writing',
 
 export const CollaborationWorkspace: React.FC = () => {
   const { id = '' } = useParams<{ id: string }>();
-  const navigate = useNavigate();
   const { user } = useAuth();
   const { t, language } = useLanguage();
   const [tab, setTab] = useState<Tab>('templates');
@@ -62,9 +60,7 @@ export const CollaborationWorkspace: React.FC = () => {
       ]);
       if (!isCurrentWorkspaceRequest(spaceId, 'templates', epoch)) return;
       setTemplates(nextTemplates);
-      const myRole = user?.platformRole === 'super_admin'
-        ? 'owner'
-        : members.find((member) => member.type === 'human' && member.userId === user?.id)?.role;
+      const myRole = members.find((member) => member.type === 'human' && member.userId === user?.id)?.role;
       setCanManage(myRole === 'owner' || myRole === 'admin');
       setCanStart(myRole === 'owner' || myRole === 'admin' || myRole === 'editor');
       setCanCreateComposite(compositeCatalog?.capabilities.canCreate === true);
@@ -201,11 +197,7 @@ export const CollaborationWorkspace: React.FC = () => {
             <p className="mt-1 max-w-3xl text-sm text-gray-600">{t('collaboration.subtitle')}</p>
           </div>
           {canStart && tab === 'templates' ? <div className="flex flex-wrap gap-2">
-            {canCreateComposite ? <button type="button" onClick={() => navigate(newContentHref(id, null, 'collaboration'))} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white">
-              <Plus size={16} aria-hidden="true" />{t('collaboration.createCompositeRun')}
-            </button> : null}
-            <Link to={`/spaces/${id}/settings/page-templates`} className="inline-flex min-h-10 items-center justify-center rounded-lg border px-4 text-sm font-medium">{t('pageTemplate.manage')}</Link>
-            {canManage ? <Link to={`/spaces/${id}/collaboration/templates/new`} className="inline-flex min-h-10 items-center justify-center rounded-lg border px-4 text-sm font-medium">{t('collaboration.createLegacyTemplate')}</Link> : null}
+            <Link to={`/spaces/${id}/collaboration/templates`} className="inline-flex min-h-10 items-center justify-center rounded-lg border px-4 text-sm font-medium">{t('collaboration.manageTemplates')}</Link>
           </div> : null}
         </div>
 

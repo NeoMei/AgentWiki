@@ -153,7 +153,16 @@ export const KnowledgeGraph: React.FC = () => {
       ctx.fillStyle = '#1F2937';
       ctx.font = '12px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(node.title.length > 20 ? node.title.substring(0, 20) + '...' : node.title, node.x, node.y + node.radius + 15);
+      const maxLabelWidth = Math.max(80, Math.min(220, width - 16));
+      const measure = (value: string) => typeof ctx.measureText === 'function' ? ctx.measureText(value).width : value.length * 12;
+      let label = node.title;
+      while (label.length > 1 && measure(label) > maxLabelWidth) label = label.slice(0, -1);
+      if (label !== node.title) label = `${label}…`;
+      const labelWidth = measure(label);
+      const labelX = Math.min(width - 8 - labelWidth / 2, Math.max(8 + labelWidth / 2, node.x));
+      const belowY = node.y + node.radius + 15;
+      const labelY = belowY > height - 8 ? Math.max(12, node.y - node.radius - 8) : belowY;
+      ctx.fillText(label, labelX, labelY);
     });
   }, [nodes, visibleEdges, selectedNode, linkingFrom]);
 

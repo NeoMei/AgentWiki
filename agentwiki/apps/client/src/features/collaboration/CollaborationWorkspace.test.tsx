@@ -104,12 +104,14 @@ describe('CollaborationWorkspace', () => {
     });
   });
 
-  it('routes the collaboration entry to the creation page with its source context', async () => {
+  it('exposes only the collaboration template management entry', async () => {
     renderWorkspace();
     await screen.findByText('Coding collaboration');
-    fireEvent.click(screen.getByRole('button', { name: 'Create page group collaboration' }));
-    expect(await screen.findByRole('heading', { name: '/spaces/space-1/new?from=collaboration' })).toBeVisible();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Manage collaboration templates' })).toHaveAttribute(
+      'href', '/spaces/space-1/collaboration/templates',
+    );
+    expect(screen.queryByRole('link', { name: 'Manage page templates' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Create legacy workflow template' })).not.toBeInTheDocument();
   });
 
   afterEach(() => { vi.restoreAllMocks(); });
@@ -154,8 +156,8 @@ describe('CollaborationWorkspace', () => {
     expect(screen.queryByRole('button', { name: 'Create page group collaboration' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Upgrade Backend release' })).not.toBeInTheDocument();
     expect(card.querySelector('a[href="/spaces/space-1/collaboration/templates/space-template/start"]')).not.toBeNull();
-    expect(screen.getByRole('link', { name: 'Create legacy workflow template' })).toHaveAttribute(
-      'href', '/spaces/space-1/collaboration/templates/new',
+    expect(screen.getByRole('link', { name: 'Manage collaboration templates' })).toHaveAttribute(
+      'href', '/spaces/space-1/collaboration/templates',
     );
   });
 
@@ -615,7 +617,7 @@ describe('CollaborationWorkspace', () => {
     startLinks.forEach((link) => expect(link).toBeVisible());
   });
 
-  it('treats a platform super admin without Space membership as Owner', async () => {
+  it('keeps a platform super admin without Space membership read-only', async () => {
     vi.mocked(useAuth).mockReturnValue({
       user: { id: 'platform-admin', platformRole: 'super_admin' },
     } as ReturnType<typeof useAuth>);
@@ -623,7 +625,8 @@ describe('CollaborationWorkspace', () => {
 
     renderWorkspace();
 
-    expect(await screen.findByRole('link', { name: 'Create legacy workflow template' })).toBeVisible();
-    expect(screen.getAllByRole('link', { name: 'Start run' })).toHaveLength(2);
+    expect(await screen.findByText('Coding collaboration')).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'Manage collaboration templates' })).not.toBeInTheDocument();
+    expect(screen.queryAllByRole('link', { name: 'Start run' })).toHaveLength(0);
   });
 });

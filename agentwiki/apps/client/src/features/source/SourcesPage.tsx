@@ -5,6 +5,14 @@ import api from '../../api/client';
 import { useLanguage } from '../../context/LanguageContext';
 import { apiErrorMessage } from '../../api/error-message';
 
+const normalizeSource = (source: any) => ({
+  ...source,
+  _count: source._count ?? {
+    versions: Array.isArray(source.versions) ? source.versions.length : 0,
+    runs: 0,
+  },
+});
+
 export const SourcesPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { t, language } = useLanguage();
@@ -30,7 +38,7 @@ export const SourcesPage: React.FC = () => {
     try {
       const { data } = await api.get('/spaces/' + requestedSpaceId + '/sources');
       if (sequence !== loadSequenceRef.current || activeSpaceIdRef.current !== requestedSpaceId) return;
-      setSources(data);
+      setSources(Array.isArray(data) ? data.map(normalizeSource) : []);
       setError(null);
     } catch (err: unknown) {
       if (sequence === loadSequenceRef.current && activeSpaceIdRef.current === requestedSpaceId) {
@@ -66,13 +74,15 @@ export const SourcesPage: React.FC = () => {
         const body = new FormData();
         body.append('file', file);
         body.append('name', form.name.trim());
-        await api.post('/spaces/' + id + '/sources/file', body, { headers: { 'Content-Type': 'multipart/form-data' } });
+        const response = await api.post('/spaces/' + id + '/sources/file', body, { headers: { 'Content-Type': 'multipart/form-data' } });
+        if (response.data?.id) setSources((current) => [normalizeSource(response.data), ...current.filter((source) => source.id !== response.data.id)]);
       } else {
-        await api.post('/spaces/' + id + '/sources', {
+        const response = await api.post('/spaces/' + id + '/sources', {
           type: form.type, name: form.name,
-          uri: ['url', 'git'].includes(form.type) ? form.uri : undefined,
+          uri: form.type === 'url' ? form.uri : undefined,
           content: form.type === 'text' ? form.content : undefined,
         });
+        if (response.data?.id) setSources((current) => [normalizeSource(response.data), ...current.filter((source) => source.id !== response.data.id)]);
       }
       if (activeSpaceIdRef.current !== actionSpaceId) return;
       setShowCreate(false);
@@ -127,11 +137,11 @@ export const SourcesPage: React.FC = () => {
       {showCreate ? (
         <form onSubmit={create} className="border rounded-[14px] bg-white p-5 mb-6">
           <div className="grid sm:grid-cols-2 gap-4">
-            <div><label htmlFor="source-type" className="text-sm font-medium block mb-1">{t('common.type')}</label><select id="source-type" disabled={submitting} value={form.type} onChange={(e) => { setForm({ ...form, type: e.target.value }); if (e.target.value !== 'file') setFile(null); }} className="w-full h-8 border rounded-lg px-2 text-sm"><option value="text">{t('source.text')}</option><option value="file">{t('source.file')}</option><option value="url">{t('source.url')}</option><option value="git">{t('source.git')}</option></select></div>
+            <div><label htmlFor="source-type" className="text-sm font-medium block mb-1">{t('common.type')}</label><select id="source-type" disabled={submitting} value={form.type} onChange={(e) => { setForm({ ...form, type: e.target.value }); if (e.target.value !== 'file') setFile(null); }} className="w-full h-8 border rounded-lg px-2 text-sm"><option value="text">{t('source.text')}</option><option value="file">{t('source.file')}</option><option value="url">{t('source.url')}</option></select></div>
             <div><label htmlFor="source-name" className="text-sm font-medium block mb-1">{t('common.name')}</label><input id="source-name" disabled={submitting} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full h-8 border rounded-lg px-3" required /></div>
           </div>
           {form.type === 'text' ? <textarea aria-label={t('source.pasteText')} disabled={submitting} value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} className="w-full border rounded-lg p-3 mt-4" rows={7} placeholder={t('source.pasteText')} required /> : null}
-          {['url', 'git'].includes(form.type) ? <div className="mt-4"><input aria-label={t('source.uri')} disabled={submitting} value={form.uri} onChange={(e) => setForm({ ...form, uri: e.target.value })} className="w-full h-8 border rounded-lg px-3" placeholder={form.type === 'git' ? 'https://github.com/org/repo' : 'https://example.com/document'} required />{form.type === 'git' ? <p className="text-xs text-gray-500 mt-1">{t('source.gitHelp')}</p> : null}</div> : null}
+          {form.type === 'url' ? <div className="mt-4"><input aria-label={t('source.uri')} disabled={submitting} value={form.uri} onChange={(e) => setForm({ ...form, uri: e.target.value })} className="w-full h-8 border rounded-lg px-3" placeholder="https://example.com/document" required /></div> : null}
           {form.type === 'file' ? (
             <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-dashed p-4">
               <label htmlFor="source-file" className="inline-flex h-8 cursor-pointer items-center rounded-lg border px-3 text-sm">{t('source.chooseFile')}</label>

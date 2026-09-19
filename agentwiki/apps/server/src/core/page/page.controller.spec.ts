@@ -8,7 +8,7 @@ describe('PageController.create', () => {
     const review = { propose: jest.fn() } as any;
     const controller = new PageController(pageService, authorization, review);
     const principal = {
-      userId: 'admin-1', platformRole: 'super_admin' as const, mustChangePassword: false,
+      userId: 'admin-1', platformRole: 'user' as const, mustChangePassword: false,
     };
 
     await controller.create(
@@ -145,6 +145,19 @@ describe('PageController.remove', () => {
   });
 });
 
+describe('PageController platform administrators', () => {
+  it('keeps super administrators read-only for member-space page writes', async () => {
+    const pageService = { update: jest.fn() } as any;
+    const authorization = { assertPageAccess: jest.fn().mockResolvedValue({ id: 'page-1', spaceId: 'space-1' }) } as any;
+    const controller = new PageController(pageService, authorization, { propose: jest.fn() } as any);
+
+    await expect(controller.update('page-1', { title: 'Changed' } as any, {
+      user: { userId: 'platform-admin', platformRole: 'super_admin' },
+    } as any)).rejects.toMatchObject({ status: 403 });
+    expect(pageService.update).not.toHaveBeenCalled();
+  });
+});
+
 describe('PageController.findOne', () => {
   it.each([
     ['owner', false, 'user', true, true],
@@ -153,7 +166,7 @@ describe('PageController.findOne', () => {
     ['viewer', false, 'user', false, false],
     ['owner', true, 'user', false, false],
     ['owner', true, 'super_admin', false, false],
-    ['viewer', false, 'super_admin', true, true],
+    ['viewer', false, 'super_admin', false, false],
   ] as const)(
     'maps role %s, agent=%s, platformRole=%s to canEdit=%s and canManageAttachments=%s',
     async (role, agent, platformRole, canEdit, canManageAttachments) => {

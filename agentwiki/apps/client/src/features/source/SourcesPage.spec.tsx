@@ -67,6 +67,24 @@ describe('SourcesPage file upload', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: '保存来源' })).not.toBeInTheDocument());
   });
 
+  it('shows the created source immediately while the refresh request is still pending', async () => {
+    const refresh = deferred<any>();
+    vi.mocked(api.get)
+      .mockResolvedValueOnce({ data: [] })
+      .mockReturnValueOnce(refresh.promise);
+    vi.mocked(api.post).mockResolvedValue({ data: {
+      id: 'source-new', type: 'text', name: '即时来源', versions: [{ id: 'version-1' }],
+    } });
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: '添加来源' }));
+    fireEvent.change(screen.getByLabelText('名称'), { target: { value: '即时来源' } });
+    fireEvent.change(screen.getByLabelText('粘贴来源文本'), { target: { value: 'content' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存来源' }));
+
+    expect(await screen.findByText('即时来源')).toBeInTheDocument();
+    refresh.resolve({ data: [] });
+  });
+
   it('prevents duplicate run requests for the same source', async () => {
     vi.mocked(api.get).mockResolvedValue({ data: [{
       id: 'source-1', type: 'text', name: '来源一', _count: { versions: 1, runs: 0 },

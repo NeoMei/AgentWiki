@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
+import { apiErrorMessage } from '../../api/error-message';
 import { Plus, RotateCcw, X } from 'lucide-react';
 import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
@@ -31,6 +32,12 @@ import type {
 import { useOptionalSpaceWorkspace } from '../space-workspace/SpaceWorkspaceContext';
 import { useSpaceDirectory } from '../space-workspace/useSpaceDirectory';
 import { SpaceDirectory } from '../space-workspace/SpaceDirectory';
+
+const spaceErrorMessage = (error: any, t: (key: string) => string, fallbackKey: string) => (
+  error?.response?.data?.code
+    ? apiErrorMessage(error, t, fallbackKey)
+    : (error?.response?.data?.message || t(fallbackKey))
+);
 
 interface SpaceMemberSummary {
   userId: string;
@@ -218,7 +225,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     } catch (err: any) {
       if (requestSequenceRef.current !== requestSequence) return;
       if (err.response?.status === 401 || err.response?.status === 403) setSpace(null);
-      setError(err.response?.data?.message || t('page.loadSpaceFailed'));
+      setError(spaceErrorMessage(err, t, 'page.loadSpaceFailed'));
     } finally {
       if (requestSequenceRef.current === requestSequence) setLoading(false);
     }
@@ -367,7 +374,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
       directory.acceptTreeRevision(result.treeRevision);
       reloadTree();
     } catch (err: any) {
-      setActionError(err.response?.data?.message || t('folder.restoreFailed'));
+      setActionError(spaceErrorMessage(err, t, 'folder.restoreFailed'));
     } finally {
       setRestoring(false);
     }
@@ -401,7 +408,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
         activeWorkspace.requestPageRefresh(request.id);
       }
     } catch (err: any) {
-      setActionError(err.response?.data?.message || t('folder.moveFailed'));
+      setActionError(spaceErrorMessage(err, t, 'folder.moveFailed'));
     } finally {
       reloadTree();
     }
@@ -453,7 +460,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
         && archiveInFlightRef.current === requestedPageId
         && activeRouteIdRef.current === requestedSpaceId
         && fetchedRouteIdRef.current === requestedSpaceId
-      ) setActionError(err.response?.data?.message || t('page.deleteFailed'));
+      ) setActionError(spaceErrorMessage(err, t, 'page.deleteFailed'));
     } finally {
       if (archiveControllerRef.current === controller) archiveControllerRef.current = null;
       if (archiveOperationRef.current === operation) archiveInFlightRef.current = null;
@@ -500,14 +507,12 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
 
   const currentRole = space.members.find((member) => member.userId === user?.id)?.role;
   const canEdit = (
-    user?.platformRole === 'super_admin'
-      || currentRole === 'owner'
+    currentRole === 'owner'
       || currentRole === 'admin'
       || currentRole === 'editor'
   );
   const canManageTemplates = (
-    user?.platformRole === 'super_admin'
-      || currentRole === 'owner'
+    currentRole === 'owner'
       || currentRole === 'admin'
   );
   const compositeCreationEnabled = compositeCapability?.identity === `${id}\u0000${language}`

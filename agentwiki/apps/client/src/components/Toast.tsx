@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { CheckCircle2, X, XCircle } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -8,6 +8,10 @@ export const Toast: React.FC<{
   onClose: () => void;
 }> = ({ kind, message, onClose }) => {
   const { t } = useLanguage();
+  useEffect(() => {
+    const timeout = window.setTimeout(onClose, kind === 'error' ? 8000 : 4000);
+    return () => window.clearTimeout(timeout);
+  }, [kind, message, onClose]);
   return (
     <div
       role={kind === 'error' ? 'alert' : 'status'}

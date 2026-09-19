@@ -6,8 +6,8 @@ describe('TemplateFeaturePolicy', () => {
     get: jest.fn().mockReturnValue(value),
   } as unknown as ConfigService);
 
-  it('is default closed when the allowlist is missing or empty', () => {
-    expect(policy(undefined).canCreate('space-a')).toBe(false);
+  it('enables every space when no restriction is configured', () => {
+    expect(policy(undefined).canCreate('space-a')).toBe(true);
     expect(policy('').canCreate('space-a')).toBe(false);
     expect(policy(' ,  , ').canCreate('space-a')).toBe(false);
   });
@@ -21,7 +21,7 @@ describe('TemplateFeaturePolicy', () => {
     expect(subject.canCreate('SPACE-A')).toBe(false);
   });
 
-  it('does not interpret a wildcard as all Spaces', () => {
-    expect(policy('*').canCreate('space-a')).toBe(false);
+  it('interprets a wildcard as all Spaces', () => {
+    expect(policy('*').canCreate('space-a')).toBe(true);
   });
 });

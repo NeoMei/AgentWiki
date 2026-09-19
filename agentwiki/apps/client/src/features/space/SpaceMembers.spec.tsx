@@ -117,7 +117,7 @@ describe('SpaceMembers Agent addition', () => {
 
     const agentRow = await screen.findByTestId('member-agent-agent-existing');
     expect(screen.queryByRole('combobox', { name: 'Existing 的 Agent 角色' })).not.toBeInTheDocument();
-    expect(agentRow).toHaveTextContent('Publisher');
+    expect(agentRow).toHaveTextContent('发布者');
     expect(agentRow.querySelector('button[title="移除授权"]')).not.toBeInTheDocument();
     expect(api.put).not.toHaveBeenCalled();
     expect(api.delete).not.toHaveBeenCalled();

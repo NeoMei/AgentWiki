@@ -107,6 +107,7 @@ const AppRoutes: React.FC = () => {
         <Route path="/spaces/:id/sources" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><SourcesPage /></Suspense></WorkspaceRoute>} />
         <Route path="/spaces/:id/runs" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><RunsPage /></Suspense></WorkspaceRoute>} />
         <Route path="/spaces/:id/collaboration" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><CollaborationWorkspace /></Suspense></WorkspaceRoute>} />
+        <Route path="/spaces/:id/collaboration/templates" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><CollaborationWorkspace /></Suspense></WorkspaceRoute>} />
         <Route path="/spaces/:id/collaboration/templates/new" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><TemplateEditor mode="create" /></Suspense></WorkspaceRoute>} />
         <Route path="/spaces/:id/collaboration/templates/:templateId" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><TemplateEditor mode="edit" /></Suspense></WorkspaceRoute>} />
         <Route path="/spaces/:id/collaboration/templates/:templateId/start" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><RunStartWizard /></Suspense></WorkspaceRoute>} />

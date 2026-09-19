@@ -396,7 +396,7 @@ describe('AgentPreparationDialog', () => {
       '当前 Space 角色无',
     );
     expect(screen.getByText(
-      '此 Agent 尚未授权当前 Space，将授权为 Editor。',
+      '此 Agent 尚未授权当前 Space，将授权为 编辑者。',
     )).toBeVisible();
   });
 

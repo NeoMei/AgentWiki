@@ -25,9 +25,16 @@ export class PageController {
     private readonly review: ReviewService,
   ) {}
 
+  private assertWritableHuman(principal: any): void {
+    if (!principal.agentId && principal.platformRole === 'super_admin') {
+      throw new ForbiddenException('Platform administrators have read-only access to member spaces');
+    }
+  }
+
   @Post()
   async create(@Body() dto: CreatePageDto, @Req() req: Request) {
     const user = req.user as any;
+    this.assertWritableHuman(user);
     await this.authorization.assertSpaceAccess(user, dto.spaceId, ['owner', 'editor'], 'pages:write');
     if (
       dto.parentId !== undefined
@@ -94,6 +101,7 @@ export class PageController {
     @Body() body: ReorderPagesDto,
     @Req() req: Request,
   ) {
+    this.assertWritableHuman(req.user as any);
     if ((req.user as any).agentId) throw new ForbiddenException('Agents must propose content changes through review');
     await this.authorization.assertSpaceAccess(req.user as any, spaceId, ['owner', 'editor'], 'pages:write');
     return this.pageService.reorder(spaceId, body.items || []);
@@ -110,9 +118,9 @@ export class PageController {
       'pages:read',
     );
     const canEdit = !principal.agentId
-      && (principal.platformRole === 'super_admin' || ['owner', 'admin', 'editor'].includes(String(access.role)));
+      && ['owner', 'admin', 'editor'].includes(String(access.role));
     const canManageAttachments = !principal.agentId
-      && (principal.platformRole === 'super_admin' || ['owner', 'editor'].includes(String(access.role)));
+      && ['owner', 'editor'].includes(String(access.role));
     this.logger.log('Finding page: ' + id);
     return {
       ...await this.pageService.findOne(id),
@@ -134,6 +142,7 @@ export class PageController {
     @Body() dto: RestorePageVersionDto,
     @Req() req: Request,
   ) {
+    this.assertWritableHuman(req.user as any);
     await this.authorization.assertPageAccess(req.user as any, id, ['owner', 'editor'], 'pages:write');
     if ((req.user as any).agentId) throw new ForbiddenException('Agents must propose content changes through review');
     this.logger.log('Restoring version ' + versionId + ' for page: ' + id);
@@ -144,6 +153,7 @@ export class PageController {
   async update(@Param('id') id: string, @Body() dto: UpdatePageDto, @Req() req: Request) {
     this.logger.log('Updating page: ' + id);
     const user = req.user as any;
+    this.assertWritableHuman(user);
     const page = await this.authorization.assertPageAccess(user, id, ['owner', 'editor'], 'pages:write');
     if (user.agentId) {
       const { expectedUpdatedAt, expectedTreeRevision, ...changes } = dto;
@@ -162,6 +172,7 @@ export class PageController {
   @Delete(':id')
   async remove(@Param('id') id: string, @Body() dto: ArchivePageDto, @Req() req: Request) {
     const user = req.user as any;
+    this.assertWritableHuman(user);
     const page = await this.authorization.assertPageAccess(user, id, ['owner', 'editor'], 'pages:write');
     if (user.agentId) {
       return this.review.propose(user, page.spaceId, `Proposed delete: ${id}`, {
