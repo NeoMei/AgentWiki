@@ -33,6 +33,7 @@ describe('TaskboardPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
+    Element.prototype.scrollIntoView = vi.fn();
   });
 
   it('renders the board tree with status pills', async () => {
@@ -65,6 +66,20 @@ describe('TaskboardPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /^导入$/ }));
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/spaces/space-1/taskboard/import-plan', expect.objectContaining({ content: PLAN })));
     expect(await screen.findByText(/导入完成：新增 1/)).toBeInTheDocument();
+  });
+
+  it('renders phase rail scrolling controls and jumps between phases', async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: boardOf([
+      { id: 'P1', title: '阶段一', kind: 'phase', status: 'todo' },
+      { id: 'P2', title: '阶段二', kind: 'phase', status: 'todo' },
+    ]) });
+    renderPage();
+    await screen.findByRole('button', { name: /阶段一/ });
+    expect(screen.getByLabelText('上一个阶段')).toBeInTheDocument();
+    expect(screen.getByLabelText('下一个阶段')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /阶段一/ })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.change(screen.getByLabelText('快速跳转到阶段'), { target: { value: 'P2' } });
+    expect(screen.getByRole('button', { name: /阶段二/ })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('reports a status change for the selected task', async () => {

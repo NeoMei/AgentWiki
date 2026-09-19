@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { RefreshCw, Upload } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
@@ -54,6 +54,10 @@ export const TaskboardPage: React.FC = () => {
   const [syncStatus, setSyncStatus] = useState(false);
   const [importNote, setImportNote] = useState('');
   const [newTitle, setNewTitle] = useState('');
+  const phaseRailRef = useRef<HTMLDivElement | null>(null);
+  const [railCanScroll, setRailCanScroll] = useState(false);
+  const [railAtStart, setRailAtStart] = useState(true);
+  const [railAtEnd, setRailAtEnd] = useState(false);
 
   const load = useCallback(async () => {
     if (!spaceId) return;
@@ -120,6 +124,57 @@ export const TaskboardPage: React.FC = () => {
 
   const running = useMemo(() => visibleTasks.filter((task) => task.status === 'in_progress'), [visibleTasks]);
   const selected = selectedId ? byId.get(selectedId) ?? null : null;
+
+  // Phase rail: horizontal scrolling with quick-jump controls (upstream e27b53c).
+  const updateRailButtons = useCallback(() => {
+    const rail = phaseRailRef.current;
+    if (!rail) return;
+    setRailCanScroll(rail.scrollWidth > rail.clientWidth + 8);
+    setRailAtStart(rail.scrollLeft <= 2);
+    setRailAtEnd(rail.scrollLeft + rail.clientWidth >= rail.scrollWidth - 2);
+  }, []);
+
+  const scrollRailToPhase = useCallback((phaseId: string | null) => {
+    const rail = phaseRailRef.current;
+    if (!rail || !phaseId) return;
+    const target = rail.querySelector<HTMLElement>('[data-phase-id="' + phaseId + '"]');
+    if (target) target.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+  }, []);
+
+  const scrollRailByStep = useCallback((dir: 1 | -1) => {
+    const rail = phaseRailRef.current;
+    if (!rail) return;
+    const milestones = Array.from(rail.querySelectorAll<HTMLElement>('[data-phase-id]'));
+    if (milestones.length === 0) return;
+    const current = rail.scrollLeft;
+    let target: HTMLElement | null = null;
+    if (dir > 0) {
+      const center = current + rail.clientWidth;
+      for (const milestone of milestones) {
+        if (milestone.offsetLeft > center) { target = milestone; break; }
+      }
+      target = target ?? milestones[milestones.length - 1];
+    } else {
+      for (let index = milestones.length - 1; index >= 0; index -= 1) {
+        if (milestones[index].offsetLeft < current - 4) { target = milestones[index]; break; }
+      }
+      target = target ?? milestones[0];
+    }
+    target.scrollIntoView({ block: 'nearest', inline: dir > 0 ? 'start' : 'end', behavior: 'smooth' });
+  }, []);
+
+  useEffect(() => {
+    updateRailButtons();
+    const rail = phaseRailRef.current;
+    if (!rail || typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(() => updateRailButtons());
+    observer.observe(rail);
+    return () => observer.disconnect();
+  }, [updateRailButtons, phaseSummaries.length]);
+
+  useEffect(() => {
+    scrollRailToPhase(effectivePhaseId);
+  }, [effectivePhaseId, scrollRailToPhase, phaseSummaries.length]);
 
   useEffect(() => { setStatusDraft(selected?.status ?? ''); setStepDraft(selected?.current_step ?? ''); }, [selected?.id, selected?.status, selected?.current_step]);
 
@@ -207,21 +262,43 @@ export const TaskboardPage: React.FC = () => {
       )}
 
       {phaseSummaries.length > 1 && (
-        <nav aria-label={zh ? '实施阶段' : 'Phases'} className="mb-4 flex flex-wrap gap-2">
-          {phaseSummaries.map((phase) => {
-            const active = effectivePhaseId === (phase.id === 'all' ? null : phase.id);
-            return (
-              <button key={phase.id} type="button" onClick={() => setActivePhaseId(phase.id === 'all' ? null : phase.id)} aria-pressed={active}
-                className={'rounded-lg border px-3 py-2 text-left text-sm ' + (active ? 'border-blue-600 bg-blue-50 text-blue-800' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300')}>
-                <span className="block max-w-[16rem] truncate font-medium">{phase.title}</span>
-                <span className="mt-1 flex items-center gap-2 text-xs text-gray-500">
-                  <span className="flex items-center gap-1"><i className={'inline-block h-2 w-2 rounded-full ' + STATUS_STYLE.done.dot} />{phase.done}</span>
-                  <span className="flex items-center gap-1"><i className={'inline-block h-2 w-2 rounded-full ' + STATUS_STYLE.in_progress.dot} />{phase.inProgress}</span>
-                  <span className="flex items-center gap-1"><i className={'inline-block h-2 w-2 rounded-full ' + STATUS_STYLE.todo.dot} />{phase.pending}</span>
-                </span>
-              </button>
-            );
-          })}
+        <nav aria-label={zh ? '实施阶段' : 'Phases'} className="mb-4">
+          <div className="flex items-center gap-2">
+            <div ref={phaseRailRef} onScroll={updateRailButtons} className="min-w-0 flex-1 overflow-x-auto pb-1">
+              <div className="flex w-max gap-2">
+                {phaseSummaries.map((phase) => {
+                  const active = effectivePhaseId === (phase.id === 'all' ? null : phase.id);
+                  return (
+                    <button key={phase.id} type="button" data-phase-id={phase.id}
+                      onClick={() => setActivePhaseId(phase.id === 'all' ? null : phase.id)} aria-pressed={active}
+                      className={'w-56 shrink-0 rounded-lg border px-3 py-2 text-left text-sm ' + (active ? 'border-blue-600 bg-blue-50 text-blue-800' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300')}>
+                      <span className="block truncate font-medium">{phase.title}</span>
+                      <span className="mt-1 flex items-center gap-2 text-xs text-gray-500">
+                        <span className="flex items-center gap-1"><i className={'inline-block h-2 w-2 rounded-full ' + STATUS_STYLE.done.dot} />{phase.done}</span>
+                        <span className="flex items-center gap-1"><i className={'inline-block h-2 w-2 rounded-full ' + STATUS_STYLE.in_progress.dot} />{phase.inProgress}</span>
+                        <span className="flex items-center gap-1"><i className={'inline-block h-2 w-2 rounded-full ' + STATUS_STYLE.todo.dot} />{phase.pending}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <button type="button" onClick={() => scrollRailByStep(-1)} disabled={!railCanScroll || railAtStart}
+                aria-label={t('taskboard.prevPhase')} title={t('taskboard.prevPhase')}
+                className="rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-600 disabled:opacity-40">‹</button>
+              <button type="button" onClick={() => scrollRailByStep(1)} disabled={!railCanScroll || railAtEnd}
+                aria-label={t('taskboard.nextPhase')} title={t('taskboard.nextPhase')}
+                className="rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-600 disabled:opacity-40">›</button>
+              <select aria-label={t('taskboard.jumpToPhase')} value={effectivePhaseId ?? 'all'}
+                onChange={(event) => setActivePhaseId(event.target.value === 'all' ? null : event.target.value)}
+                className="max-w-[14rem] rounded-md border border-gray-300 px-2 py-1 text-sm">
+                {phaseSummaries.map((phase, index) => (
+                  <option key={phase.id} value={phase.id}>{String(index + 1)} · {phase.title}（{phase.done}/{phase.total}）</option>
+                ))}
+              </select>
+            </div>
+          </div>
         </nav>
       )}
 

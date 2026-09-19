@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.11.5** — Adds a native per-Space project taskboard (hierarchical tasks, Superpowers plan import, agent status reporting). Local Sync remains 0.10.0 and sync protocol 0.6.0.
+> **v0.11.6** — Taskboard phase rail now scrolls horizontally with prev/next stepping and a quick-jump menu (synced from upstream project-taskboard e27b53c). Local Sync remains 0.10.0 and sync protocol 0.6.0.
 
 
 ## Hosted Service
