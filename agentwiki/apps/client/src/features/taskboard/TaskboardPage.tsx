@@ -54,9 +54,13 @@ export const TaskboardPage: React.FC = () => {
   const [moduleId, setModuleId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [importMode, setImportMode] = useState<'paste' | 'upload' | 'page'>('paste');
   const [planContent, setPlanContent] = useState('');
   const [planSource, setPlanSource] = useState('docs/superpowers/plans/plan.md');
   const [syncStatus, setSyncStatus] = useState(false);
+  const [spacePages, setSpacePages] = useState<Array<{ id: string; title: string }>>([]);
+  const [selectedPageId, setSelectedPageId] = useState('');
+  const [takeoverDraft, setTakeoverDraft] = useState(false);
   const [importNote, setImportNote] = useState('');
   const [newTitle, setNewTitle] = useState('');
   const [statusDraft, setStatusDraft] = useState('');
@@ -133,7 +137,7 @@ export const TaskboardPage: React.FC = () => {
     [tasks],
   );
 
-  useEffect(() => { setStatusDraft(selected?.status ?? ''); setStepDraft(selected?.current_step ?? ''); }, [selected?.id, selected?.status, selected?.current_step]);
+  useEffect(() => { setStatusDraft(selected?.status ?? ''); setStepDraft(selected?.current_step ?? ''); setTakeoverDraft(false); }, [selected?.id, selected?.status, selected?.current_step]);
 
   const updateRailButtons = useCallback(() => {
     const rail = railRef.current;
@@ -232,6 +236,7 @@ export const TaskboardPage: React.FC = () => {
       await taskboardApi.updateStatus(spaceId, selected.id, {
         ...(statusDraft ? { status: statusDraft } : {}),
         ...(stepDraft !== (selected.current_step ?? '') ? { current_step: stepDraft } : {}),
+        ...(takeoverDraft ? { takeover: true } : {}),
       });
       await load();
     } catch (requestError: unknown) { setError(apiErrorMessage(requestError, t, 'taskboard.actionFailed')); }
@@ -252,16 +257,38 @@ export const TaskboardPage: React.FC = () => {
   };
 
   const importPlan = async () => {
-    if (!spaceId || !planContent.trim()) return;
+    if (!spaceId) return;
+    if (importMode !== 'page' && !planContent.trim()) return;
+    if (importMode === 'page' && !selectedPageId) return;
     setBusy(true);
     try {
-      const data = await taskboardApi.importPlan(spaceId, { content: planContent, sourcePath: planSource, syncStatus });
+      const payload = importMode === 'page'
+        ? { pageId: selectedPageId, sourcePath: 'agentwiki-page:' + selectedPageId, syncStatus }
+        : { content: planContent, sourcePath: planSource, syncStatus };
+      const data = await taskboardApi.importPlan(spaceId, payload);
       setBoard(data.board);
       setImportOpen(false);
       setPlanContent('');
+      setSelectedPageId('');
       setImportNote((zh ? '导入完成：新增 ' : 'Imported: ') + data.summary.added + (zh ? ' 个，更新 ' : ' added, ') + data.summary.updated + (zh ? ' 个' : ' updated'));
     } catch (requestError: unknown) { setError(apiErrorMessage(requestError, t, 'taskboard.importFailed')); }
     finally { setBusy(false); }
+  };
+
+  const openImportDialog = () => {
+    setImportOpen(true);
+    if (!spaceId) return;
+    void taskboardApi.listSpacePages(spaceId).then((pages) => setSpacePages(pages)).catch(() => setSpacePages([]));
+  };
+
+  const onPlanFilePicked = (file: File | undefined) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setPlanContent(String(reader.result ?? ''));
+      setPlanSource(file.name);
+    };
+    reader.readAsText(file);
   };
 
   const locate = (t: TaskboardTask) => {
@@ -331,7 +358,7 @@ export const TaskboardPage: React.FC = () => {
         <h1>{board?.project || (zh ? '项目全景' : 'Project Overview')}</h1>
         <small>{syncText}</small>
         <span className="updated">{zh ? '项目规划 · 实现进度' : 'Plan · Progress'}</span>
-        <button type="button" onClick={() => setImportOpen((open) => !open)}>{zh ? '导入计划' : 'Import plan'}</button>
+        <button type="button" onClick={openImportDialog}>{zh ? '导入计划' : 'Import plan'}</button>
         <button type="button" id="refresh" onClick={() => void load()}>{zh ? '刷新' : 'Refresh'}</button>
       </header>
       <main>
@@ -384,11 +411,59 @@ export const TaskboardPage: React.FC = () => {
         {importOpen && (
           <section className="box" style={{ margin: '0 15px 10px' }}>
             <h3>{t('taskboard.importPlan')}</h3>
-            <label className="statusrow"><span>{t('taskboard.planSource')}</span><input aria-label={t('taskboard.planSource')} value={planSource} onChange={(e) => setPlanSource(e.target.value)} style={{ flex: 1, border: '1px solid #d8e1ed', borderRadius: 6, padding: '4px 8px' }} /></label>
-            <p><textarea aria-label={t('taskboard.planContent')} value={planContent} onChange={(e) => setPlanContent(e.target.value)} rows={7} style={{ width: '100%', border: '1px solid #d8e1ed', borderRadius: 6, padding: 8, fontFamily: 'monospace', fontSize: 12 }} /></p>
+            <div className="statusrow">
+              <span>{zh ? '计划来源' : 'Source'}</span>
+              <span style={{ display: 'flex', gap: 6 }}>
+                {([['paste', '粘贴内容'], ['upload', '上传文件'], ['page', '空间页面']] as const).map(([mode, label]) => (
+                  <button key={mode} type="button"
+                    onClick={() => setImportMode(mode)}
+                    aria-pressed={importMode === mode}
+                    className={'locate' + (importMode === mode ? '' : '')}
+                    style={{ background: importMode === mode ? '#0877ff' : '#f1f5fb', color: importMode === mode ? '#fff' : '#506587' }}>{label}</button>
+                ))}
+              </span>
+            </div>
+            {importMode === 'paste' && (
+              <p><textarea aria-label={t('taskboard.planContent')} value={planContent} onChange={(e) => setPlanContent(e.target.value)} rows={7} style={{ width: '100%', border: '1px solid #d8e1ed', borderRadius: 6, padding: 8, fontFamily: 'monospace', fontSize: 12 }} /></p>
+            )}
+            {importMode === 'upload' && (
+              <p>
+                <input
+                  type="file"
+                  aria-label={zh ? '选择计划文件' : 'Choose plan file'}
+                  accept=".md,.markdown,.txt"
+                  onChange={(e) => onPlanFilePicked(e.target.files?.[0])}
+                  style={{ fontSize: 12 }}
+                />
+                {planContent.trim() ? <span style={{ marginLeft: 8, color: '#12a367' }}>✓ {zh ? '已读取' : 'loaded'}</span> : null}
+              </p>
+            )}
+            {importMode === 'page' && (
+              <label className="statusrow"><span>{zh ? '选择空间页面' : 'Wiki page'}</span>
+                <select
+                  aria-label={zh ? '选择空间页面' : 'Choose wiki page'}
+                  value={selectedPageId}
+                  onChange={(e) => setSelectedPageId(e.target.value)}
+                  style={{ flex: 1, border: '1px solid #d8e1ed', borderRadius: 6, padding: '4px 8px' }}
+                >
+                  <option value="">{spacePages.length ? (zh ? '— 请选择 —' : '— pick —') : (zh ? '本空间暂无页面' : 'No pages in this space')}</option>
+                  {spacePages.map((page) => <option key={page.id} value={page.id}>{page.title}</option>)}
+                </select>
+              </label>
+            )}
+            <label className="statusrow">
+              <span>{t('taskboard.planSource')}<br /><small>{zh ? '仅用于生成稳定任务 ID，服务器不会读取本地文件' : 'Stable task IDs only; the server never reads local files'}</small></span>
+              <input
+                aria-label={t('taskboard.planSource')}
+                value={importMode === 'page' ? (selectedPageId ? 'agentwiki-page:' + selectedPageId : '') : planSource}
+                readOnly={importMode === 'page'}
+                onChange={(e) => setPlanSource(e.target.value)}
+                style={{ flex: 1, border: '1px solid #d8e1ed', borderRadius: 6, padding: '4px 8px' }}
+              />
+            </label>
             <label className="statusrow"><span>{t('taskboard.syncStatus')}</span><input type="checkbox" aria-label={t('taskboard.syncStatus')} checked={syncStatus} onChange={(e) => setSyncStatus(e.target.checked)} /></label>
             <p>
-              <button type="button" className="locate" disabled={busy || !planContent.trim()} onClick={() => void importPlan()} style={{ marginRight: 8 }}>{t('taskboard.import')}</button>
+              <button type="button" className="locate" disabled={busy || (importMode === 'page' ? !selectedPageId : !planContent.trim())} onClick={() => void importPlan()} style={{ marginRight: 8 }}>{t('taskboard.import')}</button>
               <button type="button" className="locate" style={{ background: '#f1f5fb', color: '#506587' }} onClick={() => setImportOpen(false)}>{t('common.cancel')}</button>
             </p>
           </section>
@@ -452,7 +527,18 @@ export const TaskboardPage: React.FC = () => {
                         <label className="statusrow"><span>{t('taskboard.currentStep')}</span>
                           <input aria-label={t('taskboard.currentStep')} value={stepDraft} onChange={(e) => setStepDraft(e.target.value)} style={{ flex: 1, border: '1px solid #d8e1ed', borderRadius: 6, padding: '4px 8px' }} />
                         </label>
+                        <label className="statusrow"><span>{zh ? '他人认领时接管' : 'Take over if claimed'}</span>
+                          <input type="checkbox" aria-label={zh ? '他人认领时接管' : 'Take over if claimed'} checked={takeoverDraft} onChange={(e) => setTakeoverDraft(e.target.checked)} />
+                        </label>
                         <p><button type="button" className="locate" disabled={busy} onClick={() => void applyStatus()}>{zh ? '保存' : 'Save'}</button></p>
+                      </div>
+                      <div className="box">
+                        <h3>{zh ? '认领状态' : 'Claim'}</h3>
+                        {(() => {
+                          const claim = inspectTask.claim as { owner?: string; at?: string; takeover_from?: string } | undefined;
+                          if (!claim?.owner) return <p>{zh ? '未认领（首次进入执行态将自动认领）' : 'Unclaimed; auto-claimed on first execution update'}</p>;
+                          return <p>认领人：{claim.owner}{claim.at ? ' · ' + tbShortFmt(claim.at) : ''}{claim.takeover_from ? '（接管自 ' + claim.takeover_from + '）' : ''}</p>;
+                        })()}
                       </div>
                       <div className="box">
                         <h3>{zh ? '范围与历史' : 'Scope & history'}</h3>

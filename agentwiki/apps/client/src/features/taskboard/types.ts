@@ -36,7 +36,8 @@ export interface TaskboardImportResponse extends TaskboardResponse {
 }
 
 export interface TaskboardPlanImportInput {
-  content: string;
+  content?: string;
+  pageId?: string;
   sourcePath?: string;
   syncStatus?: boolean;
   project?: string;

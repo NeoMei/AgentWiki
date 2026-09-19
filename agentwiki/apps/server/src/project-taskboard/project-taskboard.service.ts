@@ -243,9 +243,24 @@ export class ProjectTaskboardService {
 
   async importPlan(principal: Principal, spaceId: string, dto: TaskboardImportPlanDto) {
     const actor = await this.authorizeWrite(principal, spaceId);
-    const sourcePath = dto.sourcePath ?? dto.source_path ?? 'superpowers-plan.md';
+    let content = dto.content;
+    let sourcePath = dto.sourcePath ?? dto.source_path;
+    if (dto.pageId) {
+      const page = await this.prisma.page.findFirst({
+        where: { id: dto.pageId, spaceId },
+        select: { id: true, title: true, content: true },
+      });
+      if (!page) throw new BusinessException('RESOURCE_NOT_FOUND', '计划页面不存在：' + dto.pageId);
+      content = page.content;
+      // Stable, rename-proof identity: repeat imports of the same page update in place.
+      sourcePath = 'agentwiki-page:' + page.id;
+    }
+    if (!content || !content.trim()) {
+      throw new BusinessException('TASKBOARD_INVALID', '请提供计划内容（content）或空间页面（pageId）');
+    }
+    sourcePath = sourcePath ?? 'superpowers-plan.md';
     const syncStatus = dto.syncStatus ?? dto.sync_status ?? false;
-    const incoming: ParsedSuperpowersPlan = parseSuperpowersPlan(dto.content, sourcePath);
+    const incoming: ParsedSuperpowersPlan = parseSuperpowersPlan(content, sourcePath);
     const { board, result } = await this.withBoardTx(
       spaceId,
       actor,

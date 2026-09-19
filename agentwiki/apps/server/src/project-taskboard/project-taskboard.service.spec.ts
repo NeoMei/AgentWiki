@@ -17,6 +17,7 @@ interface FakeDb {
   boards: Array<Record<string, any>>;
   tasks: Array<Record<string, any>>;
   events: Array<Record<string, any>>;
+  pages: Array<Record<string, any>>;
 }
 
 function makeDb(): { prisma: any; db: FakeDb } {
@@ -25,6 +26,7 @@ function makeDb(): { prisma: any; db: FakeDb } {
     boards: [],
     tasks: [],
     events: [],
+    pages: [],
   };
   const sortTasks = () => [...db.tasks].sort((a, b) => a.ordinal - b.ordinal);
   const tx = {
@@ -73,6 +75,10 @@ function makeDb(): { prisma: any; db: FakeDb } {
         return row;
       }),
     },
+    page: {
+      findFirst: jest.fn(async ({ where }: any) =>
+        db.pages.find((pg) => pg.id === where.id && pg.spaceId === where.spaceId) ?? null),
+    },
     projectBoardEvent: {
       create: jest.fn(async ({ data }: any) => {
         db.events.push({ createdAt: new Date(), ...data });
@@ -88,6 +94,7 @@ function makeDb(): { prisma: any; db: FakeDb } {
     space: tx.space,
     projectBoardTask: tx.projectBoardTask,
     projectBoardEvent: tx.projectBoardEvent,
+    page: tx.page,
   };
   return { prisma: prisma as any, db };
 }
@@ -254,5 +261,26 @@ describe('ProjectTaskboardService', () => {
       'agentwiki:taskboard:boards',
       expect.stringContaining('eventSequence'),
     );
+  });
+
+  it('imports a plan from a wiki page by pageId without local files', async () => {
+    const { service, db } = makeService();
+    db.pages.push({
+      id: 'page-1',
+      spaceId: 'space-1',
+      title: '登录流程计划',
+      content: ['# 页面计划 Implementation Plan', '', '**Goal:** from page.', '', '### Task 1: 页面任务', '', '- [x] **Step 1: 完成**'].join('\n'),
+    });
+    const result = await service.importPlan({ userId: 'u1' } as any, 'space-1', { pageId: 'page-1' });
+    expect(result.board.tasks.length).toBe(3);
+    expect(result.board.source_type).toBe('superpowers_plan');
+    expect(result.board.sources).toEqual(['agentwiki-page:page-1']);
+    expect(db.pages).toHaveLength(1);
+  });
+
+  it('rejects pageId import when the page is missing', async () => {
+    const { service } = makeService();
+    await expect(service.importPlan({ userId: 'u1' } as any, 'space-1', { pageId: 'nope' }))
+      .rejects.toMatchObject({ businessCode: 'RESOURCE_NOT_FOUND' });
   });
 });

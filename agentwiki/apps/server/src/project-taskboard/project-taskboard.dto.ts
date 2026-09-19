@@ -61,7 +61,10 @@ export class TaskboardStatusDto {
 }
 
 export class TaskboardImportPlanDto {
-  @IsString() content!: string;
+  /** Plan markdown body. Required unless pageId is provided. */
+  @IsOptional() @IsString() content?: string;
+  /** Import the plan from an AgentWiki page in the same space (server reads it). */
+  @IsOptional() @IsString() pageId?: string;
   @IsOptional() @IsString() sourcePath?: string;
   @IsOptional() @IsBoolean() syncStatus?: boolean;
   // snake_case aliases kept for project-taskboard CLI compatibility.
