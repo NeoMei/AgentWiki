@@ -43,6 +43,7 @@ const CollaborationWorkspace = lazy(() => import('./features/collaboration/Colla
 const TemplateEditor = lazy(() => import('./features/collaboration/TemplateEditor').then((module) => ({ default: module.TemplateEditor })));
 const RunStartWizard = lazy(() => import('./features/collaboration/RunStartWizard').then((module) => ({ default: module.RunStartWizard })));
 const RunDashboard = lazy(() => import('./features/collaboration/RunDashboard').then((module) => ({ default: module.RunDashboard })));
+const TaskboardPage = lazy(() => import('./features/taskboard/TaskboardPage').then((module) => ({ default: module.TaskboardPage })));
 const PageTemplateManager = lazy(() => import('./features/page-templates/PageTemplateManager')
   .then((module) => ({ default: module.PageTemplateManager })));
 
@@ -111,6 +112,7 @@ const AppRoutes: React.FC = () => {
         <Route path="/spaces/:id/collaboration/templates/:templateId" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><TemplateEditor mode="edit" /></Suspense></WorkspaceRoute>} />
         <Route path="/spaces/:id/collaboration/templates/:templateId/start" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><RunStartWizard /></Suspense></WorkspaceRoute>} />
         <Route path="/spaces/:id/collaboration/runs/:runId" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><RunDashboard /></Suspense></WorkspaceRoute>} />
+        <Route path="/spaces/:id/taskboard" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><TaskboardPage /></Suspense></WorkspaceRoute>} />
         <Route path="/review" element={<Suspense fallback={<RouteLoading />}><ReviewPage /></Suspense>} />
         <Route path="/admin" element={<Suspense fallback={<RouteLoading />}><AdminPage /></Suspense>} />
       </Route>

@@ -28,6 +28,7 @@ import { PageTemplateModule } from './page-templates/page-template.module';
 import { AttachmentModule } from './attachments/attachment.module';
 import { MarkdownResourceModule } from './markdown-resources/markdown-resource.module';
 import { ContentTreeModule } from './content-tree/content-tree.module';
+import { ProjectTaskboardModule } from './project-taskboard/project-taskboard.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { ContentTreeModule } from './content-tree/content-tree.module';
     AttachmentModule,
     MarkdownResourceModule,
     ContentTreeModule,
+    ProjectTaskboardModule,
   ],
   controllers: [HealthController],
 })

@@ -221,6 +221,7 @@ model Space {
   revisionChainCheckpoint      SpaceRevisionChainCheckpoint?
   agentMemories                AgentMemory[]
   assistTasks                  AssistTask[]
+  projectBoard                 ProjectBoard?
   graphState                   SpaceGraphState?
   collaborationTemplates       CollaborationTemplate[]
   collaborationRuns            CollaborationRun[]
@@ -1829,4 +1830,48 @@ model CollaborationRunEvent {
   @@unique([runId, sequence])
   @@unique([runId, actorKind, actorId, operation, idempotencyKey])
   @@index([runId, createdAt])
+}
+
+/// Native port of project-taskboard (github.com/NeoMei/project-taskboard):
+/// one hierarchical task board per space, flat task rows with parent links.
+model ProjectBoard {
+  id            String   @id @default(cuid())
+  spaceId       String   @unique
+  project       String
+  schemaVersion Int      @default(1)
+  sourceType    String   @default("manual")
+  sources       Json     @default("[]")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  space Space              @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  tasks ProjectBoardTask[]
+}
+
+model ProjectBoardTask {
+  boardId       String
+  id            String
+  parentId      String?
+  kind          String    @default("task")
+  title         String
+  status        String    @default("todo")
+  scopeClass    String?
+  owner         String?
+  summary       String?
+  description   String?
+  currentStep   String?
+  ordinal       Int       @default(0)
+  startedAt     DateTime?
+  completedAt   DateTime?
+  payload       Json      @default("{}")
+  statusHistory Json      @default("[]")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  board ProjectBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@id([boardId, id])
+  @@index([boardId, parentId])
+  @@index([boardId, ordinal])
+  @@index([boardId, status])
 }
