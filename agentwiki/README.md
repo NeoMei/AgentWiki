@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.11.7** — Taskboard becomes a multi-agent collaboration surface: task claims with explicit takeover, dependency enforcement, actor-attributed history, optimistic status guards, and live board updates over socket. Local Sync remains 0.10.0 and sync protocol 0.6.0.
+> **v0.11.8** — Taskboard page redesigned to faithfully match the project-taskboard 项目全景 UI: phase milestone road, topology canvas with SVG wires, right inspector panel, running-tasks table with locate, and legend. Local Sync remains 0.10.0 and sync protocol 0.6.0.
 
 
 ## Hosted Service

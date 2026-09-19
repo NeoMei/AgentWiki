@@ -1,42 +1,46 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import './taskboard.css';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { RefreshCw, Upload } from 'lucide-react';
 import { io, type Socket } from 'socket.io-client';
 import { useLanguage } from '../../context/LanguageContext';
 import { apiErrorMessage } from '../../api/error-message';
 import { taskboardApi } from './api';
 import type { TaskboardBoard, TaskboardTask } from './types';
+import {
+  TB_LABELS,
+  tbCleanTitle,
+  tbConcrete,
+  tbFmt,
+  tbHistorySummary,
+  tbKids,
+  tbPhaseMark,
+  tbScopeLabel,
+  tbShortFmt,
+  tbStages,
+  tbTaskStatusCounts,
+  tbTaskRecordSummary,
+  tbTaskStatusSummary,
+  tbTaskTypeClass,
+  tbTaskTypeLabel,
+  tbTimeInfo,
+  tbTimeText,
+} from './board-view';
 
-const STATUS_ORDER = ['todo', 'in_progress', 'blocked', 'in_review', 'done', 'canceled', 'unknown'] as const;
+const STAGE_NAMES = ['前置验证', '功能实现', '集成验收'];
+const STAGE_KEYS = ['validation', 'implementation', 'acceptance'];
+const TB_STATUS_ORDER = ['todo', 'in_progress', 'blocked', 'in_review', 'done', 'canceled', 'unknown'];
 
-const STATUS_STYLE: Record<string, { zh: string; en: string; pill: string; dot: string }> = {
-  todo: { zh: '未开始', en: 'To do', pill: 'bg-gray-100 text-gray-600', dot: 'bg-gray-400' },
-  in_progress: { zh: '进行中', en: 'In progress', pill: 'bg-blue-50 text-blue-700', dot: 'bg-blue-600' },
-  blocked: { zh: '已阻塞', en: 'Blocked', pill: 'bg-orange-50 text-orange-700', dot: 'bg-orange-500' },
-  in_review: { zh: '待验收', en: 'In review', pill: 'bg-violet-50 text-violet-700', dot: 'bg-violet-600' },
-  done: { zh: '已完成', en: 'Done', pill: 'bg-emerald-50 text-emerald-700', dot: 'bg-emerald-600' },
-  canceled: { zh: '已取消', en: 'Canceled', pill: 'bg-gray-100 text-gray-400', dot: 'bg-gray-300' },
-  unknown: { zh: '待核实', en: 'Unknown', pill: 'bg-gray-100 text-gray-500', dot: 'bg-gray-400' },
-};
+function statusZh(s: string): string {
+  return TB_LABELS[s] ?? '待核实';
+}
 
-const KIND_LABELS: Record<string, { zh: string; en: string }> = {
-  phase: { zh: '阶段', en: 'Phase' },
-  module: { zh: '模块', en: 'Module' },
-  capability: { zh: '能力', en: 'Capability' },
-  plan: { zh: '计划', en: 'Plan' },
-  step: { zh: '步骤', en: 'Step' },
-  task: { zh: '任务', en: 'Task' },
-  implementation_task: { zh: '执行任务', en: 'Execution task' },
-  work_item: { zh: '工作项', en: 'Work item' },
-};
-
-const statusMeta = (task: TaskboardTask) => STATUS_STYLE[String(task.status)] ?? STATUS_STYLE.unknown;
-const formatTime = (value?: string | null) => {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleString(undefined, { hour12: false });
-};
+function tbIcon(size: number): React.ReactNode {
+  return (
+    <svg className="icon" style={{ width: size, height: size }} viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M6 3h8l4 4v14H6z M14 3v5h4 M9 12h6 M9 16h6" />
+    </svg>
+  );
+}
 
 export const TaskboardPage: React.FC = () => {
   const { id: spaceId } = useParams<{ id: string }>();
@@ -45,24 +49,28 @@ export const TaskboardPage: React.FC = () => {
   const [board, setBoard] = useState<TaskboardBoard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [phaseId, setPhaseId] = useState<string | null>(null);
+  const [moduleId, setModuleId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [statusDraft, setStatusDraft] = useState('');
-  const [stepDraft, setStepDraft] = useState('');
-  const [busy, setBusy] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [planContent, setPlanContent] = useState('');
   const [planSource, setPlanSource] = useState('docs/superpowers/plans/plan.md');
   const [syncStatus, setSyncStatus] = useState(false);
   const [importNote, setImportNote] = useState('');
   const [newTitle, setNewTitle] = useState('');
-  const phaseRailRef = useRef<HTMLDivElement | null>(null);
+  const [statusDraft, setStatusDraft] = useState('');
+  const [stepDraft, setStepDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const graphRef = useRef<HTMLDivElement | null>(null);
+  const railRef = useRef<HTMLDivElement | null>(null);
+  const nodeRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const [layout, setLayout] = useState<{ h: number; tops: Record<string, number>; wires: string[] }>({ h: 580, tops: {}, wires: [] });
   const [railCanScroll, setRailCanScroll] = useState(false);
   const [railAtStart, setRailAtStart] = useState(true);
   const [railAtEnd, setRailAtEnd] = useState(false);
 
   const load = useCallback(async () => {
     if (!spaceId) return;
-    setLoading(true);
     try {
       const data = await taskboardApi.getBoard(spaceId);
       setBoard(data.board);
@@ -74,86 +82,76 @@ export const TaskboardPage: React.FC = () => {
     }
   }, [spaceId, t]);
 
+  useEffect(() => { void load(); }, [load]);
+
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (!spaceId) return undefined;
+    const socket: Socket = io(window.location.origin + '/collaboration', {
+      transports: ['websocket', 'polling'],
+      auth: { token: localStorage.getItem('token') },
+      autoConnect: false,
+    });
+    let timer: number | undefined;
+    const debounced = () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+      timer = window.setTimeout(() => void load(), 150);
+    };
+    const onConnect = () => socket.emit('taskboard:subscribe', { spaceId });
+    const connectTimer = window.setTimeout(() => socket.connect(), 0);
+    socket.on('connect', onConnect);
+    socket.on('taskboardChanged', debounced);
+    socket.io.on('reconnect', () => { socket.emit('taskboard:subscribe', { spaceId }); debounced(); });
+    return () => {
+      window.clearTimeout(connectTimer);
+      if (timer !== undefined) window.clearTimeout(timer);
+      socket.emit('taskboard:unsubscribe', { spaceId });
+      socket.off('connect', onConnect);
+      socket.off('taskboardChanged', debounced);
+      socket.disconnect();
+    };
+  }, [spaceId, load]);
 
   const tasks = board?.tasks ?? [];
-  const byId = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
-  const phases = useMemo(() => tasks.filter((task) => task.kind === 'phase'), [tasks]);
-  const [activePhaseId, setActivePhaseId] = useState<string | null>(null);
-  const effectivePhaseId = activePhaseId && byId.has(activePhaseId) ? activePhaseId : phases[0]?.id ?? null;
+  const phases = useMemo(() => tasks.filter((x) => x.kind === 'phase'), [tasks]);
+  const activePhase = phases.find((x) => x.id === phaseId) ?? phases[0] ?? null;
+  const mods = useMemo(
+    () => (activePhase ? tbKids(tasks, activePhase.id).filter((x) => x.kind !== 'step') : (phases.length === 0 ? tasks.filter((x) => !x.parent_id) : [])),
+    [tasks, activePhase, phases.length],
+  );
+  const activeModuleId = mods.some((x) => x.id === moduleId) ? moduleId : mods[0]?.id ?? null;
+  const moduleTask = tasks.find((x) => x.id === activeModuleId) ?? null;
+  const moduleChildren = moduleTask ? tbKids(tasks, moduleTask.id) : [];
+  const capabilities = moduleChildren.filter((x) => x.kind === 'capability' || x.kind === 'module');
+  const shown = capabilities.length > 0
+    ? [...capabilities.flatMap((c) => tbKids(tasks, c.id)), ...moduleChildren.filter((x) => x.kind !== 'capability' && x.kind !== 'module')]
+    : moduleChildren;
+  const selected = tasks.find((x) => x.id === selectedId) ?? null;
 
-  const depthOf = useCallback((task: TaskboardTask) => {
-    let depth = 0;
-    let current: TaskboardTask | undefined = task;
-    while (current?.parent_id) { depth += 1; current = byId.get(current.parent_id); }
-    return depth;
-  }, [byId]);
-
-  const inSubtree = useCallback((task: TaskboardTask, rootId: string | null) => {
-    if (rootId === null) return true;
-    let current: TaskboardTask | undefined = task;
-    while (current) {
-      if (current.id === rootId) return true;
-      current = current.parent_id ? byId.get(current.parent_id) : undefined;
-    }
-    return false;
-  }, [byId]);
-
-  const visibleTasks = useMemo(
-    () => tasks.filter((task) => inSubtree(task, effectivePhaseId)),
-    [tasks, inSubtree, effectivePhaseId],
+  const runningList = useMemo(
+    () => tasks.filter((x) => (x.kind === 'task' || x.kind === 'implementation_task') && x.status === 'in_progress'),
+    [tasks],
   );
 
-  const phaseSummaries = useMemo<Array<{ id: string; title: string; total: number; done: number; inProgress: number; pending: number }>>(() => {
-    const build = (rootId: string | null, title: string) => {
-      const members = tasks.filter((task) => inSubtree(task, rootId));
-      const concrete = members.filter((task) => task.kind === 'task' || task.kind === 'implementation_task' || task.kind === 'step');
-      return {
-        id: rootId ?? 'all',
-        title,
-        total: concrete.length,
-        done: concrete.filter((task) => task.status === 'done' || task.status === 'canceled').length,
-        inProgress: concrete.filter((task) => task.status === 'in_progress' || task.status === 'in_review' || task.status === 'blocked').length,
-        pending: concrete.filter((task) => task.status === 'todo' || task.status === 'unknown').length,
-      };
-    };
-    if (phases.length === 0) return [build(null, zh ? '全部任务' : 'All tasks')];
-    return phases.map((phase) => build(phase.id, phase.title));
-  }, [tasks, phases, inSubtree, zh]);
+  useEffect(() => { setStatusDraft(selected?.status ?? ''); setStepDraft(selected?.current_step ?? ''); }, [selected?.id, selected?.status, selected?.current_step]);
 
-  const running = useMemo(() => visibleTasks.filter((task) => task.status === 'in_progress'), [visibleTasks]);
-  const selected = selectedId ? byId.get(selectedId) ?? null : null;
-
-  // Phase rail: horizontal scrolling with quick-jump controls (upstream e27b53c).
   const updateRailButtons = useCallback(() => {
-    const rail = phaseRailRef.current;
+    const rail = railRef.current;
     if (!rail) return;
     setRailCanScroll(rail.scrollWidth > rail.clientWidth + 8);
     setRailAtStart(rail.scrollLeft <= 2);
     setRailAtEnd(rail.scrollLeft + rail.clientWidth >= rail.scrollWidth - 2);
   }, []);
 
-  const scrollRailToPhase = useCallback((phaseId: string | null) => {
-    const rail = phaseRailRef.current;
-    if (!rail || !phaseId) return;
-    const target = rail.querySelector<HTMLElement>('[data-phase-id="' + phaseId + '"]');
-    if (target) target.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
-  }, []);
-
   const scrollRailByStep = useCallback((dir: 1 | -1) => {
-    const rail = phaseRailRef.current;
+    const rail = railRef.current;
     if (!rail) return;
     const milestones = Array.from(rail.querySelectorAll<HTMLElement>('[data-phase-id]'));
     if (milestones.length === 0) return;
     const current = rail.scrollLeft;
     let target: HTMLElement | null = null;
     if (dir > 0) {
-      const center = current + rail.clientWidth;
-      for (const milestone of milestones) {
-        if (milestone.offsetLeft > center) { target = milestone; break; }
-      }
+      const edge = current + rail.clientWidth;
+      for (const m of milestones) { if (m.offsetLeft > edge) { target = m; break; } }
       target = target ?? milestones[milestones.length - 1];
     } else {
       for (let index = milestones.length - 1; index >= 0; index -= 1) {
@@ -166,49 +164,65 @@ export const TaskboardPage: React.FC = () => {
 
   useEffect(() => {
     updateRailButtons();
-    const rail = phaseRailRef.current;
+    const rail = railRef.current;
     if (!rail || typeof ResizeObserver === 'undefined') return undefined;
     const observer = new ResizeObserver(() => updateRailButtons());
     observer.observe(rail);
     return () => observer.disconnect();
-  }, [updateRailButtons, phaseSummaries.length]);
+  }, [updateRailButtons, phases.length]);
 
   useEffect(() => {
-    scrollRailToPhase(effectivePhaseId);
-  }, [effectivePhaseId, scrollRailToPhase, phaseSummaries.length]);
+    const rail = railRef.current;
+    if (!rail || !activePhase) return;
+    const el = rail.querySelector('[data-phase-id="' + activePhase.id + '"]');
+    if (el) el.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+  }, [activePhase?.id, phases.length]);
 
-  // Live sync: board changes published by any agent refresh this view (debounced).
-  useEffect(() => {
-    if (!spaceId) return undefined;
-    const socket: Socket = io(window.location.origin + '/collaboration', {
-      transports: ['websocket', 'polling'],
-      auth: { token: localStorage.getItem('token') },
-      autoConnect: false,
-    });
-    let timer: number | undefined;
-    const debouncedRefresh = () => {
-      if (timer !== undefined) window.clearTimeout(timer);
-      timer = window.setTimeout(() => void load(), 150);
+  // Canvas layout: port of the plugin draw() placement + SVG wires.
+  useLayoutEffect(() => {
+    const graph = graphRef.current;
+    if (!graph || tasks.length === 0) return;
+    const gap = 16; const pad = 24;
+    const moduleEls = mods.map((m) => nodeRefs.current.get('m:' + m.id)).filter(Boolean) as HTMLButtonElement[];
+    const childEls = shown.map((c) => nodeRefs.current.get('c:' + c.id)).filter(Boolean) as HTMLButtonElement[];
+    if (moduleEls.length === 0 && childEls.length === 0) return;
+    const columnHeight = (els: HTMLElement[]) => els.reduce((sum, el) => sum + el.getBoundingClientRect().height, 0) + Math.max(0, els.length - 1) * gap;
+    const mh = columnHeight(moduleEls);
+    const ch = columnHeight(childEls);
+    const h = Math.max(580, mh + pad * 2, ch + pad * 2);
+    const tops: Record<string, number> = {};
+    const centerOf = (el: HTMLElement, top: number) => top + el.getBoundingClientRect().height / 2;
+    const place = (pairs: Array<{ el: HTMLElement; key: string }>, start: number) => {
+      let y = start;
+      for (const pair of pairs) { tops[pair.key] = Math.round(y); y += pair.el.getBoundingClientRect().height + gap; }
     };
-    const onConnect = () => socket.emit('taskboard:subscribe', { spaceId });
-    const connectTimer = window.setTimeout(() => socket.connect(), 0);
-    socket.on('connect', onConnect);
-    socket.on('taskboardChanged', debouncedRefresh);
-    socket.io.on('reconnect', () => {
-      socket.emit('taskboard:subscribe', { spaceId });
-      debouncedRefresh();
-    });
-    return () => {
-      window.clearTimeout(connectTimer);
-      if (timer !== undefined) window.clearTimeout(timer);
-      socket.emit('taskboard:unsubscribe', { spaceId });
-      socket.off('connect', onConnect);
-      socket.off('taskboardChanged', debouncedRefresh);
-      socket.disconnect();
+    place(moduleEls.map((el, i) => ({ el, key: 'm:' + mods[i].id })), (h - mh) / 2);
+    const activeIndex = mods.findIndex((x) => x.id === activeModuleId);
+    const activeEl = activeIndex >= 0 ? moduleEls[activeIndex] : null;
+    const anchor = activeEl ? centerOf(activeEl, tops['m:' + mods[activeIndex].id]) : h / 2;
+    place(childEls.map((el, i) => ({ el, key: 'c:' + shown[i].id })), Math.max(pad, Math.min(h - pad - ch, anchor - ch / 2)));
+    const wires: string[] = [];
+    const wire = (fromX: number, fromCenterY: number, toX: number, toCenterY: number) => {
+      const mid = (fromX + toX) / 2;
+      wires.push('M' + fromX + ' ' + fromCenterY + 'H' + mid + 'V' + toCenterY + 'H' + toX);
     };
-  }, [spaceId, load]);
-
-  useEffect(() => { setStatusDraft(selected?.status ?? ''); setStepDraft(selected?.current_step ?? ''); }, [selected?.id, selected?.status, selected?.current_step]);
+    const modWires = mods.map((m, i) => {
+      const top = tops['m:' + m.id] ?? 0;
+      const el = moduleEls[i];
+      return { x: (28 + 29) * 10, cy: centerOf(el, top) };
+    });
+    const rootCenter = h / 2;
+    modWires.forEach((w) => wire(2 * 10 + 200, rootCenter, 28 * 10, w.cy));
+    if (activeEl) {
+      const activeCenter = anchor;
+      childEls.forEach((el, i) => {
+        const cy = centerOf(el, tops['c:' + shown[i].id] ?? 0);
+        wire((28 + 29) * 10, activeCenter, 66 * 10, cy);
+      });
+    }
+    const next = JSON.stringify({ h: Math.round(h), tops, wires });
+    setLayout((prev) => (JSON.stringify(prev) === next ? prev : JSON.parse(next)));
+  }, [tasks, mods, shown, activeModuleId, activePhase?.id, selectedId]);
 
   const applyStatus = async () => {
     if (!spaceId || !selected) return;
@@ -223,7 +237,7 @@ export const TaskboardPage: React.FC = () => {
     finally { setBusy(false); }
   };
 
-  const addTask = async () => {
+  const addChild = async () => {
     const title = newTitle.trim();
     if (!spaceId || !title) return;
     setBusy(true);
@@ -249,204 +263,283 @@ export const TaskboardPage: React.FC = () => {
     finally { setBusy(false); }
   };
 
-  return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6">
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-semibold">{board?.project || (zh ? '任务看板' : 'Taskboard')}</h1>
-        <span className="text-sm text-gray-500">{t('taskboard.progress')}：{phaseSummaries.reduce((sum, phase) => sum + phase.done, 0)}/{phaseSummaries.reduce((sum, phase) => sum + phase.total, 0)}</span>
-        {importNote && <span className="text-sm text-emerald-700">{importNote}</span>}
-        <div className="ml-auto flex items-center gap-2">
-          <button type="button" onClick={() => setImportOpen((open) => !open)} className="flex items-center gap-1 rounded-md border border-blue-600 px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50">
-            <Upload size={14} /> {t('taskboard.importPlan')}
-          </button>
-          <button type="button" onClick={() => void load()} className="flex items-center gap-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50">
-            <RefreshCw size={14} /> {t('common.refresh')}
-          </button>
+  const locate = (t: TaskboardTask) => {
+    const path: TaskboardTask[] = [];
+    const seen = new Set<string>();
+    let n: TaskboardTask | undefined = t;
+    while (n && !seen.has(n.id)) { path.push(n); seen.add(n.id); n = n.parent_id ? tasks.find((x) => x.id === n!.parent_id) : undefined; }
+    const phase = path.find((x) => x.kind === 'phase');
+    if (phase) {
+      setPhaseId(phase.id);
+      const phaseIndex = path.findIndex((x) => x.id === phase.id);
+      const directChild = phaseIndex > 0 ? path[phaseIndex - 1] : null;
+      setModuleId(directChild?.id || null);
+    }
+    setSelectedId(t.id);
+    window.setTimeout(() => {
+      const el = nodeRefs.current.get('m:' + t.id) ?? nodeRefs.current.get('c:' + t.id);
+      if (el) el.scrollIntoView({ block: 'center', inline: 'nearest' });
+      else graphRef.current?.scrollIntoView({ block: 'center' });
+    }, 60);
+  };
+
+  const renderNode = (task: TaskboardTask, cls: 'root' | 'module' | 'cap', refKey: string, style: React.CSSProperties, onClick: () => void) => {
+    const isSelected = task.id === selectedId || task.id === activeModuleId;
+    const counts = tbTaskStatusCounts(tasks, task.id);
+    const history = tbHistorySummary(tasks, task.id);
+    void history;
+    return (
+      <button
+        key={task.id}
+        ref={(el) => { if (el) nodeRefs.current.set(refKey, el); else nodeRefs.current.delete(refKey); }}
+        className={'node ' + cls + ' ' + tbTaskTypeClass(tasks, task) + (isSelected ? ' selected' : '')}
+        style={style}
+        onClick={onClick}
+        aria-label={tbCleanTitle(task)}
+        aria-pressed={isSelected}
+        title={tbCleanTitle(task)}
+      >
+        {cls === 'root'
+          ? <span className="letter active">{tbPhaseMark(task, phases.findIndex((x) => x.id === task.id))}</span>
+          : tbIcon(19)}
+        <div className="node-body">
+          <strong>{tbCleanTitle(task)}</strong>
+          <small className="node-count task-type">{tbTaskTypeLabel(tasks, task)}</small>
+          {counts.total > 0 && (
+            <small className="node-count">下属主线任务 {counts.total} 个 · {counts.done} 已完成</small>
+          )}
+          {cls !== 'root' && <small className="node-time">{tbTimeText(tasks, task)}</small>}
+          <div className="signals">
+            {tbStages(tasks, task).map((v, i) => (
+              <span key={STAGE_KEYS[i]} title={STAGE_NAMES[i] + '：' + statusZh(v)}>
+                <i className={'dot ' + v} />{STAGE_NAMES[i].slice(0, 2)}
+              </span>
+            ))}
+          </div>
         </div>
-      </div>
-      {error && <p role="alert" className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      </button>
+    );
+  };
 
-      {importOpen && (
-        <section className="mb-5 rounded-lg border border-gray-200 bg-white p-4">
-          <h2 className="mb-3 text-base font-medium">{t('taskboard.importPlan')}</h2>
-          <div className="grid gap-3">
-            <label className="block text-sm">
-              <span className="mb-1 block text-gray-600">{t('taskboard.planContent')}</span>
-              <textarea aria-label={t('taskboard.planContent')} value={planContent} onChange={(event) => setPlanContent(event.target.value)} rows={8}
-                className="w-full rounded-md border border-gray-300 p-2 font-mono text-xs" />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block text-gray-600">{t('taskboard.planSource')}</span>
-              <input aria-label={t('taskboard.planSource')} value={planSource} onChange={(event) => setPlanSource(event.target.value)}
-                className="w-full rounded-md border border-gray-300 p-2 text-sm" />
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" aria-label={t('taskboard.syncStatus')} checked={syncStatus} onChange={(event) => setSyncStatus(event.target.checked)} />
-              {t('taskboard.syncStatus')}
-            </label>
-            <div className="flex gap-2">
-              <button type="button" disabled={busy || !planContent.trim()} onClick={() => void importPlan()}
-                className="rounded-md bg-blue-600 px-4 py-1.5 text-sm text-white disabled:opacity-50">{t('taskboard.import')}</button>
-              <button type="button" onClick={() => setImportOpen(false)} className="rounded-md border border-gray-300 px-4 py-1.5 text-sm text-gray-600">{t('common.cancel')}</button>
-            </div>
-          </div>
-        </section>
-      )}
+  const inspectTask = selected ?? moduleTask ?? activePhase;
+  const syncText = board ? '数据更新 ' + tbFmt(board.updated_at) : '正在读取项目记录';
 
-      {phaseSummaries.length > 1 && (
-        <nav aria-label={zh ? '实施阶段' : 'Phases'} className="mb-4">
-          <div className="flex items-center gap-2">
-            <div ref={phaseRailRef} onScroll={updateRailButtons} className="min-w-0 flex-1 overflow-x-auto pb-1">
-              <div className="flex w-max gap-2">
-                {phaseSummaries.map((phase) => {
-                  const active = effectivePhaseId === (phase.id === 'all' ? null : phase.id);
-                  return (
-                    <button key={phase.id} type="button" data-phase-id={phase.id}
-                      onClick={() => setActivePhaseId(phase.id === 'all' ? null : phase.id)} aria-pressed={active}
-                      className={'w-56 shrink-0 rounded-lg border px-3 py-2 text-left text-sm ' + (active ? 'border-blue-600 bg-blue-50 text-blue-800' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300')}>
-                      <span className="block truncate font-medium">{phase.title}</span>
-                      <span className="mt-1 flex items-center gap-2 text-xs text-gray-500">
-                        <span className="flex items-center gap-1"><i className={'inline-block h-2 w-2 rounded-full ' + STATUS_STYLE.done.dot} />{phase.done}</span>
-                        <span className="flex items-center gap-1"><i className={'inline-block h-2 w-2 rounded-full ' + STATUS_STYLE.in_progress.dot} />{phase.inProgress}</span>
-                        <span className="flex items-center gap-1"><i className={'inline-block h-2 w-2 rounded-full ' + STATUS_STYLE.todo.dot} />{phase.pending}</span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-              <button type="button" onClick={() => scrollRailByStep(-1)} disabled={!railCanScroll || railAtStart}
-                aria-label={t('taskboard.prevPhase')} title={t('taskboard.prevPhase')}
-                className="rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-600 disabled:opacity-40">‹</button>
-              <button type="button" onClick={() => scrollRailByStep(1)} disabled={!railCanScroll || railAtEnd}
-                aria-label={t('taskboard.nextPhase')} title={t('taskboard.nextPhase')}
-                className="rounded-md border border-gray-300 px-2 py-1 text-sm text-gray-600 disabled:opacity-40">›</button>
-              <select aria-label={t('taskboard.jumpToPhase')} value={effectivePhaseId ?? 'all'}
-                onChange={(event) => setActivePhaseId(event.target.value === 'all' ? null : event.target.value)}
-                className="max-w-[14rem] rounded-md border border-gray-300 px-2 py-1 text-sm">
-                {phaseSummaries.map((phase, index) => (
-                  <option key={phase.id} value={phase.id}>{String(index + 1)} · {phase.title}（{phase.done}/{phase.total}）</option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </nav>
-      )}
-
-      {loading ? (
-        <p className="py-10 text-center text-sm text-gray-500">{zh ? '正在加载…' : 'Loading…'}</p>
-      ) : tasks.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-gray-300 py-10 text-center text-sm text-gray-500">{t('taskboard.empty')}</p>
-      ) : (
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
-          <section className="overflow-hidden rounded-lg border border-gray-200 bg-white">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50 text-xs text-gray-500">
-                <tr>
-                  <th className="px-3 py-2 font-medium">{t('common.status')}</th>
-                  <th className="px-3 py-2 font-medium">{zh ? '任务' : 'Task'}</th>
-                  <th className="px-3 py-2 font-medium">{t('taskboard.owner')}</th>
-                  <th className="px-3 py-2 font-medium">{t('taskboard.updated')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleTasks.map((task) => {
-                  const meta = statusMeta(task);
-                  const kind = KIND_LABELS[String(task.kind)] ?? null;
-                  return (
-                    <tr key={task.id}
-                      onClick={() => setSelectedId(task.id)}
-                      className={'cursor-pointer border-t border-gray-100 hover:bg-blue-50/50 ' + (selectedId === task.id ? 'bg-blue-50' : '')}>
-                      <td className="px-3 py-2"><span className={'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ' + meta.pill}><i className={'inline-block h-2 w-2 rounded-full ' + meta.dot} />{zh ? meta.zh : meta.en}</span></td>
-                      <td className="py-2 pr-3" style={{ paddingLeft: 12 + depthOf(task) * 18 }}>
-                        <span className={task.kind === 'phase' ? 'font-semibold' : ''}>{task.title}</span>
-                        {kind && <span className="ml-2 text-xs text-gray-400">{zh ? kind.zh : kind.en}</span>}
-                      </td>
-                      <td className="px-3 py-2 text-gray-500">{task.owner ?? '—'}</td>
-                      <td className="px-3 py-2 text-gray-500">{formatTime(task.updated_at) ?? '—'}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </section>
-
-          <div className="grid content-start gap-4">
-            {selected && (
-              <section aria-label={selected.title} className="rounded-lg border border-gray-200 bg-white p-4">
-                <h2 className="text-base font-medium">{selected.title}</h2>
-                {selected.summary && <p className="mt-1 text-sm text-gray-500">{selected.summary}</p>}
-                <dl className="mt-3 grid gap-2 text-sm">
-                  <div className="flex items-center gap-2">
-                    <dt className="text-gray-500">{t('common.status')}</dt>
-                    <dd>
-                      <select aria-label={t('common.status')} value={statusDraft} onChange={(event) => setStatusDraft(event.target.value)}
-                        className="rounded-md border border-gray-300 px-2 py-1 text-sm">
-                        {STATUS_ORDER.map((status) => (
-                          <option key={status} value={status}>{zh ? STATUS_STYLE[status].zh : STATUS_STYLE[status].en}</option>
-                        ))}
-                      </select>
-                    </dd>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <dt className="shrink-0 text-gray-500">{t('taskboard.currentStep')}</dt>
-                    <dd className="flex-1">
-                      <input aria-label={t('taskboard.currentStep')} value={stepDraft} onChange={(event) => setStepDraft(event.target.value)}
-                        className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm" />
-                    </dd>
-                  </div>
-                  <div className="flex justify-end">
-                    <button type="button" disabled={busy} onClick={() => void applyStatus()}
-                      className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white disabled:opacity-50">{zh ? '保存' : 'Save'}</button>
-                  </div>
-                  <div><dt className="inline text-gray-500">{t('taskboard.owner')}：</dt><dd className="inline">{selected.owner ?? '—'}</dd></div>
-                  <div><dt className="inline text-gray-500">{zh ? '开始' : 'Started'}：</dt><dd className="inline">{formatTime(selected.started_at) ?? '—'}</dd></div>
-                  <div><dt className="inline text-gray-500">{zh ? '完成' : 'Completed'}：</dt><dd className="inline">{formatTime(selected.completed_at) ?? '—'}</dd></div>
-                  {selected.description && <div><dt className="mb-1 text-gray-500">{zh ? '说明' : 'Notes'}</dt><dd className="whitespace-pre-wrap text-gray-700">{selected.description}</dd></div>}
-                  {Array.isArray(selected.status_history) && selected.status_history.length > 0 && (
-                    <div>
-                      <dt className="mb-1 text-gray-500">{t('taskboard.statusHistory')}</dt>
-                      <dd className="grid gap-0.5">
-                        {[...selected.status_history].slice(-5).reverse().map((entry, index) => (
-                          <span key={entry.at + '-' + index} className="text-xs text-gray-500">
-                            {formatTime(entry.at) ?? ''} · {zh ? STATUS_STYLE[String(entry.to)]?.zh ?? String(entry.to) : STATUS_STYLE[String(entry.to)]?.en ?? String(entry.to)}{entry.by ? ' · ' + entry.by : ''}
-                          </span>
-                        ))}
-                      </dd>
+  return (
+    <div className="tb-page">
+      <header>
+        <h1>{board?.project || (zh ? '项目全景' : 'Project Overview')}</h1>
+        <small>{syncText}</small>
+        <span className="updated">{zh ? '项目规划 · 实现进度' : 'Plan · Progress'}</span>
+        <button type="button" onClick={() => setImportOpen((open) => !open)}>{zh ? '导入计划' : 'Import plan'}</button>
+        <button type="button" id="refresh" onClick={() => void load()}>{zh ? '刷新' : 'Refresh'}</button>
+      </header>
+      <main>
+        <div className="road">
+          <div className="roadlabel">{zh ? '实施顺序' : 'Phases'}<small>{zh ? <React.Fragment>按阶段规划，<br />逐步推进</React.Fragment> : <React.Fragment>Phase by phase,<br />step by step</React.Fragment>}</small></div>
+          <div className="roadwrap">
+            <nav className="tracks" ref={railRef} onScroll={updateRailButtons}>
+              {phases.map((phase, index) => {
+                const c = tbTaskStatusCounts(tasks, phase.id);
+                return (
+                  <button
+                    key={phase.id}
+                    type="button"
+                    data-phase-id={phase.id}
+                    className={'milestone' + (phase.id === activePhase?.id ? ' selected' : '')}
+                    onClick={() => { setPhaseId(phase.id); setModuleId(null); setSelectedId(phase.id); }}
+                  >
+                    <div className="mtop"><span className={'letter' + (phase.id === activePhase?.id ? ' active' : '')}>{tbPhaseMark(phase, index)}</span><span>{tbCleanTitle(phase)}</span></div>
+                    <div className="counts">
+                      <span title="已完成执行任务"><i className="dot done" /><div>{c.done}</div></span>
+                      <span title="进行中执行任务"><i className="dot in_progress" /><div>{c.inProgress}</div></span>
+                      <span title="待完成执行任务"><i className="dot todo" /><div>{c.pending}</div></span>
                     </div>
-                  )}
-                </dl>
+                    <small className="scope-summary">{tbTaskStatusSummary(tasks, phase.id)}</small>
+                    <small className="scope-summary road-time">{tbTimeText(tasks, phase)}</small>
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+          <div className="roadnav">
+            <button type="button" aria-label={t('taskboard.prevPhase')} title={t('taskboard.prevPhase')} disabled={!railCanScroll || railAtStart} onClick={() => scrollRailByStep(-1)}>‹</button>
+            <button type="button" aria-label={t('taskboard.nextPhase')} title={t('taskboard.nextPhase')} disabled={!railCanScroll || railAtEnd} onClick={() => scrollRailByStep(1)}>›</button>
+            <select
+              className="jumpmenu"
+              aria-label={t('taskboard.jumpToPhase')}
+              title={t('taskboard.jumpToPhase')}
+              value={activePhase?.id ?? ''}
+              onChange={(event) => { const id = event.target.value; if (!id) return; setPhaseId(id); setModuleId(null); setSelectedId(id); }}
+            >
+              {phases.map((phase, index) => {
+                const c = tbTaskStatusCounts(tasks, phase.id);
+                return <option key={phase.id} value={phase.id}>{tbPhaseMark(phase, index)} · {tbCleanTitle(phase)} ({c.done}/{c.total})</option>;
+              })}
+            </select>
+          </div>
+        </div>
+        {error && <div id="error" role="status">{error}</div>}
+        {importNote && <div className="box" style={{ margin: '0 15px 10px' }}><p>{importNote}</p></div>}
+        {importOpen && (
+          <section className="box" style={{ margin: '0 15px 10px' }}>
+            <h3>{t('taskboard.importPlan')}</h3>
+            <label className="statusrow"><span>{t('taskboard.planSource')}</span><input aria-label={t('taskboard.planSource')} value={planSource} onChange={(e) => setPlanSource(e.target.value)} style={{ flex: 1, border: '1px solid #d8e1ed', borderRadius: 6, padding: '4px 8px' }} /></label>
+            <p><textarea aria-label={t('taskboard.planContent')} value={planContent} onChange={(e) => setPlanContent(e.target.value)} rows={7} style={{ width: '100%', border: '1px solid #d8e1ed', borderRadius: 6, padding: 8, fontFamily: 'monospace', fontSize: 12 }} /></p>
+            <label className="statusrow"><span>{t('taskboard.syncStatus')}</span><input type="checkbox" aria-label={t('taskboard.syncStatus')} checked={syncStatus} onChange={(e) => setSyncStatus(e.target.checked)} /></label>
+            <p>
+              <button type="button" className="locate" disabled={busy || !planContent.trim()} onClick={() => void importPlan()} style={{ marginRight: 8 }}>{t('taskboard.import')}</button>
+              <button type="button" className="locate" style={{ background: '#f1f5fb', color: '#506587' }} onClick={() => setImportOpen(false)}>{t('common.cancel')}</button>
+            </p>
+          </section>
+        )}
+        {loading ? (
+          <p className="empty">{zh ? '正在加载…' : 'Loading…'}</p>
+        ) : tasks.length === 0 ? (
+          <p className="empty">{t('taskboard.empty')}</p>
+        ) : (
+          <React.Fragment>
+            <div className="workspace">
+              <section className="canvaspanel">
+                <div className="canvashead">
+                  <span className="letter active">{activePhase ? tbPhaseMark(activePhase, phases.findIndex((x) => x.id === activePhase.id)) : '·'}</span>
+                  <div>
+                    <h2>{activePhase ? tbCleanTitle(activePhase) + ' · ' + tbTaskStatusSummary(tasks, activePhase.id) : (board?.project || '')}</h2>
+                    <div className="crumb">{zh ? '项目 / ' : 'Project / '}{activePhase ? tbCleanTitle(activePhase) : (zh ? '全部任务' : 'All tasks')}{moduleTask ? ' / ' + tbCleanTitle(moduleTask) : ''}</div>
+                    <div className="view-summary">{activePhase ? '统计：' + tbTaskStatusSummary(tasks, activePhase.id) + ' · 当前图形展示 ' + mods.length + ' 个模块节点和 ' + shown.length + ' 个展开子节点' : ''}</div>
+                  </div>
+                </div>
+                <div className="graphviewport">
+                  <div className="graph" ref={graphRef} style={{ height: layout.h }}>
+                    <svg className="wires" viewBox={'0 0 1000 ' + layout.h} preserveAspectRatio="none">
+                      {layout.wires.map((d, i) => <path key={i} d={d} fill="none" stroke="#94a5c0" strokeWidth="1.2" strokeLinejoin="round" />)}
+                    </svg>
+                    {activePhase && moduleTask && renderNode(activePhase, 'root', 'r:' + activePhase.id, { left: '2%', width: '20%', top: layout.h / 2 - 41 }, () => setSelectedId(activePhase.id))}
+                    {mods.map((m) => renderNode(m, 'module', 'm:' + m.id, { left: '28%', width: '29%', top: layout.tops['m:' + m.id] ?? 0 }, () => { setModuleId(m.id); setSelectedId(m.id); }))}
+                    {shown.map((c) => renderNode(c, 'cap', 'c:' + c.id, { left: '66%', width: '32%', top: layout.tops['c:' + c.id] ?? 0 }, () => setSelectedId(c.id)))}
+                    {shown.length === 0 && moduleTask && (
+                      <div className="empty" style={{ position: 'absolute', left: '66%', width: '32%', top: layout.h / 2 - 30 }}>{zh ? '该节点暂无子项' : 'No children'}</div>
+                    )}
+                  </div>
+                </div>
               </section>
-            )}
-
-            <section className="rounded-lg border border-gray-200 bg-white p-4">
-              <h2 className="mb-2 text-sm font-medium">{selected ? t('taskboard.addChild') : t('taskboard.addRoot')}</h2>
-              <div className="flex gap-2">
-                <input aria-label={t('taskboard.addTaskPlaceholder')} value={newTitle} onChange={(event) => setNewTitle(event.target.value)}
-                  placeholder={t('taskboard.addTaskPlaceholder')}
-                  className="flex-1 rounded-md border border-gray-300 px-2 py-1.5 text-sm" />
-                <button type="button" disabled={busy || !newTitle.trim()} onClick={() => void addTask()}
-                  className="rounded-md border border-blue-600 px-3 py-1.5 text-sm text-blue-600 disabled:opacity-50">{zh ? '添加' : 'Add'}</button>
+              <aside className="inspector">
+                {inspectTask && (
+                  <React.Fragment>
+                    <div className="inspecthead">
+                      {tbIcon(34)}
+                      <div>
+                        <h2>{tbCleanTitle(inspectTask)}</h2>
+                        <div className="crumb">{inspectTask.kind === 'phase' ? (zh ? '项目里程碑' : 'Milestone') : (inspectTask.kind === 'step' ? (zh ? '步骤' : 'Step') : (zh ? '模块 / 实现记录' : 'Module / Record'))}</div>
+                      </div>
+                    </div>
+                    <div className="inside">
+                      <div className="box">
+                        {tbStages(tasks, inspectTask).map((v, i) => (
+                          <div key={STAGE_KEYS[i]} className="statusrow">
+                            <strong>{STAGE_NAMES[i]}</strong>
+                            <span className={'pill ' + v} style={{ ['--state' as string]: 'var(--state)' }}>{statusZh(v)}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="box">
+                        <h3>{zh ? '更新执行状态' : 'Update status'}</h3>
+                        <label className="statusrow"><span>{t('common.status')}</span>
+                          <select aria-label={t('common.status')} value={statusDraft} onChange={(e) => setStatusDraft(e.target.value)} style={{ border: '1px solid #d8e1ed', borderRadius: 6, padding: '4px 8px' }}>
+                            {TB_STATUS_ORDER.map((s) => <option key={s} value={s}>{statusZh(s)}</option>)}
+                          </select>
+                        </label>
+                        <label className="statusrow"><span>{t('taskboard.currentStep')}</span>
+                          <input aria-label={t('taskboard.currentStep')} value={stepDraft} onChange={(e) => setStepDraft(e.target.value)} style={{ flex: 1, border: '1px solid #d8e1ed', borderRadius: 6, padding: '4px 8px' }} />
+                        </label>
+                        <p><button type="button" className="locate" disabled={busy} onClick={() => void applyStatus()}>{zh ? '保存' : 'Save'}</button></p>
+                      </div>
+                      <div className="box">
+                        <h3>{zh ? '范围与历史' : 'Scope & history'}</h3>
+                        <p>{tbScopeLabel(tasks, inspectTask)}（含祖先排除）</p>
+                        <p>记录状态：{statusZh(String(inspectTask.status))}</p>
+                        <p>{tbTaskStatusSummary(tasks, inspectTask.id)} · {tbTaskRecordSummary(tasks, inspectTask.id)}</p>
+                        <p>{zh ? '原记录三阶段' : 'Stages'}：{tbStages(tasks, inspectTask).map((v) => statusZh(v)).join(' / ')}</p>
+                      </div>
+                      <div className="box">
+                        <h3>{zh ? '时间进度' : 'Time'}</h3>
+                        <p>{tbTimeInfo(tasks, inspectTask).label}：{inspectTask.derived ? '' : ''}</p>
+                        <p>开始：{tbShortFmt(tbTimeInfo(tasks, inspectTask).start)}</p>
+                        <p>结束：{tbTimeInfo(tasks, inspectTask).end ? tbShortFmt(tbTimeInfo(tasks, inspectTask).end) : (inspectTask.status === 'done' ? '结束未记录' : '未结束')}</p>
+                      </div>
+                      <div className="box">
+                        <h3>{zh ? '规格依据' : 'Spec source'}</h3>
+                        {(Array.isArray(inspectTask.source) ? inspectTask.source : inspectTask.source ? [String(inspectTask.source)] : []).map((src) => <p key={src}>{src}</p>)}
+                        {(!inspectTask.source) && <p>{String(inspectTask.evidence || (zh ? '尚未关联具体条款' : 'No linked spec'))}</p>}
+                      </div>
+                      <div className="box">
+                        <h3>{zh ? '执行任务' : 'Execution tasks'}</h3>
+                        {tbConcrete(tasks, inspectTask.id).length > 0
+                          ? tbConcrete(tasks, inspectTask.id).map((x) => <p key={x.id}>{x.title} · {statusZh(String(x.status))} · {tbScopeLabel(tasks, x)}</p>)
+                          : <p>{zh ? '尚未关联独立任务' : 'No linked tasks'}</p>}
+                      </div>
+                      <div className="box">
+                        <h3>{zh ? '验收要点' : 'Acceptance'}</h3>
+                        <p>{String(inspectTask.summary || (zh ? '待 PM 补充' : 'TBD'))}</p>
+                      </div>
+                      <div className="box">
+                        <h3>{zh ? '下一步' : 'Next step'}</h3>
+                        <p>{String(inspectTask.next_step || (zh ? '待 PM 补充' : 'TBD'))}</p>
+                      </div>
+                      <div className="box">
+                        <h3>{selected ? t('taskboard.addChild') : t('taskboard.addRoot')}</h3>
+                        <p>
+                          <input aria-label={t('taskboard.addTaskPlaceholder')} value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder={t('taskboard.addTaskPlaceholder')} style={{ width: '70%', border: '1px solid #d8e1ed', borderRadius: 6, padding: '4px 8px' }} />
+                          <button type="button" className="locate" disabled={busy || !newTitle.trim()} onClick={() => void addChild()} style={{ marginLeft: 8 }}>{zh ? '添加' : 'Add'}</button>
+                        </p>
+                      </div>
+                    </div>
+                  </React.Fragment>
+                )}
+              </aside>
+            </div>
+            <section className="running">
+              <div className="runninghead"><span className="dot" /><h2>{t('taskboard.running')}</h2><small>当前执行任务 {runningList.length} 项 · 必需 {runningList.filter((x) => tbScopeLabel(tasks, x) === '范围：必需').length} 项</small></div>
+              <div className="runscroll">
+                <table>
+                  <thead><tr><th>{zh ? '任务名称' : 'Task'}</th><th>{zh ? '范围' : 'Scope'}</th><th>{zh ? '所属模块' : 'Module'}</th><th>{t('taskboard.owner')}</th><th>{t('taskboard.currentStep')}</th><th>{t('taskboard.updated')}</th><th /></tr></thead>
+                  <tbody>
+                    {runningList.length === 0 ? (
+                      <tr><td colSpan={7}>{zh ? '当前没有登记为进行中的执行任务；模块进展请查看上方。' : 'No in-progress execution tasks.'}</td></tr>
+                    ) : runningList.map((x) => (
+                      <tr key={x.id}>
+                        <td>{x.title}</td>
+                        <td>{tbScopeLabel(tasks, x)}</td>
+                        <td>{tasks.find((p) => p.id === x.parent_id)?.title || x.parent_id || (zh ? '未关联' : '-')}</td>
+                        <td>{x.owner || (zh ? '未指定' : '-')}</td>
+                        <td>{x.current_step || (zh ? '进行中' : 'Running')}</td>
+                        <td>{tbFmt(x.updated_at)}</td>
+                        <td><button type="button" className="locate" onClick={() => locate(x)}>{zh ? '定位节点 ↗' : 'Locate ↗'}</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </section>
-
-            {running.length > 0 && (
-              <section className="rounded-lg border border-gray-200 bg-white p-4">
-                <h2 className="mb-2 flex items-center gap-2 text-sm font-medium"><i className={'inline-block h-2 w-2 animate-pulse rounded-full ' + STATUS_STYLE.in_progress.dot} />{t('taskboard.running')}（{running.length}）</h2>
-                <ul className="grid gap-1 text-sm">
-                  {running.map((task) => (
-                    <li key={task.id}>
-                      <button type="button" onClick={() => setSelectedId(task.id)} className="text-left text-blue-700 hover:underline">{task.title}</button>
-                      {task.current_step && <span className="text-gray-500"> · {task.current_step}</span>}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-          </div>
-        </div>
-      )}
+            <footer className="legend">
+              <span><i className="dot done" />已完成</span>
+              <span><i className="dot in_progress" />进行中</span>
+              <span><i className="dot blocked" />已阻塞</span>
+              <span><i className="dot todo" />未开始</span>
+              <span><i className="dot unknown" />待核实</span>
+              <i className="legend-divider" />
+              <span className="type-legend"><i className="type-swatch type-required" />主线执行</span>
+              <span className="type-legend"><i className="type-swatch type-optional" />可选外部</span>
+              <span className="type-legend"><i className="type-swatch type-canceled" />已取消</span>
+              <span className="type-legend"><i className="type-swatch type-coordination" />协调记录</span>
+              <span className="note">{zh ? '技术验证通过 ≠ 功能完成' : 'Passing checks ≠ done'}</span>
+            </footer>
+            <details className="audit">
+              <summary>{zh ? '数据来源与覆盖范围' : 'Data source & coverage'}</summary>
+              <p>{zh ? '必需统计排除自身或任一祖先的可选外部、已取消、协调、required_denominator=false 或 status=canceled；未标注范围沿用旧口径。范围外历史单独计数，不计入必需阶段与未完成数。三阶段独立状态未登记时显示待核实。' : 'Required counts exclude optional/canceled/coordination/excluded ancestors; out-of-scope history is counted separately. Unregistered three-stage status shows as unknown.'}</p>
+            </details>
+          </React.Fragment>
+        )}
+      </main>
     </div>
   );
 };
