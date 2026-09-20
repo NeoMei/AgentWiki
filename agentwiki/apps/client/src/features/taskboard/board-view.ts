@@ -100,17 +100,36 @@ export function tbTaskRecordSummary(tasks: TaskboardTask[], id: string): string 
   return '全部任务节点 ' + all.length + ' 个' + (outside > 0 ? ' · 主线 ' + main.length + ' 个 · 范围外 ' + outside + ' 个（' + tbHistorySummary(tasks, id) + '）' : '');
 }
 
+/** Upstream ba67015: task's own stage value, with implementation falling back to status. */
+export function tbOwnStage(t: TaskboardTask, k: string): string | null {
+  const stages = t.stages as Record<string, string> | undefined;
+  if (stages && typeof stages[k] === 'string') return stages[k];
+  if (k === 'implementation') return (t.status as string) || null;
+  return null;
+}
+
 export function tbStages(tasks: TaskboardTask[], t: TaskboardTask): string[] {
   const own = ['validation', 'implementation', 'acceptance'];
   const leaves = tbConcrete(tasks, t.id);
-  if (leaves.length === 0) return own.map(() => 'not_applicable');
+  if (leaves.length === 0) {
+    return own.map((k) => {
+      const v = tbOwnStage(t, k);
+      return v && TB_LABELS[v] ? v : 'not_applicable';
+    });
+  }
   return own.map((k) => {
-    const vals = leaves.map((x) => (x.stages as Record<string, string> | undefined)?.[k])
-      .filter((v) => typeof v === 'string' && TB_LABELS[v]);
+    const vals = leaves.map((x) => tbOwnStage(x, k))
+      .filter((v) => typeof v === 'string' && TB_LABELS[v] && v !== 'not_applicable');
+    if (vals.length === 0) {
+      const v = tbOwnStage(t, k);
+      return v && TB_LABELS[v] ? v : 'unknown';
+    }
     if (vals.includes('blocked')) return 'blocked';
     if (vals.includes('in_progress')) return 'in_progress';
     if (vals.includes('in_review')) return 'in_review';
-    if (vals.length && vals.every((v) => v === 'done' || v === 'passed')) return vals.every((v) => v === 'passed') ? 'passed' : 'done';
+    const doneCount = vals.filter((v) => v === 'done' || v === 'passed').length;
+    if (doneCount === vals.length) return doneCount === vals.filter((v) => v === 'passed').length ? 'passed' : 'done';
+    if (doneCount > 0) return 'in_progress';
     if (vals.includes('todo')) return 'todo';
     return 'unknown';
   });

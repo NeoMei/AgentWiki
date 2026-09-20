@@ -170,7 +170,7 @@ export class ProjectTaskboardService {
       const target = String(patch.status ?? current.status ?? '');
       if (TASKBOARD_CLAIM_GUARDED_STATUSES.has(target)) {
         this.assertDependenciesMet(mapping, current);
-        this.assertClaimOrTakeOver(current, actor, dto.takeover === true);
+        this.assertClaimOrTakeOver(current, actor, dto.takeover === true, dto.session_id);
       }
       const before = current.status ?? null;
       const task = applyTaskboardPatch(current, patch, actor.label);
@@ -231,7 +231,7 @@ export class ProjectTaskboardService {
       const target = patch.status === undefined ? undefined : String(patch.status);
       if (target === 'in_progress') {
         this.assertDependenciesMet(mapping, current);
-        this.assertClaimOrTakeOver(current, actor, takeover === true);
+        this.assertClaimOrTakeOver(current, actor, takeover === true, (typeof patch.session_id === 'string' ? String(patch.session_id) : undefined));
       }
       const task = applyTaskboardPatch(current, patch, actor.label);
       await this.persistTask(tx, boardId, taskId, task);
@@ -305,21 +305,32 @@ export class ProjectTaskboardService {
     }
   }
 
-  private assertClaimOrTakeOver(task: TaskboardTask, actor: TaskboardActor, takeover: boolean) {
-    const claim = task.claim as { owner?: string; at?: string } | undefined;
+  private assertClaimOrTakeOver(task: TaskboardTask, actor: TaskboardActor, takeover: boolean, session?: string) {
+    const claim = task.claim as
+      | { owner?: string; at?: string; session?: string; takeover_from?: string }
+      | undefined;
     if (!claim?.owner) {
-      task.claim = { owner: actor.label, at: isoNow() };
+      task.claim = { owner: actor.label, ...(session ? { session } : {}), at: isoNow() };
       return;
     }
-    if (claim.owner === actor.label) return;
+    // Same identity holding the claim without a clashing session is a no-op.
+    if (claim.owner === actor.label && (!session || !claim.session || claim.session === session)) return;
     if (!takeover) {
+      const holder = claim.owner !== actor.label
+        ? claim.owner
+        : 'session ' + claim.session;
       throw new BusinessException(
         'TASKBOARD_TASK_CLAIMED',
-        '任务已由 ' + claim.owner + ' 认领；如需接管请携带 takeover=true',
-        { claimed_by: claim.owner, claimed_at: claim.at ?? null },
+        '任务已被 ' + holder + ' 认领；如需接管请携带 takeover=true',
+        { claimed_by: claim.owner, claimed_session: claim.session ?? null, claimed_at: claim.at ?? null },
       );
     }
-    task.claim = { owner: actor.label, at: isoNow(), takeover_from: claim.owner };
+    task.claim = {
+      owner: actor.label,
+      ...(session ? { session } : {}),
+      at: isoNow(),
+      takeover_from: claim.owner,
+    };
   }
 
   private async authorizeWrite(principal: Principal, spaceId: string) {

@@ -49,6 +49,8 @@ export class TaskboardTaskDto {
   @Allow() depends_on?: unknown;
   @IsOptional() @IsString() expected_status?: string;
   @IsOptional() @IsBoolean() takeover?: boolean;
+  /** Session marker for same-agent multi-session claim semantics. */
+  @IsOptional() @IsString() session_id?: string;
 }
 
 export class TaskboardStatusDto {

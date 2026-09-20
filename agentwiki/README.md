@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.12.0** — Plan import reworked (upload a local file, paste, or import from a wiki page — the server never reads local paths) and the taskboard shows task claims with explicit takeover for multi-agent work. Local Sync remains 0.10.0 and sync protocol 0.6.0.
+> **v0.12.3** — Taskboard stage aggregation synced from upstream project-taskboard ba67015 (status fallback + partial completion as in_progress). Local Sync remains 0.10.0 and sync protocol 0.6.0.
 
 
 ## Hosted Service
