@@ -50,12 +50,13 @@ export class TaskboardTaskDto {
   @IsOptional() @IsString() expected_status?: string;
   @IsOptional() @IsBoolean() takeover?: boolean;
   /** Session marker for same-agent multi-session claim semantics. */
-  @IsOptional() @IsString() session_id?: string;
 }
 
 export class TaskboardStatusDto {
   @IsOptional() @IsString() status?: string;
   @IsOptional() @IsString() current_step?: string;
+  /** Session marker for same-agent multi-session claim semantics. */
+  @IsOptional() @IsString() session_id?: string;
   /** Optimistic concurrency: reject when the live status differs. */
   @IsOptional() @IsString() expected_status?: string;
   /** Explicitly take over a task claimed by another actor. */
