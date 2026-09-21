@@ -67,7 +67,9 @@ describe('TaskboardPage 项目全景 UI', () => {
     fireEvent.change(screen.getByLabelText('计划内容（Markdown）'), { target: { value: PLAN } });
     fireEvent.click(screen.getByRole('button', { name: /^导入$/ }));
     expect(await screen.findByRole('button', { name: '登录契约' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '写失败测试' })).toBeInTheDocument();
+    // Upstream ba771da: steps appear in a deeper column after clicking the parent.
+    fireEvent.click(screen.getByRole('button', { name: '登录契约' }));
+    expect(await screen.findByRole('button', { name: '写失败测试' })).toBeInTheDocument();
     expect(screen.getByText(/正在执行/)).toBeInTheDocument();
     expect(screen.getByRole('row', { name: /登录契约/ })).toBeInTheDocument();
     expect(api.post).toHaveBeenCalledWith('/spaces/space-1/taskboard/import-plan', expect.objectContaining({ content: PLAN }));
@@ -86,8 +88,10 @@ describe('TaskboardPage 项目全景 UI', () => {
     vi.mocked(api.get).mockResolvedValue({ data: planBoard() });
     vi.mocked(api.post).mockResolvedValue({ data: { task: { id: 's1', title: '写失败测试', status: 'in_progress' } } });
     renderPage();
-    await screen.findByRole('button', { name: '写失败测试' });
-    fireEvent.click(screen.getByRole('button', { name: '写失败测试' }));
+    await screen.findByRole('button', { name: '登录契约' });
+    fireEvent.click(screen.getByRole('button', { name: '登录契约' }));
+    const stepNode = await screen.findByRole('button', { name: '写失败测试' });
+    fireEvent.click(stepNode);
     await waitFor(() => expect(screen.getByLabelText('状态')).toBeInTheDocument());
     fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'in_progress' } });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));

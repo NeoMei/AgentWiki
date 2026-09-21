@@ -35,6 +35,15 @@ function statusZh(s: string): string {
   return TB_LABELS[s] ?? '待核实';
 }
 
+function hasPhaseFlag(tasks: TaskboardTask[]): boolean {
+  return tasks.some((x) => x.kind === 'phase');
+}
+
+const ROOT_COLUMN_WIDTH = 280;
+const COLUMN_WIDTH = 245;
+const COLUMN_GAP = 32;
+const GRAPH_PADDING = 24;
+
 function tbIcon(size: number): React.ReactNode {
   return (
     <svg className="icon" style={{ width: size, height: size }} viewBox="0 0 24 24" aria-hidden="true">
@@ -50,9 +59,8 @@ export const TaskboardPage: React.FC = () => {
   const [board, setBoard] = useState<TaskboardBoard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [phaseId, setPhaseId] = useState<string | null>(null);
-  const [moduleId, setModuleId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [viewPath, setViewPath] = useState<string[]>([]);
   const [importOpen, setImportOpen] = useState(false);
   const [importMode, setImportMode] = useState<'paste' | 'upload' | 'page'>('paste');
   const [planContent, setPlanContent] = useState('');
@@ -69,7 +77,8 @@ export const TaskboardPage: React.FC = () => {
   const graphRef = useRef<HTMLDivElement | null>(null);
   const railRef = useRef<HTMLDivElement | null>(null);
   const nodeRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
-  const [layout, setLayout] = useState<{ h: number; tops: Record<string, number>; wires: string[] }>({ h: 580, tops: {}, wires: [] });
+  const [layout, setLayout] = useState<{ h: number; width: number; tops: Record<string, number>; wires: string[] }>({ h: 580, width: 960, tops: {}, wires: [] });
+  const [sessionDraft, setSessionDraft] = useState('');
   const [railCanScroll, setRailCanScroll] = useState(false);
   const [railAtStart, setRailAtStart] = useState(true);
   const [railAtEnd, setRailAtEnd] = useState(false);
@@ -118,19 +127,37 @@ export const TaskboardPage: React.FC = () => {
 
   const tasks = board?.tasks ?? [];
   const phases = useMemo(() => tasks.filter((x) => x.kind === 'phase'), [tasks]);
-  const activePhase = phases.find((x) => x.id === phaseId) ?? phases[0] ?? null;
-  const mods = useMemo(
-    () => (activePhase ? tbKids(tasks, activePhase.id).filter((x) => x.kind !== 'step') : (phases.length === 0 ? tasks.filter((x) => !x.parent_id) : [])),
-    [tasks, activePhase, phases.length],
-  );
-  const activeModuleId = mods.some((x) => x.id === moduleId) ? moduleId : mods[0]?.id ?? null;
-  const moduleTask = tasks.find((x) => x.id === activeModuleId) ?? null;
-  const moduleChildren = moduleTask ? tbKids(tasks, moduleTask.id) : [];
-  const capabilities = moduleChildren.filter((x) => x.kind === 'capability' || x.kind === 'module');
-  const shown = capabilities.length > 0
-    ? [...capabilities.flatMap((c) => tbKids(tasks, c.id)), ...moduleChildren.filter((x) => x.kind !== 'capability' && x.kind !== 'module')]
-    : moduleChildren;
-  const selected = tasks.find((x) => x.id === selectedId) ?? null;
+
+  // Upstream ba771da: normalize the expansion path, then derive one canvas column per hop.
+  const path = useMemo<string[]>(() => {
+    const out: string[] = [];
+    const first = viewPath[0] ? tasks.find((x) => x.id === viewPath[0]) : undefined;
+    if (!first) return hasPhaseFlag(tasks) ? (phases[0] ? [phases[0].id] : []) : out;
+    out.push(first.id);
+    for (const id of viewPath.slice(1)) {
+      if (tbKids(tasks, out[out.length - 1]).some((x) => x.id === id)) out.push(id);
+      else break;
+    }
+    return out;
+  }, [tasks, viewPath, phases]);
+
+  const columns = useMemo<TaskboardTask[][]>(() => {
+    if (path.length === 0) return hasPhaseFlag(tasks) ? [] : [tasks.filter((x) => !x.parent_id)];
+    const cols: TaskboardTask[][] = [];
+    const rootTask = tasks.find((x) => x.id === path[0]);
+    if (rootTask) cols.push([rootTask]);
+    // Upstream semantics: each path node contributes a column of its children.
+    for (const id of path) {
+      const children = tbKids(tasks, id);
+      if (children.length > 0) cols.push(children);
+    }
+    return cols;
+  }, [tasks, path, hasPhaseFlag(tasks)]);
+
+  const pathEnd = path.length > 0 ? tasks.find((x) => x.id === path[path.length - 1]) ?? null : null;
+  const activePhase = hasPhaseFlag(tasks) && path.length > 0 ? tasks.find((x) => x.id === path[0]) ?? null : null;
+  const selected = tasks.find((x) => x.id === selectedId) ?? pathEnd;
+  const columnWidth = columns.length === 1 ? ROOT_COLUMN_WIDTH : COLUMN_WIDTH;
 
   const runningList = useMemo(
     () => tasks.filter((x) => (x.kind === 'task' || x.kind === 'implementation_task') && x.status === 'in_progress'),
@@ -183,51 +210,49 @@ export const TaskboardPage: React.FC = () => {
     if (el) el.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
   }, [activePhase?.id, phases.length]);
 
-  // Canvas layout: port of the plugin draw() placement + SVG wires.
+  // Canvas layout (upstream ba771da): one column per expanded path hop, px-based.
   useLayoutEffect(() => {
     const graph = graphRef.current;
-    if (!graph || tasks.length === 0) return;
+    if (!graph || columns.length === 0) return;
     const gap = 16; const pad = 24;
-    const moduleEls = mods.map((m) => nodeRefs.current.get('m:' + m.id)).filter(Boolean) as HTMLButtonElement[];
-    const childEls = shown.map((c) => nodeRefs.current.get('c:' + c.id)).filter(Boolean) as HTMLButtonElement[];
-    if (moduleEls.length === 0 && childEls.length === 0) return;
+    const columnWidth = columns.length === 1 ? ROOT_COLUMN_WIDTH : COLUMN_WIDTH;
+    const graphWidth = Math.max(960, GRAPH_PADDING * 2 + columns.length * columnWidth + (columns.length - 1) * COLUMN_GAP);
+    const columnEls = columns.map((items, ci) =>
+      items.map((item) => nodeRefs.current.get(ci + ':' + item.id)).filter(Boolean) as HTMLButtonElement[],
+    );
+    if (columnEls.every((els) => els.length === 0)) return;
     const columnHeight = (els: HTMLElement[]) => els.reduce((sum, el) => sum + el.getBoundingClientRect().height, 0) + Math.max(0, els.length - 1) * gap;
-    const mh = columnHeight(moduleEls);
-    const ch = columnHeight(childEls);
-    const h = Math.max(580, mh + pad * 2, ch + pad * 2);
+    const columnHeights = columnEls.map(columnHeight);
+    const h = Math.max(580, ...columnHeights.map((v) => v + pad * 2));
     const tops: Record<string, number> = {};
-    const centerOf = (el: HTMLElement, top: number) => top + el.getBoundingClientRect().height / 2;
-    const place = (pairs: Array<{ el: HTMLElement; key: string }>, start: number) => {
-      let y = start;
-      for (const pair of pairs) { tops[pair.key] = Math.round(y); y += pair.el.getBoundingClientRect().height + gap; }
-    };
-    place(moduleEls.map((el, i) => ({ el, key: 'm:' + mods[i].id })), (h - mh) / 2);
-    const activeIndex = mods.findIndex((x) => x.id === activeModuleId);
-    const activeEl = activeIndex >= 0 ? moduleEls[activeIndex] : null;
-    const anchor = activeEl ? centerOf(activeEl, tops['m:' + mods[activeIndex].id]) : h / 2;
-    place(childEls.map((el, i) => ({ el, key: 'c:' + shown[i].id })), Math.max(pad, Math.min(h - pad - ch, anchor - ch / 2)));
+    const heights: Record<string, number> = {};
     const wires: string[] = [];
-    const wire = (fromX: number, fromCenterY: number, toX: number, toCenterY: number) => {
-      const mid = (fromX + toX) / 2;
-      wires.push('M' + fromX + ' ' + fromCenterY + 'H' + mid + 'V' + toCenterY + 'H' + toX);
-    };
-    const modWires = mods.map((m, i) => {
-      const top = tops['m:' + m.id] ?? 0;
-      const el = moduleEls[i];
-      return { x: (28 + 29) * 10, cy: centerOf(el, top) };
+    columnEls.forEach((els, ci) => {
+      let y = Math.max(pad, (h - columnHeights[ci]) / 2);
+      els.forEach((el, i) => {
+        const key = ci + ':' + columns[ci][i].id;
+        tops[key] = Math.round(y);
+        heights[key] = el.getBoundingClientRect().height;
+        y += el.getBoundingClientRect().height + gap;
+      });
     });
-    const rootCenter = h / 2;
-    modWires.forEach((w) => wire(2 * 10 + 200, rootCenter, 28 * 10, w.cy));
-    if (activeEl) {
-      const activeCenter = anchor;
-      childEls.forEach((el, i) => {
-        const cy = centerOf(el, tops['c:' + shown[i].id] ?? 0);
-        wire((28 + 29) * 10, activeCenter, 66 * 10, cy);
+    for (let ci = 1; ci < columns.length; ci += 1) {
+      const fromId = path[ci - 1];
+      const fromKey = ci - 1 + ':' + fromId;
+      if (tops[fromKey] === undefined) continue;
+      const fromX = GRAPH_PADDING + (ci - 1) * (columnWidth + COLUMN_GAP) + columnWidth;
+      const fromY = tops[fromKey] + heights[fromKey] / 2;
+      columns[ci].forEach((task) => {
+        const toKey = ci + ':' + task.id;
+        const toX = GRAPH_PADDING + ci * (columnWidth + COLUMN_GAP);
+        const toY = tops[toKey] + heights[toKey] / 2;
+        const mid = (fromX + toX) / 2;
+        wires.push('M' + fromX + ' ' + fromY + 'H' + mid + 'V' + toY + 'H' + toX);
       });
     }
-    const next = JSON.stringify({ h: Math.round(h), tops, wires });
+    const next = JSON.stringify({ h: Math.round(h), width: graphWidth, tops, wires });
     setLayout((prev) => (JSON.stringify(prev) === next ? prev : JSON.parse(next)));
-  }, [tasks, mods, shown, activeModuleId, activePhase?.id, selectedId]);
+  }, [tasks, columns, path, selectedId]);
 
   const applyStatus = async () => {
     if (!spaceId || !selected) return;
@@ -237,10 +262,17 @@ export const TaskboardPage: React.FC = () => {
         ...(statusDraft ? { status: statusDraft } : {}),
         ...(stepDraft !== (selected.current_step ?? '') ? { current_step: stepDraft } : {}),
         ...(takeoverDraft ? { takeover: true } : {}),
+        ...(sessionDraft ? { session_id: sessionDraft } : {}),
       });
       await load();
     } catch (requestError: unknown) { setError(apiErrorMessage(requestError, t, 'taskboard.actionFailed')); }
     finally { setBusy(false); }
+  };
+
+  /** Upstream ba771da: clicking a node truncates the path at its column and expands it. */
+  const openNode = (task: TaskboardTask, colIndex: number) => {
+    setViewPath([...path.slice(0, colIndex), task.id]);
+    setSelectedId(task.id);
   };
 
   const addChild = async () => {
@@ -292,27 +324,22 @@ export const TaskboardPage: React.FC = () => {
   };
 
   const locate = (t: TaskboardTask) => {
-    const path: TaskboardTask[] = [];
+    const chain: TaskboardTask[] = [];
     const seen = new Set<string>();
     let n: TaskboardTask | undefined = t;
-    while (n && !seen.has(n.id)) { path.push(n); seen.add(n.id); n = n.parent_id ? tasks.find((x) => x.id === n!.parent_id) : undefined; }
-    const phase = path.find((x) => x.kind === 'phase');
-    if (phase) {
-      setPhaseId(phase.id);
-      const phaseIndex = path.findIndex((x) => x.id === phase.id);
-      const directChild = phaseIndex > 0 ? path[phaseIndex - 1] : null;
-      setModuleId(directChild?.id || null);
-    }
+    while (n && !seen.has(n.id)) { chain.push(n); seen.add(n.id); n = n.parent_id ? tasks.find((x) => x.id === n!.parent_id) : undefined; }
+    const ids = chain.slice().reverse().map((x) => x.id);
+    setViewPath(ids.length > 0 ? ids : [t.id]);
     setSelectedId(t.id);
     window.setTimeout(() => {
-      const el = nodeRefs.current.get('m:' + t.id) ?? nodeRefs.current.get('c:' + t.id);
+      const el = nodeRefs.current.get('0:' + t.id) ?? nodeRefs.current.get('1:' + t.id) ?? nodeRefs.current.get('2:' + t.id);
       if (el) el.scrollIntoView({ block: 'center', inline: 'nearest' });
       else graphRef.current?.scrollIntoView({ block: 'center' });
     }, 60);
   };
 
   const renderNode = (task: TaskboardTask, cls: 'root' | 'module' | 'cap', refKey: string, style: React.CSSProperties, onClick: () => void) => {
-    const isSelected = task.id === selectedId || task.id === activeModuleId;
+    const isSelected = task.id === selectedId || viewPath.includes(task.id);
     const counts = tbTaskStatusCounts(tasks, task.id);
     const history = tbHistorySummary(tasks, task.id);
     void history;
@@ -349,7 +376,7 @@ export const TaskboardPage: React.FC = () => {
     );
   };
 
-  const inspectTask = selected ?? moduleTask ?? activePhase;
+  const inspectTask = selected ?? pathEnd ?? activePhase;
   const syncText = board ? '数据更新 ' + tbFmt(board.updated_at) : '正在读取项目记录';
 
   return (
@@ -374,7 +401,7 @@ export const TaskboardPage: React.FC = () => {
                     type="button"
                     data-phase-id={phase.id}
                     className={'milestone' + (phase.id === activePhase?.id ? ' selected' : '')}
-                    onClick={() => { setPhaseId(phase.id); setModuleId(null); setSelectedId(phase.id); }}
+                    onClick={() => { setViewPath([phase.id]); setSelectedId(phase.id); }}
                   >
                     <div className="mtop"><span className={'letter' + (phase.id === activePhase?.id ? ' active' : '')}>{tbPhaseMark(phase, index)}</span><span>{tbCleanTitle(phase)}</span></div>
                     <div className="counts">
@@ -397,7 +424,7 @@ export const TaskboardPage: React.FC = () => {
               aria-label={t('taskboard.jumpToPhase')}
               title={t('taskboard.jumpToPhase')}
               value={activePhase?.id ?? ''}
-              onChange={(event) => { const id = event.target.value; if (!id) return; setPhaseId(id); setModuleId(null); setSelectedId(id); }}
+              onChange={(event) => { const id = event.target.value; if (!id) return; setViewPath([id]); setSelectedId(id); }}
             >
               {phases.map((phase, index) => {
                 const c = tbTaskStatusCounts(tasks, phase.id);
@@ -480,20 +507,40 @@ export const TaskboardPage: React.FC = () => {
                   <span className="letter active">{activePhase ? tbPhaseMark(activePhase, phases.findIndex((x) => x.id === activePhase.id)) : '·'}</span>
                   <div>
                     <h2>{activePhase ? tbCleanTitle(activePhase) + ' · ' + tbTaskStatusSummary(tasks, activePhase.id) : (board?.project || '')}</h2>
-                    <div className="crumb">{zh ? '项目 / ' : 'Project / '}{activePhase ? tbCleanTitle(activePhase) : (zh ? '全部任务' : 'All tasks')}{moduleTask ? ' / ' + tbCleanTitle(moduleTask) : ''}</div>
-                    <div className="view-summary">{activePhase ? '统计：' + tbTaskStatusSummary(tasks, activePhase.id) + ' · 当前图形展示 ' + mods.length + ' 个模块节点和 ' + shown.length + ' 个展开子节点' : ''}</div>
+                    <div className="crumb">
+                      {path.map((id, i) => {
+                        const node = tasks.find((x) => x.id === id);
+                        if (!node) return null;
+                        return (
+                          <React.Fragment key={id}>
+                            {i > 0 && <span className="crumb-sep">/</span>}
+                            <button type="button" className="crumb-button" onClick={() => { setViewPath(path.slice(0, i + 1)); setSelectedId(id); }}>{tbCleanTitle(node)}</button>
+                          </React.Fragment>
+                        );
+                      })}
+                      <span className="level-hint">{zh ? '第 ' + path.length + ' 层 · ' + (columns.length > path.length ? '可继续展开' : '叶节点') : (path.length + ' levels · ' + (columns.length > path.length ? 'expandable' : 'leaf'))}</span>
+                    </div>
+                    <div className="view-summary">当前展开 {path.length} 层，显示 {columns.slice(1).reduce((sum, c) => sum + c.length, 0)} 个节点（各展开层合计）；点击有子节点的卡片继续展开，点击面包屑逐层返回。</div>
                   </div>
                 </div>
                 <div className="graphviewport">
-                  <div className="graph" ref={graphRef} style={{ height: layout.h }}>
-                    <svg className="wires" viewBox={'0 0 1000 ' + layout.h} preserveAspectRatio="none">
+                  <div className="graph" ref={graphRef} style={{ height: layout.h, width: layout.width }}>
+                    <svg className="wires" viewBox={'0 0 ' + layout.width + ' ' + layout.h} preserveAspectRatio="none">
                       {layout.wires.map((d, i) => <path key={i} d={d} fill="none" stroke="#94a5c0" strokeWidth="1.2" strokeLinejoin="round" />)}
                     </svg>
-                    {activePhase && moduleTask && renderNode(activePhase, 'root', 'r:' + activePhase.id, { left: '2%', width: '20%', top: layout.h / 2 - 41 }, () => setSelectedId(activePhase.id))}
-                    {mods.map((m) => renderNode(m, 'module', 'm:' + m.id, { left: '28%', width: '29%', top: layout.tops['m:' + m.id] ?? 0 }, () => { setModuleId(m.id); setSelectedId(m.id); }))}
-                    {shown.map((c) => renderNode(c, 'cap', 'c:' + c.id, { left: '66%', width: '32%', top: layout.tops['c:' + c.id] ?? 0 }, () => setSelectedId(c.id)))}
-                    {shown.length === 0 && moduleTask && (
-                      <div className="empty" style={{ position: 'absolute', left: '66%', width: '32%', top: layout.h / 2 - 30 }}>{zh ? '该节点暂无子项' : 'No children'}</div>
+                    {columns.map((items, ci) => items.map((task) => {
+                      const key = ci + ':' + task.id;
+                      const left = GRAPH_PADDING + ci * (columnWidth + COLUMN_GAP);
+                      return renderNode(
+                        task,
+                        ci === 0 ? 'root' : ci === 1 ? 'module' : 'cap',
+                        key,
+                        { left, width: columnWidth, top: layout.tops[key] ?? 0 },
+                        () => openNode(task, ci),
+                      );
+                    }))}
+                    {columns.length === 1 && pathEnd && (
+                      <div className="empty" style={{ position: 'absolute', left: '32%', top: '46%' }}>{zh ? '该节点暂无子项' : 'No children'}</div>
                     )}
                   </div>
                 </div>
@@ -529,6 +576,9 @@ export const TaskboardPage: React.FC = () => {
                         </label>
                         <label className="statusrow"><span>{zh ? '他人认领时接管' : 'Take over if claimed'}</span>
                           <input type="checkbox" aria-label={zh ? '他人认领时接管' : 'Take over if claimed'} checked={takeoverDraft} onChange={(e) => setTakeoverDraft(e.target.checked)} />
+                        </label>
+                        <label className="statusrow"><span>{t('taskboard.sessionId')}</span>
+                          <input aria-label={t('taskboard.sessionId')} value={sessionDraft} onChange={(e) => setSessionDraft(e.target.value)} style={{ flex: 1, border: '1px solid #d8e1ed', borderRadius: 6, padding: '4px 8px' }} />
                         </label>
                         <p><button type="button" className="locate" disabled={busy} onClick={() => void applyStatus()}>{zh ? '保存' : 'Save'}</button></p>
                       </div>
