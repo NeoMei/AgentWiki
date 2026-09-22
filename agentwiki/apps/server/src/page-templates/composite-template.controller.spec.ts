@@ -181,7 +181,6 @@ describe('CompositeTemplateController', () => {
       () => controller.archiveTemplate(request, 'space-1', 'template-1', {} as any),
       () => controller.restoreTemplate(request, 'space-1', 'template-1', {} as any),
       () => controller.saveFolderTemplate(request, 'space-1', {} as any),
-      () => controller.instantiate(request, 'space-1', 'template-1', {} as any),
       () => controller.upgrade(request, 'space-1', 'legacy-1', {} as any),
       () => controller.setPageBinding(request, 'space-1', 'page-1', {} as any),
       () => controller.deletePageBinding(request, 'space-1', 'page-1', {} as any),
@@ -207,6 +206,20 @@ describe('CompositeTemplateController', () => {
     expect(services.snapshots.preview).toHaveBeenCalledTimes(1);
     expect(services.upgrades.preview).toHaveBeenCalledTimes(1);
     expect(services.orchestration.preview).toHaveBeenCalledTimes(2);
+  });
+
+  it('allows page-group instantiation when the legacy rollout allowlist is closed', async () => {
+    policy.canCreate.mockReturnValue(false);
+    services.instantiation.instantiate.mockResolvedValue({ treeRevision: 2n });
+
+    await expect(controller.instantiate(request, 'space-1', 'template-1', {
+      templateVersion: 1, locale: 'en', variables: {}, collaborationEnabled: false,
+      expectedTreeRevision: '1', idempotencyKey: 'instantiate-0001',
+    } as any)).resolves.toEqual({ treeRevision: '2' });
+
+    expect(services.instantiation.instantiate).toHaveBeenCalledWith(
+      'space-1', 'template-1', expect.objectContaining({ expectedTreeRevision: 1n }), request.user,
+    );
   });
 });
 
@@ -352,7 +365,7 @@ describe('CompositeTemplateController HTTP boundary', () => {
     expect(writes.start).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects disabled composite writes at the real HTTP route before service execution', async () => {
+  it('keeps page-group instantiation available when the legacy rollout allowlist is closed', async () => {
     rolloutEnabled = false;
     const response = await fetch(`${baseUrl}/api/spaces/space-1/templates/template-1/instantiate`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -361,8 +374,7 @@ describe('CompositeTemplateController HTTP boundary', () => {
         expectedTreeRevision: '0', idempotencyKey: 'instantiate-0001',
       }),
     });
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toMatchObject({ code: 'COMPOSITE_TEMPLATE_FEATURE_DISABLED' });
-    expect(writes.instantiate).not.toHaveBeenCalled();
+    expect(response.status).toBe(201);
+    expect(writes.instantiate).toHaveBeenCalledTimes(1);
   });
 });

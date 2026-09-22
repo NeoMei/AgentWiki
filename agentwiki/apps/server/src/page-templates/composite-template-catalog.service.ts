@@ -27,7 +27,6 @@ import {
   queryCurrentTemplateCatalog,
   type CurrentTemplateCatalogRow,
 } from './current-template-catalog-query';
-import { TemplateFeaturePolicy } from './template-feature-policy';
 
 type CatalogStoredVersion = {
   definition: Prisma.JsonValue | null;
@@ -81,7 +80,6 @@ export class CompositeTemplateCatalogService {
     private readonly prisma: PrismaService,
     private readonly authorization: AuthorizationService,
     private readonly pageTemplates: PageTemplateService,
-    private readonly policy: TemplateFeaturePolicy,
   ) {}
 
   async resolve(
@@ -116,6 +114,7 @@ export class CompositeTemplateCatalogService {
         tx, principal, spaceId, ['owner', 'admin', 'editor', 'viewer'],
       ));
     const canManage = !principal.agentId && ['owner', 'admin'].includes(member.role);
+    const canCreate = !principal.agentId && ['owner', 'editor'].includes(member.role);
     if (!canManage && query.archived && query.archived !== 'active') {
       throw new BusinessException('PAGE_TEMPLATE_PERMISSION_DENIED');
     }
@@ -156,7 +155,10 @@ export class CompositeTemplateCatalogService {
       total: result.total,
       skip: query.skip,
       take: query.take,
-      capabilities: { canManage, canCreate: this.policy.canCreate(spaceId) },
+      // Creating a page group is a Space content write. It follows the same
+      // owner/editor boundary as instantiation, rather than the separate
+      // allowlist used for managing composite template definitions.
+      capabilities: { canManage, canCreate },
     };
   }
 

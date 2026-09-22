@@ -121,7 +121,6 @@ export class CompositeTemplateController {
 
   @Post('templates/:templateId/instantiate')
   async instantiate(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('templateId') templateId: string, @Body() body: InstantiateCompositeTemplateDto) {
-    this.assertCanCreate(spaceId);
     return serializeBigInts(await this.instantiation.instantiate(spaceId, templateId, {
       ...body,
       roleBindings: toBindings(body.roleBindings),
