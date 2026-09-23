@@ -349,7 +349,7 @@ describe('SourceService safety and idempotency', () => {
         select?.ownerId
           ? { ownerId: 'owner-1' }
           : {
-            status: 'active', revokedAt: null, approvalMode: 'always-review', memoryEnabled: true,
+            status: 'active', revokedAt: null, approvalMode: 'always-review',
             owner: { deletedAt: null, lockedAt: null },
           }
       )) },
@@ -692,7 +692,7 @@ describe('SourceService pipeline lifecycle', () => {
     });
     prisma.agent.findUnique.mockResolvedValue({
       ownerId: 'owner-1', status: 'active', revokedAt: null,
-      approvalMode: 'scoped-auto-publish', memoryEnabled: true,
+      approvalMode: 'scoped-auto-publish',
       owner: { deletedAt: null, lockedAt: null },
     });
     prisma.agentGrant.findUnique.mockResolvedValue({

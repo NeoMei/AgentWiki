@@ -5,7 +5,6 @@ import { SearchModule } from '../core/search/search.module';
 import { SpaceModule } from '../core/space/space.module';
 import { KnowledgePipelineModule } from '../knowledge-pipeline/knowledge-pipeline.module';
 import { ReviewModule } from '../review/review.module';
-import { MemoryModule } from '../memory/memory.module';
 import { KnowledgeModule } from '../core/knowledge/knowledge.module';
 import { AgentModule } from '../core/agent/agent.module';
 import { McpController } from './mcp.controller';
@@ -17,7 +16,7 @@ import { ContentTreeModule } from '../content-tree/content-tree.module';
 @Module({
   imports: [
     DatabaseModule, AuthModule, AgentModule, PageModule, SearchModule, SpaceModule, KnowledgeModule,
-    KnowledgePipelineModule, ReviewModule, MemoryModule, CollaborationWorkflowsModule,
+    KnowledgePipelineModule, ReviewModule, CollaborationWorkflowsModule,
     ContentTreeModule,
   ],
   providers: [McpService],

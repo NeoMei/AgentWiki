@@ -41,6 +41,9 @@ export class KnowledgeSubmissionService {
     if (bundle.spaceId !== spaceId) {
       throw new BusinessException('KNOWLEDGE_BUNDLE_INVALID', 'Bundle spaceId does not match route');
     }
+    if (bundle.memories.length > 0 || bundle.deletions.some((item) => item.itemType === 'memory')) {
+      throw new BusinessException('KNOWLEDGE_BUNDLE_INVALID', 'Agent memory synchronization is no longer supported');
+    }
     const requiredScopes = this.deriveRequiredScopes(bundle);
     for (const requiredScope of requiredScopes) {
       await this.auth.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor'], requiredScope);
@@ -138,7 +141,6 @@ export class KnowledgeSubmissionService {
   private deriveRequiredScopes(bundle: NormalizedKnowledgeBundle): string[] {
     const scopes = new Set<string>();
     if (bundle.pages.length || bundle.deletions.some((d) => d.itemType === 'page')) scopes.add('pages:write');
-    if (bundle.memories.length || bundle.deletions.some((d) => d.itemType === 'memory')) scopes.add('memory:write');
     if (bundle.relations.length || bundle.deletions.some((d) => d.itemType === 'relation')) scopes.add('graph:write');
     if (scopes.size === 0) scopes.add('pages:write');
     return [...scopes];

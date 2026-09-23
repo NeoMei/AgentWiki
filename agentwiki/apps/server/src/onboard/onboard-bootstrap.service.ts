@@ -497,7 +497,6 @@ export class OnboardBootstrapService {
         data: {
           ownerId: userId,
           name: plan.agentName,
-          memoryEnabled: plan.role === 'publisher',
           approvalMode: plan.role === 'publisher' ? 'scoped-auto-publish' : 'always-review',
         },
       });
@@ -540,7 +539,6 @@ export class OnboardBootstrapService {
       !agent
       || agent.ownerId !== userId
       || agent.name !== plan.agentName
-      || agent.memoryEnabled !== (plan.role === 'publisher')
       || agent.approvalMode !== (plan.role === 'publisher' ? 'scoped-auto-publish' : 'always-review')
       || agent.status !== 'active'
       || agent.revokedAt

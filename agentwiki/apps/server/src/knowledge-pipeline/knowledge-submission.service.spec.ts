@@ -93,6 +93,22 @@ describe('KnowledgeSubmissionService', () => {
     await expect(service.submit('space-1', { userId: 'u1' }, Buffer.from('{}'), 'idem-1', true)).rejects.toThrow(expect.objectContaining({ businessCode: 'KNOWLEDGE_BUNDLE_INVALID' }));
   });
 
+  it('rejects bundles containing Agent memory items', async () => {
+    const service = new KnowledgeSubmissionService(makePrisma(), {} as any, auth, revisionWriter);
+    (parseKnowledgeBundle as jest.Mock).mockReturnValue({
+      ...validBundle,
+      memories: [{ memoryId: 'memory-1' }],
+      contentHash: 'x',
+    });
+
+    await expect(service.submit('space-1', { userId: 'u1' }, Buffer.from('{}'), 'idem-memory', true))
+      .rejects.toThrow(expect.objectContaining({
+        businessCode: 'KNOWLEDGE_BUNDLE_INVALID',
+        message: 'Agent memory synchronization is no longer supported',
+      }));
+    expect(auth.assertSpaceAccess).not.toHaveBeenCalled();
+  });
+
   it('rejects a stale base revision', async () => {
     const service = new KnowledgeSubmissionService(makePrisma(), {} as any, auth, revisionWriter);
     (parseKnowledgeBundle as jest.Mock).mockReturnValue({ ...validBundle, baseRevision: 'rev-old', contentHash: 'x' });

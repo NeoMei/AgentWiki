@@ -17,7 +17,6 @@ describe('Agent create idempotency', () => {
       const input = {
         name: 'Idempotent Writer',
         description: 'Created exactly once',
-        memoryEnabled: false,
         idempotencyKey: `create-agent-${suffix}`,
       };
       const [created, replayed] = await Promise.all([

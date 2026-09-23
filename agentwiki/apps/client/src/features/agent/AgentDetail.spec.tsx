@@ -50,7 +50,6 @@ describe('AgentDetail', () => {
         approvalMode: 'always-review',
         grants: [],
         credentials: [],
-        memoryEnabled: false,
       } } as any)
       .mockResolvedValueOnce({ data: { data: [{
         id: 'space-1', name: '团队知识库',
@@ -76,7 +75,7 @@ describe('AgentDetail', () => {
     vi.mocked(api.get).mockReset().mockImplementation((url: string) => {
       if (url === '/agents/agent-1') return Promise.resolve({ data: {
         id: 'agent-1', name: 'Agent One', description: '', status: 'active',
-        approvalMode: 'always-review', grants: [], credentials: [], memoryEnabled: false,
+        approvalMode: 'always-review', grants: [], credentials: [],
       } });
       if (url === '/agents/agent-2') return nextAgent.promise;
       if (url.startsWith('/spaces?')) return Promise.resolve({ data: { data: [] } });
@@ -96,7 +95,7 @@ describe('AgentDetail', () => {
     expect(screen.queryByRole('button', { name: '暂停' })).not.toBeInTheDocument();
     await act(async () => nextAgent.resolve({ data: {
       id: 'agent-2', name: 'Agent Two', description: '', status: 'paused',
-      approvalMode: 'always-review', grants: [], credentials: [], memoryEnabled: false,
+      approvalMode: 'always-review', grants: [], credentials: [],
     } }));
     expect(await screen.findByRole('heading', { name: 'Agent Two' })).toBeInTheDocument();
     expect(api.patch).not.toHaveBeenCalled();
@@ -108,7 +107,7 @@ describe('AgentDetail', () => {
       .mockReset()
       .mockResolvedValueOnce({ data: {
         id: 'agent-1', name: '同步助手', description: '', status: 'active',
-        approvalMode: 'always-review', grants: [], credentials: [], memoryEnabled: false,
+        approvalMode: 'always-review', grants: [], credentials: [],
       } } as any)
       .mockResolvedValueOnce({ data: { data: [
         { id: 'owned', name: '我管理的空间', members: [{ userId: 'owner-1', role: 'owner' }] },
@@ -134,7 +133,7 @@ describe('AgentDetail', () => {
       .mockReset()
       .mockResolvedValueOnce({ data: {
         id: 'agent-1', name: '同步助手', description: '', status: 'active',
-        approvalMode: 'always-review', grants: [], credentials: [], memoryEnabled: false,
+        approvalMode: 'always-review', grants: [], credentials: [],
       } } as any)
       .mockResolvedValueOnce({ data: { data: [
         { id: 'unjoined', name: '超管未加入的空间', members: [] },
@@ -154,7 +153,7 @@ describe('AgentDetail', () => {
     vi.mocked(api.get).mockReset().mockImplementation(async (url: string) => {
       if (url === '/agents/agent-1') return { data: {
         id: 'agent-1', name: '同步助手', description: '', status: 'active',
-        approvalMode: 'always-review', grants: [], credentials: [], memoryEnabled: false,
+        approvalMode: 'always-review', grants: [], credentials: [],
       } } as any;
       if (url === '/agents/agent-1/activity') return { data: { data: [] } } as any;
       if (url === '/spaces?take=100') return { data: {
@@ -182,7 +181,7 @@ describe('AgentDetail', () => {
     vi.mocked(api.get).mockReset().mockImplementation(async (url: string) => {
       if (url === '/agents/agent-1') return { data: {
         id: 'agent-1', name: '同步助手', description: '', status: 'active',
-        approvalMode: 'always-review', grants: [], credentials: [], memoryEnabled: false,
+        approvalMode: 'always-review', grants: [], credentials: [],
       } } as any;
       if (url === '/agents/agent-1/activity') return { data: { data: [] } } as any;
       if (url === '/spaces?take=100') return { data: {
@@ -214,7 +213,7 @@ describe('AgentDetail', () => {
       .mockReset()
       .mockResolvedValueOnce({ data: {
         id: 'agent-1', name: '同步助手', description: '', status: 'active',
-        approvalMode: 'always-review', grants: [], memoryEnabled: false,
+        approvalMode: 'always-review', grants: [],
         credentials: [{
           id: 'credential-1', name: 'Deploy key', prefix: 'agk_preview',
           authorization: { id: 'grant-1', role: 'editor', scopes: [], space: { id: 'space-1', name: '团队知识库' } },
@@ -250,7 +249,7 @@ describe('AgentDetail', () => {
         id: 'agent-1', name: '同步助手', description: '', status: 'active',
         approvalMode: 'always-review',
         grants: [{ id: 'grant-1', spaceId: 'space-1', role: 'reader', space: { id: 'space-1', name: '团队知识库' } }],
-        credentials: [], memoryEnabled: false,
+        credentials: [],
       } } as any)
       .mockResolvedValueOnce({ data: { data: [{ id: 'space-1', name: '团队知识库' }] } } as any)
       .mockResolvedValueOnce({ data: { data: [] } } as any);
@@ -279,7 +278,7 @@ describe('AgentDetail', () => {
       .mockReset()
       .mockResolvedValueOnce({ data: {
         id: 'agent-1', name: '同步助手', description: '', status: 'active',
-        approvalMode: 'scoped-auto-publish', grants: [], memoryEnabled: true,
+        approvalMode: 'scoped-auto-publish', grants: [],
         credentials: [{
           id: 'credential-1', name: 'Deploy key', prefix: 'agk_preview',
           authorization: { id: 'grant-1', role: 'publisher', scopes: ['pages:read', 'pages:write', 'review:auto-publish'], space: { id: 'space-1', name: '团队知识库' } },
@@ -308,7 +307,7 @@ describe('AgentDetail', () => {
       .mockReset()
       .mockResolvedValueOnce({ data: {
         id: 'agent-1', name: '同步助手', description: '', status: 'active',
-        approvalMode: 'always-review', grants: [], memoryEnabled: false,
+        approvalMode: 'always-review', grants: [],
         credentials: [
           { id: 'active-no-expiry', revokedAt: null, expiresAt: null },
           { id: 'active-future', revokedAt: null, expiresAt: '2099-01-01T00:00:00.000Z' },

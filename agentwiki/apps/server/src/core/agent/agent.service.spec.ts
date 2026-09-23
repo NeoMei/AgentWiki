@@ -58,7 +58,6 @@ describe('AgentService grant scope validation', () => {
     const input = {
       name: 'Writer',
       description: null,
-      memoryEnabled: false,
       idempotencyKey: 'create-agent-attempt-0001',
     } as any;
 
@@ -413,7 +412,7 @@ describe('AgentService grant scope validation', () => {
     });
     expect(prisma.agent.update).toHaveBeenCalledWith({
       where: { id: 'agent-1' },
-      data: { memoryEnabled: true, approvalMode: 'scoped-auto-publish' },
+      data: { approvalMode: 'scoped-auto-publish' },
     });
 
     prisma.agent.update.mockClear();
@@ -489,7 +488,7 @@ describe('AgentService grant scope validation', () => {
     await service.upsertGrantForSpace('owner-1', 'agent-1', 'space-1', 'publisher');
     expect(prisma.agent.update).toHaveBeenCalledWith({
       where: { id: 'agent-1' },
-      data: { memoryEnabled: true, approvalMode: 'scoped-auto-publish' },
+      data: { approvalMode: 'scoped-auto-publish' },
     });
 
     prisma.agent.update.mockClear();
@@ -532,7 +531,7 @@ describe('AgentService grant scope validation', () => {
     expect(tx.agentGrant.upsert).toHaveBeenCalledTimes(1);
     expect(tx.agent.update).toHaveBeenCalledWith({
       where: { id: 'agent-1' },
-      data: { memoryEnabled: true, approvalMode: 'scoped-auto-publish' },
+      data: { approvalMode: 'scoped-auto-publish' },
     });
     expect(prisma.agentGrant.upsert).not.toHaveBeenCalled();
   });

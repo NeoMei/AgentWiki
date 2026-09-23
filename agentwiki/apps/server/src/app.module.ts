@@ -20,7 +20,6 @@ import { SecurityModule } from './core/security/security.module';
 import { AgentModule } from './core/agent/agent.module';
 import { KnowledgePipelineModule } from './knowledge-pipeline/knowledge-pipeline.module';
 import { ReviewModule } from './review/review.module';
-import { MemoryModule } from './memory/memory.module';
 import { McpModule } from './mcp/mcp.module';
 import { HealthController } from './health.controller';
 import { CollaborationWorkflowsModule } from './collaboration-workflows/collaboration-workflows.module';
@@ -41,7 +40,6 @@ import { ProjectTaskboardModule } from './project-taskboard/project-taskboard.mo
     AgentModule,
     KnowledgePipelineModule,
     ReviewModule,
-    MemoryModule,
     McpModule,
     AuthModule,
     UserModule,

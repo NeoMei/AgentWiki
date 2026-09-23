@@ -235,30 +235,6 @@ export class AuthorizationService {
     return changeSet;
   }
 
-  async assertAgentMemoryAccess(
-    principalInput: PrincipalInput,
-    agentId: string,
-    spaceId: string,
-    requiredScope: 'memory:read' | 'memory:write',
-  ) {
-    const principal = this.normalize(principalInput);
-    const agent = await this.prisma.agent.findUnique({
-      where: { id: agentId },
-      select: { ownerId: true, status: true, revokedAt: true, memoryEnabled: true },
-    });
-    if (!agent || agent.revokedAt || !agent.memoryEnabled) {
-    throw new BusinessException('SPACE_ACCESS_DENIED', 'Agent memory is not available');
-    }
-    if (principal.agentId) {
-    if (principal.agentId !== agentId) throw new BusinessException('SPACE_ACCESS_DENIED', 'Agents can only access their own memory');
-      await this.assertSpaceAccess(principal, spaceId, ['owner', 'editor', 'viewer'], requiredScope);
-    } else {
-    if (principal.userId !== agent.ownerId) throw new BusinessException('SPACE_ACCESS_DENIED', 'You do not own this agent');
-      await this.assertSpaceAccess(principal, spaceId);
-    }
-    return agent;
-  }
-
   async assertLiveAgentWriteAccess(
     db: Prisma.TransactionClient,
     principal: Principal,
@@ -467,7 +443,6 @@ export class AuthorizationService {
     requiredScopes: string[],
   ): boolean {
     return this.isLiveAgentBaseAuthorized(state, principal, spaceId) &&
-      (!requiredScopes.some((scope) => scope.startsWith('memory:')) || state.agent.memoryEnabled) &&
       requiredScopes.every((scope) => agentGrantAllowsScope(
         state.grant.role, state.grant.folderScopes, scope,
       ));

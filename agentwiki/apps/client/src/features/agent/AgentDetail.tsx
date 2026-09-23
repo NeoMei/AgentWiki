@@ -3,12 +3,11 @@ import { Link, useParams } from 'react-router-dom';
 import { KeyRound, Pause, Play, Shield, Trash2 } from 'lucide-react';
 import type { AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import api from '../../api/client';
-import { AgentMemoryPanel } from './AgentMemoryPanel';
 import { LocalSyncInstallCard } from './LocalSyncInstallCard';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 
-type Tab = 'overview' | 'access' | 'activity' | 'memory' | 'settings';
+type Tab = 'overview' | 'access' | 'activity' | 'settings';
 
 export const AgentDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -117,7 +116,7 @@ export const AgentDetail: React.FC = () => {
       {error ? <p role="alert" className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p> : null}
 
       <div className="border-b flex gap-6 mb-6">
-        {(['overview', 'access', 'activity', 'memory', 'settings'] as Tab[]).map((item) => (
+        {(['overview', 'access', 'activity', 'settings'] as Tab[]).map((item) => (
           <button key={item} onClick={() => setTab(item)} className={'pb-3 text-sm border-b-2 ' + (tab === item ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500')}>{t(`agent.${item}`)}</button>
         ))}
       </div>
@@ -174,7 +173,6 @@ export const AgentDetail: React.FC = () => {
       ) : null}
 
       {tab === 'activity' ? <div className="border rounded-[14px] bg-white divide-y">{activity.map((item) => <div key={item.id} className="p-4 text-sm"><span className="font-medium">{item.action}</span><span className="text-gray-400 ml-3">{new Date(item.createdAt).toLocaleString(language)}</span></div>)}</div> : null}
-      {tab === 'memory' ? <AgentMemoryPanel agentId={currentAgent.id} grants={currentAgent.grants} enabled={currentAgent.memoryEnabled} onEnabled={async () => { await api.patch('/agents/' + currentAgent.id, { memoryEnabled: true }); await load(); }} /> : null}
       {tab === 'settings' ? <div className="border rounded-[14px] bg-white p-5"><p className="text-sm text-gray-500">{t('agent.approvalMode')}</p><p className="mt-2 text-sm font-medium">{currentAgent.approvalMode === 'scoped-auto-publish' ? t('settings.autoPublish') : t('settings.alwaysReview')}</p><p className="mt-2 text-xs text-gray-500">{t('agent.approvalModeReadonlyHelp')}</p></div> : null}
     </div>
   );

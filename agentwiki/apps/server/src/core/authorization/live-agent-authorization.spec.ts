@@ -12,7 +12,7 @@ describe('lockLiveAgentAuthorization', () => {
     },
     agent: {
       findUnique: jest.fn().mockResolvedValue({
-        status: 'active', revokedAt: null, approvalMode: 'manual', memoryEnabled: false,
+        status: 'active', revokedAt: null, approvalMode: 'manual',
         owner: { deletedAt: null, lockedAt: null },
       }),
     },
@@ -108,7 +108,7 @@ describe('lockLiveAgentAuthorization', () => {
       ...validState,
       agent: {
         findUnique: jest.fn().mockResolvedValue({
-          status: 'paused', revokedAt: null, approvalMode: 'manual', memoryEnabled: false,
+          status: 'paused', revokedAt: null, approvalMode: 'manual',
           owner: { deletedAt: null, lockedAt: null },
         }),
       },

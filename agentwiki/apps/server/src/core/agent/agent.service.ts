@@ -21,7 +21,6 @@ export class AgentService {
       ownerId,
       name: dto.name,
       description,
-      memoryEnabled: dto.memoryEnabled || false,
     };
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -41,7 +40,7 @@ export class AgentService {
         || existing.revokedAt
         || existing.name !== dto.name
         || (existing.description ?? undefined) !== description
-        || existing.memoryEnabled !== (dto.memoryEnabled || false)) {
+        ) {
         throw new BadRequestException('Idempotency key was already used for a different Agent');
       }
       return existing;
@@ -272,7 +271,7 @@ export class AgentService {
       if (input.role === 'publisher') {
         await tx.agent.update({
           where: { id: input.agentId },
-          data: { memoryEnabled: true, approvalMode: 'scoped-auto-publish' },
+          data: { approvalMode: 'scoped-auto-publish' },
         });
       }
       await tx.agentAuditEvent.create({
@@ -435,7 +434,7 @@ export class AgentService {
       if (role === 'publisher') {
         await tx.agent.update({
           where: { id: agentId },
-          data: { memoryEnabled: true, approvalMode: 'scoped-auto-publish' },
+          data: { approvalMode: 'scoped-auto-publish' },
         });
       }
       await tx.agentAuditEvent.create({

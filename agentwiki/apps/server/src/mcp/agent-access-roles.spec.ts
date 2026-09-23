@@ -64,7 +64,7 @@ describe('MCP Agent access roles', () => {
         ? { approvalPolicy: spaceApprovalPolicy, deletedAt: null }
         : { id: 'space-1', deletedAt: null });
     prisma.agent.findUnique.mockImplementation(async () => ({
-      status: 'active', revokedAt: null, approvalMode: agentApprovalMode, memoryEnabled: true,
+      status: 'active', revokedAt: null, approvalMode: agentApprovalMode,
       owner: { deletedAt: null, lockedAt: null },
     }));
     prisma.agentCredential.findFirst.mockImplementation(async () => ({
@@ -100,7 +100,6 @@ describe('MCP Agent access roles', () => {
       {},
       {},
       review,
-      {},
       {},
       audit,
       prisma,

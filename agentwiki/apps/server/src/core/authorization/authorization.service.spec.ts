@@ -262,7 +262,7 @@ describe('AuthorizationService live Agent Folder access', () => {
   const liveState = {
     credential: { authorizationId: 'grant-1', revokedAt: null as Date | null, expiresAt: null as Date | null },
     agent: {
-      status: 'active', revokedAt: null as Date | null, approvalMode: 'manual', memoryEnabled: false,
+      status: 'active', revokedAt: null as Date | null, approvalMode: 'manual',
       owner: { deletedAt: null as Date | null, lockedAt: null as Date | null },
     },
     grant: { id: 'grant-1', role: 'publisher', folderScopes: ['folders:read'] as string[] },

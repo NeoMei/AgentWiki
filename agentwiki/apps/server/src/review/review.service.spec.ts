@@ -1927,7 +1927,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
       approvalPolicy: 'scoped-auto-publish', deletedAt: null,
     });
     prisma.agent.findUnique.mockResolvedValue({
-      status: 'active', revokedAt: null, approvalMode: 'scoped-auto-publish', memoryEnabled: true,
+      status: 'active', revokedAt: null, approvalMode: 'scoped-auto-publish',
       owner: { deletedAt: null, lockedAt: null },
     });
     prisma.agentCredential.findFirst.mockResolvedValue({
@@ -1962,7 +1962,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
   ])('rejects an Agent proposal when its %s changed before the ChangeSet write', async (_case, state) => {
     prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'always-review', deletedAt: null });
     prisma.agent.findUnique.mockResolvedValue({
-      status: 'active', revokedAt: null, approvalMode: 'always-review', memoryEnabled: true,
+      status: 'active', revokedAt: null, approvalMode: 'always-review',
       owner: { deletedAt: null, lockedAt: null },
     });
     prisma.agentCredential.findFirst.mockResolvedValue(state.credential);
@@ -1986,7 +1986,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
     prisma.agent.findUnique.mockImplementation(async ({ select }: any) => select?.ownerId
       ? { ownerId: 'owner-1' }
       : {
-        status: 'active', revokedAt: null, approvalMode: 'scoped-auto-publish', memoryEnabled: true,
+        status: 'active', revokedAt: null, approvalMode: 'scoped-auto-publish',
         owner: { deletedAt: null, lockedAt: null },
     });
     prisma.agentCredential.findFirst.mockResolvedValue({
@@ -2043,7 +2043,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
         expiresAt: null, revokedAt: null,
       },
       agent: {
-        id: 'agent-1', status: 'active', revokedAt: null, approvalMode: 'scoped-auto-publish', memoryEnabled: true,
+        id: 'agent-1', status: 'active', revokedAt: null, approvalMode: 'scoped-auto-publish',
         owner: { id: 'owner-1', lockedAt: null, deletedAt: null },
       },
       grant: { id: 'grant-1', role: 'publisher' },
@@ -2117,7 +2117,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
   it('rejects a proposal when the sole Grant is Reader despite stale Publisher principal metadata', async () => {
       prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'scoped-auto-publish', deletedAt: null });
       prisma.agent.findUnique.mockResolvedValue({
-        status: 'active', revokedAt: null, approvalMode: 'scoped-auto-publish', memoryEnabled: true,
+        status: 'active', revokedAt: null, approvalMode: 'scoped-auto-publish',
         owner: { deletedAt: null, lockedAt: null },
       });
       prisma.agentCredential.findFirst.mockResolvedValue({
@@ -2142,7 +2142,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
   it('keeps an Editor proposal pending despite stale Publisher principal metadata', async () => {
     prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'scoped-auto-publish', deletedAt: null });
     prisma.agent.findUnique.mockResolvedValue({
-      status: 'active', revokedAt: null, approvalMode: 'scoped-auto-publish', memoryEnabled: true,
+      status: 'active', revokedAt: null, approvalMode: 'scoped-auto-publish',
       owner: { deletedAt: null, lockedAt: null },
     });
     prisma.agentCredential.findFirst.mockResolvedValue({
@@ -2169,7 +2169,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
   it('propose stays pending_review when auto-publish conditions are not met', async () => {
     prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'always-review', deletedAt: null });
     prisma.agent.findUnique.mockResolvedValue({
-      status: 'active', revokedAt: null, approvalMode: 'scoped-auto-publish', memoryEnabled: true,
+      status: 'active', revokedAt: null, approvalMode: 'scoped-auto-publish',
       owner: { deletedAt: null, lockedAt: null },
     });
     prisma.agentCredential.findFirst.mockResolvedValue({
@@ -2193,7 +2193,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
   ])('keeps publisher proposals pending when the %s gate is missing', async (_gate, values) => {
     prisma.space.findUnique.mockResolvedValue({ approvalPolicy: values.spacePolicy, deletedAt: null });
     prisma.agent.findUnique.mockResolvedValue({
-      status: 'active', revokedAt: null, approvalMode: values.agentMode, memoryEnabled: true,
+      status: 'active', revokedAt: null, approvalMode: values.agentMode,
       owner: { deletedAt: null, lockedAt: null },
     });
     prisma.agentCredential.findFirst.mockResolvedValue({

@@ -21,7 +21,7 @@ const EDITOR_SCOPES = [
   ...READER_SCOPES, ...FOLDER_WRITE_SCOPES, "collaboration:execute", "graph:write", "pages:write", "runs:write", "sources:write",
 ].sort();
 const PUBLISHER_SCOPES = [
-  ...EDITOR_SCOPES, ...FOLDER_DELETE_SCOPES, "memory:read", "memory:write", "review:auto-publish",
+  ...EDITOR_SCOPES, ...FOLDER_DELETE_SCOPES, "review:auto-publish",
 ].sort();
 
 export const AGENT_ACCESS_ROLE_SCOPES: Readonly<Record<AgentAccessRole, readonly string[]>> = {

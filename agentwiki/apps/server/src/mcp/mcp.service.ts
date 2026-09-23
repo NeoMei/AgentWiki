@@ -10,7 +10,6 @@ import { SpaceService } from '../core/space/space.service';
 import { SourceService } from '../knowledge-pipeline/source.service';
 import { KnowledgeSyncService } from '../knowledge-pipeline/knowledge-sync.service';
 import { ReviewService } from '../review/review.service';
-import { MemoryService } from '../memory/memory.service';
 import { IngestQueue } from '../knowledge-pipeline/ingest.queue';
 import { KnowledgeService } from '../core/knowledge/knowledge.service';
 import { AuditService } from '../core/security/audit.service';
@@ -114,7 +113,6 @@ export class McpService {
     private search: SearchService,
     private sources: SourceService,
     private review: ReviewService,
-    private memories: MemoryService,
     private ingestQueue: IngestQueue,
     private audit: AuditService,
     private prisma: PrismaService,
@@ -350,13 +348,6 @@ export class McpService {
       const run = await this.sources.createRun(sourceId, principal);
       this.ingestQueue.enqueue();
       return this.text(run);
-    });
-    registerTool('recall_memory', {
-      description: 'Recall explainable Agent memory for the authenticated Agent.',
-      inputSchema: { agentId: z.string(), spaceId: z.string().describe(SPACE_ID), query: z.string(), limit: z.number().int().min(1).max(20).optional() },
-    }, async ({ agentId, spaceId, query, limit }: any) => {
-      await this.authorization.assertAgentMemoryAccess(principal, agentId, spaceId, 'memory:read');
-      return this.text(await this.memories.recall(agentId, spaceId, query, limit, principal));
     });
     registerTool('list_reviews', {
       description: 'List change sets visible to the authenticated principal.',

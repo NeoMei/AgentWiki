@@ -334,7 +334,6 @@ model Agent {
   description   String?
   status        String  @default("active")
   approvalMode  String  @default("always-review")
-  memoryEnabled Boolean @default(false)
 
   owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   ownerId String

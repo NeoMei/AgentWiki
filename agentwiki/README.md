@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.12.5** — Page-group creation now follows Space owner/editor permissions across Spaces; template definition management remains owner/admin scoped. Local Sync remains 0.10.0 and sync protocol 0.6.0.
+> **v0.12.6** — Removes the unused Agent memory management feature and its authorization surface. Local Sync remains 0.10.0 and sync protocol 0.6.0.
 
 
 ## Hosted Service
@@ -46,7 +46,6 @@ for setup details.
 - **Unified Agent roles** — choose Reader, Editor, or Publisher once; `AgentGrant.role` is the only persisted permission and scopes are derived at request time
 - **Review workflow** — Agent writes enter a ChangeSet for human approval before publishing
 - **Least privilege** — each identity-only Credential binds one Space Grant; effective access is limited by its live role, connection/Agent state, Space policy, and domain authorization
-- **Memory** — episodic and semantic memory, scoped per Agent and optionally per Space
 - **MCP protocol** — Agents interact through a Model Context Protocol server
 
 ### Obsidian Sync
@@ -220,7 +219,7 @@ In the Agent access page, choose a Space and one Agent role:
 
 - `reader` — read Spaces, pages, graph, sources, runs, and review status
 - `editor` — Reader capabilities plus page, graph, source, and run writes; writes normally enter human review
-- `publisher` — Editor capabilities plus Memory and scoped auto-publish eligibility
+- `publisher` — Editor capabilities plus scoped auto-publish eligibility
 
 The Agent never receives `review:decide` or member-management permission. Publisher
 does not modify the Space policy; auto-publish occurs only when every existing governance
@@ -279,8 +278,6 @@ curl -X PATCH "$BASE/pages/PAGE_ID" \
 | `runs:write` | Start ingest runs |
 | `review:read` | Read review queue |
 | `review:auto-publish` | Publish without review |
-| `memory:read` | Read agent memory |
-| `memory:write` | Write agent memory |
 | `graph:read` | Read knowledge graph |
 | `graph:write` | Modify graph relations |
 
@@ -322,7 +319,6 @@ agentwiki/
 │   │   │   ├── assist/      # OpenCode AI editing assistant
 │   │   │   ├── knowledge-pipeline/  # code ingestion & indexing
 │   │   │   ├── mcp/         # MCP protocol server
-│   │   │   └── memory/      # agent memory service
 │   │   └── prisma/          # schema and migrations
 │   ├── client/              # React + Vite frontend
 │   │   └── src/

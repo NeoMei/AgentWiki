@@ -17,7 +17,6 @@ export interface LockedAgentAuthorization {
     status: string;
     revokedAt: Date | null;
     approvalMode: string;
-    memoryEnabled: boolean;
   };
   space: { deletedAt: Date | null; approvalPolicy: string };
   grant: { id: string; role: AgentAccessRole; folderScopes: string[] };
@@ -130,7 +129,6 @@ async function lockAndReadNonSpaceAuthorization(
         status: true,
         revokedAt: true,
         approvalMode: true,
-        memoryEnabled: true,
         owner: { select: { deletedAt: true, lockedAt: true } },
       },
     }),

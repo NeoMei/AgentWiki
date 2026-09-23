@@ -79,7 +79,7 @@ describe('OnboardBootstrapService', () => {
       agent: {
         findFirst: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue({
-          id: 'agent-1', name: 'Codex', status: 'active', approvalMode: 'always-review', memoryEnabled: false,
+          id: 'agent-1', name: 'Codex', status: 'active', approvalMode: 'always-review',
         }),
       },
       agentGrant: {
@@ -206,7 +206,6 @@ describe('OnboardBootstrapService', () => {
       data: {
         ownerId: 'user-1',
         name: 'Codex',
-        memoryEnabled: false,
         approvalMode: 'always-review',
       },
     });
@@ -248,9 +247,9 @@ describe('OnboardBootstrapService', () => {
   );
 
   it.each([
-    ['reader', false, 'always-review'],
-    ['publisher', true, 'scoped-auto-publish'],
-  ] as const)('creates a new always-review Space while preserving the canonical %s package', async (role, memoryEnabled, approvalMode) => {
+    ['reader', 'always-review'],
+    ['publisher', 'scoped-auto-publish'],
+  ] as const)('creates a new always-review Space while preserving the canonical %s package', async (role, approvalMode) => {
     const plan: ServerPlan = { ...createPlan, role };
 
     const result = await service.bootstrap(
@@ -264,7 +263,7 @@ describe('OnboardBootstrapService', () => {
       approvalPolicy: 'always-review',
     }) });
     expect(tx.agent.create).toHaveBeenCalledWith({ data: {
-      ownerId: 'user-1', name: 'Codex', memoryEnabled, approvalMode,
+      ownerId: 'user-1', name: 'Codex', approvalMode,
     } });
     expect(result.grant).toEqual({ role, scopes: scopesForAgentAccessRole(role) });
     expect(installations.issueForBootstrap).toHaveBeenCalledWith(expect.objectContaining({
@@ -359,7 +358,7 @@ describe('OnboardBootstrapService', () => {
     });
     expect(tx.space.create).not.toHaveBeenCalled();
     expect(tx.agent.create).toHaveBeenCalledWith({
-      data: { ownerId: 'user-1', name: 'Codex', memoryEnabled: true, approvalMode: 'scoped-auto-publish' },
+      data: { ownerId: 'user-1', name: 'Codex', approvalMode: 'scoped-auto-publish' },
     });
     expect(result.space).toEqual({ id: 'space-existing', name: '已有空间' });
     expect(result.agent).toEqual({ id: 'agent-1', name: 'Codex' });
@@ -382,7 +381,7 @@ describe('OnboardBootstrapService', () => {
     });
     expect(tx.space.create).not.toHaveBeenCalled();
     expect(tx.agent.create).toHaveBeenCalledWith({ data: {
-      ownerId: 'user-1', name: 'Codex', memoryEnabled: true, approvalMode: 'scoped-auto-publish',
+      ownerId: 'user-1', name: 'Codex', approvalMode: 'scoped-auto-publish',
     } });
   });
 
@@ -453,7 +452,7 @@ describe('OnboardBootstrapService', () => {
     bootstrapRecord.resourceIds = {spaceId:'space-1', agentId:'agent-1', pendingInstallationId:'old-installation'};
     bootstrapRecord.resultHash = 'a'.repeat(64);
     prisma.space.findFirst.mockResolvedValue({id:'space-1', name:'研发知识库', approvalPolicy:'always-review'});
-    prisma.agent.findUnique.mockResolvedValue({id:'agent-1', ownerId:'user-1', name:'Codex', status:'active', memoryEnabled:false, approvalMode:'always-review'});
+    prisma.agent.findUnique.mockResolvedValue({id:'agent-1', ownerId:'user-1', name:'Codex', status:'active', approvalMode:'always-review'});
     const result = await service.bootstrap({...context, purpose:'agent-connect'}, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan));
     expect(result.space.id).toBe('space-1'); expect(result.agent.id).toBe('agent-1');
     expect(bootstrapRecord.status).toBe('completed'); expect(bootstrapRecord.generation).toBe(2);
@@ -572,7 +571,7 @@ describe('OnboardBootstrapService', () => {
     });
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1', name: 'Codex', ownerId: 'user-1', status: 'active', revokedAt: null,
-      approvalMode: 'always-review', memoryEnabled: false,
+      approvalMode: 'always-review',
     });
 
     await expect(service.bootstrap(
@@ -593,7 +592,7 @@ describe('OnboardBootstrapService', () => {
     prisma.space.findFirst.mockResolvedValue(null);
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1', name: 'Codex', ownerId: 'user-1', status: 'active', revokedAt: null,
-      approvalMode: 'always-review', memoryEnabled: false,
+      approvalMode: 'always-review',
     });
 
     await expect(service.bootstrap(
@@ -613,7 +612,6 @@ describe('OnboardBootstrapService', () => {
   it.each([
     ['agent owner', { ownerId: 'user-2' }],
     ['agent approval mode', { approvalMode: 'scoped-auto-publish' }],
-    ['agent memory setting', { memoryEnabled: true }],
   ])('rejects recovery when the saved %s no longer matches the confirmed plan', async (
     _label,
     agentOverride,
@@ -629,7 +627,7 @@ describe('OnboardBootstrapService', () => {
     });
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1', name: 'Codex', ownerId: 'user-1', status: 'active', revokedAt: null,
-      approvalMode: 'always-review', memoryEnabled: false,
+      approvalMode: 'always-review',
       ...agentOverride,
     });
 
@@ -862,7 +860,7 @@ describe('OnboardBootstrapService', () => {
     });
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1', name: 'Codex', ownerId: 'user-1', status: 'active', revokedAt: null,
-      approvalMode: 'always-review', memoryEnabled: false,
+      approvalMode: 'always-review',
     });
     redis.getStrict.mockImplementation(async (key: string) => (
       key.includes(':7:execution-old') ? JSON.stringify(stale) : null
@@ -901,7 +899,7 @@ describe('OnboardBootstrapService', () => {
     });
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1', name: 'Codex', ownerId: 'user-1', status: 'active', revokedAt: null,
-      approvalMode: 'always-review', memoryEnabled: false,
+      approvalMode: 'always-review',
     });
     redis.getStrict.mockImplementation(async (key: string) => (
       key.includes(':7:execution-old') ? JSON.stringify(stale) : null
@@ -936,7 +934,7 @@ describe('OnboardBootstrapService', () => {
     });
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1', name: 'Codex', ownerId: 'user-1', status: 'active', revokedAt: null,
-      approvalMode: 'always-review', memoryEnabled: false,
+      approvalMode: 'always-review',
     });
 
     await service.bootstrap(

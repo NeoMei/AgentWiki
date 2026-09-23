@@ -23,8 +23,8 @@ describe("Agent access roles", () => {
       "pages:write", "review:read", "runs:read", "runs:write", "sources:read", "sources:write", "spaces:read",
     ]);
     expect(scopesForAgentAccessRole("publisher")).toEqual([
-      "collaboration:execute", "collaboration:read", "folders:delete", "folders:read", "folders:write", "graph:read", "graph:write", "memory:read",
-      "memory:write", "pages:read", "pages:write", "review:auto-publish", "review:read", "runs:read",
+      "collaboration:execute", "collaboration:read", "folders:delete", "folders:read", "folders:write", "graph:read", "graph:write",
+      "pages:read", "pages:write", "review:auto-publish", "review:read", "runs:read",
       "runs:write", "sources:read", "sources:write", "spaces:read",
     ]);
   });

@@ -1284,7 +1284,6 @@ export class ReviewService {
         scopes.add('folders:delete');
       }
       else if (['create_relation', 'update_relation', 'archive_relation', 'update_relation_strength'].includes(item.type)) scopes.add('graph:write');
-      else if (['upsert_space_memory', 'archive_space_memory'].includes(item.type)) scopes.add('memory:write');
       else return null;
     }
     return scopes.size > 0 ? [...scopes] : null;
@@ -1310,7 +1309,6 @@ export class ReviewService {
       (!state.credential.expiresAt || state.credential.expiresAt > now) &&
       state.agent.status === 'active' &&
       !state.agent.revokedAt &&
-      (!requiredScopes.some((scope) => scope.startsWith('memory:')) || state.agent.memoryEnabled) &&
       !state.user.deletedAt &&
       !state.user.lockedAt &&
       state.credential.authorizationId === state.grant.id &&
@@ -1343,7 +1341,6 @@ export class ReviewService {
       state.agent.approvalMode === 'scoped-auto-publish' &&
       !state.user.deletedAt &&
       !state.user.lockedAt &&
-      (!requiredScopes.includes('memory:write') || state.agent.memoryEnabled) &&
       state.credential.authorizationId === state.grant.id &&
       !state.space.deletedAt &&
       state.space.approvalPolicy === 'scoped-auto-publish' &&

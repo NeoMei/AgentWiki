@@ -896,7 +896,6 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
             ownerId: userId,
             status: 'active',
             approvalMode: 'scoped-auto-publish',
-            memoryEnabled: true,
           } });
           await prisma.agentGrant.create({ data: {
             id: grantId, agentId, spaceId, role: 'publisher',
