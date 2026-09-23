@@ -37,8 +37,10 @@ describe('Navbar global destinations', () => {
     expect(screen.getByRole('link', { name: '工作台' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: '智能体' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '审核' })).toBeInTheDocument();
+    expect(screen.getByText('US')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '个人菜单' }));
+    expect(screen.getByRole('link', { name: '个人资料与访问令牌' })).toBeInTheDocument();
     expect(screen.queryAllByRole('link', { name: '使用指南' })).toHaveLength(1);
     expect(screen.queryByRole('link', { name: '连接 Obsidian' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: '关于' })).not.toBeInTheDocument();

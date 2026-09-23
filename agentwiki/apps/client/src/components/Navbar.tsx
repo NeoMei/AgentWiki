@@ -6,6 +6,7 @@ import api from '../api/client';
 import { useLanguage } from '../context/LanguageContext';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { GlobalNavigation } from './GlobalNavigation';
+import { UserAvatar } from './UserAvatar';
 import { REVIEW_CHANGED_EVENT } from '../features/review/review-events';
 
 export const Navbar: React.FC = () => {
@@ -80,11 +81,14 @@ export const Navbar: React.FC = () => {
         <LanguageSwitcher compact />
         <div className="relative" ref={menuRef}>
           <button onClick={() => setMenuOpen((value) => !value)} className="flex items-center gap-2 p-1 rounded-lg hover:bg-gray-100" aria-expanded={menuOpen} aria-label={t('nav.personalMenu')}>
-            <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center"><User size={18} className="text-blue-600" /></div>
+            <UserAvatar name={user?.name} email={user?.email} size="sm" />
             <span className="text-sm hidden md:inline max-w-32 truncate">{user?.name || user?.email}</span><ChevronDown size={14} className="text-gray-400" />
           </button>
           {menuOpen ? <div className="absolute right-0 mt-2 w-56 bg-white border rounded-xl shadow-lg p-2 z-50">
-            <p className="px-3 py-2 text-xs text-gray-400 truncate">{user?.email}</p>
+            <div className="px-3 py-2 border-b mb-1">
+              <p className="text-sm font-medium truncate">{user?.name || user?.email}</p>
+              <p className="text-xs text-gray-400 truncate">{user?.email}</p>
+            </div>
             <Link onClick={() => setMenuOpen(false)} to="/profile" className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-gray-50"><User size={16} /> {t('nav.profile')}</Link>
             {user?.platformRole === 'super_admin' ? <Link onClick={() => setMenuOpen(false)} to="/admin" className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-gray-50"><Shield size={16} /> {t('nav.admin')}</Link> : null}
             <button onClick={() => { logout(); navigate('/'); }} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-red-600 hover:bg-red-50"><LogOut size={16} /> {t('nav.logout')}</button>

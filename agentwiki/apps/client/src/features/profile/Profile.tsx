@@ -2,8 +2,17 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
-import { User, Mail, Calendar, Save, X, Key, Copy, Check, RefreshCw, Trash2, AlertTriangle } from 'lucide-react';
+import { Mail, Calendar, Save, X, Key, Copy, Check, RefreshCw, Trash2, AlertTriangle, Bot } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { UserAvatar } from '../../components/UserAvatar';
+
+interface OwnedAgent {
+  id: string;
+  name: string;
+  description?: string | null;
+  status: string;
+  grants?: Array<{ id: string }>;
+}
 
 export const Profile: React.FC = () => {
   const { user, login } = useAuth();
@@ -20,12 +29,17 @@ export const Profile: React.FC = () => {
   const [keyLoading, setKeyLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
+  const [agents, setAgents] = useState<OwnedAgent[]>([]);
 
   const fetchProfile = async () => {
     try {
-      const res = await api.get('/users/me');
+      const [res, agentsRes] = await Promise.all([
+        api.get('/users/me'),
+        api.get('/agents'),
+      ]);
       setFormData({ name: res.data.name || '', email: res.data.email || '' });
       setHasApiKey((res.data.apiKeys || []).length > 0);
+      setAgents(Array.isArray(agentsRes.data) ? agentsRes.data : []);
     } catch (err: any) {
       setError(err.response?.data?.message || t('profile.loadFailed'));
     } finally {
@@ -121,9 +135,7 @@ export const Profile: React.FC = () => {
 
       <div className="bg-white rounded-lg shadow-sm border p-6 mb-6">
         <div className="flex items-center gap-4 mb-6 pb-6 border-b">
-          <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center">
-            <User size={32} className="text-blue-600" />
-          </div>
+          <UserAvatar name={formData.name} email={formData.email} size="lg" />
           <div>
             <h2 className="text-lg font-semibold">{formData.name || t('profile.unnamed')}</h2>
             <p className="text-sm text-gray-500">{formData.email}</p>
@@ -163,6 +175,32 @@ export const Profile: React.FC = () => {
             </button>
           </div>
         </form>
+      </div>
+
+      <div className="bg-white rounded-lg shadow-sm border p-6 mb-6">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <h2 className="text-lg font-semibold flex items-center gap-2"><Bot size={20} className="text-blue-600" /> {t('profile.myAgents')}</h2>
+            <p className="text-sm text-gray-500 mt-1">{t('profile.myAgentsHelp')}</p>
+          </div>
+          <Link to="/agents" className="text-sm text-blue-600 hover:underline">{t('profile.manageAgents')}</Link>
+        </div>
+        {agents.length ? (
+          <div className="divide-y border rounded-lg">
+            {agents.map((agent) => (
+              <Link key={agent.id} to={`/agents/${agent.id}`} className="flex items-center gap-3 p-3 hover:bg-gray-50">
+                <div className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center"><Bot size={18} /></div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium truncate">{agent.name}</p>
+                  <p className="text-xs text-gray-500 truncate">{agent.description || t('common.noDescription')}</p>
+                </div>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${agent.status === 'active' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>{agent.status}</span>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed p-4 text-sm text-gray-500">{t('profile.noAgents')}</div>
+        )}
       </div>
 
       {/* Personal access token management */}
