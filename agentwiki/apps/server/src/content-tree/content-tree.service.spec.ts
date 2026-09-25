@@ -1,3 +1,4 @@
+import { contentHash } from '@neomei/agentwiki-sync-protocol';
 import { ContentTreeService } from './content-tree.service';
 import { ContentTreeConflict, ContentTreeError } from './content-tree.types';
 
@@ -1014,5 +1015,56 @@ describe('ContentTreeService lifecycle mutations', () => {
     expect(tx.contentDeletionBatch.updateMany).not.toHaveBeenCalled();
     expect(revisionWriter.advanceContentTreeRevision).not.toHaveBeenCalled();
     expect(revisionWriter.advanceStructuralPages).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('ContentTreeService Sync v2 historical version compatibility', () => {
+  async function fixture() {
+    const page = {
+      id: 'entity-1', knowledgeKey: 'key-1', spaceId: 'space-1', folderId: null,
+      title: 'Page', syncPath: 'pages/Page.md', syncPathKey: 'pages/page.md',
+      content: '# Body\n', updatedAt: new Date('2026-09-24T10:07:05.965Z'), deletedAt: null,
+    };
+    const snapshot = {
+      pageId: page.knowledgeKey, folderId: null, title: page.title, path: page.syncPath,
+      contentHash: await contentHash(page.content), updatedAt: new Date('2026-09-24T10:07:06.104Z'),
+    };
+    const head = { id: 'head', sequence: 5, createdAt: now };
+    const tx: any = {
+      contentTreeRevision: 5n,
+      spaceKnowledgeRevision: { findFirst: jest.fn(async () => head) },
+      syncRevisionFolderRow: { count: jest.fn(async () => 0) },
+      syncRevisionPageRow: { findUnique: jest.fn(async () => snapshot) },
+      folder: { findMany: jest.fn(async () => []) },
+      page: { findMany: jest.fn(async () => [page]) },
+    };
+    const input: any = {
+      spaceId: 'space-1', baseRevision: 'head', actor: { userId: 'user' },
+      principal: { userId: 'user' }, revisionOrigin: { origin: 'obsidian_sync' },
+      changes: [{ operation: 'upsert_page', page: {
+        pageId: page.knowledgeKey, folderId: null, title: page.title, path: page.syncPath,
+        body: page.content, contentHash: snapshot.contentHash, updatedAt: snapshot.updatedAt.toISOString(),
+      } }],
+    };
+    return { page, snapshot, head, tx, input, service: new ContentTreeService({} as any, {} as any, {} as any) };
+  }
+
+  it('accepts the immutable snapshot token when only its historical writer clock differs', async () => {
+    const { service, tx, input } = await fixture();
+    await expect(service.publishSyncV2BatchLocked(tx, input)).resolves.toMatchObject({ status: 'noop' });
+  });
+
+  it.each(['body', 'title', 'path', 'folder', 'later timestamp', 'token', 'head', 'missing snapshot'])('rejects historical compatibility after %s drift', async (kind) => {
+    const { service, tx, input, page, head } = await fixture();
+    if (kind === 'body') page.content = '# Changed\n';
+    if (kind === 'title') page.title = 'Changed';
+    if (kind === 'path') page.syncPath = 'pages/Changed.md';
+    if (kind === 'folder') (page as any).folderId = 'changed';
+    if (kind === 'later timestamp') page.updatedAt = new Date('2026-09-24T10:07:06.105Z');
+    if (kind === 'token') input.changes[0].page.updatedAt = '2026-09-24T10:07:06.103Z';
+    if (kind === 'head') head.id = 'next';
+    if (kind === 'missing snapshot') tx.syncRevisionPageRow.findUnique.mockResolvedValue(null);
+    await expect(service.publishSyncV2BatchLocked(tx, input)).rejects.toMatchObject({ code: 'CONTENT_TREE_CONFLICT' });
   });
 });

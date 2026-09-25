@@ -1076,7 +1076,22 @@ export class ContentTreeService {
     for (const change of pageUpserts) {
       const current = pageByKey.get(change.page.pageId);
       if (current && !current.deletedAt && change.page.updatedAt !== current.updatedAt.toISOString()) {
-        throw new ContentTreeError('CONTENT_TREE_CONFLICT', 'Page updatedAt is stale');
+        const snapshot = head ? await lockedTx.syncRevisionPageRow.findUnique({
+          where: { revisionId_pageId: { revisionId: head.id, pageId: current.knowledgeKey } },
+        }) : null;
+        // Older writers stamped the snapshot after the Page write. Accept that
+        // exact immutable token only while its entity still represents the same
+        // published state; never rewrite historical revision hashes or rows.
+        const matchesHistoricalSnapshot = snapshot
+          && change.page.updatedAt === snapshot.updatedAt.toISOString()
+          && current.updatedAt.getTime() < snapshot.updatedAt.getTime()
+          && current.folderId === snapshot.folderId
+          && current.syncPath === snapshot.path
+          && current.title === snapshot.title
+          && await contentHash(normalizeMarkdown(current.content)) === snapshot.contentHash;
+        if (!matchesHistoricalSnapshot) {
+          throw new ContentTreeError('CONTENT_TREE_CONFLICT', 'Page updatedAt is stale');
+        }
       }
       const body = normalizeMarkdown(change.page.body);
       if (await contentHash(body) !== change.page.contentHash) {

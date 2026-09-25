@@ -279,6 +279,7 @@ export class SpaceRevisionWriterService {
     const ensuredContentHashes = new Set<string>();
     let nextLegacyOrdinal: number | null = null;
 
+    const pageVersions = await this.readPageVersions(tx, spaceId, changes);
     let ordinal = 0;
     for (const change of changes) {
       if (change.operation === 'archive') {
@@ -301,6 +302,7 @@ export class SpaceRevisionWriterService {
         });
         continue;
       }
+      const updatedAt = pageVersions.get(change.pageId) ?? new Date();
       const body = normalizeMarkdown(change.body ?? '');
       const hash = await contentHash(body);
       if (!ensuredContentHashes.has(hash)) {
@@ -337,14 +339,14 @@ export class SpaceRevisionWriterService {
           pathKey: change.path ? pathKey(change.path) : prior?.pathKey ?? '',
           title: change.title ?? '',
           contentHash: hash,
-          updatedAt: new Date(),
+          updatedAt,
         },
         update: {
           path: change.path ?? prior?.path ?? undefined,
           pathKey: change.path ? pathKey(change.path) : undefined,
           title: change.title,
           contentHash: hash,
-          updatedAt: new Date(),
+          updatedAt,
         },
       });
       let legacyOrdinal: number;
@@ -379,7 +381,7 @@ export class SpaceRevisionWriterService {
             legacyBodyHash: hash,
             contentHash: hash,
             path: change.path ?? '',
-            updatedAt: new Date().toISOString(),
+            updatedAt: updatedAt.toISOString(),
           },
         },
         update: {
@@ -394,7 +396,7 @@ export class SpaceRevisionWriterService {
             legacyBodyHash: hash,
             contentHash: hash,
             path: change.path ?? existingExtraValue?.path,
-            updatedAt: new Date().toISOString(),
+            updatedAt: updatedAt.toISOString(),
           },
         },
       });
@@ -576,6 +578,22 @@ export class SpaceRevisionWriterService {
     );
   }
 
+  private async readPageVersions(
+    tx: SpaceLockedTransaction,
+    spaceId: string,
+    changes: readonly PageChange[],
+  ): Promise<Map<string, Date>> {
+    const pageIds = changes.filter((change) => change.operation === 'upsert').map((change) => change.pageId);
+    if (pageIds.length === 0) return new Map();
+    // Read once after the entity writes, under the same Space lock. The client
+    // must be able to use the published version as its next write precondition.
+    const pages = await tx.page.findMany({
+      where: { spaceId, knowledgeKey: { in: pageIds }, deletedAt: null },
+      select: { knowledgeKey: true, updatedAt: true },
+    });
+    return new Map(pages.map((page) => [page.knowledgeKey, page.updatedAt]));
+  }
+
   private async advanceStructuralPagesLockedInternal(
     tx: SpaceLockedTransaction,
     spaceId: string,
@@ -659,6 +677,7 @@ export class SpaceRevisionWriterService {
       });
     }
 
+    const pageVersions = await this.readPageVersions(tx, spaceId, changes);
     const changedAt = new Date();
     const prepared = await Promise.all(changes.map(async (change, ordinal) => {
       if (change.operation === 'archive') {
@@ -690,7 +709,7 @@ export class SpaceRevisionWriterService {
         contentHash: await contentHash(body),
         byteLength: new TextEncoder().encode(body).byteLength,
         previousPath: null,
-        updatedAt: changedAt.toISOString(),
+        updatedAt: (pageVersions.get(change.pageId) ?? changedAt).toISOString(),
       };
     }));
 
@@ -763,7 +782,8 @@ export class SpaceRevisionWriterService {
           "pathKey" text,
           "title" text,
           "contentHash" text,
-          "updatedAt" timestamptz
+          -- Prisma stores UTC timestamp(3); timestamptz would shift it by the session timezone.
+          "updatedAt" timestamp(3)
         )
         WHERE change."operation" = 'upsert'
       `);

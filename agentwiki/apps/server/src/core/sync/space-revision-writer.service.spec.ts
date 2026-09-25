@@ -224,7 +224,10 @@ describe('SpaceRevisionWriterService', () => {
         findUnique: jest.fn().mockResolvedValue(null),
       },
       page: {
-        findMany: jest.fn().mockResolvedValue([]),
+        findMany: jest.fn().mockResolvedValue([{
+          knowledgeKey: '11111111-1111-4111-8111-111111111111',
+          updatedAt: new Date('2026-09-24T10:07:05.965Z'),
+        }]),
       },
       folder: {
         findMany: jest.fn().mockResolvedValue([]),
@@ -269,6 +272,7 @@ describe('SpaceRevisionWriterService', () => {
         path: 'Guide.md',
         pathKey: pathKey('Guide.md'),
         contentHash: await contentHash(body),
+        updatedAt: new Date('2026-09-24T10:07:05.965Z'),
       }),
     }));
     expect(tx.legacyRevisionPageExtra.aggregate).toHaveBeenCalledTimes(1);
@@ -332,6 +336,9 @@ describe('SpaceRevisionWriterService', () => {
       legacyRevisionPageExtra: { findMany: jest.fn().mockResolvedValue(extras) },
       legacyPageBodyRow: { findMany: jest.fn().mockResolvedValue([{ contentHash: hash, body }]) },
       folder: { findMany: jest.fn().mockResolvedValue([]) },
+      page: { findMany: jest.fn().mockResolvedValue(changes.map((change) => ({
+        knowledgeKey: change.pageId, updatedAt: new Date('2026-09-24T10:07:05.965Z'),
+      }))) },
     };
 
     const result = await (service as any).advanceStructuralPages(
@@ -351,9 +358,12 @@ describe('SpaceRevisionWriterService', () => {
     ] as jest.Mock[];
     const queryCount = queryFunctions.reduce((count, query) => count + query.mock.calls.length, 0);
     expect(result.pageCount).toBe(10_000n);
+    const payload = tx.$executeRaw.mock.calls.flatMap(([sql]: any[]) => sql.values ?? [])
+      .find((value: unknown) => typeof value === 'string' && value.startsWith('[{'));
+    expect(JSON.parse(payload).every((row: any) => row.updatedAt === '2026-09-24T10:07:05.965Z')).toBe(true);
     // Full-chain and persisted-marker integrity add a fixed query budget, not a
-    // per-Page query. The 10k boundary must remain constant-sized.
-    expect(queryCount).toBeLessThanOrEqual(25);
+    // per-Page query. One batched entity-version read keeps the 10k boundary constant-sized.
+    expect(queryCount).toBeLessThanOrEqual(26);
   }, 20_000);
 
   function emptyStructuralTransaction() {
