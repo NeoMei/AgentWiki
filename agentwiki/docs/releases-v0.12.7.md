@@ -16,3 +16,10 @@ Validation:
 - Full server suite: 2,646 passed, 10 failed, 26 skipped. The 10 failures in two MCP suites reproduce unchanged on v0.12.6 (`audit.record` mocks); this release introduces no additional full-suite failures.
 - Application release version alignment check passed. Production deployment and native Obsidian acceptance are recorded separately.
 
+
+Production acceptance (2026-09-25):
+
+- Deployed v0.12.7; API, Worker, Frontend and public health checks passed. Production source hashes match the release candidate.
+- In the native Obsidian NeoMei-Docs vault, resumed the confirmed keep-local upload and verified `published` / `verified`. User-selected empty content matches the server; reopening Sync shows no local or remote changes.
+- The new Page and snapshot versions match exactly; the previous immutable snapshot remains unchanged.
+- Detailed cross-project evidence: <https://github.com/NeoMei/agentwiki-sync/blob/main/docs/agentwiki-sync-v2-version-consistency.md>.
