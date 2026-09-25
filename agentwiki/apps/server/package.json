@@ -1,6 +1,6 @@
 {
   "name": "@agentwiki/server",
-  "version": "0.12.7",
+  "version": "0.12.8",
   "scripts": {
     "build": "nest build",
     "start": "nest start",

@@ -1,18 +1,65 @@
 import { createHash } from 'node:crypto';
+import { BusinessException } from '../core/filters/business-error';
 import {
   applyTaskboardPatch,
   assertTaskboardTree,
   isoNow,
+  makeTaskboardTask,
+  isTaskboardKind,
+  isTaskboardStatus,
+  toTaskboardColumns,
   type TaskboardTask,
 } from './taskboard-core';
 
 export interface ParsedSuperpowersPlan {
   schema_version: number;
   project: string;
-  source_type: 'superpowers_plan';
+  source_type: string;
   sources: string[];
   updated_at: string;
   tasks: TaskboardTask[];
+}
+
+/** Import either a Superpowers Markdown plan or a local project-taskboard board.json. */
+export function parseTaskboardDocument(text: string, sourcePath = 'superpowers-plan.md'): ParsedSuperpowersPlan {
+  const trimmed = text.trim();
+  if (!/^[{[]/.test(trimmed) && !/\.json$/i.test(sourcePath)) return parseSuperpowersPlan(text, sourcePath);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw new BusinessException('TASKBOARD_INVALID', 'Invalid taskboard JSON');
+  }
+  const candidate = Array.isArray(parsed) ? { tasks: parsed } : parsed && typeof parsed === 'object'
+    ? ((parsed as Record<string, unknown>).board ?? parsed)
+    : null;
+  if (!candidate || typeof candidate !== 'object' || !Array.isArray((candidate as Record<string, unknown>).tasks)) {
+    throw new BusinessException('TASKBOARD_INVALID', 'JSON must contain a tasks array');
+  }
+  const board = candidate as Record<string, unknown>;
+  if (board.schema_version !== undefined && board.schema_version !== 1) {
+    throw new BusinessException('TASKBOARD_INVALID', 'Unsupported taskboard schema version');
+  }
+  const tasks = (board.tasks as unknown[]).map((raw) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new BusinessException('TASKBOARD_INVALID');
+    const value = raw as Record<string, unknown>;
+    if (typeof value.id !== 'string' || !value.id.trim() || typeof value.title !== 'string' ||
+      (value.parent_id != null && typeof value.parent_id !== 'string')) throw new BusinessException('TASKBOARD_INVALID');
+    // Only import public task fields, never server claims or actor-attributed history.
+    const task = makeTaskboardTask(value);
+    if (!isTaskboardKind(task.kind) || !isTaskboardStatus(task.status)) throw new BusinessException('TASKBOARD_INVALID');
+    toTaskboardColumns(task, 0); // Validate timestamps before starting the write transaction.
+    return task;
+  });
+  assertTaskboardTree(tasks);
+  return {
+    schema_version: typeof board.schema_version === 'number' ? board.schema_version : 1,
+    project: typeof board.project === 'string' && board.project.trim() ? board.project : planBasename(sourcePath),
+    source_type: 'manual',
+    sources: [sourcePath],
+    updated_at: typeof board.updated_at === 'string' ? board.updated_at : isoNow(),
+    tasks,
+  };
 }
 
 function planSlug(value: string): string {
@@ -206,7 +253,7 @@ export function mergePlanIntoTasks(
     current.updated_at = isoNow();
     updated += 1;
   }
-  board.source_type = 'superpowers_plan';
+  board.source_type = incoming.source_type;
   board.sources = [...new Set([...board.sources, ...incoming.sources, sourcePath])].sort();
   return { added, updated };
 }

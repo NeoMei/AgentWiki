@@ -35,10 +35,6 @@ function statusZh(s: string): string {
   return TB_LABELS[s] ?? '待核实';
 }
 
-function hasPhaseFlag(tasks: TaskboardTask[]): boolean {
-  return tasks.some((x) => x.kind === 'phase');
-}
-
 const ROOT_COLUMN_WIDTH = 280;
 const COLUMN_WIDTH = 245;
 const COLUMN_GAP = 32;
@@ -62,7 +58,11 @@ export const TaskboardPage: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [viewPath, setViewPath] = useState<string[]>([]);
   const [importOpen, setImportOpen] = useState(false);
-  const [importMode, setImportMode] = useState<'paste' | 'upload' | 'page'>('paste');
+  const [importMode, setImportMode] = useState<'paste' | 'upload' | 'page'>('upload');
+  const [fileName, setFileName] = useState('');
+  const [fileReading, setFileReading] = useState(false);
+  const [importError, setImportError] = useState('');
+  const fileReaderRef = useRef<FileReader | null>(null);
   const [planContent, setPlanContent] = useState('');
   const [planSource, setPlanSource] = useState('docs/superpowers/plans/plan.md');
   const [syncStatus, setSyncStatus] = useState(false);
@@ -126,23 +126,25 @@ export const TaskboardPage: React.FC = () => {
   }, [spaceId, load]);
 
   const tasks = board?.tasks ?? [];
-  const phases = useMemo(() => tasks.filter((x) => x.kind === 'phase'), [tasks]);
+  // Upstream e542dcf/ba771da: every top-level node is a navigable root;
+  // nested phase labels remain ordinary children in the canvas.
+  const roots = useMemo(() => tasks.filter((x) => !x.parent_id), [tasks]);
 
   // Upstream ba771da: normalize the expansion path, then derive one canvas column per hop.
   const path = useMemo<string[]>(() => {
     const out: string[] = [];
-    const first = viewPath[0] ? tasks.find((x) => x.id === viewPath[0]) : undefined;
-    if (!first) return hasPhaseFlag(tasks) ? (phases[0] ? [phases[0].id] : []) : out;
+    const first = roots.find((x) => x.id === viewPath[0]);
+    if (!first) return roots[0] ? [roots[0].id] : out;
     out.push(first.id);
     for (const id of viewPath.slice(1)) {
       if (tbKids(tasks, out[out.length - 1]).some((x) => x.id === id)) out.push(id);
       else break;
     }
     return out;
-  }, [tasks, viewPath, phases]);
+  }, [tasks, viewPath, roots]);
 
   const columns = useMemo<TaskboardTask[][]>(() => {
-    if (path.length === 0) return hasPhaseFlag(tasks) ? [] : [tasks.filter((x) => !x.parent_id)];
+    if (path.length === 0) return [tasks.filter((x) => !x.parent_id)];
     const cols: TaskboardTask[][] = [];
     const rootTask = tasks.find((x) => x.id === path[0]);
     if (rootTask) cols.push([rootTask]);
@@ -152,10 +154,10 @@ export const TaskboardPage: React.FC = () => {
       if (children.length > 0) cols.push(children);
     }
     return cols;
-  }, [tasks, path, hasPhaseFlag(tasks)]);
+  }, [tasks, path]);
 
   const pathEnd = path.length > 0 ? tasks.find((x) => x.id === path[path.length - 1]) ?? null : null;
-  const activePhase = hasPhaseFlag(tasks) && path.length > 0 ? tasks.find((x) => x.id === path[0]) ?? null : null;
+  const activeRoot = path.length > 0 ? tasks.find((x) => x.id === path[0]) ?? null : null;
   const selected = tasks.find((x) => x.id === selectedId) ?? pathEnd;
   const columnWidth = columns.length === 1 ? ROOT_COLUMN_WIDTH : COLUMN_WIDTH;
 
@@ -201,14 +203,14 @@ export const TaskboardPage: React.FC = () => {
     const observer = new ResizeObserver(() => updateRailButtons());
     observer.observe(rail);
     return () => observer.disconnect();
-  }, [updateRailButtons, phases.length]);
+  }, [updateRailButtons, roots.length]);
 
   useEffect(() => {
     const rail = railRef.current;
-    if (!rail || !activePhase) return;
-    const el = rail.querySelector('[data-phase-id="' + activePhase.id + '"]');
+    if (!rail || !activeRoot) return;
+    const el = rail.querySelector('[data-phase-id="' + activeRoot.id + '"]');
     if (el) el.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
-  }, [activePhase?.id, phases.length]);
+  }, [activeRoot?.id, roots.length]);
 
   // Canvas layout (upstream ba771da): one column per expanded path hop, px-based.
   useLayoutEffect(() => {
@@ -289,10 +291,11 @@ export const TaskboardPage: React.FC = () => {
   };
 
   const importPlan = async () => {
-    if (!spaceId) return;
+    if (!spaceId || fileReading) return;
     if (importMode !== 'page' && !planContent.trim()) return;
     if (importMode === 'page' && !selectedPageId) return;
     setBusy(true);
+    setImportError('');
     try {
       const payload = importMode === 'page'
         ? { pageId: selectedPageId, sourcePath: 'agentwiki-page:' + selectedPageId, syncStatus }
@@ -303,11 +306,18 @@ export const TaskboardPage: React.FC = () => {
       setPlanContent('');
       setSelectedPageId('');
       setImportNote((zh ? '导入完成：新增 ' : 'Imported: ') + data.summary.added + (zh ? ' 个，更新 ' : ' added, ') + data.summary.updated + (zh ? ' 个' : ' updated'));
-    } catch (requestError: unknown) { setError(apiErrorMessage(requestError, t, 'taskboard.importFailed')); }
+    } catch (requestError: unknown) { setImportError(apiErrorMessage(requestError, t, 'taskboard.importFailed')); }
     finally { setBusy(false); }
   };
 
   const openImportDialog = () => {
+    fileReaderRef.current?.abort();
+    fileReaderRef.current = null;
+    setImportMode('upload');
+    setPlanContent('');
+    setFileName('');
+    setFileReading(false);
+    setImportError('');
     setImportOpen(true);
     if (!spaceId) return;
     void taskboardApi.listSpacePages(spaceId).then((pages) => setSpacePages(pages)).catch(() => setSpacePages([]));
@@ -315,13 +325,40 @@ export const TaskboardPage: React.FC = () => {
 
   const onPlanFilePicked = (file: File | undefined) => {
     if (!file) return;
+    fileReaderRef.current?.abort();
+    fileReaderRef.current = null;
+    setPlanContent('');
+    setFileName('');
+    setFileReading(false);
+    setImportError('');
+    if (!/\.(md|markdown|txt|json)$/i.test(file.name)) {
+      setImportError(zh ? '请选择计划文件（.md、.markdown、.txt 或 board.json）。' : 'Choose a plan file (.md, .markdown, .txt or board.json).');
+      return;
+    }
     const reader = new FileReader();
+    fileReaderRef.current = reader;
+    setFileReading(true);
     reader.onload = () => {
-      setPlanContent(String(reader.result ?? ''));
+      if (fileReaderRef.current !== reader) return;
+      setFileReading(false);
+      const content = String(reader.result ?? '');
+      if (!content.trim()) {
+        setImportError(zh ? '文件为空，请选择包含任务的计划文件。' : 'The file is empty. Choose a plan containing tasks.');
+        return;
+      }
+      setPlanContent(content);
+      setFileName(file.name);
       setPlanSource(file.name);
+    };
+    reader.onerror = () => {
+      if (fileReaderRef.current !== reader) return;
+      setFileReading(false);
+      setImportError(zh ? '文件读取失败，请重新选择文件。' : 'Could not read the file. Please select it again.');
     };
     reader.readAsText(file);
   };
+
+  useEffect(() => () => { fileReaderRef.current?.abort(); fileReaderRef.current = null; }, []);
 
   const locate = (t: TaskboardTask) => {
     const chain: TaskboardTask[] = [];
@@ -355,7 +392,7 @@ export const TaskboardPage: React.FC = () => {
         title={tbCleanTitle(task)}
       >
         {cls === 'root'
-          ? <span className="letter active">{tbPhaseMark(task, phases.findIndex((x) => x.id === task.id))}</span>
+          ? <span className="letter active">{tbPhaseMark(task, roots.findIndex((x) => x.id === task.id))}</span>
           : tbIcon(19)}
         <div className="node-body">
           <strong>{tbCleanTitle(task)}</strong>
@@ -376,7 +413,7 @@ export const TaskboardPage: React.FC = () => {
     );
   };
 
-  const inspectTask = selected ?? pathEnd ?? activePhase;
+  const inspectTask = selected ?? pathEnd ?? activeRoot;
   const syncText = board ? '数据更新 ' + tbFmt(board.updated_at) : '正在读取项目记录';
 
   return (
@@ -389,21 +426,21 @@ export const TaskboardPage: React.FC = () => {
         <button type="button" id="refresh" onClick={() => void load()}>{zh ? '刷新' : 'Refresh'}</button>
       </header>
       <main>
-        <div className="road">
+        {tasks.length > 0 && <div className="road">
           <div className="roadlabel">{zh ? '实施顺序' : 'Phases'}<small>{zh ? <React.Fragment>按阶段规划，<br />逐步推进</React.Fragment> : <React.Fragment>Phase by phase,<br />step by step</React.Fragment>}</small></div>
           <div className="roadwrap">
             <nav className="tracks" ref={railRef} onScroll={updateRailButtons}>
-              {phases.map((phase, index) => {
+              {roots.map((phase, index) => {
                 const c = tbTaskStatusCounts(tasks, phase.id);
                 return (
                   <button
                     key={phase.id}
                     type="button"
                     data-phase-id={phase.id}
-                    className={'milestone' + (phase.id === activePhase?.id ? ' selected' : '')}
+                    className={'milestone' + (phase.id === activeRoot?.id ? ' selected' : '')}
                     onClick={() => { setViewPath([phase.id]); setSelectedId(phase.id); }}
                   >
-                    <div className="mtop"><span className={'letter' + (phase.id === activePhase?.id ? ' active' : '')}>{tbPhaseMark(phase, index)}</span><span>{tbCleanTitle(phase)}</span></div>
+                    <div className="mtop"><span className={'letter' + (phase.id === activeRoot?.id ? ' active' : '')}>{tbPhaseMark(phase, index)}</span><span>{tbCleanTitle(phase)}</span></div>
                     <div className="counts">
                       <span title="已完成执行任务"><i className="dot done" /><div>{c.done}</div></span>
                       <span title="进行中执行任务"><i className="dot in_progress" /><div>{c.inProgress}</div></span>
@@ -423,16 +460,16 @@ export const TaskboardPage: React.FC = () => {
               className="jumpmenu"
               aria-label={t('taskboard.jumpToPhase')}
               title={t('taskboard.jumpToPhase')}
-              value={activePhase?.id ?? ''}
+              value={activeRoot?.id ?? ''}
               onChange={(event) => { const id = event.target.value; if (!id) return; setViewPath([id]); setSelectedId(id); }}
             >
-              {phases.map((phase, index) => {
+              {roots.map((phase, index) => {
                 const c = tbTaskStatusCounts(tasks, phase.id);
                 return <option key={phase.id} value={phase.id}>{tbPhaseMark(phase, index)} · {tbCleanTitle(phase)} ({c.done}/{c.total})</option>;
               })}
             </select>
           </div>
-        </div>
+        </div>}
         {error && <div id="error" role="status">{error}</div>}
         {importNote && <div className="box" style={{ margin: '0 15px 10px' }}><p>{importNote}</p></div>}
         {importOpen && (
@@ -441,9 +478,14 @@ export const TaskboardPage: React.FC = () => {
             <div className="statusrow">
               <span>{zh ? '计划来源' : 'Source'}</span>
               <span style={{ display: 'flex', gap: 6 }}>
-                {([['paste', '粘贴内容'], ['upload', '上传文件'], ['page', '空间页面']] as const).map(([mode, label]) => (
+                {([['upload', zh ? '上传文件' : 'Upload file'], ['paste', zh ? '粘贴内容' : 'Paste text'], ['page', zh ? '空间页面' : 'Wiki page']] as const).map(([mode, label]) => (
                   <button key={mode} type="button"
-                    onClick={() => setImportMode(mode)}
+                    disabled={busy}
+                    onClick={() => {
+                      fileReaderRef.current?.abort(); fileReaderRef.current = null;
+                      setFileReading(false); setFileName(''); setPlanContent(''); setImportError('');
+                      setImportMode(mode);
+                    }}
                     aria-pressed={importMode === mode}
                     className={'locate' + (importMode === mode ? '' : '')}
                     style={{ background: importMode === mode ? '#0877ff' : '#f1f5fb', color: importMode === mode ? '#fff' : '#506587' }}>{label}</button>
@@ -454,16 +496,21 @@ export const TaskboardPage: React.FC = () => {
               <p><textarea aria-label={t('taskboard.planContent')} value={planContent} onChange={(e) => setPlanContent(e.target.value)} rows={7} style={{ width: '100%', border: '1px solid #d8e1ed', borderRadius: 6, padding: 8, fontFamily: 'monospace', fontSize: 12 }} /></p>
             )}
             {importMode === 'upload' && (
-              <p>
+              <div className="plan-upload">
+                <label htmlFor="taskboard-plan-file">{zh ? '选择本地计划文件' : 'Choose a local plan file'}</label>
                 <input
+                  id="taskboard-plan-file"
                   type="file"
                   aria-label={zh ? '选择计划文件' : 'Choose plan file'}
-                  accept=".md,.markdown,.txt"
+                  accept=".md,.markdown,.txt,.json"
+                  disabled={busy}
                   onChange={(e) => onPlanFilePicked(e.target.files?.[0])}
-                  style={{ fontSize: 12 }}
                 />
-                {planContent.trim() ? <span style={{ marginLeft: 8, color: '#12a367' }}>✓ {zh ? '已读取' : 'loaded'}</span> : null}
-              </p>
+                <p role="status">{fileReading
+                  ? (zh ? '正在读取文件…' : 'Reading file…')
+                  : fileName ? (zh ? '已读取：' : 'Loaded: ') + fileName
+                    : (zh ? '先选择文件，再点击“导入”。填写路径不会读取本地文件。' : 'Choose a file, then click Import. Typing a path does not load a local file.')}</p>
+              </div>
             )}
             {importMode === 'page' && (
               <label className="statusrow"><span>{zh ? '选择空间页面' : 'Wiki page'}</span>
@@ -478,6 +525,8 @@ export const TaskboardPage: React.FC = () => {
                 </select>
               </label>
             )}
+            <details>
+            <summary>{zh ? '高级选项：计划标识' : 'Advanced: plan identifier'}</summary>
             <label className="statusrow">
               <span>{t('taskboard.planSource')}<br /><small>{zh ? '仅用于生成稳定任务 ID，服务器不会读取本地文件' : 'Stable task IDs only; the server never reads local files'}</small></span>
               <input
@@ -488,10 +537,13 @@ export const TaskboardPage: React.FC = () => {
                 style={{ flex: 1, border: '1px solid #d8e1ed', borderRadius: 6, padding: '4px 8px' }}
               />
             </label>
+            </details>
             <label className="statusrow"><span>{t('taskboard.syncStatus')}</span><input type="checkbox" aria-label={t('taskboard.syncStatus')} checked={syncStatus} onChange={(e) => setSyncStatus(e.target.checked)} /></label>
+                <p>{zh ? '支持 Superpowers Markdown 计划或本地任务看板 board.json。' : 'Supports Superpowers Markdown plans and local taskboard board.json.'}</p>
+            {importError && <p role="alert">{importError}</p>}
             <p>
-              <button type="button" className="locate" disabled={busy || (importMode === 'page' ? !selectedPageId : !planContent.trim())} onClick={() => void importPlan()} style={{ marginRight: 8 }}>{t('taskboard.import')}</button>
-              <button type="button" className="locate" style={{ background: '#f1f5fb', color: '#506587' }} onClick={() => setImportOpen(false)}>{t('common.cancel')}</button>
+              <button type="button" className="locate" disabled={busy || fileReading || (importMode === 'page' ? !selectedPageId : !planContent.trim())} onClick={() => void importPlan()} style={{ marginRight: 8 }}>{busy ? (zh ? '正在导入…' : 'Importing…') : t('taskboard.import')}</button>
+              <button type="button" className="locate" disabled={busy} style={{ background: '#f1f5fb', color: '#506587' }} onClick={() => { fileReaderRef.current?.abort(); fileReaderRef.current = null; setImportOpen(false); }}>{t('common.cancel')}</button>
             </p>
           </section>
         )}
@@ -504,9 +556,9 @@ export const TaskboardPage: React.FC = () => {
             <div className="workspace">
               <section className="canvaspanel">
                 <div className="canvashead">
-                  <span className="letter active">{activePhase ? tbPhaseMark(activePhase, phases.findIndex((x) => x.id === activePhase.id)) : '·'}</span>
+                  <span className="letter active">{activeRoot ? tbPhaseMark(activeRoot, roots.findIndex((x) => x.id === activeRoot.id)) : '·'}</span>
                   <div>
-                    <h2>{activePhase ? tbCleanTitle(activePhase) + ' · ' + tbTaskStatusSummary(tasks, activePhase.id) : (board?.project || '')}</h2>
+                    <h2>{activeRoot ? tbCleanTitle(activeRoot) + ' · ' + tbTaskStatusSummary(tasks, activeRoot.id) : (board?.project || '')}</h2>
                     <div className="crumb">
                       {path.map((id, i) => {
                         const node = tasks.find((x) => x.id === id);

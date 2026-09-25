@@ -107,6 +107,48 @@ function makeService(db = makeDb()) {
 }
 
 describe('ProjectTaskboardService', () => {
+  it('imports manual JSON tasks with their hierarchy, execution fields and stable IDs', async () => {
+    const { service, db } = makeService();
+    const tasks = [
+      { id: 'root', title: 'Root', kind: 'phase', status: 'todo' },
+      { id: 'job', parent_id: 'root', title: 'Local job', kind: 'task', status: 'done', owner: 'local-agent',
+        started_at: '2026-09-20T01:00:00Z', completed_at: '2026-09-20T02:00:00Z',
+        claim: { owner: 'user:forged' }, status_history: [{ from: 'todo', to: 'done', by: 'user:forged' }] },
+    ];
+    const dto = { content: JSON.stringify({ schema_version: 1, project: 'Local board', tasks }), sourcePath: 'board.json' };
+    const first = await service.importPlan({ userId: 'u1' }, 'space-1', dto);
+    expect(first.summary).toEqual({ added: 2, updated: 0 });
+    const { board } = await service.getBoard({ userId: 'u1' }, 'space-1');
+    expect(board.source_type).toBe('manual');
+    expect(board.tasks.find((x) => x.id === 'job')).toMatchObject({
+      parent_id: 'root', title: 'Local job', status: 'done', owner: 'local-agent',
+      completed_at: '2026-09-20T02:00:00.000Z',
+    });
+    expect(board.tasks.find((x) => x.id === 'job')?.claim).toBeUndefined();
+    expect(JSON.stringify(board.tasks)).not.toContain('user:forged');
+    await service.updateStatus({ userId: 'u1' }, 'space-1', 'job', { status: 'blocked', current_step: 'remote review' });
+    const second = await service.importPlan({ userId: 'u1' }, 'space-1', dto);
+    expect(second.summary).toEqual({ added: 0, updated: 2 });
+    expect(second.board.tasks.find((x) => x.id === 'job')).toMatchObject({ status: 'blocked', current_step: 'remote review' });
+    expect(db.tasks).toHaveLength(2);
+  });
+
+  it.each(['{broken', '{"tasks":[{"id":"t","title":"Task","kind":"task","status":"invalid"}]}'])('rejects invalid JSON before persistence: %s', async (content) => {
+    const { service, db } = makeService();
+    await expect(service.importPlan({ userId: 'u1' }, 'space-1', { content, sourcePath: 'board.json' })).rejects.toThrow();
+    expect(db.boards).toHaveLength(0);
+    expect(db.tasks).toHaveLength(0);
+  });
+
+  it('rejects a document without executable tasks before creating a board', async () => {
+    const { service, db } = makeService();
+    await expect(service.importPlan({ userId: 'u1' }, 'space-1', {
+      content: '# 项目规划\n\n## 里程碑\n讨论范围。', sourcePath: 'roadmap.md',
+    })).rejects.toThrow('### Task');
+    expect(db.boards).toHaveLength(0);
+    expect(db.tasks).toHaveLength(0);
+  });
+
   it('auto-creates the board and persists a created task', async () => {
     const { service, db } = makeService();
     const { task, board_updated_at } = await service.createTask({ userId: 'u1' } as any, 'space-1', {

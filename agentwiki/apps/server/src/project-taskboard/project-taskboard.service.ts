@@ -5,7 +5,7 @@ import { AuthorizationService, type Principal } from '../core/authorization/auth
 import { BusinessException } from '../core/filters/business-error';
 import { RedisService } from '../database/redis.service';
 import { PrismaService } from '../database/prisma.service';
-import { mergePlanIntoTasks, parseSuperpowersPlan, type ParsedSuperpowersPlan } from './plan-parser';
+import { mergePlanIntoTasks, parseTaskboardDocument, type ParsedSuperpowersPlan } from './plan-parser';
 import { TASKBOARD_CHANNEL, TASKBOARD_CLAIM_GUARDED_STATUSES } from './taskboard-core';
 import {
   applyTaskboardPatch,
@@ -260,7 +260,10 @@ export class ProjectTaskboardService {
     }
     sourcePath = sourcePath ?? 'superpowers-plan.md';
     const syncStatus = dto.syncStatus ?? dto.sync_status ?? false;
-    const incoming: ParsedSuperpowersPlan = parseSuperpowersPlan(content, sourcePath);
+    const incoming: ParsedSuperpowersPlan = parseTaskboardDocument(content, sourcePath);
+    if (!incoming.tasks.some((task) => ['implementation_task', 'task', 'work_item'].includes(task.kind ?? ''))) {
+      throw new BusinessException('TASKBOARD_PLAN_NO_TASKS', '未识别到任务，请使用包含 ### Task 1: 任务名称 的 Markdown 计划');
+    }
     const { board, result } = await this.withBoardTx(
       spaceId,
       actor,

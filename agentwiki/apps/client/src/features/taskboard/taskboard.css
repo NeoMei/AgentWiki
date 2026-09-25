@@ -3,6 +3,12 @@
 .tb-page {margin:0;color:#07183e;background:#fcfdff;font:14px/1.45 -apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif}
 .tb-page button {font:inherit;color:inherit;cursor:pointer}
 .tb-page button:focus-visible {outline:3px solid #87bbff;outline-offset:3px}
+.tb-page .plan-upload {display:grid;gap:12px;padding:16px;margin:12px 0;border:1px dashed #9bc7ff;border-radius:8px;background:#f6faff}
+.tb-page .plan-upload label {font-weight:600;font-size:14px}
+.tb-page .plan-upload input {width:100%;min-width:0;font-size:14px}
+.tb-page .plan-upload input::file-selector-button {background:#0877ff;color:#fff;border:0;border-radius:8px;padding:8px 16px;margin-right:12px;cursor:pointer}
+.tb-page .box [role=alert] {color:#b91c1c}
+.tb-page button:disabled {cursor:not-allowed;opacity:.5}
 .tb-page header {height:60px;border-bottom:1px solid #edf1f7;display:flex;align-items:center;padding:0 28px;gap:28px}
 .tb-page h1 {font-size:29px;margin:0;letter-spacing:-.7px}
 .tb-page small,

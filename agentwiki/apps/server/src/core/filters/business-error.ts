@@ -65,6 +65,7 @@ const ERROR_CODE_MAP: Record<string, { status: HttpStatus; message: string }> = 
   TASKBOARD_STATUS_CONFLICT: { status: HttpStatus.CONFLICT, message: 'Taskboard task status changed concurrently' },
   TASKBOARD_TASK_CLAIMED: { status: HttpStatus.CONFLICT, message: 'Taskboard task is claimed by another actor' },
   TASKBOARD_DEPENDENCY_UNMET: { status: HttpStatus.CONFLICT, message: 'Taskboard task dependencies are not done' },
+  TASKBOARD_PLAN_NO_TASKS: { status: HttpStatus.BAD_REQUEST, message: 'Taskboard plan contains no executable tasks' },
   PAGE_TEMPLATE_UPGRADE_CONFLICT: { status: HttpStatus.CONFLICT, message: 'This workflow snapshot was already upgraded with different settings' },
   PAGE_TEMPLATE_QUOTA_EXCEEDED: { status: HttpStatus.TOO_MANY_REQUESTS, message: 'Space page template quota exceeded' },
   PAGE_TEMPLATE_PERMISSION_DENIED: { status: HttpStatus.FORBIDDEN, message: 'This human member cannot manage page templates' },

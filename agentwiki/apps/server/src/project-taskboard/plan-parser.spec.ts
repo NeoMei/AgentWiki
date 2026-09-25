@@ -1,4 +1,5 @@
 import { mergePlanIntoTasks, parseSuperpowersPlan } from './plan-parser';
+import { parseTaskboardDocument } from './plan-parser';
 import type { TaskboardTask } from './taskboard-core';
 
 const PLAN = [
@@ -53,6 +54,25 @@ describe('parseSuperpowersPlan', () => {
     const second = parseSuperpowersPlan(PLAN, '/tmp/account-flow.md');
     expect(first.tasks[0].id).toBe(second.tasks[0].id);
     expect(first.project).toBe('Account Flow');
+  });
+});
+
+describe('parseTaskboardDocument', () => {
+  it('imports a local board.json task tree', () => {
+    const board = parseTaskboardDocument(JSON.stringify({
+      schema_version: 1,
+      project: '本地看板',
+      source_type: 'manual',
+      updated_at: '2026-09-25T00:00:00Z',
+      tasks: [
+        { id: 'root', title: '本地根任务', kind: 'phase', status: 'in_progress' },
+        { id: 'task-1', parent_id: 'root', title: '本地执行任务', kind: 'implementation_task', status: 'done', owner: 'agent-a' },
+      ],
+    }), 'board.json');
+    expect(board.project).toBe('本地看板');
+    expect(board.source_type).toBe('manual');
+    expect(board.tasks.map((task) => task.id)).toEqual(['root', 'task-1']);
+    expect(board.tasks[1].owner).toBe('agent-a');
   });
 });
 

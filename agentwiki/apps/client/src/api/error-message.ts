@@ -46,6 +46,8 @@ const CODE_KEYS: Record<string, string> = {
   TASKBOARD_STATUS_CONFLICT: 'taskboard.statusConflict',
   TASKBOARD_TASK_CLAIMED: 'taskboard.taskClaimed',
   TASKBOARD_DEPENDENCY_UNMET: 'taskboard.dependencyUnmet',
+  TASKBOARD_PLAN_NO_TASKS: 'taskboard.planNoTasks',
+  TASKBOARD_INVALID: 'taskboard.invalidImport',
 };
 
 export function apiErrorMessage(error: unknown, t: Translate, fallbackKey: string): string {

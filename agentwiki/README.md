@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.12.7** — Fixes false stale-version errors when pushing Obsidian page changes after Pull. Local Sync remains 0.10.0 and sync protocol 0.6.0.
+> **v0.12.8** — Repairs taskboard file imports, adds local board.json imports, and aligns root navigation and empty-board behavior with project-taskboard. Local Sync remains 0.10.0 and sync protocol 0.6.0.
 
 
 ## Hosted Service
