@@ -1,3 +1,4 @@
+import { ProjectTaskboardModule } from '../project-taskboard/project-taskboard.module';
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../core/auth/auth.module';
 import { PageModule } from '../core/page/page.module';
@@ -17,7 +18,7 @@ import { ContentTreeModule } from '../content-tree/content-tree.module';
   imports: [
     DatabaseModule, AuthModule, AgentModule, PageModule, SearchModule, SpaceModule, KnowledgeModule,
     KnowledgePipelineModule, ReviewModule, CollaborationWorkflowsModule,
-    ContentTreeModule,
+    ContentTreeModule, ProjectTaskboardModule,
   ],
   providers: [McpService],
   controllers: [McpController],

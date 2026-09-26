@@ -18,7 +18,6 @@ describe('McpService transport security', () => {
     dependency,
     dependency,
     dependency,
-    dependency,
     audit,
     prisma,
     dependency,
@@ -85,7 +84,7 @@ describe('McpService knowledge-sync tool', () => {
     const service = new (McpService as any)(
       { get: jest.fn() },
       authorization,
-      {}, {}, {}, {}, {}, {}, {}, {},
+      {}, {}, {}, {}, {}, {}, {},
       audit,
       prisma,
       syncs,
@@ -107,7 +106,7 @@ describe('McpService knowledge-sync tool', () => {
     const service = new (McpService as any)(
       { get: jest.fn() },
       authorization,
-      {}, {}, {}, {}, {}, {}, {}, {},
+      {}, {}, {}, {}, {}, {}, {},
       audit,
       prisma,
       syncs,
@@ -179,7 +178,7 @@ describe('McpService relation proposals', () => {
     const prisma = { agentAuditEvent: { create: jest.fn().mockResolvedValue({}) } } as any;
     const service = new (McpService as any)(
       { get: jest.fn() }, authorization,
-      {}, {}, {}, {}, {}, review, {}, {}, audit, prisma, {},
+      {}, {}, {}, {}, {}, review, {}, audit, prisma, {},
     );
     const tool = (service as any).createServer(principal)._registeredTools.propose_relation;
 
@@ -239,7 +238,7 @@ describe('McpService Folder primitives', () => {
   const createTools = () => {
     const service = new (McpService as any)(
       { get: jest.fn() }, authorization,
-      {}, {}, {}, {}, {}, review, {}, {}, audit, prisma, {}, {}, contentTree,
+      {}, {}, {}, {}, {}, review, {}, audit, prisma, {}, {}, contentTree,
     );
     return service.createServer(principal)._registeredTools as Record<string, any>;
   };
@@ -388,7 +387,7 @@ describe('MCP page title schema', () => {
     const review = new ReviewService(dependency, dependency, dependency, dependency);
     const audit = { record: jest.fn().mockResolvedValue(undefined) } as any;
     const service = new McpService(dependency, authorization, dependency, dependency,
-      dependency, dependency, dependency, review, dependency, dependency,
+      dependency, dependency, dependency, review, dependency,
       audit, dependency, dependency, dependency);
     const server = (service as any).createServer({ userId: 'user' });
     await expect(server._registeredTools.propose_page.handler({

@@ -1,3 +1,5 @@
+import { ProjectTaskboardService } from '../project-taskboard/project-taskboard.service';
+import { registerTaskboardTools } from './taskboard-tools';
 import { NON_BLANK_PAGE_TITLE } from '../core/page/page-title';
 import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -119,6 +121,7 @@ export class McpService {
     private syncs: KnowledgeSyncService,
     private collaborationExecution: ExecutionService,
     @Optional() private contentTree?: ContentTreeService,
+    @Optional() private taskboard?: ProjectTaskboardService,
   ) {}
 
   async handle(request: Request, response: Response, principal: Principal): Promise<void> {
@@ -147,6 +150,10 @@ export class McpService {
     const registerTool = (name: string, definition: any, handler: (args: any) => Promise<unknown>) =>
       server.registerTool(name, definition, (args: any) =>
         this.executeMcpCall(`tool.${name}`, principal, requestContext, args, () => handler(args)));
+    registerTaskboardTools(registerTool, principal, this.authorization, () => {
+      if (!this.taskboard) throw new Error('ProjectTaskboardService is required for taskboard MCP tools');
+      return this.taskboard;
+    });
     const SPACE_ID = 'The space\'s internal id (CUID), not its display name. Call list_spaces first to discover the spaces you can access and their ids.';
     registerTool('list_spaces', {
       description: 'List the spaces you can access, with each space\'s internal id, display name and your role. Use this to resolve a space name to the spaceId other tools require.',
@@ -473,7 +480,8 @@ export class McpService {
   ): Promise<T> {
     try {
       const result = await operation();
-      await this.recordMcpCall(action, 'success', principal, context, args);
+      const failed = result && typeof result === 'object' && 'isError' in result && result.isError === true;
+      await this.recordMcpCall(action, failed ? 'failure' : 'success', principal, context, args);
       return result;
     } catch (error: any) {
       const outcome = error?.status === 401 || error?.status === 403 ? 'denied' : 'failure';

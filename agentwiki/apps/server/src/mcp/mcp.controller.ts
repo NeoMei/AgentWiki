@@ -19,6 +19,9 @@ export class McpController {
     const principal = request.user as any;
     const toolScopes = {
       list_spaces: 'spaces:read',
+      get_taskboard: 'Space reader/editor/publisher',
+      import_taskboard_plans: 'Space editor/publisher',
+      update_taskboard_status: 'Space editor/publisher',
       list_pages: 'pages:read', get_page: 'pages:read', search_pages: 'pages:read',
       list_folders: 'folders:read',
       propose_folder_change: 'folders:write (+ folders:delete for delete/restore)',
@@ -39,7 +42,7 @@ export class McpController {
       authentication: 'Bearer Agent credential or x-api-key',
       tools: Object.entries(toolScopes).map(([name, requiredScope]) => ({ name, requiredScope })),
       resources: ['agentwiki://spaces', 'agentwiki://pages/{pageId}'],
-      note: 'Agent proposals always use ChangeSets. Editor proposals remain pending review. Publisher proposals auto-publish only when the bound Space Grant is publisher and both Agent mode and Space policy allow it.',
+      note: 'Taskboard imports and status updates write directly with Space editor/publisher access. Knowledge proposals use ChangeSets. Editor proposals remain pending review. Publisher proposals auto-publish only when the bound Space Grant is publisher and both Agent mode and Space policy allow it.',
       access: await this.agents.integrationAccess(
         principal.userId, principal.agentId, principal.authorizationId,
       ),

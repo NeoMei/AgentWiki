@@ -86,3 +86,24 @@ it('exposes safe remote failure alongside local tools through the actual MCP sta
   expect(JSON.parse(JSON.parse(content[0]!.text))).toMatchObject({ state: 'completed', onboardingStateMeaning: 'historical', gateway: { status: 'unavailable', code: 'REMOTE_UNAVAILABLE', localToolsAvailable: true } });
   expect(JSON.stringify(result)).not.toContain('sensitive upstream detail');
 });
+
+it('existing gateway forwards taskboard __args and preserves partial import failures', async () => {
+  const payload = { spaceId: 'space-1', documents: [{ sourcePath: 'a.md', content: '# Plan' }] };
+  const bridge = {
+    listTools: async () => [{ name: 'import_taskboard_plans' }, { name: 'get_taskboard' }, { name: 'update_taskboard_status' }],
+    callGatewayTool: async (name: string, args: unknown) => {
+      expect(name).toBe('wiki_import_taskboard_plans');
+      expect(args).toEqual(payload);
+      return { content: [{ type: 'text', text: JSON.stringify({ imported: 0, failed: 1, results: [{ sourcePath: 'a.md', status: 'failed', code: 'TASKBOARD_PLAN_NO_TASKS' }] }) }], isError: true };
+    },
+  } as unknown as RemoteMcpBridge;
+  const { server } = await createGatewayServer({ handlers: handlers(), bridge });
+  const client = new Client({ name: 'taskboard-gateway-test', version: '1' });
+  const [left, right] = InMemoryTransport.createLinkedPair();
+  await Promise.all([server.connect(right), client.connect(left)]);
+  closeCallbacks.push(async () => { await client.close(); await server.close(); });
+  expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(['wiki_get_taskboard', 'wiki_update_taskboard_status']));
+  const result = await client.callTool({ name: 'wiki_import_taskboard_plans', arguments: { __args: payload } });
+  expect(result.isError).toBe(true);
+  expect(JSON.parse((result.content as Array<{ text: string }>)[0]!.text)).toMatchObject({ failed: 1, results: [{ code: 'TASKBOARD_PLAN_NO_TASKS' }] });
+});

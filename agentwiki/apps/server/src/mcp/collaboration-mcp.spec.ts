@@ -82,7 +82,7 @@ describe('collaboration MCP tools', () => {
     return new McpService(
       { get: jest.fn() } as any,
       authorization,
-      {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
+      {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
       audit,
       prisma,
       {} as any,
