@@ -14,4 +14,11 @@ Validation:
 - Client and server production builds passed.
 - Runtime contract checks: 33 passed; final v0.12.8 application version alignment passed.
 - Targeted ESLint passed with zero errors and one existing unused-variable warning.
-- Production deployment and browser acceptance are tracked separately; SSH authentication is currently unavailable.
+
+Production acceptance (2026-09-26):
+
+- Deployed v0.12.8 from release commit `22149924df2db68c5bb200c090714b143ec5dbfa`; 14 deployed release files match the candidate SHA-256 hashes.
+- API, Worker and Frontend are active. Public health reports status, database, Redis, audit persistence and attachment storage all ok. Prisma reports no pending migrations.
+- Logged-in browser verification confirms the default file picker, local-file guidance and board.json support text. A document without tasks produces the explicit inline error; existing board content is preserved.
+- Full local-file upload through the browser remains unverified because the automation extension's file-access permission previously blocked selection. This does not count as successful upload acceptance.
+- Paired database/attachment backup: `/var/backups/agentwiki/v0128.a3sODZUZ`; previous application tree: `/root/agentwiki-previous-20260926134350`.
