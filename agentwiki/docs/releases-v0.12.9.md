@@ -16,4 +16,9 @@ Validation:
 - Server build, server/client typechecks, targeted ESLint and whitespace checks passed.
 - project-taskboard Python tests: 21 passed. Skill behavior checks cover existing MCP, ambiguous Space, reader access, batching, missing tools, stable source identities and partial failures.
 
-Production deployment and live MCP acceptance are recorded separately.
+Production acceptance (2026-09-26):
+
+- Deployed v0.12.9 from release commit `1a6ffde4`; API, Worker and Frontend are active, Prisma reports no pending migrations, and public health reports all five signals ok.
+- Live MCP acceptance used temporary real AgentWiki credentials and spaces: discovery, Space resolution, two Markdown plans plus board.json batch import, per-file partial failure, stable reimport, authenticated claim, stale-status rejection, reader write denial, cross-Space denial and failure audit all passed.
+- Temporary user, Agent records, credentials and Spaces were deleted after the check; security audit records remain.
+- The local-sync gateway still requires its MCP tool catalog to be refreshed after deployment so the new `wiki_*` tools appear.
