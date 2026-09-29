@@ -99,6 +99,20 @@ describe('OpenCode model catalog', () => {
     );
   });
 
+  it('reserves a zero-token-price subscription model for explicit paid fallback and excludes other paid models', () => {
+    const models = parseVerboseModels(verboseFixture);
+    models.push({ id: 'bailian-coding-plan/qwen3.7-plus', tier: 'free', price: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } });
+    const configured = { ...routingConfig, paidModels: ['bailian-coding-plan/qwen3.7-plus'] };
+    expect(buildCandidates(models, configured, 'prompt').map(({ id, tier }) => [id, tier])).toEqual([
+      ['opencode/free', 'free'],
+      ['bailian-coding-plan/qwen3.7-plus', 'paid'],
+    ]);
+    expect(buildCandidates(models, { ...configured, allowPaidFallback: false }, 'prompt').map(({ id }) => id))
+      .toEqual(['opencode/free']);
+    expect(buildCandidates(models, { ...configured, paidModelExcludes: configured.paidModels }, 'prompt').map(({ id }) => id))
+      .toEqual(['opencode/free']);
+  });
+
   it('disables or excludes paid fallback without promoting configured paid models', () => {
     const models = parseVerboseModels(verboseFixture);
 

@@ -14,6 +14,12 @@ describe('readRoutingConfig', () => {
     });
   });
 
+  it('parses the explicit paid fallback allowlist', () => {
+    expect(readRoutingConfig(config({ ASSIST_OPENCODE_PAID_MODELS: 'bailian-coding-plan/qwen3.7-plus' })))
+      .toMatchObject({ paidModels: ['bailian-coding-plan/qwen3.7-plus'] });
+    expect(() => readRoutingConfig(config({ ASSIST_OPENCODE_PAID_MODELS: '../bad' }))).toThrow('model ID');
+  });
+
   it('parses paid fallback as false', () => {
     expect(readRoutingConfig(config({ ASSIST_OPENCODE_ALLOW_PAID_FALLBACK: 'false' })).allowPaidFallback).toBe(false);
   });

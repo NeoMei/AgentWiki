@@ -114,9 +114,13 @@ export const buildCandidates = (
   config: RoutingConfig,
   prompt: string,
 ): ModelCandidate[] => {
+  const reservedPaid = new Set(config.paidModels || []);
   const uniqueModels = new Map<string, CatalogModel>();
   for (const model of models) {
-    if (!uniqueModels.has(model.id)) uniqueModels.set(model.id, model);
+    // Subscription models may report zero token prices, but still consume a
+    // paid quota. Explicit fallback models must not enter free discovery.
+    if (!uniqueModels.has(model.id)) uniqueModels.set(model.id,
+      reservedPaid.has(model.id) ? { ...model, tier: 'paid' } : model);
   }
 
   const configuredFree: CatalogModel[] = [];
@@ -142,7 +146,8 @@ export const buildCandidates = (
 
   const excludes = new Set(config.paidModelExcludes);
   const paidCandidates = [...uniqueModels.values()]
-    .filter((model) => model.tier === 'paid' && !excludes.has(model.id))
+    .filter((model) => model.tier === 'paid' && !excludes.has(model.id)
+      && (reservedPaid.size === 0 || reservedPaid.has(model.id)))
     .map(toCandidate)
     .sort((left, right) => (
       left.estimatedCost - right.estimatedCost
