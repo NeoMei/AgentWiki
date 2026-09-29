@@ -123,7 +123,7 @@ export class OpencodeCliRunner implements OpencodeRunner {
         XDG_CACHE_HOME: join(sandbox, '.cache'),
         XDG_STATE_HOME: join(sandbox, '.local', 'state'),
         OPENCODE_CONFIG_DIR: isolatedConfigDir,
-        OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: { '*': 'deny' } }),
+        OPENCODE_CONFIG_CONTENT: JSON.stringify(this.isolatedConfig()),
         OPENCODE_DISABLE_EXTERNAL_SKILLS: 'true',
         OPENCODE_DISABLE_PROJECT_CONFIG: 'true',
         OPENCODE_DISABLE_DEFAULT_PLUGINS: 'true',
@@ -281,7 +281,7 @@ export class OpencodeCliRunner implements OpencodeRunner {
         cleanup();
         if (code === 0) settle(undefined, out);
         else {
-          const failureCode = this.classifyFailure(err);
+          const failureCode = this.classifyOutputFailure(out, err);
           const scope = failureCode === 'process_error' ? 'global' : 'model';
           settle(this.executionError(failureCode, scope, out));
         }
@@ -309,6 +309,47 @@ export class OpencodeCliRunner implements OpencodeRunner {
     const out: Record<string, string | undefined> = {};
     for (const key of keys) if (process.env[key]) out[key] = process.env[key];
     return out;
+  }
+
+  private isolatedConfig() {
+    const apiKey = this.config.get<string>('ASSIST_ALIYUN_CODING_PLAN_API_KEY');
+    return {
+      permission: { '*': 'deny' },
+      ...(apiKey ? { provider: {
+        'bailian-coding-plan': {
+          npm: '@ai-sdk/anthropic',
+          name: 'Alibaba Cloud Coding Plan',
+          options: {
+            baseURL: 'https://coding.dashscope.aliyuncs.com/apps/anthropic/v1',
+            apiKey,
+          },
+          models: {
+            'qwen3.7-plus': {
+              name: 'Qwen 3.7 Plus',
+              limit: { context: 1_000_000, output: 32_768 },
+              modalities: { input: ['text'], output: ['text'] },
+            },
+          },
+        },
+      } } : {}),
+    };
+  }
+
+  private classifyOutputFailure(output: string, stderr: string): FailureCode {
+    for (const line of output.split('\n')) {
+      try {
+        const event = JSON.parse(line);
+        if (event?.type !== 'error') continue;
+        const data = event.error?.data;
+        const status = data?.statusCode;
+        if (status === 401 || status === 403) return 'auth_failed';
+        if (status === 429) return 'rate_limited';
+        if (status === 404 || (typeof status === 'number' && status >= 500 && status < 600)) return 'model_unavailable';
+        const code = this.classifyFailure(typeof data?.message === 'string' ? data.message : '');
+        if (code !== 'process_error') return code;
+      } catch { /* Ignore non-JSON output; never classify generated text as an error. */ }
+    }
+    return this.classifyFailure(stderr);
   }
 
   private classifyFailure(text: string): FailureCode {

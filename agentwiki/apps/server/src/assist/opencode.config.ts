@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 
 export interface RoutingConfig {
+  paidModels?: string[];
   freeModels: string[]; paidModelExcludes: string[]; allowPaidFallback: boolean;
   maxFreeAttempts: number; maxPaidAttempts: number; totalTimeoutMs: number;
   attemptTimeoutMs: number; modelCacheMs: number; modelStaleMs: number;
@@ -30,6 +31,7 @@ const models = (raw: unknown, name: string) => [...new Set(String(raw || '').spl
   });
 
 export const readRoutingConfig = (config: ConfigService): RoutingConfig => ({
+  paidModels: models(config.get('ASSIST_OPENCODE_PAID_MODELS'), 'ASSIST_OPENCODE_PAID_MODELS'),
   freeModels: models(config.get('ASSIST_OPENCODE_FREE_MODELS'), 'ASSIST_OPENCODE_FREE_MODELS'),
   paidModelExcludes: models(config.get('ASSIST_OPENCODE_PAID_MODEL_EXCLUDES'), 'ASSIST_OPENCODE_PAID_MODEL_EXCLUDES'),
   allowPaidFallback: boolean(config.get('ASSIST_OPENCODE_ALLOW_PAID_FALLBACK'), true, 'ASSIST_OPENCODE_ALLOW_PAID_FALLBACK'),

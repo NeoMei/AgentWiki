@@ -50,6 +50,51 @@ describe('OpencodeCliRunner', () => {
     ].join('\n'));
   });
 
+  it.each([
+    [403, 'FreeTierError', 'auth_failed'],
+    [401, 'Invalid credential', 'auth_failed'],
+    [429, 'Quota exceeded', 'rate_limited'],
+    [404, 'Unknown model', 'model_unavailable'],
+    [503, 'Service unavailable', 'model_unavailable'],
+  ])('allows fallback after a stdout JSON provider error with status %s', async (statusCode, message, code) => {
+    const child = childProcess();
+    const execution = new OpencodeCliRunner(config).runModel('prompt', 'opencode/big-pickle', 10_000);
+    child.stdout.write(JSON.stringify({ type: 'error', error: { name: 'APIError', data: { statusCode, message } } }));
+    child.emit('close', 1);
+    await expect(execution).rejects.toMatchObject({ code, scope: 'model' });
+  });
+
+  it('keeps an unrecognized CLI crash global even when stdout contains auth words in generated text', async () => {
+    const child = childProcess();
+    const execution = new OpencodeCliRunner(config).runModel('prompt', 'opencode/big-pickle', 10_000);
+    child.stdout.write(JSON.stringify({ type: 'text', part: { text: '403 forbidden authentication' } }));
+    child.stderr.write('Segmentation fault');
+    child.emit('close', 1);
+    await expect(execution).rejects.toMatchObject({ code: 'process_error', scope: 'global' });
+  });
+
+  it('injects only the dedicated Coding Plan credential into the isolated provider config', async () => {
+    const child = childProcess();
+    const runner = new OpencodeCliRunner({ get: (key: string) => ({
+      OPENCODE_BIN: 'opencode',
+      ASSIST_ALIYUN_CODING_PLAN_API_KEY: 'test-coding-plan-key',
+    })[key] } as any);
+    const execution = runner.listModels(10_000);
+    const env = (spawn as jest.Mock).mock.calls[0][2].env;
+    expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT)).toMatchObject({
+      permission: { '*': 'deny' },
+      provider: { 'bailian-coding-plan': {
+        npm: '@ai-sdk/anthropic',
+        options: { baseURL: 'https://coding.dashscope.aliyuncs.com/apps/anthropic/v1', apiKey: 'test-coding-plan-key' },
+        models: { 'qwen3.7-plus': expect.any(Object) },
+      } },
+    });
+    expect(env).not.toHaveProperty('DATABASE_URL');
+    child.stdout.write('catalog');
+    child.emit('close', 0);
+    await expect(execution).resolves.toBe('catalog');
+  });
+
   it('runs one explicit model and excludes host secrets from the child environment', async () => {
     const child = childProcess();
     const runner = new OpencodeCliRunner(config);
