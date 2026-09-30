@@ -26,4 +26,3 @@ Production deployment (2026-10-01, Asia/Shanghai):
 - Previous application retained at `/root/agentwiki-previous-toast-20261001020626`. Existing frontend assets were preserved for open browser tabs.
 - Public `/api/health`: status, database, redis, auditPersistence and attachmentStorage all `ok`. Public HTML serves `index-DHD-CzB0.js`, which references the new `Toast-CauaP4rv.js`; its SHA-256 matches the server artifact (`9899b03815b716c47f5f3f23666b4009971ab724b7ca68176d175459569caff5`). The published Toast bundle includes the three-second timer with no success-only guard.
 - Live logged-in reproduction of the collaboration wizard has not been performed. Existing tabs need a page refresh to load the new entry bundle.
-
