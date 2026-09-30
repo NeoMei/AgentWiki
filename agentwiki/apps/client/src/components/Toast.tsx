@@ -11,7 +11,6 @@ export const Toast: React.FC<{
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   useEffect(() => {
-    if (kind !== 'success') return;
     const timer = window.setTimeout(() => closeRef.current(), 3000);
     return () => window.clearTimeout(timer);
   }, [kind, message]);

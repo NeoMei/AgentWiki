@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.12.9** — Agents can read taskboards, batch-import plans and report progress through their existing AgentWiki MCP connection. Local Sync remains 0.10.0 and sync protocol 0.6.0.
+> **v0.12.10** — Success and error toast notifications dismiss automatically after three seconds. Local Sync remains 0.10.0 and sync protocol 0.6.0.
 
 
 ## Hosted Service
