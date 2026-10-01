@@ -20,7 +20,7 @@ const planSchema = z
     ]),
     agentName: name,
     role: AgentAccessRoleSchema,
-    packageVersion: z.literal('0.10.1'),
+    packageVersion: z.literal('0.10.2'),
   })
   .strict();
 const valuesSchema = z.discriminatedUnion('spaceMode', [
@@ -44,7 +44,7 @@ const exchangeSchema = z.object({
   spaceId: z.string(),
   role: AgentAccessRoleSchema,
   serverUrl: z.string().url(),
-  pluginVersion: z.literal('0.10.1'),
+  pluginVersion: z.literal('0.10.2'),
   scopes: z.array(z.string()),
 });
 const stateSchema = z
@@ -283,7 +283,7 @@ export async function runOnboardingSteps(
       const auth = await deps.client.start({
         serverBaseUrl,
         clientType: input.clientType,
-        packageVersion: '0.10.1',
+        packageVersion: '0.10.2',
         purpose: 'agent-connect',
       });
       const state: StepState = {
@@ -325,7 +325,7 @@ export async function runOnboardingSteps(
               : { mode: 'existing', id: values.spaceId },
           agentName: values.agentName,
           role: values.role,
-          packageVersion: '0.10.1',
+          packageVersion: '0.10.2',
         };
         state.configHash = (await preflight(state.clientType, input.home, state.serverBaseUrl)).configHash;
         request(state, 'confirmation', now, input.home);

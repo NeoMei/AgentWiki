@@ -8,7 +8,7 @@
  */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
-import { StreamableHTTPError, StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamablehttp.js';
+import { StreamableHTTPError, StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { CallToolResultSchema, type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { toRemoteGatewayName, fromRemoteGatewayName } from './manifest.js';
 
@@ -132,7 +132,7 @@ export class RemoteMcpBridge {
   }
 
   private async withClient<T>(operation: (client: Client, signal: AbortSignal) => Promise<T>, boundOperation = true): Promise<T> {
-    const client = new Client({ name: 'agentwiki-gateway', version: '0.10.1' }, { capabilities: {} });
+    const client = new Client({ name: 'agentwiki-gateway', version: '0.10.2' }, { capabilities: {} });
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     const deadline = new Promise<never>((_resolve, reject) => {
