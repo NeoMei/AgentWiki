@@ -118,9 +118,7 @@ export const RunDashboard: React.FC = () => {
   const systemTemplate = templatePresentation?.spaceId === id && templatePresentation.template.id === run?.templateId
     ? templatePresentation.template : null;
 
-  const humanRole = (user?.platformRole === 'super_admin'
-    ? 'owner'
-    : members.find((member) => member.type === 'human' && member.userId === user?.id)?.role) as HumanSpaceRole | undefined;
+  const humanRole = (members.find((member) => member.type === 'human' && member.userId === user?.id)?.role) as HumanSpaceRole | undefined;
   const executableAgents = useMemo(() => members.filter((member) => member.type === 'agent' && member.agent?.status === 'active' && !member.agent.revokedAt && ['editor', 'publisher'].includes(member.role)), [members]);
   const agentNames = useMemo(() => new Map(members.flatMap((member) => member.type === 'agent' && member.agentId && member.agent ? [[member.agentId, member.agent.name] as const] : [])), [members]);
 
@@ -341,7 +339,7 @@ export const RunDashboard: React.FC = () => {
       <div className="mt-6 grid min-w-0 gap-4 lg:grid-cols-[minmax(15rem,0.8fr)_minmax(0,1.8fr)_minmax(17rem,1fr)]">
         <RunSummary run={run} role={humanRole} userId={user?.id} t={t} onAction={(kind) => openAction({ type: 'run', kind })} />
         <TaskPanel run={run} systemTemplate={systemTemplate} role={humanRole} userId={user?.id} t={t} agentNames={agentNames} onHistory={(kind) => void openHistory(kind)} onAction={(kind, task) => openAction({ type: 'task', kind, task })} />
-        <ReviewPanel run={run} spaceId={id} t={t} artifacts={reviewArtifacts} artifactErrors={reviewArtifactErrors} detail={reviewDetail} resolvingConflict={resolvingConflict} onHistory={() => void openHistory('reviews')} onLoadDetail={(review) => void loadReviewDetail(review)} onRetryArtifact={(review) => void loadReviewArtifact(review)} onDecision={(kind, review) => openAction({ type: 'review', kind, review })} onResolveConflict={(kind, review, comparison) => void resolvePageConflict(kind, review, comparison)} />
+        <ReviewPanel run={run} spaceId={id} t={t} artifacts={reviewArtifacts} artifactErrors={reviewArtifactErrors} detail={reviewDetail} resolvingConflict={resolvingConflict} onHistory={() => void openHistory('reviews')} onLoadDetail={(review) => void loadReviewDetail(review)} onRetryArtifact={(review) => void loadReviewArtifact(review)} onDecision={(kind, review) => openAction({ type: 'review', kind, review })} onResolveConflict={(kind, review, comparison) => void resolvePageConflict(kind, review, comparison)} isHumanMember={humanRole !== undefined} />
         <ArtifactPanel run={run} t={t} onHistory={() => void openHistory('artifacts')} />
         <AgentActivityPanel run={run} t={t} onHistory={() => void openHistory('events')} />
       </div>

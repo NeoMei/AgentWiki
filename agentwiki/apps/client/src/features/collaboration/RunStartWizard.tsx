@@ -115,7 +115,7 @@ export const RunStartWizard: React.FC = () => {
   }, [bindings, preparedConnections]);
 
   const myRole = members.find((member) => member.type === 'human' && member.userId === user?.id)?.role;
-  const canPrepareAgents = user?.platformRole === 'super_admin' || myRole === 'owner' || myRole === 'admin';
+  const canPrepareAgents = myRole === 'owner' || myRole === 'admin';
   const preparationActionsAvailable = canPrepareAgents && !preparationAuthorizationInvalidated;
 
   useEffect(() => {

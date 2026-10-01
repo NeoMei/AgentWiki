@@ -194,9 +194,8 @@ export const SpaceSettings: React.FC = () => {
   const nameTooLong = nameLength > SPACE_NAME_MAX_LENGTH;
   const invalidName = nameChanged && (!nameLength || nameTooLong);
   const memberRole = currentSpace?.members?.find((member) => member.userId === user?.id)?.role;
-  const isSuperAdmin = user?.platformRole === 'super_admin';
-  const canEditSpace = isSuperAdmin || memberRole === 'owner';
-  const canManageGraph = isSuperAdmin || memberRole === 'owner' || memberRole === 'admin';
+  const canEditSpace = memberRole === 'owner';
+  const canManageGraph = memberRole === 'owner' || memberRole === 'admin';
 
   useEffect(() => {
     if (!id) return;

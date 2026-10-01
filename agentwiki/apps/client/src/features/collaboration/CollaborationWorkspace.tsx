@@ -63,9 +63,7 @@ export const CollaborationWorkspace: React.FC = () => {
       ]);
       if (!isCurrentWorkspaceRequest(spaceId, 'templates', epoch)) return;
       setTemplates(nextTemplates);
-      const myRole = user?.platformRole === 'super_admin'
-        ? 'owner'
-        : members.find((member) => member.type === 'human' && member.userId === user?.id)?.role;
+      const myRole = members.find((member) => member.type === 'human' && member.userId === user?.id)?.role;
       setCanManage(myRole === 'owner' || myRole === 'admin');
       setCanStart(myRole === 'owner' || myRole === 'admin' || myRole === 'editor');
       setCanCreateComposite(compositeCatalog?.capabilities.canCreate === true);

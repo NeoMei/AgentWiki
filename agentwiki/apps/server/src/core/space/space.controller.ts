@@ -53,7 +53,7 @@ export class SpaceController {
   async update(@Param('id') id: string, @Body() dto: UpdateSpaceDto, @Req() req: Request) {
     await this.authorization.assertSpaceAccess(req.user as any, id, ['owner']);
     this.logger.log('Updating space: ' + id);
-    return this.spaceService.update(id, dto);
+    return this.spaceService.update(id, dto, req.user as any);
   }
 
   @Delete(':id')

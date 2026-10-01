@@ -370,7 +370,7 @@ export class McpService {
     }, async ({ changeSetId, comment }: any) => {
       if (principal.agentId) throw new BadRequestException('Agents cannot approve change sets');
       await this.authorization.assertChangeSetAccess(principal, changeSetId, ['owner'], 'review:decide');
-      return this.text(await this.review.approve(changeSetId, principal.userId, comment));
+      return this.text(await this.review.approve(changeSetId, principal.userId, comment, principal));
     });
     registerTool('collaboration_join_run', {
       description: 'Join a bound collaboration run as the authenticated Agent and receive the safe execution loop.',

@@ -26,7 +26,7 @@ export interface Principal {
   platformRole?: 'user' | 'super_admin';
 }
 export interface SpaceAccessOptions {
-  /** Require a real SpaceMember row even when the human is a platform super admin. */
+  /** Require a real SpaceMember row for reads as well as writes. */
   requireSpaceMembership?: boolean;
 }
 type PrincipalInput = string | Principal;
@@ -80,13 +80,14 @@ export class AuthorizationService {
     if (!space || space.deletedAt) {
       throw new BusinessException('SPACE_ACCESS_DENIED', 'Human write authorization is no longer valid');
     }
-    if (user.platformRole === 'super_admin' && !options.requireSpaceMembership) {
-      return { role: 'owner', userId: user.id, spaceId, isSuperAdmin: true };
-    }
     const member = await db.spaceMember.findUnique({
       where: { userId_spaceId: { userId: user.id, spaceId } },
       select: { role: true },
     });
+    const isRead = allowedRoles.includes('viewer') && !options.requireSpaceMembership;
+    if (user.platformRole === 'super_admin' && !member && isRead) {
+      return { role: 'viewer', userId: user.id, spaceId };
+    }
     const effectiveAllowedRoles = humanAllowedRoles(allowedRoles);
     if (!member || !effectiveAllowedRoles.includes(member.role as SpaceRole)) {
       throw new BusinessException('SPACE_ACCESS_DENIED', 'Human write authorization is no longer valid');
@@ -116,9 +117,6 @@ export class AuthorizationService {
         `Space not found: "${spaceId}". spaceId must be the space's internal id (CUID), not its display name. Call list_spaces or GET /api/integrations/mcp to see the spaces you can access and their ids.`,
       );
     }
-    if (!principal.agentId && principal.platformRole === 'super_admin' && !options.requireSpaceMembership) {
-      return { role: 'owner' as const, spaceId, userId: principal.userId, isSuperAdmin: true };
-    }
     if (principal.agentId) {
       const grant = await this.prisma.agentGrant.findUnique({
         where: { agentId_spaceId: { agentId: principal.agentId, spaceId } },
@@ -147,6 +145,12 @@ export class AuthorizationService {
       where: { userId_spaceId: { userId: principal.userId, spaceId } },
       include: { space: { select: { deletedAt: true } } },
     });
+    // Platform administrators can inspect active Spaces, but every write gate
+    // requires a real membership and its actual role.
+    const isRead = allowedRoles.includes('viewer') && (!requiredScope || requiredScope.endsWith(':read'));
+    if (!member && principal.platformRole === 'super_admin' && isRead && !options.requireSpaceMembership) {
+      return { role: 'viewer' as const, spaceId, userId: principal.userId };
+    }
     if (!member || member.space.deletedAt || !effectiveAllowedRoles.includes(member.role as SpaceRole)) {
       throw new BusinessException('SPACE_ACCESS_DENIED', 'You do not have permission to access this space');
     }
@@ -241,7 +245,10 @@ export class AuthorizationService {
     spaceId: string,
     requiredScopes: string[],
   ): Promise<void> {
-    if (!principal.agentId) return;
+    if (!principal.agentId) {
+      await this.assertLiveHumanSpaceAccess(db, principal, spaceId, ['owner', 'editor']);
+      return;
+    }
     if (!principal.credentialId) {
       throw new BusinessException('SPACE_ACCESS_DENIED', 'Agent write authorization is unavailable');
     }
@@ -367,7 +374,12 @@ export class AuthorizationService {
         select: { id: true, name: true },
         orderBy: { createdAt: 'asc' },
       });
-      return spaces.map((space) => ({ id: space.id, name: space.name, role: 'owner' }));
+      const memberships = await this.prisma.spaceMember.findMany({
+        where: { userId: principal.userId, space: { deletedAt: null } },
+        select: { spaceId: true, role: true },
+      });
+      const roles = new Map(memberships.map((member) => [member.spaceId, member.role as SpaceRole]));
+      return spaces.map((space) => ({ id: space.id, name: space.name, role: roles.get(space.id) ?? 'viewer' }));
     }
     if (principal.agentId) {
       if (!principal.authorizationId) return [];

@@ -151,7 +151,6 @@ export class CompositeTemplateController {
 
   @Put('pages/:pageId/agent-binding')
   setPageBinding(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('pageId') pageId: string, @Body() body: PageBindingMutationDto) {
-    this.assertCanCreate(spaceId);
     return this.bindings.setBindingsInScope(spaceId, {
       pageIds: [pageId], expectedTreeRevision: BigInt(body.expectedTreeRevision),
       edits: [{ pageId, agentId: body.agentId, roleSlotKey: body.roleSlotKey, expectedUpdatedAt: body.expectedUpdatedAt }],
@@ -160,7 +159,6 @@ export class CompositeTemplateController {
 
   @Delete('pages/:pageId/agent-binding')
   deletePageBinding(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('pageId') pageId: string, @Body() body: DeletePageBindingDto) {
-    this.assertCanCreate(spaceId);
     return this.bindings.setBindingsInScope(spaceId, {
       pageIds: [pageId], expectedTreeRevision: BigInt(body.expectedTreeRevision),
       edits: [{ pageId, agentId: null, roleSlotKey: null, expectedUpdatedAt: body.expectedUpdatedAt }],
@@ -176,7 +174,6 @@ export class CompositeTemplateController {
 
   @Post('folders/:folderId/agent-bindings')
   setFolderBindings(@Req() req: Request, @Param('spaceId') spaceId: string, @Param('folderId') folderId: string, @Body() body: FolderBindingMutationDto) {
-    this.assertCanCreate(spaceId);
     return this.orchestration.setFolderBindings(spaceId, folderId, {
       pageIds: body.pageIds,
       expectedTreeRevision: BigInt(body.expectedTreeRevision),

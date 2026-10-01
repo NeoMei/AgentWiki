@@ -434,6 +434,7 @@ describe('PushSessionService graph lifecycle', () => {
     const tx: any = {
       $executeRaw: jest.fn(),
       space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null }) },
+      spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'owner' }) },
       pushSession: {
         findUnique: jest.fn().mockResolvedValue(session),
         update: jest.fn().mockResolvedValue({}),
@@ -572,6 +573,7 @@ describe('PushSessionService Sync Protocol v2', () => {
       const tx: any = {
         $executeRaw: jest.fn(),
         space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null }) },
+        spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'owner' }) },
         pushSession: { findUnique: jest.fn().mockResolvedValue(session), update: jest.fn() },
         pushSessionBatch: { findUnique: jest.fn(), deleteMany: jest.fn() },
         pushSessionChange: { deleteMany: jest.fn() },
@@ -631,6 +633,7 @@ describe('PushSessionService Sync Protocol v2', () => {
         }),
       },
       space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null }) },
+      spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'owner' }) },
       folder: { count: jest.fn().mockResolvedValue(0) },
       page: { count: jest.fn().mockResolvedValue(0) },
       spaceKnowledgeRevision: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -661,6 +664,7 @@ describe('PushSessionService Sync Protocol v2', () => {
   it('checks the v1 Folder gate under the Space lock before session creation', async () => {
     const tx: any = {
       space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null }) },
+      spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'owner' }) },
       folder: { count: jest.fn().mockResolvedValue(1) },
       page: { count: jest.fn().mockResolvedValue(0) },
       pushSession: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({
@@ -693,6 +697,7 @@ describe('PushSessionService Sync Protocol v2', () => {
     async (protocolVersion) => {
       const tx: any = {
         space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null }) },
+        spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'owner' }) },
         folder: { count: jest.fn().mockResolvedValue(0) },
         page: { count: jest.fn().mockResolvedValue(0) },
         pushSession: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn() },
@@ -747,6 +752,7 @@ describe('PushSessionService Sync Protocol v2', () => {
       folder: { count: jest.fn().mockResolvedValue(0) },
       page: { count: jest.fn().mockResolvedValue(0) },
       space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null }) },
+      spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'owner' }) },
     };
     const prisma: any = {
       pushSession: { findUnique: jest.fn().mockResolvedValue(raced) },
@@ -989,6 +995,7 @@ describe('PushSessionService Sync Protocol v2', () => {
     const tx: any = {
       $executeRaw: jest.fn(),
       space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null, contentTreeRevision: 7n }) },
+      spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'owner' }) },
       pushSession: { findUnique: jest.fn().mockResolvedValue(session), update: jest.fn() },
       pushSessionBatch: { findMany: jest.fn().mockResolvedValue([{ batchIndex: 0 }]) },
       pushSessionChange: { findMany: jest.fn().mockResolvedValue([{
@@ -1086,6 +1093,7 @@ describe('PushSessionService Sync Protocol v2', () => {
     const tx: any = {
       $executeRaw: jest.fn(),
       space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null }) },
+      spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'owner' }) },
       pushSession: { findUnique: jest.fn().mockResolvedValue(session) },
       pushSessionBatch: { findMany: jest.fn().mockResolvedValue([{ batchIndex: 0 }]) },
       pushSessionChange: { findMany: jest.fn().mockResolvedValue([{
@@ -1151,6 +1159,7 @@ describe('PushSessionService Sync Protocol v2', () => {
     const tx: any = {
       $executeRaw: jest.fn(),
       space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null, contentTreeRevision: 8n }) },
+      spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'owner' }) },
       pushSession: { findUnique: jest.fn().mockResolvedValue({
         id: '11111111-1111-4111-8111-111111111111', protocolVersion: '2', spaceId: 'space-1',
         credentialId: 'credential-1', status: 'published', result,
@@ -1182,6 +1191,7 @@ describe('PushSessionService Sync Protocol v2', () => {
     const tx: any = {
       $executeRaw: jest.fn(),
       space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null, contentTreeRevision: 7n }) },
+      spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'owner' }) },
       pushSession: { findUnique: jest.fn().mockResolvedValue({
         id: '11111111-1111-4111-8111-111111111111', protocolVersion: '2', spaceId: 'space-1',
         credentialId: 'credential-1', status: 'ready_to_finalize', result: null,

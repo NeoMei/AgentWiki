@@ -445,7 +445,7 @@ describe('SourceService safety and idempotency', () => {
     })).rejects.toThrow('Run requester is no longer authorized');
   });
 
-  it('keeps a queued super-admin run authorized without a space membership', async () => {
+  it('rejects a queued platform-admin run after Space membership is absent', async () => {
     const authorizationPrisma = {
       user: { findUnique: jest.fn().mockResolvedValue({
         id: 'admin-1', type: 'human', platformRole: 'super_admin', deletedAt: null,
@@ -460,8 +460,8 @@ describe('SourceService safety and idempotency', () => {
       spaceId: 'space-1',
       requestedCredentialId: null,
       requestedCredentialType: null,
-    })).resolves.toEqual([]);
-    expect(authorizationPrisma.spaceMember.findUnique).not.toHaveBeenCalled();
+    })).rejects.toThrow('Run requester is no longer authorized');
+    expect(authorizationPrisma.spaceMember.findUnique).toHaveBeenCalled();
   });
 
   it('keeps a queued human space-admin run authorized for editor-level work', async () => {

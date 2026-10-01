@@ -888,7 +888,6 @@ export class PushSessionService {
     if (!space || space.deletedAt) {
       throw new SyncApiException('SPACE_FORBIDDEN', 'Space is not accessible');
     }
-    if (principal.platformRole === 'super_admin') return;
     const member = await this.prisma.spaceMember.findUnique({
       where: { userId_spaceId: { userId: principal.userId, spaceId } },
     });
@@ -906,7 +905,6 @@ export class PushSessionService {
       select: { deletedAt: true },
     });
     if (!space || space.deletedAt) throw this.v2Error('SPACE_FORBIDDEN', 'Space is not accessible');
-    if (principal.platformRole === 'super_admin') return;
     const member = await this.prisma.spaceMember.findUnique({
       where: { userId_spaceId: { userId: principal.userId, spaceId } },
     });
@@ -924,7 +922,6 @@ export class PushSessionService {
     if (!space || space.deletedAt) {
       throw new SyncApiException('SPACE_FORBIDDEN', 'Space is not accessible');
     }
-    if (principal.platformRole === 'super_admin') return;
     const member = await tx.spaceMember.findUnique({
       where: { userId_spaceId: { userId: principal.userId, spaceId } },
     });
@@ -942,7 +939,6 @@ export class PushSessionService {
       select: { deletedAt: true },
     });
     if (!space || space.deletedAt) throw this.v2Error('SPACE_FORBIDDEN', 'Space is not accessible');
-    if (principal.platformRole === 'super_admin') return;
     const member = await tx.spaceMember.findUnique({
       where: { userId_spaceId: { userId: principal.userId, spaceId } },
     });

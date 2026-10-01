@@ -55,7 +55,7 @@ function composeInstallationFlow(input?: {
     },
     agent: { id: 'agent-1', ownerId: 'owner-1', status: 'active', revokedAt: null },
     space: { id: 'space-1', deletedAt: null },
-    membershipRole: input?.membershipRole ?? null,
+    membershipRole: input?.membershipRole === undefined ? 'owner' : input.membershipRole,
     grant: null,
     credential: null,
   };
@@ -178,7 +178,14 @@ async function issueInstallation(
 }
 
 describe('Local Sync installation issue/exchange composition', () => {
-  it('issues and exchanges a no-membership current Super Admin intent into a Grant-bound Credential', async () => {
+  it('denies a nonmember platform admin before creating a connection intent', async () => {
+    const composition = composeInstallationFlow({ membershipRole: null });
+    await expect(issueInstallation(composition, true)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(composition.state.grant).toBeNull();
+    expect(composition.state.credential).toBeNull();
+  });
+
+  it('issues and exchanges a member Super Admin intent into a Grant-bound Credential', async () => {
     const composition = composeInstallationFlow();
 
     const installation = await issueInstallation(composition, true);
@@ -222,10 +229,10 @@ describe('Local Sync installation issue/exchange composition', () => {
     },
   );
 
-  it('rejects a no-membership owner downgraded from Super Admin after issue', async () => {
+  it('rejects a Super Admin whose membership is removed after issue', async () => {
     const composition = composeInstallationFlow();
     const installation = await issueInstallation(composition, true);
-    composition.state.owner.platformRole = 'user';
+    composition.state.membershipRole = null;
 
     await expect(composition.installations.exchange(installation.code, '192.0.2.3'))
       .rejects.toBeInstanceOf(ForbiddenException);

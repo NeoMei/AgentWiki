@@ -1207,22 +1207,6 @@ export class SourceService {
     if (!requester || requester.deletedAt || requester.lockedAt || requester.type !== 'human') {
       throw new Error('Run requester is no longer authorized');
     }
-    if (requester.platformRole === 'super_admin') {
-      if (run.requestedCredentialType === 'personal') {
-        const credential = run.requestedCredentialId ? await db.apiKeyCredential.findFirst({
-          where: {
-            id: run.requestedCredentialId,
-            userId: run.requestedByUserId,
-            revokedAt: null,
-            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-          },
-          select: { scopes: true },
-        }) : null;
-        if (!credential) throw new Error('Run requester is no longer authorized');
-        return credential.scopes;
-      }
-      return [];
-    }
     const membership = await db.spaceMember.findUnique({
       where: { userId_spaceId: { userId: run.requestedByUserId, spaceId: run.spaceId } },
       include: {

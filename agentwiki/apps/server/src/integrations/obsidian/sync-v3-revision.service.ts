@@ -107,16 +107,17 @@ export class SyncV3RevisionService {
   async listSpaces(principal: HumanDevicePrincipal) {
     return this.consistentRead(async (tx) => {
       const currentPrincipal = await this.assertLivePrincipal(tx, principal);
+      const memberships = await tx.spaceMember.findMany({
+        where: { userId: principal.userId, space: { deletedAt: null } },
+        select: { role: true, createdAt: true, space: { select: { id: true, name: true } } },
+        orderBy: { createdAt: 'asc' },
+      });
       const accessible = currentPrincipal.platformRole === 'super_admin'
         ? await tx.space.findMany({
           where: { deletedAt: null }, select: { id: true, name: true, createdAt: true },
           orderBy: { createdAt: 'asc' },
-        }).then((spaces) => spaces.map((space) => ({ ...space, role: 'owner' as const })))
-        : await tx.spaceMember.findMany({
-          where: { userId: principal.userId, space: { deletedAt: null } },
-          select: { role: true, createdAt: true, space: { select: { id: true, name: true } } },
-          orderBy: { createdAt: 'asc' },
-        }).then((memberships) => memberships.map((membership) => ({
+        }).then((spaces) => spaces.map((space) => ({ ...space, role: (memberships.find((member) => member.space.id === space.id)?.role ?? 'viewer') as 'viewer' | 'editor' | 'admin' | 'owner' })))
+        : await Promise.resolve(memberships).then((memberships) => memberships.map((membership) => ({
           id: membership.space.id,
           name: membership.space.name,
           createdAt: membership.createdAt,

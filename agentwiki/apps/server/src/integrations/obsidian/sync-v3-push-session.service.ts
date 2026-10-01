@@ -870,7 +870,6 @@ export class SyncV3PushSessionService {
   }
 
   private async assertPublishable(tx: any, user: { id: string; platformRole: string }, spaceId: string) {
-    if (user.platformRole === 'super_admin') return;
     const member = await tx.spaceMember.findUnique({
       where: { userId_spaceId: { userId: user.id, spaceId } }, select: { role: true },
     });

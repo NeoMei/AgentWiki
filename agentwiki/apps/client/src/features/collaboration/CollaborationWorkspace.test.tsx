@@ -624,7 +624,7 @@ describe('CollaborationWorkspace', () => {
     startLinks.forEach((link) => expect(link).toBeVisible());
   });
 
-  it('treats a platform super admin without Space membership as Owner', async () => {
+  it('hides write controls for a platform super admin without Space membership', async () => {
     vi.mocked(useAuth).mockReturnValue({
       user: { id: 'platform-admin', platformRole: 'super_admin' },
     } as ReturnType<typeof useAuth>);
@@ -632,7 +632,8 @@ describe('CollaborationWorkspace', () => {
 
     renderWorkspace();
 
-    expect(await screen.findByRole('link', { name: 'Create legacy workflow template' })).toBeVisible();
-    expect(screen.getAllByRole('link', { name: 'Start run' })).toHaveLength(2);
+    await screen.findByText('Coding collaboration');
+    expect(screen.queryByRole('link', { name: 'Create legacy workflow template' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Start run' })).not.toBeInTheDocument();
   });
 });

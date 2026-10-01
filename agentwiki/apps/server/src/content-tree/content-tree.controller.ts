@@ -201,7 +201,7 @@ export class ContentTreeController {
         lockedTx, principal, spaceId, [...EDIT_ROLES],
       );
       // Generic human authorization includes Admin; Folder writes deliberately do not.
-      if (access.role !== 'owner' && access.role !== 'editor' && access.isSuperAdmin !== true) {
+      if (access.role !== 'owner' && access.role !== 'editor') {
         throw new BusinessException('SPACE_ACCESS_DENIED', 'You do not have permission to modify Folders in this space');
       }
       return mutate(lockedTx);
@@ -217,8 +217,7 @@ export class ContentTreeController {
     const principal = request.user as Principal;
     const access = await this.authorization.assertSpaceAccess(principal, spaceId, roles, scope);
     const accessRole = String(access.role) as 'owner' | 'admin' | 'editor' | 'viewer';
-    const isSuperAdmin = 'isSuperAdmin' in access && access.isSuperAdmin === true;
-    if (!roles.includes(accessRole) && !isSuperAdmin) {
+    if (!roles.includes(accessRole)) {
       throw new BusinessException('SPACE_ACCESS_DENIED', 'You do not have permission to modify Folders in this space');
     }
     return principal;

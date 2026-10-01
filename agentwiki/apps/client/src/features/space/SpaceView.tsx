@@ -500,14 +500,12 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
 
   const currentRole = space.members.find((member) => member.userId === user?.id)?.role;
   const canEdit = (
-    user?.platformRole === 'super_admin'
-      || currentRole === 'owner'
+    currentRole === 'owner'
       || currentRole === 'admin'
       || currentRole === 'editor'
   );
   const canManageTemplates = (
-    user?.platformRole === 'super_admin'
-      || currentRole === 'owner'
+    currentRole === 'owner'
       || currentRole === 'admin'
   );
   const compositeCreationEnabled = compositeCapability?.identity === `${id}\u0000${language}`

@@ -402,13 +402,14 @@ describe('RunDashboard', () => {
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
   });
 
-  it('gives a non-member platform super admin Owner controls', async () => {
+  it('hides Owner controls for a non-member platform super admin', async () => {
     renderSuperAdminDashboard({
       ...waitingReviewRun,
       reviews: waitingReviewRun.reviews.map((review) => ({ ...review, reviewerUserIds: [] })),
     });
-    expect(await screen.findByRole('button', { name: 'Approve' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'End as failed' })).toBeVisible();
+    await screen.findByLabelText('Waiting for review status');
+    expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'End as failed' })).not.toBeInTheDocument();
   });
 
   it('lets an Owner recover a Review after every designated reviewer becomes ineligible', async () => {
