@@ -287,3 +287,29 @@ describe('ProjectTaskboardService', () => {
       .rejects.toMatchObject({ businessCode: 'RESOURCE_NOT_FOUND' });
   });
 });
+
+describe('persisted imported stage reports', () => {
+  it.each(['updateStatus', 'patchTask', 'upsertTask'] as const)('%s updates only implementation in persisted imported stages', async operation => {
+    const { service } = makeService();
+    await service.importPlan({ userId: 'u1' }, 'space-1', { sourcePath: 'board.json', content: JSON.stringify({ tasks: [
+      { id: 'root', title: 'Root', kind: 'phase' },
+      { id: 'leaf', title: 'Imported', parent_id: 'root', kind: 'task', status: 'todo', stages: { implementation: 'todo', validation: 'passed', acceptance: 'blocked' }, evidence: ['independent'] },
+    ] }) });
+    for (const status of ['todo', 'in_progress', 'in_review', 'done'] as const) {
+      await service[operation]({ userId: 'u1' }, 'space-1', 'leaf', { status });
+      const { board } = await service.getBoard({ userId: 'u1' }, 'space-1');
+      expect(board.tasks.find(task => task.id === 'leaf')).toMatchObject({ status,
+        stages: { implementation: status, validation: 'passed', acceptance: 'blocked' }, evidence: ['independent'] });
+    }
+    await expect(service.updateStatus({ userId: 'u1' }, 'space-1', 'leaf', { status: 'todo', expected_status: 'in_review' })).rejects.toThrow();
+  });
+});
+
+it('syncStatus import updates implementation while preserving independent stage evidence', async () => {
+  const { service } = makeService();
+  const imported = { id: 'leaf', title: 'Imported', kind: 'task', status: 'todo', stages: { implementation: 'todo', validation: 'passed', acceptance: 'blocked' } };
+  await service.importPlan({ userId: 'u1' }, 'space-1', { sourcePath: 'board.json', content: JSON.stringify({ tasks: [imported] }) });
+  const result = await service.importPlan({ userId: 'u1' }, 'space-1', { sourcePath: 'board.json', syncStatus: true,
+    content: JSON.stringify({ tasks: [{ ...imported, status: 'done', stages: { implementation: 'done', validation: 'unknown', acceptance: 'passed' } }] }) });
+  expect(result.board.tasks[0]).toMatchObject({ status: 'done', stages: { implementation: 'done', validation: 'passed', acceptance: 'blocked' } });
+});

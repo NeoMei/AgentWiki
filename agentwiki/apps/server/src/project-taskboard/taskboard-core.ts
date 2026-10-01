@@ -187,6 +187,13 @@ export function applyTaskboardPatch(
   if (task.kind !== undefined && !isTaskboardKind(task.kind)) {
     throw invalid(`不支持的任务类型：${task.kind}`);
   }
+  // Explicit status reports own implementation progress, including idempotent stale imports.
+  // Validation/acceptance and their evidence remain independently recorded.
+  if (patch.status !== undefined) {
+    const stages = task.stages && typeof task.stages === 'object' && !Array.isArray(task.stages)
+      ? task.stages as Record<string, unknown> : {};
+    task.stages = { ...stages, implementation: task.status };
+  }
   const now = isoNow();
   if (task.status === 'in_progress' && !task.started_at) task.started_at = now;
   if (task.status === 'done' && !task.completed_at) task.completed_at = now;

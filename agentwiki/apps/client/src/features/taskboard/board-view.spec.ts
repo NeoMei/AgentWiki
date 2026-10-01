@@ -37,3 +37,24 @@ describe('tbStages (upstream ba67015 aggregation semantics)', () => {
     expect(tbStages(tasks, tasks[0])[1]).toBe('blocked');
   });
 });
+
+it.each(['todo', 'in_progress', 'in_review', 'done'])('aggregates terminal concrete tasks through arbitrary depth at %s', status => {
+  const tasks = [t('root', { stages: { implementation: 'todo', validation: 'passed' } }),
+    t('nested', { parent_id: 'root', stages: { implementation: 'todo' } }),
+    t('leaf', { parent_id: 'nested', status, stages: { implementation: status, validation: 'blocked', acceptance: 'unknown' } }),
+    t('step', { kind: 'step', parent_id: 'leaf', status: 'todo' })];
+  for (const task of tasks.slice(0, 3)) expect(tbStages(tasks, task)).toEqual(['blocked', status, 'unknown']);
+});
+
+it('retains missing independent stage coverage rather than reporting all passed', () => {
+  const tasks = [t('root', { kind: 'phase', stages: { validation: 'passed', acceptance: 'passed' } }),
+    t('a', { parent_id: 'root', status: 'done', stages: { validation: 'passed', acceptance: 'passed' } }),
+    t('b', { parent_id: 'root', status: 'done' })];
+  expect(tbStages(tasks, tasks[0])).toEqual(['unknown', 'done', 'unknown']);
+});
+
+it('does not include concrete descendants excluded by an ancestor in stage aggregation', () => {
+  const tasks = [t('root'), t('optional', { parent_id: 'root', kind: 'module', scope_class: 'optional_external' }),
+    t('excluded', { parent_id: 'optional', status: 'blocked' }), t('leaf', { parent_id: 'root', status: 'done' })];
+  expect(tbStages(tasks, tasks[0])).toEqual(['unknown', 'done', 'unknown']);
+});

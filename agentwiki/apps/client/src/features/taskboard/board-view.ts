@@ -110,7 +110,18 @@ export function tbOwnStage(t: TaskboardTask, k: string): string | null {
 
 export function tbStages(tasks: TaskboardTask[], t: TaskboardTask): string[] {
   const own = ['validation', 'implementation', 'acceptance'];
-  const leaves = tbConcrete(tasks, t.id);
+  // Stage aggregation uses terminal execution tasks, while global task counts retain all records.
+  const concrete = tbConcrete(tasks, t.id);
+  const concreteIds = new Set(concrete.map(task => task.id));
+  const ancestors = new Set<string>();
+  for (const leaf of concrete) {
+    let parent = leaf.parent_id;
+    while (parent) {
+      if (concreteIds.has(parent)) ancestors.add(parent);
+      parent = tasks.find(task => task.id === parent)?.parent_id;
+    }
+  }
+  const leaves = concrete.filter(task => !ancestors.has(task.id));
   if (leaves.length === 0) {
     return own.map((k) => {
       const v = tbOwnStage(t, k);
@@ -118,8 +129,10 @@ export function tbStages(tasks: TaskboardTask[], t: TaskboardTask): string[] {
     });
   }
   return own.map((k) => {
-    const vals = leaves.map((x) => tbOwnStage(x, k))
-      .filter((v) => typeof v === 'string' && TB_LABELS[v] && v !== 'not_applicable');
+    const vals = leaves.map(x => {
+      const value = tbOwnStage(x, k);
+      return value && TB_LABELS[value] ? value : 'unknown';
+    }).filter(value => value !== 'not_applicable');
     if (vals.length === 0) {
       const v = tbOwnStage(t, k);
       return v && TB_LABELS[v] ? v : 'unknown';
@@ -128,6 +141,7 @@ export function tbStages(tasks: TaskboardTask[], t: TaskboardTask): string[] {
     if (vals.includes('in_progress')) return 'in_progress';
     if (vals.includes('in_review')) return 'in_review';
     const doneCount = vals.filter((v) => v === 'done' || v === 'passed').length;
+    if (vals.includes('unknown')) return 'unknown';
     if (doneCount === vals.length) return doneCount === vals.filter((v) => v === 'passed').length ? 'passed' : 'done';
     if (doneCount > 0) return 'in_progress';
     if (vals.includes('todo')) return 'todo';

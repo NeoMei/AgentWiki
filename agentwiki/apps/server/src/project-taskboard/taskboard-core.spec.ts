@@ -109,3 +109,22 @@ describe('taskboard-core', () => {
     });
   });
 });
+
+describe('implementation stage synchronization', () => {
+  it.each(['todo', 'in_progress', 'in_review', 'done'])('explicit status %s replaces imported stage without inventing evidence', status => {
+    const independent = { validation: 'blocked', acceptance: 'unknown', custom: 'retained' };
+    const task = makeTaskboardTask({ title: 'Imported', status: 'todo', stages: { ...independent, implementation: 'todo' }, evidence: ['actual'] });
+    applyTaskboardPatch(task, { status });
+    expect(task.stages).toEqual({ ...independent, implementation: status });
+    expect(task.evidence).toEqual(['actual']);
+  });
+  it('repairs an idempotent stale report and leaves evidence-only or unrelated patches independent', () => {
+    const task = makeTaskboardTask({ title: 'Imported', status: 'done', stages: { implementation: 'todo', validation: 'passed', acceptance: 'blocked' } });
+    applyTaskboardPatch(task, { status: 'done' });
+    expect(task.stages).toEqual({ implementation: 'done', validation: 'passed', acceptance: 'blocked' });
+    expect(task.status_history).toBeUndefined();
+    applyTaskboardPatch(task, { stages: { implementation: 'blocked', acceptance: 'passed' } });
+    applyTaskboardPatch(task, { current_step: 'audit' });
+    expect(task.stages).toEqual({ implementation: 'blocked', acceptance: 'passed' });
+  });
+});

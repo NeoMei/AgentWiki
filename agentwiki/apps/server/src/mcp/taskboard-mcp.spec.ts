@@ -102,4 +102,18 @@ describe('taskboard through the existing MCP connection', () => {
     await expect(call('import_taskboard_plans', { spaceId: 'space-1', documents: [{ sourcePath: 'a.md', content: plan('A') }] })).rejects.toThrow();
     expect(db.boards).toHaveLength(0);
   });
+  it('keeps imported implementation stages in sync through MCP while retaining independent evidence', async () => {
+    const { call } = setup();
+    await call('import_taskboard_plans', { spaceId: 'space-1', documents: [{ sourcePath: 'board.json', content: JSON.stringify({ tasks: [
+      { id: 'leaf', title: 'Imported', kind: 'task', status: 'todo', stages: { implementation: 'todo', validation: 'unknown', acceptance: 'blocked' }, evidence: ['actual'] },
+    ] }) }] });
+    let before = 'todo';
+    for (const status of ['todo', 'in_progress', 'in_review', 'done']) {
+      await call('update_taskboard_status', { spaceId: 'space-1', taskId: 'leaf', status, expected_status: before, session_id: 'stage-session' });
+      const { board } = (await call('get_taskboard', { spaceId: 'space-1' })).data;
+      expect(board.tasks[0]).toMatchObject({ status, stages: { implementation: status, validation: 'unknown', acceptance: 'blocked' }, evidence: ['actual'] });
+      before = status;
+    }
+  });
+
 });
