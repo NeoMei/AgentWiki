@@ -266,6 +266,9 @@ test('durable effects use real PostgreSQL claim fences and deduplicate concurren
           instantiationId: fixture.instantiationId, spaceId: fixture.spaceId,
           effectKey: `collaboration-run:${fixture.runId}`, kind: 'collaboration_run',
           payload: { runId: fixture.runId },
+          // These fixtures must be due immediately; PostgreSQL rounds now()
+          // to TIMESTAMP(3), which can lead the JS millisecond claim clock.
+          availableAt: new Date(0),
         })),
         skipDuplicates: true,
       });
@@ -285,6 +288,7 @@ test('durable effects use real PostgreSQL claim fences and deduplicate concurren
         instantiationId: fixture.instantiationId, spaceId: fixture.spaceId,
         effectKey: `collaboration-run-retry:${fixture.runId}`, kind: 'collaboration_run',
         payload: { runId: fixture.runId },
+        availableAt: new Date(0),
       } });
       let retryPublishes = 0;
       const retryService = createEffectService(first, {
