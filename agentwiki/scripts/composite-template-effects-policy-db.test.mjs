@@ -369,7 +369,7 @@ test('durable effects use real PostgreSQL claim fences and deduplicate concurren
   });
 });
 
-test('default-closed production HTTP blocks new writes while an existing composite Run completes Page publication', {
+test('default-closed production HTTP blocks new template definitions while allowing standalone binding and existing Run publication', {
   timeout: 120_000,
 }, async () => {
   await withPageTemplateTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schemaName, publicInventoryDigest }) => {
@@ -407,7 +407,9 @@ test('default-closed production HTTP blocks new writes while an existing composi
     try {
       await waitForHealth(apiUrl, api);
       const catalog = await request(apiUrl, `/spaces/${fixture.spaceId}/templates?locale=en&take=1`, { token });
-      assert.equal(catalog.data.capabilities.canCreate, false);
+      // canCreate describes the member's page-group content permission;
+      // template definition rollout remains independently enforced by POST.
+      assert.equal(catalog.data.capabilities.canCreate, true);
       const definition = {
         schemaVersion: 1, kind: 'single_page', collaboration: null,
         nodes: [{ nodeId: 'page', parentNodeId: null, kind: 'page', order: 0,
@@ -421,6 +423,14 @@ test('default-closed production HTTP blocks new writes while an existing composi
         },
       });
       assert.equal(denied.data.code, 'COMPOSITE_TEMPLATE_FEATURE_DISABLED');
+      const standaloneAgent = await prisma.agent.findFirstOrThrow({ where: { ownerId: fixture.userId } });
+      const bound = await request(apiUrl, `/spaces/${fixture.spaceId}/pages/${fixture.pageId}/agent-binding`, {
+        method: 'PUT', token,
+        body: { agentId: standaloneAgent.id, roleSlotKey: 'writer', expectedUpdatedAt: null, expectedTreeRevision: '0' },
+      });
+      assert.equal(bound.status, 200);
+      assert.equal((await prisma.pageAgentBinding.findUniqueOrThrow({ where: { pageId: fixture.pageId } })).agentId, standaloneAgent.id);
+      assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: fixture.spaceId } })).contentTreeRevision, 0n);
       const legacy = await request(apiUrl, `/spaces/${fixture.spaceId}/page-templates?locale=en&scope=all&archived=active&skip=0&take=1`, { token });
       assert.equal(legacy.status, 200);
 

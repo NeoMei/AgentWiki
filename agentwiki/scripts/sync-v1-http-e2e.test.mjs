@@ -640,8 +640,8 @@ test('full sync v1 HTTP flow over real Prisma and Redis', { skip }, async () => 
     assert.equal(gapFinalize.status, 409, JSON.stringify(gapFinalize.data));
     assert.equal(gapFinalize.data.error.code, 'PUSH_SESSION_INCOMPLETE');
 
-    // 18. A super_admin device principal has effective owner access without a
-    // Space membership and can publish through sync v1.
+    // 18. A nonmember super_admin device can read the Space but cannot publish.
+    // A real editor membership enables publication through the same credential.
     const superEmail = `super-${randomUUID()}@example.test`;
     const superPassword = `Super-${randomUUID()}!`;
     const superRegistration = await request(baseUrl, '/auth/register', {
@@ -677,7 +677,10 @@ test('full sync v1 HTTP flow over real Prisma and Redis', { skip }, async () => 
     assert.equal(superActivate.status, 200, JSON.stringify(superActivate.data));
     const superSpaces = await request(baseUrl, '/sync/v1/spaces', { token: superCredential });
     assert.equal(superSpaces.status, 200, JSON.stringify(superSpaces.data));
-    assert.ok(superSpaces.data.spaces.some((entry) => entry.spaceId === spaceId && entry.role === 'owner'));
+    const superEntry = superSpaces.data.spaces.find((entry) => entry.spaceId === spaceId);
+    assert.ok(superEntry);
+    assert.equal(superEntry.role, 'viewer');
+    assert.equal(superEntry.canPublish, false);
     const superHead = await request(baseUrl, `/sync/v1/spaces/${spaceId}/head`, { token: superCredential });
     assert.equal(superHead.status, 200, JSON.stringify(superHead.data));
     const superPageId = randomUUID();
@@ -685,17 +688,33 @@ test('full sync v1 HTTP flow over real Prisma and Redis', { skip }, async () => 
     const superHash = await contentHash(superBody);
     const superManifest = { protocolVersion: '1', spaceId, baseRevision: superHead.data.revision, changes: [{ operation: 'upsert', pageId: superPageId, path: 'super.md', title: 'Super', contentHash: superHash }] };
     const superConfirmation = await confirmationHash(superManifest);
+    const superCreateInput = {
+      baseRevision: superHead.data.revision,
+      idempotencyKey: randomUUID(),
+      capabilitiesHash: await capabilitiesHash(superActivate.data.capabilities),
+      confirmationHash: superConfirmation,
+      confirmationByteLength: canonicalBytes(superManifest).byteLength,
+      changeCount: 1,
+      totalBodyBytes: new TextEncoder().encode(superBody).byteLength,
+    };
+    const deniedSuperCreate = await request(baseUrl, `/sync/v1/spaces/${spaceId}/push-sessions`, {
+      method: 'POST', token: superCredential, body: superCreateInput,
+    });
+    assert.equal(deniedSuperCreate.status, 403, JSON.stringify(deniedSuperCreate.data));
+    assert.equal(deniedSuperCreate.data.error.code, 'SPACE_FORBIDDEN');
+    const superMemberPrisma = new PrismaClient({ datasources: { db: { url: url.href } } });
+    try {
+      assert.equal(await superMemberPrisma.pushSession.count({ where: { userId: superUserId, spaceId } }), 0);
+      assert.equal(await superMemberPrisma.page.count({ where: { id: superPageId } }), 0);
+      await superMemberPrisma.spaceMember.create({ data: { userId: superUserId, spaceId, role: 'editor' } });
+    } finally { await superMemberPrisma.$disconnect(); }
+    const memberSpaces = await request(baseUrl, '/sync/v1/spaces', { token: superCredential });
+    assert.equal(memberSpaces.status, 200, JSON.stringify(memberSpaces.data));
+    const memberEntry = memberSpaces.data.spaces.find((entry) => entry.spaceId === spaceId);
+    assert.equal(memberEntry.role, 'editor');
+    assert.equal(memberEntry.canPublish, true);
     const superCreate = await request(baseUrl, `/sync/v1/spaces/${spaceId}/push-sessions`, {
-      method: 'POST', token: superCredential,
-      body: {
-        baseRevision: superHead.data.revision,
-        idempotencyKey: randomUUID(),
-        capabilitiesHash: await capabilitiesHash(superActivate.data.capabilities),
-        confirmationHash: superConfirmation,
-        confirmationByteLength: canonicalBytes(superManifest).byteLength,
-        changeCount: 1,
-        totalBodyBytes: new TextEncoder().encode(superBody).byteLength,
-      },
+      method: 'POST', token: superCredential, body: superCreateInput,
     });
     assert.equal(superCreate.status, 201, JSON.stringify(superCreate.data));
     const superBatch = { protocolVersion: '1', batchIndex: 0, changes: [{ operation: 'upsert', pageId: superPageId, path: 'super.md', title: 'Super', body: superBody, contentHash: superHash }] };
