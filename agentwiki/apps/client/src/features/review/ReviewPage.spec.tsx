@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { LanguageProvider } from '../../context/LanguageContext';
@@ -73,6 +73,11 @@ const renderReview = (language: 'en' | 'zh-CN' = 'en') => {
 const expand = async () => {
   fireEvent.click(await screen.findByRole('button', { name: /Candidate set/ }));
   await screen.findByText('Proposed page');
+};
+
+const ReviewQuerySwitcher = () => {
+  const navigate = useNavigate();
+  return <button onClick={() => navigate('/review?changeSet=cs-1')}>Open selected review</button>;
 };
 
 describe('ReviewPage detail refresh', () => {
@@ -424,6 +429,25 @@ describe('ReviewPage detail refresh', () => {
     refreshed = true;
     act(() => window.dispatchEvent(new Event('focus')));
     expect(await screen.findByText('Candidate set')).toBeVisible();
+  });
+
+  it('starts a new list load when the selected query changes during a pending list request', async () => {
+    const oldList = deferred<any>();
+    let listReads = 0;
+    vi.mocked(api.get).mockImplementation(async (url) => {
+      if (url === '/review') return ++listReads === 1 ? oldList.promise : { data: [changeSet()] };
+      if (url === '/spaces/space-1') return { data: { members } };
+      return { data: changeSet() };
+    });
+    render(<LanguageProvider><MemoryRouter initialEntries={['/review']}><ReviewQuerySwitcher /><ReviewPage /></MemoryRouter></LanguageProvider>);
+    expect(screen.getByRole('status')).toHaveTextContent('Loading');
+    fireEvent.click(screen.getByRole('button', { name: 'Open selected review' }));
+    await screen.findByText('Candidate set');
+    await act(async () => oldList.resolve({ data: [] }));
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(screen.getByText('Candidate set')).toBeVisible();
+    act(() => window.dispatchEvent(new Event('focus')));
+    await waitFor(() => expect(listReads).toBe(3));
   });
 
 });

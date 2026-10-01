@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { useLanguage } from '../../context/LanguageContext';
 import { runtimeLabel } from '../../i18n/runtime-label';
+import { reviewStatusLabel } from '../review/ChangeSetStatusBadge';
 
 const GIT_FAILURE_CODES = new Set(['GIT_UNAVAILABLE', 'GIT_TIMEOUT', 'GIT_ACCESS_FAILED', 'GIT_FETCH_FAILED', 'GIT_CHECKOUT_FAILED', 'GIT_SOURCE_EMPTY']);
 const safeDiagnosticUrl = (value: unknown) => {
@@ -27,7 +28,7 @@ export const IngestRunDetails: React.FC<{ run: any; spaceId?: string }> = ({ run
     </div> : null}
     {run.artifacts?.length ? <div><p className="font-medium">{t('run.artifacts')} ({run.artifacts.length})</p>{run.artifacts.map((artifact: any) => <details key={artifact.id} className="mt-1 rounded-lg border p-2"><summary className="cursor-pointer">{['chunk', 'compiled_page', 'index'].includes(artifact.type) ? t(`run.artifact.${artifact.type}`) : t('run.artifact.other')}{artifact.metadata?.title ? ` · ${artifact.metadata.title}` : ''}</summary>{artifact.content ? <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words font-sans">{artifact.content}</pre> : null}</details>)}</div> : null}
     <div className="flex flex-wrap gap-3">
-      {run.changeSet ? <Link to={'/review?changeSet=' + encodeURIComponent(run.changeSet.id)} className="inline-flex min-h-8 items-center text-blue-700 underline">{t('nav.review')} · {runtimeLabel(run.changeSet.status, t)}</Link> : null}
+      {run.changeSet ? <Link to={'/review?changeSet=' + encodeURIComponent(run.changeSet.id)} className="inline-flex min-h-8 items-center text-blue-700 underline">{t('nav.review')} · {reviewStatusLabel(run.changeSet.status, language, t('common.notAvailable'))}</Link> : null}
       {spaceId && run.id ? <Link to={`/spaces/${spaceId}/runs?run=${encodeURIComponent(run.id)}`} className="inline-flex min-h-8 items-center text-blue-700 underline">{t('run.details')}</Link> : null}
     </div>
   </div>;

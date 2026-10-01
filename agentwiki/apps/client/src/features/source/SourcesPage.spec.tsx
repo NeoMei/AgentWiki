@@ -259,4 +259,17 @@ describe('SourcesPage file upload', () => {
     expect(screen.getByText((_, node) => node?.tagName === 'P' && !!node.textContent?.includes('https://second.example'))).toBeVisible();
   });
 
+  it.each([
+    ['zh-CN', 'pending_review', '待审核'], ['zh-CN', 'approved', '已批准'], ['zh-CN', 'published', '已发布'], ['zh-CN', 'reverted', '已回滚'],
+    ['en', 'pending_review', 'Pending review'], ['en', 'approved', 'Approved'], ['en', 'published', 'Published'], ['en', 'reverted', 'Reverted'],
+  ])('renders the source review link status %s/%s', async (language, status, label) => {
+    localStorage.setItem('agentwiki.language.v1', language);
+    const source = { id: 's', name: 'Reviewed source', type: 'text', status: 'active', _count: { versions: 0, runs: 1 } };
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/sources/s'
+      ? { ...source, versions: [], runs: [{ id: 'r', status: 'completed', createdAt: '2026-10-01T00:00:00Z', changeSet: { id: 'cs', status } }] }
+      : [source] }));
+    renderPage(); fireEvent.click(await screen.findByRole('button', { name: /Reviewed source/ }));
+    expect(await screen.findByRole('link', { name: new RegExp(label) })).toHaveAttribute('href', '/review?changeSet=cs');
+  });
+
 });

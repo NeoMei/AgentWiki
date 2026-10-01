@@ -175,7 +175,7 @@ export const ReviewPage: React.FC = () => {
     detailSequenceRef.current.clear(); detailedIdsRef.current.clear();
     setItems([]); setPermissions({}); setExpanded(null);
     void load();
-  }, [load, user?.id]);
+  }, [load, user?.id, changeSetId]);
   const refreshInFlightRef = useRef(false);
   const refresh = useCallback(async () => {
     if (refreshInFlightRef.current || listPendingRef.current || mutatingIdsRef.current.size) return;
