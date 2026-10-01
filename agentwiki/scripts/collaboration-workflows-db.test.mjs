@@ -754,6 +754,14 @@ test('collaboration workflow database scenarios use real Prisma transactions', {
           where: { id: templateAuth.human.id },
           data: { platformRole: 'super_admin' },
         });
+        await assertBusinessCode(services.templates.archiveSpaceTemplate(
+          templateAuth.space.id, templateAuth.template.id, 1,
+          { ...templateAuth.humanPrincipal, platformRole: 'super_admin' },
+        ), 'COLLABORATION_HUMAN_PERMISSION_DENIED');
+        assert.equal((await prisma.collaborationTemplate.findUniqueOrThrow({ where: { id: templateAuth.template.id } })).archivedAt, null);
+        await prisma.spaceMember.create({ data: {
+          userId: templateAuth.human.id, spaceId: templateAuth.space.id, role: 'admin',
+        } });
         const archivedTemplate = await services.templates.archiveSpaceTemplate(
           templateAuth.space.id,
           templateAuth.template.id,
@@ -761,6 +769,7 @@ test('collaboration workflow database scenarios use real Prisma transactions', {
           templateAuth.humanPrincipal,
         );
         assert.ok(archivedTemplate.archivedAt);
+        await prisma.spaceMember.delete({ where: { userId_spaceId: { userId: templateAuth.human.id, spaceId: templateAuth.space.id } } });
 
         await prisma.user.update({
           where: { id: templateAuth.human.id },
