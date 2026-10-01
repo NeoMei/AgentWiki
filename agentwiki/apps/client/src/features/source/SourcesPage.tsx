@@ -42,8 +42,8 @@ export const SourcesPage: React.FC = () => {
     setLoading(true);
     try {
       const [{ data }, { data: space }] = await Promise.all([
-        api.get('/spaces/' + requestedSpaceId + '/sources'),
-        api.get('/spaces/' + requestedSpaceId),
+        api.get('/spaces/' + requestedSpaceId + '/sources', { timeout: 15000 }),
+        api.get('/spaces/' + requestedSpaceId, { timeout: 15000 }),
       ]);
       if (sequence !== loadSequenceRef.current || activeSpaceIdRef.current !== requestedSpaceId) return;
       const role = space.members?.find((member: any) => member.userId === user?.id)?.role;
@@ -105,6 +105,8 @@ export const SourcesPage: React.FC = () => {
       setForm({ type: 'text', name: '', uri: '', content: '' });
       setFile(null);
       if (created?.id) setSources((current) => [{ ...created, _count: created._count || { versions: created.versions?.length, runs: created.runs?.length } }, ...current.filter((source) => source.id !== created.id)]);
+      submittingRef.current = null;
+      setSubmitting(false);
       await load(actionSpaceId);
     } catch (err: unknown) {
       if (activeSpaceIdRef.current === actionSpaceId) setError(apiErrorMessage(err, t, 'source.createFailed'));
@@ -219,7 +221,7 @@ export const SourcesPage: React.FC = () => {
           return <div key={source.id}>
             <div className="p-4 flex items-center gap-4">
               <div className="w-9 h-9 bg-gray-100 rounded-lg flex items-center justify-center"><Icon size={18} /></div>
-              <button aria-expanded={selectedId === source.id} onClick={() => selectSource(source.id)} className="flex-1 min-w-0 text-left"><p className="font-medium truncate">{source.name}</p><p className="text-xs text-gray-400 mt-1">{source.type} · {source._count?.versions ?? source.versions?.length ?? 0} {t('common.versions')} · {source._count?.runs ?? t('common.notAvailable')} {t('common.runs')}</p></button>
+              <button aria-expanded={selectedId === source.id} onClick={() => selectSource(source.id)} className="flex-1 min-w-0 text-left"><p className="font-medium truncate">{source.name}</p><p className="text-xs text-gray-400 mt-1">{['text', 'file', 'url', 'git'].includes(source.type) ? t(`source.${source.type}`) : source.type} · {source._count?.versions ?? source.versions?.length ?? 0} {t('common.versions')} · {source._count?.runs ?? t('common.notAvailable')} {t('common.runs')}</p></button>
               {canWrite ? <button disabled={runningIds.has(source.id) || (detail?.id === source.id && !!activeRunKey)} onClick={() => void runSource(source.id)} className="h-8 px-3 border rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"><Play size={14} /> {runningIds.has(source.id) ? t('common.loading') : t('source.run')}</button> : null}
             </div>
             {selectedId === source.id ? <div className="mx-4 mb-4 bg-gray-50 border rounded-lg p-3 text-xs text-gray-600">

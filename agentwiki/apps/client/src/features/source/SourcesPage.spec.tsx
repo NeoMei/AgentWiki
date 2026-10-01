@@ -215,6 +215,9 @@ describe('SourcesPage file upload', () => {
     expect(screen.getByRole('status')).toHaveTextContent('正在保存来源');
     await act(async () => request.resolve({ data: { id: 'created', name: 'Created source', type: 'text', versions: [{ id: 'v' }] } }));
     expect(screen.getByText('Created source')).toBeVisible();
+    expect(screen.getByRole('button', { name: '添加来源' })).toBeEnabled();
+    expect(screen.queryByText('正在保存来源…')).not.toBeInTheDocument();
+    expect(screen.getByText('加载中…')).toBeVisible();
     await act(async () => refresh.resolve({ data: [{ id: 'created', name: 'Created source', type: 'text', _count: { versions: 1, runs: 0 } }] }));
   });
 
