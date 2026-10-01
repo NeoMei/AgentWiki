@@ -1,33 +1,22 @@
-import { runtimeLabel } from '../../i18n/runtime-label';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Ban, RefreshCw, RotateCcw } from 'lucide-react';
 import api from '../../api/client';
 import { useLanguage } from '../../context/LanguageContext';
 import { apiErrorMessage } from '../../api/error-message';
-
-const GIT_FAILURE_CODES = new Set(['GIT_UNAVAILABLE', 'GIT_TIMEOUT', 'GIT_ACCESS_FAILED', 'GIT_FETCH_FAILED', 'GIT_CHECKOUT_FAILED', 'GIT_SOURCE_EMPTY']);
+import { IngestRunDetails } from './IngestRunDetails';
+import { isActiveIngestRun, useBoundedPolling } from './useBoundedPolling';
 
 const CANCELLABLE = new Set(['queued', 'reserved', 'fetching', 'extracting', 'compiling', 'indexing']);
 const RETRYABLE = new Set(['failed', 'partial', 'cancelled']);
 
-const safeDiagnosticUrl = (value: unknown): string => {
-  if (typeof value !== 'string') return '';
-  try {
-    const url = new URL(value);
-    url.username = '';
-    url.password = '';
-    url.search = '';
-    url.hash = '';
-    return url.toString();
-  } catch {
-    return '';
-  }
-};
-
 export const RunsPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { t, language } = useLanguage();
+  const { t } = useLanguage();
+  const [searchParams] = useSearchParams();
+  const requestedRunId = searchParams.get('run');
+  const [detail, setDetail] = useState<any>(null);
+  const [refreshSession, setRefreshSession] = useState(0);
   const [runs, setRuns] = useState<any[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -41,14 +30,16 @@ export const RunsPage: React.FC = () => {
     const sequence = ++loadSequenceRef.current;
     setLoading(true);
     try {
-      const { data } = await api.get('/spaces/' + requestedSpaceId + '/runs');
+      const { data } = await api.get('/spaces/' + requestedSpaceId + '/runs', { timeout: 15000 });
       if (sequence !== loadSequenceRef.current || activeSpaceIdRef.current !== requestedSpaceId) return;
       setRuns(data);
       setError('');
+      return !data.some(isActiveIngestRun);
     } catch (requestError: unknown) {
       if (sequence === loadSequenceRef.current && activeSpaceIdRef.current === requestedSpaceId) {
         setError(apiErrorMessage(requestError, t, 'run.loadFailed'));
       }
+      return true;
     } finally {
       if (sequence === loadSequenceRef.current && activeSpaceIdRef.current === requestedSpaceId) setLoading(false);
     }
@@ -61,12 +52,22 @@ export const RunsPage: React.FC = () => {
     busyRunIdsRef.current.clear();
     setBusyRunIds(new Set());
     void load();
-    const timer = setInterval(() => void load(), 3000);
+
     return () => {
-      clearInterval(timer);
       loadSequenceRef.current += 1;
     };
   }, [load]);
+
+  const activeKey = runs.filter(isActiveIngestRun).map((run) => run.id).join(',');
+  useBoundedPolling(id + ':' + activeKey + ':' + refreshSession, !!activeKey, async () => load());
+  useEffect(() => {
+    if (!requestedRunId || !runs.some((run) => run.id === requestedRunId)) { setDetail(null); return; }
+    const controller = new AbortController();
+    void api.get(`/runs/${requestedRunId}`, { signal: controller.signal, timeout: 15000 }).then(({ data }) => {
+      if (!controller.signal.aborted && activeSpaceIdRef.current === id && data.spaceId === id) setDetail(data);
+    }).catch((err: unknown) => { if (!controller.signal.aborted) setError(apiErrorMessage(err, t, 'run.loadFailed')); });
+    return () => controller.abort();
+  }, [requestedRunId, runs, id, t]);
 
   const runAction = async (runId: string, action: 'retry' | 'cancel') => {
     const actionSpaceId = id;
@@ -94,7 +95,7 @@ export const RunsPage: React.FC = () => {
           <h1 className="text-2xl font-semibold">{t('run.title')}</h1>
           <p className="text-sm text-gray-500 mt-1">{t('run.description')}</p>
         </div>
-        <button onClick={() => void load()} className="p-2 border rounded-lg" title={t('run.refresh')}><RefreshCw size={16} /></button>
+        <button onClick={() => { setRefreshSession((value) => value + 1); void load(); }} className="p-2 border rounded-lg" title={t('run.refresh')}><RefreshCw size={16} /></button>
       </div>
       {error ? <div role="alert" className="p-3 mb-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div> : null}
       <div className="border rounded-[14px] bg-white divide-y">
@@ -103,17 +104,8 @@ export const RunsPage: React.FC = () => {
             <div className={'w-2 h-2 rounded-full ' + (run.status === 'completed' ? 'bg-green-500' : run.status === 'failed' ? 'bg-red-500' : 'bg-blue-500')} />
             <div className="flex-1">
               <p className="font-medium">{run.source.name}</p>
-              <p className="text-xs text-gray-400 mt-1">{runtimeLabel(run.stage, t)} · {t('run.attempt')} {run.attempts}/{run.maxAttempts} · {new Date(run.createdAt).toLocaleString(language)}</p>
-              {run.error || run.result?.failure ? <p className="text-xs text-red-600 mt-1">{t(GIT_FAILURE_CODES.has(run.result?.failure?.code) ? `run.failure.${run.result.failure.code}` : 'run.failedSummary')}</p> : null}
-              {run.result?.sourceMetadata ? (
-                <div className="mt-2 space-y-0.5 rounded-lg bg-gray-50 p-2 text-xs text-gray-600">
-                  <p className="break-all"><strong>{t('run.finalUrl')}:</strong> {safeDiagnosticUrl(run.result.sourceMetadata.finalUrl) || t('common.notAvailable')}</p>
-                  <p><strong>{t('run.contentType')}:</strong> {run.result.sourceMetadata.contentType || t('common.notAvailable')}</p>
-                  <p>{t('run.redirectCount', { count: run.result.sourceMetadata.redirectCount || 0 })}</p>
-                </div>
-              ) : null}
+              <IngestRunDetails run={requestedRunId === run.id && detail?.id === run.id ? detail : run} spaceId={id} />
             </div>
-            {run.changeSet ? <Link to={'/review?changeSet=' + run.changeSet.id} className="text-sm text-blue-600">{t('nav.review')}</Link> : null}
             {RETRYABLE.has(run.status) ? <button disabled={busyRunIds.has(run.id)} onClick={() => void runAction(run.id, 'retry')} className="p-2 border rounded-lg disabled:opacity-50" title={t('run.retry')}><RotateCcw size={15} /></button> : null}
             {CANCELLABLE.has(run.status) ? <button disabled={busyRunIds.has(run.id)} onClick={() => void runAction(run.id, 'cancel')} className="p-2 border rounded-lg text-red-600 disabled:opacity-50" title={t('run.cancel')}><Ban size={15} /></button> : null}
           </div>

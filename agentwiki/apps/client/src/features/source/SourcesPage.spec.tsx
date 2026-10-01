@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -36,6 +36,7 @@ const SpaceSwitcher = () => {
 };
 
 describe('SourcesPage file upload', () => {
+  afterEach(() => vi.useRealTimers());
   beforeEach(() => {
     vi.clearAllMocks();
     members = [{ userId: 'user-1', role: 'editor' }];
@@ -190,4 +191,72 @@ describe('SourcesPage file upload', () => {
     expect(screen.queryByText('空间一来源')).not.toBeInTheDocument();
     expect(vi.mocked(api.get).mock.calls.filter(([url]) => url.endsWith('/sources'))).toHaveLength(2);
   });
+  it('omits Git from new source choices and keeps historical Git sources runnable', async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [{ id: 'git-old', type: 'git', name: 'Historical repository', _count: { versions: 1, runs: 0 } }] });
+    renderPage();
+    expect(await screen.findByText('Historical repository')).toBeVisible();
+    expect(screen.getByRole('button', { name: '运行' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: '添加来源' }));
+    expect(screen.queryByRole('option', { name: 'Git 仓库' })).not.toBeInTheDocument();
+    expect(Array.from((screen.getByLabelText('类型') as HTMLSelectElement).options).map((option) => option.value)).toEqual(['text', 'file', 'url']);
+  });
+
+  it('shows a returned source immediately while reconciliation is still pending', async () => {
+    const request = deferred<any>();
+    const refresh = deferred<any>();
+    vi.mocked(api.post).mockReturnValue(request.promise);
+    let reads = 0;
+    vi.mocked(api.get).mockImplementation(() => ++reads === 1 ? Promise.resolve({ data: [] }) : refresh.promise);
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: '添加来源' }));
+    fireEvent.change(screen.getByLabelText('名称'), { target: { value: 'Created source' } });
+    fireEvent.change(screen.getByLabelText('粘贴来源文本'), { target: { value: 'content' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存来源' }));
+    expect(screen.getByRole('status')).toHaveTextContent('正在保存来源');
+    await act(async () => request.resolve({ data: { id: 'created', name: 'Created source', type: 'text', versions: [{ id: 'v' }] } }));
+    expect(screen.getByText('Created source')).toBeVisible();
+    await act(async () => refresh.resolve({ data: [{ id: 'created', name: 'Created source', type: 'text', _count: { versions: 1, runs: 0 } }] }));
+  });
+
+  it('shows queued feedback from the run response and polls own results until terminal', async () => {
+    const source = { id: 'source-1', name: 'Own source', type: 'text', status: 'active', _count: { versions: 1, runs: 0 } };
+    const run = { id: 'run-1', sourceId: 'source-1', spaceId: 'space-1', status: 'queued', stage: 'queued', createdAt: '2026-10-01T00:00:00Z' };
+    let terminal = false;
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/sources/source-1'
+      ? { ...source, versions: [], runs: [terminal ? { ...run, status: 'completed', stage: 'completed', result: { chunks: 2, pages: 1, changeItems: 1 }, artifacts: [{ id: 'artifact-1', type: 'compiled_page' }], changeSet: { id: 'cs-1', status: 'pending_review' } } : run] }
+      : [source] }));
+    const request = deferred<any>();
+    vi.mocked(api.post).mockReturnValue(request.promise);
+    const view = renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: '运行' }));
+    expect(screen.getByRole('status')).toHaveTextContent('正在提交运行');
+    vi.useFakeTimers();
+    await act(async () => request.resolve({ data: run }));
+    expect(screen.getByText('排队中')).toBeVisible();
+    terminal = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(screen.getByText('已完成')).toBeVisible();
+    expect(screen.getByText(/文本片段: 2/)).toBeVisible();
+    expect(screen.getByText('编译页面')).toBeVisible();
+    expect(screen.getByRole('link', { name: /^审核/ })).toHaveAttribute('href', '/review?changeSet=cs-1');
+    expect(vi.mocked(api.get).mock.calls.some(([url]) => url.startsWith('/runs/'))).toBe(false);
+    const reads = vi.mocked(api.get).mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(12000); });
+    expect(vi.mocked(api.get).mock.calls).toHaveLength(reads);
+    view.unmount();
+  });
+
+  it('ignores an older same-space detail selection response', async () => {
+    const first = deferred<any>();
+    const sources = ['first', 'second'].map((id) => ({ id, name: id, type: 'text', status: 'active', _count: { versions: 0, runs: 0 } }));
+    vi.mocked(api.get).mockImplementation(async (url) => url === '/sources/first' ? first.promise : { data: url === '/sources/second' ? { ...sources[1], uri: 'https://second.example', versions: [], runs: [] } : sources });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /first/ }));
+    fireEvent.click(screen.getByRole('button', { name: /second/ }));
+    expect(await screen.findByText((_, node) => node?.tagName === 'P' && !!node.textContent?.includes('https://second.example'))).toBeVisible();
+    await act(async () => first.resolve({ data: { ...sources[0], uri: 'https://first.example', versions: [], runs: [] } }));
+    expect(screen.queryByText((_, node) => node?.tagName === 'P' && !!node.textContent?.includes('https://first.example'))).not.toBeInTheDocument();
+    expect(screen.getByText((_, node) => node?.tagName === 'P' && !!node.textContent?.includes('https://second.example'))).toBeVisible();
+  });
+
 });

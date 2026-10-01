@@ -5,6 +5,7 @@ import api from '../../api/client';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { ReviewPage } from './ReviewPage';
+import { announceReviewChanged } from './review-events';
 
 vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
 vi.mock('../../api/client', () => ({
@@ -345,7 +346,7 @@ describe('ReviewPage detail refresh', () => {
     await expand();
 
     fireEvent.click(screen.getByRole('button', { name: 'Approve only' }));
-    expect(await screen.findByRole('status')).toHaveTextContent('Review state updated');
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Review state updated'));
     fireEvent.click(await screen.findByRole('button', { name: 'Publish' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Failed to update change set');
@@ -390,4 +391,39 @@ describe('ReviewPage detail refresh', () => {
     expect(detailSignal?.aborted).toBe(true);
     await act(async () => detailRequest.resolve({ data: changeSet() } as any));
   });
+  it('shows loading without false empty state while the initial review request is pending', async () => {
+    const request = deferred<any>();
+    vi.mocked(api.get).mockReturnValue(request.promise);
+    renderReview();
+    expect(screen.getByRole('status')).toHaveTextContent('Loading');
+    expect(screen.queryByText('Nothing needs review.')).not.toBeInTheDocument();
+    await act(async () => request.resolve({ data: [] }));
+    expect(screen.getByText('Nothing needs review.')).toBeVisible();
+  });
+
+  it('refreshes an expanded review on a change event and preserves rows during refetch', async () => {
+    const refresh = deferred<any>();
+    let refreshing = false;
+    vi.mocked(api.get).mockImplementation(async (url) => url === '/review'
+      ? refreshing ? refresh.promise : { data: [changeSet()] }
+      : { data: changeSet(refreshing ? 'approved' : 'pending_review', 'accepted') });
+    renderReview(); await expand();
+    refreshing = true;
+    act(() => announceReviewChanged());
+    expect(screen.getByRole('status')).toHaveTextContent('Refreshing');
+    expect(screen.getByText('Candidate set')).toBeVisible();
+    await act(async () => refresh.resolve({ data: [changeSet('approved', 'accepted')] }));
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+    expect(screen.getByTestId('status-badge-approved')).toBeVisible();
+  });
+
+  it('refreshes review summaries on window focus', async () => {
+    let refreshed = false;
+    vi.mocked(api.get).mockImplementation(async () => ({ data: refreshed ? [changeSet()] : [] }));
+    renderReview(); await screen.findByText('Nothing needs review.');
+    refreshed = true;
+    act(() => window.dispatchEvent(new Event('focus')));
+    expect(await screen.findByText('Candidate set')).toBeVisible();
+  });
+
 });

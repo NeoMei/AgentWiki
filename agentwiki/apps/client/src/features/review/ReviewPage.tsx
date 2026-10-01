@@ -8,7 +8,8 @@ import { Toast } from '../../components/Toast';
 import { ChangeSetStatusBadge } from './ChangeSetStatusBadge';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { announceReviewChanged } from './review-events';
+import { announceReviewChanged, REVIEW_CHANGED_EVENT } from './review-events';
+import { useBoundedPolling } from '../source/useBoundedPolling';
 
 const CandidateDiff: React.FC<{ item: any }> = ({ item }) => {
   const { language } = useLanguage();
@@ -75,6 +76,12 @@ export const ReviewPage: React.FC = () => {
   const [permissions, setPermissions] = useState<Record<string, { userId: string; canDecide: boolean }>>({});
   const canDecide = (id: string) => permissions[id]?.userId === user?.id && permissions[id]?.canDecide === true;
   const [items, setItems] = useState<any[]>([]);
+  const [listLoading, setListLoading] = useState(true);
+  const [listRefreshing, setListRefreshing] = useState(false);
+  const [refreshSession, setRefreshSession] = useState(0);
+  const listPendingRef = useRef(false);
+  const expandedRef = useRef<string | null>(null);
+  const scopeRef = useRef('');
   const [expanded, setExpanded] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -90,6 +97,9 @@ export const ReviewPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const spaceId = searchParams.get('spaceId');
   const changeSetId = searchParams.get('changeSet');
+  const scope = `${user?.id || ''}:${spaceId || ''}:${changeSetId || ''}`;
+  scopeRef.current = scope;
+  expandedRef.current = expanded;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -100,45 +110,51 @@ export const ReviewPage: React.FC = () => {
     };
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (options?: { background?: boolean }) => {
+    const requestedScope = scopeRef.current;
     const sequence = ++listSequenceRef.current;
+    listPendingRef.current = true;
     const controller = new AbortController();
     requestControllersRef.current.add(controller);
+    if (options?.background) setListRefreshing(true); else setListLoading(true);
     try {
       setError(null);
-      setSuccess(null);
+      if (!options?.background) setSuccess(null);
       const summaries = (await api.get('/review', {
         params: spaceId ? { spaceId } : undefined,
-        signal: controller.signal,
+        signal: controller.signal, timeout: 15000,
       })).data;
-      if (!mountedRef.current || controller.signal.aborted || sequence !== listSequenceRef.current) return;
+      if (!mountedRef.current || controller.signal.aborted || sequence !== listSequenceRef.current || requestedScope !== scopeRef.current) return;
       setItems((current) => summaries.map((summary: any) => {
-        const detail = detailedIdsRef.current.has(summary.id)
-          ? current.find((item) => item.id === summary.id)
-          : null;
-        return detail || summary;
+        const detail = detailedIdsRef.current.has(summary.id) ? current.find((item) => item.id === summary.id) : null;
+        return detail ? (options?.background ? { ...detail, status: summary.status, items: summary.items } : detail) : summary;
       }));
     } catch (requestError: any) {
-      if (!controller.signal.aborted && mountedRef.current && sequence === listSequenceRef.current) {
+      if (!controller.signal.aborted && mountedRef.current && sequence === listSequenceRef.current && requestedScope === scopeRef.current) {
         setError(apiErrorMessage(requestError, t, 'review.loadFailed'));
       }
     } finally {
       requestControllersRef.current.delete(controller);
+      if (mountedRef.current && sequence === listSequenceRef.current && requestedScope === scopeRef.current) {
+        listPendingRef.current = false;
+        setListRefreshing(false); setListLoading(false);
+      }
     }
   }, [spaceId, t]);
-  const expandChangeSet = useCallback(async (id: string) => {
+  const expandChangeSet = useCallback(async (id: string, background = false) => {
+    const requestedScope = scopeRef.current;
     const sequence = (detailSequenceRef.current.get(id) || 0) + 1;
     detailSequenceRef.current.set(id, sequence);
     const controller = new AbortController();
     requestControllersRef.current.add(controller);
     try {
       setError(null);
-      setSuccess(null);
-      const detail = (await api.get(`/change-sets/${id}`, { signal: controller.signal })).data;
+      if (!background) setSuccess(null);
+      const detail = (await api.get(`/change-sets/${id}`, { signal: controller.signal, timeout: 15000 })).data;
       const targetSpaceId = detail.spaceId || detail.space?.id;
       const space = targetSpaceId ? (await api.get(`/spaces/${targetSpaceId}`, { signal: controller.signal })).data : null;
       const role = space?.members?.find((member: any) => member.userId === user?.id)?.role;
-      if (!mountedRef.current || controller.signal.aborted || detailSequenceRef.current.get(id) !== sequence) return false;
+      if (!mountedRef.current || controller.signal.aborted || detailSequenceRef.current.get(id) !== sequence || requestedScope !== scopeRef.current) return false;
       setPermissions((current) => ({ ...current, [id]: { userId: user?.id, canDecide: role === 'owner' } }));
       detailedIdsRef.current.add(id);
       setItems((current) => current.some((item) => item.id === id)
@@ -146,7 +162,7 @@ export const ReviewPage: React.FC = () => {
         : [detail, ...current]);
       return true;
     } catch (requestError: any) {
-      if (!controller.signal.aborted && mountedRef.current && detailSequenceRef.current.get(id) === sequence) {
+      if (!controller.signal.aborted && mountedRef.current && detailSequenceRef.current.get(id) === sequence && requestedScope === scopeRef.current) {
         setError(apiErrorMessage(requestError, t, 'review.detailFailed'));
       }
       return false;
@@ -154,7 +170,36 @@ export const ReviewPage: React.FC = () => {
       requestControllersRef.current.delete(controller);
     }
   }, [t, user?.id]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    requestControllersRef.current.forEach((controller) => controller.abort());
+    detailSequenceRef.current.clear(); detailedIdsRef.current.clear();
+    setItems([]); setPermissions({}); setExpanded(null);
+    void load();
+  }, [load, user?.id]);
+  const refreshInFlightRef = useRef(false);
+  const refresh = useCallback(async () => {
+    if (refreshInFlightRef.current || listPendingRef.current || mutatingIdsRef.current.size) return;
+    refreshInFlightRef.current = true;
+    const requestedScope = scopeRef.current;
+    try {
+      await load({ background: true });
+      if (requestedScope === scopeRef.current && expandedRef.current) {
+        setListRefreshing(true);
+        await expandChangeSet(expandedRef.current, true);
+      }
+    } finally {
+      refreshInFlightRef.current = false;
+      if (mountedRef.current && requestedScope === scopeRef.current) setListRefreshing(false);
+    }
+  }, [load, expandChangeSet]);
+  useBoundedPolling(scope + ':' + refreshSession, true, refresh, 15000, 20);
+  useEffect(() => {
+    const changed = () => { void refresh(); };
+    const focused = () => { setRefreshSession((value) => value + 1); void refresh(); };
+    window.addEventListener(REVIEW_CHANGED_EVENT, changed);
+    window.addEventListener('focus', focused);
+    return () => { window.removeEventListener(REVIEW_CHANGED_EVENT, changed); window.removeEventListener('focus', focused); };
+  }, [refresh]);
   useEffect(() => {
     if (changeSetId) {
       setExpanded(changeSetId);
@@ -276,6 +321,7 @@ export const ReviewPage: React.FC = () => {
           </button>
         ))}
       </div>
+      {listLoading || listRefreshing ? <p role="status" className="mb-3 text-sm text-gray-500">{listLoading ? t('common.loading') : t('common.refetching')}</p> : null}
       <div className="border rounded-[14px] bg-white divide-y">
         {visibleItems.map((changeSet) => (
           <div key={changeSet.id}>
@@ -326,7 +372,7 @@ export const ReviewPage: React.FC = () => {
             ) : null}
           </div>
         ))}
-        {!visibleItems.length ? <div className="py-16 text-center text-sm text-gray-500">{changeSetId ? (zh ? '此变更集不在你的审核范围内。' : 'This change set is not available in your review scope.') : statusFilter !== 'all' ? (zh ? '该状态下没有变更集。' : 'No change sets with this status.') : (zh ? '目前没有待审核事项。' : 'Nothing needs review.')}</div> : null}
+        {!listLoading && !listRefreshing && !visibleItems.length ? <div className="py-16 text-center text-sm text-gray-500">{changeSetId ? (zh ? '此变更集不在你的审核范围内。' : 'This change set is not available in your review scope.') : statusFilter !== 'all' ? (zh ? '该状态下没有变更集。' : 'No change sets with this status.') : (zh ? '目前没有待审核事项。' : 'Nothing needs review.')}</div> : null}
       </div>
     </div>
   );

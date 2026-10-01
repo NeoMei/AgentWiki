@@ -61,6 +61,26 @@ describe('SourceService safety and idempotency', () => {
     authorization.assertLiveAgentWriteAccess.mockResolvedValue(undefined);
   });
 
+
+  it('rejects new Git sources while preserving historical Git run creation', async () => {
+    await expect(service.create('space-1', { userId: 'user-1' }, { type: 'git', name: 'New repo', uri: 'https://github.com/org/repo' })).rejects.toMatchObject({ businessCode: 'SOURCE_INVALID' });
+    expect(prisma.source.create).not.toHaveBeenCalled();
+    prisma.source.findUnique.mockResolvedValue({ id: 'git-old', type: 'git', status: 'active', spaceId: 'space-1' });
+    prisma.ingestRun.create.mockResolvedValue({ id: 'run-old', sourceId: 'git-old' });
+    await expect(service.createRun('git-old', { userId: 'user-1' })).resolves.toMatchObject({ id: 'run-old' });
+  });
+
+  it('loads bounded runs and their artifacts and review links through the source relation', async () => {
+    prisma.source.findUnique.mockResolvedValue({ id: 'source-1', runs: [] });
+    await service.get('source-1');
+    expect(prisma.source.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'source-1' }, include: expect.objectContaining({ runs: expect.objectContaining({
+        take: 20, include: expect.objectContaining({ artifacts: expect.anything(), changeSet: expect.anything() }),
+      }) }),
+    }));
+    expect(prisma.ingestRun.findUnique).not.toHaveBeenCalled();
+  });
+
   it('writes no Source when the Agent Credential is revoked before commit', async () => {
     prisma.source.findUnique.mockResolvedValue(null);
     authorization.assertLiveAgentWriteAccess.mockRejectedValueOnce(
