@@ -1,27 +1,10 @@
-# AgentWiki v0.12.11 release preparation
+修复 AgentwikiQ 2 报告中的接入、权限、协作、来源审核、图谱、图片和看板问题，已部署应用 0.12.11。
 
-Status (2026-10-01): application 0.12.11 is deployed and the required Q2 live acceptance paths passed. Remaining environment boundaries are listed in [AgentwikiQ 2 verification](verification/agentwikiq2-v01211.md).
+- Publisher 接入使用正式 Local Sync 0.10.2 / protocol 0.6.1，保留原始计划、16 项权限及哈希/篡改校验，修正 Linux MCP SDK 文件名大小写。
+- 平台管理员无空间成员身份只能读；独立页面/目录绑定不依赖组合模板开关。
+- 补齐中文协作与角色提示、继续指令和布局，移除新 Git 来源，刷新来源结果和审核列表。
+- 改善图谱标签、图片放大、看板层级、实现阶段同步和待验收紫色状态点。
 
-Changes implemented and independently reviewed so far:
+验证：完整回归 5928 pass / 0 fail / 6 既有或平台 skip，类型/lint/build通过；独立审查0 Critical / 0 Important。生产配对备份、1421文件清单、三服务和Node默认TLS健康检查通过。正式包Linux干净安装、两条publisher公网接入/MCP读页、正式Obsidian0.5.6的20项公网磁盘宿主检查通过。
 
-- Correct publisher onboarding with Local Sync 0.10.2 candidate and published sync protocol 0.6.1. Both device bootstrap and one-time-code installation use the 16 supported scopes; the original server plan, canonical hash and strict scope integrity checks are retained. Unsupported Agent memory scopes are not granted.
-- Require real Space membership for human writes, including platform administrators; keep nonmember access read-only and preserve executable Agent-grant and page/folder binding checks.
-- Translate collaboration entry points, roles, review instructions and bounded error guidance; remove Git from new-source creation, refresh review/loading state, and show accurate source-run results.
-- Refresh continuation instructions and permissions on collaboration reentry and bound card layout at desktop/mobile sizes.
-- Measure and place knowledge-graph labels without overlapping nodes/other labels, retaining full-title selection/navigation; open accepted Markdown and protected attachment images in an accessible, bounded enlargement dialog using existing image URLs.
-- Align application, server and client manifests to 0.12.11. Local Sync 0.10.2 fixes an MCP SDK import casing defect present in the published 0.10.1 artifact; protocol 0.6.1 remains unchanged and immutable. Publish and verify 0.10.2 before activation.
-
-Recorded validation before final release:
-
-- Previously published 0.10.1 / 0.6.1 package parity and fresh public-registry installation passed; the Linux import defect requires a new 0.10.2 validation/publication gate. Both publisher contract paths passed against real server services with bounded persistence/MCP test adapters: 16 scopes, raw server plan, and tamper rejection. These contract checks do not prove live production device authorization or host page reads.
-- Isolated runtime gate: 262 passed, zero failures, one platform skip. Database gate: 59 files / 216 passed, zero failures/skips. Full isolated server gate before the final taskboard changes: 160 suites / 2737 passed tests, four existing skipped tests.
-- Collaboration continuation/layout checks: 256 client tests and one local Chrome fixture passed. Graph/image checks: 137 tests and two local Chrome fixtures passed; browser API responses were fixtures, so live page authorization/external-network behavior remains pending.
-- Public TLS chain repair was separately verified with Node default trust and public health 200. Official Obsidian Sync 0.5.6 assets passed 20 early public API/disk-Vault checks; this covers the original pre-deployment v2 path, not native Obsidian GUI/Windows or the final candidate.
-
-Remaining release/deployment gates:
-
-- Finish and independently review taskboard hierarchy/status closure, then perform a whole-branch independent review and rerun full applicable regression, typecheck, lint and build on the final candidate. The client follow-up 4cbe5bb6 was independently reviewed: 116 files / 1618 tests passed, typecheck/lint/client build passed, and initial JS is 546154 / 550000 bytes with no budget increase. Final whole-repository gates remain pending until the taskboard candidate is included.
-- Stage the complete build/root dependencies before production writes and reconcile the preserved live Assist fixes. Compare deployment inputs and migration inventories; avoid unneeded migrations.
-- While writers are stopped, create and verify a paired PostgreSQL/attachments rollback snapshot and manifest before activation. Retain the previous application and static assets.
-- Publish the application release, deploy the reviewed candidate, and verify API/Worker/Frontend health plus real business/browser behavior for all 20+2 items. Reverify official npm device/code publisher onboarding with actual MCP page reads, and rerun the official plugin public sync checks against the deployed candidate.
-- Remove only self-created fixtures after retaining nonsensitive evidence. Report implementation, local tests, public package/application publication, deployment and live acceptance separately.
+验收范围与未覆盖边界详见 [逐项验收记录](verification/agentwikiq2-v01211.md)。插件尚未进行原生GUI/Windows验收；生产模板开关开启，Q10 feature-off边界仅有代码和本地验证。本发布不将未覆盖场景宣称为全部通过。

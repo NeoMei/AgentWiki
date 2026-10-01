@@ -37,6 +37,6 @@
 
 公网证据：Chrome18项主路径结果分首轮/恢复/独立补验取得，最终全部PASS且cleaned=true；最初选择器与页面加载竞态导致的harness失败保留，未据此更改产品。正式插件0.5.6 SHA256 5b7b307039dac8dc6613f942f5f5d8387f3164c0456b4940eccbd51030fb3614，20项及cleanup全部通过。双publisher设备/码接入/MCP读页与cleanup均exit0。
 
-未覆盖边界：生产模板开关开启，Q10 feature-off公网场景未验证；插件原生GUI/Windows/v3附件未运行；Q17外部HTTPS图片与Q18多子溢出未另建公网夹具。Q12 paused恢复附加路径独立记录，不把running/waiting通过自动推断为paused通过。以上不计PASS，不将计划视为完成。
+未覆盖边界：生产模板开关开启，Q10 feature-off公网场景未验证；插件原生GUI/Windows/v3附件未运行；Q17外部HTTPS图片与Q18多子溢出未另建公网夹具。Q12 paused真实pause→Chrome恢复运行→resume200/running→新继续指令附加路径通过，pausedSupplement=true。以上不计PASS，不将计划视为完成。
 
-GitHub正式release及最终记录状态将由发布命令的实际结果补充。部署提交与后续只改文档的发布提交分别记录。
+GitHub release v0.12.11 对应已部署执行代码5638dd8d，后续文档提交仅更新验收记录。发布命令结果以GitHub实际页面为准。
