@@ -1,40 +1,31 @@
 # 当前目标
 
-- AgentWiki v0.12.10 Toast 自动消失修复已发布并部署，保留生产已有 Assist 修复。
+- 修复 AgentwikiQ 2 全部20项及附加两条接入协议问题，完成正式发布、服务器部署和逐项验收。
 
 # 范围 / 不做
 
-- 本轮修复问题清单 #3：成功和错误 Toast 均三秒自动关闭；其余缺陷未处理。
-- 不发布 Local Sync 或 sync protocol，不执行数据库迁移。
+- 本线程修复、审查、包发布、TLS及生产部署均获用户授权。
+- 保留生产已有Assist修复，保留日常Vault与主仓脏文件；不弱化TLS/完整性/CAS/Agent权限。
 
 # 当前状态
 
-- GitHub v0.12.10 发布提交：484e3f16318573dbe56d9a84dfca7e342eeed499。
-- RED 4 fail / 7 pass；GREEN 11 pass；客户端111文件/1526测试通过。
-- 最终服务端153套件/2666测试通过，26测试跳过；本地build、typecheck、lint、33项版本契约通过。
-- 根pnpm test在数据库运行时门禁退出1（缺少隔离数据库配置及既有迁移哈希不匹配），不可称全仓验收通过。
-- 2026-10-01 02:06（北京时间）生产更新为0.12.10，API/Worker/Frontend active，公网health五项ok。
-- 生产树为上一生产树叠加八文件发布补丁，保留未进入GitHub候选的Assist修复；不是tag的完整逐字节副本。
-- 暂存应用构建通过；Local Sync构建缺SDK模块失败，部分dist已隔离，保持生产原先无Local Sync dist状态。
-- 公网入口引用新Toast bundle，哈希与服务器一致，已确认三秒定时器无success专属限制；尚未做登录态向导实测。
+- 基线1335765cd，生产0.12.10。20项复核结果：16有缺口，Toast组件上线，插件/图谱/颜色原场景待验收。
+- 开始按9组修复计划顺序实施；新鲜实现代理与独立任务审查，最终整分支审查。
+- 基线根测试存在隔离DB配置及迁移哈希缺口，最终门禁需解决。
 
 # 稳定约束
 
-- 主仓和本worktree路径末尾空格；Git显式--work-tree，保留原主工作区脏文件。
-- 发布、部署、健康检查、真实页面验收分别报告。
-- 不以GitHub tag覆盖线上尚未收录的修复。
-- Folder为目录，Page承载正文；权限、CAS与treeRevision保留。
+- 路径末尾空格；所有git显式--work-tree，勿改core.worktree。
+- 不以完整tag覆盖生产未收录的Assist修复。
+- 平台管理员无真实空间成员关系只能读；验证/验收不能由任务状态造假完成。
 
 # 关键索引
 
-- agentwiki/docs/releases-v0.12.10.md
-- agentwiki/apps/client/src/components/Toast.tsx
-- agentwiki/apps/client/src/components/Toast.spec.tsx
-- 配对备份：/var/backups/agentwiki/toast-v01210-20261001020626
-- 上一应用：/root/agentwiki-previous-toast-20261001020626
+- agentwiki/docs/superpowers/plans/2026-10-01-q2-defect-closure.md
+- .superpowers/sdd/2026-10-01-q2-defect-closure/progress.md
+- 测试报告AgentwikiQ 2/复核结果-2026-10-01.md（原主工作区）
 
 # 风险 / 下一步
 
-- 已打开的旧浏览器标签页需刷新以加载新资源。
-- 其余缺陷、全仓隔离数据库门禁、Local Sync构建环境和登录态向导实测未闭环。
-- SSH使用临时control socket认证，勿记录或输出密码。
+- 公网TLS终止点47.108.85.222与应用服务器不同；需修实际终止点证书链。
+- 先修公开包契约，再权限/界面/协作/看板/插件，最后发布部署验收。
