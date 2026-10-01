@@ -20,7 +20,7 @@ Recorded validation before final release:
 
 Remaining release/deployment gates:
 
-- Finish and independently review taskboard hierarchy/status closure, then perform a whole-branch independent review and rerun full applicable regression, typecheck, lint and build on the final candidate. The earlier full-client gate had four stale assertion failures, and the initial bundle exceeded the 550000-byte budget; follow-up work is tracked separately and no budget increase or final full-build success is claimed here.
+- Finish and independently review taskboard hierarchy/status closure, then perform a whole-branch independent review and rerun full applicable regression, typecheck, lint and build on the final candidate. The client follow-up 4cbe5bb6 was independently reviewed: 116 files / 1618 tests passed, typecheck/lint/client build passed, and initial JS is 546154 / 550000 bytes with no budget increase. Final whole-repository gates remain pending until the taskboard candidate is included.
 - Stage the complete build/root dependencies before production writes and reconcile the preserved live Assist fixes. Compare deployment inputs and migration inventories; avoid unneeded migrations.
 - While writers are stopped, create and verify a paired PostgreSQL/attachments rollback snapshot and manifest before activation. Retain the previous application and static assets.
 - Publish the application release, deploy the reviewed candidate, and verify API/Worker/Frontend health plus real business/browser behavior for all 20+2 items. Reverify official npm device/code publisher onboarding with actual MCP page reads, and rerun the official plugin public sync checks against the deployed candidate.
