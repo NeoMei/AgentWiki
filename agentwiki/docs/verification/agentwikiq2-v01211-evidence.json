@@ -1,0 +1,78 @@
+{
+  "release": "0.12.11",
+  "deployedCode": "5638dd8dc2fa961f29e436d095da23ad983846cb",
+  "sourceFiles": 1421,
+  "backup": "/var/backups/agentwiki/q2-v01211-20261001182522",
+  "testFull": {
+    "passed": 5928,
+    "failed": 0,
+    "skipped": 6
+  },
+  "registry": {
+    "version": "0.10.2",
+    "registry": 200,
+    "sha1": "4723623a626c674fa8051c465bf805c95e943393",
+    "verifiedAt": "2026-10-01T10:41:58.802Z",
+    "linuxEmptyInstall": "PUBLIC_LINUX_GATEWAY_IMPORT_PASS"
+  },
+  "business": {
+    "release": "0.12.11",
+    "startedAt": "2026-10-01T10:53:09.852Z",
+    "results": {
+      "Q1": "PASS",
+      "Q2": "PASS",
+      "Q3": "PASS",
+      "Q4": "PASS",
+      "Q5": "PASS",
+      "Q8": "PASS",
+      "Q9": "PASS",
+      "Q10": "PASS",
+      "Q11": "PASS",
+      "Q12": "PASS",
+      "Q13": "PASS",
+      "Q14": "PASS",
+      "Q15": "PASS",
+      "Q16": "PASS",
+      "Q17": "PASS",
+      "Q18": "PASS",
+      "Q19": "PASS",
+      "Q20": "PASS"
+    },
+    "cleaned": true,
+    "q10FeatureOff": false,
+    "pausedSupplement": true,
+    "coverageBoundaries": {
+      "Q10": "Binding API and Chrome PASS; feature-off production branch NOT_RUN because canCreate=true.",
+      "Q17": "Uploaded PNG read/editor preview/keyboard zoom PASS; external HTTPS image NOT_RUN.",
+      "Q18": "Late single-child, arbitrary depth, viewport and stage status PASS; multiple-child overflow NOT_RUN.",
+      "Q6_Q7": "Independent plugin harness owned by controller; not included here.",
+      "onboarding_TLS": "Independent harness/controller evidence; not included here.",
+      "Q12": "Running re-entry and post-review continuation PASS; paused UI resume then running continuation PASS. Waiting-review continuation not separately asserted."
+    },
+    "evidence": {
+      "base": "results-original.json + run-resume.log",
+      "collaboration": "results-supplemental.json + run-supplemental.log",
+      "Q11": "results-review-only.json + run-review-only.log + q11-review-text.json",
+      "Q12_paused": "run-paused-only.log",
+      "deployment": "deployment-confirm.json"
+    }
+  },
+  "plugin": {
+    "version": "0.5.6",
+    "checks": 20,
+    "ok": true,
+    "cleanup": true,
+    "bundleSha256": "5b7b307039dac8dc6613f942f5f5d8387f3164c0456b4940eccbd51030fb3614",
+    "boundary": "disk host shim, not native GUI/Windows/v3"
+  },
+  "onboarding": {
+    "device": true,
+    "code": true,
+    "rawServerPlan": true,
+    "scopes": 16,
+    "tamperRejection": true,
+    "McpPageRead": true,
+    "cleanup401": true
+  },
+  "githubRelease": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.11"
+}

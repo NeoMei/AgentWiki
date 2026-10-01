@@ -17,7 +17,7 @@
 |9|审核加载/刷新|真实ingest后已打开review页加载/刷新通过|
 |10|独立页面/目录绑定|Task2独立审查、本地feature-off/DB覆盖；公网独立绑定API/UI通过，生产开关开启|
 |11|人工审核文案|真实MCP提交→pending→Chrome通过→人工审核/已通过中文文案通过|
-|12|重新进入继续指令|running/waiting重入通过，不改变version/status/eventSequence；paused使用恢复运行语义|
+|12|重新进入继续指令|running重入/审核后继续通过，不改变version/status/eventSequence；paused真实恢复通过；waiting_review单独读取未覆盖|
 |13|协作布局|真实桌面/390px几何、独立滚动与无横向溢出通过|
 |14|图谱标签|真实22长中英标题，缩放/边界/无重叠/完整选择通过|
 |15|来源运行结果|真实运行结果/产物/审核链通过|
@@ -37,6 +37,6 @@
 
 公网证据：Chrome18项主路径结果分首轮/恢复/独立补验取得，最终全部PASS且cleaned=true；最初选择器与页面加载竞态导致的harness失败保留，未据此更改产品。正式插件0.5.6 SHA256 5b7b307039dac8dc6613f942f5f5d8387f3164c0456b4940eccbd51030fb3614，20项及cleanup全部通过。双publisher设备/码接入/MCP读页与cleanup均exit0。
 
-未覆盖边界：生产模板开关开启，Q10 feature-off公网场景未验证；插件原生GUI/Windows/v3附件未运行；Q17外部HTTPS图片与Q18多子溢出未另建公网夹具。Q12 paused真实pause→Chrome恢复运行→resume200/running→新继续指令附加路径通过，pausedSupplement=true。以上不计PASS，不将计划视为完成。
+未覆盖边界：Q12 waiting_review单独读取继续指令未断言；生产模板开关开启，Q10 feature-off公网场景未验证；插件原生GUI/Windows/v3附件未运行；Q17外部HTTPS图片与Q18多子溢出未另建公网夹具。Q12 paused真实pause→Chrome恢复运行→resume200/running→新继续指令附加路径通过，pausedSupplement=true。以上不计PASS，不将计划视为完成。
 
-GitHub release v0.12.11 对应已部署执行代码5638dd8d，后续文档提交仅更新验收记录。发布命令结果以GitHub实际页面为准。
+GitHub正式release [v0.12.11](https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.11) 已于2026-10-01 18:56 CST发布（isDraft=false），标签对应已部署执行代码5638dd8d；master已推送后续仅文档的验收记录提交。
