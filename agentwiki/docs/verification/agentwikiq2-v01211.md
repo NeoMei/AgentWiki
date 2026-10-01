@@ -1,42 +1,42 @@
 # AgentwikiQ 2 修复与发布验收
 
-当前状态：进行中。应用尚未发布/部署0.12.11，不宣称全部已修复。
+2026-10-01：应用0.12.11已部署，Local Sync0.10.2/protocol0.6.1正式公开。20项及2条附加接入问题的修复代码均已实施和独立审查；真实主路径验收通过，未覆盖边界仍保留，不能宣称每个环境均验收完成。
 
-权威原报告：主工作区 测试报告/AgentwikiQ 2/问题清单-缺陷详情09-29.md、agentwiki-onboard-diagnosis.md。基线1335765cd；工作树d35c末尾空格。
+权威原报告：主工作区 测试报告/AgentwikiQ 2/问题清单-缺陷详情09-29.md、agentwiki-onboard-diagnosis.md。基线1335765cd；部署执行代码5638dd8dc2fa961f29e436d095da23ad983846cb。
 
-|项|范围|实现/针对性检查|候选上线验收|
-|---|---|---|---|
-|1|去掉新Git来源|Task4 f74ff78d+edfa4f92+1ba9e1e2，独立复审通过|待部署|
-|2|协作中文|Task3 df8ffa92+1bea7636，独立复审通过|待部署|
-|3|Toast自动消失|既有0.12.10|待整体验收|
-|4|中文错误|Task3复审通过|待部署|
-|5|角色中文|Task3复审通过|待部署|
-|6|公网TLS|已补齐实际终止点证书链；Node默认信任200|已验证，最终复验待部署|
-|7|Obsidian目录/同步|正式0.5.6资产与真实公网20项通过|新服务部署后复验；非nativeGUI/Windows|
-|8|协作管理导航|Task3复审通过|待部署|
-|9|审核加载/刷新|Task4独立复审通过|待部署|
-|10|独立页面/目录绑定|Task2独立复审通过|待部署|
-|11|人工审核文案|Task3复审通过|待部署|
-|12|重新进入继续指令|Task5 421d29c2+8169bbac，256测试/本地Chrome布局/独立复审通过|待部署|
-|13|协作卡片布局|Task5 421d29c2+8169bbac，256测试/本地Chrome布局/独立复审通过|待部署|
-|14|图谱标签|Task6 5ad37040，137测试/Chrome2/独立审查通过|待部署|
-|15|来源运行结果|Task4独立复审通过|待部署|
-|16|非成员平台管理员只读|Task2复审通过；真实DB69项通过|待部署|
-|17|图片放大|Task6 5ad37040，页面/预览图片测试与独立审查通过|待部署|
-|18|看板子任务对齐|Task7 5d43006a，24客户端/50服务端/Chrome2通过，整分支审查通过|待部署|
-|19|实现阶段随任务状态更新|Task7 5d43006a，中央补丁/服务/MCP覆盖，不捏造验证验收|待部署|
-|20|待验收紫点|Task7 5d43006a，真实Chrome计算颜色与图例通过|待部署|
-|附1|一次性码publisher接入|protocol0.6.1公开；local-sync0.10.2候选双路径契约通过，正式包待2FA发布|正式包及新服务部署后复验|
-|附2|device-flow publisher接入|同上，保持rawServerPlan/16scopes/篡改拒绝|新服务部署后复验|
+|项|范围|实现与部署后的证据|
+|---|---|---|
+|1|移除新Git来源|Task4独立审查；真实来源选择/提交通过|
+|2|协作中文|Task3独立审查；真实系统协作Todo中文通过|
+|3|Toast自动消失|真实Chrome同Agent风险Toast自动隐藏通过|
+|4|中文错误|真实移除成员后的中文403及无编辑按钮通过|
+|5|角色中文|真实成员页读者/编辑者/发布者通过|
+|6|公网TLS|实际终止点补齐证书链；默认Node信任及五项health全部ok|
+|7|Obsidian目录/同步|正式0.5.6资产新生产公网20项通过；磁盘宿主，非nativeGUI/Windows/v3|
+|8|协作管理导航|真实Chrome跳转/管理tab与去除无关入口通过|
+|9|审核加载/刷新|真实ingest后已打开review页加载/刷新通过|
+|10|独立页面/目录绑定|Task2独立审查、本地feature-off/DB覆盖；公网独立绑定API/UI通过，生产开关开启|
+|11|人工审核文案|真实MCP提交→pending→Chrome通过→人工审核/已通过中文文案通过|
+|12|重新进入继续指令|running/waiting重入通过，不改变version/status/eventSequence；paused使用恢复运行语义|
+|13|协作布局|真实桌面/390px几何、独立滚动与无横向溢出通过|
+|14|图谱标签|真实22长中英标题，缩放/边界/无重叠/完整选择通过|
+|15|来源运行结果|真实运行结果/产物/审核链通过|
+|16|非成员平台管理员只读|自建human严格提权，9类写入403和Chrome只读，真实降权及JWT401清理通过；附件/review写拒绝也覆盖|
+|17|图片放大|真实PNG上传、页面/编辑预览、Enter/Escape/焦点及比例通过；外部HTTPS图未覆盖|
+|18|看板子任务对齐|真实Markdown晚父单子、深度与移动滚动通过；多子溢出未另建公网夹具|
+|19|实现阶段同步|真实UI状态写入，implementation同步且validation/acceptance独立保持通过|
+|20|待验收紫点|真实计算颜色rgb(133,100,196)通过|
+|附1|一次性码publisher|正式包真实code NDJSON安装/MCP读页通过；原始计划16scopes/篡改拒绝|
+|附2|device publisher|正式包真实device JSON授权安装/MCP读页通过；凭据/JWT401与临时文件清理|
 
-最终候选：`5638dd8dc2fa961f29e436d095da23ad983846cb`。逐任务与整分支复审，以及Linux导入/测试夹具增量审查全部Approved，0 Critical / 0 Important。GitHub分支`codex/q2-defect-closure-v01211`已推送并核对远端HEAD；尚未合并master或创建正式release。
+最终验证：逐任务及整分支独立审查、Linux导入与DB夹具增量审查全部Approved，0 Critical / 0 Important。完整pnpm test:full exit0：runtime263、DB216、server2754、client1630、protocol140、local-sync925，共5928 pass / 0 fail / 6既有或平台skip。DB零skip。类型/lint/build通过，lint3条既有unused参数warning；初始JS546154/550000B未提高预算。
 
-最终完整回归 `pnpm test:full` exit0（`/private/tmp/agentwiki-q2-final-fulltest-4.log`）：runtime263、数据库216、服务端2754、客户端1630、protocol140、Local Sync925，共5928 pass / 0 fail / 6既有或平台skip。数据库零skip。类型/lint/build通过；lint有3条既有unused参数warning。初始JS546154/550000B，未增加预算。4cbe5bb6文案196entries/语言及顺序保持。
+公开Local Sync0.10.2 SHA1：4723623a626c674fa8051c465bf805c95e943393，与候选一致；Linux空目录官方registry安装96包、CLIhelp/gatewayimport通过。公开0.10.1存在case-sensitive SDK导入错误，0.10.2已修复。protocol0.6.1不变。
 
-失败历史保留：首次并行构建清理dist造成两处模块导入失败；后续DB夹具遇到PostgreSQL TIMESTAMP(3)与JS毫秒取整的1ms竞态。5638dd8d仅将两处已应到期的测试任务设为明确过去时间，生产重试/栅栏及断言不变，独立审查和最终完整重跑通过。
+生产部署2026-10-01 18:25 CST：1421源码文件清单核验5638dd8d一致，API/worker/frontend三服务active，公网默认TLS健康五项ok。数据库/附件配对备份 /var/backups/agentwiki/q2-v01211-20261001182522，dump SHA256 94747403318aadd04fef40282d8ba51f41b29963af63d2b25cc5403cc011e8de；manifest SHA256 e086baf58f6529efa865a5514eb46c07ecdd56a0ad51f139ae97934ad788a43f。60个迁移文件字节一致，无迁移执行；三份Assist修复保留，旧应用与1848客户端资产保留。
 
-Linux暂存构建发现MCP SDK `streamablehttp.js`导入大小写错误；公开0.10.1亦有该缺陷。d62655b5修复为实际`streamableHttp.js`并准备Local Sync0.10.2。候选包干净安装、双publisher原始计划/16scopes/篡改拒绝及Linux CLI/gateway导入通过。protocol0.6.1保持已发布不变。0.10.2正式包尚未发布：npm要求账户安全密钥验证，等待用户硬件认证，registry当前404。
+公网证据：Chrome18项主路径结果分首轮/恢复/独立补验取得，最终全部PASS且cleaned=true；最初选择器与页面加载竞态导致的harness失败保留，未据此更改产品。正式插件0.5.6 SHA256 5b7b307039dac8dc6613f942f5f5d8387f3164c0456b4940eccbd51030fb3614，20项及cleanup全部通过。双publisher设备/码接入/MCP读页与cleanup均exit0。
 
-服务器暂存候选完整构建、Assist预检、1421文件哈希核验通过；最终archive SHA256 `60abdb51392b9d1e01a2645f1c781127e1c4bcc2757427b54143d22ae70ff472`。保留1848个既有客户端资产，三份Assist修复源文件与生产一致，60个迁移文件字节一致，无需迁移。生产仍0.12.10，API/worker/frontend均active。部署时的配对备份/原子激活及真实公网20+2业务验收尚未执行，不能将暂存构建视为部署完成。
+未覆盖边界：生产模板开关开启，Q10 feature-off公网场景未验证；插件原生GUI/Windows/v3附件未运行；Q17外部HTTPS图片与Q18多子溢出未另建公网夹具。Q12 paused恢复附加路径独立记录，不把running/waiting通过自动推断为paused通过。以上不计PASS，不将计划视为完成。
 
-剩余门禁：用户完成npm硬件2FA → 0.10.2公开包与Linux干净安装核验 → 配对备份及候选激活 → 真实onboarding、插件与Chrome业务验收/补充原场景 → 正式GitHub release。
+GitHub正式release及最终记录状态将由发布命令的实际结果补充。部署提交与后续只改文档的发布提交分别记录。

@@ -9,12 +9,12 @@
 
 # 当前状态
 
-- 基线1335765cd，生产0.12.10。20项复核结果：16有缺口，Toast组件上线，插件/图谱/颜色原场景待验收。
+- 基线1335765cd；20项及2条附加接入问题修复候选5638dd8d已部署生产0.12.11，服务正常。
 - 按9组修复计划顺序实施。Task1接入契约与Task2权限/绑定已独立审查通过；Task3中文与协作入口已独立复审通过；Task4来源/审核刷新已独立复审通过；Task5继续指令与协作布局421d29c2+8169bbac独立复审通过；Task6图谱/图片5ad37040独立审查通过；Task3全仓文案断言/初始JS预算修正4cbe5bb6独立审查通过；完整客户端1618项/类型/lint/build通过，初始JS546154/550000B。
-- npm protocol0.6.1已发布。公开Local Sync0.10.1存在Linux文件名大小写缺陷；0.10.2候选已修复、独立审查、干净安装与Linux运行验证通过，但正式发布等待npm硬件2FA。
-- 插件0.5.6正式资产真实公网v2/PullPush/恢复/目录20项通过；非原生GUI，待新服务部署后复验。
+- npm protocol0.6.1/LocalSync0.10.2正式公开，0.10.2 SHA1 4723623a626c674fa8051c465bf805c95e943393与候选一致；Linux公网干净安装、CLI/gateway运行通过。旧0.10.1存在Linux文件名大小写缺陷，已用新patch修复。
+- 插件0.5.6正式资产新服务公网v2/PullPush/恢复/目录20项通过且清理成功；非原生GUI/Windows/v3。双publisher device/code正式公网接入、16scopes/rawplan/tamper/MCP读页及凭据/JWT401清理通过。
 - 最终候选5638dd8dc2fa961f29e436d095da23ad983846cb完整回归exit0：runtime263/DB216/server2754/client1630/protocol140/local-sync925，共5928通过、0失败、6既有或平台skip；类型/lint/build通过，lint有3条既有warning。Task7和整分支及Linux/测试夹具增量审查通过。
-- 已推送GitHub分支codex/q2-defect-closure-v01211，远端HEAD核对一致。未合并master、未创建0.12.11 release、未激活生产。Linuxstage1421文件哈希与候选一致，构建/Assist预检通过，迁移无需执行。
+- 已推送GitHub分支codex/q2-defect-closure-v01211，远端HEAD核对一致。未合并master、未创建0.12.11 release。生产1421文件哈希与候选5638dd8d一致，三服务active/publicTLS健康五项ok；Assist保留，迁移无需执行。
 
 # 稳定约束
 
@@ -31,5 +31,5 @@
 # 风险 / 下一步
 
 - 公网TLS终止点47.108.85.222证书链已补齐；Node默认信任健康200。npm已验证发布；DB迁移审查哈希已更新并通过runtime门禁。
-- npm安全密钥验证链接曾超时；必须用户完成硬件验证后重新确认0.10.2公开包与Linux干净安装，才能激活应用。现生产0.12.10三服务active。
-- 激活脚本已准备，部署时创建数据库+附件配对备份、核验清单后原子切换；随后运行真实onboarding/插件/Chrome业务验收及报告补充场景。全部20+2的生产闭环仍待完成，不能宣称全部已修复部署。
+- 配对备份/var/backups/agentwiki/q2-v01211-20261001182522已核验，旧应用保留；npm硬件认证已成功不再阻塞。
+- Chrome Q1..5/Q8..10/Q12..20实际检查通过，Q11审核提交/通过成功但文案断言加载竞态正在独立补验；原fixture全部清理。Q10生产模板开关开启，feature-off边界公网未覆盖；Q17外部HTTPS图片/Q18多子溢出亦待补验。正式release及最终ledger更新待完成，不宣称全部原场景均通过。

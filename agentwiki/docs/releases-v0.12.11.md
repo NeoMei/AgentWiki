@@ -1,6 +1,6 @@
 # AgentWiki v0.12.11 release preparation
 
-Status (2026-10-01): local application candidate. GitHub release, production deployment and final Q2 live acceptance are pending. This document does not declare all 20 defects and both onboarding issues closed. The item-level evidence and remaining gates are tracked in [AgentwikiQ 2 verification](verification/agentwikiq2-v01211.md).
+Status (2026-10-01): application 0.12.11 is deployed and the required Q2 live acceptance paths passed. Remaining environment boundaries are listed in [AgentwikiQ 2 verification](verification/agentwikiq2-v01211.md).
 
 Changes implemented and independently reviewed so far:
 
