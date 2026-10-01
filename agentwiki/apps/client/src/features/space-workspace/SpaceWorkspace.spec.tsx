@@ -243,7 +243,7 @@ describe('SpaceWorkspace', () => {
     expect(screen.getByRole('link', { name: 'Pages' })).toHaveAttribute('href', '/spaces/space-known');
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    expect(await screen.findByText('You do not have permission to perform this action.')).toBeVisible();
+    expect(await screen.findByText('You do not have permission to perform this action. Ask the Space owner or administrator to check your member role, then retry.')).toBeVisible();
     expect(screen.queryByRole('link', { name: 'Pages' })).not.toBeInTheDocument();
   });
 
@@ -507,7 +507,8 @@ describe('SpaceWorkspace', () => {
     </MemoryRouter></LanguageProvider>);
 
     expect(await screen.findByRole('heading', { name: 'Still readable' })).toBeInTheDocument();
-    expect(await screen.findByText('Space forbidden')).toBeInTheDocument();
+    expect(await screen.findByText('You do not have permission to perform this action. Ask the Space owner or administrator to check your member role, then retry.')).toBeInTheDocument();
+    expect(screen.queryByText('Space forbidden')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Still readable' })).toBeInTheDocument();
     await new Promise((resolve) => setTimeout(resolve, 25));
     expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/pages/page-locked')).toHaveLength(1);

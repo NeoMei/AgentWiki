@@ -1,0 +1,20 @@
+{
+  "red": 1,
+  "buildRed": 1,
+  "catalogEquality": 0,
+  "fullClient": 0,
+  "typecheck": 0,
+  "lint": 1,
+  "scopedLint": 0,
+  "buildGreen": 0,
+  "diffCheck": 0,
+  "initialJavaScriptBefore": 554817,
+  "initialJavaScriptAfter": 546154,
+  "budget": 550000,
+  "pollingFocused": 0,
+  "lintFinal": 0,
+  "typecheckFinal": 0,
+  "fullClientFinal": 0,
+  "buildFinal": 0,
+  "diffCheckFinal": 0
+}

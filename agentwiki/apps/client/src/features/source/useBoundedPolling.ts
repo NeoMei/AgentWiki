@@ -12,7 +12,7 @@ export function useBoundedPolling(key: string | null, enabled: boolean, refresh:
     let timer: ReturnType<typeof setTimeout>;
     setActive(true);
     const tick = async () => {
-      let terminal = false;
+      let terminal: boolean;
       try { terminal = (await refreshRef.current()) === true; }
       catch { terminal = true; } // The caller displays a retryable request error.
       if (disposed) return;
