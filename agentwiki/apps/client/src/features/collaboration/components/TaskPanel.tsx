@@ -15,10 +15,10 @@ export const TaskPanel: React.FC<{
 }> = ({ run, systemTemplate, role, userId, t, onHistory, onAction, agentNames = new Map() }) => {
   const display = (value: string) => systemTemplateText(systemTemplate, value, t);
   const manager = role === 'owner' || role === 'admin';
-  const canOperate = manager || run.startedById === userId;
+  const canOperate = !!role && (manager || run.startedById === userId);
   const tasks = [...(run.tasks ?? [])].sort((a, b) => a.ordinal - b.ordinal);
   return (
-    <main data-testid="dashboard-section-current-task" className="order-2 min-w-0 space-y-4 lg:col-start-2 lg:row-span-3">
+    <main data-testid="dashboard-section-current-task" className="order-2 min-h-0 min-w-0 space-y-4 lg:overflow-y-auto lg:overscroll-contain lg:col-start-2 lg:row-span-3">
       <h2 className="text-lg font-semibold">{t('collaboration.dashboard.tasks')}</h2>
       {!tasks.length ? <div className="rounded-xl border bg-white py-10 text-center text-sm text-gray-500">{t('collaboration.dashboard.noTasks')}</div> : tasks.map((task) => {
         const activeAttempt = [...task.attempts].reverse().find((attempt) => ['claimed', 'running'].includes(attempt.status));

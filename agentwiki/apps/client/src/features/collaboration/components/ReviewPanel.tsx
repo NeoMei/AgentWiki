@@ -22,7 +22,7 @@ export const ReviewPanel: React.FC<{
   onResolveConflict: (kind: 'regenerate' | 'adopt_current', review: CollaborationReview, comparison: CollaborationPageReviewComparison) => void;
   isHumanMember?: boolean;
 }> = ({ run, spaceId, t, artifacts, artifactErrors, detail, resolvingConflict, onLoadDetail, onRetryArtifact, onHistory, onDecision, onResolveConflict, isHumanMember = false }) => (
-  <section data-testid="dashboard-section-reviews" className="order-3 min-w-0 rounded-xl border bg-white p-4 lg:col-start-3 lg:row-start-1">
+  <section data-testid="dashboard-section-reviews" className="order-3 min-h-0 min-w-0 rounded-xl border bg-white p-4 lg:overflow-y-auto lg:overscroll-contain lg:col-start-3 lg:row-start-1">
     <h2 className="font-semibold">{t('collaboration.dashboard.reviews')}</h2>
     <div className="mt-3 space-y-3">{(run.reviews ?? []).length ? (run.reviews ?? []).map((review) => {
       const pageReview = Boolean(review.pagePublication || run.tasks?.some((task) => task.id === review.sourceTaskId && task.targetPageId));
