@@ -11,4 +11,3 @@ $ tsc -p tsconfig.cjs.json && node scripts/write-cjs-package.mjs
       Tests  1618 passed (1618)
    Start at  15:11:53
    Duration  16.59s (transform 5.28s, setup 17.04s, import 25.46s, tests 52.37s, environment 37.79s)
-
