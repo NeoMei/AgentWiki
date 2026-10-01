@@ -11,6 +11,7 @@ import remarkMath from 'remark-math';
 import remarkBreaks from 'remark-breaks';
 import 'katex/dist/katex.min.css';
 import { useLanguage } from '../context/LanguageContext';
+import { ZoomableImage } from './ZoomableImage';
 import { AttachmentImage } from '../features/attachments/AttachmentImage';
 import { isExternalHref, isInternalPageHref, PageLinkTarget, resolveWikiHref } from './markdownLinks';
 import { KATEX_OPTIONS } from './markdown/math';
@@ -317,6 +318,7 @@ const AgentWikiImage = ({ node }: AgentWikiNodeProps) => {
   }
   return (
     <AttachmentImage
+      enlarge
       attachmentId={resource.attachmentId}
       displayName={resource.displayName}
       mimeType={resource.mimeType}
@@ -449,6 +451,7 @@ const SafeImage = ({ src, alt = '', node: _node, ...rest }: SafeImageProps) => {
     return (
       <AttachmentImage
         {...rest}
+        enlarge
         attachmentId={resource.attachmentId}
         displayName={resource.displayName}
         mimeType={resource.mimeType}
@@ -462,7 +465,8 @@ const SafeImage = ({ src, alt = '', node: _node, ...rest }: SafeImageProps) => {
   }
 
   return (
-    <img
+    <ZoomableImage
+      key={source}
       {...rest}
       src={source}
       alt={alt}

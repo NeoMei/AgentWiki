@@ -25,6 +25,7 @@ describe('KnowledgeGraph origin filters', () => {
       arc: vi.fn(),
       fill: vi.fn(),
       fillText: vi.fn(),
+      measureText: (text: string) => ({ width: [...text].length * 8 }),
     } as unknown as CanvasRenderingContext2D);
   });
 
@@ -62,6 +63,22 @@ describe('KnowledgeGraph origin filters', () => {
     await waitFor(() => {
       expect(screen.getByText('自动·链接')).toHaveClass('line-through');
     });
+  });
+
+  it('measures label widths and explains hidden labels in a dense viewport', async () => {
+    const measureText = vi.fn((text: string) => ({ width: [...text].length * 14 }));
+    const ctx = HTMLCanvasElement.prototype.getContext.call(document.createElement('canvas'), '2d')!;
+    Object.assign(ctx, { measureText });
+    vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 180, 100));
+    const dense = Array.from({ length: 30 }, (_, i) => node(`p${i}`, `很长的知识图谱标题 English ${i}`));
+    api.get.mockImplementation((url: string) => Promise.resolve({ data: url.includes('/knowledge/graph/')
+      ? { nodes: dense, edges: [] } : { data: dense } }));
+    render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/s1/graph']}>
+      <Routes><Route path='/spaces/:spaceId/graph' element={<KnowledgeGraph />} /></Routes>
+    </MemoryRouter></LanguageProvider>);
+    await screen.findByRole('combobox', { name: '浏览图谱节点' });
+    expect(measureText).toHaveBeenCalled();
+    expect(screen.getByText(/个标题因空间不足/)).toBeInTheDocument();
   });
 
   it('offers a keyboard-accessible node browser alongside the visual canvas', async () => {
@@ -147,7 +164,7 @@ describe('KnowledgeGraph canvas navigation', () => {
       scale() {},
       setTransform(a: number, b: number, c: number, d: number, e: number, f: number) { transform = [a, b, c, d, e, f]; },
       clearRect() { drawn = []; },
-      beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, fill() {}, fillText() {},
+      beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, fill() {}, fillText() {}, measureText(text: string) { return { width: [...text].length * 8 }; },
       arc(x: number, y: number, radius: number) {
         const dpr = window.devicePixelRatio || 1;
         drawn.push({ x: (x * transform[0] + transform[4]) / dpr,

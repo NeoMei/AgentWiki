@@ -1,5 +1,6 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { LanguageProvider } from '../../context/LanguageContext';
 import { AttachmentImage } from './AttachmentImage';
 
 const mocks = vi.hoisted(() => ({ fetchAttachmentBlob: vi.fn() }));
@@ -51,6 +52,25 @@ describe('AttachmentImage', () => {
 
     unmount();
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:first');
+  });
+
+  it('enlarges the existing Blob URL once and closes before replacement and unmount', async () => {
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    mocks.fetchAttachmentBlob.mockResolvedValue(new Blob(['first']));
+    const image = (id: string) => <LanguageProvider><AttachmentImage enlarge attachmentId={id} displayName="diagram.png" /></LanguageProvider>;
+    const { rerender, unmount } = render(image('first'));
+    const opener = await screen.findByRole('button', { name: 'Enlarge image: diagram.png' });
+    opener.focus(); fireEvent.click(opener);
+    expect(screen.getByRole('dialog').querySelector('img')).toHaveAttribute('src', 'blob:first');
+    expect(mocks.fetchAttachmentBlob).toHaveBeenCalledTimes(1);
+    rerender(image('second'));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:first');
+    fireEvent.click(await screen.findByRole('button', { name: 'Enlarge image: diagram.png' }));
+    unmount();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:second');
+    expect(document.body.querySelector('[inert]')).toBeNull();
   });
 
   it('uses explicit alt and renders a bounded error frame on a current failure', async () => {
