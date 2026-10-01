@@ -246,6 +246,26 @@ describe('RunDashboard', () => {
     expect(screen.queryByRole('button', { name: 'Get continuation instructions' })).not.toBeInTheDocument();
   });
 
+  it.each([['owner', 'editor'], ['owner', 'viewer'], ['owner', 'revoked'], ['admin', 'editor'], ['admin', 'viewer'], ['admin', 'revoked']] as const)('removes existing continuation text and copy controls after %s membership becomes %s', async (initialRole, nextRole) => {
+    const current = { ...runningRun, joinInstructions: [{ agentId: 'agent-1', roleSlotIds: ['writer'], taskIds: ['task-1'] }] };
+    renderDashboard(current, initialRole, 'owner-1');
+    fireEvent.click(await screen.findByRole('button', { name: 'Get continuation instructions' }));
+    await screen.findByText(/wiki_collaboration_join_run/u);
+    expect(screen.getByRole('button', { name: 'Copy resume instruction' })).toBeVisible();
+    vi.mocked(collaborationApi.listMembers).mockResolvedValueOnce(nextRole === 'revoked' ? [] : [{ type: 'human', userId: 'owner-1', role: nextRole }]);
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(collaborationApi.listMembers).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Get continuation instructions' })).not.toBeInTheDocument());
+    expect(screen.queryByText(/wiki_collaboration_join_run/u)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Copy resume instruction' })).not.toBeInTheDocument();
+    // Eligibility returning must not resurrect an instruction erased by revocation.
+    vi.mocked(collaborationApi.listMembers).mockResolvedValueOnce([{ type: 'human', userId: 'owner-1', role: 'owner' }]);
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await screen.findByRole('button', { name: 'Get continuation instructions' });
+    expect(screen.queryByText(/wiki_collaboration_join_run/u)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Copy resume instruction' })).not.toBeInTheDocument();
+  });
+
   it('bounds desktop cards while retaining mobile flow', async () => {
     renderDashboard(runningRun, 'owner', 'owner-1');
     await screen.findByLabelText('Running status');

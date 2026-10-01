@@ -230,7 +230,10 @@ export const RunDashboard: React.FC = () => {
   };
 
   useEffect(() => {
-    if (state.kind === 'error' || membersError || (!membersLoading && !humanRole)) {
+    const retainedEligible = instructionMode.current === 'read'
+      ? !!humanRole && !!run && canContinue(run, humanRole, user?.id, false)
+      : !!humanRole;
+    if (state.kind === 'error' || membersError || (!membersLoading && !retainedEligible)) {
       setResumeInstructions([]);
       return;
     }
@@ -241,9 +244,11 @@ export const RunDashboard: React.FC = () => {
     if (!allowedStatus || (instructionSnapshot.current && instructionSnapshot.current !== instructionIdentity(state.value))) {
       setResumeInstructions([]);
     }
-  }, [state, humanRole, membersLoading, membersError]);
+  }, [state, humanRole, membersLoading, membersError, run, user?.id]);
 
-  const showResumeInstructions = resumeInstructions.length > 0 && !!humanRole && !membersError && !membersLoading && state.kind !== 'error';
+  const showResumeInstructions = resumeInstructions.length > 0 && !!humanRole && !!run
+    && (instructionMode.current === 'mutation' || canContinue(run, humanRole, user?.id, false))
+    && !membersError && !membersLoading && state.kind !== 'error';
 
   const getContinuation = async () => {
     if (state.kind !== 'ready' || state.updating || continuationLoading || !run || !humanRole || !canContinue(run, humanRole, user?.id)) return;
