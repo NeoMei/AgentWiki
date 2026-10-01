@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.12.10** — Success and error toast notifications dismiss automatically after three seconds. Current published Local Sync is 0.10.0 / sync protocol 0.6.0; the source candidate corrects publisher onboarding with Local Sync 0.10.1 / protocol 0.6.1.
+> **v0.12.11 candidate** — Q2 fixes cover Agent onboarding, permissions, collaboration guidance, knowledge-graph labels and image enlargement. Published Local Sync 0.10.1 / sync protocol 0.6.1 correct publisher onboarding. Application release, deployment and final live acceptance remain pending; see [release preparation](docs/releases-v0.12.11.md).
 
 
 ## Hosted Service
@@ -164,11 +164,11 @@ into reviewable AgentWiki knowledge. It installs the shared Agent Skill and the 
 The generated installation code is single-use and expires after 10 minutes. It is not
 a reusable API key. The public package page is
 [`@neomei/agentwiki-local-sync`](https://www.npmjs.com/package/@neomei/agentwiki-local-sync).
-Source and newly generated instructions target 0.10.1; the server continues to accept 0.9.0, 0.9.1, and 0.10.0 during this upgrade. The unified `onboard` command is the only recommended Agent connection path. Exchanging its one-time code atomically creates or updates the Space Grant, then creates an identity-only Credential bound to that Grant. There is no second Credential authorization or custom-scope path.
+Published Local Sync and newly generated instructions target 0.10.1; the server continues to accept 0.9.0, 0.9.1, and 0.10.0 during this upgrade. The unified `onboard` command is the only recommended Agent connection path. Exchanging its one-time code atomically creates or updates the Space Grant, then creates an identity-only Credential bound to that Grant. There is no second Credential authorization or custom-scope path.
 
-Published protocol 0.6.0 incorrectly includes `memory:read` and `memory:write` in
+The older published protocol 0.6.0 incorrectly includes `memory:read` and `memory:write` in
 publisher defaults. Current Agent memory synchronization is explicitly unsupported;
-protocol 0.6.1 matches the supported 16 publisher scopes. Old Local Sync 0.10.0
+published protocol 0.6.1 matches the supported 16 publisher scopes. Old Local Sync 0.10.0
 publisher onboarding fails integrity checks against this server and must upgrade
 for either device authorization or one-time-code installation. Reader/editor scope
 contracts and legacy version admission are retained; hashes and grants are never

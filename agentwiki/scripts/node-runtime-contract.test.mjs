@@ -701,7 +701,7 @@ test('application release versions and independent sync versions stay aligned', 
   const syncProtocolPackage = JSON.parse(await read('packages/sync-protocol/package.json'));
   assert.deepEqual(
     [rootPackage.version, serverPackage.version, clientPackage.version, localSyncPackage.version],
-    ['0.12.10', '0.12.10', '0.12.10', '0.10.1'],
+    ['0.12.11', '0.12.11', '0.12.11', '0.10.1'],
   );
   assert.equal(syncProtocolPackage.version, '0.6.1');
   assert.equal(rootPackage.scripts['test:e2e:collaboration-db'], 'node --test scripts/collaboration-workflows-db.test.mjs');
