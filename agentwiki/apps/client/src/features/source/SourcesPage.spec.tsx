@@ -86,6 +86,16 @@ describe('SourcesPage file upload', () => {
     expect(screen.getByText('active / 自定义来源')).toBeVisible();
   });
 
+  it.each([['zh-CN', '已归档', '发布中'], ['en', 'Archived', 'Publishing']])('shows archived source status and publishing run status in %s', async (locale, state, runState) => {
+    localStorage.setItem('agentwiki.language.v1', locale);
+    const source = { id: 's', name: 'Publisher / 来源名', type: 'git', status: 'archived', _count: { versions: 0, runs: 1 } };
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/sources/s' ? { ...source, versions: [], runs: [{ status: 'publishing', createdAt: '2026-10-01T00:00:00.000Z' }] } : [source] }));
+    renderPage(); fireEvent.click(await screen.findByRole('button', { name: /Publisher \/ 来源名/ }));
+    expect(await screen.findByText(state)).toBeVisible();
+    expect(screen.getByText(new RegExp(runState))).toBeVisible();
+    expect(screen.getByText('Publisher / 来源名')).toBeVisible();
+  });
+
   it('shows an explicit selected file and upload button', async () => {
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: '添加来源' }));

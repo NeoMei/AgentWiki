@@ -44,6 +44,14 @@ describe('RunsPage', () => {
     expect(screen.getByText(new RegExp(stage))).toBeVisible();
   });
 
+  it.each([['zh-CN', '发布中'], ['en', 'Publishing']])('shows the valid publishing stage in %s without changing source names', async (locale, stage) => {
+    localStorage.setItem('agentwiki.language.v1', locale);
+    vi.mocked(api.get).mockResolvedValue({ data: [run('r', 'Publisher / 自定义来源', 'publishing')] });
+    renderPage();
+    expect(await screen.findByText('Publisher / 自定义来源')).toBeVisible();
+    expect(screen.getByText(new RegExp(stage))).toBeVisible();
+  });
+
   it.each([
     ['GIT_UNAVAILABLE', /Git is unavailable/], ['GIT_TIMEOUT', /timed out/],
     ['GIT_ACCESS_FAILED', /repository access/], ['GIT_FETCH_FAILED', /fetch failed/],

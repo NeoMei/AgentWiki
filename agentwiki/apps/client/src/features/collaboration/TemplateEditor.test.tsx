@@ -55,6 +55,18 @@ describe('TemplateEditor', () => {
     vi.mocked(collaborationApi.updateTemplate).mockResolvedValue({ ...template, version: 2, name: 'Release workflow' });
   });
 
+  it.each([['en', 'Flow', 'Move up Todo 1', 'Move down Todo 1'], ['zh-CN', '流程', '上移 待办 1', '下移 待办 1']])('localizes Todo move controls without changing authored names in %s', async (locale, section, up, down) => {
+    localStorage.setItem('agentwiki.language.v1', locale);
+    render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1/collaboration/templates/template-1']}>
+      <Routes><Route path="/spaces/:id/collaboration/templates/:templateId" element={<TemplateEditor mode="edit" />} /></Routes>
+    </MemoryRouter></LanguageProvider>);
+    await screen.findByDisplayValue('Custom workflow');
+    fireEvent.click(screen.getByRole('button', { name: section }));
+    expect(screen.getByRole('button', { name: up })).toBeVisible();
+    expect(screen.getByRole('button', { name: down })).toBeVisible();
+    expect(screen.getByDisplayValue('Write')).toBeVisible();
+  });
+
   it.each([['Roles', 'Role ID'], ['Inputs', 'Input key']])('preserves focused %s row identity during typing and paste', async (section, label) => {
     renderEditor();
     await screen.findByDisplayValue('Custom workflow');

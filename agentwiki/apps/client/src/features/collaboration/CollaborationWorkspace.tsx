@@ -208,7 +208,7 @@ export const CollaborationWorkspace: React.FC = () => {
             <p className="mt-1 max-w-3xl text-sm text-gray-600">{t('collaboration.subtitle')}</p>
           </div>
           {canStart && catalogTab ? <div className="flex flex-wrap gap-2">
-            {canCreateComposite ? <button type="button" onClick={() => navigate(newContentHref(id, null, 'collaboration'))} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white">
+            {canCreateComposite && tab === 'templates' ? <button type="button" onClick={() => navigate(newContentHref(id, null, 'collaboration'))} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white">
               <Plus size={16} aria-hidden="true" />{t('collaboration.createCompositeRun')}
             </button> : null}
             {canManage && tab !== 'manage' ? <Link to={`/spaces/${id}/collaboration?tab=manage`} className="inline-flex min-h-10 items-center justify-center rounded-lg border px-4 text-sm font-medium">{t('collaboration.manageTemplates')}</Link> : null}

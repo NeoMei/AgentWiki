@@ -114,6 +114,7 @@ describe('CollaborationWorkspace', () => {
     expect(screen.getByRole('link', { name: create })).toHaveAttribute('href', '/spaces/space-1/collaboration/templates/new');
     expect(screen.queryByRole('link', { name: /Manage page templates|管理页面模板/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Start collaboration|启动协作/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Create page group collaboration|创建页面组协作/ })).not.toBeInTheDocument();
     act(() => navigateWorkspace('/spaces/space-1/collaboration?tab=manage'));
     expect(await screen.findByRole('heading', { name: label })).toBeVisible();
   });

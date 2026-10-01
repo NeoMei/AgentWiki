@@ -62,3 +62,24 @@ Plus this report.
 - Management can be deep-linked and uses real operations; it is neither a current-tab no-op nor a fake focus destination. Actual human Space membership still controls management; platform role is never elevated to owner.
 - Changed two previous assertions to new intended copy: network failure is the shared localized network message; graph-management guidance now uses Chinese human role names. Updated an old legacy-create assertion to the new clear label.
 - No known Task3 requirement remains deferred. Browser/live acceptance and whole-branch validation are separate controller gates, not claimed by unit DOM assertions.
+
+## Fix round 1 — independent review corrections
+
+Addressed both Important findings and both scoped Minor findings:
+
+1. Added valid `publishing` and `archived` runtime statuses to the bounded allowlist with English/Chinese mappings. RunsPage now renders Publishing/发布中, and SourcesPage renders Archived/已归档 plus the publishing run stage. Tests exercise those actual consumers with server-valid payloads and preserve an authored source name containing `Publisher`.
+2. Localized the four remaining shared Chinese role-guidance strings (wizard executable-agent criteria, Space publication gate, Agent approval-derived policy, and gateway publisher governance), preserving English equivalents. Updated the existing Chinese gate assertion to the localized role name. The shared role guidance test covers all four strings.
+3. FlowStepEditor move-Todo controls now use the existing localized `labels.todo` in their accessible labels. Added both-language TemplateEditor behavior tests, which also verify authored Todo `Write` remains unchanged.
+4. Management tab now hides the page-group collaboration launch action as well as template run-start actions; both-language navigation tests assert the action is absent while existing template management actions remain present.
+
+RED: extended behavior tests ran before edits. `/tmp/q2-task3-fix1-red.log` recorded 12 failed / 70 passed; ten failures reproduced valid-status omissions, raw Chinese guidance, and management launch presence. The two initial editor assertions used a mistaken section label (Workflow/工作流 instead of existing Flow/流程); corrected those labels, then `/tmp/q2-task3-fix1-tests2.log` independently reproduced the Chinese `上移 待办 1` accessible-label failure. No product change was made to satisfy the mistaken fixture labels.
+
+GREEN command:
+
+```sh
+pnpm --filter @agentwiki/client exec vitest run src/i18n/role-guidance.spec.ts src/features/collaboration/CollaborationWorkspace.test.tsx src/features/collaboration/TemplateEditor.test.tsx src/features/collaboration/RunStartWizard.test.tsx src/features/page-templates/compositeDefinitionEditor.spec.tsx src/features/space/SpaceSettings.spec.tsx src/features/space/AddSpaceMemberDialog.spec.tsx src/features/source/RunsPage.spec.tsx src/features/source/SourcesPage.spec.tsx
+```
+
+Result: **9 test files passed, 181/181 tests passed**, clean output (`/tmp/q2-task3-fix1-finaltests.log`). The executed command also named a nonexistent optional `runtime-label.spec.ts`; Vitest matched the nine real files above, so the evidence here lists only actual tests. Runtime behavior is tested through RunsPage/SourcesPage consumers.
+
+`pnpm --filter @agentwiki/client exec tsc --noEmit`: exit 0, no diagnostics (`/tmp/q2-task3-fix1-finaltypes.log`). Explicit-work-tree `git diff --check`: exit 0. Self-review confirmed only Task3 client files/report changed; all four findings addressed, no known requirement deferred.

@@ -351,7 +351,7 @@ describe('SpaceSettings auto graph card', () => {
   it('explains the complete Publisher auto-publish gate in Chinese', async () => {
     renderSettings();
 
-    expect(await screen.findByText(/Publisher Space 授权和 Space 发布策略同时允许/)).toBeInTheDocument();
+    expect(await screen.findByText(/发布者 Space 授权和 Space 发布策略同时允许/)).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/编辑权限和匹配的写入 Scope/);
   });
 
