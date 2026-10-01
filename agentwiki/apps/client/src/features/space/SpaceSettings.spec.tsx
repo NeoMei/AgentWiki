@@ -59,6 +59,14 @@ describe('SpaceSettings auto graph card', () => {
     });
   });
 
+  it.each([['zh-CN', '你没有权限执行此操作。请联系空间所有者或管理员确认成员角色后重试。'], ['en', 'You do not have permission to perform this action. Ask the Space owner or administrator to check your member role, then retry.']])('localizes a denied Space load in %s', async (locale, explanation) => {
+    localStorage.setItem('agentwiki.language.v1', locale);
+    api.get.mockRejectedValue({ response: { status: 403, data: { message: 'Forbidden English details' } } });
+    renderSettings();
+    expect(await screen.findByText(explanation)).toBeVisible();
+    expect(document.body).not.toHaveTextContent('Forbidden English details');
+  });
+
   it('renders the template card independently after the graph settings card', async () => {
     renderSettings();
 
@@ -333,7 +341,7 @@ describe('SpaceSettings auto graph card', () => {
 
     expect(await screen.findByRole('checkbox', { name: /Wiki 链接提取/ })).toBeDisabled();
     expect(screen.getByRole('button', { name: '立即刷新' })).toBeDisabled();
-    expect(screen.getByText('只有空间 Owner 或 Admin 可以修改和刷新。')).toBeInTheDocument();
+    expect(screen.getByText('只有空间所有者或管理员可以修改和刷新。')).toBeInTheDocument();
     const form = screen.getByRole('button', { name: '保存设置' }).closest('form');
     expect(form).not.toBeNull();
     fireEvent.submit(form!);

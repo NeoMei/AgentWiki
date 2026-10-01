@@ -104,13 +104,29 @@ describe('CollaborationWorkspace', () => {
     });
   });
 
-  it('manages collaboration templates in place while naming page templates separately', async () => {
-    renderWorkspace(); await screen.findByText('Coding collaboration');
-    const manage = screen.getByRole('button', { name: 'Manage collaboration templates' });
-    fireEvent.click(manage);
-    expect(screen.getByRole('tab', { name: 'Template library' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('tab', { name: 'Template library' })).toHaveFocus();
-    expect(screen.getByRole('link', { name: 'Manage page templates' })).toHaveAttribute('href', '/spaces/space-1/settings/page-templates');
+  it.each([['en', 'Manage collaboration templates', 'New collaboration template', 'Edit'], ['zh-CN', '管理协作模板', '新建协作模板', '编辑']])('opens a real deep-linked management tab in %s', async (language, label, create, edit) => {
+    renderWorkspace(language as 'en' | 'zh-CN'); await screen.findByText('Backend release');
+    fireEvent.click(screen.getByRole('link', { name: label }));
+    const management = await screen.findByRole('heading', { name: label });
+    expect(management).toHaveFocus();
+    expect(screen.getByRole('tab', { name: label })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('link', { name: edit })).toHaveAttribute('href', '/spaces/space-1/collaboration/templates/space-template');
+    expect(screen.getByRole('link', { name: create })).toHaveAttribute('href', '/spaces/space-1/collaboration/templates/new');
+    expect(screen.queryByRole('link', { name: /Manage page templates|管理页面模板/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Start collaboration|启动协作/ })).not.toBeInTheDocument();
+    act(() => navigateWorkspace('/spaces/space-1/collaboration?tab=manage'));
+    expect(await screen.findByRole('heading', { name: label })).toBeVisible();
+  });
+
+  it('keeps a nonmember platform admin outside template management', async () => {
+    vi.mocked(useAuth).mockReturnValue({ user: { id: 'owner-1', platformRole: 'super_admin' } } as ReturnType<typeof useAuth>);
+    vi.mocked(collaborationApi.listMembers).mockResolvedValue([]);
+    renderWorkspace(); await screen.findByText('Backend release');
+    expect(screen.queryByRole('link', { name: 'Manage collaboration templates' })).not.toBeInTheDocument();
+    act(() => navigateWorkspace('/spaces/space-1/collaboration?tab=manage'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Only Space owners and administrators can manage templates.');
+    expect(screen.queryByRole('heading', { name: 'Manage collaboration templates' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
   });
 
   it('routes the collaboration entry to the creation page with its source context', async () => {
@@ -163,7 +179,7 @@ describe('CollaborationWorkspace', () => {
     expect(screen.queryByRole('button', { name: 'Create page group collaboration' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Upgrade Backend release' })).not.toBeInTheDocument();
     expect(card.querySelector('a[href="/spaces/space-1/collaboration/templates/space-template/start"]')).not.toBeNull();
-    expect(screen.getByRole('link', { name: 'Create legacy workflow template' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'New collaboration template' })).toHaveAttribute(
       'href', '/spaces/space-1/collaboration/templates/new',
     );
   });
@@ -633,7 +649,7 @@ describe('CollaborationWorkspace', () => {
     renderWorkspace();
 
     await screen.findByText('Coding collaboration');
-    expect(screen.queryByRole('link', { name: 'Create legacy workflow template' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'New collaboration template' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Start run' })).not.toBeInTheDocument();
   });
 });

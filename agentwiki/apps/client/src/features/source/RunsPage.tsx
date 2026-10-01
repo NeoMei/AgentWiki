@@ -1,3 +1,4 @@
+import { runtimeLabel } from '../../i18n/runtime-label';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Ban, RefreshCw, RotateCcw } from 'lucide-react';
@@ -102,7 +103,7 @@ export const RunsPage: React.FC = () => {
             <div className={'w-2 h-2 rounded-full ' + (run.status === 'completed' ? 'bg-green-500' : run.status === 'failed' ? 'bg-red-500' : 'bg-blue-500')} />
             <div className="flex-1">
               <p className="font-medium">{run.source.name}</p>
-              <p className="text-xs text-gray-400 mt-1">{run.stage} · {t('run.attempt')} {run.attempts}/{run.maxAttempts} · {new Date(run.createdAt).toLocaleString(language)}</p>
+              <p className="text-xs text-gray-400 mt-1">{runtimeLabel(run.stage, t)} · {t('run.attempt')} {run.attempts}/{run.maxAttempts} · {new Date(run.createdAt).toLocaleString(language)}</p>
               {run.error || run.result?.failure ? <p className="text-xs text-red-600 mt-1">{t(GIT_FAILURE_CODES.has(run.result?.failure?.code) ? `run.failure.${run.result.failure.code}` : 'run.failedSummary')}</p> : null}
               {run.result?.sourceMetadata ? (
                 <div className="mt-2 space-y-0.5 rounded-lg bg-gray-50 p-2 text-xs text-gray-600">

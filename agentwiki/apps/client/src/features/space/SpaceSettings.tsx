@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import api from '../../api/client';
+import { apiErrorMessage } from '../../api/error-message';
 import { PageTemplateSettingsCard } from '../page-templates/PageTemplateSettingsCard';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -169,7 +170,7 @@ const AutoGraphCard: React.FC<{ spaceId: string; canManage: boolean }> = ({ spac
       </div>
       {!canManage ? (
         <p className='mt-3 text-xs text-gray-500'>
-          {zh ? '只有空间 Owner 或 Admin 可以修改和刷新。' : 'Only Space Owners or Admins can change settings and refresh.'}
+          {zh ? '只有空间所有者或管理员可以修改和刷新。' : 'Only Space Owners or Admins can change settings and refresh.'}
         </p>
       ) : null}
     </section>
@@ -214,7 +215,7 @@ export const SpaceSettings: React.FC = () => {
         }
       })
       .catch((requestError) => {
-        if (active) setError(requestError.response?.data?.message || t('settings.loadFailed'));
+        if (active) setError(apiErrorMessage(requestError, t, 'settings.loadFailed'));
       });
     return () => {
       active = false;
@@ -239,7 +240,7 @@ export const SpaceSettings: React.FC = () => {
       setSaved(true);
     } catch (requestError: any) {
       if (activeSpaceId.current !== id) return;
-      setError(requestError.response?.data?.message || t('settings.saveFailed'));
+      setError(apiErrorMessage(requestError, t, 'settings.saveFailed'));
     } finally {
       if (activeSpaceId.current === id) setSaving(false);
     }

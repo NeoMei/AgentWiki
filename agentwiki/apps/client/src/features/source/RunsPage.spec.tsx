@@ -36,6 +36,14 @@ describe('RunsPage', () => {
     vi.mocked(api.post).mockResolvedValue({ data: {} });
   });
 
+  it.each([['zh-CN', '正在抓取'], ['en', 'Fetching']])('localizes runtime stages and preserves source names in %s', async (locale, stage) => {
+    localStorage.setItem('agentwiki.language.v1', locale);
+    vi.mocked(api.get).mockResolvedValue({ data: [run('r', 'fetching / 自定义来源', 'fetching')] });
+    renderPage();
+    expect(await screen.findByText('fetching / 自定义来源')).toBeVisible();
+    expect(screen.getByText(new RegExp(stage))).toBeVisible();
+  });
+
   it.each([
     ['GIT_UNAVAILABLE', /Git is unavailable/], ['GIT_TIMEOUT', /timed out/],
     ['GIT_ACCESS_FAILED', /repository access/], ['GIT_FETCH_FAILED', /fetch failed/],

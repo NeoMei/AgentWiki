@@ -3,6 +3,8 @@ import { Bot, Loader2, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { AGENT_ACCESS_ROLES, type AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import api from '../../api/client';
+import { apiErrorMessage } from '../../api/error-message';
+import { messages } from '../../i18n/messages';
 import { ModalDialog } from '../../components/ModalDialog';
 import { filterAvailableAgents, type AgentOption } from './spaceMemberAgentOptions';
 
@@ -16,12 +18,6 @@ export interface AddSpaceMemberDialogProps {
 
 type MemberMode = 'human' | 'agent';
 
-function requestMessage(error: unknown, fallback: string): string {
-  const responseMessage = (error as { response?: { data?: { message?: unknown } } })
-    .response?.data?.message;
-  return typeof responseMessage === 'string' && responseMessage ? responseMessage : fallback;
-}
-
 export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
   spaceId,
   existingAgentIds,
@@ -29,6 +25,7 @@ export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
   onClose,
   onAdded,
 }) => {
+  const t = (key: string) => messages[zh ? 'zh-CN' : 'en'][key] ?? key;
   const [mode, setMode] = useState<MemberMode>('human');
   const [email, setEmail] = useState('');
   const [humanRole, setHumanRole] = useState('viewer');
@@ -50,10 +47,10 @@ export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
       setAgentId((current) => (
         available.some((agent) => agent.id === current) ? current : available[0]?.id ?? ''
       ));
-    } catch {
+    } catch (error: unknown) {
       setAgents([]);
       setAgentId('');
-      setAgentLoadError(zh ? '智能体加载失败' : 'Failed to load agents');
+      setAgentLoadError(apiErrorMessage(error, t, 'members.agentsLoadFailed'));
     } finally {
       setLoadingAgents(false);
     }
@@ -88,12 +85,7 @@ export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
       await onAdded();
       onClose();
     } catch (error) {
-      setSubmitError(requestMessage(
-        error,
-        mode === 'human'
-          ? (zh ? '成员添加失败' : 'Failed to add member')
-          : (zh ? '智能体添加失败' : 'Failed to add agent'),
-      ));
+      setSubmitError(apiErrorMessage(error, t, mode === 'human' ? 'members.addFailed' : 'members.addAgentFailed'));
       if (mode === 'agent') {
         await loadAgents();
       }
@@ -251,14 +243,14 @@ export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
                     >
                       {AGENT_ACCESS_ROLES.map((role) => (
                         <option key={role} value={role}>
-                          {role === 'reader' ? 'Reader' : role === 'editor' ? 'Editor' : 'Publisher'}
+                          {t(`agent.role.${role}.name`)}
                         </option>
                       ))}
                     </select>
                   </div>
                   <div className="rounded-lg bg-blue-50 p-3">
                     <p className="text-xs font-medium text-blue-900">
-                      {agentRole === 'reader' ? 'Reader' : agentRole === 'editor' ? 'Editor' : 'Publisher'}
+                      {t(`agent.role.${agentRole}.name`)}
                     </p>
                     <p className="mt-1 text-xs text-blue-700">{agentRoleDescription[agentRole]}</p>
                   </div>

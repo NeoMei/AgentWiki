@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
+import { apiErrorMessage } from '../../api/error-message';
 import { Plus, RotateCcw, X } from 'lucide-react';
 import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
@@ -218,7 +219,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     } catch (err: any) {
       if (requestSequenceRef.current !== requestSequence) return;
       if (err.response?.status === 401 || err.response?.status === 403) setSpace(null);
-      setError(err.response?.data?.message || t('page.loadSpaceFailed'));
+      setError(apiErrorMessage(err, t, 'page.loadSpaceFailed'));
     } finally {
       if (requestSequenceRef.current === requestSequence) setLoading(false);
     }
@@ -367,7 +368,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
       directory.acceptTreeRevision(result.treeRevision);
       reloadTree();
     } catch (err: any) {
-      setActionError(err.response?.data?.message || t('folder.restoreFailed'));
+      setActionError(apiErrorMessage(err, t, 'folder.restoreFailed'));
     } finally {
       setRestoring(false);
     }
@@ -401,7 +402,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
         activeWorkspace.requestPageRefresh(request.id);
       }
     } catch (err: any) {
-      setActionError(err.response?.data?.message || t('folder.moveFailed'));
+      setActionError(apiErrorMessage(err, t, 'folder.moveFailed'));
     } finally {
       reloadTree();
     }
@@ -453,7 +454,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
         && archiveInFlightRef.current === requestedPageId
         && activeRouteIdRef.current === requestedSpaceId
         && fetchedRouteIdRef.current === requestedSpaceId
-      ) setActionError(err.response?.data?.message || t('page.deleteFailed'));
+      ) setActionError(apiErrorMessage(err, t, 'page.deleteFailed'));
     } finally {
       if (archiveControllerRef.current === controller) archiveControllerRef.current = null;
       if (archiveOperationRef.current === operation) archiveInFlightRef.current = null;

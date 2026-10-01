@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { apiErrorMessage } from '../../api/error-message';
 import { ModalDialog } from '../../components/ModalDialog';
 import { Toast } from '../../components/Toast';
@@ -14,7 +14,7 @@ import { newContentHref } from '../page-templates/newContentNavigation';
 import { listCompositeTemplates } from '../page-templates/compositeTemplateApi';
 import type { RunListKind, RunSummary, TemplateSummary } from './types';
 
-type Tab = 'templates' | RunListKind;
+type Tab = 'templates' | 'manage' | RunListKind;
 type LoadState = 'loading' | 'ready' | 'error';
 
 const SYSTEM_TEMPLATE_SLUGS = new Set(['coding', 'bid-writing', 'paper-writing', 'video-script-writing', 'novel-writing']);
@@ -24,8 +24,12 @@ export const CollaborationWorkspace: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { t, language } = useLanguage();
-  const templateTabRef = useRef<HTMLButtonElement>(null);
-  const [tab, setTab] = useState<Tab>('templates');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get('tab');
+  const tab: Tab = requestedTab === 'manage' || requestedTab === 'active' || requestedTab === 'history' ? requestedTab : 'templates';
+  const setTab = (value: Tab) => setSearchParams(value === 'templates' ? {} : { tab: value });
+  const managementHeading = useRef<HTMLHeadingElement>(null);
+  const catalogTab = tab === 'templates' || tab === 'manage';
   const [templates, setTemplates] = useState<TemplateSummary[]>([]);
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [nextRunCursor, setNextRunCursor] = useState<string | null>(null);
@@ -61,7 +65,7 @@ export const CollaborationWorkspace: React.FC = () => {
         collaborationApi.listMembers(spaceId),
         listCompositeTemplates(spaceId, { locale: language, take: 1 }).catch(() => null),
       ]);
-      if (!isCurrentWorkspaceRequest(spaceId, 'templates', epoch)) return;
+      if (!isCurrentWorkspaceRequest(spaceId, tab, epoch)) return;
       setTemplates(nextTemplates);
       const myRole = members.find((member) => member.type === 'human' && member.userId === user?.id)?.role;
       setCanManage(myRole === 'owner' || myRole === 'admin');
@@ -69,11 +73,11 @@ export const CollaborationWorkspace: React.FC = () => {
       setCanCreateComposite(compositeCatalog?.capabilities.canCreate === true);
       setState('ready');
     } catch (error) {
-      if (!isCurrentWorkspaceRequest(spaceId, 'templates', epoch)) return;
+      if (!isCurrentWorkspaceRequest(spaceId, tab, epoch)) return;
       setToast({ kind: 'error', message: apiErrorMessage(error, t, 'collaboration.loadFailed') });
       setState('error');
     }
-  }, [id, isCurrentWorkspaceRequest, language, t, user?.id, user?.platformRole]);
+  }, [id, isCurrentWorkspaceRequest, language, t, tab, user?.id]);
 
   const loadRuns = useCallback(async (kind: RunListKind) => {
     if (!id) return;
@@ -95,9 +99,9 @@ export const CollaborationWorkspace: React.FC = () => {
   }, [id, isCurrentWorkspaceRequest, t]);
 
   const loadMoreRuns = useCallback(async () => {
-    if (!id || tab === 'templates' || !nextRunCursor || loadingMoreRuns) return;
+    if (!id || catalogTab || !nextRunCursor || loadingMoreRuns) return;
     const spaceId = id;
-    const kind = tab;
+    const kind = tab as RunListKind;
     const cursor = nextRunCursor;
     const epoch = ++workspaceRequestEpoch.current;
     setLoadingMoreRuns(true);
@@ -131,12 +135,16 @@ export const CollaborationWorkspace: React.FC = () => {
     setSubmitting(false);
     setToast(null);
     setState('loading');
-    if (tab === 'templates') void loadTemplates();
-    else void loadRuns(tab);
+    if (catalogTab) void loadTemplates();
+    else void loadRuns(tab as RunListKind);
     return () => {
       workspaceRequestEpoch.current += 1;
     };
   }, [loadRuns, loadTemplates, tab]);
+
+  useEffect(() => {
+    if (tab === 'manage' && state === 'ready' && canManage) managementHeading.current?.focus();
+  }, [tab, state, canManage]);
 
   const labels = useMemo(() => ({
     system: t('collaboration.systemTemplate'), space: t('collaboration.spaceTemplate'),
@@ -151,10 +159,10 @@ export const CollaborationWorkspace: React.FC = () => {
   };
 
   const copyTemplate = async () => {
-    if (!copySource || !copyName.trim() || !id || tab !== 'templates') return;
+    if (!copySource || !copyName.trim() || !id || !catalogTab) return;
     const source = copySource;
     const name = copyName.trim();
-    const scope = { spaceId: id, tab: 'templates' as const, epoch: workspaceRequestEpoch.current };
+    const scope = { spaceId: id, tab, epoch: workspaceRequestEpoch.current };
     if (!isCurrentWorkspaceRequest(scope.spaceId, scope.tab, scope.epoch)) return;
     setSubmitting(true);
     try {
@@ -173,9 +181,9 @@ export const CollaborationWorkspace: React.FC = () => {
   };
 
   const archiveTemplate = async (template: TemplateSummary) => {
-    if (!id || tab !== 'templates') return;
+    if (!id || !catalogTab) return;
     const source = template;
-    const scope = { spaceId: id, tab: 'templates' as const, epoch: workspaceRequestEpoch.current };
+    const scope = { spaceId: id, tab, epoch: workspaceRequestEpoch.current };
     if (!isCurrentWorkspaceRequest(scope.spaceId, scope.tab, scope.epoch)
       || !window.confirm(t('collaboration.archiveConfirm', { name: source.name }))) return;
     try {
@@ -189,7 +197,7 @@ export const CollaborationWorkspace: React.FC = () => {
     }
   };
 
-  const retry = () => tab === 'templates' ? void loadTemplates() : void loadRuns(tab);
+  const retry = () => catalogTab ? void loadTemplates() : void loadRuns(tab as RunListKind);
 
   return (
     <div className="mx-auto max-w-6xl min-w-0">
@@ -199,31 +207,30 @@ export const CollaborationWorkspace: React.FC = () => {
             <h1 id="collaboration-title" className="text-2xl font-semibold text-gray-900">{t('collaboration.title')}</h1>
             <p className="mt-1 max-w-3xl text-sm text-gray-600">{t('collaboration.subtitle')}</p>
           </div>
-          {canStart && tab === 'templates' ? <div className="flex flex-wrap gap-2">
+          {canStart && catalogTab ? <div className="flex flex-wrap gap-2">
             {canCreateComposite ? <button type="button" onClick={() => navigate(newContentHref(id, null, 'collaboration'))} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white">
               <Plus size={16} aria-hidden="true" />{t('collaboration.createCompositeRun')}
             </button> : null}
-            <button type="button" onClick={() => { setTab('templates'); templateTabRef.current?.focus(); }} className="inline-flex min-h-10 items-center justify-center rounded-lg border px-4 text-sm font-medium">{t('collaboration.manageTemplates')}</button>
-            <Link to={`/spaces/${id}/settings/page-templates`} className="inline-flex min-h-10 items-center justify-center rounded-lg border px-4 text-sm font-medium">{t('collaboration.managePageTemplates')}</Link>
+            {canManage && tab !== 'manage' ? <Link to={`/spaces/${id}/collaboration?tab=manage`} className="inline-flex min-h-10 items-center justify-center rounded-lg border px-4 text-sm font-medium">{t('collaboration.manageTemplates')}</Link> : null}
             {canManage ? <Link to={`/spaces/${id}/collaboration/templates/new`} className="inline-flex min-h-10 items-center justify-center rounded-lg border px-4 text-sm font-medium">{t('collaboration.createLegacyTemplate')}</Link> : null}
           </div> : null}
         </div>
 
         <div role="tablist" aria-label={t('collaboration.sections')} className="mt-6 flex overflow-x-auto border-b">
-          {(['templates', 'active', 'history'] as const).map((value) => (
+          {(['templates', ...(canManage ? ['manage' as const] : []), 'active', 'history'] as const).map((value) => (
             <button
               key={value}
-              ref={value === 'templates' ? templateTabRef : undefined}
               type="button"
               role="tab"
               aria-selected={tab === value}
               onClick={() => setTab(value)}
               className={`min-h-11 whitespace-nowrap border-b-2 px-4 text-sm ${tab === value ? 'border-blue-600 font-medium text-blue-700' : 'border-transparent text-gray-500'}`}
-            >{t(`collaboration.${value}`)}</button>
+            >{t(value === 'manage' ? 'collaboration.manageTemplates' : `collaboration.${value}`)}</button>
           ))}
         </div>
 
         <div className="mt-5" role="tabpanel">
+          {tab === 'manage' && canManage ? <div className="mb-5"><h2 ref={managementHeading} tabIndex={-1} className="text-lg font-semibold">{t('collaboration.manageTemplates')}</h2><p className="mt-1 text-sm text-gray-600">{t('collaboration.managementHelp')}</p></div> : null}
           {state === 'loading' ? <div data-testid="collaboration-loading" className="rounded-xl border bg-white py-14 text-center text-sm text-gray-500">{t('common.loading')}</div> : null}
           {state === 'error' ? (
             <div data-testid="collaboration-error" className="rounded-xl border border-red-200 bg-red-50 py-12 text-center">
@@ -231,7 +238,8 @@ export const CollaborationWorkspace: React.FC = () => {
               <button type="button" onClick={retry} className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm"><RefreshCw size={15} />{t('common.retry')}</button>
             </div>
           ) : null}
-          {state === 'ready' && tab === 'templates' ? (
+          {state === 'ready' && tab === 'manage' && !canManage ? <p role="alert" className="text-sm text-gray-600">{t('collaboration.permissionDenied')}</p> : null}
+          {state === 'ready' && catalogTab && (tab !== 'manage' || canManage) ? (
             templates.length ? (
               <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {templates.map((template) => (
@@ -242,7 +250,7 @@ export const CollaborationWorkspace: React.FC = () => {
                     name={localizedTemplateName(template, t)}
                     description={localizedTemplateDescription(template, t)}
                     canManage={canManage}
-                    canStart={canStart}
+                    canStart={canStart && tab !== 'manage'}
                     labels={labels}
                     onCopy={openCopy}
                     onArchive={(item) => void archiveTemplate(item)}
@@ -254,7 +262,7 @@ export const CollaborationWorkspace: React.FC = () => {
               </div>
             ) : <div data-testid="collaboration-empty" className="rounded-xl border bg-white py-14 text-center text-sm text-gray-500">{t('collaboration.templatesEmpty')}</div>
           ) : null}
-          {state === 'ready' && tab !== 'templates' ? (
+          {state === 'ready' && !catalogTab ? (
             <>
               <RunList
                 spaceId={id}

@@ -76,6 +76,16 @@ describe('SourcesPage file upload', () => {
     expect(await screen.findByRole('link', { name: '查看失败运行详情' })).toHaveAttribute('href', '/spaces/space-1/runs');
   });
 
+  it.each([['zh-CN', '已启用', '失败'], ['en', 'Active', 'Failed']])('localizes source and run states in %s while preserving the source name', async (locale, state, runState) => {
+    localStorage.setItem('agentwiki.language.v1', locale);
+    const source = { id: 's', name: 'active / 自定义来源', type: 'git', status: 'active', _count: { versions: 0, runs: 1 } };
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/sources/s' ? { ...source, versions: [], runs: [{ status: 'failed', createdAt: '2026-10-01T00:00:00.000Z' }] } : [source] }));
+    renderPage(); fireEvent.click(await screen.findByRole('button', { name: /active \/ 自定义来源/ }));
+    expect(await screen.findByText(state)).toBeVisible();
+    expect(screen.getAllByText(new RegExp(runState))[0]).toBeVisible();
+    expect(screen.getByText('active / 自定义来源')).toBeVisible();
+  });
+
   it('shows an explicit selected file and upload button', async () => {
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: '添加来源' }));
