@@ -3,8 +3,10 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { LanguageProvider } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
 import { ReviewPage } from './ReviewPage';
 
+vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
 vi.mock('../../api/client', () => ({
   default: { get: vi.fn(), post: vi.fn(), patch: vi.fn() },
 }));
@@ -52,8 +54,12 @@ const deferred = <T,>() => {
   return { promise, resolve, reject };
 };
 
+let members = [{ userId: 'user-1', role: 'owner' }];
 const renderReview = (language: 'en' | 'zh-CN' = 'en') => {
   localStorage.setItem('agentwiki.language.v1', language);
+  const implementation = vi.mocked(api.get).getMockImplementation()!;
+  vi.mocked(api.get).mockImplementation((url, config) => url === '/spaces/space-1'
+    ? Promise.resolve({ data: { members } } as any) : implementation(url, config));
   return render(
   <LanguageProvider>
     <MemoryRouter initialEntries={['/review']}>
@@ -71,12 +77,33 @@ const expand = async () => {
 describe('ReviewPage detail refresh', () => {
   beforeEach(() => {
     localStorage.setItem('agentwiki.language.v1', 'en');
+    members = [{ userId: 'user-1', role: 'owner' }];
+    vi.mocked(useAuth).mockReturnValue({ user: { id: 'user-1', platformRole: 'super_admin' } } as any);
     vi.mocked(api.get).mockReset();
     vi.mocked(api.post).mockReset();
     vi.mocked(api.patch).mockReset();
   });
 
   afterEach(cleanup);
+
+  it.each(['admin', 'editor', 'viewer'])('keeps a member platform admin with %s role out of owner-only review decisions', async (role) => {
+    members = [{ userId: 'user-1', role }];
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/review' ? [changeSet()] : changeSet() }));
+    renderReview(); await expand();
+    expect(screen.queryByRole('button', { name: 'Accept candidate' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Approve & publish' })).not.toBeInTheDocument();
+  });
+
+  it.each(['pending_review', 'approved', 'published'] as const)('hides all %s mutation controls for a nonmember platform admin', async (status) => {
+    members = [];
+    const detail = changeSet(status);
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/review' ? [detail] : detail }));
+    renderReview(); await expand();
+    for (const name of ['Accept candidate', 'Reject candidate', 'Reject', 'Approve only', 'Approve & publish', 'Publish', 'Revert']) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+    }
+    expect(screen.queryByPlaceholderText('Review comment (optional)')).not.toBeInTheDocument();
+  });
 
   it.each([
     ['en', 'Existing pages with identical content'],
@@ -89,7 +116,7 @@ describe('ReviewPage detail refresh', () => {
     expect(screen.getByRole('link', { name: 'Existing knowledge' })).toHaveAttribute('href', '/pages/existing-1');
     expect(screen.getByRole('link', { name: language === 'en' ? 'Untitled page' : '未命名页面' })).toHaveAttribute('href', '/pages/existing-2');
     expect(screen.getByRole('button', { name: language === 'en' ? 'Approve & publish' : '通过并发布' })).toBeEnabled();
-    expect(api.get).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(api.get).mock.calls.filter(([url]) => url !== '/spaces/space-1')).toHaveLength(2);
   });
 
   it('keeps older details without duplicate metadata usable and does not fetch a detector endpoint', async () => {
@@ -97,7 +124,7 @@ describe('ReviewPage detail refresh', () => {
     renderReview(); await expand();
     expect(screen.queryByRole('note', { name: 'Existing pages with identical content' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Approve & publish' })).toBeEnabled();
-    expect(api.get).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(api.get).mock.calls.filter(([url]) => url !== '/spaces/space-1')).toHaveLength(2);
   });
 
   it('advises about identical content within the loaded change set without blocking publication', async () => {

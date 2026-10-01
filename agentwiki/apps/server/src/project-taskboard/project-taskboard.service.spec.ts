@@ -1,3 +1,4 @@
+import { AuthorizationService } from '../core/authorization/authorization.service';
 import { ProjectTaskboardService } from './project-taskboard.service';
 import { BusinessException, getBusinessCode } from '../core/filters/business-error';
 
@@ -15,13 +16,58 @@ const PLAN = [
 import { makeDb } from './testing/fake-taskboard-db';
 
 function makeService(db = makeDb()) {
-  const authorization = { assertSpaceAccess: jest.fn(async () => ({ role: 'owner' })) };
+  const authorization = {
+    assertSpaceAccess: jest.fn(async () => ({ role: 'owner' })),
+    assertLiveHumanSpaceAccess: jest.fn(async () => ({ role: 'owner', userId: 'u1', spaceId: 'space-1' })),
+  };
   const redis = { publish: jest.fn(async () => undefined) };
   const service = new ProjectTaskboardService(db.prisma, authorization as any, redis as any);
   return { service, authorization, redis, ...db };
 }
 
 describe('ProjectTaskboardService', () => {
+  it('rechecks live human membership inside the board transaction', async () => {
+    const { service, authorization, db } = makeService();
+    authorization.assertLiveHumanSpaceAccess.mockRejectedValueOnce(new BusinessException('SPACE_ACCESS_DENIED', 'membership revoked'));
+
+    await expect(service.createTask({ userId: 'u1', platformRole: 'super_admin' }, 'space-1', { title: 'must not write' }))
+      .rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+    expect(db.boards).toHaveLength(0);
+    expect(authorization.assertSpaceAccess).toHaveBeenCalledTimes(1);
+    expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledWith(expect.anything(), { userId: 'u1', platformRole: 'super_admin' }, 'space-1', ['owner', 'admin', 'editor']);
+  });
+
+  it.each(['createTask', 'createChild', 'updateStatus', 'upsertTask', 'patchTask', 'importPlan'] as const)(
+    'rejects %s when a platform admin loses membership between eager check and transaction', async (operation) => {
+      const { prisma, db } = makeDb();
+      const member = { role: 'owner', space: { deletedAt: null } };
+      prisma.spaceMember = { findUnique: jest.fn(async () => member) };
+      const originalTransaction = prisma.$transaction.getMockImplementation();
+      prisma.$transaction.mockImplementation((callback: any) => originalTransaction((tx: any) => callback({
+        ...tx,
+        $queryRaw: async () => [{ id: 'u1' }],
+        user: { findUnique: async () => ({ id: 'u1', type: 'human', platformRole: 'super_admin', deletedAt: null, lockedAt: null }) },
+        spaceMember: { findUnique: async () => null },
+      })));
+      const service = new ProjectTaskboardService(prisma, new AuthorizationService(prisma), { publish: jest.fn() } as any);
+      const principal = { userId: 'u1', platformRole: 'super_admin' as const };
+      const mutate = () => {
+        switch (operation) {
+          case 'createTask': return service.createTask(principal, 'space-1', { title: 'No write' });
+          case 'createChild': return service.createChild(principal, 'space-1', 'parent', { title: 'No write' });
+          case 'updateStatus': return service.updateStatus(principal, 'space-1', 'task', { status: 'done' });
+          case 'upsertTask': return service.upsertTask(principal, 'space-1', 'task', { title: 'No write' });
+          case 'patchTask': return service.patchTask(principal, 'space-1', 'task', { title: 'No write' });
+          case 'importPlan': return service.importPlan(principal, 'space-1', { content: PLAN });
+        }
+      };
+      await expect(mutate()).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+      expect(db.boards).toHaveLength(0);
+      expect(db.tasks).toHaveLength(0);
+      expect(db.events).toHaveLength(0);
+    },
+  );
+
   it('imports manual JSON tasks with their hierarchy, execution fields and stable IDs', async () => {
     const { service, db } = makeService();
     const tasks = [

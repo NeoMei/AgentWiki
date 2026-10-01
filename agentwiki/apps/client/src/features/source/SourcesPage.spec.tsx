@@ -3,8 +3,10 @@ import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { LanguageProvider } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
 import { SourcesPage } from './SourcesPage';
 
+vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
 vi.mock('../../api/client', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 
 const deferred = <T,>() => {
@@ -13,11 +15,20 @@ const deferred = <T,>() => {
   return { promise, resolve };
 };
 
-const renderPage = () => render(
+let members = [{ userId: 'user-1', role: 'editor' }];
+const withMembership = () => {
+  const implementation = vi.mocked(api.get).getMockImplementation()!;
+  vi.mocked(api.get).mockImplementation((url, config) => /^\/spaces\/[^/]+$/.test(url)
+    ? Promise.resolve({ data: { members } } as any) : implementation(url, config));
+};
+const renderPage = () => {
+  withMembership();
+  return render(
   <MemoryRouter initialEntries={['/spaces/space-1/sources']}>
     <LanguageProvider><Routes><Route path="/spaces/:id/sources" element={<SourcesPage />} /></Routes></LanguageProvider>
   </MemoryRouter>,
 );
+};
 
 const SpaceSwitcher = () => {
   const navigate = useNavigate();
@@ -27,9 +38,35 @@ const SpaceSwitcher = () => {
 describe('SourcesPage file upload', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    members = [{ userId: 'user-1', role: 'editor' }];
+    vi.mocked(useAuth).mockReturnValue({ user: { id: 'user-1', platformRole: 'super_admin' } } as any);
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
     vi.mocked(api.get).mockResolvedValue({ data: [] });
     vi.mocked(api.post).mockResolvedValue({ data: {} });
+  });
+
+  it('keeps a nonmember platform admin read-only while showing source details', async () => {
+    members = [];
+    vi.mocked(api.get).mockResolvedValue({ data: [{ id: 'source-1', type: 'text', name: 'Visible source', _count: { versions: 1, runs: 0 } }] });
+    renderPage();
+    expect(await screen.findByText('Visible source')).toBeVisible();
+    expect(screen.queryByRole('button', { name: '添加来源' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '运行' })).not.toBeInTheDocument();
+  });
+
+  it.each(['owner', 'admin', 'editor'])('allows a real %s member to add and run sources', async (role) => {
+    members = [{ userId: 'user-1', role }];
+    vi.mocked(api.get).mockResolvedValue({ data: [{ id: 'source-1', type: 'text', name: 'Visible source', _count: { versions: 1, runs: 0 } }] });
+    renderPage();
+    expect(await screen.findByRole('button', { name: '添加来源' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '运行' })).toBeEnabled();
+  });
+
+  it('keeps a viewer membership read-only despite platform admin role', async () => {
+    members = [{ userId: 'user-1', role: 'viewer' }];
+    renderPage();
+    await screen.findByText('还没有知识来源。');
+    expect(screen.queryByRole('button', { name: '添加来源' })).not.toBeInTheDocument();
   });
 
   it('links a failed latest run in source details to the current space run diagnostics', async () => {
@@ -41,7 +78,7 @@ describe('SourcesPage file upload', () => {
 
   it('shows an explicit selected file and upload button', async () => {
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: '添加来源' }));
+    fireEvent.click(await screen.findByRole('button', { name: '添加来源' }));
     fireEvent.change(screen.getByLabelText('类型'), { target: { value: 'file' } });
     const file = new File(['# 中文'], '图片内容总结.md', { type: 'text/markdown' });
     fireEvent.change(screen.getByLabelText('选择文件'), { target: { files: [file] } });
@@ -60,7 +97,7 @@ describe('SourcesPage file upload', () => {
     const request = deferred<any>();
     vi.mocked(api.post).mockReturnValue(request.promise);
     renderPage();
-    fireEvent.click(screen.getByRole('button', { name: '添加来源' }));
+    fireEvent.click(await screen.findByRole('button', { name: '添加来源' }));
     fireEvent.change(screen.getByLabelText('名称'), { target: { value: '一次提交' } });
     fireEvent.change(screen.getByLabelText('粘贴来源文本'), { target: { value: 'content' } });
 
@@ -93,7 +130,11 @@ describe('SourcesPage file upload', () => {
   });
 
   it('shows a retry action after loading fails and clears the error after recovery', async () => {
-    vi.mocked(api.get).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ data: [] });
+    let sourceReads = 0;
+    vi.mocked(api.get).mockImplementation(async () => {
+      if (++sourceReads === 1) throw new Error('offline');
+      return { data: [] };
+    });
     renderPage();
 
     const alert = await screen.findByRole('alert');
@@ -101,7 +142,7 @@ describe('SourcesPage file upload', () => {
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
 
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
-    expect(api.get).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(api.get).mock.calls.filter(([url]) => url.endsWith('/sources'))).toHaveLength(2);
   });
 
   it('does not let a completed action from the previous route reload stale Space data', async () => {
@@ -113,6 +154,7 @@ describe('SourcesPage file upload', () => {
       data: String(url).includes('space-2') ? [source('source-2', '空间二来源')] : [source('source-1', '空间一来源')],
     }));
     vi.mocked(api.post).mockReturnValue(action.promise);
+    withMembership();
     render(
       <MemoryRouter initialEntries={['/spaces/space-1/sources']}>
         <LanguageProvider><SpaceSwitcher /><Routes><Route path="/spaces/:id/sources" element={<SourcesPage />} /></Routes></LanguageProvider>
@@ -126,6 +168,6 @@ describe('SourcesPage file upload', () => {
 
     expect(screen.getByText('空间二来源')).toBeInTheDocument();
     expect(screen.queryByText('空间一来源')).not.toBeInTheDocument();
-    expect(api.get).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(api.get).mock.calls.filter(([url]) => url.endsWith('/sources'))).toHaveLength(2);
   });
 });

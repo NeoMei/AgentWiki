@@ -2,12 +2,16 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { FileUp, GitBranch, Globe, Play, Plus, Type } from 'lucide-react';
 import api from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { apiErrorMessage } from '../../api/error-message';
 
 export const SourcesPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { t, language } = useLanguage();
+  const { user } = useAuth();
+  const [writePermission, setWritePermission] = useState<{ spaceId: string; userId: string; allowed: boolean } | null>(null);
+  const canWrite = writePermission?.spaceId === id && writePermission?.userId === user?.id && writePermission?.allowed === true;
   const [sources, setSources] = useState<any[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ type: 'text', name: '', uri: '', content: '' });
@@ -28,8 +32,13 @@ export const SourcesPage: React.FC = () => {
     const sequence = ++loadSequenceRef.current;
     setLoading(true);
     try {
-      const { data } = await api.get('/spaces/' + requestedSpaceId + '/sources');
+      const [{ data }, { data: space }] = await Promise.all([
+        api.get('/spaces/' + requestedSpaceId + '/sources'),
+        api.get('/spaces/' + requestedSpaceId),
+      ]);
       if (sequence !== loadSequenceRef.current || activeSpaceIdRef.current !== requestedSpaceId) return;
+      const role = space.members?.find((member: any) => member.userId === user?.id)?.role;
+      setWritePermission({ spaceId: requestedSpaceId, userId: user?.id, allowed: ['owner', 'admin', 'editor'].includes(role) });
       setSources(data);
       setError(null);
     } catch (err: unknown) {
@@ -39,9 +48,10 @@ export const SourcesPage: React.FC = () => {
     } finally {
       if (sequence === loadSequenceRef.current && activeSpaceIdRef.current === requestedSpaceId) setLoading(false);
     }
-  }, [id, t]);
+  }, [id, t, user?.id]);
   useEffect(() => {
     setSources([]);
+    setWritePermission(null);
     setDetail(null);
     setError(null);
     setShowCreate(false);
@@ -55,7 +65,7 @@ export const SourcesPage: React.FC = () => {
 
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!id || submittingRef.current) return;
+    if (!id || !canWrite || submittingRef.current) return;
     const actionSpaceId = id;
     const submission = Symbol('source-submission');
     submittingRef.current = submission;
@@ -92,7 +102,7 @@ export const SourcesPage: React.FC = () => {
 
   const runSource = async (sourceId: string) => {
     const actionSpaceId = id;
-    if (!actionSpaceId) return;
+    if (!actionSpaceId || !canWrite) return;
     if (runningIdsRef.current.has(sourceId)) return;
     runningIdsRef.current.add(sourceId);
     setRunningIds(new Set(runningIdsRef.current));
@@ -121,10 +131,10 @@ export const SourcesPage: React.FC = () => {
     <div className="max-w-5xl mx-auto">
       <div className="flex items-start justify-between mb-6">
         <div><Link to={'/spaces/' + id} className="text-sm text-gray-500">← {t('common.space')}</Link><h1 className="text-2xl font-semibold mt-3">{t('source.title')}</h1><p className="text-sm text-gray-500 mt-1">{t('source.description')}</p></div>
-        <button disabled={submitting} onClick={() => setShowCreate(!showCreate)} className="h-8 px-3 rounded-lg bg-blue-600 text-white text-sm flex items-center gap-2 disabled:opacity-50"><Plus size={15} /> {t('source.add')}</button>
+        {canWrite ? <button disabled={submitting} onClick={() => setShowCreate(!showCreate)} className="h-8 px-3 rounded-lg bg-blue-600 text-white text-sm flex items-center gap-2 disabled:opacity-50"><Plus size={15} /> {t('source.add')}</button> : null}
       </div>
       {error ? <div role="alert" className="flex flex-wrap items-center justify-between gap-3 p-3 mb-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm"><span>{error}</span><button type="button" onClick={() => void load()} className="rounded border border-red-300 bg-white px-3 py-1 hover:bg-red-100">{t('common.retry')}</button></div> : null}
-      {showCreate ? (
+      {canWrite && showCreate ? (
         <form onSubmit={create} className="border rounded-[14px] bg-white p-5 mb-6">
           <div className="grid sm:grid-cols-2 gap-4">
             <div><label htmlFor="source-type" className="text-sm font-medium block mb-1">{t('common.type')}</label><select id="source-type" disabled={submitting} value={form.type} onChange={(e) => { setForm({ ...form, type: e.target.value }); if (e.target.value !== 'file') setFile(null); }} className="w-full h-8 border rounded-lg px-2 text-sm"><option value="text">{t('source.text')}</option><option value="file">{t('source.file')}</option><option value="url">{t('source.url')}</option><option value="git">{t('source.git')}</option></select></div>
@@ -145,7 +155,7 @@ export const SourcesPage: React.FC = () => {
       <div className="border rounded-[14px] bg-white divide-y">
         {sources.map((source) => {
           const Icon = source.type === 'git' ? GitBranch : source.type === 'url' ? Globe : source.type === 'file' ? FileUp : Type;
-          return <div key={source.id}><div className="p-4 flex items-center gap-4"><div className="w-9 h-9 bg-gray-100 rounded-lg flex items-center justify-center"><Icon size={18} /></div><button onClick={async () => { const requestedSpaceId = id; try { setError(null); const nextDetail = detail?.id === source.id ? null : (await api.get('/sources/' + source.id)).data; if (activeSpaceIdRef.current === requestedSpaceId) setDetail(nextDetail); } catch (e: unknown) { if (activeSpaceIdRef.current === requestedSpaceId) setError(apiErrorMessage(e, t, 'source.loadFailed')); } }} className="flex-1 min-w-0 text-left"><p className="font-medium truncate">{source.name}</p><p className="text-xs text-gray-400 mt-1">{source.type} · {source._count.versions} {t('common.versions')} · {source._count.runs} {t('common.runs')}</p></button><button disabled={runningIds.has(source.id)} onClick={() => void runSource(source.id)} className="h-8 px-3 border rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"><Play size={14} /> {runningIds.has(source.id) ? t('common.loading') : t('source.run')}</button></div>{detail?.id === source.id ? <div className="mx-4 mb-4 bg-gray-50 border rounded-lg p-3 text-xs text-gray-600"><p><strong>{t('common.status')}:</strong> {detail.status} {detail.uri ? <>· <strong>{t('source.uri')}:</strong> {detail.uri}</> : null}</p><p className="mt-2"><strong>{t('common.versions')}:</strong> {detail.versions.map((version: any) => `v${version.version} ${version.contentHash.slice(0, 8)}`).join(' · ') || t('common.none')}</p><p className="mt-2"><strong>{t('source.recentRuns')}:</strong> {detail.runs.map((run: any) => `${run.status} ${new Date(run.createdAt).toLocaleString(language)}`).join(' · ') || t('common.none')}</p>{detail.runs[0]?.status === 'failed' ? <Link to={`/spaces/${id}/runs`} className="mt-2 inline-flex min-h-8 items-center text-blue-700 underline">{t('source.failedRunDetails')}</Link> : null}</div> : null}</div>;
+          return <div key={source.id}><div className="p-4 flex items-center gap-4"><div className="w-9 h-9 bg-gray-100 rounded-lg flex items-center justify-center"><Icon size={18} /></div><button onClick={async () => { const requestedSpaceId = id; try { setError(null); const nextDetail = detail?.id === source.id ? null : (await api.get('/sources/' + source.id)).data; if (activeSpaceIdRef.current === requestedSpaceId) setDetail(nextDetail); } catch (e: unknown) { if (activeSpaceIdRef.current === requestedSpaceId) setError(apiErrorMessage(e, t, 'source.loadFailed')); } }} className="flex-1 min-w-0 text-left"><p className="font-medium truncate">{source.name}</p><p className="text-xs text-gray-400 mt-1">{source.type} · {source._count.versions} {t('common.versions')} · {source._count.runs} {t('common.runs')}</p></button>{canWrite ? <button disabled={runningIds.has(source.id)} onClick={() => void runSource(source.id)} className="h-8 px-3 border rounded-lg text-sm flex items-center gap-2 disabled:opacity-50"><Play size={14} /> {runningIds.has(source.id) ? t('common.loading') : t('source.run')}</button> : null}</div>{detail?.id === source.id ? <div className="mx-4 mb-4 bg-gray-50 border rounded-lg p-3 text-xs text-gray-600"><p><strong>{t('common.status')}:</strong> {detail.status} {detail.uri ? <>· <strong>{t('source.uri')}:</strong> {detail.uri}</> : null}</p><p className="mt-2"><strong>{t('common.versions')}:</strong> {detail.versions.map((version: any) => `v${version.version} ${version.contentHash.slice(0, 8)}`).join(' · ') || t('common.none')}</p><p className="mt-2"><strong>{t('source.recentRuns')}:</strong> {detail.runs.map((run: any) => `${run.status} ${new Date(run.createdAt).toLocaleString(language)}`).join(' · ') || t('common.none')}</p>{detail.runs[0]?.status === 'failed' ? <Link to={`/spaces/${id}/runs`} className="mt-2 inline-flex min-h-8 items-center text-blue-700 underline">{t('source.failedRunDetails')}</Link> : null}</div> : null}</div>;
         })}
         {loading ? <div className="py-14 text-center text-gray-400 text-sm">{t('common.loading')}</div> : null}
         {!sources.length && !loading ? <div className="py-14 text-center text-gray-500 text-sm">{t('source.empty')}</div> : null}
