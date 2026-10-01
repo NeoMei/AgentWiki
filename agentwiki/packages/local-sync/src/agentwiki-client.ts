@@ -31,7 +31,7 @@ export interface ExchangeResult {
   spaceId: string;
   role: AgentAccessRole;
   serverUrl: string;
-  pluginVersion: '0.10.0';
+  pluginVersion: '0.10.1';
   scopes: string[];
 }
 

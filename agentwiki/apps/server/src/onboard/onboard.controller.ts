@@ -96,7 +96,7 @@ export class OnboardController {
 
 const BASE_URL = 'https://agentwiki.quukk.com';
 const API_BASE = `${BASE_URL}/api`;
-const PACKAGE_VERSION = '0.10.0';
+const PACKAGE_VERSION = '0.10.1';
 const PUBLIC_COMMAND = `npx --yes @neomei/agentwiki-local-sync@${PACKAGE_VERSION} onboard start --server '${API_BASE}' --client codex --protocol json`;
 
 const ONBOARD_MD = `# AgentWiki Agent 接入 / Connect your Agent
