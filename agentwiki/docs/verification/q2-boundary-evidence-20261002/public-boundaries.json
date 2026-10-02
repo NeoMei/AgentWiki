@@ -1,0 +1,10 @@
+{
+  "release": "0.12.11",
+  "startedAt": "2026-10-02T05:17:48.543Z",
+  "results": {
+    "Q12": "PASS",
+    "Q17": "PASS",
+    "Q18": "PASS"
+  },
+  "cleaned": true
+}

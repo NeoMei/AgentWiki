@@ -1,0 +1,34 @@
+{
+  "threadId": "01a07cb2-c0da-7070-b548-9c13207e34ca",
+  "hostId": "remote-control:env_e_6a53e3dc9b0483268a860e1de83e99c3",
+  "turnId": "01a0fabf-f49e-7a12-b7af-fe4c5547373e",
+  "status": "completed",
+  "commands": [
+    {
+      "type": "commandExecution",
+      "id": "exec-0a1672fd-ef02-457f-a0ee-603c8165ec09",
+      "command": "\"C:\\\\Users\\\\1\\\\.cache\\\\codex-runtimes\\\\codex-primary-runtime\\\\dependencies\\\\native\\\\powershell\\\\pwsh.exe\" -Command '$root='\"'C:\\\\Users\\\\1\\\\AppData\\\\Local\\\\Temp\\\\agentwiki-q2-full-20261002-105346'; node --check (Join-Path \"'$root '\"'run.mjs'); if(\"'$LASTEXITCODE -ne 0){exit $LASTEXITCODE}; $env:AGENTWIKI_E2E='\"'1'; \"'$env:AGENTWIKI_E2E_ALLOW_REMOTE='\"'1'; \"'$env:AGENTWIKI_E2E_CONFIRM_HOST='\"'agentwiki.quukk.com'; \"'$env:AGENTWIKI_Q2_LIVE_RELEASE_CONFIRMED='\"'0.12.11'; node (Join-Path \"'$root '\"'run.mjs') --repo 'D:\\\\MyDocuments\\\\codexprojects\\\\AgentWiki\\\\agentwiki' --install \"'$root --target '\"'https://agentwiki.quukk.com/api' --execute\"",
+      "cwd": "D:\\MyDocuments\\codexprojects\\SuperWagie",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 25413,
+      "output": {
+        "text": "{\"code\":\"CODE_TAMPER_REJECTION_PASS\",\"status\":\"passed\"}\n{\"code\":\"PUBLISHER_16_SCOPES_PASS\",\"status\":\"passed\"}\n{\"code\":\"PUBLISHER_MCP_WIKI_GET_PAGE_PASS\",\"status\":\"passed\"}\n{\"code\":\"CODE_ONBOARDING_PASS\",\"status\":\"passed\"}\n{\"code\":\"DEVICE_TAMPER_REJECTION_PASS\",\"status\":\"passed\"}\n{\"code\":\"RAW_SERVER_PLAN_TAMPER_PASS\",\"status\":\"passed\"}\n{\"code\":\"DEVICE_ONBOARDING_PASS\",\"status\":\"passed\"}\n{\"code\":\"DEVICE_PUBLISHER_16_SCOPES_PASS\",\"status\":\"passed\"}\n{\"code\":\"DEVICE_PUBLISHER_MCP_WIKI_GET_PAGE_PASS\",\"status\":\"passed\"}\n{\"code\":\"DUAL_RAW_PLAN_16_SCOPES_SERVER_CLIENT_TAMPER_PASS\",\"status\":\"passed\"}\n{\"code\":\"PAGE_CREATE_PASS\",\"status\":\"passed\"}\n{\"code\":\"RESOURCE_FLOW_PASS\",\"status\":\"passed\"}\n{\"code\":\"JWT_401_PASS\",\"status\":\"passed\"}\n{\"code\":\"EXACT_RESOURCE_AND_TEMP_CLEANUP_PASS\",\"status\":\"passed\"}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-5f623ef8-b633-49b4-9d8d-bdaf722783cf",
+      "command": "\"C:\\\\Users\\\\1\\\\.cache\\\\codex-runtimes\\\\codex-primary-runtime\\\\dependencies\\\\native\\\\powershell\\\\pwsh.exe\" -Command '$root='\"'C:\\\\Users\\\\1\\\\AppData\\\\Local\\\\Temp\\\\agentwiki-q2-full-20261002-105346'; \"'$result=Get-Content (Join-Path $root '\"'q2-results.json') -Raw | ConvertFrom-Json; [pscustomobject]@{exitCode=\"'$result.exitCode; gates=($result.gates | ForEach-Object { \"$($_.code):$($_.status)\" }) -join '\"','; q2Homes=(Get-ChildItem \"'$root -Directory -Filter '\"'q2-*' -ErrorAction SilentlyContinue).Count; cleanupFailureFile=(Test-Path (Join-Path \"'$root '\"'cleanup-ids.json')); observeLines=(Get-Content (Join-Path \"'$root '\"'q2-observe.ndjson') | Measure-Object -Line).Lines}; git -C 'D:\\\\MyDocuments\\\\codexprojects\\\\AgentWiki' status --short --untracked-files=no\"",
+      "cwd": "D:\\MyDocuments\\codexprojects\\SuperWagie",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 777,
+      "output": {
+        "text": "\r\nexitCode           : 0\r\ngates              : CODE_TAMPER_REJECTION_PASS:passed,PUBLISHER_16_SCOPES_PASS:passed,PUBLISHER_MCP_WIKI_GET_PAGE_PASS\r\n                     :passed,CODE_ONBOARDING_PASS:passed,DEVICE_TAMPER_REJECTION_PASS:passed,RAW_SERVER_PLAN_TAMPER_PAS\r\n                     S:passed,DEVICE_ONBOARDING_PASS:passed,DEVICE_PUBLISHER_16_SCOPES_PASS:passed,DEVICE_PUBLISHER_MCP\r\n                     _WIKI_GET_PAGE_PASS:passed,DUAL_RAW_PLAN_16_SCOPES_SERVER_CLIENT_TAMPER_PASS:passed,PAGE_CREATE_PA\r\n                     SS:passed,RESOURCE_FLOW_PASS:passed,JWT_401_PASS:passed,EXACT_RESOURCE_AND_TEMP_CLEANUP_PASS:passe\r\n                     d\r\nq2Homes            : 0\r\ncleanupFailureFile : False\r\nobserveLines       : 18\r\n\r\n M \"\\346\\265\\213\\350\\257\\225\\346\\212\\245\\345\\221\\212/AgentWikiQ.zip\"\n",
+        "truncated": false
+      }
+    }
+  ]
+}

@@ -12,7 +12,7 @@
 |4|中文错误|真实移除成员后的中文403及无编辑按钮通过|
 |5|角色中文|真实成员页读者/编辑者/发布者通过|
 |6|公网TLS|实际终止点补齐证书链；默认Node信任及五项health全部ok|
-|7|Obsidian目录/同步|正式0.5.6资产新生产公网20项通过；Obsidian 1.13.7 原生 GUI 隔离 Vault 已实测连接、嵌套映射、Pull、编辑、Push、服务端回读及重载持久性；该 Vault 使用 Sync v2，原生 GUI 的 v3 分支仍由独立 HTTP v3 门禁覆盖|
+|7|Obsidian目录/同步|正式0.5.6资产新生产公网20项通过；Obsidian 1.13.7 原生 GUI 隔离 Vault 已实测连接、嵌套映射、Pull、编辑、Push、服务端回读及重载持久性；该 Vault 使用 Sync v2，Sync v3 另有独立 HTTP 门禁，原生 GUI v3 未另行实测|
 |8|协作管理导航|真实Chrome跳转/管理tab与去除无关入口通过|
 |9|审核加载/刷新|真实ingest后已打开review页加载/刷新通过|
 |10|独立页面/目录绑定|Task2独立审查、本地feature-off/DB覆盖；公网独立绑定API/UI通过，生产开关开启|
@@ -40,3 +40,5 @@
 补充边界证据（2026-10-02）：隔离 DB HTTP feature-off 门禁通过；waiting_review 继续读取、外部 HTTPS 图片、多子任务溢出均通过并完成清理；Sync v3 独立 HTTP 生命周期门禁 2/2 通过；Windows 真实远程 Session exit 0；Obsidian 1.13.7 原生 GUI Push 后服务端逐字回读、重载后映射与内容持久化通过。原生 Obsidian 本次连接的空间使用 Sync v2，因此不把原生 GUI v3 冒充已验证；v3 由独立 HTTP 门禁覆盖。
 
 GitHub正式release [v0.12.11](https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.11) 已于2026-10-01 18:56 CST发布（isDraft=false），标签对应已部署执行代码5638dd8d；master已推送后续仅文档的验收记录提交。
+
+补充原始收据：[Windows 远程命令及输出](q2-boundary-evidence-20261002/windows-receipt.json)、[Obsidian 原生验收](q2-boundary-evidence-20261002/native-obsidian.json)、[公网边界](q2-boundary-evidence-20261002/public-boundaries.log)、[feature-off](q2-boundary-evidence-20261002/feature-off.log)、[Sync v3](q2-boundary-evidence-20261002/sync-v3-summary.log)。本轮无产品代码变化，无需重新部署；服务器1421文件哈希及三服务active已重新核验。

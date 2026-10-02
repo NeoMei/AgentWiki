@@ -42,12 +42,12 @@
     "q10FeatureOff": false,
     "pausedSupplement": true,
     "coverageBoundaries": {
-      "Q10": "Binding API and Chrome PASS; feature-off production branch NOT_RUN because canCreate=true.",
-      "Q17": "Uploaded PNG read/editor preview/keyboard zoom PASS; external HTTPS image NOT_RUN.",
-      "Q18": "Late single-child, arbitrary depth, viewport and stage status PASS; multiple-child overflow NOT_RUN.",
+      "Q10": "Production binding PASS; isolated feature-off HTTP PASS.",
+      "Q17": "Uploaded PNG and external HTTPS real image desktop/390px PASS.",
+      "Q18": "Multiple-child overflow desktop/390px PASS.",
       "Q6_Q7": "Independent plugin harness owned by controller; not included here.",
       "onboarding_TLS": "Independent harness/controller evidence; not included here.",
-      "Q12": "Running re-entry and post-review continuation PASS; paused UI resume then running continuation PASS. Waiting-review continuation not separately asserted."
+      "Q12": "Running, paused resume, waiting_review continuation and approval-to-running PASS."
     },
     "evidence": {
       "base": "results-original.json + run-resume.log",
@@ -63,7 +63,7 @@
     "ok": true,
     "cleanup": true,
     "bundleSha256": "5b7b307039dac8dc6613f942f5f5d8387f3164c0456b4940eccbd51030fb3614",
-    "boundary": "disk host shim, not native GUI/Windows/v3"
+    "boundary": "Disk shim plus native macOS Obsidian GUI Sync v2 verified; Sync v3 isolated HTTP verified; native GUI Sync v3 not separately run."
   },
   "onboarding": {
     "device": true,
@@ -74,5 +74,83 @@
     "McpPageRead": true,
     "cleanup401": true
   },
-  "githubRelease": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.11"
+  "githubRelease": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.11",
+  "supplemental20261002": {
+    "date": "2026-10-02",
+    "deployedCode": "5638dd8dc2fa961f29e436d095da23ad983846cb",
+    "sourceFiles": 1421,
+    "services": [
+      "active",
+      "active",
+      "active"
+    ],
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "boundaries": {
+      "release": "0.12.11",
+      "startedAt": "2026-10-02T05:17:48.543Z",
+      "results": {
+        "Q12": "PASS",
+        "Q17": "PASS",
+        "Q18": "PASS"
+      },
+      "cleaned": true
+    },
+    "nativeObsidian": {
+      "date": "2026-10-02",
+      "obsidian": "1.13.7",
+      "plugin": "0.5.6",
+      "protocol": "Sync v2",
+      "vault": "/private/tmp/agentwiki-q2-native-20261002/AgentWiki Native Vault",
+      "checks": {
+        "manualCodeGuiConnected": true,
+        "nestedMappingCreatedAndPersisted": true,
+        "remotePullGuiPreviewAndConfirm": true,
+        "remotePullExactDiskContent": true,
+        "nativeEditorEdit": true,
+        "pushGuiPreviewConfirmed": true,
+        "pushGuiNoticeCompleted": true,
+        "remoteReadback": true,
+        "reloadPersistence": true,
+        "reloadPostSyncPanelClean": true
+      },
+      "remote": {
+        "status": 200,
+        "contentSha256": "5ae15ce60ae6885cd3131dd9c36c379ccaceb516dfe4944d32c0d6c2ca97be31",
+        "bytes": 61
+      },
+      "cleanup": {
+        "installation": 409,
+        "space": 200,
+        "user": 200,
+        "jwtAfterDelete": 401,
+        "note": "installation already exchanged; revocation endpoint returns 409 by contract, user/space deleted and token invalidated"
+      }
+    },
+    "featureOff": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "environment": "isolated HTTP/DB; production toggle unchanged"
+    },
+    "syncV3": {
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "environment": "isolated HTTP/DB"
+    },
+    "windows": {
+      "remoteThread": "01a07cb2-c0da-7070-b548-9c13207e34ca",
+      "exitCode": 0,
+      "gates": 14,
+      "tempHomes": 0,
+      "cleanupFailureFile": false
+    },
+    "evidenceDirectory": "q2-boundary-evidence-20261002"
+  }
 }

@@ -1,0 +1,10 @@
+✔ dedicated Sync v3 HTTP gate is registered as a serial real-database command (0.685042ms)
+✔ real isolated HTTP Sync v3 lifecycle is durable, idempotent, guarded, and atomic (7808.351417ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7874.443
