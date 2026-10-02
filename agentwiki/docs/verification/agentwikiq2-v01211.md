@@ -1,6 +1,6 @@
 # AgentwikiQ 2 修复与发布验收
 
-2026-10-01：应用0.12.11已部署，Local Sync0.10.2/protocol0.6.1正式公开。20项及2条附加接入问题的修复代码均已实施和独立审查；真实主路径验收通过，未覆盖边界仍保留，不能宣称每个环境均验收完成。
+2026-10-02复核：应用0.12.11已部署，Local Sync0.10.2/protocol0.6.1正式公开。20项及2条附加接入问题的修复代码均已实施和独立审查；主路径及本次补充边界验收通过。
 
 权威原报告：主工作区 测试报告/AgentwikiQ 2/问题清单-缺陷详情09-29.md、agentwiki-onboard-diagnosis.md。基线1335765cd；部署执行代码5638dd8dc2fa961f29e436d095da23ad983846cb。
 
@@ -12,18 +12,18 @@
 |4|中文错误|真实移除成员后的中文403及无编辑按钮通过|
 |5|角色中文|真实成员页读者/编辑者/发布者通过|
 |6|公网TLS|实际终止点补齐证书链；默认Node信任及五项health全部ok|
-|7|Obsidian目录/同步|正式0.5.6资产新生产公网20项通过；磁盘宿主，非nativeGUI/Windows/v3|
+|7|Obsidian目录/同步|正式0.5.6资产新生产公网20项通过；Obsidian 1.13.7 原生 GUI 隔离 Vault 已实测连接、嵌套映射、Pull、编辑、Push、服务端回读及重载持久性；该 Vault 使用 Sync v2，原生 GUI 的 v3 分支仍由独立 HTTP v3 门禁覆盖|
 |8|协作管理导航|真实Chrome跳转/管理tab与去除无关入口通过|
 |9|审核加载/刷新|真实ingest后已打开review页加载/刷新通过|
 |10|独立页面/目录绑定|Task2独立审查、本地feature-off/DB覆盖；公网独立绑定API/UI通过，生产开关开启|
 |11|人工审核文案|真实MCP提交→pending→Chrome通过→人工审核/已通过中文文案通过|
-|12|重新进入继续指令|running重入/审核后继续通过，不改变version/status/eventSequence；paused真实恢复通过；waiting_review单独读取未覆盖|
+|12|重新进入继续指令|running重入、审核后继续、paused真实恢复、waiting_review独立继续读取均通过；不改变version/status/eventSequence|
 |13|协作布局|真实桌面/390px几何、独立滚动与无横向溢出通过|
 |14|图谱标签|真实22长中英标题，缩放/边界/无重叠/完整选择通过|
 |15|来源运行结果|真实运行结果/产物/审核链通过|
 |16|非成员平台管理员只读|自建human严格提权，9类写入403和Chrome只读，真实降权及JWT401清理通过；附件/review写拒绝也覆盖|
-|17|图片放大|真实PNG上传、页面/编辑预览、Enter/Escape/焦点及比例通过；外部HTTPS图未覆盖|
-|18|看板子任务对齐|真实Markdown晚父单子、深度与移动滚动通过；多子溢出未另建公网夹具|
+|17|图片放大|真实PNG上传、页面/编辑预览、Enter/Escape/焦点及比例通过；外部 HTTPS 图片实际加载、放大/关闭及桌面/390px复验通过|
+|18|看板子任务对齐|真实Markdown晚父单子、深度与移动滚动通过；多子任务溢出桌面/390px几何复验通过|
 |19|实现阶段同步|真实UI状态写入，implementation同步且validation/acceptance独立保持通过|
 |20|待验收紫点|真实计算颜色rgb(133,100,196)通过|
 |附1|一次性码publisher|正式包真实code NDJSON安装/MCP读页通过；原始计划16scopes/篡改拒绝|
@@ -37,6 +37,6 @@
 
 公网证据：Chrome18项主路径结果分首轮/恢复/独立补验取得，最终全部PASS且cleaned=true；最初选择器与页面加载竞态导致的harness失败保留，未据此更改产品。正式插件0.5.6 SHA256 5b7b307039dac8dc6613f942f5f5d8387f3164c0456b4940eccbd51030fb3614，20项及cleanup全部通过。双publisher设备/码接入/MCP读页与cleanup均exit0。
 
-未覆盖边界：Q12 waiting_review单独读取继续指令未断言；生产模板开关开启，Q10 feature-off公网场景未验证；插件原生GUI/Windows/v3附件未运行；Q17外部HTTPS图片与Q18多子溢出未另建公网夹具。Q12 paused真实pause→Chrome恢复运行→resume200/running→新继续指令附加路径通过，pausedSupplement=true。以上不计PASS，不将计划视为完成。
+补充边界证据（2026-10-02）：隔离 DB HTTP feature-off 门禁通过；waiting_review 继续读取、外部 HTTPS 图片、多子任务溢出均通过并完成清理；Sync v3 独立 HTTP 生命周期门禁 2/2 通过；Windows 真实远程 Session exit 0；Obsidian 1.13.7 原生 GUI Push 后服务端逐字回读、重载后映射与内容持久化通过。原生 Obsidian 本次连接的空间使用 Sync v2，因此不把原生 GUI v3 冒充已验证；v3 由独立 HTTP 门禁覆盖。
 
 GitHub正式release [v0.12.11](https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.11) 已于2026-10-01 18:56 CST发布（isDraft=false），标签对应已部署执行代码5638dd8d；master已推送后续仅文档的验收记录提交。
