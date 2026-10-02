@@ -1,0 +1,69 @@
+{
+  "checkedAt": "2026-10-02T07:50:15.379Z",
+  "client": {
+    "app": "Obsidian",
+    "version": "1.13.7",
+    "plugin": "AgentWiki Sync 0.5.6",
+    "vault": "isolated temporary vault"
+  },
+  "protocol": {
+    "protocolVersion": "3",
+    "syncMode": "native_v3",
+    "serverHeadStatus": 200,
+    "prePullHeadRevision": "cmuqmd77604q388go8k48fqms",
+    "postPushHeadRevision": "cmuqmumpv04r988gobwiam794"
+  },
+  "nativeGui": {
+    "manualConnectionCodeAccepted": true,
+    "nestedMappingCreated": "Native-Q2-v3/Deep",
+    "syncPanelProtocolLabel": "Sync v3",
+    "pullPreviewConfirmed": true,
+    "remotePageAndAttachmentPulled": true,
+    "nativeEditorEditSaved": true,
+    "pushPreviewConfirmed": true,
+    "pushCompleted": true,
+    "serverReadbackExact": true,
+    "serverReadbackSha256": "adc532b3af609d4ed19d1f60a2ea8d92a65b94e11ee9c52a93ab815d3caef394",
+    "localSha256": "adc532b3af609d4ed19d1f60a2ea8d92a65b94e11ee9c52a93ab815d3caef394",
+    "localBytes": 49,
+    "reloadMappingPersisted": true,
+    "cleanupLocalMappingAndDisconnect": true,
+    "attachmentBytes": 68,
+    "attachmentSha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460",
+    "reloadPageContentPersisted": true,
+    "reloadPostSyncPanelClean": true,
+    "reloadPostSyncPanelResult": "本地与服务器已同步，无需操作。"
+  },
+  "cleanup": {
+    "spaceDeleteStatus": 200,
+    "userDeleteStatus": 200,
+    "jwtAfterDeleteStatus": 401,
+    "exchangedInstallationDeleteStatus": 409,
+    "installationNote": "exchange-completed installations are retained by server contract; user deletion revoked access",
+    "secondTemporaryAccount": {
+      "spaceDeleteStatus": 200,
+      "userDeleteStatus": 200,
+      "jwtAfterDeleteStatus": 401
+    },
+    "localMappingsRemaining": 0,
+    "persistenceFixture": {
+      "installation": 409,
+      "space": 200,
+      "user": 200,
+      "jwtAfterDelete": 401
+    }
+  },
+  "boundary": "This is a macOS Obsidian native GUI v3 acceptance in an isolated disposable account/vault. Windows native Obsidian GUI was not exercised in this run; Windows remote Session validation remains a separate Local Sync/MCP boundary.",
+  "reloadBoundary": "Primary fixture verified Push and server readback. A separate active native_v3 fixture verified confirmed Pull, exact page/attachment disk content, reload, persisted mapping and credential, then a clean remote diff in the native GUI. Both completed fixtures and the extra setup fixture were removed.",
+  "persistenceFixture": {
+    "checkedAt": "2026-10-02",
+    "pullContentExact": true,
+    "attachmentBytes": 68,
+    "attachmentSha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460",
+    "mappingCount": 1,
+    "reloadPostSyncPanelProtocol": "Sync v3",
+    "reloadPostSyncPanelResult": "本地与服务器已同步，无需操作。",
+    "localChanges": 0,
+    "serverChanges": 0
+  }
+}
