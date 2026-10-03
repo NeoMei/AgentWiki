@@ -13,6 +13,6 @@ it.skipIf(!hasZsh).each([
     // Shadow npx with a shell function: inspect argv without package execution or network access.
     const probe = `npx() { printf '%s\\0' "$@"; }\n${command}`;
     const args = execFileSync('zsh', ['-f', '-c', probe], {encoding:'utf8'}).split('\0').slice(0,-1);
-    expect(args).toEqual(['--yes','@neomei/agentwiki-local-sync@0.10.2','onboard','start','--server',serverUrl,'--client','codex','--protocol','json']);
+    expect(args).toEqual(['--yes','@neomei/agentwiki-local-sync@0.11.0','onboard','start','--server',serverUrl,'--client','codex','--protocol','json']);
   }
 });

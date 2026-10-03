@@ -34,6 +34,14 @@ The installer creates or updates exactly one MCP entry named `agentwiki`. The ga
 
 The gateway bridges to the server internally. Users and Agents must not register a second direct `/api/mcp` connection or a credential-specific MCP name.
 
+### Multiple Spaces (local candidate)
+
+Authorize each Space from the existing Agent's access page and run its generated installation instruction. Adding another Space for the same Agent preserves earlier connections and their local knowledge. Reload the host's `agentwiki` MCP after installation; the single entry then routes all connected Spaces for that Agent, server, and client.
+
+Call `wiki_list_spaces` to discover connected Space IDs and roles. For other remote calls, supply `spaceId` at the gateway level; tools using the generic wrapper accept, for example, `{ "spaceId": "<id>", "__args": { "pageId": "<page-id>" } }`. Existing `__args.spaceId` remains accepted; conflicting selectors fail. Collaboration tools accept `spaceId` with their normal arguments. Single-Space page-only calls remain compatible without the selector. Knowledge preparation and pull require `spaceId`; confirmation uses the Space sealed inside the preview bundle.
+
+Credentials and permissions remain separate for each Space. Merely adding the Agent as a member of another Space does not authorize an existing credential there; complete that Space's connection authorization. A failed or revoked Space does not route through another Space's key. `onboard_status` reports per-Space remote diagnostics. This candidate requires a new Local Sync package release before generated `npx` instructions use it.
+
 CodeGraph is a separately installed scanner with its own version and lifecycle. AgentWiki is
 version-decoupled: it reads supported structural scan results, deterministically analyzes them,
 and decides which generated knowledge may enter an AgentWiki Preview. Do not add a second
@@ -41,7 +49,7 @@ CodeGraph MCP to AgentWiki.
 
 ## Resumable connection onboarding (candidate)
 
-The new finite-process flow is available in this 0.10.2 source candidate. It requires the
+The new finite-process flow is available in this 0.11.0 source candidate. It requires the
 matching server with `agent-connect`, `/onboard/spaces`, and `/onboard/device/renew`
 support. The public 0.9.1 release does not contain these commands; run the built
 candidate below until a coordinated release supplies the new pinned version.
@@ -100,12 +108,12 @@ under `~/.agentwiki/onboarding/steps/`; never copy their contents into prompts o
 Concurrent continuation is rejected with `SESSION_BUSY`; crashed process locks recover
 on the next command. Changed client configuration requires a fresh confirmation.
 
-## Onboarding (0.10.2)
+## Onboarding (0.11.0)
 
 Use the pinned onboarding command to complete the full self-service flow:
 
 ```bash
-npx --yes @neomei/agentwiki-local-sync@0.10.2 onboard \
+npx --yes @neomei/agentwiki-local-sync@0.11.0 onboard \
   --server https://agentwiki.quukk.com/api \
   --protocol ndjson
 ```
@@ -116,7 +124,7 @@ with a read-only pull after gateway verification and never calls the write-sync 
 Editor and Publisher run the first local scan and sync after explicit preview
 confirmation. Passwords and login information never enter the Agent conversation.
 
-Every 0.10.2 plan contains one role: `reader`, `editor`, or `publisher`. For an existing
+Every 0.11.0 plan contains one role: `reader`, `editor`, or `publisher`. For an existing
 Agent, the user chooses the Space and role before generating the one-time code; exchange
 atomically creates or updates the Space Grant and binds an identity-only Credential to it.
 Only the Grant stores a role; the server derives all scopes at request time. Legacy `viewer`, `full`, `permissionPreset`, `approvalMode`, and custom-scope
@@ -134,7 +142,7 @@ deterministically routes `wiki_*`, `local_*`, and `knowledge_*` tools.
 When an Agent already exists in AgentWiki, generate the one-time unified-gateway instruction from that Agent's access page. The generated command uses the same `onboard` entry point with `--code`; it attaches the existing identity without creating a second MCP:
 
 ```bash
-npx --yes @neomei/agentwiki-local-sync@0.10.2 onboard \
+npx --yes @neomei/agentwiki-local-sync@0.11.0 onboard \
   --server https://agentwiki.quukk.com/api \
   --code <one-time-code> \
   --protocol ndjson \
@@ -208,7 +216,7 @@ and connection ID, never the API key.
 These versions were tested with isolated temporary HOME directories on 2026-08-15. The
 package uses an exact version in every registered gateway command.
 
-The 0.10.2 package requires the corrected
+The 0.11.0 package requires the corrected
 `@neomei/agentwiki-sync-protocol@0.6.1`, which contains the collaboration and Sync v3
 contracts. Release verification packs the Local Sync candidate, installs it with the
 public protocol into an empty directory, and runs the CLI before publication.
@@ -221,7 +229,7 @@ credentials, or absolute local paths.
 
 ### Publisher integrity correction
 
-0.10.2 pins protocol 0.6.1, whose publisher defaults contain the 16 supported
+0.11.0 pins protocol 0.6.1, whose publisher defaults contain the 16 supported
 scopes and omit unsupported `memory:read`/`memory:write`. Upgrade from 0.10.0 for
 both device and one-time-code publisher onboarding. Confirmed plan hashes, role,
 Agent, Space, exact scope order/count, and package version remain strictly checked.

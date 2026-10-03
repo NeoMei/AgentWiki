@@ -4,7 +4,7 @@ import { once } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const candidates = [{ name: '@neomei/agentwiki-local-sync', version: '0.10.2' }];
+const candidates = [{ name: '@neomei/agentwiki-local-sync', version: '0.11.0' }];
 
 async function loadGate() {
   return import('./sync-v3-registry-collision-gate.mjs');
@@ -31,7 +31,7 @@ test('release manifests and the explicit registry command check only unpublished
     readFile(new URL('../packages/local-sync/package.json', import.meta.url), 'utf8').then(JSON.parse),
   ]);
   assert.equal(protocol.version, '0.6.1');
-  assert.equal(localSync.version, '0.10.2');
+  assert.equal(localSync.version, '0.11.0');
   assert.equal(localSync.dependencies[protocol.name], '0.6.1');
   assert.equal(root.devDependencies.semver, '7.8.5');
   assert.equal(
@@ -47,7 +47,7 @@ test('registry collision gate rejects an occupied candidate', async () => {
   await withRegistry((request, response) => {
     response.writeHead(200, { 'content-type': 'application/json' });
     assert.match(request.url ?? '', /local-sync/u);
-    response.end(JSON.stringify({ versions: { '0.10.2': {} } }));
+    response.end(JSON.stringify({ versions: { '0.11.0': {} } }));
   }, async (registryUrl) => {
     await assert.rejects(
       assertNpmReleaseCandidatesAvailable({ registryUrl, candidates }),

@@ -6,8 +6,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   claimPreview,
+  connectionForSpace,
   completePreview,
   getOrCreateSourceKey,
+  loadConfig,
+  mergeConnection,
   loadCredentials,
   saveConfig,
   releasePreview,
@@ -28,6 +31,40 @@ afterEach(async () => {
 });
 
 describe('secure local state', () => {
+  it('rejects an explicit Space when the sole legacy connection has no confirmed binding', () => {
+    const config = { version: 1 as const, connections: { legacy: { id: 'legacy', serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'cred-a', pluginVersion: '0.10.0', client: 'codex' as const, mcpName: 'agentwiki' } } };
+    expect(() => connectionForSpace(config, 'space-b')).toThrow(/spaceId space-b/);
+  });
+
+  it('keeps multiple Space connections addressable without falling back across Spaces', async () => {
+    const home = await createHome();
+    await saveConfig(home, {
+      version: 1,
+      defaultConnectionId: 'space-b',
+      connections: {
+        'space-a': { id: 'space-a', serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'cred-a', pluginVersion: '0.10.0', client: 'codex', mcpName: 'agentwiki', spaceId: 'space-a' },
+        'space-b': { id: 'space-b', serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'cred-b', pluginVersion: '0.10.0', client: 'codex', mcpName: 'agentwiki', spaceId: 'space-b' },
+      },
+    });
+
+    const config = await loadConfig(home);
+    expect(connectionForSpace(config, 'space-a')?.credentialId).toBe('cred-a');
+    expect(connectionForSpace(config, 'space-b')?.credentialId).toBe('cred-b');
+    expect(() => connectionForSpace(config, 'space-c')).toThrow(/spaceId space-c/);
+  });
+
+  it('merges a second Space and rolls it back without erasing the first', async () => {
+    const home = await createHome();
+    const common = { serverUrl: 'https://wiki.test/api', agentId: 'agent-1', pluginVersion: '0.10.0', client: 'codex' as const, mcpName: 'agentwiki' };
+    await mergeConnection(home, { ...common, id: 'a', credentialId: 'cred-a', spaceId: 'space-a' }, 'key-a');
+    const undo = await mergeConnection(home, { ...common, id: 'b', credentialId: 'cred-b', spaceId: 'space-b' }, 'key-b');
+    expect(Object.keys((await loadConfig(home)).connections).sort()).toEqual(['a', 'b']);
+    expect((await loadCredentials(home)).credentials).toEqual({ 'cred-a': { apiKey: 'key-a' }, 'cred-b': { apiKey: 'key-b' } });
+    await undo();
+    expect(Object.keys((await loadConfig(home)).connections)).toEqual(['a']);
+    expect((await loadCredentials(home)).credentials).toEqual({ 'cred-a': { apiKey: 'key-a' } });
+  });
+
   it('migrates v1 credentials to v2 and keeps the device credential out of public config', async () => {
     const home = await createHome();
     await saveConfig(home, {
@@ -36,7 +73,7 @@ describe('secure local state', () => {
       connections: {
         local: {
           id: 'local', serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'cred-1',
-          pluginVersion: '0.10.2', client: 'codex', mcpName: 'agentwiki',
+          pluginVersion: '0.11.0', client: 'codex', mcpName: 'agentwiki',
         },
       },
     });
@@ -164,4 +201,35 @@ describe('secure local state', () => {
     await expect(claimPreview(home, previewId)).rejects.toThrow('not found or expired');
     await expect(stat(inflightPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
+});
+
+it('does not lose another Space when additions race or when an earlier addition rolls back', async () => {
+  const home = await createHome();
+  const common = { serverUrl: 'https://wiki.test/api', agentId: 'agent-1', pluginVersion: '0.10.0', client: 'codex' as const, mcpName: 'agentwiki' };
+  const results = await Promise.allSettled([
+    mergeConnection(home, { ...common, id: 'a', spaceId: 'space-a', credentialId: 'cred-a' }, 'key-a'),
+    mergeConnection(home, { ...common, id: 'b', spaceId: 'space-b', credentialId: 'cred-b' }, 'key-b'),
+  ]);
+  // Contention may fail explicitly, but every successful addition must remain paired with its key.
+  for (const [index, result] of results.entries()) {
+    if (result.status === 'fulfilled') {
+      const id = index === 0 ? 'a' : 'b';
+      expect((await loadConfig(home)).connections[id]?.credentialId).toBe(`cred-${id}`);
+      expect((await loadCredentials(home)).credentials[`cred-${id}`]?.apiKey).toBe(`key-${id}`);
+    }
+  }
+  const undo = await mergeConnection(home, { ...common, id: 'c', spaceId: 'space-c', credentialId: 'cred-c' }, 'key-c');
+  await mergeConnection(home, { ...common, id: 'd', spaceId: 'space-d', credentialId: 'cred-d' }, 'key-d');
+  await undo();
+  expect((await loadConfig(home)).connections.d?.credentialId).toBe('cred-d');
+  expect((await loadCredentials(home)).credentials['cred-d']?.apiKey).toBe('key-d');
+  expect((await loadConfig(home)).connections.c).toBeUndefined();
+});
+
+it('uses the explicitly installed credential after reauthorizing the same Space', async () => {
+  const home = await createHome();
+  const common = { serverUrl: 'https://wiki.test/api', agentId: 'agent-1', pluginVersion: '0.10.0', client: 'codex' as const, mcpName: 'agentwiki', spaceId: 'space-a' };
+  await mergeConnection(home, { ...common, id: 'old', credentialId: 'old-key' }, 'old');
+  await mergeConnection(home, { ...common, id: 'new', credentialId: 'new-key' }, 'new');
+  expect(connectionForSpace(await loadConfig(home), 'space-a').credentialId).toBe('new-key');
 });

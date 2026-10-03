@@ -2,6 +2,8 @@ import {
   scopesForAgentAccessRole,
   type AgentAccessRole,
 } from '@neomei/agentwiki-sync-protocol';
+import { join } from 'node:path';
+import { withStepLock } from './steps-store.js';
 import { fileURLToPath } from 'node:url';
 import type { BootstrapResult } from './client.js';
 import { OnboardingClient } from './client.js';
@@ -9,7 +11,7 @@ import type { BootstrapInstallFn } from './coordinator.js';
 import { OnboardingError } from './errors.js';
 import { AgentWikiClient, type ExchangeResult } from '../agentwiki-client.js';
 import { installSkill, packagedSkillSource } from '../agent-clients.js';
-import { loadConfig, loadCredentials, saveConfig, saveCredentials, type LocalSyncConnection } from '../config.js';
+import { loadConfig, loadCredentials, mergeConnection, type LocalSyncConnection } from '../config.js';
 import { archiveLegacyState, initCleanState, restoreArchivedState, type ArchiveResult } from '../installer/archive.js';
 import { installGatewayEntry } from '../installer/client-config.js';
 import { verifyGateway, type VerifyResult } from './verifier.js';
@@ -30,7 +32,7 @@ export interface BootstrapInstallerDeps {
   archive(home: string): Promise<ArchiveResult | null>;
   initialize(home: string): Promise<void>;
   exchange(serverBaseUrl: string, code: string): Promise<ExchangeResult>;
-  saveConnection(home: string, connection: LocalSyncConnection, apiKey: string): Promise<void>;
+  saveConnection(home: string, connection: LocalSyncConnection, apiKey: string): Promise<(() => Promise<void>) | void>;
   installSkill(home: string, client: InstallInput['client']): Promise<unknown>;
   installClient(
     client: InstallInput['client'],
@@ -152,7 +154,7 @@ export interface ExchangedGatewayInstallInput {
   expectedSpaceId: string;
   expectedRole: AgentAccessRole;
   expectedScopes: string[];
-  expectedPluginVersion: '0.10.2';
+  expectedPluginVersion: '0.11.0';
   exchange: ExchangeResult;
   /** Retain only after the client entry switched successfully; pre-switch failures restore old active state. */
   retainOnFailure?: boolean;
@@ -160,6 +162,13 @@ export interface ExchangedGatewayInstallInput {
 }
 
 export async function installExchangedGateway(
+  input: ExchangedGatewayInstallInput,
+  overrides: Partial<BootstrapInstallerDeps> = {},
+): Promise<{ connection: LocalSyncConnection; configBackupPath: string; manifestHash: string }> {
+  return withStepLock(join(input.home, '.agentwiki', 'onboarding', 'gateway-installation'), () => installGatewayConnection(input, overrides));
+}
+
+async function installGatewayConnection(
   input: ExchangedGatewayInstallInput,
   overrides: Partial<BootstrapInstallerDeps> = {},
 ): Promise<{
@@ -184,6 +193,7 @@ export async function installExchangedGateway(
     pluginVersion: input.exchange.pluginVersion,
     client: input.client,
     mcpName: 'agentwiki',
+    spaceId: input.exchange.spaceId,
   };
   const existing = await deps.loadExisting(input.home, input.connectionId);
   if (existing) {
@@ -194,6 +204,7 @@ export async function installExchangedGateway(
       || existing.connection.pluginVersion !== connection.pluginVersion
       || existing.connection.client !== connection.client
       || existing.connection.mcpName !== connection.mcpName
+      || (existing.connection.spaceId !== undefined && existing.connection.spaceId !== connection.spaceId)
       || existing.apiKey !== input.exchange.apiKey
     ) {
       throw new OnboardingError({
@@ -254,12 +265,21 @@ export async function installExchangedGateway(
   }
   let archive: ArchiveResult | null = null;
   let rollbackConfig: (() => Promise<void>) | undefined;
+  let rollbackLocal: (() => Promise<void>) | undefined;
   let activatedState = false;
   try {
-    archive = await deps.archive(input.home);
-    activatedState = true;
+    const current = await loadConfig(input.home);
+    // Preserve modern connections and every existing connection for this Agent,
+    // including legacy records whose credential binding is resolved at runtime.
+    const keepExistingConnections = Object.values(current.connections).some((candidate) => (
+      Boolean(candidate.spaceId) || candidate.agentId === input.expectedAgentId
+    ));
+    if (!keepExistingConnections) {
+      archive = await deps.archive(input.home);
+      activatedState = true;
+    }
     await deps.initialize(input.home);
-    await deps.saveConnection(input.home, connection, input.exchange.apiKey);
+    rollbackLocal = await deps.saveConnection(input.home, connection, input.exchange.apiKey) ?? undefined;
     if (!input.retainOnFailure) await deps.installSkill(input.home, input.client);
     const installed = await deps.installClient(
       input.client,
@@ -315,6 +335,8 @@ export async function installExchangedGateway(
       } catch {
         restoreFailed = true;
       }
+    } else {
+      try { await rollbackLocal?.(); } catch { restoreFailed = true; }
     }
     if (rollbackFailed || restoreFailed || revokeFailed) {
       const incomplete = [
@@ -355,15 +377,7 @@ export function productionDependencies(request?: typeof fetch): BootstrapInstall
     archive: archiveLegacyState,
     initialize: initCleanState,
     exchange: (serverBaseUrl, code) => agentwiki.exchange(serverBaseUrl, code),
-    saveConnection: async (home, connection, apiKey) => {
-      const config = await loadConfig(home);
-      config.connections = { [connection.id]: connection };
-      config.defaultConnectionId = connection.id;
-      const credentials = await loadCredentials(home);
-      credentials.credentials = { [connection.credentialId]: { apiKey } };
-      await saveConfig(home, config);
-      await saveCredentials(home, credentials);
-    },
+    saveConnection: (home, connection, apiKey) => mergeConnection(home, connection, apiKey),
     installSkill: (home, client) => installSkill(home, packagedSkillSource, client),
     installClient: installGatewayEntry,
     verify: (connectionId, home) => verifyGateway({
@@ -398,7 +412,7 @@ export function productionDependencies(request?: typeof fetch): BootstrapInstall
   };
 }
 
-function assertExchange(exchange: ExchangeResult, bootstrap: BootstrapResult, version: '0.10.2'): void {
+function assertExchange(exchange: ExchangeResult, bootstrap: BootstrapResult, version: '0.11.0'): void {
   assertExchangePackage(exchange, {
     agentId: bootstrap.agent.id,
     spaceId: bootstrap.space.id,
@@ -434,13 +448,13 @@ function assertExchangePackage(
     spaceId: string;
     role: AgentAccessRole;
     scopes: string[];
-    pluginVersion: '0.10.2';
+    pluginVersion: '0.11.0';
   },
 ): void {
   const canonicalScopes = scopesForAgentAccessRole(expected.role);
   if (
-    expected.pluginVersion !== '0.10.2'
-    || exchange.pluginVersion !== '0.10.2'
+    expected.pluginVersion !== '0.11.0'
+    || exchange.pluginVersion !== '0.11.0'
     || exchange.pluginVersion !== expected.pluginVersion
     || exchange.agentId !== expected.agentId
     || exchange.spaceId !== expected.spaceId

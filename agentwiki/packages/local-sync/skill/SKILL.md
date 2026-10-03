@@ -15,6 +15,8 @@ Use the one MCP entry named `agentwiki`, installed by `@neomei/agentwiki-local-s
 
 Never create a second direct AgentWiki MCP connection, a credential-specific MCP name, or a separate local-sync MCP entry. API credentials shown in AgentWiki are for APIs, scripts, and external systems; Agent access always uses this gateway.
 
+One gateway can retain multiple Space connections for the same Agent, server and host client. Each Space is separately authorized. After adding a Space, reload the gateway and call `wiki_list_spaces`. For remote calls, always provide the chosen internal `spaceId`; generic tools accept it alongside `__args` (or inside `__args`), and collaboration tools accept it alongside their usual arguments. Do not use a global current Space or retry a denied operation using another Space's credential. If discovery reports `SPACE_DISCOVERY_INCOMPLETE`, inspect the returned unavailable Space IDs before claiming the full Space list was verified.
+
 For local knowledge synchronization, use one gateway and two distinct confirmations. CodeGraph is installed and managed independently for its own lifecycle; AgentWiki only probes its supported local surfaces and never installs or upgrades it.
 
 1. Use `wiki_list_spaces` to find the authorized target Space and its internal ID.

@@ -1,11 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { chmod, link, mkdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
+import { SourceLock } from './codegraph/source-lock.js';
 import { isAbsolute, join } from 'node:path';
 
 const AGENTWIKI_DIRECTORY = '.agentwiki';
 const PREVIEWS_DIRECTORY = 'previews';
 const SOURCE_KEYS_DIRECTORY = 'source-keys';
 const PREVIEW_TTL_MS = 30 * 60 * 1_000;
+const REGISTRY_LOCK_KEY = createHash('sha256').update('agentwiki:connection-registry').digest('hex');
 
 export interface LocalSyncConnection {
   id: string;
@@ -15,12 +17,74 @@ export interface LocalSyncConnection {
   pluginVersion: string;
   client: 'codex' | 'claude' | 'opencode';
   mcpName: string;
+  /** The Space authorized by this credential. Legacy configs may omit it. */
+  spaceId?: string;
 }
 
 export interface LocalSyncConfig {
   version: 1;
   defaultConnectionId?: string;
   connections: Record<string, LocalSyncConnection>;
+}
+
+export function connectionForSpace(
+  config: LocalSyncConfig,
+  spaceId: string,
+): LocalSyncConnection {
+  const matches = Object.values(config.connections).filter((connection) => connection.spaceId === spaceId);
+  if (matches.length === 1) return matches[0]!;
+  if (matches.length > 1) {
+    const preferred = config.defaultConnectionId ? config.connections[config.defaultConnectionId] : undefined;
+    if (preferred?.spaceId === spaceId) return preferred;
+    return matches[matches.length - 1]!;
+  }
+  throw new Error(`No local AgentWiki connection is configured for spaceId ${spaceId}`);
+}
+
+/** Serialize both config files across processes; rollback only this addition. */
+export async function mergeConnection(
+  home: string,
+  connection: LocalSyncConnection,
+  apiKey: string,
+): Promise<() => Promise<void>> {
+  const lock = new SourceLock({ root: join(home, '.agentwiki', 'onboarding'), timeoutMs: 10_000 });
+  return lock.withLock(REGISTRY_LOCK_KEY, async () => {
+    const beforeConfig = await loadConfig(home);
+    const beforeCredentials = await loadCredentials(home);
+    const previousConnection = beforeConfig.connections[connection.id];
+    const previousSecret = beforeCredentials.credentials[connection.credentialId];
+    if (previousConnection && (previousConnection.agentId !== connection.agentId || previousConnection.serverUrl !== connection.serverUrl
+      || (previousConnection.spaceId && previousConnection.spaceId !== connection.spaceId))) {
+      throw new Error('Connection id already belongs to another Agent or Space');
+    }
+    const nextConfig: LocalSyncConfig = { ...beforeConfig, defaultConnectionId: connection.id,
+      connections: { ...beforeConfig.connections, [connection.id]: connection } };
+    const secret = { apiKey, ...(previousSecret?.apiKey === apiKey && previousSecret.syncDeviceCredential ? { syncDeviceCredential: previousSecret.syncDeviceCredential } : {}) };
+    const nextCredentials: CredentialFile = { ...beforeCredentials,
+      credentials: { ...beforeCredentials.credentials, [connection.credentialId]: secret } };
+    try {
+      // Publish the credential before its public reference; a crash cannot expose a connection with the wrong key.
+      await saveCredentials(home, nextCredentials);
+      await saveConfig(home, nextConfig);
+    } catch (error) {
+      const restored = await Promise.allSettled([saveConfig(home, beforeConfig), saveCredentials(home, beforeCredentials)]);
+      if (restored.some((item) => item.status === 'rejected')) throw new Error('Connection save failed; local configuration recovery is incomplete', { cause: error });
+      throw error;
+    }
+    return async () => lock.withLock(REGISTRY_LOCK_KEY, async () => {
+      const currentConfig = await loadConfig(home);
+      const currentSecrets = await loadCredentials(home);
+      if (JSON.stringify(currentConfig.connections[connection.id]) !== JSON.stringify(connection)) throw new Error('Connection changed after installation; rollback needs manual recovery');
+      if (previousConnection) currentConfig.connections[connection.id] = previousConnection;
+      else delete currentConfig.connections[connection.id];
+      if (currentConfig.defaultConnectionId === connection.id) currentConfig.defaultConnectionId = beforeConfig.defaultConnectionId ?? Object.keys(currentConfig.connections)[0];
+      if (JSON.stringify(currentSecrets.credentials[connection.credentialId]) !== JSON.stringify(secret)) throw new Error('Credential changed after installation; rollback needs manual recovery');
+      if (previousSecret) currentSecrets.credentials[connection.credentialId] = previousSecret;
+      else delete currentSecrets.credentials[connection.credentialId];
+      await saveConfig(home, currentConfig);
+      await saveCredentials(home, currentSecrets);
+    });
+  });
 }
 
 export interface CredentialFile {

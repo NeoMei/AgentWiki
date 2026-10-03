@@ -67,7 +67,7 @@ describe('gateway entry', () => {
     await saveConfig(home, {
       version: 1,
       connections: {
-        primary: { id: 'primary', serverUrl: 'https://example.test', agentId: 'agent-1', credentialId: 'credential-1', pluginVersion: '0.10.2', client: 'codex', mcpName: 'agentwiki' },
+        primary: { id: 'primary', serverUrl: 'https://example.test', agentId: 'agent-1', credentialId: 'credential-1', pluginVersion: '0.11.0', client: 'codex', mcpName: 'agentwiki', spaceId: 'space-1' },
       },
     });
     await saveCredentials(home, { version: 1, credentials: { 'credential-1': { apiKey: 'test-key' } } });
@@ -132,7 +132,7 @@ describe('gateway entry', () => {
     await saveConfig(home, {
       version: 1,
       connections: {
-        primary: { id: 'primary', serverUrl: 'https://example.test', agentId: 'agent-1', credentialId: 'credential-1', pluginVersion: '0.10.2', client: 'codex', mcpName: 'agentwiki' },
+        primary: { id: 'primary', serverUrl: 'https://example.test', agentId: 'agent-1', credentialId: 'credential-1', pluginVersion: '0.11.0', client: 'codex', mcpName: 'agentwiki', spaceId: 'space-1' },
       },
     });
     await saveCredentials(home, {
@@ -172,7 +172,7 @@ describe('gateway entry', () => {
 
 it('reports a short safe remote warning once per failure outcome without changing local configuration', async () => {
   const home = await temporaryHome();
-  await saveConfig(home, { version: 1, connections: { primary: { id: 'primary', serverUrl: 'https://example.test/api', agentId: 'agent-1', credentialId: 'credential-1', pluginVersion: '0.9.1', client: 'codex', mcpName: 'agentwiki' } } });
+  await saveConfig(home, { version: 1, connections: { primary: { id: 'primary', serverUrl: 'https://example.test/api', agentId: 'agent-1', credentialId: 'credential-1', pluginVersion: '0.9.1', client: 'codex', mcpName: 'agentwiki', spaceId: 'space-1' } } });
   await saveCredentials(home, { version: 1, credentials: { 'credential-1': { apiKey: 'agk_entry_private' } } });
   const reportRemoteDiagnostic = vi.fn();
   const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('unsafe upstream credential detail', { status: 401 }));
@@ -184,4 +184,27 @@ it('reports a short safe remote warning once per failure outcome without changin
     expect(reportRemoteDiagnostic.mock.calls[0]![0]).toMatch(/^\[agentwiki\] REMOTE_AUTH_REQUIRED: Reauthorize/);
     expect(JSON.stringify(reportRemoteDiagnostic.mock.calls)).not.toMatch(/unsafe upstream|agk_entry_private|example.test|credential-1/);
   } finally { fetchSpy.mockRestore(); }
+});
+
+it('uses independent Space credentials for concurrent sync and never falls back for an unknown Space', async () => {
+  const home = await temporaryHome();
+  const common = { serverUrl: 'https://example.test/api', agentId: 'agent-1', pluginVersion: '0.10.0', client: 'codex' as const, mcpName: 'agentwiki' };
+  await saveConfig(home, { version: 1, connections: {
+    a: { ...common, id: 'a', spaceId: 'space-a', credentialId: 'cred-a' },
+    b: { ...common, id: 'b', spaceId: 'space-b', credentialId: 'cred-b' },
+    other: { ...common, agentId: 'other-agent', id: 'other', spaceId: 'space-c', credentialId: 'cred-c' },
+  } });
+  await saveCredentials(home, { version: 2, credentials: {
+    'cred-a': { apiKey: 'key-a', syncDeviceCredential: 'device-a' },
+    'cred-b': { apiKey: 'key-b', syncDeviceCredential: 'device-b' },
+    'cred-c': { apiKey: 'key-c' },
+  } });
+  await createGatewayEntry({ home, connectionId: 'a' });
+  const remote = construction.runtimeInput.sync!;
+  await Promise.all([remote.pull('space-a'), remote.pull('space-b')]);
+  expect(construction.syncEngines.map((engine) => [engine.options.spaceId, engine.options.apiKey, engine.options.syncDeviceCredential]).sort())
+    .toEqual([['space-a', 'key-a', 'device-a'], ['space-b', 'key-b', 'device-b']]);
+  await expect(remote.pull('unknown')).rejects.toThrow(/space/i);
+  await expect(remote.pull('space-c')).rejects.toThrow(/space/i);
+  expect(construction.syncEngines).toHaveLength(2);
 });

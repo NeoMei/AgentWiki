@@ -31,7 +31,7 @@ export async function installStepConnection(
       expectedSpaceId: bootstrap.space.id,
       expectedRole: bootstrap.grant.role,
       expectedScopes: bootstrap.grant.scopes,
-      expectedPluginVersion: '0.10.2',
+      expectedPluginVersion: '0.11.0',
       exchange: state.exchange,
       retainOnFailure: true,
       onConfigured: async (backupPath) => {
