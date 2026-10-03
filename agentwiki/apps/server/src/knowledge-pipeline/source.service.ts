@@ -202,8 +202,9 @@ export class SourceService {
     const source = await this.prisma.source.findUnique({
       where: { id },
       include: {
+        _count: { select: { versions: true, runs: true } },
         versions: { orderBy: { version: 'desc' }, take: 10 },
-        runs: { orderBy: { createdAt: 'desc' }, take: 20 },
+        runs: { orderBy: { createdAt: 'desc' }, take: 20, include: { artifacts: true, changeSet: { select: { id: true, status: true } } } },
       },
     });
     if (!source) throw new NotFoundException('Source not found');
@@ -693,6 +694,7 @@ export class SourceService {
   }
 
   private validateInput(dto: any) {
+    if (dto.type === 'git') throw new BusinessException('SOURCE_INVALID', 'New Git sources are unavailable; existing Git sources remain runnable');
     if ((dto.type === 'text' || dto.type === 'file') && !dto.content) throw new BadRequestException('Content is required');
     if ((dto.type === 'url' || dto.type === 'git') && !dto.uri) throw new BadRequestException('URI is required');
     if (dto.content && Buffer.byteLength(dto.content) > 10 * 1024 * 1024) throw new BadRequestException('Source exceeds 10 MB');
@@ -1206,22 +1208,6 @@ export class SourceService {
     }) : null;
     if (!requester || requester.deletedAt || requester.lockedAt || requester.type !== 'human') {
       throw new Error('Run requester is no longer authorized');
-    }
-    if (requester.platformRole === 'super_admin') {
-      if (run.requestedCredentialType === 'personal') {
-        const credential = run.requestedCredentialId ? await db.apiKeyCredential.findFirst({
-          where: {
-            id: run.requestedCredentialId,
-            userId: run.requestedByUserId,
-            revokedAt: null,
-            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-          },
-          select: { scopes: true },
-        }) : null;
-        if (!credential) throw new Error('Run requester is no longer authorized');
-        return credential.scopes;
-      }
-      return [];
     }
     const membership = await db.spaceMember.findUnique({
       where: { userId_spaceId: { userId: run.requestedByUserId, spaceId: run.spaceId } },

@@ -74,7 +74,7 @@ describe('AgentService grant scope validation', () => {
     })).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('allows an owned Agent connection for a platform Super Admin without Space membership', async () => {
+  it('requires real Space administration for a platform Super Admin Agent connection', async () => {
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1', ownerId: 'owner-1', revokedAt: null, grants: [], credentials: [], status: 'active',
     });
@@ -85,7 +85,7 @@ describe('AgentService grant scope validation', () => {
     )).resolves.toBeUndefined();
 
     expect(prisma.space.findFirst).toHaveBeenCalledWith({
-      where: { id: 'space-1', deletedAt: null },
+      where: { id: 'space-1', deletedAt: null, members: { some: { userId: 'owner-1', role: { in: ['owner', 'admin'] } } } },
       select: { id: true },
     });
   });
@@ -144,7 +144,7 @@ describe('AgentService grant scope validation', () => {
     )).rejects.toBeInstanceOf(ForbiddenException);
 
     expect(prisma.space.findFirst).toHaveBeenCalledWith({
-      where: { id: 'space-deleted', deletedAt: null },
+      where: { id: 'space-deleted', deletedAt: null, members: { some: { userId: 'owner-1', role: { in: ['owner', 'admin'] } } } },
       select: { id: true },
     });
   });
@@ -576,14 +576,14 @@ describe('AgentService grant scope validation', () => {
     expect(prisma.agentGrant.deleteMany).not.toHaveBeenCalled();
   });
 
-  it('revalidates a platform administrator override in the Grant transaction', async () => {
+  it('requires membership for platform administrator Grant mutations', async () => {
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1', ownerId: 'admin-1', status: 'active', revokedAt: null,
     });
     const tx = {
       $queryRaw: jest.fn().mockResolvedValue([{ id: 'locked' }]),
       agent: { findFirst: jest.fn().mockResolvedValue({ id: 'agent-1', status: 'active' }), update: jest.fn() },
-      space: { findFirst: jest.fn().mockResolvedValue({ id: 'space-1' }) },
+      space: { findFirst: jest.fn().mockResolvedValue(null) },
       user: { findFirst: jest.fn().mockResolvedValue(null) },
       agentGrant: {
         findUnique: jest.fn().mockResolvedValue(null),

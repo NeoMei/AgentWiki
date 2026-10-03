@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { verifyOnboardingPackedContract } from './verify-onboarding-packed-contract.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const protocolName = '@neomei/agentwiki-sync-protocol';
@@ -63,6 +64,9 @@ try {
   assert.equal(installedLocalSync.version, expectedLocalSyncVersion);
   assert.equal(installedLocalSync.dependencies[protocolName], installedProtocol.version);
 
+  execFileSync('pnpm', ['--filter', '@agentwiki/server', 'build'], { cwd: root, stdio: 'inherit' });
+  const onboardingContract = await verifyOnboardingPackedContract({ root, installDirectory, version: expectedLocalSyncVersion });
+
   const cli = spawnSync(process.execPath, [
     join(installDirectory, 'node_modules', '@neomei', 'agentwiki-local-sync', 'dist', 'cli.js'),
     '--help',
@@ -75,6 +79,7 @@ try {
     localSyncVersion: installedLocalSync.version,
     syncProtocolVersion: installedProtocol.version,
     protocolSource: registryProtocol ? 'registry' : 'local-tarball',
+    onboardingContract,
   })}\n`);
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });

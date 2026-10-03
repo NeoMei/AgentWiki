@@ -68,17 +68,31 @@ describe('AuthorizationService', () => {
     )).rejects.toMatchObject({ statusCode: 403 });
   });
 
-  it('allows a super admin to access any existing space as an owner without membership', async () => {
+  it('allows nonmember platform admins to read as viewers', async () => {
     prisma.spaceMember.findUnique.mockResolvedValue(null);
+    await expect(service.assertSpaceAccess({ userId: 'super-admin', platformRole: 'super_admin' }, 'space-1', ['owner', 'admin', 'editor', 'viewer'], 'pages:read')).resolves.toMatchObject({ role: 'viewer' });
+  });
 
-    await expect(
-      service.assertSpaceAccess(
-        { userId: 'super-admin', platformRole: 'super_admin' } as any,
-        'space-1',
-        ['owner'],
-      ),
-    ).resolves.toMatchObject({ role: 'owner', isSuperAdmin: true });
-    expect(prisma.spaceMember.findUnique).not.toHaveBeenCalled();
+  it.each(['pages:write', 'sources:write', 'runs:write', 'review:decide', undefined])('denies nonmember platform admin mutation (%s)', async (scope) => {
+    prisma.spaceMember.findUnique.mockResolvedValue(null);
+    await expect(service.assertSpaceAccess({ userId: 'super-admin', platformRole: 'super_admin' }, 'space-1', ['owner', 'editor'], scope)).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+  });
+
+  it('uses the real platform admin member role', async () => {
+    prisma.spaceMember.findUnique.mockResolvedValue({ role: 'viewer', space: { deletedAt: null } });
+    await expect(service.assertSpaceAccess({ userId: 'super-admin', platformRole: 'super_admin' }, 'space-1', ['owner'])).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+    prisma.spaceMember.findUnique.mockResolvedValue({ role: 'admin', space: { deletedAt: null } });
+    await expect(service.assertSpaceAccess({ userId: 'super-admin', platformRole: 'super_admin' }, 'space-1', ['owner', 'editor'], 'pages:write')).resolves.toMatchObject({ role: 'admin' });
+  });
+
+  it('requires live membership for platform admin mutations by default', async () => {
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'super-admin' }]),
+      user: { findUnique: jest.fn().mockResolvedValue({ id: 'super-admin', type: 'human', platformRole: 'super_admin', deletedAt: null, lockedAt: null }) },
+      space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
+      spaceMember: { findUnique: jest.fn().mockResolvedValue(null) },
+    } as any;
+    await expect(service.assertLiveHumanSpaceAccess(tx, { userId: 'super-admin', platformRole: 'super_admin' }, 'space-1', ['owner', 'editor'])).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
   });
 
   it('requires real Space membership when a write path opts out of platform-admin bypass', async () => {
@@ -164,6 +178,17 @@ describe('AuthorizationService', () => {
       'space-1',
       ['owner'],
     )).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+  });
+
+  it('rechecks human membership even through the shared live Agent-write primitive', async () => {
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'admin-1' }]),
+      user: { findUnique: jest.fn().mockResolvedValue({ id: 'admin-1', type: 'human', platformRole: 'super_admin', deletedAt: null, lockedAt: null }) },
+      space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
+      spaceMember: { findUnique: jest.fn().mockResolvedValue(null) },
+    } as any;
+    await expect(service.assertLiveAgentWriteAccess(tx, { userId: 'admin-1', platformRole: 'super_admin' }, 'space-1', ['sources:write']))
+      .rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
   });
 
   it('uses the bound Grant role as the only Agent permission source', async () => {
@@ -401,15 +426,16 @@ describe('space discovery and self-describing errors', () => {
       { id: 'space-2', name: 'Two', deletedAt: null },
     ]);
 
+    prisma.spaceMember.findMany.mockResolvedValue([{ spaceId: 'space-2', role: 'editor' }]);
     await expect(service.getAccessibleSpaceIds(
       { userId: 'super-admin', platformRole: 'super_admin' } as any,
     )).resolves.toEqual(['space-1', 'space-2']);
     await expect(service.listAccessibleSpaces(
       { userId: 'super-admin', platformRole: 'super_admin' } as any,
     )).resolves.toEqual([
-      { id: 'space-1', name: 'One', role: 'owner' },
-      { id: 'space-2', name: 'Two', role: 'owner' },
+      { id: 'space-1', name: 'One', role: 'viewer' },
+      { id: 'space-2', name: 'Two', role: 'editor' },
     ]);
-    expect(prisma.spaceMember.findMany).not.toHaveBeenCalled();
+    expect(prisma.spaceMember.findMany).toHaveBeenCalled();
   });
 });

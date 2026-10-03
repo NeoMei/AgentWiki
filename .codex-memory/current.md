@@ -1,47 +1,35 @@
 # 当前目标
 
-- 修复登录后账号入口、头像和本人 Agent 在个人资料下不可见的问题。
-
-- v0.12.5（页面组 owner/editor 创建权限修复，1817684b）已完成 GitHub 发布；生产已部署并完成健康检查。
-- v0.12.4（画布任意深度同步 ba771da）已发布部署。
-- v0.12.3（三阶段聚合对齐上游 ba67015）已发布部署。
-- 修复服务端平台超管跨 Space 创建页面的授权缺陷，并完成回归验证。
+- 修复 AgentwikiQ 2 全部20项及附加两条接入协议问题，完成正式发布、服务器部署和逐项验收。
 
 # 范围 / 不做
 
-- 空页面、传统单页面模板、复合模板实例化的页面创建必须经过真实 `SpaceMember` 校验；平台超管仍可按既有规则读取未加入的 Space。
-- 本轮修改服务端页面组创建授权与回归测试并发布 v0.12.5；生产部署已完成；保留上一版本目录与 v0.12.5 配对备份。Windows 原生同步和日常 Vault 安装不属于本轮验收。
+- 本线程修复、审查、包发布、TLS及生产部署均获用户授权。
+- 保留生产已有Assist修复，保留日常Vault与主仓脏文件；不弱化TLS/完整性/CAS/Agent权限。
 
 # 当前状态
 
-- 本轮前端修复已完成：导航栏使用用户姓名/邮箱首字母头像，个人菜单明确显示账户身份与个人资料入口；个人资料页并行加载 `/users/me` 与当前用户拥有的 `/agents`，展示 Agent 列表和详情/管理链接。
-- 针对性客户端测试 3 files / 8 tests 通过，客户端 TypeScript 检查和生产构建通过；2026-09-23 已部署到 `root@113.249.120.24:/root/agentwiki`，数据库无待迁移项，API/Worker/Frontend active，公网 `/api/health` 五项均为 ok。
-- 已通过登录态浏览器验收：顶部显示姓名首字母头像与个人菜单，`/profile` 显示“我的智能体”及 3 个 Agent 详情链接。
-
-- 根因确认：平台 `super_admin` 在通用 Space 授权中被直接映射为虚拟 `owner`，绕过了真实成员记录。
-- 已新增 `requireSpaceMembership` 严格选项，并在页面 HTTP 入口、页面事务和模板实例化事务内同时启用；非成员超管在写入前返回 `SPACE_ACCESS_DENIED`。
-- server 全量测试 151 suites / 2643 tests 通过，类型检查、lint、build 通过；既有跳过项保持。
+- 基线1335765cd；20项及2条附加接入问题修复候选5638dd8d已部署生产0.12.11，服务正常。
+- 按9组修复计划顺序实施。Task1接入契约与Task2权限/绑定已独立审查通过；Task3中文与协作入口已独立复审通过；Task4来源/审核刷新已独立复审通过；Task5继续指令与协作布局421d29c2+8169bbac独立复审通过；Task6图谱/图片5ad37040独立审查通过；Task3全仓文案断言/初始JS预算修正4cbe5bb6独立审查通过；完整客户端1618项/类型/lint/build通过，初始JS546154/550000B。
+- npm protocol0.6.1/LocalSync0.10.2正式公开，0.10.2 SHA1 4723623a626c674fa8051c465bf805c95e943393与候选一致；Linux公网干净安装、CLI/gateway运行通过。旧0.10.1存在Linux文件名大小写缺陷，已用新patch修复。
+- 插件0.5.6正式资产新服务公网v2/PullPush/恢复/目录20项通过且清理成功；Obsidian 1.13.7原生GUI隔离Vault连接/嵌套映射/Pull/Push/服务端回读/重载持久性通过；原生 v2 验收保留，现另有原生 GUI v3：protocolVersion=3/native_v3、页面/图片Pull、编辑Push、服务端逐字回读、重载后页面/映射保留通过。另用有效账号补验重载后远端diff无变更通过，凭据/映射持久性通过；Windows原生GUI仍未覆盖。双publisher device/code正式公网接入、16scopes/rawplan/tamper/MCP读页及凭据/JWT401清理通过。
+- 最终候选5638dd8dc2fa961f29e436d095da23ad983846cb完整回归exit0：runtime263/DB216/server2754/client1630/protocol140/local-sync925，共5928通过、0失败、6既有或平台skip；类型/lint/build通过，lint有3条既有warning。Task7和整分支及Linux/测试夹具增量审查通过。
+- 已推送GitHub分支codex/q2-defect-closure-v01211，远端HEAD核对一致。已fast-forward推送master，v0.12.11正式release已发布，标签5638dd8d与生产执行代码一致。生产1421文件哈希与候选5638dd8d一致，三服务active/publicTLS健康五项ok；Assist保留，迁移无需执行。
 
 # 稳定约束
 
-- Folder 为目录，Page 承载正文；权限、候选基线、CAS 与 treeRevision 必须保留。
-- 平台超管的跨 Space 读取能力保持；页面创建必须有真实成员身份并满足 owner/editor 写入角色。
-- 主仓路径末尾空格；Git 使用显式 `GIT_DIR` / `GIT_WORK_TREE`，保留根目录用户脏文件和其他工作树。
+- 路径末尾空格；所有git显式--work-tree，勿改core.worktree。
+- 不以完整tag覆盖生产未收录的Assist修复。
+- 平台管理员无真实空间成员关系只能读；验证/验收不能由任务状态造假完成。
 
 # 关键索引
 
-- `agentwiki/apps/client/src/components/UserAvatar.tsx`
-- `agentwiki/apps/client/src/components/Navbar.tsx`
-- `agentwiki/apps/client/src/features/profile/Profile.tsx`
-- `agentwiki/apps/client/src/features/profile/Profile.spec.tsx`
-
-- `agentwiki/apps/server/src/core/authorization/authorization.service.ts`
-- `agentwiki/apps/server/src/core/page/page.controller.ts`
-- `agentwiki/apps/server/src/core/page/page.service.ts`
-- `agentwiki/apps/server/src/page-templates/template-instantiation.service.ts`
+- agentwiki/docs/superpowers/plans/2026-10-01-q2-defect-closure.md
+- .superpowers/sdd/2026-10-01-q2-defect-closure/progress.md
+- 测试报告AgentwikiQ 2/复核结果-2026-10-01.md（原主工作区）
 
 # 风险 / 下一步
 
-- v0.12.5 已提交、推送、创建 GitHub Release，并部署到 root@113.249.120.24；线上 API、Redis、数据库、审计持久化、附件存储和前端健康检查通过。
-- 本次部署备份：`/root/agentwiki-backups/20260923175014`；旧版本保留：`/root/agentwiki-previous-20260923175153`。备份 SHA256 已在部署终端输出中记录。
-- Windows 原生同步现场仍需独立复测，不要用便携测试替代原生证据。
+- 公网TLS终止点47.108.85.222证书链已补齐；Node默认信任健康200。npm已验证发布；DB迁移审查哈希已更新并通过runtime门禁。
+- 配对备份/var/backups/agentwiki/q2-v01211-20261001182522已核验，旧应用保留；npm硬件认证已成功不再阻塞。
+- Chrome Q1..5/Q8..10/Q12..20实际检查通过，Q11真实审核提交/通过/中文状态独立补验通过；Q12paused真实恢复运行也通过；所有fixture清理且JWT/Agent401。feature-off隔离HTTP/DB、waiting_review、外部HTTPS图、多子overflow已补验通过；Windows远程Session为Local Sync/MCP范围，macOS原生GUI v2/v3通过上述已测流程，Windows原生Obsidian GUI仍未覆盖。证据见agentwiki/docs/verification/q2-boundary-evidence-20261002。

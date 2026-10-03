@@ -218,7 +218,7 @@ describe('RunStartWizard', () => {
   it.each([
     { label: 'Owner', userId: 'user-owner', platformRole: 'user', members: [{ type: 'human' as const, userId: 'user-owner', role: 'owner' }], allowed: true },
     { label: 'Admin', userId: 'user-admin', platformRole: 'user', members: [{ type: 'human' as const, userId: 'user-admin', role: 'admin' }], allowed: true },
-    { label: 'Super Admin', userId: 'super-1', platformRole: 'super_admin', members: [], allowed: true },
+    { label: 'Super Admin', userId: 'super-1', platformRole: 'super_admin', members: [], allowed: false },
     { label: 'Editor', userId: 'user-editor', platformRole: 'user', members: [{ type: 'human' as const, userId: 'user-editor', role: 'editor' }], allowed: false },
     { label: 'Viewer', userId: 'user-viewer', platformRole: 'user', members: [{ type: 'human' as const, userId: 'user-viewer', role: 'viewer' }], allowed: false },
     { label: 'non-member', userId: 'user-none', platformRole: 'user', members: [], allowed: false },

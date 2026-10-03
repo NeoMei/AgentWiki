@@ -20,8 +20,9 @@ export const ReviewPanel: React.FC<{
   onHistory: () => void;
   onDecision: (kind: 'approve' | 'reject_for_revision' | 'terminate', review: CollaborationReview) => void;
   onResolveConflict: (kind: 'regenerate' | 'adopt_current', review: CollaborationReview, comparison: CollaborationPageReviewComparison) => void;
-}> = ({ run, spaceId, t, artifacts, artifactErrors, detail, resolvingConflict, onLoadDetail, onRetryArtifact, onHistory, onDecision, onResolveConflict }) => (
-  <section data-testid="dashboard-section-reviews" className="order-3 min-w-0 rounded-xl border bg-white p-4 lg:col-start-3 lg:row-start-1">
+  isHumanMember?: boolean;
+}> = ({ run, spaceId, t, artifacts, artifactErrors, detail, resolvingConflict, onLoadDetail, onRetryArtifact, onHistory, onDecision, onResolveConflict, isHumanMember = false }) => (
+  <section data-testid="dashboard-section-reviews" className="order-3 min-h-0 min-w-0 rounded-xl border bg-white p-4 lg:overflow-y-auto lg:overscroll-contain lg:col-start-3 lg:row-start-1">
     <h2 className="font-semibold">{t('collaboration.dashboard.reviews')}</h2>
     <div className="mt-3 space-y-3">{(run.reviews ?? []).length ? (run.reviews ?? []).map((review) => {
       const pageReview = Boolean(review.pagePublication || run.tasks?.some((task) => task.id === review.sourceTaskId && task.targetPageId));
@@ -29,8 +30,8 @@ export const ReviewPanel: React.FC<{
       const comparison = selected?.kind === 'comparison' ? selected.comparison : null;
       const artifact = pageReview ? null : artifacts[review.id];
       const artifactError = !pageReview && artifactErrors[review.id];
-      const canDecide = review.status === 'pending' && (pageReview ? comparison?.canDecide === true : review.canDecide === true && Boolean(artifact));
-      const recoverConflict = Boolean(pageReview && comparison?.mode === 'candidate' && comparison.conflict && comparison.canDecide && run.pauseReason === 'page_version_conflict');
+      const canDecide = isHumanMember && review.status === 'pending' && (pageReview ? comparison?.canDecide === true : review.canDecide === true && Boolean(artifact));
+      const recoverConflict = Boolean(isHumanMember && pageReview && comparison?.mode === 'candidate' && comparison.conflict && comparison.canDecide && run.pauseReason === 'page_version_conflict');
       return <article key={review.id} className="rounded-lg border p-3">
         <p className="text-sm font-medium">{t(`collaboration.reviewStatus.${review.status}`)}</p>
         {review.approvalCriteria?.length ? <div className="mt-3"><h3 className="text-xs font-medium text-gray-700">{t('collaboration.dashboard.approvalCriteria')}</h3><ul className="mt-1 list-disc space-y-1 pl-5 text-xs text-gray-600">{review.approvalCriteria.map((criterion) => <li key={criterion}>{criterion}</li>)}</ul></div> : null}

@@ -91,9 +91,7 @@ export const AgentDetail: React.FC = () => {
   const credentialIsActive = (item: { expiresAt?: string | null; revokedAt?: string | null }) => (
     !item.revokedAt && (!item.expiresAt || Date.parse(item.expiresAt) > Date.now())
   );
-  const manageableSpaces = user?.platformRole === 'super_admin'
-    ? spaces
-    : spaces.filter((space) => space.members?.some((member: any) => (
+  const manageableSpaces = spaces.filter((space) => space.members?.some((member: any) => (
         member.userId === user?.id && ['owner', 'admin'].includes(member.role)
       )));
 

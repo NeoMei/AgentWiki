@@ -1,0 +1,552 @@
+
+ RUN  v4.1.11 /Users/neomei/.codex/worktrees/d35c/AgentWiki /agentwiki/apps/client
+
+ ❯ src/App.spec.tsx (18 tests | 1 failed) 1363ms
+     × keeps section content and a retry path visible when Space metadata fails 1006ms
+ ❯ src/features/page/PagePreview.spec.tsx (34 tests | 1 failed) 1669ms
+     × localizes a removed membership error without exposing server prose or page controls 1019ms
+ ❯ src/features/space-workspace/SpaceWorkspace.spec.tsx (15 tests | 2 failed) 2528ms
+     × keeps an authoritative workspace identity on transient refresh failure and clears it on auth loss 1023ms
+     × keeps page content mounted when Space metadata access fails 1009ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/App.spec.tsx > ProtectedRoute > keeps section content and a retry path visible when Space metadata fails
+TestingLibraryElementError: Unable to find an element with the text: Space temporarily unavailable. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mdata-space-id[39m=[32m"space-error"[39m
+      [33mdata-space-workspace[39m=[32m"section"[39m
+    [36m>[39m
+      [36m<div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-col"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"w-full border-b border-gray-200 p-4"[39m
+          [36m>[39m
+            [36m<p[39m
+              [33mclass[39m=[32m"mb-3 text-sm text-red-600"[39m
+            [36m>[39m
+              [0mFailed to load space[0m
+            [36m</p>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"text-sm font-medium text-blue-700 underline"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [0mRetry[0m
+            [36m</button>[39m
+          [36m</div>[39m
+          [36m<main[39m
+            [33mclass[39m=[32m"min-w-0 flex-1 px-4 py-4 lg:px-6"[39m
+          [36m>[39m
+            [36m<h2>[39m
+              [0mSources body[0m
+            [36m</h2>[39m
+          [36m</main>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mdata-space-id[39m=[32m"space-error"[39m
+      [33mdata-space-workspace[39m=[32m"section"[39m
+    [36m>[39m
+      [36m<div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-col"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"w-full border-b border-gray-200 p-4"[39m
+          [36m>[39m
+            [36m<p[39m
+              [33mclass[39m=[32m"mb-3 text-sm text-red-600"[39m
+            [36m>[39m
+              [0mFailed to load space[0m
+            [36m</p>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"text-sm font-medium text-blue-700 underline"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [0mRetry[0m
+            [36m</button>[39m
+          [36m</div>[39m
+          [36m<main[39m
+            [33mclass[39m=[32m"min-w-0 flex-1 px-4 py-4 lg:px-6"[39m
+          [36m>[39m
+            [36m<h2>[39m
+              [0mSources body[0m
+            [36m</h2>[39m
+          [36m</main>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ src/App.spec.tsx:165:25
+    163|     render(<App router={createAppMemoryRouter('/spaces/space-error/sou…
+    164|
+    165|     expect(await screen.findByText('Space temporarily unavailable')).t…
+       |                         ^
+    166|     expect(screen.getByRole('button', { name: 'Retry' })).toBeVisible(…
+    167|     expect(screen.getByRole('heading', { name: 'Sources body' })).toBe…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  src/features/page/PagePreview.spec.tsx > PagePreview checklist saves > localizes a removed membership error without exposing server prose or page controls
+TestingLibraryElementError: Unable to find an element with the text: 你没有权限执行此操作. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"text-center py-8"[39m
+    [36m>[39m
+      [36m<p[39m
+        [33mclass[39m=[32m"text-red-500 mb-2"[39m
+      [36m>[39m
+        [0m你没有权限执行此操作。请联系空间所有者或管理员确认成员角色后重试。[0m
+      [36m</p>[39m
+      [36m<button[39m
+        [33mclass[39m=[32m"mr-3 text-blue-600 hover:underline"[39m
+        [33mtype[39m=[32m"button"[39m
+      [36m>[39m
+        [0m重试[0m
+      [36m</button>[39m
+      [36m<a[39m
+        [33mclass[39m=[32m"text-blue-600 hover:underline"[39m
+        [33mdata-discover[39m=[32m"true"[39m
+        [33mhref[39m=[32m"/"[39m
+      [36m>[39m
+        [0m返回首页[0m
+      [36m</a>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"text-center py-8"[39m
+    [36m>[39m
+      [36m<p[39m
+        [33mclass[39m=[32m"text-red-500 mb-2"[39m
+      [36m>[39m
+        [0m你没有权限执行此操作。请联系空间所有者或管理员确认成员角色后重试。[0m
+      [36m</p>[39m
+      [36m<button[39m
+        [33mclass[39m=[32m"mr-3 text-blue-600 hover:underline"[39m
+        [33mtype[39m=[32m"button"[39m
+      [36m>[39m
+        [0m重试[0m
+      [36m</button>[39m
+      [36m<a[39m
+        [33mclass[39m=[32m"text-blue-600 hover:underline"[39m
+        [33mdata-discover[39m=[32m"true"[39m
+        [33mhref[39m=[32m"/"[39m
+      [36m>[39m
+        [0m返回首页[0m
+      [36m</a>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ src/features/page/PagePreview.spec.tsx:208:25
+    206|     vi.mocked(api.get).mockRejectedValue({ response: { status: 403, da…
+    207|     renderPreview();
+    208|     expect(await screen.findByText('你没有权限执行此操作')).toBeVisible();
+       |                         ^
+    209|     expect(screen.queryByText('Server English permission error')).not.…
+    210|     expect(screen.queryByRole('button', { name: '编辑' })).not.toBeInThe…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  src/features/space-workspace/SpaceWorkspace.spec.tsx > SpaceWorkspace > keeps an authoritative workspace identity on transient refresh failure and clears it on auth loss
+TestingLibraryElementError: Unable to find an element with the text: You do not have permission to perform this action.. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mdata-space-workspace[39m=[32m"read"[39m
+    [36m>[39m
+      [36m<button[39m
+        [33mtype[39m=[32m"button"[39m
+      [36m>[39m
+        [0mrefresh current page[0m
+      [36m</button>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"text-center py-8"[39m
+      [36m>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"text-red-500 mb-2"[39m
+        [36m>[39m
+          [0mYou do not have permission to perform this action. Ask the Space owner or administrator to check your member role, then retry.[0m
+        [36m</p>[39m
+        [36m<button[39m
+          [33mclass[39m=[32m"mr-3 text-blue-600 hover:underline"[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [0mRetry[0m
+        [36m</button>[39m
+        [36m<a[39m
+          [33mclass[39m=[32m"text-blue-600 hover:underline"[39m
+          [33mdata-discover[39m=[32m"true"[39m
+          [33mhref[39m=[32m"/spaces/space-known"[39m
+        [36m>[39m
+          [0mBack to space[0m
+        [36m</a>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mdata-space-workspace[39m=[32m"read"[39m
+    [36m>[39m
+      [36m<button[39m
+        [33mtype[39m=[32m"button"[39m
+      [36m>[39m
+        [0mrefresh current page[0m
+      [36m</button>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"text-center py-8"[39m
+      [36m>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"text-red-500 mb-2"[39m
+        [36m>[39m
+          [0mYou do not have permission to perform this action. Ask the Space owner or administrator to check your member role, then retry.[0m
+        [36m</p>[39m
+        [36m<button[39m
+          [33mclass[39m=[32m"mr-3 text-blue-600 hover:underline"[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [0mRetry[0m
+        [36m</button>[39m
+        [36m<a[39m
+          [33mclass[39m=[32m"text-blue-600 hover:underline"[39m
+          [33mdata-discover[39m=[32m"true"[39m
+          [33mhref[39m=[32m"/spaces/space-known"[39m
+        [36m>[39m
+          [0mBack to space[0m
+        [36m</a>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ src/features/space-workspace/SpaceWorkspace.spec.tsx:246:25
+    244|
+    245|     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    246|     expect(await screen.findByText('You do not have permission to perf…
+       |                         ^
+    247|     expect(screen.queryByRole('link', { name: 'Pages' })).not.toBeInTh…
+    248|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  src/features/space-workspace/SpaceWorkspace.spec.tsx > SpaceWorkspace > keeps page content mounted when Space metadata access fails
+TestingLibraryElementError: Unable to find an element with the text: Space forbidden. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mdata-space-id[39m=[32m"space-locked"[39m
+      [33mdata-space-workspace[39m=[32m"read"[39m
+    [36m>[39m
+      [36m<div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-col lg:flex-row"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"w-full border-b border-gray-200 p-4 lg:min-h-[calc(100vh-4rem)] lg:w-[260px] lg:shrink-0 lg:border-b-0 lg:border-r"[39m
+          [36m>[39m
+            [36m<p[39m
+              [33mclass[39m=[32m"mb-3 text-sm text-red-600"[39m
+            [36m>[39m
+              [0mYou do not have permission to perform this action. Ask the Space owner or administrator to check your member role, then retry.[0m
+            [36m</p>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"text-sm font-medium text-blue-700 underline"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [0mRetry[0m
+            [36m</button>[39m
+          [36m</div>[39m
+          [36m<main[39m
+            [33mclass[39m=[32m"min-w-0 flex-1 px-4 py-4 lg:px-6"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"mx-auto max-w-6xl"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"sticky top-16 z-20 -mx-4 mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white/95 px-4 py-3 backdrop-blur lg:-mx-6 lg:px-6"[39m
+                [33mdata-reading-toolbar[39m=[32m"true"[39m
+              [36m>[39m
+                [36m<nav[39m
+                  [33maria-label[39m=[32m"breadcrumb"[39m
+                  [33mclass[39m=[32m"flex min-w-0 flex-1 flex-wrap items-center gap-1 text-sm text-gray-500"[39m
+                [36m>[39m
+                  [36m<a[39m
+                    [33mclass[39m=[32m"flex min-w-0 items-center gap-1 rounded px-1.5 py-1 hover:bg-gray-100 hover:text-blue-700"[39m
+                    [33mdata-discover[39m=[32m"true"[39m
+                    [33mhref[39m=[32m"/spaces/space-locked"[39m
+                    [33mtitle[39m=[32m""[39m
+                  [36m>[39m
+                    [36m<svg[39m
+                      [33maria-hidden[39m=[32m"true"[39m
+                      [33mclass[39m=[32m"lucide lucide-folder shrink-0 text-gray-400"[39m
+                      [33mfill[39m=[32m"none"[39m
+                      [33mheight[39m=[32m"14"[39m
+                      [33mstroke[39m=[32m"currentColor"[39m
+                      [33mstroke-linecap[39m=[32m"round"[39m
+                      [33mstroke-linejoin[39m=[32m"round"[39m
+                      [33mstroke-width[39m=[32m"2"[39m
+                      [33mviewBox[39m=[32m"0 0 24 24"[39m
+                      [33mwidth[39m=[32m"14"[39m
+                      [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+                    [36m>[39m
+                      [36m<path[39m
+                        [33md[39m=[32m"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"[39m
+                      [36m/>[39m
+                    [36m</svg>[39m
+                    [36m<span[39m
+                      [33mclass[39m=[32m"max-w-40 truncate"[39m
+                    [36m/>[39m
+                  [36m</a>[39m
+                [36m</nav>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"flex shrink-0 flex-wrap items-center justify-end gap-2"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"relative"[39m
+                  [36m>[39m
+                    [36m<button[39m
+                      [33maria-expanded[39m=[32m"false"[39m
+                      [33maria-haspopup[39m=[32m"true"[39m
+                      [33mclass[39m=[32m"inline-flex min-h-9 items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:border-blue-300 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"[39m
+                      [33mtype[39m=[32m"button"[39m
+                    [36m>[39m
+                      [36m<svg[39m
+                        [33maria-hidden[39m=[32m"true"[39m
+                        [33mclass[39m=[32m"lucide lucide-info"[39m
+                        [33mfill[39m=[32m"none"[39m
+                        [33mheight[39m=[32m"17"[39m
+                        [33mstroke[39m=[32m"currentColor"[39m
+                        [33mstroke-linecap[39m=[32m"round"[39m
+                        [33mstroke-linejoin[39m=[32m"round"[39m
+                        [33mstroke-width[39m=[32m"2"[39m
+                        [33mviewBox[39m=[32m"0 0 24 24"[39m
+                        [33mwidth[39m=[32m"17"[39m
+                        [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+                      [36m>[39m
+                        [36m<circle[39m
+                          [33mcx[39m=[32m"12"[39m
+                          [33mcy[39m=[32m"12"[39m
+                          [33mr[39m=[32m"10"[39m
+                        [36m/>[39m
+                        [36m<path[39m
+                          [33md[39m=[32m"M12 16v-4"[39m
+                        [36m/>[39m
+                        [36m<path[39m
+                          [33md[39m=[32m"M12 8h.01"[39m
+                        [36m/>[39m
+                      [36m</svg>[39m
+                      [0mPage information[0m
+                    [36m</button>[39m
+                  [36m</div>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+              [36m<article[39m
+                [33mclass[39m=[32m"mx-auto min-h-[300px] min-w-0 max-w-[860px] bg-white px-1 py-5 sm:px-5 lg:px-8"[39m
+              [36m>[39m
+                [36m<header[39m
+                  [33mclass[39m=[32m"mb-8 border-b border-gray-200 pb-5"[39m
+                [36m>[39m
+                  [36m<h1[39m
+                    [33mclass[39m=[32m"break-words text-3xl font-semibold leading-tight text-gray-950"[39m
+                    [33mtitle[39m=[32m"Still readable"[39m
+                  [36m>[39m
+                    [0mStill readable[0m
+                  [36m</h1>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500"[39m
+                  [36m>[39m
+                    [36m<span[39m
+                      [33mclass[39m=[32m"flex items-center gap-1"[39m
+                    [36m>[39m
+                      [36m<svg[39m
+                        [33maria-hidden[39m=[32m"true"[39m
+                        [33mclass[39m=[32m"lucide lucide-clock"[39m
+                        [33mfill[39m=[32m"none"...
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mdata-space-id[39m=[32m"space-locked"[39m
+      [33mdata-space-workspace[39m=[32m"read"[39m
+    [36m>[39m
+      [36m<div>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex flex-col lg:flex-row"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"w-full border-b border-gray-200 p-4 lg:min-h-[calc(100vh-4rem)] lg:w-[260px] lg:shrink-0 lg:border-b-0 lg:border-r"[39m
+          [36m>[39m
+            [36m<p[39m
+              [33mclass[39m=[32m"mb-3 text-sm text-red-600"[39m
+            [36m>[39m
+              [0mYou do not have permission to perform this action. Ask the Space owner or administrator to check your member role, then retry.[0m
+            [36m</p>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"text-sm font-medium text-blue-700 underline"[39m
+              [33mtype[39m=[32m"button"[39m
+            [36m>[39m
+              [0mRetry[0m
+            [36m</button>[39m
+          [36m</div>[39m
+          [36m<main[39m
+            [33mclass[39m=[32m"min-w-0 flex-1 px-4 py-4 lg:px-6"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"mx-auto max-w-6xl"[39m
+            [36m>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"sticky top-16 z-20 -mx-4 mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white/95 px-4 py-3 backdrop-blur lg:-mx-6 lg:px-6"[39m
+                [33mdata-reading-toolbar[39m=[32m"true"[39m
+              [36m>[39m
+                [36m<nav[39m
+                  [33maria-label[39m=[32m"breadcrumb"[39m
+                  [33mclass[39m=[32m"flex min-w-0 flex-1 flex-wrap items-center gap-1 text-sm text-gray-500"[39m
+                [36m>[39m
+                  [36m<a[39m
+                    [33mclass[39m=[32m"flex min-w-0 items-center gap-1 rounded px-1.5 py-1 hover:bg-gray-100 hover:text-blue-700"[39m
+                    [33mdata-discover[39m=[32m"true"[39m
+                    [33mhref[39m=[32m"/spaces/space-locked"[39m
+                    [33mtitle[39m=[32m""[39m
+                  [36m>[39m
+                    [36m<svg[39m
+                      [33maria-hidden[39m=[32m"true"[39m
+                      [33mclass[39m=[32m"lucide lucide-folder shrink-0 text-gray-400"[39m
+                      [33mfill[39m=[32m"none"[39m
+                      [33mheight[39m=[32m"14"[39m
+                      [33mstroke[39m=[32m"currentColor"[39m
+                      [33mstroke-linecap[39m=[32m"round"[39m
+                      [33mstroke-linejoin[39m=[32m"round"[39m
+                      [33mstroke-width[39m=[32m"2"[39m
+                      [33mviewBox[39m=[32m"0 0 24 24"[39m
+                      [33mwidth[39m=[32m"14"[39m
+                      [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+                    [36m>[39m
+                      [36m<path[39m
+                        [33md[39m=[32m"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"[39m
+                      [36m/>[39m
+                    [36m</svg>[39m
+                    [36m<span[39m
+                      [33mclass[39m=[32m"max-w-40 truncate"[39m
+                    [36m/>[39m
+                  [36m</a>[39m
+                [36m</nav>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"flex shrink-0 flex-wrap items-center justify-end gap-2"[39m
+                [36m>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"relative"[39m
+                  [36m>[39m
+                    [36m<button[39m
+                      [33maria-expanded[39m=[32m"false"[39m
+                      [33maria-haspopup[39m=[32m"true"[39m
+                      [33mclass[39m=[32m"inline-flex min-h-9 items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:border-blue-300 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"[39m
+                      [33mtype[39m=[32m"button"[39m
+                    [36m>[39m
+                      [36m<svg[39m
+                        [33maria-hidden[39m=[32m"true"[39m
+                        [33mclass[39m=[32m"lucide lucide-info"[39m
+                        [33mfill[39m=[32m"none"[39m
+                        [33mheight[39m=[32m"17"[39m
+                        [33mstroke[39m=[32m"currentColor"[39m
+                        [33mstroke-linecap[39m=[32m"round"[39m
+                        [33mstroke-linejoin[39m=[32m"round"[39m
+                        [33mstroke-width[39m=[32m"2"[39m
+                        [33mviewBox[39m=[32m"0 0 24 24"[39m
+                        [33mwidth[39m=[32m"17"[39m
+                        [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+                      [36m>[39m
+                        [36m<circle[39m
+                          [33mcx[39m=[32m"12"[39m
+                          [33mcy[39m=[32m"12"[39m
+                          [33mr[39m=[32m"10"[39m
+                        [36m/>[39m
+                        [36m<path[39m
+                          [33md[39m=[32m"M12 16v-4"[39m
+                        [36m/>[39m
+                        [36m<path[39m
+                          [33md[39m=[32m"M12 8h.01"[39m
+                        [36m/>[39m
+                      [36m</svg>[39m
+                      [0mPage information[0m
+                    [36m</button>[39m
+                  [36m</div>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+              [36m<article[39m
+                [33mclass[39m=[32m"mx-auto min-h-[300px] min-w-0 max-w-[860px] bg-white px-1 py-5 sm:px-5 lg:px-8"[39m
+              [36m>[39m
+                [36m<header[39m
+                  [33mclass[39m=[32m"mb-8 border-b border-gray-200 pb-5"[39m
+                [36m>[39m
+                  [36m<h1[39m
+                    [33mclass[39m=[32m"break-words text-3xl font-semibold leading-tight text-gray-950"[39m
+                    [33mtitle[39m=[32m"Still readable"[39m
+                  [36m>[39m
+                    [0mStill readable[0m
+                  [36m</h1>[39m
+                  [36m<div[39m
+                    [33mclass[39m=[32m"mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500"[39m
+                  [36m>[39m
+                    [36m<span[39m
+                      [33mclass[39m=[32m"flex items-center gap-1"[39m
+                    [36m>[39m
+                      [36m<svg[39m
+                        [33maria-hidden[39m=[32m"true"[39m
+                        [33mclass[39m=[32m"lucide lucide-clock"[39m
+                        [33mfill[39m=[32m"none"...
+ ❯ waitForWrapper ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ src/features/space-workspace/SpaceWorkspace.spec.tsx:510:25
+    508|
+    509|     expect(await screen.findByRole('heading', { name: 'Still readable'…
+    510|     expect(await screen.findByText('Space forbidden')).toBeInTheDocume…
+       |                         ^
+    511|     expect(screen.getByRole('heading', { name: 'Still readable' })).to…
+    512|     await new Promise((resolve) => setTimeout(resolve, 25));
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  4 failed | 63 passed (67)
+   Start at  15:06:41
+   Duration  3.39s (transform 895ms, setup 264ms, import 1.30s, tests 5.56s, environment 505ms)
+
+undefined
+/Users/neomei/.codex/worktrees/d35c/AgentWiki /agentwiki/apps/client:
+[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 1: vitest run src/App.spec.tsx src/features/page/PagePreview.spec.tsx src/features/space-workspace/SpaceWorkspace.spec.tsx

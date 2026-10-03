@@ -1,3 +1,4 @@
+import { AuthorizationService } from '../core/authorization/authorization.service';
 import { Prisma } from '@prisma/client';
 import { BusinessException } from '../core/filters/business-error';
 import type { SpaceTreeLockedTransaction } from '../core/sync/space-revision-writer.service';
@@ -107,6 +108,19 @@ function compileOnlyRequiresSpaceTreeLock(service: PageAgentBindingService) {
 void compileOnlyRequiresSpaceTreeLock;
 
 describe('PageAgentBindingService', () => {
+  it('denies a standalone binding for a nonmember platform admin through real authorization', async () => {
+    const h = makeHarness();
+    h.tx.$queryRaw = jest.fn().mockResolvedValue([{ id: principal.userId }]);
+    h.tx.user = { findUnique: jest.fn().mockResolvedValue({ id: principal.userId, type: 'human', platformRole: 'super_admin', deletedAt: null, lockedAt: null }) };
+    h.tx.spaceMember = { findUnique: jest.fn().mockResolvedValue(null) };
+    const service = new PageAgentBindingService(h.prisma, new AuthorizationService(h.prisma), h.contentTree);
+    await expect(service.setBindingsInScope('space-1', {
+      pageIds: ['page-1'], edits: [edit()], expectedTreeRevision: 7n,
+    }, { ...principal, platformRole: 'super_admin' })).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+    expect(h.tx.pageAgentBinding.create).not.toHaveBeenCalled();
+    expect(h.events).toEqual([]);
+  });
+
   it('rejects a human without current content-write permission', async () => {
     const h = makeHarness();
     h.authorization.assertLiveHumanSpaceAccess.mockRejectedValueOnce(

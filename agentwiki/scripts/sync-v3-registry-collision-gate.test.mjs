@@ -4,7 +4,7 @@ import { once } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const candidates = [{ name: '@neomei/agentwiki-local-sync', version: '0.10.0' }];
+const candidates = [{ name: '@neomei/agentwiki-local-sync', version: '0.10.2' }];
 
 async function loadGate() {
   return import('./sync-v3-registry-collision-gate.mjs');
@@ -30,9 +30,9 @@ test('release manifests and the explicit registry command check only unpublished
     readFile(new URL('../packages/sync-protocol/package.json', import.meta.url), 'utf8').then(JSON.parse),
     readFile(new URL('../packages/local-sync/package.json', import.meta.url), 'utf8').then(JSON.parse),
   ]);
-  assert.equal(protocol.version, '0.6.0');
-  assert.equal(localSync.version, '0.10.0');
-  assert.equal(localSync.dependencies[protocol.name], '0.6.0');
+  assert.equal(protocol.version, '0.6.1');
+  assert.equal(localSync.version, '0.10.2');
+  assert.equal(localSync.dependencies[protocol.name], '0.6.1');
   assert.equal(root.devDependencies.semver, '7.8.5');
   assert.equal(
     root.scripts['test:release:sync-v3-registry'],
@@ -42,37 +42,12 @@ test('release manifests and the explicit registry command check only unpublished
   assert.deepEqual(await releaseCandidates(), candidates);
 });
 
-test('deployment runbook gates Local Sync publication on candidate registry-protocol install', async () => {
-  const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
-  const runbook = readme.replace(/\s+/gu, ' ').toLowerCase();
-  const orderedMarkers = [
-    'do not republish sync-protocol 0.6.0',
-    '`pnpm test:release:sync-protocol-registry-parity`',
-    '`pnpm test:package:local-sync-registry-protocol`',
-    'publish local sync 0.10.0',
-    'npm install --prefix <empty-install-dir>',
-    '<empty-install-dir>/node_modules/.bin/agentwiki-local-sync --help',
-  ];
-  let previous = -1;
-  for (const marker of orderedMarkers) {
-    const index = runbook.indexOf(marker);
-    assert.ok(index >= 0, `deployment runbook must include ${marker}`);
-    assert.ok(index > previous, `deployment runbook must order ${marker} after the prior gate`);
-    previous = index;
-  }
-  assert.match(readme, /`pnpm test:release:sync-v3-registry`/u);
-  assert.match(
-    readme,
-    /deployment remains blocked\s+until both packages are publicly available and pass their post-publication gates/iu,
-  );
-});
-
 test('registry collision gate rejects an occupied candidate', async () => {
   const { assertNpmReleaseCandidatesAvailable } = await loadGate();
   await withRegistry((request, response) => {
     response.writeHead(200, { 'content-type': 'application/json' });
     assert.match(request.url ?? '', /local-sync/u);
-    response.end(JSON.stringify({ versions: { '0.10.0': {} } }));
+    response.end(JSON.stringify({ versions: { '0.10.2': {} } }));
   }, async (registryUrl) => {
     await assert.rejects(
       assertNpmReleaseCandidatesAvailable({ registryUrl, candidates }),

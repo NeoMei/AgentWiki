@@ -290,11 +290,10 @@ export class SpaceService {
     return space;
   }
 
-  async update(id: string, data: UpdateSpaceDto) {
-    await this.findOne(id);
-    return this.prisma.space.update({
-      where: { id },
-      data,
+  async update(id: string, data: UpdateSpaceDto, principal: Principal) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.authorization.assertLiveHumanSpaceAccess(tx, principal, id, ['owner']);
+      return tx.space.update({ where: { id }, data });
     });
   }
 

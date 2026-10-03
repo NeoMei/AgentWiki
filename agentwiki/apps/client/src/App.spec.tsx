@@ -162,18 +162,19 @@ describe('ProtectedRoute', () => {
 
     render(<App router={createAppMemoryRouter('/spaces/space-error/sources')} />);
 
-    expect(await screen.findByText('Space temporarily unavailable')).toBeVisible();
+    expect(await screen.findByText('Failed to load space')).toBeVisible();
+    expect(screen.queryByText('Space temporarily unavailable')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry' })).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Sources body' })).toBeVisible();
     expect(screen.queryByRole('navigation', { name: 'Space navigation' })).not.toBeInTheDocument();
     expect(document.querySelector('aside')).not.toBeInTheDocument();
-    const errorLayout = screen.getByText('Space temporarily unavailable').parentElement?.parentElement;
+    const errorLayout = screen.getByText('Failed to load space').parentElement?.parentElement;
     expect(errorLayout).toHaveClass('flex-col');
     expect(errorLayout).not.toHaveClass('lg:flex-row');
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByRole('heading', { name: 'Recovered Space' })).toBeVisible();
-    expect(screen.queryByText('Space temporarily unavailable')).not.toBeInTheDocument();
+    expect(screen.queryByText('Failed to load space')).not.toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Space navigation' })).toBeVisible();
   });
 });

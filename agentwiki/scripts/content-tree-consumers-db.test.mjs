@@ -123,7 +123,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
       const audit = { record: async () => undefined };
       const mcp = new McpService(
         config, authorization, {}, pages, {}, search, sources, reviews,
-        {}, {}, audit, prisma, {}, {},
+        {}, audit, prisma, {}, {}, contentTree,
       );
       const suffix = schemaName.slice('folder_test_'.length);
       const userId = `consumer-user-${suffix}`;
@@ -887,6 +887,10 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
             where: { id: spaceId },
             data: { approvalPolicy: 'scoped-auto-publish' },
           });
+          const [sourcePage, targetPage] = await Promise.all(['source', 'target'].map((label) => prisma.page.create({ data: {
+            spaceId, title: `Policy ${label}`, slug: `policy-${label}`, content: label, authorId: userId,
+            syncPath: `pages/policy-${label}.md`, syncPathKey: pathKey(`pages/policy-${label}.md`),
+          } })));
           const agentId = `policy-agent-${suffix}`;
           const grantId = `policy-grant-${suffix}`;
           const credentialId = `policy-credential-${suffix}`;
@@ -969,15 +973,10 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
               spaceId,
               'Policy boundary proposal',
               {
-                type: 'upsert_space_memory',
+                type: 'create_relation',
                 payload: {
-                  knowledgeKey: `policy-memory-${suffix}`,
-                  key: 'policy-boundary',
-                  value: 'must remain reviewed',
-                  scope: 'space',
-                  pageIds: [],
-                  artifactIds: [],
-                  contentHash: `policy-memory-hash-${suffix}`,
+                  knowledgeKey: `policy-relation-${suffix}`,
+                  sourcePageId: sourcePage.id, targetPageId: targetPage.id, relation: 'supports',
                 },
               },
             );
@@ -1014,7 +1013,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
             writer.lockSpace = originalLockSpace;
             await Promise.allSettled([folderPromise, proposalPromise, policyPromise].filter(Boolean));
           }
-          assert.equal(await prisma.agentMemory.count({ where: { spaceId } }), 0);
+          assert.equal(await prisma.knowledgeRelation.count({ where: { sourcePage: { spaceId } } }), 0);
           assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).approvalPolicy, 'always-review');
           assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 1n);
           assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 1);
@@ -1133,15 +1132,20 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           ));
           assert.equal(staleStructural.length, 1);
           assert.equal(staleStructural[0].payload.expectedTreeRevision, '1');
-          await expectCode(reviews.reviewPublish(staleProduced.id, userId), 'CONTENT_TREE_CONFLICT');
+          await expectCode(reviews.reviewPublish(staleProduced.id, userId, undefined, principal), 'CONTENT_TREE_CONFLICT');
           assert.equal(await prisma.page.count({ where: { spaceId, title: 'Knowledge stale' } }), 0);
           assert.equal((await prisma.changeSet.findUniqueOrThrow({
             where: { id: staleProduced.id },
-          })).status, 'approved');
+          })).status, 'pending_review');
           assert.ok(staleProduced.items.every((item) => item.status === 'pending'));
           assert.ok((await prisma.changeItem.findMany({
             where: { changeSetId: staleProduced.id },
-          })).every((item) => item.status === 'accepted'));
+          })).every((item) => item.status === 'pending'));
+          const rolledBack = await prisma.changeSet.findUniqueOrThrow({ where: { id: staleProduced.id } });
+          assert.equal(rolledBack.reviewedAt, null);
+          assert.equal(rolledBack.publishedAt, null);
+          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 2);
+          assert.equal(await prisma.approval.count({ where: { changeSetId: staleProduced.id } }), 0);
           assert.equal((await prisma.space.findUniqueOrThrow({
             where: { id: spaceId },
           })).contentTreeRevision, 2n);
@@ -1246,15 +1250,20 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           ));
           assert.equal(staleStructural.length, 1);
           assert.equal(staleStructural[0].payload.expectedTreeRevision, '1');
-          await expectCode(reviews.reviewPublish(staleProduced.id, userId), 'CONTENT_TREE_CONFLICT');
+          await expectCode(reviews.reviewPublish(staleProduced.id, userId, undefined, principal), 'CONTENT_TREE_CONFLICT');
           assert.equal(await prisma.page.count({ where: { spaceId, title: 'Source stale' } }), 0);
           assert.equal((await prisma.changeSet.findUniqueOrThrow({
             where: { id: staleProduced.id },
-          })).status, 'approved');
+          })).status, 'pending_review');
           assert.ok(staleProduced.items.every((item) => item.status === 'pending'));
           assert.ok((await prisma.changeItem.findMany({
             where: { changeSetId: staleProduced.id },
-          })).every((item) => item.status === 'accepted'));
+          })).every((item) => item.status === 'pending'));
+          const rolledBack = await prisma.changeSet.findUniqueOrThrow({ where: { id: staleProduced.id } });
+          assert.equal(rolledBack.reviewedAt, null);
+          assert.equal(rolledBack.publishedAt, null);
+          assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 2);
+          assert.equal(await prisma.approval.count({ where: { changeSetId: staleProduced.id } }), 0);
           assert.equal((await prisma.space.findUniqueOrThrow({
             where: { id: spaceId },
           })).contentTreeRevision, 2n);
@@ -1491,20 +1500,24 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
             actor: { userId },
           });
           await expectCode(
-            reviews.reviewPublish(staleProposal.id, userId),
+            reviews.reviewPublish(staleProposal.id, userId, undefined, principal),
             'CONTENT_TREE_CONFLICT',
           );
           assert.equal(await prisma.page.count({ where: { spaceId, title: 'MCP stale' } }), 0);
           assert.equal((await prisma.changeSet.findUniqueOrThrow({
             where: { id: staleProposal.id },
-          })).status, 'approved');
+          })).status, 'pending_review');
           assert.equal((await prisma.changeItem.findUniqueOrThrow({
             where: { id: staleProposal.items[0].id },
-          })).status, 'accepted');
+          })).status, 'pending');
           assert.equal((await prisma.space.findUniqueOrThrow({
             where: { id: spaceId },
           })).contentTreeRevision, 2n);
           assert.equal(await prisma.spaceKnowledgeRevision.count({ where: { spaceId } }), 2);
+          const rolledBack = await prisma.changeSet.findUniqueOrThrow({ where: { id: staleProposal.id } });
+          assert.equal(rolledBack.reviewedAt, null);
+          assert.equal(rolledBack.publishedAt, null);
+          assert.equal(await prisma.approval.count({ where: { changeSetId: staleProposal.id } }), 0);
         });
 
         await t.test('Review revert commits once and rolls back stale, path-collision, and deleted-Folder targets', async () => {

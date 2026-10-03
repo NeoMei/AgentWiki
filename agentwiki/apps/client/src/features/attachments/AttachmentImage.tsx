@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
+import { ZoomableImage } from '../../components/ZoomableImage';
 import { fetchAttachmentBlob } from './attachmentApi';
 
 export interface AttachmentImageProps extends Omit<React.ImgHTMLAttributes<HTMLImageElement>, 'src' | 'alt' | 'width' | 'height'> {
   attachmentId: string;
+  enlarge?: boolean;
   displayName: string;
   alt?: string;
   preserveEmptyAlt?: boolean;
@@ -15,6 +17,7 @@ type LoadState = { status: 'loading' } | { status: 'error' } | { status: 'ready'
 
 export const AttachmentImage: React.FC<AttachmentImageProps> = ({
   attachmentId,
+  enlarge = false,
   displayName,
   alt,
   preserveEmptyAlt = false,
@@ -60,5 +63,6 @@ export const AttachmentImage: React.FC<AttachmentImageProps> = ({
   if (state.status === 'error') {
     return <span role="alert" aria-label={accessibleAlt} className={`inline-flex min-h-16 max-w-full items-center justify-center overflow-hidden rounded border border-red-200 bg-red-50 text-sm text-red-700 ${className}`} style={frameStyle}>{accessibleAlt}</span>;
   }
-  return <img {...imageProps} src={state.url} alt={accessibleAlt} width={validDimensions ? width : undefined} height={validDimensions ? height : undefined} className={`max-w-full ${className}`} style={frameStyle} />;
+  const Image = enlarge ? ZoomableImage : 'img';
+  return <Image key={state.url} {...imageProps} src={state.url} alt={accessibleAlt} width={validDimensions ? width : undefined} height={validDimensions ? height : undefined} className={`max-w-full ${className}`} style={frameStyle} />;
 };

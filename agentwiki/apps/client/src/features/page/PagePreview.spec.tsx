@@ -205,7 +205,7 @@ describe('PagePreview checklist saves', () => {
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
     vi.mocked(api.get).mockRejectedValue({ response: { status: 403, data: { code: 'SPACE_ACCESS_DENIED', message: 'Server English permission error' } } });
     renderPreview();
-    expect(await screen.findByText('你没有权限执行此操作')).toBeVisible();
+    expect(await screen.findByText('你没有权限执行此操作。请联系空间所有者或管理员确认成员角色后重试。')).toBeVisible();
     expect(screen.queryByText('Server English permission error')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '编辑' })).not.toBeInTheDocument();
   });

@@ -156,7 +156,7 @@ describe('PageController.findOne', () => {
     ['viewer', false, 'user', false, false],
     ['owner', true, 'user', false, false],
     ['owner', true, 'super_admin', false, false],
-    ['viewer', false, 'super_admin', true, true],
+    ['viewer', false, 'super_admin', false, false],
   ] as const)(
     'maps role %s, agent=%s, platformRole=%s to canEdit=%s and canManageAttachments=%s',
     async (role, agent, platformRole, canEdit, canManageAttachments) => {
@@ -241,5 +241,24 @@ describe('PageController.update', () => {
       .resolves.toEqual({ id: 'page-1', title: 'Updated' });
     await expect(controller.findOne('page-1', { user: principal } as any))
       .resolves.toMatchObject({ capabilities: { canEdit: true } });
+  });
+});
+
+
+describe('PageController platform admin write isolation', () => {
+  it.each(['update', 'remove', 'reorderPages'] as const)('rejects nonmember platform admin %s before mutation', async (method) => {
+    const prisma = {
+      space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
+      spaceMember: { findUnique: jest.fn().mockResolvedValue(null) },
+      page: { findUnique: jest.fn().mockResolvedValue({ id: 'page-1', spaceId: 'space-1' }) },
+    } as any;
+    const pages = { update: jest.fn(), remove: jest.fn(), reorder: jest.fn() } as any;
+    const controller = new PageController(pages, new AuthorizationService(prisma), {} as any);
+    const request = { user: { userId: 'admin-1', platformRole: 'super_admin' } } as any;
+    const action = method === 'reorderPages' ? controller.reorderPages('space-1', { items: [] }, request) : (controller[method] as any)('page-1', {}, request);
+    await expect(action).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+    expect(pages.update).not.toHaveBeenCalled();
+    expect(pages.remove).not.toHaveBeenCalled();
+    expect(pages.reorder).not.toHaveBeenCalled();
   });
 });

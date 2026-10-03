@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { RunsPage } from './RunsPage';
 import { LanguageProvider } from '../../context/LanguageContext';
@@ -30,10 +30,27 @@ const SpaceSwitcher = () => {
 };
 
 describe('RunsPage', () => {
+  afterEach(() => vi.useRealTimers());
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.removeItem('agentwiki.language.v1');
     vi.mocked(api.post).mockResolvedValue({ data: {} });
+  });
+
+  it.each([['zh-CN', '正在抓取'], ['en', 'Fetching']])('localizes runtime stages and preserves source names in %s', async (locale, stage) => {
+    localStorage.setItem('agentwiki.language.v1', locale);
+    vi.mocked(api.get).mockResolvedValue({ data: [run('r', 'fetching / 自定义来源', 'fetching')] });
+    renderPage();
+    expect(await screen.findByText('fetching / 自定义来源')).toBeVisible();
+    expect(screen.getByText(new RegExp(stage))).toBeVisible();
+  });
+
+  it.each([['zh-CN', '发布中'], ['en', 'Publishing']])('shows the valid publishing stage in %s without changing source names', async (locale, stage) => {
+    localStorage.setItem('agentwiki.language.v1', locale);
+    vi.mocked(api.get).mockResolvedValue({ data: [run('r', 'Publisher / 自定义来源', 'publishing')] });
+    renderPage();
+    expect(await screen.findByText('Publisher / 自定义来源')).toBeVisible();
+    expect(screen.getByText(new RegExp(stage))).toBeVisible();
   });
 
   it.each([
@@ -156,4 +173,34 @@ describe('RunsPage', () => {
     expect(screen.queryByText('Space One')).not.toBeInTheDocument();
     expect(api.get).toHaveBeenCalledTimes(2);
   });
+  it('refreshes active runs until terminal and then stops automatically', async () => {
+    vi.useFakeTimers();
+    let terminal = false;
+    vi.mocked(api.get).mockImplementation(async () => ({ data: [run('active', 'Polling source', terminal ? 'completed' : 'fetching')] }));
+    const view = renderPage();
+    await act(async () => {});
+    terminal = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(screen.getByText(/Completed/)).toBeVisible();
+    const reads = vi.mocked(api.get).mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(12000); });
+    expect(vi.mocked(api.get).mock.calls).toHaveLength(reads);
+    view.unmount();
+  });
+
+  it('opens a linked run detail only after the run belongs to the current authorized list', async () => {
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/runs/own-run'
+      ? { ...run('own-run', 'Own source'), spaceId: 'space-1', artifacts: [{ id: 'a', type: 'compiled_page', content: 'Actual source result' }] }
+      : [run('own-run', 'Own source')] }));
+    render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1/runs?run=own-run']}><Routes><Route path="/spaces/:id/runs" element={<RunsPage />} /></Routes></MemoryRouter></LanguageProvider>);
+    expect(await screen.findByText('Actual source result')).toBeInTheDocument();
+  });
+
+  it('does not fetch an arbitrary query run outside the current authorized list', async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [run('own-run', 'Own source')] });
+    render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1/runs?run=other-space-run']}><Routes><Route path="/spaces/:id/runs" element={<RunsPage />} /></Routes></MemoryRouter></LanguageProvider>);
+    await screen.findByText('Own source');
+    expect(vi.mocked(api.get).mock.calls.some(([url]) => url === '/runs/other-space-run')).toBe(false);
+  });
+
 });

@@ -34,10 +34,13 @@ const EN: Record<string, string> = {
   reverting: 'Reverting',
 };
 
+export function reviewStatusLabel(status: string, language: string, fallback: string): string {
+  return (language === 'zh-CN' ? ZH : EN)[status] || fallback;
+}
+
 export const ChangeSetStatusBadge: React.FC<{ status: string }> = ({ status }) => {
   const { language } = useLanguage();
-  const zh = language === 'zh-CN';
-  const label = (zh ? ZH : EN)[status] || status;
+  const label = reviewStatusLabel(status, language, status);
   const style = STYLES[status] || STYLES.draft;
   return (
     <span data-testid={`status-badge-${status}`} className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${style}`}>

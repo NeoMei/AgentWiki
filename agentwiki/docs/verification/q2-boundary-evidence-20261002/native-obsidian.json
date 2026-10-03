@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-02",
+  "obsidian": "1.13.7",
+  "plugin": "0.5.6",
+  "protocol": "Sync v2",
+  "vault": "/private/tmp/agentwiki-q2-native-20261002/AgentWiki Native Vault",
+  "checks": {
+    "manualCodeGuiConnected": true,
+    "nestedMappingCreatedAndPersisted": true,
+    "remotePullGuiPreviewAndConfirm": true,
+    "remotePullExactDiskContent": true,
+    "nativeEditorEdit": true,
+    "pushGuiPreviewConfirmed": true,
+    "pushGuiNoticeCompleted": true,
+    "remoteReadback": true,
+    "reloadPersistence": true,
+    "reloadPostSyncPanelClean": true
+  },
+  "remote": {
+    "status": 200,
+    "contentSha256": "5ae15ce60ae6885cd3131dd9c36c379ccaceb516dfe4944d32c0d6c2ca97be31",
+    "bytes": 61
+  },
+  "cleanup": {
+    "installation": 409,
+    "space": 200,
+    "user": 200,
+    "jwtAfterDelete": 401,
+    "note": "installation already exchanged; revocation endpoint returns 409 by contract, user/space deleted and token invalidated"
+  }
+}

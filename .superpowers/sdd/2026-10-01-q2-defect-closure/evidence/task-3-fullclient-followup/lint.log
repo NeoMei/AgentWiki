@@ -1,0 +1,10 @@
+$ eslint "src/**/*.{ts,tsx}"
+
+/Users/neomei/.codex/worktrees/d35c/AgentWiki /agentwiki/apps/client/src/features/source/useBoundedPolling.ts
+  15:11  error  The value assigned to 'terminal' is not used in subsequent statements  no-useless-assignment
+
+✖ 1 problem (1 error, 0 warnings)
+
+/Users/neomei/.codex/worktrees/d35c/AgentWiki /agentwiki/apps/client:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @agentwiki/client@0.12.10 lint: `eslint "src/**/*.{ts,tsx}"`
+Exit status 1

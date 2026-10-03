@@ -28,7 +28,7 @@ export const RunDashboard: React.FC = () => {
   const { id = '', runId = '' } = useParams<{ id: string; runId: string }>();
   const { user } = useAuth();
   const { t } = useLanguage();
-  const { state, refresh } = useCollaborationRun(id, runId);
+  const { state, refresh, isCurrentSnapshot } = useCollaborationRun(id, runId);
   const [members, setMembers] = useState<SpaceMemberSummary[]>([]);
   const [membersLoading, setMembersLoading] = useState(true);
   const [membersError, setMembersError] = useState(false);
@@ -38,6 +38,10 @@ export const RunDashboard: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
   const [resumeInstructions, setResumeInstructions] = useState<AgentInstruction[]>([]);
+  const [continuationLoading, setContinuationLoading] = useState(false);
+  const instructionRequest = useRef(0);
+  const instructionSnapshot = useRef<string | null>(null);
+  const instructionMode = useRef<'mutation' | 'read'>('mutation');
   const [reviewArtifacts, setReviewArtifacts] = useState<Record<string, CollaborationArtifact>>({});
   const [reviewArtifactErrors, setReviewArtifactErrors] = useState<Record<string, boolean>>({});
   const [reviewDetail, setReviewDetail] = useState<ReviewDetail | null>(null);
@@ -60,6 +64,7 @@ export const RunDashboard: React.FC = () => {
     dashboardScope.current = currentScope;
     reviewArtifactScope.current = currentScope;
     reviewArtifactRequests.current.clear();
+    instructionRequest.current += 1;
     memberRequest.current += 1;
     historyRequest.current += 1;
     reviewDetailRequest.current += 1;
@@ -76,6 +81,7 @@ export const RunDashboard: React.FC = () => {
       const nextMembers = await collaborationApi.listMembers(id);
       if (memberRequest.current !== request || dashboardScope.current !== requestedScope) return;
       setMembers(nextMembers);
+      return nextMembers;
     } catch {
       if (memberRequest.current !== request || dashboardScope.current !== requestedScope) return;
       setMembers([]);
@@ -93,6 +99,8 @@ export const RunDashboard: React.FC = () => {
     setSubmitting(false);
     setToast(null);
     setResumeInstructions([]);
+    setContinuationLoading(false);
+    instructionSnapshot.current = null;
     setReviewArtifacts({});
     setReviewArtifactErrors({});
     setReviewDetail(null);
@@ -118,9 +126,7 @@ export const RunDashboard: React.FC = () => {
   const systemTemplate = templatePresentation?.spaceId === id && templatePresentation.template.id === run?.templateId
     ? templatePresentation.template : null;
 
-  const humanRole = (user?.platformRole === 'super_admin'
-    ? 'owner'
-    : members.find((member) => member.type === 'human' && member.userId === user?.id)?.role) as HumanSpaceRole | undefined;
+  const humanRole = (members.find((member) => member.type === 'human' && member.userId === user?.id)?.role) as HumanSpaceRole | undefined;
   const executableAgents = useMemo(() => members.filter((member) => member.type === 'agent' && member.agent?.status === 'active' && !member.agent.revokedAt && ['editor', 'publisher'].includes(member.role)), [members]);
   const agentNames = useMemo(() => new Map(members.flatMap((member) => member.type === 'agent' && member.agentId && member.agent ? [[member.agentId, member.agent.name] as const] : [])), [members]);
 
@@ -224,11 +230,50 @@ export const RunDashboard: React.FC = () => {
   };
 
   useEffect(() => {
-    if (state.kind === 'ready' && !state.updating && state.value.status !== 'running') setResumeInstructions([]);
-  }, [state]);
+    const retainedEligible = instructionMode.current === 'read'
+      ? !!humanRole && !!run && canContinue(run, humanRole, user?.id, false)
+      : !!humanRole;
+    if (state.kind === 'error' || membersError || (!membersLoading && !retainedEligible)) {
+      setResumeInstructions([]);
+      return;
+    }
+    if (state.kind !== 'ready' || state.updating) return;
+    const allowedStatus = instructionMode.current === 'read'
+      ? ['running', 'waiting_review'].includes(state.value.status)
+      : state.value.status === 'running';
+    if (!allowedStatus || (instructionSnapshot.current && instructionSnapshot.current !== instructionIdentity(state.value))) {
+      setResumeInstructions([]);
+    }
+  }, [state, humanRole, membersLoading, membersError, run, user?.id]);
 
-  const showResumeInstructions = resumeInstructions.length > 0
-    && !(state.kind === 'ready' && !state.updating && state.value.status !== 'running');
+  const showResumeInstructions = resumeInstructions.length > 0 && !!humanRole && !!run
+    && (instructionMode.current === 'mutation' || canContinue(run, humanRole, user?.id, false))
+    && !membersError && !membersLoading && state.kind !== 'error';
+
+  const getContinuation = async () => {
+    if (state.kind !== 'ready' || state.updating || continuationLoading || !run || !humanRole || !canContinue(run, humanRole, user?.id)) return;
+    const request = ++instructionRequest.current;
+    const requestedScope = `${id}:${runId}`;
+    setContinuationLoading(true);
+    setResumeInstructions([]);
+    setToast(null);
+    try {
+      const [snapshot, freshMembers] = await Promise.all([refresh(), loadMembers()]);
+      if (dashboardScope.current !== requestedScope || instructionRequest.current !== request) return;
+      const role = freshMembers?.find((member) => member.type === 'human' && member.userId === user?.id)?.role as HumanSpaceRole | undefined;
+      if (!snapshot || !isCurrentSnapshot(snapshot) || !role || !canContinue(snapshot, role, user?.id, false)) {
+        setToast({ kind: 'error', message: t('collaboration.dashboard.continuationFailed') });
+        return;
+      }
+      instructionMode.current = 'read';
+      instructionSnapshot.current = instructionIdentity(snapshot);
+      const instructions = ['running', 'waiting_review'].includes(snapshot.status) ? buildAgentJoinInstructions(snapshot) : [];
+      setResumeInstructions(instructions);
+      if (!instructions.length) setToast({ kind: 'success', message: t('collaboration.dashboard.noContinuation') });
+    } finally {
+      if (dashboardScope.current === requestedScope && instructionRequest.current === request) setContinuationLoading(false);
+    }
+  };
 
   const openAction = (action: PendingAction) => {
     pendingScope.current = `${id}:${runId}`;
@@ -269,6 +314,8 @@ export const RunDashboard: React.FC = () => {
         || (action.type === 'run' && action.kind === 'resume')
         || (action.type === 'task' && ['retry', 'reassign', 'skip'].includes(action.kind));
       if (shouldResume && result.status === 'running') {
+        instructionMode.current = 'mutation';
+        instructionSnapshot.current = instructionIdentity(result);
         setResumeInstructions(buildAgentJoinInstructions(result));
       } else setResumeInstructions([]);
       setPending(null);
@@ -306,6 +353,8 @@ export const RunDashboard: React.FC = () => {
       });
       const nextRun = await collaborationApi.getRun(id, runId);
       if (dashboardScope.current !== requestedScope || reviewDetailRequest.current !== requestedDetail) return;
+      instructionMode.current = 'mutation';
+      instructionSnapshot.current = instructionIdentity(nextRun);
       setResumeInstructions(nextRun.status === 'running' ? buildAgentJoinInstructions(nextRun) : []);
       setReviewDetail(null);
       setToast({ kind: 'success', message: t('collaboration.dashboard.conflictResolved') });
@@ -328,7 +377,7 @@ export const RunDashboard: React.FC = () => {
   if (!run) return <div data-testid="collaboration-run-error" className="rounded-xl border border-red-200 bg-red-50 py-12 text-center"><p className="text-sm text-red-700">{t('collaboration.dashboard.loadFailed')}</p><button type="button" onClick={() => void refresh()} className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm"><RefreshCw size={15} />{t('common.retry')}</button></div>;
 
   return (
-    <div className="mx-auto max-w-7xl min-w-0 overflow-x-clip">
+    <div data-testid="collaboration-dashboard" className="mx-auto flex max-w-7xl min-w-0 flex-col overflow-x-clip lg:h-[calc(100dvh-13rem)]">
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="min-w-0"><Link to={`/spaces/${id}/collaboration`} className="inline-flex items-center gap-1 text-sm text-gray-500"><ArrowLeft size={15} />{t('collaboration.title')}</Link><h1 className="mt-2 break-words text-2xl font-semibold">{t('collaboration.dashboard.title')}</h1></div>
         {state.kind === 'ready' && state.updating ? <span role="status" className="text-sm text-gray-500">{t('collaboration.dashboard.updating')}</span> : <button type="button" aria-label={t('common.refresh')} onClick={() => void Promise.all([refresh(), loadMembers()])} className="rounded-lg border p-2"><RefreshCw size={16} /></button>}
@@ -336,12 +385,12 @@ export const RunDashboard: React.FC = () => {
       {state.kind === 'error' ? <div role="alert" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{t('collaboration.dashboard.stale')}</div> : null}
       {membersError ? <div role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{t('collaboration.dashboard.membersFailed')}<button type="button" onClick={() => void loadMembers()} className="ml-2 underline">{t('common.retry')}</button></div> : null}
       {membersLoading ? <span className="sr-only" role="status">{t('common.loading')}</span> : null}
-      {showResumeInstructions ? <section className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4"><div className="flex items-start justify-between gap-3"><div><h2 className="font-semibold text-blue-900">{t('collaboration.dashboard.resumeInstructions')}</h2><p className="mt-1 text-sm text-blue-800">{t('collaboration.dashboard.resumeInstructionsHelp')}</p></div><button type="button" onClick={() => setResumeInstructions([])} className="text-sm text-blue-800">{t('common.close')}</button></div><div className="mt-3 space-y-2">{resumeInstructions.map((instruction) => <div key={instruction.agentId} className="flex min-w-0 flex-col gap-2 rounded-lg bg-white p-3 sm:flex-row sm:items-center"><p className="min-w-0 flex-1 break-words text-sm">{instruction.text}</p><button type="button" onClick={() => void copyResumeInstruction(instruction.text, setToast, t)} className="min-h-9 shrink-0 rounded-lg border px-3 text-sm">{t('collaboration.dashboard.copyResume')}</button></div>)}</div></section> : null}
+      {showResumeInstructions ? <section className="mt-4 min-h-0 shrink-0 rounded-xl border border-blue-200 bg-blue-50 p-4 lg:max-h-[35%] lg:overflow-y-auto"><div className="flex items-start justify-between gap-3"><div><h2 className="font-semibold text-blue-900">{t('collaboration.dashboard.resumeInstructions')}</h2><p className="mt-1 text-sm text-blue-800">{t('collaboration.dashboard.resumeInstructionsHelp')}</p></div><button type="button" onClick={() => setResumeInstructions([])} className="text-sm text-blue-800">{t('common.close')}</button></div><div className="mt-3 space-y-2">{resumeInstructions.map((instruction) => <div key={instruction.agentId} className="flex min-w-0 flex-col gap-2 rounded-lg bg-white p-3 sm:flex-row sm:items-center"><p className="min-w-0 flex-1 break-words text-sm">{instruction.text}</p><button type="button" onClick={() => void copyResumeInstruction(instruction.text, setToast, t)} className="min-h-9 shrink-0 rounded-lg border px-3 text-sm">{t('collaboration.dashboard.copyResume')}</button></div>)}</div></section> : null}
 
-      <div className="mt-6 grid min-w-0 gap-4 lg:grid-cols-[minmax(15rem,0.8fr)_minmax(0,1.8fr)_minmax(17rem,1fr)]">
-        <RunSummary run={run} role={humanRole} userId={user?.id} t={t} onAction={(kind) => openAction({ type: 'run', kind })} />
-        <TaskPanel run={run} systemTemplate={systemTemplate} role={humanRole} userId={user?.id} t={t} agentNames={agentNames} onHistory={(kind) => void openHistory(kind)} onAction={(kind, task) => openAction({ type: 'task', kind, task })} />
-        <ReviewPanel run={run} spaceId={id} t={t} artifacts={reviewArtifacts} artifactErrors={reviewArtifactErrors} detail={reviewDetail} resolvingConflict={resolvingConflict} onHistory={() => void openHistory('reviews')} onLoadDetail={(review) => void loadReviewDetail(review)} onRetryArtifact={(review) => void loadReviewArtifact(review)} onDecision={(kind, review) => openAction({ type: 'review', kind, review })} onResolveConflict={(kind, review, comparison) => void resolvePageConflict(kind, review, comparison)} />
+      <div className="mt-6 grid min-h-0 min-w-0 flex-1 gap-4 lg:grid-rows-[repeat(3,minmax(0,1fr))] lg:grid-cols-[minmax(15rem,0.8fr)_minmax(0,1.8fr)_minmax(17rem,1fr)]">
+        <RunSummary run={run} role={state.kind === 'ready' && !state.updating && !continuationLoading && !membersLoading && !membersError ? humanRole : undefined} userId={user?.id} t={t} onGetContinuation={() => void getContinuation()} continuationLoading={continuationLoading || (state.kind === 'ready' && state.updating) || membersLoading} onAction={(kind) => openAction({ type: 'run', kind })} />
+        <TaskPanel run={run} systemTemplate={systemTemplate} role={state.kind === 'ready' && !state.updating && !continuationLoading && !membersLoading && !membersError ? humanRole : undefined} userId={user?.id} t={t} agentNames={agentNames} onHistory={(kind) => void openHistory(kind)} onAction={(kind, task) => openAction({ type: 'task', kind, task })} />
+        <ReviewPanel run={run} spaceId={id} t={t} artifacts={reviewArtifacts} artifactErrors={reviewArtifactErrors} detail={reviewDetail} resolvingConflict={resolvingConflict} onHistory={() => void openHistory('reviews')} onLoadDetail={(review) => void loadReviewDetail(review)} onRetryArtifact={(review) => void loadReviewArtifact(review)} onDecision={(kind, review) => openAction({ type: 'review', kind, review })} onResolveConflict={(kind, review, comparison) => void resolvePageConflict(kind, review, comparison)} isHumanMember={state.kind === 'ready' && !state.updating && !continuationLoading && !membersLoading && !membersError && humanRole !== undefined} />
         <ArtifactPanel run={run} t={t} onHistory={() => void openHistory('artifacts')} />
         <AgentActivityPanel run={run} t={t} onHistory={() => void openHistory('events')} />
       </div>
@@ -398,4 +447,13 @@ async function copyResumeInstruction(
   } catch {
     setToast({ kind: 'error', message: t('collaboration.dashboard.resumeCopyFailed') });
   }
+}
+
+function canContinue(run: CollaborationRun, role: HumanSpaceRole, userId?: string, requireActive = true): boolean {
+  return (role === 'owner' || role === 'admin' || run.startedById === userId)
+    && (!requireActive || ['running', 'waiting_review'].includes(run.status));
+}
+
+function instructionIdentity(run: CollaborationRun): string {
+  return JSON.stringify([run.id, run.spaceId, run.status, run.version, run.eventSequence, run.snapshotHash, run.roleBindings, run.joinInstructions]);
 }

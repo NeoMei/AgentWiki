@@ -160,9 +160,7 @@ export class AgentService {
       where: {
         id: spaceId,
         deletedAt: null,
-        ...(!isSuperAdmin ? {
-          members: { some: { userId: ownerId, role: { in: ['owner', 'admin'] } } },
-        } : {}),
+        members: { some: { userId: ownerId, role: { in: ['owner', 'admin'] } } },
       },
       select: { id: true },
     });
@@ -212,9 +210,7 @@ export class AgentService {
         where: {
           id: input.spaceId,
           deletedAt: null,
-          ...(owner?.platformRole === 'super_admin' ? {} : {
-            members: { some: { userId: input.ownerId, role: { in: ['owner', 'admin'] } } },
-          }),
+          members: { some: { userId: input.ownerId, role: { in: ['owner', 'admin'] } } },
         },
         select: { id: true },
       });
@@ -605,9 +601,9 @@ export class AgentService {
     isSuperAdmin: boolean,
   ): Promise<{ id: string; status: string }> {
     await this.lockAgentAuthorizationMutationRows(
-      tx, actorUserId, agentId, spaceId, !isSuperAdmin,
+      tx, actorUserId, agentId, spaceId, true,
     );
-    const [agent, space, platformAdmin] = await Promise.all([
+    const [agent, space] = await Promise.all([
       tx.agent.findFirst({
         where: {
           id: agentId,
@@ -621,25 +617,12 @@ export class AgentService {
         where: {
           id: spaceId,
           deletedAt: null,
-          ...(isSuperAdmin ? {} : {
-            members: { some: { userId: actorUserId, role: { in: ['owner', 'admin'] } } },
-          }),
+          members: { some: { userId: actorUserId, role: { in: ['owner', 'admin'] } } },
         },
         select: { id: true },
       }),
-      isSuperAdmin
-        ? tx.user.findFirst({
-            where: {
-              id: actorUserId,
-              platformRole: 'super_admin',
-              deletedAt: null,
-              lockedAt: null,
-            },
-            select: { id: true },
-          })
-        : Promise.resolve(null),
     ]);
-    if (!agent || !space || (isSuperAdmin && !platformAdmin)) {
+    if (!agent || !space) {
       throw new ForbiddenException('Grant mutation authorization is no longer valid');
     }
     return agent;

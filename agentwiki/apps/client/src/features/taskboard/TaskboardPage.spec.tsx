@@ -191,3 +191,33 @@ describe('TaskboardPage 项目全景 UI', () => {
     expect(fakeSocket.emit).toHaveBeenCalledWith('taskboard:subscribe', { spaceId: 'space-1' });
   });
 });
+
+it('centers a late parent child group at its parent rather than the whole sibling column', async () => {
+  Element.prototype.scrollIntoView = vi.fn();
+  vi.spyOn(HTMLButtonElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLButtonElement) {
+    return new DOMRect(0, Number.parseFloat(this.style.top) || 0, 245, 125);
+  });
+  const data = planBoard();
+  data.board.tasks = [
+    { id: 'root', title: 'Root', kind: 'phase', status: 'todo', scope_class: 'required' },
+    ...Array.from({ length: 8 }, (_, i) => ({ id: `parent-${i}`, title: `Parent ${i}`, kind: 'task', status: 'todo', scope_class: 'required', parent_id: 'root' })),
+    { id: 'child', title: 'Late child', kind: 'task', status: 'in_review', scope_class: 'required', parent_id: 'parent-7' },
+  ] as typeof data.board.tasks;
+  vi.mocked(api.get).mockResolvedValue({ data });
+  renderPage();
+  fireEvent.click(await screen.findByRole('button', { name: 'Parent 7' }));
+  const child = await screen.findByRole('button', { name: 'Late child' });
+  const parent = document.querySelector<HTMLButtonElement>('.graph .node[aria-label="Parent 7"]')!;
+  expect(Number.parseFloat(child.style.top)).toBeCloseTo(Number.parseFloat(parent.style.top), 0);
+  expect(document.querySelector('.graph .node[aria-label="Late child"] .dot.in_review')).not.toBeNull();
+  expect(screen.getByText('功能实现').parentElement!.querySelector('.pill')!.getAttribute('style') || '').not.toContain('var(--state)');
+  vi.restoreAllMocks();
+});
+
+it('explains the review-state purple signal in the original-style legend', async () => {
+  Element.prototype.scrollIntoView = vi.fn();
+  vi.mocked(api.get).mockResolvedValue({ data: planBoard() });
+  renderPage();
+  await screen.findByRole('button', { name: '登录契约' });
+  expect(document.querySelector('.legend .dot.in_review')?.parentElement).toHaveTextContent('待验收');
+});

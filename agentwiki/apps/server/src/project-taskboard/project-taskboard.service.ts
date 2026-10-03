@@ -129,7 +129,7 @@ export class ProjectTaskboardService {
 
   async createTask(principal: Principal, spaceId: string, dto: TaskboardTaskDto) {
     const actor = await this.authorizeWrite(principal, spaceId);
-    const { board, result } = await this.withBoardTx(spaceId, actor, async (board, tx, boardId, events) => {
+    const { board, result } = await this.withBoardTx(spaceId, principal, actor, async (board, tx, boardId, events) => {
       const mapping = assertTaskboardTree(board.tasks);
       const task = makeTaskboardTask(dto as Record<string, unknown>);
       if (mapping.has(task.id)) throw duplicateTask(task.id);
@@ -144,7 +144,7 @@ export class ProjectTaskboardService {
 
   async createChild(principal: Principal, spaceId: string, parentId: string, dto: TaskboardTaskDto) {
     const actor = await this.authorizeWrite(principal, spaceId);
-    const { board, result } = await this.withBoardTx(spaceId, actor, async (board, tx, boardId, events) => {
+    const { board, result } = await this.withBoardTx(spaceId, principal, actor, async (board, tx, boardId, events) => {
       const mapping = assertTaskboardTree(board.tasks);
       if (!mapping.has(parentId)) throw taskNotFound(parentId);
       const task = makeTaskboardTask(dto as Record<string, unknown>, parentId);
@@ -159,7 +159,7 @@ export class ProjectTaskboardService {
 
   async updateStatus(principal: Principal, spaceId: string, taskId: string, dto: TaskboardStatusDto) {
     const actor = await this.authorizeWrite(principal, spaceId);
-    const { board, result } = await this.withBoardTx(spaceId, actor, async (board, tx, boardId, events) => {
+    const { board, result } = await this.withBoardTx(spaceId, principal, actor, async (board, tx, boardId, events) => {
       const mapping = assertTaskboardTree(board.tasks);
       const current = mapping.get(taskId);
       if (!current) throw taskNotFound(taskId);
@@ -186,7 +186,7 @@ export class ProjectTaskboardService {
 
   async upsertTask(principal: Principal, spaceId: string, taskId: string, dto: TaskboardTaskDto) {
     const actor = await this.authorizeWrite(principal, spaceId);
-    const { board, result } = await this.withBoardTx(spaceId, actor, async (board, tx, boardId, events) => {
+    const { board, result } = await this.withBoardTx(spaceId, principal, actor, async (board, tx, boardId, events) => {
       const mapping = assertTaskboardTree(board.tasks);
       const existing = mapping.get(taskId);
       if (existing) {
@@ -215,7 +215,7 @@ export class ProjectTaskboardService {
 
   async patchTask(principal: Principal, spaceId: string, taskId: string, dto: TaskboardTaskDto) {
     const actor = await this.authorizeWrite(principal, spaceId);
-    const { board, result } = await this.withBoardTx(spaceId, actor, async (board, tx, boardId, events) => {
+    const { board, result } = await this.withBoardTx(spaceId, principal, actor, async (board, tx, boardId, events) => {
       const mapping = assertTaskboardTree(board.tasks);
       const current = mapping.get(taskId);
       if (!current) throw taskNotFound(taskId);
@@ -266,6 +266,7 @@ export class ProjectTaskboardService {
     }
     const { board, result } = await this.withBoardTx(
       spaceId,
+      principal,
       actor,
       async (board, tx, boardId, events) => {
         const summary = mergePlanIntoTasks(board, incoming, sourcePath, syncStatus);
@@ -367,6 +368,7 @@ export class ProjectTaskboardService {
 
   private async withBoardTx<T>(
     spaceId: string,
+    principal: Principal,
     actor: TaskboardActor,
     mutate: (board: TaskboardBoard, tx: PrismaTx, boardId: string, events: BoardEventInput[]) => Promise<T>,
     defaultProject?: string,
@@ -375,6 +377,9 @@ export class ProjectTaskboardService {
     const outcome = await withCollaborationSerializableRetry(() =>
       this.prisma.$transaction(
         async (tx) => {
+          if (!principal.agentId) {
+            await this.authorization.assertLiveHumanSpaceAccess(tx, principal, spaceId, [...WRITE_ROLES]);
+          }
           let boardRow = await tx.projectBoard.findUnique({ where: { spaceId } });
           if (!boardRow) {
             const space = await tx.space.findUnique({ where: { id: spaceId }, select: { name: true } });

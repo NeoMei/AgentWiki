@@ -192,20 +192,25 @@ test('ContentTree lifecycle operations are atomic in real PostgreSQL', {
           }
         }
 
-        for (const state of ['locked', 'stale-super-admin', 'live-super-admin']) {
+        for (const state of ['locked', 'stale-super-admin', 'live-super-admin', 'member-super-admin', 'nonmember-super-admin']) {
           await t.test(`HTTP create uses live account state: ${state}`, async () => {
             const spaceId = await createSpace(state);
-            await prisma.spaceMember.create({ data: { spaceId, userId, role: state === 'locked' ? 'editor' : 'viewer' } });
+            if (state !== 'nonmember-super-admin') {
+              await prisma.spaceMember.create({ data: { spaceId, userId, role: ['locked', 'member-super-admin'].includes(state) ? 'editor' : 'viewer' } });
+            }
             await prisma.user.update({ where: { id: userId }, data: {
               lockedAt: state === 'locked' ? new Date() : null,
-              platformRole: state === 'live-super-admin' ? 'super_admin' : 'user',
+              platformRole: ['live-super-admin', 'member-super-admin', 'nonmember-super-admin'].includes(state) ? 'super_admin' : 'user',
             } });
             try {
               const controller = new ContentTreeController(service, new AuthorizationService(prisma), prisma);
+              if (state === 'nonmember-super-admin') {
+                assert.equal((await new AuthorizationService(prisma).assertSpaceAccess({ userId, platformRole: 'super_admin' }, spaceId)).role, 'viewer');
+              }
               const pending = controller.createFolder({ user: { userId, platformRole: 'super_admin' } }, spaceId, {
                 name: 'Live account', parentId: null, expectedTreeRevision: '0',
               });
-              if (state === 'live-super-admin') assert.equal((await pending).treeRevision, '1');
+              if (state === 'member-super-admin') assert.equal((await pending).treeRevision, '1');
               else {
                 await assert.rejects(pending, error => error.businessCode === 'SPACE_ACCESS_DENIED');
                 assert.equal(await prisma.folder.count({ where: { spaceId } }), 0);

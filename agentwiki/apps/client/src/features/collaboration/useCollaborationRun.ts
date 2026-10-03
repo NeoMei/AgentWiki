@@ -14,25 +14,29 @@ export function useCollaborationRun(spaceId: string, runId: string) {
   const scopeRef = useRef(scope);
   const currentRef = useRef<CollaborationRun | undefined>();
   const requestEpoch = useRef(0);
+  const acceptedEpoch = useRef(0);
   if (scopeRef.current !== scope) {
     scopeRef.current = scope;
     currentRef.current = undefined;
     requestEpoch.current += 1;
   }
 
-  const refresh = useCallback(async () => {
-    if (!spaceId || !runId) return;
+  const refresh = useCallback(async (): Promise<CollaborationRun | undefined> => {
+    if (!spaceId || !runId) return undefined;
     const requestedScope = `${spaceId}:${runId}`;
     const request = ++requestEpoch.current;
     if (currentRef.current) setState({ kind: 'ready', value: currentRef.current, updating: true });
     try {
       const value = await collaborationApi.getRun(spaceId, runId);
-      if (scopeRef.current !== requestedScope || requestEpoch.current !== request) return;
+      if (scopeRef.current !== requestedScope || requestEpoch.current !== request) return undefined;
       currentRef.current = value;
+      acceptedEpoch.current = request;
       setState({ kind: 'ready', value, updating: false });
+      return value;
     } catch (error) {
-      if (scopeRef.current !== requestedScope || requestEpoch.current !== request) return;
+      if (scopeRef.current !== requestedScope || requestEpoch.current !== request) return undefined;
       setState({ kind: 'error', error, previous: currentRef.current });
+      return undefined;
     }
   }, [runId, spaceId]);
 
@@ -76,5 +80,7 @@ export function useCollaborationRun(spaceId: string, runId: string) {
     return () => window.removeEventListener('focus', onFocus);
   }, [refresh]);
 
-  return { state, refresh };
+  const isCurrentSnapshot = (snapshot: CollaborationRun) => scopeRef.current === scope
+    && acceptedEpoch.current === requestEpoch.current && currentRef.current === snapshot;
+  return { state, refresh, isCurrentSnapshot };
 }

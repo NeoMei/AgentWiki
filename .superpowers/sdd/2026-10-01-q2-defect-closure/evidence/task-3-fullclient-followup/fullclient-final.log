@@ -1,0 +1,13 @@
+$ pnpm --filter @agentwiki/shared build && pnpm --filter @neomei/agentwiki-sync-protocol build && vitest run
+$ tsc
+$ pnpm build:esm && pnpm build:cjs
+$ tsc -p tsconfig.esm.json
+$ tsc -p tsconfig.cjs.json && node scripts/write-cjs-package.mjs
+
+ RUN  v4.1.11 /Users/neomei/.codex/worktrees/d35c/AgentWiki /agentwiki/apps/client
+
+
+ Test Files  116 passed (116)
+      Tests  1618 passed (1618)
+   Start at  15:11:53
+   Duration  16.59s (transform 5.28s, setup 17.04s, import 25.46s, tests 52.37s, environment 37.79s)

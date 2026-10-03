@@ -53,17 +53,19 @@ export class SyncV2Controller {
 
   @Get('spaces')
   async listSpaces(@Req() request: { user: HumanDevicePrincipal }) {
+    const memberships = await this.prisma.spaceMember.findMany({
+      where: { userId: request.user.userId, space: { deletedAt: null } },
+      include: { space: true }, orderBy: { createdAt: 'asc' },
+    });
     const accessible = request.user.platformRole === 'super_admin'
-      ? await this.prisma.space.findMany({ where: { deletedAt: null }, orderBy: { createdAt: 'asc' } })
-      : (await this.prisma.spaceMember.findMany({
-        where: { userId: request.user.userId, space: { deletedAt: null } },
-        include: { space: true }, orderBy: { createdAt: 'asc' },
-      })).map((membership: any) => ({ ...membership.space, role: membership.role }));
+      ? (await this.prisma.space.findMany({ where: { deletedAt: null }, orderBy: { createdAt: 'asc' } }))
+        .map((space) => ({ ...space, role: memberships.find((member) => member.spaceId === space.id)?.role ?? 'viewer' }))
+      : memberships.map((membership) => ({ ...membership.space, role: membership.role }));
     return {
       protocolVersion: '2',
       spaces: await Promise.all(accessible.map(async (space: any) => {
         const head = await this.revisions.head(space.id);
-        const role = request.user.platformRole === 'super_admin' ? 'owner' : space.role;
+        const role = space.role;
         return {
           spaceId: space.id, displayName: space.name, role, canRead: true,
           canPublish: ['editor', 'owner'].includes(role),

@@ -125,7 +125,7 @@ describe('AgentDetail', () => {
       .toEqual(['我管理的空间', '我协管的空间']);
   });
 
-  it('offers every returned Space to a platform super administrator', async () => {
+  it('requires real management membership for platform super administrator Space choices', async () => {
     localStorage.setItem('user', JSON.stringify({
       id: 'admin-1', email: 'admin@example.test', platformRole: 'super_admin',
     }));
@@ -145,8 +145,8 @@ describe('AgentDetail', () => {
     fireEvent.click(await screen.findByRole('button', { name: '访问权限' }));
 
     const spaceSelect = screen.getByRole('combobox', { name: '空间' });
-    expect(within(spaceSelect).getAllByRole('option').map((option) => option.textContent))
-      .toEqual(['超管未加入的空间', '超管只读成员空间']);
+    expect(spaceSelect).toBeDisabled();
+    expect(within(spaceSelect).queryAllByRole('option')).toHaveLength(0);
   });
 
   it('loads every Space page before building the authorization choices', async () => {

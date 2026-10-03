@@ -29,6 +29,28 @@ const run = (id: string, spaceId: string): CollaborationRun => ({
 describe('useCollaborationRun', () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it('returns only the snapshot accepted into the current request epoch', async () => {
+    vi.mocked(collaborationApi.getRun).mockResolvedValueOnce(run('run-1', 'space-1'));
+    const { result } = renderHook(() => useCollaborationRun('space-1', 'run-1'));
+    await waitFor(() => expect(result.current.state).toMatchObject({ kind: 'ready' }));
+    const accepted = { ...run('run-1', 'space-1'), version: 2 };
+    vi.mocked(collaborationApi.getRun).mockResolvedValueOnce(accepted);
+    let value: unknown;
+    await act(async () => { value = await result.current.refresh(); });
+    expect(value).toEqual(accepted);
+  });
+
+  it('invalidates an accepted snapshot as soon as a newer refresh begins', async () => {
+    const initial = run('run-1', 'space-1');
+    vi.mocked(collaborationApi.getRun).mockResolvedValueOnce(initial);
+    const { result } = renderHook(() => useCollaborationRun('space-1', 'run-1'));
+    await waitFor(() => expect(result.current.state).toMatchObject({ kind: 'ready' }));
+    expect(result.current.isCurrentSnapshot(initial)).toBe(true);
+    vi.mocked(collaborationApi.getRun).mockReturnValueOnce(new Promise(() => {}));
+    act(() => { void result.current.refresh(); });
+    expect(result.current.isCurrentSnapshot(initial)).toBe(false);
+  });
+
   it('defers an explicit Socket connection so StrictMode cleanup cannot abort a handshake', async () => {
     vi.mocked(collaborationApi.getRun).mockResolvedValue(run('run-1', 'space-1'));
     const probeSocket = makeSocket();
@@ -78,8 +100,8 @@ describe('useCollaborationRun', () => {
       .mockReturnValueOnce(new Promise((resolve) => { resolveOlder = resolve; }))
       .mockReturnValueOnce(new Promise((resolve) => { resolveNewer = resolve; }));
 
-    let older!: Promise<void>;
-    let newer!: Promise<void>;
+    let older!: Promise<CollaborationRun | undefined>;
+    let newer!: Promise<CollaborationRun | undefined>;
     act(() => {
       older = result.current.refresh();
       newer = result.current.refresh();

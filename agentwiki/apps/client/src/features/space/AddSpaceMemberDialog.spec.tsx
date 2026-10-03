@@ -35,6 +35,23 @@ describe('AddSpaceMemberDialog', () => {
 
   afterEach(cleanup);
 
+  it.each([[true, '读者', '编辑者', '发布者'], [false, 'Reader', 'Editor', 'Publisher']])('localizes all Agent role options while preserving Agent names (zh=%s)', async (zh, reader, editor, publisher) => {
+    vi.mocked(api.get).mockResolvedValue({ data: [{ id: 'a', name: 'Reader / 自定义 Agent', status: 'active' }] } as never);
+    renderDialog({ zh });
+    fireEvent.click(screen.getByRole('button', { name: zh ? '智能体' : 'Agent' }));
+    expect(await screen.findByRole('option', { name: zh ? 'Reader / 自定义 Agent · 已启用' : 'Reader / 自定义 Agent · Active' })).toBeVisible();
+    const role = screen.getByLabelText(zh ? '智能体角色' : 'Agent role');
+    expect(Array.from(role.querySelectorAll('option')).map((option) => option.textContent)).toEqual([reader, editor, publisher]);
+  });
+  it.each([[true, '你没有权限执行此操作。请联系空间所有者或管理员确认成员角色后重试。'], [false, 'You do not have permission to perform this action. Ask the Space owner or administrator to check your member role, then retry.']])('localizes denied member creation (zh=%s)', async (zh, explanation) => {
+    vi.mocked(api.post).mockRejectedValue({ response: { status: 403, data: { message: 'Forbidden raw detail' } } });
+    renderDialog({ zh });
+    fireEvent.change(screen.getByLabelText(zh ? '用户邮箱 *' : 'User email *'), { target: { value: 'member@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: zh ? '添加' : 'Add' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(explanation);
+    expect(document.body).not.toHaveTextContent('Forbidden raw detail');
+  });
+
   it('keeps the existing human email flow', async () => {
     renderDialog();
 
@@ -142,7 +159,7 @@ describe('AddSpaceMemberDialog', () => {
     await screen.findByRole('option', { name: 'New agent · 已启用' });
     fireEvent.click(screen.getByRole('button', { name: '添加智能体' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('智能体添加失败');
+    expect(await screen.findByRole('alert')).toHaveTextContent('网络连接失败，请稍后重试');
     await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '用户' }));

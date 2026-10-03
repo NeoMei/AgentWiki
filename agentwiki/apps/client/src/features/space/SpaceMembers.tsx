@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { AGENT_ACCESS_ROLES, type AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import api from '../../api/client';
+import { apiErrorMessage } from '../../api/error-message';
 import { Users, Plus, Trash2, Shield, Loader2, Bot } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -70,8 +71,8 @@ export const SpaceMembers: React.FC = () => {
       if (activeSpaceIdRef.current !== requestedSpaceId) return;
       setMembers(response.data);
       setLoadedSpaceId(requestedSpaceId);
-    } catch {
-      if (activeSpaceIdRef.current === requestedSpaceId) setError(zh ? '成员加载失败' : 'Failed to load members');
+    } catch (requestError: unknown) {
+      if (activeSpaceIdRef.current === requestedSpaceId) setError(apiErrorMessage(requestError, t, 'members.loadFailed'));
     } finally {
       if (activeSpaceIdRef.current === requestedSpaceId) setLoading(false);
     }
@@ -95,7 +96,7 @@ export const SpaceMembers: React.FC = () => {
       await api.patch(`/spaces/${id}/members/${userId}`, { role });
       await fetchMembers();
     } catch (requestError: any) {
-      setError(requestError.response?.data?.message || (zh ? '角色更新失败' : 'Failed to update role'));
+      setError(apiErrorMessage(requestError, t, 'members.roleFailed'));
     } finally {
       setUpdatingId(null);
     }
@@ -109,7 +110,7 @@ export const SpaceMembers: React.FC = () => {
       await api.put(`/agents/${agentId}/grants/${id}`, { role });
       await fetchMembers();
     } catch (requestError: any) {
-      setError(requestError.response?.data?.message || (zh ? 'Agent 角色更新失败' : 'Failed to update Agent role'));
+      setError(apiErrorMessage(requestError, t, 'members.agentRoleFailed'));
     } finally {
       setUpdatingId(null);
     }
@@ -124,7 +125,7 @@ export const SpaceMembers: React.FC = () => {
       await api.delete(`/spaces/${id}/members/${userId}`);
       await fetchMembers();
     } catch (requestError: any) {
-      setError(requestError.response?.data?.message || (zh ? '成员移除失败' : 'Failed to remove member'));
+      setError(apiErrorMessage(requestError, t, 'members.removeFailed'));
     } finally {
       setUpdatingId(null);
     }
@@ -139,7 +140,7 @@ export const SpaceMembers: React.FC = () => {
       await api.delete(`/agents/${agentId}/grants/${id}`);
       await fetchMembers();
     } catch (requestError: any) {
-      setError(requestError.response?.data?.message || (zh ? '移除智能体授权失败' : 'Failed to remove agent grant'));
+      setError(apiErrorMessage(requestError, t, 'members.removeAgentFailed'));
     } finally {
       setUpdatingId(null);
     }
@@ -296,7 +297,7 @@ export const SpaceMembers: React.FC = () => {
             </div>
             <div>
               <p className="font-medium text-gray-700">{zh ? 'Agent 访问角色' : 'Agent access roles'}</p>
-              <p className="mt-1 text-xs">Reader · Editor · Publisher — {zh ? 'Publisher 自动发布仍受 Space 发布策略限制，且 Agent 不能人工审批或管理成员。' : 'Publisher auto-publishing remains subject to Space policy, and Agents cannot approve reviews or manage members.'}</p>
+              <p className="mt-1 text-xs">{t('members.agentRolesHelp')}</p>
             </div>
           </div>
         </div>

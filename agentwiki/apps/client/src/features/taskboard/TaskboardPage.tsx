@@ -6,6 +6,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { apiErrorMessage } from '../../api/error-message';
 import { taskboardApi } from './api';
 import type { TaskboardBoard, TaskboardTask } from './types';
+import { COLUMN_WIDTH, COLUMN_GAP, GRAPH_PADDING, ROOT_COLUMN_WIDTH, layoutTaskboardColumns, type TaskboardLayout } from './layout';
 import {
   TB_LABELS,
   tbCleanTitle,
@@ -34,11 +35,6 @@ const TB_STATUS_ORDER = ['todo', 'in_progress', 'blocked', 'in_review', 'done', 
 function statusZh(s: string): string {
   return TB_LABELS[s] ?? '待核实';
 }
-
-const ROOT_COLUMN_WIDTH = 280;
-const COLUMN_WIDTH = 245;
-const COLUMN_GAP = 32;
-const GRAPH_PADDING = 24;
 
 function tbIcon(size: number): React.ReactNode {
   return (
@@ -77,7 +73,7 @@ export const TaskboardPage: React.FC = () => {
   const graphRef = useRef<HTMLDivElement | null>(null);
   const railRef = useRef<HTMLDivElement | null>(null);
   const nodeRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
-  const [layout, setLayout] = useState<{ h: number; width: number; tops: Record<string, number>; wires: string[] }>({ h: 580, width: 960, tops: {}, wires: [] });
+  const [layout, setLayout] = useState<TaskboardLayout>({ h: 580, width: 960, tops: {}, wires: [] });
   const [sessionDraft, setSessionDraft] = useState('');
   const [railCanScroll, setRailCanScroll] = useState(false);
   const [railAtStart, setRailAtStart] = useState(true);
@@ -212,49 +208,30 @@ export const TaskboardPage: React.FC = () => {
     if (el) el.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
   }, [activeRoot?.id, roots.length]);
 
-  // Canvas layout (upstream ba771da): one column per expanded path hop, px-based.
+  // Measure real nodes after rendering and whenever their content/font/width changes.
   useLayoutEffect(() => {
     const graph = graphRef.current;
     if (!graph || columns.length === 0) return;
-    const gap = 16; const pad = 24;
-    const columnWidth = columns.length === 1 ? ROOT_COLUMN_WIDTH : COLUMN_WIDTH;
-    const graphWidth = Math.max(960, GRAPH_PADDING * 2 + columns.length * columnWidth + (columns.length - 1) * COLUMN_GAP);
-    const columnEls = columns.map((items, ci) =>
-      items.map((item) => nodeRefs.current.get(ci + ':' + item.id)).filter(Boolean) as HTMLButtonElement[],
-    );
-    if (columnEls.every((els) => els.length === 0)) return;
-    const columnHeight = (els: HTMLElement[]) => els.reduce((sum, el) => sum + el.getBoundingClientRect().height, 0) + Math.max(0, els.length - 1) * gap;
-    const columnHeights = columnEls.map(columnHeight);
-    const h = Math.max(580, ...columnHeights.map((v) => v + pad * 2));
-    const tops: Record<string, number> = {};
-    const heights: Record<string, number> = {};
-    const wires: string[] = [];
-    columnEls.forEach((els, ci) => {
-      let y = Math.max(pad, (h - columnHeights[ci]) / 2);
-      els.forEach((el, i) => {
-        const key = ci + ':' + columns[ci][i].id;
-        tops[key] = Math.round(y);
-        heights[key] = el.getBoundingClientRect().height;
-        y += el.getBoundingClientRect().height + gap;
+    const measure = () => {
+      const measured = columns.map((items, ci) => {
+        const nodes = items.map(item => ({ id: item.id, el: nodeRefs.current.get(`${ci}:${item.id}`) }));
+        // Wait for every ref so a partial commit cannot associate a height with the wrong ID.
+        if (nodes.some(node => !node.el)) return null;
+        return { ids: nodes.map(node => node.id), heights: nodes.map(node => node.el!.getBoundingClientRect().height) };
       });
-    });
-    for (let ci = 1; ci < columns.length; ci += 1) {
-      const fromId = path[ci - 1];
-      const fromKey = ci - 1 + ':' + fromId;
-      if (tops[fromKey] === undefined) continue;
-      const fromX = GRAPH_PADDING + (ci - 1) * (columnWidth + COLUMN_GAP) + columnWidth;
-      const fromY = tops[fromKey] + heights[fromKey] / 2;
-      columns[ci].forEach((task) => {
-        const toKey = ci + ':' + task.id;
-        const toX = GRAPH_PADDING + ci * (columnWidth + COLUMN_GAP);
-        const toY = tops[toKey] + heights[toKey] / 2;
-        const mid = (fromX + toX) / 2;
-        wires.push('M' + fromX + ' ' + fromY + 'H' + mid + 'V' + toY + 'H' + toX);
-      });
+      if (measured.some(column => column === null)) return;
+      const next = layoutTaskboardColumns(measured as NonNullable<typeof measured[number]>[], path);
+      setLayout(prev => JSON.stringify(prev) === JSON.stringify(next) ? prev : next);
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    // Observe nodes only: applying graph height/tops cannot trigger a measurement loop.
+    for (const [key, node] of nodeRefs.current) {
+      if (columns.some((items, ci) => items.some(item => key === `${ci}:${item.id}`))) observer.observe(node);
     }
-    const next = JSON.stringify({ h: Math.round(h), width: graphWidth, tops, wires });
-    setLayout((prev) => (JSON.stringify(prev) === next ? prev : JSON.parse(next)));
-  }, [tasks, columns, path, selectedId]);
+    return () => observer.disconnect();
+  }, [columns, path, selectedId]);
 
   const applyStatus = async () => {
     if (!spaceId || !selected) return;
@@ -369,7 +346,7 @@ export const TaskboardPage: React.FC = () => {
     setViewPath(ids.length > 0 ? ids : [t.id]);
     setSelectedId(t.id);
     window.setTimeout(() => {
-      const el = nodeRefs.current.get('0:' + t.id) ?? nodeRefs.current.get('1:' + t.id) ?? nodeRefs.current.get('2:' + t.id);
+      const el = nodeRefs.current.get((ids.length - 1) + ':' + t.id);
       if (el) el.scrollIntoView({ block: 'center', inline: 'nearest' });
       else graphRef.current?.scrollIntoView({ block: 'center' });
     }, 60);
@@ -612,7 +589,7 @@ export const TaskboardPage: React.FC = () => {
                         {tbStages(tasks, inspectTask).map((v, i) => (
                           <div key={STAGE_KEYS[i]} className="statusrow">
                             <strong>{STAGE_NAMES[i]}</strong>
-                            <span className={'pill ' + v} style={{ ['--state' as string]: 'var(--state)' }}>{statusZh(v)}</span>
+                            <span className={'pill ' + v}>{statusZh(v)}</span>
                           </div>
                         ))}
                       </div>
@@ -713,6 +690,7 @@ export const TaskboardPage: React.FC = () => {
               <span><i className="dot done" />已完成</span>
               <span><i className="dot in_progress" />进行中</span>
               <span><i className="dot blocked" />已阻塞</span>
+              <span><i className="dot in_review" />{zh ? '待验收' : 'In review'}</span>
               <span><i className="dot todo" />未开始</span>
               <span><i className="dot unknown" />待核实</span>
               <i className="legend-divider" />

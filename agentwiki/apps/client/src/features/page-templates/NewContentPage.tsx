@@ -33,7 +33,7 @@ function NewContentPageSession({ spaceId, folderId, fromCollaboration }: {
       try {
         const { data: space } = await api.get(`/spaces/${encodeURIComponent(spaceId)}`, { signal: controller.signal });
         const role = space.members?.find((member: { userId: string }) => member.userId === user?.id)?.role;
-        if (user?.platformRole !== 'super_admin' && !['owner', 'admin', 'editor'].includes(role)) {
+        if (!['owner', 'admin', 'editor'].includes(role)) {
           if (!controller.signal.aborted) setDestination({ identity, label: '', error: 'creation.denied' });
           return;
         }

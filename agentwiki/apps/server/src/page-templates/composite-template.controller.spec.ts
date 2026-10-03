@@ -182,9 +182,6 @@ describe('CompositeTemplateController', () => {
       () => controller.restoreTemplate(request, 'space-1', 'template-1', {} as any),
       () => controller.saveFolderTemplate(request, 'space-1', {} as any),
       () => controller.upgrade(request, 'space-1', 'legacy-1', {} as any),
-      () => controller.setPageBinding(request, 'space-1', 'page-1', {} as any),
-      () => controller.deletePageBinding(request, 'space-1', 'page-1', {} as any),
-      () => controller.setFolderBindings(request, 'space-1', 'folder-1', {} as any),
       () => controller.startPageRun(request, 'space-1', 'page-1', {} as any),
       () => controller.startFolderRun(request, 'space-1', 'folder-1', {} as any),
     ];
@@ -206,6 +203,15 @@ describe('CompositeTemplateController', () => {
     expect(services.snapshots.preview).toHaveBeenCalledTimes(1);
     expect(services.upgrades.preview).toHaveBeenCalledTimes(1);
     expect(services.orchestration.preview).toHaveBeenCalledTimes(2);
+  });
+
+  it('saves and removes standalone page/folder bindings without composite rollout', async () => {
+    policy.canCreate.mockReturnValue(false);
+    await controller.setPageBinding(request, 'space-1', 'page-1', { expectedTreeRevision: '3', agentId: 'agent-1', roleSlotKey: null, expectedUpdatedAt: null });
+    await controller.deletePageBinding(request, 'space-1', 'page-1', { expectedTreeRevision: '3', expectedUpdatedAt: '2026-09-05T00:00:00.000Z' });
+    await controller.setFolderBindings(request, 'space-1', 'folder-1', { pageIds: ['page-1'], expectedTreeRevision: '3', edits: [{ pageId: 'page-1', agentId: 'agent-1', roleSlotKey: null, expectedUpdatedAt: null }] });
+    expect(services.bindings.setBindingsInScope).toHaveBeenCalledTimes(2);
+    expect(services.orchestration.setFolderBindings).toHaveBeenCalledTimes(1);
   });
 
   it('allows page-group instantiation when the legacy rollout allowlist is closed', async () => {

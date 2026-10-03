@@ -1,7 +1,7 @@
 import { assertPageTitle } from '../core/page/page-title';
 import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { BusinessException } from '../core/filters/business-error';
-import type { Principal } from '../core/authorization/authorization.service';
+import { AuthorizationService, type Principal, type SpaceRole } from '../core/authorization/authorization.service';
 import { Prisma } from '@prisma/client';
 import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../database/prisma.service';
@@ -280,27 +280,37 @@ export class ReviewService {
     };
   }
 
-  async decideItem(changeSetId: string, itemId: string, status: string) {
-    await this.assertOrdinaryReviewEntry(this.prisma, changeSetId);
-    const result = await this.prisma.changeItem.updateMany({
-      where: { id: itemId, changeSetId, status: 'pending', changeSet: { status: 'pending_review' } },
-      data: { status },
-    });
-    if (!result.count) throw new BusinessException('CHANGESET_INVALID_STATE', 'Change item is no longer pending');
-    return { success: true };
+  private async assertHumanMutation(tx: Prisma.TransactionClient, id: string, principal: Principal | undefined, roles: SpaceRole[] = ['owner']): Promise<void> {
+    if (!principal) return; // Trusted worker/internal calls have their own live Agent checks.
+    const changeSet = await tx.changeSet.findUnique({ where: { id }, select: { spaceId: true } });
+    if (!changeSet) throw new BusinessException('RESOURCE_NOT_FOUND', 'Change set not found');
+    await new AuthorizationService(this.prisma).assertLiveHumanSpaceAccess(tx, principal, changeSet.spaceId, roles);
   }
 
-  async submitForReview(id: string) {
-    const changed = await this.prisma.changeSet.updateMany({
-      where: { id, status: 'draft' },
-      data: { status: 'pending_review' },
+  async decideItem(changeSetId: string, itemId: string, status: string, principal?: Principal) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.assertHumanMutation(tx, changeSetId, principal);
+      await this.assertOrdinaryReviewEntry(tx, changeSetId);
+      const result = await tx.changeItem.updateMany({
+        where: { id: itemId, changeSetId, status: 'pending', changeSet: { status: 'pending_review' } }, data: { status },
+      });
+      if (!result.count) throw new BusinessException('CHANGESET_INVALID_STATE', 'Change item is no longer pending');
+      return { success: true };
     });
-    if (!changed.count) throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is not in draft state');
+  }
+
+  async submitForReview(id: string, principal?: Principal) {
+    await this.prisma.$transaction(async (tx) => {
+      await this.assertHumanMutation(tx, id, principal, ['owner', 'editor']);
+      const changed = await tx.changeSet.updateMany({ where: { id, status: 'draft' }, data: { status: 'pending_review' } });
+      if (!changed.count) throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is not in draft state');
+    });
     return this.loadChangeSet(id);
   }
 
-  async approve(id: string, reviewerId: string, comment?: string) {
+  async approve(id: string, reviewerId: string, comment?: string, principal?: Principal) {
     await this.prisma.$transaction(async (tx) => {
+      await this.assertHumanMutation(tx, id, principal);
       await this.assertOrdinaryReviewEntry(tx, id);
       const [pending, accepted] = await Promise.all([
         tx.changeItem.count({ where: { changeSetId: id, status: 'pending' } }),
@@ -318,8 +328,9 @@ export class ReviewService {
     return this.loadChangeSet(id);
   }
 
-  async reject(id: string, reviewerId: string, comment?: string) {
+  async reject(id: string, reviewerId: string, comment?: string, principal?: Principal) {
     await this.prisma.$transaction(async (tx) => {
+      await this.assertHumanMutation(tx, id, principal);
       await this.assertOrdinaryReviewEntry(tx, id);
       const changed = await tx.changeSet.updateMany({
         where: { id, status: 'pending_review' },
@@ -337,18 +348,19 @@ export class ReviewService {
    * the whole set; the per-item accept → approve → publish steps remain for
    * selective review.
    */
-  async reviewPublish(id: string, reviewerId: string, comment?: string) {
-    return this.publishWithReview(id, undefined, { reviewerId, comment });
+  async reviewPublish(id: string, reviewerId: string, comment?: string, principal?: Principal) {
+    return this.publishWithReview(id, undefined, { reviewerId, comment }, principal);
   }
 
-  async publish(id: string, autoPublishContext?: AgentAutoPublishContext | null) {
-    return this.publishWithReview(id, autoPublishContext);
+  async publish(id: string, autoPublishContext?: AgentAutoPublishContext | null, principal?: Principal) {
+    return this.publishWithReview(id, autoPublishContext, undefined, principal);
   }
 
   private async publishWithReview(
     id: string,
     autoPublishContext?: AgentAutoPublishContext | null,
     review?: { reviewerId: string; comment?: string },
+    principal?: Principal,
   ) {
     await this.assertOrdinaryReviewEntry(this.prisma, id);
     const changeSet = await this.loadChangeSet(id);
@@ -423,6 +435,7 @@ export class ReviewService {
     let publication: { pageIds: string[]; authorizationLost: boolean };
     try {
       publication = await this.prisma.$transaction(async (tx) => {
+      if (principal) await new AuthorizationService(this.prisma).lockLiveHumanPrincipal(tx, principal);
       const acquireSpaceMutationLock = () => folderItems.length > 0
         ? this.requireContentTree().lockFolderMutationSpace(
           tx,
@@ -472,6 +485,7 @@ export class ReviewService {
       } else {
         lockedTx = await acquireSpaceMutationLock();
       }
+      await this.assertHumanMutation(lockedTx, id, principal);
       await this.assertOrdinaryReviewEntry(tx, id);
       const claimed = await tx.changeSet.updateMany({
         where: { id, status: review ? 'pending_review' : 'approved' },
@@ -1684,7 +1698,7 @@ export class ReviewService {
     return `pages/${slug}.md`;
   }
 
-  async revert(id: string, expectedTreeRevision: string) {
+  async revert(id: string, expectedTreeRevision: string, principal?: Principal) {
     if (!/^(?:0|[1-9]\d*)$/u.test(expectedTreeRevision)) {
       throw new ContentTreeError(
         'CONTENT_TREE_CONFLICT',
@@ -1826,6 +1840,7 @@ export class ReviewService {
       archiveRestores.set(item.id, restoredState);
     }
     const affectedPageIds = await this.prisma.$transaction(async (tx) => {
+      await this.assertHumanMutation(tx, id, principal);
       const claimed = await tx.changeSet.updateMany({ where: { id, status: 'published' }, data: { status: 'reverting' } });
       if (!claimed.count) throw new BusinessException('CHANGESET_INVALID_STATE', 'Change set is already being reverted or is no longer published');
       const pageItemTypes = new Set(['create_page', 'update_page', 'archive_page']);

@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { ArrowLeft, Plus, X, Link2, Trash2 } from 'lucide-react';
 import { ModalDialog } from '../../components/ModalDialog';
+import { GRAPH_LABEL_FONT, GRAPH_LABEL_LINE_HEIGHT, layoutGraphLabels } from './graphLabelLayout';
 import { useGraphViewport } from './useGraphViewport';
 import { useLanguage } from '../../context/LanguageContext';
 
@@ -62,9 +63,10 @@ const OriginBadge: React.FC<{ origin: string; zh: boolean }> = ({ origin, zh }) 
 export const KnowledgeGraph: React.FC = () => {
   const { spaceId } = useParams<{ spaceId: string }>();
   const navigate = useNavigate();
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const zh = language === 'zh-CN';
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [hiddenLabelCount, setHiddenLabelCount] = useState(0);
   const [nodes, setNodes] = useState<KnowledgeNode[]>([]);
   const [edges, setEdges] = useState<KnowledgeEdge[]>([]);
   const [allPages, setAllPages] = useState<Page[]>([]);
@@ -152,12 +154,18 @@ export const KnowledgeGraph: React.FC = () => {
       ctx.fill();
       ctx.lineWidth = 2;
       ctx.stroke();
-
-      ctx.fillStyle = '#1F2937';
-      ctx.font = '12px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(node.title.length > 20 ? node.title.substring(0, 20) + '...' : node.title, node.x, node.y + node.radius + 15);
     });
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.font = GRAPH_LABEL_FONT;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = '#1F2937';
+    const projected = nodes.map(node => ({ ...node, x: node.x * scale + x, y: node.y * scale + y, radius: node.radius * scale }));
+    const labels = layoutGraphLabels(projected, width, height, text => ctx.measureText(text).width, selectedNode);
+    labels.forEach(label => label.lines.forEach((line, index) => {
+      ctx.fillText(line, label.x, label.y + index * GRAPH_LABEL_LINE_HEIGHT);
+    }));
+    setHiddenLabelCount(nodes.length - labels.length);
   }, [nodes, visibleEdges, selectedNode, linkingFrom, viewport.view]);
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -316,6 +324,7 @@ export const KnowledgeGraph: React.FC = () => {
               onDoubleClick={handleCanvasDoubleClick}
             />
           </div>
+          {hiddenLabelCount > 0 && <p role="status" className="mt-2 text-sm text-gray-500">{t('graph.labels.hidden', { count: hiddenLabelCount })}</p>}
           <div className="mt-3 flex flex-col gap-2 rounded-lg border bg-white p-3 sm:flex-row sm:items-end">
             <label htmlFor="knowledge-node-browser" className="flex-1 text-sm font-medium text-gray-700">
               {zh ? '浏览图谱节点' : 'Browse graph nodes'}
@@ -345,8 +354,8 @@ export const KnowledgeGraph: React.FC = () => {
           </div>
           {selectedNode && (
             <div className="mt-4 p-4 bg-blue-50 rounded-lg flex items-center justify-between flex-wrap gap-3">
-              <div>
-                <h3 className="font-semibold text-blue-900">
+              <div className="min-w-0 flex-1">
+                <h3 className="break-words font-semibold text-blue-900">
                   {nodes.find(n => n.id === selectedNode)?.title}
                 </h3>
                 <p className="text-sm text-blue-700 mt-1">

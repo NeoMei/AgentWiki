@@ -1,0 +1,18 @@
+$ tsc && vite build --config vite.config.ts
+vite v6.4.3 building for production...
+transforming...
+✓ 4778 modules transformed.
+Circular chunk: flowDiagram-HODETNUW -> diagram-chunk-SHT3W25Y -> diagram-chunk-TLUHSLCS -> diagram-chunk-L3NEJ4N5 -> diagram-chunk-GVQU2GXP -> diagram-chunk-4HAMMTFA -> flowDiagram-HODETNUW. Please consider disabling the "output.onlyExplicitManualChunks" option, as enabling it causes modules located between the modules included in the manual chunk "diagram-chunk-4HAMMTFA" to be extracted into the separate chunk "flowDiagram-HODETNUW".
+Circular chunk: flowDiagram-HODETNUW -> diagram-chunk-SHT3W25Y -> diagram-chunk-TLUHSLCS -> diagram-chunk-L3NEJ4N5 -> flowDiagram-HODETNUW. Please consider disabling the "output.onlyExplicitManualChunks" option, as enabling it causes modules located between the modules included in the manual chunk "diagram-chunk-L3NEJ4N5" to be extracted into the separate chunk "flowDiagram-HODETNUW".
+Circular chunk: flowDiagram-HODETNUW -> diagram-chunk-SHT3W25Y -> diagram-chunk-TLUHSLCS -> diagram-chunk-OSK3NFVY -> flowDiagram-HODETNUW. Please consider disabling the "output.onlyExplicitManualChunks" option, as enabling it causes modules located between the modules included in the manual chunk "diagram-chunk-OSK3NFVY" to be extracted into the separate chunk "flowDiagram-HODETNUW".
+rendering chunks...
+✗ Build failed in 5.07s
+error during build:
+[agentwiki-client-bundle-budget] Client initial JavaScript exceeds 550000 bytes: 554817
+    at auditClientBundle (file:///Users/neomei/.codex/worktrees/d35c/AgentWiki%20/agentwiki/apps/client/node_modules/.vite-temp/vite.config.ts.timestamp-1790838436745-3632b2597e6ec8.mjs:44:11)
+    at Object.handler (file:///Users/neomei/.codex/worktrees/d35c/AgentWiki%20/agentwiki/apps/client/node_modules/.vite-temp/vite.config.ts.timestamp-1790838436745-3632b2597e6ec8.mjs:57:24)
+    at Object.handler (file:///Users/neomei/.codex/worktrees/d35c/AgentWiki%20/agentwiki/node_modules/.pnpm/vite@6.4.3_@types+node@26.1.1_jiti@2.7.0_lightningcss@1.32.0_terser@5.48.0/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:46688:15)
+    at file:///Users/neomei/.codex/worktrees/d35c/AgentWiki%20/agentwiki/node_modules/.pnpm/rollup@4.62.2/node_modules/rollup/dist/es/shared/node-entry.js:23026:40
+/Users/neomei/.codex/worktrees/d35c/AgentWiki /agentwiki/apps/client:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @agentwiki/client@0.12.10 build: `tsc && vite build --config vite.config.ts`
+Exit status 1

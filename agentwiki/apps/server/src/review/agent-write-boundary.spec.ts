@@ -24,7 +24,7 @@ describe('Agent write review boundary', () => {
       'change-1', request, { expectedTreeRevision: '17' },
     )).resolves.toMatchObject({ status: 'reverted' });
 
-    expect(review.revert).toHaveBeenCalledWith('change-1', '17');
+    expect(review.revert).toHaveBeenCalledWith('change-1', '17', { userId: 'owner-1' });
   });
 
   it('turns Agent REST page creation into a ChangeSet proposal', async () => {

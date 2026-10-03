@@ -1,0 +1,10 @@
+{"check":"feature-off-http-existing-run-continuation","schemaName":"page_template_test_2bfc758c7b3d4c058f77a26cbbdaf7e6","publicInventoryDigest":"45f49001dea3c488e2c5ceebcc8d6d322e8da46e12dcba5fd4c16d0aa9cfcbe3"}
+✔ default-closed production HTTP blocks new template definitions while allowing standalone binding and existing Run publication (2209.197042ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7407.740167

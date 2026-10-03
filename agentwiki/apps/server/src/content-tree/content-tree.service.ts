@@ -872,7 +872,7 @@ export class ContentTreeService {
   ): Promise<PublishSyncV2BatchResult> {
     const lockedTx = await this.revisionWriter.lockContentTreeSpace(tx, input.spaceId);
     if (!lockedTx) throw new ContentTreeError('SPACE_NOT_FOUND', 'Space not found');
-    if (input.principal.platformRole !== 'super_admin') {
+    {
       const membership = await lockedTx.spaceMember.findUnique({
         where: { userId_spaceId: { userId: input.principal.userId, spaceId: input.spaceId } },
         select: { role: true },

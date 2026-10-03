@@ -46,6 +46,10 @@ export class SyncV1Controller {
 
   @Get('spaces')
   async listSpaces(@Req() request: { user: HumanDevicePrincipal }) {
+    const memberships = await this.prisma.spaceMember.findMany({
+      where: { userId: request.user.userId, space: { deletedAt: null } },
+      include: { space: true }, orderBy: { createdAt: 'asc' },
+    });
     if (request.user.platformRole === 'super_admin') {
       const allSpaces = await this.prisma.space.findMany({
         where: { deletedAt: null },
@@ -54,12 +58,13 @@ export class SyncV1Controller {
       const spaces = await Promise.all(allSpaces.map(async (space) => {
         await this.capabilities.assertV1Compatible(space.id);
         const head = await this.revisions.head(space.id);
+        const role = memberships.find((member) => member.spaceId === space.id)?.role ?? 'viewer';
         return {
           spaceId: space.id,
           displayName: space.name,
-          role: 'owner' as const,
+          role,
           canRead: true,
-          canPublish: true,
+          canPublish: ['editor', 'admin', 'owner'].includes(role),
           currentRevision: head.revision,
           pageCount: head.pageCount.toString(),
           revisionManifestByteLength: head.revisionManifestByteLength.toString(),
@@ -69,11 +74,6 @@ export class SyncV1Controller {
       return { protocolVersion: '1', spaces };
     }
 
-    const memberships = await this.prisma.spaceMember.findMany({
-      where: { userId: request.user.userId, space: { deletedAt: null } },
-      include: { space: true },
-      orderBy: { createdAt: 'asc' },
-    });
     const spaces = await Promise.all(memberships.map(async (membership) => {
       await this.capabilities.assertV1Compatible(membership.spaceId);
       const head = await this.revisions.head(membership.spaceId);

@@ -112,6 +112,171 @@ describe('RunDashboard', () => {
     });
   });
 
+  it.each(['running', 'waiting_review'] as const)('retrieves fresh instructions on reentry to a %s run without a mutation', async (status) => {
+    renderDashboard({ ...runningRun, status }, 'owner', 'owner-1');
+    const get = await screen.findByRole('button', { name: 'Get continuation instructions' });
+    vi.mocked(collaborationApi.getRun).mockResolvedValueOnce({
+      ...runningRun, status, version: 5, eventSequence: 9,
+      roleBindings: [{ roleSlotId: 'writer', roleSlotName: 'Frozen writer', agentId: 'agent-current' }, { roleSlotId: 'reviewer', roleSlotName: 'Frozen reviewer', agentId: 'agent-current' }],
+      joinInstructions: [{ agentId: 'agent-current', roleSlotIds: ['writer', 'reviewer'], taskIds: ['task-current'] }],
+    } as any);
+    fireEvent.click(get);
+    const instruction = await screen.findByText(/Roles: Frozen writer, Frozen reviewer/u);
+    expect(instruction).toHaveTextContent('wiki_collaboration_join_run');
+    expect(instruction).toHaveTextContent('wiki_collaboration_next_action');
+    expect(screen.getAllByRole('button', { name: 'Copy resume instruction' })).toHaveLength(1);
+    expect(collaborationApi.getRun).toHaveBeenCalledTimes(2);
+    expect(collaborationApi.listMembers).toHaveBeenCalledTimes(2);
+    expect(collaborationApi.resumeRun).not.toHaveBeenCalled();
+    expect(instruction.textContent).not.toMatch(/credential|api[-_ ]?key|token=/iu);
+  });
+
+  it('requires real membership even for the original starter or a platform admin', async () => {
+    renderSuperAdminDashboard({ ...runningRun, startedById: 'platform-admin' });
+    await screen.findByLabelText('Running status');
+    expect(screen.queryByRole('button', { name: 'Get continuation instructions' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Pause run' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reassign task' })).not.toBeInTheDocument();
+  });
+
+  it('discards instructions if membership is revoked during retrieval', async () => {
+    renderDashboard(runningRun, 'owner', 'owner-1');
+    const get = await screen.findByRole('button', { name: 'Get continuation instructions' });
+    vi.mocked(collaborationApi.listMembers).mockResolvedValueOnce([]);
+    vi.mocked(collaborationApi.getRun).mockResolvedValueOnce({ ...runningRun, joinInstructions: [{ agentId: 'agent-1', roleSlotIds: ['writer'], taskIds: ['task-1'] }] } as any);
+    fireEvent.click(get);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not retrieve continuation instructions');
+    expect(screen.queryByText(/wiki_collaboration_join_run/u)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Pause run' })).not.toBeInTheDocument();
+  });
+
+  it('discards a retrieval response when the run becomes terminal', async () => {
+    renderDashboard(runningRun, 'owner', 'owner-1');
+    const get = await screen.findByRole('button', { name: 'Get continuation instructions' });
+    vi.mocked(collaborationApi.getRun).mockResolvedValueOnce({ ...runningRun, status: 'completed', joinInstructions: [{ agentId: 'agent-1', roleSlotIds: ['writer'], taskIds: ['task-1'] }] } as any);
+    fireEvent.click(get);
+    expect(await screen.findByText('No continuation instructions are available in the current run state.')).toBeVisible();
+    expect(screen.queryByText(/wiki_collaboration_join_run/u)).not.toBeInTheDocument();
+  });
+
+  it('keeps paused recovery as an actual resume transition', async () => {
+    renderDashboard({ ...runningRun, status: 'paused' }, 'owner', 'owner-1');
+    fireEvent.click(await screen.findByRole('button', { name: 'Resume run' }));
+    expect(screen.queryByRole('button', { name: 'Get continuation instructions' })).not.toBeInTheDocument();
+    const resumed = { ...runningRun, joinInstructions: [{ agentId: 'agent-1', roleSlotIds: ['writer'], taskIds: ['task-1'] }] };
+    vi.mocked(collaborationApi.resumeRun).mockResolvedValueOnce(resumed as any);
+    vi.mocked(collaborationApi.getRun).mockResolvedValueOnce(resumed as any);
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Continue approved work' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm resume run' }));
+    expect(await screen.findByText(/wiki_collaboration_join_run/u)).toBeVisible();
+    expect(collaborationApi.resumeRun).toHaveBeenCalledWith('space-1', 'run-1', expect.objectContaining({ reason: 'Continue approved work' }));
+  });
+
+  it.each(['completed', 'failed', 'cancelled'] as const)('does not offer continuation for a %s run', async (status) => {
+    renderDashboard({ ...runningRun, status }, 'owner', 'owner-1');
+    await screen.findByTestId('dashboard-section-summary');
+    expect(screen.queryByRole('button', { name: 'Get continuation instructions' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/wiki_collaboration_join_run/u)).not.toBeInTheDocument();
+  });
+
+  it('does not emit instructions after retrieval fails authorization', async () => {
+    renderDashboard(runningRun, 'owner', 'owner-1');
+    const get = await screen.findByRole('button', { name: 'Get continuation instructions' });
+    vi.mocked(collaborationApi.getRun).mockRejectedValueOnce(new Error('Access revoked'));
+    fireEvent.click(get);
+    expect(await screen.findByText('Could not retrieve continuation instructions. Refresh your membership and try again.')).toBeVisible();
+    expect(screen.queryByText(/wiki_collaboration_join_run/u)).not.toBeInTheDocument();
+  });
+
+  it('drops old continuation retrieval after navigation to another run', async () => {
+    vi.mocked(useAuth).mockReturnValue({ user: { id: 'owner-1' } } as any);
+    vi.mocked(collaborationApi.listMembers).mockResolvedValue([{ type: 'human', userId: 'owner-1', role: 'owner' }]);
+    vi.mocked(collaborationApi.getRun).mockResolvedValueOnce(runningRun as any);
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1/collaboration/runs/run-1']}><Routes><Route path="/spaces/:id/collaboration/runs/:runId" element={<NavigationDashboard />} /></Routes></MemoryRouter></LanguageProvider>);
+    const get = await screen.findByRole('button', { name: 'Get continuation instructions' });
+    const old = deferred<any>();
+    vi.mocked(collaborationApi.getRun).mockReturnValueOnce(old.promise).mockResolvedValueOnce({ ...runningRun, id: 'run-new', spaceId: 'space-new', name: 'New run' } as any);
+    fireEvent.click(get);
+    fireEvent.click(screen.getByRole('button', { name: 'Open new run' }));
+    await screen.findByText('New run');
+    await act(async () => old.resolve({ ...runningRun, joinInstructions: [{ agentId: 'agent-old', roleSlotIds: ['writer'], taskIds: [] }] }));
+    expect(screen.queryByText(/wiki_collaboration_join_run/u)).not.toBeInTheDocument();
+  });
+
+  it('clears continuation instructions when a refreshed execution scope changes', async () => {
+    const current = { ...runningRun, joinInstructions: [{ agentId: 'agent-1', roleSlotIds: ['writer'], taskIds: ['task-1'] }] };
+    renderDashboard(current, 'owner', 'owner-1');
+    fireEvent.click(await screen.findByRole('button', { name: 'Get continuation instructions' }));
+    await screen.findByText(/wiki_collaboration_join_run/u);
+    vi.mocked(collaborationApi.getRun).mockResolvedValueOnce({ ...current, version: 5, eventSequence: 9, joinInstructions: [] } as any);
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(screen.queryByText(/wiki_collaboration_join_run/u)).not.toBeInTheDocument());
+  });
+
+  it('rejects a read snapshot superseded while the fresh membership request is pending', async () => {
+    const current = { ...runningRun, joinInstructions: [{ agentId: 'agent-1', roleSlotIds: ['writer'], taskIds: ['task-1'] }] };
+    renderDashboard(current, 'owner', 'owner-1');
+    const get = await screen.findByRole('button', { name: 'Get continuation instructions' });
+    const members = deferred<any>();
+    vi.mocked(collaborationApi.listMembers).mockReturnValueOnce(members.promise);
+    fireEvent.click(get);
+    await waitFor(() => expect(collaborationApi.getRun).toHaveBeenCalledTimes(2));
+    vi.mocked(collaborationApi.getRun).mockResolvedValueOnce({ ...current, version: 5, eventSequence: 9, joinInstructions: [] } as any);
+    fireEvent(window, new Event('focus'));
+    await waitFor(() => expect(collaborationApi.getRun).toHaveBeenCalledTimes(3));
+    await act(async () => members.resolve([{ type: 'human', userId: 'owner-1', role: 'owner' }]));
+    expect(screen.queryByText(/wiki_collaboration_join_run/u)).not.toBeInTheDocument();
+  });
+
+  it('hides continuation for a real member who is neither manager nor starter', async () => {
+    renderDashboard(runningRun, 'editor', 'other-member');
+    await screen.findByTestId('dashboard-section-summary');
+    expect(screen.queryByRole('button', { name: 'Get continuation instructions' })).not.toBeInTheDocument();
+  });
+
+  it('clears copied output when membership is later revoked', async () => {
+    const current = { ...runningRun, joinInstructions: [{ agentId: 'agent-1', roleSlotIds: ['writer'], taskIds: ['task-1'] }] };
+    renderDashboard(current, 'owner', 'owner-1');
+    fireEvent.click(await screen.findByRole('button', { name: 'Get continuation instructions' }));
+    await screen.findByText(/wiki_collaboration_join_run/u);
+    vi.mocked(collaborationApi.listMembers).mockResolvedValueOnce([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(screen.queryByText(/wiki_collaboration_join_run/u)).not.toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'Get continuation instructions' })).not.toBeInTheDocument();
+  });
+
+  it.each([['owner', 'editor'], ['owner', 'viewer'], ['owner', 'revoked'], ['admin', 'editor'], ['admin', 'viewer'], ['admin', 'revoked']] as const)('removes existing continuation text and copy controls after %s membership becomes %s', async (initialRole, nextRole) => {
+    const current = { ...runningRun, joinInstructions: [{ agentId: 'agent-1', roleSlotIds: ['writer'], taskIds: ['task-1'] }] };
+    renderDashboard(current, initialRole, 'owner-1');
+    fireEvent.click(await screen.findByRole('button', { name: 'Get continuation instructions' }));
+    await screen.findByText(/wiki_collaboration_join_run/u);
+    expect(screen.getByRole('button', { name: 'Copy resume instruction' })).toBeVisible();
+    vi.mocked(collaborationApi.listMembers).mockResolvedValueOnce(nextRole === 'revoked' ? [] : [{ type: 'human', userId: 'owner-1', role: nextRole }]);
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(collaborationApi.listMembers).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Get continuation instructions' })).not.toBeInTheDocument());
+    expect(screen.queryByText(/wiki_collaboration_join_run/u)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Copy resume instruction' })).not.toBeInTheDocument();
+    // Eligibility returning must not resurrect an instruction erased by revocation.
+    vi.mocked(collaborationApi.listMembers).mockResolvedValueOnce([{ type: 'human', userId: 'owner-1', role: 'owner' }]);
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await screen.findByRole('button', { name: 'Get continuation instructions' });
+    expect(screen.queryByText(/wiki_collaboration_join_run/u)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Copy resume instruction' })).not.toBeInTheDocument();
+  });
+
+  it('bounds desktop cards while retaining mobile flow', async () => {
+    renderDashboard(runningRun, 'owner', 'owner-1');
+    await screen.findByLabelText('Running status');
+    expect(screen.getByTestId('collaboration-dashboard')).toHaveClass('lg:h-[calc(100dvh-13rem)]');
+    expect(screen.getByTestId('dashboard-section-summary')).toHaveClass('lg:self-start');
+    for (const section of ['current-task', 'reviews', 'artifacts', 'activity']) {
+      expect(screen.getByTestId(`dashboard-section-${section}`)).toHaveClass('lg:overflow-y-auto', 'min-h-0');
+      expect(screen.getByTestId(`dashboard-section-${section}`)).not.toHaveClass('overflow-y-auto');
+    }
+  });
+
   it('uses confirmed system template provenance to localize the run task without changing stored content', async () => {
     vi.mocked(collaborationApi.getTemplate).mockResolvedValue({ id: 'template-1', spaceId: null, slug: 'novel-writing', system: true, version: 1, name: 'Novel', description: '', definition: {} } as any);
     const objective = 'Define setting rules, locations, factions, chronology, constraints, and unresolved world questions.';
@@ -402,13 +567,14 @@ describe('RunDashboard', () => {
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
   });
 
-  it('gives a non-member platform super admin Owner controls', async () => {
+  it('hides Owner controls for a non-member platform super admin', async () => {
     renderSuperAdminDashboard({
       ...waitingReviewRun,
       reviews: waitingReviewRun.reviews.map((review) => ({ ...review, reviewerUserIds: [] })),
     });
-    expect(await screen.findByRole('button', { name: 'Approve' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'End as failed' })).toBeVisible();
+    await screen.findByLabelText('Waiting for review status');
+    expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'End as failed' })).not.toBeInTheDocument();
   });
 
   it('lets an Owner recover a Review after every designated reviewer becomes ineligible', async () => {
@@ -494,6 +660,7 @@ describe('RunDashboard', () => {
       joinInstructions: [{ agentId: 'agent-1', roleSlotIds: ['writer'], taskIds: [] }],
     } as any);
     renderDashboard(skippableRun, 'owner', 'owner-1');
+    vi.mocked(collaborationApi.getRun).mockResolvedValue({ ...skippableRun, joinInstructions: [{ agentId: 'agent-1', roleSlotIds: ['writer'], taskIds: [] }] } as any);
     fireEvent.click(await screen.findByRole('button', { name: 'Skip task' }));
     fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Other branch remains active' } });
     fireEvent.click(screen.getByRole('button', { name: 'Confirm skip task' }));

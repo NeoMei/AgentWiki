@@ -1,0 +1,225 @@
+{
+  "release": "0.12.11",
+  "deployedCode": "5638dd8dc2fa961f29e436d095da23ad983846cb",
+  "sourceFiles": 1421,
+  "backup": "/var/backups/agentwiki/q2-v01211-20261001182522",
+  "testFull": {
+    "passed": 5928,
+    "failed": 0,
+    "skipped": 6
+  },
+  "registry": {
+    "version": "0.10.2",
+    "registry": 200,
+    "sha1": "4723623a626c674fa8051c465bf805c95e943393",
+    "verifiedAt": "2026-10-01T10:41:58.802Z",
+    "linuxEmptyInstall": "PUBLIC_LINUX_GATEWAY_IMPORT_PASS"
+  },
+  "business": {
+    "release": "0.12.11",
+    "startedAt": "2026-10-01T10:53:09.852Z",
+    "results": {
+      "Q1": "PASS",
+      "Q2": "PASS",
+      "Q3": "PASS",
+      "Q4": "PASS",
+      "Q5": "PASS",
+      "Q8": "PASS",
+      "Q9": "PASS",
+      "Q10": "PASS",
+      "Q11": "PASS",
+      "Q12": "PASS",
+      "Q13": "PASS",
+      "Q14": "PASS",
+      "Q15": "PASS",
+      "Q16": "PASS",
+      "Q17": "PASS",
+      "Q18": "PASS",
+      "Q19": "PASS",
+      "Q20": "PASS"
+    },
+    "cleaned": true,
+    "q10FeatureOff": false,
+    "pausedSupplement": true,
+    "coverageBoundaries": {
+      "Q10": "Production binding PASS; isolated feature-off HTTP PASS.",
+      "Q17": "Uploaded PNG and external HTTPS real image desktop/390px PASS.",
+      "Q18": "Multiple-child overflow desktop/390px PASS.",
+      "Q6_Q7": "Independent plugin harness owned by controller; not included here.",
+      "onboarding_TLS": "Independent harness/controller evidence; not included here.",
+      "Q12": "Running, paused resume, waiting_review continuation and approval-to-running PASS."
+    },
+    "evidence": {
+      "base": "results-original.json + run-resume.log",
+      "collaboration": "results-supplemental.json + run-supplemental.log",
+      "Q11": "results-review-only.json + run-review-only.log + q11-review-text.json",
+      "Q12_paused": "run-paused-only.log",
+      "deployment": "deployment-confirm.json"
+    }
+  },
+  "plugin": {
+    "version": "0.5.6",
+    "checks": 20,
+    "ok": true,
+    "cleanup": true,
+    "bundleSha256": "5b7b307039dac8dc6613f942f5f5d8387f3164c0456b4940eccbd51030fb3614",
+    "boundary": "Disk shim and native macOS Obsidian GUI Sync v2/v3 verified. v3 Pull/Push/server readback/reload with active credential and clean remote diff covered. Windows native Obsidian GUI not exercised."
+  },
+  "onboarding": {
+    "device": true,
+    "code": true,
+    "rawServerPlan": true,
+    "scopes": 16,
+    "tamperRejection": true,
+    "McpPageRead": true,
+    "cleanup401": true
+  },
+  "githubRelease": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.11",
+  "supplemental20261002": {
+    "date": "2026-10-02",
+    "deployedCode": "5638dd8dc2fa961f29e436d095da23ad983846cb",
+    "sourceFiles": 1421,
+    "services": [
+      "active",
+      "active",
+      "active"
+    ],
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "boundaries": {
+      "release": "0.12.11",
+      "startedAt": "2026-10-02T05:17:48.543Z",
+      "results": {
+        "Q12": "PASS",
+        "Q17": "PASS",
+        "Q18": "PASS"
+      },
+      "cleaned": true
+    },
+    "nativeObsidian": {
+      "date": "2026-10-02",
+      "obsidian": "1.13.7",
+      "plugin": "0.5.6",
+      "protocol": "Sync v2",
+      "vault": "/private/tmp/agentwiki-q2-native-20261002/AgentWiki Native Vault",
+      "checks": {
+        "manualCodeGuiConnected": true,
+        "nestedMappingCreatedAndPersisted": true,
+        "remotePullGuiPreviewAndConfirm": true,
+        "remotePullExactDiskContent": true,
+        "nativeEditorEdit": true,
+        "pushGuiPreviewConfirmed": true,
+        "pushGuiNoticeCompleted": true,
+        "remoteReadback": true,
+        "reloadPersistence": true,
+        "reloadPostSyncPanelClean": true
+      },
+      "remote": {
+        "status": 200,
+        "contentSha256": "5ae15ce60ae6885cd3131dd9c36c379ccaceb516dfe4944d32c0d6c2ca97be31",
+        "bytes": 61
+      },
+      "cleanup": {
+        "installation": 409,
+        "space": 200,
+        "user": 200,
+        "jwtAfterDelete": 401,
+        "note": "installation already exchanged; revocation endpoint returns 409 by contract, user/space deleted and token invalidated"
+      }
+    },
+    "featureOff": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "environment": "isolated HTTP/DB; production toggle unchanged"
+    },
+    "syncV3": {
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "environment": "isolated HTTP/DB"
+    },
+    "windows": {
+      "remoteThread": "01a07cb2-c0da-7070-b548-9c13207e34ca",
+      "exitCode": 0,
+      "gates": 14,
+      "tempHomes": 0,
+      "cleanupFailureFile": false
+    },
+    "evidenceDirectory": "q2-boundary-evidence-20261002",
+    "nativeObsidianV3": {
+      "checkedAt": "2026-10-02T07:50:15.379Z",
+      "client": {
+        "app": "Obsidian",
+        "version": "1.13.7",
+        "plugin": "AgentWiki Sync 0.5.6",
+        "vault": "isolated temporary vault"
+      },
+      "protocol": {
+        "protocolVersion": "3",
+        "syncMode": "native_v3",
+        "serverHeadStatus": 200,
+        "prePullHeadRevision": "cmuqmd77604q388go8k48fqms",
+        "postPushHeadRevision": "cmuqmumpv04r988gobwiam794"
+      },
+      "nativeGui": {
+        "manualConnectionCodeAccepted": true,
+        "nestedMappingCreated": "Native-Q2-v3/Deep",
+        "syncPanelProtocolLabel": "Sync v3",
+        "pullPreviewConfirmed": true,
+        "remotePageAndAttachmentPulled": true,
+        "nativeEditorEditSaved": true,
+        "pushPreviewConfirmed": true,
+        "pushCompleted": true,
+        "serverReadbackExact": true,
+        "serverReadbackSha256": "adc532b3af609d4ed19d1f60a2ea8d92a65b94e11ee9c52a93ab815d3caef394",
+        "localSha256": "adc532b3af609d4ed19d1f60a2ea8d92a65b94e11ee9c52a93ab815d3caef394",
+        "localBytes": 49,
+        "reloadMappingPersisted": true,
+        "cleanupLocalMappingAndDisconnect": true,
+        "attachmentBytes": 68,
+        "attachmentSha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460",
+        "reloadPageContentPersisted": true,
+        "reloadPostSyncPanelClean": true,
+        "reloadPostSyncPanelResult": "本地与服务器已同步，无需操作。"
+      },
+      "cleanup": {
+        "spaceDeleteStatus": 200,
+        "userDeleteStatus": 200,
+        "jwtAfterDeleteStatus": 401,
+        "exchangedInstallationDeleteStatus": 409,
+        "installationNote": "exchange-completed installations are retained by server contract; user deletion revoked access",
+        "secondTemporaryAccount": {
+          "spaceDeleteStatus": 200,
+          "userDeleteStatus": 200,
+          "jwtAfterDeleteStatus": 401
+        },
+        "localMappingsRemaining": 0,
+        "persistenceFixture": {
+          "installation": 409,
+          "space": 200,
+          "user": 200,
+          "jwtAfterDelete": 401
+        }
+      },
+      "boundary": "This is a macOS Obsidian native GUI v3 acceptance in an isolated disposable account/vault. Windows native Obsidian GUI was not exercised in this run; Windows remote Session validation remains a separate Local Sync/MCP boundary.",
+      "reloadBoundary": "Primary fixture verified Push and server readback. A separate active native_v3 fixture verified confirmed Pull, exact page/attachment disk content, reload, persisted mapping and credential, then a clean remote diff in the native GUI. Both completed fixtures and the extra setup fixture were removed.",
+      "persistenceFixture": {
+        "checkedAt": "2026-10-02",
+        "pullContentExact": true,
+        "attachmentBytes": 68,
+        "attachmentSha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460",
+        "mappingCount": 1,
+        "reloadPostSyncPanelProtocol": "Sync v3",
+        "reloadPostSyncPanelResult": "本地与服务器已同步，无需操作。",
+        "localChanges": 0,
+        "serverChanges": 0
+      }
+    }
+  }
+}

@@ -6,8 +6,10 @@ import { getContentTreeRevision } from '../../api/content-tree';
 import { apiErrorMessage } from '../../api/error-message';
 import { Toast } from '../../components/Toast';
 import { ChangeSetStatusBadge } from './ChangeSetStatusBadge';
+import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { announceReviewChanged } from './review-events';
+import { announceReviewChanged, REVIEW_CHANGED_EVENT } from './review-events';
+import { useBoundedPolling } from '../source/useBoundedPolling';
 
 const CandidateDiff: React.FC<{ item: any }> = ({ item }) => {
   const { language } = useLanguage();
@@ -70,7 +72,16 @@ const EvidencePanel: React.FC<{ changeSet: any; item: any }> = ({ changeSet, ite
 export const ReviewPage: React.FC = () => {
   const { language, t } = useLanguage();
   const zh = language === 'zh-CN';
+  const { user } = useAuth();
+  const [permissions, setPermissions] = useState<Record<string, { userId: string; canDecide: boolean }>>({});
+  const canDecide = (id: string) => permissions[id]?.userId === user?.id && permissions[id]?.canDecide === true;
   const [items, setItems] = useState<any[]>([]);
+  const [listLoading, setListLoading] = useState(true);
+  const [listRefreshing, setListRefreshing] = useState(false);
+  const [refreshSession, setRefreshSession] = useState(0);
+  const listPendingRef = useRef(false);
+  const expandedRef = useRef<string | null>(null);
+  const scopeRef = useRef('');
   const [expanded, setExpanded] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -86,6 +97,9 @@ export const ReviewPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const spaceId = searchParams.get('spaceId');
   const changeSetId = searchParams.get('changeSet');
+  const scope = `${user?.id || ''}:${spaceId || ''}:${changeSetId || ''}`;
+  scopeRef.current = scope;
+  expandedRef.current = expanded;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -96,57 +110,96 @@ export const ReviewPage: React.FC = () => {
     };
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (options?: { background?: boolean }) => {
+    const requestedScope = scopeRef.current;
     const sequence = ++listSequenceRef.current;
+    listPendingRef.current = true;
     const controller = new AbortController();
     requestControllersRef.current.add(controller);
+    if (options?.background) setListRefreshing(true); else setListLoading(true);
     try {
       setError(null);
-      setSuccess(null);
+      if (!options?.background) setSuccess(null);
       const summaries = (await api.get('/review', {
         params: spaceId ? { spaceId } : undefined,
-        signal: controller.signal,
+        signal: controller.signal, timeout: 15000,
       })).data;
-      if (!mountedRef.current || controller.signal.aborted || sequence !== listSequenceRef.current) return;
+      if (!mountedRef.current || controller.signal.aborted || sequence !== listSequenceRef.current || requestedScope !== scopeRef.current) return;
       setItems((current) => summaries.map((summary: any) => {
-        const detail = detailedIdsRef.current.has(summary.id)
-          ? current.find((item) => item.id === summary.id)
-          : null;
-        return detail || summary;
+        const detail = detailedIdsRef.current.has(summary.id) ? current.find((item) => item.id === summary.id) : null;
+        return detail ? (options?.background ? { ...detail, status: summary.status, items: summary.items } : detail) : summary;
       }));
     } catch (requestError: any) {
-      if (!controller.signal.aborted && mountedRef.current && sequence === listSequenceRef.current) {
+      if (!controller.signal.aborted && mountedRef.current && sequence === listSequenceRef.current && requestedScope === scopeRef.current) {
         setError(apiErrorMessage(requestError, t, 'review.loadFailed'));
       }
     } finally {
       requestControllersRef.current.delete(controller);
+      if (mountedRef.current && sequence === listSequenceRef.current && requestedScope === scopeRef.current) {
+        listPendingRef.current = false;
+        setListRefreshing(false); setListLoading(false);
+      }
     }
   }, [spaceId, t]);
-  const expandChangeSet = useCallback(async (id: string) => {
+  const expandChangeSet = useCallback(async (id: string, background = false) => {
+    const requestedScope = scopeRef.current;
     const sequence = (detailSequenceRef.current.get(id) || 0) + 1;
     detailSequenceRef.current.set(id, sequence);
     const controller = new AbortController();
     requestControllersRef.current.add(controller);
     try {
       setError(null);
-      setSuccess(null);
-      const detail = (await api.get(`/change-sets/${id}`, { signal: controller.signal })).data;
-      if (!mountedRef.current || controller.signal.aborted || detailSequenceRef.current.get(id) !== sequence) return false;
+      if (!background) setSuccess(null);
+      const detail = (await api.get(`/change-sets/${id}`, { signal: controller.signal, timeout: 15000 })).data;
+      const targetSpaceId = detail.spaceId || detail.space?.id;
+      const space = targetSpaceId ? (await api.get(`/spaces/${targetSpaceId}`, { signal: controller.signal })).data : null;
+      const role = space?.members?.find((member: any) => member.userId === user?.id)?.role;
+      if (!mountedRef.current || controller.signal.aborted || detailSequenceRef.current.get(id) !== sequence || requestedScope !== scopeRef.current) return false;
+      setPermissions((current) => ({ ...current, [id]: { userId: user?.id, canDecide: role === 'owner' } }));
       detailedIdsRef.current.add(id);
       setItems((current) => current.some((item) => item.id === id)
         ? current.map((item) => item.id === id ? detail : item)
         : [detail, ...current]);
       return true;
     } catch (requestError: any) {
-      if (!controller.signal.aborted && mountedRef.current && detailSequenceRef.current.get(id) === sequence) {
+      if (!controller.signal.aborted && mountedRef.current && detailSequenceRef.current.get(id) === sequence && requestedScope === scopeRef.current) {
         setError(apiErrorMessage(requestError, t, 'review.detailFailed'));
       }
       return false;
     } finally {
       requestControllersRef.current.delete(controller);
     }
-  }, [t]);
-  useEffect(() => { void load(); }, [load]);
+  }, [t, user?.id]);
+  useEffect(() => {
+    requestControllersRef.current.forEach((controller) => controller.abort());
+    detailSequenceRef.current.clear(); detailedIdsRef.current.clear();
+    setItems([]); setPermissions({}); setExpanded(null);
+    void load();
+  }, [load, user?.id, changeSetId]);
+  const refreshInFlightRef = useRef(false);
+  const refresh = useCallback(async () => {
+    if (refreshInFlightRef.current || listPendingRef.current || mutatingIdsRef.current.size) return;
+    refreshInFlightRef.current = true;
+    const requestedScope = scopeRef.current;
+    try {
+      await load({ background: true });
+      if (requestedScope === scopeRef.current && expandedRef.current) {
+        setListRefreshing(true);
+        await expandChangeSet(expandedRef.current, true);
+      }
+    } finally {
+      refreshInFlightRef.current = false;
+      if (mountedRef.current && requestedScope === scopeRef.current) setListRefreshing(false);
+    }
+  }, [load, expandChangeSet]);
+  useBoundedPolling(scope + ':' + refreshSession, true, refresh, 15000, 20);
+  useEffect(() => {
+    const changed = () => { void refresh(); };
+    const focused = () => { setRefreshSession((value) => value + 1); void refresh(); };
+    window.addEventListener(REVIEW_CHANGED_EVENT, changed);
+    window.addEventListener('focus', focused);
+    return () => { window.removeEventListener(REVIEW_CHANGED_EVENT, changed); window.removeEventListener('focus', focused); };
+  }, [refresh]);
   useEffect(() => {
     if (changeSetId) {
       setExpanded(changeSetId);
@@ -171,7 +224,7 @@ export const ReviewPage: React.FC = () => {
   };
 
   const action = async (id: string, name: string) => {
-    if (!beginMutation(id)) return;
+    if (!canDecide(id) || !beginMutation(id)) return;
     const controller = new AbortController();
     requestControllersRef.current.add(controller);
     try {
@@ -212,7 +265,7 @@ export const ReviewPage: React.FC = () => {
     }
   };
   const decide = async (setId: string, itemId: string, status: 'accepted' | 'rejected') => {
-    if (!beginMutation(setId)) return;
+    if (!canDecide(setId) || !beginMutation(setId)) return;
     const controller = new AbortController();
     requestControllersRef.current.add(controller);
     try {
@@ -268,6 +321,7 @@ export const ReviewPage: React.FC = () => {
           </button>
         ))}
       </div>
+      {listLoading || listRefreshing ? <p role="status" className="mb-3 text-sm text-gray-500">{listLoading ? t('common.loading') : t('common.refetching')}</p> : null}
       <div className="border rounded-[14px] bg-white divide-y">
         {visibleItems.map((changeSet) => (
           <div key={changeSet.id}>
@@ -299,26 +353,26 @@ export const ReviewPage: React.FC = () => {
                       <CandidateDiff item={item} />
                       <ExistingContentWarning pages={changeSet.duplicateContentWarnings?.find((warning: { itemId: string }) => warning.itemId === item.id)?.pages} />
                       <EvidencePanel changeSet={changeSet} item={item} />
-                      {!changeSet.collaborationArtifactLink && item.status === 'pending' && changeSet.status === 'pending_review' ? <div className="flex gap-3 mt-3"><button disabled={mutatingIds.has(changeSet.id)} onClick={() => void decide(changeSet.id, item.id, 'accepted')} className="text-xs font-medium text-green-700 disabled:opacity-50">{zh ? '接受候选项' : 'Accept candidate'}</button><button disabled={mutatingIds.has(changeSet.id)} onClick={() => void decide(changeSet.id, item.id, 'rejected')} className="text-xs font-medium text-red-700 disabled:opacity-50">{zh ? '拒绝候选项' : 'Reject candidate'}</button></div> : null}
+                      {canDecide(changeSet.id) && !changeSet.collaborationArtifactLink && item.status === 'pending' && changeSet.status === 'pending_review' ? <div className="flex gap-3 mt-3"><button disabled={mutatingIds.has(changeSet.id)} onClick={() => void decide(changeSet.id, item.id, 'accepted')} className="text-xs font-medium text-green-700 disabled:opacity-50">{zh ? '接受候选项' : 'Accept candidate'}</button><button disabled={mutatingIds.has(changeSet.id)} onClick={() => void decide(changeSet.id, item.id, 'rejected')} className="text-xs font-medium text-red-700 disabled:opacity-50">{zh ? '拒绝候选项' : 'Reject candidate'}</button></div> : null}
                     </div>
                   ))}
                 </div>
-                {!changeSet.collaborationArtifactLink && changeSet.status === 'pending_review' ? <textarea value={comments[changeSet.id] || ''} onChange={(event) => setComments((current) => ({ ...current, [changeSet.id]: event.target.value }))} placeholder={zh ? '审核意见（可选）' : 'Review comment (optional)'} className="w-full border rounded-lg p-2 text-sm mb-3" rows={2} /> : null}
-                {!changeSet.collaborationArtifactLink && changeSet.status === 'pending_review' && changeSet.items.some((item: any) => item.status === 'pending') ? <p className="mb-2 text-right text-xs text-amber-700">{t('review.decideBeforeApprove')}</p> : null}
+                {canDecide(changeSet.id) && !changeSet.collaborationArtifactLink && changeSet.status === 'pending_review' ? <textarea value={comments[changeSet.id] || ''} onChange={(event) => setComments((current) => ({ ...current, [changeSet.id]: event.target.value }))} placeholder={zh ? '审核意见（可选）' : 'Review comment (optional)'} className="w-full border rounded-lg p-2 text-sm mb-3" rows={2} /> : null}
+                {canDecide(changeSet.id) && !changeSet.collaborationArtifactLink && changeSet.status === 'pending_review' && changeSet.items.some((item: any) => item.status === 'pending') ? <p className="mb-2 text-right text-xs text-amber-700">{t('review.decideBeforeApprove')}</p> : null}
                 <div className="flex gap-2 justify-end">
-                  {!changeSet.collaborationArtifactLink && changeSet.status === 'pending_review' ? <>
+                  {canDecide(changeSet.id) && !changeSet.collaborationArtifactLink && changeSet.status === 'pending_review' ? <>
                     <button disabled={mutatingIds.has(changeSet.id)} onClick={() => void action(changeSet.id, 'reject')} className="h-8 px-3 border border-red-200 text-red-700 rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"><X size={14} /> {zh ? '拒绝' : 'Reject'}</button>
                     <button disabled={mutatingIds.has(changeSet.id) || changeSet.items.some((item: any) => item.status === 'pending')} onClick={() => void action(changeSet.id, 'approve')} className="h-8 px-3 border rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"><Check size={14} /> {zh ? '仅批准' : 'Approve only'}</button>
                     <button disabled={mutatingIds.has(changeSet.id)} onClick={() => void action(changeSet.id, 'review-publish')} className="h-8 px-3 bg-blue-600 text-white rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"><Send size={14} /> {zh ? '通过并发布' : 'Approve & publish'}</button>
                   </> : null}
-                  {!changeSet.collaborationArtifactLink && changeSet.status === 'approved' ? <button disabled={mutatingIds.has(changeSet.id)} onClick={() => void action(changeSet.id, 'publish')} className="h-8 px-3 bg-blue-600 text-white rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"><Send size={14} /> {zh ? '发布' : 'Publish'}</button> : null}
-                  {changeSet.status === 'published' && changeSet.revertible !== false ? <button disabled={mutatingIds.has(changeSet.id)} onClick={() => void action(changeSet.id, 'revert')} className="h-8 px-3 border rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"><RotateCcw size={14} /> {zh ? '回滚' : 'Revert'}</button> : null}
+                  {canDecide(changeSet.id) && !changeSet.collaborationArtifactLink && changeSet.status === 'approved' ? <button disabled={mutatingIds.has(changeSet.id)} onClick={() => void action(changeSet.id, 'publish')} className="h-8 px-3 bg-blue-600 text-white rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"><Send size={14} /> {zh ? '发布' : 'Publish'}</button> : null}
+                  {canDecide(changeSet.id) && changeSet.status === 'published' && changeSet.revertible !== false ? <button disabled={mutatingIds.has(changeSet.id)} onClick={() => void action(changeSet.id, 'revert')} className="h-8 px-3 border rounded-lg text-sm flex items-center gap-1 disabled:opacity-50"><RotateCcw size={14} /> {zh ? '回滚' : 'Revert'}</button> : null}
                 </div>
               </div>
             ) : null}
           </div>
         ))}
-        {!visibleItems.length ? <div className="py-16 text-center text-sm text-gray-500">{changeSetId ? (zh ? '此变更集不在你的审核范围内。' : 'This change set is not available in your review scope.') : statusFilter !== 'all' ? (zh ? '该状态下没有变更集。' : 'No change sets with this status.') : (zh ? '目前没有待审核事项。' : 'Nothing needs review.')}</div> : null}
+        {!listLoading && !listRefreshing && !visibleItems.length ? <div className="py-16 text-center text-sm text-gray-500">{changeSetId ? (zh ? '此变更集不在你的审核范围内。' : 'This change set is not available in your review scope.') : statusFilter !== 'all' ? (zh ? '该状态下没有变更集。' : 'No change sets with this status.') : (zh ? '目前没有待审核事项。' : 'Nothing needs review.')}</div> : null}
       </div>
     </div>
   );

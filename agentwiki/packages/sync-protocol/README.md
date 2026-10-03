@@ -48,3 +48,12 @@ The fixed client/server safety ceiling is exported as `TREE_SYNC_V3_HARD_LIMITS`
 Sync v3 errors use `SyncV3ErrorEnvelopeSchema`, whose only payload fields are `protocolVersion`, `error.code`, and `error.retryable`. `SYNC_V3_ERROR_CODES` remains the shared, closed set of eight v3-specific action and recovery codes. `SyncV3WireErrorCodeSchema` accepts the de-duplicated union of that set and the existing generic `SyncErrorCodeSchema`, so v3 read/auth/cursor responses can preserve common sync errors. The strict envelope intentionally has no free-form message or data field that could carry paths, credentials, Markdown, Blob bytes, or storage keys.
 
 Shared cross-runtime fixtures are published at `@neomei/agentwiki-sync-protocol/test-vectors/sync-v3.json`. They pin revision, delta, confirmation, batch, and raw Blob digests for ESM/CJS consumers.
+
+## 0.6.1 publisher contract correction
+
+The immutable registry 0.6.0 publisher defaults included unsupported `memory:read`
+and `memory:write` scopes. 0.6.1 publishes the server-supported 16-scope publisher
+contract; reader and editor contracts are unchanged. Agent memory synchronization
+is disabled by the server. No memory authorization is implied by persisted legacy
+scope strings. Local Sync 0.10.1 must be published after protocol 0.6.1; do not
+republish 0.6.0 or weaken plan hashing/exchange integrity checks.
