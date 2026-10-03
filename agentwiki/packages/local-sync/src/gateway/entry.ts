@@ -9,7 +9,7 @@ import { SpaceMcpBridge } from './space-mcp-bridge.js';
 import { RemoteMcpBridge } from './remote-mcp-bridge.js';
 import type { RemoteSync } from './knowledge-workflows.js';
 import { createKnowledgeWorkflowRuntime } from './workflow-runtime.js';
-import { loadCredentials, connectionForSpace } from '../config.js';
+import { loadCredentials, connectionForSpace, type LocalSyncConnection } from '../config.js';
 import { loadSpaceConnections } from '../space-connections.js';
 import { AgentWikiClient } from '../agentwiki-client.js';
 import { SyncEngine } from '../sync/sync-engine.js';
@@ -33,7 +33,7 @@ export interface GatewayEntry {
 
 /** Builds the real handler closures once so scan and preparation share one pipeline. */
 export async function createGatewayEntry(deps: GatewayEntryDeps): Promise<GatewayEntry> {
-  const { connection, group, targets, unresolved } = await loadSpaceConnections(deps.home, deps.connectionId);
+  const { group, targets, unresolved } = await loadSpaceConnections(deps.home, deps.connectionId);
   const client = new AgentWikiClient();
   const keyForSpace = async (spaceId: string) => {
     const credentials = await loadCredentials(deps.home);
@@ -117,7 +117,7 @@ export async function createGatewayEntry(deps: GatewayEntryDeps): Promise<Gatewa
     pull: async (input) => workflows.pull(input),
   };
 
-  const bridgeOptions = (target: typeof connection) => ({
+  const bridgeOptions = (target: LocalSyncConnection) => ({
     serverUrl: `${target.serverUrl}/mcp`,
     readCredential: async () => {
       const current = await loadCredentials(deps.home);
@@ -139,6 +139,6 @@ export async function createGatewayEntry(deps: GatewayEntryDeps): Promise<Gatewa
 
 export async function runGateway(deps: GatewayEntryDeps): Promise<void> {
   const { handlers, bridge } = await createGatewayEntry({ ...deps, reportRemoteDiagnostic: deps.reportRemoteDiagnostic ?? ((message) => { process.stderr.write(`${message}\n`); }) });
-  const { server } = await createGatewayServer({ handlers, bridge, version: '0.10.2' });
+  const { server } = await createGatewayServer({ handlers, bridge, version: '0.11.0' });
   await server.connect(new StdioServerTransport());
 }

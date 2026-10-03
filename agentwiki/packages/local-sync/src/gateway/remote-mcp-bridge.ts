@@ -132,7 +132,7 @@ export class RemoteMcpBridge {
   }
 
   private async withClient<T>(operation: (client: Client, signal: AbortSignal) => Promise<T>, boundOperation = true): Promise<T> {
-    const client = new Client({ name: 'agentwiki-gateway', version: '0.10.2' }, { capabilities: {} });
+    const client = new Client({ name: 'agentwiki-gateway', version: '0.11.0' }, { capabilities: {} });
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     const deadline = new Promise<never>((_resolve, reject) => {
