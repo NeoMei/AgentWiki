@@ -1,35 +1,36 @@
 # 当前目标
 
-- 修复 AgentwikiQ 2 全部20项及附加两条接入协议问题，完成正式发布、服务器部署和逐项验收。
+- 同一个 Agent 的单个 Local Sync 网关支持多个 Space，并完成正式发布、生产部署和公网验收。
 
 # 范围 / 不做
 
-- 本线程修复、审查、包发布、TLS及生产部署均获用户授权。
-- 保留生产已有Assist修复，保留日常Vault与主仓脏文件；不弱化TLS/完整性/CAS/Agent权限。
+- 实施、独立审查、包发布、GitHub 合并和生产部署已获用户授权。
+- 保持 Space 独立 Credential/Grant、显式 spaceId 路由；未知或冲突选择器拒绝回落。
 
 # 当前状态
 
-- 基线1335765cd；20项及2条附加接入问题修复候选5638dd8d已部署生产0.12.11，服务正常。
-- 按9组修复计划顺序实施。Task1接入契约与Task2权限/绑定已独立审查通过；Task3中文与协作入口已独立复审通过；Task4来源/审核刷新已独立复审通过；Task5继续指令与协作布局421d29c2+8169bbac独立复审通过；Task6图谱/图片5ad37040独立审查通过；Task3全仓文案断言/初始JS预算修正4cbe5bb6独立审查通过；完整客户端1618项/类型/lint/build通过，初始JS546154/550000B。
-- npm protocol0.6.1/LocalSync0.10.2正式公开，0.10.2 SHA1 4723623a626c674fa8051c465bf805c95e943393与候选一致；Linux公网干净安装、CLI/gateway运行通过。旧0.10.1存在Linux文件名大小写缺陷，已用新patch修复。
-- 插件0.5.6正式资产新服务公网v2/PullPush/恢复/目录20项通过且清理成功；Obsidian 1.13.7原生GUI隔离Vault连接/嵌套映射/Pull/Push/服务端回读/重载持久性通过；原生 v2 验收保留，现另有原生 GUI v3：protocolVersion=3/native_v3、页面/图片Pull、编辑Push、服务端逐字回读、重载后页面/映射保留通过。另用有效账号补验重载后远端diff无变更通过，凭据/映射持久性通过；Windows原生GUI仍未覆盖。双publisher device/code正式公网接入、16scopes/rawplan/tamper/MCP读页及凭据/JWT401清理通过。
-- 最终候选5638dd8dc2fa961f29e436d095da23ad983846cb完整回归exit0：runtime263/DB216/server2754/client1630/protocol140/local-sync925，共5928通过、0失败、6既有或平台skip；类型/lint/build通过，lint有3条既有warning。Task7和整分支及Linux/测试夹具增量审查通过。
-- 已推送GitHub分支codex/q2-defect-closure-v01211，远端HEAD核对一致。已fast-forward推送master，v0.12.11正式release已发布，标签5638dd8d与生产执行代码一致。生产1421文件哈希与候选5638dd8d一致，三服务active/publicTLS健康五项ok；Assist保留，迁移无需执行。
+- AgentWiki 0.12.12 与 Local Sync 0.11.0 已正式发布；协议继续为 0.6.1。GitHub 标签提交 e2f68985d730647bd8c1444a1b1f3517715ba401 与部署来源 6163655047956868426ab946803bd06e43e0a200 的应用树一致。
+- 完整回归 5952 通过 / 0 失败 / 6 既有或平台 skip；类型检查、lint（0 error / 3 既有 warning）、构建通过；独立复审没有未关闭问题。
+- 生产 1436 源文件哈希一致，Assist 保留；迁移字节不变、未执行迁移；api/worker/frontend 用户级 systemd active，公网默认 TLS 健康五项 ok；接入文档固定 0.11.0。
+- 公开 npm 空目录安装后，实际单 stdio gateway 公网验证同 Agent 双 Space、并发读取、每个 Space 提案/审批/发布/MCP 回读、错误 selector 拒绝、撤销 A 后 B 可读；全部测试 fixture、凭据/JWT、网关和临时安装目录已清理。
+- 旧 0.10.2 配置和 0.9.1 安装协议与多 Space 共存验收通过。
 
 # 稳定约束
 
-- 路径末尾空格；所有git显式--work-tree，勿改core.worktree。
-- 不以完整tag覆盖生产未收录的Assist修复。
-- 平台管理员无真实空间成员关系只能读；验证/验收不能由任务状态造假完成。
+- 路径末尾空格；Git 使用显式 work-tree，勿改 core.worktree。
+- 不以完整 tag 覆盖生产未收录的 Assist 修复；Space 授权不合并为跨空间密钥。
+- 本地测试、正式发布、部署和公网验收分别记录，计划不作为完成证据。
 
 # 关键索引
 
-- agentwiki/docs/superpowers/plans/2026-10-01-q2-defect-closure.md
-- .superpowers/sdd/2026-10-01-q2-defect-closure/progress.md
-- 测试报告AgentwikiQ 2/复核结果-2026-10-01.md（原主工作区）
+- agentwiki/docs/releases-v0.12.12.md
+- agentwiki/docs/verification/multi-space-v01212/release-receipt.json
+- agentwiki/docs/verification/multi-space-v01212/public-multispace-evidence.json
+- https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.12
+- 上一轮 Q2 0.12.11 / 原生 GUI v2/v3 历史证据：agentwiki/docs/verification/q2-boundary-evidence-20261002；任务 brief 保留在 .codex-memory/tasks/active/q2-defect-closure-20261001/brief.md。
 
 # 风险 / 下一步
 
-- 公网TLS终止点47.108.85.222证书链已补齐；Node默认信任健康200。npm已验证发布；DB迁移审查哈希已更新并通过runtime门禁。
-- 配对备份/var/backups/agentwiki/q2-v01211-20261001182522已核验，旧应用保留；npm硬件认证已成功不再阻塞。
-- Chrome Q1..5/Q8..10/Q12..20实际检查通过，Q11真实审核提交/通过/中文状态独立补验通过；Q12paused真实恢复运行也通过；所有fixture清理且JWT/Agent401。feature-off隔离HTTP/DB、waiting_review、外部HTTPS图、多子overflow已补验通过；Windows远程Session为Local Sync/MCP范围，macOS原生GUI v2/v3通过上述已测流程，Windows原生Obsidian GUI仍未覆盖。证据见agentwiki/docs/verification/q2-boundary-evidence-20261002。
+- 本次没有新增原生 GUI onboarding 验收，Windows 原生 Obsidian GUI 仍未覆盖。
+- 生产配对备份 /var/backups/agentwiki/q2-v01212-20261003225326 已核验，旧应用 /root/agentwiki-previous-q2-20261003225326 保留。
+- 公网多 Space 发布验收已完成，没有本次发布的未关闭门槛。

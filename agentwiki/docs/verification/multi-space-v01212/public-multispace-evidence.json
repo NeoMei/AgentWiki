@@ -1,0 +1,95 @@
+{
+  "status": "PASS",
+  "startedAt": "2026-10-03T15:02:29.443Z",
+  "api": "https://agentwiki.quukk.com/api",
+  "packageVersion": "0.11.0",
+  "packageSource": "public npm registry empty install",
+  "gates": [
+    {
+      "name": "new fixture owner registered",
+      "status": "PASS",
+      "userId": "cmusitnu80059u0aypvmxy8j9"
+    },
+    {
+      "name": "same Agent independent Space credentials",
+      "status": "PASS",
+      "agentId": "cmusito9q005iu0ayxr62z5l5",
+      "spaceIds": [
+        "cmusito3e005au0ayymlwsudx",
+        "cmusito6m005du0ay378268nm"
+      ],
+      "credentialIds": [
+        "cmusitofs005pu0ay93xpbfm6",
+        "cmusitolr005wu0aycwiv2jh5"
+      ]
+    },
+    {
+      "name": "one actual stdio gateway lists both Spaces",
+      "status": "PASS",
+      "ids": [
+        "cmusito3e005au0ayymlwsudx",
+        "cmusito6m005du0ay378268nm"
+      ]
+    },
+    {
+      "name": "concurrent real page reads preserve credential routing",
+      "status": "PASS",
+      "pageIds": [
+        "f295204c-d36b-407f-8496-6e962e12e9ea",
+        "9e2d511d-43ff-474a-a44b-167eea285885"
+      ]
+    },
+    {
+      "name": "wrong unknown and missing selectors denied",
+      "status": "PASS",
+      "wrongIsError": true,
+      "unknownCode": "SPACE_CONNECTION_REQUIRED",
+      "missingCode": "SPACE_CONNECTION_REQUIRED"
+    },
+    {
+      "name": "Space proposal remains pending then owner approves publishes",
+      "status": "PASS",
+      "spaceId": "cmusito3e005au0ayymlwsudx",
+      "changeSetId": "cmusitrg90087u0ay6x40dtna",
+      "pendingBeforeReview": true,
+      "approved": true,
+      "published": true,
+      "mcpReadback": true
+    },
+    {
+      "name": "Space proposal remains pending then owner approves publishes",
+      "status": "PASS",
+      "spaceId": "cmusito6m005du0ay378268nm",
+      "changeSetId": "cmusitskh0093u0ayvhwhrixc",
+      "pendingBeforeReview": true,
+      "approved": true,
+      "published": true,
+      "mcpReadback": true
+    },
+    {
+      "name": "revoke A isolates A and B remains readable",
+      "status": "PASS",
+      "aCode": "REMOTE_AUTH_REQUIRED",
+      "bSuccess": true
+    }
+  ],
+  "cleanup": {
+    "gatewayClosed": true,
+    "credentialKeys401": true,
+    "agentRevoked": true,
+    "spacesDeleted": true,
+    "userDeletedJwt401": true,
+    "tempHomeRemoved": true,
+    "errors": [],
+    "gatewayPidAbsent": true,
+    "emptyInstallRemoved": true
+  },
+  "registry": {
+    "resolved": "https://registry.npmjs.org/@neomei/agentwiki-local-sync/-/agentwiki-local-sync-0.11.0.tgz",
+    "integrity": "sha512-pWlIsvDtpp2/z+CNW66OeytdQgI/dDBDs39oqTrjiiaCQMV/UXM8pL2VZo1t5BitjVnbqaLEjs5EHocMEpFMgA==",
+    "tarballSha1": "b13159e8aea9ed10a6dc032fbf6ffac0d6959988",
+    "matchesPublishedSha1": true
+  },
+  "gatewayPid": 28954,
+  "completedAt": "2026-10-03T15:02:39.190Z"
+}

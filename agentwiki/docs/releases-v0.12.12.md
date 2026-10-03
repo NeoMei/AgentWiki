@@ -1,12 +1,12 @@
-# AgentWiki v0.12.12 / Local Sync v0.11.0 发布候选
+# AgentWiki v0.12.12 / Local Sync v0.11.0 发布与部署记录
 
 ## 范围
 
-本候选让同一个 Agent 的一个 `agentwiki` Local Sync 网关保存多个 Space 连接。每个连接继续绑定自己的 `spaceId`、Credential 和 Grant；调用按显式 `spaceId` 选取凭据，未知或冲突的 Space 选择会失败并拒绝回落到其他 Space。旧的单连接配置可以迁移读取，新增 Space 采用合并写入并保留其他连接。
+本版本让同一个 Agent 的一个 `agentwiki` Local Sync 网关保存多个 Space 连接。每个连接继续绑定自己的 `spaceId`、Credential 和 Grant；调用按显式 `spaceId` 选取凭据，未知或冲突的 Space 选择会失败并拒绝回落到其他 Space。旧的单连接配置可以迁移读取，新增 Space 采用合并写入并保留其他连接。版本已发布到 GitHub、npm 并部署到生产环境。
 
 应用版本为 `0.12.12`，`@neomei/agentwiki-local-sync` 为 `0.11.0`，`@neomei/agentwiki-sync-protocol` 继续使用已发布的 `0.6.1`。服务端继续接受 `0.9.0`、`0.9.1`、`0.10.0`、`0.10.1`、`0.10.2` 和 `0.11.0`。本次没有 Prisma schema、迁移或同步协议改动。
 
-## 当前验证收据
+## 验证收据
 
 - Local Sync：67 个测试文件，942 通过，1 个既有 skip；类型检查和 ESM/CJS 构建通过。
 - Client：117 个测试文件，1630 通过；构建通过。
@@ -20,17 +20,13 @@
 
 完整回归汇总为 **5952 通过 / 0 失败 / 6 既有或平台 skip**。证据来自本地隔离 PostgreSQL 和启用 AOF 的隔离 Redis；生产数据未作为测试数据。
 
-## 发布前剩余门槛
+## 已完成的外部发布与线上验收
 
-`@neomei/agentwiki-local-sync@0.11.0` 当前在公开 npm Registry 中不存在（查询返回 404），所以生成的接入指令在实际发布前不能交付给真实 Agent。协议 `0.6.1` 已公开且 parity 已核对。npm 会话现已恢复为 `neomei`，可以执行包发布。
+- GitHub Release：[`v0.12.12`](https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.12)，生产代码对应合并提交 `e2f68985d730647bd8c1444a1b1f3517715ba401`。
+- npm：[`@neomei/agentwiki-local-sync@0.11.0`](https://www.npmjs.com/package/@neomei/agentwiki-local-sync/v/0.11.0)，公开 tarball SHA-1 为 `b13159e8aea9ed10a6dc032fbf6ffac0d6959988`，空目录安装、CLI 帮助和版本检查通过。
+- 生产服务器：应用 `0.12.12`、Local Sync `0.11.0`，三项用户级 systemd 服务 active；默认 TLS `/api/health` 的数据库、Redis、审计持久化和附件存储均为 `ok`，onboarding 指令返回 `0.11.0`。
+- 公网多 Space 验收：一个公开 npm 安装出的 stdio gateway 同时访问同一 Agent 的两个 Space；并发读页、两个 Space 各自提案/审批/发布/MCP 回读、错误 selector 拒绝和撤销 A 后 B 仍可读全部通过。清理收据显示 gateway、临时安装目录、临时 HOME、Agent、Space、凭据和 JWT 均已清理，详见 [`public-multispace-evidence.json`](verification/multi-space-v01212/public-multispace-evidence.json)。
 
-生产部署也尚未执行：SSH 已恢复并确认线上 0.12.11 与三项 systemd 服务正常，但还没有停止服务、迁移数据库或修改生产文件。生产真实多 Space Agent/MCP 接入验收需在 npm 发布后执行。
+## 覆盖边界
 
-完成候选审查后，最后的外部动作顺序应为：
-
-1. 使用已认证的 npm 会话发布 Local Sync `0.11.0`，并以公开 Registry 空目录安装复核。
-2. 推送 GitHub 分支并创建/合并发布 PR，打 `v0.12.12` 标签及 GitHub Release。
-3. 按现有备份、迁移完整性和 systemd 流程部署应用与网页指令，将生产 `LOCAL_SYNC_PACKAGE_VERSION` 更新为 `0.11.0`。
-4. 用两个真实 Space 验收同一个 Agent 的 `list_spaces`、显式 `spaceId` 路由、撤销隔离和本地工具，再记录清理收据。
-
-用户已要求推进到发布状态；以上动作在验证门禁通过且认证可用后执行，不能把候选测试结果作为外部发布或线上验收收据。
+本次线上验收覆盖真实公网 API、MCP 和 stdio gateway 路径；没有把未运行的 Windows 原生 Obsidian GUI 或其他未覆盖客户端声明为通过。服务端没有新增 Prisma schema、迁移或同步协议变更，生产部署时迁移字节保持不变且未执行迁移。

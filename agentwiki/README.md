@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.12.12 candidate** — Adds multi-Space routing to one Local Sync gateway while preserving per-Space credentials and permissions. Local Sync 0.11.0 uses published sync protocol 0.6.1. Release, deployment and final live acceptance remain pending; see [release preparation](docs/releases-v0.12.12.md).
+> **v0.12.12 released** — One Local Sync gateway can route the same Agent across multiple Spaces while preserving per-Space credentials and permissions. Local Sync 0.11.0 uses published sync protocol 0.6.1. GitHub, npm, production deployment and public multi-Space acceptance are complete; see [release record](docs/releases-v0.12.12.md).
 
 
 ## Hosted Service
@@ -164,7 +164,7 @@ into reviewable AgentWiki knowledge. It installs the shared Agent Skill and the 
 The generated installation code is single-use and expires after 10 minutes. It is not
 a reusable API key. The public package page is
 [`@neomei/agentwiki-local-sync`](https://www.npmjs.com/package/@neomei/agentwiki-local-sync).
-The Local Sync candidate and newly generated instructions target 0.11.0; the server continues to accept 0.9.0, 0.9.1, 0.10.0, 0.10.1, 0.10.2, and 0.11.0 during this upgrade. The unified `onboard` command is the only recommended Agent connection path. Exchanging its one-time code atomically creates or updates the Space Grant, then creates an identity-only Credential bound to that Grant. There is no second Credential authorization or custom-scope path.
+The published Local Sync package and newly generated instructions target 0.11.0; the server continues to accept 0.9.0, 0.9.1, 0.10.0, 0.10.1, 0.10.2, and 0.11.0 during this upgrade. The unified `onboard` command is the only recommended Agent connection path. Exchanging its one-time code atomically creates or updates the Space Grant, then creates an identity-only Credential bound to that Grant. There is no second Credential authorization or custom-scope path.
 
 The older published protocol 0.6.0 incorrectly includes `memory:read` and `memory:write` in
 publisher defaults. Current Agent memory synchronization is explicitly unsupported;

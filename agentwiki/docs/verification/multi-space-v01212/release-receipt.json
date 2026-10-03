@@ -1,0 +1,66 @@
+{
+  "applicationVersion": "0.12.12",
+  "localSyncVersion": "0.11.0",
+  "syncProtocolVersion": "0.6.1",
+  "sourceCommit": "6163655047956868426ab946803bd06e43e0a200",
+  "gitHubTagCommit": "e2f68985d730647bd8c1444a1b1f3517715ba401",
+  "sourceTreeMatchesTag": true,
+  "fullTest": {
+    "passed": 5952,
+    "failed": 0,
+    "skipped": 6,
+    "runtime": 263,
+    "database": 216,
+    "server": 2761,
+    "client": 1630,
+    "protocol": 140,
+    "localSync": 942
+  },
+  "typecheck": true,
+  "lint": {
+    "errors": 0,
+    "existingWarnings": 3
+  },
+  "build": true,
+  "npm": {
+    "published": true,
+    "registry": "https://registry.npmjs.org/",
+    "shasum": "b13159e8aea9ed10a6dc032fbf6ffac0d6959988",
+    "emptyDirectoryInstall": true,
+    "cliHelp": true,
+    "protocolParity": true
+  },
+  "deployment": {
+    "sourceFileCount": 1436,
+    "manifestVerified": true,
+    "assistPreserved": true,
+    "migrationBytesUnchanged": true,
+    "migrationsExecuted": false,
+    "backup": "/var/backups/agentwiki/q2-v01212-20261003225326",
+    "previousApplication": "/root/agentwiki-previous-q2-20261003225326",
+    "services": [
+      "active",
+      "active",
+      "active"
+    ],
+    "publicDefaultTlsHealth": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "publicOnboardVersion": "0.11.0"
+  },
+  "publicMultiSpaceAcceptance": {
+    "status": "PASS",
+    "evidence": "public-multispace-evidence.json",
+    "completedAt": "2026-10-03T15:02:39.190Z",
+    "cleanupVerified": true
+  },
+  "githubRelease": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.12",
+  "coverageBoundary": [
+    "No new native GUI onboarding acceptance",
+    "Windows native Obsidian GUI not covered"
+  ]
+}
