@@ -5,10 +5,12 @@
  */
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createGatewayServer, type GatewayHandlers } from './server.js';
+import { SpaceMcpBridge } from './space-mcp-bridge.js';
 import { RemoteMcpBridge } from './remote-mcp-bridge.js';
 import type { RemoteSync } from './knowledge-workflows.js';
 import { createKnowledgeWorkflowRuntime } from './workflow-runtime.js';
-import { loadConfig, loadCredentials } from '../config.js';
+import { loadCredentials, connectionForSpace } from '../config.js';
+import { loadSpaceConnections } from '../space-connections.js';
 import { AgentWikiClient } from '../agentwiki-client.js';
 import { SyncEngine } from '../sync/sync-engine.js';
 import { AdapterManager } from '../adapter/manager.js';
@@ -31,35 +33,38 @@ export interface GatewayEntry {
 
 /** Builds the real handler closures once so scan and preparation share one pipeline. */
 export async function createGatewayEntry(deps: GatewayEntryDeps): Promise<GatewayEntry> {
-  const config = await loadConfig(deps.home);
-  const connection = config.connections[deps.connectionId];
-  if (!connection) throw new Error(`connection ${deps.connectionId} not found`);
-
-  const credentials = await loadCredentials(deps.home);
-  const credential = credentials.credentials[connection.credentialId];
-  if (!credential) throw new Error(`credential ${connection.credentialId} not found`);
-
+  const { connection, group, targets, unresolved } = await loadSpaceConnections(deps.home, deps.connectionId);
   const client = new AgentWikiClient();
-  const syncEngine = (spaceId: string): SyncEngine => new SyncEngine({
-    connection,
-    apiKey: credential.apiKey,
-    syncDeviceCredential: credential.syncDeviceCredential,
-    client,
-    home: deps.home,
-    spaceId,
-  });
+  const keyForSpace = async (spaceId: string) => {
+    const credentials = await loadCredentials(deps.home);
+    const target = connectionForSpace(group, spaceId);
+    const key = credentials.credentials[target.credentialId];
+    if (!key) throw new Error(`credential for spaceId ${spaceId} not found`);
+    return { target, key };
+  };
+  const syncEngine = async (spaceId: string) => {
+    const { target, key } = await keyForSpace(spaceId);
+    return { engine: new SyncEngine({
+      connection: target,
+      apiKey: key.apiKey,
+      syncDeviceCredential: key.syncDeviceCredential,
+      client,
+      home: deps.home,
+      spaceId,
+    }), treeSync: Boolean(key.syncDeviceCredential) };
+  };
   const remoteSync: RemoteSync = {
     pull: async (spaceId) => {
-      const engine = syncEngine(spaceId);
-      const result = credential.syncDeviceCredential
+      const { engine, treeSync } = await syncEngine(spaceId);
+      const result = treeSync
         ? await engine.pullTreeV2()
         : await engine.pull();
       return { revisionId: result.revisionId };
     },
     push: async (spaceId, bundle) => {
       try {
-        const engine = syncEngine(spaceId);
-        if (credential.syncDeviceCredential) {
+        const { engine, treeSync } = await syncEngine(spaceId);
+        if (treeSync) {
           const result = await engine.pushTreeV2(bundle);
           return {
             conflict: false,
@@ -107,18 +112,27 @@ export async function createGatewayEntry(deps: GatewayEntryDeps): Promise<Gatewa
       };
     },
     readArtifacts: async (input) => readPreviewArtifactSummaries(deps.home, input.jobId),
-    prepare: async (input) => workflows.prepare(input),
+    prepare: async (input) => { await keyForSpace(input.spaceId); return workflows.prepare(input); },
     confirmAndSync: async (input) => workflows.confirmAndSync(input),
     pull: async (input) => workflows.pull(input),
   };
 
-  const bridge = new RemoteMcpBridge({
-    serverUrl: `${connection.serverUrl}/mcp`,
-    readCredential: async () => credential.apiKey,
-    onDiagnostic: (diagnostic) => {
+  const bridgeOptions = (target: typeof connection) => ({
+    serverUrl: `${target.serverUrl}/mcp`,
+    readCredential: async () => {
+      const current = await loadCredentials(deps.home);
+      const key = current.credentials[target.credentialId]?.apiKey;
+      if (!key) throw new Error('Space credential is missing');
+      return key;
+    },
+    onDiagnostic: (diagnostic: import('./remote-mcp-bridge.js').RemoteDiagnostic) => {
       if (diagnostic.status !== 'connected') deps.reportRemoteDiagnostic?.(`[agentwiki] ${diagnostic.code}: ${diagnostic.recovery}`);
     },
   });
+  const bridge = new SpaceMcpBridge(
+    targets.map((target) => ({ spaceId: target.spaceId!, options: bridgeOptions(target) })),
+    unresolved.map((target) => ({ connectionId: target.id, options: bridgeOptions(target) })),
+  );
 
   return { handlers, bridge };
 }

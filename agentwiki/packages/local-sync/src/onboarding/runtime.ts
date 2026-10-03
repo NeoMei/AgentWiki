@@ -4,7 +4,8 @@ import { createInterface as createPromisesInterface } from 'node:readline/promis
 import { join } from 'node:path';
 
 import type { OnboardCliInput } from '../cli.js';
-import { loadConfig, loadCredentials } from '../config.js';
+import { loadConfig, loadCredentials, connectionForSpace } from '../config.js';
+import { loadSpaceConnections } from '../space-connections.js';
 import { AgentWikiClient } from '../agentwiki-client.js';
 import { AdapterManager } from '../adapter/manager.js';
 import { SyncEngine } from '../sync/sync-engine.js';
@@ -89,21 +90,20 @@ function installedKnowledge(home: string): KnowledgeWorkflowFn {
     const config = await loadConfig(home);
     const connectionId = config.defaultConnectionId;
     if (!connectionId) throw new Error('onboarding gateway connection is missing');
-    const connection = config.connections[connectionId];
-    if (!connection) throw new Error(`onboarding connection ${connectionId} is missing`);
-    const credentials = await loadCredentials(home);
-    const privateCredential = credentials.credentials[connection.credentialId];
-    const apiKey = privateCredential?.apiKey;
-    if (!apiKey) throw new Error('onboarding gateway credential is missing');
+    const { group } = await loadSpaceConnections(home, connectionId);
     const client = new AgentWikiClient();
-    const engine = (spaceId: string) => new SyncEngine({
-      connection, apiKey, syncDeviceCredential: privateCredential?.syncDeviceCredential, client, home, spaceId,
-    });
+    const engine = async (spaceId: string) => {
+      const connection = connectionForSpace(group, spaceId);
+      const credentials = await loadCredentials(home);
+      const privateCredential = credentials.credentials[connection.credentialId];
+      if (!privateCredential?.apiKey) throw new Error('onboarding gateway credential is missing');
+      return new SyncEngine({ connection, apiKey: privateCredential.apiKey, syncDeviceCredential: privateCredential.syncDeviceCredential, client, home, spaceId });
+    };
     const sync: RemoteSync = {
-      pull: async (spaceId) => ({ revisionId: (await engine(spaceId).pull()).revisionId }),
+      pull: async (spaceId) => ({ revisionId: (await (await engine(spaceId)).pull()).revisionId }),
       push: async (spaceId, bundle) => {
         try {
-          const result = await engine(spaceId).push(bundle);
+          const result = await (await engine(spaceId)).push(bundle);
           return {
             conflict: false,
             revisionId: result.currentRevision,

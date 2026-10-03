@@ -34,6 +34,14 @@ The installer creates or updates exactly one MCP entry named `agentwiki`. The ga
 
 The gateway bridges to the server internally. Users and Agents must not register a second direct `/api/mcp` connection or a credential-specific MCP name.
 
+### Multiple Spaces (local candidate)
+
+Authorize each Space from the existing Agent's access page and run its generated installation instruction. Adding another Space for the same Agent preserves earlier connections and their local knowledge. Reload the host's `agentwiki` MCP after installation; the single entry then routes all connected Spaces for that Agent, server, and client.
+
+Call `wiki_list_spaces` to discover connected Space IDs and roles. For other remote calls, supply `spaceId` at the gateway level; tools using the generic wrapper accept, for example, `{ "spaceId": "<id>", "__args": { "pageId": "<page-id>" } }`. Existing `__args.spaceId` remains accepted; conflicting selectors fail. Collaboration tools accept `spaceId` with their normal arguments. Single-Space page-only calls remain compatible without the selector. Knowledge preparation and pull require `spaceId`; confirmation uses the Space sealed inside the preview bundle.
+
+Credentials and permissions remain separate for each Space. Merely adding the Agent as a member of another Space does not authorize an existing credential there; complete that Space's connection authorization. A failed or revoked Space does not route through another Space's key. `onboard_status` reports per-Space remote diagnostics. This candidate requires a new Local Sync package release before generated `npx` instructions use it.
+
 CodeGraph is a separately installed scanner with its own version and lifecycle. AgentWiki is
 version-decoupled: it reads supported structural scan results, deterministically analyzes them,
 and decides which generated knowledge may enter an AgentWiki Preview. Do not add a second

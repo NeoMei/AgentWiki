@@ -185,21 +185,23 @@ export async function createGatewayServer(context: GatewayContext): Promise<Gate
     for (const remote of remoteTools) {
       const gatewayName = publicRemoteName(remote.name);
       if (gatewayName === null) continue;
-      const exactSchema = exactRemoteToolSchema(remote.name);
+      const upstreamSchema = exactRemoteToolSchema(remote.name);
+      const exactSchema = upstreamSchema ? { spaceId: z.string().regex(SAFE_SPACE_ID_PATTERN).optional(), ...upstreamSchema } : undefined;
       toolNames.push(gatewayName);
       server.registerTool(
         gatewayName,
         {
           description: remote.description ?? `Remote AgentWiki tool: ${remote.name}`,
-          inputSchema: exactSchema ?? { __args: z.record(z.unknown()).optional() },
+          inputSchema: exactSchema ?? { spaceId: z.string().regex(SAFE_SPACE_ID_PATTERN).optional(), __args: z.record(z.unknown()).optional() },
         },
-        async (input) => {
-          const result = await context.bridge!.callGatewayTool(
-            gatewayName,
-            exactSchema
-              ? input as Record<string, unknown>
-              : (input as { __args?: Record<string, unknown> })?.__args ?? {},
-          );
+        async (input: unknown) => {
+          const wrapped = input as { spaceId?: string; __args?: Record<string, unknown> };
+          if (!exactSchema && wrapped.spaceId !== undefined && wrapped.__args?.spaceId !== undefined && wrapped.spaceId !== wrapped.__args.spaceId) {
+            return remoteResult({ content: [{ type: 'text', text: 'Conflicting spaceId selectors' }], isError: true });
+          }
+          const args = exactSchema ? input as Record<string, unknown>
+            : { ...wrapped.__args, ...(wrapped.spaceId !== undefined ? { spaceId: wrapped.spaceId } : {}) };
+          const result = await context.bridge!.callGatewayTool(gatewayName, args);
           return remoteResult(result);
         },
       );
