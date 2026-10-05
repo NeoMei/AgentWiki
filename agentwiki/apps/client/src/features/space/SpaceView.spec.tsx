@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import { MemoryRouter, Route, Router, Routes, useNavigate } from 'react-router-dom';
+import { MemoryRouter, Route, Router, Routes, useNavigate, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { SpaceView } from './SpaceView';
@@ -606,6 +606,23 @@ describe('SpaceView inline directory mutations', () => {
     const input = screen.getByRole('textbox', { name: 'New page' }); fireEvent.change(input, { target: { value: 'New document' } }); fireEvent.submit(input.closest('form')!);
     await waitFor(() => expect(mocks.api.post).toHaveBeenCalledWith('/pages', { title: 'New document', spaceId: 'space-1', folderId: null, expectedTreeRevision: '7' }));
     expect(screen.getByRole('button', { name: 'Templates…' })).toBeInTheDocument();
+  });
+  it.each([false, true])('never navigates on a deferred create after same-Space navigation (ABA=%s)', async (aba) => {
+    const pending = deferred<{ data: { id: string } }>(); mocks.api.post.mockReturnValue(pending.promise);
+    const Harness = () => {
+      const navigate = useNavigate(); const location = useLocation(); const pageId = location.pathname.split('/')[2];
+      return <SpaceWorkspaceProvider userId="user-1"><SpaceWorkspaceScope mode="read" spaceId="space-1" activeSection="pages" selectedFolderId={null} selectedPageId={pageId} selectedPageFolderId={null} pageRefreshRequest={0} selectFolder={vi.fn()} reportPageIdentity={vi.fn()} requestPageRefresh={vi.fn()}>
+        <button onClick={() => navigate('/pages/page-b')}>next document</button><button onClick={() => navigate('/pages/page-a')}>back document</button>
+        <SpaceView spaceId="space-1" workspaceContent={<p>Document route: {location.pathname}</p>} />
+      </SpaceWorkspaceScope></SpaceWorkspaceProvider>;
+    };
+    render(<LanguageProvider><MemoryRouter initialEntries={['/pages/page-a']}><Harness /></MemoryRouter></LanguageProvider>);
+    fireEvent.click(await screen.findByRole('button', { name: 'New page' })); const input = screen.getByRole('textbox', { name: 'New page' }); fireEvent.change(input, { target: { value: 'Pending page' } }); fireEvent.submit(input.closest('form')!);
+    await waitFor(() => expect(mocks.api.post).toHaveBeenCalledWith('/pages', expect.objectContaining({ title: 'Pending page' })));
+    fireEvent.click(screen.getByText('next document')); if (aba) fireEvent.click(screen.getByText('back document'));
+    await act(async () => pending.resolve({ data: { id: 'late-created' } }));
+    expect(screen.getByText(`Document route: /pages/${aba ? 'page-a' : 'page-b'}`)).toBeInTheDocument();
+    expect(screen.queryByText('Document route: /pages/late-created/edit')).not.toBeInTheDocument();
   });
   it('retains original directory and document after server permission denial', async () => {
     mocks.api.patch.mockRejectedValue({ response: { status: 403 } });

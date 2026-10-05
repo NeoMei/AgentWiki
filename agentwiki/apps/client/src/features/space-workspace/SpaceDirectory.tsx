@@ -74,6 +74,7 @@ export const SpaceDirectory: React.FC<SpaceDirectoryProps> = ({
   const rootLevel = levels.get(null);
   useEffect(() => { if (!treeProps.canEdit) setCreation(null); }, [treeProps.canEdit]);
   useEffect(() => { setFilter(''); setCreation(null); }, [preferenceScopeKey]);
+  useEffect(() => { setCreation(null); }, [treeProps.mutationScopeKey]);
   useLayoutEffect(() => {
     for (const scrollElement of [desktopScrollRef.current, drawerScrollRef.current]) {
       if (scrollElement && scrollElement.scrollTop !== directoryScrollTop) {
@@ -153,8 +154,8 @@ export const SpaceDirectory: React.FC<SpaceDirectoryProps> = ({
           {selectedPageId ? <button type="button" onClick={revealCurrent}>{copy('定位当前文档', 'Reveal current document')}</button> : null}
           {!titleId && onDirectoryCollapsedChange ? <button type="button" onClick={() => onDirectoryCollapsedChange(true)}>{copy('收起目录', 'Collapse directory')}</button> : null}
         </div>
-        {creation === 'page' && onCreatePageAtSelection ? <InlineTreeName key={`page:${selectedFolderId}:${selectedPageId}`} label={t('page.new')} onSubmit={onCreatePageAtSelection} onCancel={() => setCreation(null)} /> : null}
-        {creation === 'folder' && onCreateFolderAtSelection ? <InlineTreeName key={`folder:${selectedFolderId}:${selectedPageId}`} label={t('folder.createTitle')} onSubmit={onCreateFolderAtSelection} onCancel={() => setCreation(null)} /> : null}
+        {creation === 'page' && onCreatePageAtSelection ? <InlineTreeName key={`page:${treeProps.mutationScopeKey}:${selectedFolderId}:${selectedPageId}`} label={t('page.new')} onSubmit={onCreatePageAtSelection} onCancel={() => setCreation(null)} /> : null}
+        {creation === 'folder' && onCreateFolderAtSelection ? <InlineTreeName key={`folder:${treeProps.mutationScopeKey}:${selectedFolderId}:${selectedPageId}`} label={t('folder.createTitle')} onSubmit={onCreateFolderAtSelection} onCancel={() => setCreation(null)} /> : null}
       </div>
       <div ref={scrollRef} data-testid={scrollTestId} onScroll={(event) => {
         if (!treeProps.loading && !query) onDirectoryScrollTopChange?.(event.currentTarget.scrollTop);

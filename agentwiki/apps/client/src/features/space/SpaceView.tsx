@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import api from '../../api/client';
 import { apiErrorMessage } from '../../api/error-message';
 import { Plus, RotateCcw, X } from 'lucide-react';
@@ -77,6 +77,8 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   const { id: routeId } = useParams<{ id: string }>();
   const id = providedSpaceId !== undefined ? (providedSpaceId ?? undefined) : routeId;
   const navigate = useNavigate();
+  const location = useLocation();
+  const inlineNavigationGenerationRef = useRef(0);
   const { language, t } = useLanguage();
   const { user } = useAuth();
   const userIdentityRef = useRef(user?.id);
@@ -138,6 +140,10 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   const expandedFolderIds = workspace?.expandedFolderIds ?? localExpandedFolderIds;
   const setFolderExpanded = workspace?.setFolderExpanded ?? setLocalFolderExpanded;
   const targetFolderId = workspace?.selectedPageFolderId ?? currentFolderId;
+  const mutationScopeKey = JSON.stringify([location.key, location.pathname, location.search, location.hash, user?.id, id, workspace?.selectedPageId, currentFolderId, workspace?.mode]);
+  useLayoutEffect(() => {
+    inlineNavigationGenerationRef.current += 1;
+  }, [mutationScopeKey]);
   const directory = useSpaceDirectory({
     spaceId: showDirectory && space?.id === id && id ? id : null,
     targetFolderId,
@@ -321,10 +327,11 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     if (!id || space?.id !== id || !['owner', 'admin', 'editor'].includes(role ?? '')) throw new Error(t('error.spaceAccessDenied'));
     const revision = directoryRef.current.treeRevision;
     if (!revision) throw new Error(t('folder.revisionMissing'));
-    return { spaceId: id, userId: userIdentityRef.current, revision };
+    return { spaceId: id, userId: userIdentityRef.current, revision, generation: inlineNavigationGenerationRef.current };
   };
-  const inlineMutationStillCurrent = (scope: { spaceId: string; userId: string | undefined }) => (
+  const inlineMutationStillCurrent = (scope: { spaceId: string; userId: string | undefined; generation: number }) => (
     mountedRef.current && activeRouteIdRef.current === scope.spaceId && userIdentityRef.current === scope.userId
+      && inlineNavigationGenerationRef.current === scope.generation
   );
   const handleInlineRename = async (node: ContentTreeNode, name: string) => {
     const scope = requireInlineMutation();
@@ -339,7 +346,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
         const active = workspaceRef.current;
         if (active?.selectedPageId === node.id && (active.mode === 'read' || active.mode === 'versions')) active.requestPageRefresh(node.id);
       }
-    } catch (failure) { throw new Error(apiErrorMessage(failure, t, 'folder.saveFailed')); }
+    } catch (failure) { if (inlineMutationStillCurrent(scope)) throw new Error(apiErrorMessage(failure, t, 'folder.saveFailed')); }
   };
   const handleInlineCreateFolder = async (parent: Pick<ContentTreeFolderNode, 'id' | 'name'> | null, name: string) => {
     const scope = requireInlineMutation();
@@ -348,14 +355,14 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
       if (!inlineMutationStillCurrent(scope)) return;
       if (parent) setFolderExpanded(parent.id, true);
       directoryRef.current.acceptTreeRevision(result.treeRevision);
-    } catch (failure) { throw new Error(apiErrorMessage(failure, t, 'folder.saveFailed')); }
+    } catch (failure) { if (inlineMutationStillCurrent(scope)) throw new Error(apiErrorMessage(failure, t, 'folder.saveFailed')); }
   };
   const handleInlineCreatePage = async (parent: Pick<ContentTreeFolderNode, 'id' | 'name'> | null, title: string) => {
     const scope = requireInlineMutation();
     try {
       const result = await api.post('/pages', { title, spaceId: scope.spaceId, folderId: parent?.id ?? null, expectedTreeRevision: scope.revision });
       if (inlineMutationStillCurrent(scope)) navigate('/pages/' + encodeURIComponent(result.data.id) + '/edit');
-    } catch (failure) { throw new Error(apiErrorMessage(failure, t, 'page.createFailed')); }
+    } catch (failure) { if (inlineMutationStillCurrent(scope)) throw new Error(apiErrorMessage(failure, t, 'page.createFailed')); }
   };
   const revealCurrentDocument = () => {
     const active = workspaceRef.current;
@@ -659,6 +666,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
           onEditPage={(page) => navigate('/pages/' + page.id + '/edit')}
           onDeletePage={(page) => { void handleDeletePage(page); }}
           onCreateSubfolder={(parent) => setFolderDialog({ mode: 'create', parent, returnFocusTo: document.activeElement instanceof HTMLElement ? document.activeElement : null })}
+          mutationScopeKey={mutationScopeKey}
           onRenameNode={handleInlineRename}
           onCreateFolderInline={handleInlineCreateFolder}
           onCreatePageInline={handleInlineCreatePage}
@@ -727,6 +735,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
           onEditPage={(page) => navigate('/pages/' + page.id + '/edit')}
           onDeletePage={(page) => { void handleDeletePage(page); }}
           onCreateSubfolder={(parent) => setFolderDialog({ mode: 'create', parent, returnFocusTo: document.activeElement instanceof HTMLElement ? document.activeElement : null })}
+          mutationScopeKey={mutationScopeKey}
           onRenameNode={handleInlineRename}
           onCreateFolderInline={handleInlineCreateFolder}
           onCreatePageInline={handleInlineCreatePage}

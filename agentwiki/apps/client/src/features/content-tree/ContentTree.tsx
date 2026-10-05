@@ -33,6 +33,8 @@ export interface ContentTreeProps {
   onDeleteFolder: (folder: ContentTreeFolderNode) => void;
   onMove: (request: ContentMoveRequest) => void;
   reorderDisabled?: boolean;
+  /** Unmount inline input when navigation or identity changes; stale requests cannot alter new UI. */
+  mutationScopeKey?: string;
   onRenameNode?: (node: ContentTreeNode, name: string) => Promise<void>;
   onCreateFolderInline?: (parent: ContentTreeFolderNode | null, name: string) => Promise<void>;
   onCreatePageInline?: (parent: ContentTreeFolderNode | null, title: string) => Promise<void>;
@@ -81,6 +83,7 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
   onDeleteFolder,
   onMove,
   reorderDisabled = false,
+  mutationScopeKey = '',
   onRenameNode,
   onCreateFolderInline,
   onCreatePageInline,
@@ -137,7 +140,7 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
         const expanded = node.kind === 'folder' && expandedFolderIds.has(node.id);
         return (
         <NodeRow
-          key={node.id}
+          key={`${mutationScopeKey}:${node.id}`}
           node={node}
           canEdit={canEdit}
           reorderDisabled={reorderDisabled}
