@@ -451,3 +451,29 @@ describe('ReviewPage detail refresh', () => {
   });
 
 });
+
+describe('ReviewPage real Markdown update diff', () => {
+  beforeEach(() => {
+    members = [{ userId: 'user-1', role: 'owner' }];
+    vi.mocked(useAuth).mockReturnValue({ user: { id: 'user-1' } } as any);
+    vi.mocked(api.get).mockReset(); vi.mocked(api.post).mockReset(); vi.mocked(api.patch).mockReset();
+  });
+  afterEach(cleanup);
+  const update = () => ({ ...changeSet(), items: [{ id: 'update-1', type: 'update_page', status: 'pending', payload: { pageId: 'page-1', expectedUpdatedAt: '2026-10-06T00:00:00Z', changes: { content: 'new paragraph', title: 'New title' } } }] });
+  it.each([true, false])('shows bounded current text diff with honest version labels (matching=%s)', async (matches) => {
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/review' ? [update()] : url === '/pages/page-1' ? { id: 'page-1', spaceId: 'space-1', content: 'old paragraph', title: 'Old title', updatedAt: matches ? '2026-10-06T00:00:00Z' : 'later' } : update() }));
+    renderReview(); fireEvent.click(await screen.findByRole('button', { name: /Candidate set/ }));
+    await screen.findByLabelText('Markdown diff');
+    expect(screen.getByText('old paragraph')).toBeInTheDocument(); expect(screen.getByText('new paragraph')).toBeInTheDocument();
+    expect(screen.getByText(matches ? 'Current document (matches proposal base version)' : 'Current document vs candidate')).toBeInTheDocument();
+    if (!matches) expect(screen.getByText(/Proposal base version is unavailable or stale/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Accept candidate' })).toBeEnabled();
+  });
+  it('does not invent a baseline after an unauthorized current page read', async () => {
+    vi.mocked(api.get).mockImplementation(async (url) => { if (url === '/pages/page-1') throw new Error('Forbidden'); return { data: url === '/review' ? [update()] : update() }; });
+    renderReview('zh-CN'); fireEvent.click(await screen.findByRole('button', { name: /Candidate set/ }));
+    expect(await screen.findByText('无法读取当前文档，仅显示候选。')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Markdown 差异')).not.toBeInTheDocument();
+    expect(screen.getByText('new paragraph')).toBeInTheDocument();
+  });
+});

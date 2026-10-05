@@ -10,8 +10,49 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { announceReviewChanged, REVIEW_CHANGED_EVENT } from './review-events';
 import { useBoundedPolling } from '../source/useBoundedPolling';
+import { MarkdownDiff } from '../../components/markdown-diff/MarkdownDiff';
 
-const CandidateDiff: React.FC<{ item: any }> = ({ item }) => {
+const UpdatePageDiff: React.FC<{ item: any; spaceId: string }> = ({ item, spaceId }) => {
+  const { language } = useLanguage(); const zh = language === 'zh-CN';
+  const { user } = useAuth();
+  const payload = item.payload || {}, changes = payload.changes || {};
+  const key = JSON.stringify([user?.id, spaceId, payload.pageId, payload.expectedUpdatedAt]);
+  const [loaded, setLoaded] = useState<{ key: string; page?: { content: string; title: string; updatedAt: string }; status: 'loading' | 'ready' | 'unavailable' }>({ key, status: 'loading' });
+  useEffect(() => {
+    const controller = new AbortController(); let active = true;
+    setLoaded({ key, status: 'loading' });
+    if (!user?.id || !spaceId || typeof payload.pageId !== 'string') { setLoaded({ key, status: 'unavailable' }); return; }
+    void api.get(`/pages/${encodeURIComponent(payload.pageId)}`, { signal: controller.signal, timeout: 15000 }).then(({ data }) => {
+      if (!active || controller.signal.aborted) return;
+      if (data?.id !== payload.pageId || data?.spaceId !== spaceId || typeof data?.content !== 'string') setLoaded({ key, status: 'unavailable' });
+      else setLoaded({ key, status: 'ready', page: data });
+    }).catch(() => { if (active && !controller.signal.aborted) setLoaded({ key, status: 'unavailable' }); });
+    return () => { active = false; controller.abort(); };
+  }, [key, item, user?.id, spaceId, payload.pageId]);
+  const current = loaded.key === key ? loaded : { status: 'loading' as const, page: undefined };
+  const page = current.page;
+  const matches = !!page && typeof payload.expectedUpdatedAt === 'string' && page.updatedAt === payload.expectedUpdatedAt;
+  const candidate = typeof changes.content === 'string' ? changes.content : page?.content;
+  const download = (text: string, name: string) => {
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/markdown;charset=utf-8' }));
+    const link = document.createElement('a'); link.href = url; link.download = name; link.click(); URL.revokeObjectURL(url);
+  };
+  const metadata = Object.fromEntries(Object.entries(changes).filter(([field]) => field !== 'content'));
+  return <section className="mt-3 space-y-2 text-sm" aria-label={zh ? '页面更新差异' : 'Page update diff'}>
+    {current.status === 'loading' ? <p role="status" className="text-gray-500">{zh ? '正在读取当前文档…' : 'Loading current document…'}</p> : null}
+    {page ? <>
+      <p className="font-medium">{matches ? (zh ? '当前文档（与提案基准版本一致）' : 'Current document (matches proposal base version)') : (zh ? '当前文档与候选比较' : 'Current document vs candidate')}</p>
+      {!matches ? <p className="text-amber-800">{zh ? '提案基准版本缺失或已过期；当前文档不是历史快照，审批仍受服务端版本检查保护。' : 'Proposal base version is unavailable or stale. Current content is not a historical snapshot; server version checks still govern approval.'}</p> : null}
+      {typeof changes.content === 'string' ? <MarkdownDiff before={page.content} after={changes.content} /> : <p className="text-gray-500">{zh ? '正文未提出修改。' : 'No content change proposed.'}</p>}
+      <button type="button" onClick={() => download(page.content, 'review-current.md')} className="rounded-lg border px-3 py-1">{zh ? '下载当前原文' : 'Download current document'}</button>
+    </> : null}
+    {current.status === 'unavailable' ? <><p className="text-amber-800">{zh ? '无法读取当前文档，仅显示候选。' : 'Current document is unavailable; showing candidate only.'}</p>{typeof changes.content === 'string' ? <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border p-3">{changes.content.slice(0, 100_000)}</pre> : null}</> : null}
+    {typeof candidate === 'string' ? <button type="button" onClick={() => download(candidate, 'review-candidate.md')} className="ml-2 rounded-lg border px-3 py-1">{zh ? '下载候选' : 'Download candidate'}</button> : null}
+    {Object.keys(metadata).length ? <div><p className="font-medium">{zh ? '其他建议字段' : 'Other proposed fields'}</p><pre className="max-h-48 overflow-auto whitespace-pre-wrap text-gray-600">{JSON.stringify(metadata, null, 2)}</pre></div> : null}
+  </section>;
+};
+
+const CandidateDiff: React.FC<{ item: any; spaceId: string }> = ({ item, spaceId }) => {
   const { language } = useLanguage();
   const zh = language === 'zh-CN';
   const payload = item.payload || {};
@@ -33,12 +74,7 @@ const CandidateDiff: React.FC<{ item: any }> = ({ item }) => {
       </dl>
     </div>
   );
-  if (item.type === 'update_page') return (
-    <div className="mt-3 grid md:grid-cols-2 gap-2 text-xs">
-      <div className="border border-red-100 bg-red-50/50 rounded p-3"><p className="font-medium text-red-700 mb-2">{zh ? '变更前' : 'Before'}</p><p className="text-gray-500">{zh ? '审批前保持当前已发布内容不变。' : 'Current published values remain unchanged until approval.'}</p></div>
-      <div className="border border-green-100 bg-green-50/50 rounded p-3"><p className="font-medium text-green-700 mb-2">{zh ? '建议字段' : 'Proposed fields'}</p><pre className="whitespace-pre-wrap font-sans text-gray-600 max-h-48 overflow-auto">{JSON.stringify(payload.changes, null, 2)}</pre></div>
-    </div>
-  );
+  if (item.type === 'update_page') return <UpdatePageDiff item={item} spaceId={spaceId} />;
   if (item.type === 'archive_page') return <p className="mt-3 text-xs border border-amber-100 bg-amber-50 rounded p-3">{zh ? '归档已发布页面：' : 'Archive the published page for '}<strong>{payload.sourcePath || payload.pageId}</strong>.</p>;
   if (item.type === 'archive_relation') return <p className="mt-3 text-xs border border-amber-100 bg-amber-50 rounded p-3">{zh ? '移除来源中已不存在的自动编译关系。' : 'Remove an automatically compiled relationship that is no longer present in the source.'}</p>;
   return <pre className="mt-3 text-xs bg-gray-50 rounded p-3 overflow-auto">{JSON.stringify(payload, null, 2)}</pre>;
@@ -350,7 +386,7 @@ export const ReviewPage: React.FC = () => {
                   {changeSet.items.map((item: any) => (
                     <div key={item.id} className="p-3">
                       <div className="flex justify-between gap-3"><p className="text-sm font-medium">{item.type.replaceAll('_', ' ')}</p><span className="text-xs text-gray-400">{item.status}</span></div>
-                      <CandidateDiff item={item} />
+                      <CandidateDiff item={item} spaceId={changeSet.spaceId || changeSet.space?.id} />
                       <ExistingContentWarning pages={changeSet.duplicateContentWarnings?.find((warning: { itemId: string }) => warning.itemId === item.id)?.pages} />
                       <EvidencePanel changeSet={changeSet} item={item} />
                       {canDecide(changeSet.id) && !changeSet.collaborationArtifactLink && item.status === 'pending' && changeSet.status === 'pending_review' ? <div className="flex gap-3 mt-3"><button disabled={mutatingIds.has(changeSet.id)} onClick={() => void decide(changeSet.id, item.id, 'accepted')} className="text-xs font-medium text-green-700 disabled:opacity-50">{zh ? '接受候选项' : 'Accept candidate'}</button><button disabled={mutatingIds.has(changeSet.id)} onClick={() => void decide(changeSet.id, item.id, 'rejected')} className="text-xs font-medium text-red-700 disabled:opacity-50">{zh ? '拒绝候选项' : 'Reject candidate'}</button></div> : null}
