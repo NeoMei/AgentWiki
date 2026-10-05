@@ -1,0 +1,17 @@
+{
+  "type": "root",
+  "children": [
+    {
+      "type": "code",
+      "lang": "mermaid",
+      "meta": null,
+      "value": "flowchart LR\n  A[中文] --> B[结果]"
+    },
+    {
+      "type": "code",
+      "lang": "typescript",
+      "meta": "title=demo.ts",
+      "value": "const x = `中文`;"
+    }
+  ]
+}

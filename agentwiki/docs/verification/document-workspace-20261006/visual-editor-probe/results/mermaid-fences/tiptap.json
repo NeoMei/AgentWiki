@@ -1,0 +1,29 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "codeBlock",
+      "attrs": {
+        "language": "mermaid"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "flowchart LR\n  A[中文] --> B[结果]"
+        }
+      ]
+    },
+    {
+      "type": "codeBlock",
+      "attrs": {
+        "language": "typescript title=demo.ts"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "const x = `中文`;"
+        }
+      ]
+    }
+  ]
+}

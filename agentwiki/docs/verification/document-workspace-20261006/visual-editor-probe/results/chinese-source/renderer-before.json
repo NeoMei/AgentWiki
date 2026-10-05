@@ -1,0 +1,31 @@
+{
+  "type": "root",
+  "children": [
+    {
+      "type": "heading",
+      "depth": 1,
+      "children": [
+        {
+          "type": "text",
+          "value": "中文输入 🐼"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "中文、全角标点：你好！é / é。"
+        },
+        {
+          "type": "break"
+        },
+        {
+          "type": "text",
+          "value": "下一行保留。"
+        }
+      ]
+    }
+  ]
+}

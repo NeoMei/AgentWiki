@@ -1,0 +1,54 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": ":::custom {#identifier}\n未知扩展正文。\n:::"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "脚注"
+        },
+        {
+          "type": "text",
+          "text": "^注一",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "中文脚注",
+                "title": null
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "属性:: 值"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "==高亮== 与 %%私有注释%%"
+        }
+      ]
+    }
+  ]
+}

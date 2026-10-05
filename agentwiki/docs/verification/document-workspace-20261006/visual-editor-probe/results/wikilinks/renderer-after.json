@@ -1,0 +1,106 @@
+{
+  "type": "root",
+  "children": [
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "参见 "
+        },
+        {
+          "type": "agentWikiLink",
+          "children": [
+            {
+              "type": "text",
+              "value": "别名"
+            }
+          ],
+          "data": {
+            "agentWikiGenerated": true,
+            "hName": "agent-wiki-link",
+            "hProperties": {
+              "className": [
+                "wiki-link"
+              ],
+              "data-markdown-resource-key": "[\"page\",\"页面\",\"\",\"\"]",
+              "data-markdown-resource-kind": "page",
+              "data-markdown-literal": "[[页面|别名]]",
+              "data-markdown-target": "页面",
+              "data-markdown-label": "别名",
+              "data-markdown-fragment-present": "false",
+              "data-markdown-fragment-valid": "true",
+              "data-markdown-source-offset": "3"
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": "、"
+        },
+        {
+          "type": "agentWikiLink",
+          "children": [
+            {
+              "type": "text",
+              "value": "页面#中文标题"
+            }
+          ],
+          "data": {
+            "agentWikiGenerated": true,
+            "hName": "agent-wiki-link",
+            "hProperties": {
+              "className": [
+                "wiki-link"
+              ],
+              "data-markdown-resource-key": "[\"page\",\"页面\",\"中文标题\",\"\"]",
+              "data-markdown-resource-kind": "page",
+              "data-markdown-literal": "[[页面#中文标题]]",
+              "data-markdown-target": "页面",
+              "data-markdown-heading": "中文标题",
+              "data-markdown-fragment-present": "true",
+              "data-markdown-fragment-kind": "heading",
+              "data-markdown-fragment-valid": "true",
+              "data-markdown-source-offset": "13"
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " 与 "
+        },
+        {
+          "type": "agentWikiLink",
+          "children": [
+            {
+              "type": "text",
+              "value": "页面#^块一"
+            }
+          ],
+          "data": {
+            "agentWikiGenerated": true,
+            "hName": "agent-wiki-link",
+            "hProperties": {
+              "className": [
+                "wiki-link"
+              ],
+              "data-markdown-resource-key": "[\"page\",\"页面\",\"\",\"块一\"]",
+              "data-markdown-resource-kind": "page",
+              "data-markdown-literal": "[[页面#^块一]]",
+              "data-markdown-target": "页面",
+              "data-markdown-block-id": "块一",
+              "data-markdown-fragment-present": "true",
+              "data-markdown-fragment-kind": "block",
+              "data-markdown-fragment-valid": "true",
+              "data-markdown-source-offset": "27"
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": "。"
+        }
+      ]
+    }
+  ]
+}

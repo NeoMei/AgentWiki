@@ -1,0 +1,89 @@
+{
+  "type": "root",
+  "children": [
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "金额 "
+        },
+        {
+          "type": "inlineMath",
+          "value": "5 与 ",
+          "data": {
+            "hName": "code",
+            "hProperties": {
+              "className": [
+                "language-math",
+                "math-inline"
+              ]
+            },
+            "hChildren": [
+              {
+                "type": "text",
+                "value": "5 与 "
+              }
+            ]
+          }
+        },
+        {
+          "type": "text",
+          "value": "10。"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "inlineMath",
+          "value": "x+y",
+          "data": {
+            "hName": "code",
+            "hProperties": {
+              "className": [
+                "language-math",
+                "math-inline"
+              ]
+            },
+            "hChildren": [
+              {
+                "type": "text",
+                "value": "x+y"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "inlineMath",
+          "value": "\\text{价格 ",
+          "data": {
+            "hName": "code",
+            "hProperties": {
+              "className": [
+                "language-math",
+                "math-inline"
+              ]
+            },
+            "hChildren": [
+              {
+                "type": "text",
+                "value": "\\text{价格 "
+              }
+            ]
+          }
+        },
+        {
+          "type": "text",
+          "value": "5}$"
+        }
+      ]
+    }
+  ]
+}

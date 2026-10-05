@@ -1,0 +1,38 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "horizontalRule"
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "title: 中文"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "tags: [agent, wiki]\ncustom: |\n  原样缩进"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "正文。"
+        }
+      ]
+    }
+  ]
+}

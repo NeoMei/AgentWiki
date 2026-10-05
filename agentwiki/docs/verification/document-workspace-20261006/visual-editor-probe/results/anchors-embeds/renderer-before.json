@@ -1,0 +1,89 @@
+{
+  "type": "root",
+  "children": [
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "这是引用段落。"
+        },
+        {
+          "type": "agentWikiBlockAnchor",
+          "children": [],
+          "data": {
+            "agentWikiGenerated": true,
+            "hName": "span",
+            "hProperties": {
+              "id": "^块一",
+              "className": [
+                "block-anchor"
+              ],
+              "ariaHidden": true
+            }
+          }
+        },
+        {
+          "type": "agentWikiBlockAnchor",
+          "children": [],
+          "data": {
+            "agentWikiGenerated": true,
+            "hName": "span",
+            "hProperties": {
+              "id": "agentwiki:block:005757004e00",
+              "className": [
+                "block-anchor",
+                "wiki-block-anchor"
+              ],
+              "ariaHidden": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "agentWikiEmbed",
+      "children": [],
+      "data": {
+        "agentWikiGenerated": true,
+        "hName": "agent-wiki-embed",
+        "hProperties": {
+          "className": [
+            "wiki-embed"
+          ],
+          "data-markdown-resource-key": "[\"page\",\"另一页\",\"中文标题\",\"\"]",
+          "data-markdown-resource-kind": "page",
+          "data-markdown-literal": "![[另一页#中文标题]]",
+          "data-markdown-target": "另一页",
+          "data-markdown-heading": "中文标题",
+          "data-markdown-fragment-present": "true",
+          "data-markdown-fragment-kind": "heading",
+          "data-markdown-fragment-valid": "true",
+          "data-markdown-source-offset": "13"
+        }
+      }
+    },
+    {
+      "type": "agentWikiEmbed",
+      "children": [],
+      "data": {
+        "agentWikiGenerated": true,
+        "hName": "agent-wiki-embed",
+        "hProperties": {
+          "className": [
+            "wiki-embed"
+          ],
+          "data-markdown-resource-key": "[\"page\",\"另一页\",\"\",\"块一\"]",
+          "data-markdown-resource-kind": "page",
+          "data-markdown-literal": "![[另一页#^块一]]",
+          "data-markdown-target": "另一页",
+          "data-markdown-block-id": "块一",
+          "data-markdown-fragment-present": "true",
+          "data-markdown-fragment-kind": "block",
+          "data-markdown-fragment-valid": "true",
+          "data-markdown-source-offset": "28"
+        }
+      }
+    }
+  ]
+}

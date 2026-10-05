@@ -1,0 +1,66 @@
+{
+  "resolved": "file:../private/tmp/agentwiki-visual-editor-probe.i1SiLz",
+  "name": "agentwiki-visual-editor-probe.i1SiLz",
+  "dependencies": {
+    "@tiptap/core": {
+      "version": "3.31.4",
+      "overridden": false
+    },
+    "@tiptap/extension-image": {
+      "version": "3.31.4",
+      "overridden": false
+    },
+    "@tiptap/extension-list": {
+      "version": "3.31.4",
+      "overridden": false
+    },
+    "@tiptap/extension-mathematics": {
+      "version": "3.31.4",
+      "overridden": false
+    },
+    "@tiptap/extension-table": {
+      "version": "3.31.4",
+      "overridden": false
+    },
+    "@tiptap/markdown": {
+      "version": "3.31.4",
+      "overridden": false
+    },
+    "@tiptap/starter-kit": {
+      "version": "3.31.4",
+      "overridden": false
+    },
+    "diff": {
+      "version": "8.0.2",
+      "overridden": false
+    },
+    "jsdom": {
+      "version": "26.1.0",
+      "overridden": false
+    },
+    "remark-breaks": {
+      "version": "4.0.0",
+      "overridden": false
+    },
+    "remark-gfm": {
+      "version": "4.0.1",
+      "overridden": false
+    },
+    "remark-math": {
+      "version": "6.0.0",
+      "overridden": false
+    },
+    "remark-parse": {
+      "version": "11.0.0",
+      "overridden": false
+    },
+    "tsx": {
+      "version": "4.20.6",
+      "overridden": false
+    },
+    "unified": {
+      "version": "11.0.5",
+      "overridden": false
+    }
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "金额 "
+        },
+        {
+          "type": "inlineMath",
+          "attrs": {
+            "latex": "5 与"
+          }
+        },
+        {
+          "type": "text",
+          "text": "10。"
+        }
+      ]
+    },
+    {
+      "type": "blockMath",
+      "attrs": {
+        "latex": "x+y"
+      }
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "inlineMath",
+          "attrs": {
+            "latex": "\\text{价格"
+          }
+        },
+        {
+          "type": "text",
+          "text": "5}$"
+        }
+      ]
+    }
+  ]
+}

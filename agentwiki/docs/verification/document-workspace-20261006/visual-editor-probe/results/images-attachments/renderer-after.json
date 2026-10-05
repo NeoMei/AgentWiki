@@ -1,0 +1,63 @@
+{
+  "type": "root",
+  "children": [
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "image",
+          "title": "图片标题",
+          "url": "assets/图片.png",
+          "alt": "中文图"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "link",
+          "title": null,
+          "url": "../assets/方案.pdf",
+          "children": [
+            {
+              "type": "text",
+              "value": "附件"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "value": " 与 "
+        },
+        {
+          "type": "image",
+          "title": null,
+          "url": "https://example.com/a.png",
+          "alt": "外链"
+        }
+      ]
+    },
+    {
+      "type": "agentWikiImage",
+      "children": [],
+      "data": {
+        "agentWikiGenerated": true,
+        "hName": "agent-wiki-image",
+        "hProperties": {
+          "className": [
+            "wiki-embed"
+          ],
+          "data-markdown-resource-key": "[\"attachment\",\"架构.png\",\"\",\"\"]",
+          "data-markdown-resource-kind": "attachment",
+          "data-markdown-literal": "![[assets/架构.png|320]]",
+          "data-markdown-target": "assets/架构.png",
+          "data-markdown-label": "320",
+          "data-markdown-fragment-present": "false",
+          "data-markdown-fragment-valid": "true",
+          "data-markdown-source-offset": "89"
+        }
+      }
+    }
+  ]
+}
