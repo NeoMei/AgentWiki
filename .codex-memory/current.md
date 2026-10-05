@@ -1,32 +1,33 @@
 # 当前目标
 
-- 按已确认的 OpenKnowledge 借鉴方案优化 AgentWiki 文档工作区、目录树、手工和 Agent 编辑体验。
+- OpenKnowledge借鉴的文档体验优化已完成本地实施、独立审查与验收；保留分支供后续集成。
 
 # 范围 / 不做
 
-- 已获实施授权；单栏工作区、候选审阅、草稿恢复、精确修改及个人批注队列，可视编辑器独立试点。
-- 不直接复制 OpenKnowledge 源码，不引入 CRDT 或数据库迁移，不修改生产文档。发布与部署不作为本地实施完成的隐含结果。
+- 统一读写画布、大纲、目录、手工工具、草稿恢复、精确Agent候选及个人批注、提案差异。
+- 本轮无生产变更、合并、push、发布或部署；不复制GPL源码，不引入CRDT/schema迁移。
 
 # 当前状态
 
-- 隔离工作区 /Users/neomei/.codex/worktrees/document-workspace/AgentWiki （末尾空格），分支 codex/document-workspace，起点 c7b89567。
-- 实施计划已写；依赖安装完成，基线测试与可视编辑试点进行中。
-- 既有线上版本 0.12.12 / Local Sync 0.11.0 的发布证据仍保留；本任务尚无产品候选。
+- 工作树 /Users/neomei/.codex/worktrees/document-workspace/AgentWiki （尾空格），分支codex/document-workspace，产品候选897aa3f8，基线c7b89567。后续提交仅验收与项目交接文档。
+- 六项计划、逐项独立复审、整分支审查均完成，最终Ready to merge Yes/0finding。6243通过/6skip，全仓typecheck/lint0errors/build通过。实际本地及生产构建浏览器关键流程通过。
+- Tiptap3.31.4仅1/17语料字节保持，未替换当前CodeMirror。线上0.12.12/LocalSync0.11.0未改。
 
 # 稳定约束
 
-- Git 必须显式 work-tree，勿改 core.worktree。
-- 读写互斥、同一 Markdown 源；保留 Space 权限、版本和附件/同步语义，所有新文案双语。
-- 测试、独立审查、集成、浏览器验收、发布和生产部署分别记证据。
+- Git显式work-tree，勿改core.worktree。身份/Space/page缓存隔离，expectedUpdatedAt/treeRevision不放宽。
+- 单画布读写互斥、一份Markdown源。Agent生成只进候选，显式接受才进本机草稿，正式Save另行版本校验。
+- 个人笔记是本机私人数据；发送不等于解决，歧义保持待审。
 
 # 关键索引
 
-- .codex-memory/tasks/active/document-workspace-20261006/brief.md
+- .codex-memory/tasks/archive/document-workspace-20261006/brief.md
+- agentwiki/docs/verification/document-workspace-20261006/acceptance.md
+- agentwiki/docs/verification/document-workspace-20261006/reviews/whole-branch-review.md
 - agentwiki/docs/superpowers/plans/2026-10-06-document-workspace.md
-- agentwiki/docs/research/openknowledge-20261006/借鉴分析与改造建议.md
-- agentwiki/docs/verification/multi-space-v01212/release-receipt.json
 
 # 风险 / 下一步
 
-- 先修 Assist 流式结果直接替换人工草稿，再新增草稿恢复。
-- 可视编辑器需通过真实 Markdown 语料，不能假定换库无损。
+- 分支尚未集成或发布；后续按用户明确意图处理。
+- 原生IME、Windows、外部provider和真实多人压力未验；本机笔记不跨设备。首屏JS547266/550000，保留预算门槛。
+- 临时服务清理记录收敛于acceptance.md；不保留临时认证材料。
