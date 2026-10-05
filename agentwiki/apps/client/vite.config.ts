@@ -37,7 +37,10 @@ export default defineConfig({
           if (!id.includes('/node_modules/')) return undefined;
           if (/\/node_modules\/(react|react-dom|react-router|react-router-dom|scheduler)\//u.test(id)) return 'react-vendor';
           if (/\/node_modules\/katex\//u.test(id)) return 'math-vendor';
-          if (/\/node_modules\/@codemirror\/(view|state)\//u.test(id)) return 'editor-core';
+          // Language modes share these runtimes with the editor. Keep them out
+          // of PageEditor while leaving grammars and optional modes separate.
+          if (/\/node_modules\/@codemirror\/(view|state|language)\//u.test(id)
+            || /\/node_modules\/@lezer\/(common|highlight|lr)\//u.test(id)) return 'editor-core';
           if (/\/node_modules\/(@dagrejs|dagre-d3-es|d3-[^/]+)\//u.test(id)) return 'diagram-layout';
           // Preserve Mermaid's upstream shared-module boundaries. Its complete
           // parser remains lazy; using the tiny build would drop diagram types.
