@@ -2381,4 +2381,52 @@ describe('PageEditor remote update safety', () => {
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
+  it('sends a real selected passage to Agent and preserves unrelated concurrent typing when accepted', async () => {
+    const base='old'+'x'.repeat(300)+'quote'+'y'.repeat(300);let tasks:any[]=[];
+    vi.mocked(api.get).mockImplementation(async(url)=>({data:url==='/assist/tasks'?tasks:url==='/review'?[]:page({content:base,capabilities:{canEdit:true}})}));
+    vi.mocked(api.post).mockImplementation(async()=>{tasks=[{id:'scoped',intent:'Fix',status:'done',result:{changes:base.replace('quote','new')}}];return{data:{id:'scoped'}};});
+    renderEditor();await screen.findByDisplayValue('Original title');
+    act(()=>currentEditorView().dispatch({selection:EditorSelection.single(303,308)}));
+    fireEvent.click(screen.getByRole('button',{name:'Ask Agent'}));
+    expect(screen.getByRole('combobox',{name:'Edit scope'})).toHaveValue('selection');
+    fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix quote'}});fireEvent.click(screen.getByTestId('assist-submit'));
+    await screen.findByRole('button',{name:'Accept to draft'});
+    expect(api.post).toHaveBeenCalledWith('/assist/tasks',expect.objectContaining({snapshot:expect.objectContaining({assistTarget:expect.objectContaining({from:303,to:308,quote:'quote'})})}));
+    editContent(base.replace('old','human'));fireEvent.click(screen.getByRole('button',{name:'Accept to draft'}));
+    expect(contentEditorValue()).toBe('human'+'x'.repeat(300)+'new'+'y'.repeat(300));
+    act(()=>expect(undo(currentEditorView())).toBe(true));expect(contentEditorValue()).toBe(base.replace('old','human'));
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+  it('sends checked private notes and accepts each linked hunk once with separate undo', async () => {
+    const base='one\nkeep\ntwo\n';let tasks:any[]=[];
+    vi.mocked(api.get).mockImplementation(async(url)=>({data:url==='/assist/tasks'?tasks:url==='/review'?[]:page({content:base,capabilities:{canEdit:true}})}));
+    vi.mocked(api.post).mockImplementation(async()=>{tasks=[{id:'notes',intent:'Fix',status:'done',result:{changes:'ONE\nkeep\nTWO\n'}}];return{data:{id:'notes'}};});
+    renderEditor();await screen.findByDisplayValue('Original title');fireEvent.click(screen.getByRole('button',{name:'Personal notes'}));
+    for(const [from,to,body] of [[0,3,'Fix one'],[9,12,'Fix two']] as const){
+      act(()=>currentEditorView().dispatch({selection:EditorSelection.single(from,to)}));
+      fireEvent.change(screen.getByRole('textbox',{name:'Note'}),{target:{value:body}});fireEvent.click(screen.getByRole('button',{name:'Add note'}));
+    }
+    expect(screen.getByText(/Private notes, stored only/)).toBeInTheDocument();
+    for(const body of ['Fix one','Fix two'])fireEvent.click(screen.getByRole('checkbox',{name:body}));
+    fireEvent.click(screen.getByRole('button',{name:'Send selected to Agent'}));
+    await screen.findByRole('button',{name:'Accept change 1'});fireEvent.click(screen.getByRole('button',{name:'Notes queue'}));expect(screen.getAllByText('Awaiting review')).toHaveLength(2);expect(contentEditorValue()).toBe(base);fireEvent.click(screen.getByRole('button',{name:'Candidate queue'}));
+    fireEvent.click(screen.getByRole('button',{name:'Accept change 1'}));expect(contentEditorValue()).toBe('ONE\nkeep\ntwo\n');fireEvent.click(screen.getByRole('button',{name:'Notes queue'}));expect(screen.getAllByText('Resolved')).toHaveLength(1);fireEvent.click(screen.getByRole('button',{name:'Candidate queue'}));
+    fireEvent.click(screen.getByRole('button',{name:'Accept change 2'}));expect(contentEditorValue()).toBe('ONE\nkeep\nTWO\n');fireEvent.click(screen.getByRole('button',{name:'Notes queue'}));expect(screen.getAllByText('Resolved')).toHaveLength(2);fireEvent.click(screen.getByRole('button',{name:'Candidate queue'}));
+    fireEvent.click(screen.getByRole('button',{name:'Accept change 1'}));act(()=>expect(undo(currentEditorView())).toBe(true));expect(contentEditorValue()).toBe('ONE\nkeep\ntwo\n');
+    act(()=>expect(undo(currentEditorView())).toBe(true));expect(contentEditorValue()).toBe(base);expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('captures current heading section and sends default document snapshots explicitly', async () => {
+    const base='# One\nintro\n## Child\nx\n# Two\ny';let tasks:any[]=[];
+    vi.mocked(api.get).mockImplementation(async(url)=>({data:url==='/assist/tasks'?tasks:url==='/review'?[]:page({content:base,capabilities:{canEdit:true}})}));
+    vi.mocked(api.post).mockImplementation(async()=>{tasks=[{id:'scope',intent:'Fix',status:'done',result:{changes:base.replace('intro','INTRO')}}];return{data:{id:'scope'}};});
+    renderEditor();await screen.findByDisplayValue('Original title');act(()=>currentEditorView().dispatch({selection:EditorSelection.cursor(7)}));
+    fireEvent.click(screen.getByTestId('assist-toggle'));expect(screen.getByRole('combobox',{name:'Edit scope'})).toHaveValue('document');
+    fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix'}});fireEvent.click(screen.getByTestId('assist-submit'));await screen.findByRole('button',{name:'Accept to draft'});
+    expect(api.post).toHaveBeenLastCalledWith('/assist/tasks',expect.objectContaining({snapshot:expect.objectContaining({assistTarget:expect.objectContaining({kind:'document',from:0,to:base.length})})}));
+    fireEvent.click(screen.getByRole('button',{name:'Discard'}));fireEvent.change(screen.getByRole('combobox',{name:'Edit scope'}),{target:{value:'section'}});
+    fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix section'}});fireEvent.click(screen.getByTestId('assist-submit'));
+    await waitFor(()=>expect(api.post).toHaveBeenCalledTimes(2));expect(api.post).toHaveBeenLastCalledWith('/assist/tasks',expect.objectContaining({snapshot:expect.objectContaining({assistTarget:expect.objectContaining({kind:'section',quote:'# One\nintro\n## Child\nx\n'})})}));expect(contentEditorValue()).toBe(base);
+  });
+
 });

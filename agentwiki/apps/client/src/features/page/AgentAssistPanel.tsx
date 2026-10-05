@@ -5,10 +5,10 @@ import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { AssistCandidateReview } from './AssistCandidateReview';
-import { completeAssistCandidate, applyCandidateToDraft, canAcceptCandidate, type AssistCandidate, type AssistSnapshot } from './assistCandidate';
+import { completeAssistCandidate, applyCandidateToDraft, type AssistCandidate, type AssistSnapshot } from './assistCandidate';
 
 import { validateAssistTarget, type AssistTarget } from './assistTargets';
-export interface AssistRequest { id: string; intent: string; assistTarget?: AssistTarget; noteIds?: string[] }
+export interface AssistRequest { id: string; intent: string; assistTarget?: AssistTarget; noteIds?: string[]; autoSubmit?: boolean }
 export interface AssistNotesEvent { event: 'dispatch' | 'ready' | 'accept' | 'fail' | 'discard'; taskId: string; noteIds: string[]; candidate: AssistCandidate; editId?: string; acceptedEditIds?: string[] }
 interface AgentAssistPanelProps {
   pageId: string;
@@ -142,6 +142,7 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
   const { user } = useAuth();
   const zh = language === 'zh-CN';
   const [intent, setIntent] = useState('');
+  const autoSubmittedRef = useRef(new Set<string>());
   const [targetKind, setTargetKind] = useState<AssistTarget['kind']>('document');
   const requestRef = useRef<AssistRequest | null>(null);
   const notesEventRef = useRef(onNotesEvent); notesEventRef.current = onNotesEvent;
@@ -182,7 +183,7 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
     streamBufferRef.current.clear();
     setTasks([]);
     setPending([]);
-    setIntent(''); requestRef.current = null; setTargetKind('document');
+    setIntent(''); requestRef.current = null; autoSubmittedRef.current.clear(); setTargetKind('document');
     setSubmitting(false);
     setSubmissionError(null);
   }, [identity]);
@@ -335,7 +336,7 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
     if (!candidate || candidate.status !== 'ready' || !canAccept || (candidate.assistTarget && !supportsScopedApply)) return;
     const current = { ...snapshotRef.current(), pageId, spaceId, userId: user?.id ?? '', canEdit: canEditRef.current };
     const application = applyCandidateToDraft(candidate, current, editId);
-    if (application.status !== 'applied' || !canAcceptCandidate(candidate, current, editId)) {
+    if (application.status !== 'applied') {
       candidatesRef.current.set(taskId, { ...candidate, status: 'conflict' }); emitNotes('fail', candidate);
     } else {
       // Lock before invoking parent. Publish ledger only after parent synchronously commits live source.
@@ -400,6 +401,11 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
       if (mountedRef.current && generationRef.current === requestedGeneration && identityRef.current === requestedIdentity) setSubmitting(false);
     }
   };
+
+  useEffect(() => {
+    if (!assistRequest?.autoSubmit || !assistRequest.noteIds?.length || autoSubmittedRef.current.has(assistRequest.id) || requestRef.current?.id !== assistRequest.id || intent !== assistRequest.intent || submitting || !canEdit) return;
+    autoSubmittedRef.current.add(assistRequest.id); void submit();
+  }, [assistRequest?.id, intent, targetKind, submitting, canEdit]);
 
   return (
     <aside className="flex w-80 shrink-0 flex-col rounded-xl border border-gray-200 bg-white shadow-sm" data-testid="agent-assist-panel">

@@ -64,6 +64,7 @@ export function applyCandidateToDraft(candidate: AssistCandidate, current: Assis
     return result.status === 'applied' ? { status: 'applied', content: result.content, acceptedEditIds: result.acceptedIds } : { status: 'refused' };
   }
   if (!acceptedIds.length) {
+    if (candidate.assistTarget.kind === 'document' && candidate.baseDraftRevision !== current.draftRevision) return { status: 'refused' };
     const result = applyScopedCandidate(candidate.baseContent, candidate.content, candidate.assistTarget, current.content);
     return result.status === 'applied' ? { status: 'applied', content: result.content, acceptedEditIds: plan.edits.map((edit) => edit.id) } : { status: 'refused' };
   }

@@ -14,8 +14,12 @@ import { PageAgentBindingDialog } from '../page-templates/PageAgentBindingDialog
 import { listPageTemplates } from '../page-templates/pageTemplateApi';
 import { truncateValidatorLength } from '../page-templates/validatorLength';
 import { listCompositeTemplates } from '../page-templates/compositeTemplateApi';
-import { AgentAssistPanel } from './AgentAssistPanel';
-import { canAcceptCandidate, type AssistCandidate } from './assistCandidate';
+import { AgentAssistPanel, type AssistRequest } from './AgentAssistPanel';
+import { applyCandidateToDraft, type AssistCandidate } from './assistCandidate';
+import { captureAssistTarget } from './assistTargets';
+import { PersonalNotesPanel } from './PersonalNotesPanel';
+import { usePersonalNotes } from './usePersonalNotes';
+import type { MarkdownSelection } from '../../components/markdown-tools/DocumentTools';
 import { canRestoreDraft, type AuthorizedDraftPage } from './localDrafts';
 import { useLocalDraft } from './useLocalDraft';
 import { LocalDraftNotice } from './LocalDraftNotice';
@@ -105,7 +109,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const contentRef = useRef<string>('');
   const titleRef = useRef('');
   const assistRemoteRevisionRef = useRef(0);
-  const acceptedAssistTasksRef = useRef(new Set<string>());
+  const acceptedAssistTasksRef = useRef(new Map<string, string[]>());
   const tRef = useRef(t);
   const pageRef = useRef<Page | null>(null);
   const currentUserIdRef = useRef(user?.id);
@@ -164,6 +168,9 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const [isDirty, setIsDirty] = useState(false);
   const [mode, setMode] = useState<MarkdownMode>('edit');
   const [assistOpen, setAssistOpen] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [assistSelection, setAssistSelection] = useState<MarkdownSelection>({ from: 0, to: 0, text: '' });
+  const [selectionRequest, setSelectionRequest] = useState<AssistRequest | null>(null);
   const [remoteUpdate, setRemoteUpdate] = useState<RemotePageUpdate | null>(null);
   const [templateCapability, setTemplateCapability] = useState<{ identity: string; canManage: boolean } | null>(null);
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
@@ -181,6 +188,10 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     return { userId: currentUserIdRef.current, spaceId: current.spaceId, pageId: current.id, updatedAt: current.updatedAt, title: current.title, content: current.content, canEdit: true };
   }, []);
   const localDraft = useLocalDraft(draftContext);
+  const notesWritable = !!page && page.id === id && !loading && !error && !writeUnavailable && page.capabilities?.canEdit === true && authorizedUserIdRef.current === user?.id;
+  const personalNotes = usePersonalNotes({ scope: notesWritable && user?.id && page ? { userId: user.id, spaceId: page.spaceId, pageId: page.id } : null, canEdit: notesWritable, source: content, updatedAt: page?.updatedAt, language });
+  const selectionTarget = page ? captureAssistTarget(content, 'selection', assistSelection.from, assistSelection.to, page.updatedAt) : null;
+  const sectionTarget = page ? captureAssistTarget(content, 'section', assistSelection.from, assistSelection.to, page.updatedAt) : null;
 
   const templateCapabilityIdentity = page
     ? `${page.id}\u0000${page.spaceId}\u0000${page.format}\u0000${language}`
@@ -597,6 +608,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     saveControllerRef.current?.abort();
     saveControllerRef.current = null;
     setSaving(false);
+    acceptedAssistTasksRef.current.clear(); setSelectionRequest(null); setNotesOpen(false); setAssistSelection({ from: 0, to: 0, text: '' });
     loadSequenceRef.current += 1;
     requestControllersRef.current.forEach((controller) => controller.abort());
     requestControllersRef.current.clear();
@@ -799,20 +811,33 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     updateDirty(true);
   }, [localDraft.schedule, updateDirty]);
 
-  const applyAgentChanges = (candidate: AssistCandidate): boolean => {
+  const requestSelectionAssist = (selection: MarkdownSelection) => {
+    const latest = pageRef.current, source = internalWorkspaceRef.current?.currentValue() ?? contentRef.current;
+    if (!latest || !notesWritable || mode !== 'edit' || remoteUpdate || unresolvedSocketRevisionRef.current) return;
+    const target = captureAssistTarget(source, 'selection', selection.from, selection.to, latest.updatedAt);
+    if (!target || target.quote !== selection.text) return;
+    setSelectionRequest({ id: crypto.randomUUID(), intent: '', assistTarget: target }); setNotesOpen(false); setAssistOpen(true);
+  };
+  const applyAgentChanges = (candidate: AssistCandidate, editId?: string): boolean => {
     const latest = pageRef.current;
-    if (!mountedRef.current || activePageIdRef.current !== candidate.pageId || !latest
-      || saving || mode !== 'edit' || acceptedAssistTasksRef.current.has(candidate.taskId)
-      || !canAcceptCandidate(candidate, {
-        pageId: latest.id, spaceId: latest.spaceId, userId: user?.id ?? '',
-        title: titleRef.current, content: internalWorkspaceRef.current?.currentValue() ?? contentRef.current,
-        updatedAt: latest.updatedAt, draftRevision: editRevisionRef.current,
-        remoteRevision: assistRemoteRevisionRef.current,
-        canEdit: !writeUnavailable && latest.capabilities?.canEdit !== false,
-        remoteConflict: remoteUpdate !== null,
-      })) return false;
-    if (!internalWorkspaceRef.current?.replaceDocument(candidate.content)) return false;
-    acceptedAssistTasksRef.current.add(candidate.taskId);
+    if (!mountedRef.current || activePageIdRef.current !== candidate.pageId || !latest || saving || mode !== 'edit'
+      || unresolvedSocketRevisionRef.current || latestRemoteUpdatedAtRef.current !== latest.updatedAt
+      || authorizedUserIdRef.current !== currentUserIdRef.current) return false;
+    const recorded = acceptedAssistTasksRef.current.get(candidate.taskId);
+    if (recorded && (!candidate.editPlan || !editId && recorded.length === candidate.editPlan.edits.length || editId && recorded.includes(editId))) return false;
+    if (recorded && JSON.stringify(recorded) !== JSON.stringify(candidate.acceptedEditIds ?? [])) return false;
+    const application = applyCandidateToDraft(candidate, {
+      pageId: latest.id, spaceId: latest.spaceId, userId: currentUserIdRef.current ?? '',
+      title: titleRef.current, content: internalWorkspaceRef.current?.currentValue() ?? contentRef.current,
+      updatedAt: latest.updatedAt, draftRevision: editRevisionRef.current,
+      remoteRevision: assistRemoteRevisionRef.current,
+      canEdit: !writeUnavailable && latest.capabilities?.canEdit === true,
+      remoteConflict: remoteUpdate !== null || unresolvedSocketRevisionRef.current !== null,
+    }, editId);
+    if (application.status !== 'applied' || !internalWorkspaceRef.current?.replaceDocument(application.content)) return false;
+    // replaceDocument fires the existing human/accepted edit handler synchronously, including localDraft.schedule.
+    contentRef.current = application.content;
+    acceptedAssistTasksRef.current.set(candidate.taskId, application.acceptedEditIds);
     return true;
   };
 
@@ -1147,10 +1172,11 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             {mode === 'edit' ? <BookOpen size={17} aria-hidden="true" /> : <PenLine size={17} aria-hidden="true" />}
             <span>{mode === 'edit' ? t('common.preview') : t('editor.returnToEdit')}</span>
           </button>
+          <button type="button" aria-label={language === 'zh-CN' ? '个人笔记' : 'Personal notes'} disabled={!notesWritable} onClick={() => setNotesOpen((open) => !open)} aria-pressed={notesOpen} className="min-h-9 rounded-lg px-3 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-40">{language === 'zh-CN' ? '个人笔记' : 'Personal notes'}</button>
           <button
             type="button"
             aria-label={t('editor.assist')}
-            onClick={() => setAssistOpen((open) => !open)}
+            onClick={() => { if (notesOpen) { setNotesOpen(false); setAssistOpen(true); } else setAssistOpen((open) => !open); }}
             aria-pressed={assistOpen}
             disabled={writeUnavailable}
             data-testid="assist-toggle"
@@ -1221,27 +1247,41 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             pageLinksIdentity={`${user?.id}:${!writeUnavailable}`}
             outlineOverlay={assistOpen}
             onChange={handleContentChange}
+            onSelectionChange={setAssistSelection}
+            onRequestAssist={notesWritable ? requestSelectionAssist : undefined}
             pageId={page.id}
             spaceId={page.spaceId}
             onUploadImages={attachmentEnabled ? handleUploadImages : undefined}
             onUploadError={attachmentEnabled ? handleImageUploadError : undefined}
           />
         </div>
+        {assistOpen || notesOpen ? <div className="document-assist-layer w-80">
+          <div className="sticky top-0 z-10 flex gap-2 border-b bg-white p-3 text-sm"><button type="button" onClick={() => { setNotesOpen(false); setAssistOpen(true); }} aria-label={language === 'zh-CN' ? '候选队列' : 'Candidate queue'} aria-pressed={!notesOpen}>{language === 'zh-CN' ? '编辑辅助' : 'Editing assist'}</button><button type="button" onClick={() => setNotesOpen(true)} aria-pressed={notesOpen}>{language === 'zh-CN' ? '笔记队列' : 'Notes queue'}</button><button type="button" className="ml-auto text-gray-500" aria-label={language === 'zh-CN' ? '关闭协作面板' : 'Close collaboration panel'} onClick={() => { setNotesOpen(false); setAssistOpen(false); }}>×</button></div>
+        {notesOpen && notesWritable ? <div className="p-3">
+          {personalNotes.conflict ? <p role="alert" className="mb-2 text-sm text-amber-800">{language === 'zh-CN' ? '所选笔记原文已变动、定位不唯一或内容过长，请检查后重试。' : 'Selected passages changed, are ambiguous, or exceed the request limit. Review them before retrying.'}</p> : null}
+          <PersonalNotesPanel key={personalNotes.identityKey} source={content} target={selectionTarget} notes={personalNotes.notes} storageUnavailable={personalNotes.storageUnavailable} disabled={saving || mode !== 'edit' || !!remoteUpdate || !!unresolvedSocketRevisionRef.current || !!personalNotes.assistRequest} onAdd={personalNotes.add} onReopen={personalNotes.reopen} onDispatch={(ids) => { if (personalNotes.dispatch(ids)) { setSelectionRequest(null); setNotesOpen(false); setAssistOpen(true); } }} />
+        </div> : null}
         {assistOpen && page ? (
-          <div className="document-assist-layer"><AgentAssistPanel
+          <div hidden={notesOpen}><AgentAssistPanel
             pageId={page.id}
             pageTitle={title || page.title}
             spaceId={page.spaceId}
             key={`${user?.id}:${page.spaceId}:${page.id}`}
-            snapshot={() => ({ title: titleRef.current, content: internalWorkspaceRef.current?.currentValue() ?? contentRef.current, updatedAt: pageRef.current?.updatedAt, draftRevision: editRevisionRef.current, remoteRevision: assistRemoteRevisionRef.current })}
-            canEdit={!writeUnavailable}
+            snapshot={() => { const source = internalWorkspaceRef.current?.currentValue() ?? contentRef.current; const updatedAt = pageRef.current?.updatedAt; return { title: titleRef.current, content: source, updatedAt, draftRevision: editRevisionRef.current, remoteRevision: assistRemoteRevisionRef.current, remoteConflict: !!remoteUpdate || !!unresolvedSocketRevisionRef.current, assistTarget: updatedAt ? captureAssistTarget(source, 'document', 0, source.length, updatedAt) ?? undefined : undefined }; }}
+            canEdit={notesWritable}
             canAccept={mode === 'edit' && !saving}
             acceptUnavailableReason={saving
               ? (language === 'zh-CN' ? '保存完成后可接受候选。' : 'Wait for Save to finish before accepting.')
               : undefined}
+            supportsScopedApply
+            assistTargets={{ selection: selectionTarget, section: sectionTarget }}
+            assistRequest={personalNotes.assistRequest ?? selectionRequest}
+            onRequestHandled={(requestId) => { personalNotes.onRequestHandled(requestId); if (selectionRequest?.id === requestId) setSelectionRequest(null); }}
+            onNotesEvent={personalNotes.onNotesEvent}
             onApply={applyAgentChanges}
           /></div>
         ) : null}
+        </div> : null}
       </div>
 
       {templateDialogSnapshot && canManageTemplates && page.format === 'markdown' ? (

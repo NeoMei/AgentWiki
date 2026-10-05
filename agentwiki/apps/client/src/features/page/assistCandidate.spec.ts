@@ -55,3 +55,9 @@ describe('scoped candidate guard and edits', () => {
     expect(applyCandidateToDraft(done, { ...current, updatedAt: version, content: base.replace('old', 'human'), draftRevision: 3 })).toMatchObject({ status: 'applied', content: 'human' + 'x'.repeat(300) + 'new' + 'y'.repeat(300) });
   });
 });
+
+it('retains exact draft revision guard for whole document acceptance after typing and undo',()=>{
+  const version='2026-10-06T00:00:00Z';
+  const scoped=completeAssistCandidate({...candidate,baseUpdatedAt:version,assistTarget:captureAssistTarget('Draft','document',0,5,version)!},'Result');
+  expect(canAcceptCandidate(scoped,{...current,updatedAt:version,draftRevision:3})).toBe(false);
+});
