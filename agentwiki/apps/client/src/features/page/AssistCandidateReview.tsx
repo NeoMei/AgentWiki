@@ -2,8 +2,8 @@ import { useLanguage } from '../../context/LanguageContext';
 import { MarkdownDiff } from '../../components/markdown-diff/MarkdownDiff';
 import type { AssistCandidate } from './assistCandidate';
 
-export function AssistCandidateReview({ candidate, canEdit, onAccept, onDiscard }: {
-  candidate: AssistCandidate; canEdit: boolean; onAccept: () => void; onDiscard: () => void;
+export function AssistCandidateReview({ candidate, canEdit, onAccept, onDiscard, supportsScopedApply = false }: {
+  candidate: AssistCandidate; canEdit: boolean; supportsScopedApply?: boolean; onAccept: (editId?: string) => void; onDiscard: () => void;
 }) {
   const { language } = useLanguage();
   const zh = language === 'zh-CN';
@@ -29,8 +29,15 @@ export function AssistCandidateReview({ candidate, canEdit, onAccept, onDiscard 
       <button type="button" onClick={() => download(candidate.baseContent, 'assist-original.md')}>{zh ? '下载原文' : 'Download original'}</button>
       <button type="button" onClick={() => download(candidate.content, 'assist-candidate.md')}>{zh ? '下载候选' : 'Download candidate'}</button>
     </div> : null}
+    {candidate.editPlan && supportsScopedApply ? <div className="space-y-2">
+      <p className="text-xs text-gray-500">{candidate.editPlan.indivisible ? (zh ? '此候选作为一项整体变更接受。' : 'This candidate is accepted as one indivisible change.') : (zh ? '可逐项接受独立变更，每次都会核对当前草稿。' : 'Accept independent changes one at a time; each acceptance checks the current draft.')}</p>
+      {candidate.editPlan.edits.map((edit, index) => <div key={edit.id} className="rounded-lg border border-gray-200 p-2">
+        <MarkdownDiff before={edit.before} after={edit.after} />
+        <button type="button" aria-label={zh ? `接受变更 ${index + 1}` : `Accept change ${index + 1}`} disabled={!canEdit || candidate.status !== 'ready' || candidate.acceptedEditIds?.includes(edit.id)} onClick={() => onAccept(edit.id)} className="mt-2 rounded-lg border px-3 py-1.5 text-xs disabled:opacity-40">{candidate.acceptedEditIds?.includes(edit.id) ? (zh ? '已接受' : 'Accepted') : (zh ? `接受变更 ${index + 1}` : `Accept change ${index + 1}`)}</button>
+      </div>)}
+    </div> : null}
     {active ? <div className="flex flex-wrap gap-2">
-      <button type="button" disabled={!canEdit || candidate.status !== 'ready'} onClick={onAccept} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs text-white disabled:opacity-40">{zh ? '接受到草稿' : 'Accept to draft'}</button>
+      <button type="button" disabled={!canEdit || candidate.status !== 'ready'} onClick={() => onAccept()} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs text-white disabled:opacity-40">{zh ? '接受到草稿' : 'Accept to draft'}</button>
       <button type="button" onClick={onDiscard} className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs">{zh ? '丢弃' : 'Discard'}</button>
     </div> : null}
   </section>;

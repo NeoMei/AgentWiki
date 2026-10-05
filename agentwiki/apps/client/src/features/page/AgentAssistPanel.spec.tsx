@@ -1,3 +1,5 @@
+import {captureAssistTarget} from './assistTargets';
+import {applyCandidateToDraft, type AssistCandidate} from './assistCandidate';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
@@ -354,5 +356,71 @@ describe('AgentAssistPanel routing metadata', () => {
     // Raw provider details, model names, costs, and error codes are never exposed.
     expect(screen.queryByText(/provider|paid-model|Paid|tokens|\$0\.5|binary_unavailable|auth_failed|raw authentication/u))
       .not.toBeInTheDocument();
+  });
+});
+
+describe('scoped panel contracts', () => {
+  beforeEach(() => { vi.clearAllMocks(); socketMock.handlers.clear(); vi.mocked(useLanguage).mockReturnValue({language:'en'} as ReturnType<typeof useLanguage>); });
+  afterEach(cleanup);
+  const version='2026-10-06T00:00:00Z', base='one\nkeep\ntwo\n';
+  it('transmits the exact target and note linkage, emits readiness without resolving, and accepts hunks once', async () => {
+    let draft=base; const events=vi.fn();
+    vi.mocked(api.post).mockResolvedValue({data:{id:'scoped'}});
+    vi.mocked(api.get).mockImplementation(async(url)=>({data:url==='/assist/tasks'?[{...successfulTask,id:'scoped',result:{...successfulTask.result,changes:'ONE\nkeep\nTWO\n'}}]:[]}));
+    const target=captureAssistTarget(base,'document',0,0,version)!;
+    const onApply=vi.fn((candidate: AssistCandidate, editId?: string)=>{const result=applyCandidateToDraft(candidate,{pageId:'page-1',spaceId:'space-1',userId:'user-1',canEdit:true,title:'Page',content:draft,updatedAt:version},editId);if(result.status!=='applied')return false;draft=result.content;return true;});
+    render(<AgentAssistPanel pageId="page-1" pageTitle="Page" spaceId="space-1" snapshot={()=>({title:'Page',content:draft,updatedAt:version})} supportsScopedApply onApply={onApply} assistRequest={{id:'notes-1',intent:'Please fix both',assistTarget:target,noteIds:['note-1']}} onNotesEvent={events} />);
+    fireEvent.click(screen.getByTestId('assist-submit'));
+    await screen.findByRole('button',{name:'Accept change 1'});
+    expect(api.post).toHaveBeenCalledWith('/assist/tasks',expect.objectContaining({snapshot:{title:'Page',content:base,updatedAt:version,assistTarget:target}}));
+    expect(events).toHaveBeenCalledWith(expect.objectContaining({event:'dispatch',taskId:'scoped',noteIds:['note-1']}));
+    expect(events).toHaveBeenCalledWith(expect.objectContaining({event:'ready',taskId:'scoped'}));
+    expect(events.mock.calls.some(([e])=>e.event==='accept')).toBe(false); expect(draft).toBe(base);
+    fireEvent.click(screen.getByRole('button',{name:'Accept change 1'})); expect(draft).toBe('ONE\nkeep\ntwo\n');
+    fireEvent.click(screen.getByRole('button',{name:'Accept change 1'})); expect(onApply).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button',{name:'Accept change 2'})); expect(draft).toBe('ONE\nkeep\nTWO\n');
+    expect(events).toHaveBeenCalledWith(expect.objectContaining({event:'accept',editId:'edit-2',acceptedEditIds:['edit-1','edit-2']}));
+  });
+  it('never invokes old parent for a scoped candidate, or submits a stale target', async () => {
+    const target=captureAssistTarget(base,'selection',0,3,version)!;const onApply=vi.fn(()=>true);
+    vi.mocked(api.post).mockResolvedValue({data:{id:'scoped'}});vi.mocked(api.get).mockImplementation(async(url)=>({data:url==='/assist/tasks'?[{...successfulTask,id:'scoped',result:{...successfulTask.result,changes:'ONE\nkeep\ntwo\n'}}]:[]}));
+    render(<AgentAssistPanel pageId="page-1" pageTitle="Page" spaceId="space-1" snapshot={()=>({title:'Page',content:base,updatedAt:version})} onApply={onApply} assistRequest={{id:'scope',intent:'Fix',assistTarget:target}} />);
+    fireEvent.click(screen.getByTestId('assist-submit'));
+    expect(await screen.findByRole('button',{name:'Accept to draft'})).toBeDisabled();expect(onApply).not.toHaveBeenCalled();
+  });
+  it('retains notes on failed send and emits fail/discard for matching tasks only', async () => {
+    const events=vi.fn();vi.mocked(api.post).mockRejectedValue(new Error('failed'));vi.mocked(api.get).mockResolvedValue({data:[]});
+    render(<AgentAssistPanel pageId="page-1" pageTitle="Page" spaceId="space-1" snapshot={()=>({title:'Page',content:base,updatedAt:version})} assistRequest={{id:'n',intent:'Fix',noteIds:['n']}} onNotesEvent={events} />);
+    fireEvent.click(screen.getByTestId('assist-submit'));await screen.findByRole('alert');expect(events).not.toHaveBeenCalled();expect(screen.getByTestId('assist-intent')).toHaveValue('Fix');
+  });
+});
+
+describe('scoped panel refusal and note recovery', () => {
+  const version='2026-10-06T00:00:00Z', base='before\nquote\nafter';
+  beforeEach(()=>{vi.clearAllMocks();socketMock.handlers.clear();vi.mocked(useLanguage).mockReturnValue({language:'en'} as ReturnType<typeof useLanguage>);});
+  afterEach(cleanup);
+  it('refuses a stale selected quote before sending and retains its note request', async () => {
+    const handled=vi.fn();vi.mocked(api.get).mockResolvedValue({data:[]});
+    render(<AgentAssistPanel pageId="page-1" pageTitle="Page" spaceId="space-1" snapshot={()=>({title:'Page',content:'changed',updatedAt:version})} assistRequest={{id:'n',intent:'Fix',assistTarget:captureAssistTarget(base,'selection',7,12,version)!,noteIds:['n']}} onRequestHandled={handled} />);
+    fireEvent.click(screen.getByTestId('assist-submit'));await screen.findByRole('alert');expect(api.post).not.toHaveBeenCalled();expect(handled).not.toHaveBeenCalled();
+  });
+  it.each(['discard','fail'] as const)('reopens linked notes on %s without applying source', async(event)=>{
+    const events=vi.fn(),onApply=vi.fn(()=>true);vi.mocked(api.post).mockResolvedValue({data:{id:'scoped'}});
+    vi.mocked(api.get).mockImplementation(async(url)=>({data:url==='/assist/tasks'?[{...successfulTask,id:'scoped',result:{...successfulTask.result,changes:'before\nnew\nafter'}}]:[]}));
+    render(<AgentAssistPanel pageId="page-1" pageTitle="Page" spaceId="space-1" supportsScopedApply snapshot={()=>({title:'Page',content:base,updatedAt:version})} onApply={onApply} assistRequest={{id:'n',intent:'Fix',assistTarget:captureAssistTarget(base,'selection',7,12,version)!,noteIds:['n']}} onNotesEvent={events} />);
+    fireEvent.click(screen.getByTestId('assist-submit'));await screen.findByRole('button',{name:'Accept to draft'});
+    if(event==='discard')fireEvent.click(screen.getByRole('button',{name:'Discard'}));
+    else {onApply.mockReturnValue(false);fireEvent.click(screen.getByRole('button',{name:'Accept to draft'}));}
+    expect(events).toHaveBeenCalledWith(expect.objectContaining({event,taskId:'scoped',noteIds:['n']}));
+    expect(events.mock.calls.some(([e])=>e.event==='accept')).toBe(false);
+    act(()=>socketMock.handlers.get('assistComplete')?.({taskId:'scoped'}));
+    expect(screen.queryByRole('button',{name:'Accept change 1'})).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Accept change 1'})).toBeDisabled();
+  });
+  it('fails a candidate changing outside the target without accepting linked notes',async()=>{
+    const events=vi.fn(),onApply=vi.fn(()=>true);vi.mocked(api.post).mockResolvedValue({data:{id:'scoped'}});
+    vi.mocked(api.get).mockImplementation(async(url)=>({data:url==='/assist/tasks'?[{...successfulTask,id:'scoped',result:{...successfulTask.result,changes:'OUTSIDE\nnew\nafter'}}]:[]}));
+    render(<AgentAssistPanel pageId="page-1" pageTitle="Page" spaceId="space-1" supportsScopedApply snapshot={()=>({title:'Page',content:base,updatedAt:version})} onApply={onApply} assistRequest={{id:'n',intent:'Fix',assistTarget:captureAssistTarget(base,'selection',7,12,version)!,noteIds:['n']}} onNotesEvent={events} />);
+    fireEvent.click(screen.getByTestId('assist-submit'));await screen.findByRole('alert');expect(onApply).not.toHaveBeenCalled();expect(events).toHaveBeenCalledWith(expect.objectContaining({event:'fail'}));
   });
 });
