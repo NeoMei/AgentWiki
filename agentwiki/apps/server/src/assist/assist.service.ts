@@ -2,6 +2,8 @@ import { BadRequestException, HttpException, HttpStatus, Injectable } from '@nes
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { AuthorizationService } from '../core/authorization/authorization.service';
+import { assertAssistTargetVersion, validateAssistTarget } from './assist-target';
 
 export interface CreateAssistTaskInput {
   spaceId: string;
@@ -33,6 +35,7 @@ export class AssistService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly authorization: AuthorizationService,
   ) {}
 
   async createTask(input: CreateAssistTaskInput) {
@@ -41,15 +44,20 @@ export class AssistService {
     if (input.snapshot && JSON.stringify(input.snapshot).length > 50_000) {
       throw new BadRequestException('Page snapshot is too large');
     }
+    if (!input.userId) throw new BadRequestException('Assist requester is required');
+    const target = validateAssistTarget(input.snapshot);
+    if (target && !input.pageId) throw new BadRequestException('Scoped Assist requires a page');
     const configured = Number(this.config.get('ASSIST_MAX_OUTSTANDING_PER_USER') || 10);
     const maxOutstanding = Number.isInteger(configured) && configured > 0 ? configured : 10;
     return this.prisma.$transaction(async (tx) => {
+      await this.authorization.assertLiveHumanSpaceAccess(tx, { userId: input.userId! }, input.spaceId, ['owner', 'editor']);
       if (input.pageId) {
         const page = await tx.page.findFirst({
           where: { id: input.pageId, spaceId: input.spaceId, deletedAt: null },
-          select: { id: true },
+          select: { id: true, updatedAt: true },
         });
         if (!page) throw new BadRequestException('Assist page must belong to the selected Space');
+        assertAssistTargetVersion(target, page.updatedAt);
       }
       const outstanding = await tx.assistTask.count({
         where: {
@@ -74,9 +82,11 @@ export class AssistService {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 
-  async listForPage(pageId: string) {
+  async listForPage(pageId: string, userId: string, spaceId: string) {
+    if (!userId) throw new BadRequestException('Assist requester is required');
+    if (!spaceId) throw new BadRequestException('Assist Space is required');
     const tasks = await this.prisma.assistTask.findMany({
-      where: { pageId },
+      where: { pageId, requestedByUserId: userId, spaceId },
       orderBy: { createdAt: 'desc' },
       take: 5,
     });
@@ -86,8 +96,9 @@ export class AssistService {
     }));
   }
 
-  async get(id: string) {
-    const task = await this.prisma.assistTask.findUnique({ where: { id } });
+  async get(id: string, userId: string) {
+    if (!userId) throw new BadRequestException('Assist requester is required');
+    const task = await this.prisma.assistTask.findFirst({ where: { id, requestedByUserId: userId } });
     if (!task) return null;
     return {
       ...task,

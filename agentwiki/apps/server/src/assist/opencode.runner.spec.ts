@@ -32,6 +32,17 @@ describe('OpencodeCliRunner', () => {
 
   afterEach(() => jest.useRealTimers());
 
+  it('tells the model the exact editable range while keeping full markdown output', () => {
+    const prompt = new OpencodeCliRunner(config).buildPrompt({ intent: 'rewrite', pageSnapshot: {
+      content: 'pre OLD post', updatedAt: '2026-01-01T00:00:00.000Z', assistTarget: {
+        kind: 'selection', from: 4, to: 7, quote: 'OLD', prefix: 'pre ', suffix: ' post', baseUpdatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    } });
+    expect(prompt).toContain('UTF-16 range [4, 7)');
+    expect(prompt).toContain('outside this range must remain exactly unchanged');
+    expect(prompt).toContain('<full markdown>');
+  });
+
   it('builds an editing prompt from the task input', () => {
     const runner = new OpencodeCliRunner(config);
 

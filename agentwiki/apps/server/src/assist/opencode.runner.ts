@@ -21,6 +21,8 @@ import {
   resolveOpencodeLaunchFile,
 } from './opencode-launch';
 
+import { assertAssistOutputScope, validateAssistTarget } from './assist-target';
+
 const MAX_OUTPUT_BYTES = 2_000_000;
 const TERMINATION_GRACE_MS = 5_000;
 
@@ -35,10 +37,13 @@ export class OpencodeCliRunner implements OpencodeRunner {
     const prompt = this.buildPrompt(task);
     const timeoutMs = Number(this.config.get('ASSIST_OPENCODE_TIMEOUT_MS') || 180_000);
     const output = await this.exec(['run', '--format', 'json', prompt], timeoutMs, 'model');
-    return this.parse(output);
+    const result = this.parse(output);
+    assertAssistOutputScope(task.pageSnapshot, result.changes);
+    return result;
   }
 
   buildPrompt(task: AssistInput): string {
+    const target = validateAssistTarget(task.pageSnapshot);
     const snapshot = task.pageSnapshot ? JSON.stringify(task.pageSnapshot, null, 2) : '(no page snapshot)';
     return [
       'You are an editing assistant for AgentWiki. Help rewrite a page based on the user intent.',
@@ -51,6 +56,11 @@ export class OpencodeCliRunner implements OpencodeRunner {
       '',
       '## Instructions',
       '- Produce the improved page content as markdown.',
+      ...(target ? [
+        `- Edit only the ${target.kind} target at UTF-16 range [${target.from}, ${target.to}) in snapshot.content.`,
+        '- All content outside this range must remain exactly unchanged, including whitespace and formatting.',
+        '- Return the full source in changes, including the unchanged content before and after the target; never return only the replacement.',
+      ] : []),
       '- Do NOT call any tools or write anywhere; just return the improved content and a one-line summary.',
       '- Respond as JSON: {"summary": "...", "changes": "<full markdown>"}',
     ].join('\n');

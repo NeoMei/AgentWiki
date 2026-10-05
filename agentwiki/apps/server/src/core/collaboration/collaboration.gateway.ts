@@ -3,6 +3,7 @@ import { OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { Logger } from '@nestjs/common';
+import { PrismaService } from '../../database/prisma.service';
 import { RedisService } from '../../database/redis.service';
 import { AuthService } from '../auth/auth.service';
 import { AuthorizationService, type Principal } from '../authorization/authorization.service';
@@ -58,6 +59,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
     private readonly auth: AuthService,
     private readonly authorization: AuthorizationService,
     private readonly runs: CollaborationRunAccessService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async onModuleInit() {
@@ -531,14 +533,35 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   }
 
   private async relayAssistMessage(msg: AssistChannelMessage) {
-    if (!this.validPageId(msg?.pageId)) return;
-    await this.pruneUnauthorizedRoomMembers(msg.pageId, msg.kind !== 'stream');
-    if (msg.kind === 'stream') {
-      this.server.to(msg.pageId).emit('assistStream', { taskId: msg.taskId, chunk: msg.chunk });
-    } else if (msg.kind === 'complete') {
-      this.server.to(msg.pageId).emit('assistComplete', { taskId: msg.taskId });
-    } else if (msg.kind === 'error') {
-      this.server.to(msg.pageId).emit('assistError', { taskId: msg.taskId, error: msg.error });
+    if (!this.validPageId(msg?.pageId) || !this.validPageId(msg?.taskId)) return;
+    if (!['stream', 'complete', 'error'].includes(msg.kind)) return;
+    if ((msg.kind === 'stream' && typeof msg.chunk !== 'string') || (msg.kind === 'error' && typeof msg.error !== 'string')) return;
+    // Resolve ownership from the canonical task, never from Redis publisher
+    // claims. Draft snapshots and Assist events belong to their requester.
+    const task = await this.prisma.assistTask.findUnique({
+      where: { id: msg.taskId },
+      select: { pageId: true, spaceId: true, requestedByUserId: true },
+    });
+    if (!task?.requestedByUserId || task.pageId !== msg.pageId) return;
+    const sockets = await this.server.in(msg.pageId).fetchSockets();
+    for (const socket of sockets as unknown as Socket[]) {
+      if (socket.data.user?.userId !== task.requestedByUserId) continue;
+      const principal = await this.refreshSocketPrincipal(socket);
+      if (!principal) {
+        this.removeClientFromPage(socket, msg.pageId);
+        continue;
+      }
+      try {
+        const page = await this.authorization.assertPageAccess(principal, msg.pageId, ['owner', 'editor'], 'pages:write');
+        if (page.spaceId !== task.spaceId) continue;
+      } catch {
+        await socket.leave(msg.pageId);
+        this.removeClientFromPage(socket, msg.pageId);
+        continue;
+      }
+      if (msg.kind === 'stream') socket.emit('assistStream', { taskId: msg.taskId, chunk: msg.chunk });
+      else if (msg.kind === 'complete') socket.emit('assistComplete', { taskId: msg.taskId });
+      else socket.emit('assistError', { taskId: msg.taskId, error: msg.error });
     }
   }
 

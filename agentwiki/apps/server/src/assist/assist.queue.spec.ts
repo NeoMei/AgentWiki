@@ -1,8 +1,12 @@
 import { AssistQueue } from './assist.queue';
+import { AuthorizationService } from '../core/authorization/authorization.service';
 import { EMPTY_USAGE, OpencodeRoutingError } from './opencode.types';
 
 describe('AssistQueue task processing', () => {
   const prisma = {
+    page: { findFirst: jest.fn() },
+    $transaction: jest.fn(), $queryRaw: jest.fn(), user: { findUnique: jest.fn() },
+    space: { findUnique: jest.fn() }, spaceMember: { findUnique: jest.fn() },
     assistTask: { count: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
   } as any;
   const config = { get: jest.fn((key: string, def?: any) => ({
@@ -14,10 +18,16 @@ describe('AssistQueue task processing', () => {
     emitAssistComplete: jest.fn(),
     emitAssistError: jest.fn(),
   } as any;
-  const createQueue = () => new AssistQueue(prisma, config, runner, gateway);
+  const createQueue = () => new AssistQueue(prisma, config, runner, gateway, new AuthorizationService(prisma));
 
   beforeEach(() => {
     jest.clearAllMocks();
+    prisma.$transaction.mockImplementation(async (callback: any) => callback(prisma));
+    prisma.$queryRaw.mockResolvedValue([{ id: 'user-1' }]);
+    prisma.user.findUnique.mockResolvedValue({ id: 'user-1', type: 'human', platformRole: 'user', lockedAt: null, deletedAt: null });
+    prisma.space.findUnique.mockResolvedValue({ id: 'space-1', deletedAt: null });
+    prisma.spaceMember.findUnique.mockResolvedValue({ role: 'editor' });
+    prisma.page.findFirst.mockResolvedValue({ id: 'page-1', updatedAt: new Date('2026-01-01T00:00:00.000Z') });
     prisma.assistTask.findFirst.mockReset();
     prisma.assistTask.findMany.mockReset();
     prisma.assistTask.updateMany.mockReset();
@@ -30,10 +40,10 @@ describe('AssistQueue task processing', () => {
   it('claims a queued task, runs opencode, and marks it done with the result', async () => {
     runner.run.mockResolvedValue({ summary: 'polished version', changes: '# Hi — polished' });
     const queue = createQueue();
-    await (queue as any).processOne({ id: 't1', intent: 'polish', pageSnapshot: { content: '# Hi' } });
+    await (queue as any).processOne({ id: 't1', spaceId: 'space-1', requestedByUserId: 'user-1', intent: 'polish', pageSnapshot: { content: '# Hi' } });
     expect(runner.run).toHaveBeenCalledWith(expect.objectContaining({ intent: 'polish' }));
     expect(prisma.assistTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 't1', status: 'running', leaseOwner: (queue as any).workerId },
+      where: expect.objectContaining({ id: 't1', status: 'running', leaseOwner: (queue as any).workerId }),
       data: expect.objectContaining({ status: 'done' }),
     }));
   });
@@ -41,9 +51,9 @@ describe('AssistQueue task processing', () => {
   it('marks the task failed when opencode errors', async () => {
     runner.run.mockRejectedValue(new Error('llm down'));
     const queue = createQueue();
-    await (queue as any).processOne({ id: 't1', intent: 'x', pageSnapshot: null });
+    await (queue as any).processOne({ id: 't1', spaceId: 'space-1', requestedByUserId: 'user-1', intent: 'x', pageSnapshot: null });
     expect(prisma.assistTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 't1', status: 'running', leaseOwner: (queue as any).workerId },
+      where: expect.objectContaining({ id: 't1', status: 'running', leaseOwner: (queue as any).workerId }),
       data: expect.objectContaining({ status: 'failed', error: 'Editing assistant failed' }),
     }));
   });
@@ -51,7 +61,7 @@ describe('AssistQueue task processing', () => {
   it('passes the exact claimed lease deadline to the runner', async () => {
     const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
     prisma.assistTask.findFirst
-      .mockResolvedValueOnce({ id: 't1', intent: 'polish', pageSnapshot: { content: '# Hi' } })
+      .mockResolvedValueOnce({ id: 't1', spaceId: 'space-1', requestedByUserId: 'user-1', intent: 'polish', pageSnapshot: { content: '# Hi' } })
       .mockResolvedValueOnce(null);
     runner.run.mockResolvedValue({ summary: 'done' });
     const queue = createQueue();
@@ -63,6 +73,7 @@ describe('AssistQueue task processing', () => {
     expect(prisma.assistTask.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ space: { deletedAt: null } }),
     }));
+    await new Promise((resolve) => setImmediate(resolve));
     expect(runner.run).toHaveBeenCalledWith(expect.objectContaining({ leaseExpiresAtMs: 1_060_000 }));
     now.mockRestore();
   });
@@ -74,7 +85,7 @@ describe('AssistQueue task processing', () => {
     });
     const queue = createQueue();
 
-    await (queue as any).processOne({ id: 't1', intent: 'x', pageSnapshot: null });
+    await (queue as any).processOne({ id: 't1', spaceId: 'space-1', requestedByUserId: 'user-1', intent: 'x', pageSnapshot: null });
 
     expect(prisma.assistTask.count).toHaveBeenCalledWith({
       where: {
@@ -82,6 +93,10 @@ describe('AssistQueue task processing', () => {
         status: 'running',
         leaseOwner: (queue as any).workerId,
         space: { deletedAt: null },
+        leaseExpiresAt: { gt: expect.any(Date) },
+        spaceId: 'space-1',
+        requestedByUserId: 'user-1',
+        pageId: null,
       },
     });
   });
@@ -105,7 +120,7 @@ describe('AssistQueue task processing', () => {
     runner.run.mockRejectedValue(error);
     const queue = createQueue();
 
-    await (queue as any).processOne({ id: 't1', intent: 'x', pageSnapshot: null, leaseExpiresAtMs: 10_000 });
+    await (queue as any).processOne({ id: 't1', spaceId: 'space-1', requestedByUserId: 'user-1', intent: 'x', pageSnapshot: null, leaseExpiresAtMs: 10_000 });
 
     const failed = prisma.assistTask.updateMany.mock.calls[0][0].data;
     expect(failed).toMatchObject({
@@ -126,10 +141,10 @@ describe('AssistQueue task processing', () => {
     runner.run.mockResolvedValue({ summary: 'stale result' });
     const queue = createQueue();
 
-    await (queue as any).processOne({ id: 't1', intent: 'x', pageSnapshot: null });
+    await (queue as any).processOne({ id: 't1', spaceId: 'space-1', requestedByUserId: 'user-1', intent: 'x', pageSnapshot: null });
 
     expect(prisma.assistTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 't1', status: 'running', leaseOwner: (queue as any).workerId },
+      where: expect.objectContaining({ id: 't1', status: 'running', leaseOwner: (queue as any).workerId }),
     }));
     expect(prisma.assistTask.update).not.toHaveBeenCalled();
   });
@@ -166,4 +181,75 @@ describe('AssistQueue task processing', () => {
       data: expect.objectContaining({ status: 'failed', error: 'Assistant retry budget exhausted' }),
     }));
   });
+  const scopedTask = () => ({
+    id: 't1', spaceId: 'space-1', requestedByUserId: 'user-1', pageId: 'page-1', intent: 'polish',
+    pageSnapshot: { content: 'pre OLD post', updatedAt: '2026-01-01T00:00:00.000Z', assistTarget: {
+      kind: 'section', from: 4, to: 7, quote: 'OLD', prefix: 'pre ', suffix: ' post', baseUpdatedAt: '2026-01-01T00:00:00.000Z',
+    } },
+  });
+
+  it.each(['prefix', 'suffix', 'overlapping'])('fails %s changes outside selected scope without persisting model output', async (side) => {
+    runner.run.mockResolvedValue({ summary: 'changed', changes: side === 'prefix' ? 'bad NEW post' : side === 'suffix' ? 'pre NEW bad' : 'pre post' });
+    await (createQueue() as any).processOne(scopedTask());
+    const update = prisma.assistTask.updateMany.mock.calls[0][0].data;
+    expect(update.status).toBe('failed');
+    expect(update.result).toBeUndefined();
+    expect(gateway.emitAssistComplete).not.toHaveBeenCalled();
+  });
+
+  it('stores full selected result with outside source preserved', async () => {
+    runner.run.mockResolvedValue({ summary: 'changed', changes: 'pre NEW post' });
+    await (createQueue() as any).processOne(scopedTask());
+    expect(prisma.assistTask.updateMany.mock.calls[0][0].data).toMatchObject({ status: 'done', result: { changes: 'pre NEW post' } });
+  });
+
+  it.each(['revoked', 'locked', 'foreign-page', 'stale-version', 'missing-requester'])('refuses %s task before calling any model', async (reason) => {
+    const task = scopedTask();
+    if (reason === 'revoked') prisma.spaceMember.findUnique.mockResolvedValue(null);
+    if (reason === 'locked') prisma.user.findUnique.mockResolvedValue({ id: 'user-1', type: 'human', lockedAt: new Date() });
+    if (reason === 'foreign-page') prisma.page.findFirst.mockResolvedValue(null);
+    if (reason === 'stale-version') prisma.page.findFirst.mockResolvedValue({ id: 'page-1', updatedAt: new Date('2026-02-01') });
+    if (reason === 'missing-requester') task.requestedByUserId = null as any;
+    await (createQueue() as any).processOne(task);
+    expect(runner.run).not.toHaveBeenCalled();
+    expect(prisma.assistTask.updateMany.mock.calls[0][0].data.status).toBe('failed');
+  });
+
+  it('blocks a retry and completion when access is revoked during the first model attempt', async () => {
+    runner.run.mockImplementation(async (input: any) => {
+      prisma.spaceMember.findUnique.mockResolvedValue(null);
+      expect(await input.isActive()).toBe(false);
+      input.onStreamChunk?.('private draft');
+      return { summary: 'changed', changes: 'pre NEW post' };
+    });
+    await (createQueue() as any).processOne(scopedTask());
+    expect(prisma.assistTask.updateMany.mock.calls[0][0].data.status).toBe('failed');
+    expect(gateway.emitAssistComplete).not.toHaveBeenCalled();
+  });
+
+  it('never starts a model after its lease expires', async () => {
+    prisma.assistTask.count.mockResolvedValue(0);
+    await (createQueue() as any).processOne(scopedTask());
+    expect(runner.run).not.toHaveBeenCalled();
+    expect(prisma.assistTask.updateMany.mock.calls[0][0].data.status).toBe('failed');
+  });
+
+  it('rejects a result when the saved page changes during execution', async () => {
+    runner.run.mockImplementation(async () => {
+      prisma.page.findFirst.mockResolvedValue({ id: 'page-1', updatedAt: new Date('2026-01-02') });
+      return { summary: 'changed', changes: 'pre NEW post' };
+    });
+    await (createQueue() as any).processOne(scopedTask());
+    expect(prisma.assistTask.updateMany.mock.calls[0][0].data.status).toBe('failed');
+    expect(gateway.emitAssistComplete).not.toHaveBeenCalled();
+  });
+
+  it('validates malformed persisted targets before running a model', async () => {
+    const task = scopedTask();
+    task.pageSnapshot.assistTarget.quote = 'mismatch';
+    await (createQueue() as any).processOne(task);
+    expect(runner.run).not.toHaveBeenCalled();
+    expect(prisma.assistTask.updateMany.mock.calls[0][0].data.status).toBe('failed');
+  });
+
 });

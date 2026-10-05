@@ -1,11 +1,19 @@
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { OpencodeRoutingError, OpencodeRunner } from './opencode.types';
+import { AuthorizationService } from '../core/authorization/authorization.service';
+import { assertAssistOutputScope, assertAssistTargetVersion, validateAssistTarget } from './assist-target';
 import { CollaborationGateway } from '../core/collaboration/collaboration.gateway';
 
 export type { AssistRunResult, OpencodeRunner } from './opencode.types';
+
+interface ClaimedAssistTask {
+  id: string; intent: string; pageId: string | null; spaceId: string;
+  requestedByUserId: string | null; pageSnapshot: unknown; leaseExpiresAtMs?: number;
+}
 
 @Injectable()
 export class AssistQueue implements OnModuleInit, OnModuleDestroy {
@@ -24,6 +32,7 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
     @Inject('OPENCODE_RUNNER')
     private readonly runner: OpencodeRunner,
     private readonly collaborationGateway: CollaborationGateway,
+    private readonly authorization: AuthorizationService,
   ) {}
 
   async onModuleInit() {
@@ -119,7 +128,7 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
             OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }],
           },
           orderBy: { createdAt: 'asc' },
-          select: { id: true, intent: true, pageId: true, pageSnapshot: true },
+          select: { id: true, intent: true, pageId: true, spaceId: true, requestedByUserId: true, pageSnapshot: true },
         });
         if (!candidate) break;
         const leaseExpiresAt = new Date(Date.now() + leaseMs);
@@ -139,29 +148,27 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async processOne(task: { id: string; intent: string; pageId: string | null; pageSnapshot: unknown; leaseExpiresAtMs?: number }) {
+  private async processOne(task: ClaimedAssistTask) {
     try {
+      if (!await this.isTaskActive(task)) throw new BadRequestException('Assist authorization is no longer valid');
       const result = await this.runner.run({
         intent: task.intent,
         pageSnapshot: task.pageSnapshot,
         leaseExpiresAtMs: task.leaseExpiresAtMs,
-        isActive: async () => (await this.prisma.assistTask.count({
-          where: {
-            id: task.id,
-            status: 'running',
-            leaseOwner: this.workerId,
-            space: { deletedAt: null },
-          },
-        })) === 1,
+        isActive: () => this.isTaskActive(task),
         onStreamChunk: (chunk) => {
           if (task.pageId) {
             this.collaborationGateway.emitAssistStream(task.pageId, task.id, chunk);
           }
         },
       });
-      const completion = await this.prisma.assistTask.updateMany({
-        where: { id: task.id, status: 'running', leaseOwner: this.workerId },
-        data: { status: 'done', result: result as any, completedAt: new Date(), leaseOwner: null, leaseExpiresAt: null },
+      assertAssistOutputScope(task.pageSnapshot, result.changes);
+      const completion = await this.prisma.$transaction(async (tx) => {
+        await this.assertTaskAuthorization(tx, task);
+        return tx.assistTask.updateMany({
+          where: this.activeTaskWhere(task),
+          data: { status: 'done', result: result as any, completedAt: new Date(), leaseOwner: null, leaseExpiresAt: null },
+        });
       });
       if (completion.count === 0) return;
       if (task.pageId) {
@@ -184,6 +191,42 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
       if (task.pageId) {
         this.collaborationGateway.emitAssistError(task.pageId, task.id, routing ? routing.message : 'Editing assistant failed');
       }
+    }
+  }
+
+  private activeTaskWhere(task: ClaimedAssistTask) {
+    return {
+      id: task.id, status: 'running', leaseOwner: this.workerId,
+      spaceId: task.spaceId, pageId: task.pageId ?? null,
+      requestedByUserId: task.requestedByUserId,
+      leaseExpiresAt: { gt: new Date() }, space: { deletedAt: null },
+    };
+  }
+
+  private async assertTaskAuthorization(tx: Prisma.TransactionClient, task: ClaimedAssistTask) {
+    if (!task.requestedByUserId || !task.spaceId) throw new BadRequestException('Assist requester is required');
+    await this.authorization.assertLiveHumanSpaceAccess(tx, { userId: task.requestedByUserId }, task.spaceId, ['owner', 'editor']);
+    const target = validateAssistTarget(task.pageSnapshot);
+    if (target && !task.pageId) throw new BadRequestException('Scoped Assist requires a page');
+    if (task.pageId) {
+      const page = await tx.page.findFirst({
+        where: { id: task.pageId, spaceId: task.spaceId, deletedAt: null },
+        select: { id: true, updatedAt: true },
+      });
+      if (!page) throw new BadRequestException('Assist page must belong to the selected Space');
+      assertAssistTargetVersion(target, page.updatedAt);
+    }
+  }
+
+  private async isTaskActive(task: ClaimedAssistTask): Promise<boolean> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        if (await tx.assistTask.count({ where: this.activeTaskWhere(task) }) !== 1) return false;
+        await this.assertTaskAuthorization(tx, task);
+        return true;
+      });
+    } catch {
+      return false;
     }
   }
 }
