@@ -100,3 +100,19 @@ it.each([
   act(()=>{result.current.onNotesEvent({event:'dispatch',taskId:'task',noteIds:ids,candidate:done});result.current.onNotesEvent({event:'ready',taskId:'task',noteIds:ids,candidate:done});result.current.onNotesEvent({event:'accept',taskId:'task',noteIds:ids,candidate:done,acceptedEditIds:['edit-1']});});
   expect(result.current.notes.map(n=>n.status)).toEqual(['resolved','awaiting-review']);
 });
+
+it('retains uncertain multi-hunk dependencies instead of resolving after only the definite hunk',()=>{
+  const base='one\nkeep\ntwo';
+  const {result}=renderHook(()=>usePersonalNotes({scope,canEdit:true,source:base,updatedAt:version}));
+  act(()=>result.current.add(captureAssistTarget(base,'selection',0,12,version)!,'Fix the whole passage'));
+  const ids=result.current.notes.map(n=>n.id);act(()=>{result.current.dispatch(ids);});
+  const done=completeAssistCandidate({taskId:'task',pageId:'p',spaceId:'s',userId:'u',baseTitle:'T',baseContent:base,baseUpdatedAt:version,assistTarget:result.current.assistRequest?.assistTarget,noteIds:ids,content:'',status:'generating'},'ONE\nkeep\nnew two old');
+  expect(done.editPlan?.edits).toHaveLength(2);
+  act(()=>{result.current.onNotesEvent({event:'dispatch',taskId:'task',noteIds:ids,candidate:done});result.current.onNotesEvent({event:'ready',taskId:'task',noteIds:ids,candidate:done});result.current.onNotesEvent({event:'accept',taskId:'task',noteIds:ids,candidate:done,acceptedEditIds:['edit-1']});});
+  expect(result.current.notes[0].status).toBe('awaiting-review');
+  // Retained/uncertain correspondence cannot become positive evidence merely because all hunks were accepted.
+  act(()=>result.current.onNotesEvent({event:'accept',taskId:'task',noteIds:ids,candidate:done,acceptedEditIds:['edit-1','edit-2']}));
+  expect(result.current.notes[0].status).toBe('awaiting-review');
+  act(()=>result.current.onNotesEvent({event:'discard',taskId:'task',noteIds:ids,candidate:done}));
+  expect(result.current.notes[0].status).toBe('pending');
+});

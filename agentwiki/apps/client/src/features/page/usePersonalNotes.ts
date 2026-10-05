@@ -5,19 +5,19 @@ import { addPersonalNote, loadPersonalNotes, notesForDispatch, personalNotesKey,
 interface Props { scope: PersonalNotesScope | null; canEdit: boolean; source: string; updatedAt?: string; language?: string }
 interface QueueState { notes: PersonalNote[]; assistRequest: AssistRequest | null; storageUnavailable: boolean; conflict: boolean }
 const empty = (): QueueState => ({ notes: [], assistRequest: null, storageUnavailable: false, conflict: false });
-interface TaskBinding { noteIds: string[]; coverage: Map<string, string[]> }
+interface TaskBinding { noteIds: string[]; coverage: Map<string, string[]>; uncertain: Set<string> }
 /** Evidence of source change, not the enclosing line-hunk extent. Ambiguous retained excerpts stay unresolved. */
-const editChangesPassage = (edit: CandidateEdit, passage: { from: number; to: number }) => {
+const editPassageEvidence = (edit: CandidateEdit, passage: { from: number; to: number }): 'unchanged' | 'changed' | 'uncertain' => {
   let prefix = 0, suffix = 0;
   while (prefix < Math.min(edit.before.length, edit.after.length) && edit.before[prefix] === edit.after[prefix]) prefix++;
   while (suffix < Math.min(edit.before.length, edit.after.length) - prefix && edit.before[edit.before.length - suffix - 1] === edit.after[edit.after.length - suffix - 1]) suffix++;
   const from = edit.from + prefix, to = edit.to - suffix;
-  if (from === to) return edit.after.length > edit.before.length && from > passage.from && from < passage.to;
+  if (from === to) return edit.after.length > edit.before.length && from > passage.from && from < passage.to ? 'changed' : 'unchanged';
   const overlapFrom = Math.max(from, passage.from), overlapTo = Math.min(to, passage.to);
-  if (overlapFrom >= overlapTo) return false;
+  if (overlapFrom >= overlapTo) return 'unchanged';
   const original = edit.before.slice(overlapFrom - edit.from, overlapTo - edit.from);
   // If the overlapping excerpt survives anywhere, correspondence is uncertain; do not claim the note solved.
-  return !!original && !edit.after.includes(original);
+  return !original || edit.after.includes(original) ? 'uncertain' : 'changed';
 };
 
 /** Owns only personal notes and request/event linkage. Parent remains the sole Markdown writer. */
@@ -80,7 +80,7 @@ export function usePersonalNotes({ scope, canEdit, source, updatedAt, language =
       if (stateRef.current.notes.some((n) => event.noteIds.includes(n.id) && n.status !== 'pending')) return;
       const request = stateRef.current.assistRequest;
       if (!request || !event.noteIds.length || request.noteIds?.length !== event.noteIds.length || event.noteIds.some((id) => !request.noteIds?.includes(id)) || event.candidate.baseUpdatedAt !== latestRef.current.updatedAt) return;
-      bindingsRef.current.set(event.taskId, { noteIds: [...event.noteIds], coverage: new Map() });
+      bindingsRef.current.set(event.taskId, { noteIds: [...event.noteIds], coverage: new Map(), uncertain: new Set() });
     }
     const binding = bindingsRef.current.get(event.taskId);
     if (!binding || event.noteIds.some((id) => !binding.noteIds.includes(id))) return;
@@ -88,14 +88,16 @@ export function usePersonalNotes({ scope, canEdit, source, updatedAt, language =
       for (const note of stateRef.current.notes.filter((n) => binding.noteIds.includes(n.id) && n.taskId === event.taskId)) {
         const position = resolveAssistTarget(event.candidate.baseContent, note.target);
         if (position.status !== 'found') continue;
-        const covered = event.candidate.editPlan.edits.filter((edit) => editChangesPassage(edit, position)).map((edit) => edit.id);
+        const evidence = event.candidate.editPlan.edits.map((edit) => ({ id: edit.id, evidence: editPassageEvidence(edit, position) }));
+        const covered = evidence.filter((edit) => edit.evidence !== 'unchanged').map((edit) => edit.id);
         if (covered.length) binding.coverage.set(note.id, covered);
+        if (evidence.some((edit) => edit.evidence === 'uncertain')) binding.uncertain.add(note.id);
       }
     }
     let ids = event.noteIds;
     if (event.event === 'accept') {
       const accepted = event.acceptedEditIds ?? event.candidate.acceptedEditIds ?? [];
-      ids = ids.filter((id) => { const changes = binding.coverage.get(id); return !!changes?.length && changes.every((change) => accepted.includes(change)); });
+      ids = ids.filter((id) => { const changes = binding.coverage.get(id); return !binding.uncertain.has(id) && !!changes?.length && changes.every((change) => accepted.includes(change)); });
     }
     const notes = transitionPersonalNotes(stateRef.current.notes, ids, event.event, event.taskId);
     publish({ ...stateRef.current, notes }, true);
