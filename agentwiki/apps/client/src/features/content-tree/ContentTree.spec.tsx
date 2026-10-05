@@ -122,3 +122,32 @@ describe('ContentTree directory navigation', () => {
    fireEvent.click(button); expect(onSelectPage).toHaveBeenCalledWith(blank);
    expect(button).toHaveClass('min-h-8'); expect(blank.title).toBe(' 　');
  });
+
+describe('direct directory operations', () => {
+  const props = { nodes: [folder, page], loading: false, error: null, canEdit: true, levelParentFolderId: null, pageDeleteDisabled: false, emptyText: '', onOpenFolder: vi.fn(), onOpenPage: vi.fn(), onEditPage: vi.fn(), onDeletePage: vi.fn(), onCreateSubfolder: vi.fn(), onRenameFolder: vi.fn(), onDeleteFolder: vi.fn(), onMove: vi.fn() };
+  it('shows text actions and supports keyboard menu navigation', () => {
+    render(<LanguageProvider><ContentTree {...props} /></LanguageProvider>); const opener = screen.getByLabelText('Actions: Project'); fireEvent.keyDown(opener, { key: 'ArrowDown' }); expect(screen.getByRole('button', { name: 'New folder' })).toHaveFocus(); expect(screen.getByTestId('content-rename-folder-1')).toHaveTextContent('Rename'); fireEvent.keyDown(screen.getByRole('button', { name: 'New folder' }), { key: 'ArrowDown' }); expect(screen.getByTestId('content-rename-folder-1')).toHaveFocus();
+  });
+  it('cancels inline rename and submits exact page without opening it', async () => {
+    const onRenameNode = vi.fn().mockResolvedValue(undefined); render(<LanguageProvider><ContentTree {...props} onRenameNode={onRenameNode} /></LanguageProvider>); fireEvent.click(screen.getByTestId('content-rename-folder-1')); const input = screen.getByRole('textbox', { name: 'Rename: Project' }); fireEvent.change(input, { target: { value: 'Changed' } }); fireEvent.keyDown(input, { key: 'Escape' }); expect(onRenameNode).not.toHaveBeenCalled(); expect(screen.queryByRole('textbox')).not.toBeInTheDocument(); fireEvent.click(screen.getByTestId('content-rename-page-1')); fireEvent.change(screen.getByRole('textbox', { name: 'Rename: Brief' }), { target: { value: 'New brief' } }); fireEvent.submit(screen.getByRole('textbox').closest('form')!); await waitFor(() => expect(onRenameNode).toHaveBeenCalledWith(page, 'New brief')); expect(props.onOpenPage).not.toHaveBeenCalled();
+  });
+  it('keeps original source when inline mutation is denied', async () => {
+    render(<LanguageProvider><ContentTree {...props} onRenameNode={vi.fn().mockRejectedValue(new Error('Permission denied'))} /></LanguageProvider>); fireEvent.click(screen.getByTestId('content-rename-page-1')); fireEvent.submit(screen.getByRole('textbox').closest('form')!); expect(await screen.findByRole('alert')).toHaveTextContent('Permission denied'); expect(page.title).toBe('Brief');
+  });
+});
+
+it('activates the actions menu with Enter and Space and forbids mutation after permission loss', () => {
+  const props = { nodes: [folder], loading: false, error: null, canEdit: true, levelParentFolderId: null, pageDeleteDisabled: false, emptyText: '', onOpenFolder: vi.fn(), onOpenPage: vi.fn(), onEditPage: vi.fn(), onDeletePage: vi.fn(), onCreateSubfolder: vi.fn(), onRenameFolder: vi.fn(), onDeleteFolder: vi.fn(), onMove: vi.fn(), onRenameNode: vi.fn() };
+  const view = render(<LanguageProvider><ContentTree {...props} /></LanguageProvider>);
+  const opener = screen.getByLabelText('Actions: Project'); fireEvent.keyDown(opener, { key: 'Enter' }); expect(opener.closest('details')).toHaveAttribute('open'); fireEvent.keyDown(opener, { key: ' ' }); expect(opener.closest('details')).not.toHaveAttribute('open');
+  fireEvent.click(screen.getByTestId('content-rename-folder-1')); expect(screen.getByRole('textbox')).toBeInTheDocument(); view.rerender(<LanguageProvider><ContentTree {...props} canEdit={false} /></LanguageProvider>); expect(screen.queryByRole('textbox')).not.toBeInTheDocument(); expect(screen.getByTestId('content-row-folder-1')).toHaveAttribute('draggable', 'false');
+});
+it('binds an inline rename to the node version shown when rename started', async () => {
+  const onRenameNode = vi.fn().mockResolvedValue(undefined);
+  const props = { nodes: [page], loading: false, error: null, canEdit: true, levelParentFolderId: null, pageDeleteDisabled: false, emptyText: '', onOpenFolder: vi.fn(), onOpenPage: vi.fn(), onEditPage: vi.fn(), onDeletePage: vi.fn(), onCreateSubfolder: vi.fn(), onRenameFolder: vi.fn(), onDeleteFolder: vi.fn(), onMove: vi.fn(), onRenameNode };
+  const view = render(<LanguageProvider><ContentTree {...props} /></LanguageProvider>); fireEvent.click(screen.getByTestId('content-rename-page-1'));
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'My title' } });
+  view.rerender(<LanguageProvider><ContentTree {...props} nodes={[{ ...page, title: 'Remote title', updatedAt: 'newer-at' }]} /></LanguageProvider>);
+  fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+  await waitFor(() => expect(onRenameNode).toHaveBeenCalledWith(page, 'My title'));
+});

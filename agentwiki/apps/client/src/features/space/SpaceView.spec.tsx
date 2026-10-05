@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Router, Routes, useNavigate } from 'react-router-d
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { SpaceView } from './SpaceView';
+import { SpaceWorkspaceProvider, SpaceWorkspaceScope } from '../space-workspace/SpaceWorkspaceContext';
 import { NewContentPage } from '../page-templates/NewContentPage';
 import type { ContentTreeNode } from '../content-tree/contentTreeTypes';
 
@@ -571,5 +572,46 @@ describe('SpaceView new-page flow', () => {
     expect(screen.getByRole('heading', { name: 'Owner B' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Editing created page' })).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});
+
+describe('SpaceView inline directory mutations', () => {
+  const folder = { kind: 'folder' as const, id: 'guide', name: 'Guide', path: '/Guide', sortOrder: 0, createdAt: 'now', updatedAt: 'folder-at', hasChildren: false };
+  beforeEach(() => {
+    vi.clearAllMocks(); localStorage.clear(); localStorage.setItem('agentwiki.language.v1', 'en');
+    mocks.auth.user = { id: 'user-1', platformRole: 'user' };
+    mocks.listCompositeTemplates.mockResolvedValue({ capabilities: { canCreate: true } });
+    mocks.api.get.mockImplementation(async (url: string, config?: { params?: { parentFolderId?: string } }) => url === '/spaces/space-1' ? spaceResponse('space-1', 'Wiki', 'owner') : treeResponse('space-1', config?.params?.parentFolderId ? [] : [folder, pageNode('page-1', 'Brief')]));
+    mocks.api.patch.mockResolvedValue({ data: { treeRevision: '8' } });
+    mocks.api.post.mockResolvedValue({ data: { treeRevision: '8' } });
+  });
+  const renderWorkspace = () => render(<LanguageProvider><MemoryRouter initialEntries={['/pages/page-1']}><SpaceWorkspaceProvider userId="user-1"><SpaceWorkspaceScope mode="read" spaceId="space-1" activeSection="pages" selectedFolderId={null} selectedPageId="page-1" selectedPageFolderId={null} pageRefreshRequest={0} selectFolder={vi.fn()} reportPageIdentity={vi.fn()} requestPageRefresh={vi.fn()}><SpaceView spaceId="space-1" workspaceContent={<p>Current document stays mounted</p>} /></SpaceWorkspaceScope></SpaceWorkspaceProvider></MemoryRouter></LanguageProvider>);
+  it('renames current page with version and tree revision while keeping selection', async () => {
+    renderWorkspace(); fireEvent.click(await screen.findByTestId('content-rename-page-1'));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Rename: Brief' }), { target: { value: 'New brief' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    await waitFor(() => expect(mocks.api.patch).toHaveBeenCalledWith('/pages/page-1', { title: 'New brief', expectedUpdatedAt: '2026-08-28T10:00:00.000Z', expectedTreeRevision: '7' }));
+    expect(screen.getByText('Current document stays mounted')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('content-item-page-1')).toHaveAttribute('aria-selected', 'true'));
+  });
+  it('creates inline under the intended parent with its revision', async () => {
+    renderWorkspace(); fireEvent.click(await screen.findByTestId('content-newsubfolder-guide'));
+    fireEvent.change(screen.getByRole('textbox', { name: 'New folder: Guide' }), { target: { value: 'Child' } });
+    fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    await waitFor(() => expect(mocks.api.post).toHaveBeenCalledWith('/spaces/space-1/folders', { name: 'Child', parentId: 'guide', expectedTreeRevision: '7' }, { signal: undefined }));
+  });
+  it('creates a named blank page inline and retains the template chooser', async () => {
+    mocks.api.post.mockResolvedValue({ data: { id: 'created-page' } }); renderWorkspace();
+    fireEvent.click(await screen.findByRole('button', { name: 'New page' }));
+    const input = screen.getByRole('textbox', { name: 'New page' }); fireEvent.change(input, { target: { value: 'New document' } }); fireEvent.submit(input.closest('form')!);
+    await waitFor(() => expect(mocks.api.post).toHaveBeenCalledWith('/pages', { title: 'New document', spaceId: 'space-1', folderId: null, expectedTreeRevision: '7' }));
+    expect(screen.getByRole('button', { name: 'Templates…' })).toBeInTheDocument();
+  });
+  it('retains original directory and document after server permission denial', async () => {
+    mocks.api.patch.mockRejectedValue({ response: { status: 403 } });
+    renderWorkspace(); fireEvent.click(await screen.findByTestId('content-rename-page-1'));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Denied' } }); fireEvent.submit(screen.getByRole('textbox').closest('form')!);
+    expect(await screen.findByRole('alert')).toHaveTextContent('permission');
+    expect(screen.getByText('Current document stays mounted')).toBeInTheDocument(); expect(screen.getByTestId('content-item-page-1')).toHaveAttribute('aria-selected', 'true');
   });
 });

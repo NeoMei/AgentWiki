@@ -79,6 +79,7 @@ const UserHarness = () => {
 describe('SpaceWorkspace', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
   });
 
   it('keeps Pages active when a reader moves to the edit route', () => {
@@ -124,8 +125,8 @@ describe('SpaceWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'expand' }));
     fireEvent.click(screen.getByRole('button', { name: 'other user' }));
     expect(screen.getByTestId('scope')).toHaveTextContent('user-1:space-1:edit');
-    expect(screen.getByTestId('expanded')).toBeEmptyDOMElement();
-    expect(screen.getByTestId('directory-scroll')).toHaveTextContent('0');
+    expect(screen.getByTestId('expanded')).toHaveTextContent('folder-a');
+    expect(screen.getByTestId('directory-scroll')).toHaveTextContent('120');
 
     fireEvent.click(screen.getByRole('button', { name: 'other space' }));
     expect(screen.getByTestId('expanded')).toBeEmptyDOMElement();

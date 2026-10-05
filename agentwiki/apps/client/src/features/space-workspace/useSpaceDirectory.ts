@@ -11,6 +11,7 @@ export interface DirectoryLevel {
 
 interface UseSpaceDirectoryOptions {
   spaceId: string | null;
+  identityKey?: string;
   targetFolderId: string | null;
   expandedFolderIds: ReadonlySet<string>;
   setFolderExpanded: (folderId: string, expanded: boolean) => void;
@@ -51,11 +52,13 @@ const responseStatus = (error: unknown): number | undefined => (
 
 export const useSpaceDirectory = ({
   spaceId,
+  identityKey = spaceId ?? '',
   targetFolderId,
   expandedFolderIds,
   setFolderExpanded,
   rootLabel = '',
 }: UseSpaceDirectoryOptions): SpaceDirectoryState => {
+  const installedIdentityRef = useRef(identityKey);
   const generationRef = useRef(0);
   const snapshotControllerRef = useRef<AbortController | null>(null);
   const reloadControllersRef = useRef<Map<string, AbortController>>(new Map());
@@ -155,6 +158,7 @@ export const useSpaceDirectory = ({
   }, [clearDirectory, installLevel, invalidateRequests, spaceId]);
 
   useEffect(() => {
+    installedIdentityRef.current = identityKey;
     const generation = generationRef.current + 1;
     generationRef.current = generation;
     for (const reloadController of reloadControllersRef.current.values()) reloadController.abort();
@@ -259,7 +263,7 @@ export const useSpaceDirectory = ({
       for (const reloadController of reloadControllersRef.current.values()) reloadController.abort();
       reloadControllersRef.current.clear();
     };
-  }, [clearDirectory, installSnapshot, invalidateRequests, retryKey, setFolderExpanded, spaceId, targetFolderId]);
+  }, [clearDirectory, installSnapshot, invalidateRequests, retryKey, setFolderExpanded, spaceId, targetFolderId, identityKey]);
 
   const toggleFolder = useCallback(async (folderId: string) => {
     const expanded = expandedFolderIds.has(folderId);
@@ -275,8 +279,17 @@ export const useSpaceDirectory = ({
 
   const crumbs = useMemo(() => crumbsForFolder(folderIndex, targetFolderId, rootLabel), [folderIndex, rootLabel, targetFolderId]);
 
+  const identityMatches = installedIdentityRef.current === identityKey;
   return {
-    levels, folderIndex, treeRevision, locating, error, crumbs, branchErrors, loadingBranches, completedRefresh,
+    levels: identityMatches ? levels : new Map(),
+    folderIndex: identityMatches ? folderIndex : new Map(),
+    treeRevision: identityMatches ? treeRevision : null,
+    locating: identityMatches ? locating : Boolean(spaceId),
+    error: identityMatches ? error : null,
+    crumbs: identityMatches ? crumbs : [],
+    branchErrors: identityMatches ? branchErrors : new Map(),
+    loadingBranches: identityMatches ? loadingBranches : new Set(),
+    completedRefresh,
     toggleFolder,
     retry: () => setRetryKey((value) => value + 1),
     reloadLevel,

@@ -258,3 +258,14 @@ describe('useSpaceDirectory', () => {
     expect(result.current.folderIndex.size).toBe(0);
   });
 });
+
+it('does not expose the previous user cache while a new identity is loading', async () => {
+  const expandedFolderIds = new Set<string>(); const setFolderExpanded = vi.fn();
+  let resolveNew!: (value: ContentTreeListResponse) => void;
+  const newRequest = new Promise<ContentTreeListResponse>((resolve) => { resolveNew = resolve; });
+  vi.mocked(listTreeChildren).mockResolvedValueOnce(level(null, 'private-old')).mockImplementation(() => newRequest);
+  const { result, rerender } = renderHook(({ identityKey }) => useSpaceDirectory({ spaceId: 'space-1', targetFolderId: null, expandedFolderIds, setFolderExpanded, identityKey }), { initialProps: { identityKey: 'alice' } });
+  await waitFor(() => expect(result.current.levels.get(null)?.nodes[0].id).toBe('private-old'));
+  rerender({ identityKey: 'bob' }); expect(result.current.levels.size).toBe(0);
+  await act(async () => resolveNew(level(null, 'new-user'))); await waitFor(() => expect(result.current.levels.get(null)?.nodes[0].id).toBe('new-user'));
+});

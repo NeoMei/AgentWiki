@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { FC, ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
@@ -194,5 +194,36 @@ describe('SpaceDirectory', () => {
     fireEvent.click(within(dialogBeforeCancelledNavigation).getByTestId('content-node-page-a'));
     expect(await screen.findByText('Article route')).toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: 'Directory' })).not.toBeInTheDocument();
+  });
+});
+
+describe('directory tools', () => {
+  const levels = new Map<string | null, DirectoryLevel>([[null, { parentFolderId: null, treeRevision: '3', nodes: [folder] }], ['guide', { parentFolderId: 'guide', treeRevision: '3', nodes: [page] }]]);
+  const props = { spaceName: 'Wiki', levels, expandedFolderIds: new Set<string>(), selectedFolderId: null, selectedPageId: 'page-a', loading: false, error: null, canEdit: true, onToggleFolder: vi.fn(), onSelectFolder: vi.fn(), onOpenPage: vi.fn(), onEditPage: vi.fn(), onDeletePage: vi.fn(), onCreateSubfolder: vi.fn(), onRenameFolder: vi.fn(), onDeleteFolder: vi.fn(), onMove: vi.fn() };
+  it('filters loaded items with ancestor context, disables reorder, and restores expansion', () => {
+    render(<Providers><SpaceDirectory {...props} /></Providers>); expect(screen.queryByTestId('content-node-page-a')).not.toBeInTheDocument(); const filter = screen.getByRole('searchbox', { name: 'Filter loaded items' }); fireEvent.change(filter, { target: { value: 'Same title' } }); expect(screen.getByTestId('content-node-guide')).toBeInTheDocument(); expect(screen.getByTestId('content-node-page-a')).toBeInTheDocument(); expect(screen.getByTestId('content-row-page-a')).toHaveAttribute('draggable', 'false'); fireEvent.change(filter, { target: { value: '' } }); expect(screen.queryByTestId('content-node-page-a')).not.toBeInTheDocument(); expect(props.onToggleFolder).not.toHaveBeenCalled();
+  });
+  it('keeps the saved scroll position while browsing filter results', () => {
+    const onDirectoryScrollTopChange = vi.fn(); render(<Providers><SpaceDirectory {...props} directoryScrollTop={145} onDirectoryScrollTopChange={onDirectoryScrollTopChange} /></Providers>);
+    const scroller = screen.getByTestId('space-directory-scroll'); fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Same' } }); scroller.scrollTop = 20; fireEvent.scroll(scroller);
+    expect(onDirectoryScrollTopChange).not.toHaveBeenCalled(); fireEvent.change(screen.getByRole('searchbox'), { target: { value: '' } }); expect(scroller.scrollTop).toBe(145);
+  });
+  it('resizes via pointer drag, clamps the maximum, and stops on pointer release', () => {
+    const onDirectoryWidthChange = vi.fn(); render(<Providers><SpaceDirectory {...props} directoryWidth={260} onDirectoryWidthChange={onDirectoryWidthChange} /></Providers>);
+    const separator = screen.getByRole('separator', { name: 'Resize directory' });
+    const pointer = (kind: 'pointerDown' | 'pointerMove' | 'pointerUp', clientX: number) => {
+      const event = createEvent[kind](separator); Object.defineProperties(event, { clientX: { value: clientX }, pointerId: { value: 7 }, button: { value: 0 } }); fireEvent(separator, event);
+    };
+    pointer('pointerDown', 100); pointer('pointerMove', 160); expect(onDirectoryWidthChange).toHaveBeenLastCalledWith(320);
+    pointer('pointerMove', 500); expect(onDirectoryWidthChange).toHaveBeenLastCalledWith(420);
+    pointer('pointerUp', 500); onDirectoryWidthChange.mockClear(); pointer('pointerMove', 170); expect(onDirectoryWidthChange).not.toHaveBeenCalled();
+  });
+  it('reveals current document by clearing the filter and requesting its ancestry', () => {
+    const onRevealCurrent = vi.fn(); render(<Providers><SpaceDirectory {...props} onRevealCurrent={onRevealCurrent} /></Providers>);
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'missing' } }); fireEvent.click(screen.getByRole('button', { name: 'Reveal current document' }));
+    expect(screen.getByRole('searchbox')).toHaveValue(''); expect(onRevealCurrent).toHaveBeenCalledTimes(1);
+  });
+  it('resizes via keyboard within bounds and exposes width', () => {
+    const onDirectoryWidthChange = vi.fn(); render(<Providers><SpaceDirectory {...props} directoryWidth={415} onDirectoryWidthChange={onDirectoryWidthChange} /></Providers>); const separator = screen.getByRole('separator', { name: 'Resize directory' }); expect(separator).toHaveAttribute('aria-valuenow', '415'); fireEvent.keyDown(separator, { key: 'ArrowRight' }); expect(onDirectoryWidthChange).toHaveBeenLastCalledWith(420); fireEvent.keyDown(separator, { key: 'Home' }); expect(onDirectoryWidthChange).toHaveBeenLastCalledWith(220);
   });
 });
