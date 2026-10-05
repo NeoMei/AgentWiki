@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DatabaseModule } from '../database/database.module';
 import { AuthorizationModule } from '../core/authorization/authorization.module';
+import { SyncModule } from '../core/sync/sync.module';
 import { AuthModule } from '../core/auth/auth.module';
 import { SecurityModule } from '../core/security/security.module';
 import { CollaborationModule } from '../core/collaboration/collaboration.module';
@@ -15,7 +16,7 @@ import { OpencodeCliRunner } from './opencode.runner';
 import { OpencodeModelRouter } from './opencode.router';
 
 @Module({
-  imports: [DatabaseModule, AuthModule, AuthorizationModule, SecurityModule, CollaborationModule],
+  imports: [DatabaseModule, AuthModule, AuthorizationModule, SyncModule, SecurityModule, CollaborationModule],
   controllers: [AssistController],
   providers: [
     AssistService,

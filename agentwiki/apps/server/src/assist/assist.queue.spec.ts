@@ -1,11 +1,12 @@
 import { AssistQueue } from './assist.queue';
+import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.service';
 import { AuthorizationService } from '../core/authorization/authorization.service';
 import { EMPTY_USAGE, OpencodeRoutingError } from './opencode.types';
 
 describe('AssistQueue task processing', () => {
   const prisma = {
     page: { findFirst: jest.fn() },
-    $transaction: jest.fn(), $queryRaw: jest.fn(), user: { findUnique: jest.fn() },
+    $transaction: jest.fn(), $executeRaw: jest.fn(), $queryRaw: jest.fn(), user: { findUnique: jest.fn() },
     space: { findUnique: jest.fn() }, spaceMember: { findUnique: jest.fn() },
     assistTask: { count: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
   } as any;
@@ -18,11 +19,12 @@ describe('AssistQueue task processing', () => {
     emitAssistComplete: jest.fn(),
     emitAssistError: jest.fn(),
   } as any;
-  const createQueue = () => new AssistQueue(prisma, config, runner, gateway, new AuthorizationService(prisma));
+  const createQueue = () => new AssistQueue(prisma, config, runner, gateway, new AuthorizationService(prisma), new SpaceRevisionWriterService(prisma, {} as any));
 
   beforeEach(() => {
     jest.clearAllMocks();
     prisma.$transaction.mockImplementation(async (callback: any) => callback(prisma));
+    prisma.$executeRaw.mockResolvedValue(0);
     prisma.$queryRaw.mockResolvedValue([{ id: 'user-1' }]);
     prisma.user.findUnique.mockResolvedValue({ id: 'user-1', type: 'human', platformRole: 'user', lockedAt: null, deletedAt: null });
     prisma.space.findUnique.mockResolvedValue({ id: 'space-1', deletedAt: null });
@@ -250,6 +252,110 @@ describe('AssistQueue task processing', () => {
     await (createQueue() as any).processOne(task);
     expect(runner.run).not.toHaveBeenCalled();
     expect(prisma.assistTask.updateMany.mock.calls[0][0].data.status).toBe('failed');
+  });
+
+  function barrier() {
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => { resolve = done; });
+    return { promise, resolve };
+  }
+
+  // Fake DB transaction advisory mutex: exercises the real writer SQL boundary,
+  // real authorization and queue completion with controlled transaction ordering.
+  function concurrentDb() {
+    let tail = Promise.resolve();
+    const events: string[] = [];
+    let transactionId = 0;
+    prisma.$transaction.mockImplementation(async (callback: any) => {
+      const id = ++transactionId;
+      let release: (() => void) | undefined;
+      const tx = {
+        ...prisma,
+        $queryRaw: async (...args: any[]) => {
+          events.push(`user:${id}`);
+          return prisma.$queryRaw(...args);
+        },
+        $executeRaw: async (sql: TemplateStringsArray, spaceId: string) => {
+          expect(sql.join('?')).toContain('pg_advisory_xact_lock(hashtext(');
+          expect(spaceId).toBe('space-1');
+          events.push(`space-wait:${id}`);
+          const previous = tail;
+          const held = barrier();
+          tail = held.promise;
+          await previous;
+          release = held.resolve;
+          events.push(`space-held:${id}`);
+          return 0;
+        },
+      };
+      try { return await callback(tx); }
+      finally { events.push(`commit:${id}`); release?.(); }
+    });
+    return events;
+  }
+
+  it.each(['revocation', 'page-version'])('rechecks %s after the competing Space writer commits first', async (mutation) => {
+    const events = concurrentDb();
+    const mutationHasLock = barrier();
+    const releaseMutation = barrier();
+    const writer = new SpaceRevisionWriterService(prisma, {} as any);
+    const authorization = new AuthorizationService(prisma);
+    runner.run.mockImplementation(async () => {
+      void prisma.$transaction(async (tx: any) => {
+        await authorization.lockLiveHumanPrincipal(tx, { userId: 'admin-1' });
+        await writer.lockSpace(tx, 'space-1');
+        mutationHasLock.resolve();
+        await releaseMutation.promise;
+        if (mutation === 'revocation') prisma.spaceMember.findUnique.mockResolvedValue(null);
+        else prisma.page.findFirst.mockResolvedValue({ id: 'page-1', updatedAt: new Date('2026-02-01') });
+      });
+      await mutationHasLock.promise;
+      return { summary: 'changed', changes: 'pre NEW post' };
+    });
+    const finished = (createQueue() as any).processOne(scopedTask());
+    await mutationHasLock.promise;
+    await new Promise((resolve) => setImmediate(resolve));
+    // Competing writer still owns the lock: completion cannot commit stale done.
+    expect(prisma.assistTask.updateMany).not.toHaveBeenCalled();
+    releaseMutation.resolve();
+    await finished;
+    expect(prisma.assistTask.updateMany.mock.calls[0][0].data.status).toBe('failed');
+    expect(gateway.emitAssistComplete).not.toHaveBeenCalled();
+    expect(events.indexOf('user:3')).toBeLessThan(events.indexOf('space-wait:3'));
+    expect(events.indexOf('commit:2')).toBeLessThan(events.indexOf('space-held:3'));
+  });
+
+  it('holds the Space lock through done persistence so a later revocation cannot interleave after the check', async () => {
+    const events = concurrentDb();
+    const atDoneWrite = barrier();
+    const allowDoneWrite = barrier();
+    const writer = new SpaceRevisionWriterService(prisma, {} as any);
+    const authorization = new AuthorizationService(prisma);
+    let mutationCommitted = false;
+    prisma.assistTask.updateMany.mockImplementation(async ({ data }: any) => {
+      if (data.status === 'done') {
+        atDoneWrite.resolve();
+        await allowDoneWrite.promise;
+        expect(mutationCommitted).toBe(false);
+      }
+      return { count: 1 };
+    });
+    runner.run.mockResolvedValue({ summary: 'changed', changes: 'pre NEW post' });
+    const completion = (createQueue() as any).processOne(scopedTask());
+    await atDoneWrite.promise;
+    const mutation = prisma.$transaction(async (tx: any) => {
+      await authorization.lockLiveHumanPrincipal(tx, { userId: 'admin-1' });
+      await writer.lockSpace(tx, 'space-1');
+      mutationCommitted = true;
+      prisma.spaceMember.findUnique.mockResolvedValue(null);
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(mutationCommitted).toBe(false);
+    allowDoneWrite.resolve();
+    await Promise.all([completion, mutation]);
+    expect(mutationCommitted).toBe(true);
+    expect(events.indexOf('commit:2')).toBeLessThan(events.indexOf('space-held:3'));
+    expect(prisma.assistTask.updateMany.mock.calls[0][0].data.status).toBe('done');
   });
 
 });

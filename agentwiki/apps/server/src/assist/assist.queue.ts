@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { OpencodeRoutingError, OpencodeRunner } from './opencode.types';
+import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.service';
 import { AuthorizationService } from '../core/authorization/authorization.service';
 import { assertAssistOutputScope, assertAssistTargetVersion, validateAssistTarget } from './assist-target';
 import { CollaborationGateway } from '../core/collaboration/collaboration.gateway';
@@ -33,6 +34,7 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
     private readonly runner: OpencodeRunner,
     private readonly collaborationGateway: CollaborationGateway,
     private readonly authorization: AuthorizationService,
+    private readonly revisionWriter: SpaceRevisionWriterService,
   ) {}
 
   async onModuleInit() {
@@ -164,12 +166,18 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
       });
       assertAssistOutputScope(task.pageSnapshot, result.changes);
       const completion = await this.prisma.$transaction(async (tx) => {
-        await this.assertTaskAuthorization(tx, task);
-        return tx.assistTask.updateMany({
+        if (!task.requestedByUserId) throw new BadRequestException('Assist requester is required');
+        // Coordinate with membership revocation and Page writers using their
+        // existing User -> Space lock order. Re-read after winning the Space
+        // lock and hold it through done persistence, never through model work.
+        await this.authorization.lockLiveHumanPrincipal(tx, { userId: task.requestedByUserId });
+        const lockedTx = await this.revisionWriter.lockSpace(tx, task.spaceId);
+        await this.assertTaskAuthorization(lockedTx, task);
+        return lockedTx.assistTask.updateMany({
           where: this.activeTaskWhere(task),
           data: { status: 'done', result: result as any, completedAt: new Date(), leaseOwner: null, leaseExpiresAt: null },
         });
-      });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
       if (completion.count === 0) return;
       if (task.pageId) {
         this.collaborationGateway.emitAssistComplete(task.pageId, task.id);

@@ -51,6 +51,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   private activeUsers = new Map<string, Map<string, CursorPosition>>();
   private userSockets = new Map<string, Set<string>>();
   private roomAuthorizationCheckedAt = new Map<string, number>();
+  private assistRelayChains = new Map<string, Promise<void>>();
   private roomPruneInFlight = new Map<string, Promise<void>>();
 
   constructor(
@@ -532,10 +533,23 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
     else this.roomAuthorizationCheckedAt.delete(pageId);
   }
 
-  private async relayAssistMessage(msg: AssistChannelMessage) {
-    if (!this.validPageId(msg?.pageId) || !this.validPageId(msg?.taskId)) return;
-    if (!['stream', 'complete', 'error'].includes(msg.kind)) return;
-    if ((msg.kind === 'stream' && typeof msg.chunk !== 'string') || (msg.kind === 'error' && typeof msg.error !== 'string')) return;
+  private relayAssistMessage(msg: AssistChannelMessage): Promise<void> {
+    if (!this.validPageId(msg?.pageId) || !this.validPageId(msg?.taskId)) return Promise.resolve();
+    if (!['stream', 'complete', 'error'].includes(msg.kind)) return Promise.resolve();
+    if ((msg.kind === 'stream' && typeof msg.chunk !== 'string') || (msg.kind === 'error' && typeof msg.error !== 'string')) return Promise.resolve();
+    // Redis delivers ordered events, but each relay performs async live checks.
+    // Chain all event kinds per task before starting those checks so a delayed
+    // chunk cannot be overtaken by a later chunk or completion/error.
+    const previous = this.assistRelayChains.get(msg.taskId) ?? Promise.resolve();
+    const event = previous.then(() => this.performAssistRelay(msg));
+    const drained = event.catch(() => undefined);
+    this.assistRelayChains.set(msg.taskId, drained);
+    return event.finally(() => {
+      if (this.assistRelayChains.get(msg.taskId) === drained) this.assistRelayChains.delete(msg.taskId);
+    });
+  }
+
+  private async performAssistRelay(msg: AssistChannelMessage): Promise<void> {
     // Resolve ownership from the canonical task, never from Redis publisher
     // claims. Draft snapshots and Assist events belong to their requester.
     const task = await this.prisma.assistTask.findUnique({
