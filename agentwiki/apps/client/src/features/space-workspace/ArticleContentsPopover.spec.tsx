@@ -152,6 +152,27 @@ describe('ArticleContentsPopover', () => {
     expect(window.scrollBy).toHaveBeenCalledWith({ top: -158, left: 0, behavior: 'instant' });
   });
 
+  it('places the automatic wide outline below the owning editor toolbar and follows its resized/scroll position', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1680 });
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 1000 });
+    const articleRef = React.createRef<HTMLDivElement>();
+    let toolbarBottom = 222;
+    render(<LanguageProvider><div>
+      <div data-testid="editor-toolbar" ref={(node) => { if (node) vi.spyOn(node, 'getBoundingClientRect').mockImplementation(() => ({ bottom: toolbarBottom } as DOMRect)); }}><button type="button">Assist action</button></div>
+      <ArticleContentsPopover articleRootRef={articleRef} pageKey="editor-wide" source={'# A'} onNavigate={() => {}} />
+      <div ref={articleRef} />
+    </div></LanguageProvider>);
+    const outline = await screen.findByRole('navigation', { name: 'Contents' });
+    expect(outline).toHaveStyle({ top: '234px', maxHeight: '750px' });
+    toolbarBottom = 280;
+    fireEvent.resize(window);
+    expect(outline).toHaveStyle({ top: '292px', maxHeight: '692px' });
+    toolbarBottom = 128;
+    fireEvent.scroll(document);
+    expect(outline).toHaveStyle({ top: '140px', maxHeight: '844px' });
+    expect(screen.getByRole('button', { name: 'Assist action' })).toBeVisible();
+  });
+
   it('clamps the anchored popover inside a 390px viewport', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
     render(<Harness><h2 id="mobile">Mobile heading</h2></Harness>);

@@ -29,8 +29,20 @@ interface PopoverPosition {
 
 const STICKY_OFFSET = 88;
 
+const owningToolbar = (wrapper: HTMLElement | null): HTMLElement | null => {
+  // Edit outline is in the body; reading outline lives inside its toolbar.
+  const inside = wrapper?.closest<HTMLElement>('[data-reading-toolbar], [data-testid="editor-toolbar"]');
+  if (inside) return inside;
+  let ancestor = wrapper?.parentElement ?? null;
+  while (ancestor) {
+    const toolbar = ancestor.querySelector<HTMLElement>('[data-reading-toolbar], [data-testid="editor-toolbar"]');
+    if (toolbar) return toolbar;
+    ancestor = ancestor.parentElement;
+  }
+  return null;
+};
 const currentStickyOffset = (wrapper: HTMLElement | null): number => {
-  const toolbar = wrapper?.closest<HTMLElement>('[data-reading-toolbar]');
+  const toolbar = owningToolbar(wrapper);
   return toolbar ? Math.max(STICKY_OFFSET, Math.ceil(toolbar.getBoundingClientRect().bottom) + 12) : STICKY_OFFSET;
 };
 
@@ -87,7 +99,7 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
     const bounds = trigger.getBoundingClientRect();
     const width = Math.min(wide ? 220 : 280, Math.max(0, window.innerWidth - 32));
     const rightmostLeft = Math.max(16, window.innerWidth - width - 16);
-    const top = Math.min(wide ? 140 : bounds.bottom + 8, Math.max(16, window.innerHeight - 16));
+    const top = Math.min(wide ? Math.max(140, currentStickyOffset(wrapperRef.current)) : bounds.bottom + 8, Math.max(16, window.innerHeight - 16));
     setPosition({
       left: wide ? rightmostLeft : Math.min(Math.max(16, bounds.right - width), rightmostLeft),
       top,
@@ -160,11 +172,15 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
     document.addEventListener('keydown', closeFromEscape);
     document.addEventListener('scroll', updatePosition, true);
     window.addEventListener('resize', updatePosition);
+    const toolbarObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updatePosition);
+    const toolbar = owningToolbar(wrapperRef.current);
+    if (toolbar) toolbarObserver?.observe(toolbar);
     return () => {
       document.removeEventListener('pointerdown', closeFromOutside);
       document.removeEventListener('keydown', closeFromEscape);
       document.removeEventListener('scroll', updatePosition, true);
       window.removeEventListener('resize', updatePosition);
+      toolbarObserver?.disconnect();
     };
   }, [open, updatePosition]);
 
