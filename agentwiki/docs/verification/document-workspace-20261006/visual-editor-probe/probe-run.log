@@ -1,0 +1,134 @@
+LaTeX-incompatible input and strict mode is set to 'warn': Unicode text character "与" used in math mode [unicodeTextInMathMode]
+{
+  "totals": {
+    "fixtures": 17,
+    "byteExact": 1,
+    "editorOpenByteExact": 1,
+    "noEditGuardByteExact": 17,
+    "structureStable": 15,
+    "gfmObsidianEquivalent": 11,
+    "rendererMeaningEquivalent": 13,
+    "errors": 0
+  },
+  "localEdit": {
+    "docChanges": 1,
+    "insertedTextPresent": true,
+    "untouchedSuffixByteExact": false,
+    "inputSha256": "4a6e511cfaa19bf2d7b41d9d7b01fc7ef8d5d2629d7f27d6a760c34102f1efc1",
+    "outputSha256": "15ff225c1f89bbba7d41627e5dad1d9cba72223419c4eb555fd6a5c92517fafe",
+    "undoRestoresInitialEditorJSON": true,
+    "undoRestoresSourceBytes": false,
+    "baselineJSONGuardAfterUndoRestoresSourceBytes": true
+  },
+  "modelEditing": {
+    "columnCommand": true,
+    "columnsAfter": 3,
+    "imageCommand": true,
+    "updatedImagePresent": true,
+    "taskCheckedPresent": true
+  },
+  "results": [
+    {
+      "id": "canonical-control",
+      "byteExact": true,
+      "currentRendererMeaningEquivalent": true,
+      "tiptapReparseStructureStable": true
+    },
+    {
+      "id": "chinese-source",
+      "byteExact": false,
+      "currentRendererMeaningEquivalent": true,
+      "tiptapReparseStructureStable": true
+    },
+    {
+      "id": "gfm-table-escapes",
+      "byteExact": false,
+      "currentRendererMeaningEquivalent": true,
+      "tiptapReparseStructureStable": true
+    },
+    {
+      "id": "images-attachments",
+      "byteExact": false,
+      "currentRendererMeaningEquivalent": true,
+      "tiptapReparseStructureStable": true
+    },
+    {
+      "id": "wikilinks",
+      "byteExact": false,
+      "currentRendererMeaningEquivalent": true,
+      "tiptapReparseStructureStable": true
+    },
+    {
+      "id": "anchors-embeds",
+      "byteExact": false,
+      "currentRendererMeaningEquivalent": true,
+      "tiptapReparseStructureStable": true
+    },
+    {
+      "id": "blockquote",
+      "byteExact": false,
+      "currentRendererMeaningEquivalent": true,
+      "tiptapReparseStructureStable": true
+    },
+    {
+      "id": "callout",
+      "byteExact": false,
+      "currentRendererMeaningEquivalent": true,
+      "tiptapReparseStructureStable": true
+    },
+    {
+      "id": "mermaid-fences",
+      "byteExact": false,
+      "currentRendererMeaningEquivalent": true,
+      "tiptapReparseStructureStable": true
+    },
+    {
+      "id": "katex",
+      "byteExact": false,
+      "currentRendererMeaningEquivalent": true,
+      "tiptapReparseStructureStable": true
+    },
+    {
+      "id": "math-dialects",
+      "byteExact": false,
+      "currentRendererMeaningEquivalent": false,
+      "tiptapReparseStructureStable": true
+    },
+    {
+      "id": "nested-task-lists",
+      "byteExact": false,
+      "currentRendererMeaningEquivalent": true,
+      "tiptapReparseStructureStable": true
+    },
+    {
+      "id": "yaml-frontmatter",
+      "byteExact": false,
+      "currentRendererMeaningEquivalent": false,
+      "tiptapReparseStructureStable": false
+    },
+    {
+      "id": "raw-html",
+      "byteExact": false,
+      "currentRendererMeaningEquivalent": false,
+      "tiptapReparseStructureStable": false
+    },
+    {
+      "id": "unknown-extensions",
+      "byteExact": false,
+      "currentRendererMeaningEquivalent": false,
+      "tiptapReparseStructureStable": true
+    },
+    {
+      "id": "source-formatting",
+      "byteExact": false,
+      "currentRendererMeaningEquivalent": true,
+      "tiptapReparseStructureStable": true
+    },
+    {
+      "id": "crlf",
+      "byteExact": false,
+      "currentRendererMeaningEquivalent": true,
+      "tiptapReparseStructureStable": true
+    }
+  ]
+}
