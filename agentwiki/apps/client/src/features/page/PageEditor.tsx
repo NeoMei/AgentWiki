@@ -16,6 +16,9 @@ import { truncateValidatorLength } from '../page-templates/validatorLength';
 import { listCompositeTemplates } from '../page-templates/compositeTemplateApi';
 import { AgentAssistPanel } from './AgentAssistPanel';
 import { canAcceptCandidate, type AssistCandidate } from './assistCandidate';
+import { canRestoreDraft, type AuthorizedDraftPage } from './localDrafts';
+import { useLocalDraft } from './useLocalDraft';
+import { LocalDraftNotice } from './LocalDraftNotice';
 import { AttachmentPickerDialog } from '../attachments/AttachmentPickerDialog';
 import { uploadAttachment } from '../attachments/attachmentApi';
 import { formatAttachmentReference } from '../attachments/attachmentReference';
@@ -105,6 +108,10 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const acceptedAssistTasksRef = useRef(new Set<string>());
   const tRef = useRef(t);
   const pageRef = useRef<Page | null>(null);
+  const currentUserIdRef = useRef(user?.id);
+  currentUserIdRef.current = user?.id;
+  const authorizedUserIdRef = useRef<string | null>(null);
+  const latestRemoteUpdatedAtRef = useRef<string | null>(null);
   const baselineRevisionRef = useRef<string | null>(null);
   const acceptedSocketRevisionRef = useRef<string | null>(null);
   const isDirtyRef = useRef(false);
@@ -167,6 +174,12 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     identity: string;
     canCreate: boolean;
   } | null>(null);
+  const draftContext = useCallback((): AuthorizedDraftPage | null => {
+    const current = pageRef.current;
+    if (!current || !currentUserIdRef.current || authorizedUserIdRef.current !== currentUserIdRef.current || current.capabilities?.canEdit !== true) return null;
+    return { userId: currentUserIdRef.current, spaceId: current.spaceId, pageId: current.id, updatedAt: current.updatedAt, title: current.title, content: current.content, canEdit: true };
+  }, []);
+  const localDraft = useLocalDraft(draftContext);
 
   const templateCapabilityIdentity = page
     ? `${page.id}\u0000${page.spaceId}\u0000${page.format}\u0000${language}`
@@ -273,9 +286,12 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     setRemoteUpdate(null);
     updateDirty(false);
     reportPageIdentity(nextPage.id, nextPage.spaceId || null, nextPage.folderId ?? null);
-  }, [abortAttachmentUploads, clearAttachmentStatus, reportPageIdentity, updateDirty]);
+    const authorized = draftContext();
+    if (authorized) localDraft.load(authorized);
+  }, [abortAttachmentUploads, clearAttachmentStatus, draftContext, localDraft.load, reportPageIdentity, updateDirty]);
 
   const adoptRemoteDraft = useCallback((nextContent: string, revision: string) => {
+    localDraft.suspend();
     abortAttachmentUploads();
     setTemplateDialogSnapshot(null);
     setBindingDialogOpen(false);
@@ -286,13 +302,14 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     dismissedRemoteRevisionRef.current = null;
     setRemoteUpdate(null);
     updateDirty(true);
-  }, [abortAttachmentUploads, updateDirty]);
+  }, [abortAttachmentUploads, localDraft.suspend, updateDirty]);
 
   const offerRemotePage = useCallback((nextPage: Page, revision = pageRevision(nextPage), forcePrompt = false) => {
     if (nextPage.id !== activePageIdRef.current) return;
     if (revision.startsWith('socket:') && revision === acceptedSocketRevisionRef.current) return;
     const baseline = pageRef.current;
     if (baseline && revision === (baselineRevisionRef.current || pageRevision(baseline))) return;
+    if (revision.startsWith('socket:')) latestRemoteUpdatedAtRef.current = revision;
     assistRemoteRevisionRef.current += 1;
     if (isDirtyRef.current) {
       if (forcePrompt || dismissedRemoteRevisionRef.current !== revision) {
@@ -310,6 +327,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
 
   // Capability invalidation must take effect even if the dirty guard cancels navigation.
   const invalidateWriteCapability = useCallback(() => {
+    authorizedUserIdRef.current = null;
+    localDraft.suspend();
     const accepted = pageRef.current;
     if (accepted) {
       const revoked = { ...accepted, capabilities: { ...accepted.capabilities, canEdit: false, canManageAttachments: false } };
@@ -328,18 +347,19 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     setTemplateDialogSnapshot(null);
     setMoreActionsOpen(false);
     setRemoteUpdate(null);
-  }, [abortAttachmentUploads]);
+  }, [abortAttachmentUploads, localDraft.suspend]);
 
   const loadPage = useCallback(async (showLoading = false, forcePrompt = false) => {
     if (!id) return;
     const requestedId = id;
+    const requestedUserId = user?.id;
     const sequence = ++loadSequenceRef.current;
     const controller = new AbortController();
     requestControllersRef.current.add(controller);
     if (showLoading) setLoading(true);
     try {
       const res = await api.get(`/pages/${requestedId}`, { signal: controller.signal });
-      if (!mountedRef.current || controller.signal.aborted || sequence !== loadSequenceRef.current || activePageIdRef.current !== requestedId) return;
+      if (!mountedRef.current || controller.signal.aborted || sequence !== loadSequenceRef.current || activePageIdRef.current !== requestedId || currentUserIdRef.current !== requestedUserId) return;
       if (res.data.capabilities?.canEdit === false) {
         invalidateWriteCapability();
         reportPageIdentity(requestedId, null);
@@ -355,6 +375,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         }
       }
       setError(null);
+      authorizedUserIdRef.current = requestedUserId ?? null;
+      latestRemoteUpdatedAtRef.current = res.data.updatedAt;
       offerRemotePage(res.data, pageRevision(res.data), forcePrompt);
       const acceptedPage = pageRef.current;
       if (acceptedPage?.id === requestedId) {
@@ -373,7 +395,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         setLoading(false);
       }
     }
-  }, [id, invalidateWriteCapability, navigate, offerRemotePage, reportPageIdentity]);
+  }, [id, user?.id, invalidateWriteCapability, navigate, offerRemotePage, reportPageIdentity]);
 
   useEffect(() => {
     contentRef.current = content;
@@ -565,6 +587,9 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   // Load page data and reset state when navigating to another page.
   useEffect(() => {
     routeGenerationRef.current += 1;
+    localDraft.suspend();
+    authorizedUserIdRef.current = null;
+    latestRemoteUpdatedAtRef.current = null;
     saveOperationRef.current += 1;
     saveControllerRef.current?.abort();
     saveControllerRef.current = null;
@@ -593,7 +618,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       return;
     }
     void loadPage(true);
-  }, [abortAttachmentUploads, clearAttachmentStatus, id, loadPage, reportPageIdentity, updateDirty]);
+    return () => { localDraft.flush(); };
+  }, [abortAttachmentUploads, clearAttachmentStatus, id, loadPage, localDraft.flush, localDraft.suspend, reportPageIdentity, updateDirty, user?.id]);
 
   const pageRefreshRequest = workspace?.pageRefreshRequest ?? 0;
   const pageDeleted = workspace?.pageDeleted ?? false;
@@ -676,6 +702,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const handleContentChange = useCallback((newContent: string) => {
     setContent(newContent);
     contentRef.current = newContent;
+    localDraft.schedule(titleRef.current, newContent);
     editRevisionRef.current += 1;
     updateDirty(true);
 
@@ -689,7 +716,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         });
       }
     }, 500);
-  }, [id, updateDirty]);
+  }, [id, localDraft.schedule, updateDirty]);
 
   const handleImageUploadError = useCallback((error: unknown) => {
     if (error instanceof StaleAttachmentUploadError || !mountedRef.current || !attachmentEnabled) return;
@@ -764,9 +791,10 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const handleTitleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     titleRef.current = truncateValidatorLength(e.target.value, PAGE_TITLE_LIMIT);
     setTitle(titleRef.current);
+    localDraft.schedule(titleRef.current, contentRef.current);
     editRevisionRef.current += 1;
     updateDirty(true);
-  }, [updateDirty]);
+  }, [localDraft.schedule, updateDirty]);
 
   const applyAgentChanges = (candidate: AssistCandidate): boolean => {
     const latest = pageRef.current;
@@ -799,6 +827,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     const submittedEditRevision = editRevisionRef.current;
     const submittedTitle = title;
     const submittedContent = content;
+    const submittedLocalDraft = localDraft.prepareSave(submittedTitle, submittedContent);
     const titleChanged = submittedTitle !== baseline.title;
     abortAttachmentUploads();
     setSaving(true);
@@ -844,7 +873,10 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       requestControllersRef.current.clear();
       pageRef.current = savedPage;
       baselineRevisionRef.current = pageRevision(savedPage);
+      latestRemoteUpdatedAtRef.current = savedPage.updatedAt;
       setPage(savedPage);
+      const savedContext = draftContext();
+      if (savedContext) localDraft.saved(submittedLocalDraft, savedContext, titleRef.current, contentRef.current);
       showStatus({ kind: 'success', text: t('editor.saved') }, 'save', 3000);
       if (editRevisionRef.current === submittedEditRevision) updateDirty(false);
     } catch (err: any) {
@@ -859,6 +891,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         kind: 'error',
         text: t('editor.saveFailed', { message: err.response?.data?.message || t('common.notAvailable') }),
       }, 'save', 5000);
+      if ([401, 403, 404].includes(err.response?.status)) invalidateWriteCapability();
       if (err.response?.status === 409) {
         dismissedRemoteRevisionRef.current = null;
         void loadPage(false, true);
@@ -888,6 +921,18 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     if (!remoteUpdate || saving) return;
     dismissedRemoteRevisionRef.current = remoteUpdate.revision;
     setRemoteUpdate(null);
+  };
+  const recoverLocalDraft = () => {
+    const remote = draftContext();
+    const offer = localDraft.offer;
+    if (!remote || !offer || saving || remoteUpdate || mode !== 'edit' || latestRemoteUpdatedAtRef.current !== offer.baseUpdatedAt || !canRestoreDraft(offer, remote)) return;
+    if (!internalWorkspaceRef.current?.replaceDocument(offer.content)) return;
+    titleRef.current = offer.title;
+    setTitle(offer.title);
+    editRevisionRef.current += 1;
+    updateDirty(true);
+    localDraft.recovered();
+    localDraft.schedule(offer.title, offer.content);
   };
 
   if (loading) return <div className="text-center py-8 text-gray-500">{t('common.loading')}</div>;
@@ -1114,22 +1159,14 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       </div>
 
       <div className="document-canvas">
-        <div className="document-header">
-        <div className="flex min-w-0 items-center gap-2">
-          <input
-            type="text"
-            aria-label={t('editor.titleLabel')}
-            placeholder={t('editor.titlePlaceholder')}
-            value={title}
-            onChange={handleTitleChange}
-            className="document-title flex-1"
-          />
-          {isDirty ? <span className="shrink-0 text-xs text-orange-500">● {t('editor.unsaved')}</span> : null}
-        </div>
-        <div className="mt-3 text-sm text-gray-500">{new Date(page.updatedAt).toLocaleDateString(language)}</div>
-        </div>
-
       {writeUnavailable ? <p role="alert" data-testid="editor-write-unavailable" className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{t('editor.writeUnavailable')}</p> : null}
+      {draftContext() ? <LocalDraftNotice
+        key={`${user?.id}:${page.spaceId}:${page.id}`}
+        offer={localDraft.offer && localDraft.offer.userId === user?.id && localDraft.offer.spaceId === page.spaceId && localDraft.offer.pageId === page.id ? localDraft.offer : null}
+        status={localDraft.status}
+        canRestore={!!localDraft.offer && latestRemoteUpdatedAtRef.current === localDraft.offer.baseUpdatedAt && canRestoreDraft(localDraft.offer, draftContext()!) && !remoteUpdate}
+        busy={saving || mode !== 'edit'} onRecover={recoverLocalDraft} onDiscard={localDraft.discard}
+      /> : null}
 
       {saveStatus && (
         <div
@@ -1154,6 +1191,21 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
           </div>
         </div>
       )}
+
+      <div className="document-header">
+        <div className="flex min-w-0 items-center gap-2">
+          <input
+            type="text"
+            aria-label={t('editor.titleLabel')}
+            placeholder={t('editor.titlePlaceholder')}
+            value={title}
+            onChange={handleTitleChange}
+            className="document-title flex-1"
+          />
+          {isDirty ? <span className="shrink-0 text-xs text-orange-500">● {t('editor.unsaved')}</span> : null}
+        </div>
+        <div className="mt-3 text-sm text-gray-500">{new Date(page.updatedAt).toLocaleDateString(language)}</div>
+      </div>
 
       <div className="relative">
         <div className="min-w-0 flex-1">

@@ -9,6 +9,7 @@ import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { LanguageProvider } from '../../context/LanguageContext';
 import type { PageTemplateListResponse } from '../page-templates/pageTemplateTypes';
 import { PageEditor } from './PageEditor';
+import { loadDraft, saveDraft } from './localDrafts';
 import { SpaceWorkspace } from '../space-workspace/SpaceWorkspace';
 import { SpaceWorkspaceProvider, SpaceWorkspaceScope, useSpaceWorkspace } from '../space-workspace/SpaceWorkspaceContext';
 import { NavigationGuardProvider, resetWorkspacePositions } from '../space-workspace/workspaceNavigation';
@@ -29,6 +30,7 @@ const attachmentMocks = vi.hoisted(() => ({
 const contentTreeMocks = vi.hoisted(() => ({
   getContentTreeRevision: vi.fn(),
 }));
+const authMock = vi.hoisted(() => ({ user: { id: 'user-1', name: 'Editor', email: 'editor@example.com' } }));
 
 vi.mock('../page-templates/PageAgentBindingDialog', () => ({
   PageAgentBindingDialog: ({ scope, onClose }: { scope: { title: string }; onClose: () => void }) => (
@@ -53,7 +55,7 @@ const socketMock = vi.hoisted(() => {
 
 vi.mock('../../api/client', () => ({ default: { get: vi.fn(), patch: vi.fn(), post: vi.fn(), delete: vi.fn() } }));
 vi.mock('../../context/AuthContext', () => ({
-  useAuth: () => ({ user: { id: 'user-1', name: 'Editor', email: 'editor@example.com' } }),
+  useAuth: () => ({ user: authMock.user }),
 }));
 vi.mock('socket.io-client', () => ({ io: vi.fn(() => socketMock.socket) }));
 vi.mock('../page-templates/pageTemplateApi', () => ({
@@ -197,7 +199,7 @@ const NavigationHarness = () => {
   return <>
     <button type="button" onClick={() => navigate('/pages/page-2/edit')}>Navigate to second page</button>
     <Routes>
-      <Route path="/pages/:id/edit" element={<PageEditor />} />
+      <Route path="/pages/:id/edit" element={<PageEditor workspaceRef={workspaceRef} />} />
       <Route path="/pages/:id" element={<DirectEditRedirectTarget />} />
     </Routes>
   </>;
@@ -271,6 +273,8 @@ describe('PageEditor remote update safety', () => {
   });
 
   beforeEach(() => {
+    localStorage.clear();
+    authMock.user = { id: 'user-1', name: 'Editor', email: 'editor@example.com' };
     localStorage.setItem('agentwiki.language.v1', 'en');
     resetWorkspacePositions();
     workspaceRef = { current: null };
@@ -305,6 +309,222 @@ describe('PageEditor remote update safety', () => {
       if (!next) return Promise.reject(new Error('unexpected get ' + url));
       return Promise.resolve(next);
     });
+  });
+
+  const draftScope = { userId: 'user-1', spaceId: 'space-1', pageId: 'page-1' };
+  const draftRemote = { ...draftScope, updatedAt: '2026-07-27T08:00:00.000Z', title: 'Original title', content: 'Original content', canEdit: true };
+  const seedDraft = () => saveDraft(draftScope, { baseUpdatedAt: draftRemote.updatedAt, title: 'Recovered title', content: 'Recovered draft' }, draftRemote, 1234);
+
+  it('offers a same-user local draft only after authorized load and restores explicitly with content undo', async () => {
+    seedDraft();
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor();
+    await screen.findByDisplayValue('Original title');
+    expect(contentEditorValue()).toBe('Original content');
+    fireEvent.click(screen.getByRole('button', { name: 'Recover local draft' }));
+    expect(contentEditorValue()).toBe('Recovered draft');
+    expect(screen.getByDisplayValue('Recovered title')).toBeInTheDocument();
+    act(() => expect(undo(currentEditorView())).toBe(true));
+    expect(contentEditorValue()).toBe('Original content');
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('blocks stale direct restore and allows preview/export and exact discard', async () => {
+    seedDraft();
+    queuePages({ data: page({ updatedAt: '2026-07-28T08:00:00.000Z', capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    expect(screen.queryByRole('button', { name: 'Recover local draft' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Preview local draft' }));
+    expect(screen.getByText('Recovered draft')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Export local draft' })).toHaveAttribute('download');
+    fireEvent.click(screen.getByRole('button', { name: 'Discard local draft' }));
+    expect(loadDraft(draftScope)).toBeNull();
+    expect(contentEditorValue()).toBe('Original content');
+  });
+
+  it('debounces human edits, persists on pagehide and offers them after reload without an automatic replacement', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    const first = renderEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Unsaved human draft');
+    expect(loadDraft(draftScope)).toBeNull();
+    fireEvent(window, new Event('pagehide'));
+    expect(loadDraft(draftScope)?.content).toBe('Unsaved human draft');
+    first.unmount();
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    expect(contentEditorValue()).toBe('Original content');
+    expect(screen.getByRole('button', { name: 'Recover local draft' })).toBeInTheDocument();
+  });
+
+  it('preserves newer typing during server Save and rebases its recoverable record', async () => {
+    const save = deferred<{ data: ReturnType<typeof page> }>();
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    vi.mocked(api.patch).mockReturnValue(save.promise);
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Submitted snapshot');
+    fireEvent.click(screen.getByTestId('save-button'));
+    editContent('Newer typing');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Page title' }), { target: { value: 'Newer title' } });
+    fireEvent(window, new Event('pagehide'));
+    save.resolve({ data: page({ content: 'Submitted snapshot', updatedAt: '2026-07-27T09:00:00.000Z' }) });
+    await waitFor(() => expect(loadDraft(draftScope)?.baseUpdatedAt).toBe('2026-07-27T09:00:00.000Z'));
+    expect(loadDraft(draftScope)?.content).toBe('Newer typing');
+    expect(loadDraft(draftScope)?.title).toBe('Newer title');
+    expect(screen.getByDisplayValue('Newer title')).toBeInTheDocument();
+    expect(contentEditorValue()).toBe('Newer typing');
+    expect(screen.getByTestId('save-button')).toBeEnabled();
+    expect(api.patch).toHaveBeenCalledWith('/pages/page-1', { content: 'Submitted snapshot', expectedUpdatedAt: '2026-07-27T08:00:00.000Z' });
+  });
+
+  it('cannot offer a draft from another user, Space or page after authorized load', async () => {
+    for (const scope of [{ ...draftScope, userId: 'other' }, { ...draftScope, spaceId: 'other' }, { ...draftScope, pageId: 'other' }]) {
+      saveDraft(scope, { baseUpdatedAt: draftRemote.updatedAt, title: 'Private', content: 'Private source' }, { ...draftRemote, ...scope }, 1234);
+    }
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    expect(screen.queryByRole('button', { name: 'Recover local draft' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Private source')).not.toBeInTheDocument();
+  });
+
+  it('flushes a pending local edit before unmount', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    const view = renderEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Pending before leave');
+    view.unmount();
+    expect(loadDraft(draftScope)?.content).toBe('Pending before leave');
+  });
+
+  it('clears only saved content and does not call a local draft a server save', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    vi.mocked(api.patch).mockResolvedValue({ data: page({ content: 'Human edit', updatedAt: '2026-07-27T09:00:00.000Z' }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Human edit');
+    await waitFor(() => expect(loadDraft(draftScope)?.content).toBe('Human edit'));
+    expect(screen.getByTestId('local-draft-status')).toHaveTextContent('Saved on this device');
+    expect(api.patch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('save-button'));
+    await waitFor(() => expect(screen.getByTestId('save-button')).toBeDisabled());
+    expect(loadDraft(draftScope)).toBeNull();
+  });
+
+  it('does not retain a false recoverable draft when newer typing returns to the submitted bytes during Save', async () => {
+    const save = deferred<{ data: ReturnType<typeof page> }>();
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    vi.mocked(api.patch).mockReturnValue(save.promise);
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Submitted'); fireEvent.click(screen.getByTestId('save-button'));
+    editContent('Typing'); editContent('Submitted'); fireEvent(window, new Event('pagehide'));
+    save.resolve({ data: page({ content: 'Submitted', updatedAt: '2026-07-27T09:00:00.000Z' }) });
+    await waitFor(() => expect(screen.getByTestId('save-button')).toBeEnabled());
+    await waitFor(() => expect(loadDraft(draftScope)).toBeNull());
+    expect(screen.queryByTestId('local-draft-status')).not.toBeInTheDocument();
+  });
+
+  it('keeps recovery blocked after a newer unsaved socket revision is dismissed', async () => {
+    seedDraft(); queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Human buffer');
+    act(() => socketMock.handlers.get('contentUpdated')?.({ content: 'Remote concurrent edit', userId: 'remote', version: 42 }));
+    fireEvent.click(screen.getByRole('button', { name: 'Keep local draft' }));
+    expect(screen.queryByRole('button', { name: 'Recover local draft' })).not.toBeInTheDocument();
+  });
+
+  it('reports quota failure without claiming that the draft was saved', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('full', 'QuotaExceededError'); });
+    editContent('Human edit'); fireEvent(window, new Event('pagehide'));
+    expect(screen.getByTestId('local-draft-status')).toHaveTextContent('Device storage is full');
+    expect(loadDraft(draftScope)).toBeNull();
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('clears recovery offers and pending local writes on permission loss', async () => {
+    seedDraft(); queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    expect(screen.getByRole('button', { name: 'Recover local draft' })).toBeInTheDocument();
+    editContent('Must not persist after revoke');
+    vi.mocked(api.get).mockRejectedValue({ response: { status: 403 } });
+    fireEvent.focus(window);
+    await screen.findByTestId('editor-write-unavailable');
+    fireEvent(window, new Event('pagehide'));
+    expect(screen.queryByRole('button', { name: 'Recover local draft' })).not.toBeInTheDocument();
+    expect(loadDraft(draftScope)?.content).toBe('Recovered draft');
+  });
+
+  it('requires a fresh page load on account switch and does not expose or flush the prior user draft', async () => {
+    seedDraft(); queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    const view = renderEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Prior user typing');
+    const newLoad = deferred<{ data: ReturnType<typeof page> }>();
+    vi.mocked(api.get).mockReturnValue(newLoad.promise);
+    authMock.user = { ...authMock.user, id: 'user-2' };
+    view.rerender(<LanguageProvider><MemoryRouter initialEntries={['/pages/page-1/edit']}><Routes><Route path="/pages/:id/edit" element={<PageEditor workspaceRef={workspaceRef} />} /></Routes></MemoryRouter></LanguageProvider>);
+    expect(screen.queryByRole('button', { name: 'Recover local draft' })).not.toBeInTheDocument();
+    newLoad.resolve({ data: page({ capabilities: { canEdit: true } }) });
+    await screen.findByDisplayValue('Original title');
+    fireEvent(window, new Event('pagehide'));
+    expect(loadDraft(draftScope)?.content).toBe('Recovered draft');
+    expect(loadDraft({ ...draftScope, userId: 'user-2' })).toBeNull();
+  });
+
+  it('flushes human edits to their old page on navigation without writing them into the next page', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) }, { data: page({ id: 'page-2', title: 'Second', content: 'Second server', capabilities: { canEdit: true } }) });
+    render(<LanguageProvider><MemoryRouter initialEntries={['/pages/page-1/edit']}><NavigationHarness /></MemoryRouter></LanguageProvider>);
+    await screen.findByDisplayValue('Original title');
+    editContent('First-page local edit');
+    fireEvent.click(screen.getByRole('button', { name: 'Navigate to second page' }));
+    await screen.findByDisplayValue('Second');
+    expect(loadDraft(draftScope)?.content).toBe('First-page local edit');
+    fireEvent(window, new Event('pagehide'));
+    expect(loadDraft({ ...draftScope, pageId: 'page-2' })).toBeNull();
+    expect(contentEditorValue()).toBe('Second server');
+  });
+
+  it('keeps WebSocket remote drafts out of recoverable local storage', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    act(() => socketMock.handlers.get('contentUpdated')?.({ content: 'Remote unsaved snapshot', userId: 'remote', version: 42 }));
+    expect(contentEditorValue()).toBe('Remote unsaved snapshot');
+    fireEvent(window, new Event('pagehide'));
+    expect(loadDraft(draftScope)).toBeNull();
+  });
+
+  it('does not persist a remote-only snapshot even when server Save fails', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    vi.mocked(api.patch).mockRejectedValue({ response: { status: 500 } });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    act(() => socketMock.handlers.get('contentUpdated')?.({ content: 'Remote-only snapshot', userId: 'remote', version: 42 }));
+    fireEvent.click(screen.getByTestId('save-button'));
+    await waitFor(() => expect(screen.getByTestId('save-button')).toBeEnabled());
+    expect(loadDraft(draftScope)).toBeNull();
+  });
+
+  it('retains local recovery after a server Save failure and invalidates offers on Save authorization failure', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Unsent human edit');
+    vi.mocked(api.patch).mockRejectedValue({ response: { status: 500 } });
+    fireEvent.click(screen.getByTestId('save-button'));
+    await waitFor(() => expect(screen.getByTestId('save-button')).toBeEnabled());
+    expect(loadDraft(draftScope)?.content).toBe('Unsent human edit');
+    vi.mocked(api.patch).mockRejectedValue({ response: { status: 403 } });
+    fireEvent.click(screen.getByTestId('save-button'));
+    await screen.findByTestId('editor-write-unavailable');
+    editContent('After forbidden'); fireEvent(window, new Event('pagehide'));
+    expect(loadDraft(draftScope)?.content).toBe('Unsent human edit');
+  });
+
+  it('keeps recovery stale after a newer remote version prompt is dismissed', async () => {
+    seedDraft(); queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Human buffer');
+    queuePages({ data: page({ updatedAt: '2026-07-28T08:00:00.000Z', capabilities: { canEdit: true } }) });
+    fireEvent.focus(window);
+    await screen.findByText(/A newer remote version is available/);
+    fireEvent.click(screen.getByRole('button', { name: 'Keep local draft' }));
+    expect(screen.queryByRole('button', { name: 'Recover local draft' })).not.toBeInTheDocument();
+    expect(contentEditorValue()).toBe('Human buffer');
   });
 
   it('loads page links only when opened and inserts authorized same-title identity without saving', async () => {
@@ -346,6 +566,8 @@ describe('PageEditor remote update safety', () => {
     fireEvent.click(screen.getByTestId('assist-submit'));
     await waitFor(() => expect(screen.getByTestId('assist-submit')).toHaveTextContent('Run task'));
     act(() => socketMock.handlers.get('assistStream')?.({ taskId: 'assist-1', chunk: '📝 生成: {"changes":"Partial"}' }));
+    fireEvent(window, new Event('pagehide'));
+    expect(loadDraft(draftScope)).toBeNull();
     expect(contentEditorValue()).toBe('Original content');
     expect(screen.getByTestId('save-button')).toBeDisabled();
     tasks = [{ id: 'assist-1', intent: 'Rewrite', status: 'done', result: { changes: 'Accepted candidate' } }];
@@ -354,9 +576,14 @@ describe('PageEditor remote update safety', () => {
     expect(contentEditorValue()).toBe('Original content');
     fireEvent.click(accept);
     expect(contentEditorValue()).toBe('Accepted candidate');
+    fireEvent(window, new Event('pagehide'));
+    expect(loadDraft(draftScope)?.content).toBe('Accepted candidate');
     expect(api.patch).not.toHaveBeenCalled();
     act(() => expect(undo(currentEditorView())).toBe(true));
     expect(contentEditorValue()).toBe('Original content');
+    fireEvent(window, new Event('pagehide'));
+    expect(loadDraft(draftScope)).toBeNull();
+    expect(screen.queryByTestId('local-draft-status')).not.toBeInTheDocument();
     act(() => socketMock.handlers.get('assistComplete')?.({ taskId: 'assist-1' }));
     await screen.findByText('Accepted to draft');
     expect(contentEditorValue()).toBe('Original content');
