@@ -112,6 +112,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   currentUserIdRef.current = user?.id;
   const authorizedUserIdRef = useRef<string | null>(null);
   const latestRemoteUpdatedAtRef = useRef<string | null>(null);
+  const unresolvedSocketRevisionRef = useRef<string | null>(null);
   const baselineRevisionRef = useRef<string | null>(null);
   const acceptedSocketRevisionRef = useRef<string | null>(null);
   const isDirtyRef = useRef(false);
@@ -276,6 +277,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       clearAttachmentStatus();
     }
     pageRef.current = nextPage;
+    unresolvedSocketRevisionRef.current = null;
     baselineRevisionRef.current = revision;
     acceptedSocketRevisionRef.current = null;
     setPage(nextPage);
@@ -309,7 +311,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     if (revision.startsWith('socket:') && revision === acceptedSocketRevisionRef.current) return;
     const baseline = pageRef.current;
     if (baseline && revision === (baselineRevisionRef.current || pageRevision(baseline))) return;
-    if (revision.startsWith('socket:')) latestRemoteUpdatedAtRef.current = revision;
+    if (revision.startsWith('socket:')) unresolvedSocketRevisionRef.current = revision;
     assistRemoteRevisionRef.current += 1;
     if (isDirtyRef.current) {
       if (forcePrompt || dismissedRemoteRevisionRef.current !== revision) {
@@ -590,6 +592,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     localDraft.suspend();
     authorizedUserIdRef.current = null;
     latestRemoteUpdatedAtRef.current = null;
+    unresolvedSocketRevisionRef.current = null;
     saveOperationRef.current += 1;
     saveControllerRef.current?.abort();
     saveControllerRef.current = null;
@@ -874,6 +877,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       pageRef.current = savedPage;
       baselineRevisionRef.current = pageRevision(savedPage);
       latestRemoteUpdatedAtRef.current = savedPage.updatedAt;
+      unresolvedSocketRevisionRef.current = null;
       setPage(savedPage);
       const savedContext = draftContext();
       if (savedContext) localDraft.saved(submittedLocalDraft, savedContext, titleRef.current, contentRef.current);
@@ -925,7 +929,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const recoverLocalDraft = () => {
     const remote = draftContext();
     const offer = localDraft.offer;
-    if (!remote || !offer || saving || remoteUpdate || mode !== 'edit' || latestRemoteUpdatedAtRef.current !== offer.baseUpdatedAt || !canRestoreDraft(offer, remote)) return;
+    if (!remote || !offer || saving || remoteUpdate || unresolvedSocketRevisionRef.current || mode !== 'edit' || latestRemoteUpdatedAtRef.current !== offer.baseUpdatedAt || !canRestoreDraft(offer, remote)) return;
     if (!internalWorkspaceRef.current?.replaceDocument(offer.content)) return;
     titleRef.current = offer.title;
     setTitle(offer.title);
@@ -1164,7 +1168,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         key={`${user?.id}:${page.spaceId}:${page.id}`}
         offer={localDraft.offer && localDraft.offer.userId === user?.id && localDraft.offer.spaceId === page.spaceId && localDraft.offer.pageId === page.id ? localDraft.offer : null}
         status={localDraft.status}
-        canRestore={!!localDraft.offer && latestRemoteUpdatedAtRef.current === localDraft.offer.baseUpdatedAt && canRestoreDraft(localDraft.offer, draftContext()!) && !remoteUpdate}
+        canRestore={!!localDraft.offer && latestRemoteUpdatedAtRef.current === localDraft.offer.baseUpdatedAt && canRestoreDraft(localDraft.offer, draftContext()!) && !remoteUpdate && !unresolvedSocketRevisionRef.current}
         busy={saving || mode !== 'edit'} onRecover={recoverLocalDraft} onDiscard={localDraft.discard}
       /> : null}
 

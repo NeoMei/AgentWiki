@@ -49,19 +49,23 @@ export const useLocalDraft = (context: () => AuthorizedDraftPage | null) => {
     cancel(); pending.current = null; written.current = null; human.current = false;
     setOffer(null); setStatus('none');
   }, [cancel]);
-  const load = useCallback((remote: AuthorizedDraftPage) => {
-    cancel(); pending.current = null; written.current = null; human.current = false; setStatus('none');
+  // Refresh a recovery offer without changing the current human edit session.
+  const refreshOffer = useCallback((remote: AuthorizedDraftPage) => {
     const result = readDraft(remote);
     setOffer(result.status === 'found' && compareDraft(result.draft, remote) !== 'unchanged' ? result.draft : null);
     if (result.status === 'unavailable') setStatus('unavailable');
-  }, [cancel]);
+  }, []);
+  const load = useCallback((remote: AuthorizedDraftPage) => {
+    cancel(); pending.current = null; written.current = null; human.current = false; setStatus('none');
+    refreshOffer(remote);
+  }, [cancel, refreshOffer]);
   const discard = useCallback(() => {
     const live = context();
     if (!offer || !live?.canEdit || offer.userId !== live.userId || offer.spaceId !== live.spaceId || offer.pageId !== live.pageId) return;
     const result = clearDraftIfExact(live, offer);
     if (result.status === 'unavailable') setStatus('unavailable');
-    else { setOffer(null); if (result.status === 'different') load(live); }
-  }, [context, load, offer]);
+    else { setOffer(null); if (result.status === 'different') refreshOffer(live); }
+  }, [context, refreshOffer, offer]);
   const recovered = useCallback(() => { setOffer(null); }, []);
   const prepareSave = useCallback((title: string, content: string) => {
     if (!human.current) return null;

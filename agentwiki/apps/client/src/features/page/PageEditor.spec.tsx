@@ -427,6 +427,47 @@ describe('PageEditor remote update safety', () => {
     act(() => socketMock.handlers.get('contentUpdated')?.({ content: 'Remote concurrent edit', userId: 'remote', version: 42 }));
     fireEvent.click(screen.getByRole('button', { name: 'Keep local draft' }));
     expect(screen.queryByRole('button', { name: 'Recover local draft' })).not.toBeInTheDocument();
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    fireEvent.focus(window);
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.queryByRole('button', { name: 'Recover local draft' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Preview local draft' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Export local draft' })).toBeInTheDocument();
+  });
+
+  it('keeps dismissed socket conflicts unresolved through a periodic baseline refresh', async () => {
+    vi.useFakeTimers();
+    try {
+      seedDraft();
+      queuePages({ data: page({ capabilities: { canEdit: true } }) }, { data: page({ capabilities: { canEdit: true } }) });
+      await act(async () => { renderEditor(); });
+      editContent('Human buffer');
+      act(() => socketMock.handlers.get('contentUpdated')?.({ content: 'Remote concurrent edit', userId: 'remote', version: 42 }));
+      fireEvent.click(screen.getByRole('button', { name: 'Keep local draft' }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+      expect(api.get).toHaveBeenCalledTimes(2);
+      expect(screen.queryByRole('button', { name: 'Recover local draft' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Preview local draft' })).toBeInTheDocument();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it.each(['pagehide', 'failed-save'] as const)('preserves pending newer human input when discarding an older offer before %s', async (action) => {
+    seedDraft(); queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Persisted A');
+    await waitFor(() => expect(loadDraft(draftScope)?.content).toBe('Persisted A'));
+    editContent('Pending B');
+    fireEvent.click(screen.getByRole('button', { name: 'Discard local draft' }));
+    expect(loadDraft(draftScope)?.content).toBe('Persisted A');
+    if (action === 'pagehide') fireEvent(window, new Event('pagehide'));
+    else {
+      vi.mocked(api.patch).mockRejectedValue({ response: { status: 500 } });
+      fireEvent.click(screen.getByTestId('save-button'));
+      await waitFor(() => expect(screen.getByTestId('save-button')).toBeEnabled());
+    }
+    expect(loadDraft(draftScope)?.content).toBe('Pending B');
+    expect(contentEditorValue()).toBe('Pending B');
   });
 
   it('reports quota failure without claiming that the draft was saved', async () => {
