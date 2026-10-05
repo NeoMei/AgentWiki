@@ -1,11 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AssistRequest, AssistNotesEvent } from './AgentAssistPanel';
-import { captureAssistTarget, resolveAssistTarget, type AssistTarget } from './assistTargets';
+import { captureAssistTarget, resolveAssistTarget, type AssistTarget, type CandidateEdit } from './assistTargets';
 import { addPersonalNote, loadPersonalNotes, notesForDispatch, personalNotesKey, savePersonalNotes, transitionPersonalNotes, type PersonalNote, type PersonalNotesScope } from './reviewComments';
 interface Props { scope: PersonalNotesScope | null; canEdit: boolean; source: string; updatedAt?: string; language?: string }
 interface QueueState { notes: PersonalNote[]; assistRequest: AssistRequest | null; storageUnavailable: boolean; conflict: boolean }
 const empty = (): QueueState => ({ notes: [], assistRequest: null, storageUnavailable: false, conflict: false });
 interface TaskBinding { noteIds: string[]; coverage: Map<string, string[]> }
+/** Evidence of source change, not the enclosing line-hunk extent. Ambiguous retained excerpts stay unresolved. */
+const editChangesPassage = (edit: CandidateEdit, passage: { from: number; to: number }) => {
+  let prefix = 0, suffix = 0;
+  while (prefix < Math.min(edit.before.length, edit.after.length) && edit.before[prefix] === edit.after[prefix]) prefix++;
+  while (suffix < Math.min(edit.before.length, edit.after.length) - prefix && edit.before[edit.before.length - suffix - 1] === edit.after[edit.after.length - suffix - 1]) suffix++;
+  const from = edit.from + prefix, to = edit.to - suffix;
+  if (from === to) return edit.after.length > edit.before.length && from > passage.from && from < passage.to;
+  const overlapFrom = Math.max(from, passage.from), overlapTo = Math.min(to, passage.to);
+  if (overlapFrom >= overlapTo) return false;
+  const original = edit.before.slice(overlapFrom - edit.from, overlapTo - edit.from);
+  // If the overlapping excerpt survives anywhere, correspondence is uncertain; do not claim the note solved.
+  return !!original && !edit.after.includes(original);
+};
+
 /** Owns only personal notes and request/event linkage. Parent remains the sole Markdown writer. */
 export function usePersonalNotes({ scope, canEdit, source, updatedAt, language = 'en' }: Props) {
   const latestRef = useRef({ source, updatedAt, language }); latestRef.current = { source, updatedAt, language };
@@ -74,7 +88,7 @@ export function usePersonalNotes({ scope, canEdit, source, updatedAt, language =
       for (const note of stateRef.current.notes.filter((n) => binding.noteIds.includes(n.id) && n.taskId === event.taskId)) {
         const position = resolveAssistTarget(event.candidate.baseContent, note.target);
         if (position.status !== 'found') continue;
-        const covered = event.candidate.editPlan.edits.filter((edit) => edit.from === edit.to ? edit.from >= position.from && edit.from <= position.to : edit.from < position.to && edit.to > position.from).map((edit) => edit.id);
+        const covered = event.candidate.editPlan.edits.filter((edit) => editChangesPassage(edit, position)).map((edit) => edit.id);
         if (covered.length) binding.coverage.set(note.id, covered);
       }
     }

@@ -75,3 +75,28 @@ it('refuses a batch exceeding the existing Assist intent limit while retaining n
   act(()=>result.current.add(first,'x'.repeat(10_000)));const ids=result.current.notes.map(n=>n.id);
   act(()=>{expect(result.current.dispatch(ids)).toBe(false);});expect(result.current.assistRequest).toBeNull();expect(result.current.notes[0].status).toBe('pending');expect(result.current.conflict).toBe(true);
 });
+
+it.each([
+  {label:'same line',base:'one and two',next:'ONE and two',one:[0,3],two:[8,11]},
+  {label:'indivisible long edit',base:'one\n'+'keep\n'.repeat(301)+'two',next:'ONE\n'+'keep\n'.repeat(301)+'two',one:[0,3],two:[1509,1512]},
+])('does not resolve retained note passages in $label',({base,next,one,two})=>{
+  const {result}=renderHook(()=>usePersonalNotes({scope,canEdit:true,source:base,updatedAt:version}));
+  act(()=>{result.current.add(captureAssistTarget(base,'selection',one[0],one[1],version)!,'change one');result.current.add(captureAssistTarget(base,'selection',two[0],two[1],version)!,'change two');});
+  const ids=result.current.notes.map(n=>n.id);act(()=>{result.current.dispatch(ids);});
+  const done=completeAssistCandidate({taskId:'task',pageId:'p',spaceId:'s',userId:'u',baseTitle:'T',baseContent:base,baseUpdatedAt:version,assistTarget:result.current.assistRequest?.assistTarget,noteIds:ids,content:'',status:'generating'},next);
+  act(()=>{result.current.onNotesEvent({event:'dispatch',taskId:'task',noteIds:ids,candidate:done});result.current.onNotesEvent({event:'ready',taskId:'task',noteIds:ids,candidate:done});result.current.onNotesEvent({event:'accept',taskId:'task',noteIds:ids,candidate:done,acceptedEditIds:['edit-1']});});
+  expect(result.current.notes.map(n=>n.status)).toEqual(['resolved','awaiting-review']);
+});
+
+it.each([
+  {label:'interior insertion',base:'one and two',next:'o!ne and two',one:[0,3],two:[8,11]},
+  {label:'deletion',base:'one and two',next:' and two',one:[0,3],two:[8,11]},
+  {label:'unchanged middle quote',base:'one and two and three',next:'ONE and two and THREE',one:[0,3],two:[8,11]},
+])('requires source-change evidence for notes when accepting $label',({base,next,one,two})=>{
+  const {result}=renderHook(()=>usePersonalNotes({scope,canEdit:true,source:base,updatedAt:version}));
+  act(()=>{result.current.add(captureAssistTarget(base,'selection',one[0],one[1],version)!,'change one');result.current.add(captureAssistTarget(base,'selection',two[0],two[1],version)!,'change two');});
+  const ids=result.current.notes.map(n=>n.id);act(()=>{result.current.dispatch(ids);});
+  const done=completeAssistCandidate({taskId:'task',pageId:'p',spaceId:'s',userId:'u',baseTitle:'T',baseContent:base,baseUpdatedAt:version,assistTarget:captureAssistTarget(base,'document',0,base.length,version)!,noteIds:ids,content:'',status:'generating'},next);
+  act(()=>{result.current.onNotesEvent({event:'dispatch',taskId:'task',noteIds:ids,candidate:done});result.current.onNotesEvent({event:'ready',taskId:'task',noteIds:ids,candidate:done});result.current.onNotesEvent({event:'accept',taskId:'task',noteIds:ids,candidate:done,acceptedEditIds:['edit-1']});});
+  expect(result.current.notes.map(n=>n.status)).toEqual(['resolved','awaiting-review']);
+});

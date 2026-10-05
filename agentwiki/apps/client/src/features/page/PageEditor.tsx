@@ -168,6 +168,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const [isDirty, setIsDirty] = useState(false);
   const [mode, setMode] = useState<MarkdownMode>('edit');
   const [assistOpen, setAssistOpen] = useState(false);
+  const [assistMounted, setAssistMounted] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [assistSelection, setAssistSelection] = useState<MarkdownSelection>({ from: 0, to: 0, text: '' });
   const [selectionRequest, setSelectionRequest] = useState<AssistRequest | null>(null);
@@ -608,6 +609,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     saveControllerRef.current?.abort();
     saveControllerRef.current = null;
     setSaving(false);
+    setAssistMounted(false); setAssistOpen(false);
     acceptedAssistTasksRef.current.clear(); setSelectionRequest(null); setNotesOpen(false); setAssistSelection({ from: 0, to: 0, text: '' });
     loadSequenceRef.current += 1;
     requestControllersRef.current.forEach((controller) => controller.abort());
@@ -810,6 +812,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     editRevisionRef.current += 1;
     updateDirty(true);
   }, [localDraft.schedule, updateDirty]);
+
+  useEffect(() => { if (assistOpen) setAssistMounted(true); }, [assistOpen]);
 
   const requestSelectionAssist = (selection: MarkdownSelection) => {
     const latest = pageRef.current, source = internalWorkspaceRef.current?.currentValue() ?? contentRef.current;
@@ -1255,13 +1259,13 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             onUploadError={attachmentEnabled ? handleImageUploadError : undefined}
           />
         </div>
-        {assistOpen || notesOpen ? <div className="document-assist-layer w-80">
+        {assistMounted || notesOpen || assistOpen ? <div hidden={!assistOpen && !notesOpen} className="document-assist-layer w-80">
           <div className="sticky top-0 z-10 flex gap-2 border-b bg-white p-3 text-sm"><button type="button" onClick={() => { setNotesOpen(false); setAssistOpen(true); }} aria-label={language === 'zh-CN' ? '候选队列' : 'Candidate queue'} aria-pressed={!notesOpen}>{language === 'zh-CN' ? '编辑辅助' : 'Editing assist'}</button><button type="button" onClick={() => setNotesOpen(true)} aria-pressed={notesOpen}>{language === 'zh-CN' ? '笔记队列' : 'Notes queue'}</button><button type="button" className="ml-auto text-gray-500" aria-label={language === 'zh-CN' ? '关闭协作面板' : 'Close collaboration panel'} onClick={() => { setNotesOpen(false); setAssistOpen(false); }}>×</button></div>
         {notesOpen && notesWritable ? <div className="p-3">
           {personalNotes.conflict ? <p role="alert" className="mb-2 text-sm text-amber-800">{language === 'zh-CN' ? '所选笔记原文已变动、定位不唯一或内容过长，请检查后重试。' : 'Selected passages changed, are ambiguous, or exceed the request limit. Review them before retrying.'}</p> : null}
           <PersonalNotesPanel key={personalNotes.identityKey} source={content} target={selectionTarget} notes={personalNotes.notes} storageUnavailable={personalNotes.storageUnavailable} disabled={saving || mode !== 'edit' || !!remoteUpdate || !!unresolvedSocketRevisionRef.current || !!personalNotes.assistRequest} onAdd={personalNotes.add} onReopen={personalNotes.reopen} onDispatch={(ids) => { if (personalNotes.dispatch(ids)) { setSelectionRequest(null); setNotesOpen(false); setAssistOpen(true); } }} />
         </div> : null}
-        {assistOpen && page ? (
+        {(assistMounted || assistOpen) && page ? (
           <div hidden={notesOpen}><AgentAssistPanel
             pageId={page.id}
             pageTitle={title || page.title}

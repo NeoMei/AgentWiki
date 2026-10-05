@@ -2429,4 +2429,32 @@ describe('PageEditor remote update safety', () => {
     await waitFor(()=>expect(api.post).toHaveBeenCalledTimes(2));expect(api.post).toHaveBeenLastCalledWith('/assist/tasks',expect.objectContaining({snapshot:expect.objectContaining({assistTarget:expect.objectContaining({kind:'section',quote:'# One\nintro\n## Child\nx\n'})})}));expect(contentEditorValue()).toBe(base);
   });
 
+  it.each(['generating','ready','partial'] as const)('preserves %s scoped candidate across closing and reopening the drawer',async(phase)=>{
+    const base='one\nkeep\ntwo\n';let tasks:any[]=[];
+    vi.mocked(api.get).mockImplementation(async(url)=>({data:url==='/assist/tasks'?tasks:url==='/review'?[]:page({content:base,capabilities:{canEdit:true}})}));
+    vi.mocked(api.post).mockImplementation(async()=>{tasks=[{id:'continuity',intent:'Fix',status:phase==='generating'?'running':'done',result:{changes:'ONE\nkeep\nTWO\n'}}];return{data:{id:'continuity'}};});
+    renderEditor();await screen.findByDisplayValue('Original title');fireEvent.click(screen.getByTestId('assist-toggle'));fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix'}});fireEvent.click(screen.getByTestId('assist-submit'));
+    await waitFor(()=>expect(screen.getByTestId('assist-submit')).toHaveTextContent('Run task'));
+    if(phase!=='generating')await screen.findByRole('button',{name:'Accept change 1'});
+    if(phase==='partial')fireEvent.click(screen.getByRole('button',{name:'Accept change 1'}));
+    fireEvent.click(screen.getByRole('button',{name:'Close collaboration panel'}));fireEvent.click(screen.getByTestId('assist-toggle'));
+    tasks=[{id:'continuity',intent:'Fix',status:'done',result:{changes:'ONE\nkeep\nTWO\n'}}];act(()=>socketMock.handlers.get('assistComplete')?.({taskId:'continuity'}));
+    await screen.findByRole('button',{name:'Accept change 2'});
+    if(phase==='partial'){expect(screen.getByRole('button',{name:'Accept change 1'})).toBeDisabled();fireEvent.click(screen.getByRole('button',{name:'Accept change 2'}));expect(contentEditorValue()).toBe('ONE\nkeep\nTWO\n');}
+    else {expect(screen.getByRole('button',{name:'Accept change 1'})).toBeEnabled();expect(contentEditorValue()).toBe(base);}
+    expect(api.post).toHaveBeenCalledTimes(1);
+  });
+  it.each(['failed','delayed'] as const)('auto-submits a notes request once across close/reopen after %s POST',async(scenario)=>{
+    let tasks:any[]=[];const delayed=deferred<any>();
+    vi.mocked(api.get).mockImplementation(async(url)=>({data:url==='/assist/tasks'?tasks:url==='/review'?[]:page({capabilities:{canEdit:true}})}));
+    vi.mocked(api.post).mockImplementation(()=>scenario==='failed'?Promise.reject(new Error('failed')):delayed.promise);
+    renderEditor();await screen.findByDisplayValue('Original title');fireEvent.click(screen.getByRole('button',{name:'Personal notes'}));
+    act(()=>currentEditorView().dispatch({selection:EditorSelection.single(0,8)}));fireEvent.change(screen.getByRole('textbox',{name:'Note'}),{target:{value:'Fix'}});fireEvent.click(screen.getByRole('button',{name:'Add note'}));fireEvent.click(screen.getByRole('checkbox',{name:'Fix'}));fireEvent.click(screen.getByRole('button',{name:'Send selected to Agent'}));
+    await waitFor(()=>expect(api.post).toHaveBeenCalledTimes(1));if(scenario==='failed')await screen.findByRole('alert');
+    fireEvent.click(screen.getByRole('button',{name:'Close collaboration panel'}));fireEvent.click(screen.getByTestId('assist-toggle'));
+    if(scenario==='delayed'){tasks=[{id:'delayed',intent:'Fix',status:'done',result:{changes:'Changed content'}}];await act(async()=>delayed.resolve({data:{id:'delayed'}}));await screen.findByRole('button',{name:'Accept change 1'});}
+    else expect(screen.getByRole('alert')).toHaveTextContent('Could not submit');
+    expect(api.post).toHaveBeenCalledTimes(1);
+  });
+
 });
