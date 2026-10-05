@@ -346,7 +346,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
         const active = workspaceRef.current;
         if (active?.selectedPageId === node.id && (active.mode === 'read' || active.mode === 'versions')) active.requestPageRefresh(node.id);
       }
-    } catch (failure) { if (inlineMutationStillCurrent(scope)) throw new Error(apiErrorMessage(failure, t, 'folder.saveFailed')); }
+    } catch (failure) { if (inlineMutationStillCurrent(scope)) throw new Error(apiErrorMessage(failure, t, 'folder.saveFailed'), { cause: failure }); }
   };
   const handleInlineCreateFolder = async (parent: Pick<ContentTreeFolderNode, 'id' | 'name'> | null, name: string) => {
     const scope = requireInlineMutation();
@@ -355,14 +355,14 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
       if (!inlineMutationStillCurrent(scope)) return;
       if (parent) setFolderExpanded(parent.id, true);
       directoryRef.current.acceptTreeRevision(result.treeRevision);
-    } catch (failure) { if (inlineMutationStillCurrent(scope)) throw new Error(apiErrorMessage(failure, t, 'folder.saveFailed')); }
+    } catch (failure) { if (inlineMutationStillCurrent(scope)) throw new Error(apiErrorMessage(failure, t, 'folder.saveFailed'), { cause: failure }); }
   };
   const handleInlineCreatePage = async (parent: Pick<ContentTreeFolderNode, 'id' | 'name'> | null, title: string) => {
     const scope = requireInlineMutation();
     try {
       const result = await api.post('/pages', { title, spaceId: scope.spaceId, folderId: parent?.id ?? null, expectedTreeRevision: scope.revision });
       if (inlineMutationStillCurrent(scope)) navigate('/pages/' + encodeURIComponent(result.data.id) + '/edit');
-    } catch (failure) { if (inlineMutationStillCurrent(scope)) throw new Error(apiErrorMessage(failure, t, 'page.createFailed')); }
+    } catch (failure) { if (inlineMutationStillCurrent(scope)) throw new Error(apiErrorMessage(failure, t, 'page.createFailed'), { cause: failure }); }
   };
   const revealCurrentDocument = () => {
     const active = workspaceRef.current;

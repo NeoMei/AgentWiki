@@ -20,7 +20,7 @@ export const formatTransaction = (state: EditorState, command: FormatCommand): T
   }
   if (command === 'link') {
     const label = text || 'link';
-    const insert = `[${label.replace(/([\\\[\]])/gu, '\\$1')}](https://)`;
+    const insert = `[${label.replace(/([\\[\]])/gu, '\\$1')}](https://)`;
     const start = from + insert.lastIndexOf('https://');
     return { changes: { from, to, insert }, selection: EditorSelection.single(start, start + 8), annotations: annotations() };
   }
@@ -49,7 +49,7 @@ export const insertionTransaction = (state: EditorState, command: InsertCommand,
 };
 export const pageLinkTransaction = (state: EditorState, page: PageLinkTarget): TransactionSpec => {
   const { from, to } = state.selection.main;
-  const label = (page.title || page.id).replace(/[\[\]|\r\n]/gu, ' ').replace(/\s+/gu, ' ').trim();
+  const label = (page.title || page.id).replace(/[[\]|\r\n]/gu, ' ').replace(/\s+/gu, ' ').trim();
   const insert = `[[${page.id}|${label}]]`;
   return { changes: { from, to, insert }, selection: { anchor: from + insert.length }, annotations: annotations() };
 };
