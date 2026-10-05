@@ -10,6 +10,8 @@ const validNote = (n: PersonalNote, scope: PersonalNotesScope) => n && n.schemaV
   && ['pending', 'dispatched', 'awaiting-review', 'resolved'].includes(n.status)
   && (n.status === 'pending' ? n.taskId === undefined : validText(n.taskId)) && n.target?.kind === 'selection'
   && typeof n.target.quote === 'string' && n.target.quote.length > 0 && typeof n.target.prefix === 'string' && typeof n.target.suffix === 'string'
+  && Number.isSafeInteger(n.target.from) && Number.isSafeInteger(n.target.to)
+  && n.target.from >= 0 && n.target.to > n.target.from
   && n.target.from >= n.target.prefix.length && n.target.to - n.target.from === n.target.quote.length
   && validateAssistTarget(n.target.prefix + n.target.quote + n.target.suffix, { ...n.target, from: n.target.prefix.length, to: n.target.prefix.length + n.target.quote.length });
 const browserStorage = (): NotesStorage | null => { try { return typeof window === 'undefined' ? null : window.localStorage; } catch { return null; } };

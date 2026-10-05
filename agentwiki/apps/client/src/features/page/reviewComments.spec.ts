@@ -47,3 +47,24 @@ it('treats malformed persisted note ranges and JSON as invalid without overwriti
   localStorage.setItem(personalNotesKey(scope), '{');
   expect(loadPersonalNotes(scope, localStorage).status).toBe('invalid');
 });
+
+it.each([
+  { label: 'fractional', from: 7.5, to: 12.5 },
+  { label: 'numeric strings', from: '7', to: '12' },
+  { label: 'mixed numeric string', from: '7', to: 12 },
+  { label: 'negative', from: -1, to: 4 },
+  { label: 'reversed', from: 12, to: 7 },
+  { label: 'unsafe integers', from: 2 ** 53, to: 2 ** 53 + 4, quote: 'quot' },
+  { label: 'positive infinity', from: Infinity, to: Infinity },
+  { label: 'negative infinity', from: -Infinity, to: -Infinity },
+  { label: 'NaN', from: NaN, to: NaN },
+])('rejects $label original note offsets on both load and save without replacing stored bytes', ({ from, to, quote }) => {
+  localStorage.clear();
+  const note = addPersonalNote(scope, target, 'Explain', 'id');
+  const malformed = { ...note, target: { ...target, from, to, quote: quote ?? target.quote } } as unknown as typeof note;
+  const raw = JSON.stringify([malformed]);
+  localStorage.setItem(personalNotesKey(scope), raw);
+  expect(loadPersonalNotes(scope, localStorage).status).toBe('invalid');
+  expect(savePersonalNotes(scope, [malformed], localStorage).status).toBe('invalid');
+  expect(localStorage.getItem(personalNotesKey(scope))).toBe(raw);
+});
