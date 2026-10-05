@@ -1,4 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { isolateHistory } from '@codemirror/commands';
 import CodeMirror from '@uiw/react-codemirror';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
@@ -26,6 +27,7 @@ import {
 import { formatAttachmentReference } from '../features/attachments/attachmentReference';
 import { outlineFor } from './markdown-tools/outline';
 import { insertionTransaction, slashRange, type InsertCommand } from './markdown-tools/commands';
+import { menuPosition, type MenuPosition } from './markdown-tools/menuPosition';
 import { DocumentTools, type MarkdownSelection } from './markdown-tools/DocumentTools';
 import { ArticleContentsPopover } from '../features/space-workspace/ArticleContentsPopover';
 import { nearestMarkdownSourceBlock } from '../features/space-workspace/workspaceNavigation';
@@ -400,7 +402,8 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   const suppressedSlashRef = useRef<string | null>(null);
   const [selection, setSelection] = useState<MarkdownSelection>({ from: 0, to: 0, text: '' });
   const [slash, setSlash] = useState<ReturnType<typeof slashRange>>(null);
-  const [slashPosition, setSlashPosition] = useState<{ top: number; left: number }>({ top: 38, left: 0 });
+  const [slashPosition, setSlashPosition] = useState<MenuPosition>({ top: 38, left: 12, maxHeight: 300, maxWidth: Math.max(0, window.innerWidth - 24) });
+  const slashMenuRef = useRef<HTMLDivElement>(null);
   const [activeOutlineOffset, setActiveOutlineOffset] = useState(0);
   const [slashIndex, setSlashIndex] = useState(0);
   const slashRef = useRef(slash);
@@ -428,14 +431,44 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
     selectionCallbackRef.current?.(next);
     const nextSlash = suppressedSlashRef.current === slashKey(view) ? null : slashRange(view.state, composingRef.current || view.composing);
     setSlash(nextSlash); setSlashIndex(0);
-    if (nextSlash) {
-      try {
-        const coords = view.coordsAtPos(nextSlash.from);
-        const root = view.dom.closest('.document-workspace')?.getBoundingClientRect();
-        if (coords && root) setSlashPosition({ top: coords.bottom - root.top + 4, left: Math.max(0, coords.left - root.left) });
-      } catch { /* A hidden/unmeasured editor keeps the safe top-of-surface menu. */ }
-    }
+
   }, []);
+  useLayoutEffect(() => {
+    if (!isEdit || !slash) return;
+    const positionMenu = () => {
+      const menu = slashMenuRef.current;
+      const view = editorViewRef.current;
+      if (!menu || !view) return;
+      let anchor: { left: number; top: number; bottom: number } | null = null;
+      try { anchor = view.coordsAtPos(slash.from); } catch { /* Hidden editors use the measured editor origin. */ }
+      anchor ??= view.dom.getBoundingClientRect();
+      const measured = menu.getBoundingClientRect();
+      const naturalHeight = Math.max(measured.height, menu.scrollHeight + Math.max(0, menu.offsetHeight - menu.clientHeight));
+      const next = menuPosition(anchor, { width: measured.width, height: naturalHeight }, { width: window.innerWidth, height: window.innerHeight });
+      setSlashPosition((current) => current.left === next.left && current.top === next.top && current.maxHeight === next.maxHeight && current.maxWidth === next.maxWidth ? current : next);
+    };
+    positionMenu();
+    document.addEventListener('scroll', positionMenu, true);
+    window.addEventListener('scroll', positionMenu, { passive: true });
+    window.addEventListener('resize', positionMenu);
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(positionMenu);
+    if (slashMenuRef.current) observer?.observe(slashMenuRef.current);
+    return () => {
+      document.removeEventListener('scroll', positionMenu, true);
+      window.removeEventListener('scroll', positionMenu);
+      window.removeEventListener('resize', positionMenu);
+      observer?.disconnect();
+    };
+  }, [isEdit, slash, slashOptions.length, language]);
+  useLayoutEffect(() => {
+    const menu = slashMenuRef.current;
+    const option = menu?.querySelectorAll<HTMLButtonElement>('button')[slashIndex];
+    if (!menu || !option) return;
+    const top = option.offsetTop;
+    const bottom = top + option.offsetHeight;
+    if (top < menu.scrollTop) menu.scrollTop = top;
+    else if (bottom > menu.scrollTop + menu.clientHeight) menu.scrollTop = Math.max(0, bottom - menu.clientHeight);
+  }, [slashIndex, slash, slashPosition.maxHeight]);
   const chooseSlash = useCallback((id: string) => {
     const view = editorViewRef.current;
     const range = view && slashRange(view.state, composingRef.current || view.composing);
@@ -791,7 +824,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
         }
         uploadFromPickerRef.current?.(files); event.target.value = ''; setSlash(null);
       }} />
-      {isEdit && slash ? <div role="menu" aria-label={zh ? '插入块' : 'Insert block'} className="document-slash-menu" style={slashPosition} onKeyDown={(event) => {
+      {isEdit && slash ? createPortal(<div ref={slashMenuRef} role="menu" aria-label={zh ? '插入块' : 'Insert block'} className="document-slash-menu" style={slashPosition} onKeyDown={(event) => {
         if (event.nativeEvent.isComposing || event.keyCode === 229) return;
         if (event.key === 'Escape') { const view = editorViewRef.current; if (view) { suppressedSlashRef.current = slashKey(view); view.focus(); } setSlash(null); event.preventDefault(); }
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -801,7 +834,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
       }}>
         {slashOptions.map((item, index) => <button type="button" role="menuitem" key={item.id} aria-current={index === slashIndex ? 'true' : undefined} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseSlash(item.id)}>{zh ? item.zh : item.en}</button>)}
         {!slashOptions.length ? <p>{zh ? '没有匹配的插入项' : 'No matching blocks'}</p> : null}
-      </div> : null}
+      </div>, document.body) : null}
       <div
         data-testid="md-editor-surface"
         className="document-body-surface min-h-[480px] bg-white"

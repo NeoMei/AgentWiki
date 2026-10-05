@@ -170,6 +170,52 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     expect(screen.queryByRole('menu', { name: 'Insert block' })).not.toBeInTheDocument();
   });
 
+  it('measures slash menu height, flips at viewport bottom and repositions on scroll/resize', () => {
+    const { container } = renderWYS({ initial: '' });
+    const view = currentEditorView(container);
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 });
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 720 });
+    let anchor = { left: 650, top: 690, bottom: 706 } as DOMRect;
+    vi.spyOn(view, 'coordsAtPos').mockImplementation(() => anchor);
+    const measure = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return { width: this.getAttribute('role') === 'menu' ? 200 : 0, height: this.getAttribute('role') === 'menu' ? 273 : 0, left: 0, top: 0, bottom: 0, right: 0 } as DOMRect;
+    });
+    try {
+      act(() => view.dispatch({ changes: { from: 0, insert: '/' }, selection: { anchor: 1 } }));
+      const menu = screen.getByRole('menu', { name: 'Insert block' });
+      expect(menu.parentElement).toBe(document.body);
+      expect(menu).toHaveStyle({ top: '413px', left: '650px', maxHeight: '674px' });
+      anchor = { left: 350, top: 590, bottom: 610 } as DOMRect;
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+      fireEvent.resize(window);
+      expect(menu).toHaveStyle({ left: '178px', top: '313px', maxWidth: '366px' });
+      anchor = { left: 100, top: 200, bottom: 218 } as DOMRect;
+      fireEvent.scroll(window);
+      expect(menu).toHaveStyle({ top: '222px', left: '100px' });
+      expect(view.state.doc.toString()).toBe('/');
+    } finally { measure.mockRestore(); }
+  });
+
+  it('scrolls the active slash choice into its measured menu viewport on keyboard navigation', () => {
+    const { container } = renderWYS({ initial: '/' });
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ selection: EditorSelection.cursor(1) }));
+    const menu = screen.getByRole('menu', { name: 'Insert block' });
+    Object.defineProperty(menu, 'clientHeight', { configurable: true, value: 80 });
+    const choices = screen.getAllByRole('menuitem');
+    choices.forEach((choice, index) => {
+      Object.defineProperty(choice, 'offsetTop', { configurable: true, value: index * 40 });
+      Object.defineProperty(choice, 'offsetHeight', { configurable: true, value: 40 });
+    });
+    fireEvent.keyDown(view.contentDOM, { key: 'ArrowUp' });
+    expect(choices[5]).toHaveAttribute('aria-current', 'true');
+    expect(menu.scrollTop).toBe(160);
+    fireEvent.keyDown(view.contentDOM, { key: 'ArrowDown' });
+    expect(choices[0]).toHaveAttribute('aria-current', 'true');
+    expect(menu.scrollTop).toBe(0);
+    expect(view.state.doc.toString()).toBe('/');
+  });
+
   it('does not trigger slash menu during Chinese composition', () => {
     const { container } = renderWYS({ initial: '' });
     const view = currentEditorView(container);
