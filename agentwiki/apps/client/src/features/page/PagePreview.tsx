@@ -591,7 +591,7 @@ export const PagePreview: React.FC = () => {
               {t('common.edit')}
             </button>
           ) : null}
-          <ArticleContentsPopover articleRootRef={markdownRootRef} pageKey={page.id} />
+          <ArticleContentsPopover articleRootRef={markdownRootRef} pageKey={page.id} source={page.content || ''} />
           <PageInfoPanel
             key={page.id}
             spaceId={page.spaceId}
@@ -618,9 +618,9 @@ export const PagePreview: React.FC = () => {
         </div>
       </div>
 
-      <article className="mx-auto min-h-[300px] min-w-0 max-w-[860px] bg-white px-1 py-5 sm:px-5 lg:px-8">
-        <header className="mb-8 border-b border-gray-200 pb-5">
-          <h1 title={page.title} className="break-words text-3xl font-semibold leading-tight text-gray-950">{page.title}</h1>
+      <article className="document-canvas min-h-[300px] bg-white">
+        <header className="document-header">
+          <h1 title={page.title} className="document-title">{page.title}</h1>
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500">
             {page.author ? (
               <span className="flex items-center gap-1">
@@ -635,32 +635,11 @@ export const PagePreview: React.FC = () => {
           </div>
         </header>
         {taskSaveError ? <p role="alert" className="mb-4 text-sm text-red-600">{taskSaveError}</p> : null}
-        <div ref={markdownRootRef} className="prose prose-sm max-w-none break-words
-          [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:mb-4 [&_h1]:mt-6
-          [&_h2]:text-2xl [&_h2]:font-bold [&_h2]:mb-3 [&_h2]:mt-5
-          [&_h3]:text-xl [&_h3]:font-bold [&_h3]:mb-2 [&_h3]:mt-4
-          [&_p]:mb-3 [&_p]:leading-7
-          [&_ul]:ml-6 [&_ul]:list-disc [&_ul]:mb-3
-          [&_ol]:ml-6 [&_ol]:list-decimal [&_ol]:mb-3
-          [&_li]:mb-1
-          [&_a]:text-blue-600 [&_a]:hover:underline
-          [&_strong]:font-bold
-          [&_em]:italic
-          [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:text-gray-600 [&_blockquote]:italic [&_blockquote]:my-4
-          [&_img]:max-w-full [&_img]:h-auto
-          [&_pre]:max-w-full [&_pre]:bg-gray-50 [&_pre]:p-4 [&_pre]:rounded-lg [&_pre]:overflow-x-auto [&_pre]:mb-4
-          [&_code]:bg-gray-100 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-sm [&_code]:font-mono
-          [&_pre_code]:bg-transparent [&_pre_code]:p-0
-          [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_table]:border-collapse [&_table]:mb-4
-          [&_th]:border [&_th]:border-gray-300 [&_th]:px-3 [&_th]:py-2 [&_th]:bg-gray-50 [&_th]:font-semibold [&_th]:text-left
-          [&_td]:border [&_td]:border-gray-300 [&_td]:px-3 [&_td]:py-2
-          [&_hr]:border-gray-300 [&_hr]:my-6
-          [&_del]:line-through
-          [&_input[type=checkbox]]:mr-2
-        ">
+        <div ref={markdownRootRef} className="document-body">
           {page.content ? (
             <Markdown
               mode="page"
+              className="document-body"
               canEdit={page.capabilities?.canEdit === true}
               pendingTaskIndexes={pendingTaskIndexes}
               onTaskToggle={handleTaskToggle}

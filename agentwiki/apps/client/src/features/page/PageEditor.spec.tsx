@@ -307,6 +307,32 @@ describe('PageEditor remote update safety', () => {
     });
   });
 
+  it('loads page links only when opened and inserts authorized same-title identity without saving', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor();
+    await screen.findByDisplayValue('Original title');
+    expect(vi.mocked(api.get).mock.calls.some(([url]) => url === '/pages')).toBe(false);
+    vi.mocked(api.get).mockImplementation((url: string) => Promise.resolve({ data: url === '/pages' ? { data: [
+      { id: 'a', title: 'Same', spaceId: 'space-1' }, { id: 'b', title: 'Same', spaceId: 'space-1' },
+      { id: 'private', title: 'Other Space', spaceId: 'other' },
+    ] } : page({ capabilities: { canEdit: true } }) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Page link' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Same b' }));
+    expect(contentEditorValue()).toContain('[[b|Same]]');
+    expect(screen.queryByText('Other Space')).not.toBeInTheDocument();
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('shows page-link retrieval failure with retry and leaves the draft unchanged', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    vi.mocked(api.get).mockRejectedValue(new Error('private provider detail'));
+    fireEvent.click(screen.getByRole('button', { name: 'Page link' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load pages');
+    expect(screen.queryByText('private provider detail')).not.toBeInTheDocument();
+    expect(contentEditorValue()).toBe('Original content');
+  });
+
   it('keeps Assist streams out of the draft and accepts completion as a single undoable edit', async () => {
     let tasks: any[] = [];
     vi.mocked(api.get).mockImplementation((url: string) => Promise.resolve({ data: url === '/assist/tasks' ? tasks : url === '/review' ? [] : page({ capabilities: { canEdit: true } }) }));

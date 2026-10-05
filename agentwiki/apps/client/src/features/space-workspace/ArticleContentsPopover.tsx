@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { List, X } from 'lucide-react';
+import { outlineFor, type MarkdownOutlineItem } from '../../components/markdown-tools/outline';
 import { useLanguage } from '../../context/LanguageContext';
 
 export interface OutlineItem {
@@ -13,6 +14,10 @@ export interface OutlineItem {
 export interface ArticleContentsPopoverProps {
   articleRootRef: React.RefObject<HTMLElement>;
   pageKey: string;
+  source?: string;
+  activeHeadingId?: string;
+  onNavigate?: (item: MarkdownOutlineItem) => void;
+  overlayOnly?: boolean;
 }
 
 interface PopoverPosition {
@@ -57,9 +62,11 @@ const scrollParent = (element: HTMLElement): HTMLElement | Window => {
   return window;
 };
 
-export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ articleRootRef, pageKey }) => {
+export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ articleRootRef, pageKey, source, activeHeadingId, onNavigate, overlayOnly }) => {
   const { t } = useLanguage();
-  const [items, setItems] = useState<OutlineItem[]>([]);
+  const outline = useMemo(() => source === undefined ? null : outlineFor(source), [source]);
+  const [wide, setWide] = useState(() => window.innerWidth >= 1600 && !overlayOnly);
+  const [items, setItems] = useState<Array<Omit<OutlineItem, 'element'> & { element?: HTMLHeadingElement; from?: number; to?: number }>>([]);
   const [open, setOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [position, setPosition] = useState<PopoverPosition>({ left: 16, top: 88, width: 280, maxHeight: 0 });
@@ -67,48 +74,62 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLElement>(null);
 
+  useEffect(() => {
+    const resize = () => setWide(window.innerWidth >= 1600 && !overlayOnly);
+    resize(); window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, [overlayOnly]);
+  useEffect(() => { setOpen(wide); }, [wide, pageKey]);
+
   const updatePosition = useCallback(() => {
     const trigger = triggerRef.current;
     if (!trigger) return;
     const bounds = trigger.getBoundingClientRect();
-    const width = Math.min(280, Math.max(0, window.innerWidth - 32));
+    const width = Math.min(wide ? 220 : 280, Math.max(0, window.innerWidth - 32));
     const rightmostLeft = Math.max(16, window.innerWidth - width - 16);
-    const top = Math.min(bounds.bottom + 8, Math.max(16, window.innerHeight - 16));
+    const top = Math.min(wide ? 140 : bounds.bottom + 8, Math.max(16, window.innerHeight - 16));
     setPosition({
-      left: Math.min(Math.max(16, bounds.right - width), rightmostLeft),
+      left: wide ? rightmostLeft : Math.min(Math.max(16, bounds.right - width), rightmostLeft),
       top,
       width,
       maxHeight: Math.max(0, window.innerHeight - top - 16),
     });
-  }, []);
+  }, [wide]);
 
   useEffect(() => {
     const root = articleRootRef.current;
-    setOpen(false);
     setItems([]);
     setActiveId(null);
-    if (!root) return;
+    if (!root && outline === null) return;
 
     const refresh = () => {
-      const next = readOutline(root);
+      const rendered = root ? readOutline(root) : [];
+      const next = outline === null ? rendered : outline.map((item) => {
+        const element = rendered.find((heading) => Number(heading.element.dataset.markdownSourceStart) === item.from)?.element
+          ?? rendered.find((heading) => heading.id === item.id)?.element;
+        return { ...item, element };
+      });
       setItems(next);
       setActiveId((current) => next.some((item) => item.id === current) ? current : next[0]?.id ?? null);
       if (next.length === 0) setOpen(false);
     };
     refresh();
+    if (!root) return;
     const observer = new MutationObserver(refresh);
     observer.observe(root, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['id'] });
     return () => observer.disconnect();
-  }, [articleRootRef, pageKey]);
+  }, [articleRootRef, pageKey, outline, wide]);
 
   useEffect(() => {
     const root = articleRootRef.current;
+    if (activeHeadingId) { setActiveId(activeHeadingId); return; }
     if (!root || items.length === 0) return;
     const scrollingElement = scrollParent(root);
     const updateActive = () => {
+      if (activeHeadingId) { setActiveId(activeHeadingId); return; }
       let current = items[0];
       for (const item of items) {
-        if (item.element.getBoundingClientRect().top <= currentStickyOffset(wrapperRef.current)) current = item;
+        if (item.element && item.element.getBoundingClientRect().top <= currentStickyOffset(wrapperRef.current)) current = item;
         else break;
       }
       setActiveId(current?.id ?? null);
@@ -120,7 +141,7 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
       scrollingElement.removeEventListener('scroll', updateActive);
       window.removeEventListener('resize', updateActive);
     };
-  }, [articleRootRef, items, pageKey]);
+  }, [activeHeadingId, articleRootRef, items, pageKey]);
 
   useEffect(() => {
     if (!open) return;
@@ -154,12 +175,17 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
     triggerRef.current?.focus({ preventScroll: true });
   };
 
-  const navigateTo = (item: OutlineItem) => {
+  const navigateTo = (item: typeof items[number]) => {
+    if (onNavigate && item.from !== undefined && item.to !== undefined) {
+      onNavigate({ id: item.id, label: item.label, level: item.level, from: item.from, to: item.to });
+      setActiveId(item.id); if (!wide) setOpen(false); return;
+    }
+    if (!item.element) return;
     item.element.scrollIntoView({ block: 'start' });
     const scrollingElement = scrollParent(item.element);
     scrollingElement.scrollBy({ top: -currentStickyOffset(wrapperRef.current), left: 0, behavior: 'instant' });
     setActiveId(item.id);
-    setOpen(false);
+    if (!wide) setOpen(false);
   };
 
   return (
@@ -199,7 +225,7 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
             {items.map((item) => (
               <button
-                key={`${item.id}:${item.level}`}
+                key={item.id}
                 type="button"
                 aria-current={activeId === item.id ? 'location' : undefined}
                 onClick={() => navigateTo(item)}

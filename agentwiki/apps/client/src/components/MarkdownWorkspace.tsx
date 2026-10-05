@@ -5,7 +5,7 @@ import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view';
-import { ChangeDesc, EditorSelection, Range, StateEffect, StateField, Transaction } from '@codemirror/state';
+import { ChangeDesc, EditorSelection, Range, StateEffect, StateField, Transaction, Prec } from '@codemirror/state';
 import { tags } from '@lezer/highlight';
 import { syntaxTree } from '@codemirror/language';
 import { unified } from 'unified';
@@ -24,6 +24,10 @@ import {
   type MarkdownResourceMap,
 } from './markdown/resources';
 import { formatAttachmentReference } from '../features/attachments/attachmentReference';
+import { outlineFor } from './markdown-tools/outline';
+import { insertionTransaction, slashRange, type InsertCommand } from './markdown-tools/commands';
+import { DocumentTools, type MarkdownSelection } from './markdown-tools/DocumentTools';
+import { ArticleContentsPopover } from '../features/space-workspace/ArticleContentsPopover';
 import { nearestMarkdownSourceBlock } from '../features/space-workspace/workspaceNavigation';
 
 export type MarkdownMode = 'edit' | 'preview';
@@ -38,6 +42,11 @@ interface MarkdownWorkspaceProps {
   pages?: PageLinkTarget[];
   onUploadImages?: (files: File[]) => Promise<string[]>;
   onUploadError?: (error: unknown) => void;
+  onSelectionChange?: (selection: MarkdownSelection) => void;
+  onRequestAssist?: (selection: MarkdownSelection) => void;
+  onRequestPageLinks?: () => Promise<PageLinkTarget[]>;
+  outlineOverlay?: boolean;
+  pageLinksIdentity?: string;
 }
 
 export interface MarkdownWorkspaceHandle {
@@ -47,6 +56,8 @@ export interface MarkdownWorkspaceHandle {
   /** Single isolated undoable replacement; false when no editing surface is mounted. */
   replaceDocument: (next: string) => boolean;
   insertText: (text: string) => void;
+  captureSelection: () => MarkdownSelection;
+  restoreSelection: (selection: MarkdownSelection) => boolean;
   capturePosition: () => MarkdownWorkspacePosition;
   restorePosition: (position: MarkdownWorkspacePosition) => void;
 }
@@ -59,27 +70,10 @@ export interface MarkdownWorkspacePosition {
   scrollTop: number;
 }
 
-const cursorForHeading = (value: string, headingText: string | null): number => {
-  if (!headingText) return 0;
-  let offset = 0;
-  for (const line of value.split('\n')) {
-    const match = line.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/u);
-    const label = match?.[1].replace(/[*_~`]/gu, '').trim();
-    if (label === headingText) return offset + line.length;
-    offset += line.length + 1;
-  }
-  return 0;
-};
-
-const nearestMarkdownHeading = (value: string, cursorOffset: number): string | null => {
-  const beforeCursor = value.slice(0, Math.max(0, cursorOffset));
-  let nearest: string | null = null;
-  for (const line of beforeCursor.split('\n')) {
-    const match = line.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/u);
-    if (match) nearest = match[1].replace(/[*_~`]/gu, '').trim() || null;
-  }
-  return nearest;
-};
+const cursorForHeading = (value: string, headingText: string | null): number =>
+  outlineFor(value).find((item) => item.label === headingText)?.to ?? 0;
+const nearestMarkdownHeading = (value: string, cursorOffset: number): string | null =>
+  outlineFor(value).filter((item) => item.from <= cursorOffset).slice(-1)[0]?.label ?? null;
 
 const renderedHeadingLabel = (heading: HTMLElement): string => {
   const clone = heading.cloneNode(true) as HTMLElement;
@@ -254,6 +248,7 @@ const insertUploadedText = (view: EditorView, anchorId: number, selection: Edito
     changes,
     selection: nextSelection,
     effects: replaceUploadAnchors.of(rebasedAnchors),
+    annotations: [Transaction.addToHistory.of(true), isolateHistory.of('full')],
   });
 };
 
@@ -389,16 +384,107 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   pages = [],
   onUploadImages,
   onUploadError,
+  onSelectionChange,
+  onRequestAssist,
+  onRequestPageLinks,
+  outlineOverlay,
+  pageLinksIdentity,
 }, ref) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const zh = language === 'zh-CN';
   const isEdit = mode === 'edit';
   const editorViewRef = useRef<EditorView | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const uploadFromPickerRef = useRef<((files: File[]) => void) | null>(null);
+  const composingRef = useRef(false);
+  const suppressedSlashRef = useRef<string | null>(null);
+  const [selection, setSelection] = useState<MarkdownSelection>({ from: 0, to: 0, text: '' });
+  const [slash, setSlash] = useState<ReturnType<typeof slashRange>>(null);
+  const [slashPosition, setSlashPosition] = useState<{ top: number; left: number }>({ top: 38, left: 0 });
+  const [activeOutlineOffset, setActiveOutlineOffset] = useState(0);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const slashRef = useRef(slash);
+  slashRef.current = slash;
+  const slashIndexRef = useRef(slashIndex);
+  slashIndexRef.current = slashIndex;
+  const selectionCallbackRef = useRef(onSelectionChange);
+  selectionCallbackRef.current = onSelectionChange;
+  const outline = useMemo(() => outlineFor(value), [value]);
+  const activeHeading = outline.filter((item) => item.from <= activeOutlineOffset).slice(-1)[0]?.id ?? outline[0]?.id;
+  const slashOptions = [
+    { id: 'heading', en: 'Heading', zh: '标题' }, { id: 'list', en: 'List', zh: '列表' },
+    { id: 'task', en: 'Task list', zh: '任务列表' }, { id: 'quote', en: 'Quote', zh: '引用' },
+    { id: 'table', en: 'Table', zh: '表格' }, { id: 'code', en: 'Code block', zh: '代码块' },
+    ...(onUploadImages ? [{ id: 'image', en: 'Image', zh: '图片' }] : []),
+  ].filter((item) => `${item.en} ${item.zh}`.toLowerCase().includes(slash?.query.toLowerCase() ?? ''));
+  const slashOptionsRef = useRef(slashOptions);
+  slashOptionsRef.current = slashOptions;
+  const slashKey = (view: EditorView) => `${view.state.doc.lineAt(view.state.selection.main.head).text}:${view.state.selection.main.head}`;
+  const refreshSelection = useCallback((view: EditorView) => {
+    const range = view.state.selection.main;
+    const next = { from: range.from, to: range.to, text: view.state.sliceDoc(range.from, range.to) };
+    setSelection(next);
+    setActiveOutlineOffset(range.from);
+    selectionCallbackRef.current?.(next);
+    const nextSlash = suppressedSlashRef.current === slashKey(view) ? null : slashRange(view.state, composingRef.current || view.composing);
+    setSlash(nextSlash); setSlashIndex(0);
+    if (nextSlash) {
+      try {
+        const coords = view.coordsAtPos(nextSlash.from);
+        const root = view.dom.closest('.document-workspace')?.getBoundingClientRect();
+        if (coords && root) setSlashPosition({ top: coords.bottom - root.top + 4, left: Math.max(0, coords.left - root.left) });
+      } catch { /* A hidden/unmeasured editor keeps the safe top-of-surface menu. */ }
+    }
+  }, []);
+  const chooseSlash = useCallback((id: string) => {
+    const view = editorViewRef.current;
+    const range = view && slashRange(view.state, composingRef.current || view.composing);
+    if (!view || !range) return;
+    if (id === 'image') { imageInputRef.current?.click(); return; }
+    suppressedSlashRef.current = null;
+    view.dispatch(insertionTransaction(view.state, id as InsertCommand, range.from));
+    setSlash(null); view.focus();
+  }, []);
+  const manualHandlers = useMemo(() => Prec.highest(EditorView.domEventHandlers({
+    compositionstart: () => { composingRef.current = true; setSlash(null); return false; },
+    compositionend: (_event, view) => { composingRef.current = false; suppressedSlashRef.current = slashKey(view); setSlash(null); return false; },
+    keydown: (event, view) => {
+      if (event.isComposing || event.keyCode === 229 || composingRef.current || view.composing) return true;
+      if (!slashRef.current) return false;
+      const items = slashOptionsRef.current;
+      if (event.key === 'Escape') { suppressedSlashRef.current = slashKey(view); setSlash(null); event.preventDefault(); return true; }
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        if (items.length) setSlashIndex((index) => (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length);
+        event.preventDefault(); return true;
+      }
+      if (event.key === 'Enter' && items.length) { chooseSlash(items[slashIndexRef.current % items.length].id); event.preventDefault(); return true; }
+      return false;
+    },
+  })), [chooseSlash]);
   const previewRootRef = useRef<HTMLDivElement | null>(null);
   const pendingRestoreRef = useRef<MarkdownWorkspacePosition | null>(null);
   const uploadGenerationRef = useRef(0);
   const uploadOperationRef = useRef(0);
   const pendingUploadsRef = useRef<Array<() => Promise<void>>>([]);
   const uploadRunningRef = useRef(false);
+  useEffect(() => {
+    if (!isEdit) return;
+    const update = () => {
+      const view = editorViewRef.current; if (!view) return;
+      const boundary = (document.querySelector<HTMLElement>('[data-testid="editor-toolbar"]')?.getBoundingClientRect().bottom ?? 88) + 12;
+      let nearest = outline[0]?.from ?? 0;
+      for (const heading of outline) {
+        try {
+          const coords = view.coordsAtPos(heading.from);
+          if (coords && coords.top <= boundary) nearest = heading.from;
+          else if (coords) break;
+        } catch { /* Off-viewport headings are measured after they enter the view. */ }
+      }
+      setActiveOutlineOffset(nearest);
+    };
+    document.addEventListener('scroll', update, true);
+    return () => document.removeEventListener('scroll', update, true);
+  }, [isEdit, outline]);
   const editorResourcePlan = useMemo(() => {
     try {
       const occurrences = collectMarkdownResourceOccurrences(value);
@@ -573,11 +659,22 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
       return true;
     },
     insertText,
+    captureSelection: () => {
+      const view = editorViewRef.current;
+      const range = view?.state.selection.main;
+      return range && view ? { from: range.from, to: range.to, text: view.state.sliceDoc(range.from, range.to) } : { from: 0, to: 0, text: '' };
+    },
+    restoreSelection: (selection) => {
+      const view = editorViewRef.current;
+      if (!view || selection.from < 0 || selection.to < selection.from || selection.to > view.state.doc.length || view.state.sliceDoc(selection.from, selection.to) !== selection.text) return false;
+      view.dispatch({ selection: EditorSelection.single(selection.from, selection.to) }); view.focus(); return true;
+    },
     capturePosition,
     restorePosition,
   }), [capturePosition, insertText, onChange, restorePosition, value]);
 
   const uploadHandlers = useMemo(() => {
+    uploadFromPickerRef.current = null;
     if (!isEdit || !onUploadImages) return null;
 
     const reportCurrentFailure = (generation: number, view: EditorView, error: unknown) => {
@@ -656,6 +753,10 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
       return true;
     };
 
+    uploadFromPickerRef.current = (files) => {
+      const view = editorViewRef.current;
+      if (view && files.length) enqueue(view, files.filter((file) => acceptedImageFile(file)), uploadSelection(view.state.selection));
+    };
     return EditorView.domEventHandlers({
       paste: (event, view) => handleAccepted(view, event, uploadSelection(view.state.selection)),
       dragover: (event) => {
@@ -673,10 +774,37 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   }, [isEdit, onUploadError, onUploadImages]);
 
   return (
-    <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm" aria-label={t('editor.mode')}>
+    <section className="document-workspace relative bg-white" aria-label={t('editor.mode')}>
+      <div className="document-tool-row">
+        {isEdit ? <DocumentTools key={`${pageLinksIdentity ?? ''}:${spaceId}:${pageId}`} view={() => editorViewRef.current} selection={selection} pages={pages} spaceId={spaceId} onRequestPageLinks={onRequestPageLinks} onRequestAssist={onRequestAssist} onRequestImage={onUploadImages ? () => imageInputRef.current?.click() : undefined} /> : null}
+        <ArticleContentsPopover source={value} articleRootRef={previewRootRef} pageKey={`${spaceId}:${pageId}:${mode}`} activeHeadingId={isEdit ? activeHeading : undefined} overlayOnly={outlineOverlay} onNavigate={isEdit ? (item) => {
+          const view = editorViewRef.current; if (!view) return;
+          view.dispatch({ selection: EditorSelection.cursor(item.from), effects: EditorView.scrollIntoView(item.from, { y: 'start' }) }); view.focus();
+        } : undefined} />
+      </div>
+      <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden aria-label={zh ? '上传图片' : 'Upload images'} onChange={(event) => {
+        const files = Array.from(event.target.files ?? []);
+        const view = editorViewRef.current;
+        const range = view && slashRange(view.state, composingRef.current || view.composing);
+        if (view && range && files.length) {
+          view.dispatch({ selection: EditorSelection.single(range.from, range.to) });
+        }
+        uploadFromPickerRef.current?.(files); event.target.value = ''; setSlash(null);
+      }} />
+      {isEdit && slash ? <div role="menu" aria-label={zh ? '插入块' : 'Insert block'} className="document-slash-menu" style={slashPosition} onKeyDown={(event) => {
+        if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+        if (event.key === 'Escape') { const view = editorViewRef.current; if (view) { suppressedSlashRef.current = slashKey(view); view.focus(); } setSlash(null); event.preventDefault(); }
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          const next = (slashIndex + (event.key === 'ArrowDown' ? 1 : -1) + slashOptions.length) % Math.max(1, slashOptions.length);
+          setSlashIndex(next); event.currentTarget.querySelectorAll<HTMLButtonElement>('button')[next]?.focus(); event.preventDefault();
+        }
+      }}>
+        {slashOptions.map((item, index) => <button type="button" role="menuitem" key={item.id} aria-current={index === slashIndex ? 'true' : undefined} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseSlash(item.id)}>{zh ? item.zh : item.en}</button>)}
+        {!slashOptions.length ? <p>{zh ? '没有匹配的插入项' : 'No matching blocks'}</p> : null}
+      </div> : null}
       <div
         data-testid="md-editor-surface"
-        className="h-[calc(100vh-245px)] min-h-[480px] overflow-auto bg-white"
+        className="document-body-surface min-h-[480px] bg-white"
         aria-label={isEdit ? t('editor.editMode') : t('editor.previewMode')}
       >
         {isEdit ? (
@@ -686,14 +814,17 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
             onCreateEditor={(view) => {
               editorViewRef.current = view;
               uploadGenerationRef.current += 1;
+              refreshSelection(view);
               const pendingPosition = pendingRestoreRef.current;
               if (pendingPosition) restorePosition(pendingPosition);
             }}
+            onUpdate={(update) => { if (update.selectionSet || update.docChanged) refreshSelection(update.view); }}
             extensions={[
               markdown({ base: markdownLanguage, codeLanguages: languages }),
               syntaxHighlighting(livePreviewStyle),
               buildHiddenMarksPlugin(pages, editorResourcePlan.occurrences, authoritativeResources),
               uploadAnchors,
+              manualHandlers,
               ...(uploadHandlers ? [uploadHandlers] : []),
               EditorView.lineWrapping,
             ]}
@@ -705,14 +836,15 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
               highlightActiveLine: true,
               highlightActiveLineGutter: false,
             }}
-            className="h-full [&_.cm-editor]:h-full [&_.cm-scroller]:leading-7 [&_.cm-scroller]:text-[15px] [&_.cm-scroller]:text-gray-800 [&_.cm-content]:mx-auto [&_.cm-content]:max-w-4xl [&_.cm-content]:px-6 [&_.cm-content]:py-6 [&_.cm-content]:md:px-10 [&_.cm-content]:md:py-8"
+            className="document-source-editor"
           />
         ) : (
-          <div ref={previewRootRef} className="px-6 py-6 md:px-10 md:py-8" data-testid="md-preview">
-            <div className="mx-auto max-w-4xl">
+          <div ref={previewRootRef} className="document-body" data-testid="md-preview">
+            <div>
               {value ? (
                 <Markdown
                   mode="editor-preview"
+                  className="document-body"
                   canEdit
                   pageId={pageId}
                   spaceId={spaceId}

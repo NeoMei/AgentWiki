@@ -6,6 +6,7 @@ import { apiErrorMessage } from '../../api/error-message';
 import { getContentTreeRevision } from '../../api/content-tree';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { useAuthorizedPageLinks } from '../../components/markdown-tools/useAuthorizedPageLinks';
 import { MarkdownMode, MarkdownWorkspace, MarkdownWorkspaceHandle } from '../../components/MarkdownWorkspace';
 import { Save, ArrowLeft, History, Users, Bot, Ellipsis, ImagePlus, BookOpen, PenLine, ChevronRight, Folder } from 'lucide-react';
 import { SavePageAsTemplateDialog } from '../page-templates/SavePageAsTemplateDialog';
@@ -149,6 +150,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [writeUnavailable, setWriteUnavailable] = useState(false);
+  const requestPageLinks = useAuthorizedPageLinks(user?.id, page?.spaceId, id, !writeUnavailable && page?.capabilities?.canEdit === true);
   const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([]);
   const [saveStatus, setSaveStatus] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [isDirty, setIsDirty] = useState(false);
@@ -1111,17 +1113,20 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         </div>
       </div>
 
-      <div className="mx-auto max-w-[860px]">
-        <div className="mb-4 flex min-w-0 items-center gap-2">
+      <div className="document-canvas">
+        <div className="document-header">
+        <div className="flex min-w-0 items-center gap-2">
           <input
             type="text"
             aria-label={t('editor.titleLabel')}
             placeholder={t('editor.titlePlaceholder')}
             value={title}
             onChange={handleTitleChange}
-            className="min-h-11 min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-2xl font-semibold focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            className="document-title flex-1"
           />
           {isDirty ? <span className="shrink-0 text-xs text-orange-500">● {t('editor.unsaved')}</span> : null}
+        </div>
+        <div className="mt-3 text-sm text-gray-500">{new Date(page.updatedAt).toLocaleDateString(language)}</div>
         </div>
 
       {writeUnavailable ? <p role="alert" data-testid="editor-write-unavailable" className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{t('editor.writeUnavailable')}</p> : null}
@@ -1150,12 +1155,15 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         </div>
       )}
 
-      <div className="flex items-start gap-4">
+      <div className="relative">
         <div className="min-w-0 flex-1">
           <MarkdownWorkspace
             ref={bindWorkspaceRef}
             value={content}
             mode={mode}
+            onRequestPageLinks={requestPageLinks}
+            pageLinksIdentity={`${user?.id}:${!writeUnavailable}`}
+            outlineOverlay={assistOpen}
             onChange={handleContentChange}
             pageId={page.id}
             spaceId={page.spaceId}
@@ -1164,7 +1172,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
           />
         </div>
         {assistOpen && page ? (
-          <AgentAssistPanel
+          <div className="document-assist-layer"><AgentAssistPanel
             pageId={page.id}
             pageTitle={title || page.title}
             spaceId={page.spaceId}
@@ -1176,7 +1184,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
               ? (language === 'zh-CN' ? '保存完成后可接受候选。' : 'Wait for Save to finish before accepting.')
               : undefined}
             onApply={applyAgentChanges}
-          />
+          /></div>
         ) : null}
       </div>
 

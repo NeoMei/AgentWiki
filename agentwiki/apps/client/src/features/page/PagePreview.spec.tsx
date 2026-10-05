@@ -286,9 +286,7 @@ describe('PagePreview checklist saves', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Page information' }));
     expect(screen.getByText('Docs · markdown')).toBeInTheDocument();
 
-    const article = screen.getByRole('article');
-    expect(article).toHaveClass('mx-auto', 'max-w-[860px]', 'bg-white');
-    expect(article).not.toHaveClass('shadow-sm', 'border');
+    expect(screen.getByRole('article')).toContainElement(screen.getByRole('heading', { name: 'Checklist' }));
   });
 
   it('restores an editor return to the matching rendered heading before using scroll pixels', async () => {
@@ -976,7 +974,7 @@ describe('PagePreview checklist saves', () => {
     expect(scrollIntoViewMock).not.toHaveBeenCalled();
 
     const loading = await screen.findByText('Loading embedded content…');
-    const markdownRoot = loading.closest('.prose');
+    const markdownRoot = loading.closest('.document-body');
     if (!markdownRoot) throw new Error('Markdown root not found');
     for (let index = 0; index < 101; index += 1) {
       await act(async () => {

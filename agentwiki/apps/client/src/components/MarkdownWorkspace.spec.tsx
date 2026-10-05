@@ -142,6 +142,98 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     expect(view.state.doc.toString()).toBe('Original content human');
   });
 
+  it('captures/restores selected source and formats with a single undo', () => {
+    const workspaceRef = createRef<MarkdownWorkspaceHandle>();
+    const { container } = renderWYS({ initial: '中文段落', workspaceRef });
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ selection: EditorSelection.range(0, 2) }));
+    expect(workspaceRef.current?.captureSelection()).toEqual({ from: 0, to: 2, text: '中文' });
+    fireEvent.click(screen.getByRole('button', { name: 'Bold' }));
+    expect(view.state.doc.toString()).toBe('**中文**段落');
+    act(() => undo(view));
+    expect(view.state.doc.toString()).toBe('中文段落');
+    act(() => workspaceRef.current?.restoreSelection({ from: 2, to: 4, text: '段落' }));
+    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe('段落');
+  });
+
+  it('slash menu navigates by keyboard and retains slash source on Escape', () => {
+    const { container } = renderWYS({ initial: '/' });
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ selection: EditorSelection.cursor(1) }));
+    expect(screen.getByRole('menu', { name: 'Insert block' })).toBeInTheDocument();
+    fireEvent.keyDown(view.contentDOM, { key: 'ArrowDown' });
+    fireEvent.keyDown(view.contentDOM, { key: 'Enter' });
+    expect(view.state.doc.toString()).toBe('- ');
+    act(() => undo(view));
+    fireEvent.keyDown(view.contentDOM, { key: 'Escape' });
+    expect(view.state.doc.toString()).toBe('/');
+    expect(screen.queryByRole('menu', { name: 'Insert block' })).not.toBeInTheDocument();
+  });
+
+  it('does not trigger slash menu during Chinese composition', () => {
+    const { container } = renderWYS({ initial: '' });
+    const view = currentEditorView(container);
+    fireEvent.compositionStart(view.contentDOM);
+    act(() => view.dispatch({ changes: { from: 0, insert: '/' }, selection: { anchor: 1 } }));
+    expect(screen.queryByRole('menu', { name: 'Insert block' })).not.toBeInTheDocument();
+    fireEvent.keyDown(view.contentDOM, { key: 'Enter', isComposing: true, keyCode: 229 });
+    expect(view.state.doc.toString()).toBe('/');
+  });
+
+  it('page picker searches provided authorized scope and inserts duplicate title by identity', () => {
+    const { container } = renderWYS({ initial: 'Text', spaceId: 's1', pages: [{ id: 'a', title: 'Same' }, { id: 'b', title: 'Same' }] });
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ selection: EditorSelection.cursor(4) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Page link' }));
+    expect(screen.getByRole('dialog', { name: 'Page link' })).toHaveTextContent('Current Space');
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'b' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Same b' }));
+    expect(view.state.doc.toString()).toBe('Text[[b|Same]]');
+    act(() => undo(view));
+    expect(view.state.doc.toString()).toBe('Text');
+  });
+
+  it('refuses page-link insertion after the source changes while picker has focus', () => {
+    const { container } = renderWYS({ initial: 'Text', pages: [{ id: 'a', title: 'Page' }] });
+    const view = currentEditorView(container);
+    fireEvent.click(screen.getByRole('button', { name: 'Page link' }));
+    act(() => view.dispatch({ changes: { from: 0, insert: 'human ' } }));
+    fireEvent.click(screen.getByRole('button', { name: 'Page a' }));
+    expect(view.state.doc.toString()).toBe('human Text');
+    expect(screen.getByRole('alert')).toHaveTextContent('selection changed');
+  });
+
+  it('tracks the active source heading in edit mode', () => {
+    const { container } = renderWYS({ initial: '# A\n\n# B' });
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ selection: EditorSelection.cursor(6) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Contents' }));
+    expect(screen.getByRole('button', { name: 'B' })).toHaveAttribute('aria-current', 'location');
+  });
+
+  it('image toolbar uses existing upload anchors and isolates undo from prior typing', async () => {
+    const upload = vi.fn().mockResolvedValue(['assets/image.png']);
+    const { container } = renderWYS({ initial: 'Original', onUploadImages: upload });
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ changes: { from: 8, insert: ' human' }, selection: { anchor: 14 } }));
+    const depth = undoDepth(view.state);
+    const input = screen.getByLabelText('Upload images');
+    fireEvent.change(input, { target: { files: [new File(['image'], 'image.png', { type: 'image/png' })] } });
+    await waitFor(() => expect(view.state.doc.toString()).toBe('Original human![[assets/image.png]]'));
+    expect(undoDepth(view.state)).toBe(depth + 1);
+    act(() => undo(view));
+    expect(view.state.doc.toString()).toBe('Original human');
+  });
+
+  it('edit outline navigates duplicate heading source and excludes fenced headings', () => {
+    const { container } = renderWYS({ initial: '# A\n```md\n# fake\n```\n# A' });
+    const view = currentEditorView(container);
+    fireEvent.click(screen.getByRole('button', { name: 'Contents' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'A' })[1]);
+    expect(view.state.selection.main.head).toBe(21);
+    expect(screen.queryByRole('button', { name: 'fake' })).not.toBeInTheDocument();
+  });
+
   it('edit mode renders formatting marks for non-cursor lines (live preview)', () => {
     const { container } = renderWYS();
     // heading markdown should produce a header-styled line in the editor

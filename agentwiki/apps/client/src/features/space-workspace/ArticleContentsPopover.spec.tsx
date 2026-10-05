@@ -53,6 +53,37 @@ describe('ArticleContentsPopover', () => {
     expect(within(contents).queryByText('Embedded heading')).not.toBeInTheDocument();
   });
 
+  it('uses shared source outline and source identity instead of embedded rendered headings', async () => {
+    const articleRef = React.createRef<HTMLDivElement>();
+    const navigate = vi.fn();
+    render(<LanguageProvider><ArticleContentsPopover articleRootRef={articleRef} pageKey="source" source={'# A\n```md\n# fake\n```\n# A'} activeHeadingId="a-1" onNavigate={navigate} /><div ref={articleRef} /></LanguageProvider>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Contents' }));
+    const buttons = screen.getAllByRole('button', { name: 'A' });
+    expect(buttons[1]).toHaveAttribute('aria-current', 'location');
+    fireEvent.click(buttons[1]);
+    expect(navigate).toHaveBeenCalledWith({ id: 'a-1', label: 'A', level: 1, from: 21, to: 24 });
+    expect(screen.queryByRole('button', { name: 'fake' })).not.toBeInTheDocument();
+  });
+
+  it('opens a wide-screen outline that can be collapsed without changing the article', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1700 });
+    render(<Harness><h2 id="one">One</h2></Harness>);
+    expect(await screen.findByRole('navigation', { name: 'Contents' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('navigation', { name: 'Contents' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'One' })).toBeInTheDocument();
+  });
+
+  it('retains a collapsed wide outline when the same page source is edited', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1700 });
+    const articleRef = React.createRef<HTMLDivElement>();
+    const renderSource = (source: string) => <LanguageProvider><ArticleContentsPopover articleRootRef={articleRef} pageKey="same" source={source} onNavigate={() => {}} /><div ref={articleRef} /></LanguageProvider>;
+    const rendered = render(renderSource('# A'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Close' }));
+    rendered.rerender(renderSource('# A\n\nHuman edit'));
+    expect(screen.queryByRole('navigation', { name: 'Contents' })).not.toBeInTheDocument();
+  });
+
   it('hides the trigger without headings and refreshes after deferred DOM changes and a page switch', async () => {
     const view = render(<Harness><p>No headings</p></Harness>);
     expect(screen.queryByRole('button', { name: 'Contents' })).not.toBeInTheDocument();
