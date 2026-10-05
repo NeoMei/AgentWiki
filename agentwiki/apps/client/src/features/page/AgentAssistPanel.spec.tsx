@@ -226,6 +226,66 @@ describe('AgentAssistPanel routing metadata', () => {
     expect(screen.queryByRole('button', { name: 'Accept to draft' })).not.toBeInTheDocument();
   });
 
+  it.each([
+    ['en', 'Could not submit the task. Your draft is unchanged. Please retry.'],
+    ['zh-CN', '任务提交失败，草稿未改动。请重试。'],
+  ])('shows sanitized submission feedback in %s and retains intent for a successful retry', async (language, message) => {
+    vi.mocked(useLanguage).mockReturnValue({ language } as ReturnType<typeof useLanguage>);
+    vi.mocked(api.get).mockImplementation(() => Promise.resolve({ data: [] }));
+    vi.mocked(api.post).mockRejectedValueOnce({ response: { data: { message: 'provider token sk-fake-secret' } } })
+      .mockResolvedValueOnce({ data: { id: 'retry-task' } });
+    const onApply = vi.fn(() => true);
+    renderPanel({ onApply });
+    fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite this draft' } });
+    fireEvent.click(screen.getByTestId('assist-submit'));
+    expect(await screen.findByRole('alert')).toHaveTextContent(message);
+    expect(screen.queryByText(/sk-fake-secret|provider token/)).not.toBeInTheDocument();
+    expect(screen.getByTestId('assist-intent')).toHaveValue('Rewrite this draft');
+    expect(screen.getByTestId('assist-submit')).toBeEnabled();
+    expect(onApply).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('assist-submit'));
+    await waitFor(() => expect(screen.getByTestId('assist-intent')).toHaveValue(''));
+    expect(api.post).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it.each(['navigation', 'permission'] as const)('does not surface delayed submission failures from an old %s generation', async (transition) => {
+    vi.mocked(useLanguage).mockReturnValue({ language: 'en' } as ReturnType<typeof useLanguage>);
+    vi.mocked(api.get).mockImplementation(() => Promise.resolve({ data: [] }));
+    let reject!: (reason: unknown) => void;
+    vi.mocked(api.post).mockReturnValue(new Promise((_resolve, fail) => { reject = fail; }));
+    const props = { pageTitle: 'Page', spaceId: 'space-1', snapshot: () => ({ title: 'Page', content: 'Content' }), onApply: vi.fn(() => true) };
+    const view = render(<AgentAssistPanel {...props} pageId="page-1" canEdit />);
+    fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
+    fireEvent.click(screen.getByTestId('assist-submit'));
+    if (transition === 'navigation') {
+      view.rerender(<AgentAssistPanel {...props} pageId="page-2" canEdit />);
+      view.rerender(<AgentAssistPanel {...props} pageId="page-1" canEdit />);
+    } else {
+      view.rerender(<AgentAssistPanel {...props} pageId="page-1" canEdit={false} />);
+      view.rerender(<AgentAssistPanel {...props} pageId="page-1" canEdit />);
+    }
+    await act(async () => reject(new Error('provider token sk-fake-secret')));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(props.onApply).not.toHaveBeenCalled();
+  });
+
+  it.each(['navigation', 'permission'] as const)('clears an existing submission error on a %s generation change', async (transition) => {
+    vi.mocked(useLanguage).mockReturnValue({ language: 'en' } as ReturnType<typeof useLanguage>);
+    vi.mocked(api.get).mockImplementation(() => Promise.resolve({ data: [] }));
+    vi.mocked(api.post).mockRejectedValue(new Error('request failed'));
+    const props = { pageTitle: 'Page', spaceId: 'space-1', snapshot: () => ({ title: 'Page', content: 'Content' }) };
+    const view = render(<AgentAssistPanel {...props} pageId="page-1" canEdit />);
+    fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
+    fireEvent.click(screen.getByTestId('assist-submit'));
+    await screen.findByRole('alert');
+    view.rerender(<AgentAssistPanel {...props} pageId={transition === 'navigation' ? 'page-2' : 'page-1'} canEdit={transition !== 'permission'} />);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    view.rerender(<AgentAssistPanel {...props} pageId="page-1" canEdit />);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('never accepts an empty completion', async () => {
     vi.mocked(useLanguage).mockReturnValue({ language: 'en' } as ReturnType<typeof useLanguage>);
     const onApply = vi.fn(() => true);

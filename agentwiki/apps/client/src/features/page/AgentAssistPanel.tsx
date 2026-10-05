@@ -136,6 +136,7 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
   const [intent, setIntent] = useState('');
   const [tasks, setTasks] = useState<AssistTask[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [submissionError, setSubmissionError] = useState<{ identity: string; generation: number } | null>(null);
   const [pending, setPending] = useState<PendingReview[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const socketRef = useRef<Socket | null>(null);
@@ -169,11 +170,13 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
     setPending([]);
     setIntent('');
     setSubmitting(false);
+    setSubmissionError(null);
   }, [identity]);
 
   useEffect(() => {
     if (canEdit) return;
     setSubmitting(false);
+    setSubmissionError(null);
     for (const [taskId, candidate] of candidatesRef.current) {
       if (candidate.status === 'ready' || candidate.status === 'generating') candidatesRef.current.set(taskId, { ...candidate, status: 'conflict' });
     }
@@ -338,6 +341,7 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
     const submitted = { ...snapshotRef.current() };
     const submittedIntent = intent.trim();
     setSubmitting(true);
+    setSubmissionError(null);
     try {
       const created = await api.post('/assist/tasks', { spaceId, pageId, intent: submittedIntent, snapshot: { title: submitted.title, content: submitted.content, updatedAt: submitted.updatedAt } });
       if (!mountedRef.current || generationRef.current !== requestedGeneration || identityRef.current !== requestedIdentity || !canEditRef.current) return;
@@ -355,7 +359,11 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
       setIntent('');
       await loadTasks();
     } catch {
-      // Submission errors never touch the draft.
+      // Do not expose server/provider errors or let a stale request affect another context.
+      if (mountedRef.current && generationRef.current === requestedGeneration
+        && identityRef.current === requestedIdentity && canEditRef.current) {
+        setSubmissionError({ identity: requestedIdentity, generation: requestedGeneration });
+      }
     } finally {
       if (mountedRef.current && generationRef.current === requestedGeneration && identityRef.current === requestedIdentity) setSubmitting(false);
     }
@@ -387,6 +395,11 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
             {submitting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
             {zh ? '提交任务' : 'Run task'}
           </button>
+          {submissionError?.identity === identity && submissionError.generation === generationRef.current ? (
+            <p role="alert" className="mt-2 text-xs text-red-600">
+              {zh ? '任务提交失败，草稿未改动。请重试。' : 'Could not submit the task. Your draft is unchanged. Please retry.'}
+            </p>
+          ) : null}
         </div>
 
         <div>
