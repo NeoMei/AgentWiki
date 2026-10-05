@@ -39,7 +39,7 @@ const successfulTask = {
   },
 };
 
-const renderPanel = (props: { onApply?: (changes: string) => void } = {}) => render(
+const renderPanel = (props: { onApply?: (candidate: any) => boolean } = {}) => render(
   <AgentAssistPanel
     pageId="page-1"
     pageTitle="Page"
@@ -81,9 +81,9 @@ describe('AgentAssistPanel routing metadata', () => {
     expect(onApply).not.toHaveBeenCalled();
   });
 
-  it('applies only a task submitted during this mount and only once', async () => {
+  it('stages completion until explicit acceptance and applies only once', async () => {
     vi.mocked(useLanguage).mockReturnValue({ language: 'en' } as ReturnType<typeof useLanguage>);
-    const onApply = vi.fn();
+    const onApply = vi.fn(() => true);
     vi.mocked(api.post).mockResolvedValue({ data: { id: 'task-new', status: 'queued' } });
     vi.mocked(api.get).mockImplementation((url) => Promise.resolve({
       data: url === '/assist/tasks' ? [{ ...successfulTask, id: 'task-new' }] : [],
@@ -93,20 +93,23 @@ describe('AgentAssistPanel routing metadata', () => {
     expect(onApply).not.toHaveBeenCalled();
     fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
     fireEvent.click(screen.getByTestId('assist-submit'));
-    await waitFor(() => expect(onApply).toHaveBeenCalledWith('# Improved'));
+    const accept = await screen.findByRole('button', { name: 'Accept to draft' });
+    expect(onApply).not.toHaveBeenCalled();
+    fireEvent.click(accept);
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ content: '# Improved', baseContent: 'Content', pageId: 'page-1', spaceId: 'space-1', taskId: 'task-new' }));
     fireEvent.click(screen.getByLabelText('refresh'));
     await waitFor(() => expect(onApply).toHaveBeenCalledTimes(1));
   });
 
   it('does not stream historical or collaborator tasks into the editor', async () => {
     vi.mocked(useLanguage).mockReturnValue({ language: 'en' } as ReturnType<typeof useLanguage>);
-    const onStreamUpdate = vi.fn();
+    const onApply = vi.fn(() => true);
     render(<AgentAssistPanel
       pageId="page-1"
       pageTitle="Page"
       spaceId="space-1"
       snapshot={() => ({ title: 'Page', content: 'Content' })}
-      onStreamUpdate={onStreamUpdate}
+      onApply={onApply}
     />);
     await screen.findByText('Generated');
 
@@ -115,7 +118,140 @@ describe('AgentAssistPanel routing metadata', () => {
       chunk: '📝 生成: {"changes":"# Stale collaborator content"}',
     }));
 
-    expect(onStreamUpdate).not.toHaveBeenCalled();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it('keeps submitted streams and failures in the panel without applying a partial draft', async () => {
+    vi.mocked(useLanguage).mockReturnValue({ language: 'en' } as ReturnType<typeof useLanguage>);
+    const onApply = vi.fn(() => true);
+    vi.mocked(api.post).mockResolvedValue({ data: { id: 'task-new' } });
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve({ data: url === '/assist/tasks' ? [{ id: 'task-new', status: 'running', intent: 'Rewrite' }] : [] }));
+    renderPanel({ onApply });
+    fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
+    fireEvent.click(screen.getByTestId('assist-submit'));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId('assist-submit')).toHaveTextContent('Run task'));
+    act(() => socketMock.handlers.get('assistStream')?.({ taskId: 'task-new', chunk: '📝 生成: {"changes":"# Partial"}' }));
+    expect(screen.getByText('# Partial')).toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
+    act(() => socketMock.handlers.get('assistError')?.({ taskId: 'task-new', error: 'provider authentication detail' }));
+    expect(onApply).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Accept to draft' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/provider authentication/)).not.toBeInTheDocument();
+  });
+
+  it('captures the submitted snapshot and refuses acceptance after concurrent typing', async () => {
+    vi.mocked(useLanguage).mockReturnValue({ language: 'en' } as ReturnType<typeof useLanguage>);
+    let draft = 'Content';
+    const onApply = vi.fn(() => true);
+    vi.mocked(api.post).mockResolvedValue({ data: { id: 'task-new' } });
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve({ data: url === '/assist/tasks' ? [{ ...successfulTask, id: 'task-new' }] : [] }));
+    render(<AgentAssistPanel pageId="page-1" pageTitle="Page" spaceId="space-1" snapshot={() => ({ title: 'Page', content: draft, updatedAt: 'v1' })} onApply={onApply} />);
+    fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
+    fireEvent.click(screen.getByTestId('assist-submit'));
+    const accept = await screen.findByRole('button', { name: 'Accept to draft' });
+    draft = 'Human draft';
+    fireEvent.click(accept);
+    expect(onApply).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/changed.*regenerate/i);
+    expect(draft).toBe('Human draft');
+    expect(api.post).toHaveBeenCalledWith('/assist/tasks', expect.objectContaining({ snapshot: { title: 'Page', content: 'Content', updatedAt: 'v1' } }));
+  });
+
+  it('discards a candidate permanently across repeated completion events', async () => {
+    vi.mocked(useLanguage).mockReturnValue({ language: 'en' } as ReturnType<typeof useLanguage>);
+    const onApply = vi.fn(() => true);
+    vi.mocked(api.post).mockResolvedValue({ data: { id: 'task-new' } });
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve({ data: url === '/assist/tasks' ? [{ ...successfulTask, id: 'task-new' }] : [] }));
+    renderPanel({ onApply });
+    fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
+    fireEvent.click(screen.getByTestId('assist-submit'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Discard' }));
+    act(() => socketMock.handlers.get('assistComplete')?.({ taskId: 'task-new' }));
+    await screen.findByText('Discarded');
+    expect(screen.queryByRole('button', { name: 'Accept to draft' })).not.toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it('invalidates a candidate permanently after permission loss even when access returns', async () => {
+    vi.mocked(useLanguage).mockReturnValue({ language: 'en' } as ReturnType<typeof useLanguage>);
+    const onApply = vi.fn(() => true);
+    vi.mocked(api.post).mockResolvedValue({ data: { id: 'task-new' } });
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve({ data: url === '/assist/tasks' ? [{ ...successfulTask, id: 'task-new' }] : [] }));
+    const props = { pageId: 'page-1', pageTitle: 'Page', spaceId: 'space-1', snapshot: () => ({ title: 'Page', content: 'Content', updatedAt: 'v1' }), onApply };
+    const view = render(<AgentAssistPanel {...props} canEdit />);
+    fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
+    fireEvent.click(screen.getByTestId('assist-submit'));
+    await screen.findByRole('button', { name: 'Accept to draft' });
+    view.rerender(<AgentAssistPanel {...props} canEdit={false} />);
+    view.rerender(<AgentAssistPanel {...props} canEdit />);
+    expect(screen.getByRole('button', { name: 'Accept to draft' })).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent(/permissions.*regenerate/i);
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it('does not attach a delayed submission to another page or a returned visit', async () => {
+    vi.mocked(useLanguage).mockReturnValue({ language: 'en' } as ReturnType<typeof useLanguage>);
+    let resolve!: (value: any) => void;
+    vi.mocked(api.post).mockReturnValue(new Promise((done) => { resolve = done; }));
+    vi.mocked(api.get).mockImplementation(() => Promise.resolve({ data: [] }));
+    const onApply = vi.fn(() => true);
+    const props = { pageTitle: 'Page', spaceId: 'space-1', snapshot: () => ({ title: 'Page', content: 'Content' }), onApply };
+    const view = render(<AgentAssistPanel {...props} pageId="page-1" />);
+    fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
+    fireEvent.click(screen.getByTestId('assist-submit'));
+    view.rerender(<AgentAssistPanel {...props} pageId="page-2" />);
+    view.rerender(<AgentAssistPanel {...props} pageId="page-1" />);
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve({ data: url === '/assist/tasks' ? [{ ...successfulTask, id: 'task-new' }] : [] }));
+    await act(async () => resolve({ data: { id: 'task-new' } }));
+    fireEvent.click(screen.getByLabelText('refresh'));
+    await screen.findByText('Generated');
+    expect(screen.queryByRole('button', { name: 'Accept to draft' })).not.toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it('can start a fresh task after a submission is invalidated by permission loss', async () => {
+    vi.mocked(useLanguage).mockReturnValue({ language: 'en' } as ReturnType<typeof useLanguage>);
+    let resolve!: (value: any) => void;
+    vi.mocked(api.post).mockReturnValue(new Promise((done) => { resolve = done; }));
+    vi.mocked(api.get).mockImplementation(() => Promise.resolve({ data: [] }));
+    const props = { pageId: 'page-1', pageTitle: 'Page', spaceId: 'space-1', snapshot: () => ({ title: 'Page', content: 'Content' }), onApply: vi.fn(() => true) };
+    const view = render(<AgentAssistPanel {...props} canEdit />);
+    fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
+    fireEvent.click(screen.getByTestId('assist-submit'));
+    view.rerender(<AgentAssistPanel {...props} canEdit={false} />);
+    view.rerender(<AgentAssistPanel {...props} canEdit />);
+    await act(async () => resolve({ data: { id: 'stale' } }));
+    expect(screen.getByTestId('assist-submit')).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Accept to draft' })).not.toBeInTheDocument();
+  });
+
+  it('never accepts an empty completion', async () => {
+    vi.mocked(useLanguage).mockReturnValue({ language: 'en' } as ReturnType<typeof useLanguage>);
+    const onApply = vi.fn(() => true);
+    vi.mocked(api.post).mockResolvedValue({ data: { id: 'task-new' } });
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve({ data: url === '/assist/tasks' ? [{ ...successfulTask, id: 'task-new', result: { changes: '' } }] : [] }));
+    renderPanel({ onApply });
+    fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
+    fireEvent.click(screen.getByTestId('assist-submit'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('no usable content');
+    expect(screen.queryByRole('button', { name: 'Accept to draft' })).not.toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it.each([{ spaceId: 'space-2', pageId: 'page-1' }, { spaceId: 'space-1', pageId: 'page-2' }])('invalidates candidate when scoped identity changes to %j', async (identity) => {
+    vi.mocked(useLanguage).mockReturnValue({ language: 'en' } as ReturnType<typeof useLanguage>);
+    const onApply = vi.fn(() => true);
+    vi.mocked(api.post).mockResolvedValue({ data: { id: 'task-new' } });
+    vi.mocked(api.get).mockImplementation((url) => Promise.resolve({ data: url === '/assist/tasks' ? [{ ...successfulTask, id: 'task-new' }] : [] }));
+    const props = { pageTitle: 'Page', snapshot: () => ({ title: 'Page', content: 'Content' }), onApply };
+    const view = render(<AgentAssistPanel {...props} pageId="page-1" spaceId="space-1" />);
+    fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
+    fireEvent.click(screen.getByTestId('assist-submit'));
+    await screen.findByRole('button', { name: 'Accept to draft' });
+    view.rerender(<AgentAssistPanel {...props} {...identity} />);
+    expect(screen.queryByRole('button', { name: 'Accept to draft' })).not.toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
   });
 
   it('hides the provider model name and shows a friendly completion label in Chinese', async () => {

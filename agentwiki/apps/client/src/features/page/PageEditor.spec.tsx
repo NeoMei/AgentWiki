@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { undo } from '@codemirror/commands';
 import { EditorSelection } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { Link, MemoryRouter, Outlet, Route, RouterProvider, Routes, createMemoryRouter, useLocation, useNavigate, useNavigationType, useParams } from 'react-router-dom';
@@ -304,6 +305,66 @@ describe('PageEditor remote update safety', () => {
       if (!next) return Promise.reject(new Error('unexpected get ' + url));
       return Promise.resolve(next);
     });
+  });
+
+  it('keeps Assist streams out of the draft and accepts completion as a single undoable edit', async () => {
+    let tasks: any[] = [];
+    vi.mocked(api.get).mockImplementation((url: string) => Promise.resolve({ data: url === '/assist/tasks' ? tasks : url === '/review' ? [] : page({ capabilities: { canEdit: true } }) }));
+    vi.mocked(api.post).mockImplementation(async (url: string) => {
+      if (url === '/assist/tasks') { tasks = [{ id: 'assist-1', intent: 'Rewrite', status: 'running' }]; return { data: tasks[0] }; }
+      return { data: {} };
+    });
+    renderEditor();
+    fireEvent.click(await screen.findByTestId('assist-toggle'));
+    fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
+    fireEvent.click(screen.getByTestId('assist-submit'));
+    await waitFor(() => expect(screen.getByTestId('assist-submit')).toHaveTextContent('Run task'));
+    act(() => socketMock.handlers.get('assistStream')?.({ taskId: 'assist-1', chunk: '📝 生成: {"changes":"Partial"}' }));
+    expect(contentEditorValue()).toBe('Original content');
+    expect(screen.getByTestId('save-button')).toBeDisabled();
+    tasks = [{ id: 'assist-1', intent: 'Rewrite', status: 'done', result: { changes: 'Accepted candidate' } }];
+    act(() => socketMock.handlers.get('assistComplete')?.({ taskId: 'assist-1' }));
+    const accept = await screen.findByRole('button', { name: 'Accept to draft' });
+    expect(contentEditorValue()).toBe('Original content');
+    fireEvent.click(accept);
+    expect(contentEditorValue()).toBe('Accepted candidate');
+    expect(api.patch).not.toHaveBeenCalled();
+    act(() => expect(undo(currentEditorView())).toBe(true));
+    expect(contentEditorValue()).toBe('Original content');
+    act(() => socketMock.handlers.get('assistComplete')?.({ taskId: 'assist-1' }));
+    await screen.findByText('Accepted to draft');
+    expect(contentEditorValue()).toBe('Original content');
+  });
+
+  it.each(['human', 'remote-kept', 'preview'] as const)('keeps the live draft safe when candidate acceptance meets %s state', async (scenario) => {
+    let tasks: any[] = [];
+    vi.mocked(api.get).mockImplementation((url: string) => Promise.resolve({ data: url === '/assist/tasks' ? tasks : url === '/review' ? [] : page({ capabilities: { canEdit: true } }) }));
+    vi.mocked(api.post).mockImplementation(async () => { tasks = [{ id: 'assist-1', intent: 'Rewrite', status: 'done', result: { changes: 'Candidate' } }]; return { data: { id: 'assist-1' } }; });
+    renderEditor();
+    fireEvent.click(await screen.findByTestId('assist-toggle'));
+    fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
+    fireEvent.click(screen.getByTestId('assist-submit'));
+    const accept = await screen.findByRole('button', { name: 'Accept to draft' });
+    if (scenario === 'preview') {
+      fireEvent.click(screen.getByTestId('mode-toggle'));
+      expect(accept).toBeDisabled();
+      expect(screen.getByText('Return to edit to accept this candidate.')).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('mode-toggle'));
+      expect(contentEditorValue()).toBe('Original content');
+      return;
+    }
+    if (scenario === 'human') editContent('Human draft');
+    else {
+      // A title-only human change makes the local draft dirty while preserving source.
+      fireEvent.change(screen.getByDisplayValue('Original title'), { target: { value: 'Renamed' } });
+      act(() => socketMock.handlers.get('contentUpdated')?.({ content: 'Remote content', userId: 'other', version: 9 }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Keep local draft' }));
+      fireEvent.change(screen.getByDisplayValue('Renamed'), { target: { value: 'Original title' } });
+    }
+    fireEvent.click(accept);
+    expect(contentEditorValue()).toBe(scenario === 'human' ? 'Human draft' : 'Original content');
+    expect(await screen.findByText(/Page, permissions, version or draft changed/)).toBeInTheDocument();
+    expect(api.patch).not.toHaveBeenCalled();
   });
 
   it('labels the title field and refuses whitespace without sending an update', async () => {

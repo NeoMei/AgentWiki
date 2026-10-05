@@ -14,6 +14,7 @@ import { listPageTemplates } from '../page-templates/pageTemplateApi';
 import { truncateValidatorLength } from '../page-templates/validatorLength';
 import { listCompositeTemplates } from '../page-templates/compositeTemplateApi';
 import { AgentAssistPanel } from './AgentAssistPanel';
+import { canAcceptCandidate, type AssistCandidate } from './assistCandidate';
 import { AttachmentPickerDialog } from '../attachments/AttachmentPickerDialog';
 import { uploadAttachment } from '../attachments/attachmentApi';
 import { formatAttachmentReference } from '../attachments/attachmentReference';
@@ -98,6 +99,9 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const workspace = useOptionalSpaceWorkspace();
   const socketRef = useRef<Socket | null>(null);
   const contentRef = useRef<string>('');
+  const titleRef = useRef('');
+  const assistRemoteRevisionRef = useRef(0);
+  const acceptedAssistTasksRef = useRef(new Set<string>());
   const tRef = useRef(t);
   const pageRef = useRef<Page | null>(null);
   const baselineRevisionRef = useRef<string | null>(null);
@@ -287,6 +291,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     if (revision.startsWith('socket:') && revision === acceptedSocketRevisionRef.current) return;
     const baseline = pageRef.current;
     if (baseline && revision === (baselineRevisionRef.current || pageRevision(baseline))) return;
+    assistRemoteRevisionRef.current += 1;
     if (isDirtyRef.current) {
       if (forcePrompt || dismissedRemoteRevisionRef.current !== revision) {
         abortAttachmentUploads();
@@ -753,26 +758,30 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     }
   }, [attachmentEnabled, id, page?.id, page?.spaceId, page?.updatedAt]);
 
+  titleRef.current = title;
   const handleTitleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setTitle(truncateValidatorLength(e.target.value, PAGE_TITLE_LIMIT));
+    titleRef.current = truncateValidatorLength(e.target.value, PAGE_TITLE_LIMIT);
+    setTitle(titleRef.current);
     editRevisionRef.current += 1;
     updateDirty(true);
   }, [updateDirty]);
 
-  // Stable callbacks for the assist panel so its socket connection and task
-  // polling are not recreated on every editor render (which would drop the
-  // live stream events).
-  const applyAgentChanges = useCallback((changes: string) => {
-    if (pageRef.current?.capabilities?.canEdit === false) return;
-    handleContentChange(changes);
-    setMode('edit');
-  }, [handleContentChange]);
-
-  const streamAgentChanges = useCallback((partial: string) => {
-    if (pageRef.current?.capabilities?.canEdit === false) return;
-    handleContentChange(partial);
-    setMode('edit');
-  }, [handleContentChange]);
+  const applyAgentChanges = (candidate: AssistCandidate): boolean => {
+    const latest = pageRef.current;
+    if (!mountedRef.current || activePageIdRef.current !== candidate.pageId || !latest
+      || saving || mode !== 'edit' || acceptedAssistTasksRef.current.has(candidate.taskId)
+      || !canAcceptCandidate(candidate, {
+        pageId: latest.id, spaceId: latest.spaceId, userId: user?.id ?? '',
+        title: titleRef.current, content: internalWorkspaceRef.current?.currentValue() ?? contentRef.current,
+        updatedAt: latest.updatedAt, draftRevision: editRevisionRef.current,
+        remoteRevision: assistRemoteRevisionRef.current,
+        canEdit: !writeUnavailable && latest.capabilities?.canEdit !== false,
+        remoteConflict: remoteUpdate !== null,
+      })) return false;
+    if (!internalWorkspaceRef.current?.replaceDocument(candidate.content)) return false;
+    acceptedAssistTasksRef.current.add(candidate.taskId);
+    return true;
+  };
 
   const handleSave = async () => {
     const baseline = pageRef.current;
@@ -1159,9 +1168,14 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             pageId={page.id}
             pageTitle={title || page.title}
             spaceId={page.spaceId}
-            snapshot={() => ({ title, content, updatedAt: page.updatedAt })}
+            key={`${user?.id}:${page.spaceId}:${page.id}`}
+            snapshot={() => ({ title: titleRef.current, content: internalWorkspaceRef.current?.currentValue() ?? contentRef.current, updatedAt: pageRef.current?.updatedAt, draftRevision: editRevisionRef.current, remoteRevision: assistRemoteRevisionRef.current })}
+            canEdit={!writeUnavailable}
+            canAccept={mode === 'edit' && !saving}
+            acceptUnavailableReason={saving
+              ? (language === 'zh-CN' ? '保存完成后可接受候选。' : 'Wait for Save to finish before accepting.')
+              : undefined}
             onApply={applyAgentChanges}
-            onStreamUpdate={streamAgentChanges}
           />
         ) : null}
       </div>

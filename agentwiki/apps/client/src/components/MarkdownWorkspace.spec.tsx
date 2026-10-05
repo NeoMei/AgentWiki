@@ -1,6 +1,7 @@
 import { createRef, useState } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { EditorSelection } from '@codemirror/state';
+import { undo, undoDepth } from '@codemirror/commands';
 import { EditorView } from '@codemirror/view';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../context/LanguageContext';
@@ -126,6 +127,19 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
   it('enables CodeMirror line wrapping in edit mode', () => {
     const { container } = renderWYS({ initial: '很长的中文内容'.repeat(100) });
     expect(container.querySelector('.cm-lineWrapping')).toBeTruthy();
+  });
+
+  it('replaces a candidate as one isolated undoable document change', () => {
+    const workspaceRef = createRef<MarkdownWorkspaceHandle>();
+    const { container } = renderWYS({ initial: 'Original content', workspaceRef });
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: ' human' } }));
+    const depth = undoDepth(view.state);
+    act(() => expect(workspaceRef.current?.replaceDocument('Accepted candidate')).toBe(true));
+    expect(view.state.doc.toString()).toBe('Accepted candidate');
+    expect(undoDepth(view.state)).toBe(depth + 1);
+    act(() => expect(undo(view)).toBe(true));
+    expect(view.state.doc.toString()).toBe('Original content human');
   });
 
   it('edit mode renders formatting marks for non-cursor lines (live preview)', () => {

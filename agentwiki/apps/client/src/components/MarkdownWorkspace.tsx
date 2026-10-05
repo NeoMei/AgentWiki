@@ -1,10 +1,11 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { isolateHistory } from '@codemirror/commands';
 import CodeMirror from '@uiw/react-codemirror';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view';
-import { ChangeDesc, EditorSelection, Range, StateEffect, StateField } from '@codemirror/state';
+import { ChangeDesc, EditorSelection, Range, StateEffect, StateField, Transaction } from '@codemirror/state';
 import { tags } from '@lezer/highlight';
 import { syntaxTree } from '@codemirror/language';
 import { unified } from 'unified';
@@ -43,6 +44,8 @@ export interface MarkdownWorkspaceHandle {
   /** Test hook: drive a content change as if the user typed it. */
   simulateChange: (next: string) => void;
   currentValue: () => string;
+  /** Single isolated undoable replacement; false when no editing surface is mounted. */
+  replaceDocument: (next: string) => boolean;
   insertText: (text: string) => void;
   capturePosition: () => MarkdownWorkspacePosition;
   restorePosition: (position: MarkdownWorkspacePosition) => void;
@@ -559,6 +562,16 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   useImperativeHandle(ref, () => ({
     simulateChange: (next: string) => onChange(next),
     currentValue: () => editorViewRef.current?.state.doc.toString() ?? value,
+    replaceDocument: (next: string) => {
+      const view = editorViewRef.current;
+      if (!view) return false;
+      if (view.state.doc.toString() === next) return true;
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: next },
+        annotations: [Transaction.addToHistory.of(true), isolateHistory.of('full')],
+      });
+      return true;
+    },
     insertText,
     capturePosition,
     restorePosition,
