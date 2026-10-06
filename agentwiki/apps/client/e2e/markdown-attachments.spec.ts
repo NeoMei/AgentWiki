@@ -571,7 +571,7 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       await page.getByRole('button', { name: 'Image attachments' }).click();
       await expect(page.getByRole('dialog', { name: 'Image attachments' })).toBeVisible();
       await expectNoDocumentOverflow(page);
-      await page.getByLabel('Upload image').setInputFiles({
+      await page.getByLabel('Upload image', { exact: true }).setInputFiles({
         name: 'same-name.png', mimeType: 'image/png', buffer: alternatePng,
       });
       await expectMarker(page, '![[assets/same-name (2).png]]');
@@ -647,7 +647,7 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       await expectNoDocumentOverflow(editorSession.page);
       await expect(editorSession.page.getByRole('button', { name: 'Image attachments' })).toBeVisible();
       await editorSession.page.getByRole('button', { name: 'Image attachments' }).click();
-      await editorSession.page.getByLabel('Upload image').setInputFiles({
+      await editorSession.page.getByLabel('Upload image', { exact: true }).setInputFiles({
         name: 'editor-upload.png', mimeType: 'image/png', buffer: png,
       });
       await expectMarker(editorSession.page, '![[assets/editor-upload.png]]');
@@ -810,7 +810,7 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       await expect(page.getByRole('button', { name: 'Image attachments' })).toBeVisible();
       await page.getByRole('button', { name: 'Image attachments' }).click();
       await expect(page.getByRole('dialog', { name: 'Image attachments' })).toBeVisible();
-      await expect(page.getByLabel('Upload image')).toBeAttached();
+      await expect(page.getByLabel('Upload image', { exact: true })).toBeAttached();
       await expect(page.getByLabel('Search attachments')).toBeVisible();
       await expect(page.getByRole('button', { name: 'Close attachment picker' })).toBeVisible();
       await expectNoDocumentOverflow(page);

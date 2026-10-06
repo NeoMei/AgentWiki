@@ -157,6 +157,9 @@ const expectRenderedHeading = async (
   await expect(renderedHeading).toBeVisible();
 };
 
+// Open templates from the main directory, not the sidebar's separate create action.
+const directory = (page: Page) => page.getByTestId('content-breadcrumbs').locator('xpath=ancestor::main[1]');
+
 const customTemplateArticle = (page: Page) => page.getByRole('article').filter({
   has: page.getByRole('heading', { name: customTemplateName, exact: true }),
 });
@@ -256,7 +259,7 @@ test.describe.serial('page template library', () => {
     await expect(page.getByText('模板已创建')).toBeVisible();
 
     await page.goto(`/spaces/${spaceId}`);
-    await page.getByRole('button', { name: '新建页面' }).click();
+    await directory(page).getByRole('button', { name: '新建页面', exact: true }).click();
     await page.getByRole('button', { name: new RegExp(customTemplateName, 'u') }).click();
     await page.getByRole('button', { name: '下一步' }).click();
     await page.getByLabel('标题').fill('团队任务实例一');
@@ -291,7 +294,7 @@ test.describe.serial('page template library', () => {
     await expect(page.getByLabel('搜索模板')).toBeFocused();
 
     await page.goto(`/spaces/${spaceId}`);
-    await page.getByRole('button', { name: '新建页面' }).click();
+    await directory(page).getByRole('button', { name: '新建页面', exact: true }).click();
     await page.getByRole('button', { name: new RegExp(customTemplateName, 'u') }).click();
     await page.getByRole('button', { name: '下一步' }).click();
     await page.getByLabel('标题').fill('团队任务实例二');
@@ -468,7 +471,7 @@ test.describe.serial('page template library', () => {
     const editorSession = await newAuthenticatedPage(browser, editor!, 'en');
     try {
       await editorSession.page.goto(`/spaces/${spaceId}`);
-      const newPage = editorSession.page.getByRole('button', { name: 'New page', exact: true });
+      const newPage = directory(editorSession.page).getByRole('button', { name: 'New page', exact: true });
       await expect(newPage).toBeVisible();
       await newPage.click();
       const customTemplate = editorSession.page.getByRole('button', {
@@ -510,7 +513,7 @@ test.describe.serial('page template library', () => {
     const adminSession = await newAuthenticatedPage(browser, admin!, 'en');
     try {
       await adminSession.page.goto(`/spaces/${spaceId}`);
-      const newPage = adminSession.page.getByRole('button', { name: 'New page', exact: true });
+      const newPage = directory(adminSession.page).getByRole('button', { name: 'New page', exact: true });
       await expect(newPage).toBeVisible();
       await newPage.click();
       await expect(adminSession.page.getByRole('link', { name: 'Manage templates' })).toBeVisible();
@@ -543,8 +546,9 @@ test.describe.serial('page template library', () => {
       const session = await newAuthenticatedPage(browser, owner!, scenario.locale);
       try {
         await session.page.goto(`/spaces/${spaceId}`);
-        await session.page.getByRole('button', {
+        await directory(session.page).getByRole('button', {
           name: scenario.locale === 'zh-CN' ? '新建页面' : 'New page',
+          exact: true,
         }).click();
         await session.page.getByRole('button', { name: scenario.template }).click();
         await session.page.getByRole('button', {
@@ -568,7 +572,7 @@ test.describe.serial('page template library', () => {
   test('Blank creation lands at the space root and has no template provenance', async ({ page }) => {
     await authenticate(page, owner!, 'zh-CN');
     await page.goto(`/spaces/${spaceId}`);
-    await page.getByRole('button', { name: '新建页面' }).click();
+    await directory(page).getByRole('button', { name: '新建页面', exact: true }).click();
     await expect(page.getByRole('button', { name: /空白页面/u })).toHaveAttribute('aria-pressed', 'true');
     await page.getByRole('button', { name: '下一步' }).click();
     await page.getByLabel('标题').fill('空白新页面');
@@ -594,7 +598,7 @@ test.describe.serial('page template library', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`/spaces/${spaceId}`);
 
-    const opener = page.getByRole('button', { name: 'New page', exact: true });
+    const opener = directory(page).getByRole('button', { name: 'New page', exact: true });
     await opener.click();
     const newPageDialog = page.getByRole('dialog', { name: 'Create new page' });
     await expect(page.getByRole('button', { name: 'Close', exact: true })).toBeFocused();
