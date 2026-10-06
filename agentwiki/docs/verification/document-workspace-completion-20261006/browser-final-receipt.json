@@ -1,0 +1,120 @@
+{
+  "candidate": "213a2aae",
+  "selection": {
+    "reverseBefore": {
+      "anchor": 23,
+      "head": 0,
+      "text": "选区验收：保留这一段的完整选择范围与选择方向。"
+    },
+    "reverseAfter": {
+      "anchor": 23,
+      "head": 0,
+      "text": "选区验收：保留这一段的完整选择范围与选择方向。"
+    },
+    "forwardBefore": {
+      "anchor": 0,
+      "head": 23,
+      "text": "选区验收：保留这一段的完整选择范围与选择方向。"
+    },
+    "forwardAfter": {
+      "anchor": 0,
+      "head": 23,
+      "text": "选区验收：保留这一段的完整选择范围与选择方向。"
+    },
+    "previewUnmountedSource": true,
+    "deliberateOutlineResult": "## 长文区"
+  },
+  "keyboardPaging": {
+    "before": {
+      "active": "返回编辑",
+      "scrollY": 608
+    },
+    "after": {
+      "active": "返回编辑",
+      "scrollY": 2979.5
+    },
+    "returnedSelection": {
+      "line": "段落 47：为长文阅读、滚动恢复与目录导航提供稳定的验收内容。",
+      "text": ""
+    }
+  },
+  "directory": {
+    "before": {
+      "scroll": 5157,
+      "text": "另一篇文档重命名编辑页面删除页面"
+    },
+    "after": {
+      "port": {
+        "bottom": 720,
+        "height": 365,
+        "left": 16,
+        "right": 275,
+        "top": 355,
+        "width": 259,
+        "x": 16,
+        "y": 355
+      },
+      "scroll": 178,
+      "selected": {
+        "bottom": 395,
+        "height": 40,
+        "left": 44,
+        "right": 263,
+        "top": 355,
+        "width": 219,
+        "x": 44,
+        "y": 355
+      },
+      "text": "文档体验续章重命名编辑页面删除页面",
+      "visible": true
+    },
+    "manualScroll": 2338,
+    "reloadScroll": 2338
+  },
+  "table": {
+    "cellOnly": true,
+    "singleUndoExact": true,
+    "structurePrefixExact": true,
+    "structureSuffixExact": true,
+    "mobileEntry": {
+      "buttonHit": true,
+      "hit": "编辑表格",
+      "pageWidth": 390,
+      "rect": {
+        "bottom": 707,
+        "height": 32,
+        "left": 81,
+        "right": 149,
+        "top": 675,
+        "width": 68,
+        "x": 81,
+        "y": 675
+      }
+    },
+    "mobileCellOnly": true,
+    "mobileUndoExact": true,
+    "noopAndEscapeSaveDisabled": true,
+    "escapeEditorFocus": true
+  },
+  "search": {
+    "initialOldTargetPresent": false,
+    "searchTargetId": "0ccbf382-2c8f-4cbf-8316-6debf2d82a33",
+    "insertedAtCapture": true,
+    "oneUndoExact": true
+  },
+  "preferences": {
+    "outlineWidth": 290,
+    "outlineOpenSurvivesReload": true,
+    "closedSurvivesPageChange": true,
+    "collaborationTab": "notes",
+    "collaborationWidth": 330,
+    "mobileDismissPreservesDesktop": true
+  },
+  "finalSourceEqual": true,
+  "crlf": {
+    "explicitFallback": true,
+    "saveDisabled": true
+  },
+  "consoleWarningsErrors": [],
+  "saveInvoked": false
+}

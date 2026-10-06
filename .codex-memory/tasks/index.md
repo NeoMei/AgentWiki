@@ -4,13 +4,13 @@
 
 ## 活跃任务
 
-- [document-workspace-completion-20261006](active/document-workspace-completion-20261006/brief.md)：补齐5项剩余体验，p5c07ff代理实施与独立审查中。
-
 - [q2-defect-closure-20261001](active/q2-defect-closure-20261001/brief.md)：全部20项及2条接入问题修复部署，公网TLS已验证，其余顺序实施与审查。
 
 - [q3-regressions-20260914](archive/q3-regressions-20260914/brief.md)：Q3人工报告20项代码修复、整分支独立复审与候选验收完成；未发布部署或安装日常Vault。
 
 ## 最近完成
+
+- [document-workspace-completion-20261006](archive/document-workspace-completion-20261006/brief.md)：剩余5项完成；独立复审0未关闭问题，2006客户端测试、生产构建/桌面与390px验收、原文/API回读及独立环境清理通过；未合并部署。
 
 - [document-workspace-polish-20261006](archive/document-workspace-polish-20261006/brief.md)：候选差异聚焦、笔记筛选及批量选择完成，独立审查0未关闭问题，1865客户端测试与最终128项定向测试通过，生产构建浏览器验收和环境清理完成；未合并或部署。
 
