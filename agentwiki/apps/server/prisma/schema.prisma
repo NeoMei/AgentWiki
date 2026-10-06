@@ -147,6 +147,7 @@ model User {
   authVersion                   Int                                       @default(0)
 
   assistTasks AssistTask[]
+  assistSessions AssistSession[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -221,6 +222,7 @@ model Space {
   revisionChainCheckpoint      SpaceRevisionChainCheckpoint?
   agentMemories                AgentMemory[]
   assistTasks                  AssistTask[]
+  assistSessions               AssistSession[]
   projectBoard                 ProjectBoard?
   graphState                   SpaceGraphState?
   collaborationTemplates       CollaborationTemplate[]
@@ -296,11 +298,32 @@ model AttachmentCleanupCursor {
   updatedAt         DateTime  @default(now()) @updatedAt
 }
 
+model AssistSession {
+  id                String @id @default(cuid())
+  title             String @default("New conversation")
+  spaceId           String
+  requestedByUserId String
+  space             Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  requestedByUser   User @relation(fields: [requestedByUserId], references: [id], onDelete: Cascade)
+  tasks             AssistTask[]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([requestedByUserId, spaceId, updatedAt(sort: Desc)])
+}
+
 model AssistTask {
   id           String  @id @default(cuid())
   status       String  @default("queued")
   intent       String
   pageSnapshot Json?
+  sessionId    String?
+  session      AssistSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  clientRequestId String?
+  mode         String @default("proposal")
+  context      Json?
+  progressText String @default("")
+  progressVersion Int @default(0)
   result       Json?
   error        String?
   attempts     Int     @default(0)
@@ -322,6 +345,8 @@ model AssistTask {
   updatedAt   DateTime  @updatedAt
   completedAt DateTime?
 
+  @@unique([sessionId, clientRequestId])
+  @@index([sessionId, createdAt])
   @@index([spaceId, status, createdAt])
   @@index([status, leaseExpiresAt])
   @@index([status, nextAttemptAt, createdAt], map: "AssistTask_status_nextAttempt_created_idx")

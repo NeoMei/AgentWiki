@@ -127,6 +127,29 @@ describe('OpencodeModelRouter', () => {
     jest.useRealTimers();
   });
 
+  it('never starts a fallback after abort even if an in-flight attempt reports a model failure', async () => {
+    const { router, runner, health } = createRouter();
+    const abort = new AbortController();
+    runner.runModel.mockImplementation(async (...args: any[]) => {
+      expect(args[4].signal).toBe(abort.signal);
+      expect(args[4].mode).toBe('question');
+      abort.abort();
+      throw modelFailure('invalid_output');
+    });
+    const error = await captureRoutingError(router.run({ ...task, mode: 'question', signal: abort.signal }));
+    expect(error.message).toContain('cancelled');
+    expect(runner.runModel).toHaveBeenCalledTimes(1);
+    expect(health.recordFailure).not.toHaveBeenCalled();
+  });
+
+  it('refuses a late successful result after cancellation', async () => {
+    const { router, runner } = createRouter();
+    const abort = new AbortController();
+    runner.runModel.mockImplementation(async () => { abort.abort(); return success('late'); });
+    await expect(router.run({ ...task, signal: abort.signal })).rejects.toThrow('cancelled');
+    expect(runner.runModel).toHaveBeenCalledTimes(1);
+  });
+
   it('tries free models in order and stops at the first success', async () => {
     const { router, runner } = createRouter();
     runner.runModel

@@ -32,6 +32,81 @@ describe('OpencodeCliRunner', () => {
 
   afterEach(() => jest.useRealTimers());
 
+  it('answers a read-only question without generating changes', async () => {
+    const child = childProcess();
+    const runner = new OpencodeCliRunner(config);
+    const promise = runner.run({ intent: 'Why?', pageSnapshot: { content: 'source' }, mode: 'question' } as any);
+    child.stdout.write(JSON.stringify({ type: 'text', part: { text: JSON.stringify({ summary: 'Because.' }) } }));
+    child.emit('close', 0);
+    const answer = await promise;
+    expect(answer.summary).toBe('Because.');
+    expect(answer.changes).toBeUndefined();
+  });
+
+  it('rejects a question response that smuggles document changes', async () => {
+    const child = childProcess();
+    const promise = new OpencodeCliRunner(config).run({ intent: 'Why?', pageSnapshot: null, mode: 'question' } as any);
+    child.stdout.write(JSON.stringify({ type: 'text', part: { text: JSON.stringify({ summary: 'Answer', changes: 'replacement' }) } }));
+    child.emit('close', 0);
+    await expect(promise).rejects.toMatchObject({ code: 'invalid_output' });
+  });
+
+  it('terminates the active process immediately on cancellation', async () => {
+    const child = childProcess();
+    const abort = new AbortController();
+    const promise = new OpencodeCliRunner(config).run({ intent: 'Why?', pageSnapshot: null, signal: abort.signal } as any);
+    abort.abort();
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+    child.emit('close', null);
+    await expect(promise).rejects.toMatchObject({ code: 'cancelled', scope: 'global' });
+  });
+
+  it('exposes only validated answer summaries as session progress', async () => {
+    const child = childProcess();
+    const answer = jest.fn();
+    const promise = new OpencodeCliRunner(config).run({ intent: 'why', pageSnapshot: null, mode: 'question', onAnswerText: answer });
+    for (const event of [
+      { type: 'reasoning', part: { text: 'private chain of thought' } },
+      { type: 'step_finish', part: { tokens: { total: 42 }, cost: 7 } },
+      { type: 'text', part: { text: '{"summary":"Public ' } },
+    ]) child.stdout.write(JSON.stringify(event) + '\n');
+    expect(answer).not.toHaveBeenCalled();
+    child.stdout.write(JSON.stringify({ type: 'text', part: { text: 'answer"}' } }) + '\n');
+    expect(answer.mock.calls).toEqual([['Public answer']]);
+    child.emit('close', 0);
+    await expect(promise).resolves.toMatchObject({ summary: 'Public answer' });
+  });
+
+  it('terminates a real blocked fixture CLI on AbortSignal', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'agentwiki-abort-test-'));
+    const script = join(directory, 'blocked.cjs');
+    writeFileSync(script, "process.stdout.write('ready\\n'); setInterval(() => {}, 1000);");
+    let child: ReturnType<typeof spawn> | undefined;
+    const actualSpawn = jest.requireActual<typeof import('child_process')>('child_process').spawn;
+    (spawn as jest.Mock).mockImplementationOnce((...args: Parameters<typeof spawn>) => { child = actualSpawn(...args); return child; });
+    const abort = new AbortController();
+    try {
+      const promise = new OpencodeCliRunner({ get: (key: string) => key === 'OPENCODE_BIN' ? script : undefined } as any).run({ intent: 'fixture', pageSnapshot: null, signal: abort.signal });
+      const rejected = expect(promise).rejects.toMatchObject({ code: 'cancelled' });
+      await new Promise<void>((resolve, reject) => { child!.stdout!.once('data', () => resolve()); child!.once('error', reject); });
+      const closed = new Promise<void>(resolve => child!.once('close', () => resolve()));
+      abort.abort();
+      await rejected;
+      await closed;
+      expect(child!.signalCode).toBe('SIGTERM');
+      expect(() => process.kill(child!.pid!, 0)).toThrow();
+    } finally {
+      child?.kill('SIGKILL');
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects an oversized public answer without truncating it', () => {
+    const runner = new OpencodeCliRunner(config);
+    const output = JSON.stringify({ type: 'text', part: { text: JSON.stringify({ summary: 'a'.repeat(50_001) }) } });
+    expect(() => (runner as any).parse(output, 'question')).toThrow(expect.objectContaining({ code: 'output_limit' }));
+  });
+
   it('tells the model the exact editable range while keeping full markdown output', () => {
     const prompt = new OpencodeCliRunner(config).buildPrompt({ intent: 'rewrite', pageSnapshot: {
       content: 'pre OLD post', updatedAt: '2026-01-01T00:00:00.000Z', assistTarget: {

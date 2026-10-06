@@ -39,6 +39,82 @@ describe('AssistQueue task processing', () => {
     prisma.assistTask.updateMany.mockResolvedValue({ count: 1 });
   });
 
+  it('actively aborts a running session after cancellation and never publishes its late answer', async () => {
+    jest.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    let release!: () => void;
+    const waiting = new Promise<void>(resolve => { release = resolve; });
+    runner.run.mockImplementation(async (input: any) => {
+      signal = input.signal;
+      await waiting;
+      return { summary: 'late answer' };
+    });
+    const queue = createQueue();
+    const done = (queue as any).processOne({ id: 't1', spaceId: 'space-1', requestedByUserId: 'user-1', pageId: 'page-1', intent: 'why', pageSnapshot: null });
+    for (let i = 0; i < 15; i++) await Promise.resolve();
+    prisma.assistTask.count.mockResolvedValue(0);
+    await jest.advanceTimersByTimeAsync(1000);
+    release();
+    await done;
+    jest.useRealTimers();
+    expect(signal?.aborted).toBe(true);
+    const doneWriteAfterCancel = prisma.assistTask.updateMany.mock.calls.filter((call: any[]) => call[0].data.status === 'done');
+    expect(doneWriteAfterCancel).toHaveLength(0);
+    expect(gateway.emitAssistComplete).not.toHaveBeenCalled();
+    jest.useRealTimers();
+  });
+
+  it('persists answer-only session progress and completion behind the live lease fence without socket events', async () => {
+    const sessions = { executionContext: jest.fn().mockResolvedValue({ context: { pageId: 'page-1', references: [], noteIds: [] }, history: [{ intent: 'before', answer: 'previous answer' }] }) };
+    const queue = new AssistQueue(prisma, config, runner, gateway, new AuthorizationService(prisma), new SpaceRevisionWriterService(prisma, {} as any), sessions as any);
+    runner.run.mockImplementation(async (input: any) => {
+      expect(input.history[0].answer).toBe('previous answer');
+      expect(input.onStreamChunk).toBeUndefined();
+      input.onAnswerText('Only the answer');
+      return { summary: 'Only the answer', changes: '', raw: 'private reasoning', model: 'internal-model' };
+    });
+    await (queue as any).processOne({ id: 't1', spaceId: 'space-1', requestedByUserId: 'user-1', sessionId: 's1', pageId: 'page-1', mode: 'question', intent: 'why', pageSnapshot: {} });
+    const progress = prisma.assistTask.updateMany.mock.calls.find((call: any[]) => call[0].data.progressText && !call[0].data.status)[0];
+    expect(progress).toMatchObject({ where: { status: 'running', leaseOwner: (queue as any).workerId, leaseExpiresAt: { gt: expect.any(Date) } }, data: { progressText: 'Only the answer', progressVersion: { increment: 1 } } });
+    const done = prisma.assistTask.updateMany.mock.calls.find((call: any[]) => call[0].data.status === 'done')[0];
+    expect(done.data.result).toEqual({ summary: 'Only the answer' });
+    expect(gateway.emitAssistStream).not.toHaveBeenCalled();
+    expect(gateway.emitAssistComplete).not.toHaveBeenCalled();
+  });
+
+  it.each(['permission', 'reference'])('aborts active session execution on live %s loss and prevents late publication', async () => {
+    jest.useFakeTimers();
+    let allowed = true;
+    let started!: () => void;
+    let release!: () => void;
+    const running = new Promise<void>(resolve => { started = resolve; });
+    const waiting = new Promise<void>(resolve => { release = resolve; });
+    const sessions = { executionContext: async () => { if (!allowed) throw new Error('source access lost'); return { history: [] }; } };
+    const queue = new AssistQueue(prisma, config, runner, gateway, new AuthorizationService(prisma), new SpaceRevisionWriterService(prisma, {} as any), sessions as any);
+    let signal!: AbortSignal;
+    runner.run.mockImplementation(async (input: any) => { signal = input.signal; started(); await waiting; return { summary: 'late' }; });
+    const pending = (queue as any).processOne({ id: 't1', spaceId: 'space-1', requestedByUserId: 'user-1', sessionId: 's1', pageId: 'page-1', mode: 'question', intent: 'why', pageSnapshot: {} });
+    await running;
+    allowed = false;
+    await jest.advanceTimersByTimeAsync(500);
+    const abortedDuringRun = signal.aborted;
+    release(); await pending; jest.useRealTimers();
+    expect(abortedDuringRun).toBe(true);
+    expect(prisma.assistTask.updateMany.mock.calls.some((call: any[]) => call[0].data.status === 'done')).toBe(false);
+  });
+
+  it.each([
+    { summary: 'answer', changes: 'unexpected edit' },
+    { summary: 'x'.repeat(50_001) },
+  ])('rejects malformed or oversized session question output before done persistence', async result => {
+    const sessions = { executionContext: async () => ({ history: [] }) };
+    const queue = new AssistQueue(prisma, config, runner, gateway, new AuthorizationService(prisma), new SpaceRevisionWriterService(prisma, {} as any), sessions as any);
+    runner.run.mockResolvedValue(result);
+    await (queue as any).processOne({ id: 't1', spaceId: 'space-1', requestedByUserId: 'user-1', sessionId: 's1', pageId: 'page-1', mode: 'question', intent: 'why', pageSnapshot: {} });
+    expect(prisma.assistTask.updateMany.mock.calls.map((call: any[]) => call[0].data.status)).toEqual(['failed']);
+    expect(gateway.emitAssistError).not.toHaveBeenCalled();
+  });
+
   it('claims a queued task, runs opencode, and marks it done with the result', async () => {
     runner.run.mockResolvedValue({ summary: 'polished version', changes: '# Hi — polished' });
     const queue = createQueue();
@@ -167,7 +243,7 @@ describe('AssistQueue task processing', () => {
     const queue = createQueue();
     await (queue as any).recoverExpiredLeases();
     expect(prisma.assistTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: { in: ['t1'] } },
+      where: { id: { in: ['t1'] }, status: 'running', leaseExpiresAt: { lte: expect.any(Date) } },
       data: expect.objectContaining({ status: 'queued', leaseOwner: null, attempts: { increment: 1 } }),
     }));
   });
@@ -179,7 +255,7 @@ describe('AssistQueue task processing', () => {
     const queue = createQueue();
     await (queue as any).recoverExpiredLeases();
     expect(prisma.assistTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: { in: ['t1'] } },
+      where: { id: { in: ['t1'] }, status: 'running', leaseExpiresAt: { lte: expect.any(Date) } },
       data: expect.objectContaining({ status: 'failed', error: 'Assistant retry budget exhausted' }),
     }));
   });

@@ -67,7 +67,7 @@ describe('AssistService', () => {
     prisma.assistTask.findMany.mockResolvedValue([{ id: 't1' }]);
     const result = await service.listForPage('page-1', 'user-1', 'space-1');
     expect(prisma.assistTask.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { pageId: 'page-1', requestedByUserId: 'user-1', spaceId: 'space-1' },
+      where: { pageId: 'page-1', requestedByUserId: 'user-1', spaceId: 'space-1', sessionId: null },
       orderBy: { createdAt: 'desc' },
     }));
     expect(result).toHaveLength(1);
@@ -130,8 +130,16 @@ describe('AssistService', () => {
   it('does not load another requester task snapshot', async () => {
     prisma.assistTask.findFirst.mockResolvedValue(null);
     await expect(service.get('private-task', 'user-2')).resolves.toBeNull();
-    expect(prisma.assistTask.findFirst).toHaveBeenCalledWith({ where: { id: 'private-task', requestedByUserId: 'user-2' } });
+    expect(prisma.assistTask.findFirst).toHaveBeenCalledWith({ where: { id: 'private-task', requestedByUserId: 'user-2', sessionId: null } });
     expect(prisma.assistTask.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('whitelists legacy result fields and excludes raw or future provider details', async () => {
+    prisma.assistTask.findFirst.mockResolvedValue({ id: 't1', result: { summary: 'answer', changes: '# source', raw: 'provider-private', futureInternal: 'secret', attemptCount: 1,
+      attempts: [{ model: 'hidden', durationMs: 42, status: 'failed', errorCode: 'timeout', raw: 'secret', cost: 8 }] } });
+    const task = await service.get('t1', 'user-1');
+    expect(task?.result).toEqual({ summary: 'answer', changes: '# source', attemptCount: 1,
+      attempts: [{ durationMs: 42, status: 'failed', errorCode: 'timeout' }] });
   });
 
   it('rejects null target instead of treating it as whole-document legacy work', async () => {

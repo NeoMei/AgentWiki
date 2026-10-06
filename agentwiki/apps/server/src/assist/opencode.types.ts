@@ -1,3 +1,4 @@
+import { AgentHistoryTurn, AgentSessionContext, AgentTurnMode } from './assist-session.types';
 export type ModelTier = 'free' | 'paid';
 export type FailureCode =
   | 'auth_failed' | 'binary_unavailable' | 'budget_exhausted' | 'cancelled'
@@ -8,6 +9,13 @@ export type StreamChunkCallback = (chunk: string) => void;
 
 export interface AssistInput {
   intent: string;
+  mode?: AgentTurnMode;
+  context?: AgentSessionContext;
+  history?: AgentHistoryTurn[];
+  historyWindow?: { included: number; omitted: number; maxTurns: number; maxCharacters: number };
+  signal?: AbortSignal;
+  /** Validated answer summary only, never reasoning/tool/provider event payloads. */
+  onAnswerText?: StreamChunkCallback;
   pageSnapshot: unknown;
   leaseExpiresAtMs?: number;
   isActive?: () => Promise<boolean>;
@@ -20,7 +28,7 @@ export interface ModelUsage {
 export interface ModelPrice { input: number; output: number; cacheRead: number; cacheWrite: number }
 export interface ModelCandidate { id: string; tier: ModelTier; price: ModelPrice; estimatedCost: number }
 export interface OpencodeAttemptResult {
-  summary: string; changes: string; raw?: string; usage: ModelUsage; cost: number;
+  summary: string; changes?: string; raw?: string; usage: ModelUsage; cost: number;
 }
 export interface AssistAttemptSummary {
   model: string; tier: ModelTier; durationMs: number; status: 'succeeded' | 'failed';

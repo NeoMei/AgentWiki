@@ -488,6 +488,14 @@ describe('CollaborationGateway authentication', () => {
     rooms: new Set(['page-1']), emit: jest.fn(), disconnect: jest.fn(), leave: jest.fn(),
   });
 
+  it.each(['stream', 'complete', 'error'])('suppresses session %s messages on legacy sockets', async (kind) => {
+    const requester = assistSocket('user-1');
+    (gateway as any).server.in.mockReturnValue({ fetchSockets: jest.fn().mockResolvedValue([requester]) });
+    prisma.assistTask.findUnique.mockResolvedValue({ pageId: 'page-1', spaceId: 'space-1', requestedByUserId: 'user-1', sessionId: 'session1' });
+    await (gateway as any).relayAssistMessage({ kind, pageId: 'page-1', taskId: 'task-1', chunk: 'private references', error: 'failure' });
+    expect(requester.emit).not.toHaveBeenCalled();
+  });
+
   it.each(['stream', 'complete', 'error'])('relays private assist %s only to its requester among same-page users', async (kind) => {
     const requester = assistSocket('user-1');
     const other = assistSocket('user-2');

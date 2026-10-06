@@ -17,15 +17,19 @@ export interface CreateAssistTaskInput {
  *  results before they leave the API. The client only needs the summary,
  *  generated content, and failure code. */
 function sanitizeResult(result: unknown): unknown {
-  if (!result || typeof result !== 'object') return result;
-  const { model: _model, modelTier: _modelTier, usage: _usage, cost: _cost, attempts, ...rest } = result as Record<string, unknown>;
-  const clean: Record<string, unknown> = { ...rest };
-  if (Array.isArray(attempts)) {
-    clean.attempts = attempts.map((a: any) => {
-      if (!a || typeof a !== 'object') return a;
-      const { model: _m, tier: _t, cost: _c, usage: _u, ...restAttempt } = a;
-      return restAttempt;
-    });
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
+  const source = result as Record<string, unknown>;
+  const clean: Record<string, unknown> = {};
+  for (const key of ['summary', 'changes', 'proposedChangeSetId']) {
+    if (typeof source[key] === 'string') clean[key] = source[key];
+  }
+  if (typeof source.attemptCount === 'number') clean.attemptCount = source.attemptCount;
+  if (Array.isArray(source.attempts)) {
+    clean.attempts = source.attempts.filter(a => a && typeof a === 'object').map(a => ({
+      ...(typeof a.durationMs === 'number' ? { durationMs: a.durationMs } : {}),
+      ...(typeof a.status === 'string' ? { status: a.status } : {}),
+      ...(typeof a.errorCode === 'string' ? { errorCode: a.errorCode } : {}),
+    }));
   }
   return clean;
 }
@@ -86,7 +90,7 @@ export class AssistService {
     if (!userId) throw new BadRequestException('Assist requester is required');
     if (!spaceId) throw new BadRequestException('Assist Space is required');
     const tasks = await this.prisma.assistTask.findMany({
-      where: { pageId, requestedByUserId: userId, spaceId },
+      where: { pageId, requestedByUserId: userId, spaceId, sessionId: null },
       orderBy: { createdAt: 'desc' },
       take: 5,
     });
@@ -98,7 +102,7 @@ export class AssistService {
 
   async get(id: string, userId: string) {
     if (!userId) throw new BadRequestException('Assist requester is required');
-    const task = await this.prisma.assistTask.findFirst({ where: { id, requestedByUserId: userId } });
+    const task = await this.prisma.assistTask.findFirst({ where: { id, requestedByUserId: userId, sessionId: null } });
     if (!task) return null;
     return {
       ...task,

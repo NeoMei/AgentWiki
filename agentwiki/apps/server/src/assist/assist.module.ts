@@ -6,6 +6,8 @@ import { SyncModule } from '../core/sync/sync.module';
 import { AuthModule } from '../core/auth/auth.module';
 import { SecurityModule } from '../core/security/security.module';
 import { CollaborationModule } from '../core/collaboration/collaboration.module';
+import { AssistSessionService } from './assist-session.service';
+import { AssistSessionController } from './assist-session.controller';
 import { AssistService } from './assist.service';
 import { AssistQueue } from './assist.queue';
 import { AssistController } from './assist.controller';
@@ -17,9 +19,10 @@ import { OpencodeModelRouter } from './opencode.router';
 
 @Module({
   imports: [DatabaseModule, AuthModule, AuthorizationModule, SyncModule, SecurityModule, CollaborationModule],
-  controllers: [AssistController],
+  controllers: [AssistController, AssistSessionController],
   providers: [
     AssistService,
+    AssistSessionService,
     AssistQueue,
     OpencodeCliRunner,
     {

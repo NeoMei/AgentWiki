@@ -554,9 +554,9 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
     // claims. Draft snapshots and Assist events belong to their requester.
     const task = await this.prisma.assistTask.findUnique({
       where: { id: msg.taskId },
-      select: { pageId: true, spaceId: true, requestedByUserId: true },
+      select: { pageId: true, spaceId: true, requestedByUserId: true, sessionId: true },
     });
-    if (!task?.requestedByUserId || task.pageId !== msg.pageId) return;
+    if (!task?.requestedByUserId || task.sessionId || task.pageId !== msg.pageId) return;
     const sockets = await this.server.in(msg.pageId).fetchSockets();
     for (const socket of sockets as unknown as Socket[]) {
       if (socket.data.user?.userId !== task.requestedByUserId) continue;
