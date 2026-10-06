@@ -1,3 +1,9 @@
+/** Session-only state: survives directory loading unmounts, never written to storage. */
+export interface DirectorySelectionState {
+  scope: string;
+  pageId: string | null;
+  pending: { desktop: boolean; drawer: boolean };
+}
 export interface PanelPreferences {
   outlineOpen?: boolean;
   outlineWidth?: number;

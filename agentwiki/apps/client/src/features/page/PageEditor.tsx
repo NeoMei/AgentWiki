@@ -588,10 +588,10 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       pendingWorkspacePositionRef.current = currentPosition && editorOrigin
         ? {
           ...currentPosition,
-          cursorOffset: currentPosition.sourceOffset === editorOrigin.sourceOffset
+          cursorOffset: (!currentPosition.previewNavigated || currentPosition.sourceOffset === editorOrigin.sourceOffset)
             ? editorOrigin.cursorOffset
             : null,
-          selectionBookmark: currentPosition.sourceOffset === editorOrigin.sourceOffset
+          selectionBookmark: (!currentPosition.previewNavigated || currentPosition.sourceOffset === editorOrigin.sourceOffset)
             ? editorOrigin.selectionBookmark
             : undefined,
         }

@@ -73,6 +73,17 @@ describe('ArticleContentsPopover', () => {
     expect(screen.queryByRole('button', { name: 'fake' })).not.toBeInTheDocument();
   });
 
+  it('reports an explicit source target without replacing default rendered-heading scrolling', async () => {
+    const articleRef = React.createRef<HTMLDivElement>();
+    const intent = vi.fn();
+    render(<LanguageProvider><ArticleContentsPopover articleRootRef={articleRef} pageKey="preview" source={'# A\n\n# B'} onNavigateIntent={intent} /><div ref={articleRef}><h1 id="a" data-markdown-source-start="0">A</h1><h1 id="b" data-markdown-source-start="5">B</h1></div></LanguageProvider>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Contents' }));
+    fireEvent.click(screen.getByRole('button', { name: 'B' }));
+    expect(intent).toHaveBeenCalledExactlyOnceWith(5);
+    expect(screen.getByRole('heading', { name: 'B' }).scrollIntoView).toHaveBeenCalledWith({ block: 'start' });
+    expect(window.scrollBy).toHaveBeenCalledWith({ top: -88, left: 0, behavior: 'instant' });
+  });
+
   it('opens a wide-screen outline that can be collapsed without changing the article', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1700 });
     render(<Harness><h2 id="one">One</h2></Harness>);

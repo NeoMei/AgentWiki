@@ -645,6 +645,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
           onRevealCurrent={revealCurrentDocument}
           onCreatePageAtSelection={(title) => handleInlineCreatePage(targetFolderId ? { id: targetFolderId, name: folderIndex.get(targetFolderId)?.name ?? '' } : null, title)}
           onCreateFolderAtSelection={(name) => handleInlineCreateFolder(targetFolderId ? { id: targetFolderId, name: folderIndex.get(targetFolderId)?.name ?? '' } : null, name)}
+          directorySelection={workspace.directorySelection}
           directoryScrollTop={workspace.directoryScrollTop}
           onDirectoryScrollTopChange={workspace.setDirectoryScrollTop}
           pageDeleteDisabled={archivingPageId !== null}

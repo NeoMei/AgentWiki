@@ -3,7 +3,7 @@ import { FilePlus2, FolderTree, Search, X } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { ModalDialog } from '../../components/ModalDialog';
 import { useLanguage } from '../../context/LanguageContext';
-import { clampDirectoryWidth } from './workspacePreferences';
+import { clampDirectoryWidth, type DirectorySelectionState } from './workspacePreferences';
 import { ContentTree, InlineTreeName, type ContentTreeProps } from '../content-tree/ContentTree';
 import type { DirectoryLevel } from './useSpaceDirectory';
 
@@ -52,6 +52,7 @@ export interface SpaceDirectoryProps extends Omit<ContentTreeProps,
   onCreateFolder?: () => void;
   onRetry?: () => void;
   directoryScrollTop?: number;
+  directorySelection?: DirectorySelectionState;
   onDirectoryScrollTopChange?: (scrollTop: number) => void;
   directoryWidth?: number;
   onDirectoryWidthChange?: (width: number) => void;
@@ -76,6 +77,7 @@ export const SpaceDirectory: React.FC<SpaceDirectoryProps> = ({
   onCreateFolder,
   onRetry,
   directoryScrollTop = 0,
+  directorySelection,
   onDirectoryScrollTopChange,
   directoryWidth = 260,
   onDirectoryWidthChange,
@@ -90,8 +92,8 @@ export const SpaceDirectory: React.FC<SpaceDirectoryProps> = ({
   const copy = (zh: string, en: string) => language === 'zh-CN' ? zh : en;
   const [filter, setFilter] = useState('');
   const [creation, setCreation] = useState<'folder' | 'page' | null>(null);
-  const selectionRef = useRef({ scope: preferenceScopeKey, pageId: selectedPageId });
-  const revealPendingRef = useRef({ desktop: directoryScrollTop === 0, drawer: directoryScrollTop === 0 });
+  const localSelectionRef = useRef<DirectorySelectionState>({ scope: '', pageId: null, pending: { desktop: false, drawer: false } });
+  const selectionState = directorySelection ?? localSelectionRef.current;
   const scrollRestorationRef = useRef(new WeakMap<HTMLElement, { scope: string; scrollTop: number; query: string; restoring: boolean }>());
   const resizeRef = useRef<{ x: number; width: number; pointerId: number } | null>(null);
   const width = clampDirectoryWidth(directoryWidth);
@@ -127,30 +129,31 @@ export const SpaceDirectory: React.FC<SpaceDirectoryProps> = ({
         if (!query && scroller.scrollTop !== directoryScrollTop) scroller.scrollTop = directoryScrollTop;
       }
       scrollRestorationRef.current.set(scroller, { scope: preferenceScopeKey, scrollTop: directoryScrollTop, query, restoring: loading || hidden });
-      if (!revealPendingRef.current[surface] || loading) continue;
+      if (!selectionState.pending[surface] || loading) continue;
       const selected = selectedItemIn(scroller);
       // Hidden desktop trees and closed drawers cannot consume another surface's reveal.
       if (!selected || hidden) continue;
       const row = selected.getBoundingClientRect();
       if (row.top < viewport.top || row.bottom > viewport.bottom) selected.scrollIntoView?.({ block: 'nearest' });
-      revealPendingRef.current[surface] = false;
+      selectionState.pending[surface] = false;
     }
-  }, [directoryScrollTop, preferenceScopeKey, query, rootLevel, selectedItemIn, treeProps.loading]);
+  }, [directoryScrollTop, preferenceScopeKey, query, rootLevel, selectedItemIn, selectionState, treeProps.loading]);
   useLayoutEffect(() => {
-    const previous = selectionRef.current;
+    const previous = selectionState;
     if (previous.scope !== preferenceScopeKey || previous.pageId !== selectedPageId) {
       closeDirectoryMenus(desktopScrollRef.current);
       closeDirectoryMenus(drawerScrollRef.current);
     }
     if (previous.scope !== preferenceScopeKey) {
-      revealPendingRef.current = { desktop: directoryScrollTop === 0, drawer: directoryScrollTop === 0 };
+      selectionState.pending = { desktop: directoryScrollTop === 0, drawer: directoryScrollTop === 0 };
     } else if (previous.pageId !== selectedPageId) {
-      revealPendingRef.current = { desktop: Boolean(selectedPageId), drawer: Boolean(selectedPageId) };
+      selectionState.pending = { desktop: Boolean(selectedPageId), drawer: Boolean(selectedPageId) };
       if (selectedPageId && query && ![desktopScrollRef.current, drawerScrollRef.current].some((scroller) => scroller && selectedItemIn(scroller))) setFilter('');
     }
-    selectionRef.current = { scope: preferenceScopeKey, pageId: selectedPageId };
+    selectionState.scope = preferenceScopeKey;
+    selectionState.pageId = selectedPageId;
     restoreAndReveal();
-  }, [preferenceScopeKey, selectedPageId, directoryScrollTop, query, selectedItemIn, restoreAndReveal, directoryCollapsed, drawerOpen, levels, expandedFolderIds]);
+  }, [preferenceScopeKey, selectedPageId, directoryScrollTop, query, selectedItemIn, selectionState, restoreAndReveal, directoryCollapsed, drawerOpen, levels, expandedFolderIds]);
   useEffect(() => {
     const resize = () => {
       closeDirectoryMenus(desktopScrollRef.current);
@@ -206,7 +209,7 @@ export const SpaceDirectory: React.FC<SpaceDirectoryProps> = ({
   };
   const visibleRoots = query ? visit(null) : rootLevel?.nodes ?? [];
   const revealCurrent = () => {
-    revealPendingRef.current = { desktop: true, drawer: true };
+    selectionState.pending = { desktop: true, drawer: true };
     setFilter('');
     onRevealCurrent?.();
     if (!query) restoreAndReveal();

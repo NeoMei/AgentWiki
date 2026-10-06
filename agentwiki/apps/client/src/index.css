@@ -81,9 +81,10 @@ input.document-title:focus { box-shadow: 0 2px #e5e5e5; }
   .document-source-hint { display: none; }
   .document-assist-layer { right: 8px; top: 110px; bottom: 8px; }
 }
-/* Tool rows use the shared header gap, keeping the body start identical. */
+/* One row uses the shared header gap; wrapped controls reserve their extra height. */
 .document-header { margin-bottom: 44px; }
-.document-tool-row { position: absolute; inset: -38px 0 auto; margin: 0; min-height: 32px; }
+.document-workspace { display: flow-root; }
+.document-tool-row { position: relative; margin: -38px 0 0; min-height: 38px; }
 .document-tools-floating { z-index: 25; background: white; border: 1px solid #e5e5e5; border-radius: 7px; padding: 3px; box-shadow: 0 4px 18px #0002; }
 .document-tools-floating .document-source-hint { display: none; }
 /* Preserve the renderer's existing rich Markdown affordances on the shared surface. */

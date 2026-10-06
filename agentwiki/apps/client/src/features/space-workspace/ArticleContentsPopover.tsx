@@ -20,6 +20,7 @@ export interface ArticleContentsPopoverProps {
   source?: string;
   activeHeadingId?: string;
   onNavigate?: (item: MarkdownOutlineItem) => void;
+  onNavigateIntent?: (sourceOffset: number) => void;
   suppressed?: boolean;
   spaceId?: string;
 }
@@ -79,7 +80,7 @@ const scrollParent = (element: HTMLElement): HTMLElement | Window => {
   return window;
 };
 
-export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ articleRootRef, pageKey, source, activeHeadingId, onNavigate, suppressed = false, spaceId }) => {
+export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ articleRootRef, pageKey, source, activeHeadingId, onNavigate, onNavigateIntent, suppressed = false, spaceId }) => {
   const { t, language } = useLanguage();
   const workspace = useOptionalSpaceWorkspace();
   const scoped = workspace?.spaceId && (!spaceId || workspace.spaceId === spaceId) ? workspace : null;
@@ -227,6 +228,7 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
   };
 
   const navigateTo = (item: typeof items[number]) => {
+    if (item.from !== undefined) onNavigateIntent?.(item.from);
     if (onNavigate && item.from !== undefined && item.to !== undefined) {
       onNavigate({ id: item.id, label: item.label, level: item.level, from: item.from, to: item.to });
       setActiveId(item.id); if (mobile) setMobileOpenFor(null); else if (!wide) setDismissedFor(viewKey); return;

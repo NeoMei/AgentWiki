@@ -79,6 +79,7 @@ export interface MarkdownWorkspacePosition {
   scrollTop: number;
   /** Coordinates only; restoration also requires this workspace's in-memory source proof. */
   selectionBookmark?: MarkdownSelectionBookmark;
+  previewNavigated?: boolean;
 }
 
 const cursorForHeading = (value: string, headingText: string | null): number =>
@@ -506,6 +507,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   })), [chooseSlash]);
   const previewRootRef = useRef<HTMLDivElement | null>(null);
   const pendingRestoreRef = useRef<MarkdownWorkspacePosition | null>(null);
+  const previewNavigationRef = useRef({ moved: false, sourceOffset: null as number | null });
   const selectionScope = useMemo(() => ({}), [pageId, spaceId, pageLinksIdentity]);
   // Keep full source out of positions, which may travel through browser history.
   const selectionProofsRef = useRef(new WeakMap<MarkdownSelectionBookmark, { source: string; scope: object }>());
@@ -513,6 +515,47 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
     selectionProofsRef.current = new WeakMap();
     pendingRestoreRef.current = null;
   }, [selectionScope]);
+  useLayoutEffect(() => {
+    previewNavigationRef.current = { moved: false, sourceOffset: null };
+    const root = previewRootRef.current;
+    if (isEdit || !root) return;
+    const ancestors = new Set<HTMLElement>();
+    for (let node: HTMLElement | null = root; node; node = node.parentElement) ancestors.add(node);
+    let gesture: Map<HTMLElement, number> | null = null;
+    const arm = (event: Event) => {
+      gesture = null;
+      const target = event.target;
+      if (!(target instanceof Element) || (!root.contains(target) && !ancestors.has(target as HTMLElement))) return;
+      if (target.closest('input, textarea, select, button, [contenteditable="true"]')) return;
+      if (event instanceof KeyboardEvent && !['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].includes(event.key)) return;
+      // Pointer gestures outside the body are only relevant on its own scroll
+      // surfaces (including the browser scrollbar), never a sibling panel.
+      if (event.type === 'pointerdown' && !ancestors.has(target as HTMLElement)) return;
+      gesture = new Map([...ancestors].map((node) => [node, node.scrollTop]));
+    };
+    const scrolled = (event: Event) => {
+      const target = event.target === document ? document.scrollingElement : event.target;
+      if (!(target instanceof HTMLElement) || !gesture?.has(target) || target.scrollTop === gesture.get(target)) return;
+      previewNavigationRef.current = { moved: true, sourceOffset: null };
+    };
+    const anchor = (event: MouseEvent) => {
+      const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[href^="#"]') : null;
+      if (!link || !root.contains(link)) return;
+      let id: string;
+      try { id = decodeURIComponent(link.hash.slice(1)); } catch { return; }
+      const target = document.getElementById(id);
+      if (target && root.contains(target)) previewNavigationRef.current = { moved: true, sourceOffset: markdownSourceStart(target) };
+    };
+    const inputs = ['wheel', 'touchmove', 'keydown', 'pointerdown'];
+    inputs.forEach((type) => document.addEventListener(type, arm, true));
+    document.addEventListener('scroll', scrolled, true);
+    root.addEventListener('click', anchor);
+    return () => {
+      inputs.forEach((type) => document.removeEventListener(type, arm, true));
+      document.removeEventListener('scroll', scrolled, true);
+      root.removeEventListener('click', anchor);
+    };
+  }, [isEdit, selectionScope]);
   const uploadGenerationRef = useRef(0);
   const uploadOperationRef = useRef(0);
   const pendingUploadsRef = useRef<Array<() => Promise<void>>>([]);
@@ -634,7 +677,8 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
         cursorOffset: null,
         headingId: nearest?.id || null,
         headingText: nearest ? renderedHeadingLabel(nearest) || null : null,
-        sourceOffset: markdownSourceStart(nearestBlock),
+        sourceOffset: previewNavigationRef.current.sourceOffset ?? markdownSourceStart(nearestBlock),
+        previewNavigated: previewNavigationRef.current.moved,
         scrollTop: surface?.scrollTop ?? window.scrollY,
       };
     }
@@ -840,7 +884,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
     <section className="document-workspace relative bg-white" aria-label={t('editor.mode')}>
       <div className="document-tool-row">
         {isEdit ? <DocumentTools key={`${pageLinksIdentity ?? ''}:${spaceId}:${pageId}`} view={() => editorViewRef.current} source={value} tableEditingEnabled={tableEditingEnabled} tableEditingIdentity={`${pageLinksIdentity ?? ''}:${spaceId}:${pageId}`} selection={selection} pages={pages} spaceId={spaceId} onRequestPageLinks={onRequestPageLinks} onRequestAssist={onRequestAssist} onRequestImage={onUploadImages ? () => imageInputRef.current?.click() : undefined} /> : null}
-        <ArticleContentsPopover source={value} articleRootRef={previewRootRef} pageKey={`${spaceId}:${pageId}:${mode}`} activeHeadingId={isEdit ? activeHeading : undefined} spaceId={spaceId} suppressed={outlineOverlay} onNavigate={isEdit ? (item) => {
+        <ArticleContentsPopover source={value} articleRootRef={previewRootRef} pageKey={`${spaceId}:${pageId}:${mode}`} activeHeadingId={isEdit ? activeHeading : undefined} spaceId={spaceId} suppressed={outlineOverlay} onNavigateIntent={isEdit ? undefined : (sourceOffset) => { previewNavigationRef.current = { moved: true, sourceOffset }; }} onNavigate={isEdit ? (item) => {
           const view = editorViewRef.current; if (!view) return;
           view.dispatch({ selection: EditorSelection.cursor(item.from), effects: EditorView.scrollIntoView(item.from, { y: 'start' }) }); view.focus();
         } : undefined} />

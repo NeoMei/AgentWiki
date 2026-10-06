@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { undo } from '@codemirror/commands';
+import { undo, undoDepth } from '@codemirror/commands';
 import { EditorSelection } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { Link, MemoryRouter, Outlet, Route, RouterProvider, Routes, createMemoryRouter, useLocation, useNavigate, useNavigationType, useParams } from 'react-router-dom';
@@ -1158,7 +1158,7 @@ describe('PageEditor remote update safety', () => {
     await waitFor(() => expect(currentEditorView().state.selection.main.head).toBe(deepCursor));
   });
 
-  it.each(['forward', 'reverse'] as const)('restores the complete %s selection when preview stays on its source block', async (direction) => {
+  it.each(['forward', 'reverse'] as const)('restores the complete %s selection after clamped preview layout without user navigation', async (direction) => {
     const body = '# Intro\n\nRepeated passage.\n\nRepeated passage.';
     const from = body.lastIndexOf('Repeated');
     const to = from + 'Repeated'.length;
@@ -1167,18 +1167,34 @@ describe('PageEditor remote update safety', () => {
     renderEditor();
     await screen.findByDisplayValue('Original title');
     act(() => currentEditorView().dispatch({ selection: EditorSelection.range(anchor, head) }));
+    const depth = undoDepth(currentEditorView().state);
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
     await screen.findByTestId('md-preview');
-    for (const block of document.querySelectorAll<HTMLElement>('[data-markdown-source-start]')) {
-      vi.spyOn(block, 'getBoundingClientRect').mockReturnValue({
-        top: Number(block.dataset.markdownSourceStart) === from ? 12 : -300,
-      } as DOMRect);
-    }
+    // Short/clamped preview leaves the first heading nearest, without navigation.
+    fireEvent.scroll(document);
+    fireEvent.resize(window);
     fireEvent.click(screen.getByRole('button', { name: 'Return to edit' }));
     await waitFor(() => expect(currentEditorView().state.selection.main.anchor).toBe(anchor));
     expect(currentEditorView().state.selection.main.head).toBe(head);
+    expect(undoDepth(currentEditorView().state)).toBe(depth);
     expect(currentEditorView().state.doc.toString()).toBe(body);
     expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('returns to an explicitly chosen outline target even when preview scroll is clamped', async () => {
+    const body = '# A\n\nSelected text.\n\n# B';
+    queuePages({ data: page({ content: body, capabilities: { canEdit: true } }) });
+    renderEditor();
+    await screen.findByDisplayValue('Original title');
+    act(() => currentEditorView().dispatch({ selection: EditorSelection.range(6, 14) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Contents' }));
+    screen.getByRole('heading', { name: /B/ }).scrollIntoView = vi.fn();
+    vi.spyOn(window, 'scrollBy').mockImplementation(() => {});
+    fireEvent.click(screen.getByRole('button', { name: 'B' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Return to edit' }));
+    await waitFor(() => expect(currentEditorView().state.selection.main.head).toBe(body.indexOf('# B')));
+    expect(currentEditorView().state.selection.main.empty).toBe(true);
   });
 
   it.each(['page', 'identity'] as const)('does not carry the preview origin across a %s change', async (change) => {
@@ -1226,6 +1242,11 @@ describe('PageEditor remote update safety', () => {
         top: sourceOffset === paragraphBOffset ? 178 : sourceOffset < paragraphBOffset ? -300 : 500,
       } as DOMRect);
     }
+
+    fireEvent.wheel(screen.getByTestId('md-preview'), { deltaY: 200 });
+    const surface = screen.getByTestId('md-editor-surface');
+    surface.scrollTop = 200;
+    fireEvent.scroll(surface);
 
     fireEvent.click(screen.getByRole('button', { name: 'Return to edit' }));
 

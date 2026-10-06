@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { clampDirectoryWidth, clampOutlineWidth, clampCollaborationWidth, defaultWorkspacePreferences, readWorkspacePreferences, writeWorkspacePreferences, type WorkspacePreferences, type PanelPreferences } from './workspacePreferences';
+import { clampDirectoryWidth, clampOutlineWidth, clampCollaborationWidth, defaultWorkspacePreferences, readWorkspacePreferences, writeWorkspacePreferences, type WorkspacePreferences, type PanelPreferences, type DirectorySelectionState } from './workspacePreferences';
 import type { SpaceNavSection } from './workspaceNavigation';
 
 export type SpaceWorkspaceMode = 'directory' | 'read' | 'edit' | 'versions' | 'section';
@@ -9,10 +9,12 @@ type BrowsingState = WorkspacePreferences;
 interface WorkspaceRegistryValue {
   userId: string;
   stateFor: (spaceId: string) => BrowsingState;
+  selectionFor: (spaceId: string) => DirectorySelectionState;
   updateState: (spaceId: string, update: (current: BrowsingState) => BrowsingState) => void;
 }
 
 export interface SpaceWorkspaceContextValue extends BrowsingState {
+  directorySelection?: DirectorySelectionState;
   userId: string;
   spaceId: string | null;
   mode: SpaceWorkspaceMode;
@@ -41,6 +43,7 @@ const SpaceWorkspaceContext = createContext<SpaceWorkspaceContextValue | null>(n
 
 export const SpaceWorkspaceProvider: React.FC<{ userId: string; children: React.ReactNode }> = ({ userId, children }) => {
   const statesRef = useRef(new Map<string, BrowsingState>());
+  const selectionsRef = useRef(new Map<string, DirectorySelectionState>());
   const [revision, setRevision] = useState(0);
   const scopeKey = useCallback((spaceId: string) => `${userId}\u0000${spaceId}`, [userId]);
   const stateFor = useCallback((spaceId: string) => {
@@ -48,6 +51,11 @@ export const SpaceWorkspaceProvider: React.FC<{ userId: string; children: React.
     if (!statesRef.current.has(key)) statesRef.current.set(key, readWorkspacePreferences(userId, spaceId));
     return statesRef.current.get(key)!;
   }, [scopeKey, userId, revision]);
+  const selectionFor = useCallback((spaceId: string) => {
+    const key = scopeKey(spaceId);
+    if (!selectionsRef.current.has(key)) selectionsRef.current.set(key, { scope: '', pageId: null, pending: { desktop: false, drawer: false } });
+    return selectionsRef.current.get(key)!;
+  }, [scopeKey]);
   const updateState = useCallback((spaceId: string, update: (current: BrowsingState) => BrowsingState) => {
     const key = scopeKey(spaceId);
     const current = statesRef.current.get(key) ?? readWorkspacePreferences(userId, spaceId);
@@ -56,7 +64,7 @@ export const SpaceWorkspaceProvider: React.FC<{ userId: string; children: React.
     writeWorkspacePreferences(userId, spaceId, next);
     setRevision((value) => value + 1);
   }, [scopeKey, userId]);
-  const value = useMemo(() => ({ userId, stateFor, updateState }), [stateFor, updateState, userId]);
+  const value = useMemo(() => ({ userId, stateFor, selectionFor, updateState }), [stateFor, selectionFor, updateState, userId]);
   return <WorkspaceRegistryContext.Provider value={value}>{children}</WorkspaceRegistryContext.Provider>;
 };
 
@@ -122,6 +130,7 @@ export const SpaceWorkspaceScope: React.FC<SpaceWorkspaceScopeProps> = ({
   }, [registry.updateState, spaceId]);
   const value = useMemo<SpaceWorkspaceContextValue>(() => ({
     ...browsingState,
+    directorySelection: spaceId ? registry.selectionFor(spaceId) : undefined,
     userId: registry.userId,
     spaceId,
     mode,
@@ -149,6 +158,7 @@ export const SpaceWorkspaceScope: React.FC<SpaceWorkspaceScopeProps> = ({
     pageRefreshRequest,
     pageDeleted,
     registry.userId,
+    registry.selectionFor,
     reportPageIdentity,
     requestPageRefresh,
     selectFolder,

@@ -1365,3 +1365,38 @@ describe('guarded visual table editing', () => {
     fireEvent.click(apply); expect(onChange).not.toHaveBeenCalled(); expect(view.state.doc.toString()).toBe(tableSource);
   });
 });
+
+
+describe('preview navigation intent', () => {
+  it.each(['wheel', 'touch', 'keyboard', 'scrollbar'] as const)('recognizes %s only after the article actually scrolls', (gesture) => {
+    const ref = createRef<MarkdownWorkspaceHandle>();
+    render(<LanguageProvider><MarkdownWorkspace ref={ref} value={'# A\n\nBody'} mode="preview" onChange={vi.fn()} /></LanguageProvider>);
+    const root = screen.getByTestId('md-preview');
+    const surface = screen.getByTestId('md-editor-surface');
+    fireEvent.scroll(surface); // Initial programmatic restoration never arms intent.
+    expect(ref.current!.capturePosition().previewNavigated).toBe(false);
+    if (gesture === 'wheel') fireEvent.wheel(root, { deltaY: 200 });
+    if (gesture === 'touch') fireEvent.touchMove(root);
+    if (gesture === 'keyboard') fireEvent.keyDown(document.body, { key: 'PageDown' });
+    if (gesture === 'scrollbar') fireEvent.pointerDown(surface);
+    fireEvent.scroll(surface); // Clamped wheel/key cannot change semantic position.
+    expect(ref.current!.capturePosition().previewNavigated).toBe(false);
+    surface.scrollTop = 200;
+    fireEvent.scroll(surface);
+    expect(ref.current!.capturePosition().previewNavigated).toBe(true);
+  });
+
+  it('ignores directory and dialog gestures even when the article subsequently reflows', () => {
+    const ref = createRef<MarkdownWorkspaceHandle>();
+    render(<LanguageProvider><aside data-testid="other-surface"><button>Other control</button></aside><MarkdownWorkspace ref={ref} value={'# A\n\nBody'} mode="preview" onChange={vi.fn()} /></LanguageProvider>);
+    const other = screen.getByTestId('other-surface');
+    fireEvent.wheel(other, { deltaY: 200 });
+    fireEvent.touchMove(other);
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Other control' }), { key: 'PageDown' });
+    fireEvent.pointerDown(other);
+    const surface = screen.getByTestId('md-editor-surface');
+    surface.scrollTop = 200;
+    fireEvent.scroll(surface);
+    expect(ref.current!.capturePosition().previewNavigated).toBe(false);
+  });
+});
