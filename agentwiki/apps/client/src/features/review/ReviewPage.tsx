@@ -129,6 +129,7 @@ export const ReviewPage: React.FC = () => {
   const [mutatingIds, setMutatingIds] = useState<Set<string>>(() => new Set());
   const mountedRef = useRef(true);
   const listSequenceRef = useRef(0);
+  const accessEpochRef = useRef(0);
   const detailSequenceRef = useRef(new Map<string, number>());
   const detailedIdsRef = useRef(new Set<string>());
   const mutatingIdsRef = useRef(new Set<string>());
@@ -149,8 +150,30 @@ export const ReviewPage: React.FC = () => {
     };
   }, []);
 
+  const clearInaccessible = useCallback((id?: string) => {
+    // A denial supersedes every response already in flight, including list reads.
+    accessEpochRef.current += 1;
+    if (id) {
+      detailedIdsRef.current.delete(id);
+      detailSequenceRef.current.delete(id);
+      setItems((current) => current.filter((item) => item.id !== id));
+      setPermissions((current) => { const next = { ...current }; delete next[id]; return next; });
+      setComments((current) => { const next = { ...current }; delete next[id]; return next; });
+    } else {
+      detailedIdsRef.current.clear(); detailSequenceRef.current.clear();
+      setItems([]); setPermissions({}); setComments({});
+    }
+    if (!id || expandedRef.current === id) {
+      expandedRef.current = null;
+      setExpanded(null);
+    }
+    setSuccess(null);
+  }, []);
+  const isInaccessible = (requestError: any) => [401, 403, 404].includes(requestError.response?.status);
+
   const load = useCallback(async (options?: { background?: boolean }) => {
     const requestedScope = scopeRef.current;
+    const accessEpoch = accessEpochRef.current;
     const sequence = ++listSequenceRef.current;
     listPendingRef.current = true;
     const controller = new AbortController();
@@ -163,15 +186,31 @@ export const ReviewPage: React.FC = () => {
         params: spaceId ? { spaceId } : undefined,
         signal: controller.signal, timeout: 15000,
       })).data;
-      if (!mountedRef.current || controller.signal.aborted || sequence !== listSequenceRef.current || requestedScope !== scopeRef.current) return;
+      if (!mountedRef.current || controller.signal.aborted || sequence !== listSequenceRef.current || requestedScope !== scopeRef.current || accessEpoch !== accessEpochRef.current) return false;
+      if (options?.background) {
+        // These summaries carry fresh authorization projections. Older details must not overwrite them.
+        const visibleIds = new Set<string>(summaries.map((summary: any) => summary.id));
+        for (const [id, detailSequence] of detailSequenceRef.current) {
+          detailSequenceRef.current.set(id, detailSequence + 1);
+          if (!visibleIds.has(id)) detailedIdsRef.current.delete(id);
+        }
+        setPermissions((current) => Object.fromEntries(Object.entries(current).filter(([id]) => visibleIds.has(id))));
+        if (expandedRef.current && !visibleIds.has(expandedRef.current)) {
+          expandedRef.current = null;
+          setExpanded(null);
+        }
+      }
       setItems((current) => summaries.map((summary: any) => {
         const detail = detailedIdsRef.current.has(summary.id) ? current.find((item) => item.id === summary.id) : null;
-        return detail ? (options?.background ? { ...detail, status: summary.status, items: summary.items } : detail) : summary;
+        return detail ? (options?.background ? { ...detail, ...summary, run: summary.run, sourceStatus: summary.sourceStatus } : detail) : summary;
       }));
+      return true;
     } catch (requestError: any) {
-      if (!controller.signal.aborted && mountedRef.current && sequence === listSequenceRef.current && requestedScope === scopeRef.current) {
+      if (!controller.signal.aborted && mountedRef.current && sequence === listSequenceRef.current && requestedScope === scopeRef.current && accessEpoch === accessEpochRef.current) {
+        if (isInaccessible(requestError)) clearInaccessible();
         setError(apiErrorMessage(requestError, t, 'review.loadFailed'));
       }
+      return false;
     } finally {
       requestControllersRef.current.delete(controller);
       if (mountedRef.current && sequence === listSequenceRef.current && requestedScope === scopeRef.current) {
@@ -179,9 +218,10 @@ export const ReviewPage: React.FC = () => {
         setListRefreshing(false); setListLoading(false);
       }
     }
-  }, [spaceId, t]);
+  }, [spaceId, t, clearInaccessible]);
   const expandChangeSet = useCallback(async (id: string, background = false) => {
     const requestedScope = scopeRef.current;
+    const accessEpoch = accessEpochRef.current;
     const sequence = (detailSequenceRef.current.get(id) || 0) + 1;
     detailSequenceRef.current.set(id, sequence);
     const controller = new AbortController();
@@ -193,7 +233,7 @@ export const ReviewPage: React.FC = () => {
       const targetSpaceId = detail.spaceId || detail.space?.id;
       const space = targetSpaceId ? (await api.get(`/spaces/${targetSpaceId}`, { signal: controller.signal })).data : null;
       const role = space?.members?.find((member: any) => member.userId === user?.id)?.role;
-      if (!mountedRef.current || controller.signal.aborted || detailSequenceRef.current.get(id) !== sequence || requestedScope !== scopeRef.current) return false;
+      if (!mountedRef.current || controller.signal.aborted || detailSequenceRef.current.get(id) !== sequence || requestedScope !== scopeRef.current || accessEpoch !== accessEpochRef.current) return false;
       setPermissions((current) => ({ ...current, [id]: { userId: user?.id, canDecide: role === 'owner' } }));
       detailedIdsRef.current.add(id);
       setItems((current) => current.some((item) => item.id === id)
@@ -201,14 +241,26 @@ export const ReviewPage: React.FC = () => {
         : [detail, ...current]);
       return true;
     } catch (requestError: any) {
-      if (!controller.signal.aborted && mountedRef.current && detailSequenceRef.current.get(id) === sequence && requestedScope === scopeRef.current) {
+      if (!controller.signal.aborted && mountedRef.current && detailSequenceRef.current.get(id) === sequence && requestedScope === scopeRef.current && accessEpoch === accessEpochRef.current) {
+        if (isInaccessible(requestError)) clearInaccessible(id);
         setError(apiErrorMessage(requestError, t, 'review.detailFailed'));
       }
       return false;
     } finally {
       requestControllersRef.current.delete(controller);
     }
-  }, [t, user?.id]);
+  }, [t, user?.id, clearInaccessible]);
+  const refreshAfterDenial = async (id: string) => {
+    const requestedScope = scopeRef.current;
+    const wasExpanded = expandedRef.current === id;
+    clearInaccessible(id);
+    // A denied write may only mean an owner became a viewer. Restore nothing
+    // until fresh detail and membership reads establish the remaining access.
+    const readable = await expandChangeSet(id);
+    if (readable && requestedScope === scopeRef.current && wasExpanded && !expandedRef.current) {
+      setExpanded(id);
+    }
+  };
   useEffect(() => {
     requestControllersRef.current.forEach((controller) => controller.abort());
     detailSequenceRef.current.clear(); detailedIdsRef.current.clear();
@@ -221,8 +273,8 @@ export const ReviewPage: React.FC = () => {
     refreshInFlightRef.current = true;
     const requestedScope = scopeRef.current;
     try {
-      await load({ background: true });
-      if (requestedScope === scopeRef.current && expandedRef.current) {
+      const loaded = await load({ background: true });
+      if (loaded && requestedScope === scopeRef.current && expandedRef.current) {
         setListRefreshing(true);
         await expandChangeSet(expandedRef.current, true);
       }
@@ -294,7 +346,9 @@ export const ReviewPage: React.FC = () => {
         const message = code === 'SOURCE_VERSION_CONFLICT'
           ? sourceStatusText(language, 'sourceStatus.conflict')
           : apiErrorMessage(requestError, t, 'review.actionFailed');
-        if (status === 409 || code === 'CHANGESET_INVALID_STATE' || code === 'CHANGESET_CONFLICT' || code === 'SOURCE_VERSION_CONFLICT') {
+        if (isInaccessible(requestError)) {
+          await refreshAfterDenial(id);
+        } else if (status === 409 || code === 'CHANGESET_INVALID_STATE' || code === 'CHANGESET_CONFLICT' || code === 'SOURCE_VERSION_CONFLICT') {
           await Promise.all([expandChangeSet(id), load()]);
           announceReviewChanged();
         }
@@ -325,7 +379,9 @@ export const ReviewPage: React.FC = () => {
         const message = code === 'SOURCE_VERSION_CONFLICT'
           ? sourceStatusText(language, 'sourceStatus.conflict')
           : apiErrorMessage(requestError, t, 'review.decisionFailed');
-        if (status === 409 || code === 'CHANGESET_INVALID_STATE' || code === 'CHANGESET_CONFLICT' || code === 'SOURCE_VERSION_CONFLICT') {
+        if (isInaccessible(requestError)) {
+          await refreshAfterDenial(setId);
+        } else if (status === 409 || code === 'CHANGESET_INVALID_STATE' || code === 'CHANGESET_CONFLICT' || code === 'SOURCE_VERSION_CONFLICT') {
           await Promise.all([expandChangeSet(setId), load()]);
           announceReviewChanged();
         }
