@@ -9,7 +9,7 @@
 - `scripts/source-freshness-fixtures.mjs` 是操作者合成 OKF 输入；两页事实从 v1→v2→v3 改变。消费者不得读这个模块、state、operator结果或其他消费者答案。OKF 的生产 pipeline 本身是确定性编译，不需模型 provider，也未替换 SourceService/worker。模型只用于后续真实知识读取。
 - 正式页面、Evidence、Run、ChangeSet、Approval 必须经 confirmed OKF HTTP→真实worker→人工 UI 审阅发布产生。此 harness 不调用 Prisma seed。导入现有 retrieval harness 只复用已导出的资源管理函数，不调用它的 serve/seedCorpus。
 - 只有随机 `collaboration_test_*` schema、自有 Redis/端口/PID、临时 home/上传目录和单独浏览器会话；严禁共享 Redis、全局清理、其他会话 runtime 和生产数据库。保护库存/migration corpus 继续由原 helper 验证，不能调高或绕过门禁。
-- 固定提交及源码/构建/技能在整个阶段不变。`--expected-commit` 要求准确40位 HEAD，产品源码不能有未提交修改；构建哈希另记，操作者仍须独立确认 build 来自该候选。harness 不构建产品。
+- 固定提交及源码/构建/技能在整个阶段不变。`--expected-commit` 要求准确40位 HEAD，RUNTIME_INPUTS 清单内产品源码、执行中的 harness/fixture、直接与传递本地 helper、lockfile/workspace/package manifests 不能有未提交修改（同一清单用于哈希与 dirty gate，文档及 ignored 报告除外），检查在创建资源之前完成；构建哈希另记，操作者仍须独立确认 build 来自该候选。harness 不构建产品。
 - 每份输入都以完整 fixture SHA-256 单独确认，包含sourceKey/producer/正文等全部字段。v1确认不授权任意后续文件；upload 仅允许生成的 v1/v2/v3，A→B→A再次用v1完整输入及新的幂等键。
 
 ## 操作者启动

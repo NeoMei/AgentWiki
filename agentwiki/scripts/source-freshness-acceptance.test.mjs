@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, writeFile, chmod, rm, mkdir } from 'node:fs/promises';
+import { mkdtemp, writeFile, chmod, rm, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { fixtureEnvelope, fixtureHash, unrelatedPage } from './source-freshness-fixtures.mjs';
-import { createPlan, createApi, uploadConfirmed, waitForCandidate, previewConfig, operatorAction, loadOperatorState, serve, monitorOwnedChildren, cleanupOwnedScope } from './source-freshness-acceptance.mjs';
+import { createPlan, createApi, uploadConfirmed, waitForCandidate, previewConfig, operatorAction, loadOperatorState, serve, monitorOwnedChildren, cleanupOwnedScope, identity, RUNTIME_INPUTS } from './source-freshness-acceptance.mjs';
 
 const hash = text => createHash('sha256').update(text).digest('hex');
 const state = { kind: 'source-freshness', version: 2, apiUrl: 'http://127.0.0.1:34567/api', spaceId: 'space-test', owner: { token: 'TEST-OWNER-SECRET' }, agents: { a: { id: 'agent-a', credentialId: 'credential-a' } } };
@@ -154,4 +154,63 @@ test('scope cleanup attempts all own children even when session cleanup fails', 
   assert.ok(order.indexOf('b') < order.indexOf('worker'));
   assert.deepEqual(order.slice(-3), ['worker', 'web', 'api']);
   assert.equal(order.includes('redis'), false);
+});
+
+for (const changedPath of [
+  'scripts/source-freshness-acceptance.mjs', 'scripts/source-freshness-fixtures.mjs',
+  'scripts/e2e-safety.mjs', 'scripts/test-database-lifecycle.mjs',
+  'scripts/package-manager-process-runner.mjs', 'pnpm-lock.yaml', 'packages/local-sync/package.json',
+]) test(`reviewed identity rejects changed ${changedPath} before resources or artifact reads`, async () => {
+  const expectedCommit = 'a'.repeat(40);
+  let artifactReads = 0;
+  let resourcesCreated = false;
+  const runGit = (_command, args) => {
+    if (args.includes('rev-parse')) return { status: 0, stdout: expectedCommit };
+    const paths = args.slice(args.indexOf('--') + 1);
+    const changed = `agentwiki/${changedPath}`;
+    const matches = paths.some(path => changed === path || changed.startsWith(path + '/'));
+    return { status: 0, stdout: matches ? ` M ${changed}\n` : '' };
+  };
+  await assert.rejects(async () => {
+    await identity(expectedCommit, { runGit, digestPaths: async () => { artifactReads++; return {}; } });
+    resourcesCreated = true; // Resources are created only after identity succeeds.
+  }, /differ.*reviewed commit/i);
+  assert.equal(artifactReads, 0);
+  assert.equal(resourcesCreated, false);
+});
+
+test('identity hashes exactly the gated inputs and excludes documentation', async () => {
+  const expectedCommit = 'b'.repeat(40);
+  let gated;
+  const hashed = [];
+  const value = await identity(expectedCommit, {
+    runGit: (_command, args) => {
+      assert.ok(args[0].startsWith('--work-tree='));
+      if (args.includes('rev-parse')) return { status: 0, stdout: expectedCommit };
+      gated = args.slice(args.indexOf('--') + 1);
+      return { status: 0, stdout: '' };
+    },
+    digestPaths: async paths => { hashed.push([...paths]); return { sha256: 'digest' }; },
+  });
+  assert.equal(value.commit, expectedCommit);
+  assert.deepEqual(gated, [...hashed[0], ...hashed[2]].map(path => `agentwiki/${path}`));
+  assert.equal(gated.some(path => /docs|\.superpowers/.test(path)), false);
+});
+
+test('runtime manifest covers every transitive local harness import', async () => {
+  const paths = new Set(Object.values(RUNTIME_INPUTS).flat());
+  const pending = ['scripts/source-freshness-acceptance.mjs'];
+  const visited = new Set();
+  while (pending.length) {
+    const path = pending.pop();
+    if (visited.has(path)) continue;
+    visited.add(path);
+    assert.ok(paths.has(path), `Missing runtime input: ${path}`);
+    const source = await readFile(new URL(`../${path}`, import.meta.url), 'utf8');
+    for (const match of source.matchAll(/from\s+['"](\.\/[^'"]+\.mjs)['"]/g)) {
+      pending.push(`scripts/${match[1].slice(2)}`);
+    }
+  }
+  assert.ok(visited.has('scripts/package-manager-process-runner.mjs'));
+  assert.ok(visited.has('scripts/test-database-lifecycle.mjs'));
 });

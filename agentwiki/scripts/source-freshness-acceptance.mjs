@@ -232,16 +232,35 @@ async function digest(paths) {
   for (const path of paths) await visit(path);
   return { sha256: hash(JSON.stringify(files)), fileCount: files.length };
 }
-async function identity(expectedCommit) {
+// One reviewed-input manifest drives both the dirty gate and recorded digests.
+// Built artifacts remain a separately verified build-provenance boundary.
+export const RUNTIME_INPUTS = Object.freeze({
+  source: Object.freeze([
+    'apps/server/src', 'apps/server/prisma', 'apps/client/src',
+    'packages/local-sync/src', 'packages/local-sync/skill', 'packages/shared/src', 'packages/sync-protocol/src',
+    'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.pnpm-config.json',
+    'apps/server/package.json', 'apps/client/package.json', 'packages/local-sync/package.json',
+    'packages/shared/package.json', 'packages/sync-protocol/package.json',
+  ]),
+  harness: Object.freeze([
+    'scripts/source-freshness-acceptance.mjs', 'scripts/source-freshness-fixtures.mjs',
+    'scripts/knowledge-retrieval-harness.mjs', 'scripts/knowledge-retrieval-agent-client.mjs',
+    'scripts/knowledge-retrieval-corpus.mjs', 'scripts/collaboration-test-database.mjs',
+    'scripts/folder-test-database.mjs', 'scripts/e2e-safety.mjs',
+    'scripts/package-manager-process.mjs', 'scripts/package-manager-process-runner.mjs',
+    'scripts/test-database-url-safety.mjs', 'scripts/test-database-lifecycle.mjs',
+  ]),
+});
+export async function identity(expectedCommit, { runGit = spawnSync, digestPaths = digest } = {}) {
   if (!/^[0-9a-f]{40}$/.test(expectedCommit ?? '')) throw new Error('Explicit reviewed 40-character commit required');
-  const git = spawnSync('git', [`--work-tree=${repository}`, 'rev-parse', 'HEAD'], { cwd: repository, encoding: 'utf8' });
+  const git = runGit('git', [`--work-tree=${repository}`, 'rev-parse', 'HEAD'], { cwd: repository, encoding: 'utf8' });
   if (git.status !== 0 || git.stdout.trim() !== expectedCommit) throw new Error('HEAD differs from reviewed commit');
-  const sourcePaths = ['apps/server/src', 'apps/server/prisma', 'apps/client/src', 'packages/local-sync/src', 'packages/local-sync/skill', 'packages/shared/src', 'packages/sync-protocol/src'];
-  const dirty = spawnSync('git', [`--work-tree=${repository}`, 'status', '--porcelain', '--', ...sourcePaths.map(path => `agentwiki/${path}`)], { cwd: repository, encoding: 'utf8' });
-  if (dirty.status !== 0 || dirty.stdout.trim()) throw new Error('Product sources differ from reviewed commit');
-  return { commit: expectedCommit, source: await digest([...sourcePaths, 'pnpm-lock.yaml']),
-    build: await digest(['apps/server/dist', 'apps/client/dist', 'packages/local-sync/dist', 'packages/shared/dist', 'packages/sync-protocol/dist']),
-    harness: await digest(['scripts/source-freshness-acceptance.mjs', 'scripts/source-freshness-fixtures.mjs', 'scripts/knowledge-retrieval-harness.mjs', 'scripts/knowledge-retrieval-agent-client.mjs', 'scripts/collaboration-test-database.mjs', 'scripts/folder-test-database.mjs']) };
+  const paths = Object.values(RUNTIME_INPUTS).flat();
+  const dirty = runGit('git', [`--work-tree=${repository}`, 'status', '--porcelain', '--untracked-files=all', '--', ...paths.map(path => `agentwiki/${path}`)], { cwd: repository, encoding: 'utf8' });
+  if (dirty.status !== 0 || dirty.stdout.trim()) throw new Error('Runtime inputs differ from reviewed commit');
+  return { commit: expectedCommit, source: await digestPaths(RUNTIME_INPUTS.source),
+    build: await digestPaths(['apps/server/dist', 'apps/client/dist', 'packages/local-sync/dist', 'packages/shared/dist', 'packages/sync-protocol/dist']),
+    harness: await digestPaths(RUNTIME_INPUTS.harness) };
 }
 async function prepareReader(api, { apiUrl, spaceId, workspace, label, packageVersion, signal }) {
   const agent = await api('/agents', { method: 'POST', body: { name: `Source review reader ${label}` } });
