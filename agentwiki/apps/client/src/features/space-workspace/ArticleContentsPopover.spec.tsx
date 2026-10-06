@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { ArticleContentsPopover } from './ArticleContentsPopover';
+import { SpaceWorkspaceProvider, SpaceWorkspaceScope } from './SpaceWorkspaceContext';
 
 const Harness = ({ pageKey = 'page-1', children }: { pageKey?: string; children: React.ReactNode }) => {
   const articleRef = useRef<HTMLDivElement>(null);
@@ -16,8 +17,15 @@ const Harness = ({ pageKey = 'page-1', children }: { pageKey?: string; children:
   );
 };
 
+const ScopedHarness = ({ pageKey = 'page-1', user = 'alice', space = 'wiki', suppressed = false, source = '# A', left = 0 }: { pageKey?: string; user?: string; space?: string; suppressed?: boolean; source?: string; left?: number }) => {
+  const articleRef = useRef<HTMLDivElement>(null);
+  return <SpaceWorkspaceProvider userId={user}><SpaceWorkspaceScope mode="read" spaceId={space} activeSection="pages" selectedFolderId={null} selectedPageId={pageKey} selectedPageFolderId={null} pageRefreshRequest={0} selectFolder={vi.fn()} reportPageIdentity={vi.fn()} requestPageRefresh={vi.fn()}><LanguageProvider><div className="document-canvas" ref={(node) => { if (node) vi.spyOn(node, 'getBoundingClientRect').mockReturnValue({ left } as DOMRect); }}><ArticleContentsPopover articleRootRef={articleRef} spaceId={space} pageKey={pageKey} suppressed={suppressed} source={source} /><div ref={articleRef} /></div></LanguageProvider></SpaceWorkspaceScope></SpaceWorkspaceProvider>;
+};
+const panelPrefs = () => JSON.parse(localStorage.getItem('agentwiki.workspace.v1:alice:wiki') ?? '{}');
+
 describe('ArticleContentsPopover', () => {
   beforeEach(() => {
+    localStorage.clear();
     localStorage.setItem('agentwiki.language.v1', 'en');
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 768 });
@@ -82,6 +90,67 @@ describe('ArticleContentsPopover', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Close' }));
     rendered.rerender(renderSource('# A\n\nHuman edit'));
     expect(screen.queryByRole('navigation', { name: 'Contents' })).not.toBeInTheDocument();
+  });
+
+  it('keeps an explicit desktop close across page and viewport changes', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1700 });
+    const view = render(<Harness><h2 id="one">One</h2></Harness>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Close' }));
+    view.rerender(<Harness pageKey="page-2"><h2 id="two">Two</h2></Harness>);
+    expect(screen.queryByRole('navigation', { name: 'Contents' })).not.toBeInTheDocument();
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 }); fireEvent.resize(window);
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1700 }); fireEvent.resize(window);
+    expect(screen.queryByRole('navigation', { name: 'Contents' })).not.toBeInTheDocument();
+  });
+
+  it('shares an explicit collapse across documents/read-edit remount and isolates accounts/Spaces', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1700 });
+    const view = render(<ScopedHarness />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Close' }));
+    expect(panelPrefs().outlineOpen).toBe(false);
+    view.rerender(<ScopedHarness pageKey="page-2:edit" />);
+    expect(screen.queryByRole('navigation', { name: 'Contents' })).not.toBeInTheDocument();
+    view.rerender(<ScopedHarness space="other" />); expect(await screen.findByRole('navigation', { name: 'Contents' })).toBeVisible();
+    view.rerender(<ScopedHarness user="bob" />); expect(screen.getByRole('navigation', { name: 'Contents' })).toBeVisible();
+    view.unmount(); render(<ScopedHarness pageKey="page-3:read" />);
+    expect(screen.getByRole('button', { name: 'Contents' })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('keeps desktop choice and width when temporarily opened/dismissed on mobile', async () => {
+    localStorage.setItem('agentwiki.workspace.v1:alice:wiki', JSON.stringify({ schemaVersion: 1, outlineOpen: true, outlineWidth: 360 }));
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    render(<ScopedHarness />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Contents' }));
+    expect(screen.getByRole('navigation', { name: 'Contents' })).toHaveStyle({ width: '358px' });
+    expect(screen.queryByRole('separator')).not.toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(panelPrefs()).toMatchObject({ outlineOpen: true, outlineWidth: 360 });
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1700 }); fireEvent.resize(window);
+    expect(screen.getByRole('navigation', { name: 'Contents' })).toHaveStyle({ width: '360px' });
+  });
+
+  it('suppresses both automatic and explicit outline without erasing choice or overlapping the collaborator', async () => {
+    localStorage.setItem('agentwiki.workspace.v1:alice:wiki', JSON.stringify({ schemaVersion: 1, outlineOpen: true }));
+    const view = render(<ScopedHarness suppressed />);
+    expect(await screen.findByRole('button', { name: 'Contents' })).toBeDisabled();
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
+    view.rerender(<ScopedHarness />); expect(await screen.findByRole('navigation')).toBeVisible();
+    view.rerender(<ScopedHarness source="no headings" />); expect(screen.queryByRole('button', { name: 'Contents' })).not.toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' }); expect(panelPrefs().outlineOpen).toBe(true);
+    view.rerender(<ScopedHarness source="# Again" />); expect(await screen.findByRole('navigation')).toBeVisible();
+    expect(panelPrefs().outlineOpen).toBe(true);
+  });
+
+  it('clamps desktop display beside the document and persists only deliberate resize', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 });
+    localStorage.setItem('agentwiki.workspace.v1:alice:wiki', JSON.stringify({ schemaVersion: 1, outlineOpen: true, outlineWidth: 360 }));
+    render(<ScopedHarness left={600} />);
+    const grip = await screen.findByRole('separator', { name: 'Resize article contents' });
+    expect(grip).toHaveAttribute('aria-valuemax', '300');
+    expect(screen.getByRole('navigation')).toHaveStyle({ width: '300px' });
+    expect(panelPrefs().outlineWidth).toBe(360);
+    fireEvent.keyDown(grip, { key: 'Home' }); expect(panelPrefs().outlineWidth).toBe(200);
+    fireEvent.keyDown(grip, { key: 'End' }); expect(panelPrefs().outlineWidth).toBe(300);
   });
 
   it('hides the trigger without headings and refreshes after deferred DOM changes and a page switch', async () => {

@@ -591,7 +591,7 @@ export const PagePreview: React.FC = () => {
               {t('common.edit')}
             </button>
           ) : null}
-          <ArticleContentsPopover articleRootRef={markdownRootRef} pageKey={page.id} source={page.content || ''} />
+          <ArticleContentsPopover articleRootRef={markdownRootRef} pageKey={page.id} spaceId={page.spaceId} source={page.content || ''} />
           <PageInfoPanel
             key={page.id}
             spaceId={page.spaceId}

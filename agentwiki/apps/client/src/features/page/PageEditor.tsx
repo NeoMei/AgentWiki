@@ -28,6 +28,8 @@ import { uploadAttachment } from '../attachments/attachmentApi';
 import { formatAttachmentReference } from '../attachments/attachmentReference';
 import 'highlight.js/styles/github.css';
 import { useOptionalSpaceWorkspace, usePageWorkspaceIdentity } from '../space-workspace/SpaceWorkspaceContext';
+import { clampCollaborationWidth, type PanelPreferences } from '../space-workspace/workspacePreferences';
+import { PanelResizeHandle } from '../space-workspace/PanelResizeHandle';
 import {
   readWorkspacePosition,
   nearestMarkdownSourceBlock,
@@ -167,9 +169,11 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const [saveStatus, setSaveStatus] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [mode, setMode] = useState<MarkdownMode>('edit');
-  const [assistOpen, setAssistOpen] = useState(false);
   const [assistMounted, setAssistMounted] = useState(false);
-  const [notesOpen, setNotesOpen] = useState(false);
+  const [localPanels, setLocalPanels] = useState<PanelPreferences & { key: string }>({ key: '' });
+  const [mobilePanelFor, setMobilePanelFor] = useState<string | null>(null);
+  const [panelViewport, setPanelViewport] = useState({ width: window.innerWidth, max: 520 });
+  const canvasRef = useRef<HTMLDivElement>(null);
   const [assistSelection, setAssistSelection] = useState<MarkdownSelection>({ from: 0, to: 0, text: '' });
   const [selectionRequest, setSelectionRequest] = useState<AssistRequest | null>(null);
   const [remoteUpdate, setRemoteUpdate] = useState<RemotePageUpdate | null>(null);
@@ -190,6 +194,37 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   }, []);
   const localDraft = useLocalDraft(draftContext);
   const notesWritable = !!page && page.id === id && !loading && !error && !writeUnavailable && page.capabilities?.canEdit === true && authorizedUserIdRef.current === user?.id;
+  // Restore presentation only after live page authorization; task payloads remain identity-local.
+  const panelScope = workspace?.spaceId === page?.spaceId && workspace?.userId === user?.id ? workspace : null;
+  const panelScopeKey = `${user?.id ?? ''}:${page?.spaceId ?? ''}`;
+  const panelIdentity = `${panelScopeKey}:${id}`;
+  const panelPreferences: PanelPreferences = panelScope ?? (localPanels.key === panelScopeKey ? localPanels : {});
+  // Mobile open/dismiss is temporary and never overwrites the desktop open/width preference.
+  const mobilePanel = panelViewport.width < 1024;
+  const collaborationVisible = notesWritable && (mobilePanel ? mobilePanelFor === panelIdentity : panelPreferences.collaborationOpen === true);
+  const notesOpen = collaborationVisible && panelPreferences.collaborationTab === 'notes';
+  const assistOpen = collaborationVisible && !notesOpen;
+  const collaborationWidth = Math.min(clampCollaborationWidth(panelPreferences.collaborationWidth), panelViewport.max >= 320 && !mobilePanel ? panelViewport.max : 520, Math.max(0, panelViewport.width - 32));
+  const updatePanelPreferences = (preferences: PanelPreferences) => {
+    if (!notesWritable) return;
+    if (panelScope) panelScope.setPanelPreferences(preferences);
+    else setLocalPanels((current) => ({ ...(current.key === panelScopeKey ? current : {}), key: panelScopeKey, ...preferences }));
+  };
+  const openCollaboration = (tab: 'assist' | 'notes') => {
+    if (!notesWritable) return;
+    updatePanelPreferences({ collaborationTab: tab, ...(!mobilePanel ? { collaborationOpen: true } : {}) });
+    if (mobilePanel) setMobilePanelFor(panelIdentity);
+  };
+  const closeCollaboration = () => {
+    if (mobilePanel) setMobilePanelFor(null);
+    else updatePanelPreferences({ collaborationOpen: false });
+  };
+  useEffect(() => { setMobilePanelFor(null); }, [mobilePanel]);
+  useEffect(() => {
+    const resize = () => setPanelViewport({ width: window.innerWidth, max: Math.min(520, window.innerWidth - Math.max(0, canvasRef.current?.getBoundingClientRect().left ?? 0) - 380) });
+    resize(); window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, [page?.id, workspace?.directoryWidth, workspace?.directoryCollapsed]);
   const personalNotes = usePersonalNotes({ scope: notesWritable && user?.id && page ? { userId: user.id, spaceId: page.spaceId, pageId: page.id } : null, canEdit: notesWritable, source: content, updatedAt: page?.updatedAt, language });
   const selectionTarget = page ? captureAssistTarget(content, 'selection', assistSelection.from, assistSelection.to, page.updatedAt) : null;
   const sectionTarget = page ? captureAssistTarget(content, 'section', assistSelection.from, assistSelection.to, page.updatedAt) : null;
@@ -355,7 +390,6 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     saveOperationRef.current += 1;
     setSaving(false);
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    setAssistOpen(false);
     setAttachmentPickerOpen(false);
     setBindingDialogOpen(false);
     setTemplateDialogSnapshot(null);
@@ -617,8 +651,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     saveControllerRef.current?.abort();
     saveControllerRef.current = null;
     setSaving(false);
-    setAssistMounted(false); setAssistOpen(false);
-    acceptedAssistTasksRef.current.clear(); setSelectionRequest(null); setNotesOpen(false); setAssistSelection({ from: 0, to: 0, text: '' });
+    setAssistMounted(false); setMobilePanelFor(null);
+    acceptedAssistTasksRef.current.clear(); setSelectionRequest(null); setAssistSelection({ from: 0, to: 0, text: '' });
     loadSequenceRef.current += 1;
     requestControllersRef.current.forEach((controller) => controller.abort());
     requestControllersRef.current.clear();
@@ -828,7 +862,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     if (!latest || !notesWritable || mode !== 'edit' || remoteUpdate || unresolvedSocketRevisionRef.current) return;
     const target = captureAssistTarget(source, 'selection', selection.from, selection.to, latest.updatedAt);
     if (!target || target.quote !== selection.text) return;
-    setSelectionRequest({ id: crypto.randomUUID(), intent: '', assistTarget: target }); setNotesOpen(false); setAssistOpen(true);
+    setSelectionRequest({ id: crypto.randomUUID(), intent: '', assistTarget: target }); openCollaboration('assist');
   };
   const applyAgentChanges = (candidate: AssistCandidate, editId?: string): boolean => {
     const latest = pageRef.current;
@@ -1184,13 +1218,13 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             {mode === 'edit' ? <BookOpen size={17} aria-hidden="true" /> : <PenLine size={17} aria-hidden="true" />}
             <span>{mode === 'edit' ? t('common.preview') : t('editor.returnToEdit')}</span>
           </button>
-          <button type="button" aria-label={language === 'zh-CN' ? '个人笔记' : 'Personal notes'} disabled={!notesWritable} onClick={() => setNotesOpen((open) => !open)} aria-pressed={notesOpen} className="min-h-9 rounded-lg px-3 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-40">{language === 'zh-CN' ? '个人笔记' : 'Personal notes'}</button>
+          <button type="button" aria-label={language === 'zh-CN' ? '个人笔记' : 'Personal notes'} disabled={!notesWritable} onClick={() => { if (notesOpen) closeCollaboration(); else openCollaboration('notes'); }} aria-pressed={notesOpen} className="min-h-9 rounded-lg px-3 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-40">{language === 'zh-CN' ? '个人笔记' : 'Personal notes'}</button>
           <button
             type="button"
             aria-label={t('editor.assist')}
-            onClick={() => { if (notesOpen) { setNotesOpen(false); setAssistOpen(true); } else setAssistOpen((open) => !open); }}
+            onClick={() => { if (assistOpen) closeCollaboration(); else openCollaboration('assist'); }}
             aria-pressed={assistOpen}
-            disabled={writeUnavailable}
+            disabled={!notesWritable}
             data-testid="assist-toggle"
             className={`inline-flex min-h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 ${assistOpen ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'}`}
           >
@@ -1200,7 +1234,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         </div>
       </div>
 
-      <div className="document-canvas">
+      <div ref={canvasRef} className="document-canvas">
       {writeUnavailable ? <p role="alert" data-testid="editor-write-unavailable" className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{t('editor.writeUnavailable')}</p> : null}
       {draftContext() ? <LocalDraftNotice
         key={`${user?.id}:${page.spaceId}:${page.id}`}
@@ -1257,7 +1291,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             mode={mode}
             onRequestPageLinks={requestPageLinks}
             pageLinksIdentity={`${user?.id}:${!writeUnavailable}`}
-            outlineOverlay={assistOpen}
+            outlineOverlay={collaborationVisible}
             onChange={handleContentChange}
             onSelectionChange={setAssistSelection}
             onRequestAssist={notesWritable ? requestSelectionAssist : undefined}
@@ -1267,11 +1301,13 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             onUploadError={attachmentEnabled ? handleImageUploadError : undefined}
           />
         </div>
-        {assistMounted || notesOpen || assistOpen ? <div hidden={!assistOpen && !notesOpen} className="document-assist-layer w-80">
-          <div className="sticky top-0 z-10 flex gap-2 border-b bg-white p-3 text-sm"><button type="button" onClick={() => { setNotesOpen(false); setAssistOpen(true); }} aria-label={language === 'zh-CN' ? '候选队列' : 'Candidate queue'} aria-pressed={!notesOpen}>{language === 'zh-CN' ? '编辑辅助' : 'Editing assist'}</button><button type="button" onClick={() => setNotesOpen(true)} aria-pressed={notesOpen}>{language === 'zh-CN' ? '笔记队列' : 'Notes queue'}</button><button type="button" className="ml-auto text-gray-500" aria-label={language === 'zh-CN' ? '关闭协作面板' : 'Close collaboration panel'} onClick={() => { setNotesOpen(false); setAssistOpen(false); }}>×</button></div>
+        {assistMounted || collaborationVisible ? <div hidden={!collaborationVisible} className="document-assist-layer" style={{ width: collaborationWidth }}>
+          {!mobilePanel && panelViewport.max >= 320 ? <PanelResizeHandle key={panelIdentity} label={language === 'zh-CN' ? '调整协作面板宽度' : 'Resize collaboration panel'} width={collaborationWidth} min={320} max={panelViewport.max} onChange={(width) => updatePanelPreferences({ collaborationWidth: width })} /> : null}
+          <div className="document-panel-scroll">
+          <div className="sticky top-0 z-10 flex gap-2 border-b bg-white p-3 text-sm"><button type="button" onClick={() => { openCollaboration('assist'); }} aria-label={language === 'zh-CN' ? '候选队列' : 'Candidate queue'} aria-pressed={!notesOpen}>{language === 'zh-CN' ? '编辑辅助' : 'Editing assist'}</button><button type="button" disabled={!notesWritable} onClick={() => openCollaboration('notes')} aria-pressed={notesOpen}>{language === 'zh-CN' ? '笔记队列' : 'Notes queue'}</button><button type="button" className="ml-auto text-gray-500" aria-label={language === 'zh-CN' ? '关闭协作面板' : 'Close collaboration panel'} onClick={closeCollaboration}>×</button></div>
         {notesOpen && notesWritable ? <div className="p-3">
           {personalNotes.conflict ? <p role="alert" className="mb-2 text-sm text-amber-800">{language === 'zh-CN' ? '所选笔记原文已变动、定位不唯一或内容过长，请检查后重试。' : 'Selected passages changed, are ambiguous, or exceed the request limit. Review them before retrying.'}</p> : null}
-          <PersonalNotesPanel key={personalNotes.identityKey} source={content} target={selectionTarget} notes={personalNotes.notes} storageUnavailable={personalNotes.storageUnavailable} disabled={saving || mode !== 'edit' || !!remoteUpdate || !!unresolvedSocketRevisionRef.current || !!personalNotes.assistRequest} onAdd={personalNotes.add} onReopen={personalNotes.reopen} onDispatch={(ids) => { if (personalNotes.dispatch(ids)) { setSelectionRequest(null); setNotesOpen(false); setAssistOpen(true); } }} />
+          <PersonalNotesPanel key={personalNotes.identityKey} source={content} target={selectionTarget} notes={personalNotes.notes} storageUnavailable={personalNotes.storageUnavailable} disabled={saving || mode !== 'edit' || !!remoteUpdate || !!unresolvedSocketRevisionRef.current || !!personalNotes.assistRequest} onAdd={personalNotes.add} onReopen={personalNotes.reopen} onDispatch={(ids) => { if (personalNotes.dispatch(ids)) { setSelectionRequest(null); openCollaboration('assist'); } }} />
         </div> : null}
         {(assistMounted || assistOpen) && page ? (
           <div hidden={notesOpen}><AgentAssistPanel
@@ -1293,7 +1329,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             onApply={applyAgentChanges}
           /></div>
         ) : null}
-        </div> : null}
+        </div></div> : null}
       </div>
 
       {templateDialogSnapshot && canManageTemplates && page.format === 'markdown' ? (

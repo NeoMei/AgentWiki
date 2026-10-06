@@ -3,6 +3,9 @@ import { createPortal } from 'react-dom';
 import { List, X } from 'lucide-react';
 import { outlineFor, type MarkdownOutlineItem } from '../../components/markdown-tools/outline';
 import { useLanguage } from '../../context/LanguageContext';
+import { useOptionalSpaceWorkspace } from './SpaceWorkspaceContext';
+import { clampOutlineWidth } from './workspacePreferences';
+import { PanelResizeHandle } from './PanelResizeHandle';
 
 export interface OutlineItem {
   id: string;
@@ -17,7 +20,8 @@ export interface ArticleContentsPopoverProps {
   source?: string;
   activeHeadingId?: string;
   onNavigate?: (item: MarkdownOutlineItem) => void;
-  overlayOnly?: boolean;
+  suppressed?: boolean;
+  spaceId?: string;
 }
 
 interface PopoverPosition {
@@ -25,6 +29,7 @@ interface PopoverPosition {
   top: number;
   width: number;
   maxHeight: number;
+  resizeMax: number;
 }
 
 const STICKY_OFFSET = 88;
@@ -74,30 +79,55 @@ const scrollParent = (element: HTMLElement): HTMLElement | Window => {
   return window;
 };
 
-export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ articleRootRef, pageKey, source, activeHeadingId, onNavigate, overlayOnly }) => {
-  const { t } = useLanguage();
+export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ articleRootRef, pageKey, source, activeHeadingId, onNavigate, suppressed = false, spaceId }) => {
+  const { t, language } = useLanguage();
+  const workspace = useOptionalSpaceWorkspace();
+  const scoped = workspace?.spaceId && (!spaceId || workspace.spaceId === spaceId) ? workspace : null;
+  const scopeKey = `${workspace?.userId ?? ''}:${spaceId ?? workspace?.spaceId ?? ''}`;
+  const viewKey = `${scopeKey}:${pageKey}`;
+  const [local, setLocal] = useState<{ key: string; open?: boolean; width?: number }>({ key: scopeKey });
+  const [mobileOpenFor, setMobileOpenFor] = useState<string | null>(null);
+  const [dismissedFor, setDismissedFor] = useState<string | null>(null);
+  const preferredOpen = scoped ? scoped.outlineOpen : local.key === scopeKey ? local.open : undefined;
+  const preferredWidth = clampOutlineWidth(scoped ? scoped.outlineWidth : local.key === scopeKey ? local.width : undefined);
   const outline = useMemo(() => source === undefined ? null : outlineFor(source), [source]);
-  const [wide, setWide] = useState(() => window.innerWidth >= 1600 && !overlayOnly);
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
+  const wide = viewportWidth >= 1600;
+  const mobile = viewportWidth < 1024;
   const [items, setItems] = useState<Array<Omit<OutlineItem, 'element'> & { element?: HTMLHeadingElement; from?: number; to?: number }>>([]);
-  const [open, setOpen] = useState(false);
+  const open = !suppressed && (mobile ? mobileOpenFor === viewKey : (preferredOpen ?? wide) && dismissedFor !== viewKey);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [position, setPosition] = useState<PopoverPosition>({ left: 16, top: 88, width: 280, maxHeight: 0 });
+  const [position, setPosition] = useState<PopoverPosition>({ left: 16, top: 88, width: 280, maxHeight: 0, resizeMax: 360 });
   const wrapperRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    const resize = () => setWide(window.innerWidth >= 1600 && !overlayOnly);
-    resize(); window.addEventListener('resize', resize);
+    const resize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener('resize', resize);
     return () => window.removeEventListener('resize', resize);
-  }, [overlayOnly]);
-  useEffect(() => { setOpen(wide); }, [wide, pageKey]);
+  }, []);
+  useEffect(() => { setMobileOpenFor(null); setDismissedFor(null); }, [mobile]);
+  useEffect(() => { if (suppressed) setDismissedFor(null); }, [suppressed]);
+  const chooseOpen = useCallback((next: boolean) => {
+    setDismissedFor(null);
+    if (mobile) setMobileOpenFor(next ? viewKey : null);
+    else if (scoped) scoped.setPanelPreferences({ outlineOpen: next });
+    else setLocal((current) => ({ ...(current.key === scopeKey ? current : {}), key: scopeKey, open: next }));
+  }, [mobile, viewKey, scoped, scopeKey]);
+  const resizeOutline = (width: number) => {
+    if (scoped) scoped.setPanelPreferences({ outlineWidth: width });
+    else setLocal((current) => ({ ...(current.key === scopeKey ? current : {}), key: scopeKey, width }));
+  };
 
   const updatePosition = useCallback(() => {
     const trigger = triggerRef.current;
     if (!trigger) return;
     const bounds = trigger.getBoundingClientRect();
-    const width = Math.min(wide ? 220 : 280, Math.max(0, window.innerWidth - 32));
+    const canvas = wrapperRef.current?.closest<HTMLElement>('.document-canvas');
+    const available = window.innerWidth - Math.max(0, canvas?.getBoundingClientRect().left ?? 0) - 380;
+    const resizeMax = Math.min(360, available);
+    const width = Math.min(preferredWidth, resizeMax >= 200 && !mobile ? resizeMax : 360, Math.max(0, window.innerWidth - 32));
     const rightmostLeft = Math.max(16, window.innerWidth - width - 16);
     const top = Math.min(wide ? Math.max(140, currentStickyOffset(wrapperRef.current)) : bounds.bottom + 8, Math.max(16, window.innerHeight - 16));
     setPosition({
@@ -105,8 +135,9 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
       top,
       width,
       maxHeight: Math.max(0, window.innerHeight - top - 16),
+      resizeMax,
     });
-  }, [wide]);
+  }, [wide, mobile, preferredWidth]);
 
   useEffect(() => {
     const root = articleRootRef.current;
@@ -123,7 +154,6 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
       });
       setItems(next);
       setActiveId((current) => next.some((item) => item.id === current) ? current : next[0]?.id ?? null);
-      if (next.length === 0) setOpen(false);
     };
     refresh();
     if (!root) return;
@@ -156,16 +186,19 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
   }, [activeHeadingId, articleRootRef, items, pageKey]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || items.length === 0) return;
     updatePosition();
     const closeFromOutside = (event: PointerEvent) => {
       const target = event.target as Node;
-      if (!wrapperRef.current?.contains(target) && !popoverRef.current?.contains(target)) setOpen(false);
+      if (!wrapperRef.current?.contains(target) && !popoverRef.current?.contains(target)) {
+        if (mobile) setMobileOpenFor(null);
+        else if (!wide) setDismissedFor(viewKey);
+      }
     };
     const closeFromEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       event.preventDefault();
-      setOpen(false);
+      chooseOpen(false);
       triggerRef.current?.focus({ preventScroll: true });
     };
     document.addEventListener('pointerdown', closeFromOutside);
@@ -182,26 +215,26 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
       window.removeEventListener('resize', updatePosition);
       toolbarObserver?.disconnect();
     };
-  }, [open, updatePosition]);
+  }, [open, updatePosition, mobile, wide, viewKey, chooseOpen, items.length]);
 
   if (items.length === 0) return null;
 
   const closeAndRestoreFocus = () => {
-    setOpen(false);
+    chooseOpen(false);
     triggerRef.current?.focus({ preventScroll: true });
   };
 
   const navigateTo = (item: typeof items[number]) => {
     if (onNavigate && item.from !== undefined && item.to !== undefined) {
       onNavigate({ id: item.id, label: item.label, level: item.level, from: item.from, to: item.to });
-      setActiveId(item.id); if (!wide) setOpen(false); return;
+      setActiveId(item.id); if (mobile) setMobileOpenFor(null); else if (!wide) setDismissedFor(viewKey); return;
     }
     if (!item.element) return;
     item.element.scrollIntoView({ block: 'start' });
     const scrollingElement = scrollParent(item.element);
     scrollingElement.scrollBy({ top: -currentStickyOffset(wrapperRef.current), left: 0, behavior: 'instant' });
     setActiveId(item.id);
-    if (!wide) setOpen(false);
+    if (mobile) setMobileOpenFor(null); else if (!wide) setDismissedFor(viewKey);
   };
 
   return (
@@ -211,11 +244,13 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
         type="button"
         aria-haspopup="true"
         aria-expanded={open}
+        disabled={suppressed}
+        title={suppressed ? (language === 'zh-CN' ? '关闭协作面板以查看目录' : 'Close the collaboration panel to show contents') : undefined}
         onClick={() => {
           if (!open) updatePosition();
-          setOpen((current) => !current);
+          chooseOpen(!open);
         }}
-        className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:border-blue-300 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:border-blue-300 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
       >
         <List size={17} aria-hidden="true" />
         {t('page.contents')}
@@ -224,9 +259,10 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
         <nav
           ref={popoverRef}
           aria-label={t('page.contents')}
-          className="fixed z-30 flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg"
+          className="fixed z-30 flex flex-col rounded-lg border border-gray-200 bg-white shadow-lg"
           style={{ left: position.left, top: position.top, width: position.width, maxHeight: position.maxHeight }}
         >
+          {!mobile && position.resizeMax >= 200 ? <PanelResizeHandle key={scopeKey} label={language === 'zh-CN' ? '调整文章目录宽度' : 'Resize article contents'} width={position.width} min={200} max={position.resizeMax} onChange={resizeOutline} /> : null}
           <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-4 py-3">
             <h2 className="text-base font-semibold text-gray-900">{t('page.contents')}</h2>
             <button

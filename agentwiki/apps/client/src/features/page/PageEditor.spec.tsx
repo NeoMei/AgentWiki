@@ -594,6 +594,119 @@ describe('PageEditor remote update safety', () => {
     expect(contentEditorValue()).toBe('Original content');
   });
 
+  it('restores scoped collaboration tab and width without submitting or editing', async () => {
+    localStorage.setItem('agentwiki.workspace.v1:user-1:space-1', JSON.stringify({ schemaVersion: 1, collaborationOpen: true, collaborationTab: 'notes', collaborationWidth: 440 }));
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    const view = renderEditorWithCrumbs();
+    await screen.findByDisplayValue('Original title');
+    expect(screen.getByRole('button', { name: 'Notes queue' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('separator', { name: 'Resize collaboration panel' })).toHaveAttribute('aria-valuenow', '440');
+    expect(contentEditorValue()).toBe('Original content');
+    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
+    view.unmount();
+    queuePages({ data: page({ capabilities: { canEdit: true } }) }); renderEditorWithCrumbs();
+    await screen.findByDisplayValue('Original title');
+    expect(screen.queryByRole('button', { name: 'Notes queue' })).not.toBeInTheDocument();
+  });
+
+  it('keeps mobile panel dismissal and viewport clamping out of desktop preferences', async () => {
+    const viewport = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+    const key = 'agentwiki.workspace.v1:user-1:space-1';
+    localStorage.setItem(key, JSON.stringify({ schemaVersion: 1, collaborationOpen: true, collaborationTab: 'notes', collaborationWidth: 520 }));
+    queuePages({ data: page({ capabilities: { canEdit: true } }) }); renderEditorWithCrumbs();
+    await screen.findByDisplayValue('Original title');
+    expect(screen.queryByRole('button', { name: 'Notes queue' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+    expect(document.querySelector('.document-assist-layer')).toHaveStyle({ width: '358px' });
+    expect(screen.queryByRole('separator', { name: 'Resize collaboration panel' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
+    expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ collaborationOpen: true, collaborationWidth: 520 });
+    viewport.mockReturnValue(1280); fireEvent.resize(window);
+    expect(screen.getByRole('button', { name: 'Notes queue' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('separator', { name: 'Resize collaboration panel' })).toHaveAttribute('aria-valuenow', '520');
+    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize collaboration panel' }), { key: 'Home' });
+    expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ collaborationWidth: 320 });
+    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('suppresses a remembered notes tab immediately when live editing permission is lost', async () => {
+    const key = 'agentwiki.workspace.v1:user-1:space-1';
+    localStorage.setItem(key, JSON.stringify({ schemaVersion: 1, collaborationOpen: true, collaborationTab: 'notes' }));
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    const router = createMemoryRouter([{ element: <NavigationGuardProvider><SpaceWorkspaceProvider userId="user-1"><Outlet /></SpaceWorkspaceProvider></NavigationGuardProvider>, children: [
+      { path: '/pages/:id/edit', element: <SpaceWorkspace mode="edit" pageId="page-1"><PageEditor workspaceRef={workspaceRef} /></SpaceWorkspace> },
+      { path: '/pages/:id', element: <DirectEditRedirectTarget /> },
+    ] }], { initialEntries: ['/pages/page-1/edit'] });
+    render(<LanguageProvider><RouterProvider router={router} /></LanguageProvider>); await screen.findByDisplayValue('Original title');
+    expect(screen.getByRole('button', { name: 'Notes queue' })).toBeVisible();
+    editContent('Retained private draft');
+    queuePages({ data: page({ capabilities: { canEdit: false } }) });
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    expect(screen.queryByRole('button', { name: 'Notes queue' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Personal notes' })).toBeDisabled();
+    expect(screen.getByTestId('assist-toggle')).toBeDisabled();
+    expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ collaborationOpen: true, collaborationTab: 'notes' });
+    expect(contentEditorValue()).toBe('Retained private draft'); expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('keeps the opened candidate panel mounted through tabs/close but clears its page identity', async () => {
+    const key = 'agentwiki.workspace.v1:user-1:space-1';
+    localStorage.setItem(key, JSON.stringify({ schemaVersion: 1, collaborationOpen: true, collaborationTab: 'assist' }));
+    vi.mocked(api.get).mockImplementation(async (url: string) => ({ data: url === '/assist/tasks' || url === '/review' ? [] : page({ id: url.includes('page-2') ? 'page-2' : 'page-1', capabilities: { canEdit: true } }) }));
+    const ScopedEditor = () => {
+      const { id } = useParams(); const navigate = useNavigate();
+      return <><button onClick={() => navigate('/pages/page-2/edit')}>Next scoped document</button><SpaceWorkspace mode="edit" pageId={id}><PageEditor workspaceRef={workspaceRef} /></SpaceWorkspace></>;
+    };
+    render(<LanguageProvider><SpaceWorkspaceProvider userId="user-1"><MemoryRouter initialEntries={['/pages/page-1/edit']}><Routes><Route path="/pages/:id/edit" element={<ScopedEditor />} /></Routes></MemoryRouter></SpaceWorkspaceProvider></LanguageProvider>);
+    const intent = await screen.findByTestId('assist-intent');
+    fireEvent.change(intent, { target: { value: 'Unsubmitted request' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Notes queue' }));
+    expect(intent).not.toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
+    fireEvent.click(screen.getByTestId('assist-toggle'));
+    expect(screen.getByTestId('assist-intent')).toBe(intent); expect(intent).toHaveValue('Unsubmitted request');
+    fireEvent.click(screen.getByRole('button', { name: 'Next scoped document' }));
+    await waitFor(() => expect(screen.getByTestId('assist-intent')).not.toBe(intent));
+    expect(screen.getByTestId('assist-intent')).toHaveValue('');
+    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+    expect(localStorage.getItem(key)).not.toContain('Unsubmitted request');
+  });
+
+  it('suppresses the article outline for notes-only collaboration then restores its stored choice', async () => {
+    localStorage.setItem('agentwiki.workspace.v1:user-1:space-1', JSON.stringify({ schemaVersion: 1, outlineOpen: true, collaborationOpen: true, collaborationTab: 'notes' }));
+    queuePages({ data: page({ content: '# Outline entry', capabilities: { canEdit: true } }) });
+    renderEditorWithCrumbs(); await screen.findByDisplayValue('Original title');
+    expect(screen.getByRole('button', { name: 'Contents' })).toBeDisabled();
+    expect(screen.queryByRole('navigation', { name: 'Contents' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
+    expect(await screen.findByRole('navigation', { name: 'Contents' })).toBeVisible();
+    fireEvent.click(screen.getByTestId('mode-toggle'));
+    expect(await screen.findByRole('navigation', { name: 'Contents' })).toBeVisible();
+    expect(JSON.parse(localStorage.getItem('agentwiki.workspace.v1:user-1:space-1')!)).toMatchObject({ outlineOpen: true, collaborationOpen: false });
+    expect(contentEditorValue()).toBe('# Outline entry'); expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('keeps enough exposed document width without replacing the saved collaboration width', async () => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280);
+    const originalBounds = HTMLElement.prototype.getBoundingClientRect;
+    let canvasLeft = 580;
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function(this: HTMLElement) {
+      return this.classList.contains('document-canvas') ? { ...originalBounds.call(this), left: canvasLeft } as DOMRect : originalBounds.call(this);
+    });
+    const key = 'agentwiki.workspace.v1:user-1:space-1';
+    localStorage.setItem(key, JSON.stringify({ schemaVersion: 1, collaborationOpen: true, collaborationTab: 'notes', collaborationWidth: 520 }));
+    queuePages({ data: page({ capabilities: { canEdit: true } }) }); renderEditorWithCrumbs();
+    await screen.findByDisplayValue('Original title');
+    expect(document.querySelector('.document-assist-layer')).toHaveStyle({ width: '320px' });
+    expect(screen.getByRole('separator', { name: 'Resize collaboration panel' })).toHaveAttribute('aria-valuemax', '320');
+    canvasLeft = 400; fireEvent.resize(window);
+    expect(document.querySelector('.document-assist-layer')).toHaveStyle({ width: '500px' });
+    expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ collaborationWidth: 520 });
+  });
+
   it('keeps Assist streams out of the draft and accepts completion as a single undoable edit', async () => {
     let tasks: any[] = [];
     vi.mocked(api.get).mockImplementation((url: string) => Promise.resolve({ data: url === '/assist/tasks' ? tasks : url === '/review' ? [] : page({ capabilities: { canEdit: true } }) }));

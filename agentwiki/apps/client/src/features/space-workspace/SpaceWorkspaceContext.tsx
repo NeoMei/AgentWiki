@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { clampDirectoryWidth, defaultWorkspacePreferences, readWorkspacePreferences, writeWorkspacePreferences, type WorkspacePreferences } from './workspacePreferences';
+import { clampDirectoryWidth, clampOutlineWidth, clampCollaborationWidth, defaultWorkspacePreferences, readWorkspacePreferences, writeWorkspacePreferences, type WorkspacePreferences, type PanelPreferences } from './workspacePreferences';
 import type { SpaceNavSection } from './workspaceNavigation';
 
 export type SpaceWorkspaceMode = 'directory' | 'read' | 'edit' | 'versions' | 'section';
@@ -26,6 +26,7 @@ export interface SpaceWorkspaceContextValue extends BrowsingState {
   setDirectoryScrollTop: (scrollTop: number) => void;
   setDirectoryWidth: (width: number) => void;
   setDirectoryCollapsed: (collapsed: boolean) => void;
+  setPanelPreferences: (preferences: PanelPreferences) => void;
   selectFolder: (folderId: string | null) => void;
   reportPageIdentity: (pageId: string, spaceId: string | null, folderId?: string | null) => void;
   requestPageRefresh: (pageId: string, options?: { deleted?: boolean }) => void;
@@ -112,6 +113,13 @@ export const SpaceWorkspaceScope: React.FC<SpaceWorkspaceScopeProps> = ({
   const setDirectoryCollapsed = useCallback((directoryCollapsed: boolean) => {
     if (spaceId) registry.updateState(spaceId, (current) => ({ ...current, directoryCollapsed }));
   }, [registry.updateState, spaceId]);
+  const setPanelPreferences = useCallback((preferences: PanelPreferences) => {
+    if (spaceId) registry.updateState(spaceId, (current) => ({
+      ...current, ...preferences,
+      outlineWidth: clampOutlineWidth(preferences.outlineWidth ?? current.outlineWidth),
+      collaborationWidth: clampCollaborationWidth(preferences.collaborationWidth ?? current.collaborationWidth),
+    }));
+  }, [registry.updateState, spaceId]);
   const value = useMemo<SpaceWorkspaceContextValue>(() => ({
     ...browsingState,
     userId: registry.userId,
@@ -127,6 +135,7 @@ export const SpaceWorkspaceScope: React.FC<SpaceWorkspaceScopeProps> = ({
     setDirectoryScrollTop,
     setDirectoryCollapsed,
     setDirectoryWidth,
+    setPanelPreferences,
     selectFolder,
     reportPageIdentity,
     requestPageRefresh,
@@ -149,6 +158,7 @@ export const SpaceWorkspaceScope: React.FC<SpaceWorkspaceScopeProps> = ({
     setDirectoryScrollTop,
     setDirectoryCollapsed,
     setDirectoryWidth,
+    setPanelPreferences,
     setFolderExpanded,
     spaceId,
   ]);
