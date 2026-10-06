@@ -1170,7 +1170,11 @@ describe('PageEditor remote update safety', () => {
     const depth = undoDepth(currentEditorView().state);
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
     await screen.findByTestId('md-preview');
-    // Short/clamped preview leaves the first heading nearest, without navigation.
+    // Mode switching leaves focus on the toolbar; a clamped End key cannot
+    // replace the original selection unless it actually scrolls the document.
+    const returnButton = screen.getByRole('button', { name: 'Return to edit' });
+    returnButton.focus();
+    fireEvent.keyDown(returnButton, { key: 'End' });
     fireEvent.scroll(document);
     fireEvent.resize(window);
     fireEvent.click(screen.getByRole('button', { name: 'Return to edit' }));

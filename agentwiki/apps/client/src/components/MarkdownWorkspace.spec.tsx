@@ -1386,6 +1386,46 @@ describe('preview navigation intent', () => {
     expect(ref.current!.capturePosition().previewNavigated).toBe(true);
   });
 
+  it.each(['End', 'PageDown'])('recognizes document scroll from %s while focus remains on the mode toolbar button', (key) => {
+    const ref = createRef<MarkdownWorkspaceHandle>();
+    const scrollingElement = Object.getOwnPropertyDescriptor(document, 'scrollingElement');
+    Object.defineProperty(document, 'scrollingElement', { configurable: true, value: document.documentElement });
+    try {
+      render(<LanguageProvider><div data-testid="editor-toolbar"><button>Return to edit</button></div><MarkdownWorkspace ref={ref} value={'# A\n\nBody'} mode="preview" onChange={vi.fn()} /></LanguageProvider>);
+      const button = screen.getByRole('button', { name: 'Return to edit' });
+      button.focus();
+      expect(document.activeElement).toBe(button);
+      fireEvent.keyDown(document.activeElement!, { key });
+      fireEvent.scroll(document);
+      expect(ref.current!.capturePosition().previewNavigated).toBe(false);
+      document.documentElement.scrollTop = 200;
+      fireEvent.scroll(document);
+      expect(ref.current!.capturePosition().previewNavigated).toBe(true);
+    } finally {
+      document.documentElement.scrollTop = 0;
+      if (scrollingElement) Object.defineProperty(document, 'scrollingElement', scrollingElement);
+      else delete (document as unknown as { scrollingElement?: Element }).scrollingElement;
+    }
+  });
+
+  it.each(['input', 'textarea', 'select', 'editable', 'dialog', 'menu', 'Enter', ' '])('does not arm article navigation from %s controls', (kind) => {
+    const ref = createRef<MarkdownWorkspaceHandle>();
+    const content = kind === 'input' ? <input aria-label="Control" />
+      : kind === 'textarea' ? <textarea aria-label="Control" />
+      : kind === 'select' ? <select aria-label="Control"><option>A</option></select>
+      : kind === 'editable' ? <div contentEditable data-testid="control" />
+      : kind === 'dialog' || kind === 'menu' ? <div role={kind}><button>Control</button></div>
+      : <button>Control</button>;
+    render(<LanguageProvider><div data-testid="editor-toolbar">{content}</div><MarkdownWorkspace ref={ref} value={'# A\n\nBody'} mode="preview" onChange={vi.fn()} /></LanguageProvider>);
+    const control = document.querySelector<HTMLElement>('[data-testid="editor-toolbar"] input, [data-testid="editor-toolbar"] textarea, [data-testid="editor-toolbar"] select, [data-testid="editor-toolbar"] [contenteditable], [data-testid="editor-toolbar"] button')!;
+    control.focus();
+    fireEvent.keyDown(control, { key: kind === 'Enter' || kind === ' ' ? kind : 'End' });
+    const surface = screen.getByTestId('md-editor-surface');
+    surface.scrollTop = 200;
+    fireEvent.scroll(surface);
+    expect(ref.current!.capturePosition().previewNavigated).toBe(false);
+  });
+
   it('ignores directory and dialog gestures even when the article subsequently reflows', () => {
     const ref = createRef<MarkdownWorkspaceHandle>();
     render(<LanguageProvider><aside data-testid="other-surface"><button>Other control</button></aside><MarkdownWorkspace ref={ref} value={'# A\n\nBody'} mode="preview" onChange={vi.fn()} /></LanguageProvider>);

@@ -525,9 +525,15 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
     const arm = (event: Event) => {
       gesture = null;
       const target = event.target;
-      if (!(target instanceof Element) || (!root.contains(target) && !ancestors.has(target as HTMLElement))) return;
-      if (target.closest('input, textarea, select, button, [contenteditable="true"]')) return;
-      if (event instanceof KeyboardEvent && !['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].includes(event.key)) return;
+      if (!(target instanceof Element)) return;
+      const keyboard = event instanceof KeyboardEvent;
+      // Mode switching leaves focus in this toolbar. Its document scroll keys
+      // still navigate the preview; menu/dialog controls retain their own input.
+      const toolbarKey = keyboard && target.closest('[data-testid="editor-toolbar"]');
+      if (!root.contains(target) && !ancestors.has(target as HTMLElement) && !toolbarKey) return;
+      if (target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="dialog"], [role="menu"]')) return;
+      if (keyboard && !['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].includes(event.key)) return;
+      if (target.closest('button') && (!keyboard || event.key === ' ')) return;
       // Pointer gestures outside the body are only relevant on its own scroll
       // surfaces (including the browser scrollbar), never a sibling panel.
       if (event.type === 'pointerdown' && !ancestors.has(target as HTMLElement)) return;
