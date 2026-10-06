@@ -10,6 +10,8 @@
 
 ## 最近完成
 
+- [document-fullpage-layout-20261006](archive/document-fullpage-layout-20261006/brief.md)：全页白色文档画布、统一排版、实际面板占位与手机路径完成；1991cc89、独立审查、2016tests、最终生产构建/1280/1600/390验收和独立清理通过，未部署。
+
 - [document-workspace-completion-20261006](archive/document-workspace-completion-20261006/brief.md)：剩余5项完成；独立复审0未关闭问题，2006客户端测试、生产构建/桌面与390px验收、原文/API回读及独立环境清理通过；未合并部署。
 
 - [document-workspace-polish-20261006](archive/document-workspace-polish-20261006/brief.md)：候选差异聚焦、笔记筛选及批量选择完成，独立审查0未关闭问题，1865客户端测试与最终128项定向测试通过，生产构建浏览器验收和环境清理完成；未合并或部署。
