@@ -6,7 +6,10 @@ import {
   type APIResponse,
   type Page,
 } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import { resolveE2ETarget } from '../src/config/localTargets';
+
+const localSyncPackage = JSON.parse(readFileSync(new URL('../../../packages/local-sync/package.json', import.meta.url), 'utf8')) as { name: string; version: string };
 
 const apiBaseUrl = resolveE2ETarget({
   configured: process.env.AGENTWIKI_API_URL,
@@ -154,7 +157,7 @@ test.beforeAll(async () => {
   const installation = await json<Installation>(
     await api.post(`agents/${agentId}/local-sync-installations`, {
       headers: ownerHeaders(),
-      data: { spaceId, role: 'publisher', pluginVersion: '0.7.0' },
+      data: { spaceId, role: 'publisher', pluginVersion: localSyncPackage.version },
     }),
     'authorize collaboration Agent for the Space',
   );

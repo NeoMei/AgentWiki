@@ -75,14 +75,17 @@ test('desktop editor uses one surface and persists language selection', async ({
   await expect(page.getByTestId('md-editor-surface')).toHaveAttribute('aria-label', 'Edit mode');
   await expect(page.locator('.cm-content[contenteditable="true"]')).toHaveCount(1);
   await expect(page.getByTestId('mode-toggle')).toHaveAttribute('aria-label', 'Preview');
-  await expect(page.getByTestId('mode-toggle')).toHaveAttribute('aria-pressed', 'true');
+  // This is a labelled action (Preview / Return to edit), not a pressed-state toggle.
+  await expect(page.getByTestId('mode-toggle')).toHaveText('Preview');
   await expect(page.getByRole('heading', { name: 'Preview heading' })).toHaveCount(0);
   await page.screenshot({ path: path.join(artifacts, 'editor-desktop-edit.png'), fullPage: true });
 
   await page.getByTestId('mode-toggle').click();
   await expect(page.getByTestId('md-editor-surface')).toHaveAttribute('aria-label', 'Preview mode');
-  await expect(page.getByTestId('mode-toggle')).toHaveAttribute('aria-label', 'Edit');
-  await expect(page.getByTestId('mode-toggle')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('mode-toggle')).toHaveAttribute('aria-label', 'Return to edit');
+  await expect(page.getByTestId('mode-toggle')).toHaveText('Return to edit');
+  await expect(page.locator('.cm-content[contenteditable="true"]')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Preview heading' })).toBeVisible();
 
   await page.getByTestId('mode-toggle').click();
   await expect(page.locator('.cm-content[contenteditable="true"]')).toHaveCount(1);
@@ -92,9 +95,14 @@ test('desktop editor uses one surface and persists language selection', async ({
   await expect(page.locator('.cm-content[contenteditable="true"]')).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Switch language' }).click();
-  await expect(page.getByTestId('mode-toggle')).toHaveAttribute('aria-label', '编辑');
+  await expect(page.getByTestId('mode-toggle')).toHaveAttribute('aria-label', '返回编辑');
+  await expect(page.getByTestId('md-editor-surface')).toHaveAttribute('aria-label', '预览状态');
   await page.reload();
   await expect(page.getByTestId('mode-toggle')).toHaveAttribute('aria-label', '预览');
+  await expect(page.getByTestId('md-editor-surface')).toHaveAttribute('aria-label', '编辑状态');
+  await expect(page.locator('.cm-content[contenteditable="true"]')).toHaveCount(1);
+  await expect(page.getByRole('heading', { name: 'Preview heading' })).toHaveCount(0);
+  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN');
   expect(consoleErrors).toEqual([]);
 });
 
