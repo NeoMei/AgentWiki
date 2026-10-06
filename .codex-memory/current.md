@@ -1,6 +1,6 @@
 # 当前目标
 
-- OpenKnowledge借鉴的文档体验优化已完成本地实施、独立审查与验收；保留分支供后续集成。
+- 文档体验第二轮优化：候选差异更易审阅、个人笔记队列与批量选择更顺手。
 
 # 范围 / 不做
 
@@ -8,6 +8,8 @@
 - 本轮无生产变更、合并、push、发布或部署；不复制GPL源码，不引入CRDT/schema迁移。
 
 # 当前状态
+
+- 第二轮从28e07dbd继续，状态为实施中；活跃任务document-workspace-polish-20261006。下面为第一轮已验证基线。
 
 - 工作树 /Users/neomei/.codex/worktrees/document-workspace/AgentWiki （尾空格），分支codex/document-workspace，产品候选897aa3f8，基线c7b89567。后续提交仅验收与项目交接文档。
 - 六项计划、逐项独立复审、整分支审查均完成，最终Ready to merge Yes/0finding。6243通过/6skip，全仓typecheck/lint0errors/build通过。实际本地及生产构建浏览器关键流程通过。
@@ -20,6 +22,8 @@
 - 个人笔记是本机私人数据；发送不等于解决，歧义保持待审。
 
 # 关键索引
+
+- .codex-memory/tasks/active/document-workspace-polish-20261006/brief.md
 
 - .codex-memory/tasks/archive/document-workspace-20261006/brief.md
 - agentwiki/docs/verification/document-workspace-20261006/acceptance.md
