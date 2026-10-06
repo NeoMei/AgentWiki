@@ -1,9 +1,48 @@
-# Tasks
+<!-- codex-memory:template=tasks-index:v1 -->
 
-## Active
+# 活跃任务索引
 
-- [document-workspace-polish-20261006](active/document-workspace-polish-20261006/brief.md)：候选差异与个人笔记队列第二轮优化。
+## 活跃任务
 
-## Archive
+- [document-workspace-polish-20261006](active/document-workspace-polish-20261006/brief.md)：候选差异与个人笔记队列第二轮优化实施中。
 
-- [document-workspace-20261006](archive/document-workspace-20261006/brief.md)：第一轮文档体验实施与验收。
+- [q2-defect-closure-20261001](active/q2-defect-closure-20261001/brief.md)：全部20项及2条接入问题修复部署，公网TLS已验证，其余顺序实施与审查。
+
+- [q3-regressions-20260914](archive/q3-regressions-20260914/brief.md)：Q3人工报告20项代码修复、整分支独立复审与候选验收完成；未发布部署或安装日常Vault。
+
+## 最近完成
+
+- [document-workspace-20261006](archive/document-workspace-20261006/brief.md)：六项优化、独立任务/整分支审查、本地及构建产物浏览器验收完成；6243通过/6跳过，未合并或部署。
+
+- [template-guidance-20260910](archive/template-guidance-20260910/brief.md)：v0.11.2 已发布部署；六套 41 篇文档双语指南补齐，版本保护及生产验收通过；已有 7 篇空页面保持，补入指南待用户选择。
+
+- [new-content-page-20260910](archive/new-content-page-20260910/brief.md)：v0.11.1已合并、发布并部署；Space自定义模板能力保留，生产真实Chrome桌面/手机尺寸验收通过，详见发布记录。
+
+- [connection-ux-20260909](archive/connection-ux-20260909/brief.md)：应用0.11.0、npm0.10.0、独立插件0.5.0及生产部署完成；5588+1353项检查、真实客户端成功路径、正式包线上接入读页、32 API烟测及官方资产验证通过。
+
+- [full-audit-20260909](archive/full-audit-20260909/brief.md)：0.10.2全面复审修复及生产验收完成；5494pass，DB207零skip；2项Windows原生未运行；依赖audit0、独立审查C0/I0/M0。
+
+- [release-v0101](archive/release-v0101/brief.md)：0.10.1生产部署与新旧标签页公网验收完成；5463pass/3平台skip，GitHub v0.10.1正式发布。
+
+- [reading-workspace](archive/reading-workspace/brief.md)：v0.10.0已部署及公网验收，5454pass/3平台skip，独立审查0问题；GitHub v0.10.0已发布，未改同步包版本。
+
+- [composite-page-group-agent-collaboration-templates](archive/composite-page-group-agent-collaboration-templates/brief.md)：A+实现、v0.8.0+PR9整合和本地master合并完成；独立审查无未关闭问题，主目录5212pass/0fail/3skip、DB175零skip、原有46文件/5子模块哈希保留。未push/发布/部署，验收与工作树保留。
+
+- [post-sync-final-audit-2026-09-04](archive/post-sync-final-audit-2026-09-04/brief.md)：整合 GitHub onboarding 热修复后完成四轮任务/代码/全栈/真实 UI 审查，修复四类问题；`206d285` clean worktree 4266 pass / 0 fail / 3 skip，Chrome 28/28，静态、audit、CodeGraph 和精确清理通过。Mac PASS，未 push。
+- [final-release-candidate-audit-2026-09-04](archive/final-release-candidate-audit-2026-09-04/brief.md)：最终代码 `e94fa7b` 完成多轮任务、整分支代码、前后端和真实 UI 审查；工作树与 clean clone 均 4262 pass / 0 fail / 3 skip，Chrome 26/26，静态、CodeGraph、audit 和精确清理通过。Mac PASS；Windows same-code native 与 Assist 外部凭据仍为独立边界，未 push。
+- [macos-release-verification-2026-09-04](archive/macos-release-verification-2026-09-04/brief.md)：针对最后一个 Windows launcher/timeout 缺口完成第二轮 TDD 修复；`4a9ac92` clean-clone 全仓 4209/0/3、真实 CodeGraph 1/1、Chrome Playwright 25/25 及独立零 finding 复审通过，最终 PASS；仅本地提交，未 push。
+- [windows-release-readiness-2026-09-04](archive/windows-release-readiness-2026-09-04/brief.md)：Windows 缺陷报告驱动的本地同步、服务端、客户端与根脚本修复完成多轮审查；最终 4044 pass / 79 skip / 0 fail，typecheck、lint、build、零已知依赖漏洞与公开页面桌面/移动 Browser 验收通过，数据库型 E2E 因本机无隔离服务环境明确留待补验。
+- [page-template-library](archive/page-template-library/brief.md)：单页系统模板与 Space 自定义模板完成多轮任务/代码/全栈/UI 审查、GitHub 推送、生产双备份、第 43 个迁移与公网真实 Chrome 验收；npm 包无差异，未发布 npm。
+- [collaboration-agent-preparation](archive/collaboration-agent-preparation/brief.md)：协作向导内 Agent 准备、接入、映射与权限闭环已完成 GitHub 和生产发布；双备份、727 文件哈希、服务/迁移/公网健康及桌面/390px 已登录 Browser 验收全部通过。
+- [collaboration-release-finalization-2026-08-24](archive/collaboration-release-finalization-2026-08-24/brief.md)：协作模板完成多轮任务/代码/全栈/UI 审查、GitHub 与 npm `0.6.1/0.3.0` 发布、生产双备份部署及公网双轮烟测；活跃测试 fixture 与测试 schema 均清零。
+- [agent-collaboration-templates](archive/agent-collaboration-templates/brief.md)：五类协作模板、任务/Todo/依赖/审核/交接组件、六个 MCP 工具与 Space UI 已完成四轮审查和全栈验收；本地候选达到发布标准，GitHub、npm 与生产仍等待独立授权。
+- [comprehensive-security-reliability-audit-2026-08-23](archive/comprehensive-security-reliability-audit-2026-08-23/brief.md)：多轮全仓安全与可靠性审查、Local Sync 0.5.1 npm 发行和生产部署完成；授权 TOCTOU、Run 身份升级、WebSocket、Memory、限流、Git/Local Sync 边界和 Obsidian 单页连接均已上线并验收。
+- [unified-agent-access-roles](archive/unified-agent-access-roles/brief.md)：reader/editor/publisher 单一 `Space + role` 接入授权、单一 Grant 权限源、npm 0.5.0/0.2.0、GitHub 与生产发布完成；公网权限烟测 31/31、浏览器入口和三角色界面验收通过。
+- [codegraph-local-code-analysis](archive/codegraph-local-code-analysis/brief.md)：CodeGraph 标准扫描切换、Codebase Memory 移除、三客户端验收和五轮最终审查完成；2026-08-20 已发布 npm 0.4.0、更新 GitHub、完成备份优先的生产部署与公网 smoke。深度分析仍为以后用户显式触发的独立第二阶段。
+- [unified-agentwiki-mcp-fix](archive/unified-agentwiki-mcp-fix/brief.md)：消除 Credential 与本地同步两套 MCP 接入指令，统一为 0.3.7 单一 `agentwiki` gateway；发布、生产部署与三客户端公网 E2E 均已完成（2026-08-15，2026-08-18 归档复核）。
+- [obsidian-sync-v1](archive/obsidian-sync-v1/brief.md)：浏览器协议包、人类设备身份、通用 `/api/sync/v1`、两阶段迁移、生产部署及公网全链路验收（2026-08-14）。
+- [agent-self-service-onboarding](archive/agent-self-service-onboarding/brief.md)：网页 Device Auth、NDJSON、单一 gateway MCP、首次扫描同步、npm 0.3.1 与生产三客户端/UI 验收（2026-08-11）。
+- [local-knowledge-sync](archive/local-knowledge-sync/brief.md)：零配置本地知识编排、真实代码扫描、双向同步、冲突与审批删除（2026-08-10）。
+- [space-add-agent-member](archive/space-add-agent-member/brief.md)：Space 统一添加用户/智能体成员及桌面/移动端浏览器验收（2026-08-10）。
+- [opencode-model-fallback](archive/opencode-model-fallback/brief.md)：服务端 OpenCode 免费优先、付费模型自动成本路由、共享熔断与成本记录（2026-08-06）。
+- [platform-admin-console](archive/platform-admin-console/brief.md)：平台超管统计、用户查询、默认密码重置、锁定/解锁与软删除（2026-08-06）。
