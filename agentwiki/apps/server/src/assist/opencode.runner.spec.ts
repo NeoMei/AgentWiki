@@ -1,8 +1,8 @@
 import { EventEmitter } from 'events';
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { PassThrough } from 'stream';
+import { PassThrough, Writable } from 'stream';
 import { spawn } from 'child_process';
 import { OpencodeCliRunner } from './opencode.runner';
 
@@ -107,6 +107,66 @@ describe('OpencodeCliRunner', () => {
     expect(() => (runner as any).parse(output, 'question')).toThrow(expect.objectContaining({ code: 'output_limit' }));
   });
 
+  it('passes a large Chinese prompt to a real fixture CLI through stdin, never argv', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'agentwiki-stdin-test-'));
+    const script = join(directory, 'capture.cjs');
+    const captured = join(directory, 'received.json');
+    writeFileSync(script, `const fs = require('fs'); let input = ''; process.stdin.setEncoding('utf8');
+      process.stdin.on('data', chunk => input += chunk);
+      process.stdin.on('end', () => {
+        fs.writeFileSync(${JSON.stringify(captured)}, JSON.stringify({ input, argv: process.argv.slice(2) }));
+        process.stdout.write(JSON.stringify({ type: 'text', part: { text: JSON.stringify({ summary: String(Buffer.byteLength(input)), changes: 'fixture result' }) } }));
+      });`);
+    let child: ReturnType<typeof spawn> | undefined;
+    const actualSpawn = jest.requireActual<typeof import('child_process')>('child_process').spawn;
+    (spawn as jest.Mock).mockImplementationOnce((...args: Parameters<typeof spawn>) => { child = actualSpawn(...args); return child; });
+    const prompt = '中'.repeat(90_000);
+    try {
+      const runner = new OpencodeCliRunner({ get: (key: string) => key === 'OPENCODE_BIN' ? script : undefined } as any);
+      const result = await runner.runModel(prompt, 'fixture/model', 10_000);
+      expect(result.summary).toBe('270000');
+      const received = JSON.parse(readFileSync(captured, 'utf8'));
+      expect(received.input).toBe(prompt);
+      expect(received.argv).toEqual(['--pure', 'run', '--model', 'fixture/model', '--thinking', '--format', 'json']);
+    } finally { child?.kill('SIGKILL'); rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  it('cancels while prompt input is backpressured and safely absorbs a late EPIPE', async () => {
+    const child = childProcess();
+    child.stdin = new Writable({ write(_chunk, _encoding, _callback) { /* fixture never consumes */ } });
+    const abort = new AbortController();
+    const promise = new OpencodeCliRunner(config).runModel('中'.repeat(90_000), 'fixture/model', 10_000, undefined, { signal: abort.signal });
+    const pendingBytes = child.stdin.writableLength;
+    abort.abort();
+    child.emit('close', null);
+    await expect(promise).rejects.toMatchObject({ code: 'cancelled', scope: 'global' });
+    expect(pendingBytes).toBeGreaterThan(0);
+    expect(child.stdin.destroyed).toBe(true);
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(() => child.stdin.emit('error', Object.assign(new Error('broken pipe'), { code: 'EPIPE' }))).not.toThrow();
+  });
+
+  it('turns an input EPIPE into a global failure and terminates the child', async () => {
+    const child = childProcess();
+    const promise = new OpencodeCliRunner(config).runModel('prompt', 'fixture/model', 10_000);
+    let unhandled: unknown;
+    try { child.stdin.emit('error', Object.assign(new Error('broken pipe'), { code: 'EPIPE' })); }
+    catch (error) { unhandled = error; }
+    child.emit('close', 1);
+    await expect(promise).rejects.toMatchObject({ code: 'process_error', scope: 'global' });
+    expect(unhandled).toBeUndefined();
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+  });
+
+  it('terminates the already-spawned child when writing stdin throws synchronously', async () => {
+    const child = childProcess();
+    jest.spyOn(child.stdin, 'end').mockImplementation(() => { throw new Error('input failed'); });
+    const promise = new OpencodeCliRunner(config).runModel('prompt', 'fixture/model', 10_000);
+    child.emit('close', 1);
+    await expect(promise).rejects.toMatchObject({ code: 'process_error', scope: 'global' });
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+  });
+
   it('tells the model the exact editable range while keeping full markdown output', () => {
     const prompt = new OpencodeCliRunner(config).buildPrompt({ intent: 'rewrite', pageSnapshot: {
       content: 'pre OLD post', updatedAt: '2026-01-01T00:00:00.000Z', assistTarget: {
@@ -187,7 +247,7 @@ describe('OpencodeCliRunner', () => {
     const execution = runner.runModel('prompt', 'opencode/big-pickle', 10_000);
 
     expect(spawn).toHaveBeenCalledWith('opencode', [
-      '--pure', 'run', '--model', 'opencode/big-pickle', '--thinking', '--format', 'json', 'prompt',
+      '--pure', 'run', '--model', 'opencode/big-pickle', '--thinking', '--format', 'json',
     ], expect.objectContaining({ env: expect.any(Object), cwd: expect.stringContaining('agentwiki-assist-') }));
     const childEnv = (spawn as jest.Mock).mock.calls[0][2].env;
     expect(childEnv).not.toHaveProperty('DATABASE_URL');

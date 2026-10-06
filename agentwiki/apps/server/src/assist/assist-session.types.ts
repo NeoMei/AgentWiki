@@ -26,6 +26,9 @@ export interface AgentSessionContext {
   annotations?: AgentTurnAnnotation[];
 }
 export interface AgentHistoryTurn {
+  /** Captured at send time; never replaced with current Page bodies. */
+  pageSnapshot: Record<string, unknown> | null;
+  references: AgentSessionContext['references'];
   intent: string; answer: string; mode: AgentTurnMode; pageId: string | null; changes?: string; annotations?: AgentTurnAnnotation[];
 }
 

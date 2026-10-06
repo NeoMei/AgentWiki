@@ -92,8 +92,10 @@ Limits count JavaScript UTF-16 characters, including JSON encoding where stated:
 - 100,000 serialized snapshot plus context characters. References are never silently dropped.
 - History is the newest contiguous suffix of at most 10 completed turns within
   120,000 serialized characters. `historyWindow` explicitly reports included and
-  omitted counts to the runtime; history contains canonical answers/candidates and
-  explicitly sent annotations. Failed/cancelled turns are not replayed as answers.
+  omitted counts to the runtime; history contains canonical answers/candidates,
+  explicitly sent annotations, the original Page snapshot and server-captured
+  reference contents/title/version. These immutable sources share the same total
+  window (including JSON array framing); current bodies never replace them. Failed/cancelled turns are not replayed as answers.
 - An answer is at most 50,000 characters; combined serialized `summary`/`changes`
   is at most 100,000. Oversized output fails rather than truncating a document.
   The public task error is `Assistant output exceeds the limit (answer 50000; total 100000 characters)`.
@@ -107,7 +109,10 @@ provide database backstops. Small bounded retries re-read winners after unique o
 serialization conflicts. Task/source/owner bindings are validated on every read
 and execution boundary. A removed source or revoked membership fails closed,
 including historical turns; source updates preserve readable historical versions
-but prevent execution/publication of a stale active snapshot.
+but prevent execution/publication of a stale active snapshot. The list omits
+individual conversations whose sources or proposal permissions became inaccessible,
+without disclosing their titles. Other/new conversations remain discoverable;
+direct reads/sends stay fail-closed and database errors still propagate.
 
 ## Runtime port and cancellation
 
@@ -124,6 +129,17 @@ mode, captured snapshot, canonical explicit context, bounded history/window,
 steps. It is step-level progress, not token streaming. It excludes raw JSON,
 reasoning, tools, usage and synthetic timeline events. REST polling of persisted
 turns is the authoritative session transport. Legacy events remain separate.
+
+Both the HTTP and standalone worker modules register `AssistSessionService`;
+Nest treats the queue dependency as required, so a missing runtime binding fails
+startup instead of silently failing queued session turns.
+
+Prompt text is written to the child's UTF-8 stdin followed by EOF, rather than
+being placed in argv. This avoids Linux per-argument limits for long/multibyte
+context. Cancellation destroys pending input; EPIPE or synchronous write errors
+terminate the child as a global runtime failure. The stdin error sink remains
+through stream teardown to absorb late pipe errors. This uses the non-TTY stdin
+support in [OpenCode 1.18.12 run](https://github.com/anomalyco/opencode/blob/v1.18.12/packages/opencode/src/cli/cmd/run.ts).
 
 The worker polls persisted cancellation, live authorization and lease ownership
 every 500 ms and has an independent lease-deadline timer. An abort sends SIGTERM

@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, HttpException, Injectable, NotF
 import { ConfigService } from '@nestjs/config';
 import { AssistSession, AssistTask, Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { BusinessException } from '../core/filters/business-error';
 import { AuthorizationService } from '../core/authorization/authorization.service';
 import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.service';
 import { assertAssistTargetVersion, validateAssistTarget } from './assist-target';
@@ -9,6 +10,9 @@ import {
   AGENT_OUTPUT_LIMIT_ERROR, AGENT_SESSION_LIMITS as LIMIT, AgentHistoryTurn, AgentSessionContext, AgentSessionDetail,
   AgentSessionSummary, AgentTurnMode, AgentTurnRequest, AgentTurnStatus, AgentTurnView,
 } from './assist-session.types';
+
+/** A single conversation has lost its source; unrelated sessions remain usable. */
+class InaccessibleSessionException extends BadRequestException {}
 
 const readRoles = ['owner', 'admin', 'editor', 'viewer'] as const;
 const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -36,10 +40,20 @@ export class AssistSessionService {
     return this.prisma.$transaction(async tx => {
       await this.lockAccess(tx, userId, spaceId);
       const sessions = await tx.assistSession.findMany({ where: { spaceId, requestedByUserId: userId }, orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }], take: LIMIT.sessions });
-      // Titles can contain user-supplied source text too. Fail closed if any
-      // returned conversation has lost access to a referenced source.
-      for (const session of sessions) await this.authorizedTurns(tx, session);
-      return sessions.map(session => this.summary(session));
+      // A title may quote private source text. Omit the entire inaccessible
+      // conversation, while allowing other/new sessions to be discovered.
+      const visible: AgentSessionSummary[] = [];
+      for (const session of sessions) {
+        try {
+          await this.authorizedTurns(tx, session);
+          visible.push(this.summary(session));
+        } catch (error) {
+          if (error instanceof InaccessibleSessionException
+            || (error instanceof BusinessException && error.businessCode === 'SPACE_ACCESS_DENIED')) continue;
+          throw error; // Database failures and corrupt data must stay observable.
+        }
+      }
+      return visible;
     });
   }
 
@@ -130,13 +144,15 @@ export class AssistSessionService {
     assertAssistTargetVersion(validateAssistTarget(snapshot), source.updatedAt);
     const completed = turns.slice(0, currentIndex).filter(turn => turn.status === 'done');
     const history: AgentHistoryTurn[] = [];
-    let characters = 0;
+    let characters = 2; // Serialized array brackets also count toward the window.
     for (const turn of completed.slice(-LIMIT.historyTurns).reverse()) {
       const result = this.publicResult(turn);
       const item: AgentHistoryTurn = { intent: turn.intent, answer: result?.summary || '', mode: turn.mode as AgentTurnMode, pageId: turn.pageId,
+        pageSnapshot: isObject(turn.pageSnapshot) ? turn.pageSnapshot : null,
+        references: this.context(turn).references,
         ...(result?.changes ? { changes: result.changes } : {}),
         ...(this.context(turn).annotations ? { annotations: this.context(turn).annotations } : {}) };
-      const size = JSON.stringify(item).length;
+      const size = JSON.stringify(item).length + (history.length ? 1 : 0);
       if (characters + size > LIMIT.history) break;
       history.unshift(item); characters += size;
     }
@@ -164,12 +180,12 @@ export class AssistSessionService {
     for (const turn of turns) {
       if (turn.requestedByUserId !== session.requestedByUserId || turn.spaceId !== session.spaceId || !['question', 'proposal'].includes(turn.mode)) throw new BadRequestException('Invalid session binding');
       const context = this.context(turn);
-      if (turn.pageId !== context.pageId) throw new BadRequestException('Session source is no longer available');
+      if (turn.pageId !== context.pageId) throw new InaccessibleSessionException('Session source is no longer available');
       sourceIds.add(context.pageId);
       context.references.forEach(ref => sourceIds.add(ref.pageId));
     }
     if (turns.some(turn => turn.mode === 'proposal')) await this.authorization.assertLiveHumanSpaceAccess(tx, { userId: session.requestedByUserId }, session.spaceId, ['owner', 'editor']);
-    if (sourceIds.size && await tx.page.count({ where: { id: { in: [...sourceIds] }, spaceId: session.spaceId, deletedAt: null } }) !== sourceIds.size) throw new BadRequestException('Session page must exist in the selected Space');
+    if (sourceIds.size && await tx.page.count({ where: { id: { in: [...sourceIds] }, spaceId: session.spaceId, deletedAt: null } }) !== sourceIds.size) throw new InaccessibleSessionException('Session page must exist in the selected Space');
     return turns;
   }
 

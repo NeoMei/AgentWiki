@@ -1,3 +1,4 @@
+import { AssistQueue } from './assist.queue';
 import { AssistSessionService } from './assist-session.service';
 import { AuthorizationService } from '../core/authorization/authorization.service';
 import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.service';
@@ -92,6 +93,82 @@ describe('AssistSessionService', () => {
     await expect(service.get('session1', 'u1')).rejects.toThrow();
     await expect(service.list('s1', 'u1')).rejects.toThrow();
   });
+  it('replays immutable prior page and reference contents for a cross-page follow-up', async () => {
+    pages[0].content = 'Original A detail: A_UNQUOTED_714';
+    pages[1].content = 'Original R detail: R_UNQUOTED_829';
+    pages.push({ id: 'p3', spaceId: 's1', title: 'B', content: 'Current B', updatedAt: new Date(version) });
+    await service.send('session1', 'u1', request({ referencePageIds: ['p2'] }));
+    tasks[0].status = 'done'; tasks[0].result = { summary: 'A is a document. The source details were not quoted.' };
+    // The model must receive the captured originals, not current source bodies.
+    pages[0].content = 'Changed A'; pages[0].updatedAt = new Date('2026-02-01');
+    pages[1].content = 'Changed R'; pages[1].updatedAt = new Date('2026-02-01');
+    await service.send('session1', 'u1', request({ clientRequestId: 'followup', pageId: 'p3', intent: 'What were the original A and R details?' }));
+    const runtime = { run: jest.fn().mockResolvedValue({ summary: 'Follow-up answer' }) };
+    db.assistTask.count = async () => 1;
+    db.assistTask.updateMany = async () => ({ count: 1 });
+    const queue = new AssistQueue(db, { get: () => undefined } as any, runtime, {} as any,
+      new AuthorizationService(db), new SpaceRevisionWriterService(db, {} as any), service);
+    await (queue as any).processOne({ ...tasks[1], leaseExpiresAtMs: Date.now() + 60_000 });
+    expect(runtime.run).toHaveBeenCalledTimes(1);
+    const input = runtime.run.mock.calls[0][0];
+    expect(JSON.stringify(input.history)).toContain('A_UNQUOTED_714');
+    expect(JSON.stringify(input.history)).toContain('R_UNQUOTED_829');
+    expect(input.history[0]).toMatchObject({
+      pageSnapshot: { title: 'p1', content: 'Original A detail: A_UNQUOTED_714', updatedAt: version },
+      references: [{ pageId: 'p2', title: 'p2', content: 'Original R detail: R_UNQUOTED_829', updatedAt: version }],
+    });
+    expect(JSON.stringify(input.history)).not.toContain('Changed A');
+    expect(JSON.stringify(input.history)).not.toContain('Changed R');
+    expect(input.historyWindow).toMatchObject({ included: 1, omitted: 0 });
+    expect(JSON.stringify(input.history).length).toBeLessThanOrEqual(120_000);
+  });
+
+  it('counts immutable history sources and JSON framing within the 120000-character window', async () => {
+    pages[0].content = 'a'.repeat(40_000);
+    pages[1].content = 'r'.repeat(39_000);
+    pages.push({ id: 'p3', spaceId: 's1', title: 'B', content: 'B', updatedAt: new Date(version) });
+    await service.send('session1', 'u1', request({ referencePageIds: ['p2'] }));
+    tasks[0].status = 'done'; tasks[0].result = { summary: 's'.repeat(40_000) };
+    await service.send('session1', 'u1', request({ clientRequestId: 'next', pageId: 'p3' }));
+    const initial = await service.executionContext(db, tasks[1]);
+    expect(initial.history).toHaveLength(1);
+    const itemLength = JSON.stringify(initial.history[0]).length;
+    tasks[0].result.summary += 's'.repeat(120_000 - itemLength);
+    expect(tasks[0].result.summary.length).toBeLessThanOrEqual(50_000);
+    const bounded = await service.executionContext(db, tasks[1]);
+    expect(JSON.stringify(bounded.history).length).toBeLessThanOrEqual(120_000);
+    expect(bounded.historyWindow).toMatchObject({ included: 0, omitted: 1 });
+  });
+
+  it.each(['deleted-source', 'moved-reference', 'proposal-role-loss'])('omits only the inaccessible %s session from list without leaking its title', async reason => {
+    role = reason === 'proposal-role-loss' ? 'editor' : 'viewer';
+    const bad = { ...session, title: 'PRIVATE INACCESSIBLE TITLE' };
+    session = bad;
+    await service.send(bad.id, 'u1', request({ mode: reason === 'proposal-role-loss' ? 'proposal' : 'question', referencePageIds: reason === 'moved-reference' ? ['p2'] : [] }));
+    tasks[0].status = 'done'; tasks[0].result = { summary: 'private historical answer' };
+    const good = { ...session, id: 'good', title: 'Good conversation' };
+    const fresh = { ...session, id: 'fresh', title: 'New conversation' };
+    db.assistSession.findMany.mockResolvedValue([bad, good, fresh]);
+    db.assistSession.findFirst = async ({ where }: any) => [bad, good, fresh].find(row => row.id === where.id && row.requestedByUserId === where.requestedByUserId) ?? null;
+    if (reason === 'deleted-source') pages = pages.filter(page => page.id !== 'p1');
+    if (reason === 'moved-reference') pages[1].spaceId = 'foreign';
+    if (reason === 'proposal-role-loss') role = 'viewer';
+    const summaries = await service.list('s1', 'u1');
+    expect(summaries.map(row => row.id)).toEqual(['good', 'fresh']);
+    expect(JSON.stringify(summaries)).not.toContain('PRIVATE');
+    expect(JSON.stringify(summaries)).not.toContain('private historical answer');
+    await expect(service.get(bad.id, 'u1')).rejects.toThrow();
+    await expect(service.send(bad.id, 'u1', request({ clientRequestId: 'after-loss' }))).rejects.toThrow();
+    await expect(service.get(good.id, 'u1')).resolves.toMatchObject({ id: 'good', turns: [] });
+  });
+
+  it('propagates database failures from session list validation', async () => {
+    await service.send('session1', 'u1', request());
+    const unavailable = Object.assign(new Error('Database unavailable'), { code: 'P1001' });
+    db.page.count = async () => { throw unavailable; };
+    await expect(service.list('s1', 'u1')).rejects.toBe(unavailable);
+  });
+
   it('uses canonical completed answers in bounded model history', async () => {
     await service.send('session1', 'u1', request());
     tasks[0].status = 'done'; tasks[0].result = { summary: 'previous answer', raw: 'SECRET', model: 'hidden' };

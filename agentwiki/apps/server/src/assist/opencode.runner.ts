@@ -39,7 +39,7 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
   async run(task: AssistInput): Promise<AssistRunResult> {
     const prompt = this.buildPrompt(task);
     const timeoutMs = Number(this.config.get('ASSIST_OPENCODE_TIMEOUT_MS') || 180_000);
-    const output = await this.exec(['run', '--format', 'json', prompt], timeoutMs, 'model', task.onStreamChunk, task.signal, task.onAnswerText, task.mode);
+    const output = await this.exec(['run', '--format', 'json'], timeoutMs, 'model', task.onStreamChunk, task.signal, task.onAnswerText, task.mode, prompt);
     const result = this.parse(output, task.mode);
     if (task.mode !== 'question') assertAssistOutputScope(task.pageSnapshot, result.changes);
     return result;
@@ -77,10 +77,10 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
 
   async runModel(prompt: string, model: string, timeoutMs: number, onStreamChunk?: StreamChunkCallback, options?: Pick<AssistInput, 'signal' | 'mode' | 'onAnswerText'>): Promise<OpencodeAttemptResult> {
     const output = await this.exec(
-      ['run', '--model', model, '--thinking', '--format', 'json', prompt],
+      ['run', '--model', model, '--thinking', '--format', 'json'],
       timeoutMs,
       'model',
-      onStreamChunk, options?.signal, options?.onAnswerText, options?.mode,
+      onStreamChunk, options?.signal, options?.onAnswerText, options?.mode, prompt,
     );
     return this.parse(output, options?.mode);
   }
@@ -123,7 +123,7 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
     return resolveOpencodeLaunchFile(target, platform);
   }
 
-  private exec(args: string[], timeoutMs: number, invocation: 'catalog' | 'model', onStreamChunk?: StreamChunkCallback, signal?: AbortSignal, onAnswerText?: StreamChunkCallback, mode?: AssistInput['mode']): Promise<string> {
+  private exec(args: string[], timeoutMs: number, invocation: 'catalog' | 'model', onStreamChunk?: StreamChunkCallback, signal?: AbortSignal, onAnswerText?: StreamChunkCallback, mode?: AssistInput['mode'], promptInput?: string): Promise<string> {
     if (signal?.aborted) return Promise.reject(this.executionError('cancelled', 'global'));
     const launch = this.resolveLaunch();
     const sandbox = mkdtempSync(join(tmpdir(), 'agentwiki-assist-'));
@@ -153,7 +153,6 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
           cwd: sandbox,
           shell: false,
         });
-        child.stdin.end();
       } catch (error) {
         rmSync(sandbox, { recursive: true, force: true });
         const code = (error as NodeJS.ErrnoException).code === 'ENOENT'
@@ -215,6 +214,7 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
         if (streamTimer) { clearInterval(streamTimer); streamTimer = null; }
         streamQueue = [];
         stopReading();
+        child.stdin.destroy();
         child.removeListener('error', onError);
         child.removeListener('close', onClose);
         rmSync(sandbox, { recursive: true, force: true });
@@ -226,6 +226,7 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
         if (streamTimer) { clearInterval(streamTimer); streamTimer = null; }
         streamQueue = [];
         clearTimeout(timer);
+        child.stdin.destroy();
         stopReading();
         child.kill('SIGTERM');
         forceKillTimer = setTimeout(() => {
@@ -236,6 +237,9 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
         settle(error);
       };
       const onAbort = () => terminate(this.executionError('cancelled', 'global', out));
+      const onInputError = () => {
+        if (!settled && !closed && !terminating) terminate(this.executionError('process_error', 'global', out));
+      };
       const emitStreamChunk = (data: Buffer | string) => {
         if ((!onStreamChunk && !onAnswerText) || terminating || signal?.aborted) return;
         const chunk = data.toString();
@@ -335,8 +339,17 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
       child.stderr.on('data', onStderr);
       child.on('error', onError);
       child.on('close', onClose);
+      // Keep an error sink for this stream's lifetime: cancellation can race a
+      // pending pipe write, whose EPIPE arrives after the process has closed.
+      child.stdin.on('error', onInputError);
       signal?.addEventListener('abort', onAbort, { once: true });
       if (signal?.aborted) onAbort();
+      else {
+        // OpenCode reads non-TTY stdin until EOF. Avoid Linux's per-argument
+        // size cap and keep document text out of the process argument list.
+        try { child.stdin.end(promptInput || '', 'utf8'); }
+        catch { onInputError(); }
+      }
     });
   }
 

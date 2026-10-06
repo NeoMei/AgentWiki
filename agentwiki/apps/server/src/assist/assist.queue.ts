@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger, Optional, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
@@ -39,7 +39,7 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
     private readonly collaborationGateway: CollaborationGateway,
     private readonly authorization: AuthorizationService,
     private readonly revisionWriter: SpaceRevisionWriterService,
-    @Optional() private readonly sessions?: AssistSessionService,
+    private readonly sessions?: AssistSessionService,
   ) {}
 
   async onModuleInit() {
