@@ -124,7 +124,9 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
     const trigger = triggerRef.current;
     if (!trigger) return;
     const bounds = trigger.getBoundingClientRect();
-    const canvas = wrapperRef.current?.closest<HTMLElement>('.document-canvas');
+    // Reading toolbar and canvas are siblings; edit mode may not mount a preview root.
+    const canvas = articleRootRef.current?.closest<HTMLElement>('.document-canvas')
+      ?? wrapperRef.current?.closest<HTMLElement>('.document-canvas');
     const available = window.innerWidth - Math.max(0, canvas?.getBoundingClientRect().left ?? 0) - 380;
     const resizeMax = Math.min(360, available);
     const width = Math.min(preferredWidth, resizeMax >= 200 && !mobile ? resizeMax : 360, Math.max(0, window.innerWidth - 32));
@@ -137,7 +139,7 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
       maxHeight: Math.max(0, window.innerHeight - top - 16),
       resizeMax,
     });
-  }, [wide, mobile, preferredWidth]);
+  }, [articleRootRef, wide, mobile, preferredWidth]);
 
   useEffect(() => {
     const root = articleRootRef.current;

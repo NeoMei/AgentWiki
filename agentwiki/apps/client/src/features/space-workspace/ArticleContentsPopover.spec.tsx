@@ -153,6 +153,31 @@ describe('ArticleContentsPopover', () => {
     fireEvent.keyDown(grip, { key: 'End' }); expect(panelPrefs().outlineWidth).toBe(300);
   });
 
+  it('uses the article canvas when the reading toolbar is its sibling without overwriting stored width', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 });
+    localStorage.setItem('agentwiki.workspace.v1:alice:wiki', JSON.stringify({ schemaVersion: 1, outlineOpen: true, outlineWidth: 360 }));
+    const articleRef = React.createRef<HTMLDivElement>();
+    let canvasLeft = 600;
+    render(<SpaceWorkspaceProvider userId="alice"><SpaceWorkspaceScope mode="read" spaceId="wiki" activeSection="pages" selectedFolderId={null} selectedPageId="reader" selectedPageFolderId={null} pageRefreshRequest={0} selectFolder={vi.fn()} reportPageIdentity={vi.fn()} requestPageRefresh={vi.fn()}><LanguageProvider>
+      <div data-reading-toolbar><ArticleContentsPopover articleRootRef={articleRef} spaceId="wiki" pageKey="reader" source="# A" /></div>
+      <article className="document-canvas" ref={(node) => { if (node) vi.spyOn(node, 'getBoundingClientRect').mockImplementation(() => ({ left: canvasLeft } as DOMRect)); }}><div ref={articleRef}><h1 id="a">A</h1></div></article>
+    </LanguageProvider></SpaceWorkspaceScope></SpaceWorkspaceProvider>);
+    const grip = await screen.findByRole('separator', { name: 'Resize article contents' });
+    expect(screen.getByRole('navigation', { name: 'Contents' })).toHaveStyle({ width: '300px' });
+    expect(grip).toHaveAttribute('aria-valuemax', '300');
+    expect(panelPrefs().outlineWidth).toBe(360);
+    canvasLeft = 650; fireEvent.resize(window);
+    expect(screen.getByRole('navigation', { name: 'Contents' })).toHaveStyle({ width: '250px' });
+    expect(grip).toHaveAttribute('aria-valuemax', '250');
+    expect(panelPrefs().outlineWidth).toBe(360);
+    canvasLeft = 750; fireEvent.resize(window);
+    expect(screen.queryByRole('separator', { name: 'Resize article contents' })).not.toBeInTheDocument();
+    expect(panelPrefs().outlineWidth).toBe(360);
+    canvasLeft = 650; fireEvent.resize(window);
+    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize article contents' }), { key: 'End' });
+    expect(panelPrefs().outlineWidth).toBe(250);
+  });
+
   it('hides the trigger without headings and refreshes after deferred DOM changes and a page switch', async () => {
     const view = render(<Harness><p>No headings</p></Harness>);
     expect(screen.queryByRole('button', { name: 'Contents' })).not.toBeInTheDocument();
