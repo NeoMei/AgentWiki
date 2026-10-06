@@ -43,7 +43,7 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
     session.updateDraft({ intent: assistRequest.intent, targetKind: assistRequest.assistTarget?.kind ?? 'document', staged: { pageId, request: assistRequest } });
   }, [assistRequest?.id, session.loading, session.selected, scope]);
   const emit = (event: AssistNotesEvent['event'], candidate: AssistCandidate, editId?: string, dispatchRequest?: AssistNotesEvent['dispatchRequest']) => {
-    if (candidate.noteIds?.length && candidate.pageId === pageId && candidate.userId === userId && candidate.spaceId === spaceId) callbacks.current.onNotesEvent?.({ event, taskId: candidate.taskId, noteIds: candidate.noteIds, candidate, editId, acceptedEditIds: candidate.acceptedEditIds, ...(dispatchRequest ? { dispatchRequest } : {}) });
+    if (candidate.noteIds?.length && candidate.pageId === pageId && candidate.userId === userId && candidate.spaceId === spaceId) callbacks.current.onNotesEvent?.({ event, taskId: candidate.taskId, noteIds: candidate.noteIds, annotations: session.detail?.turns.find((turn) => turn.id === candidate.taskId)?.annotations, candidate, editId, acceptedEditIds: candidate.acceptedEditIds, ...(dispatchRequest ? { dispatchRequest } : {}) });
   };
   const restoreCandidate = (turn: AgentTurn) => {
     const record = candidateFromTurn(turn, userId, spaceId), ledger = store.ledger.get(turn.id);

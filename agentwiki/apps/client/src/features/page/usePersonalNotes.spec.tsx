@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { usePersonalNotes } from './usePersonalNotes';
 import { captureAssistTarget } from './assistTargets';
 import { completeAssistCandidate, type AssistCandidate } from './assistCandidate';
-import { personalNotesKey } from './reviewComments';
+import { addPersonalNote, personalNotesKey, savePersonalNotes } from './reviewComments';
+import type { AssistNotesEvent, AssistRequest } from './AgentAssistPanel';
 const scope={userId:'u',spaceId:'s',pageId:'p'}, version='2026-10-06T00:00:00Z', source='one\nkeep\ntwo\n';
 const first=captureAssistTarget(source,'selection',0,3,version)!, second=captureAssistTarget(source,'selection',9,12,version)!;
 const candidate=(ids:string[], target:any):AssistCandidate=>completeAssistCandidate({taskId:'task',pageId:'p',spaceId:'s',userId:'u',baseTitle:'T',baseContent:source,baseUpdatedAt:version,assistTarget:target,noteIds:ids,content:'',status:'generating'},'ONE\nkeep\nTWO\n');
@@ -150,10 +151,10 @@ it.each(['valid', 'wrong old task', 'wrong user', 'wrong Space', 'wrong page', '
   const old = completeAssistCandidate({ ...candidate([id], initial.assistTarget), status: 'generating' }, 'ONE\nkeep\ntwo\n');
   const initialProof = { ...scope, request: initial, snapshot: { title: 'T', content: source, updatedAt: version } };
   act(() => {
-    result.current.onNotesEvent({ event: 'dispatch', taskId: 'task', noteIds: [id], candidate: old, dispatchRequest: initialProof });
+    result.current.onNotesEvent({ event: 'dispatch', taskId: 'task', noteIds: [id], candidate: old, dispatchRequest: initialProof, annotations: initial.annotations });
     result.current.onRequestHandled(initial.id);
-    result.current.onNotesEvent({ event: 'ready', taskId: 'task', noteIds: [id], candidate: old });
-    if (variant === 'resolved note') result.current.onNotesEvent({ event: 'accept', taskId: 'task', noteIds: [id], candidate: old, acceptedEditIds: ['edit-1'] });
+    result.current.onNotesEvent({ event: 'ready', taskId: 'task', noteIds: [id], candidate: old, annotations: initial.annotations });
+    if (variant === 'resolved note') result.current.onNotesEvent({ event: 'accept', taskId: 'task', noteIds: [id], candidate: old, annotations: initial.annotations, acceptedEditIds: ['edit-1'] });
   });
   const prior = result.current.notes[0].status;
   expect(prior).toBe(variant === 'resolved note' ? 'resolved' : 'awaiting-review');
@@ -171,16 +172,76 @@ it.each(['valid', 'wrong old task', 'wrong user', 'wrong Space', 'wrong page', '
   if (variant === 'stale old version') request.supersedes.snapshot.updatedAt = 'stale';
   if (variant === 'unselected note') request.supersedes.noteIds = [privateId];
   if (variant === 'ordinary dispatch') delete (request as { supersedes?: unknown }).supersedes;
-  act(() => result.current.onNotesEvent({ event: 'dispatch', taskId: 'next', noteIds: [id], candidate: next, dispatchRequest: proof }));
+  act(() => result.current.onNotesEvent({ event: 'dispatch', taskId: 'next', noteIds: [id], candidate: next, dispatchRequest: proof, annotations: initial.annotations }));
   expect(result.current.notes[0]).toMatchObject({ status: variant === 'valid' ? 'dispatched' : prior, taskId: variant === 'valid' ? 'next' : 'task' });
   expect(result.current.notes[1]).toMatchObject({ status: 'pending' }); expect(result.current.notes[1].taskId).toBeUndefined();
   if (variant === 'valid') {
     act(() => {
-      result.current.onNotesEvent({ event: 'ready', taskId: 'task', noteIds: [id], candidate: old });
-      result.current.onNotesEvent({ event: 'accept', taskId: 'task', noteIds: [id], candidate: old, acceptedEditIds: ['edit-1'] });
-      result.current.onNotesEvent({ event: 'fail', taskId: 'task', noteIds: [id], candidate: old });
-      result.current.onNotesEvent({ event: 'discard', taskId: 'task', noteIds: [id], candidate: old });
+      result.current.onNotesEvent({ event: 'ready', taskId: 'task', noteIds: [id], candidate: old, annotations: initial.annotations });
+      result.current.onNotesEvent({ event: 'accept', taskId: 'task', noteIds: [id], candidate: old, annotations: initial.annotations, acceptedEditIds: ['edit-1'] });
+      result.current.onNotesEvent({ event: 'fail', taskId: 'task', noteIds: [id], candidate: old, annotations: initial.annotations });
+      result.current.onNotesEvent({ event: 'discard', taskId: 'task', noteIds: [id], candidate: old, annotations: initial.annotations });
     });
     expect(result.current.notes[0]).toMatchObject({ status: 'dispatched', taskId: 'next' });
   }
+});
+
+it.each(['valid', 'all resolved', 'wrong old task', 'missing note', 'changed resolved annotation', 'changed unresolved annotation', 'changed old annotation', 'changed old source', 'stale version', 'incomplete event', 'incomplete candidate', 'missing event proof', 'wrong scope'])('validates the entire mixed-note regeneration proof: %s', (variant) => {
+  const one = { ...addPersonalNote(scope, first, 'Fix one'), status: 'resolved' as const, taskId: 'historical-task' };
+  const two = { ...addPersonalNote(scope, second, 'Fix two'), status: variant === 'all resolved' ? 'resolved' as const : 'awaiting-review' as const, taskId: 'task' };
+  savePersonalNotes(scope, variant === 'missing note' ? [two] : [one, two]);
+  const ids = [one.id, two.id], annotations = [{ id: one.id, body: one.body, quote: one.target.quote }, { id: two.id, body: two.body, quote: two.target.quote }];
+  const target = captureAssistTarget(source, 'document', 0, source.length, version)!;
+  const request: AssistRequest = { id: 'regenerate', intent: 'Fix both', assistTarget: target, noteIds: ids, annotations,
+    supersedes: { taskId: 'task', snapshot: { title: 'T', content: source, updatedAt: version }, noteIds: ids, annotations: structuredClone(annotations) } };
+  const next = { ...candidate(ids, target), taskId: 'next' };
+  const event: AssistNotesEvent = { event: 'dispatch', taskId: 'next', noteIds: ids, candidate: next, annotations: structuredClone(annotations),
+    dispatchRequest: { ...scope, request, snapshot: { title: 'T', content: source, updatedAt: version } } };
+  if (variant === 'wrong old task') request.supersedes!.taskId = 'wrong-task';
+  if (variant === 'changed resolved annotation') event.annotations![0].body = 'tampered';
+  if (variant === 'changed unresolved annotation') event.annotations![1].quote = 'tampered';
+  if (variant === 'changed old annotation') request.supersedes!.annotations[0].body = 'tampered';
+  if (variant === 'changed old source') request.supersedes!.snapshot = { ...request.supersedes!.snapshot, content: 'missing anchors' };
+  if (variant === 'stale version') next.baseUpdatedAt = 'stale';
+  if (variant === 'incomplete event') event.noteIds = [two.id];
+  if (variant === 'incomplete candidate') next.noteIds = [two.id];
+  if (variant === 'missing event proof') event.annotations = undefined;
+  if (variant === 'wrong scope') event.dispatchRequest!.userId = 'other';
+  const hook = renderHook(() => usePersonalNotes({ scope, canEdit: true, stageForSession: true, source, updatedAt: version }));
+  const before = structuredClone(hook.result.current.notes);
+  act(() => hook.result.current.onNotesEvent(event));
+  if (variant !== 'valid') { expect(hook.result.current.notes).toEqual(before); return; }
+  expect(hook.result.current.notes).toEqual([one, { ...two, status: 'dispatched', taskId: 'next' }]);
+  // Old callbacks must not reopen or resolve the newly bound note, even with a complete mixed set.
+  for (const oldEvent of ['ready', 'accept', 'fail', 'discard'] as const) act(() => hook.result.current.onNotesEvent({ event: oldEvent, taskId: 'task', noteIds: ids, candidate: { ...next, taskId: 'task' }, annotations, acceptedEditIds: ['edit-1', 'edit-2'] }));
+  expect(hook.result.current.notes).toEqual([one, { ...two, status: 'dispatched', taskId: 'next' }]);
+  hook.unmount();
+  const restored = renderHook(() => usePersonalNotes({ scope, canEdit: true, stageForSession: true, source, updatedAt: version }));
+  act(() => restored.result.current.onNotesEvent({ event: 'ready', taskId: 'next', noteIds: ids, candidate: next, annotations }));
+  expect(restored.result.current.notes).toEqual([one, { ...two, status: 'awaiting-review', taskId: 'next' }]);
+  act(() => restored.result.current.onNotesEvent({ event: 'accept', taskId: 'next', noteIds: ids, candidate: next, annotations, acceptedEditIds: ['edit-1'] }));
+  expect(restored.result.current.notes).toEqual([one, { ...two, status: 'awaiting-review', taskId: 'next' }]);
+  act(() => restored.result.current.onNotesEvent({ event: 'accept', taskId: 'next', noteIds: ids, candidate: next, annotations, acceptedEditIds: ['edit-1', 'edit-2'] }));
+  expect(restored.result.current.notes).toEqual([one, { ...two, status: 'resolved', taskId: 'next' }]);
+});
+
+it.each(['valid', 'changed resolved body', 'changed unresolved quote', 'missing annotations', 'incomplete event', 'incomplete candidate', 'missing note', 'wrong unresolved task', 'stale version', 'changed source', 'wrong page'])('recovers mixed-note coverage only with complete canonical evidence: %s', (variant) => {
+  const one = { ...addPersonalNote(scope, first, 'Fix one'), status: 'resolved' as const, taskId: 'historical-task' };
+  const two = { ...addPersonalNote(scope, second, 'Fix two'), status: 'dispatched' as const, taskId: variant === 'wrong unresolved task' ? 'wrong-task' : 'next' };
+  savePersonalNotes(scope, variant === 'missing note' ? [two] : [one, two]);
+  const ids = [one.id, two.id], annotations = [{ id: one.id, body: one.body, quote: one.target.quote }, { id: two.id, body: two.body, quote: two.target.quote }];
+  const next = { ...candidate(ids, captureAssistTarget(source, 'document', 0, source.length, version)!), taskId: 'next' };
+  const event: AssistNotesEvent = { event: 'ready', taskId: 'next', noteIds: ids, candidate: next, annotations };
+  if (variant === 'changed resolved body') annotations[0].body = 'tampered';
+  if (variant === 'changed unresolved quote') annotations[1].quote = 'tampered';
+  if (variant === 'missing annotations') event.annotations = undefined;
+  if (variant === 'incomplete event') event.noteIds = [two.id];
+  if (variant === 'incomplete candidate') next.noteIds = [two.id];
+  if (variant === 'stale version') next.baseUpdatedAt = 'stale';
+  if (variant === 'changed source') next.baseContent = 'missing anchors';
+  if (variant === 'wrong page') next.pageId = 'other';
+  const { result } = renderHook(() => usePersonalNotes({ scope, canEdit: true, stageForSession: true, source, updatedAt: version }));
+  const before = structuredClone(result.current.notes);
+  act(() => { result.current.onNotesEvent(event); result.current.onNotesEvent({ ...event, event: 'accept', acceptedEditIds: ['edit-1', 'edit-2'] }); });
+  expect(result.current.notes).toEqual(variant === 'valid' ? [one, { ...two, status: 'resolved' }] : before);
 });

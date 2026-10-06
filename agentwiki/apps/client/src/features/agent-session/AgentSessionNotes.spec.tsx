@@ -191,8 +191,8 @@ it.each(['selection', 'document'])('rebinds explicitly regenerated %s notes afte
   const { candidateFromTurn } = await import('./agentSessionCandidate');
   const old = candidateFromTurn(first, 'user-a', 'space-a')!.candidate;
   act(() => {
-    notes.onNotesEvent({ event: 'ready', taskId: old.taskId, noteIds: [ids[0]], candidate: old });
-    notes.onNotesEvent({ event: 'accept', taskId: old.taskId, noteIds: [ids[0]], candidate: old, acceptedEditIds: old.editPlan!.edits.map((edit) => edit.id) });
+    notes.onNotesEvent({ event: 'ready', taskId: old.taskId, noteIds: [ids[0]], candidate: old, annotations: first.annotations });
+    notes.onNotesEvent({ event: 'accept', taskId: old.taskId, noteIds: [ids[0]], candidate: old, annotations: first.annotations, acceptedEditIds: old.editPlan!.edits.map((edit) => edit.id) });
   });
   expect(notes.notes[0]).toMatchObject({ status: 'dispatched', taskId: 'regenerated-turn' });
   turns = [first, { ...turns[1], status: 'done', result: { changes: 'ONE\nkeep\ntwo\nManual end\nTyped after regenerate\n' } }];
@@ -201,6 +201,68 @@ it.each(['selection', 'document'])('rebinds explicitly regenerated %s notes afte
   expect(content).toBe('ONE\nkeep\ntwo\nManual end\nTyped after regenerate\n');
   expect(notes.notes.map((note) => note.status)).toEqual(['resolved', 'pending']);
   expect(notes.notes[1].taskId).toBeUndefined(); expect(api.patch).not.toHaveBeenCalled();
+});
+
+it.each([{ resolvedIndex: 0, regenerateAgain: false }, { resolvedIndex: 1, regenerateAgain: true }])('regenerates mixed Document notes after partial acceptance and Undo (resolved index $resolvedIndex)', async ({ resolvedIndex, regenerateAgain }) => {
+  const view = render(shell('edit'));
+  await screen.findByText('Start a conversation about this document.');
+  act(() => {
+    notes.add(captureAssistTarget(content, 'selection', 0, 3, version)!, 'Fix one');
+    notes.add(captureAssistTarget(content, 'selection', 9, 12, version)!, 'Fix two');
+    notes.add(captureAssistTarget(content, 'selection', 4, 8, version)!, 'Keep private');
+  });
+  const ids = notes.notes.slice(0, 2).map((note) => note.id), unresolvedIndex = 1 - resolvedIndex;
+  const privateNote = structuredClone(notes.notes[2]);
+  act(() => { expect(notes.dispatch(ids)).toBe(true); });
+  fireEvent.change(screen.getByRole('combobox', { name: 'Message mode' }), { target: { value: 'proposal' } });
+  fireEvent.change(screen.getByRole('combobox', { name: 'Edit scope' }), { target: { value: 'document' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await waitFor(() => expect(notes.notes[unresolvedIndex].status).toBe('dispatched'));
+  turns = [{ ...turns[0], status: 'done', result: { changes: 'ONE\nkeep\nTWO\n' } }];
+  await waitFor(() => expect(notes.notes[unresolvedIndex].status).toBe('awaiting-review'), { timeout: 2000 });
+  fireEvent.click(screen.getByRole('button', { name: `Accept change ${resolvedIndex + 1}` }));
+  expect(content).toBe(resolvedIndex === 0 ? 'ONE\nkeep\ntwo\n' : 'one\nkeep\nTWO\n');
+  const resolvedNote = structuredClone(notes.notes[resolvedIndex]);
+  expect(resolvedNote).toMatchObject({ status: 'resolved', taskId: 'sent-turn' });
+  // Component evidence only: byte-exact reset models standard editor Undo; historical note status stays resolved.
+  content = original;
+  expect(notes.notes[resolvedIndex]).toEqual(resolvedNote);
+  content += 'Manual end\n';
+  let previousId = 'sent-turn';
+  for (const nextId of regenerateAgain ? ['regenerated-turn', 'regenerated-again'] : ['regenerated-turn']) {
+    view.rerender(shell('other')); view.rerender(shell('edit'));
+    const previous = await screen.findByTestId(`agent-turn-${previousId}`);
+    expect(within(previous).getByRole('alert')).toHaveTextContent('Page, permissions, version or draft changed. Please regenerate.');
+    fireEvent.click(within(previous).getByRole('button', { name: 'Regenerate from current draft' }));
+    expect(screen.getByRole('combobox', { name: 'Edit scope' })).toHaveValue('document');
+    expect(notes.notes[unresolvedIndex]).toMatchObject({ status: 'awaiting-review', taskId: previousId });
+    const beforeSend = structuredClone(notes.notes);
+    vi.mocked(api.post).mockRejectedValueOnce(new Error('offline'));
+    fireEvent.click(screen.getByRole('button', { name: 'Send' })); await screen.findByText('Request failed. Your message is preserved. Please retry.');
+    expect(notes.notes).toEqual(beforeSend);
+    vi.mocked(api.post).mockImplementation(async (_url, data: any) => {
+      const turn: AgentTurn = { ...data, id: nextId, sessionId: summary.id, status: 'queued', createdAt: version, pageSnapshot: data.snapshot, references: [], progressText: '', result: null, error: null };
+      turns = [...turns, turn]; return { data: turn };
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(notes.notes[unresolvedIndex]).toMatchObject({ status: 'dispatched', taskId: nextId }));
+    expect(notes.notes[resolvedIndex]).toEqual(resolvedNote);
+    expect(turns[turns.length - 1]).toMatchObject({ noteIds: ids, annotations: [{ id: ids[0], body: 'Fix one', quote: 'one' }, { id: ids[1], body: 'Fix two', quote: 'two' }] });
+    // Rebuild the hook after the successful receipt was consumed, before candidate coverage arrives.
+    view.rerender(shell('other')); view.rerender(shell('edit'));
+    await screen.findByTestId(`agent-turn-${nextId}`);
+    const proposed = content.replace(unresolvedIndex === 0 ? 'one' : 'two', unresolvedIndex === 0 ? 'ONE' : 'TWO');
+    turns = turns.map((turn) => turn.id === nextId ? { ...turn, status: 'done', result: { changes: proposed } } : turn);
+    await waitFor(() => expect(notes.notes[unresolvedIndex]).toMatchObject({ status: 'awaiting-review', taskId: nextId }), { timeout: 2000 });
+    if (regenerateAgain && nextId === 'regenerated-turn') content += 'Another manual end\n';
+    previousId = nextId;
+  }
+  fireEvent.click(within(screen.getByTestId(`agent-turn-${previousId}`)).getByRole('button', { name: 'Accept change 1' }));
+  expect(notes.notes[unresolvedIndex]).toMatchObject({ status: 'resolved', taskId: previousId });
+  expect(notes.notes[resolvedIndex]).toEqual(resolvedNote);
+  expect(notes.notes[2]).toEqual(privateNote);
+  expect(content).toBe(resolvedIndex === 0 ? 'one\nkeep\nTWO\nManual end\n' : 'ONE\nkeep\ntwo\nManual end\nAnother manual end\n');
+  expect(api.patch).not.toHaveBeenCalled();
 });
 
 it.each(['new message', 'another conversation'])('consumes only the original composer after a deferred Send with %s', async (boundary) => {

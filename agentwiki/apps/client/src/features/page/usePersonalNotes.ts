@@ -78,6 +78,16 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
   };
   const onNotesEvent = (event: AssistNotesEvent) => {
     if (!active() || !scope || event.candidate.userId !== scope.userId || event.candidate.spaceId !== scope.spaceId || event.candidate.pageId !== scope.pageId || event.taskId !== event.candidate.taskId) return;
+    const matchesAnnotations = (annotations: AssistRequest['annotations'], content: string, version?: string) => annotations?.length === event.noteIds.length && event.noteIds.every((id) => {
+      const note = stateRef.current.notes.find((item) => item.id === id), annotation = annotations.find((item) => item.id === id);
+      return !!note && !!annotation && note.body === annotation.body && note.target.quote === annotation.quote
+        && note.target.baseUpdatedAt === version && resolveAssistTarget(content, note.target).status === 'found';
+    });
+    // Session events carry the whole canonical context, including immutable resolved annotations.
+    // Validate it before choosing which notes may transition or recovering a route's coverage map.
+    if (stageForSession && (event.candidate.noteIds?.length !== event.noteIds.length || new Set(event.noteIds).size !== event.noteIds.length
+      || event.noteIds.some((id) => !event.candidate.noteIds?.includes(id)) || event.candidate.baseUpdatedAt !== latestRef.current.updatedAt
+      || !matchesAnnotations(event.annotations, event.candidate.baseContent, event.candidate.baseUpdatedAt))) return;
     if (event.event === 'dispatch') {
       const localRequest = stateRef.current.assistRequest, credential = event.dispatchRequest;
       // A registry-held request survives route mounts. Only a successful explicit Send supplies this
@@ -89,38 +99,33 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
       const request = stageForSession ? credential?.request : localRequest;
       const supersedes = stageForSession ? credential?.request.supersedes : undefined;
       if (stateRef.current.notes.some((note) => event.noteIds.includes(note.id) && note.status !== 'pending'
-        && (!supersedes || note.status === 'resolved' || note.taskId !== supersedes.taskId))) return;
+        && (!supersedes || note.status !== 'resolved' && note.taskId !== supersedes.taskId))) return;
       if (stageForSession) {
         if (!credential || !request?.id || event.candidate.baseContent !== credential.snapshot.content
           || event.candidate.baseTitle !== credential.snapshot.title || event.candidate.baseUpdatedAt !== credential.snapshot.updatedAt
           || !request.assistTarget || request.assistTarget.baseUpdatedAt !== latestRef.current.updatedAt
           || !validateAssistTarget(event.candidate.baseContent, request.assistTarget)
-          || request.annotations?.length !== event.noteIds.length || new Set(event.noteIds).size !== event.noteIds.length
-          || event.noteIds.some((id) => {
-            const note = stateRef.current.notes.find((item) => item.id === id), annotation = request.annotations?.find((item) => item.id === id);
-            return !note || !annotation || note.body !== annotation.body || note.target.quote !== annotation.quote
-              || resolveAssistTarget(event.candidate.baseContent, note.target).status !== 'found';
-          })) return;
+          || !matchesAnnotations(request.annotations, event.candidate.baseContent, event.candidate.baseUpdatedAt)) return;
       }
       if (!request || !event.noteIds.length || request.noteIds?.length !== event.noteIds.length || event.noteIds.some((id) => !request.noteIds?.includes(id)) || event.candidate.baseUpdatedAt !== latestRef.current.updatedAt) return;
       if (supersedes) {
         if (supersedes.taskId === event.taskId || supersedes.snapshot.updatedAt !== event.candidate.baseUpdatedAt
           || supersedes.snapshot.title !== event.candidate.baseTitle || supersedes.noteIds.length !== event.noteIds.length
-          || new Set(supersedes.noteIds).size !== event.noteIds.length || supersedes.annotations.length !== event.noteIds.length
-          || event.noteIds.some((id) => {
-            const note = stateRef.current.notes.find((item) => item.id === id), annotation = supersedes.annotations.find((item) => item.id === id);
-            return !supersedes.noteIds.includes(id) || !note || !annotation || note.body !== annotation.body || note.target.quote !== annotation.quote
-              || note.target.baseUpdatedAt !== supersedes.snapshot.updatedAt || resolveAssistTarget(supersedes.snapshot.content, note.target).status !== 'found';
-          })) return;
-        // Reopen and dispatch atomically, only after the successful explicit regeneration receipt.
-        // Old task callbacks remain fenced by each note's new taskId.
-        stateRef.current = { ...stateRef.current, notes: transitionPersonalNotes(stateRef.current.notes, event.noteIds, 'reopen', supersedes.taskId) };
+          || new Set(supersedes.noteIds).size !== event.noteIds.length || event.noteIds.some((id) => !supersedes.noteIds.includes(id))
+          || !matchesAnnotations(supersedes.annotations, supersedes.snapshot.content, supersedes.snapshot.updatedAt)) return;
+        // Reopen only unresolved notes after successful explicit regeneration. Resolved context
+        // keeps its historical task; old callbacks stay fenced by each transferred note's new task.
+        const eligibleIds = event.noteIds.filter((id) => stateRef.current.notes.some((note) => note.id === id && note.status !== 'resolved'));
+        if (!eligibleIds.length) return;
+        stateRef.current = { ...stateRef.current, notes: transitionPersonalNotes(stateRef.current.notes, eligibleIds, 'reopen', supersedes.taskId) };
       }
       bindingsRef.current.set(event.taskId, { noteIds: [...event.noteIds], coverage: new Map(), uncertain: new Set() });
     }
-    // A route remount loses only the in-memory coverage map. Recover it solely from local task linkage.
+    // Recover the full event set, but require current-task linkage for every unresolved note.
+    // Session resolved context was checked above and may still belong to an earlier generation.
     if (event.event !== 'dispatch' && !bindingsRef.current.has(event.taskId) && event.noteIds.length
-      && event.noteIds.every((id) => stateRef.current.notes.some((note) => note.id === id && note.taskId === event.taskId))) {
+      && event.noteIds.some((id) => stateRef.current.notes.some((note) => note.id === id && note.taskId === event.taskId))
+      && event.noteIds.every((id) => stateRef.current.notes.some((note) => note.id === id && (note.taskId === event.taskId || stageForSession && note.status === 'resolved')))) {
       bindingsRef.current.set(event.taskId, { noteIds: [...event.noteIds], coverage: new Map(), uncertain: new Set() });
     }
     const binding = bindingsRef.current.get(event.taskId);
