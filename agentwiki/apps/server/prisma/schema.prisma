@@ -504,6 +504,7 @@ model Page {
   lastModifiedByAgentId String?
   lastModifiedAt        DateTime  @default(now())
   sourceId              String?
+  sourceGeneration      Int?
   sourceVersionId       String?
   sourcePath            String?
   syncPath              String
@@ -805,6 +806,10 @@ model Source {
   createdByUserId  String?
   createdByAgent   Agent?          @relation(fields: [createdByAgentId], references: [id], onDelete: SetNull)
   createdByAgentId String?
+  currentSourceVersionId String?
+  currentSourceGeneration Int @default(0)
+  currentSourceVersion SourceVersion? @relation("SourceCurrentVersion", fields: [currentSourceVersionId], references: [id], onDelete: SetNull)
+  syncReceipts SourceSyncReceipt[]
   versions         SourceVersion[]
   runs             IngestRun[]
   pages            Page[]
@@ -827,6 +832,7 @@ model SourceVersion {
   sourceId    String
   evidences   Evidence[]
   files       SourceFileSnapshot[]
+  currentForSources Source[] @relation("SourceCurrentVersion")
   inputRuns   IngestRun[]          @relation("IngestRunInputVersion")
   pages       Page[]
   createdAt   DateTime             @default(now())
@@ -834,6 +840,22 @@ model SourceVersion {
   @@unique([sourceId, version])
   @@unique([sourceId, contentHash])
   @@index([contentHash])
+}
+
+model SourceSyncReceipt {
+  id String @id @default(cuid())
+  source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  sourceId String
+  idempotencyKey String
+  inputHash String
+  sourceVersionId String
+  inputSourceGeneration Int?
+  resultStatus String
+  // Immutable historical references, including when the original Run is deleted.
+  runId String?
+  createdAt DateTime @default(now())
+
+  @@unique([sourceId, idempotencyKey])
 }
 
 model SourceFileSnapshot {
@@ -868,6 +890,7 @@ model IngestRun {
   sourceId                String
   inputSourceVersion      SourceVersion? @relation("IngestRunInputVersion", fields: [inputSourceVersionId], references: [id], onDelete: SetNull)
   inputSourceVersionId    String?
+  inputSourceGeneration   Int?
   space                   Space          @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   spaceId                 String
   requestedByUser         User?          @relation(fields: [requestedByUserId], references: [id], onDelete: SetNull)
