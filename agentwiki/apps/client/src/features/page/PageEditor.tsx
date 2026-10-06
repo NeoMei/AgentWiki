@@ -1291,6 +1291,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             mode={mode}
             onRequestPageLinks={requestPageLinks}
             pageLinksIdentity={`${user?.id}:${!writeUnavailable && page.capabilities?.canEdit === true}`}
+            tableEditingEnabled={notesWritable && !saving && !remoteUpdate && !unresolvedSocketRevisionRef.current}
             outlineOverlay={collaborationVisible}
             onChange={handleContentChange}
             onSelectionChange={setAssistSelection}

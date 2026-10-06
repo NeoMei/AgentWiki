@@ -50,6 +50,7 @@ interface MarkdownWorkspaceProps {
   onRequestPageLinks?: RequestPageLinks;
   outlineOverlay?: boolean;
   pageLinksIdentity?: string;
+  tableEditingEnabled?: boolean;
 }
 
 export interface MarkdownWorkspaceHandle {
@@ -399,6 +400,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   onRequestPageLinks,
   outlineOverlay,
   pageLinksIdentity,
+  tableEditingEnabled = true,
 }, ref) => {
   const { t, language } = useLanguage();
   const zh = language === 'zh-CN';
@@ -837,7 +839,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   return (
     <section className="document-workspace relative bg-white" aria-label={t('editor.mode')}>
       <div className="document-tool-row">
-        {isEdit ? <DocumentTools key={`${pageLinksIdentity ?? ''}:${spaceId}:${pageId}`} view={() => editorViewRef.current} selection={selection} pages={pages} spaceId={spaceId} onRequestPageLinks={onRequestPageLinks} onRequestAssist={onRequestAssist} onRequestImage={onUploadImages ? () => imageInputRef.current?.click() : undefined} /> : null}
+        {isEdit ? <DocumentTools key={`${pageLinksIdentity ?? ''}:${spaceId}:${pageId}`} view={() => editorViewRef.current} source={value} tableEditingEnabled={tableEditingEnabled} tableEditingIdentity={`${pageLinksIdentity ?? ''}:${spaceId}:${pageId}`} selection={selection} pages={pages} spaceId={spaceId} onRequestPageLinks={onRequestPageLinks} onRequestAssist={onRequestAssist} onRequestImage={onUploadImages ? () => imageInputRef.current?.click() : undefined} /> : null}
         <ArticleContentsPopover source={value} articleRootRef={previewRootRef} pageKey={`${spaceId}:${pageId}:${mode}`} activeHeadingId={isEdit ? activeHeading : undefined} spaceId={spaceId} suppressed={outlineOverlay} onNavigate={isEdit ? (item) => {
           const view = editorViewRef.current; if (!view) return;
           view.dispatch({ selection: EditorSelection.cursor(item.from), effects: EditorView.scrollIntoView(item.from, { y: 'start' }) }); view.focus();

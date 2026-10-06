@@ -1,6 +1,7 @@
 import { createRef, useState } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { EditorSelection } from '@codemirror/state';
+import { EditorSelection, EditorState, StateEffect } from '@codemirror/state';
+import * as tableEditing from './markdown-tools/tableEditing';
 import { undo, undoDepth } from '@codemirror/commands';
 import { EditorView } from '@codemirror/view';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -1268,5 +1269,99 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
 
     expect(screen.getByTestId('md-preview')).toHaveTextContent('unchanged');
     expect(onUploadError).not.toHaveBeenCalled();
+  });
+});
+
+describe('guarded visual table editing', () => {
+  const tableSource = '# Before\n\n| Name | Value |\n| --- | ---: |\n| a | `code` |\n\n[ref]: ../中文.pdf "Keep"\n';
+  beforeEach(() => { localStorage.setItem('agentwiki.language.v1', 'en'); resourceMocks.post.mockResolvedValue({ data: { resources: [] } }); });
+  afterEach(cleanup);
+  const openTable = (container: HTMLElement) => {
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ selection: EditorSelection.cursor(view.state.doc.toString().indexOf('| Name') + 2) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit table' }));
+    return view;
+  };
+  it('opens, cancels and applies an unchanged table without changing source/history', async () => {
+    const onChange = vi.fn(); const { container } = renderWYS({ initial: tableSource, onChange });
+    const view = openTable(container); const depth = undoDepth(view.state);
+    const dispatch = vi.spyOn(view, 'dispatch');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(dispatch).not.toHaveBeenCalled();
+    await waitFor(() => expect(view.contentDOM).toHaveFocus());
+    openTable(container); dispatch.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Apply table' }));
+    expect(dispatch).not.toHaveBeenCalled(); dispatch.mockRestore();
+    expect(onChange).not.toHaveBeenCalled(); expect(undoDepth(view.state)).toBe(depth);
+    expect(view.state.doc.toString()).toBe(tableSource);
+  });
+  it('applies one isolated source span with exact undo and no changes outside the table', () => {
+    const onChange = vi.fn(); const { container } = renderWYS({ initial: tableSource, onChange });
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ changes: { from: 2, insert: 'human ' } }));
+    const before = view.state.doc.toString(); const depth = undoDepth(view.state);
+    openTable(container);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Row 1, column 1 (Markdown)' }), { target: { value: '**new**|cell' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply table' }));
+    expect(view.state.doc.toString()).toBe(before.replace('| a |', '| **new**\\|cell |'));
+    expect(undoDepth(view.state)).toBe(depth + 1);
+    act(() => undo(view)); expect(view.state.doc.toString()).toBe(before);
+  });
+  it.each(['change', 'change then undo'])('refuses a stale table after %s while the dialog is open', (action) => {
+    const { container } = renderWYS({ initial: tableSource }); const view = openTable(container);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Row 1, column 1 (Markdown)' }), { target: { value: 'candidate' } });
+    act(() => view.dispatch({ changes: { from: 0, insert: 'new ' } }));
+    if (action === 'change then undo') act(() => undo(view));
+    const beforeApply = view.state.doc.toString();
+    fireEvent.click(screen.getByRole('button', { name: 'Apply table' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('document or editing permission changed');
+    expect(view.state.doc.toString()).toBe(beforeApply);
+  });
+  it.each(['\r\n', 'mixed'])('visibly refuses %j raw line endings without mutating or claiming visual fidelity', (ending) => {
+    const raw = ending === 'mixed' ? tableSource.replace('\n', '\r\n') : tableSource.replace(/\n/gu, ending);
+    const onChange = vi.fn(); const { container } = renderWYS({ initial: raw, onChange });
+    const depth = undoDepth(currentEditorView(container).state);
+    const view = openTable(container);
+    expect(screen.queryByRole('dialog', { name: 'Edit table' })).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('line endings cannot be preserved');
+    expect(onChange).not.toHaveBeenCalled(); expect(undoDepth(view.state)).toBe(depth);
+  });
+  it('rechecks live CodeMirror readonly at Apply', () => {
+    const onChange = vi.fn(); const { container } = renderWYS({ initial: tableSource, onChange }); const view = openTable(container);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Row 1, column 1 (Markdown)' }), { target: { value: 'late' } });
+    act(() => view.dispatch({ effects: StateEffect.appendConfig.of(EditorState.readOnly.of(true)) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Apply table' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('editing permission changed');
+    expect(onChange).not.toHaveBeenCalled(); expect(view.state.doc.toString()).toBe(tableSource);
+  });
+  it('does not reparse tables on ordinary cursor movement', () => {
+    const parse = vi.spyOn(tableEditing, 'parseTableLocations');
+    try {
+      const { container } = renderWYS({ initial: tableSource }); const view = currentEditorView(container);
+      const initialCount = parse.mock.calls.length; expect(initialCount).toBeGreaterThan(0);
+      for (const offset of [3, 5, 15, 21]) act(() => view.dispatch({ selection: EditorSelection.cursor(offset) }));
+      expect(parse).toHaveBeenCalledTimes(initialCount);
+    } finally { parse.mockRestore(); }
+  });
+  it('explains unsupported table shapes visibly and never opens a misleading grid', () => {
+    const raw = '| Name | Value |\n| --- | --- |\n| one |';
+    const onChange = vi.fn(); const { container } = renderWYS({ initial: raw, onChange });
+    act(() => currentEditorView(container).dispatch({ selection: EditorSelection.cursor(2) }));
+    expect(screen.queryByRole('button', { name: 'Edit table' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Table source' }));
+    expect(screen.getByRole('status')).toHaveTextContent('uneven rows');
+    expect(screen.queryByRole('dialog', { name: 'Edit table' })).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+  it.each(['permission', 'identity', 'preview'])('invalidates an open table after %s changes', (change) => {
+    const onChange = vi.fn();
+    const props = { value: tableSource, mode: 'edit' as MarkdownMode, onChange, pageId: 'a', spaceId: 's', pageLinksIdentity: 'user-a', tableEditingEnabled: true };
+    const wrap = (next: typeof props) => <LanguageProvider><MarkdownWorkspace {...next} /></LanguageProvider>;
+    const { container, rerender } = render(wrap(props)); const view = openTable(container);
+    const apply = screen.getByRole('button', { name: 'Apply table' });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Row 1, column 1 (Markdown)' }), { target: { value: 'late' } });
+    rerender(wrap({ ...props, ...(change === 'permission' ? { tableEditingEnabled: false } : change === 'identity' ? { pageLinksIdentity: 'user-b' } : { mode: 'preview' as MarkdownMode }) }));
+    expect(screen.queryByRole('dialog', { name: 'Edit table' })).not.toBeInTheDocument();
+    fireEvent.click(apply); expect(onChange).not.toHaveBeenCalled(); expect(view.state.doc.toString()).toBe(tableSource);
   });
 });

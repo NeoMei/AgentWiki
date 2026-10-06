@@ -5,18 +5,22 @@ import { EditorSelection } from '@codemirror/state';
 import { useLanguage } from '../../context/LanguageContext';
 import type { PageLinkTarget } from '../markdownLinks';
 import type { RequestPageLinks } from './useAuthorizedPageLinks';
+import { TableEditingTools } from './TableEditor';
 import { formatTransaction, pageLinkTransaction, type FormatCommand } from './commands';
 export interface MarkdownSelection { from: number; to: number; text: string }
 interface Props {
   view: () => EditorView | null;
   selection: MarkdownSelection;
+  source?: string;
+  tableEditingEnabled?: boolean;
+  tableEditingIdentity?: string;
   pages: PageLinkTarget[];
   spaceId?: string;
   onRequestPageLinks?: RequestPageLinks;
   onRequestAssist?: (selection: MarkdownSelection) => void;
   onRequestImage?: () => void;
 }
-export const DocumentTools = ({ view, selection, pages, spaceId, onRequestPageLinks, onRequestAssist, onRequestImage }: Props) => {
+export const DocumentTools = ({ view, selection, source, tableEditingEnabled = true, tableEditingIdentity = '', pages, spaceId, onRequestPageLinks, onRequestAssist, onRequestImage }: Props) => {
   const { language } = useLanguage();
   const zh = language === 'zh-CN';
   const [picker, setPicker] = useState(false);
@@ -123,6 +127,7 @@ export const DocumentTools = ({ view, selection, pages, spaceId, onRequestPageLi
       <button type="button" onClick={open}>{zh ? '页面链接' : 'Page link'}</button>
       {onRequestImage ? <button type="button" onClick={onRequestImage}>{zh ? '图片' : 'Image'}</button> : null}
       {selection.from !== selection.to && onRequestAssist ? <button type="button" onClick={() => onRequestAssist(selection)}>{zh ? '让 Agent 修改' : 'Ask Agent'}</button> : null}
+      {source !== undefined ? <TableEditingTools source={source} selection={selection} view={view} enabled={tableEditingEnabled} identity={tableEditingIdentity} /> : null}
       <span className="document-source-hint">{zh ? 'Markdown 源码 · / 插入' : 'Markdown source · / to insert'}</span>
     </div>
     {picker ? createPortal(<div className="document-picker-backdrop" onPointerDown={(event) => { if (event.target === event.currentTarget) close(); }}>

@@ -977,6 +977,28 @@ describe('PageEditor remote update safety', () => {
     expect(api.patch).not.toHaveBeenCalled();
   });
 
+  it.each(['permission loss', 'remote conflict'])('closes the table editor and refuses late Apply after %s', async (reason) => {
+    const tableSource = '| Name | Value |\n| --- | --- |\n| a | b |';
+    queuePages({ data: page({ content: tableSource, capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Human draft\n\n' + tableSource);
+    const view = currentEditorView(); const before = contentEditorValue();
+    act(() => view.dispatch({ selection: EditorSelection.cursor(before.indexOf('| Name') + 2) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit table' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Row 1, column 1 (Markdown)' }), { target: { value: 'must not apply' } });
+    const apply = screen.getByRole('button', { name: 'Apply table' });
+    if (reason === 'permission loss') {
+      vi.mocked(api.get).mockRejectedValue({ response: { status: 403 } });
+      fireEvent.focus(window); await screen.findByTestId('editor-write-unavailable');
+    } else {
+      act(() => socketMock.handlers.get('contentUpdated')?.({ content: 'Remote concurrent edit', userId: 'remote', version: 42 }));
+    }
+    expect(screen.queryByRole('dialog', { name: 'Edit table' })).not.toBeInTheDocument();
+    fireEvent.click(apply);
+    expect(contentEditorValue()).toBe(before); expect(api.patch).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Edit table' })).toBeDisabled();
+  });
+
   it.each(['loaded', 'pending'])('closes %s page-link results immediately after edit permission is revoked', async (status) => {
     const pending = deferred<any>();
     const defaultGet = vi.mocked(api.get).getMockImplementation()!;
