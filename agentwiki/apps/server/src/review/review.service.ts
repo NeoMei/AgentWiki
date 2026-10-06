@@ -440,6 +440,7 @@ export class ReviewService {
         const authorization = new AuthorizationService(this.prisma);
         await authorization.lockLiveHumanPrincipal(tx, principal);
         await authorization.lockLiveHumanPersonalCredential(tx, principal);
+        await authorization.assertLiveHumanCredential(tx, principal, ['review:decide']);
       }
       const acquireSpaceMutationLock = () => folderItems.length > 0
         ? this.requireContentTree().lockFolderMutationSpace(

@@ -150,6 +150,13 @@ test('source generations, receipts, revocation and atomic reviewed publication i
         const rejected = assert.rejects(request, error => error?.businessCode === 'SPACE_ACCESS_DENIED');
         await new Promise(done => setTimeout(done, 30)); release(); await Promise.all([revoke, rejected]);
       });
+      await t.test('publication rechecks live personal review scope after request authorization', async () => {
+        const run = await sources.createRun(first.sourceId, principal, 'pat-review-scope');
+        const cs = await process(run.id);
+        const pat = await db.apiKeyCredential.create({ data: { name: 'downgraded reviewer', prefix: 'sf', keyHash: randomUUID(), scopes: ['pages:read'], userId: owner.id } });
+        await assert.rejects(reviews.reviewPublish(cs.id, owner.id, '', { userId: owner.id, credentialId: pat.id, scopes: ['review:decide'] }), error => error?.businessCode === 'AUTH_SCOPE_REQUIRED');
+        assert.equal(await db.approval.count({ where: { changeSetId: cs.id } }), 0);
+      });
       await t.test('DDL checks, historical nulls, immutable receipt references and Source cascade', async () => {
         const unknown = await db.source.create({ data: { spaceId: space.id, type: 'text', name: 'historical', contentHash: randomUUID() } });
         assert.equal(unknown.currentSourceVersionId, null); assert.equal(unknown.currentSourceGeneration, 0);
