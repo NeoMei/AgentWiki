@@ -160,16 +160,20 @@ it.each(['read/edit', 'away during receipt', 'return before receipt'])('reconcil
   expect(notes.notes[1].taskId).toBeUndefined(); expect(api.patch).not.toHaveBeenCalled();
 });
 
-it('rebinds only explicitly regenerated unresolved notes after a remount conflict and successful retry', async () => {
+it.each(['selection', 'document'])('rebinds explicitly regenerated %s notes after a remount conflict and successful retry', async (scope) => {
   const view = render(shell('edit')); const ids = await stageFirst();
   fireEvent.change(screen.getByRole('combobox', { name: 'Message mode' }), { target: { value: 'proposal' } });
+  fireEvent.change(screen.getByRole('combobox', { name: 'Edit scope' }), { target: { value: scope } });
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   await waitFor(() => expect(notes.notes[0].status).toBe('dispatched'));
+  expect(turns[0].pageSnapshot?.assistTarget?.kind).toBe(scope);
   const first = { ...turns[0], status: 'done' as const, result: { changes: 'ONE\nkeep\ntwo\n' } };
   turns = [first];
   await waitFor(() => expect(notes.notes[0].status).toBe('awaiting-review'), { timeout: 2000 });
   view.rerender(shell('other')); content = original + 'Manual end\n'; view.rerender(shell('edit'));
   fireEvent.click(await screen.findByRole('button', { name: 'Regenerate from current draft' }));
+  expect(screen.getByRole('combobox', { name: 'Edit scope' })).toHaveValue(scope);
+  content += 'Typed after regenerate\n'; view.rerender(shell('edit'));
   expect(notes.notes[0]).toMatchObject({ status: 'awaiting-review', taskId: 'sent-turn' });
   expect(api.post).toHaveBeenCalledTimes(1);
   vi.mocked(api.post).mockRejectedValueOnce(new Error('offline'));
@@ -183,6 +187,7 @@ it('rebinds only explicitly regenerated unresolved notes after a remount conflic
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   await waitFor(() => expect(notes.notes[0]).toMatchObject({ id: ids[0], status: 'dispatched', taskId: 'regenerated-turn' }));
   expect(turns[1].noteIds).toEqual([ids[0]]); expect(turns[1].annotations).toEqual([{ id: ids[0], body: 'Fix one', quote: 'one' }]);
+  expect(turns[1].pageSnapshot).toMatchObject({ content: 'one\nkeep\ntwo\nManual end\nTyped after regenerate\n', updatedAt: version, assistTarget: { kind: scope, quote: scope === 'document' ? 'one\nkeep\ntwo\nManual end\nTyped after regenerate\n' : 'one' } });
   const { candidateFromTurn } = await import('./agentSessionCandidate');
   const old = candidateFromTurn(first, 'user-a', 'space-a')!.candidate;
   act(() => {
@@ -190,10 +195,10 @@ it('rebinds only explicitly regenerated unresolved notes after a remount conflic
     notes.onNotesEvent({ event: 'accept', taskId: old.taskId, noteIds: [ids[0]], candidate: old, acceptedEditIds: old.editPlan!.edits.map((edit) => edit.id) });
   });
   expect(notes.notes[0]).toMatchObject({ status: 'dispatched', taskId: 'regenerated-turn' });
-  turns = [first, { ...turns[1], status: 'done', result: { changes: 'ONE\nkeep\ntwo\nManual end\n' } }];
+  turns = [first, { ...turns[1], status: 'done', result: { changes: 'ONE\nkeep\ntwo\nManual end\nTyped after regenerate\n' } }];
   await waitFor(() => expect(notes.notes[0].status).toBe('awaiting-review'), { timeout: 2000 });
   fireEvent.click(within(screen.getByTestId('agent-turn-regenerated-turn')).getByRole('button', { name: 'Accept change 1' }));
-  expect(content).toBe('ONE\nkeep\ntwo\nManual end\n');
+  expect(content).toBe('ONE\nkeep\ntwo\nManual end\nTyped after regenerate\n');
   expect(notes.notes.map((note) => note.status)).toEqual(['resolved', 'pending']);
   expect(notes.notes[1].taskId).toBeUndefined(); expect(api.patch).not.toHaveBeenCalled();
 });

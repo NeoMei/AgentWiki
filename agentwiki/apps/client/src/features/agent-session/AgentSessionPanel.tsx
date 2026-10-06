@@ -118,7 +118,9 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
     }
     setLocalError(null);
     const credential: AssistNotesEvent['dispatchRequest'] = staged ? {
-      userId, spaceId, pageId, request: structuredClone(staged.request), snapshot: { title: source.title, content: source.content, updatedAt: source.updatedAt },
+      // Regeneration may defer its document target until Send; the receipt proves the actual
+      // submitted target, including edits made after staging, rather than the staged placeholder.
+      userId, spaceId, pageId, request: structuredClone({ ...staged.request, assistTarget: target }), snapshot: { title: source.title, content: source.content, updatedAt: source.updatedAt },
     } : undefined;
     const submittedSnapshot = { title: source.title, content: source.content, updatedAt: source.updatedAt, draftRevision: source.draftRevision, remoteRevision: source.remoteRevision, ...(target ? { assistTarget: target } : {}) };
     await session.send({ pageId, mode: draft.mode, intent: draft.intent.trim(), snapshot: submittedSnapshot, referencePageIds: draft.references.map((r) => r.pageId), noteIds: staged?.request.noteIds ?? [], annotations: staged?.request.annotations ?? [] }, (turn) => {
