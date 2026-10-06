@@ -350,6 +350,62 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     expect(currentEditorView(document.body).scrollDOM.scrollTop).not.toBe(240);
   });
 
+  it.each(['forward', 'reverse'] as const)('restores a %s selection at its exact repeated-text offsets without changing source or undo depth', (direction) => {
+    const workspaceRef = createRef<MarkdownWorkspaceHandle>();
+    const source = 'Repeat passage.\n\nRepeat passage.';
+    const from = source.lastIndexOf('Repeat');
+    const to = from + 'Repeat'.length;
+    renderWYS({ initial: source, workspaceRef });
+    const view = currentEditorView(document.body);
+    const [anchor, head] = direction === 'forward' ? [from, to] : [to, from];
+    act(() => view.dispatch({ selection: EditorSelection.range(anchor, head) }));
+    const position = workspaceRef.current!.capturePosition();
+    act(() => view.dispatch({ selection: EditorSelection.cursor(0) }));
+    const depth = undoDepth(view.state);
+    act(() => workspaceRef.current!.restorePosition(JSON.parse(JSON.stringify(position))));
+    expect(view.state.selection.main.empty).toBe(true);
+    act(() => workspaceRef.current!.restorePosition(position));
+    expect(view.state.selection.main.anchor).toBe(anchor);
+    expect(view.state.selection.main.head).toBe(head);
+    expect(view.state.doc.toString()).toBe(source);
+    expect(undoDepth(view.state)).toBe(depth);
+    expect(JSON.stringify(position)).not.toContain('Repeat');
+  });
+
+  it('refuses a stale selection even when the selected text still matches, and keeps the clamped cursor fallback', () => {
+    const workspaceRef = createRef<MarkdownWorkspaceHandle>();
+    renderWYS({ initial: 'Repeat passage.', workspaceRef });
+    const view = currentEditorView(document.body);
+    act(() => view.dispatch({ selection: EditorSelection.range(0, 6) }));
+    const position = workspaceRef.current!.capturePosition();
+    act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: ' Changed elsewhere.' } }));
+    act(() => workspaceRef.current!.restorePosition(position));
+    expect(view.state.selection.main.empty).toBe(true);
+    expect(view.state.selection.main.head).toBe(6);
+    act(() => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: 'Hi' } }));
+    act(() => workspaceRef.current!.restorePosition(position));
+    expect(view.state.selection.main.head).toBe(2);
+  });
+
+  it.each(['page', 'space', 'identity'] as const)('invalidates the selection bookmark after a %s scope change and does not revive it on return', (change) => {
+    const workspaceRef = createRef<MarkdownWorkspaceHandle>();
+    const source = 'Repeat passage.';
+    const props = { pageId: 'page-1', spaceId: 'space-1', pageLinksIdentity: 'user-1', value: source, mode: 'edit' as const, onChange: vi.fn() };
+    const renderWorkspace = (scope: typeof props) => <LanguageProvider><MarkdownWorkspace {...scope} ref={workspaceRef} /></LanguageProvider>;
+    const { rerender } = render(renderWorkspace(props));
+    const view = currentEditorView(document.body);
+    act(() => view.dispatch({ selection: EditorSelection.range(8, 2) }));
+    const position = workspaceRef.current!.capturePosition();
+    const changed = { ...props, [change === 'page' ? 'pageId' : change === 'space' ? 'spaceId' : 'pageLinksIdentity']: 'other' };
+    rerender(renderWorkspace(changed));
+    act(() => workspaceRef.current!.restorePosition(position));
+    expect(view.state.selection.main.empty).toBe(true);
+    rerender(renderWorkspace(props));
+    act(() => workspaceRef.current!.restorePosition(position));
+    expect(view.state.selection.main.empty).toBe(true);
+    expect(view.state.selection.main.head).toBe(2);
+  });
+
   it('restores the second repeated heading by its rendered identity instead of the first label match', async () => {
     const workspaceRef = createRef<MarkdownWorkspaceHandle>();
     const source = '## Repeat\n\nFirst section.\n\n## Repeat\n\nSecond section.';

@@ -990,6 +990,57 @@ describe('PageEditor remote update safety', () => {
     await waitFor(() => expect(currentEditorView().state.selection.main.head).toBe(deepCursor));
   });
 
+  it.each(['forward', 'reverse'] as const)('restores the complete %s selection when preview stays on its source block', async (direction) => {
+    const body = '# Intro\n\nRepeated passage.\n\nRepeated passage.';
+    const from = body.lastIndexOf('Repeated');
+    const to = from + 'Repeated'.length;
+    const [anchor, head] = direction === 'forward' ? [from, to] : [to, from];
+    queuePages({ data: page({ content: body, capabilities: { canEdit: true } }) });
+    renderEditor();
+    await screen.findByDisplayValue('Original title');
+    act(() => currentEditorView().dispatch({ selection: EditorSelection.range(anchor, head) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await screen.findByTestId('md-preview');
+    for (const block of document.querySelectorAll<HTMLElement>('[data-markdown-source-start]')) {
+      vi.spyOn(block, 'getBoundingClientRect').mockReturnValue({
+        top: Number(block.dataset.markdownSourceStart) === from ? 12 : -300,
+      } as DOMRect);
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Return to edit' }));
+    await waitFor(() => expect(currentEditorView().state.selection.main.anchor).toBe(anchor));
+    expect(currentEditorView().state.selection.main.head).toBe(head);
+    expect(currentEditorView().state.doc.toString()).toBe(body);
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it.each(['page', 'identity'] as const)('does not carry the preview origin across a %s change', async (change) => {
+    const body = '# Intro\n\nRepeated passage.';
+    const from = body.indexOf('Repeated');
+    queuePages({ data: page({ content: body, capabilities: { canEdit: true } }) });
+    const tree = <LanguageProvider><MemoryRouter initialEntries={['/pages/page-1/edit']}><NavigationHarness /></MemoryRouter></LanguageProvider>;
+    const view = render(tree);
+    await screen.findByDisplayValue('Original title');
+    act(() => currentEditorView().dispatch({ selection: EditorSelection.range(from + 8, from + 2) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await screen.findByTestId('md-preview');
+    queuePages({ data: page({ id: change === 'page' ? 'page-2' : 'page-1', title: 'Reloaded page', content: body, capabilities: { canEdit: true } }) });
+    if (change === 'page') {
+      fireEvent.click(screen.getByRole('button', { name: 'Navigate to second page' }));
+    } else {
+      authMock.user = { ...authMock.user, id: 'user-2' };
+      view.rerender(<LanguageProvider><MemoryRouter initialEntries={['/pages/page-1/edit']}><NavigationHarness /></MemoryRouter></LanguageProvider>);
+    }
+    await screen.findByDisplayValue('Reloaded page');
+    for (const block of document.querySelectorAll<HTMLElement>('[data-markdown-source-start]')) {
+      vi.spyOn(block, 'getBoundingClientRect').mockReturnValue({
+        top: Number(block.dataset.markdownSourceStart) === from ? 12 : -300,
+      } as DOMRect);
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Return to edit' }));
+    await waitFor(() => expect(currentEditorView().state.selection.main.head).toBe(from));
+    expect(currentEditorView().state.selection.main.empty).toBe(true);
+  });
+
   it('returns to the preview block selected after moving away from the original editor cursor', async () => {
     const body = '# Long section\n\nParagraph A.\n\nParagraph B.\n\nParagraph C.';
     const paragraphAOffset = body.indexOf('Paragraph A');
@@ -997,7 +1048,7 @@ describe('PageEditor remote update safety', () => {
     queuePages({ data: page({ content: body, capabilities: { canEdit: true } }) });
     renderEditor();
     await screen.findByDisplayValue('Original title');
-    act(() => currentEditorView().dispatch({ selection: EditorSelection.cursor(paragraphAOffset + 4) }));
+    act(() => currentEditorView().dispatch({ selection: EditorSelection.range(paragraphAOffset + 10, paragraphAOffset + 4) }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
     await screen.findByText('Paragraph B.');
@@ -1011,6 +1062,7 @@ describe('PageEditor remote update safety', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Return to edit' }));
 
     await waitFor(() => expect(currentEditorView().state.selection.main.head).toBe(paragraphBOffset));
+    expect(currentEditorView().state.selection.main.empty).toBe(true);
   });
 
   it('keeps the second repeated heading identity through reading, edit, preview, and reading', async () => {

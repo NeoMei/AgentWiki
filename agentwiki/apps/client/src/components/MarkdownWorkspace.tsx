@@ -64,12 +64,19 @@ export interface MarkdownWorkspaceHandle {
   restorePosition: (position: MarkdownWorkspacePosition) => void;
 }
 
+interface MarkdownSelectionBookmark {
+  readonly anchor: number;
+  readonly head: number;
+}
+
 export interface MarkdownWorkspacePosition {
   cursorOffset: number | null;
   headingId: string | null;
   headingText: string | null;
   sourceOffset: number | null;
   scrollTop: number;
+  /** Coordinates only; restoration also requires this workspace's in-memory source proof. */
+  selectionBookmark?: MarkdownSelectionBookmark;
 }
 
 const cursorForHeading = (value: string, headingText: string | null): number =>
@@ -496,6 +503,13 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   })), [chooseSlash]);
   const previewRootRef = useRef<HTMLDivElement | null>(null);
   const pendingRestoreRef = useRef<MarkdownWorkspacePosition | null>(null);
+  const selectionScope = useMemo(() => ({}), [pageId, spaceId, pageLinksIdentity]);
+  // Keep full source out of positions, which may travel through browser history.
+  const selectionProofsRef = useRef(new WeakMap<MarkdownSelectionBookmark, { source: string; scope: object }>());
+  useLayoutEffect(() => {
+    selectionProofsRef.current = new WeakMap();
+    pendingRestoreRef.current = null;
+  }, [selectionScope]);
   const uploadGenerationRef = useRef(0);
   const uploadOperationRef = useRef(0);
   const pendingUploadsRef = useRef<Array<() => Promise<void>>>([]);
@@ -622,15 +636,22 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
       };
     }
     const view = editorViewRef.current;
-    const cursorOffset = view?.state.selection.main.head ?? 0;
+    const range = view?.state.selection.main;
+    const source = view?.state.doc.toString() ?? value;
+    const cursorOffset = range?.head ?? 0;
+    const selectionBookmark = range && !range.empty
+      ? Object.freeze({ anchor: range.anchor, head: range.head })
+      : undefined;
+    if (selectionBookmark) selectionProofsRef.current.set(selectionBookmark, { source, scope: selectionScope });
     return {
       cursorOffset,
       headingId: null,
-      headingText: nearestMarkdownHeading(value, cursorOffset),
-      sourceOffset: markdownBlockSourceStart(value, cursorOffset),
+      headingText: nearestMarkdownHeading(source, cursorOffset),
+      sourceOffset: markdownBlockSourceStart(source, cursorOffset),
       scrollTop: view?.scrollDOM.scrollTop ?? 0,
+      ...(selectionBookmark ? { selectionBookmark } : {}),
     };
-  }, [isEdit, value]);
+  }, [isEdit, selectionScope, value]);
 
   const restorePosition = useCallback((position: MarkdownWorkspacePosition) => {
     const candidateView = isEdit ? editorViewRef.current : null;
@@ -645,14 +666,20 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
         ?? position.sourceOffset
         ?? cursorForHeading(view.state.doc.toString(), position.headingText);
       const cursorOffset = Math.min(Math.max(requestedOffset, 0), view.state.doc.length);
+      const bookmark = position.selectionBookmark;
+      const proof = bookmark ? selectionProofsRef.current.get(bookmark) : undefined;
+      const restoredSelection = bookmark && proof?.scope === selectionScope && proof.source === view.state.doc.toString()
+        ? EditorSelection.range(bookmark.anchor, bookmark.head)
+        : EditorSelection.cursor(cursorOffset);
       view.dispatch({
-        selection: EditorSelection.cursor(cursorOffset),
-        effects: EditorView.scrollIntoView(cursorOffset, { y: 'center' }),
+        selection: restoredSelection,
+        annotations: Transaction.addToHistory.of(false),
+        effects: EditorView.scrollIntoView(restoredSelection.head, { y: 'center' }),
       });
       if (hasSemanticPosition) {
         requestAnimationFrame(() => {
           if (view.dom.isConnected) {
-            view.dispatch({ effects: EditorView.scrollIntoView(cursorOffset, { y: 'center' }) });
+            view.dispatch({ effects: EditorView.scrollIntoView(restoredSelection.head, { y: 'center' }) });
           }
         });
       } else if (position.scrollTop > 0) {
@@ -676,7 +703,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
       : null;
     const target = sourceBlock ?? (headingById && root.contains(headingById) ? headingById : null) ?? headingByText;
     if (typeof target?.scrollIntoView === 'function') target.scrollIntoView({ block: 'start' });
-  }, [isEdit]);
+  }, [isEdit, selectionScope]);
 
   useImperativeHandle(ref, () => ({
     simulateChange: (next: string) => onChange(next),

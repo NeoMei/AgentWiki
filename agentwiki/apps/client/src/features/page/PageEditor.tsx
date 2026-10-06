@@ -533,6 +533,11 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   }, [abortAttachmentUploads, page?.id, page?.spaceId]);
 
   useLayoutEffect(() => {
+    editorPreviewOriginRef.current = null;
+    pendingWorkspacePositionRef.current = null;
+  }, [id, user?.id, page?.spaceId]);
+
+  useLayoutEffect(() => {
     const position = pendingWorkspacePositionRef.current;
     if (!position) return;
     pendingWorkspacePositionRef.current = null;
@@ -552,6 +557,9 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
           cursorOffset: currentPosition.sourceOffset === editorOrigin.sourceOffset
             ? editorOrigin.cursorOffset
             : null,
+          selectionBookmark: currentPosition.sourceOffset === editorOrigin.sourceOffset
+            ? editorOrigin.selectionBookmark
+            : undefined,
         }
         : currentPosition;
       editorPreviewOriginRef.current = null;
