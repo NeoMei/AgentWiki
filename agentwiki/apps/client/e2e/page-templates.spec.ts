@@ -160,6 +160,12 @@ const expectRenderedHeading = async (
 // Open templates from the main directory, not the sidebar's separate create action.
 const directory = (page: Page) => page.getByTestId('content-breadcrumbs').locator('xpath=ancestor::main[1]');
 
+const choosePageTemplates = async (page: Page, language: 'zh-CN' | 'en') => {
+  await page.waitForURL((url) => url.pathname === `/spaces/${spaceId}/new`);
+  await page.getByRole('navigation', { name: language === 'zh-CN' ? '创建方式' : 'Creation method' })
+    .getByRole('button', { name: language === 'zh-CN' ? '单页模板' : 'Page template', exact: true }).click();
+};
+
 const customTemplateArticle = (page: Page) => page.getByRole('article').filter({
   has: page.getByRole('heading', { name: customTemplateName, exact: true }),
 });
@@ -260,6 +266,7 @@ test.describe.serial('page template library', () => {
 
     await page.goto(`/spaces/${spaceId}`);
     await directory(page).getByRole('button', { name: '新建页面', exact: true }).click();
+    await choosePageTemplates(page, 'zh-CN');
     await page.getByRole('button', { name: new RegExp(customTemplateName, 'u') }).click();
     await page.getByRole('button', { name: '下一步' }).click();
     await page.getByLabel('标题').fill('团队任务实例一');
@@ -295,6 +302,7 @@ test.describe.serial('page template library', () => {
 
     await page.goto(`/spaces/${spaceId}`);
     await directory(page).getByRole('button', { name: '新建页面', exact: true }).click();
+    await choosePageTemplates(page, 'zh-CN');
     await page.getByRole('button', { name: new RegExp(customTemplateName, 'u') }).click();
     await page.getByRole('button', { name: '下一步' }).click();
     await page.getByLabel('标题').fill('团队任务实例二');
@@ -474,6 +482,7 @@ test.describe.serial('page template library', () => {
       const newPage = directory(editorSession.page).getByRole('button', { name: 'New page', exact: true });
       await expect(newPage).toBeVisible();
       await newPage.click();
+      await choosePageTemplates(editorSession.page, 'en');
       const customTemplate = editorSession.page.getByRole('button', {
         name: new RegExp(customTemplateName, 'u'),
       });
@@ -516,6 +525,7 @@ test.describe.serial('page template library', () => {
       const newPage = directory(adminSession.page).getByRole('button', { name: 'New page', exact: true });
       await expect(newPage).toBeVisible();
       await newPage.click();
+      await choosePageTemplates(adminSession.page, 'en');
       await expect(adminSession.page.getByRole('link', { name: 'Manage templates' })).toBeVisible();
       await adminSession.page.getByRole('button', { name: new RegExp(customTemplateName, 'u') }).click();
       await adminSession.page.getByRole('button', { name: 'Next', exact: true }).click();
@@ -550,6 +560,7 @@ test.describe.serial('page template library', () => {
           name: scenario.locale === 'zh-CN' ? '新建页面' : 'New page',
           exact: true,
         }).click();
+        await choosePageTemplates(session.page, scenario.locale);
         await session.page.getByRole('button', { name: scenario.template }).click();
         await session.page.getByRole('button', {
           name: scenario.locale === 'zh-CN' ? '下一步' : 'Next',
@@ -573,8 +584,9 @@ test.describe.serial('page template library', () => {
     await authenticate(page, owner!, 'zh-CN');
     await page.goto(`/spaces/${spaceId}`);
     await directory(page).getByRole('button', { name: '新建页面', exact: true }).click();
-    await expect(page.getByRole('button', { name: /空白页面/u })).toHaveAttribute('aria-pressed', 'true');
-    await page.getByRole('button', { name: '下一步' }).click();
+    await page.waitForURL((url) => url.pathname === `/spaces/${spaceId}/new`);
+    await expect(page.getByRole('navigation', { name: '创建方式' }).getByRole('button', { name: '空白页面', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByLabel('标题')).toBeFocused();
     await page.getByLabel('标题').fill('空白新页面');
     await page.getByRole('button', { name: '创建' }).click();
     await page.waitForURL(/\/pages\/[^/]+\/edit$/u);
@@ -593,44 +605,78 @@ test.describe.serial('page template library', () => {
     await expectNoDocumentOverflow(page);
   });
 
-  test('390px NewPageDialog, manager, and PageEditor More menu stay in the viewport and restore focus', async ({ page }) => {
+  test('390px creation route, manager, and PageEditor More menu preserve layout, cancellation and focus', async ({ page }) => {
     await authenticate(page, owner!, 'en');
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`/spaces/${spaceId}`);
 
-    const opener = directory(page).getByRole('button', { name: 'New page', exact: true });
-    await opener.click();
-    const newPageDialog = page.getByRole('dialog', { name: 'Create new page' });
-    await expect(page.getByRole('button', { name: 'Close', exact: true })).toBeFocused();
+    const beforeCancel = await json<{ treeRevision: string }>(await api.get(`spaces/${spaceId}/content-tree`, {
+      headers: ownerHeaders(), params: { take: 1 },
+    }), 'read tree before cancelled creation');
+    await directory(page).getByRole('button', { name: 'New page', exact: true }).click();
+    await page.waitForURL((url) => url.pathname === `/spaces/${spaceId}/new`);
+    const creation = page.getByRole('heading', { name: 'New content', exact: true }).locator('xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " creation-page ")][1]');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByLabel('Title')).toBeFocused();
     await expectNoDocumentOverflow(page);
     for (const [label, locator] of [
-      ['NewPageDialog', newPageDialog],
-      ['blank template card', page.getByRole('button', { name: /Blank page/u })],
-      ['weekly template card', page.getByRole('button', { name: /Weekly report/u })],
-      ['NewPageDialog cancel', page.getByRole('button', { name: 'Cancel', exact: true })],
-      ['NewPageDialog next', page.getByRole('button', { name: 'Next', exact: true })],
+      ['creation route', creation],
+      ['blank method', creation.getByRole('button', { name: 'Blank page', exact: true })],
+      ['template method', creation.getByRole('button', { name: 'Page template', exact: true })],
+      ['blank title', page.getByLabel('Title')],
+      ['blank cancel', creation.getByRole('button', { name: 'Cancel', exact: true })],
+      ['blank create', creation.getByRole('button', { name: 'Create', exact: true })],
     ] as const) {
       await expectInsideViewport(page, locator, label);
     }
 
-    await page.getByRole('button', { name: /Weekly report/u }).click();
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await choosePageTemplates(page, 'en');
+    const weekly = creation.getByRole('button', { name: /Weekly report/u });
+    await weekly.scrollIntoViewIfNeeded();
+    await expectInsideViewport(page, weekly, 'weekly template card');
+    await weekly.click();
+    const next = creation.getByRole('button', { name: 'Next', exact: true });
+    await next.scrollIntoViewIfNeeded();
+    await expectInsideViewport(page, next, 'template next');
+    await next.click();
     await expect(page.getByLabel('Title')).toHaveValue(/Weekly report \d{4}-W\d{2}/u);
     await expect(page.getByLabel('Title')).toBeFocused();
     await expectNoDocumentOverflow(page);
     for (const [label, locator] of [
-      ['NewPageDialog title', page.getByLabel('Title')],
-      ['NewPageDialog step details', newPageDialog.getByText('Page details', { exact: true })],
-      ['NewPageDialog back', page.getByRole('button', { name: 'Back', exact: true })],
-      ['NewPageDialog create', page.getByRole('button', { name: 'Create', exact: true })],
+      ['template title', page.getByLabel('Title')],
+      ['selected template summary', creation.getByText('Weekly report', { exact: true })],
+      ['template back', creation.getByRole('button', { name: 'Back', exact: true })],
+      ['template create', creation.getByRole('button', { name: 'Create', exact: true })],
     ] as const) {
+      await locator.scrollIntoViewIfNeeded();
       await expectInsideViewport(page, locator, label);
     }
-    await page.getByRole('button', { name: 'Back', exact: true }).click();
-    await page.keyboard.press('Escape');
-    await expect(newPageDialog).toHaveCount(0);
-    await expect(opener).toBeFocused();
-    await page.screenshot({ path: path.join(artifacts, 'new-page-dialog-mobile.png'), fullPage: true });
+    await creation.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(creation.getByRole('button', { name: 'Return to previous location', exact: true })).toBeFocused();
+    // A page route uses the navigation guard, not the former modal's Escape/Close contract.
+    const cancel = creation.getByRole('button', { name: 'Cancel', exact: true });
+    const dismissConfirmation = page.waitForEvent('dialog').then(async (dialog) => {
+      expect(dialog.type()).toBe('confirm');
+      await dialog.dismiss();
+    });
+    await cancel.click();
+    await dismissConfirmation;
+    await expect(creation).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/spaces/${spaceId}/new$`, 'u'));
+    const acceptConfirmation = page.waitForEvent('dialog').then(async (dialog) => {
+      expect(dialog.type()).toBe('confirm');
+      await dialog.accept();
+    });
+    await cancel.click();
+    await acceptConfirmation;
+    await page.waitForURL((url) => url.pathname === `/spaces/${spaceId}` && !url.search);
+    await expect(directory(page).getByRole('button', { name: 'New page', exact: true })).toBeVisible();
+    const afterCancel = await json<{ treeRevision: string }>(await api.get(`spaces/${spaceId}/content-tree`, {
+      headers: ownerHeaders(), params: { take: 1 },
+    }), 'read tree after cancelled creation');
+    expect(afterCancel.treeRevision).toBe(beforeCancel.treeRevision);
+    await expectNoDocumentOverflow(page);
+    await page.screenshot({ path: path.join(artifacts, 'new-content-cancel-mobile.png'), fullPage: true });
 
     await page.goto(`/spaces/${spaceId}/settings/page-templates`);
     await expect(page.getByRole('heading', { name: 'Space page templates' })).toBeVisible();

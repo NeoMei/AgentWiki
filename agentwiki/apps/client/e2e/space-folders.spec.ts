@@ -189,8 +189,9 @@ test.describe.serial('space folder hierarchy', () => {
     await expect(directory(page).getByTestId('folder-page-count')).toHaveText('页面 (0)');
 
     await directory(page).getByRole('button', { name: '新建页面', exact: true }).click();
-    await page.getByRole('button', { name: '下一步' }).click();
-    await expect(page.getByTestId('new-page-folder-hint')).toBeVisible();
+    await page.waitForURL((url) => url.pathname === `/spaces/${spaceId}/new` && url.searchParams.get('folder') === rootFolderId);
+    await expect(page.getByTestId('new-page-folder-hint')).toContainText(rootFolderName);
+    await expect(page.getByLabel('标题')).toBeFocused();
     await page.getByLabel('标题').fill(folderPageTitle);
     await page.getByRole('button', { name: '创建', exact: true }).click();
     await page.waitForURL(/\/pages\/[^/]+\/edit$/u);

@@ -766,6 +766,9 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       await expect(page.locator('#root-heading')).toBeVisible();
       await expect(page.getByRole('link', { name: 'Same-Space target' })).toHaveAttribute('href', `/pages/${targetPage.id}`);
       await expect(page.getByText('Initial target content.')).toBeVisible();
+      // Exercise a direct block-anchor load. A same-document page.goto changes
+      // browser history outside React Router and is not an in-app navigation.
+      await page.goto('about:blank');
       await page.goto(`/pages/${anchorPage.id}#%5Eroot-block`);
       await expect(page).toHaveURL(new RegExp(`#(?:%5E|\\^)root-block$`, 'iu'));
       await expect(page.locator('[id="^root-block"]')).toBeAttached();
