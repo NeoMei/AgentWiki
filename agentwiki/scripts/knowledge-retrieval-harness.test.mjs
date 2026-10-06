@@ -6,9 +6,12 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { createServer } from 'node:net';
+import { createServer as createHttpServer } from 'node:http';
 import { corpus, publicQuestions, operatorRubric, privateSentinel, hashCorpus } from './knowledge-retrieval-corpus.mjs';
-import { validateStatePath, validateDatabaseUrl, createOwnedWorkspace, writeOwnedState, startOwnedProcess, stopOwnedProcess, isolatedEnvironment } from './knowledge-retrieval-harness.mjs';
+import { validateStatePath, validateDatabaseUrl, createOwnedWorkspace, writeOwnedState, startOwnedProcess, startOwnedRedis, stopOwnedProcess, isolatedEnvironment } from './knowledge-retrieval-harness.mjs';
 import { isAllowedReadTool, executeReadOperation, loadConsumerState, sanitizeTraceInput } from './knowledge-retrieval-agent-client.mjs';
+import * as harness from './knowledge-retrieval-harness.mjs';
 
 const require = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
@@ -99,6 +102,42 @@ test('owned process shutdown waits for termination without killing unrelated pro
   await stopOwnedProcess(child);
   assert.ok(child.exitCode !== null || child.signalCode !== null);
   assert.doesNotThrow(() => process.kill(process.pid, 0));
+});
+
+test('owned Redis satisfies the product AOF durability prerequisite', {
+  skip: spawnSync('redis-server', ['--version']).status !== 0 || spawnSync('redis-cli', ['--version']).status !== 0 ? 'Redis binaries unavailable' : false,
+}, async () => {
+  const workspace = await createOwnedWorkspace();
+  const reservation = createServer();
+  await new Promise(done => reservation.listen(0, '127.0.0.1', done));
+  const port = reservation.address().port;
+  await new Promise(done => reservation.close(done));
+  const child = startOwnedRedis(port, workspace.path);
+  try {
+    const deadline = Date.now() + 5_000;
+    while (!child.output.includes('Ready to accept connections') && Date.now() < deadline && child.exitCode === null) await new Promise(done => setTimeout(done, 25));
+    const info = spawnSync('redis-cli', ['-h', '127.0.0.1', '-p', String(port), 'INFO', 'persistence'], { encoding: 'utf8' });
+    assert.equal(info.status, 0);
+    assert.match(info.stdout, /(?:^|\r?\n)aof_enabled:1(?:\r?\n|$)/);
+  } finally { await stopOwnedProcess(child); await workspace.cleanup(); }
+});
+
+test('exit diagnostics preserve the cause but omit environment and credential values', () => {
+  const diagnostic = harness.ownedProcessDiagnostic({ pid: 123, exitCode: 1, signalCode: null, output: 'Redis AOF persistence is not enabled\nJWT_SECRET=fixture-jwt-value\nBearer fixture-bearer-value\npostgres://user:password@localhost/test', secretValues: ['fixture-jwt-value'] }, 'api');
+  assert.equal(diagnostic.stage, 'api');
+  assert.equal(diagnostic.exitCode, 1);
+  assert.match(diagnostic.output, /Redis AOF persistence is not enabled/);
+  assert.doesNotMatch(JSON.stringify(diagnostic), /fixture-jwt-value|fixture-bearer-value|user:password/);
+  assert.equal('secretValues' in diagnostic, false);
+});
+
+test('health probe allows the two AOF fsync waits before accepting a healthy API', async () => {
+  const server = createHttpServer((_req, response) => {
+    setTimeout(() => { response.writeHead(200, { 'Content-Type': 'application/json' }); response.end('{"status":"ok"}'); }, 1_800);
+  });
+  await new Promise(done => server.listen(0, '127.0.0.1', done));
+  try { assert.equal(await harness.checkApiHealth(`http://127.0.0.1:${server.address().port}`), true); }
+  finally { server.closeAllConnections(); await new Promise(done => server.close(done)); }
 });
 
 test('consumer refuses invalid or public state before starting a gateway', async () => {

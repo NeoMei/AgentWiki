@@ -25,7 +25,7 @@ node scripts/knowledge-retrieval-harness.mjs serve
 
 测试 DB 必须为 loopback PostgreSQL，数据库名包含 test。沿用 `withCollaborationTestDatabase` 的 reviewed migration corpus、前置检查与公共库存检查；禁止修改 helper、跳过 digest 或转向生产库以求通过。失败时保留门禁结果并修复前置环境。
 
-每次运行创建独立 Redis 进程与端口、随机 schema、API 进程、临时上传/客户端目录；不启动 Worker、不使用共享 Redis、不 flush。合成已发布页/证据由 Prisma 直接 seed，因此不把 seed 称为 ingestion/人审发布闭环验收。API 与 gateway cwd 都是临时目录，不加载仓库 `.env`；API 环境不继承 provider 密钥或代理变量。
+每次运行创建独立 Redis 进程与端口、随机 schema、API 进程、临时上传/客户端目录；不启动 Worker、不使用共享 Redis、不 flush。独立 Redis 启用 AOF/everysec，持久化文件只写本次临时目录，以满足产品既有持久性门禁；健康请求保留 12 秒预算，覆盖产品两次各 5 秒上限的 WAITAOF 检查。合成已发布页/证据由 Prisma 直接 seed，因此不把 seed 称为 ingestion/人审发布闭环验收。API 与 gateway cwd 都是临时目录，不加载仓库 `.env`；API 环境不继承 provider 密钥或代理变量。启动失败会在 evidence 目录保存 0600 的 `failure-diagnostic.json`，包含阶段、退出状态及已脱敏输出，不包含子进程环境或凭据。
 
 `READY` 返回安全的 state 路径、evidence 路径、Space ID、corpusHash 和消费者命令路径。0600 state 内含凭据，只允许 facade 和操作者使用，禁止 cat/输出/作为 Agent 提示词。`run.json` 保存产品 commit、源码/构建/技能哈希、migration/公共库存 digest 和 Agent ID；`operator-rubric.json` 仅用于评分。运行期间冻结构建，不在同一服务生命周期内切换产品或技能。
 

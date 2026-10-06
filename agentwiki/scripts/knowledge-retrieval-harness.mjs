@@ -49,10 +49,29 @@ export function startOwnedProcess(command, args, options) {
   child.startError = null;
   child.on('error', error => { child.startError = error; });
   child.output = '';
+  child.secretValues = Object.entries(options.env ?? {}).filter(([key]) => /SECRET|PEPPER|SEED|TOKEN|KEY|PASSWORD|DATABASE_URL|REDIS_URL/.test(key)).map(([, value]) => value).filter(value => typeof value === 'string' && value.length > 0);
   const capture = data => { child.output = (child.output + data.toString()).slice(-32_000); };
   child.stdout.on('data', capture);
   child.stderr.on('data', capture);
   return child;
+}
+export function startOwnedRedis(port, directory) {
+  return startOwnedProcess('redis-server', ['--bind', '127.0.0.1', '--port', String(port), '--save', '', '--appendonly', 'yes', '--appendfsync', 'everysec', '--dir', directory], { cwd: directory, env: isolatedEnvironment() });
+}
+function redactDiagnosticText(value, secrets = []) {
+  let text = String(value ?? '').replace(/\u001b\[[0-9;]*m/g, '');
+  for (const secret of secrets) if (secret) text = text.split(secret).join('[REDACTED]');
+  return text.replace(/(?:postgres(?:ql)?|redis):\/\/[^\s"']+/g, '[REDACTED_URL]')
+    .replace(/Bearer\s+[^\s"']+/gi, 'Bearer [REDACTED]')
+    .replace(/((?:api[_-]?key|access[_-]?token|password|authorization|secret|pepper|seed)\s*["']?\s*[:=]\s*)["']?[^\s,"']+/gi, '$1[REDACTED]');
+}
+export function ownedProcessDiagnostic(child, stage) {
+  return { stage, pid: child?.pid ?? null, exitCode: child?.exitCode ?? null, signal: child?.signalCode ?? null, output: redactDiagnosticText(child?.output, child?.secretValues) };
+}
+export async function checkApiHealth(apiUrl) {
+  // Product health includes two WAITAOF probes, each bounded at 5 seconds.
+  const response = await fetch(`${apiUrl}/health`, { signal: AbortSignal.timeout(12_000) });
+  return response.ok && (await response.json()).status === 'ok';
 }
 export async function stopOwnedProcess(child) {
   if (!child || child.exitCode !== null || child.signalCode !== null || child.startError) return;
@@ -183,12 +202,14 @@ export async function serve({ databaseUrl, statePath }) {
   let ready = false;
   let scopeReceipt;
   let databaseCleaned = false;
+  let phase = 'redis-readiness';
   try {
     const redisPort = await availablePort();
     const redisUrl = `redis://127.0.0.1:${redisPort}/0`;
-    redis = startOwnedProcess('redis-server', ['--bind', '127.0.0.1', '--port', String(redisPort), '--save', '', '--appendonly', 'no', '--dir', workspace.path], { cwd: workspace.path, env: isolatedEnvironment() });
+    redis = startOwnedRedis(redisPort, workspace.path);
     await waitReady(redis, async () => redis.output.includes('Ready to accept connections'), controller.signal);
     assertTestRedisAvailable(resolveTestRedisTarget(redisUrl, { environment: isolatedEnvironment() }));
+    phase = 'database-preflight-and-migration';
     await withCollaborationTestDatabase(databaseUrl, async scope => {
       scopeReceipt = { schemaName: scope.schemaName, migrationTreeDigest: scope.migrationTreeDigest, publicInventoryDigest: scope.publicInventoryDigest };
       try {
@@ -197,20 +218,23 @@ export async function serve({ databaseUrl, statePath }) {
         const apiUrl = `http://127.0.0.1:${port}/api`;
         const env = { ...isolatedEnvironment(), NODE_ENV: 'test', PROCESS_ROLE: 'api', AGENTWIKI_LISTEN_HOST: '127.0.0.1', PORT: String(port), DATABASE_URL: scope.databaseUrl, REDIS_URL: redisUrl, JWT_SECRET: randomBytes(48).toString('hex'), AGENTWIKI_SERVER_PEPPER: randomBytes(48).toString('hex'), AGENTWIKI_DEPLOYMENT_SEED: randomBytes(32).toString('base64'), LOCAL_SYNC_PACKAGE_VERSION: packageVersion, PUBLIC_API_URL: apiUrl, MCP_ALLOWED_HOSTS: '127.0.0.1,localhost', CORS_ORIGINS: `http://127.0.0.1:${port}`, ATTACHMENT_STORAGE_PATH: workspace.path };
         api = startOwnedProcess(process.execPath, [join(root, 'apps/server/dist/main.js')], { cwd: workspace.path, env });
+        phase = 'api-readiness';
         await waitReady(api, async () => {
           // A health response alone could belong to a process winning the port race.
           if (!api.output.includes(`Server running on http://localhost:${port}`)) return false;
-          const response = await fetch(`${apiUrl}/health`, { signal: AbortSignal.timeout(1_500) });
-          return response.ok && (await response.json()).status === 'ok';
+          return checkApiHealth(apiUrl);
         }, controller.signal);
         const suffix = randomUUID();
+        phase = 'fixture-seeding';
         const owner = await request(apiUrl, '/auth/register', { body: { email: `retrieval-${suffix}@example.test`, password: `Retrieval-${suffix}!`, name: 'Synthetic Retrieval Owner' } });
         const token = owner.access_token;
+        api.secretValues.push(token);
         const space = await request(apiUrl, '/spaces', { token, body: { name: 'Knowledge Retrieval Fixture' } });
         const privateSpace = await request(apiUrl, '/spaces', { token, body: { name: 'Unauthorized Retrieval Decoy' } });
         const pageIds = await seedCorpus(scope.databaseUrl, owner.user.id, space.id, privateSpace.id);
         const agents = {};
         for (const label of ['a', 'b']) agents[label] = await prepareAgent({ apiUrl, token, spaceId: space.id, workspace: workspace.path, label, packageVersion });
+        api.secretValues.push(...Object.values(agents).map(agent => agent.apiKey));
         const common = { corpusHash: hashCorpus(corpus), questionsHash: hashCorpus(publicQuestions), product, ...scopeReceipt, embeddingMode: 'lexical-only; no provider credentials', fixtureSeeding: 'direct isolated Prisma fixtures; production HTTP MCP reads', packageVersion };
         await privateJson(join(artifacts, 'operator-rubric.json'), { ...common, rubric: operatorRubric, pageIds, privateSpaceId: privateSpace.id });
         await privateJson(join(artifacts, 'questions.json'), publicQuestions);
@@ -219,6 +243,7 @@ export async function serve({ databaseUrl, statePath }) {
         controller.signal.throwIfAborted();
         cleanupState = await writeOwnedState(statePath, { version: 1, harnessPid: process.pid, resourceRoot: workspace.path, artifacts, apiUrl, spaceId: space.id, agents, consumerPath, ...common });
         ready = true;
+        phase = 'consumer-ready';
         process.stdout.write(`${JSON.stringify({ status: 'READY', statePath, artifacts, corpusHash: common.corpusHash, apiUrl, spaceId: space.id, consumerPath })}\n`);
         await shutdown;
       } finally {
@@ -232,6 +257,10 @@ export async function serve({ databaseUrl, statePath }) {
       }
     });
     databaseCleaned = true;
+  } catch (error) {
+    const secrets = [...(api?.secretValues ?? []), ...(redis?.secretValues ?? []), databaseUrl];
+    await privateJson(join(artifacts, 'failure-diagnostic.json'), { phase, error: redactDiagnosticText(error.message, secrets), processes: [ownedProcessDiagnostic(api, 'api'), ownedProcessDiagnostic(redis, 'redis')] });
+    throw error;
   } finally {
     const stops = await Promise.allSettled([cleanupState(), stopOwnedProcess(api), stopOwnedProcess(redis)]);
     const removal = await Promise.allSettled([workspace.cleanup()]);
