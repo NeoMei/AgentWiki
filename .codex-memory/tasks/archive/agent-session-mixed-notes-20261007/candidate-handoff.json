@@ -20,6 +20,7 @@
   "push": false,
   "merge": false,
   "deploy": false,
-  "reviewReport": "/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /.codex-memory/tasks/active/agent-session-mixed-notes-20261007/task-1-review.md",
-  "implementationReport": "/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /.codex-memory/tasks/active/agent-session-mixed-notes-20261007/task-1-report.md"
+  "reviewReport": "/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /.codex-memory/tasks/archive/agent-session-mixed-notes-20261007/task-1-review.md",
+  "implementationReport": "/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /.codex-memory/tasks/archive/agent-session-mixed-notes-20261007/task-1-report.md",
+  "supersededBy": "acceptance-result.json (later actual UI and cleanup acceptance; this handoff retains historical pending status)"
 }

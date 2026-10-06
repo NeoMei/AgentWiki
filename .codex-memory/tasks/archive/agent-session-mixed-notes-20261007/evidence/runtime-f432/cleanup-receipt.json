@@ -1,0 +1,73 @@
+{
+  "status": "cleaned",
+  "schemaRemoved": true,
+  "protectedInventoryUnchanged": true,
+  "protectedInventoryDigest": "e447573064bbbfc1fbeae49340e519e8b40478a9992ccfaf92e35cfbc93350c0",
+  "ownedChildrenAbsent": true,
+  "ownedRootRemoved": true,
+  "uploadsRemoved": true,
+  "credentialMaterialRemoved": true,
+  "completedAt": "2026-10-06T18:25:26.004Z",
+  "independentFinalCheck": true,
+  "schemaName": "folder_test_e2e02011abbe4a17a7a3a42b343baa9f",
+  "schemaSqlReadbackAbsent": true,
+  "harnessAbsent": true,
+  "ownedPidsAbsent": [
+    57659,
+    57769,
+    57772,
+    57798,
+    57806
+  ],
+  "launchJobUnloaded": true,
+  "launchPlistRemoved": true,
+  "uploadsFilesystemAbsent": true,
+  "redisDataFilesystemAbsent": true,
+  "runtimeCredentialKeysAbsent": true,
+  "runtimeStatus": "stopped",
+  "finalVerifiedAt": "2026-10-06T18:26:09.171Z",
+  "loopbackPortsReleased": [
+    51913,
+    51914,
+    53467
+  ],
+  "ownedFixtureProcesses": [
+    {
+      "pid": 59213,
+      "originalProcessAbsent": true
+    },
+    {
+      "pid": 59337,
+      "originalProcessAbsent": true
+    },
+    {
+      "pid": 60303,
+      "originalProcessAbsent": true
+    },
+    {
+      "pid": 63029,
+      "originalProcessAbsent": true
+    },
+    {
+      "pid": 63306,
+      "originalProcessAbsent": true
+    }
+  ],
+  "credentialFileDeleted": true,
+  "credentialFileReadbackAbsent": true,
+  "retainedCandidateProof": {
+    "candidateSha": "f4325942c53101e8c628cd68fc1b7f23f07ae5cd",
+    "sourceTreeDigest": "7f1de8aed57ed10d4ea14762ad12ca1f4d7a21612ecbd67b03fe5a29cd3351de",
+    "serverDist": {
+      "files": 763,
+      "treeDigest": "9ab2d70c604084f2a34072f35a581fd48cc29f3a61dde47251f0d4d169b2634d"
+    },
+    "clientDist": {
+      "files": 364,
+      "treeDigest": "ba3d3cea0d1d5e3341f82d5c635f131069805b1a9d33b0be8b097578834a659b"
+    },
+    "migrationDigest": "39e27b72da1e030c676cb858b642c3f231d6ddc4d5f531b7f4749f45c9ced7a5",
+    "migrationFiles": 61
+  },
+  "browserBoundary": "Root confirmed access-loss UI cleared history and denied page after reload; logged out, restored network/viewport, closed own tab. Test-only origin local notes/preferences may remain. No browser storage cleared by runtime agent."
+}

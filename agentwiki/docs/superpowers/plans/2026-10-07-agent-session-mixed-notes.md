@@ -36,6 +36,6 @@ Parent creates BASE..HEAD review package; fresh independent reviewer checks Task
 
 ## Fixed candidate handoff
 
-Productf4325942c53101e8c628cd68fc1b7f23f07ae5cd, exact5source/testfiles;427focusedpass,static/buildpass,index-DXqBseLb.js,548914/550000. Independent spec/quality/direct integration Approved. Root read the old1735realCUAfailure receipt and viewed its screenshot; newcandidate actualUI is NOT yet verified. Full reports in repository-root `.codex-memory/tasks/active/agent-session-mixed-notes-20261007/`.
+Productf4325942c53101e8c628cd68fc1b7f23f07ae5cd, exact5source/testfiles;427focusedpass,static/buildpass,index-DXqBseLb.js,548914/550000. Independent spec/quality/direct integration Approved. Root read the old1735realCUAfailure receipt and viewed its screenshot; At handoff the new candidate actual UI was pending. Later independent UI acceptance and cleanup passed; final reports are archived under repository-root `.codex-memory/tasks/archive/agent-session-mixed-notes-20261007/`.
 
-- [ ] Separate independent actual-browser acceptance of the fixed candidate; overall feature completion remains pending this result.
+- [x] Separate independent actual-browser acceptance of the fixed candidate: A1–A6 passed, mixed-note P2 closed, exact native Undo/Redo and explicit Save verified. Newer independent cleanup receipt closes runtime cleanup; archive acceptance.md preserves fixture/provider/ACP/old HTTP gate/auth-injection boundaries. No implementation expansion or deployment; this period is closed.
