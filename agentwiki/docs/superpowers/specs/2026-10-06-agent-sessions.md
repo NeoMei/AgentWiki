@@ -32,18 +32,19 @@
 ```ts
 type AgentTurnMode = 'question' | 'proposal';
 type AgentTurnStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
+interface AgentTurnAnnotation { id: string; body: string; quote: string }
 interface AgentSessionSummary { id: string; spaceId: string; title: string; createdAt: string; updatedAt: string }
 interface AgentTurnRequest {
   clientRequestId: string; intent: string; mode: AgentTurnMode; pageId: string;
   snapshot?: {title: string; content: string; updatedAt?: string; draftRevision?: number; remoteRevision?: number; assistTarget?: unknown};
-  referencePageIds?: string[]; noteIds?: string[];
+  referencePageIds?: string[]; noteIds?: string[]; annotations?: AgentTurnAnnotation[];
 }
 interface AgentTurnView {
   id: string; sessionId: string; pageId: string | null; mode: AgentTurnMode;
   intent: string; status: AgentTurnStatus; createdAt: string;
   pageSnapshot: Record<string, unknown> | null;
   references: {pageId: string; title: string; updatedAt: string}[];
-  noteIds: string[]; progressText: string; result: {summary?: string; changes?: string} | null;
+  noteIds: string[]; annotations?: AgentTurnAnnotation[]; progressText: string; result: {summary?: string; changes?: string} | null;
   error: string | null;
 }
 interface AgentSessionDetail extends AgentSessionSummary { turns: AgentTurnView[] }
@@ -55,6 +56,8 @@ interface AgentSessionDetail extends AgentSessionSummary { turns: AgentTurnView[
 ```
 
 会话最多 100 轮，达到上限明确提示新建。列表返回最近 50 个会话。提示词最多取最近 10 个已结束轮次，累计文本限制 120000 UTF-16 字符；单次引用与快照总内容限制 100000，单个现有快照仍保持 50000 JSON 字符限制。服务端 DTO/测试锁定这些数值，前端展示对应错误。
+
+显式发送的 annotations 最多100条、id唯一且属于noteIds，body/quote类型与总JSON长度≤10000校验，非空quote必须出现在发送快照中；计入总context限制。历史从该轮annotations和snapshot展示正文/引文/发送版本，不从当前localStorage或当前页面重建。Notes入口先将所选笔记加入composer，用户可补充引用和指令后明确Send，加入composer尚不算已发送。
 
 ## ACP 边界及明确不做
 
