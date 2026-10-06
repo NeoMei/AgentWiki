@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { FilePlus2, FolderTree, Search, X } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { ModalDialog } from '../../components/ModalDialog';
@@ -6,6 +6,36 @@ import { useLanguage } from '../../context/LanguageContext';
 import { clampDirectoryWidth } from './workspacePreferences';
 import { ContentTree, InlineTreeName, type ContentTreeProps } from '../content-tree/ContentTree';
 import type { DirectoryLevel } from './useSpaceDirectory';
+
+// Keep placement local to the directory's scrollport; other ContentTree surfaces
+// retain their own action-menu behavior.
+function closeDirectoryMenus(scroller: HTMLElement | null, except?: Node | null, returnFocus = false) {
+  for (const details of scroller?.querySelectorAll<HTMLDetailsElement>('details[open]') ?? []) {
+    if (except && details.contains(except)) continue;
+    const hadFocus = details.contains(document.activeElement);
+    details.open = false;
+    if (returnFocus && hadFocus) details.querySelector<HTMLElement>('summary')?.focus({ preventScroll: true });
+  }
+}
+
+function placeDirectoryMenu(scroller: HTMLElement, details: HTMLDetailsElement) {
+  if (!details.open) return;
+  const summary = details.querySelector('summary');
+  const menu = details.querySelector<HTMLElement>(':scope > span');
+  if (!summary || !menu) return;
+  closeDirectoryMenus(scroller, details);
+  const viewport = scroller.getBoundingClientRect();
+  const trigger = summary.getBoundingClientRect();
+  const above = Math.max(0, trigger.top - Math.max(0, viewport.top) - 4);
+  const below = Math.max(0, Math.min(window.innerHeight, viewport.bottom) - trigger.bottom - 4);
+  menu.style.maxHeight = '';
+  const upwards = Math.max(menu.scrollHeight, menu.getBoundingClientRect().height) > below && above > below;
+  Object.assign(menu.style, {
+    top: upwards ? 'auto' : '100%', bottom: upwards ? '100%' : 'auto',
+    marginTop: upwards ? '0' : '4px', marginBottom: upwards ? '4px' : '0',
+    maxHeight: `${upwards ? above : below}px`, overflowY: 'auto',
+  });
+}
 
 export interface SpaceDirectoryProps extends Omit<ContentTreeProps,
   'nodes' | 'levelParentFolderId' | 'currentPageId' | 'selectedFolderId' | 'expandedFolderIds' | 'childLevels' | 'onToggleFolder' | 'onOpenFolder' | 'pageDeleteDisabled' | 'emptyText'> {
@@ -60,7 +90,9 @@ export const SpaceDirectory: React.FC<SpaceDirectoryProps> = ({
   const copy = (zh: string, en: string) => language === 'zh-CN' ? zh : en;
   const [filter, setFilter] = useState('');
   const [creation, setCreation] = useState<'folder' | 'page' | null>(null);
-  const revealPendingRef = useRef(false);
+  const selectionRef = useRef({ scope: preferenceScopeKey, pageId: selectedPageId });
+  const revealPendingRef = useRef({ desktop: directoryScrollTop === 0, drawer: directoryScrollTop === 0 });
+  const scrollRestorationRef = useRef(new WeakMap<HTMLElement, { scope: string; scrollTop: number; query: string; restoring: boolean }>());
   const resizeRef = useRef<{ x: number; width: number; pointerId: number } | null>(null);
   const width = clampDirectoryWidth(directoryWidth);
   const query = filter.trim().toLocaleLowerCase();
@@ -75,17 +107,78 @@ export const SpaceDirectory: React.FC<SpaceDirectoryProps> = ({
   useEffect(() => { if (!treeProps.canEdit) setCreation(null); }, [treeProps.canEdit]);
   useEffect(() => { setFilter(''); setCreation(null); }, [preferenceScopeKey]);
   useEffect(() => { setCreation(null); }, [treeProps.mutationScopeKey]);
-  useLayoutEffect(() => {
-    for (const scrollElement of [desktopScrollRef.current, drawerScrollRef.current]) {
-      if (scrollElement && scrollElement.scrollTop !== directoryScrollTop) {
-        scrollElement.scrollTop = directoryScrollTop;
+  const selectedItemIn = useCallback((scroller: HTMLElement) => {
+    if (!selectedPageId && !selectedFolderId) return null;
+    return scroller.querySelector<HTMLElement>(selectedPageId
+      ? '[role="treeitem"][aria-selected="true"]:not([aria-expanded])'
+      : '[role="treeitem"][aria-selected="true"][aria-expanded]');
+  }, [selectedFolderId, selectedPageId]);
+  const restoreAndReveal = useCallback(() => {
+    for (const [surface, scroller] of [['desktop', desktopScrollRef.current], ['drawer', drawerScrollRef.current]] as const) {
+      if (!scroller) continue;
+      const previous = scrollRestorationRef.current.get(scroller);
+      const loading = !rootLevel || treeProps.loading;
+      const viewport = scroller.getBoundingClientRect();
+      const hidden = viewport.height === 0 || viewport.width === 0;
+      // Replay saved scroll only for a new surface/scope, changed preference, completed
+      // initial/hidden layout, or return from filtering. A tree refresh must not undo user scroll.
+      if (!previous || previous.scope !== preferenceScopeKey || previous.scrollTop !== directoryScrollTop
+        || previous.restoring || (previous.query && !query)) {
+        if (!query && scroller.scrollTop !== directoryScrollTop) scroller.scrollTop = directoryScrollTop;
       }
-      if (scrollElement && rootLevel && (directoryScrollTop === 0 || revealPendingRef.current) && (selectedPageId || selectedFolderId)) {
-        const selectedItem = scrollElement.querySelector<HTMLElement>('[role="treeitem"][aria-selected="true"]');
-        if (typeof selectedItem?.scrollIntoView === 'function') { selectedItem.scrollIntoView({ block: 'nearest' }); revealPendingRef.current = false; }
-      }
+      scrollRestorationRef.current.set(scroller, { scope: preferenceScopeKey, scrollTop: directoryScrollTop, query, restoring: loading || hidden });
+      if (!revealPendingRef.current[surface] || loading) continue;
+      const selected = selectedItemIn(scroller);
+      // Hidden desktop trees and closed drawers cannot consume another surface's reveal.
+      if (!selected || hidden) continue;
+      const row = selected.getBoundingClientRect();
+      if (row.top < viewport.top || row.bottom > viewport.bottom) selected.scrollIntoView?.({ block: 'nearest' });
+      revealPendingRef.current[surface] = false;
     }
-  }, [directoryScrollTop, directoryCollapsed, drawerOpen, rootLevel, levels, filter, selectedFolderId, selectedPageId]);
+  }, [directoryScrollTop, preferenceScopeKey, query, rootLevel, selectedItemIn, treeProps.loading]);
+  useLayoutEffect(() => {
+    const previous = selectionRef.current;
+    if (previous.scope !== preferenceScopeKey || previous.pageId !== selectedPageId) {
+      closeDirectoryMenus(desktopScrollRef.current);
+      closeDirectoryMenus(drawerScrollRef.current);
+    }
+    if (previous.scope !== preferenceScopeKey) {
+      revealPendingRef.current = { desktop: directoryScrollTop === 0, drawer: directoryScrollTop === 0 };
+    } else if (previous.pageId !== selectedPageId) {
+      revealPendingRef.current = { desktop: Boolean(selectedPageId), drawer: Boolean(selectedPageId) };
+      if (selectedPageId && query && ![desktopScrollRef.current, drawerScrollRef.current].some((scroller) => scroller && selectedItemIn(scroller))) setFilter('');
+    }
+    selectionRef.current = { scope: preferenceScopeKey, pageId: selectedPageId };
+    restoreAndReveal();
+  }, [preferenceScopeKey, selectedPageId, directoryScrollTop, query, selectedItemIn, restoreAndReveal, directoryCollapsed, drawerOpen, levels, expandedFolderIds]);
+  useEffect(() => {
+    const resize = () => {
+      closeDirectoryMenus(desktopScrollRef.current);
+      closeDirectoryMenus(drawerScrollRef.current);
+      restoreAndReveal();
+    };
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, [restoreAndReveal]);
+  useEffect(() => {
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target instanceof Node ? event.target : null;
+      closeDirectoryMenus(desktopScrollRef.current, target);
+      closeDirectoryMenus(drawerScrollRef.current, target);
+    };
+    const place = (event: Event) => {
+      if (!(event.target instanceof HTMLDetailsElement)) return;
+      for (const scroller of [desktopScrollRef.current, drawerScrollRef.current]) {
+        if (scroller?.contains(event.target)) placeDirectoryMenu(scroller, event.target);
+      }
+    };
+    document.addEventListener('pointerdown', dismiss);
+    document.addEventListener('toggle', place, true);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss);
+      document.removeEventListener('toggle', place, true);
+    };
+  }, []);
   useEffect(() => {
     if (drawerOpen && openedAtLocationRef.current !== locationKey) setDrawerOpen(false);
   }, [drawerOpen, locationKey]);
@@ -113,13 +206,10 @@ export const SpaceDirectory: React.FC<SpaceDirectoryProps> = ({
   };
   const visibleRoots = query ? visit(null) : rootLevel?.nodes ?? [];
   const revealCurrent = () => {
-    revealPendingRef.current = true;
+    revealPendingRef.current = { desktop: true, drawer: true };
     setFilter('');
     onRevealCurrent?.();
-    for (const scroller of [desktopScrollRef.current, drawerScrollRef.current]) {
-      const selected = scroller?.querySelector<HTMLElement>('[role="treeitem"][aria-selected="true"]');
-      selected?.scrollIntoView?.({ block: 'nearest' });
-    }
+    if (!query) restoreAndReveal();
   };
   const renderDirectory = (scrollRef: React.RefObject<HTMLDivElement>, scrollTestId: string, titleId?: string) => <>
       <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-3">
@@ -157,7 +247,31 @@ export const SpaceDirectory: React.FC<SpaceDirectoryProps> = ({
         {creation === 'page' && onCreatePageAtSelection ? <InlineTreeName key={`page:${treeProps.mutationScopeKey}:${selectedFolderId}:${selectedPageId}`} label={t('page.new')} onSubmit={onCreatePageAtSelection} onCancel={() => setCreation(null)} /> : null}
         {creation === 'folder' && onCreateFolderAtSelection ? <InlineTreeName key={`folder:${treeProps.mutationScopeKey}:${selectedFolderId}:${selectedPageId}`} label={t('folder.createTitle')} onSubmit={onCreateFolderAtSelection} onCancel={() => setCreation(null)} /> : null}
       </div>
-      <div ref={scrollRef} data-testid={scrollTestId} onScroll={(event) => {
+      <div ref={scrollRef} data-testid={scrollTestId}
+        onClickCapture={(event) => {
+          const summary = (event.target as Element).closest('summary');
+          const details = summary?.parentElement;
+          if (!(details instanceof HTMLDetailsElement)) return;
+          event.preventDefault();
+          details.open = !details.open;
+          placeDirectoryMenu(event.currentTarget, details);
+        }}
+        onKeyDownCapture={(event) => {
+          const summary = event.target as HTMLElement;
+          if (summary.tagName !== 'SUMMARY' || !(summary.parentElement instanceof HTMLDetailsElement)) return;
+          const details = summary.parentElement;
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault(); event.stopPropagation();
+            details.open = !details.open;
+          } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+            details.open = true;
+          } else return;
+          // Position before ContentTree focuses an action, preventing focus from
+          // scrolling an overflowing, downward-opening menu out of the scrollport.
+          placeDirectoryMenu(event.currentTarget, details);
+        }}
+        onScroll={(event) => {
+        closeDirectoryMenus(event.currentTarget, null, true);
         if (!treeProps.loading && !query) onDirectoryScrollTopChange?.(event.currentTarget.scrollTop);
       }}
         className="min-h-0 flex-1 overflow-y-auto p-3">

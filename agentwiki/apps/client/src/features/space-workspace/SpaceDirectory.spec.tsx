@@ -1,6 +1,6 @@
 import { createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { FC, ReactNode } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { LanguageProvider } from '../../context/LanguageContext';
 import type { DirectoryLevel } from './useSpaceDirectory';
@@ -125,8 +125,11 @@ describe('SpaceDirectory', () => {
     expect(scroller.scrollTop).toBe(245);
   });
 
-  it('reveals the selected item only when no directory scroll position has been saved', () => {
+  it('reveals an offscreen selected item on initial load only when no scroll position was saved', () => {
     const scrollIntoView = vi.fn();
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      return this.getAttribute('role') === 'treeitem' ? new DOMRect(0, 400, 240, 40) : new DOMRect(0, 100, 260, 200);
+    });
     Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView });
     const levels = new Map<string | null, DirectoryLevel>([
       [null, { parentFolderId: null, treeRevision: '3', nodes: [page] }],
@@ -225,5 +228,247 @@ describe('directory tools', () => {
   });
   it('resizes via keyboard within bounds and exposes width', () => {
     const onDirectoryWidthChange = vi.fn(); render(<Providers><SpaceDirectory {...props} directoryWidth={415} onDirectoryWidthChange={onDirectoryWidthChange} /></Providers>); const separator = screen.getByRole('separator', { name: 'Resize directory' }); expect(separator).toHaveAttribute('aria-valuenow', '415'); fireEvent.keyDown(separator, { key: 'ArrowRight' }); expect(onDirectoryWidthChange).toHaveBeenLastCalledWith(420); fireEvent.keyDown(separator, { key: 'Home' }); expect(onDirectoryWidthChange).toHaveBeenLastCalledWith(220);
+  });
+});
+
+
+describe('directory selection continuity', () => {
+  const nextPage = { ...page, id: 'page-b', title: 'Next document' };
+  const levels = new Map<string | null, DirectoryLevel>([
+    [null, { parentFolderId: null, treeRevision: '3', nodes: [folder] }],
+    ['guide', { parentFolderId: 'guide', treeRevision: '3', nodes: [page, nextPage] }],
+  ]);
+  const props = {
+    spaceName: 'Wiki', preferenceScopeKey: 'user-a:space-a', levels,
+    expandedFolderIds: new Set(['guide']), selectedFolderId: null, selectedPageId: 'page-a',
+    loading: false, error: null, canEdit: false, directoryScrollTop: 245,
+    onToggleFolder: vi.fn(), onSelectFolder: vi.fn(), onOpenPage: vi.fn(), onEditPage: vi.fn(),
+    onDeletePage: vi.fn(), onCreateSubfolder: vi.fn(), onRenameFolder: vi.fn(), onDeleteFolder: vi.fn(), onMove: vi.fn(),
+  };
+  const originalScrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');
+  let scrollIntoView: ReturnType<typeof vi.fn>;
+  let rowTop: number;
+  let desktopVisible: boolean;
+  beforeEach(() => {
+    rowTop = 400;
+    desktopVisible = true;
+    scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView });
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      if (this.getAttribute('data-testid') === 'space-directory-scroll' && !desktopVisible) return new DOMRect();
+      return this.getAttribute('role') === 'treeitem' ? new DOMRect(0, rowTop, 240, 40) : new DOMRect(0, 100, 260, 200);
+    });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (originalScrollIntoView) Object.defineProperty(Element.prototype, 'scrollIntoView', originalScrollIntoView);
+    else delete (Element.prototype as Partial<Element>).scrollIntoView;
+  });
+
+  it('reveals a new offscreen page despite saved scroll without moving focus or mutating the tree', () => {
+    const { rerender } = render(<Providers><SpaceDirectory {...props} /></Providers>);
+    const filter = screen.getByRole('searchbox'); filter.focus();
+    expect(screen.getByTestId('space-directory-scroll').scrollTop).toBe(245);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    rerender(<Providers><SpaceDirectory {...props} selectedPageId="page-b" /></Providers>);
+    expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: 'nearest' });
+    expect(scrollIntoView.mock.instances[0]).toBe(screen.getByTestId('content-item-page-b'));
+    expect(filter).toHaveFocus();
+    expect(props.onToggleFolder).not.toHaveBeenCalled(); expect(props.onMove).not.toHaveBeenCalled();
+  });
+
+  it('does not scroll a newly selected fully visible row or reveal it again after a later refresh', () => {
+    rowTop = 180;
+    const { rerender } = render(<Providers><SpaceDirectory {...props} /></Providers>);
+    rerender(<Providers><SpaceDirectory {...props} selectedPageId="page-b" /></Providers>);
+    expect(scrollIntoView).not.toHaveBeenCalled(); rowTop = 400;
+    rerender(<Providers><SpaceDirectory {...props} selectedPageId="page-b" levels={new Map(levels)} /></Providers>);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it('preserves same-page manual scrolling on unrelated refreshes, including a saved zero', () => {
+    const { rerender } = render(<Providers><SpaceDirectory {...props} directoryScrollTop={0} /></Providers>);
+    scrollIntoView.mockClear(); const scroller = screen.getByTestId('space-directory-scroll');
+    scroller.scrollTop = 680; fireEvent.scroll(scroller);
+    rerender(<Providers><SpaceDirectory {...props} directoryScrollTop={0} levels={new Map(levels)} /></Providers>);
+    expect(scroller.scrollTop).toBe(680); expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it('waits for loaded ancestry and expansion, then consumes the new-page reveal once', () => {
+    const { rerender } = render(<Providers><SpaceDirectory {...props} /></Providers>);
+    const rootOnly = new Map<string | null, DirectoryLevel>([[null, levels.get(null)!]]);
+    rerender(<Providers><SpaceDirectory {...props} selectedPageId="page-b" levels={rootOnly} expandedFolderIds={new Set()} loading /></Providers>);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    rerender(<Providers><SpaceDirectory {...props} selectedPageId="page-b" levels={levels} expandedFolderIds={new Set()} /></Providers>);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    rerender(<Providers><SpaceDirectory {...props} selectedPageId="page-b" /></Providers>);
+    expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: 'nearest' });
+    rerender(<Providers><SpaceDirectory {...props} selectedPageId="page-b" levels={new Map(levels)} /></Providers>);
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears a filter hiding the new current page before revealing it', () => {
+    const { rerender } = render(<Providers><SpaceDirectory {...props} /></Providers>);
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Same title' } });
+    rerender(<Providers><SpaceDirectory {...props} selectedPageId="page-b" /></Providers>);
+    expect(screen.getByRole('searchbox')).toHaveValue('');
+    expect(screen.getByTestId('content-item-page-b')).toHaveAttribute('aria-selected', 'true');
+    expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: 'nearest' });
+  });
+
+  it('retains a filter that includes the new current page', () => {
+    const { rerender } = render(<Providers><SpaceDirectory {...props} /></Providers>);
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Next' } });
+    rerender(<Providers><SpaceDirectory {...props} selectedPageId="page-b" /></Providers>);
+    expect(screen.getByRole('searchbox')).toHaveValue('Next');
+    expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: 'nearest' });
+  });
+
+  it('keeps a pending page change until the collapsed directory reopens', () => {
+    const { rerender } = render(<Providers><SpaceDirectory {...props} directoryCollapsed /></Providers>);
+    rerender(<Providers><SpaceDirectory {...props} selectedPageId="page-b" directoryCollapsed /></Providers>);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    rerender(<Providers><SpaceDirectory {...props} selectedPageId="page-b" /></Providers>);
+    expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: 'nearest' });
+  });
+
+  it('waits for the mobile drawer when desktop is hidden and reveals once on reopening', () => {
+    desktopVisible = false;
+    const { rerender } = render(<Providers><SpaceDirectory {...props} /></Providers>);
+    rerender(<Providers><SpaceDirectory {...props} selectedPageId="page-b" /></Providers>);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Open directory' }));
+    const dialog = screen.getByRole('dialog', { name: 'Directory' });
+    expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: 'nearest' });
+    expect(scrollIntoView.mock.instances[0]).toBe(within(dialog).getByTestId('content-item-page-b'));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close directory' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open directory' }));
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+  });
+
+  it('replays initial saved scroll when a hidden desktop surface first becomes measurable', () => {
+    desktopVisible = false;
+    render(<Providers><SpaceDirectory {...props} /></Providers>);
+    const scroller = screen.getByTestId('space-directory-scroll');
+    // display:none cannot retain a browser scroll offset until it has layout.
+    scroller.scrollTop = 0;
+    desktopVisible = true;
+    fireEvent.resize(window);
+    expect(scroller.scrollTop).toBe(245);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it('reveals a pending current row when a hidden desktop directory becomes visible on resize', () => {
+    desktopVisible = false;
+    const { rerender } = render(<Providers><SpaceDirectory {...props} /></Providers>);
+    rerender(<Providers><SpaceDirectory {...props} selectedPageId="page-b" /></Providers>);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    desktopVisible = true;
+    fireEvent.resize(window);
+    expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: 'nearest' });
+    fireEvent.resize(window);
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores saved unfiltered scroll before manual reveal even when the filter includes the current page', () => {
+    render(<Providers><SpaceDirectory {...props} /></Providers>);
+    const scroller = screen.getByTestId('space-directory-scroll');
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Same' } });
+    scroller.scrollTop = 20;
+    const scrollAtReveal: number[] = [];
+    scrollIntoView.mockImplementation(() => { scrollAtReveal.push(scroller.scrollTop); scroller.scrollTop = 600; });
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal current document' }));
+    expect(screen.getByRole('searchbox')).toHaveValue('');
+    expect(scrollAtReveal).toEqual([245]);
+    expect(scroller.scrollTop).toBe(600);
+  });
+
+  it('drops old pending reveal on scope change and restores the new saved position', () => {
+    const { rerender } = render(<Providers><SpaceDirectory {...props} /></Providers>);
+    rerender(<Providers><SpaceDirectory {...props} selectedPageId="missing" /></Providers>);
+    rerender(<Providers><SpaceDirectory {...props} preferenceScopeKey="user-b:space-b" selectedPageId="page-b" directoryScrollTop={80} /></Providers>);
+    expect(screen.getByTestId('space-directory-scroll').scrollTop).toBe(80);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    rerender(<Providers><SpaceDirectory {...props} preferenceScopeKey="user-b:space-b" selectedPageId="page-b" directoryScrollTop={80} levels={new Map(levels)} /></Providers>);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+});
+
+describe('directory action menu placement', () => {
+  const levels = new Map<string | null, DirectoryLevel>([[null, { parentFolderId: null, treeRevision: '3', nodes: [page] }]]);
+  const props = {
+    spaceName: 'Wiki', levels, expandedFolderIds: new Set<string>(), selectedFolderId: null, selectedPageId: null,
+    loading: false, error: null, canEdit: true, directoryScrollTop: 245,
+    onToggleFolder: vi.fn(), onSelectFolder: vi.fn(), onOpenPage: vi.fn(), onEditPage: vi.fn(),
+    onDeletePage: vi.fn(), onCreateSubfolder: vi.fn(), onRenameFolder: vi.fn(), onDeleteFolder: vi.fn(), onMove: vi.fn(),
+  };
+  let summaryTop: number;
+  let menuHeight: number;
+  beforeEach(() => {
+    summaryTop = 674;
+    menuHeight = 100;
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      if (this.tagName === 'SUMMARY') return new DOMRect(190, summaryTop, 28, 28);
+      if (this.tagName === 'SPAN' && this.parentElement?.tagName === 'DETAILS') return new DOMRect(42, summaryTop + 32, 176, menuHeight);
+      return new DOMRect(0, 280, 260, 440);
+    });
+  });
+  afterEach(() => vi.restoreAllMocks());
+  const menuElements = () => {
+    const summary = screen.getByLabelText('Actions: Same title');
+    const details = summary.parentElement as HTMLDetailsElement;
+    const menu = details.querySelector('span')!;
+    return { summary, details, menu };
+  };
+
+  it('opens a bottom row menu above its trigger inside the scrollport', () => {
+    render(<Providers><SpaceDirectory {...props} /></Providers>);
+    const { summary, details, menu } = menuElements();
+    fireEvent.click(summary);
+    expect(details.open).toBe(true);
+    expect(menu).toHaveStyle({ top: 'auto', bottom: '100%', maxHeight: '390px', overflowY: 'auto' });
+    expect(props.onEditPage).not.toHaveBeenCalled();
+  });
+
+  it('keeps enough downward room and caps tall menus to the larger available side', () => {
+    summaryTop = 300;
+    menuHeight = 600;
+    render(<Providers><SpaceDirectory {...props} /></Providers>);
+    const { summary, menu } = menuElements();
+    fireEvent.click(summary);
+    expect(menu).toHaveStyle({ top: '100%', bottom: 'auto', maxHeight: '388px', overflowY: 'auto' });
+  });
+
+  it('positions keyboard-opened menus before focusing actions, retains Escape, and closes on directory scrolling', () => {
+    render(<Providers><SpaceDirectory {...props} /></Providers>);
+    const { summary, details, menu } = menuElements();
+    summary.focus();
+    fireEvent.keyDown(summary, { key: 'ArrowDown' });
+    expect(details.open).toBe(true);
+    expect(menu).toHaveStyle({ bottom: '100%' });
+    expect(within(details).getByRole('button', { name: 'Edit page' })).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(details.open).toBe(false); expect(summary).toHaveFocus();
+    fireEvent.keyDown(summary, { key: 'Enter' });
+    expect(details.open).toBe(true);
+    fireEvent.scroll(screen.getByTestId('space-directory-scroll'));
+    expect(details.open).toBe(false);
+  });
+
+  it('allows scrolling within a tall action menu without dismissing it', () => {
+    menuHeight = 600;
+    render(<Providers><SpaceDirectory {...props} /></Providers>);
+    const { summary, details, menu } = menuElements();
+    fireEvent.click(summary);
+    fireEvent.scroll(menu);
+    expect(details.open).toBe(true);
+  });
+
+  it('dismisses an open menu when pointer interaction leaves the menu', () => {
+    render(<Providers><SpaceDirectory {...props} /></Providers>);
+    const { summary, details } = menuElements();
+    fireEvent.click(summary);
+    fireEvent.pointerDown(screen.getByRole('searchbox'));
+    expect(details.open).toBe(false);
   });
 });
