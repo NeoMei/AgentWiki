@@ -246,7 +246,7 @@ export async function serve({ databaseUrl, statePath }) {
 
 export async function main(argv) {
   if (argv.length === 1 && argv[0] === 'plan') {
-    process.stdout.write(`${JSON.stringify({ corpusHash: hashCorpus(corpus), questionCount: publicQuestions.length, databaseIsolation: 'random collaboration_test_* schema', agents: ['a', 'b'], modelExecuted: false, required: ['built server/local-sync/shared/protocol', 'dedicated loopback PostgreSQL test DB with reviewed migration corpus', 'redis-server and redis-cli', 'absolute unused state path in an existing private directory'], workerRequired: false })}\n`);
+    process.stdout.write(`${JSON.stringify({ corpusHash: hashCorpus(corpus), questionCount: publicQuestions.length, databaseIsolation: 'random collaboration_test_* schema', agents: ['a', 'b'], modelExecuted: false, required: ['built server/local-sync/shared/protocol', 'dedicated loopback PostgreSQL test DB with reviewed migration corpus', 'PG_DUMP_BIN set to an absolute executable pg_dump path compatible with the test PostgreSQL server', 'redis-server and redis-cli', 'absolute unused state path in an existing private directory'], workerRequired: false })}\n`);
   } else if (argv.length === 1 && argv[0] === 'serve') await serve({ databaseUrl: process.env.KNOWLEDGE_TEST_DATABASE_URL, statePath: process.env.KNOWLEDGE_ACCEPTANCE_STATE_FILE });
   else throw new Error('Usage: knowledge-retrieval-harness.mjs plan|serve');
 }

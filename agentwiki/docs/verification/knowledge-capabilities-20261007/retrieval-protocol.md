@@ -13,11 +13,12 @@
 
 ## 启动（仅操作者）
 
-在当前候选 `agentwiki/` 下先完成 server/local-sync/shared/protocol 构建。`serve` 本身不构建、不修改产品源码。准备权限 0700 的专用 evidence 目录，将绝对 JSON 状态路径设置为该目录内尚不存在的文件。不要打印数据库 URL 或状态文件。
+在当前候选 `agentwiki/` 下先完成 server/local-sync/shared/protocol 构建。`serve` 本身不构建、不修改产品源码。设置 `PG_DUMP_BIN` 为与测试 PostgreSQL 服务端兼容的 `pg_dump` 可执行文件绝对路径；这是既有数据库公共库存前置检查的要求，缺失时会在创建随机 schema 前拒绝启动。准备权限 0700 的专用 evidence 目录，将绝对 JSON 状态路径设置为该目录内尚不存在的文件。不要打印数据库 URL 或状态文件。
 
 ```sh
 node scripts/knowledge-retrieval-harness.mjs plan
 # KNOWLEDGE_TEST_DATABASE_URL 从现有专用本地 test 数据库安全注入。
+# PG_DUMP_BIN 必须是可执行文件绝对路径；本机已核对的示例为 /opt/homebrew/bin/pg_dump（16.14）。
 # KNOWLEDGE_ACCEPTANCE_STATE_FILE 是专用目录内未使用的绝对 .json 路径。
 node scripts/knowledge-retrieval-harness.mjs serve
 ```
