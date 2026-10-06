@@ -179,7 +179,7 @@ describe('accepted input epochs and durable receipt replay', () => {
     const versions: any[] = []; const runs: any[] = []; const receipts: any[] = [];
     const tx: any = {
       $queryRaw: jest.fn().mockResolvedValue([{ id: source.id }]),
-      source: { upsert: jest.fn(async () => source), findUnique: jest.fn(async () => source), update: jest.fn(async ({ data }) => Object.assign(source, data)) },
+      source: { upsert: jest.fn(async ({ update }) => Object.assign(source, update)), findUnique: jest.fn(async () => source), update: jest.fn(async ({ data }) => Object.assign(source, data)) },
       sourceVersion: {
         findFirst: jest.fn(async ({ where, orderBy }) => orderBy ? versions[versions.length - 1] : versions.find(v => Object.entries(where).every(([k, value]) => v[k] === value)) ?? null),
         create: jest.fn(async ({ data }) => { const v = { ...data, id: `version-${versions.length + 1}` }; versions.push(v); return v; }),
@@ -197,7 +197,7 @@ describe('accepted input epochs and durable receipt replay', () => {
     };
     const authorization: any = { lockLiveAgentWriteAccessAcrossSpaceBoundary: jest.fn(async (_tx, _p, _s, _sc, lock) => lock()) };
     const service = new KnowledgeSyncService(tx, { record: jest.fn() } as any, authorization, { lockSyncSpace: async () => tx } as any);
-    const input = (content: string) => Buffer.from(JSON.stringify({ ...envelope, documents: [{ ...envelope.documents[0], content, contentHash: hash(content) }] }));
+    const input = (content: string) => Buffer.from(JSON.stringify({ ...envelope, name: `${content} name`, producer: { name: `${content} producer`, version: '1.0' }, documents: [{ ...envelope.documents[0], content, contentHash: hash(content) }] }));
     return { source, versions, runs, receipts, service, authorization, input };
   }
   it('A1 -> B2 -> A3 reuses A version but pins a new Run; same content does not advance again', async () => {
@@ -223,4 +223,34 @@ describe('accepted input epochs and durable receipt replay', () => {
     f.authorization.lockLiveAgentWriteAccessAcrossSpaceBoundary.mockRejectedValueOnce(new Error('revoked'));
     await expect(f.service.createSync('space-1', agentPrincipal, f.input('A'), 'K2', true)).rejects.toThrow('revoked');
   });
+  it.each(['ordinary', 'noop', 'manual rename'])('preserves current metadata and head on %s receipt replay', async (scenario) => {
+    const f = fixture();
+    const first = await f.service.createSync('space-1', agentPrincipal, f.input('A'), 'K1', true);
+    let replayKey = 'K1';
+    let expected = { ...first, status: 'existing' };
+    if (scenario === 'noop') {
+      f.runs[0].status = 'completed';
+      expected = await f.service.createSync('space-1', agentPrincipal, f.input('A'), 'K-noop', true);
+      replayKey = 'K-noop';
+    }
+    await f.service.createSync('space-1', agentPrincipal, f.input('B'), 'K2', true);
+    expect(f.source).toMatchObject({ name: 'B name', config: { kind: 'documents', producer: { name: 'B producer', version: '1.0' } } });
+    if (scenario === 'manual rename') f.source.name = 'Manual name';
+    const before = structuredClone({ source: f.source, versions: f.versions, runs: f.runs, receipts: f.receipts });
+
+    await expect(f.service.createSync('space-1', agentPrincipal, f.input('A'), replayKey, true)).resolves.toEqual(expected);
+
+    expect({ source: f.source, versions: f.versions, runs: f.runs, receipts: f.receipts }).toEqual(before);
+  });
+  it('rejects mismatched input for an existing key before changing source state', async () => {
+    const f = fixture();
+    await f.service.createSync('space-1', agentPrincipal, f.input('A'), 'K1', true);
+    const before = structuredClone({ source: f.source, versions: f.versions, runs: f.runs, receipts: f.receipts });
+
+    await expect(f.service.createSync('space-1', agentPrincipal, f.input('B'), 'K1', true))
+      .rejects.toMatchObject({ businessCode: 'SOURCE_VERSION_CONFLICT' });
+
+    expect({ source: f.source, versions: f.versions, runs: f.runs, receipts: f.receipts }).toEqual(before);
+  });
+
 });

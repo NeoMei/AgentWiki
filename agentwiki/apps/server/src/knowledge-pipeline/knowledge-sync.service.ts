@@ -142,17 +142,23 @@ export class KnowledgeSyncService {
         createdByUserId: principal.agentId ? undefined : principal.userId,
         createdByAgentId: principal.agentId,
       },
-      update: {
-        name: envelope.name,
-        contentHash: this.hash(envelope.sourceKey),
-        config: { kind: envelope.kind, producer: envelope.producer },
-      },
+      // Resolve the identity without rewriting metadata on a historical replay.
+      update: {},
       select: { id: true },
     });
 
     const head = await lockSourceHead(tx, source.id, spaceId);
     const replay = await this.findReceipt(tx, source.id, envelope.contentHash, idempotencyKey);
     if (replay) return replay;
+
+    await tx.source.update({
+      where: { id: source.id },
+      data: {
+        name: envelope.name,
+        contentHash: this.hash(envelope.sourceKey),
+        config: { kind: envelope.kind, producer: envelope.producer },
+      },
+    });
 
     let version = await tx.sourceVersion.findFirst({
       where: { sourceId: source.id, contentHash: envelope.contentHash },
