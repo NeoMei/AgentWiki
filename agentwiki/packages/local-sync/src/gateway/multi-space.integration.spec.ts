@@ -57,8 +57,12 @@ it('routes concurrent MCP calls by Space and aggregates authorized Space discove
   try {
     const listed = await client.callTool({ name: 'wiki_list_spaces', arguments: {} });
     expect(JSON.parse((listed.content as Array<{ text: string }>)[0]!.text).map((s: { id: string }) => s.id).sort()).toEqual(['space-a', 'space-b']);
-    const results = await Promise.all(['space-a', 'space-b'].map((spaceId) => client.callTool({ name: 'wiki_get_page', arguments: { spaceId, __args: { pageId: 'page-1' } } })));
+    const results = await Promise.all([
+      client.callTool({ name: 'wiki_get_page', arguments: { spaceId: 'space-a', pageId: 'page-1' } }),
+      client.callTool({ name: 'wiki_get_page', arguments: { spaceId: 'space-b', __args: { pageId: 'page-1' } } }),
+    ]);
     expect(results.map((r) => JSON.parse((r.content as Array<{ text: string }>)[0]!.text).space)).toEqual(['space-a', 'space-b']);
+    expect(results.map((r) => JSON.parse((r.content as Array<{ text: string }>)[0]!.text).pageId)).toEqual(['page-1', 'page-1']);
     expect(calls.filter((call) => call.tool === 'get_page').map(({ key }) => key).sort()).toEqual(['key-a', 'key-b']);
     // Gateway routing metadata must not be sent to strict upstream page-only schemas.
     expect(calls.filter((call) => call.tool === 'get_page').every(({ args }) => !('spaceId' in args))).toBe(true);
@@ -83,6 +87,31 @@ it('revoking one Space does not disable another or expose private diagnostics', 
   expect(a.isError).toBe(true);
   expect(b.isError).toBe(false);
   expect(JSON.stringify(a)).not.toMatch(/private detail|key-a|key-b/);
+});
+
+it('keeps live Space routing checks on named and legacy SDK read calls', async () => {
+  const { entry, revoked, calls } = await fixture();
+  const { server } = await createGatewayServer(entry);
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'read-routing-test', version: '1' }, { capabilities: {} });
+  await server.connect(serverTransport); await client.connect(clientTransport);
+  try {
+    for (const fields of [{ pageId: 'page-1' }, { spaceId: 'unknown', pageId: 'page-1' }, { spaceId: 'space-c', pageId: 'page-1' }]) {
+      for (const args of [fields, { __args: fields }]) {
+        expect((await client.callTool({ name: 'wiki_get_page', arguments: args })).isError).toBe(true);
+      }
+    }
+    expect(calls).toHaveLength(0);
+    revoked.add('key-a');
+    for (const args of [{ spaceId: 'space-a', pageId: 'page-1' }, { __args: { spaceId: 'space-a', pageId: 'page-1' } }]) {
+      const denied = await client.callTool({ name: 'wiki_get_page', arguments: args });
+      expect(denied.isError).toBe(true);
+      expect(JSON.stringify(denied)).not.toMatch(/private detail|key-a|key-b/);
+    }
+    const allowed = await client.callTool({ name: 'wiki_get_page', arguments: { spaceId: 'space-b', pageId: 'page-1' } });
+    expect(allowed.isError).toBe(false);
+    expect(JSON.parse((allowed.content as Array<{ text: string }>)[0]!.text)).toEqual({ space: 'space-b', pageId: 'page-1' });
+  } finally { await client.close(); await server.close(); }
 });
 
 it('keeps a single-Space page-only call compatible without a Space selector', async () => {

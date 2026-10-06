@@ -156,14 +156,14 @@ export class McpService {
     });
     const SPACE_ID = 'The space\'s internal id (CUID), not its display name. Call list_spaces first to discover the spaces you can access and their ids.';
     registerTool('list_spaces', {
-      description: 'List the spaces you can access, with each space\'s internal id, display name and your role. Use this to resolve a space name to the spaceId other tools require.',
+      description: 'Discover authorized Spaces with their internal IDs, display names and your role. Call this first to resolve the requested Space; pass its internal spaceId to subsequent reads. A display name is not a spaceId.',
       inputSchema: {},
     }, async () => {
       const spaces = await this.authorization.listAccessibleSpaces(principal, 'spaces:read');
       return this.text(spaces);
     });
     registerTool('list_pages', {
-      description: 'List pages in an authorized AgentWiki space.',
+      description: 'List pages in one authorized Space by internal spaceId. Use skip (nonnegative integer, default 0) and take (integer 1–100, default 20) for bounded batches. For a topic, prefer search_pages; use get_page on selected IDs to read full provenance and evidence.',
       inputSchema: { spaceId: z.string().describe(SPACE_ID), skip: z.number().int().min(0).optional(), take: z.number().int().min(1).max(100).optional() },
     }, async ({ spaceId, skip, take }: any) => {
       await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
@@ -284,14 +284,14 @@ export class McpService {
       });
     });
     registerTool('get_page', {
-      description: 'Read a page and its provenance.',
-      inputSchema: { pageId: z.string() },
+      description: 'Read a selected page by its nonempty pageId, including full content, provenance and source evidence. Follow search_pages or list_pages with this call before relying on a summary. Compare source versions and distinguish current content from historical evidence; this tool does not certify source freshness.',
+      inputSchema: { pageId: z.string().min(1) },
     }, async ({ pageId }: any) => {
       await this.authorization.assertPageAccess(principal, pageId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
       return this.text(await this.pages.findOne(pageId));
     });
     registerTool('search_pages', {
-      description: 'Search pages in authorized spaces.',
+      description: 'Find pages using a nonempty query (title, keyword or alias). Supply the requested internal spaceId to limit the search; limit is an integer 1–50 (default 10). Start with a small batch and follow selected IDs with get_page for full content and evidence. A lexical match can have similarity=0; zero does not mean the result is irrelevant.',
       inputSchema: { query: z.string().min(1), spaceId: z.string().optional().describe(SPACE_ID), limit: z.number().int().min(1).max(50).optional() },
     }, async ({ query, spaceId, limit }: any) => {
       if (spaceId) await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
@@ -299,7 +299,7 @@ export class McpService {
       return this.text(await this.search.searchPages(query, spaceId, limit || 10, ids));
     });
     registerTool('list_graph', {
-      description: 'Read the authorized knowledge graph for a space.',
+      description: 'Read the whole authorized knowledge graph for an internal spaceId. Use for relationship questions after selecting relevant pages, then get_page for related IDs. This response is Space-wide and can be large; it is not a paginated or compact context API.',
       inputSchema: { spaceId: z.string().describe(SPACE_ID) },
     }, async ({ spaceId }: any) => {
       await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'graph:read');
@@ -330,7 +330,7 @@ export class McpService {
       return this.text(await this.review.propose(principal, spaceId, 'Proposed relation', { type: 'create_relation', payload: { sourcePageId, targetPageId, relation, confidence: confidence ?? 1 } }));
     });
     registerTool('list_sources', {
-      description: 'List knowledge sources in a space.',
+      description: 'List knowledge sources in one authorized Space by internal spaceId. Use to identify source names, types and status; read selected pages with get_page for their quoted evidence and source versions. The source list alone does not establish which claims a source supports.',
       inputSchema: { spaceId: z.string().describe(SPACE_ID) },
     }, async ({ spaceId }: any) => {
       await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'sources:read');

@@ -80,6 +80,16 @@ describe('McpService knowledge-sync tool', () => {
 
   beforeEach(() => jest.clearAllMocks());
 
+  it('rejects an empty page ID at the upstream read contract', () => {
+    const service = new (McpService as any)(
+      { get: jest.fn() }, authorization, {}, {}, {}, {}, {}, {}, {}, audit, prisma, syncs,
+    );
+    const server = (service as any).createServer(principal);
+    const schema = server._registeredTools.get_page.inputSchema;
+    expect(schema.safeParse({ pageId: '' }).success).toBe(false);
+    expect(schema.safeParse({ pageId: 'page-1' }).success).toBe(true);
+  });
+
   it('authorizes sources:read before returning sync state', async () => {
     const service = new (McpService as any)(
       { get: jest.fn() },
