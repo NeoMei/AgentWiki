@@ -977,6 +977,39 @@ describe('PageEditor remote update safety', () => {
     expect(api.patch).not.toHaveBeenCalled();
   });
 
+  it.each(['loaded', 'pending'])('closes %s page-link results immediately after edit permission is revoked', async (status) => {
+    const pending = deferred<any>();
+    const defaultGet = vi.mocked(api.get).getMockImplementation()!;
+    let pageLinksSignal: AbortSignal | undefined;
+    vi.mocked(api.get).mockImplementation((url, config) => {
+      if (url === '/pages') {
+        pageLinksSignal = config?.signal as AbortSignal | undefined;
+        return status === 'pending' ? pending.promise : Promise.resolve({ data: { data: [{ id: 'private-link', title: 'Private linked page', spaceId: 'space-1' }] } });
+      }
+      return defaultGet(url, config);
+    });
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    renderGuardedEditor();
+    await screen.findByDisplayValue('Original title');
+    editContent('Retained draft');
+    fireEvent.click(screen.getByRole('button', { name: 'Page link' }));
+    if (status === 'loaded') await screen.findByRole('button', { name: 'Private linked page private-link' });
+    else await waitFor(() => expect(pageLinksSignal).toBeDefined());
+    queuePages({ data: page({ capabilities: { canEdit: false } }) });
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    expect(screen.queryByRole('dialog', { name: 'Page link' })).not.toBeInTheDocument();
+    if (status === 'pending') {
+      expect(pageLinksSignal?.aborted).toBe(true);
+      await act(async () => pending.resolve({ data: { data: [{ id: 'late-link', title: 'Late private page', spaceId: 'space-1' }] } }));
+    }
+    expect(screen.queryByText('Private linked page')).not.toBeInTheDocument();
+    expect(screen.queryByText('Late private page')).not.toBeInTheDocument();
+    expect(contentEditorValue()).toBe('Retained draft');
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
   it('aborts a pending image upload on capability loss and ignores its late success after dirty cancel', async () => {
     const upload = deferred<ReturnType<typeof attachment>>();
     let signal: AbortSignal | undefined;

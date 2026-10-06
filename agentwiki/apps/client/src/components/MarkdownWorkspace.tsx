@@ -29,6 +29,7 @@ import { outlineFor } from './markdown-tools/outline';
 import { insertionTransaction, slashRange, type InsertCommand } from './markdown-tools/commands';
 import { menuPosition, type MenuPosition } from './markdown-tools/menuPosition';
 import { DocumentTools, type MarkdownSelection } from './markdown-tools/DocumentTools';
+import type { RequestPageLinks } from './markdown-tools/useAuthorizedPageLinks';
 import { ArticleContentsPopover } from '../features/space-workspace/ArticleContentsPopover';
 import { nearestMarkdownSourceBlock } from '../features/space-workspace/workspaceNavigation';
 
@@ -46,7 +47,7 @@ interface MarkdownWorkspaceProps {
   onUploadError?: (error: unknown) => void;
   onSelectionChange?: (selection: MarkdownSelection) => void;
   onRequestAssist?: (selection: MarkdownSelection) => void;
-  onRequestPageLinks?: () => Promise<PageLinkTarget[]>;
+  onRequestPageLinks?: RequestPageLinks;
   outlineOverlay?: boolean;
   pageLinksIdentity?: string;
 }

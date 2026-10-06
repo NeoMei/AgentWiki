@@ -1290,7 +1290,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             value={content}
             mode={mode}
             onRequestPageLinks={requestPageLinks}
-            pageLinksIdentity={`${user?.id}:${!writeUnavailable}`}
+            pageLinksIdentity={`${user?.id}:${!writeUnavailable && page.capabilities?.canEdit === true}`}
             outlineOverlay={collaborationVisible}
             onChange={handleContentChange}
             onSelectionChange={setAssistSelection}

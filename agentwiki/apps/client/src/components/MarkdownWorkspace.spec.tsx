@@ -249,6 +249,35 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('selection changed');
   });
 
+  it.each(['page', 'space', 'identity', 'permission'])('closes and clears loaded page links when %s changes', async (change) => {
+    const requestLinks = vi.fn().mockResolvedValue([{ id: 'private', title: 'Private document' }]);
+    const props = { pageId: 'page-1', spaceId: 'space-1', pageLinksIdentity: 'user-1:true', value: 'Original', mode: 'edit' as const, onChange: vi.fn(), onRequestPageLinks: requestLinks };
+    const mounted = render(<LanguageProvider><MarkdownWorkspace {...props} /></LanguageProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Page link' }));
+    await screen.findByRole('button', { name: 'Private document private' });
+    const changed = { ...props, [change === 'page' ? 'pageId' : change === 'space' ? 'spaceId' : 'pageLinksIdentity']: change === 'permission' ? 'user-1:false' : 'other' };
+    mounted.rerender(<LanguageProvider><MarkdownWorkspace {...changed} /></LanguageProvider>);
+    expect(screen.queryByRole('dialog', { name: 'Page link' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Private document private' })).not.toBeInTheDocument();
+    expect(props.onChange).not.toHaveBeenCalled();
+  });
+
+  it('forwards cancellation from a remounted page-link picker and ignores its late result', async () => {
+    const pending = deferred<Array<{ id: string; title: string }>>();
+    const requestLinks = vi.fn().mockReturnValue(pending.promise);
+    const props = { pageId: 'page-1', spaceId: 'space-1', pageLinksIdentity: 'user-1:true', value: 'Original', mode: 'edit' as const, onChange: vi.fn(), onRequestPageLinks: requestLinks };
+    const mounted = render(<LanguageProvider><MarkdownWorkspace {...props} /></LanguageProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Page link' }));
+    expect(requestLinks).toHaveBeenCalledWith('', expect.any(AbortSignal));
+    const signal = requestLinks.mock.calls[0][1] as AbortSignal;
+    mounted.rerender(<LanguageProvider><MarkdownWorkspace {...props} pageId="page-2" /></LanguageProvider>);
+    expect(signal.aborted).toBe(true);
+    await act(async () => pending.resolve([{ id: 'private', title: 'Private document' }]));
+    expect(screen.queryByRole('dialog', { name: 'Page link' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Private document')).not.toBeInTheDocument();
+    expect(props.onChange).not.toHaveBeenCalled();
+  });
+
   it('tracks the active source heading in edit mode', () => {
     const { container } = renderWYS({ initial: '# A\n\n# B' });
     const view = currentEditorView(container);
