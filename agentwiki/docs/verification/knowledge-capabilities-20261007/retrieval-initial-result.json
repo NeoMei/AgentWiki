@@ -1,0 +1,169 @@
+{
+  "status": "retained_initial_experiment; stability gate not passed; rerun required with corrected persistent gateway harness",
+  "corpusHash": "323f86d0bca4c244ce763a41320e45350eb7a18f476b4c3c1029d08245607ea7",
+  "requestedModel": "gpt-6-astra",
+  "reasoningEffort": "high",
+  "provider": "native Codex ChatGPT account",
+  "resolvedServerModel": "not exposed by CLI JSON",
+  "knowledge": "synthetic corpus; lexical-only; direct isolated Prisma fixtures; actual production MCP reads",
+  "runs": [
+    {
+      "agent": "a",
+      "factualCorrect": 8,
+      "questionCount": 8,
+      "traceableCitations": 8,
+      "strictPerQuestionCitationCoverage": 7,
+      "callCount": 12,
+      "discoveryCount": 1,
+      "failureCount": 0,
+      "responseBytes": 36970,
+      "toolDurationMs": 461,
+      "gatewayDurationMs": 2860,
+      "usage": {
+        "input_tokens": 138301,
+        "cached_input_tokens": 112384,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 3092,
+        "reasoning_output_tokens": 974
+      },
+      "privacySentinelAbsent": true,
+      "facadeOnlyCommands": true,
+      "phase": "baseline",
+      "product": {
+        "commit": "ffd0482f553127cf6edf7c6603263ddc2b73d9a7",
+        "source": {
+          "sha256": "5d6a18d0b81daaf08b90b85e2627e6cbcc4eee56fb0448a92242434585bbcbfb",
+          "fileCount": 657
+        },
+        "build": {
+          "sha256": "800a05069a25c503980a0b9cc47b44916d5e5647462c83e6d178593139c86fa2",
+          "fileCount": 1164
+        },
+        "skillHash": "7ac35412d703b40e74fccdf001ede71a865cd26eb6adf35cc2c0a2a424e7b546"
+      },
+      "wallSeconds": 55.0479850769043,
+      "rawEvidence": "/tmp/agentwiki-knowledge-20261007/baseline/a"
+    },
+    {
+      "agent": "b",
+      "factualCorrect": 8,
+      "questionCount": 8,
+      "traceableCitations": 8,
+      "strictPerQuestionCitationCoverage": 7,
+      "callCount": 11,
+      "discoveryCount": 1,
+      "failureCount": 1,
+      "responseBytes": 33347,
+      "toolDurationMs": 247,
+      "gatewayDurationMs": 1905,
+      "usage": {
+        "input_tokens": 365905,
+        "cached_input_tokens": 333568,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4403,
+        "reasoning_output_tokens": 1777
+      },
+      "privacySentinelAbsent": true,
+      "facadeOnlyCommands": true,
+      "phase": "baseline",
+      "product": {
+        "commit": "ffd0482f553127cf6edf7c6603263ddc2b73d9a7",
+        "source": {
+          "sha256": "5d6a18d0b81daaf08b90b85e2627e6cbcc4eee56fb0448a92242434585bbcbfb",
+          "fileCount": 657
+        },
+        "build": {
+          "sha256": "800a05069a25c503980a0b9cc47b44916d5e5647462c83e6d178593139c86fa2",
+          "fileCount": 1164
+        },
+        "skillHash": "7ac35412d703b40e74fccdf001ede71a865cd26eb6adf35cc2c0a2a424e7b546"
+      },
+      "wallSeconds": 70.19373297691345,
+      "rawEvidence": "/tmp/agentwiki-knowledge-20261007/baseline/b"
+    },
+    {
+      "agent": "a",
+      "factualCorrect": 8,
+      "questionCount": 8,
+      "traceableCitations": 8,
+      "strictPerQuestionCitationCoverage": 7,
+      "callCount": 12,
+      "discoveryCount": 1,
+      "failureCount": 0,
+      "responseBytes": 31496,
+      "toolDurationMs": 298,
+      "gatewayDurationMs": 2048,
+      "usage": {
+        "input_tokens": 392567,
+        "cached_input_tokens": 367104,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4197,
+        "reasoning_output_tokens": 1821
+      },
+      "privacySentinelAbsent": true,
+      "facadeOnlyCommands": true,
+      "phase": "candidate",
+      "product": {
+        "commit": "66f8a68ab798cabae960dfb3718bdddb02a552aa",
+        "source": {
+          "sha256": "493e77609f32603c7928dec83869cdcbe57b3d293ca7ee4a4e55a082a63d0bcb",
+          "fileCount": 659
+        },
+        "build": {
+          "sha256": "8f8c02ba6021b4a08ce3e80103c90b69a537a61ab81d380663744291399b7afb",
+          "fileCount": 1168
+        },
+        "skillHash": "9a41e222622811465797ce4ab5a57151b6e0a28a81322c37316307935b13c2c9"
+      },
+      "wallSeconds": 78.70216608047485,
+      "rawEvidence": "/tmp/agentwiki-knowledge-20261007/candidate/a"
+    },
+    {
+      "agent": "b",
+      "factualCorrect": 8,
+      "questionCount": 8,
+      "traceableCitations": 8,
+      "strictPerQuestionCitationCoverage": 7,
+      "callCount": 19,
+      "discoveryCount": 2,
+      "failureCount": 4,
+      "responseBytes": 42134,
+      "toolDurationMs": 343,
+      "gatewayDurationMs": 3062,
+      "usage": {
+        "input_tokens": 670348,
+        "cached_input_tokens": 629248,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4941,
+        "reasoning_output_tokens": 1461
+      },
+      "privacySentinelAbsent": true,
+      "facadeOnlyCommands": true,
+      "phase": "candidate",
+      "product": {
+        "commit": "66f8a68ab798cabae960dfb3718bdddb02a552aa",
+        "source": {
+          "sha256": "493e77609f32603c7928dec83869cdcbe57b3d293ca7ee4a4e55a082a63d0bcb",
+          "fileCount": 659
+        },
+        "build": {
+          "sha256": "8f8c02ba6021b4a08ce3e80103c90b69a537a61ab81d380663744291399b7afb",
+          "fileCount": 1168
+        },
+        "skillHash": "9a41e222622811465797ce4ab5a57151b6e0a28a81322c37316307935b13c2c9"
+      },
+      "wallSeconds": 93.61560869216919,
+      "rawEvidence": "/tmp/agentwiki-knowledge-20261007/candidate/b"
+    }
+  ],
+  "diagnosis": "Separate timed replay reproduced 4 errors as HTTP429 AUTH_RATE_LIMITED. Per-command gateway restart duplicated discovery traffic; first rejected initialize followed120 noncancel requests in a credential minute. Original run did not retain HTTP status, so direct429 observation belongs to replay. Do not rewrite original error counts.",
+  "nextMethod": "One persistent gateway/SDK client per consumer. Rerun both baseline and candidate with identical corrected harness.",
+  "limits": [
+    "No factual-correctness gain (all8/8).",
+    "Initial baseline never searched. Candidate did search successfully; no large-corpus or semantic ranking claim.",
+    "Strict per-question cite-list coverage7/8 each, q4 missing save citation.",
+    "Actual private-page rejection was separate operator smoke, not model behavior.",
+    "No overall cost or error-regression improvement claim.",
+    "All three initial runtime resource sets cleaned; public inventory preserved."
+  ]
+}

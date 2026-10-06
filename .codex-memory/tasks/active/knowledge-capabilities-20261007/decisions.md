@@ -10,3 +10,7 @@
 - 来源复核采用受验输入head+generation、Run固定输入和Page已审代次；另增持久intake幂等回执覆盖noop/existing。严格处理A-B-A及同key重放，不推断历史记录当前有效。
 - 所有实际正文/format/来源关联修改入口清除已审代次；只有服务器验证的ingestion发布和精确revert能赋值，客户端payload不能声明已复核。
 - 独立设计审查发现并补齐幂等noop、Sync/附件等writer及human/PAT事务授权缺口；无生产迁移。
+
+- native新子代理派发已两次触发thread limit，后续复用原只读规划上下文或原实现者；如实记录非fresh，独立审查者不参与实现。真实消费者由ephemeral CLI新会话执行，仍保持新身份与前后同配置。
+- 初始检索实验发现验收facade额外discover流量；不放宽产品120/min凭据限流，改每消费者持久gateway并重跑双方。旧分数/失败原样保留。
+- 来源状态使用返回正文同一Page快照；共享底层代次比较器支持无Page ID新建候选；所有公开Page/Review读及mutation回包采用同一权限投影。

@@ -79,18 +79,20 @@ type PageSourceStatus = {
   pageVersion?: number; currentVersion?: number;
   pageGeneration?: number; currentGeneration?: number;
 };
-// Accept already page-authorized result IDs; separately authorize each Source.
-SourceFreshnessService.forPages(pageIds: string[], principal: Principal): Promise<Map<string, PageSourceStatus>>;
+// Use already page-authorized immutable Page snapshots from the same response.
+// Never reread Pages by ID and merge a newer source status onto older content.
+SourceFreshnessService.forPages(pages: SourceBoundPageSnapshot[], principal: Principal): Promise<Map<string, PageSourceStatus>>;
+// Share the underlying source/version/generation comparator with create candidates (no Page ID).
 // Published page responses expose sourceStatus. Review candidates use same DTO vocabulary
 // against pinned Run/payload, with server publish check remaining authoritative.
 ```
 
 - [ ] Add failing projection tests for untracked, null-head unknown, same-version+generation current, generation mismatch needs_review (including A→B→A), cleared Page generation page_changed, archived unavailable, denied/cross-Space source redaction. Assert authorization-denied/corrupt-association output has no source identifiers/names/versions/links, including legacy raw Page source fields, not only new DTO. Archived-but-authorized historical evidence remains readable.
-- [ ] Implement bounded batch page/source/version lookup with per-Source authorization and explicit same-Space/ownership checks. Expected authorization denial becomes redacted state; infrastructure errors must not masquerade as successful current state. Only minimum version fields, no content/config/metadata blobs.
+- [ ] Implement bounded batch source/version lookup from already-read Page snapshots with per-Source authorization and explicit same-Space/ownership checks. Expected authorization denial becomes redacted state; infrastructure errors must not masquerade as successful current state. Only minimum version fields, no content/config/metadata blobs.
 - [ ] Public findOne receives Principal from REST, MCP get_page and page resource. Internal existence checks stop invoking rich public read without Principal. Public REST/MCP list/search and hierarchy paths carrying Page body attach sourceStatus, using the batch projector; do not change ranking or corpus facts.
 - [ ] Replace Evidence include with explicit allowed fields and per-Source authorization; retain authorized quote/location/confidence, version ID/number, minimal source identity, at most3 file paths and supported commit metadata. Never return SourceVersion.content or arbitrary metadata. For directly bound OKF evidence, mark historical if it does not match Page's published version+generation; untracked evidence state is unknown. Remove provenance.run.source when source denied, and do not reveal inaccessible link targets.
 - [ ] Apply the same source authorization and allowlist to graph relation evidence/sourceInfo/sourceMetadata and Review detail evidence; unknown metadata blobs cannot bypass through another read path. Graph nodes receive sourceStatus via batch page projection. REST graph controller and MCP list_graph pass Principal. Do not infer indirect semantic invalidation of unrelated edges.
-- [ ] Review detail read shows pinned vs current source state; unauthorized source fields redacted there too. Validate access before generating per-item source links or notices. Keep original reviewer scope and membership requirements.
+- [ ] Review list/detail and every mutation returning loadChangeSet show pinned vs current source state; unauthorized source fields/payload source references are redacted there too. Page mutations returning Page data use the same response projection, including PagePreview checkbox updates. Validate access before generating per-item source links or notices. Keep original reviewer scope and membership requirements.
 - [ ] Add visible PagePreview needs-review notice, details/version differences and historical evidence labels in PageInfoPanel, current/expired source indication in ReviewPage. “当前来源已复核” must not imply factual correctness; unknown differs from current. Hide irrelevant untracked notice on ordinary human pages. Follow existing locale and accessibility conventions, and client project design rules.
 - [ ] Run targeted server projection/controller/MCP/review tests, client specs/typecheck/build, and API+Worker Nest module-graph tests. Commit and report. Independent review checks redaction, coverage and no read-service dependency cycles before acceptance.
 
