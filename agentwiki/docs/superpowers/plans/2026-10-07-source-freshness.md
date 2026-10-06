@@ -64,6 +64,7 @@ expect(() => assertSourceHeadMatches(headA3, inputB2)).toThrow();
 **Files:**
 - Create `agentwiki/apps/server/src/core/source-freshness/source-freshness.service.ts`, module and specs (batch read projection only).
 - Add shared DTO in `agentwiki/packages/shared/src/index.ts` or focused exported source file.
+- Modify `agentwiki/packages/local-sync/skill/SKILL.md` for general source/citation semantics; retain existing installation-byte verification in `src/agent-clients.spec.ts`.
 - Modify `core/page/page.service.ts`, `page.controller.ts`, `page.module.ts`; `core/search/search.controller.ts`, `search.module.ts`; `mcp/mcp.service.ts` and corresponding tests/module imports.
 - Modify `review/review.service.ts` read projection and matching specs; no change to Task1 mutation guards.
 - Modify `core/knowledge/knowledge.service.ts`, controller/module/spec for graph node status and authorized relation evidence; reuse the same projection/allowlist instead of parallel privacy logic.
@@ -75,9 +76,9 @@ type PageSourceStatus = {
   status: 'untracked' | 'unknown' | 'unavailable' | 'needs_review' | 'current';
   reason: 'no_source' | 'unverified_source' | 'source_unavailable' | 'source_changed' | 'page_changed' | 'reviewed_source';
   sourceId?: string;
-  pageVersionId?: string; currentVersionId?: string;
-  pageVersion?: number; currentVersion?: number;
-  pageGeneration?: number; currentGeneration?: number;
+  reviewedSourceVersionId?: string; currentSourceVersionId?: string;
+  reviewedSourceVersion?: number; currentSourceVersion?: number;
+  reviewedSourceGeneration?: number; currentSourceGeneration?: number;
 };
 // Use already page-authorized immutable Page snapshots from the same response.
 // Never reread Pages by ID and merge a newer source status onto older content.
@@ -94,6 +95,7 @@ SourceFreshnessService.forPages(pages: SourceBoundPageSnapshot[], principal: Pri
 - [ ] Apply the same source authorization and allowlist to graph relation evidence/sourceInfo/sourceMetadata and Review detail evidence; unknown metadata blobs cannot bypass through another read path. Graph nodes receive sourceStatus via batch page projection. REST graph controller and MCP list_graph pass Principal. Do not infer indirect semantic invalidation of unrelated edges.
 - [ ] Review list/detail and every mutation returning loadChangeSet show pinned vs current source state; unauthorized source fields/payload source references are redacted there too. Page mutations returning Page data use the same response projection, including PagePreview checkbox updates. Validate access before generating per-item source links or notices. Keep original reviewer scope and membership requirements.
 - [ ] Add visible PagePreview needs-review notice, details/version differences and historical evidence labels in PageInfoPanel, current/expired source indication in ReviewPage. “当前来源已复核” must not imply factual correctness; unknown differs from current. Hide irrelevant untracked notice on ordinary human pages. Follow existing locale and accessibility conventions, and client project design rules.
+- [ ] Extend shipped Local Sync skill with generic citation precision: every answer comparing/rejecting an obsolete or distracting source cites both that source and the applicable authority; sourceId, sourceVersionId and version number are distinct and must retain their actual labels. Describe sourceStatus needs_review/unknown/unavailable without claiming unverified truth. No fixture IDs/questions/answers in guidance; synchronization consent suffix remains byte-identical. Cover installed skill bytes through existing distribution test. This closes the independently observed strict-citation/SourceId-label gaps from the corrected retrieval comparison, not a new retrieval framework.
 - [ ] Run targeted server projection/controller/MCP/review tests, client specs/typecheck/build, and API+Worker Nest module-graph tests. Commit and report. Independent review checks redaction, coverage and no read-service dependency cycles before acceptance.
 
 ### Task 3: Real source-change workflow and independent acceptance
@@ -110,4 +112,5 @@ SourceFreshnessService.forPages(pages: SourceBoundPageSnapshot[], principal: Pri
 - [ ] Use built UI to read notice, inspect old/new evidence and candidate, accept only one of two updates and reject another; verify only accepted page becomes current. Regenerate rejected item with existing run action. Publish replacement and verify a fresh Agent B reads new conclusion while old basis remains labeled historical.
 - [ ] Exercise superseding v3 before publication, A→B→A, human edit conflict, source archive and live permission revocation via actual APIs, plus focused UI checks for disabled/error feedback. Old candidate must not become current. Verify page restore and ChangeSet rollback freshness separately.
 - [ ] Inspect layout at1280/1600/390 with source notice, long article/wide table and existing sidebar/TOC; use own browser only, no other chat runtime. Record real UI observations separately from unit/DB/fixture results.
+- [ ] Rerun the frozen eight retrieval questions with two fresh actual consumers against the integrated reviewed candidate using the same persistent harness, corpus/questions/model/budget. Preserve corrected baseline; separately document any new sourceStatus fields for historical fixture rows (unknown, never fabricate accepted heads). Confirm citations use real source/version labels, compare strict citation coverage without regrading old output, and retain provider retries/cost limits.
 - [ ] Whole-branch independent review from165c207b through actual candidate, fix material findings, run relevant changed checks only. Clean own resources and verify inventory/ports/credentials. Archive result with local implementation, review, UI, realprovider/fixture, ACP unchanged interface-only, and no deployment; update task current state honestly.

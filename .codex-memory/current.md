@@ -11,7 +11,7 @@
 
 - 自有工作树 `/Users/neomei/.codex/worktrees/knowledge-capabilities/AgentWiki `，分支codex/knowledge-capabilities，基线165c207bf4b644efa810ea6c9a3da11d28c4f96e。
 - 旧文档会话在f4325942已独立验收，边界与记录保留；本期为新任务。
-- 检索harness659a6ee2经独立审查及实际runtime通过。两场真实gpt-6-astra/high基线均事实8/8，一场发生命名参数失败后重试成功；baseline已清理，证据在/tmp/agentwiki-knowledge-20261007。Task2参数/技能改进60de6602已独立/整分支审查通过；真实候选事实8/8，但一场4次短暂错误，定向复播确认旧验收facade重复启动触发API限流。现修验收持久连接并重跑前后对照；生命周期尚未改产品。
+- 检索产品60de6602与持久验收harness04d6fc12已独立审查；修正后前后各两场真实Agent均事实/依据8/8、MCP零错，但候选严格引用7/8且一处SourceId误标版本，质量gate未关闭。原实验与新结果均保存；来源Task1实现中，DDL44fc5f97已独立批准纳入受审corpus，尚不代表后端完成或生产迁移。
 
 # 稳定约束
 
@@ -32,5 +32,5 @@
 
 # 风险 / 下一步
 
-- Task2完成后独立review与同语料两场新消费者对照；不把基线满分宣传成正确率提升。
+- 完成来源Task1后端/隔离DB与独立review，再实现Task2权限投影/UI/通用引用精度，Task3做实际API/worker/UI/Agent验收并复跑固定8题。
 - 来源有效性先覆盖一种可证明关联的场景；不承诺任意代码变化的精确影响分析。

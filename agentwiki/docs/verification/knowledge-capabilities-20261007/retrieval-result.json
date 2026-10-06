@@ -1,0 +1,188 @@
+{
+  "status": "partial; strict citation quality gate remains open",
+  "protocol": "persistent stdio per consumer; one reviewed harness for both stages",
+  "harnessIdentity": {
+    "sha256": "de7c104f7a4d52a55bf54fa4f25cc60547865bd56477f8b62eed94af005bf248",
+    "fileCount": 9
+  },
+  "extraRuntimeHelperSha256": "8bc806a2fa7cf530d3e53e0e95e95ce420c4919a1ec24c34c14e9443345db74d",
+  "corpusHash": "323f86d0bca4c244ce763a41320e45350eb7a18f476b4c3c1029d08245607ea7",
+  "questionsHash": "6a5f8dba040a3cc499e10471393f0915998e673de926a71ef68bacd4e8b32b26",
+  "questions": 8,
+  "readCallBudget": 20,
+  "requestedModel": "gpt-6-astra",
+  "requestedReasoningEffort": "high",
+  "provider": "native Codex ChatGPT account",
+  "resolvedServerModel": "not exposed by CLI JSON",
+  "runs": [
+    {
+      "agent": "a",
+      "callCount": 10,
+      "discoveryCount": 1,
+      "failureCount": 0,
+      "searchCallCount": 0,
+      "responseBytes": 33196,
+      "toolDurationMs": 289,
+      "sessionStartupMs": 163,
+      "gatewaySessionCount": 1,
+      "usage": {
+        "input_tokens": 155120,
+        "cached_input_tokens": 136704,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 2695,
+        "reasoning_output_tokens": 981
+      },
+      "facadeOnlyCommands": true,
+      "privacySentinelAbsent": true,
+      "phase": "baseline-persistent",
+      "product": {
+        "commit": "ffd0482f553127cf6edf7c6603263ddc2b73d9a7",
+        "source": {
+          "sha256": "5d6a18d0b81daaf08b90b85e2627e6cbcc4eee56fb0448a92242434585bbcbfb",
+          "fileCount": 657
+        },
+        "build": {
+          "sha256": "800a05069a25c503980a0b9cc47b44916d5e5647462c83e6d178593139c86fa2",
+          "fileCount": 1164
+        },
+        "skillHash": "7ac35412d703b40e74fccdf001ede71a865cd26eb6adf35cc2c0a2a424e7b546"
+      },
+      "wallSeconds": 47.33330416679382,
+      "factualCorrect": 8,
+      "traceableAnswers": 8,
+      "strictPerQuestionCitationCoverage": 8,
+      "rawEvidence": "/tmp/agentwiki-knowledge-20261007/baseline-persistent/a",
+      "providerStreamRetries": 0
+    },
+    {
+      "agent": "b",
+      "callCount": 11,
+      "discoveryCount": 1,
+      "failureCount": 0,
+      "searchCallCount": 0,
+      "responseBytes": 33352,
+      "toolDurationMs": 219,
+      "sessionStartupMs": 124,
+      "gatewaySessionCount": 1,
+      "usage": {
+        "input_tokens": 353744,
+        "cached_input_tokens": 323328,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4431,
+        "reasoning_output_tokens": 1786
+      },
+      "facadeOnlyCommands": true,
+      "privacySentinelAbsent": true,
+      "phase": "baseline-persistent",
+      "product": {
+        "commit": "ffd0482f553127cf6edf7c6603263ddc2b73d9a7",
+        "source": {
+          "sha256": "5d6a18d0b81daaf08b90b85e2627e6cbcc4eee56fb0448a92242434585bbcbfb",
+          "fileCount": 657
+        },
+        "build": {
+          "sha256": "800a05069a25c503980a0b9cc47b44916d5e5647462c83e6d178593139c86fa2",
+          "fileCount": 1164
+        },
+        "skillHash": "7ac35412d703b40e74fccdf001ede71a865cd26eb6adf35cc2c0a2a424e7b546"
+      },
+      "wallSeconds": 95.75455713272095,
+      "factualCorrect": 8,
+      "traceableAnswers": 8,
+      "strictPerQuestionCitationCoverage": 8,
+      "rawEvidence": "/tmp/agentwiki-knowledge-20261007/baseline-persistent/b",
+      "providerStreamRetries": 0
+    },
+    {
+      "agent": "a",
+      "callCount": 13,
+      "discoveryCount": 1,
+      "failureCount": 0,
+      "searchCallCount": 4,
+      "responseBytes": 34396,
+      "toolDurationMs": 479,
+      "sessionStartupMs": 160,
+      "gatewaySessionCount": 1,
+      "usage": {
+        "input_tokens": 150537,
+        "cached_input_tokens": 125440,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 3659,
+        "reasoning_output_tokens": 1901
+      },
+      "facadeOnlyCommands": true,
+      "privacySentinelAbsent": true,
+      "phase": "candidate-persistent",
+      "product": {
+        "commit": "1418d5849db793c6ff52109a17cafbd6d2e9138f",
+        "source": {
+          "sha256": "493e77609f32603c7928dec83869cdcbe57b3d293ca7ee4a4e55a082a63d0bcb",
+          "fileCount": 659
+        },
+        "build": {
+          "sha256": "8f8c02ba6021b4a08ce3e80103c90b69a537a61ab81d380663744291399b7afb",
+          "fileCount": 1168
+        },
+        "skillHash": "9a41e222622811465797ce4ab5a57151b6e0a28a81322c37316307935b13c2c9"
+      },
+      "wallSeconds": 58.97838115692139,
+      "factualCorrect": 8,
+      "traceableAnswers": 8,
+      "strictPerQuestionCitationCoverage": 7,
+      "rawEvidence": "/tmp/agentwiki-knowledge-20261007/candidate-persistent/a",
+      "providerStreamRetries": 0
+    },
+    {
+      "agent": "b",
+      "callCount": 12,
+      "discoveryCount": 1,
+      "failureCount": 0,
+      "searchCallCount": 2,
+      "responseBytes": 31496,
+      "toolDurationMs": 255,
+      "sessionStartupMs": 120,
+      "gatewaySessionCount": 1,
+      "usage": {
+        "input_tokens": 375704,
+        "cached_input_tokens": 347648,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 3085,
+        "reasoning_output_tokens": 757
+      },
+      "facadeOnlyCommands": true,
+      "privacySentinelAbsent": true,
+      "phase": "candidate-persistent",
+      "product": {
+        "commit": "1418d5849db793c6ff52109a17cafbd6d2e9138f",
+        "source": {
+          "sha256": "493e77609f32603c7928dec83869cdcbe57b3d293ca7ee4a4e55a082a63d0bcb",
+          "fileCount": 659
+        },
+        "build": {
+          "sha256": "8f8c02ba6021b4a08ce3e80103c90b69a537a61ab81d380663744291399b7afb",
+          "fileCount": 1168
+        },
+        "skillHash": "9a41e222622811465797ce4ab5a57151b6e0a28a81322c37316307935b13c2c9"
+      },
+      "wallSeconds": 204.8697531223297,
+      "factualCorrect": 8,
+      "traceableAnswers": 8,
+      "strictPerQuestionCitationCoverage": 7,
+      "rawEvidence": "/tmp/agentwiki-knowledge-20261007/candidate-persistent/b",
+      "providerStreamRetries": 1
+    }
+  ],
+  "gates": {
+    "actualNamedArguments": "passed in candidate; original old schema failure retained in initial experiment",
+    "actualAliasSearch": "passed in candidate and separate operator smoke",
+    "coreFacts": "8/8 both stages, no gain claimed",
+    "actualEvidenceTraceability": "8/8 both stages",
+    "mcpErrorsNotIncreased": "passed:0 per run both stages",
+    "strictPerQuestionCitations": "NOT PASSED: candidate7/8 each versus baseline8/8 each",
+    "citationTypeLabels": "NOT PASSED: candidate a q3 calls SourceId a source version",
+    "noObservedPrivateSentinel": "passed; real private-page denial separately operator-tested",
+    "overallCostImprovement": "not established",
+    "sourceLifecycleAndUI": "pending next plan"
+  },
+  "next": "Add generic citation precision with explicit source-version DTOs; rerun same8questions on integrated reviewed candidate, retaining all earlier scores."
+}

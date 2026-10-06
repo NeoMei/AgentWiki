@@ -40,7 +40,7 @@ human intake/worker分支必须先锁当前User/PAT身份，再获取Space advis
 
 ## 读取和界面
 
-统一最小 DTO：status为untracked/unknown/unavailable/needs_review/current；受权时附sourceId、页面和当前版本ID/版本号、页面和当前代次及具体原因。无权或损坏关联只返回通用unavailable，不带来源标识。无直接来源的人工页面为untracked。
+统一最小 DTO：status为untracked/unknown/unavailable/needs_review/current；受权时附sourceId、已复核与当前SourceVersion ID/版本号、已复核与当前来源代次及具体原因（使用reviewedSourceVersionId/currentSourceVersionId等明确字段名，避免与PageVersion或SourceId混淆）。无权或损坏关联只返回通用unavailable，不带来源标识。无直接来源的人工页面为untracked。
 
 REST读页、MCP get_page/page resource，以及返回正文的REST/MCP搜索与列表均携带该状态；图谱节点携带对应页面状态，关系中的来源证据使用同一授权与白名单规则；投影必须使用本次正文响应的Page快照，不能按ID再次读到更新后的Page再把新状态贴到旧正文；批量读取来源头和授权信息。Review新建候选无Page ID时也使用相同底层版本/代次比较规则。get_page证据改为明确字段白名单，保留必要quote/location/版本/有限文件路径，移除完整SourceVersion.content和任意metadata/config；每条来源分别实时授权并核对Space。历史证据按已发布依据与Run输入代次标记，不把A旧代次当成当前依据。
 
@@ -53,3 +53,7 @@ PagePreview在待复核时给可见提示；PageInfoPanel显示版本差异和�
 独立隔离构建，真实DB+现有API/MCP与UI，固定每阶段commit及数据快照。v1发布→v2输入→关联页待复核但正文不变→Agent识别旧结论→人工部分审阅/发布→另一个新Agent读到新结论且能查旧依据。无关页面不误标。另测A→B→A、相同输入并发、v3抢先、人工改稿、恢复/回滚、来源archive和权限撤销。
 
 真实Agent必须经实际工具读取后回答；fixture仅用于固定来源内容。结构测试、实际UI、真实provider和部署分别报告。additive迁移先独立审查再更新已审核corpus digest，保留隔离schema和库存保护。无生产迁移、push、merge、发布或部署。
+
+## 引用质量衔接
+
+修正验收工具后的真实检索对照已证实命名参数/搜索可用、事实与依据可追溯8/8，但两场逐题完整引用7/8且一处SourceId被误称版本ID。该缺口保留，不能宣称全项通过。随本期明确来源DTO补通用引用指引：比较或驳回旧/干扰来源时，每个回答同时引用该来源和适用依据，标识保持真实类型；没有当前复核依据时说明不确定。最后在同固定8题/语料/模型/预算上重新核验整合候选，不把真实来源状态伪造成current或改答案评分标准。

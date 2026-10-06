@@ -6,4 +6,4 @@
 
 工作树：`/Users/neomei/.codex/worktrees/knowledge-capabilities/AgentWiki `（尾空格），分支codex/knowledge-capabilities，基线165c207bf4b644efa810ea6c9a3da11d28c4f96e。旧文档会话工作树保持原样。无push/merge/release/deploy授权。
 
-当前：检索harness和命名参数/技能改进60de6602已完成独立任务与整分支审查。真实前后各两场均事实8/8；初次后测因验收facade每次重启网关触发限流，错误不增加门槛未通过。已保留原结果并定向复播确认429，正修为持久stdio连接后重跑双方。来源生命周期spec/plan及Task1/Task2预检完成，产品实现尚未开始；不把规划当完成功能。
+当前：产品读参数/技能60de6602、持久验收harness04d6fc12通过独立代码审查；修正后真实前后各两场核心事实/依据8/8、MCP0错。候选严格引用7/8低于基线8/8，且一处SourceId误称版本，不能全PASS；计划随来源DTO补通用引用规则后复跑固定8题。初次限流失败和新实验均保留。来源Task1后端实现中，DDL44fc5f97已独立批准后可更新受审digest并跑隔离DB；Task2/3仍待实现和实际验收。
