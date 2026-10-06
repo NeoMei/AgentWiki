@@ -47,7 +47,7 @@ export function PersonalNotesPanel({ source, target, notes, disabled, storageUna
       <button type="button" disabled={!canAdd} onClick={() => { if (canAdd && target) { onAdd(target, body.trim()); setBody(''); } }} className="min-h-8 rounded-lg border px-3 disabled:opacity-50">{zh ? '添加笔记' : 'Add note'}</button>
     </div> : null}
     <div role="group" aria-label={zh ? '筛选笔记' : 'Filter notes'} className="flex flex-wrap gap-2">
-      {filters.map(({ id, label, count }) => <button key={id} type="button" aria-label={label} aria-pressed={filter === id} onClick={() => { if (filter !== id) { setSelected([]); setFilter(id); } }} className={`min-h-8 rounded-lg border px-3 ${filter === id ? 'border-gray-900 bg-gray-100 font-medium text-gray-900' : 'border-gray-200 text-gray-600'}`}>{`${label} (${count})`}</button>)}
+      {filters.map(({ id, label, count }) => <button key={id} type="button" aria-pressed={filter === id} onClick={() => { if (filter !== id) { setSelected([]); setFilter(id); } }} className={`min-h-8 rounded-lg border px-3 ${filter === id ? 'border-gray-900 bg-gray-100 font-medium text-gray-900' : 'border-gray-200 text-gray-600'}`}>{`${label} (${count})`}</button>)}
     </div>
     <div className="space-y-2 rounded-lg bg-gray-50 p-3">
       <p role="status" className="text-gray-600">{zh ? `已选 ${selectedEligible.length} 条可发送笔记` : `${selectedEligible.length} eligible ${selectedEligible.length === 1 ? 'note' : 'notes'} selected`}</p>

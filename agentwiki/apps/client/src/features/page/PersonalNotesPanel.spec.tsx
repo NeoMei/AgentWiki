@@ -35,20 +35,21 @@ describe('personal notes UI', () => {
   it('defaults to Open and filters the queue with accurate counts and empty feedback', () => {
     localStorage.setItem('agentwiki.language.v1', 'en');
     const view = queue({ notes: [note('A', 'a'), note('B', 'b', 'dispatched'), note('C', 'c', 'awaiting-review'), note('D', 'd', 'resolved')] });
-    expect(screen.getByRole('button', { name: 'Open' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'Open' })).toHaveTextContent('Open (3)');
-    expect(screen.getByRole('button', { name: 'All' })).toHaveTextContent('All (4)');
+    expect(screen.getByRole('button', { name: /^Open \(\d+\)$/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /^Open \(\d+\)$/ })).toHaveTextContent('Open (3)');
+    expect(screen.getByRole('button', { name: /^All \(\d+\)$/ })).toHaveTextContent('All (4)');
+    expect(screen.getByRole('button', { name: 'Resolved (1)' })).toHaveAccessibleName('Resolved (1)');
     expect(screen.queryByRole('checkbox', { name: 'D' })).not.toBeInTheDocument();
     expect(screen.getByText('Dispatched')).toBeInTheDocument();
     expect(screen.getByText('Awaiting review')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Resolved' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Resolved \(\d+\)$/ }));
     expect(screen.getByRole('checkbox', { name: 'D' })).toBeDisabled();
     expect(screen.queryByRole('checkbox', { name: 'A' })).not.toBeInTheDocument();
     view.update({ notes: [] });
     expect(screen.getByText('No resolved notes yet.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+    fireEvent.click(screen.getByRole('button', { name: /^All \(\d+\)$/ }));
     expect(screen.getByText('No personal notes yet. Select a passage to add one.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Open \(\d+\)$/ }));
     expect(screen.getByText('No open notes. Resolved notes are available in the Resolved filter.')).toBeInTheDocument();
   });
   it('drops dispatched selection so the next explicit batch can send B alone', () => {
@@ -80,9 +81,9 @@ describe('personal notes UI', () => {
     localStorage.setItem('agentwiki.language.v1', 'en');
     const view = queue({ notes: [note('A', 'a'), note('D', 'd', 'resolved')] });
     fireEvent.click(screen.getByRole('checkbox', { name: 'A' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Resolved' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Resolved \(\d+\)$/ }));
     expect(screen.getByRole('button', { name: 'Send selected to Agent' })).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+    fireEvent.click(screen.getByRole('button', { name: /^All \(\d+\)$/ }));
     expect(screen.getByRole('checkbox', { name: 'A' })).not.toBeChecked();
     fireEvent.click(screen.getByRole('button', { name: 'Send selected to Agent' }));
     expect(view.props.onDispatch).not.toHaveBeenCalled();
@@ -91,7 +92,7 @@ describe('personal notes UI', () => {
     localStorage.setItem('agentwiki.language.v1', 'en');
     const orphan = { ...note('Stale', 'stale'), target: captureAssistTarget('missing', 'selection', 0, 7, '2026-10-06T00:00:00Z')! };
     const view = queue({ notes: [note('A', 'a'), note('B', 'b'), orphan, note('Sent', 'sent', 'dispatched'), note('Review', 'review', 'awaiting-review'), note('Done', 'done', 'resolved')] });
-    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+    fireEvent.click(screen.getByRole('button', { name: /^All \(\d+\)$/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Select all eligible' }));
     for (const name of ['A', 'B']) expect(screen.getByRole('checkbox', { name })).toBeChecked();
     for (const name of ['Stale', 'Sent', 'Review', 'Done']) {
@@ -131,7 +132,9 @@ describe('personal notes UI', () => {
   it('shows Chinese selection feedback, storage warning, and explicit reopen action', () => {
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
     const view = queue({ storageUnavailable: true, notes: [note('待办', 'a'), note('复查', 'b', 'awaiting-review')] });
-    expect(screen.getByRole('button', { name: '未解决' })).toHaveTextContent('未解决 (2)');
+    expect(screen.getByRole('button', { name: '未解决 (2)' })).toHaveTextContent('未解决 (2)');
+    expect(screen.getByRole('button', { name: '全部 (2)' })).toHaveAccessibleName('全部 (2)');
+    expect(screen.getByRole('button', { name: '已解决 (0)' })).toHaveAccessibleName('已解决 (0)');
     expect(screen.getByText('等待审阅')).toBeInTheDocument();
     expect(screen.getByText('无法保存个人笔记，请保留副本。')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '全选可发送笔记' }));
