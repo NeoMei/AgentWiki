@@ -4,15 +4,13 @@
 
 ## 活跃任务
 
-- [knowledge-capabilities-20261007](active/knowledge-capabilities-20261007/brief.md)：用户批准知识检索复用与来源复核更新，隔离实施和独立验收进行中。
-
-
-
 - [q2-defect-closure-20261001](active/q2-defect-closure-20261001/brief.md)：全部20项及2条接入问题修复部署，公网TLS已验证，其余顺序实施与审查。
 
 - [q3-regressions-20260914](archive/q3-regressions-20260914/brief.md)：Q3人工报告20项代码修复、整分支独立复审与候选验收完成；未发布部署或安装日常Vault。
 
 ## 最近完成
+
+- [knowledge-capabilities-20261007](archive/knowledge-capabilities-20261007/brief.md)：ddfaf538完成来源复核闭环、实际API/worker/UI/真实Agent及整分支独立验收；检索八题收益未证明，按预批准收缩撤回额外指导，保留工具参数兼容。自有runtime清理，ACP仅契约，未推送合并部署。
 
 - [agent-session-mixed-notes-20261007](archive/agent-session-mixed-notes-20261007/brief.md)：固定候选 f4325942 混合批注 P2 修复、独立代码复审及 A1–A6 真实 UI 验收通过；427 定向检查、显式 Save/API/DB、Undo/Redo、Stop/失权/响应式及清理完成。fixture provider、ACP 仅契约，未部署；本期归档停止自动跟进。
 

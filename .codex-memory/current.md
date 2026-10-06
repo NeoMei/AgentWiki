@@ -1,36 +1,39 @@
 # 当前目标
 
-- 实施已批准的知识能力增益：真实Agent正确复用知识、来源变化后的复核更新闭环，提案质量作为配套。
+- 已批准的OpenKnowledge知识能力借鉴已完成本地有限交付并归档：来源复核闭环完成，检索仅保留有实测依据的参数兼容修复。
 
 # 范围 / 不做
 
-- CodeWiki排除；不新建搜索系统或审批系统；不自动发布。
-- 本地实施、独立审查和隔离验收；不push/merge/release/deploy。
+- CodeWiki排除；没有新搜索/上下文/审批服务、自动语义影响分析或自动发布。
+- ACP沿用接口定义，不新增完整本机Agent接入；未push/merge/release/deploy、生产迁移或升级日常客户端。
 
 # 当前状态
 
-- 自有工作树 `/Users/neomei/.codex/worktrees/knowledge-capabilities/AgentWiki `，分支codex/knowledge-capabilities，基线165c207bf4b644efa810ea6c9a3da11d28c4f96e。
-- 旧文档会话在f4325942已独立验收，边界与记录保留；本期为新任务。
-- 检索产品60de6602与持久验收harness04d6fc12已独立审查；修正后前后各两场真实Agent均事实/依据8/8、MCP零错，但候选严格引用7/8且一处SourceId误标版本，质量gate未关闭。原实验与新结果均保存；来源Task1修复候选88760ac1已完成服务级隔离DB14/14、公共库存未变；PAT锁等待期间到期重验已补，独立复审通过；Task2权限投影/UI/技能在4423d197完成，两轮独立复审通过；root protected content-tree DB21/21通过、公共库存未变且自有schema/进程/临时目录清理；两次旧观察点失败证据保留。DDL44fc5f97已独立批准；Task3 harness e4bf0db8通过独立复审、仅纯测试，未启动产品验收。
+- 工作树 `/Users/neomei/.codex/worktrees/knowledge-capabilities/AgentWiki `，分支 `codex/knowledge-capabilities`；基线165c207b，最终产品ddfaf538。最终封存提交仅文档，不改该产品树。
+- 来源确认同步→关联页面待复核→人工逐项决定/发布→新Agent取得新结论的闭环已通过真实API/worker/UI与合成知识上的真实模型验收；版本代次、人工改稿、恢复/回滚、归档和失权边界均有证据。
+- 服务级实际DB14/14与相关content-tree DB21/21；1280/1600/390长文/宽表交互通过，实际UI问题和补证缺口已关闭。独立整分支批准有限范围，未关闭Critical/Important为0。
+- 检索冻结八题最终A事实7/8、B8/8，两者严格引用7/8，收益未证明；已按预批准fallback撤回额外检索指导，原分数和失败保留，不能宣称完整质量PASS。
+- 所有自建runtime、已知schema/端口/state等资源已清理且公共库存未变。本期任务归档，旧文档自动跟进保持停止。
 
 # 稳定约束
 
-- 显式Space、实时授权、独立Credential/Grant；权限失效不返回来源或上下文。
-- Markdown单源；提案/人审/发布与知识有效性分开。
-- fresh任务实施与独立审查；真实Agent收益、结构测试、UI、部署分别记录。
-- Git显式work-tree，不改core.worktree；CodeGraph目录不存在，不自动索引。
+- 显式Space、实时授权、独立Credential/Grant；权限失效不返回来源标识、证据或上下文；独立授权的页面正文仍可读。
+- Markdown单源；人审发布与事实正确性分开；Source head/generation与Page已审代次由服务器维护，旧证据不自证当前。
+- 固定产品候选，实施/独立审查/真实Agent收益/UI/部署分别记录；模型requested配置不冒充server-resolved证明。
+- Git显式work-tree，不改core.worktree；本工作树无CodeGraph目录，不自动索引。
 
 # 关键索引
 
-- .codex-memory/tasks/active/knowledge-capabilities-20261007/brief.md
-- .codex-memory/tasks/active/knowledge-capabilities-20261007/decisions.md
-- .codex-memory/tasks/active/knowledge-capabilities-20261007/refs.md
+- .codex-memory/tasks/archive/knowledge-capabilities-20261007/brief.md
+- .codex-memory/tasks/archive/knowledge-capabilities-20261007/decisions.md
+- .codex-memory/tasks/archive/knowledge-capabilities-20261007/refs.md
+- agentwiki/docs/verification/knowledge-capabilities-20261007/implementation-acceptance.md
+- agentwiki/docs/verification/knowledge-capabilities-20261007/whole-branch-review.md
 - agentwiki/docs/research/openknowledge-20261007/能力增益筛选.md
-- agentwiki/docs/superpowers/plans/2026-10-07-knowledge-retrieval.md
-- agentwiki/docs/superpowers/plans/2026-10-07-source-freshness.md
-- .superpowers/sdd/ 对应plan的ignored进度与审查回执
+- .codex-memory/spec/agentwiki-architecture.md
 
 # 风险 / 下一步
 
-- 固定4423d197后构建，做实际API/worker/UI/Agent验收并复跑固定8题；尚无本期真实UI/模型结果，检索引用质量gate仍未关闭。
-- 来源有效性先覆盖一种可证明关联的场景；不承诺任意代码变化的精确影响分析。
+- 本期无继续调提示追分的任务；部署或日常客户端升级未执行，不能将本地完成当作线上生效。
+- 旧基线验证checkout因app归属元数据冲突保留，没有运行进程；早期未知路径的迁移临时bundle未擅删，不宣称全文件系统无残留。
+- 受控迟到worker竞态仅服务级DB验证；来源主线无关系边；gateway stdio resources/read不支持，server /api/mcp读取通过。完整证据范围见交付报告。

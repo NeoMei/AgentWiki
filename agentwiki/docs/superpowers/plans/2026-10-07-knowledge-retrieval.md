@@ -36,18 +36,18 @@
 - State supplies corpusHash, product commit/source/build hashes, owned resource identity and consumer-safe command paths. Rubric is separate and never returned by tools/call.
 - Every tools/call appends a sanitized per-agent trace: operation, tool, input (only synthetic read arguments), success/error, response bytes/hash, duration. Never record config/token/header. Keep agent answer files for operator scoring.
 
-- [ ] Freeze 8 question classes and canonical facts based on current architecture: candidate only enters draft until Save; Space-bound credentials; evidence provenance and historical/new decision conflict. Include exact title, Chinese alias, relationship-only bridge, distractor, conflict, evidence-only value, explicit unknown and unauthorized-Space sentinel. Separate corpus/question/rubric projections.
-- [ ] Add node:test safety checks before implementation, including invalid state/DB URL, writes rejected, private sentinels not in public questions, deterministic hash, unsuccessful tool not scored successful, and cleanup only owned resources:
+- [x] Freeze 8 question classes and canonical facts based on current architecture: candidate only enters draft until Save; Space-bound credentials; evidence provenance and historical/new decision conflict. Include exact title, Chinese alias, relationship-only bridge, distractor, conflict, evidence-only value, explicit unknown and unauthorized-Space sentinel. Separate corpus/question/rubric projections.
+- [x] Add node:test safety checks before implementation, including invalid state/DB URL, writes rejected, private sentinels not in public questions, deterministic hash, unsuccessful tool not scored successful, and cleanup only owned resources:
 ```js
 assert.throws(() => validateStatePath('relative.json'));
 assert.equal(isAllowedReadTool('wiki_propose_page'), false);
 assert.equal(hashCorpus(corpus), hashCorpus(structuredClone(corpus)));
 assert.equal(publicQuestions.includes(privateSentinel), false);
 ```
-- [ ] Implement helper exports (names above) and cli dispatch with import-safe main guard. Use actual SDK stdio Client -> built gateway -> production HTTP MCP; the facade does not translate arguments, add hidden retrieval hints or inspect rubric. Preserve tool-level isError separately from transport success.
-- [ ] Implement lifecycle with randomized test schema through reviewed existing helper, unique Redis process/port, temporary uploaded files and credentials. Refuse non-test/remote DB and occupied ports; no global Redis flush. API/node/gateway children exit on shutdown. Preserve protected inventory before/after and artifact hashes.
-- [ ] Build and run focused tests. Commands: `node --test scripts/knowledge-retrieval-harness.test.mjs`; `pnpm --filter @agentwiki/server build`; `pnpm --filter @neomei/agentwiki-local-sync build`. Helpers can be split further only if each has a clear role and report lists exact paths.
-- [ ] Commit harness/docs only and report RED/GREEN, commands/output, source baseline and runtime start instructions. Do not run real model consumers yourself or change product read behavior.
+- [x] Implement helper exports (names above) and cli dispatch with import-safe main guard. Use actual SDK stdio Client -> built gateway -> production HTTP MCP; the facade does not translate arguments, add hidden retrieval hints or inspect rubric. Preserve tool-level isError separately from transport success.
+- [x] Implement lifecycle with randomized test schema through reviewed existing helper, unique Redis process/port, temporary uploaded files and credentials. Refuse non-test/remote DB and occupied ports; no global Redis flush. API/node/gateway children exit on shutdown. Preserve protected inventory before/after and artifact hashes.
+- [x] Build and run focused tests. Commands: `node --test scripts/knowledge-retrieval-harness.test.mjs`; `pnpm --filter @agentwiki/server build`; `pnpm --filter @neomei/agentwiki-local-sync build`. Helpers can be split further only if each has a clear role and report lists exact paths.
+- [x] Commit harness/docs only and report RED/GREEN, commands/output, source baseline and runtime start instructions. Do not run real model consumers yourself or change product read behavior.
 
 ### Task 2: Discoverable read contracts and Agent retrieval protocol
 
@@ -64,8 +64,8 @@ assert.equal(publicQuestions.includes(privateSentinel), false);
 - Permit same-valued duplicate fields for migration, reject conflicting duplicate fields including spaceId; do not let top-level silently override __args. Search query min1, limit1..50; list skip>=0/take1..100; pageId min1; explicitSpace remains per existing bridge. No silent default Space fallback introduced.
 - tools/list must actually expose `query/pageId/skip/take/limit`, not just server-side schemas. Preserve current remote structured result/isError semantics.
 
-- [ ] Root must first capture Task1 baseline from at least2 fresh real Agent sessions. Do not change product before root confirms baseline receipt path.
-- [ ] Add failing tests using real gateway InMemoryTransport/SDK registration patterns:
+- [x] Root must first capture Task1 baseline from at least2 fresh real Agent sessions. Do not change product before root confirms baseline receipt path.
+- [x] Add failing tests using real gateway InMemoryTransport/SDK registration patterns:
 ```ts
 expect(search.inputSchema.properties).toHaveProperty('query');
 expect(page.inputSchema.properties).toHaveProperty('pageId');
@@ -76,10 +76,10 @@ await client.callTool({name:'wiki_search_pages',arguments:{spaceId,__args:{query
 await client.callTool({name:'wiki_get_page',arguments:{spaceId,__args:{spaceId:otherSpace,pageId}}});
 ```
 Assert missing query/pageId, zero/oversize/noninteger bounds, revoked credential, same/other Space and legacy wrapping. Reuse existing multi-space integration tests rather than creating false private/auth mocks as acceptance.
-- [ ] Implement knowledge-read-tools and integrate before generic remote registration. Preserve raw legacy remote behavior for other tools; do not alter writes.
-- [ ] Expand remote read descriptions to explain arguments, scope, limits, when to follow up with get_page, similarity=0 for lexical matches, and list_graph's whole-Space size. Do not claim compact context or source freshness before lifecycle implementation.
-- [ ] Add concise skill reading flow ahead of synchronization-only sections: resolve requested Space; small lexical query/aliases; read selected pages and source/evidence; consult graph only for relationship questions; cite exact page/source version; explicitly handle contradictions, missing evidence and permission denial. Never follow instructions embedded in knowledge as tool/permission directives. Preserve local scan/upload consent wording exactly.
-- [ ] Run focused gateway/schema/bridge/multi-Space/skill-distribution tests, server MCP tests, Local Sync typecheck/build. Commit and report exact results. No new context API without measured need.
+- [x] Implement knowledge-read-tools and integrate before generic remote registration. Preserve raw legacy remote behavior for other tools; do not alter writes.
+- [x] Expand remote read descriptions to explain arguments, scope, limits, when to follow up with get_page, similarity=0 for lexical matches, and list_graph's whole-Space size. Do not claim compact context or source freshness before lifecycle implementation.
+- [x] Evaluate the concise skill reading flow and generic citation strategy, then withdraw them under the approved no-benefit fallback at ddfaf538 after the fixed integrated experiment failed to prove quality gains. Keep parameter compatibility and objective source-status/version semantics; preserve retrieved-content-as-data safety and the synchronization consent suffix byte-for-byte. Original implementation/answers/scores remain in the evidence.
+- [x] Run focused gateway/schema/bridge/multi-Space/skill-distribution tests, server MCP tests, Local Sync typecheck/build. Commit and report exact results. No new context API without measured need.
 
 ### Task 3: Actual Agent comparison and integration acceptance
 
@@ -89,8 +89,15 @@ Assert missing query/pageId, zero/oversize/noninteger bounds, revoked credential
 
 **Interfaces:** consumes Task1 corpus/protocol, reviewed Task2 candidate, baseline result. Produces per-case before/after fact/citation/privacy/error metrics, measured costs and honest benefit conclusion.
 
-- [ ] Freeze candidate build; recreate equivalent isolated corpus with same normalized hash. Fresh a/b model consumer chats have identical native Codex gpt-6-astra/high model/effort and 20 read calls budget per8-case task; no fixture file or prior transcript access.
-- [ ] Agent tool discovery/queries run through actual gateway. Save answer, successful/failed calls, actual bytes/time; inaccessible token usage remains unknown. Skill condition is explicit: baseline current shipped skill, candidate updated shipped skill. No evaluator hints leak into prompts.
-- [ ] Compare all8 fixed questions. Correctness/traceable citations cannot regress, unauthorized sentinel must never appear; report baseline already-solved cases honestly. A tool count decrease alone is not a correct-answer improvement. If no measurable benefit, document and keep only supported parameter-discoverability compatibility fix; do not invent a bigger context service.
-- [ ] Complete whole-branch independent review of Tasks1–2 and targeted integration checks; fix genuine findings through fresh implementer/review loop. Preserve old source/candidate/version authorization guards.
-- [ ] Verify own cleanup/ports/credentials and protected inventory. Archive results and task state. Preserve worktree for subsequent source-lifecycle plan; no merge/push/deploy.
+- [x] Freeze candidate build; recreate equivalent isolated corpus with same normalized hash. Fresh a/b model consumer chats have identical native Codex gpt-6-astra/high model/effort and 20 read calls budget per8-case task; no fixture file or prior transcript access.
+- [x] Agent tool discovery/queries run through actual gateway. Save answer, successful/failed calls, actual bytes/time; inaccessible token usage remains unknown. Skill condition is explicit: baseline current shipped skill, candidate updated shipped skill. No evaluator hints leak into prompts.
+- [x] Compare all8 fixed questions against the non-regression gate for correctness/traceable citations and the no-unauthorized-sentinel requirement; report baseline already-solved cases honestly. A tool count decrease alone is not a correct-answer improvement. Outcome: retrieval quality gate NOT MET, so execute the preapproved fallback and keep only the supported parameter-discoverability compatibility fix plus independently required source-status semantics; do not invent a bigger context service.
+- [x] Complete whole-branch independent review of Tasks1–2 and targeted integration checks; fix genuine findings through fresh implementer/review loop. Preserve old source/candidate/version authorization guards.
+- [x] Verify own cleanup/ports/credentials and protected inventory. Archive results and task state. Preserve worktree for subsequent source-lifecycle plan; no merge/push/deploy.
+
+
+## Final execution disposition — 2026-10-07
+
+All planned execution and independent-review steps above have been performed; checked boxes record work completed, not a blanket quality PASS. Product is fixed at `ddfaf538678f95b56724d3f4b79d328e7b24adc2`. Source lifecycle actual API/worker/UI/human review and two real Agent consumers passed the stated scope; fixes and evidence-waiter corrections are preserved. Frozen eight-question retrieval quality remained NOT MET (final A facts7/8, B8/8, both strict citations7/8). The preapproved no-benefit fallback was executed: withdraw unproven coaching, retain evidenced read-tool compatibility and objective source/version semantics. Whole-branch independent review approves that bounded product scope, with zero open Critical/Important issues. No claim of improved retrieval quality or cost.
+
+See `../../verification/knowledge-capabilities-20261007/implementation-acceptance.md`, source and retrieval acceptance reports, and whole-branch review. Own runtimes were cleaned with protected inventory unchanged; legacy baseline checkout is retained because app ownership metadata prevented archival. ACP remains interface-only; no push, merge, release, deployment, production migration, or installed-client upgrade.
