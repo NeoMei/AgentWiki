@@ -157,6 +157,39 @@ test('source generations, receipts, revocation and atomic reviewed publication i
         await assert.rejects(reviews.reviewPublish(cs.id, owner.id, '', { userId: owner.id, credentialId: pat.id, scopes: ['review:decide'] }), error => error?.businessCode === 'AUTH_SCOPE_REQUIRED');
         assert.equal(await db.approval.count({ where: { changeSetId: cs.id } }), 0);
       });
+      await t.test('PAT expiring while publication waits for Space rejects without Page Approval or ChangeSet writes', async () => {
+        const run = await sources.createRun(first.sourceId, principal, 'pat-expiry-wait');
+        const cs = await process(run.id);
+        const beforePages = await allPages();
+        const beforeChangeSet = await db.changeSet.findUniqueOrThrow({ where: { id: cs.id }, include: { items: true } });
+        const beforeApprovals = await db.approval.findMany({ where: { changeSetId: cs.id } });
+        const expiresAt = new Date(Date.now() + 1200);
+        const pat = await db.apiKeyCredential.create({ data: { name: 'expiring reviewer', prefix: 'sf', keyHash: randomUUID(), scopes: ['review:decide'], userId: owner.id, expiresAt } });
+        let release; const held = new Promise(done => { release = done; });
+        let acquired; const locked = new Promise(done => { acquired = done; });
+        let reachedSpace; const checked = new Promise(done => { reachedSpace = done; });
+        const originalLock = tree.lockPageMutationSpace;
+        // Observe the boundary after real User/PAT checks; delegate to the real blocked Space lock.
+        tree.lockPageMutationSpace = function (...args) { reachedSpace(); return originalLock.apply(this, args); };
+        const blocker = db.$transaction(async tx => { await writer.lockSyncSpace(tx, space.id); acquired(); await held; });
+        let result;
+        try {
+          await locked;
+          result = reviews.reviewPublish(cs.id, owner.id, '', { userId: owner.id, credentialId: pat.id }).then(value => ({ value }), error => ({ error }));
+          await Promise.race([checked, new Promise((_, reject) => setTimeout(() => reject(new Error('Publication never reached Space after credential checks')), 2000))]);
+          assert.ok(Date.now() < expiresAt.getTime(), 'pre-Space credential check completed before expiry');
+          await new Promise(done => setTimeout(done, Math.max(0, expiresAt.getTime() - Date.now()) + 25));
+          release(); await blocker;
+          const outcome = await result;
+          assert.equal(outcome.error?.businessCode, 'SPACE_ACCESS_DENIED');
+          assert.deepEqual(await allPages(), beforePages);
+          assert.deepEqual(await db.changeSet.findUniqueOrThrow({ where: { id: cs.id }, include: { items: true } }), beforeChangeSet);
+          assert.deepEqual(await db.approval.findMany({ where: { changeSetId: cs.id } }), beforeApprovals);
+        } finally {
+          release(); await blocker; if (result) await result;
+          tree.lockPageMutationSpace = originalLock;
+        }
+      });
       await t.test('DDL checks, historical nulls, immutable receipt references and Source cascade', async () => {
         const unknown = await db.source.create({ data: { spaceId: space.id, type: 'text', name: 'historical', contentHash: randomUUID() } });
         assert.equal(unknown.currentSourceVersionId, null); assert.equal(unknown.currentSourceGeneration, 0);

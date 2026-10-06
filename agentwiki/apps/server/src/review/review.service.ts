@@ -497,6 +497,8 @@ export class ReviewService {
         if (!sourceLockedTx) throw new BusinessException('SPACE_ACCESS_DENIED');
       }
       await this.assertHumanMutation(lockedTx, id, principal);
+      // Row locks prevent revocation writes, but a PAT can expire while waiting for Space.
+      if (principal) await new AuthorizationService(this.prisma).assertLiveHumanCredential(lockedTx, principal, ['review:decide']);
       await this.assertOrdinaryReviewEntry(tx, id);
       const validatedSourceHeads = await validateSourcePublication(tx, changeSet, acceptedItems, !!autoPublishContext);
       const claimed = await tx.changeSet.updateMany({

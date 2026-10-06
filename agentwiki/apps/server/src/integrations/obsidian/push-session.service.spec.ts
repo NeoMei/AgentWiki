@@ -52,11 +52,14 @@ describe('PushSessionService graph lifecycle', () => {
       undefined,
       graph,
     );
+    const warning = jest.spyOn((service as any).logger, 'warn').mockImplementation(() => {});
 
     await expect((service as any).refreshGraphAfterFinalize('space-1', 'change-set-1'))
       .resolves.toBeUndefined();
 
     expect(graph.enqueue).toHaveBeenCalledWith('space-1');
+    expect(warning).toHaveBeenCalledWith('post-finalize graph indexing failed: database offline');
+    warning.mockRestore();
   });
 
   it('bounds post-finalize indexing concurrency for large pushes', async () => {
@@ -1015,12 +1018,17 @@ describe('PushSessionService Sync Protocol v2', () => {
       }) },
       $transaction: jest.fn((callback: any) => callback(tx)),
     };
+    prisma.changeItem = { findMany: jest.fn().mockResolvedValue([]) };
     const service: any = new (PushSessionService as any)(prisma, {}, contentTree, {}, undefined, undefined);
+    const warning = jest.spyOn(service.logger, 'warn');
     (session as any).capabilitiesHash = await service.capabilityHashV2();
 
     await expect(service.finalizeV2(principal, 'space-1', session.id, {
       protocolVersion: '2', confirmationHash: confirmation, userConfirmed: true,
     })).resolves.toEqual(published);
+    expect(prisma.changeItem.findMany).toHaveBeenCalled();
+    expect(warning).not.toHaveBeenCalled();
+    warning.mockRestore();
 
     expect(prisma.pushSession.findUnique).toHaveBeenCalledWith({
       where: { id: session.id }, select: { spaceId: true, protocolVersion: true },
