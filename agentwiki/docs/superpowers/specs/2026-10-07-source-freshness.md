@@ -16,7 +16,7 @@
 - IngestRun.inputSourceGeneration nullable；Page.sourceGeneration nullable。历史记录不猜测、不回填为当前。
 - 当前输入指针建立于受验 intake 事务；worker 从不推进 head。版本号是内容版本，generation 是接受顺序，不能互代。
 - A→B→A 复用 A 的 SourceVersion，但代次递增；旧 A 候选失效，旧 A 页面仍待复核。相同当前输入不增代。重放同幂等键只返回原请求，不改变 head。
-- 每个成功 intake（包括同内容 existing/noop）都持久化幂等回执，不能只靠新建 Run 的唯一键。增加 SourceSyncReceipt，按 sourceId/idempotencyKey 唯一，固定输入hash、version/generation及原始返回结果；回执与head/Run同事务。A/K1→同A/K2→B/K3→重放K2不能倒退head；同key异内容明确冲突。历史已有Run键仍可重放，缺失的历史noop键不伪造回执。
+- 每个成功 intake（包括同内容 existing/noop）都持久化幂等回执，不能只靠新建 Run 的唯一键。增加 SourceSyncReceipt，按 sourceId/idempotencyKey 唯一，固定输入hash、version/generation及原始返回结果；回执与head/Run同事务。回放保留原source/version/run引用，返回existing（原无Run则noop），不能重新声称queued；原始回执结果不可变。A/K1→同A/K2→B/K3→重放K2不能倒退head；同key异内容明确冲突。历史已有Run键仍可重放，缺失的历史noop键不伪造回执。
 - SourceVersion 必须属于 Source；Source 必须属于输入/页面/ChangeSet 的 Space。普通 FK 加统一锁内校验、公开读取再次核对归属；不信任单独外键。
 - head 外键删除置空后 generation 可以保留正值，公开结果为 unknown；因此不得增加“head=null必须generation=0”的约束。head非空时generation必须为正；Run/Page非空代次必须为正。递增达到 Int 上限时显式拒绝。
 
