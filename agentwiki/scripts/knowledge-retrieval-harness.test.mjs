@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, mkdir, readFile, stat, writeFile, rm, access } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, stat, writeFile, rm, access, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, execFile } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { createServer } from 'node:net';
+import { createServer, createConnection } from 'node:net';
 import { createServer as createHttpServer } from 'node:http';
 import { corpus, publicQuestions, operatorRubric, privateSentinel, hashCorpus } from './knowledge-retrieval-corpus.mjs';
 import { validateStatePath, validateDatabaseUrl, createOwnedWorkspace, writeOwnedState, startOwnedProcess, startOwnedRedis, stopOwnedProcess, isolatedEnvironment } from './knowledge-retrieval-harness.mjs';
-import { isAllowedReadTool, executeReadOperation, loadConsumerState, sanitizeTraceInput } from './knowledge-retrieval-agent-client.mjs';
+import { isAllowedReadTool, executeReadOperation, loadConsumerState, sanitizeTraceInput, startPersistentReadSession, requestReadSession } from './knowledge-retrieval-agent-client.mjs';
 import * as harness from './knowledge-retrieval-harness.mjs';
 
 const require = createRequire(new URL('../apps/server/package.json', import.meta.url));
@@ -155,37 +155,145 @@ test('isolated children never inherit provider credentials, proxy or database en
   assert.deepEqual(env, { PATH: '/bin' });
 });
 
-test('CLI crosses actual stdio SDK, redacts credentials and records failed connection attempts', async () => {
+async function persistentFixture() {
   const workspace = await createOwnedWorkspace();
+  const sessions = {};
+  const agents = {};
   const statePath = join(workspace.path, 'state.json');
-  const home = join(workspace.path, 'consumer-a');
-  const wrapperPath = join(home, 'gateway.mjs');
   const cli = fileURLToPath(new URL('./knowledge-retrieval-agent-client.mjs', import.meta.url));
   const sdk = require.resolve('@modelcontextprotocol/sdk/server/mcp.js');
   const stdio = require.resolve('@modelcontextprotocol/sdk/server/stdio.js');
+  const zod = require.resolve('zod');
   try {
-    await mkdir(home, { mode: 0o700 });
-    await writeFile(wrapperPath, `import {createRequire} from 'node:module'; const require=createRequire(import.meta.url); const {McpServer}=require(${JSON.stringify(sdk)}); const {StdioServerTransport}=require(${JSON.stringify(stdio)}); const server=new McpServer({name:'fixture',version:'1'}); server.registerTool('wiki_get_page',{inputSchema:{}},async()=>({isError:true,content:[{type:'text',text:'SYNTHETIC-SECRET-123'}]})); await server.connect(new StdioServerTransport());`);
-    const agent = { home, wrapperPath, apiKey: 'SYNTHETIC-SECRET-123' };
-    await writeOwnedState(statePath, { version: 1, harnessPid: process.pid, resourceRoot: workspace.path, apiUrl: 'http://127.0.0.1:12345/api', agents: { a: agent, b: agent } });
-    const run = () => spawnSync(process.execPath, [cli, `--state=${statePath}`, '--agent=a', 'call', 'wiki_get_page', '{}'], { encoding: 'utf8', env: isolatedEnvironment(), timeout: 8_000 });
-    const toolError = run();
+    for (const label of ['a', 'b']) {
+      const home = join(workspace.path, `consumer-${label}`);
+      const wrapperPath = join(home, 'gateway.mjs');
+      await mkdir(home, { mode: 0o700 });
+      await writeFile(wrapperPath, `import {appendFileSync} from 'node:fs'; appendFileSync(${JSON.stringify(join(home, 'starts.log'))},'start\\n');
+        import {createRequire} from 'node:module'; const require=createRequire(import.meta.url);
+        const {McpServer}=require(${JSON.stringify(sdk)}); const {StdioServerTransport}=require(${JSON.stringify(stdio)}); const {z}=require(${JSON.stringify(zod)});
+        const server=new McpServer({name:'fixture',version:'1'});
+        server.registerTool('wiki_get_page',{inputSchema:{pageId:z.string().optional(),__args:z.object({pageId:z.string()}).optional()}},async(args)=>{
+          if(args.pageId==='slow') await new Promise(r=>setTimeout(r,500));
+          if(args.pageId==='pending') await new Promise(r=>setTimeout(r,30000));
+          return {isError:args.pageId==='error',content:[{type:'text',text:JSON.stringify({label:${JSON.stringify(label)},args,secret:'SYNTHETIC-SECRET-123'})}]};
+        });
+        server.registerTool('wiki_propose_changes',{inputSchema:{}},async()=>{appendFileSync(${JSON.stringify(join(home, 'WRITTEN'))},'bad'); return {content:[]};});
+        await server.connect(new StdioServerTransport());`);
+      const session = await startPersistentReadSession({ agent: label, home, wrapperPath, secrets: ['SYNTHETIC-SECRET-123'] });
+      sessions[label] = session;
+      const { close, ...metadata } = session;
+      agents[label] = { home, wrapperPath, ...metadata };
+    }
+    const state = { version: 2, harnessPid: process.pid, resourceRoot: workspace.path, apiUrl: 'http://127.0.0.1:12345/api', agents };
+    await writeOwnedState(statePath, state);
+    const run = (label, args = ['call', 'wiki_get_page', '{}']) => new Promise(done => {
+      execFile(process.execPath, [cli, `--state=${statePath}`, `--agent=${label}`, ...args], { encoding: 'utf8', env: isolatedEnvironment(), timeout: 8000 }, (error, stdout, stderr) => done({ status: error?.code ?? 0, stdout, stderr }));
+    });
+    const close = async () => { await Promise.all(Object.values(sessions).map(session => session.close())); await workspace.cleanup(); };
+    return { workspace, statePath, state, sessions, agents, run, close };
+  } catch (error) { await Promise.all(Object.values(sessions).map(session => session.close())); await workspace.cleanup(); throw error; }
+}
+
+test('CLI shares one actual stdio gateway per consumer and preserves schema, arguments and errors', async () => {
+  const fixture = await persistentFixture();
+  const { agents, sessions, run } = fixture;
+  try {
+    assert.notEqual(sessions.a.gatewayPid, sessions.b.gatewayPid);
+    const toolError = await run('a', ['call', 'wiki_get_page', '{"pageId":"error"}']);
     assert.equal(toolError.status, 1, toolError.stderr);
     assert.equal(JSON.parse(toolError.stdout).isError, true);
     assert.equal(toolError.stdout.includes('SYNTHETIC-SECRET-123'), false);
-    let traces = (await readFile(join(home, 'trace.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
+    const second = await run('a', ['call', 'wiki_get_page', '{"__args":{"pageId":"原样参数"}}']);
+    assert.equal(second.status, 0, second.stderr);
+    assert.deepEqual(JSON.parse(JSON.parse(second.stdout).content[0].text).args, { __args: { pageId: '原样参数' } });
+    const other = await run('b');
+    assert.equal(JSON.parse(JSON.parse(other.stdout).content[0].text).label, 'b');
+    for (const label of ['a', 'b']) assert.equal((await readFile(join(agents[label].home, 'starts.log'), 'utf8')).trim().split('\n').length, 1, 'facade commands must share one real stdio gateway');
+    const discovery = await run('a', ['tools']);
+    const definitions = JSON.parse(discovery.stdout).tools;
+    assert.deepEqual(definitions.map(tool => tool.name), ['wiki_get_page']);
+    assert.ok(definitions[0].inputSchema.properties.__args);
+    process.kill(sessions.a.gatewayPid, 'SIGKILL');
+    await new Promise(done => setTimeout(done, 100));
+    const failed = await run('a');
+    assert.equal(failed.status, 1);
+    const traces = (await readFile(join(agents.a.home, 'trace.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
+    assert.equal(traces.length, 4);
     assert.equal(traces[0].transportSuccess, true);
     assert.equal(traces[0].success, false);
+    assert.equal(traces[3].transportSuccess, false);
+    assert.equal(traces.every(trace => trace.connectionMode === 'persistent stdio per consumer' && trace.sessionId === sessions.a.sessionId), true);
     assert.equal(JSON.stringify(traces).includes('SYNTHETIC-SECRET-123'), false);
-    await writeFile(wrapperPath, 'throw new Error("SYNTHETIC-SECRET-123");');
-    const connectionError = run();
-    assert.equal(connectionError.status, 1);
-    assert.equal((connectionError.stdout + connectionError.stderr).includes('SYNTHETIC-SECRET-123'), false);
-    traces = (await readFile(join(home, 'trace.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
-    assert.equal(traces.length, 2);
-    assert.equal(traces[1].transportSuccess, false);
-    assert.equal(traces[1].success, false);
-  } finally { await workspace.cleanup(); }
+  } finally { await fixture.close(); }
+});
+
+test('persistent IPC correlates concurrent requests and refuses writes and forged sessions', async () => {
+  const fixture = await persistentFixture();
+  const { socketPath, sessionId } = fixture.sessions.a;
+  try {
+    const results = await Promise.all(['slow', 'fast', '中文'].map(pageId => requestReadSession(socketPath, sessionId, { operation: 'call', tool: 'wiki_get_page', input: { pageId } })));
+    assert.deepEqual(results.map(result => JSON.parse(result.result.content[0].text).args.pageId), ['slow', 'fast', '中文']);
+    assert.equal(new Set(results.map(result => result.id)).size, 3);
+    await assert.rejects(requestReadSession(socketPath, sessionId, { operation: 'call', tool: 'wiki_propose_changes', input: {} }));
+    await assert.rejects(requestReadSession(socketPath, 'forged', { operation: 'tools' }));
+    await assert.rejects(access(join(fixture.agents.a.home, 'WRITTEN')));
+    const illegalCli = await fixture.run('a', ['call', 'wiki_propose_changes', '{}']);
+    assert.equal(illegalCli.status, 1);
+    // Malformed JSON is rejected independently of the shell parser.
+    const response = await new Promise(done => {
+      const socket = createConnection(socketPath, () => socket.write('{invalid}\n'));
+      socket.setEncoding('utf8'); socket.once('data', chunk => { socket.destroy(); done(chunk); });
+    });
+    assert.equal(JSON.parse(response).error, 'Invalid read-only request');
+  } finally { await fixture.close(); }
+});
+
+test('consumer rejects socket escape, unsafe permissions, fabricated session and missing state', async () => {
+  const fixture = await persistentFixture();
+  try {
+    await loadConsumerState(fixture.statePath, 'a');
+    await chmod(fixture.agents.a.socketPath, 0o644);
+    await assert.rejects(loadConsumerState(fixture.statePath, 'a'));
+    await chmod(fixture.agents.a.socketPath, 0o600);
+    const forged = structuredClone(fixture.state);
+    forged.agents.a.socketPath = fixture.agents.b.socketPath;
+    await writeFile(fixture.statePath, JSON.stringify(forged));
+    await assert.rejects(loadConsumerState(fixture.statePath, 'a'));
+    forged.agents.a.socketPath = fixture.agents.a.socketPath;
+    forged.agents.a.sessionId = '00000000-0000-0000-0000-000000000000';
+    await writeFile(fixture.statePath, JSON.stringify(forged));
+    assert.equal((await fixture.run('a')).status, 1);
+    forged.harnessPid = 2147483647;
+    await writeFile(fixture.statePath, JSON.stringify(forged));
+    await assert.rejects(loadConsumerState(fixture.statePath, 'a'));
+    await rm(fixture.statePath);
+    assert.equal((await fixture.run('a')).status, 1);
+  } finally { await fixture.close(); }
+});
+
+test('session shutdown interrupts in-flight RPC, closes idle IPC and exits its gateway before removing socket directory', async () => {
+  const fixture = await persistentFixture();
+  const session = fixture.sessions.a;
+  try {
+    const idle = createConnection(session.socketPath);
+    await new Promise(done => idle.once('connect', done));
+    const idleClosed = new Promise(done => idle.once('close', done));
+    const pending = requestReadSession(session.socketPath, session.sessionId, { operation: 'call', tool: 'wiki_get_page', input: { pageId: 'pending' } });
+    const failed = assert.rejects(pending);
+    await new Promise(done => setTimeout(done, 100));
+    const cleanup = await session.close();
+    await Promise.all([failed, idleClosed]);
+    assert.equal(cleanup.gatewayExited, true);
+    assert.equal(cleanup.ipcRemoved, true);
+    assert.equal(cleanup.pendingCalls, 0);
+    assert.throws(() => process.kill(session.gatewayPid, 0), { code: 'ESRCH' });
+    await assert.rejects(access(session.ipcRoot));
+    await assert.rejects(requestReadSession(session.socketPath, session.sessionId, { operation: 'tools' }));
+    const trace = JSON.parse((await readFile(join(fixture.agents.a.home, 'trace.jsonl'), 'utf8')).trim());
+    assert.equal(trace.transportSuccess, false);
+    assert.equal((await fixture.run('b')).status, 0);
+  } finally { await fixture.close(); }
 });
 
 test('plan is import-safe, secret-free and requires dedicated database only for serve', () => {

@@ -5,7 +5,7 @@
 ## 固定条件
 
 - 语料、8 个问题与评分规则分别在 `scripts/knowledge-retrieval-corpus.mjs` 的 corpus、publicQuestions、operatorRubric 中定义。该模块只供操作者和 seed 使用，消费者不得读取。
-- 使用当前生产 API、HTTP MCP 和实际构建的 Local Sync stdio gateway。Facade 只列出六个只读知识工具，并原样传递调用参数；不补默认参数、不改查询、不提供答案。SDK 协议测试的临时服务器仅证明 facade 的传输/回执行为，不是产品检索验收。
+- 使用当前生产 API、HTTP MCP 和实际构建的 Local Sync stdio gateway。Harness 为 a/b 各持有一个 SDK Client 和 stdio gateway，连接模式固定为 `persistent stdio per consumer`；后续 facade 命令只通过私有 Unix socket 请求这个连接。Facade 只列出六个只读知识工具，并原样传递调用参数；不补默认参数、不改查询、不提供答案。SDK 协议测试的临时服务器仅证明 facade 的传输/回执行为，不是产品检索验收。
 - 固定 executor-selected 模型与 effort、相同问题、每组最多 20 次 read call；tools discovery 单独计数。基线 a/b 与改进 a/b 均为全新独立聊天，使用不同 AgentCredential 和临时 home；至少 4 个消费者会话。保存实际模型标识，不能以路由名称推断运行模型。
 - 本版本语料明确采用 lexical-only 模式：无 provider 密钥、无向量 seed。这是同条件参数发现/知识使用比较，不能用它评价语义召回质量。
 - 源码内技能在启动时复制到两份临时 home。基线使用基线技能，改进使用改进技能；不会更新用户已安装的技能。
@@ -27,7 +27,7 @@ node scripts/knowledge-retrieval-harness.mjs serve
 
 每次运行创建独立 Redis 进程与端口、随机 schema、API 进程、临时上传/客户端目录；不启动 Worker、不使用共享 Redis、不 flush。独立 Redis 启用 AOF/everysec，持久化文件只写本次临时目录，以满足产品既有持久性门禁；健康请求保留 12 秒预算，覆盖产品两次各 5 秒上限的 WAITAOF 检查。合成已发布页/证据由 Prisma 直接 seed，因此不把 seed 称为 ingestion/人审发布闭环验收。API 与 gateway cwd 都是临时目录，不加载仓库 `.env`；API 环境不继承 provider 密钥或代理变量。启动失败会在 evidence 目录保存 0600 的 `failure-diagnostic.json`，包含阶段、退出状态及已脱敏输出，不包含子进程环境或凭据。
 
-`READY` 返回安全的 state 路径、evidence 路径、Space ID、corpusHash 和消费者命令路径。0600 state 内含凭据，只允许 facade 和操作者使用，禁止 cat/输出/作为 Agent 提示词。`run.json` 保存产品 commit、源码/构建/技能哈希、migration/公共库存 digest 和 Agent ID；`operator-rubric.json` 仅用于评分。运行期间冻结构建，不在同一服务生命周期内切换产品或技能。
+`READY` 返回安全的 state 路径、evidence 路径、Space ID、corpusHash 和消费者命令路径。0600 state 内含凭据，只允许 facade 和操作者使用，禁止 cat/输出/作为 Agent 提示词。`run.json` 保存产品 commit、源码/构建/技能哈希、独立 `harnessIdentity`、`connectionMode`、migration/公共库存 digest 和 Agent ID。Harness 哈希覆盖 harness、agent-client、corpus 与实际加载的数据库/进程/安全 helper 共 9 个运行文件；不与产品 source/build 哈希混合。每个消费者另存 sessionId、gateway PID、私有 IPC 路径和一次性的 sessionStartupMs；`operator-rubric.json` 仅用于评分。运行期间冻结构建，不在同一服务生命周期内切换产品或技能。
 
 ## 消费者输入
 
@@ -46,16 +46,16 @@ node <consumerPath> --state=<absoluteStatePath> --agent=a call <actualReadToolNa
 
 ## 回执与评分
 
-- 每次调用记录 operation/tool、白名单检索参数、transportSuccess、toolIsError、success、实际返回字节/hash、操作耗时、包括 gateway 启动的耗时和脱敏结果；token 未知写 `unknown`。工具 `isError=true` 不算成功；握手/运输失败同样保留失败回执。响应 hash/字节在脱敏前计算，脱敏结果与其可能不同。
-- 临时 home 下的 `trace.jsonl` 由 facade 写入，关闭 harness 时复制成 evidence 中的 `trace-a.jsonl`/`trace-b.jsonl`。操作者将原始模型答案和模型自带 usage 另存为 a/b 答案及会话元数据，不能让其他消费者读取。
+- 每次已接受的只读 RPC 记录 operation/tool、白名单检索参数、transportSuccess、toolIsError、success、实际返回字节/hash、SDK 操作耗时和脱敏结果，附 requestId/sessionId/connectionMode；token 未知写 `unknown`。工具 `isError=true` 不算成功；连接运行中退出后的调用仍保留运输失败回执。SDK 操作耗时不含 facade 启动、IPC 或 gateway 启动；gateway 启动耗时只在 run.json 的 sessionStartupMs 中每个消费者记录一次，旧版每调用 gatewayDurationMs 不再使用。握手失败在 READY 前使启动失败，并由 failure-diagnostic.json 保留阶段；本地状态/IPC 校验失败不代表已执行 MCP，不计为 SDK 调用回执。响应 hash/字节在脱敏前计算，脱敏结果与其可能不同。
+- 临时 home 下的 `trace.jsonl` 由 harness 中的持久 session 写入（并发追加串行化），关闭 harness 时复制成 evidence 中的 `trace-a.jsonl`/`trace-b.jsonl`。操作者将原始模型答案和模型自带 usage 另存为 a/b 答案及会话元数据，不能让其他消费者读取。
 - 独立评分逐题给出事实正确、实际引用可追溯、关系/冲突/未知处理、拒绝越权结果、调用失败、返回体总字节、耗时和可用 token。引用依据必须出现在该消费者成功调用结果里；不能只用 rubric 文本匹配判对。
 - q3 需要实际 graph 中的关系证据；q6 需要证据中的标记、位置与来源版本；q8 未授权 sentinel 绝不可进入答复或工具结果。q8 不要求猜测另一个 Space ID。
-- corpusHash/questionsHash 必须前后一致，产品/技能哈希单独记录。a/b 不能合并成一份最佳答案，错误/越权不能被平均数掩盖。基线已满分时只报告参数可发现性/成本变化；不宣称正确率提高。回归必须修复或明确判未通过。
+- corpusHash/questionsHash 必须前后一致，产品/技能哈希单独记录。前后还必须使用相同 harnessIdentity 和 connectionMode；旧版每次启动 gateway 会重复 discover 并触发凭据限流，旧实验不与新版结果混合，必须用同一新版 harness 重跑 baseline a/b 与 candidate a/b。可在独立旧产品 worktree 中复制同一已审 harness 运行文件用于验收，明确记录其未提交测试文件状态，同时保留旧产品源码/构建/技能身份。a/b 不能合并成一份最佳答案，错误/越权不能被平均数掩盖。基线已满分时只报告参数可发现性/成本变化；不宣称正确率提高。回归必须修复或明确判未通过。
 
 ## 退出与边界
 
-先等待消费者命令完成，再向本次 harness PID 发送 SIGTERM/SIGINT。Facade 在状态文件移除时关闭自己的 gateway；每条命令结束也关闭 transport。Harness 先移除自己写入的 state，停止自己持有的 API/Redis 句柄，保留脱敏 trace，最后由既有 helper 删除随机 schema 并检查受保护库存，删除临时 home/上传根。
+先等待消费者命令完成，再向本次 harness PID 发送 SIGTERM/SIGINT。每条 facade 命令结束只关闭自身 IPC 客户端，不关闭 gateway。Harness 先移除自己写入的 state，再停止两条 session 接收新 RPC、关闭 SDK/stdio 和活跃 IPC、等待在途调用与 trace 结束，核对自己持有的 gateway PID 已退出并删除各自 socket 目录，然后停止 API、保留脱敏 trace；既有 helper 删除随机 schema 并检查受保护库存，随后停止 Redis、删除临时 home/上传根。Unix socket 位于独立随机短 `/tmp/aw-kr-*` 0700 目录，socket 权限 0600，避免 macOS 路径长度限制。Facade 校验状态所有者/权限、harness 存活、home 归属和 socket 类型/路径/权限，IPC 服务端独立校验 session 与六工具白名单；参数不改写。
 
-只有 `CLEANED` 且 `cleanup.json` 中 databaseCleaned/protectedInventoryVerified/resourcesRemoved 为 true 才能声明清理通过；`STOPPED_WITH_UNVERIFIED_CLEANUP` 不能解释成无残留。Evidence 目录刻意保留用于审查，其中没有 Agent API key，但 rubric/其他消费者答案仍属操作者材料。若进程被 SIGKILL/主机崩溃，正常退出清理不保证执行，操作者按记录逐项核对自身资源，禁止全局清理。
+只有 `CLEANED` 且 `cleanup.json` 中 databaseCleaned/protectedInventoryVerified/resourcesRemoved 为 true 且 sessions.a/b 的 gatewayExited/ipcRemoved 为 true 才能声明清理通过；`STOPPED_WITH_UNVERIFIED_CLEANUP` 不能解释成无残留。Evidence 目录刻意保留用于审查，其中没有 Agent API key，但 rubric/其他消费者答案仍属操作者材料。若进程被 SIGKILL/主机崩溃，正常退出清理不保证执行，操作者按记录逐项核对自身资源，禁止全局清理。
 
 当前任务只交付结构测试与构建。真正生产 HTTP MCP 往返、真实模型前后比较、DB inventory/端口清理的运行证据由后续隔离验收填写，不能拿脚本存在、SDK fixture 或历史验收替代。

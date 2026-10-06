@@ -8,6 +8,7 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { validateCollaborationTestDatabaseUrl, withCollaborationTestDatabase } from './collaboration-test-database.mjs';
 import { resolveTestRedisTarget, assertTestRedisAvailable } from './e2e-safety.mjs';
+import { startPersistentReadSession } from './knowledge-retrieval-agent-client.mjs';
 import { corpus, publicQuestions, operatorRubric, hashCorpus } from './knowledge-retrieval-corpus.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -178,6 +179,7 @@ export async function serve({ databaseUrl, statePath }) {
   await access(dirname(statePath));
   try { await lstat(statePath); throw new Error('State path already exists'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
   const product = await productIdentity();
+  const harnessIdentity = await digestTrees(['scripts/knowledge-retrieval-harness.mjs', 'scripts/knowledge-retrieval-agent-client.mjs', 'scripts/knowledge-retrieval-corpus.mjs', 'scripts/collaboration-test-database.mjs', 'scripts/folder-test-database.mjs', 'scripts/e2e-safety.mjs', 'scripts/package-manager-process.mjs', 'scripts/test-database-url-safety.mjs', 'scripts/test-database-lifecycle.mjs']);
   const packageVersion = JSON.parse(await readFile(join(root, 'packages/local-sync/package.json'), 'utf8')).version;
   const controller = new AbortController();
   let resolveShutdown;
@@ -196,6 +198,12 @@ export async function serve({ databaseUrl, statePath }) {
     process.removeListener('SIGTERM', onSignal);
     throw error;
   }
+  const sessions = new Map();
+  const sessionCleanup = {};
+  const closeSessions = async () => {
+    const results = await Promise.allSettled([...sessions].map(async ([label, session]) => { sessionCleanup[label] = await session.close(); }));
+    if (results.some(result => result.status === 'rejected')) throw new Error('Persistent consumer cleanup failed');
+  };
   let redis;
   let api;
   let cleanupState = async () => {};
@@ -235,19 +243,29 @@ export async function serve({ databaseUrl, statePath }) {
         const agents = {};
         for (const label of ['a', 'b']) agents[label] = await prepareAgent({ apiUrl, token, spaceId: space.id, workspace: workspace.path, label, packageVersion });
         api.secretValues.push(...Object.values(agents).map(agent => agent.apiKey));
-        const common = { corpusHash: hashCorpus(corpus), questionsHash: hashCorpus(publicQuestions), product, ...scopeReceipt, embeddingMode: 'lexical-only; no provider credentials', fixtureSeeding: 'direct isolated Prisma fixtures; production HTTP MCP reads', packageVersion };
+        phase = 'persistent-gateway-startup';
+        for (const label of ['a', 'b']) {
+          controller.signal.throwIfAborted();
+          const session = await startPersistentReadSession({ agent: label, ...agents[label], secrets: Object.values(agents).map(agent => agent.apiKey) });
+          sessions.set(label, session);
+          const { close, ...metadata } = session;
+          Object.assign(agents[label], metadata);
+        }
+        const common = { harnessIdentity, connectionMode: 'persistent stdio per consumer', corpusHash: hashCorpus(corpus), questionsHash: hashCorpus(publicQuestions), product, ...scopeReceipt, embeddingMode: 'lexical-only; no provider credentials', fixtureSeeding: 'direct isolated Prisma fixtures; production HTTP MCP reads', packageVersion };
         await privateJson(join(artifacts, 'operator-rubric.json'), { ...common, rubric: operatorRubric, pageIds, privateSpaceId: privateSpace.id });
         await privateJson(join(artifacts, 'questions.json'), publicQuestions);
         const consumerPath = join(root, 'scripts/knowledge-retrieval-agent-client.mjs');
-        await privateJson(join(artifacts, 'run.json'), { ...common, spaceId: space.id, agents: Object.fromEntries(Object.entries(agents).map(([key, agent]) => [key, { id: agent.id, skillPath: agent.skillPath }])), consumerPath, model: 'operator must freeze executor-selected model and effort before comparison', callBudget: 20 });
+        await privateJson(join(artifacts, 'run.json'), { ...common, spaceId: space.id, agents: Object.fromEntries(Object.entries(agents).map(([key, agent]) => [key, { id: agent.id, skillPath: agent.skillPath, sessionId: agent.sessionId, gatewayPid: agent.gatewayPid, ipcRoot: agent.ipcRoot, socketPath: agent.socketPath, sessionStartupMs: agent.sessionStartupMs }])), consumerPath, model: 'operator must freeze executor-selected model and effort before comparison', callBudget: 20 });
         controller.signal.throwIfAborted();
-        cleanupState = await writeOwnedState(statePath, { version: 1, harnessPid: process.pid, resourceRoot: workspace.path, artifacts, apiUrl, spaceId: space.id, agents, consumerPath, ...common });
+        cleanupState = await writeOwnedState(statePath, { version: 2, harnessPid: process.pid, resourceRoot: workspace.path, artifacts, apiUrl, spaceId: space.id, agents, consumerPath, ...common });
         ready = true;
         phase = 'consumer-ready';
         process.stdout.write(`${JSON.stringify({ status: 'READY', statePath, artifacts, corpusHash: common.corpusHash, apiUrl, spaceId: space.id, consumerPath })}\n`);
         await shutdown;
       } finally {
-        const stops = await Promise.allSettled([cleanupState(), stopOwnedProcess(api)]);
+        await cleanupState();
+        await closeSessions();
+        const stops = await Promise.allSettled([stopOwnedProcess(api)]);
         // Preserve only sanitized facade receipts; operator stores model answers beside these.
         for (const label of ['a', 'b']) {
           const source = join(workspace.path, `consumer-${label}/trace.jsonl`);
@@ -262,12 +280,15 @@ export async function serve({ databaseUrl, statePath }) {
     await privateJson(join(artifacts, 'failure-diagnostic.json'), { phase, error: redactDiagnosticText(error.message, secrets), processes: [ownedProcessDiagnostic(api, 'api'), ownedProcessDiagnostic(redis, 'redis')] });
     throw error;
   } finally {
-    const stops = await Promise.allSettled([cleanupState(), stopOwnedProcess(api), stopOwnedProcess(redis)]);
-    const removal = await Promise.allSettled([workspace.cleanup()]);
+    const stateStops = await Promise.allSettled([cleanupState()]);
+    const sessionStops = await Promise.allSettled([closeSessions()]);
+    const stops = [...stateStops, ...sessionStops, ...await Promise.allSettled([stopOwnedProcess(api), stopOwnedProcess(redis)])];
+    // Never delete credentials/home underneath an unverified live gateway.
+    const removal = stops.every(result => result.status === 'fulfilled') ? await Promise.allSettled([workspace.cleanup()]) : [{ status: 'rejected' }];
     const resourcesRemoved = [...stops, ...removal].every(result => result.status === 'fulfilled');
     process.removeListener('SIGINT', onSignal);
     process.removeListener('SIGTERM', onSignal);
-    const receipt = { status: databaseCleaned && resourcesRemoved ? 'CLEANED' : 'STOPPED_WITH_UNVERIFIED_CLEANUP', ready, databaseCleaned, resourcesRemoved, protectedInventoryVerified: databaseCleaned, ...(scopeReceipt ?? {}), artifacts };
+    const receipt = { status: databaseCleaned && resourcesRemoved ? 'CLEANED' : 'STOPPED_WITH_UNVERIFIED_CLEANUP', ready, databaseCleaned, resourcesRemoved, sessions: sessionCleanup, protectedInventoryVerified: databaseCleaned, ...(scopeReceipt ?? {}), artifacts };
     await privateJson(join(artifacts, 'cleanup.json'), receipt);
     process.stdout.write(`${JSON.stringify(receipt)}\n`);
   }
