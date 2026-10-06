@@ -9,7 +9,7 @@
 
 # 当前状态
 
-- 第二轮从28e07dbd继续，状态为实施中；活跃任务document-workspace-polish-20261006。下面为第一轮已验证基线。
+- 第二轮从28e07dbd继续，当前停在用户要求的账号通道切换边界；Task1已审查验收，Task2已保存待集成测试更新/审查；活跃任务document-workspace-polish-20261006。下面为第一轮已验证基线。
 
 - 工作树 /Users/neomei/.codex/worktrees/document-workspace/AgentWiki （尾空格），分支codex/document-workspace，产品候选897aa3f8，基线c7b89567。后续提交仅验收与项目交接文档。
 - 六项计划、逐项独立复审、整分支审查均完成，最终Ready to merge Yes/0finding。6243通过/6skip，全仓typecheck/lint0errors/build通过。实际本地及生产构建浏览器关键流程通过。
@@ -23,6 +23,7 @@
 
 # 关键索引
 
+- .codex-memory/tasks/active/document-workspace-polish-20261006/checkpoint.md
 - .codex-memory/tasks/active/document-workspace-polish-20261006/brief.md
 
 - .codex-memory/tasks/archive/document-workspace-20261006/brief.md
@@ -31,6 +32,8 @@
 - agentwiki/docs/superpowers/plans/2026-10-06-document-workspace.md
 
 # 风险 / 下一步
+
+- 从checkpoint.md继续；按用户控制消息，新回合须p5c07ff通道，旧回合前缀spawn工具拒绝，禁止回退裸模型。隔离runtime保留给马上续接，后续须精确清理。
 
 - 分支尚未集成或发布；后续按用户明确意图处理。
 - 原生IME、Windows、外部provider和真实多人压力未验；本机笔记不跨设备。首屏JS547266/550000，保留预算门槛。
