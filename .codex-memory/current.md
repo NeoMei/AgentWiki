@@ -11,7 +11,7 @@
 
 - 自有工作树 `/Users/neomei/.codex/worktrees/knowledge-capabilities/AgentWiki `，分支codex/knowledge-capabilities，基线165c207bf4b644efa810ea6c9a3da11d28c4f96e。
 - 旧文档会话在f4325942已独立验收，边界与记录保留；本期为新任务。
-- 依赖与定向基线完成；检索harness候选b42ce1ef已构建，独立审查中，真实Agent基线待运行。来源复核spec/plan已完成并修正独立设计审查发现。
+- 检索harness659a6ee2经独立审查及实际runtime通过。两场真实gpt-6-astra/high基线均事实8/8，一场发生命名参数失败后重试成功；baseline已清理，证据在/tmp/agentwiki-knowledge-20261007。Task2参数/技能改进已提交60de6602，构建成功、独立审查中；生命周期尚未改产品。
 
 # 稳定约束
 
@@ -32,5 +32,5 @@
 
 # 风险 / 下一步
 
-- 固定可复现的知识语料与真实Agent基线；据证据选择最小检索改进。
+- Task2完成后独立review与同语料两场新消费者对照；不把基线满分宣传成正确率提升。
 - 来源有效性先覆盖一种可证明关联的场景；不承诺任意代码变化的精确影响分析。
