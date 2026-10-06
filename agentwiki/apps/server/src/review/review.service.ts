@@ -1,3 +1,4 @@
+import { validateSourcePublication } from '../knowledge-pipeline/source-head';
 import { assertPageTitle } from '../core/page/page-title';
 import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { BusinessException } from '../core/filters/business-error';
@@ -435,7 +436,11 @@ export class ReviewService {
     let publication: { pageIds: string[]; authorizationLost: boolean };
     try {
       publication = await this.prisma.$transaction(async (tx) => {
-      if (principal) await new AuthorizationService(this.prisma).lockLiveHumanPrincipal(tx, principal);
+      if (principal) {
+        const authorization = new AuthorizationService(this.prisma);
+        await authorization.lockLiveHumanPrincipal(tx, principal);
+        await authorization.lockLiveHumanPersonalCredential(tx, principal);
+      }
       const acquireSpaceMutationLock = () => folderItems.length > 0
         ? this.requireContentTree().lockFolderMutationSpace(
           tx,
@@ -485,8 +490,14 @@ export class ReviewService {
       } else {
         lockedTx = await acquireSpaceMutationLock();
       }
+      // Structural helpers acquire the advisory/tree lock; also lock the real Space row before Sources.
+      if (changeSet.runId || acceptedItems.some(item => (item.payload as any)?.sourceId)) {
+        const sourceLockedTx = await this.revisionWriter.lockSyncSpace(lockedTx, changeSet.spaceId);
+        if (!sourceLockedTx) throw new BusinessException('SPACE_ACCESS_DENIED');
+      }
       await this.assertHumanMutation(lockedTx, id, principal);
       await this.assertOrdinaryReviewEntry(tx, id);
+      const validatedSourceHeads = await validateSourcePublication(tx, changeSet, acceptedItems, !!autoPublishContext);
       const claimed = await tx.changeSet.updateMany({
         where: { id, status: review ? 'pending_review' : 'approved' },
         data: { status: 'publishing', ...(review ? { reviewedAt: new Date() } : {}) },
@@ -648,6 +659,7 @@ export class ReviewService {
                     lastModifiedAt: existingSourcePage.lastModifiedAt.toISOString(),
                     sourceId: existingSourcePage.sourceId,
                     sourceVersionId: existingSourcePage.sourceVersionId,
+                    sourceGeneration: existingSourcePage.sourceGeneration ?? null,
                     sourcePath: existingSourcePage.sourcePath,
                     syncPath: existingSourcePage.syncPath,
                     syncPathKey: existingSourcePage.syncPathKey,
@@ -678,6 +690,7 @@ export class ReviewService {
                 lastModifiedAt: new Date(),
                 sourceId: payload.sourceId,
                 sourceVersionId: payload.sourceVersionId,
+                sourceGeneration: validatedSourceHeads.get(item.id)?.generation ?? null,
                 sourcePath: payload.sourcePath,
                 syncPath: placement.syncPath,
                 syncPathKey: placement.syncPathKey,
@@ -717,6 +730,7 @@ export class ReviewService {
                 lastModifiedAt: new Date(),
                 sourceId: payload.sourceId,
                 sourceVersionId: payload.sourceVersionId,
+                sourceGeneration: validatedSourceHeads.get(item.id)?.generation ?? null,
                 sourcePath: payload.sourcePath,
                 syncPath: placement.syncPath,
                 syncPathKey: placement.syncPathKey,
@@ -744,6 +758,7 @@ export class ReviewService {
             item,
             authorId,
             contentTree: this.requireContentTree(),
+            validatedSourceHead: validatedSourceHeads.get(item.id),
           });
           resourceId = page.pageId;
           pageIds.push(page.pageId);
@@ -779,6 +794,7 @@ export class ReviewService {
             lastModifiedAt: page.lastModifiedAt.toISOString(),
             sourceId: page.sourceId ?? null,
             sourceVersionId: page.sourceVersionId ?? null,
+            sourceGeneration: page.sourceGeneration ?? null,
             sourcePath: page.sourcePath ?? null,
             deletedAt: null,
             deletionBatchId: page.deletionBatchId ?? null,
@@ -1765,6 +1781,7 @@ export class ReviewService {
             lastModifiedAt,
             sourceId: before.sourceId,
             sourceVersionId: before.sourceVersionId,
+            sourceGeneration: before.sourceGeneration ?? null,
             sourcePath: before.sourcePath,
           };
           restoredPageRestores.set(item.id, restoredState);
@@ -1782,7 +1799,7 @@ export class ReviewService {
       ) {
         throw new BusinessException('CHANGESET_INVALID_STATE', 'Archived page prior state is invalid');
       }
-      const restoredState: Record<string, unknown> = { deletedAt: null };
+      const restoredState: Record<string, unknown> = { deletedAt: null, sourceGeneration: before.sourceGeneration ?? null };
       const hasValue = (key: string) => Object.prototype.hasOwnProperty.call(before, key)
         && before[key] !== undefined;
       const structuralSnapshotKeys = [
@@ -1920,6 +1937,7 @@ export class ReviewService {
           );
         }
         const restored: Record<string, unknown> = {
+          sourceGeneration: before.sourceGeneration ?? null,
           title: before.title,
           slug: before.slug,
           content: before.content,

@@ -697,6 +697,7 @@ describe('PageService', () => {
         content: 'after', expectedUpdatedAt: current.updatedAt.toISOString(),
       }, humanPrincipal);
 
+      expect(mockPrisma.page.updateMany.mock.calls[0][0].data.sourceGeneration).toBeNull();
       expect(mockContentTree.preparePageMutation).not.toHaveBeenCalled();
       expect(mockContentTree.advancePageMutation).toHaveBeenCalledWith(mockPrisma, expect.objectContaining({
         structural: false, expectedTreeRevision: 0n,
@@ -746,6 +747,7 @@ describe('PageService', () => {
       expect(mockGraphMaintenance.enqueue).toHaveBeenCalledWith('space-1');
       expect(mockSearch.indexPage.mock.invocationCallOrder[0])
         .toBeLessThan(mockGraphMaintenance.enqueue.mock.invocationCallOrder[0]);
+      expect(mockPrisma.page.updateMany.mock.calls[0][0].data).not.toHaveProperty('sourceGeneration');
     });
 
     it('still enqueues the committed page change when indexing fails', async () => {

@@ -7,6 +7,12 @@ import {
 } from '../core/sync/readable-sync-path.service';
 
 function makeReviewContentTree(revisionWriter: any, syncPaths: any) {
+  revisionWriter.lockSyncSpace = jest.fn(async (tx: any, spaceId: string) => {
+    tx.$queryRaw ??= jest.fn().mockResolvedValue([{ id: 'source-1' }]);
+    tx.source ??= { findUnique: jest.fn(async ({ where }: any) => ({ id: where.id, spaceId, status: 'active', currentSourceVersionId: null, currentSourceGeneration: 0 })) };
+    tx.sourceVersion ??= { findFirst: jest.fn(async ({ where }: any) => ({ id: where.id })) };
+    return tx;
+  });
   return {
     lockPageMutationSpace: jest.fn(async (tx: any, spaceId: string) => Object.assign(
       await revisionWriter.lockSpace?.(tx, spaceId) ?? tx,
@@ -148,6 +154,12 @@ describe('ReviewService approval boundaries', () => {
       pathKey: pathKey('pages/Generated.md'),
     });
     revisionWriter.lockSpace.mockImplementation(async (tx: unknown) => tx);
+    revisionWriter.lockSyncSpace = jest.fn(async (tx: any, spaceId: string) => {
+      tx.$queryRaw ??= jest.fn().mockResolvedValue([{ id: 'source-1' }]);
+      tx.source ??= { findUnique: jest.fn(async ({ where }: any) => ({ id: where.id, spaceId, status: 'active', currentSourceVersionId: null, currentSourceGeneration: 0 })) };
+      tx.sourceVersion ??= { findFirst: jest.fn(async ({ where }: any) => ({ id: where.id })) };
+      return tx;
+    });
     contentTree.lockPageMutationSpace.mockImplementation(async (tx: any, spaceId: string) =>
       Object.assign(await revisionWriter.lockSpace(tx, spaceId), { contentTreeRevision: 0n }));
     contentTree.placePage.mockImplementation(async (tx: any, input: any) => {
@@ -2943,6 +2955,7 @@ describe('ReviewService archive audit and provenance', () => {
           lastModifiedAt: originalModifiedAt.toISOString(),
           sourceId: originalPage.sourceId,
           sourceVersionId: originalPage.sourceVersionId,
+          sourceGeneration: null,
           sourcePath: originalPage.sourcePath,
           deletedAt: null,
           deletionBatchId: null,

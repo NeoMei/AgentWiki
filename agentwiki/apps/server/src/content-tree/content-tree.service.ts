@@ -1,3 +1,4 @@
+import { sourceGenerationInvalidation } from '../core/page/source-generation';
 import { Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
@@ -1342,6 +1343,7 @@ export class ContentTreeService {
         } });
         await lockedTx.page.update({ where: { id: current.id }, data: {
           title: change.page.title, content: body, format: 'markdown', parentId: null,
+          ...sourceGenerationInvalidation(current, { content: body, format: 'markdown' }),
           folderId: change.page.folderId, syncPath: change.page.path, syncPathKey: pathKey(change.page.path),
           deletedAt: null, deletionBatchId: null, lastChangeSetId: changeSet.id,
           lastModifiedByUserId: input.actor.userId ?? null, lastModifiedByAgentId: input.actor.agentId ?? null,

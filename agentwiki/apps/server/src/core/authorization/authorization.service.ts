@@ -68,6 +68,28 @@ export class AuthorizationService {
     return user;
   }
 
+  /** Personal API key boundary only. Device principals use their own credential locks. */
+  async lockLiveHumanPersonalCredential(db: Prisma.TransactionClient, principal: Principal): Promise<void> {
+    if (principal.agentId) throw new BusinessException('SPACE_ACCESS_DENIED');
+    if (principal.credentialId) {
+      const credentials = await db.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT "id" FROM "ApiKeyCredential" WHERE "id" = ${principal.credentialId} AND "userId" = ${principal.userId} FOR NO KEY UPDATE
+      `);
+      if (credentials.length !== 1) throw new BusinessException('SPACE_ACCESS_DENIED');
+      await this.assertLiveHumanCredential(db, principal);
+    }
+  }
+
+  async assertLiveHumanCredential(db: Prisma.TransactionClient, principal: Principal, requiredScopes: string[] = []): Promise<void> {
+    if (!principal.credentialId) return;
+    const credential = await db.apiKeyCredential.findFirst({ where: {
+      id: principal.credentialId, userId: principal.userId, revokedAt: null,
+      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+    }, select: { scopes: true } });
+    if (!credential) throw new BusinessException('SPACE_ACCESS_DENIED');
+    if (!credential.scopes.includes('*') && requiredScopes.some(scope => !credential.scopes.includes(scope))) throw new BusinessException('AUTH_SCOPE_REQUIRED');
+  }
+
   async assertLiveHumanSpaceAccess(
     db: Prisma.TransactionClient,
     principal: Principal,

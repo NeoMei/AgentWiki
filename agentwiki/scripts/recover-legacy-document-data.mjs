@@ -688,6 +688,7 @@ async function writeJobRecoveryPlan(transaction, plan) {
           sourcePath: update.before.sourcePath ?? null,
         },
         data: {
+          ...(['sourceId', 'sourceVersionId', 'sourcePath'].some(key => (update.before[key] ?? null) !== (update[key] ?? null)) ? { sourceGeneration: null } : {}),
           sourceId: update.sourceId,
           sourceVersionId: update.sourceVersionId,
           sourcePath: update.sourcePath,

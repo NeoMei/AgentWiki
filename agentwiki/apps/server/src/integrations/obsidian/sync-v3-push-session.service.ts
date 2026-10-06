@@ -1,3 +1,4 @@
+import { sourceGenerationInvalidation } from '../../core/page/source-generation';
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -644,6 +645,7 @@ export class SyncV3PushSessionService {
           } });
           await tx.page.update({ where: { id: current.id }, data: {
             title: change.page.title, content: change.page.body, format: 'markdown',
+            ...sourceGenerationInvalidation(current, { content: change.page.body, format: 'markdown' }),
             folderId: change.page.folderId, parentId: null,
             syncPath: change.page.path, syncPathKey: pagePathKey,
             deletedAt: null, deletionBatchId: null, lastChangeSetId: changeSetId,

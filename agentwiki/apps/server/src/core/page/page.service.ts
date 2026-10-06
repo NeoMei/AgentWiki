@@ -1,3 +1,4 @@
+import { sourceGenerationInvalidation } from './source-generation';
 import { assertPageTitle } from './page-title';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
@@ -456,6 +457,7 @@ export class PageService {
         where: { id, deletedAt: null, updatedAt: expectedVersion },
         data: {
           ...changes,
+          ...sourceGenerationInvalidation(page, changes),
           ...(structural
             ? {
               parentId: null,
@@ -609,6 +611,7 @@ export class PageService {
         data: {
           title: version.title,
           content: version.content,
+          sourceGeneration: null,
           slug: version.slug ?? page.slug,
           format: version.format ?? page.format,
           parentId: null,

@@ -162,7 +162,7 @@ describe('PushSessionService graph lifecycle', () => {
   it('captures a reversible update snapshot including slug without replacing the original source', async () => {
     const current = {
       id: 'page-1', knowledgeKey: 'knowledge-1', spaceId: 'space-1',
-      title: 'Before', slug: 'before-slug', content: '# Before', format: 'markdown',
+      sourceGeneration: 7, title: 'Before', slug: 'before-slug', content: '# Before', format: 'markdown',
       authorId: 'author-1', parentId: null, folderId: 'folder-old',
       syncPath: 'pages/Old/Before.md', syncPathKey: 'pages/old/before.md',
       sourceChangeSetId: 'original-change-set', lastChangeSetId: 'previous-change-set',
@@ -194,11 +194,11 @@ describe('PushSessionService graph lifecycle', () => {
     }], 'change-set-1');
 
     expect(tx.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ lastChangeSetId: 'change-set-1' }),
+      data: expect.objectContaining({ lastChangeSetId: 'change-set-1', sourceGeneration: null }),
     }));
     expect(tx.page.updateMany.mock.calls[0][0].data).not.toHaveProperty('sourceChangeSetId');
     expect(result.applied[0].payload.before).toEqual(expect.objectContaining({
-      slug: 'before-slug',
+      slug: 'before-slug', sourceGeneration: 7,
       folderId: 'folder-old',
       syncPath: 'pages/Old/Before.md',
       deletedAt: null,

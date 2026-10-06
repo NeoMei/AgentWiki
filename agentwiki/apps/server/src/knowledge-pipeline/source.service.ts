@@ -1,3 +1,4 @@
+import { assertSourceHeadMatches, lockSourceHead, lockSourceMutationSpace, sourceVersionConflict } from './source-head';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { BusinessException } from '../core/filters/business-error';
 import { ConfigService } from '@nestjs/config';
@@ -215,9 +216,7 @@ export class SourceService {
     return this.prisma.$transaction(async (tx) => {
       const source = await tx.source.findUnique({ where: { id }, select: { spaceId: true } });
       if (!source) throw new NotFoundException('Source not found');
-      await this.authorization.assertLiveAgentWriteAccess(
-        tx, principal, source.spaceId, ['sources:write'],
-      );
+      await lockSourceMutationSpace(tx, principal, source.spaceId, ['sources:write'], this.authorization, this.revisionWriter);
       return tx.source.update({
         where: { id },
         data: {
@@ -237,9 +236,9 @@ export class SourceService {
       return await this.prisma.$transaction(async (tx) => {
         const source = await tx.source.findUnique({ where: { id: sourceId } });
         if (!source || source.status !== 'active') throw new BadRequestException('Source is not active');
-        await this.authorization.assertLiveAgentWriteAccess(
-          tx, principal, source.spaceId, ['runs:write'],
-        );
+        await lockSourceMutationSpace(tx, principal, source.spaceId, ['runs:write'], this.authorization, this.revisionWriter);
+        const head = await lockSourceHead(tx, sourceId, source.spaceId);
+        if (source.type === 'okf' && !head) sourceVersionConflict();
         if (idempotencyKey) {
           const existing = await tx.ingestRun.findUnique({
             where: { sourceId_idempotencyKey: { sourceId, idempotencyKey } },
@@ -249,6 +248,7 @@ export class SourceService {
         return tx.ingestRun.create({
           data: {
             sourceId,
+            ...(source.type === 'okf' ? { inputSourceVersionId: head?.sourceVersionId ?? null, inputSourceGeneration: head?.generation ?? null } : {}),
             idempotencyKey,
             spaceId: source.spaceId,
             requestedByUserId: principal.agentId ? undefined : principal.userId,
@@ -264,9 +264,8 @@ export class SourceService {
         const concurrent = await this.prisma.$transaction(async (tx) => {
           const source = await tx.source.findUnique({ where: { id: sourceId } });
           if (!source || source.status !== 'active') throw new BadRequestException('Source is not active');
-          await this.authorization.assertLiveAgentWriteAccess(
-            tx, principal, source.spaceId, ['runs:write'],
-          );
+          await lockSourceMutationSpace(tx, principal, source.spaceId, ['runs:write'], this.authorization, this.revisionWriter);
+          await lockSourceHead(tx, sourceId, source.spaceId);
           return tx.ingestRun.findUnique({
             where: { sourceId_idempotencyKey: { sourceId, idempotencyKey } },
           });
@@ -303,9 +302,9 @@ export class SourceService {
       if (!run || !['failed', 'partial', 'cancelled'].includes(run.status)) {
         throw new BusinessException('RUN_NOT_RETRYABLE', 'Run is not retryable');
       }
-      await this.authorization.assertLiveAgentWriteAccess(
-        tx, principal, run.spaceId, ['runs:write'],
-      );
+      await lockSourceMutationSpace(tx, principal, run.spaceId, ['runs:write'], this.authorization, this.revisionWriter);
+      const head = await lockSourceHead(tx, run.sourceId, run.spaceId);
+      assertSourceHeadMatches(head, { sourceId: run.sourceId, sourceVersionId: run.inputSourceVersionId, generation: run.inputSourceGeneration });
       const requester = {
         requestedByUserId: principal.agentId ? null : principal.userId,
         requestedByAgentId: principal.agentId ?? null,
@@ -314,14 +313,7 @@ export class SourceService {
         requestedCredentialType: principal.agentId ? 'agent' : principal.credentialId ? 'personal' : 'jwt',
       };
       if (run.changeSet?.status === 'published' || run.changeSet?.status === 'reverted') {
-        return tx.ingestRun.create({
-          data: {
-            sourceId: run.sourceId,
-            spaceId: run.spaceId,
-            ...requester,
-            nextAttemptAt: new Date(),
-          },
-        });
+        throw new BusinessException('RUN_NOT_RETRYABLE', 'Published history cannot be retried; create a new Run for the current source');
       }
       await tx.changeSet.deleteMany({ where: { runId: id, status: { in: ['pending_review', 'approved', 'rejected'] } } });
       await tx.artifact.deleteMany({ where: { runId: id } });
@@ -494,10 +486,12 @@ export class SourceService {
         const requesterLock = await this.lockRequesterContentTreeSpace(run, tx);
         currentScopes = requesterLock.currentScopes;
         const { lockedTx, liveAuthorization } = requesterLock;
+        const sourceHead = await lockSourceHead(lockedTx, run.sourceId, run.spaceId);
+        assertSourceHeadMatches(sourceHead, { sourceId: run.sourceId, sourceVersionId: run.inputSourceVersionId, generation: run.inputSourceGeneration });
 
         const existingPages = await lockedTx.page.findMany({
           where: { spaceId: run.spaceId, sourceId: run.sourceId, deletedAt: null },
-          select: { id: true, sourcePath: true, title: true, content: true, format: true, sourceVersionId: true, updatedAt: true },
+          select: { id: true, sourcePath: true, title: true, content: true, format: true, sourceVersionId: true, sourceGeneration: true, updatedAt: true },
         });
         const existingByPath = new Map(existingPages.map((page) => [page.sourcePath || '__root__', page]));
         const compiledPaths = new Set(compiledPages.map((page) => page.sourcePath));
@@ -508,11 +502,11 @@ export class SourceService {
           if (!existing) {
             changeItems.push({
               type: 'create_page', status: itemStatus,
-              payload: { ...page, sourceId: run.sourceId, sourceVersionId: version.id },
+              payload: { ...page, sourceId: run.sourceId, sourceVersionId: version.id, sourceGeneration: run.inputSourceGeneration },
             });
           } else if (
             existing.title !== page.title || existing.content !== page.content ||
-            existing.format !== page.format || existing.sourceVersionId !== version.id
+            existing.format !== page.format || existing.sourceVersionId !== version.id || existing.sourceGeneration !== run.inputSourceGeneration
           ) {
             changeItems.push({
               type: 'update_page', status: itemStatus,
@@ -521,6 +515,7 @@ export class SourceService {
                 sourcePath: page.sourcePath,
                 sourceId: run.sourceId,
                 sourceVersionId: version.id,
+                sourceGeneration: run.inputSourceGeneration,
                 expectedUpdatedAt: existing.updatedAt.toISOString(),
                 changes: { title: page.title, content: page.content, format: page.format },
               },
@@ -532,7 +527,7 @@ export class SourceService {
           if (!compiledPaths.has(sourcePath)) {
             changeItems.push({
               type: 'archive_page', status: itemStatus,
-              payload: { pageId: existing.id, sourcePath, expectedUpdatedAt: existing.updatedAt.toISOString() },
+              payload: { pageId: existing.id, sourcePath, sourceId: run.sourceId, sourceVersionId: version.id, sourceGeneration: run.inputSourceGeneration, expectedUpdatedAt: existing.updatedAt.toISOString() },
             });
           }
         }
@@ -581,7 +576,7 @@ export class SourceService {
             ]);
         if (!spacePolicy) throw new Error('Space no longer exists');
         const expectedTreeRevision = lockedTx.contentTreeRevision.toString();
-        const autoPublish = changeItems.length > 0
+        const autoPublish = !(run.source.type === 'okf' && sourceHead) && changeItems.length > 0
           && spacePolicy.approvalPolicy === 'scoped-auto-publish'
           && agentPolicy?.approvalMode === 'scoped-auto-publish'
           && currentScopes.includes('review:auto-publish');
@@ -1135,8 +1130,11 @@ export class SourceService {
     liveAuthorization: LockedAgentAuthorization | null;
   }> {
     if (!run.requestedByAgentId) {
+      this.assertHumanRunCredentialKind(run);
+      if (!run.requestedByUserId || (run.requestedCredentialType === 'personal' && !run.requestedCredentialId)) throw new Error('Run requester is no longer authorized');
+      const principal = { userId: run.requestedByUserId, ...(run.requestedCredentialType === 'personal' ? { credentialId: run.requestedCredentialId } : {}) };
+      const lockedTx = await lockSourceMutationSpace(tx, principal, run.spaceId, ['runs:write'], this.authorization, this.revisionWriter);
       const currentScopes = await this.assertRequesterStillAuthorized(run, tx);
-      const lockedTx = await this.revisionWriter.lockContentTreeSpace(tx, run.spaceId);
       if (!lockedTx) throw new Error('Space no longer exists');
       return { lockedTx, currentScopes, liveAuthorization: null };
     }
@@ -1158,7 +1156,7 @@ export class SourceService {
       },
       run.spaceId,
       (state) => this.isRunRequesterAuthorized(state),
-      () => this.revisionWriter.lockContentTreeSpace(tx, run.spaceId),
+      () => this.revisionWriter.lockSyncSpace(tx, run.spaceId),
     );
     if (!locked || !locked.spaceLock) {
       throw new Error('Run requester is no longer authorized');
@@ -1202,6 +1200,7 @@ export class SourceService {
       }
       return scopesForAgentAccessRole(grant.role);
     }
+    this.assertHumanRunCredentialKind(run);
     const requester = run.requestedByUserId ? await db.user.findUnique({
       where: { id: run.requestedByUserId },
       select: { deletedAt: true, lockedAt: true, type: true, platformRole: true },
@@ -1234,6 +1233,14 @@ export class SourceService {
       return credential.scopes;
     }
     return [];
+  }
+
+  private assertHumanRunCredentialKind(run: any): void {
+    // Legacy JWT runs have no credential metadata; an unknown credential ID must not become a JWT.
+    if ((run.requestedCredentialType != null && !['jwt', 'personal'].includes(run.requestedCredentialType))
+      || (run.requestedCredentialId && run.requestedCredentialType !== 'personal')) {
+      throw new Error('Run requester is no longer authorized');
+    }
   }
 
   private isRunRequesterAuthorized(state: LockedAgentAuthorization): boolean {

@@ -439,3 +439,24 @@ describe('space discovery and self-describing errors', () => {
     expect(prisma.spaceMember.findMany).toHaveBeenCalled();
   });
 });
+
+describe('human PAT write lock boundary', () => {
+  it('locks User then the same-user credential and rejects a live-scope downgrade', async () => {
+    const events: string[] = [];
+    const tx: any = {
+      $queryRaw: jest.fn(async (query: any) => { events.push(query.strings.join('').includes('ApiKeyCredential') ? 'PAT' : 'User'); return [{ id: 'id' }]; }),
+      user: { findUnique: jest.fn().mockResolvedValue({ id: 'human', type: 'human', platformRole: 'user' }) },
+      apiKeyCredential: { findFirst: jest.fn().mockResolvedValue({ scopes: ['pages:read'] }) },
+    };
+    const auth = new AuthorizationService(tx);
+    await auth.lockLiveHumanPrincipal(tx, { userId: 'human', credentialId: 'device' });
+    expect(events).toEqual(['User']);
+    expect(tx.apiKeyCredential.findFirst).not.toHaveBeenCalled();
+    await auth.lockLiveHumanPersonalCredential(tx, { userId: 'human', credentialId: 'pat' });
+    expect(events).toEqual(['User', 'PAT']);
+    expect(tx.apiKeyCredential.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ userId: 'human', id: 'pat', revokedAt: null }) }));
+    await expect(auth.assertLiveHumanCredential(tx, { userId: 'human', credentialId: 'pat' }, ['sources:write'])).rejects.toMatchObject({ businessCode: 'AUTH_SCOPE_REQUIRED' });
+    tx.apiKeyCredential.findFirst.mockResolvedValue(null);
+    await expect(auth.lockLiveHumanPersonalCredential(tx, { userId: 'human', credentialId: 'pat' })).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+  });
+});

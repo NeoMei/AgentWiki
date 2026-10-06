@@ -1,3 +1,4 @@
+import { sourceGenerationInvalidation } from '../../core/page/source-generation';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
@@ -1365,6 +1366,7 @@ export class PushSessionService {
         ?? new Date(0).toISOString(),
       sourceId: page.sourceId ?? null,
       sourceVersionId: page.sourceVersionId ?? null,
+      sourceGeneration: page.sourceGeneration ?? null,
       sourcePath: page.sourcePath ?? null,
       syncPath: page.syncPath,
       syncPathKey: page.syncPathKey,
@@ -1462,6 +1464,7 @@ export class PushSessionService {
             title,
             content: body,
             format: 'markdown',
+            ...sourceGenerationInvalidation(existing, { content: body, format: 'markdown' }),
             parentId: null,
             folderId: placement.folderId,
             syncPath: placement.syncPath,
