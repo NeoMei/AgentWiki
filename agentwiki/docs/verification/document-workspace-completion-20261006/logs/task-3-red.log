@@ -1,0 +1,427 @@
+
+ RUN  v4.1.11 /Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/apps/client
+
+ ❯ src/features/space-workspace/workspacePreferences.spec.tsx (6 tests | 1 failed) 21ms
+     × keeps old records automatic and validates only the new UI preference fields 3ms
+ ❯ src/features/space-workspace/ArticleContentsPopover.spec.tsx (13 tests | 1 failed) 128ms
+     × keeps an explicit desktop close across page and viewport changes 11ms
+ ❯ src/features/page/PageEditor.spec.tsx (121 tests | 1 failed) 4382ms
+     × restores scoped collaboration tab and width without submitting or editing 25ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/page/PageEditor.spec.tsx > PageEditor remote update safety > restores scoped collaboration tab and width without submitting or editing
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name "Notes queue"
+
+Here are the accessible roles:
+
+  button:
+
+  Name "Report editor crumbs":
+  [36m<button[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Back to space":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex min-h-9 items-center gap-2 rounded-lg px-2 text-sm text-gray-600 hover:bg-gray-100 hover:text-blue-700"[39m
+    [33mtitle[39m=[32m"Back to space"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Return to reading":
+  [36m<button[39m
+    [33mclass[39m=[32m"inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"[39m
+    [33mtitle[39m=[32m"Return to reading"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Versions":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Versions"[39m
+    [33mclass[39m=[32m"inline-flex min-h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-gray-600 transition hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"[39m
+    [33mdata-testid[39m=[32m"history-button"[39m
+    [33mtitle[39m=[32m"Versions"[39m
+  [36m/>[39m
+
+  Name "Agent / collaboration settings":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Agent / collaboration settings"[39m
+    [33mclass[39m=[32m"inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition hover:bg-gray-100 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"[39m
+    [33mtitle[39m=[32m"Agent / collaboration settings"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Save":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Save"[39m
+    [33mclass[39m=[32m"inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-40"[39m
+    [33mdata-testid[39m=[32m"save-button"[39m
+    [33mdisabled[39m=[32m""[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Preview":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Preview"[39m
+    [33mclass[39m=[32m"inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-gray-300 px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"[39m
+    [33mdata-testid[39m=[32m"mode-toggle"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Personal notes":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Personal notes"[39m
+    [33maria-pressed[39m=[32m"false"[39m
+    [33mclass[39m=[32m"min-h-9 rounded-lg px-3 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-40"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Editing assist":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Editing assist"[39m
+    [33maria-pressed[39m=[32m"false"[39m
+    [33mclass[39m=[32m"inline-flex min-h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-600 hover:bg-gray-100 hover:text-gray-900"[39m
+    [33mdata-testid[39m=[32m"assist-toggle"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Bold":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Bold"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Italic":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Italic"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Link":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Link"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Inline code":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Inline code"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Page link":
+  [36m<button[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  textbox:
+
+  Name "Page title":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Page title"[39m
+    [33mclass[39m=[32m"document-title flex-1"[39m
+    [33mplaceholder[39m=[32m"Enter a page title"[39m
+    [33mtype[39m=[32m"text"[39m
+    [33mvalue[39m=[32m"Original title"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<div[39m
+    [33maria-autocomplete[39m=[32m"list"[39m
+    [33maria-multiline[39m=[32m"true"[39m
+    [33maria-placeholder[39m=[32m"Write your Markdown content here…"[39m
+    [33mautocapitalize[39m=[32m"off"[39m
+    [33mautocorrect[39m=[32m"off"[39m
+    [33mclass[39m=[32m"cm-content cm-lineWrapping"[39m
+    [33mcontenteditable[39m=[32m"true"[39m
+    [33mdata-language[39m=[32m"markdown"[39m
+    [33mrole[39m=[32m"textbox"[39m
+    [33mspellcheck[39m=[32m"false"[39m
+    [33mstyle[39m=[32m"tab-size: 4;"[39m
+    [33mtranslate[39m=[32m"no"[39m
+    [33mwritingsuggestions[39m=[32m"false"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  region:
+
+  Name "Markdown workspace mode":
+  [36m<section[39m
+    [33maria-label[39m=[32m"Markdown workspace mode"[39m
+    [33mclass[39m=[32m"document-workspace relative bg-white"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  toolbar:
+
+  Name "Markdown formatting":
+  [36m<div[39m
+    [33maria-label[39m=[32m"Markdown formatting"[39m
+    [33mclass[39m=[32m"document-tools"[39m
+    [33mrole[39m=[32m"toolbar"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<button[39m
+      [33mtype[39m=[32m"button"[39m
+    [36m>[39m
+      [0mReport editor crumbs[0m
+    [36m</button>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"mx-auto max-w-6xl"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"sticky top-16 z-20 -mx-4 mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white px-4 py-3 lg:-mx-6 lg:px-6"[39m
+        [33mdata-testid[39m=[32m"editor-toolbar"[39m
+      [36m>[39m
+        [36m<button[39m
+          [33mclass[39m=[32m"inline-flex min-h-9 items-center gap-2 rounded-lg px-2 text-sm text-gray-600 hover:bg-gray-100 hover:text-blue-700"[39m
+          [33mtitle[39m=[32m"Back to space"[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-arrow-left"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"18"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"18"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"m12 19-7-7 7-7"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M19 12H5"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+          [0mBack to space[0m
+        [36m</button>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end"[39m
+          [33mdata-testid[39m=[32m"editor-actions"[39m
+        [36m>[39m
+          [36m<button[39m
+            [33mclass[39m=[32m"inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"[39m
+            [33mtitle[39m=[32m"Return to reading"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-arrow-left"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"18"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"18"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"m12 19-7-7 7-7"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M19 12H5"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [36m<span>[39m
+              [0mReturn to reading[0m
+            [36m</span>[39m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Versions"[39m
+            [33mclass[39m=[32m"inline-flex min-h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-gray-600 transition hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"[39m
+            [33mdata-testid[39m=[32m"history-button"[39m
+            [33mtitle[39m=[32m"Versions"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-history"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"17"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"17"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M3 3v5h5"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M12 7v5l4 2"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [36m<span>[39m
+              [0mVersions[0m
+            [36m</span>[39m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Agent / collaboration settings"[39m
+            [33mclass[39m=[32m"inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition hover:bg-gray-100 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"[39m
+            [33mtitle[39m=[32m"Agent / collaboration settings"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"lucide lucide-users"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mheight[39m=[32m"18"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"2"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"18"[39m
+              [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M16 3.128a4 4 0 0 1 0 7.744"[39m
+              [36m/>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M22 21v-2a4 4 0 0 0-3-3.87"[39m
+              [36m/>[39m
+              [36m<circle[39m
+                [33mcx[39m=[32m"9"[39m
+                [33mcy[39m=[32m"7"[39m
+                [33mr[39m=[32m"4"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+          [36m</button>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Save"[39m
+            [33mclass[39m=[32m"inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 fo...
+ ❯ Object.getElementError ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/features/page/PageEditor.spec.tsx:602:19
+    600|     const view = renderEditorWithCrumbs();
+    601|     await screen.findByDisplayValue('Original title');
+    602|     expect(screen.getByRole('button', { name: 'Notes queue' })).toHave…
+       |                   ^
+    603|     expect(screen.getByRole('separator', { name: 'Resize collaboration…
+    604|     expect(contentEditorValue()).toBe('Original content');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  src/features/space-workspace/ArticleContentsPopover.spec.tsx > ArticleContentsPopover > keeps an explicit desktop close across page and viewport changes
+Error: expect(element).not.toBeInTheDocument()
+
+expected document not to contain element, found <nav
+  aria-label="Contents"
+  class="fixed z-30 flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg"
+  style="left: 1464px; top: 140px; width: 220px; max-height: 612px;"
+>
+  <div
+    class="flex shrink-0 items-center justify-between border-b border-gray-100 px-4 py-3"
+  >
+    <h2
+      class="text-base font-semibold text-gray-900"
+    >
+      Contents
+    </h2>
+    <button
+      aria-label="Close"
+      class="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+      type="button"
+    >
+      <svg
+        aria-hidden="true"
+        class="lucide lucide-x"
+        fill="none"
+        height="17"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        viewBox="0 0 24 24"
+        width="17"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          d="M18 6 6 18"
+        />
+        <path
+          d="m6 6 12 12"
+        />
+      </svg>
+    </button>
+  </div>
+  <div
+    class="min-h-0 flex-1 overflow-y-auto p-2"
+  >
+    <button
+      aria-current="location"
+      class="block w-full truncate rounded-md py-2 pr-3 text-left text-sm transition focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50 font-medium text-blue-700"
+      style="padding-left: 26px;"
+      title="Two"
+      type="button"
+    >
+      Two
+    </button>
+  </div>
+</nav> instead
+ ❯ src/features/space-workspace/ArticleContentsPopover.spec.tsx:92:72
+     90|     fireEvent.click(await screen.findByRole('button', { name: 'Close' …
+     91|     view.rerender(<Harness pageKey="page-2"><h2 id="two">Two</h2></Har…
+     92|     expect(screen.queryByRole('navigation', { name: 'Contents' })).not…
+       |                                                                        ^
+     93|     Object.defineProperty(window, 'innerWidth', { configurable: true, …
+     94|     Object.defineProperty(window, 'innerWidth', { configurable: true, …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  src/features/space-workspace/workspacePreferences.spec.tsx > right panel preference compatibility > keeps old records automatic and validates only the new UI preference fields
+AssertionError: expected { expandedFolderIds: Set{}, …(3) } to match object { outlineOpen: undefined, …(4) }
+(4 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "collaborationOpen": false,
+-   "collaborationTab": "assist",
+-   "collaborationWidth": 320,
+-   "outlineOpen": undefined,
+-   "outlineWidth": 280,
++   "directoryCollapsed": false,
++   "directoryScrollTop": 0,
++   "directoryWidth": 300,
++   "expandedFolderIds": Set {},
+  }
+
+ ❯ src/features/space-workspace/workspacePreferences.spec.tsx:43:55
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  3 failed | 137 passed (140)
+   Start at  18:15:04
+   Duration  5.43s (transform 494ms, setup 350ms, import 985ms, tests 4.53s, environment 682ms)
+
+undefined
+/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/apps/client:
+[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 1: vitest run src/features/space-workspace/workspacePreferences.spec.tsx src/features/space-workspace/ArticleContentsPopover.spec.tsx src/features/page/PageEditor.spec.tsx

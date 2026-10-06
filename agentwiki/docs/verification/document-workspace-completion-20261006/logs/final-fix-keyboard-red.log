@@ -1,0 +1,38 @@
+
+ RUN  v4.1.11 /Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/apps/client
+
+ ❯ src/components/MarkdownWorkspace.spec.tsx (107 tests | 2 failed | 105 skipped) 59ms
+     × recognizes document scroll from End while focus remains on the mode toolbar button 50ms
+     × recognizes document scroll from PageDown while focus remains on the mode toolbar button 9ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/MarkdownWorkspace.spec.tsx > preview navigation intent > recognizes document scroll from End while focus remains on the mode toolbar button
+ FAIL  src/components/MarkdownWorkspace.spec.tsx > preview navigation intent > recognizes document scroll from PageDown while focus remains on the mode toolbar button
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ src/components/MarkdownWorkspace.spec.tsx:1403:63
+    1401|       document.documentElement.scrollTop = 200;
+    1402|       fireEvent.scroll(document);
+    1403|       expect(ref.current!.capturePosition().previewNavigated).toBe(tru…
+       |                                                               ^
+    1404|     } finally {
+    1405|       document.documentElement.scrollTop = 0;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 105 skipped (107)
+   Start at  19:23:57
+   Duration  725ms (transform 210ms, setup 62ms, import 424ms, tests 59ms, environment 120ms)
+
+undefined
+/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/apps/client:
+[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 1: vitest run src/components/MarkdownWorkspace.spec.tsx -t 'mode toolbar button'

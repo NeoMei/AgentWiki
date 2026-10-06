@@ -1,0 +1,941 @@
+
+ RUN  v4.1.11 /Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/apps/client
+
+ ❯ src/components/markdown-tools/useAuthorizedPageLinks.spec.tsx (13 tests | 6 failed) 15ms
+     × loads recent pages only on demand and searches pages beyond the recent 100 6ms
+     × validates scope and shape, deduplicates identity and bounds accepted results:  2ms
+     × validates scope and shape, deduplicates identity and bounds accepted results: search 1ms
+     × aborts superseded requests and rejects late successful responses 1ms
+     × does not dispatch an already cancelled query and unlinks caller abort listeners 1ms
+     × immediately forwards caller cancellation and refuses its delayed result 0ms
+ ❯ src/components/markdown-tools/DocumentTools.spec.tsx (9 tests | 7 failed) 117ms
+     × debounces Space search and retains body-only matches absent from recent pages 40ms
+     × cancels old queries immediately and ignores late results during the next debounce 9ms
+     × cancels requests on close and never reports cancellation as failure 7ms
+     × cancels requests on unmount and never reports cancellation as failure 3ms
+     × retries the same query with the original selection and makes one isolated undo step 15ms
+     × keeps the original source proof after retry and refuses changed source 12ms
+     × distinguishes query failure and empty search from loading 11ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 13 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/markdown-tools/DocumentTools.spec.tsx > Space page-link picker > debounces Space search and retains body-only matches absent from recent pages
+AssertionError: expected "vi.fn()" to be called with arguments: [ '', Any<AbortSignal> ]
+
+Received:
+
+  1st vi.fn() call:
+
+- [
+-   "",
+-   Any<AbortSignal>,
+- ]
++ []
+
+
+Number of calls: 1
+
+ ❯ src/components/markdown-tools/DocumentTools.spec.tsx:39:22
+     37|     const provider = request().mockResolvedValueOnce([page('recent')])…
+     38|     renderTools(provider); await open();
+     39|     expect(provider).toHaveBeenCalledWith('', expect.any(AbortSignal));
+       |                      ^
+     40|     expect(screen.getByText(/100 recent/)).toBeInTheDocument();
+     41|     search('body term');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/13]⎯
+
+ FAIL  src/components/markdown-tools/DocumentTools.spec.tsx > Space page-link picker > cancels old queries immediately and ignores late results during the next debounce
+TypeError: Cannot read properties of undefined (reading '1')
+ ❯ src/components/markdown-tools/DocumentTools.spec.tsx:55:44
+     53|     const provider = request().mockResolvedValueOnce([]).mockReturnVal…
+     54|     renderTools(provider); await open(); search('first'); await tick();
+     55|     const oldSignal = provider.mock.calls[1][1]!;
+       |                                            ^
+     56|     search('second'); expect(oldSignal.aborted).toBe(true);
+     57|     await act(async () => first.resolve([page('stale')]));
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/13]⎯
+
+ FAIL  src/components/markdown-tools/DocumentTools.spec.tsx > Space page-link picker > cancels requests on close and never reports cancellation as failure
+ FAIL  src/components/markdown-tools/DocumentTools.spec.tsx > Space page-link picker > cancels requests on unmount and never reports cancellation as failure
+TypeError: Cannot read properties of undefined (reading 'aborted')
+ ❯ src/components/markdown-tools/DocumentTools.spec.tsx:69:19
+     67|     const signal = provider.mock.calls[0][1]!;
+     68|     if (action === 'close') fireEvent.click(screen.getByRole('button',…
+     69|     expect(signal.aborted).toBe(true);
+       |                   ^
+     70|     await act(async () => response.reject(new DOMException('Cancelled'…
+     71|     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/13]⎯
+
+ FAIL  src/components/markdown-tools/DocumentTools.spec.tsx > Space page-link picker > retries the same query with the original selection and makes one isolated undo step
+TestingLibraryElementError: Unable to find an accessible element with the role "alert"
+
+Here are the accessible roles:
+
+  textbox:
+
+  Name "":
+  [36m<div[39m
+    [33maria-multiline[39m=[32m"true"[39m
+    [33mautocapitalize[39m=[32m"off"[39m
+    [33mautocorrect[39m=[32m"off"[39m
+    [33mclass[39m=[32m"cm-content"[39m
+    [33mcontenteditable[39m=[32m"true"[39m
+    [33mrole[39m=[32m"textbox"[39m
+    [33mspellcheck[39m=[32m"false"[39m
+    [33mstyle[39m=[32m"tab-size: 4;"[39m
+    [33mtranslate[39m=[32m"no"[39m
+    [33mwritingsuggestions[39m=[32m"false"[39m
+  [36m/>[39m
+
+  --------------------------------------------------toolbar:
+
+  Name "Markdown formatting":
+  [36m<div[39m
+    [33maria-label[39m=[32m"Markdown formatting"[39m
+    [33mclass[39m=[32m"document-tools"[39m
+    [33mrole[39m=[32m"toolbar"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Bold":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Bold"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Italic":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Italic"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Link":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Link"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Inline code":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Inline code"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Page link":
+  [36m<button[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------dialog:
+
+  Name "Page link":
+  [36m<div[39m
+    [33maria-label[39m=[32m"Page link"[39m
+    [33maria-modal[39m=[32m"true"[39m
+    [33mclass[39m=[32m"document-picker"[39m
+    [33mrole[39m=[32m"dialog"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "Page link":
+  [36m<h2[39m
+    [33mclass[39m=[32m"font-semibold"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Close":
+  [36m<button[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"my-2 text-xs text-gray-500"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-sm text-gray-500"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  searchbox:
+
+  Name "Find page":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Find page"[39m
+    [33mclass[39m=[32m"w-full rounded border border-gray-300 p-2"[39m
+    [33mtype[39m=[32m"search"[39m
+    [33mvalue[39m=[32m"phrase"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"cm-editor ͼ1 ͼ2 "[39m
+    [36m>[39m
+      [36m<div[39m
+        [33maria-live[39m=[32m"polite"[39m
+        [33mclass[39m=[32m"cm-announced"[39m
+      [36m/>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"cm-scroller"[39m
+        [33mtabindex[39m=[32m"-1"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33maria-multiline[39m=[32m"true"[39m
+          [33mautocapitalize[39m=[32m"off"[39m
+          [33mautocorrect[39m=[32m"off"[39m
+          [33mclass[39m=[32m"cm-content"[39m
+          [33mcontenteditable[39m=[32m"true"[39m
+          [33mrole[39m=[32m"textbox"[39m
+          [33mspellcheck[39m=[32m"false"[39m
+          [33mstyle[39m=[32m"tab-size: 4;"[39m
+          [33mtranslate[39m=[32m"no"[39m
+          [33mwritingsuggestions[39m=[32m"false"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"cm-line"[39m
+          [36m>[39m
+            [0mOriginal text human[0m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33maria-label[39m=[32m"Markdown formatting"[39m
+      [33mclass[39m=[32m"document-tools"[39m
+      [33mrole[39m=[32m"toolbar"[39m
+    [36m>[39m
+      [36m<button[39m
+        [33maria-label[39m=[32m"Bold"[39m
+        [33mtype[39m=[32m"button"[39m
+      [36m>[39m
+        [0mB[0m
+      [36m</button>[39m
+      [36m<button[39m
+        [33maria-label[39m=[32m"Italic"[39m
+        [33mtype[39m=[32m"button"[39m
+      [36m>[39m
+        [0mI[0m
+      [36m</button>[39m
+      [36m<button[39m
+        [33maria-label[39m=[32m"Link"[39m
+        [33mtype[39m=[32m"button"[39m
+      [36m>[39m
+        [0m↗[0m
+      [36m</button>[39m
+      [36m<button[39m
+        [33maria-label[39m=[32m"Inline code"[39m
+        [33mtype[39m=[32m"button"[39m
+      [36m>[39m
+        [0m&lt;/&gt;[0m
+      [36m</button>[39m
+      [36m<button[39m
+        [33mtype[39m=[32m"button"[39m
+      [36m>[39m
+        [0mPage link[0m
+      [36m</button>[39m
+      [36m<span[39m
+        [33mclass[39m=[32m"document-source-hint"[39m
+      [36m>[39m
+        [0mMarkdown source · / to insert[0m
+      [36m</span>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+  [36m<div[39m
+    [33mclass[39m=[32m"document-picker-backdrop"[39m
+  [36m>[39m
+    [36m<div[39m
+      [33maria-label[39m=[32m"Page link"[39m
+      [33maria-modal[39m=[32m"true"[39m
+      [33mclass[39m=[32m"document-picker"[39m
+      [33mrole[39m=[32m"dialog"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex items-center justify-between"[39m
+      [36m>[39m
+        [36m<h2[39m
+          [33mclass[39m=[32m"font-semibold"[39m
+        [36m>[39m
+          [0mPage link[0m
+        [36m</h2>[39m
+        [36m<button[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [0mClose[0m
+        [36m</button>[39m
+      [36m</div>[39m
+      [36m<p[39m
+        [33mclass[39m=[32m"my-2 text-xs text-gray-500"[39m
+      [36m>[39m
+        [0mCurrent Space[0m
+        [0m · s[0m
+        [0m · [0m
+        [0mUp to 100 authorized pages; filter loaded results[0m
+      [36m</p>[39m
+      [36m<input[39m
+        [33maria-label[39m=[32m"Find page"[39m
+        [33mclass[39m=[32m"w-full rounded border border-gray-300 p-2"[39m
+        [33mtype[39m=[32m"search"[39m
+        [33mvalue[39m=[32m"phrase"[39m
+      [36m/>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mt-3 max-h-72 overflow-auto"[39m
+      [36m>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"text-sm text-gray-500"[39m
+        [36m>[39m
+          [0mNo matching authorized pages[0m
+        [36m</p>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/components/markdown-tools/DocumentTools.spec.tsx:91:19
+     89|     const provider = request().mockResolvedValueOnce([]).mockRejectedV…
+     90|     renderTools(provider); await open(); search('phrase'); await tick(…
+     91|     expect(screen.getByRole('alert')).toHaveTextContent('Could not');
+       |                   ^
+     92|     act(() => editor.dispatch({ selection: EditorSelection.cursor(edit…
+     93|     fireEvent.click(screen.getByRole('button', { name: 'Retry' })); aw…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/13]⎯
+
+ FAIL  src/components/markdown-tools/DocumentTools.spec.tsx > Space page-link picker > keeps the original source proof after retry and refuses changed source
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name "Retry"
+
+Here are the accessible roles:
+
+  textbox:
+
+  Name "":
+  [36m<div[39m
+    [33maria-multiline[39m=[32m"true"[39m
+    [33mautocapitalize[39m=[32m"off"[39m
+    [33mautocorrect[39m=[32m"off"[39m
+    [33mclass[39m=[32m"cm-content"[39m
+    [33mcontenteditable[39m=[32m"true"[39m
+    [33mrole[39m=[32m"textbox"[39m
+    [33mspellcheck[39m=[32m"false"[39m
+    [33mstyle[39m=[32m"tab-size: 4;"[39m
+    [33mtranslate[39m=[32m"no"[39m
+    [33mwritingsuggestions[39m=[32m"false"[39m
+  [36m/>[39m
+
+  --------------------------------------------------toolbar:
+
+  Name "Markdown formatting":
+  [36m<div[39m
+    [33maria-label[39m=[32m"Markdown formatting"[39m
+    [33mclass[39m=[32m"document-tools"[39m
+    [33mrole[39m=[32m"toolbar"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Bold":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Bold"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Italic":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Italic"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Link":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Link"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Inline code":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Inline code"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Page link":
+  [36m<button[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------dialog:
+
+  Name "Page link":
+  [36m<div[39m
+    [33maria-label[39m=[32m"Page link"[39m
+    [33maria-modal[39m=[32m"true"[39m
+    [33mclass[39m=[32m"document-picker"[39m
+    [33mrole[39m=[32m"dialog"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "Page link":
+  [36m<h2[39m
+    [33mclass[39m=[32m"font-semibold"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Close":
+  [36m<button[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"my-2 text-xs text-gray-500"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-sm text-gray-500"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  searchbox:
+
+  Name "Find page":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Find page"[39m
+    [33mclass[39m=[32m"w-full rounded border border-gray-300 p-2"[39m
+    [33mtype[39m=[32m"search"[39m
+    [33mvalue[39m=[32m"phrase"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"cm-editor ͼ1 ͼ2 "[39m
+    [36m>[39m
+      [36m<div[39m
+        [33maria-live[39m=[32m"polite"[39m
+        [33mclass[39m=[32m"cm-announced"[39m
+      [36m/>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"cm-scroller"[39m
+        [33mtabindex[39m=[32m"-1"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33maria-multiline[39m=[32m"true"[39m
+          [33mautocapitalize[39m=[32m"off"[39m
+          [33mautocorrect[39m=[32m"off"[39m
+          [33mclass[39m=[32m"cm-content"[39m
+          [33mcontenteditable[39m=[32m"true"[39m
+          [33mrole[39m=[32m"textbox"[39m
+          [33mspellcheck[39m=[32m"false"[39m
+          [33mstyle[39m=[32m"tab-size: 4;"[39m
+          [33mtranslate[39m=[32m"no"[39m
+          [33mwritingsuggestions[39m=[32m"false"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"cm-line"[39m
+          [36m>[39m
+            [0mchanged Original text[0m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33maria-label[39m=[32m"Markdown formatting"[39m
+      [33mclass[39m=[32m"document-tools"[39m
+      [33mrole[39m=[32m"toolbar"[39m
+    [36m>[39m
+      [36m<button[39m
+        [33maria-label[39m=[32m"Bold"[39m
+        [33mtype[39m=[32m"button"[39m
+      [36m>[39m
+        [0mB[0m
+      [36m</button>[39m
+      [36m<button[39m
+        [33maria-label[39m=[32m"Italic"[39m
+        [33mtype[39m=[32m"button"[39m
+      [36m>[39m
+        [0mI[0m
+      [36m</button>[39m
+      [36m<button[39m
+        [33maria-label[39m=[32m"Link"[39m
+        [33mtype[39m=[32m"button"[39m
+      [36m>[39m
+        [0m↗[0m
+      [36m</button>[39m
+      [36m<button[39m
+        [33maria-label[39m=[32m"Inline code"[39m
+        [33mtype[39m=[32m"button"[39m
+      [36m>[39m
+        [0m&lt;/&gt;[0m
+      [36m</button>[39m
+      [36m<button[39m
+        [33mtype[39m=[32m"button"[39m
+      [36m>[39m
+        [0mPage link[0m
+      [36m</button>[39m
+      [36m<span[39m
+        [33mclass[39m=[32m"document-source-hint"[39m
+      [36m>[39m
+        [0mMarkdown source · / to insert[0m
+      [36m</span>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+  [36m<div[39m
+    [33mclass[39m=[32m"document-picker-backdrop"[39m
+  [36m>[39m
+    [36m<div[39m
+      [33maria-label[39m=[32m"Page link"[39m
+      [33maria-modal[39m=[32m"true"[39m
+      [33mclass[39m=[32m"document-picker"[39m
+      [33mrole[39m=[32m"dialog"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex items-center justify-between"[39m
+      [36m>[39m
+        [36m<h2[39m
+          [33mclass[39m=[32m"font-semibold"[39m
+        [36m>[39m
+          [0mPage link[0m
+        [36m</h2>[39m
+        [36m<button[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [0mClose[0m
+        [36m</button>[39m
+      [36m</div>[39m
+      [36m<p[39m
+        [33mclass[39m=[32m"my-2 text-xs text-gray-500"[39m
+      [36m>[39m
+        [0mCurrent Space[0m
+        [0m · s[0m
+        [0m · [0m
+        [0mUp to 100 authorized pages; filter loaded results[0m
+      [36m</p>[39m
+      [36m<input[39m
+        [33maria-label[39m=[32m"Find page"[39m
+        [33mclass[39m=[32m"w-full rounded border border-gray-300 p-2"[39m
+        [33mtype[39m=[32m"search"[39m
+        [33mvalue[39m=[32m"phrase"[39m
+      [36m/>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mt-3 max-h-72 overflow-auto"[39m
+      [36m>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"text-sm text-gray-500"[39m
+        [36m>[39m
+          [0mNo matching authorized pages[0m
+        [36m</p>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/components/markdown-tools/DocumentTools.spec.tsx:106:28
+    104|     renderTools(provider); await open(); search('phrase'); await tick(…
+    105|     act(() => editor.dispatch({ changes: { from: 0, insert: 'changed '…
+    106|     fireEvent.click(screen.getByRole('button', { name: 'Retry' })); aw…
+       |                            ^
+    107|     fireEvent.click(screen.getByRole('button', { name: 'target target'…
+    108|     expect(editor.state.doc.toString()).toBe('changed Original text');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/13]⎯
+
+ FAIL  src/components/markdown-tools/DocumentTools.spec.tsx > Space page-link picker > distinguishes query failure and empty search from loading
+TestingLibraryElementError: Unable to find an accessible element with the role "alert"
+
+Here are the accessible roles:
+
+  textbox:
+
+  Name "":
+  [36m<div[39m
+    [33maria-multiline[39m=[32m"true"[39m
+    [33mautocapitalize[39m=[32m"off"[39m
+    [33mautocorrect[39m=[32m"off"[39m
+    [33mclass[39m=[32m"cm-content"[39m
+    [33mcontenteditable[39m=[32m"true"[39m
+    [33mrole[39m=[32m"textbox"[39m
+    [33mspellcheck[39m=[32m"false"[39m
+    [33mstyle[39m=[32m"tab-size: 4;"[39m
+    [33mtranslate[39m=[32m"no"[39m
+    [33mwritingsuggestions[39m=[32m"false"[39m
+  [36m/>[39m
+
+  --------------------------------------------------toolbar:
+
+  Name "Markdown formatting":
+  [36m<div[39m
+    [33maria-label[39m=[32m"Markdown formatting"[39m
+    [33mclass[39m=[32m"document-tools"[39m
+    [33mrole[39m=[32m"toolbar"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Bold":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Bold"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Italic":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Italic"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Link":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Link"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Inline code":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Inline code"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Page link":
+  [36m<button[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------dialog:
+
+  Name "Page link":
+  [36m<div[39m
+    [33maria-label[39m=[32m"Page link"[39m
+    [33maria-modal[39m=[32m"true"[39m
+    [33mclass[39m=[32m"document-picker"[39m
+    [33mrole[39m=[32m"dialog"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "Page link":
+  [36m<h2[39m
+    [33mclass[39m=[32m"font-semibold"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "Close":
+  [36m<button[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"my-2 text-xs text-gray-500"[39m
+  [36m/>[39m
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"text-sm text-gray-500"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  searchbox:
+
+  Name "Find page":
+  [36m<input[39m
+    [33maria-label[39m=[32m"Find page"[39m
+    [33mclass[39m=[32m"w-full rounded border border-gray-300 p-2"[39m
+    [33mtype[39m=[32m"search"[39m
+    [33mvalue[39m=[32m"failed"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"cm-editor ͼ1 ͼ2 "[39m
+    [36m>[39m
+      [36m<div[39m
+        [33maria-live[39m=[32m"polite"[39m
+        [33mclass[39m=[32m"cm-announced"[39m
+      [36m/>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"cm-scroller"[39m
+        [33mtabindex[39m=[32m"-1"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33maria-multiline[39m=[32m"true"[39m
+          [33mautocapitalize[39m=[32m"off"[39m
+          [33mautocorrect[39m=[32m"off"[39m
+          [33mclass[39m=[32m"cm-content"[39m
+          [33mcontenteditable[39m=[32m"true"[39m
+          [33mrole[39m=[32m"textbox"[39m
+          [33mspellcheck[39m=[32m"false"[39m
+          [33mstyle[39m=[32m"tab-size: 4;"[39m
+          [33mtranslate[39m=[32m"no"[39m
+          [33mwritingsuggestions[39m=[32m"false"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"cm-line"[39m
+          [36m>[39m
+            [0mOriginal text[0m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33maria-label[39m=[32m"Markdown formatting"[39m
+      [33mclass[39m=[32m"document-tools"[39m
+      [33mrole[39m=[32m"toolbar"[39m
+    [36m>[39m
+      [36m<button[39m
+        [33maria-label[39m=[32m"Bold"[39m
+        [33mtype[39m=[32m"button"[39m
+      [36m>[39m
+        [0mB[0m
+      [36m</button>[39m
+      [36m<button[39m
+        [33maria-label[39m=[32m"Italic"[39m
+        [33mtype[39m=[32m"button"[39m
+      [36m>[39m
+        [0mI[0m
+      [36m</button>[39m
+      [36m<button[39m
+        [33maria-label[39m=[32m"Link"[39m
+        [33mtype[39m=[32m"button"[39m
+      [36m>[39m
+        [0m↗[0m
+      [36m</button>[39m
+      [36m<button[39m
+        [33maria-label[39m=[32m"Inline code"[39m
+        [33mtype[39m=[32m"button"[39m
+      [36m>[39m
+        [0m&lt;/&gt;[0m
+      [36m</button>[39m
+      [36m<button[39m
+        [33mtype[39m=[32m"button"[39m
+      [36m>[39m
+        [0mPage link[0m
+      [36m</button>[39m
+      [36m<span[39m
+        [33mclass[39m=[32m"document-source-hint"[39m
+      [36m>[39m
+        [0mMarkdown source · / to insert[0m
+      [36m</span>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+  [36m<div[39m
+    [33mclass[39m=[32m"document-picker-backdrop"[39m
+  [36m>[39m
+    [36m<div[39m
+      [33maria-label[39m=[32m"Page link"[39m
+      [33maria-modal[39m=[32m"true"[39m
+      [33mclass[39m=[32m"document-picker"[39m
+      [33mrole[39m=[32m"dialog"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"flex items-center justify-between"[39m
+      [36m>[39m
+        [36m<h2[39m
+          [33mclass[39m=[32m"font-semibold"[39m
+        [36m>[39m
+          [0mPage link[0m
+        [36m</h2>[39m
+        [36m<button[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [0mClose[0m
+        [36m</button>[39m
+      [36m</div>[39m
+      [36m<p[39m
+        [33mclass[39m=[32m"my-2 text-xs text-gray-500"[39m
+      [36m>[39m
+        [0mCurrent Space[0m
+        [0m · s[0m
+        [0m · [0m
+        [0mUp to 100 authorized pages; filter loaded results[0m
+      [36m</p>[39m
+      [36m<input[39m
+        [33maria-label[39m=[32m"Find page"[39m
+        [33mclass[39m=[32m"w-full rounded border border-gray-300 p-2"[39m
+        [33mtype[39m=[32m"search"[39m
+        [33mvalue[39m=[32m"failed"[39m
+      [36m/>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"mt-3 max-h-72 overflow-auto"[39m
+      [36m>[39m
+        [36m<p[39m
+          [33mclass[39m=[32m"text-sm text-gray-500"[39m
+        [36m>[39m
+          [0mNo matching authorized pages[0m
+        [36m</p>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ src/components/markdown-tools/DocumentTools.spec.tsx:116:19
+    114|     const provider = request().mockResolvedValueOnce([]).mockRejectedV…
+    115|     renderTools(provider); await open(); search('failed'); await tick(…
+    116|     expect(screen.getByRole('alert')).toBeInTheDocument();
+       |                   ^
+    117|     expect(screen.queryByText('No matching authorized pages')).not.toB…
+    118|     search('empty'); expect(screen.queryByRole('alert')).not.toBeInThe…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/13]⎯
+
+ FAIL  src/components/markdown-tools/useAuthorizedPageLinks.spec.tsx > on-demand authorized Space links > loads recent pages only on demand and searches pages beyond the recent 100
+Error: Invalid page links response
+ ❯ Object.current src/components/markdown-tools/useAuthorizedPageLinks.ts:23:37
+
+ ❯ src/components/markdown-tools/useAuthorizedPageLinks.spec.tsx:24:12
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/13]⎯
+
+ FAIL  src/components/markdown-tools/useAuthorizedPageLinks.spec.tsx > on-demand authorized Space links > validates scope and shape, deduplicates identity and bounds accepted results: 
+AssertionError: expected [ …(96) ] to have a length of 100 but got 96
+
+- Expected
++ Received
+
+- 100
++ 96
+
+ ❯ src/components/markdown-tools/useAuthorizedPageLinks.spec.tsx:33:19
+     31|     vi.mocked(api.get).mockResolvedValue({ data: query ? { results: ro…
+     32|     const pages = await result.current(query);
+     33|     expect(pages).toHaveLength(query ? 50 : 100);
+       |                   ^
+     34|     expect(pages[0]).toEqual({ id: 'a', title: 'Page a', slug: 'keep' …
+     35|     expect(pages[1]).toEqual({ id: '0', title: 'Page 0' });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/13]⎯
+
+ FAIL  src/components/markdown-tools/useAuthorizedPageLinks.spec.tsx > on-demand authorized Space links > validates scope and shape, deduplicates identity and bounds accepted results: search
+Error: Invalid page links response
+ ❯ Object.current src/components/markdown-tools/useAuthorizedPageLinks.ts:23:37
+
+ ❯ src/components/markdown-tools/useAuthorizedPageLinks.spec.tsx:32:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/13]⎯
+
+ FAIL  src/components/markdown-tools/useAuthorizedPageLinks.spec.tsx > on-demand authorized Space links > aborts superseded requests and rejects late successful responses
+Error: Invalid page links response
+ ❯ Object.current src/components/markdown-tools/useAuthorizedPageLinks.ts:23:37
+
+ ❯ src/components/markdown-tools/useAuthorizedPageLinks.spec.tsx:52:12
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/13]⎯
+
+ FAIL  src/components/markdown-tools/useAuthorizedPageLinks.spec.tsx > on-demand authorized Space links > does not dispatch an already cancelled query and unlinks caller abort listeners
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st vi.fn() call:
+
+    Array [
+      "/pages",
+      Object {
+        "params": Object {
+          "spaceId": "s",
+          "take": 100,
+        },
+        "signal": AbortSignal {
+          Symbol(kEvents): Map {},
+          Symbol(events.maxEventTargetListeners): 0,
+          Symbol(events.maxEventTargetListenersWarned): false,
+          Symbol(kHandlers): Map {},
+          Symbol(kAborted): false,
+          Symbol(kReason): undefined,
+          Symbol(kComposite): false,
+        },
+      },
+    ]
+
+
+Number of calls: 1
+
+ ❯ src/components/markdown-tools/useAuthorizedPageLinks.spec.tsx:62:25
+     60|     const cancelled = new AbortController(); cancelled.abort();
+     61|     await expect(result.current('query', cancelled.signal)).rejects.to…
+     62|     expect(api.get).not.toHaveBeenCalled();
+       |                         ^
+     63|     const caller = new AbortController();
+     64|     const remove = vi.spyOn(caller.signal, 'removeEventListener');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/13]⎯
+
+ FAIL  src/components/markdown-tools/useAuthorizedPageLinks.spec.tsx > on-demand authorized Space links > immediately forwards caller cancellation and refuses its delayed result
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ src/components/markdown-tools/useAuthorizedPageLinks.spec.tsx:77:44
+     75|     const pending = result.current('query', caller.signal);
+     76|     const signal = vi.mocked(api.get).mock.calls[0][1]!.signal!;
+     77|     caller.abort(); expect(signal.aborted).toBe(true);
+       |                                            ^
+     78|     pendingResponse.resolve({ data: { results: [{ page: page('late') }…
+     79|     await expect(pending).rejects.toThrow('changed scope');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/13]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  13 failed | 9 passed (22)
+   Start at  18:38:00
+   Duration  496ms (transform 103ms, setup 131ms, import 148ms, tests 131ms, environment 255ms)
+

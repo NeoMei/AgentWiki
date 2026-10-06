@@ -1,0 +1,31 @@
+
+ RUN  v4.1.11 /Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/apps/client
+
+Error: Not implemented: window.scrollBy
+    at module.exports (/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at /Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/apps/client/src/features/page/PagePreview.tsx:462:39
+    at commitHookEffectListMount (/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:23189:26)
+    at commitLayoutEffectOnFiber (/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:23312:15)
+    at commitLayoutMountEffects_complete (/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:24727:9)
+    at commitLayoutEffects_begin (/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:24713:7)
+    at commitLayoutEffects (/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:24651:3)
+    at commitRootImpl (/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:26862:5)
+    at commitRoot (/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:26721:5) undefined
+Error: Not implemented: window.scrollBy
+    at module.exports (/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at /Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/apps/client/src/features/page/PagePreview.tsx:462:39
+    at commitHookEffectListMount (/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:23189:26)
+    at commitLayoutEffectOnFiber (/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:23312:15)
+    at commitLayoutMountEffects_complete (/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:24727:9)
+    at commitLayoutEffects_begin (/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:24713:7)
+    at commitLayoutEffects (/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:24651:3)
+    at commitRootImpl (/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:26862:5)
+    at commitRoot (/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:26721:5) undefined
+
+ Test Files  2 passed (2)
+      Tests  4 passed | 142 skipped (146)
+   Start at  19:14:45
+   Duration  1.44s (transform 1.04s, setup 217ms, import 1.63s, tests 420ms, environment 426ms)
+

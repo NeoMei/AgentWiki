@@ -1,0 +1,34 @@
+
+ RUN  v4.1.11 /Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/apps/client
+
+ ❯ src/features/space-workspace/ArticleContentsPopover.spec.tsx (18 tests | 1 failed) 154ms
+     × uses the article canvas when the reading toolbar is its sibling without overwriting stored width 6ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/space-workspace/ArticleContentsPopover.spec.tsx > ArticleContentsPopover > uses the article canvas when the reading toolbar is its sibling without overwriting stored width
+Error: expect(element).toHaveStyle()
+
+- Expected
+
+- width: 300px;
++ width: 360px;
+ ❯ src/features/space-workspace/ArticleContentsPopover.spec.tsx:166:66
+    164|     </LanguageProvider></SpaceWorkspaceScope></SpaceWorkspaceProvider>…
+    165|     const grip = await screen.findByRole('separator', { name: 'Resize …
+    166|     expect(screen.getByRole('navigation', { name: 'Contents' })).toHav…
+       |                                                                  ^
+    167|     expect(grip).toHaveAttribute('aria-valuemax', '300');
+    168|     expect(panelPrefs().outlineWidth).toBe(360);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 17 passed (18)
+   Start at  18:32:12
+   Duration  717ms (transform 89ms, setup 98ms, import 206ms, tests 154ms, environment 197ms)
+
+undefined
+/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/apps/client:
+[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 1: vitest run src/features/space-workspace/ArticleContentsPopover.spec.tsx
