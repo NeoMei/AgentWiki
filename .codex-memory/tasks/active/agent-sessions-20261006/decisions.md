@@ -1,0 +1,8 @@
+# 决策
+
+- 用户对“统一会话侧栏，并同步确定 ACP 接口”的确认作为设计及实施授权，不重复询问。
+- AssistSession + AssistTask 轮次复用队列；不新建消息表/第二执行器。提问和提案分别校验读/写权限。
+- 用持久化回答进度和 REST 轮询恢复；Session task 不走只理解单页的旧 socket 路径。
+- 候选历史可恢复，但编辑器 revision 只属于本地实例；必须先原文/标题/保存版本相等再重绑。
+- 本机 ACP 运行时、Follow Mode、图片/文件夹上下文不在第一阶段产品范围。
+- 已有 migration corpus gate 不弱化；新增 SQL 独立审查后才更新两处批准 hash。

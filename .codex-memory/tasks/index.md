@@ -4,6 +4,8 @@
 
 ## 活跃任务
 
+- [agent-sessions-20261006](active/agent-sessions-20261006/brief.md)：统一持久 Agent 会话侧栏第一阶段已获实施授权，设计/计划完成，后端及前端待实现和验收。
+
 - [q2-defect-closure-20261001](active/q2-defect-closure-20261001/brief.md)：全部20项及2条接入问题修复部署，公网TLS已验证，其余顺序实施与审查。
 
 - [q3-regressions-20260914](archive/q3-regressions-20260914/brief.md)：Q3人工报告20项代码修复、整分支独立复审与候选验收完成；未发布部署或安装日常Vault。
