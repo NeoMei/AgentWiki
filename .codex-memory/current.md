@@ -1,6 +1,6 @@
 # 当前目标
 
-- OpenKnowledge借鉴的文档工作区两轮优化已完成，保留本地待集成分支。
+- 继续补齐OpenKnowledge文档体验剩余5项，活跃任务document-workspace-completion-20261006；前两轮为已验收基线。
 
 # 范围 / 不做
 
@@ -8,6 +8,8 @@
 - 无生产变更、合并、push、发布或部署；不复制GPL源码，不引入CRDT/schema迁移。
 
 # 当前状态
+
+- 本轮从f1ed2bb0开始，用户已确认继续并指定p5c07ff，当前路由核验通过；实施计划document-workspace-completion已建立。
 
 - 工作树 /Users/neomei/.codex/worktrees/document-workspace/AgentWiki （尾空格），分支codex/document-workspace；第二轮最终产品b8c2ddf7，基线28e07dbd。后续仅验收及项目交接文档。
 - 两项任务独立审查、最终整分支审查及唯一P3小修复定向复审完成，未关闭finding0。第二轮131套/1865客户端测试通过，最终修复128项定向测试通过；全仓typecheck、lint0errors（3条既有server警告）与client build通过。
@@ -22,6 +24,9 @@
 - 后续子代理按用户要求继承当前p5c07ff通道，fork_turns=all且省略model/effort覆盖，并核验实际turn_context；不使用裸模型回退。
 
 # 关键索引
+
+- .codex-memory/tasks/active/document-workspace-completion-20261006/brief.md
+- agentwiki/docs/superpowers/plans/2026-10-06-document-workspace-completion.md
 
 - .codex-memory/tasks/archive/document-workspace-polish-20261006/brief.md
 - agentwiki/docs/verification/document-workspace-polish-20261006/acceptance.md
