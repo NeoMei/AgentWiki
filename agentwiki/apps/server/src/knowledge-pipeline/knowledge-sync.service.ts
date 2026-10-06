@@ -48,21 +48,31 @@ export class KnowledgeSyncService {
     const run = await this.prisma.ingestRun.findFirst({
       where: {
         sourceId: source.id,
+        spaceId,
         inputSourceVersionId: { not: null },
+        inputSourceVersion: { sourceId: source.id },
         status: { in: FINISHED_RUN_STATUSES },
       },
       orderBy: { completedAt: 'desc' },
       select: {
+        sourceId: true,
+        spaceId: true,
+        inputSourceVersionId: true,
         completedAt: true,
         inputSourceVersion: {
           select: {
             id: true,
+            sourceId: true,
             files: { select: { path: true, contentHash: true }, orderBy: { path: 'asc' } },
           },
         },
       },
     });
-    if (!run?.inputSourceVersion) {
+    // Preserve the latest coherent finished input, including a historical non-head version.
+    // Recheck the returned relation before projecting any version, time, or file metadata.
+    if (!run?.inputSourceVersion || run.spaceId !== spaceId || run.sourceId !== source.id
+      || run.inputSourceVersion.sourceId !== source.id
+      || run.inputSourceVersion.id !== run.inputSourceVersionId) {
       return { exists: true, sourceId: source.id, sourceVersionId: null, syncedAt: null, documents: [] };
     }
     return {

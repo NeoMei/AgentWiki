@@ -151,11 +151,12 @@ describe('KnowledgeSyncService', () => {
   it('returns only the newest completed or partial snapshot paths and hashes', async () => {
     const { service, prisma } = makeHarness();
     const syncedAt = new Date('2026-07-29T00:00:00.000Z');
-    prisma.source.findUnique.mockResolvedValue({ id: 'source-1' });
+    prisma.source.findUnique.mockResolvedValue({ id: 'source-1', currentSourceVersionId: 'newer-unfinished-head' });
     prisma.ingestRun.findFirst.mockResolvedValue({
+      sourceId: 'source-1', spaceId: 'space-1', inputSourceVersionId: 'version-2',
       completedAt: syncedAt,
       inputSourceVersion: {
-        id: 'version-2',
+        id: 'version-2', sourceId: 'source-1',
         files: [{ path: 'README.md', contentHash: 'new-hash', content: 'must not leak' }],
       },
     });
@@ -168,8 +169,46 @@ describe('KnowledgeSyncService', () => {
       documents: [{ path: 'README.md', contentHash: 'new-hash' }],
     });
     expect(prisma.ingestRun.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ status: { in: ['completed', 'partial'] } }),
+      where: { sourceId: 'source-1', spaceId: 'space-1', inputSourceVersionId: { not: null }, inputSourceVersion: { sourceId: 'source-1' }, status: { in: ['completed', 'partial'] } },
+      orderBy: { completedAt: 'desc' },
     }));
+  });
+
+  it.each([
+    ['foreign Run Space', { spaceId: 'space-other' }],
+    ['foreign Run Source', { sourceId: 'source-other' }],
+    ['foreign input Source', { inputSourceVersion: { id: 'version-1', sourceId: 'source-other', files: [{ path: 'private.md', contentHash: 'secret' }] } }],
+    ['mismatched input ID', { inputSourceVersionId: 'other-version' }],
+    ['missing input', { inputSourceVersion: null }],
+  ])('returns no snapshot or completion time for %s', async (_name, override) => {
+    const { service, prisma } = makeHarness();
+    prisma.ingestRun.findFirst.mockResolvedValue({
+      sourceId: 'source-1', spaceId: 'space-1', inputSourceVersionId: 'version-1',
+      completedAt: new Date('2026-10-07T00:00:00Z'),
+      inputSourceVersion: { id: 'version-1', sourceId: 'source-1', files: [{ path: 'README.md', contentHash: 'hash' }] },
+      ...override,
+    });
+    await expect(service.getState('space-1', 'workspace-docs')).resolves.toEqual({
+      exists: true, sourceId: 'source-1', sourceVersionId: null, syncedAt: null, documents: [],
+    });
+    expect(prisma.ingestRun.findFirst).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves the empty state when no completed input exists', async () => {
+    const { service, prisma } = makeHarness();
+    await expect(service.getState('space-1', 'workspace-docs')).resolves.toEqual({
+      exists: true, sourceId: 'source-1', sourceVersionId: null, syncedAt: null, documents: [],
+    });
+    expect(prisma.ingestRun.findFirst).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves the missing Source state without querying runs', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.source.findUnique.mockResolvedValue(null);
+    await expect(service.getState('space-1', 'workspace-docs')).resolves.toEqual({
+      exists: false, sourceId: null, sourceVersionId: null, syncedAt: null, documents: [],
+    });
+    expect(prisma.ingestRun.findFirst).not.toHaveBeenCalled();
   });
 });
 
