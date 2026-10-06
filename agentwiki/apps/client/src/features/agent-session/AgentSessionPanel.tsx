@@ -5,7 +5,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { AssistCandidateReview } from '../page/AssistCandidateReview';
 import { applyCandidateToDraft, type AssistCandidate } from '../page/assistCandidate';
 import { captureAssistTarget, validateAssistTarget, type AssistTarget } from '../page/assistTargets';
-import type { AssistNotesEvent, AssistRequest } from '../page/AgentAssistPanel';
+import type { AssistNotesEvent } from '../page/AgentAssistPanel';
 import { AgentReferencePicker } from './AgentReferencePicker';
 import { bindCandidate, candidateFromTurn } from './agentSessionCandidate';
 import { useAgentSession } from './useAgentSession';
@@ -33,8 +33,8 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
     if (session.loading || !assistRequest || [...store.drafts.values()].some((composer) => composer.staged?.request.id === assistRequest.id)) return;
     session.updateDraft({ intent: assistRequest.intent, targetKind: assistRequest.assistTarget?.kind ?? 'document', staged: { pageId, request: assistRequest } });
   }, [assistRequest?.id, session.loading, session.selected, scope]);
-  const emit = (event: AssistNotesEvent['event'], candidate: AssistCandidate, editId?: string, request?: AssistRequest) => {
-    if (candidate.noteIds?.length && candidate.pageId === pageId && candidate.userId === userId && candidate.spaceId === spaceId) callbacks.current.onNotesEvent?.({ event, taskId: candidate.taskId, noteIds: candidate.noteIds, candidate, editId, acceptedEditIds: candidate.acceptedEditIds, ...(request ? { dispatchRequest: { userId, spaceId, pageId, request } } : {}) });
+  const emit = (event: AssistNotesEvent['event'], candidate: AssistCandidate, editId?: string, dispatchRequest?: AssistNotesEvent['dispatchRequest']) => {
+    if (candidate.noteIds?.length && candidate.pageId === pageId && candidate.userId === userId && candidate.spaceId === spaceId) callbacks.current.onNotesEvent?.({ event, taskId: candidate.taskId, noteIds: candidate.noteIds, candidate, editId, acceptedEditIds: candidate.acceptedEditIds, ...(dispatchRequest ? { dispatchRequest } : {}) });
   };
   const restoreCandidate = (turn: AgentTurn) => {
     const record = candidateFromTurn(turn, userId, spaceId), ledger = store.ledger.get(turn.id);
@@ -102,7 +102,7 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
       if (record) { record.mount = mount; store.candidates.set(turn.id, record); }
       if (!live.current || scopeRef.current !== scope || mountRef.current.token !== mount) return;
       const candidate = record?.candidate ?? { taskId: turn.id, pageId: turn.pageId, spaceId, userId, baseTitle: turn.pageSnapshot?.title, baseContent: turn.pageSnapshot?.content, baseUpdatedAt: turn.pageSnapshot?.updatedAt, content: '', status: 'generating', noteIds: turn.noteIds } as AssistCandidate;
-      emit('dispatch', candidate, undefined, staged?.request);
+      emit('dispatch', candidate, undefined, staged ? { userId, spaceId, pageId, request: staged.request, snapshot: { title: source.title, content: source.content, updatedAt: source.updatedAt } } : undefined);
       if (staged) callbacks.current.onRequestHandled?.(staged.request.id);
     });
   };

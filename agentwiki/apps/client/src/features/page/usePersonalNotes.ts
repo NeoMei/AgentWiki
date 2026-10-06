@@ -82,12 +82,13 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
       if (stateRef.current.notes.some((n) => event.noteIds.includes(n.id) && n.status !== 'pending')) return;
       const localRequest = stateRef.current.assistRequest, credential = event.dispatchRequest;
       // A registry-held request survives route mounts. Only a successful explicit Send supplies this
-      // credential; validate its identity, selected annotations and exact source before linking notes.
+      // credential; compare returned source to that send-time snapshot, not a draft still being edited.
       if (credential && (credential.userId !== scope.userId || credential.spaceId !== scope.spaceId || credential.pageId !== scope.pageId
         || localRequest && localRequest.id !== credential.request.id)) return;
       const request = localRequest ?? (stageForSession ? credential?.request : undefined);
       if (stageForSession) {
-        if (!credential || !request?.id || event.candidate.baseContent !== latestRef.current.source
+        if (!credential || !request?.id || event.candidate.baseContent !== credential.snapshot.content
+          || event.candidate.baseTitle !== credential.snapshot.title || event.candidate.baseUpdatedAt !== credential.snapshot.updatedAt
           || !request.assistTarget || request.assistTarget.baseUpdatedAt !== latestRef.current.updatedAt
           || !validateAssistTarget(event.candidate.baseContent, request.assistTarget)
           || request.annotations?.length !== event.noteIds.length || new Set(event.noteIds).size !== event.noteIds.length

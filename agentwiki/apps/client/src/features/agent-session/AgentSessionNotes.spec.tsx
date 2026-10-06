@@ -6,6 +6,7 @@ import { AgentSessionPanel } from './AgentSessionPanel';
 import { AgentSessionRegistryProvider } from './AgentSessionRegistry';
 import { usePersonalNotes } from '../page/usePersonalNotes';
 import { captureAssistTarget } from '../page/assistTargets';
+import { applyCandidateToDraft } from '../page/assistCandidate';
 import { loadPersonalNotes } from '../page/reviewComments';
 import type { AgentTurn } from './agentSessionTypes';
 vi.mock('../../api/client', () => ({ default: { get: vi.fn(), post: vi.fn(), patch: vi.fn() } }));
@@ -17,7 +18,7 @@ const summary = { id: 'session-a', spaceId: 'space-a', title: 'Conversation A', 
 let notes: ReturnType<typeof usePersonalNotes>, turns: AgentTurn[], content: string;
 function Bridge({ pageId = 'page-a', spaceId = 'space-a', edit = false }: { pageId?: string; spaceId?: string; edit?: boolean }) {
   notes = usePersonalNotes({ scope: { userId: auth.id, spaceId, pageId }, canEdit: edit, enabled: true, stageForSession: true, source: content, updatedAt: version });
-  return <><output data-testid="notes">{JSON.stringify(notes.notes)}</output><AgentSessionPanel pageId={pageId} spaceId={spaceId} pageTitle="Page A" snapshot={() => ({ title: 'Page A', content, updatedAt: version })} canEdit canAccept={edit} supportsScopedApply assistRequest={notes.assistRequest} onRequestHandled={notes.onRequestHandled} onNotesEvent={notes.onNotesEvent} notesReady={notes.loaded} onApply={() => { content = 'ONE\nkeep\ntwo\n'; return true; }} /></>;
+  return <><output data-testid="notes">{JSON.stringify(notes.notes)}</output><AgentSessionPanel pageId={pageId} spaceId={spaceId} pageTitle="Page A" snapshot={() => ({ title: 'Page A', content, updatedAt: version })} canEdit canAccept={edit} supportsScopedApply assistRequest={notes.assistRequest} onRequestHandled={notes.onRequestHandled} onNotesEvent={notes.onNotesEvent} notesReady={notes.loaded} onApply={(candidate, editId) => { const applied = applyCandidateToDraft(candidate, { userId: auth.id, spaceId, pageId, title: 'Page A', content, updatedAt: version, canEdit: edit }, editId); if (applied.status !== 'applied') return false; content = applied.content; return true; }} /></>;
 }
 const shell = (route = 'read') => <MemoryRouter><AgentSessionRegistryProvider userId={auth.id}><Bridge key={route} pageId={route === 'other' ? 'page-b' : 'page-a'} spaceId={route === 'other-space' ? 'space-b' : 'space-a'} edit={route === 'edit'} /></AgentSessionRegistryProvider></MemoryRouter>;
 async function stageFirst() {
@@ -61,7 +62,7 @@ it('retains Pending notes on a failed remounted Send and links them only after s
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   await waitFor(() => expect(notes.notes[0].status).toBe('dispatched')); expect(notes.notes[1].status).toBe('pending');
 });
-it.each(['wrong page', 'unselected note', 'stale version', 'changed source'])('does not bind restored notes for a successful response with %s', async (mismatch) => {
+it.each(['wrong page', 'unselected note', 'stale version', 'changed source', 'changed title'])('does not bind restored notes for a successful response with %s', async (mismatch) => {
   const view = render(shell()); const ids = await stageFirst(); view.rerender(shell('edit'));
   await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled());
   const post = vi.mocked(api.post).getMockImplementation()!;
@@ -71,6 +72,7 @@ it.each(['wrong page', 'unselected note', 'stale version', 'changed source'])('d
     if (mismatch === 'unselected note') response.data.noteIds = [ids[1]];
     if (mismatch === 'stale version') response.data.pageSnapshot!.updatedAt = 'old';
     if (mismatch === 'changed source') response.data.pageSnapshot!.content = 'changed source';
+    if (mismatch === 'changed title') response.data.pageSnapshot!.title = 'changed title';
     return response;
   });
   fireEvent.click(screen.getByRole('button', { name: 'Send' })); await screen.findByRole('button', { name: 'Stop' });
@@ -103,4 +105,29 @@ it('keeps a locally staged request in its own conversation when the user switche
   await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled());
   expect(screen.getByText('Annotations staged (not sent yet)')).toBeVisible(); expect(screen.getByRole('combobox', { name: 'Edit scope' })).toHaveValue('selection');
   expect(notes.notes.every((note) => note.status === 'pending' && !note.taskId)).toBe(true);
+});
+
+it.each(['unrelated append', 'anchor change'])('binds sent notes to the immutable snapshot during a deferred POST with %s and guards acceptance', async (change) => {
+  const view = render(shell('edit')); const ids = await stageFirst();
+  let finish!: () => void;
+  const post = vi.mocked(api.post).getMockImplementation()!;
+  vi.mocked(api.post).mockImplementation((...args) => new Promise((resolve) => { finish = () => { void Promise.resolve(post(...args)).then(resolve); }; }));
+  fireEvent.change(screen.getByRole('combobox', { name: 'Message mode' }), { target: { value: 'proposal' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  const manuallyEdited = change === 'unrelated append' ? original + 'Manual end\n' : original.replace('one', 'Manual beginning');
+  content = manuallyEdited; view.rerender(shell('edit'));
+  expect(notes.notes.every((note) => note.status === 'pending' && !note.taskId)).toBe(true);
+  await act(async () => finish());
+  await waitFor(() => expect(notes.notes[0]).toMatchObject({ id: ids[0], taskId: 'sent-turn', status: 'dispatched' }));
+  expect(notes.notes[1]).toMatchObject({ id: ids[1], status: 'pending' }); expect(notes.notes[1].taskId).toBeUndefined();
+  expect(turns[0].pageSnapshot?.content).toBe(original); expect(content).toBe(manuallyEdited);
+  turns = [{ ...turns[0], status: 'done', result: { changes: 'ONE\nkeep\ntwo\n' } }];
+  await waitFor(() => expect(notes.notes[0].status).toBe('awaiting-review'), { timeout: 2000 });
+  fireEvent.click(await screen.findByRole('button', { name: 'Accept change 1' }));
+  if (change === 'unrelated append') {
+    expect(notes.notes[0].status).toBe('resolved'); expect(content).toBe('ONE\nkeep\ntwo\nManual end\n');
+  } else {
+    expect(notes.notes[0].status).not.toBe('resolved'); expect(content).toBe(manuallyEdited);
+  }
+  expect(notes.notes[1].status).toBe('pending'); expect(api.patch).not.toHaveBeenCalled();
 });
