@@ -289,9 +289,11 @@ export const ReviewPage: React.FC = () => {
       setSuccess(t('review.actionSuccess'));
     } catch (requestError: any) {
       if (!controller.signal.aborted && mountedRef.current) {
-        const message = apiErrorMessage(requestError, t, 'review.actionFailed');
         const status = requestError.response?.status;
         const code = requestError.response?.data?.code;
+        const message = code === 'SOURCE_VERSION_CONFLICT'
+          ? sourceStatusText(language, 'sourceStatus.conflict')
+          : apiErrorMessage(requestError, t, 'review.actionFailed');
         if (status === 409 || code === 'CHANGESET_INVALID_STATE' || code === 'CHANGESET_CONFLICT' || code === 'SOURCE_VERSION_CONFLICT') {
           await Promise.all([expandChangeSet(id), load()]);
           announceReviewChanged();
@@ -318,9 +320,11 @@ export const ReviewPage: React.FC = () => {
       setSuccess(t('review.decisionSuccess'));
     } catch (requestError: any) {
       if (!controller.signal.aborted && mountedRef.current) {
-        const message = apiErrorMessage(requestError, t, 'review.decisionFailed');
         const status = requestError.response?.status;
         const code = requestError.response?.data?.code;
+        const message = code === 'SOURCE_VERSION_CONFLICT'
+          ? sourceStatusText(language, 'sourceStatus.conflict')
+          : apiErrorMessage(requestError, t, 'review.decisionFailed');
         if (status === 409 || code === 'CHANGESET_INVALID_STATE' || code === 'CHANGESET_CONFLICT' || code === 'SOURCE_VERSION_CONFLICT') {
           await Promise.all([expandChangeSet(setId), load()]);
           announceReviewChanged();

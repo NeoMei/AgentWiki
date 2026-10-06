@@ -81,11 +81,48 @@ const ReviewQuerySwitcher = () => {
 };
 
 describe('ReviewPage detail refresh', () => {
-  it.each(['en', 'zh-CN'] as const)('shows candidate alignment without claiming publication in %s', async language => {
-    const detail = { ...changeSet(), items: [{ ...changeItem(), sourceStatus: { status: 'current', reason: 'reviewed_source', sourceId: 'src', reviewedSourceVersion: 1, currentSourceVersion: 1 } }] };
+  it.each((['en', 'zh-CN'] as const).flatMap(language => [
+    ['pending_review', 'pending'], ['approved', 'accepted'], ['published', 'published'],
+    ['rejected', 'rejected'], ['reverted', 'reverted'],
+  ].map(([status, itemStatus]) => ({ language, status, itemStatus }))))('shows lifecycle-neutral source alignment in $language for $status', async ({ language, status, itemStatus }) => {
+    const detail = { ...changeSet(), status, items: [{ ...changeItem(), status: itemStatus, sourceStatus: { status: 'current', reason: 'reviewed_source', sourceId: 'src', reviewedSourceVersion: 1, currentSourceVersion: 1 } }] };
     vi.mocked(api.get).mockImplementation(async url => ({ data: url === '/review' ? [detail] : detail }));
     renderReview(language); await expand();
-    expect(screen.getByRole('note')).toHaveTextContent(language === 'en' ? 'human review is still required' : '仍需人工审核');
+    const notice = screen.getByRole('note');
+    expect(notice).toHaveTextContent(language === 'en' ? 'This change’s pinned input matches the currently accepted source' : '该变更的固定输入与当前已接收来源一致');
+    expect(notice).toHaveTextContent(language === 'en' ? 'does not certify factual correctness' : '不代表内容必然正确');
+    expect(notice).not.toHaveTextContent(/human review is still required|仍需人工审核/);
+    expect(notice).toHaveTextContent(language === 'en' ? 'Pinned change version' : '变更固定版本');
+  });
+
+  it('keeps source alignment neutral when a successful publish refreshes the item to published', async () => {
+    let published = false;
+    const detail = () => ({ ...changeSet(published ? 'published' : 'pending_review', 'accepted'), items: [{ ...changeItem('accepted'), status: published ? 'published' : 'accepted', sourceStatus: { status: 'current', reason: 'reviewed_source', sourceId: 'src' } }] });
+    vi.mocked(api.get).mockImplementation(async url => ({ data: url === '/review' ? [detail()] : detail() }));
+    vi.mocked(api.post).mockImplementation(async () => { published = true; return { data: detail() } as any; });
+    renderReview(); await expand();
+    fireEvent.click(screen.getByRole('button', { name: 'Approve & publish' }));
+    expect(await screen.findByRole('button', { name: 'Revert' })).toBeVisible();
+    expect(screen.getByRole('note')).toHaveTextContent('This change’s pinned input matches the currently accepted source');
+    expect(screen.getByRole('note')).not.toHaveTextContent('human review is still required');
+    expect(api.post).toHaveBeenCalledWith('/change-sets/cs-1/review-publish', expect.anything(), expect.anything());
+  });
+
+  it.each(['en', 'zh-CN'] as const)('explains a real SOURCE_VERSION_CONFLICT shape in %s while keeping refresh and no retry', async language => {
+    let detailReads = 0;
+    const detail = changeSet('approved', 'accepted');
+    vi.mocked(api.get).mockImplementation(async url => {
+      if (url === '/review') return { data: [detail] } as any;
+      detailReads += 1;
+      return { data: detail } as any;
+    });
+    vi.mocked(api.post).mockRejectedValue({ response: { status: 409, data: { code: 'SOURCE_VERSION_CONFLICT', message: 'Source input changed; regenerate the candidate' } } });
+    renderReview(language); await expand();
+    fireEvent.click(screen.getByRole('button', { name: language === 'en' ? 'Publish' : '发布' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(language === 'en' ? 'Regenerate from the current source and review the new candidate' : '来源已更新，请基于当前来源重新生成并审核');
+    expect(detailReads).toBe(2);
+    expect(api.post).toHaveBeenCalledTimes(1);
+    expect(api.patch).not.toHaveBeenCalled();
   });
 
   beforeEach(() => {
