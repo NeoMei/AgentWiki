@@ -11,7 +11,7 @@
 
 - 自有工作树 `/Users/neomei/.codex/worktrees/knowledge-capabilities/AgentWiki `，分支codex/knowledge-capabilities，基线165c207bf4b644efa810ea6c9a3da11d28c4f96e。
 - 旧文档会话在f4325942已独立验收，边界与记录保留；本期为新任务。
-- 依赖安装完成；定向基线测试及两项只读代码规划进行中。
+- 依赖与定向基线完成；检索harness候选b42ce1ef已构建，独立审查中，真实Agent基线待运行。来源复核spec/plan已完成并修正独立设计审查发现。
 
 # 稳定约束
 
@@ -26,6 +26,9 @@
 - .codex-memory/tasks/active/knowledge-capabilities-20261007/decisions.md
 - .codex-memory/tasks/active/knowledge-capabilities-20261007/refs.md
 - agentwiki/docs/research/openknowledge-20261007/能力增益筛选.md
+- agentwiki/docs/superpowers/plans/2026-10-07-knowledge-retrieval.md
+- agentwiki/docs/superpowers/plans/2026-10-07-source-freshness.md
+- .superpowers/sdd/ 对应plan的ignored进度与审查回执
 
 # 风险 / 下一步
 

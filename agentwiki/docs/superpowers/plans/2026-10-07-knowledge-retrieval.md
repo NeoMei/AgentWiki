@@ -89,7 +89,7 @@ Assert missing query/pageId, zero/oversize/noninteger bounds, revoked credential
 
 **Interfaces:** consumes Task1 corpus/protocol, reviewed Task2 candidate, baseline result. Produces per-case before/after fact/citation/privacy/error metrics, measured costs and honest benefit conclusion.
 
-- [ ] Freeze candidate build; recreate equivalent isolated corpus with same normalized hash. Fresh a/b model consumer chats have identical p5c07ff model/effort and 20 read calls budget per8-case task; no fixture file or prior transcript access.
+- [ ] Freeze candidate build; recreate equivalent isolated corpus with same normalized hash. Fresh a/b model consumer chats have identical native Codex gpt-6-astra/high model/effort and 20 read calls budget per8-case task; no fixture file or prior transcript access.
 - [ ] Agent tool discovery/queries run through actual gateway. Save answer, successful/failed calls, actual bytes/time; inaccessible token usage remains unknown. Skill condition is explicit: baseline current shipped skill, candidate updated shipped skill. No evaluator hints leak into prompts.
 - [ ] Compare all8 fixed questions. Correctness/traceable citations cannot regress, unauthorized sentinel must never appear; report baseline already-solved cases honestly. A tool count decrease alone is not a correct-answer improvement. If no measurable benefit, document and keep only supported parameter-discoverability compatibility fix; do not invent a bigger context service.
 - [ ] Complete whole-branch independent review of Tasks1–2 and targeted integration checks; fix genuine findings through fresh implementer/review loop. Preserve old source/candidate/version authorization guards.
