@@ -44,6 +44,8 @@ human intake/worker分支必须先锁当前User/PAT身份，再获取Space advis
 
 REST读页、MCP get_page/page resource，以及返回正文的REST/MCP搜索与列表均携带该状态；图谱节点携带对应页面状态，关系中的来源证据使用同一授权与白名单规则；投影必须使用本次正文响应的Page快照，不能按ID再次读到更新后的Page再把新状态贴到旧正文；批量读取来源头和授权信息。Review新建候选无Page ID时也使用相同底层版本/代次比较规则。get_page证据改为明确字段白名单，保留必要quote/location/版本/有限文件路径，移除完整SourceVersion.content和任意metadata/config；每条来源分别实时授权并核对Space。历史证据按已发布依据与Run输入代次标记，不把A旧代次当成当前依据。
 
+个人凭据读取来源还须具备当前 `sources:read` 或 `*` 范围；不能因持有同Space成员身份或 `pages:read` 就获得来源详情。新投影与直接Source列表/详情采用同一最小校验，JWT成员和既有Agent授权语义保持。页正文已获读取授权时仍可返回，来源字段与证据单独脱敏；不扩展为全站REST授权重构。
+
 无权来源的脱敏覆盖既有Page.sourceId/sourceVersionId/sourcePath、provenance、Evidence和图谱sourceInfo/sourceMetadata，不只是新增status字段。返回Page或ChangeSet的写接口、Review列表/detail及loadChangeSet回包同样覆盖该投影与脱敏；前端会直接采用这些响应，不能仅覆盖GET。保留用户本来有权读取的Page正文。来源归档与无权不同：归档仍可向有权者展示历史证据，但绝不能标为current。
 
 PagePreview在待复核时给可见提示；PageInfoPanel显示版本差异和历史依据；ReviewPage显示当前候选与当前来源是否一致，复用既有审批入口，不新增评分页或审批系统。审批/发布仍由服务器决定，UI状态不是锁。
