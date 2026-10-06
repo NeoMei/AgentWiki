@@ -4,6 +4,8 @@
 
 ## 活跃任务
 
+- [knowledge-capabilities-20261007](active/knowledge-capabilities-20261007/brief.md)：用户批准知识检索复用与来源复核更新，隔离实施和独立验收进行中。
+
 
 
 - [q2-defect-closure-20261001](active/q2-defect-closure-20261001/brief.md)：全部20项及2条接入问题修复部署，公网TLS已验证，其余顺序实施与审查。
