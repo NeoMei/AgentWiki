@@ -1,5 +1,7 @@
 # AgentWiki 统一 Agent 会话侧栏第一阶段验收
 
+> 2026-10-07补充：独立验收在1735f341发现混合Resolved/Awaiting-review批注重生成P2，已由f4325942补修并独立代码复审通过，新候选真实UI尚待复验。原整体完成结论暂留待验，历史回执保留；交接见active/agent-session-mixed-notes-20261007。
+
 状态：产品与实际 UI 验收完成，独立整体代码审查 APPROVED，R1–R4、F1/F2 全部关闭；owned 运行时清理与独立复核完成；本地交付完成。
 
 ## 交付行为

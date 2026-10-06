@@ -1,4 +1,6 @@
-# 统一 Agent 会话侧栏第一阶段 — 已完成
+# 统一 Agent 会话侧栏第一阶段 — 历史验收记录
+
+> 2026-10-07独立验收新增混合状态批注重生成P2，f4325942已补修并独立代码复审通过，整体结论等待新候选真实UI；见../../active/agent-session-mixed-notes-20261007/brief.md。以下保留原冻结候选回执。
 
 用户已确认推进 OpenKnowledge ACP 调研后的第一阶段，按指定 p5c07ff/gpt-6-astra / ultra 实施与独立审查。
 

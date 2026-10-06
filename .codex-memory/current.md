@@ -1,6 +1,6 @@
 # 当前目标
 
-- 统一 Agent 会话侧栏第一阶段已完成并独立验收，保留本地分支，后续真实provider接入或本机ACP另行推进。
+- 统一 Agent 会话侧栏混合状态批注P2已补修并独立代码复审通过，新固定候选f4325942；整体完成结论等待独立真实UI复验。
 
 # 范围 / 不做
 
@@ -9,9 +9,9 @@
 
 # 当前状态
 
-- 工作树 /Users/neomei/.codex/worktrees/document-workspace/AgentWiki （尾空格），codex/document-workspace；本轮基线ee934883，最终产品1735f341167950e58dca935b819bc2e188133f88。
-- Task1、Task2与最终整体独立审查全部关闭（含F1在途Send读写切换、F2选区/整篇重生成笔记关联）；最终APPROVED，无剩余finding。
-- server2877通过/26既有skip；client最近全量2091通过，最终小修260定向检查及tsc/lint/build通过，JS548914/550000。迁移61文件corpus获独立批准，保护检查6通过。
+- 工作树 /Users/neomei/.codex/worktrees/document-workspace/AgentWiki （尾空格），codex/document-workspace；本轮基线ee934883，前次产品1735f341，当前固定产品候选f4325942c53101e8c628cd68fc1b7f23f07ae5cd。
+- Task1、Task2与最终整体独立审查全部关闭（含F1在途Send读写切换、F2选区/整篇重生成笔记关联）；原发现已APPROVED；后续独立组件及真实CUA验收发现混合Resolved/Awaiting-review重生成P2，f4325942已修复并获fresh spec/quality/integration Approved；新候选实际UI仍待验。
+- server2877通过/26既有skip；client最近全量2091通过，当前补修427定向检查及tsc/lint/build通过，JS548914/550000。迁移61文件corpus获独立批准，保护检查6通过。
 - 13实际HTTP/DB/worker检查及生产构建CUA通过：跨页/刷新历史、阅读批注显式Send、两hunk/人工改稿/Undo、冲突重生、1280/1600/390宽表与目录、实际停止。隔离fixture显式Save后3589字符精确读回；最终无额外Save。
 - owned运行时与schema/ports/私有凭据文件已清理并独立复核，公共数据未变；仅隔离浏览器origin可能残留模拟笔记/偏好。原主目录仍只有既有未跟踪agentwiki/docs/research/。
 - 线上仍0.12.12/LocalSync0.11.0，本轮未改。
@@ -26,6 +26,8 @@
 
 # 关键索引
 
+- .codex-memory/tasks/active/agent-session-mixed-notes-20261007/brief.md
+
 - .codex-memory/tasks/archive/agent-sessions-20261006/brief.md
 - .codex-memory/tasks/archive/agent-sessions-20261006/acceptance.md
 - .codex-memory/tasks/archive/agent-sessions-20261006/reviews/final-rereview-round2.md
@@ -34,6 +36,8 @@
 - /tmp/agentwiki-sessions-20261006/
 
 # 风险 / 下一步
+
+- 新候选f4325942固定交接，独立真实UI复验为剩余gate；旧候选真实UI失败不能替代新候选结果，勿触碰对方51913/51914。
 
 - 真实provider未加载凭据，确定性CLI验证流程不证明模型质量；本机ACP未连接、无tools/permissions/FollowMode。
 - 单会话100轮，模型最近10个completed轮次/120000字符；Undo不回退历史接受/笔记记录，浏览器进程终止的在途私人批注绑定恢复不在本阶段承诺。

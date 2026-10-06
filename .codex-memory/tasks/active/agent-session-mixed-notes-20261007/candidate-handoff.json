@@ -1,0 +1,25 @@
+{
+  "candidate": "f4325942c53101e8c628cd68fc1b7f23f07ae5cd",
+  "base": "fd9b97967aafe2b18c6bc762a6014530d9139718",
+  "supersedesProduct": "1735f341167950e58dca935b819bc2e188133f88",
+  "branch": "codex/document-workspace",
+  "productionEntry": "index-DXqBseLb.js",
+  "focusedTests": {
+    "files": 12,
+    "passed": 427,
+    "failed": 0
+  },
+  "typecheck": "passed",
+  "eslint": "passed",
+  "productionBuild": "passed",
+  "initialJavaScriptBytes": 548914,
+  "initialJavaScriptBudgetBytes": 550000,
+  "independentReview": "approved: spec, code quality and correction integration",
+  "actualUiForCandidate": "pending independent acceptance; old1735f341 real UI failed",
+  "externalRuntimeChanged": false,
+  "push": false,
+  "merge": false,
+  "deploy": false,
+  "reviewReport": "/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /.codex-memory/tasks/active/agent-session-mixed-notes-20261007/task-1-review.md",
+  "implementationReport": "/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /.codex-memory/tasks/active/agent-session-mixed-notes-20261007/task-1-report.md"
+}
