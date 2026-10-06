@@ -116,3 +116,27 @@ it('retains uncertain multi-hunk dependencies instead of resolving after only th
   act(()=>result.current.onNotesEvent({event:'discard',taskId:'task',noteIds:ids,candidate:done}));
   expect(result.current.notes[0].status).toBe('pending');
 });
+
+it('stages private reader annotations without rewrite instructions, uploads, or status transitions', () => {
+  const { result } = renderHook(() => usePersonalNotes({ scope, canEdit: false, enabled: true, stageForSession: true, source, updatedAt: version }));
+  act(() => { expect(result.current.add(first, 'Why this?')).toBe(true); });
+  const id = result.current.notes[0].id;
+  act(() => { expect(result.current.dispatch([id])).toBe(true); });
+  expect(result.current.notes[0].status).toBe('pending');
+  expect(result.current.assistRequest).toMatchObject({ autoSubmit: false, noteIds: [id], annotations: [{ id, body: 'Why this?', quote: 'one' }] });
+  expect(result.current.assistRequest?.intent).not.toMatch(/rewrite|edit|modify/i);
+});
+it('recovers same-task note coverage on remount without resetting statuses or accepting another task', () => {
+  const firstHook = renderHook(() => usePersonalNotes({ scope, canEdit: true, source, updatedAt: version }));
+  act(() => firstHook.result.current.add(first, 'Fix one'));
+  const id = firstHook.result.current.notes[0].id;
+  act(() => { firstHook.result.current.dispatch([id]); });
+  const done = candidate([id], firstHook.result.current.assistRequest?.assistTarget);
+  act(() => firstHook.result.current.onNotesEvent({ event: 'dispatch', taskId: 'task', noteIds: [id], candidate: done }));
+  firstHook.unmount();
+  const secondHook = renderHook(() => usePersonalNotes({ scope, canEdit: true, source, updatedAt: version }));
+  act(() => secondHook.result.current.onNotesEvent({ event: 'ready', taskId: 'other', noteIds: [id], candidate: { ...done, taskId: 'other' } }));
+  expect(secondHook.result.current.notes[0].status).toBe('dispatched');
+  act(() => secondHook.result.current.onNotesEvent({ event: 'ready', taskId: 'task', noteIds: [id], candidate: done }));
+  expect(secondHook.result.current.notes[0].status).toBe('awaiting-review');
+});

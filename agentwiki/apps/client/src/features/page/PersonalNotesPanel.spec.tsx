@@ -146,3 +146,12 @@ describe('personal notes UI', () => {
     expect(view.props.onDispatch).not.toHaveBeenCalled();
   });
 });
+
+it('retains note text and offers recovery when the live source rejects an add', () => {
+  localStorage.setItem('agentwiki.language.v1', 'en');
+  queue({ target, onAdd: () => false });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Note' }), { target: { value: 'Keep this note' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Add note' }));
+  expect(screen.getByRole('textbox', { name: 'Note' })).toHaveValue('Keep this note');
+  expect(screen.getByRole('alert')).toHaveTextContent('Select a longer or current excerpt');
+});

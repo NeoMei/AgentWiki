@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, useId } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { ExtraProps } from 'react-markdown';
 import { Link } from 'react-router-dom';
@@ -222,6 +222,7 @@ export interface MarkdownProps {
   spaceId?: string;
   pageId?: string;
   internalBranch?: MarkdownRenderBranch;
+  selectionSourceVersion?: string;
 }
 
 const emptyResources: MarkdownResourceMap = new Map();
@@ -507,7 +508,23 @@ export const Markdown: React.FC<MarkdownProps> = ({
   spaceId,
   pageId,
   internalBranch,
+  selectionSourceVersion,
 }) => {
+  const selectionOwner = useId();
+  // Opt-in literal source spans are added after renderer transforms. Generated text never gets guessed offsets.
+  const selectionPlugin = useMemo(() => () => (tree: HastNode) => {
+    if (!selectionSourceVersion) return;
+    const annotate = (parent: HastNode) => {
+      parent.children = parent.children?.map((child) => {
+        if (child.type !== 'text') { annotate(child); return child; }
+        const position = (child as HastNode & { position?: { start: { offset?: number }; end: { offset?: number } } }).position;
+        const start = position?.start.offset, end = position?.end.offset;
+        if (typeof start !== 'number' || typeof end !== 'number' || children.slice(start, end) !== child.value) return child;
+        return { type: 'element', tagName: 'span', properties: { 'data-markdown-text-start': start, 'data-markdown-text-end': end, 'data-markdown-text-owner': selectionOwner }, children: [child] } as HastElementNode;
+      });
+    };
+    annotate(tree);
+  }, [children, selectionSourceVersion, selectionOwner]);
   const parentRuntime = useContext(MarkdownRuntimeContext);
   const ownTree = useMemo(
     () => createMarkdownTreeState(spaceId ?? '', mode),
@@ -594,7 +611,7 @@ export const Markdown: React.FC<MarkdownProps> = ({
 
   return (
     <MarkdownRuntimeContext.Provider value={runtimeValue}>
-    <div className={className ?? markdownClass} onChange={handleChange}>
+    <div className={className ?? markdownClass} onChange={handleChange} data-markdown-selection-root={selectionOwner} data-markdown-selection-version={selectionSourceVersion}>
       <ReactMarkdown
         skipHtml
         remarkPlugins={[remarkGfm, remarkMath, obsidianPlugin, remarkBreaks]}
@@ -610,6 +627,7 @@ export const Markdown: React.FC<MarkdownProps> = ({
           }],
           rehypeHighlight,
           rehypeAnnotateCodeBlocks,
+          selectionPlugin,
         ]}
         components={{
           a: ({ href, children: linkChildren, ...rest }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
@@ -669,9 +687,9 @@ export const Markdown: React.FC<MarkdownProps> = ({
             );
           },
           pre: MarkdownPre,
-          'agent-wiki-link': AgentWikiLink,
-          'agent-wiki-embed': AgentWikiEmbed,
-          'agent-wiki-image': AgentWikiImage,
+          'agent-wiki-link': selectionSourceVersion ? (props: AgentWikiNodeProps) => <span data-markdown-unmapped><AgentWikiLink {...props} /></span> : AgentWikiLink,
+          'agent-wiki-embed': selectionSourceVersion ? (props: AgentWikiNodeProps) => <div data-markdown-unmapped><AgentWikiEmbed {...props} /></div> : AgentWikiEmbed,
+          'agent-wiki-image': selectionSourceVersion ? (props: AgentWikiNodeProps) => <span data-markdown-unmapped><AgentWikiImage {...props} /></span> : AgentWikiImage,
         } as React.ComponentProps<typeof ReactMarkdown>['components']}
       >
         {children}

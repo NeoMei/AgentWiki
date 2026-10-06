@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import type { AssistRequest, AssistNotesEvent } from './AgentAssistPanel';
 import { captureAssistTarget, resolveAssistTarget, type AssistTarget, type CandidateEdit } from './assistTargets';
 import { addPersonalNote, loadPersonalNotes, notesForDispatch, personalNotesKey, savePersonalNotes, transitionPersonalNotes, type PersonalNote, type PersonalNotesScope } from './reviewComments';
-interface Props { scope: PersonalNotesScope | null; canEdit: boolean; source: string; updatedAt?: string; language?: string }
-interface QueueState { notes: PersonalNote[]; assistRequest: AssistRequest | null; storageUnavailable: boolean; conflict: boolean }
-const empty = (): QueueState => ({ notes: [], assistRequest: null, storageUnavailable: false, conflict: false });
+interface Props { scope: PersonalNotesScope | null; canEdit: boolean; enabled?: boolean; stageForSession?: boolean; source: string; updatedAt?: string; language?: string }
+interface QueueState { loaded: boolean; notes: PersonalNote[]; assistRequest: AssistRequest | null; storageUnavailable: boolean; conflict: boolean }
+const empty = (): QueueState => ({ loaded: false, notes: [], assistRequest: null, storageUnavailable: false, conflict: false });
 interface TaskBinding { noteIds: string[]; coverage: Map<string, string[]>; uncertain: Set<string> }
 /** Evidence of source change, not the enclosing line-hunk extent. Ambiguous retained excerpts stay unresolved. */
 const editPassageEvidence = (edit: CandidateEdit, passage: { from: number; to: number }): 'unchanged' | 'changed' | 'uncertain' => {
@@ -21,17 +21,17 @@ const editPassageEvidence = (edit: CandidateEdit, passage: { from: number; to: n
 };
 
 /** Owns only personal notes and request/event linkage. Parent remains the sole Markdown writer. */
-export function usePersonalNotes({ scope, canEdit, source, updatedAt, language = 'en' }: Props) {
+export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSession = false, source, updatedAt, language = 'en' }: Props) {
   const latestRef = useRef({ source, updatedAt, language }); latestRef.current = { source, updatedAt, language };
   const key = scope ? personalNotesKey(scope) : '';
-  const identity = `${key}:${canEdit}`;
+  const identity = `${key}:${enabled}`;
   const identityRef = useRef(identity), generationRef = useRef(0);
   const stateRef = useRef<QueueState>(empty()), bindingsRef = useRef(new Map<string, TaskBinding>());
   const [, setState] = useState<QueueState>(empty());
   const mountedRef = useRef(true);
   if (identityRef.current !== identity) { identityRef.current = identity; generationRef.current++; stateRef.current = empty(); bindingsRef.current.clear(); }
   const generation = generationRef.current;
-  const active = () => mountedRef.current && generationRef.current === generation && identityRef.current === identity && canEdit && !!scope;
+  const active = () => mountedRef.current && generationRef.current === generation && identityRef.current === identity && enabled && !!scope;
   const publish = (next: QueueState, persist = false) => {
     if (!active()) return;
     if (persist && scope) next = { ...next, storageUnavailable: savePersonalNotes(scope, next.notes).status !== 'saved' };
@@ -40,12 +40,12 @@ export function usePersonalNotes({ scope, canEdit, source, updatedAt, language =
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; generationRef.current++; bindingsRef.current.clear(); }; }, []);
   useEffect(() => {
     const next = empty();
-    if (scope && canEdit) {
+    if (scope && enabled) {
       const loaded = loadPersonalNotes(scope);
       if (loaded.status === 'loaded') next.notes = loaded.notes;
       else next.storageUnavailable = true;
     }
-    stateRef.current = next; setState(next);
+    next.loaded = true; stateRef.current = next; setState(next);
   }, [identity]);
   const add = (target: AssistTarget, body: string): boolean => {
     if (!active() || !scope || target.baseUpdatedAt !== latestRef.current.updatedAt || resolveAssistTarget(latestRef.current.source, target).status !== 'found') return false;
@@ -64,9 +64,11 @@ export function usePersonalNotes({ scope, canEdit, source, updatedAt, language =
     if (!target) return false;
     const instructions = liveLanguage === 'zh-CN' ? '按以下个人笔记修改引用原文，仅修改指定范围，保留其余 Markdown。每条笔记的原文和上下文用于精确定位：' : 'Address the personal notes below in their quoted passages. Edit only the specified scope and preserve all other Markdown. Use each quote and context to locate its passage:';
     const passages = located.map(({ note, position }) => ({ note: note.body, quote: note.target.quote, prefix: note.target.prefix, suffix: note.target.suffix, from: position.status === 'found' ? position.from : 0, to: position.status === 'found' ? position.to : 0 }));
-    const intent = instructions + '\n' + JSON.stringify(passages);
-    if (intent.length > 10_000) { publish({ ...stateRef.current, conflict: true }); return false; }
-    const request: AssistRequest = { id: crypto.randomUUID(), intent, autoSubmit: true, assistTarget: target, noteIds: selected.notes.map((note) => note.id) };
+    const legacyIntent = instructions + '\n' + JSON.stringify(passages);
+    const annotations = selected.notes.map((note) => ({ id: note.id, body: note.body, quote: note.target.quote }));
+    const intent = stageForSession ? (liveLanguage === 'zh-CN' ? '请讨论这些批注中的问题。' : 'Please discuss the questions in these annotations.') : legacyIntent;
+    if (intent.length > 10_000 || (stageForSession && JSON.stringify(annotations).length > 10_000)) { publish({ ...stateRef.current, conflict: true }); return false; }
+    const request: AssistRequest = { id: crypto.randomUUID(), intent, autoSubmit: !stageForSession, ...(stageForSession ? { annotations } : {}), assistTarget: target, noteIds: selected.notes.map((note) => note.id) };
     publish({ ...stateRef.current, assistRequest: request, conflict: false }); return true;
   };
   const onRequestHandled = (id: string) => { if (active() && stateRef.current.assistRequest?.id === id) publish({ ...stateRef.current, assistRequest: null }); };
@@ -82,9 +84,14 @@ export function usePersonalNotes({ scope, canEdit, source, updatedAt, language =
       if (!request || !event.noteIds.length || request.noteIds?.length !== event.noteIds.length || event.noteIds.some((id) => !request.noteIds?.includes(id)) || event.candidate.baseUpdatedAt !== latestRef.current.updatedAt) return;
       bindingsRef.current.set(event.taskId, { noteIds: [...event.noteIds], coverage: new Map(), uncertain: new Set() });
     }
+    // A route remount loses only the in-memory coverage map. Recover it solely from local task linkage.
+    if (event.event !== 'dispatch' && !bindingsRef.current.has(event.taskId) && event.noteIds.length
+      && event.noteIds.every((id) => stateRef.current.notes.some((note) => note.id === id && note.taskId === event.taskId))) {
+      bindingsRef.current.set(event.taskId, { noteIds: [...event.noteIds], coverage: new Map(), uncertain: new Set() });
+    }
     const binding = bindingsRef.current.get(event.taskId);
     if (!binding || event.noteIds.some((id) => !binding.noteIds.includes(id))) return;
-    if (event.event === 'ready' && event.candidate.editPlan) {
+    if ((event.event === 'ready' || event.event === 'accept') && event.candidate.editPlan) {
       for (const note of stateRef.current.notes.filter((n) => binding.noteIds.includes(n.id) && n.taskId === event.taskId)) {
         const position = resolveAssistTarget(event.candidate.baseContent, note.target);
         if (position.status !== 'found') continue;
@@ -102,7 +109,7 @@ export function usePersonalNotes({ scope, canEdit, source, updatedAt, language =
     const notes = transitionPersonalNotes(stateRef.current.notes, ids, event.event, event.taskId);
     publish({ ...stateRef.current, notes }, true);
   };
-  const visible = identityRef.current === identity && canEdit && scope ? stateRef.current : empty();
+  const visible = identityRef.current === identity && enabled && scope ? stateRef.current : empty();
   // Refs let sequential callbacks observe synchronous queue changes; setState triggers UI updates.
   return { ...visible, add, dispatch, reopen, onNotesEvent, onRequestHandled, identityKey: key };
 }

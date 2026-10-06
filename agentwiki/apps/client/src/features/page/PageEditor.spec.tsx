@@ -9,6 +9,7 @@ import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { LanguageProvider } from '../../context/LanguageContext';
 import type { PageTemplateListResponse } from '../page-templates/pageTemplateTypes';
 import { PageEditor } from './PageEditor';
+import { AgentSessionRegistryProvider } from '../agent-session/AgentSessionRegistry';
 import { loadDraft, saveDraft } from './localDrafts';
 import { SpaceWorkspace } from '../space-workspace/SpaceWorkspace';
 import { SpaceWorkspaceProvider, SpaceWorkspaceScope, useSpaceWorkspace } from '../space-workspace/SpaceWorkspaceContext';
@@ -163,7 +164,7 @@ const pasteImages = (files: File[]) => {
 const pasteImage = (file: File) => pasteImages([file]);
 
 const renderEditor = (withLanguageSwitcher = false) => render(
-  <LanguageProvider>
+  <LanguageProvider><AgentSessionRegistryProvider userId={authMock.user.id}>
     {withLanguageSwitcher ? <LanguageSwitcher /> : null}
     <MemoryRouter initialEntries={['/pages/page-1/edit']}>
       <Routes>
@@ -171,8 +172,29 @@ const renderEditor = (withLanguageSwitcher = false) => render(
         <Route path="/pages/:id" element={<DirectEditRedirectTarget />} />
       </Routes>
     </MemoryRouter>
-  </LanguageProvider>,
+  </AgentSessionRegistryProvider></LanguageProvider>,
 );
+
+/** Canonical session transport around real editor/panel integration. */
+const mockAgentSession = (sourcePage: ReturnType<typeof page>, readTurns: () => any[], send: (payload: any) => Promise<any>) => {
+  const summary = { id: 'session-1', spaceId: sourcePage.spaceId, title: 'Editor conversation', createdAt: sourcePage.updatedAt, updatedAt: sourcePage.updatedAt };
+  const requests = new Map<string, any>();
+  const canonical = (turn: any) => {
+    const request = requests.get(turn.id) ?? {};
+    return { sessionId: summary.id, pageId: sourcePage.id, mode: 'proposal', createdAt: sourcePage.updatedAt, pageSnapshot: request.snapshot ?? { title: sourcePage.title, content: sourcePage.content, updatedAt: sourcePage.updatedAt }, noteIds: request.noteIds ?? [], annotations: request.annotations ?? [], references: [], progressText: '', error: null, ...turn };
+  };
+  vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/assist/sessions' ? [summary] : url === '/assist/sessions/session-1' ? { ...summary, turns: readTurns().map(canonical) } : sourcePage }));
+  vi.mocked(api.post).mockImplementation(async (url, payload: any) => {
+    if (url !== '/assist/sessions/session-1/turns') throw new Error('Unexpected POST ' + url);
+    const turn = await send(payload); requests.set(turn.id, payload); return { data: canonical(turn) };
+  });
+};
+const chooseProposal = async () => {
+  await screen.findByRole('combobox', { name: 'Message mode' });
+  await waitFor(() => expect(screen.queryByText('Loading conversation…')).not.toBeInTheDocument());
+  fireEvent.change(screen.getByRole('combobox', { name: 'Message mode' }), { target: { value: 'proposal' } });
+};
+const reloadAgentHistory = () => fireEvent.change(screen.getByRole('combobox', { name: 'Conversation' }), { target: { value: 'session-1' } });
 
 const DirectEditRedirectTarget = () => {
   const location = useLocation();
@@ -305,6 +327,7 @@ describe('PageEditor remote update safety', () => {
       if (typeof url === 'string' && url.includes('spaceId=')) {
         return Promise.resolve({ data: { data: [] } } as any);
       }
+      if (url === '/assist/sessions') return Promise.resolve({ data: [] });
       const next = pageQueue.shift();
       if (!next) return Promise.reject(new Error('unexpected get ' + url));
       return Promise.resolve(next);
@@ -500,7 +523,7 @@ describe('PageEditor remote update safety', () => {
     const newLoad = deferred<{ data: ReturnType<typeof page> }>();
     vi.mocked(api.get).mockReturnValue(newLoad.promise);
     authMock.user = { ...authMock.user, id: 'user-2' };
-    view.rerender(<LanguageProvider><MemoryRouter initialEntries={['/pages/page-1/edit']}><Routes><Route path="/pages/:id/edit" element={<PageEditor workspaceRef={workspaceRef} />} /></Routes></MemoryRouter></LanguageProvider>);
+    view.rerender(<LanguageProvider><AgentSessionRegistryProvider userId={authMock.user.id}><MemoryRouter initialEntries={['/pages/page-1/edit']}><Routes><Route path="/pages/:id/edit" element={<PageEditor workspaceRef={workspaceRef} />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></LanguageProvider>);
     expect(screen.queryByRole('button', { name: 'Recover local draft' })).not.toBeInTheDocument();
     newLoad.resolve({ data: page({ capabilities: { canEdit: true } }) });
     await screen.findByDisplayValue('Original title');
@@ -655,7 +678,7 @@ describe('PageEditor remote update safety', () => {
   it('keeps the opened candidate panel mounted through tabs/close but clears its page identity', async () => {
     const key = 'agentwiki.workspace.v1:user-1:space-1';
     localStorage.setItem(key, JSON.stringify({ schemaVersion: 1, collaborationOpen: true, collaborationTab: 'assist' }));
-    vi.mocked(api.get).mockImplementation(async (url: string) => ({ data: url === '/assist/tasks' || url === '/review' ? [] : page({ id: url.includes('page-2') ? 'page-2' : 'page-1', capabilities: { canEdit: true } }) }));
+    vi.mocked(api.get).mockImplementation(async (url: string) => ({ data: url === '/assist/sessions' || url === '/review' ? [] : page({ id: url.includes('page-2') ? 'page-2' : 'page-1', capabilities: { canEdit: true } }) }));
     const ScopedEditor = () => {
       const { id } = useParams(); const navigate = useNavigate();
       return <><button onClick={() => navigate('/pages/page-2/edit')}>Next scoped document</button><SpaceWorkspace mode="edit" pageId={id}><PageEditor workspaceRef={workspaceRef} /></SpaceWorkspace></>;
@@ -779,23 +802,19 @@ describe('PageEditor remote update safety', () => {
 
   it('keeps Assist streams out of the draft and accepts completion as a single undoable edit', async () => {
     let tasks: any[] = [];
-    vi.mocked(api.get).mockImplementation((url: string) => Promise.resolve({ data: url === '/assist/tasks' ? tasks : url === '/review' ? [] : page({ capabilities: { canEdit: true } }) }));
-    vi.mocked(api.post).mockImplementation(async (url: string) => {
-      if (url === '/assist/tasks') { tasks = [{ id: 'assist-1', intent: 'Rewrite', status: 'running' }]; return { data: tasks[0] }; }
-      return { data: {} };
-    });
+    mockAgentSession(page({ capabilities: { canEdit: true } }), () => tasks, async () => { tasks = [{ id: 'assist-1', intent: 'Rewrite', status: 'running' }]; return tasks[0]; });
     renderEditor();
     fireEvent.click(await screen.findByTestId('assist-toggle'));
-    fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
+    await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
     fireEvent.click(screen.getByTestId('assist-submit'));
-    await waitFor(() => expect(screen.getByTestId('assist-submit')).toHaveTextContent('Run task'));
+    await waitFor(() => expect(screen.getByTestId('assist-submit')).toHaveTextContent('Send'));
     act(() => socketMock.handlers.get('assistStream')?.({ taskId: 'assist-1', chunk: '📝 生成: {"changes":"Partial"}' }));
     fireEvent(window, new Event('pagehide'));
     expect(loadDraft(draftScope)).toBeNull();
     expect(contentEditorValue()).toBe('Original content');
     expect(screen.getByTestId('save-button')).toBeDisabled();
     tasks = [{ id: 'assist-1', intent: 'Rewrite', status: 'done', result: { changes: 'Accepted candidate' } }];
-    act(() => socketMock.handlers.get('assistComplete')?.({ taskId: 'assist-1' }));
+    reloadAgentHistory();
     const accept = await screen.findByRole('button', { name: 'Accept to draft' });
     expect(contentEditorValue()).toBe('Original content');
     fireEvent.click(accept);
@@ -808,18 +827,17 @@ describe('PageEditor remote update safety', () => {
     fireEvent(window, new Event('pagehide'));
     expect(loadDraft(draftScope)).toBeNull();
     expect(screen.queryByTestId('local-draft-status')).not.toBeInTheDocument();
-    act(() => socketMock.handlers.get('assistComplete')?.({ taskId: 'assist-1' }));
+    reloadAgentHistory();
     await screen.findByText('Accepted to draft');
     expect(contentEditorValue()).toBe('Original content');
   });
 
   it.each(['human', 'remote-kept', 'preview'] as const)('keeps the live draft safe when candidate acceptance meets %s state', async (scenario) => {
     let tasks: any[] = [];
-    vi.mocked(api.get).mockImplementation((url: string) => Promise.resolve({ data: url === '/assist/tasks' ? tasks : url === '/review' ? [] : page({ capabilities: { canEdit: true } }) }));
-    vi.mocked(api.post).mockImplementation(async () => { tasks = [{ id: 'assist-1', intent: 'Rewrite', status: 'done', result: { changes: 'Candidate' } }]; return { data: { id: 'assist-1' } }; });
+    mockAgentSession(page({ capabilities: { canEdit: true } }), () => tasks, async () => { tasks = [{ id: 'assist-1', intent: 'Rewrite', status: 'done', result: { changes: 'Candidate' } }]; return tasks[0]; });
     renderEditor();
     fireEvent.click(await screen.findByTestId('assist-toggle'));
-    fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
+    await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
     fireEvent.click(screen.getByTestId('assist-submit'));
     const accept = await screen.findByRole('button', { name: 'Accept to draft' });
     if (scenario === 'preview') {
@@ -2698,15 +2716,14 @@ describe('PageEditor remote update safety', () => {
   });
   it('sends a real selected passage to Agent and preserves unrelated concurrent typing when accepted', async () => {
     const base='old'+'x'.repeat(300)+'quote'+'y'.repeat(300);let tasks:any[]=[];
-    vi.mocked(api.get).mockImplementation(async(url)=>({data:url==='/assist/tasks'?tasks:url==='/review'?[]:page({content:base,capabilities:{canEdit:true}})}));
-    vi.mocked(api.post).mockImplementation(async()=>{tasks=[{id:'scoped',intent:'Fix',status:'done',result:{changes:base.replace('quote','new')}}];return{data:{id:'scoped'}};});
+    mockAgentSession(page({content:base,capabilities:{canEdit:true}}), () => tasks, async () => { tasks=[{id:'scoped',intent:'Fix',status:'done',result:{changes:base.replace('quote','new')}}]; return tasks[0]; });
     renderEditor();await screen.findByDisplayValue('Original title');
     act(()=>currentEditorView().dispatch({selection:EditorSelection.single(303,308)}));
     fireEvent.click(screen.getByRole('button',{name:'Ask Agent'}));
-    expect(screen.getByRole('combobox',{name:'Edit scope'})).toHaveValue('selection');
-    fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix quote'}});fireEvent.click(screen.getByTestId('assist-submit'));
+    await chooseProposal(); expect(screen.getByRole('combobox',{name:'Edit scope'})).toHaveValue('selection');
+    await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix quote'}});fireEvent.click(screen.getByTestId('assist-submit'));
     await screen.findByRole('button',{name:'Accept to draft'});
-    expect(api.post).toHaveBeenCalledWith('/assist/tasks',expect.objectContaining({snapshot:expect.objectContaining({assistTarget:expect.objectContaining({from:303,to:308,quote:'quote'})})}));
+    expect(api.post).toHaveBeenCalledWith('/assist/sessions/session-1/turns',expect.objectContaining({snapshot:expect.objectContaining({assistTarget:expect.objectContaining({from:303,to:308,quote:'quote'})})}));
     editContent(base.replace('old','human'));fireEvent.click(screen.getByRole('button',{name:'Accept to draft'}));
     expect(contentEditorValue()).toBe('human'+'x'.repeat(300)+'new'+'y'.repeat(300));
     act(()=>expect(undo(currentEditorView())).toBe(true));expect(contentEditorValue()).toBe(base.replace('old','human'));
@@ -2714,8 +2731,7 @@ describe('PageEditor remote update safety', () => {
   });
   it('sends checked private notes and accepts each linked hunk once with separate undo', async () => {
     const base='one\nkeep\ntwo\n';let tasks:any[]=[];
-    vi.mocked(api.get).mockImplementation(async(url)=>({data:url==='/assist/tasks'?tasks:url==='/review'?[]:page({content:base,capabilities:{canEdit:true}})}));
-    vi.mocked(api.post).mockImplementation(async()=>{tasks=[{id:'notes',intent:'Fix',status:'done',result:{changes:'ONE\nkeep\nTWO\n'}}];return{data:{id:'notes'}};});
+    mockAgentSession(page({content:base,capabilities:{canEdit:true}}), () => tasks, async () => { tasks=[{id:'notes',intent:'Fix',status:'done',result:{changes:'ONE\nkeep\nTWO\n'}}]; return tasks[0]; });
     renderEditor();await screen.findByDisplayValue('Original title');fireEvent.click(screen.getByRole('button',{name:'Personal notes'}));
     for(const [from,to,body] of [[0,3,'Fix one'],[9,12,'Fix two']] as const){
       act(()=>currentEditorView().dispatch({selection:EditorSelection.single(from,to)}));
@@ -2723,7 +2739,8 @@ describe('PageEditor remote update safety', () => {
     }
     expect(screen.getByText(/Private notes, stored only/)).toBeInTheDocument();
     for(const body of ['Fix one','Fix two'])fireEvent.click(screen.getByRole('checkbox',{name:body}));
-    fireEvent.click(screen.getByRole('button',{name:'Send selected to Agent'}));
+    fireEvent.click(screen.getByRole('button',{name:'Stage selected for Agent'}));
+    expect(api.post).not.toHaveBeenCalled(); await chooseProposal(); fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await screen.findByRole('button',{name:'Accept change 1'});fireEvent.click(screen.getByRole('button',{name:'Notes queue'}));expect(screen.getAllByText('Awaiting review')).toHaveLength(2);expect(contentEditorValue()).toBe(base);fireEvent.click(screen.getByRole('button',{name:'Candidate queue'}));
     fireEvent.click(screen.getByRole('button',{name:'Accept change 1'}));expect(contentEditorValue()).toBe('ONE\nkeep\ntwo\n');fireEvent.click(screen.getByRole('button',{name:'Notes queue'}));fireEvent.click(screen.getByRole('button',{name:'All (2)'}));expect(screen.getAllByText('Resolved')).toHaveLength(1);fireEvent.click(screen.getByRole('button',{name:'Candidate queue'}));
     fireEvent.click(screen.getByRole('button',{name:'Accept change 2'}));expect(contentEditorValue()).toBe('ONE\nkeep\nTWO\n');fireEvent.click(screen.getByRole('button',{name:'Notes queue'}));fireEvent.click(screen.getByRole('button',{name:'All (2)'}));expect(screen.getAllByText('Resolved')).toHaveLength(2);fireEvent.click(screen.getByRole('button',{name:'Candidate queue'}));
@@ -2733,43 +2750,61 @@ describe('PageEditor remote update safety', () => {
 
   it('captures current heading section and sends default document snapshots explicitly', async () => {
     const base='# One\nintro\n## Child\nx\n# Two\ny';let tasks:any[]=[];
-    vi.mocked(api.get).mockImplementation(async(url)=>({data:url==='/assist/tasks'?tasks:url==='/review'?[]:page({content:base,capabilities:{canEdit:true}})}));
-    vi.mocked(api.post).mockImplementation(async()=>{tasks=[{id:'scope',intent:'Fix',status:'done',result:{changes:base.replace('intro','INTRO')}}];return{data:{id:'scope'}};});
+    mockAgentSession(page({content:base,capabilities:{canEdit:true}}), () => tasks, async () => { tasks=[{id:'scope',intent:'Fix',status:'done',result:{changes:base.replace('intro','INTRO')}}]; return tasks[0]; });
     renderEditor();await screen.findByDisplayValue('Original title');act(()=>currentEditorView().dispatch({selection:EditorSelection.cursor(7)}));
-    fireEvent.click(screen.getByTestId('assist-toggle'));expect(screen.getByRole('combobox',{name:'Edit scope'})).toHaveValue('document');
-    fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix'}});fireEvent.click(screen.getByTestId('assist-submit'));await screen.findByRole('button',{name:'Accept to draft'});
-    expect(api.post).toHaveBeenLastCalledWith('/assist/tasks',expect.objectContaining({snapshot:expect.objectContaining({assistTarget:expect.objectContaining({kind:'document',from:0,to:base.length})})}));
+    fireEvent.click(screen.getByTestId('assist-toggle'));await chooseProposal(); expect(screen.getByRole('combobox',{name:'Edit scope'})).toHaveValue('document');
+    await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix'}});fireEvent.click(screen.getByTestId('assist-submit'));await screen.findByRole('button',{name:'Accept to draft'});
+    expect(api.post).toHaveBeenLastCalledWith('/assist/sessions/session-1/turns',expect.objectContaining({snapshot:expect.objectContaining({assistTarget:expect.objectContaining({kind:'document',from:0,to:base.length})})}));
     fireEvent.click(screen.getByRole('button',{name:'Discard'}));fireEvent.change(screen.getByRole('combobox',{name:'Edit scope'}),{target:{value:'section'}});
-    fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix section'}});fireEvent.click(screen.getByTestId('assist-submit'));
-    await waitFor(()=>expect(api.post).toHaveBeenCalledTimes(2));expect(api.post).toHaveBeenLastCalledWith('/assist/tasks',expect.objectContaining({snapshot:expect.objectContaining({assistTarget:expect.objectContaining({kind:'section',quote:'# One\nintro\n## Child\nx\n'})})}));expect(contentEditorValue()).toBe(base);
+    await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix section'}});fireEvent.click(screen.getByTestId('assist-submit'));
+    await waitFor(()=>expect(api.post).toHaveBeenCalledTimes(2));expect(api.post).toHaveBeenLastCalledWith('/assist/sessions/session-1/turns',expect.objectContaining({snapshot:expect.objectContaining({assistTarget:expect.objectContaining({kind:'section',quote:'# One\nintro\n## Child\nx\n'})})}));expect(contentEditorValue()).toBe(base);
   });
 
   it.each(['generating','ready','partial'] as const)('preserves %s scoped candidate across closing and reopening the drawer',async(phase)=>{
     const base='one\nkeep\ntwo\n';let tasks:any[]=[];
-    vi.mocked(api.get).mockImplementation(async(url)=>({data:url==='/assist/tasks'?tasks:url==='/review'?[]:page({content:base,capabilities:{canEdit:true}})}));
-    vi.mocked(api.post).mockImplementation(async()=>{tasks=[{id:'continuity',intent:'Fix',status:phase==='generating'?'running':'done',result:{changes:'ONE\nkeep\nTWO\n'}}];return{data:{id:'continuity'}};});
-    renderEditor();await screen.findByDisplayValue('Original title');fireEvent.click(screen.getByTestId('assist-toggle'));fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix'}});fireEvent.click(screen.getByTestId('assist-submit'));
-    await waitFor(()=>expect(screen.getByTestId('assist-submit')).toHaveTextContent('Run task'));
+    mockAgentSession(page({content:base,capabilities:{canEdit:true}}), () => tasks, async () => { tasks=[{id:'continuity',intent:'Fix',status:phase==='generating'?'running':'done',result:{changes:'ONE\nkeep\nTWO\n'}}]; return tasks[0]; });
+    renderEditor();await screen.findByDisplayValue('Original title');fireEvent.click(screen.getByTestId('assist-toggle'));await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix'}});fireEvent.click(screen.getByTestId('assist-submit'));
+    await waitFor(()=>expect(screen.getByTestId('assist-submit')).toHaveTextContent('Send'));
     if(phase!=='generating')await screen.findByRole('button',{name:'Accept change 1'});
     if(phase==='partial')fireEvent.click(screen.getByRole('button',{name:'Accept change 1'}));
     fireEvent.click(screen.getByRole('button',{name:'Close collaboration panel'}));fireEvent.click(screen.getByTestId('assist-toggle'));
-    tasks=[{id:'continuity',intent:'Fix',status:'done',result:{changes:'ONE\nkeep\nTWO\n'}}];act(()=>socketMock.handlers.get('assistComplete')?.({taskId:'continuity'}));
+    tasks=[{id:'continuity',intent:'Fix',status:'done',result:{changes:'ONE\nkeep\nTWO\n'}}];reloadAgentHistory();
     await screen.findByRole('button',{name:'Accept change 2'});
     if(phase==='partial'){expect(screen.getByRole('button',{name:'Accept change 1'})).toBeDisabled();fireEvent.click(screen.getByRole('button',{name:'Accept change 2'}));expect(contentEditorValue()).toBe('ONE\nkeep\nTWO\n');}
     else {expect(screen.getByRole('button',{name:'Accept change 1'})).toBeEnabled();expect(contentEditorValue()).toBe(base);}
     expect(api.post).toHaveBeenCalledTimes(1);
   });
-  it.each(['failed','delayed'] as const)('auto-submits a notes request once across close/reopen after %s POST',async(scenario)=>{
+  it.each(['failed','delayed'] as const)('sends a staged notes request explicitly once across close/reopen after %s POST',async(scenario)=>{
     let tasks:any[]=[];const delayed=deferred<any>();
-    vi.mocked(api.get).mockImplementation(async(url)=>({data:url==='/assist/tasks'?tasks:url==='/review'?[]:page({capabilities:{canEdit:true}})}));
-    vi.mocked(api.post).mockImplementation(()=>scenario==='failed'?Promise.reject(new Error('failed')):delayed.promise);
+    mockAgentSession(page({capabilities:{canEdit:true}}), () => tasks, () => scenario === 'failed' ? Promise.reject(new Error('failed')) : delayed.promise);
     renderEditor();await screen.findByDisplayValue('Original title');fireEvent.click(screen.getByRole('button',{name:'Personal notes'}));
-    act(()=>currentEditorView().dispatch({selection:EditorSelection.single(0,8)}));fireEvent.change(screen.getByRole('textbox',{name:'Note'}),{target:{value:'Fix'}});fireEvent.click(screen.getByRole('button',{name:'Add note'}));fireEvent.click(screen.getByRole('checkbox',{name:'Fix'}));fireEvent.click(screen.getByRole('button',{name:'Send selected to Agent'}));
+    act(()=>currentEditorView().dispatch({selection:EditorSelection.single(0,8)}));fireEvent.change(screen.getByRole('textbox',{name:'Note'}),{target:{value:'Fix'}});fireEvent.click(screen.getByRole('button',{name:'Add note'}));fireEvent.click(screen.getByRole('checkbox',{name:'Fix'}));fireEvent.click(screen.getByRole('button',{name:'Stage selected for Agent'}));
+    expect(api.post).not.toHaveBeenCalled(); await chooseProposal(); fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(()=>expect(api.post).toHaveBeenCalledTimes(1));if(scenario==='failed')await screen.findByRole('alert');
     fireEvent.click(screen.getByRole('button',{name:'Close collaboration panel'}));fireEvent.click(screen.getByTestId('assist-toggle'));
-    if(scenario==='delayed'){tasks=[{id:'delayed',intent:'Fix',status:'done',result:{changes:'Changed content'}}];await act(async()=>delayed.resolve({data:{id:'delayed'}}));await screen.findByRole('button',{name:'Accept change 1'});}
-    else expect(screen.getByRole('alert')).toHaveTextContent('Could not submit');
+    if(scenario==='delayed'){tasks=[{id:'delayed',intent:'Fix',status:'done',result:{changes:'Changed content'}}];await act(async()=>delayed.resolve(tasks[0]));await screen.findByRole('button',{name:'Accept change 1'});}
+    else expect(screen.getByRole('alert')).toHaveTextContent('Request failed');
     expect(api.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('isolates each accepted hunk around an unrelated manual edit and preserves no-replay records after three Undo operations', async () => {
+    const base = 'one\n' + 'unchanged paragraph\n'.repeat(70) + 'two\n';
+    let tasks: any[] = [];
+    mockAgentSession(page({ content: base, capabilities: { canEdit: true } }), () => tasks, async () => {
+      tasks = [{ id: 'mixed-undo', intent: 'Two changes', status: 'done', result: { changes: base.replace('one', 'ONE').replace('two', 'TWO') } }]; return tasks[0];
+    });
+    renderEditor(); fireEvent.click(await screen.findByTestId('assist-toggle')); await chooseProposal();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Two changes' } }); fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Accept change 1' }));
+    const first = base.replace('one', 'ONE'); expect(contentEditorValue()).toBe(first);
+    const offset = 700, manual = first.slice(0, offset) + 'Human addition\n' + first.slice(offset);
+    act(() => currentEditorView().dispatch({ changes: { from: offset, insert: 'Human addition\n' } })); expect(contentEditorValue()).toBe(manual);
+    fireEvent.click(screen.getByRole('button', { name: 'Accept change 2' })); expect(contentEditorValue()).toBe(manual.replace('two', 'TWO'));
+    act(() => expect(undo(currentEditorView())).toBe(true)); expect(contentEditorValue()).toBe(manual);
+    act(() => expect(undo(currentEditorView())).toBe(true)); expect(contentEditorValue()).toBe(first);
+    act(() => expect(undo(currentEditorView())).toBe(true)); expect(contentEditorValue()).toBe(base);
+    expect(screen.getByRole('button', { name: 'Accept change 1' })).toBeDisabled(); expect(screen.getByRole('button', { name: 'Accept change 2' })).toBeDisabled();
+    expect(screen.getByText(/Acceptance record: previously accepted/)).toBeVisible(); expect(api.patch).not.toHaveBeenCalled();
   });
 
 });

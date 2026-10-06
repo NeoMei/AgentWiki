@@ -8,6 +8,7 @@ import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { AuthProvider, useAuth } from '../../context/AuthContext';
 import { PagePreview } from './PagePreview';
+import { AgentSessionRegistryProvider } from '../agent-session/AgentSessionRegistry';
 import { SpaceWorkspaceProvider, SpaceWorkspaceScope, useSpaceWorkspace } from '../space-workspace/SpaceWorkspaceContext';
 import { readWorkspacePosition } from '../space-workspace/workspaceNavigation';
 
@@ -340,7 +341,7 @@ describe('PagePreview checklist saves', () => {
 
     const target = await screen.findByText('Paragraph position 12.');
     await waitFor(() => expect(scrollIntoViewMock).toHaveBeenCalled());
-    expect(scrollIntoViewMock.mock.instances[scrollIntoViewMock.mock.instances.length - 1]).toBe(target);
+    expect(scrollIntoViewMock.mock.instances[scrollIntoViewMock.mock.instances.length - 1]).toBe(target.closest('[data-markdown-source-start]'));
   });
 
   it('starts an ordinary push to another article at the top', async () => {
@@ -424,7 +425,7 @@ describe('PagePreview checklist saves', () => {
     await screen.findByRole('heading', { name: 'First position' });
     const restoredBlock = screen.getByText('Body');
     await waitFor(() => expect(scrollIntoViewMock).toHaveBeenCalled());
-    expect(scrollIntoViewMock.mock.instances[scrollIntoViewMock.mock.instances.length - 1]).toBe(restoredBlock);
+    expect(scrollIntoViewMock.mock.instances[scrollIntoViewMock.mock.instances.length - 1]).toBe(restoredBlock.closest('[data-markdown-source-start]'));
   });
 
   it('renders links from the authoritative workspace breadcrumb chain', async () => {
@@ -1090,4 +1091,31 @@ describe('PagePreview checklist saves', () => {
     expect(screen.getByRole('heading', { name: 'Page B' })).toBeInTheDocument();
     expect(scrollIntoViewMock).toHaveBeenCalledTimes(1);
   });
+  it('lets a reader annotate an exact reading selection, stage it, add a reference and explicitly send a question', async () => {
+    const readingSource = 'repeat\n\nrepeat with context';
+    const current = page({ content: readingSource, capabilities: { canEdit: false } });
+    const session = { id: 'session-reader', spaceId: 'space-1', title: 'Reader conversation', createdAt: current.createdAt, updatedAt: current.updatedAt };
+    localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/assist/sessions' ? [] : url === '/search' ? { results: [{ page: { id: 'ref', title: 'Supporting page', spaceId: 'space-1' } }] } : url.startsWith('/knowledge') ? [] : current }));
+    vi.mocked(api.post).mockImplementation(async (url, data: any) => ({ data: url === '/assist/sessions' ? session : { id: 'reader-turn', sessionId: session.id, pageId: current.id, mode: data.mode, intent: data.intent, status: 'done', createdAt: current.updatedAt, pageSnapshot: data.snapshot, references: [{ pageId: 'ref', title: 'Supporting page', updatedAt: current.updatedAt }], noteIds: data.noteIds, annotations: data.annotations, result: { summary: 'Reader answer' }, error: null, progressText: '' } }));
+    render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="reader"><MemoryRouter initialEntries={['/pages/page-1']}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
+    const span = await screen.findByText('repeat with context');
+    const selection = window.getSelection()!, range = document.createRange(); range.setStart(span.firstChild!, 0); range.setEnd(span.firstChild!, 6); selection.removeAllRanges(); selection.addRange(range);
+    fireEvent.mouseUp(span);
+    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+    const notesPanel = await screen.findByRole('region', { name: 'Personal notes' });
+    expect(within(notesPanel).getByText('repeat', { selector: 'blockquote' })).toBeVisible();
+    fireEvent.change(within(notesPanel).getByRole('textbox', { name: 'Note' }), { target: { value: 'Why the second occurrence?' } }); fireEvent.click(within(notesPanel).getByRole('button', { name: 'Add note' }));
+    fireEvent.click(within(notesPanel).getByRole('checkbox', { name: 'Why the second occurrence?' })); fireEvent.click(within(notesPanel).getByRole('button', { name: 'Stage selected for Agent' }));
+    expect(api.post).not.toHaveBeenCalled();
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Find reference pages' }), { target: { value: 'Supporting' } }); fireEvent.click(await screen.findByRole('button', { name: 'Add Supporting page' }));
+    expect(screen.getByRole('option', { name: 'Propose changes' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Send' })); expect(await screen.findByText('Reader answer')).toBeVisible();
+    const sent = vi.mocked(api.post).mock.calls.find(([url]) => url.endsWith('/turns'))?.[1] as any;
+    expect(sent.mode).toBe('question'); expect(sent.referencePageIds).toEqual(['ref']); expect(sent.snapshot.assistTarget).toMatchObject({ from: 8, to: 14, quote: 'repeat' });
+    expect(sent.annotations).toEqual([expect.objectContaining({ body: 'Why the second occurrence?', quote: 'repeat' })]); expect(sent.intent).not.toMatch(/rewrite|modify/i); expect(api.patch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Personal notes' })[0]);
+    expect(screen.getByText('Dispatched')).toBeVisible(); expect(screen.queryByText('Resolved', { exact: true })).not.toBeInTheDocument();
+  });
+
 });

@@ -62,8 +62,8 @@ input.document-title:focus { box-shadow: 0 2px #e5e5e5; }
 .document-body blockquote { margin: 16px 0; padding-left: 16px; border-left: 4px solid #d4d4d4; color: #525252; }
 .document-body pre { padding: 16px; background: #fafafa; border-radius: 6px; overflow-x: auto; margin-bottom: 16px; }
 .document-body img { max-width: 100%; height: auto; }
-.document-body table { max-width: 100%; display: block; overflow-x: auto; }
-.document-body th, .document-body td { padding: 8px 12px; border: 1px solid #d4d4d4; }
+.document-body table { max-width: 100%; display: block; overflow-x: auto; overscroll-behavior-x: contain; }
+.document-body th, .document-body td { min-width: 8rem; padding: 8px 12px; border: 1px solid #d4d4d4; }
 .document-body a { color: #2563eb; }
 .document-body strong { font-weight: 700; }
 .document-body em { font-style: italic; }
@@ -123,3 +123,13 @@ input.document-title:focus { box-shadow: 0 2px #e5e5e5; }
 .document-table-scroll textarea { display: block; min-width: 150px; width: 100%; min-height: 38px; max-height: 160px; padding: 8px; background: transparent; resize: vertical; font-size: 13px; line-height: 1.5; font-family: ui-monospace, monospace; }
 .document-table-editor .document-table-apply { background: #262626; border-color: #262626; color: white; }
 .document-table-fallback { max-width: 360px; color: #92400e; font-size: 12px; }
+
+.document-agent-scroll { display: flex; flex-direction: column; overflow: hidden; }
+.agent-session-host:not([hidden]) { display: flex; flex: 1 1 0%; min-height: 0; overflow: hidden; }
+.agent-session-panel { height: 100%; overflow: hidden; }
+.agent-session-composer { display: flex; flex-direction: column; flex: 0 1 360px; min-height: 0; max-height: 58%; overflow: hidden; }
+.agent-composer-fields { overscroll-behavior: contain; }
+.agent-session-panel input, .agent-session-panel select, .agent-session-panel textarea { min-width: 0; max-width: 100%; }
+@media (max-width: 1023px) {
+  .document-assist-layer { max-height: calc(100dvh - 100px); }
+}

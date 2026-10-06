@@ -1,3 +1,4 @@
+import { AgentSessionRegistryProvider } from './features/agent-session/AgentSessionRegistry';
 import React, { lazy, Suspense, useState } from 'react';
 import { RouterProvider, Routes, Route, Navigate, createBrowserRouter, createMemoryRouter, useLocation, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -86,7 +87,8 @@ const AppRoutes: React.FC = () => {
   const { user } = useAuth();
   const workspaceUserId = typeof user?.id === 'string' && user.id ? user.id : 'authenticated';
   return (
-    <SpaceWorkspaceProvider key={workspaceUserId} userId={workspaceUserId}>
+    <AgentSessionRegistryProvider key={workspaceUserId} userId={workspaceUserId}>
+    <SpaceWorkspaceProvider userId={workspaceUserId}>
     <Routes>
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route path="/dashboard" element={<Suspense fallback={<RouteLoading />}><Dashboard /></Suspense>} />
@@ -136,6 +138,7 @@ const AppRoutes: React.FC = () => {
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
     </SpaceWorkspaceProvider>
+    </AgentSessionRegistryProvider>
   );
 };
 
