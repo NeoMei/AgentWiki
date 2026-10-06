@@ -1,0 +1,48 @@
+{
+  "passed": true,
+  "checkedAt": "2026-10-06T17:14:44.586Z",
+  "readOnly": true,
+  "pages": [
+    {
+      "pageId": "e7fbd71e-f29b-430a-baa1-f4f50c842ecd",
+      "role": "main",
+      "characters": 3589,
+      "sha256": "eb9d5e359643cd8d3d209f3d519b3eb673a6d22a8c58887abad726f0a38157e3",
+      "updatedAt": "2026-10-06T15:38:56.334Z",
+      "matchesExpectedPostSave": true,
+      "apiAndDatabaseAgree": true
+    },
+    {
+      "pageId": "e7d223c1-84f3-4eb0-a2fb-db9f6a6a7abf",
+      "role": "sibling",
+      "characters": 75,
+      "sha256": "c02f7cf9eb44b31d79b197c6890f17a4f6412252e17e0136544aa5071509ffa8",
+      "updatedAt": "2026-10-06T14:46:00.881Z",
+      "matchesExpectedPostSave": true,
+      "apiAndDatabaseAgree": true
+    }
+  ],
+  "activeTasks": 0,
+  "protectedInventoryUnchanged": true,
+  "protectedInventoryDigest": "e447573064bbbfc1fbeae49340e519e8b40478a9992ccfaf92e35cfbc93350c0",
+  "finalF2Turn": {
+    "taskId": "cmuwxqtlk00dmgbivz2vlcl6i",
+    "mode": "proposal",
+    "status": "done",
+    "createdAt": "2026-10-06T17:11:16.569Z",
+    "noteIds": [
+      "1769aaca-9441-4f71-a14e-a5b0cb92bb4d"
+    ],
+    "assistTargetKind": "document",
+    "sourceSavedVersion": "2026-10-06T15:38:56.334Z"
+  },
+  "rootReportedUiCandidate": "1735f341 / index-Dp6kZ9lP",
+  "rootReportedBrowserCleanup": {
+    "fixtureAccountLoggedOut": true,
+    "ownedTab4Closed": true,
+    "networkRestored": true,
+    "viewportReset": true,
+    "originStorageCleared": false,
+    "boundary": "Storage.clearDataForOrigin unsupported by CUA; mock private notes may remain only in isolated browser origin. No browser operations performed by runtime agent."
+  }
+}
