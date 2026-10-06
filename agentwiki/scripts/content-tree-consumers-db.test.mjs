@@ -143,14 +143,14 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
       let serial = 0;
       let moveState;
 
-      const holdNextContentTreeLock = () => {
-        const original = writer.lockContentTreeSpace;
+      const holdNextContentTreeLock = (method = 'lockContentTreeSpace') => {
+        const original = writer[method];
         let first = true;
         let acquiredResolve;
         let releaseResolve;
         const acquired = new Promise((resolve) => { acquiredResolve = resolve; });
         const released = new Promise((resolve) => { releaseResolve = resolve; });
-        writer.lockContentTreeSpace = async (...args) => {
+        writer[method] = async (...args) => {
           const locked = await original.call(writer, ...args);
           if (first) {
             first = false;
@@ -162,7 +162,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
         return {
           acquired,
           release: () => releaseResolve(),
-          restore: () => { writer.lockContentTreeSpace = original; },
+          restore: () => { writer[method] = original; },
         };
       };
 
@@ -1110,22 +1110,26 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           };
           const lockGate = holdNextContentTreeLock();
           let staleSubmission;
+          let proposalPromise;
+          let concurrentMutation;
           try {
-            const proposalPromise = knowledgeSubmissions.submit(
+            proposalPromise = knowledgeSubmissions.submit(
               spaceId,
               principal,
               Buffer.from(JSON.stringify(staleBundle)),
               `knowledge-stale-${suffix}`,
               true,
             );
-            await lockGate.acquired;
-            const concurrentMutation = contentTree.createFolder({
+            void proposalPromise.catch(() => undefined);
+            await boundedWait(lockGate.acquired, 'Knowledge proposal did not acquire lockContentTreeSpace');
+            concurrentMutation = contentTree.createFolder({
               spaceId,
               parentId: null,
               name: 'Knowledge concurrent',
               expectedTreeRevision: 1n,
               actor: { userId },
             });
+            void concurrentMutation.catch(() => undefined);
             await assertPending(
               concurrentMutation,
               'Knowledge proposal lock must serialize a concurrent structural mutation',
@@ -1135,6 +1139,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           } finally {
             lockGate.release();
             lockGate.restore();
+            await boundedWait(Promise.allSettled([proposalPromise, concurrentMutation].filter(Boolean)), 'Knowledge proposal/mutation did not settle after release');
           }
           const staleProduced = await prisma.changeSet.findUniqueOrThrow({
             where: { id: staleSubmission.changeSetId }, include: { items: true },
@@ -1230,20 +1235,24 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
               leaseExpiresAt: new Date(Date.now() + 60_000),
             },
           });
-          const lockGate = holdNextContentTreeLock();
+          const lockGate = holdNextContentTreeLock('lockSyncSpace');
+          let proposalPromise;
+          let concurrentMutation;
           try {
-            const proposalPromise = sources.processRun(
+            proposalPromise = sources.processRun(
               staleRun.id,
               `source-stale-worker-${suffix}`,
             );
-            await lockGate.acquired;
-            const concurrentMutation = contentTree.createFolder({
+            void proposalPromise.catch(() => undefined);
+            await boundedWait(lockGate.acquired, 'Source proposal did not acquire lockSyncSpace');
+            concurrentMutation = contentTree.createFolder({
               spaceId,
               parentId: null,
               name: 'Source concurrent',
               expectedTreeRevision: 1n,
               actor: { userId },
             });
+            void concurrentMutation.catch(() => undefined);
             await assertPending(
               concurrentMutation,
               'Source proposal lock must serialize a concurrent structural mutation',
@@ -1253,6 +1262,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           } finally {
             lockGate.release();
             lockGate.restore();
+            await boundedWait(Promise.allSettled([proposalPromise, concurrentMutation].filter(Boolean)), 'Source proposal/mutation did not settle after release');
           }
           const staleProduced = await prisma.changeSet.findUniqueOrThrow({
             where: { runId: staleRun.id }, include: { items: true },
