@@ -529,7 +529,7 @@ describe('SourceService pipeline lifecycle', () => {
     };
     const prisma: any = {
       $queryRaw: jest.fn().mockResolvedValue([{ id: 'source-1' }]),
-      source: { findUnique: jest.fn().mockResolvedValue({ id: 'source-1', spaceId: 'space-1', status: 'active', currentSourceVersionId: null, currentSourceGeneration: 0 }) },
+      source: { findMany: jest.fn().mockResolvedValue([{ id: 'source-1', spaceId: 'space-1', currentSourceVersionId: null }]), findUnique: jest.fn().mockResolvedValue({ id: 'source-1', spaceId: 'space-1', status: 'active', currentSourceVersionId: null, currentSourceGeneration: 0 }) },
       ingestRun: { updateMany: jest.fn().mockResolvedValue({ count: 1 }), findUnique: jest.fn(), update: jest.fn().mockResolvedValue({}) },
       changeSet: { findUnique: jest.fn().mockResolvedValue(null), deleteMany: jest.fn().mockResolvedValue({ count: 0 }), create: jest.fn().mockResolvedValue({ id: 'change-1' }) },
       artifact: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }), createMany: jest.fn().mockResolvedValue({ count: 1 }), create: jest.fn().mockResolvedValue({}) },
@@ -621,6 +621,7 @@ describe('SourceService pipeline lifecycle', () => {
     expect(JSON.stringify(failedUpdate)).not.toContain('89504e47');
 
     prisma.ingestRun.findUnique.mockResolvedValueOnce({
+      ...run,
       id: 'run-1',
       sourceId: 'source-1',
       status: 'failed',
@@ -689,6 +690,7 @@ describe('SourceService pipeline lifecycle', () => {
     expect(JSON.stringify(failedUpdate.data.result)).not.toContain('private-fragment');
 
     prisma.ingestRun.findUnique.mockResolvedValueOnce({
+      ...run,
       id: 'run-1',
       status: 'failed',
       stage: 'failed',

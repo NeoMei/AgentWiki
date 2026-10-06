@@ -1,3 +1,4 @@
+import { coherentRunReads } from './run-read-boundary';
 import { assertSourceHeadMatches, lockSourceHead, lockSourceMutationSpace, sourceVersionConflict } from './source-head';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { BusinessException } from '../core/filters/business-error';
@@ -205,11 +206,12 @@ export class SourceService {
       include: {
         _count: { select: { versions: true, runs: true } },
         versions: { orderBy: { version: 'desc' }, take: 10 },
-        runs: { orderBy: { createdAt: 'desc' }, take: 20, include: { artifacts: true, changeSet: { select: { id: true, status: true } } } },
+        runs: { orderBy: { createdAt: 'desc' }, take: 20, include: { artifacts: true, changeSet: { select: { id: true, status: true, spaceId: true, runId: true } } } },
       },
     });
     if (!source) throw new NotFoundException('Source not found');
-    return source;
+    const runs = await coherentRunReads(this.prisma, source.runs, source.spaceId);
+    return { ...source, runs: runs.map(({ changeSet, ...run }) => ({ ...run, changeSet: changeSet ? { id: changeSet.id, status: changeSet.status } : null })) };
   }
 
   async update(id: string, dto: UpdateSourceDto, principal: Principal) {
@@ -277,11 +279,13 @@ export class SourceService {
   }
 
   async listRuns(spaceId: string) {
-    return this.prisma.ingestRun.findMany({
+    const runs = await this.prisma.ingestRun.findMany({
       where: { spaceId },
-      include: { source: { select: { id: true, name: true, type: true } }, changeSet: { select: { id: true, status: true } } },
+      include: { source: { select: { id: true, name: true, type: true } }, changeSet: { select: { id: true, status: true, spaceId: true, runId: true } } },
       orderBy: { createdAt: 'desc' },
     });
+    const coherent = await coherentRunReads(this.prisma, runs, spaceId);
+    return coherent.map(({ changeSet, ...run }) => ({ ...run, changeSet: changeSet ? { id: changeSet.id, status: changeSet.status } : null }));
   }
 
   async getRun(id: string) {
@@ -289,7 +293,7 @@ export class SourceService {
       where: { id },
       include: { source: true, artifacts: true, evidences: true, changeSet: { include: { items: true } } },
     });
-    if (!run) throw new NotFoundException('Run not found');
+    if (!run || !(await coherentRunReads(this.prisma, [run])).length) throw new NotFoundException('Run not found');
     return run;
   }
 
