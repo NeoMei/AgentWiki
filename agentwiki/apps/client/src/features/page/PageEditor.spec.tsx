@@ -689,6 +689,76 @@ describe('PageEditor remote update safety', () => {
     expect(contentEditorValue()).toBe('# Outline entry'); expect(api.patch).not.toHaveBeenCalled();
   });
 
+  it('reserves only the visible wide-screen panel and releases that space for overlays or documents without an outline', async () => {
+    const viewport = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1700);
+    localStorage.setItem('agentwiki.workspace.v1:user-1:space-1', JSON.stringify({ schemaVersion: 1, outlineOpen: true, outlineWidth: 300, collaborationWidth: 440 }));
+    queuePages({ data: page({ content: '# Outline entry', capabilities: { canEdit: true } }) });
+    renderEditorWithCrumbs(); await screen.findByDisplayValue('Original title');
+    const occupiedWidth = () => document.querySelector<HTMLElement>('.document-canvas')?.style.getPropertyValue('--document-panel-width');
+    await waitFor(() => expect(occupiedWidth()).toBe('316px'));
+    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+    expect(occupiedWidth()).toBe('460px');
+    expect(screen.queryByRole('navigation', { name: 'Contents' })).not.toBeInTheDocument();
+    viewport.mockReturnValue(1280); fireEvent.resize(window);
+    expect(occupiedWidth()).toBe('0px');
+    expect(screen.getByRole('button', { name: 'Notes queue' })).toBeVisible();
+    viewport.mockReturnValue(1700); fireEvent.resize(window);
+    expect(occupiedWidth()).toBe('460px');
+    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
+    await waitFor(() => expect(occupiedWidth()).toBe('316px'));
+    editContent('No headings');
+    expect(occupiedWidth()).toBe('0px');
+    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('keeps collaboration below the owning toolbar as it wraps, sticks, and resizes on mobile', async () => {
+    const viewport = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1600);
+    const originalBounds = HTMLElement.prototype.getBoundingClientRect;
+    let toolbarBottom = 175;
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function(this: HTMLElement) {
+      return this.dataset.testid === 'editor-toolbar' ? { ...originalBounds.call(this), bottom: toolbarBottom } as DOMRect : originalBounds.call(this);
+    });
+    let resizeToolbar: (() => void) | undefined;
+    const disconnected = vi.fn();
+    vi.stubGlobal('ResizeObserver', class {
+      ownsToolbar = false;
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(target: HTMLElement) {
+        if (target.dataset.testid !== 'editor-toolbar') return;
+        this.ownsToolbar = true;
+        resizeToolbar = () => this.callback([], this as unknown as ResizeObserver);
+      }
+      unobserve() {}
+      disconnect() { if (this.ownsToolbar) disconnected(); }
+    });
+    try {
+      const key = 'agentwiki.workspace.v1:user-1:space-1';
+      localStorage.setItem(key, JSON.stringify({ schemaVersion: 1, collaborationWidth: 440 }));
+      queuePages({ data: page({ capabilities: { canEdit: true } }) });
+      const view = renderEditorWithCrumbs(); await screen.findByDisplayValue('Original title');
+      fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+      const panel = () => document.querySelector('.document-assist-layer');
+      expect(panel()).toHaveStyle({ top: '187px' });
+      expect(resizeToolbar).toBeDefined();
+      toolbarBottom = 223; act(() => resizeToolbar?.());
+      expect(panel()).toHaveStyle({ top: '235px' });
+      toolbarBottom = 125; fireEvent.scroll(document);
+      expect(panel()).toHaveStyle({ top: '137px' });
+      toolbarBottom = 319; viewport.mockReturnValue(390); fireEvent.resize(window);
+      fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+      expect(panel()).toHaveStyle({ top: '331px', width: '358px' });
+      toolbarBottom = 367; fireEvent.resize(window);
+      expect(panel()).toHaveStyle({ top: '379px' });
+      expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ collaborationOpen: true, collaborationWidth: 440 });
+      expect(contentEditorValue()).toBe('Original content');
+      expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+      view.unmount();
+      expect(disconnected).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('keeps enough exposed document width without replacing the saved collaboration width', async () => {
     vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280);
     const originalBounds = HTMLElement.prototype.getBoundingClientRect;

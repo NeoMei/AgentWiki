@@ -23,6 +23,8 @@ export interface ArticleContentsPopoverProps {
   onNavigateIntent?: (sourceOffset: number) => void;
   suppressed?: boolean;
   spaceId?: string;
+  /** Space occupied from the viewport's right edge by a visible wide-screen rail. */
+  onOccupiedWidthChange?: (width: number) => void;
 }
 
 interface PopoverPosition {
@@ -80,7 +82,7 @@ const scrollParent = (element: HTMLElement): HTMLElement | Window => {
   return window;
 };
 
-export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ articleRootRef, pageKey, source, activeHeadingId, onNavigate, onNavigateIntent, suppressed = false, spaceId }) => {
+export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ articleRootRef, pageKey, source, activeHeadingId, onNavigate, onNavigateIntent, suppressed = false, spaceId, onOccupiedWidthChange }) => {
   const { t, language } = useLanguage();
   const workspace = useOptionalSpaceWorkspace();
   const scoped = workspace?.spaceId && (!spaceId || workspace.spaceId === spaceId) ? workspace : null;
@@ -102,6 +104,12 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLElement>(null);
+  const occupiedWidth = open && wide && (outline?.length ?? items.length) > 0 && position.resizeMax >= 200 ? position.width + 16 : 0;
+
+  useEffect(() => {
+    onOccupiedWidthChange?.(occupiedWidth);
+    return () => onOccupiedWidthChange?.(0);
+  }, [onOccupiedWidthChange, occupiedWidth]);
 
   useEffect(() => {
     const resize = () => setViewportWidth(window.innerWidth);
@@ -242,7 +250,7 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
   };
 
   return (
-    <div ref={wrapperRef} className="relative">
+    <div ref={wrapperRef} className="relative shrink-0">
       <button
         ref={triggerRef}
         type="button"
@@ -254,7 +262,7 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
           if (!open) updatePosition();
           chooseOpen(!open);
         }}
-        className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:border-blue-300 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+        className="inline-flex min-h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:border-blue-300 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
       >
         <List size={17} aria-hidden="true" />
         {t('page.contents')}

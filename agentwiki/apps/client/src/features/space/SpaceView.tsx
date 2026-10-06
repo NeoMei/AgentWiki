@@ -103,6 +103,8 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   const [archivingPageId, setArchivingPageId] = useState<string | null>(null);
 
   const workspace = useOptionalSpaceWorkspace();
+  const documentWorkspace = workspace?.mode === 'read' || workspace?.mode === 'edit';
+  const contentClassName = documentWorkspace ? 'min-w-0 flex-1' : 'min-w-0 flex-1 px-4 py-4 lg:px-6';
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
   const [localCurrentFolderId, setLocalCurrentFolderId] = useState<string | null>(null);
@@ -537,10 +539,10 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
 
   if (requestSpaceId !== id || requestUserId !== user?.id || loading || !id) return workspaceContent ? (
     <div>
-      <div className="mb-6" />
+      {!documentWorkspace ? <div className="mb-6" /> : null}
       <div key="workspace-layout" className="flex flex-col lg:flex-row">
         {showDirectory ? <aside className="hidden w-[260px] shrink-0 border-r border-gray-200 lg:block" /> : null}
-        <main className="min-w-0 flex-1 px-4 py-4 lg:px-6">{workspaceContent}</main>
+        <main className={contentClassName}>{workspaceContent}</main>
       </div>
     </div>
   ) : <div className="text-center py-8 text-gray-500">{t('common.loading')}</div>;
@@ -555,7 +557,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
             {t('common.retry')}
           </button>
         </div>
-        <main className="min-w-0 flex-1 px-4 py-4 lg:px-6">{workspaceContent}</main>
+        <main className={contentClassName}>{workspaceContent}</main>
       </div>
     </div>
   );
@@ -675,7 +677,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
           onDeleteFolder={openFolderDelete}
           onMove={(request) => { void handleContentMove(request); }}
         /> : null}
-        <main className="min-w-0 flex-1 px-4 py-4 lg:px-6">
+        <main className={contentClassName}>
         {workspaceContent ?? <>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <ContentBreadcrumbs

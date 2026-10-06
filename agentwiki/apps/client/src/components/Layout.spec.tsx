@@ -16,6 +16,21 @@ const renderLayout = (path: string) => render(
 );
 
 describe('Layout workspace sizing', () => {
+  it.each(['/pages/page-1', '/pages/page-1/edit', '/pages/page-1/edit/'])('uses an edge-to-edge surface for document route %s', (path) => {
+    renderLayout(path);
+    const main = screen.getByRole('main');
+    expect(main).toHaveClass('w-full');
+    expect(main).not.toHaveClass('px-4', 'py-8');
+    expect(main.parentElement).toHaveClass('bg-white');
+  });
+
+  it.each(['/pages/page-1/versions', '/spaces/space-1', '/spaces/space-1/settings'])('retains the surrounding workspace layout for %s', (path) => {
+    renderLayout(path);
+    const main = screen.getByRole('main');
+    expect(main).toHaveClass('w-full', 'px-4', 'py-8');
+    expect(main.parentElement).toHaveClass('bg-gray-50');
+  });
+
   it('gives space and page workspaces the full application width', () => {
     const { unmount } = renderLayout('/pages/page-1/edit');
     expect(screen.getByRole('main')).toHaveClass('w-full');

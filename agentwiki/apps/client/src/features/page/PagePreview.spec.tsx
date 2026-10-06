@@ -160,6 +160,26 @@ const AbaNavigationHarness = () => {
 };
 
 describe('PagePreview checklist saves', () => {
+  it('gives the reading outline space only while its wide-screen rail is visible', async () => {
+    const viewport = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1700);
+    queuePages({ data: page({ content: '# Reading outline' }) });
+    renderPreview();
+    await screen.findByRole('navigation', { name: 'Contents' });
+    const occupiedWidth = () => screen.getByRole('article').style.getPropertyValue('--document-panel-width');
+    expect(occupiedWidth()).toBe('296px');
+    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize article contents' }), { key: 'End' });
+    expect(occupiedWidth()).toBe('376px');
+    viewport.mockReturnValue(1280); fireEvent.resize(window);
+    fireEvent.click(screen.getByRole('button', { name: 'Contents' }));
+    expect(screen.getByRole('navigation', { name: 'Contents' })).toBeVisible();
+    expect(occupiedWidth()).toBe('0px');
+    viewport.mockReturnValue(1700); fireEvent.resize(window);
+    expect(occupiedWidth()).toBe('376px');
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(occupiedWidth()).toBe('0px');
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
   afterEach(() => {
     cleanup();
     Object.defineProperty(window, 'scrollY', { configurable: true, value: 0 });

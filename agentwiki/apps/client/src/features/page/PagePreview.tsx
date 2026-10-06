@@ -66,6 +66,7 @@ export const PagePreview: React.FC = () => {
   const [loadRequest, setLoadRequest] = useState(0);
   const [taskSaveError, setTaskSaveError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [outlineOccupiedWidth, setOutlineOccupiedWidth] = useState(0);
   const [relatedPages, setRelatedPages] = useState<any[]>([]);
   const [pendingTaskIndexes, setPendingTaskIndexes] = useState<ReadonlySet<number>>(new Set());
   const mountedRef = useRef(false);
@@ -548,8 +549,8 @@ export const PagePreview: React.FC = () => {
   if (!page) return <div className="text-center py-8 text-gray-500">{t('editor.notFound')}</div>;
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <div data-reading-toolbar className="sticky top-16 z-20 -mx-4 mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white/95 px-4 py-3 backdrop-blur lg:-mx-6 lg:px-6">
+    <div className="document-page">
+      <div data-reading-toolbar className="document-toolbar sticky top-16 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white">
         {workspace?.directoryCrumbs.length ? (
           <nav aria-label="breadcrumb" className="flex min-w-0 flex-1 flex-wrap items-center gap-1 text-sm text-gray-500">
             {workspace.directoryCrumbs.map((crumb, index) => (
@@ -591,7 +592,7 @@ export const PagePreview: React.FC = () => {
               {t('common.edit')}
             </button>
           ) : null}
-          <ArticleContentsPopover articleRootRef={markdownRootRef} pageKey={page.id} spaceId={page.spaceId} source={page.content || ''} />
+          <ArticleContentsPopover articleRootRef={markdownRootRef} pageKey={page.id} spaceId={page.spaceId} source={page.content || ''} onOccupiedWidthChange={setOutlineOccupiedWidth} />
           <PageInfoPanel
             key={page.id}
             spaceId={page.spaceId}
@@ -618,7 +619,7 @@ export const PagePreview: React.FC = () => {
         </div>
       </div>
 
-      <article className="document-canvas min-h-[300px] bg-white">
+      <article className="document-canvas min-h-[300px] bg-white" style={{ '--document-panel-width': `${outlineOccupiedWidth}px` } as React.CSSProperties}>
         <header className="document-header">
           <h1 title={page.title} className="document-title">{page.title}</h1>
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500">

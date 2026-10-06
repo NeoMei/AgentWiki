@@ -39,6 +39,40 @@ describe('ArticleContentsPopover', () => {
     });
   });
 
+  it('reports only the visible wide-screen rail and clears its space on close, mobile, suppression, empty source, and unmount', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1700 });
+    const occupied = vi.fn();
+    const articleRef = React.createRef<HTMLDivElement>();
+    const layout = (source = '# A', suppressed = false) => <LanguageProvider><div className="document-canvas"><ArticleContentsPopover articleRootRef={articleRef} pageKey="rail" source={source} suppressed={suppressed} onOccupiedWidthChange={occupied} /><div ref={articleRef} /></div></LanguageProvider>;
+    const view = render(layout());
+    await screen.findByRole('navigation', { name: 'Contents' });
+    expect(occupied).toHaveBeenLastCalledWith(296);
+    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize article contents' }), { key: 'End' });
+    expect(occupied).toHaveBeenLastCalledWith(376);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(occupied).toHaveBeenLastCalledWith(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Contents' }));
+    expect(occupied).toHaveBeenLastCalledWith(376);
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 }); fireEvent.resize(window);
+    expect(screen.getByRole('navigation', { name: 'Contents' })).toBeVisible();
+    expect(occupied).toHaveBeenLastCalledWith(0);
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 }); fireEvent.resize(window);
+    fireEvent.click(screen.getByRole('button', { name: 'Contents' }));
+    expect(screen.getByRole('navigation', { name: 'Contents' })).toBeVisible();
+    expect(occupied).toHaveBeenLastCalledWith(0);
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1700 }); fireEvent.resize(window);
+    expect(occupied).toHaveBeenLastCalledWith(376);
+    view.rerender(layout('# A', true));
+    expect(occupied).toHaveBeenLastCalledWith(0);
+    view.rerender(layout('No headings'));
+    expect(screen.queryByRole('navigation', { name: 'Contents' })).not.toBeInTheDocument();
+    expect(occupied).toHaveBeenLastCalledWith(0);
+    view.rerender(layout('# B'));
+    expect(occupied).toHaveBeenLastCalledWith(376);
+    view.unmount();
+    expect(occupied).toHaveBeenLastCalledWith(0);
+  });
+
   it('reads real rendered heading ids and text while excluding code and embedded-page headings', async () => {
     render(<Harness>
       <h1 id="overview">Overview <em>today</em><a aria-hidden="true"> #</a></h1>

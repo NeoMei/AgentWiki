@@ -170,9 +170,12 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const [isDirty, setIsDirty] = useState(false);
   const [mode, setMode] = useState<MarkdownMode>('edit');
   const [assistMounted, setAssistMounted] = useState(false);
+  const [outlineOccupiedWidth, setOutlineOccupiedWidth] = useState(0);
   const [localPanels, setLocalPanels] = useState<PanelPreferences & { key: string }>({ key: '' });
   const [mobilePanelFor, setMobilePanelFor] = useState<string | null>(null);
   const [panelViewport, setPanelViewport] = useState({ width: window.innerWidth, max: 520 });
+  const [collaborationTop, setCollaborationTop] = useState(130);
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const [assistSelection, setAssistSelection] = useState<MarkdownSelection>({ from: 0, to: 0, text: '' });
   const [selectionRequest, setSelectionRequest] = useState<AssistRequest | null>(null);
@@ -205,6 +208,9 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const notesOpen = collaborationVisible && panelPreferences.collaborationTab === 'notes';
   const assistOpen = collaborationVisible && !notesOpen;
   const collaborationWidth = Math.min(clampCollaborationWidth(panelPreferences.collaborationWidth), panelViewport.max >= 320 && !mobilePanel ? panelViewport.max : 520, Math.max(0, panelViewport.width - 32));
+  const occupiedPanelWidth = collaborationVisible
+    ? (panelViewport.width >= 1600 && panelViewport.max >= 320 ? collaborationWidth + 20 : 0)
+    : outlineOccupiedWidth;
   const updatePanelPreferences = (preferences: PanelPreferences) => {
     if (!notesWritable) return;
     if (panelScope) panelScope.setPanelPreferences(preferences);
@@ -225,6 +231,24 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     resize(); window.addEventListener('resize', resize);
     return () => window.removeEventListener('resize', resize);
   }, [page?.id, workspace?.directoryWidth, workspace?.directoryCollapsed]);
+  useLayoutEffect(() => {
+    const toolbar = toolbarRef.current;
+    if (!collaborationVisible || !toolbar) return;
+    const position = () => {
+      const top = Math.ceil(toolbar.getBoundingClientRect().bottom) + 12;
+      setCollaborationTop((current) => current === top ? current : top);
+    };
+    position();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(position);
+    observer?.observe(toolbar);
+    document.addEventListener('scroll', position, true);
+    window.addEventListener('resize', position);
+    return () => {
+      observer?.disconnect();
+      document.removeEventListener('scroll', position, true);
+      window.removeEventListener('resize', position);
+    };
+  }, [collaborationVisible, panelIdentity]);
   const personalNotes = usePersonalNotes({ scope: notesWritable && user?.id && page ? { userId: user.id, spaceId: page.spaceId, pageId: page.id } : null, canEdit: notesWritable, source: content, updatedAt: page?.updatedAt, language });
   const selectionTarget = page ? captureAssistTarget(content, 'selection', assistSelection.from, assistSelection.to, page.updatedAt) : null;
   const sectionTarget = page ? captureAssistTarget(content, 'section', assistSelection.from, assistSelection.to, page.updatedAt) : null;
@@ -1020,10 +1044,11 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   if (!page) return <div className="text-center py-8 text-gray-500">{t('editor.notFound')}</div>;
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="document-page">
       <div
+        ref={toolbarRef}
         data-testid="editor-toolbar"
-        className="sticky top-16 z-20 -mx-4 mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white px-4 py-3 lg:-mx-6 lg:px-6"
+        className="document-toolbar sticky top-16 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white"
       >
         {workspace?.directoryCrumbs.length ? (
           <nav aria-label="breadcrumb" className="flex min-w-0 flex-1 flex-wrap items-center gap-1 text-sm text-gray-500">
@@ -1234,7 +1259,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         </div>
       </div>
 
-      <div ref={canvasRef} className="document-canvas">
+      <div ref={canvasRef} className="document-canvas" style={{ '--document-panel-width': `${occupiedPanelWidth}px` } as React.CSSProperties}>
       {writeUnavailable ? <p role="alert" data-testid="editor-write-unavailable" className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{t('editor.writeUnavailable')}</p> : null}
       {draftContext() ? <LocalDraftNotice
         key={`${user?.id}:${page.spaceId}:${page.id}`}
@@ -1293,6 +1318,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             pageLinksIdentity={`${user?.id}:${!writeUnavailable && page.capabilities?.canEdit === true}`}
             tableEditingEnabled={notesWritable && !saving && !remoteUpdate && !unresolvedSocketRevisionRef.current}
             outlineOverlay={collaborationVisible}
+            onOutlineOccupiedWidthChange={setOutlineOccupiedWidth}
             onChange={handleContentChange}
             onSelectionChange={setAssistSelection}
             onRequestAssist={notesWritable ? requestSelectionAssist : undefined}
@@ -1302,7 +1328,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             onUploadError={attachmentEnabled ? handleImageUploadError : undefined}
           />
         </div>
-        {assistMounted || collaborationVisible ? <div hidden={!collaborationVisible} className="document-assist-layer" style={{ width: collaborationWidth }}>
+        {assistMounted || collaborationVisible ? <div hidden={!collaborationVisible} className="document-assist-layer" style={{ width: collaborationWidth, top: collaborationTop }}>
           {!mobilePanel && panelViewport.max >= 320 ? <PanelResizeHandle key={panelIdentity} label={language === 'zh-CN' ? '调整协作面板宽度' : 'Resize collaboration panel'} width={collaborationWidth} min={320} max={panelViewport.max} onChange={(width) => updatePanelPreferences({ collaborationWidth: width })} /> : null}
           <div className="document-panel-scroll">
           <div className="sticky top-0 z-10 flex gap-2 border-b bg-white p-3 text-sm"><button type="button" onClick={() => { openCollaboration('assist'); }} aria-label={language === 'zh-CN' ? '候选队列' : 'Candidate queue'} aria-pressed={!notesOpen}>{language === 'zh-CN' ? '编辑辅助' : 'Editing assist'}</button><button type="button" disabled={!notesWritable} onClick={() => openCollaboration('notes')} aria-pressed={notesOpen}>{language === 'zh-CN' ? '笔记队列' : 'Notes queue'}</button><button type="button" className="ml-auto text-gray-500" aria-label={language === 'zh-CN' ? '关闭协作面板' : 'Close collaboration panel'} onClick={closeCollaboration}>×</button></div>
