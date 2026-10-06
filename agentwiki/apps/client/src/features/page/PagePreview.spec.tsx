@@ -172,6 +172,48 @@ describe('PagePreview checklist saves', () => {
     await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
     expect(screen.getByRole('note')).toHaveTextContent('needs review');
   });
+  it('restores current source status after a failed optimistic checkbox save', async () => {
+    const save = deferred<any>();
+    queuePages({ data: page({ sourceStatus: { status: 'current', reason: 'reviewed_source' } }) });
+    vi.mocked(api.patch).mockReturnValue(save.promise);
+    renderPreview(); fireEvent.click((await taskCheckboxes())[0]);
+    expect(await screen.findByRole('note')).toHaveTextContent('needs review');
+    await act(async () => save.reject({ response: { status: 500 } }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('could not be saved');
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    expect((await taskCheckboxes())[0]).not.toBeChecked();
+  });
+  it.each([
+    ['unknown', 'unverified_source', 'review status is unknown'],
+    ['unavailable', 'source_unavailable', 'unavailable or inaccessible'],
+  ])('preserves server %s status while optimistic work is pending and after save', async (status, reason, text) => {
+    const save = deferred<any>();
+    queuePages({ data: page({ sourceStatus: { status, reason } }) });
+    vi.mocked(api.patch).mockReturnValue(save.promise);
+    renderPreview(); fireEvent.click((await taskCheckboxes())[0]);
+    expect(screen.getByRole('note')).toHaveTextContent(text);
+    await act(async () => save.resolve({ data: patchPage({ content: '- [x] first task\n- [ ] second task', sourceStatus: { status, reason } }) }));
+    expect(screen.getByRole('note')).toHaveTextContent(text);
+  });
+  it.each([
+    ['unknown', 'unverified_source', 'review status is unknown'],
+    ['unavailable', 'source_unavailable', 'unavailable or inaccessible'],
+  ])('adopts authoritative %s PATCH status after a current baseline', async (status, reason, text) => {
+    queuePages({ data: page({ sourceStatus: { status: 'current', reason: 'reviewed_source' } }) });
+    vi.mocked(api.patch).mockResolvedValue({ data: patchPage({ content: '- [x] first task\n- [ ] second task', sourceStatus: { status, reason } }) });
+    renderPreview(); fireEvent.click((await taskCheckboxes())[0]);
+    await waitFor(() => expect(screen.getByRole('note')).toHaveTextContent(text));
+    expect((await taskCheckboxes())[0]).toBeChecked();
+  });
+  it('adopts current server status on an already-satisfied 409 without retrying', async () => {
+    queuePages({ data: page({ sourceStatus: { status: 'current', reason: 'reviewed_source' } }) }, { data: page({ content: '- [x] first task\n- [ ] second task', sourceStatus: { status: 'current', reason: 'reviewed_source' } }) });
+    vi.mocked(api.patch).mockRejectedValueOnce({ response: { status: 409 } });
+    renderPreview(); fireEvent.click((await taskCheckboxes())[0]);
+    await waitFor(() => expect(screen.queryByRole('note')).not.toBeInTheDocument());
+    expect((await taskCheckboxes())[0]).toBeChecked();
+    expect(api.patch).toHaveBeenCalledTimes(1);
+  });
+
   it('distinguishes unknown from current without exposing source links', async () => {
     queuePages({ data: page({ sourceStatus: { status: 'unknown', reason: 'unverified_source' } }) });
     renderPreview();

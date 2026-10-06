@@ -9,6 +9,7 @@ function setup() {
   const versions = [{ id: 'v1', sourceId: 'src', version: 1, metadata: { commit: 'abc123', token: 'SECRET' }, files: [1,2,3,4].map(i => ({ path: `file${i}` })) }, { id: 'v2', sourceId: 'src', version: 2 }];
   const run = { id: 'r', spaceId: 's', sourceId: 'src', inputSourceVersionId: 'v1', inputSourceGeneration: 1 };
   const prisma: any = {
+    changeSet: { findMany: jest.fn(async () => [{ id: 'cs', spaceId: 's' }]) },
     source: { findMany: jest.fn(async () => [source]) },
     sourceVersion: { findMany: jest.fn(async ({ where }: any) => versions.filter(v => where.id.in.includes(v.id))) },
     ingestRun: { findMany: jest.fn(async () => [run]) },
@@ -21,6 +22,36 @@ function setup() {
 const evidence = { id: 'e', runId: 'r', sourceVersionId: 'v1', quote: 'Historical quote', location: { path: 'file', startLine: 2, config: 'SECRET' }, confidence: 0.8, sourceVersion: { content: 'SECRET' } };
 
 describe('Source freshness projection', () => {
+  it.each(['sourceChangeSetId', 'lastChangeSetId'])('redacts foreign %s pointers and metadata for detail and bare Page snapshots', async key => {
+    const { service, prisma } = setup();
+    prisma.changeSet.findMany.mockResolvedValue([{ id: 'foreign-cs', spaceId: 'foreign' }]);
+    const raw = { ...page, [key]: 'foreign-cs', provenance: { id: 'foreign-cs', title: 'SECRET_TITLE', approvals: [{ comment: 'SECRET_COMMENT' }], run: { id: 'r' } }, lastChange: { id: 'foreign-cs', title: 'SECRET_TITLE' } };
+    const [detail, bare] = await service.projectPages([raw, { ...page, [key]: 'foreign-cs' }], principal);
+    for (const result of [detail, bare]) {
+      expect(result[key]).toBeNull(); expect(result.content).toBe(page.content);
+      expect(JSON.stringify(result)).not.toMatch(/foreign-cs|SECRET_TITLE|SECRET_COMMENT/);
+    }
+    expect(detail.provenance).toBeNull(); expect(detail.lastChange).toBeNull();
+  });
+  it('preserves same-Space provenance metadata and references after validating their IDs', async () => {
+    const { service } = setup();
+    const provenance = { id: 'cs', title: 'Authorized title', approvals: [{ comment: 'Authorized comment' }], run: { id: 'r' } };
+    const [result] = await service.projectPages([{ ...page, lastChangeSetId: 'cs', provenance, lastChange: { id: 'cs', title: 'Authorized last change' } }], principal);
+    expect(result.sourceChangeSetId).toBe('cs'); expect(result.lastChangeSetId).toBe('cs');
+    expect(result.provenance).toMatchObject(provenance);
+    expect(result.lastChange).toEqual({ id: 'cs', title: 'Authorized last change' });
+  });
+  it.each(['create_relation', 'archive_relation'])('uses verified Run state for %s without invented Page bindings', async type => {
+    const { service, source } = setup();
+    const payload = type === 'create_relation' ? { sourcePath: 'a.md', targetPath: 'b.md', relation: 'related', evidenceId: 'e' } : { relationId: 'rel', expectedLastModifiedAt: 'date' };
+    const raw = { id: 'cs', spaceId: 's', runId: 'r', run: { id: 'r', evidences: [evidence] }, items: [{ type, payload }] };
+    for (const [generation, status] of [[1, 'current'], [3, 'needs_review']] as const) {
+      source.currentSourceGeneration = generation;
+      const [result] = await service.projectChangeSets([raw], principal);
+      expect(result.items[0].sourceStatus.status).toBe(status);
+      expect(result.items[0].payload).toEqual(payload);
+    }
+  });
   it('uses the supplied Page snapshot and matches both version and generation', async () => {
     const { service, prisma } = setup();
     expect((await service.forPages([page], principal)).get('p')).toMatchObject({ status: 'current', reviewedSourceVersionId: 'v1', currentSourceVersion: 1, reviewedSourceGeneration: 1 });
@@ -61,7 +92,7 @@ describe('Source freshness projection', () => {
   });
   it('does not attach an independently valid Run to a corrupt Page binding', async () => {
     const { service, versions } = setup(); versions[1].sourceId = 'other';
-    const [result] = await service.projectPages([{ ...page, sourceVersionId: 'v2', evidence: [evidence], provenance: { run: { id: 'r' } } }], principal);
+    const [result] = await service.projectPages([{ ...page, sourceVersionId: 'v2', evidence: [evidence], provenance: { id: 'cs', run: { id: 'r' } } }], principal);
     expect(result.sourceStatus).toEqual({ status: 'unavailable', reason: 'source_unavailable' });
     expect(result.evidence).toEqual([]); expect(result.provenance.run).toBeNull();
   });
@@ -122,7 +153,7 @@ describe('Source freshness projection', () => {
     const auth = new AuthorizationService(prisma); jest.spyOn(auth, 'assertSpaceAccess').mockResolvedValue({} as any);
     const service = new SourceFreshnessService(prisma, auth);
     prisma.apiKeyCredential.findFirst.mockResolvedValue({ scopes: ['pages:read'] });
-    const [denied] = await service.projectPages([{ ...page, evidence: [evidence], provenance: { run: { id: 'r' } } }], { userId: 'u', credentialId: 'pat' });
+    const [denied] = await service.projectPages([{ ...page, evidence: [evidence], provenance: { id: 'cs', run: { id: 'r' } } }], { userId: 'u', credentialId: 'pat' });
     expect(denied.content).toBe(page.content); expect(denied.sourceId).toBeNull(); expect(denied.evidence).toEqual([]); expect(denied.provenance.run).toBeNull();
     for (const scopes of [['*'], ['sources:read']]) {
       prisma.apiKeyCredential.findFirst.mockResolvedValue({ scopes });

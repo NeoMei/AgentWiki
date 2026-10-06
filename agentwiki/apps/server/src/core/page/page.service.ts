@@ -215,7 +215,7 @@ export class PageService {
   private async presentPage(page: any, principal: Principal) {
     const provenance = page.sourceChangeSetId
       ? await this.prisma.changeSet.findUnique({
-          where: { id: page.sourceChangeSetId },
+          where: { id: page.sourceChangeSetId, spaceId: page.spaceId },
           select: {
             id: true,
             title: true,
@@ -237,7 +237,7 @@ export class PageService {
     const [lastChange, lastModifiedByUser, lastModifiedByAgent] = await Promise.all([
       page.lastChangeSetId && page.lastChangeSetId !== page.sourceChangeSetId
         ? this.prisma.changeSet.findUnique({
-            where: { id: page.lastChangeSetId },
+            where: { id: page.lastChangeSetId, spaceId: page.spaceId },
             select: { id: true, title: true, status: true, reviewedAt: true, publishedAt: true },
           })
         : Promise.resolve(null),

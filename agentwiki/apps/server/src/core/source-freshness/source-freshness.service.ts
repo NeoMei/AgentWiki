@@ -29,7 +29,7 @@ const pick = (row: Row, keys: string[]) => Object.fromEntries(keys.filter(key =>
 export class SourceFreshnessService {
   constructor(private readonly prisma: PrismaService, private readonly authorization: AuthorizationService) {}
 
-  private async many(model: 'source' | 'sourceVersion' | 'ingestRun', ids: Array<string | null | undefined>, select: Row): Promise<Row[]> {
+  private async many(model: 'source' | 'sourceVersion' | 'ingestRun' | 'changeSet', ids: Array<string | null | undefined>, select: Row): Promise<Row[]> {
     const unique = [...new Set(ids.filter((id): id is string => typeof id === 'string' && id.length > 0))];
     const rows: Row[] = [];
     for (let i = 0; i < unique.length; i += 200) rows.push(...await (this.prisma[model] as any).findMany({ where: { id: { in: unique.slice(i, i + 200) } }, select }));
@@ -141,11 +141,19 @@ export class SourceFreshnessService {
   async projectPages<T extends SourceBoundPageSnapshot>(pages: T[], principal: Principal): Promise<Array<T & { sourceStatus: PageSourceStatus } & Row>> {
     const rows = pages as Array<T & Row>;
     const ctx = await this.context(pages, rows.flatMap(p => p.evidence ?? []), rows.map(p => p.provenance?.run?.id).filter(Boolean), principal);
+    const changeSets = new Map((await this.many('changeSet', rows.flatMap(page => [page.sourceChangeSetId, page.lastChangeSetId]), { id: true, spaceId: true })).map(row => [row.id, row]));
     return rows.map(page => {
       const result = this.cleanBinding(page, page.spaceId, ctx);
+      // FK identity alone is not a same-Space authorization proof, including bare list/search pointers.
+      for (const [pointer, detail] of [['sourceChangeSetId', 'provenance'], ['lastChangeSetId', 'lastChange']]) {
+        const id = page[pointer];
+        const valid = typeof id === 'string' && changeSets.get(id)?.spaceId === page.spaceId;
+        if (!valid && pointer in result) result[pointer] = null;
+        if (detail in result && (!valid || page[detail]?.id !== id)) result[detail] = null;
+      }
       const invalidBinding = !!page.sourceId && !this.source(page, ctx);
       if (page.evidence) result.evidence = invalidBinding ? [] : page.evidence.flatMap((e: Row) => { const value = this.evidence(e, page, ctx); return value ? [value] : []; });
-      if (page.provenance) {
+      if (result.provenance) {
         result.provenance = { ...page.provenance, run: null };
         const rawRun = page.provenance.run;
         const run = rawRun && ctx.runs.get(rawRun.id);
@@ -177,9 +185,11 @@ export class SourceFreshnessService {
         for (const row of [payload, payload.before, payload.changes].filter(Boolean)) {
           if ('evidenceId' in row && !visibleEvidence.has(row.evidenceId)) row.evidenceId = null;
         }
+        const relationOnly = item.type === 'create_relation' || item.type === 'archive_relation';
+        if (relationOnly && !raw.sourceId && 'sourcePath' in raw) payload.sourcePath = raw.sourcePath;
         let status = this.compare(binding(raw, cs.spaceId), ctx);
         if (hasRun) {
-          const coherent = run && source && raw.sourceId === run.sourceId && raw.sourceVersionId === run.inputSourceVersionId && raw.sourceGeneration === run.inputSourceGeneration;
+          const coherent = run && source && (relationOnly || (raw.sourceId === run.sourceId && raw.sourceVersionId === run.inputSourceVersionId && raw.sourceGeneration === run.inputSourceGeneration));
           status = coherent ? this.compare(runBinding(run!), ctx) : unavailable();
           if (!coherent) for (const row of [payload, payload.before, payload.changes].filter(Boolean)) {
             for (const key of [...SOURCE_KEYS, 'evidenceId']) if (key in row) row[key] = null;

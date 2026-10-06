@@ -167,7 +167,14 @@ export const PagePreview: React.FC = () => {
       content = toggled;
     }
 
-    const optimisticPage = { ...committed, content, sourceStatus: committed.sourceStatus?.status !== 'untracked' && committed.sourceStatus ? { ...committed.sourceStatus, status: 'needs_review' as const, reason: 'page_changed' as const } : committed.sourceStatus };
+    const changed = content !== (committed.content || '');
+    const canInvalidateReview = committed.sourceStatus?.status === 'current' || committed.sourceStatus?.status === 'needs_review';
+    const optimisticPage = {
+      ...committed, content,
+      sourceStatus: changed && canInvalidateReview
+        ? { ...committed.sourceStatus!, status: 'needs_review' as const, reason: 'page_changed' as const }
+        : committed.sourceStatus,
+    };
     pageRef.current = optimisticPage;
     setPage(optimisticPage);
     setPendingTaskIndexes(indexes);

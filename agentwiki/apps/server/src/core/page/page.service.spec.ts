@@ -150,6 +150,14 @@ describe('PageService', () => {
     expect(service).toBeDefined();
   });
 
+  it('scopes provenance and last-change detail queries to the authorized Page Space', async () => {
+    mockPrisma.page.findUnique.mockResolvedValue({ id: 'page-1', spaceId: 'space-1', content: 'Authorized body', sourceChangeSetId: 'foreign-source-cs', lastChangeSetId: 'foreign-last-cs' });
+    mockPrisma.changeSet.findUnique.mockResolvedValue(null);
+    const result = await service.findOne('page-1', humanPrincipal);
+    expect(result.content).toBe('Authorized body');
+    for (const id of ['foreign-source-cs', 'foreign-last-cs']) expect(mockPrisma.changeSet.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id, spaceId: 'space-1' } }));
+  });
+
   it('exposes folderId and canonical path in existing Page list/detail semantics', async () => {
     const row = {
       id: 'page-1', title: 'Weekly', folderId: 'folder-1',

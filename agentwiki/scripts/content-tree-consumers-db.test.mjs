@@ -66,6 +66,16 @@ const expectCode = async (promise, expectedCode) => {
   });
 };
 
+// Bound observer failures so finally can release owned locks instead of hanging the suite.
+const boundedWait = async (promise, message, timeoutMs = 10_000) => {
+  let timer;
+  try {
+    return await Promise.race([promise, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+    })]);
+  } finally { clearTimeout(timer); }
+};
+
 test('Folder-aware Page consumers are atomic in real PostgreSQL', {
   skip: baseDatabaseUrl ? false : 'FOLDER_TEST_DATABASE_URL is not configured',
   timeout: 300_000,
@@ -124,7 +134,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
       );
       const audit = { record: async () => undefined };
       const mcp = new McpService(
-        config, authorization, {}, pages, {}, search, sources, reviews,
+        freshness, config, authorization, {}, pages, {}, search, sources, reviews,
         {}, audit, prisma, {}, {}, contentTree,
       );
       const suffix = schemaName.slice('folder_test_'.length);
@@ -744,7 +754,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
             releaseCalled = true;
             releaseStructuralResolve();
           };
-          const originalLockContentTreeSpace = writer.lockContentTreeSpace;
+          const originalLockSyncSpace = writer.lockSyncSpace;
           try {
             folderPromise = contentTree.createFolder({
               spaceId,
@@ -754,19 +764,19 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
               actor: { userId },
             });
             void folderPromise.catch(() => undefined);
-            await structuralAtSpaceRow;
+            await boundedWait(structuralAtSpaceRow, 'Folder writer did not reach the Space row');
 
             let proposalAtAdvisoryResolve;
             const proposalAtAdvisory = new Promise((resolve) => {
               proposalAtAdvisoryResolve = resolve;
             });
-            writer.lockContentTreeSpace = async (...args) => {
+            writer.lockSyncSpace = async (...args) => {
               if (args[1] === spaceId) proposalAtAdvisoryResolve();
-              return originalLockContentTreeSpace.call(writer, ...args);
+              return originalLockSyncSpace.call(writer, ...args);
             };
             proposalPromise = sources.processRun(run.id, workerId);
             void proposalPromise.catch(() => proposalAtAdvisoryResolve());
-            await proposalAtAdvisory;
+            await boundedWait(proposalAtAdvisory, 'Source proposal did not reach lockSyncSpace');
             await assertPending(
               proposalPromise,
               'Source proposal must wait for the real Folder writer advisory lock',
@@ -793,8 +803,8 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           } finally {
             release();
             writer.advanceContentTreeRevision = originalAdvanceTree;
-            writer.lockContentTreeSpace = originalLockContentTreeSpace;
-            await Promise.allSettled([folderPromise, proposalPromise].filter(Boolean));
+            writer.lockSyncSpace = originalLockSyncSpace;
+            await boundedWait(Promise.allSettled([folderPromise, proposalPromise].filter(Boolean)), 'Source/Folder operations did not settle after release');
           }
         });
 
@@ -846,7 +856,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           });
 
           const originalFetch = sources.fetch;
-          const originalLockContentTreeSpace = writer.lockContentTreeSpace;
+          const originalLockSyncSpace = writer.lockSyncSpace;
           let fetchEnteredResolve;
           let releaseFetchResolve;
           const fetchEntered = new Promise((resolve) => { fetchEnteredResolve = resolve; });
@@ -857,23 +867,23 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
             await releaseFetch;
             return originalFetch.call(sources, ...args);
           };
-          writer.lockContentTreeSpace = async (...args) => {
+          writer.lockSyncSpace = async (...args) => {
             if (args[1] === spaceId) advisoryCalls += 1;
-            return originalLockContentTreeSpace.call(writer, ...args);
+            return originalLockSyncSpace.call(writer, ...args);
           };
           let processPromise;
           try {
             processPromise = sources.processRun(run.id, workerId);
             void processPromise.catch(() => undefined);
-            await fetchEntered;
+            await boundedWait(fetchEntered, 'Source fetch did not start');
             await new AgentService(prisma).revokeCredential(userId, agentId, credentialId);
             releaseFetchResolve();
             await assert.rejects(processPromise, /Run requester is no longer authorized/u);
           } finally {
             releaseFetchResolve();
             sources.fetch = originalFetch;
-            writer.lockContentTreeSpace = originalLockContentTreeSpace;
-            await Promise.allSettled([processPromise].filter(Boolean));
+            writer.lockSyncSpace = originalLockSyncSpace;
+            await boundedWait(Promise.allSettled([processPromise].filter(Boolean)), 'Source process did not settle after release');
           }
           assert.equal(advisoryCalls, 0);
           assert.equal(await prisma.changeSet.count({ where: { runId: run.id } }), 0);
