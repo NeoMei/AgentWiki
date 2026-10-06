@@ -5,6 +5,7 @@ import api from '../../api/client';
 import { AgentSessionRegistryProvider } from './AgentSessionRegistry';
 import { AgentSessionPanel } from './AgentSessionPanel';
 import type { AgentSessionPanelProps, AgentTurn } from './agentSessionTypes';
+import { captureAssistTarget } from '../page/assistTargets';
 vi.mock('../../api/client', () => ({ default: { get: vi.fn(), post: vi.fn(), patch: vi.fn() } }));
 vi.mock('../../context/LanguageContext', () => ({ useLanguage: () => ({ language: 'en' }) }));
 const auth = vi.hoisted(() => ({ id: 'user-a' }));
@@ -209,4 +210,62 @@ it('preserves the no-replay acceptance ledger when another conversation loses so
   fireEvent.change(screen.getByRole('combobox', { name: 'Conversation' }), { target: { value: 'inaccessible' } }); await screen.findByRole('alert');
   fireEvent.change(screen.getByRole('combobox', { name: 'Conversation' }), { target: { value: 'session-a' } });
   expect(await screen.findByRole('button', { name: 'Accept change 1' })).toBeDisabled();
+});
+
+const scopedRoutes = ['remount', 'read/edit', 'page roundtrip', 'session switch'] as const;
+it.each(['selection', 'section'] as const)('preserves regenerated %s context through every composer lifetime boundary', async (kind) => {
+  for (const boundary of scopedRoutes) {
+    cleanup(); vi.mocked(api.post).mockClear();
+    const content = '# One\none\n# Two\ntwo\n', target = captureAssistTarget(content, kind, 6, 9, version)!;
+    turns = [{ ...turn, mode: 'proposal', status: 'failed', result: null, pageSnapshot: { title: 'Page A', content, updatedAt: version, assistTarget: target } }];
+    const second = { ...summary, id: 'session-b', title: 'Conversation B' };
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/assist/sessions' ? [summary, second] : url.endsWith('session-b') ? { ...second, turns: [] } : { ...summary, turns } }));
+    const shell = (route = 'edit') => <MemoryRouter><AgentSessionRegistryProvider userId={auth.id}>{route === 'hidden' ? null : <AgentSessionPanel key={route} {...defaults} pageId={route === 'other' ? 'page-b' : 'page-a'} canAccept={route !== 'read'} snapshot={() => ({ title: 'Page A', content, updatedAt: version })} supportsScopedApply />}</AgentSessionRegistryProvider></MemoryRouter>;
+    const view = render(shell());
+    fireEvent.click(await screen.findByRole('button', { name: 'Regenerate from current draft' }));
+    if (boundary === 'session switch') {
+      fireEvent.change(screen.getByRole('combobox', { name: 'Conversation' }), { target: { value: 'session-b' } });
+      await screen.findByText('Start a conversation about this document.');
+      expect(screen.getByRole('combobox', { name: 'Edit scope' })).toHaveValue('document');
+      fireEvent.change(screen.getByRole('combobox', { name: 'Conversation' }), { target: { value: 'session-a' } });
+    } else {
+      view.rerender(shell(boundary === 'remount' ? 'hidden' : boundary === 'read/edit' ? 'read' : 'other'));
+      if (boundary !== 'remount') await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled());
+      view.rerender(shell());
+    }
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled());
+    expect(screen.getByRole('combobox', { name: 'Edit scope' }), boundary).toHaveValue(kind);
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalled());
+    expect((vi.mocked(api.post).mock.calls[0][1] as any).snapshot.assistTarget, boundary).toEqual(target);
+  }
+});
+it.each(['selection', 'section'] as const)('refuses a stale restored %s until explicit reselection, without widening it', async (kind) => {
+  const content = '# One\none\n# Two\ntwo\n', target = captureAssistTarget(content, kind, 6, 9, version)!;
+  turns = [{ ...turn, mode: 'proposal', status: 'failed', result: null, pageSnapshot: { title: 'Page A', content, updatedAt: version, assistTarget: target } }];
+  const changed = '# One\nnew\n# Two\ntwo\n', currentTarget = captureAssistTarget(changed, kind, 6, 9, version)!;
+  const shell = (route: string) => <MemoryRouter><AgentSessionRegistryProvider userId={auth.id}>{route === 'hidden' ? null : <AgentSessionPanel key={route} {...defaults} snapshot={() => ({ title: 'Page A', content: route === 'original' ? content : changed, updatedAt: version })} assistTargets={{ [kind]: currentTarget }} supportsScopedApply />}</AgentSessionRegistryProvider></MemoryRouter>;
+  const view = render(shell('original')); fireEvent.click(await screen.findByRole('button', { name: 'Regenerate from current draft' }));
+  view.rerender(shell('hidden')); view.rerender(shell('changed'));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  expect(api.post).not.toHaveBeenCalled(); expect(screen.getByText('Selection or version changed. Select the source and annotations again.')).toBeVisible();
+  expect(screen.getByRole('combobox', { name: 'Edit scope' })).toHaveValue(kind);
+  fireEvent.click(screen.getByRole('button', { name: kind === 'selection' ? 'Use current selection' : 'Use current section' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await waitFor(() => expect(api.post).toHaveBeenCalled());
+  expect((vi.mocked(api.post).mock.calls[0][1] as any).snapshot.assistTarget).toEqual(currentTarget);
+});
+it('consumes a sent scope so a new follow-up on another page uses that current document', async () => {
+  const target = captureAssistTarget('unsaved current draft', 'selection', 0, 7, version)!;
+  const shell = (other = false) => <MemoryRouter><AgentSessionRegistryProvider userId={auth.id}><AgentSessionPanel key={String(other)} {...defaults} pageId={other ? 'page-b' : 'page-a'} assistRequest={other ? null : { id: 'scope-request', intent: 'Discuss this selection', assistTarget: target }} /></AgentSessionRegistryProvider></MemoryRouter>;
+  vi.mocked(api.post).mockImplementation(async (_url, data: any) => ({ data: { ...turn, ...data, id: 'followup', pageSnapshot: data.snapshot, references: [], status: 'done' } }));
+  const view = render(shell()); await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue(''));
+  view.rerender(shell(true)); await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled());
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Explain this other page' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
+  expect((vi.mocked(api.post).mock.calls[1][1] as any).snapshot.assistTarget.kind).toBe('document');
 });

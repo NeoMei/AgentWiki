@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AssistRequest, AssistNotesEvent } from './AgentAssistPanel';
-import { captureAssistTarget, resolveAssistTarget, type AssistTarget, type CandidateEdit } from './assistTargets';
+import { captureAssistTarget, resolveAssistTarget, validateAssistTarget, type AssistTarget, type CandidateEdit } from './assistTargets';
 import { addPersonalNote, loadPersonalNotes, notesForDispatch, personalNotesKey, savePersonalNotes, transitionPersonalNotes, type PersonalNote, type PersonalNotesScope } from './reviewComments';
 interface Props { scope: PersonalNotesScope | null; canEdit: boolean; enabled?: boolean; stageForSession?: boolean; source: string; updatedAt?: string; language?: string }
 interface QueueState { loaded: boolean; notes: PersonalNote[]; assistRequest: AssistRequest | null; storageUnavailable: boolean; conflict: boolean }
@@ -80,7 +80,23 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
     if (!active() || !scope || event.candidate.userId !== scope.userId || event.candidate.spaceId !== scope.spaceId || event.candidate.pageId !== scope.pageId || event.taskId !== event.candidate.taskId) return;
     if (event.event === 'dispatch') {
       if (stateRef.current.notes.some((n) => event.noteIds.includes(n.id) && n.status !== 'pending')) return;
-      const request = stateRef.current.assistRequest;
+      const localRequest = stateRef.current.assistRequest, credential = event.dispatchRequest;
+      // A registry-held request survives route mounts. Only a successful explicit Send supplies this
+      // credential; validate its identity, selected annotations and exact source before linking notes.
+      if (credential && (credential.userId !== scope.userId || credential.spaceId !== scope.spaceId || credential.pageId !== scope.pageId
+        || localRequest && localRequest.id !== credential.request.id)) return;
+      const request = localRequest ?? (stageForSession ? credential?.request : undefined);
+      if (stageForSession) {
+        if (!credential || !request?.id || event.candidate.baseContent !== latestRef.current.source
+          || !request.assistTarget || request.assistTarget.baseUpdatedAt !== latestRef.current.updatedAt
+          || !validateAssistTarget(event.candidate.baseContent, request.assistTarget)
+          || request.annotations?.length !== event.noteIds.length || new Set(event.noteIds).size !== event.noteIds.length
+          || event.noteIds.some((id) => {
+            const note = stateRef.current.notes.find((item) => item.id === id), annotation = request.annotations?.find((item) => item.id === id);
+            return !note || !annotation || note.body !== annotation.body || note.target.quote !== annotation.quote
+              || resolveAssistTarget(event.candidate.baseContent, note.target).status !== 'found';
+          })) return;
+      }
       if (!request || !event.noteIds.length || request.noteIds?.length !== event.noteIds.length || event.noteIds.some((id) => !request.noteIds?.includes(id)) || event.candidate.baseUpdatedAt !== latestRef.current.updatedAt) return;
       bindingsRef.current.set(event.taskId, { noteIds: [...event.noteIds], coverage: new Map(), uncertain: new Set() });
     }

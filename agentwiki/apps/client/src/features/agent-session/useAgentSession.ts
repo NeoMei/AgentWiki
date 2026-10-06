@@ -3,9 +3,10 @@ import api from '../../api/client';
 import { useAgentSessionRegistry } from './AgentSessionRegistry';
 import type { AgentReference, AgentSessionDetail, AgentSessionSummary, AgentTurn, AgentTurnMode } from './agentSessionTypes';
 import type { AssistRequest } from '../page/AgentAssistPanel';
+import type { AssistTarget } from '../page/assistTargets';
 import type { CandidateRecord } from './agentSessionCandidate';
-export interface Composer { intent: string; mode: AgentTurnMode; references: AgentReference[]; staged?: { pageId: string; request: AssistRequest } }
-const composer = (): Composer => ({ intent: '', mode: 'question', references: [] });
+export interface Composer { intent: string; mode: AgentTurnMode; targetKind: AssistTarget['kind']; references: AgentReference[]; staged?: { pageId: string; request: AssistRequest } }
+const composer = (): Composer => ({ intent: '', mode: 'question', targetKind: 'document', references: [] });
 interface State {
   sessions: AgentSessionSummary[]; selected: string | null; detail: AgentSessionDetail | null;
   loading: boolean; sending: boolean; cancelling: boolean; error: string | null; draft: Composer; revision: number;
@@ -136,7 +137,7 @@ export function useAgentSession(userId: string, spaceId: string) {
       store.retry = null;
       const detail = store.get().detail;
       if (detail?.id === id) store.set({ detail: { ...detail, turns: [...detail.turns.filter((t) => t.id !== data.id), data] } });
-      onSent(data); updateDraft({ intent: '', staged: undefined });
+      onSent(data); updateDraft({ intent: '', staged: undefined, targetKind: 'document' });
       return true;
     } catch (error) { if (valid(ownedEpoch)) fail(error, ownedEpoch); return false; }
     finally { store.set({ sending: false }); }

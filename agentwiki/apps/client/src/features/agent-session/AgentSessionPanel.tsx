@@ -5,7 +5,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { AssistCandidateReview } from '../page/AssistCandidateReview';
 import { applyCandidateToDraft, type AssistCandidate } from '../page/assistCandidate';
 import { captureAssistTarget, validateAssistTarget, type AssistTarget } from '../page/assistTargets';
-import type { AssistNotesEvent } from '../page/AgentAssistPanel';
+import type { AssistNotesEvent, AssistRequest } from '../page/AgentAssistPanel';
 import { AgentReferencePicker } from './AgentReferencePicker';
 import { bindCandidate, candidateFromTurn } from './agentSessionCandidate';
 import { useAgentSession } from './useAgentSession';
@@ -16,7 +16,7 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
   const userId = typeof user?.id === 'string' ? user.id : '';
   const session = useAgentSession(userId, spaceId);
   const { store, draft } = session;
-  const [targetKind, setTargetKind] = useState<AssistTarget['kind']>('document');
+  const targetKind = draft.targetKind;
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const scope = `${userId}\u0000${spaceId}\u0000${pageId}`;
@@ -27,15 +27,14 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
   const callbacks = useRef({ onNotesEvent, onRequestHandled }); callbacks.current = { onNotesEvent, onRequestHandled };
   const emitted = useRef(new Map<string, string>());
   useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
-  useEffect(() => { setLocalError(null); setTargetKind('document'); emitted.current.clear(); }, [scope]);
+  useEffect(() => { setLocalError(null); emitted.current.clear(); }, [scope]);
   useEffect(() => { if (!session.loading) composerRef.current?.focus(); }, [scope, session.loading]);
   useEffect(() => {
-    if (session.loading || !assistRequest || draft.staged?.request.id === assistRequest.id) return;
-    session.updateDraft({ intent: assistRequest.intent, staged: { pageId, request: assistRequest } });
-    setTargetKind(assistRequest.assistTarget?.kind ?? 'document');
+    if (session.loading || !assistRequest || [...store.drafts.values()].some((composer) => composer.staged?.request.id === assistRequest.id)) return;
+    session.updateDraft({ intent: assistRequest.intent, targetKind: assistRequest.assistTarget?.kind ?? 'document', staged: { pageId, request: assistRequest } });
   }, [assistRequest?.id, session.loading, session.selected, scope]);
-  const emit = (event: AssistNotesEvent['event'], candidate: AssistCandidate, editId?: string) => {
-    if (candidate.noteIds?.length && candidate.pageId === pageId && candidate.userId === userId && candidate.spaceId === spaceId) callbacks.current.onNotesEvent?.({ event, taskId: candidate.taskId, noteIds: candidate.noteIds, candidate, editId, acceptedEditIds: candidate.acceptedEditIds });
+  const emit = (event: AssistNotesEvent['event'], candidate: AssistCandidate, editId?: string, request?: AssistRequest) => {
+    if (candidate.noteIds?.length && candidate.pageId === pageId && candidate.userId === userId && candidate.spaceId === spaceId) callbacks.current.onNotesEvent?.({ event, taskId: candidate.taskId, noteIds: candidate.noteIds, candidate, editId, acceptedEditIds: candidate.acceptedEditIds, ...(request ? { dispatchRequest: { userId, spaceId, pageId, request } } : {}) });
   };
   const restoreCandidate = (turn: AgentTurn) => {
     const record = candidateFromTurn(turn, userId, spaceId), ledger = store.ledger.get(turn.id);
@@ -102,8 +101,8 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
       const record = restoreCandidate(turn);
       if (record) { record.mount = mount; store.candidates.set(turn.id, record); }
       if (!live.current || scopeRef.current !== scope || mountRef.current.token !== mount) return;
-      const candidate = record?.candidate ?? { taskId: turn.id, pageId, spaceId, userId, baseTitle: source.title, baseContent: source.content, baseUpdatedAt: source.updatedAt, content: '', status: 'generating', noteIds: staged?.request.noteIds } as AssistCandidate;
-      emit('dispatch', candidate);
+      const candidate = record?.candidate ?? { taskId: turn.id, pageId: turn.pageId, spaceId, userId, baseTitle: turn.pageSnapshot?.title, baseContent: turn.pageSnapshot?.content, baseUpdatedAt: turn.pageSnapshot?.updatedAt, content: '', status: 'generating', noteIds: turn.noteIds } as AssistCandidate;
+      emit('dispatch', candidate, undefined, staged?.request);
       if (staged) callbacks.current.onRequestHandled?.(staged.request.id);
     });
   };
@@ -122,8 +121,8 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
     const staged = scopedTarget || turn.noteIds.length || turn.annotations?.length ? { pageId, request: {
       id: crypto.randomUUID(), intent: turn.intent, assistTarget: scopedTarget, noteIds: turn.noteIds, annotations: turn.annotations,
     } } : undefined;
-    session.updateDraft({ intent: turn.intent, mode: turn.mode, references: turn.references, staged });
-    setTargetKind(scopedTarget?.kind ?? 'document'); setLocalError(null);
+    session.updateDraft({ intent: turn.intent, mode: turn.mode, references: turn.references, staged, targetKind: scopedTarget?.kind ?? 'document' });
+    setLocalError(null);
     document.querySelector<HTMLTextAreaElement>('[data-agent-composer]')?.focus();
   };
   return <aside aria-label="Agent" data-testid="agent-session-panel" className="agent-session-panel flex min-h-0 min-w-0 flex-1 flex-col bg-white text-sm">
@@ -168,11 +167,11 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
         {draft.staged.request.annotations?.map((a) => <div key={a.id}><blockquote className="whitespace-pre-wrap border-l-2 border-gray-200 pl-2">{a.quote}</blockquote><p>{a.body}</p></div>)}
         {draft.staged.pageId !== pageId ? <Link to={`/pages/${draft.staged.pageId}`}>{zh ? '返回批注页面' : 'Return to annotation page'}</Link> : null}
         {targetKind !== 'document' && assistTargets?.[targetKind] ? <button type="button" disabled={session.sending || session.loading} className="mr-2 rounded-lg border border-gray-200 px-2 py-1" onClick={() => session.updateDraft({ staged: { ...draft.staged!, request: { ...draft.staged!.request, assistTarget: assistTargets[targetKind as 'selection' | 'section'] ?? undefined } } })}>{targetKind === 'selection' ? (zh ? '使用当前选区' : 'Use current selection') : (zh ? '使用当前章节' : 'Use current section')}</button> : null}
-        <button type="button" disabled={session.sending || session.loading} onClick={() => { callbacks.current.onRequestHandled?.(draft.staged!.request.id); session.updateDraft({ staged: undefined }); setTargetKind('document'); }}>{zh ? '移除附件并使用整篇文档' : 'Remove context and use the whole document'}</button>
+        <button type="button" disabled={session.sending || session.loading} onClick={() => { callbacks.current.onRequestHandled?.(draft.staged!.request.id); session.updateDraft({ staged: undefined, targetKind: 'document' }); }}>{zh ? '移除附件并使用整篇文档' : 'Remove context and use the whole document'}</button>
       </div> : null}
       <AgentReferencePicker key={`${userId}:${spaceId}`} userId={userId} spaceId={spaceId} selected={draft.references} onChange={(references) => session.updateDraft({ references })} disabled={session.sending || session.loading} />
       <div className="flex flex-wrap gap-2"><select aria-label={zh ? '会话模式' : 'Message mode'} disabled={session.sending || session.loading} value={canEdit ? draft.mode : 'question'} onChange={(e) => session.updateDraft({ mode: e.target.value as 'question' | 'proposal' })} className="min-h-8 rounded-lg border border-gray-200 px-2"><option value="question">{zh ? '问答' : 'Ask a question'}</option><option value="proposal" disabled={!canEdit}>{zh ? '生成修改候选' : 'Propose changes'}</option></select>
-        <select aria-label={zh ? '修改范围' : 'Edit scope'} disabled={session.sending || session.loading} value={targetKind} onChange={(e) => setTargetKind(e.target.value as AssistTarget['kind'])} className="min-h-8 rounded-lg border border-gray-200 px-2"><option value="document">{zh ? '整篇文档' : 'Document'}</option><option value="selection" disabled={!assistTargets?.selection && draft.staged?.request.assistTarget?.kind !== 'selection'}>{zh ? '所选段落' : 'Selection'}</option><option value="section" disabled={!assistTargets?.section && draft.staged?.request.assistTarget?.kind !== 'section'}>{zh ? '当前章节' : 'Section'}</option></select>
+        <select aria-label={zh ? '修改范围' : 'Edit scope'} disabled={session.sending || session.loading} value={targetKind} onChange={(e) => session.updateDraft({ targetKind: e.target.value as AssistTarget['kind'] })} className="min-h-8 rounded-lg border border-gray-200 px-2"><option value="document">{zh ? '整篇文档' : 'Document'}</option><option value="selection" disabled={!assistTargets?.selection && draft.staged?.request.assistTarget?.kind !== 'selection'}>{zh ? '所选段落' : 'Selection'}</option><option value="section" disabled={!assistTargets?.section && draft.staged?.request.assistTarget?.kind !== 'section'}>{zh ? '当前章节' : 'Section'}</option></select>
       </div>
       <label className="block text-xs text-gray-600">{zh ? '消息' : 'Message'}<textarea ref={composerRef} data-agent-composer data-testid="assist-intent" aria-label={zh ? '消息' : 'Message'} rows={3} disabled={session.sending || session.loading} value={draft.intent} onChange={(e) => session.updateDraft({ intent: e.target.value })} className="mt-1 max-h-40 w-full resize-y rounded-lg border border-gray-200 p-2 text-sm" /></label>
       {localError || session.error ? <div role="alert" className="text-xs text-red-700"><p>{localError ?? errors[session.error!]}</p>{session.selected && session.error ? <button type="button" onClick={() => void session.select(session.selected!)} className="mt-1 underline">{zh ? '重新加载会话' : 'Reload conversation'}</button> : null}</div> : null}

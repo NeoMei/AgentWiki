@@ -614,7 +614,7 @@ export const PagePreview: React.FC = () => {
             {t('editor.backToSpace')}
           </Link>
         ) : <span />}
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+        <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
           <button type="button" data-agent-toggle aria-pressed={agentOpen && !notesOpen} onClick={() => agentOpen && !notesOpen ? closeAgent() : openAgent()} className="min-h-9 rounded-lg px-3 text-sm hover:bg-gray-100">Agent</button>
           <button type="button" aria-pressed={agentOpen && notesOpen} disabled={!user?.id} onClick={() => openAgent(true)} className="min-h-9 rounded-lg px-3 text-sm hover:bg-gray-100 disabled:opacity-40">{language === 'zh-CN' ? '个人笔记' : 'Personal notes'}</button>
           {page.capabilities?.canEdit === true ? (
