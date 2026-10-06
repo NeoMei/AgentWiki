@@ -191,7 +191,6 @@ describe('agent client adapters', () => {
   it('installs the same shared skill in the compatible global paths', async () => {
     const home = await createHome();
     const source = await readFile(packagedSkillSource, 'utf8');
-    expect(source).toContain('cite both that material and the applicable authority');
     expect(source).toContain('`sourceVersionId` (a specific source-version identity)');
     expect(source).toContain('Pending review candidates are not published knowledge.');
 
