@@ -1,3 +1,4 @@
+import { SourceFreshnessService, EVIDENCE_READ_FIELDS } from '../source-freshness/source-freshness.service';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
@@ -18,6 +19,7 @@ export class KnowledgeService {
   private readonly logger = new Logger(KnowledgeService.name);
 
   constructor(
+    private readonly freshness: SourceFreshnessService,
     private prisma: PrismaService,
     private readonly authorization: AuthorizationService,
     private readonly revisionWriter: SpaceRevisionWriterService,
@@ -103,65 +105,40 @@ export class KnowledgeService {
     });
   }
 
-  async getRelations(pageId: string) {
-    this.logger.log('Getting relations for page: ' + pageId);
-    const [outgoing, incoming] = await Promise.all([
-      this.prisma.knowledgeRelation.findMany({
-        where: {
-          sourcePageId: pageId,
-          sourcePage: { deletedAt: null },
-          targetPage: { deletedAt: null },
-        },
-      }),
-      this.prisma.knowledgeRelation.findMany({
-        where: {
-          targetPageId: pageId,
-          sourcePage: { deletedAt: null },
-          targetPage: { deletedAt: null },
-        },
-      }),
-    ]);
-    return { outgoing, incoming };
+  private async projectRelations(relations: any[], spaceId: string, principal: Principal) {
+    const ids = [...new Set(relations.map(row => row.evidenceId).filter(Boolean))];
+    const evidence = ids.length ? await this.prisma.evidence.findMany({ where: { id: { in: ids } }, select: EVIDENCE_READ_FIELDS }) : [];
+    const allowed = await this.freshness.projectEvidence(evidence, spaceId, principal);
+    const changeSetIds = [...new Set(relations.map(row => row.sourceChangeSetId).filter(Boolean))];
+    const changeSets = changeSetIds.length ? await this.prisma.changeSet.findMany({ where: { id: { in: changeSetIds }, spaceId }, select: { id: true } }) : [];
+    const visibleChanges = new Set(changeSets.map(row => row.id));
+    return relations.map(row => ({ ...row, evidenceId: allowed.has(row.evidenceId) ? row.evidenceId : null,
+      sourceChangeSetId: allowed.has(row.evidenceId) && visibleChanges.has(row.sourceChangeSetId) ? row.sourceChangeSetId : null }));
   }
 
-  async getRelatedPages(pageId: string) {
-    this.logger.log('Getting related pages for: ' + pageId);
-    const relations = await this.prisma.knowledgeRelation.findMany({
-      where: {
-        OR: [{ sourcePageId: pageId }, { targetPageId: pageId }],
-        sourcePage: { deletedAt: null },
-        targetPage: { deletedAt: null },
-      },
-    });
+  async getRelations(pageId: string, principal: Principal) {
+    const page = await this.authorization.assertPageAccess(principal, pageId, ['owner', 'admin', 'editor', 'viewer'], 'graph:read');
+    const rows = await this.prisma.knowledgeRelation.findMany({ where: {
+      OR: [{ sourcePageId: pageId }, { targetPageId: pageId }],
+      sourcePage: { spaceId: page.spaceId, deletedAt: null }, targetPage: { spaceId: page.spaceId, deletedAt: null },
+    } });
+    const projected = await this.projectRelations(rows, page.spaceId, principal);
+    return { outgoing: projected.filter(row => row.sourcePageId === pageId), incoming: projected.filter(row => row.targetPageId === pageId) };
+  }
 
-    const relatedPageIds = relations.map((r) =>
-      r.sourcePageId === pageId ? r.targetPageId : r.sourcePageId,
-    );
-
-    const pages = relatedPageIds.length > 0
-      ? await this.prisma.page.findMany({
-          where: { id: { in: relatedPageIds }, deletedAt: null },
-          select: {
-            id: true, title: true, slug: true, spaceId: true,
-            folderId: true, syncPath: true, deletedAt: true,
-          },
-        })
-      : [];
-
-    const pageMap = new Map(pages.map((p) => [p.id, p]));
-
-    return relations.map((r) => {
-      const page = pageMap.get(r.sourcePageId === pageId ? r.targetPageId : r.sourcePageId);
-      return {
-        relation: r.relation,
-        strength: r.strength,
-        confidence: r.confidence,
-        origin: r.origin,
-        evidenceId: r.evidenceId,
-        createdByAgentId: r.createdByAgentId,
-        page: page ? { ...page, path: page.syncPath ?? null } : undefined,
-        direction: r.sourcePageId === pageId ? 'outgoing' : 'incoming',
-      };
+  async getRelatedPages(pageId: string, principal: Principal) {
+    const { outgoing, incoming } = await this.getRelations(pageId, principal);
+    const relations = [...outgoing, ...incoming];
+    const ids = [...new Set(relations.map(row => row.sourcePageId === pageId ? row.targetPageId : row.sourcePageId))];
+    const pages = ids.length ? await this.prisma.page.findMany({ where: { id: { in: ids }, deletedAt: null }, select: {
+      id: true, title: true, slug: true, spaceId: true, folderId: true, syncPath: true, deletedAt: true,
+    } }) : [];
+    const byId = new Map(pages.map(page => [page.id, page]));
+    return relations.flatMap(row => {
+      const page = byId.get(row.sourcePageId === pageId ? row.targetPageId : row.sourcePageId);
+      return page ? [{ relation: row.relation, strength: row.strength, confidence: row.confidence, origin: row.origin,
+        evidenceId: row.evidenceId, createdByAgentId: row.createdByAgentId,
+        page: { ...page, path: page.syncPath ?? null }, direction: row.sourcePageId === pageId ? 'outgoing' : 'incoming' }] : [];
     });
   }
 
@@ -224,7 +201,7 @@ export class KnowledgeService {
     });
   }
 
-  async getGraph(spaceId: string) {
+  async getGraph(spaceId: string, principal: Principal) {
     this.logger.log('Getting graph for space: ' + spaceId);
     const pages = await this.prisma.page.findMany({
       where: { spaceId, deletedAt: null },
@@ -254,7 +231,7 @@ export class KnowledgeService {
     const userIds = validRelations.map((relation) => relation.lastModifiedByUserId).filter((id): id is string => Boolean(id));
     const [changeSets, evidences, agents, users] = await Promise.all([
       changeSetIds.length ? this.prisma.changeSet.findMany({
-        where: { id: { in: changeSetIds } },
+        where: { id: { in: changeSetIds }, spaceId },
         select: {
           id: true,
           status: true,
@@ -266,18 +243,14 @@ export class KnowledgeService {
       evidenceIds.length ? this.prisma.evidence.findMany({
         where: { id: { in: evidenceIds } },
         select: {
-          id: true,
-          quote: true,
-          location: true,
-          confidence: true,
-          sourceVersion: { select: { version: true, metadata: true, source: { select: { id: true, name: true, type: true, uri: true } } } },
+          ...EVIDENCE_READ_FIELDS,
         },
       }) : Promise.resolve([]),
       agentIds.length ? this.prisma.agent.findMany({ where: { id: { in: agentIds } }, select: { id: true, name: true } }) : Promise.resolve([]),
       userIds.length ? this.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, email: true } }) : Promise.resolve([]),
     ]);
     const changeSetById = new Map(changeSets.map((changeSet) => [changeSet.id, changeSet]));
-    const evidenceById = new Map(evidences.map((evidence) => [evidence.id, evidence]));
+    const { evidence: evidenceById, statuses: sourceStatuses } = await this.freshness.projectGraph(pages, evidences, principal);
     const agentById = new Map(agents.map((agent) => [agent.id, agent]));
     const userById = new Map(users.map((user) => [user.id, user]));
 
@@ -287,6 +260,7 @@ export class KnowledgeService {
       return [p.id, {
         id: p.id,
         title: p.title,
+        sourceStatus: sourceStatuses.get(p.id),
         folderId: p.folderId ?? null,
         path: p.syncPath ?? null,
         x: 400 + Math.cos(angle) * radius,
@@ -307,8 +281,8 @@ export class KnowledgeService {
       strength: r.strength,
       confidence: r.confidence,
       origin: r.origin,
-      evidenceId: r.evidenceId,
-      sourceChangeSetId: r.sourceChangeSetId,
+      evidenceId: evidence ? r.evidenceId : null,
+      sourceChangeSetId: evidence && changeSet ? r.sourceChangeSetId : null,
       createdByAgentId: r.createdByAgentId,
       createdByAgent: r.createdByAgentId ? agentById.get(r.createdByAgentId) : null,
       evidence,

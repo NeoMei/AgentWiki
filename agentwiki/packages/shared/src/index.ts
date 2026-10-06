@@ -25,3 +25,15 @@ export interface Page {
   content: string;
   spaceId: string;
 }
+
+export interface PageSourceStatus {
+  status: 'untracked' | 'unknown' | 'unavailable' | 'needs_review' | 'current';
+  reason: 'no_source' | 'unverified_source' | 'source_unavailable' | 'source_changed' | 'page_changed' | 'reviewed_source';
+  sourceId?: string;
+  reviewedSourceVersionId?: string;
+  currentSourceVersionId?: string;
+  reviewedSourceVersion?: number;
+  currentSourceVersion?: number;
+  reviewedSourceGeneration?: number;
+  currentSourceGeneration?: number;
+}

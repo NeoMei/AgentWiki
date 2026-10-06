@@ -1,3 +1,4 @@
+import { SourceFreshnessService } from '../core/source-freshness/source-freshness.service';
 import { ProjectTaskboardService } from '../project-taskboard/project-taskboard.service';
 import { registerTaskboardTools } from './taskboard-tools';
 import { NON_BLANK_PAGE_TITLE } from '../core/page/page-title';
@@ -107,6 +108,7 @@ const PROPOSE_FOLDER_CHANGE_INPUT = z.discriminatedUnion('operation', [
 @Injectable()
 export class McpService {
   constructor(
+    private readonly freshness: SourceFreshnessService,
     private config: ConfigService,
     private authorization: AuthorizationService,
     private spaces: SpaceService,
@@ -167,7 +169,7 @@ export class McpService {
       inputSchema: { spaceId: z.string().describe(SPACE_ID), skip: z.number().int().min(0).optional(), take: z.number().int().min(1).max(100).optional() },
     }, async ({ spaceId, skip, take }: any) => {
       await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
-      return this.text(await this.pages.findAll([spaceId], spaceId, skip || 0, take || 20));
+      return this.text(await this.pages.findAll([spaceId], principal, spaceId, skip || 0, take || 20));
     });
     registerTool('list_folders', {
       description: 'List active Folders in one authorized Space with a stable, parent/query-bound cursor.',
@@ -284,11 +286,11 @@ export class McpService {
       });
     });
     registerTool('get_page', {
-      description: 'Read a selected page by its nonempty pageId, including full content, provenance and source evidence. Follow search_pages or list_pages with this call before relying on a summary. Compare source versions and distinguish current content from historical evidence; this tool does not certify source freshness.',
+      description: 'Read a selected page by its nonempty pageId, including full content, provenance and source evidence. Follow search_pages or list_pages with this call before relying on a summary. Compare source versions and distinguish current content from historical evidence; sourceStatus indicates review alignment with the accepted source, not factual correctness.',
       inputSchema: { pageId: z.string().min(1) },
     }, async ({ pageId }: any) => {
       await this.authorization.assertPageAccess(principal, pageId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
-      return this.text(await this.pages.findOne(pageId));
+      return this.text(await this.pages.findOne(pageId, principal));
     });
     registerTool('search_pages', {
       description: 'Find pages using a nonempty query (title, keyword or alias). Supply the requested internal spaceId to limit the search; limit is an integer 1–50 (default 10). Start with a small batch and follow selected IDs with get_page for full content and evidence. A lexical match can have similarity=0; zero does not mean the result is irrelevant.',
@@ -296,14 +298,16 @@ export class McpService {
     }, async ({ query, spaceId, limit }: any) => {
       if (spaceId) await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
       const ids = await this.authorization.getAccessibleSpaceIds(principal, 'pages:read');
-      return this.text(await this.search.searchPages(query, spaceId, limit || 10, ids));
+      const results = await this.search.searchPages(query, spaceId, limit || 10, ids);
+      const pages = await this.freshness.projectPages(results.map(result => result.page), principal);
+      return this.text(results.map((result, index) => ({ ...result, page: pages[index] })));
     });
     registerTool('list_graph', {
       description: 'Read the whole authorized knowledge graph for an internal spaceId. Use for relationship questions after selecting relevant pages, then get_page for related IDs. This response is Space-wide and can be large; it is not a paginated or compact context API.',
       inputSchema: { spaceId: z.string().describe(SPACE_ID) },
     }, async ({ spaceId }: any) => {
       await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'graph:read');
-      return this.text(await this.knowledge.getGraph(spaceId));
+      return this.text(await this.knowledge.getGraph(spaceId, principal));
     });
     registerTool('propose_page', {
       description: 'Propose a page ChangeSet. Editor proposals remain pending review. Publisher proposals auto-publish only when the bound Space Grant is publisher and both Agent mode and Space policy allow it.',
@@ -333,6 +337,7 @@ export class McpService {
       description: 'List knowledge sources in one authorized Space by internal spaceId. Use to identify source names, types and status; read selected pages with get_page for their quoted evidence and source versions. The source list alone does not establish which claims a source supports.',
       inputSchema: { spaceId: z.string().describe(SPACE_ID) },
     }, async ({ spaceId }: any) => {
+      await this.authorization.assertPersonalSourceRead(principal);
       await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'sources:read');
       return this.text(await this.sources.list(spaceId));
     });
@@ -343,6 +348,7 @@ export class McpService {
         sourceKey: z.string().min(1).max(128),
       },
     }, async ({ spaceId, sourceKey }: { spaceId: string; sourceKey: string }) => {
+      await this.authorization.assertPersonalSourceRead(principal);
       await this.authorization.assertSpaceAccess(principal, spaceId,
         ['owner', 'admin', 'editor', 'viewer'], 'sources:read');
       return this.text(await this.syncs.getState(spaceId, sourceKey));
@@ -362,7 +368,7 @@ export class McpService {
     }, async ({ spaceId }: any) => {
       if (spaceId) await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'review:read');
       const ids = spaceId ? [spaceId] : await this.authorization.getAccessibleSpaceIds(principal, 'review:read');
-      return this.text(await this.review.list(ids));
+      return this.text(await this.review.list(ids, principal));
     });
     registerTool('approve_change_set', {
       description: 'Approve a change set. Agent identities are never allowed to use this tool.',
@@ -370,7 +376,7 @@ export class McpService {
     }, async ({ changeSetId, comment }: any) => {
       if (principal.agentId) throw new BadRequestException('Agents cannot approve change sets');
       await this.authorization.assertChangeSetAccess(principal, changeSetId, ['owner'], 'review:decide');
-      return this.text(await this.review.approve(changeSetId, principal.userId, comment, principal));
+      return this.text(await this.review.toPublic(await this.review.approve(changeSetId, principal.userId, comment, principal), principal));
     });
     registerTool('collaboration_join_run', {
       description: 'Join a bound collaboration run as the authenticated Agent and receive the safe execution loop.',
@@ -448,7 +454,7 @@ export class McpService {
     }, async (uri: URL, variables: Record<string, string | string[]>) => {
       const pageId = String(variables.pageId);
       await this.authorization.assertPageAccess(principal, pageId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
-      return { contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(await this.pages.findOne(pageId)) }] };
+      return { contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(await this.pages.findOne(pageId, principal)) }] };
     });
     return server;
   }

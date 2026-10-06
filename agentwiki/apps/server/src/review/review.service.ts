@@ -1,3 +1,4 @@
+import { SourceFreshnessService, EVIDENCE_READ_FIELDS } from '../core/source-freshness/source-freshness.service';
 import { validateSourcePublication } from '../knowledge-pipeline/source-head';
 import { assertPageTitle } from '../core/page/page-title';
 import { BadRequestException, Injectable, Optional } from '@nestjs/common';
@@ -44,6 +45,7 @@ interface AgentAutoPublishContext {
 @Injectable()
 export class ReviewService {
   constructor(
+    private readonly freshness: SourceFreshnessService,
     private prisma: PrismaService,
     private search: SearchService,
     private revisionWriter: SpaceRevisionWriterService,
@@ -136,12 +138,12 @@ export class ReviewService {
       changeSet = await createChangeSet(this.prisma, false);
     }
 
-    if (!autoPublish) return { ...changeSet, autoPublished: false };
+    if (!autoPublish) return this.toPublic({ ...changeSet, autoPublished: false }, principal);
     const published = await this.publish(changeSet.id, autoPublishContext);
-    return { ...published, autoPublished: published.status === 'published' };
+    return this.toPublic({ ...published, autoPublished: published.status === 'published' }, principal);
   }
 
-  async list(spaceIds: string[]) {
+  async list(spaceIds: string[], principal: Principal) {
     const changeSets = await this.prisma.changeSet.findMany({
       where: { spaceId: { in: spaceIds }, status: { in: ['pending_review', 'approved', 'published', 'reverted', 'rejected'] } },
       include: {
@@ -175,13 +177,14 @@ export class ReviewService {
     const nonRevertibleIds = new Set<string>(v3Sessions
       .map((session: { publishedChangeSetId: string | null }) => session.publishedChangeSetId)
       .filter((id: string | null): id is string => id !== null));
-    return changeSets.map((changeSet) => ({
+    const results = changeSets.map((changeSet) => ({
       ...changeSet,
       revertible: !nonRevertibleIds.has(changeSet.id),
     })).sort((left, right) =>
       (priority[left.status] ?? 99) - (priority[right.status] ?? 99) ||
       right.createdAt.getTime() - left.createdAt.getTime(),
     );
+    return this.freshness.projectChangeSets(results, principal);
   }
 
   async countPending(spaceIds: string[]) {
@@ -191,7 +194,7 @@ export class ReviewService {
     return { pending };
   }
 
-  async get(id: string) {
+  async get(id: string, principal: Principal) {
     const changeSet = await this.loadChangeSet(id);
     const groups = new Map<string, Array<{ itemId: string; excludePageId?: string }>>();
     for (const item of changeSet.items) {
@@ -237,7 +240,11 @@ export class ReviewService {
         }
       });
     }
-    return { ...changeSet, duplicateContentWarnings };
+    return this.toPublic({ ...changeSet, duplicateContentWarnings }, principal);
+  }
+
+  async toPublic(changeSet: Record<string, any>, principal: Principal) {
+    return (await this.freshness.projectChangeSets([changeSet], principal))[0];
   }
 
   // Mutation paths deliberately load no advisory: duplicate content is never
@@ -251,7 +258,7 @@ export class ReviewService {
           include: {
             source: true,
             evidences: {
-              include: { sourceVersion: { select: { version: true, metadata: true } } },
+              select: EVIDENCE_READ_FIELDS,
               orderBy: { createdAt: 'asc' },
             },
           },

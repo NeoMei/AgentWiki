@@ -34,13 +34,13 @@ export class KnowledgeController {
   @Get('relations/:pageId')
   async getRelations(@Param('pageId') pageId: string, @Req() req: Request) {
     await this.authorization.assertPageAccess(req.user as any, pageId, ['owner', 'admin', 'editor', 'viewer'], 'graph:read');
-    return this.knowledgeService.getRelations(pageId);
+    return this.knowledgeService.getRelations(pageId, req.user as any);
   }
 
   @Get('related/:pageId')
   async getRelatedPages(@Param('pageId') pageId: string, @Req() req: Request) {
     await this.authorization.assertPageAccess(req.user as any, pageId, ['owner', 'admin', 'editor', 'viewer'], 'graph:read');
-    return this.knowledgeService.getRelatedPages(pageId);
+    return this.knowledgeService.getRelatedPages(pageId, req.user as any);
   }
 
   @Delete('relations/:id')
@@ -70,6 +70,6 @@ export class KnowledgeController {
   @Get('graph/:spaceId')
   async getGraph(@Param('spaceId') spaceId: string, @Req() req: Request) {
     await this.authorization.assertSpaceAccess(req.user as any, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'graph:read');
-    return this.knowledgeService.getGraph(spaceId);
+    return this.knowledgeService.getGraph(spaceId, req.user as any);
   }
 }

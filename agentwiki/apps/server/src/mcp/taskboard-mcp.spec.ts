@@ -1,3 +1,4 @@
+const freshnessMock: any = { projectPages: async (rows: any[]) => rows, projectChangeSets: async (rows: any[]) => rows, forPages: async () => new Map(), projectEvidence: async (rows: any[]) => new Map(rows.map(row => [row.id, row])) };
 import { AuthorizationService, type Principal } from '../core/authorization/authorization.service';
 import { ProjectTaskboardService } from '../project-taskboard/project-taskboard.service';
 import { makeDb } from '../project-taskboard/testing/fake-taskboard-db';
@@ -14,7 +15,7 @@ function setup(role = 'editor') {
   const service = new ProjectTaskboardService(prisma, authorization, { publish: async () => undefined } as any);
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const deps: any = {};
-  const mcp = new (McpService as any)(deps, authorization, deps, deps, deps, deps, deps, deps, deps, audit, prisma, deps, deps, undefined, service);
+  const mcp = new (McpService as any)(freshnessMock, deps, authorization, deps, deps, deps, deps, deps, deps, deps, audit, prisma, deps, deps, undefined, service);
   const server = mcp.createServer({ ...editor, agentRole: role });
   const tools = server._registeredTools;
   const call = async (name: string, args: unknown) => {

@@ -1,3 +1,5 @@
+import { sourceStatusText } from '../../i18n/source-status-messages';
+import { SourceStatusNotice } from '../page/SourceStatusNotice';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, ChevronRight, RotateCcw, Send, X } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -89,12 +91,13 @@ const EvidencePanel: React.FC<{ changeSet: any; item: any }> = ({ changeSet, ite
   const evidence = evidences.find((candidate: any) => candidate.id === payload.evidenceId) ||
     evidences.find((candidate: any) => candidate.location?.sourcePath === sourcePath);
   const source = changeSet.run?.source;
-  if (!source && !evidence) return <p className="mt-3 text-xs text-gray-400">{zh ? '人工提案，没有提取的来源证据。' : 'Manual proposal; no extracted source evidence.'}</p>;
+  if (!source && !evidence) return <p className="mt-3 text-xs text-gray-400">{sourceStatusText(language, 'sourceStatus.noAccessibleEvidence')}</p>;
   const metadata = evidence?.sourceVersion?.metadata || {};
   return (
     <div className="mt-3 rounded-lg border bg-blue-50/40 p-3 text-xs text-gray-600">
       <p><span className="font-medium text-gray-700">{zh ? '来源：' : 'Source:'}</span> {source?.name} · {source?.type}{sourcePath ? ` · ${sourcePath}` : ''}</p>
       {source?.uri ? <p className="mt-1 break-all text-gray-500">{source.uri}</p> : null}
+      {evidence?.evidenceState ? <p>{sourceStatusText(language, `sourceStatus.evidence.${evidence.evidenceState}`)}</p> : null}
       {evidence?.quote ? <blockquote className="mt-2 border-l-2 border-blue-300 pl-3 whitespace-pre-wrap">{evidence.quote}</blockquote> : null}
       <p className="mt-2 text-gray-400">
         {evidence ? `${zh ? '置信度' : 'Confidence'} ${Math.round((evidence.confidence ?? 1) * 100)}% · ${zh ? '来源版本' : 'source version'} ${evidence.sourceVersion?.version ?? (zh ? '未知' : 'unknown')}` : (zh ? '没有匹配片段' : 'No matching excerpt')}
@@ -289,7 +292,7 @@ export const ReviewPage: React.FC = () => {
         const message = apiErrorMessage(requestError, t, 'review.actionFailed');
         const status = requestError.response?.status;
         const code = requestError.response?.data?.code;
-        if (status === 409 || code === 'CHANGESET_INVALID_STATE' || code === 'CHANGESET_CONFLICT') {
+        if (status === 409 || code === 'CHANGESET_INVALID_STATE' || code === 'CHANGESET_CONFLICT' || code === 'SOURCE_VERSION_CONFLICT') {
           await Promise.all([expandChangeSet(id), load()]);
           announceReviewChanged();
         }
@@ -318,7 +321,7 @@ export const ReviewPage: React.FC = () => {
         const message = apiErrorMessage(requestError, t, 'review.decisionFailed');
         const status = requestError.response?.status;
         const code = requestError.response?.data?.code;
-        if (status === 409 || code === 'CHANGESET_INVALID_STATE' || code === 'CHANGESET_CONFLICT') {
+        if (status === 409 || code === 'CHANGESET_INVALID_STATE' || code === 'CHANGESET_CONFLICT' || code === 'SOURCE_VERSION_CONFLICT') {
           await Promise.all([expandChangeSet(setId), load()]);
           announceReviewChanged();
         }
@@ -386,6 +389,7 @@ export const ReviewPage: React.FC = () => {
                   {changeSet.items.map((item: any) => (
                     <div key={item.id} className="p-3">
                       <div className="flex justify-between gap-3"><p className="text-sm font-medium">{item.type.replaceAll('_', ' ')}</p><span className="text-xs text-gray-400">{item.status}</span></div>
+                      <SourceStatusNotice status={item.sourceStatus || changeSet.sourceStatus} candidate details />
                       <CandidateDiff item={item} spaceId={changeSet.spaceId || changeSet.space?.id} />
                       <ExistingContentWarning pages={changeSet.duplicateContentWarnings?.find((warning: { itemId: string }) => warning.itemId === item.id)?.pages} />
                       <EvidencePanel changeSet={changeSet} item={item} />

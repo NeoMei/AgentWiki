@@ -1,3 +1,5 @@
+import { SourceFreshnessService } from '../source-freshness/source-freshness.service';
+const freshnessMock: any = { projectPages: async (rows: any[]) => rows, projectChangeSets: async (rows: any[]) => rows, forPages: async () => new Map(), projectEvidence: async (rows: any[]) => new Map(rows.map(row => [row.id, row])) };
 import { Test, TestingModule } from '@nestjs/testing';
 import { PageService } from './page.service';
 import { PrismaService } from '../../database/prisma.service';
@@ -129,6 +131,7 @@ describe('PageService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PageService,
+        { provide: SourceFreshnessService, useValue: freshnessMock },
         { provide: PrismaService, useValue: mockPrisma },
         { provide: SearchService, useValue: mockSearch },
         { provide: SpaceRevisionWriterService, useValue: mockRevisionWriter },
@@ -155,14 +158,14 @@ describe('PageService', () => {
     };
     mockPrisma.page.findMany.mockResolvedValue([row]);
     mockPrisma.page.count.mockResolvedValue(1);
-    await expect(service.findAll(['space-1'], 'space-1')).resolves.toMatchObject({
+    await expect(service.findAll(['space-1'], humanPrincipal, 'space-1')).resolves.toMatchObject({
       data: [expect.objectContaining({
         id: 'page-1', folderId: 'folder-1', path: 'pages/项目/Weekly.md',
       })],
     });
 
     mockPrisma.page.findUnique.mockResolvedValue(row);
-    await expect(service.findOne('page-1')).resolves.toMatchObject({
+    await expect(service.findOne('page-1', humanPrincipal)).resolves.toMatchObject({
       id: 'page-1', folderId: 'folder-1', path: 'pages/项目/Weekly.md',
     });
 
@@ -391,7 +394,7 @@ describe('PageService', () => {
         { get: jest.fn().mockReturnValue('api') },
         sharedWriter,
       ) as PageTemplateService;
-      const pages = new PageService(
+      const pages = new PageService(freshnessMock,
         concurrentPrisma,
         mockSearch as any,
         sharedWriter as any,
@@ -966,7 +969,7 @@ describe('PageService', () => {
 
   describe('remove', () => {
     it('enqueues a graph refresh after archiving a page', async () => {
-      jest.spyOn(service, 'findOne').mockResolvedValue({
+      jest.spyOn(service as any, 'requirePage').mockResolvedValue({
         id: 'page-1', spaceId: 'space-1', authorId: 'user-1',
       } as any);
       mockPrisma.page.update.mockResolvedValue({
@@ -983,7 +986,7 @@ describe('PageService', () => {
 
   describe('restoreVersion', () => {
     it('does not restore after access is revoked while waiting for the Space lock', async () => {
-      jest.spyOn(service, 'findOne').mockResolvedValue({ id: 'page-1', spaceId: 'space-1' } as any);
+      jest.spyOn(service as any, 'requirePage').mockResolvedValue({ id: 'page-1', spaceId: 'space-1' } as any);
       const revoked = new Error('membership revoked');
       mockAuthorization.assertLiveHumanSpaceAccess.mockRejectedValueOnce(revoked);
 
@@ -1028,7 +1031,7 @@ describe('PageService', () => {
         syncPath: 'pages/Restored title.md',
         syncPathKey: 'pages/restored title.md',
       };
-      jest.spyOn(service, 'findOne').mockResolvedValue(current as any);
+      jest.spyOn(service as any, 'requirePage').mockResolvedValue(current as any);
       mockPrisma.pageVersion.findFirst.mockResolvedValue(version);
       mockPrisma.page.findUnique.mockResolvedValueOnce(current).mockResolvedValueOnce(restored);
       mockPrisma.page.updateMany.mockResolvedValue({ count: 1 });
@@ -1109,7 +1112,7 @@ describe('PageService', () => {
         syncPath: 'Restored.md',
         syncPathKey: 'restored.md',
       };
-      jest.spyOn(service, 'findOne').mockResolvedValue(current as any);
+      jest.spyOn(service as any, 'requirePage').mockResolvedValue(current as any);
       mockPrisma.pageVersion.findFirst.mockResolvedValue(version);
       mockPrisma.page.findUnique.mockResolvedValueOnce(current).mockResolvedValueOnce(restored);
       mockPrisma.page.updateMany.mockResolvedValue({ count: 1 });
@@ -1176,7 +1179,7 @@ describe('PageService', () => {
         syncPathKey: 'current/restored title.md',
         updatedAt: new Date('2026-08-20T00:01:00.000Z'),
       };
-      jest.spyOn(service, 'findOne').mockResolvedValue(stale as any);
+      jest.spyOn(service as any, 'requirePage').mockResolvedValue(stale as any);
       mockPrisma.pageVersion.findFirst.mockResolvedValue(version);
       mockPrisma.page.findUnique
         .mockImplementationOnce(async () => {
@@ -1262,7 +1265,7 @@ describe('PageService', () => {
         title: version.title,
         content: version.content,
       };
-      jest.spyOn(service, 'findOne').mockResolvedValue(current as any);
+      jest.spyOn(service as any, 'requirePage').mockResolvedValue(current as any);
       mockPrisma.pageVersion.findFirst.mockResolvedValue(version);
       mockPrisma.page.findUnique.mockResolvedValueOnce(current).mockResolvedValueOnce(restored);
       mockPrisma.page.updateMany.mockResolvedValue({ count: 1 });
@@ -1322,7 +1325,7 @@ describe('PageService', () => {
         revisions: 0,
         searchDocuments: 0,
       };
-      jest.spyOn(service, 'findOne').mockResolvedValue(visible as any);
+      jest.spyOn(service as any, 'requirePage').mockResolvedValue(visible as any);
       mockPrisma.$transaction.mockImplementationOnce(async (callback: any) => {
         const pendingVersions: Array<Record<string, unknown>> = [];
         const tx = {
@@ -1387,7 +1390,7 @@ describe('PageService', () => {
 
   describe('remove', () => {
     it('does not archive after access is revoked while waiting for the Space lock', async () => {
-      jest.spyOn(service, 'findOne').mockResolvedValue({ id: 'page-1', spaceId: 'space-1' } as any);
+      jest.spyOn(service as any, 'requirePage').mockResolvedValue({ id: 'page-1', spaceId: 'space-1' } as any);
       const revoked = new Error('membership revoked');
       mockAuthorization.assertLiveHumanSpaceAccess.mockRejectedValueOnce(revoked);
 
@@ -1425,7 +1428,7 @@ describe('PageService', () => {
         updatedAt: new Date('2026-08-20T00:01:00.000Z'),
         deletedAt: new Date('2026-08-20T00:01:00.000Z'),
       };
-      jest.spyOn(service, 'findOne').mockResolvedValue(visible as any);
+      jest.spyOn(service as any, 'requirePage').mockResolvedValue(visible as any);
       mockPrisma.page.findUnique.mockResolvedValueOnce(current).mockResolvedValueOnce(archived);
       mockPrisma.page.updateMany.mockResolvedValue({ count: 1 });
 
@@ -1435,6 +1438,7 @@ describe('PageService', () => {
       )).resolves.toEqual({
         ...archived,
         path: archived.syncPath,
+        evidence: [], provenance: null, lastChange: null, lastModifiedByUser: null, lastModifiedByAgent: null,
       });
 
       expect(mockRevisionWriter.lockSpace).toHaveBeenCalledWith(mockPrisma, 'space-1');
@@ -1497,7 +1501,7 @@ describe('PageService', () => {
         updatedAt: new Date('2026-08-20T00:00:00.000Z'),
         deletedAt: null,
       };
-      jest.spyOn(service, 'findOne').mockResolvedValue(visible as any);
+      jest.spyOn(service as any, 'requirePage').mockResolvedValue(visible as any);
       mockPrisma.page.findUnique.mockResolvedValueOnce(current);
       mockPrisma.page.updateMany.mockResolvedValue({ count: 0 });
 
@@ -1540,6 +1544,7 @@ describe('page hierarchy reads', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PageService,
+        { provide: SourceFreshnessService, useValue: freshnessMock },
         { provide: PrismaService, useValue: mockPrisma },
         { provide: SearchService, useValue: mockSearch },
         { provide: SpaceRevisionWriterService, useValue: mockRevisionWriter },
@@ -1555,7 +1560,7 @@ describe('page hierarchy reads', () => {
 
   it('findHierarchy queries pages ordered by sortOrder then createdAt', async () => {
     mockPrisma.page.findMany.mockResolvedValue([]);
-    await service.findHierarchy('space-1');
+    await service.findHierarchy('space-1', humanPrincipal);
     expect(mockPrisma.page.findMany).toHaveBeenCalledWith(expect.objectContaining({
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     }));

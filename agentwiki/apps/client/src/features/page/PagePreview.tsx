@@ -1,3 +1,5 @@
+import type { PageSourceStatus } from '@agentwiki/shared';
+import { SourceStatusNotice } from './SourceStatusNotice';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useParams, Link, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import api from '../../api/client';
@@ -38,6 +40,7 @@ interface Page {
   folderId?: string | null;
   provenance?: any;
   evidence?: any[];
+  sourceStatus?: PageSourceStatus;
   lastChange?: { id: string; title: string; status: string } | null;
   lastModifiedByUser?: { id: string; name?: string; email?: string } | null;
   lastModifiedByAgent?: { id: string; name: string } | null;
@@ -164,7 +167,7 @@ export const PagePreview: React.FC = () => {
       content = toggled;
     }
 
-    const optimisticPage = { ...committed, content };
+    const optimisticPage = { ...committed, content, sourceStatus: committed.sourceStatus?.status !== 'untracked' && committed.sourceStatus ? { ...committed.sourceStatus, status: 'needs_review' as const, reason: 'page_changed' as const } : committed.sourceStatus };
     pageRef.current = optimisticPage;
     setPage(optimisticPage);
     setPendingTaskIndexes(indexes);
@@ -641,6 +644,7 @@ export const PagePreview: React.FC = () => {
             spaceId={page.spaceId}
             provenance={page.provenance}
             evidence={page.evidence}
+            sourceStatus={page.sourceStatus}
             lastChange={page.lastChange}
             lastModifiedByUser={page.lastModifiedByUser}
             lastModifiedByAgent={page.lastModifiedByAgent}
@@ -662,6 +666,7 @@ export const PagePreview: React.FC = () => {
         </div>
       </div>
 
+      <SourceStatusNotice status={page.sourceStatus} />
       <article className="document-canvas min-h-[300px] bg-white" style={{ '--document-panel-width': `${agentOpen && panelGeometry.width >= 1600 ? 420 : outlineOccupiedWidth}px` } as React.CSSProperties}>
         <header className="document-header">
           <h1 title={page.title} className="document-title">{page.title}</h1>

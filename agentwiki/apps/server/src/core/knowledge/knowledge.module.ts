@@ -1,3 +1,4 @@
+import { SourceFreshnessModule } from '../source-freshness/source-freshness.module';
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../../database/database.module';
 import { KnowledgeService } from './knowledge.service';
@@ -8,7 +9,7 @@ import { AuthorizationModule } from '../authorization/authorization.module';
 import { SyncModule } from '../sync/sync.module';
 
 @Module({
-  imports: [DatabaseModule, AuthModule, AuthorizationModule, ReviewModule, SyncModule],
+  imports: [SourceFreshnessModule, DatabaseModule, AuthModule, AuthorizationModule, ReviewModule, SyncModule],
   providers: [KnowledgeService],
   controllers: [KnowledgeController],
   exports: [KnowledgeService],

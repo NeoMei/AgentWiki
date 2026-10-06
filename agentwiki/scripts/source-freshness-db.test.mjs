@@ -7,6 +7,7 @@ import { withCollaborationTestDatabase } from './collaboration-test-database.mjs
 
 const require = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = require('@prisma/client');
+const { SourceFreshnessService } = require('./dist/core/source-freshness/source-freshness.service.js');
 const { AuthorizationService } = require('./dist/core/authorization/authorization.service.js');
 const { SpaceRevisionWriterService } = require('./dist/core/sync/space-revision-writer.service.js');
 const { ReadableSyncPathService } = require('./dist/core/sync/readable-sync-path.service.js');
@@ -31,15 +32,16 @@ test('source generations, receipts, revocation and atomic reviewed publication i
     assert.equal(scope.migrationTreeDigest, '27e1fba987e09b55b599433ca7b875c1567234152c74886e003954b723dbe57e');
     const db = new PrismaClient({ datasources: { db: { url: scope.databaseUrl } } });
     const authorization = new AuthorizationService(db);
+    const freshness = new SourceFreshnessService(db, authorization);
     const writer = SpaceRevisionWriterService.legacyOnly(db);
     const paths = new ReadableSyncPathService();
     const tree = new ContentTreeService(db, writer, paths);
     const search = { indexPage: async () => ({ lexicalIndexed: true }), deletePageIndex: async () => {} };
     const graph = { enqueue: () => {} };
-    const reviews = new ReviewService(db, search, writer, paths, graph, tree);
+    const reviews = new ReviewService(freshness, db, search, writer, paths, graph, tree);
     const sources = new SourceService(db, { get: () => undefined }, reviews, authorization, writer);
     const intake = new KnowledgeSyncService(db, { record: async () => {} }, authorization, writer);
-    const pages = new PageService(db, search, writer, paths, graph, {}, authorization, tree);
+    const pages = new PageService(freshness, db, search, writer, paths, graph, {}, authorization, tree);
     try {
       const owner = await db.user.create({ data: { email: `${randomUUID()}@example.test`, name: 'Source reviewer' } });
       const principal = { userId: owner.id };

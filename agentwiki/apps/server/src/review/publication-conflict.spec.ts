@@ -1,3 +1,4 @@
+const freshnessMock: any = { projectPages: async (rows: any[]) => rows, projectChangeSets: async (rows: any[]) => rows, forPages: async () => new Map(), projectEvidence: async (rows: any[]) => new Map(rows.map(row => [row.id, row])) };
 import { ReviewService } from './review.service';
 import { canonicalPageContentHash } from '../collaboration-workflows/page-baseline';
 
@@ -51,7 +52,7 @@ function fixture(type: string, baseline: Record<string, unknown>, oneShot = fals
       return result;
     }),
   };
-  const service = new ReviewService(prisma, search as any, { advanceLocked: advance } as any,
+  const service = new ReviewService(freshnessMock, prisma, search as any, { advanceLocked: advance } as any,
     {} as any, { enqueue: jest.fn() } as any, {
       lockPageMutationSpace: jest.fn(async (tx: any) => Object.assign(tx, { contentTreeRevision: 0n })),
       advancePageMutation: advance,

@@ -77,6 +77,7 @@ export class PageController {
     const accessibleSpaceIds = await this.authorization.getAccessibleSpaceIds(principal, 'pages:read');
     return this.pageService.findAll(
       accessibleSpaceIds,
+      principal,
       spaceId,
       parseOffset(skip),
       parseLimit(take),
@@ -87,7 +88,7 @@ export class PageController {
   async findHierarchy(@Param('spaceId') spaceId: string, @Req() req: Request) {
     await this.authorization.assertSpaceAccess(req.user as any, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
     this.logger.log('Finding page hierarchy for space: ' + spaceId);
-    return this.pageService.findHierarchy(spaceId);
+    return this.pageService.findHierarchy(spaceId, req.user as any);
   }
 
   @Patch('reorder/:spaceId')
@@ -117,7 +118,7 @@ export class PageController {
       && (['owner', 'editor'].includes(String(access.role)));
     this.logger.log('Finding page: ' + id);
     return {
-      ...await this.pageService.findOne(id),
+      ...await this.pageService.findOne(id, req.user as any),
       capabilities: { canEdit, canManageAttachments },
     };
   }

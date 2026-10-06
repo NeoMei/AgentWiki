@@ -90,6 +90,13 @@ export class AuthorizationService {
     if (!credential.scopes.includes('*') && requiredScopes.some(scope => !credential.scopes.includes(scope))) throw new BusinessException('AUTH_SCOPE_REQUIRED');
   }
 
+  /** Source read boundary only: JWT membership and Agent grant semantics stay unchanged. */
+  async assertPersonalSourceRead(principal: Principal): Promise<void> {
+    if (!principal.agentId && principal.credentialId) {
+      await this.assertLiveHumanCredential(this.prisma, principal, ['sources:read']);
+    }
+  }
+
   async assertLiveHumanSpaceAccess(
     db: Prisma.TransactionClient,
     principal: Principal,

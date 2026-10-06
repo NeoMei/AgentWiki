@@ -1,3 +1,4 @@
+const freshnessMock: any = { projectPages: async (rows: any[]) => rows, projectChangeSets: async (rows: any[]) => rows, forPages: async () => new Map(), projectEvidence: async (rows: any[]) => new Map(rows.map(row => [row.id, row])) };
 import { randomUUID } from 'crypto';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { ReviewService } from './review.service';
@@ -36,7 +37,7 @@ async function withFixture(run: (f: any) => Promise<void>) {
   // covered by the coordinator's full harness, not duplicated in this test.
   jest.spyOn(tree, 'advancePageMutation').mockResolvedValue({ treeRevision: 0n, syncRevisionId: 'test' });
   const search = { indexPage: jest.fn() };
-  const review = new ReviewService(db as any, search as any, writer, paths, { enqueue: jest.fn() } as any, tree);
+  const review = new ReviewService(freshnessMock, db as any, search as any, writer, paths, { enqueue: jest.fn() } as any, tree);
   try { await run({ db, user, space, page, review, search }); }
   finally {
     await db.space.delete({ where: { id: space.id } });

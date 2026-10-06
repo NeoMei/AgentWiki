@@ -1,3 +1,4 @@
+import { SourceFreshnessService } from '../source-freshness/source-freshness.service';
 import { Controller, Get, Post, Param, Query, Logger, UseGuards, Req } from '@nestjs/common';
 import { Request } from 'express';
 import { CombinedAuthGuard } from '../auth/combined-auth.guard';
@@ -11,6 +12,7 @@ export class SearchController {
   private readonly logger = new Logger(SearchController.name);
 
   constructor(
+    private readonly freshness: SourceFreshnessService,
     private searchService: SearchService,
     private authorization: AuthorizationService,
   ) {}
@@ -37,7 +39,8 @@ export class SearchController {
       parseLimit(limit, 10),
       accessibleSpaceIds,
     );
-    return { results, total: results.length };
+    const pages = await this.freshness.projectPages(results.map(result => result.page), principal);
+    return { results: results.map((result, index) => ({ ...result, page: pages[index] })), total: results.length };
   }
 
   @Post('index/:pageId')

@@ -18,6 +18,7 @@ export class KnowledgeSyncController {
 
   @Get('spaces/:spaceId/knowledge-syncs/:sourceKey')
   async state(@Param('spaceId') spaceId: string, @Param('sourceKey') sourceKey: string, @Req() req: Request) {
+    await this.authorization.assertPersonalSourceRead(req.user as any);
     await this.authorization.assertSpaceAccess(req.user as any, spaceId,
       ['owner', 'admin', 'editor', 'viewer'], 'sources:read');
     const state = await this.syncs.getState(spaceId, sourceKey);

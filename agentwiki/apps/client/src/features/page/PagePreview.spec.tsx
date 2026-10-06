@@ -161,6 +161,23 @@ const AbaNavigationHarness = () => {
 };
 
 describe('PagePreview checklist saves', () => {
+  it('shows source review notice before opening details and adopts PATCH freshness', async () => {
+    queuePages({ data: page({ sourceStatus: { status: 'current', reason: 'reviewed_source', sourceId: 'src' } }) });
+    vi.mocked(api.patch).mockResolvedValue({ data: patchPage({ content: '- [x] first task\n- [ ] second task', sourceStatus: { status: 'needs_review', reason: 'page_changed', sourceId: 'src' } }) });
+    renderPreview();
+    const checkboxes = await taskCheckboxes();
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    fireEvent.click(checkboxes[0]);
+    expect(await screen.findByText(/previous source review does not cover/)).toBeVisible();
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('note')).toHaveTextContent('needs review');
+  });
+  it('distinguishes unknown from current without exposing source links', async () => {
+    queuePages({ data: page({ sourceStatus: { status: 'unknown', reason: 'unverified_source' } }) });
+    renderPreview();
+    expect(await screen.findByRole('note')).toHaveTextContent('review status is unknown');
+  });
+
   it('gives the reading outline space only while its wide-screen rail is visible', async () => {
     const viewport = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1700);
     queuePages({ data: page({ content: '# Reading outline' }) });

@@ -1,3 +1,4 @@
+const freshnessMock: any = { projectPages: async (rows: any[]) => rows, projectChangeSets: async (rows: any[]) => rows, forPages: async () => new Map(), projectEvidence: async (rows: any[]) => new Map(rows.map(row => [row.id, row])) };
 import { ReviewService } from '../review/review.service';
 import { BadRequestException } from '@nestjs/common';
 import { McpController } from './mcp.controller';
@@ -8,7 +9,7 @@ describe('McpService transport security', () => {
   const dependency = {} as any;
   const audit = { record: jest.fn().mockResolvedValue(undefined) } as any;
   const prisma = { agentAuditEvent: { create: jest.fn().mockResolvedValue({}) } } as any;
-  const service = new McpService(
+  const service = new McpService(freshnessMock,
     config,
     dependency,
     dependency,
@@ -64,6 +65,7 @@ describe('McpService knowledge-sync tool', () => {
     scopes: ['sources:read'],
   } as any;
   const authorization = {
+    assertPersonalSourceRead: jest.fn(),
     assertSpaceAccess: jest.fn().mockResolvedValue(undefined),
   } as any;
   const syncs = {
@@ -81,7 +83,7 @@ describe('McpService knowledge-sync tool', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('rejects an empty page ID at the upstream read contract', () => {
-    const service = new (McpService as any)(
+    const service = new (McpService as any)(freshnessMock,
       { get: jest.fn() }, authorization, {}, {}, {}, {}, {}, {}, {}, audit, prisma, syncs,
     );
     const server = (service as any).createServer(principal);
@@ -91,7 +93,7 @@ describe('McpService knowledge-sync tool', () => {
   });
 
   it('authorizes sources:read before returning sync state', async () => {
-    const service = new (McpService as any)(
+    const service = new (McpService as any)(freshnessMock,
       { get: jest.fn() },
       authorization,
       {}, {}, {}, {}, {}, {}, {},
@@ -113,7 +115,7 @@ describe('McpService knowledge-sync tool', () => {
 
   it('does not read sync state when sources:read authorization fails', async () => {
     authorization.assertSpaceAccess.mockRejectedValueOnce(new Error('SPACE_ACCESS_DENIED'));
-    const service = new (McpService as any)(
+    const service = new (McpService as any)(freshnessMock,
       { get: jest.fn() },
       authorization,
       {}, {}, {}, {}, {}, {}, {},
@@ -178,6 +180,7 @@ describe('McpService relation proposals', () => {
       userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1', scopes: ['graph:write'],
     } as any;
     const authorization = {
+    assertPersonalSourceRead: jest.fn(),
       assertSpaceAccess: jest.fn().mockResolvedValue(undefined),
       assertPageAccess: jest.fn()
         .mockResolvedValueOnce({ id: 'page-1', spaceId: 'space-1' })
@@ -186,7 +189,7 @@ describe('McpService relation proposals', () => {
     const review = { propose: jest.fn().mockResolvedValue({ id: 'change-1' }) } as any;
     const audit = { record: jest.fn().mockResolvedValue(undefined) } as any;
     const prisma = { agentAuditEvent: { create: jest.fn().mockResolvedValue({}) } } as any;
-    const service = new (McpService as any)(
+    const service = new (McpService as any)(freshnessMock,
       { get: jest.fn() }, authorization,
       {}, {}, {}, {}, {}, review, {}, audit, prisma, {},
     );
@@ -217,6 +220,7 @@ describe('McpService Folder primitives', () => {
     scopes: ['folders:read', 'folders:write', 'folders:delete'],
   } as any;
   const authorization = {
+    assertPersonalSourceRead: jest.fn(),
     assertSpaceAccess: jest.fn().mockResolvedValue({ role: 'publisher' }),
     assertLiveAgentAccess: jest.fn().mockResolvedValue(undefined),
   } as any;
@@ -246,7 +250,7 @@ describe('McpService Folder primitives', () => {
   const prisma = { agentAuditEvent: { create: jest.fn().mockResolvedValue({}) } } as any;
 
   const createTools = () => {
-    const service = new (McpService as any)(
+    const service = new (McpService as any)(freshnessMock,
       { get: jest.fn() }, authorization,
       {}, {}, {}, {}, {}, review, {}, audit, prisma, {}, {}, contentTree,
     );
@@ -382,7 +386,7 @@ describe('McpService Folder primitives', () => {
 describe('MCP page title schema', () => {
   it('rejects whitespace in the actual registered propose_page schema', () => {
     const dependency = {} as any;
-    const service = new McpService(dependency, dependency, dependency, dependency,
+    const service = new McpService(freshnessMock, dependency, dependency, dependency, dependency,
       dependency, dependency, dependency, dependency, dependency, dependency,
       dependency, dependency, dependency, dependency);
     const server = (service as any).createServer({ userId: 'user' });
@@ -393,10 +397,11 @@ describe('MCP page title schema', () => {
   });
   it('rejects a blank title in the registered handler through the real proposal service', async () => {
     const dependency = {} as any;
-    const authorization = { assertSpaceAccess: jest.fn().mockResolvedValue(undefined) } as any;
-    const review = new ReviewService(dependency, dependency, dependency, dependency);
+    const authorization = {
+    assertPersonalSourceRead: jest.fn(), assertSpaceAccess: jest.fn().mockResolvedValue(undefined) } as any;
+    const review = new ReviewService(freshnessMock, dependency, dependency, dependency, dependency);
     const audit = { record: jest.fn().mockResolvedValue(undefined) } as any;
-    const service = new McpService(dependency, authorization, dependency, dependency,
+    const service = new McpService(freshnessMock, dependency, authorization, dependency, dependency,
       dependency, dependency, dependency, review, dependency,
       audit, dependency, dependency, dependency);
     const server = (service as any).createServer({ userId: 'user' });

@@ -338,12 +338,14 @@ test('web create and readable migration wait before allocating the same title', 
         }],
       });
       const [
+        { SourceFreshnessService },
         { PageService },
         { ReadableSyncPathService },
         { SpaceRevisionWriterService },
         { AuthorizationService },
         { ContentTreeService },
       ] = await Promise.all([
+        import(pathToFileURL(resolve(root, 'apps/server/dist/core/source-freshness/source-freshness.service.js')).href),
         import(pathToFileURL(resolve(root, 'apps/server/dist/core/page/page.service.js')).href),
         import(pathToFileURL(resolve(root, 'apps/server/dist/core/sync/readable-sync-path.service.js')).href),
         import(pathToFileURL(resolve(root, 'apps/server/dist/core/sync/space-revision-writer.service.js')).href),
@@ -370,7 +372,7 @@ test('web create and readable migration wait before allocating the same title', 
       const authorization = new AuthorizationService(pagePrisma);
       const contentTree = new ContentTreeService(pagePrisma, writer, allocator);
       const pageService = new PageService(
-        pagePrisma,
+        new SourceFreshnessService(pagePrisma, authorization), pagePrisma,
         { indexPage: async () => ({ lexicalIndexed: true, semanticIndexed: false }) },
         writer,
         allocator,

@@ -81,6 +81,13 @@ const ReviewQuerySwitcher = () => {
 };
 
 describe('ReviewPage detail refresh', () => {
+  it.each(['en', 'zh-CN'] as const)('shows candidate alignment without claiming publication in %s', async language => {
+    const detail = { ...changeSet(), items: [{ ...changeItem(), sourceStatus: { status: 'current', reason: 'reviewed_source', sourceId: 'src', reviewedSourceVersion: 1, currentSourceVersion: 1 } }] };
+    vi.mocked(api.get).mockImplementation(async url => ({ data: url === '/review' ? [detail] : detail }));
+    renderReview(language); await expand();
+    expect(screen.getByRole('note')).toHaveTextContent(language === 'en' ? 'human review is still required' : '仍需人工审核');
+  });
+
   beforeEach(() => {
     localStorage.setItem('agentwiki.language.v1', 'en');
     members = [{ userId: 'user-1', role: 'owner' }];

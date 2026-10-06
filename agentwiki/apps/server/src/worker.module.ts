@@ -1,3 +1,4 @@
+import { SourceFreshnessModule } from './core/source-freshness/source-freshness.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { DatabaseModule } from './database/database.module';
@@ -26,7 +27,7 @@ import { PageResultService } from './collaboration-workflows/page-result.service
 import { TemplateEffectsService } from './page-templates/template-effects.service';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), DatabaseModule, SearchCoreModule, CollaborationModule, SyncModule, KnowledgeGraphModule, AttachmentStorageModule],
+  imports: [SourceFreshnessModule, ConfigModule.forRoot({ isGlobal: true }), DatabaseModule, SearchCoreModule, CollaborationModule, SyncModule, KnowledgeGraphModule, AttachmentStorageModule],
   providers: [
     ContentTreeService,
     PagePublicationService,

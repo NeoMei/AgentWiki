@@ -22,6 +22,7 @@ const {
   scopesForAgentAccessRole,
 } = requireFromServer('@neomei/agentwiki-sync-protocol');
 const { AgentService } = requireFromServer('./dist/core/agent/agent.service.js');
+const { SourceFreshnessService } = requireFromServer('./dist/core/source-freshness/source-freshness.service.js');
 const { PageService } = requireFromServer('./dist/core/page/page.service.js');
 const { ReadableSyncPathService } = requireFromServer('./dist/core/sync/readable-sync-path.service.js');
 const { ContentTreeService } = requireFromServer('./dist/content-tree/content-tree.service.js');
@@ -87,6 +88,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
       const syncPaths = new ReadableSyncPathService();
       const contentTree = new ContentTreeService(prisma, writer, syncPaths);
       const authorization = runtime.authorization;
+      const freshness = new SourceFreshnessService(prisma, authorization);
       const config = { get: (_key, fallback) => fallback };
       const templates = new PageTemplateService(
         prisma, authorization, config, writer, { canCreate: () => true },
@@ -97,10 +99,10 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
       };
       const graph = { enqueue: () => undefined };
       const pages = new PageService(
-        prisma, search, writer, syncPaths, graph, templates, authorization, contentTree,
+        freshness, prisma, search, writer, syncPaths, graph, templates, authorization, contentTree,
       );
       const reviews = new ReviewService(
-        prisma, search, writer, syncPaths, graph, contentTree,
+        freshness, prisma, search, writer, syncPaths, graph, contentTree,
       );
       const pushes = new PushSessionService(
         prisma, {}, contentTree, search, undefined, graph,

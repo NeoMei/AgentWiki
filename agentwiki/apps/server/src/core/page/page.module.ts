@@ -1,3 +1,4 @@
+import { SourceFreshnessModule } from '../source-freshness/source-freshness.module';
 import { Module } from '@nestjs/common';
 import { PageService } from './page.service';
 import { PageController } from './page.controller';
@@ -10,7 +11,7 @@ import { PageTemplateModule } from '../../page-templates/page-template.module';
 import { ContentTreeModule } from '../../content-tree/content-tree.module';
 
 @Module({
-  imports: [
+  imports: [SourceFreshnessModule,
     DatabaseModule,
     SearchModule,
     AuthModule,

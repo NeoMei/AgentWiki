@@ -1,3 +1,4 @@
+const freshnessMock: any = { projectPages: async (rows: any[]) => rows, projectChangeSets: async (rows: any[]) => rows, forPages: async () => new Map(), projectEvidence: async (rows: any[]) => new Map(rows.map(row => [row.id, row])) };
 import { McpService } from './mcp.service';
 
 const editor = {
@@ -79,7 +80,7 @@ describe('collaboration MCP tools', () => {
   });
 
   function service(): any {
-    return new McpService(
+    return new McpService(freshnessMock,
       { get: jest.fn() } as any,
       authorization,
       {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,

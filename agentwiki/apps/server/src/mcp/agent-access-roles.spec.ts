@@ -1,3 +1,4 @@
+const freshnessMock: any = { projectPages: async (rows: any[]) => rows, projectChangeSets: async (rows: any[]) => rows, forPages: async () => new Map(), projectEvidence: async (rows: any[]) => new Map(rows.map(row => [row.id, row])) };
 import { scopesForAgentAccessRole, type AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import { AuthorizationService, type Principal } from '../core/authorization/authorization.service';
 import { ReviewService } from '../review/review.service';
@@ -43,7 +44,7 @@ describe('MCP Agent access roles', () => {
       folderCount: 1, pageCount: 0, impactHash: 'b'.repeat(64),
     }),
   } as any;
-  const review = new ReviewService(prisma, {} as any, {} as any, {} as any, {} as any);
+  const review = new ReviewService(freshnessMock, prisma, {} as any, {} as any, {} as any, {} as any);
   const propose = jest.spyOn(review, 'propose');
   const approve = jest.spyOn(review, 'approve');
   const publish = jest.spyOn(review, 'publish').mockImplementation(async (changeSetId) => ({
@@ -91,7 +92,7 @@ describe('MCP Agent access roles', () => {
     inputSchema?: unknown;
     handler: (args: any) => Promise<any>;
   }> {
-    const service = new (McpService as any)(
+    const service = new (McpService as any)(freshnessMock,
       { get: jest.fn() },
       authorization,
       {},
