@@ -11,6 +11,16 @@ import { bindCandidate, candidateFromTurn } from './agentSessionCandidate';
 import { useAgentSession } from './useAgentSession';
 import type { AgentSessionPanelProps, AgentTurn } from './agentSessionTypes';
 
+/** A receipt proves exactly the explicit upload, even if its bridge or composer has since changed. */
+function matchesReceipt(turn: AgentTurn, credential: NonNullable<AssistNotesEvent['dispatchRequest']>) {
+  const { request, snapshot } = credential, annotations = request.annotations ?? [], noteIds = request.noteIds ?? [];
+  return turn.pageId === credential.pageId && turn.pageSnapshot?.title === snapshot.title
+    && turn.pageSnapshot?.content === snapshot.content && turn.pageSnapshot?.updatedAt === snapshot.updatedAt
+    && turn.noteIds.length === noteIds.length && new Set(turn.noteIds).size === noteIds.length
+    && turn.noteIds.every((id) => noteIds.includes(id)) && (turn.annotations ?? []).length === annotations.length
+    && annotations.every((annotation) => turn.annotations?.some((sent) => sent.id === annotation.id && sent.body === annotation.body && sent.quote === annotation.quote));
+}
+
 export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdit = false, canAccept = false, onApply, supportsScopedApply = false, assistTargets, assistRequest, onRequestHandled, onNotesEvent, notesReady = true, acceptUnavailableReason }: AgentSessionPanelProps) {
   const { user } = useAuth(), { language } = useLanguage(), zh = language === 'zh-CN';
   const userId = typeof user?.id === 'string' ? user.id : '';
@@ -23,14 +33,13 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
   const mountRef = useRef({ scope, token: {} });
   if (mountRef.current.scope !== scope) mountRef.current = { scope, token: {} };
   const mount = mountRef.current.token;
-  const live = useRef(true), scopeRef = useRef(scope); scopeRef.current = scope;
   const callbacks = useRef({ onNotesEvent, onRequestHandled }); callbacks.current = { onNotesEvent, onRequestHandled };
   const emitted = useRef(new Map<string, string>());
-  useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
   useEffect(() => { setLocalError(null); emitted.current.clear(); }, [scope]);
   useEffect(() => { if (!session.loading) composerRef.current?.focus(); }, [scope, session.loading]);
   useEffect(() => {
-    if (session.loading || !assistRequest || [...store.drafts.values()].some((composer) => composer.staged?.request.id === assistRequest.id)) return;
+    if (session.loading || !assistRequest || [...store.drafts.values()].some((composer) => composer.staged?.request.id === assistRequest.id)
+      || [...store.receipts.values()].some((receipt) => receipt.credential.request.id === assistRequest.id)) return;
     session.updateDraft({ intent: assistRequest.intent, targetKind: assistRequest.assistTarget?.kind ?? 'document', staged: { pageId, request: assistRequest } });
   }, [assistRequest?.id, session.loading, session.selected, scope]);
   const emit = (event: AssistNotesEvent['event'], candidate: AssistCandidate, editId?: string, dispatchRequest?: AssistNotesEvent['dispatchRequest']) => {
@@ -50,8 +59,20 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
     }
   }
   useEffect(() => {
-    if (!notesReady) return;
+    if (!notesReady || session.loading || session.error) return;
     for (const turn of session.detail?.turns ?? []) {
+      const receipt = store.receipts.get(turn.id);
+      if (receipt && !receipt.awaitingRead && receipt.sessionId === session.detail?.id && receipt.credential.pageId === pageId
+        && receipt.credential.userId === userId && receipt.credential.spaceId === spaceId && matchesReceipt(turn, receipt.credential)) {
+        const dispatched = store.candidates.get(turn.id)?.candidate ?? {
+          taskId: turn.id, pageId: turn.pageId, spaceId, userId, baseTitle: turn.pageSnapshot?.title,
+          baseContent: turn.pageSnapshot?.content, baseUpdatedAt: turn.pageSnapshot?.updatedAt,
+          content: '', status: 'generating', noteIds: turn.noteIds,
+        } as AssistCandidate;
+        emit('dispatch', dispatched, undefined, receipt.credential);
+        callbacks.current.onRequestHandled?.(receipt.credential.request.id);
+        store.receipts.delete(turn.id); emitted.current.delete(turn.id);
+      }
       const candidate = store.candidates.get(turn.id)?.candidate;
       if (!candidate || candidate.pageId !== pageId || candidate.status === 'generating') continue;
       const key = `${candidate.status}:${candidate.acceptedEditIds?.join(',') ?? ''}`;
@@ -60,7 +81,7 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
       if (candidate.status === 'ready' || candidate.status === 'accepted') emit('ready', candidate);
       if (candidate.status === 'failed') emit('fail', candidate);
     }
-  }, [session.detail, scope, store, notesReady]);
+  }, [session.detail, session.loading, session.error, session.sentRevision, scope, store, notesReady]);
   useEffect(() => { if (!canEdit && draft.mode !== 'question') session.updateDraft({ mode: 'question' }); }, [canEdit, draft.mode, store]);
   const current = () => ({ ...snapshot(), userId, spaceId, pageId, canEdit });
   const accept = (id: string, editId?: string) => {
@@ -96,14 +117,14 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
       setLocalError(zh ? '选文或版本已变化，请重新选择原文和批注。' : 'Selection or version changed. Select the source and annotations again.'); return;
     }
     setLocalError(null);
+    const credential: AssistNotesEvent['dispatchRequest'] = staged ? {
+      userId, spaceId, pageId, request: structuredClone(staged.request), snapshot: { title: source.title, content: source.content, updatedAt: source.updatedAt },
+    } : undefined;
     const submittedSnapshot = { title: source.title, content: source.content, updatedAt: source.updatedAt, draftRevision: source.draftRevision, remoteRevision: source.remoteRevision, ...(target ? { assistTarget: target } : {}) };
     await session.send({ pageId, mode: draft.mode, intent: draft.intent.trim(), snapshot: submittedSnapshot, referencePageIds: draft.references.map((r) => r.pageId), noteIds: staged?.request.noteIds ?? [], annotations: staged?.request.annotations ?? [] }, (turn) => {
       const record = restoreCandidate(turn);
-      if (record) { record.mount = mount; store.candidates.set(turn.id, record); }
-      if (!live.current || scopeRef.current !== scope || mountRef.current.token !== mount) return;
-      const candidate = record?.candidate ?? { taskId: turn.id, pageId: turn.pageId, spaceId, userId, baseTitle: turn.pageSnapshot?.title, baseContent: turn.pageSnapshot?.content, baseUpdatedAt: turn.pageSnapshot?.updatedAt, content: '', status: 'generating', noteIds: turn.noteIds } as AssistCandidate;
-      emit('dispatch', candidate, undefined, staged ? { userId, spaceId, pageId, request: staged.request, snapshot: { title: source.title, content: source.content, updatedAt: source.updatedAt } } : undefined);
-      if (staged) callbacks.current.onRequestHandled?.(staged.request.id);
+      if (record && !store.candidates.has(turn.id)) { record.mount = mount; store.candidates.set(turn.id, record); }
+      if (credential && matchesReceipt(turn, credential)) store.receipts.set(turn.id, { sessionId: turn.sessionId, awaitingRead: false, credential });
     });
   };
   const errors: Record<string, string> = {
@@ -120,6 +141,7 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
     // Document regeneration captures the CURRENT full source on Send. Selection/section stays explicit.
     const staged = scopedTarget || turn.noteIds.length || turn.annotations?.length ? { pageId, request: {
       id: crypto.randomUUID(), intent: turn.intent, assistTarget: scopedTarget, noteIds: turn.noteIds, annotations: turn.annotations,
+      ...(turn.pageSnapshot ? { supersedes: { taskId: turn.id, snapshot: { title: turn.pageSnapshot.title, content: turn.pageSnapshot.content, updatedAt: turn.pageSnapshot.updatedAt }, noteIds: [...turn.noteIds], annotations: (turn.annotations ?? []).map((annotation) => ({ ...annotation })) } } : {}),
     } } : undefined;
     session.updateDraft({ intent: turn.intent, mode: turn.mode, references: turn.references, staged, targetKind: scopedTarget?.kind ?? 'document' });
     setLocalError(null);

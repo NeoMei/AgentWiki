@@ -79,13 +79,17 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
   const onNotesEvent = (event: AssistNotesEvent) => {
     if (!active() || !scope || event.candidate.userId !== scope.userId || event.candidate.spaceId !== scope.spaceId || event.candidate.pageId !== scope.pageId || event.taskId !== event.candidate.taskId) return;
     if (event.event === 'dispatch') {
-      if (stateRef.current.notes.some((n) => event.noteIds.includes(n.id) && n.status !== 'pending')) return;
       const localRequest = stateRef.current.assistRequest, credential = event.dispatchRequest;
       // A registry-held request survives route mounts. Only a successful explicit Send supplies this
       // credential; compare returned source to that send-time snapshot, not a draft still being edited.
       if (credential && (credential.userId !== scope.userId || credential.spaceId !== scope.spaceId || credential.pageId !== scope.pageId
-        || localRequest && localRequest.id !== credential.request.id)) return;
-      const request = localRequest ?? (stageForSession ? credential?.request : undefined);
+        || !stageForSession && localRequest && localRequest.id !== credential.request.id)) return;
+      // The live composer may already hold the NEXT request after a remount. The registry's
+      // immutable successful-send receipt owns the dispatched IDs, annotations and source proof.
+      const request = stageForSession ? credential?.request : localRequest;
+      const supersedes = stageForSession ? credential?.request.supersedes : undefined;
+      if (stateRef.current.notes.some((note) => event.noteIds.includes(note.id) && note.status !== 'pending'
+        && (!supersedes || note.status === 'resolved' || note.taskId !== supersedes.taskId))) return;
       if (stageForSession) {
         if (!credential || !request?.id || event.candidate.baseContent !== credential.snapshot.content
           || event.candidate.baseTitle !== credential.snapshot.title || event.candidate.baseUpdatedAt !== credential.snapshot.updatedAt
@@ -99,6 +103,19 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
           })) return;
       }
       if (!request || !event.noteIds.length || request.noteIds?.length !== event.noteIds.length || event.noteIds.some((id) => !request.noteIds?.includes(id)) || event.candidate.baseUpdatedAt !== latestRef.current.updatedAt) return;
+      if (supersedes) {
+        if (supersedes.taskId === event.taskId || supersedes.snapshot.updatedAt !== event.candidate.baseUpdatedAt
+          || supersedes.snapshot.title !== event.candidate.baseTitle || supersedes.noteIds.length !== event.noteIds.length
+          || new Set(supersedes.noteIds).size !== event.noteIds.length || supersedes.annotations.length !== event.noteIds.length
+          || event.noteIds.some((id) => {
+            const note = stateRef.current.notes.find((item) => item.id === id), annotation = supersedes.annotations.find((item) => item.id === id);
+            return !supersedes.noteIds.includes(id) || !note || !annotation || note.body !== annotation.body || note.target.quote !== annotation.quote
+              || note.target.baseUpdatedAt !== supersedes.snapshot.updatedAt || resolveAssistTarget(supersedes.snapshot.content, note.target).status !== 'found';
+          })) return;
+        // Reopen and dispatch atomically, only after the successful explicit regeneration receipt.
+        // Old task callbacks remain fenced by each note's new taskId.
+        stateRef.current = { ...stateRef.current, notes: transitionPersonalNotes(stateRef.current.notes, event.noteIds, 'reopen', supersedes.taskId) };
+      }
       bindingsRef.current.set(event.taskId, { noteIds: [...event.noteIds], coverage: new Map(), uncertain: new Set() });
     }
     // A route remount loses only the in-memory coverage map. Recover it solely from local task linkage.

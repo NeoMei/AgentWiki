@@ -2,20 +2,21 @@ import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import api from '../../api/client';
 import { useAgentSessionRegistry } from './AgentSessionRegistry';
 import type { AgentReference, AgentSessionDetail, AgentSessionSummary, AgentTurn, AgentTurnMode } from './agentSessionTypes';
-import type { AssistRequest } from '../page/AgentAssistPanel';
+import type { AssistNotesEvent, AssistRequest } from '../page/AgentAssistPanel';
 import type { AssistTarget } from '../page/assistTargets';
 import type { CandidateRecord } from './agentSessionCandidate';
 export interface Composer { intent: string; mode: AgentTurnMode; targetKind: AssistTarget['kind']; references: AgentReference[]; staged?: { pageId: string; request: AssistRequest } }
 const composer = (): Composer => ({ intent: '', mode: 'question', targetKind: 'document', references: [] });
 interface State {
   sessions: AgentSessionSummary[]; selected: string | null; detail: AgentSessionDetail | null;
-  loading: boolean; sending: boolean; cancelling: boolean; error: string | null; draft: Composer; revision: number;
+  loading: boolean; sending: boolean; cancelling: boolean; error: string | null; draft: Composer; revision: number; sentRevision: number;
 }
 function createStore() {
-  let state: State = { sessions: [], selected: null, detail: null, loading: true, sending: false, cancelling: false, error: null, draft: composer(), revision: 0 };
+  let state: State = { sessions: [], selected: null, detail: null, loading: true, sending: false, cancelling: false, error: null, draft: composer(), revision: 0, sentRevision: 0 };
   const listeners = new Set<() => void>();
   return {
     epoch: 0, cancelRequest: 0, candidates: new Map<string, CandidateRecord>(),
+    receipts: new Map<string, { sessionId: string; awaitingRead: boolean; credential: NonNullable<AssistNotesEvent['dispatchRequest']> }>(),
     // Content may be purged after access loss; operation history must still prevent replay after Undo.
     ledger: new Map<string, Pick<CandidateRecord['candidate'], 'status' | 'acceptedEditIds'>>(), drafts: new Map<string, Composer>(),
     retry: null as { signature: string; id: string } | null,
@@ -50,14 +51,18 @@ export function useAgentSession(userId: string, spaceId: string) {
   const lifetime = useRef(0), controller = useRef<AbortController | null>(null);
   const valid = (epoch: number) => activeStore.current === store && store.epoch === epoch && lifetime.current === epoch;
   const read = async (id: string, epoch: number, signal?: AbortSignal) => {
+    // Only receipts present when this authorized read STARTS may be verified by it. A queued
+    // history read started before a late POST receipt cannot vouch for that receipt's current access.
+    const receipts = [...store.receipts.entries()].filter(([, receipt]) => receipt.sessionId === id);
     const { data } = await api.get<AgentSessionDetail>(`/assist/sessions/${id}`, { signal });
     if (!valid(epoch) || signal?.aborted || store.get().selected !== id || data.spaceId !== spaceId || data.id !== id) return;
+    for (const [taskId, receipt] of receipts) if (store.receipts.get(taskId) === receipt && data.turns.some((turn) => turn.id === taskId)) receipt.awaitingRead = false;
     store.set({ detail: data, loading: false, error: null, sessions: store.get().sessions.map((s) => s.id === id ? { ...s, title: data.title, updatedAt: data.updatedAt } : s) });
   };
   const fail = (error: unknown, epoch: number) => {
     if (!valid(epoch)) return;
     const reason = sessionError(error);
-    if (reason === 'access') { store.candidates.clear(); store.set({ detail: null, sessions: store.get().sessions.filter((s) => s.id !== store.get().selected) }); }
+    if (reason === 'access') { store.candidates.clear(); store.receipts.clear(); store.set({ detail: null, sessions: store.get().sessions.filter((s) => s.id !== store.get().selected) }); }
     store.set({ loading: false, error: reason });
   };
   useEffect(() => {
@@ -79,6 +84,14 @@ export function useAgentSession(userId: string, spaceId: string) {
     })();
     return () => { abort.abort(); if (controller.current === abort) controller.current = null; controller.current?.abort(); lifetime.current = -1; if (activeStore.current === store) activeStore.current = null; };
   }, [store, userId, spaceId]);
+  // A completed send belongs to the registry, not its originating bridge. Re-read through the
+  // CURRENT bridge's authorization/lifetime fence, including when the POST outlived a remount.
+  useEffect(() => {
+    if (!state.sentRevision || !state.selected) return;
+    const abort = new AbortController(), epoch = store.epoch;
+    void read(state.selected, epoch, abort.signal).catch((error) => { if (!abort.signal.aborted) fail(error, epoch); });
+    return () => abort.abort();
+  }, [store, state.sentRevision]);
   const running = state.detail?.turns.some((turn) => turn.status === 'queued' || turn.status === 'running') ?? false;
   useEffect(() => {
     if (!running || !state.selected) return;
@@ -123,6 +136,7 @@ export function useAgentSession(userId: string, spaceId: string) {
   };
   const send = async (payload: Record<string, unknown>, onSent: (turn: AgentTurn) => void) => {
     if (store.get().sending || !userId || running) return false;
+    const sentDraft = store.get().draft;
     store.set({ sending: true, error: null });
     let ownedEpoch = store.epoch;
     try {
@@ -133,11 +147,25 @@ export function useAgentSession(userId: string, spaceId: string) {
       const clientRequestId = store.retry?.signature === signature ? store.retry.id : crypto.randomUUID();
       store.retry = { signature, id: clientRequestId };
       const { data } = await api.post<AgentTurn>(`/assist/sessions/${id}/turns`, { ...payload, clientRequestId });
-      if (!valid(epoch) || store.get().selected !== id || data.sessionId !== id) return false;
+      if (data.sessionId !== id) return false;
       store.retry = null;
       const detail = store.get().detail;
-      if (detail?.id === id) store.set({ detail: { ...detail, turns: [...detail.turns.filter((t) => t.id !== data.id), data] } });
-      onSent(data); updateDraft({ intent: '', staged: undefined, targetKind: 'document' });
+      // This callback records facts only in the originating user/Space store. No old page
+      // callbacks may run here; a live matching bridge delivers receipts after a canonical read.
+      onSent(data);
+      const receipt = store.receipts.get(data.id);
+      if (receipt) receipt.awaitingRead = !valid(epoch);
+      const storedDraft = store.drafts.get(id) ?? (store.get().selected === id ? store.get().draft : undefined);
+      const consumed = storedDraft ? { ...storedDraft,
+        ...(storedDraft === sentDraft ? { intent: '' } : {}),
+        ...(storedDraft.staged === sentDraft.staged ? { staged: undefined, ...(storedDraft.targetKind === sentDraft.targetKind ? { targetKind: 'document' as const } : {}) } : {}),
+      } : undefined;
+      if (consumed) store.drafts.set(id, consumed);
+      store.set({
+        ...(valid(epoch) && detail?.id === id ? { detail: { ...detail, turns: [...detail.turns.filter((t) => t.id !== data.id), data] } } : {}),
+        ...(consumed && store.get().selected === id && store.get().draft === storedDraft ? { draft: consumed } : {}),
+        sentRevision: store.get().sentRevision + (valid(epoch) ? 0 : 1),
+      });
       return true;
     } catch (error) { if (valid(ownedEpoch)) fail(error, ownedEpoch); return false; }
     finally { store.set({ sending: false }); }

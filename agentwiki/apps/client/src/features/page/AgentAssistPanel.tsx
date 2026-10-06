@@ -8,7 +8,7 @@ import { AssistCandidateReview } from './AssistCandidateReview';
 import { completeAssistCandidate, applyCandidateToDraft, type AssistCandidate, type AssistSnapshot } from './assistCandidate';
 
 import { validateAssistTarget, type AssistTarget } from './assistTargets';
-export interface AssistRequest { id: string; intent: string; assistTarget?: AssistTarget; noteIds?: string[]; autoSubmit?: boolean; annotations?: { id: string; body: string; quote: string }[] }
+export interface AssistRequest { id: string; intent: string; assistTarget?: AssistTarget; noteIds?: string[]; autoSubmit?: boolean; annotations?: { id: string; body: string; quote: string }[]; supersedes?: { taskId: string; snapshot: Readonly<Pick<AssistSnapshot, 'title' | 'content' | 'updatedAt'>>; noteIds: string[]; annotations: { id: string; body: string; quote: string }[] } }
 export interface AssistNotesEvent { event: 'dispatch' | 'ready' | 'accept' | 'fail' | 'discard'; taskId: string; noteIds: string[]; candidate: AssistCandidate; editId?: string; acceptedEditIds?: string[]; dispatchRequest?: { userId: string; spaceId: string; pageId: string; request: AssistRequest; snapshot: Readonly<Pick<AssistSnapshot, 'title' | 'content' | 'updatedAt'>> } }
 interface AgentAssistPanelProps {
   pageId: string;

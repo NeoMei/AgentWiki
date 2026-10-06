@@ -140,3 +140,47 @@ it('recovers same-task note coverage on remount without resetting statuses or ac
   act(() => secondHook.result.current.onNotesEvent({ event: 'ready', taskId: 'task', noteIds: [id], candidate: done }));
   expect(secondHook.result.current.notes[0].status).toBe('awaiting-review');
 });
+
+it.each(['valid', 'wrong old task', 'wrong user', 'wrong Space', 'wrong page', 'changed old annotation', 'wrong old selection', 'stale old version', 'unselected note', 'resolved note', 'ordinary dispatch'])('checks explicit regeneration ownership: %s', (variant) => {
+  const { result } = renderHook(() => usePersonalNotes({ scope, canEdit: true, stageForSession: true, source, updatedAt: version }));
+  act(() => { result.current.add(first, 'Fix one'); result.current.add(second, 'Keep private'); });
+  const [id, privateId] = result.current.notes.map((note) => note.id);
+  act(() => { result.current.dispatch([id]); });
+  const initial = result.current.assistRequest!;
+  const old = completeAssistCandidate({ ...candidate([id], initial.assistTarget), status: 'generating' }, 'ONE\nkeep\ntwo\n');
+  const initialProof = { ...scope, request: initial, snapshot: { title: 'T', content: source, updatedAt: version } };
+  act(() => {
+    result.current.onNotesEvent({ event: 'dispatch', taskId: 'task', noteIds: [id], candidate: old, dispatchRequest: initialProof });
+    result.current.onRequestHandled(initial.id);
+    result.current.onNotesEvent({ event: 'ready', taskId: 'task', noteIds: [id], candidate: old });
+    if (variant === 'resolved note') result.current.onNotesEvent({ event: 'accept', taskId: 'task', noteIds: [id], candidate: old, acceptedEditIds: ['edit-1'] });
+  });
+  const prior = result.current.notes[0].status;
+  expect(prior).toBe(variant === 'resolved note' ? 'resolved' : 'awaiting-review');
+  const next = { ...old, taskId: 'next' };
+  const request = { ...initial, id: 'explicit-regeneration', supersedes: {
+    taskId: 'task', snapshot: { title: 'T', content: source, updatedAt: version }, noteIds: [id], annotations: [{ id, body: 'Fix one', quote: 'one' }],
+  } };
+  const proof = { ...scope, request, snapshot: { title: 'T', content: source, updatedAt: version } };
+  if (variant === 'wrong old task') request.supersedes.taskId = 'another-task';
+  if (variant === 'wrong user') proof.userId = 'another-user';
+  if (variant === 'wrong Space') proof.spaceId = 'another-space';
+  if (variant === 'wrong page') proof.pageId = 'another-page';
+  if (variant === 'changed old annotation') request.supersedes.annotations[0].body = 'different';
+  if (variant === 'wrong old selection') request.supersedes.snapshot.content = 'missing original passage';
+  if (variant === 'stale old version') request.supersedes.snapshot.updatedAt = 'stale';
+  if (variant === 'unselected note') request.supersedes.noteIds = [privateId];
+  if (variant === 'ordinary dispatch') delete (request as { supersedes?: unknown }).supersedes;
+  act(() => result.current.onNotesEvent({ event: 'dispatch', taskId: 'next', noteIds: [id], candidate: next, dispatchRequest: proof }));
+  expect(result.current.notes[0]).toMatchObject({ status: variant === 'valid' ? 'dispatched' : prior, taskId: variant === 'valid' ? 'next' : 'task' });
+  expect(result.current.notes[1]).toMatchObject({ status: 'pending' }); expect(result.current.notes[1].taskId).toBeUndefined();
+  if (variant === 'valid') {
+    act(() => {
+      result.current.onNotesEvent({ event: 'ready', taskId: 'task', noteIds: [id], candidate: old });
+      result.current.onNotesEvent({ event: 'accept', taskId: 'task', noteIds: [id], candidate: old, acceptedEditIds: ['edit-1'] });
+      result.current.onNotesEvent({ event: 'fail', taskId: 'task', noteIds: [id], candidate: old });
+      result.current.onNotesEvent({ event: 'discard', taskId: 'task', noteIds: [id], candidate: old });
+    });
+    expect(result.current.notes[0]).toMatchObject({ status: 'dispatched', taskId: 'next' });
+  }
+});
