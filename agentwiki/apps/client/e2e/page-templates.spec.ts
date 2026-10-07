@@ -50,6 +50,7 @@ const spaceName = `Page Template QA ${runId.slice(-8)}`;
 let api: APIRequestContext;
 let spaceId = '';
 let sourcePageId = '';
+let customTemplateId = '';
 let firstCreatedPageId = '';
 let owner: AuthAccount | undefined;
 let admin: AuthAccount | undefined;
@@ -261,7 +262,15 @@ test.describe.serial('page template library', () => {
     await page.getByLabel('模板说明').fill('团队统一任务结构');
     await page.getByLabel('分类').selectOption('planning');
     await page.getByLabel('默认页面标题').fill('团队任务');
+    const savedTemplateResponse = page.waitForResponse((response) => (
+      response.request().method() === 'POST'
+      && new URL(response.url()).pathname === `/api/spaces/${spaceId}/page-templates`
+    ));
     await page.getByRole('button', { name: '保存模板' }).click();
+    const savedTemplate = await savedTemplateResponse;
+    expect(savedTemplate.status()).toBe(201);
+    customTemplateId = (await savedTemplate.json() as { id: string }).id;
+    expect(customTemplateId).toBeTruthy();
     await expect(page.getByText('模板已创建')).toBeVisible();
 
     await page.goto(`/spaces/${spaceId}`);
@@ -274,6 +283,8 @@ test.describe.serial('page template library', () => {
     await page.getByLabel('标题').press('Tab');
     await expect(page.getByRole('button', { name: '创建' })).toBeEnabled();
     await page.getByRole('button', { name: '创建' }).click();
+    await expect(page.getByRole('heading', { name: '创建完成', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '打开页面', exact: true }).click();
     await page.waitForURL(/\/pages\/[^/]+\/edit$/u);
     firstCreatedPageId = new URL(page.url()).pathname.split('/').at(-2)!;
     await expectRenderedHeading(page, 'Shared section', 'zh-CN');
@@ -313,6 +324,8 @@ test.describe.serial('page template library', () => {
     await page.getByLabel('标题').press('Tab');
     await expect(page.getByRole('button', { name: '创建' })).toBeEnabled();
     await page.getByRole('button', { name: '创建' }).click();
+    await expect(page.getByRole('heading', { name: '创建完成', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '打开页面', exact: true }).click();
     await page.waitForURL(/\/pages\/[^/]+\/edit$/u);
     const secondCreatedPageId = new URL(page.url()).pathname.split('/').at(-2)!;
 
@@ -331,7 +344,10 @@ test.describe.serial('page template library', () => {
     expect(secondPage.content).toContain('Second version');
     expect(firstPage.sourceTemplateVersion).toBe(1);
     expect(secondPage.sourceTemplateVersion).toBe(2);
-    expect(firstPage.sourceTemplateId).toBe(secondPage.sourceTemplateId);
+    expect(firstPage.sourceTemplateId).toBe(customTemplateId);
+    expect(secondPage.sourceTemplateId).toBe(customTemplateId);
+    expect(firstPage.sourceTemplateLocale).toBe('zh-CN');
+    expect(secondPage.sourceTemplateLocale).toBe('zh-CN');
     await expectNoDocumentOverflow(page);
   });
 
@@ -501,6 +517,8 @@ test.describe.serial('page template library', () => {
       await editorSession.page.getByLabel('Title').press('Tab');
       await expect(editorSession.page.getByRole('button', { name: 'Create', exact: true })).toBeEnabled();
       await editorSession.page.getByRole('button', { name: 'Create', exact: true }).click();
+      await expect(editorSession.page.getByRole('heading', { name: 'Creation completed', exact: true })).toBeVisible();
+      await editorSession.page.getByRole('button', { name: 'Open page', exact: true }).click();
       await editorSession.page.waitForURL(/\/pages\/[^/]+\/edit$/u);
       await expectRenderedHeading(editorSession.page, 'Shared section', 'en');
 
@@ -543,6 +561,8 @@ test.describe.serial('page template library', () => {
       await adminSession.page.getByLabel('Title').press('Tab');
       await expect(adminSession.page.getByRole('button', { name: 'Create', exact: true })).toBeEnabled();
       await adminSession.page.getByRole('button', { name: 'Create', exact: true }).click();
+      await expect(adminSession.page.getByRole('heading', { name: 'Creation completed', exact: true })).toBeVisible();
+      await adminSession.page.getByRole('button', { name: 'Open page', exact: true }).click();
       await adminSession.page.waitForURL(/\/pages\/[^/]+\/edit$/u);
       await expectRenderedHeading(adminSession.page, 'Shared section', 'en');
 
@@ -578,9 +598,22 @@ test.describe.serial('page template library', () => {
           name: scenario.locale === 'zh-CN' ? '下一步' : 'Next',
           exact: true,
         }).click();
-        await session.page.getByLabel(scenario.locale === 'zh-CN' ? '标题' : 'Title').fill(scenario.title);
-        await session.page.getByRole('button', {
+        const titleInput = session.page.getByLabel(scenario.locale === 'zh-CN' ? '标题' : 'Title');
+        await titleInput.fill(scenario.title);
+        // Commit the title edit before creating from the refreshed system template preview.
+        await titleInput.press('Tab');
+        const createButton = session.page.getByRole('button', {
           name: scenario.locale === 'zh-CN' ? '创建' : 'Create',
+          exact: true,
+        });
+        await expect(createButton).toBeEnabled();
+        await createButton.click();
+        await expect(session.page.getByRole('heading', {
+          name: scenario.locale === 'zh-CN' ? '创建完成' : 'Creation completed',
+          exact: true,
+        })).toBeVisible();
+        await session.page.getByRole('button', {
+          name: scenario.locale === 'zh-CN' ? '打开页面' : 'Open page',
           exact: true,
         }).click();
         await session.page.waitForURL(/\/pages\/[^/]+\/edit$/u);
