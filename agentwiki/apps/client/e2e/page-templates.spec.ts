@@ -767,7 +767,7 @@ test.describe.serial('page template library', () => {
     for (const [label, locator] of [
       ['PageTemplateManager main', manager],
       ['template search', manager.getByRole('searchbox', { name: 'Search templates', exact: true })],
-      ['template category', manager.getByLabel('Category', { exact: true })],
+      ['template category', manager.getByText('Category', { exact: true }).locator('xpath=parent::label').locator('select')],
       ['archive filter', manager.getByRole('checkbox', { name: 'Show archived templates' })],
       ['custom template article', longNameArticle],
       ['custom edit action', longNameArticle.getByRole('button', { name: `Edit ${mobileLongTemplateName}` })],
