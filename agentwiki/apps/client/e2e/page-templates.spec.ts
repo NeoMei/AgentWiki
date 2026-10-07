@@ -552,7 +552,17 @@ test.describe.serial('page template library', () => {
       const newPage = directory(adminSession.page).getByRole('button', { name: 'New page', exact: true });
       await expect(newPage).toBeVisible();
       await newPage.click();
+      const adminCatalogResponse = adminSession.page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return response.request().method() === 'GET'
+          && url.pathname === `/api/spaces/${spaceId}/templates`
+          && url.searchParams.get('kind') === 'single_page';
+      });
       await choosePageTemplates(adminSession.page, 'en');
+      const adminCatalog = await adminCatalogResponse;
+      expect(adminCatalog.status()).toBe(200);
+      expect((await adminCatalog.json() as { capabilities: unknown }).capabilities)
+        .toEqual({ canManage: true, canCreate: true });
       await expect(adminSession.page.getByRole('link', { name: 'Manage templates' })).toBeVisible();
       await adminSession.page.getByRole('button', { name: new RegExp(customTemplateName, 'u') }).click();
       await adminSession.page.getByRole('button', { name: 'Next', exact: true }).click();
@@ -565,6 +575,17 @@ test.describe.serial('page template library', () => {
       await adminSession.page.getByRole('button', { name: 'Open page', exact: true }).click();
       await adminSession.page.waitForURL(/\/pages\/[^/]+\/edit$/u);
       await expectRenderedHeading(adminSession.page, 'Shared section', 'en');
+      const adminPageId = new URL(adminSession.page.url()).pathname.split('/').at(-2)!;
+      const adminPage = await json<PersistedPage>(
+        await api.get(`pages/${adminPageId}`, { headers: ownerHeaders() }),
+        'read admin-created template page',
+      );
+      expect(adminPage).toMatchObject({
+        sourceTemplateId: customTemplateId,
+        sourceTemplateVersion: 2,
+        sourceTemplateLocale: 'zh-CN',
+      });
+      expect(adminPage.content).toContain('Second version');
 
       await adminSession.page.goto(`/spaces/${spaceId}/settings/page-templates`);
       const adminArticle = customTemplateArticle(adminSession.page);

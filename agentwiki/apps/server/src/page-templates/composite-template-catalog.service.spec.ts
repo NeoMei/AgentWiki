@@ -83,7 +83,12 @@ describe('CompositeTemplateCatalogService', () => {
     service = new CompositeTemplateCatalogService(prisma, authorization, pageTemplates);
   });
 
-  it.each(['owner', 'editor'] as const)('returns create capability for %s from the Space role', async (role) => {
+  it.each([
+    ['owner', { canManage: true, canCreate: true }],
+    ['admin', { canManage: true, canCreate: true }],
+    ['editor', { canManage: false, canCreate: true }],
+    ['viewer', { canManage: false, canCreate: false }],
+  ] as const)('returns content-write and management capabilities for human %s', async (role, capabilities) => {
     authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role });
     pageTemplate.findMany.mockResolvedValue([]);
     pageTemplate.count.mockResolvedValue(0);
@@ -92,7 +97,31 @@ describe('CompositeTemplateCatalogService', () => {
       locale: 'en', scope: 'all', archived: 'active', skip: 0, take: 50,
     }, principal);
 
-    expect(result.capabilities).toEqual({ canManage: role === 'owner', canCreate: true });
+    expect(result.capabilities).toEqual(capabilities);
+  });
+
+  it.each(['owner', 'admin', 'editor', 'viewer'] as const)(
+    'never advertises human capabilities for an Agent even if authorization returns %s',
+    async (role) => {
+      authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role });
+
+      const result = await service.list('space-1', {
+        locale: 'en', archived: 'active', skip: 0, take: 50,
+      }, { ...principal, agentId: 'agent-1' });
+
+      expect(result.capabilities).toEqual({ canManage: false, canCreate: false });
+    },
+  );
+
+  it('keeps a nonmember platform administrator read-only in the catalog', async () => {
+    // Shared authorization projects nonmember super-admin read access as viewer.
+    authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'viewer' });
+
+    const result = await service.list('space-1', {
+      locale: 'en', archived: 'active', skip: 0, take: 50,
+    }, { ...principal, platformRole: 'super_admin' });
+
+    expect(result.capabilities).toEqual({ canManage: false, canCreate: false });
   });
 
   it('resolves the exact requested new version as the definition authority', async () => {

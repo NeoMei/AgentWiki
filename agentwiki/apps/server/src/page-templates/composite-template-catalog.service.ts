@@ -114,7 +114,7 @@ export class CompositeTemplateCatalogService {
         tx, principal, spaceId, ['owner', 'admin', 'editor', 'viewer'],
       ));
     const canManage = !principal.agentId && ['owner', 'admin'].includes(member.role);
-    const canCreate = !principal.agentId && ['owner', 'editor'].includes(member.role);
+    const canCreate = !principal.agentId && ['owner', 'admin', 'editor'].includes(member.role);
     if (!canManage && query.archived && query.archived !== 'active') {
       throw new BusinessException('PAGE_TEMPLATE_PERMISSION_DENIED');
     }
@@ -156,7 +156,7 @@ export class CompositeTemplateCatalogService {
       skip: query.skip,
       take: query.take,
       // Creating a page group is a Space content write. It follows the same
-      // owner/editor boundary as instantiation, rather than the separate
+      // human owner/admin/editor boundary as instantiation, rather than the separate
       // allowlist used for managing composite template definitions.
       capabilities: { canManage, canCreate },
     };
