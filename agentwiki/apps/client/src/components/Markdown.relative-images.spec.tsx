@@ -43,6 +43,67 @@ describe('standard Markdown attachment image rendering', () => {
     else Reflect.deleteProperty(URL, 'revokeObjectURL');
   });
 
+  it.each([
+    ['selected Wiki image', '![[image (3).png]]'],
+    ['image inside a list', '- ![[image (3).png]]'],
+    ['image inside a callout', '> [!note] Screenshots\n> ![[image (3).png]]'],
+    ['standard image inside a link', '[![Screenshot](../assets/image%20(3).png)](https://example.test)'],
+  ])('preserves the loaded %s across reading-page geometry updates', async (_case, source) => {
+    vi.mocked(api.post).mockImplementation(async (_url, body) => ({
+      data: (body as { references: Array<{ key: string }> }).references.map(({ key }) => ({
+        key, status: 'resolved', kind: 'attachment', attachmentId: 'attachment-scroll',
+        displayName: 'image (3).png', mimeType: 'image/png', width: 692, height: 309,
+      })),
+    }));
+    vi.mocked(fetchAttachmentBlob).mockResolvedValue(new Blob(['png'], { type: 'image/png' }));
+    const view = (geometry: number) => (
+      <LanguageProvider><MemoryRouter><div data-sidebar-top={geometry}>
+        <Markdown spaceId="space-1" pageId="source-page" mode="page"
+          selectionSourceVersion="unchanged-version" pendingTaskIndexes={new Set()}
+          onTaskToggle={() => undefined}>{source}</Markdown>
+      </div></MemoryRouter></LanguageProvider>
+    );
+    const { container, rerender } = render(view(130));
+    await waitFor(() => expect(container.querySelector('img')).toHaveAttribute('src', 'blob:first-local'));
+    const image = container.querySelector('img');
+    const signal = vi.mocked(fetchAttachmentBlob).mock.calls[0]?.[1];
+
+    rerender(view(70));
+    rerender(view(24));
+    rerender(view(130));
+
+    expect(container.querySelector('img')).toBe(image);
+    expect(container.querySelector('[role="status"].markdown-attachment-image')).toBeNull();
+    expect(signal?.aborted).toBe(false);
+    expect(fetchAttachmentBlob).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+  });
+
+  it('starts all attachment loads before scrolling and does not restart them on a parent update', async () => {
+    vi.mocked(api.post).mockImplementation(async (_url, body) => ({
+      data: (body as { references: Array<{ key: string; target: string }> }).references.map(({ key, target }) => ({
+        key, status: 'resolved', kind: 'attachment', attachmentId: target,
+        displayName: target, mimeType: 'image/png', width: 692, height: 309,
+      })),
+    }));
+    let finish!: (value: Blob) => void;
+    const pending = new Promise<Blob>((resolve) => { finish = resolve; });
+    vi.mocked(fetchAttachmentBlob).mockReturnValue(pending);
+    const view = () => <LanguageProvider><MemoryRouter>
+      <Markdown spaceId="space-1" pageId="source-page" mode="page" selectionSourceVersion="version">
+        {'![[first.png]]\n\n![[below-fold.png]]'}
+      </Markdown>
+    </MemoryRouter></LanguageProvider>;
+    const { container, rerender } = render(view());
+    await waitFor(() => expect(fetchAttachmentBlob).toHaveBeenCalledTimes(2));
+    const signals = vi.mocked(fetchAttachmentBlob).mock.calls.map((call) => call[1]);
+    rerender(view());
+    finish(new Blob(['png'], { type: 'image/png' }));
+    await waitFor(() => expect(container.querySelectorAll('img')).toHaveLength(2));
+    expect(fetchAttachmentBlob).toHaveBeenCalledTimes(2);
+    expect(signals.every((signal) => !signal?.aborted)).toBe(true);
+  });
+
   it('resolves a relative image through the public resource contract and real AttachmentImage', async () => {
     vi.mocked(api.post).mockImplementation(async (_url, body) => ({
       data: (body as { references: Array<{ key: string }> }).references.map(({ key }) => ({
