@@ -43,6 +43,7 @@ describe('AttachmentImage', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent('diagram.png');
     expect(screen.getByRole('status')).toHaveStyle({ aspectRatio: '1280 / 720' });
+    expect(screen.getByRole('status')).toHaveStyle({ width: '1280px', maxWidth: '100%' });
     const image = await screen.findByRole('img', { name: 'diagram.png' });
     expect(image).toHaveAttribute('src', 'blob:first');
     expect(image).toHaveAttribute('width', '1280');
