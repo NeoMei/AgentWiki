@@ -746,6 +746,8 @@ test.describe.serial('page template library', () => {
 
     await page.goto(`/spaces/${spaceId}/settings/page-templates`);
     await expect(page.getByRole('heading', { name: 'Space page templates' })).toBeVisible();
+    const manager = page.getByRole('heading', { name: 'Space page templates', exact: true })
+      .locator('xpath=ancestor::main[1]');
     const article = customTemplateArticle(page);
     const mobileLongTemplateName = 'L'.repeat(80);
     await article.getByRole('button', { name: `Edit ${customTemplateName}` }).click();
@@ -763,10 +765,10 @@ test.describe.serial('page template library', () => {
     await metadataDialog.getByRole('button', { name: 'Close' }).click();
     await expectNoDocumentOverflow(page);
     for (const [label, locator] of [
-      ['PageTemplateManager main', page.locator('main')],
-      ['template search', page.getByLabel('Search')],
-      ['template category', page.getByLabel('Category')],
-      ['archive filter', page.getByRole('checkbox', { name: 'Show archived templates' })],
+      ['PageTemplateManager main', manager],
+      ['template search', manager.getByRole('searchbox', { name: 'Search templates', exact: true })],
+      ['template category', manager.getByLabel('Category', { exact: true })],
+      ['archive filter', manager.getByRole('checkbox', { name: 'Show archived templates' })],
       ['custom template article', longNameArticle],
       ['custom edit action', longNameArticle.getByRole('button', { name: `Edit ${mobileLongTemplateName}` })],
       ['custom version action', longNameArticle.getByRole('button', { name: `Update content from page ${mobileLongTemplateName}` })],
