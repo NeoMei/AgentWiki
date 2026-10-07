@@ -249,7 +249,10 @@ test.describe.serial('space folder hierarchy', () => {
     await authenticate(page, owner!);
     await page.goto(`/spaces/${spaceId}`);
 
-    await directory(page).getByTestId(`content-deletefolder-${rootFolderId}`).click();
+    const rootRow = directory(page).getByTestId(`content-row-${rootFolderId}`);
+    await rootRow.getByLabel(`操作: ${rootFolderName}`, { exact: true }).click();
+    await expect(rootRow.locator('details')).toHaveAttribute('open', '');
+    await rootRow.getByTestId(`content-deletefolder-${rootFolderId}`).click();
     const dialog = page.getByTestId('folder-delete-dialog');
     await expect(dialog).toBeVisible();
     await expect(page.getByTestId('folder-delete-impact')).toContainText('1 个子文件夹');
