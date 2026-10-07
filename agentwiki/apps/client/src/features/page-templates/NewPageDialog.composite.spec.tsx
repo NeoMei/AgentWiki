@@ -1,5 +1,5 @@
 import { StrictMode } from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
@@ -74,6 +74,69 @@ describe('NewPageDialog composite flow', () => {
     mocks.instantiate.mockResolvedValue({ instantiationId: 'instance-1', rootFolderId: 'folder-new', pageIds: ['page-new'], runId: null, treeRevision: '22' });
     mocks.getRun.mockResolvedValue({ id: 'run-1', roleBindings: [{ roleSlotId: 'owner', roleSlotName: '项目负责人', agentId: 'agent-1' }],
       joinInstructions: [{ agentId: 'agent-1', roleSlotIds: ['owner'], taskIds: ['task-1'] }] });
+  });
+
+  it.each(['single_page', 'page_group'] as const)('focuses the %s name once its initial page preview is ready', async (kind) => {
+    let resolve!: (value: ReturnType<typeof preview>) => void;
+    let resolveRefresh!: (value: ReturnType<typeof preview>) => void;
+    mocks.preview.mockImplementationOnce(() => new Promise((done) => { resolve = done; }))
+      .mockImplementationOnce(() => new Promise((done) => { resolveRefresh = done; }));
+    render(<LanguageProvider><MemoryRouter><NewPageDialog spaceId="space-1" presentation="page" initialKind={kind}
+      onClose={() => undefined} onCreated={() => undefined} /></MemoryRouter></LanguageProvider>);
+    fireEvent.click(await screen.findByRole('button', { name: kind === 'single_page' ? /周报/ : /项目管理工作区/ }));
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    const name = screen.getByRole('textbox');
+    expect(name).toBeDisabled();
+    await act(async () => resolve(preview()));
+    expect(name).toHaveFocus();
+    fireEvent.change(name, { target: { value: 'Updated name' } });
+    const cancel = screen.getByRole('button', { name: '取消' });
+    act(() => cancel.focus());
+    expect(mocks.preview).toHaveBeenCalledTimes(2);
+    expect(mocks.preview).toHaveBeenLastCalledWith('space-1', kind === 'single_page' ? 'weekly' : 'project',
+      expect.objectContaining({ rootName: 'Updated name' }), expect.any(AbortSignal));
+    expect(name).toBeDisabled();
+    expect(cancel).toHaveFocus();
+    await act(async () => resolveRefresh(preview(false, 'Updated name')));
+    expect(screen.getByText('Updated name')).toBeVisible();
+    expect(name).toBeEnabled();
+    expect(cancel).toHaveFocus();
+  });
+
+  it('does not steal focus chosen while the initial page preview loads', async () => {
+    let resolve!: (value: ReturnType<typeof preview>) => void;
+    mocks.preview.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    render(<LanguageProvider><MemoryRouter><NewPageDialog spaceId="space-1" presentation="page" initialKind="single_page"
+      onClose={() => undefined} onCreated={() => undefined} /></MemoryRouter></LanguageProvider>);
+    fireEvent.click(await screen.findByRole('button', { name: /周报/ }));
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    const cancel = screen.getByRole('button', { name: '取消' });
+    cancel.focus();
+    await act(async () => resolve(preview()));
+    expect(cancel).toHaveFocus();
+  });
+
+  it('discards a departed preview and focuses only the newly selected template when ready', async () => {
+    let resolveOld!: (value: ReturnType<typeof preview>) => void;
+    let resolveNew!: (value: ReturnType<typeof preview>) => void;
+    mocks.preview.mockImplementationOnce(() => new Promise((done) => { resolveOld = done; }))
+      .mockImplementationOnce(() => new Promise((done) => { resolveNew = done; }));
+    render(<LanguageProvider><MemoryRouter><NewPageDialog spaceId="space-1" presentation="page" initialKind="single_page"
+      onClose={() => undefined} onCreated={() => undefined} /></MemoryRouter></LanguageProvider>);
+    fireEvent.click(await screen.findByRole('button', { name: /周报/ }));
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.click(screen.getByRole('button', { name: '上一步' }));
+    const search = screen.getByRole('searchbox');
+    search.focus();
+    expect(search).toHaveFocus();
+    fireEvent.click(screen.getByRole('button', { name: /周报/ }));
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    await act(async () => resolveOld(preview(false, 'Old response')));
+    expect(screen.getByRole('textbox')).toBeDisabled();
+    expect(screen.getByRole('textbox')).not.toHaveFocus();
+    await act(async () => resolveNew(preview(false, 'New response')));
+    expect(screen.getByRole('textbox')).toHaveFocus();
+    expect(screen.queryByText('Old response')).not.toBeInTheDocument();
   });
 
   it('filters kind and scope independently and previews the complete hierarchy with collaboration off', async () => {

@@ -139,6 +139,8 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
   const [nextCatalogOffset, setNextCatalogOffset] = useState(0);
   const [catalogLoadingMore, setCatalogLoadingMore] = useState(false);
   const [catalogState, setCatalogState] = useState<CatalogState>({ generation: 0, status: 'loading' });
+  const previewNameRef = useRef<HTMLInputElement>(null);
+  const previewEntryFocusRef = useRef(false);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const refreshParticipantsButtonRef = useRef<HTMLButtonElement>(null);
   const restoreRefreshFocusRef = useRef(false);
@@ -168,6 +170,34 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       controllerRef.current?.abort();
     };
   }, []);
+
+  // Each page preview entry gets one focus attempt, after its disabled input is ready.
+  // An explicit focus choice during loading cancels that intent.
+  useLayoutEffect(() => {
+    if (!pageMode || phase !== 'preview') return;
+    previewEntryFocusRef.current = true;
+    const cancelEntryFocus = () => { previewEntryFocusRef.current = false; };
+    document.addEventListener('focusin', cancelEntryFocus);
+    return () => {
+      previewEntryFocusRef.current = false;
+      document.removeEventListener('focusin', cancelEntryFocus);
+    };
+  }, [pageMode, phase]);
+
+  useLayoutEffect(() => {
+    if (phase !== 'preview' || previewLoading || !preview || !previewEntryFocusRef.current) return;
+    previewEntryFocusRef.current = false;
+    previewNameRef.current?.focus();
+  }, [phase, previewLoading, preview]);
+
+  useLayoutEffect(() => {
+    if (phase !== 'select') return;
+    // Returning to the catalog invalidates the preview before another template can open.
+    operationRef.current += 1;
+    controllerRef.current?.abort();
+    controllerRef.current = null;
+    setPreviewLoading(false);
+  }, [phase]);
 
   useEffect(() => {
     const button = refreshParticipantsButtonRef.current;
@@ -564,7 +594,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
     {phase === 'preview' ? <section className={pageMode ? 'creation-details' : 'mt-5 space-y-4'}>
       <SelectedSummary name={selectedComposite?.name ?? ''} description={selectedComposite?.description ?? ''} version={selectedComposite?.currentVersion} />
       <label className="block text-sm font-medium text-gray-800">{t(pageMode ? (selectedComposite?.kind === 'page_group' ? 'creation.groupName' : 'common.title') : 'pageTemplate.composite.rootName')}
-        <input type="text" value={rootName} disabled={previewLoading}
+        <input ref={previewNameRef} type="text" value={rootName} disabled={previewLoading}
           onChange={(event) => {
             userEditedRef.current = true;
             setRootName(truncateValidatorLength(event.target.value, PAGE_TITLE_LIMIT));
