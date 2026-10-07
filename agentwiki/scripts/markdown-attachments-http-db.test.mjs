@@ -446,7 +446,7 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
         assert.equal(content.headers.get('content-type'), 'image/png');
         assert.equal(content.headers.get('content-length'), String(PNG.length));
         assert.equal(content.headers.get('x-content-type-options'), 'nosniff');
-        assert.equal(content.headers.get('cache-control'), 'private, no-store');
+        assert.equal(content.headers.get('cache-control'), 'private, no-cache');
         assert.equal(content.headers.get('etag'), `"${createHash('sha256').update(PNG).digest('hex')}"`);
         assert.match(content.headers.get('content-disposition') ?? '', /Alpha\.png/u);
         assert.deepEqual(Buffer.from(await content.arrayBuffer()), PNG);

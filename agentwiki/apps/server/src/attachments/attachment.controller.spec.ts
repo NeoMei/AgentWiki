@@ -140,7 +140,7 @@ describe('attachment controllers', () => {
       displayName: 'photo.png',
       contentHash: 'a'.repeat(64),
     });
-    const response = { setHeader: jest.fn() } as any;
+    const response = { setHeader: jest.fn(), vary: jest.fn() } as any;
 
     const result = await content.getContent(request, 'attachment-1', response);
 
@@ -148,10 +148,12 @@ describe('attachment controllers', () => {
     expect(response.setHeader).toHaveBeenCalledWith('Content-Type', 'image/png');
     expect(response.setHeader).toHaveBeenCalledWith('Content-Length', '42');
     expect(response.setHeader).toHaveBeenCalledWith('X-Content-Type-Options', 'nosniff');
-    expect(response.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, no-store');
+    expect(response.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, no-cache');
     expect(response.setHeader).not.toHaveBeenCalledWith(
       'Cache-Control', expect.stringMatching(/max-age|immutable/u),
     );
+    expect(response.vary).toHaveBeenCalledWith('Authorization');
+    expect(response.vary).toHaveBeenCalledWith('X-API-Key');
     expect(response.setHeader).toHaveBeenCalledWith('ETag', `"${'a'.repeat(64)}"`);
     expect(response.setHeader).not.toHaveBeenCalledWith(
       expect.anything(), expect.stringContaining('storageKey'),

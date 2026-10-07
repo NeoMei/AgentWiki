@@ -121,12 +121,23 @@ export class AttachmentContentController {
       attachmentId,
       req.user as Principal,
     );
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    // Browser-private storage is allowed, but every reuse must pass the live
+    // permission check above. Separate every supported credential transport.
+    response.setHeader('Cache-Control', 'private, no-cache');
+    response.vary('Authorization');
+    response.vary('X-API-Key');
+    response.setHeader('ETag', `"${content.contentHash}"`);
+    if (req.fresh) {
+      // The authorized service opened a file stream. A 304 has no body: close
+      // that stream now rather than leaking its file descriptor.
+      (content.stream as Readable).destroy();
+      response.status(304);
+      return;
+    }
     response.setHeader('Content-Type', content.mimeType);
     response.setHeader('Content-Length', content.sizeBytes.toString(10));
     response.setHeader('Content-Disposition', contentDisposition(content.displayName));
-    response.setHeader('X-Content-Type-Options', 'nosniff');
-    response.setHeader('Cache-Control', 'private, no-store');
-    response.setHeader('ETag', `"${content.contentHash}"`);
     return new StreamableFile(content.stream as Readable);
   }
 }

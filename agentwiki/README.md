@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.12.15 released** — Reading-page scroll and sidebar geometry updates now preserve loaded Markdown images instead of remounting them and restarting protected attachment requests. See the [release record](docs/releases-v0.12.15.md).
+> **v0.12.16 released** — Protected images can now reuse browser-private cached bytes after live access and ETag validation. Unchanged images return 304; denied requests cannot reuse cached content. See the [release record](docs/releases-v0.12.16.md).
 
 
 ## Hosted Service
