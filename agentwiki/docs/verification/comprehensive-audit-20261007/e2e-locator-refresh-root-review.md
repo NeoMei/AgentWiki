@@ -1,0 +1,5 @@
+# Root independent review: E2E locator contracts
+
+Reviewed the four test diffs against current Markdown.tsx, AttachmentPickerDialog/MarkdownWorkspace, SpaceView and ContentTree, and retained R2 failures. Approved for actual rerun: Markdown uses the nearest stable render-root attribute in reading/preview/history; singular upload labels use exact matching and preserve all three upload/visibility paths; folder and template actions target the main directory identified by its breadcrumbs, rather than the separate persistent sidebar. Viewer all-page prohibition assertions remain global. No business assertions were removed, no product code or limits changed, and no pass is claimed until the paced real browser reruns complete.
+
+Space folder exact-name matching corresponds to the folder button's text/title, while dialogs/banners and backend tree checks retain original scopes. The directory ancestor is the nearest main under SpaceView, not the app's outer main. All originals and initial failures remain in built-e2e-r2.

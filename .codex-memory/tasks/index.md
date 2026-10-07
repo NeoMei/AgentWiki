@@ -10,6 +10,8 @@
 
 ## 最近完成
 
+- [knowledge-comprehensive-audit-20261007](archive/knowledge-comprehensive-audit-20261007/brief.md)：F1-F7多轮任务/代码/前后端/UI复审完成；最终模板10/10、server2994、client2170、F5 REST/MCP8项、构建与资源清理通过；保留平台skip、模型收益NOT MET、fixture/未部署边界。
+
 - [knowledge-capabilities-20261007](archive/knowledge-capabilities-20261007/brief.md)：ddfaf538完成来源复核闭环、实际API/worker/UI/真实Agent及整分支独立验收；检索八题收益未证明，按预批准收缩撤回额外指导，保留工具参数兼容。自有runtime清理，ACP仅契约，未推送合并部署。
 
 - [agent-session-mixed-notes-20261007](archive/agent-session-mixed-notes-20261007/brief.md)：固定候选 f4325942 混合批注 P2 修复、独立代码复审及 A1–A6 真实 UI 验收通过；427 定向检查、显式 Save/API/DB、Undo/Redo、Stop/失权/响应式及清理完成。fixture provider、ACP 仅契约，未部署；本期归档停止自动跟进。
