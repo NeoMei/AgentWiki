@@ -270,6 +270,9 @@ test.describe.serial('page template library', () => {
     await page.getByRole('button', { name: new RegExp(customTemplateName, 'u') }).click();
     await page.getByRole('button', { name: '下一步' }).click();
     await page.getByLabel('标题').fill('团队任务实例一');
+    // Commit the title edit so the template preview refreshes before creation.
+    await page.getByLabel('标题').press('Tab');
+    await expect(page.getByRole('button', { name: '创建' })).toBeEnabled();
     await page.getByRole('button', { name: '创建' }).click();
     await page.waitForURL(/\/pages\/[^/]+\/edit$/u);
     firstCreatedPageId = new URL(page.url()).pathname.split('/').at(-2)!;
@@ -306,6 +309,9 @@ test.describe.serial('page template library', () => {
     await page.getByRole('button', { name: new RegExp(customTemplateName, 'u') }).click();
     await page.getByRole('button', { name: '下一步' }).click();
     await page.getByLabel('标题').fill('团队任务实例二');
+    // Commit the title edit so the template preview refreshes before creation.
+    await page.getByLabel('标题').press('Tab');
+    await expect(page.getByRole('button', { name: '创建' })).toBeEnabled();
     await page.getByRole('button', { name: '创建' }).click();
     await page.waitForURL(/\/pages\/[^/]+\/edit$/u);
     const secondCreatedPageId = new URL(page.url()).pathname.split('/').at(-2)!;
@@ -491,6 +497,9 @@ test.describe.serial('page template library', () => {
       await customTemplate.click();
       await editorSession.page.getByRole('button', { name: 'Next', exact: true }).click();
       await editorSession.page.getByLabel('Title').fill('Editor custom-template page');
+      // Commit the title edit so the template preview refreshes before creation.
+      await editorSession.page.getByLabel('Title').press('Tab');
+      await expect(editorSession.page.getByRole('button', { name: 'Create', exact: true })).toBeEnabled();
       await editorSession.page.getByRole('button', { name: 'Create', exact: true }).click();
       await editorSession.page.waitForURL(/\/pages\/[^/]+\/edit$/u);
       await expectRenderedHeading(editorSession.page, 'Shared section', 'en');
@@ -530,6 +539,9 @@ test.describe.serial('page template library', () => {
       await adminSession.page.getByRole('button', { name: new RegExp(customTemplateName, 'u') }).click();
       await adminSession.page.getByRole('button', { name: 'Next', exact: true }).click();
       await adminSession.page.getByLabel('Title').fill('Admin custom-template page');
+      // Commit the title edit so the template preview refreshes before creation.
+      await adminSession.page.getByLabel('Title').press('Tab');
+      await expect(adminSession.page.getByRole('button', { name: 'Create', exact: true })).toBeEnabled();
       await adminSession.page.getByRole('button', { name: 'Create', exact: true }).click();
       await adminSession.page.waitForURL(/\/pages\/[^/]+\/edit$/u);
       await expectRenderedHeading(adminSession.page, 'Shared section', 'en');
