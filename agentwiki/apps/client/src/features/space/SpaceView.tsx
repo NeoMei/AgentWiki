@@ -9,6 +9,7 @@ import { useAuth } from '../../context/AuthContext';
 import { newContentHref } from '../page-templates/newContentNavigation';
 import { PageAgentBindingDialog, type BindingDialogScope } from '../page-templates/PageAgentBindingDialog';
 import { SaveFolderAsTemplateDialog } from '../page-templates/SaveFolderAsTemplateDialog';
+import type { CompositeTemplateCapabilities } from '../page-templates/compositeTemplateTypes';
 import { listCompositeTemplates } from '../page-templates/compositeTemplateApi';
 import {
   createFolder,
@@ -124,7 +125,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   const [templateReturnFocus, setTemplateReturnFocus] = useState<HTMLElement | null>(null);
   const [compositeCapability, setCompositeCapability] = useState<{
     identity: string;
-    canCreate: boolean;
+    capabilities: CompositeTemplateCapabilities;
   } | null>(null);
 
   const currentFolderId = workspace?.mode === 'directory' ? workspace.selectedFolderId : localCurrentFolderId;
@@ -279,12 +280,12 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
         if (active) {
           setCompositeCapability({
             identity: requestIdentity,
-            canCreate: catalog.capabilities.canCreate,
+            capabilities: catalog.capabilities,
           });
         }
       })
       .catch(() => {
-        if (active) setCompositeCapability({ identity: requestIdentity, canCreate: false });
+        if (active) setCompositeCapability({ identity: requestIdentity, capabilities: {} });
       });
     return () => {
       active = false;
@@ -579,8 +580,10 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     currentRole === 'owner'
       || currentRole === 'admin'
   );
-  const compositeCreationEnabled = compositeCapability?.identity === `${id}\u0000${language}`
-    && compositeCapability.canCreate;
+  const compositeCapabilities = compositeCapability?.identity === `${id}\u0000${language}`
+    ? compositeCapability.capabilities : {};
+  const bindingEnabled = compositeCapabilities.canBindAgent === true;
+  const folderTemplateEnabled = compositeCapabilities.canSaveFolderTemplate === true;
 
   return (
     <div>
@@ -744,15 +747,17 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
           onCreatePageInline={handleInlineCreatePage}
           onRenameFolder={(folder) => setFolderDialog({ mode: 'rename', parent: null, target: folder, returnFocusTo: document.activeElement instanceof HTMLElement ? document.activeElement : null })}
           onDeleteFolder={openFolderDelete}
-          onConfigurePageAgent={compositeCreationEnabled ? (page) => {
+          onConfigurePageAgent={bindingEnabled ? (page) => {
             setBindingReturnFocus(document.activeElement instanceof HTMLElement ? document.activeElement : null);
             setBindingScope({ kind: 'page', pageId: page.id, title: page.title });
           } : undefined}
-          onConfigureFolderAgents={compositeCreationEnabled ? (folder) => {
+          onConfigureFolderAgents={bindingEnabled ? (folder) => {
             setBindingReturnFocus(document.activeElement instanceof HTMLElement ? document.activeElement : null);
             setBindingScope({ kind: 'folder', folderId: folder.id, name: folder.name });
           } : undefined}
-          onSaveFolderAsTemplate={canManageTemplates && compositeCreationEnabled ? (folder, trigger) => {
+          saveFolderTemplateDisabledReason={canManageTemplates && !folderTemplateEnabled ? t('pageTemplate.composite.folderSaveUnavailable') : undefined}
+          onSaveFolderAsTemplate={canManageTemplates ? (folder, trigger) => {
+            if (!folderTemplateEnabled) return;
             setTemplateFolder(folder);
             setTemplateReturnFocus(trigger);
           } : undefined}
@@ -763,15 +768,16 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
         </main>
       </div>
 
-      {bindingScope && canEdit && compositeCreationEnabled && id ? <PageAgentBindingDialog
+      {bindingScope && canEdit && bindingEnabled && id ? <PageAgentBindingDialog
         spaceId={id}
         scope={bindingScope}
+        capabilities={compositeCapabilities}
         returnFocusTo={bindingReturnFocus}
         onClose={() => { setBindingScope(null); setBindingReturnFocus(null); }}
         onSaved={reloadTree}
       /> : null}
 
-      {templateFolder && canManageTemplates && compositeCreationEnabled && id ? <SaveFolderAsTemplateDialog
+      {templateFolder && canManageTemplates && folderTemplateEnabled && id ? <SaveFolderAsTemplateDialog
         spaceId={id}
         folderId={templateFolder.id}
         folderName={templateFolder.name}

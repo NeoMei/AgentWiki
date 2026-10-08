@@ -14,6 +14,21 @@ export class TemplateFeaturePolicy {
       : []);
   }
 
+  /** Public action projection mirrors the existing service role gates. */
+  capabilities(spaceId: string, role: string, isAgent = false) {
+    const canManage = !isAgent && ['owner', 'admin'].includes(role);
+    const canCreate = !isAgent && ['owner', 'admin', 'editor'].includes(role);
+    const enabled = this.canCreate(spaceId);
+    return {
+      canManage, canCreate,
+      canManageDefinitions: canManage && enabled,
+      canSaveFolderTemplate: canManage && enabled,
+      // Shared human authorization includes admin wherever editor is allowed.
+      canBindAgent: canCreate,
+      canStartPageCollaboration: canCreate && enabled,
+    };
+  }
+
   canCreate(spaceId: string): boolean {
     return this.allowedSpaceIds.has(spaceId);
   }

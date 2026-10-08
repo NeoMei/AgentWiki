@@ -32,6 +32,24 @@ describe('ContentTree Agent binding entry points', () => {
     expect(onConfigurePageAgent).toHaveBeenCalledWith(page);
   });
 
+  it('shows a disabled template action with a visible explanation and prevents saving', () => {
+    const onSaveFolderAsTemplate = vi.fn();
+    render(<LanguageProvider><ContentTree nodes={[folder]} loading={false} error={null} canEdit
+      levelParentFolderId={null} pageDeleteDisabled={false} emptyText="Empty"
+      onOpenFolder={() => undefined} onOpenPage={() => undefined} onEditPage={() => undefined}
+      onDeletePage={() => undefined} onCreateSubfolder={() => undefined} onRenameFolder={() => undefined}
+      onDeleteFolder={() => undefined} onMove={() => undefined}
+      onSaveFolderAsTemplate={onSaveFolderAsTemplate}
+      {...{ saveFolderTemplateDisabledReason: '当前 Space 未开放目录保存为模板。' }} />
+    </LanguageProvider>);
+    fireEvent.click(screen.getByLabelText('Actions: Project'));
+    const action = screen.getByTestId('content-save-template-folder-1');
+    expect(action).toBeDisabled();
+    expect(screen.getByText('当前 Space 未开放目录保存为模板。')).toBeVisible();
+    fireEvent.click(action);
+    expect(onSaveFolderAsTemplate).not.toHaveBeenCalled();
+  });
+
   it('passes the exact Folder and opener element to the template save action', () => {
     const onSaveFolderAsTemplate = vi.fn();
     render(<LanguageProvider><ContentTree nodes={[folder, page]} loading={false} error={null} canEdit

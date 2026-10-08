@@ -315,7 +315,7 @@ describe('PageEditor remote update safety', () => {
     templateMocks.listPageTemplates.mockResolvedValue(catalog(false));
     templateMocks.listCompositeTemplates.mockResolvedValue({
       data: [], total: 0, skip: 0, take: 1,
-      capabilities: { canManage: false, canCreate: true },
+      capabilities: { canManage: false, canCreate: true, canBindAgent: true, canStartPageCollaboration: false },
     });
     attachmentMocks.listAttachments.mockReset();
     attachmentMocks.uploadAttachment.mockReset();
@@ -1455,7 +1455,7 @@ describe('PageEditor remote update safety', () => {
     templateMocks.listPageTemplates.mockResolvedValue(catalog(false));
     templateMocks.listCompositeTemplates.mockResolvedValue({
       data: [], total: 0, skip: 0, take: 1,
-      capabilities: { canManage: false, canCreate: true },
+      capabilities: { canManage: false, canCreate: true, canBindAgent: true, canStartPageCollaboration: false },
     });
     renderEditor();
 
@@ -1464,11 +1464,11 @@ describe('PageEditor remote update safety', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent('Binding page: Original title');
   });
 
-  it('hides late-binding settings when authoritative composite rollout is off', async () => {
+  it('hides late-binding settings when the explicit binding capability is missing', async () => {
     queuePages({ data: page({ capabilities: { canEdit: true } }) });
     templateMocks.listCompositeTemplates.mockResolvedValue({
       data: [], total: 0, skip: 0, take: 1,
-      capabilities: { canManage: true, canCreate: false },
+      capabilities: { canManage: true, canCreate: true },
     });
     renderEditor();
 

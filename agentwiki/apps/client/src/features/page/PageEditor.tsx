@@ -10,6 +10,7 @@ import { useAuthorizedPageLinks } from '../../components/markdown-tools/useAutho
 import { MarkdownMode, MarkdownWorkspace, MarkdownWorkspaceHandle } from '../../components/MarkdownWorkspace';
 import { Save, ArrowLeft, History, Users, Bot, Ellipsis, ImagePlus, BookOpen, PenLine, ChevronRight, Folder } from 'lucide-react';
 import { SavePageAsTemplateDialog } from '../page-templates/SavePageAsTemplateDialog';
+import type { CompositeTemplateCapabilities } from '../page-templates/compositeTemplateTypes';
 import { PageAgentBindingDialog } from '../page-templates/PageAgentBindingDialog';
 import { listPageTemplates } from '../page-templates/pageTemplateApi';
 import { truncateValidatorLength } from '../page-templates/validatorLength';
@@ -189,7 +190,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false);
   const [compositeCapability, setCompositeCapability] = useState<{
     identity: string;
-    canCreate: boolean;
+    capabilities: CompositeTemplateCapabilities;
   } | null>(null);
   const draftContext = useCallback((): AuthorizedDraftPage | null => {
     const current = pageRef.current;
@@ -262,9 +263,9 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const canManageTemplates = !writeUnavailable && templateCapabilityIdentity !== null
     && templateCapability?.identity === templateCapabilityIdentity
     && templateCapability.canManage;
-  const compositeCreationEnabled = !writeUnavailable && templateCapabilityIdentity !== null
-    && compositeCapability?.identity === templateCapabilityIdentity
-    && compositeCapability.canCreate;
+  const compositeCapabilities = !writeUnavailable && templateCapabilityIdentity !== null
+    && compositeCapability?.identity === templateCapabilityIdentity ? compositeCapability.capabilities : {};
+  const bindingEnabled = compositeCapabilities.canBindAgent === true;
   const templateCreationBlocked = isDirty || saving || remoteUpdate !== null;
   const attachmentEnabled = !writeUnavailable && page?.capabilities?.canManageAttachments === true
     && page.id === id
@@ -499,12 +500,12 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         if (active) {
           setCompositeCapability({
             identity: requestIdentity,
-            canCreate: result.capabilities.canCreate,
+            capabilities: result.capabilities,
           });
         }
       })
       .catch(() => {
-        if (active) setCompositeCapability({ identity: requestIdentity, canCreate: false });
+        if (active) setCompositeCapability({ identity: requestIdentity, capabilities: {} });
       });
     return () => {
       active = false;
@@ -1137,7 +1138,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             <History size={17} aria-hidden="true" />
             <span>{t('editor.versions')}</span>
           </button>
-          {compositeCreationEnabled ? <button
+          {bindingEnabled ? <button
             ref={bindingButtonRef}
             type="button"
             aria-label={t('pageTemplate.binding.action')}
@@ -1383,7 +1384,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         />
       ) : null}
 
-      {bindingDialogOpen && compositeCreationEnabled ? <PageAgentBindingDialog
+      {bindingDialogOpen && bindingEnabled ? <PageAgentBindingDialog
+        capabilities={compositeCapabilities}
         spaceId={page.spaceId}
         scope={{ kind: 'page', pageId: page.id, title: page.title }}
         returnFocusTo={bindingButtonRef.current}

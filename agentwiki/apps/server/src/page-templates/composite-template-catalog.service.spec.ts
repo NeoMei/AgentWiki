@@ -3,6 +3,8 @@ import { Prisma } from '@prisma/client';
 import type { Principal } from '../core/authorization/authorization.service';
 import { BusinessException } from '../core/filters/business-error';
 import { CompositeTemplateCatalogService } from './composite-template-catalog.service';
+import { ConfigService } from '@nestjs/config';
+import { TemplateFeaturePolicy } from './template-feature-policy';
 import { hashCompositeDefinition } from './composite-template-validator';
 
 const principal: Principal = { userId: 'user-1' };
@@ -80,7 +82,7 @@ describe('CompositeTemplateCatalogService', () => {
     });
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'owner' });
     authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'owner' });
-    service = new CompositeTemplateCatalogService(prisma, authorization, pageTemplates);
+    service = new CompositeTemplateCatalogService(prisma, authorization, pageTemplates, new TemplateFeaturePolicy({ get: () => 'space-1' } as unknown as ConfigService));
   });
 
   it.each([
@@ -97,7 +99,7 @@ describe('CompositeTemplateCatalogService', () => {
       locale: 'en', scope: 'all', archived: 'active', skip: 0, take: 50,
     }, principal);
 
-    expect(result.capabilities).toEqual(capabilities);
+    expect(result.capabilities).toMatchObject(capabilities);
   });
 
   it.each(['owner', 'admin', 'editor', 'viewer'] as const)(
@@ -109,7 +111,7 @@ describe('CompositeTemplateCatalogService', () => {
         locale: 'en', archived: 'active', skip: 0, take: 50,
       }, { ...principal, agentId: 'agent-1' });
 
-      expect(result.capabilities).toEqual({ canManage: false, canCreate: false });
+      expect(result.capabilities).toMatchObject({ canManage: false, canCreate: false });
     },
   );
 
@@ -121,7 +123,27 @@ describe('CompositeTemplateCatalogService', () => {
       locale: 'en', archived: 'active', skip: 0, take: 50,
     }, { ...principal, platformRole: 'super_admin' });
 
-    expect(result.capabilities).toEqual({ canManage: false, canCreate: false });
+    expect(result.capabilities).toMatchObject({ canManage: false, canCreate: false });
+  });
+
+  it.each([
+    ['owner', true, true, true, true, true],
+    ['admin', true, true, true, true, true],
+    ['editor', true, false, false, true, true],
+    ['viewer', true, false, false, false, false],
+    ['owner', false, false, false, true, false],
+    ['admin', false, false, false, true, false],
+    ['editor', false, false, false, true, false],
+    ['viewer', false, false, false, false, false],
+  ] as const)('publishes route capabilities for %s, allowlisted=%s', async (role, allowed, manage, save, bind, start) => {
+    authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role });
+    service = new CompositeTemplateCatalogService(prisma, authorization, pageTemplates,
+      new TemplateFeaturePolicy({ get: () => allowed ? 'space-1' : '' } as unknown as ConfigService));
+    const result = await service.list('space-1', { locale: 'en', archived: 'active', skip: 0, take: 50 }, principal);
+    expect(result.capabilities).toMatchObject({
+      canCreate: role !== 'viewer', canManageDefinitions: manage, canSaveFolderTemplate: save,
+      canBindAgent: bind, canStartPageCollaboration: start,
+    });
   });
 
   it('resolves the exact requested new version as the definition authority', async () => {

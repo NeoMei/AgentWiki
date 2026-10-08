@@ -42,6 +42,7 @@ export interface ContentTreeProps {
   onCreatePageInline?: (parent: ContentTreeFolderNode | null, title: string) => Promise<void>;
   onConfigurePageAgent?: (page: ContentTreePageNode) => void;
   onConfigureFolderAgents?: (folder: ContentTreeFolderNode) => void;
+  saveFolderTemplateDisabledReason?: string;
   onSaveFolderAsTemplate?: (folder: ContentTreeFolderNode, trigger: HTMLElement) => void;
 }
 
@@ -93,6 +94,7 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
   onConfigurePageAgent,
   onConfigureFolderAgents,
   onSaveFolderAsTemplate,
+  saveFolderTemplateDisabledReason,
 }) => {
   const { t } = useLanguage();
   const [drag, setDrag] = useState<DragInfo | null>(null);
@@ -168,6 +170,7 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
           onConfigurePageAgent={onConfigurePageAgent}
           onConfigureFolderAgents={onConfigureFolderAgents}
           onSaveFolderAsTemplate={onSaveFolderAsTemplate}
+          saveFolderTemplateDisabledReason={saveFolderTemplateDisabledReason}
           onDragStart={setDrag}
           onDragEnd={() => setDrag(null)}
           onDrop={(_event, target, position) => {
@@ -215,6 +218,7 @@ interface NodeRowProps {
   onDeleteFolder: (folder: ContentTreeFolderNode) => void;
   onConfigurePageAgent?: (page: ContentTreePageNode) => void;
   onConfigureFolderAgents?: (folder: ContentTreeFolderNode) => void;
+  saveFolderTemplateDisabledReason?: string;
   onSaveFolderAsTemplate?: (folder: ContentTreeFolderNode, trigger: HTMLElement) => void;
   onDragStart: (drag: DragInfo) => void;
   onDragEnd: () => void;
@@ -335,6 +339,8 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
                 {props.onSaveFolderAsTemplate ? <IconButton
                   testId={'content-save-template-' + node.id}
                   title={labels.saveAsTemplate}
+                  disabled={!!props.saveFolderTemplateDisabledReason}
+                  disabledReason={props.saveFolderTemplateDisabledReason}
                   onClick={(event) => props.onSaveFolderAsTemplate?.(
                     node as ContentTreeFolderNode,
                     rowRef.current?.querySelector<HTMLElement>('[aria-haspopup="menu"]') ?? event.currentTarget,
@@ -448,15 +454,18 @@ const IconButton: React.FC<{
   title: string;
   danger?: boolean;
   disabled?: boolean;
+  disabledReason?: string;
   onClick: React.MouseEventHandler<HTMLButtonElement>;
   children: React.ReactNode;
-}> = ({ testId, title, danger, disabled, onClick, children }) => (
+}> = ({ testId, title, danger, disabled, disabledReason, onClick, children }) => (
+  <>
   <button
     type="button"
     disabled={disabled}
     onClick={onClick}
     title={title}
     aria-label={title}
+    aria-describedby={disabledReason ? `${testId}-reason` : undefined}
     data-testid={testId}
     className={
       'inline-flex min-h-8 items-center gap-2 rounded px-2 text-left text-xs text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50 '
@@ -465,6 +474,8 @@ const IconButton: React.FC<{
   >
     {children}<span>{title}</span>
   </button>
+  {disabledReason ? <p id={`${testId}-reason`} className="px-2 pb-2 text-xs text-gray-500">{disabledReason}</p> : null}
+  </>
 );
 
 export const InlineTreeName: React.FC<{

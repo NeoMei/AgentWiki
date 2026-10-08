@@ -165,7 +165,7 @@ describe('SpaceView new-page flow', () => {
     mocks.getContentTreeRevision.mockResolvedValue('43');
     mocks.listCompositeTemplates.mockResolvedValue({
       data: [], total: 0, skip: 0, take: 1,
-      capabilities: { canManage: true, canCreate: true },
+      capabilities: { canManage: true, canCreate: true, canBindAgent: true, canSaveFolderTemplate: true, canStartPageCollaboration: true },
     });
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
     mocks.auth.user = { id: 'user-1', platformRole: 'user' };
@@ -242,14 +242,14 @@ describe('SpaceView new-page flow', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent('Binding folder: Project');
   });
 
-  it('keeps ordinary Page creation but hides composite binding and Folder-template writes when rollout is off', async () => {
+  it('keeps pure binding but disables Folder-template saving with a reason when rollout is off', async () => {
     const folder: ContentTreeNode = {
       kind: 'folder', id: 'folder-1', name: 'Project', path: '/Project', sortOrder: 0,
       createdAt: '2026-09-05T00:00:00.000Z', updatedAt: '2026-09-05T00:00:00.000Z', hasChildren: true,
     };
     mocks.listCompositeTemplates.mockResolvedValue({
       data: [], total: 0, skip: 0, take: 1,
-      capabilities: { canManage: true, canCreate: false },
+      capabilities: { canManage: true, canCreate: true, canBindAgent: true, canSaveFolderTemplate: false, canStartPageCollaboration: false },
     });
     mocks.api.get.mockImplementation(async (url: string) => {
       if (url === '/spaces/space-1') return spaceResponse('space-1', 'Role Space', 'owner');
@@ -264,9 +264,13 @@ describe('SpaceView new-page flow', () => {
     await waitFor(() => expect(mocks.listCompositeTemplates).toHaveBeenCalledWith('space-1', {
       locale: 'zh-CN', take: 1,
     }));
-    expect(screen.queryByTestId('content-agent-page-1')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('content-agent-folder-1')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('content-save-template-folder-1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('content-agent-page-1')).toBeEnabled();
+    expect(screen.getByTestId('content-agent-folder-1')).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: '操作: Project' }));
+    expect(screen.getByTestId('content-save-template-folder-1')).toBeDisabled();
+    expect(screen.getByText('当前 Space 未开放目录保存为模板。')).toBeVisible();
+    fireEvent.click(screen.getByTestId('content-save-template-folder-1'));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it.each([

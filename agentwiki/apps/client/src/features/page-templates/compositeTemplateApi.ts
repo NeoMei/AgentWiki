@@ -40,7 +40,18 @@ function parseCompositeTemplateCatalog(value: unknown): CompositeTemplateCatalog
     || typeof (capabilities as Record<string, unknown>).canCreate !== 'boolean') {
     throw new TypeError('Invalid composite template catalog response');
   }
-  return value as CompositeTemplateCatalog;
+  const actions = capabilities as Record<string, unknown>;
+  return {
+    ...value as CompositeTemplateCatalog,
+    capabilities: {
+      canManage: actions.canManage === true,
+      canCreate: actions.canCreate === true,
+      canManageDefinitions: actions.canManageDefinitions === true,
+      canSaveFolderTemplate: actions.canSaveFolderTemplate === true,
+      canBindAgent: actions.canBindAgent === true,
+      canStartPageCollaboration: actions.canStartPageCollaboration === true,
+    },
+  };
 }
 
 export async function listCompositeTemplates(spaceId: string, options: {

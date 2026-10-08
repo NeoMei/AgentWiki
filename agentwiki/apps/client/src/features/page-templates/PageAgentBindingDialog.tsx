@@ -20,7 +20,7 @@ import {
   startExistingFolderRun,
   startExistingPageRun,
 } from './compositeTemplateApi';
-import type { ExistingRunPreview, FolderCollaborationSource, PageAgentBindingSnapshot } from './compositeTemplateTypes';
+import type { CompositeTemplateCapabilities, ExistingRunPreview, FolderCollaborationSource, PageAgentBindingSnapshot } from './compositeTemplateTypes';
 
 export type BindingDialogScope =
   | { kind: 'page'; pageId: string; title: string }
@@ -29,11 +29,14 @@ export type BindingDialogScope =
 export const PageAgentBindingDialog: React.FC<{
   spaceId: string;
   scope: BindingDialogScope;
+  capabilities?: CompositeTemplateCapabilities;
   returnFocusTo?: HTMLElement | null;
   onClose: () => void;
   onSaved: () => void;
-}> = ({ spaceId, scope, returnFocusTo, onClose, onSaved }) => {
+}> = ({ spaceId, scope, capabilities, returnFocusTo, onClose, onSaved }) => {
   const { t } = useLanguage();
+  const canBind = capabilities?.canBindAgent === true;
+  const canStart = capabilities?.canStartPageCollaboration === true;
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,9 +64,19 @@ export const PageAgentBindingDialog: React.FC<{
   const scopeTitle = scope.kind === 'page' ? scope.title : null;
 
   useEffect(() => {
+    if (canStart && canBind) return;
+    setStartNow(false);
+    setRunPreview(null);
+    setRunPreviewSignature(null);
+    setRunPreviewBusy(false);
+    previewRequest.current += 1;
+  }, [canStart, canBind]);
+
+  useEffect(() => {
     let active = true;
     const controller = new AbortController();
     controllerRef.current = controller;
+    setStartNow(false);
     setLoading(true); setError(null); setResult(null); setRunPreview(null); setRunPreviewSignature(null); setSelectedPageIds([]);
     setFolderBindingMode('keep_current'); setRunSettings({ bindings: [], inputValues: {}, enabledTaskNodeIds: [] }); setRunTaskOptions([]);
     taskSelectionInitialized.current = false;
@@ -138,7 +151,7 @@ export const PageAgentBindingDialog: React.FC<{
     invalidateRunPreview();
   };
   const previewFolderRun = async () => {
-    if (scope.kind !== 'folder' || !hasFolderPageScope || !startNow
+    if (!canStart || scope.kind !== 'folder' || !hasFolderPageScope || !startNow
       || (folderBindingMode === 'bulk_replace' && !agentId) || runPreviewBusy) return;
     const request = ++previewRequest.current;
     const requestedPayload = folderRunPayload();
@@ -179,7 +192,7 @@ export const PageAgentBindingDialog: React.FC<{
   };
 
   const submit = async () => {
-    if (busy || !treeRevision || !hasFolderPageScope || (scope.kind === 'page' && !agentId && startNow)
+    if ((startNow ? !canStart : !canBind) || busy || !treeRevision || !hasFolderPageScope || (scope.kind === 'page' && !agentId && startNow)
       || (scope.kind === 'folder' && startNow && folderBindingMode === 'bulk_replace' && !agentId)
       || (scope.kind === 'folder' && !startNow && folderBindingMode === 'keep_current')
       || (scope.kind === 'folder' && startNow
@@ -277,7 +290,9 @@ export const PageAgentBindingDialog: React.FC<{
           </select>
         </label>}
         {selectedAgent?.agent ? <p className="mt-2 text-sm text-gray-500">{selectedAgent.agent.name} · {selectedAgent.agent.connected ? t('pageTemplate.binding.connected') : t('pageTemplate.binding.notConnected')}</p> : null}
-        <label className="mt-4 flex items-center gap-2 text-sm"><input type="checkbox" checked={startNow} disabled={scope.kind === 'page' ? !agentId : !hasFolderPageScope || (folderBindingMode === 'bulk_replace' && !agentId)} onChange={(event) => { setStartNow(event.target.checked); signatureRef.current = null; invalidateRunPreview(); }} />{t('pageTemplate.binding.startNow')}</label>
+        <label className="mt-4 flex items-center gap-2 text-sm"><input type="checkbox" checked={startNow} disabled={!canStart || !canBind || (scope.kind === 'page' ? !agentId : !hasFolderPageScope || (folderBindingMode === 'bulk_replace' && !agentId))} onChange={(event) => { setStartNow(canStart && canBind && event.target.checked); signatureRef.current = null; invalidateRunPreview(); }} />{t('pageTemplate.binding.startNow')}</label>
+        {!canStart ? <p className="mt-2 text-sm text-amber-800">{t('pageTemplate.binding.startUnavailable')}</p> : null}
+        {!canBind ? <p className="mt-2 text-sm text-amber-800">{t('pageTemplate.binding.saveUnavailable')}</p> : null}
         <p className="mt-2 text-xs text-gray-500">{t('pageTemplate.binding.distinction')}</p>
         {scope.kind === 'folder' && startNow ? <section className="mt-4 rounded-[14px] border p-4">
           <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-medium">{t('pageTemplate.binding.runPreview')}</h3><p className="mt-1 text-xs text-gray-500">{t('pageTemplate.binding.runPreviewHelp')}</p></div>
@@ -305,7 +320,7 @@ export const PageAgentBindingDialog: React.FC<{
     </> : null}
     {error ? <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
     {!loading && !result ? <div className="mt-6 flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-end"><button type="button" onClick={close} className="min-h-10 rounded-lg border px-4 text-sm">{t('common.cancel')}</button>
-      <button type="button" disabled={busy || !treeRevision || !hasFolderPageScope || (scope.kind === 'folder' && !startNow && folderBindingMode === 'keep_current') || (scope.kind === 'folder' && startNow && (!runPreview || runPreviewSignature !== currentRunPreviewSignature() || runPreview.issues.length > 0))} onClick={() => void submit()} className="min-h-10 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white disabled:opacity-50">{busy ? t('common.saving') : startNow ? t('pageTemplate.binding.saveAndStart') : t('pageTemplate.binding.save')}</button></div> : null}
+      <button type="button" disabled={(startNow ? !canStart : !canBind) || busy || !treeRevision || !hasFolderPageScope || (scope.kind === 'folder' && !startNow && folderBindingMode === 'keep_current') || (scope.kind === 'folder' && startNow && (!runPreview || runPreviewSignature !== currentRunPreviewSignature() || runPreview.issues.length > 0))} onClick={() => void submit()} className="min-h-10 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white disabled:opacity-50">{busy ? t('common.saving') : startNow ? t('pageTemplate.binding.saveAndStart') : t('pageTemplate.binding.save')}</button></div> : null}
   </ModalDialog>;
 };
 

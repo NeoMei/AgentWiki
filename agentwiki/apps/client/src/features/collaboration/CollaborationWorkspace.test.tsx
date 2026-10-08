@@ -100,7 +100,7 @@ describe('CollaborationWorkspace', () => {
     vi.mocked(collaborationApi.listRuns).mockResolvedValue({ items: [], nextCursor: null });
     compositeMocks.listCompositeTemplates.mockResolvedValue({
       data: [], total: 0, skip: 0, take: 1,
-      capabilities: { canManage: true, canCreate: true },
+      capabilities: { canManage: true, canCreate: true, canManageDefinitions: true },
     });
   });
 
@@ -164,6 +164,15 @@ describe('CollaborationWorkspace', () => {
     expect(card.querySelector('a[href="/spaces/space-1/collaboration/templates/space-template/start"]')).not.toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Upgrade Backend release' }));
     expect(await screen.findByRole('dialog')).toHaveTextContent('Upgrade dialog Backend release');
+  });
+
+  it.each([false, undefined])('keeps ordinary page-group creation while denying legacy upgrade when definition management is %s', async (canManageDefinitions) => {
+    compositeMocks.listCompositeTemplates.mockResolvedValue({ data: [], total: 0, skip: 0, take: 1,
+      capabilities: { canManage: true, canCreate: true, canManageDefinitions } });
+    renderWorkspace();
+    await screen.findByText('Backend release');
+    expect(screen.getByRole('button', { name: 'Create page group collaboration' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Upgrade Backend release' })).not.toBeInTheDocument();
   });
 
   it('hides only new composite entry points when the authoritative capability is disabled', async () => {
