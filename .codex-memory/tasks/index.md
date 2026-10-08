@@ -4,6 +4,8 @@
 
 ## 活跃任务
 
+- [test-triage-20261008](active/test-triage-20261008/brief.md)：本地修复候选d6c3934a/插件d1d89de与独审验收完成；原案边界待复测，尚未发布部署。
+
 - [q2-defect-closure-20261001](active/q2-defect-closure-20261001/brief.md)：全部20项及2条接入问题修复部署，公网TLS已验证，其余顺序实施与审查。
 
 - [q3-regressions-20260914](archive/q3-regressions-20260914/brief.md)：Q3人工报告20项代码修复、整分支独立复审与候选验收完成；未发布部署或安装日常Vault。

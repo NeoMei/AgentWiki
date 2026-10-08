@@ -1,0 +1,20 @@
+
+Running 15 tests using 1 worker
+
+  ✓   1 e2e/collaboration-reentry-layout.spec.ts:4:1 › returning owner reads continuation instructions with bounded desktop cards and mobile flow (1.9s)
+  ✓   2 e2e/collaboration-system-layout.spec.ts:5:1 › system composite presentation, pending review header actions and bounded long-text cards (2.0s)
+  ✓   3 e2e/content-tree-menu.spec.ts:4:3 › row menu leaves adjacent triggers clickable at 1912px (515ms)
+  ✓   4 e2e/content-tree-menu.spec.ts:4:3 › row menu leaves adjacent triggers clickable at 390px (524ms)
+  ✓   5 e2e/editor-stability.spec.ts:19:3 › long Markdown stays stable at 900px, collaboration panel true (12.1s)
+  ✓   6 e2e/editor-stability.spec.ts:19:3 › long Markdown stays stable at 900px, collaboration panel false (11.8s)
+  ✓   7 e2e/editor-stability.spec.ts:19:3 › long Markdown stays stable at 1440px, collaboration panel true (12.0s)
+  ✓   8 e2e/editor-stability.spec.ts:19:3 › long Markdown stays stable at 1440px, collaboration panel false (12.0s)
+  ✓   9 e2e/editor-stability.spec.ts:102:1 › plain long-document control retains source and scroll anchor (3.1s)
+  ✓  10 e2e/editor-stability.spec.ts:118:1 › real conversation viewport follows Send and streaming, while preserving older history (3.3s)
+  ✓  11 e2e/editor-stability.spec.ts:148:1 › resolver scope changes update Wiki links without resetting the distant Markdown parser (1.4s)
+  ✓  12 e2e/q2-graph-images.spec.ts:43:1 › real canvas paints only selection, clears on blank space, and keeps zoom working (1.6s)
+  ✓  13 e2e/q2-graph-images.spec.ts:87:1 › page and editor images open by keyboard, remain bounded, close and restore focus (918ms)
+  ✓  14 e2e/source-runs-navigation.spec.ts:13:3 › preserves detail and actions through /spaces/task5/runs?run=failed-run (1.1s)
+  ✓  15 e2e/source-runs-navigation.spec.ts:13:3 › preserves detail and actions through /spaces/task5/runs/failed-run (1.1s)
+
+  15 passed (1.1m)
