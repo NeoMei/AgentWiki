@@ -688,17 +688,29 @@
         "text": "{\"runId\":\"86555de62338\",\"vault\":\"C:\\\\Users\\\\1\\\\AppData\\\\Local\\\\Temp\\\\AgentWiki-Sync-0.5.7-Windows-20261009-cca3df29f8fb4963a1727438fe8021d3\\\\vault\",\"initialUnusedVaultPath\":\"C:\\\\Users\\\\1\\\\AppData\\\\Local\\\\Temp\\\\AgentWiki-Sync-0.5.8-Windows-86555de62338\\\\WinQA-058\",\"pid25808Alive\":true,\"fixtureWindowClosed\":true,\"dailyWindowRetained\":true,\"receiptSha256\":\"7f333844ea11f0ff4692dc8e7c9a6278716641e8a9d56bff88ae071d74fb5af7\"}\r\n",
         "truncated": false
       }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-1b6e7620-30c0-42bc-b5a2-4c542406939c",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 859,
+      "output": {
+        "text": "{\"runId\":\"86555de62338\",\"vault\":\"C:\\\\Users\\\\1\\\\AppData\\\\Local\\\\Temp\\\\AgentWiki-Sync-0.5.7-Windows-20261009-cca3df29f8fb4963a1727438fe8021d3\\\\vault\",\"initialUnusedVaultPath\":\"C:\\\\Users\\\\1\\\\AppData\\\\Local\\\\Temp\\\\AgentWiki-Sync-0.5.8-Windows-86555de62338\\\\WinQA-058\",\"pid25808Alive\":true,\"fixtureWindowClosed\":true,\"dailyWindowRetained\":true,\"receiptSha256\":\"ba388297a282804dbe83983ec8b70bed645b751420f612c23080b1563db7994f\"}\r\n",
+        "truncated": false
+      }
     }
   ],
-  "sourceFile": "agentwiki-windows058-native-final-source.json",
-  "sourceFileSha256": "720999caf1fdc0308fbeae991d2fa0e1ca3f74720bc834b07a6b7e432b125060",
+  "sourceFile": "agentwiki-windows058-native-final-source-v2.json",
+  "sourceFileSha256": "808fbba2a5a65a5ac90daeea9f53dca703b327f5af61498a5469bf5d696bdd46",
   "sanitization": "Input was selected and sanitized by root. Command outputs retained; no commands, credentials, or agent conclusions added. Unrelated daily Vault name replaced if present.",
   "pending": [],
   "interpretationLimits": [
     "CASE PASS outputs are labels only. Native conclusions require actual controls, action results, paths, hashes, and final UI text from other records.",
     "exec-9368e989 zeroDiff:false conflicts with its own UI snippet, which explicitly says both sides are synchronized and have no changes. Treat it as a probe false negative, not a product failure.",
     "exec-634902a6 reports JavaScript syntax failure, not a product defect. The successful subsequent readback is exec-8753fa3c.",
-    "The selected 57 records retain the server-update pull and exact-byte check for A, but not first-pull and initial local-page push outputs. C/E retain actual pull and subsequent push with final server/local matching paths and content hashes."
+    "The selected records retain the server-update pull and exact-byte check for A, but not first-pull and initial local-page push outputs. C/E retain actual pull and subsequent push with final server/local matching paths and content hashes."
   ],
   "pluginVersion": "0.5.8",
   "pluginSourceCommit": "b9be0afa667e216c87a15f983431109f79b5ca39",
@@ -719,7 +731,7 @@
     "dailyWindowRetained": true,
     "dailyPidAlive": true,
     "localDirectoriesPreserved": true,
-    "windowsReceiptSha256": "7f333844ea11f0ff4692dc8e7c9a6278716641e8a9d56bff88ae071d74fb5af7"
+    "windowsReceiptSha256": "ba388297a282804dbe83983ec8b70bed645b751420f612c23080b1563db7994f"
   },
   "actualVaultPath": "C:\\Users\\1\\AppData\\Local\\Temp\\AgentWiki-Sync-0.5.7-Windows-20261009-cca3df29f8fb4963a1727438fe8021d3\\vault",
   "initialUnusedVaultPath": "C:\\Users\\1\\AppData\\Local\\Temp\\AgentWiki-Sync-0.5.8-Windows-86555de62338\\WinQA-058"

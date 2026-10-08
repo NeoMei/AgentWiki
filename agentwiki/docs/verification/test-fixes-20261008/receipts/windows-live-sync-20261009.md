@@ -54,7 +54,7 @@
 
 | 场景 | 实际执行与当前结论 | 证据 |
 |---|---|---|
-| A：V2 远端正文更新拉回 | 对服务器页面修改内容并通过实际预览确认拉回。本地 SHA 与服务器预期 SHA 相同，`exact_bytes_equal=True`；重新打开 Sync v2 为无差异。首拉及初始本地推送输出未保存在此57条摘录中；本轮双向链路另有C/E的实际拉取与推送证明。 | `exec-2365b131`、`exec-86ecdb30`、`exec-f5d6a034` |
+| A：V2 远端正文更新拉回 | 对服务器页面修改内容并通过实际预览确认拉回。本地 SHA 与服务器预期 SHA 相同，`exact_bytes_equal=True`；重新打开 Sync v2 为无差异。首拉及初始本地推送输出未保存在此摘录中；本轮双向链路另有C/E的实际拉取与推送证明。 | `exec-2365b131`、`exec-86ecdb30`、`exec-f5d6a034` |
 | B：父目录冲突即时校验及恢复 | 本地删除空 F、远端增加 F/C/New，自动合并预览正常打开。选择 local 后确认立即禁用，随后 Notice 明确 `FOLDER_HAS_DEPENDENTS`；改选 remote 后确认可用并实际执行。两端 F/C/New 存在，Keep 哈希保留，重开 Sync v2 无差异。**0.5.7 延后到点击确认才校验的问题已原生验证修复。** | `exec-1d73ace8`、`exec-edd74cd0`、`exec-6e802e71`、`exec-5b15e4cb`、`exec-47b4e12b` |
 | C：V2 手动目录摘要、拉取及推送 | 对 M 选择手动并输入 `pages/Recovered` 后，预览摘要即时显示 Recovered、Recovered/C、Recovered/C/New，确认可用。确认拉取后进入实际推送预览，再点击确认完成推送；本地 M 不存在，Recovered/C/New 存在。远端路径相同，两端 New 正文 SHA 相同；同步中心原文显示双方无差异。**0.5.7 摘要仍显示旧路径的问题已原生验证修复。** | `exec-cf2998ca`、`exec-706cb424`、`exec-53302ba0`、`exec-ca15c6c3`、`exec-9368e989`、`exec-42a8d1d3` |
 | D：正式 0.5.8 图片升级 | 68-byte PNG 被正文引用；实际预览显示升级 Sync v2→v3、1 张/68 B；确认后弹窗关闭。重新打开明确为 Sync v3、`zeroDiff=true`、`imageZero=true`，UI 原文亦显示无变更。 | `exec-9c9d72a4`、`exec-2f2ce1f5`、`exec-aa67c9f6`、`exec-b4a5b8e9`、`exec-4851c9e2`、`exec-8753fa3c` |
@@ -80,7 +80,7 @@
 
 `exec-7c457a67` 记录只关闭临时 Vault 窗口，日常 Obsidian 的共享 PID 仍存活。临时文件的递归删除曾被执行器策略拒绝，随后一次 `.NET Directory.Delete` 尝试在 Git pack 文件上因拒绝访问失败；该后续尝试已被根线程叫停，不应重试或换技术绕过。`exec-009f6cd7` 明确回读 `root_exists_after=True`。因此只可声明生产合成资源已撤销，**不可声明本机临时目录已完整清理**。旧目录残留被保留；已撤销的凭据不可继续使用。
 
-正式 0.5.8 新回合亦已清理：真实设置按钮断开后serverInstanceId=null/connected=false（exec-641689a6）；设备凭据撤销204，列表仍保留1条历史项，不称记录物理删除（exec-605b536f）；已兑换installation删除409，不记为删除成功（exec-1cea7d20）；Space删除200后content-tree404（exec-0f4de75d）；账号删除200后旧JWT访问/users/me为401（exec-2ffb9910）。随后只关闭fixture窗口；PID25808存活、fixtureWindowClosed=true、dailyWindowRetained=true（exec-123edaa0）。未再执行任何递归删除，两个临时根目录及脱敏回执保留。Windows最终回执SHA256为7f333844ea11f0ff4692dc8e7c9a6278716641e8a9d56bff88ae071d74fb5af7；exec-92a3dbaf已纠正实际Vault路径为已注册的旧临时根下vault，并单列最初未使用的WinQA-058目录。
+正式 0.5.8 新回合亦已清理：真实设置按钮断开后serverInstanceId=null/connected=false（exec-641689a6）；设备凭据撤销204，列表仍保留1条历史项，不称记录物理删除（exec-605b536f）；已兑换installation删除409，不记为删除成功（exec-1cea7d20）；Space删除200后content-tree404（exec-0f4de75d）；账号删除200后旧JWT访问/users/me为401（exec-2ffb9910）。随后只关闭fixture窗口；PID25808存活、fixtureWindowClosed=true、dailyWindowRetained=true（exec-123edaa0）。未再执行任何递归删除，两个临时根目录及脱敏回执保留。Windows最后一次回读的回执SHA256为ba388297a282804dbe83983ec8b70bed645b751420f612c23080b1563db7994f（exec-1b6e7620）；exec-92a3dbaf已纠正实际Vault路径为已注册的旧临时根下vault，并单列最初未使用的WinQA-058目录。
 
 ## 回执索引与解释规则
 
@@ -88,7 +88,7 @@
 - [V2 最终内容与路径回读](windows-live-sync-v2-final.json)：4 条精确输出，包含正文逐字节匹配、目录恢复与手动路径最终状态。
 - [V3 实际升级与最终状态](windows-live-sync-v3-upgrade.json)：4 条精确输出，包含确认按钮、实际提交进度、弹窗关闭及重开后 Sync v3 无差异。
 - [0.5.8 正式包加载与第一轮清理](windows-live-sync-058-load-cleanup.json)：8 条精确输出，包含下载/安装哈希、运行版本、已有 V3 无差异、资源撤销及保留目录。
-- [0.5.8 最终原生验收](windows-live-sync-058-final.json)：57 条实际输出覆盖新设置实例、A–E 实际控件与同步结果、两端路径/正文哈希、最终Sync v3零差异、图片元数据以及本轮清理和窗口回读。
+- [0.5.8 最终原生验收](windows-live-sync-058-final.json)：58 条实际输出覆盖新设置实例、A–E 实际控件与同步结果、两端路径/正文哈希、最终Sync v3零差异、图片元数据以及本轮清理和窗口回读。
 
 所有 JSON 只保留相关命令结果，保留 exec ID、退出码与输出边界，未将代理结论补写为工具输出。密码、Token、连接码、无关个人资料与命令输入未复制，日常 Vault 名称已脱敏。源文件 SHA256 用于追溯摘录来源；摘录中的失败和中间状态没有改成通过。
 
