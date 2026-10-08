@@ -34,7 +34,7 @@ const SpaceWorkspace = lazy(() => import('./features/space-workspace/SpaceWorksp
 const AgentList = lazy(() => import('./features/agent/AgentList').then((module) => ({ default: module.AgentList })));
 const AgentDetail = lazy(() => import('./features/agent/AgentDetail').then((module) => ({ default: module.AgentDetail })));
 const SourcesPage = lazy(() => import('./features/source/SourcesPage').then((module) => ({ default: module.SourcesPage })));
-const RunsPage = lazy(() => import('./features/source/RunsPage').then((module) => ({ default: module.RunsPage })));
+const LegacyRunsRoute = lazy(() => import('./features/source/SourcesPage').then((module) => ({ default: module.LegacyRunsRoute })));
 const ReviewPage = lazy(() => import('./features/review/ReviewPage').then((module) => ({ default: module.ReviewPage })));
 const PageEditor = lazy(() => import('./features/page/PageEditor').then((module) => ({ default: module.PageEditor })));
 const PageVersionHistory = lazy(() => import('./features/page/PageVersionHistory').then((module) => ({ default: module.PageVersionHistory })));
@@ -108,7 +108,8 @@ const AppRoutes: React.FC = () => {
         <Route path="/agents" element={<Suspense fallback={<RouteLoading />}><AgentList /></Suspense>} />
         <Route path="/agents/:id" element={<Suspense fallback={<RouteLoading />}><AgentDetail /></Suspense>} />
         <Route path="/spaces/:id/sources" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><SourcesPage /></Suspense></WorkspaceRoute>} />
-        <Route path="/spaces/:id/runs" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><RunsPage /></Suspense></WorkspaceRoute>} />
+        <Route path="/spaces/:id/runs/:runId" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><LegacyRunsRoute /></Suspense></WorkspaceRoute>} />
+        <Route path="/spaces/:id/runs" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><LegacyRunsRoute /></Suspense></WorkspaceRoute>} />
         <Route path="/spaces/:id/collaboration" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><CollaborationWorkspace /></Suspense></WorkspaceRoute>} />
         <Route path="/spaces/:id/collaboration/templates/new" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><TemplateEditor mode="create" /></Suspense></WorkspaceRoute>} />
         <Route path="/spaces/:id/collaboration/templates/:templateId" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><TemplateEditor mode="edit" /></Suspense></WorkspaceRoute>} />

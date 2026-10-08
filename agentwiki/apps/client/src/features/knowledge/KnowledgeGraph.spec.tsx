@@ -86,20 +86,28 @@ describe('KnowledgeGraph origin filters', () => {
     });
   });
 
-  it('measures label widths and explains hidden labels in a dense viewport', async () => {
-    const measureText = vi.fn((text: string) => ({ width: [...text].length * 14 }));
+  it('paints no default names, paints only selection, then clears on blank canvas', async () => {
+    const paint = vi.fn();
     const ctx = HTMLCanvasElement.prototype.getContext.call(document.createElement('canvas'), '2d')!;
-    Object.assign(ctx, { measureText });
-    vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 180, 100));
-    const dense = Array.from({ length: 30 }, (_, i) => node(`p${i}`, `很长的知识图谱标题 English ${i}`));
+    Object.assign(ctx, { fillText: paint });
+    vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 600, 500));
     api.get.mockImplementation((url: string) => Promise.resolve({ data: url.includes('/knowledge/graph/')
-      ? { nodes: dense, edges: [] } : { data: dense } }));
-    render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/s1/graph']}>
+      ? { nodes: [node('p1', 'Alpha'), { ...node('p2', 'Beta'), x: 300 }], edges: [] } : { data: [] } }));
+    const { container } = render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/s1/graph']}>
       <Routes><Route path='/spaces/:spaceId/graph' element={<KnowledgeGraph />} /></Routes>
     </MemoryRouter></LanguageProvider>);
-    await screen.findByRole('combobox', { name: '浏览图谱节点' });
-    expect(measureText).toHaveBeenCalled();
-    expect(screen.getByText(/个标题因空间不足/)).toBeInTheDocument();
+    const browser = await screen.findByRole('combobox', { name: '浏览图谱节点' });
+    expect(paint).not.toHaveBeenCalled();
+    fireEvent.change(browser, { target: { value: 'p1' } });
+    expect(paint.mock.calls.map(call => call[0])).toEqual(['Alpha']);
+    paint.mockClear();
+    fireEvent.change(browser, { target: { value: 'p2' } });
+    expect(paint.mock.calls.map(call => call[0])).toEqual(['Beta']);
+    paint.mockClear();
+    fireEvent.click(container.querySelector('canvas')!, { clientX: 590, clientY: 490 });
+    expect(browser).toHaveValue('');
+    expect(paint).not.toHaveBeenCalled();
+    expect(screen.queryByText(/个标题因空间不足/)).not.toBeInTheDocument();
   });
 
   it('offers a keyboard-accessible node browser alongside the visual canvas', async () => {

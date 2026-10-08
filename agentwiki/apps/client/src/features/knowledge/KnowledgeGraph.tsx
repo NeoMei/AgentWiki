@@ -68,7 +68,6 @@ export const KnowledgeGraph: React.FC = () => {
   const { language, t } = useLanguage();
   const zh = language === 'zh-CN';
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [hiddenLabelCount, setHiddenLabelCount] = useState(0);
   const [nodes, setNodes] = useState<KnowledgeNode[]>([]);
   const [edges, setEdges] = useState<KnowledgeEdge[]>([]);
   const [allPages, setAllPages] = useState<Page[]>([]);
@@ -167,7 +166,6 @@ export const KnowledgeGraph: React.FC = () => {
     labels.forEach(label => label.lines.forEach((line, index) => {
       ctx.fillText(line, label.x, label.y + index * GRAPH_LABEL_LINE_HEIGHT);
     }));
-    setHiddenLabelCount(nodes.length - labels.length);
   }, [nodes, visibleEdges, selectedNode, linkingFrom, viewport.view]);
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -326,7 +324,6 @@ export const KnowledgeGraph: React.FC = () => {
               onDoubleClick={handleCanvasDoubleClick}
             />
           </div>
-          {hiddenLabelCount > 0 && <p role="status" className="mt-2 text-sm text-gray-500">{t('graph.labels.hidden', { count: hiddenLabelCount })}</p>}
           <div className="mt-3 flex flex-col gap-2 rounded-lg border bg-white p-3 sm:flex-row sm:items-end">
             <label htmlFor="knowledge-node-browser" className="flex-1 text-sm font-medium text-gray-700">
               {zh ? '浏览图谱节点' : 'Browse graph nodes'}

@@ -8,22 +8,24 @@ export const boxesOverlap = (a: LabelBox, b: LabelBox, gap = 4) =>
 /** Bounded screen-space labels. Measurement must use the same font as painting. */
 export function layoutGraphLabels(nodes: LabelNode[], width: number, height: number,
   measure: (text: string) => number, selectedId?: string | null): LabelBox[] {
+  if (!selectedId) return [];
   const margin = 8;
   const maxWidth = Math.min(160, width - margin * 2);
   if (maxWidth < measure('…') || height < GRAPH_LABEL_LINE_HEIGHT + margin * 2) return [];
+  const lineLimit = Math.min(2, Math.floor((height - margin * 2) / GRAPH_LABEL_LINE_HEIGHT));
   const labels: LabelBox[] = [];
-  const ordered = [...nodes].sort((a, b) => Number(b.id === selectedId) - Number(a.id === selectedId));
+  const ordered = nodes.filter(node => node.id === selectedId);
   for (const node of ordered) {
     if (node.x + node.radius < 0 || node.x - node.radius > width || node.y + node.radius < 0 || node.y - node.radius > height) continue;
     // Array.from preserves surrogate pairs; measured widths handle CJK and Latin equally.
     const chars = Array.from(node.title.replace(/\s+/gu, ' ').trim());
     const lines: string[] = [];
     let offset = 0;
-    while (offset < chars.length && lines.length < 2) {
+    while (offset < chars.length && lines.length < lineLimit) {
       let line = '';
       while (offset < chars.length && measure(line + chars[offset]) <= maxWidth) line += chars[offset++];
       if (!line) { offset++; line = '…'; }
-      if (lines.length === 1 && offset < chars.length) {
+      if (lines.length === lineLimit - 1 && offset < chars.length) {
         const parts = Array.from(line);
         while (parts.length && measure(parts.join('') + '…') > maxWidth) parts.pop();
         line = parts.join('') + '…';
@@ -50,6 +52,10 @@ export function layoutGraphLabels(nodes: LabelNode[], width: number, height: num
       labels.push(box);
       break;
     }
+    // Dense graphs still expose the selected name; clamp the fallback inside the viewport.
+    if (!labels.length) labels.push({ id: node.id, lines, width: boxWidth, height: boxHeight,
+      x: Math.max(margin, Math.min(width - margin - boxWidth, node.x - boxWidth / 2)),
+      y: Math.max(margin, Math.min(height - margin - boxHeight, node.y + distance)) });
   }
   return labels;
 }

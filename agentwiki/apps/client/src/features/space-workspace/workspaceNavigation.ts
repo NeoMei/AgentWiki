@@ -193,6 +193,7 @@ export const workspaceSectionFromPath = (pathname: string): SpaceNavSection | nu
   const match = pathname.match(/^\/spaces\/[^/]+(?:\/([^/]+))?/u);
   if (!match) return null;
   const section = match[1];
+  if (section === 'runs') return 'sources';
   if (!section || section === 'new') return 'pages';
   return (['graph', 'sources', 'runs', 'collaboration', 'taskboard', 'members', 'settings'] as const)
     .find((candidate) => candidate === section) ?? null;
