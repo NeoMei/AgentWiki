@@ -1,6 +1,7 @@
 import { sourceStatusText } from '../../i18n/source-status-messages';
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
+import { apiErrorMessage } from '../../api/error-message';
 import api from '../../api/client';
 import { ArrowLeft, Plus, X, Link2, Trash2 } from 'lucide-react';
 import { ModalDialog } from '../../components/ModalDialog';
@@ -72,7 +73,7 @@ export const KnowledgeGraph: React.FC = () => {
   const [edges, setEdges] = useState<KnowledgeEdge[]>([]);
   const [allPages, setAllPages] = useState<Page[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ failure: unknown; fallbackKey: string } | null>(null);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [linkingFrom, setLinkingFrom] = useState<string | null>(null);
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -95,7 +96,7 @@ export const KnowledgeGraph: React.FC = () => {
       setEdges(graphRes.data.edges || []);
       setAllPages((pagesRes.data.data || []).map((p: any) => ({ id: p.id, title: p.title })));
     } catch (err: any) {
-      setError(err.response?.data?.message || (zh ? '知识图谱加载失败' : 'Failed to load knowledge graph'));
+      setError({ failure: err, fallbackKey: 'graph.loadFailed' });
     } finally {
       setLoading(false);
     }
@@ -213,7 +214,7 @@ export const KnowledgeGraph: React.FC = () => {
       setLinkStrength(0.8);
       await fetchGraph();
     } catch (err: any) {
-      setError(err.response?.data?.message || (zh ? '关系创建失败' : 'Failed to create link'));
+      setError({ failure: err, fallbackKey: 'graph.createFailed' });
     } finally {
       setCreating(false);
     }
@@ -225,7 +226,7 @@ export const KnowledgeGraph: React.FC = () => {
       await api.delete('/knowledge/relations/' + relationId);
       await fetchGraph();
     } catch (err: any) {
-      setError(err.response?.data?.message || (zh ? '关系删除失败' : 'Failed to delete relation'));
+      setError({ failure: err, fallbackKey: 'graph.deleteFailed' });
     }
   };
 
@@ -244,7 +245,7 @@ export const KnowledgeGraph: React.FC = () => {
   if (loading) return <div className="text-center py-8 text-gray-500">{zh ? '正在加载知识图谱…' : 'Loading knowledge graph…'}</div>;
   if (error) return (
     <div className="text-center py-8">
-      <p className="text-red-500 mb-2">{error}</p>
+      <p className="text-red-500 mb-2">{apiErrorMessage(error.failure, t, error.fallbackKey)}</p>
       <Link to={spaceId ? `/spaces/${spaceId}` : '/'} className="text-blue-600 hover:underline">{zh ? '返回' : 'Go back'}</Link>
     </div>
   );

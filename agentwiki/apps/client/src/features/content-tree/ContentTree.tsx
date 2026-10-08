@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bot, ChevronDown, ChevronRight, Edit, FileText, Folder, FolderPlus, MoreHorizontal, Pencil, Save, Trash2 } from 'lucide-react';
+import { Bot, ChevronDown, ChevronRight, Edit, FileText, Folder, FolderPlus, Pencil, Save, Trash2 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { TreeActionMenu } from './TreeActionMenu';
 import { buildMoveRequest, sortNodes } from './contentTreeState';
 import type { ContentMoveRequest, DragInfo, MovePosition } from './contentTreeState';
 import type { ContentTreeFolderNode, ContentTreeNode, ContentTreePageNode } from './contentTreeTypes';
@@ -9,6 +10,7 @@ export type { ContentMoveRequest, MovePosition };
 
 export interface ContentTreeProps {
   nodes: ContentTreeNode[];
+  highlightQuery?: string;
   loading: boolean;
   error: string | null;
   canEdit: boolean;
@@ -60,6 +62,7 @@ interface NodeRowLabels {
 
 export const ContentTree: React.FC<ContentTreeProps> = ({
   nodes,
+  highlightQuery,
   loading,
   error,
   canEdit,
@@ -142,6 +145,7 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
         <NodeRow
           key={`${mutationScopeKey}:${node.id}`}
           node={node}
+          highlightQuery={highlightQuery}
           canEdit={canEdit}
           reorderDisabled={reorderDisabled}
           onRenameNode={onRenameNode}
@@ -189,6 +193,7 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
 
 interface NodeRowProps {
   node: ContentTreeNode;
+  highlightQuery?: string;
   canEdit: boolean;
   currentPageId?: string;
   selectedFolderId?: string | null;
@@ -220,10 +225,10 @@ interface NodeRowProps {
 const NodeRow: React.FC<NodeRowProps> = (props) => {
   const { node, canEdit, currentPageId, selectedFolderId, pageDeleteDisabled, dragActive, labels } = props;
   const [inlineMode, setInlineMode] = useState<'rename' | 'create' | 'page' | null>(null);
-  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const rowRef = useRef<HTMLLIElement>(null);
   const renameSnapshotRef = useRef<ContentTreeNode | null>(null);
   useEffect(() => { if (!canEdit) setInlineMode(null); }, [canEdit]);
-  const finishInline = () => { setInlineMode(null); requestAnimationFrame(() => detailsRef.current?.querySelector<HTMLElement>('summary')?.focus()); };
+  const finishInline = () => { setInlineMode(null); requestAnimationFrame(() => rowRef.current?.querySelector<HTMLElement>('[aria-haspopup="menu"]')?.focus()); };
   const [dropHint, setDropHint] = useState<MovePosition | null>(null);
   const isPage = node.kind === 'page';
   const isCurrent = isPage ? node.id === currentPageId : node.id === selectedFolderId;
@@ -249,6 +254,7 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
 
   return (
     <li
+      ref={rowRef}
       className="relative"
       data-testid={'content-item-' + node.id}
       role="treeitem"
@@ -302,7 +308,7 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
             data-tree-focus
             title={node.title.trim() || labels.untitledPage}
           >
-            {node.title.trim() || labels.untitledPage}
+            {highlightTitle(node.title.trim() || labels.untitledPage, props.highlightQuery)}
           </button>
         ) : (
           <button
@@ -314,43 +320,11 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
             data-tree-focus
             title={node.name}
           >
-            {node.name}
+            {highlightTitle(node.name, props.highlightQuery)}
           </button>
         )}
         {canEdit ? (
-          <details
-            ref={detailsRef}
-            className="relative shrink-0"
-            onKeyDown={(event) => {
-              if ((event.key === 'Enter' || event.key === ' ') && (event.target as HTMLElement).tagName === 'SUMMARY') {
-                event.preventDefault(); event.currentTarget.open = !event.currentTarget.open; return;
-              }
-              const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
-              const index = buttons.indexOf(event.target as HTMLButtonElement);
-              if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
-                event.preventDefault();
-                event.currentTarget.open = true;
-                const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
-                  : event.key === 'ArrowUp' ? (index <= 0 ? buttons.length - 1 : index - 1) : (index + 1) % buttons.length;
-                buttons[next]?.focus();
-                return;
-              }
-              if (event.key !== 'Escape') return;
-              event.preventDefault();
-              event.stopPropagation();
-              const details = event.currentTarget;
-              details.open = false;
-              details.querySelector<HTMLElement>('summary')?.focus();
-            }}
-          >
-            <summary
-              className="inline-flex h-7 w-7 cursor-pointer list-none items-center justify-center rounded text-gray-500 hover:bg-gray-200 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 [&::-webkit-details-marker]:hidden"
-              aria-label={`${labels.actions}: ${isPage ? node.title : node.name}`}
-              title={labels.actions}
-            >
-              <MoreHorizontal size={16} />
-            </summary>
-          <span className="absolute right-0 top-full z-20 mt-1 flex min-w-44 flex-col items-stretch gap-0.5 rounded-md border border-gray-200 bg-white p-1 shadow-lg">
+          <TreeActionMenu label={`${labels.actions}: ${isPage ? node.title : node.name}`} title={labels.actions}>
             {!isPage ? (
               <>
                 {props.onConfigureFolderAgents ? <IconButton
@@ -363,22 +337,22 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
                   title={labels.saveAsTemplate}
                   onClick={(event) => props.onSaveFolderAsTemplate?.(
                     node as ContentTreeFolderNode,
-                    event.currentTarget,
+                    rowRef.current?.querySelector<HTMLElement>('[aria-haspopup="menu"]') ?? event.currentTarget,
                   )}
                 ><Save size={13} /></IconButton> : null}
                 {props.onCreatePageInline ? <IconButton testId={'content-newpage-' + node.id} title={labels.newPage}
-                  onClick={() => { setInlineMode('page'); if (detailsRef.current) detailsRef.current.open = false; }}><FileText size={13} /></IconButton> : null}
+                  onClick={() => { setInlineMode('page'); }}><FileText size={13} /></IconButton> : null}
                 <IconButton
                   testId={'content-newsubfolder-' + node.id}
                   title={labels.newSubfolder}
-                  onClick={() => { if (props.onCreateFolderInline) { setInlineMode('create'); if (detailsRef.current) detailsRef.current.open = false; } else props.onCreateSubfolder(node as ContentTreeFolderNode); }}
+                  onClick={() => { if (props.onCreateFolderInline) { setInlineMode('create'); } else props.onCreateSubfolder(node as ContentTreeFolderNode); }}
                 >
                   <FolderPlus size={13} />
                 </IconButton>
                 <IconButton
                   testId={'content-rename-' + node.id}
                   title={labels.rename}
-                  onClick={() => { if (props.onRenameNode) { renameSnapshotRef.current = node; setInlineMode('rename'); if (detailsRef.current) detailsRef.current.open = false; } else props.onRenameFolder(node as ContentTreeFolderNode); }}
+                  onClick={() => { if (props.onRenameNode) { renameSnapshotRef.current = node; setInlineMode('rename'); } else props.onRenameFolder(node as ContentTreeFolderNode); }}
                 >
                   <Pencil size={13} />
                 </IconButton>
@@ -399,7 +373,7 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
                   onClick={() => props.onConfigurePageAgent?.(node as ContentTreePageNode)}
                 ><Bot size={13} /></IconButton> : null}
                 {props.onRenameNode ? <IconButton testId={'content-rename-' + node.id} title={labels.rename}
-                  onClick={() => { renameSnapshotRef.current = node; setInlineMode('rename'); if (detailsRef.current) detailsRef.current.open = false; }}><Pencil size={13} /></IconButton> : null}
+                  onClick={() => { renameSnapshotRef.current = node; setInlineMode('rename'); }}><Pencil size={13} /></IconButton> : null}
                 <IconButton
                   testId={'content-edit-' + node.id}
                   title={labels.edit}
@@ -418,8 +392,7 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
                 </IconButton>
               </>
             )}
-          </span>
-          </details>
+          </TreeActionMenu>
         ) : null}
       </div>
       {inlineMode === 'create' && node.kind === 'folder' && props.onCreateFolderInline ? <div className="ml-6 py-1"><InlineTreeName
@@ -522,3 +495,21 @@ export const InlineTreeName: React.FC<{
     {error ? <p role="alert" className="text-xs text-red-600">{error}</p> : null}
   </form>;
 };
+
+
+function highlightTitle(text: string, query?: string): React.ReactNode {
+  const needle = query?.trim().toLocaleLowerCase();
+  if (!needle) return text;
+  const lower = text.toLocaleLowerCase();
+  const pieces: React.ReactNode[] = [];
+  let offset = 0;
+  let match = lower.indexOf(needle);
+  while (match !== -1) {
+    pieces.push(text.slice(offset, match));
+    pieces.push(<mark key={match} className="rounded bg-yellow-100 text-inherit">{text.slice(match, match + needle.length)}</mark>);
+    offset = match + needle.length;
+    match = lower.indexOf(needle, offset);
+  }
+  pieces.push(text.slice(offset));
+  return pieces;
+}

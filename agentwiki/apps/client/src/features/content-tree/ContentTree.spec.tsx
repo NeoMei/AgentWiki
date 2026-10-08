@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { ContentTree } from './ContentTree';
@@ -42,8 +42,9 @@ describe('ContentTree Agent binding entry points', () => {
       onSaveFolderAsTemplate={onSaveFolderAsTemplate} />
     </LanguageProvider>);
 
-    const opener = screen.getByTestId('content-save-template-folder-1');
+    const opener = screen.getByLabelText('Actions: Project');
     fireEvent.click(opener);
+    fireEvent.click(screen.getByTestId('content-save-template-folder-1'));
 
     expect(onSaveFolderAsTemplate).toHaveBeenCalledWith(folder, opener);
   });
@@ -102,14 +103,14 @@ describe('ContentTree directory navigation', () => {
     </LanguageProvider>);
 
     const actions = screen.getByLabelText('Actions: Project');
-    expect(actions.tagName).toBe('SUMMARY');
+    expect(actions.tagName).toBe('BUTTON');
     expect(actions).toHaveClass('focus-visible:ring-2');
     fireEvent.click(actions);
-    expect(actions.closest('details')).toHaveAttribute('open');
+    expect(actions).toHaveAttribute('aria-expanded', 'true');
     const rename = screen.getByTestId('content-rename-folder-1');
     rename.focus();
     fireEvent.keyDown(rename, { key: 'Escape' });
-    expect(actions.closest('details')).not.toHaveAttribute('open');
+    expect(actions).toHaveAttribute('aria-expanded', 'false');
     await waitFor(() => expect(actions).toHaveFocus());
   });
 });
@@ -139,7 +140,7 @@ describe('direct directory operations', () => {
 it('activates the actions menu with Enter and Space and forbids mutation after permission loss', () => {
   const props = { nodes: [folder], loading: false, error: null, canEdit: true, levelParentFolderId: null, pageDeleteDisabled: false, emptyText: '', onOpenFolder: vi.fn(), onOpenPage: vi.fn(), onEditPage: vi.fn(), onDeletePage: vi.fn(), onCreateSubfolder: vi.fn(), onRenameFolder: vi.fn(), onDeleteFolder: vi.fn(), onMove: vi.fn(), onRenameNode: vi.fn() };
   const view = render(<LanguageProvider><ContentTree {...props} /></LanguageProvider>);
-  const opener = screen.getByLabelText('Actions: Project'); fireEvent.keyDown(opener, { key: 'Enter' }); expect(opener.closest('details')).toHaveAttribute('open'); fireEvent.keyDown(opener, { key: ' ' }); expect(opener.closest('details')).not.toHaveAttribute('open');
+  const opener = screen.getByLabelText('Actions: Project'); fireEvent.keyDown(opener, { key: 'Enter' }); expect(opener).toHaveAttribute('aria-expanded', 'true'); fireEvent.keyDown(opener, { key: ' ' }); expect(opener).toHaveAttribute('aria-expanded', 'false');
   fireEvent.click(screen.getByTestId('content-rename-folder-1')); expect(screen.getByRole('textbox')).toBeInTheDocument(); view.rerender(<LanguageProvider><ContentTree {...props} canEdit={false} /></LanguageProvider>); expect(screen.queryByRole('textbox')).not.toBeInTheDocument(); expect(screen.getByTestId('content-row-folder-1')).toHaveAttribute('draggable', 'false');
 });
 it('binds an inline rename to the node version shown when rename started', async () => {
@@ -150,4 +151,54 @@ it('binds an inline rename to the node version shown when rename started', async
   view.rerender(<LanguageProvider><ContentTree {...props} nodes={[{ ...page, title: 'Remote title', updatedAt: 'newer-at' }]} /></LanguageProvider>);
   fireEvent.submit(screen.getByRole('textbox').closest('form')!);
   await waitFor(() => expect(onRenameNode).toHaveBeenCalledWith(page, 'My title'));
+});
+
+
+describe('shared directory menu regressions', () => {
+  const props = { nodes: [folder, page], loading: false, error: null, canEdit: true, levelParentFolderId: null, pageDeleteDisabled: false, emptyText: '', onOpenFolder: vi.fn(), onOpenPage: vi.fn(), onEditPage: vi.fn(), onDeletePage: vi.fn(), onCreateSubfolder: vi.fn(), onRenameFolder: vi.fn(), onDeleteFolder: vi.fn(), onMove: vi.fn() };
+  it('keeps only one menu open within a tree and across independent trees', () => {
+    render(<LanguageProvider><div data-testid="left-tree"><ContentTree {...props} /></div><div data-testid="right-tree"><ContentTree {...props} /></div></LanguageProvider>);
+    const left = within(screen.getByTestId('left-tree')); const right = within(screen.getByTestId('right-tree'));
+    const first = left.getByLabelText('Actions: Project'); const second = left.getByLabelText('Actions: Brief');
+    fireEvent.click(first); expect(first).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(second); expect(first).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getAllByRole('menu')).toHaveLength(1);
+    fireEvent.click(right.getByLabelText('Actions: Brief'));
+    expect(second).toHaveAttribute('aria-expanded', 'false'); expect(screen.getAllByRole('menu')).toHaveLength(1);
+  });
+  it('dismisses from any outside pointer interaction and Escape restores its trigger', () => {
+    render(<LanguageProvider><ContentTree {...props} /></LanguageProvider>);
+    const trigger = screen.getByLabelText('Actions: Brief');
+    fireEvent.click(trigger); fireEvent.pointerDown(document.body);
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(trigger); const edit = within(screen.getByRole('menu')).getByRole('button', { name: 'Edit page' });
+    edit.focus(); fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument(); expect(trigger).toHaveFocus();
+  });
+  it('closes after actions and invokes only the selected page action', () => {
+    const onDeletePage = vi.fn(); const onEditPage = vi.fn();
+    render(<LanguageProvider><ContentTree {...props} onDeletePage={onDeletePage} onEditPage={onEditPage} /></LanguageProvider>);
+    const trigger = screen.getByLabelText('Actions: Brief'); fireEvent.click(trigger);
+    fireEvent.click(screen.getByTestId('content-deletepage-page-1'));
+    expect(onDeletePage).toHaveBeenCalledWith(page); expect(onEditPage).not.toHaveBeenCalled();
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+  it('highlights literal case-insensitive matches while keeping titles and markup as text', () => {
+    const literal = { ...page, title: '<img> A+B a+b' };
+    render(<LanguageProvider><ContentTree {...props} nodes={[literal]} highlightQuery="a+b" /></LanguageProvider>);
+    const title = screen.getByTestId('content-node-page-1');
+    expect([...title.querySelectorAll('mark')].map((item) => item.textContent)).toEqual(['A+B', 'a+b']);
+    expect(title).toHaveTextContent('<img> A+B a+b'); expect(title.querySelector('img')).toBeNull();
+  });
+});
+
+
+it('restores a visible row trigger before opening an external action dialog', () => {
+  const onDeleteFolder = vi.fn(() => document.activeElement);
+  render(<LanguageProvider><ContentTree nodes={[folder]} loading={false} error={null} canEdit levelParentFolderId={null} pageDeleteDisabled={false} emptyText="" onOpenFolder={vi.fn()} onOpenPage={vi.fn()} onEditPage={vi.fn()} onDeletePage={vi.fn()} onCreateSubfolder={vi.fn()} onRenameFolder={vi.fn()} onDeleteFolder={onDeleteFolder} onMove={vi.fn()} /></LanguageProvider>);
+  const trigger = screen.getByLabelText('Actions: Project');
+  fireEvent.keyDown(trigger, { key: 'ArrowDown' });
+  const action = screen.getByTestId('content-deletefolder-folder-1'); action.focus(); fireEvent.click(action);
+  expect(onDeleteFolder).toHaveBeenCalledWith(folder);
+  expect(onDeleteFolder.mock.results[0].value).toBe(trigger);
 });

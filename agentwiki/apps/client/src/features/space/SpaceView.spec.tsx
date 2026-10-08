@@ -586,6 +586,12 @@ describe('SpaceView inline directory mutations', () => {
     mocks.api.post.mockResolvedValue({ data: { treeRevision: '8' } });
   });
   const renderWorkspace = () => render(<LanguageProvider><MemoryRouter initialEntries={['/pages/page-1']}><SpaceWorkspaceProvider userId="user-1"><SpaceWorkspaceScope mode="read" spaceId="space-1" activeSection="pages" selectedFolderId={null} selectedPageId="page-1" selectedPageFolderId={null} pageRefreshRequest={0} selectFolder={vi.fn()} reportPageIdentity={vi.fn()} requestPageRefresh={vi.fn()}><SpaceView spaceId="space-1" workspaceContent={<p>Current document stays mounted</p>} /></SpaceWorkspaceScope></SpaceWorkspaceProvider></MemoryRouter></LanguageProvider>);
+  it('retains a readable space title when its directory is collapsed', async () => {
+    renderWorkspace(); const heading = await screen.findByRole('heading', { name: 'Wiki' });
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse directory' }));
+    expect(heading.parentElement?.style.getPropertyValue('--directory-width')).toBe('');
+    expect(heading.parentElement).toHaveClass('min-w-0');
+  });
   it('renames current page with version and tree revision while keeping selection', async () => {
     renderWorkspace(); fireEvent.click(await screen.findByTestId('content-rename-page-1'));
     fireEvent.change(screen.getByRole('textbox', { name: 'Rename: Brief' }), { target: { value: 'New brief' } });

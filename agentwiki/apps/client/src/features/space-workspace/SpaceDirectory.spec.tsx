@@ -74,7 +74,7 @@ describe('SpaceDirectory', () => {
     fireEvent.click(screen.getByRole('button', { name: 'New folder' }));
     expect(onCreatePage).toHaveBeenCalledTimes(1);
     expect(onCreateFolder).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('link', { name: 'Search' })).toHaveAttribute('href', '/search');
+    expect(screen.queryByRole('link', { name: 'Search' })).not.toBeInTheDocument();
   });
 
   it('restores and reports the workspace-owned scroll position', () => {
@@ -204,7 +204,7 @@ describe('directory tools', () => {
   const levels = new Map<string | null, DirectoryLevel>([[null, { parentFolderId: null, treeRevision: '3', nodes: [folder] }], ['guide', { parentFolderId: 'guide', treeRevision: '3', nodes: [page] }]]);
   const props = { spaceName: 'Wiki', levels, expandedFolderIds: new Set<string>(), selectedFolderId: null, selectedPageId: 'page-a', loading: false, error: null, canEdit: true, onToggleFolder: vi.fn(), onSelectFolder: vi.fn(), onOpenPage: vi.fn(), onEditPage: vi.fn(), onDeletePage: vi.fn(), onCreateSubfolder: vi.fn(), onRenameFolder: vi.fn(), onDeleteFolder: vi.fn(), onMove: vi.fn() };
   it('filters loaded items with ancestor context, disables reorder, and restores expansion', () => {
-    render(<Providers><SpaceDirectory {...props} /></Providers>); expect(screen.queryByTestId('content-node-page-a')).not.toBeInTheDocument(); const filter = screen.getByRole('searchbox', { name: 'Filter loaded items' }); fireEvent.change(filter, { target: { value: 'Same title' } }); expect(screen.getByTestId('content-node-guide')).toBeInTheDocument(); expect(screen.getByTestId('content-node-page-a')).toBeInTheDocument(); expect(screen.getByTestId('content-row-page-a')).toHaveAttribute('draggable', 'false'); fireEvent.change(filter, { target: { value: '' } }); expect(screen.queryByTestId('content-node-page-a')).not.toBeInTheDocument(); expect(props.onToggleFolder).not.toHaveBeenCalled();
+    render(<Providers><SpaceDirectory {...props} /></Providers>); expect(screen.queryByTestId('content-node-page-a')).not.toBeInTheDocument(); const filter = screen.getByRole('searchbox', { name: 'Filter loaded items' }); fireEvent.change(filter, { target: { value: 'Same title' } }); expect(screen.getByTestId('content-node-guide')).toBeInTheDocument(); expect(screen.getByTestId('content-node-page-a').querySelector('mark')).toHaveTextContent('Same title'); expect(screen.getByTestId('content-row-page-a')).toHaveAttribute('draggable', 'false'); fireEvent.change(filter, { target: { value: '' } }); expect(screen.queryByTestId('content-node-page-a')).not.toBeInTheDocument(); expect(props.onToggleFolder).not.toHaveBeenCalled();
   });
   it('keeps the saved scroll position while browsing filter results', () => {
     const onDirectoryScrollTopChange = vi.fn(); render(<Providers><SpaceDirectory {...props} directoryScrollTop={145} onDirectoryScrollTopChange={onDirectoryScrollTopChange} /></Providers>);
@@ -408,25 +408,25 @@ describe('directory action menu placement', () => {
     summaryTop = 674;
     menuHeight = 100;
     vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
-      if (this.tagName === 'SUMMARY') return new DOMRect(190, summaryTop, 28, 28);
-      if (this.tagName === 'SPAN' && this.parentElement?.tagName === 'DETAILS') return new DOMRect(42, summaryTop + 32, 176, menuHeight);
+      if (this.getAttribute('aria-haspopup') === 'menu') return new DOMRect(190, summaryTop, 28, 28);
+      if (this.getAttribute('role') === 'menu') return new DOMRect(42, summaryTop + 32, 176, menuHeight);
       return new DOMRect(0, 280, 260, 440);
     });
   });
   afterEach(() => vi.restoreAllMocks());
   const menuElements = () => {
     const summary = screen.getByLabelText('Actions: Same title');
-    const details = summary.parentElement as HTMLDetailsElement;
-    const menu = details.querySelector('span')!;
+    const details = summary.parentElement!;
+    const menu = details.querySelector<HTMLElement>('[role="menu"]')!;
     return { summary, details, menu };
   };
 
   it('opens a bottom row menu above its trigger inside the scrollport', () => {
     render(<Providers><SpaceDirectory {...props} /></Providers>);
-    const { summary, details, menu } = menuElements();
+    const { summary, menu } = menuElements();
     fireEvent.click(summary);
-    expect(details.open).toBe(true);
-    expect(menu).toHaveStyle({ top: 'auto', bottom: '100%', maxHeight: '390px', overflowY: 'auto' });
+    expect(summary).toHaveAttribute('aria-expanded', 'true');
+    expect(menu).toHaveStyle({ top: 'auto', bottom: '98px', maxHeight: '390px', overflowY: 'auto' });
     expect(props.onEditPage).not.toHaveBeenCalled();
   });
 
@@ -436,39 +436,39 @@ describe('directory action menu placement', () => {
     render(<Providers><SpaceDirectory {...props} /></Providers>);
     const { summary, menu } = menuElements();
     fireEvent.click(summary);
-    expect(menu).toHaveStyle({ top: '100%', bottom: 'auto', maxHeight: '388px', overflowY: 'auto' });
+    expect(menu).toHaveStyle({ top: '332px', bottom: 'auto', maxHeight: '388px', overflowY: 'auto' });
   });
 
   it('positions keyboard-opened menus before focusing actions, retains Escape, and closes on directory scrolling', () => {
     render(<Providers><SpaceDirectory {...props} /></Providers>);
-    const { summary, details, menu } = menuElements();
+    const { summary, menu } = menuElements();
     summary.focus();
     fireEvent.keyDown(summary, { key: 'ArrowDown' });
-    expect(details.open).toBe(true);
-    expect(menu).toHaveStyle({ bottom: '100%' });
-    expect(within(details).getByRole('button', { name: 'Edit page' })).toHaveFocus();
+    expect(summary).toHaveAttribute('aria-expanded', 'true');
+    expect(menu).toHaveStyle({ bottom: '98px' });
+    expect(within(menu).getByRole('button', { name: 'Edit page' })).toHaveFocus();
     fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
-    expect(details.open).toBe(false); expect(summary).toHaveFocus();
+    expect(summary).toHaveAttribute('aria-expanded', 'false'); expect(summary).toHaveFocus();
     fireEvent.keyDown(summary, { key: 'Enter' });
-    expect(details.open).toBe(true);
+    expect(summary).toHaveAttribute('aria-expanded', 'true');
     fireEvent.scroll(screen.getByTestId('space-directory-scroll'));
-    expect(details.open).toBe(false);
+    expect(summary).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('allows scrolling within a tall action menu without dismissing it', () => {
     menuHeight = 600;
     render(<Providers><SpaceDirectory {...props} /></Providers>);
-    const { summary, details, menu } = menuElements();
+    const { summary, menu } = menuElements();
     fireEvent.click(summary);
     fireEvent.scroll(menu);
-    expect(details.open).toBe(true);
+    expect(summary).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('dismisses an open menu when pointer interaction leaves the menu', () => {
     render(<Providers><SpaceDirectory {...props} /></Providers>);
-    const { summary, details } = menuElements();
+    const { summary } = menuElements();
     fireEvent.click(summary);
     fireEvent.pointerDown(screen.getByRole('searchbox'));
-    expect(details.open).toBe(false);
+    expect(summary).toHaveAttribute('aria-expanded', 'false');
   });
 });

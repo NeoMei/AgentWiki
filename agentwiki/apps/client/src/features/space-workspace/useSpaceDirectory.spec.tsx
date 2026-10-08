@@ -1,8 +1,12 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook as baseRenderHook, waitFor } from '@testing-library/react';
+import { LanguageProvider, useLanguage } from '../../context/LanguageContext';
+import { AxiosError } from 'axios';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { listFolderAncestry, listTreeChildren } from '../content-tree/contentTreeApi';
 import type { ContentTreeListResponse } from '../content-tree/contentTreeTypes';
 import { useSpaceDirectory } from './useSpaceDirectory';
+
+const renderHook: typeof baseRenderHook = (callback, options) => baseRenderHook(callback, { wrapper: LanguageProvider, ...options });
 
 vi.mock('../content-tree/contentTreeApi', () => ({ listFolderAncestry: vi.fn(), listTreeChildren: vi.fn() }));
 
@@ -13,7 +17,7 @@ const level = (parentFolderId: string | null, id: string, revision = '7'): Conte
 });
 
 describe('useSpaceDirectory', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => { vi.clearAllMocks(); localStorage.setItem('agentwiki.language.v1', 'en'); });
 
   it('loads only the root and the real ancestor levels needed for a deep link', async () => {
     vi.mocked(listFolderAncestry).mockResolvedValue({
@@ -169,7 +173,7 @@ describe('useSpaceDirectory', () => {
     await act(() => result.current.reloadLevel('bad'));
     expect(result.current.error).toBeNull();
     expect(result.current.levels.get('good')?.nodes[0].id).toBe('good-child');
-    expect(result.current.branchErrors.get('bad')).toBe('branch unavailable');
+    expect(result.current.branchErrors.get('bad')).toBe('Network connection failed. Please try again.');
     const calls = vi.mocked(listTreeChildren).mock.calls.length;
     fail = false;
     await act(() => result.current.reloadLevel('bad'));
@@ -268,4 +272,32 @@ it('does not expose the previous user cache while a new identity is loading', as
   await waitFor(() => expect(result.current.levels.get(null)?.nodes[0].id).toBe('private-old'));
   rerender({ identityKey: 'bob' }); expect(result.current.levels.size).toBe(0);
   await act(async () => resolveNew(level(null, 'new-user'))); await waitFor(() => expect(result.current.levels.get(null)?.nodes[0].id).toBe('new-user'));
+});
+
+
+it('localizes an Axios 403 instead of exposing its transport message', async () => {
+  localStorage.setItem('agentwiki.language.v1', 'zh-CN');
+  const denied = new AxiosError('Request failed with status code 403');
+  denied.response = { status: 403, data: { message: 'Forbidden' } } as typeof denied.response;
+  vi.mocked(listTreeChildren).mockRejectedValue(denied);
+  const setFolderExpanded = vi.fn();
+  const { result } = renderHook(() => useSpaceDirectory({ spaceId: 'space-1', targetFolderId: null, expandedFolderIds: new Set(), setFolderExpanded }), { wrapper: LanguageProvider });
+  await waitFor(() => expect(result.current.locating).toBe(false));
+  expect(result.current.error).toBe('你没有权限执行此操作。请联系空间所有者或管理员确认成员角色后重试。');
+  expect(result.current.levels.size).toBe(0);
+});
+
+
+it('updates a directory permission error when language changes without refetching', async () => {
+  localStorage.setItem('agentwiki.language.v1', 'zh-CN');
+  vi.mocked(listTreeChildren).mockRejectedValue({ response: { status: 403 } });
+  const setFolderExpanded = vi.fn();
+  const { result } = renderHook(() => ({
+    directory: useSpaceDirectory({ spaceId: 'space-1', targetFolderId: null, expandedFolderIds: new Set(), setFolderExpanded }), language: useLanguage(),
+  }));
+  await waitFor(() => expect(result.current.directory.locating).toBe(false));
+  const calls = vi.mocked(listTreeChildren).mock.calls.length;
+  await act(() => result.current.language.setLanguage('en'));
+  expect(result.current.directory.error).toMatch(/You do not have permission/);
+  expect(listTreeChildren).toHaveBeenCalledTimes(calls);
 });

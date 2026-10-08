@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLanguage } from '../../context/LanguageContext';
+import { apiErrorMessage } from '../../api/error-message';
 import { listFolderAncestry, listTreeChildren } from '../content-tree/contentTreeApi';
 import { crumbsForFolder, registerFolders, type Crumb, type FolderIndex } from '../content-tree/contentTreeState';
 import type { ContentTreeNode } from '../content-tree/contentTreeTypes';
@@ -42,10 +44,6 @@ export class DirectoryRevisionChangedError extends Error {
   }
 }
 
-const errorMessage = (error: unknown) => (
-  error instanceof Error && error.message ? error.message : 'Unable to load directory'
-);
-
 const responseStatus = (error: unknown): number | undefined => (
   (error as { response?: { status?: number } } | null)?.response?.status
 );
@@ -58,6 +56,9 @@ export const useSpaceDirectory = ({
   setFolderExpanded,
   rootLabel = '',
 }: UseSpaceDirectoryOptions): SpaceDirectoryState => {
+  const { t } = useLanguage();
+  const errorMessage = useCallback((failure: unknown) => failure instanceof DirectoryRevisionChangedError
+    ? t('folder.directoryChanged') : apiErrorMessage(failure, t, 'folder.loadFailed'), [t]);
   const installedIdentityRef = useRef(identityKey);
   const generationRef = useRef(0);
   const snapshotControllerRef = useRef<AbortController | null>(null);
@@ -70,8 +71,8 @@ export const useSpaceDirectory = ({
   const [folderIndex, setFolderIndex] = useState<FolderIndex>(new Map());
   const [treeRevision, setTreeRevision] = useState<string | null>(null);
   const [locating, setLocating] = useState(Boolean(spaceId));
-  const [error, setError] = useState<string | null>(null);
-  const [branchErrors, setBranchErrors] = useState<ReadonlyMap<string, string>>(new Map());
+  const [error, setError] = useState<unknown | null>(null);
+  const [branchErrors, setBranchErrors] = useState<ReadonlyMap<string, unknown>>(new Map());
   const [loadingBranches, setLoadingBranches] = useState<ReadonlySet<string>>(new Set());
   const [completedRefresh, setCompletedRefresh] = useState(0);
   const [retryKey, setRetryKey] = useState(0);
@@ -145,10 +146,10 @@ export const useSpaceDirectory = ({
       if (responseStatus(loadError) === 401 || responseStatus(loadError) === 403) {
         invalidateRequests();
         clearDirectory(null);
-        setError(errorMessage(loadError));
+        setError(loadError);
       } else if (parentFolderId) {
-        setBranchErrors((current) => new Map(current).set(parentFolderId, errorMessage(loadError)));
-      } else setError(errorMessage(loadError));
+        setBranchErrors((current) => new Map(current).set(parentFolderId, loadError));
+      } else setError(loadError);
     } finally {
       if (reloadControllersRef.current.get(requestKey) === controller) {
         reloadControllersRef.current.delete(requestKey);
@@ -180,7 +181,7 @@ export const useSpaceDirectory = ({
           const ancestorIds = ancestry?.ancestorIds ?? [];
           const nextLevels = new Map<string | null, DirectoryLevel>();
           const nextIndex = new Map(ancestry?.folders ?? []);
-          const nextBranchErrors = new Map<string, string>();
+          const nextBranchErrors = new Map<string, unknown>();
           let revision = ancestry?.treeRevision || null;
           let changed = false;
           const pendingExpandedFolderIds: string[] = [];
@@ -216,7 +217,7 @@ export const useSpaceDirectory = ({
             } catch (branchError) {
               if (controller.signal.aborted || generationRef.current !== generation) return;
               if (responseStatus(branchError) === 401 || responseStatus(branchError) === 403) throw branchError;
-              nextBranchErrors.set(parentFolderId, errorMessage(branchError));
+              nextBranchErrors.set(parentFolderId, branchError);
               continue;
             }
             if (generationRef.current !== generation) return;
@@ -248,7 +249,7 @@ export const useSpaceDirectory = ({
             clearDirectory(null);
             setLocating(false);
           }
-          setError(errorMessage(loadError));
+          setError(loadError);
         }
       } finally {
         if (!controller.signal.aborted && generationRef.current === generation) {
@@ -285,9 +286,9 @@ export const useSpaceDirectory = ({
     folderIndex: identityMatches ? folderIndex : new Map(),
     treeRevision: identityMatches ? treeRevision : null,
     locating: identityMatches ? locating : Boolean(spaceId),
-    error: identityMatches ? error : null,
+    error: identityMatches && error ? errorMessage(error) : null,
     crumbs: identityMatches ? crumbs : [],
-    branchErrors: identityMatches ? branchErrors : new Map(),
+    branchErrors: identityMatches ? new Map([...branchErrors].map(([id, failure]) => [id, errorMessage(failure)])) : new Map(),
     loadingBranches: identityMatches ? loadingBranches : new Set(),
     completedRefresh,
     toggleFolder,

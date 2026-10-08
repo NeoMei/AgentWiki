@@ -1,41 +1,11 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { FilePlus2, FolderTree, Search, X } from 'lucide-react';
-import { Link, useLocation } from 'react-router-dom';
+import { FilePlus2, FolderTree, X } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import { ModalDialog } from '../../components/ModalDialog';
 import { useLanguage } from '../../context/LanguageContext';
 import { clampDirectoryWidth, type DirectorySelectionState } from './workspacePreferences';
 import { ContentTree, InlineTreeName, type ContentTreeProps } from '../content-tree/ContentTree';
 import type { DirectoryLevel } from './useSpaceDirectory';
-
-// Keep placement local to the directory's scrollport; other ContentTree surfaces
-// retain their own action-menu behavior.
-function closeDirectoryMenus(scroller: HTMLElement | null, except?: Node | null, returnFocus = false) {
-  for (const details of scroller?.querySelectorAll<HTMLDetailsElement>('details[open]') ?? []) {
-    if (except && details.contains(except)) continue;
-    const hadFocus = details.contains(document.activeElement);
-    details.open = false;
-    if (returnFocus && hadFocus) details.querySelector<HTMLElement>('summary')?.focus({ preventScroll: true });
-  }
-}
-
-function placeDirectoryMenu(scroller: HTMLElement, details: HTMLDetailsElement) {
-  if (!details.open) return;
-  const summary = details.querySelector('summary');
-  const menu = details.querySelector<HTMLElement>(':scope > span');
-  if (!summary || !menu) return;
-  closeDirectoryMenus(scroller, details);
-  const viewport = scroller.getBoundingClientRect();
-  const trigger = summary.getBoundingClientRect();
-  const above = Math.max(0, trigger.top - Math.max(0, viewport.top) - 4);
-  const below = Math.max(0, Math.min(window.innerHeight, viewport.bottom) - trigger.bottom - 4);
-  menu.style.maxHeight = '';
-  const upwards = Math.max(menu.scrollHeight, menu.getBoundingClientRect().height) > below && above > below;
-  Object.assign(menu.style, {
-    top: upwards ? 'auto' : '100%', bottom: upwards ? '100%' : 'auto',
-    marginTop: upwards ? '0' : '4px', marginBottom: upwards ? '4px' : '0',
-    maxHeight: `${upwards ? above : below}px`, overflowY: 'auto',
-  });
-}
 
 export interface SpaceDirectoryProps extends Omit<ContentTreeProps,
   'nodes' | 'levelParentFolderId' | 'currentPageId' | 'selectedFolderId' | 'expandedFolderIds' | 'childLevels' | 'onToggleFolder' | 'onOpenFolder' | 'pageDeleteDisabled' | 'emptyText'> {
@@ -140,10 +110,6 @@ export const SpaceDirectory: React.FC<SpaceDirectoryProps> = ({
   }, [directoryScrollTop, preferenceScopeKey, query, rootLevel, selectedItemIn, selectionState, treeProps.loading]);
   useLayoutEffect(() => {
     const previous = selectionState;
-    if (previous.scope !== preferenceScopeKey || previous.pageId !== selectedPageId) {
-      closeDirectoryMenus(desktopScrollRef.current);
-      closeDirectoryMenus(drawerScrollRef.current);
-    }
     if (previous.scope !== preferenceScopeKey) {
       selectionState.pending = { desktop: directoryScrollTop === 0, drawer: directoryScrollTop === 0 };
     } else if (previous.pageId !== selectedPageId) {
@@ -156,32 +122,12 @@ export const SpaceDirectory: React.FC<SpaceDirectoryProps> = ({
   }, [preferenceScopeKey, selectedPageId, directoryScrollTop, query, selectedItemIn, selectionState, restoreAndReveal, directoryCollapsed, drawerOpen, levels, expandedFolderIds]);
   useEffect(() => {
     const resize = () => {
-      closeDirectoryMenus(desktopScrollRef.current);
-      closeDirectoryMenus(drawerScrollRef.current);
+
       restoreAndReveal();
     };
     window.addEventListener('resize', resize);
     return () => window.removeEventListener('resize', resize);
   }, [restoreAndReveal]);
-  useEffect(() => {
-    const dismiss = (event: PointerEvent) => {
-      const target = event.target instanceof Node ? event.target : null;
-      closeDirectoryMenus(desktopScrollRef.current, target);
-      closeDirectoryMenus(drawerScrollRef.current, target);
-    };
-    const place = (event: Event) => {
-      if (!(event.target instanceof HTMLDetailsElement)) return;
-      for (const scroller of [desktopScrollRef.current, drawerScrollRef.current]) {
-        if (scroller?.contains(event.target)) placeDirectoryMenu(scroller, event.target);
-      }
-    };
-    document.addEventListener('pointerdown', dismiss);
-    document.addEventListener('toggle', place, true);
-    return () => {
-      document.removeEventListener('pointerdown', dismiss);
-      document.removeEventListener('toggle', place, true);
-    };
-  }, []);
   useEffect(() => {
     if (drawerOpen && openedAtLocationRef.current !== locationKey) setDrawerOpen(false);
   }, [drawerOpen, locationKey]);
@@ -217,10 +163,6 @@ export const SpaceDirectory: React.FC<SpaceDirectoryProps> = ({
   const renderDirectory = (scrollRef: React.RefObject<HTMLDivElement>, scrollTestId: string, titleId?: string) => <>
       <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-3">
         <h2 id={titleId} className="truncate text-sm font-medium text-gray-600">{t('folder.treeTitle')}</h2>
-        <Link to="/search" title={t('search.label')}
-          className="ml-auto inline-flex min-h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
-          <Search size={15} /> {t('search.label')}
-        </Link>
         {titleId ? <button type="button" onClick={() => setDrawerOpen(false)} aria-label={t('folder.closeDirectory')}
           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
           <X size={17} />
@@ -250,31 +192,8 @@ export const SpaceDirectory: React.FC<SpaceDirectoryProps> = ({
         {creation === 'page' && onCreatePageAtSelection ? <InlineTreeName key={`page:${treeProps.mutationScopeKey}:${selectedFolderId}:${selectedPageId}`} label={t('page.new')} onSubmit={onCreatePageAtSelection} onCancel={() => setCreation(null)} /> : null}
         {creation === 'folder' && onCreateFolderAtSelection ? <InlineTreeName key={`folder:${treeProps.mutationScopeKey}:${selectedFolderId}:${selectedPageId}`} label={t('folder.createTitle')} onSubmit={onCreateFolderAtSelection} onCancel={() => setCreation(null)} /> : null}
       </div>
-      <div ref={scrollRef} data-testid={scrollTestId}
-        onClickCapture={(event) => {
-          const summary = (event.target as Element).closest('summary');
-          const details = summary?.parentElement;
-          if (!(details instanceof HTMLDetailsElement)) return;
-          event.preventDefault();
-          details.open = !details.open;
-          placeDirectoryMenu(event.currentTarget, details);
-        }}
-        onKeyDownCapture={(event) => {
-          const summary = event.target as HTMLElement;
-          if (summary.tagName !== 'SUMMARY' || !(summary.parentElement instanceof HTMLDetailsElement)) return;
-          const details = summary.parentElement;
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault(); event.stopPropagation();
-            details.open = !details.open;
-          } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
-            details.open = true;
-          } else return;
-          // Position before ContentTree focuses an action, preventing focus from
-          // scrolling an overflowing, downward-opening menu out of the scrollport.
-          placeDirectoryMenu(event.currentTarget, details);
-        }}
+      <div ref={scrollRef} data-testid={scrollTestId} data-content-tree-scrollport
         onScroll={(event) => {
-        closeDirectoryMenus(event.currentTarget, null, true);
         if (!treeProps.loading && !query) onDirectoryScrollTopChange?.(event.currentTarget.scrollTop);
       }}
         className="min-h-0 flex-1 overflow-y-auto p-3">
@@ -282,6 +201,7 @@ export const SpaceDirectory: React.FC<SpaceDirectoryProps> = ({
         <ContentTree
           {...treeProps}
           nodes={visibleRoots}
+          highlightQuery={filter}
           levelParentFolderId={null}
           currentPageId={selectedPageId ?? undefined}
           selectedFolderId={selectedFolderId}

@@ -623,7 +623,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
 
       {!workspace ? <SpaceNav spaceId={id} /> : null}
       {workspace ? <div className="flex flex-col border-b border-gray-200 lg:flex-row lg:items-stretch">
-        <div style={{ '--directory-width': `${workspace.directoryCollapsed ? 44 : workspace.directoryWidth}px` } as React.CSSProperties} className="flex min-h-12 w-full items-center border-b border-gray-100 px-4 lg:w-[var(--directory-width)] lg:shrink-0 lg:border-b-0 lg:border-r">
+        <div className="flex min-h-12 min-w-0 w-full items-center border-b border-gray-100 px-4 lg:w-auto lg:max-w-[50%] lg:border-b-0 lg:border-r">
           <h1 tabIndex={-1} data-testid="space-root-focus" title={space.name} className="truncate text-base font-semibold text-gray-900">{space.name}</h1>
         </div>
         <div className="min-w-0 flex-1 px-3"><SpaceNav spaceId={id} activeSection={workspace.activeSection} embedded /></div>
