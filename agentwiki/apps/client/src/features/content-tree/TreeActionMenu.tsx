@@ -103,7 +103,11 @@ export const TreeActionMenu: React.FC<{ label: string; title: string; children: 
       className="inline-flex h-7 w-7 items-center justify-center rounded text-gray-500 hover:bg-gray-200 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
       onClick={() => open ? close() : show()}
       onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open ? close() : show(); }
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          if (open) close();
+          else show();
+        }
       }}><MoreHorizontal size={16} /></button>
     <div ref={menuRef} role="menu" aria-label={title} hidden={!open}
       onClickCapture={(event) => { if ((event.target as Element).closest('button:not(:disabled)')) close(true); }}
