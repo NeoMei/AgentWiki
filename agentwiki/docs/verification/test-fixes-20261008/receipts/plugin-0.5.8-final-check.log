@@ -1,0 +1,174 @@
+Evidence restored from the original captured tool outputs; this is NOT a new run.
+Command: npm run check
+CWD: /Users/neomei/项目/codexprojects/AgentWiki-Obsidian/.worktrees/test-fixes-20261008
+Started capture UTC: 2026-10-08T19:05:40.930Z
+Completion capture UTC: 2026-10-08T19:06:09.396Z
+exec session_id: 26600
+Final exit_code: 0
+Raw metadata: /tmp/agentwiki-plugin-0.5.8-final-check.raw.json
+
+
+> agentwiki-sync@0.5.8 check
+> npm run check:format && npm run lint && npm run typecheck && npm test && npm run build && npm run check:bundle
+
+
+> agentwiki-sync@0.5.8 check:format
+> prettier --check "src/**/*.ts" "tests/**/*.ts" "*.{mjs,ts,json}"
+
+Checking formatting...
+All matched files use Prettier code style!
+
+> agentwiki-sync@0.5.8 lint
+> eslint .
+
+
+/Users/neomei/项目/codexprojects/AgentWiki-Obsidian/.worktrees/test-fixes-20261008/src/main.ts
+   249:38  warning  Use sentence case for UI text. Expected: 'AgentWiki sync'                                      obsidianmd/ui/sentence-case
+  1730:9   warning  Use sentence case for UI text. Expected: '本地已与服务器一致。 / local files already match the server.'  obsidianmd/ui/sentence-case
+
+/Users/neomei/项目/codexprojects/AgentWiki-Obsidian/.worktrees/test-fixes-20261008/src/obsidian/settings-tab.ts
+   15:14  warning  This PluginSettingTab does not implement getSettingDefinitions(); its settings will not appear in Obsidian's settings search for users on 1.13.0 or later. Consider adopting the declarative settings API  obsidianmd/settings-tab/prefer-setting-definitions
+  327:15  warning  Use sentence case for UI text. Expected: '本地文件夹已就绪，映射已添加。点击左侧 AgentWiki sync 查看差异并开始同步。'                                                                                                                   obsidianmd/ui/sentence-case
+
+/Users/neomei/项目/codexprojects/AgentWiki-Obsidian/.worktrees/test-fixes-20261008/src/obsidian/sync-center-modal.ts
+  384:13  warning  Use sentence case for UI text. Expected: '自动合并会同步本地删除，冲突可逐项选择；使用本地内容在冲突处保留本地。sync v2 使用服务器内容会恢复本地删除并覆盖本地修改，执行前请检查预览。 / auto merge includes local deletions; resolve conflicts in preview. Use local keeps local conflict values. In sync v2, use server restores deleted files and replaces local changes; review before confirming.'  obsidianmd/ui/sentence-case
+
+/Users/neomei/项目/codexprojects/AgentWiki-Obsidian/.worktrees/test-fixes-20261008/tests/integration/plugin-settings-lifecycle.test.ts
+  2:1  warning  Do not import Node.js built-in module "node:fs/promises". Node.js APIs are not available on mobile. Use a dynamic import() or require() guarded by Platform.isDesktop instead  obsidianmd/no-nodejs-modules
+
+/Users/neomei/项目/codexprojects/AgentWiki-Obsidian/.worktrees/test-fixes-20261008/tests/integration/protocol-conformance.test.ts
+  177:19  warning  `validatePortablePath` is deprecated. Use validatePortableMarkdownPath  @typescript-eslint/no-deprecated
+
+/Users/neomei/项目/codexprojects/AgentWiki-Obsidian/.worktrees/test-fixes-20261008/tests/performance/bounded-space.test.ts
+   2:1  warning  Do not import Node.js built-in module "node:process". Node.js APIs are not available on mobile. Use a dynamic import() or require() guarded by Platform.isDesktop instead  obsidianmd/no-nodejs-modules
+  76:5  warning  Avoid using 'globalThis'. Use 'window' or 'activeWindow' for popout window compatibility                                                                                   obsidianmd/no-global-this
+  88:5  warning  Avoid using 'globalThis'. Use 'window' or 'activeWindow' for popout window compatibility                                                                                   obsidianmd/no-global-this
+  91:9  warning  Avoid using 'globalThis'. Use 'window' or 'activeWindow' for popout window compatibility                                                                                   obsidianmd/no-global-this
+
+/Users/neomei/项目/codexprojects/AgentWiki-Obsidian/.worktrees/test-fixes-20261008/tests/setup.ts
+   1:1   warning  Do not import Node.js built-in module "node:crypto". Node.js APIs are not available on mobile. Use a dynamic import() or require() guarded by Platform.isDesktop instead  obsidianmd/no-nodejs-modules
+   3:23  warning  Avoid using 'globalThis'. Use 'window' or 'activeWindow' for popout window compatibility                                                                                  obsidianmd/no-global-this
+   8:23  warning  Avoid using 'globalThis'. Use 'window' or 'activeWindow' for popout window compatibility                                                                                  obsidianmd/no-global-this
+  10:10  warning  Avoid using 'globalThis'. Use 'window' or 'activeWindow' for popout window compatibility                                                                                  obsidianmd/no-global-this
+
+/Users/neomei/项目/codexprojects/AgentWiki-Obsidian/.worktrees/test-fixes-20261008/tests/unit/preview-modal-layout.test.ts
+  1:1  warning  Do not import Node.js built-in module "node:fs/promises". Node.js APIs are not available on mobile. Use a dynamic import() or require() guarded by Platform.isDesktop instead  obsidianmd/no-nodejs-modules
+
+/Users/neomei/项目/codexprojects/AgentWiki-Obsidian/.worktrees/test-fixes-20261008/tests/unit/release-metadata.test.ts
+  2:1  warning  Do not import Node.js built-in module "node:fs/promises". Node.js APIs are not available on mobile. Use a dynamic import() or require() guarded by Platform.isDesktop instead  obsidianmd/no-nodejs-modules
+
+/Users/neomei/项目/codexprojects/AgentWiki-Obsidian/.worktrees/test-fixes-20261008/tests/unit/test-collection-config.test.ts
+  1:1  warning  Do not import Node.js built-in module "node:fs/promises". Node.js APIs are not available on mobile. Use a dynamic import() or require() guarded by Platform.isDesktop instead  obsidianmd/no-nodejs-modules
+
+/Users/neomei/项目/codexprojects/AgentWiki-Obsidian/.worktrees/test-fixes-20261008/vitest.config.ts
+  1:1  warning  Do not import Node.js built-in module "node:url". Node.js APIs are not available on mobile. Use a dynamic import() or require() guarded by Platform.isDesktop instead  obsidianmd/no-nodejs-modules
+
+✖ 19 problems (0 errors, 19 warnings)
+  0 errors and 6 warnings potentially fixable with the `--fix` option.
+
+
+> agentwiki-sync@0.5.8 typecheck
+> tsc --noEmit
+
+
+> agentwiki-sync@0.5.8 test
+> vitest run
+
+
+ RUN  v3.2.7 /Users/neomei/项目/codexprojects/AgentWiki-Obsidian/.worktrees/test-fixes-20261008
+
+ ✓ tests/integration/local-image-upgrade-local.test.ts (19 tests) 865ms
+ ✓ tests/integration/normalized-push-storage.test.ts (92 tests) 1907ms
+ ✓ tests/integration/sync-runtime.test.ts (91 tests) 2243ms
+   ✓ SyncRuntime > yields and cancels while planning local archives  308ms
+ ✓ tests/integration/preview-modal-interactions.test.ts (16 tests) 1164ms
+ ✓ tests/integration/normalized-push-local.test.ts (63 tests) 2476ms
+ ✓ tests/integration/q3-regression.test.ts (22 tests) 469ms
+ ✓ tests/integration/local-image-upgrade-push.test.ts (23 tests) 366ms
+ ✓ tests/performance/bounded-space.test.ts (10 tests) 2996ms
+   ✓ bounded v1 space > streams 5,000 metadata entries and deterministically partitions 5,000 changes  1982ms
+   ✓ bounded v1 space > processes a near-100MiB space within a bounded heap delta  824ms
+ ✓ tests/unit/browser-authorization.test.ts (24 tests) 484ms
+ ✓ tests/e2e/referenced-image-sync-v3.test.ts (28 tests) 3102ms
+   ✓ referenced image sync v3 end to end > preserves a renamed and replaced attachment ID through detach, another Push, reload, and exact re-reference  308ms
+   ✓ referenced image sync v3 fault recovery > resumes a failed Blob upload after restart  1577ms
+ ✓ tests/integration/tree-push-service.test.ts (30 tests) 352ms
+ ✓ tests/integration/v2-preview-materialization.test.ts (4 tests) 464ms
+ ✓ tests/e2e/manual-sync-flow.test.ts (8 tests) 290ms
+ ✓ tests/integration/control-sidecar-scope.test.ts (10 tests) 292ms
+ ✓ tests/integration/local-image-upgrade-plan.test.ts (19 tests) 321ms
+ ✓ tests/integration/tree-remote.test.ts (17 tests) 219ms
+ ✓ tests/integration/local-image-upgrade-recovery-verifier.test.ts (5 tests) 289ms
+ ✓ tests/integration/normalized-push-runtime.test.ts (48 tests) 3803ms
+ ✓ tests/integration/plugin-settings-lifecycle.test.ts (26 tests) 311ms
+ ✓ tests/unit/protocol-negotiator.test.ts (45 tests) 165ms
+ ✓ tests/integration/tree-transaction.test.ts (39 tests) 152ms
+ ✓ tests/unit/check-bundle.test.mjs (2 tests) 79ms
+ ✓ tests/integration/mapping-folder.test.ts (8 tests) 110ms
+ ✓ tests/integration/sync-center-modal-interactions.test.ts (2 tests) 106ms
+ ✓ tests/integration/tree-baseline-upgrade.test.ts (13 tests) 62ms
+ ✓ tests/unit/tree-diff.test.ts (44 tests) 46ms
+ ✓ tests/integration/push-service.test.ts (11 tests) 55ms
+ ✓ tests/integration/blob-transfer.test.ts (13 tests) 45ms
+ ✓ tests/integration/local-image-upgrade-storage.test.ts (42 tests) 112ms
+ ✓ tests/unit/tree-scan.test.ts (42 tests) 39ms
+ ✓ tests/integration/v3-tree-remote.test.ts (19 tests) 53ms
+ ✓ tests/unit/attachment-reference.test.ts (81 tests) 32ms
+ ✓ tests/unit/tree-generation.test.ts (18 tests) 31ms
+ ✓ tests/integration/blob-staging.test.ts (15 tests) 42ms
+ ✓ tests/integration/client-connection.test.ts (17 tests) 46ms
+ ✓ tests/integration/local-image-upgrade-contract.test.ts (7 tests) 33ms
+ ✓ tests/unit/obsidian-adapters.test.ts (46 tests) 22ms
+ ✓ tests/unit/preview-logic.test.ts (25 tests) 78ms
+ ✓ tests/integration/pull-transaction.test.ts (6 tests) 27ms
+ ✓ tests/unit/local-image-normalization.test.ts (19 tests) 17ms
+ ✓ tests/integration/local-image-upgrade-verifier.test.ts (5 tests) 7ms
+ ✓ tests/unit/attachment-merge.test.ts (22 tests) 21ms
+ ✓ tests/unit/vault-identity.test.ts (1 test) 15ms
+ ✓ tests/unit/storage.test.ts (18 tests) 20ms
+ ✓ tests/unit/generation.test.ts (3 tests) 12ms
+ ✓ tests/unit/image-metadata.test.ts (7 tests) 4ms
+ ✓ tests/unit/tree-validation.test.ts (23 tests) 7ms
+ ✓ tests/integration/protocol-conformance.test.ts (6 tests) 14ms
+ ✓ tests/unit/test-collection-config.test.ts (1 test) 6ms
+ ✓ tests/unit/merge.test.ts (7 tests) 9ms
+ ✓ tests/unit/device-state.test.ts (4 tests) 7ms
+ ✓ tests/unit/status.test.ts (5 tests) 8ms
+ ✓ tests/unit/coordinator.test.ts (8 tests) 3ms
+ ✓ tests/unit/protocol-batching.test.ts (2 tests) 7ms
+ ✓ tests/unit/identity-key.test.ts (1 test) 6ms
+ ✓ tests/unit/protocol-canonical.test.ts (3 tests) 8ms
+ ✓ tests/unit/preview-modal-layout.test.ts (7 tests) 7ms
+ ✓ tests/unit/progress.test.ts (1 test) 4ms
+ ✓ tests/unit/protocol-schemas.test.ts (2 tests) 5ms
+ ✓ tests/unit/initial-binding.test.ts (2 tests) 4ms
+ ✓ tests/unit/modal-handoff.test.ts (3 tests) 3ms
+ ✓ tests/unit/settings.test.ts (10 tests) 12ms
+ ✓ tests/unit/portable-path.test.ts (10 tests) 4ms
+ ✓ tests/unit/diagnostics.test.ts (1 test) 1ms
+ ✓ tests/unit/markdown.test.ts (2 tests) 5ms
+ ✓ tests/unit/release-metadata.test.ts (4 tests) 3ms
+ ✓ tests/unit/user-errors.test.ts (19 tests) 4ms
+ ✓ tests/unit/retry.test.ts (4 tests) 4ms
+ ✓ tests/integration/normalized-push.test.ts (95 tests) 7309ms
+   ✓ NormalizedPushCoordinator > remote_push recovers twice after page cursor  309ms
+ ✓ tests/integration/local-image-upgrade-entry.test.ts (77 tests) 7618ms
+   ✓ local image upgrade plugin entry > does not downgrade an actual strict v3 Space failure with status 429  1503ms
+   ✓ local image upgrade plugin entry > does not downgrade an actual strict v3 Space failure with status 500  1505ms
+   ✓ local image upgrade plugin entry > recovers actual old schema 1 response loss before image upgrade (confirm race false)  316ms
+
+ Test Files  70 passed (70)
+      Tests  1422 passed (1422)
+   Start at  03:05:48
+   Duration  8.37s (transform 1.29s, setup 167ms, collect 8.05s, tests 38.90s, environment 7ms, prepare 2.67s)
+
+
+> agentwiki-sync@0.5.8 build
+> node esbuild.config.mjs production
+
+
+> agentwiki-sync@0.5.8 check:bundle
+> node scripts/check-bundle.mjs && node scripts/check-release.mjs
+
+Bundle safety check passed (1749851 bytes)
+Release metadata check passed (0.5.8)

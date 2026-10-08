@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "threadId": "01a0f8b8-b64c-7c80-9114-789d6f72dfc8",
+  "turnId": "01a11cf5-47ae-72b3-9afa-a6e38b124188",
+  "status": "completed",
+  "records": [
+    {
+      "type": "commandExecution",
+      "id": "exec-159cc54b-a891-45ad-b1fc-e03ac4ad6e58",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 6747,
+      "output": {
+        "text": "C:\\Users\\1\\AppData\\Local\\Temp\\AgentWiki-Sync-0.5.7-Windows-20261009-cca3df29f8fb4963a1727438fe8021d3\\candidate-0.5.8-b9be0afa\\main.js|4c439b451145d6dd684be4582c308626bdf44d74f9b47d2960f791d9d061dd95\r\nC:\\Users\\1\\AppData\\Local\\Temp\\AgentWiki-Sync-0.5.7-Windows-20261009-cca3df29f8fb4963a1727438fe8021d3\\candidate-0.5.8-b9be0afa\\manifest.json|a1409864b67d205a9158357e49f30a136249a67dfa5e8dde6b03290b2aa144c4\r\nC:\\Users\\1\\AppData\\Local\\Temp\\AgentWiki-Sync-0.5.7-Windows-20261009-cca3df29f8fb4963a1727438fe8021d3\\candidate-0.5.8-b9be0afa\\styles.css|5dfe15839220724a57a64ad7ab136761ba2ffaaff3c0235faac1cf1238e762b8\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-142286b7-28d5-496b-90a6-6f84bbd7c6d0",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2091,
+      "output": {
+        "text": "=> 0\n=> {\"modalCount\":0,\"settingActive\":false}\n\r\n   Id MainWindowTitle\r\n   -- ---------------\r\n25808 新标签页 - vault - Obsidian 1.13.7\r\n\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-1e206275-9bb4-4b7e-980b-4c90a2889719",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1808,
+      "output": {
+        "text": "C:\\Users\\1\\AppData\\Local\\Temp\\AgentWiki-Sync-0.5.7-Windows-20261009-cca3df29f8fb4963a1727438fe8021d3\\vault\\.obsidian\\plugins\\agentwiki-sync\\main.js|4c439b451145d6dd684be4582c308626bdf44d74f9b47d2960f791d9d061dd95\r\nC:\\Users\\1\\AppData\\Local\\Temp\\AgentWiki-Sync-0.5.7-Windows-20261009-cca3df29f8fb4963a1727438fe8021d3\\vault\\.obsidian\\plugins\\agentwiki-sync\\manifest.json|a1409864b67d205a9158357e49f30a136249a67dfa5e8dde6b03290b2aa144c4\r\nC:\\Users\\1\\AppData\\Local\\Temp\\AgentWiki-Sync-0.5.7-Windows-20261009-cca3df29f8fb4963a1727438fe8021d3\\vault\\.obsidian\\plugins\\agentwiki-sync\\styles.css|5dfe15839220724a57a64ad7ab136761ba2ffaaff3c0235faac1cf1238e762b8\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-37544bce-69cb-40f7-b6aa-5e8962aa8b8b",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 3694,
+      "output": {
+        "text": "Reloaded: agentwiki-sync\nNo errors captured.\n=> {\"runtimePluginPresent\":true,\"runtimeManifestVersion\":\"0.5.8\",\"settingsVersion\":1,\"commands\":[\"agentwiki-sync:open-sync-center\"]}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-65d6021d-7259-4f7e-8713-0a894d1790a6",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2019,
+      "output": {
+        "text": "Executed: agentwiki-sync:open-sync-center\n=> {\"modalCount\":1,\"protocol\":true,\"noDiff\":true,\"imageStats\":\"图片：上传 0 张 / 0 B · 下载 0 张 / 0 B · 替换 0 · 取消引用 0 · 单次传输上限 100 MB扫描 0本地变更本地没有未推送的变更。服务器变更服务器没有新的变更。自动合并会同步本地删除，冲突可逐项选择；使用本地内容在冲突处保留本地。Sync v2 使用服务器内容会恢复本地删除并覆盖本地修改，执行前请检查预览。 / Auto merge includes local deletions; resolve conflicts in preview. Use local keeps local conflict values. In Sync v2, use server restores deleted files and replaces local changes; review before confirming.自动合并（推荐）使用本地内容使用服务器内容刷新差异\",\"text\":\"AgentWiki 同步同步空间Windows Sync QA 1ea86e9d2354 · 验收/Windows · 所有者cmuzvs71f025kjakf2wopuz5b · 验收/Windows协议：Sync v3本地与服务器已同步，无需操作。图片：上传 0 张 / 0 B · 下载 0 张 / 0 B · 替换 0 · 取消引用 0 · 单次传输上限 100 MB扫描 0本地变更本地没有未推送的变更。服务器变更服务器没有新的变更。自动合并会同步本地删除，冲突可逐项选择；使用本地内容在冲突处保留本地。Sync v2 使用服务器内容会恢复本地删除并覆盖本地修改，执行前请检查预览。 / Auto merge includes local deletions; resolve conflicts in preview. Use local keeps local conflict values. In Sync v2, use server restores deleted files and replaces local changes; review before confirming.自动合并（推荐）使用本地内容使用服务器内容刷新差异\"}\nNo errors captured.\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-a787fde3-0ed4-4881-a5aa-874b23046cdc",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 3007,
+      "output": {
+        "text": "SPACE_DELETE=cmuzxn0v002yjjakfy0we8v0n:200,cmuzvs71f025kjakf2wopuz5b:200\r\nSPACE_READBACK=cmuzxn0v002yjjakfy0we8v0n:404,cmuzvs71f025kjakf2wopuz5b:404\r\nCREDENTIAL_COUNT=1\r\nCREDENTIAL_DELETE=204\r\nINSTALL_DELETE=204,409\r\nME_BEFORE=200\r\nUSER_DELETE=200\r\nME_AFTER=401\r\nDAILY_PID_25808_ALIVE=True\r\nRECEIPT_PATH=D:\\MyDocuments\\codexprojects\\codexconfig\\AgentWiki-Sync-0.5.7-Windows-20261009-cleanup-receipt.md\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-7c457a67-a42b-4a1d-af82-3f7c0112024f",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 3119,
+      "output": {
+        "text": "window_before=新标签页 - vault - Obsidian 1.13.7\r\nhandle_before=4457268\r\ndaily_pid_alive_after_close=True\r\nwindow_after=新标签页 - [daily-vault] - Obsidian 1.13.7\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-009f6cd7-7b60-413f-a041-14774ec56f3d",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 60330,
+      "output": {
+        "text": "root_verified=C:\\Users\\1\\AppData\\Local\\Temp\\AgentWiki-Sync-0.5.7-Windows-20261009-cca3df29f8fb4963a1727438fe8021d3\r\nMethodInvocationException: \r\nLine |\r\n   7 |  [System.IO.Directory]::Delete($resolved,$true)\r\n     |  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n     | Exception calling \"Delete\" with \"2\" argument(s): \"Access to the path 'pack-0e7ed777e069ef53428c093ca10fff1165fd8719.idx' is denied.\"\r\nroot_exists_after=True\r\ndaily_pid_25808_alive=True\r\ndaily_title=新标签页 - [daily-vault] - Obsidian 1.13.7\r\n",
+        "truncated": false
+      }
+    }
+  ],
+  "sourceFile": "agentwiki-windows-stage2-sanitized.json",
+  "sourceFileSha256": "d4a0bdf061d7c863721263a32c2e4693d527afab9de2b5903412ac81900934b2",
+  "sanitization": "Input was already selected and sanitized by root. Unrelated daily Vault display name replaced; command outputs otherwise retained. No commands or agent assertions added."
+}

@@ -1,11 +1,11 @@
 # 10-08测试修复与发布
 
-用户明确要求发布后，网页0.12.17及Obsidian插件0.5.7均已正式发布，网页已部署并于2026-10-08北京时间22:28完成生产回读。网页发布源码4d88ee2b，插件324fa53b。
+网页0.12.17已发布部署（4d88ee2b），插件已追加发布0.5.8（b9be0afa）；发布与执行Windows真实同步均有用户授权。网页完整6952通过/6skip、数据库230零skip；插件最终1422通过，格式/类型/lint/构建/发布门禁通过，独审通过；正式资产三个签名逐项验证。
 
-网页精确release SHA完整6952通过/6skip/0fail、数据库230零skip、typecheck/lint/build通过；独审C/I/M=0/0/0。插件本地与CI1418通过，正式三资产下载字节及attestation已验。生产1232文件、35配置、三服务、公网健康及浏览器首页/指南通过；未登录生产业务空间，不冒称15项原案上线复验。
+Windows既有Session已完成正式0.5.7的实际首拉、双向同步、父目录冲突拒绝/恢复/手动迁移、图片协议升级为V3及零差异。两个预览缺陷真实复现后修复；0.5.8正式包已在既有临时Vault与新合成账号/Space/映射完成连接/映射、双向正文、V2即时保护/恢复、V2与V3手动摘要/迁移、图片升级及最终V3零差异；迁移正文与Keep两端SHA一致。不得再把Windows真实同步整体说成未执行，也不得将旧版通过替代最终修复原生通过。
 
-全部候选与发布证据在 `/Users/neomei/.codex/worktrees/test-fixes-20261008/AgentWiki /agentwiki/docs/verification/test-fixes-20261008/`。主检出未提交资料和两个隔离工作树保留，未安装日常Vault。
+当前证据工作树 `/Users/neomei/.codex/worktrees/test-fixes-win-receipts-20261009/AgentWiki `；原网页工作树实际缺失，已从已推送e3d5d0e3建立新的隔离工作树，主检出未提交资料保留。证据在agentwiki/docs/verification/test-fixes-20261008/，原生回执receipts/windows-live-sync-20261009.md。
 
-原始UNKNOWN_PARENT、原Space/原文路径、原生IME、真实provider、Windows/V3原生仍待复验；因此该任务索引保留原案跟踪状态。旧报告已原ID恢复，部署后仍有效，不再执行恢复。
+第一轮合成生产资源已撤销；临时目录递归删除被策略拒绝，后续.NET尝试已被叫停，部分残余目录保留，不再绕过删除。日常Vault未装测试插件、共享Obsidian进程不停止。0.5.8新fixture亦已实际断开，Space删除后404、凭据撤销204、账号删除后旧JWT401，本地证据目录保留。
 
-- 10-09 Windows真实补验：既有Session `01a0f8b8-b64c-7c80-9114-789d6f72dfc8` / turn `01a11c5f-9d5d-7872-803b-b1bbe5377f03` 已执行Windows Node24.18/libuv1.52.1命令；插件正式0.5.7回归135/135，网页正式0.12.17 CLI34/34、文件系统/配置128/128。Windows包管理器原16项中3项失败已修，独审及Windows补丁17/17通过，LF归一SHA一致；提交415f45f3已推送并回读master。旧checkout两处EPERM在正式源码各5轮共10次未复现，文件系统未改；不能称旧故障从未发生。正式0.5.7已在Windows Obsidian1.13.7临时Vault完成真实运行对象、命令注册与重载回读；真实同步和冲突选择未验；Mac临时LAN后端被现有防火墙阻断，已停止自建API/Redis，原数据/系统配置不变。`wait_threads`/列表不可用不等于主机离线，明确host的`read_thread`可读取该Session。回执见 receipts/windows-20261009.md。
+原测试者UNKNOWN_PARENT原数据/树结构、原Space、原文/原生中文IME、真实provider仍待验；合成成功不替代这些原案。误删旧页已恢复，禁止再执行恢复。

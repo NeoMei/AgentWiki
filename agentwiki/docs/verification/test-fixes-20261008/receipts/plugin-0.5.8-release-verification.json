@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-10-08T19:48:37.810567+00:00",
+  "expectedCommit": "b9be0afa667e216c87a15f983431109f79b5ca39",
+  "worktree": "/Users/neomei/项目/codexprojects/AgentWiki-Obsidian/.worktrees/test-fixes-20261008",
+  "head": "b9be0afa667e216c87a15f983431109f79b5ca39",
+  "workingTreeClean": true,
+  "remoteRefs": {
+    "refs/heads/main": "b9be0afa667e216c87a15f983431109f79b5ca39",
+    "refs/tags/0.5.8": "b9be0afa667e216c87a15f983431109f79b5ca39"
+  },
+  "release": {
+    "isDraft": false,
+    "isPrerelease": false,
+    "publishedAt": "2026-10-08T19:27:33Z",
+    "tagName": "0.5.8",
+    "targetCommitish": "main",
+    "url": "https://github.com/NeoMei/agentwiki-sync/releases/tag/0.5.8"
+  },
+  "runs": [
+    {
+      "conclusion": "success",
+      "createdAt": "2026-10-08T19:41:44Z",
+      "databaseId": 37833862379,
+      "headBranch": "main",
+      "headSha": "b9be0afa667e216c87a15f983431109f79b5ca39",
+      "name": "CI",
+      "status": "completed",
+      "updatedAt": "2026-10-08T19:43:18Z",
+      "url": "https://github.com/NeoMei/agentwiki-sync/actions/runs/37833862379"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-10-08T19:26:35Z",
+      "databaseId": 37831976832,
+      "headBranch": "0.5.8",
+      "headSha": "b9be0afa667e216c87a15f983431109f79b5ca39",
+      "name": "CI",
+      "status": "completed",
+      "updatedAt": "2026-10-08T19:28:08Z",
+      "url": "https://github.com/NeoMei/agentwiki-sync/actions/runs/37831976832"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-10-08T19:26:35Z",
+      "databaseId": 37831976662,
+      "headBranch": "0.5.8",
+      "headSha": "b9be0afa667e216c87a15f983431109f79b5ca39",
+      "name": "Release",
+      "status": "completed",
+      "updatedAt": "2026-10-08T19:27:38Z",
+      "url": "https://github.com/NeoMei/agentwiki-sync/actions/runs/37831976662"
+    },
+    {
+      "conclusion": "success",
+      "createdAt": "2026-10-08T19:07:57Z",
+      "databaseId": 37829628200,
+      "headBranch": "codex/test-fixes-20261008",
+      "headSha": "b9be0afa667e216c87a15f983431109f79b5ca39",
+      "name": "CI",
+      "status": "completed",
+      "updatedAt": "2026-10-08T19:09:02Z",
+      "url": "https://github.com/NeoMei/agentwiki-sync/actions/runs/37829628200"
+    }
+  ],
+  "assets": [
+    {
+      "name": "main.js",
+      "bytes": 1749851,
+      "sha256": "4c439b451145d6dd684be4582c308626bdf44d74f9b47d2960f791d9d061dd95",
+      "releaseDigestMatches": true,
+      "attestationExitCode": 0,
+      "matchingAttestations": [
+        {
+          "subjectMatchesAsset": true,
+          "sourceRepositoryDigest": "b9be0afa667e216c87a15f983431109f79b5ca39",
+          "sourceRepositoryRef": "refs/tags/0.5.8",
+          "issuer": "https://token.actions.githubusercontent.com",
+          "workflow": "https://github.com/NeoMei/agentwiki-sync/.github/workflows/release.yml@refs/tags/0.5.8",
+          "run": "https://github.com/NeoMei/agentwiki-sync/actions/runs/37831976662/attempts/1"
+        }
+      ]
+    },
+    {
+      "name": "manifest.json",
+      "bytes": 232,
+      "sha256": "a1409864b67d205a9158357e49f30a136249a67dfa5e8dde6b03290b2aa144c4",
+      "releaseDigestMatches": true,
+      "attestationExitCode": 0,
+      "matchingAttestations": [
+        {
+          "subjectMatchesAsset": true,
+          "sourceRepositoryDigest": "b9be0afa667e216c87a15f983431109f79b5ca39",
+          "sourceRepositoryRef": "refs/tags/0.5.8",
+          "issuer": "https://token.actions.githubusercontent.com",
+          "workflow": "https://github.com/NeoMei/agentwiki-sync/.github/workflows/release.yml@refs/tags/0.5.8",
+          "run": "https://github.com/NeoMei/agentwiki-sync/actions/runs/37831976662/attempts/1"
+        }
+      ]
+    },
+    {
+      "name": "styles.css",
+      "bytes": 4880,
+      "sha256": "5dfe15839220724a57a64ad7ab136761ba2ffaaff3c0235faac1cf1238e762b8",
+      "releaseDigestMatches": true,
+      "attestationExitCode": 0,
+      "matchingAttestations": [
+        {
+          "subjectMatchesAsset": true,
+          "sourceRepositoryDigest": "b9be0afa667e216c87a15f983431109f79b5ca39",
+          "sourceRepositoryRef": "refs/tags/0.5.8",
+          "issuer": "https://token.actions.githubusercontent.com",
+          "workflow": "https://github.com/NeoMei/agentwiki-sync/.github/workflows/release.yml@refs/tags/0.5.8",
+          "run": "https://github.com/NeoMei/agentwiki-sync/actions/runs/37831976662/attempts/1"
+        }
+      ]
+    }
+  ],
+  "allChecksPassed": true
+}

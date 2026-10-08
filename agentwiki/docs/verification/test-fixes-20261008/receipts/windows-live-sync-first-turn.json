@@ -1,0 +1,482 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "selected-sanitized-command-output",
+  "source": {
+    "schemaVersion": 1,
+    "threadId": "01a0f8b8-b64c-7c80-9114-789d6f72dfc8",
+    "hostId": "remote-control:env_e_6a53e3dc9b0483268a860e1de83e99c3",
+    "turnId": "01a11ccb-30d6-76f0-bf8c-82a9918c830a",
+    "readAt": "2026-10-08T19:08:16.071Z",
+    "turnStatus": "inProgress"
+  },
+  "sourceFile": "agentwiki-windows-live-sync-20261009-readback.json",
+  "sourceFileSha256": "1a106b22ff9876fcf4131850a5a10727a0052b9b757ae8ba709d3ca2f4b378df",
+  "sourceRecordCount": 100,
+  "selectedRecordCount": 38,
+  "scope": "Windows Obsidian 1.13.7, official agentwiki-sync 0.5.7, synthetic private production Space and temporary Vault. Snapshot ends before V3 upgrade confirmation.",
+  "selectionPolicy": "Only relevant command outputs retained. No agent-message assertions, commands, credentials, registration secret-file metadata, unrelated account/profile output, or source dumps. Existing command errors remain where needed to qualify evidence.",
+  "interpretationLimits": [
+    "An exitCode of 0 does not override an embedded CLI error. Initial plugin:reload was unavailable; the later runtime eval is the evidence that 0.5.7 was loaded.",
+    "exec-c659c9c6 contains two PowerShell output-format errors; only its printed revision and local existence flags can be used.",
+    "exec-21f39d64 and exec-0eb714b8 show duplicate Sync Center modals and upgrade detection, not completed V3 upgrade.",
+    "This snapshot contains no official 0.5.8 load evidence, final 0.5.8 conflict regression, or production cleanup receipts."
+  ],
+  "records": [
+    {
+      "id": "exec-0c531c27-04eb-4642-a4ec-5aad22386e18",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 3685,
+      "output": {
+        "text": "=== site health ===\r\nstatus=200\r\nbody_length=93\r\nheaders_server=nginx/1.24.0\r\n=== existing fixture ===\r\nroot_exists=True\r\nvault_exists=True\r\nplugin_exists=True\r\nmain.js sha256=e53fd66baec0a39ab1e6336382ca00c59d565e519f1eca4706746512b0295821\r\nmanifest.json sha256=9a15644ff67f111977937b231178325439f0a10aa1166f1415a6bd677016faf9\r\nstyles.css sha256=5dfe15839220724a57a64ad7ab136761ba2ffaaff3c0235faac1cf1238e762b8\r\nmanifest.version=0.5.7\r\nmanifest.minAppVersion=1.11.5\r\n\r\nName        Id Responding MainWindowTitle\r\n----        -- ---------- ---------------\r\nObsidian  4352       True \r\nObsidian  6528       True \r\nObsidian 24820       True \r\nObsidian 25808       True 新标签页 - [daily-vault] - Obsidian 1.13.7\r\n\r\n",
+        "truncated": false
+      },
+      "sanitization": [
+        "Unrelated daily Vault display name replaced."
+      ]
+    },
+    {
+      "id": "exec-1498dae1-30bf-4941-9157-d23e39e84f37",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1628,
+      "output": {
+        "text": "=== fixture vault identity ===\r\nError: Command \"vault\" not found. Did you mean: daily?\nvault_info_exit=0\r\n=> C:\\Users\\1\\AppData\\Local\\Temp\\AgentWiki-Sync-0.5.7-Windows-20261009-cca3df29f8fb4963a1727438fe8021d3\\vault\neval_path_exit=0\r\nexpected=C:\\Users\\1\\AppData\\Local\\Temp\\AgentWiki-Sync-0.5.7-Windows-20261009-cca3df29f8fb4963a1727438fe8021d3\\vault\r\n=== initial runtime eval ===\r\n=> {\"vaultPath\":\"C:\\\\Users\\\\1\\\\AppData\\\\Local\\\\Temp\\\\AgentWiki-Sync-0.5.7-Windows-20261009-cca3df29f8fb4963a1727438fe8021d3\\\\vault\",\"runtimePluginPresent\":false,\"matchingCommandIds\":[]}\nruntime_eval_exit=0\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-2262e65d-3740-4f0d-8a9a-2f9f60ed015b",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2155,
+      "output": {
+        "text": "=== fixture restricted off ===\r\nRestricted mode disabled. Reloading...\nrestrict_off_exit=0\r\n=== fixture plugin reload ===\r\nError: Command \"plugin:reload\" not found. It may require a plugin to be enabled.\nreload_exit=0\r\n=== runtime eval ===\r\n=> {\"vaultPath\":\"C:\\\\Users\\\\1\\\\AppData\\\\Local\\\\Temp\\\\AgentWiki-Sync-0.5.7-Windows-20261009-cca3df29f8fb4963a1727438fe8021d3\\\\vault\",\"runtimePluginPresent\":true,\"runtimeManifestVersion\":\"0.5.7\",\"matchingCommandIds\":[\"agentwiki-sync:open-sync-center\"]}\nruntime_eval_exit=0\r\n=== diagnostics ===\r\nNo errors captured.\nError: Debugger not attached. Use \"dev:debug on\" to start capturing console messages.\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-a6a27ce1-f37c-48e6-91a2-3af7d32d4f1e",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 3274,
+      "observedAt": "2026-10-08T18:52:31.001Z",
+      "output": {
+        "text": "=> clicked\nNo errors captured.\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-888e4e89-6276-42ec-9c8e-1032ad5fdbf4",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2516,
+      "observedAt": "2026-10-08T18:52:31.001Z",
+      "output": {
+        "text": "=> {\"text\":\"连接AgentWiki 服务器已连接。断开后可更改服务器。已连接此设备已连接 AgentWiki。下一步选择空间和本地文件夹。空间映射添加映射选择远端空间，输入本地文件夹路径。已有文件夹会直接使用，不存在则自动创建；支持多级路径，如 知识库/项目。选择空间…Windows Sync QA 1ea86e9d2354（所有者）选择空间…添加断开连接清除本地凭据。如需撤销远端凭据，请在 AgentWiki 网页操作。断开\",\"inputs\":[{\"i\":0,\"placeholder\":\"https://agentwiki.quukk.com\",\"disabled\":true},{\"i\":1,\"placeholder\":\"Wiki\",\"disabled\":false}],\"buttons\":[{\"i\":0,\"text\":\"添加\",\"disabled\":false},{\"i\":1,\"text\":\"断开\",\"disabled\":false}],\"pluginConnected\":true,\"mappingCount\":0}\nNo errors captured.\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-5e89aff7-3e6f-415d-8059-8b767ebad464",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2666,
+      "observedAt": "2026-10-08T18:53:40.564Z",
+      "output": {
+        "text": "=> {\"selected\":\"cmuzvs71f025kjakf2wopuz5b\",\"root\":\"验收/Windows\",\"clicked\":true}\n=> {\"text\":\"连接AgentWiki 服务器已连接。断开后可更改服务器。已连接此设备已连接 AgentWiki。下一步选择空间和本地文件夹。空间映射Windows Sync QA 1ea86e9d2354验收/Windows · 待首次拉取取消添加映射选择远端空间，输入本地文件夹路径。已有文件夹会直接使用，不存在则自动创建；支持多级路径，如 知识库/项目。选择空间…选择空间…添加断开连接清除本地凭据。如需撤销远端凭据，请在 AgentWiki 网页操作。断开\",\"inputs\":[{\"i\":0,\"placeholder\":\"https://agentwiki.quukk.com\",\"disabled\":true},{\"i\":1,\"placeholder\":\"Wiki\",\"disabled\":false}],\"buttons\":[{\"i\":0,\"text\":\"取消\",\"disabled\":false},{\"i\":1,\"text\":\"添加\",\"disabled\":false},{\"i\":2,\"text\":\"断开\",\"disabled\":false}],\"mappingCount\":1}\nNo errors captured.\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-4ec496de-dcfd-4122-ab5f-b820263b5513",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1943,
+      "observedAt": "2026-10-08T18:53:40.564Z",
+      "output": {
+        "text": "=> clicked\n新标签页 - vault - Obsidian 1.13.7 \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nvault侧边栏为空，请尝试拖动一个标签页到此处。文件列表搜索书签验收FKeep新标签页新标签页创建新文件 (Ctrl + N)打开文件 (Ctrl + O)关闭标签页侧边栏为空，请尝试拖动一个标签页到此处。反向链接出链标签添加笔记属性大纲AgentWiki以服务器内容为准创建目录: pages/F创建目录: pages/M创建: pages/Keep.md确认将应用全部变更（包括其他分页）。取消确认执行\n<button class=\"clickable-icon\" aria-disabled=\"true\" aria-label=\"返回\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-arrow-left\"><path d=\"m12 19-7-7 7-7\"></path><path d=\"M19 12H5\"></path></svg></button>\n\n<button class=\"clickable-icon\" aria-disabled=\"true\" aria-label=\"前进\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-arrow-right\"><path d=\"M5 12h14\"></path><path d=\"m12 5 7 7-7 7\"></path></svg></button>\n\n<button class=\"clickable-icon view-action mod-bookmark\" aria-label=\"书签\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-bookmark\"><path d=\"M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z\"></path></svg></button>\n\n<button class=\"clickable-icon view-action\" aria-label=\"更多选项\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-more-vertical\"><circle cx=\"12\" cy=\"12\" r=\"1\"></circle><circle cx=\"12\" cy=\"5\" r=\"1\"></circle><circle cx=\"12\" cy=\"19\" r=\"1\"></circle></svg></button>\n\n<button>取消</button>\n\n<button class=\"mod-destructive mod-cta\">确认执行</button>\n<input enterkeyhint=\"search\" type=\"search\" spellcheck=\"false\" placeholder=\"输入并开始搜索…\">\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-691e9c51-06b3-4d9f-8d53-6a89d00bf3f2",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 3016,
+      "observedAt": "2026-10-08T18:54:49.815Z",
+      "output": {
+        "text": "=> confirmed\n新标签页 - vault - Obsidian 1.13.7 \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nvault侧边栏为空，请尝试拖动一个标签页到此处。文件列表搜索书签验收FKeep新标签页新标签页创建新文件 (Ctrl + N)打开文件 (Ctrl + O)关闭标签页侧边栏为空，请尝试拖动一个标签页到此处。反向链接出链标签添加笔记属性大纲AgentWiki已按服务器内容更新本地。\n<button class=\"clickable-icon\" aria-disabled=\"true\" aria-label=\"返回\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-arrow-left\"><path d=\"m12 19-7-7 7-7\"></path><path d=\"M19 12H5\"></path></svg></button>\n\n<button class=\"clickable-icon\" aria-disabled=\"true\" aria-label=\"前进\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-arrow-right\"><path d=\"M5 12h14\"></path><path d=\"m12 5 7 7-7 7\"></path></svg></button>\n\n<button class=\"clickable-icon view-action mod-bookmark\" aria-label=\"书签\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-bookmark\"><path d=\"M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z\"></path></svg></button>\n\n<button class=\"clickable-icon view-action\" aria-label=\"更多选项\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-more-vertical\"><circle cx=\"12\" cy=\"12\" r=\"1\"></circle><circle cx=\"12\" cy=\"5\" r=\"1\"></circle><circle cx=\"12\" cy=\"19\" r=\"1\"></circle></svg></button>\nNo errors captured.\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-8b78030c-cb74-46e4-a050-d0390b94101c",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1195,
+      "observedAt": "2026-10-08T18:54:49.816Z",
+      "output": {
+        "text": "LOCAL_FILES\r\nKeep.md|31|8261b4decf50f0c979f32409a10ff25d9119ffc93865409958db010fb430784c\r\n.agentwiki/vault.json|68|6e390ea4c7eabb11b1ce9a698a265d23ae3815867c685e707d78b555ce65a797\r\n.agentwiki/devices/d-253e09a62a38505346e365b2bc8e3f00139662c15f95c16836a561b3c873a2b5/spaces/s-d8c716768ccc391eccf4dc5d69b907861700b6d0c5ae035bc78e826a41fbece7/tree-identities.json|420|241f2c60478775dbea8da90a3af6de57cbf7ad01e6fd72862e45bb6eb639005d\r\n.agentwiki/devices/d-253e09a62a38505346e365b2bc8e3f00139662c15f95c16836a561b3c873a2b5/spaces/s-d8c716768ccc391eccf4dc5d69b907861700b6d0c5ae035bc78e826a41fbece7/tree-identities.json.prev|401|7d9ddfb4f21320d782b90c6660c840bf21cdeb825fdcda0823da2388d0ddec61\r\n.agentwiki/devices/d-253e09a62a38505346e365b2bc8e3f00139662c15f95c16836a561b3c873a2b5/spaces/s-d8c716768ccc391eccf4dc5d69b907861700b6d0c5ae035bc78e826a41fbece7/pull/journal.json|1614|32a97fda26c983508568a87ae11affdd7b38cf0b6726cf353325be097f0d71e4\r\n.agentwiki/devices/d-253e09a62a38505346e365b2bc8e3f00139662c15f95c16836a561b3c873a2b5/spaces/s-d8c716768ccc391eccf4dc5d69b907861700b6d0c5ae035bc78e826a41fbece7/pull/journal.json.prev|1613|6b31132a29ba051204d56799c933ba2c121c45660f0080b8c84a2a0d9ff456fb\r\n.agentwiki/devices/d-253e09a62a38505346e365b2bc8e3f00139662c15f95c16836a561b3c873a2b5/spaces/s-d8c716768ccc391eccf4dc5d69b907861700b6d0c5ae035bc78e826a41fbece7/tree-v2/baseline-journal.json|360|57b04f86d907460dac2966f2da0b02ddb175c12d16bba6af6e4092e44957a6a0\r\n.agentwiki/devices/d-253e09a62a38505346e365b2bc8e3f00139662c15f95c16836a561b3c873a2b5/spaces/s-d8c716768ccc391eccf4dc5d69b907861700b6d0c5ae035bc78e826a41fbece7/tree-v2/baseline-journal.json.prev|361|a431fa7f07b5eff28465f57997a383f7c0f80a8834d6ce52135d80dfa4e1964a\r\n.agentwiki/devices/d-253e09a62a38505346e365b2bc8e3f00139662c15f95c16836a561b3c873a2b5/spaces/s-d8c716768ccc391eccf4dc5d69b907861700b6d0c5ae035bc78e826a41fbece7/tree-v2/current.json|308|40c309e73aa0c5a616781f3613de9236f23d1b40a0e08b6200a9cc768d27e910\r\n.agentwiki/devices/d-253e09a62a38505346e365b2bc8e3f00139662c15f95c16836a561b3c873a2b5/spaces/s-d8c716768ccc391eccf4dc5d69b907861700b6d0c5ae035bc78e826a41fbece7/tree-v2/generations/901fea4b-5abe-4cba-8c46-25cfc68db742/manifest.json|1078|24fb7c576f61bad1eed43a422aade8fbe97202eccb25f3deb2424c076c8be9c0\r\n.agentwiki/devices/d-253e09a62a38505346e365b2bc8e3f00139662c15f95c16836a561b3c873a2b5/spaces/s-d8c716768ccc391eccf4dc5d69b907861700b6d0c5ae035bc78e826a41fbece7/tree-v2/generations/901fea4b-5abe-4cba-8c46-25cfc68db742/base/pages/Keep.md|32|2388e9f45f7ff9ae05cb7816bcfc043c8d277cacc8be0013e84908fd2e5acba8\r\nF/LocalOnly.md|38|508540f39f548e84bd0a02558e8d804b34c67927e2717babaa1f2741d6c966b4\r\n验收/Windows/pages/Keep.md|32|2388e9f45f7ff9ae05cb7816bcfc043c8d277cacc8be0013e84908fd2e5acba8\r\nREMOTE_TOP_KEYS=spaceId,treeRevision,parentFolderId,data,nextCursor\r\nTREE_REVISION=3\r\nTREE_JSON_NO_CONTENT={\"spaceId\":\"cmuzvs71f025kjakf2wopuz5b\",\"treeRevision\":\"3\",\"parentFolderId\":null,\"data\":[{\"kind\":\"folder\",\"id\":\"cmuzvs7co025qjakfzd0wnw8p\",\"name\":\"F\",\"path\":\"pages/F\",\"sortOrder\":0,\"createdAt\":\"2026-10-08T18:39:40.345Z\",\"updatedAt\":\"2026-10-08T18:39:40.345Z\",\"hasChildren\":false},{\"kind\":\"folder\",\"id\":\"cmuzvs7jg025vjakfuz8qw8jm\",\"name\":\"M\",\"path\":\"pages/M\",\"sortOrder\":1,\"createdAt\":\"2026-10-08T18:39:40.588Z\",\"updatedAt\":\"2026-10-08T18:39:40.588Z\",\"hasChildren\":false},{\"kind\":\"page\",\"id\":\"d999d9a2-891b-423f-a46d-1ea223427a7d\",\"folderId\":null,\"title\":\"Keep\",\"path\":\"pages/Keep.md\",\"sortOrder\":0,\"createdAt\":\"2026-10-08T18:39:40.84Z\",\"updatedAt\":\"2026-10-08T18:39:40.84Z\"}],\"nextCursor\":null}\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-1f23d537-697a-4baa-8bba-fd7fa693c8e8",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 557,
+      "observedAt": "2026-10-08T18:56:00.816Z",
+      "output": {
+        "text": "created=C:\\Users\\1\\AppData\\Local\\Temp\\AgentWiki-Sync-0.5.7-Windows-20261009-cca3df29f8fb4963a1727438fe8021d3\\vault\\验收\\Windows\\pages\\Roundtrip.md\r\nbytes=50\r\nhash=7d22fb2e2e1a0e0bcdfb787273f3c76760549faaf4e25a898c0f0b13fb41a2df\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-2ca9dab9-be0a-4244-8888-51cec949d243",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1692,
+      "observedAt": "2026-10-08T18:56:00.816Z",
+      "output": {
+        "text": "=> clicked\n新标签页 - vault - Obsidian 1.13.7 \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nvault侧边栏为空，请尝试拖动一个标签页到此处。文件列表搜索书签验收FKeep新标签页新标签页创建新文件 (Ctrl + N)打开文件 (Ctrl + O)关闭标签页侧边栏为空，请尝试拖动一个标签页到此处。反向链接出链标签添加笔记属性大纲AgentWiki推送预览（以本地内容为准）更新: pages/Roundtrip.md确认将应用全部变更（包括其他分页）。取消确认执行\n<button class=\"clickable-icon\" aria-disabled=\"true\" aria-label=\"返回\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-arrow-left\"><path d=\"m12 19-7-7 7-7\"></path><path d=\"M19 12H5\"></path></svg></button>\n\n<button class=\"clickable-icon\" aria-disabled=\"true\" aria-label=\"前进\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-arrow-right\"><path d=\"M5 12h14\"></path><path d=\"m12 5 7 7-7 7\"></path></svg></button>\n\n<button class=\"clickable-icon view-action mod-bookmark\" aria-label=\"书签\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-bookmark\"><path d=\"M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z\"></path></svg></button>\n\n<button class=\"clickable-icon view-action\" aria-label=\"更多选项\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-more-vertical\"><circle cx=\"12\" cy=\"12\" r=\"1\"></circle><circle cx=\"12\" cy=\"5\" r=\"1\"></circle><circle cx=\"12\" cy=\"19\" r=\"1\"></circle></svg></button>\n\n<button>取消</button>\n\n<button class=\"mod-destructive mod-cta\">确认执行</button>\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-f24e396a-054a-4682-a05e-4e89af8c6643",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2651,
+      "observedAt": "2026-10-08T18:56:00.816Z",
+      "output": {
+        "text": "=> confirmed\n新标签页 - vault - Obsidian 1.13.7 \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nvault侧边栏为空，请尝试拖动一个标签页到此处。文件列表搜索书签验收FKeep新标签页新标签页创建新文件 (Ctrl + N)打开文件 (Ctrl + O)关闭标签页侧边栏为空，请尝试拖动一个标签页到此处。反向链接出链标签添加笔记属性大纲AgentWiki推送完成。\nNo errors captured.\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-6eee0426-c3bb-4466-bcf0-801578d7c24d",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1340,
+      "observedAt": "2026-10-08T18:56:00.816Z",
+      "output": {
+        "text": "roundtrip_id=d8700b43-d713-4bca-a11e-ab893d7dcf33\r\nremote_title=Roundtrip\r\nremote_content_sha256=c6186b918dc1302f7d3b17f39b42e5ff15e9bcf40fe73106d776ff17014b50e5\r\nremote_content=# Roundtrip\n\n本地 roundtrip 基线 2026-10-09\n\n\r\nlocal_content_sha256=7d22fb2e2e1a0e0bcdfb787273f3c76760549faaf4e25a898c0f0b13fb41a2df\r\nlocal_content=# Roundtrip\n\n本地 roundtrip 基线 2026-10-09\n\r\n\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-edbd358a-3373-4241-af5d-27cc50ed5e24",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1203,
+      "observedAt": "2026-10-08T18:57:12.850Z",
+      "output": {
+        "text": "length_remote=41\r\nlength_local=42\r\ncodes_remote=35,32,82,111,117,110,100,116,114,105,112,10,10,26412,22320,32,114,111,117,110,100,116,114,105,112,32,22522,32447,32,50,48,50,54,45,49,48,45,48,57,10,10\r\ncodes_local=35,32,82,111,117,110,100,116,114,105,112,10,10,26412,22320,32,114,111,117,110,100,116,114,105,112,32,22522,32447,32,50,48,50,54,45,49,48,45,48,57,10,13,10\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-82f9af03-a5a1-4b5b-ae4f-e132770b1ad2",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1881,
+      "observedAt": "2026-10-08T18:57:12.851Z",
+      "output": {
+        "text": "patch_status=200\r\npage_id=d8700b43-d713-4bca-a11e-ab893d7dcf33\r\nupdated_at=10/08/2026 18:56:44\r\nremote_hash=f049c7fa76a1a1a0b2a5966b7ff89884b98f28700c2ab5c2b29737fb9195ff0f\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-6d6fb44e-5e50-4d48-98d3-d422a7cd06b9",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1517,
+      "observedAt": "2026-10-08T18:57:12.851Z",
+      "output": {
+        "text": "=> clicked\n新标签页 - vault - Obsidian 1.13.7 \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nvault侧边栏为空，请尝试拖动一个标签页到此处。文件列表搜索书签验收FKeep新标签页新标签页创建新文件 (Ctrl + N)打开文件 (Ctrl + O)关闭标签页侧边栏为空，请尝试拖动一个标签页到此处。反向链接出链标签添加笔记属性大纲AgentWiki以服务器内容为准写入: pages/Roundtrip.md确认将应用全部变更（包括其他分页）。取消确认执行\n<button class=\"clickable-icon\" aria-disabled=\"true\" aria-label=\"返回\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-arrow-left\"><path d=\"m12 19-7-7 7-7\"></path><path d=\"M19 12H5\"></path></svg></button>\n\n<button class=\"clickable-icon\" aria-disabled=\"true\" aria-label=\"前进\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-arrow-right\"><path d=\"M5 12h14\"></path><path d=\"m12 5 7 7-7 7\"></path></svg></button>\n\n<button class=\"clickable-icon view-action mod-bookmark\" aria-label=\"书签\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-bookmark\"><path d=\"M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z\"></path></svg></button>\n\n<button class=\"clickable-icon view-action\" aria-label=\"更多选项\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-more-vertical\"><circle cx=\"12\" cy=\"12\" r=\"1\"></circle><circle cx=\"12\" cy=\"5\" r=\"1\"></circle><circle cx=\"12\" cy=\"19\" r=\"1\"></circle></svg></button>\n\n<button>取消</button>\n\n<button class=\"mod-destructive mod-cta\">确认执行</button>\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-9d110896-5446-4bb6-9065-07877dd72980",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2429,
+      "observedAt": "2026-10-08T18:58:13.476Z",
+      "output": {
+        "text": "=> confirmed\n新标签页 - vault - Obsidian 1.13.7 \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nvault侧边栏为空，请尝试拖动一个标签页到此处。文件列表搜索书签验收FKeep新标签页新标签页创建新文件 (Ctrl + N)打开文件 (Ctrl + O)关闭标签页侧边栏为空，请尝试拖动一个标签页到此处。反向链接出链标签添加笔记属性大纲AgentWiki已按服务器内容更新本地。\nNo errors captured.\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-d61c2358-31f8-4567-83df-55f0dfba0a1f",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1238,
+      "observedAt": "2026-10-08T18:58:13.476Z",
+      "output": {
+        "text": "remote_utf8_bytes=51\r\nlocal_file_bytes=51\r\nexact_utf8_bytes_equal=True\r\nremote_sha256=f049c7fa76a1a1a0b2a5966b7ff89884b98f28700c2ab5c2b29737fb9195ff0f\r\nlocal_file_sha256=f049c7fa76a1a1a0b2a5966b7ff89884b98f28700c2ab5c2b29737fb9195ff0f\r\nlocal_tail_hex=BAE7BABF20323032362D31302D30390A\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-53b62794-1c56-45eb-be71-1fbd202409da",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1248,
+      "observedAt": "2026-10-08T18:59:29.402Z",
+      "output": {
+        "text": "exists=False\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-4139bfe7-9727-4bee-b167-bf2e25715fd5",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1108,
+      "observedAt": "2026-10-08T19:00:34.577Z",
+      "output": {
+        "text": "TREE_REVISION=6\r\n\r\nkind   id                        name title path    parentId folderId\r\n----   --                        ---- ----- ----    -------- --------\r\nfolder cmuzvs7co025qjakfzd0wnw8p F          pages/F          \r\n\r\n\r\n[{\"kind\":\"folder\",\"id\":\"cmuzvs7co025qjakfzd0wnw8p\",\"name\":\"F\",\"title\":null,\"path\":\"pages/F\",\"parentId\":null,\"folderId\":null},{\"kind\":\"folder\",\"id\":\"cmuzvs7jg025vjakfuz8qw8jm\",\"name\":\"M\",\"title\":null,\"path\":\"pages/M\",\"parentId\":null,\"folderId\":null},{\"kind\":\"page\",\"id\":\"d999d9a2-891b-423f-a46d-1ea223427a7d\",\"name\":null,\"title\":\"Keep\",\"path\":\"pages/Keep.md\",\"parentId\":null,\"folderId\":null},{\"kind\":\"page\",\"id\":\"d8700b43-d713-4bca-a11e-ab893d7dcf33\",\"name\":null,\"title\":\"Roundtrip\",\"path\":\"pages/Roundtrip.md\",\"parentId\":null,\"folderId\":null}]\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-38381916-1fd8-489b-a8ef-77c0bec92587",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1193,
+      "observedAt": "2026-10-08T19:00:34.577Z",
+      "output": {
+        "text": "F_CHILD_TREE_KEYS=spaceId,treeRevision,parentFolderId,data,nextCursor\r\nTREE_F_REVISION=6\r\n{\"kind\":\"folder\",\"id\":\"cmuzwhzdz02gijakfufrer50f\",\"name\":\"C\",\"title\":null,\"path\":\"pages/F/C\",\"parentId\":null,\"folderId\":null}\r\nC_CHILDREN={\"kind\":\"page\",\"id\":\"39ee43d6-4337-40a0-af11-62a94e129ac8\",\"name\":null,\"title\":\"New\",\"path\":\"pages/F/C/New.md\",\"parentId\":null,\"folderId\":\"cmuzwhzdz02gijakfufrer50f\"}\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-c34945bb-3f36-48fc-a051-fb296073b2d4",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2649,
+      "observedAt": "2026-10-08T19:01:45.081Z",
+      "output": {
+        "text": "新标签页 - vault - Obsidian 1.13.7 \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nvault侧边栏为空，请尝试拖动一个标签页到此处。文件列表搜索书签验收FKeep新标签页新标签页创建新文件 (Ctrl + N)打开文件 (Ctrl + O)关闭标签页侧边栏为空，请尝试拖动一个标签页到此处。反向链接出链标签添加笔记属性大纲AgentWiki以本地内容为准 — 先合并服务器更新创建目录: pages/F/C创建: pages/F/C/New.md确认将应用全部变更（包括其他分页）。取消确认执行目录：cmuzvs7co025qjakfzd0wnw8p原位置：pages/F · 本地：无 · 服务器：pages/F请选择…保留本地位置使用服务器位置手动输入最终路径保留本地位置\n<button class=\"clickable-icon\" aria-disabled=\"true\" aria-label=\"返回\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-arrow-left\"><path d=\"m12 19-7-7 7-7\"></path><path d=\"M19 12H5\"></path></svg></button>\n\n<button class=\"clickable-icon\" aria-disabled=\"true\" aria-label=\"前进\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-arrow-right\"><path d=\"M5 12h14\"></path><path d=\"m12 5 7 7-7 7\"></path></svg></button>\n\n<button class=\"clickable-icon view-action mod-bookmark\" aria-label=\"书签\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-bookmark\"><path d=\"M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z\"></path></svg></button>\n\n<button class=\"clickable-icon view-action\" aria-label=\"更多选项\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-more-vertical\"><circle cx=\"12\" cy=\"12\" r=\"1\"></circle><circle cx=\"12\" cy=\"5\" r=\"1\"></circle><circle cx=\"12\" cy=\"19\" r=\"1\"></circle></svg></button>\n\n<button>取消</button>\n\n<button class=\"mod-destructive mod-cta\">确认执行</button>\nNo errors captured.\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-71ca39f2-a58c-4966-a9d9-8f8266ff06a3",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1695,
+      "observedAt": "2026-10-08T19:01:45.081Z",
+      "output": {
+        "text": "=> {\"value\":\"local\"}\n新标签页 - vault - Obsidian 1.13.7 \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nvault侧边栏为空，请尝试拖动一个标签页到此处。文件列表搜索书签验收FKeep新标签页新标签页创建新文件 (Ctrl + N)打开文件 (Ctrl + O)关闭标签页侧边栏为空，请尝试拖动一个标签页到此处。反向链接出链标签添加笔记属性大纲AgentWiki以本地内容为准 — 先合并服务器更新创建目录: pages/F/C创建: pages/F/C/New.md确认将应用全部变更（包括其他分页）。取消确认执行目录：cmuzvs7co025qjakfzd0wnw8p原位置：pages/F · 本地：无 · 服务器：pages/F请选择…保留本地位置使用服务器位置手动输入最终路径保留本地位置\n<button class=\"clickable-icon\" aria-disabled=\"true\" aria-label=\"返回\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-arrow-left\"><path d=\"m12 19-7-7 7-7\"></path><path d=\"M19 12H5\"></path></svg></button>\n\n<button class=\"clickable-icon\" aria-disabled=\"true\" aria-label=\"前进\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-arrow-right\"><path d=\"M5 12h14\"></path><path d=\"m12 5 7 7-7 7\"></path></svg></button>\n\n<button class=\"clickable-icon view-action mod-bookmark\" aria-label=\"书签\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-bookmark\"><path d=\"M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z\"></path></svg></button>\n\n<button class=\"clickable-icon view-action\" aria-label=\"更多选项\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-more-vertical\"><circle cx=\"12\" cy=\"12\" r=\"1\"></circle><circle cx=\"12\" cy=\"5\" r=\"1\"></circle><circle cx=\"12\" cy=\"19\" r=\"1\"></circle></svg></button>\n\n<button>取消</button>\n\n<button class=\"mod-destructive mod-cta\">确认执行</button>\n<select class=\"dropdown\" style=\"--dropdown-fitted-width: 120px;\"><option value=\"\">请选择…</option><option value=\"local\">保留本地位置</option><option value=\"remote\">使用服务器位置</option><option value=\"manual\">手动输入最终路径</option></select>\n\n<select class=\"dropdown is-measuring\" aria-hidden=\"true\" tabindex=\"-1\"><option>保留本地位置</option></select>\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-084e773e-6f0c-4e15-959b-c6d68827cfb8",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2118,
+      "observedAt": "2026-10-08T19:01:45.081Z",
+      "output": {
+        "text": "=> clicked\n新标签页 - vault - Obsidian 1.13.7 \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nvault侧边栏为空，请尝试拖动一个标签页到此处。文件列表搜索书签验收FKeep新标签页新标签页创建新文件 (Ctrl + N)打开文件 (Ctrl + O)关闭标签页侧边栏为空，请尝试拖动一个标签页到此处。反向链接出链标签添加笔记属性大纲AgentWiki以本地内容为准 — 先合并服务器更新创建目录: pages/F/C创建: pages/F/C/New.md确认将应用全部变更（包括其他分页）。取消确认执行目录：cmuzvs7co025qjakfzd0wnw8p原位置：pages/F · 本地：无 · 服务器：pages/F请选择…保留本地位置使用服务器位置手动输入最终路径保留本地位置同步失败：FOLDER_HAS_DEPENDENTS: 目录仍有后代，无法删除；请选择保留目录，或填写新路径移动目录及其后代。Cannot delete a folder with descendants. Keep the folder, or enter a new path to move it and its descendants.\n<button class=\"clickable-icon\" aria-disabled=\"true\" aria-label=\"返回\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-arrow-left\"><path d=\"m12 19-7-7 7-7\"></path><path d=\"M19 12H5\"></path></svg></button>\n\n<button class=\"clickable-icon\" aria-disabled=\"true\" aria-label=\"前进\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-arrow-right\"><path d=\"M5 12h14\"></path><path d=\"m12 5 7 7-7 7\"></path></svg></button>\n\n<button class=\"clickable-icon view-action mod-bookmark\" aria-label=\"书签\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-bookmark\"><path d=\"M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z\"></path></svg></button>\n\n<button class=\"clickable-icon view-action\" aria-label=\"更多选项\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-more-vertical\"><circle cx=\"12\" cy=\"12\" r=\"1\"></circle><circle cx=\"12\" cy=\"5\" r=\"1\"></circle><circle cx=\"12\" cy=\"19\" r=\"1\"></circle></svg></button>\n\n<button>取消</button>\n\n<button class=\"mod-destructive mod-cta\">确认执行</button>\nNo errors captured.\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-c659c9c6-46b1-4942-9569-a5cb362e7f1b",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1796,
+      "observedAt": "2026-10-08T19:02:54.043Z",
+      "output": {
+        "text": "remote_tree_revision=6\r\nForEach-Object: \r\nLine |\r\n   9 |  'remote_f_children='+($tf.data | ForEach-Object {$_.path} -join ',')\r\n     |                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n     | Cannot bind parameter 'RemainingScripts'. Cannot convert the \"-join\" value of type \"System.String\" to type \"System.Management.Automation.ScriptBlock\".\r\nForEach-Object: \r\nLine |\r\n  10 |  'remote_c_children='+($tc.data | ForEach-Object {$_.path} -join ',')\r\n     |                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n     | Cannot bind parameter 'RemainingScripts'. Cannot convert the \"-join\" value of type \"System.String\" to type \"System.Management.Automation.ScriptBlock\".\r\nlocal_f_exists=False\r\nlocal_c_exists=False\r\nlocal_new_exists=False\r\nlocal_keep_exists=True\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-e1064311-b6b2-461d-b4f2-982f9a2fcad4",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1636,
+      "observedAt": "2026-10-08T19:02:54.043Z",
+      "output": {
+        "text": "=> {\"value\":\"remote\"}\n<button class=\"clickable-icon\" aria-disabled=\"true\" aria-label=\"返回\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-arrow-left\"><path d=\"m12 19-7-7 7-7\"></path><path d=\"M19 12H5\"></path></svg></button>\n\n<button class=\"clickable-icon\" aria-disabled=\"true\" aria-label=\"前进\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-arrow-right\"><path d=\"M5 12h14\"></path><path d=\"m12 5 7 7-7 7\"></path></svg></button>\n\n<button class=\"clickable-icon view-action mod-bookmark\" aria-label=\"书签\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-bookmark\"><path d=\"M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z\"></path></svg></button>\n\n<button class=\"clickable-icon view-action\" aria-label=\"更多选项\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-more-vertical\"><circle cx=\"12\" cy=\"12\" r=\"1\"></circle><circle cx=\"12\" cy=\"5\" r=\"1\"></circle><circle cx=\"12\" cy=\"19\" r=\"1\"></circle></svg></button>\n\n<button>取消</button>\n\n<button class=\"mod-destructive mod-cta\">确认执行</button>\n<select class=\"dropdown\" style=\"--dropdown-fitted-width: 133px;\"><option value=\"\">请选择…</option><option value=\"local\">保留本地位置</option><option value=\"remote\">使用服务器位置</option><option value=\"manual\">手动输入最终路径</option></select>\n\n<select class=\"dropdown is-measuring\" aria-hidden=\"true\" tabindex=\"-1\"><option>使用服务器位置</option></select>\n以本地内容为准 — 先合并服务器更新创建目录: pages/F/C创建: pages/F/C/New.md确认将应用全部变更（包括其他分页）。取消确认执行目录：cmuzvs7co025qjakfzd0wnw8p原位置：pages/F · 本地：无 · 服务器：pages/F请选择…保留本地位置使用服务器位置手动输入最终路径使用服务器位置\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-1776cc85-3bfd-4a9f-a0c4-53d4207ca94d",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1838,
+      "observedAt": "2026-10-08T19:02:54.043Z",
+      "output": {
+        "text": "=> clicked\n以本地内容为准 — 先合并服务器更新创建目录: pages/F/C创建: pages/F/C/New.md扫描 0取消确认执行目录：cmuzvs7co025qjakfzd0wnw8p原位置：pages/F · 本地：无 · 服务器：pages/F请选择…保留本地位置使用服务器位置手动输入最终路径使用服务器位置\n<button class=\"clickable-icon\" aria-disabled=\"true\" aria-label=\"返回\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-arrow-left\"><path d=\"m12 19-7-7 7-7\"></path><path d=\"M19 12H5\"></path></svg></button>\n\n<button class=\"clickable-icon\" aria-disabled=\"true\" aria-label=\"前进\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-arrow-right\"><path d=\"M5 12h14\"></path><path d=\"m12 5 7 7-7 7\"></path></svg></button>\n\n<button class=\"clickable-icon view-action mod-bookmark\" aria-label=\"书签\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-bookmark\"><path d=\"M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z\"></path></svg></button>\n\n<button class=\"clickable-icon view-action\" aria-label=\"更多选项\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-more-vertical\"><circle cx=\"12\" cy=\"12\" r=\"1\"></circle><circle cx=\"12\" cy=\"5\" r=\"1\"></circle><circle cx=\"12\" cy=\"19\" r=\"1\"></circle></svg></button>\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-39103d4f-51a3-484a-ae16-779c936722eb",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2713,
+      "observedAt": "2026-10-08T19:03:58.543Z",
+      "output": {
+        "text": "local_f=True\r\nlocal_c=True\r\nlocal_new=True\r\nlocal_keep=True\r\nExecuted: agentwiki-sync:open-sync-center\n=> true\n新标签页 - vault - Obsidian 1.13.7 \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nvault侧边栏为空，请尝试拖动一个标签页到此处。文件列表搜索书签验收FKeep新标签页新标签页创建新文件 (Ctrl + N)打开文件 (Ctrl + O)关闭标签页侧边栏为空，请尝试拖动一个标签页到此处。反向链接出链标签添加笔记属性大纲AgentWikiAgentWiki 同步同步空间Windows Sync QA 1ea86e9d2354 · 验收/Windows · 所有者cmuzvs71f025kjakf2wopuz5b · 验收/Windows协议：Sync v2本地与服务器已同步，无需操作。扫描 0本地变更本地没有未推送的变更。服务器变更服务器没有新的变更。自动合并会同步本地删除，冲突可逐项选择；使用本地内容在冲突处保留本地。Sync v2 使用服务器内容会恢复本地删除并覆盖本地修改，执行前请检查预览。 / Auto merge includes local deletions; resolve conflicts in preview. Use local keeps local conflict values. In Sync v2, use server restores deleted files and replaces local changes; review before confirming.自动合并（推荐）使用本地内容使用服务器内容刷新差异\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-2828560c-a650-4ed4-86ca-e52566f3ec88",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1566,
+      "observedAt": "2026-10-08T19:03:58.543Z",
+      "output": {
+        "text": "=> before=true\nlocal_m_exists=False\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-2ff17de3-b433-4202-bb20-7c717e330883",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1349,
+      "observedAt": "2026-10-08T19:05:21.403Z",
+      "output": {
+        "text": "=> {\"value\":\"pages/Recovered\",\"confirmDisabled\":false}\n请选择…保留本地位置使用服务器位置手动输入最终路径手动输入最终路径\n<button class=\"clickable-icon\" aria-disabled=\"true\" aria-label=\"返回\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-arrow-left\"><path d=\"m12 19-7-7 7-7\"></path><path d=\"M19 12H5\"></path></svg></button>\n\n<button class=\"clickable-icon\" aria-disabled=\"true\" aria-label=\"前进\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-arrow-right\"><path d=\"M5 12h14\"></path><path d=\"m12 5 7 7-7 7\"></path></svg></button>\n\n<button class=\"clickable-icon view-action mod-bookmark\" aria-label=\"书签\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-bookmark\"><path d=\"M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z\"></path></svg></button>\n\n<button class=\"clickable-icon view-action\" aria-label=\"更多选项\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-more-vertical\"><circle cx=\"12\" cy=\"12\" r=\"1\"></circle><circle cx=\"12\" cy=\"5\" r=\"1\"></circle><circle cx=\"12\" cy=\"19\" r=\"1\"></circle></svg></button>\n\n<button class=\"mod-cta\">自动合并（推荐）</button>\n\n<button>使用本地内容</button>\n\n<button>使用服务器内容</button>\n\n<button>刷新差异</button>\n\n<button>取消</button>\n\n<button class=\"mod-destructive mod-cta\">确认执行</button>\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-e6ca199c-a84e-40d2-82ea-4095dda76bcf",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 3439,
+      "observedAt": "2026-10-08T19:06:16.690Z",
+      "output": {
+        "text": "=> {\"manualPath\":\"pages/Recovered\",\"summaryShowsOriginal\":true,\"summaryShowsRecovered\":false}\nC:\\Users\\1\\AppData\\Local\\Temp\\AgentWiki-Sync-0.5.7-Windows-20261009-cca3df29f8fb4963a1727438fe8021d3\\evidence\\v2-manual-selected.png\n=> confirmed\n新标签页 - vault - Obsidian 1.13.7 \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nvault侧边栏为空，请尝试拖动一个标签页到此处。文件列表搜索书签验收FKeep新标签页新标签页创建新文件 (Ctrl + N)打开文件 (Ctrl + O)关闭标签页侧边栏为空，请尝试拖动一个标签页到此处。反向链接出链标签添加笔记属性大纲AgentWikiAgentWiki 同步同步空间Windows Sync QA 1ea86e9d2354 · 验收/Windows · 所有者cmuzvs71f025kjakf2wopuz5b · 验收/Windows协议：Sync v2本地 1 处变更（目录 1 · 页面 0）· 服务器 2 处更新（目录 1 · 页面 1）扫描 0本地变更- 目录 pages/M服务器变更↑ 目录 pages/M/C↑ pages/M/C/New.md自动合并会同步本地删除，冲突可逐项选择；使用本地内容在冲突处保留本地。Sync v2 使用服务器内容会恢复本地删除并覆盖本地修改，执行前请检查预览。 / Auto merge includes local deletions; resolve conflicts in preview. Use local keeps local conflict values. In Sync v2, use server restores deleted files and replaces local changes; review before confirming.自动合并（推荐）使用本地内容使用服务器内容刷新差异推送预览（以本地内容为准）更新目录: pages/Recovered更新目录: pages/Recovered/C更新: pages/Recovered/C/New.md归档: pages/M/C/New.md确认将应用全部变更（包括其他分页）。取消确认执行\nNo errors captured.\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-34391dd6-fb16-43f8-be7b-07f7a5f3ee5f",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 3153,
+      "observedAt": "2026-10-08T19:06:16.691Z",
+      "output": {
+        "text": "=> confirmed-second\n新标签页 - vault - Obsidian 1.13.7 \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nvault侧边栏为空，请尝试拖动一个标签页到此处。文件列表搜索书签验收FKeep新标签页新标签页创建新文件 (Ctrl + N)打开文件 (Ctrl + O)关闭标签页侧边栏为空，请尝试拖动一个标签页到此处。反向链接出链标签添加笔记属性大纲AgentWikiAgentWiki 同步同步空间Windows Sync QA 1ea86e9d2354 · 验收/Windows · 所有者cmuzvs71f025kjakf2wopuz5b · 验收/Windows协议：Sync v2本地 1 处变更（目录 1 · 页面 0）· 服务器 2 处更新（目录 1 · 页面 1）扫描 0本地变更- 目录 pages/M服务器变更↑ 目录 pages/M/C↑ pages/M/C/New.md自动合并会同步本地删除，冲突可逐项选择；使用本地内容在冲突处保留本地。Sync v2 使用服务器内容会恢复本地删除并覆盖本地修改，执行前请检查预览。 / Auto merge includes local deletions; resolve conflicts in preview. Use local keeps local conflict values. In Sync v2, use server restores deleted files and replaces local changes; review before confirming.自动合并（推荐）使用本地内容使用服务器内容刷新差异推送完成。\nNo errors captured.\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-6ead24e0-19b0-45df-a9c0-af354537bc36",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2016,
+      "observedAt": "2026-10-08T19:06:16.691Z",
+      "output": {
+        "text": "=> refreshed\n新标签页 - vault - Obsidian 1.13.7 \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nvault侧边栏为空，请尝试拖动一个标签页到此处。文件列表搜索书签验收FKeep新标签页新标签页创建新文件 (Ctrl + N)打开文件 (Ctrl + O)关闭标签页侧边栏为空，请尝试拖动一个标签页到此处。反向链接出链标签添加笔记属性大纲AgentWikiAgentWiki 同步同步空间Windows Sync QA 1ea86e9d2354 · 验收/Windows · 所有者cmuzvs71f025kjakf2wopuz5b · 验收/Windows协议：Sync v2本地与服务器已同步，无需操作。扫描 0本地变更本地没有未推送的变更。服务器变更服务器没有新的变更。自动合并会同步本地删除，冲突可逐项选择；使用本地内容在冲突处保留本地。Sync v2 使用服务器内容会恢复本地删除并覆盖本地修改，执行前请检查预览。 / Auto merge includes local deletions; resolve conflicts in preview. Use local keeps local conflict values. In Sync v2, use server restores deleted files and replaces local changes; review before confirming.自动合并（推荐）使用本地内容使用服务器内容刷新差异\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-bb154756-5d20-49b4-8b22-c9b235eb2dc0",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1382,
+      "observedAt": "2026-10-08T19:07:16.982Z",
+      "output": {
+        "text": "local_paths=Keep.md,Roundtrip.md,F/C/New.md,Recovered/C/New.md\r\nlocal_m_exists=False\r\nlocal_recovered_exists=True\r\nkeep_sha256=2388e9f45f7ff9ae05cb7816bcfc043c8d277cacc8be0013e84908fd2e5acba8\r\nremote_top_revision=9\r\nremote_top_paths=pages/F,pages/Recovered,pages/Keep.md,pages/Roundtrip.md\r\nremote_recovered_children=pages/Recovered/C\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-86364439-db4f-48e0-ae25-377a1167825d",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1379,
+      "observedAt": "2026-10-08T19:07:16.982Z",
+      "output": {
+        "text": "remote_recovered_c_children=pages/Recovered/C/New.md\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-7584e6b0-cde6-48dd-bcf8-d5ab647652e6",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 602,
+      "observedAt": "2026-10-08T19:08:16.071Z",
+      "output": {
+        "text": "png_bytes=68\r\npng_sha256=431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460\r\nroundtrip_bytes=83\r\nroundtrip_sha256=504cd1a54ca1aee93b06fb027c1b2d497d13af72cc04cb90a6abe2b5fe0bd445\r\nroundtrip_has_relative_image=True\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-21f39d64-6ca5-4d97-9d09-2255471cc0f7",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 3261,
+      "observedAt": "2026-10-08T19:08:16.071Z",
+      "output": {
+        "text": "=> {\"modalContainers\":1,\"centers\":1}\nExecuted: agentwiki-sync:open-sync-center\nError: refresh not found\n新标签页 - vault - Obsidian 1.13.7 \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nvault侧边栏为空，请尝试拖动一个标签页到此处。文件列表搜索书签验收FKeep新标签页新标签页创建新文件 (Ctrl + N)打开文件 (Ctrl + O)关闭标签页侧边栏为空，请尝试拖动一个标签页到此处。反向链接出链标签添加笔记属性大纲AgentWikiAgentWiki 同步同步空间Windows Sync QA 1ea86e9d2354 · 验收/Windows · 所有者cmuzvs71f025kjakf2wopuz5b · 验收/Windows协议：Sync v2本地与服务器已同步，无需操作。扫描 0本地变更本地没有未推送的变更。服务器变更服务器没有新的变更。自动合并会同步本地删除，冲突可逐项选择；使用本地内容在冲突处保留本地。Sync v2 使用服务器内容会恢复本地删除并覆盖本地修改，执行前请检查预览。 / Auto merge includes local deletions; resolve conflicts in preview. Use local keeps local conflict values. In Sync v2, use server restores deleted files and replaces local changes; review before confirming.自动合并（推荐）使用本地内容使用服务器内容刷新差异AgentWiki 同步同步空间Windows Sync QA 1ea86e9d2354 · 验收/Windows · 所有者cmuzvs71f025kjakf2wopuz5b · 验收/Windows协议：Sync v2 → Sync v3服务器有更新 · 图片变更见下方图片：上传 1 张 / 68 B · 下载 0 张 / 0 B · 替换 0 · 取消引用 0 · 单次传输上限 100 MB图片变更更新图片: assets/used.png · 1 个 Page下载 8本地变更+ 目录 pages/F+ 目录 pages/F/C+ 目录 pages/Recovered+ 目录 pages/Recovered/C+ pages/F/C/New.md+ pages/Keep.md+ pages/Recovered/C/New.md+ pages/Roundtrip.md服务器变更服务器变更已与合并基线一致。自动合并会同步本地删除，冲突可逐项选择；使用本地内容在冲突处保留本地。Sync v2 使用服务器内容会恢复本地删除并覆盖本地修改，执行前请检查预览。 / Auto merge includes local deletions; resolve conflicts in preview. Use local keeps local conflict values. In Sync v2, use server restores deleted files and replaces local changes; review before confirming.自动合并（推荐）使用本地内容使用服务器内容刷新差异\nAgentWiki 同步同步空间Windows Sync QA 1ea86e9d2354 · 验收/Windows · 所有者cmuzvs71f025kjakf2wopuz5b · 验收/Windows协议：Sync v2本地与服务器已同步，无需操作。扫描 0本地变更本地没有未推送的变更。服务器变更服务器没有新的变更。自动合并会同步本地删除，冲突可逐项选择；使用本地内容在冲突处保留本地。Sync v2 使用服务器内容会恢复本地删除并覆盖本地修改，执行前请检查预览。 / Auto merge includes local deletions; resolve conflicts in preview. Use local keeps local conflict values. In Sync v2, use server restores deleted files and replaces local changes; review before confirming.自动合并（推荐）使用本地内容使用服务器内容刷新差异\n",
+        "truncated": false
+      }
+    },
+    {
+      "id": "exec-0eb714b8-c071-4432-a1a9-d791c2597c4b",
+      "type": "commandExecution",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 536,
+      "observedAt": "2026-10-08T19:08:16.071Z",
+      "output": {
+        "text": "=> {\"count\":2,\"text\":\"AgentWiki 同步同步空间Windows Sync QA 1ea86e9d2354 · 验收/Windows · 所有者cmuzvs71f025kjakf2wopuz5b · 验收/Windows协议：Sync v2本地与服务器已同步，无需操作。扫描 0本地变更本地没有未推送的变更。服务器变更服务器没有新的变更。自动合并会同步本地删除，冲突可逐项选择；使用本地内容在冲突处保留本地。Sync v2 使用服务器内容会恢复本地删除并覆盖本地修改，执行前请检查预览。 / Auto merge includes local deletions; resolve conflicts in preview. Use local keeps local conflict values. In Sync v2, use server restores deleted files and replaces local changes; review before confirming.自动合并（推荐）使用本地内容使用服务器内容刷新差异\",\"buttons\":[{\"i\":0,\"text\":\"自动合并（推荐）\",\"aria\":null,\"class\":\"mod-cta\"},{\"i\":1,\"text\":\"使用本地内容\",\"aria\":null,\"class\":\"\"},{\"i\":2,\"text\":\"使用服务器内容\",\"aria\":null,\"class\":\"\"},{\"i\":3,\"text\":\"刷新差异\",\"aria\":null,\"class\":\"\"}],\"close\":[]}\n",
+        "truncated": false
+      }
+    }
+  ]
+}

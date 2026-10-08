@@ -1,0 +1,726 @@
+{
+  "schemaVersion": 1,
+  "threadId": "01a0f8b8-b64c-7c80-9114-789d6f72dfc8",
+  "hostId": "remote-control:env_e_6a53e3dc9b0483268a860e1de83e99c3",
+  "turnId": "01a11d0d-63d0-70a1-b39e-6240076d4b0b",
+  "status": "passed_production_cleanup_complete_local_evidence_retained",
+  "records": [
+    {
+      "type": "commandExecution",
+      "id": "exec-abc72d23-be23-4c7a-afa6-8dda97ec1f57",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 4140,
+      "output": {
+        "text": "root=C:\\Users\\1\\AppData\\Local\\Temp\\AgentWiki-Sync-0.5.8-Windows-86555de62338\r\nvault=C:\\Users\\1\\AppData\\Local\\Temp\\AgentWiki-Sync-0.5.8-Windows-86555de62338\\WinQA-058\r\nsha_match=True\r\nmain_sha256=4c439b451145d6dd684be4582c308626bdf44d74f9b47d2960f791d9d061dd95\r\nmanifest_sha256=a1409864b67d205a9158357e49f30a136249a67dfa5e8dde6b03290b2aa144c4\r\nstyles_sha256=5dfe15839220724a57a64ad7ab136761ba2ffaaff3c0235faac1cf1238e762b8\r\nreceipt=D:\\MyDocuments\\codexprojects\\codexconfig\\AgentWiki-058-native-final-receipt.json\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-2fd66e48-05a4-43ed-b34e-ed12c15d8b56",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2102,
+      "output": {
+        "text": "(no output)\n=> {\"tabOwnsCurrentPlugin\":true,\"tabVersion\":\"0.5.8\",\"containerConnected\":true,\"ownerWindowClosed\":false,\"buttonTexts\":[{\"text\":\"重试\",\"disabled\":false,\"connected\":true},{\"text\":\"断开\",\"disabled\":false,\"connected\":true}]}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-c455172e-5599-4c01-9b14-1edc0935b0c5",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2306,
+      "output": {
+        "text": "=> {\"disabled\":true,\"connectedBefore\":true}\n=> {\"connected\":false,\"text\":\"连接AgentWiki 服务器输入服务器地址，如 https://agentwiki.quukk.com连接 AgentWiki在浏览器中登录并确认，插件将自动完成连接。连接 AgentWiki手动连接码（兼容后备）连接码用于一次性绑定这台 Obsidian 设备，有效期 10 分钟。连接查看连接指南空间映射连接后可选择要同步的空间。\",\"buttons\":[{\"text\":\"连接 AgentWiki\",\"disabled\":false,\"connected\":true},{\"text\":\"连接\",\"disabled\":false,\"connected\":true},{\"text\":\"查看连接指南\",\"disabled\":false,\"connected\":true}]}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-91a95c7f-1271-4e32-a005-78f126109af3",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2722,
+      "output": {
+        "text": "=> {\"selected\":\"cmuzy9jw60358jakffsawesqs\",\"root\":\"验收/Windows058\",\"buttonDisabled\":true,\"ownerWindowClosed\":false}\n=> {\"mappings\":[{\"spaceId\":\"cmuzy9jw60358jakffsawesqs\",\"rootPath\":\"验收/Windows058\",\"status\":\"pending\"}],\"text\":\"连接AgentWiki 服务器已连接。断开后可更改服务器。已连接此设备已连接 AgentWiki。下一步选择空间和本地文件夹。空间映射WinQA058 783fc365验收/Windows058 · 待首次拉取取消添加映射选择远端空间，输入本地文件夹路径。已有文件夹会直接使用，不存在则自动创建；支持多级路径，如 知识库/项目。选择空间…选择空间…添加断开连接清除本地凭据。如需撤销远端凭据，请在 AgentWiki 网页操作。断开\"}\nNo errors captured.\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-b10d7d2c-2212-42e0-8604-7754fd658108",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2546,
+      "output": {
+        "text": "(no output)\nExecuted: agentwiki-sync:open-sync-center\n=> {\"modalCount\":1,\"text\":\"AgentWiki 同步同步空间WinQA058 783fc365 · 验收/Windows058 · 所有者cmuzy9jw60358jakffsawesqs · 验收/Windows058协议：Sync v2服务器有更新扫描 0本地变更本地没有未推送的变更。服务器变更首次同步：服务器内容将在拉取时与本地文件建立对应关系。自动合并会同步本地删除，冲突可逐项选择；使用本地内容在冲突处保留本地。Sync v2 使用服务器内容会恢复本地删除并覆盖本地修改，执行前请检查预览。 / Auto merge includes local deletions; resolve conflicts in preview. Use local keeps local conflict values. In Sync v2, use server restores deleted files and replaces local changes; review before confirming.自动合并（推荐）使用本地内容使用服务器内容刷新差异\",\"buttons\":[\"自动合并（推荐）\",\"使用本地内容\",\"使用服务器内容\",\"刷新差异\"]}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-2365b131-a04e-444a-ac4a-2ff2998fbc20",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1861,
+      "output": {
+        "text": "remote_patch=200\r\nroundtrip_id=c71d1fa2-31da-4b89-882a-0b964ca7ff47\r\nremote_sha256=816d15d9b6a92c11b4b46e670605faaa23852a7ad9b7b9d111ddcb5977b7d3cf\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-86ecdb30-dfa6-4500-8693-b231f3e00040",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 5735,
+      "output": {
+        "text": "Executed: agentwiki-sync:open-sync-center\n=> refreshed\n=> server-clicked\n=> {\"summary\":[],\"buttons\":[{\"text\":\"执行中…\",\"disabled\":true},{\"text\":\"使用本地内容\",\"disabled\":true},{\"text\":\"使用服务器内容\",\"disabled\":true},{\"text\":\"刷新差异\",\"disabled\":true},{\"text\":\"取消当前操作\",\"disabled\":false}]}\n=> confirmed\nlocal_sha256=816d15d9b6a92c11b4b46e670605faaa23852a7ad9b7b9d111ddcb5977b7d3cf\r\nexpected_remote_sha256=816d15d9b6a92c11b4b46e670605faaa23852a7ad9b7b9d111ddcb5977b7d3cf\r\nexact_bytes_equal=True\r\n=> {\"modalCount\":0,\"text\":\"closed\"}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-f5d6a034-e826-41bc-9df6-7f9806f522fa",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1801,
+      "output": {
+        "text": "Executed: agentwiki-sync:open-sync-center\n=> {\"protocol\":true,\"zeroDiff\":true,\"text\":\"AgentWiki 同步同步空间WinQA058 783fc365 · 验收/Windows058 · 所有者cmuzy9jw60358jakffsawesqs · 验收/Windows058协议：Sync v2本地与服务器已同步，无需操作。扫描 0本地变更本地没有未推送的变更。服务器变更服务器没有新的变更。自动合并会同步本地删除，冲突可逐项选择；使用本地内容在冲突处保留本地。Sync v2 使用服务器内容会恢复本地删除并覆盖本地修改，执行前请检查预览。 / Auto merge includes local deletions; resolve conflicts in preview. Use local keeps local conflict values. In Sync v2, use server restores deleted files and replaces local changes; review before confirming.自动合并（推荐）使用本地内容使用服务器内容刷新差异\"}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-1d73ace8-9065-431d-bdea-fd6f54df29a8",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 570,
+      "output": {
+        "text": "local_F_exists=False\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-edd74cd0-6aa2-46c7-abd8-69db50cb32f6",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 3915,
+      "output": {
+        "text": "Executed: agentwiki-sync:open-sync-center\n=> refreshed\n=> auto-clicked\n=> {\"summary\":[\"创建目录: pages/F/C创建: pages/F/C/New.md目录冲突待处理: cmuzy9k8t035ejakfuhwl8ugi\"],\"text\":\"自动合并 — 处理冲突与绑定创建目录: pages/F/C创建: pages/F/C/New.md目录冲突待处理: cmuzy9k8t035ejakfuhwl8ugi还有 1 项待处理，完成选择后才能执行。取消确认执行目录：cmuzy9k8t035ejakfuhwl8ugi原位置：pages/F · 本地：无 · 服务器：pages/F请选择…保留本地位置使用服务器位置手动输入最终路径请选择…\",\"selects\":[{\"value\":\"\",\"options\":[{\"value\":\"\",\"text\":\"请选择…\"},{\"value\":\"local\",\"text\":\"保留本地位置\"},{\"value\":\"remote\",\"text\":\"使用服务器位置\"},{\"value\":\"manual\",\"text\":\"手动输入最终路径\"}]}],\"buttons\":[{\"text\":\"取消\",\"disabled\":false},{\"text\":\"确认执行\",\"disabled\":true}]}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-6e802e71-d765-4c65-b0a3-3328f8a65205",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1236,
+      "output": {
+        "text": "=> {\"selectValue\":\"local\",\"confirmDisabled\":true,\"summary\":[\"创建目录: pages/F/C创建: pages/F/C/New.md目录冲突待处理: cmuzy9k8t035ejakfuhwl8ugi\"],\"notices\":[]}\n=> {\"confirmDisabled\":true,\"summary\":[\"创建目录: pages/F/C创建: pages/F/C/New.md目录冲突待处理: cmuzy9k8t035ejakfuhwl8ugi\"],\"notices\":[\"FOLDER_HAS_DEPENDENTS: 目录仍有后代，无法删除；请选择保留目录，或填写新路径移动目录及其后代。Cannot delete a folder with descendants. Keep the folder, or enter a new path to move it and its descendants.\"]}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-5b15e4cb-b1f2-4ceb-98d2-bd4323a08a0c",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 3157,
+      "output": {
+        "text": "=> {\"selectValue\":\"remote\",\"confirmDisabled\":false}\n=> confirmed\n=> {\"modalCount\":0,\"success\":false}\nNo errors captured.\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-47b4e12b-eb82-4929-b20e-ae2076ce3665",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 3538,
+      "output": {
+        "text": "local_F_exists=True\r\nlocal_C_exists=True\r\nlocal_New_exists=True\r\nkeep_sha256=10a18c08c57118422dc79b55c4821e965ef60a52c96657e14eeb8a04d61f088c\r\nremote_tree_revision=6\r\nremote_F_children=pages/F/C\r\nremote_C_children=pages/F/C/New.md\r\nExecuted: agentwiki-sync:open-sync-center\n=> refreshed\n=> {\"zeroDiff\":true,\"text\":\"AgentWiki 同步同步空间WinQA058 783fc365 · 验收/Windows058 · 所有者cmuzy9jw60358jakffsawesqs · 验收/Windows058协议：Sync v2本地与服务器已同步，无需操作。扫描 0本地变更本地没有未推送的变更。服务器变更服务器没有新的变更。自动合并会同步本地删除，冲突可逐项选择；使用本地内容在冲突处保留本地。Sync v2 使用服务器内容会恢复本地删除并覆盖本地修改，执行前请检查预览。 / Auto merge includes local deletions; resolve conflicts in preview. Use local keeps local conflict values. In Sync v2, use server restores deleted files and replaces local changes; review before confirming.自动合并（推荐）使用本地内容使用服务器内容刷新差异\"}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-91531960-f0d7-46fc-94bb-0b11122d0574",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 706,
+      "output": {
+        "text": "case=B_V2_PARENT_RESTORE result=PASS\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-5a52d996-9c84-4b56-a1ce-a780e22c3fdf",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2433,
+      "output": {
+        "text": "=> 0\nlocal_M_exists=False\r\nremote_C_path=pages/M/C\r\nremote_New_path=pages/M/C/New.md\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-6af8dace-8c05-4b20-998e-f73df80578ff",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 3865,
+      "output": {
+        "text": "Executed: agentwiki-sync:open-sync-center\n=> refreshed\n=> auto-clicked\n=> {\"summary\":[\"创建目录: pages/M/C创建: pages/M/C/New.md目录冲突待处理: cmuzy9kkn035kjakft9jf0lyl\"],\"text\":\"自动合并 — 处理冲突与绑定创建目录: pages/M/C创建: pages/M/C/New.md目录冲突待处理: cmuzy9kkn035kjakft9jf0lyl还有 1 项待处理，完成选择后才能执行。取消确认执行目录：cmuzy9kkn035kjakft9jf0lyl原位置：pages/M · 本地：无 · 服务器：pages/M请选择…保留本地位置使用服务器位置手动输入最终路径请选择…\",\"selectCount\":1,\"buttons\":[{\"text\":\"取消\",\"disabled\":false},{\"text\":\"确认执行\",\"disabled\":true}]}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-a9fa0454-13b8-4a3d-955a-5464c71d6ece",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1173,
+      "output": {
+        "text": "=> manual\n=> {\"text\":\"自动合并 — 处理冲突与绑定创建目录: pages/M/C创建: pages/M/C/New.md目录冲突待处理: cmuzy9kkn035kjakft9jf0lyl还有 1 项待处理，完成选择后才能执行。取消确认执行目录：cmuzy9kkn035kjakft9jf0lyl原位置：pages/M · 本地：无 · 服务器：pages/M（错误：请填写目标路径。）请选择…保留本地位置使用服务器位置手动输入最终路径手动输入最终路径\",\"textareas\":[{\"placeholder\":\"手动输入最终目录路径（例如 pages/新目录）\",\"value\":\"\"}],\"buttons\":[{\"text\":\"取消\",\"disabled\":false},{\"text\":\"确认执行\",\"disabled\":true}]}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-cf2998ca-7494-413a-a5e7-a0af879a2fd3",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1191,
+      "output": {
+        "text": "=> pages/Recovered\n=> {\"summary\":[\"创建目录: pages/Recovered创建目录: pages/Recovered/C创建: pages/Recovered/C/New.md\"],\"textareas\":[\"pages/Recovered\"],\"buttons\":[{\"text\":\"取消\",\"disabled\":false},{\"text\":\"确认执行\",\"disabled\":false}]}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-706cb424-89bb-492e-9734-a7af92fa5354",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 3707,
+      "output": {
+        "text": "=> {\"modalCount\":1,\"modals\":[{\"text\":\"自动合并 — 推送本地变更更新目录: pages/Recovered更新目录: pages/Recovered/C更新: pages/Recovered/C/New.md归档: pages/M/C/New.md确认将应用全部变更（包括其他分页）。取消确认执行\",\"buttons\":[{\"text\":\"取消\",\"disabled\":false},{\"text\":\"确认执行\",\"disabled\":false}]}]}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-53302ba0-e2e5-468a-a9aa-faa73b2affdd",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 553,
+      "output": {
+        "text": "=> {\"clicked\":true,\"text\":\"自动合并 — 推送本地变更更新目录: pages/Recovered更新目录: pages/Recovered/C更新: pages/Recovered/C/New.md归档: pages/M/C/New.md确认将应用全部变更（包括其他分页）。取消确认执行\"}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-587b12b3-1644-47c3-9d36-d247f193d5a0",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 3681,
+      "output": {
+        "text": "=> {\"modalCount\":0,\"notices\":[]}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-ca15c6c3-792f-4f33-9561-483a9cf84e34",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 607,
+      "output": {
+        "text": "{\"localRecoveredNew\":true,\"localRecovered\":true,\"localM\":false,\"localRecoveredNewSha\":\"cfaa2a6d6a8aed2ee4af48795db37a9484a14754f0ec52d932f4b89c04ed9a4f\"}\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-54d518ac-78fc-41e4-a44d-dae6de27f5f1",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 599,
+      "output": {
+        "text": "CASE C_V2_MANUAL_MIGRATION PASS\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-9c9d72a4-ad04-4fed-a7b6-5aa12f8054a0",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 645,
+      "output": {
+        "text": "{\"pngBytes\":68,\"pngSha256\":\"431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460\",\"roundtripHasImage\":true}\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-2f2ce1f5-7ac6-4c22-9150-d210ab04c492",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2625,
+      "output": {
+        "text": "=> {\"modalCount\":1,\"text\":\"AgentWiki 同步同步空间WinQA058 783fc365 · 验收/Windows058 · 所有者cmuzy9jw60358jakffsawesqs · 验收/Windows058协议：Sync v2 → Sync v3服务器有更新 · 图片变更见下方图片：上传 1 张 / 68 B · 下载 0 张 / 0 B · 替换 0 · 取消引用 0 · 单次传输上限 100 MB图片变更更新图片: assets/used.png · 1 个 Page下载 8本地变更+ 目录 pages/F+ 目录 pages/F/C+ 目录 pages/Recovered+ 目录 pages/Recovered/C+ pages/F/C/New.md+ pages/Keep.md+ pages/Recovered/C/New.md+ pages/Roundtrip.md服务器变更服务器变更已与合并基线一致。自动合并会同步本地删除，冲突可逐项选择；使用本地内容在冲突处保留本地。Sync v2 使用服务器内容会恢复本地删除并覆盖本地修改，执行前请检查预览。 / Auto merge includes local deletions; resolve conflicts in preview. Use local keeps local conflict values. In Sync v2, use server restores deleted files and replaces local changes; review before confirming.自动合并（推荐）使用本地内容使用服务器内容刷新差异\",\"buttons\":[{\"text\":\"自动合并（推荐）\",\"disabled\":false},{\"text\":\"使用本地内容\",\"disabled\":false},{\"text\":\"使用服务器内容\",\"disabled\":false},{\"text\":\"刷新差异\",\"disabled\":false}]}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-7e0b6030-0fa2-403a-816f-828af8485fbc",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 428,
+      "output": {
+        "text": "=> {\"clicked\":true}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-9368e989-0f30-4751-8a09-92d91716d075",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2676,
+      "output": {
+        "text": "=> {\"syncText\":[\"协议：Sync v2\"],\"zeroDiff\":false,\"hasRoundtrip\":false,\"snippet\":\"vault\\n验收\\n新标签页\\n新标签页\\n创建新文件 (Ctrl + N)\\n关闭标签页\\nAgentWiki\\nAgentWiki 同步\\n同步空间\\nWinQA058 783fc365 · 验收/Windows058 · 所有者\\ncmuzy9jw60358jakffsawesqs · 验收/Windows058\\n\\n协议：Sync v2\\n\\n本地与服务器已同步，无需操作。\\n\\n扫描 0\\n\\n本地变更\\n\\n本地没有未推送的变更。\\n\\n服务器变更\\n\\n服务器没有新的变更。\\n\\n自动合并会同步本地删除，冲突可逐项选择；使用本地内容在冲突处保留本地。Sync v2 使用服务器内容会恢复本地删除并覆盖本地修改，执行前请检查预览。 / Auto merge includes local deletions; resolve conflicts in preview. Use local keeps local conflict values. In Sync v2, use server restores deleted files and replaces local changes; review before confirming.\\n\\n自动合并（推荐）\\n使用本地内容\\n使用服务器内容\\n刷新差异\"}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-aa67c9f6-678a-4139-8bac-c820e7d919a1",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2652,
+      "output": {
+        "text": "=> {\"modalCount\":1,\"title\":\"图片同步协议升级预览Sync v2 → Sync v3：确认后该 Space 不可自动降级，其他客户端需支持 Sync v3。图片：1 张 · 传输字节上界 68 B / 104857600 B图片：assets/used.png · 68\",\"summary\":\"Sync v2 → Sync v3：确认后该 Space 不可自动降级，其他客户端需支持 Sync v3。图片：1 张 · 传输字节上界 68 B / 104857600 B图片：assets/used.png · 68 B\",\"buttons\":[{\"text\":\"取消\",\"disabled\":false},{\"text\":\"确认升级并同步\",\"disabled\":false}],\"body\":\"图片同步协议升级预览Sync v2 → Sync v3：确认后该 Space 不可自动降级，其他客户端需支持 Sync v3。图片：1 张 · 传输字节上界 68 B / 104857600 B图片：assets/used.png · 68 B确认将应用全部变更（包括其他分页）。取消确认升级并同步\"}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-b4a5b8e9-17c1-4f70-8339-a778a0c7b241",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 442,
+      "output": {
+        "text": "=> {\"clicked\":true}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-4851c9e2-87a2-44b5-830c-3c3bd864aef3",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 4766,
+      "output": {
+        "text": "=> {\"modalCount\":0,\"notices\":[]}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-936dec1d-77c2-4eef-97c6-1f0921901603",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 496,
+      "output": {
+        "text": "=> {\"opened\":true}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-634902a6-1d36-4ce3-bbe4-43ee58d04c57",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2626,
+      "output": {
+        "text": "Error: Unexpected token ';'\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-8753fa3c-05bc-4304-80ed-cf15d8a289e7",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 428,
+      "output": {
+        "text": "=> {\"modalCount\":1,\"protocol\":\"协议：Sync v3本地与服务器已同步，无需操作。图片：上传 0 张 / 0 B · 下载 0 张 / 0 B · 替换 0 · 取消引用 0 · 单次传输上限 100 MB扫描 0本地变更本地没有未推送的变更。服务器变更服务器没有新的变更。自动合并会同步本地删除，冲突可逐项选择；使用本地内容在冲突处保留本地。Sync v2 使用服务器内容会恢复本地删除并覆盖本地修改，执行前请检查预览。 / Auto merge includes local deletions; resolve conflicts in preview. Use local keeps local conflict values. In Sync v2, use server restores deleted files and replaces local changes; review before confirming.自动合并（推荐）使用本地内容使用服务器内容刷新差异\",\"zeroDiff\":true,\"imageZero\":true,\"text\":\"AgentWiki 同步同步空间WinQA058 783fc365 · 验收/Windows058 · 所有者cmuzy9jw60358jakffsawesqs · 验收/Windows058协议：Sync v3本地与服务器已同步，无需操作。图片：上传 0 张 / 0 B · 下载 0 张 / 0 B · 替换 0 · 取消引用 0 · 单次传输上限 100 MB扫描 0本地变更本地没有未推送的变更。服务器变更服务器没有新的变更。自动合并会同步本地删除，冲突可逐项选择；使用本地内容在冲突处保留本地。Sync v2 使用服务器内容会恢复本地删除并覆盖本地修改，执行前请检查预览。 / Auto merge includes local deletions; resolve conflicts in preview. Use local keeps local conflict values. In Sync v2, use server restores deleted files and replaces local changes; review before confirming.自动合并（推荐）使用本地内容使用服务器内容刷新差异\"}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-d1e303f9-d1a4-4035-a303-f352ef1ae37d",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 629,
+      "output": {
+        "text": "{\"localF3Exists\":false,\"removedEmptyDirectory\":true}\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-b6ca3701-e5dc-4c90-bc51-84df28ad077b",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1824,
+      "output": {
+        "text": "{\"f3Id\":\"cmuzz519x03ezjakfmxtytnwy\",\"childId\":\"cmuzz721r03fijakfot6pq4kc\",\"childPath\":\"pages/F3/C\",\"treeRevision\":\"12\"}\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-da45a718-a02a-4a08-8155-35690fa706f3",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1258,
+      "output": {
+        "text": "{\"pageId\":\"5c55d8ba-f4e1-4ba1-ae69-3684b1f553ca\",\"path\":\"pages/F3/C/New.md\",\"treeRevision\":\"13\",\"created\":true}\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-8697c72e-6723-4390-ad3b-7aed2c55638a",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 466,
+      "output": {
+        "text": "=> {\"clicked\":true}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-5490afff-b911-43ac-8688-dc5c1ae41899",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1648,
+      "output": {
+        "text": "=> {\"summary\":\"图片传输：0 B · 单次上限 104857600 B创建目录: pages/RecoveredV3创建目录: pages/RecoveredV3/C创建: pages/RecoveredV3/C/New.md\",\"summaryHasRecoveredV3\":true,\"summaryHasOriginalF3New\":false,\"textHasConflictOriginal\":true,\"buttons\":[{\"text\":\"取消\",\"disabled\":false},{\"text\":\"确认执行\",\"disabled\":false},{\"text\":\"应用手动路径\",\"disabled\":false}],\"selects\":[\"manual\"],\"textareas\":[\"pages/RecoveredV3\"],\"tail\":\"自动合并 — 处理冲突与图片图片传输：0 B · 单次上限 104857600 B创建目录: pages/RecoveredV3创建目录: pages/RecoveredV3/C创建: pages/RecoveredV3/C/New.md确认将应用全部变更（包括其他分页）。取消确认执行目录：cmuzz519x03ezjakfmxtytnwy原位置：pages/F3 · 本地：无 · 服务器：pages/F3请选择…保留本地位置使用服务器位置手动输入最终路径手动输入最终路径应用手动路径\"}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-2037340d-8567-4122-8184-039cda9316b3",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 498,
+      "output": {
+        "text": "=> {\"clicked\":true,\"summary\":\"图片传输：0 B · 单次上限 104857600 B创建目录: pages/RecoveredV3创建目录: pages/RecoveredV3/C创建: pages/RecoveredV3/C/New.md\"}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-a19f5bbc-00b2-49e6-a30e-c09b163e8991",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 4744,
+      "output": {
+        "text": "=> {\"modalCount\":1,\"modals\":[{\"text\":\"自动合并 — 推送本地变更图片上传：0 B · 单次上限 104857600 B更新目录: pages/RecoveredV3更新目录: pages/RecoveredV3/C更新: pages/RecoveredV3/C/New.md确认将应用全部变更（包括其他分页）。取消确认执行\",\"buttons\":[{\"text\":\"取消\",\"disabled\":false},{\"text\":\"确认执行\",\"disabled\":false}]}]}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-d3b612f2-68d7-48b6-95b8-ad54c2f407c3",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 531,
+      "output": {
+        "text": "=> {\"clicked\":true}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-f9f03ab1-0ff9-43bd-9a36-446346969900",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 4740,
+      "output": {
+        "text": "=> {\"modalCount\":0,\"notices\":[]}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-69f6ae96-ee22-45ad-9210-2ab7afe41963",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 643,
+      "output": {
+        "text": "{\"localRecoveredV3New\":true,\"localF3Exists\":false,\"localRecoveredV3NewSha\":\"6ae0cd41afc95a925b55c4ff50cc0f3db907c19b4bc67c6ab868e11a72dcacc7\",\"localRecoveredV3NewBytes\":29}\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-42a8d1d3-afef-470a-afd0-bc2211fa4d35",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2520,
+      "output": {
+        "text": "{\"rootTreeRevision\":\"14\",\"rootPaths\":[\"pages/F\",\"pages/Recovered\",\"pages/RecoveredV3\",\"pages/Keep.md\",\"pages/Roundtrip.md\"],\"f3Present\":false,\"recoveredPaths\":[\"pages/Recovered/C\",\"pages/Recovered/C/New.md\"],\"recoveredV3Paths\":[\"pages/RecoveredV3/C\",\"pages/RecoveredV3/C/New.md\"],\"cRemotePath\":\"pages/Recovered/C/New.md\",\"cRemoteSha256\":\"cfaa2a6d6a8aed2ee4af48795db37a9484a14754f0ec52d932f4b89c04ed9a4f\",\"cRemoteBytes\":29,\"cLocalSha256\":\"cfaa2a6d6a8aed2ee4af48795db37a9484a14754f0ec52d932f4b89c04ed9a4f\",\"eRemotePath\":\"pages/RecoveredV3/C/New.md\",\"eRemoteSha256\":\"6ae0cd41afc95a925b55c4ff50cc0f3db907c19b4bc67c6ab868e11a72dcacc7\",\"eRemoteBytes\":29,\"eLocalSha256\":\"6ae0cd41afc95a925b55c4ff50cc0f3db907c19b4bc67c6ab868e11a72dcacc7\",\"keepRemoteSha256\":\"10a18c08c57118422dc79b55c4821e965ef60a52c96657e14eeb8a04d61f088c\",\"keepLocalSha256\":\"10a18c08c57118422dc79b55c4821e965ef60a52c96657e14eeb8a04d61f088c\"}\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-139b58c6-ea2a-4a0b-8ba9-9710b4c21265",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2660,
+      "output": {
+        "text": "=> {\"protocol\":true,\"zeroDiff\":true,\"imageZero\":true,\"text\":\"AgentWiki 同步同步空间WinQA058 783fc365 · 验收/Windows058 · 所有者cmuzy9jw60358jakffsawesqs · 验收/Windows058协议：Sync v3本地与服务器已同步，无需操作。图片：上传 0 张 / 0 B · 下载 0 张 / 0 B · 替换 0 · 取消引用 0 · 单次传输上限 100 MB扫描 0本地变更本地没有未推送的变更。服务器变更服务器没有新的变更。自动合并会同步本地删除，冲突可逐项选择；使用本地内容在冲突处保留本地。Sync v2 使用服务器内容会恢复本地删除并覆盖本地修改，执行前请检查预览。 / Auto merge includes local deletions; resolve conflicts in preview. Use local keeps local conflict values. In Sync v2, use server restores deleted files and replaces local changes; review before confirming.自动合并（推荐）使用本地内容使用服务器内容刷新差异\"}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-54cb291a-68ac-4631-abb0-8bf95bd6fdf6",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1305,
+      "output": {
+        "text": "{\"type\":\"System.Management.Automation.PSCustomObject\",\"keys\":\"items,total,skip,take\",\"json\":\"{\\\"items\\\":[{\\\"id\\\":\\\"a7777fbf-890e-4c87-8a5b-3bdb423e8091\\\",\\\"spaceId\\\":\\\"cmuzy9jw60358jakffsawesqs\\\",\\\"displayName\\\":\\\"used.png\\\",\\\"canonicalPath\\\":\\\"assets/used.png\\\",\\\"referenceable\\\":true,\\\"mimeType\\\":\\\"image/png\\\",\\\"sizeBytes\\\":\\\"68\\\",\\\"width\\\":1,\\\"height\\\":1,\\\"status\\\":\\\"active\\\",\\\"uploadedByUserId\\\":\\\"cmuzy9jps0357jakfa12nk041\\\",\\\"createdAt\\\":\\\"2026-10-08T20:12:18.199Z\\\",\\\"updatedAt\\\":\\\"2026-10-08T20:10:31.183Z\\\",\\\"archivedAt\\\":null}],\\\"total\\\":1,\\\"skip\\\":0,\\\"take\\\":100}\"}\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-e279fa9b-0b8e-4494-b154-73256232a362",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1351,
+      "output": {
+        "text": "{\"roundtripRemotePath\":\"pages/Roundtrip.md\",\"roundtripRemoteSha256\":\"fcf249c9baa98572f9ed5144332199a847e4aebf333aeb3706c7c4607f6bb8e1\",\"roundtripRemoteBytes\":65,\"roundtripLocalSha256\":\"fcf249c9baa98572f9ed5144332199a847e4aebf333aeb3706c7c4607f6bb8e1\",\"roundtripLocalBytes\":65,\"pngLocalSha256\":\"431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460\",\"pngLocalBytes\":68,\"attachmentsTotal\":1,\"attachments\":[{\"path\":\"assets/used.png\",\"sizeBytes\":68,\"mime\":\"image/png\",\"width\":1,\"height\":1,\"status\":\"active\"}]}\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-49cf99d4-35be-4b23-8a1c-8c69a163dcf3",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 448,
+      "output": {
+        "text": "=> {\"clicked\":true,\"count\":1}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-641689a6-b330-4ef7-8d84-08aedd481a02",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1643,
+      "output": {
+        "text": "=> {\"text\":\"连接AgentWiki 服务器输入服务器地址，如 https://agentwiki.quukk.com连接 AgentWiki在浏览器中登录并确认，插件将自动完成连接。连接 AgentWiki手动连接码（兼容后备）连接码用于一次性绑定这台 Obsidian 设备，有效期 10 分钟。连接查看连接指南空间映射cmuzy9jw60358jakffsawesqs验收/Windows058 · 已激活移除连接后可选择要同步的空间。\",\"serverInstanceId\":null,\"connected\":false,\"settingKeys\":[\"schemaVersion\",\"serverUrl\",\"serverInstanceId\",\"mappings\"]}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-0f4de75d-3aa7-42d7-8218-73e7a340ae1a",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1476,
+      "output": {
+        "text": "{\"spaceDeleteStatus\":200,\"spaceContentTreeAfterDelete\":\"404\"}\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-605b536f-90a8-4e69-a442-459339e7b7b1",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1404,
+      "output": {
+        "text": "{\"beforeCount\":1,\"deleteStatuses\":[204],\"afterCount\":1}\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-1cea7d20-3b35-4a1b-b32a-aa2eb6ac9211",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 966,
+      "output": {
+        "text": "{\"installationDeleteStatus\":\"409\"}\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-2ffb9910-ed9d-4dd5-8c2b-055a7984d5dd",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1541,
+      "output": {
+        "text": "{\"usersMeBefore\":200,\"userDeleteStatus\":200,\"usersMeAfter\":\"401\"}\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-106190cb-8c5d-433f-b8a6-20ac6de7d0c9",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 674,
+      "output": {
+        "text": "{\"receiptPath\":\"D:\\\\MyDocuments\\\\codexprojects\\\\codexconfig\\\\AgentWiki-058-native-final-receipt.json\",\"caseCount\":10,\"cleanup\":{\"uiDisconnected\":true,\"serverInstanceId\":null,\"spaceDeleteStatus\":200,\"spaceContentTreeAfterDelete\":404,\"credentialsBefore\":1,\"credentialDeleteStatuses\":[204],\"credentialsRevoked\":true,\"installationDeleteStatuses\":[409],\"usersMeBefore\":200,\"userDeleteStatus\":200,\"usersMeAfter\":401,\"tempRootPreserved\":true,\"redactedReceipt\":true}}\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-26448470-b08a-4614-81b1-5fd018a0b189",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 555,
+      "output": {
+        "text": "=> {\"closeRequested\":true}\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-123edaa0-d9a1-4e81-9612-52f403e5c2ca",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 629,
+      "output": {
+        "text": "{\"pid25808Alive\":true,\"fixtureWindowClosed\":true,\"dailyWindowRetained\":true,\"windowTitles\":[{\"id\":4352,\"title\":\"\",\"hasWindow\":false},{\"id\":6528,\"title\":\"\",\"hasWindow\":false},{\"id\":24820,\"title\":\"\",\"hasWindow\":false},{\"id\":25808,\"title\":\"新标签页 - [daily Vault] - Obsidian 1.13.7\",\"hasWindow\":true}]}\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-92a3dbaf-1eb2-4ad0-8430-ef26fe485b42",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 851,
+      "output": {
+        "text": "{\"runId\":\"86555de62338\",\"vault\":\"C:\\\\Users\\\\1\\\\AppData\\\\Local\\\\Temp\\\\AgentWiki-Sync-0.5.7-Windows-20261009-cca3df29f8fb4963a1727438fe8021d3\\\\vault\",\"initialUnusedVaultPath\":\"C:\\\\Users\\\\1\\\\AppData\\\\Local\\\\Temp\\\\AgentWiki-Sync-0.5.8-Windows-86555de62338\\\\WinQA-058\",\"pid25808Alive\":true,\"fixtureWindowClosed\":true,\"dailyWindowRetained\":true,\"receiptSha256\":\"7f333844ea11f0ff4692dc8e7c9a6278716641e8a9d56bff88ae071d74fb5af7\"}\r\n",
+        "truncated": false
+      }
+    }
+  ],
+  "sourceFile": "agentwiki-windows058-native-final-source.json",
+  "sourceFileSha256": "720999caf1fdc0308fbeae991d2fa0e1ca3f74720bc834b07a6b7e432b125060",
+  "sanitization": "Input was selected and sanitized by root. Command outputs retained; no commands, credentials, or agent conclusions added. Unrelated daily Vault name replaced if present.",
+  "pending": [],
+  "interpretationLimits": [
+    "CASE PASS outputs are labels only. Native conclusions require actual controls, action results, paths, hashes, and final UI text from other records.",
+    "exec-9368e989 zeroDiff:false conflicts with its own UI snippet, which explicitly says both sides are synchronized and have no changes. Treat it as a probe false negative, not a product failure.",
+    "exec-634902a6 reports JavaScript syntax failure, not a product defect. The successful subsequent readback is exec-8753fa3c.",
+    "The selected 57 records retain the server-update pull and exact-byte check for A, but not first-pull and initial local-page push outputs. C/E retain actual pull and subsequent push with final server/local matching paths and content hashes."
+  ],
+  "pluginVersion": "0.5.8",
+  "pluginSourceCommit": "b9be0afa667e216c87a15f983431109f79b5ca39",
+  "cleanup": {
+    "uiDisconnected": true,
+    "spaceDeleteStatus": 200,
+    "spaceContentTreeAfterDelete": 404,
+    "credentialRevocationStatuses": [
+      204
+    ],
+    "credentialListRetainsHistory": true,
+    "installationDeleteStatuses": [
+      409
+    ],
+    "userDeleteStatus": 200,
+    "oldUserTokenAfterDelete": 401,
+    "fixtureWindowClosed": true,
+    "dailyWindowRetained": true,
+    "dailyPidAlive": true,
+    "localDirectoriesPreserved": true,
+    "windowsReceiptSha256": "7f333844ea11f0ff4692dc8e7c9a6278716641e8a9d56bff88ae071d74fb5af7"
+  },
+  "actualVaultPath": "C:\\Users\\1\\AppData\\Local\\Temp\\AgentWiki-Sync-0.5.7-Windows-20261009-cca3df29f8fb4963a1727438fe8021d3\\vault",
+  "initialUnusedVaultPath": "C:\\Users\\1\\AppData\\Local\\Temp\\AgentWiki-Sync-0.5.8-Windows-86555de62338\\WinQA-058"
+}
