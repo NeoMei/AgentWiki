@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import semver from 'semver';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = resolve(root, '..');
@@ -699,10 +700,14 @@ test('application release versions and independent sync versions stay aligned', 
   const clientPackage = JSON.parse(await read('apps/client/package.json'));
   const localSyncPackage = JSON.parse(await read('packages/local-sync/package.json'));
   const syncProtocolPackage = JSON.parse(await read('packages/sync-protocol/package.json'));
+  const appVersion = semver.valid(rootPackage.version);
+  assert.ok(appVersion, 'the application root package must declare a valid semantic version');
   assert.deepEqual(
-    [rootPackage.version, serverPackage.version, clientPackage.version, localSyncPackage.version],
-    ['0.12.12', '0.12.12', '0.12.12', '0.11.0'],
+    [rootPackage.version, serverPackage.version, clientPackage.version],
+    [appVersion, appVersion, appVersion],
+    'application packages must use the same canonical semantic version as the root package',
   );
+  assert.equal(localSyncPackage.version, '0.11.0');
   assert.equal(syncProtocolPackage.version, '0.6.1');
   assert.equal(rootPackage.scripts['test:e2e:collaboration-db'], 'node --test scripts/collaboration-workflows-db.test.mjs');
   assert.equal(rootPackage.scripts['test:e2e:collaboration'], 'node scripts/collaboration-workflows-e2e.mjs');
