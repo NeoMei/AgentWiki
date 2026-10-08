@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -27,6 +27,31 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
   const session = useAgentSession(userId, spaceId);
   const { store, draft } = session;
   const targetKind = draft.targetKind;
+  const turnsRef = useRef<HTMLDivElement>(null);
+  const turnsContentRef = useRef<HTMLDivElement>(null);
+  const followTurnsRef = useRef(true);
+  const selectedRef = useRef(session.selected); selectedRef.current = session.selected;
+  // Capture user intent before incoming content changes the bottom distance.
+  useLayoutEffect(() => { followTurnsRef.current = true; }, [`${userId}\u0000${spaceId}`, session.selected]);
+  useLayoutEffect(() => {
+    const viewport = turnsRef.current;
+    if (!viewport || session.loading) return;
+    let frame: number | null = null;
+    const follow = () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        if (followTurnsRef.current) viewport.scrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      });
+    };
+    follow();
+    // Watch the content, not the fixed-height viewport: streamed replies and
+    // expanded source/candidate details may grow after the React commit.
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(follow);
+    if (turnsContentRef.current) observer?.observe(turnsContentRef.current);
+    observer?.observe(viewport);
+    return () => { observer?.disconnect(); if (frame !== null) cancelAnimationFrame(frame); };
+  }, [session.detail, session.loading, session.selected]);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const scope = `${userId}\u0000${spaceId}\u0000${pageId}`;
@@ -124,6 +149,7 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
     } : undefined;
     const submittedSnapshot = { title: source.title, content: source.content, updatedAt: source.updatedAt, draftRevision: source.draftRevision, remoteRevision: source.remoteRevision, ...(target ? { assistTarget: target } : {}) };
     await session.send({ pageId, mode: draft.mode, intent: draft.intent.trim(), snapshot: submittedSnapshot, referencePageIds: draft.references.map((r) => r.pageId), noteIds: staged?.request.noteIds ?? [], annotations: staged?.request.annotations ?? [] }, (turn) => {
+      if (mountRef.current.token === mount && selectedRef.current === turn.sessionId) followTurnsRef.current = true;
       const record = restoreCandidate(turn);
       if (record && !store.candidates.has(turn.id)) { record.mount = mount; store.candidates.set(turn.id, record); }
       if (credential && matchesReceipt(turn, credential)) store.receipts.set(turn.id, { sessionId: turn.sessionId, awaitingRead: false, credential });
@@ -153,7 +179,11 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
     <div className="flex shrink-0 items-end gap-2 border-b border-gray-200 p-3">
       <label className="min-w-0 flex-1 text-xs text-gray-500">{zh ? '会话' : 'Conversation'}<select aria-label={zh ? '会话' : 'Conversation'} className="mt-1 w-full rounded-lg border border-gray-200 p-2 text-sm" value={session.selected ?? ''} disabled={session.sending} onChange={(e) => void session.select(e.target.value)}><option value="" disabled>{zh ? '新会话' : 'New conversation'}</option>{session.selected && !session.sessions.some((s) => s.id === session.selected) ? <option value={session.selected}>{zh ? '不可访问的会话' : 'Unavailable conversation'}</option> : null}{session.sessions.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}</select></label><button type="button" disabled={session.sending || session.loading} onClick={() => void session.newSession()} className="min-h-9 shrink-0 rounded-lg border border-gray-200 px-2">{zh ? '新建会话' : 'New conversation'}</button>
     </div>
-    <div className="agent-session-turns min-h-0 flex-1 space-y-4 overflow-y-auto p-3 [overflow-wrap:anywhere]" aria-live="polite">
+    <div ref={turnsRef} className="agent-session-turns min-h-0 flex-1 overflow-y-auto p-3 [overflow-wrap:anywhere]" aria-live="polite" onScroll={(event) => {
+      const viewport = event.currentTarget;
+      followTurnsRef.current = viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 80;
+    }}>
+      <div ref={turnsContentRef} className="space-y-4">
       {session.loading ? <p role="status">{zh ? '加载会话…' : 'Loading conversation…'}</p> : null}
       {!session.loading && !session.detail?.turns.length ? <p className="text-gray-500">{zh ? '围绕这篇文档开始对话。' : 'Start a conversation about this document.'}</p> : null}
       {session.detail?.turns.map((turn) => {
@@ -181,6 +211,7 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
           {(turn.status === 'queued' || turn.status === 'running') ? <button type="button" disabled={session.cancelling} onClick={() => void session.cancel(turn)} className="rounded-lg border border-gray-200 px-3 py-1">{zh ? '停止' : 'Stop'}</button> : null}
         </article>;
       })}
+      </div>
     </div>
     <div className="agent-session-composer min-h-0 border-t border-gray-200">
     <div className="agent-composer-fields min-h-0 flex-1 space-y-2 overflow-y-auto p-3">

@@ -6,7 +6,7 @@ import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view';
-import { ChangeDesc, EditorSelection, Range, StateEffect, StateField, Transaction, Prec } from '@codemirror/state';
+import { ChangeDesc, EditorSelection, EditorState, Range, StateEffect, StateField, Transaction, Prec } from '@codemirror/state';
 import { tags } from '@lezer/highlight';
 import { syntaxTree } from '@codemirror/language';
 import { unified } from 'unified';
@@ -316,6 +316,26 @@ class WikiLinkWidget extends WidgetType {
   ignoreEvent() { return false; }
 }
 
+const EMPTY_PAGES: PageLinkTarget[] = [];
+// Language identity owns the parser cache. React updates must never recreate it.
+const MARKDOWN_LANGUAGE = markdown({ base: markdownLanguage, codeLanguages: languages });
+const LIVE_PREVIEW_HIGHLIGHTING = syntaxHighlighting(livePreviewStyle);
+const EDITOR_BASIC_SETUP = {
+  lineNumbers: false, foldGutter: false, highlightActiveLine: true, highlightActiveLineGutter: false,
+};
+const activeLineNumbers = (state: EditorState): Set<number> => {
+  const lines = new Set<number>();
+  for (const range of state.selection.ranges) {
+    const from = state.doc.lineAt(range.from).number, to = state.doc.lineAt(range.to).number;
+    for (let line = from; line <= to; line += 1) lines.add(line);
+  }
+  return lines;
+};
+const activeLinesChanged = (before: EditorState, after: EditorState) => {
+  const previous = activeLineNumbers(before), next = activeLineNumbers(after);
+  return previous.size !== next.size || [...previous].some((line) => !next.has(line));
+};
+
 const EMPTY_RESOURCES: MarkdownResourceMap = new Map();
 const RESOURCE_RESOLUTION_DEBOUNCE_MS = 150;
 
@@ -329,16 +349,16 @@ const buildHiddenMarksPlugin = (
     this.decorations = this.compute(view);
   }
   update(update: ViewUpdate) {
-    this.decorations = this.compute(update.view);
+    // Background parsing must refresh decorations too; viewport/focus updates
+    // and moves within one active line leave the existing ranges intact.
+    if (update.docChanged || syntaxTree(update.startState) !== syntaxTree(update.state)
+      || (update.selectionSet && activeLinesChanged(update.startState, update.state))) {
+      this.decorations = this.compute(update.view);
+    }
   }
   compute(view: EditorView): DecorationSet {
     const ranges: Range<Decoration>[] = [];
-    const activeLines = new Set<number>();
-    for (const range of view.state.selection.ranges) {
-      const from = view.state.doc.lineAt(range.from).number;
-      const to = view.state.doc.lineAt(range.to).number;
-      for (let n = from; n <= to; n += 1) activeLines.add(n);
-    }
+    const activeLines = activeLineNumbers(view.state);
     syntaxTree(view.state).iterate({
       enter: (node) => {
         const line = view.state.doc.lineAt(node.from).number;
@@ -394,7 +414,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   onChange,
   pageId,
   spaceId,
-  pages = [],
+  pages = EMPTY_PAGES,
   onUploadImages,
   onUploadError,
   onSelectionChange,
@@ -439,7 +459,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   const refreshSelection = useCallback((view: EditorView) => {
     const range = view.state.selection.main;
     const next = { from: range.from, to: range.to, text: view.state.sliceDoc(range.from, range.to) };
-    setSelection(next);
+    setSelection((current) => current.from === next.from && current.to === next.to && current.text === next.text ? current : next);
     setActiveOutlineOffset(range.from);
     selectionCallbackRef.current?.(next);
     const nextSlash = suppressedSlashRef.current === slashKey(view) ? null : slashRange(view.state, composingRef.current || view.composing);
@@ -888,6 +908,26 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
     });
   }, [isEdit, onUploadError, onUploadImages]);
 
+  const changeCallbackRef = useRef(onChange);
+  changeCallbackRef.current = onChange;
+  const handleChange = useCallback((next: string) => changeCallbackRef.current(next), []);
+  const handleUpdate = useCallback((update: ViewUpdate) => {
+    if (update.selectionSet || update.docChanged) refreshSelection(update.view);
+  }, [refreshSelection]);
+  const handleCreateEditor = useCallback((view: EditorView) => {
+    editorViewRef.current = view;
+    uploadGenerationRef.current += 1;
+    refreshSelection(view);
+    const pendingPosition = pendingRestoreRef.current;
+    if (pendingPosition) restorePosition(pendingPosition);
+  }, [refreshSelection, restorePosition]);
+  const hiddenMarks = useMemo(() => buildHiddenMarksPlugin(pages, editorResourcePlan.occurrences, authoritativeResources),
+    [pages, editorResourcePlan.occurrences, authoritativeResources]);
+  const editorExtensions = useMemo(() => [
+    MARKDOWN_LANGUAGE, LIVE_PREVIEW_HIGHLIGHTING, hiddenMarks, uploadAnchors,
+    manualHandlers, ...(uploadHandlers ? [uploadHandlers] : []), EditorView.lineWrapping,
+  ], [hiddenMarks, manualHandlers, uploadHandlers]);
+
   return (
     <section className="document-workspace relative bg-white" aria-label={t('editor.mode')}>
       <div className="document-tool-row">
@@ -925,32 +965,13 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
         {isEdit ? (
           <CodeMirror
             value={value}
-            onChange={(next) => onChange(next)}
-            onCreateEditor={(view) => {
-              editorViewRef.current = view;
-              uploadGenerationRef.current += 1;
-              refreshSelection(view);
-              const pendingPosition = pendingRestoreRef.current;
-              if (pendingPosition) restorePosition(pendingPosition);
-            }}
-            onUpdate={(update) => { if (update.selectionSet || update.docChanged) refreshSelection(update.view); }}
-            extensions={[
-              markdown({ base: markdownLanguage, codeLanguages: languages }),
-              syntaxHighlighting(livePreviewStyle),
-              buildHiddenMarksPlugin(pages, editorResourcePlan.occurrences, authoritativeResources),
-              uploadAnchors,
-              manualHandlers,
-              ...(uploadHandlers ? [uploadHandlers] : []),
-              EditorView.lineWrapping,
-            ]}
+            onChange={handleChange}
+            onCreateEditor={handleCreateEditor}
+            onUpdate={handleUpdate}
+            extensions={editorExtensions}
             placeholder={t('editor.placeholder')}
             aria-label={t('editor.editMode')}
-            basicSetup={{
-              lineNumbers: false,
-              foldGutter: false,
-              highlightActiveLine: true,
-              highlightActiveLineGutter: false,
-            }}
+            basicSetup={EDITOR_BASIC_SETUP}
             className="document-source-editor"
           />
         ) : (

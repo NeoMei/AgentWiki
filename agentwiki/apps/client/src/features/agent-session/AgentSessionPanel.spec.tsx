@@ -269,3 +269,54 @@ it('consumes a sent scope so a new follow-up on another page uses that current d
   await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
   expect((vi.mocked(api.post).mock.calls[1][1] as any).snapshot.assistTarget.kind).toBe('document');
 });
+
+
+describe('conversation scroll following', () => {
+  let height: number;
+  beforeEach(() => {
+    height = 2000;
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('agent-session-turns') ? height : 0; });
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('agent-session-turns') ? 400 : 0; });
+    turns = Array.from({ length: 20 }, (_, i) => ({ ...turn, id: `history-${i}` }));
+  });
+  const viewport = (container: HTMLElement) => container.querySelector('.agent-session-turns') as HTMLDivElement;
+  it('opens a long conversation at its newest turn', async () => {
+    const rendered = render(tree()); await screen.findAllByText('Earlier answer');
+    await waitFor(() => expect(viewport(rendered.container).scrollTop).toBe(1600));
+  });
+  it('forces following when the user sends from older history', async () => {
+    const rendered = render(tree()); await screen.findAllByText('Earlier answer');
+    const list = viewport(rendered.container); list.scrollTop = 300; fireEvent.scroll(list); height = 2400;
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Follow-up' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' })); await screen.findByRole('button', { name: 'Stop' });
+    await waitFor(() => expect(list.scrollTop).toBe(2000));
+  });
+  it.each([true, false])('follows polled streaming replies only when near the bottom (%s)', async (nearBottom) => {
+    turns[turns.length - 1] = { ...turns[turns.length - 1], status: 'running', result: null, progressText: 'Working' };
+    const rendered = render(tree()); await screen.findByText('Working');
+    const list = viewport(rendered.container); list.scrollTop = nearBottom ? 1580 : 300; fireEvent.scroll(list); height = 2400;
+    turns = turns.map((item, i) => i === turns.length - 1 ? { ...item, status: 'done', result: { summary: 'New streamed answer' } } : item);
+    await screen.findByText('New streamed answer');
+    await waitFor(() => expect(list.scrollTop).toBe(nearBottom ? 2000 : 300));
+  });
+  it('positions a newly selected conversation independently of the previous history scroll', async () => {
+    const second = { ...summary, id: 'session-b', title: 'Conversation B' };
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/assist/sessions' ? [summary, second] : { ...(url.endsWith('session-b') ? second : summary), turns } }));
+    const rendered = render(tree()); await screen.findAllByText('Earlier answer');
+    const list = viewport(rendered.container); list.scrollTop = 300; fireEvent.scroll(list); height = 3000;
+    fireEvent.change(screen.getByRole('combobox', { name: 'Conversation' }), { target: { value: 'session-b' } });
+    await screen.findAllByText('Earlier answer'); await waitFor(() => expect(list.scrollTop).toBe(2600));
+  });
+  it('follows delayed content resize and disconnects the observer on unmount', async () => {
+    let resized: ResizeObserverCallback | undefined; const disconnect = vi.fn();
+    vi.stubGlobal('ResizeObserver', class { constructor(callback: ResizeObserverCallback) { resized = callback; } observe() {} disconnect = disconnect; });
+    try {
+      const rendered = render(tree()); await screen.findAllByText('Earlier answer'); const list = viewport(rendered.container);
+      list.scrollTop = 1600; fireEvent.scroll(list); height = 2500; act(() => resized?.([], {} as ResizeObserver));
+      await waitFor(() => expect(list.scrollTop).toBe(2100));
+      list.scrollTop = 250; fireEvent.scroll(list); height = 2800; act(() => resized?.([], {} as ResizeObserver));
+      await new Promise((resolve) => setTimeout(resolve, 35)); expect(list.scrollTop).toBe(250);
+      rendered.unmount(); expect(disconnect).toHaveBeenCalled();
+    } finally { vi.unstubAllGlobals(); }
+  });
+});

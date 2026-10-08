@@ -3,7 +3,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { EditorSelection, EditorState, StateEffect } from '@codemirror/state';
 import * as tableEditing from './markdown-tools/tableEditing';
 import { undo, undoDepth } from '@codemirror/commands';
-import { EditorView } from '@codemirror/view';
+import { DecorationSet, EditorView } from '@codemirror/view';
+import { forceParsing, language as languageFacet, syntaxTree } from '@codemirror/language';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../context/LanguageContext';
 import { Markdown } from './Markdown';
@@ -1438,5 +1439,43 @@ describe('preview navigation intent', () => {
     surface.scrollTop = 200;
     fireEvent.scroll(surface);
     expect(ref.current!.capturePosition().previewNavigated).toBe(false);
+  });
+});
+
+
+describe('long-document live preview lifecycle', () => {
+  const source = Array.from({ length: 250 }, (_, i) => `## Chapter ${i}\n**Strong** and [short](https://example.test/${'long-path/'.repeat(12)})\nParagraph ${i}.\n`).join('\n');
+  const hiddenDecorations = (view: EditorView) => view.state.facet(EditorView.decorations)
+    .map((item) => typeof item === 'function' ? item(view) : item)
+    .filter((set) => set.size > 100).sort((a, b) => b.size - a.size)[0] as DecorationSet;
+  it('retains the parsed long document and non-active markers through unrelated parent renders', () => {
+    const shell = () => <LanguageProvider><MarkdownWorkspace value={source} mode="edit" onChange={() => {}} /></LanguageProvider>;
+    const rendered = render(shell()), view = currentEditorView(rendered.container);
+    act(() => { expect(forceParsing(view, source.length, 1000)).toBe(true); });
+    const tree = syntaxTree(view.state), parser = view.state.facet(languageFacet), decorations = hiddenDecorations(view), history = undoDepth(view.state);
+    expect(decorations.size).toBeGreaterThan(100);
+    rendered.rerender(shell());
+    expect(currentEditorView(rendered.container)).toBe(view);
+    expect(view.state.facet(languageFacet)).toBe(parser);
+    expect(syntaxTree(view.state)).toBe(tree);
+    expect(hiddenDecorations(view)).toBe(decorations);
+    expect(view.state.doc.toString()).toBe(source);
+    expect(undoDepth(view.state)).toBe(history);
+  });
+  it('does not recompute hidden markers for selection moves within the same active line', () => {
+    const rendered = renderWYS({ initial: source }), view = currentEditorView(rendered.container);
+    act(() => { forceParsing(view, source.length, 1000); view.dispatch({ selection: EditorSelection.cursor(source.indexOf('Paragraph 180.')) }); });
+    const decorations = hiddenDecorations(view), tree = syntaxTree(view.state);
+    act(() => { view.dispatch({ selection: EditorSelection.cursor(view.state.selection.main.head + 2) }); });
+    expect(hiddenDecorations(view)).toBe(decorations);
+    expect(syntaxTree(view.state)).toBe(tree);
+    expect(undoDepth(view.state)).toBe(0);
+  });
+  it('refreshes distant non-active markers when background parsing advances', () => {
+    const rendered = renderWYS({ initial: source }), view = currentEditorView(rendered.container);
+    act(() => { expect(forceParsing(view, source.length, 1000)).toBe(true); });
+    const from = source.lastIndexOf('**Strong**'); let hidden = false;
+    hiddenDecorations(view).between(from, from + 2, (start, end) => { if (start === from && end === from + 2) hidden = true; });
+    expect(hidden).toBe(true);
   });
 });
