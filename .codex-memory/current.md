@@ -9,7 +9,9 @@
 
 # 当前状态
 
-- 网页发布源码/tag v0.12.17为4d88ee2bb3af706050f5d88e038b7faf57ea0f2e，远端master已快进。实际生产三应用均0.12.17，API/Worker/Frontend active，公网默认TLS五项健康ok。1232个部署文件与提交一致，35项既有配置指纹未变，无待执行迁移。
+- 10-09 Windows真实补验：既有Session `01a0f8b8-b64c-7c80-9114-789d6f72dfc8` / turn `01a11c5f-9d5d-7872-803b-b1bbe5377f03` 已执行Windows Node24.18/libuv1.52.1命令；插件正式0.5.7回归135/135，网页正式0.12.17 CLI34/34、文件系统/配置128/128。Windows包管理器原16项中3项失败已修，独审及Windows补丁17/17通过，LF归一SHA一致；提交415f45f3已推送并回读master。旧checkout两处EPERM在正式源码各5轮共10次未复现，文件系统未改；不能称旧故障从未发生。正式0.5.7已在Windows Obsidian1.13.7临时Vault完成真实运行对象、命令注册与重载回读；真实同步和冲突选择未验；Mac临时LAN后端被现有防火墙阻断，已停止自建API/Redis，原数据/系统配置不变。`wait_threads`/列表不可用不等于主机离线，明确host的`read_thread`可读取该Session。回执见 receipts/windows-20261009.md。
+
+- 网页发布源码/tag v0.12.17为4d88ee2bb3af706050f5d88e038b7faf57ea0f2e，线上仍是该SHA；master另含Windows包装器修复415f45f3。实际生产三应用均0.12.17，API/Worker/Frontend active，公网默认TLS五项健康ok。1232个部署文件与提交一致，35项既有配置指纹未变，无待执行迁移。
 - 精确网页发布SHA完整6952测试通过/6skip/0fail；runtime数据库230零skip；typecheck/lint/build通过，首屏542577/550000。6skip为2Windows、1独立CodeGraph、3专用连接授权门禁。最终及发布独审C/I/M=0/0/0。
 - 网页与插件工作树仍保留：`/Users/neomei/.codex/worktrees/test-fixes-20261008/AgentWiki `；`/Users/neomei/项目/codexprojects/AgentWiki-Obsidian/.worktrees/test-fixes-20261008`。网页主检出旧产品源码和未提交研究资料未覆盖。
 - 插件0.5.7发布SHA324fa53b3990fe276ebb1f12b4627a51e8a6b049，GitHub main/tag/CI/release/downloaded assets/attestations已核对。本地和CI1418项通过；未安装日常Vault。macOS原生SyncV2首次同步/三级目录/再次无差异证据仍属于e5b8a3a，后续仅错误文案与发布metadata变化，未冒称正式包原生重测。

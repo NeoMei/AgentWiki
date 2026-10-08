@@ -7,3 +7,5 @@
 全部候选与发布证据在 `/Users/neomei/.codex/worktrees/test-fixes-20261008/AgentWiki /agentwiki/docs/verification/test-fixes-20261008/`。主检出未提交资料和两个隔离工作树保留，未安装日常Vault。
 
 原始UNKNOWN_PARENT、原Space/原文路径、原生IME、真实provider、Windows/V3原生仍待复验；因此该任务索引保留原案跟踪状态。旧报告已原ID恢复，部署后仍有效，不再执行恢复。
+
+- 10-09 Windows真实补验：既有Session `01a0f8b8-b64c-7c80-9114-789d6f72dfc8` / turn `01a11c5f-9d5d-7872-803b-b1bbe5377f03` 已执行Windows Node24.18/libuv1.52.1命令；插件正式0.5.7回归135/135，网页正式0.12.17 CLI34/34、文件系统/配置128/128。Windows包管理器原16项中3项失败已修，独审及Windows补丁17/17通过，LF归一SHA一致；提交415f45f3已推送并回读master。旧checkout两处EPERM在正式源码各5轮共10次未复现，文件系统未改；不能称旧故障从未发生。正式0.5.7已在Windows Obsidian1.13.7临时Vault完成真实运行对象、命令注册与重载回读；真实同步和冲突选择未验；Mac临时LAN后端被现有防火墙阻断，已停止自建API/Redis，原数据/系统配置不变。`wait_threads`/列表不可用不等于主机离线，明确host的`read_thread`可读取该Session。回执见 receipts/windows-20261009.md。
