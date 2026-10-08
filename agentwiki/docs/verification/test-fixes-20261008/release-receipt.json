@@ -1,0 +1,125 @@
+{
+  "applicationVersion": "0.12.17",
+  "sourceCommit": "4d88ee2bb3af706050f5d88e038b7faf57ea0f2e",
+  "tag": "v0.12.17",
+  "githubRelease": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.17",
+  "publicSite": "https://agentwiki.quukk.com",
+  "fullTest": {
+    "passed": 6952,
+    "failed": 0,
+    "skipped": 6,
+    "databasePassed": 230,
+    "databaseSkipped": 0,
+    "finishedAt": "2026-10-08T14:22:54.058Z"
+  },
+  "typecheck": true,
+  "lint": {
+    "errors": 0,
+    "existingWarnings": 3
+  },
+  "build": {
+    "passed": true,
+    "initialBytes": 542577,
+    "budgetBytes": 550000,
+    "finishedAt": "2026-10-08T14:23:29.475Z"
+  },
+  "sourceReview": {
+    "critical": 0,
+    "important": 0,
+    "minor": 0
+  },
+  "deployment": {
+    "release": "0.12.17",
+    "sourceCommit": "4d88ee2bb3af706050f5d88e038b7faf57ea0f2e",
+    "sourceFileCount": 1232,
+    "sourceMismatches": [],
+    "configuredKeysCompared": 35,
+    "changedConfiguredKeys": [],
+    "versions": {
+      "package.json": "0.12.17",
+      "apps/client/package.json": "0.12.17",
+      "apps/server/package.json": "0.12.17",
+      "packages/local-sync/package.json": "0.11.0",
+      "packages/sync-protocol/package.json": "0.6.1"
+    },
+    "scripts": [
+      "/assets/index-RwTQtjfg.js"
+    ],
+    "restoredPageStillActive": true,
+    "at": "2026-10-08T14:28:01.159Z"
+  },
+  "public": {
+    "tlsVerification": "default verified",
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "home": {
+      "status": 200,
+      "contentType": "text/html"
+    },
+    "assets": [
+      {
+        "path": "/assets/index-RwTQtjfg.js",
+        "status": 200,
+        "bytes": 302021,
+        "sha256": "1aa9399cb0a34a138d6bf9ea9fe98f625e13ef4fa9a4d9daf8e358842a734a7d"
+      },
+      {
+        "path": "/assets/index-dCB6JZ7J.js",
+        "status": 200,
+        "bytes": 308458,
+        "sha256": "e35160d05485bdb03516d14d719376699416dc52dd30251bc223cd6fca7c9ab4"
+      }
+    ]
+  },
+  "backup": {
+    "path": "/var/backups/agentwiki/test-fixes-v01217.ysaZtxag",
+    "databaseBytes": 29852532,
+    "applicationBytes": 346923080,
+    "attachmentsBytes": 3277708,
+    "tocAndArchivesVerified": true,
+    "previousApplication": "/root/agentwiki-previous-20261008222652"
+  },
+  "plugin": {
+    "version": "0.5.7",
+    "sourceCommit": "324fa53b3990fe276ebb1f12b4627a51e8a6b049",
+    "githubRelease": "https://github.com/NeoMei/agentwiki-sync/releases/tag/0.5.7",
+    "testPassed": 1418,
+    "downloadedAssetsMatch": true,
+    "attestationsVerified": true,
+    "installedDailyVault": false
+  },
+  "unchangedPackages": {
+    "localSync": "0.11.0",
+    "syncProtocol": "0.6.1",
+    "npmPublished": false
+  },
+  "browser": {
+    "homeAndGuideReadback": true,
+    "entryAsset": "/assets/index-RwTQtjfg.js",
+    "consoleErrors": 0,
+    "authenticatedProductionRetest": false
+  },
+  "logs": {
+    "test": {
+      "path": "/tmp/agentwiki-1008-release-test.log",
+      "sha256": "dcfd4189d5641d3087f90e27a06ac03ead6f6296eb3a79368d0cbe1eaf44ad43"
+    },
+    "typecheck": {
+      "path": "/tmp/agentwiki-1008-release-typecheck.log",
+      "sha256": "d0a87d9e039ecf277453e5bf5e153e25986e53af6f6456b0f1c7a11ba35dc86d"
+    },
+    "lint": {
+      "path": "/tmp/agentwiki-1008-release-lint.log",
+      "sha256": "9f6c5461bad90147dc72e4f21bd9074490fa6998353ab6023861aceef8db2c5b"
+    },
+    "build": {
+      "path": "/tmp/agentwiki-1008-release-build.log",
+      "sha256": "1f97244936d9b2c2448279267d2cf75dcf33d83a3e6f20a6c5844dbb2ed24806"
+    }
+  }
+}
