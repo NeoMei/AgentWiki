@@ -1,0 +1,86 @@
+{
+  "version": "0.12.16",
+  "candidate": "d78c4af9803068216486258f2c4fcc971c38c766",
+  "firstOpen": [
+    {
+      "status": 200,
+      "conditional": false,
+      "cacheControl": "private, no-cache",
+      "vary": "Origin, Authorization, X-API-Key",
+      "networkBytes": 133358
+    },
+    {
+      "status": 200,
+      "conditional": false,
+      "cacheControl": "private, no-cache",
+      "vary": "Origin, Authorization, X-API-Key",
+      "networkBytes": 859411
+    },
+    {
+      "status": 304,
+      "conditional": true,
+      "cacheControl": "private, no-cache",
+      "vary": "Origin, Authorization, X-API-Key",
+      "networkBytes": 343
+    },
+    {
+      "status": 200,
+      "conditional": false,
+      "cacheControl": "private, no-cache",
+      "vary": "Origin, Authorization, X-API-Key",
+      "networkBytes": 47889
+    },
+    {
+      "status": 200,
+      "conditional": false,
+      "cacheControl": "private, no-cache",
+      "vary": "Origin, Authorization, X-API-Key",
+      "networkBytes": 68423
+    }
+  ],
+  "reopen": [
+    {
+      "status": 304,
+      "conditional": true,
+      "cacheControl": "private, no-cache",
+      "vary": "Origin, Authorization, X-API-Key",
+      "networkBytes": 344
+    },
+    {
+      "status": 304,
+      "conditional": true,
+      "cacheControl": "private, no-cache",
+      "vary": "Origin, Authorization, X-API-Key",
+      "networkBytes": 343
+    },
+    {
+      "status": 304,
+      "conditional": true,
+      "cacheControl": "private, no-cache",
+      "vary": "Origin, Authorization, X-API-Key",
+      "networkBytes": 343
+    },
+    {
+      "status": 304,
+      "conditional": true,
+      "cacheControl": "private, no-cache",
+      "vary": "Origin, Authorization, X-API-Key",
+      "networkBytes": 343
+    },
+    {
+      "status": 304,
+      "conditional": true,
+      "cacheControl": "private, no-cache",
+      "vary": "Origin, Authorization, X-API-Key",
+      "networkBytes": 343
+    }
+  ],
+  "dom": {
+    "allDecoded": true,
+    "count": 5,
+    "loading": 0
+  },
+  "eventsTruncated": false,
+  "eventsHasMore": false,
+  "scrollAttachmentRequests": 0
+}
