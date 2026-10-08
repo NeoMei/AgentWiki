@@ -1,4 +1,4 @@
-import { systemCollaborationKeys } from '../../i18n/system-collaboration-messages';
+import { systemCollaborationKeys } from '../../i18n/system-collaboration-keys';
 import type { CollaborationRun, TemplateSummary } from './types';
 const SYSTEM_SLUGS = new Set(['coding', 'bid-writing', 'paper-writing', 'video-script-writing', 'novel-writing']);
 export function systemTemplateText(template: TemplateSummary | null | undefined, value: string, t: (key: string) => string): string {

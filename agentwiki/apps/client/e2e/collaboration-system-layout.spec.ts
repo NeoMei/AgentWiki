@@ -73,8 +73,18 @@ test('system composite presentation, pending review header actions and bounded l
     await page.screenshot({ path: test.info().outputPath(`system-layout-${width}.png`), fullPage: true });
   }
   expect(requests.some(r => r.startsWith('POST'))).toBe(false);
-  conflict = true;
   await page.setViewportSize({ width: 1280, height: 900 });
+  // The stored-source lookup is route-local; both locales must still resolve it
+  // when the already-loaded Run changes language, without changing custom text.
+  await page.getByRole('button', { name: '切换语言', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'World bible', exact: true })).toBeVisible();
+  await expect(page.getByText('1. Define world rules', { exact: true })).toBeVisible();
+  await expect(page.getByText('Evidence is complete', { exact: true })).toBeVisible();
+  await expect(page.getByText('Frozen assignee: Define world rules')).toBeVisible();
+  await page.getByRole('button', { name: 'Switch language', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '世界观设定', exact: true })).toBeVisible();
+  await expect(page.getByText('证据完整', { exact: true })).toBeVisible();
+  conflict = true;
   await page.reload();
   const pending = page.getByTestId('dashboard-section-reviews').locator('article').first();
   await pending.getByRole('button', { name: '加载页面对比' }).click();
