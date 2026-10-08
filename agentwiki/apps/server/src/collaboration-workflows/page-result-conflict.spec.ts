@@ -69,6 +69,7 @@ describe('Page result conflict recovery', () => {
   const progression = { advanceRun: jest.fn() } as any;
   const notifications = { publishCurrentRun: jest.fn() } as any;
   const publication = {
+    rejectLocked: jest.fn(),
     lockChangeSetSpace: jest.fn(async (value: any) => Object.assign(value, { contentTreeRevision: 3n })),
     publishLocked: jest.fn(),
     supersedeLocked: jest.fn(),
@@ -165,6 +166,37 @@ describe('Page result conflict recovery', () => {
       },
       select: { artifactId: true, changeSetId: true },
     });
+  });
+
+  it.each(['regenerate', 'adopt_current'] as const)('recovers pre-detected waiting_review conflict through %s without approve', async kind => {
+    tx.collaborationTaskArtifact.findFirst.mockResolvedValue({ id: 'artifact-old', status: 'pending', version: 1, attemptId: 'attempt-1', attempt: { basePageVersionId: 'prior-version', basePageUpdatedAt: new Date('2026-09-04'), baseContentHash: hash('# Old') } });
+    await expect(service.resolvePageConflict('space-1', 'run-1', 'task-1', { kind, expectedPageVersionId: null, expectedContentHash: hash(page.content), idempotencyKey: `pre-${kind}` }, principal)).resolves.toMatchObject({ kind, taskId: 'task-1' });
+    expect(publication.publishLocked).not.toHaveBeenCalled();
+  });
+
+  it('rejects a forged recovery request when the candidate still matches current Page baseline', async () => {
+    tx.collaborationTaskArtifact.findFirst.mockResolvedValue({ id: 'artifact-old', status: 'pending', attempt: { basePageVersionId: null, basePageUpdatedAt: page.updatedAt, baseContentHash: hash(page.content) } });
+    await expect(service.resolvePageConflict('space-1', 'run-1', 'task-1', { kind: 'regenerate', expectedPageVersionId: null, expectedContentHash: hash(page.content), idempotencyKey: 'not-conflicted' }, principal)).rejects.toMatchObject({ businessCode: 'COLLABORATION_PROGRESS_INVARIANT' });
+    expect(publication.supersedeLocked).not.toHaveBeenCalled();
+  });
+
+  it.each(['reject_for_revision', 'terminate'] as const)('allows safe %s without publishing a conflicting candidate', async kind => {
+    await expect(service.decide('space-1', 'run-1', 'review-1', { kind, reason: 'keep human edits', idempotencyKey: `safe-${kind}` }, principal)).resolves.toBeDefined();
+    expect(publication.publishLocked).not.toHaveBeenCalled();
+    expect(publication.rejectLocked).toHaveBeenCalled();
+  });
+
+  it('keeps pre-detected recovery guarded by latest current Page CAS', async () => {
+    await expect(service.resolvePageConflict('space-1', 'run-1', 'task-1', { kind: 'adopt_current', expectedPageVersionId: null, expectedContentHash: hash('# Stale read'), idempotencyKey: 'stale-pre-recovery' }, principal)).rejects.toMatchObject({ businessCode: 'PAGE_VERSION_CONFLICT' });
+    expect(tx.pageVersion.create).not.toHaveBeenCalled();
+    expect(publication.supersedeLocked).not.toHaveBeenCalled();
+  });
+
+  it('rechecks reviewer eligibility before pre-detected recovery', async () => {
+    tx.collaborationReview.findFirst.mockResolvedValueOnce({ ...review, reviewerUserIds: ['other-reviewer'] });
+    tx.spaceMember.count.mockResolvedValueOnce(1);
+    await expect(service.resolvePageConflict('space-1', 'run-1', 'task-1', { kind: 'regenerate', expectedPageVersionId: null, expectedContentHash: hash(page.content), idempotencyKey: 'unauthorized-pre-recovery' }, principal)).rejects.toMatchObject({ businessCode: 'COLLABORATION_REVIEWER_DENIED' });
+    expect(publication.supersedeLocked).not.toHaveBeenCalled();
   });
 
   it('adopts an exact immutable snapshot of current human content and never accepts the old Agent text', async () => {

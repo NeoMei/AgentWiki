@@ -6,7 +6,7 @@ test('system composite presentation, pending review header actions and bounded l
   const now = '2026-10-08T00:00:00Z';
   const long = 'LongUnbrokenUserArtifact'.repeat(60);
   const run = {
-    id: 'run-system-layout', name: '用户运行 / User run', status: 'waiting_review', templateId: null,
+    id: 'run-system-layout', name: '用户运行 / User run', status: 'waiting_review', pauseReason: null, templateId: null,
     systemTemplateSource: { slug: 'novel-writing' }, version: 1, eventSequence: 1, updatedAt: now, roleBindings: [],
     tasks: [{ id: 'task', nodeId: 'world-bible', name: '世界观设定 / World bible', ordinal: 0,
       objectivePreview: 'Define setting rules, locations, factions, chronology, constraints, and unresolved world questions.',
@@ -19,6 +19,7 @@ test('system composite presentation, pending review header actions and bounded l
     events: Array.from({ length: 20 }, (_, i) => ({ id: String(i), sequence: i, operation: 'update_todo', actorKind: 'agent', createdAt: now })),
   };
   const requests: string[] = [];
+  let conflict = false;
   await page.addInitScript(() => { localStorage.setItem('token', 'local-fixture'); localStorage.setItem('user', JSON.stringify({ id: 'owner' })); localStorage.setItem('agentwiki.language.v1', 'zh-CN'); });
   await page.route('**/api/**', async route => {
     const path = new URL(route.request().url()).pathname;
@@ -28,7 +29,7 @@ test('system composite presentation, pending review header actions and bounded l
     if (path === '/api/users/me') data = { id: 'owner', name: 'Owner', email: 'owner@example.test', platformRole: 'user' };
     else if (path.endsWith('/members')) data = [{ type: 'human', userId: 'owner', role: 'owner' }, { type: 'agent', agentId: 'a', agent: { id: 'a', name: 'Define world rules', status: 'active' }, role: 'editor' }];
     else if (path.endsWith('/runs/run-system-layout')) data = run;
-    else if (path.endsWith('/page-comparison')) data = { mode: 'candidate', reviewId: 'pending', artifactId: 'a', canDecide: true, conflict: false,
+    else if (path.endsWith('/page-comparison')) data = { mode: 'candidate', reviewId: 'pending', artifactId: 'a', canDecide: true, conflict,
       target: { pageId: 'p', title: long }, baseline: { available: true, pageVersionId: 'v1', contentHash: 'a'.repeat(64), markdown: '# Old' }, candidate: { changeSetId: 'c', markdown: long }, current: { pageVersionId: 'v1', contentHash: 'a'.repeat(64), markdown: long } };
     else if (path === '/api/spaces/space-layout') data = { id: 'space-layout', name: '本地 Fixture', members: [{ type: 'human', userId: 'owner', role: 'owner' }] };
     else if (path === '/api/review/count') data = { pending: 1 };
@@ -72,6 +73,19 @@ test('system composite presentation, pending review header actions and bounded l
     await page.screenshot({ path: test.info().outputPath(`system-layout-${width}.png`), fullPage: true });
   }
   expect(requests.some(r => r.startsWith('POST'))).toBe(false);
+  conflict = true;
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.reload();
+  const pending = page.getByTestId('dashboard-section-reviews').locator('article').first();
+  await pending.getByRole('button', { name: '加载页面对比' }).click();
+  await expect(pending.getByRole('button', { name: '驳回返工' })).toBeVisible();
+  await expect(pending.getByRole('button', { name: '终止运行' })).toBeVisible();
+  await expect(pending.getByRole('button', { name: '通过', exact: true })).toHaveCount(0);
+  await expect(pending.getByRole('button', { name: '采纳当前页面' })).toBeVisible();
+  await pending.getByRole('button', { name: '基于当前页面重新生成' }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: test.info().outputPath('pre-detected-conflict.png'), fullPage: true });
+  await pending.getByRole('button', { name: '基于当前页面重新生成' }).click();
+  await expect.poll(() => requests.filter(r => r.startsWith('POST'))).toEqual(['POST /api/spaces/space-layout/collaboration/runs/run-system-layout/tasks/task/page-conflict']);
   await writeFile(test.info().outputPath('geometry.json'), JSON.stringify(geometries, null, 2));
   await test.info().attach('geometry', { body: JSON.stringify(geometries, null, 2), contentType: 'application/json' });
 });

@@ -170,6 +170,7 @@ export const RunDashboard: React.FC = () => {
     }
   }, [id, runId]);
 
+  const reviewCapabilityIdentity = run?.reviews?.map(review => `${review.id}:${review.canDecide}`).join('|');
   useEffect(() => {
     setReviewArtifacts({});
     setReviewArtifactErrors({});
@@ -183,7 +184,7 @@ export const RunDashboard: React.FC = () => {
         || run.tasks?.some((task) => task.id === review.sourceTaskId && task.targetPageId));
       if (!pageReview) void loadReviewArtifact(review);
     }
-  }, [loadReviewArtifact, run?.id, run?.eventSequence]);
+  }, [loadReviewArtifact, run?.id, run?.eventSequence, reviewCapabilityIdentity]);
 
   const openHistory = async (kind: CollaborationHistoryKind) => {
     const request = ++historyRequest.current;
@@ -288,11 +289,12 @@ export const RunDashboard: React.FC = () => {
     const action = pending;
     if (action.type === 'review') {
       const currentReview = run.reviews?.find(review => review.id === action.review.id);
-      if (state.kind !== 'ready' || state.updating || membersLoading || membersError || !humanRole || currentReview?.status !== 'pending') return;
+      if (state.kind !== 'ready' || state.updating || membersLoading || membersError || !humanRole || currentReview?.status !== 'pending' || !currentReview.canDecide) return;
       const pageReview = Boolean(currentReview.pagePublication || run.tasks?.some(task => task.id === currentReview.sourceTaskId && task.targetPageId));
       if (pageReview) {
         const comparison = reviewDetail?.reviewId === currentReview.id && reviewDetail.kind === 'comparison' ? reviewDetail.comparison : null;
-        if (!comparison?.canDecide || comparison.conflict || (comparison.mode === 'candidate' && !comparison.baseline.available)) return;
+        if (!comparison?.canDecide) return;
+        if (action.kind === 'approve' && (comparison.conflict || (comparison.mode === 'candidate' && !comparison.baseline.available))) return;
       } else if (!currentReview.canDecide || !reviewArtifacts[currentReview.id]) return;
     }
     setSubmitting(true);
@@ -348,7 +350,9 @@ export const RunDashboard: React.FC = () => {
     review: CollaborationReview,
     comparison: CollaborationPageReviewComparison,
   ) => {
-    if (resolvingConflict || comparison.mode !== 'candidate' || !comparison.current.contentHash || !review.sourceTaskId) return;
+    const currentReview = run?.reviews?.find(item => item.id === review.id);
+    if (state.kind !== 'ready' || state.updating || membersLoading || membersError || !humanRole || !currentReview?.canDecide || currentReview.status !== 'pending' || !comparison.canDecide || !comparison.conflict
+      || resolvingConflict || comparison.mode !== 'candidate' || !comparison.current.contentHash || !review.sourceTaskId) return;
     const requestedScope = `${id}:${runId}`;
     const requestedDetail = reviewDetailRequest.current;
     setResolvingConflict(true);

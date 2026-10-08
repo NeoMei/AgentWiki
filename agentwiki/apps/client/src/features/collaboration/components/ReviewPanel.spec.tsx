@@ -17,6 +17,18 @@ describe('ReviewPanel presentation and decision guards', () => {
     expect(cards[0]).toHaveTextContent('证据完整');
     expect(cards[0]).toHaveTextContent('Evidence is complete');
   });
+  it('offers safe rejection, termination and recovery for pre-detected conflict in waiting_review', () => {
+    const onDecision = vi.fn(); const onResolveConflict = vi.fn();
+    const comparison = { mode: 'candidate', canDecide: true, conflict: true, target: { pageId: 'p', title: 'Page' }, baseline: { available: true, markdown: 'old' }, candidate: { markdown: 'new', changeSetId: 'c' }, current: { markdown: 'human', contentHash: 'hash' } };
+    render(<MemoryRouter><ReviewPanel {...props} run={{ ...props.run, status: 'waiting_review', pauseReason: null, reviews: [{ ...review, sourceTaskId: 'task', pagePublication: { pageId: 'p', changeSetId: 'c' } }] }} detail={{ reviewId: 'pending', kind: 'comparison', comparison }} onDecision={onDecision} onResolveConflict={onResolveConflict} /></MemoryRouter>);
+    expect(screen.queryByRole('button', { name: '通过' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '驳回返工' }));
+    fireEvent.click(screen.getByRole('button', { name: '终止运行' }));
+    fireEvent.click(screen.getByRole('button', { name: '基于当前页面重新生成' }));
+    fireEvent.click(screen.getByRole('button', { name: '采纳当前页面' }));
+    expect(onDecision.mock.calls.map(call => call[0])).toEqual(['reject_for_revision', 'terminate']);
+    expect(onResolveConflict.mock.calls.map(call => call[0])).toEqual(['regenerate', 'adopt_current']);
+  });
   it.each(['unloaded', 'conflict', 'missing-baseline', 'unauthorized'])('never sends approval for %s page comparison', (mode) => {
     const onDecision = vi.fn();
     const comparison = { mode: 'candidate', canDecide: mode !== 'unauthorized', conflict: mode === 'conflict', target: { pageId: 'p', title: 'Page' }, baseline: { available: mode !== 'missing-baseline', markdown: null }, candidate: { markdown: 'new', changeSetId: 'c' }, current: { markdown: 'current' } };
