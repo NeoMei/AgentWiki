@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App, { ProtectedRoute, createAppMemoryRouter } from './App';
@@ -25,7 +25,10 @@ vi.mock('./features/page-templates/PageTemplateManager', () => ({
 }));
 
 vi.mock('./features/knowledge/KnowledgeGraph', () => ({ KnowledgeGraph: () => <h2>Graph body</h2> }));
-vi.mock('./features/source/SourcesPage', () => ({ SourcesPage: () => <h2>Sources body</h2> }));
+vi.mock('./features/source/SourcesPage', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./features/source/SourcesPage')>(),
+  SourcesPage: () => <h2>Sources body</h2>,
+}));
 vi.mock('./features/source/RunsPage', () => ({ RunsPage: () => <h2>Runs body</h2> }));
 vi.mock('./features/space/SpaceMembers', () => ({ SpaceMembers: () => <h2>Members body</h2> }));
 vi.mock('./features/space/SpaceSettings', () => ({ SpaceSettings: () => <h2>Settings body</h2> }));
@@ -116,13 +119,15 @@ describe('ProtectedRoute', () => {
     ['/spaces/template-settings-space/settings/page-templates', 'template-settings-space', 'Settings'],
     ['/spaces/docs-space/docs', 'docs-space', 'Sources'],
     ['/spaces/source-space/sources', 'source-space', 'Sources'],
-    ['/spaces/ingest-space/runs', 'ingest-space', 'Runs'],
+    ['/spaces/ingest-space/runs', 'ingest-space', 'Sources', '/spaces/ingest-space/sources?view=runs'],
+    ['/spaces/ingest-space/runs?run=ingest-run-7&filter=failed', 'ingest-space', 'Sources', '/spaces/ingest-space/sources?view=runs&run=ingest-run-7&filter=failed'],
+    ['/spaces/ingest-space/runs/ingest-run-7?filter=failed', 'ingest-space', 'Sources', '/spaces/ingest-space/sources?view=runs&run=ingest-run-7&filter=failed'],
     ['/spaces/collaboration-space/collaboration', 'collaboration-space', 'Collaboration'],
     ['/spaces/create-space/collaboration/templates/new', 'create-space', 'Collaboration'],
     ['/spaces/edit-space/collaboration/templates/template-17', 'edit-space', 'Collaboration'],
     ['/spaces/start-space/collaboration/templates/template-18/start', 'start-space', 'Collaboration'],
     ['/spaces/run-space/collaboration/runs/run-22', 'run-space', 'Collaboration'],
-  ])('wraps section route %s with its real Space identity and one navigation', async (path, expectedSpaceId, activeLabel) => {
+  ])('wraps section route %s with its real Space identity and one navigation', async (path, expectedSpaceId, activeLabel, expectedDestination?: string) => {
     installDataRouterRequestShim();
     authState.token = 'signed-in';
     authState.user = { id: 'user-1' };
@@ -132,16 +137,28 @@ describe('ProtectedRoute', () => {
       return { data: { id: match[1], name: `Space ${match[1]}`, description: '', members: [] } };
     });
 
-    render(<App router={createAppMemoryRouter(path)} />);
+    const router = createAppMemoryRouter(path);
+    render(<App router={router} />);
+
+    if (expectedDestination) {
+      const destination = new URL(expectedDestination, 'http://localhost');
+      await waitFor(() => expect(router.state.location.pathname).toBe(destination.pathname));
+      expect(Object.fromEntries(new URLSearchParams(router.state.location.search))).toEqual(Object.fromEntries(destination.searchParams));
+      expect(router.state.historyAction).toBe('REPLACE');
+      expect(await screen.findByRole('heading', { name: 'Sources body' })).toBeVisible();
+    }
 
     expect(await screen.findByRole('heading', { name: `Space ${expectedSpaceId}` })).toBeVisible();
     expect(screen.getAllByRole('navigation', { name: 'Space navigation' })).toHaveLength(1);
-    expect(screen.getByRole('link', { name: activeLabel })).toHaveAttribute('aria-current', 'page');
+    const navigation = within(screen.getByRole('navigation', { name: 'Space navigation' }));
+    expect(navigation.getByRole('link', { name: activeLabel })).toHaveAttribute('aria-current', 'page');
+    expect(navigation.queryByRole('link', { name: 'Runs' })).not.toBeInTheDocument();
     expect(document.querySelector('aside')).not.toBeInTheDocument();
     expect(api.get).toHaveBeenCalledWith(`/spaces/${expectedSpaceId}`);
     expect(api.get.mock.calls.map(([url]) => url)).not.toContain(`/spaces/template-17`);
     expect(api.get.mock.calls.map(([url]) => url)).not.toContain(`/spaces/template-18`);
     expect(api.get.mock.calls.map(([url]) => url)).not.toContain(`/spaces/run-22`);
+    expect(api.get.mock.calls.map(([url]) => url)).not.toContain(`/spaces/ingest-run-7`);
     expect(api.get.mock.calls.every(([url]) => !String(url).includes('/folders') && !String(url).includes('/content-tree'))).toBe(true);
   });
 
