@@ -85,7 +85,130 @@ const systemTodoMessages = (locale: 'en' | 'zh-CN') => Object.fromEntries(system
 ]));
 
 // Verbatim built-in display copy. Presentation only; never written to template storage.
+const systemReviewTexts = [
+  [
+    "Evidence is complete",
+    "证据完整"
+  ],
+  [
+    "Residual risks are explicit",
+    "剩余风险已明确"
+  ],
+  [
+    "A human accepts the merge/release decision",
+    "人类接受合并与发布决定"
+  ],
+  [
+    "Scoring matrix is complete",
+    "评分矩阵完整"
+  ],
+  [
+    "Material gaps are understood",
+    "材料缺口已明确"
+  ],
+  [
+    "Human confirms bid direction",
+    "人类确认投标方向"
+  ],
+  [
+    "Unsupported claims are listed",
+    "无证据支持的说法已列出"
+  ],
+  [
+    "Missing evidence has an owner",
+    "缺失证据已有负责人"
+  ],
+  [
+    "Human decides how to handle gaps",
+    "人类决定如何处理缺口"
+  ],
+  [
+    "All mandatory items are covered",
+    "所有强制要求均已覆盖"
+  ],
+  [
+    "Claims are evidence-backed",
+    "所有说法均有证据支持"
+  ],
+  [
+    "Human accepts the final bid content",
+    "人类接受最终投标内容"
+  ],
+  [
+    "Research question is answerable",
+    "研究问题可回答"
+  ],
+  [
+    "Contribution is explicit",
+    "研究贡献已明确"
+  ],
+  [
+    "Evidence boundary is acceptable",
+    "证据边界可接受"
+  ],
+  [
+    "Claims are traceable",
+    "论断可追溯"
+  ],
+  [
+    "Limitations are explicit",
+    "局限已明确"
+  ],
+  [
+    "Human accepts the final academic content",
+    "人类接受最终学术内容"
+  ],
+  [
+    "Duration is credible",
+    "时长合理"
+  ],
+  [
+    "Facts and brand tone are accepted",
+    "事实与品牌语调已接受"
+  ],
+  [
+    "Human authorizes pre-production handoff",
+    "人类授权制作前交接"
+  ],
+  [
+    "Causality is coherent",
+    "因果关系连贯"
+  ],
+  [
+    "Character arcs and world rules align",
+    "角色成长与世界规则一致"
+  ],
+  [
+    "Human accepts the planned story direction",
+    "人类接受计划的故事方向"
+  ],
+  [
+    "Continuity findings are resolved",
+    "连续性问题已解决"
+  ],
+  [
+    "Style and character voices are coherent",
+    "风格与角色语言一致"
+  ],
+  [
+    "Human accepts the manuscript",
+    "人类接受稿件"
+  ],
+  [
+    "正文内容已核验 / Page content is verified",
+    "正文内容已核验"
+  ],
+  [
+    "人类批准发布 / Human approves publication",
+    "人类批准发布"
+  ]
+] as const;
+const systemReviewMessages = (locale: 'en' | 'zh-CN') => Object.fromEntries(systemReviewTexts.map(([english, chinese], index) => [
+  `collaboration.systemReview.${index}`, locale === 'en' ? english.split(' / ').slice(-1)[0]! : chinese,
+]));
+
 export const systemCollaborationKeys: Record<string, string> = {
+  ...Object.fromEntries(systemReviewTexts.map(([english], index) => [english, `collaboration.systemReview.${index}`])),
   ...systemTodoKeys,
 
   "Agent 代码审校 / Agent code review": "collaboration.systemCopy.0",
@@ -212,6 +335,11 @@ export const systemCollaborationKeys: Record<string, string> = {
 export const systemCollaborationMessages = {
   "en": {
     ...systemTodoMessages('en'),
+    ...systemReviewMessages('en'),
+    'collaboration.artifactKind.markdown': 'Markdown document',
+    'collaboration.artifactKind.external_reference': 'External reference',
+    'collaboration.artifactKind.json': 'JSON data',
+    'collaboration.artifactKind.evidence_summary': 'Evidence summary',
 
     "collaboration.systemCopy.0": "Agent code review",
     "collaboration.systemCopy.1": "World builder",
@@ -335,6 +463,11 @@ export const systemCollaborationMessages = {
   },
   "zh-CN": {
     ...systemTodoMessages('zh-CN'),
+    ...systemReviewMessages('zh-CN'),
+    'collaboration.artifactKind.markdown': 'Markdown 文档',
+    'collaboration.artifactKind.external_reference': '外部引用',
+    'collaboration.artifactKind.json': 'JSON 数据',
+    'collaboration.artifactKind.evidence_summary': '证据摘要',
 
     "collaboration.systemCopy.0": "Agent 代码审校",
     "collaboration.systemCopy.1": "世界构建者",

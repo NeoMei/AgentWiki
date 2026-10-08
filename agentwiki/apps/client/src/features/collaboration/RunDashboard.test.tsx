@@ -612,6 +612,18 @@ describe('RunDashboard', () => {
     expect(document.body.textContent).not.toMatch(/credential|api[-_ ]?key|token=/iu);
   });
 
+  it('does not submit an approval when a refresh revokes the pending review capability', async () => {
+    renderDashboard(waitingReviewRun);
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Reviewed' } });
+    vi.mocked(collaborationApi.getRun).mockResolvedValue({ ...waitingReviewRun, eventSequence: 9, reviews: waitingReviewRun.reviews.map(review => ({ ...review, canDecide: false })) } as any);
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(collaborationApi.getRun).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm approve' }));
+    expect(collaborationApi.decideReview).not.toHaveBeenCalled();
+  });
+
   it('restores dialog focus after a conflict refresh so Escape remains available', async () => {
     vi.mocked(collaborationApi.decideReview).mockRejectedValueOnce({
       response: { data: { code: 'PAGE_VERSION_CONFLICT' } },

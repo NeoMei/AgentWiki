@@ -88,6 +88,8 @@ export interface CollaborationRun extends RunSummary {
   inputs?: Record<string, string | number | boolean>;
   roleBindings: RoleBinding[];
   templateSnapshot?: CollaborationTemplateDefinition;
+  /** Verified by the server from the stored legacy/composite system template relation. */
+  systemTemplateSource?: { slug: string } | null;
   joinInstructions?: RunJoinInstruction[];
   startedById?: string;
   pauseReason?: string | null;
@@ -134,6 +136,7 @@ export interface CollaborationArtifact {
   payload?: unknown;
   evidence?: unknown;
   preview?: string;
+  previewFormat?: 'kind_version';
   createdAt: string;
 }
 

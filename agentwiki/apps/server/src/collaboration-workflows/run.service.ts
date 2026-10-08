@@ -119,6 +119,8 @@ const HUMAN_RUN_SELECT = {
   createdAt: true,
   updatedAt: true,
   templateSnapshot: true,
+  template: { select: { system: true, spaceId: true, slug: true } },
+  compositeTemplateVersion: { select: { template: { select: { scope: true, spaceId: true, stableKey: true } } } },
   roleBindings: {
     select: { id: true, runId: true, roleSlotId: true, roleSlotName: true, agentId: true },
   },
@@ -1029,9 +1031,10 @@ export class RunService {
       current.taskIds.push(task.id);
       instructions.set(task.assigneeAgentId, current);
     }
-    const { templateSnapshot: _templateSnapshot, ...publicRun } = run;
+    const { templateSnapshot: _templateSnapshot, template, compositeTemplateVersion, ...publicRun } = run;
     const response = {
       ...publicRun,
+      systemTemplateSource: systemRunSource(template, compositeTemplateVersion?.template),
       tasks,
       reviews: reviewPreviews,
       events: newestEvents.reverse(),
@@ -1194,6 +1197,7 @@ function artifactPreview(artifact: any) {
     id: artifact.id, taskId: artifact.taskId, generation: artifact.generation, version: artifact.version,
     kind: artifact.kind, status: artifact.status, createdAt: artifact.createdAt,
     preview: `${artifact.kind} v${artifact.version}`,
+    previewFormat: 'kind_version' as const,
   };
 }
 
@@ -1203,4 +1207,13 @@ function runSummary(run: any) {
     templateVersion: run.templateVersion, createdAt: run.createdAt, updatedAt: run.updatedAt,
     startedAt: run.startedAt, finishedAt: run.finishedAt,
   };
+}
+
+// Trust stored system ownership, never text equality or a copied Space template.
+function systemRunSource(legacy: { system: boolean; spaceId: string | null; slug: string } | null | undefined, composite: { scope: string; spaceId: string | null; stableKey: string } | null | undefined): { slug: string } | null {
+  const slugs = new Set(['coding', 'bid-writing', 'paper-writing', 'video-script-writing', 'novel-writing']);
+  if (legacy?.system && legacy.spaceId === null && slugs.has(legacy.slug)) return { slug: legacy.slug };
+  const compositeSlugs: Record<string, string> = { 'coding-workspace': 'coding', 'bid-workspace': 'bid-writing', 'paper-workspace': 'paper-writing', 'video-script-workspace': 'video-script-writing', 'novel-workspace': 'novel-writing' };
+  const slug = composite?.scope === 'system' && composite.spaceId === null && Object.prototype.hasOwnProperty.call(compositeSlugs, composite.stableKey) ? compositeSlugs[composite.stableKey] : undefined;
+  return slug ? { slug } : null;
 }
