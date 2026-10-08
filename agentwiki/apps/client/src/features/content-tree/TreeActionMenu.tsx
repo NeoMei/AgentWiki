@@ -60,11 +60,20 @@ export const TreeActionMenu: React.FC<{ label: string; title: string; children: 
     const above = Math.max(0, trigger.top - top - 4);
     const below = Math.max(0, bottom - trigger.bottom - 4);
     menu.style.maxHeight = '';
+    // Keep the row action column reachable while this menu is open. Align the
+    // menu beside that column, rather than covering the following row triggers.
+    const leftSpace = Math.max(0, trigger.left - 8);
+    const rightSpace = Math.max(0, window.innerWidth - trigger.right - 8);
+    const opensLeft = leftSpace >= 176 || leftSpace >= rightSpace;
+    const horizontalSpace = opensLeft ? leftSpace : rightSpace;
+    menu.style.width = `${Math.min(176, horizontalSpace)}px`;
+    menu.style.minWidth = `${Math.min(176, horizontalSpace)}px`;
+    menu.style.maxWidth = `${horizontalSpace}px`;
     const rect = menu.getBoundingClientRect();
     const upward = Math.max(menu.scrollHeight, rect.height) > below && above > below;
     Object.assign(menu.style, {
       position: 'fixed',
-      left: `${Math.max(4, Math.min(trigger.right - rect.width, window.innerWidth - rect.width - 4))}px`,
+      left: `${opensLeft ? trigger.left - rect.width - 4 : trigger.right + 4}px`,
       top: upward ? 'auto' : `${trigger.bottom + 4}px`,
       bottom: upward ? `${window.innerHeight - trigger.top + 4}px` : 'auto',
       maxHeight: `${upward ? above : below}px`, overflowY: 'auto',

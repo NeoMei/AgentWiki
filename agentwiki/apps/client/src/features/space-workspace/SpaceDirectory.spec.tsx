@@ -426,7 +426,7 @@ describe('directory action menu placement', () => {
     const { summary, menu } = menuElements();
     fireEvent.click(summary);
     expect(summary).toHaveAttribute('aria-expanded', 'true');
-    expect(menu).toHaveStyle({ top: 'auto', bottom: '98px', maxHeight: '390px', overflowY: 'auto' });
+    expect(menu).toHaveStyle({ left: '10px', top: 'auto', bottom: '98px', maxHeight: '390px', overflowY: 'auto' });
     expect(props.onEditPage).not.toHaveBeenCalled();
   });
 
@@ -436,7 +436,7 @@ describe('directory action menu placement', () => {
     render(<Providers><SpaceDirectory {...props} /></Providers>);
     const { summary, menu } = menuElements();
     fireEvent.click(summary);
-    expect(menu).toHaveStyle({ top: '332px', bottom: 'auto', maxHeight: '388px', overflowY: 'auto' });
+    expect(menu).toHaveStyle({ left: '10px', top: '332px', bottom: 'auto', maxHeight: '388px', overflowY: 'auto' });
   });
 
   it('positions keyboard-opened menus before focusing actions, retains Escape, and closes on directory scrolling', () => {
