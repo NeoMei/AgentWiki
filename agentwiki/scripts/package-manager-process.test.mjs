@@ -17,6 +17,18 @@ test('uses the package manager directly on POSIX', () => {
   });
 });
 
+test('Windows leaves explicit executables and non-package-manager commands unchanged', () => {
+  for (const command of ['C:\\Program Files\\nodejs\\node.exe', 'C:\\missing\\tool.exe', 'custom-tool', 'toString']) {
+    assert.deepEqual(resolvePackageManagerInvocation(command, ['--version'], {
+      platform: 'win32',
+      env: { npm_execpath: 'C:\\tools\\pnpm.mjs' },
+    }), {
+      executable: command,
+      args: ['--version'],
+    });
+  }
+});
+
 test('launches package-manager JavaScript entry points through Node on Windows', () => {
   const invocation = resolvePackageManagerInvocation('pnpm', ['test'], {
     platform: 'win32',
