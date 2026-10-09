@@ -18,4 +18,12 @@
 
 ## 发布边界
 
-应用版本为 `0.12.18`；Local Sync 保持 `0.11.0`，同步协议保持 `0.6.1`。GitHub 发布和生产部署分别记录。生产 SSH 只读预检当前返回 `Permission denied (publickey,password)`，恢复既有 SSH 控制连接后才能执行生产部署与公网回读。
+应用版本为 `0.12.18`；Local Sync 保持 `0.11.0`，同步协议保持 `0.6.1`。GitHub 发布和生产部署分别记录。
+
+## 生产部署回执
+
+- 2026-10-10 03:53（Asia/Shanghai）已部署到 `root@113.249.120.24:/root/agentwiki`；root/server/client 版本均为 `0.12.18`。
+- 生产数据库共 61 个 Prisma migration，部署后无待应用迁移；API、Worker、Frontend 均为 `active/running`，`NRestarts=0`。
+- 内网和公网 `/api/health` 均返回 `status/database/redis/auditPersistence/attachmentStorage: ok`。
+- 部署前协调备份保存在 `/var/backups/agentwiki/release-v0.12.18-pre-20261010035034`；旧应用树保留在 `/root/agentwiki-previous-20261010035355`。
+- 公网首页加载的新构建资源 `assets/index-DSzYiMrX.js` 与服务器 `dist` 资源 SHA-256 一致；未把本次回读扩大为已登录浏览器业务验收。
