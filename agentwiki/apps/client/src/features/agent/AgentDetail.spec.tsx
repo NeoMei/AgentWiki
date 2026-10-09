@@ -102,7 +102,7 @@ describe('AgentDetail', () => {
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Agent One' })).not.toBeInTheDocument());
   });
 
-  it('offers connection authorization only for Spaces the Agent owner can administer', async () => {
+  it('offers connection authorization for every joined Space with the member role ceiling', async () => {
     vi.mocked(api.get)
       .mockReset()
       .mockResolvedValueOnce({ data: {
@@ -122,10 +122,20 @@ describe('AgentDetail', () => {
 
     const spaceSelect = screen.getByRole('combobox', { name: '空间' });
     expect(within(spaceSelect).getAllByRole('option').map((option) => option.textContent))
-      .toEqual(['我管理的空间', '我协管的空间']);
+      .toEqual(['我管理的空间', '我协管的空间', '我编辑的空间', '我只读的空间']);
+
+    fireEvent.change(spaceSelect, { target: { value: 'edited' } });
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Agent 角色' })).toHaveValue('editor'));
+    expect(within(screen.getByRole('combobox', { name: 'Agent 角色' })).getAllByRole('option').map((option) => option.getAttribute('value')))
+      .toEqual(['reader', 'editor']);
+
+    fireEvent.change(spaceSelect, { target: { value: 'viewed' } });
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Agent 角色' })).toHaveValue('reader'));
+    expect(within(screen.getByRole('combobox', { name: 'Agent 角色' })).getAllByRole('option').map((option) => option.getAttribute('value')))
+      .toEqual(['reader']);
   });
 
-  it('requires real management membership for platform super administrator Space choices', async () => {
+  it('requires real membership for platform super administrator Space choices', async () => {
     localStorage.setItem('user', JSON.stringify({
       id: 'admin-1', email: 'admin@example.test', platformRole: 'super_admin',
     }));
@@ -145,8 +155,9 @@ describe('AgentDetail', () => {
     fireEvent.click(await screen.findByRole('button', { name: '访问权限' }));
 
     const spaceSelect = screen.getByRole('combobox', { name: '空间' });
-    expect(spaceSelect).toBeDisabled();
-    expect(within(spaceSelect).queryAllByRole('option')).toHaveLength(0);
+    expect(spaceSelect).not.toBeDisabled();
+    expect(within(spaceSelect).getAllByRole('option').map((option) => option.textContent)).toEqual(['超管只读成员空间']);
+    expect(screen.getByRole('combobox', { name: 'Agent 角色' })).toHaveValue('reader');
   });
 
   it('loads every Space page before building the authorization choices', async () => {

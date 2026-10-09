@@ -91,9 +91,14 @@ export const AgentDetail: React.FC = () => {
   const credentialIsActive = (item: { expiresAt?: string | null; revokedAt?: string | null }) => (
     !item.revokedAt && (!item.expiresAt || Date.parse(item.expiresAt) > Date.now())
   );
-  const manageableSpaces = spaces.filter((space) => space.members?.some((member: any) => (
-        member.userId === user?.id && ['owner', 'admin'].includes(member.role)
-      )));
+  const manageableSpaces = spaces.flatMap((space) => {
+    const membership = space.members?.find((member: any) => member.userId === user?.id);
+    if (!membership) return [];
+    const maxAgentRole: AgentAccessRole = membership.role === 'owner' || membership.role === 'admin'
+      ? 'publisher'
+      : membership.role === 'editor' ? 'editor' : 'reader';
+    return [{ ...space, maxAgentRole }];
+  });
 
   return (
     <div className="max-w-5xl mx-auto">

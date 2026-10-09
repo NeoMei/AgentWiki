@@ -17,7 +17,7 @@ const renderCard = ({
   grants = [{ spaceId: 'space-1', role: 'reader' as const, space: { id: 'space-1', name: '团队知识库' } }],
 }: {
   agentId?: string;
-  spaces?: Array<{ id: string; name: string }>;
+  spaces?: Array<{ id: string; name: string; maxAgentRole?: AgentAccessRole }>;
   grants?: Array<{
     spaceId: string;
     role: AgentAccessRole;
@@ -89,6 +89,20 @@ describe('LocalSyncInstallCard', () => {
     expect(screen.queryByText(/当前角色为 Publisher/)).not.toBeInTheDocument();
   });
 
+  it.each([
+    ['editor', 'editor', ['reader', 'editor']],
+    ['reader', 'reader', ['reader']],
+  ] as const)('caps the selected role at the joined member ceiling (%s)', async (maxAgentRole, expectedRole, allowedRoles) => {
+    renderCard({
+      spaces: [{ id: 'space-1', name: '受限空间', maxAgentRole }],
+      grants: [{ spaceId: 'space-1', role: 'publisher', space: { id: 'space-1', name: '受限空间' } }],
+    });
+
+    const role = screen.getByRole('combobox', { name: 'Agent 角色' });
+    await waitFor(() => expect(role).toHaveValue(expectedRole));
+    expect(Array.from(role.querySelectorAll('option')).map((option) => option.value)).toEqual(allowedRoles);
+  });
+
   it('does not overwrite an unsubmitted role choice when equivalent grant props rerender', () => {
     const props = {
       agentId: 'agent-1',
@@ -128,7 +142,7 @@ describe('LocalSyncInstallCard', () => {
   it('explains why no Space can be selected for authorization', () => {
     renderCard({ spaces: [], grants: [] });
 
-    expect(screen.getByText('你需要先成为某个空间的所有者或管理员，才能为 Agent 生成该空间的接入授权。')).toBeInTheDocument();
+    expect(screen.getByText('你需要先加入某个空间，才能为 Agent 生成该空间的接入授权。')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '生成统一网关接入指令' })).toBeDisabled();
   });
 

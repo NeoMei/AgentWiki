@@ -9,7 +9,7 @@ import {
 } from '../../config/localSync';
 import { useLanguage } from '../../context/LanguageContext';
 
-type SpaceOption = { id: string; name: string };
+type SpaceOption = { id: string; name: string; maxAgentRole?: AgentAccessRole };
 type GrantSummary = { spaceId: string; role: AgentAccessRole; space: SpaceOption };
 
 interface InstallationResult {
@@ -26,15 +26,29 @@ export const LocalSyncInstallCard: React.FC<{
 }> = ({ agentId, spaces, grants, title }) => {
   const { t } = useLanguage();
   const [spaceId, setSpaceId] = useState(spaces[0]?.id ?? '');
+  const maxRoleForSpace = (candidateSpaceId: string): AgentAccessRole => (
+    spaces.find((space) => space.id === candidateSpaceId)?.maxAgentRole ?? 'publisher'
+  );
+  const capRole = (candidateRole: AgentAccessRole, maximumRole: AgentAccessRole) => (
+    AGENT_ACCESS_ROLES.indexOf(candidateRole) <= AGENT_ACCESS_ROLES.indexOf(maximumRole)
+      ? candidateRole
+      : maximumRole
+  );
+  const maximumRole = maxRoleForSpace(spaces[0]?.id ?? '');
   const [role, setRole] = useState<AgentAccessRole>(() => (
-    grants.find((grant) => grant.spaceId === spaces[0]?.id)?.role ?? 'reader'
+    capRole(grants.find((grant) => grant.spaceId === spaces[0]?.id)?.role ?? spaces[0]?.maxAgentRole ?? 'reader', maximumRole)
   ));
   const [result, setResult] = useState<InstallationResult | null>(null);
   const [generating, setGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
-  const grantedRole = grants.find((grant) => grant.spaceId === spaceId)?.role ?? 'reader';
+  const grantedRole = grants.find((grant) => grant.spaceId === spaceId)?.role
+    ?? spaces.find((space) => space.id === spaceId)?.maxAgentRole ?? 'reader';
+  const selectedMaximumRole = maxRoleForSpace(spaceId);
+  const availableRoles = AGENT_ACCESS_ROLES.filter((item) => (
+    AGENT_ACCESS_ROLES.indexOf(item) <= AGENT_ACCESS_ROLES.indexOf(selectedMaximumRole)
+  ));
 
   useEffect(() => {
     if (!spaces.some((space) => space.id === spaceId)) {
@@ -43,8 +57,8 @@ export const LocalSyncInstallCard: React.FC<{
   }, [spaceId, spaces]);
 
   useEffect(() => {
-    setRole(grantedRole);
-  }, [grantedRole, spaceId]);
+    setRole(capRole(grantedRole, selectedMaximumRole));
+  }, [grantedRole, selectedMaximumRole, spaceId]);
 
   useEffect(() => {
     setResult(null);
@@ -139,7 +153,7 @@ export const LocalSyncInstallCard: React.FC<{
             onChange={(event) => setRole(event.target.value as AgentAccessRole)}
             className="h-8 w-full rounded-lg border px-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100"
           >
-            {AGENT_ACCESS_ROLES.map((item) => (
+            {availableRoles.map((item) => (
               <option key={item} value={item}>{roleName(item)}</option>
             ))}
           </select>
