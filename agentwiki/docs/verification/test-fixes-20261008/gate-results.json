@@ -1,0 +1,111 @@
+{
+  "sourceSha": "167237a1d70b36a9dfb05a97438717a01b714201",
+  "fullRepositoryTest": {
+    "command": "AGENTWIKI_FULL_TEST=1 pnpm test",
+    "exitCode": 0,
+    "finishedAt": "2026-10-08T13:13:10.189Z",
+    "passed": 6952,
+    "skipped": 6,
+    "failed": 0,
+    "groups": {
+      "runtime": {
+        "passed": 305,
+        "skipped": 1
+      },
+      "databaseRuntime": {
+        "passed": 230,
+        "skipped": 0
+      },
+      "server": {
+        "passed": 3058,
+        "skipped": 4
+      },
+      "client": {
+        "passed": 2234,
+        "skipped": 0
+      },
+      "syncProtocol": {
+        "passed": 140,
+        "skipped": 0
+      },
+      "localSync": {
+        "passed": 985,
+        "skipped": 1
+      }
+    },
+    "skipReasons": {
+      "Windows native": 2,
+      "independently installed CodeGraph acceptance not enabled": 1,
+      "dedicated connection authorization PostgreSQL/Redis gate not enabled": 3
+    }
+  },
+  "build": {
+    "sourceSha": "d6c3934a609590ffbc1cf0e27f7c650ed5113f9c",
+    "command": "pnpm build",
+    "exitCode": 0,
+    "finishedAt": "2026-10-08T13:23:06.936Z",
+    "initialJavaScriptBytes": 542577,
+    "budgetBytes": 550000,
+    "budgetUnchanged": true
+  },
+  "plugin": {
+    "sha": "d1d89de8270c2a629886d4b1688375d2d3dc8825",
+    "command": "npm run check",
+    "exitCode": 0,
+    "passed": 1418,
+    "files": 69,
+    "warnings": 19
+  },
+  "logs": {
+    "test": {
+      "path": "/tmp/agentwiki-1008-final-test.log",
+      "sha256": "fc4bafa9f54e9d7d6ba305b55b996d31a10e34bdfd24c0dc978ed8047c8ca3ae"
+    },
+    "typecheck": {
+      "path": "/tmp/agentwiki-1008-final-typecheck.log",
+      "sha256": "d0a87d9e039ecf277453e5bf5e153e25986e53af6f6456b0f1c7a11ba35dc86d"
+    },
+    "lint": {
+      "path": "/tmp/agentwiki-1008-final-lint.log",
+      "sha256": "9f6c5461bad90147dc72e4f21bd9074490fa6998353ab6023861aceef8db2c5b"
+    },
+    "browser": {
+      "path": "/tmp/agentwiki-1008-final-browser.log",
+      "sha256": "22bc9d20f61ee678ac99dbb878fc6e3d236b9548034d0e0a82b64487130f69ee"
+    },
+    "plugin-check": {
+      "path": "/tmp/agentwiki-1008-final-plugin-check.log",
+      "sha256": "2d30083aaa36f104fa71c4777b4cedd740ef6138649191a852770a830f3f3148"
+    },
+    "build": {
+      "path": "/tmp/agentwiki-1008-final-build.log",
+      "sha256": "005f1b51b5a0e594c47104b2e1f5e5e27f0fb725b8bdf79ccac8954220cd74e1"
+    },
+    "deltaClient": {
+      "path": "/tmp/agentwiki-1008-bundle-client-tests.log",
+      "sha256": "df438ee8b5e7e626019f91855b880659230f76a2a175249a49218b28ec72c42b"
+    },
+    "productionCollaboration": {
+      "path": "/tmp/agentwiki-1008-bundle-preview-green-tests.log",
+      "sha256": "3ad8a4e8d1ff5e8d3c8c972c5c104bb5090d6e4e2445aff304d440421534bff9"
+    }
+  },
+  "finalProductSha": "d6c3934a609590ffbc1cf0e27f7c650ed5113f9c",
+  "finalClientDelta": {
+    "sourceSha": "d6c3934a609590ffbc1cf0e27f7c650ed5113f9c",
+    "passed": 2234,
+    "files": 141,
+    "failed": 0,
+    "skipped": 0,
+    "focusedPassed": 84,
+    "typecheck": "pass",
+    "lint": "pass",
+    "productionChrome": "pass; API fixtures for collaboration and sources"
+  },
+  "sourceReview": {
+    "critical": 0,
+    "important": 0,
+    "minor": 0,
+    "receipt": "receipts/final-bundle-review.md"
+  }
+}

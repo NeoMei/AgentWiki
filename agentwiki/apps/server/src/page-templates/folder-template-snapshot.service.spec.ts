@@ -7,6 +7,10 @@ import {
   type FolderTemplateSnapshotSaveInput,
   type FolderTemplateSnapshotSelection,
 } from './folder-template-snapshot.service';
+import { ConfigService } from '@nestjs/config';
+import { AuthorizationService } from '../core/authorization/authorization.service';
+import { TemplateFeaturePolicy } from './template-feature-policy';
+import { CompositeTemplateController } from './composite-template.controller';
 import type { Principal } from '../core/authorization/authorization.service';
 import { hashCompositeDefinition } from './composite-template-validator';
 import { expandTemplateDefinition } from './template-instantiation.service';
@@ -217,6 +221,31 @@ describe('FolderTemplateSnapshotService', () => {
     service = new FolderTemplateSnapshotService(
       prisma, authorization, revisionWriter, markdownResources, pageTemplates,
     );
+  });
+
+  it.each([
+    ['owner', true, true], ['admin', true, true], ['editor', true, false], ['viewer', true, false],
+    ['owner', false, false], ['admin', false, false], ['editor', false, false], ['viewer', false, false],
+  ] as const)('matches real Folder-save route authority for %s, allowlisted=%s', async (role, allowed, expected) => {
+    const preview = await service.preview('space-1', 'root-id', selection, principal);
+    tx.$queryRaw.mockImplementation(async (query: any) => query.strings.join('').includes('FROM "User"')
+      ? [{ id: principal.userId }] : [{ ...root, depth: 1 }]);
+    tx.user = { findUnique: jest.fn().mockResolvedValue({ id: principal.userId, type: 'human', platformRole: 'user', deletedAt: null, lockedAt: null }) };
+    tx.spaceMember = { findUnique: jest.fn().mockResolvedValue({ role }) };
+    const snapshots = new FolderTemplateSnapshotService(prisma, new AuthorizationService(prisma), revisionWriter, markdownResources, pageTemplates);
+    const policy = new TemplateFeaturePolicy({ get: () => allowed ? 'space-1' : '' } as unknown as ConfigService);
+    const controller = new CompositeTemplateController({} as any, {} as any, {} as any, snapshots,
+      {} as any, {} as any, {} as any, policy);
+    const operation = Promise.resolve().then(() => controller.saveFolderTemplate({ user: principal } as any, 'space-1', {
+      rootFolderId: 'root-id', selection, sourceToken: preview.sourceToken,
+      acknowledgedWarnings: [], name: 'Saved folder', defaultTitle: 'Root', category: 'knowledge', locale: 'en',
+    } as any));
+    if (expected) await expect(operation).resolves.toEqual({ id: 'saved-template', currentVersion: 1 });
+    else {
+      await expect(operation).rejects.toMatchObject({ businessCode: allowed ? 'PAGE_TEMPLATE_PERMISSION_DENIED' : 'COMPOSITE_TEMPLATE_FEATURE_DISABLED' });
+      expect(pageTemplates.createCompositeSpaceTemplateInLockedTransaction).not.toHaveBeenCalled();
+    }
+    expect(policy.capabilities('space-1', role).canSaveFolderTemplate).toBe(expected);
   });
 
   it('detects a persisted body-only change even when tree revision is unchanged', async () => {

@@ -30,12 +30,22 @@ export interface CompositeTemplateSummary {
   updatedAt: string;
 }
 
+/** Missing action fields from an older server must deny restricted writes. */
+export interface CompositeTemplateCapabilities {
+  canManage?: boolean;
+  canCreate?: boolean;
+  canManageDefinitions?: boolean;
+  canSaveFolderTemplate?: boolean;
+  canBindAgent?: boolean;
+  canStartPageCollaboration?: boolean;
+}
+
 export interface CompositeTemplateCatalog {
   data: CompositeTemplateSummary[];
   total: number;
   skip: number;
   take: number;
-  capabilities: { canManage: boolean; canCreate: boolean };
+  capabilities: CompositeTemplateCapabilities;
 }
 
 export interface CompositeTemplateManagementDetail {

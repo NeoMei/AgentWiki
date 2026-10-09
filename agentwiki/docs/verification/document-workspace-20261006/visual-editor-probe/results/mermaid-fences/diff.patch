@@ -1,0 +1,16 @@
+===================================================================
+--- input.md
++++ output.md
+@@ -1,8 +1,8 @@
+-~~~mermaid
++```mermaid
+ flowchart LR
+   A[中文] --> B[结果]
+-~~~
++```
+ 
+ ```typescript title=demo.ts
+ const x = `中文`;
+-```
++```
+\ No newline at end of file

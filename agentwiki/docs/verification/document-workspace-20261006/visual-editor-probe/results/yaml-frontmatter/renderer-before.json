@@ -1,0 +1,48 @@
+{
+  "type": "root",
+  "children": [
+    {
+      "type": "thematicBreak"
+    },
+    {
+      "type": "heading",
+      "depth": 2,
+      "children": [
+        {
+          "type": "text",
+          "value": "title: 中文"
+        },
+        {
+          "type": "break"
+        },
+        {
+          "type": "text",
+          "value": "tags: [agent, wiki]"
+        },
+        {
+          "type": "break"
+        },
+        {
+          "type": "text",
+          "value": "custom: |"
+        },
+        {
+          "type": "break"
+        },
+        {
+          "type": "text",
+          "value": "原样缩进"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "正文。"
+        }
+      ]
+    }
+  ]
+}

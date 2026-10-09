@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import api from '../../api/client';
 import { apiErrorMessage } from '../../api/error-message';
 import { Plus, RotateCcw, X } from 'lucide-react';
@@ -9,6 +9,7 @@ import { useAuth } from '../../context/AuthContext';
 import { newContentHref } from '../page-templates/newContentNavigation';
 import { PageAgentBindingDialog, type BindingDialogScope } from '../page-templates/PageAgentBindingDialog';
 import { SaveFolderAsTemplateDialog } from '../page-templates/SaveFolderAsTemplateDialog';
+import type { CompositeTemplateCapabilities } from '../page-templates/compositeTemplateTypes';
 import { listCompositeTemplates } from '../page-templates/compositeTemplateApi';
 import {
   createFolder,
@@ -25,6 +26,7 @@ import type { ContentMoveRequest } from '../content-tree/ContentTree';
 import { FolderDialog } from '../content-tree/FolderDialog';
 import { FolderDeleteDialog } from '../content-tree/FolderDeleteDialog';
 import type {
+  ContentTreeNode,
   ContentTreePageNode,
   ContentTreeFolderNode,
   DeleteImpactResponse,
@@ -76,11 +78,16 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   const { id: routeId } = useParams<{ id: string }>();
   const id = providedSpaceId !== undefined ? (providedSpaceId ?? undefined) : routeId;
   const navigate = useNavigate();
+  const location = useLocation();
+  const inlineNavigationGenerationRef = useRef(0);
   const { language, t } = useLanguage();
   const { user } = useAuth();
+  const userIdentityRef = useRef(user?.id);
+  userIdentityRef.current = user?.id;
   const createPageOpenerRef = useRef<HTMLButtonElement | null>(null);
   const requestSequenceRef = useRef(0);
   const fetchedRouteIdRef = useRef<string | undefined>(undefined);
+  const fetchedUserIdRef = useRef<string | undefined>(undefined);
   const activeRouteIdRef = useRef<string | undefined>(id);
   const mountedRef = useRef(false);
   const archiveOperationRef = useRef(0);
@@ -92,10 +99,13 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [requestUserId, setRequestUserId] = useState(user?.id);
   const [requestSpaceId, setRequestSpaceId] = useState<string | undefined>(undefined);
   const [archivingPageId, setArchivingPageId] = useState<string | null>(null);
 
   const workspace = useOptionalSpaceWorkspace();
+  const documentWorkspace = workspace?.mode === 'read' || workspace?.mode === 'edit';
+  const contentClassName = documentWorkspace ? 'min-w-0 flex-1' : 'min-w-0 flex-1 px-4 py-4 lg:px-6';
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
   const [localCurrentFolderId, setLocalCurrentFolderId] = useState<string | null>(null);
@@ -115,7 +125,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   const [templateReturnFocus, setTemplateReturnFocus] = useState<HTMLElement | null>(null);
   const [compositeCapability, setCompositeCapability] = useState<{
     identity: string;
-    canCreate: boolean;
+    capabilities: CompositeTemplateCapabilities;
   } | null>(null);
 
   const currentFolderId = workspace?.mode === 'directory' ? workspace.selectedFolderId : localCurrentFolderId;
@@ -133,9 +143,14 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   const expandedFolderIds = workspace?.expandedFolderIds ?? localExpandedFolderIds;
   const setFolderExpanded = workspace?.setFolderExpanded ?? setLocalFolderExpanded;
   const targetFolderId = workspace?.selectedPageFolderId ?? currentFolderId;
+  const mutationScopeKey = JSON.stringify([location.key, location.pathname, location.search, location.hash, user?.id, id, workspace?.selectedPageId, currentFolderId, workspace?.mode]);
+  useLayoutEffect(() => {
+    inlineNavigationGenerationRef.current += 1;
+  }, [mutationScopeKey]);
   const directory = useSpaceDirectory({
     spaceId: showDirectory && space?.id === id && id ? id : null,
     targetFolderId,
+    identityKey: `${user?.id}\u0000${id}`,
     expandedFolderIds,
     setFolderExpanded,
     rootLabel: space?.name ?? '',
@@ -199,6 +214,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   const fetchSpace = useCallback(async (resetForRoute: boolean) => {
     const requestSequence = ++requestSequenceRef.current;
     setRequestSpaceId(id);
+    setRequestUserId(user?.id);
     if (resetForRoute) {
       setLoading(true);
       setError(null);
@@ -223,10 +239,11 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     } finally {
       if (requestSequenceRef.current === requestSequence) setLoading(false);
     }
-  }, [id, t]);
+  }, [id, t, user?.id]);
 
   useEffect(() => {
-    const routeChanged = fetchedRouteIdRef.current !== id;
+    const routeChanged = fetchedRouteIdRef.current !== id || fetchedUserIdRef.current !== user?.id;
+    fetchedUserIdRef.current = user?.id;
     fetchedRouteIdRef.current = id;
     if (routeChanged) {
       pendingDeleteRefreshRef.current?.resolve(false);
@@ -247,7 +264,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     return () => {
       requestSequenceRef.current += 1;
     };
-  }, [fetchSpace, id]);
+  }, [fetchSpace, id, user?.id]);
 
   useEffect(() => {
     setCompositeCapability(null);
@@ -263,12 +280,12 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
         if (active) {
           setCompositeCapability({
             identity: requestIdentity,
-            canCreate: catalog.capabilities.canCreate,
+            capabilities: catalog.capabilities,
           });
         }
       })
       .catch(() => {
-        if (active) setCompositeCapability({ identity: requestIdentity, canCreate: false });
+        if (active) setCompositeCapability({ identity: requestIdentity, capabilities: {} });
       });
     return () => {
       active = false;
@@ -306,6 +323,60 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     const result = await renameFolder(id, folderDialog.target.id, name, revision, folderDialog.target.updatedAt);
     directory.acceptTreeRevision(result.treeRevision);
     reloadTree();
+  };
+
+  const requireInlineMutation = () => {
+    const role = space?.members.find((member) => member.userId === userIdentityRef.current)?.role;
+    if (!id || space?.id !== id || !['owner', 'admin', 'editor'].includes(role ?? '')) throw new Error(t('error.spaceAccessDenied'));
+    const revision = directoryRef.current.treeRevision;
+    if (!revision) throw new Error(t('folder.revisionMissing'));
+    return { spaceId: id, userId: userIdentityRef.current, revision, generation: inlineNavigationGenerationRef.current };
+  };
+  const inlineMutationStillCurrent = (scope: { spaceId: string; userId: string | undefined; generation: number }) => (
+    mountedRef.current && activeRouteIdRef.current === scope.spaceId && userIdentityRef.current === scope.userId
+      && inlineNavigationGenerationRef.current === scope.generation
+  );
+  const handleInlineRename = async (node: ContentTreeNode, name: string) => {
+    const scope = requireInlineMutation();
+    try {
+      if (node.kind === 'folder') {
+        const result = await renameFolder(scope.spaceId, node.id, name, scope.revision, node.updatedAt);
+        if (inlineMutationStillCurrent(scope)) directoryRef.current.acceptTreeRevision(result.treeRevision);
+      } else {
+        await api.patch('/pages/' + encodeURIComponent(node.id), { title: name, expectedUpdatedAt: node.updatedAt, expectedTreeRevision: scope.revision });
+        if (!inlineMutationStillCurrent(scope)) return;
+        directoryRef.current.retry();
+        const active = workspaceRef.current;
+        if (active?.selectedPageId === node.id && (active.mode === 'read' || active.mode === 'versions')) active.requestPageRefresh(node.id);
+      }
+    } catch (failure) { if (inlineMutationStillCurrent(scope)) throw Object.assign(new Error(apiErrorMessage(failure, t, 'folder.saveFailed')), { cause: failure }); }
+  };
+  const handleInlineCreateFolder = async (parent: Pick<ContentTreeFolderNode, 'id' | 'name'> | null, name: string) => {
+    const scope = requireInlineMutation();
+    try {
+      const result = await createFolder(scope.spaceId, name, parent?.id ?? null, scope.revision);
+      if (!inlineMutationStillCurrent(scope)) return;
+      if (parent) setFolderExpanded(parent.id, true);
+      directoryRef.current.acceptTreeRevision(result.treeRevision);
+    } catch (failure) { if (inlineMutationStillCurrent(scope)) throw Object.assign(new Error(apiErrorMessage(failure, t, 'folder.saveFailed')), { cause: failure }); }
+  };
+  const handleInlineCreatePage = async (parent: Pick<ContentTreeFolderNode, 'id' | 'name'> | null, title: string) => {
+    const scope = requireInlineMutation();
+    try {
+      const result = await api.post('/pages', { title, spaceId: scope.spaceId, folderId: parent?.id ?? null, expectedTreeRevision: scope.revision });
+      if (inlineMutationStillCurrent(scope)) navigate('/pages/' + encodeURIComponent(result.data.id) + '/edit');
+    } catch (failure) { if (inlineMutationStillCurrent(scope)) throw Object.assign(new Error(apiErrorMessage(failure, t, 'page.createFailed')), { cause: failure }); }
+  };
+  const revealCurrentDocument = () => {
+    const active = workspaceRef.current;
+    let cursor = active?.selectedPageFolderId ?? null;
+    const seen = new Set<string>();
+    while (cursor && !seen.has(cursor)) {
+      seen.add(cursor); setFolderExpanded(cursor, true);
+      cursor = directoryRef.current.folderIndex.get(cursor)?.parentId ?? null;
+    }
+    // Also reload ancestry if navigation or a concurrent move has not loaded the path yet.
+    directoryRef.current.retry();
   };
 
   const reconcileDeletedPage = (requestedSpaceId: string, pageId: string) => {
@@ -467,12 +538,12 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     }
   };
 
-  if (requestSpaceId !== id || loading || !id) return workspaceContent ? (
+  if (requestSpaceId !== id || requestUserId !== user?.id || loading || !id) return workspaceContent ? (
     <div>
-      <div className="mb-6" />
+      {!documentWorkspace ? <div className="mb-6" /> : null}
       <div key="workspace-layout" className="flex flex-col lg:flex-row">
         {showDirectory ? <aside className="hidden w-[260px] shrink-0 border-r border-gray-200 lg:block" /> : null}
-        <main className="min-w-0 flex-1 px-4 py-4 lg:px-6">{workspaceContent}</main>
+        <main className={contentClassName}>{workspaceContent}</main>
       </div>
     </div>
   ) : <div className="text-center py-8 text-gray-500">{t('common.loading')}</div>;
@@ -487,7 +558,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
             {t('common.retry')}
           </button>
         </div>
-        <main className="min-w-0 flex-1 px-4 py-4 lg:px-6">{workspaceContent}</main>
+        <main className={contentClassName}>{workspaceContent}</main>
       </div>
     </div>
   );
@@ -509,8 +580,10 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     currentRole === 'owner'
       || currentRole === 'admin'
   );
-  const compositeCreationEnabled = compositeCapability?.identity === `${id}\u0000${language}`
-    && compositeCapability.canCreate;
+  const compositeCapabilities = compositeCapability?.identity === `${id}\u0000${language}`
+    ? compositeCapability.capabilities : {};
+  const bindingEnabled = compositeCapabilities.canBindAgent === true;
+  const folderTemplateEnabled = compositeCapabilities.canSaveFolderTemplate === true;
 
   return (
     <div>
@@ -553,15 +626,16 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
 
       {!workspace ? <SpaceNav spaceId={id} /> : null}
       {workspace ? <div className="flex flex-col border-b border-gray-200 lg:flex-row lg:items-stretch">
-        <div className="flex min-h-12 w-full items-center border-b border-gray-100 px-4 lg:w-[260px] lg:shrink-0 lg:border-b-0 lg:border-r">
+        <div className="flex min-h-12 min-w-0 w-full items-center border-b border-gray-100 px-4 lg:w-auto lg:max-w-[50%] lg:border-b-0 lg:border-r">
           <h1 tabIndex={-1} data-testid="space-root-focus" title={space.name} className="truncate text-base font-semibold text-gray-900">{space.name}</h1>
         </div>
         <div className="min-w-0 flex-1 px-3"><SpaceNav spaceId={id} activeSection={workspace.activeSection} embedded /></div>
       </div> : null}
 
       <div key="workspace-layout" className="flex flex-col lg:flex-row">
-        {workspace && showDirectory && !workspace.directoryCollapsed ? <SpaceDirectory
+        {workspace && showDirectory ? <SpaceDirectory
           spaceName={space.name}
+          preferenceScopeKey={`${user?.id}\u0000${id}`}
           levels={directory.levels}
           expandedFolderIds={expandedFolderIds}
           selectedFolderId={workspace.selectedFolderId}
@@ -569,6 +643,14 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
           loading={!directory.levels.has(null) && directory.locating}
           error={directory.error}
           canEdit={canEdit}
+          directoryWidth={workspace.directoryWidth}
+          onDirectoryWidthChange={workspace.setDirectoryWidth}
+          directoryCollapsed={workspace.directoryCollapsed}
+          onDirectoryCollapsedChange={workspace.setDirectoryCollapsed}
+          onRevealCurrent={revealCurrentDocument}
+          onCreatePageAtSelection={(title) => handleInlineCreatePage(targetFolderId ? { id: targetFolderId, name: folderIndex.get(targetFolderId)?.name ?? '' } : null, title)}
+          onCreateFolderAtSelection={(name) => handleInlineCreateFolder(targetFolderId ? { id: targetFolderId, name: folderIndex.get(targetFolderId)?.name ?? '' } : null, name)}
+          directorySelection={workspace.directorySelection}
           directoryScrollTop={workspace.directoryScrollTop}
           onDirectoryScrollTopChange={workspace.setDirectoryScrollTop}
           pageDeleteDisabled={archivingPageId !== null}
@@ -590,11 +672,15 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
           onEditPage={(page) => navigate('/pages/' + page.id + '/edit')}
           onDeletePage={(page) => { void handleDeletePage(page); }}
           onCreateSubfolder={(parent) => setFolderDialog({ mode: 'create', parent, returnFocusTo: document.activeElement instanceof HTMLElement ? document.activeElement : null })}
+          mutationScopeKey={mutationScopeKey}
+          onRenameNode={handleInlineRename}
+          onCreateFolderInline={handleInlineCreateFolder}
+          onCreatePageInline={handleInlineCreatePage}
           onRenameFolder={(folder) => setFolderDialog({ mode: 'rename', parent: null, target: folder, returnFocusTo: document.activeElement instanceof HTMLElement ? document.activeElement : null })}
           onDeleteFolder={openFolderDelete}
           onMove={(request) => { void handleContentMove(request); }}
         /> : null}
-        <main className="min-w-0 flex-1 px-4 py-4 lg:px-6">
+        <main className={contentClassName}>
         {workspaceContent ?? <>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <ContentBreadcrumbs
@@ -655,17 +741,23 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
           onEditPage={(page) => navigate('/pages/' + page.id + '/edit')}
           onDeletePage={(page) => { void handleDeletePage(page); }}
           onCreateSubfolder={(parent) => setFolderDialog({ mode: 'create', parent, returnFocusTo: document.activeElement instanceof HTMLElement ? document.activeElement : null })}
+          mutationScopeKey={mutationScopeKey}
+          onRenameNode={handleInlineRename}
+          onCreateFolderInline={handleInlineCreateFolder}
+          onCreatePageInline={handleInlineCreatePage}
           onRenameFolder={(folder) => setFolderDialog({ mode: 'rename', parent: null, target: folder, returnFocusTo: document.activeElement instanceof HTMLElement ? document.activeElement : null })}
           onDeleteFolder={openFolderDelete}
-          onConfigurePageAgent={compositeCreationEnabled ? (page) => {
+          onConfigurePageAgent={bindingEnabled ? (page) => {
             setBindingReturnFocus(document.activeElement instanceof HTMLElement ? document.activeElement : null);
             setBindingScope({ kind: 'page', pageId: page.id, title: page.title });
           } : undefined}
-          onConfigureFolderAgents={compositeCreationEnabled ? (folder) => {
+          onConfigureFolderAgents={bindingEnabled ? (folder) => {
             setBindingReturnFocus(document.activeElement instanceof HTMLElement ? document.activeElement : null);
             setBindingScope({ kind: 'folder', folderId: folder.id, name: folder.name });
           } : undefined}
-          onSaveFolderAsTemplate={canManageTemplates && compositeCreationEnabled ? (folder, trigger) => {
+          saveFolderTemplateDisabledReason={canManageTemplates && !folderTemplateEnabled ? t('pageTemplate.composite.folderSaveUnavailable') : undefined}
+          onSaveFolderAsTemplate={canManageTemplates ? (folder, trigger) => {
+            if (!folderTemplateEnabled) return;
             setTemplateFolder(folder);
             setTemplateReturnFocus(trigger);
           } : undefined}
@@ -676,15 +768,16 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
         </main>
       </div>
 
-      {bindingScope && canEdit && compositeCreationEnabled && id ? <PageAgentBindingDialog
+      {bindingScope && canEdit && bindingEnabled && id ? <PageAgentBindingDialog
         spaceId={id}
         scope={bindingScope}
+        capabilities={compositeCapabilities}
         returnFocusTo={bindingReturnFocus}
         onClose={() => { setBindingScope(null); setBindingReturnFocus(null); }}
         onSaved={reloadTree}
       /> : null}
 
-      {templateFolder && canManageTemplates && compositeCreationEnabled && id ? <SaveFolderAsTemplateDialog
+      {templateFolder && canManageTemplates && folderTemplateEnabled && id ? <SaveFolderAsTemplateDialog
         spaceId={id}
         folderId={templateFolder.id}
         folderName={templateFolder.name}

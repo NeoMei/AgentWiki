@@ -15,16 +15,22 @@ describe('Agent write review boundary', () => {
       .toEqual([CombinedAuthGuard, HumanOnlyGuard]);
   });
   it('passes the caller tree CAS value into a human revert', async () => {
-    const review = { revert: jest.fn().mockResolvedValue({ id: 'change-1', status: 'reverted' }) } as any;
+    const reverted = { id: 'change-1', status: 'reverted', run: { id: 'internal-run' } };
+    const publicResult = { id: 'change-1', status: 'reverted' };
+    const review = {
+      revert: jest.fn().mockResolvedValue(reverted),
+      toPublic: jest.fn().mockResolvedValue(publicResult),
+    } as any;
     const authorization = { assertChangeSetAccess: jest.fn().mockResolvedValue(undefined) } as any;
     const controller = new ReviewController(review, authorization);
     const request = { user: { userId: 'owner-1' } } as any;
 
     await expect((controller as any).revert(
       'change-1', request, { expectedTreeRevision: '17' },
-    )).resolves.toMatchObject({ status: 'reverted' });
+    )).resolves.toBe(publicResult);
 
     expect(review.revert).toHaveBeenCalledWith('change-1', '17', { userId: 'owner-1' });
+    expect(review.toPublic).toHaveBeenCalledWith(reverted, request.user);
   });
 
   it('turns Agent REST page creation into a ChangeSet proposal', async () => {

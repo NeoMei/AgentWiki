@@ -859,6 +859,7 @@ describe('AttachmentService', () => {
       rewrittenB,
     ]);
     expect(h.page.updateMany.mock.calls.every(([call]) => call.data.lastChangeSetId === null)).toBe(true);
+    expect(h.page.updateMany.mock.calls.every(([call]) => call.data.sourceGeneration === null)).toBe(true);
     expect(h.revisionWriter.advanceReferencedImagesLocked).toHaveBeenCalledTimes(1);
     expect(h.revisionWriter.advanceReferencedImagesLocked).toHaveBeenCalledWith(
       h.tx,

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-/** Local response fixtures exercise the real route and CSS without writing remote data. */
+/** Fixture-only UI/layout coverage: mock identity and API responses, not real authentication or authorization. */
 test('returning owner reads continuation instructions with bounded desktop cards and mobile flow', async ({ page }) => {
   const now = '2026-10-01T00:00:00Z';
   const run: any = {
@@ -26,6 +26,14 @@ test('returning owner reads continuation instructions with bounded desktop cards
     localStorage.setItem('user', JSON.stringify({ id: 'owner-layout', name: 'Layout Owner' }));
     localStorage.setItem('agentwiki.language.v1', 'en');
   });
+  // Keep the synthetic credential away from real profile/navigation authentication gates.
+  await page.route('**/api/users/me', async route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ id: 'owner-layout', name: 'Layout Owner', email: 'layout@example.test', platformRole: 'user', mustChangePassword: false }),
+  }));
+  await page.route('**/api/review/count', async route => route.fulfill({
+    contentType: 'application/json', body: JSON.stringify({ pending: 6 }),
+  }));
   await page.route('**/api/spaces/**', async (route) => {
     const url = new URL(route.request().url());
     requests.push(`${route.request().method()} ${url.pathname}`);

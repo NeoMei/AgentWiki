@@ -352,11 +352,11 @@ describe('RunDashboard', () => {
     expect(screen.queryByRole('button', { name: 'Reject for revision' })).not.toBeInTheDocument();
   });
 
-  it.each(['regenerate', 'adopt_current'] as const)(
-    'resolves a Page conflict with latest comparison CAS for %s',
-    async (kind) => {
+  it.each([['regenerate', 'paused'], ['adopt_current', 'paused'], ['regenerate', 'waiting_review'], ['adopt_current', 'waiting_review']] as const)(
+    'resolves a Page conflict with latest comparison CAS for %s in %s',
+    async (kind, status) => {
       const conflictRun = {
-        ...waitingReviewRun, status: 'paused' as const, pauseReason: 'page_version_conflict',
+        ...waitingReviewRun, status, pauseReason: status === 'paused' ? 'page_version_conflict' : null,
         tasks: waitingReviewRun.tasks.map((task) => ({ ...task, targetPageId: 'page-1' })),
         reviews: waitingReviewRun.reviews.map((review) => ({
           ...review, pagePublication: { pageId: 'page-1', changeSetId: 'change-1' },
@@ -385,6 +385,36 @@ describe('RunDashboard', () => {
       ));
     },
   );
+
+  it.each(['reject_for_revision', 'terminate'] as const)('submits safe %s for waiting_review pre-detected page conflict', async kind => {
+    const run = { ...waitingReviewRun, pauseReason: null, reviews: waitingReviewRun.reviews.map(review => ({ ...review, pagePublication: { pageId: 'page-1', changeSetId: 'c' } })) };
+    const loadedComparison = await collaborationApi.getPageReviewComparison('space-1', 'run-1', 'review-1');
+    vi.mocked(collaborationApi.getPageReviewComparison).mockClear();
+    vi.mocked(collaborationApi.getPageReviewComparison).mockResolvedValue({ ...loadedComparison, conflict: true } as any);
+    vi.mocked(collaborationApi.decideReview).mockResolvedValue(run as any);
+    renderDashboard(run);
+    fireEvent.click(await screen.findByRole('button', { name: 'Load page comparison' }));
+    fireEvent.click(await screen.findByRole('button', { name: kind === 'terminate' ? 'Terminate run' : 'Reject for revision' }));
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Preserve human edits' } });
+    fireEvent.click(screen.getByRole('button', { name: kind === 'terminate' ? 'Confirm terminate run' : 'Confirm reject for revision' }));
+    await waitFor(() => expect(collaborationApi.decideReview).toHaveBeenCalledWith('space-1', 'run-1', 'review-1', expect.objectContaining({ kind })));
+    expect(collaborationApi.decideReview).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), expect.objectContaining({ kind: 'approve' }));
+  });
+
+  it('blocks cached page comparison approval after same-sequence capability revocation', async () => {
+    const run = { ...waitingReviewRun, reviews: waitingReviewRun.reviews.map(review => ({ ...review, pagePublication: { pageId: 'page-1', changeSetId: 'c' } })) };
+    renderDashboard(run);
+    fireEvent.click(await screen.findByRole('button', { name: 'Load page comparison' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Reviewed' } });
+    vi.mocked(collaborationApi.getRun).mockResolvedValue({ ...run, reviews: run.reviews.map(review => ({ ...review, canDecide: false })) } as any);
+    vi.mocked(collaborationApi.listMembers).mockResolvedValue([{ type: 'human', userId: 'reviewer-1', role: 'viewer' }]);
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(collaborationApi.getRun).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm approve' }));
+    expect(collaborationApi.decideReview).not.toHaveBeenCalled();
+  });
 
   it('retains a conflict error and reloads the latest comparison after stale CAS', async () => {
     const conflictRun = {
@@ -610,6 +640,18 @@ describe('RunDashboard', () => {
     expect(instruction).toHaveTextContent('wiki_collaboration_next_action');
     expect(instruction.textContent).not.toMatch(/(?<!wiki_)collaboration_(?:join_run|next_action)/u);
     expect(document.body.textContent).not.toMatch(/credential|api[-_ ]?key|token=/iu);
+  });
+
+  it('does not submit an approval when a refresh revokes the pending review capability', async () => {
+    renderDashboard(waitingReviewRun);
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }));
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Reviewed' } });
+    vi.mocked(collaborationApi.getRun).mockResolvedValue({ ...waitingReviewRun, eventSequence: 9, reviews: waitingReviewRun.reviews.map(review => ({ ...review, canDecide: false })) } as any);
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(collaborationApi.getRun).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm approve' }));
+    expect(collaborationApi.decideReview).not.toHaveBeenCalled();
   });
 
   it('restores dialog focus after a conflict refresh so Escape remains available', async () => {

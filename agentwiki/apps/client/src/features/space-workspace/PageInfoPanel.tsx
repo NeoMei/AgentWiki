@@ -1,3 +1,6 @@
+import { sourceStatusText } from '../../i18n/source-status-messages';
+import type { PageSourceStatus } from '@agentwiki/shared';
+import { SourceStatusNotice } from '../page/SourceStatusNotice';
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Database, History, Info, Trash2, X } from 'lucide-react';
@@ -6,6 +9,7 @@ import { useLanguage } from '../../context/LanguageContext';
 
 interface EvidenceItem {
   id: string;
+  evidenceState?: 'published_basis' | 'historical' | 'unknown';
   quote?: string;
   confidence?: number;
   location?: unknown;
@@ -15,6 +19,7 @@ interface EvidenceItem {
 export interface PageInfoPanelProps {
   spaceId: string;
   provenance?: any;
+  sourceStatus?: PageSourceStatus;
   evidence?: EvidenceItem[];
   lastChange?: { id: string; title: string; status: string } | null;
   lastModifiedByUser?: { id: string; name?: string; email?: string } | null;
@@ -29,6 +34,7 @@ export interface PageInfoPanelProps {
 export const PageInfoPanel: React.FC<PageInfoPanelProps> = ({
   spaceId,
   provenance,
+  sourceStatus,
   evidence = [],
   lastChange,
   lastModifiedByUser,
@@ -98,15 +104,16 @@ export const PageInfoPanel: React.FC<PageInfoPanelProps> = ({
               <X size={18} aria-hidden="true" />
             </button>
           </div>
+          <SourceStatusNotice status={sourceStatus} details />
           {provenance ? (
             <div className="space-y-4 text-sm">
               <div><span className="text-xs uppercase tracking-wide text-gray-400">{t('page.createdBy')}</span><p className="mt-1">{provenance.createdByAgent?.name ? `Agent · ${provenance.createdByAgent.name}` : t('page.human')}</p></div>
               <div><span className="text-xs uppercase tracking-wide text-gray-400">{t('page.source')}</span><p className="mt-1 break-words">{provenance.run?.source?.name || t('page.unknown')} · {provenance.run?.source?.type || t('page.unknown')}</p>{provenance.run?.source?.uri ? <p className="mt-1 break-all text-xs text-gray-500">{provenance.run.source.uri}</p> : null}</div>
-              <div><span className="text-xs uppercase tracking-wide text-gray-400">{t('page.extractionRun')}</span><p className="mt-1"><Link className="text-blue-600 hover:underline" to={`/spaces/${spaceId}/runs`}>{provenance.run?.id || t('page.unknown')}</Link> · {provenance.run?.stage || provenance.run?.status}</p></div>
+              <div><span className="text-xs uppercase tracking-wide text-gray-400">{t('page.extractionRun')}</span><p className="mt-1">{provenance.run?.id ? <Link className="text-blue-600 hover:underline" to={`/spaces/${spaceId}/runs`}>{provenance.run.id}</Link> : t('page.unknown')} · {provenance.run?.stage || provenance.run?.status}</p></div>
               <div><span className="text-xs uppercase tracking-wide text-gray-400">{t('page.candidateChange')}</span><p className="mt-1">{provenance.title} · {provenance.status}</p></div>
               <div><span className="text-xs uppercase tracking-wide text-gray-400">{t('page.approval')}</span><p className="mt-1">{provenance.approvals?.[0]?.reviewer?.name || provenance.approvals?.[0]?.reviewer?.email || (provenance.status === 'published' ? t('page.autoPublished') : t('page.notApproved'))}</p>{provenance.publishedAt ? <p className="mt-1 text-xs text-gray-500">{t('page.published', { date: new Date(provenance.publishedAt).toLocaleString(language) })}</p> : null}</div>
             </div>
-          ) : <p className="text-sm text-gray-500">{t('page.humanCreated')}</p>}
+          ) : <p className="text-sm text-gray-500">{sourceStatus && sourceStatus.status !== 'untracked' ? sourceStatusText(language, 'sourceStatus.noAccessibleEvidence') : t('page.humanCreated')}</p>}
 
           <div className="mt-5 border-t border-gray-100 pt-5 text-sm">
             <span className="text-xs uppercase tracking-wide text-gray-400">{t('page.latestChange')}</span>
@@ -121,6 +128,7 @@ export const PageInfoPanel: React.FC<PageInfoPanelProps> = ({
               const metadata = item.sourceVersion?.metadata || {};
               const files = item.sourceVersion?.files || [];
               return <blockquote key={item.id} className="mt-2 border-l-2 pl-3 text-xs text-gray-600">
+                {item.evidenceState ? <p className="mb-1 font-medium">{sourceStatusText(language, `sourceStatus.evidence.${item.evidenceState}`)}</p> : null}
                 <p>{item.quote || t('page.noExcerpt')}</p>
                 <p className="mt-1 text-gray-400">{t('page.confidenceVersion', { confidence: Math.round((item.confidence ?? 1) * 100), version: item.sourceVersion?.version ?? t('page.unknown') })}</p>
                 {item.location ? <p className="mt-1 break-all text-gray-400">{t('page.location')}: {JSON.stringify(item.location)}</p> : null}

@@ -1,3 +1,4 @@
+import { SourceFreshnessModule } from '../core/source-freshness/source-freshness.module';
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../database/database.module';
 import { AuthModule } from '../core/auth/auth.module';
@@ -9,7 +10,7 @@ import { ContentTreeModule } from '../content-tree/content-tree.module';
 import { PagePublicationService } from './page-publication.service';
 
 @Module({
-  imports: [DatabaseModule, AuthModule, SearchModule, KnowledgeGraphModule, ContentTreeModule],
+  imports: [SourceFreshnessModule, DatabaseModule, AuthModule, SearchModule, KnowledgeGraphModule, ContentTreeModule],
   providers: [ReviewService, PagePublicationService],
   controllers: [ReviewController],
   exports: [ReviewService, PagePublicationService],

@@ -42,12 +42,14 @@ export class SourceController {
 
   @Get('spaces/:spaceId/sources')
   async list(@Param('spaceId') spaceId: string, @Req() req: Request) {
+    await this.authorization.assertPersonalSourceRead(req.user as any);
     await this.authorization.assertSpaceAccess(req.user as any, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'sources:read');
     return this.sources.list(spaceId);
   }
 
   @Get('sources/:id')
   async get(@Param('id') id: string, @Req() req: Request) {
+    await this.authorization.assertPersonalSourceRead(req.user as any);
     await this.authorization.assertSourceAccess(req.user as any, id);
     return this.sources.get(id);
   }
@@ -74,12 +76,14 @@ export class SourceController {
 
   @Get('spaces/:spaceId/runs')
   async listRuns(@Param('spaceId') spaceId: string, @Req() req: Request) {
+    await this.authorization.assertPersonalSourceRead(req.user as any);
     await this.authorization.assertSpaceAccess(req.user as any, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'runs:read');
     return this.sources.listRuns(spaceId);
   }
 
   @Get('runs/:id')
   async getRun(@Param('id') id: string, @Req() req: Request) {
+    await this.authorization.assertPersonalSourceRead(req.user as any);
     await this.authorization.assertIngestRunAccess(req.user as any, id);
     return this.sources.getRun(id);
   }

@@ -1,0 +1,19 @@
+[
+  {"id":"canonical-control","input":"# 中文文档\n\n这是 **加粗** 与 *强调*。","expectNodes":["heading","paragraph"],"note":"无末尾换行的规范化控制样例"},
+  {"id":"chinese-source","input":"# 中文输入 🐼\n\n中文、全角标点：你好！é / é。\n下一行保留。\n","note":"字符与软换行；不代表原生 IME 验收"},
+  {"id":"gfm-table-escapes","input":"| 名称 | 值 |\n| :--- | ---: |\n| 甲\\|乙 | `x\\|y` |\n| **中文** | C:\\\\临时 |\n","expectNodes":["table","tableHeader","tableCell"],"note":"对齐、转义管道、inline code 与反斜线"},
+  {"id":"images-attachments","input":"![中文图](assets/图片.png \"图片标题\")\n\n[附件](../assets/方案.pdf) 与 ![外链](https://example.com/a.png)\n\n![[assets/架构.png|320]]\n","expectNodes":["image"],"note":"标准图片及相对文件、Obsidian 图片附件"},
+  {"id":"wikilinks","input":"参见 [[页面|别名]]、[[页面#中文标题]] 与 [[页面#^块一]]。\n","note":"须与 AgentWiki obsidian 插件语义对照"},
+  {"id":"anchors-embeds","input":"这是引用段落。 ^块一\n\n![[另一页#中文标题]]\n\n![[另一页#^块一]]\n","note":"块锚点与跨页嵌入"},
+  {"id":"blockquote","input":"> 中文引用\n> 第二行\n>\n> - 一项\n> - 二项\n","expectNodes":["blockquote"]},
+  {"id":"callout","input":"> [!warning]- 中文标题\n> 说明 **加粗**\n>\n> - 步骤\n","note":"自定义 Obsidian callout，折叠标志与标题"},
+  {"id":"mermaid-fences","input":"~~~mermaid\nflowchart LR\n  A[中文] --> B[结果]\n~~~\n\n```typescript title=demo.ts\nconst x = `中文`;\n```\n","expectNodes":["codeBlock"],"note":"Mermaid 源码、围栏字符和 info suffix"},
+  {"id":"katex","input":"公式 $E = mc^2$ 与 $\\alpha + \\beta$。\n\n$$\n\\sum_{i=1}^{n} x_i = X\n$$\n","expectNodes":["inlineMath","blockMath"]},
+  {"id":"math-dialects","input":"金额 $5 与 $10。\n\n$$x+y$$\n\n$\\text{价格 $5}$\n","note":"含美元和内嵌美元的数学边界；对照 remark-math"},
+  {"id":"nested-task-lists","input":"1. 第一项\n   - 子项目\n     - 更深一级\n2. 第二项\n\n- [x] 已完成\n  - [ ] 子任务\n- [ ] 待办\n","expectNodes":["orderedList","bulletList","taskList","taskItem"]},
+  {"id":"yaml-frontmatter","input":"---\ntitle: 中文\ntags: [agent, wiki]\ncustom: |\n  原样缩进\n---\n\n正文。\n","note":"当前 renderer 未设置 YAML 插件，仍要求源字节或原文回退"},
+  {"id":"raw-html","input":"<details data-custom=\"保留\">\n<summary>中文概要</summary>\n<p>原始 <mark>标签</mark>。</p>\n</details>\n\n<!-- agentwiki:custom token=abc -->\n","note":"当前 ReactMarkdown 未用 rehype-raw；不能据此声称 HTML 渲染已支持"},
+  {"id":"unknown-extensions","input":":::custom {#identifier}\n未知扩展正文。\n:::\n\n脚注[^注一]\n\n[^注一]: 中文脚注\n\n属性:: 值\n\n==高亮== 与 %%私有注释%%\n","note":"未知 directive / footnote / property / comment；高亮是当前支持语法"},
+  {"id":"source-formatting","input":"中文标题\n=========\n\n__加粗__  与 _斜体_。\n\n* 第一项\n* 第二项\n\n[链接][ref]\n\n[ref]: ../附件.pdf \"标题\"\n\n\n","note":"等价语义但保留用户原有排版是局部编辑门槛"},
+  {"id":"crlf","input":"# 中文\r\n\r\n保留 CRLF。\r\n","note":"无编辑必须保留行尾"}
+]

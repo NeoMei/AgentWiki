@@ -1,0 +1,28 @@
+{
+  "status": "cleaned",
+  "schemaRemoved": true,
+  "ownedChildrenAbsent": true,
+  "launchJobUnloaded": true,
+  "protectedInventoryUnchanged": true,
+  "protectedInventoryDigest": "e447573064bbbfc1fbeae49340e519e8b40478a9992ccfaf92e35cfbc93350c0",
+  "uploadsRemoved": true,
+  "credentialMaterialRemoved": true,
+  "completedAt": "2026-10-06T06:40:09.681Z",
+  "independentFinalCheck": true,
+  "schemaName": "folder_test_1f18fcb643e24b51940d506fcfa45f14",
+  "schemaSqlReadbackAbsent": true,
+  "harnessAbsent": true,
+  "ownedPidsAbsent": [
+    40937,
+    41000,
+    41001,
+    41014
+  ],
+  "launchJobListAbsent": true,
+  "launchPlistRemoved": true,
+  "uploadsFilesystemAbsent": true,
+  "legacyUploadsFilesystemAbsent": true,
+  "redisDataFilesystemAbsent": true,
+  "runtimeCredentialKeysAbsent": true,
+  "runtimeStatus": "stopped"
+}

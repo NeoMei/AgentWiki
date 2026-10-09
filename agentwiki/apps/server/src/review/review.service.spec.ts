@@ -1,3 +1,4 @@
+const freshnessMock: any = { projectPages: async (rows: any[]) => rows, projectChangeSets: async (rows: any[]) => rows, forPages: async () => new Map(), projectEvidence: async (rows: any[]) => new Map(rows.map(row => [row.id, row])) };
 import { BadRequestException } from '@nestjs/common';
 import { pathKey, scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import { ReviewService } from './review.service';
@@ -7,6 +8,12 @@ import {
 } from '../core/sync/readable-sync-path.service';
 
 function makeReviewContentTree(revisionWriter: any, syncPaths: any) {
+  revisionWriter.lockSyncSpace = jest.fn(async (tx: any, spaceId: string) => {
+    tx.$queryRaw ??= jest.fn().mockResolvedValue([{ id: 'source-1' }]);
+    tx.source ??= { findUnique: jest.fn(async ({ where }: any) => ({ id: where.id, spaceId, status: 'active', currentSourceVersionId: null, currentSourceGeneration: 0 })) };
+    tx.sourceVersion ??= { findFirst: jest.fn(async ({ where }: any) => ({ id: where.id })) };
+    return tx;
+  });
   return {
     lockPageMutationSpace: jest.fn(async (tx: any, spaceId: string) => Object.assign(
       await revisionWriter.lockSpace?.(tx, spaceId) ?? tx,
@@ -71,7 +78,7 @@ describe('ReviewService queue presentation', () => {
     changeSet: { count: jest.fn(), findMany: jest.fn() },
     pushSession: { findMany: jest.fn() },
   } as any;
-  const service = new ReviewService(prisma, {} as any, {} as any, {} as any, { enqueue: jest.fn() } as any);
+  const service = new ReviewService(freshnessMock, prisma, {} as any, {} as any, {} as any, { enqueue: jest.fn() } as any);
 
   beforeEach(() => jest.clearAllMocks());
 
@@ -89,7 +96,7 @@ describe('ReviewService queue presentation', () => {
       { id: 'pending-old', status: 'pending_review', createdAt: new Date('2026-08-19T09:00:00Z') },
       { id: 'pending-new', status: 'pending_review', createdAt: new Date('2026-08-19T11:00:00Z') },
     ]);
-    await expect(service.list(['space-1'])).resolves.toMatchObject([
+    await expect(service.list(['space-1'], { userId: 'u' })).resolves.toMatchObject([
       { id: 'pending-new' }, { id: 'pending-old' }, { id: 'published' },
     ]);
   });
@@ -100,7 +107,7 @@ describe('ReviewService queue presentation', () => {
       { id: 'ordinary-change-set', status: 'published', createdAt: new Date('2026-09-04T00:00:00Z') },
     ]);
     prisma.pushSession.findMany.mockResolvedValue([{ publishedChangeSetId: 'v3-change-set' }]);
-    await expect(service.list(['space-1'])).resolves.toMatchObject([
+    await expect(service.list(['space-1'], { userId: 'u' })).resolves.toMatchObject([
       { id: 'v3-change-set', revertible: false },
       { id: 'ordinary-change-set', revertible: true },
     ]);
@@ -132,7 +139,7 @@ describe('ReviewService approval boundaries', () => {
     advancePageMutation: jest.fn(),
     mapLegacyPageParent: jest.fn(),
   } as any;
-  const service = new (ReviewService as any)(
+  const service = new (ReviewService as any)(freshnessMock,
     prisma,
     search,
     revisionWriter,
@@ -148,6 +155,12 @@ describe('ReviewService approval boundaries', () => {
       pathKey: pathKey('pages/Generated.md'),
     });
     revisionWriter.lockSpace.mockImplementation(async (tx: unknown) => tx);
+    revisionWriter.lockSyncSpace = jest.fn(async (tx: any, spaceId: string) => {
+      tx.$queryRaw ??= jest.fn().mockResolvedValue([{ id: 'source-1' }]);
+      tx.source ??= { findUnique: jest.fn(async ({ where }: any) => ({ id: where.id, spaceId, status: 'active', currentSourceVersionId: null, currentSourceGeneration: 0 })) };
+      tx.sourceVersion ??= { findFirst: jest.fn(async ({ where }: any) => ({ id: where.id })) };
+      return tx;
+    });
     contentTree.lockPageMutationSpace.mockImplementation(async (tx: any, spaceId: string) =>
       Object.assign(await revisionWriter.lockSpace(tx, spaceId), { contentTreeRevision: 0n }));
     contentTree.placePage.mockImplementation(async (tx: any, input: any) => {
@@ -1722,7 +1735,7 @@ describe('ReviewService collaboration Page boundary', () => {
     ...tx,
     $transaction: jest.fn(async (callback: (value: any) => unknown) => callback(tx)),
   } as any;
-  const service = new ReviewService(prisma, {} as any, {} as any, {} as any, {} as any, {} as any);
+  const service = new ReviewService(freshnessMock, prisma, {} as any, {} as any, {} as any, {} as any, {} as any);
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -1740,7 +1753,7 @@ describe('ReviewService collaboration Page boundary', () => {
         spaceId: 'space-1', pageId: 'page-1',
       },
     });
-    await expect(service.get('change-set-1')).resolves.toEqual(expect.objectContaining({
+    await expect(service.get('change-set-1', { userId: 'u' })).resolves.toEqual(expect.objectContaining({
       collaborationArtifactLink: expect.objectContaining({
         reviewPath: '/spaces/space-1/collaboration/runs/collaboration-run-1',
       }),
@@ -1757,7 +1770,7 @@ describe('ReviewService collaboration Page boundary', () => {
       },
     });
     prisma.pushSession = { findFirst: jest.fn().mockResolvedValue({ id: 'push-session-v3' }) };
-    await expect(service.get('change-set-1')).resolves.toEqual(expect.objectContaining({
+    await expect(service.get('change-set-1', { userId: 'u' })).resolves.toEqual(expect.objectContaining({
       revertible: false,
       collaborationArtifactLink: expect.objectContaining({
         reviewPath: '/spaces/space-1/collaboration/runs/collaboration-run-1',
@@ -1809,7 +1822,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
   const revisionWriter = { advance: jest.fn(), lockSpace: jest.fn() } as any;
   revisionWriter.advanceLocked = revisionWriter.advance;
   const contentTree = makeReviewContentTree(revisionWriter, syncPaths) as any;
-  const service = new ReviewService(
+  const service = new ReviewService(freshnessMock,
     prisma,
     search,
     revisionWriter,
@@ -2234,7 +2247,7 @@ describe('ReviewService readable page paths', () => {
     allocate: jest.fn(),
   } as any;
   const graphMaintenance = { enqueue: jest.fn() } as any;
-  const service = new ReviewService(
+  const service = new ReviewService(freshnessMock,
     prisma,
     search,
     revisionWriter,
@@ -2627,7 +2640,7 @@ describe('ReviewService page revert ordering and audit', () => {
   const graphMaintenance = { enqueue: jest.fn() } as any;
   const syncPaths = { allocate: jest.fn() } as any;
   const contentTree = makeReviewContentTree(revisionWriter, syncPaths) as any;
-  const service = new ReviewService(
+  const service = new ReviewService(freshnessMock,
     prisma,
     search,
     revisionWriter,
@@ -2842,7 +2855,7 @@ describe('ReviewService archive audit and provenance', () => {
   revisionWriter.advanceLocked = revisionWriter.advance;
   const graphMaintenance = { enqueue: jest.fn() } as any;
   const syncPaths = { allocate: jest.fn() } as any;
-  const service = new ReviewService(
+  const service = new ReviewService(freshnessMock,
     prisma,
     search,
     revisionWriter,
@@ -2943,6 +2956,7 @@ describe('ReviewService archive audit and provenance', () => {
           lastModifiedAt: originalModifiedAt.toISOString(),
           sourceId: originalPage.sourceId,
           sourceVersionId: originalPage.sourceVersionId,
+          sourceGeneration: null,
           sourcePath: originalPage.sourcePath,
           deletedAt: null,
           deletionBatchId: null,

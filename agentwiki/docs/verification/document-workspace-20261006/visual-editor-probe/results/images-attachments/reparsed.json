@@ -1,0 +1,52 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "image",
+      "attrs": {
+        "src": "assets/图片.png",
+        "title": "图片标题",
+        "alt": "中文图"
+      }
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "附件",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "../assets/方案.pdf",
+                "title": null
+              }
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": " 与 "
+        },
+        {
+          "type": "image",
+          "attrs": {
+            "src": "https://example.com/a.png",
+            "title": null,
+            "alt": "外链"
+          }
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "![[assets/架构.png|320]]"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 /Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/apps/client
+
+
+ Test Files  6 passed (6)
+      Tests  266 passed (266)
+   Start at  18:25:31
+   Duration  5.44s (transform 1.07s, setup 463ms, import 2.19s, tests 6.75s, environment 1.08s)
+

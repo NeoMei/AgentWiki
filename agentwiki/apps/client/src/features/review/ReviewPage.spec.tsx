@@ -81,6 +81,50 @@ const ReviewQuerySwitcher = () => {
 };
 
 describe('ReviewPage detail refresh', () => {
+  it.each((['en', 'zh-CN'] as const).flatMap(language => [
+    ['pending_review', 'pending'], ['approved', 'accepted'], ['published', 'published'],
+    ['rejected', 'rejected'], ['reverted', 'reverted'],
+  ].map(([status, itemStatus]) => ({ language, status, itemStatus }))))('shows lifecycle-neutral source alignment in $language for $status', async ({ language, status, itemStatus }) => {
+    const detail = { ...changeSet(), status, items: [{ ...changeItem(), status: itemStatus, sourceStatus: { status: 'current', reason: 'reviewed_source', sourceId: 'src', reviewedSourceVersion: 1, currentSourceVersion: 1 } }] };
+    vi.mocked(api.get).mockImplementation(async url => ({ data: url === '/review' ? [detail] : detail }));
+    renderReview(language); await expand();
+    const notice = screen.getByRole('note');
+    expect(notice).toHaveTextContent(language === 'en' ? 'This change’s pinned input matches the currently accepted source' : '该变更的固定输入与当前已接收来源一致');
+    expect(notice).toHaveTextContent(language === 'en' ? 'does not certify factual correctness' : '不代表内容必然正确');
+    expect(notice).not.toHaveTextContent(/human review is still required|仍需人工审核/);
+    expect(notice).toHaveTextContent(language === 'en' ? 'Pinned change version' : '变更固定版本');
+  });
+
+  it('keeps source alignment neutral when a successful publish refreshes the item to published', async () => {
+    let published = false;
+    const detail = () => ({ ...changeSet(published ? 'published' : 'pending_review', 'accepted'), items: [{ ...changeItem('accepted'), status: published ? 'published' : 'accepted', sourceStatus: { status: 'current', reason: 'reviewed_source', sourceId: 'src' } }] });
+    vi.mocked(api.get).mockImplementation(async url => ({ data: url === '/review' ? [detail()] : detail() }));
+    vi.mocked(api.post).mockImplementation(async () => { published = true; return { data: detail() } as any; });
+    renderReview(); await expand();
+    fireEvent.click(screen.getByRole('button', { name: 'Approve & publish' }));
+    expect(await screen.findByRole('button', { name: 'Revert' })).toBeVisible();
+    expect(screen.getByRole('note')).toHaveTextContent('This change’s pinned input matches the currently accepted source');
+    expect(screen.getByRole('note')).not.toHaveTextContent('human review is still required');
+    expect(api.post).toHaveBeenCalledWith('/change-sets/cs-1/review-publish', expect.anything(), expect.anything());
+  });
+
+  it.each(['en', 'zh-CN'] as const)('explains a real SOURCE_VERSION_CONFLICT shape in %s while keeping refresh and no retry', async language => {
+    let detailReads = 0;
+    const detail = changeSet('approved', 'accepted');
+    vi.mocked(api.get).mockImplementation(async url => {
+      if (url === '/review') return { data: [detail] } as any;
+      detailReads += 1;
+      return { data: detail } as any;
+    });
+    vi.mocked(api.post).mockRejectedValue({ response: { status: 409, data: { code: 'SOURCE_VERSION_CONFLICT', message: 'Source input changed; regenerate the candidate' } } });
+    renderReview(language); await expand();
+    fireEvent.click(screen.getByRole('button', { name: language === 'en' ? 'Publish' : '发布' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(language === 'en' ? 'Regenerate from the current source and review the new candidate' : '来源已更新，请基于当前来源重新生成并审核');
+    expect(detailReads).toBe(2);
+    expect(api.post).toHaveBeenCalledTimes(1);
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     localStorage.setItem('agentwiki.language.v1', 'en');
     members = [{ userId: 'user-1', role: 'owner' }];
@@ -422,6 +466,238 @@ describe('ReviewPage detail refresh', () => {
     expect(screen.getByTestId('status-badge-approved')).toBeVisible();
   });
 
+  it.each(['Accept candidate', 'Approve & publish'].flatMap(button => [401, 403, 404].map(status => ({ button, status }))))(
+    'clears cached content after $button receives HTTP $status and fresh reads remain denied', async ({ button, status }) => {
+      let revoked = false;
+      vi.mocked(api.get).mockImplementation(async url => {
+        if (revoked) throw { response: { status } };
+        return { data: url === '/review' ? [summary()] : changeSet() };
+      });
+      vi.mocked(api.patch).mockRejectedValue({ response: { status } });
+      vi.mocked(api.post).mockRejectedValue({ response: { status } });
+      renderReview(); await expand();
+      revoked = true;
+      fireEvent.click(screen.getByRole('button', { name: button }));
+      await screen.findByRole('alert');
+      expect(screen.queryByText('Proposed content')).not.toBeInTheDocument();
+      expect(screen.queryByText('Candidate set')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Accept candidate' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Approve & publish' })).not.toBeInTheDocument();
+    },
+  );
+
+  it.each(['Accept candidate', 'Approve & publish'])(
+    'clears %s denial cache immediately and restores fresh read-only content after an owner downgrade', async button => {
+      const freshDetail = deferred<any>();
+      let downgraded = false;
+      vi.mocked(api.get).mockImplementation(async url => {
+        if (url === '/review') return { data: [summary()] };
+        return downgraded ? freshDetail.promise : { data: changeSet() };
+      });
+      vi.mocked(api.patch).mockRejectedValue({ response: { status: 403 } });
+      vi.mocked(api.post).mockRejectedValue({ response: { status: 403 } });
+      renderReview(); await expand();
+      members = [{ userId: 'user-1', role: 'viewer' }];
+      downgraded = true;
+      fireEvent.click(screen.getByRole('button', { name: button }));
+      await waitFor(() => expect(screen.queryByText('Proposed content')).not.toBeInTheDocument());
+      expect(screen.queryByRole('button', { name: 'Accept candidate' })).not.toBeInTheDocument();
+      await act(async () => freshDetail.resolve({ data: { ...changeSet(), items: [{ ...changeItem(), payload: { title: 'Fresh title', content: 'Fresh authorized content' } }] } }));
+      expect(await screen.findByText('Fresh authorized content')).toBeVisible();
+      expect(screen.queryByRole('button', { name: 'Accept candidate' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Approve & publish' })).not.toBeInTheDocument();
+    },
+  );
+
+  it.each(['Accept candidate', 'Approve & publish'])('ignores an older pending detail after a denied %s', async button => {
+    const oldDetail = deferred<any>();
+    let detailReads = 0;
+    let revoked = false;
+    vi.mocked(api.get).mockImplementation(async url => {
+      if (revoked) throw { response: { status: 403 } };
+      if (url === '/review') return { data: [summary()] };
+      return ++detailReads === 1 ? { data: changeSet() } : oldDetail.promise;
+    });
+    vi.mocked(api.patch).mockRejectedValue({ response: { status: 403 } });
+    vi.mocked(api.post).mockRejectedValue({ response: { status: 403 } });
+    renderReview(); await expand();
+    fireEvent.click(screen.getByRole('button', { name: /Candidate set/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Candidate set/ }));
+    revoked = true;
+    fireEvent.click(screen.getByRole('button', { name: button }));
+    await screen.findByRole('alert');
+    await act(async () => oldDetail.resolve({ data: changeSet() }));
+    expect(screen.queryByText('Candidate set')).not.toBeInTheDocument();
+    expect(screen.queryByText('Proposed content')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: button })).not.toBeInTheDocument();
+  });
+
+  it.each(['Accept candidate', 'Approve & publish'])('retains cached content after a transient failure of %s', async button => {
+    vi.mocked(api.get).mockImplementation(async url => ({ data: url === '/review' ? [summary()] : changeSet() }));
+    vi.mocked(api.patch).mockRejectedValue({ response: { status: 500 } });
+    vi.mocked(api.post).mockRejectedValue({ response: { status: 500 } });
+    renderReview(); await expand();
+    fireEvent.click(screen.getByRole('button', { name: button }));
+    await screen.findByRole('alert');
+    expect(screen.getByText('Proposed content')).toBeVisible();
+    expect(screen.getByRole('button', { name: button })).toBeEnabled();
+  });
+
+  it.each([401, 403, 404])('clears cached candidate and decisions after a list HTTP %s denial', async (status) => {
+    let denied = false;
+    vi.mocked(api.get).mockImplementation(async url => {
+      if (url === '/review' && denied) throw { response: { status } };
+      return { data: url === '/review' ? [changeSet()] : changeSet() };
+    });
+    renderReview(); await expand();
+    expect(screen.getByRole('button', { name: 'Accept candidate' })).toBeEnabled();
+    denied = true;
+    act(() => window.dispatchEvent(new Event('focus')));
+    await screen.findByRole('alert');
+    expect(screen.queryByText('Proposed content')).not.toBeInTheDocument();
+    expect(screen.queryByText('Candidate set')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Accept candidate' })).not.toBeInTheDocument();
+  });
+
+  it.each([401, 403, 404])('clears cached candidate and decisions after a detail HTTP %s denial', async (status) => {
+    let denied = false;
+    vi.mocked(api.get).mockImplementation(async url => {
+      if (url === '/change-sets/cs-1' && denied) throw { response: { status } };
+      return { data: url === '/review' ? [changeSet()] : changeSet() };
+    });
+    renderReview(); await expand();
+    denied = true;
+    act(() => window.dispatchEvent(new Event('focus')));
+    await screen.findByRole('alert');
+    expect(screen.queryByText('Proposed content')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Accept candidate' })).not.toBeInTheDocument();
+  });
+
+  it('does not restore a revoked candidate from an older pending detail response', async () => {
+    const staleDetail = deferred<any>();
+    let denied = false;
+    vi.mocked(api.get).mockImplementation(async url => {
+      if (url === '/review') {
+        if (denied) throw { response: { status: 403 } };
+        return { data: [summary()] };
+      }
+      return staleDetail.promise;
+    });
+    renderReview();
+    fireEvent.click(await screen.findByRole('button', { name: /Candidate set/ }));
+    denied = true;
+    act(() => window.dispatchEvent(new Event('focus')));
+    await screen.findByRole('alert');
+    await act(async () => staleDetail.resolve({ data: changeSet() }));
+    expect(screen.queryByText('Candidate set')).not.toBeInTheDocument();
+    expect(screen.queryByText('Proposed content')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Accept candidate' })).not.toBeInTheDocument();
+  });
+
+  it('does not restore a denied detail from an older pending list response', async () => {
+    const staleList = deferred<any>();
+    const deniedDetail = deferred<any>();
+    let refreshing = false;
+    vi.mocked(api.get).mockImplementation(async url => {
+      if (url === '/review') return refreshing ? staleList.promise : { data: [summary()] };
+      return deniedDetail.promise;
+    });
+    renderReview();
+    fireEvent.click(await screen.findByRole('button', { name: /Candidate set/ }));
+    refreshing = true;
+    act(() => window.dispatchEvent(new Event('focus')));
+    await act(async () => deniedDetail.reject({ response: { status: 403 } }));
+    await screen.findByRole('alert');
+    await act(async () => staleList.resolve({ data: [summary()] }));
+    expect(screen.queryByText('Candidate set')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Accept candidate' })).not.toBeInTheDocument();
+  });
+
+  it('adopts a redacted summary without retaining cached evidence when detail refresh fails', async () => {
+    const detail = { ...changeSet(), items: [{ ...changeItem(), payload: { ...changeItem().payload, evidenceId: 'e-1' } }],
+      run: { ...changeSet().run, evidences: [{ id: 'e-1', quote: 'Sensitive source excerpt' }] } };
+    let redacted = false;
+    vi.mocked(api.get).mockImplementation(async url => {
+      if (url === '/review') return { data: [redacted ? { ...summary(), run: null, sourceStatus: { status: 'unavailable' } } : summary()] };
+      if (redacted) throw { response: { status: 500 } };
+      return { data: detail };
+    });
+    renderReview(); await expand();
+    expect(screen.getByText('Sensitive source excerpt')).toBeVisible();
+    redacted = true;
+    act(() => window.dispatchEvent(new Event('focus')));
+    await screen.findByRole('alert');
+    expect(screen.queryByText('Sensitive source excerpt')).not.toBeInTheDocument();
+    expect(screen.getByText('Proposed content')).toBeVisible();
+    expect(screen.queryByText(/Source:.*Source/)).not.toBeInTheDocument();
+  });
+
+  it('does not resurrect a removed summary from a pending detail response', async () => {
+    const staleDetail = deferred<any>();
+    let removed = false;
+    vi.mocked(api.get).mockImplementation(async url => {
+      if (url === '/review') return { data: removed ? [] : [summary()] };
+      return staleDetail.promise;
+    });
+    renderReview();
+    fireEvent.click(await screen.findByRole('button', { name: /Candidate set/ }));
+    removed = true;
+    act(() => window.dispatchEvent(new Event('focus')));
+    await waitFor(() => expect(screen.queryByText('Candidate set')).not.toBeInTheDocument());
+    await act(async () => staleDetail.resolve({ data: changeSet() }));
+    expect(screen.queryByText('Candidate set')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Accept candidate' })).not.toBeInTheDocument();
+  });
+
+  it('does not reuse owner permissions after access is restored without a successful detail read', async () => {
+    let phase = 'allowed';
+    vi.mocked(api.get).mockImplementation(async url => {
+      if (phase === 'denied') throw { response: { status: 403 } };
+      if (phase === 'restored' && url === '/change-sets/cs-1') throw { response: { status: 500 } };
+      return { data: url === '/review' ? [summary()] : changeSet() };
+    });
+    renderReview(); await expand();
+    expect(screen.getByRole('button', { name: 'Accept candidate' })).toBeEnabled();
+    phase = 'denied';
+    act(() => window.dispatchEvent(new Event('focus')));
+    await screen.findByRole('alert');
+    phase = 'restored';
+    act(() => window.dispatchEvent(new Event('focus')));
+    fireEvent.click(await screen.findByRole('button', { name: /Candidate set/ }));
+    await screen.findByRole('alert');
+    expect(screen.getByText('Proposed content')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Accept candidate' })).not.toBeInTheDocument();
+  });
+
+  it('uses newly authorized summary source fields even when the detail refresh fails', async () => {
+    let refreshed = false;
+    vi.mocked(api.get).mockImplementation(async url => {
+      if (url === '/review') return { data: [refreshed ? { ...summary(), run: { source: { id: 'source-2', type: 'text', name: 'New source' } } } : summary()] };
+      if (refreshed) throw { response: { status: 500 } };
+      return { data: changeSet() };
+    });
+    renderReview(); await expand();
+    refreshed = true;
+    act(() => window.dispatchEvent(new Event('focus')));
+    await screen.findByRole('alert');
+    expect(screen.getByText(/New source/)).toBeVisible();
+    expect(screen.getByText('Proposed content')).toBeVisible();
+  });
+
+  it.each(['list', 'detail'])('preserves the cached candidate on a transient %s failure', async endpoint => {
+    let failed = false;
+    vi.mocked(api.get).mockImplementation(async url => {
+      if (failed && url === (endpoint === 'list' ? '/review' : '/change-sets/cs-1')) throw { response: { status: 500 } };
+      return { data: url === '/review' ? [changeSet()] : changeSet() };
+    });
+    renderReview(); await expand();
+    failed = true;
+    act(() => window.dispatchEvent(new Event('focus')));
+    await screen.findByRole('alert');
+    expect(screen.getByText('Proposed content')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Accept candidate' })).toBeEnabled();
+  });
+
   it('refreshes review summaries on window focus', async () => {
     let refreshed = false;
     vi.mocked(api.get).mockImplementation(async () => ({ data: refreshed ? [changeSet()] : [] }));
@@ -450,4 +726,30 @@ describe('ReviewPage detail refresh', () => {
     await waitFor(() => expect(listReads).toBe(3));
   });
 
+});
+
+describe('ReviewPage real Markdown update diff', () => {
+  beforeEach(() => {
+    members = [{ userId: 'user-1', role: 'owner' }];
+    vi.mocked(useAuth).mockReturnValue({ user: { id: 'user-1' } } as any);
+    vi.mocked(api.get).mockReset(); vi.mocked(api.post).mockReset(); vi.mocked(api.patch).mockReset();
+  });
+  afterEach(cleanup);
+  const update = () => ({ ...changeSet(), items: [{ id: 'update-1', type: 'update_page', status: 'pending', payload: { pageId: 'page-1', expectedUpdatedAt: '2026-10-06T00:00:00Z', changes: { content: 'new paragraph', title: 'New title' } } }] });
+  it.each([true, false])('shows bounded current text diff with honest version labels (matching=%s)', async (matches) => {
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/review' ? [update()] : url === '/pages/page-1' ? { id: 'page-1', spaceId: 'space-1', content: 'old paragraph', title: 'Old title', updatedAt: matches ? '2026-10-06T00:00:00Z' : 'later' } : update() }));
+    renderReview(); fireEvent.click(await screen.findByRole('button', { name: /Candidate set/ }));
+    await screen.findByLabelText('Markdown diff');
+    expect(screen.getByText('old paragraph')).toBeInTheDocument(); expect(screen.getByText('new paragraph')).toBeInTheDocument();
+    expect(screen.getByText(matches ? 'Current document (matches proposal base version)' : 'Current document vs candidate')).toBeInTheDocument();
+    if (!matches) expect(screen.getByText(/Proposal base version is unavailable or stale/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Accept candidate' })).toBeEnabled();
+  });
+  it('does not invent a baseline after an unauthorized current page read', async () => {
+    vi.mocked(api.get).mockImplementation(async (url) => { if (url === '/pages/page-1') throw new Error('Forbidden'); return { data: url === '/review' ? [update()] : update() }; });
+    renderReview('zh-CN'); fireEvent.click(await screen.findByRole('button', { name: /Candidate set/ }));
+    expect(await screen.findByText('无法读取当前文档，仅显示候选。')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Markdown 差异')).not.toBeInTheDocument();
+    expect(screen.getByText('new paragraph')).toBeInTheDocument();
+  });
 });

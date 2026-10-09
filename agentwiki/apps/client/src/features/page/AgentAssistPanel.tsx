@@ -4,14 +4,26 @@ import { io, Socket } from 'socket.io-client';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { AssistCandidateReview } from './AssistCandidateReview';
+import { completeAssistCandidate, applyCandidateToDraft, type AssistCandidate, type AssistSnapshot } from './assistCandidate';
 
+import { validateAssistTarget, type AssistTarget } from './assistTargets';
+export interface AssistRequest { id: string; intent: string; assistTarget?: AssistTarget; noteIds?: string[]; autoSubmit?: boolean; annotations?: { id: string; body: string; quote: string }[]; supersedes?: { taskId: string; snapshot: Readonly<Pick<AssistSnapshot, 'title' | 'content' | 'updatedAt'>>; noteIds: string[]; annotations: { id: string; body: string; quote: string }[] } }
+export interface AssistNotesEvent { event: 'dispatch' | 'ready' | 'accept' | 'fail' | 'discard'; taskId: string; noteIds: string[]; annotations?: AssistRequest['annotations']; candidate: AssistCandidate; editId?: string; acceptedEditIds?: string[]; dispatchRequest?: { userId: string; spaceId: string; pageId: string; request: AssistRequest; snapshot: Readonly<Pick<AssistSnapshot, 'title' | 'content' | 'updatedAt'>> } }
 interface AgentAssistPanelProps {
   pageId: string;
   pageTitle: string;
   spaceId: string;
-  snapshot: () => { title: string; content: string; updatedAt?: string };
-  onApply?: (changes: string) => void;
-  onStreamUpdate?: (content: string) => void;
+  snapshot: () => AssistSnapshot;
+  canEdit?: boolean;
+  canAccept?: boolean;
+  acceptUnavailableReason?: string;
+  onApply?: (candidate: AssistCandidate, editId?: string) => boolean;
+  supportsScopedApply?: boolean;
+  assistRequest?: AssistRequest | null;
+  assistTargets?: { selection?: AssistTarget | null; section?: AssistTarget | null };
+  onNotesEvent?: (event: AssistNotesEvent) => void;
+  onRequestHandled?: (id: string) => void;
 }
 
 type AssistTaskStatus = 'queued' | 'running' | 'done' | 'failed';
@@ -125,69 +137,117 @@ function extractChangesFromStream(raw: string): string | null {
   return out.length ? out : null;
 }
 
-export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spaceId, snapshot, onApply, onStreamUpdate }) => {
+export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spaceId, snapshot, onApply, canEdit = true, canAccept = true, acceptUnavailableReason, supportsScopedApply = false, assistRequest, assistTargets, onNotesEvent, onRequestHandled }) => {
   const { language } = useLanguage();
   const { user } = useAuth();
   const zh = language === 'zh-CN';
   const [intent, setIntent] = useState('');
+  const autoSubmittedRef = useRef(new Set<string>());
+  const [targetKind, setTargetKind] = useState<AssistTarget['kind']>('document');
+  const requestRef = useRef<AssistRequest | null>(null);
+  const notesEventRef = useRef(onNotesEvent); notesEventRef.current = onNotesEvent;
+  const emitNotes = useCallback((event: AssistNotesEvent['event'], candidate: AssistCandidate, editId?: string) => {
+    if (candidate.noteIds?.length) notesEventRef.current?.({ event, taskId: candidate.taskId, noteIds: candidate.noteIds, candidate, editId, acceptedEditIds: candidate.acceptedEditIds });
+  }, []);
   const [tasks, setTasks] = useState<AssistTask[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [submissionError, setSubmissionError] = useState<{ identity: string; generation: number } | null>(null);
   const [pending, setPending] = useState<PendingReview[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const streamBufferRef = useRef<Map<string, string>>(new Map());
-  const appliedRef = useRef<Set<string>>(new Set());
-  const eligibleTaskIdsRef = useRef<Set<string>>(new Set());
-  const onStreamUpdateRef = useRef(onStreamUpdate);
-  onStreamUpdateRef.current = onStreamUpdate;
+  const candidatesRef = useRef(new Map<string, AssistCandidate>());
+  const [candidates, setCandidates] = useState(new Map<string, AssistCandidate>());
+  const identity = `${user?.id ?? ''}:${spaceId}:${pageId}`;
+  const identityRef = useRef(identity);
+  const generationRef = useRef(0);
+  const permissionRef = useRef(canEdit);
+  if (identityRef.current !== identity || permissionRef.current !== canEdit) generationRef.current += 1;
+  identityRef.current = identity;
+  permissionRef.current = canEdit;
+  const mountedRef = useRef(true);
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
+  const canEditRef = useRef(canEdit);
+  canEditRef.current = canEdit;
+  const publishCandidates = useCallback(() => setCandidates(new Map(candidatesRef.current)), []);
 
   useEffect(() => {
-    eligibleTaskIdsRef.current.clear();
-    appliedRef.current.clear();
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; generationRef.current += 1; };
+  }, []);
+
+  useEffect(() => {
+    candidatesRef.current.clear();
+    setCandidates(new Map());
     streamBufferRef.current.clear();
-  }, [pageId]);
+    setTasks([]);
+    setPending([]);
+    setIntent(''); requestRef.current = null; autoSubmittedRef.current.clear(); setTargetKind('document');
+    setSubmitting(false);
+    setSubmissionError(null);
+  }, [identity]);
+
+  useEffect(() => {
+    if (!assistRequest) return;
+    requestRef.current = assistRequest; setIntent(assistRequest.intent); setTargetKind(assistRequest.assistTarget?.kind ?? 'document');
+  }, [assistRequest?.id]);
+
+  useEffect(() => {
+    if (canEdit) return;
+    setSubmitting(false);
+    setSubmissionError(null);
+    for (const [taskId, candidate] of candidatesRef.current) {
+      if (candidate.status === 'ready' || candidate.status === 'generating') { candidatesRef.current.set(taskId, { ...candidate, status: 'conflict' }); emitNotes('fail', candidate); }
+    }
+    publishCandidates();
+  }, [canEdit, publishCandidates, emitNotes]);
 
   const loadTasks = useCallback(async () => {
+    const requestedIdentity = identity;
+    const requestedGeneration = generationRef.current;
     try {
       const res = await api.get('/assist/tasks', { params: { pageId } });
+      if (!mountedRef.current || generationRef.current !== requestedGeneration || identityRef.current !== requestedIdentity) return;
       const loadedTasks = Array.isArray(res.data) ? res.data : res.data.data || [];
-      const recentTasks = loadedTasks.slice(0, MAX_ASSIST_TASKS);
+      const recentTasks: AssistTask[] = loadedTasks.slice(0, MAX_ASSIST_TASKS);
       setTasks((prev) => {
         const streamMap = new Map(prev.map((t) => [t.id, { stream: t.streamContent, phase: t.phase }]));
-        return recentTasks.map((t: AssistTask) => ({
-          ...t,
+        return recentTasks.map((t) => ({ ...t,
           streamContent: streamMap.get(t.id)?.stream || t.streamContent,
           phase: streamMap.get(t.id)?.phase || t.phase,
         }));
       });
-      
-      // Auto-apply completed changes directly into the editor — WYSIWYG.
-      // Each task is applied exactly once (tracked by appliedRef).
-      if (onApply) {
-        for (const task of recentTasks) {
-          if (task.status === 'done' && task.result?.changes && eligibleTaskIdsRef.current.has(task.id) && !appliedRef.current.has(task.id)) {
-            appliedRef.current.add(task.id);
-            onApply(task.result.changes);
-          }
+      for (const task of recentTasks) {
+        const candidate = candidatesRef.current.get(task.id);
+        // Terminal decisions survive duplicate polling and socket completion.
+        if (!candidate || candidate.status !== 'generating') continue;
+        if (task.status === 'done') {
+          const changes = task.result?.changes;
+          const completed = completeAssistCandidate(candidate, typeof changes === 'string' ? changes : '', task.result?.summary);
+          candidatesRef.current.set(task.id, completed); emitNotes(completed.status === 'ready' ? 'ready' : 'fail', completed);
+        } else if (task.status === 'failed') {
+          candidatesRef.current.set(task.id, { ...candidate, status: 'failed' }); emitNotes('fail', candidate);
         }
       }
-    } catch {
-      /* keep existing */
-    }
-  }, [pageId, onApply]);
+      publishCandidates();
+    } catch { /* keep existing */ }
+  }, [identity, pageId, publishCandidates, emitNotes]);
 
   const loadTasksRef = useRef(loadTasks);
   loadTasksRef.current = loadTasks;
 
   const loadPending = useCallback(async () => {
+    const requestedGeneration = generationRef.current;
     try {
       const res = await api.get('/review', { params: { spaceId } });
       const items: PendingReview[] = Array.isArray(res.data) ? res.data : res.data.data || [];
+      if (!mountedRef.current || generationRef.current !== requestedGeneration || identityRef.current !== identity) return;
       setPending(items.filter((item) => item.status === 'pending_review'));
     } catch {
-      setPending([]);
+      if (mountedRef.current && generationRef.current === requestedGeneration && identityRef.current === identity) setPending([]);
     }
-  }, [spaceId]);
+  }, [spaceId, identity]);
 
   useEffect(() => {
     void loadTasks();
@@ -218,14 +278,17 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
     });
 
     socket.on('assistStream', (data: { taskId: string; chunk: string }) => {
+      if (!mounted || identityRef.current !== identity) return;
+      const candidate = candidatesRef.current.get(data.taskId);
+      if (!candidate || candidate.status !== 'generating') return;
       const current = streamBufferRef.current.get(data.taskId) || '';
       const updated = current + data.chunk;
       streamBufferRef.current.set(data.taskId, updated);
       
-      // Live-apply the markdown currently being generated to the editor.
-      if (eligibleTaskIdsRef.current.has(data.taskId) && onStreamUpdateRef.current) {
-        const partial = extractChangesFromStream(updated);
-        if (partial) onStreamUpdateRef.current(partial);
+      const partial = extractChangesFromStream(updated);
+      if (partial !== null) {
+        candidatesRef.current.set(data.taskId, { ...candidate, content: partial });
+        publishCandidates();
       }
 
       setTasks((prev) => {
@@ -243,13 +306,20 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
     });
 
     socket.on('assistComplete', (data: { taskId: string }) => {
+      if (!mounted || identityRef.current !== identity) return;
       setTasks((prev) => prev.map((t) => (t.id === data.taskId ? { ...t, phase: 'complete' } : t)));
       streamBufferRef.current.delete(data.taskId);
       if (mounted) void loadTasksRef.current();
     });
 
     socket.on('assistError', (data: { taskId: string; error: string }) => {
-      setTasks((prev) => prev.map((t) => (t.id === data.taskId ? { ...t, phase: 'error', streamContent: data.error } : t)));
+      if (!mounted || identityRef.current !== identity) return;
+      const candidate = candidatesRef.current.get(data.taskId);
+      if (candidate?.status === 'generating') {
+        candidatesRef.current.set(data.taskId, { ...candidate, status: 'failed' }); emitNotes('fail', candidate);
+        publishCandidates();
+      }
+      setTasks((prev) => prev.map((t) => (t.id === data.taskId ? { ...t, status: 'failed', phase: 'error', streamContent: undefined } : t)));
       streamBufferRef.current.delete(data.taskId);
     });
 
@@ -259,25 +329,83 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
       socketRef.current = null;
       streamBufferRef.current.clear();
     };
-  }, [user?.id, pageId]);
+  }, [identity, user?.id, pageId, publishCandidates, emitNotes]);
 
+  const accept = (taskId: string, editId?: string) => {
+    const candidate = candidatesRef.current.get(taskId);
+    if (!candidate || candidate.status !== 'ready' || !canAccept || (candidate.assistTarget && !supportsScopedApply)) return;
+    const current = { ...snapshotRef.current(), pageId, spaceId, userId: user?.id ?? '', canEdit: canEditRef.current };
+    const application = applyCandidateToDraft(candidate, current, editId);
+    if (application.status !== 'applied') {
+      candidatesRef.current.set(taskId, { ...candidate, status: 'conflict' }); emitNotes('fail', candidate);
+    } else {
+      // Lock before invoking parent. Publish ledger only after parent synchronously commits live source.
+      candidatesRef.current.set(taskId, { ...candidate, status: 'accepted' });
+      const applied = editId ? onApply?.(candidate, editId) === true : onApply?.(candidate) === true;
+      if (!applied) { candidatesRef.current.set(taskId, { ...candidate, status: 'conflict' }); emitNotes('fail', candidate); }
+      else {
+        const completed = !candidate.editPlan || application.acceptedEditIds.length === candidate.editPlan.edits.length;
+        const accepted: AssistCandidate = { ...candidate, acceptedEditIds: application.acceptedEditIds, status: completed ? 'accepted' : 'ready' };
+        candidatesRef.current.set(taskId, accepted); emitNotes('accept', accepted, editId);
+      }
+    }
+    publishCandidates();
+  };
+  const discard = (taskId: string) => {
+    const candidate = candidatesRef.current.get(taskId);
+    if (!candidate || candidate.status === 'accepted' || candidate.status === 'discarded') return;
+    candidatesRef.current.set(taskId, { ...candidate, status: 'discarded' }); emitNotes('discard', candidate);
+    streamBufferRef.current.delete(taskId);
+    publishCandidates();
+  };
   const submit = async () => {
-    if (!intent.trim() || submitting) return;
+    if (!intent.trim() || submitting || !canEditRef.current || !user?.id) return;
+    const requestedIdentity = identity;
+    const requestedGeneration = generationRef.current;
+    const submitted = { ...snapshotRef.current() };
+    const request = requestRef.current;
+    const selectedTarget = targetKind === 'document'
+      ? (request?.assistTarget?.kind === 'document' ? request.assistTarget : submitted.assistTarget?.kind === 'document' ? submitted.assistTarget : undefined)
+      : request?.assistTarget?.kind === targetKind ? request.assistTarget : assistTargets?.[targetKind];
+    if ((targetKind !== 'document' && !selectedTarget) || selectedTarget && (!validateAssistTarget(submitted.content, selectedTarget) || selectedTarget.baseUpdatedAt !== submitted.updatedAt)) {
+      setSubmissionError({ identity: requestedIdentity, generation: requestedGeneration }); return;
+    }
+    const submittedIntent = intent.trim();
     setSubmitting(true);
+    setSubmissionError(null);
     try {
-      const created = await api.post('/assist/tasks', {
-        spaceId,
-        pageId,
-        intent: intent.trim(),
-        snapshot: snapshot(),
-      });
-      if (created.data?.id) eligibleTaskIdsRef.current.add(created.data.id);
+      const created = await api.post('/assist/tasks', { spaceId, pageId, intent: submittedIntent, snapshot: { title: submitted.title, content: submitted.content, updatedAt: submitted.updatedAt, ...(selectedTarget ? { assistTarget: selectedTarget } : {}) } });
+      if (!mountedRef.current || generationRef.current !== requestedGeneration || identityRef.current !== requestedIdentity || !canEditRef.current) return;
+      if (created.data?.id) {
+        const taskId = created.data.id;
+        const candidate: AssistCandidate = { taskId, pageId, spaceId, userId: user.id,
+          baseTitle: submitted.title, baseContent: submitted.content, baseUpdatedAt: submitted.updatedAt,
+          baseDraftRevision: submitted.draftRevision, baseRemoteRevision: submitted.remoteRevision,
+          content: '', status: 'generating', assistTarget: selectedTarget ?? undefined, noteIds: request?.noteIds ? [...request.noteIds] : [],
+        };
+        candidatesRef.current.set(taskId, candidate); emitNotes('dispatch', candidate);
+        if (request) { onRequestHandled?.(request.id); requestRef.current = null; }
+        while (candidatesRef.current.size > MAX_ASSIST_TASKS) { const oldestId = candidatesRef.current.keys().next().value!; const oldest = candidatesRef.current.get(oldestId)!; if (oldest.status !== 'accepted' && oldest.status !== 'discarded') emitNotes('discard', oldest); candidatesRef.current.delete(oldestId); }
+        setTasks((prev) => [{ id: taskId, intent: submittedIntent, status: 'queued' as AssistTaskStatus }, ...prev.filter((task) => task.id !== taskId)].slice(0, MAX_ASSIST_TASKS));
+        publishCandidates();
+      }
       setIntent('');
       await loadTasks();
+    } catch {
+      // Do not expose server/provider errors or let a stale request affect another context.
+      if (mountedRef.current && generationRef.current === requestedGeneration
+        && identityRef.current === requestedIdentity && canEditRef.current) {
+        setSubmissionError({ identity: requestedIdentity, generation: requestedGeneration });
+      }
     } finally {
-      setSubmitting(false);
+      if (mountedRef.current && generationRef.current === requestedGeneration && identityRef.current === requestedIdentity) setSubmitting(false);
     }
   };
+
+  useEffect(() => {
+    if (!assistRequest?.autoSubmit || !assistRequest.noteIds?.length || autoSubmittedRef.current.has(assistRequest.id) || requestRef.current?.id !== assistRequest.id || intent !== assistRequest.intent || submitting || !canEdit) return;
+    autoSubmittedRef.current.add(assistRequest.id); void submit();
+  }, [assistRequest?.id, intent, targetKind, submitting, canEdit]);
 
   return (
     <aside className="flex w-80 shrink-0 flex-col rounded-xl border border-gray-200 bg-white shadow-sm" data-testid="agent-assist-panel">
@@ -287,6 +415,15 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
       </div>
       <div className="flex-1 space-y-4 overflow-auto p-4">
         <div>
+          <label className="mb-2 block text-xs text-gray-600">{zh ? '修改范围' : 'Edit scope'}
+            <select aria-label={zh ? '修改范围' : 'Edit scope'} value={targetKind} disabled={submitting || !canEdit} onChange={(event) => { setTargetKind(event.target.value as AssistTarget['kind']); }} className="ml-2 rounded-lg border border-gray-200 p-1">
+              <option value="document">{zh ? '整篇文档' : 'Document'}</option>
+              <option value="selection" disabled={!assistTargets?.selection && assistRequest?.assistTarget?.kind !== 'selection'}>{zh ? '所选段落' : 'Selection'}</option>
+              <option value="section" disabled={!assistTargets?.section && assistRequest?.assistTarget?.kind !== 'section'}>{zh ? '当前章节' : 'Section'}</option>
+            </select>
+          </label>
+          {(requestRef.current?.assistTarget?.kind === targetKind ? requestRef.current.assistTarget : (targetKind !== 'document' ? assistTargets?.[targetKind] : null)) ? <blockquote className="mb-2 max-h-24 overflow-auto whitespace-pre-wrap border-l-2 pl-2 text-xs text-gray-500">{(requestRef.current?.assistTarget?.kind === targetKind ? requestRef.current.assistTarget : (targetKind !== 'document' ? assistTargets?.[targetKind] : null))?.quote}</blockquote> : null}
+          <p className="mb-2 text-xs text-gray-500">{zh ? '只修改所选范围；候选须审阅接受后才进入草稿。' : 'Change only the chosen scope. Review and accept the candidate before it enters your draft.'}</p>
           <label className="mb-1.5 block text-xs font-medium text-gray-500">{zh ? '想让智能体做什么？' : 'What should the agent do?'}</label>
           <textarea
             value={intent}
@@ -298,13 +435,18 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
           />
           <button
             onClick={() => void submit()}
-            disabled={!intent.trim() || submitting}
+            disabled={!intent.trim() || submitting || !canEdit}
             className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             data-testid="assist-submit"
           >
             {submitting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
             {zh ? '提交任务' : 'Run task'}
           </button>
+          {submissionError?.identity === identity && submissionError.generation === generationRef.current ? (
+            <p role="alert" className="mt-2 text-xs text-red-600">
+              {zh ? '任务提交失败，草稿未改动。请重试。' : 'Could not submit the task. Your draft is unchanged. Please retry.'}
+            </p>
+          ) : null}
         </div>
 
         <div>
@@ -348,23 +490,18 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
                     {/* Streaming content */}
                     {isStreaming && streamContent && (
                       <div className="mt-2 max-h-48 overflow-auto rounded bg-blue-50 p-2">
-                        <pre className="whitespace-pre-wrap text-xs text-gray-700">{streamContent}</pre>
+                        <p className="text-xs text-gray-700">{zh ? '助手正在处理…正文未改动。' : 'Assistant is working… Your draft is unchanged.'}</p>
                       </div>
                     )}
                     
                     {metadata ? <p className="mt-1 text-[11px] text-gray-500">{metadata}</p> : null}
-                    {task.status === 'done' && task.result?.changes ? (
-                      <div className="mt-1.5 rounded-md border border-green-200 bg-green-50 p-2">
-                        {task.result?.summary ? (
-                          <p className="text-[11px] leading-relaxed text-green-800">{task.result.summary}</p>
-                        ) : (
-                          <p className="text-[11px] text-green-600">{zh ? '内容已更新到编辑器' : 'Content applied to editor'}</p>
-                        )}
-                        <details className="mt-1">
-                          <summary className="cursor-pointer text-[11px] font-medium text-green-700">{zh ? '查看生成内容' : 'View generated content'}</summary>
-                          <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-white p-2 text-[11px] leading-relaxed text-gray-700">{task.result.changes}</pre>
-                        </details>
-                      </div>
+                    {candidates.get(task.id) ? <>
+                      {!canAccept ? <p className="mt-2 text-xs text-gray-600">{acceptUnavailableReason ?? (zh ? '返回编辑模式后可接受候选。' : 'Return to edit to accept this candidate.')}</p> : null}
+                      <AssistCandidateReview candidate={candidates.get(task.id)!} canEdit={canEdit && canAccept && (!candidates.get(task.id)?.assistTarget || supportsScopedApply)} supportsScopedApply={supportsScopedApply} onAccept={(editId) => accept(task.id, editId)} onDiscard={() => discard(task.id)} />
+                    </> : task.status === 'done' && task.result?.changes ? (
+                      <details className="mt-2"><summary className="cursor-pointer text-xs">{zh ? '查看历史生成内容（不能直接应用）' : 'View historical output (cannot apply)'}</summary>
+                        <pre className="max-h-48 overflow-auto whitespace-pre-wrap text-xs">{task.result.changes}</pre>
+                      </details>
                     ) : null}
                     {errorCode ? <p className="mt-1 text-xs text-red-600">{errorCode}</p> : null}
                   </li>

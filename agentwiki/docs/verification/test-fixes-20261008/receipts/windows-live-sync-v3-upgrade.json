@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "turnId": "01a11cf5-47ae-72b3-9afa-a6e38b124188",
+  "records": [
+    {
+      "type": "commandExecution",
+      "id": "exec-eb666e97-c36f-4212-9d12-f6496d1a4398",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1938,
+      "output": {
+        "text": "=> {\"count\":1,\"modalText\":\"图片同步协议升级预览Sync v2 → Sync v3：确认后该 Space 不可自动降级，其他客户端需支持 Sync v3。图片：1 张 · 传输字节上界 68 B / 104857600 B图片：assets/used.png · 68 B确认将应用全部变更（包括其他分页）。取消确认升级并同步\",\"summaries\":[\"Sync v2 → Sync v3：确认后该 Space 不可自动降级，其他客户端需支持 Sync v3。图片：1 张 · 传输字节上界 68 B / 104857600 B图片：assets/used.png · 68 B\"],\"buttons\":[{\"text\":\"取消\",\"disabled\":false,\"class\":\"\"},{\"text\":\"确认升级并同步\",\"disabled\":false,\"class\":\"mod-destructive mod-cta\"}]}\nNo errors captured.\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-566aa664-5d6a-4eb2-9db7-b6105a123b76",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 3423,
+      "output": {
+        "text": "=> confirmed\n=> {\"modalCount\":1,\"text\":[\"图片同步协议升级预览Sync v2 → Sync v3：确认后该 Space 不可自动降级，其他客户端需支持 Sync v3。图片：1 张 · 传输字节上界 68 B / 104857600 B图片：assets/used.png · 68 B上传变更批次 1 / 1取消确认升级并同步\"],\"success\":false}\nNo errors captured.\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-c81c965a-3720-461e-b8c0-316593e21269",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 536,
+      "output": {
+        "text": "=> {\"modalCount\":0,\"text\":[],\"bodyHasSuccess\":false}\nNo errors captured.\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-26806a55-c24e-4217-b1df-817d9f84198b",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2131,
+      "output": {
+        "text": "Executed: agentwiki-sync:open-sync-center\n=> {\"modalCount\":1,\"protocol\":\"Sync v3\",\"containsSyncV3\":true,\"text\":\"AgentWiki 同步同步空间Windows Sync QA 1ea86e9d2354 · 验收/Windows · 所有者cmuzvs71f025kjakf2wopuz5b · 验收/Windows协议：Sync v3本地与服务器已同步，无需操作。图片：上传 0 张 / 0 B · 下载 0 张 / 0 B · 替换 0 · 取消引用 0 · 单次传输上限 100 MB扫描 0本地变更本地没有未推送的变更。服务器变更服务器没有新的变更。自动合并会同步本地删除，冲突可逐项选择；使用本地内容在冲突处保留本地。Sync v2 使用服务器内容会恢复本地删除并覆盖本地修改，执行前请检查预览。 / Auto merge includes local deletions; resolve conflicts in preview. Use local keeps local conflict values. In Sync v2, use server restores deleted files and replaces local changes; review before confirming.自动合并（推荐）使用本地内容使用服务器内容刷新差异\"}\nNo errors captured.\n",
+        "truncated": false
+      }
+    }
+  ],
+  "sourceFile": "agentwiki-windows-v3-sanitized.json",
+  "sourceFileSha256": "450825e46c0faff025021dac1d0febaac468f02ef6b7b18d30c7b666a7ac3241",
+  "sanitization": "Input was already selected and sanitized by root. Unrelated daily Vault display name replaced; command outputs otherwise retained. No commands or agent assertions added."
+}

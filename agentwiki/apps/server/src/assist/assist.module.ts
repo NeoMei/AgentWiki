@@ -1,9 +1,13 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DatabaseModule } from '../database/database.module';
+import { AuthorizationModule } from '../core/authorization/authorization.module';
+import { SyncModule } from '../core/sync/sync.module';
 import { AuthModule } from '../core/auth/auth.module';
 import { SecurityModule } from '../core/security/security.module';
 import { CollaborationModule } from '../core/collaboration/collaboration.module';
+import { AssistSessionService } from './assist-session.service';
+import { AssistSessionController } from './assist-session.controller';
 import { AssistService } from './assist.service';
 import { AssistQueue } from './assist.queue';
 import { AssistController } from './assist.controller';
@@ -14,10 +18,11 @@ import { OpencodeCliRunner } from './opencode.runner';
 import { OpencodeModelRouter } from './opencode.router';
 
 @Module({
-  imports: [DatabaseModule, AuthModule, SecurityModule, CollaborationModule],
-  controllers: [AssistController],
+  imports: [DatabaseModule, AuthModule, AuthorizationModule, SyncModule, SecurityModule, CollaborationModule],
+  controllers: [AssistController, AssistSessionController],
   providers: [
     AssistService,
+    AssistSessionService,
     AssistQueue,
     OpencodeCliRunner,
     {

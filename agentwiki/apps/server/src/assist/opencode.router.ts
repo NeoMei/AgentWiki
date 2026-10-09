@@ -1,3 +1,4 @@
+import { AgentRuntimePort, BUILTIN_RUNTIME_CAPABILITIES } from './agent-runtime.port';
 import { Inject, Injectable, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ModelHealthStore } from './model-health.store';
@@ -21,7 +22,8 @@ const LEASE_SAFETY_MS = 5_000;
 const NO_MODEL_ID = 'opencode/none';
 
 @Injectable()
-export class OpencodeModelRouter implements OpencodeRunner, OnModuleInit {
+export class OpencodeModelRouter implements OpencodeRunner, AgentRuntimePort, OnModuleInit {
+  readonly capabilities = BUILTIN_RUNTIME_CAPABILITIES;
   private config!: RoutingConfig;
 
   constructor(
@@ -37,6 +39,7 @@ export class OpencodeModelRouter implements OpencodeRunner, OnModuleInit {
   }
 
   async run(task: AssistInput): Promise<AssistRunResult> {
+    if (task.signal?.aborted) throw this.routingError('cancelled', [], { ...EMPTY_USAGE }, 0);
     if (!this.config) this.onModuleInit();
 
     let prompt: string;
@@ -81,6 +84,7 @@ export class OpencodeModelRouter implements OpencodeRunner, OnModuleInit {
     let totalCost = 0;
 
     for (const candidate of selected) {
+      if (task.signal?.aborted) throw this.routingError('cancelled', attempts, totalUsage, totalCost, candidate);
       if (task.isActive) {
         let active: boolean;
         try {
@@ -110,7 +114,9 @@ export class OpencodeModelRouter implements OpencodeRunner, OnModuleInit {
           candidate.id,
           Math.min(this.config.attemptTimeoutMs, remaining),
           task.onStreamChunk,
+          ...(task.signal || task.mode || task.onAnswerText ? [{ signal: task.signal, mode: task.mode, onAnswerText: task.onAnswerText }] : []),
         );
+        if (task.signal?.aborted) throw new OpencodeExecutionError('cancelled', 'cancelled', 'global', EMPTY_USAGE);
         const completedAt = this.now();
         this.addUsage(totalUsage, result.usage);
         totalCost += result.cost;
@@ -135,7 +141,7 @@ export class OpencodeModelRouter implements OpencodeRunner, OnModuleInit {
         };
       } catch (error) {
         const completedAt = this.now();
-        const code = this.errorCode(error);
+        const code = task.signal?.aborted ? 'cancelled' : this.errorCode(error);
         const failureUsage = error instanceof OpencodeExecutionError
           ? error.usage
           : EMPTY_USAGE;
@@ -154,7 +160,7 @@ export class OpencodeModelRouter implements OpencodeRunner, OnModuleInit {
           cost: failureCost,
         });
 
-        if (!(error instanceof OpencodeExecutionError) || error.scope !== 'model') {
+        if (task.signal?.aborted || code === 'cancelled' || !(error instanceof OpencodeExecutionError) || error.scope !== 'model') {
           throw this.routingError(code, attempts, totalUsage, totalCost, candidate);
         }
         try {

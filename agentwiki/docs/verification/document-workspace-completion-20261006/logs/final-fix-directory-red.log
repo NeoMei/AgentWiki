@@ -1,0 +1,233 @@
+
+ RUN  v4.1.11 /Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/apps/client
+
+ ❯ src/features/space-workspace/SpaceWorkspace.spec.tsx (16 tests | 1 failed | 15 skipped) 1110ms
+     × retains page reveal across asynchronous directory unmounts while reload and manual scroll keep saved position 1109ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/space-workspace/SpaceWorkspace.spec.tsx > SpaceWorkspace > retains page reveal across asynchronous directory unmounts while reload and manual scroll keep saved position
+AssertionError: expected undefined to be <li class="relative" …(3)>…(1)</li> // Object.is equality
+
+Ignored nodes: comments, script, style
+[36m<html[39m
+  [33mlang[39m=[32m"en"[39m
+[36m>[39m
+  [36m<head />[39m
+  [36m<body>[39m
+    [36m<div>[39m
+      [36m<div[39m
+        [33mdata-space-id[39m=[32m"space-1"[39m
+        [33mdata-space-workspace[39m=[32m"read"[39m
+      [36m>[39m
+        [36m<div>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-col border-b border-gray-200 lg:flex-row lg:items-stretch"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex min-h-12 w-full items-center border-b border-gray-100 px-4 lg:w-[var(--directory-width)] lg:shrink-0 lg:border-b-0 lg:border-r"[39m
+              [33mstyle[39m=[32m"--directory-width: 260px;"[39m
+            [36m>[39m
+              [36m<h1[39m
+                [33mclass[39m=[32m"truncate text-base font-semibold text-gray-900"[39m
+                [33mdata-testid[39m=[32m"space-root-focus"[39m
+                [33mtabindex[39m=[32m"-1"[39m
+                [33mtitle[39m=[32m"Wiki"[39m
+              [36m>[39m
+                [0mWiki[0m
+              [36m</h1>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"min-w-0 flex-1 px-3"[39m
+            [36m>[39m
+              [36m<nav[39m
+                [33maria-label[39m=[32m"Space navigation"[39m
+                [33mclass[39m=[32m" overflow-x-auto"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"flex min-w-max gap-1"[39m
+                [36m>[39m
+                  [36m<a[39m
+                    [33maria-current[39m=[32m"page"[39m
+                    [33mclass[39m=[32m"flex items-center gap-2 px-3 py-3 border-b-2 text-sm transition border-blue-600 text-blue-600 font-medium"[39m
+                    [33mdata-discover[39m=[32m"true"[39m
+                    [33mhref[39m=[32m"/spaces/space-1"[39m
+                  [36m>[39m
+                    [36m<svg[39m
+                      [33maria-hidden[39m=[32m"true"[39m
+                      [33mclass[39m=[32m"lucide lucide-file-text"[39m
+                      [33mfill[39m=[32m"none"[39m
+                      [33mheight[39m=[32m"16"[39m
+                      [33mstroke[39m=[32m"currentColor"[39m
+                      [33mstroke-linecap[39m=[32m"round"[39m
+                      [33mstroke-linejoin[39m=[32m"round"[39m
+                      [33mstroke-width[39m=[32m"2"[39m
+                      [33mviewBox[39m=[32m"0 0 24 24"[39m
+                      [33mwidth[39m=[32m"16"[39m
+                      [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+                    [36m>[39m
+                      [36m<path[39m
+                        [33md[39m=[32m"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"[39m
+                      [36m/>[39m
+                      [36m<path[39m
+                        [33md[39m=[32m"M14 2v5a1 1 0 0 0 1 1h5"[39m
+                      [36m/>[39m
+                      [36m<path[39m
+                        [33md[39m=[32m"M10 9H8"[39m
+                      [36m/>[39m
+                      [36m<path[39m
+                        [33md[39m=[32m"M16 13H8"[39m
+                      [36m/>[39m
+                      [36m<path[39m
+                        [33md[39m=[32m"M16 17H8"[39m
+                      [36m/>[39m
+                    [36m</svg>[39m
+                    [0m [0m
+                    [0mPages[0m
+                  [36m</a>[39m
+                  [36m<a[39m
+                    [33mclass[39m=[32m"flex items-center gap-2 px-3 py-3 border-b-2 text-sm transition border-transparent text-gray-500 hover:text-gray-800"[39m
+                    [33mdata-discover[39m=[32m"true"[39m
+                    [33mhref[39m=[32m"/spaces/space-1/graph"[39m
+                  [36m>[39m
+                    [36m<svg[39m
+                      [33maria-hidden[39m=[32m"true"[39m
+                      [33mclass[39m=[32m"lucide lucide-network"[39m
+                      [33mfill[39m=[32m"none"[39m
+                      [33mheight[39m=[32m"16"[39m
+                      [33mstroke[39m=[32m"currentColor"[39m
+                      [33mstroke-linecap[39m=[32m"round"[39m
+                      [33mstroke-linejoin[39m=[32m"round"[39m
+                      [33mstroke-width[39m=[32m"2"[39m
+                      [33mviewBox[39m=[32m"0 0 24 24"[39m
+                      [33mwidth[39m=[32m"16"[39m
+                      [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+                    [36m>[39m
+                      [36m<rect[39m
+                        [33mheight[39m=[32m"6"[39m
+                        [33mrx[39m=[32m"1"[39m
+                        [33mwidth[39m=[32m"6"[39m
+                        [33mx[39m=[32m"16"[39m
+                        [33my[39m=[32m"16"[39m
+                      [36m/>[39m
+                      [36m<rect[39m
+                        [33mheight[39m=[32m"6"[39m
+                        [33mrx[39m=[32m"1"[39m
+                        [33mwidth[39m=[32m"6"[39m
+                        [33mx[39m=[32m"2"[39m
+                        [33my[39m=[32m"16"[39m
+                      [36m/>[39m
+                      [36m<rect[39m
+                        [33mheight[39m=[32m"6"[39m
+                        [33mrx[39m=[32m"1"[39m
+                        [33mwidth[39m=[32m"6"[39m
+                        [33mx[39m=[32m"9"[39m
+                        [33my[39m=[32m"2"[39m
+                      [36m/>[39m
+                      [36m<path[39m
+                        [33md[39m=[32m"M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"[39m
+                      [36m/>[39m
+                      [36m<path[39m
+                        [33md[39m=[32m"M12 12V8"[39m
+                      [36m/>[39m
+                    [36m</svg>[39m
+                    [0m [0m
+                    [0mGraph[0m
+                  [36m</a>[39m
+                  [36m<a[39m
+                    [33mclass[39m=[32m"flex items-center gap-2 px-3 py-3 border-b-2 text-sm transition border-transparent text-gray-500 hover:text-gray-800"[39m
+                    [33mdata-discover[39m=[32m"true"[39m
+                    [33mhref[39m=[32m"/spaces/space-1/sources"[39m
+                  [36m>[39m
+                    [36m<svg[39m
+                      [33maria-hidden[39m=[32m"true"[39m
+                      [33mclass[39m=[32m"lucide lucide-database"[39m
+                      [33mfill[39m=[32m"none"[39m
+                      [33mheight[39m=[32m"16"[39m
+                      [33mstroke[39m=[32m"currentColor"[39m
+                      [33mstroke-linecap[39m=[32m"round"[39m
+                      [33mstroke-linejoin[39m=[32m"round"[39m
+                 ...
+
+- Expected:
+<li
+  aria-selected="true"
+  class="relative"
+  data-testid="content-item-page-2"
+  role="treeitem"
+>
+  <div
+    class="group flex items-center gap-1 rounded-md py-1 pr-1 text-sm transition bg-blue-50 font-medium text-blue-700"
+    data-testid="content-row-page-2"
+    draggable="false"
+  >
+    <span
+      class="inline-flex h-5 w-5 shrink-0 items-center justify-center"
+    >
+      <svg
+        aria-hidden="true"
+        class="lucide lucide-file-text text-gray-400"
+        fill="none"
+        height="14"
+        stroke="currentColor"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        viewBox="0 0 24 24"
+        width="14"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+        />
+        <path
+          d="M14 2v5a1 1 0 0 0 1 1h5"
+        />
+        <path
+          d="M10 9H8"
+        />
+        <path
+          d="M16 13H8"
+        />
+        <path
+          d="M16 17H8"
+        />
+      </svg>
+    </span>
+    <button
+      class="min-h-8 min-w-0 flex-1 truncate rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      data-testid="content-node-page-2"
+      data-tree-focus="true"
+      title="page-2"
+      type="button"
+    >
+      page-2
+    </button>
+  </div>
+</li>
+
++ Received:
+undefined
+
+ ❯ src/features/space-workspace/SpaceWorkspace.spec.tsx:338:58
+    336|         await act(async () => { finishPage!(); });
+    337|         await screen.findByTestId(`content-item-${destination}`);
+    338|         await waitFor(() => expect(pageReveals().at(-1)).toBe(screen.g…
+       |                                                          ^
+    339|         const scroller = screen.getByTestId('space-directory-scroll');
+    340|         scroller.scrollTop = 650;
+ ❯ runWithExpensiveErrorDiagnosticsDisabled ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:47:12
+ ❯ checkCallback ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:124:77
+ ❯ Timeout.checkRealTimersCallback ../../node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:118:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 15 skipped (16)
+   Start at  19:13:15
+   Duration  1.80s (transform 269ms, setup 62ms, import 449ms, tests 1.11s, environment 117ms)
+
+undefined
+/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/apps/client:
+[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 1: vitest run src/features/space-workspace/SpaceWorkspace.spec.tsx -t 'retains page reveal'

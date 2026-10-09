@@ -52,11 +52,14 @@ describe('PushSessionService graph lifecycle', () => {
       undefined,
       graph,
     );
+    const warning = jest.spyOn((service as any).logger, 'warn').mockImplementation(() => {});
 
     await expect((service as any).refreshGraphAfterFinalize('space-1', 'change-set-1'))
       .resolves.toBeUndefined();
 
     expect(graph.enqueue).toHaveBeenCalledWith('space-1');
+    expect(warning).toHaveBeenCalledWith('post-finalize graph indexing failed: database offline');
+    warning.mockRestore();
   });
 
   it('bounds post-finalize indexing concurrency for large pushes', async () => {
@@ -162,7 +165,7 @@ describe('PushSessionService graph lifecycle', () => {
   it('captures a reversible update snapshot including slug without replacing the original source', async () => {
     const current = {
       id: 'page-1', knowledgeKey: 'knowledge-1', spaceId: 'space-1',
-      title: 'Before', slug: 'before-slug', content: '# Before', format: 'markdown',
+      sourceGeneration: 7, title: 'Before', slug: 'before-slug', content: '# Before', format: 'markdown',
       authorId: 'author-1', parentId: null, folderId: 'folder-old',
       syncPath: 'pages/Old/Before.md', syncPathKey: 'pages/old/before.md',
       sourceChangeSetId: 'original-change-set', lastChangeSetId: 'previous-change-set',
@@ -194,11 +197,11 @@ describe('PushSessionService graph lifecycle', () => {
     }], 'change-set-1');
 
     expect(tx.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ lastChangeSetId: 'change-set-1' }),
+      data: expect.objectContaining({ lastChangeSetId: 'change-set-1', sourceGeneration: null }),
     }));
     expect(tx.page.updateMany.mock.calls[0][0].data).not.toHaveProperty('sourceChangeSetId');
     expect(result.applied[0].payload.before).toEqual(expect.objectContaining({
-      slug: 'before-slug',
+      slug: 'before-slug', sourceGeneration: 7,
       folderId: 'folder-old',
       syncPath: 'pages/Old/Before.md',
       deletedAt: null,
@@ -1015,12 +1018,17 @@ describe('PushSessionService Sync Protocol v2', () => {
       }) },
       $transaction: jest.fn((callback: any) => callback(tx)),
     };
+    prisma.changeItem = { findMany: jest.fn().mockResolvedValue([]) };
     const service: any = new (PushSessionService as any)(prisma, {}, contentTree, {}, undefined, undefined);
+    const warning = jest.spyOn(service.logger, 'warn');
     (session as any).capabilitiesHash = await service.capabilityHashV2();
 
     await expect(service.finalizeV2(principal, 'space-1', session.id, {
       protocolVersion: '2', confirmationHash: confirmation, userConfirmed: true,
     })).resolves.toEqual(published);
+    expect(prisma.changeItem.findMany).toHaveBeenCalled();
+    expect(warning).not.toHaveBeenCalled();
+    warning.mockRestore();
 
     expect(prisma.pushSession.findUnique).toHaveBeenCalledWith({
       where: { id: session.id }, select: { spaceId: true, protocolVersion: true },

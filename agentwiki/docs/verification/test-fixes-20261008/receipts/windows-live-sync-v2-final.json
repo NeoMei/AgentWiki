@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "threadId": "01a0f8b8-b64c-7c80-9114-789d6f72dfc8",
+  "turnId": "01a11ccb-30d6-76f0-bf8c-82a9918c830a",
+  "status": "failed",
+  "records": [
+    {
+      "type": "commandExecution",
+      "id": "exec-d61c2358-31f8-4567-83df-55f0dfba0a1f",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1238,
+      "output": {
+        "text": "remote_utf8_bytes=51\r\nlocal_file_bytes=51\r\nexact_utf8_bytes_equal=True\r\nremote_sha256=f049c7fa76a1a1a0b2a5966b7ff89884b98f28700c2ab5c2b29737fb9195ff0f\r\nlocal_file_sha256=f049c7fa76a1a1a0b2a5966b7ff89884b98f28700c2ab5c2b29737fb9195ff0f\r\nlocal_tail_hex=BAE7BABF20323032362D31302D30390A\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-39103d4f-51a3-484a-ae16-779c936722eb",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 2713,
+      "output": {
+        "text": "local_f=True\r\nlocal_c=True\r\nlocal_new=True\r\nlocal_keep=True\r\nExecuted: agentwiki-sync:open-sync-center\n=> true\n新标签页 - vault - Obsidian 1.13.7 \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nvault侧边栏为空，请尝试拖动一个标签页到此处。文件列表搜索书签验收FKeep新标签页新标签页创建新文件 (Ctrl + N)打开文件 (Ctrl + O)关闭标签页侧边栏为空，请尝试拖动一个标签页到此处。反向链接出链标签添加笔记属性大纲AgentWikiAgentWiki 同步同步空间Windows Sync QA 1ea86e9d2354 · 验收/Windows · 所有者cmuzvs71f025kjakf2wopuz5b · 验收/Windows协议：Sync v2本地与服务器已同步，无需操作。扫描 0本地变更本地没有未推送的变更。服务器变更服务器没有新的变更。自动合并会同步本地删除，冲突可逐项选择；使用本地内容在冲突处保留本地。Sync v2 使用服务器内容会恢复本地删除并覆盖本地修改，执行前请检查预览。 / Auto merge includes local deletions; resolve conflicts in preview. Use local keeps local conflict values. In Sync v2, use server restores deleted files and replaces local changes; review before confirming.自动合并（推荐）使用本地内容使用服务器内容刷新差异\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-bb154756-5d20-49b4-8b22-c9b235eb2dc0",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1382,
+      "output": {
+        "text": "local_paths=Keep.md,Roundtrip.md,F/C/New.md,Recovered/C/New.md\r\nlocal_m_exists=False\r\nlocal_recovered_exists=True\r\nkeep_sha256=2388e9f45f7ff9ae05cb7816bcfc043c8d277cacc8be0013e84908fd2e5acba8\r\nremote_top_revision=9\r\nremote_top_paths=pages/F,pages/Recovered,pages/Keep.md,pages/Roundtrip.md\r\nremote_recovered_children=pages/Recovered/C\r\n",
+        "truncated": false
+      }
+    },
+    {
+      "type": "commandExecution",
+      "id": "exec-86364439-db4f-48e0-ae25-377a1167825d",
+      "cwd": "D:\\MyDocuments\\codexprojects\\codexconfig",
+      "status": "completed",
+      "exitCode": 0,
+      "durationMs": 1379,
+      "output": {
+        "text": "remote_recovered_c_children=pages/Recovered/C/New.md\r\n",
+        "truncated": false
+      }
+    }
+  ],
+  "sourceFile": "agentwiki-windows-stage1-final-sanitized.json",
+  "sourceFileSha256": "d6f62697149ae65cfc6157b30f1f6790833f2a235f396994dae41258976cb684",
+  "sanitization": "Input was already selected and sanitized by root. Unrelated daily Vault display name replaced; command outputs otherwise retained. No commands or agent assertions added."
+}

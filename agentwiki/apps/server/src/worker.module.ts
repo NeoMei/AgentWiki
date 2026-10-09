@@ -1,7 +1,9 @@
+import { SourceFreshnessModule } from './core/source-freshness/source-freshness.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { DatabaseModule } from './database/database.module';
 import { IngestQueue } from './knowledge-pipeline/ingest.queue';
+import { AssistSessionService } from './assist/assist-session.service';
 import { AssistQueue } from './assist/assist.queue';
 import { RedisModelHealthStore } from './assist/model-health.store';
 import { OpencodeModelCatalog } from './assist/opencode.catalog';
@@ -25,7 +27,7 @@ import { PageResultService } from './collaboration-workflows/page-result.service
 import { TemplateEffectsService } from './page-templates/template-effects.service';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), DatabaseModule, SearchCoreModule, CollaborationModule, SyncModule, KnowledgeGraphModule, AttachmentStorageModule],
+  imports: [SourceFreshnessModule, ConfigModule.forRoot({ isGlobal: true }), DatabaseModule, SearchCoreModule, CollaborationModule, SyncModule, KnowledgeGraphModule, AttachmentStorageModule],
   providers: [
     ContentTreeService,
     PagePublicationService,
@@ -34,6 +36,7 @@ import { TemplateEffectsService } from './page-templates/template-effects.servic
     SourceService,
     IngestQueue,
     AssistQueue,
+    AssistSessionService,
     OpencodeCliRunner,
     {
       provide: OpencodeModelCatalog,

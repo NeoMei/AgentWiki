@@ -1,0 +1,40 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "公式 "
+        },
+        {
+          "type": "inlineMath",
+          "attrs": {
+            "latex": "E = mc^2"
+          }
+        },
+        {
+          "type": "text",
+          "text": " 与 "
+        },
+        {
+          "type": "inlineMath",
+          "attrs": {
+            "latex": "\\alpha + \\beta"
+          }
+        },
+        {
+          "type": "text",
+          "text": "。"
+        }
+      ]
+    },
+    {
+      "type": "blockMath",
+      "attrs": {
+        "latex": "\\sum_{i=1}^{n} x_i = X"
+      }
+    }
+  ]
+}

@@ -24,7 +24,9 @@ export function resolvePackageManagerInvocation(manager, args, {
   fileExists = existsSync,
   platform = process.platform,
 } = {}) {
-  if (platform !== 'win32') return { executable: manager, args };
+  if (platform !== 'win32' || !Object.hasOwn(WINDOWS_ENTRYPOINTS, manager)) {
+    return { executable: manager, args };
+  }
   const configured = env.npm_execpath;
   const candidates = [
     ...(configured

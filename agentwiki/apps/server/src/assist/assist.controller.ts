@@ -42,13 +42,14 @@ export class AssistController {
     @Body() body: CreateAssistTaskDto,
     @Req() req: Request,
   ) {
+    const userId = this.requesterId(req);
     await this.authorization.assertSpaceAccess(req.user as any, body.spaceId, ['owner', 'editor'], 'pages:write');
     const task = await this.assist.createTask({
       spaceId: body.spaceId,
       pageId: body.pageId,
       intent: body.intent,
       snapshot: body.snapshot,
-      userId: (req.user as any).userId,
+      userId,
     });
     this.queue.enqueue();
     return task;
@@ -57,14 +58,27 @@ export class AssistController {
   @Get('tasks')
   async listTasks(@Query('pageId') pageId: string, @Req() req: Request) {
     if (!pageId) throw new BadRequestException('pageId is required');
-    await this.authorization.assertPageAccess(req.user as any, pageId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
-    return this.assist.listForPage(pageId);
+    const userId = this.requesterId(req);
+    const page = await this.authorization.assertPageAccess(req.user as any, pageId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
+    return this.assist.listForPage(pageId, userId, page.spaceId);
   }
 
   @Get('tasks/:id')
   async getTask(@Param('id') id: string, @Req() req: Request) {
-    const task = await this.assist.get(id);
-    if (task) await this.authorization.assertSpaceAccess(req.user as any, task.spaceId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
+    const task = await this.assist.get(id, this.requesterId(req));
+    if (task) {
+      await this.authorization.assertSpaceAccess(req.user as any, task.spaceId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
+      if (task.pageId) {
+        const page = await this.authorization.assertPageAccess(req.user as any, task.pageId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
+        if (page.spaceId !== task.spaceId) throw new BadRequestException('Assist page must belong to the selected Space');
+      }
+    }
     return task;
+  }
+
+  private requesterId(req: Request): string {
+    const userId = (req.user as any)?.userId;
+    if (typeof userId !== 'string' || !userId) throw new BadRequestException('Assist requester is required');
+    return userId;
   }
 }

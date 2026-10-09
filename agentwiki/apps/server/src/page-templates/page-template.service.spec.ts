@@ -1,4 +1,8 @@
 import { Prisma } from '@prisma/client';
+import { ConfigService } from '@nestjs/config';
+import { AuthorizationService } from '../core/authorization/authorization.service';
+import { CompositeTemplateController } from './composite-template.controller';
+import { CompositeTemplateCatalogService } from './composite-template-catalog.service';
 import type { Principal } from '../core/authorization/authorization.service';
 import { BusinessException } from '../core/filters/business-error';
 import { BUILT_IN_PAGE_TEMPLATES } from './page-template-definitions';
@@ -205,6 +209,36 @@ describe('PageTemplateService', () => {
     await service.seedBuiltIns();
     expect(pageTemplateVersion.create).not.toHaveBeenCalled();
     expect(pageTemplate.updateMany).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['owner', true, true], ['admin', true, true], ['editor', true, false], ['viewer', true, false],
+    ['owner', false, false], ['admin', false, false], ['editor', false, false], ['viewer', false, false],
+  ] as const)('matches real definition-management route authority for %s, allowlisted=%s', async (role, allowed, expected) => {
+    const created = spaceTemplate({ currentVersion: 1 });
+    prisma.$queryRaw.mockResolvedValue([{ id: principal.userId }]);
+    prisma.user = { findUnique: jest.fn().mockResolvedValue({ id: principal.userId, type: 'human', platformRole: 'user', deletedAt: null, lockedAt: null }) };
+    prisma.space = { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) };
+    prisma.spaceMember = { findUnique: jest.fn().mockResolvedValue({ role }) };
+    pageTemplate.findUnique.mockImplementation(async ({ where }: any) => where.id === 'template-1' ? created : null);
+    pageTemplate.create.mockResolvedValue(created);
+    pageTemplateVersion.findUnique.mockResolvedValue({ templateId: 'template-1', version: 1, contentI18n: { en: '' },
+      sourcePageId: null, definition: compositeDefinition, definitionHash: hashCompositeDefinition(compositeDefinition) });
+    const policy = new TemplateFeaturePolicy({ get: () => allowed ? 'space-1' : '' } as unknown as ConfigService);
+    const liveAuthorization = new AuthorizationService(prisma);
+    const pageTemplates = new PageTemplateService(prisma, liveAuthorization, config, revisionWriter, policy);
+    const catalog = new CompositeTemplateCatalogService(prisma, liveAuthorization, pageTemplates, policy);
+    const controller = new CompositeTemplateController(catalog, {} as any, {} as any, {} as any,
+      {} as any, {} as any, {} as any, policy);
+    const operation = Promise.resolve().then(() => controller.createTemplate({ user: principal } as any, 'space-1', {
+      name: 'Route template', category: 'planning', defaultTitle: 'Page', locale: 'en', definition: compositeDefinition,
+    }));
+    if (expected) await expect(operation).resolves.toMatchObject({ id: 'template-1', definition: compositeDefinition });
+    else {
+      await expect(operation).rejects.toMatchObject({ businessCode: allowed ? 'PAGE_TEMPLATE_PERMISSION_DENIED' : 'COMPOSITE_TEMPLATE_FEATURE_DISABLED' });
+      expect(pageTemplate.create).not.toHaveBeenCalled();
+    }
+    expect(policy.capabilities('space-1', role).canManageDefinitions).toBe(expected);
   });
 
   it('creates a composite Space template through the existing locked management path', async () => {

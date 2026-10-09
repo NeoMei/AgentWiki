@@ -10,7 +10,7 @@ import * as collaborationDatabase from './collaboration-test-database.mjs';
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
 const baseDatabaseUrl = process.env.COLLABORATION_TEST_DATABASE_URL;
-const REVIEWED_MIGRATION_TREE_SHA256 = '4fa1e4a38a70ea63e2e7c62d24913edfb3f9fa499bb98d43463bc639acd11767';
+const REVIEWED_MIGRATION_TREE_SHA256 = '27e1fba987e09b55b599433ca7b875c1567234152c74886e003954b723dbe57e';
 
 test('dedicated collaboration database URLs fail closed', () => {
   assert.throws(() => validateCollaborationTestDatabaseUrl(undefined), /required/i);

@@ -170,7 +170,7 @@ const newAuthenticatedPage = async (browser: Browser, account: AuthAccount) => {
 };
 
 const findMarkdownRoot = (scope: Page | Locator) => scope.locator('.katex').first().locator(
-  'xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " prose-sm ")][1]',
+  'xpath=ancestor::div[@data-markdown-selection-root][1]',
 );
 
 const expectRichRendering = async (scope: Page | Locator) => {

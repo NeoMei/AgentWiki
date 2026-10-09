@@ -269,6 +269,7 @@ export async function migratePages(tx, spaceId, batchId) {
       data: {
         content: normalizedBody,
         format: 'markdown',
+        ...(page.content !== normalizedBody || page.format !== 'markdown' ? { sourceGeneration: null } : {}),
         syncPath: derived.path,
         syncPathKey: derived.key,
       },

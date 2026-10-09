@@ -1,3 +1,4 @@
+const freshnessMock: any = { projectPages: async (rows: any[]) => rows, projectChangeSets: async (rows: any[]) => rows, forPages: async () => new Map(), projectEvidence: async (rows: any[]) => new Map(rows.map(row => [row.id, row])) };
 import { INestApplication } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
@@ -34,7 +35,7 @@ describe('ReviewController stale action errors', () => {
       }),
     },
   } as any;
-  const review = new ReviewService(prisma, {} as any, {} as any, {} as any);
+  const review = new ReviewService(freshnessMock, prisma, {} as any, {} as any, {} as any);
   const authorization = { assertChangeSetAccess: jest.fn().mockResolvedValue(undefined) };
 
   beforeAll(async () => {

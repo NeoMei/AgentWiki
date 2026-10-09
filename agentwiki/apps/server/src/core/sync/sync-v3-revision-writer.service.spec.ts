@@ -1,3 +1,4 @@
+const freshnessMock: any = { projectPages: async (rows: any[]) => rows, projectChangeSets: async (rows: any[]) => rows, forPages: async () => new Map(), projectEvidence: async (rows: any[]) => new Map(rows.map(row => [row.id, row])) };
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -1055,7 +1056,7 @@ describe('SyncV3RevisionWriterService PostgreSQL integration', () => {
       const syncPaths = new ReadableSyncPathService();
       const authorization = new AuthorizationService(prisma as any);
       const contentTree = new ContentTreeService(prisma as any, writer, syncPaths);
-      const pages = new PageService(
+      const pages = new PageService(freshnessMock,
         prisma as any,
         search as any,
         writer,

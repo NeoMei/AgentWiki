@@ -1,4 +1,7 @@
 import { expect, test } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+
+const localSyncPackage = JSON.parse(readFileSync(new URL('../../../packages/local-sync/package.json', import.meta.url), 'utf8')) as { name: string; version: string };
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -14,20 +17,26 @@ test('public Agent onboarding guide copies the executable prompt and switches la
   await page.goto('/onboard');
 
   await expect(page).toHaveURL(/\/guide\/agent-onboard$/);
-  await expect(page.getByRole('heading', { level: 1, name: '让本地 Agent 帮你完成接入' })).toBeVisible();
-  await expect(page.locator('pre')).toContainText('@neomei/agentwiki-local-sync@0.7.0');
-  await expect(page.locator('pre')).toContainText('--protocol ndjson');
+  await expect(page.getByRole('heading', { level: 1, name: '连接你的 Agent' })).toBeVisible();
+  await page.locator('summary').filter({ hasText: '查看完整提示词' }).click();
+  await expect(page.locator('pre')).toBeVisible();
+  await expect(page.locator('pre')).toContainText(`${localSyncPackage.name}@${localSyncPackage.version}`);
+  await expect(page.locator('pre')).toContainText('onboard start --server');
+  await expect(page.locator('pre')).toContainText('--client codex --protocol json');
+  const displayedPrompt = await page.locator('pre').innerText();
 
   await page.getByRole('button', { name: '复制提示词' }).click();
-  await expect(page.getByRole('button', { name: '已复制提示词' })).toBeVisible();
+  await expect(page.getByRole('status')).toHaveText('已复制，粘贴到所选客户端即可开始。');
   const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
-  expect(clipboardText).toContain('请帮我完成 AgentWiki 自助接入。');
-  expect(clipboardText).toMatch(/--protocol ndjson$/);
+  expect(clipboardText).toBe(displayedPrompt);
+  expect(clipboardText).toContain('请帮我完成 AgentWiki 接入，并在当前客户端实际读取一篇已知页面来验证。');
+  expect(clipboardText).toContain(`--server '${new URL(page.url()).origin}/api' --client codex --protocol json`);
+  expect(clipboardText).toContain('onboard continue --session <sessionId> --reply-file <absolute-json-file> --protocol json');
 
   await page.getByRole('button', { name: '切换语言' }).click();
   await expect(page.getByRole('heading', {
     level: 1,
-    name: 'Let your local Agent handle onboarding',
+    name: 'Connect your Agent',
   })).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
 });

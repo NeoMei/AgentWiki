@@ -40,7 +40,9 @@ type PendingDialog =
   | { type: 'version'; template: PageTemplateSummary }
   | null;
 
-const EMPTY_TEMPLATES: PageTemplateListResponse = {
+type ManagementCatalog = Omit<PageTemplateListResponse, 'capabilities'> & { capabilities: { canManage: boolean; canManageDefinitions?: boolean } };
+
+const EMPTY_TEMPLATES: ManagementCatalog = {
   system: [],
   space: [],
   totalSpace: 0,
@@ -70,7 +72,7 @@ export const PageTemplateManager: React.FC = () => {
   const [kind, setKind] = useState<'' | 'single_page' | 'page_group'>('');
   const [scope, setScope] = useState<'all' | 'system' | 'space'>('all');
   const [showArchived, setShowArchived] = useState(false);
-  const [templates, setTemplatesState] = useState<PageTemplateListResponse>(EMPTY_TEMPLATES);
+  const [templates, setTemplatesState] = useState<ManagementCatalog>(EMPTY_TEMPLATES);
   const [templatesIdentity, setTemplatesIdentity] = useState<string | null>(null);
   const [rolloutDisabledIdentity, setRolloutDisabledIdentity] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -110,6 +112,9 @@ export const PageTemplateManager: React.FC = () => {
   const identityRef = useRef(identity);
   identityRef.current = identity;
   const visibleTemplates = templatesIdentity === identity ? templates : EMPTY_TEMPLATES;
+
+  const canMutateTemplate = (template: PageTemplateSummary) => visibleTemplates.capabilities.canManage
+    && (!usesDefinitionStorage(template) || visibleTemplates.capabilities.canManageDefinitions === true);
 
   const invalidateCatalog = useCallback(() => {
     compositeDialogEpochRef.current += 1;
@@ -151,7 +156,7 @@ export const PageTemplateManager: React.FC = () => {
       }
       const authoritativeDisabled = unified?.capabilities.canCreate === false;
       const usingUnified = unified?.capabilities.canCreate === true;
-      let result: PageTemplateListResponse;
+      let result: ManagementCatalog;
       let batchCount: number;
       if (usingUnified && unified) {
         const data = unified.data as ManagedTemplate[];
@@ -159,7 +164,7 @@ export const PageTemplateManager: React.FC = () => {
           system: data.filter((item) => item.scope === 'system') as PageTemplateSummary[],
           space: data.filter((item) => item.scope === 'space') as PageTemplateSummary[],
           totalSpace: unified.total, skip: unified.skip, take: unified.take,
-          capabilities: unified.capabilities,
+          capabilities: { canManage: unified.capabilities.canManage === true, canManageDefinitions: unified.capabilities.canManageDefinitions === true },
         };
         batchCount = data.length;
       } else {
@@ -168,7 +173,7 @@ export const PageTemplateManager: React.FC = () => {
       }
       if (requestId !== requestIdRef.current || requestIdentity !== identityRef.current) return;
       setRolloutDisabledIdentity(authoritativeDisabled ? requestIdentity : null);
-      let next: PageTemplateListResponse;
+      let next: ManagementCatalog;
       if (reset) {
         next = result;
       } else {
@@ -182,7 +187,7 @@ export const PageTemplateManager: React.FC = () => {
               system: data.filter((item) => item.scope === 'system') as PageTemplateSummary[],
               space: data.filter((item) => item.scope === 'space') as PageTemplateSummary[],
               totalSpace: refreshed.total, skip: refreshed.skip, take: refreshed.take,
-              capabilities: refreshed.capabilities,
+              capabilities: { canManage: refreshed.capabilities.canManage === true, canManageDefinitions: refreshed.capabilities.canManageDefinitions === true },
             };
             batchCount = data.length;
           } else {
@@ -265,8 +270,8 @@ export const PageTemplateManager: React.FC = () => {
   }, [load]);
 
   useEffect(() => {
-    if (!visibleTemplates.capabilities.canManage) setPendingDialog(null);
-  }, [visibleTemplates.capabilities.canManage]);
+    if (pendingDialog && !canMutateTemplate(pendingDialog.template)) setPendingDialog(null);
+  }, [visibleTemplates.capabilities.canManage, visibleTemplates.capabilities.canManageDefinitions, pendingDialog]);
 
   useEffect(() => {
     if (pendingDialog?.type !== 'version' || !id || sourceDialogSpaceIdRef.current !== id) return;
@@ -286,7 +291,7 @@ export const PageTemplateManager: React.FC = () => {
 
   const openMetadata = (template: PageTemplateSummary) => {
     const operationKey = `${id ?? ''}\u0000${template.id}`;
-    if (!visibleTemplates.capabilities.canManage || archiveOperationRef.current.has(operationKey)) return;
+    if (!canMutateTemplate(template) || archiveOperationRef.current.has(operationKey)) return;
     setMetadataName(truncateValidatorLength(template.name, TEMPLATE_NAME_LIMIT));
     setMetadataDescription(truncateValidatorLength(template.description, TEMPLATE_DESCRIPTION_LIMIT));
     setMetadataCategory(template.category);
@@ -302,7 +307,7 @@ export const PageTemplateManager: React.FC = () => {
 
   const openVersion = (template: PageTemplateSummary) => {
     const operationKey = `${id ?? ''}\u0000${template.id}`;
-    if (!visibleTemplates.capabilities.canManage || archiveOperationRef.current.has(operationKey)) return;
+    if (!canMutateTemplate(template) || archiveOperationRef.current.has(operationKey)) return;
     if (usesDefinitionStorage(template)) {
       const operationSpaceId = id ?? '';
       const operationKey = `${operationSpaceId}\u0000${template.id}`;
@@ -352,7 +357,7 @@ export const PageTemplateManager: React.FC = () => {
 
   const submitMetadata = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!id || pendingDialog?.type !== 'metadata' || submitting || !visibleTemplates.capabilities.canManage) return;
+    if (!id || pendingDialog?.type !== 'metadata' || submitting || !canMutateTemplate(pendingDialog.template)) return;
     const operationIdentity = identityRef.current;
     const operationSpaceId = id;
     const template = pendingDialog.template;
@@ -389,7 +394,7 @@ export const PageTemplateManager: React.FC = () => {
 
   const submitVersion = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!id || pendingDialog?.type !== 'version' || submitting || !visibleTemplates.capabilities.canManage) return;
+    if (!id || pendingDialog?.type !== 'version' || submitting || !canMutateTemplate(pendingDialog.template)) return;
     if (usesDefinitionStorage(pendingDialog.template)) {
       if (!compositeDetail || !compositeDraft || definitionReferenceIssues(compositeDraft).length) return;
       const operationSpaceId = id;
@@ -556,7 +561,7 @@ export const PageTemplateManager: React.FC = () => {
   };
 
   const changeArchiveState = async (template: PageTemplateSummary, restore: boolean) => {
-    if (!id || !visibleTemplates.capabilities.canManage) return;
+    if (!id || !canMutateTemplate(template)) return;
     const operationKey = `${id}\u0000${template.id}`;
     if (archiveOperationRef.current.has(operationKey)
       || !window.confirm(`${t(restore ? 'pageTemplate.restore' : 'pageTemplate.archive')} ${template.name}?`)) return;
@@ -602,7 +607,7 @@ export const PageTemplateManager: React.FC = () => {
             {t(`pageTemplate.scope.${template.scope}`)} · {t(`pageTemplate.category.${template.category}`)} · v{template.currentVersion}
           </p>
         </div>
-        {mutable && visibleTemplates.capabilities.canManage ? (
+        {mutable && canMutateTemplate(template) ? (
           <div className="flex w-full min-w-0 flex-wrap gap-2 sm:w-auto">
             {!template.archivedAt ? (
               <>
@@ -639,6 +644,8 @@ export const PageTemplateManager: React.FC = () => {
       <h1 className="mt-3 text-2xl font-semibold">{t('pageTemplate.settingsTitle')}</h1>
       <p className="mt-1 text-sm text-gray-500">{t('pageTemplate.settingsDescription')}</p>
 
+      {visibleTemplates.space.some((template) => usesDefinitionStorage(template))
+        && visibleTemplates.capabilities.canManageDefinitions !== true ? <p role="status" className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{t('pageTemplate.composite.manageUnavailable')}</p> : null}
       {rolloutDisabledIdentity === identity ? <p role="status" className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
         {t('pageTemplate.composite.managerFallback')}
       </p> : null}
@@ -735,7 +742,7 @@ export const PageTemplateManager: React.FC = () => {
         ) : null}
       </section>
 
-      {visibleTemplates.capabilities.canManage && pendingDialog?.type === 'metadata' ? (
+      {pendingDialog?.type === 'metadata' && canMutateTemplate(pendingDialog.template) ? (
         <ModalDialog labelledBy="metadata-dialog-title" onRequestClose={closeDialog} closeDisabled={submitting || conflictReloading} fallbackFocusRef={fallbackFocusRef} className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-[14px] bg-white p-5">
           <div className="flex items-start justify-between gap-3">
             <h2 id="metadata-dialog-title" className="min-w-0 break-all text-xl font-semibold [overflow-wrap:anywhere]">{t('common.edit')} {pendingDialog.template.name}</h2>
@@ -770,7 +777,7 @@ export const PageTemplateManager: React.FC = () => {
         </ModalDialog>
       ) : null}
 
-      {visibleTemplates.capabilities.canManage && pendingDialog?.type === 'version' ? (
+      {pendingDialog?.type === 'version' && canMutateTemplate(pendingDialog.template) ? (
         <ModalDialog labelledBy="version-dialog-title" onRequestClose={closeDialog} closeDisabled={submitting || conflictReloading} fallbackFocusRef={fallbackFocusRef} className={`max-h-[calc(100vh-2rem)] w-full overflow-y-auto rounded-[14px] bg-white p-5 ${usesDefinitionStorage(pendingDialog.template) ? 'max-w-5xl' : 'max-w-lg'}`}>
           <div className="flex items-start justify-between gap-3">
             <h2 id="version-dialog-title" className="min-w-0 break-all text-xl font-semibold [overflow-wrap:anywhere]">{usesDefinitionStorage(pendingDialog.template) ? t('pageTemplate.composite.definition') : t('pageTemplate.updateFromPage')} {pendingDialog.template.name}</h2>

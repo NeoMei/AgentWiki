@@ -41,6 +41,7 @@ export const CollaborationWorkspace: React.FC = () => {
   const [canManage, setCanManage] = useState(false);
   const [canStart, setCanStart] = useState(false);
   const [canCreateComposite, setCanCreateComposite] = useState(false);
+  const [canManageCompositeDefinitions, setCanManageCompositeDefinitions] = useState(false);
   const [copySource, setCopySource] = useState<TemplateSummary | null>(null);
   const [copyName, setCopyName] = useState('');
   const [upgradeSource, setUpgradeSource] = useState<{ template: TemplateSummary; trigger: HTMLElement } | null>(null);
@@ -71,6 +72,7 @@ export const CollaborationWorkspace: React.FC = () => {
       setCanManage(myRole === 'owner' || myRole === 'admin');
       setCanStart(myRole === 'owner' || myRole === 'admin' || myRole === 'editor');
       setCanCreateComposite(compositeCatalog?.capabilities.canCreate === true);
+      setCanManageCompositeDefinitions(compositeCatalog?.capabilities.canManageDefinitions === true);
       setState('ready');
     } catch (error) {
       if (!isCurrentWorkspaceRequest(spaceId, tab, epoch)) return;
@@ -129,6 +131,7 @@ export const CollaborationWorkspace: React.FC = () => {
     setCanManage(false);
     setCanStart(false);
     setCanCreateComposite(false);
+    setCanManageCompositeDefinitions(false);
     setCopySource(null);
     setCopyName('');
     setUpgradeSource(null);
@@ -254,7 +257,7 @@ export const CollaborationWorkspace: React.FC = () => {
                     labels={labels}
                     onCopy={openCopy}
                     onArchive={(item) => void archiveTemplate(item)}
-                    onUpgrade={canCreateComposite
+                    onUpgrade={canManageCompositeDefinitions
                       ? (template, trigger) => setUpgradeSource({ template, trigger })
                       : undefined}
                   />
@@ -295,7 +298,7 @@ export const CollaborationWorkspace: React.FC = () => {
           </div>
         </ModalDialog>
       ) : null}
-      {upgradeSource ? <UpgradeWorkflowTemplateDialog
+      {upgradeSource && canManageCompositeDefinitions ? <UpgradeWorkflowTemplateDialog
         spaceId={id} legacyTemplate={upgradeSource.template} returnFocusTo={upgradeSource.trigger}
         onClose={() => setUpgradeSource(null)}
         onUpgraded={(template) => setToast({ kind: 'success', message: t('collaboration.upgradeSuccess', { version: template.resultVersion }) })}

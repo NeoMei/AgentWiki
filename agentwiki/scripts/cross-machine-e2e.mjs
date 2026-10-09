@@ -42,23 +42,24 @@ function wikiPage(spaceId, pageId, title, body) {
   };
 }
 
-function bundle(spaceId, baseRevision, pages, memories = [], relations = [], deletions = []) {
+function bundle(spaceId, baseRevision, pages, relations = [], deletions = []) {
   return {
     schemaVersion: 'knowledge-bundle@1',
     recipeVersion: 'code-wiki@1',
     spaceId,
     baseRevision,
     pages,
-    memories,
+    memories: [],
     relations,
     provenance: [],
     deletions,
   };
 }
 
-async function waitForPendingChangeSet(apiUrl, token, spaceId, agentId, seenIds) {
+async function waitForPendingChangeSet(apiUrl, token, spaceId, agentId, seenIds, checkPushFailure) {
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
+    checkPushFailure();
     const changes = await request(apiUrl, `/review?spaceId=${encodeURIComponent(spaceId)}`, { token });
     const pending = changes.find((change) => (
       change.status === 'pending_review'
@@ -68,12 +69,18 @@ async function waitForPendingChangeSet(apiUrl, token, spaceId, agentId, seenIds)
     if (pending) return pending;
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
   }
+  checkPushFailure();
   throw new Error('Timed out waiting for the cross-machine knowledge ChangeSet');
 }
 
 async function pushAndPublish(engine, proposedBundle, apiUrl, token, spaceId, agentId, seenIds) {
   const pushPromise = engine.push(proposedBundle);
-  const changeSet = await waitForPendingChangeSet(apiUrl, token, spaceId, agentId, seenIds);
+  // Observe rejection while waiting for review, so failed pushes still reach fixture cleanup.
+  let pushFailure;
+  void pushPromise.catch((error) => { pushFailure = error; });
+  const changeSet = await waitForPendingChangeSet(apiUrl, token, spaceId, agentId, seenIds, () => {
+    if (pushFailure) throw pushFailure;
+  });
   seenIds.add(changeSet.id);
   for (const item of changeSet.items) {
     await request(apiUrl, `/change-sets/${changeSet.id}/items/${item.id}`, {
@@ -148,10 +155,6 @@ export async function runCrossMachineE2E(environment = process.env) {
     assert.equal(firstPull.revisionId, '0');
     const pageA = wikiPage(space.id, `machine-a-${suffix}`, 'Machine A Page', '# Machine A\n\nCreated on machine A.');
     const anchorPage = wikiPage(space.id, `anchor-${suffix}`, 'Shared Anchor', '# Shared Anchor\n\nRelation target.');
-    const sharedMemory = {
-      memoryId: `memory-${suffix}`, spaceId: space.id, key: 'shared-fact', value: 'A cross-machine shared memory.', scope: 'space',
-      artifactIds: [], contentHash: contentHash('A cross-machine shared memory.'), updatedAt: new Date().toISOString(),
-    };
     const sharedRelation = {
       relationId: `relation-${suffix}`, spaceId: space.id, sourceId: pageA.pageId, targetId: anchorPage.pageId,
       relationType: 'supports', artifactIds: [],
@@ -161,13 +164,13 @@ export async function runCrossMachineE2E(environment = process.env) {
     await writeFile(join(pathsA.pagesDir, `${anchorPage.pageId}.md`), anchorPage.body, 'utf8');
     const firstPush = await pushAndPublish(
       machineA,
-      bundle(space.id, firstPull.revisionId, [pageA, anchorPage], [sharedMemory], [sharedRelation]),
+      bundle(space.id, firstPull.revisionId, [pageA, anchorPage], [sharedRelation]),
       apiUrl, token, space.id, agent.id, seenChangeSets,
     );
 
     const pullB = await machineB.pull();
     assert.equal(pullB.updated, true);
-    assert.equal(pullB.memoryCount, 1);
+    assert.equal(pullB.memoryCount, 0, 'document synchronization must not introduce removed Agent memory');
     assert.equal(pullB.relationCount, 1);
     assert.match(await readFile(join(workspacePaths(homeB, space.id).pagesDir, `${pageA.pageId}.md`), 'utf8'), /machine A/i);
 
@@ -175,7 +178,7 @@ export async function runCrossMachineE2E(environment = process.env) {
     await writeFile(join(workspacePaths(homeB, space.id).pagesDir, `${pageB.pageId}.md`), pageB.body, 'utf8');
     const secondPush = await pushAndPublish(
       machineB,
-      bundle(space.id, firstPush.currentRevision, [pageA, anchorPage, pageB], [sharedMemory], [sharedRelation]),
+      bundle(space.id, firstPush.currentRevision, [pageA, anchorPage, pageB], [sharedRelation]),
       apiUrl, token, space.id, agent.id, seenChangeSets,
     );
     assert.notEqual(secondPush.currentRevision, firstPush.currentRevision, 'the second publish must advance the authoritative revision');
@@ -197,7 +200,7 @@ export async function runCrossMachineE2E(environment = process.env) {
     await writeFile(join(pathsA.pagesDir, `${pageA.pageId}.md`), remotePageA.body, 'utf8');
     const thirdPush = await pushAndPublish(
       machineA,
-      bundle(space.id, secondPush.currentRevision, [remotePageA, anchorPage, pageB], [sharedMemory], [updatedRelation]),
+      bundle(space.id, secondPush.currentRevision, [remotePageA, anchorPage, pageB], [updatedRelation]),
       apiUrl, token, space.id, agent.id, seenChangeSets,
     );
 
@@ -216,10 +219,8 @@ export async function runCrossMachineE2E(environment = process.env) {
       thirdPush.currentRevision,
       [remotePageA, anchorPage],
       [],
-      [],
       [
         { deletionId: `delete-page-${suffix}`, itemType: 'page', itemId: pageB.pageId, reason: 'cross-machine deletion check' },
-        { deletionId: `delete-memory-${suffix}`, itemType: 'memory', itemId: sharedMemory.memoryId, reason: 'cross-machine deletion check' },
         { deletionId: `delete-relation-${suffix}`, itemType: 'relation', itemId: sharedRelation.relationId, reason: 'cross-machine deletion check' },
       ],
     );
@@ -234,11 +235,12 @@ export async function runCrossMachineE2E(environment = process.env) {
     return {
       status: 'passed',
       realSyncEngine: true,
+      topology: 'same-host-isolated-client-workspaces',
       revisions: [firstPush.currentRevision, secondPush.currentRevision],
       conflicts: conflictPull.conflicts.length,
-      memories: 1,
+      memories: 0,
       relations: 1,
-      approvedDeletions: 3,
+      approvedDeletions: 2,
     };
   } finally {
     await rm(tempHome, { recursive: true, force: true });

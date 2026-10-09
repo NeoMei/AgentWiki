@@ -1,3 +1,5 @@
+import { SourceFreshnessService, EVIDENCE_READ_FIELDS } from '../source-freshness/source-freshness.service';
+import { sourceGenerationInvalidation } from './source-generation';
 import { assertPageTitle } from './page-title';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
@@ -42,6 +44,7 @@ const PAGE_PUBLIC_FIELDS = {
   lastModifiedAt: true,
   sourceId: true,
   sourceVersionId: true,
+  sourceGeneration: true,
   sourcePath: true,
   sourceTemplateId: true,
   sourceTemplateVersion: true,
@@ -59,6 +62,7 @@ const AUTHOR_SELECT = {
 @Injectable()
 export class PageService {
   constructor(
+    private readonly freshness: SourceFreshnessService,
     private readonly prisma: PrismaService,
     private readonly searchService: SearchService,
     private readonly revisionWriter: SpaceRevisionWriterService,
@@ -205,9 +209,13 @@ export class PageService {
     } finally {
       this.graphMaintenance.enqueue(data.spaceId);
     }
+    return this.presentPage(page, principal);
+  }
+
+  private async presentPage(page: any, principal: Principal) {
     const provenance = page.sourceChangeSetId
       ? await this.prisma.changeSet.findUnique({
-          where: { id: page.sourceChangeSetId },
+          where: { id: page.sourceChangeSetId, spaceId: page.spaceId },
           select: {
             id: true,
             title: true,
@@ -216,20 +224,20 @@ export class PageService {
             publishedAt: true,
             createdByAgent: { select: { id: true, name: true } },
             approvals: { orderBy: { createdAt: 'desc' }, take: 1, select: { decision: true, comment: true, createdAt: true, reviewer: { select: { id: true, name: true, email: true } } } },
-            run: { select: { id: true, status: true, stage: true, completedAt: true, source: { select: { id: true, name: true, type: true, uri: true } } } },
+            run: { select: { id: true, status: true, stage: true, completedAt: true } },
           },
         })
       : null;
     const evidence = page.sourceChangeSetId
       ? await this.prisma.evidence.findMany({
           where: { targetPageId: page.id },
-          include: { sourceVersion: { include: { files: true, source: { select: { id: true, name: true, type: true, uri: true } } } } },
+          select: EVIDENCE_READ_FIELDS,
         })
       : [];
     const [lastChange, lastModifiedByUser, lastModifiedByAgent] = await Promise.all([
       page.lastChangeSetId && page.lastChangeSetId !== page.sourceChangeSetId
         ? this.prisma.changeSet.findUnique({
-            where: { id: page.lastChangeSetId },
+            where: { id: page.lastChangeSetId, spaceId: page.spaceId },
             select: { id: true, title: true, status: true, reviewedAt: true, publishedAt: true },
           })
         : Promise.resolve(null),
@@ -240,10 +248,10 @@ export class PageService {
         ? this.prisma.agent.findUnique({ where: { id: page.lastModifiedByAgentId }, select: { id: true, name: true } })
         : Promise.resolve(null),
     ]);
-    return { ...page, provenance, lastChange, lastModifiedByUser, lastModifiedByAgent, evidence };
+    return (await this.freshness.projectPages([this.withCanonicalPath({ ...page, provenance, lastChange, lastModifiedByUser, lastModifiedByAgent, evidence })], principal))[0];
   }
 
-  async findAll(accessibleSpaceIds: string[], spaceId?: string, skip = 0, take = 20): Promise<PaginatedResult<any>> {
+  async findAll(accessibleSpaceIds: string[], principal: Principal, spaceId?: string, skip = 0, take = 20): Promise<PaginatedResult<any>> {
     const where = {
       deletedAt: null,
       spaceId: spaceId ?? { in: accessibleSpaceIds },
@@ -262,14 +270,14 @@ export class PageService {
       this.prisma.page.count({ where }),
     ]);
     return {
-      data: data.map((item) => this.withCanonicalPath(item)),
+      data: await this.freshness.projectPages(data.map((item) => this.withCanonicalPath(item)), principal),
       total,
       page: Math.floor(skip / take) + 1,
       limit: take,
     };
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, principal: Principal) {
     const page = await this.prisma.page.findUnique({
       where: { id, deletedAt: null },
       select: {
@@ -279,47 +287,10 @@ export class PageService {
       },
     });
     if (!page) throw new NotFoundException('Page not found');
-    const provenance = page.sourceChangeSetId
-      ? await this.prisma.changeSet.findUnique({
-          where: { id: page.sourceChangeSetId },
-          select: {
-            id: true,
-            title: true,
-            status: true,
-            reviewedAt: true,
-            publishedAt: true,
-            createdByAgent: { select: { id: true, name: true } },
-            approvals: { orderBy: { createdAt: 'desc' }, take: 1, select: { decision: true, comment: true, createdAt: true, reviewer: { select: { id: true, name: true, email: true } } } },
-            run: { select: { id: true, status: true, stage: true, completedAt: true, source: { select: { id: true, name: true, type: true, uri: true } } } },
-          },
-        })
-      : null;
-    const evidence = page.sourceChangeSetId
-      ? await this.prisma.evidence.findMany({
-          where: { targetPageId: page.id },
-          include: { sourceVersion: { include: { files: true, source: { select: { id: true, name: true, type: true, uri: true } } } } },
-        })
-      : [];
-    const [lastChange, lastModifiedByUser, lastModifiedByAgent] = await Promise.all([
-      page.lastChangeSetId && page.lastChangeSetId !== page.sourceChangeSetId
-        ? this.prisma.changeSet.findUnique({
-            where: { id: page.lastChangeSetId },
-            select: { id: true, title: true, status: true, reviewedAt: true, publishedAt: true },
-          })
-        : Promise.resolve(null),
-      page.lastModifiedByUserId
-        ? this.prisma.user.findUnique({ where: { id: page.lastModifiedByUserId }, select: { id: true, name: true, email: true } })
-        : Promise.resolve(null),
-      page.lastModifiedByAgentId
-        ? this.prisma.agent.findUnique({ where: { id: page.lastModifiedByAgentId }, select: { id: true, name: true } })
-        : Promise.resolve(null),
-    ]);
-    return this.withCanonicalPath({
-      ...page, provenance, lastChange, lastModifiedByUser, lastModifiedByAgent, evidence,
-    });
+    return this.presentPage(page, principal);
   }
 
-  async findBySlug(slug: string, spaceId: string) {
+  async findBySlug(slug: string, spaceId: string, principal: Principal) {
     const page = await this.prisma.page.findFirst({
       where: { slug, spaceId, deletedAt: null },
       select: {
@@ -328,10 +299,10 @@ export class PageService {
       },
     });
     if (!page) throw new NotFoundException('Page not found');
-    return this.withCanonicalPath(page);
+    return (await this.freshness.projectPages([this.withCanonicalPath(page)], principal))[0];
   }
 
-  async findHierarchy(spaceId: string) {
+  async findHierarchy(spaceId: string, principal: Principal) {
     const pages = await this.prisma.page.findMany({
       where: { spaceId, deletedAt: null },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
@@ -342,7 +313,7 @@ export class PageService {
     });
     const map = new Map<string, any>();
     const roots: any[] = [];
-    for (const page of pages) {
+    for (const page of await this.freshness.projectPages(pages, principal)) {
       map.set(page.id, { ...this.withCanonicalPath(page), children: [] });
     }
     for (const page of pages) {
@@ -456,6 +427,7 @@ export class PageService {
         where: { id, deletedAt: null, updatedAt: expectedVersion },
         data: {
           ...changes,
+          ...sourceGenerationInvalidation(page, changes),
           ...(structural
             ? {
               parentId: null,
@@ -518,11 +490,17 @@ export class PageService {
     } finally {
       this.graphMaintenance.enqueue(updated.spaceId);
     }
-    return updated;
+    return this.presentPage(updated, principal);
+  }
+
+  private async requirePage(id: string) {
+    const page = await this.prisma.page.findUnique({ where: { id, deletedAt: null }, select: { id: true, spaceId: true } });
+    if (!page) throw new NotFoundException('Page not found');
+    return page;
   }
 
   async getVersionHistory(pageId: string) {
-    await this.findOne(pageId);
+    await this.requirePage(pageId);
     const versions = await this.prisma.pageVersion.findMany({
       where: { pageId },
       include: { author: { select: AUTHOR_SELECT } },
@@ -540,7 +518,7 @@ export class PageService {
     expectedTreeRevision: string,
     principal: Principal,
   ) {
-    const visiblePage = await this.findOne(pageId);
+    const visiblePage = await this.requirePage(pageId);
 
     const restored = await this.prisma.$transaction(async (tx) => {
       await this.authorization.lockLiveHumanPrincipal(tx, principal);
@@ -609,6 +587,7 @@ export class PageService {
         data: {
           title: version.title,
           content: version.content,
+          sourceGeneration: null,
           slug: version.slug ?? page.slug,
           format: version.format ?? page.format,
           parentId: null,
@@ -659,7 +638,7 @@ export class PageService {
     } finally {
       this.graphMaintenance.enqueue(visiblePage.spaceId);
     }
-    return restored;
+    return this.presentPage(restored, principal);
   }
 
   async remove(
@@ -668,7 +647,7 @@ export class PageService {
     expectedTreeRevision: string,
     principal: Principal,
   ) {
-    const existing = await this.findOne(id);
+    const existing = await this.requirePage(id);
     const expectedVersion = new Date(expectedUpdatedAt);
     const expectedTree = BigInt(expectedTreeRevision);
     const page = await this.prisma.$transaction(async (tx) => {
@@ -748,7 +727,7 @@ export class PageService {
     } finally {
       this.graphMaintenance.enqueue(existing.spaceId);
     }
-    return page;
+    return this.presentPage(page, principal);
   }
 
 }

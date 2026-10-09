@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLanguage } from '../../context/LanguageContext';
+import { apiErrorMessage } from '../../api/error-message';
 import { listFolderAncestry, listTreeChildren } from '../content-tree/contentTreeApi';
 import { crumbsForFolder, registerFolders, type Crumb, type FolderIndex } from '../content-tree/contentTreeState';
 import type { ContentTreeNode } from '../content-tree/contentTreeTypes';
@@ -11,6 +13,7 @@ export interface DirectoryLevel {
 
 interface UseSpaceDirectoryOptions {
   spaceId: string | null;
+  identityKey?: string;
   targetFolderId: string | null;
   expandedFolderIds: ReadonlySet<string>;
   setFolderExpanded: (folderId: string, expanded: boolean) => void;
@@ -41,21 +44,22 @@ export class DirectoryRevisionChangedError extends Error {
   }
 }
 
-const errorMessage = (error: unknown) => (
-  error instanceof Error && error.message ? error.message : 'Unable to load directory'
-);
-
 const responseStatus = (error: unknown): number | undefined => (
   (error as { response?: { status?: number } } | null)?.response?.status
 );
 
 export const useSpaceDirectory = ({
   spaceId,
+  identityKey = spaceId ?? '',
   targetFolderId,
   expandedFolderIds,
   setFolderExpanded,
   rootLabel = '',
 }: UseSpaceDirectoryOptions): SpaceDirectoryState => {
+  const { t } = useLanguage();
+  const errorMessage = useCallback((failure: unknown) => failure instanceof DirectoryRevisionChangedError
+    ? t('folder.directoryChanged') : apiErrorMessage(failure, t, 'folder.loadFailed'), [t]);
+  const installedIdentityRef = useRef(identityKey);
   const generationRef = useRef(0);
   const snapshotControllerRef = useRef<AbortController | null>(null);
   const reloadControllersRef = useRef<Map<string, AbortController>>(new Map());
@@ -67,8 +71,8 @@ export const useSpaceDirectory = ({
   const [folderIndex, setFolderIndex] = useState<FolderIndex>(new Map());
   const [treeRevision, setTreeRevision] = useState<string | null>(null);
   const [locating, setLocating] = useState(Boolean(spaceId));
-  const [error, setError] = useState<string | null>(null);
-  const [branchErrors, setBranchErrors] = useState<ReadonlyMap<string, string>>(new Map());
+  const [error, setError] = useState<unknown | null>(null);
+  const [branchErrors, setBranchErrors] = useState<ReadonlyMap<string, unknown>>(new Map());
   const [loadingBranches, setLoadingBranches] = useState<ReadonlySet<string>>(new Set());
   const [completedRefresh, setCompletedRefresh] = useState(0);
   const [retryKey, setRetryKey] = useState(0);
@@ -142,10 +146,10 @@ export const useSpaceDirectory = ({
       if (responseStatus(loadError) === 401 || responseStatus(loadError) === 403) {
         invalidateRequests();
         clearDirectory(null);
-        setError(errorMessage(loadError));
+        setError(loadError);
       } else if (parentFolderId) {
-        setBranchErrors((current) => new Map(current).set(parentFolderId, errorMessage(loadError)));
-      } else setError(errorMessage(loadError));
+        setBranchErrors((current) => new Map(current).set(parentFolderId, loadError));
+      } else setError(loadError);
     } finally {
       if (reloadControllersRef.current.get(requestKey) === controller) {
         reloadControllersRef.current.delete(requestKey);
@@ -155,6 +159,7 @@ export const useSpaceDirectory = ({
   }, [clearDirectory, installLevel, invalidateRequests, spaceId]);
 
   useEffect(() => {
+    installedIdentityRef.current = identityKey;
     const generation = generationRef.current + 1;
     generationRef.current = generation;
     for (const reloadController of reloadControllersRef.current.values()) reloadController.abort();
@@ -176,7 +181,7 @@ export const useSpaceDirectory = ({
           const ancestorIds = ancestry?.ancestorIds ?? [];
           const nextLevels = new Map<string | null, DirectoryLevel>();
           const nextIndex = new Map(ancestry?.folders ?? []);
-          const nextBranchErrors = new Map<string, string>();
+          const nextBranchErrors = new Map<string, unknown>();
           let revision = ancestry?.treeRevision || null;
           let changed = false;
           const pendingExpandedFolderIds: string[] = [];
@@ -212,7 +217,7 @@ export const useSpaceDirectory = ({
             } catch (branchError) {
               if (controller.signal.aborted || generationRef.current !== generation) return;
               if (responseStatus(branchError) === 401 || responseStatus(branchError) === 403) throw branchError;
-              nextBranchErrors.set(parentFolderId, errorMessage(branchError));
+              nextBranchErrors.set(parentFolderId, branchError);
               continue;
             }
             if (generationRef.current !== generation) return;
@@ -244,7 +249,7 @@ export const useSpaceDirectory = ({
             clearDirectory(null);
             setLocating(false);
           }
-          setError(errorMessage(loadError));
+          setError(loadError);
         }
       } finally {
         if (!controller.signal.aborted && generationRef.current === generation) {
@@ -259,7 +264,7 @@ export const useSpaceDirectory = ({
       for (const reloadController of reloadControllersRef.current.values()) reloadController.abort();
       reloadControllersRef.current.clear();
     };
-  }, [clearDirectory, installSnapshot, invalidateRequests, retryKey, setFolderExpanded, spaceId, targetFolderId]);
+  }, [clearDirectory, installSnapshot, invalidateRequests, retryKey, setFolderExpanded, spaceId, targetFolderId, identityKey]);
 
   const toggleFolder = useCallback(async (folderId: string) => {
     const expanded = expandedFolderIds.has(folderId);
@@ -275,8 +280,17 @@ export const useSpaceDirectory = ({
 
   const crumbs = useMemo(() => crumbsForFolder(folderIndex, targetFolderId, rootLabel), [folderIndex, rootLabel, targetFolderId]);
 
+  const identityMatches = installedIdentityRef.current === identityKey;
   return {
-    levels, folderIndex, treeRevision, locating, error, crumbs, branchErrors, loadingBranches, completedRefresh,
+    levels: identityMatches ? levels : new Map(),
+    folderIndex: identityMatches ? folderIndex : new Map(),
+    treeRevision: identityMatches ? treeRevision : null,
+    locating: identityMatches ? locating : Boolean(spaceId),
+    error: identityMatches && error ? errorMessage(error) : null,
+    crumbs: identityMatches ? crumbs : [],
+    branchErrors: identityMatches ? new Map([...branchErrors].map(([id, failure]) => [id, errorMessage(failure)])) : new Map(),
+    loadingBranches: identityMatches ? loadingBranches : new Set(),
+    completedRefresh,
     toggleFolder,
     retry: () => setRetryKey((value) => value + 1),
     reloadLevel,

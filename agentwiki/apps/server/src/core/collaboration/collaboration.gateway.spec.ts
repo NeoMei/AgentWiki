@@ -9,10 +9,12 @@ describe('CollaborationGateway authentication', () => {
     publish: jest.fn().mockResolvedValue(undefined),
   } as any;
   const runs = { getHumanRun: jest.fn().mockResolvedValue({ id: 'run-1' }) } as any;
-  const gateway = new CollaborationGateway(jwt, redis, auth, authorization, runs);
+  const prisma = { assistTask: { findUnique: jest.fn() } } as any;
+  const gateway = new CollaborationGateway(jwt, redis, auth, authorization, runs, prisma);
 
   beforeEach(() => {
     jest.clearAllMocks();
+    prisma.assistTask.findUnique.mockResolvedValue({ id: 'task-1', pageId: 'page-1', spaceId: 'space-1', requestedByUserId: 'user-1' });
     jwt.verify.mockReturnValue({ sub: 'user-1', authVersion: 0 });
     auth.validateJwtUser.mockResolvedValue({ userId: 'user-1', name: 'Alice', authVersion: 0 });
     authorization.assertPageAccess.mockResolvedValue({ id: 'page-1', spaceId: 'space-1' });
@@ -481,4 +483,118 @@ describe('CollaborationGateway authentication', () => {
     expect(authorization.assertPageAccess).toHaveBeenCalledTimes(2);
     expect(client.emit).toHaveBeenCalledWith('collaborationError', { code: 'EVENT_RATE_LIMITED' });
   });
+  const assistSocket = (userId: string) => ({
+    id: `socket-${userId}`, data: { user: { userId, authVersion: 0 }, socketAuthVersion: 0 },
+    rooms: new Set(['page-1']), emit: jest.fn(), disconnect: jest.fn(), leave: jest.fn(),
+  });
+
+  it.each(['stream', 'complete', 'error'])('suppresses session %s messages on legacy sockets', async (kind) => {
+    const requester = assistSocket('user-1');
+    (gateway as any).server.in.mockReturnValue({ fetchSockets: jest.fn().mockResolvedValue([requester]) });
+    prisma.assistTask.findUnique.mockResolvedValue({ pageId: 'page-1', spaceId: 'space-1', requestedByUserId: 'user-1', sessionId: 'session1' });
+    await (gateway as any).relayAssistMessage({ kind, pageId: 'page-1', taskId: 'task-1', chunk: 'private references', error: 'failure' });
+    expect(requester.emit).not.toHaveBeenCalled();
+  });
+
+  it.each(['stream', 'complete', 'error'])('relays private assist %s only to its requester among same-page users', async (kind) => {
+    const requester = assistSocket('user-1');
+    const other = assistSocket('user-2');
+    (gateway as any).server.in.mockReturnValue({ fetchSockets: jest.fn().mockResolvedValue([requester, other]) });
+    auth.validateJwtUser.mockImplementation(async (userId: string) => ({ userId, authVersion: 0 }));
+    await (gateway as any).relayAssistMessage({ kind, pageId: 'page-1', taskId: 'task-1', chunk: 'private draft', error: 'private error' });
+    expect(requester.emit).toHaveBeenCalledWith(kind === 'stream' ? 'assistStream' : kind === 'complete' ? 'assistComplete' : 'assistError', expect.objectContaining({ taskId: 'task-1' }));
+    expect(other.emit).not.toHaveBeenCalled();
+    expect((gateway as any).server.to).not.toHaveBeenCalled();
+  });
+
+  it.each(['foreign-task-page', 'foreign-task-space', 'missing-task', 'revoked-page'])('drops %s assist relay', async (reason) => {
+    const requester = assistSocket('user-1');
+    (gateway as any).server.in.mockReturnValue({ fetchSockets: jest.fn().mockResolvedValue([requester]) });
+    if (reason === 'foreign-task-page') prisma.assistTask.findUnique.mockResolvedValue({ pageId: 'page-other', spaceId: 'space-1', requestedByUserId: 'user-1' });
+    if (reason === 'foreign-task-space') prisma.assistTask.findUnique.mockResolvedValue({ pageId: 'page-1', spaceId: 'space-2', requestedByUserId: 'user-1' });
+    if (reason === 'missing-task') prisma.assistTask.findUnique.mockResolvedValue(null);
+    if (reason === 'revoked-page') authorization.assertPageAccess.mockRejectedValue(new Error('revoked'));
+    await (gateway as any).relayAssistMessage({ kind: 'stream', pageId: 'page-1', taskId: 'task-1', chunk: 'private' });
+    expect(requester.emit).not.toHaveBeenCalled();
+    expect((gateway as any).server.to).not.toHaveBeenCalled();
+  });
+
+  it('keeps delayed chunk A, chunk B and complete in Redis arrival order for a task', async () => {
+    const requester = assistSocket('user-1');
+    (gateway as any).server.in.mockReturnValue({ fetchSockets: jest.fn().mockResolvedValue([requester]) });
+    let releaseFirst!: () => void;
+    const firstPending = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    let firstStarted!: () => void;
+    const firstEntered = new Promise<void>((resolve) => { firstStarted = resolve; });
+    authorization.assertPageAccess.mockImplementationOnce(async () => {
+      firstStarted();
+      await firstPending;
+      return { id: 'page-1', spaceId: 'space-1' };
+    });
+    const first = (gateway as any).relayAssistMessage({ kind: 'stream', pageId: 'page-1', taskId: 'task-1', chunk: 'A' });
+    await firstEntered;
+    const second = (gateway as any).relayAssistMessage({ kind: 'stream', pageId: 'page-1', taskId: 'task-1', chunk: 'B' });
+    const complete = (gateway as any).relayAssistMessage({ kind: 'complete', pageId: 'page-1', taskId: 'task-1' });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(requester.emit).not.toHaveBeenCalled();
+    releaseFirst();
+    await Promise.all([first, second, complete]);
+    expect(requester.emit.mock.calls).toEqual([
+      ['assistStream', { taskId: 'task-1', chunk: 'A' }],
+      ['assistStream', { taskId: 'task-1', chunk: 'B' }],
+      ['assistComplete', { taskId: 'task-1' }],
+    ]);
+    expect(authorization.assertPageAccess).toHaveBeenCalledTimes(3);
+    expect((gateway as any).assistRelayChains.size).toBe(0);
+  });
+
+  it('continues later task events after a relay failure and removes its drained chain', async () => {
+    const requester = assistSocket('user-1');
+    (gateway as any).server.in.mockReturnValue({ fetchSockets: jest.fn().mockResolvedValue([requester]) });
+    prisma.assistTask.findUnique.mockRejectedValueOnce(new Error('transient DB error'));
+    const first = (gateway as any).relayAssistMessage({ kind: 'stream', pageId: 'page-1', taskId: 'task-1', chunk: 'lost' });
+    const firstFailure = expect(first).rejects.toThrow('transient DB error');
+    const errorEvent = (gateway as any).relayAssistMessage({ kind: 'error', pageId: 'page-1', taskId: 'task-1', error: 'failed' });
+    await Promise.all([firstFailure, errorEvent]);
+    expect(requester.emit.mock.calls).toEqual([['assistError', { taskId: 'task-1', error: 'failed' }]]);
+    expect((gateway as any).assistRelayChains.size).toBe(0);
+  });
+
+  it('rechecks authorization for queued events after an earlier chunk is delivered', async () => {
+    const requester = assistSocket('user-1');
+    requester.emit.mockImplementationOnce(() => {
+      authorization.assertPageAccess.mockRejectedValue(new Error('revoked after A'));
+    });
+    (gateway as any).server.in.mockReturnValue({ fetchSockets: jest.fn().mockResolvedValue([requester]) });
+    await Promise.all([
+      (gateway as any).relayAssistMessage({ kind: 'stream', pageId: 'page-1', taskId: 'task-1', chunk: 'A' }),
+      (gateway as any).relayAssistMessage({ kind: 'stream', pageId: 'page-1', taskId: 'task-1', chunk: 'B' }),
+      (gateway as any).relayAssistMessage({ kind: 'complete', pageId: 'page-1', taskId: 'task-1' }),
+    ]);
+    expect(requester.emit.mock.calls).toEqual([['assistStream', { taskId: 'task-1', chunk: 'A' }]]);
+    expect(authorization.assertPageAccess).toHaveBeenCalledTimes(3);
+    expect((gateway as any).assistRelayChains.size).toBe(0);
+  });
+
+  it('does not hold unrelated task delivery behind a delayed task', async () => {
+    const requester = assistSocket('user-1');
+    (gateway as any).server.in.mockReturnValue({ fetchSockets: jest.fn().mockResolvedValue([requester]) });
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    authorization.assertPageAccess.mockImplementationOnce(async () => {
+      entered();
+      await pending;
+      return { id: 'page-1', spaceId: 'space-1' };
+    });
+    const delayed = (gateway as any).relayAssistMessage({ kind: 'stream', pageId: 'page-1', taskId: 'task-1', chunk: 'A' });
+    await started;
+    await (gateway as any).relayAssistMessage({ kind: 'complete', pageId: 'page-1', taskId: 'task-2' });
+    expect(requester.emit.mock.calls).toEqual([['assistComplete', { taskId: 'task-2' }]]);
+    release();
+    await delayed;
+    expect((gateway as any).assistRelayChains.size).toBe(0);
+  });
+
 });

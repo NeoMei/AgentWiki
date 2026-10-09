@@ -170,6 +170,7 @@ export const RunDashboard: React.FC = () => {
     }
   }, [id, runId]);
 
+  const reviewCapabilityIdentity = run?.reviews?.map(review => `${review.id}:${review.canDecide}`).join('|');
   useEffect(() => {
     setReviewArtifacts({});
     setReviewArtifactErrors({});
@@ -183,7 +184,7 @@ export const RunDashboard: React.FC = () => {
         || run.tasks?.some((task) => task.id === review.sourceTaskId && task.targetPageId));
       if (!pageReview) void loadReviewArtifact(review);
     }
-  }, [loadReviewArtifact, run?.id, run?.eventSequence]);
+  }, [loadReviewArtifact, run?.id, run?.eventSequence, reviewCapabilityIdentity]);
 
   const openHistory = async (kind: CollaborationHistoryKind) => {
     const request = ++historyRequest.current;
@@ -286,6 +287,16 @@ export const RunDashboard: React.FC = () => {
     if (!pending || !run || !reason.trim() || pendingScope.current !== `${id}:${run.id}`) return;
     const requestedScope = `${id}:${run.id}`;
     const action = pending;
+    if (action.type === 'review') {
+      const currentReview = run.reviews?.find(review => review.id === action.review.id);
+      if (state.kind !== 'ready' || state.updating || membersLoading || membersError || !humanRole || currentReview?.status !== 'pending' || !currentReview.canDecide) return;
+      const pageReview = Boolean(currentReview.pagePublication || run.tasks?.some(task => task.id === currentReview.sourceTaskId && task.targetPageId));
+      if (pageReview) {
+        const comparison = reviewDetail?.reviewId === currentReview.id && reviewDetail.kind === 'comparison' ? reviewDetail.comparison : null;
+        if (!comparison?.canDecide) return;
+        if (action.kind === 'approve' && (comparison.conflict || (comparison.mode === 'candidate' && !comparison.baseline.available))) return;
+      } else if (!currentReview.canDecide || !reviewArtifacts[currentReview.id]) return;
+    }
     setSubmitting(true);
     const input = { reason: reason.trim(), idempotencyKey: `${action.type}-${action.kind}-${safeUuid()}` };
     try {
@@ -339,7 +350,9 @@ export const RunDashboard: React.FC = () => {
     review: CollaborationReview,
     comparison: CollaborationPageReviewComparison,
   ) => {
-    if (resolvingConflict || comparison.mode !== 'candidate' || !comparison.current.contentHash || !review.sourceTaskId) return;
+    const currentReview = run?.reviews?.find(item => item.id === review.id);
+    if (state.kind !== 'ready' || state.updating || membersLoading || membersError || !humanRole || !currentReview?.canDecide || currentReview.status !== 'pending' || !comparison.canDecide || !comparison.conflict
+      || resolvingConflict || comparison.mode !== 'candidate' || !comparison.current.contentHash || !review.sourceTaskId) return;
     const requestedScope = `${id}:${runId}`;
     const requestedDetail = reviewDetailRequest.current;
     setResolvingConflict(true);
@@ -387,7 +400,7 @@ export const RunDashboard: React.FC = () => {
       {membersLoading ? <span className="sr-only" role="status">{t('common.loading')}</span> : null}
       {showResumeInstructions ? <section className="mt-4 min-h-0 shrink-0 rounded-xl border border-blue-200 bg-blue-50 p-4 lg:max-h-[35%] lg:overflow-y-auto"><div className="flex items-start justify-between gap-3"><div><h2 className="font-semibold text-blue-900">{t('collaboration.dashboard.resumeInstructions')}</h2><p className="mt-1 text-sm text-blue-800">{t('collaboration.dashboard.resumeInstructionsHelp')}</p></div><button type="button" onClick={() => setResumeInstructions([])} className="text-sm text-blue-800">{t('common.close')}</button></div><div className="mt-3 space-y-2">{resumeInstructions.map((instruction) => <div key={instruction.agentId} className="flex min-w-0 flex-col gap-2 rounded-lg bg-white p-3 sm:flex-row sm:items-center"><p className="min-w-0 flex-1 break-words text-sm">{instruction.text}</p><button type="button" onClick={() => void copyResumeInstruction(instruction.text, setToast, t)} className="min-h-9 shrink-0 rounded-lg border px-3 text-sm">{t('collaboration.dashboard.copyResume')}</button></div>)}</div></section> : null}
 
-      <div className="mt-6 grid min-h-0 min-w-0 flex-1 gap-4 lg:grid-rows-[repeat(3,minmax(0,1fr))] lg:grid-cols-[minmax(15rem,0.8fr)_minmax(0,1.8fr)_minmax(17rem,1fr)]">
+      <div className="mt-6 grid min-h-0 min-w-0 flex-1 gap-4 lg:grid-rows-[minmax(0,1.8fr)_minmax(0,1fr)_minmax(0,1fr)] lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.8fr)_minmax(0,1fr)]">
         <RunSummary run={run} role={state.kind === 'ready' && !state.updating && !continuationLoading && !membersLoading && !membersError ? humanRole : undefined} userId={user?.id} t={t} onGetContinuation={() => void getContinuation()} continuationLoading={continuationLoading || (state.kind === 'ready' && state.updating) || membersLoading} onAction={(kind) => openAction({ type: 'run', kind })} />
         <TaskPanel run={run} systemTemplate={systemTemplate} role={state.kind === 'ready' && !state.updating && !continuationLoading && !membersLoading && !membersError ? humanRole : undefined} userId={user?.id} t={t} agentNames={agentNames} onHistory={(kind) => void openHistory(kind)} onAction={(kind, task) => openAction({ type: 'task', kind, task })} />
         <ReviewPanel run={run} spaceId={id} t={t} artifacts={reviewArtifacts} artifactErrors={reviewArtifactErrors} detail={reviewDetail} resolvingConflict={resolvingConflict} onHistory={() => void openHistory('reviews')} onLoadDetail={(review) => void loadReviewDetail(review)} onRetryArtifact={(review) => void loadReviewArtifact(review)} onDecision={(kind, review) => openAction({ type: 'review', kind, review })} onResolveConflict={(kind, review, comparison) => void resolvePageConflict(kind, review, comparison)} isHumanMember={state.kind === 'ready' && !state.updating && !continuationLoading && !membersLoading && !membersError && humanRole !== undefined} />

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Database, FileText, KanbanSquare, Network, Settings, Users, Workflow } from 'lucide-react';
+import { Database, FileText, KanbanSquare, Network, Settings, Users, Workflow } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext';
 import { workspaceSectionFromPath, type SpaceNavSection } from '../features/space-workspace/workspaceNavigation';
@@ -8,7 +8,6 @@ const ITEMS = [
   { key: 'pages', labelKey: 'space.pages', suffix: '', icon: FileText },
   { key: 'graph', labelKey: 'space.graph', suffix: '/graph', icon: Network },
   { key: 'sources', labelKey: 'space.sources', suffix: '/sources', icon: Database },
-  { key: 'runs', labelKey: 'space.runs', suffix: '/runs', icon: Activity },
   { key: 'collaboration', labelKey: 'space.collaboration', suffix: '/collaboration', icon: Workflow },
   { key: 'taskboard', labelKey: 'space.taskboard', suffix: '/taskboard', icon: KanbanSquare },
   { key: 'members', labelKey: 'space.members', suffix: '/members', icon: Users },

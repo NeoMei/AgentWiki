@@ -1,3 +1,5 @@
+import { SourceFreshnessService, EVIDENCE_READ_FIELDS } from '../core/source-freshness/source-freshness.service';
+import { validateSourcePublication } from '../knowledge-pipeline/source-head';
 import { assertPageTitle } from '../core/page/page-title';
 import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { BusinessException } from '../core/filters/business-error';
@@ -43,6 +45,7 @@ interface AgentAutoPublishContext {
 @Injectable()
 export class ReviewService {
   constructor(
+    private readonly freshness: SourceFreshnessService,
     private prisma: PrismaService,
     private search: SearchService,
     private revisionWriter: SpaceRevisionWriterService,
@@ -135,12 +138,12 @@ export class ReviewService {
       changeSet = await createChangeSet(this.prisma, false);
     }
 
-    if (!autoPublish) return { ...changeSet, autoPublished: false };
+    if (!autoPublish) return this.toPublic({ ...changeSet, autoPublished: false }, principal);
     const published = await this.publish(changeSet.id, autoPublishContext);
-    return { ...published, autoPublished: published.status === 'published' };
+    return this.toPublic({ ...published, autoPublished: published.status === 'published' }, principal);
   }
 
-  async list(spaceIds: string[]) {
+  async list(spaceIds: string[], principal: Principal) {
     const changeSets = await this.prisma.changeSet.findMany({
       where: { spaceId: { in: spaceIds }, status: { in: ['pending_review', 'approved', 'published', 'reverted', 'rejected'] } },
       include: {
@@ -174,13 +177,14 @@ export class ReviewService {
     const nonRevertibleIds = new Set<string>(v3Sessions
       .map((session: { publishedChangeSetId: string | null }) => session.publishedChangeSetId)
       .filter((id: string | null): id is string => id !== null));
-    return changeSets.map((changeSet) => ({
+    const results = changeSets.map((changeSet) => ({
       ...changeSet,
       revertible: !nonRevertibleIds.has(changeSet.id),
     })).sort((left, right) =>
       (priority[left.status] ?? 99) - (priority[right.status] ?? 99) ||
       right.createdAt.getTime() - left.createdAt.getTime(),
     );
+    return this.freshness.projectChangeSets(results, principal);
   }
 
   async countPending(spaceIds: string[]) {
@@ -190,7 +194,7 @@ export class ReviewService {
     return { pending };
   }
 
-  async get(id: string) {
+  async get(id: string, principal: Principal) {
     const changeSet = await this.loadChangeSet(id);
     const groups = new Map<string, Array<{ itemId: string; excludePageId?: string }>>();
     for (const item of changeSet.items) {
@@ -236,7 +240,11 @@ export class ReviewService {
         }
       });
     }
-    return { ...changeSet, duplicateContentWarnings };
+    return this.toPublic({ ...changeSet, duplicateContentWarnings }, principal);
+  }
+
+  async toPublic(changeSet: Record<string, any>, principal: Principal) {
+    return (await this.freshness.projectChangeSets([changeSet], principal))[0];
   }
 
   // Mutation paths deliberately load no advisory: duplicate content is never
@@ -250,7 +258,7 @@ export class ReviewService {
           include: {
             source: true,
             evidences: {
-              include: { sourceVersion: { select: { version: true, metadata: true } } },
+              select: EVIDENCE_READ_FIELDS,
               orderBy: { createdAt: 'asc' },
             },
           },
@@ -435,7 +443,12 @@ export class ReviewService {
     let publication: { pageIds: string[]; authorizationLost: boolean };
     try {
       publication = await this.prisma.$transaction(async (tx) => {
-      if (principal) await new AuthorizationService(this.prisma).lockLiveHumanPrincipal(tx, principal);
+      if (principal) {
+        const authorization = new AuthorizationService(this.prisma);
+        await authorization.lockLiveHumanPrincipal(tx, principal);
+        await authorization.lockLiveHumanPersonalCredential(tx, principal);
+        await authorization.assertLiveHumanCredential(tx, principal, ['review:decide']);
+      }
       const acquireSpaceMutationLock = () => folderItems.length > 0
         ? this.requireContentTree().lockFolderMutationSpace(
           tx,
@@ -485,8 +498,16 @@ export class ReviewService {
       } else {
         lockedTx = await acquireSpaceMutationLock();
       }
+      // Structural helpers acquire the advisory/tree lock; also lock the real Space row before Sources.
+      if (changeSet.runId || acceptedItems.some(item => (item.payload as any)?.sourceId)) {
+        const sourceLockedTx = await this.revisionWriter.lockSyncSpace(lockedTx, changeSet.spaceId);
+        if (!sourceLockedTx) throw new BusinessException('SPACE_ACCESS_DENIED');
+      }
       await this.assertHumanMutation(lockedTx, id, principal);
+      // Row locks prevent revocation writes, but a PAT can expire while waiting for Space.
+      if (principal) await new AuthorizationService(this.prisma).assertLiveHumanCredential(lockedTx, principal, ['review:decide']);
       await this.assertOrdinaryReviewEntry(tx, id);
+      const validatedSourceHeads = await validateSourcePublication(tx, changeSet, acceptedItems, !!autoPublishContext);
       const claimed = await tx.changeSet.updateMany({
         where: { id, status: review ? 'pending_review' : 'approved' },
         data: { status: 'publishing', ...(review ? { reviewedAt: new Date() } : {}) },
@@ -648,6 +669,7 @@ export class ReviewService {
                     lastModifiedAt: existingSourcePage.lastModifiedAt.toISOString(),
                     sourceId: existingSourcePage.sourceId,
                     sourceVersionId: existingSourcePage.sourceVersionId,
+                    sourceGeneration: existingSourcePage.sourceGeneration ?? null,
                     sourcePath: existingSourcePage.sourcePath,
                     syncPath: existingSourcePage.syncPath,
                     syncPathKey: existingSourcePage.syncPathKey,
@@ -678,6 +700,7 @@ export class ReviewService {
                 lastModifiedAt: new Date(),
                 sourceId: payload.sourceId,
                 sourceVersionId: payload.sourceVersionId,
+                sourceGeneration: validatedSourceHeads.get(item.id)?.generation ?? null,
                 sourcePath: payload.sourcePath,
                 syncPath: placement.syncPath,
                 syncPathKey: placement.syncPathKey,
@@ -717,6 +740,7 @@ export class ReviewService {
                 lastModifiedAt: new Date(),
                 sourceId: payload.sourceId,
                 sourceVersionId: payload.sourceVersionId,
+                sourceGeneration: validatedSourceHeads.get(item.id)?.generation ?? null,
                 sourcePath: payload.sourcePath,
                 syncPath: placement.syncPath,
                 syncPathKey: placement.syncPathKey,
@@ -744,6 +768,7 @@ export class ReviewService {
             item,
             authorId,
             contentTree: this.requireContentTree(),
+            validatedSourceHead: validatedSourceHeads.get(item.id),
           });
           resourceId = page.pageId;
           pageIds.push(page.pageId);
@@ -779,6 +804,7 @@ export class ReviewService {
             lastModifiedAt: page.lastModifiedAt.toISOString(),
             sourceId: page.sourceId ?? null,
             sourceVersionId: page.sourceVersionId ?? null,
+            sourceGeneration: page.sourceGeneration ?? null,
             sourcePath: page.sourcePath ?? null,
             deletedAt: null,
             deletionBatchId: page.deletionBatchId ?? null,
@@ -1765,6 +1791,7 @@ export class ReviewService {
             lastModifiedAt,
             sourceId: before.sourceId,
             sourceVersionId: before.sourceVersionId,
+            sourceGeneration: before.sourceGeneration ?? null,
             sourcePath: before.sourcePath,
           };
           restoredPageRestores.set(item.id, restoredState);
@@ -1782,7 +1809,7 @@ export class ReviewService {
       ) {
         throw new BusinessException('CHANGESET_INVALID_STATE', 'Archived page prior state is invalid');
       }
-      const restoredState: Record<string, unknown> = { deletedAt: null };
+      const restoredState: Record<string, unknown> = { deletedAt: null, sourceGeneration: before.sourceGeneration ?? null };
       const hasValue = (key: string) => Object.prototype.hasOwnProperty.call(before, key)
         && before[key] !== undefined;
       const structuralSnapshotKeys = [
@@ -1920,6 +1947,7 @@ export class ReviewService {
           );
         }
         const restored: Record<string, unknown> = {
+          sourceGeneration: before.sourceGeneration ?? null,
           title: before.title,
           slug: before.slug,
           content: before.content,

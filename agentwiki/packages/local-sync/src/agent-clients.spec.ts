@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   detectClient,
   installSkill,
+  packagedSkillSource,
   registerMcp,
   removeMcp,
   type CommandResult,
@@ -189,16 +190,17 @@ describe('agent client adapters', () => {
 
   it('installs the same shared skill in the compatible global paths', async () => {
     const home = await createHome();
-    const source = join(home, 'source-SKILL.md');
-    await writeFile(source, '# AgentWiki Local Sync\n');
+    const source = await readFile(packagedSkillSource, 'utf8');
+    expect(source).toContain('`sourceVersionId` (a specific source-version identity)');
+    expect(source).toContain('Pending review candidates are not published knowledge.');
 
-    const paths = await installSkill(home, source, 'claude');
+    const paths = await installSkill(home, packagedSkillSource, 'claude');
 
     expect(paths).toEqual([
       join(home, '.agents', 'skills', 'agentwiki-local-sync', 'SKILL.md'),
       join(home, '.claude', 'skills', 'agentwiki-local-sync', 'SKILL.md'),
     ]);
     await expect(Promise.all(paths.map((path) => readFile(path, 'utf8'))))
-      .resolves.toEqual(['# AgentWiki Local Sync\n', '# AgentWiki Local Sync\n']);
+      .resolves.toEqual([source, source]);
   });
 });

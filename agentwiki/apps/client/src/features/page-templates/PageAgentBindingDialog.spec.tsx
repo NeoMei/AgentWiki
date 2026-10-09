@@ -31,8 +31,8 @@ const agents = [
   { type: 'agent', agentId: 'reader-1', role: 'reader', agent: { id: 'reader-1', name: 'Read only', status: 'active' } },
 ];
 
-const renderDialog = (scope: { kind: 'page'; pageId: string; title: string } | { kind: 'folder'; folderId: string; name: string }) => render(
-  <LanguageProvider><MemoryRouter><PageAgentBindingDialog spaceId="space-1" scope={scope} onClose={() => undefined} onSaved={() => undefined} /></MemoryRouter></LanguageProvider>,
+const renderDialog = (scope: { kind: 'page'; pageId: string; title: string } | { kind: 'folder'; folderId: string; name: string }, capabilities: { canBindAgent?: boolean; canStartPageCollaboration?: boolean } = { canBindAgent: true, canStartPageCollaboration: true }) => render(
+  <LanguageProvider><MemoryRouter><PageAgentBindingDialog spaceId="space-1" scope={scope} {...{ capabilities }} onClose={() => undefined} onSaved={() => undefined} /></MemoryRouter></LanguageProvider>,
 );
 
 describe('PageAgentBindingDialog', () => {
@@ -68,6 +68,49 @@ describe('PageAgentBindingDialog', () => {
     await waitFor(() => expect(mocks.setPageBinding).toHaveBeenCalledWith('space-1', 'page-1', {
       agentId: 'agent-1', roleSlotKey: 'owner', expectedUpdatedAt: null, expectedTreeRevision: '17',
     }));
+    expect(mocks.startPageRun).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { canBindAgent: true, canStartPageCollaboration: false },
+    { canBindAgent: true },
+  ])('keeps pure binding usable while start is disabled or absent', async (capabilities) => {
+    renderDialog({ kind: 'page', pageId: 'page-1', title: 'Page one' }, capabilities);
+    await screen.findByLabelText('主责 Agent');
+    fireEvent.change(screen.getByLabelText('主责 Agent'), { target: { value: 'agent-1' } });
+    const start = screen.getByRole('checkbox', { name: '保存后立即启动协作' });
+    expect(start).toBeDisabled();
+    expect(screen.getByText('当前 Space 未开放现有页面协作启动，仍可保存 Agent 绑定。')).toBeVisible();
+    fireEvent.click(start);
+    expect(start).not.toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: '保存绑定' }));
+    await waitFor(() => expect(mocks.setPageBinding).toHaveBeenCalled());
+    expect(mocks.startPageRun).not.toHaveBeenCalled();
+  });
+
+  it('rejects a missing binding capability even when role-only creation is enabled', async () => {
+    renderDialog({ kind: 'page', pageId: 'page-1', title: 'Page one' }, {});
+    await screen.findByLabelText('主责 Agent');
+    expect(screen.getByRole('button', { name: '保存绑定' })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: '保存后立即启动协作' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '保存绑定' }));
+    expect(mocks.setPageBinding).not.toHaveBeenCalled();
+  });
+
+  it('clears a selected start when the capability is withdrawn while retaining pure binding', async () => {
+    const scope = { kind: 'page' as const, pageId: 'page-1', title: 'Page one' };
+    const view = renderDialog(scope);
+    await screen.findByLabelText('主责 Agent');
+    fireEvent.change(screen.getByLabelText('主责 Agent'), { target: { value: 'agent-1' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: '保存后立即启动协作' }));
+    expect(screen.getByRole('checkbox', { name: '保存后立即启动协作' })).toBeChecked();
+    view.rerender(<LanguageProvider><MemoryRouter><PageAgentBindingDialog spaceId="space-1" scope={scope}
+      capabilities={{ canBindAgent: true, canStartPageCollaboration: false }} onClose={() => undefined} onSaved={() => undefined} /></MemoryRouter></LanguageProvider>);
+    const start = screen.getByRole('checkbox', { name: '保存后立即启动协作' });
+    expect(start).toBeDisabled();
+    expect(start).not.toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: '保存绑定' }));
+    await waitFor(() => expect(mocks.setPageBinding).toHaveBeenCalled());
     expect(mocks.startPageRun).not.toHaveBeenCalled();
   });
 

@@ -1,3 +1,5 @@
+import { sourceStatusText } from '../../i18n/source-status-messages';
+import { SourceStatusNotice } from '../page/SourceStatusNotice';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, ChevronRight, RotateCcw, Send, X } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -10,8 +12,49 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { announceReviewChanged, REVIEW_CHANGED_EVENT } from './review-events';
 import { useBoundedPolling } from '../source/useBoundedPolling';
+import { MarkdownDiff } from '../../components/markdown-diff/MarkdownDiff';
 
-const CandidateDiff: React.FC<{ item: any }> = ({ item }) => {
+const UpdatePageDiff: React.FC<{ item: any; spaceId: string }> = ({ item, spaceId }) => {
+  const { language } = useLanguage(); const zh = language === 'zh-CN';
+  const { user } = useAuth();
+  const payload = item.payload || {}, changes = payload.changes || {};
+  const key = JSON.stringify([user?.id, spaceId, payload.pageId, payload.expectedUpdatedAt]);
+  const [loaded, setLoaded] = useState<{ key: string; page?: { content: string; title: string; updatedAt: string }; status: 'loading' | 'ready' | 'unavailable' }>({ key, status: 'loading' });
+  useEffect(() => {
+    const controller = new AbortController(); let active = true;
+    setLoaded({ key, status: 'loading' });
+    if (!user?.id || !spaceId || typeof payload.pageId !== 'string') { setLoaded({ key, status: 'unavailable' }); return; }
+    void api.get(`/pages/${encodeURIComponent(payload.pageId)}`, { signal: controller.signal, timeout: 15000 }).then(({ data }) => {
+      if (!active || controller.signal.aborted) return;
+      if (data?.id !== payload.pageId || data?.spaceId !== spaceId || typeof data?.content !== 'string') setLoaded({ key, status: 'unavailable' });
+      else setLoaded({ key, status: 'ready', page: data });
+    }).catch(() => { if (active && !controller.signal.aborted) setLoaded({ key, status: 'unavailable' }); });
+    return () => { active = false; controller.abort(); };
+  }, [key, item, user?.id, spaceId, payload.pageId]);
+  const current = loaded.key === key ? loaded : { status: 'loading' as const, page: undefined };
+  const page = current.page;
+  const matches = !!page && typeof payload.expectedUpdatedAt === 'string' && page.updatedAt === payload.expectedUpdatedAt;
+  const candidate = typeof changes.content === 'string' ? changes.content : page?.content;
+  const download = (text: string, name: string) => {
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/markdown;charset=utf-8' }));
+    const link = document.createElement('a'); link.href = url; link.download = name; link.click(); URL.revokeObjectURL(url);
+  };
+  const metadata = Object.fromEntries(Object.entries(changes).filter(([field]) => field !== 'content'));
+  return <section className="mt-3 space-y-2 text-sm" aria-label={zh ? '页面更新差异' : 'Page update diff'}>
+    {current.status === 'loading' ? <p role="status" className="text-gray-500">{zh ? '正在读取当前文档…' : 'Loading current document…'}</p> : null}
+    {page ? <>
+      <p className="font-medium">{matches ? (zh ? '当前文档（与提案基准版本一致）' : 'Current document (matches proposal base version)') : (zh ? '当前文档与候选比较' : 'Current document vs candidate')}</p>
+      {!matches ? <p className="text-amber-800">{zh ? '提案基准版本缺失或已过期；当前文档不是历史快照，审批仍受服务端版本检查保护。' : 'Proposal base version is unavailable or stale. Current content is not a historical snapshot; server version checks still govern approval.'}</p> : null}
+      {typeof changes.content === 'string' ? <MarkdownDiff before={page.content} after={changes.content} /> : <p className="text-gray-500">{zh ? '正文未提出修改。' : 'No content change proposed.'}</p>}
+      <button type="button" onClick={() => download(page.content, 'review-current.md')} className="rounded-lg border px-3 py-1">{zh ? '下载当前原文' : 'Download current document'}</button>
+    </> : null}
+    {current.status === 'unavailable' ? <><p className="text-amber-800">{zh ? '无法读取当前文档，仅显示候选。' : 'Current document is unavailable; showing candidate only.'}</p>{typeof changes.content === 'string' ? <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border p-3">{changes.content.slice(0, 100_000)}</pre> : null}</> : null}
+    {typeof candidate === 'string' ? <button type="button" onClick={() => download(candidate, 'review-candidate.md')} className="ml-2 rounded-lg border px-3 py-1">{zh ? '下载候选' : 'Download candidate'}</button> : null}
+    {Object.keys(metadata).length ? <div><p className="font-medium">{zh ? '其他建议字段' : 'Other proposed fields'}</p><pre className="max-h-48 overflow-auto whitespace-pre-wrap text-gray-600">{JSON.stringify(metadata, null, 2)}</pre></div> : null}
+  </section>;
+};
+
+const CandidateDiff: React.FC<{ item: any; spaceId: string }> = ({ item, spaceId }) => {
   const { language } = useLanguage();
   const zh = language === 'zh-CN';
   const payload = item.payload || {};
@@ -33,12 +76,7 @@ const CandidateDiff: React.FC<{ item: any }> = ({ item }) => {
       </dl>
     </div>
   );
-  if (item.type === 'update_page') return (
-    <div className="mt-3 grid md:grid-cols-2 gap-2 text-xs">
-      <div className="border border-red-100 bg-red-50/50 rounded p-3"><p className="font-medium text-red-700 mb-2">{zh ? '变更前' : 'Before'}</p><p className="text-gray-500">{zh ? '审批前保持当前已发布内容不变。' : 'Current published values remain unchanged until approval.'}</p></div>
-      <div className="border border-green-100 bg-green-50/50 rounded p-3"><p className="font-medium text-green-700 mb-2">{zh ? '建议字段' : 'Proposed fields'}</p><pre className="whitespace-pre-wrap font-sans text-gray-600 max-h-48 overflow-auto">{JSON.stringify(payload.changes, null, 2)}</pre></div>
-    </div>
-  );
+  if (item.type === 'update_page') return <UpdatePageDiff item={item} spaceId={spaceId} />;
   if (item.type === 'archive_page') return <p className="mt-3 text-xs border border-amber-100 bg-amber-50 rounded p-3">{zh ? '归档已发布页面：' : 'Archive the published page for '}<strong>{payload.sourcePath || payload.pageId}</strong>.</p>;
   if (item.type === 'archive_relation') return <p className="mt-3 text-xs border border-amber-100 bg-amber-50 rounded p-3">{zh ? '移除来源中已不存在的自动编译关系。' : 'Remove an automatically compiled relationship that is no longer present in the source.'}</p>;
   return <pre className="mt-3 text-xs bg-gray-50 rounded p-3 overflow-auto">{JSON.stringify(payload, null, 2)}</pre>;
@@ -53,12 +91,13 @@ const EvidencePanel: React.FC<{ changeSet: any; item: any }> = ({ changeSet, ite
   const evidence = evidences.find((candidate: any) => candidate.id === payload.evidenceId) ||
     evidences.find((candidate: any) => candidate.location?.sourcePath === sourcePath);
   const source = changeSet.run?.source;
-  if (!source && !evidence) return <p className="mt-3 text-xs text-gray-400">{zh ? '人工提案，没有提取的来源证据。' : 'Manual proposal; no extracted source evidence.'}</p>;
+  if (!source && !evidence) return <p className="mt-3 text-xs text-gray-400">{sourceStatusText(language, 'sourceStatus.noAccessibleEvidence')}</p>;
   const metadata = evidence?.sourceVersion?.metadata || {};
   return (
     <div className="mt-3 rounded-lg border bg-blue-50/40 p-3 text-xs text-gray-600">
       <p><span className="font-medium text-gray-700">{zh ? '来源：' : 'Source:'}</span> {source?.name} · {source?.type}{sourcePath ? ` · ${sourcePath}` : ''}</p>
       {source?.uri ? <p className="mt-1 break-all text-gray-500">{source.uri}</p> : null}
+      {evidence?.evidenceState ? <p>{sourceStatusText(language, `sourceStatus.evidence.${evidence.evidenceState}`)}</p> : null}
       {evidence?.quote ? <blockquote className="mt-2 border-l-2 border-blue-300 pl-3 whitespace-pre-wrap">{evidence.quote}</blockquote> : null}
       <p className="mt-2 text-gray-400">
         {evidence ? `${zh ? '置信度' : 'Confidence'} ${Math.round((evidence.confidence ?? 1) * 100)}% · ${zh ? '来源版本' : 'source version'} ${evidence.sourceVersion?.version ?? (zh ? '未知' : 'unknown')}` : (zh ? '没有匹配片段' : 'No matching excerpt')}
@@ -90,6 +129,7 @@ export const ReviewPage: React.FC = () => {
   const [mutatingIds, setMutatingIds] = useState<Set<string>>(() => new Set());
   const mountedRef = useRef(true);
   const listSequenceRef = useRef(0);
+  const accessEpochRef = useRef(0);
   const detailSequenceRef = useRef(new Map<string, number>());
   const detailedIdsRef = useRef(new Set<string>());
   const mutatingIdsRef = useRef(new Set<string>());
@@ -110,8 +150,30 @@ export const ReviewPage: React.FC = () => {
     };
   }, []);
 
+  const clearInaccessible = useCallback((id?: string) => {
+    // A denial supersedes every response already in flight, including list reads.
+    accessEpochRef.current += 1;
+    if (id) {
+      detailedIdsRef.current.delete(id);
+      detailSequenceRef.current.delete(id);
+      setItems((current) => current.filter((item) => item.id !== id));
+      setPermissions((current) => { const next = { ...current }; delete next[id]; return next; });
+      setComments((current) => { const next = { ...current }; delete next[id]; return next; });
+    } else {
+      detailedIdsRef.current.clear(); detailSequenceRef.current.clear();
+      setItems([]); setPermissions({}); setComments({});
+    }
+    if (!id || expandedRef.current === id) {
+      expandedRef.current = null;
+      setExpanded(null);
+    }
+    setSuccess(null);
+  }, []);
+  const isInaccessible = (requestError: any) => [401, 403, 404].includes(requestError.response?.status);
+
   const load = useCallback(async (options?: { background?: boolean }) => {
     const requestedScope = scopeRef.current;
+    const accessEpoch = accessEpochRef.current;
     const sequence = ++listSequenceRef.current;
     listPendingRef.current = true;
     const controller = new AbortController();
@@ -124,15 +186,31 @@ export const ReviewPage: React.FC = () => {
         params: spaceId ? { spaceId } : undefined,
         signal: controller.signal, timeout: 15000,
       })).data;
-      if (!mountedRef.current || controller.signal.aborted || sequence !== listSequenceRef.current || requestedScope !== scopeRef.current) return;
+      if (!mountedRef.current || controller.signal.aborted || sequence !== listSequenceRef.current || requestedScope !== scopeRef.current || accessEpoch !== accessEpochRef.current) return false;
+      if (options?.background) {
+        // These summaries carry fresh authorization projections. Older details must not overwrite them.
+        const visibleIds = new Set<string>(summaries.map((summary: any) => summary.id));
+        for (const [id, detailSequence] of detailSequenceRef.current) {
+          detailSequenceRef.current.set(id, detailSequence + 1);
+          if (!visibleIds.has(id)) detailedIdsRef.current.delete(id);
+        }
+        setPermissions((current) => Object.fromEntries(Object.entries(current).filter(([id]) => visibleIds.has(id))));
+        if (expandedRef.current && !visibleIds.has(expandedRef.current)) {
+          expandedRef.current = null;
+          setExpanded(null);
+        }
+      }
       setItems((current) => summaries.map((summary: any) => {
         const detail = detailedIdsRef.current.has(summary.id) ? current.find((item) => item.id === summary.id) : null;
-        return detail ? (options?.background ? { ...detail, status: summary.status, items: summary.items } : detail) : summary;
+        return detail ? (options?.background ? { ...detail, ...summary, run: summary.run, sourceStatus: summary.sourceStatus } : detail) : summary;
       }));
+      return true;
     } catch (requestError: any) {
-      if (!controller.signal.aborted && mountedRef.current && sequence === listSequenceRef.current && requestedScope === scopeRef.current) {
+      if (!controller.signal.aborted && mountedRef.current && sequence === listSequenceRef.current && requestedScope === scopeRef.current && accessEpoch === accessEpochRef.current) {
+        if (isInaccessible(requestError)) clearInaccessible();
         setError(apiErrorMessage(requestError, t, 'review.loadFailed'));
       }
+      return false;
     } finally {
       requestControllersRef.current.delete(controller);
       if (mountedRef.current && sequence === listSequenceRef.current && requestedScope === scopeRef.current) {
@@ -140,9 +218,10 @@ export const ReviewPage: React.FC = () => {
         setListRefreshing(false); setListLoading(false);
       }
     }
-  }, [spaceId, t]);
+  }, [spaceId, t, clearInaccessible]);
   const expandChangeSet = useCallback(async (id: string, background = false) => {
     const requestedScope = scopeRef.current;
+    const accessEpoch = accessEpochRef.current;
     const sequence = (detailSequenceRef.current.get(id) || 0) + 1;
     detailSequenceRef.current.set(id, sequence);
     const controller = new AbortController();
@@ -154,7 +233,7 @@ export const ReviewPage: React.FC = () => {
       const targetSpaceId = detail.spaceId || detail.space?.id;
       const space = targetSpaceId ? (await api.get(`/spaces/${targetSpaceId}`, { signal: controller.signal })).data : null;
       const role = space?.members?.find((member: any) => member.userId === user?.id)?.role;
-      if (!mountedRef.current || controller.signal.aborted || detailSequenceRef.current.get(id) !== sequence || requestedScope !== scopeRef.current) return false;
+      if (!mountedRef.current || controller.signal.aborted || detailSequenceRef.current.get(id) !== sequence || requestedScope !== scopeRef.current || accessEpoch !== accessEpochRef.current) return false;
       setPermissions((current) => ({ ...current, [id]: { userId: user?.id, canDecide: role === 'owner' } }));
       detailedIdsRef.current.add(id);
       setItems((current) => current.some((item) => item.id === id)
@@ -162,14 +241,26 @@ export const ReviewPage: React.FC = () => {
         : [detail, ...current]);
       return true;
     } catch (requestError: any) {
-      if (!controller.signal.aborted && mountedRef.current && detailSequenceRef.current.get(id) === sequence && requestedScope === scopeRef.current) {
+      if (!controller.signal.aborted && mountedRef.current && detailSequenceRef.current.get(id) === sequence && requestedScope === scopeRef.current && accessEpoch === accessEpochRef.current) {
+        if (isInaccessible(requestError)) clearInaccessible(id);
         setError(apiErrorMessage(requestError, t, 'review.detailFailed'));
       }
       return false;
     } finally {
       requestControllersRef.current.delete(controller);
     }
-  }, [t, user?.id]);
+  }, [t, user?.id, clearInaccessible]);
+  const refreshAfterDenial = async (id: string) => {
+    const requestedScope = scopeRef.current;
+    const wasExpanded = expandedRef.current === id;
+    clearInaccessible(id);
+    // A denied write may only mean an owner became a viewer. Restore nothing
+    // until fresh detail and membership reads establish the remaining access.
+    const readable = await expandChangeSet(id);
+    if (readable && requestedScope === scopeRef.current && wasExpanded && !expandedRef.current) {
+      setExpanded(id);
+    }
+  };
   useEffect(() => {
     requestControllersRef.current.forEach((controller) => controller.abort());
     detailSequenceRef.current.clear(); detailedIdsRef.current.clear();
@@ -182,8 +273,8 @@ export const ReviewPage: React.FC = () => {
     refreshInFlightRef.current = true;
     const requestedScope = scopeRef.current;
     try {
-      await load({ background: true });
-      if (requestedScope === scopeRef.current && expandedRef.current) {
+      const loaded = await load({ background: true });
+      if (loaded && requestedScope === scopeRef.current && expandedRef.current) {
         setListRefreshing(true);
         await expandChangeSet(expandedRef.current, true);
       }
@@ -250,10 +341,14 @@ export const ReviewPage: React.FC = () => {
       setSuccess(t('review.actionSuccess'));
     } catch (requestError: any) {
       if (!controller.signal.aborted && mountedRef.current) {
-        const message = apiErrorMessage(requestError, t, 'review.actionFailed');
         const status = requestError.response?.status;
         const code = requestError.response?.data?.code;
-        if (status === 409 || code === 'CHANGESET_INVALID_STATE' || code === 'CHANGESET_CONFLICT') {
+        const message = code === 'SOURCE_VERSION_CONFLICT'
+          ? sourceStatusText(language, 'sourceStatus.conflict')
+          : apiErrorMessage(requestError, t, 'review.actionFailed');
+        if (isInaccessible(requestError)) {
+          await refreshAfterDenial(id);
+        } else if (status === 409 || code === 'CHANGESET_INVALID_STATE' || code === 'CHANGESET_CONFLICT' || code === 'SOURCE_VERSION_CONFLICT') {
           await Promise.all([expandChangeSet(id), load()]);
           announceReviewChanged();
         }
@@ -279,10 +374,14 @@ export const ReviewPage: React.FC = () => {
       setSuccess(t('review.decisionSuccess'));
     } catch (requestError: any) {
       if (!controller.signal.aborted && mountedRef.current) {
-        const message = apiErrorMessage(requestError, t, 'review.decisionFailed');
         const status = requestError.response?.status;
         const code = requestError.response?.data?.code;
-        if (status === 409 || code === 'CHANGESET_INVALID_STATE' || code === 'CHANGESET_CONFLICT') {
+        const message = code === 'SOURCE_VERSION_CONFLICT'
+          ? sourceStatusText(language, 'sourceStatus.conflict')
+          : apiErrorMessage(requestError, t, 'review.decisionFailed');
+        if (isInaccessible(requestError)) {
+          await refreshAfterDenial(setId);
+        } else if (status === 409 || code === 'CHANGESET_INVALID_STATE' || code === 'CHANGESET_CONFLICT' || code === 'SOURCE_VERSION_CONFLICT') {
           await Promise.all([expandChangeSet(setId), load()]);
           announceReviewChanged();
         }
@@ -350,7 +449,8 @@ export const ReviewPage: React.FC = () => {
                   {changeSet.items.map((item: any) => (
                     <div key={item.id} className="p-3">
                       <div className="flex justify-between gap-3"><p className="text-sm font-medium">{item.type.replaceAll('_', ' ')}</p><span className="text-xs text-gray-400">{item.status}</span></div>
-                      <CandidateDiff item={item} />
+                      <SourceStatusNotice status={item.sourceStatus || changeSet.sourceStatus} candidate details />
+                      <CandidateDiff item={item} spaceId={changeSet.spaceId || changeSet.space?.id} />
                       <ExistingContentWarning pages={changeSet.duplicateContentWarnings?.find((warning: { itemId: string }) => warning.itemId === item.id)?.pages} />
                       <EvidencePanel changeSet={changeSet} item={item} />
                       {canDecide(changeSet.id) && !changeSet.collaborationArtifactLink && item.status === 'pending' && changeSet.status === 'pending_review' ? <div className="flex gap-3 mt-3"><button disabled={mutatingIds.has(changeSet.id)} onClick={() => void decide(changeSet.id, item.id, 'accepted')} className="text-xs font-medium text-green-700 disabled:opacity-50">{zh ? '接受候选项' : 'Accept candidate'}</button><button disabled={mutatingIds.has(changeSet.id)} onClick={() => void decide(changeSet.id, item.id, 'rejected')} className="text-xs font-medium text-red-700 disabled:opacity-50">{zh ? '拒绝候选项' : 'Reject candidate'}</button></div> : null}

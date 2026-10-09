@@ -20,6 +20,8 @@ const FULL_TEST_PREREQUISITES = [
   'COLLABORATION_TEST_DATABASE_URL',
   'PAGE_TEMPLATE_TEST_DATABASE_URL',
   'SYNC_V3_TEST_DATABASE_URL',
+  'SYNC_VERSION_TEST_DATABASE_URL',
+  'SOURCE_FRESHNESS_TEST_DATABASE_URL',
   'TEST_REDIS_URL',
 ];
 
@@ -49,15 +51,20 @@ function createPlan() {
   };
 }
 
-function runNodeTests(args, { requireZeroSkips = false } = {}) {
+async function runNodeTests(args, { requireZeroSkips = false } = {}) {
   const result = spawnSync(process.execPath, args, {
     cwd: root,
     encoding: 'utf8',
     env: process.env,
     maxBuffer: 64 * 1024 * 1024,
   });
-  process.stdout.write(result.stdout ?? '');
-  process.stderr.write(result.stderr ?? '');
+  // Finish forwarding diagnostics before an error or the zero-skip gate can exit.
+  await new Promise((resolve, reject) => {
+    process.stdout.write(result.stdout ?? '', (error) => error ? reject(error) : resolve());
+  });
+  await new Promise((resolve, reject) => {
+    process.stderr.write(result.stderr ?? '', (error) => error ? reject(error) : resolve());
+  });
   if (result.error) throw result.error;
   const status = result.status ?? 1;
   if (status === 0 && requireZeroSkips) {
@@ -89,9 +96,9 @@ assertFullTestPrerequisites(plan);
 if (command === 'plan') {
   process.stdout.write(`${JSON.stringify(plan)}\n`);
 } else if (command === 'run') {
-  const parallelExit = runNodeTests(plan.parallelArgs);
+  const parallelExit = await runNodeTests(plan.parallelArgs);
   process.exitCode = parallelExit === 0
-    ? runNodeTests(plan.databaseArgs, {
+    ? await runNodeTests(plan.databaseArgs, {
       requireZeroSkips: process.env.AGENTWIKI_FULL_TEST === '1',
     })
     : parallelExit;

@@ -1,0 +1,28 @@
+{
+  "tlsVerification": "default verified",
+  "health": {
+    "status": "ok",
+    "database": "ok",
+    "redis": "ok",
+    "auditPersistence": "ok",
+    "attachmentStorage": "ok"
+  },
+  "home": {
+    "status": 200,
+    "contentType": "text/html"
+  },
+  "assets": [
+    {
+      "path": "/assets/index-RwTQtjfg.js",
+      "status": 200,
+      "bytes": 302021,
+      "sha256": "1aa9399cb0a34a138d6bf9ea9fe98f625e13ef4fa9a4d9daf8e358842a734a7d"
+    },
+    {
+      "path": "/assets/index-dCB6JZ7J.js",
+      "status": 200,
+      "bytes": 308458,
+      "sha256": "e35160d05485bdb03516d14d719376699416dc52dd30251bc223cd6fca7c9ab4"
+    }
+  ]
+}

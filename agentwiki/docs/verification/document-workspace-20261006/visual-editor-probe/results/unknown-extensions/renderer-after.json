@@ -1,0 +1,84 @@
+{
+  "type": "root",
+  "children": [
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": ":::custom {#identifier}"
+        },
+        {
+          "type": "break"
+        },
+        {
+          "type": "text",
+          "value": "未知扩展正文。"
+        },
+        {
+          "type": "break"
+        },
+        {
+          "type": "text",
+          "value": ":::"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "脚注"
+        },
+        {
+          "type": "link",
+          "title": null,
+          "url": "中文脚注",
+          "children": [
+            {
+              "type": "text",
+              "value": "^注一"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "属性:: 值"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "agentWikiMark",
+          "children": [
+            {
+              "type": "text",
+              "value": "高亮"
+            }
+          ],
+          "data": {
+            "agentWikiGenerated": true,
+            "hName": "mark",
+            "hProperties": {
+              "className": [
+                "markdown-highlight"
+              ]
+            }
+          }
+        },
+        {
+          "type": "text",
+          "value": " 与 %%私有注释%%"
+        }
+      ]
+    }
+  ]
+}

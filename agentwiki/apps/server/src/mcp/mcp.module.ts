@@ -1,3 +1,4 @@
+import { SourceFreshnessModule } from '../core/source-freshness/source-freshness.module';
 import { ProjectTaskboardModule } from '../project-taskboard/project-taskboard.module';
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../core/auth/auth.module';
@@ -15,7 +16,7 @@ import { CollaborationWorkflowsModule } from '../collaboration-workflows/collabo
 import { ContentTreeModule } from '../content-tree/content-tree.module';
 
 @Module({
-  imports: [
+  imports: [SourceFreshnessModule,
     DatabaseModule, AuthModule, AgentModule, PageModule, SearchModule, SpaceModule, KnowledgeModule,
     KnowledgePipelineModule, ReviewModule, CollaborationWorkflowsModule,
     ContentTreeModule, ProjectTaskboardModule,

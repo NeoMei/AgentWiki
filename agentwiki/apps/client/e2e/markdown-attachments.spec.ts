@@ -571,7 +571,7 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       await page.getByRole('button', { name: 'Image attachments' }).click();
       await expect(page.getByRole('dialog', { name: 'Image attachments' })).toBeVisible();
       await expectNoDocumentOverflow(page);
-      await page.getByLabel('Upload image').setInputFiles({
+      await page.getByLabel('Upload image', { exact: true }).setInputFiles({
         name: 'same-name.png', mimeType: 'image/png', buffer: alternatePng,
       });
       await expectMarker(page, '![[assets/same-name (2).png]]');
@@ -647,7 +647,7 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       await expectNoDocumentOverflow(editorSession.page);
       await expect(editorSession.page.getByRole('button', { name: 'Image attachments' })).toBeVisible();
       await editorSession.page.getByRole('button', { name: 'Image attachments' }).click();
-      await editorSession.page.getByLabel('Upload image').setInputFiles({
+      await editorSession.page.getByLabel('Upload image', { exact: true }).setInputFiles({
         name: 'editor-upload.png', mimeType: 'image/png', buffer: png,
       });
       await expectMarker(editorSession.page, '![[assets/editor-upload.png]]');
@@ -766,6 +766,9 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       await expect(page.locator('#root-heading')).toBeVisible();
       await expect(page.getByRole('link', { name: 'Same-Space target' })).toHaveAttribute('href', `/pages/${targetPage.id}`);
       await expect(page.getByText('Initial target content.')).toBeVisible();
+      // Exercise a direct block-anchor load. A same-document page.goto changes
+      // browser history outside React Router and is not an in-app navigation.
+      await page.goto('about:blank');
       await page.goto(`/pages/${anchorPage.id}#%5Eroot-block`);
       await expect(page).toHaveURL(new RegExp(`#(?:%5E|\\^)root-block$`, 'iu'));
       await expect(page.locator('[id="^root-block"]')).toBeAttached();
@@ -810,7 +813,7 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       await expect(page.getByRole('button', { name: 'Image attachments' })).toBeVisible();
       await page.getByRole('button', { name: 'Image attachments' }).click();
       await expect(page.getByRole('dialog', { name: 'Image attachments' })).toBeVisible();
-      await expect(page.getByLabel('Upload image')).toBeAttached();
+      await expect(page.getByLabel('Upload image', { exact: true })).toBeAttached();
       await expect(page.getByLabel('Search attachments')).toBeVisible();
       await expect(page.getByRole('button', { name: 'Close attachment picker' })).toBeVisible();
       await expectNoDocumentOverflow(page);

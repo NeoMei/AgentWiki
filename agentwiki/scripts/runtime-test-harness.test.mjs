@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { readdirSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { copyFileSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import test from 'node:test';
-import { dirname } from 'node:path';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const scriptsDirectory = dirname(fileURLToPath(import.meta.url));
@@ -14,12 +15,15 @@ const fullTestEnvironmentNames = [
   'COLLABORATION_TEST_DATABASE_URL',
   'PAGE_TEMPLATE_TEST_DATABASE_URL',
   'SYNC_V3_TEST_DATABASE_URL',
+  'SYNC_VERSION_TEST_DATABASE_URL',
+  'SOURCE_FRESHNESS_TEST_DATABASE_URL',
   'TEST_REDIS_URL',
 ];
 
 function environmentWithoutFullTestGate() {
   const environment = { ...process.env };
   delete environment.AGENTWIKI_FULL_TEST;
+  delete environment.NODE_TEST_CONTEXT;
   for (const name of fullTestEnvironmentNames) delete environment[name];
   return environment;
 }
@@ -34,6 +38,8 @@ function completeFullTestEnvironment() {
     COLLABORATION_TEST_DATABASE_URL: 'postgresql://tester:HARNESS_SECRET_COLLABORATION@127.0.0.1/agentwiki_test',
     PAGE_TEMPLATE_TEST_DATABASE_URL: 'postgresql://tester:HARNESS_SECRET_TEMPLATE@127.0.0.1/agentwiki_test',
     SYNC_V3_TEST_DATABASE_URL: 'postgresql://tester:HARNESS_SECRET_SYNC_V3@127.0.0.1/agentwiki_test',
+    SYNC_VERSION_TEST_DATABASE_URL: 'postgresql://tester:HARNESS_SECRET_SYNC_VERSION@127.0.0.1/agentwiki_test',
+    SOURCE_FRESHNESS_TEST_DATABASE_URL: 'postgresql://tester:HARNESS_SECRET_SOURCE_FRESHNESS@127.0.0.1/agentwiki_test',
     TEST_REDIS_URL: 'redis://:HARNESS_SECRET_REDIS@127.0.0.1:6379/1',
     AGENTWIKI_PSQL_BIN: process.execPath,
   };
@@ -95,6 +101,8 @@ for (const command of ['plan', 'run']) {
     test(`runtime ${command} full gate fails closed without ${missingName} and redacts configured URLs`, () => {
       const environment = completeFullTestEnvironment();
       delete environment[missingName];
+      // Never launch actual suites if prerequisite validation regresses.
+      environment.AGENTWIKI_PSQL_BIN = '/nonexistent-agentwiki-harness-psql';
 
       const result = spawnSync(process.execPath, [harness, command], {
         encoding: 'utf8',
@@ -154,4 +162,47 @@ test('full database phase rejects skipped tests without counting known non-datab
     ].join('\n')),
     /database phase skipped 28 tests/iu,
   );
+});
+
+test('runtime full gate preserves large TAP diagnostics before rejecting a skipped database test', async () => {
+  const fixture = mkdtempSync(join(tmpdir(), 'agentwiki-output-gate-'));
+  const scripts = join(fixture, 'scripts');
+  mkdirSync(scripts);
+  try {
+    for (const name of ['runtime-test-harness.mjs', 'runtime-test-result-safety.mjs']) {
+      copyFileSync(join(scriptsDirectory, name), join(scripts, name));
+    }
+    writeFileSync(join(scripts, 'ordinary.test.mjs'), "import test from 'node:test'; test('ordinary', () => {});\n");
+    writeFileSync(join(scripts, 'diagnostic-db.test.mjs'), `
+      import test from 'node:test';
+      console.log('x'.repeat(2 * 1024 * 1024));
+      console.log('FINAL_DATABASE_DIAGNOSTIC');
+      test.skip('intentional missing prerequisite', () => {});
+    `);
+    const child = spawn(process.execPath, [join(scripts, 'runtime-test-harness.mjs'), 'run'], {
+      env: completeFullTestEnvironment(),
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 10_000,
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    // A slow consumer exposes writes still queued when an uncaught error exits.
+    child.stdout.pause();
+    const resume = setTimeout(() => child.stdout.resume(), 200);
+    const status = await new Promise((resolve, reject) => {
+      child.once('error', reject);
+      child.once('close', resolve);
+    }).finally(() => clearTimeout(resume));
+    assert.equal(status, 1, stderr);
+    assert.match(stderr, /database phase skipped 1 tests/iu);
+    assert.ok(stdout.includes('FINAL_DATABASE_DIAGNOSTIC'), `missing final diagnostic; received ${stdout.length} bytes`);
+    assert.match(stdout, /# skipped 1/u);
+    assert.ok(stdout.length > 2 * 1024 * 1024, 'large TAP output must be complete');
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
 });

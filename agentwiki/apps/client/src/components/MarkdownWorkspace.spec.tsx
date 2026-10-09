@@ -1,7 +1,10 @@
 import { createRef, useState } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { EditorSelection } from '@codemirror/state';
-import { EditorView } from '@codemirror/view';
+import { EditorSelection, EditorState, StateEffect } from '@codemirror/state';
+import * as tableEditing from './markdown-tools/tableEditing';
+import { undo, undoDepth } from '@codemirror/commands';
+import { DecorationSet, EditorView } from '@codemirror/view';
+import { forceParsing, language as languageFacet, syntaxTree } from '@codemirror/language';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../context/LanguageContext';
 import { Markdown } from './Markdown';
@@ -128,6 +131,186 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     expect(container.querySelector('.cm-lineWrapping')).toBeTruthy();
   });
 
+  it('replaces a candidate as one isolated undoable document change', () => {
+    const workspaceRef = createRef<MarkdownWorkspaceHandle>();
+    const { container } = renderWYS({ initial: 'Original content', workspaceRef });
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: ' human' } }));
+    const depth = undoDepth(view.state);
+    act(() => expect(workspaceRef.current?.replaceDocument('Accepted candidate')).toBe(true));
+    expect(view.state.doc.toString()).toBe('Accepted candidate');
+    expect(undoDepth(view.state)).toBe(depth + 1);
+    act(() => expect(undo(view)).toBe(true));
+    expect(view.state.doc.toString()).toBe('Original content human');
+  });
+
+  it('captures/restores selected source and formats with a single undo', () => {
+    const workspaceRef = createRef<MarkdownWorkspaceHandle>();
+    const { container } = renderWYS({ initial: '中文段落', workspaceRef });
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ selection: EditorSelection.range(0, 2) }));
+    expect(workspaceRef.current?.captureSelection()).toEqual({ from: 0, to: 2, text: '中文' });
+    fireEvent.click(screen.getByRole('button', { name: 'Bold' }));
+    expect(view.state.doc.toString()).toBe('**中文**段落');
+    act(() => undo(view));
+    expect(view.state.doc.toString()).toBe('中文段落');
+    act(() => workspaceRef.current?.restoreSelection({ from: 2, to: 4, text: '段落' }));
+    expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe('段落');
+  });
+
+  it('slash menu navigates by keyboard and retains slash source on Escape', () => {
+    const { container } = renderWYS({ initial: '/' });
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ selection: EditorSelection.cursor(1) }));
+    expect(screen.getByRole('menu', { name: 'Insert block' })).toBeInTheDocument();
+    fireEvent.keyDown(view.contentDOM, { key: 'ArrowDown' });
+    fireEvent.keyDown(view.contentDOM, { key: 'Enter' });
+    expect(view.state.doc.toString()).toBe('- ');
+    act(() => undo(view));
+    fireEvent.keyDown(view.contentDOM, { key: 'Escape' });
+    expect(view.state.doc.toString()).toBe('/');
+    expect(screen.queryByRole('menu', { name: 'Insert block' })).not.toBeInTheDocument();
+  });
+
+  it('measures slash menu height, flips at viewport bottom and repositions on scroll/resize', () => {
+    const { container } = renderWYS({ initial: '' });
+    const view = currentEditorView(container);
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1280 });
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 720 });
+    let anchor = { left: 650, top: 690, bottom: 706 } as DOMRect;
+    vi.spyOn(view, 'coordsAtPos').mockImplementation(() => anchor);
+    const measure = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return { width: this.getAttribute('role') === 'menu' ? 200 : 0, height: this.getAttribute('role') === 'menu' ? 273 : 0, left: 0, top: 0, bottom: 0, right: 0 } as DOMRect;
+    });
+    try {
+      act(() => view.dispatch({ changes: { from: 0, insert: '/' }, selection: { anchor: 1 } }));
+      const menu = screen.getByRole('menu', { name: 'Insert block' });
+      expect(menu.parentElement).toBe(document.body);
+      expect(menu).toHaveStyle({ top: '413px', left: '650px', maxHeight: '674px' });
+      anchor = { left: 350, top: 590, bottom: 610 } as DOMRect;
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+      fireEvent.resize(window);
+      expect(menu).toHaveStyle({ left: '178px', top: '313px', maxWidth: '366px' });
+      anchor = { left: 100, top: 200, bottom: 218 } as DOMRect;
+      fireEvent.scroll(window);
+      expect(menu).toHaveStyle({ top: '222px', left: '100px' });
+      expect(view.state.doc.toString()).toBe('/');
+    } finally { measure.mockRestore(); }
+  });
+
+  it('scrolls the active slash choice into its measured menu viewport on keyboard navigation', () => {
+    const { container } = renderWYS({ initial: '/' });
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ selection: EditorSelection.cursor(1) }));
+    const menu = screen.getByRole('menu', { name: 'Insert block' });
+    Object.defineProperty(menu, 'clientHeight', { configurable: true, value: 80 });
+    const choices = screen.getAllByRole('menuitem');
+    choices.forEach((choice, index) => {
+      Object.defineProperty(choice, 'offsetTop', { configurable: true, value: index * 40 });
+      Object.defineProperty(choice, 'offsetHeight', { configurable: true, value: 40 });
+    });
+    fireEvent.keyDown(view.contentDOM, { key: 'ArrowUp' });
+    expect(choices[5]).toHaveAttribute('aria-current', 'true');
+    expect(menu.scrollTop).toBe(160);
+    fireEvent.keyDown(view.contentDOM, { key: 'ArrowDown' });
+    expect(choices[0]).toHaveAttribute('aria-current', 'true');
+    expect(menu.scrollTop).toBe(0);
+    expect(view.state.doc.toString()).toBe('/');
+  });
+
+  it('does not trigger slash menu during Chinese composition', () => {
+    const { container } = renderWYS({ initial: '' });
+    const view = currentEditorView(container);
+    fireEvent.compositionStart(view.contentDOM);
+    act(() => view.dispatch({ changes: { from: 0, insert: '/' }, selection: { anchor: 1 } }));
+    expect(screen.queryByRole('menu', { name: 'Insert block' })).not.toBeInTheDocument();
+    fireEvent.keyDown(view.contentDOM, { key: 'Enter', isComposing: true, keyCode: 229 });
+    expect(view.state.doc.toString()).toBe('/');
+  });
+
+  it('page picker searches provided authorized scope and inserts duplicate title by identity', () => {
+    const { container } = renderWYS({ initial: 'Text', spaceId: 's1', pages: [{ id: 'a', title: 'Same' }, { id: 'b', title: 'Same' }] });
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ selection: EditorSelection.cursor(4) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Page link' }));
+    expect(screen.getByRole('dialog', { name: 'Page link' })).toHaveTextContent('Current Space');
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'b' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Same b' }));
+    expect(view.state.doc.toString()).toBe('Text[[b|Same]]');
+    act(() => undo(view));
+    expect(view.state.doc.toString()).toBe('Text');
+  });
+
+  it('refuses page-link insertion after the source changes while picker has focus', () => {
+    const { container } = renderWYS({ initial: 'Text', pages: [{ id: 'a', title: 'Page' }] });
+    const view = currentEditorView(container);
+    fireEvent.click(screen.getByRole('button', { name: 'Page link' }));
+    act(() => view.dispatch({ changes: { from: 0, insert: 'human ' } }));
+    fireEvent.click(screen.getByRole('button', { name: 'Page a' }));
+    expect(view.state.doc.toString()).toBe('human Text');
+    expect(screen.getByRole('alert')).toHaveTextContent('selection changed');
+  });
+
+  it.each(['page', 'space', 'identity', 'permission'])('closes and clears loaded page links when %s changes', async (change) => {
+    const requestLinks = vi.fn().mockResolvedValue([{ id: 'private', title: 'Private document' }]);
+    const props = { pageId: 'page-1', spaceId: 'space-1', pageLinksIdentity: 'user-1:true', value: 'Original', mode: 'edit' as const, onChange: vi.fn(), onRequestPageLinks: requestLinks };
+    const mounted = render(<LanguageProvider><MarkdownWorkspace {...props} /></LanguageProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Page link' }));
+    await screen.findByRole('button', { name: 'Private document private' });
+    const changed = { ...props, [change === 'page' ? 'pageId' : change === 'space' ? 'spaceId' : 'pageLinksIdentity']: change === 'permission' ? 'user-1:false' : 'other' };
+    mounted.rerender(<LanguageProvider><MarkdownWorkspace {...changed} /></LanguageProvider>);
+    expect(screen.queryByRole('dialog', { name: 'Page link' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Private document private' })).not.toBeInTheDocument();
+    expect(props.onChange).not.toHaveBeenCalled();
+  });
+
+  it('forwards cancellation from a remounted page-link picker and ignores its late result', async () => {
+    const pending = deferred<Array<{ id: string; title: string }>>();
+    const requestLinks = vi.fn().mockReturnValue(pending.promise);
+    const props = { pageId: 'page-1', spaceId: 'space-1', pageLinksIdentity: 'user-1:true', value: 'Original', mode: 'edit' as const, onChange: vi.fn(), onRequestPageLinks: requestLinks };
+    const mounted = render(<LanguageProvider><MarkdownWorkspace {...props} /></LanguageProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Page link' }));
+    expect(requestLinks).toHaveBeenCalledWith('', expect.any(AbortSignal));
+    const signal = requestLinks.mock.calls[0][1] as AbortSignal;
+    mounted.rerender(<LanguageProvider><MarkdownWorkspace {...props} pageId="page-2" /></LanguageProvider>);
+    expect(signal.aborted).toBe(true);
+    await act(async () => pending.resolve([{ id: 'private', title: 'Private document' }]));
+    expect(screen.queryByRole('dialog', { name: 'Page link' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Private document')).not.toBeInTheDocument();
+    expect(props.onChange).not.toHaveBeenCalled();
+  });
+
+  it('tracks the active source heading in edit mode', () => {
+    const { container } = renderWYS({ initial: '# A\n\n# B' });
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ selection: EditorSelection.cursor(6) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Contents' }));
+    expect(screen.getByRole('button', { name: 'B' })).toHaveAttribute('aria-current', 'location');
+  });
+
+  it('image toolbar uses existing upload anchors and isolates undo from prior typing', async () => {
+    const upload = vi.fn().mockResolvedValue(['assets/image.png']);
+    const { container } = renderWYS({ initial: 'Original', onUploadImages: upload });
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ changes: { from: 8, insert: ' human' }, selection: { anchor: 14 } }));
+    const depth = undoDepth(view.state);
+    const input = screen.getByLabelText('Upload images');
+    fireEvent.change(input, { target: { files: [new File(['image'], 'image.png', { type: 'image/png' })] } });
+    await waitFor(() => expect(view.state.doc.toString()).toBe('Original human![[assets/image.png]]'));
+    expect(undoDepth(view.state)).toBe(depth + 1);
+    act(() => undo(view));
+    expect(view.state.doc.toString()).toBe('Original human');
+  });
+
+  it('edit outline navigates duplicate heading source and excludes fenced headings', () => {
+    const { container } = renderWYS({ initial: '# A\n```md\n# fake\n```\n# A' });
+    const view = currentEditorView(container);
+    fireEvent.click(screen.getByRole('button', { name: 'Contents' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'A' })[1]);
+    expect(view.state.selection.main.head).toBe(21);
+    expect(screen.queryByRole('button', { name: 'fake' })).not.toBeInTheDocument();
+  });
+
   it('edit mode renders formatting marks for non-cursor lines (live preview)', () => {
     const { container } = renderWYS();
     // heading markdown should produce a header-styled line in the editor
@@ -196,6 +379,62 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     act(() => workspaceRef.current?.restorePosition(position!));
     expect(currentEditorView(document.body).state.selection.main.head).toBe(detailsBodyOffset);
     expect(currentEditorView(document.body).scrollDOM.scrollTop).not.toBe(240);
+  });
+
+  it.each(['forward', 'reverse'] as const)('restores a %s selection at its exact repeated-text offsets without changing source or undo depth', (direction) => {
+    const workspaceRef = createRef<MarkdownWorkspaceHandle>();
+    const source = 'Repeat passage.\n\nRepeat passage.';
+    const from = source.lastIndexOf('Repeat');
+    const to = from + 'Repeat'.length;
+    renderWYS({ initial: source, workspaceRef });
+    const view = currentEditorView(document.body);
+    const [anchor, head] = direction === 'forward' ? [from, to] : [to, from];
+    act(() => view.dispatch({ selection: EditorSelection.range(anchor, head) }));
+    const position = workspaceRef.current!.capturePosition();
+    act(() => view.dispatch({ selection: EditorSelection.cursor(0) }));
+    const depth = undoDepth(view.state);
+    act(() => workspaceRef.current!.restorePosition(JSON.parse(JSON.stringify(position))));
+    expect(view.state.selection.main.empty).toBe(true);
+    act(() => workspaceRef.current!.restorePosition(position));
+    expect(view.state.selection.main.anchor).toBe(anchor);
+    expect(view.state.selection.main.head).toBe(head);
+    expect(view.state.doc.toString()).toBe(source);
+    expect(undoDepth(view.state)).toBe(depth);
+    expect(JSON.stringify(position)).not.toContain('Repeat');
+  });
+
+  it('refuses a stale selection even when the selected text still matches, and keeps the clamped cursor fallback', () => {
+    const workspaceRef = createRef<MarkdownWorkspaceHandle>();
+    renderWYS({ initial: 'Repeat passage.', workspaceRef });
+    const view = currentEditorView(document.body);
+    act(() => view.dispatch({ selection: EditorSelection.range(0, 6) }));
+    const position = workspaceRef.current!.capturePosition();
+    act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: ' Changed elsewhere.' } }));
+    act(() => workspaceRef.current!.restorePosition(position));
+    expect(view.state.selection.main.empty).toBe(true);
+    expect(view.state.selection.main.head).toBe(6);
+    act(() => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: 'Hi' } }));
+    act(() => workspaceRef.current!.restorePosition(position));
+    expect(view.state.selection.main.head).toBe(2);
+  });
+
+  it.each(['page', 'space', 'identity'] as const)('invalidates the selection bookmark after a %s scope change and does not revive it on return', (change) => {
+    const workspaceRef = createRef<MarkdownWorkspaceHandle>();
+    const source = 'Repeat passage.';
+    const props = { pageId: 'page-1', spaceId: 'space-1', pageLinksIdentity: 'user-1', value: source, mode: 'edit' as const, onChange: vi.fn() };
+    const renderWorkspace = (scope: typeof props) => <LanguageProvider><MarkdownWorkspace {...scope} ref={workspaceRef} /></LanguageProvider>;
+    const { rerender } = render(renderWorkspace(props));
+    const view = currentEditorView(document.body);
+    act(() => view.dispatch({ selection: EditorSelection.range(8, 2) }));
+    const position = workspaceRef.current!.capturePosition();
+    const changed = { ...props, [change === 'page' ? 'pageId' : change === 'space' ? 'spaceId' : 'pageLinksIdentity']: 'other' };
+    rerender(renderWorkspace(changed));
+    act(() => workspaceRef.current!.restorePosition(position));
+    expect(view.state.selection.main.empty).toBe(true);
+    rerender(renderWorkspace(props));
+    act(() => workspaceRef.current!.restorePosition(position));
+    expect(view.state.selection.main.empty).toBe(true);
+    expect(view.state.selection.main.head).toBe(2);
   });
 
   it('restores the second repeated heading by its rendered identity instead of the first label match', async () => {
@@ -1031,5 +1270,212 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
 
     expect(screen.getByTestId('md-preview')).toHaveTextContent('unchanged');
     expect(onUploadError).not.toHaveBeenCalled();
+  });
+});
+
+describe('guarded visual table editing', () => {
+  const tableSource = '# Before\n\n| Name | Value |\n| --- | ---: |\n| a | `code` |\n\n[ref]: ../中文.pdf "Keep"\n';
+  beforeEach(() => { localStorage.setItem('agentwiki.language.v1', 'en'); resourceMocks.post.mockResolvedValue({ data: { resources: [] } }); });
+  afterEach(cleanup);
+  const openTable = (container: HTMLElement) => {
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ selection: EditorSelection.cursor(view.state.doc.toString().indexOf('| Name') + 2) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit table' }));
+    return view;
+  };
+  it('opens, cancels and applies an unchanged table without changing source/history', async () => {
+    const onChange = vi.fn(); const { container } = renderWYS({ initial: tableSource, onChange });
+    const view = openTable(container); const depth = undoDepth(view.state);
+    const dispatch = vi.spyOn(view, 'dispatch');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(dispatch).not.toHaveBeenCalled();
+    await waitFor(() => expect(view.contentDOM).toHaveFocus());
+    openTable(container); dispatch.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Apply table' }));
+    expect(dispatch).not.toHaveBeenCalled(); dispatch.mockRestore();
+    expect(onChange).not.toHaveBeenCalled(); expect(undoDepth(view.state)).toBe(depth);
+    expect(view.state.doc.toString()).toBe(tableSource);
+  });
+  it('applies one isolated source span with exact undo and no changes outside the table', () => {
+    const onChange = vi.fn(); const { container } = renderWYS({ initial: tableSource, onChange });
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ changes: { from: 2, insert: 'human ' } }));
+    const before = view.state.doc.toString(); const depth = undoDepth(view.state);
+    openTable(container);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Row 1, column 1 (Markdown)' }), { target: { value: '**new**|cell' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply table' }));
+    expect(view.state.doc.toString()).toBe(before.replace('| a |', '| **new**\\|cell |'));
+    expect(undoDepth(view.state)).toBe(depth + 1);
+    act(() => undo(view)); expect(view.state.doc.toString()).toBe(before);
+  });
+  it.each(['change', 'change then undo'])('refuses a stale table after %s while the dialog is open', (action) => {
+    const { container } = renderWYS({ initial: tableSource }); const view = openTable(container);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Row 1, column 1 (Markdown)' }), { target: { value: 'candidate' } });
+    act(() => view.dispatch({ changes: { from: 0, insert: 'new ' } }));
+    if (action === 'change then undo') act(() => undo(view));
+    const beforeApply = view.state.doc.toString();
+    fireEvent.click(screen.getByRole('button', { name: 'Apply table' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('document or editing permission changed');
+    expect(view.state.doc.toString()).toBe(beforeApply);
+  });
+  it.each(['\r\n', 'mixed'])('visibly refuses %j raw line endings without mutating or claiming visual fidelity', (ending) => {
+    const raw = ending === 'mixed' ? tableSource.replace('\n', '\r\n') : tableSource.replace(/\n/gu, ending);
+    const onChange = vi.fn(); const { container } = renderWYS({ initial: raw, onChange });
+    const depth = undoDepth(currentEditorView(container).state);
+    const view = openTable(container);
+    expect(screen.queryByRole('dialog', { name: 'Edit table' })).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('line endings cannot be preserved');
+    expect(onChange).not.toHaveBeenCalled(); expect(undoDepth(view.state)).toBe(depth);
+  });
+  it('rechecks live CodeMirror readonly at Apply', () => {
+    const onChange = vi.fn(); const { container } = renderWYS({ initial: tableSource, onChange }); const view = openTable(container);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Row 1, column 1 (Markdown)' }), { target: { value: 'late' } });
+    act(() => view.dispatch({ effects: StateEffect.appendConfig.of(EditorState.readOnly.of(true)) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Apply table' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('editing permission changed');
+    expect(onChange).not.toHaveBeenCalled(); expect(view.state.doc.toString()).toBe(tableSource);
+  });
+  it('does not reparse tables on ordinary cursor movement', () => {
+    const parse = vi.spyOn(tableEditing, 'parseTableLocations');
+    try {
+      const { container } = renderWYS({ initial: tableSource }); const view = currentEditorView(container);
+      const initialCount = parse.mock.calls.length; expect(initialCount).toBeGreaterThan(0);
+      for (const offset of [3, 5, 15, 21]) act(() => view.dispatch({ selection: EditorSelection.cursor(offset) }));
+      expect(parse).toHaveBeenCalledTimes(initialCount);
+    } finally { parse.mockRestore(); }
+  });
+  it('explains unsupported table shapes visibly and never opens a misleading grid', () => {
+    const raw = '| Name | Value |\n| --- | --- |\n| one |';
+    const onChange = vi.fn(); const { container } = renderWYS({ initial: raw, onChange });
+    act(() => currentEditorView(container).dispatch({ selection: EditorSelection.cursor(2) }));
+    expect(screen.queryByRole('button', { name: 'Edit table' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Table source' }));
+    expect(screen.getByRole('status')).toHaveTextContent('uneven rows');
+    expect(screen.queryByRole('dialog', { name: 'Edit table' })).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+  it.each(['permission', 'identity', 'preview'])('invalidates an open table after %s changes', (change) => {
+    const onChange = vi.fn();
+    const props = { value: tableSource, mode: 'edit' as MarkdownMode, onChange, pageId: 'a', spaceId: 's', pageLinksIdentity: 'user-a', tableEditingEnabled: true };
+    const wrap = (next: typeof props) => <LanguageProvider><MarkdownWorkspace {...next} /></LanguageProvider>;
+    const { container, rerender } = render(wrap(props)); const view = openTable(container);
+    const apply = screen.getByRole('button', { name: 'Apply table' });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Row 1, column 1 (Markdown)' }), { target: { value: 'late' } });
+    rerender(wrap({ ...props, ...(change === 'permission' ? { tableEditingEnabled: false } : change === 'identity' ? { pageLinksIdentity: 'user-b' } : { mode: 'preview' as MarkdownMode }) }));
+    expect(screen.queryByRole('dialog', { name: 'Edit table' })).not.toBeInTheDocument();
+    fireEvent.click(apply); expect(onChange).not.toHaveBeenCalled(); expect(view.state.doc.toString()).toBe(tableSource);
+  });
+});
+
+
+describe('preview navigation intent', () => {
+  it.each(['wheel', 'touch', 'keyboard', 'scrollbar'] as const)('recognizes %s only after the article actually scrolls', (gesture) => {
+    const ref = createRef<MarkdownWorkspaceHandle>();
+    render(<LanguageProvider><MarkdownWorkspace ref={ref} value={'# A\n\nBody'} mode="preview" onChange={vi.fn()} /></LanguageProvider>);
+    const root = screen.getByTestId('md-preview');
+    const surface = screen.getByTestId('md-editor-surface');
+    fireEvent.scroll(surface); // Initial programmatic restoration never arms intent.
+    expect(ref.current!.capturePosition().previewNavigated).toBe(false);
+    if (gesture === 'wheel') fireEvent.wheel(root, { deltaY: 200 });
+    if (gesture === 'touch') fireEvent.touchMove(root);
+    if (gesture === 'keyboard') fireEvent.keyDown(document.body, { key: 'PageDown' });
+    if (gesture === 'scrollbar') fireEvent.pointerDown(surface);
+    fireEvent.scroll(surface); // Clamped wheel/key cannot change semantic position.
+    expect(ref.current!.capturePosition().previewNavigated).toBe(false);
+    surface.scrollTop = 200;
+    fireEvent.scroll(surface);
+    expect(ref.current!.capturePosition().previewNavigated).toBe(true);
+  });
+
+  it.each(['End', 'PageDown'])('recognizes document scroll from %s while focus remains on the mode toolbar button', (key) => {
+    const ref = createRef<MarkdownWorkspaceHandle>();
+    const scrollingElement = Object.getOwnPropertyDescriptor(document, 'scrollingElement');
+    Object.defineProperty(document, 'scrollingElement', { configurable: true, value: document.documentElement });
+    try {
+      render(<LanguageProvider><div data-testid="editor-toolbar"><button>Return to edit</button></div><MarkdownWorkspace ref={ref} value={'# A\n\nBody'} mode="preview" onChange={vi.fn()} /></LanguageProvider>);
+      const button = screen.getByRole('button', { name: 'Return to edit' });
+      button.focus();
+      expect(document.activeElement).toBe(button);
+      fireEvent.keyDown(document.activeElement!, { key });
+      fireEvent.scroll(document);
+      expect(ref.current!.capturePosition().previewNavigated).toBe(false);
+      document.documentElement.scrollTop = 200;
+      fireEvent.scroll(document);
+      expect(ref.current!.capturePosition().previewNavigated).toBe(true);
+    } finally {
+      document.documentElement.scrollTop = 0;
+      if (scrollingElement) Object.defineProperty(document, 'scrollingElement', scrollingElement);
+      else delete (document as unknown as { scrollingElement?: Element }).scrollingElement;
+    }
+  });
+
+  it.each(['input', 'textarea', 'select', 'editable', 'dialog', 'menu', 'Enter', ' '])('does not arm article navigation from %s controls', (kind) => {
+    const ref = createRef<MarkdownWorkspaceHandle>();
+    const content = kind === 'input' ? <input aria-label="Control" />
+      : kind === 'textarea' ? <textarea aria-label="Control" />
+      : kind === 'select' ? <select aria-label="Control"><option>A</option></select>
+      : kind === 'editable' ? <div contentEditable data-testid="control" />
+      : kind === 'dialog' || kind === 'menu' ? <div role={kind}><button>Control</button></div>
+      : <button>Control</button>;
+    render(<LanguageProvider><div data-testid="editor-toolbar">{content}</div><MarkdownWorkspace ref={ref} value={'# A\n\nBody'} mode="preview" onChange={vi.fn()} /></LanguageProvider>);
+    const control = document.querySelector<HTMLElement>('[data-testid="editor-toolbar"] input, [data-testid="editor-toolbar"] textarea, [data-testid="editor-toolbar"] select, [data-testid="editor-toolbar"] [contenteditable], [data-testid="editor-toolbar"] button')!;
+    control.focus();
+    fireEvent.keyDown(control, { key: kind === 'Enter' || kind === ' ' ? kind : 'End' });
+    const surface = screen.getByTestId('md-editor-surface');
+    surface.scrollTop = 200;
+    fireEvent.scroll(surface);
+    expect(ref.current!.capturePosition().previewNavigated).toBe(false);
+  });
+
+  it('ignores directory and dialog gestures even when the article subsequently reflows', () => {
+    const ref = createRef<MarkdownWorkspaceHandle>();
+    render(<LanguageProvider><aside data-testid="other-surface"><button>Other control</button></aside><MarkdownWorkspace ref={ref} value={'# A\n\nBody'} mode="preview" onChange={vi.fn()} /></LanguageProvider>);
+    const other = screen.getByTestId('other-surface');
+    fireEvent.wheel(other, { deltaY: 200 });
+    fireEvent.touchMove(other);
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Other control' }), { key: 'PageDown' });
+    fireEvent.pointerDown(other);
+    const surface = screen.getByTestId('md-editor-surface');
+    surface.scrollTop = 200;
+    fireEvent.scroll(surface);
+    expect(ref.current!.capturePosition().previewNavigated).toBe(false);
+  });
+});
+
+
+describe('long-document live preview lifecycle', () => {
+  const source = Array.from({ length: 250 }, (_, i) => `## Chapter ${i}\n**Strong** and [short](https://example.test/${'long-path/'.repeat(12)})\nParagraph ${i}.\n`).join('\n');
+  const hiddenDecorations = (view: EditorView) => view.state.facet(EditorView.decorations)
+    .map((item) => typeof item === 'function' ? item(view) : item)
+    .filter((set) => set.size > 100).sort((a, b) => b.size - a.size)[0] as DecorationSet;
+  it('retains the parsed long document and non-active markers through unrelated parent renders', () => {
+    const shell = () => <LanguageProvider><MarkdownWorkspace value={source} mode="edit" onChange={() => {}} /></LanguageProvider>;
+    const rendered = render(shell()), view = currentEditorView(rendered.container);
+    act(() => { expect(forceParsing(view, source.length, 1000)).toBe(true); });
+    const tree = syntaxTree(view.state), parser = view.state.facet(languageFacet), decorations = hiddenDecorations(view), history = undoDepth(view.state);
+    expect(decorations.size).toBeGreaterThan(100);
+    rendered.rerender(shell());
+    expect(currentEditorView(rendered.container)).toBe(view);
+    expect(view.state.facet(languageFacet)).toBe(parser);
+    expect(syntaxTree(view.state)).toBe(tree);
+    expect(hiddenDecorations(view)).toBe(decorations);
+    expect(view.state.doc.toString()).toBe(source);
+    expect(undoDepth(view.state)).toBe(history);
+  });
+  it('does not recompute hidden markers for selection moves within the same active line', () => {
+    const rendered = renderWYS({ initial: source }), view = currentEditorView(rendered.container);
+    act(() => { forceParsing(view, source.length, 1000); view.dispatch({ selection: EditorSelection.cursor(source.indexOf('Paragraph 180.')) }); });
+    const decorations = hiddenDecorations(view), tree = syntaxTree(view.state);
+    act(() => { view.dispatch({ selection: EditorSelection.cursor(view.state.selection.main.head + 2) }); });
+    expect(hiddenDecorations(view)).toBe(decorations);
+    expect(syntaxTree(view.state)).toBe(tree);
+    expect(undoDepth(view.state)).toBe(0);
+  });
+  it('refreshes distant non-active markers when background parsing advances', () => {
+    const rendered = renderWYS({ initial: source }), view = currentEditorView(rendered.container);
+    act(() => { expect(forceParsing(view, source.length, 1000)).toBe(true); });
+    const from = source.lastIndexOf('**Strong**'); let hidden = false;
+    hiddenDecorations(view).between(from, from + 2, (start, end) => { if (start === from && end === from + 2) hidden = true; });
+    expect(hidden).toBe(true);
   });
 });

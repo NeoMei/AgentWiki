@@ -79,6 +79,7 @@ const UserHarness = () => {
 describe('SpaceWorkspace', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
   });
 
   it('keeps Pages active when a reader moves to the edit route', () => {
@@ -124,11 +125,36 @@ describe('SpaceWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'expand' }));
     fireEvent.click(screen.getByRole('button', { name: 'other user' }));
     expect(screen.getByTestId('scope')).toHaveTextContent('user-1:space-1:edit');
-    expect(screen.getByTestId('expanded')).toBeEmptyDOMElement();
-    expect(screen.getByTestId('directory-scroll')).toHaveTextContent('0');
+    expect(screen.getByTestId('expanded')).toHaveTextContent('folder-a');
+    expect(screen.getByTestId('directory-scroll')).toHaveTextContent('120');
 
     fireEvent.click(screen.getByRole('button', { name: 'other space' }));
     expect(screen.getByTestId('expanded')).toBeEmptyDOMElement();
+  });
+
+  it('keeps transient directory selection isolated by user and Space and out of persisted preferences', () => {
+    const selections: Array<ReturnType<typeof useSpaceWorkspace>['directorySelection']> = [];
+    const Probe = () => {
+      const workspace = useSpaceWorkspace();
+      selections.push(workspace.directorySelection);
+      return <button onClick={() => workspace.setDirectoryScrollTop(80)}>persist preferences</button>;
+    };
+    const tree = (user: string, space: string) => <LanguageProvider><MemoryRouter><SpaceWorkspaceProvider userId={user}><SpaceWorkspace mode="read" spaceId={space} showNavigation={false}><Probe /></SpaceWorkspace></SpaceWorkspaceProvider></MemoryRouter></LanguageProvider>;
+    const mounted = render(tree('user-1', 'space-1'));
+    const first = selections[selections.length - 1]!;
+    first.pageId = 'selected-a'; first.pending.desktop = true;
+    fireEvent.click(screen.getByRole('button', { name: 'persist preferences' }));
+    expect(localStorage.getItem('agentwiki.workspace.v1:user-1:space-1')).not.toContain('selected-a');
+    mounted.rerender(tree('user-2', 'space-1'));
+    expect(selections[selections.length - 1]).not.toBe(first);
+    expect(selections[selections.length - 1]?.pageId).toBeNull();
+    mounted.rerender(tree('user-1', 'space-2'));
+    expect(selections[selections.length - 1]).not.toBe(first);
+    expect(selections[selections.length - 1]?.pending.desktop).toBe(false);
+    mounted.rerender(tree('user-1', 'space-1'));
+    expect(selections[selections.length - 1]).toBe(first);
+    expect(selections[selections.length - 1]?.pageId).toBe('selected-a');
+    expect(selections[selections.length - 1]?.pending.desktop).toBe(true);
   });
 
   it('restores the Space browse state after visiting a wide section without loading its directory', async () => {
@@ -288,6 +314,76 @@ describe('SpaceWorkspace', () => {
     } }));
     expect(screen.getByRole('heading', { name: 'Newest page' })).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'Late stale page' })).not.toBeInTheDocument();
+  });
+
+  it('retains page reveal across asynchronous directory unmounts while reload and manual scroll keep saved position', async () => {
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    localStorage.setItem('agentwiki.workspace.v1:user-1:space-1', JSON.stringify({ schemaVersion: 1, directoryScrollTop: 500 }));
+    let finishPage: (() => void) | null = null;
+    let delayPage = false;
+    const scrollWindow = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    const scrollByWindow = vi.spyOn(window, 'scrollBy').mockImplementation(() => {});
+    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return this.dataset.testid === 'space-directory-scroll' ? new DOMRect(0, 100, 260, 300)
+        : this.getAttribute('role') === 'treeitem' ? new DOMRect(0, -600, 240, 40) : new DOMRect();
+    });
+    const originalScroll = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');
+    const reveal = vi.fn();
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: reveal });
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url.startsWith('/pages/')) {
+        if (delayPage) await new Promise<void>((resolve) => { finishPage = resolve; });
+        const id = url.split('/').pop();
+        return { data: { id, title: id, content: `Body ${id}`, spaceId: 'space-1', folderId: null, format: 'markdown', updatedAt: 'now', capabilities: { canEdit: true } } };
+      }
+      if (url === '/spaces/space-1') return { data: { id: 'space-1', name: 'Wiki', members: [{ userId: 'user-1', role: 'viewer' }] } };
+      if (url.endsWith('/folders')) return { data: { spaceId: 'space-1', treeRevision: '7', data: [], nextCursor: null } };
+      if (url.endsWith('/content-tree')) return { data: { spaceId: 'space-1', treeRevision: '7', parentFolderId: null, nextCursor: null,
+        data: ['page-1', 'page-2'].map((id) => ({ kind: 'page', id, title: id, folderId: null, path: `/${id}`, sortOrder: 0, createdAt: 'now', updatedAt: 'now' })) } };
+      if (url.includes('/page-templates/composite')) return { data: { templates: [], total: 0, skip: 0, take: 1, capabilities: { canCreate: false } } };
+      if (url.startsWith('/knowledge/related')) return { data: [] };
+      throw new Error(`Unexpected GET ${url}`);
+    });
+    const tree = <LanguageProvider><MemoryRouter initialEntries={['/pages/page-1']}>
+      <SpaceWorkspaceProvider userId="user-1"><Routes><Route path="/pages/:id" element={<RoutedDeletionWorkspace />} /></Routes></SpaceWorkspaceProvider>
+    </MemoryRouter></LanguageProvider>;
+    let mounted = render(tree);
+    const pageReveals = () => reveal.mock.instances.filter((item) => item instanceof HTMLElement && item.dataset.testid?.startsWith('content-item-'));
+    try {
+      await screen.findByTestId('content-item-page-1');
+      expect(screen.getByTestId('space-directory-scroll').scrollTop).toBe(500);
+      expect(pageReveals()).toHaveLength(0);
+      for (const [button, destination] of [['read second', 'page-2'], ['history back', 'page-1']]) {
+        delayPage = true;
+        finishPage = null;
+        fireEvent.click(screen.getByRole('button', { name: button }));
+        await waitFor(() => expect(screen.queryByTestId('space-directory-scroll')).not.toBeInTheDocument());
+        await waitFor(() => expect(finishPage).not.toBeNull());
+        delayPage = false;
+        await act(async () => { finishPage!(); });
+        await screen.findByTestId(`content-item-${destination}`);
+        await waitFor(() => expect(pageReveals()[pageReveals().length - 1]).toBe(screen.getByTestId(`content-item-${destination}`)));
+        const scroller = screen.getByTestId('space-directory-scroll');
+        scroller.scrollTop = 650;
+        fireEvent.scroll(scroller);
+        reveal.mockClear();
+        fireEvent.resize(window);
+        expect(pageReveals()).toHaveLength(0);
+        expect(scroller.scrollTop).toBe(650);
+      }
+      mounted.unmount();
+      mounted = render(tree);
+      await screen.findByTestId('content-item-page-1');
+      expect(screen.getByTestId('space-directory-scroll').scrollTop).toBe(650);
+      expect(pageReveals()).toHaveLength(0);
+    } finally {
+      mounted.unmount();
+      bounds.mockRestore();
+      scrollWindow.mockRestore();
+      scrollByWindow.mockRestore();
+      if (originalScroll) Object.defineProperty(Element.prototype, 'scrollIntoView', originalScroll);
+      else delete (Element.prototype as Partial<Element>).scrollIntoView;
+    }
   });
 
   it('keeps directory requests bounded after a page identity installs its folder', async () => {

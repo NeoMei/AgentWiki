@@ -1,15 +1,56 @@
 import { runtimeLabel } from '../../i18n/runtime-label';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { FileUp, GitBranch, Globe, Play, Plus, Type } from 'lucide-react';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { apiErrorMessage } from '../../api/error-message';
+import { RunsPage } from './RunsPage';
 import { IngestRunDetails } from './IngestRunDetails';
 import { isActiveIngestRun, useBoundedPolling } from './useBoundedPolling';
 
+export const LegacyRunsRoute: React.FC = () => {
+  const { id, runId } = useParams<{ id: string; runId: string }>();
+  const { search } = useLocation();
+  const params = new URLSearchParams(search);
+  params.set('view', 'runs');
+  if (runId) params.set('run', runId);
+  return <Navigate replace to={`/spaces/${id}/sources?${params}`} />;
+};
+
 export const SourcesPage: React.FC = () => {
+  const { t } = useLanguage();
+  const [params, setParams] = useSearchParams();
+  const runsActive = params.get('view') === 'runs';
+  const selectView = (runs: boolean) => {
+    const next = new URLSearchParams(params);
+    if (runs) next.set('view', 'runs');
+    else { next.delete('view'); next.delete('run'); }
+    setParams(next);
+  };
+  return <div className="max-w-5xl mx-auto">
+    <div role="tablist" aria-label={t('source.title')} className="mb-6 flex gap-1 border-b">
+      {[false, true].map(runs => <button key={String(runs)} type="button" role="tab"
+        id={runs ? 'sources-runs-tab' : 'sources-list-tab'}
+        aria-controls="sources-view-panel" aria-selected={runsActive === runs} tabIndex={runsActive === runs ? 0 : -1}
+        onKeyDown={event => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+          event.preventDefault();
+          const nextRuns = event.key === 'Home' ? false : event.key === 'End' ? true : !runs;
+          selectView(nextRuns);
+          document.getElementById(nextRuns ? 'sources-runs-tab' : 'sources-list-tab')?.focus();
+        }}
+        className={`h-10 border-b-2 px-3 text-sm ${runsActive === runs ? 'border-blue-600 text-blue-600 font-medium' : 'border-transparent text-gray-500'}`}
+        onClick={() => selectView(runs)}>{t(runs ? 'space.runs' : 'space.sources')}</button>)}
+    </div>
+    <div role="tabpanel" id="sources-view-panel" aria-labelledby={runsActive ? 'sources-runs-tab' : 'sources-list-tab'}>
+      {runsActive ? <RunsPage /> : <SourcesView />}
+    </div>
+  </div>;
+};
+
+const SourcesView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { t } = useLanguage();
   const { user } = useAuth();
@@ -231,7 +272,7 @@ export const SourcesPage: React.FC = () => {
                 <p className="mt-2"><strong>{t('common.versions')}:</strong> {(detail.versions || []).map((version: any) => `v${version.version} ${version.contentHash?.slice(0, 8) || ''}`).join(' · ') || t('common.none')}</p>
                 <p className="mt-2 font-medium">{t('source.recentRuns')}</p>
                 <div className="mt-2 space-y-3">{(detail.runs || []).map((run: any, index: number) => <div key={run.id || index} className="rounded-lg border bg-white p-3"><IngestRunDetails run={run} spaceId={id} /></div>)}{!detail.runs?.length ? t('common.none') : null}</div>
-                {detail.runs?.[0]?.status === 'failed' ? <Link to={`/spaces/${id}/runs`} className="mt-2 inline-flex min-h-8 items-center text-blue-700 underline">{t('source.failedRunDetails')}</Link> : null}
+                {detail.runs?.[0]?.status === 'failed' ? <Link to={`/spaces/${id}/sources?view=runs&run=${encodeURIComponent(detail.runs[0].id)}`} className="mt-2 inline-flex min-h-8 items-center text-blue-700 underline">{t('source.failedRunDetails')}</Link> : null}
                 {activeRunKey ? <p className="mt-2">{polling ? t('source.updating') : t('source.pollStopped')}</p> : null}
               </> : null}
               <button type="button" disabled={detailLoading} onClick={() => { setRefreshSession((value) => value + 1); void readDetail(source.id); }} className="mt-2 h-8 rounded-lg border px-3 disabled:opacity-50">{t('source.refresh')}</button>

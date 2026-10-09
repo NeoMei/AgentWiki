@@ -1,3 +1,6 @@
+import { ConfigService } from '@nestjs/config';
+import { TemplateFeaturePolicy } from './template-feature-policy';
+import { CompositeTemplateController } from './composite-template.controller';
 import { AuthorizationService } from '../core/authorization/authorization.service';
 import { Prisma } from '@prisma/client';
 import { BusinessException } from '../core/filters/business-error';
@@ -108,6 +111,31 @@ function compileOnlyRequiresSpaceTreeLock(service: PageAgentBindingService) {
 void compileOnlyRequiresSpaceTreeLock;
 
 describe('PageAgentBindingService', () => {
+  it.each([
+    ['owner', true, true], ['admin', true, true], ['editor', true, true], ['viewer', true, false],
+    ['owner', false, true], ['admin', false, true], ['editor', false, true], ['viewer', false, false],
+  ] as const)('matches real standalone binding route authority for %s, allowlisted=%s', async (role, allowed, expected) => {
+    const h = makeHarness();
+    h.tx.$queryRaw = jest.fn().mockResolvedValue([{ id: principal.userId }]);
+    h.tx.user = { findUnique: jest.fn().mockResolvedValue({ id: principal.userId, type: 'human', platformRole: 'user', deletedAt: null, lockedAt: null }) };
+    h.tx.spaceMember = { findUnique: jest.fn().mockResolvedValue({ role }) };
+    const authorization = new AuthorizationService(h.prisma);
+    const bindings = new PageAgentBindingService(h.prisma, authorization, h.contentTree);
+    const policy = new TemplateFeaturePolicy({ get: () => allowed ? 'space-1' : '' } as unknown as ConfigService);
+    const controller = new CompositeTemplateController({} as any, {} as any, {} as any, {} as any,
+      {} as any, bindings, {} as any, policy);
+    const operation = Promise.resolve().then(() => controller.setPageBinding({ user: principal } as any,
+      'space-1', 'page-1', { agentId: 'agent-1', roleSlotKey: 'writer', expectedUpdatedAt: null, expectedTreeRevision: '7' }));
+    if (expected) {
+      await expect(operation).resolves.toEqual([{ pageId: 'page-1', agentId: 'agent-1', roleSlotKey: 'writer', updatedAt: firstVersion.toISOString() }]);
+      expect(h.bindings.get('page-1')?.agentId).toBe('agent-1');
+    } else {
+      await expect(operation).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+      expect(h.bindings.size).toBe(0);
+    }
+    expect(policy.capabilities('space-1', role).canBindAgent).toBe(expected);
+  });
+
   it('denies a standalone binding for a nonmember platform admin through real authorization', async () => {
     const h = makeHarness();
     h.tx.$queryRaw = jest.fn().mockResolvedValue([{ id: principal.userId }]);

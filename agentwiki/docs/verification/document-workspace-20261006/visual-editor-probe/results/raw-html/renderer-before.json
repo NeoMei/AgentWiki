@@ -1,0 +1,13 @@
+{
+  "type": "root",
+  "children": [
+    {
+      "type": "html",
+      "value": "<details data-custom=\"保留\">\n<summary>中文概要</summary>\n<p>原始 <mark>标签</mark>。</p>\n</details>"
+    },
+    {
+      "type": "html",
+      "value": "<!-- agentwiki:custom token=abc -->"
+    }
+  ]
+}

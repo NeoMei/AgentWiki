@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { Bot, ChevronDown, ChevronRight, Edit, FileText, Folder, FolderPlus, MoreHorizontal, Pencil, Save, Trash2 } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Bot, ChevronDown, ChevronRight, Edit, FileText, Folder, FolderPlus, Pencil, Save, Trash2 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { TreeActionMenu } from './TreeActionMenu';
 import { buildMoveRequest, sortNodes } from './contentTreeState';
 import type { ContentMoveRequest, DragInfo, MovePosition } from './contentTreeState';
 import type { ContentTreeFolderNode, ContentTreeNode, ContentTreePageNode } from './contentTreeTypes';
@@ -9,6 +10,7 @@ export type { ContentMoveRequest, MovePosition };
 
 export interface ContentTreeProps {
   nodes: ContentTreeNode[];
+  highlightQuery?: string;
   loading: boolean;
   error: string | null;
   canEdit: boolean;
@@ -32,8 +34,15 @@ export interface ContentTreeProps {
   onRenameFolder: (folder: ContentTreeFolderNode) => void;
   onDeleteFolder: (folder: ContentTreeFolderNode) => void;
   onMove: (request: ContentMoveRequest) => void;
+  reorderDisabled?: boolean;
+  /** Unmount inline input when navigation or identity changes; stale requests cannot alter new UI. */
+  mutationScopeKey?: string;
+  onRenameNode?: (node: ContentTreeNode, name: string) => Promise<void>;
+  onCreateFolderInline?: (parent: ContentTreeFolderNode | null, name: string) => Promise<void>;
+  onCreatePageInline?: (parent: ContentTreeFolderNode | null, title: string) => Promise<void>;
   onConfigurePageAgent?: (page: ContentTreePageNode) => void;
   onConfigureFolderAgents?: (folder: ContentTreeFolderNode) => void;
+  saveFolderTemplateDisabledReason?: string;
   onSaveFolderAsTemplate?: (folder: ContentTreeFolderNode, trigger: HTMLElement) => void;
 }
 
@@ -45,6 +54,7 @@ interface NodeRowLabels {
   rename: string;
   deleteFolder: string;
   newSubfolder: string;
+  newPage: string;
   configureAgent: string;
   saveAsTemplate: string;
   expand: (name: string) => string;
@@ -53,6 +63,7 @@ interface NodeRowLabels {
 
 export const ContentTree: React.FC<ContentTreeProps> = ({
   nodes,
+  highlightQuery,
   loading,
   error,
   canEdit,
@@ -75,9 +86,15 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
   onRenameFolder,
   onDeleteFolder,
   onMove,
+  reorderDisabled = false,
+  mutationScopeKey = '',
+  onRenameNode,
+  onCreateFolderInline,
+  onCreatePageInline,
   onConfigurePageAgent,
   onConfigureFolderAgents,
   onSaveFolderAsTemplate,
+  saveFolderTemplateDisabledReason,
 }) => {
   const { t } = useLanguage();
   const [drag, setDrag] = useState<DragInfo | null>(null);
@@ -115,6 +132,7 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
     rename: t('folder.rename'),
     deleteFolder: t('folder.delete'),
     newSubfolder: t('folder.createTitle'),
+    newPage: t('page.new'),
     configureAgent: t('pageTemplate.binding.action'),
     saveAsTemplate: t('pageTemplate.folderSave.action'),
     expand: (name) => t('folder.expand', { name }),
@@ -127,9 +145,14 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
         const expanded = node.kind === 'folder' && expandedFolderIds.has(node.id);
         return (
         <NodeRow
-          key={node.id}
+          key={`${mutationScopeKey}:${node.id}`}
           node={node}
+          highlightQuery={highlightQuery}
           canEdit={canEdit}
+          reorderDisabled={reorderDisabled}
+          onRenameNode={onRenameNode}
+          onCreateFolderInline={onCreateFolderInline}
+          onCreatePageInline={onCreatePageInline}
           currentPageId={currentPageId}
           selectedFolderId={selectedFolderId}
           expanded={expanded}
@@ -147,12 +170,13 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
           onConfigurePageAgent={onConfigurePageAgent}
           onConfigureFolderAgents={onConfigureFolderAgents}
           onSaveFolderAsTemplate={onSaveFolderAsTemplate}
+          saveFolderTemplateDisabledReason={saveFolderTemplateDisabledReason}
           onDragStart={setDrag}
           onDragEnd={() => setDrag(null)}
           onDrop={(_event, target, position) => {
             const request = buildMoveRequest(drag, target, position, parentFolderId);
             setDrag(null);
-            if (request) onMove(request);
+            if (request && canEdit && !reorderDisabled) onMove(request);
           }}
         >
           {expanded ? <>
@@ -172,6 +196,7 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
 
 interface NodeRowProps {
   node: ContentTreeNode;
+  highlightQuery?: string;
   canEdit: boolean;
   currentPageId?: string;
   selectedFolderId?: string | null;
@@ -179,6 +204,10 @@ interface NodeRowProps {
   onToggleFolder?: (folderId: string) => void;
   pageDeleteDisabled: boolean;
   dragActive: DragInfo | null;
+  reorderDisabled: boolean;
+  onRenameNode?: (node: ContentTreeNode, name: string) => Promise<void>;
+  onCreateFolderInline?: (parent: ContentTreeFolderNode | null, name: string) => Promise<void>;
+  onCreatePageInline?: (parent: ContentTreeFolderNode | null, title: string) => Promise<void>;
   labels: NodeRowLabels;
   onOpenFolder: (folderId: string) => void;
   onOpenPage: (page: ContentTreePageNode) => void;
@@ -189,6 +218,7 @@ interface NodeRowProps {
   onDeleteFolder: (folder: ContentTreeFolderNode) => void;
   onConfigurePageAgent?: (page: ContentTreePageNode) => void;
   onConfigureFolderAgents?: (folder: ContentTreeFolderNode) => void;
+  saveFolderTemplateDisabledReason?: string;
   onSaveFolderAsTemplate?: (folder: ContentTreeFolderNode, trigger: HTMLElement) => void;
   onDragStart: (drag: DragInfo) => void;
   onDragEnd: () => void;
@@ -198,6 +228,11 @@ interface NodeRowProps {
 
 const NodeRow: React.FC<NodeRowProps> = (props) => {
   const { node, canEdit, currentPageId, selectedFolderId, pageDeleteDisabled, dragActive, labels } = props;
+  const [inlineMode, setInlineMode] = useState<'rename' | 'create' | 'page' | null>(null);
+  const rowRef = useRef<HTMLLIElement>(null);
+  const renameSnapshotRef = useRef<ContentTreeNode | null>(null);
+  useEffect(() => { if (!canEdit) setInlineMode(null); }, [canEdit]);
+  const finishInline = () => { setInlineMode(null); requestAnimationFrame(() => rowRef.current?.querySelector<HTMLElement>('[aria-haspopup="menu"]')?.focus()); };
   const [dropHint, setDropHint] = useState<MovePosition | null>(null);
   const isPage = node.kind === 'page';
   const isCurrent = isPage ? node.id === currentPageId : node.id === selectedFolderId;
@@ -207,7 +242,7 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
     + (dropHint === 'into' ? ' ring-2 ring-blue-400' : '');
 
   const handleDragOver = (event: React.DragEvent) => {
-    if (!dragActive || selfDrag) return;
+    if (!canEdit || props.reorderDisabled || !dragActive || selfDrag) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
@@ -223,6 +258,7 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
 
   return (
     <li
+      ref={rowRef}
       className="relative"
       data-testid={'content-item-' + node.id}
       role="treeitem"
@@ -232,9 +268,10 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
       {dropHint === 'before' ? <div className="pointer-events-none absolute -top-px left-2 right-2 h-0.5 rounded bg-blue-500" data-testid="drop-before" /> : null}
       {dropHint === 'after' ? <div className="pointer-events-none absolute -bottom-px left-2 right-2 h-0.5 rounded bg-blue-500" data-testid="drop-after" /> : null}
       <div
-        draggable
+        draggable={canEdit && !props.reorderDisabled && !inlineMode}
         data-testid={'content-row-' + node.id}
         onDragStart={(event) => {
+          if (!canEdit || props.reorderDisabled || inlineMode) { event.preventDefault(); return; }
           event.dataTransfer.setData('text/agentwiki-node-id', node.id);
           event.dataTransfer.effectAllowed = 'move';
           props.onDragStart({ kind: node.kind, id: node.id });
@@ -247,6 +284,7 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
         onDragLeave={() => setDropHint(null)}
         onDrop={(event) => {
           event.preventDefault();
+          if (!canEdit || props.reorderDisabled) return;
           const position: MovePosition = dropHint ?? 'into';
           setDropHint(null);
           props.onDrop(event, node, position);
@@ -259,7 +297,12 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
             {props.expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </button>
         )}
-        {isPage ? (
+        {inlineMode === 'rename' && props.onRenameNode ? <InlineTreeName
+          label={`${labels.rename}: ${isPage ? node.title : node.name}`}
+          initialName={isPage ? node.title : node.name}
+          onCancel={finishInline}
+          onSubmit={(name) => props.onRenameNode!(renameSnapshotRef.current ?? node, name)}
+        /> : isPage ? (
           <button
             type="button"
             onClick={() => props.onOpenPage(node as ContentTreePageNode)}
@@ -269,7 +312,7 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
             data-tree-focus
             title={node.title.trim() || labels.untitledPage}
           >
-            {node.title.trim() || labels.untitledPage}
+            {highlightTitle(node.title.trim() || labels.untitledPage, props.highlightQuery)}
           </button>
         ) : (
           <button
@@ -281,29 +324,11 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
             data-tree-focus
             title={node.name}
           >
-            {node.name}
+            {highlightTitle(node.name, props.highlightQuery)}
           </button>
         )}
         {canEdit ? (
-          <details
-            className="relative shrink-0"
-            onKeyDown={(event) => {
-              if (event.key !== 'Escape') return;
-              event.preventDefault();
-              event.stopPropagation();
-              const details = event.currentTarget;
-              details.open = false;
-              details.querySelector<HTMLElement>('summary')?.focus();
-            }}
-          >
-            <summary
-              className="inline-flex h-7 w-7 cursor-pointer list-none items-center justify-center rounded text-gray-500 hover:bg-gray-200 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 [&::-webkit-details-marker]:hidden"
-              aria-label={`${labels.actions}: ${isPage ? node.title : node.name}`}
-              title={labels.actions}
-            >
-              <MoreHorizontal size={16} />
-            </summary>
-          <span className="absolute right-0 top-full z-20 mt-1 flex items-center gap-0.5 rounded-md border border-gray-200 bg-white p-1 shadow-lg">
+          <TreeActionMenu label={`${labels.actions}: ${isPage ? node.title : node.name}`} title={labels.actions}>
             {!isPage ? (
               <>
                 {props.onConfigureFolderAgents ? <IconButton
@@ -314,22 +339,26 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
                 {props.onSaveFolderAsTemplate ? <IconButton
                   testId={'content-save-template-' + node.id}
                   title={labels.saveAsTemplate}
+                  disabled={!!props.saveFolderTemplateDisabledReason}
+                  disabledReason={props.saveFolderTemplateDisabledReason}
                   onClick={(event) => props.onSaveFolderAsTemplate?.(
                     node as ContentTreeFolderNode,
-                    event.currentTarget,
+                    rowRef.current?.querySelector<HTMLElement>('[aria-haspopup="menu"]') ?? event.currentTarget,
                   )}
                 ><Save size={13} /></IconButton> : null}
+                {props.onCreatePageInline ? <IconButton testId={'content-newpage-' + node.id} title={labels.newPage}
+                  onClick={() => { setInlineMode('page'); }}><FileText size={13} /></IconButton> : null}
                 <IconButton
                   testId={'content-newsubfolder-' + node.id}
                   title={labels.newSubfolder}
-                  onClick={() => props.onCreateSubfolder(node as ContentTreeFolderNode)}
+                  onClick={() => { if (props.onCreateFolderInline) { setInlineMode('create'); } else props.onCreateSubfolder(node as ContentTreeFolderNode); }}
                 >
                   <FolderPlus size={13} />
                 </IconButton>
                 <IconButton
                   testId={'content-rename-' + node.id}
                   title={labels.rename}
-                  onClick={() => props.onRenameFolder(node as ContentTreeFolderNode)}
+                  onClick={() => { if (props.onRenameNode) { renameSnapshotRef.current = node; setInlineMode('rename'); } else props.onRenameFolder(node as ContentTreeFolderNode); }}
                 >
                   <Pencil size={13} />
                 </IconButton>
@@ -349,6 +378,8 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
                   title={labels.configureAgent}
                   onClick={() => props.onConfigurePageAgent?.(node as ContentTreePageNode)}
                 ><Bot size={13} /></IconButton> : null}
+                {props.onRenameNode ? <IconButton testId={'content-rename-' + node.id} title={labels.rename}
+                  onClick={() => { renameSnapshotRef.current = node; setInlineMode('rename'); }}><Pencil size={13} /></IconButton> : null}
                 <IconButton
                   testId={'content-edit-' + node.id}
                   title={labels.edit}
@@ -367,10 +398,17 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
                 </IconButton>
               </>
             )}
-          </span>
-          </details>
+          </TreeActionMenu>
         ) : null}
       </div>
+      {inlineMode === 'create' && node.kind === 'folder' && props.onCreateFolderInline ? <div className="ml-6 py-1"><InlineTreeName
+        label={`${labels.newSubfolder}: ${node.name}`} onCancel={finishInline}
+        onSubmit={(name) => props.onCreateFolderInline!(node, name)}
+      /></div> : null}
+      {inlineMode === 'page' && node.kind === 'folder' && props.onCreatePageInline ? <div className="ml-6 py-1"><InlineTreeName
+        label={`${labels.newPage}: ${node.name}`} onCancel={finishInline}
+        onSubmit={(title) => props.onCreatePageInline!(node, title)}
+      /></div> : null}
       {props.children}
     </li>
   );
@@ -416,21 +454,73 @@ const IconButton: React.FC<{
   title: string;
   danger?: boolean;
   disabled?: boolean;
+  disabledReason?: string;
   onClick: React.MouseEventHandler<HTMLButtonElement>;
   children: React.ReactNode;
-}> = ({ testId, title, danger, disabled, onClick, children }) => (
+}> = ({ testId, title, danger, disabled, disabledReason, onClick, children }) => (
+  <>
   <button
     type="button"
     disabled={disabled}
     onClick={onClick}
     title={title}
     aria-label={title}
+    aria-describedby={disabledReason ? `${testId}-reason` : undefined}
     data-testid={testId}
     className={
-      'inline-flex h-6 w-6 items-center justify-center rounded text-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50 '
+      'inline-flex min-h-8 items-center gap-2 rounded px-2 text-left text-xs text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50 '
       + (danger ? 'hover:bg-red-50 hover:text-red-600' : 'hover:bg-blue-50 hover:text-blue-600')
     }
   >
-    {children}
+    {children}<span>{title}</span>
   </button>
+  {disabledReason ? <p id={`${testId}-reason`} className="px-2 pb-2 text-xs text-gray-500">{disabledReason}</p> : null}
+  </>
 );
+
+export const InlineTreeName: React.FC<{
+  label: string;
+  initialName?: string;
+  onSubmit: (name: string) => Promise<void>;
+  onCancel: () => void;
+}> = ({ label, initialName = '', onSubmit, onCancel }) => {
+  const { t } = useLanguage();
+  const [name, setName] = useState(initialName);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const activeRef = useRef(true);
+  const submittingRef = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { activeRef.current = true; inputRef.current?.focus(); inputRef.current?.select(); return () => { activeRef.current = false; }; }, []);
+  return <form className="min-w-0 flex-1" onSubmit={async (event) => {
+    event.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed || submittingRef.current) return;
+    submittingRef.current = true; setBusy(true); setError(null);
+    try { await onSubmit(trimmed); if (activeRef.current) onCancel(); }
+    catch (failure) { if (activeRef.current) setError(failure instanceof Error ? failure.message : t('folder.saveFailed')); }
+    finally { submittingRef.current = false; if (activeRef.current) setBusy(false); }
+  }} onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'Escape' && !busy) { event.preventDefault(); onCancel(); } }}>
+    <input ref={inputRef} aria-label={label} maxLength={200} disabled={busy} value={name} onChange={(event) => setName(event.target.value)} className="min-h-8 w-full rounded border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+    <div className="flex gap-2 text-xs"><button type="submit" disabled={busy || !name.trim()}>{t('common.save')}</button><button type="button" disabled={busy} onClick={onCancel}>{t('common.cancel')}</button></div>
+    {error ? <p role="alert" className="text-xs text-red-600">{error}</p> : null}
+  </form>;
+};
+
+
+function highlightTitle(text: string, query?: string): React.ReactNode {
+  const needle = query?.trim().toLocaleLowerCase();
+  if (!needle) return text;
+  const lower = text.toLocaleLowerCase();
+  const pieces: React.ReactNode[] = [];
+  let offset = 0;
+  let match = lower.indexOf(needle);
+  while (match !== -1) {
+    pieces.push(text.slice(offset, match));
+    pieces.push(<mark key={match} className="rounded bg-yellow-100 text-inherit">{text.slice(match, match + needle.length)}</mark>);
+    offset = match + needle.length;
+    match = lower.indexOf(needle, offset);
+  }
+  pieces.push(text.slice(offset));
+  return pieces;
+}

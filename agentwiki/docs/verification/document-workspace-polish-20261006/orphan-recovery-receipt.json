@@ -1,0 +1,12 @@
+{
+  "status": "cleaned-orphan",
+  "at": "2026-10-06T06:31:47.111Z",
+  "originalHarnessPid": 31193,
+  "originalSchema": "folder_test_42f4f7dde9314fb08e3b2f2fe107f51d",
+  "originalProcessesAbsent": true,
+  "fixtureIdentityVerified": true,
+  "schemaRemoved": true,
+  "protectedInventoryUnchanged": true,
+  "protectedInventoryDigest": "e447573064bbbfc1fbeae49340e519e8b40478a9992ccfaf92e35cfbc93350c0",
+  "cause": "Unclean termination. No TTL exists in harness; host cause not proven."
+}

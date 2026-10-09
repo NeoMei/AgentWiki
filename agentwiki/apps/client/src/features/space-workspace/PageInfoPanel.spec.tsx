@@ -26,6 +26,14 @@ const renderPanel = (props: Partial<React.ComponentProps<typeof PageInfoPanel>> 
 );
 
 describe('PageInfoPanel', () => {
+  it('labels historical evidence and never renders an inaccessible Run link', () => {
+    renderPanel({ provenance: { ...details.provenance, run: null }, sourceStatus: { status: 'unavailable', reason: 'source_unavailable' }, evidence: [{ id: 'old', quote: 'Old basis', evidenceState: 'historical' }] });
+    fireEvent.click(screen.getByRole('button', { name: 'Page information' }));
+    expect(screen.getByText('Historical evidence')).toBeVisible();
+    expect(screen.getByRole('note')).toHaveTextContent('unavailable or inaccessible');
+    expect(document.querySelector('a[href="/spaces/space-1/runs"]')).toBeNull();
+  });
+
   beforeEach(() => localStorage.setItem('agentwiki.language.v1', 'en'));
 
   it('keeps provenance, evidence, changes, and operations on demand', () => {

@@ -1,3 +1,5 @@
+import { SourceHead, sourceVersionConflict } from '../knowledge-pipeline/source-head';
+import { sourceGenerationInvalidation } from '../core/page/source-generation';
 import { assertPageTitle } from '../core/page/page-title';
 import { Prisma } from '@prisma/client';
 import { BadRequestException } from '@nestjs/common';
@@ -23,6 +25,7 @@ export async function publishPageUpdateLocked(input: {
   authorId: string;
   reviewerUserId?: string;
   contentTree: ContentTreeService;
+  validatedSourceHead?: SourceHead;
 }): Promise<{ pageId: string; sourcePath: string | null }> {
   const { tx, changeSet, item, authorId } = input;
   const payload = objectValue(item.payload);
@@ -32,6 +35,8 @@ export async function publishPageUpdateLocked(input: {
   if (!page) throw new BadRequestException('Updated page must belong to the change set space');
   assertPageCandidateBaseline(page, payload);
   const changes = objectValue(payload.changes);
+  if (['sourceGeneration', 'sourceId', 'sourceVersionId', 'sourcePath'].some(key => Object.prototype.hasOwnProperty.call(changes, key))) sourceVersionConflict();
+  if (payload.sourceGeneration != null && (!input.validatedSourceHead || input.validatedSourceHead.sourceId !== payload.sourceId || input.validatedSourceHead.sourceVersionId !== payload.sourceVersionId || input.validatedSourceHead.generation !== payload.sourceGeneration)) sourceVersionConflict();
   if (changes.title !== undefined) assertPageTitle(changes.title);
   if (changes.parentId !== undefined) {
     throw new ContentTreeError('PAGE_PARENT_DEPRECATED', 'Legacy Page parent placement cannot be mapped safely');
@@ -83,6 +88,10 @@ export async function publishPageUpdateLocked(input: {
       sourceId: payload.sourceId ?? page.sourceId,
       sourceVersionId: payload.sourceVersionId ?? page.sourceVersionId,
       sourcePath: payload.sourcePath ?? page.sourcePath,
+      ...(input.validatedSourceHead ? { sourceGeneration: input.validatedSourceHead.generation } : sourceGenerationInvalidation(page, {
+        ...pageChanges, sourceId: payload.sourceId ?? page.sourceId,
+        sourceVersionId: payload.sourceVersionId ?? page.sourceVersionId, sourcePath: payload.sourcePath ?? page.sourcePath,
+      })),
     },
   });
   if (updated.count !== 1) {
@@ -125,6 +134,7 @@ function pageBefore(page: any): Record<string, unknown> {
     sourceChangeSetId: page.sourceChangeSetId, createdByAgentId: page.createdByAgentId,
     lastChangeSetId: page.lastChangeSetId, lastModifiedByUserId: page.lastModifiedByUserId,
     lastModifiedByAgentId: page.lastModifiedByAgentId, lastModifiedAt: page.lastModifiedAt,
+    sourceGeneration: page.sourceGeneration ?? null,
     sourceId: page.sourceId, sourceVersionId: page.sourceVersionId, sourcePath: page.sourcePath,
     syncPath: page.syncPath, syncPathKey: page.syncPathKey,
   };

@@ -1,0 +1,35 @@
+
+ RUN  v4.1.11 /Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/apps/client
+
+ ❯ src/features/space-workspace/ArticleContentsPopover.spec.tsx (13 tests | 1 failed) 147ms
+     × places the automatic wide outline below the owning editor toolbar and follows its resized/scroll position 8ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/features/space-workspace/ArticleContentsPopover.spec.tsx > ArticleContentsPopover > places the automatic wide outline below the owning editor toolbar and follows its resized/scroll position
+Error: expect(element).toHaveStyle()
+
+- Expected
+
+- maxHeight: 750px;
+- top: 234px;
++ top: 88px;
+ ❯ src/features/space-workspace/ArticleContentsPopover.spec.tsx:177:21
+    175|     </div></LanguageProvider>);
+    176|     const outline = await screen.findByRole('navigation', { name: 'Con…
+    177|     expect(outline).toHaveStyle({ top: '234px', maxHeight: '750px' });
+       |                     ^
+    178|     toolbarBottom = 280;
+    179|     fireEvent.resize(window);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 139 passed (140)
+   Start at  18:19:01
+   Duration  5.56s (transform 633ms, setup 365ms, import 1.14s, tests 4.57s, environment 750ms)
+
+undefined
+/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/apps/client:
+[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 1: vitest run src/features/space-workspace/workspacePreferences.spec.tsx src/features/space-workspace/ArticleContentsPopover.spec.tsx src/features/page/PageEditor.spec.tsx

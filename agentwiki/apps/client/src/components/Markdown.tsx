@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, useId } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { ExtraProps } from 'react-markdown';
 import { Link } from 'react-router-dom';
@@ -222,6 +222,7 @@ export interface MarkdownProps {
   spaceId?: string;
   pageId?: string;
   internalBranch?: MarkdownRenderBranch;
+  selectionSourceVersion?: string;
 }
 
 const emptyResources: MarkdownResourceMap = new Map();
@@ -496,6 +497,81 @@ const TaskInput: React.FC<TaskInputProps> = ({ taskInputsEnabled, pendingTaskInd
   );
 };
 
+const MarkdownInteractionContext = createContext<{
+  taskInputsEnabled: boolean;
+  pendingTaskIndexes: ReadonlySet<number>;
+  tasks: ReturnType<typeof collectMarkdownTasks>;
+  selectionEnabled: boolean;
+}>({ taskInputsEnabled: false, pendingTaskIndexes: new Set(), tasks: [], selectionEnabled: false });
+
+// Keep renderer component identities stable. Defining them inside Markdown
+// remounts their entire subtree on reading-page scroll/resize updates, revoking
+// loaded Blob URLs and starting the attachment requests again.
+const MarkdownAnchor = ({ href, children, node: _node, ...rest }: React.ComponentPropsWithoutRef<'a'> & ExtraProps) => {
+  if (isInternalPageHref(href)) {
+    return <Link to={href!} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline" {...rest}>{children}</Link>;
+  }
+  if (isExternalHref(href)) {
+    return <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline" {...rest}>{children}</a>;
+  }
+  return <a href={href} className="text-blue-600 hover:underline" {...rest}>{children}</a>;
+};
+
+const MarkdownBlockquote = ({ children, node, ...props }: React.ComponentPropsWithoutRef<'blockquote'> & ExtraProps) => {
+  const properties = node?.properties ?? {};
+  const calloutType = String(properties['data-callout'] ?? '');
+  return calloutType ? (
+    <Callout type={calloutType} title={String(properties['data-callout-title'] ?? calloutType)}
+      fold={String(properties['data-callout-fold'] ?? '')}>{children}</Callout>
+  ) : <blockquote {...props}>{children}</blockquote>;
+};
+
+const MarkdownTaskInput = ({ node: _node, ...props }: React.ComponentPropsWithoutRef<'input'> & ExtraProps) => {
+  const { taskInputsEnabled, pendingTaskIndexes } = useContext(MarkdownInteractionContext);
+  return <TaskInput {...props} taskInputsEnabled={taskInputsEnabled} pendingTaskIndexes={pendingTaskIndexes} />;
+};
+
+const MarkdownListItem = ({ children, node, ...props }: React.ComponentPropsWithoutRef<'li'> & ExtraProps) => {
+  const { tasks, taskInputsEnabled } = useContext(MarkdownInteractionContext);
+  const rawIndex = node?.properties?.['data-task-index'];
+  const index = typeof rawIndex === 'string' || typeof rawIndex === 'number' ? Number(rawIndex) : null;
+  return <TaskIndexContext.Provider value={index === null ? null : { index, label: tasks[index]?.signature ?? '' }}>
+    <li {...props} onClick={(event) => {
+      const target = event.target;
+      if (!(target instanceof Element)
+        || target.closest('li[data-task-index]') !== event.currentTarget
+        || !taskInputsEnabled || target.closest('a, button, input, select, textarea')) return;
+      event.currentTarget.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click();
+    }}>{children}</li>
+  </TaskIndexContext.Provider>;
+};
+
+const MarkdownWikiLink = (props: AgentWikiNodeProps) => {
+  const { selectionEnabled } = useContext(MarkdownInteractionContext);
+  return selectionEnabled ? <span data-markdown-unmapped><AgentWikiLink {...props} /></span> : <AgentWikiLink {...props} />;
+};
+const MarkdownWikiEmbed = (props: AgentWikiNodeProps) => {
+  const { selectionEnabled } = useContext(MarkdownInteractionContext);
+  return selectionEnabled ? <div data-markdown-unmapped><AgentWikiEmbed {...props} /></div> : <AgentWikiEmbed {...props} />;
+};
+const MarkdownWikiImage = (props: AgentWikiNodeProps) => {
+  const { selectionEnabled } = useContext(MarkdownInteractionContext);
+  return selectionEnabled ? <span data-markdown-unmapped><AgentWikiImage {...props} /></span> : <AgentWikiImage {...props} />;
+};
+
+const markdownComponents = {
+  a: MarkdownAnchor,
+  blockquote: MarkdownBlockquote,
+  code: MarkdownCode,
+  img: SafeImage,
+  input: MarkdownTaskInput,
+  li: MarkdownListItem,
+  pre: MarkdownPre,
+  'agent-wiki-link': MarkdownWikiLink,
+  'agent-wiki-embed': MarkdownWikiEmbed,
+  'agent-wiki-image': MarkdownWikiImage,
+} as React.ComponentProps<typeof ReactMarkdown>['components'];
+
 export const Markdown: React.FC<MarkdownProps> = ({
   children,
   pages = [],
@@ -507,7 +583,23 @@ export const Markdown: React.FC<MarkdownProps> = ({
   spaceId,
   pageId,
   internalBranch,
+  selectionSourceVersion,
 }) => {
+  const selectionOwner = useId();
+  // Opt-in literal source spans are added after renderer transforms. Generated text never gets guessed offsets.
+  const selectionPlugin = useMemo(() => () => (tree: HastNode) => {
+    if (!selectionSourceVersion) return;
+    const annotate = (parent: HastNode) => {
+      parent.children = parent.children?.map((child) => {
+        if (child.type !== 'text') { annotate(child); return child; }
+        const position = (child as HastNode & { position?: { start: { offset?: number }; end: { offset?: number } } }).position;
+        const start = position?.start.offset, end = position?.end.offset;
+        if (typeof start !== 'number' || typeof end !== 'number' || children.slice(start, end) !== child.value) return child;
+        return { type: 'element', tagName: 'span', properties: { 'data-markdown-text-start': start, 'data-markdown-text-end': end, 'data-markdown-text-owner': selectionOwner }, children: [child] } as HastElementNode;
+      });
+    };
+    annotate(tree);
+  }, [children, selectionSourceVersion, selectionOwner]);
   const parentRuntime = useContext(MarkdownRuntimeContext);
   const ownTree = useMemo(
     () => createMarkdownTreeState(spaceId ?? '', mode),
@@ -594,7 +686,8 @@ export const Markdown: React.FC<MarkdownProps> = ({
 
   return (
     <MarkdownRuntimeContext.Provider value={runtimeValue}>
-    <div className={className ?? markdownClass} onChange={handleChange}>
+    <MarkdownInteractionContext.Provider value={{ taskInputsEnabled, pendingTaskIndexes, tasks, selectionEnabled: Boolean(selectionSourceVersion) }}>
+    <div className={className ?? markdownClass} onChange={handleChange} data-markdown-selection-root={selectionOwner} data-markdown-selection-version={selectionSourceVersion}>
       <ReactMarkdown
         skipHtml
         remarkPlugins={[remarkGfm, remarkMath, obsidianPlugin, remarkBreaks]}
@@ -610,73 +703,14 @@ export const Markdown: React.FC<MarkdownProps> = ({
           }],
           rehypeHighlight,
           rehypeAnnotateCodeBlocks,
+          selectionPlugin,
         ]}
-        components={{
-          a: ({ href, children: linkChildren, ...rest }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
-            if (isInternalPageHref(href)) {
-              return <Link to={href!} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline" {...rest}>{linkChildren}</Link>;
-            }
-            if (isExternalHref(href)) {
-              return <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline" {...rest}>{linkChildren}</a>;
-            }
-            return <a href={href} className="text-blue-600 hover:underline" {...rest}>{linkChildren}</a>;
-          },
-          blockquote: ({ children: quoteChildren, node, ...props }) => {
-            const properties = node?.properties ?? {};
-            const calloutType = String(properties['data-callout'] ?? '');
-            if (calloutType) {
-              return (
-                <Callout
-                  type={calloutType}
-                  title={String(properties['data-callout-title'] ?? calloutType)}
-                  fold={String(properties['data-callout-fold'] ?? '')}
-                >
-                  {quoteChildren}
-                </Callout>
-              );
-            }
-            return <blockquote {...props}>{quoteChildren}</blockquote>;
-          },
-          code: MarkdownCode,
-          img: SafeImage,
-          input: ({ node: _node, ...props }) => (
-            <TaskInput
-              {...props}
-              taskInputsEnabled={taskInputsEnabled}
-              pendingTaskIndexes={pendingTaskIndexes}
-            />
-          ),
-          li: ({ children: listChildren, node, ...props }) => {
-            const rawIndex = node?.properties?.['data-task-index'];
-            const index = typeof rawIndex === 'string' || typeof rawIndex === 'number' ? Number(rawIndex) : null;
-            return (
-              <TaskIndexContext.Provider value={index === null ? null : {
-                index,
-                label: tasks[index]?.signature ?? '',
-              }}>
-                <li
-                  {...props}
-                  onClick={(event) => {
-                    const target = event.target;
-                    if (!(target instanceof Element)
-                      || target.closest('li[data-task-index]') !== event.currentTarget
-                      || !taskInputsEnabled
-                      || target.closest('a, button, input, select, textarea')) return;
-                    event.currentTarget.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click();
-                  }}
-                >{listChildren}</li>
-              </TaskIndexContext.Provider>
-            );
-          },
-          pre: MarkdownPre,
-          'agent-wiki-link': AgentWikiLink,
-          'agent-wiki-embed': AgentWikiEmbed,
-          'agent-wiki-image': AgentWikiImage,
-        } as React.ComponentProps<typeof ReactMarkdown>['components']}
+        components={markdownComponents}
       >
         {children}
       </ReactMarkdown>
     </div>
+    </MarkdownInteractionContext.Provider>
     </MarkdownRuntimeContext.Provider>
   );
 };

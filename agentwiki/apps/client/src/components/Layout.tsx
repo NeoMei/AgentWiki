@@ -5,11 +5,12 @@ import { isWorkspacePath } from '../features/space-workspace/workspaceNavigation
 
 export const Layout: React.FC = () => {
   const location = useLocation();
-  const mainClassName = isWorkspacePath(location.pathname)
+  const documentPage = /^\/pages\/[^/]+(?:\/edit)?\/?$/u.test(location.pathname);
+  const mainClassName = documentPage ? 'w-full' : isWorkspacePath(location.pathname)
     ? 'w-full px-4 py-8'
     : 'container mx-auto px-4 py-8';
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className={`min-h-screen ${documentPage ? 'bg-white' : 'bg-gray-50'}`}>
       <Navbar />
       <main className={mainClassName}>
         <Outlet />

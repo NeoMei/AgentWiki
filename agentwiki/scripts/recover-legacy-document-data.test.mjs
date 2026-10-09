@@ -629,6 +629,7 @@ test('applies 250 Page provenance updates under the extended transaction timeout
 
   assert.equal(summary.jobsApplied, 1);
   assert.equal(writes.filter((write) => write.model === 'page').length, 250);
+  assert.ok(writes.filter((write) => write.model === 'page').every(write => write.args.data.sourceGeneration === null));
   assert.deepEqual(transactionOptions, [{ maxWait: 10_000, timeout: 120_000 }]);
 });
 

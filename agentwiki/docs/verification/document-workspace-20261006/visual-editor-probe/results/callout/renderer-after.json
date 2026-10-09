@@ -1,0 +1,59 @@
+{
+  "type": "root",
+  "children": [
+    {
+      "type": "blockquote",
+      "children": [
+        {
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "value": "说明 "
+            },
+            {
+              "type": "strong",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "加粗"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "list",
+          "ordered": false,
+          "start": null,
+          "spread": false,
+          "children": [
+            {
+              "type": "listItem",
+              "spread": false,
+              "checked": null,
+              "children": [
+                {
+                  "type": "paragraph",
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "步骤"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "data": {
+        "hProperties": {
+          "data-callout": "warning",
+          "data-callout-title": "中文标题",
+          "data-callout-fold": "-"
+        }
+      }
+    }
+  ]
+}

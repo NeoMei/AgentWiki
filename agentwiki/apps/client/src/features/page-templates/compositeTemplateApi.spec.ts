@@ -44,6 +44,24 @@ describe('compositeTemplateApi', () => {
       .rejects.toThrow('Invalid composite template catalog response');
   });
 
+  it.each([
+    { canManage: true, canCreate: true },
+    { canManage: true, canCreate: true, canSaveFolderTemplate: 'true', canManageDefinitions: 1, canBindAgent: 'yes', canStartPageCollaboration: null },
+  ])('denies absent or non-boolean action capabilities without confusing ordinary creation', async (capabilities) => {
+    vi.mocked(api.get).mockResolvedValue({ data: { data: [], total: 0, skip: 0, take: 100, capabilities } });
+    const catalog = await listCompositeTemplates('space-1', { locale: 'en' });
+    expect(catalog.capabilities).toEqual({ canManage: true, canCreate: true,
+      canSaveFolderTemplate: false, canManageDefinitions: false, canBindAgent: false, canStartPageCollaboration: false });
+  });
+
+  it('keeps an explicit pure-binding grant independent of closed template and start permissions', async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: { data: [], total: 0, skip: 0, take: 100,
+      capabilities: { canManage: false, canCreate: true, canBindAgent: true, canManageDefinitions: false, canSaveFolderTemplate: false, canStartPageCollaboration: false } } });
+    const catalog = await listCompositeTemplates('space-1', { locale: 'en' });
+    expect(catalog.capabilities).toEqual({ canManage: false, canCreate: true, canBindAgent: true,
+      canSaveFolderTemplate: false, canManageDefinitions: false, canStartPageCollaboration: false });
+  });
+
   it('posts preview and instantiate payloads without client-authored definitions', async () => {
     const payload = { templateVersion: 2, locale: 'en' as const, variables: {}, collaborationEnabled: false,
       expectedTreeRevision: '7', targetParentFolderId: null };

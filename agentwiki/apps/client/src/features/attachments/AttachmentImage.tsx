@@ -32,7 +32,14 @@ export const AttachmentImage: React.FC<AttachmentImageProps> = ({
   const validDimensions = Number.isSafeInteger(width) && Number.isSafeInteger(height) && width! > 0 && height! > 0;
   const frameStyle = {
     ...style,
-    ...(validDimensions ? { aspectRatio: `${width} / ${height}` } : {}),
+    ...(validDimensions ? {
+      // Keep the loading/error frame at the image's intrinsic size. Without an
+      // explicit width, an inline-flex frame collapses to the filename and
+      // looks like a broken image while the protected Blob request is in flight.
+      aspectRatio: `${width} / ${height}`,
+      width: style?.width ?? `${width}px`,
+      maxWidth: '100%',
+    } : {}),
   };
 
   useEffect(() => {

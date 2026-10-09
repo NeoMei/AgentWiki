@@ -41,6 +41,7 @@ async function close(server: LocalServer): Promise<void> {
 
 describe('SourceService safety and idempotency', () => {
   const prisma = {
+    $queryRaw: jest.fn().mockResolvedValue([{ id: 'source-1' }]),
     source: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
     ingestRun: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     changeSet: { deleteMany: jest.fn() },
@@ -49,14 +50,15 @@ describe('SourceService safety and idempotency', () => {
     $transaction: jest.fn(),
   } as any;
   const config = { get: jest.fn() } as any;
-  const authorization = { assertLiveAgentWriteAccess: jest.fn().mockResolvedValue(undefined) } as any;
-  const revisionWriter = { lockContentTreeSpace: jest.fn(async (tx: any) => Object.assign(tx, { contentTreeRevision: 0n })) } as any;
+  const authorization: any = { assertLiveAgentWriteAccess: jest.fn().mockResolvedValue(undefined), lockLiveHumanPrincipal: jest.fn(), lockLiveHumanPersonalCredential: jest.fn(), assertLiveHumanSpaceAccess: jest.fn(), assertLiveHumanCredential: jest.fn(), lockLiveAgentWriteAccessAcrossSpaceBoundary: jest.fn(async (tx, p, space, scopes, lock) => { await authorization.assertLiveAgentWriteAccess(tx, p, space, scopes); return lock(); }) };
+  const revisionWriter = { lockSyncSpace: jest.fn(async (tx: any) => Object.assign(tx, { contentTreeRevision: 0n })) } as any;
   const service = new SourceService(prisma, config, {} as any, authorization, revisionWriter);
   const agentPrincipal = { userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1' };
 
   beforeEach(() => {
     jest.restoreAllMocks();
     jest.clearAllMocks();
+    prisma.source.findUnique.mockResolvedValue({ id: 'source-1', spaceId: 'space-1', status: 'active', currentSourceVersionId: null, currentSourceGeneration: 0 });
     prisma.$transaction.mockImplementation(async (operation: any) => operation(prisma));
     authorization.assertLiveAgentWriteAccess.mockResolvedValue(undefined);
   });
@@ -130,6 +132,17 @@ describe('SourceService safety and idempotency', () => {
     expect(prisma.ingestRun.updateMany).not.toHaveBeenCalled();
   });
 
+  it('requires explicit new-run flow after publication and pins OKF createRun to the current head', async () => {
+    prisma.source.findUnique.mockResolvedValue({ id: 'source-1', spaceId: 'space-1', status: 'active', type: 'okf', currentSourceVersionId: 'v3', currentSourceGeneration: 3 });
+    prisma.sourceVersion = { findFirst: jest.fn().mockResolvedValue({ id: 'v3' }) };
+    prisma.ingestRun.findUnique.mockResolvedValue({ id: 'old', sourceId: 'source-1', spaceId: 'space-1', status: 'partial', changeSet: { status: 'published' }, inputSourceVersionId: 'v3', inputSourceGeneration: 3 });
+    await expect(service.retryRun('old', agentPrincipal)).rejects.toMatchObject({ businessCode: 'RUN_NOT_RETRYABLE' });
+    expect(prisma.ingestRun.create).not.toHaveBeenCalled();
+    prisma.ingestRun.findUnique.mockResolvedValue(null);
+    await service.createRun('source-1', agentPrincipal, 'new');
+    expect(prisma.ingestRun.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ inputSourceVersionId: 'v3', inputSourceGeneration: 3 }) }));
+  });
+
   it('returns the existing run for the same source idempotency key', async () => {
     prisma.source.findUnique.mockResolvedValue({ id: 'source-1', spaceId: 'space-1', status: 'active' });
     prisma.ingestRun.findUnique.mockResolvedValue({ id: 'run-1', idempotencyKey: 'request-1' });
@@ -139,7 +152,6 @@ describe('SourceService safety and idempotency', () => {
 
   it.each([
     ['requeued run', null, 'update'],
-    ['replacement run', { status: 'published' }, 'create'],
   ])('attributes a %s retry to the current principal', async (_label, changeSet, operation) => {
     prisma.ingestRun.findUnique.mockResolvedValue({
       id: 'run-1', sourceId: 'source-1', spaceId: 'space-1', status: 'failed', changeSet,
@@ -381,7 +393,7 @@ describe('SourceService safety and idempotency', () => {
     } as any;
     const lockedTx = Object.assign(authorizationPrisma, { contentTreeRevision: 0n });
     const revisionWriter = {
-      lockContentTreeSpace: jest.fn(async () => {
+      lockSyncSpace: jest.fn(async () => {
         lockEvents.push('space-advisory');
         return lockedTx;
       }),
@@ -484,6 +496,12 @@ describe('SourceService safety and idempotency', () => {
     expect(authorizationPrisma.spaceMember.findUnique).toHaveBeenCalled();
   });
 
+  it('rejects unknown human credential kinds before interpreting an ID as a personal key', async () => {
+    const db = { user: { findUnique: jest.fn().mockResolvedValue({ type: 'human' }) }, spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'owner', space: {}, user: { type: 'human' } }) } } as any;
+    const source = new SourceService(db, config, {} as any, {} as any, {} as any);
+    await expect((source as any).assertRequesterStillAuthorized({ requestedByUserId: 'human', requestedCredentialId: 'device', requestedCredentialType: 'device', spaceId: 'space' })).rejects.toThrow('Run requester is no longer authorized');
+  });
+
   it('keeps a queued human space-admin run authorized for editor-level work', async () => {
     const authorizationPrisma = {
       user: { findUnique: jest.fn().mockResolvedValue({
@@ -510,6 +528,8 @@ describe('SourceService pipeline lifecycle', () => {
       source: { id: 'source-1', type: 'git', name: 'Repository', uri: 'https://github.com/example/repo' },
     };
     const prisma: any = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'source-1' }]),
+      source: { findMany: jest.fn().mockResolvedValue([{ id: 'source-1', spaceId: 'space-1', currentSourceVersionId: null }]), findUnique: jest.fn().mockResolvedValue({ id: 'source-1', spaceId: 'space-1', status: 'active', currentSourceVersionId: null, currentSourceGeneration: 0 }) },
       ingestRun: { updateMany: jest.fn().mockResolvedValue({ count: 1 }), findUnique: jest.fn(), update: jest.fn().mockResolvedValue({}) },
       changeSet: { findUnique: jest.fn().mockResolvedValue(null), deleteMany: jest.fn().mockResolvedValue({ count: 0 }), create: jest.fn().mockResolvedValue({ id: 'change-1' }) },
       artifact: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }), createMany: jest.fn().mockResolvedValue({ count: 1 }), create: jest.fn().mockResolvedValue({}) },
@@ -540,7 +560,7 @@ describe('SourceService pipeline lifecycle', () => {
     });
     const review = { publish: jest.fn() } as any;
     const revisionWriter = {
-      lockContentTreeSpace: jest.fn(async (tx: any, spaceId: string) => {
+      lockSyncSpace: jest.fn(async (tx: any, spaceId: string) => {
         const space = await tx.space.findUnique({
           where: { id: spaceId, deletedAt: null },
           select: { contentTreeRevision: true },
@@ -549,7 +569,7 @@ describe('SourceService pipeline lifecycle', () => {
       }),
     } as any;
     const service = new SourceService(
-      prisma, { get: jest.fn() } as any, review, {} as any, revisionWriter,
+      prisma, { get: jest.fn() } as any, review, { lockLiveHumanPrincipal: jest.fn(), lockLiveHumanPersonalCredential: jest.fn(), assertLiveHumanSpaceAccess: jest.fn(), assertLiveHumanCredential: jest.fn() } as any, revisionWriter,
     );
     return { service, prisma, review, run, revisionWriter };
   };
@@ -601,6 +621,7 @@ describe('SourceService pipeline lifecycle', () => {
     expect(JSON.stringify(failedUpdate)).not.toContain('89504e47');
 
     prisma.ingestRun.findUnique.mockResolvedValueOnce({
+      ...run,
       id: 'run-1',
       sourceId: 'source-1',
       status: 'failed',
@@ -669,6 +690,7 @@ describe('SourceService pipeline lifecycle', () => {
     expect(JSON.stringify(failedUpdate.data.result)).not.toContain('private-fragment');
 
     prisma.ingestRun.findUnique.mockResolvedValueOnce({
+      ...run,
       id: 'run-1',
       status: 'failed',
       stage: 'failed',
@@ -810,7 +832,7 @@ describe('SourceService pipeline lifecycle', () => {
         expect.objectContaining({ type: 'update_page', payload: expect.objectContaining({ expectedTreeRevision: '29' }) }),
         expect.objectContaining({ type: 'archive_page', payload: expect.objectContaining({ expectedTreeRevision: '29' }) }),
       ]));
-    expect(revisionWriter.lockContentTreeSpace).toHaveBeenCalledWith(prisma, 'space-1');
+    expect(revisionWriter.lockSyncSpace).toHaveBeenCalledWith(prisma, 'space-1');
     expect(prisma.space.findUnique).toHaveBeenCalledWith({
       where: { id: 'space-1' },
       select: { approvalPolicy: true },
@@ -821,7 +843,7 @@ describe('SourceService pipeline lifecycle', () => {
     const { service, prisma } = makeHarness();
     const events: string[] = [];
     const revisionWriter = {
-      lockContentTreeSpace: jest.fn(async (tx: any) => {
+      lockSyncSpace: jest.fn(async (tx: any) => {
         events.push('lock');
         return Object.assign(tx, { contentTreeRevision: 31n });
       }),
@@ -848,9 +870,9 @@ describe('SourceService pipeline lifecycle', () => {
 
     await service.processRun('run-1');
 
-    expect(revisionWriter.lockContentTreeSpace).toHaveBeenCalledWith(prisma, 'space-1');
+    expect(revisionWriter.lockSyncSpace).toHaveBeenCalledWith(prisma, 'space-1');
     expect(events).toEqual(expect.arrayContaining(['authorization', 'lock', 'page-scan', 'change-set']));
-    expect(events.indexOf('authorization')).toBeLessThan(events.indexOf('lock'));
+    expect(events.indexOf('lock')).toBeLessThan(events.indexOf('authorization'));
     expect(events.indexOf('lock')).toBeLessThan(events.indexOf('page-scan'));
     expect(events.indexOf('page-scan')).toBeLessThan(events.indexOf('change-set'));
     expect(prisma.changeSet.create.mock.calls[0][0].data.items.create[0].payload)

@@ -111,16 +111,19 @@ const expectNoDocumentOverflow = async (page: Page) => {
   expect(dimensions.scrollWidth).toBe(dimensions.clientWidth);
 };
 
+// Scope to the directory pane, not the independently rendered sidebar tree.
+const directory = (page: Page) => page.getByTestId('content-breadcrumbs').locator('xpath=ancestor::main[1]');
+
 const createFolderViaUi = async (page: Page, name: string) => {
-  await page.getByTestId('new-folder-button').click();
+  await directory(page).getByTestId('new-folder-button').click();
   await page.getByTestId('folder-dialog').getByLabel('文件夹名称').fill(name);
   await page.getByTestId('folder-dialog-submit').click();
   await expect(page.getByTestId('folder-dialog')).not.toBeVisible();
-  await expect(page.getByRole('button', { name }).first()).toBeVisible();
+  await expect(directory(page).getByRole('button', { name, exact: true })).toBeVisible();
 };
 
 const openFolder = async (page: Page, folderId: string, name: string) => {
-  await page.getByTestId(`content-node-${folderId}`).click();
+  await directory(page).getByTestId(`content-node-${folderId}`).click();
   await expect(
     page.getByTestId('content-breadcrumbs').getByText(name, { exact: true }),
   ).toBeVisible();
@@ -176,26 +179,27 @@ test.describe.serial('space folder hierarchy', () => {
   test('Owner creates folders, pages inside them, and navigates by breadcrumbs', async ({ page }) => {
     await authenticate(page, owner!);
     await page.goto(`/spaces/${spaceId}`);
-    await expect(page.getByTestId('content-tree-empty')).toBeVisible();
+    await expect(directory(page).getByTestId('content-tree-empty')).toBeVisible();
 
     await createFolderViaUi(page, rootFolderName);
     const rootNodes = await listTree(null);
     rootFolderId = rootNodes.find((node) => node.kind === 'folder')!.id;
 
     await openFolder(page, rootFolderId, rootFolderName);
-    await expect(page.getByTestId('folder-page-count')).toHaveText('页面 (0)');
+    await expect(directory(page).getByTestId('folder-page-count')).toHaveText('页面 (0)');
 
-    await page.getByRole('button', { name: '新建页面' }).click();
-    await page.getByRole('button', { name: '下一步' }).click();
-    await expect(page.getByTestId('new-page-folder-hint')).toBeVisible();
+    await directory(page).getByRole('button', { name: '新建页面', exact: true }).click();
+    await page.waitForURL((url) => url.pathname === `/spaces/${spaceId}/new` && url.searchParams.get('folder') === rootFolderId);
+    await expect(page.getByTestId('new-page-folder-hint')).toContainText(rootFolderName);
+    await expect(page.getByLabel('标题')).toBeFocused();
     await page.getByLabel('标题').fill(folderPageTitle);
     await page.getByRole('button', { name: '创建', exact: true }).click();
     await page.waitForURL(/\/pages\/[^/]+\/edit$/u);
 
     await page.goto(`/spaces/${spaceId}`);
     await openFolder(page, rootFolderId, rootFolderName);
-    await expect(page.getByTestId('folder-page-count')).toHaveText('页面 (1)');
-    await expect(page.getByTestId('content-tree')).toContainText(folderPageTitle);
+    await expect(directory(page).getByTestId('folder-page-count')).toHaveText('页面 (1)');
+    await expect(directory(page).getByTestId('content-tree')).toContainText(folderPageTitle);
 
     await createFolderViaUi(page, subFolderName);
     const subNodes = await listTree(rootFolderId);
@@ -207,7 +211,7 @@ test.describe.serial('space folder hierarchy', () => {
 
     await breadcrumbs.getByRole('button', { name: rootFolderName }).click();
     await expect(breadcrumbs.getByText(rootFolderName, { exact: true })).toBeVisible();
-    await expect(page.getByTestId('folder-page-count')).toHaveText('页面 (1)');
+    await expect(directory(page).getByTestId('folder-page-count')).toHaveText('页面 (1)');
     await page.screenshot({ path: path.join(artifacts, 'folder-breadcrumbs.png'), fullPage: true });
   });
 
@@ -220,8 +224,8 @@ test.describe.serial('space folder hierarchy', () => {
 
     await authenticate(page, owner!);
     await page.goto(`/spaces/${spaceId}`);
-    const source = page.getByTestId(`content-node-${created.id}`);
-    const target = page.getByTestId(`content-node-${rootFolderId}`);
+    const source = directory(page).getByTestId(`content-node-${created.id}`);
+    const target = directory(page).getByTestId(`content-node-${rootFolderId}`);
     await expect(source).toBeVisible();
     await expect(target).toBeVisible();
 
@@ -245,7 +249,10 @@ test.describe.serial('space folder hierarchy', () => {
     await authenticate(page, owner!);
     await page.goto(`/spaces/${spaceId}`);
 
-    await page.getByTestId(`content-deletefolder-${rootFolderId}`).click();
+    const rootRow = directory(page).getByTestId(`content-row-${rootFolderId}`);
+    await rootRow.getByLabel(`操作: ${rootFolderName}`, { exact: true }).click();
+    await expect(rootRow.locator('details')).toHaveAttribute('open', '');
+    await rootRow.getByTestId(`content-deletefolder-${rootFolderId}`).click();
     const dialog = page.getByTestId('folder-delete-dialog');
     await expect(dialog).toBeVisible();
     await expect(page.getByTestId('folder-delete-impact')).toContainText('1 个子文件夹');
@@ -254,9 +261,9 @@ test.describe.serial('space folder hierarchy', () => {
 
     const banner = page.getByTestId('folder-restored-banner');
     await expect(banner).toContainText(`已删除「${rootFolderName}」`);
-    await expect(page.getByTestId(`content-node-${rootFolderId}`)).not.toBeVisible();
+    await expect(directory(page).getByTestId(`content-node-${rootFolderId}`)).not.toBeVisible();
     await banner.getByRole('button', { name: '恢复' }).click();
-    await expect(page.getByTestId(`content-node-${rootFolderId}`)).toBeVisible();
+    await expect(directory(page).getByTestId(`content-node-${rootFolderId}`)).toBeVisible();
 
     const restored = await listTree(null);
     expect(restored.find((node) => node.kind === 'folder' && node.id === rootFolderId)).toBeTruthy();
@@ -277,8 +284,8 @@ test.describe.serial('space folder hierarchy', () => {
     await page.goto(`/spaces/${spaceId}`);
     await openFolder(page, rootFolderId, rootFolderName);
     await openFolder(page, subFolderId, subFolderName);
-    const source = page.getByTestId(`content-node-${folderB.id}`);
-    const targetRow = page.getByTestId(`content-row-${folderA.id}`);
+    const source = directory(page).getByTestId(`content-node-${folderB.id}`);
+    const targetRow = directory(page).getByTestId(`content-row-${folderA.id}`);
     await expect(source).toBeVisible();
     await expect(targetRow).toBeVisible();
 
@@ -288,9 +295,9 @@ test.describe.serial('space folder hierarchy', () => {
     expect(box).not.toBeNull();
     const dropPoint = { dataTransfer, clientY: box!.y + 3 };
     await targetRow.dispatchEvent('dragover', dropPoint);
-    await expect(page.getByTestId('drop-before')).toBeVisible();
+    await expect(directory(page).getByTestId('drop-before')).toBeVisible();
     await targetRow.dispatchEvent('drop', dropPoint);
-    await expect(page.getByTestId('drop-before')).not.toBeVisible();
+    await expect(directory(page).getByTestId('drop-before')).not.toBeVisible();
 
     await expect(async () => {
       const nodes = await listTree(subFolderId);
@@ -304,9 +311,9 @@ test.describe.serial('space folder hierarchy', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await authenticate(page, owner!);
     await page.goto(`/spaces/${spaceId}`);
-    await expect(page.getByTestId('new-folder-button')).toBeVisible();
+    await expect(directory(page).getByTestId('new-folder-button')).toBeVisible();
     await openFolder(page, rootFolderId, rootFolderName);
-    await expect(page.getByTestId('folder-page-count')).toHaveText('页面 (2)');
+    await expect(directory(page).getByTestId('folder-page-count')).toHaveText('页面 (2)');
     await expectNoDocumentOverflow(page);
     await page.screenshot({ path: path.join(artifacts, 'folder-mobile.png'), fullPage: true });
   });

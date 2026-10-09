@@ -11,6 +11,7 @@ import { withCollaborationSerializableRetry } from './serializable-retry';
 import { HUMAN_ROLE_ORDER, rolesAtLeast } from './reviewer-members';
 import { PagePublicationService } from '../review/page-publication.service';
 import { PageResultService } from './page-result.service';
+import { canonicalPageContentHash } from './page-baseline';
 import { supersedeRunPagePublicationsLocked } from './page-publication-invalidation';
 
 type Tx = Prisma.TransactionClient;
@@ -310,12 +311,13 @@ export class ReviewService {
         if (
           !run
           || run.spaceId !== spaceId
-          || run.pauseReason !== 'page_version_conflict'
+          || !((run.status === 'paused' && run.pauseReason === 'page_version_conflict') || (run.status === 'waiting_review' && run.pauseReason === null))
           || !task
           || task.status !== 'submitted'
           || task.generation !== initialReview.generation
           || !task.targetPageId
           || !review
+          || review.generation !== task.generation
         ) throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Page conflict is no longer recoverable');
         const pageResults = this.requirePageResults();
         const snapshot = await pageResults.currentSnapshotLocked(lockedTx, {
@@ -323,8 +325,32 @@ export class ReviewService {
           pageId: task.targetPageId,
           expectedPageVersionId: input.expectedPageVersionId,
           expectedContentHash: input.expectedContentHash,
-          createVersion: input.kind === 'adopt_current',
+          createVersion: false,
         });
+        // A comparison read does not pause the Run. Support that pre-detected
+        // state only after verifying the candidate's stored baseline is stale.
+        if (run.status === 'waiting_review') {
+          const artifact = await lockedTx.collaborationTaskArtifact.findFirst({
+            where: { id: review.artifactId, runId, taskId, generation: task.generation },
+            select: { status: true, attempt: { select: { basePageVersionId: true, basePageUpdatedAt: true, baseContentHash: true } } },
+          });
+          if (!artifact || !['pending', 'accepted'].includes(artifact.status) || !artifact.attempt) {
+            throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Page conflict candidate is stale');
+          }
+          const baseline = artifact.attempt;
+          if (baseline.basePageVersionId === snapshot.pageVersionId
+            && baseline.basePageUpdatedAt?.getTime() === snapshot.page.updatedAt.getTime()
+            && baseline.baseContentHash === canonicalPageContentHash(snapshot.page.content)) {
+            throw new BusinessException('COLLABORATION_PROGRESS_INVARIANT', 'Page candidate has no conflict');
+          }
+        }
+        if (input.kind === 'adopt_current' && !snapshot.pageVersionId) {
+          const versioned = await pageResults.currentSnapshotLocked(lockedTx, {
+            spaceId, pageId: task.targetPageId, expectedPageVersionId: input.expectedPageVersionId,
+            expectedContentHash: input.expectedContentHash, createVersion: true,
+          });
+          snapshot.pageVersionId = versioned.pageVersionId;
+        }
         if (input.kind === 'regenerate') {
           await this.pagePublication.supersedeLocked(lockedTx, pageLink.changeSetId, 'page_conflict_regenerate');
           await this.decidePendingReview(

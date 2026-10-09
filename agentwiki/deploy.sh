@@ -63,7 +63,8 @@ COPYFILE_DISABLE=1 tar \
   --exclude='*.tar.gz' \
   -czf "${ARCHIVE}" \
   package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json .dockerignore \
-  apps packages scripts deploy deploy.sh
+  apps packages scripts deploy deploy.sh \
+  docs/verification/document-workspace-20261006/visual-editor-probe/fixtures.json
 
 "${SCP_TOOL[@]}" "${ARCHIVE}" "${REMOTE_USER}@${REMOTE_HOST}:~/"
 

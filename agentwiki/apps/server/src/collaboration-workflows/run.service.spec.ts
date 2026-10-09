@@ -651,6 +651,32 @@ describe('RunService', () => {
     expect(result.tasks[0].attempts[0]).toMatchObject({ id: 'attempt-1', status: 'running' });
   });
 
+  it.each([['system', 'novel-writing'], ['space', null]])('projects trusted composite %s provenance with no legacy ID', async (scope, slug) => {
+    const run = { ...ready, templateId: null, template: null,
+      compositeTemplateVersion: { template: { scope, spaceId: scope === 'system' ? null : 'space-1', stableKey: 'novel-workspace' } },
+      tasks: [], roleBindings: bindings };
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) => projectSelect(run, args.select));
+    const result = await service.getHumanRun('space-1', 'run-1', humanPrincipal);
+    expect((result as any).systemTemplateSource).toEqual(slug ? { slug } : null);
+    expect(result).not.toHaveProperty('template');
+    expect(result).not.toHaveProperty('compositeTemplateVersion');
+  });
+
+  it.each([
+    [true, null, 'coding', { slug: 'coding' }],
+    [false, 'space-1', 'coding', null],
+    [true, 'space-1', 'coding', null],
+    [true, null, 'unknown', null],
+  ])('only projects recognized stored legacy system ownership (%s, %s, %s)', async (system, spaceId, slug, expected) => {
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) => projectSelect({
+      ...ready, template: { system, spaceId, slug }, compositeTemplateVersion: null, tasks: [], roleBindings: bindings,
+    }, args.select));
+    const result = await service.getHumanRun('space-1', 'run-1', humanPrincipal);
+    expect(result.systemTemplateSource).toEqual(expected);
+  });
+
   it('adds frozen approval criteria to the current Review preview without exposing the template snapshot', async () => {
     const reviewRun = {
       ...ready,

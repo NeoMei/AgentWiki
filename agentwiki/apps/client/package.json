@@ -1,6 +1,6 @@
 {
   "name": "@agentwiki/client",
-  "version": "0.12.12",
+  "version": "0.12.17",
   "type": "module",
   "scripts": {
     "dev": "vite --config vite.config.ts",
@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@agentwiki/shared": "workspace:*",
+    "@codemirror/commands": "6.10.4",
     "@codemirror/lang-markdown": "^6.5.1",
     "@codemirror/language": "^6.12.4",
     "@codemirror/language-data": "^6.5.2",

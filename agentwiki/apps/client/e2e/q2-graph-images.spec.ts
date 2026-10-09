@@ -40,31 +40,49 @@ test.beforeEach(async ({ page }) => {
   });
   await page.goto('/e2e/fixtures/q2-graph-images.html');
 });
-test('real canvas measures non-overlapping multiline labels at zoom and resized viewports', async ({page}) => {
+test('real canvas paints only selection, clears on blank space, and keeps zoom working', async ({page}) => {
   await expect(page.getByRole('combobox',{name:'Browse graph nodes'})).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as any).circles.length)).toBe(60);
+  expect(await page.evaluate(() => (window as any).painted)).toEqual([]);
+  await page.screenshot({path:test.info().outputPath('graph-default-desktop.png')});
+  const first = await page.evaluate(() => (window as any).circles[0] as {x:number;y:number});
+  await page.locator('canvas').click({position:{x:first.x,y:first.y}});
+  await expect(page.getByRole('combobox')).toHaveValue('p0');
+  await expect.poll(() => page.evaluate(() => (window as any).painted[0]?.text)).toContain('中文知识');
+  await page.locator('canvas').click({position:{x:2,y:2}});
+  await expect(page.getByRole('combobox')).toHaveValue('');
   for (const width of [1200,390]) {
     await page.setViewportSize({width,height:850});
-    for (const action of ['Fit graph','Zoom in','Zoom out']) {
-      await page.getByRole('button',{name:action,exact:true}).click();
-      await expect.poll(() => page.evaluate(() => (window as any).painted.length)).toBeGreaterThan(0);
-      const geometry = await page.evaluate(() => {
-        const canvas = document.querySelector('canvas')!, rect=canvas.getBoundingClientRect();
-        const labels=(window as any).painted as Array<{x:number;y:number;width:number;text:string;transform:number[];font:string}>;
-        return {rect:{width:rect.width,height:rect.height},labels,circles:(window as any).circles as Array<{x:number;y:number;radius:number}>};
-      });
-      for (const a of geometry.labels) {
-        expect(a.x).toBeGreaterThanOrEqual(8); expect(a.y).toBeGreaterThanOrEqual(8);
-        expect(a.x+a.width).toBeLessThanOrEqual(geometry.rect.width-8+0.01); expect(a.y+20).toBeLessThanOrEqual(geometry.rect.height-8+0.01);
-        expect(a.font).toBe('14px sans-serif');
-        for (const node of geometry.circles) expect(Math.hypot(node.x - Math.max(a.x,Math.min(node.x,a.x+a.width)),node.y - Math.max(a.y,Math.min(node.y,a.y+20)))).toBeGreaterThanOrEqual(node.radius+4-0.01);
-        for (const b of geometry.labels) if (a!==b) expect(a.x < b.x+b.width && a.x+a.width > b.x && a.y < b.y+20 && a.y+20 > b.y).toBe(false);
+    for (const id of ['p11', 'p59']) {
+      await page.getByRole('combobox').selectOption(id);
+      for (const action of ['Fit graph','Zoom in','Zoom out']) {
+        await page.getByRole('button',{name:action,exact:true}).click();
+        await expect.poll(() => page.evaluate(() => (window as any).painted.length)).toBeGreaterThan(0);
+        const geometry = await page.evaluate(() => {
+          const canvas = document.querySelector('canvas')!, rect=canvas.getBoundingClientRect();
+          return {rect:{width:rect.width,height:rect.height}, labels:(window as any).painted as Array<{x:number;y:number;width:number;text:string;font:string}>};
+        });
+        expect(geometry.labels.length).toBeLessThanOrEqual(2);
+        expect(geometry.labels[0].text).toContain('Long English title');
+        for (const a of geometry.labels) {
+          expect(a.x).toBeGreaterThanOrEqual(8); expect(a.y).toBeGreaterThanOrEqual(8);
+          expect(a.x+a.width).toBeLessThanOrEqual(geometry.rect.width-8+0.01);
+          expect(a.y+20).toBeLessThanOrEqual(geometry.rect.height-8+0.01);
+          expect(a.font).toBe('14px sans-serif');
+        }
       }
+      await expect(page.getByRole('link',{name:'Open selected page'})).toHaveAttribute('href',`/pages/${id}`);
+      await page.screenshot({path:test.info().outputPath(`graph-selected-${width}-${id}.png`)});
     }
+    await page.locator('canvas').click({position:{x:2,y:2}});
+    await expect(page.getByRole('combobox')).toHaveValue('');
+    await expect.poll(() => page.evaluate(() => (window as any).painted.length)).toBe(0);
+    await page.screenshot({path:test.info().outputPath(`graph-cleared-${width}.png`)});
   }
-  await expect(page.getByRole('status').filter({hasText:'titles are hidden'})).toContainText('titles are hidden');
-  await page.getByRole('combobox').selectOption('p59');
-  await expect(page.getByRole('link',{name:'Open selected page'})).toHaveAttribute('href','/pages/p59');
-  await page.screenshot({path:'/tmp/task6-graph-mobile.png'});
+  await page.getByRole('button',{name:'Fit graph',exact:true}).click();
+  const second = await page.evaluate(() => (window as any).circles[1] as {x:number;y:number});
+  await page.locator('canvas').dblclick({position:{x:second.x,y:second.y}});
+  await expect(page.getByText('Opened page', {exact:true})).toBeVisible();
 });
 test('page and editor images open by keyboard, remain bounded, close and restore focus', async ({page}) => {
   for (const width of [1200,390]) {

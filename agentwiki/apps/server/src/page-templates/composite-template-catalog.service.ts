@@ -1,3 +1,4 @@
+import { TemplateFeaturePolicy } from './template-feature-policy';
 import { Injectable } from '@nestjs/common';
 import { Prisma, type PageTemplateCategory, type PageTemplateScope } from '@prisma/client';
 import {
@@ -80,6 +81,7 @@ export class CompositeTemplateCatalogService {
     private readonly prisma: PrismaService,
     private readonly authorization: AuthorizationService,
     private readonly pageTemplates: PageTemplateService,
+    private readonly policy: TemplateFeaturePolicy,
   ) {}
 
   async resolve(
@@ -113,8 +115,8 @@ export class CompositeTemplateCatalogService {
       this.authorization.assertLiveHumanSpaceAccess(
         tx, principal, spaceId, ['owner', 'admin', 'editor', 'viewer'],
       ));
-    const canManage = !principal.agentId && ['owner', 'admin'].includes(member.role);
-    const canCreate = !principal.agentId && ['owner', 'editor'].includes(member.role);
+    const capabilities = this.policy.capabilities(spaceId, member.role, !!principal.agentId);
+    const { canManage } = capabilities;
     if (!canManage && query.archived && query.archived !== 'active') {
       throw new BusinessException('PAGE_TEMPLATE_PERMISSION_DENIED');
     }
@@ -156,9 +158,9 @@ export class CompositeTemplateCatalogService {
       skip: query.skip,
       take: query.take,
       // Creating a page group is a Space content write. It follows the same
-      // owner/editor boundary as instantiation, rather than the separate
+      // human owner/admin/editor boundary as instantiation, rather than the separate
       // allowlist used for managing composite template definitions.
-      capabilities: { canManage, canCreate },
+      capabilities,
     };
   }
 

@@ -1,0 +1,18 @@
+{
+  "checkedAt": "2026-10-06T11:27:35.901Z",
+  "scope": "owned disposable main and CRLF fixture pages only",
+  "pages": [
+    {
+      "pageId": "bc629872-1c82-4fd3-8234-961f5f20b023",
+      "titleUnchanged": true,
+      "contentUnchanged": true,
+      "updatedAtUnchanged": true
+    },
+    {
+      "pageId": "5d18a5f5-f5aa-48b0-a947-0de314af1c4f",
+      "titleUnchanged": true,
+      "contentUnchanged": true,
+      "updatedAtUnchanged": true
+    }
+  ]
+}

@@ -8,6 +8,7 @@ import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { AuthProvider, useAuth } from '../../context/AuthContext';
 import { PagePreview } from './PagePreview';
+import { AgentSessionRegistryProvider } from '../agent-session/AgentSessionRegistry';
 import { SpaceWorkspaceProvider, SpaceWorkspaceScope, useSpaceWorkspace } from '../space-workspace/SpaceWorkspaceContext';
 import { readWorkspacePosition } from '../space-workspace/workspaceNavigation';
 
@@ -160,6 +161,85 @@ const AbaNavigationHarness = () => {
 };
 
 describe('PagePreview checklist saves', () => {
+  it('shows source review notice before opening details and adopts PATCH freshness', async () => {
+    queuePages({ data: page({ sourceStatus: { status: 'current', reason: 'reviewed_source', sourceId: 'src' } }) });
+    vi.mocked(api.patch).mockResolvedValue({ data: patchPage({ content: '- [x] first task\n- [ ] second task', sourceStatus: { status: 'needs_review', reason: 'page_changed', sourceId: 'src' } }) });
+    renderPreview();
+    const checkboxes = await taskCheckboxes();
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    fireEvent.click(checkboxes[0]);
+    expect(await screen.findByText(/previous source review does not cover/)).toBeVisible();
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('note')).toHaveTextContent('needs review');
+  });
+  it('restores current source status after a failed optimistic checkbox save', async () => {
+    const save = deferred<any>();
+    queuePages({ data: page({ sourceStatus: { status: 'current', reason: 'reviewed_source' } }) });
+    vi.mocked(api.patch).mockReturnValue(save.promise);
+    renderPreview(); fireEvent.click((await taskCheckboxes())[0]);
+    expect(await screen.findByRole('note')).toHaveTextContent('needs review');
+    await act(async () => save.reject({ response: { status: 500 } }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('could not be saved');
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    expect((await taskCheckboxes())[0]).not.toBeChecked();
+  });
+  it.each([
+    ['unknown', 'unverified_source', 'review status is unknown'],
+    ['unavailable', 'source_unavailable', 'unavailable or inaccessible'],
+  ])('preserves server %s status while optimistic work is pending and after save', async (status, reason, text) => {
+    const save = deferred<any>();
+    queuePages({ data: page({ sourceStatus: { status, reason } }) });
+    vi.mocked(api.patch).mockReturnValue(save.promise);
+    renderPreview(); fireEvent.click((await taskCheckboxes())[0]);
+    expect(screen.getByRole('note')).toHaveTextContent(text);
+    await act(async () => save.resolve({ data: patchPage({ content: '- [x] first task\n- [ ] second task', sourceStatus: { status, reason } }) }));
+    expect(screen.getByRole('note')).toHaveTextContent(text);
+  });
+  it.each([
+    ['unknown', 'unverified_source', 'review status is unknown'],
+    ['unavailable', 'source_unavailable', 'unavailable or inaccessible'],
+  ])('adopts authoritative %s PATCH status after a current baseline', async (status, reason, text) => {
+    queuePages({ data: page({ sourceStatus: { status: 'current', reason: 'reviewed_source' } }) });
+    vi.mocked(api.patch).mockResolvedValue({ data: patchPage({ content: '- [x] first task\n- [ ] second task', sourceStatus: { status, reason } }) });
+    renderPreview(); fireEvent.click((await taskCheckboxes())[0]);
+    await waitFor(() => expect(screen.getByRole('note')).toHaveTextContent(text));
+    expect((await taskCheckboxes())[0]).toBeChecked();
+  });
+  it('adopts current server status on an already-satisfied 409 without retrying', async () => {
+    queuePages({ data: page({ sourceStatus: { status: 'current', reason: 'reviewed_source' } }) }, { data: page({ content: '- [x] first task\n- [ ] second task', sourceStatus: { status: 'current', reason: 'reviewed_source' } }) });
+    vi.mocked(api.patch).mockRejectedValueOnce({ response: { status: 409 } });
+    renderPreview(); fireEvent.click((await taskCheckboxes())[0]);
+    await waitFor(() => expect(screen.queryByRole('note')).not.toBeInTheDocument());
+    expect((await taskCheckboxes())[0]).toBeChecked();
+    expect(api.patch).toHaveBeenCalledTimes(1);
+  });
+
+  it('distinguishes unknown from current without exposing source links', async () => {
+    queuePages({ data: page({ sourceStatus: { status: 'unknown', reason: 'unverified_source' } }) });
+    renderPreview();
+    expect(await screen.findByRole('note')).toHaveTextContent('review status is unknown');
+  });
+
+  it('gives the reading outline space only while its wide-screen rail is visible', async () => {
+    const viewport = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1700);
+    queuePages({ data: page({ content: '# Reading outline' }) });
+    renderPreview();
+    await screen.findByRole('navigation', { name: 'Contents' });
+    const occupiedWidth = () => screen.getByRole('article').style.getPropertyValue('--document-panel-width');
+    expect(occupiedWidth()).toBe('296px');
+    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize article contents' }), { key: 'End' });
+    expect(occupiedWidth()).toBe('376px');
+    viewport.mockReturnValue(1280); fireEvent.resize(window);
+    fireEvent.click(screen.getByRole('button', { name: 'Contents' }));
+    expect(screen.getByRole('navigation', { name: 'Contents' })).toBeVisible();
+    expect(occupiedWidth()).toBe('0px');
+    viewport.mockReturnValue(1700); fireEvent.resize(window);
+    expect(occupiedWidth()).toBe('376px');
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(occupiedWidth()).toBe('0px');
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
   afterEach(() => {
     cleanup();
     Object.defineProperty(window, 'scrollY', { configurable: true, value: 0 });
@@ -286,9 +366,7 @@ describe('PagePreview checklist saves', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Page information' }));
     expect(screen.getByText('Docs · markdown')).toBeInTheDocument();
 
-    const article = screen.getByRole('article');
-    expect(article).toHaveClass('mx-auto', 'max-w-[860px]', 'bg-white');
-    expect(article).not.toHaveClass('shadow-sm', 'border');
+    expect(screen.getByRole('article')).toContainElement(screen.getByRole('heading', { name: 'Checklist' }));
   });
 
   it('restores an editor return to the matching rendered heading before using scroll pixels', async () => {
@@ -322,7 +400,7 @@ describe('PagePreview checklist saves', () => {
 
     const target = await screen.findByText('Paragraph position 12.');
     await waitFor(() => expect(scrollIntoViewMock).toHaveBeenCalled());
-    expect(scrollIntoViewMock.mock.instances[scrollIntoViewMock.mock.instances.length - 1]).toBe(target);
+    expect(scrollIntoViewMock.mock.instances[scrollIntoViewMock.mock.instances.length - 1]).toBe(target.closest('[data-markdown-source-start]'));
   });
 
   it('starts an ordinary push to another article at the top', async () => {
@@ -406,7 +484,7 @@ describe('PagePreview checklist saves', () => {
     await screen.findByRole('heading', { name: 'First position' });
     const restoredBlock = screen.getByText('Body');
     await waitFor(() => expect(scrollIntoViewMock).toHaveBeenCalled());
-    expect(scrollIntoViewMock.mock.instances[scrollIntoViewMock.mock.instances.length - 1]).toBe(restoredBlock);
+    expect(scrollIntoViewMock.mock.instances[scrollIntoViewMock.mock.instances.length - 1]).toBe(restoredBlock.closest('[data-markdown-source-start]'));
   });
 
   it('renders links from the authoritative workspace breadcrumb chain', async () => {
@@ -976,7 +1054,7 @@ describe('PagePreview checklist saves', () => {
     expect(scrollIntoViewMock).not.toHaveBeenCalled();
 
     const loading = await screen.findByText('Loading embedded content…');
-    const markdownRoot = loading.closest('.prose');
+    const markdownRoot = loading.closest('.document-body');
     if (!markdownRoot) throw new Error('Markdown root not found');
     for (let index = 0; index < 101; index += 1) {
       await act(async () => {
@@ -1072,4 +1150,31 @@ describe('PagePreview checklist saves', () => {
     expect(screen.getByRole('heading', { name: 'Page B' })).toBeInTheDocument();
     expect(scrollIntoViewMock).toHaveBeenCalledTimes(1);
   });
+  it('lets a reader annotate an exact reading selection, stage it, add a reference and explicitly send a question', async () => {
+    const readingSource = 'repeat\n\nrepeat with context';
+    const current = page({ content: readingSource, capabilities: { canEdit: false } });
+    const session = { id: 'session-reader', spaceId: 'space-1', title: 'Reader conversation', createdAt: current.createdAt, updatedAt: current.updatedAt };
+    localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/assist/sessions' ? [] : url === '/search' ? { results: [{ page: { id: 'ref', title: 'Supporting page', spaceId: 'space-1' } }] } : url.startsWith('/knowledge') ? [] : current }));
+    vi.mocked(api.post).mockImplementation(async (url, data: any) => ({ data: url === '/assist/sessions' ? session : { id: 'reader-turn', sessionId: session.id, pageId: current.id, mode: data.mode, intent: data.intent, status: 'done', createdAt: current.updatedAt, pageSnapshot: data.snapshot, references: [{ pageId: 'ref', title: 'Supporting page', updatedAt: current.updatedAt }], noteIds: data.noteIds, annotations: data.annotations, result: { summary: 'Reader answer' }, error: null, progressText: '' } }));
+    render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="reader"><MemoryRouter initialEntries={['/pages/page-1']}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
+    const span = await screen.findByText('repeat with context');
+    const selection = window.getSelection()!, range = document.createRange(); range.setStart(span.firstChild!, 0); range.setEnd(span.firstChild!, 6); selection.removeAllRanges(); selection.addRange(range);
+    fireEvent.mouseUp(span);
+    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+    const notesPanel = await screen.findByRole('region', { name: 'Personal notes' });
+    expect(within(notesPanel).getByText('repeat', { selector: 'blockquote' })).toBeVisible();
+    fireEvent.change(within(notesPanel).getByRole('textbox', { name: 'Note' }), { target: { value: 'Why the second occurrence?' } }); fireEvent.click(within(notesPanel).getByRole('button', { name: 'Add note' }));
+    fireEvent.click(within(notesPanel).getByRole('checkbox', { name: 'Why the second occurrence?' })); fireEvent.click(within(notesPanel).getByRole('button', { name: 'Stage selected for Agent' }));
+    expect(api.post).not.toHaveBeenCalled();
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Find reference pages' }), { target: { value: 'Supporting' } }); fireEvent.click(await screen.findByRole('button', { name: 'Add Supporting page' }));
+    expect(screen.getByRole('option', { name: 'Propose changes' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Send' })); expect(await screen.findByText('Reader answer')).toBeVisible();
+    const sent = vi.mocked(api.post).mock.calls.find(([url]) => url.endsWith('/turns'))?.[1] as any;
+    expect(sent.mode).toBe('question'); expect(sent.referencePageIds).toEqual(['ref']); expect(sent.snapshot.assistTarget).toMatchObject({ from: 8, to: 14, quote: 'repeat' });
+    expect(sent.annotations).toEqual([expect.objectContaining({ body: 'Why the second occurrence?', quote: 'repeat' })]); expect(sent.intent).not.toMatch(/rewrite|modify/i); expect(api.patch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Personal notes' })[0]);
+    expect(screen.getByText('Dispatched')).toBeVisible(); expect(screen.queryByText('Resolved', { exact: true })).not.toBeInTheDocument();
+  });
+
 });

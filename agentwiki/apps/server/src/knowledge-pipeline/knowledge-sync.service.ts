@@ -1,3 +1,5 @@
+import { lockSourceHead, lockSourceMutationSpace, nextSourceGeneration, sourceVersionConflict } from './source-head';
+import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.service';
 import { Injectable } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { Principal } from '../core/authorization/authorization.service';
@@ -32,6 +34,7 @@ export class KnowledgeSyncService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly authorization: AuthorizationService,
+    private readonly revisionWriter: SpaceRevisionWriterService,
   ) {}
 
   async getState(spaceId: string, sourceKey: string): Promise<KnowledgeSyncState> {
@@ -45,21 +48,31 @@ export class KnowledgeSyncService {
     const run = await this.prisma.ingestRun.findFirst({
       where: {
         sourceId: source.id,
+        spaceId,
         inputSourceVersionId: { not: null },
+        inputSourceVersion: { sourceId: source.id },
         status: { in: FINISHED_RUN_STATUSES },
       },
       orderBy: { completedAt: 'desc' },
       select: {
+        sourceId: true,
+        spaceId: true,
+        inputSourceVersionId: true,
         completedAt: true,
         inputSourceVersion: {
           select: {
             id: true,
+            sourceId: true,
             files: { select: { path: true, contentHash: true }, orderBy: { path: 'asc' } },
           },
         },
       },
     });
-    if (!run?.inputSourceVersion) {
+    // Preserve the latest coherent finished input, including a historical non-head version.
+    // Recheck the returned relation before projecting any version, time, or file metadata.
+    if (!run?.inputSourceVersion || run.spaceId !== spaceId || run.sourceId !== source.id
+      || run.inputSourceVersion.sourceId !== source.id
+      || run.inputSourceVersion.id !== run.inputSourceVersionId) {
       return { exists: true, sourceId: source.id, sourceVersionId: null, syncedAt: null, documents: [] };
     }
     return {
@@ -91,14 +104,12 @@ export class KnowledgeSyncService {
     let result: KnowledgeSyncResult;
     try {
       result = await this.prisma.$transaction(async (tx) => {
-        await this.authorization.assertLiveAgentWriteAccess(
-          tx, principal, spaceId, ['sources:write', 'runs:write'],
-        );
+        await lockSourceMutationSpace(tx, principal, spaceId, ['sources:write', 'runs:write'], this.authorization, this.revisionWriter);
         return this.persistSync(tx, spaceId, principal, envelope, idempotencyKey);
       });
     } catch (error: unknown) {
       if (!this.isPrismaUniqueViolation(error)) throw error;
-      const winner = await this.findConcurrentWinner(spaceId, envelope, idempotencyKey);
+      const winner = await this.findConcurrentWinner(spaceId, principal, envelope, idempotencyKey);
       if (!winner) throw error;
       result = winner;
     }
@@ -141,39 +152,29 @@ export class KnowledgeSyncService {
         createdByUserId: principal.agentId ? undefined : principal.userId,
         createdByAgentId: principal.agentId,
       },
-      update: {
+      // Resolve the identity without rewriting metadata on a historical replay.
+      update: {},
+      select: { id: true },
+    });
+
+    const head = await lockSourceHead(tx, source.id, spaceId);
+    const replay = await this.findReceipt(tx, source.id, envelope.contentHash, idempotencyKey);
+    if (replay) return replay;
+
+    await tx.source.update({
+      where: { id: source.id },
+      data: {
         name: envelope.name,
         contentHash: this.hash(envelope.sourceKey),
         config: { kind: envelope.kind, producer: envelope.producer },
       },
-      select: { id: true },
     });
-
-    const idempotentRun = await tx.ingestRun.findUnique({
-      where: { sourceId_idempotencyKey: { sourceId: source.id, idempotencyKey } },
-      select: { id: true, inputSourceVersionId: true },
-    });
-    if (idempotentRun?.inputSourceVersionId) {
-      return { status: 'existing', sourceId: source.id, sourceVersionId: idempotentRun.inputSourceVersionId, runId: idempotentRun.id };
-    }
 
     let version = await tx.sourceVersion.findFirst({
       where: { sourceId: source.id, contentHash: envelope.contentHash },
       select: { id: true },
     });
-    if (version) {
-      const latestRun = await tx.ingestRun.findFirst({
-        where: { sourceId: source.id, inputSourceVersionId: version.id },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true, status: true },
-      });
-      if (latestRun && !RETRYABLE_SYNC_RUN_STATUSES.includes(latestRun.status)) {
-        if (FINISHED_RUN_STATUSES.includes(latestRun.status)) {
-          return { status: 'noop', sourceId: source.id, sourceVersionId: version.id, runId: null };
-        }
-        return { status: 'existing', sourceId: source.id, sourceVersionId: version.id, runId: latestRun.id };
-      }
-    } else {
+    if (!version) {
       const latestVersion = await tx.sourceVersion.findFirst({
         where: { sourceId: source.id },
         orderBy: { version: 'desc' },
@@ -198,10 +199,28 @@ export class KnowledgeSyncService {
       });
     }
 
+    const sourceState = await tx.source.findUnique({ where: { id: source.id }, select: { currentSourceGeneration: true } });
+    const generation = nextSourceGeneration(sourceState.currentSourceGeneration, head?.sourceVersionId === version.id);
+    if (!head || head.sourceVersionId !== version.id) await tx.source.update({ where: { id: source.id }, data: { currentSourceVersionId: version.id, currentSourceGeneration: generation } });
+    const saveReceipt = async (result: KnowledgeSyncResult) => {
+      await tx.sourceSyncReceipt.create({ data: { sourceId: source.id, idempotencyKey, inputHash: envelope.contentHash, sourceVersionId: version.id, inputSourceGeneration: generation, resultStatus: result.status, runId: result.runId } });
+      return result;
+    };
+    if (head?.sourceVersionId === version.id) {
+      const latestRun = await tx.ingestRun.findFirst({
+        where: { sourceId: source.id, inputSourceVersionId: version.id, inputSourceGeneration: generation },
+        orderBy: { createdAt: 'desc' }, select: { id: true, status: true },
+      });
+      if (latestRun && !RETRYABLE_SYNC_RUN_STATUSES.includes(latestRun.status)) return saveReceipt({
+        status: FINISHED_RUN_STATUSES.includes(latestRun.status) ? 'noop' : 'existing', sourceId: source.id, sourceVersionId: version.id,
+        runId: FINISHED_RUN_STATUSES.includes(latestRun.status) ? null : latestRun.id,
+      });
+    }
     const run = await tx.ingestRun.create({
       data: {
         sourceId: source.id,
         inputSourceVersionId: version.id,
+        inputSourceGeneration: generation,
         spaceId,
         idempotencyKey,
         requestedByUserId: principal.agentId ? undefined : principal.userId,
@@ -212,46 +231,31 @@ export class KnowledgeSyncService {
       },
       select: { id: true },
     });
-    return { status: 'queued', sourceId: source.id, sourceVersionId: version.id, runId: run.id };
+    return saveReceipt({ status: 'queued', sourceId: source.id, sourceVersionId: version.id, runId: run.id });
   }
 
-  private async findConcurrentWinner(
-    spaceId: string,
-    envelope: NormalizedOkfEnvelope,
-    idempotencyKey: string,
-  ): Promise<KnowledgeSyncResult | undefined> {
-    const source = await this.prisma.source.findUnique({
-      where: { spaceId_type_sourceKey: { spaceId, type: 'okf', sourceKey: envelope.sourceKey } },
-      select: { id: true },
-    });
-    if (!source) return undefined;
+  private async findReceipt(tx: any, sourceId: string, inputHash: string, idempotencyKey: string): Promise<KnowledgeSyncResult | undefined> {
+    const receipt = await tx.sourceSyncReceipt.findUnique({ where: { sourceId_idempotencyKey: { sourceId, idempotencyKey } } });
+    if (receipt) {
+      if (receipt.inputHash !== inputHash) sourceVersionConflict();
+      return { status: receipt.runId ? 'existing' : 'noop', sourceId, sourceVersionId: receipt.sourceVersionId, runId: receipt.runId };
+    }
+    // Preserve exact pre-migration Run keys; never infer historical no-op receipts.
+    const legacy = await tx.ingestRun.findUnique({ where: { sourceId_idempotencyKey: { sourceId, idempotencyKey } }, include: { inputSourceVersion: { select: { contentHash: true, sourceId: true } } } });
+    if (!legacy) return undefined;
+    if (!legacy.inputSourceVersionId || legacy.inputSourceVersion?.sourceId !== sourceId || legacy.inputSourceVersion.contentHash !== inputHash) sourceVersionConflict();
+    await tx.sourceSyncReceipt.create({ data: { sourceId, idempotencyKey, inputHash, sourceVersionId: legacy.inputSourceVersionId, inputSourceGeneration: legacy.inputSourceGeneration ?? null, resultStatus: 'existing', runId: legacy.id } });
+    return { status: 'existing', sourceId, sourceVersionId: legacy.inputSourceVersionId, runId: legacy.id };
+  }
 
-    const idempotentRun = await this.prisma.ingestRun.findUnique({
-      where: { sourceId_idempotencyKey: { sourceId: source.id, idempotencyKey } },
-      select: { id: true, inputSourceVersionId: true },
+  private async findConcurrentWinner(spaceId: string, principal: Principal, envelope: NormalizedOkfEnvelope, idempotencyKey: string): Promise<KnowledgeSyncResult | undefined> {
+    return this.prisma.$transaction(async tx => {
+      await lockSourceMutationSpace(tx, principal, spaceId, ['sources:write', 'runs:write'], this.authorization, this.revisionWriter);
+      const source = await tx.source.findUnique({ where: { spaceId_type_sourceKey: { spaceId, type: 'okf', sourceKey: envelope.sourceKey } }, select: { id: true } });
+      if (!source) return undefined;
+      await lockSourceHead(tx, source.id, spaceId);
+      return this.findReceipt(tx, source.id, envelope.contentHash, idempotencyKey);
     });
-    if (idempotentRun?.inputSourceVersionId) {
-      return { status: 'existing', sourceId: source.id, sourceVersionId: idempotentRun.inputSourceVersionId, runId: idempotentRun.id };
-    }
-
-    const version = await this.prisma.sourceVersion.findFirst({
-      where: { sourceId: source.id, contentHash: envelope.contentHash },
-      select: { id: true },
-    });
-    if (!version) return undefined;
-    const latestRun = await this.prisma.ingestRun.findFirst({
-      where: { sourceId: source.id, inputSourceVersionId: version.id },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, status: true },
-    });
-    if (!latestRun) return undefined;
-    if (FINISHED_RUN_STATUSES.includes(latestRun.status)) {
-      return { status: 'noop', sourceId: source.id, sourceVersionId: version.id, runId: null };
-    }
-    if (!RETRYABLE_SYNC_RUN_STATUSES.includes(latestRun.status)) {
-      return { status: 'existing', sourceId: source.id, sourceVersionId: version.id, runId: latestRun.id };
-    }
-    return undefined;
   }
 
   private parseEnvelope(file: Buffer): NormalizedOkfEnvelope {

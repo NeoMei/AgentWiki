@@ -1,0 +1,20 @@
+{
+  "release": "0.12.17",
+  "sourceCommit": "4d88ee2bb3af706050f5d88e038b7faf57ea0f2e",
+  "sourceFileCount": 1232,
+  "sourceMismatches": [],
+  "configuredKeysCompared": 35,
+  "changedConfiguredKeys": [],
+  "versions": {
+    "package.json": "0.12.17",
+    "apps/client/package.json": "0.12.17",
+    "apps/server/package.json": "0.12.17",
+    "packages/local-sync/package.json": "0.11.0",
+    "packages/sync-protocol/package.json": "0.6.1"
+  },
+  "scripts": [
+    "/assets/index-RwTQtjfg.js"
+  ],
+  "restoredPageStillActive": true,
+  "at": "2026-10-08T14:28:01.159Z"
+}

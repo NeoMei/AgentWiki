@@ -1,11 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { LanguageProvider } from '../../context/LanguageContext';
+import { LanguageProvider, useLanguage } from '../../context/LanguageContext';
 import { KnowledgeGraph } from './KnowledgeGraph';
 
-const api = vi.hoisted(() => ({ get: vi.fn() }));
+const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), delete: vi.fn() }));
 vi.mock('../../api/client', () => ({ default: api }));
 
 const node = (id: string, title: string) => ({ id, title, x: 100, y: 100, radius: 20 });
@@ -27,6 +27,27 @@ describe('KnowledgeGraph origin filters', () => {
       fillText: vi.fn(),
       measureText: (text: string) => ({ width: [...text].length * 8 }),
     } as unknown as CanvasRenderingContext2D);
+  });
+
+  it.each(['create', 'delete'])('localizes a graph relation %s permission denial', async (action) => {
+    api.get.mockImplementation((url: string) => Promise.resolve({ data: url.includes('/knowledge/graph/')
+      ? { nodes: [node('p1', 'Alpha'), node('p2', 'Beta')], edges: [{ id: 'e1', source: 'p1', target: 'p2', relation: 'references', strength: 1, confidence: 1, origin: 'manual' }] }
+      : { data: [{ id: 'p1', title: 'Alpha' }, { id: 'p2', title: 'Beta' }] } }));
+    const denied = { response: { status: 403, data: { message: 'Forbidden' } } };
+    api.post.mockRejectedValue(denied); api.delete.mockRejectedValue(denied);
+    render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/s1/graph']}><Routes><Route path="/spaces/:spaceId/graph" element={<KnowledgeGraph />} /></Routes></MemoryRouter></LanguageProvider>);
+    const browser = await screen.findByRole('combobox', { name: '浏览图谱节点' }); fireEvent.change(browser, { target: { value: 'p1' } });
+    if (action === 'create') {
+      fireEvent.click(screen.getByRole('button', { name: '建立关系…' }));
+      const dialog = screen.getByRole('dialog', { name: '创建关系' });
+      fireEvent.change(within(dialog).getByRole('combobox'), { target: { value: 'p2' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: '创建关系' }));
+    } else {
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      fireEvent.click(screen.getByTitle('删除关系'));
+    }
+    expect(await screen.findByText('你没有权限执行此操作。请联系空间所有者或管理员确认成员角色后重试。')).toBeInTheDocument();
+    expect(action === 'create' ? api.post : api.delete).toHaveBeenCalledTimes(1);
   });
 
   it('renders origin chips and hides an origin when its chip is toggled off', async () => {
@@ -65,20 +86,28 @@ describe('KnowledgeGraph origin filters', () => {
     });
   });
 
-  it('measures label widths and explains hidden labels in a dense viewport', async () => {
-    const measureText = vi.fn((text: string) => ({ width: [...text].length * 14 }));
+  it('paints no default names, paints only selection, then clears on blank canvas', async () => {
+    const paint = vi.fn();
     const ctx = HTMLCanvasElement.prototype.getContext.call(document.createElement('canvas'), '2d')!;
-    Object.assign(ctx, { measureText });
-    vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 180, 100));
-    const dense = Array.from({ length: 30 }, (_, i) => node(`p${i}`, `很长的知识图谱标题 English ${i}`));
+    Object.assign(ctx, { fillText: paint });
+    vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 600, 500));
     api.get.mockImplementation((url: string) => Promise.resolve({ data: url.includes('/knowledge/graph/')
-      ? { nodes: dense, edges: [] } : { data: dense } }));
-    render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/s1/graph']}>
+      ? { nodes: [node('p1', 'Alpha'), { ...node('p2', 'Beta'), x: 300 }], edges: [] } : { data: [] } }));
+    const { container } = render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/s1/graph']}>
       <Routes><Route path='/spaces/:spaceId/graph' element={<KnowledgeGraph />} /></Routes>
     </MemoryRouter></LanguageProvider>);
-    await screen.findByRole('combobox', { name: '浏览图谱节点' });
-    expect(measureText).toHaveBeenCalled();
-    expect(screen.getByText(/个标题因空间不足/)).toBeInTheDocument();
+    const browser = await screen.findByRole('combobox', { name: '浏览图谱节点' });
+    expect(paint).not.toHaveBeenCalled();
+    fireEvent.change(browser, { target: { value: 'p1' } });
+    expect(paint.mock.calls.map(call => call[0])).toEqual(['Alpha']);
+    paint.mockClear();
+    fireEvent.change(browser, { target: { value: 'p2' } });
+    expect(paint.mock.calls.map(call => call[0])).toEqual(['Beta']);
+    paint.mockClear();
+    fireEvent.click(container.querySelector('canvas')!, { clientX: 590, clientY: 490 });
+    expect(browser).toHaveValue('');
+    expect(paint).not.toHaveBeenCalled();
+    expect(screen.queryByText(/个标题因空间不足/)).not.toBeInTheDocument();
   });
 
   it('offers a keyboard-accessible node browser alongside the visual canvas', async () => {
@@ -392,4 +421,25 @@ describe('KnowledgeGraph canvas navigation', () => {
     expect(screen.getByText('Opened page')).toBeInTheDocument();
   });
 
+});
+
+
+it('localizes a Chinese graph permission error without rendering raw backend English', async () => {
+  localStorage.setItem('agentwiki.language.v1', 'zh-CN');
+  api.get.mockRejectedValue({ response: { status: 403, data: { message: 'Forbidden' } } });
+  render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/s1/graph']}><Routes><Route path="/spaces/:spaceId/graph" element={<KnowledgeGraph />} /></Routes></MemoryRouter></LanguageProvider>);
+  expect(await screen.findByText('你没有权限执行此操作。请联系空间所有者或管理员确认成员角色后重试。')).toBeInTheDocument();
+  expect(screen.queryByText('Forbidden')).not.toBeInTheDocument();
+});
+
+
+it('updates an existing graph permission error after switching language', async () => {
+  localStorage.setItem('agentwiki.language.v1', 'zh-CN');
+  api.get.mockRejectedValue({ response: { status: 403 } });
+  const Switch = () => { const { setLanguage } = useLanguage(); return <button onClick={() => setLanguage('en')}>English</button>; };
+  render(<LanguageProvider><Switch /><MemoryRouter initialEntries={['/spaces/s1/graph']}><Routes><Route path="/spaces/:spaceId/graph" element={<KnowledgeGraph />} /></Routes></MemoryRouter></LanguageProvider>);
+  await screen.findByText('你没有权限执行此操作。请联系空间所有者或管理员确认成员角色后重试。');
+  const calls = api.get.mock.calls.length; fireEvent.click(screen.getByText('English'));
+  expect(screen.getByText(/You do not have permission/)).toBeInTheDocument();
+  expect(api.get).toHaveBeenCalledTimes(calls);
 });

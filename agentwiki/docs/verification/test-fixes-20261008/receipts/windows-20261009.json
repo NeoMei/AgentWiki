@@ -1,0 +1,359 @@
+{
+  "schemaVersion": 1,
+  "status": "VERIFIED_WITH_NATIVE_SYNC_NOT_RUN",
+  "date": "2026-10-09",
+  "timezone": "Asia/Shanghai",
+  "threadId": "01a0f8b8-b64c-7c80-9114-789d6f72dfc8",
+  "hostId": "remote-control:env_e_6a53e3dc9b0483268a860e1de83e99c3",
+  "turnId": "01a11c5f-9d5d-7872-803b-b1bbe5377f03",
+  "candidates": {
+    "webRelease": "4d88ee2bb3af706050f5d88e038b7faf57ea0f2e",
+    "pluginRelease": "324fa53b3990fe276ebb1f12b4627a51e8a6b049",
+    "windowsWrapperFix": "415f45f39070905a5cd919dd450d168d7e7115c8",
+    "webDeploymentUnchanged": true,
+    "releaseTagsUnchanged": true
+  },
+  "summary": {
+    "distinctTestsPassed": 314,
+    "breakdown": {
+      "plugin_0_5_7": 135,
+      "web_0_12_17_cli": 34,
+      "web_0_12_17_filesystem": 128,
+      "web_0_12_17_with_guard_patch": 17
+    },
+    "directedRepeatExecutions": 10,
+    "repeatCases": 2,
+    "repeatRoundsPerCase": 5,
+    "repeatSkippedPerRun": 86,
+    "repeatSkipReason": "name-filtered targeted repeat; not product skip",
+    "originalReleasePackageManagerResult": {
+      "pass": 13,
+      "fail": 3,
+      "exitCode": 1
+    },
+    "guardPatchResult": {
+      "pass": 17,
+      "fail": 0,
+      "exitCode": 0
+    },
+    "oldCheckoutEperm": "Observed only on old checkout; not reproduced on exact released source or ten repetitions. Not claimed fixed.",
+    "nativeObsidian": {
+      "runtimeVersion": "1.13.7",
+      "installerVersion": "1.12.7",
+      "fixtureIdentityConfirmed": true,
+      "officialPluginRuntimePresent": true,
+      "pluginVersion": "0.5.7",
+      "registeredCommands": [
+        "agentwiki-sync:open-sync-center"
+      ],
+      "runtimeEvidenceItemId": "exec-55d72de5-a876-4c31-aa79-de0a02e819d2",
+      "nativeSync": "NOT_RUN",
+      "manualConnection": "NOT_RUN",
+      "threeLevelMapping": "NOT_RUN",
+      "v2_v3_conflictUi": "NOT_RUN",
+      "reason": "No reachable isolated backend was available; Windows had no local PostgreSQL/Redis/container engine. Mac LAN HTTP probes failed while the temporary server was live; the later Windows timeout occurred after that server was stopped."
+    },
+    "cleanup": {
+      "temporaryVaultWindowClosed": true,
+      "vaultManagerWindowClosed": true,
+      "pluginDisabled": true,
+      "restrictedModeRestored": true,
+      "debugger": "not attached",
+      "dailyWindowAndSharedPidPreserved": true,
+      "sharedPid": 25808,
+      "remoteResourcesCreated": 0,
+      "verificationItemId": "exec-452b1b78-05cd-42be-874d-2cf343a3b285"
+    }
+  },
+  "releaseAssetSha256": {
+    "main.js": "e53fd66baec0a39ab1e6336382ca00c59d565e519f1eca4706746512b0295821",
+    "manifest.json": "9a15644ff67f111977937b231178325439f0a10aa1166f1415a6bd677016faf9",
+    "styles.css": "5dfe15839220724a57a64ad7ab136761ba2ffaaff3c0235faac1cf1238e762b8"
+  },
+  "patchNormalizedLfSha256": {
+    "implementation": "d7acea59b970af80b95742e8f93b56bb774a18738d410685afcaeaea70ba5c01",
+    "test": "2c6e73834ef68c1f1b9cdf26cf7592323460e99ea32151c1e2b24b5f418837ee"
+  },
+  "observedRepeatReceiptSummaries": [
+    {
+      "itemId": "exec-a26edb62-0af3-4660-89b7-f9c5b98ed7d8",
+      "caseKey": "control",
+      "startTime": "01:09:03",
+      "timezone": "Asia/Shanghai",
+      "date": "2026-10-09",
+      "exitCode": 0,
+      "pass": 1,
+      "filteredSkip": 86,
+      "source": "Summarized from direct read_thread outputs already read during this turn; raw stdout not retained before remote 100-item window rolled."
+    },
+    {
+      "itemId": "exec-f56db1dd-388c-4045-ad33-00f12cad64a6",
+      "caseKey": "rollback",
+      "startTime": "01:09:19",
+      "timezone": "Asia/Shanghai",
+      "date": "2026-10-09",
+      "exitCode": 0,
+      "pass": 1,
+      "filteredSkip": 86,
+      "source": "Summarized from direct read_thread outputs already read during this turn; raw stdout not retained before remote 100-item window rolled."
+    },
+    {
+      "itemId": "exec-e9d88549-4b87-433c-8167-4577be6a6cff",
+      "caseKey": "control",
+      "startTime": "01:09:56",
+      "timezone": "Asia/Shanghai",
+      "date": "2026-10-09",
+      "exitCode": 0,
+      "pass": 1,
+      "filteredSkip": 86,
+      "source": "Summarized from direct read_thread outputs already read during this turn; raw stdout not retained before remote 100-item window rolled."
+    },
+    {
+      "itemId": "exec-4b86fa33-cf9c-4607-97d6-b03f200392a3",
+      "caseKey": "rollback",
+      "startTime": "01:10:02",
+      "timezone": "Asia/Shanghai",
+      "date": "2026-10-09",
+      "exitCode": 0,
+      "pass": 1,
+      "filteredSkip": 86,
+      "source": "Summarized from direct read_thread outputs already read during this turn; raw stdout not retained before remote 100-item window rolled."
+    },
+    {
+      "itemId": "exec-83992e7a-c8bd-48ae-9dca-a740d7adea75",
+      "caseKey": "control",
+      "startTime": "01:10:08",
+      "timezone": "Asia/Shanghai",
+      "date": "2026-10-09",
+      "exitCode": 0,
+      "pass": 1,
+      "filteredSkip": 86,
+      "source": "Summarized from direct read_thread outputs already read during this turn; raw stdout not retained before remote 100-item window rolled."
+    },
+    {
+      "itemId": "exec-b72b6cfc-1346-46f1-894b-cfc10ce423fe",
+      "caseKey": "rollback",
+      "startTime": "01:10:14",
+      "timezone": "Asia/Shanghai",
+      "date": "2026-10-09",
+      "exitCode": 0,
+      "pass": 1,
+      "filteredSkip": 86,
+      "source": "Summarized from direct read_thread outputs already read during this turn; raw stdout not retained before remote 100-item window rolled."
+    },
+    {
+      "itemId": "exec-12e1b4df-5e83-444f-8aad-77b9f3ca7620",
+      "caseKey": "control",
+      "startTime": "01:10:21",
+      "timezone": "Asia/Shanghai",
+      "date": "2026-10-09",
+      "exitCode": 0,
+      "pass": 1,
+      "filteredSkip": 86,
+      "source": "Summarized from direct read_thread outputs already read during this turn; raw stdout not retained before remote 100-item window rolled."
+    },
+    {
+      "itemId": "exec-94e99e0f-8a3b-43c1-b138-324bcca5e6ee",
+      "caseKey": "rollback",
+      "startTime": "01:10:27",
+      "timezone": "Asia/Shanghai",
+      "date": "2026-10-09",
+      "exitCode": 0,
+      "pass": 1,
+      "filteredSkip": 86,
+      "source": "Summarized from direct read_thread outputs already read during this turn; raw stdout not retained before remote 100-item window rolled."
+    },
+    {
+      "itemId": "exec-26b1c9d6-4ee0-4d9f-875e-59183a0b7ba2",
+      "caseKey": "control",
+      "startTime": "01:10:33",
+      "timezone": "Asia/Shanghai",
+      "date": "2026-10-09",
+      "exitCode": 0,
+      "pass": 1,
+      "filteredSkip": 86,
+      "source": "Summarized from direct read_thread outputs already read during this turn; raw stdout not retained before remote 100-item window rolled."
+    },
+    {
+      "itemId": "exec-df75a75a-89e1-40c4-9c6a-3e93703fb93e",
+      "caseKey": "rollback",
+      "startTime": "01:10:39",
+      "timezone": "Asia/Shanghai",
+      "date": "2026-10-09",
+      "exitCode": 0,
+      "pass": 1,
+      "filteredSkip": 86,
+      "source": "Summarized from direct read_thread outputs already read during this turn; raw stdout not retained before remote 100-item window rolled."
+    }
+  ],
+  "toolReceiptIds": [
+    {
+      "id": "exec-50b12b03-2733-4458-bc4b-76405e97c103",
+      "exitCode": 0,
+      "durationMs": 6271
+    },
+    {
+      "id": "exec-047191b4-4cef-4079-96e1-08eab59319fe",
+      "exitCode": 0,
+      "durationMs": 4138
+    },
+    {
+      "id": "exec-e79fb57c-2fd1-446f-b7c7-01ce871a317b",
+      "exitCode": 0,
+      "durationMs": 1617
+    },
+    {
+      "id": "exec-2c4a4be9-7e33-44ac-929f-9eb38e560773",
+      "exitCode": 0,
+      "durationMs": 12418
+    },
+    {
+      "id": "exec-2a344959-773c-4828-8ef7-d6d197f6ebaa",
+      "exitCode": 0,
+      "durationMs": 627
+    },
+    {
+      "id": "exec-a3f81b88-631e-41e4-b3b0-6c419e25c65b",
+      "exitCode": 0,
+      "durationMs": 6958
+    },
+    {
+      "id": "exec-4cbc3b8c-0ad7-4e45-923e-e0d3ca47e7f5",
+      "exitCode": 1,
+      "durationMs": 34670
+    },
+    {
+      "id": "exec-78c4be4f-257c-4ce6-8390-4711c69ac648",
+      "exitCode": 0,
+      "durationMs": 13239
+    },
+    {
+      "id": "exec-3b9e1755-e829-4014-8d80-e4526b081108",
+      "exitCode": 1,
+      "durationMs": 782
+    },
+    {
+      "id": "exec-8511e614-4bf6-445e-9a0b-1db0fd24a664",
+      "exitCode": 1,
+      "durationMs": 10664
+    },
+    {
+      "id": "exec-4b61c089-3f5d-412e-b6b3-1f257f039007",
+      "exitCode": 0,
+      "durationMs": 15573
+    },
+    {
+      "id": "exec-6ff656a8-0bf6-4009-b784-b22df525bf6b",
+      "exitCode": 0,
+      "durationMs": 5309
+    },
+    {
+      "id": "exec-16165c29-b64d-4aed-a40f-137a3ac30caf",
+      "exitCode": 0,
+      "durationMs": 23157
+    },
+    {
+      "id": "exec-cd910b13-fbee-4fa8-acc4-4ac27d550f5f",
+      "exitCode": 0,
+      "durationMs": 923
+    },
+    {
+      "id": "exec-ed7e5c9f-b6c0-4723-9ef5-23547fe3706c",
+      "exitCode": 0,
+      "durationMs": 4373
+    },
+    {
+      "id": "exec-21556606-6053-4ec1-a3b8-6cd3c99bea47",
+      "exitCode": 0,
+      "durationMs": 979
+    },
+    {
+      "id": "exec-6ea94bb6-a895-4809-a87a-cfb34a6f2e25",
+      "exitCode": 1,
+      "durationMs": 8800
+    },
+    {
+      "id": "exec-7edfd348-c0dc-4d8a-a19f-a395e3aaaf54",
+      "exitCode": 0,
+      "durationMs": 912
+    },
+    {
+      "id": "exec-ddddf249-bdb2-4560-b26b-70e858636512",
+      "exitCode": 0,
+      "durationMs": 1033
+    },
+    {
+      "id": "exec-70b76b7a-dd7a-4775-8d64-f5d585c65325",
+      "exitCode": 0,
+      "durationMs": 1236
+    },
+    {
+      "id": "exec-f9ef1150-4dca-4430-b0c7-1b3dd4e463f0",
+      "exitCode": 0,
+      "durationMs": 4602
+    },
+    {
+      "id": "exec-210e4892-c223-48ae-9330-b14a2f32d631",
+      "exitCode": 0,
+      "durationMs": 871
+    },
+    {
+      "id": "exec-10d9f753-c45e-4d2e-910a-9f294c5b235d",
+      "exitCode": 0,
+      "durationMs": 686
+    },
+    {
+      "id": "exec-55d72de5-a876-4c31-aa79-de0a02e819d2",
+      "exitCode": 0,
+      "durationMs": 2198
+    },
+    {
+      "id": "exec-0fdf33ea-77ac-467c-9387-eb902c431156",
+      "exitCode": 0,
+      "durationMs": 1788
+    },
+    {
+      "id": "exec-452b1b78-05cd-42be-874d-2cf343a3b285",
+      "exitCode": 0,
+      "durationMs": 3612
+    }
+  ],
+  "macTemporaryBackendCleanup": {
+    "status": "STOPPED_AFTER_LAN_HEALTH_BLOCKED",
+    "finishedAt": "2026-10-08T17:09:11.529048+00:00",
+    "temporaryProcessIds": {
+      "apiLauncher": 83682,
+      "apiChild": 83683,
+      "redis": 83654
+    },
+    "processIdentitiesVerifiedBeforeStop": true,
+    "temporaryProcessesExited": true,
+    "ports3191And6391Closed": true,
+    "postgresPid1412StillRunning": true,
+    "isolatedDatabase": "agentwiki_test_20261008_ui_final",
+    "syntheticRowCountsBeforeAndAfter": {
+      "User": 5,
+      "Space": 3,
+      "Folder": 3,
+      "Page": 7
+    },
+    "createdAccounts": 0,
+    "createdCredentials": 0,
+    "oldDataDeleted": false,
+    "oldLauncherUnchanged": true,
+    "deploymentIdentityPreserved": true,
+    "systemConfigurationModified": false,
+    "firewallReadbackUnchanged": "blocking all non-essential incoming connections (State=2)",
+    "acceptanceBoundary": "No Windows live backend synchronization completed through this temporary LAN service. Host network blocked LAN HTTP; Redis PONG and Nest startup are not product acceptance.",
+    "logPaths": {
+      "api": "/tmp/agentwiki-windows-backend-20261009/api.log",
+      "redis": "/tmp/agentwiki-windows-backend-20261009/redis.log"
+    }
+  },
+  "limitations": [
+    "Plugin regression uses MemoryVault/FakeTreeRemote and is distinct from native loading.",
+    "No live sync, manual connection, nested mapping, V2/V3 conflict choices or original tester data replay was completed.",
+    "Old checkout EPERM was observed and was not reproduced on the release source; no filesystem fix was claimed.",
+    "17 process tests verify the reviewed follow-up patch, not the unchanged release tag."
+  ]
+}

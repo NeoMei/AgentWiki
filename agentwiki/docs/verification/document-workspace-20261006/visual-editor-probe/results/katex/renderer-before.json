@@ -1,0 +1,86 @@
+{
+  "type": "root",
+  "children": [
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "公式 "
+        },
+        {
+          "type": "inlineMath",
+          "value": "E = mc^2",
+          "data": {
+            "hName": "code",
+            "hProperties": {
+              "className": [
+                "language-math",
+                "math-inline"
+              ]
+            },
+            "hChildren": [
+              {
+                "type": "text",
+                "value": "E = mc^2"
+              }
+            ]
+          }
+        },
+        {
+          "type": "text",
+          "value": " 与 "
+        },
+        {
+          "type": "inlineMath",
+          "value": "\\alpha + \\beta",
+          "data": {
+            "hName": "code",
+            "hProperties": {
+              "className": [
+                "language-math",
+                "math-inline"
+              ]
+            },
+            "hChildren": [
+              {
+                "type": "text",
+                "value": "\\alpha + \\beta"
+              }
+            ]
+          }
+        },
+        {
+          "type": "text",
+          "value": "。"
+        }
+      ]
+    },
+    {
+      "type": "math",
+      "meta": null,
+      "value": "\\sum_{i=1}^{n} x_i = X",
+      "data": {
+        "hName": "pre",
+        "hChildren": [
+          {
+            "type": "element",
+            "tagName": "code",
+            "properties": {
+              "className": [
+                "language-math",
+                "math-display"
+              ]
+            },
+            "children": [
+              {
+                "type": "text",
+                "value": "\\sum_{i=1}^{n} x_i = X"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

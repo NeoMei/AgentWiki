@@ -39,6 +39,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const request = ctx.getRequest();
     const response = ctx.getResponse();
     const isSyncV3 = syncProtocolFromRequestPath(request) === '3';
+    // Content revalidation must never cache authentication/access failures or
+    // a missing attachment, including errors raised before the controller runs.
+    const contentPath = String(request.originalUrl ?? request.url).split('?')[0];
+    if (/^\/(?:api\/)?attachments\/[^/]+\/content\/?$/.test(contentPath)) {
+      httpAdapter.setHeader(response, 'Cache-Control', 'no-store');
+    }
 
     let statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
     let message: string = 'Internal server error';

@@ -40,6 +40,7 @@ const ERROR_CODE_MAP: Record<string, { status: HttpStatus; message: string }> = 
   ATTACHMENT_NAME_CONFLICT: { status: HttpStatus.CONFLICT, message: 'An attachment already uses this name' },
   ATTACHMENT_REFERENCE_INVALID: { status: HttpStatus.CONFLICT, message: 'Attachment reference is invalid or ambiguous' },
   ATTACHMENT_MISSING: { status: HttpStatus.CONFLICT, message: 'Referenced attachment is missing' },
+  SOURCE_VERSION_CONFLICT: { status: HttpStatus.CONFLICT, message: 'Source input changed; regenerate the candidate' },
   SOURCE_INVALID: { status: HttpStatus.BAD_REQUEST, message: 'Source is invalid' },
   SOURCE_TOO_LARGE: { status: HttpStatus.BAD_REQUEST, message: 'Source exceeds size limit' },
   KNOWLEDGE_BUNDLE_INVALID: { status: HttpStatus.BAD_REQUEST, message: "Knowledge bundle is invalid or violates schema constraints" },

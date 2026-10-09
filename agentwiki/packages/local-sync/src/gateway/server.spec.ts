@@ -3,6 +3,8 @@ import { createGatewayServer, gatewayToolInputSchemas, type GatewayHandlers } fr
 import { RemoteMcpBridge } from './remote-mcp-bridge.js';
 import { isLegacyToolName } from './manifest.js';
 import { PublicLocalScanPlanSchema, type PublicLocalScanPlan } from '../codegraph/contracts.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 function mockHandlers(): GatewayHandlers {
   return {
@@ -35,6 +37,107 @@ function onlineBridge(tools: string[]): RemoteMcpBridge {
     isOnline: () => true,
   } as unknown as RemoteMcpBridge;
 }
+
+async function withReadGateway(run: (client: Client, bridge: RemoteMcpBridge) => Promise<void>) {
+  const bridge = onlineBridge(['list_spaces', 'list_pages', 'search_pages', 'get_page', 'list_graph', 'list_sources', 'propose_page']);
+  vi.mocked(bridge.callGatewayTool).mockImplementation(async (_name, args) => ({
+    content: [{ type: 'text', text: JSON.stringify(args) }], isError: false,
+  }));
+  const { server } = await createGatewayServer({ handlers: mockHandlers(), bridge });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'read-contract-test', version: '1' }, { capabilities: {} });
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  try { await run(client, bridge); }
+  finally { await client.close(); await server.close(); }
+}
+
+describe('knowledge read contracts over the SDK', () => {
+  it('advertises named fields and upstream bounds in actual tools/list', async () => {
+    await withReadGateway(async (client) => {
+      const { tools } = await client.listTools();
+      const schema = (name: string) => tools.find((tool) => tool.name === name)!.inputSchema.properties!;
+      expect(schema('wiki_search_pages')).toMatchObject({
+        query: { type: 'string', minLength: 1 }, limit: { type: 'integer', minimum: 1, maximum: 50 },
+      });
+      expect(schema('wiki_get_page')).toMatchObject({ pageId: { type: 'string', minLength: 1 } });
+      expect(schema('wiki_list_pages')).toMatchObject({
+        skip: { type: 'integer', minimum: 0 }, take: { type: 'integer', minimum: 1, maximum: 100 },
+      });
+      for (const name of ['list_spaces', 'list_pages', 'search_pages', 'get_page', 'list_graph', 'list_sources']) {
+        expect(schema(`wiki_${name}`)).toHaveProperty('__args');
+        expect(schema(`wiki_${name}`)).toHaveProperty('spaceId');
+      }
+    });
+  });
+
+  it.each([
+    ['list_spaces', { spaceId: 'space-a' }],
+    ['list_pages', { spaceId: 'space-a', skip: 0, take: 100 }],
+    ['search_pages', { spaceId: 'space-a', query: '保存', limit: 50 }],
+    ['get_page', { spaceId: 'space-a', pageId: 'page-1' }],
+    ['list_graph', { spaceId: 'space-a' }],
+    ['list_sources', { spaceId: 'space-a' }],
+  ] as const)('forwards direct and legacy %s inputs identically', async (name, args) => {
+    await withReadGateway(async (client) => {
+      for (const arguments_ of [args, { __args: args }, { ...args, __args: args }]) {
+        const result = await client.callTool({ name: `wiki_${name}`, arguments: arguments_ });
+        expect(result.isError).toBe(false);
+        expect(JSON.parse((result.content as Array<{ text: string }>)[0]!.text)).toEqual(args);
+      }
+    });
+  });
+
+  it.each([
+    ['search_pages', {}], ['search_pages', { query: '' }],
+    ['search_pages', { query: 'q', limit: 0 }], ['search_pages', { query: 'q', limit: 51 }],
+    ['search_pages', { query: 'q', limit: 1.5 }], ['search_pages', { query: 'q', limit: '5' }],
+    ['get_page', {}], ['get_page', { pageId: '' }],
+    ['list_pages', { skip: -1 }], ['list_pages', { skip: 0.5 }],
+    ['list_pages', { take: 0 }], ['list_pages', { take: 101 }], ['list_pages', { take: 1.5 }],
+    ['list_graph', { spaceId: '' }], ['list_sources', { spaceId: '../other' }],
+  ])('rejects invalid %s arguments in both forms before forwarding: %j', async (name, fields) => {
+    await withReadGateway(async (client, bridge) => {
+      const args = { spaceId: 'space-a', ...fields as Record<string, unknown> };
+      for (const arguments_ of [args, { __args: args }]) {
+        expect((await client.callTool({ name: `wiki_${name}`, arguments: arguments_ })).isError).toBe(true);
+      }
+      expect(bridge.callGatewayTool).not.toHaveBeenCalled();
+    });
+  });
+
+  it.each([
+    ['search_pages', { query: 'a', limit: 5 }, { query: 'b', limit: 5 }],
+    ['search_pages', { query: 'a', limit: 5 }, { query: 'a', limit: 6 }],
+    ['get_page', { pageId: 'page-a' }, { pageId: 'page-b' }],
+    ['list_pages', { skip: 0, take: 5 }, { skip: 1, take: 5 }],
+    ['list_pages', { skip: 0, take: 5 }, { skip: 0, take: 6 }],
+    ['list_sources', { spaceId: 'space-a' }, { spaceId: 'space-b' }],
+  ])('rejects conflicting %s fields instead of choosing a form', async (name, direct, legacy) => {
+    await withReadGateway(async (client, bridge) => {
+      const result = await client.callTool({ name: `wiki_${name}`, arguments: {
+        spaceId: 'space-a', ...direct, __args: legacy,
+      } });
+      expect(result.isError).toBe(true);
+      expect(bridge.callGatewayTool).not.toHaveBeenCalled();
+    });
+  });
+
+  it('preserves generic write wrapping and remote error content', async () => {
+    await withReadGateway(async (client, bridge) => {
+      const result = await client.callTool({ name: 'wiki_propose_page', arguments: {
+        spaceId: 'space-a', __args: { title: 'T', content: 'C' },
+      } });
+      expect(JSON.parse((result.content as Array<{ text: string }>)[0]!.text))
+        .toEqual({ spaceId: 'space-a', title: 'T', content: 'C' });
+      vi.mocked(bridge.callGatewayTool).mockResolvedValueOnce({
+        content: [{ type: 'text', text: '{"code":"SPACE_ACCESS_DENIED"}' }], isError: true,
+      });
+      const denied = await client.callTool({ name: 'wiki_get_page', arguments: { spaceId: 'space-a', pageId: 'page-1' } });
+      expect(denied).toMatchObject({ content: [{ type: 'text', text: '{"code":"SPACE_ACCESS_DENIED"}' }], isError: true });
+    });
+  });
+});
 
 describe('gateway server tool registration', () => {
   it('rejects unknown scan modes, non-booleans, malformed hashes, and unknown fields before handlers run', () => {

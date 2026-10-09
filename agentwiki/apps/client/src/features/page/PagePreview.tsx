@@ -1,6 +1,12 @@
+import type { PageSourceStatus } from '@agentwiki/shared';
+import { SourceStatusNotice } from './SourceStatusNotice';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useParams, Link, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import api from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
+import { captureReadingSelection } from '../agent-session/readingSelection';
+import type { AssistTarget } from './assistTargets';
+const AgentReadingSidebar = React.lazy(() => import('../agent-session/AgentReadingSidebar').then((module) => ({ default: module.AgentReadingSidebar })));
 import { apiErrorMessage } from '../../api/error-message';
 import { getContentTreeRevision } from '../../api/content-tree';
 import { ArrowLeft, ChevronRight, Clock, Folder, User, PenLine, FileText } from 'lucide-react';
@@ -34,6 +40,7 @@ interface Page {
   folderId?: string | null;
   provenance?: any;
   evidence?: any[];
+  sourceStatus?: PageSourceStatus;
   lastChange?: { id: string; title: string; status: string } | null;
   lastModifiedByUser?: { id: string; name?: string; email?: string } | null;
   lastModifiedByAgent?: { id: string; name: string } | null;
@@ -56,6 +63,7 @@ export const PagePreview: React.FC = () => {
   const location = useLocation();
   const navigationType = useNavigationType();
   const { t, language } = useLanguage();
+  const { user } = useAuth();
   const reportPageIdentity = usePageWorkspaceIdentity();
   const workspace = useOptionalSpaceWorkspace();
   const tRef = useRef(t);
@@ -66,6 +74,43 @@ export const PagePreview: React.FC = () => {
   const [loadRequest, setLoadRequest] = useState(0);
   const [taskSaveError, setTaskSaveError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [outlineOccupiedWidth, setOutlineOccupiedWidth] = useState(0);
+  const [localPanel, setLocalPanel] = useState({ open: false, notes: false });
+  const [agentMounted, setAgentMounted] = useState(false);
+  const [readingTarget, setReadingTarget] = useState<AssistTarget | null>(null);
+  const [selectionUnavailable, setSelectionUnavailable] = useState(false);
+  const [panelGeometry, setPanelGeometry] = useState({ top: 130, width: window.innerWidth });
+  const readingToolbarRef = useRef<HTMLDivElement>(null);
+  const panelMatches = workspace?.spaceId === page?.spaceId && workspace?.userId === user?.id;
+  const agentOpen = panelGeometry.width >= 1024 && panelMatches ? workspace?.collaborationOpen === true : localPanel.open;
+  const notesOpen = panelMatches ? workspace?.collaborationTab === 'notes' : localPanel.notes;
+  const openAgent = (notes = false) => {
+    setAgentMounted(true); setLocalPanel({ open: true, notes });
+    if (!notes) requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('[data-agent-composer]')?.focus());
+    if (panelMatches) workspace?.setPanelPreferences({ collaborationTab: notes ? 'notes' : 'assist', ...(panelGeometry.width >= 1024 ? { collaborationOpen: true } : {}) });
+  };
+  const closeAgent = () => {
+    setLocalPanel((state) => ({ ...state, open: false }));
+    if (panelMatches && panelGeometry.width >= 1024) workspace?.setPanelPreferences({ collaborationOpen: false });
+    readingToolbarRef.current?.querySelector<HTMLButtonElement>('[data-agent-toggle]')?.focus();
+  };
+  useEffect(() => { setReadingTarget(null); setSelectionUnavailable(false); }, [id, page?.updatedAt, user?.id]);
+  useEffect(() => {
+    const position = () => setPanelGeometry({ top: Math.ceil(readingToolbarRef.current?.getBoundingClientRect().bottom ?? 118) + 12, width: window.innerWidth });
+    position(); const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(position);
+    if (readingToolbarRef.current) observer?.observe(readingToolbarRef.current);
+    document.addEventListener('scroll', position, true); window.addEventListener('resize', position);
+    return () => { observer?.disconnect(); document.removeEventListener('scroll', position, true); window.removeEventListener('resize', position); };
+  }, [page?.id, loading]);
+  useEffect(() => {
+    const shortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'l' && page?.id === id && !loading && !error) {
+        event.preventDefault(); openAgent(); requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('[data-agent-composer]')?.focus());
+      }
+      if (event.key === 'Escape' && agentOpen) closeAgent();
+    };
+    window.addEventListener('keydown', shortcut); return () => window.removeEventListener('keydown', shortcut);
+  }, [id, page?.id, page?.spaceId, loading, error, agentOpen, panelMatches, panelGeometry.width]);
   const [relatedPages, setRelatedPages] = useState<any[]>([]);
   const [pendingTaskIndexes, setPendingTaskIndexes] = useState<ReadonlySet<number>>(new Set());
   const mountedRef = useRef(false);
@@ -122,7 +167,14 @@ export const PagePreview: React.FC = () => {
       content = toggled;
     }
 
-    const optimisticPage = { ...committed, content };
+    const changed = content !== (committed.content || '');
+    const canInvalidateReview = committed.sourceStatus?.status === 'current' || committed.sourceStatus?.status === 'needs_review';
+    const optimisticPage = {
+      ...committed, content,
+      sourceStatus: changed && canInvalidateReview
+        ? { ...committed.sourceStatus!, status: 'needs_review' as const, reason: 'page_changed' as const }
+        : committed.sourceStatus,
+    };
     pageRef.current = optimisticPage;
     setPage(optimisticPage);
     setPendingTaskIndexes(indexes);
@@ -548,8 +600,8 @@ export const PagePreview: React.FC = () => {
   if (!page) return <div className="text-center py-8 text-gray-500">{t('editor.notFound')}</div>;
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <div data-reading-toolbar className="sticky top-16 z-20 -mx-4 mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white/95 px-4 py-3 backdrop-blur lg:-mx-6 lg:px-6">
+    <div className="document-page">
+      <div ref={readingToolbarRef} data-reading-toolbar className="document-toolbar sticky top-16 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white">
         {workspace?.directoryCrumbs.length ? (
           <nav aria-label="breadcrumb" className="flex min-w-0 flex-1 flex-wrap items-center gap-1 text-sm text-gray-500">
             {workspace.directoryCrumbs.map((crumb, index) => (
@@ -572,7 +624,9 @@ export const PagePreview: React.FC = () => {
             {t('editor.backToSpace')}
           </Link>
         ) : <span />}
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+        <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
+          <button type="button" data-agent-toggle aria-pressed={agentOpen && !notesOpen} onClick={() => agentOpen && !notesOpen ? closeAgent() : openAgent()} className="min-h-9 rounded-lg px-3 text-sm hover:bg-gray-100">Agent</button>
+          <button type="button" aria-pressed={agentOpen && notesOpen} disabled={!user?.id} onClick={() => openAgent(true)} className="min-h-9 rounded-lg px-3 text-sm hover:bg-gray-100 disabled:opacity-40">{language === 'zh-CN' ? '个人笔记' : 'Personal notes'}</button>
           {page.capabilities?.canEdit === true ? (
             <button
               type="button"
@@ -591,12 +645,13 @@ export const PagePreview: React.FC = () => {
               {t('common.edit')}
             </button>
           ) : null}
-          <ArticleContentsPopover articleRootRef={markdownRootRef} pageKey={page.id} />
+          <ArticleContentsPopover articleRootRef={markdownRootRef} pageKey={page.id} spaceId={page.spaceId} source={page.content || ''} onOccupiedWidthChange={setOutlineOccupiedWidth} suppressed={agentOpen} />
           <PageInfoPanel
             key={page.id}
             spaceId={page.spaceId}
             provenance={page.provenance}
             evidence={page.evidence}
+            sourceStatus={page.sourceStatus}
             lastChange={page.lastChange}
             lastModifiedByUser={page.lastModifiedByUser}
             lastModifiedByAgent={page.lastModifiedByAgent}
@@ -618,9 +673,10 @@ export const PagePreview: React.FC = () => {
         </div>
       </div>
 
-      <article className="mx-auto min-h-[300px] min-w-0 max-w-[860px] bg-white px-1 py-5 sm:px-5 lg:px-8">
-        <header className="mb-8 border-b border-gray-200 pb-5">
-          <h1 title={page.title} className="break-words text-3xl font-semibold leading-tight text-gray-950">{page.title}</h1>
+      <SourceStatusNotice status={page.sourceStatus} />
+      <article className="document-canvas min-h-[300px] bg-white" style={{ '--document-panel-width': `${agentOpen && panelGeometry.width >= 1600 ? 420 : outlineOccupiedWidth}px` } as React.CSSProperties}>
+        <header className="document-header">
+          <h1 title={page.title} className="document-title">{page.title}</h1>
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500">
             {page.author ? (
               <span className="flex items-center gap-1">
@@ -635,32 +691,22 @@ export const PagePreview: React.FC = () => {
           </div>
         </header>
         {taskSaveError ? <p role="alert" className="mb-4 text-sm text-red-600">{taskSaveError}</p> : null}
-        <div ref={markdownRootRef} className="prose prose-sm max-w-none break-words
-          [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:mb-4 [&_h1]:mt-6
-          [&_h2]:text-2xl [&_h2]:font-bold [&_h2]:mb-3 [&_h2]:mt-5
-          [&_h3]:text-xl [&_h3]:font-bold [&_h3]:mb-2 [&_h3]:mt-4
-          [&_p]:mb-3 [&_p]:leading-7
-          [&_ul]:ml-6 [&_ul]:list-disc [&_ul]:mb-3
-          [&_ol]:ml-6 [&_ol]:list-decimal [&_ol]:mb-3
-          [&_li]:mb-1
-          [&_a]:text-blue-600 [&_a]:hover:underline
-          [&_strong]:font-bold
-          [&_em]:italic
-          [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:text-gray-600 [&_blockquote]:italic [&_blockquote]:my-4
-          [&_img]:max-w-full [&_img]:h-auto
-          [&_pre]:max-w-full [&_pre]:bg-gray-50 [&_pre]:p-4 [&_pre]:rounded-lg [&_pre]:overflow-x-auto [&_pre]:mb-4
-          [&_code]:bg-gray-100 [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-sm [&_code]:font-mono
-          [&_pre_code]:bg-transparent [&_pre_code]:p-0
-          [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_table]:border-collapse [&_table]:mb-4
-          [&_th]:border [&_th]:border-gray-300 [&_th]:px-3 [&_th]:py-2 [&_th]:bg-gray-50 [&_th]:font-semibold [&_th]:text-left
-          [&_td]:border [&_td]:border-gray-300 [&_td]:px-3 [&_td]:py-2
-          [&_hr]:border-gray-300 [&_hr]:my-6
-          [&_del]:line-through
-          [&_input[type=checkbox]]:mr-2
-        ">
+        <div ref={markdownRootRef} className="document-body" onMouseUp={() => {
+          const selection = window.getSelection(), root = markdownRootRef.current?.querySelector<HTMLElement>('[data-markdown-selection-root]');
+          if (!root || !selection?.rangeCount || selection.isCollapsed) return;
+          const target = captureReadingSelection(root, selection.getRangeAt(0), page.content, page.updatedAt, root.dataset.markdownSelectionVersion ?? '');
+          setReadingTarget(target); setSelectionUnavailable(!target);
+        }} onKeyUp={() => {
+          const selection = window.getSelection(), root = markdownRootRef.current?.querySelector<HTMLElement>('[data-markdown-selection-root]');
+          if (!root || !selection?.rangeCount || selection.isCollapsed) return;
+          const target = captureReadingSelection(root, selection.getRangeAt(0), page.content, page.updatedAt, root.dataset.markdownSelectionVersion ?? '');
+          setReadingTarget(target); setSelectionUnavailable(!target);
+        }}>
           {page.content ? (
             <Markdown
               mode="page"
+              selectionSourceVersion={page.updatedAt}
+              className="document-body"
               canEdit={page.capabilities?.canEdit === true}
               pendingTaskIndexes={pendingTaskIndexes}
               onTaskToggle={handleTaskToggle}
@@ -675,6 +721,12 @@ export const PagePreview: React.FC = () => {
         </div>
       </article>
 
+      {agentMounted || agentOpen ? <div hidden={!agentOpen} className="document-assist-layer" style={{ top: panelGeometry.top, width: Math.min(400, panelGeometry.width - 32) }}>
+        <div className="document-panel-scroll document-agent-scroll">
+          <div className="flex shrink-0 items-center gap-3 border-b border-gray-200 bg-white p-3 text-sm"><button type="button" onClick={() => openAgent()} aria-pressed={!notesOpen} className={`rounded-lg px-2 py-1 ${!notesOpen ? 'bg-gray-100 font-medium' : 'text-gray-500'}`}>Agent</button><button type="button" onClick={() => openAgent(true)} aria-pressed={notesOpen} className={`rounded-lg px-2 py-1 ${notesOpen ? 'bg-gray-100 font-medium' : 'text-gray-500'}`}>{language === 'zh-CN' ? '个人笔记' : 'Personal notes'}</button><button type="button" className="ml-auto min-h-8 px-2" aria-label={language === 'zh-CN' ? '关闭协作面板' : 'Close collaboration panel'} onClick={closeAgent}>×</button></div>
+          <React.Suspense fallback={<p>Agent…</p>}><AgentReadingSidebar key={`${user?.id}:${page.spaceId}:${page.id}`} page={page} notesOpen={notesOpen} target={readingTarget} selectionUnavailable={selectionUnavailable} onTarget={setReadingTarget} onOpenAgent={() => openAgent()} /></React.Suspense>
+        </div>
+      </div> : null}
       {relatedPages.length > 0 && (
         <div className="mx-auto mt-6 max-w-[860px] px-1 sm:px-5 lg:px-8">
           <h2 className="text-lg font-semibold mb-3">{t('page.related')}</h2>

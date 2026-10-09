@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { undo, undoDepth } from '@codemirror/commands';
 import { EditorSelection } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { Link, MemoryRouter, Outlet, Route, RouterProvider, Routes, createMemoryRouter, useLocation, useNavigate, useNavigationType, useParams } from 'react-router-dom';
@@ -8,6 +9,8 @@ import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { LanguageProvider } from '../../context/LanguageContext';
 import type { PageTemplateListResponse } from '../page-templates/pageTemplateTypes';
 import { PageEditor } from './PageEditor';
+import { AgentSessionRegistryProvider } from '../agent-session/AgentSessionRegistry';
+import { loadDraft, saveDraft } from './localDrafts';
 import { SpaceWorkspace } from '../space-workspace/SpaceWorkspace';
 import { SpaceWorkspaceProvider, SpaceWorkspaceScope, useSpaceWorkspace } from '../space-workspace/SpaceWorkspaceContext';
 import { NavigationGuardProvider, resetWorkspacePositions } from '../space-workspace/workspaceNavigation';
@@ -28,6 +31,7 @@ const attachmentMocks = vi.hoisted(() => ({
 const contentTreeMocks = vi.hoisted(() => ({
   getContentTreeRevision: vi.fn(),
 }));
+const authMock = vi.hoisted(() => ({ user: { id: 'user-1', name: 'Editor', email: 'editor@example.com' } }));
 
 vi.mock('../page-templates/PageAgentBindingDialog', () => ({
   PageAgentBindingDialog: ({ scope, onClose }: { scope: { title: string }; onClose: () => void }) => (
@@ -52,7 +56,7 @@ const socketMock = vi.hoisted(() => {
 
 vi.mock('../../api/client', () => ({ default: { get: vi.fn(), patch: vi.fn(), post: vi.fn(), delete: vi.fn() } }));
 vi.mock('../../context/AuthContext', () => ({
-  useAuth: () => ({ user: { id: 'user-1', name: 'Editor', email: 'editor@example.com' } }),
+  useAuth: () => ({ user: authMock.user }),
 }));
 vi.mock('socket.io-client', () => ({ io: vi.fn(() => socketMock.socket) }));
 vi.mock('../page-templates/pageTemplateApi', () => ({
@@ -160,7 +164,7 @@ const pasteImages = (files: File[]) => {
 const pasteImage = (file: File) => pasteImages([file]);
 
 const renderEditor = (withLanguageSwitcher = false) => render(
-  <LanguageProvider>
+  <LanguageProvider><AgentSessionRegistryProvider userId={authMock.user.id}>
     {withLanguageSwitcher ? <LanguageSwitcher /> : null}
     <MemoryRouter initialEntries={['/pages/page-1/edit']}>
       <Routes>
@@ -168,8 +172,29 @@ const renderEditor = (withLanguageSwitcher = false) => render(
         <Route path="/pages/:id" element={<DirectEditRedirectTarget />} />
       </Routes>
     </MemoryRouter>
-  </LanguageProvider>,
+  </AgentSessionRegistryProvider></LanguageProvider>,
 );
+
+/** Canonical session transport around real editor/panel integration. */
+const mockAgentSession = (sourcePage: ReturnType<typeof page>, readTurns: () => any[], send: (payload: any) => Promise<any>) => {
+  const summary = { id: 'session-1', spaceId: sourcePage.spaceId, title: 'Editor conversation', createdAt: sourcePage.updatedAt, updatedAt: sourcePage.updatedAt };
+  const requests = new Map<string, any>();
+  const canonical = (turn: any) => {
+    const request = requests.get(turn.id) ?? {};
+    return { sessionId: summary.id, pageId: sourcePage.id, mode: 'proposal', createdAt: sourcePage.updatedAt, pageSnapshot: request.snapshot ?? { title: sourcePage.title, content: sourcePage.content, updatedAt: sourcePage.updatedAt }, noteIds: request.noteIds ?? [], annotations: request.annotations ?? [], references: [], progressText: '', error: null, ...turn };
+  };
+  vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/assist/sessions' ? [summary] : url === '/assist/sessions/session-1' ? { ...summary, turns: readTurns().map(canonical) } : sourcePage }));
+  vi.mocked(api.post).mockImplementation(async (url, payload: any) => {
+    if (url !== '/assist/sessions/session-1/turns') throw new Error('Unexpected POST ' + url);
+    const turn = await send(payload); requests.set(turn.id, payload); return { data: canonical(turn) };
+  });
+};
+const chooseProposal = async () => {
+  await screen.findByRole('combobox', { name: 'Message mode' });
+  await waitFor(() => expect(screen.queryByText('Loading conversation…')).not.toBeInTheDocument());
+  fireEvent.change(screen.getByRole('combobox', { name: 'Message mode' }), { target: { value: 'proposal' } });
+};
+const reloadAgentHistory = () => fireEvent.change(screen.getByRole('combobox', { name: 'Conversation' }), { target: { value: 'session-1' } });
 
 const DirectEditRedirectTarget = () => {
   const location = useLocation();
@@ -196,7 +221,7 @@ const NavigationHarness = () => {
   return <>
     <button type="button" onClick={() => navigate('/pages/page-2/edit')}>Navigate to second page</button>
     <Routes>
-      <Route path="/pages/:id/edit" element={<PageEditor />} />
+      <Route path="/pages/:id/edit" element={<PageEditor workspaceRef={workspaceRef} />} />
       <Route path="/pages/:id" element={<DirectEditRedirectTarget />} />
     </Routes>
   </>;
@@ -270,6 +295,8 @@ describe('PageEditor remote update safety', () => {
   });
 
   beforeEach(() => {
+    localStorage.clear();
+    authMock.user = { id: 'user-1', name: 'Editor', email: 'editor@example.com' };
     localStorage.setItem('agentwiki.language.v1', 'en');
     resetWorkspacePositions();
     workspaceRef = { current: null };
@@ -288,7 +315,7 @@ describe('PageEditor remote update safety', () => {
     templateMocks.listPageTemplates.mockResolvedValue(catalog(false));
     templateMocks.listCompositeTemplates.mockResolvedValue({
       data: [], total: 0, skip: 0, take: 1,
-      capabilities: { canManage: false, canCreate: true },
+      capabilities: { canManage: false, canCreate: true, canBindAgent: true, canStartPageCollaboration: false },
     });
     attachmentMocks.listAttachments.mockReset();
     attachmentMocks.uploadAttachment.mockReset();
@@ -300,10 +327,539 @@ describe('PageEditor remote update safety', () => {
       if (typeof url === 'string' && url.includes('spaceId=')) {
         return Promise.resolve({ data: { data: [] } } as any);
       }
+      if (url === '/assist/sessions') return Promise.resolve({ data: [] });
       const next = pageQueue.shift();
       if (!next) return Promise.reject(new Error('unexpected get ' + url));
       return Promise.resolve(next);
     });
+  });
+
+  const draftScope = { userId: 'user-1', spaceId: 'space-1', pageId: 'page-1' };
+  const draftRemote = { ...draftScope, updatedAt: '2026-07-27T08:00:00.000Z', title: 'Original title', content: 'Original content', canEdit: true };
+  const seedDraft = () => saveDraft(draftScope, { baseUpdatedAt: draftRemote.updatedAt, title: 'Recovered title', content: 'Recovered draft' }, draftRemote, 1234);
+
+  it('offers a same-user local draft only after authorized load and restores explicitly with content undo', async () => {
+    seedDraft();
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor();
+    await screen.findByDisplayValue('Original title');
+    expect(contentEditorValue()).toBe('Original content');
+    fireEvent.click(screen.getByRole('button', { name: 'Recover local draft' }));
+    expect(contentEditorValue()).toBe('Recovered draft');
+    expect(screen.getByDisplayValue('Recovered title')).toBeInTheDocument();
+    act(() => expect(undo(currentEditorView())).toBe(true));
+    expect(contentEditorValue()).toBe('Original content');
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('blocks stale direct restore and allows preview/export and exact discard', async () => {
+    seedDraft();
+    queuePages({ data: page({ updatedAt: '2026-07-28T08:00:00.000Z', capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    expect(screen.queryByRole('button', { name: 'Recover local draft' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Preview local draft' }));
+    expect(screen.getByText('Recovered draft')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Export local draft' })).toHaveAttribute('download');
+    fireEvent.click(screen.getByRole('button', { name: 'Discard local draft' }));
+    expect(loadDraft(draftScope)).toBeNull();
+    expect(contentEditorValue()).toBe('Original content');
+  });
+
+  it('debounces human edits, persists on pagehide and offers them after reload without an automatic replacement', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    const first = renderEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Unsaved human draft');
+    expect(loadDraft(draftScope)).toBeNull();
+    fireEvent(window, new Event('pagehide'));
+    expect(loadDraft(draftScope)?.content).toBe('Unsaved human draft');
+    first.unmount();
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    expect(contentEditorValue()).toBe('Original content');
+    expect(screen.getByRole('button', { name: 'Recover local draft' })).toBeInTheDocument();
+  });
+
+  it('preserves newer typing during server Save and rebases its recoverable record', async () => {
+    const save = deferred<{ data: ReturnType<typeof page> }>();
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    vi.mocked(api.patch).mockReturnValue(save.promise);
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Submitted snapshot');
+    fireEvent.click(screen.getByTestId('save-button'));
+    editContent('Newer typing');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Page title' }), { target: { value: 'Newer title' } });
+    fireEvent(window, new Event('pagehide'));
+    save.resolve({ data: page({ content: 'Submitted snapshot', updatedAt: '2026-07-27T09:00:00.000Z' }) });
+    await waitFor(() => expect(loadDraft(draftScope)?.baseUpdatedAt).toBe('2026-07-27T09:00:00.000Z'));
+    expect(loadDraft(draftScope)?.content).toBe('Newer typing');
+    expect(loadDraft(draftScope)?.title).toBe('Newer title');
+    expect(screen.getByDisplayValue('Newer title')).toBeInTheDocument();
+    expect(contentEditorValue()).toBe('Newer typing');
+    expect(screen.getByTestId('save-button')).toBeEnabled();
+    expect(api.patch).toHaveBeenCalledWith('/pages/page-1', { content: 'Submitted snapshot', expectedUpdatedAt: '2026-07-27T08:00:00.000Z' });
+  });
+
+  it('cannot offer a draft from another user, Space or page after authorized load', async () => {
+    for (const scope of [{ ...draftScope, userId: 'other' }, { ...draftScope, spaceId: 'other' }, { ...draftScope, pageId: 'other' }]) {
+      saveDraft(scope, { baseUpdatedAt: draftRemote.updatedAt, title: 'Private', content: 'Private source' }, { ...draftRemote, ...scope }, 1234);
+    }
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    expect(screen.queryByRole('button', { name: 'Recover local draft' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Private source')).not.toBeInTheDocument();
+  });
+
+  it('flushes a pending local edit before unmount', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    const view = renderEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Pending before leave');
+    view.unmount();
+    expect(loadDraft(draftScope)?.content).toBe('Pending before leave');
+  });
+
+  it('clears only saved content and does not call a local draft a server save', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    vi.mocked(api.patch).mockResolvedValue({ data: page({ content: 'Human edit', updatedAt: '2026-07-27T09:00:00.000Z' }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Human edit');
+    await waitFor(() => expect(loadDraft(draftScope)?.content).toBe('Human edit'));
+    expect(screen.getByTestId('local-draft-status')).toHaveTextContent('Saved on this device');
+    expect(api.patch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('save-button'));
+    await waitFor(() => expect(screen.getByTestId('save-button')).toBeDisabled());
+    expect(loadDraft(draftScope)).toBeNull();
+  });
+
+  it('does not retain a false recoverable draft when newer typing returns to the submitted bytes during Save', async () => {
+    const save = deferred<{ data: ReturnType<typeof page> }>();
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    vi.mocked(api.patch).mockReturnValue(save.promise);
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Submitted'); fireEvent.click(screen.getByTestId('save-button'));
+    editContent('Typing'); editContent('Submitted'); fireEvent(window, new Event('pagehide'));
+    save.resolve({ data: page({ content: 'Submitted', updatedAt: '2026-07-27T09:00:00.000Z' }) });
+    await waitFor(() => expect(screen.getByTestId('save-button')).toBeEnabled());
+    await waitFor(() => expect(loadDraft(draftScope)).toBeNull());
+    expect(screen.queryByTestId('local-draft-status')).not.toBeInTheDocument();
+  });
+
+  it('keeps recovery blocked after a newer unsaved socket revision is dismissed', async () => {
+    seedDraft(); queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Human buffer');
+    act(() => socketMock.handlers.get('contentUpdated')?.({ content: 'Remote concurrent edit', userId: 'remote', version: 42 }));
+    fireEvent.click(screen.getByRole('button', { name: 'Keep local draft' }));
+    expect(screen.queryByRole('button', { name: 'Recover local draft' })).not.toBeInTheDocument();
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    fireEvent.focus(window);
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.queryByRole('button', { name: 'Recover local draft' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Preview local draft' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Export local draft' })).toBeInTheDocument();
+  });
+
+  it('keeps dismissed socket conflicts unresolved through a periodic baseline refresh', async () => {
+    vi.useFakeTimers();
+    try {
+      seedDraft();
+      queuePages({ data: page({ capabilities: { canEdit: true } }) }, { data: page({ capabilities: { canEdit: true } }) });
+      await act(async () => { renderEditor(); });
+      editContent('Human buffer');
+      act(() => socketMock.handlers.get('contentUpdated')?.({ content: 'Remote concurrent edit', userId: 'remote', version: 42 }));
+      fireEvent.click(screen.getByRole('button', { name: 'Keep local draft' }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+      expect(api.get).toHaveBeenCalledTimes(2);
+      expect(screen.queryByRole('button', { name: 'Recover local draft' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Preview local draft' })).toBeInTheDocument();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it.each(['pagehide', 'failed-save'] as const)('preserves pending newer human input when discarding an older offer before %s', async (action) => {
+    seedDraft(); queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Persisted A');
+    await waitFor(() => expect(loadDraft(draftScope)?.content).toBe('Persisted A'));
+    editContent('Pending B');
+    fireEvent.click(screen.getByRole('button', { name: 'Discard local draft' }));
+    expect(loadDraft(draftScope)?.content).toBe('Persisted A');
+    if (action === 'pagehide') fireEvent(window, new Event('pagehide'));
+    else {
+      vi.mocked(api.patch).mockRejectedValue({ response: { status: 500 } });
+      fireEvent.click(screen.getByTestId('save-button'));
+      await waitFor(() => expect(screen.getByTestId('save-button')).toBeEnabled());
+    }
+    expect(loadDraft(draftScope)?.content).toBe('Pending B');
+    expect(contentEditorValue()).toBe('Pending B');
+  });
+
+  it('reports quota failure without claiming that the draft was saved', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('full', 'QuotaExceededError'); });
+    editContent('Human edit'); fireEvent(window, new Event('pagehide'));
+    expect(screen.getByTestId('local-draft-status')).toHaveTextContent('Device storage is full');
+    expect(loadDraft(draftScope)).toBeNull();
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('clears recovery offers and pending local writes on permission loss', async () => {
+    seedDraft(); queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    expect(screen.getByRole('button', { name: 'Recover local draft' })).toBeInTheDocument();
+    editContent('Must not persist after revoke');
+    vi.mocked(api.get).mockRejectedValue({ response: { status: 403 } });
+    fireEvent.focus(window);
+    await screen.findByTestId('editor-write-unavailable');
+    fireEvent(window, new Event('pagehide'));
+    expect(screen.queryByRole('button', { name: 'Recover local draft' })).not.toBeInTheDocument();
+    expect(loadDraft(draftScope)?.content).toBe('Recovered draft');
+  });
+
+  it('requires a fresh page load on account switch and does not expose or flush the prior user draft', async () => {
+    seedDraft(); queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    const view = renderEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Prior user typing');
+    const newLoad = deferred<{ data: ReturnType<typeof page> }>();
+    vi.mocked(api.get).mockReturnValue(newLoad.promise);
+    authMock.user = { ...authMock.user, id: 'user-2' };
+    view.rerender(<LanguageProvider><AgentSessionRegistryProvider userId={authMock.user.id}><MemoryRouter initialEntries={['/pages/page-1/edit']}><Routes><Route path="/pages/:id/edit" element={<PageEditor workspaceRef={workspaceRef} />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></LanguageProvider>);
+    expect(screen.queryByRole('button', { name: 'Recover local draft' })).not.toBeInTheDocument();
+    newLoad.resolve({ data: page({ capabilities: { canEdit: true } }) });
+    await screen.findByDisplayValue('Original title');
+    fireEvent(window, new Event('pagehide'));
+    expect(loadDraft(draftScope)?.content).toBe('Recovered draft');
+    expect(loadDraft({ ...draftScope, userId: 'user-2' })).toBeNull();
+  });
+
+  it('flushes human edits to their old page on navigation without writing them into the next page', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) }, { data: page({ id: 'page-2', title: 'Second', content: 'Second server', capabilities: { canEdit: true } }) });
+    render(<LanguageProvider><MemoryRouter initialEntries={['/pages/page-1/edit']}><NavigationHarness /></MemoryRouter></LanguageProvider>);
+    await screen.findByDisplayValue('Original title');
+    editContent('First-page local edit');
+    fireEvent.click(screen.getByRole('button', { name: 'Navigate to second page' }));
+    await screen.findByDisplayValue('Second');
+    expect(loadDraft(draftScope)?.content).toBe('First-page local edit');
+    fireEvent(window, new Event('pagehide'));
+    expect(loadDraft({ ...draftScope, pageId: 'page-2' })).toBeNull();
+    expect(contentEditorValue()).toBe('Second server');
+  });
+
+  it('keeps WebSocket remote drafts out of recoverable local storage', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    act(() => socketMock.handlers.get('contentUpdated')?.({ content: 'Remote unsaved snapshot', userId: 'remote', version: 42 }));
+    expect(contentEditorValue()).toBe('Remote unsaved snapshot');
+    fireEvent(window, new Event('pagehide'));
+    expect(loadDraft(draftScope)).toBeNull();
+  });
+
+  it('does not persist a remote-only snapshot even when server Save fails', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    vi.mocked(api.patch).mockRejectedValue({ response: { status: 500 } });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    act(() => socketMock.handlers.get('contentUpdated')?.({ content: 'Remote-only snapshot', userId: 'remote', version: 42 }));
+    fireEvent.click(screen.getByTestId('save-button'));
+    await waitFor(() => expect(screen.getByTestId('save-button')).toBeEnabled());
+    expect(loadDraft(draftScope)).toBeNull();
+  });
+
+  it('retains local recovery after a server Save failure and invalidates offers on Save authorization failure', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Unsent human edit');
+    vi.mocked(api.patch).mockRejectedValue({ response: { status: 500 } });
+    fireEvent.click(screen.getByTestId('save-button'));
+    await waitFor(() => expect(screen.getByTestId('save-button')).toBeEnabled());
+    expect(loadDraft(draftScope)?.content).toBe('Unsent human edit');
+    vi.mocked(api.patch).mockRejectedValue({ response: { status: 403 } });
+    fireEvent.click(screen.getByTestId('save-button'));
+    await screen.findByTestId('editor-write-unavailable');
+    editContent('After forbidden'); fireEvent(window, new Event('pagehide'));
+    expect(loadDraft(draftScope)?.content).toBe('Unsent human edit');
+  });
+
+  it('keeps recovery stale after a newer remote version prompt is dismissed', async () => {
+    seedDraft(); queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Human buffer');
+    queuePages({ data: page({ updatedAt: '2026-07-28T08:00:00.000Z', capabilities: { canEdit: true } }) });
+    fireEvent.focus(window);
+    await screen.findByText(/A newer remote version is available/);
+    fireEvent.click(screen.getByRole('button', { name: 'Keep local draft' }));
+    expect(screen.queryByRole('button', { name: 'Recover local draft' })).not.toBeInTheDocument();
+    expect(contentEditorValue()).toBe('Human buffer');
+  });
+
+  it('loads page links only when opened and inserts authorized same-title identity without saving', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor();
+    await screen.findByDisplayValue('Original title');
+    expect(vi.mocked(api.get).mock.calls.some(([url]) => url === '/pages')).toBe(false);
+    vi.mocked(api.get).mockImplementation((url: string) => Promise.resolve({ data: url === '/pages' ? { data: [
+      { id: 'a', title: 'Same', spaceId: 'space-1' }, { id: 'b', title: 'Same', spaceId: 'space-1' },
+      { id: 'private', title: 'Other Space', spaceId: 'other' },
+    ] } : page({ capabilities: { canEdit: true } }) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Page link' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Same b' }));
+    expect(contentEditorValue()).toContain('[[b|Same]]');
+    expect(screen.queryByText('Other Space')).not.toBeInTheDocument();
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('shows page-link retrieval failure with retry and leaves the draft unchanged', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    vi.mocked(api.get).mockRejectedValue(new Error('private provider detail'));
+    fireEvent.click(screen.getByRole('button', { name: 'Page link' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load pages');
+    expect(screen.queryByText('private provider detail')).not.toBeInTheDocument();
+    expect(contentEditorValue()).toBe('Original content');
+  });
+
+  it('restores scoped collaboration tab and width without submitting or editing', async () => {
+    localStorage.setItem('agentwiki.workspace.v1:user-1:space-1', JSON.stringify({ schemaVersion: 1, collaborationOpen: true, collaborationTab: 'notes', collaborationWidth: 440 }));
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    const view = renderEditorWithCrumbs();
+    await screen.findByDisplayValue('Original title');
+    expect(screen.getByRole('button', { name: 'Notes queue' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('separator', { name: 'Resize collaboration panel' })).toHaveAttribute('aria-valuenow', '440');
+    expect(contentEditorValue()).toBe('Original content');
+    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
+    view.unmount();
+    queuePages({ data: page({ capabilities: { canEdit: true } }) }); renderEditorWithCrumbs();
+    await screen.findByDisplayValue('Original title');
+    expect(screen.queryByRole('button', { name: 'Notes queue' })).not.toBeInTheDocument();
+  });
+
+  it('keeps mobile panel dismissal and viewport clamping out of desktop preferences', async () => {
+    const viewport = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+    const key = 'agentwiki.workspace.v1:user-1:space-1';
+    localStorage.setItem(key, JSON.stringify({ schemaVersion: 1, collaborationOpen: true, collaborationTab: 'notes', collaborationWidth: 520 }));
+    queuePages({ data: page({ capabilities: { canEdit: true } }) }); renderEditorWithCrumbs();
+    await screen.findByDisplayValue('Original title');
+    expect(screen.queryByRole('button', { name: 'Notes queue' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+    expect(document.querySelector('.document-assist-layer')).toHaveStyle({ width: '358px' });
+    expect(screen.queryByRole('separator', { name: 'Resize collaboration panel' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
+    expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ collaborationOpen: true, collaborationWidth: 520 });
+    viewport.mockReturnValue(1280); fireEvent.resize(window);
+    expect(screen.getByRole('button', { name: 'Notes queue' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('separator', { name: 'Resize collaboration panel' })).toHaveAttribute('aria-valuenow', '520');
+    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize collaboration panel' }), { key: 'Home' });
+    expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ collaborationWidth: 320 });
+    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('suppresses a remembered notes tab immediately when live editing permission is lost', async () => {
+    const key = 'agentwiki.workspace.v1:user-1:space-1';
+    localStorage.setItem(key, JSON.stringify({ schemaVersion: 1, collaborationOpen: true, collaborationTab: 'notes' }));
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    const router = createMemoryRouter([{ element: <NavigationGuardProvider><SpaceWorkspaceProvider userId="user-1"><Outlet /></SpaceWorkspaceProvider></NavigationGuardProvider>, children: [
+      { path: '/pages/:id/edit', element: <SpaceWorkspace mode="edit" pageId="page-1"><PageEditor workspaceRef={workspaceRef} /></SpaceWorkspace> },
+      { path: '/pages/:id', element: <DirectEditRedirectTarget /> },
+    ] }], { initialEntries: ['/pages/page-1/edit'] });
+    render(<LanguageProvider><RouterProvider router={router} /></LanguageProvider>); await screen.findByDisplayValue('Original title');
+    expect(screen.getByRole('button', { name: 'Notes queue' })).toBeVisible();
+    editContent('Retained private draft');
+    queuePages({ data: page({ capabilities: { canEdit: false } }) });
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    expect(screen.queryByRole('button', { name: 'Notes queue' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Personal notes' })).toBeDisabled();
+    expect(screen.getByTestId('assist-toggle')).toBeDisabled();
+    expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ collaborationOpen: true, collaborationTab: 'notes' });
+    expect(contentEditorValue()).toBe('Retained private draft'); expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('keeps the opened candidate panel mounted through tabs/close but clears its page identity', async () => {
+    const key = 'agentwiki.workspace.v1:user-1:space-1';
+    localStorage.setItem(key, JSON.stringify({ schemaVersion: 1, collaborationOpen: true, collaborationTab: 'assist' }));
+    vi.mocked(api.get).mockImplementation(async (url: string) => ({ data: url === '/assist/sessions' || url === '/review' ? [] : page({ id: url.includes('page-2') ? 'page-2' : 'page-1', capabilities: { canEdit: true } }) }));
+    const ScopedEditor = () => {
+      const { id } = useParams(); const navigate = useNavigate();
+      return <><button onClick={() => navigate('/pages/page-2/edit')}>Next scoped document</button><SpaceWorkspace mode="edit" pageId={id}><PageEditor workspaceRef={workspaceRef} /></SpaceWorkspace></>;
+    };
+    render(<LanguageProvider><SpaceWorkspaceProvider userId="user-1"><MemoryRouter initialEntries={['/pages/page-1/edit']}><Routes><Route path="/pages/:id/edit" element={<ScopedEditor />} /></Routes></MemoryRouter></SpaceWorkspaceProvider></LanguageProvider>);
+    const intent = await screen.findByTestId('assist-intent');
+    fireEvent.change(intent, { target: { value: 'Unsubmitted request' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Notes queue' }));
+    expect(intent).not.toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
+    fireEvent.click(screen.getByTestId('assist-toggle'));
+    expect(screen.getByTestId('assist-intent')).toBe(intent); expect(intent).toHaveValue('Unsubmitted request');
+    fireEvent.click(screen.getByRole('button', { name: 'Next scoped document' }));
+    await waitFor(() => expect(screen.getByTestId('assist-intent')).not.toBe(intent));
+    expect(screen.getByTestId('assist-intent')).toHaveValue('');
+    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+    expect(localStorage.getItem(key)).not.toContain('Unsubmitted request');
+  });
+
+  it('suppresses the article outline for notes-only collaboration then restores its stored choice', async () => {
+    localStorage.setItem('agentwiki.workspace.v1:user-1:space-1', JSON.stringify({ schemaVersion: 1, outlineOpen: true, collaborationOpen: true, collaborationTab: 'notes' }));
+    queuePages({ data: page({ content: '# Outline entry', capabilities: { canEdit: true } }) });
+    renderEditorWithCrumbs(); await screen.findByDisplayValue('Original title');
+    expect(screen.getByRole('button', { name: 'Contents' })).toBeDisabled();
+    expect(screen.queryByRole('navigation', { name: 'Contents' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
+    expect(await screen.findByRole('navigation', { name: 'Contents' })).toBeVisible();
+    fireEvent.click(screen.getByTestId('mode-toggle'));
+    expect(await screen.findByRole('navigation', { name: 'Contents' })).toBeVisible();
+    expect(JSON.parse(localStorage.getItem('agentwiki.workspace.v1:user-1:space-1')!)).toMatchObject({ outlineOpen: true, collaborationOpen: false });
+    expect(contentEditorValue()).toBe('# Outline entry'); expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('reserves only the visible wide-screen panel and releases that space for overlays or documents without an outline', async () => {
+    const viewport = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1700);
+    localStorage.setItem('agentwiki.workspace.v1:user-1:space-1', JSON.stringify({ schemaVersion: 1, outlineOpen: true, outlineWidth: 300, collaborationWidth: 440 }));
+    queuePages({ data: page({ content: '# Outline entry', capabilities: { canEdit: true } }) });
+    renderEditorWithCrumbs(); await screen.findByDisplayValue('Original title');
+    const occupiedWidth = () => document.querySelector<HTMLElement>('.document-canvas')?.style.getPropertyValue('--document-panel-width');
+    await waitFor(() => expect(occupiedWidth()).toBe('316px'));
+    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+    expect(occupiedWidth()).toBe('460px');
+    expect(screen.queryByRole('navigation', { name: 'Contents' })).not.toBeInTheDocument();
+    viewport.mockReturnValue(1280); fireEvent.resize(window);
+    expect(occupiedWidth()).toBe('0px');
+    expect(screen.getByRole('button', { name: 'Notes queue' })).toBeVisible();
+    viewport.mockReturnValue(1700); fireEvent.resize(window);
+    expect(occupiedWidth()).toBe('460px');
+    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
+    await waitFor(() => expect(occupiedWidth()).toBe('316px'));
+    editContent('No headings');
+    expect(occupiedWidth()).toBe('0px');
+    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('keeps collaboration below the owning toolbar as it wraps, sticks, and resizes on mobile', async () => {
+    const viewport = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1600);
+    const originalBounds = HTMLElement.prototype.getBoundingClientRect;
+    let toolbarBottom = 175;
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function(this: HTMLElement) {
+      return this.dataset.testid === 'editor-toolbar' ? { ...originalBounds.call(this), bottom: toolbarBottom } as DOMRect : originalBounds.call(this);
+    });
+    let resizeToolbar: (() => void) | undefined;
+    const disconnected = vi.fn();
+    vi.stubGlobal('ResizeObserver', class {
+      ownsToolbar = false;
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(target: HTMLElement) {
+        if (target.dataset.testid !== 'editor-toolbar') return;
+        this.ownsToolbar = true;
+        resizeToolbar = () => this.callback([], this as unknown as ResizeObserver);
+      }
+      unobserve() {}
+      disconnect() { if (this.ownsToolbar) disconnected(); }
+    });
+    try {
+      const key = 'agentwiki.workspace.v1:user-1:space-1';
+      localStorage.setItem(key, JSON.stringify({ schemaVersion: 1, collaborationWidth: 440 }));
+      queuePages({ data: page({ capabilities: { canEdit: true } }) });
+      const view = renderEditorWithCrumbs(); await screen.findByDisplayValue('Original title');
+      fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+      const panel = () => document.querySelector('.document-assist-layer');
+      expect(panel()).toHaveStyle({ top: '187px' });
+      expect(resizeToolbar).toBeDefined();
+      toolbarBottom = 223; act(() => resizeToolbar?.());
+      expect(panel()).toHaveStyle({ top: '235px' });
+      toolbarBottom = 125; fireEvent.scroll(document);
+      expect(panel()).toHaveStyle({ top: '137px' });
+      toolbarBottom = 319; viewport.mockReturnValue(390); fireEvent.resize(window);
+      fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+      expect(panel()).toHaveStyle({ top: '331px', width: '358px' });
+      toolbarBottom = 367; fireEvent.resize(window);
+      expect(panel()).toHaveStyle({ top: '379px' });
+      expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ collaborationOpen: true, collaborationWidth: 440 });
+      expect(contentEditorValue()).toBe('Original content');
+      expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+      view.unmount();
+      expect(disconnected).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps enough exposed document width without replacing the saved collaboration width', async () => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280);
+    const originalBounds = HTMLElement.prototype.getBoundingClientRect;
+    let canvasLeft = 580;
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function(this: HTMLElement) {
+      return this.classList.contains('document-canvas') ? { ...originalBounds.call(this), left: canvasLeft } as DOMRect : originalBounds.call(this);
+    });
+    const key = 'agentwiki.workspace.v1:user-1:space-1';
+    localStorage.setItem(key, JSON.stringify({ schemaVersion: 1, collaborationOpen: true, collaborationTab: 'notes', collaborationWidth: 520 }));
+    queuePages({ data: page({ capabilities: { canEdit: true } }) }); renderEditorWithCrumbs();
+    await screen.findByDisplayValue('Original title');
+    expect(document.querySelector('.document-assist-layer')).toHaveStyle({ width: '320px' });
+    expect(screen.getByRole('separator', { name: 'Resize collaboration panel' })).toHaveAttribute('aria-valuemax', '320');
+    canvasLeft = 400; fireEvent.resize(window);
+    expect(document.querySelector('.document-assist-layer')).toHaveStyle({ width: '500px' });
+    expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ collaborationWidth: 520 });
+  });
+
+  it('keeps Assist streams out of the draft and accepts completion as a single undoable edit', async () => {
+    let tasks: any[] = [];
+    mockAgentSession(page({ capabilities: { canEdit: true } }), () => tasks, async () => { tasks = [{ id: 'assist-1', intent: 'Rewrite', status: 'running' }]; return tasks[0]; });
+    renderEditor();
+    fireEvent.click(await screen.findByTestId('assist-toggle'));
+    await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
+    fireEvent.click(screen.getByTestId('assist-submit'));
+    await waitFor(() => expect(screen.getByTestId('assist-submit')).toHaveTextContent('Send'));
+    act(() => socketMock.handlers.get('assistStream')?.({ taskId: 'assist-1', chunk: '📝 生成: {"changes":"Partial"}' }));
+    fireEvent(window, new Event('pagehide'));
+    expect(loadDraft(draftScope)).toBeNull();
+    expect(contentEditorValue()).toBe('Original content');
+    expect(screen.getByTestId('save-button')).toBeDisabled();
+    tasks = [{ id: 'assist-1', intent: 'Rewrite', status: 'done', result: { changes: 'Accepted candidate' } }];
+    reloadAgentHistory();
+    const accept = await screen.findByRole('button', { name: 'Accept to draft' });
+    expect(contentEditorValue()).toBe('Original content');
+    fireEvent.click(accept);
+    expect(contentEditorValue()).toBe('Accepted candidate');
+    fireEvent(window, new Event('pagehide'));
+    expect(loadDraft(draftScope)?.content).toBe('Accepted candidate');
+    expect(api.patch).not.toHaveBeenCalled();
+    act(() => expect(undo(currentEditorView())).toBe(true));
+    expect(contentEditorValue()).toBe('Original content');
+    fireEvent(window, new Event('pagehide'));
+    expect(loadDraft(draftScope)).toBeNull();
+    expect(screen.queryByTestId('local-draft-status')).not.toBeInTheDocument();
+    reloadAgentHistory();
+    await screen.findByText('Accepted to draft');
+    expect(contentEditorValue()).toBe('Original content');
+  });
+
+  it.each(['human', 'remote-kept', 'preview'] as const)('keeps the live draft safe when candidate acceptance meets %s state', async (scenario) => {
+    let tasks: any[] = [];
+    mockAgentSession(page({ capabilities: { canEdit: true } }), () => tasks, async () => { tasks = [{ id: 'assist-1', intent: 'Rewrite', status: 'done', result: { changes: 'Candidate' } }]; return tasks[0]; });
+    renderEditor();
+    fireEvent.click(await screen.findByTestId('assist-toggle'));
+    await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
+    fireEvent.click(screen.getByTestId('assist-submit'));
+    const accept = await screen.findByRole('button', { name: 'Accept to draft' });
+    if (scenario === 'preview') {
+      fireEvent.click(screen.getByTestId('mode-toggle'));
+      expect(accept).toBeDisabled();
+      expect(screen.getByText('Return to edit to accept this candidate.')).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('mode-toggle'));
+      expect(contentEditorValue()).toBe('Original content');
+      return;
+    }
+    if (scenario === 'human') editContent('Human draft');
+    else {
+      // A title-only human change makes the local draft dirty while preserving source.
+      fireEvent.change(screen.getByDisplayValue('Original title'), { target: { value: 'Renamed' } });
+      act(() => socketMock.handlers.get('contentUpdated')?.({ content: 'Remote content', userId: 'other', version: 9 }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Keep local draft' }));
+      fireEvent.change(screen.getByDisplayValue('Renamed'), { target: { value: 'Original title' } });
+    }
+    fireEvent.click(accept);
+    expect(contentEditorValue()).toBe(scenario === 'human' ? 'Human draft' : 'Original content');
+    expect(await screen.findByText(/Page, permissions, version or draft changed/)).toBeInTheDocument();
+    expect(api.patch).not.toHaveBeenCalled();
   });
 
   it('labels the title field and refuses whitespace without sending an update', async () => {
@@ -509,6 +1065,61 @@ describe('PageEditor remote update safety', () => {
     expect(api.patch).not.toHaveBeenCalled();
   });
 
+  it.each(['permission loss', 'remote conflict'])('closes the table editor and refuses late Apply after %s', async (reason) => {
+    const tableSource = '| Name | Value |\n| --- | --- |\n| a | b |';
+    queuePages({ data: page({ content: tableSource, capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Human draft\n\n' + tableSource);
+    const view = currentEditorView(); const before = contentEditorValue();
+    act(() => view.dispatch({ selection: EditorSelection.cursor(before.indexOf('| Name') + 2) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit table' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Row 1, column 1 (Markdown)' }), { target: { value: 'must not apply' } });
+    const apply = screen.getByRole('button', { name: 'Apply table' });
+    if (reason === 'permission loss') {
+      vi.mocked(api.get).mockRejectedValue({ response: { status: 403 } });
+      fireEvent.focus(window); await screen.findByTestId('editor-write-unavailable');
+    } else {
+      act(() => socketMock.handlers.get('contentUpdated')?.({ content: 'Remote concurrent edit', userId: 'remote', version: 42 }));
+    }
+    expect(screen.queryByRole('dialog', { name: 'Edit table' })).not.toBeInTheDocument();
+    fireEvent.click(apply);
+    expect(contentEditorValue()).toBe(before); expect(api.patch).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Edit table' })).toBeDisabled();
+  });
+
+  it.each(['loaded', 'pending'])('closes %s page-link results immediately after edit permission is revoked', async (status) => {
+    const pending = deferred<any>();
+    const defaultGet = vi.mocked(api.get).getMockImplementation()!;
+    let pageLinksSignal: AbortSignal | undefined;
+    vi.mocked(api.get).mockImplementation((url, config) => {
+      if (url === '/pages') {
+        pageLinksSignal = config?.signal as AbortSignal | undefined;
+        return status === 'pending' ? pending.promise : Promise.resolve({ data: { data: [{ id: 'private-link', title: 'Private linked page', spaceId: 'space-1' }] } });
+      }
+      return defaultGet(url, config);
+    });
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    renderGuardedEditor();
+    await screen.findByDisplayValue('Original title');
+    editContent('Retained draft');
+    fireEvent.click(screen.getByRole('button', { name: 'Page link' }));
+    if (status === 'loaded') await screen.findByRole('button', { name: 'Private linked page private-link' });
+    else await waitFor(() => expect(pageLinksSignal).toBeDefined());
+    queuePages({ data: page({ capabilities: { canEdit: false } }) });
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    expect(screen.queryByRole('dialog', { name: 'Page link' })).not.toBeInTheDocument();
+    if (status === 'pending') {
+      expect(pageLinksSignal?.aborted).toBe(true);
+      await act(async () => pending.resolve({ data: { data: [{ id: 'late-link', title: 'Late private page', spaceId: 'space-1' }] } }));
+    }
+    expect(screen.queryByText('Private linked page')).not.toBeInTheDocument();
+    expect(screen.queryByText('Late private page')).not.toBeInTheDocument();
+    expect(contentEditorValue()).toBe('Retained draft');
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
   it('aborts a pending image upload on capability loss and ignores its late success after dirty cancel', async () => {
     const upload = deferred<ReturnType<typeof attachment>>();
     let signal: AbortSignal | undefined;
@@ -635,6 +1246,77 @@ describe('PageEditor remote update safety', () => {
     await waitFor(() => expect(currentEditorView().state.selection.main.head).toBe(deepCursor));
   });
 
+  it.each(['forward', 'reverse'] as const)('restores the complete %s selection after clamped preview layout without user navigation', async (direction) => {
+    const body = '# Intro\n\nRepeated passage.\n\nRepeated passage.';
+    const from = body.lastIndexOf('Repeated');
+    const to = from + 'Repeated'.length;
+    const [anchor, head] = direction === 'forward' ? [from, to] : [to, from];
+    queuePages({ data: page({ content: body, capabilities: { canEdit: true } }) });
+    renderEditor();
+    await screen.findByDisplayValue('Original title');
+    act(() => currentEditorView().dispatch({ selection: EditorSelection.range(anchor, head) }));
+    const depth = undoDepth(currentEditorView().state);
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await screen.findByTestId('md-preview');
+    // Mode switching leaves focus on the toolbar; a clamped End key cannot
+    // replace the original selection unless it actually scrolls the document.
+    const returnButton = screen.getByRole('button', { name: 'Return to edit' });
+    returnButton.focus();
+    fireEvent.keyDown(returnButton, { key: 'End' });
+    fireEvent.scroll(document);
+    fireEvent.resize(window);
+    fireEvent.click(screen.getByRole('button', { name: 'Return to edit' }));
+    await waitFor(() => expect(currentEditorView().state.selection.main.anchor).toBe(anchor));
+    expect(currentEditorView().state.selection.main.head).toBe(head);
+    expect(undoDepth(currentEditorView().state)).toBe(depth);
+    expect(currentEditorView().state.doc.toString()).toBe(body);
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('returns to an explicitly chosen outline target even when preview scroll is clamped', async () => {
+    const body = '# A\n\nSelected text.\n\n# B';
+    queuePages({ data: page({ content: body, capabilities: { canEdit: true } }) });
+    renderEditor();
+    await screen.findByDisplayValue('Original title');
+    act(() => currentEditorView().dispatch({ selection: EditorSelection.range(6, 14) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Contents' }));
+    screen.getByRole('heading', { name: /B/ }).scrollIntoView = vi.fn();
+    vi.spyOn(window, 'scrollBy').mockImplementation(() => {});
+    fireEvent.click(screen.getByRole('button', { name: 'B' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Return to edit' }));
+    await waitFor(() => expect(currentEditorView().state.selection.main.head).toBe(body.indexOf('# B')));
+    expect(currentEditorView().state.selection.main.empty).toBe(true);
+  });
+
+  it.each(['page', 'identity'] as const)('does not carry the preview origin across a %s change', async (change) => {
+    const body = '# Intro\n\nRepeated passage.';
+    const from = body.indexOf('Repeated');
+    queuePages({ data: page({ content: body, capabilities: { canEdit: true } }) });
+    const tree = <LanguageProvider><MemoryRouter initialEntries={['/pages/page-1/edit']}><NavigationHarness /></MemoryRouter></LanguageProvider>;
+    const view = render(tree);
+    await screen.findByDisplayValue('Original title');
+    act(() => currentEditorView().dispatch({ selection: EditorSelection.range(from + 8, from + 2) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await screen.findByTestId('md-preview');
+    queuePages({ data: page({ id: change === 'page' ? 'page-2' : 'page-1', title: 'Reloaded page', content: body, capabilities: { canEdit: true } }) });
+    if (change === 'page') {
+      fireEvent.click(screen.getByRole('button', { name: 'Navigate to second page' }));
+    } else {
+      authMock.user = { ...authMock.user, id: 'user-2' };
+      view.rerender(<LanguageProvider><MemoryRouter initialEntries={['/pages/page-1/edit']}><NavigationHarness /></MemoryRouter></LanguageProvider>);
+    }
+    await screen.findByDisplayValue('Reloaded page');
+    for (const block of document.querySelectorAll<HTMLElement>('[data-markdown-source-start]')) {
+      vi.spyOn(block, 'getBoundingClientRect').mockReturnValue({
+        top: Number(block.dataset.markdownSourceStart) === from ? 12 : -300,
+      } as DOMRect);
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Return to edit' }));
+    await waitFor(() => expect(currentEditorView().state.selection.main.head).toBe(from));
+    expect(currentEditorView().state.selection.main.empty).toBe(true);
+  });
+
   it('returns to the preview block selected after moving away from the original editor cursor', async () => {
     const body = '# Long section\n\nParagraph A.\n\nParagraph B.\n\nParagraph C.';
     const paragraphAOffset = body.indexOf('Paragraph A');
@@ -642,7 +1324,7 @@ describe('PageEditor remote update safety', () => {
     queuePages({ data: page({ content: body, capabilities: { canEdit: true } }) });
     renderEditor();
     await screen.findByDisplayValue('Original title');
-    act(() => currentEditorView().dispatch({ selection: EditorSelection.cursor(paragraphAOffset + 4) }));
+    act(() => currentEditorView().dispatch({ selection: EditorSelection.range(paragraphAOffset + 10, paragraphAOffset + 4) }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
     await screen.findByText('Paragraph B.');
@@ -653,9 +1335,15 @@ describe('PageEditor remote update safety', () => {
       } as DOMRect);
     }
 
+    fireEvent.wheel(screen.getByTestId('md-preview'), { deltaY: 200 });
+    const surface = screen.getByTestId('md-editor-surface');
+    surface.scrollTop = 200;
+    fireEvent.scroll(surface);
+
     fireEvent.click(screen.getByRole('button', { name: 'Return to edit' }));
 
     await waitFor(() => expect(currentEditorView().state.selection.main.head).toBe(paragraphBOffset));
+    expect(currentEditorView().state.selection.main.empty).toBe(true);
   });
 
   it('keeps the second repeated heading identity through reading, edit, preview, and reading', async () => {
@@ -767,7 +1455,7 @@ describe('PageEditor remote update safety', () => {
     templateMocks.listPageTemplates.mockResolvedValue(catalog(false));
     templateMocks.listCompositeTemplates.mockResolvedValue({
       data: [], total: 0, skip: 0, take: 1,
-      capabilities: { canManage: false, canCreate: true },
+      capabilities: { canManage: false, canCreate: true, canBindAgent: true, canStartPageCollaboration: false },
     });
     renderEditor();
 
@@ -776,11 +1464,11 @@ describe('PageEditor remote update safety', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent('Binding page: Original title');
   });
 
-  it('hides late-binding settings when authoritative composite rollout is off', async () => {
+  it('hides late-binding settings when the explicit binding capability is missing', async () => {
     queuePages({ data: page({ capabilities: { canEdit: true } }) });
     templateMocks.listCompositeTemplates.mockResolvedValue({
       data: [], total: 0, skip: 0, take: 1,
-      capabilities: { canManage: true, canCreate: false },
+      capabilities: { canManage: true, canCreate: true },
     });
     renderEditor();
 
@@ -2026,4 +2714,97 @@ describe('PageEditor remote update safety', () => {
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
+  it('sends a real selected passage to Agent and preserves unrelated concurrent typing when accepted', async () => {
+    const base='old'+'x'.repeat(300)+'quote'+'y'.repeat(300);let tasks:any[]=[];
+    mockAgentSession(page({content:base,capabilities:{canEdit:true}}), () => tasks, async () => { tasks=[{id:'scoped',intent:'Fix',status:'done',result:{changes:base.replace('quote','new')}}]; return tasks[0]; });
+    renderEditor();await screen.findByDisplayValue('Original title');
+    act(()=>currentEditorView().dispatch({selection:EditorSelection.single(303,308)}));
+    fireEvent.click(screen.getByRole('button',{name:'Ask Agent'}));
+    await chooseProposal(); expect(screen.getByRole('combobox',{name:'Edit scope'})).toHaveValue('selection');
+    await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix quote'}});fireEvent.click(screen.getByTestId('assist-submit'));
+    await screen.findByRole('button',{name:'Accept to draft'});
+    expect(api.post).toHaveBeenCalledWith('/assist/sessions/session-1/turns',expect.objectContaining({snapshot:expect.objectContaining({assistTarget:expect.objectContaining({from:303,to:308,quote:'quote'})})}));
+    editContent(base.replace('old','human'));fireEvent.click(screen.getByRole('button',{name:'Accept to draft'}));
+    expect(contentEditorValue()).toBe('human'+'x'.repeat(300)+'new'+'y'.repeat(300));
+    act(()=>expect(undo(currentEditorView())).toBe(true));expect(contentEditorValue()).toBe(base.replace('old','human'));
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+  it('sends checked private notes and accepts each linked hunk once with separate undo', async () => {
+    const base='one\nkeep\ntwo\n';let tasks:any[]=[];
+    mockAgentSession(page({content:base,capabilities:{canEdit:true}}), () => tasks, async () => { tasks=[{id:'notes',intent:'Fix',status:'done',result:{changes:'ONE\nkeep\nTWO\n'}}]; return tasks[0]; });
+    renderEditor();await screen.findByDisplayValue('Original title');fireEvent.click(screen.getByRole('button',{name:'Personal notes'}));
+    for(const [from,to,body] of [[0,3,'Fix one'],[9,12,'Fix two']] as const){
+      act(()=>currentEditorView().dispatch({selection:EditorSelection.single(from,to)}));
+      fireEvent.change(screen.getByRole('textbox',{name:'Note'}),{target:{value:body}});fireEvent.click(screen.getByRole('button',{name:'Add note'}));
+    }
+    expect(screen.getByText(/Private notes, stored only/)).toBeInTheDocument();
+    for(const body of ['Fix one','Fix two'])fireEvent.click(screen.getByRole('checkbox',{name:body}));
+    fireEvent.click(screen.getByRole('button',{name:'Stage selected for Agent'}));
+    expect(api.post).not.toHaveBeenCalled(); await chooseProposal(); fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await screen.findByRole('button',{name:'Accept change 1'});fireEvent.click(screen.getByRole('button',{name:'Notes queue'}));expect(screen.getAllByText('Awaiting review')).toHaveLength(2);expect(contentEditorValue()).toBe(base);fireEvent.click(screen.getByRole('button',{name:'Candidate queue'}));
+    fireEvent.click(screen.getByRole('button',{name:'Accept change 1'}));expect(contentEditorValue()).toBe('ONE\nkeep\ntwo\n');fireEvent.click(screen.getByRole('button',{name:'Notes queue'}));fireEvent.click(screen.getByRole('button',{name:'All (2)'}));expect(screen.getAllByText('Resolved')).toHaveLength(1);fireEvent.click(screen.getByRole('button',{name:'Candidate queue'}));
+    fireEvent.click(screen.getByRole('button',{name:'Accept change 2'}));expect(contentEditorValue()).toBe('ONE\nkeep\nTWO\n');fireEvent.click(screen.getByRole('button',{name:'Notes queue'}));fireEvent.click(screen.getByRole('button',{name:'All (2)'}));expect(screen.getAllByText('Resolved')).toHaveLength(2);fireEvent.click(screen.getByRole('button',{name:'Candidate queue'}));
+    fireEvent.click(screen.getByRole('button',{name:'Accept change 1'}));act(()=>expect(undo(currentEditorView())).toBe(true));expect(contentEditorValue()).toBe('ONE\nkeep\ntwo\n');
+    act(()=>expect(undo(currentEditorView())).toBe(true));expect(contentEditorValue()).toBe(base);expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('captures current heading section and sends default document snapshots explicitly', async () => {
+    const base='# One\nintro\n## Child\nx\n# Two\ny';let tasks:any[]=[];
+    mockAgentSession(page({content:base,capabilities:{canEdit:true}}), () => tasks, async () => { tasks=[{id:'scope',intent:'Fix',status:'done',result:{changes:base.replace('intro','INTRO')}}]; return tasks[0]; });
+    renderEditor();await screen.findByDisplayValue('Original title');act(()=>currentEditorView().dispatch({selection:EditorSelection.cursor(7)}));
+    fireEvent.click(screen.getByTestId('assist-toggle'));await chooseProposal(); expect(screen.getByRole('combobox',{name:'Edit scope'})).toHaveValue('document');
+    await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix'}});fireEvent.click(screen.getByTestId('assist-submit'));await screen.findByRole('button',{name:'Accept to draft'});
+    expect(api.post).toHaveBeenLastCalledWith('/assist/sessions/session-1/turns',expect.objectContaining({snapshot:expect.objectContaining({assistTarget:expect.objectContaining({kind:'document',from:0,to:base.length})})}));
+    fireEvent.click(screen.getByRole('button',{name:'Discard'}));fireEvent.change(screen.getByRole('combobox',{name:'Edit scope'}),{target:{value:'section'}});
+    await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix section'}});fireEvent.click(screen.getByTestId('assist-submit'));
+    await waitFor(()=>expect(api.post).toHaveBeenCalledTimes(2));expect(api.post).toHaveBeenLastCalledWith('/assist/sessions/session-1/turns',expect.objectContaining({snapshot:expect.objectContaining({assistTarget:expect.objectContaining({kind:'section',quote:'# One\nintro\n## Child\nx\n'})})}));expect(contentEditorValue()).toBe(base);
+  });
+
+  it.each(['generating','ready','partial'] as const)('preserves %s scoped candidate across closing and reopening the drawer',async(phase)=>{
+    const base='one\nkeep\ntwo\n';let tasks:any[]=[];
+    mockAgentSession(page({content:base,capabilities:{canEdit:true}}), () => tasks, async () => { tasks=[{id:'continuity',intent:'Fix',status:phase==='generating'?'running':'done',result:{changes:'ONE\nkeep\nTWO\n'}}]; return tasks[0]; });
+    renderEditor();await screen.findByDisplayValue('Original title');fireEvent.click(screen.getByTestId('assist-toggle'));await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix'}});fireEvent.click(screen.getByTestId('assist-submit'));
+    await waitFor(()=>expect(screen.getByTestId('assist-submit')).toHaveTextContent('Send'));
+    if(phase!=='generating')await screen.findByRole('button',{name:'Accept change 1'});
+    if(phase==='partial')fireEvent.click(screen.getByRole('button',{name:'Accept change 1'}));
+    fireEvent.click(screen.getByRole('button',{name:'Close collaboration panel'}));fireEvent.click(screen.getByTestId('assist-toggle'));
+    tasks=[{id:'continuity',intent:'Fix',status:'done',result:{changes:'ONE\nkeep\nTWO\n'}}];reloadAgentHistory();
+    await screen.findByRole('button',{name:'Accept change 2'});
+    if(phase==='partial'){expect(screen.getByRole('button',{name:'Accept change 1'})).toBeDisabled();fireEvent.click(screen.getByRole('button',{name:'Accept change 2'}));expect(contentEditorValue()).toBe('ONE\nkeep\nTWO\n');}
+    else {expect(screen.getByRole('button',{name:'Accept change 1'})).toBeEnabled();expect(contentEditorValue()).toBe(base);}
+    expect(api.post).toHaveBeenCalledTimes(1);
+  });
+  it.each(['failed','delayed'] as const)('sends a staged notes request explicitly once across close/reopen after %s POST',async(scenario)=>{
+    let tasks:any[]=[];const delayed=deferred<any>();
+    mockAgentSession(page({capabilities:{canEdit:true}}), () => tasks, () => scenario === 'failed' ? Promise.reject(new Error('failed')) : delayed.promise);
+    renderEditor();await screen.findByDisplayValue('Original title');fireEvent.click(screen.getByRole('button',{name:'Personal notes'}));
+    act(()=>currentEditorView().dispatch({selection:EditorSelection.single(0,8)}));fireEvent.change(screen.getByRole('textbox',{name:'Note'}),{target:{value:'Fix'}});fireEvent.click(screen.getByRole('button',{name:'Add note'}));fireEvent.click(screen.getByRole('checkbox',{name:'Fix'}));fireEvent.click(screen.getByRole('button',{name:'Stage selected for Agent'}));
+    expect(api.post).not.toHaveBeenCalled(); await chooseProposal(); fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(()=>expect(api.post).toHaveBeenCalledTimes(1));if(scenario==='failed')await screen.findByRole('alert');
+    fireEvent.click(screen.getByRole('button',{name:'Close collaboration panel'}));fireEvent.click(screen.getByTestId('assist-toggle'));
+    if(scenario==='delayed'){tasks=[{id:'delayed',intent:'Fix',status:'done',result:{changes:'Changed content'}}];await act(async()=>delayed.resolve(tasks[0]));await screen.findByRole('button',{name:'Accept change 1'});}
+    else expect(screen.getByRole('alert')).toHaveTextContent('Request failed');
+    expect(api.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('isolates each accepted hunk around an unrelated manual edit and preserves no-replay records after three Undo operations', async () => {
+    const base = 'one\n' + 'unchanged paragraph\n'.repeat(70) + 'two\n';
+    let tasks: any[] = [];
+    mockAgentSession(page({ content: base, capabilities: { canEdit: true } }), () => tasks, async () => {
+      tasks = [{ id: 'mixed-undo', intent: 'Two changes', status: 'done', result: { changes: base.replace('one', 'ONE').replace('two', 'TWO') } }]; return tasks[0];
+    });
+    renderEditor(); fireEvent.click(await screen.findByTestId('assist-toggle')); await chooseProposal();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Two changes' } }); fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Accept change 1' }));
+    const first = base.replace('one', 'ONE'); expect(contentEditorValue()).toBe(first);
+    const offset = 700, manual = first.slice(0, offset) + 'Human addition\n' + first.slice(offset);
+    act(() => currentEditorView().dispatch({ changes: { from: offset, insert: 'Human addition\n' } })); expect(contentEditorValue()).toBe(manual);
+    fireEvent.click(screen.getByRole('button', { name: 'Accept change 2' })); expect(contentEditorValue()).toBe(manual.replace('two', 'TWO'));
+    act(() => expect(undo(currentEditorView())).toBe(true)); expect(contentEditorValue()).toBe(manual);
+    act(() => expect(undo(currentEditorView())).toBe(true)); expect(contentEditorValue()).toBe(first);
+    act(() => expect(undo(currentEditorView())).toBe(true)); expect(contentEditorValue()).toBe(base);
+    expect(screen.getByRole('button', { name: 'Accept change 1' })).toBeDisabled(); expect(screen.getByRole('button', { name: 'Accept change 2' })).toBeDisabled();
+    expect(screen.getByText(/Acceptance record: previously accepted/)).toBeVisible(); expect(api.patch).not.toHaveBeenCalled();
+  });
+
 });

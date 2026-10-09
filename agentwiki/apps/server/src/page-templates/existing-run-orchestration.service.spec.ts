@@ -1,3 +1,7 @@
+import { ConfigService } from '@nestjs/config';
+import { AuthorizationService } from '../core/authorization/authorization.service';
+import { TemplateFeaturePolicy } from './template-feature-policy';
+import { CompositeTemplateController } from './composite-template.controller';
 import { ExistingRunOrchestrationService } from './existing-run-orchestration.service';
 import { BusinessException } from '../core/filters/business-error';
 import { hashCompositeDefinition } from './composite-template-validator';
@@ -5,14 +9,19 @@ import { hashCompositeDefinition } from './composite-template-validator';
 const principal = { userId: 'human-1' };
 
 describe('ExistingRunOrchestrationService', () => {
-  function harness() {
+  function harness(role?: string) {
     const tx: any = Object.assign({
       collaborationRunEvent: { findFirst: jest.fn().mockResolvedValue(null) },
       space: { findUnique: jest.fn().mockResolvedValue({ contentTreeRevision: 4n }) },
       templateInstantiation: { findMany: jest.fn().mockResolvedValue([]) },
     }, { contentTreeRevision: 4n });
     const prisma: any = { $transaction: jest.fn((callback: any) => callback(tx)) };
-    const authorization: any = {
+    if (role) {
+      tx.$queryRaw = jest.fn().mockResolvedValue([{ id: principal.userId }]);
+      tx.user = { findUnique: jest.fn().mockResolvedValue({ id: principal.userId, type: 'human', platformRole: 'user', deletedAt: null, lockedAt: null }) };
+      tx.spaceMember = { findUnique: jest.fn().mockResolvedValue({ role }) };
+    }
+    const authorization: any = role ? new AuthorizationService(prisma) : {
       lockLiveHumanPrincipal: jest.fn(),
       assertLiveHumanSpaceAccess: jest.fn().mockResolvedValue({ role: 'editor' }),
     };
@@ -41,6 +50,25 @@ describe('ExistingRunOrchestrationService', () => {
       tx, authorization, contentTree, sources, pageBindings, expansion, events,
     };
   }
+
+  it.each([
+    ['owner', true, true], ['admin', true, true], ['editor', true, true], ['viewer', true, false],
+    ['owner', false, false], ['admin', false, false], ['editor', false, false], ['viewer', false, false],
+  ] as const)('matches the actual existing-page start route for %s, allowlisted=%s', async (role, allowed, expected) => {
+    const h = harness(role);
+    const policy = new TemplateFeaturePolicy({ get: () => allowed ? 'space-1' : '' } as unknown as ConfigService);
+    const controller = new CompositeTemplateController({} as any, {} as any, {} as any, {} as any,
+      {} as any, {} as any, h.service, policy);
+    const operation = Promise.resolve().then(() => controller.startPageRun({ user: principal } as any, 'space-1', 'page-1', {
+      collaborationInputs: {}, bindings: [], name: 'Next run', expectedTreeRevision: '4', idempotencyKey: 'route-matrix-0001',
+    }));
+    if (expected) await expect(operation).resolves.toEqual({ runId: 'run-1' });
+    else {
+      await expect(operation).rejects.toMatchObject({ businessCode: allowed ? 'SPACE_ACCESS_DENIED' : 'COMPOSITE_TEMPLATE_FEATURE_DISABLED' });
+      expect(h.expansion.createStarted).not.toHaveBeenCalled();
+    }
+    expect(policy.capabilities('space-1', role).canStartPageCollaboration).toBe(expected);
+  });
 
   it('previews an explicit selection without writes or silently adding a new child Page', async () => {
     const h = harness();

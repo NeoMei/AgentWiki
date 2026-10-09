@@ -1,0 +1,11 @@
+$ eslint "apps/{server,client}/src/**/*.{ts,tsx}" "packages/local-sync/src/**/*.ts"
+
+/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/apps/server/src/core/agent/agent.service.ts
+  155:5  warning  'isSuperAdmin' is assigned a value but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+  601:5  warning  'isSuperAdmin' is defined but never used. Allowed unused args must match /^_/u           @typescript-eslint/no-unused-vars
+
+/Users/neomei/.codex/worktrees/document-workspace/AgentWiki /agentwiki/apps/server/src/project-taskboard/project-taskboard.service.ts
+  196:15  warning  'takeover' is assigned a value but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+✖ 3 problems (0 errors, 3 warnings)
+

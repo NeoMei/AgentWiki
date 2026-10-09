@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
@@ -100,7 +100,7 @@ describe('CollaborationWorkspace', () => {
     vi.mocked(collaborationApi.listRuns).mockResolvedValue({ items: [], nextCursor: null });
     compositeMocks.listCompositeTemplates.mockResolvedValue({
       data: [], total: 0, skip: 0, take: 1,
-      capabilities: { canManage: true, canCreate: true },
+      capabilities: { canManage: true, canCreate: true, canManageDefinitions: true },
     });
   });
 
@@ -166,6 +166,15 @@ describe('CollaborationWorkspace', () => {
     expect(await screen.findByRole('dialog')).toHaveTextContent('Upgrade dialog Backend release');
   });
 
+  it.each([false, undefined])('keeps ordinary page-group creation while denying legacy upgrade when definition management is %s', async (canManageDefinitions) => {
+    compositeMocks.listCompositeTemplates.mockResolvedValue({ data: [], total: 0, skip: 0, take: 1,
+      capabilities: { canManage: true, canCreate: true, canManageDefinitions } });
+    renderWorkspace();
+    await screen.findByText('Backend release');
+    expect(screen.getByRole('button', { name: 'Create page group collaboration' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Upgrade Backend release' })).not.toBeInTheDocument();
+  });
+
   it('hides only new composite entry points when the authoritative capability is disabled', async () => {
     compositeMocks.listCompositeTemplates.mockResolvedValueOnce({
       data: [], total: 0, skip: 0, take: 1,
@@ -185,15 +194,18 @@ describe('CollaborationWorkspace', () => {
     );
   });
 
-  it('keeps ingest Runs distinct and places Collaboration between Runs and Members', async () => {
+  it('routes ingest navigation through Sources and places Collaboration between Sources and Members', async () => {
     renderWorkspace();
     await screen.findByText('Coding collaboration');
-    const links = screen.getAllByRole('link');
+    const navigation = within(screen.getByRole('navigation', { name: 'Space navigation' }));
+    const links = navigation.getAllByRole('link');
     const labels = links.map((link) => link.textContent?.trim());
-    expect(labels.indexOf('Runs')).toBeLessThan(labels.indexOf('Collaboration'));
+    expect(labels.indexOf('Sources')).toBeLessThan(labels.indexOf('Collaboration'));
     expect(labels.indexOf('Collaboration')).toBeLessThan(labels.indexOf('Members'));
-    expect(screen.getByRole('link', { name: 'Runs' })).toHaveAttribute('href', '/spaces/space-1/runs');
-    expect(screen.getByRole('link', { name: 'Collaboration' })).toHaveAttribute('aria-current', 'page');
+    expect(navigation.getByRole('link', { name: 'Sources' })).toHaveAttribute('href', '/spaces/space-1/sources');
+    expect(navigation.queryByRole('link', { name: 'Runs' })).not.toBeInTheDocument();
+    expect(navigation.getByRole('link', { name: 'Collaboration' })).toHaveAttribute('href', '/spaces/space-1/collaboration');
+    expect(navigation.getByRole('link', { name: 'Collaboration' })).toHaveAttribute('aria-current', 'page');
   });
 
   it('shows active and history runs on separate tabs', async () => {

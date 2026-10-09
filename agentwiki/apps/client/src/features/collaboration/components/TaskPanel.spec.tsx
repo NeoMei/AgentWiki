@@ -28,6 +28,16 @@ describe('system collaboration task presentation', () => {
     view.rerender(<LanguageProvider><Panel value={value} source={{ ...template, system: false }} /></LanguageProvider>);
     expect(screen.getByText('1. Define world rules')).toBeVisible();
   });
+  it('localizes a composite system Run with no legacy template ID using server provenance', () => {
+    localStorage.setItem('agentwiki.language.v1', 'zh-CN');
+    const value = { ...run, templateId: undefined, systemTemplateSource: { slug: 'novel-writing' }, tasks: [{ ...run.tasks![0], todos: [{ id: 't', ordinal: 0, name: 'Define world rules', status: 'pending', required: true, generation: 1 }] }] } as CollaborationRun;
+    function CompositePanel() { const { t } = useLanguage(); return <TaskPanel run={value} t={t} onAction={vi.fn()} onHistory={vi.fn()} agentNames={new Map([['a', 'Define world rules']])} />; }
+    render(<LanguageProvider><CompositePanel /></LanguageProvider>);
+    expect(screen.getByRole('heading', { name: '世界观设定' })).toBeVisible();
+    expect(screen.getByText('定义世界规则、地点、阵营、时间线、约束和尚未解决的世界观问题。')).toBeVisible();
+    expect(screen.getByText('1. 定义世界规则')).toBeVisible();
+    expect(screen.getByText(/Define world rules$/)).toBeVisible();
+  });
   it('does not translate copied/custom templates or edited prose', () => {
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
     const view = render(<LanguageProvider><Panel source={{ ...template, system: false }} /></LanguageProvider>);

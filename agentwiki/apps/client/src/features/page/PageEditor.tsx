@@ -6,19 +6,32 @@ import { apiErrorMessage } from '../../api/error-message';
 import { getContentTreeRevision } from '../../api/content-tree';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { useAuthorizedPageLinks } from '../../components/markdown-tools/useAuthorizedPageLinks';
 import { MarkdownMode, MarkdownWorkspace, MarkdownWorkspaceHandle } from '../../components/MarkdownWorkspace';
 import { Save, ArrowLeft, History, Users, Bot, Ellipsis, ImagePlus, BookOpen, PenLine, ChevronRight, Folder } from 'lucide-react';
 import { SavePageAsTemplateDialog } from '../page-templates/SavePageAsTemplateDialog';
+import type { CompositeTemplateCapabilities } from '../page-templates/compositeTemplateTypes';
 import { PageAgentBindingDialog } from '../page-templates/PageAgentBindingDialog';
 import { listPageTemplates } from '../page-templates/pageTemplateApi';
 import { truncateValidatorLength } from '../page-templates/validatorLength';
 import { listCompositeTemplates } from '../page-templates/compositeTemplateApi';
-import { AgentAssistPanel } from './AgentAssistPanel';
+import type { AssistRequest } from './AgentAssistPanel';
+const AgentSessionPanel = React.lazy(() => import('../agent-session/AgentSessionPanel').then((module) => ({ default: module.AgentSessionPanel })));
+import { applyCandidateToDraft, type AssistCandidate } from './assistCandidate';
+import { captureAssistTarget } from './assistTargets';
+import { PersonalNotesPanel } from './PersonalNotesPanel';
+import { usePersonalNotes } from './usePersonalNotes';
+import type { MarkdownSelection } from '../../components/markdown-tools/DocumentTools';
+import { canRestoreDraft, type AuthorizedDraftPage } from './localDrafts';
+import { useLocalDraft } from './useLocalDraft';
+import { LocalDraftNotice } from './LocalDraftNotice';
 import { AttachmentPickerDialog } from '../attachments/AttachmentPickerDialog';
 import { uploadAttachment } from '../attachments/attachmentApi';
 import { formatAttachmentReference } from '../attachments/attachmentReference';
 import 'highlight.js/styles/github.css';
 import { useOptionalSpaceWorkspace, usePageWorkspaceIdentity } from '../space-workspace/SpaceWorkspaceContext';
+import { clampCollaborationWidth, type PanelPreferences } from '../space-workspace/workspacePreferences';
+import { PanelResizeHandle } from '../space-workspace/PanelResizeHandle';
 import {
   readWorkspacePosition,
   nearestMarkdownSourceBlock,
@@ -98,8 +111,16 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const workspace = useOptionalSpaceWorkspace();
   const socketRef = useRef<Socket | null>(null);
   const contentRef = useRef<string>('');
+  const titleRef = useRef('');
+  const assistRemoteRevisionRef = useRef(0);
+  const acceptedAssistTasksRef = useRef(new Map<string, string[]>());
   const tRef = useRef(t);
   const pageRef = useRef<Page | null>(null);
+  const currentUserIdRef = useRef(user?.id);
+  currentUserIdRef.current = user?.id;
+  const authorizedUserIdRef = useRef<string | null>(null);
+  const latestRemoteUpdatedAtRef = useRef<string | null>(null);
+  const unresolvedSocketRevisionRef = useRef<string | null>(null);
   const baselineRevisionRef = useRef<string | null>(null);
   const acceptedSocketRevisionRef = useRef<string | null>(null);
   const isDirtyRef = useRef(false);
@@ -145,11 +166,21 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [writeUnavailable, setWriteUnavailable] = useState(false);
+  const requestPageLinks = useAuthorizedPageLinks(user?.id, page?.spaceId, id, !writeUnavailable && page?.capabilities?.canEdit === true);
   const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([]);
   const [saveStatus, setSaveStatus] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [mode, setMode] = useState<MarkdownMode>('edit');
-  const [assistOpen, setAssistOpen] = useState(false);
+  const [assistMounted, setAssistMounted] = useState(false);
+  const [outlineOccupiedWidth, setOutlineOccupiedWidth] = useState(0);
+  const [localPanels, setLocalPanels] = useState<PanelPreferences & { key: string }>({ key: '' });
+  const [mobilePanelFor, setMobilePanelFor] = useState<string | null>(null);
+  const [panelViewport, setPanelViewport] = useState({ width: window.innerWidth, max: 520 });
+  const [collaborationTop, setCollaborationTop] = useState(130);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const [assistSelection, setAssistSelection] = useState<MarkdownSelection>({ from: 0, to: 0, text: '' });
+  const [selectionRequest, setSelectionRequest] = useState<AssistRequest | null>(null);
   const [remoteUpdate, setRemoteUpdate] = useState<RemotePageUpdate | null>(null);
   const [templateCapability, setTemplateCapability] = useState<{ identity: string; canManage: boolean } | null>(null);
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
@@ -159,8 +190,72 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false);
   const [compositeCapability, setCompositeCapability] = useState<{
     identity: string;
-    canCreate: boolean;
+    capabilities: CompositeTemplateCapabilities;
   } | null>(null);
+  const draftContext = useCallback((): AuthorizedDraftPage | null => {
+    const current = pageRef.current;
+    if (!current || !currentUserIdRef.current || authorizedUserIdRef.current !== currentUserIdRef.current || current.capabilities?.canEdit !== true) return null;
+    return { userId: currentUserIdRef.current, spaceId: current.spaceId, pageId: current.id, updatedAt: current.updatedAt, title: current.title, content: current.content, canEdit: true };
+  }, []);
+  const localDraft = useLocalDraft(draftContext);
+  const notesWritable = !!page && page.id === id && !loading && !error && !writeUnavailable && page.capabilities?.canEdit === true && authorizedUserIdRef.current === user?.id;
+  // Restore presentation only after live page authorization; task payloads remain identity-local.
+  const panelScope = workspace?.spaceId === page?.spaceId && workspace?.userId === user?.id ? workspace : null;
+  const panelScopeKey = `${user?.id ?? ''}:${page?.spaceId ?? ''}`;
+  const panelIdentity = `${panelScopeKey}:${id}`;
+  const panelPreferences: PanelPreferences = panelScope ?? (localPanels.key === panelScopeKey ? localPanels : {});
+  // Mobile open/dismiss is temporary and never overwrites the desktop open/width preference.
+  const mobilePanel = panelViewport.width < 1024;
+  const collaborationVisible = notesWritable && (mobilePanel ? mobilePanelFor === panelIdentity : panelPreferences.collaborationOpen === true);
+  const notesOpen = collaborationVisible && panelPreferences.collaborationTab === 'notes';
+  const assistOpen = collaborationVisible && !notesOpen;
+  const collaborationWidth = Math.min(clampCollaborationWidth(panelPreferences.collaborationWidth), panelViewport.max >= 320 && !mobilePanel ? panelViewport.max : 520, Math.max(0, panelViewport.width - 32));
+  const occupiedPanelWidth = collaborationVisible
+    ? (panelViewport.width >= 1600 && panelViewport.max >= 320 ? collaborationWidth + 20 : 0)
+    : outlineOccupiedWidth;
+  const updatePanelPreferences = (preferences: PanelPreferences) => {
+    if (!notesWritable) return;
+    if (panelScope) panelScope.setPanelPreferences(preferences);
+    else setLocalPanels((current) => ({ ...(current.key === panelScopeKey ? current : {}), key: panelScopeKey, ...preferences }));
+  };
+  const openCollaboration = (tab: 'assist' | 'notes') => {
+    if (!notesWritable) return;
+    updatePanelPreferences({ collaborationTab: tab, ...(!mobilePanel ? { collaborationOpen: true } : {}) });
+    if (mobilePanel) setMobilePanelFor(panelIdentity);
+    if (tab === 'assist') requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('[data-agent-composer]')?.focus());
+  };
+  const closeCollaboration = () => {
+    if (mobilePanel) setMobilePanelFor(null);
+    else updatePanelPreferences({ collaborationOpen: false });
+    toolbarRef.current?.querySelector<HTMLButtonElement>('[data-testid="assist-toggle"]')?.focus();
+  };
+  useEffect(() => { setMobilePanelFor(null); }, [mobilePanel]);
+  useEffect(() => {
+    const resize = () => setPanelViewport({ width: window.innerWidth, max: Math.min(520, window.innerWidth - Math.max(0, canvasRef.current?.getBoundingClientRect().left ?? 0) - 380) });
+    resize(); window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, [page?.id, workspace?.directoryWidth, workspace?.directoryCollapsed]);
+  useLayoutEffect(() => {
+    const toolbar = toolbarRef.current;
+    if (!collaborationVisible || !toolbar) return;
+    const position = () => {
+      const top = Math.ceil(toolbar.getBoundingClientRect().bottom) + 12;
+      setCollaborationTop((current) => current === top ? current : top);
+    };
+    position();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(position);
+    observer?.observe(toolbar);
+    document.addEventListener('scroll', position, true);
+    window.addEventListener('resize', position);
+    return () => {
+      observer?.disconnect();
+      document.removeEventListener('scroll', position, true);
+      window.removeEventListener('resize', position);
+    };
+  }, [collaborationVisible, panelIdentity]);
+  const personalNotes = usePersonalNotes({ scope: notesWritable && user?.id && page ? { userId: user.id, spaceId: page.spaceId, pageId: page.id } : null, canEdit: notesWritable, stageForSession: true, source: content, updatedAt: page?.updatedAt, language });
+  const selectionTarget = page ? captureAssistTarget(content, 'selection', assistSelection.from, assistSelection.to, page.updatedAt) : null;
+  const sectionTarget = page ? captureAssistTarget(content, 'section', assistSelection.from, assistSelection.to, page.updatedAt) : null;
 
   const templateCapabilityIdentity = page
     ? `${page.id}\u0000${page.spaceId}\u0000${page.format}\u0000${language}`
@@ -168,9 +263,9 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const canManageTemplates = !writeUnavailable && templateCapabilityIdentity !== null
     && templateCapability?.identity === templateCapabilityIdentity
     && templateCapability.canManage;
-  const compositeCreationEnabled = !writeUnavailable && templateCapabilityIdentity !== null
-    && compositeCapability?.identity === templateCapabilityIdentity
-    && compositeCapability.canCreate;
+  const compositeCapabilities = !writeUnavailable && templateCapabilityIdentity !== null
+    && compositeCapability?.identity === templateCapabilityIdentity ? compositeCapability.capabilities : {};
+  const bindingEnabled = compositeCapabilities.canBindAgent === true;
   const templateCreationBlocked = isDirty || saving || remoteUpdate !== null;
   const attachmentEnabled = !writeUnavailable && page?.capabilities?.canManageAttachments === true
     && page.id === id
@@ -257,6 +352,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       clearAttachmentStatus();
     }
     pageRef.current = nextPage;
+    unresolvedSocketRevisionRef.current = null;
     baselineRevisionRef.current = revision;
     acceptedSocketRevisionRef.current = null;
     setPage(nextPage);
@@ -267,9 +363,12 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     setRemoteUpdate(null);
     updateDirty(false);
     reportPageIdentity(nextPage.id, nextPage.spaceId || null, nextPage.folderId ?? null);
-  }, [abortAttachmentUploads, clearAttachmentStatus, reportPageIdentity, updateDirty]);
+    const authorized = draftContext();
+    if (authorized) localDraft.load(authorized);
+  }, [abortAttachmentUploads, clearAttachmentStatus, draftContext, localDraft.load, reportPageIdentity, updateDirty]);
 
   const adoptRemoteDraft = useCallback((nextContent: string, revision: string) => {
+    localDraft.suspend();
     abortAttachmentUploads();
     setTemplateDialogSnapshot(null);
     setBindingDialogOpen(false);
@@ -280,13 +379,15 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     dismissedRemoteRevisionRef.current = null;
     setRemoteUpdate(null);
     updateDirty(true);
-  }, [abortAttachmentUploads, updateDirty]);
+  }, [abortAttachmentUploads, localDraft.suspend, updateDirty]);
 
   const offerRemotePage = useCallback((nextPage: Page, revision = pageRevision(nextPage), forcePrompt = false) => {
     if (nextPage.id !== activePageIdRef.current) return;
     if (revision.startsWith('socket:') && revision === acceptedSocketRevisionRef.current) return;
     const baseline = pageRef.current;
     if (baseline && revision === (baselineRevisionRef.current || pageRevision(baseline))) return;
+    if (revision.startsWith('socket:')) unresolvedSocketRevisionRef.current = revision;
+    assistRemoteRevisionRef.current += 1;
     if (isDirtyRef.current) {
       if (forcePrompt || dismissedRemoteRevisionRef.current !== revision) {
         abortAttachmentUploads();
@@ -303,6 +404,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
 
   // Capability invalidation must take effect even if the dirty guard cancels navigation.
   const invalidateWriteCapability = useCallback(() => {
+    authorizedUserIdRef.current = null;
+    localDraft.suspend();
     const accepted = pageRef.current;
     if (accepted) {
       const revoked = { ...accepted, capabilities: { ...accepted.capabilities, canEdit: false, canManageAttachments: false } };
@@ -315,24 +418,24 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     saveOperationRef.current += 1;
     setSaving(false);
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    setAssistOpen(false);
     setAttachmentPickerOpen(false);
     setBindingDialogOpen(false);
     setTemplateDialogSnapshot(null);
     setMoreActionsOpen(false);
     setRemoteUpdate(null);
-  }, [abortAttachmentUploads]);
+  }, [abortAttachmentUploads, localDraft.suspend]);
 
   const loadPage = useCallback(async (showLoading = false, forcePrompt = false) => {
     if (!id) return;
     const requestedId = id;
+    const requestedUserId = user?.id;
     const sequence = ++loadSequenceRef.current;
     const controller = new AbortController();
     requestControllersRef.current.add(controller);
     if (showLoading) setLoading(true);
     try {
       const res = await api.get(`/pages/${requestedId}`, { signal: controller.signal });
-      if (!mountedRef.current || controller.signal.aborted || sequence !== loadSequenceRef.current || activePageIdRef.current !== requestedId) return;
+      if (!mountedRef.current || controller.signal.aborted || sequence !== loadSequenceRef.current || activePageIdRef.current !== requestedId || currentUserIdRef.current !== requestedUserId) return;
       if (res.data.capabilities?.canEdit === false) {
         invalidateWriteCapability();
         reportPageIdentity(requestedId, null);
@@ -348,6 +451,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         }
       }
       setError(null);
+      authorizedUserIdRef.current = requestedUserId ?? null;
+      latestRemoteUpdatedAtRef.current = res.data.updatedAt;
       offerRemotePage(res.data, pageRevision(res.data), forcePrompt);
       const acceptedPage = pageRef.current;
       if (acceptedPage?.id === requestedId) {
@@ -366,7 +471,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         setLoading(false);
       }
     }
-  }, [id, invalidateWriteCapability, navigate, offerRemotePage, reportPageIdentity]);
+  }, [id, user?.id, invalidateWriteCapability, navigate, offerRemotePage, reportPageIdentity]);
 
   useEffect(() => {
     contentRef.current = content;
@@ -395,12 +500,12 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         if (active) {
           setCompositeCapability({
             identity: requestIdentity,
-            canCreate: result.capabilities.canCreate,
+            capabilities: result.capabilities,
           });
         }
       })
       .catch(() => {
-        if (active) setCompositeCapability({ identity: requestIdentity, canCreate: false });
+        if (active) setCompositeCapability({ identity: requestIdentity, capabilities: {} });
       });
     return () => {
       active = false;
@@ -490,6 +595,11 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   }, [abortAttachmentUploads, page?.id, page?.spaceId]);
 
   useLayoutEffect(() => {
+    editorPreviewOriginRef.current = null;
+    pendingWorkspacePositionRef.current = null;
+  }, [id, user?.id, page?.spaceId]);
+
+  useLayoutEffect(() => {
     const position = pendingWorkspacePositionRef.current;
     if (!position) return;
     pendingWorkspacePositionRef.current = null;
@@ -506,9 +616,12 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       pendingWorkspacePositionRef.current = currentPosition && editorOrigin
         ? {
           ...currentPosition,
-          cursorOffset: currentPosition.sourceOffset === editorOrigin.sourceOffset
+          cursorOffset: (!currentPosition.previewNavigated || currentPosition.sourceOffset === editorOrigin.sourceOffset)
             ? editorOrigin.cursorOffset
             : null,
+          selectionBookmark: (!currentPosition.previewNavigated || currentPosition.sourceOffset === editorOrigin.sourceOffset)
+            ? editorOrigin.selectionBookmark
+            : undefined,
         }
         : currentPosition;
       editorPreviewOriginRef.current = null;
@@ -518,6 +631,11 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
 
   useEffect(() => {
     const handleModeShortcut = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && collaborationVisible) closeCollaboration();
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'l' && notesWritable) {
+        event.preventDefault(); openCollaboration('assist');
+        requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('[data-agent-composer]')?.focus());
+      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'e') {
         event.preventDefault();
         togglePreview();
@@ -525,7 +643,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     };
     window.addEventListener('keydown', handleModeShortcut);
     return () => window.removeEventListener('keydown', handleModeShortcut);
-  }, [togglePreview]);
+  }, [togglePreview, notesWritable, panelIdentity, mobilePanel, collaborationVisible]);
 
   useLayoutEffect(() => {
     if (loading || !page || page.id !== id || restoredEntryRef.current === location.key) return;
@@ -558,10 +676,16 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   // Load page data and reset state when navigating to another page.
   useEffect(() => {
     routeGenerationRef.current += 1;
+    localDraft.suspend();
+    authorizedUserIdRef.current = null;
+    latestRemoteUpdatedAtRef.current = null;
+    unresolvedSocketRevisionRef.current = null;
     saveOperationRef.current += 1;
     saveControllerRef.current?.abort();
     saveControllerRef.current = null;
     setSaving(false);
+    setAssistMounted(false); setMobilePanelFor(null);
+    acceptedAssistTasksRef.current.clear(); setSelectionRequest(null); setAssistSelection({ from: 0, to: 0, text: '' });
     loadSequenceRef.current += 1;
     requestControllersRef.current.forEach((controller) => controller.abort());
     requestControllersRef.current.clear();
@@ -586,7 +710,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       return;
     }
     void loadPage(true);
-  }, [abortAttachmentUploads, clearAttachmentStatus, id, loadPage, reportPageIdentity, updateDirty]);
+    return () => { localDraft.flush(); };
+  }, [abortAttachmentUploads, clearAttachmentStatus, id, loadPage, localDraft.flush, localDraft.suspend, reportPageIdentity, updateDirty, user?.id]);
 
   const pageRefreshRequest = workspace?.pageRefreshRequest ?? 0;
   const pageDeleted = workspace?.pageDeleted ?? false;
@@ -669,6 +794,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const handleContentChange = useCallback((newContent: string) => {
     setContent(newContent);
     contentRef.current = newContent;
+    localDraft.schedule(titleRef.current, newContent);
     editRevisionRef.current += 1;
     updateDirty(true);
 
@@ -682,7 +808,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         });
       }
     }, 500);
-  }, [id, updateDirty]);
+  }, [id, localDraft.schedule, updateDirty]);
 
   const handleImageUploadError = useCallback((error: unknown) => {
     if (error instanceof StaleAttachmentUploadError || !mountedRef.current || !attachmentEnabled) return;
@@ -753,26 +879,46 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     }
   }, [attachmentEnabled, id, page?.id, page?.spaceId, page?.updatedAt]);
 
+  titleRef.current = title;
   const handleTitleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setTitle(truncateValidatorLength(e.target.value, PAGE_TITLE_LIMIT));
+    titleRef.current = truncateValidatorLength(e.target.value, PAGE_TITLE_LIMIT);
+    setTitle(titleRef.current);
+    localDraft.schedule(titleRef.current, contentRef.current);
     editRevisionRef.current += 1;
     updateDirty(true);
-  }, [updateDirty]);
+  }, [localDraft.schedule, updateDirty]);
 
-  // Stable callbacks for the assist panel so its socket connection and task
-  // polling are not recreated on every editor render (which would drop the
-  // live stream events).
-  const applyAgentChanges = useCallback((changes: string) => {
-    if (pageRef.current?.capabilities?.canEdit === false) return;
-    handleContentChange(changes);
-    setMode('edit');
-  }, [handleContentChange]);
+  useEffect(() => { if (assistOpen) setAssistMounted(true); }, [assistOpen]);
 
-  const streamAgentChanges = useCallback((partial: string) => {
-    if (pageRef.current?.capabilities?.canEdit === false) return;
-    handleContentChange(partial);
-    setMode('edit');
-  }, [handleContentChange]);
+  const requestSelectionAssist = (selection: MarkdownSelection) => {
+    const latest = pageRef.current, source = internalWorkspaceRef.current?.currentValue() ?? contentRef.current;
+    if (!latest || !notesWritable || mode !== 'edit' || remoteUpdate || unresolvedSocketRevisionRef.current) return;
+    const target = captureAssistTarget(source, 'selection', selection.from, selection.to, latest.updatedAt);
+    if (!target || target.quote !== selection.text) return;
+    setSelectionRequest({ id: crypto.randomUUID(), intent: '', assistTarget: target }); openCollaboration('assist');
+  };
+  const applyAgentChanges = (candidate: AssistCandidate, editId?: string): boolean => {
+    const latest = pageRef.current;
+    if (!mountedRef.current || activePageIdRef.current !== candidate.pageId || !latest || saving || mode !== 'edit'
+      || unresolvedSocketRevisionRef.current || latestRemoteUpdatedAtRef.current !== latest.updatedAt
+      || authorizedUserIdRef.current !== currentUserIdRef.current) return false;
+    const recorded = acceptedAssistTasksRef.current.get(candidate.taskId);
+    if (recorded && (!candidate.editPlan || !editId && recorded.length === candidate.editPlan.edits.length || editId && recorded.includes(editId))) return false;
+    if (recorded && JSON.stringify(recorded) !== JSON.stringify(candidate.acceptedEditIds ?? [])) return false;
+    const application = applyCandidateToDraft(candidate, {
+      pageId: latest.id, spaceId: latest.spaceId, userId: currentUserIdRef.current ?? '',
+      title: titleRef.current, content: internalWorkspaceRef.current?.currentValue() ?? contentRef.current,
+      updatedAt: latest.updatedAt, draftRevision: editRevisionRef.current,
+      remoteRevision: assistRemoteRevisionRef.current,
+      canEdit: !writeUnavailable && latest.capabilities?.canEdit === true,
+      remoteConflict: remoteUpdate !== null || unresolvedSocketRevisionRef.current !== null,
+    }, editId);
+    if (application.status !== 'applied' || !internalWorkspaceRef.current?.replaceDocument(application.content)) return false;
+    // replaceDocument fires the existing human/accepted edit handler synchronously, including localDraft.schedule.
+    contentRef.current = application.content;
+    acceptedAssistTasksRef.current.set(candidate.taskId, application.acceptedEditIds);
+    return true;
+  };
 
   const handleSave = async () => {
     const baseline = pageRef.current;
@@ -788,6 +934,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     const submittedEditRevision = editRevisionRef.current;
     const submittedTitle = title;
     const submittedContent = content;
+    const submittedLocalDraft = localDraft.prepareSave(submittedTitle, submittedContent);
     const titleChanged = submittedTitle !== baseline.title;
     abortAttachmentUploads();
     setSaving(true);
@@ -833,7 +980,11 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       requestControllersRef.current.clear();
       pageRef.current = savedPage;
       baselineRevisionRef.current = pageRevision(savedPage);
+      latestRemoteUpdatedAtRef.current = savedPage.updatedAt;
+      unresolvedSocketRevisionRef.current = null;
       setPage(savedPage);
+      const savedContext = draftContext();
+      if (savedContext) localDraft.saved(submittedLocalDraft, savedContext, titleRef.current, contentRef.current);
       showStatus({ kind: 'success', text: t('editor.saved') }, 'save', 3000);
       if (editRevisionRef.current === submittedEditRevision) updateDirty(false);
     } catch (err: any) {
@@ -848,6 +999,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         kind: 'error',
         text: t('editor.saveFailed', { message: err.response?.data?.message || t('common.notAvailable') }),
       }, 'save', 5000);
+      if ([401, 403, 404].includes(err.response?.status)) invalidateWriteCapability();
       if (err.response?.status === 409) {
         dismissedRemoteRevisionRef.current = null;
         void loadPage(false, true);
@@ -878,6 +1030,18 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     dismissedRemoteRevisionRef.current = remoteUpdate.revision;
     setRemoteUpdate(null);
   };
+  const recoverLocalDraft = () => {
+    const remote = draftContext();
+    const offer = localDraft.offer;
+    if (!remote || !offer || saving || remoteUpdate || unresolvedSocketRevisionRef.current || mode !== 'edit' || latestRemoteUpdatedAtRef.current !== offer.baseUpdatedAt || !canRestoreDraft(offer, remote)) return;
+    if (!internalWorkspaceRef.current?.replaceDocument(offer.content)) return;
+    titleRef.current = offer.title;
+    setTitle(offer.title);
+    editRevisionRef.current += 1;
+    updateDirty(true);
+    localDraft.recovered();
+    localDraft.schedule(offer.title, offer.content);
+  };
 
   if (loading) return <div className="text-center py-8 text-gray-500">{t('common.loading')}</div>;
   if (error) return (
@@ -889,10 +1053,11 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   if (!page) return <div className="text-center py-8 text-gray-500">{t('editor.notFound')}</div>;
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="document-page">
       <div
+        ref={toolbarRef}
         data-testid="editor-toolbar"
-        className="sticky top-16 z-20 -mx-4 mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white px-4 py-3 lg:-mx-6 lg:px-6"
+        className="document-toolbar sticky top-16 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white"
       >
         {workspace?.directoryCrumbs.length ? (
           <nav aria-label="breadcrumb" className="flex min-w-0 flex-1 flex-wrap items-center gap-1 text-sm text-gray-500">
@@ -973,7 +1138,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             <History size={17} aria-hidden="true" />
             <span>{t('editor.versions')}</span>
           </button>
-          {compositeCreationEnabled ? <button
+          {bindingEnabled ? <button
             ref={bindingButtonRef}
             type="button"
             aria-label={t('pageTemplate.binding.action')}
@@ -1087,35 +1252,31 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             {mode === 'edit' ? <BookOpen size={17} aria-hidden="true" /> : <PenLine size={17} aria-hidden="true" />}
             <span>{mode === 'edit' ? t('common.preview') : t('editor.returnToEdit')}</span>
           </button>
+          <button type="button" aria-label={language === 'zh-CN' ? '个人笔记' : 'Personal notes'} disabled={!notesWritable} onClick={() => { if (notesOpen) closeCollaboration(); else openCollaboration('notes'); }} aria-pressed={notesOpen} className="min-h-9 rounded-lg px-3 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-40">{language === 'zh-CN' ? '个人笔记' : 'Personal notes'}</button>
           <button
             type="button"
-            aria-label={t('editor.assist')}
-            onClick={() => setAssistOpen((open) => !open)}
+            aria-label="Agent"
+            onClick={() => { if (assistOpen) closeCollaboration(); else openCollaboration('assist'); }}
             aria-pressed={assistOpen}
-            disabled={writeUnavailable}
+            disabled={!notesWritable}
             data-testid="assist-toggle"
             className={`inline-flex min-h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 ${assistOpen ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'}`}
           >
             <Bot size={17} aria-hidden="true" />
-            <span>{t('editor.assist')}</span>
+            <span>Agent</span>
           </button>
         </div>
       </div>
 
-      <div className="mx-auto max-w-[860px]">
-        <div className="mb-4 flex min-w-0 items-center gap-2">
-          <input
-            type="text"
-            aria-label={t('editor.titleLabel')}
-            placeholder={t('editor.titlePlaceholder')}
-            value={title}
-            onChange={handleTitleChange}
-            className="min-h-11 min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-2xl font-semibold focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-          />
-          {isDirty ? <span className="shrink-0 text-xs text-orange-500">● {t('editor.unsaved')}</span> : null}
-        </div>
-
+      <div ref={canvasRef} className="document-canvas" style={{ '--document-panel-width': `${occupiedPanelWidth}px` } as React.CSSProperties}>
       {writeUnavailable ? <p role="alert" data-testid="editor-write-unavailable" className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{t('editor.writeUnavailable')}</p> : null}
+      {draftContext() ? <LocalDraftNotice
+        key={`${user?.id}:${page.spaceId}:${page.id}`}
+        offer={localDraft.offer && localDraft.offer.userId === user?.id && localDraft.offer.spaceId === page.spaceId && localDraft.offer.pageId === page.id ? localDraft.offer : null}
+        status={localDraft.status}
+        canRestore={!!localDraft.offer && latestRemoteUpdatedAtRef.current === localDraft.offer.baseUpdatedAt && canRestoreDraft(localDraft.offer, draftContext()!) && !remoteUpdate && !unresolvedSocketRevisionRef.current}
+        busy={saving || mode !== 'edit'} onRecover={recoverLocalDraft} onDiscard={localDraft.discard}
+      /> : null}
 
       {saveStatus && (
         <div
@@ -1141,29 +1302,71 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         </div>
       )}
 
-      <div className="flex items-start gap-4">
+      <div className="document-header">
+        <div className="flex min-w-0 items-center gap-2">
+          <input
+            type="text"
+            aria-label={t('editor.titleLabel')}
+            placeholder={t('editor.titlePlaceholder')}
+            value={title}
+            onChange={handleTitleChange}
+            className="document-title flex-1"
+          />
+          {isDirty ? <span className="shrink-0 text-xs text-orange-500">● {t('editor.unsaved')}</span> : null}
+        </div>
+        <div className="mt-3 text-sm text-gray-500">{new Date(page.updatedAt).toLocaleDateString(language)}</div>
+      </div>
+
+      <div className="relative">
         <div className="min-w-0 flex-1">
           <MarkdownWorkspace
             ref={bindWorkspaceRef}
             value={content}
             mode={mode}
+            onRequestPageLinks={requestPageLinks}
+            pageLinksIdentity={`${user?.id}:${!writeUnavailable && page.capabilities?.canEdit === true}`}
+            tableEditingEnabled={notesWritable && !saving && !remoteUpdate && !unresolvedSocketRevisionRef.current}
+            outlineOverlay={collaborationVisible}
+            onOutlineOccupiedWidthChange={setOutlineOccupiedWidth}
             onChange={handleContentChange}
+            onSelectionChange={setAssistSelection}
+            onRequestAssist={notesWritable ? requestSelectionAssist : undefined}
             pageId={page.id}
             spaceId={page.spaceId}
             onUploadImages={attachmentEnabled ? handleUploadImages : undefined}
             onUploadError={attachmentEnabled ? handleImageUploadError : undefined}
           />
         </div>
-        {assistOpen && page ? (
-          <AgentAssistPanel
+        {assistMounted || collaborationVisible ? <div hidden={!collaborationVisible} className="document-assist-layer" style={{ width: collaborationWidth, top: collaborationTop }}>
+          {!mobilePanel && panelViewport.max >= 320 ? <PanelResizeHandle key={panelIdentity} label={language === 'zh-CN' ? '调整协作面板宽度' : 'Resize collaboration panel'} width={collaborationWidth} min={320} max={panelViewport.max} onChange={(width) => updatePanelPreferences({ collaborationWidth: width })} /> : null}
+          <div className="document-panel-scroll document-agent-scroll">
+          <div className="sticky top-0 z-10 flex shrink-0 gap-2 border-b border-gray-200 bg-white p-3 text-sm"><button type="button" onClick={() => { openCollaboration('assist'); }} aria-label={language === 'zh-CN' ? '候选队列' : 'Candidate queue'} aria-pressed={!notesOpen} className={`rounded-lg px-2 py-1 ${!notesOpen ? 'bg-gray-100 font-medium' : 'text-gray-500'}`}>Agent</button><button type="button" disabled={!notesWritable} onClick={() => openCollaboration('notes')} aria-pressed={notesOpen} className={`rounded-lg px-2 py-1 ${notesOpen ? 'bg-gray-100 font-medium' : 'text-gray-500'}`}>{language === 'zh-CN' ? '笔记队列' : 'Notes queue'}</button><button type="button" className="ml-auto text-gray-500" aria-label={language === 'zh-CN' ? '关闭协作面板' : 'Close collaboration panel'} onClick={closeCollaboration}>×</button></div>
+        {notesOpen && notesWritable ? <div className="min-h-0 flex-1 overflow-y-auto p-3">
+          {personalNotes.conflict ? <p role="alert" className="mb-2 text-sm text-amber-800">{language === 'zh-CN' ? '所选笔记原文已变动、定位不唯一或内容过长，请检查后重试。' : 'Selected passages changed, are ambiguous, or exceed the request limit. Review them before retrying.'}</p> : null}
+          <PersonalNotesPanel stageForSession key={personalNotes.identityKey} source={content} target={selectionTarget} notes={personalNotes.notes} storageUnavailable={personalNotes.storageUnavailable} disabled={saving || mode !== 'edit' || !!remoteUpdate || !!unresolvedSocketRevisionRef.current || !!personalNotes.assistRequest} onAdd={personalNotes.add} onReopen={personalNotes.reopen} onDispatch={(ids) => { if (personalNotes.dispatch(ids)) { setSelectionRequest(null); openCollaboration('assist'); } }} />
+        </div> : null}
+        {(assistMounted || assistOpen) && page ? (
+          <div hidden={notesOpen} className="agent-session-host min-h-0 flex-1 flex-col"><React.Suspense fallback={<p>Agent…</p>}><AgentSessionPanel
             pageId={page.id}
             pageTitle={title || page.title}
             spaceId={page.spaceId}
-            snapshot={() => ({ title, content, updatedAt: page.updatedAt })}
+            key={`${user?.id}:${page.spaceId}:${page.id}`}
+            snapshot={() => { const source = internalWorkspaceRef.current?.currentValue() ?? contentRef.current; const updatedAt = pageRef.current?.updatedAt; return { title: titleRef.current, content: source, updatedAt, draftRevision: editRevisionRef.current, remoteRevision: assistRemoteRevisionRef.current, remoteConflict: !!remoteUpdate || !!unresolvedSocketRevisionRef.current, assistTarget: updatedAt ? captureAssistTarget(source, 'document', 0, source.length, updatedAt) ?? undefined : undefined }; }}
+            canEdit={notesWritable}
+            canAccept={mode === 'edit' && !saving}
+            acceptUnavailableReason={saving
+              ? (language === 'zh-CN' ? '保存完成后可接受候选。' : 'Wait for Save to finish before accepting.')
+              : undefined}
+            supportsScopedApply
+            assistTargets={{ selection: selectionTarget, section: sectionTarget }}
+            assistRequest={personalNotes.assistRequest ?? selectionRequest}
+            onRequestHandled={(requestId) => { personalNotes.onRequestHandled(requestId); if (selectionRequest?.id === requestId) setSelectionRequest(null); }}
+            notesReady={personalNotes.loaded}
+            onNotesEvent={personalNotes.onNotesEvent}
             onApply={applyAgentChanges}
-            onStreamUpdate={streamAgentChanges}
-          />
+          /></React.Suspense></div>
         ) : null}
+        </div></div> : null}
       </div>
 
       {templateDialogSnapshot && canManageTemplates && page.format === 'markdown' ? (
@@ -1181,7 +1384,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         />
       ) : null}
 
-      {bindingDialogOpen && compositeCreationEnabled ? <PageAgentBindingDialog
+      {bindingDialogOpen && bindingEnabled ? <PageAgentBindingDialog
+        capabilities={compositeCapabilities}
         spaceId={page.spaceId}
         scope={{ kind: 'page', pageId: page.id, title: page.title }}
         returnFocusTo={bindingButtonRef.current}

@@ -1,3 +1,4 @@
+import { sourceGenerationInvalidation } from '../core/page/source-generation';
 import { extname, posix } from 'node:path';
 import { createHash } from 'node:crypto';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
@@ -467,6 +468,7 @@ export class AttachmentService {
           },
           data: {
             content: change.content,
+            ...sourceGenerationInvalidation(page, { content: change.content }),
             lastModifiedByUserId: principal.userId,
             lastModifiedByAgentId: null,
             lastChangeSetId: null,

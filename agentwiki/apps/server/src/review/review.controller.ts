@@ -20,13 +20,13 @@ export class ReviewController {
   async list(@Req() req: Request, @Query('spaceId') spaceId?: string) {
     const spaceIds = await this.authorization.getAccessibleSpaceIds(req.user as any, 'review:read');
     if (spaceId && !spaceIds.includes(spaceId)) throw new ForbiddenException('Space is not accessible');
-    return this.review.list(spaceId ? [spaceId] : spaceIds);
+    return this.review.list(spaceId ? [spaceId] : spaceIds, req.user as any);
   }
 
   @Get('change-sets/:id')
   async get(@Param('id') id: string, @Req() req: Request) {
     await this.authorization.assertChangeSetAccess(req.user as any, id);
-    return this.review.get(id);
+    return this.review.get(id, req.user as any);
   }
 
   @Patch('change-sets/:id/items/:itemId')
@@ -39,42 +39,42 @@ export class ReviewController {
   @Post('change-sets/:id/submit')
   async submit(@Param('id') id: string, @Req() req: Request) {
     await this.authorization.assertChangeSetAccess(req.user as any, id, ['owner', 'editor'], 'review:decide');
-    return this.review.submitForReview(id, req.user as any);
+    return this.review.toPublic(await this.review.submitForReview(id, req.user as any), req.user as any);
   }
 
   @Post('change-sets/:id/approve')
   async approve(@Param('id') id: string, @Req() req: Request, @Body() dto: ReviewDecisionDto) {
     this.assertHuman(req);
     await this.authorization.assertChangeSetAccess(req.user as any, id, ['owner'], 'review:decide');
-    return this.review.approve(id, (req.user as any).userId, dto.comment, req.user as any);
+    return this.review.toPublic(await this.review.approve(id, (req.user as any).userId, dto.comment, req.user as any), req.user as any);
   }
 
   @Post('change-sets/:id/reject')
   async reject(@Param('id') id: string, @Req() req: Request, @Body() dto: ReviewDecisionDto) {
     this.assertHuman(req);
     await this.authorization.assertChangeSetAccess(req.user as any, id, ['owner'], 'review:decide');
-    return this.review.reject(id, (req.user as any).userId, dto.comment, req.user as any);
+    return this.review.toPublic(await this.review.reject(id, (req.user as any).userId, dto.comment, req.user as any), req.user as any);
   }
 
   @Post('change-sets/:id/publish')
   async publish(@Param('id') id: string, @Req() req: Request) {
     this.assertHuman(req);
     await this.authorization.assertChangeSetAccess(req.user as any, id, ['owner'], 'review:decide');
-    return this.review.publish(id, undefined, req.user as any);
+    return this.review.toPublic(await this.review.publish(id, undefined, req.user as any), req.user as any);
   }
 
   @Post('change-sets/:id/review-publish')
   async reviewPublish(@Param('id') id: string, @Req() req: Request, @Body() dto: ReviewDecisionDto) {
     this.assertHuman(req);
     await this.authorization.assertChangeSetAccess(req.user as any, id, ['owner'], 'review:decide');
-    return this.review.reviewPublish(id, (req.user as any).userId, dto.comment, req.user as any);
+    return this.review.toPublic(await this.review.reviewPublish(id, (req.user as any).userId, dto.comment, req.user as any), req.user as any);
   }
 
   @Post('change-sets/:id/revert')
   async revert(@Param('id') id: string, @Req() req: Request, @Body() dto: RevertChangeSetDto) {
     this.assertHuman(req);
     await this.authorization.assertChangeSetAccess(req.user as any, id, ['owner'], 'review:decide');
-    return this.review.revert(id, dto.expectedTreeRevision, req.user as any);
+    return this.review.toPublic(await this.review.revert(id, dto.expectedTreeRevision, req.user as any), req.user as any);
   }
 
   private assertHuman(req: Request) {

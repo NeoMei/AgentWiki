@@ -1,0 +1,988 @@
+{
+  "kind": "source-freshness-acceptance",
+  "status": "SOURCE_LIFECYCLE_ACCEPTED_RETRIEVAL_SCORED_SEPARATELY",
+  "preparedAt": "2026-10-06T22:16:33.197639+00:00",
+  "product": {
+    "commit": "bf7787b613757e7cc0a8ffaa2b47932456175c08",
+    "source": {
+      "sha256": "d3e2a24f56ebaf5c03a0963ed56bd26a84c7e514ed3ad6a10fadee446c60c141",
+      "fileCount": 1004
+    },
+    "build": {
+      "sha256": "f9c2599d29cced77613391390b7267cf4a9ed61b3e3c25c5c76920aea2f92315",
+      "fileCount": 1546
+    },
+    "harness": {
+      "sha256": "04a8a77c5c81705da7275df4e0e3072e6b609828386576349ccdc5a3c0b209d6",
+      "fileCount": 12
+    }
+  },
+  "fixtureHashes": {
+    "v1": "5e65316e0a75e4c4954510bc4b7e154b8e33459c1f92f30bbc286da8338b367b",
+    "v2": "00c65822f6d93cd1d7a08c308bd5d762c9c8feca111f65c84c660c32b25a5bd0",
+    "v3": "4027ff16d2c2aba43b1e572d3513738f90c57574ccb371f629f4f7e9157fd87a"
+  },
+  "migrationTreeDigest": "27e1fba987e09b55b599433ca7b875c1567234152c74886e003954b723dbe57e",
+  "questionHash": "2c1ed5c2a92e6d3d6fad99cdfd7e207f29c7d97a56f6c125db16bbc86684b5be",
+  "evidenceRoot": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4",
+  "actualMainline": "confirmed OKF HTTP -> real ingestion worker -> actual human UI decisions/publication -> REST/MCP/model reads",
+  "coreDataSeeded": false,
+  "stages": {
+    "v1": [
+      {
+        "pageId": "fcfdd23b-0ba1-4a83-a15c-eeb6b5e753dc",
+        "title": "分派规范",
+        "contentHash": "9c43c6b51905e0a0bb2722f040e203d7c130ca3903bc2bc3621274aac152587a",
+        "sourceStatus": {
+          "sourceId": "cmux7mxxk002e11u1serd3dus",
+          "reviewedSourceVersionId": "cmux7mxxp002g11u1s0jdxewo",
+          "reviewedSourceVersion": 1,
+          "currentSourceVersionId": "cmux7mxxp002g11u1s0jdxewo",
+          "currentSourceVersion": 1,
+          "reviewedSourceGeneration": 1,
+          "currentSourceGeneration": 1,
+          "status": "current",
+          "reason": "reviewed_source"
+        },
+        "evidenceStates": [
+          "published_basis"
+        ]
+      },
+      {
+        "pageId": "727cc570-6c79-4770-bc76-d394d09c87f5",
+        "title": "保留规范",
+        "contentHash": "24c5540722913b47307eb4f289998f919af4e318d08b0e1c6722793aaa65a4f6",
+        "sourceStatus": {
+          "sourceId": "cmux7mxxk002e11u1serd3dus",
+          "reviewedSourceVersionId": "cmux7mxxp002g11u1s0jdxewo",
+          "reviewedSourceVersion": 1,
+          "currentSourceVersionId": "cmux7mxxp002g11u1s0jdxewo",
+          "currentSourceVersion": 1,
+          "reviewedSourceGeneration": 1,
+          "currentSourceGeneration": 1,
+          "status": "current",
+          "reason": "reviewed_source"
+        },
+        "evidenceStates": [
+          "published_basis"
+        ]
+      }
+    ],
+    "v2-before": [
+      {
+        "pageId": "fcfdd23b-0ba1-4a83-a15c-eeb6b5e753dc",
+        "title": "分派规范",
+        "contentHash": "9c43c6b51905e0a0bb2722f040e203d7c130ca3903bc2bc3621274aac152587a",
+        "sourceStatus": {
+          "sourceId": "cmux7mxxk002e11u1serd3dus",
+          "reviewedSourceVersionId": "cmux7mxxp002g11u1s0jdxewo",
+          "reviewedSourceVersion": 1,
+          "currentSourceVersionId": "cmux7rsgq003v11u19i5c6j2b",
+          "currentSourceVersion": 2,
+          "reviewedSourceGeneration": 1,
+          "currentSourceGeneration": 2,
+          "status": "needs_review",
+          "reason": "source_changed"
+        },
+        "evidenceStates": [
+          "published_basis"
+        ]
+      },
+      {
+        "pageId": "727cc570-6c79-4770-bc76-d394d09c87f5",
+        "title": "保留规范",
+        "contentHash": "24c5540722913b47307eb4f289998f919af4e318d08b0e1c6722793aaa65a4f6",
+        "sourceStatus": {
+          "sourceId": "cmux7mxxk002e11u1serd3dus",
+          "reviewedSourceVersionId": "cmux7mxxp002g11u1s0jdxewo",
+          "reviewedSourceVersion": 1,
+          "currentSourceVersionId": "cmux7rsgq003v11u19i5c6j2b",
+          "currentSourceVersion": 2,
+          "reviewedSourceGeneration": 1,
+          "currentSourceGeneration": 2,
+          "status": "needs_review",
+          "reason": "source_changed"
+        },
+        "evidenceStates": [
+          "published_basis"
+        ]
+      }
+    ],
+    "v2-partial": [
+      {
+        "pageId": "fcfdd23b-0ba1-4a83-a15c-eeb6b5e753dc",
+        "title": "分派规范",
+        "contentHash": "8becd91d06f8a45e5395737d15bfec92d29703061c7bfb208f60133d6634bb8f",
+        "sourceStatus": {
+          "sourceId": "cmux7mxxk002e11u1serd3dus",
+          "reviewedSourceVersionId": "cmux7rsgq003v11u19i5c6j2b",
+          "reviewedSourceVersion": 2,
+          "currentSourceVersionId": "cmux7rsgq003v11u19i5c6j2b",
+          "currentSourceVersion": 2,
+          "reviewedSourceGeneration": 2,
+          "currentSourceGeneration": 2,
+          "status": "current",
+          "reason": "reviewed_source"
+        },
+        "evidenceStates": [
+          "historical",
+          "published_basis"
+        ]
+      },
+      {
+        "pageId": "727cc570-6c79-4770-bc76-d394d09c87f5",
+        "title": "保留规范",
+        "contentHash": "24c5540722913b47307eb4f289998f919af4e318d08b0e1c6722793aaa65a4f6",
+        "sourceStatus": {
+          "sourceId": "cmux7mxxk002e11u1serd3dus",
+          "reviewedSourceVersionId": "cmux7mxxp002g11u1s0jdxewo",
+          "reviewedSourceVersion": 1,
+          "currentSourceVersionId": "cmux7rsgq003v11u19i5c6j2b",
+          "currentSourceVersion": 2,
+          "reviewedSourceGeneration": 1,
+          "currentSourceGeneration": 2,
+          "status": "needs_review",
+          "reason": "source_changed"
+        },
+        "evidenceStates": [
+          "published_basis"
+        ]
+      }
+    ],
+    "v2-after": [
+      {
+        "pageId": "fcfdd23b-0ba1-4a83-a15c-eeb6b5e753dc",
+        "title": "分派规范",
+        "contentHash": "8becd91d06f8a45e5395737d15bfec92d29703061c7bfb208f60133d6634bb8f",
+        "sourceStatus": {
+          "sourceId": "cmux7mxxk002e11u1serd3dus",
+          "reviewedSourceVersionId": "cmux7rsgq003v11u19i5c6j2b",
+          "reviewedSourceVersion": 2,
+          "currentSourceVersionId": "cmux7rsgq003v11u19i5c6j2b",
+          "currentSourceVersion": 2,
+          "reviewedSourceGeneration": 2,
+          "currentSourceGeneration": 2,
+          "status": "current",
+          "reason": "reviewed_source"
+        },
+        "evidenceStates": [
+          "historical",
+          "published_basis"
+        ]
+      },
+      {
+        "pageId": "727cc570-6c79-4770-bc76-d394d09c87f5",
+        "title": "保留规范",
+        "contentHash": "2a27ee1a47e92b6de9ade8fb31932cc6ad2e36b4b1cd024da64248b5994b462c",
+        "sourceStatus": {
+          "sourceId": "cmux7mxxk002e11u1serd3dus",
+          "reviewedSourceVersionId": "cmux7rsgq003v11u19i5c6j2b",
+          "reviewedSourceVersion": 2,
+          "currentSourceVersionId": "cmux7rsgq003v11u19i5c6j2b",
+          "currentSourceVersion": 2,
+          "reviewedSourceGeneration": 2,
+          "currentSourceGeneration": 2,
+          "status": "current",
+          "reason": "reviewed_source"
+        },
+        "evidenceStates": [
+          "historical",
+          "published_basis"
+        ]
+      }
+    ]
+  },
+  "partialDecisions": {
+    "status": "pending_review",
+    "items": [
+      {
+        "id": "cmux7rt6c000zrc38yc1ttfxq",
+        "path": "guide/dispatch.md",
+        "status": "accepted"
+      },
+      {
+        "id": "cmux7rt6d0010rc38330vdww1",
+        "path": "guide/retention.md",
+        "status": "rejected"
+      }
+    ],
+    "formalBodyUnchanged": true
+  },
+  "rawRest": {
+    "v2-before": {
+      "passed": 11,
+      "failed": 0,
+      "checkpointHash": "a35c4b0960af68026d78478009811c2888bab55243342d1410e848d0251be011",
+      "runtimeExecuted": true,
+      "coverage": {
+        "graphEdges": 0,
+        "pageEvidence": 4,
+        "reviewEvidence": 8,
+        "reviewDetails": 2,
+        "reviewItems": 8
+      },
+      "evidence": {
+        "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/raw-source-surfaces-f2cdbf7b-655b-439e-a100-1dcc835f312d/report.json",
+        "sha256": "d6d1c5d3ff7e7f46b5e2a5589ac8ca2a1ccca949b478cffcad8a041fb4bdfe61",
+        "bytes": 3734
+      }
+    },
+    "v2-partial": {
+      "passed": 11,
+      "failed": 0,
+      "checkpointHash": "35880d601d63999eeedde96ee24d696f694f35701e8c0729652e580929c0d1a2",
+      "runtimeExecuted": true,
+      "coverage": {
+        "graphEdges": 0,
+        "pageEvidence": 6,
+        "reviewEvidence": 8,
+        "reviewDetails": 2,
+        "reviewItems": 8
+      },
+      "evidence": {
+        "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/raw-source-surfaces-440d0f56-5839-446c-8a2b-3f3e1ad18407/report.json",
+        "sha256": "608d2ecb72fd80ab8fd14b47fcfca180096e4e35e9fbdd314522235dd5f5b5ae",
+        "bytes": 3731
+      }
+    },
+    "v2-after": {
+      "passed": 12,
+      "failed": 0,
+      "checkpointHash": "ddcca56237f59d127bbf19c2b51586e5b69dbe3d0db7b1c1ae7beab14442b4e5",
+      "runtimeExecuted": true,
+      "coverage": {
+        "graphEdges": 0,
+        "pageEvidence": 8,
+        "reviewEvidence": 12,
+        "reviewDetails": 3,
+        "reviewItems": 10
+      },
+      "evidence": {
+        "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/raw-source-surfaces-63dfc678-3ba9-46c3-970d-082fd781d6fe/report.json",
+        "sha256": "376dbf60852580bef94b6f3ba8f52dddf85e9816db7aa1eb250178e26f90650b",
+        "bytes": 4054
+      }
+    }
+  },
+  "models": [
+    {
+      "phase": "source-before-review",
+      "agent": "a",
+      "independentVerdict": "PASS_FROZEN_PHASE_RUBRIC",
+      "factsCorrect": 2,
+      "factsEvaluated": 2,
+      "citationsSupported": 2,
+      "syntheticAggregateScore": null,
+      "requestedModel": "gpt-6-astra",
+      "requestedEffort": "high",
+      "resolvedServerModel": "not exposed by CLI JSON",
+      "startedAt": 1791323546.713525,
+      "endedAt": 1791323609.1561759,
+      "durationSeconds": 62.44265079498291,
+      "exitCode": 0,
+      "actualCalls": 8,
+      "budgetCalls": 20,
+      "discoveryCalls": 1,
+      "mcpErrors": 0,
+      "actualCallResponseBytes": 18791,
+      "actualCallSdkDurationMs": 174,
+      "cliUsage": {
+        "input_tokens": 268527,
+        "cached_input_tokens": 249344,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4393,
+        "reasoning_output_tokens": 2087
+      },
+      "scoreReceipt": {
+        "path": "/tmp/agentwiki-knowledge-20261007/source-before-review/a/independent-score.md",
+        "sha256": "3a121a2cfda499b99b132c8d61628bd89d80089d501cf663b5ed1b6e240952af",
+        "bytes": 7132
+      },
+      "executionReceipt": {
+        "path": "/tmp/agentwiki-knowledge-20261007/source-before-review/a/execution.json",
+        "sha256": "02c56d0f2dd6fe9a1416af1a0e473578dfc83b444011e58921283fcb15007ece",
+        "bytes": 1247
+      }
+    },
+    {
+      "phase": "source-after-review",
+      "agent": "b",
+      "independentVerdict": "PASS_FROZEN_PHASE_RUBRIC",
+      "factsCorrect": 2,
+      "factsEvaluated": 2,
+      "citationsSupported": 2,
+      "syntheticAggregateScore": null,
+      "requestedModel": "gpt-6-astra",
+      "requestedEffort": "high",
+      "resolvedServerModel": "not exposed by CLI JSON",
+      "startedAt": 1791324119.474863,
+      "endedAt": 1791324182.956019,
+      "durationSeconds": 63.48115587234497,
+      "exitCode": 0,
+      "actualCalls": 9,
+      "budgetCalls": 20,
+      "discoveryCalls": 1,
+      "mcpErrors": 0,
+      "actualCallResponseBytes": 17394,
+      "actualCallSdkDurationMs": 182,
+      "cliUsage": {
+        "input_tokens": 290134,
+        "cached_input_tokens": 263424,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 3934,
+        "reasoning_output_tokens": 1590
+      },
+      "scoreReceipt": {
+        "path": "/tmp/agentwiki-knowledge-20261007/source-after-review/b/independent-score.md",
+        "sha256": "83674215140b03f4edbc3775f68613581cf8a4b19ed3324c560795f24e7a0e3c",
+        "bytes": 6185
+      },
+      "executionReceipt": {
+        "path": "/tmp/agentwiki-knowledge-20261007/source-after-review/b/execution.json",
+        "sha256": "7e500cb6ad6a41bcdf01b449e3c1b971d322ff1a4e7ff363809419519a91a4c8",
+        "bytes": 1245
+      }
+    }
+  ],
+  "boundaries": {
+    "sameVersionDifferentGeneration": {
+      "oldRun": "cmux8f15h00hh11u1lfph4t35",
+      "newRun": "cmux8f2qw00ht11u1xtkduq3r",
+      "sameVersionId": true,
+      "versionId": "cmux89gm400br11u1rgr74rc0",
+      "oldGeneration": 3,
+      "newGeneration": 5,
+      "httpStatus": 409,
+      "code": "SOURCE_VERSION_CONFLICT"
+    },
+    "supersededApprovedCandidate": {
+      "code": "SOURCE_VERSION_CONFLICT",
+      "httpStatus": 409,
+      "beforeStatus": "approved",
+      "afterStatus": "approved",
+      "approvalCountBefore": 1,
+      "approvalCountAfter": 1,
+      "publishedBodiesUnchanged": true
+    },
+    "humanEditConflict": {
+      "code": "CHANGESET_CONFLICT",
+      "pagesUnchanged": true,
+      "approvals": 0
+    },
+    "bodyEditRestore": {
+      "sameBodyGeneration": 3,
+      "titleGeneration": 3,
+      "afterEdit": {
+        "sourceId": "cmux89gm000bp11u1aspq4n57",
+        "reviewedSourceVersionId": "cmux89gm400br11u1rgr74rc0",
+        "reviewedSourceVersion": 1,
+        "currentSourceVersionId": "cmux89gm400br11u1rgr74rc0",
+        "currentSourceVersion": 1,
+        "currentSourceGeneration": 3,
+        "status": "needs_review",
+        "reason": "page_changed"
+      },
+      "restoredSourceGeneration": null,
+      "restoredStatus": {
+        "sourceId": "cmux89gm000bp11u1aspq4n57",
+        "reviewedSourceVersionId": "cmux89gm400br11u1rgr74rc0",
+        "reviewedSourceVersion": 1,
+        "currentSourceVersionId": "cmux89gm400br11u1rgr74rc0",
+        "currentSourceVersion": 1,
+        "currentSourceGeneration": 3,
+        "status": "needs_review",
+        "reason": "page_changed"
+      }
+    },
+    "preciseRevert": {
+      "pageGenerationsBefore": [
+        6,
+        6
+      ],
+      "pageGenerationsAfter": [
+        5,
+        5
+      ],
+      "headBefore": {
+        "version": "cmux89iph00ce11u1kozq39s3",
+        "generation": 6
+      },
+      "headAfter": {
+        "version": "cmux89iph00ce11u1kozq39s3",
+        "generation": 6
+      },
+      "headUnchanged": true
+    },
+    "archiveActivate": {
+      "archivedPageStatus": {
+        "sourceId": "cmux89gm000bp11u1aspq4n57",
+        "reviewedSourceVersionId": "cmux89gm400br11u1rgr74rc0",
+        "reviewedSourceVersion": 1,
+        "currentSourceVersionId": "cmux89iph00ce11u1kozq39s3",
+        "currentSourceVersion": 2,
+        "reviewedSourceGeneration": 5,
+        "currentSourceGeneration": 6,
+        "status": "unavailable",
+        "reason": "source_unavailable"
+      },
+      "historicalEvidenceRetained": true,
+      "publicationCode": "SOURCE_VERSION_CONFLICT",
+      "newRunDenied": true,
+      "generationBefore": 6,
+      "generationAfterActivate": 6,
+      "publishedStatuses": [
+        "current",
+        "current"
+      ]
+    },
+    "unconfirmedUpload": {
+      "httpStatus": 400,
+      "code": "SYNC_CONFIRMATION_REQUIRED",
+      "sourcesUnchanged": true
+    },
+    "idempotentReplay": {
+      "replayedReceiptStatus": "noop",
+      "replayedRunId": null,
+      "currentHeadStillB": true,
+      "sameKeyDifferentPayload": "409 SOURCE_VERSION_CONFLICT recorded in root-operator-http.jsonl"
+    }
+  },
+  "authorization": {
+    "aRevocationCode": "REMOTE_AUTH_REQUIRED",
+    "aDenied": true,
+    "bReadable": true,
+    "patRawSurfaces": {
+      "passed": 21,
+      "failed": 0,
+      "failures": []
+    },
+    "extraDenials": [
+      {
+        "name": "source-list",
+        "status": 403,
+        "code": "AUTH_SCOPE_REQUIRED",
+        "passed": true
+      },
+      {
+        "name": "source-get",
+        "status": 403,
+        "code": "AUTH_SCOPE_REQUIRED",
+        "passed": true
+      },
+      {
+        "name": "run-list",
+        "status": 403,
+        "code": "AUTH_SCOPE_REQUIRED",
+        "passed": true
+      },
+      {
+        "name": "run-get",
+        "status": 403,
+        "code": "AUTH_SCOPE_REQUIRED",
+        "passed": true
+      },
+      {
+        "name": "sync-state",
+        "status": 403,
+        "code": "AUTH_SCOPE_REQUIRED",
+        "passed": true
+      }
+    ],
+    "patIsIsolatedAuthFixtureNotUiFeature": true,
+    "patFlow": "public create after schema/owner/zero-existing check -> only new credential scopes fixture -> real HTTP reads -> exact public revoke + DB readback",
+    "originalStateUnchanged": true,
+    "patRevoked": true
+  },
+  "resources": {
+    "gateway": {
+      "passed": false,
+      "code": -32601,
+      "classification": "existing tools-only gateway resource boundary"
+    },
+    "serverHttp": {
+      "passed": true,
+      "endpoint": "/api/mcp",
+      "pageCount": 2,
+      "transport": "SDK Streamable HTTP",
+      "separateFromGateway": true
+    }
+  },
+  "layoutMeasurements": [
+    {
+      "width": 1280,
+      "tableClientWidth": 952,
+      "tableScrollWidth": 1537,
+      "scrollLeft": 585,
+      "tableX": 296,
+      "docWidth": 1280,
+      "docScrollWidth": 1280
+    },
+    {
+      "width": 1600,
+      "tableClientWidth": 976,
+      "tableScrollWidth": 1537,
+      "scrollLeft": 561,
+      "tableX": 296,
+      "docWidth": 1600,
+      "docScrollWidth": 1600
+    },
+    {
+      "width": 390,
+      "tableClientWidth": 358,
+      "tableScrollWidth": 1537,
+      "scrollLeft": 1179,
+      "tableX": 16,
+      "docWidth": 390,
+      "docScrollWidth": 390
+    }
+  ],
+  "operatorFixtureErrors": [
+    {
+      "kind": "checker_entry",
+      "description": "/tmp 与 /private/tmp lexical entry mismatch，原版 exit0 无请求；canonical-path修复，旧证据保留。",
+      "evidence": "/tmp/agentwiki-knowledge-20261007/check-source-cli-search-fix-report.md"
+    },
+    {
+      "kind": "checker_search_shape",
+      "description": "实际 search wrappers 为 result.page，旧 checker 误当 Page，原9pass/2fail保留；严格wrapper修复后三主线全通过。",
+      "evidence": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/raw-source-surfaces-a53962db-a0c3-466b-95dd-60fa7eafa03d/report.json"
+    },
+    {
+      "kind": "ui_locator",
+      "description": "不够精确的 UI locator 导致 timeout；属自动化定位错误，不作产品失败。",
+      "provenance": "root operator summary; screenshots/requests remain original"
+    },
+    {
+      "kind": "source_dto_comparison",
+      "description": "Initial whole Source DTO equality was over-broad: nested Run.changeSet status correctly changed published to reverted. Head fields compared explicitly.",
+      "evidence": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/root-changeset-revert.json"
+    },
+    {
+      "kind": "wrong_route_404",
+      "description": "操作脚本使用错误route收到404；不作正确产品route失败。",
+      "provenance": "root operator summary; no fabricated request details"
+    },
+    {
+      "kind": "title_missing_tree_revision",
+      "description": "标题PATCH首次遗漏tree前置字段收到400 BAD_REQUEST；修正操作契约后验证代次保留。",
+      "evidence": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/root-operator-http.jsonl"
+    },
+    {
+      "kind": "initial_old_a_precondition",
+      "description": "旧A create候选先触发CONTENT_TREE_CONFLICT，不作为generation guard证明；后用相同versionId/gen3→5独立验证SOURCE_VERSION_CONFLICT。",
+      "evidence": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/root-aba-old-a-precondition.json"
+    },
+    {
+      "kind": "operator_evidence_directory",
+      "description": "MCP操作脚本初次EEXIST，在任何请求前失败；修正为复用自有目录，保留说明。",
+      "evidence": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/authorization-acceptance-report.md"
+    }
+  ],
+  "limitations": [
+    "Controlled late worker race proved only by Task1 protected real PostgreSQL service tests, not this live queue/UI runtime.",
+    "Graph node status verified; all three mainline raw receipts graphEdges=0, no claim for real edge evidence.",
+    "No general cross-Space security claim from same-Space fixture.",
+    "Model requested gpt-6-astra/high; server-resolved model not exposed; no synthetic combined score or frozen 8-question retrieval rescore.",
+    "No deployment/push/merge/production migration."
+  ],
+  "cleanup": {
+    "harness": {
+      "status": "CLEANED",
+      "ready": true,
+      "databaseCleaned": true,
+      "protectedInventoryVerified": true,
+      "resourcesRemoved": true,
+      "sessions": {
+        "a": {
+          "agent": "a",
+          "sessionId": "72c566b5-d1d4-45ac-a382-15ee8328887f",
+          "gatewayPid": 54798,
+          "gatewayExited": true,
+          "ipcRemoved": true,
+          "pendingCalls": 0
+        },
+        "b": {
+          "agent": "b",
+          "sessionId": "e21c5a00-f93d-4d4c-a699-2814dbc8c1f0",
+          "gatewayPid": 54800,
+          "gatewayExited": true,
+          "ipcRemoved": true,
+          "pendingCalls": 0
+        }
+      },
+      "schemaName": "collaboration_test_59854063656045b29f5a732f2d0d46fc",
+      "migrationTreeDigest": "27e1fba987e09b55b599433ca7b875c1567234152c74886e003954b723dbe57e",
+      "publicInventoryDigest": "6191ee0d4c7a10c831beec7d159577e65eba7ba68ae2fcbf6b21e2758c785ea6"
+    },
+    "external": {
+      "status": "VERIFIED",
+      "ownedPidsExited": [
+        54680,
+        54702,
+        54763,
+        54771,
+        54778,
+        54798,
+        54800
+      ],
+      "apiWebPortsClosed": [
+        53595,
+        53596
+      ],
+      "schemaAbsent": "collaboration_test_59854063656045b29f5a732f2d0d46fc",
+      "stateAbsent": true,
+      "ownedParentTmpRemoved": "/tmp/agentwiki-source-ui-owned-w31p41zb",
+      "publicInventoryDigest": "6191ee0d4c7a10c831beec7d159577e65eba7ba68ae2fcbf6b21e2758c785ea6"
+    }
+  },
+  "evidenceIndex": [
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/root-cleanup-verification.json",
+      "sha256": "d2b4eef06a09c4c6665fa6e202e155348a71325bf14c8cb987e88a04563ea04b",
+      "bytes": 443
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/root-v2-decisions-before-publish.json",
+      "sha256": "e0075ef0ebb54358b8c2c7aa209644cfe7c42d36568367ff319c39004aa18dd3",
+      "bytes": 313
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/root-changeset-revert.json",
+      "sha256": "e46cc5a1d2b71b46f85e23a743ffd8bffb3765f231d63a8dbd77f9316ed3d056",
+      "bytes": 40572
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/root-v2-after-pages.json",
+      "sha256": "775a9975eca2685f02aeaae593823658bd5499477d8c7bff004374bae5f11e27",
+      "bytes": 12901
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/root-archive-activate.json",
+      "sha256": "f80a50b958472a3381fff463200370e093616baceadcb45585df0db4250fa848",
+      "bytes": 71757
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/root-layout.json",
+      "sha256": "d4a3194c13e9472c68544e49c2053793457bae15f2f8ddf5682ce18e1bc04091",
+      "bytes": 533
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/root-human-conflict.json",
+      "sha256": "eb68422300e0502ec7bc0228ef72949bf62f83f2199d27061a6acae6d4a0efd5",
+      "bytes": 646
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/root-aba-generation.json",
+      "sha256": "b866028078a4274b316efdeffbdb36fe411148462b6714f943a07b36de7d04ce",
+      "bytes": 728
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/root-aba.json",
+      "sha256": "2164d588674babc88d00f12c4b98431780112f61a16f64560f427cd7140aa214",
+      "bytes": 34873
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/root-v2-before-pages.json",
+      "sha256": "20e735c611b2b3581cb8d019978eb570790618a1635a840d9ad6349179353256",
+      "bytes": 9492
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/root-v2-partial-pages.json",
+      "sha256": "b489e2687b4025124069fdb388d3c65864ecad9972b4592f41f3babc5aa46ad1",
+      "bytes": 11201
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/root-v1-pages.json",
+      "sha256": "7511f1c4c8c22f9bdc217e14639059898009e1de1124c7445d11f2eb49f854e8",
+      "bytes": 9484
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/root-aba-old-a-precondition.json",
+      "sha256": "9637ee58c1d9682ee05dce68e4720d3278086fa4423543e1de07c3db2c8df3e8",
+      "bytes": 226
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/root-page-edit-restore.json",
+      "sha256": "e0b26219688ce1e5ba0bb5267249a099995c5289b665e9b478ada2471ca534c9",
+      "bytes": 37995
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/root-unconfirmed-upload.json",
+      "sha256": "80932789f8200d2fd430223844e033e6cecda690f88ec30c462e4ce8384f1dbe",
+      "bytes": 413
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/root-superseded.json",
+      "sha256": "cfdee8f83f07f88e4c9890779890db4e240cb4ef442bea2d4fe5d9cf90c57a1e",
+      "bytes": 52163
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/root-boundary-results.jsonl",
+      "sha256": "49e2c96ab7c4f7e834752d839f52ded9f753417f0ff40d667abbbce704414209",
+      "bytes": 60121
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/root-operator-http.jsonl",
+      "sha256": "26cd04a23c2debf9bab3672522312191a6d18669ab008e15f4f019abe11d5b27",
+      "bytes": 13967
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/run.json",
+      "sha256": "93d8e7910b473cc21afb633361254c1a71e8788461f8244f2f4c5ab9627bc14e",
+      "bytes": 1786
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/cleanup.json",
+      "sha256": "3669efaf9807693bedaeff81cbda1b7f34d38e7185ea395ba159e5875353c878",
+      "bytes": 821
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/authorization-acceptance-report.md",
+      "sha256": "98764e655ca9d32d5e3dad5a5c611ee19ec7340ae2d268bb653107cb5ba62ce7",
+      "bytes": 3739
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/authorization-acceptance-summary.json",
+      "sha256": "295f9fb2ed624dc1ad472544cd709fc726389faea4f29fde6cdc5f7a59fa6834",
+      "bytes": 10087
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/requests.json",
+      "sha256": "928bebd5f1d12e6ac5fbed808bfd1bf72410dbff0e00986f4cac112f985d9dc0",
+      "bytes": 5688
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/console.json",
+      "sha256": "01f129eeb114396f1f0df16bf49c6a86f3fd8552ea722cf0dc5b4c74af695db6",
+      "bytes": 734
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/superseded-approved-candidate-1600.png",
+      "sha256": "7700e0fc69f042182dd9d036127c22a2eb7b43b24498a6c240b8f36757a79c40",
+      "bytes": 230354
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/long-toc-1280.png",
+      "sha256": "ab05b39f13c20d6135e23bdf4e0dcc7cb0c86f4470a1479dbe47aef527daf500",
+      "bytes": 254391
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/long-status-info-1280.png",
+      "sha256": "109088be43c69f6f1600da4eacb1a6ffddb09a858b8ee94bc400b67da57a63b6",
+      "bytes": 276382
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/aba-old-b-conflict.png",
+      "sha256": "0f7ce5f30f13d2fc8a7bb996c62eaa68d8a0bdc324fccc6cec3d9402aa0bea11",
+      "bytes": 264614
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/long-status-info-390.png",
+      "sha256": "02f7f92148514a9b5ca6e385c1045fcf0c9b5e618f95870fec9d438d47ea4ee1",
+      "bytes": 79493
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/v1-published-1280.png",
+      "sha256": "255bdb5ca5cb0faab05c85146d9af5fdb418da3641d587a017c9b4cafc080f4f",
+      "bytes": 131137
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/v2-needs-review-info-390.png",
+      "sha256": "88a358e26419364af1e10f092f56bf8589502863f7ec99e1fd0534abe211873c",
+      "bytes": 68130
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/v1-pending-1280.png",
+      "sha256": "b0765c7600d3ee49466c2c81a60a2b14d8e4a0e7fe433af577f349ce7ea00d4f",
+      "bytes": 108900
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/long-wide-table-1280.png",
+      "sha256": "4813dc8e3ed377ccc9e9e4a481b0520641703b8426f23a4e373a062adf129067",
+      "bytes": 236952
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/v2-partial-decisions-1600.png",
+      "sha256": "138134aa4863e6d87ead906f0f750f9f0196cbb5c8e14b92b04b997b9ce1252f",
+      "bytes": 222760
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/long-wide-table-390.png",
+      "sha256": "990c4e9090a8599d72b3d2f74a1918d87c457770c819ad214201db32152cd1c0",
+      "bytes": 109231
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/v2-historical-evidence-1600.png",
+      "sha256": "1efe82e4f05d84474b9ed4724cfee7339e4704e0894c9884c405331269d13cee",
+      "bytes": 168453
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/v1-page-info-1280.png",
+      "sha256": "b5b3a87c8ffeae99f6aaa913d9b8f5647da64c529ef3249f0a57bf8c66fc4c03",
+      "bytes": 147568
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/human-edit-candidate-conflict.png",
+      "sha256": "16be6f9f85e4569b4a7fe768850d8d936c540fcd76d5101414d790c59ccd575b",
+      "bytes": 226271
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/page-version-restored-still-needs-review.png",
+      "sha256": "2997cf9dcd91db589769d704efc18d3c502b622b380a901c74e121e2e651df77",
+      "bytes": 111303
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/long-status-info-1600.png",
+      "sha256": "3769eb83c11c9990a10a596c68a3d892b57ea7f34171a894ef07b1f31803ab34",
+      "bytes": 299063
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/aba-same-version-generation-conflict.png",
+      "sha256": "ba6edaede52452b9ec3d07e3b1905680532eeccdf6f14a814f7726b0841a884e",
+      "bytes": 241352
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/v2-fully-published-1600.png",
+      "sha256": "1b7d3b5a80fb5adaceab519ceada832fed94f4c245c82ef40a07d1a085705f96",
+      "bytes": 136759
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/long-toc-1600.png",
+      "sha256": "e01d895912d0c3ad42bf734198c0db8857a47e0ddc11a355206c6c98b1cf0dd2",
+      "bytes": 275903
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/v2-info-toc-1600.png",
+      "sha256": "15437c53fcfcfcd5f374e52456be8cbd0105e8213a1caeae155ec7392b14a8fb",
+      "bytes": 176617
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/changeset-reverted-preserves-before-generation.png",
+      "sha256": "d67b1b3307d6ecd435e3c1036fed20b6218aa64b212c9e72b22cac2034f5d61e",
+      "bytes": 257391
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/aba-old-a-tree-conflict.png",
+      "sha256": "611bc263b7ede92006d56d374daad0898d3b655ffddbcf9120c03dde04502b17",
+      "bytes": 226327
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/archived-source-evidence-retained.png",
+      "sha256": "a12d511523d3c41829b497dd6ab10422d760775d93cf5ead398ecc6905491d9c",
+      "bytes": 162573
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/v2-needs-review-1280.png",
+      "sha256": "942953df3c4e6919fe9235cd61d4133da60dfb7c97a42b39e2a0e00a1d412eae",
+      "bytes": 89530
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/long-wide-table-1600.png",
+      "sha256": "db8639658cd10e79260e6cb57814e5ddfdb84be151df7184ef6634a8aecc48c2",
+      "bytes": 298545
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/ui/long-toc-390.png",
+      "sha256": "c631fab75ce2259900706267cad127cf706a5d5830a88947a4875aab7e51e041",
+      "bytes": 76172
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/raw-source-surfaces-f2cdbf7b-655b-439e-a100-1dcc835f312d/report.json",
+      "sha256": "d6d1c5d3ff7e7f46b5e2a5589ac8ca2a1ccca949b478cffcad8a041fb4bdfe61",
+      "bytes": 3734
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/raw-source-surfaces-440d0f56-5839-446c-8a2b-3f3e1ad18407/report.json",
+      "sha256": "608d2ecb72fd80ab8fd14b47fcfca180096e4e35e9fbdd314522235dd5f5b5ae",
+      "bytes": 3731
+    },
+    {
+      "path": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-wS48i4/raw-source-surfaces-63dfc678-3ba9-46c3-970d-082fd781d6fe/report.json",
+      "sha256": "376dbf60852580bef94b6f3ba8f52dddf85e9816db7aa1eb250178e26f90650b",
+      "bytes": 4054
+    }
+  ],
+  "originalProductUiFindings": [
+    {
+      "id": "UI1",
+      "status": "OPEN_PENDING_FIX_AND_ACTUAL_RERUN",
+      "finding": "已发布 Review 仍提示“候选输入与当前已接收来源一致；仍需人工审核。”，与已发布/可回滚矛盾。",
+      "screenshots": [
+        "ui/v1-published-1280.png",
+        "ui/v2-fully-published-1600.png"
+      ],
+      "requestedFix": "全状态使用“该变更的固定输入与当前已接收来源一致；这不代表内容必然正确。”及“变更固定版本”。"
+    },
+    {
+      "id": "UI_SOURCE_CONFLICT_MESSAGE",
+      "status": "OPEN_PENDING_FIX_AND_ACTUAL_RERUN",
+      "finding": "实际 SOURCE_VERSION_CONFLICT 的界面只给通用错误提示，未解释来源已变化及重新生成路径；后端拒绝本身通过。",
+      "screenshots": [
+        "ui/superseded-approved-candidate-1600.png",
+        "ui/aba-same-version-generation-conflict.png"
+      ]
+    }
+  ],
+  "openProductUiFindings": [],
+  "uiFix": {
+    "commit": "3b8c918ff636f3bfc708f8d499a2d4cc51a54d10",
+    "scopedReview": "Approved",
+    "componentTestsPassed": 47,
+    "initialJsBytes": 549014,
+    "initialJsBudget": 550000,
+    "firstRerunEvidence": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-lHQ2wQ",
+    "firstRerunLimitation": "Reverted screenshot taken before detail refresh; kept, not accepted as final reverted UI proof",
+    "correctedRerunEvidence": "/tmp/agentwiki-knowledge-20261007/source-freshness-evidence-Oy3YOx",
+    "correctedActualResult": {
+      "status": "PASSED",
+      "commit": "3b8c918ff636f3bfc708f8d499a2d4cc51a54d10",
+      "initialChangeSet": "cmux8sro6000fgaftu00rd1t8",
+      "staleChangeSet": "cmux8tsqk000ygaftpvzppsoh",
+      "revertedChangeSet": "cmux8tu9v001hgafts0vw8k1k",
+      "rejectedChangeSet": "cmux8tvth0020gaftdrl450dn",
+      "pageIds": [
+        "b722db35-c118-4cc1-a600-b03aab6a39e6",
+        "2e788d1e-5d61-4a00-b9e3-6b4ad135abf1"
+      ],
+      "neutralPublishedLabel": true,
+      "neutralRevertedLabel": true,
+      "neutralRejectedLabel": true,
+      "conflictCode": "SOURCE_VERSION_CONFLICT",
+      "regenerateGuidanceVisible": true,
+      "failedPublishLeavesPagesUnchanged": true,
+      "viewports": [
+        1280,
+        390
+      ],
+      "errors": [
+        {
+          "type": "error",
+          "message": "Failed to load resource: the server responded with a status of 409 (Conflict)"
+        }
+      ]
+    },
+    "cleanup": {
+      "status": "VERIFIED",
+      "knownOwnedPidsExited": [
+        69268,
+        69285,
+        69349,
+        69398,
+        69405,
+        69414,
+        69412
+      ],
+      "closedPorts": [
+        51504,
+        51505
+      ],
+      "schemaAbsent": "collaboration_test_7468f19610ed4f6293747ad45d08384e",
+      "stateAbsent": true,
+      "ownedTmpRemoved": "/tmp/agentwiki-ui-revert-proof-ln0fzqjq",
+      "gatewayHomeAndIpcIndependentlyAbsent": false,
+      "publicInventoryDigest": "6191ee0d4c7a10c831beec7d159577e65eba7ba68ae2fcbf6b21e2758c785ea6"
+    }
+  },
+  "finalProductCommit": "ddfaf538678f95b56724d3f4b79d328e7b24adc2",
+  "candidateScopeNote": "Original bf7787b6 source mainline, separately accepted 3b8c918f UI fix, and ddfaf538 skill-only fallback. Original evidence identities and scores remain unchanged."
+}

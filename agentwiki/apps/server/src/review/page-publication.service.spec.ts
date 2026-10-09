@@ -12,7 +12,7 @@ describe('PagePublicationService', () => {
     sourceChangeSetId: null, createdByAgentId: null, lastChangeSetId: null,
     lastModifiedByUserId: 'owner-1', lastModifiedByAgentId: null,
     lastModifiedAt: new Date('2026-09-05T07:00:00.000Z'),
-    sourceId: null, sourceVersionId: null, sourcePath: null,
+    sourceId: 'tracked-source', sourceVersionId: 'tracked-version', sourcePath: 'one.md', sourceGeneration: 7,
     syncPath: 'pages/Target.md', syncPathKey: 'pages/target.md', sortOrder: 0,
     createdAt: new Date('2026-09-05T06:00:00.000Z'), updatedAt: new Date('2026-09-05T08:00:00.000Z'),
     deletedAt: null,
@@ -77,6 +77,8 @@ describe('PagePublicationService', () => {
       userId: 'reviewer-1', comment: 'Accepted',
     })).resolves.toEqual({ kind: 'published', pageId: 'page-1', pageVersionId: 'published-version' });
 
+    expect(tx.page.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ sourceGeneration: null }) }));
+    expect(tx.changeItem.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ payload: expect.objectContaining({ before: expect.objectContaining({ sourceGeneration: 7 }) }) }) }));
     expect(tx.pageVersion.create).toHaveBeenNthCalledWith(1, { data: expect.objectContaining({
       pageId: 'page-1', content: 'Old\r\nbody',
     }) });

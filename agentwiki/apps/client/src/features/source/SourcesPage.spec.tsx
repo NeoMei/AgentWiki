@@ -74,7 +74,7 @@ describe('SourcesPage file upload', () => {
     const source = { id: 'git-source', name: 'Repository', type: 'git', status: 'active', _count: { versions: 0, runs: 1 } };
     vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/sources/git-source' ? { ...source, versions: [], runs: [{ id: 'failed', status: 'failed', createdAt: '2026-09-14T00:00:00.000Z' }] } : [source] }));
     renderPage(); fireEvent.click(await screen.findByRole('button', { name: /Repository/ }));
-    expect(await screen.findByRole('link', { name: '查看失败运行详情' })).toHaveAttribute('href', '/spaces/space-1/runs');
+    expect(await screen.findByRole('link', { name: '查看失败运行详情' })).toHaveAttribute('href', '/spaces/space-1/sources?view=runs&run=failed');
   });
 
   it.each([['zh-CN', '已启用', '失败'], ['en', 'Active', 'Failed']])('localizes source and run states in %s while preserving the source name', async (locale, state, runState) => {
@@ -275,4 +275,47 @@ describe('SourcesPage file upload', () => {
     expect(await screen.findByRole('link', { name: new RegExp(label) })).toHaveAttribute('href', '/review?changeSet=cs');
   });
 
+});
+
+
+it('switches to cross-source runs in the source workspace and keeps retry/cancel APIs', async () => {
+  vi.clearAllMocks();
+  vi.mocked(useAuth).mockReturnValue({ user: { id: 'user-1' } } as any);
+  vi.mocked(api.post).mockResolvedValue({ data: {} });
+  localStorage.setItem('agentwiki.language.v1', 'en');
+  vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/spaces/space-1/runs' ? [
+    { id: 'failed', status: 'failed', createdAt: '2026-10-08', source: { name: 'Failed fixture' } },
+    { id: 'active', status: 'fetching', createdAt: '2026-10-08', source: { name: 'Active fixture' } },
+  ] : url === '/spaces/space-1' ? { members: [{ userId: 'user-1', role: 'editor' }] } : [] }));
+  render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1/sources']}>
+    <Routes><Route path='/spaces/:id/sources' element={<SourcesPage />} /></Routes>
+  </MemoryRouter></LanguageProvider>);
+  fireEvent.click(screen.getByRole('tab', { name: 'Runs' }));
+  expect(await screen.findByText('Failed fixture')).toBeVisible();
+  expect(screen.getByRole('tab', { name: 'Runs' })).toHaveAttribute('aria-selected', 'true');
+  fireEvent.click(screen.getByTitle('Retry run'));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/runs/failed/retry'));
+  fireEvent.click(screen.getByTitle('Cancel run'));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/runs/active/cancel'));
+  fireEvent.click(screen.getByRole('tab', { name: 'Sources' }));
+  expect(screen.getByRole('tab', { name: 'Sources' })).toHaveAttribute('aria-selected', 'true');
+});
+
+it('lets keyboard users switch source and run tabs', async () => {
+  vi.clearAllMocks();
+  localStorage.setItem('agentwiki.language.v1', 'en');
+  vi.mocked(useAuth).mockReturnValue({ user: { id: 'user-1' } } as any);
+  vi.mocked(api.get).mockImplementation(async url => ({ data: url === '/spaces/space-1' ? { members: [] } : [] }));
+  render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1/sources']}>
+    <Routes><Route path='/spaces/:id/sources' element={<SourcesPage />} /></Routes>
+  </MemoryRouter></LanguageProvider>);
+  const sources = screen.getByRole('tab', { name: 'Sources' });
+  sources.focus();
+  fireEvent.keyDown(sources, { key: 'ArrowRight' });
+  const runs = screen.getByRole('tab', { name: 'Runs' });
+  expect(runs).toHaveFocus();
+  expect(runs).toHaveAttribute('aria-selected', 'true');
+  fireEvent.keyDown(runs, { key: 'Home' });
+  expect(sources).toHaveFocus();
+  expect(sources).toHaveAttribute('aria-selected', 'true');
 });

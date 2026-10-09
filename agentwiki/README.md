@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.12.12 released** — One Local Sync gateway can route the same Agent across multiple Spaces while preserving per-Space credentials and permissions. Local Sync 0.11.0 uses published sync protocol 0.6.1. GitHub, npm, production deployment and public multi-Space acceptance are complete; see [release record](docs/releases-v0.12.12.md).
+> **v0.12.17** — Fixes directory menus, long-document editing, Agent conversation scrolling, template capabilities, collaboration reviews, and graph/source navigation. The companion Obsidian sync fix is in a separate plugin; permissions and sync protocol versions are unchanged. See the [release record](docs/releases-v0.12.17.md) for verification and remaining original-case boundaries.
 
 
 ## Hosted Service
