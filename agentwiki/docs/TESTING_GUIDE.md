@@ -20,6 +20,16 @@
 - 平台角色（全局）：`super_admin`（超管）、`user`（普通用户）
 - Space 角色：Owner → Admin → Editor → Viewer（权限递减）
 - Agent 是独立实体；Credential（agk_...）只标识并绑定一条 Space Grant，唯一权限角色为 Reader → Editor → Publisher
+- Space 的任意人类成员都可显式授权自己拥有的 active Agent；Agent 不会因用户加入 Space 自动获得访问权限。默认授权角色为该用户可授予的最高 Agent 角色，可改为更低角色，但不能超过下表上限。
+
+| 用户的 Space 角色 | 默认 / 最高 Agent 角色 | 可选 Agent 角色 |
+|-------------------|-----------------------|-----------------|
+| Viewer | Reader | Reader |
+| Editor | Editor | Reader、Editor |
+| Admin | Publisher | Reader、Editor、Publisher |
+| Owner | Publisher | Reader、Editor、Publisher |
+
+Agent 角色只授予对应的内容操作能力；即使是 Publisher，也不能管理 Space 成员或执行人工审批。授权完成后，Agent Grant 是独立授权事实；用户之后被降权或移出 Space，不会自动改写或撤销已有 Grant，需由该 Agent 所有者主动降级或撤销。
 
 ---
 
@@ -49,12 +59,14 @@
 | 2.4 | 编辑 Space | `PATCH /spaces/:id` | Owner/Admin 可编辑名称、审批策略等 |
 | 2.5 | 删除 Space | `DELETE /spaces/:id` | 仅 Owner 可删除 |
 | 2.6 | 成员列表 | `GET /spaces/:id/members` | 列出人类用户+Agent 授权，Agent scopes 由当前角色派生 |
-| 2.7 | 添加成员 | `POST /spaces/:id/members` | 按邮箱添加人类用户；支持 Viewer/Editor 预设 |
-| 2.8 | 添加 Agent 授权 | `PUT /agents/:id/grants/:spaceId` | 选择自己拥有的 active Agent；仅接受 `reader/editor/publisher` 角色；Grant 是唯一权限事实，scopes 不持久化；无权 Agent→404 |
+| 2.7 | 添加人类成员 | `POST /spaces/:id/members` | 仅 Owner/Admin 可按邮箱添加人类用户；支持 Viewer/Editor 预设 |
+| 2.8 | 添加自己的 Agent | `PUT /agents/:id/grants/:spaceId` | 任意人类成员可选择自己拥有的 active Agent；默认角色与上表一致，可选更低角色；越过成员角色上限→403；他人 Agent→404；Grant 是唯一权限事实，scopes 不持久化 |
 | 2.9 | 编辑成员角色 | `PATCH /spaces/:id/members/:userId` | Admin 可升降成员角色 |
 | 2.10 | 移除成员 | `DELETE /spaces/:id/members/:userId` | Admin 可移除成员（Owner 除外） |
 | 2.11 | Owner 转移 | `PATCH /spaces/:id/members/:userId` | 仅 Owner 可转移；操作者降为 Admin；原子操作 |
 | 2.12 | 审批策略 | — | `always-review`（默认）/ `scoped-auto-publish`（Publisher Grant、Agent 开关与 Space 策略许可时免审） |
+| 2.13 | 受邀成员授权入口 | — | 受邀 Editor/Viewer 在「Space → Members → 添加成员」中只能添加自己的 Agent，不能添加人类成员；Viewer 只显示 Reader，Editor 默认 Editor 且可改为 Reader；未加入 Space 的用户不可授权 |
+| 2.14 | 授权时的实时权限校验 | `PUT /agents/:id/grants/:spaceId` | 页面打开后用户被降权或移出 Space，再提交原角色授权时服务端拒绝；修改请求参数不能绕过角色上限 |
 
 **前端路由：** `/spaces/:id`（Space 视图）、`/spaces/:id/members`（成员管理）、`/spaces/:id/settings`（设置）
 
@@ -107,12 +119,12 @@
 | 4.5 | 删除 Agent | `DELETE /agents/:id` | 撤销 Agent；凭据同步失效 |
 | 4.6 | 列出连接凭据 | `GET /agents/:id/credentials` | 显示前缀、角色、只读派生 scopes、创建时间，不显示完整 key |
 | 4.7 | 撤销连接凭据 | `DELETE /agents/:id/credentials/:cid` | 凭据立即失效→401 |
-| 4.8 | Space 成员授权 | `PUT /agents/:id/grants/:spaceId` | 仅 Space 成员管理流程使用；仅接受 `reader/editor/publisher` |
-| 4.9 | 撤销授权 | `DELETE /agents/:id/grants/:spaceId` | Agent 失去该 Space 访问权 |
+| 4.8 | Space 成员授权 | `PUT /agents/:id/grants/:spaceId` | Space 任意人类成员可授权自己的 Agent；仅接受角色上限内的 `reader/editor/publisher` |
+| 4.9 | 撤销授权 | `DELETE /agents/:id/grants/:spaceId` | Space 成员可撤销自己的 Agent 授权；Agent 失去该 Space 访问权；不能操作他人的 Agent |
 | 4.10 | 活动记录 | `GET /agents/:id/activity` | 查看 Agent 的 MCP 调用和 API 活动 |
-| 4.11 | 统一连接授权 | `POST /agents/:agentId/local-sync-installations` | 提交 `spaceId+role+pluginVersion:0.9.1`，生成一次性安装码（10分钟过期）；服务端兼容 0.9.0 |
+| 4.11 | 统一连接授权 | `POST /agents/:agentId/local-sync-installations` | 任意人类成员可为自己的 Agent 提交 `spaceId+role+pluginVersion:0.9.1`，角色不得超过当前成员角色上限；生成一次性安装码（10分钟过期）；服务端兼容 0.9.0 |
 | 4.12 | 撤销安装 | `DELETE /agents/:agentId/local-sync-installations/:id` | 撤销安装码 |
-| 4.13 | 安装码交换 | `POST /integrations/local-sync/exchange` | 用一次性码原子创建同角色 Credential + Grant；失败不留半套授权 |
+| 4.13 | 安装码交换 | `POST /integrations/local-sync/exchange` | 用一次性码原子创建同角色 Credential + Grant；兑换时重新校验 Agent 所有权、当前 Space 成员身份与角色上限；签发后被降权或移出 Space 不得兑换越权连接；失败不留半套授权 |
 | 4.14 | 禁止手工签发 | `POST /agents/:id/credentials` | 路由不存在；Credential 只能由统一连接兑换产生 |
 
 **前端路由：** `/agents`（Agent 列表）、`/agents/:id`（详情仅有一个 `Space + role` 授权入口，已有凭据仅作连接记录查看/撤销）
@@ -245,7 +257,7 @@
 
 | 序号 | 功能点 | 测试要点 |
 |------|--------|----------|
-| 12.1 | 安装码生成 | Agent 访问页→选择 Space + Reader/Editor/Publisher→生成一次性接入指令 |
+| 12.1 | 安装码生成 | Agent 访问页可选择当前用户已加入的 Space，包含受邀加入的 Space；默认最高可授予角色，可改为更低角色；切换 Space 后角色选项随当前成员角色上限更新，再生成一次性接入指令 |
 | 12.2 | 本地安装 | 将指令粘贴到 Codex/Claude Code/OpenCode→自动安装 MCP 连接和 Skill |
 | 12.3 | Doctor 检查 | `agentwiki-local-sync doctor` 验证连接、Adapter、权限 |
 | 12.4 | 扫描预览 | 扫描本地目录→本地预览→不自动上传 |
@@ -315,7 +327,8 @@
 | 操作 | Owner | Admin | Editor | Viewer | Agent |
 |------|-------|-------|--------|--------|-------|
 | 删除 Space | ✅ | ❌ | ❌ | ❌ | ❌ |
-| 管理成员 | ✅ | ✅ | ❌ | ❌ | ❌ |
+| 管理人类成员 | ✅ | ✅ | ❌ | ❌ | ❌ |
+| 添加自己的 Agent | ✅(最高 Publisher) | ✅(最高 Publisher) | ✅(最高 Editor) | ✅(仅 Reader) | ❌ |
 | 创建/编辑页面 | ✅ | ✅ | ✅ | ❌ | ✅(审查后) |
 | 删除页面 | ✅ | ✅ | ✅ | ❌ | ❌ |
 | 查看页面 | ✅ | ✅ | ✅ | ✅ | ✅ |

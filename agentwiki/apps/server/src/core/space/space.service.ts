@@ -342,7 +342,7 @@ export class SpaceService {
   }
   // ---- Member management ----
 
-  async listMembers(spaceId: string, actorUserId: string, canManageAgentRoles: boolean) {
+  async listMembers(spaceId: string, actorUserId: string, canManageOwnAgent = true) {
     await this.findOne(spaceId);
     const now = new Date();
     const [humans, agentGrants] = await Promise.all([
@@ -381,7 +381,7 @@ export class SpaceService {
           ...summary,
           agent: { ...agent, connected: credentials.length > 0 },
           type: 'agent' as const,
-          canManageRole: canManageAgentRoles && ownerId === actorUserId,
+          canManageRole: canManageOwnAgent && ownerId === actorUserId,
         };
       }),
     ];

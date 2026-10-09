@@ -223,7 +223,7 @@ describe('SpaceService.listMembers includes agents', () => {
     prisma.agentGrant.findMany.mockResolvedValue([
       { id: 'g1', role: 'editor', agentId: 'ag1', spaceId: 'space-1', createdAt: new Date('2026-01-02'), agent: { id: 'ag1', name: 'MyBot', status: 'active', revokedAt: null, ownerId: 'u1' } },
     ]);
-    const result: any[] = await service.listMembers('space-1', 'u1', true);
+    const result: any[] = await service.listMembers('space-1', 'u1');
     const humans = result.filter((m) => m.type === 'human');
     const agents = result.filter((m) => m.type === 'agent');
     expect(humans).toHaveLength(1);
@@ -241,7 +241,7 @@ describe('SpaceService.listMembers includes agents', () => {
       { id: 'other', role: 'publisher', agentId: 'ag-other', spaceId: 'space-1', createdAt: new Date(), agent: { id: 'ag-other', name: 'Other', status: 'active', revokedAt: null, ownerId: 'u2' } },
     ]);
 
-    const result: any[] = await service.listMembers('space-1', 'u1', true);
+    const result: any[] = await service.listMembers('space-1', 'u1');
 
     expect(result).toEqual(expect.arrayContaining([
       expect.objectContaining({ agentId: 'ag-own', canManageRole: true }),
@@ -264,7 +264,7 @@ describe('SpaceService.listMembers includes agents', () => {
       },
     ]);
 
-    const result: any[] = await service.listMembers('space-1', 'u1', true);
+    const result: any[] = await service.listMembers('space-1', 'u1');
 
     expect(result).toEqual(expect.arrayContaining([
       expect.objectContaining({ agentId: 'ag-connected', agent: expect.objectContaining({ connected: true }) }),
@@ -287,21 +287,21 @@ describe('SpaceService.listMembers includes agents', () => {
     }));
   });
 
-  it('does not mark an owned Agent manageable for a non-admin Space member', async () => {
+  it('marks an owned Agent manageable for any Space member', async () => {
     prisma.spaceMember.findMany.mockResolvedValue([]);
     prisma.agentGrant.findMany.mockResolvedValue([
       { id: 'own', role: 'editor', agentId: 'ag-own', spaceId: 'space-1', createdAt: new Date(), agent: { id: 'ag-own', name: 'Own', status: 'active', revokedAt: null, ownerId: 'u1' } },
     ]);
 
-    await expect(service.listMembers('space-1', 'u1', false)).resolves.toEqual([
-      expect.objectContaining({ agentId: 'ag-own', canManageRole: false }),
+    await expect(service.listMembers('space-1', 'u1')).resolves.toEqual([
+      expect.objectContaining({ agentId: 'ag-own', canManageRole: true }),
     ]);
   });
 
   it('excludes revoked agents from the member list', async () => {
     prisma.spaceMember.findMany.mockResolvedValue([]);
     prisma.agentGrant.findMany.mockResolvedValue([]);
-    await service.listMembers('space-1', 'u1', true);
+    await service.listMembers('space-1', 'u1');
     expect(prisma.agentGrant.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ agent: { revokedAt: null } }),
     }));

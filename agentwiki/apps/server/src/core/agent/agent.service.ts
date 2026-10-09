@@ -8,6 +8,7 @@ import {
   scopesForAgentGrant,
   type AgentAccessRole,
 } from '@neomei/agentwiki-sync-protocol';
+import type { SpaceRole } from '../authorization/authorization.service';
 
 @Injectable()
 export class AgentService {
@@ -152,19 +153,27 @@ export class AgentService {
     ownerId: string,
     agentId: string,
     spaceId: string,
-    isSuperAdmin = false,
+    _isSuperAdmin = false,
+    requestedRole: AgentAccessRole = 'publisher',
   ): Promise<void> {
     const agent = await this.getOwned(ownerId, agentId);
     if (agent.status !== 'active') throw new BadRequestException('Agent must be active');
-    const space = await this.prisma.space.findFirst({
+    const space: any = await this.prisma.space.findFirst({
       where: {
         id: spaceId,
         deletedAt: null,
-        members: { some: { userId: ownerId, role: { in: ['owner', 'admin'] } } },
+        members: requestedRole === 'publisher'
+          ? { some: { userId: ownerId, role: { in: ['owner', 'admin'] } } }
+          : { some: { userId: ownerId } },
       },
-      select: { id: true },
+      select: requestedRole === 'publisher'
+        ? { id: true }
+        : { id: true, members: { where: { userId: ownerId }, select: { role: true } } },
     });
-    if (!space) {
+    const memberRole = requestedRole === 'publisher'
+      ? (space ? 'admin' : undefined)
+      : (space?.members?.[0]?.role as SpaceRole | undefined);
+    if (!space || !memberRole || !canDelegateAgentRole(memberRole, requestedRole)) {
       throw new ForbiddenException('You cannot authorize this Agent for the Space');
     }
   }
@@ -210,11 +219,12 @@ export class AgentService {
         where: {
           id: input.spaceId,
           deletedAt: null,
-          members: { some: { userId: input.ownerId, role: { in: ['owner', 'admin'] } } },
+          members: { some: { userId: input.ownerId } },
         },
-        select: { id: true },
+        select: { id: true, members: { where: { userId: input.ownerId }, select: { role: true } } },
       });
-      if (!owner || !agent || !space) {
+      const memberRole = space?.members?.[0]?.role as SpaceRole | undefined;
+      if (!owner || !agent || !space || !memberRole || !canDelegateAgentRole(memberRole, input.role)) {
         throw new ForbiddenException('Connection authorization is no longer valid');
       }
 
@@ -405,11 +415,12 @@ export class AgentService {
     spaceId: string,
     role: AgentAccessRole,
     isSuperAdmin = false,
+    actorSpaceRole?: SpaceRole,
   ) {
     await this.getOwned(actorUserId, agentId);
     return this.prisma.$transaction(async (tx) => {
       const agent = await this.assertGrantMutationAuthority(
-        tx, actorUserId, agentId, spaceId, isSuperAdmin,
+        tx, actorUserId, agentId, spaceId, role, isSuperAdmin, actorSpaceRole,
       );
       const existingGrant = await tx.agentGrant.findUnique({
         where: { agentId_spaceId: { agentId, spaceId } },
@@ -452,11 +463,12 @@ export class AgentService {
     agentId: string,
     spaceId: string,
     isSuperAdmin = false,
+    actorSpaceRole?: SpaceRole,
   ) {
     await this.getOwned(ownerId, agentId);
     return this.prisma.$transaction(async (tx) => {
       await this.assertGrantMutationAuthority(
-        tx, ownerId, agentId, spaceId, isSuperAdmin,
+        tx, ownerId, agentId, spaceId, 'reader', isSuperAdmin, actorSpaceRole,
       );
       await tx.agentGrant.deleteMany({ where: { agentId, spaceId } });
       await tx.agentAuditEvent.create({
@@ -598,11 +610,11 @@ export class AgentService {
     actorUserId: string,
     agentId: string,
     spaceId: string,
-    isSuperAdmin: boolean,
-  ): Promise<{ id: string; status: string }> {
-    await this.lockAgentAuthorizationMutationRows(
-      tx, actorUserId, agentId, spaceId, true,
-    );
+    requestedRole: AgentAccessRole,
+    _isSuperAdmin: boolean,
+    actorSpaceRole?: SpaceRole,
+  ): Promise<{ id: string; ownerId: string; status: string }> {
+    await this.lockAgentAuthorizationMutationRows(tx, actorUserId, agentId, spaceId, true);
     const [agent, space] = await Promise.all([
       tx.agent.findFirst({
         where: {
@@ -611,19 +623,32 @@ export class AgentService {
           revokedAt: null,
           owner: { deletedAt: null, lockedAt: null },
         },
-        select: { id: true, status: true },
+        select: { id: true, ownerId: true, status: true },
       }),
       tx.space.findFirst({
         where: {
           id: spaceId,
           deletedAt: null,
-          members: { some: { userId: actorUserId, role: { in: ['owner', 'admin'] } } },
+          members: {
+            some: {
+              userId: actorUserId,
+              ...(actorSpaceRole ? {} : { role: { in: ['owner', 'admin'] } }),
+            },
+          },
         },
-        select: { id: true },
+        select: {
+          id: true,
+          members: { where: { userId: actorUserId }, select: { role: true } },
+        },
       }),
     ]);
     if (!agent || !space) {
       throw new ForbiddenException('Grant mutation authorization is no longer valid');
+    }
+    const liveSpaceRole = (space as any).members?.[0]?.role as SpaceRole | undefined;
+    const effectiveSpaceRole = liveSpaceRole ?? actorSpaceRole;
+    if (effectiveSpaceRole && !canDelegateAgentRole(effectiveSpaceRole, requestedRole)) {
+      throw new ForbiddenException('Agent role exceeds your Space permission');
     }
     return agent;
   }
@@ -673,4 +698,19 @@ function deterministicAgentId(ownerId: string, idempotencyKey: string): string {
     .update(idempotencyKey)
     .digest('hex')
     .slice(0, 32)}`;
+}
+
+function canDelegateAgentRole(spaceRole: SpaceRole, agentRole: AgentAccessRole): boolean {
+  const maximum: Record<SpaceRole, number> = {
+    viewer: 0,
+    editor: 1,
+    admin: 2,
+    owner: 2,
+  };
+  const requested: Record<AgentAccessRole, number> = {
+    reader: 0,
+    editor: 1,
+    publisher: 2,
+  };
+  return requested[agentRole] <= maximum[spaceRole];
 }

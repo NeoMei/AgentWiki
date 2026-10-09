@@ -120,7 +120,7 @@ export class LocalSyncInstallationService {
     this.assertSupportedVersion(pluginVersion);
     const canonicalServerUrl = serverUrl.replace(/\/+$/, '');
     this.assertSafeServerUrl(canonicalServerUrl);
-    await this.agents.assertCanIssueConnection(ownerId, agentId, spaceId, isSuperAdmin);
+    await this.agents.assertCanIssueConnection(ownerId, agentId, spaceId, isSuperAdmin, role);
     const expiresAt = new Date(Date.now() + INSTALLATION_TTL_SECONDS * 1_000).toISOString();
 
     for (let attempt = 0; attempt < MAX_CODE_GENERATION_ATTEMPTS; attempt += 1) {

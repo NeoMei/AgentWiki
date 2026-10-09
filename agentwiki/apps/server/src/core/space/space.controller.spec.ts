@@ -256,17 +256,20 @@ describe('SpaceController.listMembers', () => {
 
   beforeEach(() => jest.clearAllMocks());
 
-  it.each([
-    ['owner', true],
-    ['admin', true],
-    ['editor', false],
-    ['viewer', false],
-  ] as const)('passes the acting user and %s management fact to the member response', async (role, canManageAgentRoles) => {
+  it.each(['owner', 'admin', 'editor', 'viewer'] as const)('passes the acting user to the member response for a %s', async (role) => {
     authorization.assertSpaceAccess.mockResolvedValue({ role });
 
     await controller.listMembers('space-1', { user: { userId: 'user-1' } } as any);
 
-    expect(spaces.listMembers).toHaveBeenCalledWith('space-1', 'user-1', canManageAgentRoles);
+    expect(spaces.listMembers).toHaveBeenCalledWith('space-1', 'user-1', true);
+  });
+
+  it('does not mark an Agent principal as able to manage Agent grants', async () => {
+    authorization.assertSpaceAccess.mockResolvedValue({ role: 'editor' });
+
+    await controller.listMembers('space-1', { user: { userId: 'owner-1', agentId: 'agent-1' } } as any);
+
+    expect(spaces.listMembers).toHaveBeenCalledWith('space-1', 'owner-1', false);
   });
 });
 

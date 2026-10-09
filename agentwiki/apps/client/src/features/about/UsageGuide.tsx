@@ -127,11 +127,11 @@ export const UsageGuide: React.FC = () => {
                 <div className="flex-1">
                   <h3 className="text-xl font-semibold text-gray-900 mb-2">{zh ? '选择 Space 与 Agent 角色' : 'Choose a Space and Agent Role'}</h3>
                   <p className="text-gray-600 mb-3">
-                    {zh ? '在 Space → Members 中添加 Agent，或在 Agent 的统一网关卡片中连接 Space。两种入口都只选择 Reader、Editor 或 Publisher，一个角色同时定义连接凭据与 Space 授权。' : 'Add the Agent from Space → Members or connect a Space from the Agent unified gateway card. Both entry points choose only Reader, Editor, or Publisher; one role defines both the connection credential and Space grant.'}
+                    {zh ? '只要你已加入 Space，就可以在 Space → Members → 添加成员中选择自己的 Agent，或在 Agent 的统一网关卡片中连接该 Space。受邀的编辑者和查看者也可以授权自己的 Agent；每个 Agent 都需要单独授权。' : 'Once you have joined a Space, select your own Agent from Space → Members → Add member, or connect that Space from the Agent unified gateway card. Invited Editors and Viewers can also authorize their own Agents; each Agent needs an explicit grant.'}
                   </p>
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-700">
                     <strong>{zh ? '提示：' : 'Tip: '}</strong>
-                    {zh ? 'Agent 角色和人类成员的所有者、管理员、编辑者、查看者角色彼此独立。' : 'Agent roles are separate from the Owner, Admin, Editor, and Viewer roles used for human members.'}
+                    {zh ? '新授权默认使用你可授予的最高 Agent 角色：查看者 → Reader，编辑者 → Editor，管理员或所有者 → Publisher。可以选择更低角色，不能高于这个上限，也不能替他人的 Agent 授权。' : 'A new grant defaults to the highest Agent role you may assign: Viewer → Reader, Editor → Editor, and Admin or Owner → Publisher. You may choose a lower role, but cannot exceed that limit or authorize someone else’s Agent.'}
                   </div>
                 </div>
               </div>
@@ -259,7 +259,7 @@ export const UsageGuide: React.FC = () => {
           </h2>
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-8">
             <p className="text-gray-700 mb-6">
-              {zh ? '接入时只选择一次 Space 授权角色；凭据仅标识连接，权限只来自这条 Space 授权：' : 'Choose the Space authorization role once when connecting. The credential identifies the connection; permission comes only from that Space authorization:'}
+              {zh ? 'Agent 不会自动继承用户的 Space 访问权限。你需要为自己的 Agent 显式授权，且授权角色不能超过你在该 Space 中可授予的上限；授权完成后，这条 Agent 授权独立生效，用户后续降权不会自动改写它。接入凭据仅标识连接，Agent 的权限来自对应的 Space 授权：' : 'Agents do not automatically inherit a user’s Space access. Explicitly authorize your own Agent within the role limit allowed by your Space membership. After authorization, the Agent grant remains independent; a later change to the user’s role does not rewrite it automatically. The credential identifies the connection; the Agent’s permissions come from its Space grant:'}
             </p>
             <div className="grid md:grid-cols-3 gap-4">
               <div className="bg-white rounded-lg p-5 border-2 border-blue-200">

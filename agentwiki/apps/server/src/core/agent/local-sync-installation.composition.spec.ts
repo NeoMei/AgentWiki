@@ -65,7 +65,7 @@ function composeInstallationFlow(input?: {
   prisma.$transaction = jest.fn(async (operation: (tx: any) => Promise<unknown>) => operation(prisma));
   prisma.$queryRaw = jest.fn().mockResolvedValue([]);
   prisma.user = {
-    findFirst: jest.fn(async ({ where }: any) => {
+    findFirst: jest.fn(async ({ where, select: _select }: any) => {
       if (
         where.id !== state.owner.id
         || (where.platformRole && where.platformRole !== state.owner.platformRole)
@@ -94,7 +94,7 @@ function composeInstallationFlow(input?: {
     update: jest.fn(async ({ data }: any) => ({ ...state.agent, ...data })),
   };
   prisma.space = {
-    findFirst: jest.fn(async ({ where }: any) => {
+    findFirst: jest.fn(async ({ where, select }: any) => {
       if (where.id !== state.space.id || (where.deletedAt === null && state.space.deletedAt)) {
         return null;
       }
@@ -102,7 +102,12 @@ function composeInstallationFlow(input?: {
       if (allowedRoles && (!state.membershipRole || !allowedRoles.includes(state.membershipRole))) {
         return null;
       }
-      return { id: state.space.id };
+      return {
+        id: state.space.id,
+        ...(select?.members ? {
+          members: state.membershipRole ? [{ role: state.membershipRole }] : [],
+        } : {}),
+      };
     }),
   };
   prisma.agentGrant = {
@@ -165,12 +170,13 @@ function composeInstallationFlow(input?: {
 async function issueInstallation(
   composition: ReturnType<typeof composeInstallationFlow>,
   isSuperAdmin: boolean,
+  role: 'reader' | 'editor' | 'publisher' = 'editor',
 ) {
   return composition.installations.create(
     'owner-1',
     'agent-1',
     'space-1',
-    'editor',
+    role,
     '0.9.1',
     'https://wiki.test/api',
     isSuperAdmin,
@@ -228,6 +234,25 @@ describe('Local Sync installation issue/exchange composition', () => {
         .resolves.toMatchObject({ credentialId: 'credential-1', role: 'editor' });
     },
   );
+
+  it('rejects an existing connection intent when an editor is downgraded to viewer', async () => {
+    const composition = composeInstallationFlow({ platformRole: 'user', membershipRole: 'editor' });
+    const installation = await issueInstallation(composition, false, 'editor');
+    composition.state.membershipRole = 'viewer';
+
+    await expect(composition.installations.exchange(installation.code, '192.0.2.5'))
+      .rejects.toBeInstanceOf(ForbiddenException);
+    expect(composition.state.grant).toBeNull();
+    expect(composition.state.credential).toBeNull();
+  });
+
+  it('allows a viewer to issue and exchange a reader connection', async () => {
+    const composition = composeInstallationFlow({ platformRole: 'user', membershipRole: 'viewer' });
+    const installation = await issueInstallation(composition, false, 'reader');
+
+    await expect(composition.installations.exchange(installation.code, '192.0.2.6'))
+      .resolves.toMatchObject({ credentialId: 'credential-1', role: 'reader' });
+  });
 
   it('rejects a Super Admin whose membership is removed after issue', async () => {
     const composition = composeInstallationFlow();

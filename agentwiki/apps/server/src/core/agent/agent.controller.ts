@@ -3,6 +3,7 @@ import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { HumanOnlyGuard } from '../auth/human-only.guard';
 import { AuthorizationService } from '../authorization/authorization.service';
+import type { SpaceRole } from '../authorization/authorization.service';
 import { CreateAgentDto, UpdateAgentDto, UpsertAgentGrantDto } from '../dto/agent.dto';
 import { AgentService } from './agent.service';
 import { LocalSyncInstallationService } from './local-sync-installation.service';
@@ -69,25 +70,31 @@ export class AgentController {
   ) {
     const principal = req.user as any;
     const ownerId = principal.userId;
-    await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin']);
+    const member = await this.authorization.assertSpaceAccess(
+      principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'spaces:read',
+    );
     return this.agents.upsertGrantForSpace(
       ownerId,
       id,
       spaceId,
       dto.role,
       principal.platformRole === 'super_admin',
+      (member.role as SpaceRole) || 'admin',
     );
   }
 
   @Delete(':id/grants/:spaceId')
   async removeGrant(@Req() req: Request, @Param('id') id: string, @Param('spaceId') spaceId: string) {
     const principal = req.user as any;
-    await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin']);
+    const member = await this.authorization.assertSpaceAccess(
+      principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'spaces:read',
+    );
     return this.agents.removeGrant(
       principal.userId,
       id,
       spaceId,
       principal.platformRole === 'super_admin',
+      (member.role as SpaceRole) || 'admin',
     );
   }
 

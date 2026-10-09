@@ -28,7 +28,7 @@ describe('AgentService grant scope validation', () => {
     prisma.$transaction.mockImplementation(async (operation: any) => operation(prisma));
     prisma.$queryRaw.mockResolvedValue([{ id: 'locked' }]);
     prisma.agent.findFirst.mockResolvedValue({ id: 'agent-1', status: 'active' });
-    prisma.space.findFirst.mockResolvedValue({ id: 'space-1' });
+    prisma.space.findFirst.mockResolvedValue({ id: 'space-1', members: [{ role: 'owner' }] });
     prisma.user.findFirst.mockResolvedValue({ id: 'owner-1', platformRole: 'user' });
   });
 
@@ -78,7 +78,7 @@ describe('AgentService grant scope validation', () => {
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1', ownerId: 'owner-1', revokedAt: null, grants: [], credentials: [], status: 'active',
     });
-    prisma.space.findFirst.mockResolvedValue({ id: 'space-1' });
+    prisma.space.findFirst.mockResolvedValue({ id: 'space-1', members: [{ role: 'owner' }] });
 
     await expect(service.assertCanIssueConnection(
       'owner-1', 'agent-1', 'space-1', true,
@@ -118,6 +118,28 @@ describe('AgentService grant scope validation', () => {
     )).rejects.toBeInstanceOf(errorType);
 
     expect(prisma.space.findFirst).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['editor', 'editor', true],
+    ['editor', 'publisher', false],
+    ['viewer', 'reader', true],
+    ['viewer', 'editor', false],
+  ] as const)('enforces the Space member ceiling when issuing a %s Agent connection as %s', async (memberRole, requestedRole, allowed) => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'owner-1', revokedAt: null, grants: [], credentials: [], status: 'active',
+    });
+    prisma.space.findFirst.mockImplementation(async ({ where, select }: any) => {
+      const allowedRoles = where.members?.some?.role?.in as string[] | undefined;
+      if (allowedRoles && !allowedRoles.includes(memberRole)) return null;
+      return select.members ? { id: 'space-1', members: [{ role: memberRole }] } : { id: 'space-1' };
+    });
+
+    const result = service.assertCanIssueConnection(
+      'owner-1', 'agent-1', 'space-1', false, requestedRole,
+    );
+    if (allowed) await expect(result).resolves.toBeUndefined();
+    else await expect(result).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('does not bypass a missing Space for a platform Super Admin', async () => {
@@ -252,7 +274,7 @@ describe('AgentService grant scope validation', () => {
 
   it('creates the Grant authorization before an identity-only bound Credential', async () => {
     prisma.agent.findFirst.mockResolvedValue({ id: 'agent-1' });
-    prisma.space.findFirst.mockResolvedValue({ id: 'space-1' });
+    prisma.space.findFirst.mockResolvedValue({ id: 'space-1', members: [{ role: 'owner' }] });
     prisma.agentCredential.upsert.mockResolvedValue({
       id: 'credential-1', agentId: 'agent-1', authorizationId: 'grant-1',
       keyHash: '58f5ceceff4ed07826c298f6b62e3fdb2cebfec07f946843c538fd45819e87ac',
@@ -394,7 +416,7 @@ describe('AgentService grant scope validation', () => {
 
   it('enables publisher switches in the transaction while lower roles never turn them off', async () => {
     prisma.agent.findFirst.mockResolvedValue({ id: 'agent-1' });
-    prisma.space.findFirst.mockResolvedValue({ id: 'space-1' });
+    prisma.space.findFirst.mockResolvedValue({ id: 'space-1', members: [{ role: 'owner' }] });
     prisma.agentGrant.findUnique.mockResolvedValue(null);
     prisma.agentCredential.upsert.mockImplementation(async ({ create }: any) => ({
       id: 'credential-1', agentId: create.agentId, authorizationId: create.authorizationId,
@@ -665,4 +687,57 @@ describe('AgentService grant scope validation', () => {
 
     expect(prisma.agentGrant.upsert).toHaveBeenCalledTimes(2);
   });
+
+  it('lets an editor delegate their own Agent at editor level but never publisher level', async () => {
+    prisma.space.findFirst.mockResolvedValue({ id: 'space-1', members: [{ role: 'editor' }] });
+    prisma.agent.findFirst.mockResolvedValue({ id: 'agent-1', ownerId: 'editor-1', status: 'active' });
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'editor-1', status: 'active', revokedAt: null,
+    });
+    prisma.agentGrant.findUnique.mockResolvedValue(null);
+    prisma.agentGrant.upsert.mockResolvedValue({
+      id: 'grant-1', role: 'editor', folderScopes: folderScopesForAgentAccessRole('editor'),
+    });
+    prisma.agentAuditEvent.create.mockResolvedValue({});
+
+    await expect(service.upsertGrantForSpace(
+      'editor-1', 'agent-1', 'space-1', 'editor', false, 'editor',
+    )).resolves.toMatchObject({ role: 'editor' });
+
+    await expect(service.upsertGrantForSpace(
+      'editor-1', 'agent-1', 'space-1', 'publisher', false, 'editor',
+    )).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('does not let a platform Super Admin bypass a viewer role ceiling', async () => {
+    prisma.space.findFirst.mockResolvedValue({ id: 'space-1', members: [{ role: 'viewer' }] });
+    prisma.agent.findFirst.mockResolvedValue({ id: 'agent-1', ownerId: 'viewer-1', status: 'active' });
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'viewer-1', status: 'active', revokedAt: null,
+    });
+
+    await expect(service.upsertGrantForSpace(
+      'viewer-1', 'agent-1', 'space-1', 'publisher', true, 'viewer',
+    )).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('lets a viewer delegate their own Agent as reader only', async () => {
+    prisma.space.findFirst.mockResolvedValue({ id: 'space-1', members: [{ role: 'viewer' }] });
+    prisma.agent.findFirst.mockResolvedValue({ id: 'agent-1', ownerId: 'viewer-1', status: 'active' });
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', ownerId: 'viewer-1', status: 'active', revokedAt: null,
+    });
+    prisma.agentGrant.findUnique.mockResolvedValue(null);
+    prisma.agentGrant.upsert.mockResolvedValue({
+      id: 'grant-1', role: 'reader', folderScopes: folderScopesForAgentAccessRole('reader'),
+    });
+    prisma.agentAuditEvent.create.mockResolvedValue({});
+    await expect(service.upsertGrantForSpace(
+      'viewer-1', 'agent-1', 'space-1', 'reader', false, 'viewer',
+    )).resolves.toMatchObject({ role: 'reader' });
+    await expect(service.upsertGrantForSpace(
+      'viewer-1', 'agent-1', 'space-1', 'editor', false, 'viewer',
+    )).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
 });

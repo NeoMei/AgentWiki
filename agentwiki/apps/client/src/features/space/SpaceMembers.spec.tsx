@@ -103,6 +103,22 @@ describe('SpaceMembers Agent addition', () => {
       .toEqual(expectedRole === 'reader' ? ['reader'] : ['reader', 'editor']);
   });
 
+  it.each([
+    ['editor', ['reader', 'editor']],
+    ['viewer', ['reader']],
+  ] as const)('lets a %s member adjust their own Agent grant only within their ceiling', async (memberRole, expectedRoles) => {
+    renderMembers({ role: memberRole, canManageAgentRole: true });
+
+    const role = await screen.findByRole('combobox', { name: 'Existing 的 Agent 角色' });
+    expect(Array.from(role.querySelectorAll('option')).map((option) => option.value)).toEqual(expectedRoles);
+    fireEvent.change(role, { target: { value: 'reader' } });
+
+    await vi.waitFor(() => expect(api.put).toHaveBeenCalledWith(
+      '/agents/agent-existing/grants/space-1',
+      { role: 'reader' },
+    ));
+  });
+
   it('does not show human member management to a space editor', async () => {
     renderMembers({ role: 'editor' });
 
@@ -126,6 +142,16 @@ describe('SpaceMembers Agent addition', () => {
     const agentRow = screen.getByTestId('member-agent-agent-existing');
     expect(agentRow.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
     expect(agentRow).not.toHaveTextContent(/审核者|完全授权|scopes|权限范围/i);
+  });
+
+  it('keeps an older higher Agent grant visible while offering only lower roles', async () => {
+    renderMembers({ role: 'editor', agentRole: 'publisher', canManageAgentRole: true });
+
+    const role = await screen.findByRole('combobox', { name: 'Existing 的 Agent 角色' });
+    expect(role).toHaveValue('publisher');
+    expect(Array.from(role.querySelectorAll('option')).map((option) => option.value))
+      .toEqual(['publisher', 'reader', 'editor']);
+    expect(role.querySelector('option[value="publisher"]')).toBeDisabled();
   });
 
   it('renders another users Agent grant as read-only for a Space admin', async () => {

@@ -66,6 +66,9 @@ export const SpaceMembers: React.FC = () => {
   const maxAgentRole: AgentAccessRole = myRole === 'owner' || myRole === 'admin'
     ? 'publisher'
     : myRole === 'editor' ? 'editor' : 'reader';
+  const availableAgentRoles = AGENT_ACCESS_ROLES.filter((role) => (
+    AGENT_ACCESS_ROLES.indexOf(role) <= AGENT_ACCESS_ROLES.indexOf(maxAgentRole)
+  ));
 
   const fetchMembers = async () => {
     if (!id) return;
@@ -196,6 +199,10 @@ export const SpaceMembers: React.FC = () => {
         ) : currentMembers.map((member) => {
           if (member.type === 'agent') {
             const name = member.agent?.name || (zh ? '未命名 Agent' : 'Unnamed Agent');
+            const exceedsCurrentCeiling = AGENT_ACCESS_ROLES.indexOf(member.role) > AGENT_ACCESS_ROLES.indexOf(maxAgentRole);
+            const agentRoleOptions = exceedsCurrentCeiling
+              ? [member.role, ...availableAgentRoles]
+              : availableAgentRoles;
             return (
               <div key={member.id} data-testid={`member-agent-${member.agentId}`} className="flex items-center gap-3 p-4">
                 <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 text-white">
@@ -221,7 +228,11 @@ export const SpaceMembers: React.FC = () => {
                       disabled={updatingId === member.agentId}
                       className="rounded-md border px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      {AGENT_ACCESS_ROLES.map((role) => <option key={role} value={role}>{t(`agent.role.${role}.name`)}</option>)}
+                      {agentRoleOptions.map((role, index) => (
+                        <option key={role} value={role} disabled={exceedsCurrentCeiling && index === 0}>
+                          {t(`agent.role.${role}.name`)}{exceedsCurrentCeiling && index === 0 ? (zh ? '（当前授权高于你的 Space 角色上限）' : ' (above your current Space ceiling)') : ''}
+                        </option>
+                      ))}
                     </select>
                   ) : (
                     <span className={`rounded-full px-2 py-1 text-xs font-medium ${AGENT_ROLE_STYLES[member.role]}`}>

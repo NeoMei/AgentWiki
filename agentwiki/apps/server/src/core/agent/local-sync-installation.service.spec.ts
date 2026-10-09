@@ -116,7 +116,7 @@ describe('LocalSyncInstallationService', () => {
     expect(result.instructions).toContain('does not scan or sync');
     expect(result.instructions).not.toContain('agk_');
     expect(agents.assertCanIssueConnection).toHaveBeenCalledWith(
-      'owner-1', 'agent-1', 'space-1', false,
+      'owner-1', 'agent-1', 'space-1', false, 'editor',
     );
   });
 
@@ -157,7 +157,7 @@ describe('LocalSyncInstallationService', () => {
     );
 
     expect(agents.assertCanIssueConnection).toHaveBeenCalledWith(
-      'owner-1', 'agent-1', 'space-1', true,
+      'owner-1', 'agent-1', 'space-1', true, 'editor',
     );
   });
 

@@ -68,11 +68,11 @@ export class SpaceController {
   @Get(':id/members')
   async listMembers(@Param('id') id: string, @Req() req: Request) {
     const principal = req.user as any;
-    const member = await this.authorization.assertSpaceAccess(principal, id, ['owner', 'admin', 'editor', 'viewer'], 'spaces:read');
+    await this.authorization.assertSpaceAccess(principal, id, ['owner', 'admin', 'editor', 'viewer'], 'spaces:read');
     return this.spaceService.listMembers(
       id,
       principal.userId,
-      member.role === 'owner' || member.role === 'admin',
+      !principal.agentId,
     );
   }
 
