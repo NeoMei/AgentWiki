@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.12.17** — Fixes directory menus, long-document editing, Agent conversation scrolling, template capabilities, collaboration reviews, and graph/source navigation. The companion Obsidian sync fix is in a separate plugin; permissions and sync protocol versions are unchanged. See the [release record](docs/releases-v0.12.17.md) for verification and remaining original-case boundaries.
+> **v0.12.18** — Lets human Space members delegate their own Agents within the live member-role ceiling. The v0.12.17 full-page document workspace and OpenKnowledge-inspired reading/editing baseline remain included. See the [release record](docs/releases-v0.12.18.md) for verification and deployment boundaries.
 
 
 ## Hosted Service
