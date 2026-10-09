@@ -26,4 +26,5 @@
 - 生产数据库共 61 个 Prisma migration，部署后无待应用迁移；API、Worker、Frontend 均为 `active/running`，`NRestarts=0`。
 - 内网和公网 `/api/health` 均返回 `status/database/redis/auditPersistence/attachmentStorage: ok`。
 - 部署前协调备份保存在 `/var/backups/agentwiki/release-v0.12.18-pre-20261010035034`；旧应用树保留在 `/root/agentwiki-previous-20261010035355`。
-- 公网首页加载的新构建资源 `assets/index-DSzYiMrX.js` 与服务器 `dist` 资源 SHA-256 一致；未把本次回读扩大为已登录浏览器业务验收。
+- 公网首页加载的新构建资源 `assets/index-DSzYiMrX.js` 与服务器 `dist` 资源 SHA-256 一致。
+- 2026-10-10 部署后使用已登录、任务自有的浏览器标签页完成只读回读：文章阅读页和编辑页在桌面端保持全宽画布，iPhone 14 模拟视口无横向溢出；桌面端 Agent 会话/引用面板可见且宽度为 400px。未执行保存、发布或其他数据写入操作。
