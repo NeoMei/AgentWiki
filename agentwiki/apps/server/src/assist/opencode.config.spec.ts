@@ -10,6 +10,7 @@ describe('readRoutingConfig', () => {
       allowPaidFallback: true,
       maxFreeAttempts: 3,
       maxPaidAttempts: 1,
+      attemptTimeoutMs: 180_000,
       estimatedOutputTokens: 2000,
     });
   });
@@ -18,6 +19,11 @@ describe('readRoutingConfig', () => {
     expect(readRoutingConfig(config({ ASSIST_OPENCODE_PAID_MODELS: 'bailian-coding-plan/qwen3.7-plus' })))
       .toMatchObject({ paidModels: ['bailian-coding-plan/qwen3.7-plus'] });
     expect(() => readRoutingConfig(config({ ASSIST_OPENCODE_PAID_MODELS: '../bad' }))).toThrow('model ID');
+  });
+
+  it('parses the explicit paid-model preference switch', () => {
+    expect((readRoutingConfig(config({ ASSIST_OPENCODE_PREFER_PAID_MODELS: 'true' })) as any).preferPaidModels)
+      .toBe(true);
   });
 
   it('parses paid fallback as false', () => {

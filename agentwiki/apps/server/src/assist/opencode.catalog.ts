@@ -155,7 +155,8 @@ export const buildCandidates = (
       || left.price.input - right.price.input
       || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
     ));
-  return [...freeCandidates, ...paidCandidates];
+  const preferPaid = config.preferPaidModels === true && reservedPaid.size > 0;
+  return preferPaid ? [...paidCandidates, ...freeCandidates] : [...freeCandidates, ...paidCandidates];
 };
 
 export class OpencodeModelCatalog {

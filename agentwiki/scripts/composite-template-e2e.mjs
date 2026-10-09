@@ -191,7 +191,7 @@ async function createConnectedAgent(apiUrl, token, spaceId, name) {
   const exchange = await request(apiUrl, '/integrations/local-sync/exchange', {
     method: 'POST', body: { code: installation.code },
   });
-  return { id: agent.id, name, credentialId: exchange.credentialId, apiKey: exchange.apiKey };
+  return { id: agent.id, name, spaceId, credentialId: exchange.credentialId, apiKey: exchange.apiKey };
 }
 
 async function acceptanceArtifactsDirectory() {
@@ -225,19 +225,21 @@ async function runChromeAcceptance({ webOrigin, apiUrl, databaseUrl, fixture, ar
     assert.equal(await page.locator('body').innerText().then((text) => text.trim().length > 50), true);
     await browserFailures.assertPageNoFrameworkOverlay(page);
 
-    const newPage = page.getByRole('button', { name: '新建页面' });
+    const newPage = page.locator('main').getByRole('button', { name: '新建页面', exact: true }).last();
     await newPage.click();
-    await page.getByRole('dialog', { name: '创建新页面' }).waitFor();
-    await page.keyboard.press('Escape');
-    await newPage.waitFor();
-    assert.equal(await newPage.evaluate((element) => element === document.activeElement), true);
-    await newPage.click();
+    await page.getByRole('heading', { name: '新建内容' }).waitFor();
+    await page.goto(`${webOrigin}/spaces/${fixture.space.id}`);
+    await page.getByRole('heading', { name: fixture.space.name }).waitFor();
+    const reopenedNewPage = page.locator('main').getByRole('button', { name: '新建页面', exact: true }).last();
+    await reopenedNewPage.click();
+    await page.getByRole('heading', { name: '新建内容' }).waitFor();
+    await page.getByRole('button', { name: '页面组', exact: true }).click();
     await page.getByRole('button', { name: /项目管理工作区/u }).click();
     await page.getByRole('button', { name: '下一步' }).click();
     const treeRevisionBefore = (await prisma.space.findUniqueOrThrow({
       where: { id: fixture.space.id }, select: { contentTreeRevision: true },
     })).contentTreeRevision;
-    const rootName = page.getByLabel('根名称');
+    const rootName = page.getByLabel(/根名称|页面组名称/u);
     await rootName.fill('离线项目验收工作区');
     await rootName.blur();
     const collaboration = page.getByRole('checkbox', { name: '启用 Agent 协作' });
@@ -249,7 +251,7 @@ async function runChromeAcceptance({ webOrigin, apiUrl, databaseUrl, fixture, ar
     await openGroup.waitFor();
     await page.screenshot({ path: join(artifactsDirectory, '01-collaboration-off-desktop.png'), fullPage: true });
     await openGroup.click();
-    await page.getByTestId('content-tree').waitFor();
+    await page.getByTestId('content-tree').last().waitFor();
     await page.screenshot({ path: join(artifactsDirectory, '02-collaboration-off-tree.png'), fullPage: true });
 
     const nodes = await collectContentTree(async (parentFolderId, cursor) => {
@@ -378,11 +380,12 @@ async function runChromeAcceptance({ webOrigin, apiUrl, databaseUrl, fixture, ar
 async function runCollaborationOnJourney({ page, webOrigin, apiUrl, fixture, artifactsDirectory, externalStageSelection }) {
   await page.goto(`${webOrigin}/spaces/${fixture.space.id}`);
   await page.getByRole('heading', { name: fixture.space.name }).waitFor();
-  await page.getByRole('button', { name: '新建页面' }).click();
-  await page.getByRole('dialog', { name: '创建新页面' }).waitFor();
+  await page.locator('main').getByRole('button', { name: '新建页面', exact: true }).last().click();
+  await page.getByRole('heading', { name: '新建内容' }).waitFor();
+  await page.getByRole('button', { name: '页面组', exact: true }).click();
   await page.getByRole('button', { name: /项目管理工作区/u }).click();
   await page.getByRole('button', { name: '下一步' }).click();
-  const rootName = page.getByLabel('根名称');
+  const rootName = page.getByLabel(/根名称|页面组名称/u);
   await rootName.fill('协作项目验收工作区');
   await rootName.blur();
   const collaboration = page.getByRole('checkbox', { name: '启用 Agent 协作' });

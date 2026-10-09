@@ -691,6 +691,7 @@ export function externalAgentGatewayFiles({
           id: connectionId,
           serverUrl: apiUrl,
           agentId: agent.id,
+          ...(agent.spaceId ? { spaceId: agent.spaceId } : {}),
           credentialId: agent.credentialId,
           pluginVersion: LOCAL_SYNC_PACKAGE_VERSION,
           client,
@@ -911,18 +912,23 @@ export function externalAgentClientArgs({
   lastMessagePath,
   nodePath,
 }) {
-  if (client === 'codex') return [
-    'exec', '--ephemeral', '--ignore-user-config', '--skip-git-repo-check',
-    '--approve-for-me', '-C', fixtureHome,
-    '--model', 'gpt-5.4-mini',
-    '-c', `mcp_servers.agentwiki.command=${JSON.stringify(nodePath)}`,
-    '-c', `mcp_servers.agentwiki.args=${JSON.stringify([wrapperPath])}`,
-    '--json', '--output-last-message', lastMessagePath, prompt,
-  ];
-  if (client === 'opencode') return [
-    'run', '--pure', '--model', 'deepseek/deepseek-v4-flash', '--variant', 'low',
-    '--format', 'json', '--dir', fixtureHome, prompt,
-  ];
+  if (client === 'codex') {
+    const configuredModel = process.env.COMPOSITE_TEMPLATE_E2E_CODEX_MODEL?.trim();
+    return [
+      'exec', '--ephemeral', '--ignore-user-config', '--skip-git-repo-check',
+      '--approve-for-me', '-C', fixtureHome,
+      ...(configuredModel ? ['--model', configuredModel] : []),
+      '-c', `mcp_servers.agentwiki.command=${JSON.stringify(nodePath)}`,
+      '-c', `mcp_servers.agentwiki.args=${JSON.stringify([wrapperPath])}`,
+      '--json', '--output-last-message', lastMessagePath, prompt,
+    ];
+  }
+  if (client === 'opencode') {
+    const configuredModel = process.env.COMPOSITE_TEMPLATE_E2E_OPENCODE_MODEL?.trim() || 'alibaba-cn/deepseek-v4-flash';
+    return [
+      'run', '--model', configuredModel, '--format', 'json', prompt,
+    ];
+  }
   return [
     '--print', '--output-format', 'stream-json', '--verbose', '--no-session-persistence', '--no-chrome',
     '--model', 'haiku', '--effort', 'low', '--setting-sources', '', '--disable-slash-commands',
