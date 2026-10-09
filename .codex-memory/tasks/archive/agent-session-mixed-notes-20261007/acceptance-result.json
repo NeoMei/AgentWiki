@@ -1,0 +1,22 @@
+{
+  "candidate": "f4325942c53101e8c628cd68fc1b7f23f07ae5cd",
+  "handoff": "aff013bfd7507c3a0e2c2060bc607cc3f1fa28d3",
+  "status": "accepted and archived within documented fixture scope",
+  "independentCodeReview": "approved",
+  "independentComponentProbe": "passed",
+  "actualBrowserAcceptance": "A1-A6 passed; mixed-note P2 closed",
+  "cleanup": "complete per independent runtime receipt",
+  "cleanupVerifiedAt": "2026-10-06T18:26:09.171Z",
+  "realProvider": "not verified; deterministic external CLI fixture",
+  "acp": "contract only; no complete local integration",
+  "old13HttpDbGates": "1735f341 evidence; not fully rerun on f432; server dist byte-identical",
+  "authorizationLoss": "isolated single Space membership injection; not last-owner business API acceptance",
+  "codewiki": "excluded",
+  "otherOpenKnowledgeSuggestions": "research only; no implementation authorization",
+  "push": false,
+  "merge": false,
+  "release": false,
+  "deploy": false,
+  "acceptanceReport": "acceptance.md",
+  "originalEvidenceManifest": "evidence/manifest.json"
+}

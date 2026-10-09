@@ -1,36 +1,39 @@
 # 当前目标
 
-- 同一个 Agent 的单个 Local Sync 网关支持多个 Space，并完成正式发布、生产部署和公网验收。
+- 10-08报告修复已发布：网页0.12.17上线；Windows真实同步发现的预览问题已追加修复并发布插件0.5.8。0.5.8临时Vault的最终原生冲突验收已通过，合成生产资源已撤销，原案待验边界保留。
 
 # 范围 / 不做
 
-- 实施、独立审查、包发布、GitHub 合并和生产部署已获用户授权。
-- 保持 Space 独立 Credential/Grant、显式 spaceId 路由；未知或冲突选择器拒绝回落。
+- 用户已明确授权修复、发布与通过既有Windows Session执行真实同步；不重复请求许可。
+- Local Sync0.11.0/协议0.6.1未变，不发npm；日常Vault不安装测试插件、不终止共享Obsidian进程。
+- 只用独立合成私有账号/Space验收；不把合成场景和源码测试写成原测试者15项全部复验。
 
 # 当前状态
 
-- AgentWiki 0.12.12 与 Local Sync 0.11.0 已正式发布；协议继续为 0.6.1。GitHub 标签提交 e2f68985d730647bd8c1444a1b1f3517715ba401 与部署来源 6163655047956868426ab946803bd06e43e0a200 的应用树一致。
-- 完整回归 5952 通过 / 0 失败 / 6 既有或平台 skip；类型检查、lint（0 error / 3 既有 warning）、构建通过；独立复审没有未关闭问题。
-- 生产 1436 源文件哈希一致，Assist 保留；迁移字节不变、未执行迁移；api/worker/frontend 用户级 systemd active，公网默认 TLS 健康五项 ok；接入文档固定 0.11.0。
-- 公开 npm 空目录安装后，实际单 stdio gateway 公网验证同 Agent 双 Space、并发读取、每个 Space 提案/审批/发布/MCP 回读、错误 selector 拒绝、撤销 A 后 B 可读；全部测试 fixture、凭据/JWT、网关和临时安装目录已清理。
-- 旧 0.10.2 配置和 0.9.1 安装协议与多 Space 共存验收通过。
+- 网页v0.12.17部署源码4d88ee2bb3af706050f5d88e038b7faf57ea0f2e，生产回读三应用/服务/健康通过，1232文件匹配、35配置指纹不变，无待迁移。完整6952通过/6skip，数据库230零skip，构建/类型/lint通过，首屏542577/550000。master后来增加Windows包管理器415f45f3与回执，不改写部署tag。
+- 插件0.5.8正式SHA b9be0afa667e216c87a15f983431109f79b5ca39：V3动态摘要、V2冲突选择即时校验及摘要重算已修，独立审查通过；最终70文件/1422测试及格式/类型/构建/bundle门禁通过，lint0error/19既有warning。main/tag/源分支CI、Release全部成功；三资产SHA/digest/attestation独立复核精确匹配。
+- Windows既有Session 01a0f8b8-b64c-7c80-9114-789d6f72dfc8 / host remote-control:env_e_6a53e3dc9b0483268a860e1de83e99c3 可用，明确host的read_thread可取真实命令回执；列表/wait_threads异常不能推断离线。
+- 正式0.5.7已在Windows Obsidian1.13.7完成真实连接、多级映射、V2首拉/本地推送/远端拉取、父目录删除保护/服务器恢复/手动目录迁移，以及68B图片升级Sync v3并零差异。正文/Keep哈希和实际路径有回读。此轮复现两类预览问题，推动0.5.8。
+- 正式0.5.8已在Windows真实加载，三个文件哈希一致、运行版本0.5.8、既有V3零差异；重载后的旧设置页按钮未反应，不能仅凭此判回归。旧fixture随后被部分删除，新的合成账号/Space/映射已通过A远端正文更新拉回、B V2即时父目录保护/恢复、C V2手动摘要/迁移、D图片升级、E V3手动摘要/迁移；C/E页面和Keep两端SHA一致，最终V3零差异，结果见新原生回执。
+- 第一轮两个生产合成Space和设备凭据已删除、账号已删除且旧JWT401。递归删除临时根目录被执行器拒绝；随后一次.NET删除尝试已被叫停，残余目录保留，禁止换方式绕过。0.5.8新fixture亦已实际断开：Space删除200/树404、凭据撤销204、账号删除200/旧JWT401；已兑换installation删除409不当作成功删除，本地目录保留。
+- 原测试者UNKNOWN_PARENT的原数据/日志/树结构、黄金书屋原Space、原生中文IME和真实provider仍待验。误删页3300a11b-0daf-4617-8e4c-ff008e069b85已按原ID恢复并验收，禁止再执行恢复。
 
 # 稳定约束
 
-- 路径末尾空格；Git 使用显式 work-tree，勿改 core.worktree。
-- 不以完整 tag 覆盖生产未收录的 Assist 修复；Space 授权不合并为跨空间密钥。
-- 本地测试、正式发布、部署和公网验收分别记录，计划不作为完成证据。
+- AgentWiki目录末尾空格，worktree Git使用正确cwd及显式--work-tree；不改共享core.worktree。
+- 主检出旧源码和未提交研究资料保留；不得泄露密码/Token/连接码，不放宽权限与allowlist。
+- 生产备份、旧应用保留；日常Obsidian与既有PostgreSQL不停止。未再次部署未变网页。
 
 # 关键索引
 
-- agentwiki/docs/releases-v0.12.12.md
-- agentwiki/docs/verification/multi-space-v01212/release-receipt.json
-- agentwiki/docs/verification/multi-space-v01212/public-multispace-evidence.json
-- https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.12
-- 上一轮 Q2 0.12.11 / 原生 GUI v2/v3 历史证据：agentwiki/docs/verification/q2-boundary-evidence-20261002；任务 brief 保留在 .codex-memory/tasks/active/q2-defect-closure-20261001/brief.md。
+- 当前验收工作树：`/Users/neomei/.codex/worktrees/test-fixes-win-receipts-20261009/AgentWiki `。原test-fixes-20261008工作树实际已缺失，仅app附件仍列出；从已推送e3d5d0e3创建新隔离工作树承接回执，未猜测缺失原因。
+- 插件工作树：`/Users/neomei/项目/codexprojects/AgentWiki-Obsidian/.worktrees/test-fixes-20261008`。
+- agentwiki/docs/verification/test-fixes-20261008/ 下status.md、release.md、release-receipt.json；receipts/windows-live-sync-20261009.md与脱敏JSON、plugin-0.5.8-final-check.log及release-verification.json。
+- .codex-memory/tasks/active/test-triage-20261008/brief.md
+- 网页 https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.17；插件 https://github.com/NeoMei/agentwiki-sync/releases/tag/0.5.8。
 
 # 风险 / 下一步
 
-- 本次没有新增原生 GUI onboarding 验收，Windows 原生 Obsidian GUI 仍未覆盖。
-- 生产配对备份 /var/backups/agentwiki/q2-v01212-20261003225326 已核验，旧应用 /root/agentwiki-previous-q2-20261003225326 保留。
-- 公网多 Space 发布验收已完成，没有本次发布的未关闭门槛。
+- 正式0.5.8新fixture真实同步与冲突证据已齐；本轮生产资源撤销有回执，保留本地证据；无原案实测的项目继续待验。
+- 生产备份 `/var/backups/agentwiki/test-fixes-v01217.ysaZtxag`；旧应用 `/root/agentwiki-previous-20261008222652`。
+- 网页lint3条、插件lint19条与旧开发依赖audit10项未宣称修复。

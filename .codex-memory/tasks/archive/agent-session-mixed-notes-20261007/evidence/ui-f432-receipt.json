@@ -1,0 +1,43 @@
+{
+  "candidate": "f4325942c53101e8c628cd68fc1b7f23f07ae5cd",
+  "mainPage": "6105526d-fbad-462c-b686-f9bc70f2adb7",
+  "siblingPage": "d8be02bb-5ca0-4885-a26a-60b23998557c",
+  "provider": "external deterministic fixture; not real provider",
+  "readNotes": 2,
+  "explicitReference": "跨文档协作指南",
+  "mixedResolvedAwaitingRegenerate": {
+    "bothResolved": true,
+    "evidence": "ui-f432-mixed-result.txt",
+    "secondBodyExact": true,
+    "manualTailRetained": true
+  },
+  "undoByteExact": [
+    true,
+    true,
+    true
+  ],
+  "redoByteExact": [
+    true,
+    true,
+    true
+  ],
+  "officialPersistence": {
+    "beforeSave": "runtime-f432/page-checkpoint-pre-save.json",
+    "explicitSave": "runtime-f432/page-checkpoint-post-save.json",
+    "afterAll": "runtime-f432/final-stop-page-receipt.json"
+  },
+  "crossPageHistoryReloadEvidence": "ui-f432-history-refreshed.txt",
+  "failureInputPreserved": true,
+  "stopEvidence": "runtime-f432/final-stop-history-receipt.json",
+  "responsiveEvidence": "ui-f432-responsive-receipt.json",
+  "responsiveInteraction": "1600/1280/390 actual CSS widths, TOC jumps, native horizontal table scroll, Agent input and close; 390 directory drawer switch and Page Information open/close",
+  "remaining": "none within confirmed phase; real provider/complete ACP/deployment unverified or out of scope",
+  "revokedPermission": {
+    "injectedAt": "2026-10-06T18:23:47.997Z",
+    "scope": "owned test account membership in owned Space only; not last-owner API removal",
+    "sendDeniedHistoryCleared": true,
+    "reload": "- navigation:\n  - link \"AgentWiki\":\n    - /url: /\n  - navigation \"主导航\":\n    - link \"首页\":\n      - /url: /\n      - generic: 首页\n    - link \"使用指南\":\n      - /url: /guide\n      - generic: 使用指南\n    - link \"工作台\":\n      - /url: /dashboard\n      - generic: 工作台\n  - link \"智能体\":\n    - /url: /agents\n    - generic: 智能体\n  - link \"审核\":\n    - /url: /review\n    - generic: 审核\n  - link \"搜索\":\n    - /url: /search\n  - button \"切换语言\":\n    - generic: EN\n  - button \"个人菜单\":\n    - generic: 知识\n    - generic: 知识工作空间\n- main:\n  - complementary\n  - main:\n    - paragraph: 你没有权限执行此操作。请联系空间所有者或管理员确认成员角色后重试。\n    - button \"重试\"\n    - link \"返回首页\":\n      - /url: /"
+  },
+  "cleanup": "runtime-f432/cleanup-receipt.json",
+  "automaticFollowup": "PAUSED"
+}

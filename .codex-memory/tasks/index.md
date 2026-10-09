@@ -4,11 +4,29 @@
 
 ## 活跃任务
 
+- [test-triage-20261008](active/test-triage-20261008/brief.md)：网页0.12.17已部署、插件0.5.8已发布；Windows真实同步已执行，0.5.8最终冲突原生验收通过，生产测试资源已撤销，原案边界保留。
+
 - [q2-defect-closure-20261001](active/q2-defect-closure-20261001/brief.md)：全部20项及2条接入问题修复部署，公网TLS已验证，其余顺序实施与审查。
 
 - [q3-regressions-20260914](archive/q3-regressions-20260914/brief.md)：Q3人工报告20项代码修复、整分支独立复审与候选验收完成；未发布部署或安装日常Vault。
 
 ## 最近完成
+
+- [knowledge-comprehensive-audit-20261007](archive/knowledge-comprehensive-audit-20261007/brief.md)：F1-F7多轮任务/代码/前后端/UI复审完成；最终模板10/10、server2994、client2170、F5 REST/MCP8项、构建与资源清理通过；保留平台skip、模型收益NOT MET、fixture/未部署边界。
+
+- [knowledge-capabilities-20261007](archive/knowledge-capabilities-20261007/brief.md)：ddfaf538完成来源复核闭环、实际API/worker/UI/真实Agent及整分支独立验收；检索八题收益未证明，按预批准收缩撤回额外指导，保留工具参数兼容。自有runtime清理，ACP仅契约，未推送合并部署。
+
+- [agent-session-mixed-notes-20261007](archive/agent-session-mixed-notes-20261007/brief.md)：固定候选 f4325942 混合批注 P2 修复、独立代码复审及 A1–A6 真实 UI 验收通过；427 定向检查、显式 Save/API/DB、Undo/Redo、Stop/失权/响应式及清理完成。fixture provider、ACP 仅契约，未部署；本期归档停止自动跟进。
+
+- [agent-sessions-20261006](archive/agent-sessions-20261006/brief.md)：统一持久Agent会话、阅读私人批注/显式引用、跨页历史、候选审阅完成；1735f341、全部独立审查关闭、2877服务端/2091客户端最近全量+260最终定向检查、真实API/DB/CUA及精确Save/清理通过，provider fixture、ACP仅契约、未部署；后续混合状态 P2 已在 f4325942 修复并独立验收关闭，最终结论见上述补修归档，旧候选回执保留。
+
+- [document-fullpage-layout-20261006](archive/document-fullpage-layout-20261006/brief.md)：全页白色文档画布、统一排版、实际面板占位与手机路径完成；1991cc89、独立审查、2016tests、最终生产构建/1280/1600/390验收和独立清理通过，未部署。
+
+- [document-workspace-completion-20261006](archive/document-workspace-completion-20261006/brief.md)：剩余5项完成；独立复审0未关闭问题，2006客户端测试、生产构建/桌面与390px验收、原文/API回读及独立环境清理通过；未合并部署。
+
+- [document-workspace-polish-20261006](archive/document-workspace-polish-20261006/brief.md)：候选差异聚焦、笔记筛选及批量选择完成，独立审查0未关闭问题，1865客户端测试与最终128项定向测试通过，生产构建浏览器验收和环境清理完成；未合并或部署。
+
+- [document-workspace-20261006](archive/document-workspace-20261006/brief.md)：六项优化、独立任务/整分支审查、本地及构建产物浏览器验收完成；6243通过/6跳过，未合并或部署。
 
 - [template-guidance-20260910](archive/template-guidance-20260910/brief.md)：v0.11.2 已发布部署；六套 41 篇文档双语指南补齐，版本保护及生产验收通过；已有 7 篇空页面保持，补入指南待用户选择。
 

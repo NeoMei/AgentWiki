@@ -1,0 +1,32 @@
+[
+  {
+    "source": "/tmp/agentwiki-independent-acceptance-20261006.4eB3KG/f432-independent-acceptance.md",
+    "archive": "evidence/f432-independent-acceptance.md",
+    "sha256": "5f6b63c5940d82f3c58897f0e4c1320815cea4cd149f210bd31e1a380ec9e103",
+    "bytes": 5945
+  },
+  {
+    "source": "/tmp/agentwiki-independent-acceptance-20261006.4eB3KG/ui-f432-receipt.json",
+    "archive": "evidence/ui-f432-receipt.json",
+    "sha256": "7f8f68d197c9a4af804213a4cf8d7da18a9615ebe822b93c275e5762b13832ee",
+    "bytes": 2510
+  },
+  {
+    "source": "/tmp/agentwiki-independent-acceptance-20261006.4eB3KG/f432-fix-review.md",
+    "archive": "evidence/f432-fix-review.md",
+    "sha256": "6eb78d15d99be7ff877bd926d90ad0169eacfbeded07f91ef56b9aac9b9ef315",
+    "bytes": 6934
+  },
+  {
+    "source": "/tmp/agentwiki-independent-acceptance-20261006.4eB3KG/runtime-f432/runtime-report.md",
+    "archive": "evidence/runtime-f432/runtime-report.md",
+    "sha256": "079a93fe046f2072485714699e25001d2046a185882505eb96f6f14d55650434",
+    "bytes": 11858
+  },
+  {
+    "source": "/tmp/agentwiki-independent-acceptance-20261006.4eB3KG/runtime-f432/cleanup-receipt.json",
+    "archive": "evidence/runtime-f432/cleanup-receipt.json",
+    "sha256": "ac6b9f0e6bb29e91000bb254593c17a8b064b13aac958114b5de0f5e8fc03eb8",
+    "bytes": 2188
+  }
+]

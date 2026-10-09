@@ -1,0 +1,43 @@
+{
+  "status": "cleaned",
+  "schemaRemoved": true,
+  "protectedInventoryUnchanged": true,
+  "protectedInventoryDigest": "e447573064bbbfc1fbeae49340e519e8b40478a9992ccfaf92e35cfbc93350c0",
+  "ownedChildrenAbsent": true,
+  "ownedRootRemoved": true,
+  "uploadsRemoved": true,
+  "credentialMaterialRemoved": true,
+  "completedAt": "2026-10-06T17:14:45.421Z",
+  "independentFinalCheck": true,
+  "schemaName": "folder_test_7772d231578b4b4aa88e1d637aff1a1a",
+  "schemaSqlReadbackAbsent": true,
+  "harnessAbsent": true,
+  "ownedPidsAbsent": [
+    80201,
+    80241,
+    80244,
+    80268,
+    80277
+  ],
+  "launchJobUnloaded": true,
+  "launchPlistRemoved": true,
+  "uploadsFilesystemAbsent": true,
+  "redisDataFilesystemAbsent": true,
+  "runtimeCredentialKeysAbsent": true,
+  "runtimeStatus": "stopped",
+  "finalIndependentCheckAt": "2026-10-06T17:16:05.320Z",
+  "ownedPortsClosed": [
+    51903,
+    51904,
+    50536
+  ],
+  "fixtureCliOwnedInstancesAbsent": true,
+  "fixtureCliStartsChecked": 20,
+  "privateRuntimeStateFileDeleted": true,
+  "privateRawApiLogDeleted": true,
+  "allSanitizedReceiptsRetained": true,
+  "lastPostUiReadback": "final-post-ui-readback.json",
+  "lastSavedMainCharacters": 3589,
+  "lastSavedMainVersion": "2026-10-06T15:38:56.334Z",
+  "browserStorageBoundary": "Root logged out and closed owned tab; CUA does not support Storage.clearDataForOrigin, so isolated-origin mock private notes may remain. Runtime agent did not control browser."
+}
