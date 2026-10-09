@@ -23,7 +23,8 @@ export const LocalSyncInstallCard: React.FC<{
   spaces: SpaceOption[];
   grants: GrantSummary[];
   title?: string;
-}> = ({ agentId, spaces, grants, title }) => {
+  onAuthorized?: () => Promise<void> | void;
+}> = ({ agentId, spaces, grants, title, onAuthorized }) => {
   const { t } = useLanguage();
   const [spaceId, setSpaceId] = useState(spaces[0]?.id ?? '');
   const maxRoleForSpace = (candidateSpaceId: string): AgentAccessRole => (
@@ -40,6 +41,9 @@ export const LocalSyncInstallCard: React.FC<{
   ));
   const [result, setResult] = useState<InstallationResult | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [authorizing, setAuthorizing] = useState(false);
+  const [authorizedSpaceId, setAuthorizedSpaceId] = useState<string | null>(null);
+  const [authorizedRole, setAuthorizedRole] = useState<AgentAccessRole | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
@@ -63,6 +67,8 @@ export const LocalSyncInstallCard: React.FC<{
   useEffect(() => {
     setResult(null);
     setCopied(false);
+    setAuthorizedSpaceId(null);
+    setAuthorizedRole(null);
   }, [spaceId, role]);
 
   useEffect(() => {
@@ -93,6 +99,22 @@ export const LocalSyncInstallCard: React.FC<{
     }
   };
 
+  const authorize = async () => {
+    if (!spaceId) return;
+    setAuthorizing(true);
+    setError(null);
+    try {
+      await api.put(`/agents/${agentId}/grants/${spaceId}`, { role });
+      setAuthorizedSpaceId(spaceId);
+      setAuthorizedRole(role);
+      await onAuthorized?.();
+    } catch (err: any) {
+      setError(err.response?.data?.message || t('agent.localSync.authorizationFailed'));
+    } finally {
+      setAuthorizing(false);
+    }
+  };
+
   const expiry = result ? Date.parse(result.expiresAt) : Number.NaN;
   const remainingSeconds = result && Number.isFinite(expiry)
     ? Math.max(0, Math.ceil((expiry - now) / 1_000))
@@ -100,6 +122,8 @@ export const LocalSyncInstallCard: React.FC<{
   const expired = result ? remainingSeconds === 0 : false;
   const remaining = `${Math.floor(remainingSeconds / 60)}:${String(remainingSeconds % 60).padStart(2, '0')}`;
   const currentGrant = grants.find((grant) => grant.spaceId === spaceId);
+  const authorizationMatches = (currentGrant?.role === role)
+    || (authorizedSpaceId === spaceId && authorizedRole === role);
   const roleName = (value: AgentAccessRole) => t(`agent.role.${value}.name`);
 
   return (
@@ -180,6 +204,24 @@ export const LocalSyncInstallCard: React.FC<{
       ) : null}
 
       {error ? <p role="alert" className="mt-3 text-sm text-red-600">{error}</p> : null}
+
+      <p className="mt-3 text-xs text-gray-500">{t('agent.localSync.authorizationHelp')}</p>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={authorizing || generating || !spaceId || authorizationMatches}
+          onClick={() => void authorize()}
+          className="h-9 rounded-lg border border-blue-600 px-3 text-sm text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {authorizing
+            ? t('agent.localSync.authorizing')
+            : authorizationMatches
+              ? t('agent.localSync.authorized')
+              : currentGrant
+                ? t('agent.localSync.updateAuthorization')
+                : t('agent.localSync.authorize')}
+        </button>
+      </div>
 
       {result ? (
         <div className="mt-4">

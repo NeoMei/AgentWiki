@@ -139,6 +139,7 @@ export const AgentDetail: React.FC = () => {
             spaces={manageableSpaces}
             grants={currentAgent.grants}
             title={t('agent.accessAuthorization')}
+            onAuthorized={load}
           />
 
           <section className="border rounded-[14px] bg-white p-5">

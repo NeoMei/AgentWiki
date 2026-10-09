@@ -6,7 +6,7 @@ import { LanguageProvider } from '../../context/LanguageContext';
 import { LocalSyncInstallCard } from './LocalSyncInstallCard';
 
 vi.mock('../../api/client', () => ({
-  default: { post: vi.fn() },
+  default: { post: vi.fn(), put: vi.fn() },
 }));
 
 const instruction = '# 接入\nnpx --yes @neomei/agentwiki-local-sync@0.11.0 onboard --server https://wiki.test/api --code AW-ABCD-EFGH --protocol ndjson --agent auto';
@@ -38,6 +38,7 @@ describe('LocalSyncInstallCard', () => {
   beforeEach(() => {
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
     vi.mocked(api.post).mockReset();
+    vi.mocked(api.put).mockReset();
     Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
     vi.mocked(api.post).mockResolvedValue({ data: {
       installationId: 'install-1',
@@ -45,6 +46,7 @@ describe('LocalSyncInstallCard', () => {
       expiresAt: new Date(Date.now() + 600_000).toISOString(),
       instructions: instruction,
     } } as any);
+    vi.mocked(api.put).mockResolvedValue({ data: {} } as any);
   });
 
   afterEach(() => {
@@ -64,6 +66,33 @@ describe('LocalSyncInstallCard', () => {
       '/agents/agent-1/local-sync-installations',
       { pluginVersion: '0.11.0', spaceId: 'space-1', role: 'editor' },
     ));
+  });
+
+  it('authorizes the selected Space directly at the chosen role', async () => {
+    renderCard({ grants: [] });
+
+    fireEvent.change(screen.getByLabelText('Agent 角色'), { target: { value: 'editor' } });
+    fireEvent.click(screen.getByRole('button', { name: '授权此空间' }));
+
+    await waitFor(() => expect(api.put).toHaveBeenCalledWith(
+      '/agents/agent-1/grants/space-1',
+      { role: 'editor' },
+    ));
+    expect(await screen.findByRole('button', { name: '已授权' })).toBeDisabled();
+  });
+
+  it('offers an update action when changing an existing Space grant role', async () => {
+    renderCard();
+
+    fireEvent.change(screen.getByLabelText('Agent 角色'), { target: { value: 'editor' } });
+    const update = await screen.findByRole('button', { name: '更新授权' });
+    fireEvent.click(update);
+
+    await waitFor(() => expect(api.put).toHaveBeenCalledWith(
+      '/agents/agent-1/grants/space-1',
+      { role: 'editor' },
+    ));
+    expect(await screen.findByRole('button', { name: '已授权' })).toBeDisabled();
   });
 
   it('defaults the role selector to the selected Space authorization', async () => {
@@ -144,6 +173,7 @@ describe('LocalSyncInstallCard', () => {
 
     expect(screen.getByText('你需要先加入某个空间，才能为 Agent 生成该空间的接入授权。')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '生成统一网关接入指令' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '授权此空间' })).toBeDisabled();
   });
 
   it('shows a safe server explanation when connection authorization fails', async () => {

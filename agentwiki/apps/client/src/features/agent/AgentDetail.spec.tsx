@@ -58,13 +58,13 @@ describe('AgentDetail', () => {
       .mockResolvedValueOnce({ data: { data: [] } } as any);
   });
 
-  it('uses the unified connection card as the only editable authorization entry', async () => {
+  it('offers direct Space authorization alongside the unified connection card', async () => {
     renderDetail();
 
     fireEvent.click(await screen.findByRole('button', { name: '访问权限' }));
 
     expect(screen.getAllByRole('combobox', { name: 'Agent 角色' })).toHaveLength(1);
-    expect(screen.queryByRole('button', { name: '授权' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '授权此空间' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: '创建凭据' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '空间访问权限' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '凭据' })).not.toBeInTheDocument();
