@@ -57,3 +57,10 @@
 ## Windows真实同步补验与0.5.8
 
 Windows现已完成实际生产HTTPS同步，不再只有命令注册/自动化测试：真实按钮连接、映射、双向读写、V2父目录保护与恢复、手动迁移和V3图片升级均有回读。过程中复现并修复两个预览问题，0.5.8正式发布与逐资产签名独立复核通过。版本、场景与未验部分分别记录于 [Windows真实回执](receipts/windows-live-sync-20261009.md)。正式0.5.8隔离Vault最终验收已通过；合成生产资源已撤销，临时证据目录保留。
+
+## 2026-10-10 线上 Agent 闭环追补
+
+- 服务端长候选链已修复并部署：生产 worker 使用 `ASSIST_OPENCODE_PREFER_PAID_MODELS=true` 与 `ASSIST_OPENCODE_ATTEMPT_TIMEOUT_MS=180000`，显式 Coding Plan 模型先于免费发现模型；生产 API、worker、frontend active，健康五项正常。
+- 当前页面 `10-08Agentwiki平台测试情况` 已用临时 `codex` 绑定完成真实“对话→生成候选→人工接受→保存”链；页面 `Page.content` 服务端回读确认候选写入一次，随后通过页面编辑器清理验收标记并再次保存，回读标记计数为 0。绑定设置复核为“未绑定”，数据库 `PageAgentBinding` 对该页面为 0 行。
+- 专用数据库环境已补齐并重跑：数据库 harness 230 passed / 0 failed；全量门禁退出码 0（server 3068 passed、client 2245 passed、sync protocol 140 passed、local-sync 985 passed / 1 skipped）。
+- 这次线上写入只验证临时页面链路，未扩大当前 Space 的现有页面协作启动或 allowlist 策略。Windows 原测试者 Vault、原 Golden House/Space 的审核排序与右侧卡片原始回放仍保留为原环境待验；合成 fixture 与原案证据不混用。
