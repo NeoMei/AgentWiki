@@ -15,7 +15,7 @@ vi.mock('../../context/LanguageContext', () => ({ useLanguage: vi.fn() }));
 vi.mock('../../components/SpaceNav', () => ({ SpaceNav: () => <div>Space navigation</div> }));
 
 interface FixtureOptions {
-  role?: 'owner' | 'admin' | 'editor';
+  role?: 'owner' | 'admin' | 'editor' | 'viewer';
   agentRole?: 'reader' | 'editor' | 'publisher';
   canManageAgentRole?: boolean;
 }
@@ -89,11 +89,26 @@ describe('SpaceMembers Agent addition', () => {
     expect(await screen.findByRole('button', { name: '添加成员' })).toBeInTheDocument();
   });
 
-  it('does not show the Add member entry to a space editor', async () => {
+  it.each([
+    ['editor', 'editor'],
+    ['viewer', 'reader'],
+  ] as const)('lets a %s member open Agent delegation capped at %s', async (role, expectedRole) => {
+    renderMembers({ role });
+
+    fireEvent.click(await screen.findByRole('button', { name: '添加成员' }));
+    expect(screen.queryByRole('button', { name: '用户' })).not.toBeInTheDocument();
+    const agentRole = await screen.findByLabelText('智能体角色');
+    expect(agentRole).toHaveValue(expectedRole);
+    expect(Array.from(agentRole.querySelectorAll('option')).map((option) => option.value))
+      .toEqual(expectedRole === 'reader' ? ['reader'] : ['reader', 'editor']);
+  });
+
+  it('does not show human member management to a space editor', async () => {
     renderMembers({ role: 'editor' });
 
     await screen.findByText('Current');
-    expect(screen.queryByRole('button', { name: '添加成员' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '添加成员' }));
+    expect(screen.queryByLabelText('用户邮箱 *')).not.toBeInTheDocument();
   });
 
   it('updates an Agent grant with one canonical role and no scopes', async () => {

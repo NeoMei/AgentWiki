@@ -62,6 +62,10 @@ export const SpaceMembers: React.FC = () => {
   const myRole = currentMembers.find((member) => member.type === 'human' && member.userId === user?.id)?.role;
   const canManage = myRole === 'owner' || myRole === 'admin';
   const canGrantOwner = myRole === 'owner';
+  const canAddAgent = !!myRole;
+  const maxAgentRole: AgentAccessRole = myRole === 'owner' || myRole === 'admin'
+    ? 'publisher'
+    : myRole === 'editor' ? 'editor' : 'reader';
 
   const fetchMembers = async () => {
     if (!id) return;
@@ -173,7 +177,7 @@ export const SpaceMembers: React.FC = () => {
             {zh ? '分别管理用户成员角色与 Agent 访问角色。' : 'Manage human member roles and Agent access roles separately.'}
           </p>
         </div>
-        {canManage ? (
+        {canAddAgent ? (
           <button onClick={() => setShowAdd(true)} className="flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700">
             <Plus size={18} />
             {zh ? '添加成员' : 'Add member'}
@@ -307,6 +311,8 @@ export const SpaceMembers: React.FC = () => {
         <AddSpaceMemberDialog
           spaceId={id}
           existingAgentIds={existingAgentIds}
+          canManageHumans={canManage}
+          maxAgentRole={maxAgentRole}
           zh={zh}
           onClose={() => setShowAdd(false)}
           onAdded={fetchMembers}

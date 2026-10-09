@@ -35,6 +35,19 @@ describe('AddSpaceMemberDialog', () => {
 
   afterEach(cleanup);
 
+  it.each([
+    ['editor', 'editor', ['reader', 'editor']],
+    ['viewer', 'reader', ['reader']],
+  ] as const)('limits a %s member to their own Agent delegation ceiling', async (_memberRole, defaultRole, allowedRoles) => {
+    vi.mocked(api.get).mockResolvedValue({ data: [{ id: 'agent-new', name: 'New agent', status: 'active', revokedAt: null }] } as never);
+    renderDialog({ canManageHumans: false, maxAgentRole: defaultRole });
+
+    expect(screen.queryByRole('button', { name: '用户' })).not.toBeInTheDocument();
+    const role = await screen.findByLabelText('智能体角色');
+    expect(role).toHaveValue(defaultRole);
+    expect(Array.from(role.querySelectorAll('option')).map((option) => option.value)).toEqual(allowedRoles);
+  });
+
   it.each([[true, '读者', '编辑者', '发布者'], [false, 'Reader', 'Editor', 'Publisher']])('localizes all Agent role options while preserving Agent names (zh=%s)', async (zh, reader, editor, publisher) => {
     vi.mocked(api.get).mockResolvedValue({ data: [{ id: 'a', name: 'Reader / 自定义 Agent', status: 'active' }] } as never);
     renderDialog({ zh });

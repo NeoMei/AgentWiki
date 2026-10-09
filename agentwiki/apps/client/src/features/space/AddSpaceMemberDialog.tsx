@@ -12,6 +12,10 @@ export interface AddSpaceMemberDialogProps {
   spaceId: string;
   existingAgentIds: string[];
   zh: boolean;
+  /** Whether the current member may add human members as well as Agents. */
+  canManageHumans?: boolean;
+  /** Maximum Agent role this member may delegate in the Space. */
+  maxAgentRole?: AgentAccessRole;
   onClose: () => void;
   onAdded: () => Promise<void> | void;
 }
@@ -22,20 +26,24 @@ export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
   spaceId,
   existingAgentIds,
   zh,
+  canManageHumans = true,
+  maxAgentRole = 'publisher',
   onClose,
   onAdded,
 }) => {
   const t = (key: string) => messages[zh ? 'zh-CN' : 'en'][key] ?? key;
-  const [mode, setMode] = useState<MemberMode>('human');
+  const [mode, setMode] = useState<MemberMode>(canManageHumans ? 'human' : 'agent');
   const [email, setEmail] = useState('');
   const [humanRole, setHumanRole] = useState('viewer');
   const [agents, setAgents] = useState<AgentOption[]>([]);
   const [agentId, setAgentId] = useState('');
-  const [agentRole, setAgentRole] = useState<AgentAccessRole>('reader');
+  const [agentRole, setAgentRole] = useState<AgentAccessRole>(maxAgentRole);
   const [loadingAgents, setLoadingAgents] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [agentLoadError, setAgentLoadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const maxRoleIndex = AGENT_ACCESS_ROLES.indexOf(maxAgentRole);
+  const availableAgentRoles = AGENT_ACCESS_ROLES.filter((role) => AGENT_ACCESS_ROLES.indexOf(role) <= maxRoleIndex);
 
   const loadAgents = async () => {
     setLoadingAgents(true);
@@ -128,7 +136,7 @@ export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
           </button>
         </div>
 
-        <div className="mb-5 grid grid-cols-2 rounded-lg bg-gray-100 p-1" aria-label={zh ? '成员类型' : 'Member type'}>
+        {canManageHumans ? <div className="mb-5 grid grid-cols-2 rounded-lg bg-gray-100 p-1" aria-label={zh ? '成员类型' : 'Member type'}>
           {(['human', 'agent'] as const).map((candidate) => {
             const selected = mode === candidate;
             const label = candidate === 'human' ? (zh ? '用户' : 'User') : (zh ? '智能体' : 'Agent');
@@ -146,7 +154,7 @@ export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
               </button>
             );
           })}
-        </div>
+        </div> : null}
 
         <form onSubmit={submit} className="space-y-4">
           {mode === 'human' ? (
@@ -241,7 +249,7 @@ export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
                       onChange={(event) => setAgentRole(event.target.value as AgentAccessRole)}
                       className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      {AGENT_ACCESS_ROLES.map((role) => (
+                      {availableAgentRoles.map((role) => (
                         <option key={role} value={role}>
                           {t(`agent.role.${role}.name`)}
                         </option>
