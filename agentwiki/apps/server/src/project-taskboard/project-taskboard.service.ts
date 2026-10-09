@@ -193,7 +193,6 @@ export class ProjectTaskboardService {
         const patch = { ...(dto as Record<string, unknown>) };
         delete patch.id;
         const expected = patch.expected_status;
-        const takeover = patch.takeover;
         delete patch.expected_status;
         delete patch.takeover;
         this.assertExpectedStatus(existing, typeof expected === 'string' ? expected : undefined);

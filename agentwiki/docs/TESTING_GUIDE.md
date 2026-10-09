@@ -351,7 +351,12 @@ Agent 角色只授予对应的内容操作能力；即使是 Publisher，也不�
 ## 四、完整根门禁与快速冒烟测试
 
 发布候选验收必须使用完整根门禁；缺失任一专用 PostgreSQL/Redis
-前置变量时，门禁直接失败，不得将 DB/Redis 用例的 `skip` 计为验收通过：
+前置变量时，底层门禁直接失败，不得将 DB/Redis 用例的 `skip` 计为验收通过。
+仓库根命令 `pnpm test:full` 会在未提供任何门禁变量时，自动创建一次性的
+loopback PostgreSQL/Redis（Redis AOF `everysec`）测试环境，运行结束后删除自建资源；它不会复用应用库、
+远程主机或默认 Redis。若只提供了一部分变量，命令会直接报出缺失项，避免混用环境。
+
+已有专用环境时，可以显式传入完整变量：
 
 ```bash
 DATABASE_URL='<loopback test PostgreSQL URL>' \
@@ -365,7 +370,8 @@ pnpm test:full
 
 `pnpm test` 和 `pnpm test:runtime` 保留无数据库服务的日常开发模式，其 DB/Redis
 `skip` 不能作为发布验收证据。`test:full` 等价于在根测试进程中设置
-`AGENTWIKI_FULL_TEST=1`。门禁错误只报告缺失的变量名，不回显 URL 或凭据。
+`AGENTWIKI_FULL_TEST=1`；底层 `runtime-test-harness.mjs` 仍会在直接调用时拒绝缺参。
+门禁错误只报告缺失的变量名，不回显 URL 或凭据。
 
 快速冒烟脚本：
 
