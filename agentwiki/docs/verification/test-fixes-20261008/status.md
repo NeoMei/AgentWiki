@@ -57,3 +57,16 @@
 ## Windows真实同步补验与0.5.8
 
 Windows现已完成实际生产HTTPS同步，不再只有命令注册/自动化测试：真实按钮连接、映射、双向读写、V2父目录保护与恢复、手动迁移和V3图片升级均有回读。过程中复现并修复两个预览问题，0.5.8正式发布与逐资产签名独立复核通过。版本、场景与未验部分分别记录于 [Windows真实回执](receipts/windows-live-sync-20261009.md)。正式0.5.8隔离Vault最终验收已通过；合成生产资源已撤销，临时证据目录保留。
+
+## 2026-10-10 线上 Agent 闭环追补
+
+- 服务端长候选链已修复并部署：生产 worker 使用 `ASSIST_OPENCODE_PREFER_PAID_MODELS=true` 与 `ASSIST_OPENCODE_ATTEMPT_TIMEOUT_MS=180000`，显式 Coding Plan 模型先于免费发现模型；生产 API、worker、frontend active，健康五项正常。
+- 当前页面 `10-08Agentwiki平台测试情况` 已用临时 `codex` 绑定完成真实“对话→生成候选→人工接受→保存”链；页面 `Page.content` 服务端回读确认候选写入一次，随后通过页面编辑器清理验收标记并再次保存，回读标记计数为 0。绑定设置复核为“未绑定”，数据库 `PageAgentBinding` 对该页面为 0 行。
+- 专用数据库环境已补齐并重跑：数据库 harness 230 passed / 0 failed；全量门禁退出码 0（server 3068 passed、client 2245 passed、sync protocol 140 passed、local-sync 985 passed / 1 skipped）。
+- 这次线上写入只验证临时页面链路，未扩大当前 Space 的现有页面协作启动或 allowlist 策略。Windows 原测试者 Vault、原 Golden House/Space 的审核排序与右侧卡片原始回放仍保留为原环境待验；合成 fixture 与原案证据不混用。
+
+## 2026-10-10 原始 bug 报告页逐条回执
+
+- 已通过已登录浏览器直接编辑原始页面 `10-08Agentwiki平台测试情况`（页面 ID `4ca9b323-82c2-4077-b9f2-b025fff74d98`），追加“2026-10-10 修复回执：15 项逐条结果与门禁复验”。原始复现步骤、截图和历史回执均保留，未用 Agent 身份审批 ChangeSet。
+- 回执逐项记录了 v0.12.18 网页修复、0.5.8 插件修复、专用数据库门禁、当前页面真实 Agent 写入链，以及每一项的产品证据和原始账号/原始运行/原始设备边界。页面保存后通过 AgentWiki MCP 回读，`updatedAt=2026-10-09T22:00:26.631Z`，新增回执标题和 15 条编号均存在。
+- 原始测试者 UNKNOWN_PARENT Vault、Golden House 原 Space 的协作运行记录/图谱数据，以及 Space allowlist 的扩大仍明确写为边界；不把合成 fixture 或当前页面写入验收伪称为原案回放。

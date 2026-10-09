@@ -760,8 +760,7 @@ test('OpenCode fallback uses the proven route and the isolated project config', 
     lastMessagePath: '/tmp/fixture/last.txt', nodePath: '/usr/local/bin/node',
   });
   assert.deepEqual(args, [
-    'run', '--pure', '--model', 'deepseek/deepseek-v4-flash', '--variant', 'low',
-    '--format', 'json', '--dir', '/tmp/fixture', 'bounded prompt',
+    'run', '--model', 'alibaba-cn/deepseek-v4-flash', '--format', 'json', 'bounded prompt',
   ]);
   assert.equal(args.includes('--auto'), false);
   const config = { permission: { '*': 'deny', 'agentwiki_*': 'allow' }, mcp: { agentwiki: { enabled: true } } };

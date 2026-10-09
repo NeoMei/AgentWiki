@@ -99,6 +99,21 @@ describe('OpenCode model catalog', () => {
     );
   });
 
+  it('puts explicitly configured paid models first when paid preference is enabled', () => {
+    const models = parseVerboseModels(verboseFixture);
+    const configured = {
+      ...routingConfig,
+      paidModels: ['vendor/cheap', 'vendor/expensive'],
+      preferPaidModels: true,
+    } as RoutingConfig & { preferPaidModels: boolean };
+
+    expect(buildCandidates(models, configured, '中文 prompt').map((candidate) => candidate.id)).toEqual([
+      'vendor/cheap',
+      'vendor/expensive',
+      'opencode/free',
+    ]);
+  });
+
   it('reserves a zero-token-price subscription model for explicit paid fallback and excludes other paid models', () => {
     const models = parseVerboseModels(verboseFixture);
     models.push({ id: 'bailian-coding-plan/qwen3.7-plus', tier: 'free', price: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } });
