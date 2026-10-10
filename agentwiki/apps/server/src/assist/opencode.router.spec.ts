@@ -394,6 +394,30 @@ describe('OpencodeModelRouter', () => {
     expect(health.recordFailure).not.toHaveBeenCalled();
   });
 
+  it('normalizes scoped provider drift on the routed runModel path', async () => {
+    const { router, runner } = createRouter({
+      models: [model('free/one', 'free')],
+    });
+    runner.runModel.mockResolvedValueOnce(success('NEW-post-tail-drift'));
+    const pageSnapshot = {
+      content: 'old-post-tail',
+      updatedAt: '2026-10-10T00:00:00.000Z',
+      assistTarget: {
+        kind: 'selection',
+        from: 0,
+        to: 3,
+        quote: 'old',
+        prefix: '',
+        suffix: '-post',
+        baseUpdatedAt: '2026-10-10T00:00:00.000Z',
+      },
+    };
+
+    await expect(router.run({ ...task, mode: 'proposal', pageSnapshot })).resolves.toMatchObject({
+      changes: 'NEW-post-tail',
+    });
+  });
+
   it('does not hold a successful result past the lease while health reset is pending', async () => {
     jest.useFakeTimers();
     jest.setSystemTime(0);

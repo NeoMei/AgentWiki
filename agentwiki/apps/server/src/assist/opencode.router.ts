@@ -5,6 +5,7 @@ import { ModelHealthStore } from './model-health.store';
 import { buildCandidates, OpencodeModelCatalog } from './opencode.catalog';
 import { readRoutingConfig, RoutingConfig } from './opencode.config';
 import { OpencodeCliRunner } from './opencode.runner';
+import { normalizeAssistOutputScope } from './assist-target';
 import {
   AssistAttemptSummary,
   AssistInput,
@@ -117,6 +118,14 @@ export class OpencodeModelRouter implements OpencodeRunner, AgentRuntimePort, On
           ...(task.signal || task.mode || task.onAnswerText ? [{ signal: task.signal, mode: task.mode, onAnswerText: task.onAnswerText }] : []),
         );
         if (task.signal?.aborted) throw new OpencodeExecutionError('cancelled', 'cancelled', 'global', EMPTY_USAGE);
+        if (task.mode !== 'question') {
+          // The production path routes through runModel(), so apply the same
+          // bounded-anchor repair as the direct runner before the queue's
+          // strict scope assertion. Provider formatting drift outside the
+          // selected chapter must never turn an otherwise valid candidate into
+          // a generic session failure.
+          result.changes = normalizeAssistOutputScope(task.pageSnapshot, result.changes) as string;
+        }
         const completedAt = this.now();
         this.addUsage(totalUsage, result.usage);
         totalCost += result.cost;
