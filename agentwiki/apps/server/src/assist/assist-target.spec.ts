@@ -1,4 +1,4 @@
-import { assertAssistOutputScope, normalizeAssistOutputScope, validateAssistTarget } from './assist-target';
+import { assertAssistOutputScope, composeAssistOutputScope, normalizeAssistOutputScope, validateAssistTarget } from './assist-target';
 
 const updatedAt = '2026-01-01T00:00:00.000Z';
 function snapshot(patch: Record<string, unknown> = {}) {
@@ -50,5 +50,11 @@ describe('Assist source scope validation', () => {
     const raw = 'bad NEW post and another space';
     expect(normalizeAssistOutputScope(target, raw)).toBe(raw);
     expect(() => assertAssistOutputScope(target, raw)).toThrow('outside the target');
+  });
+
+  it('composes a compact replacement while preserving the saved outside source', () => {
+    const composed = composeAssistOutputScope(snapshot(), 'NEW');
+    expect(composed).toBe('pre NEW post');
+    expect(() => assertAssistOutputScope(snapshot(), composed)).not.toThrow();
   });
 });

@@ -183,7 +183,7 @@ describe('OpencodeCliRunner', () => {
     expect(child.kill).toHaveBeenCalledWith('SIGTERM');
   });
 
-  it('tells the model the exact editable range while keeping full markdown output', () => {
+  it('tells the model the exact editable range while requesting a compact replacement', () => {
     const prompt = new OpencodeCliRunner(config).buildPrompt({ intent: 'rewrite', pageSnapshot: {
       content: 'pre OLD post', updatedAt: '2026-01-01T00:00:00.000Z', assistTarget: {
         kind: 'selection', from: 4, to: 7, quote: 'OLD', prefix: 'pre ', suffix: ' post', baseUpdatedAt: '2026-01-01T00:00:00.000Z',
@@ -191,7 +191,7 @@ describe('OpencodeCliRunner', () => {
     } });
     expect(prompt).toContain('UTF-16 range [4, 7)');
     expect(prompt).toContain('outside this range must remain exactly unchanged');
-    expect(prompt).toContain('<full markdown>');
+    expect(prompt).toContain('only the replacement markdown');
   });
 
   it('builds an editing prompt from the task input', () => {

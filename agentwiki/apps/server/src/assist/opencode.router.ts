@@ -5,7 +5,7 @@ import { ModelHealthStore } from './model-health.store';
 import { buildCandidates, OpencodeModelCatalog } from './opencode.catalog';
 import { readRoutingConfig, RoutingConfig } from './opencode.config';
 import { OpencodeCliRunner } from './opencode.runner';
-import { normalizeAssistOutputScope } from './assist-target';
+import { composeAssistOutputScope } from './assist-target';
 import {
   AssistAttemptSummary,
   AssistInput,
@@ -124,7 +124,7 @@ export class OpencodeModelRouter implements OpencodeRunner, AgentRuntimePort, On
           // strict scope assertion. Provider formatting drift outside the
           // selected chapter must never turn an otherwise valid candidate into
           // a generic session failure.
-          result.changes = normalizeAssistOutputScope(task.pageSnapshot, result.changes) as string;
+          result.changes = composeAssistOutputScope(task.pageSnapshot, result.changes) as string;
         }
         const completedAt = this.now();
         this.addUsage(totalUsage, result.usage);

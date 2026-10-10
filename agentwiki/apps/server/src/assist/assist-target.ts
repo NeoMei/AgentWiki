@@ -76,6 +76,25 @@ export function normalizeAssistOutputScope(snapshot: unknown, changes: unknown):
   return `${prefix}${replacement}${suffix}`;
 }
 
+/**
+ * Proposal prompts use a compact replacement-only response so long pages do
+ * not exhaust the provider output budget. Keep accepting a complete source
+ * from older providers, but always rebuild the saved outside source before a
+ * proposal reaches the queue's strict scope check.
+ */
+export function composeAssistOutputScope(snapshot: unknown, changes: unknown): unknown {
+  const target = validateAssistTarget(snapshot);
+  if (!target || target.kind === 'document' || typeof changes !== 'string') return changes;
+  const normalized = normalizeAssistOutputScope(snapshot, changes);
+  try {
+    assertAssistOutputScope(snapshot, normalized);
+    return normalized;
+  } catch {
+    const source = (snapshot as { content: string }).content;
+    return `${source.slice(0, target.from)}${changes}${source.slice(target.to)}`;
+  }
+}
+
 /** Verify the complete source around the target, not merely the bounded context.
  * Length guards prevent prefix/suffix overlap from masquerading as preservation. */
 export function assertAssistOutputScope(snapshot: unknown, changes: unknown): void {
