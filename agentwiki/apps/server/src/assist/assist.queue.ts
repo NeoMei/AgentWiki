@@ -127,7 +127,9 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
         this.lastRecoveryAt = Date.now();
       }
       const concurrency = Number(this.config.get('ASSIST_CONCURRENCY') || 1);
-      const leaseMs = Number(this.config.get('ASSIST_LEASE_MS') || 5 * 60_000);
+      // Keep the worker lease longer than the five-minute provider budget so
+      // the model can finish and the completion transaction can still commit.
+      const leaseMs = Number(this.config.get('ASSIST_LEASE_MS') || 6 * 60_000);
       while (this.active < concurrency) {
         const candidate = await this.prisma.assistTask.findFirst({
           where: {

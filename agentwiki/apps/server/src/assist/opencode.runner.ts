@@ -38,7 +38,7 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
 
   async run(task: AssistInput): Promise<AssistRunResult> {
     const prompt = this.buildPrompt(task);
-    const timeoutMs = Number(this.config.get('ASSIST_OPENCODE_TIMEOUT_MS') || 180_000);
+    const timeoutMs = Number(this.config.get('ASSIST_OPENCODE_TIMEOUT_MS') || 300_000);
     const output = await this.exec(['run', '--format', 'json'], timeoutMs, 'model', task.onStreamChunk, task.signal, task.onAnswerText, task.mode, prompt);
     const result = this.parse(output, task.mode);
     if (task.mode !== 'question') assertAssistOutputScope(task.pageSnapshot, result.changes);
