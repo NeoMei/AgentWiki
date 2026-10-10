@@ -312,6 +312,24 @@ describe('ArticleContentsPopover', () => {
     expect(screen.getByRole('button', { name: 'Assist action' })).toBeVisible();
   });
 
+  it('keeps a floating trigger below the sticky toolbar while the article scrolls', async () => {
+    let toolbarBottom = 120;
+    const articleRef = React.createRef<HTMLDivElement>();
+    render(<LanguageProvider><div>
+      <div data-testid="editor-toolbar" ref={(node) => { if (node) vi.spyOn(node, 'getBoundingClientRect').mockImplementation(() => ({ bottom: toolbarBottom } as DOMRect)); }} />
+      <ArticleContentsPopover articleRootRef={articleRef} pageKey="floating" source="# A" floatingTrigger />
+      <div ref={articleRef} />
+    </div></LanguageProvider>);
+
+    const trigger = await screen.findByRole('button', { name: 'Contents' });
+    expect(trigger.parentElement).toBe(document.body);
+    expect(trigger).toHaveClass('fixed');
+    await waitFor(() => expect(trigger).toHaveStyle({ top: '132px', right: '16px' }));
+    toolbarBottom = 180;
+    fireEvent.scroll(document);
+    await waitFor(() => expect(trigger).toHaveStyle({ top: '192px' }));
+  });
+
   it('clamps the anchored popover inside a 390px viewport', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
     render(<Harness><h2 id="mobile">Mobile heading</h2></Harness>);

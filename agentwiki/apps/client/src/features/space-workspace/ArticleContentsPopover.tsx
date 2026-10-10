@@ -25,6 +25,8 @@ export interface ArticleContentsPopoverProps {
   spaceId?: string;
   /** Space occupied from the viewport's right edge by a visible wide-screen rail. */
   onOccupiedWidthChange?: (width: number) => void;
+  /** Keep the trigger in the viewport while the document workspace scrolls. */
+  floatingTrigger?: boolean;
 }
 
 interface PopoverPosition {
@@ -82,7 +84,7 @@ const scrollParent = (element: HTMLElement): HTMLElement | Window => {
   return window;
 };
 
-export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ articleRootRef, pageKey, source, activeHeadingId, onNavigate, onNavigateIntent, suppressed = false, spaceId, onOccupiedWidthChange }) => {
+export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ articleRootRef, pageKey, source, activeHeadingId, onNavigate, onNavigateIntent, suppressed = false, spaceId, onOccupiedWidthChange, floatingTrigger = false }) => {
   const { t, language } = useLanguage();
   const workspace = useOptionalSpaceWorkspace();
   const scoped = workspace?.spaceId && (!spaceId || workspace.spaceId === spaceId) ? workspace : null;
@@ -101,6 +103,7 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
   const open = !suppressed && (mobile ? mobileOpenFor === viewKey : (preferredOpen ?? wide) && dismissedFor !== viewKey);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [position, setPosition] = useState<PopoverPosition>({ left: 16, top: 88, width: 280, maxHeight: 0, resizeMax: 360 });
+  const [floatingTriggerPosition, setFloatingTriggerPosition] = useState({ top: STICKY_OFFSET, right: 16 });
   const wrapperRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLElement>(null);
@@ -129,10 +132,63 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
     else setLocal((current) => ({ ...(current.key === scopeKey ? current : {}), key: scopeKey, width }));
   };
 
+  const getFloatingTriggerPosition = useCallback(() => {
+    const canvas = articleRootRef.current?.closest<HTMLElement>('.document-canvas')
+      ?? wrapperRef.current?.closest<HTMLElement>('.document-canvas');
+    const canvasBounds = canvas?.getBoundingClientRect();
+    const canvasStyle = canvas ? window.getComputedStyle(canvas) : null;
+    const paddingLeft = canvasStyle ? Number.parseFloat(canvasStyle.paddingLeft) || 16 : 16;
+    const paddingRight = canvasStyle ? Number.parseFloat(canvasStyle.paddingRight) || 16 : 16;
+    const reservedRight = Math.max(paddingRight, occupiedWidth > 0 ? paddingLeft + occupiedWidth : 0);
+    const right = canvasBounds && canvasBounds.right > 0
+      ? Math.max(16, Math.ceil(window.innerWidth - (canvasBounds.right - reservedRight)))
+      : 16;
+    const triggerHeight = triggerRef.current?.getBoundingClientRect().height || 36;
+    const top = Math.min(
+      Math.max(16, currentStickyOffset(wrapperRef.current)),
+      Math.max(16, window.innerHeight - triggerHeight - 16),
+    );
+    return { top, right };
+  }, [articleRootRef, occupiedWidth]);
+
+  const updateFloatingTriggerPosition = useCallback(() => {
+    const next = getFloatingTriggerPosition();
+    setFloatingTriggerPosition((current) => current.top === next.top && current.right === next.right ? current : next);
+  }, [getFloatingTriggerPosition]);
+
+  useEffect(() => {
+    if (!floatingTrigger) return;
+    updateFloatingTriggerPosition();
+    document.addEventListener('scroll', updateFloatingTriggerPosition, true);
+    window.addEventListener('resize', updateFloatingTriggerPosition);
+    const toolbar = owningToolbar(wrapperRef.current);
+    const canvas = articleRootRef.current?.closest<HTMLElement>('.document-canvas')
+      ?? wrapperRef.current?.closest<HTMLElement>('.document-canvas');
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateFloatingTriggerPosition);
+    if (toolbar) observer?.observe(toolbar);
+    if (canvas && canvas !== toolbar) observer?.observe(canvas);
+    return () => {
+      document.removeEventListener('scroll', updateFloatingTriggerPosition, true);
+      window.removeEventListener('resize', updateFloatingTriggerPosition);
+      observer?.disconnect();
+    };
+  }, [articleRootRef, floatingTrigger, items.length, updateFloatingTriggerPosition]);
+
   const updatePosition = useCallback(() => {
     const trigger = triggerRef.current;
     if (!trigger) return;
+    const floating = floatingTrigger ? getFloatingTriggerPosition() : null;
+    if (floating) setFloatingTriggerPosition(floating);
     const bounds = trigger.getBoundingClientRect();
+    const effectiveBounds = floating
+      ? {
+        ...bounds,
+        top: floating.top,
+        bottom: floating.top + bounds.height,
+        left: window.innerWidth - floating.right - bounds.width,
+        right: window.innerWidth - floating.right,
+      }
+      : bounds;
     // Reading toolbar and canvas are siblings; edit mode may not mount a preview root.
     const canvas = articleRootRef.current?.closest<HTMLElement>('.document-canvas')
       ?? wrapperRef.current?.closest<HTMLElement>('.document-canvas');
@@ -140,15 +196,15 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
     const resizeMax = Math.min(360, available);
     const width = Math.min(preferredWidth, resizeMax >= 200 && !mobile ? resizeMax : 360, Math.max(0, window.innerWidth - 32));
     const rightmostLeft = Math.max(16, window.innerWidth - width - 16);
-    const top = Math.min(wide ? Math.max(140, currentStickyOffset(wrapperRef.current)) : bounds.bottom + 8, Math.max(16, window.innerHeight - 16));
+    const top = Math.min(wide ? Math.max(140, currentStickyOffset(wrapperRef.current)) : effectiveBounds.bottom + 8, Math.max(16, window.innerHeight - 16));
     setPosition({
-      left: wide ? rightmostLeft : Math.min(Math.max(16, bounds.right - width), rightmostLeft),
+      left: wide ? rightmostLeft : Math.min(Math.max(16, effectiveBounds.right - width), rightmostLeft),
       top,
       width,
       maxHeight: Math.max(0, window.innerHeight - top - 16),
       resizeMax,
     });
-  }, [articleRootRef, wide, mobile, preferredWidth]);
+  }, [articleRootRef, floatingTrigger, getFloatingTriggerPosition, wide, mobile, preferredWidth]);
 
   useEffect(() => {
     const root = articleRootRef.current;
@@ -201,7 +257,7 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
     updatePosition();
     const closeFromOutside = (event: PointerEvent) => {
       const target = event.target as Node;
-      if (!wrapperRef.current?.contains(target) && !popoverRef.current?.contains(target)) {
+      if (!wrapperRef.current?.contains(target) && !triggerRef.current?.contains(target) && !popoverRef.current?.contains(target)) {
         if (mobile) setMobileOpenFor(null);
         else if (!wide) setDismissedFor(viewKey);
       }
@@ -249,24 +305,36 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
     if (mobile) setMobileOpenFor(null); else if (!wide) setDismissedFor(viewKey);
   };
 
+  const triggerClassName = 'inline-flex min-h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:border-blue-300 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50';
+  const trigger = (
+    <button
+      ref={triggerRef}
+      type="button"
+      aria-haspopup="true"
+      aria-expanded={open}
+      disabled={suppressed}
+      title={suppressed ? (language === 'zh-CN' ? '关闭协作面板以查看目录' : 'Close the collaboration panel to show contents') : undefined}
+      onClick={() => {
+        if (!open) updatePosition();
+        chooseOpen(!open);
+      }}
+      className={`${triggerClassName}${floatingTrigger ? ' fixed' : ''}`}
+      style={floatingTrigger ? { top: floatingTriggerPosition.top, right: floatingTriggerPosition.right, zIndex: 25 } : undefined}
+    >
+      <List size={17} aria-hidden="true" />
+      {t('page.contents')}
+    </button>
+  );
+
   return (
     <div ref={wrapperRef} className="relative shrink-0">
-      <button
-        ref={triggerRef}
-        type="button"
-        aria-haspopup="true"
-        aria-expanded={open}
-        disabled={suppressed}
-        title={suppressed ? (language === 'zh-CN' ? '关闭协作面板以查看目录' : 'Close the collaboration panel to show contents') : undefined}
-        onClick={() => {
-          if (!open) updatePosition();
-          chooseOpen(!open);
-        }}
-        className="inline-flex min-h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:border-blue-300 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-      >
-        <List size={17} aria-hidden="true" />
-        {t('page.contents')}
-      </button>
+      {floatingTrigger ? (
+        <span aria-hidden="true" className={`${triggerClassName} invisible pointer-events-none`}>
+          <List size={17} aria-hidden="true" />
+          {t('page.contents')}
+        </span>
+      ) : trigger}
+      {floatingTrigger ? createPortal(trigger, document.body) : null}
       {open ? createPortal((
         <nav
           ref={popoverRef}
