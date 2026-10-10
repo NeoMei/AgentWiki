@@ -48,6 +48,34 @@ export function assertAssistTargetVersion(target: AssistTarget | undefined, upda
   }
 }
 
+const uniqueIndex = (source: string, needle: string): number | null => {
+  if (!needle) return 0;
+  const index = source.indexOf(needle);
+  return index >= 0 && source.indexOf(needle, index + 1) < 0 ? index : null;
+};
+
+/**
+ * Providers sometimes normalize punctuation outside a scoped edit while still
+ * returning the requested target replacement. Keep the scope guard strict by
+ * extracting the replacement between the unique bounded anchors and rebuilding
+ * the rest from the saved source. Ambiguous or missing anchors remain invalid.
+ */
+export function normalizeAssistOutputScope(snapshot: unknown, changes: unknown): unknown {
+  const target = validateAssistTarget(snapshot);
+  if (!target || target.kind === 'document' || typeof changes !== 'string') return changes;
+  const source = (snapshot as { content: string }).content;
+  const prefix = source.slice(0, target.from);
+  const suffix = source.slice(target.to);
+  if (changes.length >= prefix.length + suffix.length && changes.startsWith(prefix) && changes.endsWith(suffix)) return changes;
+
+  const prefixAt = uniqueIndex(changes, target.prefix);
+  const suffixAt = target.suffix ? uniqueIndex(changes, target.suffix) : changes.length;
+  if (prefixAt === null || suffixAt === null || prefixAt + target.prefix.length > suffixAt) return changes;
+  const replacementStart = prefixAt + target.prefix.length;
+  const replacement = changes.slice(replacementStart, suffixAt);
+  return `${prefix}${replacement}${suffix}`;
+}
+
 /** Verify the complete source around the target, not merely the bounded context.
  * Length guards prevent prefix/suffix overlap from masquerading as preservation. */
 export function assertAssistOutputScope(snapshot: unknown, changes: unknown): void {

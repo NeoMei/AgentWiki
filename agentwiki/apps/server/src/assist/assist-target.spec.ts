@@ -1,4 +1,4 @@
-import { assertAssistOutputScope, validateAssistTarget } from './assist-target';
+import { assertAssistOutputScope, normalizeAssistOutputScope, validateAssistTarget } from './assist-target';
 
 const updatedAt = '2026-01-01T00:00:00.000Z';
 function snapshot(patch: Record<string, unknown> = {}) {
@@ -36,5 +36,19 @@ describe('Assist source scope validation', () => {
 
   it('allows deletion of the entire selected range while preserving its outside source', () => {
     expect(() => assertAssistOutputScope(snapshot(), 'pre  post')).not.toThrow();
+  });
+
+  it('rebuilds the saved outside source when a provider drifts beyond bounded anchors', () => {
+    const raw = 'pre NEW post\nprovider-normalized-outside-target';
+    const normalized = normalizeAssistOutputScope(snapshot(), raw);
+    expect(normalized).toBe('pre NEW post');
+    expect(() => assertAssistOutputScope(snapshot(), normalized)).not.toThrow();
+  });
+
+  it('does not repair ambiguous bounded anchors', () => {
+    const target = snapshot({ prefix: ' ', suffix: ' ' });
+    const raw = 'bad NEW post and another space';
+    expect(normalizeAssistOutputScope(target, raw)).toBe(raw);
+    expect(() => assertAssistOutputScope(target, raw)).toThrow('outside the target');
   });
 });

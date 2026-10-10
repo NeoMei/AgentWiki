@@ -23,7 +23,7 @@ import {
 
 import { AGENT_SESSION_LIMITS as LIMIT } from './assist-session.types';
 import { AgentRuntimePort, BUILTIN_RUNTIME_CAPABILITIES } from './agent-runtime.port';
-import { assertAssistOutputScope, validateAssistTarget } from './assist-target';
+import { assertAssistOutputScope, normalizeAssistOutputScope, validateAssistTarget } from './assist-target';
 
 const MAX_OUTPUT_BYTES = 2_000_000;
 const TERMINATION_GRACE_MS = 5_000;
@@ -41,7 +41,10 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
     const timeoutMs = Number(this.config.get('ASSIST_OPENCODE_TIMEOUT_MS') || 300_000);
     const output = await this.exec(['run', '--format', 'json'], timeoutMs, 'model', task.onStreamChunk, task.signal, task.onAnswerText, task.mode, prompt);
     const result = this.parse(output, task.mode);
-    if (task.mode !== 'question') assertAssistOutputScope(task.pageSnapshot, result.changes);
+    if (task.mode !== 'question') {
+      result.changes = normalizeAssistOutputScope(task.pageSnapshot, result.changes) as string;
+      assertAssistOutputScope(task.pageSnapshot, result.changes);
+    }
     return result;
   }
 
