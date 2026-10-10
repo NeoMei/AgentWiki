@@ -437,13 +437,13 @@ describe('SpaceWorkspace', () => {
     const child = { ...folder, id: 'child', parentId: 'parent', name: 'Child', path: '/Parent/Child' };
     const folderNode = (f: Omit<typeof folder, 'parentId'> & { parentId: string | null }) => ({ ...f, kind: 'folder', sortOrder: 0, hasChildren: true });
     const node = (id: string) => ({ kind: 'page', id, title: id, folderId: 'child', path: `/${id}`, sortOrder: 0, createdAt: 'now', updatedAt: 'now' });
-    vi.mocked(api.get).mockImplementation(async (url: string, config?: { params?: { parentFolderId?: string } }) => {
+    vi.mocked(api.get).mockImplementation(async (url, config) => {
       if (url === '/pages/page-2') return { data: { id: 'page-2', title: 'Second article', content: 'Unrelated active article', format: 'markdown', spaceId: 'space-1', folderId: null, updatedAt: 'now', capabilities: { canEdit: true } } };
       if (url === '/pages/deletion-current') return { data: { id: 'deletion-current', title: 'Live article', content: 'Mounted editable article body', format: 'markdown', spaceId: 'space-1', folderId: 'child', updatedAt: 'now', capabilities: { canEdit: true } } };
       if (url === '/spaces/space-1') return { data: { id: 'space-1', name: 'Wiki', members: [{ userId: 'user-1', role: 'owner' }] } };
       if (url === '/spaces/space-1/folders') return { data: { spaceId: 'space-1', treeRevision: deleted ? '8' : '7', data: [folder, child], nextCursor: null } };
       if (url === '/spaces/space-1/content-tree') {
-        const parent = config?.params?.parentFolderId ?? null;
+        const parent = (config?.params as { parentFolderId?: string } | undefined)?.parentFolderId ?? null;
         return { data: { spaceId: 'space-1', treeRevision: deleted ? '8' : '7', parentFolderId: parent, nextCursor: null,
           data: parent === null ? (deleted && target === 'ancestor' ? [] : [folderNode(folder)])
             : parent === 'parent' ? [folderNode(child)] : [node('deletion-current'), node('other-page')].filter((n) => !deleted || n.id !== (target === 'page' || target === 'late' ? 'deletion-current' : 'other-page')) } };
@@ -501,7 +501,7 @@ describe('SpaceWorkspace', () => {
       path: folderId === 'folder-new' ? '/New parent/Current page' : '/Old parent/Current page',
       sortOrder: 0, createdAt: 'now', updatedAt: moved ? 'moved-at' : 'old-at',
     });
-    vi.mocked(api.get).mockImplementation(async (url: string, config?: { params?: { parentFolderId?: string } }) => {
+    vi.mocked(api.get).mockImplementation(async (url, config) => {
       if (url === '/pages/page-current') {
         pageLoads += 1;
         return { data: {
@@ -518,7 +518,7 @@ describe('SpaceWorkspace', () => {
         data: [folder('folder-old', 'Old parent'), folder('folder-new', 'New parent')], nextCursor: null,
       } };
       if (url === '/spaces/space-1/content-tree') {
-        const parentFolderId = config?.params?.parentFolderId ?? null;
+        const parentFolderId = (config?.params as { parentFolderId?: string } | undefined)?.parentFolderId ?? null;
         const nodes = parentFolderId === null
           ? [folderNode('folder-old', 'Old parent'), folderNode('folder-new', 'New parent')]
           : parentFolderId === (moved ? 'folder-new' : 'folder-old') ? [currentPageNode(parentFolderId)] : [];

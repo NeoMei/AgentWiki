@@ -988,7 +988,7 @@ describe('PageEditor remote update safety', () => {
     const child = { ...parent, id: 'child', parentId: 'parent', name: 'Child', path: '/Parent/Child' };
     const revision = () => restored ? '33' : deleted ? '32' : '31';
     vi.spyOn(window, 'confirm').mockReturnValue(true);
-    vi.mocked(api.get).mockImplementation(async (url: string, config?: { params?: { parentFolderId?: string } }) => {
+    vi.mocked(api.get).mockImplementation(async (url, config) => {
       if (url === '/pages/page-1') {
         reads += 1;
         if (restored) return restoredRead.promise;
@@ -999,7 +999,7 @@ describe('PageEditor remote update safety', () => {
       if (url === '/spaces/space-1') return { data: { id: 'space-1', name: 'Wiki', members: [{ userId: 'user-1', role: 'owner' }] } };
       if (url === '/spaces/space-1/folders') return { data: { treeRevision: revision(), data: deleted && !restored ? [] : [parent, child], nextCursor: null } };
       if (url === '/spaces/space-1/content-tree') {
-        const parentId = config?.params?.parentFolderId ?? null;
+        const parentId = (config?.params as { parentFolderId?: string } | undefined)?.parentFolderId ?? null;
         return { data: { treeRevision: revision(), parentFolderId: parentId, nextCursor: null,
           data: deleted && !restored ? [] : parentId === null ? [{ ...parent, kind: 'folder', sortOrder: 0, hasChildren: true }]
             : parentId === 'parent' ? [{ ...child, kind: 'folder', sortOrder: 0, hasChildren: true }]

@@ -790,15 +790,25 @@ test('production dependency floors exclude patched network and routing vulnerabi
   const client = JSON.parse(await read('apps/client/package.json'));
   const localSync = JSON.parse(await read('packages/local-sync/package.json'));
 
-  assert.equal(server.dependencies['@modelcontextprotocol/sdk'], '^1.30.0');
-  assert.equal(localSync.dependencies['@modelcontextprotocol/sdk'], '^1.30.0');
+  assert.equal(server.dependencies['@modelcontextprotocol/sdk'], '^1.32.1');
+  assert.equal(localSync.dependencies['@modelcontextprotocol/sdk'], '^1.32.1');
+  assert.equal(server.dependencies.axios, '^1.20.0');
+  assert.equal(client.dependencies.axios, '^1.20.0');
+  assert.equal(server.dependencies.express, '^5.3.0');
+  assert.equal(server.dependencies['socket.io'], '^4.8.4');
+  assert.equal(client.dependencies['socket.io-client'], '^4.8.4');
   assert.equal(client.dependencies['react-router-dom'], '^7.18.2');
   assert.equal(server.dependencies['image-size'], undefined);
   assert.match(workspace, /'@hono\/node-server': '2\.1\.0'/);
   assert.match(workspace, /body-parser: '1\.20\.6'/);
-  assert.match(workspace, /fast-uri: '4\.1\.4'/);
-  assert.match(workspace, /hono: '4\.13\.5'/);
+  assert.match(workspace, /engine\.io: '6\.6\.11'/);
+  assert.match(workspace, /fast-uri: '>=4\.1\.5'/);
+  assert.match(workspace, /hono: '4\.13\.13'/);
+  assert.match(workspace, /ip-address: '>=10\.7\.1'/);
+  assert.match(workspace, /multer: '2\.4\.0'/);
+  assert.match(workspace, /proxy-addr: '2\.0\.8'/);
   assert.match(workspace, /qs: '6\.16\.0'/);
+  assert.match(workspace, /source-map-js: '1\.2\.2'/);
 });
 
 test('workspace dependency floors exclude patched build-tool vulnerabilities', async () => {
