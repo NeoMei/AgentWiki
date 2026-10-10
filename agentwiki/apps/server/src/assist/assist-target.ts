@@ -85,13 +85,20 @@ export function normalizeAssistOutputScope(snapshot: unknown, changes: unknown):
 export function composeAssistOutputScope(snapshot: unknown, changes: unknown): unknown {
   const target = validateAssistTarget(snapshot);
   if (!target || target.kind === 'document' || typeof changes !== 'string') return changes;
+  const source = (snapshot as { content: string }).content;
+  const prefix = source.slice(0, target.from);
+  const suffix = source.slice(target.to);
+  const preserveSectionBoundary = (candidate: string): string => {
+    if (target.kind !== 'section' || !/^#{1,6}\s/u.test(suffix) || !candidate.endsWith(suffix)) return candidate;
+    const replacement = candidate.slice(0, candidate.length - suffix.length).replace(/\n+$/u, '');
+    return `${replacement}\n\n${suffix}`;
+  };
   const normalized = normalizeAssistOutputScope(snapshot, changes);
   try {
     assertAssistOutputScope(snapshot, normalized);
-    return normalized;
+    return preserveSectionBoundary(normalized as string);
   } catch {
-    const source = (snapshot as { content: string }).content;
-    return `${source.slice(0, target.from)}${changes}${source.slice(target.to)}`;
+    return preserveSectionBoundary(`${prefix}${changes}${suffix}`);
   }
 }
 

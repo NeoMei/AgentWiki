@@ -57,4 +57,13 @@ describe('Assist source scope validation', () => {
     expect(composed).toBe('pre NEW post');
     expect(() => assertAssistOutputScope(snapshot(), composed)).not.toThrow();
   });
+
+  it('keeps the next Markdown section on its own line', () => {
+    const target = {
+      content: 'OLD\n\n# Next', updatedAt, assistTarget: {
+        kind: 'section', from: 0, to: 5, quote: 'OLD\n\n', prefix: '', suffix: '# Next', baseUpdatedAt: updatedAt,
+      },
+    };
+    expect(composeAssistOutputScope(target, 'NEW')).toBe('NEW\n\n# Next');
+  });
 });
