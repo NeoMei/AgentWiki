@@ -79,8 +79,14 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
   }
 
   async runModel(prompt: string, model: string, timeoutMs: number, onStreamChunk?: StreamChunkCallback, options?: Pick<AssistInput, 'signal' | 'mode' | 'onAnswerText'>): Promise<OpencodeAttemptResult> {
+    // A proposal must return the entire Markdown source.  Enabling OpenCode's
+    // reasoning stream consumes the provider output budget before the JSON
+    // proposal is complete, which truncates long pages mid-string. Questions
+    // keep the thinking stream because their short answer has no large source
+    // payload to return.
+    const thinkingArgs = options?.mode === 'proposal' ? [] : ['--thinking'];
     const output = await this.exec(
-      ['run', '--model', model, '--thinking', '--format', 'json'],
+      ['run', '--model', model, ...thinkingArgs, '--format', 'json'],
       timeoutMs,
       'model',
       onStreamChunk, options?.signal, options?.onAnswerText, options?.mode, prompt,

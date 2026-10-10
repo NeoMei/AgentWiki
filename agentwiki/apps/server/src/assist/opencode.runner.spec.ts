@@ -131,6 +131,22 @@ describe('OpencodeCliRunner', () => {
     } finally { child?.kill('SIGKILL'); rmSync(directory, { recursive: true, force: true }); }
   });
 
+  it('reserves the provider output budget for full proposal JSON', async () => {
+    const child = childProcess();
+    const runner = new OpencodeCliRunner(config);
+    const execution = runner.runModel('prompt', 'fixture/model', 10_000, undefined, { mode: 'proposal' });
+
+    expect(spawn).toHaveBeenCalledWith('opencode', [
+      '--pure', 'run', '--model', 'fixture/model', '--format', 'json',
+    ], expect.objectContaining({ env: expect.any(Object) }));
+    child.stdout.write(JSON.stringify({
+      type: 'text',
+      part: { text: JSON.stringify({ summary: 'ok', changes: '# Result' }) },
+    }));
+    child.emit('close', 0);
+    await expect(execution).resolves.toMatchObject({ summary: 'ok', changes: '# Result' });
+  });
+
   it('cancels while prompt input is backpressured and safely absorbs a late EPIPE', async () => {
     const child = childProcess();
     child.stdin = new Writable({ write(_chunk, _encoding, _callback) { /* fixture never consumes */ } });
