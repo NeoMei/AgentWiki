@@ -281,6 +281,24 @@ describe('PagePreview checklist saves', () => {
     });
   });
 
+  it('renders a matching opening title once without changing Markdown task offsets', async () => {
+    const content = '# Checklist\n\n- [ ] original task';
+    queuePages({ data: page({ content }) });
+    vi.mocked(api.patch).mockResolvedValue({ data: patchPage({ content: content.replace('[ ]', '[x]') }) });
+    renderPreview();
+    expect(await screen.findAllByRole('heading', { level: 1, name: /Checklist/ })).toHaveLength(1);
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'original task' }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/pages/page-1', expect.objectContaining({
+      content: '# Checklist\n\n- [x] original task',
+    })));
+  });
+
+  it('retains the page title when the body heading follows other content', async () => {
+    queuePages({ data: page({ content: 'Introduction\n\n# Checklist' }) });
+    renderPreview();
+    expect(await screen.findAllByRole('heading', { level: 1, name: /Checklist/ })).toHaveLength(2);
+  });
+
   it('localizes a removed membership error without exposing server prose or page controls', async () => {
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
     vi.mocked(api.get).mockRejectedValue({ response: { status: 403, data: { code: 'SPACE_ACCESS_DENIED', message: 'Server English permission error' } } });

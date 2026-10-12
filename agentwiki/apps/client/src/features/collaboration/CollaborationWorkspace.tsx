@@ -13,6 +13,7 @@ import { UpgradeWorkflowTemplateDialog } from '../page-templates/UpgradeWorkflow
 import { newContentHref } from '../page-templates/newContentNavigation';
 import { listCompositeTemplates } from '../page-templates/compositeTemplateApi';
 import type { RunListKind, RunSummary, TemplateSummary } from './types';
+import './collaboration-workspace.css';
 
 type Tab = 'templates' | 'manage' | RunListKind;
 type LoadState = 'loading' | 'ready' | 'error';
@@ -203,23 +204,23 @@ export const CollaborationWorkspace: React.FC = () => {
   const retry = () => catalogTab ? void loadTemplates() : void loadRuns(tab as RunListKind);
 
   return (
-    <div className="mx-auto max-w-6xl min-w-0">
+    <div className="aw-collab aw-collab-workspace">
       <section aria-labelledby="collaboration-title">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="aw-collab-page-header">
           <div>
-            <h1 id="collaboration-title" className="text-2xl font-semibold text-gray-900">{t('collaboration.title')}</h1>
-            <p className="mt-1 max-w-3xl text-sm text-gray-600">{t('collaboration.subtitle')}</p>
+            <h1 id="collaboration-title" className="aw-collab-page-title">{t('collaboration.title')}</h1>
+            <p className="aw-collab-page-description">{t('collaboration.subtitle')}</p>
           </div>
-          {canStart && catalogTab ? <div className="flex flex-wrap gap-2">
-            {canCreateComposite && tab === 'templates' ? <button type="button" onClick={() => navigate(newContentHref(id, null, 'collaboration'))} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white">
+          {canStart && catalogTab ? <div className="aw-collab-toolbar-actions">
+            {canCreateComposite && tab === 'templates' ? <button type="button" onClick={() => navigate(newContentHref(id, null, 'collaboration'))} className="aw-collab-button aw-collab-button-primary">
               <Plus size={16} aria-hidden="true" />{t('collaboration.createCompositeRun')}
             </button> : null}
-            {canManage && tab !== 'manage' ? <Link to={`/spaces/${id}/collaboration?tab=manage`} className="inline-flex min-h-10 items-center justify-center rounded-lg border px-4 text-sm font-medium">{t('collaboration.manageTemplates')}</Link> : null}
-            {canManage ? <Link to={`/spaces/${id}/collaboration/templates/new`} className="inline-flex min-h-10 items-center justify-center rounded-lg border px-4 text-sm font-medium">{t('collaboration.createLegacyTemplate')}</Link> : null}
+            {canManage && tab !== 'manage' ? <Link to={`/spaces/${id}/collaboration?tab=manage`} className="aw-collab-button">{t('collaboration.manageTemplates')}</Link> : null}
+            {canManage ? <Link to={`/spaces/${id}/collaboration/templates/new`} className="aw-collab-button">{t('collaboration.createLegacyTemplate')}</Link> : null}
           </div> : null}
         </div>
 
-        <div role="tablist" aria-label={t('collaboration.sections')} className="mt-6 flex overflow-x-auto border-b">
+        <div role="tablist" aria-label={t('collaboration.sections')} className="aw-collab-tabs">
           {(['templates', ...(canManage ? ['manage' as const] : []), 'active', 'history'] as const).map((value) => (
             <button
               key={value}
@@ -227,14 +228,14 @@ export const CollaborationWorkspace: React.FC = () => {
               role="tab"
               aria-selected={tab === value}
               onClick={() => setTab(value)}
-              className={`min-h-11 whitespace-nowrap border-b-2 px-4 text-sm ${tab === value ? 'border-blue-600 font-medium text-blue-700' : 'border-transparent text-gray-500'}`}
+              className="aw-collab-tab"
             >{t(value === 'manage' ? 'collaboration.manageTemplates' : `collaboration.${value}`)}</button>
           ))}
         </div>
 
-        <div className="mt-5" role="tabpanel">
-          {tab === 'manage' && canManage ? <div className="mb-5"><h2 ref={managementHeading} tabIndex={-1} className="text-lg font-semibold">{t('collaboration.manageTemplates')}</h2><p className="mt-1 text-sm text-gray-600">{t('collaboration.managementHelp')}</p></div> : null}
-          {state === 'loading' ? <div data-testid="collaboration-loading" className="rounded-xl border bg-white py-14 text-center text-sm text-gray-500">{t('common.loading')}</div> : null}
+        <div className="aw-collab-tab-content" role="tabpanel">
+          {tab === 'manage' && canManage ? <div className="aw-collab-management-intro"><h2 ref={managementHeading} tabIndex={-1} className="text-lg font-semibold">{t('collaboration.manageTemplates')}</h2><p className="mt-1 text-sm text-gray-600">{t('collaboration.managementHelp')}</p></div> : null}
+          {state === 'loading' ? <div data-testid="collaboration-loading" className="aw-collab-empty">{t('common.loading')}</div> : null}
           {state === 'error' ? (
             <div data-testid="collaboration-error" className="rounded-xl border border-red-200 bg-red-50 py-12 text-center">
               <p className="text-sm text-red-700">{t('collaboration.loadFailed')}</p>
@@ -244,7 +245,7 @@ export const CollaborationWorkspace: React.FC = () => {
           {state === 'ready' && tab === 'manage' && !canManage ? <p role="alert" className="text-sm text-gray-600">{t('collaboration.permissionDenied')}</p> : null}
           {state === 'ready' && catalogTab && (tab !== 'manage' || canManage) ? (
             templates.length ? (
-              <div className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="aw-collab-template-list">
                 {templates.map((template) => (
                   <TemplateCard
                     key={template.id}
@@ -263,7 +264,7 @@ export const CollaborationWorkspace: React.FC = () => {
                   />
                 ))}
               </div>
-            ) : <div data-testid="collaboration-empty" className="rounded-xl border bg-white py-14 text-center text-sm text-gray-500">{t('collaboration.templatesEmpty')}</div>
+            ) : <div data-testid="collaboration-empty" className="aw-collab-empty">{t('collaboration.templatesEmpty')}</div>
           ) : null}
           {state === 'ready' && !catalogTab ? (
             <>

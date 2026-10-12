@@ -1,6 +1,6 @@
 import type { PageSourceStatus } from '@agentwiki/shared';
 import { SourceStatusNotice } from './SourceStatusNotice';
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useParams, Link, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
@@ -13,6 +13,7 @@ import { ArrowLeft, ChevronRight, Clock, Folder, User, PenLine, FileText } from 
 import 'highlight.js/styles/github.css';
 import { useLanguage } from '../../context/LanguageContext';
 import { Markdown } from '../../components/Markdown';
+import { outlineFor } from '../../components/markdown-tools/outline';
 import type { MarkdownTaskRef, MarkdownTaskToggle } from '../../components/markdown/markdownTypes';
 import { rebaseMarkdownTask, toggleMarkdownTask } from '../../components/markdown/tasks';
 import { useOptionalSpaceWorkspace, usePageWorkspaceIdentity } from '../space-workspace/SpaceWorkspaceContext';
@@ -583,6 +584,15 @@ export const PagePreview: React.FC = () => {
     }
   };
 
+  // Keep the original Markdown and source offsets intact when its opening
+  // heading already supplies the page title.
+  const titleInContent = useMemo(() => {
+    if (!page) return false;
+    const first = outlineFor(page.content || '')[0];
+    return first?.level === 1 && first.label.trim() === page.title.trim()
+      && !page.content.slice(0, first.from).trim();
+  }, [page]);
+
   if (loading) return <div className="text-center py-8 text-gray-500">{t('common.loading')}</div>;
   if (error) return (
     <div className="text-center py-8">
@@ -675,9 +685,9 @@ export const PagePreview: React.FC = () => {
 
       <SourceStatusNotice status={page.sourceStatus} />
       <article className="document-canvas min-h-[300px] bg-white" style={{ '--document-panel-width': `${agentOpen && panelGeometry.width >= 1600 ? 420 : outlineOccupiedWidth}px` } as React.CSSProperties}>
-        <header className="document-header">
-          <h1 title={page.title} className="document-title">{page.title}</h1>
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500">
+        <header className={titleInContent ? "document-content-title-meta" : "document-header document-reading-header"}>
+          {!titleInContent ? <h1 title={page.title} className="document-title">{page.title}</h1> : null}
+          <div className={`${titleInContent ? "" : "mt-3"} flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500`}>
             {page.author ? (
               <span className="flex items-center gap-1">
                 <User size={14} aria-hidden="true" />

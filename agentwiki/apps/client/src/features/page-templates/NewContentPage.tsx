@@ -62,9 +62,9 @@ function NewContentPageSession({ spaceId, folderId, fromCollaboration }: {
     else navigate(spaceFolderHref(spaceId, folderId), { replace: true });
   };
 
-  if (!current) return <p role="status" className="p-6 text-sm text-gray-500">{t('common.loading')}</p>;
-  if (current.error) return <div className="space-y-4 p-6"><p role="alert">{t(current.error)}</p>
-    <button type="button" className="min-h-10 rounded-lg border px-4 text-sm" onClick={() => navigate(returnHref)}>{t('creation.return')}</button></div>;
+  if (!current) return <p role="status" className="template-route-state">{t('common.loading')}</p>;
+  if (current.error) return <div className="template-route-state template-creation"><p role="alert">{t(current.error)}</p>
+    <button type="button" className="template-button" onClick={() => navigate(returnHref)}>{t('creation.return')}</button></div>;
   return <NewPageDialog presentation="page" initialKind={fromCollaboration ? 'page_group' : 'blank'}
     spaceId={spaceId} folderId={folderId} targetLocation={current.label}
     onClose={() => navigate(returnHref)} onCreated={onCreated} />;

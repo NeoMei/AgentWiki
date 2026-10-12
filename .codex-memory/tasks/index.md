@@ -4,6 +4,8 @@
 
 ## 活跃任务
 
+- [template-layout-plane-20261013](active/template-layout-plane-20261013/brief.md)：Plane 风格内置模板、协作和任务看板改版完成；709 项检查、独立复审、真实浏览器合成数据验收通过，未部署。
+
 - [test-triage-20261008](active/test-triage-20261008/brief.md)：网页0.12.17已部署、插件0.5.8已发布；Windows真实同步已执行，0.5.8最终冲突原生验收通过，生产测试资源已撤销，原案边界保留。
 
 - [q2-defect-closure-20261001](active/q2-defect-closure-20261001/brief.md)：全部20项及2条接入问题修复部署，公网TLS已验证，其余顺序实施与审查。

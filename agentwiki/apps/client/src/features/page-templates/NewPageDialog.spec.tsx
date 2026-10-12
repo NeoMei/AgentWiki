@@ -443,7 +443,7 @@ describe('NewPageDialog', () => {
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith('page-new'));
   });
 
-  it('returns focus to the opener on Escape and keeps the dialog mobile-safe', async () => {
+  it('returns focus to the opener on Escape from the template catalog', async () => {
     mocks.listPageTemplates.mockResolvedValue(catalog);
     render(<OpenerHarness />);
     const opener = screen.getByRole('button', { name: 'Open new page' });
@@ -451,8 +451,8 @@ describe('NewPageDialog', () => {
     fireEvent.click(opener);
 
     const dialog = await screen.findByRole('dialog');
-    expect(dialog).toHaveClass('w-full', 'max-w-2xl', 'overflow-y-auto');
-    expect(dialog.querySelector('.grid-cols-1')).toBeInTheDocument();
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(screen.getByRole('searchbox', { name: '搜索模板' })).toBeVisible();
     fireEvent.keyDown(dialog, { key: 'Escape' });
     await waitFor(() => expect(opener).toHaveFocus());
   });

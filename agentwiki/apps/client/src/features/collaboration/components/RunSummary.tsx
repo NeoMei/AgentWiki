@@ -22,20 +22,21 @@ export const RunSummary: React.FC<{
   const canOperate = !!role && (manager || starter);
   const terminal = ['completed', 'failed', 'cancelled'].includes(run.status);
   return (
-    <aside data-testid="dashboard-section-summary" className="order-1 min-h-0 min-w-0 lg:self-start lg:max-h-full lg:overflow-y-auto rounded-xl border bg-white p-4 lg:col-start-1 lg:row-start-1 lg:row-span-3">
-      <div aria-label={`${t(`collaboration.status.${run.status}`)} ${t('common.status').toLowerCase()}`} className="flex items-center gap-2">
-        <Icon data-testid="status-icon" size={18} className="shrink-0" aria-hidden="true" />
-        <span className="font-semibold">{t(`collaboration.status.${run.status}`)}</span>
+    <aside data-testid="dashboard-section-summary" tabIndex={0} className="aw-collab-summary min-h-0 min-w-0 lg:self-start">
+      <div aria-label={`${t(`collaboration.status.${run.status}`)} ${t('common.status').toLowerCase()}`} className="aw-collab-status aw-collab-summary-status" data-status={run.status}>
+        <Icon data-testid="status-icon" size={15} className="shrink-0" aria-hidden="true" />
+        <span>{t(`collaboration.status.${run.status}`)}</span>
       </div>
-      <h2 className="mt-4 break-words text-lg font-semibold">{run.name}</h2>
-      <dl className="mt-4 space-y-3 text-sm"><div><dt className="text-xs text-gray-500">{t('collaboration.dashboard.updated')}</dt><dd>{new Date(run.updatedAt).toLocaleString()}</dd></div><div><dt className="text-xs text-gray-500">{t('collaboration.dashboard.version')}</dt><dd>{run.version}</dd></div>{run.pauseReason ? <div><dt className="text-xs text-gray-500">{t('collaboration.dashboard.pauseReason')}</dt><dd className="break-words">{run.pauseReason}</dd></div> : null}</dl>
-      {canOperate && ['running', 'waiting_review'].includes(run.status) && onGetContinuation ? <button type="button" disabled={continuationLoading} onClick={onGetContinuation} className="mt-5 min-h-10 w-full rounded-lg border px-3 text-sm disabled:opacity-50">{t(continuationLoading ? 'collaboration.dashboard.gettingContinuation' : 'collaboration.dashboard.getContinuation')}</button> : null}
-      {!terminal ? <div className="mt-5 grid gap-2">
-        {canOperate && ['running', 'waiting_review'].includes(run.status) ? <button type="button" onClick={() => onAction('pause')} className="min-h-10 rounded-lg border px-3 text-sm">{t('collaboration.dashboard.pause')}</button> : null}
-        {canOperate && run.status === 'paused' ? <button type="button" onClick={() => onAction('resume')} className="min-h-10 rounded-lg border px-3 text-sm">{t('collaboration.dashboard.resume')}</button> : null}
-        {manager ? <button type="button" onClick={() => onAction('fail')} className="min-h-10 rounded-lg border border-red-200 px-3 text-sm text-red-700">{t('collaboration.dashboard.fail')}</button> : null}
-        {manager ? <button type="button" onClick={() => onAction('cancel')} className="min-h-10 rounded-lg border border-red-200 px-3 text-sm text-red-700">{t('collaboration.dashboard.cancel')}</button> : null}
-      </div> : null}
+      <dl className="aw-collab-summary-facts"><div><dt>{t('collaboration.dashboard.updated')}</dt><dd>{new Date(run.updatedAt).toLocaleString()}</dd></div><div><dt>{t('collaboration.dashboard.version')}</dt><dd>{run.version}</dd></div>{run.pauseReason ? <div><dt>{t('collaboration.dashboard.pauseReason')}</dt><dd>{run.pauseReason}</dd></div> : null}</dl>
+      <div className="aw-collab-summary-actions">
+        {canOperate && ['running', 'waiting_review'].includes(run.status) && onGetContinuation ? <button type="button" disabled={continuationLoading} onClick={onGetContinuation} className="aw-collab-button">{t(continuationLoading ? 'collaboration.dashboard.gettingContinuation' : 'collaboration.dashboard.getContinuation')}</button> : null}
+        {!terminal ? <>
+          {canOperate && ['running', 'waiting_review'].includes(run.status) ? <button type="button" onClick={() => onAction('pause')} className="aw-collab-button">{t('collaboration.dashboard.pause')}</button> : null}
+          {canOperate && run.status === 'paused' ? <button type="button" onClick={() => onAction('resume')} className="aw-collab-button">{t('collaboration.dashboard.resume')}</button> : null}
+          {manager ? <button type="button" onClick={() => onAction('fail')} className="aw-collab-button aw-collab-button-ghost aw-collab-button-danger">{t('collaboration.dashboard.fail')}</button> : null}
+          {manager ? <button type="button" onClick={() => onAction('cancel')} className="aw-collab-button aw-collab-button-ghost aw-collab-button-danger">{t('collaboration.dashboard.cancel')}</button> : null}
+        </> : null}
+      </div>
     </aside>
   );
 };
