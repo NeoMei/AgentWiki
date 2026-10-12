@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.12.18** — Lets human Space members delegate their own Agents within the live member-role ceiling. The v0.12.17 full-page document workspace and OpenKnowledge-inspired reading/editing baseline remain included. See the [release record](docs/releases-v0.12.18.md) for verification and deployment boundaries.
+> **v0.12.19** — Simplifies built-in template creation, collaboration setup and run workspaces, taskboards, and document typography. See the [release record](docs/releases-v0.12.19.md) for changes and verification.
 
 
 ## Hosted Service

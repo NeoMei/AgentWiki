@@ -1,6 +1,6 @@
 # AgentWiki
 
-> 当前源码版本：**v0.2.9**（npm 0.2.9 已暂存，待 WebAuthn 批准）
+> 当前源码版本：**v0.12.19** — 内置模板与协作工作区版式更新。详见 [发布记录](agentwiki/docs/releases-v0.12.19.md)。
 
 > A knowledge base system designed for **people and AI Agents**.
 > Write in Markdown, connect information through a knowledge graph,
