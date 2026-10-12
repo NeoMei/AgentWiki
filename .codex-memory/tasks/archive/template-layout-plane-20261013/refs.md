@@ -14,3 +14,11 @@
 - 预览 harness 备份：同目录 `harness/`。首版截图/日志在其上级目录，首版709测试仅是早期证据，最终以2254为准。
 - 三轮独立审查：scope_audit_round1/code_audit_round1/validation_audit_round1、audit_round2（含CSS子审）、audit_round3；最后一轮独立159测试通过。
 - node_modules 为原检出依赖符号链接，不纳入提交；原检出资料未更改。
+
+## v0.12.19 发布
+
+- GitHub：https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.19；源码654731b15d507c4defa24ef82f0708eb178b5a07。
+- 生产发布回执：agentwiki/docs/verification/template-layout-v01219-release.md。
+- 完整日志、JSON、截图：`/Users/neomei/.codex/visualizations/2026/10/12/01a130d1-6332-7282-96eb-8a5399507e3f/agentwiki-template-redesign/release-v0.12.19`。
+- 备份：`/var/backups/agentwiki/template-v01219.p0KtBBrm`；旧应用：`/root/agentwiki-previous-20261013023338`。
+- 先前本地合成预览记录仅作研发证据，最终线上生效以本节回执为准。
