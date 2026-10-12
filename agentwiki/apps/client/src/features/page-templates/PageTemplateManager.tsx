@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { ArrowLeft, FileText, FolderTree, Search } from 'lucide-react';
 import { apiErrorCode, apiErrorMessage } from '../../api/error-message';
 import { ModalDialog } from '../../components/ModalDialog';
 import { useLanguage } from '../../context/LanguageContext';
@@ -34,6 +35,7 @@ import type {
   PageTemplateSummary,
 } from './pageTemplateTypes';
 import { truncateValidatorLength } from './validatorLength';
+import './page-template-manager.css';
 
 type PendingDialog =
   | { type: 'metadata'; template: PageTemplateSummary }
@@ -597,52 +599,61 @@ export const PageTemplateManager: React.FC = () => {
 
   const renderTemplate = (template: PageTemplateSummary, mutable: boolean) => {
     const archivePending = pendingArchiveKeys.has(`${id ?? ''}\u0000${template.id}`);
+    const TemplateIcon = (template as ManagedTemplate).kind === 'page_group' ? FolderTree : FileText;
     return (
-    <article key={template.id} className="rounded-[14px] border bg-white p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 break-words">
-          <h3 className="break-all font-medium [overflow-wrap:anywhere]">{template.name}</h3>
-          <p className="mt-1 break-words text-sm text-gray-500">{template.description}</p>
-          <p className="mt-2 text-xs text-gray-400">
-            {t(`pageTemplate.scope.${template.scope}`)} · {t(`pageTemplate.category.${template.category}`)} · v{template.currentVersion}
-          </p>
+      <article key={template.id} className="page-template-manager-row">
+        <div className="page-template-manager-summary">
+          <span className="page-template-manager-icon"><TemplateIcon size={16} aria-hidden="true" /></span>
+          <div className="page-template-manager-content">
+            <div className="page-template-manager-name">
+              <h3>{template.name}</h3>
+              {template.archivedAt ? <span className="page-template-manager-status">{t('runtime.archived')}</span> : null}
+            </div>
+            {template.description ? <p className="page-template-manager-description">{template.description}</p> : null}
+            <p className="page-template-manager-meta">
+              <span>{t(`pageTemplate.scope.${template.scope}`)}</span>
+              <span>{t(`pageTemplate.category.${template.category}`)}</span>
+              <span>v{template.currentVersion}</span>
+            </p>
+          </div>
         </div>
         {mutable && canMutateTemplate(template) ? (
-          <div className="flex w-full min-w-0 flex-wrap gap-2 sm:w-auto">
+          <div className="page-template-manager-actions">
             {!template.archivedAt ? (
               <>
-                <button type="button" disabled={archivePending} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => openMetadata(template)}>
-                  {t('common.edit')} {template.name}
+                <button type="button" disabled={archivePending} aria-label={`${t('common.edit')} ${template.name}`} className="page-template-manager-button max-w-full break-all [overflow-wrap:anywhere]" onClick={() => openMetadata(template)}>
+                  {t('common.edit')}
                 </button>
-                <button type="button" disabled={archivePending} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => openVersion(template)}>
-                  {usesDefinitionStorage(template) ? t('pageTemplate.composite.editStructure') : t('pageTemplate.updateFromPage')} {template.name}
+                <button type="button" disabled={archivePending} aria-label={`${usesDefinitionStorage(template) ? t('pageTemplate.composite.editStructure') : t('pageTemplate.updateFromPage')} ${template.name}`} className="page-template-manager-button max-w-full break-all [overflow-wrap:anywhere]" onClick={() => openVersion(template)}>
+                  {usesDefinitionStorage(template) ? t('pageTemplate.composite.editStructure') : t('pageTemplate.updateFromPage')}
                 </button>
-                <button type="button" disabled={archivePending} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm text-red-600 break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => void changeArchiveState(template, false)}>
-                  {t('pageTemplate.archive')} {template.name}
+                <button type="button" disabled={archivePending} aria-label={`${t('pageTemplate.archive')} ${template.name}`} className="page-template-manager-button is-danger max-w-full break-all [overflow-wrap:anywhere]" onClick={() => void changeArchiveState(template, false)}>
+                  {t('pageTemplate.archive')}
                 </button>
               </>
             ) : (
               <>
-                {usesDefinitionStorage(template) ? <button type="button" disabled={archivePending} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => inspectComposite(template)}>{t('pageTemplate.composite.inspect')} {template.name}</button> : null}
-                <button type="button" disabled={archivePending} className="min-h-10 max-w-full whitespace-normal rounded-lg border px-3 py-2 text-sm break-all [overflow-wrap:anywhere] disabled:opacity-50" onClick={() => void changeArchiveState(template, true)}>
-                  {t('pageTemplate.restore')} {template.name}
+                {usesDefinitionStorage(template) ? <button type="button" disabled={archivePending} aria-label={`${t('pageTemplate.composite.inspect')} ${template.name}`} className="page-template-manager-button max-w-full break-all [overflow-wrap:anywhere]" onClick={() => inspectComposite(template)}>{t('pageTemplate.composite.inspect')}</button> : null}
+                <button type="button" disabled={archivePending} aria-label={`${t('pageTemplate.restore')} ${template.name}`} className="page-template-manager-button max-w-full break-all [overflow-wrap:anywhere]" onClick={() => void changeArchiveState(template, true)}>
+                  {t('pageTemplate.restore')}
                 </button>
               </>
             )}
           </div>
         ) : null}
-      </div>
-    </article>
+      </article>
     );
   };
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <Link to={`/spaces/${id}/settings`} className="text-sm text-gray-500 hover:text-blue-600">
-        ← {t('settings.spaceTitle')}
-      </Link>
-      <h1 className="mt-3 text-2xl font-semibold">{t('pageTemplate.settingsTitle')}</h1>
-      <p className="mt-1 text-sm text-gray-500">{t('pageTemplate.settingsDescription')}</p>
+    <div className="page-template-manager">
+      <header className="page-template-manager-header">
+        <Link to={`/spaces/${id}/settings`} className="page-template-manager-back">
+          <ArrowLeft size={16} aria-hidden="true" /> {t('settings.spaceTitle')}
+        </Link>
+        <h1>{t('pageTemplate.settingsTitle')}</h1>
+        <p>{t('pageTemplate.settingsDescription')}</p>
+      </header>
 
       {visibleTemplates.space.some((template) => usesDefinitionStorage(template))
         && visibleTemplates.capabilities.canManageDefinitions !== true ? <p role="status" className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{t('pageTemplate.composite.manageUnavailable')}</p> : null}
@@ -650,56 +661,59 @@ export const PageTemplateManager: React.FC = () => {
         {t('pageTemplate.composite.managerFallback')}
       </p> : null}
 
-      <div className="mt-6 grid gap-3 rounded-[14px] border bg-white p-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_160px_160px_160px_auto] lg:items-end">
-        <label className="text-sm font-medium">
-          <span className="mb-1 block">{t('pageTemplate.search')}</span>
-          <input
-            ref={fallbackFocusRef}
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(truncateValidatorLength(event.target.value, TEMPLATE_SEARCH_LIMIT))}
-            className="h-10 w-full rounded-lg border px-3 font-normal"
-          />
+      <div className="page-template-manager-toolbar">
+        <label className="page-template-manager-filter page-template-manager-search">
+          <span className="page-template-manager-filter-label">{t('pageTemplate.search')}</span>
+          <span className="page-template-manager-search-input">
+            <Search size={16} aria-hidden="true" />
+            <input
+              ref={fallbackFocusRef}
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(truncateValidatorLength(event.target.value, TEMPLATE_SEARCH_LIMIT))}
+              className="page-template-manager-control"
+            />
+          </span>
         </label>
-        <label className="text-sm font-medium">
-          <span className="mb-1 block">{t('pageTemplate.composite.kindFilter')}</span>
-          <select value={kind} onChange={(event) => setKind(event.target.value as typeof kind)} className="h-10 w-full rounded-lg border px-3 font-normal">
+        <label className="page-template-manager-filter">
+          <span className="page-template-manager-filter-label">{t('pageTemplate.composite.kindFilter')}</span>
+          <select value={kind} onChange={(event) => setKind(event.target.value as typeof kind)} className="page-template-manager-control">
             <option value="">{t('pageTemplate.filter.all')}</option>
             <option value="single_page">{t('pageTemplate.composite.singlePage')}</option>
             <option value="page_group">{t('pageTemplate.composite.pageGroup')}</option>
           </select>
         </label>
-        <label className="text-sm font-medium">
-          <span className="mb-1 block">{t('pageTemplate.composite.scopeFilter')}</span>
-          <select value={scope} onChange={(event) => setScope(event.target.value as typeof scope)} className="h-10 w-full rounded-lg border px-3 font-normal">
+        <label className="page-template-manager-filter">
+          <span className="page-template-manager-filter-label">{t('pageTemplate.composite.scopeFilter')}</span>
+          <select value={scope} onChange={(event) => setScope(event.target.value as typeof scope)} className="page-template-manager-control">
             <option value="all">{t('pageTemplate.filter.all')}</option>
             <option value="system">{t('pageTemplate.filter.system')}</option>
             <option value="space">{t('pageTemplate.filter.space')}</option>
           </select>
         </label>
-        <label className="text-sm font-medium">
-          <span className="mb-1 block">{t('pageTemplate.category')}</span>
+        <label className="page-template-manager-filter">
+          <span className="page-template-manager-filter-label">{t('pageTemplate.category')}</span>
           <select
             value={category}
             onChange={(event) => setCategory(event.target.value as PageTemplateCategory | '')}
-            className="h-10 w-full rounded-lg border px-3 font-normal"
+            className="page-template-manager-control"
           >
             <option value="">{t('pageTemplate.filter.all')}</option>
             {CATEGORIES.map((value) => <option key={value} value={value}>{t(`pageTemplate.category.${value}`)}</option>)}
           </select>
         </label>
-        <label className="flex min-h-10 items-center gap-2 text-sm">
+        <label className="page-template-manager-archived">
           <input type="checkbox" checked={showArchived} onChange={(event) => setShowArchived(event.target.checked)} />
           {t('pageTemplate.showArchived')}
         </label>
       </div>
 
       {error ? (
-        <div className="mt-4 flex flex-wrap items-center gap-3">
+        <div className="page-template-manager-error">
           <p role="alert" className="text-sm text-red-600">{error}</p>
           <button
             type="button"
-            className="min-h-10 rounded-lg border px-3 py-2 text-sm"
+            className="page-template-manager-button"
             onClick={() => {
               invalidateCatalog();
               void load(true);
@@ -709,25 +723,25 @@ export const PageTemplateManager: React.FC = () => {
           </button>
         </div>
       ) : null}
-      {loading ? <p className="mt-6 text-sm text-gray-500">{t('common.loading')}</p> : null}
+      {loading ? <p className="page-template-manager-loading">{t('common.loading')}</p> : null}
       {!loading && !error && visibleTemplates.system.length === 0 && visibleTemplates.space.length === 0 ? (
-        <p role="status" className="mt-6 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600">
+        <p role="status" className="page-template-manager-empty">
             {search.trim() || category || kind || scope !== 'all' || showArchived
             ? t('pageTemplate.emptySearch')
             : t('pageTemplate.emptyCatalog')}
         </p>
       ) : null}
 
-      <section className="mt-6" aria-labelledby="system-templates-heading">
-        <h2 id="system-templates-heading" className="text-xl font-semibold">{t('pageTemplate.filter.system')}</h2>
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
+      <section className="page-template-manager-section" aria-labelledby="system-templates-heading">
+        <h2 id="system-templates-heading" className="page-template-manager-section-title">{t('pageTemplate.filter.system')}</h2>
+        <div className="page-template-manager-list">
           {visibleTemplates.system.map((template) => renderTemplate(template, false))}
         </div>
       </section>
 
-      <section className="mt-8" aria-labelledby="space-templates-heading">
-        <h2 id="space-templates-heading" className="text-xl font-semibold">{t('pageTemplate.filter.space')}</h2>
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
+      <section className="page-template-manager-section" aria-labelledby="space-templates-heading">
+        <h2 id="space-templates-heading" className="page-template-manager-section-title">{t('pageTemplate.filter.space')}</h2>
+        <div className="page-template-manager-list">
           {visibleTemplates.space.map((template) => renderTemplate(template, true))}
         </div>
         {spaceNextSkipRef.current < visibleTemplates.totalSpace ? (
@@ -735,7 +749,7 @@ export const PageTemplateManager: React.FC = () => {
             type="button"
             disabled={loadingMore}
             onClick={() => void load(false)}
-            className="mt-4 h-10 rounded-lg border px-4 text-sm disabled:opacity-50"
+            className="page-template-manager-button page-template-manager-load-more"
           >
             {language === 'zh-CN' ? '加载更多' : 'Load more'}
           </button>

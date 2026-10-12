@@ -16,6 +16,8 @@ import type {
   TemplateDetail,
 } from './types';
 import { buildAgentJoinInstructions } from './agentJoinInstructions';
+import { runSystemTemplateText, systemTemplateText } from './systemTemplateText';
+import './run-start-wizard.css';
 
 export { buildAgentJoinInstructions } from './agentJoinInstructions';
 
@@ -621,70 +623,98 @@ export const RunStartWizard: React.FC = () => {
   const firstRequiredUnmappedSlot = template?.definition.roleSlots.find((slot) =>
     slot.required && !bindings.some((binding) => binding.roleSlotId === slot.id));
 
-  if (loading) return <div data-testid="run-wizard-loading" className="py-14 text-center text-sm text-gray-500">{t('common.loading')}</div>;
-  if (!template) return <div role="alert" className="rounded-xl border border-red-200 bg-red-50 py-12 text-center"><p className="text-sm text-red-700">{t('collaboration.wizard.loadFailed')}</p><button type="button" onClick={() => void initialize()} className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm"><RefreshCw size={15} />{t('common.retry')}</button></div>;
+  if (loading) return <div data-testid="run-wizard-loading" className="aw-run-start aw-run-start-empty">{t('common.loading')}</div>;
+  if (!template) return <div role="alert" className="aw-run-start aw-run-start-empty"><p>{t('collaboration.wizard.loadFailed')}</p><button type="button" onClick={() => void initialize()} className="aw-run-start-button"><RefreshCw size={15} />{t('common.retry')}</button></div>;
 
   return (
-    <div className="mx-auto max-w-4xl min-w-0">
-      <Link to={`/spaces/${id}/collaboration`} className="inline-flex items-center gap-1 text-sm text-gray-500"><ArrowLeft size={15} />{t('collaboration.title')}</Link>
-      <div className="mt-3"><h1 className="text-2xl font-semibold">{t('collaboration.wizard.title')}</h1><p className="mt-1 text-sm text-gray-600">{template.name}</p></div>
-      <ol aria-label={t('collaboration.wizard.progress')} className="mt-6 grid grid-cols-3 gap-2 text-center text-xs sm:text-sm">
-        {[1, 2, 3].map((value) => <li key={value} className={`rounded-lg border px-2 py-2 ${step === value ? 'border-blue-500 bg-blue-50 font-medium text-blue-700' : value < step || started ? 'border-green-200 bg-green-50 text-green-700' : 'text-gray-500'}`}>{value}. {t(`collaboration.wizard.step${value}Short`)}</li>)}
+    <div className="aw-run-start">
+      <header className="aw-run-start-header">
+        <Link to={`/spaces/${id}/collaboration`} className="aw-run-start-back"><ArrowLeft size={14} />{t('collaboration.title')}</Link>
+        <h1>{t('collaboration.wizard.title')}</h1>
+        <p>{template.name}</p>
+      </header>
+      <ol aria-label={t('collaboration.wizard.progress')} className="aw-run-start-progress">
+        {[1, 2, 3].map((value) => (
+          <li key={value} aria-current={!started && step === value ? 'step' : undefined} data-complete={value < step || !!started}>
+            <span className="aw-run-start-step-number" aria-hidden="true">{value < step || started ? <CheckCircle2 size={15} /> : value}</span>
+            <span>{t(`collaboration.wizard.step${value}Short`)}</span>
+          </li>
+        ))}
       </ol>
 
-      <div className="mt-6">
-        <fieldset disabled={submitting} className="disabled:opacity-70">
-        {!started && step === 1 ? <InputStep template={template} runName={runName} onRunName={setRunName} values={inputValues} onValues={setInputValues} t={t} /> : null}
-        {!started && step === 2 ? (
-          <section>
-            <h2 ref={mappingFocusFallbackRef} tabIndex={-1} className="text-xl font-semibold">{t('collaboration.wizard.step2')}</h2>
-            <p className="mt-1 text-sm text-gray-600">{t('collaboration.wizard.step2Help')}</p>
-            <div className="mt-5">
-              <RoleBindingEditor
-                roleSlots={template.definition.roleSlots}
-                agents={agents}
-                bindings={bindings}
-                onChange={handleBindingsChange}
-                onPrepare={preparationActionsAvailable ? openPreparation : undefined}
-                chooseLabel={t('collaboration.wizard.chooseAgent')}
-                prepareLabel={t('collaboration.agentPreparation.action')}
-                prepareActionLabel={(role) => t('collaboration.agentPreparation.actionFor', { role })}
-              />
-            </div>
-            <PendingConnectionWarnings
-              bindings={bindings}
-              preparedConnections={preparedConnections}
-              t={t}
-            />
-            {preparationAuthorizationInvalidated ? (
-              <div role="alert" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                {t('collaboration.agentPreparation.ownerRequired')}
-              </div>
-            ) : null}
-            {!agents.length && !preparationAuthorizationInvalidated ? (
-              <div role="alert" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                <p>{preparationActionsAvailable
-                  ? t('collaboration.wizard.noAgents')
-                  : t('collaboration.agentPreparation.ownerRequired')}</p>
-                {preparationActionsAvailable && firstRequiredUnmappedSlot ? (
-                  <button
-                    type="button"
-                    onClick={() => openPreparation(firstRequiredUnmappedSlot.id)}
-                    className="mt-3 min-h-10 w-full rounded-lg border border-amber-300 bg-white px-4 text-sm font-medium sm:w-auto"
-                  >
-                    {t('collaboration.agentPreparation.first')}
-                  </button>
+      <div className={`aw-run-start-layout${started ? ' aw-run-start-layout-started' : ''}`}>
+        <div className="aw-run-start-main">
+          <fieldset disabled={submitting} className="aw-run-start-fields">
+            {!started && step === 1 ? <InputStep template={template} runName={runName} onRunName={setRunName} values={inputValues} onValues={setInputValues} t={t} /> : null}
+            {!started && step === 2 ? (
+              <section>
+                <h2 ref={mappingFocusFallbackRef} tabIndex={-1} className="aw-run-start-section-title">{t('collaboration.wizard.step2')}</h2>
+                <p className="aw-run-start-help">{t('collaboration.wizard.step2Help')}</p>
+                <div className="aw-run-start-roles">
+                  <RoleBindingEditor
+                    roleSlots={template.definition.roleSlots}
+                    agents={agents}
+                    bindings={bindings}
+                    onChange={handleBindingsChange}
+                    onPrepare={preparationActionsAvailable ? openPreparation : undefined}
+                    chooseLabel={t('collaboration.wizard.chooseAgent')}
+                    prepareLabel={t('collaboration.agentPreparation.action')}
+                    prepareActionLabel={(role) => t('collaboration.agentPreparation.actionFor', { role })}
+                  />
+                </div>
+                <PendingConnectionWarnings
+                  bindings={bindings}
+                  preparedConnections={preparedConnections}
+                  t={t}
+                />
+                {preparationAuthorizationInvalidated ? (
+                  <div role="alert" className="aw-run-start-notice">
+                    {t('collaboration.agentPreparation.ownerRequired')}
+                  </div>
                 ) : null}
-              </div>
+                {!agents.length && !preparationAuthorizationInvalidated ? (
+                  <div role="alert" className="aw-run-start-notice">
+                    <p>{preparationActionsAvailable
+                      ? t('collaboration.wizard.noAgents')
+                      : t('collaboration.agentPreparation.ownerRequired')}</p>
+                    {preparationActionsAvailable && firstRequiredUnmappedSlot ? (
+                      <button
+                        type="button"
+                        onClick={() => openPreparation(firstRequiredUnmappedSlot.id)}
+                        className="aw-run-start-button"
+                      >
+                        {t('collaboration.agentPreparation.first')}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </section>
             ) : null}
-          </section>
-        ) : null}
-        {!started && step === 3 && run ? <ReviewStep template={template} run={run} bindings={run.roleBindings} agents={agents} preparedConnections={preparedConnections} t={t} hasPotentialSelfReview={hasPotentialSelfReview} acknowledged={selfReviewAcknowledged} onAcknowledged={setSelfReviewAcknowledged} /> : null}
-        </fieldset>
-        {started ? <StartedStep started={started} instructions={instructions} hasSelfReview={hasSelfReview} onCopy={(text) => void copyInstruction(text, setToast, t)} t={t} spaceId={id} /> : null}
-      </div>
+            {!started && step === 3 && run ? <ReviewStep template={template} run={run} bindings={run.roleBindings} agents={agents} preparedConnections={preparedConnections} t={t} hasPotentialSelfReview={hasPotentialSelfReview} acknowledged={selfReviewAcknowledged} onAcknowledged={setSelfReviewAcknowledged} /> : null}
+          </fieldset>
+          {started ? <StartedStep started={started} instructions={instructions} hasSelfReview={hasSelfReview} onCopy={(text) => void copyInstruction(text, setToast, t)} t={t} spaceId={id} /> : null}
 
-      {!started ? <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t pt-5"><button type="button" disabled={submitting || step === 1} onClick={() => setStep((current) => current === 3 ? 2 : 1)} className="min-h-10 rounded-lg border px-4 text-sm disabled:opacity-40">{t('common.back')}</button><div className="flex items-center gap-2">{retryAction ? <button type="button" onClick={() => void retry()} disabled={submitting} className="min-h-10 rounded-lg border border-amber-300 px-4 text-sm text-amber-800">{t('collaboration.wizard.retryConflict')}</button> : null}<button type="button" disabled={submitting} onClick={() => step === 1 ? void completeInputs() : step === 2 ? void completeMapping() : void start()} className="min-h-10 rounded-lg bg-blue-600 px-5 text-sm font-medium text-white disabled:opacity-50">{submitting ? t('collaboration.wizard.working') : step === 3 ? t('collaboration.start') : t('common.next')}</button></div></div> : null}
+          {!started ? (
+            <div className="aw-run-start-actions">
+              <button type="button" disabled={submitting || step === 1} onClick={() => setStep((current) => current === 3 ? 2 : 1)} className="aw-run-start-button">{t('common.back')}</button>
+              <div className="aw-run-start-next-actions">
+                {retryAction ? <button type="button" onClick={() => void retry()} disabled={submitting} className="aw-run-start-button aw-run-start-button-warning">{t('collaboration.wizard.retryConflict')}</button> : null}
+                <button type="button" disabled={submitting} onClick={() => step === 1 ? void completeInputs() : step === 2 ? void completeMapping() : void start()} className="aw-run-start-button aw-run-start-button-primary">{submitting ? t('collaboration.wizard.working') : step === 3 ? t('collaboration.start') : t('common.next')}</button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+        {!started ? (
+          <TemplateFlowSummary
+            definition={run?.templateSnapshot ?? template.definition}
+            description={run?.templateSnapshot ? '' : localizedFlowDescription(template, t)}
+            display={(value) => run?.templateSnapshot
+              ? runSystemTemplateText(run, null, value, t)
+              : systemTemplateText(template, value, t)}
+            t={t}
+          />
+        ) : null}
+      </div>
       {toast ? <Toast kind={toast.kind} message={toast.message} onClose={() => setToast(null)} /> : null}
       {preparationTarget ? (
         <AgentPreparationDialog
@@ -708,9 +738,60 @@ export const RunStartWizard: React.FC = () => {
   );
 };
 
-const InputStep: React.FC<{ template: TemplateDetail; runName: string; onRunName: (name: string) => void; values: Record<string, string | number | boolean>; onValues: (values: Record<string, string | number | boolean>) => void; t: Translate }> = ({ template, runName, onRunName, values, onValues, t }) => <section><h2 className="text-xl font-semibold">{t('collaboration.wizard.step1')}</h2><p className="mt-1 text-sm text-gray-600">{t('collaboration.wizard.step1Help')}</p><div className="mt-5 space-y-4 rounded-xl border bg-white p-5"><label className="block text-sm font-medium">{t('collaboration.wizard.runName')}<input aria-label={t('collaboration.wizard.runName')} value={runName} onChange={(event) => onRunName(event.target.value)} className="mt-1 h-10 w-full rounded-lg border px-3" /></label>{template.definition.inputs.map((input) => <InputControl key={input.key} input={input} value={values[input.key]} onChange={(value) => onValues({ ...values, [input.key]: value })} />)}</div></section>;
+const InputStep: React.FC<{ template: TemplateDetail; runName: string; onRunName: (name: string) => void; values: Record<string, string | number | boolean>; onValues: (values: Record<string, string | number | boolean>) => void; t: Translate }> = ({ template, runName, onRunName, values, onValues, t }) => (
+  <section>
+    <h2 className="aw-run-start-section-title">{t('collaboration.wizard.step1')}</h2>
+    <p className="aw-run-start-help">{t('collaboration.wizard.step1Help')}</p>
+    <div className="aw-run-start-inputs">
+      <label className="aw-run-start-field">
+        <span>{t('collaboration.wizard.runName')}</span>
+        <input aria-label={t('collaboration.wizard.runName')} value={runName} onChange={(event) => onRunName(event.target.value)} className="aw-run-start-input" />
+      </label>
+      {template.definition.inputs.map((input) => <InputControl key={input.key} input={input} value={values[input.key]} onChange={(value) => onValues({ ...values, [input.key]: value })} />)}
+    </div>
+  </section>
+);
 
-const InputControl: React.FC<{ input: TemplateDetail['definition']['inputs'][number]; value: string | number | boolean | undefined; onChange: (value: string | number | boolean) => void }> = ({ input, value, onChange }) => <label className="block text-sm font-medium">{input.label}{input.required ? <span className="ml-1 text-red-600">*</span> : null}{input.type === 'long_text' ? <textarea aria-label={input.label} value={String(value ?? '')} onChange={(event) => onChange(event.target.value)} className="mt-1 min-h-28 w-full rounded-lg border p-3" /> : input.type === 'boolean' ? <input aria-label={input.label} type="checkbox" checked={value === true} onChange={(event) => onChange(event.target.checked)} className="ml-3" /> : <input aria-label={input.label} type={input.type === 'number' ? 'number' : input.type === 'url' ? 'url' : 'text'} value={String(value ?? '')} onChange={(event) => onChange(input.type === 'number' && event.target.value !== '' ? Number(event.target.value) : event.target.value)} className="mt-1 h-10 w-full rounded-lg border px-3" />}</label>;
+const InputControl: React.FC<{ input: TemplateDetail['definition']['inputs'][number]; value: string | number | boolean | undefined; onChange: (value: string | number | boolean) => void }> = ({ input, value, onChange }) => (
+  <label className={`aw-run-start-field${input.type === 'boolean' ? ' aw-run-start-field-checkbox' : ''}`}>
+    <span>{input.label}{input.required ? <span className="aw-run-start-required">*</span> : null}</span>
+    {input.type === 'long_text' ? (
+      <textarea aria-label={input.label} value={String(value ?? '')} onChange={(event) => onChange(event.target.value)} className="aw-run-start-input aw-run-start-textarea" />
+    ) : input.type === 'boolean' ? (
+      <input aria-label={input.label} type="checkbox" checked={value === true} onChange={(event) => onChange(event.target.checked)} />
+    ) : (
+      <input aria-label={input.label} type={input.type === 'number' ? 'number' : input.type === 'url' ? 'url' : 'text'} value={String(value ?? '')} onChange={(event) => onChange(input.type === 'number' && event.target.value !== '' ? Number(event.target.value) : event.target.value)} className="aw-run-start-input" />
+    )}
+  </label>
+);
+
+function localizedFlowDescription(template: TemplateDetail, t: Translate): string {
+  if (!template.system || template.spaceId !== null) return template.description;
+  const key = `collaboration.template.${template.slug}.description`;
+  const localized = t(key);
+  return localized === key ? template.description : localized;
+}
+
+const TemplateFlowSummary: React.FC<{ definition: TemplateDetail['definition']; description: string; display: (value: string) => string; t: Translate }> = ({ definition, description, display, t }) => (
+  <aside className="aw-run-start-summary" aria-labelledby="run-start-flow-title">
+    <div className="aw-run-start-summary-heading">
+      <h2 id="run-start-flow-title">{t('collaboration.editor.section.flow')}</h2>
+      <span>{definition.nodes.length}</span>
+    </div>
+    {description ? <p className="aw-run-start-help">{description}</p> : null}
+    <ul className="aw-run-start-flow">
+      {definition.nodes.map((node) => (
+        <li key={node.id}>
+          <h3>{display(node.name)}</h3>
+          <p>
+            {node.kind === 'agent_task' ? t('collaboration.editor.agentTask') : t('collaboration.editor.humanReview')}
+            {node.kind === 'agent_task' ? <span> · {display(definition.roleSlots.find((slot) => slot.id === node.roleSlotId)?.name ?? '')}</span> : null}
+          </p>
+        </li>
+      ))}
+    </ul>
+  </aside>
+);
 
 const ReviewStep: React.FC<{
   template: TemplateDetail;
@@ -724,14 +805,14 @@ const ReviewStep: React.FC<{
   onAcknowledged: (value: boolean) => void;
 }> = ({ template, run, bindings, agents, preparedConnections, t, hasPotentialSelfReview, acknowledged, onAcknowledged }) => (
   <section>
-    <h2 className="text-xl font-semibold">{t('collaboration.wizard.step3')}</h2>
-    <p className="mt-1 text-sm text-gray-600">{t('collaboration.wizard.step3Help')}</p>
-    {hasPotentialSelfReview ? <label className="mt-4 block rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><input type="checkbox" checked={acknowledged} onChange={(event) => onAcknowledged(event.target.checked)} /> <span className="ml-1">{t('collaboration.wizard.selfReviewConfirm')}</span></label> : null}
+    <h2 className="aw-run-start-section-title">{t('collaboration.wizard.step3')}</h2>
+    <p className="aw-run-start-help">{t('collaboration.wizard.step3Help')}</p>
+    {hasPotentialSelfReview ? <label className="aw-run-start-notice aw-run-start-acknowledgement"><input type="checkbox" checked={acknowledged} onChange={(event) => onAcknowledged(event.target.checked)} /><span>{t('collaboration.wizard.selfReviewConfirm')}</span></label> : null}
     <PendingConnectionWarnings bindings={bindings} preparedConnections={preparedConnections} t={t} />
-    <dl className="mt-5 divide-y rounded-xl border bg-white">
-      <div className="p-4"><dt className="text-xs text-gray-500">{t('collaboration.wizard.runName')}</dt><dd className="mt-1 font-medium">{run.name}</dd></div>
-      <div className="p-4"><dt className="text-xs text-gray-500">{t('collaboration.templates')}</dt><dd className="mt-1 font-medium">{template.name}</dd></div>
-      {bindings.map((binding) => <div key={binding.roleSlotId} className="p-4"><dt className="text-xs text-gray-500">{template.definition.roleSlots.find((slot) => slot.id === binding.roleSlotId)?.name}</dt><dd className="mt-1 font-medium">{agents.find((agent) => agent.agentId === binding.agentId)?.agent?.name}</dd></div>)}
+    <dl className="aw-run-start-review">
+      <div><dt>{t('collaboration.wizard.runName')}</dt><dd>{run.name}</dd></div>
+      <div><dt>{t('collaboration.templates')}</dt><dd>{template.name}</dd></div>
+      {bindings.map((binding) => <div key={binding.roleSlotId}><dt>{template.definition.roleSlots.find((slot) => slot.id === binding.roleSlotId)?.name}</dt><dd>{agents.find((agent) => agent.agentId === binding.agentId)?.agent?.name}</dd></div>)}
     </dl>
   </section>
 );
@@ -745,10 +826,10 @@ const PendingConnectionWarnings: React.FC<{
   const pending = Object.values(preparedConnections).filter((connection) =>
     connection.connection === 'pending' && boundAgentIds.has(connection.agentId));
   return (
-    <div role="status" aria-live="polite" className={pending.length ? 'mt-4' : undefined}>
-      {pending.length ? <ul className="space-y-2">
+    <div role="status" aria-live="polite">
+      {pending.length ? <ul className="aw-run-start-pending">
       {pending.map((connection) => (
-        <li key={connection.agentId} className="break-words rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+        <li key={connection.agentId} className="aw-run-start-notice">
           {t('collaboration.agentPreparation.pending', { agent: connection.agentName })}
         </li>
       ))}
@@ -757,7 +838,25 @@ const PendingConnectionWarnings: React.FC<{
   );
 };
 
-const StartedStep: React.FC<{ started: CollaborationRun; instructions: AgentInstruction[]; hasSelfReview: boolean; onCopy: (text: string) => void; t: Translate; spaceId: string }> = ({ started, instructions, hasSelfReview, onCopy, t, spaceId }) => <section><div className="flex items-center gap-3"><CheckCircle2 className="text-green-600" /><div><h2 className="text-xl font-semibold">{t('collaboration.wizard.started')}</h2><p className="text-sm text-gray-600">{started.name}</p></div></div>{hasSelfReview ? <p className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{t('collaboration.wizard.selfReview')}</p> : null}<div className="mt-5 space-y-4">{instructions.map((instruction) => <article key={instruction.agentId} className="rounded-xl border bg-white p-4"><h3 className="font-medium">{instruction.roleSlots.join(', ')}</h3><p className="mt-2 whitespace-pre-wrap break-words rounded-lg bg-gray-50 p-3 text-sm text-gray-700">{instruction.text}</p><button type="button" onClick={() => onCopy(instruction.text)} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-lg border px-3 text-sm"><Copy size={15} />{t('collaboration.wizard.copyInstruction')}</button></article>)}</div><Link to={`/spaces/${spaceId}/collaboration/runs/${started.id}`} className="mt-6 inline-flex min-h-10 items-center rounded-lg bg-blue-600 px-4 text-sm font-medium text-white">{t('collaboration.wizard.openRun')}</Link></section>;
+const StartedStep: React.FC<{ started: CollaborationRun; instructions: AgentInstruction[]; hasSelfReview: boolean; onCopy: (text: string) => void; t: Translate; spaceId: string }> = ({ started, instructions, hasSelfReview, onCopy, t, spaceId }) => (
+  <section>
+    <div className="aw-run-start-success">
+      <CheckCircle2 size={20} />
+      <div><h2 className="aw-run-start-section-title">{t('collaboration.wizard.started')}</h2><p className="aw-run-start-help">{started.name}</p></div>
+    </div>
+    {hasSelfReview ? <p className="aw-run-start-notice">{t('collaboration.wizard.selfReview')}</p> : null}
+    <div className="aw-run-start-instructions">
+      {instructions.map((instruction) => (
+        <article key={instruction.agentId}>
+          <h3>{instruction.roleSlots.join(', ')}</h3>
+          <p>{instruction.text}</p>
+          <button type="button" onClick={() => onCopy(instruction.text)} className="aw-run-start-button"><Copy size={15} />{t('collaboration.wizard.copyInstruction')}</button>
+        </article>
+      ))}
+    </div>
+    <div className="aw-run-start-actions"><Link to={`/spaces/${spaceId}/collaboration/runs/${started.id}`} className="aw-run-start-button aw-run-start-button-primary">{t('collaboration.wizard.openRun')}</Link></div>
+  </section>
+);
 
 function isExecutableAgent(member: SpaceMemberSummary): boolean {
   return member.type === 'agent' && !!member.agentId && !!member.agent

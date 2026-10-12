@@ -1,8 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { BUILT_IN_COLLABORATION_TEMPLATES } from '../../../../server/src/collaboration-workflows/template-definitions';
 import { AuthProvider } from '../../context/AuthContext';
-import { LanguageProvider } from '../../context/LanguageContext';
+import { LanguageProvider, useLanguage } from '../../context/LanguageContext';
+import { messages } from '../../i18n/messages';
 import { collaborationApi } from './api';
 import { RunStartWizard, buildAgentJoinInstructions } from './RunStartWizard';
 import { validDefinition } from './collaboration-test-fixtures';
@@ -48,6 +50,13 @@ const template: TemplateDetail = {
   id: 'template-1', spaceId: 'space-1', slug: 'custom', name: 'Custom workflow', description: '',
   system: false, version: 1, definition: validDefinition,
 };
+const codingSeed = BUILT_IN_COLLABORATION_TEMPLATES.find((seed) => seed.slug === 'coding')!;
+const systemTemplate: TemplateDetail = {
+  ...template, spaceId: null, system: true, slug: codingSeed.slug,
+  name: `${codingSeed.name.zh} / ${codingSeed.name.en}`,
+  description: `${codingSeed.description.zh} / ${codingSeed.description.en}`,
+  version: codingSeed.seedVersion, definition: codingSeed.definition,
+};
 const activeEditor = { type: 'agent' as const, agentId: 'agent-editor', role: 'editor', agent: { id: 'agent-editor', name: 'Editor Bot', status: 'active', revokedAt: null } };
 const pendingActiveEditor = { ...activeEditor, agent: { ...activeEditor.agent, connected: false } };
 const connectedActiveEditor = { ...activeEditor, agent: { ...activeEditor.agent, connected: true } };
@@ -58,18 +67,26 @@ const preparedEditor = { type: 'agent' as const, agentId: 'agent-new', role: 'ed
 const pendingPreparedEditor = { ...preparedEditor, agent: { ...preparedEditor.agent, connected: false } };
 const connectedPreparedEditor = { ...preparedEditor, agent: { ...preparedEditor.agent, connected: true } };
 
+function LanguageSwitch() {
+  const { toggleLanguage } = useLanguage();
+  return <button type="button" onClick={toggleLanguage}>Switch language</button>;
+}
+
 function renderWizard({
   user = { id: 'user-owner', platformRole: 'user' },
   language = 'en',
   initialEntry = '/spaces/space-1/collaboration/templates/template-1/start',
+  withLanguageSwitch = false,
 }: {
   user?: { id: string; platformRole: string };
   language?: 'en' | 'zh-CN';
   initialEntry?: string;
+  withLanguageSwitch?: boolean;
 } = {}) {
   localStorage.setItem('agentwiki.language.v1', language);
   localStorage.setItem('user', JSON.stringify(user));
   return render(<AuthProvider><LanguageProvider><MemoryRouter initialEntries={[initialEntry]}>
+    {withLanguageSwitch ? <LanguageSwitch /> : null}
     <Routes><Route path="/spaces/:id/collaboration/templates/:templateId/start" element={<RunStartWizard />} /></Routes>
   </MemoryRouter></LanguageProvider></AuthProvider>);
 }
@@ -152,6 +169,108 @@ describe('RunStartWizard', () => {
     expect(screen.queryByTestId('run-wizard-loading')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByRole('heading', { name: '1. Work input' })).toBeVisible();
+  });
+
+  it('shows the saved run workflow when its snapshot differs from the current template', async () => {
+    localStorage.setItem('agentwiki.collaboration.draft.space-1.template-1', 'run-draft');
+    vi.mocked(collaborationApi.getRun).mockResolvedValue({
+      id: 'run-draft', name: 'Existing draft', status: 'draft', version: 1,
+      inputs: { brief: 'Ship it' }, roleBindings: [], updatedAt: '2026-08-24T00:00:00Z',
+      templateSnapshot: {
+        ...validDefinition,
+        nodes: validDefinition.nodes.map((node) => ({ ...node, name: `Saved ${node.name}` })),
+      },
+    });
+
+    renderWizard();
+
+    const workflow = await screen.findByRole('complementary', { name: 'Flow' });
+    expect(within(workflow).getByRole('heading', { name: 'Saved Draft' })).toBeVisible();
+    expect(within(workflow).queryByRole('heading', { name: 'Draft' })).not.toBeInTheDocument();
+  });
+
+  it('switches real built-in workflow node and role names between English and Chinese', async () => {
+    vi.mocked(collaborationApi.getTemplate).mockResolvedValue(systemTemplate);
+    renderWizard({ withLanguageSwitch: true });
+
+    let workflow = await screen.findByRole('complementary', { name: 'Flow' });
+    expect(within(workflow).getByRole('heading', { name: 'Requirements analysis' })).toBeVisible();
+    expect(within(workflow).getAllByText('· Planner')).toHaveLength(2);
+    expect(workflow).toHaveTextContent(messages.en['collaboration.template.coding.description']);
+    expect(workflow).not.toHaveTextContent(/[\u4e00-\u9fff]/u);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch language' }));
+    workflow = await screen.findByRole('complementary', { name: '流程' });
+    expect(within(workflow).getByRole('heading', { name: '需求分析' })).toBeVisible();
+    expect(within(workflow).getAllByText('· 规划者')).toHaveLength(2);
+    expect(workflow).toHaveTextContent(messages['zh-CN']['collaboration.template.coding.description']);
+    expect(workflow).not.toHaveTextContent(messages.en['collaboration.template.coding.description']);
+    expect(within(workflow).queryByRole('heading', { name: 'Requirements analysis' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch language' }));
+    workflow = await screen.findByRole('complementary', { name: 'Flow' });
+    expect(within(workflow).getByRole('heading', { name: 'Requirements analysis' })).toBeVisible();
+    expect(within(workflow).getAllByText('· Planner')).toHaveLength(2);
+    expect(workflow).toHaveTextContent(messages.en['collaboration.template.coding.description']);
+  });
+
+  it('preserves copied custom workflow names when switching languages', async () => {
+    vi.mocked(collaborationApi.getTemplate).mockResolvedValue({ ...systemTemplate, system: false, spaceId: 'space-1' });
+    renderWizard({ withLanguageSwitch: true });
+
+    let workflow = await screen.findByRole('complementary', { name: 'Flow' });
+    expect(within(workflow).getByRole('heading', { name: '需求分析 / Requirements analysis' })).toBeVisible();
+    expect(within(workflow).getAllByText('· 规划者 / Planner')).toHaveLength(2);
+    expect(workflow).toHaveTextContent(systemTemplate.description);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch language' }));
+    workflow = await screen.findByRole('complementary', { name: '流程' });
+    expect(within(workflow).getByRole('heading', { name: '需求分析 / Requirements analysis' })).toBeVisible();
+    expect(within(workflow).getAllByText('· 规划者 / Planner')).toHaveLength(2);
+    expect(workflow).toHaveTextContent(systemTemplate.description);
+  });
+
+  it('localizes a saved workflow snapshot when the server confirms its system provenance', async () => {
+    localStorage.setItem('agentwiki.collaboration.draft.space-1.template-1', 'run-draft');
+    vi.mocked(collaborationApi.getRun).mockResolvedValue({
+      id: 'run-draft', name: 'Existing draft', status: 'draft', version: 1,
+      inputs: { brief: 'Ship it' }, roleBindings: [], updatedAt: '2026-08-24T00:00:00Z',
+      templateSnapshot: codingSeed.definition, systemTemplateSource: { slug: 'coding' },
+    });
+    renderWizard({ withLanguageSwitch: true });
+
+    let workflow = await screen.findByRole('complementary', { name: 'Flow' });
+    expect(within(workflow).getByRole('heading', { name: 'Requirements analysis' })).toBeVisible();
+    expect(within(workflow).getAllByText('· Planner')).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch language' }));
+    workflow = await screen.findByRole('complementary', { name: '流程' });
+    expect(within(workflow).getByRole('heading', { name: '需求分析' })).toBeVisible();
+    expect(within(workflow).getAllByText('· 规划者')).toHaveLength(2);
+  });
+
+  it.each([
+    ['custom', null],
+    ['unknown', undefined],
+  ] as const)('preserves %s snapshot names even when the current template is built-in', async (_kind, systemTemplateSource) => {
+    vi.mocked(collaborationApi.getTemplate).mockResolvedValue(systemTemplate);
+    localStorage.setItem('agentwiki.collaboration.draft.space-1.template-1', 'run-draft');
+    vi.mocked(collaborationApi.getRun).mockResolvedValue({
+      id: 'run-draft', name: 'Existing draft', status: 'draft', version: 1,
+      inputs: { brief: 'Ship it' }, roleBindings: [], updatedAt: '2026-08-24T00:00:00Z',
+      templateSnapshot: codingSeed.definition, systemTemplateSource,
+    });
+    renderWizard({ withLanguageSwitch: true });
+
+    let workflow = await screen.findByRole('complementary', { name: 'Flow' });
+    expect(within(workflow).getByRole('heading', { name: '需求分析 / Requirements analysis' })).toBeVisible();
+    expect(within(workflow).getAllByText('· 规划者 / Planner')).toHaveLength(2);
+    expect(workflow).not.toHaveTextContent(systemTemplate.description);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch language' }));
+    workflow = await screen.findByRole('complementary', { name: '流程' });
+    expect(within(workflow).getByRole('heading', { name: '需求分析 / Requirements analysis' })).toBeVisible();
+    expect(within(workflow).getAllByText('· 规划者 / Planner')).toHaveLength(2);
   });
 
   it('ignores a stale initialization response after navigating to another template', async () => {

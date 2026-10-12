@@ -1,0 +1,65 @@
+/* Keep template management styles within this page; definition editors retain their own layout. */
+.page-template-manager {
+  --manager-border: #e5e5e5;
+  --manager-muted: #737373;
+  width: 100%;
+  max-width: 1200px;
+  min-width: 0;
+  margin: 0 auto;
+  color: #171717;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.page-template-manager .page-template-manager-back { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; color: var(--manager-muted); }
+.page-template-manager .page-template-manager-back:hover { color: #171717; }
+.page-template-manager .page-template-manager-header h1 { margin-top: 12px; font-size: 24px; font-weight: 600; line-height: 1.3; }
+.page-template-manager .page-template-manager-header p { margin-top: 4px; color: var(--manager-muted); overflow-wrap: anywhere; }
+.page-template-manager .page-template-manager-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-top: 24px; padding-bottom: 24px; border-bottom: 1px solid var(--manager-border); }
+.page-template-manager .page-template-manager-filter { flex: 1 1 128px; min-width: 0; }
+.page-template-manager .page-template-manager-search { flex: 2 1 240px; }
+.page-template-manager .page-template-manager-filter-label { display: block; margin-bottom: 8px; color: #525252; font-weight: 500; }
+.page-template-manager .page-template-manager-control { display: block; width: 100%; min-width: 0; height: 36px; border: 1px solid var(--manager-border); border-radius: 8px; padding: 0 12px; color: #262626; background: #fff; font: inherit; }
+.page-template-manager .page-template-manager-search-input { display: flex; align-items: center; gap: 8px; border: 1px solid var(--manager-border); border-radius: 8px; padding-left: 12px; color: var(--manager-muted); }
+.page-template-manager .page-template-manager-search-input svg { flex-shrink: 0; }
+.page-template-manager .page-template-manager-search-input input { height: 34px; border: 0; padding-left: 0; background: transparent; }
+.page-template-manager .page-template-manager-search-input:focus-within { outline: 2px solid #737373; outline-offset: 2px; }
+.page-template-manager .page-template-manager-search-input input:focus-visible { outline: none; }
+.page-template-manager .page-template-manager-archived { display: flex; align-items: center; flex: 0 1 auto; gap: 8px; min-height: 36px; color: #525252; }
+.page-template-manager .page-template-manager-archived input { flex-shrink: 0; accent-color: #525252; }
+.page-template-manager .page-template-manager-section { margin-top: 24px; min-width: 0; }
+.page-template-manager .page-template-manager-section-title { padding-bottom: 12px; border-bottom: 1px solid var(--manager-border); font-size: 16px; font-weight: 600; }
+.page-template-manager .page-template-manager-list { min-width: 0; }
+.page-template-manager .page-template-manager-row { display: flex; align-items: flex-start; gap: 16px 24px; padding: 16px 0; border-bottom: 1px solid #f0f0f0; min-width: 0; }
+.page-template-manager .page-template-manager-summary { display: flex; align-items: flex-start; gap: 12px; flex: 1; min-width: 0; }
+.page-template-manager .page-template-manager-icon { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex-shrink: 0; border: 1px solid var(--manager-border); border-radius: 8px; color: #737373; }
+.page-template-manager .page-template-manager-content { min-width: 0; flex: 1; }
+.page-template-manager .page-template-manager-name { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
+.page-template-manager .page-template-manager-name h3 { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
+.page-template-manager .page-template-manager-status { padding: 0 8px; border-radius: 8px; background: #f5f5f5; color: var(--manager-muted); }
+.page-template-manager .page-template-manager-description { margin-top: 4px; color: var(--manager-muted); overflow-wrap: anywhere; }
+.page-template-manager .page-template-manager-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; color: var(--manager-muted); }
+.page-template-manager .page-template-manager-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; flex: 0 1 auto; gap: 8px; max-width: 420px; min-width: 0; }
+.page-template-manager .page-template-manager-button { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; max-width: 100%; padding: 4px 12px; border: 1px solid var(--manager-border); border-radius: 8px; background: #fff; color: #525252; font-size: 14px; font-weight: 500; line-height: 1.5; word-break: normal; overflow-wrap: anywhere; }
+.page-template-manager .page-template-manager-button:hover { background: #fafafa; color: #171717; }
+.page-template-manager .page-template-manager-button.is-danger { border-color: transparent; color: #737373; }
+.page-template-manager .page-template-manager-button.is-danger:hover { background: #fef2f2; color: #b91c1c; }
+.page-template-manager .page-template-manager-button:disabled { opacity: .45; cursor: not-allowed; }
+.page-template-manager .page-template-manager-error { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 16px; }
+.page-template-manager .page-template-manager-loading { margin-top: 24px; color: var(--manager-muted); }
+.page-template-manager .page-template-manager-empty { padding: 32px 16px; margin-top: 24px; border: 1px solid var(--manager-border); border-radius: 8px; color: var(--manager-muted); text-align: center; }
+.page-template-manager .page-template-manager-load-more { margin-top: 16px; }
+.page-template-manager :is(button, a, select, input):focus-visible { outline: 2px solid #737373; outline-offset: 2px; }
+@media (max-width: 1023px) {
+  .page-template-manager .page-template-manager-row { flex-direction: column; gap: 12px; }
+  .page-template-manager .page-template-manager-summary { width: 100%; }
+  .page-template-manager .page-template-manager-actions { justify-content: flex-start; max-width: 100%; padding-left: 44px; }
+}
+@media (max-width: 639px) {
+  .page-template-manager .page-template-manager-toolbar { gap: 12px; padding-bottom: 16px; }
+  .page-template-manager .page-template-manager-search { flex-basis: 100%; }
+  .page-template-manager .page-template-manager-filter:not(.page-template-manager-search) { flex: 1 1 calc(50% - 6px); }
+  .page-template-manager .page-template-manager-archived { flex-basis: 100%; }
+  .page-template-manager .page-template-manager-section { margin-top: 24px; }
+  .page-template-manager .page-template-manager-actions { padding-left: 0; }
+  .page-template-manager .page-template-manager-actions .page-template-manager-button { min-height: 36px; }
+}

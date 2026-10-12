@@ -4,7 +4,6 @@
 
 ## 活跃任务
 
-- [template-layout-plane-20261013](active/template-layout-plane-20261013/brief.md)：Plane 风格内置模板、协作和任务看板改版完成；709 项检查、独立复审、真实浏览器合成数据验收通过，未部署。
 
 - [test-triage-20261008](active/test-triage-20261008/brief.md)：网页0.12.17已部署、插件0.5.8已发布；Windows真实同步已执行，0.5.8最终冲突原生验收通过，生产测试资源已撤销，原案边界保留。
 
@@ -13,6 +12,8 @@
 - [q3-regressions-20260914](archive/q3-regressions-20260914/brief.md)：Q3人工报告20项代码修复、整分支独立复审与候选验收完成；未发布部署或安装日常Vault。
 
 ## 最近完成
+
+- [template-layout-plane-20261013](archive/template-layout-plane-20261013/brief.md)：Plane 风格内置模板/协作/看板/文档改版及三轮全面审查完成，0 未关闭问题；2254 客户端测试、159 独立定向、构建和 Chrome 合成验收通过，未部署。
 
 - [knowledge-comprehensive-audit-20261007](archive/knowledge-comprehensive-audit-20261007/brief.md)：F1-F7多轮任务/代码/前后端/UI复审完成；最终模板10/10、server2994、client2170、F5 REST/MCP8项、构建与资源清理通过；保留平台skip、模型收益NOT MET、fixture/未部署边界。
 
