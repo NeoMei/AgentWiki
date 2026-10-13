@@ -7,6 +7,7 @@ import api from '../../api/client';
 import { getContentTreeRevision } from '../../api/content-tree';
 import { apiErrorMessage } from '../../api/error-message';
 import { ModalDialog } from '../../components/ModalDialog';
+import { Toast } from '../../components/Toast';
 import { useLanguage } from '../../context/LanguageContext';
 import { collaborationApi } from '../collaboration/api';
 import { buildAgentJoinInstructions } from '../collaboration/agentJoinInstructions';
@@ -132,6 +133,9 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
   const [members, setMembers] = useState<SpaceMemberSummary[]>([]);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [validationToast, setValidationToast] = useState<string | null>(null);
+  const configureRef = useRef<HTMLElement>(null);
+  const configureIssuesRef = useRef<HTMLDivElement>(null);
   const [legacyCreating, setLegacyCreating] = useState(false);
   const [result, setResult] = useState<CompositeInstantiationResult | null>(null);
   const [instructions, setInstructions] = useState<AgentInstruction[]>([]);
@@ -150,7 +154,10 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
   const operationRef = useRef(0);
   const controllerRef = useRef<AbortController | null>(null);
   const submittingRef = useRef(false);
-  const idempotencyRef = useRef<{ signature: string; key: string } | null>(null);
+  const idempotencyRef = useRef<{
+    signature: string; inputSignature: string; unknownResult: boolean;
+    request: Parameters<typeof instantiateCompositeTemplate>[2];
+  } | null>(null);
   const taskSelectionInitializedRef = useRef(false);
   const userEditedRef = useRef(false);
 
@@ -171,6 +178,8 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       controllerRef.current?.abort();
     };
   }, []);
+
+  useEffect(() => { setValidationToast(null); }, [phase]);
 
   // Each page preview entry gets one focus attempt, after its disabled input is ready.
   // An explicit focus choice during loading cancels that intent.
@@ -341,8 +350,8 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
     };
   };
 
-  const loadPreview = async (enabled: boolean, settings = collaboration) => {
-    if (!selectedComposite || previewLoading) return;
+  const loadPreview = async (enabled: boolean, settings = collaboration, force = false): Promise<CompositeTemplatePreview | null> => {
+    if (!selectedComposite || (previewLoading && !force)) return null;
     const operation = ++operationRef.current;
     controllerRef.current?.abort();
     const controller = new AbortController();
@@ -354,7 +363,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
         previewCompositeTemplate(spaceId, selectedComposite.id, previewPayload(enabled, settings), controller.signal),
         members.length ? Promise.resolve(members) : collaborationApi.listMembers(spaceId),
       ]);
-      if (!sessionActiveRef.current || controller.signal.aborted || operationRef.current !== operation) return;
+      if (!sessionActiveRef.current || controller.signal.aborted || operationRef.current !== operation) return null;
       setPreview(nextPreview);
       setPreviewStale(false);
       setMembers(nextMembers);
@@ -362,6 +371,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
         taskSelectionInitializedRef.current = true;
         setCollaboration((current) => ({ ...current, enabledTaskNodeIds: nextPreview.tasks.map((task) => task.nodeId) }));
       }
+      return nextPreview;
     } catch (reason) {
       if (sessionActiveRef.current && !controller.signal.aborted && operationRef.current === operation) {
         setError(apiErrorMessage(reason, t, 'pageTemplate.composite.previewFailed'));
@@ -370,6 +380,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       if (controllerRef.current === controller) controllerRef.current = null;
       if (sessionActiveRef.current && operationRef.current === operation) setPreviewLoading(false);
     }
+    return null;
   };
 
   const nextFromSelect = () => {
@@ -422,38 +433,93 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
     }
   };
 
+  const showConfigurationError = (message: string, controlId?: string) => {
+    setError(message);
+    setValidationToast(message);
+    const control = controlId ? Array.from(configureRef.current?.querySelectorAll<HTMLElement>('input, textarea, select') ?? [])
+      .find((element) => element.id === controlId) : null;
+    const target = control ?? configureIssuesRef.current;
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+  };
+
+  const cancelPendingOperation = () => {
+    operationRef.current += 1;
+    controllerRef.current?.abort();
+    controllerRef.current = null;
+    setPreviewLoading(false);
+  };
+
   const createComposite = async () => {
     if (!selectedComposite || !preview || submittingRef.current) return;
     if (previewStale) {
       setError(t('pageTemplate.composite.previewStale'));
       return;
     }
-    if (collaborationEnabled && preview.inputs.some((input) => input.required
-      && (collaboration.inputValues[input.key] === undefined || collaboration.inputValues[input.key] === ''))) {
-      setError(t('pageTemplate.composite.requiredInputs'));
+    const missingInput = collaborationEnabled ? preview.inputs.find((input) => input.required
+      && (collaboration.inputValues[input.key] === undefined || collaboration.inputValues[input.key] === '')) : undefined;
+    if (missingInput) {
+      showConfigurationError(`${t('pageTemplate.composite.requiredInputs')} ${missingInput.label}`, `collaboration-input-${missingInput.key}`);
       return;
     }
-    if (collaborationEnabled && preview.issues.length) {
-      setError(t('pageTemplate.composite.resolveIssues'));
+    const missingRole = collaborationEnabled ? preview.roles.find((role) => role.required
+      && preview.tasks.some((task) => task.roleSlotId === role.id && collaboration.enabledTaskNodeIds.includes(task.nodeId))
+      && !collaboration.bindings.some((binding) => binding.roleSlotId === role.id && binding.agentId)) : undefined;
+    if (missingRole) {
+      showConfigurationError(`${t('pageTemplate.composite.issue.ROLE_BINDING_REQUIRED')} ${missingRole.name}`, `role-binding-${missingRole.id}`);
       return;
     }
-    const input = previewPayload(collaborationEnabled);
-    const signature = JSON.stringify([spaceId, selectedComposite.id, input, preview.treeRevision]);
-    if (idempotencyRef.current?.signature !== signature) {
-      idempotencyRef.current = { signature, key: `instantiate-${safeUuid()}` };
-    }
+    // Own the whole preflight + write, including early returns and failed previews.
     submittingRef.current = true;
-    const operation = ++operationRef.current;
-    const controller = new AbortController();
-    controllerRef.current = controller;
-    dispatchPhase({ type: 'submit' });
-    setError(null);
+    let controller: AbortController | null = null;
+    let operation: number | null = null;
     try {
-      const created = await instantiateCompositeTemplate(spaceId, selectedComposite.id, {
-        ...input,
-        expectedTreeRevision: preview.treeRevision,
-        idempotencyKey: idempotencyRef.current.key,
-      }, controller.signal);
+      const input = previewPayload(collaborationEnabled);
+      const inputSignature = JSON.stringify([spaceId, selectedComposite.id, input]);
+      let attempt = idempotencyRef.current;
+      // An interrupted response may have committed. Reuse its exact body and key,
+      // even if a later preview would observe the revision created by that write.
+      if (!attempt?.unknownResult || attempt.inputSignature !== inputSignature) {
+        let currentPreview = preview;
+        if (collaborationEnabled) {
+          const pendingPreview = loadPreview(true, collaboration, true);
+          const preflightOperation = operationRef.current;
+          const refreshed = await pendingPreview;
+          if (!refreshed || !sessionActiveRef.current || operationRef.current !== preflightOperation) return;
+          currentPreview = refreshed;
+        }
+        const currentMissingInput = collaborationEnabled ? currentPreview.inputs.find((field) => field.required
+          && (collaboration.inputValues[field.key] === undefined || collaboration.inputValues[field.key] === '')) : undefined;
+        if (currentMissingInput) {
+          showConfigurationError(`${t('pageTemplate.composite.requiredInputs')} ${currentMissingInput.label}`, `collaboration-input-${currentMissingInput.key}`);
+          return;
+        }
+        if (collaborationEnabled && currentPreview.issues.length) {
+          const issue = currentPreview.issues[0];
+          const field = currentPreview.inputs.find((item) => item.key === issue.inputKey);
+          const role = currentPreview.roles.find((item) => item.id === issue.roleSlotId);
+          const label = field?.label ?? role?.name;
+          const message = t(`pageTemplate.composite.issue.${issue.code}`);
+          showConfigurationError(label ? `${message} ${label}` : message,
+            field ? `collaboration-input-${field.key}` : role ? `role-binding-${role.id}` : undefined);
+          return;
+        }
+        const signature = JSON.stringify([inputSignature, currentPreview.treeRevision]);
+        if (attempt?.signature !== signature) {
+          attempt = {
+            signature, inputSignature, unknownResult: false,
+            request: { ...input, expectedTreeRevision: currentPreview.treeRevision, idempotencyKey: `instantiate-${safeUuid()}` },
+          };
+          idempotencyRef.current = attempt;
+        }
+      }
+      if (!sessionActiveRef.current) return;
+      operation = ++operationRef.current;
+      controller = new AbortController();
+      controllerRef.current = controller;
+      dispatchPhase({ type: 'submit' });
+      setError(null);
+      const created = await instantiateCompositeTemplate(spaceId, selectedComposite.id, attempt.request, controller.signal);
       if (!sessionActiveRef.current || controller.signal.aborted || operationRef.current !== operation) return;
       setResult(created);
       if (created.runId) {
@@ -470,26 +536,23 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       }
       if (!controller.signal.aborted && operationRef.current === operation) dispatchPhase({ type: 'resolve' });
     } catch (reason) {
-      if (!controller.signal.aborted && operationRef.current === operation) {
+      if (sessionActiveRef.current && controller && !controller.signal.aborted && operationRef.current === operation) {
         const response = (reason as { response?: unknown } | null)?.response;
+        if (idempotencyRef.current) idempotencyRef.current.unknownResult = !response;
         setError(response
           ? apiErrorMessage(reason, t, 'pageTemplate.composite.createFailed')
           : t('pageTemplate.composite.unknownResult'));
         dispatchPhase({ type: 'fail', collaborationEnabled });
       }
     } finally {
-      if (controllerRef.current === controller) controllerRef.current = null;
+      if (controller && controllerRef.current === controller) controllerRef.current = null;
       submittingRef.current = false;
     }
   };
 
   const close = () => {
     if (legacyCreating) return;
-    if (pageMode) { onClose(); return; }
-    operationRef.current += 1;
-    controllerRef.current?.abort();
-    controllerRef.current = null;
-    submittingRef.current = false;
+    if (!pageMode || submittingRef.current) cancelPendingOperation();
     onClose();
   };
 
@@ -521,6 +584,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
     dispatchPhase({ type: 'reset', blank: next === 'blank' });
   };
   const content = <>
+    {validationToast ? <Toast kind="error" message={validationToast} onClose={() => setValidationToast(null)} /> : null}
     {pageMode ? <div className="template-context-row">
       <button ref={closeButtonRef} type="button" onClick={close} disabled={legacyCreating || phase === 'submitting'}
         className="template-return"><ArrowLeft size={16} aria-hidden="true" />{t('creation.return')}</button>
@@ -632,7 +696,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
           }} />
         <span>{t('pageTemplate.composite.enable')}<small>{language === 'zh-CN' ? '继续配置参与者与协作任务' : 'Configure participants and tasks in the next step'}</small></span>
       </label> : null}
-      <IssueList issues={preview?.issues ?? []} />
+      <IssueList issues={(preview?.issues ?? []).filter((issue) => !/^(ROLE_BINDING_|COLLABORATION_|PAGE_ROLE_)/.test(issue.code))} />
       <ErrorNotice message={error} />
       </div></div>
       <WizardActions onBack={() => { focusCloseAfterBackRef.current = true; dispatchPhase({ type: 'back' }); }}>
@@ -644,7 +708,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       </WizardActions>
     </section> : null}
 
-    {phase === 'configure' && preview ? <section className="template-configure">
+    {phase === 'configure' && preview ? <section ref={configureRef} className="template-configure">
       <div className="template-configure-heading"><h2>{t('pageTemplate.composite.configure')}</h2><p>{selectedComposite?.name}</p></div>
       <CollaborationSettingsPanel spaceId={spaceId} roles={preview.roles} inputs={preview.inputs} tasks={preview.tasks}
         agents={members} bindings={collaboration.bindings} inputValues={collaboration.inputValues}
@@ -654,10 +718,10 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
           if (sessionActiveRef.current) setMembers(nextMembers);
           return nextMembers;
         }}
-        onChange={(value) => { userEditedRef.current = true; setCollaboration(value); idempotencyRef.current = null; }} />
-      <IssueList issues={preview.issues} />
+        onChange={(value) => { if (submittingRef.current) cancelPendingOperation(); userEditedRef.current = true; setCollaboration(value); setError(null); setValidationToast(null); idempotencyRef.current = null; }} />
+      <div ref={configureIssuesRef} tabIndex={-1}><IssueList issues={preview.issues} /></div>
       <ErrorNotice message={error} />
-      <WizardActions onBack={() => dispatchPhase({ type: 'back' })}>
+      <WizardActions onBack={() => { cancelPendingOperation(); setError(null); dispatchPhase({ type: 'back' }); }}>
         <button ref={refreshParticipantsButtonRef} type="button" disabled={previewLoading} onClick={() => {
           restoreRefreshFocusRef.current = true;
           void loadPreview(true);

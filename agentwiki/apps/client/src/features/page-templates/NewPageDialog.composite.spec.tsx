@@ -173,6 +173,82 @@ describe('NewPageDialog composite flow', () => {
     expect(await screen.findByRole('button', { name: '下一步' })).toBeEnabled();
   });
 
+  it.each(['single_page', 'page_group'] as const)('defers %s collaboration issues to configuration while retaining placement issues', async (kind) => {
+    mocks.preview.mockImplementation((_space: string, _template: string, input: { collaborationEnabled: boolean }) => Promise.resolve({
+      ...preview(input.collaborationEnabled),
+      issues: [
+        { code: 'TARGET_PARENT_FOLDER_NOT_FOUND' },
+        ...(input.collaborationEnabled ? [
+          { code: 'ROLE_BINDING_REQUIRED', roleSlotId: 'owner' },
+          { code: 'COLLABORATION_INPUT_REQUIRED', inputKey: 'project-brief' },
+        ] : []),
+      ],
+    }));
+    render(<LanguageProvider><MemoryRouter><NewPageDialog spaceId="space-1" presentation="page" initialKind={kind}
+      onClose={() => undefined} onCreated={() => undefined} /></MemoryRouter></LanguageProvider>);
+    fireEvent.click(await screen.findByRole('button', { name: kind === 'single_page' ? /周报/ : /项目管理工作区/ }));
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    const enable = await screen.findByRole('checkbox', { name: '启用 Agent 协作' });
+    fireEvent.click(enable);
+    await waitFor(() => expect(enable).toBeEnabled());
+    expect(screen.queryByText('仍有必需角色没有映射 Agent。')).not.toBeInTheDocument();
+    expect(screen.queryByText('仍有必填工作流输入未填写。')).not.toBeInTheDocument();
+    expect(screen.getByText('目标目录已不存在。')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    expect(await screen.findByText('仍有必需角色没有映射 Agent。')).toBeVisible();
+    expect(screen.getByText('仍有必填工作流输入未填写。')).toBeVisible();
+  });
+
+  it.each(['single_page', 'page_group'] as const)('makes a missing %s required input visible and reachable after submission', async (kind) => {
+    render(<LanguageProvider><MemoryRouter><NewPageDialog spaceId="space-1" presentation="page" initialKind={kind}
+      onClose={() => undefined} onCreated={() => undefined} /></MemoryRouter></LanguageProvider>);
+    fireEvent.click(await screen.findByRole('button', { name: kind === 'single_page' ? /周报/ : /项目管理工作区/ }));
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    const enable = await screen.findByRole('checkbox', { name: '启用 Agent 协作' });
+    fireEvent.click(enable);
+    await waitFor(() => expect(enable).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    const input = await screen.findByLabelText('项目简述');
+    const scroll = vi.fn(); input.scrollIntoView = scroll;
+    const submit = screen.getByRole('button', { name: '创建并启动协作' });
+    submit.focus();
+    fireEvent.click(submit);
+    const toast = screen.getAllByRole('alert').find((alert) => within(alert).queryByRole('button', { name: '关闭' }));
+    expect(toast).toBeDefined();
+    expect(toast).toHaveTextContent('项目简述');
+    expect(input).toHaveFocus();
+    expect(scroll).toHaveBeenCalled();
+    expect(mocks.instantiate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '上一步' }));
+    expect(screen.queryByText('请填写所有必填工作流输入。 项目简述')).not.toBeInTheDocument();
+  });
+
+  it.each(['single_page', 'page_group'] as const)('makes a missing %s role mapping visible and reachable after submission', async (kind) => {
+    mocks.preview.mockImplementation((_space: string, _template: string, input: { collaborationEnabled: boolean }) => Promise.resolve({
+      ...preview(input.collaborationEnabled), inputs: [],
+      issues: input.collaborationEnabled ? [{ code: 'ROLE_BINDING_REQUIRED', roleSlotId: 'owner' }] : [],
+    }));
+    render(<LanguageProvider><MemoryRouter><NewPageDialog spaceId="space-1" presentation="page" initialKind={kind}
+      onClose={() => undefined} onCreated={() => undefined} /></MemoryRouter></LanguageProvider>);
+    fireEvent.click(await screen.findByRole('button', { name: kind === 'single_page' ? /周报/ : /项目管理工作区/ }));
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    const enable = await screen.findByRole('checkbox', { name: '启用 Agent 协作' });
+    fireEvent.click(enable);
+    await waitFor(() => expect(enable).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    const role = await screen.findByRole('combobox', { name: '项目负责人' });
+    const scroll = vi.fn(); role.scrollIntoView = scroll;
+    const submit = screen.getByRole('button', { name: '创建并启动协作' });
+    submit.focus();
+    fireEvent.click(submit);
+    const toast = screen.getAllByRole('alert').find((alert) => within(alert).queryByRole('button', { name: '关闭' }));
+    expect(toast).toBeDefined();
+    expect(toast).toHaveTextContent('项目负责人');
+    expect(role).toHaveFocus();
+    expect(scroll).toHaveBeenCalled();
+    expect(mocks.instantiate).not.toHaveBeenCalled();
+  });
+
   it('marks a renamed root stale and reloads the visible hierarchy before creation', async () => {
     renderDialog();
     fireEvent.click(await screen.findByRole('button', { name: /项目管理工作区/ }));
@@ -246,6 +322,121 @@ describe('NewPageDialog composite flow', () => {
     expect(await screen.findByText('协作 Run 已创建。')).toBeVisible();
     expect(screen.getByText(/wiki_collaboration_join_run/)).toBeVisible();
     expect(screen.getByText(/外部 Agent 尚未被唤醒/)).toBeVisible();
+  });
+
+  it('refreshes collaboration validation at submit after the user fixes inputs and bindings', async () => {
+    mocks.preview.mockImplementation((_space: string, _template: string, input: {
+      collaborationEnabled: boolean; roleBindings?: unknown[];
+    }) => Promise.resolve({
+      ...preview(input.collaborationEnabled),
+      issues: input.collaborationEnabled && !input.roleBindings?.length
+        ? [{ code: 'ROLE_BINDING_REQUIRED', roleSlotId: 'owner' }]
+        : [],
+    }));
+    renderDialog();
+    fireEvent.click(await screen.findByRole('button', { name: /项目管理工作区/ }));
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: '启用 Agent 协作' }));
+    fireEvent.click(await screen.findByRole('button', { name: '下一步' }));
+    fireEvent.change(await screen.findByLabelText('项目简述'), { target: { value: '交付目标' } });
+    fireEvent.change(screen.getByLabelText('项目负责人'), { target: { value: 'agent-1' } });
+    fireEvent.click(screen.getByRole('button', { name: '创建并启动协作' }));
+    await waitFor(() => expect(mocks.instantiate).toHaveBeenCalled());
+    expect(screen.queryByText(/仍有必需角色没有映射 Agent/)).not.toBeInTheDocument();
+  });
+
+  const configureReadyCollaboration = async () => {
+    fireEvent.click(await screen.findByRole('button', { name: /项目管理工作区/ }));
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    const enable = await screen.findByRole('checkbox', { name: '启用 Agent 协作' });
+    fireEvent.click(enable);
+    await waitFor(() => expect(enable).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.change(await screen.findByLabelText('项目简述'), { target: { value: '交付目标' } });
+    fireEvent.change(screen.getByLabelText('项目负责人'), { target: { value: 'agent-1' } });
+  };
+
+  it('does not instantiate from an old preview after submit preflight fails and allows a later retry', async () => {
+    renderDialog();
+    await configureReadyCollaboration();
+    mocks.preview.mockRejectedValueOnce(new Error('preflight unavailable'));
+    fireEvent.click(screen.getByRole('button', { name: '创建并启动协作' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '创建并启动协作' })).toBeEnabled());
+    expect(screen.getByRole('alert')).toBeVisible();
+    expect(mocks.instantiate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '创建并启动协作' }));
+    await screen.findByText('创建完成');
+    expect(mocks.instantiate).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['close', 'back', 'page-return', 'unmount'] as const)('never instantiates after leaving pending preflight via %s', async (exit) => {
+    const onClose = vi.fn();
+    const view = render(<LanguageProvider><MemoryRouter><NewPageDialog spaceId="space-1"
+      presentation={exit === 'page-return' ? 'page' : 'dialog'} initialKind="page_group"
+      onClose={onClose} onCreated={() => undefined} /></MemoryRouter></LanguageProvider>);
+    await configureReadyCollaboration();
+    let finishPreflight!: (value: ReturnType<typeof preview>) => void;
+    mocks.preview.mockImplementationOnce(() => new Promise((resolve) => { finishPreflight = resolve; }));
+    fireEvent.click(screen.getByRole('button', { name: '创建并启动协作' }));
+    const signal = mocks.preview.mock.calls[mocks.preview.mock.calls.length - 1]?.[3] as AbortSignal;
+    if (exit === 'unmount') view.unmount();
+    else if (exit === 'back') fireEvent.click(screen.getByRole('button', { name: '上一步' }));
+    else if (exit === 'page-return') fireEvent.click(screen.getByRole('button', { name: /返回/ }));
+    else fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    await act(async () => finishPreflight(preview(true)));
+    expect(signal.aborted).toBe(true);
+    expect(mocks.instantiate).not.toHaveBeenCalled();
+    if (exit === 'close' || exit === 'page-return') expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('locks rapid submission before awaiting collaboration preflight', async () => {
+    renderDialog();
+    await configureReadyCollaboration();
+    const resolvers: Array<(value: ReturnType<typeof preview>) => void> = [];
+    mocks.preview.mockImplementation(() => new Promise((resolve) => { resolvers.push(resolve); }));
+    const button = screen.getByRole('button', { name: '创建并启动协作' });
+    act(() => { fireEvent.click(button); fireEvent.click(button); });
+    expect(resolvers).toHaveLength(1);
+    await act(async () => { for (const resolve of resolvers) resolve(preview(true)); });
+    await screen.findByText('创建完成');
+    expect(mocks.instantiate).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries an unknown collaboration result with the exact request without changing revision through preflight', async () => {
+    mocks.instantiate.mockRejectedValueOnce(new Error('response lost'));
+    renderDialog();
+    await configureReadyCollaboration();
+    fireEvent.click(screen.getByRole('button', { name: '创建并启动协作' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('网络在确认结果前中断');
+    const original = mocks.instantiate.mock.calls[0]?.[2];
+    const previewCount = mocks.preview.mock.calls.length;
+    mocks.preview.mockResolvedValue({ ...preview(true), treeRevision: '999' });
+    fireEvent.click(screen.getByRole('button', { name: '创建并启动协作' }));
+    await screen.findByText('创建完成');
+    expect(mocks.instantiate).toHaveBeenCalledTimes(2);
+    expect(mocks.instantiate.mock.calls[1]?.[2]).toEqual(original);
+    expect(mocks.preview).toHaveBeenCalledTimes(previewCount);
+  });
+
+  it('does not require the role of a task disabled in the current configuration', async () => {
+    mocks.preview.mockImplementation((_space: string, _template: string, input: {
+      collaborationEnabled: boolean; enabledTaskNodeIds?: string[];
+    }) => Promise.resolve({
+      ...preview(input.collaborationEnabled),
+      roles: input.collaborationEnabled ? [...preview(true).roles, { id: 'reviewer', name: '审查员', description: '', required: true }] : [],
+      tasks: input.collaborationEnabled ? [...preview(true).tasks, { nodeId: 'review', name: '审查风险', roleSlotId: 'reviewer' }] : [],
+      issues: input.collaborationEnabled && (!input.enabledTaskNodeIds || input.enabledTaskNodeIds.includes('review'))
+        ? [{ code: 'ROLE_BINDING_REQUIRED', roleSlotId: 'reviewer' }] : [],
+    }));
+    renderDialog();
+    await configureReadyCollaboration();
+    fireEvent.click(screen.getByRole('checkbox', { name: '审查风险' }));
+    fireEvent.click(screen.getByRole('button', { name: '创建并启动协作' }));
+    await screen.findByText('创建完成');
+    expect(mocks.instantiate).toHaveBeenCalledWith('space-1', 'project', expect.objectContaining({
+      enabledTaskNodeIds: ['write'],
+      roleBindings: [{ kind: 'task_default', nodeId: 'write', roleSlotId: 'owner', agentId: 'agent-1' }],
+    }), expect.any(AbortSignal));
   });
 
   it('restores focus after a user refreshes participant scope so Escape stays inside the dialog', async () => {

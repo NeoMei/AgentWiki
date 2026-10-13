@@ -256,6 +256,94 @@ async function counts(prisma, spaceId) {
   return { folders, pages, pageVersions, instances, mappings, bindings, runs, effects };
 }
 
+test('human single-page instantiation rejects sibling titles before creating a Page or Run', {
+  timeout: 120_000,
+}, async () => {
+  await withPageTemplateTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schemaName }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+    const services = await createService(prisma);
+    try {
+      for (const nested of [false, true]) {
+        for (const collaborationEnabled of [false, true]) {
+          const suffix = `${schemaName.slice(-8)}_title_${nested}_${collaborationEnabled}`;
+          const fixture = await createFixture(prisma, suffix, collaborationDefinition);
+          const principal = { userId: fixture.userId, platformRole: 'user' };
+          const folder = nested ? await prisma.folder.create({ data: {
+            spaceId: fixture.spaceId, name: 'Reviews', nameKey: 'reviews',
+            path: 'pages/Reviews', pathKey: 'pages/reviews',
+          } }) : null;
+          const targetParentFolderId = folder?.id ?? null;
+          const rootName = 'Quarterly review';
+          const first = await services.service.instantiate(fixture.spaceId, fixture.templateId,
+            request('existing-title', { rootName, targetParentFolderId }), principal);
+          const agentId = collaborationEnabled ? await prepareAgent(prisma, fixture, suffix) : null;
+          const payload = collaborationEnabled
+            ? collaborationRequest('duplicate-title', agentId)
+            : request('duplicate-title');
+          Object.assign(payload, { rootName, targetParentFolderId, expectedTreeRevision: first.treeRevision });
+          const before = await counts(prisma, fixture.spaceId);
+          const spaceBefore = await prisma.space.findUniqueOrThrow({ where: { id: fixture.spaceId } });
+          const pagesBefore = await prisma.page.findMany({ where: { spaceId: fixture.spaceId } });
+          const revisionsBefore = await prisma.spaceKnowledgeRevision.findMany({ where: { spaceId: fixture.spaceId } });
+
+          await assert.rejects(
+            services.service.instantiate(fixture.spaceId, fixture.templateId, payload, principal),
+            (error) => error.code === 'PAGE_TITLE_CONFLICT' && error.getStatus() === 409
+              && error.details?.name === rootName,
+          );
+
+          assert.deepEqual(await counts(prisma, fixture.spaceId), before);
+          assert.deepEqual(await prisma.space.findUniqueOrThrow({ where: { id: fixture.spaceId } }), spaceBefore);
+          assert.deepEqual(await prisma.page.findMany({ where: { spaceId: fixture.spaceId } }), pagesBefore);
+          assert.deepEqual(await prisma.spaceKnowledgeRevision.findMany({ where: { spaceId: fixture.spaceId } }), revisionsBefore);
+          // The failed request must not reserve its idempotency key or leave a stale tree revision.
+          const retried = await services.service.instantiate(fixture.spaceId, fixture.templateId,
+            { ...payload, rootName: 'Renamed review' }, principal);
+          assert.equal(retried.pageIds.length, 1);
+          assert.equal(retried.runId !== null, collaborationEnabled);
+          assert.equal(retried.treeRevision, first.treeRevision + 1n);
+        }
+      }
+    } finally {
+      await services.close();
+      await prisma.$disconnect();
+    }
+  });
+});
+
+test('page groups retain duplicate Page suffixes and reject sibling Folder names', {
+  timeout: 120_000,
+}, async () => {
+  await withPageTemplateTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schemaName }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+    const services = await createService(prisma);
+    try {
+      const duplicateTitleDefinition = structuredClone(definition);
+      duplicateTitleDefinition.nodes.push({
+        ...duplicateTitleDefinition.nodes[1], nodeId: 'second-intro', order: 2,
+      });
+      const fixture = await createFixture(prisma, `${schemaName.slice(-8)}_group_titles`, duplicateTitleDefinition);
+      const principal = { userId: fixture.userId, platformRole: 'user' };
+      const first = await services.service.instantiate(fixture.spaceId, fixture.templateId,
+        request('group-titles'), principal);
+      const pages = await prisma.page.findMany({
+        where: { spaceId: fixture.spaceId, title: 'Intro' }, orderBy: { sortOrder: 'asc' },
+      });
+      assert.deepEqual(pages.map((page) => page.syncPath), ['pages/Project/Intro.md', 'pages/Project/Intro (2).md']);
+      const before = await counts(prisma, fixture.spaceId);
+      const spaceBefore = await prisma.space.findUniqueOrThrow({ where: { id: fixture.spaceId } });
+      await assert.rejects(services.service.instantiate(fixture.spaceId, fixture.templateId,
+        request('duplicate-folder', { expectedTreeRevision: first.treeRevision }), principal),
+      (error) => error.code === 'FOLDER_NAME_CONFLICT' && error.getStatus() === 409);
+      assert.deepEqual(await counts(prisma, fixture.spaceId), before);
+      assert.deepEqual(await prisma.space.findUniqueOrThrow({ where: { id: fixture.spaceId } }), spaceBefore);
+    } finally {
+      await services.close();
+      await prisma.$disconnect();
+    }
+  });
+});
+
 test('saved duplicate-order siblings retain source order in real instances and mixed duties create only one participant', { timeout: 180_000 }, async () => {
   await withPageTemplateTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schemaName }) => {
     const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });

@@ -47,9 +47,9 @@ export const CollaborationSettingsPanel: React.FC<{
     {inputs.length ? <div className="collaboration-settings-section"><h3>{t('pageTemplate.composite.workflowInputs')}</h3>
       <div className="collaboration-settings-inputs">{inputs.map((input) => <label key={input.key} className={`collaboration-settings-input${input.type === 'boolean' ? ' is-boolean' : ''}`}>
         <span>{input.label}{input.required ? <span className="collaboration-settings-required" aria-hidden="true">*</span> : null}</span>
-        {input.type === 'boolean' ? <input type="checkbox" checked={inputValues[input.key] === true}
-          onChange={(event) => onChange({ bindings, enabledTaskNodeIds, inputValues: { ...inputValues, [input.key]: event.target.checked } })} /> : input.type === 'long_text' ? <textarea required={input.required} aria-label={input.label}
-          value={String(inputValues[input.key] ?? '')} onChange={(event) => onChange({ bindings, enabledTaskNodeIds, inputValues: { ...inputValues, [input.key]: event.target.value } })} /> : <input required={input.required} aria-label={input.label}
+        {input.type === 'boolean' ? <input id={`collaboration-input-${input.key}`} type="checkbox" checked={inputValues[input.key] === true}
+          onChange={(event) => onChange({ bindings, enabledTaskNodeIds, inputValues: { ...inputValues, [input.key]: event.target.checked } })} /> : input.type === 'long_text' ? <textarea id={`collaboration-input-${input.key}`} required={input.required} aria-label={input.label}
+          value={String(inputValues[input.key] ?? '')} onChange={(event) => onChange({ bindings, enabledTaskNodeIds, inputValues: { ...inputValues, [input.key]: event.target.value } })} /> : <input id={`collaboration-input-${input.key}`} required={input.required} aria-label={input.label}
           type={input.type === 'number' ? 'number' : input.type === 'url' ? 'url' : 'text'} value={String(inputValues[input.key] ?? '')}
           onChange={(event) => {
             const next = { ...inputValues };

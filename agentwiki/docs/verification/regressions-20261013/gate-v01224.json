@@ -1,0 +1,47 @@
+{
+  "version": "0.12.24",
+  "baseline": "588e15a09668a06c4424ec3cfaf3bf0bc22beb0e",
+  "testFull": {
+    "exitCode": 0,
+    "passed": 7050,
+    "skipped": 6,
+    "failed": 0,
+    "groups": {
+      "runtime": {
+        "passed": 309,
+        "skipped": 1
+      },
+      "database": {
+        "passed": 232,
+        "skipped": 0
+      },
+      "server": {
+        "passed": 3086,
+        "skipped": 4
+      },
+      "client": {
+        "passed": 2298,
+        "skipped": 0
+      },
+      "syncProtocol": {
+        "passed": 140,
+        "skipped": 0
+      },
+      "localSync": {
+        "passed": 985,
+        "skipped": 1
+      }
+    }
+  },
+  "build": {
+    "exitCode": 0,
+    "initialJsBytes": 546422,
+    "budgetBytes": 550000
+  },
+  "typecheck": {
+    "exitCode": 0
+  },
+  "lint": {
+    "exitCode": 0
+  }
+}

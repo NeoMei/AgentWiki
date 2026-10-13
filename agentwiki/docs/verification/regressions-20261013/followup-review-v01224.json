@@ -1,0 +1,32 @@
+{
+  "review": "independent-final",
+  "version": "0.12.24",
+  "p1p2Findings": [],
+  "resolved": [
+    "cancelled/failed preflight cannot submit",
+    "single submission lock includes preflight",
+    "unknown-result retry preserves exact payload and key",
+    "disabled task does not require unused role binding",
+    "cancelled navigation keeps ordinary page preview alive"
+  ],
+  "sha256": {
+    "apps/client/src/features/page-templates/NewPageDialog.tsx": "4e7877797540861baad3a805b010aa208879bdeaeae8c5bb398145a7dc737216",
+    "apps/client/src/features/page-templates/NewPageDialog.composite.spec.tsx": "9b49effd0641159c6d63fed62cf259fbef77db12474c9184b3985028e79a4995",
+    "apps/server/src/page-templates/template-instantiation.service.ts": "de48c969e3d919bf4325710da9542f19f9892fff02ecc3b84fd50a30a1224fc4"
+  },
+  "targetedTests": {
+    "passed": 57,
+    "failed": 0
+  },
+  "newAsyncTests": {
+    "redFailures": 8,
+    "greenPassed": 8
+  },
+  "isolatedDatabaseTests": {
+    "passed": 5,
+    "skipped": 0,
+    "failed": 0
+  },
+  "firstFullGate": "timeout matched macOS 489-second sleep; unchanged database group passed in 7.3 seconds",
+  "secondFullGate": "database232 and server3086 passed; existing NewContentPage navigation test exposed an eager cancel regression; one-line fix passes 57 targeted tests"
+}
