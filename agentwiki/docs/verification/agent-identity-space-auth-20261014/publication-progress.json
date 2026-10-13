@@ -1,0 +1,73 @@
+{
+  "sourceCommit": "48781e5b192101a2d122dd143048d983bca8a29b",
+  "gitMasterPushed": true,
+  "versions": {
+    "app": "0.12.25",
+    "localSync": "0.12.0",
+    "protocol": "0.6.1"
+  },
+  "backup": {
+    "path": "/var/backups/agentwiki/identity-v01225.CJmczlK9",
+    "databaseBytes": 40255921,
+    "applicationArchiveBytes": 352363626,
+    "databaseDumpReadable": true,
+    "attachmentManifestMatchedLive": true,
+    "checksumsPassed": true,
+    "writersRestored": true
+  },
+  "preMigration": {
+    "credentialCount": 71,
+    "grantCount": 482
+  },
+  "npm": {
+    "status": "published",
+    "version": "0.12.0",
+    "registryMetadataMatchedCandidate": true,
+    "registryOnlyCleanInstallPassed": true,
+    "installedFilesMatched": 167,
+    "receipt": "npm-registry-receipt.json"
+  },
+  "production": {
+    "status": "deployed_verified",
+    "sourceCommit": "48781e5b192101a2d122dd143048d983bca8a29b",
+    "matchedSourceFiles": 1252,
+    "migrationApplied": "20261014120000_agent_identity_credentials",
+    "baselineStableCredentialAndGrantRowsPreserved": true,
+    "addedCredentialCount": 1,
+    "addedGrantCount": 1,
+    "health": "ok",
+    "receipt": "production-receipt-0.12.25.json"
+  },
+  "mcp": {
+    "status": "upgraded_and_live_readback_verified",
+    "gatewayVersion": "0.12.0",
+    "identityUnchanged": true,
+    "credentialsUnchanged": true,
+    "authorizedSpaceCount": 3,
+    "targetSpaceId": "cmv6biedu005okoisb9fgp64y",
+    "targetReadPassed": true,
+    "upgradeReceipt": "local-gateway-upgrade-receipt.json",
+    "liveReceipt": "mcp-live-readback-receipt.json",
+    "codexRunningToolHotReload": "not_claimed"
+  },
+  "documents": {
+    "status": "publishing_authorized",
+    "targetSpaceId": "cmv6biedu005okoisb9fgp64y",
+    "draftPageCount": 17,
+    "publisherAutomaticPublicationAuthorizedByUser": true,
+    "policyApplication": "in_progress_by_primary_agent",
+    "existingFolderProposal": {
+      "changeSetId": "cmv6xho0000aokqb0jyqmljgb",
+      "status": "pending_review",
+      "autoPublished": false
+    },
+    "newTemplatePagesVerified": 0,
+    "boundary": "Await MCP page writes and per-page published readback; software release and pending_review proposal do not complete the document task."
+  },
+  "github": {
+    "status": "published",
+    "url": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.25",
+    "tagCommit": "48781e5b192101a2d122dd143048d983bca8a29b",
+    "receipt": "github-release-receipt.json"
+  }
+}

@@ -2,20 +2,20 @@
 
 ## 当前目标
 
-用户确认：Agent 一次接入 AgentWiki，每次按目标 spaceId 实时 Grant 授权。不得要求逐空间领取接入码。
+用户确认：Agent 一次接入 AgentWiki，每次按目标 spaceId 实时 Grant 授权，不需要逐空间连接码。该修正已发布；继续完成原项目模板的 MCP 交付。
 
 ## 范围
 
-身份凭据与 Grant 解耦；Grant 变化动态生效；网关单身份传 spaceId；接入/协作准备界面；历史凭据迁移；旧 Tree 工作区保留。本轮本地开发未发布生产/npm，未变更真实本机配置与凭据。
+身份凭据与 Grant 解耦、动态授权、网关单身份、接入/协作界面、历史凭据迁移、旧 Tree 保留；补齐 MCP 按既有页面 ID 更新与创建页 folderId，以完成原文档任务。
 
 ## 当前状态
 
-候选已提交 `c5a2cb75e022d55ba4ab927668c3b705ba4e07b0`，分支 `codex/agent-identity-space-auth`；工作树 `/Users/neomei/.codex/worktrees/agent-identity-space-auth/AgentWiki `（尾空格）。基于 origin/master `6de18645`（v0.12.24）。
+正式提交 `48781e5b192101a2d122dd143048d983bca8a29b`，GitHub Release `v0.12.25`、npm Local Sync `0.12.0` 已发布；protocol `0.6.1` 不变。最终整树测试 7,114 通过、6 跳过、0 失败，typecheck/lint/build 与独立复审通过。
 
-完整测试 7,084 通过、6 跳过、0 失败，其中 Runtime DB 232 零跳过；typecheck/lint/build/diff check 通过。服务端、UI、网关独立审查及修复复审通过。两项 UI P2 与旧 Tree workspace P1 均已关闭。详见 agentwiki/docs/verification/agent-identity-space-auth-20261014/status.md。
+生产迁移与源码/环境/health/网页资产校验通过，旧 71 个 Credential 与 482 个 Grant 的稳定字段未丢失或变化，在线正常新增分别 1 条。原本机 connection/key/Agent 保留，网关升级 0.12.0；真实官方包 stdio MCP 已读取 3 个授权空间，目标 publisher 空间的 15 页、5 目录及首页。没有重新 onboard，也不声称现存 Codex 工具进程热重载。
 
 ## 下一步
 
-用户已授权发布。Web 0.12.25 / Local Sync 0.12.0，协议保持 0.6.1。新增 MCP 原页面更新能力经独立审查通过；最终整树测试 7,114 通过、6 跳过、0 失败，typecheck/lint/build 通过。SSH/npm 登录已恢复，配套备份执行中，后续部署、GitHub/npm 发布及真实 MCP 回读须分别记录。
+用户已明确允许 Publisher 自动发布。主代理正在应用审核政策并用 MCP 更新 17 篇模板。现有目录改名提案回执仍为 pending_review，不能算正式发布。按原页面 ID 更新，创建缺失的测试报告/开发日志，补真实文档链接并逐页正式回读后再关闭文档任务。
 
-原任务 17 篇模板草稿仍未远程提交。MCP 新增 propose_page_update 并支持创建页 folderId；接入恢复后按原页面 ID 写入并回读。当前正式 0.11.0 网关的 SPACE_CONNECTION_REQUIRED 是旧设计阻塞，不是让用户另领空间连接码的理由。升级原 MCP args 到0.12.0，保留connection/key/Agent，不重新onboard。
+证据入口：agentwiki/docs/verification/agent-identity-space-auth-20261014/status.md 与 publication-progress.json；生产/npm/GitHub/本机升级/MCP实读均有独立 sanitized receipt。

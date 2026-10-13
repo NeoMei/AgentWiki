@@ -1,0 +1,68 @@
+{
+  "status": "passed",
+  "gatewayVersion": "0.12.0",
+  "transport": "official npm package stdio gateway using MCP SDK",
+  "connectionId": "87da2b68-1154-54cc-a03a-137dcd778e40",
+  "sameExistingConnection": true,
+  "credentialsUnchanged": true,
+  "targetSpaceId": "cmv6biedu005okoisb9fgp64y",
+  "authorizedSpaces": [
+    {
+      "id": "cmtmgsk5b00neuo709n0x7nqj",
+      "name": "项目管理",
+      "role": "editor"
+    },
+    {
+      "id": "cmsivy4x6000112tow44ehfch",
+      "name": "我的知识库",
+      "role": "publisher"
+    },
+    {
+      "id": "cmv6biedu005okoisb9fgp64y",
+      "name": "AgentWiki 项目",
+      "role": "publisher"
+    }
+  ],
+  "targetReadback": {
+    "pageListTotal": 15,
+    "pageListReturned": 15,
+    "folderCount": 5,
+    "folderTreeRevision": "27",
+    "homePageId": "f285b898-65ba-4938-8616-e9a0b8f575f5",
+    "homeContentSha256": "8dce02f16d9f2a4a7cae91edf30bac6d741d89c59c807ef1d78c8e0a48b7498b",
+    "isError": false
+  },
+  "governedWriteProposal": {
+    "changeSetId": "cmv6xho0000aokqb0jyqmljgb",
+    "status": "pending_review",
+    "autoPublished": false
+  },
+  "evidence": [
+    {
+      "file": "/tmp/agentwiki-v01225-mcp-spaces.json",
+      "sha256": "3133bc68db00e794cafc077db6e758911c12811716f5e6e87b45644a98623c65",
+      "isError": false
+    },
+    {
+      "file": "/tmp/agentwiki-v01225-target-pages.json",
+      "sha256": "d0f881e7f1864e81fd8fd7664d60fe5a9818e1e5894182122d3480c23aa8fab3",
+      "isError": false
+    },
+    {
+      "file": "/tmp/agentwiki-v01225-target-folders.json",
+      "sha256": "a72c1d06dc4fcac612e2f4c7629f9ebd70abfb23c4d7759653e80201b7d0d61b",
+      "isError": false
+    },
+    {
+      "file": "/tmp/agentwiki-v01225-target-home.json",
+      "sha256": "ce7cbed7920f0bb5c360cd4ecf93eb862f82cccc46d4d8d958b5369e761556e5",
+      "isError": false
+    },
+    {
+      "file": "/tmp/agentwiki-v01225-folder-rename-result.json",
+      "sha256": "7b2ac5b139b59ef09000552ff8e7d320cff0e163912238d5c4a01c957b39a5fc",
+      "isError": false
+    }
+  ],
+  "boundary": "Successful stdio MCP calls using the upgraded package do not claim a running Codex tool process was hot-reloaded. The folder proposal was pending review at this snapshot; proposal creation is not publication. No page bodies or user identities are copied."
+}

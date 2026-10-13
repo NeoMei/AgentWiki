@@ -1,0 +1,9 @@
+{
+  "tag": "v0.12.25",
+  "url": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.25",
+  "publishedAt": "2026-10-13T16:58:23Z",
+  "isDraft": false,
+  "tagCommit": "48781e5b192101a2d122dd143048d983bca8a29b",
+  "sourceCommitMatches": true,
+  "verification": "gh release view and local annotated tag dereference"
+}

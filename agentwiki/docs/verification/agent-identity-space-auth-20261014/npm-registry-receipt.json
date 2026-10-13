@@ -1,0 +1,23 @@
+{
+  "status": "passed",
+  "checkedAt": "2026-10-13T16:55:16.238087+00:00",
+  "registry": "https://registry.npmjs.org/",
+  "package": "@neomei/agentwiki-local-sync",
+  "version": "0.12.0",
+  "distTagLatest": "0.12.0",
+  "shasum": "73f27e5c4b1b291b88cb5f620943fb0c36f02f77",
+  "integrity": "sha512-It1l46OeY0ETaNL8Wfk3OEgP71XD6EEpwfw8KFAya1Q6UPUFS9BgnT1iKlAPxEKRqQvKN2htiosbiOMtSxMKfg==",
+  "sha256": "d4c6128d4945814ca2da54c253bf7514ed54894f6b5733f36462e50b6ba01d2a",
+  "publicTarballMatchesCandidateBytes": true,
+  "installedFilesMatchPublicTarball": 167,
+  "emptyInstallDirectory": "/tmp/agentwiki-v01225-release/registry-acceptance-ow_apop7/install",
+  "emptyCacheDirectory": "/tmp/agentwiki-v01225-release/registry-acceptance-ow_apop7/cache",
+  "installSource": "registry-only exact version, not local tarball",
+  "ignoreScripts": true,
+  "cliVersion": {
+    "version": "0.12.0"
+  },
+  "cliHelpPassed": true,
+  "protocolVersion": "0.6.1",
+  "noRealClientConfigurationChanged": true
+}
