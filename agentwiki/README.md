@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.12.20** — Simplifies built-in template creation, collaboration setup and run workspaces, taskboards, and document typography. See the [release record](docs/releases-v0.12.20.md) for changes and verification.
+> **v0.12.21** — Space cards show page and member counts, approval policy, and the latest space or page update. Newly created spaces show complete counts immediately. See the [release record](docs/releases-v0.12.21.md).
 
 
 ## Hosted Service

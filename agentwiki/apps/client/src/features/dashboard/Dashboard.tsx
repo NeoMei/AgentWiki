@@ -257,7 +257,7 @@ export const Dashboard: React.FC = () => {
             {spaces.map((space) => {
               const pageCount = spacePageCount(space);
               const memberCount = spaceMemberCount(space);
-              const updated = relativeUpdatedAt(space.updatedAt, language);
+              const updated = relativeUpdatedAt(space.lastUpdatedAt ?? space.updatedAt, language);
               const isAutoPublish = space.approvalPolicy === 'scoped-auto-publish';
               const policyLabel = space.approvalPolicy
                 ? t(isAutoPublish ? 'dashboard.autoPublishPolicy' : 'dashboard.reviewPolicy')

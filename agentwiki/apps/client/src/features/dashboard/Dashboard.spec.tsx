@@ -85,6 +85,39 @@ describe('Dashboard Space pagination and creation', () => {
     expect(within(card).getByRole('link', { name: /进入空间/ })).toHaveAttribute('href', '/spaces/space-context');
   });
 
+  it.each([
+    { lastUpdatedAt: '2026-10-13T10:00:00.000Z', expected: '最近更新 2小时前' },
+    { lastUpdatedAt: undefined, expected: '最近更新 前天' },
+  ])('shows the latest page activity with a fallback for older API responses: $expected', async ({ lastUpdatedAt, expected }) => {
+    vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-10-13T12:00:00.000Z').getTime());
+    vi.mocked(api.get).mockResolvedValue(spacePage([{
+      id: 'space-recent', name: '有更新的空间', slug: 'recent',
+      updatedAt: '2026-10-11T12:00:00.000Z', lastUpdatedAt,
+    }], 1));
+
+    renderDashboard();
+
+    expect(await screen.findByText(expected)).toBeInTheDocument();
+  });
+
+  it('shows zero pages and the owner immediately after creation without an extra list request', async () => {
+    vi.mocked(api.post).mockResolvedValue({ data: {
+      id: 'space-new', name: '新的知识空间', slug: 'new-space',
+      updatedAt: new Date().toISOString(), members: [{ userId: 'admin-1' }], _count: { pages: 0 },
+    } });
+    renderDashboard();
+    fireEvent.click(await screen.findByRole('button', { name: '新建空间' }));
+    fireEvent.change(screen.getByPlaceholderText('例如：我的知识库'), { target: { value: '新的知识空间' } });
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+
+    const heading = await screen.findByRole('heading', { name: '新的知识空间' });
+    const card = heading.closest('[data-testid="space-card"]') as HTMLElement;
+    expect(within(card).getByText('0 个页面')).toBeInTheDocument();
+    expect(within(card).getByText('1 位成员')).toBeInTheDocument();
+    expect(within(card).queryByText('统计同步中')).not.toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledTimes(1);
+  });
+
   it.each(['空', 'a', '😀', '✈️'])('blocks overlong creation without truncating %s input', async (unit) => {
     renderDashboard();
     fireEvent.click(await screen.findByRole('button', { name: '新建空间' }));

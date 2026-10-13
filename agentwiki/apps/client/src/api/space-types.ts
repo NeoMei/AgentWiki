@@ -5,6 +5,7 @@ export interface SpaceSummary {
   description?: string;
   createdAt?: string;
   updatedAt?: string;
+  lastUpdatedAt?: string;
   visibility?: string;
   approvalPolicy?: string;
   members?: Array<{ type?: string }>;
