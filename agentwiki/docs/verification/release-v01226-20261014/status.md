@@ -1,6 +1,6 @@
 # v0.12.26 发布验收
 
-发布候选：`e3bbc2012b65ccf2ccba18724c43657989614528`。最终门禁与独立复审通过；GitHub master/tag已推送，npm正在安全验证，生产部署进行中。
+发布候选：`e3bbc2012b65ccf2ccba18724c43657989614528`。最终门禁与独立复审通过；GitHub master/tag已推送，GitHub master/tag已发布；生产部署与公网回验通过；npm 0.13.0仍等待发布者安全密钥验证。
 
 | 门禁 | 结果 |
 |---|---|
@@ -26,3 +26,11 @@
 范围：单行选区、编辑图片、共享笔记/作者权限/常驻高亮图标/行内添加、统一工具栏、Agent聊天、Space Owner全部包含。实现范围与发布版本增量已独立复审无阻断。
 
 本地门禁详见 [门禁阶段](gate-results.json)、[数据库回执](db-gate-final-receipt.json)、[安装包候选](npm-candidate.json)。线上验证稍后按实际结果补齐。
+
+
+## 生产回验
+
+- 生产源码1,297文件匹配候选；3服务 active；API health 的 database/Redis/audit/attachment 均 ok。迁移 `20261014220000_shared_page_notes` 已完成，生产配置 `LOCAL_SYNC_PACKAGE_VERSION=0.13.0`。
+- 公网 `smoke-test.mjs`：32/32通过。临时生产空间的共享笔记 REST/MCP 7项通过，含Owner字段、跨作者拒写、MCP四工具发现与调用、Agent降权即时生效、正文不变。
+- 临时账号、空间、页面、Agent及附件已按精确 nonce 清理；清理为API撤销、附件归档和Space/Page软删除。
+- 首轮图片验收脚本使用 `assets/...` Markdown目标被服务端正确拒绝（`ATTACHMENT_REFERENCE_INVALID`），按正式Wiki图片引用协议修正后重跑通过；该失败与产品实现无关，已保留回执。

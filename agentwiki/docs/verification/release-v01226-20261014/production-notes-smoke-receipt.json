@@ -1,0 +1,50 @@
+{
+  "api": "https://agentwiki.quukk.com/api",
+  "startedAt": "2026-10-13T21:07:00.905Z",
+  "tests": [
+    {
+      "name": "Space list includes actual owner identity",
+      "status": "passed"
+    },
+    {
+      "name": "Owner note persists and viewer reads the same author and id",
+      "status": "passed"
+    },
+    {
+      "name": "Cross-author PATCH and DELETE are rejected",
+      "status": "passed"
+    },
+    {
+      "name": "Real MCP discovers four tools and reads human notes",
+      "status": "passed"
+    },
+    {
+      "name": "Agent creates and updates own note, human reads authenticated Agent author",
+      "status": "passed"
+    },
+    {
+      "name": "Agent role downgrade applies in the same live MCP session",
+      "status": "passed"
+    },
+    {
+      "name": "Notes never mutate canonical Markdown or Page version",
+      "status": "passed"
+    }
+  ],
+  "status": "passed",
+  "fixture": {
+    "ownerId": "cmv768yn1008a59hse7tru8uy",
+    "readerId": "cmv768yyu008b59hsfzc8awml",
+    "spaceId": "cmv768z1i008c59hsb4ps4pmx",
+    "pageId": "a2b20f3f-cd81-4ac1-b776-820abdf8ffeb",
+    "agentId": "cmv7690r5009459hsbtou95zc",
+    "attachmentId": "cmv768zi2008m59hs8or3avu9",
+    "noteIds": [
+      "cmv76905e008v59hs4g3walo7",
+      "cmv7690du008z59hsv3cktoyj",
+      "cmv7691qx009s59hs6h1l8ylt"
+    ]
+  },
+  "completedAt": "2026-10-13T21:07:06.571Z",
+  "retainedForUi": true
+}
