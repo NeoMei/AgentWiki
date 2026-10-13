@@ -1267,7 +1267,7 @@ describe('PagePreview checklist saves', () => {
     expect(screen.getByRole('textbox', { name: 'Message' })).toBe(agentComposer);
     expect(agentComposer).toHaveValue('Keep this unsent question');
     expect(screen.getAllByRole('tablist', { name: 'Document tools' })).toHaveLength(1);
-    expect(screen.getAllByRole('tabpanel')).toHaveLength(1);
+    expect(screen.getAllByRole('tabpanel').filter((panel) => panel.id.startsWith('reading-document-panel-'))).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: 'Collapse side panel' }));
     expect(screen.queryByRole('tabpanel')).not.toBeInTheDocument();
     expect(screen.getAllByRole('tab')).toHaveLength(4);
@@ -1463,6 +1463,7 @@ describe('PagePreview checklist saves', () => {
     expect(document.querySelector('[data-note-ids]')).toHaveTextContent('repeat');
     fireEvent.click(within(notesPanel).getByRole('checkbox', { name: 'Why the second occurrence?' })); fireEvent.click(within(notesPanel).getByRole('button', { name: 'Stage selected for Agent' }));
     expect(agentPostCalls()).toHaveLength(0);
+    fireEvent.click(await screen.findByRole('button', { name: 'Reference pages' }));
     fireEvent.change(await screen.findByRole('textbox', { name: 'Find reference pages' }), { target: { value: 'Supporting' } }); fireEvent.click(await screen.findByRole('button', { name: 'Add Supporting page' }));
     expect(screen.getByRole('option', { name: 'Propose changes' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Send' })); expect(await screen.findByText('Reader answer')).toBeVisible();

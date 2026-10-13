@@ -1,6 +1,6 @@
 # 当前目标
 
-- 用户要求笔记直接保存在服务器，所有具备页面权限的用户和 Agent 均可见并按作者区分；共享笔记与右侧统一工具栏已实现、复审和验收。前续单行选区、图片预览和笔记标记修复一并保留；尚未推送或部署。
+- 用户要求内嵌 Agent 聊天框参考截图简化为会话栏、对话与底部输入框；已完成本地实现与验收。共享笔记与统一工具栏已提交 01042423；前续单行选区、图片预览及笔记修复保留，均尚未推送或部署。
 
 # 范围 / 不做
 
@@ -8,6 +8,8 @@
 - 历史缺陷与人工验收不因本次发布而批量关闭。
 
 # 当前状态
+
+- Agent聊天简化：顶部会话标签/新建/历史、轻量Markdown对话、一体输入、@引用与笔记摘要；保留候选/草稿/显式Save。151文件2464客户端测试、build/tsc/lint、两轮独立复审及IAB桌面/390px通过；修复浮层裁切、候选提示隐藏、手机多附件溢出。详情agentwiki/design-qa.md，本地fixture预览5184仍保留，未推送部署。
 
 - 图片预览/点击展开/离开恢复完成；支持常用单行Markdown及Wiki/相对附件，32K/256候选预算避免逐键全文解析。最终client144files/2325pass、build/lint/tsc与独立复审通过；真实Chrome默认首图/点击/Enter/改URL撤销/失败fallback/两类Blob/窄屏/选区回归通过。
 - 个人笔记正文标记与选文添加入口完成：阅读/编辑页常驻琥珀高亮、行旁黄色气泡、紧凑笔记卡片；选文后浮层严格校验账号/Space/页面/版本，存储失败保留草稿，折叠 details 定位会先展开。最终 client 148 files / 2365 tests、build、lint、tsc、独立复审通过；本地 Chrome 已验证桌面读写、编辑态、任务/链接隔离、账号隔离和窄屏无横向溢出。最后一轮手机滚入间距修复因浏览器扩展断开未重新截图确认。
@@ -29,6 +31,7 @@
 
 # 关键索引
 
+- .codex-memory/tasks/archive/agent-chat-simplification-20261014/{brief,decisions,refs}.md
 - .codex-memory/tasks/archive/shared-page-notes-20261014/{brief,decisions,refs}.md
 - agentwiki/docs/verification/shared-page-notes-20261014/status.md
 - .codex-memory/tasks/active/editor-live-preview-20261014/{brief,decisions,refs}.md

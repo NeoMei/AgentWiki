@@ -39,6 +39,18 @@ const notesPatch = async (url: string, input: any) => {
 const agentPostCalls = () => vi.mocked(api.post).mock.calls.filter(([url]) => url.startsWith('/assist/'));
 const pagePatchCalls = () => vi.mocked(api.patch).mock.calls.filter(([url]) => !noteRoute.test(url));
 const notesSettled = async () => { await waitFor(() => expect(notes.loaded && !notes.syncing).toBe(true)); };
+const editScope = () => {
+  const select = screen.getByRole('combobox', { name: 'Edit scope', hidden: true });
+  if (!select.closest('details')?.open) fireEvent.click(screen.getByLabelText('Context settings'));
+  expect(select).toBeVisible(); return select;
+};
+const inspectStagedNotes = (body: string) => {
+  const label = screen.getByText('These page notes will be included with your message.');
+  const details = label.closest('details')!;
+  if (!details.open) fireEvent.click(details.querySelector('summary')!);
+  expect(label).toBeVisible();
+  expect(within(details).getByText(body)).toBeVisible();
+};
 let notes: ReturnType<typeof usePersonalNotes>, turns: AgentTurn[], content: string;
 function Bridge({ pageId = 'page-a', spaceId = 'space-a', edit = false }: { pageId?: string; spaceId?: string; edit?: boolean }) {
   notes = usePersonalNotes({ scope: { userId: auth.id, spaceId, pageId }, canEdit: edit, enabled: true, stageForSession: true, source: content, updatedAt: version });
@@ -128,12 +140,12 @@ it('keeps a locally staged request in its own conversation when the user switche
   const second = { ...summary, id: 'session-b', title: 'Conversation B' };
   vi.mocked(api.get).mockImplementation(async (url) => notesGet(url) ?? ({ data: url === '/assist/sessions' ? [summary, second] : url.endsWith('session-b') ? { ...second, turns: [] } : { ...summary, turns } }));
   render(shell()); await stageFirst();
-  fireEvent.change(screen.getByRole('combobox', { name: 'Conversation' }), { target: { value: 'session-b' } });
+  fireEvent.click(screen.getByRole('tab', { name: 'Conversation B' }));
   await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled());
-  expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue(''); expect(screen.queryByText('Annotations staged (not sent yet)')).not.toBeInTheDocument();
-  fireEvent.change(screen.getByRole('combobox', { name: 'Conversation' }), { target: { value: 'session-a' } });
+  expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue(''); expect(screen.queryByText('These page notes will be included with your message.')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('tab', { name: 'Conversation A' }));
   await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled());
-  expect(screen.getByText('Annotations staged (not sent yet)')).toBeVisible(); expect(screen.getByRole('combobox', { name: 'Edit scope' })).toHaveValue('selection');
+  inspectStagedNotes('Fix one'); expect(editScope()).toHaveValue('selection');
   expect(notes.notes.every((note) => note.status === 'pending' && !note.taskId)).toBe(true);
 });
 
@@ -178,7 +190,7 @@ it.each(['read/edit', 'away during receipt', 'return before receipt'])('reconcil
   }
   await waitFor(() => expect(notes.notes[0]).toMatchObject({ id: ids[0], taskId: 'sent-turn', status: 'dispatched' }));
   expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('');
-  expect(screen.queryByText('Annotations staged (not sent yet)')).not.toBeInTheDocument();
+  expect(screen.queryByText('These page notes will be included with your message.')).not.toBeInTheDocument();
   expect(agentPostCalls()).toHaveLength(1);
   turns = [{ ...turns[0], status: 'done', result: { changes: 'ONE\nkeep\ntwo\n' } }];
   await waitFor(() => expect(notes.notes[0].status).toBe('awaiting-review'), { timeout: 2000 });
@@ -191,7 +203,7 @@ it.each(['read/edit', 'away during receipt', 'return before receipt'])('reconcil
 it.each(['selection', 'document'])('rebinds explicitly regenerated %s notes after a remount conflict and successful retry', async (scope) => {
   const view = render(shell('edit')); const ids = await stageFirst();
   fireEvent.change(screen.getByRole('combobox', { name: 'Message mode' }), { target: { value: 'proposal' } });
-  fireEvent.change(screen.getByRole('combobox', { name: 'Edit scope' }), { target: { value: scope } });
+  fireEvent.change(editScope(), { target: { value: scope } });
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   await waitFor(() => expect(notes.notes[0].status).toBe('dispatched'));
   expect(turns[0].pageSnapshot?.assistTarget?.kind).toBe(scope);
@@ -200,7 +212,7 @@ it.each(['selection', 'document'])('rebinds explicitly regenerated %s notes afte
   await waitFor(() => expect(notes.notes[0].status).toBe('awaiting-review'), { timeout: 2000 });
   view.rerender(shell('other')); content = original + 'Manual end\n'; view.rerender(shell('edit'));
   fireEvent.click(await screen.findByRole('button', { name: 'Regenerate from current draft' }));
-  expect(screen.getByRole('combobox', { name: 'Edit scope' })).toHaveValue(scope);
+  expect(editScope()).toHaveValue(scope);
   content += 'Typed after regenerate\n'; view.rerender(shell('edit'));
   expect(notes.notes[0]).toMatchObject({ status: 'awaiting-review', taskId: 'sent-turn' });
   expect(agentPostCalls()).toHaveLength(1);
@@ -245,7 +257,7 @@ it.each([{ resolvedIndex: 0, regenerateAgain: false }, { resolvedIndex: 1, regen
   const unstagedNote = structuredClone(notes.notes[2]);
   act(() => { expect(notes.dispatch(ids)).toBe(true); });
   fireEvent.change(screen.getByRole('combobox', { name: 'Message mode' }), { target: { value: 'proposal' } });
-  fireEvent.change(screen.getByRole('combobox', { name: 'Edit scope' }), { target: { value: 'document' } });
+  fireEvent.change(editScope(), { target: { value: 'document' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   await waitFor(() => expect(notes.notes[unresolvedIndex].status).toBe('dispatched'));
   turns = [{ ...turns[0], status: 'done', result: { changes: 'ONE\nkeep\nTWO\n' } }];
@@ -265,7 +277,7 @@ it.each([{ resolvedIndex: 0, regenerateAgain: false }, { resolvedIndex: 1, regen
     const previous = await screen.findByTestId(`agent-turn-${previousId}`);
     expect(within(previous).getByRole('alert')).toHaveTextContent('Page, permissions, version or draft changed. Please regenerate.');
     fireEvent.click(within(previous).getByRole('button', { name: 'Regenerate from current draft' }));
-    expect(screen.getByRole('combobox', { name: 'Edit scope' })).toHaveValue('document');
+    expect(editScope()).toHaveValue('document');
     expect(notes.notes[unresolvedIndex]).toMatchObject({ status: 'awaiting-review', taskId: previousId });
     const beforeSend = structuredClone(notes.notes);
     vi.mocked(api.post).mockRejectedValueOnce(new Error('offline'));
@@ -304,21 +316,23 @@ it.each(['new message', 'another conversation'])('consumes only the original com
   let finish!: () => void;
   const post = vi.mocked(api.post).getMockImplementation()!;
   vi.mocked(api.post).mockImplementation((...args) => new Promise((resolve) => { finish = () => { void Promise.resolve(post(...args)).then(resolve); }; }));
-  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   // Drive the production handlers even while inputs are disabled, covering an already queued
   // input/navigation event. The receipt must own its draft, independently of UI disable timing.
+  act(() => {
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    if (boundary === 'another conversation') fireEvent.click(screen.getByRole('tab', { name: 'Conversation B' }));
+  });
   if (boundary === 'another conversation') {
-    fireEvent.change(screen.getByRole('combobox', { name: 'Conversation' }), { target: { value: 'session-b' } });
-    await screen.findByRole('option', { name: 'Conversation B' });
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Conversation B' })).toHaveAttribute('aria-selected', 'true'));
   }
   fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'My next message' } });
   await act(async () => finish());
   await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('My next message'));
-  expect(screen.queryByText('Annotations staged (not sent yet)')).not.toBeInTheDocument();
+  expect(screen.queryByText('These page notes will be included with your message.')).not.toBeInTheDocument();
   if (boundary === 'another conversation') {
-    expect(screen.queryByText('Annotations staged (not sent yet)')).not.toBeInTheDocument();
+    expect(screen.queryByText('These page notes will be included with your message.')).not.toBeInTheDocument();
     expect(notes.notes[0].status).toBe('pending');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Conversation' }), { target: { value: 'session-a' } });
+    fireEvent.click(screen.getByRole('tab', { name: 'Conversation A' }));
     await waitFor(() => expect(notes.notes[0].status).toBe('dispatched'));
     expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('');
   }
@@ -338,7 +352,7 @@ it('delivers the original receipt while retaining a newer staged request on the 
   await waitFor(() => expect(notes.notes[0]).toMatchObject({ status: 'dispatched', taskId: 'sent-turn' }));
   expect(notes.notes[1]).toMatchObject({ status: 'pending' }); expect(notes.notes[1].taskId).toBeUndefined();
   expect(notes.assistRequest?.id).toBe(newerRequest.id);
-  expect(screen.getByText('Annotations staged (not sent yet)')).toBeVisible();
+  inspectStagedNotes('Do not stage this note');
   expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Please discuss the questions in these annotations.');
   expect(agentPostCalls()).toHaveLength(1);
   expect(turns[0].noteIds).toEqual([ids[0]]);

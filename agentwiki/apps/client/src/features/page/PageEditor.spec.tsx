@@ -224,7 +224,12 @@ const chooseProposal = async () => {
   await waitFor(() => expect(screen.queryByText('Loading conversation…')).not.toBeInTheDocument());
   fireEvent.change(screen.getByRole('combobox', { name: 'Message mode' }), { target: { value: 'proposal' } });
 };
-const reloadAgentHistory = () => fireEvent.change(screen.getByRole('combobox', { name: 'Conversation' }), { target: { value: 'session-1' } });
+const reloadAgentHistory = () => fireEvent.click(screen.getByRole('tab', { name: 'Editor conversation' }));
+const editScope = () => {
+  const select = screen.getByRole('combobox', { name: 'Edit scope', hidden: true });
+  if (!select.closest('details')?.open) fireEvent.click(screen.getByLabelText('Context settings'));
+  expect(select).toBeVisible(); return select;
+};
 
 const DirectEditRedirectTarget = () => {
   const location = useLocation();
@@ -904,7 +909,7 @@ describe('PageEditor remote update safety', () => {
     fireEvent.click(await screen.findByTestId('document-panel-tab-assist'));
     await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
     fireEvent.click(screen.getByTestId('assist-submit'));
-    await waitFor(() => expect(screen.getByTestId('assist-submit')).toHaveTextContent('Send'));
+    await screen.findByRole('button', { name: 'Stop' });
     act(() => socketMock.handlers.get('assistStream')?.({ taskId: 'assist-1', chunk: '📝 生成: {"changes":"Partial"}' }));
     fireEvent(window, new Event('pagehide'));
     expect(loadDraft(draftScope)).toBeNull();
@@ -2832,7 +2837,7 @@ describe('PageEditor remote update safety', () => {
     renderEditor();await screen.findByDisplayValue('Original title');
     act(()=>currentEditorView().dispatch({selection:EditorSelection.single(303,308)}));
     fireEvent.click(screen.getByRole('button',{name:'Ask Agent'}));
-    await chooseProposal(); expect(screen.getByRole('combobox',{name:'Edit scope'})).toHaveValue('selection');
+    await chooseProposal(); expect(editScope()).toHaveValue('selection');
     await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix quote'}});fireEvent.click(screen.getByTestId('assist-submit'));
     await screen.findByRole('button',{name:'Accept to draft'});
     expect(api.post).toHaveBeenCalledWith('/assist/sessions/session-1/turns',expect.objectContaining({snapshot:expect.objectContaining({assistTarget:expect.objectContaining({from:303,to:308,quote:'quote'})})}));
@@ -2940,10 +2945,10 @@ describe('PageEditor remote update safety', () => {
     const base='# One\nintro\n## Child\nx\n# Two\ny';let tasks:any[]=[];
     mockAgentSession(page({content:base,capabilities:{canEdit:true}}), () => tasks, async () => { tasks=[{id:'scope',intent:'Fix',status:'done',result:{changes:base.replace('intro','INTRO')}}]; return tasks[0]; });
     renderEditor();await screen.findByDisplayValue('Original title');act(()=>currentEditorView().dispatch({selection:EditorSelection.cursor(7)}));
-    fireEvent.click(screen.getByTestId('document-panel-tab-assist'));await chooseProposal(); expect(screen.getByRole('combobox',{name:'Edit scope'})).toHaveValue('document');
+    fireEvent.click(screen.getByTestId('document-panel-tab-assist'));await chooseProposal(); expect(editScope()).toHaveValue('document');
     await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix'}});fireEvent.click(screen.getByTestId('assist-submit'));await screen.findByRole('button',{name:'Accept to draft'});
     expect(api.post).toHaveBeenLastCalledWith('/assist/sessions/session-1/turns',expect.objectContaining({snapshot:expect.objectContaining({assistTarget:expect.objectContaining({kind:'document',from:0,to:base.length})})}));
-    fireEvent.click(screen.getByRole('button',{name:'Discard'}));fireEvent.change(screen.getByRole('combobox',{name:'Edit scope'}),{target:{value:'section'}});
+    fireEvent.click(screen.getByRole('button',{name:'Discard'}));fireEvent.change(editScope(),{target:{value:'section'}});
     await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix section'}});fireEvent.click(screen.getByTestId('assist-submit'));
     await waitFor(()=>expect(agentPostCalls()).toHaveLength(2));expect(api.post).toHaveBeenLastCalledWith('/assist/sessions/session-1/turns',expect.objectContaining({snapshot:expect.objectContaining({assistTarget:expect.objectContaining({kind:'section',quote:'# One\nintro\n## Child\nx\n'})})}));expect(contentEditorValue()).toBe(base);
   });
@@ -2952,7 +2957,7 @@ describe('PageEditor remote update safety', () => {
     const base='one\nkeep\ntwo\n';let tasks:any[]=[];
     mockAgentSession(page({content:base,capabilities:{canEdit:true}}), () => tasks, async () => { tasks=[{id:'continuity',intent:'Fix',status:phase==='generating'?'running':'done',result:{changes:'ONE\nkeep\nTWO\n'}}]; return tasks[0]; });
     renderEditor();await screen.findByDisplayValue('Original title');fireEvent.click(screen.getByTestId('document-panel-tab-assist'));await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix'}});fireEvent.click(screen.getByTestId('assist-submit'));
-    await waitFor(()=>expect(screen.getByTestId('assist-submit')).toHaveTextContent('Send'));
+    await screen.findByRole('button', { name: phase === 'generating' ? 'Stop' : 'Send' });
     if(phase!=='generating')await screen.findByRole('button',{name:'Accept change 1'});
     if(phase==='partial')fireEvent.click(screen.getByRole('button',{name:'Accept change 1'}));
     fireEvent.click(screen.getByRole('button',{name:'Collapse side panel'}));fireEvent.click(screen.getByTestId('document-panel-tab-assist'));

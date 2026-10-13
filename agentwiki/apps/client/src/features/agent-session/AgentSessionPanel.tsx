@@ -1,4 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { ArrowUp, Bot, ChevronDown, FileText, History, MessageSquare, Plus, SlidersHorizontal, Square } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -53,7 +56,14 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
     return () => { observer?.disconnect(); if (frame !== null) cancelAnimationFrame(frame); };
   }, [session.detail, session.loading, session.selected]);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const composingRef = useRef(false);
   const handledFocusRequest = useRef<string | undefined>(undefined);
+  const autoFocusedScope = useRef<string | null>(null);
+  const historyRef = useRef<HTMLDetailsElement>(null);
+  const settingsRef = useRef<HTMLDetailsElement>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const [referenceOpenRequest, setReferenceOpenRequest] = useState(0);
+  const conversationPanelId = useId();
   const [localError, setLocalError] = useState<string | null>(null);
   const scope = `${userId}\u0000${spaceId}\u0000${pageId}`;
   const mountRef = useRef({ scope, token: {} });
@@ -62,11 +72,28 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
   const callbacks = useRef({ onNotesEvent, onRequestHandled }); callbacks.current = { onNotesEvent, onRequestHandled };
   const emitted = useRef(new Map<string, string>());
   useEffect(() => { setLocalError(null); emitted.current.clear(); }, [scope]);
+  useEffect(() => { composingRef.current = false; }, [scope, session.selected]);
+  useEffect(() => {
+    const dismiss = (event: PointerEvent) => {
+      for (const details of [historyRef.current, settingsRef.current]) {
+        if (details?.open && event.target instanceof Node && !details.contains(event.target)) details.open = false;
+      }
+    };
+    document.addEventListener('pointerdown', dismiss);
+    return () => document.removeEventListener('pointerdown', dismiss);
+  }, []);
+  useLayoutEffect(() => {
+    const tabs = tabsRef.current, selected = tabs?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!tabs || !selected) return;
+    if (selected.offsetLeft < tabs.scrollLeft) tabs.scrollLeft = selected.offsetLeft;
+    else if (selected.offsetLeft + selected.offsetWidth > tabs.scrollLeft + tabs.clientWidth) tabs.scrollLeft = selected.offsetLeft + selected.offsetWidth - tabs.clientWidth;
+  }, [session.selected, session.sessions]);
   useEffect(() => {
     // A hidden panel consumes a pending request so a late load cannot steal focus.
-    if (!visible) { handledFocusRequest.current = focusRequest; return; }
+    if (!visible) { handledFocusRequest.current = focusRequest; autoFocusedScope.current = null; return; }
     if (session.loading) return;
-    if (autoFocus || focusRequest !== undefined && handledFocusRequest.current !== focusRequest) composerRef.current?.focus();
+    if (autoFocus && autoFocusedScope.current !== scope || focusRequest !== undefined && handledFocusRequest.current !== focusRequest) composerRef.current?.focus();
+    autoFocusedScope.current = scope;
     handledFocusRequest.current = focusRequest;
   }, [scope, session.loading, visible, autoFocus, focusRequest]);
   useEffect(() => {
@@ -180,66 +207,112 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
     } } : undefined;
     session.updateDraft({ intent: turn.intent, mode: turn.mode, references: turn.references, staged, targetKind: scopedTarget?.kind ?? 'document' });
     setLocalError(null);
-    document.querySelector<HTMLTextAreaElement>('[data-agent-composer]')?.focus();
+    composerRef.current?.focus();
   };
+  const runningTurn = session.detail?.turns.find((turn) => turn.status === 'queued' || turn.status === 'running');
+  const selectedSession = session.sessions.find((item) => item.id === session.selected);
+  const recentSessions = session.sessions.slice(0, 3);
+  const visibleSessions = selectedSession && !recentSessions.some((item) => item.id === selectedSession.id)
+    ? [...recentSessions.slice(0, 2), selectedSession] : recentSessions;
+  const scopeLabel = targetKind === 'selection' ? (zh ? '所选段落' : 'Selection') : targetKind === 'section' ? (zh ? '当前章节' : 'Section') : (zh ? '整篇文档' : 'Document');
+  const selectConversation = (id: string) => {
+    if (historyRef.current) historyRef.current.open = false;
+    void session.select(id);
+  };
+  const returnComposerFocus = () => { if (visible) composerRef.current?.focus(); };
   return <aside aria-label="Agent" data-testid="agent-session-panel" className="agent-session-panel flex min-h-0 min-w-0 flex-1 flex-col bg-white text-sm">
-    <div className="flex shrink-0 items-end gap-2 border-b border-gray-200 p-3">
-      <label className="min-w-0 flex-1 text-xs text-gray-500">{zh ? '会话' : 'Conversation'}<select aria-label={zh ? '会话' : 'Conversation'} className="mt-1 w-full rounded-lg border border-gray-200 p-2 text-sm" value={session.selected ?? ''} disabled={session.sending} onChange={(e) => void session.select(e.target.value)}><option value="" disabled>{zh ? '新会话' : 'New conversation'}</option>{session.selected && !session.sessions.some((s) => s.id === session.selected) ? <option value={session.selected}>{zh ? '不可访问的会话' : 'Unavailable conversation'}</option> : null}{session.sessions.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}</select></label><button type="button" disabled={session.sending || session.loading} onClick={() => void session.newSession()} className="min-h-9 shrink-0 rounded-lg border border-gray-200 px-2">{zh ? '新建会话' : 'New conversation'}</button>
-    </div>
-    <div ref={turnsRef} className="agent-session-turns min-h-0 flex-1 overflow-y-auto p-3 [overflow-wrap:anywhere]" aria-live="polite" onScroll={(event) => {
+    <header className="agent-conversation-header">
+      <div ref={tabsRef} role="tablist" aria-label={zh ? '会话' : 'Conversations'} className="agent-conversation-tabs" onKeyDown={(event) => {
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+        const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]:not(:disabled)'));
+        const index = tabs.indexOf(document.activeElement as HTMLButtonElement);
+        if (index < 0 || !tabs.length) return;
+        event.preventDefault();
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+        tabs[next].focus(); tabs[next].click();
+      }}>
+        {visibleSessions.map((item) => <button type="button" key={item.id} role="tab" id={`${conversationPanelId}-${item.id}`} aria-controls={conversationPanelId} aria-selected={session.selected === item.id} tabIndex={session.selected === item.id ? 0 : -1} title={item.title} disabled={session.sending} className="agent-conversation-tab" onClick={() => selectConversation(item.id)}><Bot aria-hidden="true" size={15} /><span>{item.title}</span></button>)}
+        {!visibleSessions.length || session.selected && !selectedSession ? <span className="agent-conversation-placeholder"><Bot aria-hidden="true" size={15} />{session.selected ? (zh ? '不可访问的会话' : 'Unavailable conversation') : (zh ? '新会话' : 'New conversation')}</span> : null}
+      </div>
+      <button type="button" aria-label={zh ? '新建会话' : 'New conversation'} title={zh ? '新建会话' : 'New conversation'} disabled={session.sending || session.loading} onClick={() => void session.newSession()} className="agent-icon-button"><Plus aria-hidden="true" size={17} /></button>
+      <details ref={historyRef} className="agent-conversation-history" onKeyDown={(event) => { if (event.key === 'Escape' && historyRef.current?.open) { event.preventDefault(); historyRef.current.open = false; historyRef.current.querySelector<HTMLElement>('summary')?.focus(); } }}>
+        <summary aria-label={zh ? '会话历史' : 'Conversation history'} title={zh ? '会话历史' : 'Conversation history'} className="agent-icon-button"><History aria-hidden="true" size={17} /></summary>
+        <div className="agent-history-menu">
+          <p>{zh ? '会话历史' : 'Conversation history'}</p>
+          {session.sessions.length ? session.sessions.map((item) => <button type="button" key={item.id} disabled={session.sending} aria-current={session.selected === item.id ? 'true' : undefined} onClick={() => { selectConversation(item.id); historyRef.current?.querySelector<HTMLElement>('summary')?.focus(); }}><MessageSquare aria-hidden="true" size={15} /><span>{item.title}</span></button>) : <p className="text-gray-500">{zh ? '还没有历史会话' : 'No conversations yet'}</p>}
+        </div>
+      </details>
+    </header>
+    <div id={conversationPanelId} role="tabpanel" aria-labelledby={selectedSession ? `${conversationPanelId}-${selectedSession.id}` : undefined} aria-label={selectedSession ? undefined : (zh ? '当前会话' : 'Current conversation')} ref={turnsRef} className="agent-session-turns min-h-0 flex-1 overflow-y-auto [overflow-wrap:anywhere]" aria-live="polite" onScroll={(event) => {
       const viewport = event.currentTarget;
       followTurnsRef.current = viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 80;
     }}>
-      <div ref={turnsContentRef} className="space-y-4">
-      {session.loading ? <p role="status">{zh ? '加载会话…' : 'Loading conversation…'}</p> : null}
-      {!session.loading && !session.detail?.turns.length ? <p className="text-gray-500">{zh ? '围绕这篇文档开始对话。' : 'Start a conversation about this document.'}</p> : null}
+      <div ref={turnsContentRef} className="agent-conversation-messages">
+      {session.loading ? <p role="status" className="agent-chat-empty">{zh ? '加载会话…' : 'Loading conversation…'}</p> : null}
+      {!session.loading && !session.detail?.turns.length ? <div className="agent-chat-empty"><Bot aria-hidden="true" size={25} /><p>{zh ? '围绕这篇文档开始对话。' : 'Start a conversation about this document.'}</p><span>{zh ? '提问，或描述你希望修改的内容。' : 'Ask a question or describe a change you need.'}</span></div> : null}
       {session.detail?.turns.map((turn) => {
         const record = store.candidates.get(turn.id);
         const samePage = turn.pageId === pageId;
         const candidate = record ? samePage && canAccept ? bindCandidate(record, current(), mount) : record.candidate : null;
-        return <article key={turn.id} className="space-y-2 rounded-lg border border-gray-200 p-3" data-testid={`agent-turn-${turn.id}`}>
-          <p className="whitespace-pre-wrap font-medium">{turn.intent}</p><p className="text-xs text-gray-500">{statuses[turn.status]}</p>
-          <details className="text-xs text-gray-600"><summary className="cursor-pointer">{zh ? '发送时的来源与版本' : 'Sources and versions at send'}</summary><div className="mt-2 space-y-2">
-            <p><span>{turn.pageSnapshot?.title ?? turn.pageId}</span> · {turn.pageSnapshot?.updatedAt ?? (zh ? '版本未知' : 'Unknown version')}</p>
-            {turn.pageSnapshot?.assistTarget?.quote ? <blockquote className="max-h-32 overflow-auto whitespace-pre-wrap border-l-2 border-gray-200 pl-2">{turn.pageSnapshot.assistTarget.quote}</blockquote> : null}
-            {turn.references.map((r) => <p key={r.pageId}><span>{r.title}</span> · {r.updatedAt}</p>)}
-            {turn.annotations?.map((a) => <div key={a.id} className="rounded-lg bg-gray-50 p-2"><blockquote className="whitespace-pre-wrap">{a.quote}</blockquote><p className="mt-1 whitespace-pre-wrap">{a.body}</p></div>)}
-            <details><summary>{zh ? '原始 Markdown 快照' : 'Original Markdown snapshot'}</summary><pre className="max-h-48 overflow-auto whitespace-pre-wrap">{turn.pageSnapshot?.content}</pre></details>
-          </div></details>
-          {turn.result?.summary || turn.progressText ? <p className="whitespace-pre-wrap">{turn.result?.summary ?? turn.progressText}</p> : null}
-          {turn.status === 'failed' ? <p role="alert" className="text-xs text-red-700">{zh ? '本轮执行失败。可检查上下文后重试，或新建会话。' : 'This turn failed. Check the context and retry, or start a new conversation.'}</p> : null}
-          {candidate ? <>
-            {(!samePage || !canAccept) && turn.pageId ? <Link className="block text-blue-700" to={`/pages/${turn.pageId}/edit`}>{zh ? '打开目标文档编辑以审阅' : 'Open target document to review'}</Link> : null}
-            {samePage && !canAccept ? <p>{acceptUnavailableReason ?? (zh ? '返回编辑模式后可接受候选。' : 'Return to edit to accept this candidate.')}</p> : null}
-            {candidate.status === 'accepted' || candidate.acceptedEditIds?.length ? <p className="text-xs text-gray-600">{zh ? '历史接受记录：曾接受到草稿。编辑器撤销/重做只改变正文，不回退本记录或笔记；再次应用请重新生成。' : 'Acceptance record: previously accepted into the draft. Editor Undo/Redo changes text, not this record or notes. Regenerate to apply again.'}</p> : null}
-            <AssistCandidateReview candidate={candidate} canEdit={canEdit && canAccept && samePage && (!candidate.assistTarget || supportsScopedApply)} supportsScopedApply={supportsScopedApply} onAccept={(editId) => accept(turn.id, editId)} onDiscard={() => discard(turn.id)} />
-          </> : null}
-          {samePage && (turn.status === 'failed' || candidate?.status === 'conflict' || candidate?.status === 'accepted' || candidate?.status === 'discarded' || candidate?.status === 'failed' || turn.status === 'cancelled') ? <button type="button" disabled={session.running} onClick={() => regenerate(turn)} className="rounded-lg border border-gray-200 px-2 py-1">{zh ? '基于当前草稿重新生成' : 'Regenerate from current draft'}</button> : null}
-          {(turn.status === 'queued' || turn.status === 'running') ? <button type="button" disabled={session.cancelling} onClick={() => void session.cancel(turn)} className="rounded-lg border border-gray-200 px-3 py-1">{zh ? '停止' : 'Stop'}</button> : null}
+        return <article key={turn.id} className="agent-chat-turn" data-testid={`agent-turn-${turn.id}`}>
+          <div className="agent-user-message"><p className="whitespace-pre-wrap">{turn.intent}</p></div>
+          <div className="agent-reply">
+            <div className="agent-reply-meta"><Bot aria-hidden="true" size={15} /><span>Agent</span><span className={turn.status === 'running' || turn.status === 'queued' ? 'agent-turn-active' : ''}>{statuses[turn.status]}</span></div>
+            {turn.result?.summary || turn.progressText ? <div className="agent-reply-content"><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml disallowedElements={['img']} components={{ a: ({ children, href }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> }}>{turn.result?.summary ?? turn.progressText}</ReactMarkdown></div> : null}
+            {turn.status === 'failed' ? <p role="alert" className="text-xs text-red-700">{zh ? '本轮执行失败。可检查上下文后重试，或新建会话。' : 'This turn failed. Check the context and retry, or start a new conversation.'}</p> : null}
+            {candidate?.status === 'accepted' || candidate?.acceptedEditIds?.length ? <div className="agent-acceptance-receipt"><p>{zh ? '已接受到草稿，仍需保存页面。' : 'Accepted to draft. Save the page to publish these changes.'}</p><p className="text-xs text-gray-600">{zh ? '历史接受记录：曾接受到草稿。编辑器撤销/重做只改变正文，不回退本记录或笔记；再次应用请重新生成。' : 'Acceptance record: previously accepted into the draft. Editor Undo/Redo changes text, not this record or notes. Regenerate to apply again.'}</p></div> : null}
+            {candidate ? <details className="agent-candidate-details" open={['ready', 'conflict', 'generating', 'empty', 'failed'].includes(candidate.status)}>
+              <summary><span>{zh ? '查看修改候选' : 'Review proposed changes'}</span><span>{candidate.status === 'accepted' ? (zh ? '已接受' : 'Accepted') : candidate.status === 'discarded' ? (zh ? '已丢弃' : 'Discarded') : candidate.status === 'empty' || candidate.status === 'failed' ? (zh ? '需要重试' : 'Retry needed') : (zh ? '待审阅' : 'Review')}</span><ChevronDown aria-hidden="true" size={14} /></summary>
+              {(!samePage || !canAccept) && turn.pageId ? <Link className="block text-blue-700" to={`/pages/${turn.pageId}/edit`}>{zh ? '打开目标文档编辑以审阅' : 'Open target document to review'}</Link> : null}
+              {samePage && !canAccept ? <p>{acceptUnavailableReason ?? (zh ? '返回编辑模式后可接受候选。' : 'Return to edit to accept this candidate.')}</p> : null}
+              <AssistCandidateReview candidate={candidate} canEdit={canEdit && canAccept && samePage && (!candidate.assistTarget || supportsScopedApply)} supportsScopedApply={supportsScopedApply} onAccept={(editId) => accept(turn.id, editId)} onDiscard={() => discard(turn.id)} />
+            </details> : null}
+            <details className="agent-turn-sources"><summary>{zh ? '发送时的来源与版本' : 'Sources and versions at send'}<ChevronDown aria-hidden="true" size={13} /></summary><div className="mt-2 space-y-2">
+              <p><span>{turn.pageSnapshot?.title ?? turn.pageId}</span> · {turn.pageSnapshot?.updatedAt ?? (zh ? '版本未知' : 'Unknown version')}</p>
+              {turn.pageSnapshot?.assistTarget?.quote ? <blockquote className="max-h-32 overflow-auto whitespace-pre-wrap border-l-2 border-gray-200 pl-2">{turn.pageSnapshot.assistTarget.quote}</blockquote> : null}
+              {turn.references.map((r) => <p key={r.pageId}><span>{r.title}</span> · {r.updatedAt}</p>)}
+              {turn.annotations?.map((a) => <div key={a.id} className="rounded-lg bg-gray-50 p-2"><blockquote className="whitespace-pre-wrap">{a.quote}</blockquote><p className="mt-1 whitespace-pre-wrap">{a.body}</p></div>)}
+              <details><summary>{zh ? '原始 Markdown 快照' : 'Original Markdown snapshot'}</summary><pre className="max-h-48 overflow-auto whitespace-pre-wrap">{turn.pageSnapshot?.content}</pre></details>
+            </div></details>
+            {samePage && (turn.status === 'failed' || candidate?.status === 'conflict' || candidate?.status === 'accepted' || candidate?.status === 'discarded' || candidate?.status === 'failed' || candidate?.status === 'empty' || turn.status === 'cancelled') ? <button type="button" disabled={session.running} onClick={() => regenerate(turn)} className="agent-regenerate-button">{zh ? '基于当前草稿重新生成' : 'Regenerate from current draft'}</button> : null}
+          </div>
         </article>;
       })}
       </div>
     </div>
-    <div className="agent-session-composer min-h-0 border-t border-gray-200">
-    <div className="agent-composer-fields min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
-      <p className="truncate text-xs text-gray-600" title={pageTitle}>{zh ? '当前文档：' : 'Current document: '}{pageTitle}</p>
-      {draft.staged ? <div className="max-h-40 space-y-1 overflow-auto rounded-lg bg-gray-50 p-2 text-xs [overflow-wrap:anywhere]">
-        <p>{draft.staged.request.annotations?.length ? (zh ? '已加入待发送批注（尚未上传）' : 'Annotations staged (not sent yet)') : (zh ? '已选择原文范围' : 'Selected source context')}</p>
-        {draft.staged.request.assistTarget ? <blockquote className="max-h-24 overflow-auto whitespace-pre-wrap border-l-2 border-gray-200 pl-2">{draft.staged.request.assistTarget.quote}</blockquote> : null}
-        {draft.staged.request.annotations?.map((a) => <div key={a.id}><blockquote className="whitespace-pre-wrap border-l-2 border-gray-200 pl-2">{a.quote}</blockquote><p>{a.body}</p></div>)}
-        {draft.staged.pageId !== pageId ? <Link to={`/pages/${draft.staged.pageId}`}>{zh ? '返回批注页面' : 'Return to annotation page'}</Link> : null}
-        {targetKind !== 'document' && assistTargets?.[targetKind] ? <button type="button" disabled={session.sending || session.loading} className="mr-2 rounded-lg border border-gray-200 px-2 py-1" onClick={() => session.updateDraft({ staged: { ...draft.staged!, request: { ...draft.staged!.request, assistTarget: assistTargets[targetKind as 'selection' | 'section'] ?? undefined } } })}>{targetKind === 'selection' ? (zh ? '使用当前选区' : 'Use current selection') : (zh ? '使用当前章节' : 'Use current section')}</button> : null}
-        <button type="button" disabled={session.sending || session.loading} onClick={() => { callbacks.current.onRequestHandled?.(draft.staged!.request.id); session.updateDraft({ staged: undefined, targetKind: 'document' }); }}>{zh ? '移除附件并使用整篇文档' : 'Remove context and use the whole document'}</button>
-      </div> : null}
-      <AgentReferencePicker key={`${userId}:${spaceId}`} userId={userId} spaceId={spaceId} selected={draft.references} onChange={(references) => session.updateDraft({ references })} disabled={session.sending || session.loading} />
-      <div className="flex flex-wrap gap-2"><select aria-label={zh ? '会话模式' : 'Message mode'} disabled={session.sending || session.loading} value={canEdit ? draft.mode : 'question'} onChange={(e) => session.updateDraft({ mode: e.target.value as 'question' | 'proposal' })} className="min-h-8 rounded-lg border border-gray-200 px-2"><option value="question">{zh ? '问答' : 'Ask a question'}</option><option value="proposal" disabled={!canEdit}>{zh ? '生成修改候选' : 'Propose changes'}</option></select>
-        <select aria-label={zh ? '修改范围' : 'Edit scope'} disabled={session.sending || session.loading} value={targetKind} onChange={(e) => session.updateDraft({ targetKind: e.target.value as AssistTarget['kind'] })} className="min-h-8 rounded-lg border border-gray-200 px-2"><option value="document">{zh ? '整篇文档' : 'Document'}</option><option value="selection" disabled={!assistTargets?.selection && draft.staged?.request.assistTarget?.kind !== 'selection'}>{zh ? '所选段落' : 'Selection'}</option><option value="section" disabled={!assistTargets?.section && draft.staged?.request.assistTarget?.kind !== 'section'}>{zh ? '当前章节' : 'Section'}</option></select>
+    <div className="agent-session-composer">
+      <div className="agent-composer-context"><span className="agent-current-document" title={pageTitle}><FileText aria-hidden="true" size={13} /><span>{pageTitle}</span></span><AgentReferencePicker key={`${userId}:${spaceId}:${session.selected ?? 'new'}`} userId={userId} spaceId={spaceId} selected={draft.references} onChange={(references) => session.updateDraft({ references })} disabled={session.sending || session.loading || !visible} openRequest={referenceOpenRequest} onClose={returnComposerFocus} /></div>
+      <div className="agent-composer-box">
+        {draft.staged ? <details className="agent-staged-context" key={draft.staged.request.id}>
+          <summary><MessageSquare aria-hidden="true" size={13} /><span>{draft.staged.request.annotations?.length ? (zh ? `${draft.staged.request.annotations.length} 条笔记 · 待发送` : `${draft.staged.request.annotations.length} page ${draft.staged.request.annotations.length === 1 ? 'note' : 'notes'} · not sent`) : (zh ? '已选择原文范围' : 'Selected source context')}</span><ChevronDown aria-hidden="true" size={13} /></summary>
+          <div className="agent-staged-content">
+            <p>{draft.staged.request.annotations?.length ? (zh ? '这些页面笔记将随消息发送给 Agent。' : 'These page notes will be included with your message.') : (zh ? '将使用以下原文作为上下文' : 'The following source will be included')}</p>
+            {draft.staged.request.assistTarget ? <blockquote className="whitespace-pre-wrap border-l-2 border-gray-200 pl-2">{draft.staged.request.assistTarget.quote}</blockquote> : null}
+            {draft.staged.request.annotations?.map((a) => <div key={a.id}><blockquote className="whitespace-pre-wrap border-l-2 border-gray-200 pl-2">{a.quote}</blockquote><p>{a.body}</p></div>)}
+            {draft.staged.pageId !== pageId ? <Link to={`/pages/${draft.staged.pageId}`}>{zh ? '返回批注页面' : 'Return to annotation page'}</Link> : null}
+            {targetKind !== 'document' && assistTargets?.[targetKind] ? <button type="button" disabled={session.sending || session.loading} className="agent-context-action" onClick={() => session.updateDraft({ staged: { ...draft.staged!, request: { ...draft.staged!.request, assistTarget: assistTargets[targetKind as 'selection' | 'section'] ?? undefined } } })}>{targetKind === 'selection' ? (zh ? '使用当前选区' : 'Use current selection') : (zh ? '使用当前章节' : 'Use current section')}</button> : null}
+            <button type="button" disabled={session.sending || session.loading} className="agent-context-action" onClick={() => { callbacks.current.onRequestHandled?.(draft.staged!.request.id); session.updateDraft({ staged: undefined, targetKind: 'document' }); }}>{zh ? '移除附件并使用整篇文档' : 'Remove context and use the whole document'}</button>
+          </div>
+        </details> : null}
+        <textarea ref={composerRef} data-agent-composer data-testid="assist-intent" aria-label={zh ? '消息' : 'Message'} placeholder={zh ? '询问文档或描述修改，@ 引用页面' : 'Ask about this document, @ to reference a page'} rows={3} disabled={session.sending || session.loading} value={draft.intent} onCompositionStart={() => { composingRef.current = true; }} onCompositionEnd={() => { composingRef.current = false; }} onChange={(event) => {
+          const value = event.target.value, cursor = event.target.selectionStart;
+          if (!composingRef.current && value.length > draft.intent.length && value[cursor - 1] === '@' && (cursor === 1 || /\s/.test(value[cursor - 2]))) setReferenceOpenRequest((request) => request + 1);
+          session.updateDraft({ intent: value });
+        }} onKeyDown={(event) => {
+          if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing || composingRef.current || event.keyCode === 229) return;
+          event.preventDefault(); void submit();
+        }} />
+        <div className="agent-composer-actions">
+          <select aria-label={zh ? '会话模式' : 'Message mode'} disabled={session.sending || session.loading} value={canEdit ? draft.mode : 'question'} onChange={(event) => session.updateDraft({ mode: event.target.value as 'question' | 'proposal' })} className="agent-mode-select"><option value="question">{zh ? '问答' : 'Ask a question'}</option><option value="proposal" disabled={!canEdit}>{zh ? '生成修改候选' : 'Propose changes'}</option></select>
+          <details ref={settingsRef} className="agent-composer-settings" onKeyDown={(event) => { if (event.key === 'Escape' && settingsRef.current?.open) { event.preventDefault(); settingsRef.current.open = false; settingsRef.current.querySelector<HTMLElement>('summary')?.focus(); } }}>
+            <summary aria-label={zh ? '上下文设置' : 'Context settings'} title={zh ? '上下文设置' : 'Context settings'}><SlidersHorizontal aria-hidden="true" size={15} />{targetKind !== 'document' ? <span>{scopeLabel}</span> : null}</summary>
+            <div className="agent-settings-popover"><label>{zh ? '修改范围' : 'Edit scope'}<select aria-label={zh ? '修改范围' : 'Edit scope'} disabled={session.sending || session.loading} value={targetKind} onChange={(event) => session.updateDraft({ targetKind: event.target.value as AssistTarget['kind'] })}><option value="document">{zh ? '整篇文档' : 'Document'}</option><option value="selection" disabled={!assistTargets?.selection && draft.staged?.request.assistTarget?.kind !== 'selection'}>{zh ? '所选段落' : 'Selection'}</option><option value="section" disabled={!assistTargets?.section && draft.staged?.request.assistTarget?.kind !== 'section'}>{zh ? '当前章节' : 'Section'}</option></select></label><p>{zh ? '修改候选需审阅并接受到草稿，再保存页面。' : 'Review and accept proposed changes to the draft, then save the page.'}</p></div>
+          </details>
+          <span className="agent-composer-spacer" />
+          {runningTurn ? <button type="button" aria-label={zh ? '停止' : 'Stop'} title={zh ? '停止' : 'Stop'} disabled={session.cancelling} onClick={() => void session.cancel(runningTurn)} className="agent-send-button agent-stop-button"><Square aria-hidden="true" size={13} fill="currentColor" /></button> : <button type="button" aria-label={session.sending ? (zh ? '发送中…' : 'Sending…') : (zh ? '发送' : 'Send')} title={zh ? '发送 · Enter' : 'Send · Enter'} data-testid="assist-submit" disabled={!draft.intent.trim() || session.sending || session.running || session.loading || !userId || (!canEdit && draft.mode === 'proposal')} onClick={() => void submit()} className="agent-send-button"><ArrowUp aria-hidden="true" size={18} /></button>}
+        </div>
       </div>
-      <label className="block text-xs text-gray-600">{zh ? '消息' : 'Message'}<textarea ref={composerRef} data-agent-composer data-testid="assist-intent" aria-label={zh ? '消息' : 'Message'} rows={3} disabled={session.sending || session.loading} value={draft.intent} onChange={(e) => session.updateDraft({ intent: e.target.value })} className="mt-1 max-h-40 w-full resize-y rounded-lg border border-gray-200 p-2 text-sm" /></label>
-      {localError || session.error ? <div role="alert" className="text-xs text-red-700"><p>{localError ?? errors[session.error!]}</p>{session.selected && session.error ? <button type="button" onClick={() => void session.select(session.selected!)} className="mt-1 underline">{zh ? '重新加载会话' : 'Reload conversation'}</button> : null}</div> : null}
+      {localError || session.error ? <div role="alert" className="agent-composer-error"><p>{localError ?? errors[session.error!]}</p>{session.selected && session.error ? <button type="button" onClick={() => void session.select(session.selected!)} className="mt-1 underline">{zh ? '重新加载会话' : 'Reload conversation'}</button> : null}</div> : null}
     </div>
-    <div className="agent-composer-actions shrink-0 border-t border-gray-200 px-3 py-2">
-      <button type="button" data-testid="assist-submit" disabled={!draft.intent.trim() || session.sending || session.running || session.loading || !userId || (!canEdit && draft.mode === 'proposal')} onClick={() => void submit()} className="min-h-8 rounded-lg bg-gray-900 px-4 text-white disabled:opacity-40">{session.sending ? (zh ? '发送中…' : 'Sending…') : (zh ? '发送' : 'Send')}</button>
-    </div></div>
   </aside>;
 }
