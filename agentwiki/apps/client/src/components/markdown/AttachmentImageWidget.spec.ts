@@ -22,12 +22,12 @@ describe('AttachmentImageWidget lifecycle', () => {
     const instance = widget();
     const first = instance.toDOM();
     await settle();
-    expect(first.getAttribute('src')).toBe('blob:editor-image');
+    expect(first.querySelector('img')?.getAttribute('src')).toBe('blob:editor-image');
     instance.destroy(first);
     const second = instance.toDOM();
     await settle();
     expect(vi.mocked(fetchAttachmentBlob).mock.calls[1][1]?.aborted).toBe(false);
-    expect(second.getAttribute('src')).toBe('blob:editor-image');
+    expect(second.querySelector('img')?.getAttribute('src')).toBe('blob:editor-image');
     instance.destroy(second);
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2);
   });
@@ -53,6 +53,6 @@ describe('AttachmentImageWidget lifecycle', () => {
     resolve(new Blob(['image']));
     await settle();
     expect(URL.createObjectURL).not.toHaveBeenCalled();
-    expect(dom.hasAttribute('src')).toBe(false);
+    expect(dom.querySelector('img')?.hasAttribute('src')).toBe(false);
   });
 });

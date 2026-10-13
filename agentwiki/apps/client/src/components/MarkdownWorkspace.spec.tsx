@@ -2,6 +2,7 @@ import { createRef, useState } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { EditorSelection, EditorState, StateEffect } from '@codemirror/state';
 import * as tableEditing from './markdown-tools/tableEditing';
+import * as markdownResources from './markdown/resources';
 import { undo, undoDepth } from '@codemirror/commands';
 import { DecorationSet, EditorView } from '@codemirror/view';
 import { forceParsing, language as languageFacet, syntaxTree } from '@codemirror/language';
@@ -375,13 +376,171 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     try {
       const rendered = renderWYS({ initial: '![[preview.png]]\n\nBody', pageId: 'page-editor', spaceId: 'space-editor' });
       const view = currentEditorView(rendered.container);
-      act(() => view.dispatch({ selection: EditorSelection.cursor(view.state.doc.length) }));
       const image = await screen.findByRole('img', { name: 'preview.png' });
       expect(image).toHaveAttribute('src', 'blob:workspace-edit-image');
       expect(image).toHaveAttribute('data-attachment-id', 'attachment-edit-image');
       expect(resourceMocks.fetchAttachmentBlob).toHaveBeenCalledWith('attachment-edit-image', expect.any(AbortSignal));
+      fireEvent.click(image);
+      expect(view.state.selection.main.head).toBe(3);
+      expect(view.contentDOM.textContent).toContain('![[preview.png]]');
+      expect(resourceMocks.fetchAttachmentBlob.mock.calls[0][1].aborted).toBe(true);
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:workspace-edit-image');
       rendered.unmount();
     } finally {
+      if (originalCreateObjectURL) Object.defineProperty(URL, 'createObjectURL', originalCreateObjectURL);
+      else Reflect.deleteProperty(URL, 'createObjectURL');
+      if (originalRevokeObjectURL) Object.defineProperty(URL, 'revokeObjectURL', originalRevokeObjectURL);
+      else Reflect.deleteProperty(URL, 'revokeObjectURL');
+    }
+  });
+
+  it('previews a first-line Markdown image until clicked, then restores it after leaving its source line', async () => {
+    const source = '![封面](<https://images.example/cover%20one.png> "封面标题")\n\n正文';
+    const onChange = vi.fn();
+    const { container } = renderWYS({ initial: source, onChange });
+    const view = currentEditorView(container);
+    const image = await screen.findByRole('img', { name: '封面' });
+    expect(image).toHaveAttribute('src', 'https://images.example/cover%20one.png');
+    expect(image).toHaveAttribute('referrerpolicy', 'no-referrer');
+    fireEvent.click(image);
+    expect(view.hasFocus).toBe(true);
+    expect(view.state.selection.main.head).toBe(2);
+    expect(view.contentDOM.textContent).toContain(source.split('\n')[0]);
+    expect(screen.queryByRole('img', { name: '封面' })).toBeNull();
+    act(() => view.dispatch({ selection: EditorSelection.cursor(source.length) }));
+    expect(await screen.findByRole('img', { name: '封面' })).toBeVisible();
+    expect(view.state.doc.toString()).toBe(source);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(undoDepth(view.state)).toBe(0);
+  });
+
+  it('maps image clicks after preceding edits and supports entering source from the keyboard', async () => {
+    const source = 'Start\n\n![diagram](https://images.example/a.png)\n\nEnd';
+    const { container } = renderWYS({ initial: source });
+    const view = currentEditorView(container);
+    await screen.findByRole('img', { name: 'diagram' });
+    act(() => {
+      view.focus();
+      view.dispatch({ changes: { from: 0, insert: 'Added\n' }, selection: { anchor: 0 } });
+    });
+    fireEvent.click(await screen.findByRole('img', { name: 'diagram' }));
+    expect(view.state.selection.main.head).toBe(15);
+    expect(view.contentDOM.textContent).toContain('![diagram](https://images.example/a.png)');
+    act(() => view.dispatch({ selection: { anchor: view.state.doc.length } }));
+    const button = screen.getByRole('button', { name: 'Edit image: diagram' });
+    fireEvent.keyDown(button, { key: 'Enter' });
+    expect(view.state.selection.main.head).toBe(15);
+    expect(screen.queryByRole('img', { name: 'diagram' })).toBeNull();
+    expect(view.state.doc.toString()).toBe('Added\n' + source);
+  });
+
+  it('reveals image source for keyboard movement and selections crossing an image without reparsing the document', async () => {
+    const source = 'Before\n![diagram](https://images.example/a.png)\nAfter';
+    const collect = vi.spyOn(markdownResources, 'collectMarkdownImageOccurrences');
+    try {
+      const { container } = renderWYS({ initial: source });
+      const view = currentEditorView(container);
+      await screen.findByRole('img', { name: 'diagram' });
+      act(() => { view.focus(); view.dispatch({ selection: { anchor: 6 } }); });
+      const tree = syntaxTree(view.state);
+      const parseCalls = collect.mock.calls.length;
+      fireEvent.keyDown(view.contentDOM, { key: 'ArrowRight' });
+      expect(view.state.selection.main.head).toBe(7);
+      expect(screen.queryByRole('img', { name: 'diagram' })).toBeNull();
+      expect(view.contentDOM.textContent).toContain('![diagram](https://images.example/a.png)');
+      act(() => view.dispatch({ selection: { anchor: 6 } }));
+      expect(await screen.findByRole('img', { name: 'diagram' })).toBeVisible();
+      fireEvent.keyDown(view.contentDOM, { key: 'ArrowRight', shiftKey: true });
+      expect(view.state.selection.main.anchor).toBe(6);
+      expect(view.state.selection.main.head).toBe(7);
+      expect(screen.queryByRole('img', { name: 'diagram' })).toBeNull();
+      act(() => view.dispatch({ selection: EditorSelection.range(0, source.length) }));
+      expect(view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to)).toBe(source);
+      expect(collect).toHaveBeenCalledTimes(parseCalls);
+      expect(syntaxTree(view.state)).toBe(tree);
+      expect(undoDepth(view.state)).toBe(0);
+    } finally { collect.mockRestore(); }
+  });
+
+  it('shows decoded image destinations and reference images while preserving their original Markdown', async () => {
+    const source = 'Start\n\n[![escaped](https://images.example/a\\(1\\).png)](https://target.example)\n\n![reference][cover]\n\n[cover]: <https://images.example/reference%20image.png> "Cover"\n\n[cover]: https://images.example/duplicate.png';
+    const { container } = renderWYS({ initial: source });
+    const view = currentEditorView(container);
+    expect(await screen.findByRole('img', { name: 'escaped' })).toHaveAttribute('src', 'https://images.example/a(1).png');
+    const referenceImage = await screen.findByRole('img', { name: 'reference' });
+    expect(referenceImage).toHaveAttribute('src', 'https://images.example/reference%20image.png');
+    expect(referenceImage).toHaveAttribute('title', 'Cover');
+    fireEvent.click(referenceImage);
+    expect(view.contentDOM.textContent).toContain('![reference][cover]');
+    expect(view.state.doc.toString()).toBe(source);
+  });
+
+  it('keeps a broken image accessible as a button that reveals its original link', async () => {
+    const source = '![missing](https://images.example/missing.png)';
+    const { container } = renderWYS({ initial: source });
+    const view = currentEditorView(container);
+    fireEvent.error(await screen.findByRole('img', { name: 'missing' }));
+    const fallback = screen.getByRole('button', { name: 'Edit image: missing' });
+    expect(fallback).toHaveTextContent('Image unavailable: missing');
+    fireEvent.click(fallback);
+    expect(view.state.selection.main.head).toBe(2);
+    expect(view.contentDOM.textContent).toBe(source);
+  });
+
+  it('keeps code, unsafe images, and multiline image syntax fully editable without image requests', () => {
+    const source = 'Start\n\n`![code](https://images.example/code.png)`\n\n```md\n![fenced](https://images.example/fenced.png)\n```\n\n![unsafe](javascript:alert)\n\n![multiline](\nhttps://images.example/multi.png\n)\n\n![private](assets/private.png)';
+    const { container } = renderWYS({ initial: source });
+    const view = currentEditorView(container);
+    act(() => { forceParsing(view, source.length, 1000); });
+    expect(view.contentDOM.textContent).toContain('![unsafe](javascript:alert)');
+    expect(view.contentDOM.textContent).toContain('![multiline](');
+    expect(view.contentDOM.textContent).toContain('![private](assets/private.png)');
+    expect(view.contentDOM.querySelector('img[src]')).toBeNull();
+    expect(resourceMocks.fetchAttachmentBlob).not.toHaveBeenCalled();
+    expect(view.state.doc.toString()).toBe(source);
+  });
+
+  it('preserves every delimiter of multiline and unavailable image source on every cursor line', () => {
+    const source = 'Before\n![==multi==](\nhttps://images.example/multi.png\n)\n![==unsafe==](javascript:alert)\nAfter';
+    const { container } = renderWYS({ initial: source });
+    const view = currentEditorView(container);
+    act(() => { view.focus(); forceParsing(view, source.length, 1000); });
+    for (const anchor of [7, 22, source.length]) {
+      act(() => view.dispatch({ selection: { anchor } }));
+      expect([...view.contentDOM.querySelectorAll('.cm-line')].map((line) => line.textContent)).toEqual([
+        'Before', '![==multi==](', 'https://images.example/multi.png', ')', '![==unsafe==](javascript:alert)', 'After',
+      ]);
+    }
+    expect(view.state.doc.toString()).toBe(source);
+  });
+
+  it('resolves relative Markdown images within the page scope before fetching a protected Blob', async () => {
+    const originalCreateObjectURL = Object.getOwnPropertyDescriptor(URL, 'createObjectURL');
+    const originalRevokeObjectURL = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL');
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:relative-editor-image') });
+    const revoke = vi.fn();
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revoke });
+    resourceMocks.post.mockImplementation((_url: string, body: any) => Promise.resolve({ data: [{
+      key: body.references[0].key, status: 'resolved', kind: 'attachment', attachmentId: 'attachment-relative',
+      displayName: 'diagram.png', mimeType: 'image/png', width: 120, height: 80,
+    }] }));
+    resourceMocks.fetchAttachmentBlob.mockResolvedValue(new Blob(['png'], { type: 'image/png' }));
+    const source = '![diagram](assets/diagram.png)\n\nEnd';
+    let rendered: ReturnType<typeof renderWYS> | undefined;
+    try {
+      rendered = renderWYS({ initial: source, pageId: 'page-editor', spaceId: 'space-editor' });
+      const image = await screen.findByRole('img', { name: 'diagram' });
+      expect(image).toHaveAttribute('src', 'blob:relative-editor-image');
+      expect(resourceMocks.post).toHaveBeenCalledWith('/spaces/space-editor/markdown/resolve', {
+        sourcePageId: 'page-editor', references: [{ key: 'r0', kind: 'attachment', syntax: 'markdown', target: 'assets/diagram.png' }],
+      }, { signal: expect.any(AbortSignal) });
+      fireEvent.click(image);
+      const view = currentEditorView(rendered.container);
+      expect(view.state.selection.main.head).toBe(2);
+      expect(view.state.doc.toString()).toBe(source);
+      expect(revoke).toHaveBeenCalledWith('blob:relative-editor-image');
+    } finally {
+      rendered?.unmount();
       if (originalCreateObjectURL) Object.defineProperty(URL, 'createObjectURL', originalCreateObjectURL);
       else Reflect.deleteProperty(URL, 'createObjectURL');
       if (originalRevokeObjectURL) Object.defineProperty(URL, 'revokeObjectURL', originalRevokeObjectURL);

@@ -20,11 +20,15 @@ import { PageLinkTarget, resolveWikiHref } from './markdownLinks';
 import { canonicalWikiReferenceKey, parseWikiReference } from './markdown/obsidian';
 import {
   collectMarkdownResourceOccurrences,
+  collectMarkdownImageOccurrences,
+  standardMarkdownImageResourceRef,
+  type MarkdownImageOccurrence,
   resolveMarkdownResources,
   type MarkdownResourceOccurrence,
   type MarkdownResourceMap,
 } from './markdown/resources';
-import { AttachmentImageWidget } from './markdown/AttachmentImageWidget';
+import { AttachmentImageWidget, MarkdownImageWidget } from './markdown/AttachmentImageWidget';
+import { isExternalHttpsImage, isInternalImage } from './markdown/imageSource';
 import { formatAttachmentReference } from '../features/attachments/attachmentReference';
 import { outlineFor } from './markdown-tools/outline';
 import { insertionTransaction, slashRange, type InsertCommand } from './markdown-tools/commands';
@@ -344,16 +348,22 @@ const RESOURCE_RESOLUTION_DEBOUNCE_MS = 150;
 const buildHiddenMarksPlugin = (
   pages: PageLinkTarget[],
   referenceOccurrences: readonly MarkdownResourceOccurrence[],
+  imageOccurrences: readonly MarkdownImageOccurrence[],
   authoritativeResources: MarkdownResourceMap | null,
+  zh: boolean,
 ) => ViewPlugin.fromClass(class {
   decorations: DecorationSet;
+  focused: boolean;
   constructor(view: EditorView) {
+    this.focused = view.hasFocus;
     this.decorations = this.compute(view);
   }
   update(update: ViewUpdate) {
     // Background parsing must refresh decorations too; viewport/focus updates
     // and moves within one active line leave the existing ranges intact.
-    if (update.docChanged || syntaxTree(update.startState) !== syntaxTree(update.state)
+    const focusChanged = this.focused !== update.view.hasFocus;
+    this.focused = update.view.hasFocus;
+    if (update.docChanged || focusChanged || update.focusChanged || syntaxTree(update.startState) !== syntaxTree(update.state)
       || (update.selectionSet && activeLinesChanged(update.startState, update.state))) {
       this.decorations = this.compute(update.view);
     }
@@ -361,6 +371,9 @@ const buildHiddenMarksPlugin = (
   compute(view: EditorView): DecorationSet {
     const ranges: Range<Decoration>[] = [];
     const activeLines = activeLineNumbers(view.state);
+    const imageActiveLines = view.hasFocus ? activeLines : new Set<number>();
+    const editImageLabel = zh ? '编辑图片链接' : 'Edit image';
+    const unavailableImageLabel = zh ? '图片暂不可用，点击编辑链接' : 'Image unavailable';
     const doc = view.state.doc;
     const linkLikeRanges: Array<{ from: number; to: number; kind: 'link' | 'image' | 'autolink' }> = [];
     syntaxTree(view.state).iterate({
@@ -373,15 +386,36 @@ const buildHiddenMarksPlugin = (
     const attachmentRanges: Array<{ from: number; to: number }> = [];
     for (const occurrence of referenceOccurrences) {
       const { from, to, reference } = occurrence;
-      if (reference.kind !== 'attachment' || from < 0 || from >= to || to > doc.length || activeLines.has(doc.lineAt(from).number)) continue;
+      if (reference.kind !== 'attachment' || from < 0 || from >= to || to > doc.length || imageActiveLines.has(doc.lineAt(from).number)) continue;
       const literal = doc.sliceString(from, to);
       if (!literal.startsWith('![[') || !literal.endsWith(']]')) continue;
       const resource = authoritativeResources?.get(reference.canonicalKey);
       if (resource?.status !== 'resolved' || resource.kind !== 'attachment') continue;
       attachmentRanges.push({ from, to });
       ranges.push(Decoration.replace({
-        widget: new AttachmentImageWidget(resource.attachmentId, resource.displayName, resource.width, resource.height, literal.slice(3, -2).split('|').slice(-1)[0]?.trim() ?? resource.displayName),
+        widget: new AttachmentImageWidget(resource.attachmentId, resource.displayName, resource.width, resource.height, literal.slice(3, -2).split('|').slice(-1)[0]?.trim() ?? resource.displayName, 3, editImageLabel, unavailableImageLabel),
       }).range(from, to));
+    }
+    for (const image of imageOccurrences) {
+      const { from, to, url, alt, title } = image;
+      if (from < 0 || to > doc.length || doc.sliceString(from, to) !== image.source) continue;
+      if (!linkLikeRanges.some((range) => range.kind === 'image' && range.from === from && range.to === to)) continue;
+      // ViewPlugin replacements may not span line breaks. Keep those images
+      // fully editable, including their delimiters, until the source is one line.
+      if (doc.lineAt(from).number !== doc.lineAt(to).number || imageActiveLines.has(doc.lineAt(from).number)) continue;
+      const source = url.trim();
+      if (!isExternalHttpsImage(source) && !isInternalImage(source)) continue;
+      const reference = standardMarkdownImageResourceRef(source);
+      let widget: MarkdownImageWidget;
+      if (reference) {
+        const resource = authoritativeResources?.get(reference.canonicalKey);
+        if (resource?.status !== 'resolved' || resource.kind !== 'attachment') continue;
+        widget = new AttachmentImageWidget(resource.attachmentId, resource.displayName, resource.width, resource.height, alt, 2, editImageLabel, unavailableImageLabel, title);
+      } else {
+        widget = new MarkdownImageWidget({ url: source }, alt, 2, editImageLabel, unavailableImageLabel, title);
+      }
+      attachmentRanges.push({ from, to });
+      ranges.push(Decoration.replace({ widget }).range(from, to));
     }
     const insideRange = (from: number, to: number, container: { from: number; to: number }) => from >= container.from && to <= container.to;
     const coveredByAttachment = (from: number, to: number) => attachmentRanges.some((range) => insideRange(from, to, range));
@@ -393,6 +427,8 @@ const buildHiddenMarksPlugin = (
     });
     syntaxTree(view.state).iterate({
       enter: (node) => {
+        // Stop before inspecting active lines: an Image can span several lines.
+        if (node.name === 'Image') return false;
         const line = view.state.doc.lineAt(node.from).number;
         if (activeLines.has(line)) return;
         if (coveredByAttachment(node.from, node.to)) return false;
@@ -430,7 +466,8 @@ const buildHiddenMarksPlugin = (
       while ((match = expression.exec(line.text))) {
         const from = line.from + match.index;
         const to = from + match[0].length;
-        if (codeRanges.some((range) => insideRange(from, to, range))) continue;
+        if (coveredByAttachment(from, to) || codeRanges.some((range) => insideRange(from, to, range))
+          || linkLikeRanges.some((range) => range.kind === 'image' && insideRange(from, to, range))) continue;
         ranges.push(Decoration.replace({}).range(from, from + 2));
         ranges.push(Decoration.mark({ class: 'cm-md-highlight' }).range(from + 2, to - 2));
         ranges.push(Decoration.replace({}).range(to - 2, to));
@@ -665,16 +702,23 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   const editorResourcePlan = useMemo(() => {
     try {
       const occurrences = collectMarkdownResourceOccurrences(value);
+      const images = collectMarkdownImageOccurrences(value);
+      const imageReferences = images.flatMap(({ url }) => {
+        const reference = standardMarkdownImageResourceRef(url);
+        return reference ? [reference] : [];
+      });
       return {
         occurrences,
+        images,
         references: [...new Map(
-          occurrences.map(({ reference }) => [reference.canonicalKey, reference]),
-        ).values()].sort((left, right) => (
+          [...occurrences.map(({ reference }) => reference), ...imageReferences]
+            .map((reference) => [reference.canonicalKey, reference]),
+        ).values()].slice(0, 100).sort((left, right) => (
           left.canonicalKey < right.canonicalKey ? -1 : left.canonicalKey > right.canonicalKey ? 1 : 0
         )),
       };
     } catch {
-      return { occurrences: [], references: [] };
+      return { occurrences: [], images: [], references: [] };
     }
   }, [value]);
   const editorReferences = editorResourcePlan.references;
@@ -977,8 +1021,8 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
     const pendingPosition = pendingRestoreRef.current;
     if (pendingPosition) restorePosition(pendingPosition);
   }, [refreshSelection, restorePosition]);
-  const hiddenMarks = useMemo(() => buildHiddenMarksPlugin(pages, editorResourcePlan.occurrences, authoritativeResources),
-    [pages, editorResourcePlan.occurrences, authoritativeResources]);
+  const hiddenMarks = useMemo(() => buildHiddenMarksPlugin(pages, editorResourcePlan.occurrences, editorResourcePlan.images, authoritativeResources, zh),
+    [pages, editorResourcePlan.occurrences, editorResourcePlan.images, authoritativeResources, zh]);
   const editorExtensions = useMemo(() => [
     MARKDOWN_LANGUAGE, LIVE_PREVIEW_HIGHLIGHTING, hiddenMarks, uploadAnchors,
     manualHandlers, ...(uploadHandlers ? [uploadHandlers] : []), EditorView.lineWrapping,

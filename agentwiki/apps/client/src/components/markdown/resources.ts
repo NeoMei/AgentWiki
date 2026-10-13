@@ -585,7 +585,7 @@ const rangeContaining = (ranges: SourceRange[], position: number, startIndex = 0
   return index < ranges.length && ranges[index].from <= position ? index : -index - 1;
 };
 
-const inlineExclusionsFor = (source: string, start: number, end: number): SourceRange[] => {
+const inlineExclusionsFor = (source: string, start: number, end: number, excludeLinkLabels = true): SourceRange[] => {
   const failRaw = (): SourceRange[] => [{ from: start, to: end }];
   const opaqueRanges: SourceRange[] = [];
   const ticks: Array<{ from: number; to: number; length: number; next?: number }> = [];
@@ -706,7 +706,7 @@ const inlineExclusionsFor = (source: string, start: number, end: number): Source
         const linkEnd = skipLinkDestination(source, cursor + 1, end);
         if (linkEnd < end || source[linkEnd - 1] === ')') {
           if (exclusions.length >= MAX_INLINE_STRUCTURE_TOKENS) return failRaw();
-          exclusions.push({ from: labelStart, to: linkEnd });
+          exclusions.push({ from: excludeLinkLabels ? labelStart : cursor + 1, to: linkEnd });
         }
         cursor = linkEnd;
         continue;
@@ -715,7 +715,7 @@ const inlineExclusionsFor = (source: string, start: number, end: number): Source
         const referenceEnd = findTokenBefore(source, ']', cursor + 2, end);
         if (referenceEnd !== -1) {
           if (exclusions.length >= MAX_INLINE_STRUCTURE_TOKENS) return failRaw();
-          exclusions.push({ from: labelStart, to: referenceEnd + 1 });
+          exclusions.push({ from: excludeLinkLabels ? labelStart : cursor + 1, to: referenceEnd + 1 });
           cursor = referenceEnd + 1;
           continue;
         } else cursor = end;
@@ -774,9 +774,10 @@ const lineOpensParagraph = (source: string, start: number, end: number): boolean
   return true;
 };
 
-const scanMarkdownResourceCandidates = (source: string): MarkdownResourceCandidate[] => {
+const scanMarkdownResourceCandidates = (source: string, kind: 'wiki' | 'image' = 'wiki'): MarkdownResourceCandidate[] => {
   const candidates: MarkdownResourceCandidate[] = [];
   let candidateCharacters = 0;
+  let imageCandidateEnd = 0;
   let fence: ({ marker: '`' | '~'; length: number } & MarkdownContainerScope) | null = null;
   let htmlBlock: HtmlBlockState | null = null;
   let paragraphScope: MarkdownContainerScope | null = null;
@@ -902,10 +903,27 @@ const scanMarkdownResourceCandidates = (source: string): MarkdownResourceCandida
         inlineParagraph = {
           from: lineStart,
           to: paragraphEnd,
-          exclusions: inlineExclusionsFor(source, lineStart, paragraphEnd),
+          exclusions: inlineExclusionsFor(source, lineStart, paragraphEnd, kind === 'wiki'),
         };
       }
-      let cursor = firstContent;
+      const addImageLine = (to = lineEnd) => {
+        const separatorLength = candidates.length === 0 ? 0 : 2;
+        if (candidateCharacters + separatorLength + to - lineStart > MAX_EDITOR_CANDIDATE_PARSE_CHARS
+          || candidates.length >= MAX_EDITOR_WIKI_OCCURRENCES) return false;
+        candidates.push({ from: lineStart, to, literal: source.slice(lineStart, to) });
+        candidateCharacters += separatorLength + to - lineStart;
+        imageCandidateEnd = to;
+        return true;
+      };
+      let cursor = kind === 'image' && lineStart < imageCandidateEnd ? lineEnd : firstContent;
+      if (kind === 'image' && paragraphScope === null && lineStart >= imageCandidateEnd
+        && /^ {0,3}\[[^\]\n]+\]:[ \t]*\S/u.test(source.slice(firstContent, lineEnd))) {
+        // Definitions cannot interrupt a paragraph. Preserve the whole bounded
+        // definition paragraph so malformed/continuing lines cannot become
+        // valid definitions merely because candidates are separated by blanks.
+        if (!addImageLine(inlineParagraph.to)) return candidates;
+        cursor = lineEnd;
+      }
       let exclusionIndex = 0;
       while (cursor < lineEnd) {
         const containing = rangeContaining(inlineParagraph.exclusions, cursor, exclusionIndex);
@@ -921,7 +939,12 @@ const scanMarkdownResourceCandidates = (source: string): MarkdownResourceCandida
           cursor += 2;
           continue;
         }
-        if (character === '[' && source[cursor + 1] === '[') {
+        if (kind === 'image' && character === '!' && source[cursor + 1] === '[' && source[cursor + 2] !== '[') {
+          if (!addImageLine()) return candidates;
+          cursor = lineEnd;
+          continue;
+        }
+        if (kind === 'wiki' && character === '[' && source[cursor + 1] === '[') {
           let close = cursor + 2;
           let validShape = true;
           while (close < lineEnd) {
@@ -1084,6 +1107,54 @@ export const standardMarkdownImageResourceRef = (
     target: normalized,
   };
 };
+
+export const editorMarkdownImageParser = {
+  parse(source: string): MarkdownAstNode { return parser.parse(source) as MarkdownAstNode; },
+};
+
+export interface MarkdownImageOccurrence {
+  from: number;
+  to: number;
+  source: string;
+  url: string;
+  alt: string;
+  title: string | null;
+}
+
+// Called only when the document changes, never when its selection changes.
+// Reuse the bounded, syntax-aware scanner before parsing image and definition
+// lines. Long documents never enter the synchronous remark parser in full.
+export function collectMarkdownImageOccurrences(source: string): MarkdownImageOccurrence[] {
+  if (!/!\[(?!\[)/u.test(source)) return [];
+  type ImageNode = MarkdownAstNode & { url?: string; alt?: string; title?: string | null; identifier?: string };
+  const candidates = scanMarkdownResourceCandidates(source, 'image');
+  if (candidates.length === 0) return [];
+  let cursor = 0;
+  const segments = candidates.map((candidate, index) => {
+    const segment = { ...candidate, inputFrom: cursor + (index ? 2 : 0) };
+    cursor = segment.inputFrom + candidate.literal.length;
+    return segment;
+  });
+  const tree = editorMarkdownImageParser.parse(candidates.map(({ literal }) => literal).join('\n\n'));
+  const definitions = new Map<string, ImageNode>();
+  visit(tree as never, 'definition', (node: ImageNode) => {
+    if (node.identifier && !definitions.has(node.identifier)) definitions.set(node.identifier, node);
+  });
+  const occurrences: MarkdownImageOccurrence[] = [];
+  visit(tree as never, (node: ImageNode) => {
+    if (node.type !== 'image' && node.type !== 'imageReference') return;
+    const target = node.type === 'image' ? node : definitions.get(node.identifier ?? '');
+    const start = node.position?.start?.offset;
+    const end = node.position?.end?.offset;
+    if (!target?.url || typeof start !== 'number' || typeof end !== 'number') return;
+    const segment = segments.find(({ inputFrom, literal }) => start >= inputFrom && end <= inputFrom + literal.length);
+    if (!segment) return;
+    const from = segment.from + start - segment.inputFrom;
+    const to = segment.from + end - segment.inputFrom;
+    occurrences.push({ from, to, source: source.slice(from, to), url: target.url, alt: node.alt ?? '', title: target.title ?? null });
+  });
+  return occurrences;
+}
 
 export function collectMarkdownResourceOccurrences(source: string): MarkdownResourceOccurrence[] {
   const occurrences: MarkdownResourceOccurrence[] = [];

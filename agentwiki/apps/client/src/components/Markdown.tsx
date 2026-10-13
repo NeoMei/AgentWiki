@@ -1,3 +1,4 @@
+import { isExternalHttpsImage, isInternalImage } from './markdown/imageSource';
 import React, { createContext, useContext, useEffect, useMemo, useState, useId } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { ExtraProps } from 'react-markdown';
@@ -412,13 +413,6 @@ const Callout: React.FC<CalloutProps> = ({ type, title, fold, children }) => {
       {(!folding || expanded) && <div className="callout-body mt-2">{children}</div>}
     </aside>
   );
-};
-
-const isExternalHttpsImage = (src: string): boolean => /^https:\/\//i.test(src);
-
-const isInternalImage = (src: string): boolean => {
-  if (!src || src.startsWith('//') || /\\|%5c/i.test(src)) return false;
-  return !/^[a-z][a-z\d+.-]*:/i.test(src);
 };
 
 type SafeImageProps = React.ImgHTMLAttributes<HTMLImageElement> & ExtraProps;

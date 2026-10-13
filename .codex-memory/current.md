@@ -1,6 +1,6 @@
 # 当前目标
 
-- 修复用户新报的“编辑状态单行选不中、跨行才能选中”；真实 Chrome 复现、最小 CSS 修复与本地验收已完成，待后续发布。
+- 用户连续报告的单行选区和编辑态图片问题已本地修复、验证并独立复审；尚未推送或部署。
 
 # 范围 / 不做
 
@@ -9,6 +9,7 @@
 
 # 当前状态
 
+- 图片预览/点击展开/离开恢复完成；支持常用单行Markdown及Wiki/相对附件，32K/256候选预算避免逐键全文解析。最终client144files/2325pass、build/lint/tsc与独立复审通过；真实Chrome默认首图/点击/Enter/改URL撤销/失败fallback/两类Blob/窄屏/选区回归通过。
 - 分支 `codex/editor-single-line-selection` 基于 `1bbb428e`：不透明活动行背景遮住 CodeMirror 选区，改为 2% 黑色透明背景。生产原案复现、本地正反拖选/键盘/跨行/软折行/加粗范围/失焦恢复通过；client build 与独立审查通过。此次修复尚未推送或部署。
 - 正式部署源码 48781e5b192101a2d122dd143048d983bca8a29b；GitHub v0.12.25 与 npm 0.12.0 已发布。7,114 pass / 6 skip / 0 fail，typecheck/lint/build 与独立审查通过。
 - 生产迁移、1,252 文件、3 服务、5 health、32 烟测已验；原 71 凭据、482 Grant 稳定字段保留；配套备份可追溯。
@@ -23,6 +24,8 @@
 
 # 关键索引
 
+- .codex-memory/tasks/active/editor-live-preview-20261014/{brief,decisions,refs}.md
+- agentwiki/docs/verification/editor-images-20261014/status.md
 - agentwiki/docs/verification/editor-single-line-selection-20261014/status.md
 - .codex-memory/tasks/archive/agent-identity-space-auth-20261013/{brief,decisions,refs}.md
 - agentwiki/docs/verification/agent-identity-space-auth-20261014/status.md
@@ -31,6 +34,7 @@
 
 # 风险 / 下一步
 
-- 17 篇项目模板交付已完成。新增编辑器选区修复本地通过，发布后需生产编辑模式回验。
+- 17 篇项目模板交付已完成。两项编辑器修复本地通过，尚未推送/发布；上线后需生产编辑模式回验。
+- 多行图片、列表4空格续行图片与超候选预算保守保留完整源码；附件浏览器验证使用本地模拟API，不是生产鉴权验收。
 - 当前旧聊天 MCP 进程未热重载；本机配置已升级，新启动官方0.12.0网关已实测，原连接不变。
 - 批量 MCP 调用应节流（本次至少3.25秒/调用）；原429已通过核对保存结果恢复。侧栏保留既有sortOrder，首页按流程提供导航；旧目录候选仍pending但已被正式发布替代。
