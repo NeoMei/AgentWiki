@@ -72,7 +72,10 @@ describe('Dashboard Space pagination and creation', () => {
       updatedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
       approvalPolicy: 'always-review',
       _count: { pages: 12 },
-      members: [{ type: 'human' }, { type: 'human' }],
+      members: [
+        { type: 'human', role: 'owner', user: { id: 'owner-1', name: '空间负责人', email: 'owner@example.test' } },
+        { type: 'human', role: 'admin', user: { id: 'admin-1', name: 'Admin' } },
+      ],
     }], 1, { nextCursor: null, hasMore: false }));
 
     renderDashboard();
@@ -80,9 +83,36 @@ describe('Dashboard Space pagination and creation', () => {
     const card = await screen.findByTestId('space-card');
     expect(within(card).getByText('12 个页面')).toBeInTheDocument();
     expect(within(card).getByText('2 位成员')).toBeInTheDocument();
+    expect(within(card).getByText('所有者：空间负责人')).toBeInTheDocument();
     expect(within(card).getByText('始终审核')).toBeInTheDocument();
     expect(within(card).getByText(/最近更新/)).toBeInTheDocument();
     expect(within(card).getByRole('link', { name: /进入空间/ })).toHaveAttribute('href', '/spaces/space-context');
+  });
+
+  it('shows every owner, using email for blank names without including other member roles', async () => {
+    vi.mocked(api.get).mockResolvedValue(spacePage([{
+      id: 'multi-owner', name: '协作空间', slug: 'shared',
+      members: [
+        { role: 'admin', user: { id: 'admin-1', name: 'Admin' } },
+        { role: 'owner', user: { id: 'owner-a', name: ' 张三 ', email: 'a@example.test' } },
+        { role: 'editor', user: { id: 'editor', name: '编辑者' } },
+        { role: 'owner', user: { id: 'owner-b', name: '  ', email: 'owner-b@example.test' } },
+      ],
+    }], 1));
+    renderDashboard();
+    const card = await screen.findByTestId('space-card');
+    const owner = within(card).getByText('所有者：张三、owner-b@example.test');
+    expect(owner.closest('p')).toHaveAttribute('title', owner.textContent);
+    expect(within(card).queryByText(/所有者：.*Admin|所有者：.*编辑者/)).not.toBeInTheDocument();
+  });
+
+  it.each(['zh-CN', 'en'])('does not invent an owner when member details are absent (%s)', async (language) => {
+    localStorage.setItem('agentwiki.language.v1', language);
+    vi.mocked(api.get).mockResolvedValue(spacePage([{ id: 'unknown-owner', name: '未知所有者', slug: 'unknown' }], 1));
+    renderDashboard();
+    const card = await screen.findByTestId('space-card');
+    expect(within(card).getByText(language === 'en' ? 'Owner: Not available' : '所有者：暂无信息')).toBeInTheDocument();
+    expect(within(card).queryByText(/Owner: Admin|所有者：Admin/)).not.toBeInTheDocument();
   });
 
   it.each([

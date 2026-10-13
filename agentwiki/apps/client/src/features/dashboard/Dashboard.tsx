@@ -5,7 +5,7 @@ import { apiErrorMessage } from '../../api/error-message';
 import type { SpaceListResponse, SpaceSummary } from '../../api/space-types';
 import { ModalDialog } from '../../components/ModalDialog';
 import { useAuth } from '../../context/AuthContext';
-import { Plus, Folder, X, Trash2, Network, ArrowUpRight, BookOpen, Clock3, LockKeyhole, ShieldCheck, Users } from 'lucide-react';
+import { Plus, Folder, X, Trash2, Network, ArrowUpRight, BookOpen, Clock3, LockKeyhole, ShieldCheck, Users, UserRound } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { SPACE_NAME_MAX_LENGTH } from '@agentwiki/shared';
 import { validatorLength } from '../page-templates/validatorLength';
@@ -263,6 +263,11 @@ export const Dashboard: React.FC = () => {
             {spaces.map((space) => {
               const pageCount = spacePageCount(space);
               const memberCount = spaceMemberCount(space);
+              const ownerNames = space.members?.filter((member) => member.role === 'owner')
+                .map((member) => member.user?.name?.trim() || member.user?.email?.trim() || t('profile.unnamed'));
+              const ownerLabel = t('dashboard.owner', {
+                name: ownerNames?.length ? ownerNames.join(language === 'zh-CN' ? '、' : ', ') : t('dashboard.ownerUnavailable'),
+              });
               const updated = formatUpdatedAt(space.lastUpdatedAt ?? space.updatedAt, language);
               const updatedLabel = !updated
                 ? t('dashboard.statsSyncing')
@@ -299,6 +304,10 @@ export const Dashboard: React.FC = () => {
                     ) : null}
                   </div>
                   <p className="mt-4 min-h-[2.75rem] text-sm leading-6 text-gray-500 line-clamp-2">{space.description || t('common.noDescription')}</p>
+                  <p className="mt-3 mb-4 flex min-w-0 items-center gap-2 text-sm text-gray-500" title={ownerLabel}>
+                    <UserRound aria-hidden="true" className="shrink-0 text-gray-400" size={14} />
+                    <span className="truncate">{ownerLabel}</span>
+                  </p>
                   <div className="mt-auto grid grid-cols-2 gap-2 border-t border-gray-100 pt-4 text-xs text-gray-500">
                     <span className="inline-flex min-w-0 items-center gap-1.5 truncate" title={pageCount == null ? t('dashboard.statsSyncing') : t('dashboard.pages', { count: pageCount })}>
                       <BookOpen className="shrink-0 text-gray-400" size={14} />

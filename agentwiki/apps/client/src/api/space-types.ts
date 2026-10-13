@@ -8,7 +8,11 @@ export interface SpaceSummary {
   lastUpdatedAt?: string;
   visibility?: string;
   approvalPolicy?: string;
-  members?: Array<{ type?: string }>;
+  members?: Array<{
+    type?: string;
+    role?: string;
+    user?: { id: string; name?: string | null; email?: string } | null;
+  }>;
   _count?: {
     pages?: number;
   };
