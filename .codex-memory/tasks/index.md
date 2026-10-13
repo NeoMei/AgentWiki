@@ -4,6 +4,8 @@
 
 ## 活跃任务
 
+- [regressions-release-20261013](active/regressions-release-20261013/brief.md)：v0.12.23修复候选整合与复审完成，完整门禁重跑；生产SSH与回执所有者审批待恢复。
+
 
 - [test-triage-20261008](active/test-triage-20261008/brief.md)：网页0.12.17已部署、插件0.5.8已发布；Windows真实同步已执行，0.5.8最终冲突原生验收通过，生产测试资源已撤销，原案边界保留。
 

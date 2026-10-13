@@ -11,6 +11,17 @@ const t = (key: string) => ({
 }[key] || key);
 
 describe('apiErrorMessage', () => {
+  it.each(['FOLDER_NAME_CONFLICT', 'PAGE_TITLE_CONFLICT'])('localizes %s with and without an optional conflicting name', (code) => {
+    const translate = (key: string, params: Record<string, string | number> = {}) => Object.entries(params).reduce(
+      (text, [name, value]) => text.split(`{${name}}`).join(String(value)), messages['zh-CN'][key] ?? key,
+    );
+    const error = (details?: { name: string }) => ({ response: { status: 409, data: { code, details } } });
+    expect(apiErrorMessage(error({ name: '计划' }), translate, 'page.createFailed')).toContain('“计划”');
+    const generic = apiErrorMessage(error(), translate, 'page.createFailed');
+    expect(generic).toContain('同名');
+    expect(generic).not.toContain('{name}');
+  });
+
   it('uses stable business codes instead of an English server message', () => {
     expect(apiErrorMessage({ response: { status: 401, data: {
       code: 'AUTH_INVALID_CREDENTIALS', message: 'Invalid credentials',

@@ -410,7 +410,7 @@ export const RunDashboard: React.FC = () => {
       </div>
 
       {pending && pendingScope.current === `${id}:${run.id}` ? <ActionDialog pending={pending} run={run} reason={reason} setReason={setReason} agentId={agentId} setAgentId={setAgentId} agents={executableAgents} submitting={submitting} onClose={() => { pendingScope.current = null; setPending(null); }} onConfirm={() => void submitAction()} t={t} /> : null}
-      {historyKind ? <ModalDialog labelledBy="collaboration-history-title" onRequestClose={closeHistory} className="w-full max-w-3xl rounded-xl bg-white p-6 shadow-xl"><div className="flex items-start justify-between gap-3"><div><h2 id="collaboration-history-title" className="text-lg font-semibold">{t(`collaboration.dashboard.history.${historyKind}`)}</h2><p className="mt-1 text-sm text-gray-600">{t('collaboration.dashboard.fullHistoryHelp')}</p></div><button type="button" onClick={closeHistory} className="min-h-10 rounded-lg border px-3 text-sm">{t('common.close')}</button></div>{historyError ? <div role="alert" className="mt-6 text-sm text-red-700">{t('collaboration.dashboard.historyFailed')}<button type="button" onClick={() => historyItems.length ? void loadMoreHistory() : void openHistory(historyKind)} className="ml-2 underline">{t('common.retry')}</button></div> : null}{historyItems.length ? <><ol className="mt-5 max-h-[65vh] space-y-3 overflow-auto">{historyItems.map((item, index) => <li key={historyItemKey(item, index)} className="rounded-lg border bg-gray-50 p-3"><pre className="whitespace-pre-wrap break-words text-xs text-gray-700">{JSON.stringify(item, null, 2)}</pre></li>)}</ol>{historyNextCursor ? <button type="button" disabled={historyLoading} onClick={() => void loadMoreHistory()} className="mt-4 min-h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{historyLoading ? t('common.loading') : t('dashboard.loadMore')}</button> : null}</> : historyLoading ? <p role="status" className="mt-6 text-sm text-gray-500">{t('common.loading')}</p> : !historyError ? <p className="mt-6 text-sm text-gray-500">{t('collaboration.dashboard.noHistory')}</p> : null}</ModalDialog> : null}
+      {historyKind ? <ModalDialog labelledBy="collaboration-history-title" onRequestClose={closeHistory} className="w-full max-w-3xl rounded-xl bg-white p-6 shadow-xl"><div className="flex items-start justify-between gap-3"><div><h2 id="collaboration-history-title" className="text-lg font-semibold">{t(`collaboration.dashboard.history.${historyKind}`)}</h2><p className="mt-1 text-sm text-gray-600">{t('collaboration.dashboard.fullHistoryHelp')}</p></div><button type="button" onClick={closeHistory} className="min-h-10 rounded-lg border px-3 text-sm">{t('common.close')}</button></div>{historyError ? <div role="alert" className="mt-6 text-sm text-red-700">{t('collaboration.dashboard.historyFailed')}<button type="button" onClick={() => historyItems.length ? void loadMoreHistory() : void openHistory(historyKind)} className="ml-2 underline">{t('common.retry')}</button></div> : null}{historyItems.length ? <><ol className="mt-5 max-h-[65vh] space-y-3 overflow-auto">{historyItems.map((item, index) => <li key={historyItemKey(item, index)} className="rounded-lg border bg-gray-50 p-3"><p className="font-medium text-sm text-gray-800">{historyItemSummary(item, historyKind, t)}</p>{historyItemTime(item) ? <p className="mt-1 text-xs text-gray-500">{historyItemTime(item)}</p> : null}<details className="mt-2 text-xs text-gray-500"><summary className="cursor-pointer">{t('collaboration.dashboard.technicalDetails')}</summary><pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words text-gray-700">{JSON.stringify(item, null, 2)}</pre></details></li>)}</ol>{historyNextCursor ? <button type="button" disabled={historyLoading} onClick={() => void loadMoreHistory()} className="mt-4 min-h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{historyLoading ? t('common.loading') : t('dashboard.loadMore')}</button> : null}</> : historyLoading ? <p role="status" className="mt-6 text-sm text-gray-500">{t('common.loading')}</p> : !historyError ? <p className="mt-6 text-sm text-gray-500">{t('collaboration.dashboard.noHistory')}</p> : null}</ModalDialog> : null}
       {toast ? <Toast kind={toast.kind} message={toast.message} onClose={() => setToast(null)} /> : null}
     </div>
   );
@@ -420,6 +420,23 @@ function historyItemKey(item: unknown, index: number): string {
   return item && typeof item === 'object' && typeof (item as { id?: unknown }).id === 'string'
     ? (item as { id: string }).id
     : String(index);
+}
+
+function historyItemSummary(item: unknown, kind: CollaborationHistoryKind, t: (key: string) => string): string {
+  if (!item || typeof item !== 'object') return t('collaboration.dashboard.historyRecord');
+  const record = item as Record<string, unknown>;
+  const operationKey = typeof record.operation === 'string' ? `collaboration.event.${record.operation}` : '';
+  const operation = operationKey && t(operationKey) !== operationKey ? t(operationKey) : null;
+  const value = operation || ['name', 'title', 'action', 'operation', 'event', 'type', 'status'].map((key) => record[key]).find((candidate) => typeof candidate === 'string');
+  const id = typeof record.id === 'string' ? ` · ${record.id.slice(0, 8)}` : '';
+  return `${value || t(`collaboration.dashboard.history.${kind}`)}${id}`;
+}
+
+function historyItemTime(item: unknown): string | null {
+  if (!item || typeof item !== 'object') return null;
+  const record = item as Record<string, unknown>;
+  const value = ['createdAt', 'updatedAt', 'occurredAt', 'finishedAt'].map((key) => record[key]).find((candidate) => typeof candidate === 'string');
+  return typeof value === 'string' ? new Date(value).toLocaleString() : null;
 }
 
 const ActionDialog: React.FC<{

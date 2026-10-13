@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Bot, KeyRound, Pause, Play, Plus, X } from 'lucide-react';
 import api from '../../api/client';
@@ -64,6 +64,11 @@ export const AgentList: React.FC = () => {
     if (!saving) setShowCreate(false);
   };
 
+  const duplicateNames = useMemo(() => {
+    const counts = new Map<string, number>();
+    agents.forEach((agent) => counts.set(agent.name, (counts.get(agent.name) ?? 0) + 1));
+    return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([name]) => name));
+  }, [agents]);
   if (loading) return <div className="py-12 text-center text-gray-500">{t('common.loading')}</div>;
 
   return (
@@ -93,7 +98,7 @@ export const AgentList: React.FC = () => {
               <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center"><Bot size={20} /></div>
               <Link to={'/agents/' + agent.id} className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="font-medium truncate">{agent.name}</span>
+                  <span className="font-medium truncate">{agent.name}{duplicateNames.has(agent.name) ? <span className="ml-2 font-mono text-xs font-normal text-gray-400">#{agent.id.slice(0, 8)}</span> : null}</span>
                   <span className={'text-xs px-2 py-0.5 rounded-full ' + (agent.status === 'active' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700')}>
                     {agent.status}
                   </span>

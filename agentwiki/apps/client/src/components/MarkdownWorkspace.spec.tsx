@@ -317,6 +317,78 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     expect(container.querySelector('.cm-line')).toBeTruthy();
   });
 
+  it('keeps bare URLs and email addresses visible while hiding Markdown link destinations', async () => {
+    const source = 'Contact editor@example.com or https://example.com\n\n[label](https://hidden.example/path)';
+    const { container } = renderWYS({ initial: source });
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ selection: EditorSelection.cursor(0) }));
+
+    await waitFor(() => {
+      const text = container.querySelector('.cm-content')?.textContent ?? '';
+      expect(text).toContain('editor@example.com');
+      expect(text).toContain('https://example.com');
+      expect(text).toContain('label');
+      expect(text).not.toContain('https://hidden.example/path');
+    });
+  });
+
+  it('renders ==highlight== as a marked span on inactive lines and preserves source on the active line', async () => {
+    const source = '==inactive highlight==\n\n==active highlight==';
+    const { container } = renderWYS({ initial: source });
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ selection: EditorSelection.cursor(source.lastIndexOf('active')) }));
+
+    await waitFor(() => {
+      expect(container.querySelector('.cm-md-highlight')).toHaveTextContent('inactive highlight');
+      const lines = [...container.querySelectorAll<HTMLElement>('.cm-line')];
+      expect(lines.some((line) => line.textContent === '==active highlight==')).toBe(true);
+    });
+  });
+
+  it('keeps highlight syntax literal inside an inactive indented code block', async () => {
+    const source = '    ==literal==\n\nBody';
+    const { container } = renderWYS({ initial: source });
+    const view = currentEditorView(container);
+    act(() => view.dispatch({ selection: EditorSelection.cursor(source.length) }));
+    await waitFor(() => expect(container.querySelector('.cm-content')).toHaveTextContent('==literal=='));
+    expect(container.querySelector('.cm-md-highlight')).toBeNull();
+  });
+
+  it('renders a resolved wiki attachment as an inline image in edit mode', async () => {
+    const originalCreateObjectURL = Object.getOwnPropertyDescriptor(URL, 'createObjectURL');
+    const originalRevokeObjectURL = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL');
+    const createObjectURL = vi.fn(() => 'blob:workspace-edit-image');
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+    resourceMocks.post.mockImplementation((_url: string, body: any) => Promise.resolve({ data: [{
+      key: body.references[0].key,
+      status: 'resolved',
+      kind: 'attachment',
+      attachmentId: 'attachment-edit-image',
+      displayName: 'preview.png',
+      mimeType: 'image/png',
+      width: 120,
+      height: 80,
+    }] }));
+    resourceMocks.fetchAttachmentBlob.mockResolvedValue(new Blob(['png'], { type: 'image/png' }));
+
+    try {
+      const rendered = renderWYS({ initial: '![[preview.png]]\n\nBody', pageId: 'page-editor', spaceId: 'space-editor' });
+      const view = currentEditorView(rendered.container);
+      act(() => view.dispatch({ selection: EditorSelection.cursor(view.state.doc.length) }));
+      const image = await screen.findByRole('img', { name: 'preview.png' });
+      expect(image).toHaveAttribute('src', 'blob:workspace-edit-image');
+      expect(image).toHaveAttribute('data-attachment-id', 'attachment-edit-image');
+      expect(resourceMocks.fetchAttachmentBlob).toHaveBeenCalledWith('attachment-edit-image', expect.any(AbortSignal));
+      rendered.unmount();
+    } finally {
+      if (originalCreateObjectURL) Object.defineProperty(URL, 'createObjectURL', originalCreateObjectURL);
+      else Reflect.deleteProperty(URL, 'createObjectURL');
+      if (originalRevokeObjectURL) Object.defineProperty(URL, 'revokeObjectURL', originalRevokeObjectURL);
+      else Reflect.deleteProperty(URL, 'revokeObjectURL');
+    }
+  });
+
   it('editing the document calls onChange with the full text', () => {
     const onChange = vi.fn();
     const { container } = renderWYS({ onChange });

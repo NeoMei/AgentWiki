@@ -271,7 +271,7 @@ const SourcesView: React.FC = () => {
                 <p><strong>{t('common.status')}:</strong> {runtimeLabel(detail.status, t)} {detail.uri ? <>· <strong>{t('source.uri')}:</strong> {detail.uri}</> : null}</p>
                 <p className="mt-2"><strong>{t('common.versions')}:</strong> {(detail.versions || []).map((version: any) => `v${version.version} ${version.contentHash?.slice(0, 8) || ''}`).join(' · ') || t('common.none')}</p>
                 <p className="mt-2 font-medium">{t('source.recentRuns')}</p>
-                <div className="mt-2 space-y-3">{(detail.runs || []).map((run: any, index: number) => <div key={run.id || index} className="rounded-lg border bg-white p-3"><IngestRunDetails run={run} spaceId={id} /></div>)}{!detail.runs?.length ? t('common.none') : null}</div>
+                <div className="mt-2 space-y-3">{(detail.runs || []).map((run: any, index: number) => <div key={run.id || index} className="rounded-lg border bg-white p-3"><IngestRunDetails run={run} spaceId={id} showRunLink={false} /></div>)}{!detail.runs?.length ? t('common.none') : null}</div>
                 {detail.runs?.[0]?.status === 'failed' ? <Link to={`/spaces/${id}/sources?view=runs&run=${encodeURIComponent(detail.runs[0].id)}`} className="mt-2 inline-flex min-h-8 items-center text-blue-700 underline">{t('source.failedRunDetails')}</Link> : null}
                 {activeRunKey ? <p className="mt-2">{polling ? t('source.updating') : t('source.pollStopped')}</p> : null}
               </> : null}

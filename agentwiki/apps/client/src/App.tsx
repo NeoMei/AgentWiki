@@ -6,7 +6,7 @@ import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import { Layout } from './components/Layout';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ProductPage } from './features/about/ProductPage';
-import { GuideLayout } from './features/guide/GuideLayout';
+const GuideLayout = lazy(() => import('./features/guide/GuideLayout').then((module) => ({ default: module.GuideLayout })));
 import {
   SpaceWorkspaceProvider,
   type SpaceWorkspaceMode,
@@ -120,15 +120,15 @@ const AppRoutes: React.FC = () => {
         <Route path="/admin" element={<Suspense fallback={<RouteLoading />}><AdminPage /></Suspense>} />
       </Route>
       <Route path="/" element={<ProductPage />} />
-      <Route path="/guide" element={<GuideLayout><Suspense fallback={<RouteLoading />}><UsageGuide /></Suspense></GuideLayout>} />
-      <Route path="/guide/agent-onboard" element={<GuideLayout><Suspense fallback={<RouteLoading />}><OnboardPage /></Suspense></GuideLayout>} />
-      <Route path="/guide/obsidian" element={<GuideLayout><Suspense fallback={<RouteLoading />}><ObsidianGuide /></Suspense></GuideLayout>} />
+      <Route path="/guide" element={<Suspense fallback={<RouteLoading />}><GuideLayout><UsageGuide /></GuideLayout></Suspense>} />
+      <Route path="/guide/agent-onboard" element={<Suspense fallback={<RouteLoading />}><GuideLayout><OnboardPage /></GuideLayout></Suspense>} />
+      <Route path="/guide/obsidian" element={<Suspense fallback={<RouteLoading />}><GuideLayout><ObsidianGuide /></GuideLayout></Suspense>} />
       <Route path="/settings/integrations" element={<Navigate to="/guide/obsidian" replace />} />
-      <Route path="/guide/docs" element={<GuideLayout><Suspense fallback={<RouteLoading />}><DocsOverview /></Suspense></GuideLayout>} />
-      <Route path="/guide/docs/architecture" element={<GuideLayout><Suspense fallback={<RouteLoading />}><DocsArchitecture /></Suspense></GuideLayout>} />
-      <Route path="/guide/docs/features" element={<GuideLayout><Suspense fallback={<RouteLoading />}><DocsFeatures /></Suspense></GuideLayout>} />
-      <Route path="/guide/docs/security" element={<GuideLayout><Suspense fallback={<RouteLoading />}><DocsSecurity /></Suspense></GuideLayout>} />
-      <Route path="/guide/docs/sync" element={<GuideLayout><Suspense fallback={<RouteLoading />}><DocsSync /></Suspense></GuideLayout>} />
+      <Route path="/guide/docs" element={<Suspense fallback={<RouteLoading />}><GuideLayout><DocsOverview /></GuideLayout></Suspense>} />
+      <Route path="/guide/docs/architecture" element={<Suspense fallback={<RouteLoading />}><GuideLayout><DocsArchitecture /></GuideLayout></Suspense>} />
+      <Route path="/guide/docs/features" element={<Suspense fallback={<RouteLoading />}><GuideLayout><DocsFeatures /></GuideLayout></Suspense>} />
+      <Route path="/guide/docs/security" element={<Suspense fallback={<RouteLoading />}><GuideLayout><DocsSecurity /></GuideLayout></Suspense>} />
+      <Route path="/guide/docs/sync" element={<Suspense fallback={<RouteLoading />}><GuideLayout><DocsSync /></GuideLayout></Suspense>} />
       <Route path="/onboard" element={<Navigate to="/guide/agent-onboard" replace />} />
       <Route path="/onboard/device" element={<Suspense fallback={<RouteLoading />}><OnboardDevicePage /></Suspense>} />
       <Route path="/docs" element={<Navigate to="/guide/docs" replace />} />

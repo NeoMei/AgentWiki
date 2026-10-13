@@ -221,7 +221,7 @@ export const CollaborationWorkspace: React.FC = () => {
         </div>
 
         <div role="tablist" aria-label={t('collaboration.sections')} className="aw-collab-tabs">
-          {(['templates', ...(canManage ? ['manage' as const] : []), 'active', 'history'] as const).map((value) => (
+          {(['templates', 'active', 'history'] as const).map((value) => (
             <button
               key={value}
               type="button"
@@ -229,7 +229,7 @@ export const CollaborationWorkspace: React.FC = () => {
               aria-selected={tab === value}
               onClick={() => setTab(value)}
               className="aw-collab-tab"
-            >{t(value === 'manage' ? 'collaboration.manageTemplates' : `collaboration.${value}`)}</button>
+            >{t(`collaboration.${value}`)}</button>
           ))}
         </div>
 

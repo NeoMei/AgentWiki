@@ -44,6 +44,7 @@ const CONTENT_TREE_V2_ERROR_MAP: Record<ContentTreeErrorCode, {
   SPACE_NOT_FOUND: { code: 'SPACE_FORBIDDEN', message: 'Space is not accessible' },
   FOLDER_NOT_FOUND: { code: 'PAYLOAD_INVALID', message: 'Document tree resource is unavailable' },
   FOLDER_NAME_CONFLICT: { code: 'PATH_COLLISION', message: 'Document tree path conflicts' },
+  PAGE_TITLE_CONFLICT: { code: 'PATH_COLLISION', message: 'Document tree path conflicts' },
   FOLDER_INVALID_NAME: { code: 'PAYLOAD_INVALID', message: 'Document tree payload is invalid' },
   FOLDER_CYCLE: { code: 'PAYLOAD_INVALID', message: 'Document tree payload is invalid' },
   FOLDER_DEPTH_LIMIT: { code: 'PAYLOAD_INVALID', message: 'Document tree payload is invalid' },

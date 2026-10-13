@@ -82,6 +82,7 @@ const ERROR_CODE_MAP: Record<string, { status: HttpStatus; message: string }> = 
   PAGE_TEMPLATE_INSTANTIATION_RETRY_REQUIRED: { status: HttpStatus.CONFLICT, message: 'Template instantiation conflicted; retry with the same idempotency key' },
   FOLDER_NOT_FOUND: { status: HttpStatus.NOT_FOUND, message: 'Folder not found' },
   FOLDER_NAME_CONFLICT: { status: HttpStatus.CONFLICT, message: 'A sibling Folder already uses this name' },
+  PAGE_TITLE_CONFLICT: { status: HttpStatus.CONFLICT, message: 'A sibling Page already uses this title' },
   FOLDER_INVALID_NAME: { status: HttpStatus.BAD_REQUEST, message: 'Folder name is not portable' },
   FOLDER_CYCLE: { status: HttpStatus.CONFLICT, message: 'Folder move would create a cycle' },
   FOLDER_DEPTH_LIMIT: { status: HttpStatus.BAD_REQUEST, message: 'Folder depth limit exceeded' },

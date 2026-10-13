@@ -104,12 +104,14 @@ describe('CollaborationWorkspace', () => {
     });
   });
 
-  it.each([['en', 'Manage collaboration templates', 'New collaboration template', 'Edit'], ['zh-CN', '管理协作模板', '新建协作模板', '编辑']])('opens a real deep-linked management tab in %s', async (language, label, create, edit) => {
+  it.each([['en', 'Manage collaboration templates', 'New collaboration template', 'Edit'], ['zh-CN', '管理协作模板', '新建协作模板', '编辑']])('opens management from the single header entry in %s', async (language, label, create, edit) => {
     renderWorkspace(language as 'en' | 'zh-CN'); await screen.findByText('Backend release');
+    expect(screen.getAllByRole('link', { name: label })).toHaveLength(1);
+    expect(screen.queryByRole('tab', { name: label })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('link', { name: label }));
     const management = await screen.findByRole('heading', { name: label });
     expect(management).toHaveFocus();
-    expect(screen.getByRole('tab', { name: label })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('tab', { name: label })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: edit })).toHaveAttribute('href', '/spaces/space-1/collaboration/templates/space-template');
     expect(screen.getByRole('link', { name: create })).toHaveAttribute('href', '/spaces/space-1/collaboration/templates/new');
     expect(screen.queryByRole('link', { name: /Manage page templates|管理页面模板/ })).not.toBeInTheDocument();

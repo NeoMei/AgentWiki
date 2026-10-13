@@ -209,6 +209,7 @@ describe('PageService', () => {
       );
       expect(mockContentTree.placePage).toHaveBeenCalledWith(mockPrisma, expect.objectContaining({
         spaceId: 'space-1', title: '周报', folderId: 'folder-1', pageId: expect.any(String),
+        requireUniqueTitle: true,
       }));
       expect(mockPrisma.page.create).toHaveBeenCalledWith(expect.objectContaining({
         data: expect.objectContaining({ parentId: null, folderId: 'folder-1' }),
@@ -585,6 +586,9 @@ describe('PageService', () => {
       expect(mockTemplates.resolveVersion).toHaveBeenCalledWith(expect.anything(), {
         spaceId: 'space-1', templateId: 'template-1', version: 2, locale: 'zh-CN',
       });
+      expect(mockContentTree.placePage).toHaveBeenCalledWith(mockPrisma, expect.objectContaining({
+        title: '周报', requireUniqueTitle: true,
+      }));
       expect(mockPrisma.page.create).toHaveBeenCalledWith(expect.objectContaining({
         data: expect.objectContaining({
           content: '# Weekly v2', format: 'markdown',

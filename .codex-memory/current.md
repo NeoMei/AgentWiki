@@ -1,36 +1,36 @@
 # 当前目标
 
-- “我的知识空间”卡片信息完善及发布完成，最终版本 v0.12.22。
+- 将 10-12 回归报告的已实现修复发布为 v0.12.23，逐条保留原环境待验边界。
 
 # 范围 / 不做
 
-- 页面数、成员数、审核策略、内容更新时间与明确进入入口已上线，桌面/手机布局保持简明。
-- 包含正文更新时间与新建统计修复；未来原始时间提示待校准，不改用户数据。未发布 npm 或独立 Obsidian 插件。
+- 包含编辑态、来源筛选、模板来源、协作摘要及新建标题冲突修复；不改变任务看板父子完成语义，不推断原账号历史协作已经恢复。
+- 保留 v0.12.22 的空间卡片、成员授权和 Plane 界面。没有数据库迁移，不发布 Local Sync 或 Obsidian 插件。
 
 # 当前状态
 
-- GitHub v0.12.22 与生产发布完成，源码/tag `9e7169e1124efbd41a9bb55603f0a249a3d75a88`；root/server/client均0.12.22。
-- v0.12.21 全部测试阶段最终7003pass/6既有skip；首次客户端一项超时经单测及完整客户端重跑通过。v0.12.22仅显示补修，Dashboard38项、tsc/lint/build及独立复审通过，不冒充全门禁重跑。
-- 1240部署文件哈希匹配，环境文件不变，三服务running/0重启，内外五项健康ok。
-- v0.12.22公网卡片7项通过并清理自有资源；v0.12.21通用公网32项烟测通过。Chrome真实账户桌面读验/390px截图通过，无横向溢出及控制台错误。
-- 前期Plane风格内置模板/协作/任务看板/文档改版v0.12.19包含在本版本祖先中。
+- 独立发布工作树已基于 origin/master 6f6a13e9 整合，候选 root/server/client 0.12.23。
+- 4 项独立审查 P2 及缩进代码块高亮缺口已修；最终复审无剩余 P1/P2。
+- 定向回归、完整构建、类型检查、lint 通过，首屏 JavaScript 546413/550000 字节。本地 Chrome 已验收选区、邮箱/网址、高亮和代码原样显示。
+- 首轮完整数据库门禁两项失败已修正执行次序和语义断言；完整门禁顺序重跑退出0，共7031通过、6项既有跳过、0失败，数据库230/230无跳过。
+- 最近已发布生产记录仍为 v0.12.22；本轮尚未部署；生产授权连接已恢复，正在执行新备份。
+- 反馈 ChangeSet cmv69bve2080911615gw5fz6w 待所有者审核；当前用户 MeiXueFeng=editor、codex Agent=editor，均不可审批，未绕过权限。
 
 # 稳定约束
 
-- 原仓库路径末尾空格；worktree Git显式--git-dir和--work-tree，不改共享core.worktree。
-- 原检出及其未提交研究资料保持；不把浏览器读验等同于真实Agent执行。
-- 用户业务数据未由本轮浏览器修改；API写验只使用可清理的自有账号与Space。
+- 路径末尾空格，git 显式 --work-tree；不改共享 core.worktree，不重置旧修复工作树或主检出用户资料。
+- 全量门禁与构建须顺序执行，避免清理正在使用的 dist。
+- 部署前新建数据库/附件/应用配套备份。原账号场景与本地fixture、测试和生产健康分别报告。
 
 # 关键索引
 
-- https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.22
-- https://agentwiki.quukk.com/dashboard
-- agentwiki/docs/verification/space-cards-v01222-release.md
-- .codex-memory/tasks/archive/dashboard-space-cards-20261013/{brief,decisions,refs}.md
-- 发布工作树：`/tmp/agentwiki-release-v01221`，分支`codex/release-v0.12.22`。
+- agentwiki/docs/verification/regressions-20261013/status.md
+- .codex-memory/tasks/active/regressions-release-20261013/{brief,decisions,refs}.md
+- /Users/neomei/.codex/worktrees/regressions-release-20261013/AgentWiki （实际路径末尾空格）
+- /tmp/agentwiki-regressions-20261013/：门禁日志、备份脚本和发布说明。
 
 # 风险 / 下一步
 
-- 本次卡片改进、审查、GitHub与生产发布已完成，无待执行发布步骤。
-- 既有未来时间仍保留原始值，界面明确提示待校准；来源数据修正属于另行定位，不擅自改写。
-- 配套备份`/var/backups/agentwiki/cards-v01221.3zjZDWlu`已核验；保留旧应用，回滚须匹配数据快照。
+- 提交并发布 GitHub；完成配套备份、deploy.sh、哈希/服务/迁移/公网/UI回读。
+- 生产目标 root@113.249.120.24，控制连接 /tmp/agentwiki-release-ssh/control；不要使用 deploy.sh 默认主机。
+- 逐条页面回执需空间所有者 xuehui 审批；原 run、黄金书屋、原生中文输入法及任务看板语义保留待验。

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { ModalDialog } from '../../components/ModalDialog';
+import { apiErrorMessage } from '../../api/error-message';
 
 export interface FolderDialogProps {
   mode: 'create' | 'rename';
@@ -51,7 +52,7 @@ export const FolderDialog: React.FC<FolderDialogProps> = ({
       if (sessionActiveRef.current) onClose();
     } catch (err) {
       if (sessionActiveRef.current) {
-        setError(errorMessage(err, t('folder.saveFailed')));
+        setError(apiErrorMessage(err, t, 'folder.saveFailed'));
         setSubmitting(false);
       }
     }
@@ -132,9 +133,4 @@ const truncateFolderName = (value: string): string => {
     length += char.length;
   }
   return result;
-};
-
-const errorMessage = (err: unknown, fallback: string): string => {
-  const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-  return typeof message === 'string' && message ? message : fallback;
 };

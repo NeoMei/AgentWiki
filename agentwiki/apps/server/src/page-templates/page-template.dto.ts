@@ -31,6 +31,7 @@ export class PageTemplateLocaleQueryDto {
 }
 
 export class PageTemplateSourceListQueryDto {
+  @IsOptional() @IsString() @MaxLength(80) q?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(2_147_483_647) skip = 0;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) take = 100;
 }

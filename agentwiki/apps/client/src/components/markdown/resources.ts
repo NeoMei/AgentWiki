@@ -1090,9 +1090,8 @@ export function collectMarkdownResourceOccurrences(source: string): MarkdownReso
   const uniqueReferences = new Set<string>();
 
   for (const { candidate, node } of parseMarkdownResourceCandidates(source)) {
-    if (node.type !== 'agentWikiLink') continue;
     const reference = markdownResourceRefFromNode(node);
-    if (!reference) continue;
+    if (!reference || (node.type !== 'agentWikiLink' && reference.kind !== 'attachment')) continue;
     if (!uniqueReferences.has(reference.canonicalKey)) {
       if (uniqueReferences.size >= MAX_REFERENCES) break;
       uniqueReferences.add(reference.canonicalKey);

@@ -24,6 +24,7 @@ import {
   type MarkdownResourceOccurrence,
   type MarkdownResourceMap,
 } from './markdown/resources';
+import { AttachmentImageWidget } from './markdown/AttachmentImageWidget';
 import { formatAttachmentReference } from '../features/attachments/attachmentReference';
 import { outlineFor } from './markdown-tools/outline';
 import { insertionTransaction, slashRange, type InsertCommand } from './markdown-tools/commands';
@@ -316,6 +317,7 @@ class WikiLinkWidget extends WidgetType {
   ignoreEvent() { return false; }
 }
 
+
 const EMPTY_PAGES: PageLinkTarget[] = [];
 // Language identity owns the parser cache. React updates must never recreate it.
 const MARKDOWN_LANGUAGE = markdown({ base: markdownLanguage, codeLanguages: languages });
@@ -359,10 +361,41 @@ const buildHiddenMarksPlugin = (
   compute(view: EditorView): DecorationSet {
     const ranges: Range<Decoration>[] = [];
     const activeLines = activeLineNumbers(view.state);
+    const doc = view.state.doc;
+    const linkLikeRanges: Array<{ from: number; to: number; kind: 'link' | 'image' | 'autolink' }> = [];
+    syntaxTree(view.state).iterate({
+      enter: (node) => {
+        if (node.name === 'Link' || node.name === 'Image' || node.name === 'Autolink') {
+          linkLikeRanges.push({ from: node.from, to: node.to, kind: node.name === 'Link' ? 'link' : node.name === 'Image' ? 'image' : 'autolink' });
+        }
+      },
+    });
+    const attachmentRanges: Array<{ from: number; to: number }> = [];
+    for (const occurrence of referenceOccurrences) {
+      const { from, to, reference } = occurrence;
+      if (reference.kind !== 'attachment' || from < 0 || from >= to || to > doc.length || activeLines.has(doc.lineAt(from).number)) continue;
+      const literal = doc.sliceString(from, to);
+      if (!literal.startsWith('![[') || !literal.endsWith(']]')) continue;
+      const resource = authoritativeResources?.get(reference.canonicalKey);
+      if (resource?.status !== 'resolved' || resource.kind !== 'attachment') continue;
+      attachmentRanges.push({ from, to });
+      ranges.push(Decoration.replace({
+        widget: new AttachmentImageWidget(resource.attachmentId, resource.displayName, resource.width, resource.height, literal.slice(3, -2).split('|').slice(-1)[0]?.trim() ?? resource.displayName),
+      }).range(from, to));
+    }
+    const insideRange = (from: number, to: number, container: { from: number; to: number }) => from >= container.from && to <= container.to;
+    const coveredByAttachment = (from: number, to: number) => attachmentRanges.some((range) => insideRange(from, to, range));
+    const codeRanges: Array<{ from: number; to: number }> = [];
+    syntaxTree(view.state).iterate({
+      enter: (node) => {
+        if (node.name === 'InlineCode' || node.name === 'FencedCode' || node.name === 'CodeBlock') codeRanges.push({ from: node.from, to: node.to });
+      },
+    });
     syntaxTree(view.state).iterate({
       enter: (node) => {
         const line = view.state.doc.lineAt(node.from).number;
         if (activeLines.has(line)) return;
+        if (coveredByAttachment(node.from, node.to)) return false;
         const name = node.name;
         // HeaderMark / EmphasisMark / QuoteMark / CodeMark etc. carry the
         // literal marker characters (##, **, >, `).
@@ -373,15 +406,37 @@ const buildHiddenMarksPlugin = (
           ranges.push(Decoration.replace({}).range(node.from, end));
           return false;
         }
-        if (name === 'EmphasisMark' || name === 'CodeMark' || name === 'QuoteMark' || name === 'LinkMark' || name === 'URL') {
+        if (name === 'EmphasisMark' || name === 'CodeMark' || name === 'QuoteMark' || name === 'LinkMark') {
           ranges.push(Decoration.replace({}).range(node.from, node.to));
           return false;
+        }
+        if (name === 'URL') {
+          const insideLink = linkLikeRanges.some((range) => range.kind === 'link' && insideRange(node.from, node.to, range));
+          if (insideLink) {
+            ranges.push(Decoration.replace({}).range(node.from, node.to));
+            return false;
+          }
         }
         return undefined;
       },
     });
+    // Highlight syntax is an AgentWiki extension not understood by the
+    // CodeMirror Markdown grammar. Keep it source-preserving and skip code.
+    for (let lineNumber = 1; lineNumber <= doc.lines; lineNumber += 1) {
+      if (activeLines.has(lineNumber)) continue;
+      const line = doc.line(lineNumber);
+      const expression = /==([^=\n]+)==/g;
+      let match: RegExpExecArray | null;
+      while ((match = expression.exec(line.text))) {
+        const from = line.from + match.index;
+        const to = from + match[0].length;
+        if (codeRanges.some((range) => insideRange(from, to, range))) continue;
+        ranges.push(Decoration.replace({}).range(from, from + 2));
+        ranges.push(Decoration.mark({ class: 'cm-md-highlight' }).range(from + 2, to - 2));
+        ranges.push(Decoration.replace({}).range(to - 2, to));
+      }
+    }
     // Wiki-links: only inspect the bounded, syntax-aware AST occurrences.
-    const doc = view.state.doc;
     for (const occurrence of referenceOccurrences) {
       const { from, to } = occurrence;
       if (from < 0 || from >= to || to > doc.length || activeLines.has(doc.lineAt(from).number)) continue;
@@ -392,6 +447,7 @@ const buildHiddenMarksPlugin = (
       const referenceKey = canonicalWikiReferenceKey(reference);
       if (!reference.target || !reference.fragmentValid || referenceKey !== occurrence.reference.canonicalKey) continue;
       const resource = authoritativeResources?.get(referenceKey);
+      if (resource?.status === 'resolved' && resource.kind === 'attachment') continue;
       const href = resource?.status === 'resolved' && resource.kind === 'page'
         ? resolveWikiHref(reference, [{ id: resource.pageId, title: resource.title, slug: resource.slug }])
         : authoritativeResources === null

@@ -94,7 +94,9 @@ function parsePageTemplateSourcePageListResponse(value: unknown): PageTemplateSo
       && typeof item.id === 'string'
       && typeof item.title === 'string'
       && item.format === 'markdown'
-      && typeof item.updatedAt === 'string')
+      && typeof item.updatedAt === 'string'
+      && (item.folderId === undefined || item.folderId === null || typeof item.folderId === 'string')
+      && (item.path === undefined || item.path === null || typeof item.path === 'string'))
     || !Number.isInteger(value.total)
     || (value.total as number) < 0
     || !Number.isInteger(value.skip)
@@ -127,12 +129,13 @@ export async function listPageTemplates(
 
 export async function listPageTemplateSourcePages(
   spaceId: string,
-  options: { skip?: number; take?: number } = {},
+  options: { skip?: number; take?: number; q?: string } = {},
 ): Promise<PageTemplateSourcePageListResponse> {
   const response = await api.get(`${collectionPath(spaceId)}/source-pages`, {
     params: {
       skip: options.skip ?? 0,
       take: options.take ?? 100,
+      ...(options.q?.trim() ? { q: options.q.trim() } : {}),
     },
   });
   return parsePageTemplateSourcePageListResponse(response.data);

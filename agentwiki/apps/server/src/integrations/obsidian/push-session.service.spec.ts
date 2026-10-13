@@ -1056,6 +1056,7 @@ describe('PushSessionService Sync Protocol v2', () => {
     ['SPACE_NOT_FOUND', 'SPACE_FORBIDDEN', 403, 'Space is not accessible'],
     ['FOLDER_NOT_FOUND', 'PAYLOAD_INVALID', 400, 'Document tree resource is unavailable'],
     ['FOLDER_NAME_CONFLICT', 'PATH_COLLISION', 409, 'Document tree path conflicts'],
+    ['PAGE_TITLE_CONFLICT', 'PATH_COLLISION', 409, 'Document tree path conflicts'],
     ['FOLDER_INVALID_NAME', 'PAYLOAD_INVALID', 400, 'Document tree payload is invalid'],
     ['FOLDER_CYCLE', 'PAYLOAD_INVALID', 400, 'Document tree payload is invalid'],
     ['FOLDER_DEPTH_LIMIT', 'PAYLOAD_INVALID', 400, 'Document tree payload is invalid'],
@@ -1143,6 +1144,7 @@ describe('PushSessionService Sync Protocol v2', () => {
   it.each([
     ['SPACE_NOT_FOUND', 'SPACE_FORBIDDEN', 403],
     ['FOLDER_NOT_FOUND', 'PAYLOAD_INVALID', 400],
+    ['PAGE_TITLE_CONFLICT', 'PATH_COLLISION', 409],
     ['CONTENT_TREE_CONFLICT', 'PATH_COLLISION', 409],
     ['CONTENT_TREE_INVALID_ACTOR', 'INTERNAL_ERROR', 500],
   ] as const)('maps v1 ContentTree %s to a stable non-enumerating error', (

@@ -99,6 +99,22 @@ export const AgentDetail: React.FC = () => {
       : membership.role === 'editor' ? 'editor' : 'reader';
     return [{ ...space, maxAgentRole }];
   });
+  const describeActivity = (item: any) => {
+    const action = typeof item.action === 'string' ? item.action : t('agent.activityUnknown');
+    const http = action.match(/^([A-Z]+)\s+(.+)$/);
+    const summary = http
+      ? `${http[1] === 'GET' ? t('agent.activityRead') : http[1] === 'POST' ? t('agent.activityWrite') : http[1]} · ${http[2]}`
+      : action.startsWith('mcp.') ? `${t('agent.activityMcp')} · ${action.slice(4)}` : action;
+    const outcome = item.outcome || item.result || item.status;
+    return outcome ? `${summary} · ${String(outcome)}` : summary;
+  };
+  const safeActivityDetails = (item: any) => {
+    if (!item || typeof item !== 'object') return null;
+    const metadata = item.metadata && typeof item.metadata === 'object' ? { ...item.metadata } : undefined;
+    if (metadata) delete metadata.credentialId;
+    const details = { resourceType: item.resourceType, resourceId: item.resourceId, metadata };
+    return Object.values(details).some((value) => value !== undefined && value !== null) ? details : null;
+  };
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -176,7 +192,10 @@ export const AgentDetail: React.FC = () => {
         </div>
       ) : null}
 
-      {tab === 'activity' ? <div className="border rounded-[14px] bg-white divide-y">{activity.map((item) => <div key={item.id} className="p-4 text-sm"><span className="font-medium">{item.action}</span><span className="text-gray-400 ml-3">{new Date(item.createdAt).toLocaleString(language)}</span></div>)}</div> : null}
+      {tab === 'activity' ? <div className="border rounded-[14px] bg-white divide-y">{activity.map((item) => {
+        const details = safeActivityDetails(item);
+        return <div key={item.id} className="p-4 text-sm"><div className="flex flex-wrap items-baseline gap-3"><span className="font-medium">{describeActivity(item)}</span><span className="text-gray-400">{new Date(item.createdAt).toLocaleString(language)}</span></div>{details ? <details className="mt-2 text-xs text-gray-500"><summary className="cursor-pointer">{t('agent.activityDetails')}</summary><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-gray-50 p-2">{JSON.stringify(details, null, 2)}</pre></details> : null}</div>;
+      })}{!activity.length ? <p className="p-5 text-sm text-gray-500">{t('agent.noActivity')}</p> : null}</div> : null}
       {tab === 'settings' ? <div className="border rounded-[14px] bg-white p-5"><p className="text-sm text-gray-500">{t('agent.approvalMode')}</p><p className="mt-2 text-sm font-medium">{currentAgent.approvalMode === 'scoped-auto-publish' ? t('settings.autoPublish') : t('settings.alwaysReview')}</p><p className="mt-2 text-xs text-gray-500">{t('agent.approvalModeReadonlyHelp')}</p></div> : null}
     </div>
   );

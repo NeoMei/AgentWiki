@@ -521,6 +521,21 @@ describe('ContentTreeService Page placement and concurrency', () => {
       .rejects.toEqual(expect.objectContaining({ code: 'CONTENT_TREE_CONFLICT' }));
   });
 
+  it('allows an exact sync path with a sibling title already used at a different path', async () => {
+    const { service, tx } = makeHarness();
+    tx.page.findFirst.mockImplementation(async ({ where }: any) => (
+      where.title === 'Weekly' || where.syncPathKey === 'pages/weekly.md'
+        ? { id: 'existing-weekly', title: 'Weekly' }
+        : null
+    ));
+
+    await expect(service.prepareExactPageMutation(tx, {
+      spaceId: 'space-1', pageId: 'page-new', title: 'Weekly', syncPath: 'pages/Weekly-2.md',
+    })).resolves.toEqual({
+      folderId: null, syncPath: 'pages/Weekly-2.md', syncPathKey: 'pages/weekly-2.md',
+    });
+  });
+
   it('advances contentTreeRevision only for structural Page changes while always advancing Sync', async () => {
     const { service, tx, revisionWriter } = makeHarness();
     const change = {
@@ -600,6 +615,36 @@ describe('ContentTreeService Page placement and concurrency', () => {
     expect(tx.page.update).not.toHaveBeenCalled();
     expect(revisionWriter.advanceContentTreeRevision).not.toHaveBeenCalled();
     expect(revisionWriter.advance).not.toHaveBeenCalled();
+  });
+
+  it('rejects a duplicate sibling Page title before allocating a sync path', async () => {
+    const { service, tx, syncPaths } = makeHarness();
+    tx.page.findUnique.mockResolvedValue(null);
+    tx.folder.findFirst.mockResolvedValue({ id: 'folder-1', path: 'pages/项目' });
+    tx.page.findFirst.mockResolvedValue({ id: 'page-existing', title: '周报' });
+
+    await expect(service.placePage(tx, {
+      spaceId: 'space-1', pageId: 'page-new', title: '周报', folderId: 'folder-1',
+      requireUniqueTitle: true,
+    })).rejects.toEqual(expect.objectContaining({ code: 'PAGE_TITLE_CONFLICT', details: { name: '周报' } }));
+    expect(tx.page.findFirst).toHaveBeenCalledWith({
+      where: { spaceId: 'space-1', folderId: 'folder-1', title: '周报', deletedAt: null },
+      select: { id: true, title: true },
+    });
+    expect(syncPaths.allocate).not.toHaveBeenCalled();
+  });
+
+  it('preserves duplicate-title allocation for review and source import callers', async () => {
+    const { service, tx, syncPaths } = makeHarness();
+    tx.page.findFirst.mockResolvedValue({ id: 'page-existing', title: '周报' });
+    syncPaths.allocate.mockResolvedValue({ path: 'pages/周报-2.md', pathKey: 'pages/周报-2.md' });
+
+    await expect(service.placePage(tx, {
+      spaceId: 'space-1', pageId: 'page-new', title: '周报', folderId: null,
+    })).resolves.toEqual({
+      folderId: null, syncPath: 'pages/周报-2.md', syncPathKey: 'pages/周报-2.md',
+    });
+    expect(tx.page.findFirst).not.toHaveBeenCalled();
   });
 
   it('does not disclose a cross-Space target Folder', async () => {

@@ -65,6 +65,18 @@ describe('collectMarkdownResourceRefs', () => {
     ]);
   });
 
+  it('returns source ranges for embedded attachment images so editors can resolve previews', () => {
+    const source = 'before ![[preview.png]] after ![[Page]]';
+
+    expect(collectMarkdownResourceOccurrences(source).map(({ from, to, reference }) => ({
+      literal: source.slice(from, to),
+      kind: reference.kind,
+      target: reference.target,
+    }))).toEqual([
+      { literal: '![[preview.png]]', kind: 'attachment', target: 'preview.png' },
+    ]);
+  });
+
   it('handles CRLF, escapes, unterminated code and nested brackets without candidate injection', () => {
     const valid = '[[CRLF page]]\r\n\\[[Escaped]]\r\n[[Page#Heading|Alias with | pipes]]';
     expect(collectMarkdownResourceOccurrences(valid).map(({ from, to }) => valid.slice(from, to))).toEqual([

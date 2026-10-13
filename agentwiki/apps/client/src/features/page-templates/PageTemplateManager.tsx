@@ -53,6 +53,13 @@ const EMPTY_TEMPLATES: ManagementCatalog = {
   capabilities: { canManage: false },
 };
 
+function formatSourcePageLabel(page: PageTemplateSourcePage, language: string): string {
+  const context = page.path || page.folderId;
+  if (!context) return page.title;
+  const updated = new Date(page.updatedAt).toLocaleDateString(language);
+  return `${page.title} · ${context} · ${updated}`;
+}
+
 const CATEGORIES: PageTemplateCategory[] = ['planning', 'reporting', 'knowledge', 'other'];
 const TEMPLATE_NAME_LIMIT = 80;
 const TEMPLATE_DESCRIPTION_LIMIT = 240;
@@ -95,6 +102,7 @@ export const PageTemplateManager: React.FC = () => {
   const [sourcePageSkip, setSourcePageSkip] = useState(0);
   const [sourcePageTotal, setSourcePageTotal] = useState(0);
   const [sourcePageId, setSourcePageId] = useState('');
+  const [sourcePageSearch, setSourcePageSearch] = useState('');
   const [compositeDetail, setCompositeDetail] = useState<CompositeTemplateManagementDetail | null>(null);
   const [compositeDraft, setCompositeDraft] = useState<CompositeTemplateDefinition | null>(null);
   const [pendingArchiveKeys, setPendingArchiveKeys] = useState<Set<string>>(() => new Set());
@@ -224,7 +232,7 @@ export const PageTemplateManager: React.FC = () => {
   const latestLoadRef = useRef(load);
   latestLoadRef.current = load;
 
-  const loadSourcePage = useCallback(async (skip: number) => {
+  const loadSourcePage = useCallback(async (skip: number, q: string) => {
     if (!id) return;
     const requestId = ++sourceRequestIdRef.current;
     sourceRetrySkipRef.current = skip;
@@ -235,6 +243,7 @@ export const PageTemplateManager: React.FC = () => {
       const response = await listPageTemplateSourcePages(id, {
         skip,
         take: SOURCE_PAGE_TAKE,
+        ...(q.trim() ? { q: q.trim() } : {}),
       });
       if (requestId !== sourceRequestIdRef.current) return;
       setSourcePages(response.data.slice(0, SOURCE_PAGE_TAKE));
@@ -282,10 +291,11 @@ export const PageTemplateManager: React.FC = () => {
     setSourcePageSkip(0);
     setSourcePageTotal(0);
     setSourcePageId('');
+    setSourcePageSearch('');
     setDialogError(null);
     setDialogConflict(false);
     setSourcePagesFailed(false);
-    void loadSourcePage(0);
+    void loadSourcePage(0, '');
     return () => {
       sourceRequestIdRef.current += 1;
     };
@@ -805,9 +815,18 @@ export const PageTemplateManager: React.FC = () => {
                   ? { ...node, name: node.nameI18n[language] ?? node.nameI18n.en ?? node.nodeId }
                   : { ...node, title: node.titleI18n[language] ?? node.titleI18n.en ?? node.nodeId, content: node.contentI18n[language] ?? node.contentI18n.en ?? '' })} emptyLabel={t('pageTemplate.emptyCatalog')} />
                 : <CompositeDefinitionEditor definition={compositeDraft} locale={language} onChange={(next) => { setCompositeDraft(next); setDialogError(null); }} />}
-            </> : <><label className="block text-sm font-medium">
-              {t('pageTemplate.sourcePage')}
+            </> : <><div className="block text-sm font-medium">
+              <span className="block">{t('pageTemplate.sourcePage')}</span>
+              <input
+                className="mt-1 h-10 w-full rounded-lg border px-3 font-normal"
+                value={sourcePageSearch}
+                onChange={(event) => { setSourcePageSearch(event.target.value); void loadSourcePage(0, event.target.value); }}
+                placeholder={t('pageTemplate.sourcePageSearch')}
+                aria-label={t('pageTemplate.sourcePageSearch')}
+                disabled={submitting}
+              />
               <select
+                aria-label={t('pageTemplate.sourcePage')}
                 data-modal-autofocus
                 className="mt-1 h-10 w-full rounded-lg border px-3 font-normal"
                 value={sourcePageId}
@@ -816,26 +835,26 @@ export const PageTemplateManager: React.FC = () => {
                 required
               >
                 <option value="">{sourcePagesLoading ? t('common.loading') : t('pageTemplate.sourcePage')}</option>
-                {sourcePages.map((page) => <option key={page.id} value={page.id}>{page.title}</option>)}
+                {sourcePages.map((page) => <option key={page.id} value={page.id}>{formatSourcePageLabel(page, language)}</option>)}
               </select>
-            </label>
+            </div>
             <div className="flex justify-between gap-2">
               <button
                 type="button"
                 disabled={sourcePagesLoading || submitting || sourcePageSkip === 0}
-                onClick={() => void loadSourcePage(Math.max(0, sourcePageSkip - SOURCE_PAGE_TAKE))}
+                onClick={() => void loadSourcePage(Math.max(0, sourcePageSkip - SOURCE_PAGE_TAKE), sourcePageSearch)}
                 className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50"
               >{t('common.prev')}</button>
               <button
                 type="button"
                 disabled={sourcePagesLoading || submitting || sourcePageSkip + sourcePages.length >= sourcePageTotal}
-                onClick={() => void loadSourcePage(sourcePageSkip + SOURCE_PAGE_TAKE)}
+                onClick={() => void loadSourcePage(sourcePageSkip + SOURCE_PAGE_TAKE, sourcePageSearch)}
                 className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50"
               >{t('common.next')}</button>
             </div></>}
             {dialogError ? <p role="alert" className="text-sm text-red-600">{dialogError}</p> : null}
             <div className="flex justify-end gap-2">
-              {!usesDefinitionStorage(pendingDialog.template) && sourcePagesFailed ? <button type="button" disabled={sourcePagesLoading || submitting} onClick={() => void loadSourcePage(sourceRetrySkipRef.current)} className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('pageTemplate.retry')}</button> : null}
+              {!usesDefinitionStorage(pendingDialog.template) && sourcePagesFailed ? <button type="button" disabled={sourcePagesLoading || submitting} onClick={() => void loadSourcePage(sourceRetrySkipRef.current, sourcePageSearch)} className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('pageTemplate.retry')}</button> : null}
               {dialogConflict ? <button type="button" disabled={conflictReloading} onClick={() => void reloadConflict()} className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('pageTemplate.reload')}</button> : null}
               <button type="button" disabled={submitting || conflictReloading} onClick={closeDialog} className="h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('common.cancel')}</button>
               {!pendingDialog.template.archivedAt ? <button type="submit" disabled={submitting || conflictReloading || dialogConflict || (!usesDefinitionStorage(pendingDialog.template) ? sourcePagesLoading || !sourcePageId : !compositeDraft || definitionReferenceIssues(compositeDraft).length > 0)} className="h-10 rounded-lg bg-blue-600 px-4 text-sm text-white disabled:opacity-50">{t('pageTemplate.createVersion')}</button> : null}

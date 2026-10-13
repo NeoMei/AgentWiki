@@ -156,6 +156,7 @@ export class PageService {
         pageId,
         title: data.title,
         folderId,
+        requireUniqueTitle: true,
       });
       const created = await tx.page.create({
         data: {
