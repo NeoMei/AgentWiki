@@ -27,16 +27,17 @@ const disconnectedDetail = (id: string): OwnedAgentDetail => ({
   id,
   name: 'Chapter Writer',
   status: 'active',
-  grants: [],
+  grants: [{ id: 'grant-1', spaceId: space.id, role: 'editor', space }],
   credentials: [],
 });
 const connectedDetail = (id: string): OwnedAgentDetail => ({
   ...disconnectedDetail(id),
+  grants: [{ id: 'grant-1', spaceId: space.id, role: 'editor', space }],
   credentials: [{
     id: 'credential-1',
     revokedAt: null,
     expiresAt: '2030-01-01T00:10:00.000Z',
-    authorization: { role: 'editor', space },
+    credentialScope: 'agent',
   }],
 });
 

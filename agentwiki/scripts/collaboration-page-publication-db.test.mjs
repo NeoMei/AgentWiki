@@ -146,8 +146,7 @@ async function createFixture(prisma, id) {
   const grant = await prisma.agentGrant.create({ data: { agentId, spaceId, role: 'editor' } });
   const credential = await prisma.agentCredential.create({ data: {
     id: credentialId, name: 'Fixture credential', prefix: `pub${randomUUID().slice(0, 6)}`,
-    keyHash: randomUUID().replaceAll('-', ''), agentId, authorizationId: grant.id,
-  } });
+    keyHash: randomUUID().replaceAll('-', ''), agentId, } });
   const page = await prisma.page.create({ data: {
     id: pageId, spaceId, authorId: userId, title: 'Target Page', slug: `target-${pageId}`,
     content: oldContent, format: 'markdown', syncPath: `pages/${pageId}.md`, syncPathKey: `pages/${pageId}.md`,
@@ -203,8 +202,7 @@ async function createFixture(prisma, id) {
   return {
     runId, taskId, pageId, spaceId, humanPrincipal: { userId: human.id, platformRole: 'user' },
     agentPrincipal: {
-      userId, agentId, authorizationId: grant.id, authorizationSpaceId: spaceId, credentialId: credential.id,
-      agentRole: 'editor', scopes: ['collaboration:read', 'collaboration:execute'],
+      userId, agentId, credentialId: credential.id,
     },
   };
 }

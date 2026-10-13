@@ -45,7 +45,6 @@ test('PageAgentBinding batch rolls back every binding and audit event on a later
         prefix: `binding_${suffix}`,
         keyHash: `binding_hash_${suffix}`,
         agentId,
-        authorizationId: grant.id,
         lastUsedAt: null,
       } });
       await prisma.page.createMany({ data: pageIds.map((pageId, index) => ({

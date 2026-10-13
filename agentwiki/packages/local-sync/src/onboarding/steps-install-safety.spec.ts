@@ -68,8 +68,7 @@ async function fixture(cachedExchange = true, archiveStarted = false, tokenExpir
   let exchangeCalls = 0;
   vi.spyOn(AgentWikiClient.prototype, 'exchange').mockImplementation(async () => { exchangeCalls++; return exchange; });
   vi.spyOn(AgentWikiClient.prototype, 'access').mockResolvedValue({ access: [{ id: 'new-agent', name: 'Agent', status: 'active',
-    grants: [{ role: 'reader', space: { id: 'space-1', name: 'Team' } }], credentials: [{ id: 'new-key', active: true,
-      authorization: { id: 'grant-1', role: 'reader', scopes, space: { id: 'space-1', name: 'Team' } } }] }] });
+    grants: [{ role: 'reader', scopes, space: { id: 'space-1', name: 'Team' } }], credentials: [{ id: 'new-key', active: true, credentialScope: 'agent' }] }] });
   vi.spyOn(verifier, 'verifyGateway').mockResolvedValue({ ok: true, toolNames: [], manifestHash: 'verified', errors: [] });
   vi.spyOn(AgentWikiClient.prototype, 'revokeCurrentCredential').mockImplementation(async () => {
     throw new Error('must retain the private receipt for retry');

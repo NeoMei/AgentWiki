@@ -389,20 +389,16 @@ export function productionDependencies(request?: typeof fetch): BootstrapInstall
       const access = await agentwiki.access(connection, apiKey);
       const agent = access.access.find((candidate) => candidate.id === expected.agentId);
       const hasSpace = agent?.grants.some((grant) => (
-        grant.space.id === expected.spaceId && grant.role === expected.role
+        grant.space.id === expected.spaceId && grant.role === expected.role && sameScopes(grant.scopes ?? [], expected.scopes)
       )) ?? false;
       const hasCredential = agent?.credentials.some((credential) => (
         credential.id === connection.credentialId
         && credential.active
-        && credential.authorization.id.length > 0
-        && credential.authorization.space.id === expected.spaceId
-        && credential.authorization.role === expected.role
-        && sameScopes(credential.authorization.scopes, expected.scopes)
       )) ?? false;
       if (agent?.status !== 'active' || !hasSpace || !hasCredential) {
         throw new OnboardingError({
           code: 'TOOLSET_MISMATCH',
-          message: 'gateway remote identity or bound Space authorization verification failed',
+          message: 'gateway remote Agent identity or initial Space grant verification failed',
           retryable: false,
         });
       }

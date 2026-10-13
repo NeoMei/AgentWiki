@@ -12,6 +12,7 @@ describe('prepareAgent', () => {
 
   beforeEach(() => {
     calls.length = 0;
+    let grantedRole: 'editor' | 'publisher' = 'editor';
     api = {
       listAgents: vi.fn(async () => []),
       getAgent: vi.fn(async (id) => {
@@ -20,7 +21,7 @@ describe('prepareAgent', () => {
           id,
           name: 'Writer',
           status: 'active',
-          grants: [],
+          grants: [{ id: 'grant-1', spaceId: 'space-1', role: grantedRole, space: { id: 'space-1', name: 'Space' } }],
           credentials: [],
         };
       }),
@@ -32,8 +33,9 @@ describe('prepareAgent', () => {
         calls.push('activate');
         return { id, name: 'Writer', status: 'active' };
       }),
-      upsertGrant: vi.fn(async () => {
+      upsertGrant: vi.fn(async (_agentId, _spaceId, role) => {
         calls.push('grant');
+        grantedRole = role;
         return {};
       }),
       createInstallation: vi.fn(async () => {
@@ -128,22 +130,19 @@ describe('prepareAgent', () => {
     expect(api.createInstallation).toHaveBeenCalledWith('new-1', 'space-1', 'publisher');
   });
 
-  it('reuses an active target-Space credential without issuing another instruction', async () => {
+  it('reuses an Agent connection after granting a new Space without issuing another instruction', async () => {
     vi.mocked(api.getAgent).mockImplementationOnce(async (id) => {
       calls.push('detail');
       return {
         id,
         name: 'Writer',
         status: 'active',
-        grants: [],
+        grants: [{ id: 'grant-1', spaceId: 'space-1', role: 'editor', space: { id: 'space-1', name: 'New Space' } }],
         credentials: [{
           id: 'credential-1',
           expiresAt: null,
           revokedAt: null,
-          authorization: {
-            role: 'editor',
-            space: { id: 'space-1', name: 'Space' },
-          },
+          credentialScope: 'agent',
         }],
       };
     });
@@ -171,15 +170,12 @@ describe('prepareAgent', () => {
         id,
         name: 'Writer',
         status: 'active',
-        grants: [],
+        grants: [{ id: 'grant-1', spaceId: 'space-1', role: 'editor', space: { id: 'space-1', name: 'New Space' } }],
         credentials: [{
           id: 'credential-1',
           expiresAt: '2000-01-01T00:10:00.000Z',
           revokedAt: null,
-          authorization: {
-            role: 'editor',
-            space: { id: 'space-1', name: 'Space' },
-          },
+          credentialScope: 'agent',
         }],
       };
     });
@@ -195,6 +191,20 @@ describe('prepareAgent', () => {
     }, api);
 
     expect(result.connection).toEqual({ kind: 'connected' });
+    expect(api.createInstallation).not.toHaveBeenCalled();
+  });
+
+
+  it.each(['reader', 'editor'] as const)('stops when a requested Publisher grant reads back as %s', async (actualRole) => {
+    vi.mocked(api.getAgent).mockResolvedValue({
+      id: 'agent-1', name: 'Writer', status: 'active',
+      grants: [{ id: 'grant-1', spaceId: 'space-1', role: actualRole, space: { id: 'space-1', name: 'Space' } }],
+      credentials: [{ id: 'credential-1', credentialScope: 'agent', active: true }],
+    });
+    await expect(prepareAgent({
+      candidate: { kind: 'existing', agent: { id: 'agent-1', name: 'Writer', status: 'active', grants: [] } },
+      spaceId: 'space-1', role: 'publisher',
+    }, api)).rejects.toMatchObject({ stage: 'granting' });
     expect(api.createInstallation).not.toHaveBeenCalled();
   });
 

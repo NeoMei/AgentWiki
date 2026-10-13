@@ -219,7 +219,7 @@ it('doctor checks required tool availability without invoking remote model provi
           grants: [{ role: 'editor', space: { id: 'space-1', name: 'Space' } }],
           credentials: [{
             id: connection.credentialId,
-            authorization: { id: 'grant-1', role: 'editor', scopes: ['knowledge:write'], space: { id: 'space-1', name: 'Space' } },
+            credentialScope: 'agent',
             active: true,
           }],
         }],

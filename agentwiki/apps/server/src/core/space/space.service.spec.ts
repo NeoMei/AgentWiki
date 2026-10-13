@@ -325,18 +325,16 @@ describe('SpaceService.listMembers includes agents', () => {
     ]));
   });
 
-  it('reports only a live Space credential as connected without exposing credentials', async () => {
+  it('reports only a live Agent identity credential as connected without exposing credentials', async () => {
     prisma.spaceMember.findMany.mockResolvedValue([]);
     prisma.agentGrant.findMany.mockResolvedValue([
       {
         id: 'connected', role: 'editor', agentId: 'ag-connected', spaceId: 'space-1', createdAt: new Date(),
-        agent: { id: 'ag-connected', name: 'Connected', status: 'active', revokedAt: null, ownerId: 'u1' },
-        credentials: [{ id: 'credential-live' }],
+        agent: { id: 'ag-connected', name: 'Connected', status: 'active', revokedAt: null, ownerId: 'u1', credentials: [{ id: 'credential-live' }] },
       },
       {
         id: 'pending', role: 'publisher', agentId: 'ag-pending', spaceId: 'space-1', createdAt: new Date(),
-        agent: { id: 'ag-pending', name: 'Pending', status: 'active', revokedAt: null, ownerId: 'u1' },
-        credentials: [],
+        agent: { id: 'ag-pending', name: 'Pending', status: 'active', revokedAt: null, ownerId: 'u1', credentials: [] },
       },
     ]);
 
@@ -351,6 +349,7 @@ describe('SpaceService.listMembers includes agents', () => {
     ]));
     expect(prisma.agentGrant.findMany).toHaveBeenCalledWith(expect.objectContaining({
       select: expect.objectContaining({
+        agent: expect.objectContaining({ select: expect.objectContaining({
         credentials: expect.objectContaining({
           where: {
             revokedAt: null,
@@ -359,6 +358,7 @@ describe('SpaceService.listMembers includes agents', () => {
           select: { id: true },
           take: 1,
         }),
+        }) }),
       }),
     }));
   });

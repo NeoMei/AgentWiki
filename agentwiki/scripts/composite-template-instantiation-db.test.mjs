@@ -196,8 +196,7 @@ async function prepareAgent(prisma, fixture, suffix) {
   await prisma.agentCredential.create({ data: {
     id: `instantiate_credential_${suffix}`, name: 'Fixture credential', prefix: `fix_${suffix.slice(-8)}`,
     keyHash: createHash('sha256').update(`credential-${suffix}`).digest('hex'),
-    agentId, authorizationId: grant.id,
-  } });
+    agentId, } });
   return agentId;
 }
 

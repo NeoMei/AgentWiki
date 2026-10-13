@@ -471,7 +471,7 @@ describe('RunStartWizard', () => {
     });
 
     expect(screen.getByLabelText('Writer')).toHaveValue('');
-    expect(screen.queryByText('New Writer is mapped but has not connected to this Space yet.')).not.toBeInTheDocument();
+    expect(screen.queryByText('New Writer is mapped but has not connected to AgentWiki yet.')).not.toBeInTheDocument();
   });
 
   it('ignores a preparation refresh that settles after changing Spaces', async () => {
@@ -503,7 +503,7 @@ describe('RunStartWizard', () => {
     });
 
     expect(screen.getByLabelText('Writer')).toHaveValue('');
-    expect(screen.queryByText('New Writer is mapped but has not connected to this Space yet.')).not.toBeInTheDocument();
+    expect(screen.queryByText('New Writer is mapped but has not connected to AgentWiki yet.')).not.toBeInTheDocument();
   });
 
   it('keeps polling a new Space while an old Space authoritative refresh is still pending', async () => {
@@ -544,12 +544,12 @@ describe('RunStartWizard', () => {
       await Promise.resolve();
     });
     expect(screen.getByText('New Space workflow')).toBeVisible();
-    expect(screen.getByText('New Writer is mapped but has not connected to this Space yet.')).toBeVisible();
+    expect(screen.getByText('New Writer is mapped but has not connected to AgentWiki yet.')).toBeVisible();
     await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
 
     expect(collaborationApi.listMembers).toHaveBeenLastCalledWith('space-new');
     expect(screen.queryByText(
-      'New Writer is mapped but has not connected to this Space yet.',
+      'New Writer is mapped but has not connected to AgentWiki yet.',
     )).not.toBeInTheDocument();
     await act(async () => {
       resolveOldRefresh([ownerMember, activeEditor]);
@@ -623,7 +623,7 @@ describe('RunStartWizard', () => {
 
     expect(screen.getByLabelText('Writer')).toHaveValue('agent-editor');
     expect(screen.getByLabelText('Reviewer')).toHaveValue('');
-    expect(screen.queryByText('New Writer is mapped but has not connected to this Space yet.')).not.toBeInTheDocument();
+    expect(screen.queryByText('New Writer is mapped but has not connected to AgentWiki yet.')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     expect(await screen.findByText('Map every required role to an executable Agent.')).toBeVisible();
     expect(collaborationApi.updateRunDraft).not.toHaveBeenCalled();
@@ -645,7 +645,7 @@ describe('RunStartWizard', () => {
 
     expect(screen.getByLabelText('Writer')).toHaveValue('agent-editor');
     expect(screen.getByLabelText('Reviewer')).toHaveValue('agent-new');
-    expect(screen.getByText('New Writer is mapped but has not connected to this Space yet.')).toBeVisible();
+    expect(screen.getByText('New Writer is mapped but has not connected to AgentWiki yet.')).toBeVisible();
     expect(screen.queryByRole('button', { name: /Prepare/u })).not.toBeInTheDocument();
   });
 
@@ -701,7 +701,7 @@ describe('RunStartWizard', () => {
     const mappingStatus = screen.getByRole('status');
     expect(mappingStatus).toHaveAttribute('aria-live', 'polite');
     expect(within(mappingStatus).getAllByText(
-      'New Writer is mapped but has not connected to this Space yet.',
+      'New Writer is mapped but has not connected to AgentWiki yet.',
     )).toHaveLength(1);
     fireEvent.change(screen.getByLabelText('Reviewer'), { target: { value: 'agent-editor' } });
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
@@ -709,7 +709,7 @@ describe('RunStartWizard', () => {
     const reviewStatus = screen.getByRole('status');
     expect(reviewStatus).toHaveAttribute('aria-live', 'polite');
     expect(within(reviewStatus).getAllByText(
-      'New Writer is mapped but has not connected to this Space yet.',
+      'New Writer is mapped but has not connected to AgentWiki yet.',
     )).toHaveLength(1);
     expect(screen.getByRole('button', { name: 'Start run' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
@@ -727,11 +727,11 @@ describe('RunStartWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Writer' }));
     await completeMockedPreparation({ agentId: 'agent-new', agentName: 'New Writer', connection: 'pending' });
 
-    expect(screen.getByText('New Writer is mapped but has not connected to this Space yet.')).toBeVisible();
+    expect(screen.getByText('New Writer is mapped but has not connected to AgentWiki yet.')).toBeVisible();
     await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
 
     expect(screen.queryByText(
-      'New Writer is mapped but has not connected to this Space yet.',
+      'New Writer is mapped but has not connected to AgentWiki yet.',
     )).not.toBeInTheDocument();
     expect(screen.getByLabelText('Writer')).toHaveValue('agent-new');
     vi.useRealTimers();
@@ -746,12 +746,12 @@ describe('RunStartWizard', () => {
     vi.useFakeTimers();
 
     fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-new' } });
-    expect(screen.getByText('New Writer is mapped but has not connected to this Space yet.')).toBeVisible();
+    expect(screen.getByText('New Writer is mapped but has not connected to AgentWiki yet.')).toBeVisible();
     await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
 
     expect(screen.getByLabelText('Writer')).toHaveValue('');
     expect(screen.queryByText(
-      'New Writer is mapped but has not connected to this Space yet.',
+      'New Writer is mapped but has not connected to AgentWiki yet.',
     )).not.toBeInTheDocument();
     vi.useRealTimers();
   });
@@ -925,12 +925,12 @@ describe('RunStartWizard', () => {
     });
 
     await act(async () => { await dialog.onAuthorizationLost(); });
-    expect(screen.getByText('Editor Bot is mapped but has not connected to this Space yet.')).toBeVisible();
+    expect(screen.getByText('Editor Bot is mapped but has not connected to AgentWiki yet.')).toBeVisible();
     await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
 
     expect(collaborationApi.listMembers).toHaveBeenCalledTimes(4);
     expect(screen.queryByText(
-      'Editor Bot is mapped but has not connected to this Space yet.',
+      'Editor Bot is mapped but has not connected to AgentWiki yet.',
     )).not.toBeInTheDocument();
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Ask a Space Owner or Admin to prepare an executable Agent.',
@@ -957,7 +957,7 @@ describe('RunStartWizard', () => {
 
     await screen.findByRole('heading', { name: '2. Map Agents' });
     expect(screen.getByLabelText('Writer')).toHaveValue('agent-new');
-    expect(screen.getByText('New Writer is mapped but has not connected to this Space yet.')).toBeVisible();
+    expect(screen.getByText('New Writer is mapped but has not connected to AgentWiki yet.')).toBeVisible();
   });
 
   it('returns a restored ready draft to mapping when its saved Agent is no longer executable', async () => {
@@ -991,18 +991,18 @@ describe('RunStartWizard', () => {
 
     fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-editor' } });
     fireEvent.change(screen.getByLabelText('Reviewer'), { target: { value: 'agent-new' } });
-    expect(screen.getByText('Editor Bot is mapped but has not connected to this Space yet.')).toBeVisible();
+    expect(screen.getByText('Editor Bot is mapped but has not connected to AgentWiki yet.')).toBeVisible();
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Next' }));
       await Promise.resolve();
       await Promise.resolve();
     });
     expect(screen.getByRole('heading', { name: '3. Review and start' })).toBeVisible();
-    expect(screen.getByText('Editor Bot is mapped but has not connected to this Space yet.')).toBeVisible();
+    expect(screen.getByText('Editor Bot is mapped but has not connected to AgentWiki yet.')).toBeVisible();
 
     await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
     expect(screen.queryByText(
-      'Editor Bot is mapped but has not connected to this Space yet.',
+      'Editor Bot is mapped but has not connected to AgentWiki yet.',
     )).not.toBeInTheDocument();
     vi.useRealTimers();
   });
@@ -1053,15 +1053,15 @@ describe('RunStartWizard', () => {
     await completeMockedPreparation({ agentId: 'agent-new', agentName: 'New Writer', connection: 'pending' });
     fireEvent.change(screen.getByLabelText('Reviewer'), { target: { value: 'agent-new' } });
 
-    expect(screen.getAllByText('New Writer is mapped but has not connected to this Space yet.')).toHaveLength(1);
+    expect(screen.getAllByText('New Writer is mapped but has not connected to AgentWiki yet.')).toHaveLength(1);
     fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-editor' } });
-    expect(screen.getAllByText('New Writer is mapped but has not connected to this Space yet.')).toHaveLength(1);
+    expect(screen.getAllByText('New Writer is mapped but has not connected to AgentWiki yet.')).toHaveLength(1);
     fireEvent.change(screen.getByLabelText('Writer'), { target: { value: '' } });
-    expect(screen.getAllByText('New Writer is mapped but has not connected to this Space yet.')).toHaveLength(1);
+    expect(screen.getAllByText('New Writer is mapped but has not connected to AgentWiki yet.')).toHaveLength(1);
     fireEvent.change(screen.getByLabelText('Reviewer'), { target: { value: '' } });
-    expect(screen.queryByText('New Writer is mapped but has not connected to this Space yet.')).not.toBeInTheDocument();
+    expect(screen.queryByText('New Writer is mapped but has not connected to AgentWiki yet.')).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-new' } });
-    expect(screen.queryByText('New Writer is mapped but has not connected to this Space yet.')).not.toBeInTheDocument();
+    expect(screen.queryByText('New Writer is mapped but has not connected to AgentWiki yet.')).not.toBeInTheDocument();
   });
 
   it('clears a pending warning after the same Role Slot completes as connected', async () => {
@@ -1072,11 +1072,11 @@ describe('RunStartWizard', () => {
     await advanceToMapping();
     fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Writer' }));
     await completeMockedPreparation({ agentId: 'agent-new', agentName: 'New Writer', connection: 'pending' });
-    expect(screen.getByText('New Writer is mapped but has not connected to this Space yet.')).toBeVisible();
+    expect(screen.getByText('New Writer is mapped but has not connected to AgentWiki yet.')).toBeVisible();
 
     fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Writer' }));
     await completeMockedPreparation({ agentId: 'agent-new', agentName: 'New Writer', connection: 'connected' });
-    expect(screen.queryByText('New Writer is mapped but has not connected to this Space yet.')).not.toBeInTheDocument();
+    expect(screen.queryByText('New Writer is mapped but has not connected to AgentWiki yet.')).not.toBeInTheDocument();
   });
 
   it('treats a connected Space credential as connected for two slots bound to the same Agent', async () => {
@@ -1087,14 +1087,14 @@ describe('RunStartWizard', () => {
     await completeMockedPreparation({ agentId: 'agent-new', agentName: 'New Writer', connection: 'pending' });
     fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Reviewer' }));
     await completeMockedPreparation({ agentId: 'agent-new', agentName: 'New Writer', connection: 'pending' });
-    expect(screen.getAllByText('New Writer is mapped but has not connected to this Space yet.')).toHaveLength(1);
+    expect(screen.getAllByText('New Writer is mapped but has not connected to AgentWiki yet.')).toHaveLength(1);
 
     fireEvent.click(screen.getByRole('button', { name: 'Prepare Agent for Writer' }));
     await completeMockedPreparation({ agentId: 'agent-new', agentName: 'New Writer', connection: 'connected' });
 
     expect(screen.getByLabelText('Writer')).toHaveValue('agent-new');
     expect(screen.getByLabelText('Reviewer')).toHaveValue('agent-new');
-    expect(screen.queryByText('New Writer is mapped but has not connected to this Space yet.')).not.toBeInTheDocument();
+    expect(screen.queryByText('New Writer is mapped but has not connected to AgentWiki yet.')).not.toBeInTheDocument();
   });
 
   it.each([
@@ -1119,7 +1119,7 @@ describe('RunStartWizard', () => {
 
     expect(screen.getByLabelText('Writer')).toHaveValue('agent-editor');
     expect(screen.getByLabelText('Reviewer')).toHaveValue('');
-    expect(screen.queryByText('New Writer is mapped but has not connected to this Space yet.')).not.toBeInTheDocument();
+    expect(screen.queryByText('New Writer is mapped but has not connected to AgentWiki yet.')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     expect(await screen.findByText('Map every required role to an executable Agent.')).toBeVisible();
     expect(collaborationApi.updateRunDraft).not.toHaveBeenCalled();
@@ -1379,7 +1379,7 @@ describe('RunStartWizard', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Retry preserved changes' }));
 
     await screen.findByRole('heading', { name: '3. Review and start' });
-    expect(screen.getByText('New Writer is mapped but has not connected to this Space yet.')).toBeVisible();
+    expect(screen.getByText('New Writer is mapped but has not connected to AgentWiki yet.')).toBeVisible();
   });
 
   it('reloads the authoritative version before retrying preserved input changes', async () => {

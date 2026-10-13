@@ -115,9 +115,9 @@ function harness(options: { credential?: boolean } = {}) {
           status: 'active',
           revokedAt: null,
           owner: { deletedAt: null, lockedAt: null },
+          credentials: options.credential === false ? [] : [{ id: `credential-${agentId}` }],
         },
         space: { deletedAt: null },
-        credentials: options.credential === false ? [] : [{ id: `credential-${agentId}` }],
       }))),
     },
     spaceMember: { findMany: jest.fn().mockResolvedValue([]) },
@@ -231,7 +231,7 @@ describe('RunExpansionService', () => {
     expect(h.tasks[0].assigneeAgentId).toBe('agent-1');
   });
 
-  it('requires a current credential tied to every participating Agent grant', async () => {
+  it('requires a current credential for every participating Agent identity', async () => {
     const h = harness({ credential: false });
 
     await expect(h.service.createStarted(h.tx, {

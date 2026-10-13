@@ -43,6 +43,7 @@ interface ExchangeReceipt {
 }
 
 export interface InstallationExchangeResult {
+  credentialScope: 'agent';
   apiKey: string;
   agentId: string;
   spaceId: string;
@@ -249,6 +250,7 @@ export class LocalSyncInstallationService {
       });
 
       const result: InstallationExchangeResult = {
+        credentialScope: 'agent',
         apiKey: rawKey,
         agentId: payload.agentId,
         spaceId: payload.spaceId,
@@ -339,6 +341,7 @@ export class LocalSyncInstallationService {
         role: receipt.role,
       });
       return {
+        credentialScope: 'agent',
         apiKey: this.installationApiKey(installationId),
         agentId: receipt.agentId,
         spaceId: receipt.spaceId,

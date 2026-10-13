@@ -439,7 +439,7 @@ describe('SourceService safety and idempotency', () => {
     })).resolves.toEqual(scopesForAgentAccessRole('publisher'));
   });
 
-  it('rejects a queued run when the Credential is bound to another Grant', async () => {
+  it('accepts an identity credential issued before the target Space grant', async () => {
     const authorizationPrisma = {
       agentGrant: { findUnique: jest.fn().mockResolvedValue({
         id: 'grant-1', role: 'publisher',
@@ -455,7 +455,7 @@ describe('SourceService safety and idempotency', () => {
     await expect((authorizationService as any).assertRequesterStillAuthorized({
       requestedByAgentId: 'agent-1', spaceId: 'space-1',
       requestedCredentialId: 'credential-1', requestedCredentialType: 'agent',
-    })).rejects.toThrow('Run requester is no longer authorized');
+    })).resolves.toContain('runs:write');
   });
 
   it('rejects a queued run when the sole Grant role is Reader', async () => {
@@ -758,7 +758,7 @@ describe('SourceService pipeline lifecycle', () => {
     });
     expect(prisma.agentCredential.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ id: 'credential-1', agentId: 'agent-1' }),
-      select: { authorizationId: true },
+      select: { id: true },
     }));
   });
 

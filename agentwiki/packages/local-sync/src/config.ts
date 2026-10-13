@@ -17,7 +17,7 @@ export interface LocalSyncConnection {
   pluginVersion: string;
   client: 'codex' | 'claude' | 'opencode';
   mcpName: string;
-  /** The Space authorized by this credential. Legacy configs may omit it. */
+  /** Default Space context only, never an authorization boundary. Legacy configs may omit it. */
   spaceId?: string;
 }
 
@@ -25,20 +25,6 @@ export interface LocalSyncConfig {
   version: 1;
   defaultConnectionId?: string;
   connections: Record<string, LocalSyncConnection>;
-}
-
-export function connectionForSpace(
-  config: LocalSyncConfig,
-  spaceId: string,
-): LocalSyncConnection {
-  const matches = Object.values(config.connections).filter((connection) => connection.spaceId === spaceId);
-  if (matches.length === 1) return matches[0]!;
-  if (matches.length > 1) {
-    const preferred = config.defaultConnectionId ? config.connections[config.defaultConnectionId] : undefined;
-    if (preferred?.spaceId === spaceId) return preferred;
-    return matches[matches.length - 1]!;
-  }
-  throw new Error(`No local AgentWiki connection is configured for spaceId ${spaceId}`);
 }
 
 /** Serialize both config files across processes; rollback only this addition. */
@@ -54,8 +40,8 @@ export async function mergeConnection(
     const previousConnection = beforeConfig.connections[connection.id];
     const previousSecret = beforeCredentials.credentials[connection.credentialId];
     if (previousConnection && (previousConnection.agentId !== connection.agentId || previousConnection.serverUrl !== connection.serverUrl
-      || (previousConnection.spaceId && previousConnection.spaceId !== connection.spaceId))) {
-      throw new Error('Connection id already belongs to another Agent or Space');
+      || previousConnection.client !== connection.client)) {
+      throw new Error('Connection id already belongs to another Agent, server, or client');
     }
     const nextConfig: LocalSyncConfig = { ...beforeConfig, defaultConnectionId: connection.id,
       connections: { ...beforeConfig.connections, [connection.id]: connection } };

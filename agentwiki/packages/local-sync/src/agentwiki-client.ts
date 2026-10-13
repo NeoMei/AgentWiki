@@ -28,6 +28,7 @@ export interface ExchangeResult {
   apiKey: string;
   agentId: string;
   credentialId: string;
+  credentialScope?: 'agent';
   spaceId: string;
   role: AgentAccessRole;
   serverUrl: string;
@@ -40,15 +41,11 @@ export interface AccessResult {
     id: string;
     name: string;
     status: string;
-    grants: Array<{ role: AgentAccessRole; space: { id: string; name: string } }>;
+    credentialScope?: 'agent';
+    grants: Array<{ role: AgentAccessRole; scopes?: string[]; folderScopes?: string[]; space: { id: string; name: string } }>;
     credentials: Array<{
       id: string;
-      authorization: {
-        id: string;
-        role: AgentAccessRole;
-        scopes: string[];
-        space: { id: string; name: string };
-      };
+      credentialScope?: 'agent';
       active: boolean;
     }>;
   }>;

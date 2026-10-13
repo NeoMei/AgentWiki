@@ -8,7 +8,7 @@ import { installExchangedGateway, productionDependencies } from './install.js';
 const homes: string[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const home of homes.splice(0)) await rm(home, { recursive: true, force: true }); });
 
-it.each([true, false])('preserves a legacy Space connection and its workspace when adding another Space (success=%s)', async (ok) => {
+it.each([true, false])('preserves a legacy connection and its workspace when explicitly installing another Agent credential (success=%s)', async (ok) => {
   const home = await mkdtemp(join(tmpdir(), 'aw-install-multi-')); homes.push(home);
   const common = { serverUrl: 'https://wiki.test/api', agentId: 'agent-1', pluginVersion: '0.11.0', client: 'codex' as const, mcpName: 'agentwiki' };
   await saveConfig(home, { version: 1, defaultConnectionId: 'a', connections: { a: { ...common, id: 'a', credentialId: 'cred-a' } } });

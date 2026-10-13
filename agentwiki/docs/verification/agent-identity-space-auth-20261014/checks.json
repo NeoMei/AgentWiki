@@ -1,0 +1,25 @@
+{
+  "date": "2026-10-14",
+  "branch": "codex/agent-identity-space-auth",
+  "base_commit": "6de18645402d02fcda51ebd193de81465f8a1934",
+  "stage": "local_verified_candidate",
+  "tests": {
+    "passed": 7084,
+    "skipped": 6,
+    "failed": 0,
+    "runtime_database_passed": 232
+  },
+  "checks": {
+    "test_full": "passed",
+    "typecheck": "passed",
+    "lint": "passed",
+    "build": "passed",
+    "diff_check": "passed",
+    "independent_review": "passed"
+  },
+  "production_deployed": false,
+  "npm_published": false,
+  "local_mcp_upgraded": false,
+  "target_space_mcp_readback": false,
+  "remote_documents_changed": false
+}

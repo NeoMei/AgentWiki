@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { KeyRound, Pause, Play, Shield, Trash2 } from 'lucide-react';
 import type { AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import api from '../../api/client';
+import { credentialIsActive, hasActiveAgentCredential } from '../collaboration/agentPreparationApi';
 import { LocalSyncInstallCard } from './LocalSyncInstallCard';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -88,9 +89,6 @@ export const AgentDetail: React.FC = () => {
   const formatDate = (value: string | null | undefined) => value
     ? new Date(value).toLocaleString(language)
     : t('agent.never');
-  const credentialIsActive = (item: { expiresAt?: string | null; revokedAt?: string | null }) => (
-    !item.revokedAt && (!item.expiresAt || Date.parse(item.expiresAt) > Date.now())
-  );
   const manageableSpaces = spaces.flatMap((space) => {
     const membership = space.members?.find((member: any) => member.userId === user?.id);
     if (!membership) return [];
@@ -143,7 +141,7 @@ export const AgentDetail: React.FC = () => {
       {tab === 'overview' ? (
         <div className="grid sm:grid-cols-3 gap-4">
           <Summary label={t('nav.spaces')} value={currentAgent.grants.length} />
-          <Summary label={t('agent.activeCredentials')} value={currentAgent.credentials.filter(credentialIsActive).length} />
+          <Summary label={t('agent.activeCredentials')} value={currentAgent.credentials.filter((item: any) => credentialIsActive(item)).length} />
           <Summary label={t('agent.approvalMode')} value={currentAgent.approvalMode} />
         </div>
       ) : null}
@@ -154,6 +152,8 @@ export const AgentDetail: React.FC = () => {
             agentId={currentAgent.id}
             spaces={manageableSpaces}
             grants={currentAgent.grants}
+            credentialAvailable={hasActiveAgentCredential(currentAgent)}
+            agentAvailable={currentAgent.status === 'active' && !currentAgent.revokedAt}
             title={t('agent.accessAuthorization')}
             onAuthorized={load}
           />
@@ -179,7 +179,7 @@ export const AgentDetail: React.FC = () => {
               {currentAgent.credentials.map((item: any) => (
                 <div key={item.id} className="flex items-center justify-between gap-3 py-3">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium">{item.name} <span className="ml-2 text-xs font-normal text-gray-500">{item.authorization.space.name} · {roleName(item.authorization.role)}</span></p>
+                    <p className="text-sm font-medium">{item.name} <span className="ml-2 text-xs font-normal text-gray-500">{t('agent.identityConnection')}</span></p>
                     <p className="mt-1 text-xs text-gray-500">{item.prefix}… · {t('agent.lastUsed')}: {formatDate(item.lastUsedAt)} · {t('agent.expires')}: {formatDate(item.expiresAt)}</p>
                     <p className="mt-1 text-xs text-gray-400">{credentialIsActive(item) ? t('agent.credentialActive') : t('agent.credentialExpired')}</p>
                   </div>

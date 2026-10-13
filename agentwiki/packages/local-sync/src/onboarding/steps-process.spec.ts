@@ -126,17 +126,12 @@ beforeAll(async () => {
             id: 'a1',
             name: 'Test Agent',
             status: 'active',
-            grants: [{ role: 'editor', space: { id: 's1', name: 'Existing space' } }],
+            grants: [{ role: 'editor', scopes, space: { id: 's1', name: 'Existing space' } }],
             credentials: [
               {
                 id: 'c1',
                 active: true,
-                authorization: {
-                  id: 'auth1',
-                  space: { id: 's1', name: 'Existing space' },
-                  role: 'editor',
-                  scopes,
-                },
+                credentialScope: 'agent',
               },
             ],
           },

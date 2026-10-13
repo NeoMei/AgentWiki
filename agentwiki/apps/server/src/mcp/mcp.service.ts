@@ -30,7 +30,6 @@ import {
   CollaborationSubmitResultOutputSchema,
   CollaborationUpdateTodoInputSchema,
   CollaborationUpdateTodoOutputSchema,
-  agentRoleAllowsScope,
 } from '@neomei/agentwiki-sync-protocol';
 import { BusinessException } from '../core/filters/business-error';
 import { ExecutionService } from '../collaboration-workflows/execution.service';
@@ -287,9 +286,10 @@ export class McpService {
     });
     registerTool('get_page', {
       description: 'Read a selected page by its nonempty pageId, including full content, provenance and source evidence. Follow search_pages or list_pages with this call before relying on a summary. Compare source versions and distinguish current content from historical evidence; sourceStatus indicates review alignment with the accepted source, not factual correctness.',
-      inputSchema: { pageId: z.string().min(1) },
-    }, async ({ pageId }: any) => {
-      await this.authorization.assertPageAccess(principal, pageId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
+      inputSchema: { pageId: z.string().min(1), spaceId: z.string().min(1).optional().describe(SPACE_ID) },
+    }, async ({ pageId, spaceId }: any) => {
+      const page = await this.authorization.assertPageAccess(principal, pageId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
+      if (spaceId !== undefined) this.assertResourceSpace(spaceId, page.spaceId);
       return this.text(await this.pages.findOne(pageId, principal));
     });
     registerTool('search_pages', {
@@ -355,9 +355,10 @@ export class McpService {
     });
     registerTool('start_source_run', {
       description: 'Start ingestion for an existing source.',
-      inputSchema: { sourceId: z.string() },
-    }, async ({ sourceId }: any) => {
-      await this.authorization.assertSourceAccess(principal, sourceId, ['owner', 'editor'], 'runs:write');
+      inputSchema: { sourceId: z.string(), spaceId: z.string().min(1).optional().describe(SPACE_ID) },
+    }, async ({ sourceId, spaceId }: any) => {
+      const source = await this.authorization.assertSourceAccess(principal, sourceId, ['owner', 'editor'], 'runs:write');
+      if (spaceId !== undefined) this.assertResourceSpace(spaceId, source.spaceId);
       const run = await this.sources.createRun(sourceId, principal);
       this.ingestQueue.enqueue();
       return this.text(run);
@@ -380,60 +381,72 @@ export class McpService {
     });
     registerTool('collaboration_join_run', {
       description: 'Join a bound collaboration run as the authenticated Agent and receive the safe execution loop.',
-      inputSchema: CollaborationJoinRunInputSchema.shape,
+      inputSchema: { ...CollaborationJoinRunInputSchema.shape, spaceId: z.string().min(1).optional().describe(SPACE_ID) },
     }, async (args: unknown) => {
       this.assertCollaborationScope(principal, 'collaboration:execute');
-      const input = CollaborationJoinRunInputSchema.parse(args);
+      const { spaceId, ...operationArgs } = args as Record<string, unknown>;
+      const input = CollaborationJoinRunInputSchema.parse(operationArgs);
+      await this.assertCollaborationSpace(spaceId, input.runId);
       return this.text(CollaborationJoinRunOutputSchema.parse(
         await this.collaborationExecution.joinRun(input.runId, principal),
       ));
     });
     registerTool('collaboration_next_action', {
       description: 'Claim one assigned ready task or receive a bounded wait, human-wait, paused, or terminal action.',
-      inputSchema: CollaborationNextActionInputSchema.shape,
+      inputSchema: { ...CollaborationNextActionInputSchema.shape, spaceId: z.string().min(1).optional().describe(SPACE_ID) },
     }, async (args: unknown) => {
       this.assertCollaborationScope(principal, 'collaboration:execute');
-      const input = CollaborationNextActionInputSchema.parse(args);
+      const { spaceId, ...operationArgs } = args as Record<string, unknown>;
+      const input = CollaborationNextActionInputSchema.parse(operationArgs);
+      await this.assertCollaborationSpace(spaceId, input.runId);
       return this.text(CollaborationNextActionOutputSchema.parse(
         await this.collaborationExecution.nextAction(input, principal),
       ));
     });
     registerTool('collaboration_heartbeat', {
       description: 'Extend an active collaboration task lease without exceeding its maximum execution deadline.',
-      inputSchema: CollaborationHeartbeatInputSchema.shape,
+      inputSchema: { ...CollaborationHeartbeatInputSchema.shape, spaceId: z.string().min(1).optional().describe(SPACE_ID) },
     }, async (args: unknown) => {
       this.assertCollaborationScope(principal, 'collaboration:execute');
-      const input = CollaborationHeartbeatInputSchema.parse(args);
+      const { spaceId, ...operationArgs } = args as Record<string, unknown>;
+      const input = CollaborationHeartbeatInputSchema.parse(operationArgs);
+      await this.assertCollaborationSpace(spaceId, input.runId);
       return this.text(CollaborationHeartbeatOutputSchema.parse(
         await this.collaborationExecution.heartbeat(input, principal),
       ));
     });
     registerTool('collaboration_update_todo', {
       description: 'Advance one ordered Todo item in the currently leased collaboration task.',
-      inputSchema: CollaborationUpdateTodoInputSchema.shape,
+      inputSchema: { ...CollaborationUpdateTodoInputSchema.shape, spaceId: z.string().min(1).optional().describe(SPACE_ID) },
     }, async (args: unknown) => {
       this.assertCollaborationScope(principal, 'collaboration:execute');
-      const input = CollaborationUpdateTodoInputSchema.parse(args);
+      const { spaceId, ...operationArgs } = args as Record<string, unknown>;
+      const input = CollaborationUpdateTodoInputSchema.parse(operationArgs);
+      await this.assertCollaborationSpace(spaceId, input.runId);
       return this.text(CollaborationUpdateTodoOutputSchema.parse(
         await this.collaborationExecution.updateTodo(input, principal),
       ));
     });
     registerTool('collaboration_submit_result', {
       description: 'Submit one schema-checked, evidence-backed Artifact for the currently leased task.',
-      inputSchema: CollaborationSubmitResultInputSchema.shape,
+      inputSchema: { ...CollaborationSubmitResultInputSchema.shape, spaceId: z.string().min(1).optional().describe(SPACE_ID) },
     }, async (args: unknown) => {
       this.assertCollaborationScope(principal, 'collaboration:execute');
-      const input = CollaborationSubmitResultInputSchema.parse(args);
+      const { spaceId, ...operationArgs } = args as Record<string, unknown>;
+      const input = CollaborationSubmitResultInputSchema.parse(operationArgs);
+      await this.assertCollaborationSpace(spaceId, input.runId);
       return this.text(CollaborationSubmitResultOutputSchema.parse(
         await this.collaborationExecution.submitResult(input, principal),
       ));
     });
     registerTool('collaboration_get_run', {
       description: 'Read the authenticated Agent\'s safe collaboration run state without lease secrets.',
-      inputSchema: CollaborationGetRunInputSchema.shape,
+      inputSchema: { ...CollaborationGetRunInputSchema.shape, spaceId: z.string().min(1).optional().describe(SPACE_ID) },
     }, async (args: unknown) => {
       this.assertCollaborationScope(principal, 'collaboration:read');
-      const input = CollaborationGetRunInputSchema.parse(args);
+      const { spaceId, ...operationArgs } = args as Record<string, unknown>;
+      const input = CollaborationGetRunInputSchema.parse(operationArgs);
+      await this.assertCollaborationSpace(spaceId, input.runId);
       return this.text(CollaborationGetRunOutputSchema.parse(
         await this.collaborationExecution.getAgentRun(input, principal),
       ));
@@ -468,11 +481,25 @@ export class McpService {
     return this.contentTree;
   }
 
+  private assertResourceSpace(requested: unknown, actual: string): void {
+    if (requested !== undefined && requested !== actual) {
+      throw new BusinessException('SPACE_ACCESS_DENIED', 'Resource does not belong to the requested Space');
+    }
+  }
+
+  private async assertCollaborationSpace(spaceId: unknown, runId: string): Promise<void> {
+    if (spaceId === undefined) return;
+    const run = await this.prisma.collaborationRun.findUnique({ where: { id: runId }, select: { spaceId: true } });
+    if (!run) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
+    this.assertResourceSpace(spaceId, run.spaceId);
+  }
+
   private assertCollaborationScope(
     principal: Principal,
     required: 'collaboration:read' | 'collaboration:execute',
   ): void {
-    if (!principal.agentId || !principal.agentRole || !agentRoleAllowsScope(principal.agentRole, required)) {
+    // Run-level authorization resolves the live grant for the run's Space.
+    if (!principal.agentId) {
       throw new BusinessException('AUTH_SCOPE_REQUIRED', `Required scope is missing: ${required}`);
     }
   }

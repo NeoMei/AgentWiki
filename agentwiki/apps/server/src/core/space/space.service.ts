@@ -388,15 +388,17 @@ export class SpaceService {
           agentId: true,
           spaceId: true,
           createdAt: true,
-          agent: { select: { id: true, name: true, status: true, revokedAt: true, ownerId: true } },
-          credentials: {
-            where: {
-              revokedAt: null,
-              OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+          agent: { select: {
+            id: true, name: true, status: true, revokedAt: true, ownerId: true,
+            credentials: {
+              where: {
+                revokedAt: null,
+                OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+              },
+              select: { id: true },
+              take: 1,
             },
-            select: { id: true },
-            take: 1,
-          },
+          } },
         },
         orderBy: { createdAt: 'asc' },
       }),
@@ -404,8 +406,8 @@ export class SpaceService {
     return [
       ...humans.map((member) => ({ ...member, type: 'human' as const })),
       ...agentGrants.map((grant) => {
-        const { ownerId, ...agent } = grant.agent;
-        const { credentials = [], ...summary } = grant;
+        const { ownerId, credentials = [], ...agent } = grant.agent;
+        const { agent: _agent, ...summary } = grant;
         return {
           ...summary,
           agent: { ...agent, connected: credentials.length > 0 },

@@ -693,7 +693,6 @@ export class ExecutionService {
     });
     if (
       !grant
-      || grant.id !== principal.authorizationId
       || grant.agent.status !== 'active'
       || grant.agent.revokedAt
       || grant.space.deletedAt

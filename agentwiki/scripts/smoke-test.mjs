@@ -195,8 +195,8 @@ export async function runSmoke(environment = process.env) {
     const connectionRecord = connectionAccess.data.access[0].credentials.find(
       (candidate) => candidate.id === credential.data.credentialId,
     );
-    assert.equal(connectionRecord.authorization.space.id, space.data.id);
-    assert.equal(connectionRecord.authorization.role, 'editor');
+    assert.equal(connectionRecord.credentialScope, 'agent');
+    assert.equal(connectionAccess.data.access[0].grants.find((grant) => grant.space.id === space.data.id)?.role, 'editor');
     assert.equal('role' in connectionRecord, false);
     assert.equal('scopes' in connectionRecord, false);
 
@@ -207,7 +207,7 @@ export async function runSmoke(environment = process.env) {
     const downgradedAccess = await request(apiUrl, '/integrations/mcp', {
       apiKey: credential.data.apiKey,
     });
-    assert.equal(downgradedAccess.data.access[0].credentials[0].authorization.role, 'reader');
+    assert.equal(downgradedAccess.data.access[0].grants.find((grant) => grant.space.id === space.data.id)?.role, 'reader');
     await request(apiUrl, '/pages', {
       method: 'POST', apiKey: credential.data.apiKey,
       body: { spaceId: space.data.id, title: 'Must be denied', content: 'Reader cannot write.', expectedTreeRevision: readerTreeRevision },

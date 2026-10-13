@@ -943,14 +943,11 @@ async function createFixture(prisma, options = {}) {
       prefix: `db${index}${suffix.slice(0, 6)}`,
       keyHash: `${suffix}${String(index).padStart(32, '0')}`,
       agentId: agent.id,
-      authorizationId: grant.id,
     } });
     agents.push(agent);
     grants.push(grant);
     principals.push({
-      userId: human.id, agentId: agent.id, authorizationId: grant.id, credentialId: credential.id,
-      authorizationSpaceId: space.id,
-      agentRole: role, scopes: role === 'reader' ? ['collaboration:read'] : ['collaboration:read', 'collaboration:execute'],
+      userId: human.id, agentId: agent.id, credentialId: credential.id,
     });
   }
   const taskSpecs = options.taskSpecs ?? [{ nodeId: 'task', status: 'ready' }];

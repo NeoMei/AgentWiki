@@ -37,7 +37,7 @@ describe('Agent role documentation', () => {
   it('uses unified roles in the architecture guide', () => {
     renderDoc(<DocsArchitecture />);
 
-    expect(screen.getByText(/绑定的 Space 授权角色/)).toBeInTheDocument();
+    expect(screen.getByText(/按 spaceId 实时读取对应的 Space 授权角色/)).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/凭据范围和空间授权|credential scope and space grants/i);
   });
 

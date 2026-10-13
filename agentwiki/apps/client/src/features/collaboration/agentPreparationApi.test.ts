@@ -3,7 +3,7 @@ import api from '../../api/client';
 import {
   agentPreparationApi,
   apiResponseStatus,
-  hasActiveSpaceCredential,
+  hasAuthorizedAgentConnection,
   type OwnedAgentDetail,
 } from './agentPreparationApi';
 
@@ -62,32 +62,29 @@ describe('agentPreparationApi', () => {
     expect(installationResult).toBe(installation);
   });
 
-  it('accepts only an unrevoked, unexpired credential for the target Space', () => {
+  it('combines an existing identity credential with the current target Space grant', () => {
     const detail: OwnedAgentDetail = {
-      id: 'agent-1', name: 'Writer', status: 'active', grants: [],
+      id: 'agent-1', name: 'Writer', status: 'active', grants: [{ id: 'grant-1', spaceId: 'space-1', role: 'editor', space: { id: 'space-1', name: 'Target' } }],
       credentials: [
-        { id: 'other', revokedAt: null, expiresAt: null, authorization: { space: { id: 'space-2', name: 'Other' }, role: 'editor' } },
-        { id: 'expired', revokedAt: null, expiresAt: '2026-08-25T00:00:00.000Z', authorization: { space: { id: 'space-1', name: 'Target' }, role: 'editor' } },
-        { id: 'active', revokedAt: null, expiresAt: '2026-08-25T00:20:00.000Z', authorization: { space: { id: 'space-1', name: 'Target' }, role: 'editor' } },
+        { id: 'expired', revokedAt: null, expiresAt: '2026-08-25T00:00:00.000Z', credentialScope: 'agent' },
+        { id: 'active', revokedAt: null, expiresAt: '2026-08-25T00:20:00.000Z', credentialScope: 'agent' },
       ],
     };
 
-    expect(hasActiveSpaceCredential(detail, 'space-1', Date.parse('2026-08-25T00:10:00.000Z'))).toBe(true);
-    expect(hasActiveSpaceCredential(detail, 'space-3', Date.parse('2026-08-25T00:10:00.000Z'))).toBe(false);
+    expect(hasAuthorizedAgentConnection(detail, 'space-1', Date.parse('2026-08-25T00:10:00.000Z'))).toBe(true);
+    expect(hasAuthorizedAgentConnection(detail, 'space-3', Date.parse('2026-08-25T00:10:00.000Z'))).toBe(false);
   });
 
   it('fails closed for malformed or inactive credential lifecycle fields', () => {
     const now = Date.parse('2026-08-25T00:10:00.000Z');
     const lifecycleIsActive = (revokedAt?: string | null, expiresAt?: string | null) => (
-      hasActiveSpaceCredential({
+      hasAuthorizedAgentConnection({
+        status: 'active', grants: [{ id: 'grant-1', spaceId: 'space-1', role: 'editor', space: { id: 'space-1', name: 'Target' } }],
         credentials: [{
           id: 'credential-1',
           revokedAt,
           expiresAt,
-          authorization: {
-            space: { id: 'space-1', name: 'Target' },
-            role: 'editor',
-          },
+          credentialScope: 'agent',
         }],
       }, 'space-1', now)
     );
@@ -99,6 +96,34 @@ describe('agentPreparationApi', () => {
     expect(lifecycleIsActive(null, '2026-08-25T00:10:00.000Z')).toBe(false);
     expect(lifecycleIsActive(null, 'not-a-date')).toBe(false);
     expect(lifecycleIsActive(null, '')).toBe(false);
+  });
+
+  it('does not treat a removed grant or paused Agent as ready despite an active identity credential', () => {
+    const connected = {
+      status: 'active',
+      grants: [{ id: 'grant-1', spaceId: 'space-1', role: 'editor' as const, space: { id: 'space-1', name: 'Target' } }],
+      credentials: [{ id: 'identity', credentialScope: 'agent' as const, active: true, expiresAt: null }],
+    };
+    expect(hasAuthorizedAgentConnection(connected, 'space-1')).toBe(true);
+    expect(hasAuthorizedAgentConnection({ ...connected, grants: [] }, 'space-1')).toBe(false);
+    expect(hasAuthorizedAgentConnection({ ...connected, status: 'paused' }, 'space-1')).toBe(false);
+    expect(hasAuthorizedAgentConnection({ ...connected, credentials: [{ ...connected.credentials[0], active: false }] }, 'space-1')).toBe(false);
+  });
+
+
+  it.each([
+    ['reader', 'editor', false],
+    ['reader', 'publisher', false],
+    ['editor', 'publisher', false],
+    ['publisher', 'editor', false],
+    ['editor', 'editor', true],
+    ['publisher', 'publisher', true],
+  ] as const)('requires executable and expected %s / %s authorization', (actualRole, expectedRole, ready) => {
+    expect(hasAuthorizedAgentConnection({
+      status: 'active',
+      grants: [{ id: 'grant-1', spaceId: 'space-1', role: actualRole, space: { id: 'space-1', name: 'Target' } }],
+      credentials: [{ id: 'identity', credentialScope: 'agent', active: true }],
+    }, 'space-1', Date.now(), expectedRole)).toBe(ready);
   });
 
   it('classifies an Axios-shaped status without exposing raw error text', () => {

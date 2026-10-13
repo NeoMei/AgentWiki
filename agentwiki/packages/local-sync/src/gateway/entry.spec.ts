@@ -11,6 +11,7 @@ import type { KnowledgeWorkflows } from './knowledge-workflows.js';
 import type { RemoteSync } from './knowledge-workflows.js';
 import type { KnowledgeBundle } from '../protocol/bundle.js';
 import { createGatewayServer } from './server.js';
+import { AgentWikiClient } from '../agentwiki-client.js';
 
 const construction = vi.hoisted(() => ({
   provider: undefined as unknown as CodeGraphProvider,
@@ -35,8 +36,8 @@ vi.mock('../codegraph/pipeline.js', () => ({ CodeGraphPipeline: construction.cre
 vi.mock('./workflow-runtime.js', () => ({ createKnowledgeWorkflowRuntime: construction.createRuntime }));
 vi.mock('../sync/sync-engine.js', () => ({
   SyncEngine: class {
-    pull = vi.fn(async () => { throw new Error('legacy pull must not run for a v2 credential'); });
-    push = vi.fn(async () => { throw new Error('legacy push must not run for a v2 credential'); });
+    pull = vi.fn(async () => ({ revisionId: 'rev-1', conflicts: [] }));
+    push = vi.fn(async () => ({ currentRevision: 'rev-2', status: 'published' }));
     pullTreeV2 = vi.fn(async () => ({ revisionId: 'rev-1', conflicts: [] }));
     pushTreeV2 = vi.fn(async () => ({ revision: 'rev-2', status: 'published' }));
 
@@ -58,6 +59,7 @@ async function temporaryHome(): Promise<string> {
 
 afterEach(async () => {
   construction.syncEngines.splice(0);
+  vi.restoreAllMocks();
   await Promise.all(homes.splice(0).map((home) => rm(home, { recursive: true, force: true })));
 });
 
@@ -94,6 +96,7 @@ describe('gateway entry', () => {
     construction.runtimeInput = undefined as never;
     vi.clearAllMocks();
 
+    mockAccess();
     const { handlers } = await createGatewayEntry({
       home,
       connectionId: 'primary',
@@ -127,7 +130,7 @@ describe('gateway entry', () => {
     expect(construction.runtimeInput.scanSources).toBe(pipeline);
   });
 
-  it('routes a private device credential through the v2 tree pull and push path without legacy fallback', async () => {
+  it('uses the Agent credential for knowledge sync and never routes its private human device credential', async () => {
     const home = await temporaryHome();
     await saveConfig(home, {
       version: 1,
@@ -149,6 +152,7 @@ describe('gateway entry', () => {
     } as unknown as KnowledgeWorkflows;
     construction.syncEngines.splice(0);
 
+    const access = mockAccess();
     await createGatewayEntry({ home, connectionId: 'primary' });
     const remote = construction.runtimeInput.sync!;
     const bundle: KnowledgeBundle = {
@@ -161,12 +165,14 @@ describe('gateway entry', () => {
 
     expect(construction.syncEngines).toHaveLength(2);
     for (const engine of construction.syncEngines) {
-      expect(engine.options).toMatchObject({ apiKey: 'agent-key-must-not-authorize-v2', syncDeviceCredential: 'private-device-token' });
-      expect(engine.pull).not.toHaveBeenCalled();
-      expect(engine.push).not.toHaveBeenCalled();
+      expect(engine.options).toMatchObject({ apiKey: 'agent-key-must-not-authorize-v2' });
+      expect(engine.options).not.toHaveProperty('syncDeviceCredential');
+      expect(engine.pullTreeV2).not.toHaveBeenCalled();
+      expect(engine.pushTreeV2).not.toHaveBeenCalled();
     }
-    expect(construction.syncEngines[0]!.pullTreeV2).toHaveBeenCalledTimes(1);
-    expect(construction.syncEngines[1]!.pushTreeV2).toHaveBeenCalledWith(bundle);
+    expect(construction.syncEngines[0]!.pull).toHaveBeenCalledTimes(1);
+    expect(construction.syncEngines[1]!.push).toHaveBeenCalledWith(bundle);
+    expect(access).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -186,7 +192,7 @@ it('reports a short safe remote warning once per failure outcome without changin
   } finally { fetchSpy.mockRestore(); }
 });
 
-it('uses independent Space credentials for concurrent sync and never falls back for an unknown Space', async () => {
+it('uses the same selected Agent credential for concurrent sync and lets live grants decide Space access', async () => {
   const home = await temporaryHome();
   const common = { serverUrl: 'https://example.test/api', agentId: 'agent-1', pluginVersion: '0.10.0', client: 'codex' as const, mcpName: 'agentwiki' };
   await saveConfig(home, { version: 1, connections: {
@@ -199,12 +205,21 @@ it('uses independent Space credentials for concurrent sync and never falls back 
     'cred-b': { apiKey: 'key-b', syncDeviceCredential: 'device-b' },
     'cred-c': { apiKey: 'key-c' },
   } });
+  mockAccess(['space-a', 'space-b'], 'cred-a');
   await createGatewayEntry({ home, connectionId: 'a' });
   const remote = construction.runtimeInput.sync!;
   await Promise.all([remote.pull('space-a'), remote.pull('space-b')]);
   expect(construction.syncEngines.map((engine) => [engine.options.spaceId, engine.options.apiKey, engine.options.syncDeviceCredential]).sort())
-    .toEqual([['space-a', 'key-a', 'device-a'], ['space-b', 'key-b', 'device-b']]);
+    .toEqual([['space-a', 'key-a', undefined], ['space-b', 'key-a', undefined]]);
   await expect(remote.pull('unknown')).rejects.toThrow(/space/i);
   await expect(remote.pull('space-c')).rejects.toThrow(/space/i);
   expect(construction.syncEngines).toHaveLength(2);
 });
+
+function mockAccess(spaces = ['space-1'], credentialId = 'credential-1') {
+  return vi.spyOn(AgentWikiClient.prototype, 'access').mockResolvedValue({ access: [{
+    id: 'agent-1', name: 'Agent', status: 'active', credentialScope: 'agent',
+    credentials: [{ id: credentialId, active: true, credentialScope: 'agent' }],
+    grants: spaces.map((id) => ({ role: 'publisher', space: { id, name: id } })),
+  }] });
+}

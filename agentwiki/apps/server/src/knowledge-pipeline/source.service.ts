@@ -1193,13 +1193,13 @@ export class SourceService {
                 revokedAt: null,
                 OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
               },
-              select: { authorizationId: true },
+              select: { id: true },
             })
           : Promise.resolve(null),
       ]);
       if (!grant || agentRoleSpaceCapability(grant.role) !== 'editor' || grant.agent.status !== 'active' || grant.agent.revokedAt ||
         grant.agent.owner.deletedAt || grant.agent.owner.lockedAt || grant.space.deletedAt || !credential ||
-        credential.authorizationId !== grant.id || !agentRoleAllowsScope(grant.role, 'runs:write')) {
+        !agentRoleAllowsScope(grant.role, 'runs:write')) {
         throw new Error('Run requester is no longer authorized');
       }
       return scopesForAgentAccessRole(grant.role);
@@ -1256,7 +1256,6 @@ export class SourceService {
       !state.space.deletedAt &&
       !state.credential.revokedAt &&
       (!state.credential.expiresAt || state.credential.expiresAt > now) &&
-      state.credential.authorizationId === state.grant.id &&
       agentRoleSpaceCapability(state.grant.role) === 'editor' &&
       agentRoleAllowsScope(state.grant.role, 'runs:write');
   }

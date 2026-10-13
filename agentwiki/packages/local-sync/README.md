@@ -34,13 +34,15 @@ The installer creates or updates exactly one MCP entry named `agentwiki`. The ga
 
 The gateway bridges to the server internally. Users and Agents must not register a second direct `/api/mcp` connection or a credential-specific MCP name.
 
-### Multiple Spaces (local candidate)
+### One Agent identity, multiple Spaces
 
-Authorize each Space from the existing Agent's access page and run its generated installation instruction. Adding another Space for the same Agent preserves earlier connections and their local knowledge. Reload the host's `agentwiki` MCP after installation; the single entry then routes all connected Spaces for that Agent, server, and client.
+Connect an Agent to AgentWiki once. The gateway uses that Agent's selected connection and credential for every Space. Adding the Agent to another Space grants access immediately: no new installation instruction, local Space connection, or gateway reload is needed. `wiki_list_spaces` reads the current grants and roles from AgentWiki on every call.
 
-Call `wiki_list_spaces` to discover connected Space IDs and roles. For other remote calls, supply `spaceId` at the gateway level; tools using the generic wrapper accept, for example, `{ "spaceId": "<id>", "__args": { "pageId": "<page-id>" } }`. Existing `__args.spaceId` remains accepted; conflicting selectors fail. Collaboration tools accept `spaceId` with their normal arguments. Single-Space page-only calls remain compatible without the selector. Knowledge preparation and pull require `spaceId`; confirmation uses the Space sealed inside the preview bundle.
+For remote calls, supply the internal `spaceId`; the server checks that Space's current grant, role, and resource membership. Knowledge read tools accept named arguments and the legacy `__args` wrapper; duplicate fields must agree. Other generic tools accept, for example, `{ "spaceId": "<id>", "__args": { "pageId": "<page-id>" } }`. Existing `spaceId` in local configuration is only a default context for older callers. There is no mutable global current Space.
 
-Credentials and permissions remain separate for each Space. Merely adding the Agent as a member of another Space does not authorize an existing credential there; complete that Space's connection authorization. A failed or revoked Space does not route through another Space's key. `onboard_status` reports per-Space remote diagnostics. This candidate requires a new Local Sync package release before generated `npx` instructions use it.
+Revoking or changing a Space grant affects subsequent calls using the same Agent connection. The gateway never retries with another Agent, server, host-client connection, or stored key. Existing local connections and credentials are preserved; they are not merged or used as a Space allowlist. `onboard_status` reports the selected identity's remote connection; use `wiki_list_spaces` to inspect live Space authorization.
+
+Knowledge preparation and pull require `spaceId`; confirmation uses the Space sealed inside the preview bundle. Workspaces remain isolated by Space ID. Before consuming cached knowledge or syncing, the gateway verifies live grants and uses the same Agent key for the knowledge revision/submission APIs. Human sync-device credentials keep their separate lifecycle and are not reused for Agent multi-Space sync. When upgrading a gateway that previously used a human device/tree workspace, the Agent workspace is isolated under `.agentwiki/agent-knowledge/spaces/<spaceId>` within the configured local home. Existing tree state and unsynced edits stay at their original path unchanged. Pull and prepare report this isolation; those device edits are not automatically imported or submitted.
 
 CodeGraph is a separately installed scanner with its own version and lifecycle. AgentWiki is
 version-decoupled: it reads supported structural scan results, deterministically analyzes them,

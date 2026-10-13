@@ -13,10 +13,12 @@ const instruction = '# 接入\nnpx --yes @neomei/agentwiki-local-sync@0.11.0 onb
 
 const renderCard = ({
   agentId = 'agent-1',
+  credentialAvailable = false,
   spaces = [{ id: 'space-1', name: '团队知识库' }],
   grants = [{ spaceId: 'space-1', role: 'reader' as const, space: { id: 'space-1', name: '团队知识库' } }],
 }: {
   agentId?: string;
+  credentialAvailable?: boolean;
   spaces?: Array<{ id: string; name: string; maxAgentRole?: AgentAccessRole }>;
   grants?: Array<{
     spaceId: string;
@@ -25,7 +27,7 @@ const renderCard = ({
   }>;
 } = {}) => render(
   <LanguageProvider>
-    <LocalSyncInstallCard agentId={agentId} spaces={spaces} grants={grants} />
+    <LocalSyncInstallCard agentId={agentId} credentialAvailable={credentialAvailable} spaces={spaces} grants={grants} />
   </LanguageProvider>,
 );
 
@@ -79,6 +81,18 @@ describe('LocalSyncInstallCard', () => {
       { role: 'editor' },
     ));
     expect(await screen.findByRole('button', { name: '已授权' })).toBeDisabled();
+  });
+
+
+  it('authorizes a new Space for an existing Agent connection without requiring another installation', async () => {
+    renderCard({ credentialAvailable: true, grants: [], spaces: [{ id: 'space-new', name: '新项目' }] });
+    fireEvent.change(screen.getByLabelText('Agent 角色'), { target: { value: 'editor' } });
+    fireEvent.click(screen.getByRole('button', { name: '授权此空间' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('此空间已授权；已配置该身份凭据的客户端无需重新接入');
+    expect(api.put).toHaveBeenCalledWith('/agents/agent-1/grants/space-new', { role: 'editor' });
+    expect(api.post).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: '生成统一网关接入指令' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '为另一客户端生成接入指令' })).toBeEnabled();
   });
 
   it('offers an update action when changing an existing Space grant role', async () => {

@@ -266,7 +266,7 @@ describe('MCP Agent access roles', () => {
     expect(publish).not.toHaveBeenCalled();
   });
 
-  it('rejects the MCP proposal when the live Credential authorization binding is missing', async () => {
+  it('allows an identity credential regardless of historical Space binding', async () => {
     grant.role = 'publisher';
     credentialAuthorizationId = 'grant-other';
     const principal: Principal = {
@@ -278,10 +278,10 @@ describe('MCP Agent access roles', () => {
 
     await expect(tools.propose_page.handler({
       spaceId: 'space-1', title: '吃饭睡觉打豆豆', content: '豆豆不能随便打', expectedTreeRevision: '41',
-    })).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+    })).resolves.toBeDefined();
 
-    expect(prisma.changeSet.create).not.toHaveBeenCalled();
-    expect(publish).not.toHaveBeenCalled();
+    expect(prisma.changeSet.create).toHaveBeenCalled();
+    expect(publish).toHaveBeenCalled();
   });
 
   it.each([

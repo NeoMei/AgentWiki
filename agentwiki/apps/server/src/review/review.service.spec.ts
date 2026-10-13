@@ -2039,7 +2039,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
   it.each([
     ['Credential revoked', (state: any) => { state.credential.revokedAt = new Date(); }],
     ['Credential expired', (state: any) => { state.credential.expiresAt = new Date(Date.now() - 1_000); }],
-    ['Credential rebound to another authorization', (state: any) => { state.credential.authorizationId = 'grant-other'; }],
+    ['Credential expired', (state: any) => { state.credential.expiresAt = new Date(0); }],
     ['Agent paused', (state: any) => { state.agent.status = 'paused'; }],
     ['Agent revoked', (state: any) => { state.agent.revokedAt = new Date(); }],
     ['Agent auto-publish disabled', (state: any) => { state.agent.approvalMode = 'always-review'; }],

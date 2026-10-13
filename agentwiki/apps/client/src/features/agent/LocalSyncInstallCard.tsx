@@ -22,9 +22,11 @@ export const LocalSyncInstallCard: React.FC<{
   agentId: string;
   spaces: SpaceOption[];
   grants: GrantSummary[];
+  credentialAvailable?: boolean;
+  agentAvailable?: boolean;
   title?: string;
   onAuthorized?: () => Promise<void> | void;
-}> = ({ agentId, spaces, grants, title, onAuthorized }) => {
+}> = ({ agentId, spaces, grants, credentialAvailable = false, agentAvailable = true, title, onAuthorized }) => {
   const { t } = useLanguage();
   const [spaceId, setSpaceId] = useState(spaces[0]?.id ?? '');
   const maxRoleForSpace = (candidateSpaceId: string): AgentAccessRole => (
@@ -133,7 +135,6 @@ export const LocalSyncInstallCard: React.FC<{
       </h2>
       <p className="mt-2 text-sm text-gray-500">{t('agent.localSync.description')}</p>
       <p className="mt-2 text-sm text-gray-600">{t('agent.credentialSpaceBoundary')}</p>
-      <p className="mt-2 text-sm text-gray-600">{t('agent.localSync.singleSpaceGateway')}</p>
 
       <div className="mt-3 flex items-center gap-3 rounded-lg bg-gray-50 px-3 py-2">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600">
@@ -223,6 +224,17 @@ export const LocalSyncInstallCard: React.FC<{
         </button>
       </div>
 
+      {credentialAvailable ? (
+        <p role="status" className={'mt-4 rounded-lg px-3 py-2 text-sm ' + (agentAvailable ? 'bg-gray-50 text-gray-700' : 'bg-amber-50 text-amber-800')}>
+          {!agentAvailable
+            ? t('agent.localSync.credentialPaused')
+            : authorizationMatches
+              ? t('agent.localSync.credentialAuthorized')
+              : t('agent.localSync.credentialNeedsGrant')}
+          {' '}{t('agent.localSync.clientConnectionUnverified')}
+        </p>
+      ) : null}
+
       {result ? (
         <div className="mt-4">
           <p className="text-xs text-gray-500">
@@ -265,7 +277,7 @@ export const LocalSyncInstallCard: React.FC<{
           onClick={() => void generate()}
           className="mt-4 h-9 rounded-lg bg-blue-600 px-4 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {generating ? t('agent.localSync.generating') : t('agent.localSync.generate')}
+          {generating ? t('agent.localSync.generating') : credentialAvailable ? t('agent.localSync.connectAnotherClient') : t('agent.localSync.generate')}
         </button>
       )}
 

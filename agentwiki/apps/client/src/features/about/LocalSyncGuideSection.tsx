@@ -68,7 +68,7 @@ export const LocalSyncGuideSection: React.FC<LocalSyncGuideSectionProps> = ({ zh
         <ol className="list-decimal space-y-2 pl-5 text-sm text-gray-700">
           <li>{zh ? '打开智能体详情的“访问权限”，选择目标空间和 Agent 角色。' : 'Open Access on the Agent detail page, then choose the target space and Agent role.'}</li>
           <li>{zh ? '点击“生成统一网关接入指令”，再点击“复制完整指令”；过期后重新生成。' : 'Click “Generate unified gateway instructions”, then “Copy complete instructions”; regenerate if expired.'}</li>
-          <li>{zh ? '检查指令中的空间与目标一致，再交给本地 Agent。现有凭证不会随新增空间授权自动扩展；每个连接凭证仅绑定所选空间。' : 'Check that the instructions name the intended space before passing them to your local Agent. New space grants do not expand existing credentials; each connection credential is bound to its selected space.'}</li>
+          <li>{zh ? '首次接入时，核对 Agent 身份和初始空间授权后，将指令交给本地 Agent。后续只需为同一 Agent 新增空间授权；现有连接按 spaceId 使用当前权限，无需再次生成接入码。' : 'For the first connection, check the Agent identity and initial Space grant before sharing the instructions with your local Agent. Later, grant other Spaces to the same Agent; its existing connection uses spaceId and current permissions without a new connection code.'}</li>
         </ol>
       </li>
 

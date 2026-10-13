@@ -48,7 +48,8 @@ describe('collaboration MCP tools', () => {
     expect(() => schema.parse({ __args: { runId: 'run-1' } })).toThrow();
   });
 
-  it('keeps a reader read-only and exposes no human-control tools', async () => {
+  it('keeps a reader read-only through run authorization and exposes no human-control tools', async () => {
+    execution.nextAction.mockRejectedValueOnce({ businessCode: 'AUTH_SCOPE_REQUIRED' });
     execution.getAgentRun.mockResolvedValueOnce({
       runId: 'run-1', status: 'running', roleSlots: [],
       assignedTasks: [{

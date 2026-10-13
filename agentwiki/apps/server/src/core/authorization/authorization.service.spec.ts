@@ -210,7 +210,7 @@ describe('AuthorizationService', () => {
     ).resolves.toMatchObject({ role: 'editor' });
   });
 
-  it('denies a Credential in a different Space even when the Agent has another Grant', async () => {
+  it('uses the target Space grant even when a legacy principal names another Grant', async () => {
     prisma.agentGrant.findUnique.mockResolvedValue({
       id: 'grant-space-b', role: 'publisher',
       agent: { status: 'active', revokedAt: null },
@@ -219,7 +219,7 @@ describe('AuthorizationService', () => {
     await expect(service.assertSpaceAccess(
       { userId: 'owner-1', agentId: 'agent-1', authorizationId: 'grant-space-a' },
       'space-b', ['owner', 'editor'], 'pages:write',
-    )).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+    )).resolves.toMatchObject({ id: 'grant-space-b' });
   });
 
   it.each([
@@ -339,7 +339,7 @@ describe('AuthorizationService live Agent Folder access', () => {
     ['expired credential', () => { liveState.credential.expiresAt = new Date(0); }],
     ['disabled Agent', () => { liveState.agent.status = 'paused'; }],
     ['revoked Agent', () => { liveState.agent.revokedAt = new Date(); }],
-    ['cross-Space credential', () => { liveState.credential.authorizationId = 'grant-other'; }],
+    ['locked owner', () => { liveState.agent.owner.lockedAt = new Date(); }],
   ])('fails closed for a %s', async (_label, arrange) => {
     arrange();
     await expect((service as any).assertLiveAgentAccess(
@@ -391,13 +391,12 @@ describe('space discovery and self-describing errors', () => {
     expect(result).toEqual([{ id: 'space-1', name: 'MySpace', role: 'editor' }]);
     expect(prisma.agentGrant.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
-        id: 'grant-1',
         agentId: 'agent-1',
       }),
     }));
   });
 
-  it('returns only the Credential-bound accessible Space id', async () => {
+  it('returns all live accessible Space ids', async () => {
     prisma.agentGrant.findMany.mockResolvedValue([{ spaceId: 'space-1', role: 'editor' }]);
 
     await expect(service.getAccessibleSpaceIds(
@@ -406,7 +405,6 @@ describe('space discovery and self-describing errors', () => {
     )).resolves.toEqual(['space-1']);
     expect(prisma.agentGrant.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
-        id: 'grant-1',
         agentId: 'agent-1',
       }),
     }));

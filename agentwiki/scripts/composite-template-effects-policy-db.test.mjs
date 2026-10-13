@@ -68,8 +68,7 @@ async function createFixture(prisma, suffix) {
   } });
   await prisma.agentCredential.create({ data: {
     name: 'Effects fixture credential', prefix: rawApiKey.slice(0, 12),
-    keyHash: sha256(rawApiKey), agentId, authorizationId: grant.id,
-  } });
+    keyHash: sha256(rawApiKey), agentId, } });
   const page = await prisma.page.create({ data: {
     id: pageId, spaceId, authorId: userId, title: 'Existing Page',
     slug: `existing-${suffix}`, content: initialPageContent, format: 'markdown',

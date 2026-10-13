@@ -18,6 +18,7 @@ export type SpaceRole = 'owner' | 'admin' | 'editor' | 'viewer';
 export interface Principal {
   userId: string;
   agentId?: string;
+  /** Legacy transport hints are ignored; permissions come from the target Space grant. */
   authorizationId?: string;
   authorizationSpaceId?: string;
   agentRole?: AgentAccessRole;
@@ -148,7 +149,7 @@ export class AuthorizationService {
     }
     if (principal.agentId) {
       const grant = await this.prisma.agentGrant.findUnique({
-        where: { agentId_spaceId: { agentId: principal.agentId, spaceId } },
+        where: { agentId_spaceId: { agentId: principal.agentId, spaceId }, agent: this.liveAgentIdentityFilter(principal) },
         include: {
           agent: { select: { status: true, revokedAt: true } },
           space: { select: { deletedAt: true } },
@@ -156,9 +157,6 @@ export class AuthorizationService {
       });
       if (
         !grant ||
-        !principal.authorizationId ||
-        grant.id !== principal.authorizationId ||
-        (principal.authorizationSpaceId !== undefined && principal.authorizationSpaceId !== spaceId) ||
         grant.agent.status !== 'active' ||
         grant.agent.revokedAt ||
         grant.space.deletedAt ||
@@ -364,12 +362,10 @@ export class AuthorizationService {
       return spaces.map((space) => space.id);
     }
     if (principal.agentId) {
-      if (!principal.authorizationId) return [];
       const grants = await this.prisma.agentGrant.findMany({
         where: {
-          id: principal.authorizationId,
           agentId: principal.agentId,
-          agent: { status: 'active', revokedAt: null },
+          agent: this.liveAgentIdentityFilter(principal),
           space: { deletedAt: null },
         },
         select: { spaceId: true, role: true, folderScopes: true },
@@ -411,12 +407,10 @@ export class AuthorizationService {
       return spaces.map((space) => ({ id: space.id, name: space.name, role: roles.get(space.id) ?? 'viewer' }));
     }
     if (principal.agentId) {
-      if (!principal.authorizationId) return [];
       const grants = await this.prisma.agentGrant.findMany({
         where: {
-          id: principal.authorizationId,
           agentId: principal.agentId,
-          agent: { status: 'active', revokedAt: null },
+          agent: this.liveAgentIdentityFilter(principal),
           space: { deletedAt: null },
         },
         select: {
@@ -441,6 +435,20 @@ export class AuthorizationService {
       .map((membership) => ({ id: membership.space.id, name: membership.space.name, role: membership.role as SpaceRole }));
   }
 
+  /** Keep owner, Agent and credential revocation independent of Space grants. */
+  private liveAgentIdentityFilter(principal: Principal): Prisma.AgentWhereInput {
+    return {
+      id: principal.agentId,
+      ownerId: principal.userId,
+      status: 'active', revokedAt: null,
+      owner: { deletedAt: null, lockedAt: null },
+      credentials: { some: {
+        id: principal.credentialId ?? '', revokedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      } },
+    };
+  }
+
   private normalize(principal: PrincipalInput): Principal {
     return typeof principal === 'string' ? { userId: principal } : principal;
   }
@@ -461,8 +469,8 @@ export class AuthorizationService {
 
   private isLiveAgentBaseAuthorized(
     state: LockedAgentAuthorization,
-    principal: Principal,
-    spaceId: string,
+    _principal: Principal,
+    _spaceId: string,
   ): boolean {
     const now = new Date();
     return !state.user.deletedAt &&
@@ -471,10 +479,7 @@ export class AuthorizationService {
       !state.agent.revokedAt &&
       !state.space.deletedAt &&
       !state.credential.revokedAt &&
-      (!state.credential.expiresAt || state.credential.expiresAt > now) &&
-      state.credential.authorizationId === state.grant.id &&
-      principal.authorizationId === state.grant.id &&
-      (principal.authorizationSpaceId === undefined || principal.authorizationSpaceId === spaceId);
+      (!state.credential.expiresAt || state.credential.expiresAt > now);
   }
 
   private isLiveAgentWriteAuthorized(

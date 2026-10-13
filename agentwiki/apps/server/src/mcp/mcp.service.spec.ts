@@ -149,7 +149,7 @@ describe('McpService knowledge-sync tool', () => {
       requiredScope: 'sources:read',
     });
     expect(integrationAccess).toHaveBeenCalledWith(
-      principal.userId, principal.agentId, principal.authorizationId,
+      principal.userId, principal.agentId, principal.credentialId,
     );
     expect((controller as any).agents.recentMcpCalls).toHaveBeenCalledWith(
       principal.userId, principal.agentId, principal.credentialId,

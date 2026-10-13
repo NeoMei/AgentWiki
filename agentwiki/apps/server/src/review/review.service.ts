@@ -1351,7 +1351,6 @@ export class ReviewService {
       !state.agent.revokedAt &&
       !state.user.deletedAt &&
       !state.user.lockedAt &&
-      state.credential.authorizationId === state.grant.id &&
       !state.space.deletedAt;
     if (!authorized) {
       throw new BusinessException('SPACE_ACCESS_DENIED', 'Agent proposal authorization is no longer valid');
@@ -1381,7 +1380,6 @@ export class ReviewService {
       state.agent.approvalMode === 'scoped-auto-publish' &&
       !state.user.deletedAt &&
       !state.user.lockedAt &&
-      state.credential.authorizationId === state.grant.id &&
       !state.space.deletedAt &&
       state.space.approvalPolicy === 'scoped-auto-publish' &&
       gatedScopes.every((scope) => agentGrantAllowsScope(

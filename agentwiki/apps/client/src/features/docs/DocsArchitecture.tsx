@@ -30,7 +30,7 @@ export const DocsArchitecture: React.FC = () => {
           <div className="bg-white border border-blue-200 rounded-xl overflow-hidden">
             <div className="bg-blue-50 px-5 py-3 border-b border-blue-200"><code className="text-sm font-mono font-semibold text-blue-700">wiki_*</code></div>
             <div className="p-5">
-              <p className="text-sm text-gray-600 leading-relaxed mb-3">{zh ? '远程 AgentWiki 工具。调用服务端 REST API，操作共享知识库。包括：页面增删改查、知识图谱关系管理、语义搜索、审核流操作、记忆读写。Bearer Token 只标识连接；所有权限都由它绑定的 Space 授权角色实时决定。' : 'Remote AgentWiki tools. Call the server REST API to operate on the shared knowledge base: page CRUD, knowledge-graph relations, semantic search, review-flow operations, and memory read/write. The Bearer Token identifies only the connection; all permissions are decided live by its bound Space authorization role.'}</p>
+              <p className="text-sm text-gray-600 leading-relaxed mb-3">{zh ? '远程 AgentWiki 工具。调用服务端 REST API，操作共享知识库。包括：页面增删改查、知识图谱关系管理、语义搜索、审核流操作、记忆读写。Bearer Token 只标识 Agent 身份；每次调用按 spaceId 实时读取对应的 Space 授权角色。新增空间授权无需重新接入。' : 'Remote AgentWiki tools. Call the server REST API to operate on the shared knowledge base: page CRUD, knowledge-graph relations, semantic search, review-flow operations, and memory read/write. The Bearer Token identifies only the Agent; each call uses spaceId to check its current Space grant. New Space grants do not require reconnecting.'}</p>
               <p className="text-xs text-gray-400">{zh ? '执行位置：服务端　|　网络：必须　|　审计：是' : 'Execution: server | Network: required | Audited: yes'}</p>
             </div>
           </div>

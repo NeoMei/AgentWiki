@@ -33,7 +33,7 @@ const readyContext = (
       id: 'credential-old',
       revokedAt: null,
       expiresAt: null,
-      authorization: { role: 'publisher', space: contextSpace },
+      credentialScope: 'agent',
     }],
   } satisfies OwnedAgentDetail,
   grantRole: 'publisher',
