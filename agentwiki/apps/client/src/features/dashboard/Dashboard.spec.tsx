@@ -97,7 +97,54 @@ describe('Dashboard Space pagination and creation', () => {
 
     renderDashboard();
 
-    expect(await screen.findByText(expected)).toBeInTheDocument();
+    expect(await screen.findByText(expected)).toHaveAttribute(
+      'title',
+      new Date(lastUpdatedAt ?? '2026-10-11T12:00:00.000Z').toLocaleString('zh-CN'),
+    );
+  });
+
+  it.each([
+    { language: 'zh-CN', field: 'lastUpdatedAt', expected: '更新时间待校准' },
+    { language: 'en', field: 'lastUpdatedAt', expected: 'Update time needs calibration' },
+    { language: 'zh-CN', field: 'updatedAt', expected: '更新时间待校准' },
+  ])('flags a future $field in $language and preserves its local timestamp', async ({ language, field, expected }) => {
+    const futureTimestamp = '2026-10-13T20:00:00.000Z';
+    vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-10-13T12:00:00.000Z').getTime());
+    localStorage.setItem('agentwiki.language.v1', language);
+    vi.mocked(api.get).mockResolvedValue(spacePage([{
+      id: 'space-future', name: '未来时间的空间', slug: 'future',
+      [field]: futureTimestamp,
+    }], 1));
+
+    renderDashboard();
+
+    expect(await screen.findByText(expected)).toHaveAttribute('title', new Date(futureTimestamp).toLocaleString(language));
+    expect(screen.queryByText(/8小时后|in 8 hours/)).not.toBeInTheDocument();
+  });
+
+  it.each([30, 60])('tolerates a %s-second future clock offset as now', async (seconds) => {
+    const now = new Date('2026-10-13T12:00:00.000Z').getTime();
+    const futureTimestamp = new Date(now + seconds * 1000).toISOString();
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    vi.mocked(api.get).mockResolvedValue(spacePage([{
+      id: 'space-clock-offset', name: '刚更新的空间', slug: 'clock-offset',
+      lastUpdatedAt: futureTimestamp,
+    }], 1));
+
+    renderDashboard();
+
+    expect(await screen.findByText('最近更新 现在')).toHaveAttribute('title', new Date(futureTimestamp).toLocaleString('zh-CN'));
+  });
+
+  it.each([undefined, 'invalid-date'])('keeps the existing fallback for a missing or invalid timestamp: %s', async (updatedAt) => {
+    vi.mocked(api.get).mockResolvedValue(spacePage([{
+      id: 'space-no-time', name: '没有更新时间的空间', slug: 'no-time',
+      updatedAt, pageCount: 1, memberCount: 1,
+    }], 1));
+
+    renderDashboard();
+
+    expect(await screen.findByText('统计同步中')).not.toHaveAttribute('title');
   });
 
   it('shows zero pages and the owner immediately after creation without an extra list request', async () => {

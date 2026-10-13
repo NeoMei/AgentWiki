@@ -13,12 +13,15 @@ import { validatorLength } from '../page-templates/validatorLength';
 const PAGE_SIZE = 20;
 const OPTIMISTIC_SPACE_TTL_MS = 5 * 60_000;
 
-const relativeUpdatedAt = (updatedAt: string | undefined, language: string) => {
+const formatUpdatedAt = (updatedAt: string | undefined, language: string) => {
   if (!updatedAt) return null;
   const timestamp = new Date(updatedAt).getTime();
   if (!Number.isFinite(timestamp)) return null;
 
-  const elapsedSeconds = (Date.now() - timestamp) / 1000;
+  const absolute = new Date(timestamp).toLocaleString(language);
+  const rawElapsedSeconds = (Date.now() - timestamp) / 1000;
+  if (rawElapsedSeconds < -60) return { relative: null, absolute };
+  const elapsedSeconds = Math.max(0, rawElapsedSeconds);
   const candidates: Array<[Intl.RelativeTimeFormatUnit, number]> = [
     ['year', 60 * 60 * 24 * 365],
     ['month', 60 * 60 * 24 * 30],
@@ -30,10 +33,13 @@ const relativeUpdatedAt = (updatedAt: string | undefined, language: string) => {
   ];
   const [unit, divisor] = candidates.find(([, seconds]) => Math.abs(elapsedSeconds) >= seconds)
     ?? candidates[candidates.length - 1];
-  return new Intl.RelativeTimeFormat(language, { numeric: 'auto' }).format(
-    -Math.round(elapsedSeconds / divisor),
-    unit,
-  );
+  return {
+    relative: new Intl.RelativeTimeFormat(language, { numeric: 'auto' }).format(
+      -Math.round(elapsedSeconds / divisor),
+      unit,
+    ),
+    absolute,
+  };
 };
 
 const spacePageCount = (space: SpaceSummary) => space.pageCount ?? space._count?.pages;
@@ -257,7 +263,12 @@ export const Dashboard: React.FC = () => {
             {spaces.map((space) => {
               const pageCount = spacePageCount(space);
               const memberCount = spaceMemberCount(space);
-              const updated = relativeUpdatedAt(space.lastUpdatedAt ?? space.updatedAt, language);
+              const updated = formatUpdatedAt(space.lastUpdatedAt ?? space.updatedAt, language);
+              const updatedLabel = !updated
+                ? t('dashboard.statsSyncing')
+                : updated.relative
+                  ? t('dashboard.updated', { time: updated.relative })
+                  : t('dashboard.updateTimeNeedsCalibration');
               const isAutoPublish = space.approvalPolicy === 'scoped-auto-publish';
               const policyLabel = space.approvalPolicy
                 ? t(isAutoPublish ? 'dashboard.autoPublishPolicy' : 'dashboard.reviewPolicy')
@@ -299,9 +310,9 @@ export const Dashboard: React.FC = () => {
                     </span>
                   </div>
                   <div className="mt-4 flex items-center justify-between gap-3 text-xs">
-                    <span className="inline-flex min-w-0 items-center gap-1.5 truncate text-gray-400">
+                    <span className="inline-flex min-w-0 items-center gap-1.5 truncate text-gray-400" title={updated?.absolute}>
                       <Clock3 className="shrink-0" size={14} />
-                      {updated ? t('dashboard.updated', { time: updated }) : t('dashboard.statsSyncing')}
+                      {updatedLabel}
                     </span>
                     <span className="inline-flex shrink-0 items-center gap-1 font-medium text-blue-600 opacity-80 transition group-hover:opacity-100">
                       {t('dashboard.openSpace')}
