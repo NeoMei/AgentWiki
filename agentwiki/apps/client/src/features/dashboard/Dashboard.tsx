@@ -5,13 +5,39 @@ import { apiErrorMessage } from '../../api/error-message';
 import type { SpaceListResponse, SpaceSummary } from '../../api/space-types';
 import { ModalDialog } from '../../components/ModalDialog';
 import { useAuth } from '../../context/AuthContext';
-import { Plus, Folder, X, Trash2, Network } from 'lucide-react';
+import { Plus, Folder, X, Trash2, Network, ArrowUpRight, BookOpen, Clock3, LockKeyhole, ShieldCheck, Users } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { SPACE_NAME_MAX_LENGTH } from '@agentwiki/shared';
 import { validatorLength } from '../page-templates/validatorLength';
 
 const PAGE_SIZE = 20;
 const OPTIMISTIC_SPACE_TTL_MS = 5 * 60_000;
+
+const relativeUpdatedAt = (updatedAt: string | undefined, language: string) => {
+  if (!updatedAt) return null;
+  const timestamp = new Date(updatedAt).getTime();
+  if (!Number.isFinite(timestamp)) return null;
+
+  const elapsedSeconds = (Date.now() - timestamp) / 1000;
+  const candidates: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+    ['year', 60 * 60 * 24 * 365],
+    ['month', 60 * 60 * 24 * 30],
+    ['week', 60 * 60 * 24 * 7],
+    ['day', 60 * 60 * 24],
+    ['hour', 60 * 60],
+    ['minute', 60],
+    ['second', 1],
+  ];
+  const [unit, divisor] = candidates.find(([, seconds]) => Math.abs(elapsedSeconds) >= seconds)
+    ?? candidates[candidates.length - 1];
+  return new Intl.RelativeTimeFormat(language, { numeric: 'auto' }).format(
+    -Math.round(elapsedSeconds / divisor),
+    unit,
+  );
+};
+
+const spacePageCount = (space: SpaceSummary) => space.pageCount ?? space._count?.pages;
+const spaceMemberCount = (space: SpaceSummary) => space.memberCount ?? space.members?.length;
 
 interface OptimisticSpace {
   space: SpaceSummary;
@@ -26,7 +52,7 @@ const mergeSpaces = (current: SpaceSummary[], incoming: SpaceSummary[]) => {
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuth();
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
   const [serverSpaces, setServerSpaces] = useState<SpaceSummary[]>([]);
   const [optimisticSpaces, setOptimisticSpaces] = useState<OptimisticSpace[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -228,22 +254,65 @@ export const Dashboard: React.FC = () => {
       ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {spaces.map((space) => (
-              <div
+            {spaces.map((space) => {
+              const pageCount = spacePageCount(space);
+              const memberCount = spaceMemberCount(space);
+              const updated = relativeUpdatedAt(space.updatedAt, language);
+              const isAutoPublish = space.approvalPolicy === 'scoped-auto-publish';
+              const policyLabel = space.approvalPolicy
+                ? t(isAutoPublish ? 'dashboard.autoPublishPolicy' : 'dashboard.reviewPolicy')
+                : null;
+
+              return (
+                <div
                 key={space.id}
-                className="group relative block min-w-0 p-6 bg-white rounded-lg shadow hover:shadow-md transition border border-gray-100"
+                data-testid="space-card"
+                className="group relative flex min-h-[244px] min-w-0 flex-col overflow-hidden rounded-2xl border border-gray-200/80 bg-white p-5 shadow-[0_4px_18px_rgba(15,23,42,0.06)] transition duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_12px_30px_rgba(15,23,42,0.10)]"
               >
-                <Link to={`/spaces/${space.id}`} className="block">
-                  <div className="flex items-center gap-3 mb-2">
-                    <Folder className="shrink-0 text-blue-600" size={24} />
-                    <h3 title={space.name} className="min-w-0 truncate text-lg font-semibold">{space.name}</h3>
+                <Link
+                  to={`/spaces/${space.id}`}
+                  className="flex min-h-0 flex-1 flex-col rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 transition group-hover:bg-blue-100">
+                        <Folder size={21} strokeWidth={2.1} />
+                      </span>
+                      <h3 title={space.name} className="min-w-0 truncate text-lg font-semibold tracking-[-0.01em] text-gray-900">{space.name}</h3>
+                    </div>
+                    {policyLabel ? (
+                      <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${isAutoPublish ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                        {isAutoPublish ? <ShieldCheck size={12} /> : <LockKeyhole size={12} />}
+                        {policyLabel}
+                      </span>
+                    ) : null}
                   </div>
-                  <p className="text-gray-500 text-sm line-clamp-2">{space.description || t('common.noDescription')}</p>
+                  <p className="mt-4 min-h-[2.75rem] text-sm leading-6 text-gray-500 line-clamp-2">{space.description || t('common.noDescription')}</p>
+                  <div className="mt-auto grid grid-cols-2 gap-2 border-t border-gray-100 pt-4 text-xs text-gray-500">
+                    <span className="inline-flex min-w-0 items-center gap-1.5 truncate" title={pageCount == null ? t('dashboard.statsSyncing') : t('dashboard.pages', { count: pageCount })}>
+                      <BookOpen className="shrink-0 text-gray-400" size={14} />
+                      {pageCount == null ? t('dashboard.statsSyncing') : t('dashboard.pages', { count: pageCount })}
+                    </span>
+                    <span className="inline-flex min-w-0 items-center gap-1.5 truncate" title={memberCount == null ? t('dashboard.statsSyncing') : t('dashboard.members', { count: memberCount })}>
+                      <Users className="shrink-0 text-gray-400" size={14} />
+                      {memberCount == null ? t('dashboard.statsSyncing') : t('dashboard.members', { count: memberCount })}
+                    </span>
+                  </div>
+                  <div className="mt-4 flex items-center justify-between gap-3 text-xs">
+                    <span className="inline-flex min-w-0 items-center gap-1.5 truncate text-gray-400">
+                      <Clock3 className="shrink-0" size={14} />
+                      {updated ? t('dashboard.updated', { time: updated }) : t('dashboard.statsSyncing')}
+                    </span>
+                    <span className="inline-flex shrink-0 items-center gap-1 font-medium text-blue-600 opacity-80 transition group-hover:opacity-100">
+                      {t('dashboard.openSpace')}
+                      <ArrowUpRight size={14} />
+                    </span>
+                  </div>
                 </Link>
-                <div className="mt-3 flex items-center gap-2 opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                <div className="mt-4 flex items-center gap-2 border-t border-gray-100 pt-3 opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                   <Link
                     to={`/spaces/${space.id}/graph`}
-                    className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded"
+                    className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-gray-500 hover:bg-blue-50 hover:text-blue-600"
                     title={t('dashboard.viewGraph')}
                   >
                     <Network size={14} />
@@ -252,15 +321,16 @@ export const Dashboard: React.FC = () => {
                   <button
                     onClick={() => handleDeleteSpace(space.id, space.name)}
                     disabled={deletingSpace === space.id}
-                    className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
+                    className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-gray-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
                     title={t('dashboard.deleteSpace')}
                   >
                     <Trash2 size={14} />
                     {deletingSpace === space.id ? t('common.deleting') : t('common.delete')}
                   </button>
                 </div>
-              </div>
-            ))}
+                </div>
+              );
+            })}
           </div>
           {hasMore ? (
             <div className="mt-6 flex justify-center">

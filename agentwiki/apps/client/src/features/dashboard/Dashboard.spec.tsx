@@ -63,6 +63,28 @@ describe('Dashboard Space pagination and creation', () => {
     vi.mocked(api.get).mockResolvedValue(spacePage(spaces, 25));
   });
 
+  it('shows useful Space context on each card', async () => {
+    vi.mocked(api.get).mockResolvedValue(spacePage([{
+      id: 'space-context',
+      name: '产品知识库',
+      slug: 'product-knowledge',
+      description: '沉淀产品决策和交付资料',
+      updatedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      approvalPolicy: 'always-review',
+      _count: { pages: 12 },
+      members: [{ type: 'human' }, { type: 'human' }],
+    }], 1, { nextCursor: null, hasMore: false }));
+
+    renderDashboard();
+
+    const card = await screen.findByTestId('space-card');
+    expect(within(card).getByText('12 个页面')).toBeInTheDocument();
+    expect(within(card).getByText('2 位成员')).toBeInTheDocument();
+    expect(within(card).getByText('始终审核')).toBeInTheDocument();
+    expect(within(card).getByText(/最近更新/)).toBeInTheDocument();
+    expect(within(card).getByRole('link', { name: /进入空间/ })).toHaveAttribute('href', '/spaces/space-context');
+  });
+
   it.each(['空', 'a', '😀', '✈️'])('blocks overlong creation without truncating %s input', async (unit) => {
     renderDashboard();
     fireEvent.click(await screen.findByRole('button', { name: '新建空间' }));
