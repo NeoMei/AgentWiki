@@ -1,0 +1,56 @@
+{
+  "sourceCommit": "e3bbc2012b65ccf2ccba18724c43657989614528",
+  "runtimeDatabaseGate": {
+    "status": "passed_with_documented_environment_retry",
+    "fileCount": 61,
+    "effectivePassedTests": 239,
+    "skippedTests": 0,
+    "unresolvedFailures": 0,
+    "initialRun": {
+      "passed": 233,
+      "failed": 1,
+      "skipped": 0,
+      "failure": "Dedicated sync database name was rejected by safety regex before any product assertion",
+      "log": "db-gate-runtime.log"
+    },
+    "targetedRetry": {
+      "completedAt": "2026-10-13T20:58:48.302Z",
+      "status": 0,
+      "durationMs": 341,
+      "name": "agentwiki_sync_version_test_release_30648_mv75yd4y",
+      "summary": [
+        "# tests 6",
+        "# suites 0",
+        "# pass 6",
+        "# fail 0",
+        "# cancelled 0",
+        "# skipped 0",
+        "# todo 0",
+        "# duration_ms 311.887791"
+      ]
+    },
+    "note": "233 tests from initial run plus 6 passing tests from the single previously blocked file; no duplicate counting"
+  },
+  "serverGate": {
+    "exitCode": 0,
+    "passedSuites": 177,
+    "skippedSuites": 1,
+    "passedTests": 3163,
+    "skippedTests": 4,
+    "log": "db-gate-server.log",
+    "skipReasons": [
+      "3 dedicated connection UX opt-in tests",
+      "1 Windows-only OpenCode runner test on macOS"
+    ]
+  },
+  "sharedPageNotesRealHttpMcpGate": {
+    "passedTests": 7,
+    "includedInRuntimeDatabaseCount": true
+  },
+  "cleanup": {
+    "cleanedAt": "2026-10-13T20:59:33.368Z",
+    "databaseCount": "0",
+    "redisStopped": true,
+    "removedTempRoot": "/tmp/agentwiki-release-db-G3LX8r"
+  }
+}

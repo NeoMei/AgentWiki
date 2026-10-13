@@ -21,6 +21,7 @@
     "releaseVersionIncrement": "no blockers"
   },
   "logsRoot": "/tmp/agentwiki-release-20261014",
-  "databaseGate": "running",
-  "production": "not yet published"
+  "databaseGate": "passed",
+  "production": "not yet published",
+  "sourceCommit": "e3bbc2012b65ccf2ccba18724c43657989614528"
 }
