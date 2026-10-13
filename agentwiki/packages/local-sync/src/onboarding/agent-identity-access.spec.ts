@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { productionDependencies } from './install.js';
 
-const connection = { id: 'local', agentId: 'agent-1', credentialId: 'credential-1', serverUrl: 'https://wiki.test/api', spaceId: 'space-a', pluginVersion: '0.12.0', client: 'codex' as const, mcpName: 'agentwiki' };
+const connection = { id: 'local', agentId: 'agent-1', credentialId: 'credential-1', serverUrl: 'https://wiki.test/api', spaceId: 'space-a', pluginVersion: '0.13.0', client: 'codex' as const, mcpName: 'agentwiki' };
 const expected = { agentId: 'agent-1', spaceId: 'space-b', role: 'editor' as const, scopes: ['knowledge:read', 'knowledge:write'] };
 const access = () => ({ access: [{ id: 'agent-1', name: 'Agent', status: 'active', credentialScope: 'agent',
   grants: [

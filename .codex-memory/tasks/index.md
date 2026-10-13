@@ -4,6 +4,8 @@
 
 ## 活跃任务
 
+- [release-v01226-20261014](active/release-v01226-20261014/brief.md)：用户授权全量发布；最终门禁、配套备份及0.12.26/0.13.0版本准备进行中。
+
 - [editor-live-preview-20261014](active/editor-live-preview-20261014/brief.md)：单行选区与编辑态图片预览均已本地修复，2325客户端测试/build/lint/独立复审和真实Chrome交互通过，未推送部署。
 
 - [regressions-release-20261013](active/regressions-release-20261013/brief.md)：v0.12.23修复候选整合与复审完成，完整门禁重跑；生产SSH与回执所有者审批待恢复。

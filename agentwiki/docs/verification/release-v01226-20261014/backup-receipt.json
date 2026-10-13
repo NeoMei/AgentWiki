@@ -1,0 +1,110 @@
+{
+  "status": "verified",
+  "backupDirectory": "/var/backups/agentwiki/collaboration-v01226.l_bek3wt",
+  "createdAt": "2026-10-13T20:47:41.386517+00:00",
+  "finishedAt": "2026-10-13T20:47:55.751317+00:00",
+  "source": {
+    "appVersion": "0.12.25",
+    "liveDirectory": "/root/agentwiki",
+    "sourceCommitFromPriorReleaseReceipt": "48781e5b192101a2d122dd143048d983bca8a29b",
+    "sourceCommitIndependentlyVerifiedInThisBackup": false,
+    "sourceFileCount": 5976,
+    "sourceUnchangedDuringCopy": true
+  },
+  "database": {
+    "format": "pg_dump custom",
+    "startedAt": "2026-10-13T20:47:44.837764+00:00",
+    "finishedAt": "2026-10-13T20:47:49.757460+00:00",
+    "pgRestoreListPassed": true,
+    "tocEntryCount": 678,
+    "consistentDatabaseSnapshot": true
+  },
+  "application": {
+    "startedAt": "2026-10-13T20:47:49.795831+00:00",
+    "finishedAt": "2026-10-13T20:47:53.225000+00:00",
+    "archiveListingPassed": true,
+    "containsServerAndClientBuilds": true,
+    "excludedDirectoryNames": [
+      ".cache",
+      ".git",
+      ".tmp",
+      ".turbo",
+      "coverage",
+      "node_modules",
+      "temp",
+      "tmp"
+    ],
+    "excludedFilePatterns": [
+      "*.tar.gz"
+    ]
+  },
+  "configuration": {
+    "rootEnvPresent": true,
+    "serverEnvPresent": true,
+    "serviceUnitCount": 3,
+    "archiveListingPassed": true
+  },
+  "attachments": {
+    "liveDirectory": "/var/lib/agentwiki/attachments",
+    "startedAt": "2026-10-13T20:47:54.812383+00:00",
+    "finishedAt": "2026-10-13T20:47:55.149449+00:00",
+    "permanentBlobCount": 86,
+    "archiveMatchesLivePermanentBlobs": true,
+    "beforeAfterManifestIdentical": true,
+    "wholeStorageDirectoryIncluded": true
+  },
+  "artifacts": {
+    "database.dump": {
+      "bytes": 41001329,
+      "sha256": "a3f163c32af5dd3ae90c96bac663972ee8e2419feb7a01fb85486cae5279d053"
+    },
+    "application.tar.gz": {
+      "bytes": 33822414,
+      "sha256": "0c3be534e08898c421ea66b8378d6c7b7b1bdde4de5cb2d34e6666817054d16a"
+    },
+    "configuration.tar.gz": {
+      "bytes": 2068,
+      "sha256": "522f64a8906be2336d285ece722ec880e0f038017a765fcb1fb53d169b5fba3f"
+    },
+    "attachments.tar.gz": {
+      "bytes": 9228727,
+      "sha256": "f6adb8b3fd3b2ba9bbc774fc07c5ef9030b6aa6af58ec640c005811a42e83585"
+    },
+    "database-toc.txt": {
+      "bytes": 55402,
+      "sha256": "5e8aa41f4331ebbc7397b56983c44383638b0f8c143b022b911aa769253f0884"
+    },
+    "attachment-manifest-before.json": {
+      "bytes": 15862,
+      "sha256": "04cc014a4d6f52fb0725658fee260e02e153d2a8ec7b473425ff9856b0b3bffb"
+    },
+    "attachment-manifest-after.json": {
+      "bytes": 15862,
+      "sha256": "04cc014a4d6f52fb0725658fee260e02e153d2a8ec7b473425ff9856b0b3bffb"
+    },
+    "source-manifest-before.json": {
+      "bytes": 969566,
+      "sha256": "d2189c2d5f996d5a021203220cb6e450c8a56c6e61cf3c25241cd1b0b1e9ae68"
+    },
+    "source-manifest-after.json": {
+      "bytes": 969566,
+      "sha256": "d2189c2d5f996d5a021203220cb6e450c8a56c6e61cf3c25241cd1b0b1e9ae68"
+    }
+  },
+  "sha256Manifest": "SHA256SUMS",
+  "checksumsPassed": true,
+  "servicesBefore": {
+    "agentwiki-api.service": "active",
+    "agentwiki-worker.service": "active",
+    "agentwiki-frontend.service": "active"
+  },
+  "servicesAfter": {
+    "agentwiki-api.service": "active",
+    "agentwiki-worker.service": "active",
+    "agentwiki-frontend.service": "active"
+  },
+  "servicesStopped": false,
+  "snapshotBoundary": "Online backup: pg_dump provides a consistent PostgreSQL snapshot. Application source and permanent attachment content were unchanged across copying, and archived attachment hashes matched the live manifest. Writes remained enabled; database and filesystem are not a single quiesced point-in-time snapshot. Restore the database and paired application/configuration/attachment archives together, reconcile later writes explicitly.",
+  "backupDirectoryMode": "0o700",
+  "privateArtifactFileMode": "0600"
+}

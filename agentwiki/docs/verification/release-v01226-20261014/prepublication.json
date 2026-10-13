@@ -1,0 +1,26 @@
+{
+  "web": "0.12.26",
+  "localSync": "0.13.0",
+  "protocol": "0.6.1",
+  "registryCollision": "available",
+  "protocolRegistryParity": "identical",
+  "cleanInstall": {
+    "status": "passed",
+    "protocolSource": "registry",
+    "publisherPaths": [
+      "device-bootstrap",
+      "one-time-code"
+    ],
+    "scopes": 16,
+    "tamperRejected": true,
+    "rawServerPlan": true
+  },
+  "reviews": {
+    "featureRange": "48781e5b..afc579c9",
+    "featureReview": "no blockers",
+    "releaseVersionIncrement": "no blockers"
+  },
+  "logsRoot": "/tmp/agentwiki-release-20261014",
+  "databaseGate": "running",
+  "production": "not yet published"
+}

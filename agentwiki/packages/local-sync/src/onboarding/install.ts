@@ -154,7 +154,7 @@ export interface ExchangedGatewayInstallInput {
   expectedSpaceId: string;
   expectedRole: AgentAccessRole;
   expectedScopes: string[];
-  expectedPluginVersion: '0.12.0';
+  expectedPluginVersion: '0.13.0';
   exchange: ExchangeResult;
   /** Retain only after the client entry switched successfully; pre-switch failures restore old active state. */
   retainOnFailure?: boolean;
@@ -408,7 +408,7 @@ export function productionDependencies(request?: typeof fetch): BootstrapInstall
   };
 }
 
-function assertExchange(exchange: ExchangeResult, bootstrap: BootstrapResult, version: '0.12.0'): void {
+function assertExchange(exchange: ExchangeResult, bootstrap: BootstrapResult, version: '0.13.0'): void {
   assertExchangePackage(exchange, {
     agentId: bootstrap.agent.id,
     spaceId: bootstrap.space.id,
@@ -444,13 +444,13 @@ function assertExchangePackage(
     spaceId: string;
     role: AgentAccessRole;
     scopes: string[];
-    pluginVersion: '0.12.0';
+    pluginVersion: '0.13.0';
   },
 ): void {
   const canonicalScopes = scopesForAgentAccessRole(expected.role);
   if (
-    expected.pluginVersion !== '0.12.0'
-    || exchange.pluginVersion !== '0.12.0'
+    expected.pluginVersion !== '0.13.0'
+    || exchange.pluginVersion !== '0.13.0'
     || exchange.pluginVersion !== expected.pluginVersion
     || exchange.agentId !== expected.agentId
     || exchange.spaceId !== expected.spaceId
