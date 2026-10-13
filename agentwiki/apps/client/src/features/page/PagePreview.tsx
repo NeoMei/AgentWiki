@@ -6,6 +6,9 @@ import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { captureReadingSelection } from '../agent-session/readingSelection';
 import type { AssistTarget } from './assistTargets';
+import { usePersonalNotes } from './usePersonalNotes';
+import { SelectionNoteComposer } from './SelectionNoteComposer';
+import { locateReadingNote, resolvePersonalNoteHighlights } from './personalNoteHighlights';
 const AgentReadingSidebar = React.lazy(() => import('../agent-session/AgentReadingSidebar').then((module) => ({ default: module.AgentReadingSidebar })));
 import { apiErrorMessage } from '../../api/error-message';
 import { getContentTreeRevision } from '../../api/content-tree';
@@ -80,8 +83,14 @@ export const PagePreview: React.FC = () => {
   const [agentMounted, setAgentMounted] = useState(false);
   const [readingTarget, setReadingTarget] = useState<AssistTarget | null>(null);
   const [selectionUnavailable, setSelectionUnavailable] = useState(false);
+  const [activeNote, setActiveNote] = useState<{ identity: string; id: string } | null>(null);
+  const notesEnabled = !!user?.id && !!page && page.id === id && !loading && !error;
+  const personalNotes = usePersonalNotes({ scope: notesEnabled && page ? { userId: user.id, spaceId: page.spaceId, pageId: page.id } : null, canEdit: page?.capabilities?.canEdit === true, enabled: notesEnabled, stageForSession: true, source: page?.content ?? '', updatedAt: page?.updatedAt, language });
+  const noteHighlights = useMemo(() => resolvePersonalNoteHighlights(page?.content ?? '', personalNotes.notes), [page?.content, personalNotes.notes]);
+  const activeNoteId = activeNote?.identity === personalNotes.identityKey ? activeNote.id : null;
   const [panelGeometry, setPanelGeometry] = useState({ top: 130, width: window.innerWidth });
   const readingToolbarRef = useRef<HTMLDivElement>(null);
+  const notesPanelRef = useRef<HTMLDivElement>(null);
   const panelMatches = workspace?.spaceId === page?.spaceId && workspace?.userId === user?.id;
   const agentOpen = panelGeometry.width >= 1024 && panelMatches ? workspace?.collaborationOpen === true : localPanel.open;
   const notesOpen = panelMatches ? workspace?.collaborationTab === 'notes' : localPanel.notes;
@@ -94,6 +103,16 @@ export const PagePreview: React.FC = () => {
     setLocalPanel((state) => ({ ...state, open: false }));
     if (panelMatches && panelGeometry.width >= 1024) workspace?.setPanelPreferences({ collaborationOpen: false });
     readingToolbarRef.current?.querySelector<HTMLButtonElement>('[data-agent-toggle]')?.focus();
+  };
+  const activateNote = (noteId: string) => {
+    if (!noteHighlights.some((note) => note.id === noteId)) return;
+    setActiveNote({ identity: personalNotes.identityKey, id: noteId });
+    openAgent(true);
+  };
+  const locateNote = (noteId: string) => {
+    if (!noteHighlights.some((note) => note.id === noteId)) return false;
+    setActiveNote({ identity: personalNotes.identityKey, id: noteId });
+    return locateReadingNote(markdownRootRef.current, noteId);
   };
   useEffect(() => { setReadingTarget(null); setSelectionUnavailable(false); }, [id, page?.updatedAt, user?.id]);
   useEffect(() => {
@@ -112,6 +131,20 @@ export const PagePreview: React.FC = () => {
     };
     window.addEventListener('keydown', shortcut); return () => window.removeEventListener('keydown', shortcut);
   }, [id, page?.id, page?.spaceId, loading, error, agentOpen, panelMatches, panelGeometry.width]);
+  useEffect(() => {
+    if (!agentOpen || !notesOpen || panelGeometry.width >= 1024) return;
+    const frame = requestAnimationFrame(() => {
+      const panel = notesPanelRef.current;
+      if (!panel) return;
+      const toolbarBottom = readingToolbarRef.current?.getBoundingClientRect().bottom ?? 0;
+      panel.style.scrollMarginTop = `${Math.max(16, Math.ceil(toolbarBottom + 12))}px`;
+      panel.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      if (notesPanelRef.current) notesPanelRef.current.style.scrollMarginTop = '';
+    };
+  }, [agentOpen, notesOpen, panelGeometry.width]);
   const [relatedPages, setRelatedPages] = useState<any[]>([]);
   const [pendingTaskIndexes, setPendingTaskIndexes] = useState<ReadonlySet<number>>(new Set());
   const mountedRef = useRef(false);
@@ -636,7 +669,7 @@ export const PagePreview: React.FC = () => {
         ) : <span />}
         <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
           <button type="button" data-agent-toggle aria-pressed={agentOpen && !notesOpen} onClick={() => agentOpen && !notesOpen ? closeAgent() : openAgent()} className="min-h-9 rounded-lg px-3 text-sm hover:bg-gray-100">Agent</button>
-          <button type="button" aria-pressed={agentOpen && notesOpen} disabled={!user?.id} onClick={() => openAgent(true)} className="min-h-9 rounded-lg px-3 text-sm hover:bg-gray-100 disabled:opacity-40">{language === 'zh-CN' ? '个人笔记' : 'Personal notes'}</button>
+          <button type="button" aria-pressed={agentOpen && notesOpen} disabled={!user?.id} onClick={() => agentOpen && notesOpen ? closeAgent() : openAgent(true)} className="min-h-9 rounded-lg px-3 text-sm hover:bg-gray-100 disabled:opacity-40">{language === 'zh-CN' ? '个人笔记' : 'Personal notes'}</button>
           {page.capabilities?.canEdit === true ? (
             <button
               type="button"
@@ -684,7 +717,7 @@ export const PagePreview: React.FC = () => {
       </div>
 
       <SourceStatusNotice status={page.sourceStatus} />
-      <article className="document-canvas min-h-[300px] bg-white" style={{ '--document-panel-width': `${agentOpen && panelGeometry.width >= 1600 ? 420 : outlineOccupiedWidth}px` } as React.CSSProperties}>
+      <article className="document-canvas min-h-[300px] bg-white" style={{ '--document-panel-width': `${agentOpen && (panelGeometry.width >= 1600 || notesOpen && panelGeometry.width >= 1024) ? 420 : outlineOccupiedWidth}px` } as React.CSSProperties}>
         <header className={titleInContent ? "document-content-title-meta" : "document-header document-reading-header"}>
           {!titleInContent ? <h1 title={page.title} className="document-title">{page.title}</h1> : null}
           <div className={`${titleInContent ? "" : "mt-3"} flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500`}>
@@ -715,6 +748,9 @@ export const PagePreview: React.FC = () => {
           {page.content ? (
             <Markdown
               mode="page"
+              noteHighlights={noteHighlights}
+              activeNoteId={activeNoteId}
+              onNoteActivate={activateNote}
               selectionSourceVersion={page.updatedAt}
               className="document-body"
               canEdit={page.capabilities?.canEdit === true}
@@ -731,10 +767,17 @@ export const PagePreview: React.FC = () => {
         </div>
       </article>
 
-      {agentMounted || agentOpen ? <div hidden={!agentOpen} className="document-assist-layer" style={{ top: panelGeometry.top, width: Math.min(400, panelGeometry.width - 32) }}>
+      {notesEnabled ? <SelectionNoteComposer key={personalNotes.identityKey} rootRef={markdownRootRef}
+        identity={personalNotes.identityKey} source={page.content} updatedAt={page.updatedAt} language={language}
+        storageUnavailable={personalNotes.storageUnavailable} disabled={!!personalNotes.assistRequest} onAdd={(target, body) => personalNotes.add(target, body, { requirePersistence: true })} captureTarget={() => {
+          const selection = window.getSelection(), root = markdownRootRef.current?.querySelector<HTMLElement>('[data-markdown-selection-root]');
+          return root && selection?.rangeCount && !selection.isCollapsed
+            ? captureReadingSelection(root, selection.getRangeAt(0), page.content, page.updatedAt, root.dataset.markdownSelectionVersion ?? '') : null;
+        }} /> : null}
+      {agentMounted || agentOpen ? <div ref={notesPanelRef} hidden={!agentOpen} className={`document-assist-layer${notesOpen ? ' document-notes-layer' : ''}`} style={{ top: panelGeometry.top, width: Math.min(400, panelGeometry.width - 32) }}>
         <div className="document-panel-scroll document-agent-scroll">
           <div className="flex shrink-0 items-center gap-3 border-b border-gray-200 bg-white p-3 text-sm"><button type="button" onClick={() => openAgent()} aria-pressed={!notesOpen} className={`rounded-lg px-2 py-1 ${!notesOpen ? 'bg-gray-100 font-medium' : 'text-gray-500'}`}>Agent</button><button type="button" onClick={() => openAgent(true)} aria-pressed={notesOpen} className={`rounded-lg px-2 py-1 ${notesOpen ? 'bg-gray-100 font-medium' : 'text-gray-500'}`}>{language === 'zh-CN' ? '个人笔记' : 'Personal notes'}</button><button type="button" className="ml-auto min-h-8 px-2" aria-label={language === 'zh-CN' ? '关闭协作面板' : 'Close collaboration panel'} onClick={closeAgent}>×</button></div>
-          <React.Suspense fallback={<p>Agent…</p>}><AgentReadingSidebar key={`${user?.id}:${page.spaceId}:${page.id}`} page={page} notesOpen={notesOpen} target={readingTarget} selectionUnavailable={selectionUnavailable} onTarget={setReadingTarget} onOpenAgent={() => openAgent()} /></React.Suspense>
+          <React.Suspense fallback={<p>Agent…</p>}><AgentReadingSidebar key={`${user?.id}:${page.spaceId}:${page.id}`} page={page} notes={personalNotes} activeNoteId={activeNoteId} onLocateNote={locateNote} onClearActiveNote={() => setActiveNote(null)} notesOpen={agentOpen && notesOpen} target={readingTarget} selectionUnavailable={selectionUnavailable} onTarget={setReadingTarget} onOpenAgent={() => openAgent()} /></React.Suspense>
         </div>
       </div> : null}
       {relatedPages.length > 0 && (

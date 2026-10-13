@@ -712,7 +712,7 @@ describe('PageEditor remote update safety', () => {
     expect(contentEditorValue()).toBe('# Outline entry'); expect(api.patch).not.toHaveBeenCalled();
   });
 
-  it('reserves only the visible wide-screen panel and releases that space for overlays or documents without an outline', async () => {
+  it('reserves Notes beside the document on desktop and keeps the narrower Agent panel as an overlay', async () => {
     const viewport = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1700);
     localStorage.setItem('agentwiki.workspace.v1:user-1:space-1', JSON.stringify({ schemaVersion: 1, outlineOpen: true, outlineWidth: 300, collaborationWidth: 440 }));
     queuePages({ data: page({ content: '# Outline entry', capabilities: { canEdit: true } }) });
@@ -723,7 +723,10 @@ describe('PageEditor remote update safety', () => {
     expect(occupiedWidth()).toBe('460px');
     expect(screen.queryByRole('navigation', { name: 'Contents' })).not.toBeInTheDocument();
     viewport.mockReturnValue(1280); fireEvent.resize(window);
+    expect(occupiedWidth()).toBe('460px');
+    fireEvent.click(screen.getByRole('button', { name: 'Candidate queue' }));
     expect(occupiedWidth()).toBe('0px');
+    fireEvent.click(screen.getByRole('button', { name: 'Notes queue' }));
     expect(screen.getByRole('button', { name: 'Notes queue' })).toBeVisible();
     viewport.mockReturnValue(1700); fireEvent.resize(window);
     expect(occupiedWidth()).toBe('460px');
@@ -2746,6 +2749,81 @@ describe('PageEditor remote update safety', () => {
     fireEvent.click(screen.getByRole('button',{name:'Accept change 2'}));expect(contentEditorValue()).toBe('ONE\nkeep\nTWO\n');fireEvent.click(screen.getByRole('button',{name:'Notes queue'}));fireEvent.click(screen.getByRole('button',{name:'All (2)'}));expect(screen.getAllByText('Resolved')).toHaveLength(2);fireEvent.click(screen.getByRole('button',{name:'Candidate queue'}));
     fireEvent.click(screen.getByRole('button',{name:'Accept change 1'}));act(()=>expect(undo(currentEditorView())).toBe(true));expect(contentEditorValue()).toBe('ONE\nkeep\ntwo\n');
     act(()=>expect(undo(currentEditorView())).toBe(true));expect(contentEditorValue()).toBe(base);expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('scrolls mobile notes into view only when opening the panel', async () => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+    const scroll = vi.fn();
+    const original = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, value: scroll });
+    try {
+    queuePages({ data: page({ capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    scroll.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+    await waitFor(() => expect(scroll.mock.instances.some((element) => element === document.querySelector('.document-notes-layer'))).toBe(true));
+    scroll.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
+    expect(scroll).not.toHaveBeenCalled();
+    } finally {
+      if (original) Object.defineProperty(Element.prototype, 'scrollIntoView', original);
+      else delete (Element.prototype as any).scrollIntoView;
+    }
+  });
+
+  it('adds a note from the editor selection popover without changing the draft or its undo history', async () => {
+    queuePages({ data: page({ content: 'A passage worth noting', capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    const view = currentEditorView();
+    act(() => { view.focus(); view.dispatch({ selection: EditorSelection.single(2, 9) }); });
+    const text = view.contentDOM.querySelector('.cm-line')!.firstChild!;
+    const range = document.createRange(); range.setStart(text, 2); range.setEnd(text, 9);
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range);
+    fireEvent.mouseUp(view.contentDOM);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add note to selection' }));
+    const depth = undoDepth(view.state);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Note' }), { target: { value: 'Explain this passage' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add note' }));
+    expect(screen.queryByRole('dialog', { name: 'Add personal note' })).not.toBeInTheDocument();
+    expect(view.contentDOM.querySelector('[data-note-ids]')).toHaveTextContent('passage');
+    expect(contentEditorValue()).toBe('A passage worth noting');
+    expect(undoDepth(view.state)).toBe(depth);
+    expect(screen.getByRole('button', { name: 'Personal notes' })).toHaveAttribute('aria-pressed', 'false');
+    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('keeps private note marks visible while toggling the panel and locates their passage without editing', async () => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280);
+    const source = 'A passage worth noting';
+    queuePages({ data: page({ content: source, capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    expect(document.querySelector('.cm-content [data-note-ids]')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+    act(() => currentEditorView().dispatch({ selection: EditorSelection.single(2, 9) }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Note' }), { target: { value: 'Explain this passage' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add note' }));
+    const marker = document.querySelector<HTMLElement>('.cm-content [data-note-ids]');
+    expect(marker).toHaveTextContent('passage');
+    expect(Number.parseFloat(document.querySelector<HTMLElement>('.document-canvas')!.style.getPropertyValue('--document-panel-width'))).toBeGreaterThanOrEqual(340);
+    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+    expect(screen.getByRole('button', { name: 'Personal notes' })).toHaveAttribute('aria-pressed', 'false');
+    expect(document.querySelector('.cm-content [data-note-ids]')).toHaveTextContent('passage');
+    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+    const depth = undoDepth(currentEditorView().state);
+    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
+    expect(document.querySelector('.cm-content [data-note-ids]')).toHaveTextContent('passage');
+    act(() => currentEditorView().dispatch({ selection: EditorSelection.cursor(5) }));
+    fireEvent.click(document.querySelector<HTMLElement>('.cm-content [data-note-ids]')!);
+    expect(await screen.findByRole('checkbox', { name: 'Explain this passage' })).toBeVisible();
+    act(() => currentEditorView().dispatch({ selection: EditorSelection.cursor(source.length) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Locate passage' }));
+    expect(currentEditorView().state.selection.main).toMatchObject({ from: 2, to: 9 });
+    expect(contentEditorValue()).toBe(source);
+    expect(undoDepth(currentEditorView().state)).toBe(depth);
+    fireEvent.click(screen.getByRole('button', { name: 'Candidate queue' }));
+    expect(document.querySelector('.cm-content [data-note-ids]')).toHaveTextContent('passage');
+    expect(document.querySelector<HTMLElement>('.document-canvas')?.style.getPropertyValue('--document-panel-width')).toBe('0px');
+    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
   });
 
   it('captures current heading section and sends default document snapshots explicitly', async () => {

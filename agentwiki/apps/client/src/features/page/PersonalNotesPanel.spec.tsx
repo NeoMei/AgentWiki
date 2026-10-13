@@ -15,6 +15,44 @@ function queue(props: Partial<ComponentProps<typeof PersonalNotesPanel>> = {}) {
   return { ...view, props: defaults, update: (next: Partial<ComponentProps<typeof PersonalNotesPanel>>) => view.rerender(<LanguageProvider><PersonalNotesPanel {...defaults} {...next} /></LanguageProvider>) };
 }
 describe('personal notes UI', () => {
+  it('reveals and scrolls an activated resolved note without reopening or selecting it for Agent', () => {
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    const scroll = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scroll;
+    try {
+      const view = queue({ notes: [note('Open note', 'open'), note('Resolved note', 'done', 'resolved')] });
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Open note' }));
+      view.update({ activeNoteId: 'done' });
+      const active = screen.getByRole('checkbox', { name: 'Resolved note' }).closest('li');
+      expect(active).toHaveAttribute('data-active-note', 'true');
+      expect(scroll.mock.instances).toContain(active);
+      expect(screen.getByRole('button', { name: 'Send selected to Agent' })).toBeDisabled();
+      expect(view.props.onReopen).not.toHaveBeenCalled();
+      expect(view.props.onDispatch).not.toHaveBeenCalled();
+    } finally { Element.prototype.scrollIntoView = original; }
+  });
+  it('locates only an exact anchored note and leaves lifecycle and dispatch unchanged', () => {
+    localStorage.setItem('agentwiki.language.v1', 'zh-CN');
+    const onLocate = vi.fn();
+    const view = queue({ notes: [note('定位这条', 'a')], onLocate });
+    fireEvent.click(screen.getByRole('button', { name: '定位原文' }));
+    expect(onLocate).toHaveBeenCalledExactlyOnceWith('a');
+    expect(view.props.onDispatch).not.toHaveBeenCalled();
+    expect(view.props.onReopen).not.toHaveBeenCalled();
+    view.update({ source: 'changed' });
+    expect(screen.getByRole('button', { name: '定位原文' })).toBeDisabled();
+  });
+  it('explains when an anchored passage has no exact visible reading span instead of silently doing nothing', () => {
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    const onLocate = vi.fn().mockReturnValueOnce(false).mockReturnValue(true);
+    const view = queue({ notes: [note('Encoded passage', 'encoded')], onLocate });
+    fireEvent.click(screen.getByRole('button', { name: 'Locate passage' }));
+    expect(screen.getByText('This passage cannot be located in this view. Check the original Markdown.')).toBeVisible();
+    expect(view.props.onDispatch).not.toHaveBeenCalled(); expect(view.props.onReopen).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Locate passage' }));
+    expect(screen.queryByText('This passage cannot be located in this view. Check the original Markdown.')).not.toBeInTheDocument();
+  });
   it('labels local privacy, adds a selected passage note, and only sends chosen pending notes', () => {
     localStorage.setItem('agentwiki.language.v1', 'en');
     const onAdd = vi.fn(), onDispatch = vi.fn(); const note = addPersonalNote(scope, target, 'Explain it', 'id');

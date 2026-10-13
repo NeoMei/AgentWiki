@@ -47,9 +47,22 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
     }
     next.loaded = true; stateRef.current = next; setState(next);
   }, [identity]);
-  const add = (target: AssistTarget, body: string): boolean => {
+  const add = (target: AssistTarget, body: string, options?: { requirePersistence?: boolean }): boolean => {
     if (!active() || !scope || target.baseUpdatedAt !== latestRef.current.updatedAt || resolveAssistTarget(latestRef.current.source, target).status !== 'found') return false;
-    try { const note = addPersonalNote(scope, target, body); publish({ ...stateRef.current, notes: [...stateRef.current.notes, note] }, true); return true; } catch { return false; }
+    try {
+      const note = addPersonalNote(scope, target, body);
+      const notes = [...stateRef.current.notes, note];
+      if (options?.requirePersistence) {
+        // The inline composer closes on success. Persist first so a failed retry cannot
+        // silently lose its draft or append the same note twice to the visible queue.
+        if (savePersonalNotes(scope, notes).status !== 'saved') {
+          publish({ ...stateRef.current, storageUnavailable: true });
+          return false;
+        }
+        publish({ ...stateRef.current, notes, storageUnavailable: false });
+      } else publish({ ...stateRef.current, notes }, true);
+      return true;
+    } catch { return false; }
   };
   const dispatch = (ids: string[]): boolean => {
     const { source: liveSource, updatedAt: liveVersion, language: liveLanguage } = latestRef.current;

@@ -11,6 +11,8 @@ import { PagePreview } from './PagePreview';
 import { AgentSessionRegistryProvider } from '../agent-session/AgentSessionRegistry';
 import { SpaceWorkspaceProvider, SpaceWorkspaceScope, useSpaceWorkspace } from '../space-workspace/SpaceWorkspaceContext';
 import { readWorkspacePosition } from '../space-workspace/workspaceNavigation';
+import { addPersonalNote, loadPersonalNotes, savePersonalNotes } from './reviewComments';
+import { captureAssistTarget } from './assistTargets';
 
 vi.mock('../../api/client', () => ({
   default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
@@ -1168,6 +1170,118 @@ describe('PagePreview checklist saves', () => {
     expect(screen.getByRole('heading', { name: 'Page B' })).toBeInTheDocument();
     expect(scrollIntoViewMock).toHaveBeenCalledTimes(1);
   });
+  it('scrolls the mobile notes panel into view when its toolbar button opens it', async () => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+    const current = page({ content: 'A passage worth noting' });
+    localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/assist/sessions' || url.startsWith('/knowledge') ? [] : current }));
+    render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="reader"><MemoryRouter initialEntries={['/pages/page-1']}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
+    await screen.findByRole('heading', { name: 'Checklist' });
+    scrollIntoViewMock.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+    await waitFor(() => expect(scrollIntoViewMock.mock.instances.some((element) => element === document.querySelector('.document-notes-layer'))).toBe(true));
+    scrollIntoViewMock.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
+    expect(scrollIntoViewMock).not.toHaveBeenCalled();
+  });
+
+  it('adds an exact private reading note beside the selection without opening or sending to Agent', async () => {
+    savePersonalNotes({ userId: 'reader', spaceId: 'space-1', pageId: 'page-1' }, []);
+    const current = page({ content: 'repeat\n\nrepeat with context', capabilities: { canEdit: false } });
+    localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url.startsWith('/knowledge') ? [] : current }));
+    render(<LanguageProvider><AuthProvider><MemoryRouter initialEntries={['/pages/page-1']}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AuthProvider></LanguageProvider>);
+    const span = await screen.findByText('repeat with context');
+    const range = document.createRange(); range.setStart(span.firstChild!, 0); range.setEnd(span.firstChild!, 6);
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range); fireEvent.mouseUp(span);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add note to selection' }));
+    const dialog = screen.getByRole('dialog', { name: 'Add personal note' });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Note' }), { target: { value: 'The second occurrence' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add note' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-note-ids]')).toHaveTextContent('repeat');
+    const stored = loadPersonalNotes({ userId: 'reader', spaceId: current.spaceId, pageId: current.id });
+    expect(stored).toMatchObject({ status: 'loaded', notes: [expect.objectContaining({ body: 'The second occurrence', target: expect.objectContaining({ from: 8, to: 14 }) })] });
+    expect(screen.queryByRole('region', { name: 'Personal notes' })).not.toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('keeps the selection note draft on a storage failure and retries without duplicate notes', async () => {
+    savePersonalNotes({ userId: 'reader', spaceId: 'space-1', pageId: 'page-1' }, []);
+    const current = page({ content: 'A selected passage', capabilities: { canEdit: false } });
+    localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url.startsWith('/knowledge') ? [] : current }));
+    render(<LanguageProvider><AuthProvider><MemoryRouter initialEntries={['/pages/page-1']}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AuthProvider></LanguageProvider>);
+    const span = await screen.findByText('A selected passage');
+    const range = document.createRange(); range.setStart(span.firstChild!, 2); range.setEnd(span.firstChild!, 10);
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range); fireEvent.mouseUp(span);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add note to selection' }));
+    const dialog = screen.getByRole('dialog', { name: 'Add personal note' });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Note' }), { target: { value: 'Keep until safely saved' } });
+    const persist = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('Quota exceeded', 'QuotaExceededError'); });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add note' }));
+    expect(screen.getByRole('textbox', { name: 'Note' })).toHaveValue('Keep until safely saved');
+    expect(screen.getByRole('alert')).toHaveTextContent('Browser storage is unavailable');
+    expect(document.querySelector('[data-note-ids]')).not.toBeInTheDocument();
+    persist.mockRestore();
+    fireEvent.click(screen.getByRole('button', { name: 'Add note' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    const stored = loadPersonalNotes({ userId: 'reader', spaceId: current.spaceId, pageId: current.id });
+    expect(stored.status === 'loaded' ? stored.notes : []).toEqual([expect.objectContaining({ body: 'Keep until safely saved' })]);
+    expect(document.querySelector('[data-note-ids]')).toHaveTextContent('selected');
+    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('keeps saved note highlights visible while the panel is closed and reveals a resolved card without sending it', async () => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280);
+    const current = page({ content: 'A passage worth noting', capabilities: { canEdit: false } });
+    const scope = { userId: 'reader', spaceId: current.spaceId, pageId: current.id };
+    const note = { ...addPersonalNote(scope, captureAssistTarget(current.content, 'selection', 2, 9, current.updatedAt)!, 'Already reviewed', 'saved-note'), status: 'resolved' as const, taskId: 'previous-task' };
+    savePersonalNotes(scope, [note]);
+    localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/assist/sessions' || url.startsWith('/knowledge') ? [] : current }));
+    render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="reader"><MemoryRouter initialEntries={['/pages/page-1']}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
+    await screen.findByRole('heading', { name: 'Checklist' });
+    await waitFor(() => expect(document.querySelector('[data-note-id="saved-note"]')).toHaveTextContent('passage'));
+    expect(screen.queryByRole('region', { name: 'Personal notes' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+    await waitFor(() => expect(document.querySelector('[data-note-id="saved-note"]')).toHaveTextContent('passage'));
+    expect(document.querySelector<HTMLElement>('.document-canvas')?.style.getPropertyValue('--document-panel-width')).toBe('420px');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Personal notes' })[0]);
+    expect(screen.getAllByRole('button', { name: 'Personal notes' })[0]).toHaveAttribute('aria-pressed', 'false');
+    expect(document.querySelector('[data-note-id="saved-note"]')).toHaveTextContent('passage');
+    fireEvent.click(document.querySelector<HTMLElement>('[data-note-id="saved-note"]')!);
+    const panel = await screen.findByRole('region', { name: 'Personal notes' });
+    expect((await within(panel).findByRole('checkbox', { name: 'Already reviewed' })).closest('li')).toHaveAttribute('data-active-note', 'true');
+    fireEvent.click(within(panel).getByRole('button', { name: 'Locate passage' }));
+    expect(document.activeElement).toBe(document.querySelector('[data-note-id="saved-note"]'));
+    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
+    expect(document.querySelector('[data-note-id="saved-note"]')).toHaveTextContent('passage');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Agent' })[0]);
+    expect(document.querySelector('[data-note-id="saved-note"]')).toHaveTextContent('passage');
+    expect(document.querySelector<HTMLElement>('.document-canvas')?.style.getPropertyValue('--document-panel-width')).toBe('0px');
+    fireEvent.click(document.querySelector<HTMLElement>('[data-note-id="saved-note"]')!);
+    expect(await screen.findByRole('checkbox', { name: 'Already reviewed' })).toBeVisible();
+    expect(loadPersonalNotes(scope)).toEqual({ status: 'loaded', notes: [note] });
+    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('clears reading highlights immediately when the account changes while Notes is open', async () => {
+    const current = page({ content: 'Only my private annotation' });
+    const scope = { userId: 'reader', spaceId: current.spaceId, pageId: current.id };
+    savePersonalNotes(scope, [addPersonalNote(scope, captureAssistTarget(current.content, 'selection', 0, 4, current.updatedAt)!, 'My note', 'account-note')]);
+    localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');
+    const AccountSwitch = () => { const { login } = useAuth(); return <button onClick={() => login('next', { id: 'other-reader' })}>Switch account</button>; };
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/assist/sessions' || url.startsWith('/knowledge') ? [] : current }));
+    render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="reader"><MemoryRouter initialEntries={['/pages/page-1']}><AccountSwitch /><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
+    await screen.findByRole('heading', { name: 'Checklist' });
+    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+    await waitFor(() => expect(document.querySelector('[data-note-id="account-note"]')).toHaveTextContent('Only'));
+    fireEvent.click(screen.getByRole('button', { name: 'Switch account' }));
+    expect(document.querySelector('[data-note-ids]')).not.toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
   it('lets a reader annotate an exact reading selection, stage it, add a reference and explicitly send a question', async () => {
     const readingSource = 'repeat\n\nrepeat with context';
     const current = page({ content: readingSource, capabilities: { canEdit: false } });
@@ -1183,6 +1297,7 @@ describe('PagePreview checklist saves', () => {
     const notesPanel = await screen.findByRole('region', { name: 'Personal notes' });
     expect(within(notesPanel).getByText('repeat', { selector: 'blockquote' })).toBeVisible();
     fireEvent.change(within(notesPanel).getByRole('textbox', { name: 'Note' }), { target: { value: 'Why the second occurrence?' } }); fireEvent.click(within(notesPanel).getByRole('button', { name: 'Add note' }));
+    expect(document.querySelector('[data-note-ids]')).toHaveTextContent('repeat');
     fireEvent.click(within(notesPanel).getByRole('checkbox', { name: 'Why the second occurrence?' })); fireEvent.click(within(notesPanel).getByRole('button', { name: 'Stage selected for Agent' }));
     expect(api.post).not.toHaveBeenCalled();
     fireEvent.change(await screen.findByRole('textbox', { name: 'Find reference pages' }), { target: { value: 'Supporting' } }); fireEvent.click(await screen.findByRole('button', { name: 'Add Supporting page' }));

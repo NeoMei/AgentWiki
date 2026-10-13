@@ -15,6 +15,8 @@ import remarkGfm from 'remark-gfm';
 import { visit } from 'unist-util-visit';
 import { useLanguage } from '../context/LanguageContext';
 import { Markdown } from './Markdown';
+import { EMPTY_NOTE_HIGHLIGHTS, noteHighlightSegments, type NoteHighlightProps } from './markdown/noteHighlights';
+import { noteHighlightExtension } from './markdown/noteHighlightExtension';
 import { toggleMarkdownTask } from './markdown/tasks';
 import { PageLinkTarget, resolveWikiHref } from './markdownLinks';
 import { canonicalWikiReferenceKey, parseWikiReference } from './markdown/obsidian';
@@ -40,7 +42,7 @@ import { nearestMarkdownSourceBlock } from '../features/space-workspace/workspac
 
 export type MarkdownMode = 'edit' | 'preview';
 
-interface MarkdownWorkspaceProps {
+interface MarkdownWorkspaceProps extends NoteHighlightProps {
   value: string;
   mode: MarkdownMode;
   onChange: (next: string) => void;
@@ -67,7 +69,7 @@ export interface MarkdownWorkspaceHandle {
   replaceDocument: (next: string) => boolean;
   insertText: (text: string) => void;
   captureSelection: () => MarkdownSelection;
-  restoreSelection: (selection: MarkdownSelection) => boolean;
+  restoreSelection: (selection: MarkdownSelection, options?: { scrollIntoView?: boolean }) => boolean;
   capturePosition: () => MarkdownWorkspacePosition;
   restorePosition: (position: MarkdownWorkspacePosition) => void;
 }
@@ -517,6 +519,9 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   onOutlineOccupiedWidthChange,
   pageLinksIdentity,
   tableEditingEnabled = true,
+  noteHighlights = EMPTY_NOTE_HIGHLIGHTS,
+  activeNoteId,
+  onNoteActivate,
 }, ref) => {
   const { t, language } = useLanguage();
   const zh = language === 'zh-CN';
@@ -899,10 +904,10 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
       const range = view?.state.selection.main;
       return range && view ? { from: range.from, to: range.to, text: view.state.sliceDoc(range.from, range.to) } : { from: 0, to: 0, text: '' };
     },
-    restoreSelection: (selection) => {
+    restoreSelection: (selection, options) => {
       const view = editorViewRef.current;
       if (!view || selection.from < 0 || selection.to < selection.from || selection.to > view.state.doc.length || view.state.sliceDoc(selection.from, selection.to) !== selection.text) return false;
-      view.dispatch({ selection: EditorSelection.single(selection.from, selection.to) }); view.focus(); return true;
+      view.dispatch({ selection: EditorSelection.single(selection.from, selection.to), scrollIntoView: options?.scrollIntoView }); view.focus(); return true;
     },
     capturePosition,
     restorePosition,
@@ -1023,10 +1028,15 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   }, [refreshSelection, restorePosition]);
   const hiddenMarks = useMemo(() => buildHiddenMarksPlugin(pages, editorResourcePlan.occurrences, editorResourcePlan.images, authoritativeResources, zh),
     [pages, editorResourcePlan.occurrences, editorResourcePlan.images, authoritativeResources, zh]);
+  const noteActivateRef = useRef(onNoteActivate);
+  noteActivateRef.current = onNoteActivate;
+  const noteMarks = useMemo(() => noteHighlightExtension(
+    noteHighlightSegments(noteHighlights, value.length), activeNoteId, (id) => noteActivateRef.current?.(id), zh,
+  ), [noteHighlights, value.length, activeNoteId, zh]);
   const editorExtensions = useMemo(() => [
-    MARKDOWN_LANGUAGE, LIVE_PREVIEW_HIGHLIGHTING, hiddenMarks, uploadAnchors,
+    MARKDOWN_LANGUAGE, LIVE_PREVIEW_HIGHLIGHTING, hiddenMarks, uploadAnchors, noteMarks,
     manualHandlers, ...(uploadHandlers ? [uploadHandlers] : []), EditorView.lineWrapping,
-  ], [hiddenMarks, manualHandlers, uploadHandlers]);
+  ], [hiddenMarks, manualHandlers, uploadHandlers, noteMarks]);
 
   return (
     <section className="document-workspace relative bg-white" aria-label={t('editor.mode')}>
@@ -1080,6 +1090,9 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
               {value ? (
                 <Markdown
                   mode="editor-preview"
+                  noteHighlights={noteHighlights}
+                  activeNoteId={activeNoteId}
+                  onNoteActivate={onNoteActivate}
                   className="document-body"
                   canEdit
                   pageId={pageId}

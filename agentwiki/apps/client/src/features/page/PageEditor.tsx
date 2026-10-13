@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useState, useRef, useMemo } from 'react';
 import { Link, useLocation, useNavigate, useNavigationType, useParams } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import api from '../../api/client';
@@ -21,6 +21,8 @@ import { applyCandidateToDraft, type AssistCandidate } from './assistCandidate';
 import { captureAssistTarget } from './assistTargets';
 import { PersonalNotesPanel } from './PersonalNotesPanel';
 import { usePersonalNotes } from './usePersonalNotes';
+import { SelectionNoteComposer } from './SelectionNoteComposer';
+import { locateReadingNote, resolvePersonalNoteHighlights } from './personalNoteHighlights';
 import type { MarkdownSelection } from '../../components/markdown-tools/DocumentTools';
 import { canRestoreDraft, type AuthorizedDraftPage } from './localDrafts';
 import { useLocalDraft } from './useLocalDraft';
@@ -179,6 +181,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const [collaborationTop, setCollaborationTop] = useState(130);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const noteSelectionRootRef = useRef<HTMLDivElement>(null);
+  const notesPanelRef = useRef<HTMLDivElement>(null);
   const [assistSelection, setAssistSelection] = useState<MarkdownSelection>({ from: 0, to: 0, text: '' });
   const [selectionRequest, setSelectionRequest] = useState<AssistRequest | null>(null);
   const [remoteUpdate, setRemoteUpdate] = useState<RemotePageUpdate | null>(null);
@@ -211,7 +215,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const assistOpen = collaborationVisible && !notesOpen;
   const collaborationWidth = Math.min(clampCollaborationWidth(panelPreferences.collaborationWidth), panelViewport.max >= 320 && !mobilePanel ? panelViewport.max : 520, Math.max(0, panelViewport.width - 32));
   const occupiedPanelWidth = collaborationVisible
-    ? (panelViewport.width >= 1600 && panelViewport.max >= 320 ? collaborationWidth + 20 : 0)
+    ? ((panelViewport.width >= 1600 || notesOpen && !mobilePanel) && panelViewport.max >= 320 ? collaborationWidth + 20 : 0)
     : outlineOccupiedWidth;
   const updatePanelPreferences = (preferences: PanelPreferences) => {
     if (!notesWritable) return;
@@ -253,7 +257,36 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       window.removeEventListener('resize', position);
     };
   }, [collaborationVisible, panelIdentity]);
+  useEffect(() => {
+    if (!collaborationVisible || !notesOpen || !mobilePanel) return;
+    const frame = requestAnimationFrame(() => {
+      const panel = notesPanelRef.current;
+      if (!panel) return;
+      const toolbarBottom = toolbarRef.current?.getBoundingClientRect().bottom ?? 0;
+      panel.style.scrollMarginTop = `${Math.max(16, Math.ceil(toolbarBottom + 12))}px`;
+      panel.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      if (notesPanelRef.current) notesPanelRef.current.style.scrollMarginTop = '';
+    };
+  }, [collaborationVisible, notesOpen, mobilePanel]);
   const personalNotes = usePersonalNotes({ scope: notesWritable && user?.id && page ? { userId: user.id, spaceId: page.spaceId, pageId: page.id } : null, canEdit: notesWritable, stageForSession: true, source: content, updatedAt: page?.updatedAt, language });
+  const [activeNote, setActiveNote] = useState<{ identity: string; id: string } | null>(null);
+  const noteHighlights = useMemo(() => resolvePersonalNoteHighlights(content, personalNotes.notes), [content, personalNotes.notes]);
+  const activeNoteId = activeNote?.identity === personalNotes.identityKey ? activeNote.id : null;
+  const activateNote = (noteId: string) => {
+    if (!noteHighlights.some((note) => note.id === noteId)) return;
+    setActiveNote({ identity: personalNotes.identityKey, id: noteId });
+    openCollaboration('notes');
+  };
+  const locateNote = (noteId: string) => {
+    const location = noteHighlights.find((note) => note.id === noteId);
+    if (!location) return false;
+    setActiveNote({ identity: personalNotes.identityKey, id: noteId });
+    if (mode === 'edit') return internalWorkspaceRef.current?.restoreSelection({ from: location.from, to: location.to, text: content.slice(location.from, location.to) }, { scrollIntoView: true }) ?? false;
+    return locateReadingNote(canvasRef.current, noteId);
+  };
   const selectionTarget = page ? captureAssistTarget(content, 'selection', assistSelection.from, assistSelection.to, page.updatedAt) : null;
   const sectionTarget = page ? captureAssistTarget(content, 'section', assistSelection.from, assistSelection.to, page.updatedAt) : null;
 
@@ -1318,11 +1351,14 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       </div>
 
       <div className="relative">
-        <div className="min-w-0 flex-1">
+        <div ref={noteSelectionRootRef} className="min-w-0 flex-1">
           <MarkdownWorkspace
             ref={bindWorkspaceRef}
             value={content}
             mode={mode}
+            noteHighlights={noteHighlights}
+            activeNoteId={activeNoteId}
+            onNoteActivate={activateNote}
             onRequestPageLinks={requestPageLinks}
             pageLinksIdentity={`${user?.id}:${!writeUnavailable && page.capabilities?.canEdit === true}`}
             tableEditingEnabled={notesWritable && !saving && !remoteUpdate && !unresolvedSocketRevisionRef.current}
@@ -1337,13 +1373,24 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             onUploadError={attachmentEnabled ? handleImageUploadError : undefined}
           />
         </div>
-        {assistMounted || collaborationVisible ? <div hidden={!collaborationVisible} className="document-assist-layer" style={{ width: collaborationWidth, top: collaborationTop }}>
+        {notesWritable ? <SelectionNoteComposer key={`${personalNotes.identityKey}:${mode}`} rootRef={noteSelectionRootRef}
+          identity={personalNotes.identityKey} source={content} updatedAt={page.updatedAt} language={language}
+          disabled={saving || mode !== 'edit' || !!remoteUpdate || !!unresolvedSocketRevisionRef.current || !!personalNotes.assistRequest}
+          storageUnavailable={personalNotes.storageUnavailable} onAdd={(target, body) => personalNotes.add(target, body, { requirePersistence: true })} captureTarget={() => {
+            const nativeSelection = window.getSelection(), editorRoot = noteSelectionRootRef.current?.querySelector('.cm-content');
+            if (!nativeSelection?.rangeCount || !editorRoot?.contains(nativeSelection.getRangeAt(0).commonAncestorContainer)) return null;
+            const selected = internalWorkspaceRef.current?.captureSelection();
+            const source = internalWorkspaceRef.current?.currentValue();
+            if (!selected || source !== content || source.slice(selected.from, selected.to) !== selected.text) return null;
+            return captureAssistTarget(source, 'selection', selected.from, selected.to, page.updatedAt);
+          }} /> : null}
+        {assistMounted || collaborationVisible ? <div ref={notesPanelRef} hidden={!collaborationVisible} className={`document-assist-layer${notesOpen ? ' document-notes-layer' : ''}`} style={{ width: collaborationWidth, top: collaborationTop }}>
           {!mobilePanel && panelViewport.max >= 320 ? <PanelResizeHandle key={panelIdentity} label={language === 'zh-CN' ? '调整协作面板宽度' : 'Resize collaboration panel'} width={collaborationWidth} min={320} max={panelViewport.max} onChange={(width) => updatePanelPreferences({ collaborationWidth: width })} /> : null}
           <div className="document-panel-scroll document-agent-scroll">
           <div className="sticky top-0 z-10 flex shrink-0 gap-2 border-b border-gray-200 bg-white p-3 text-sm"><button type="button" onClick={() => { openCollaboration('assist'); }} aria-label={language === 'zh-CN' ? '候选队列' : 'Candidate queue'} aria-pressed={!notesOpen} className={`rounded-lg px-2 py-1 ${!notesOpen ? 'bg-gray-100 font-medium' : 'text-gray-500'}`}>Agent</button><button type="button" disabled={!notesWritable} onClick={() => openCollaboration('notes')} aria-pressed={notesOpen} className={`rounded-lg px-2 py-1 ${notesOpen ? 'bg-gray-100 font-medium' : 'text-gray-500'}`}>{language === 'zh-CN' ? '笔记队列' : 'Notes queue'}</button><button type="button" className="ml-auto text-gray-500" aria-label={language === 'zh-CN' ? '关闭协作面板' : 'Close collaboration panel'} onClick={closeCollaboration}>×</button></div>
         {notesOpen && notesWritable ? <div className="min-h-0 flex-1 overflow-y-auto p-3">
           {personalNotes.conflict ? <p role="alert" className="mb-2 text-sm text-amber-800">{language === 'zh-CN' ? '所选笔记原文已变动、定位不唯一或内容过长，请检查后重试。' : 'Selected passages changed, are ambiguous, or exceed the request limit. Review them before retrying.'}</p> : null}
-          <PersonalNotesPanel stageForSession key={personalNotes.identityKey} source={content} target={selectionTarget} notes={personalNotes.notes} storageUnavailable={personalNotes.storageUnavailable} disabled={saving || mode !== 'edit' || !!remoteUpdate || !!unresolvedSocketRevisionRef.current || !!personalNotes.assistRequest} onAdd={personalNotes.add} onReopen={personalNotes.reopen} onDispatch={(ids) => { if (personalNotes.dispatch(ids)) { setSelectionRequest(null); openCollaboration('assist'); } }} />
+          <PersonalNotesPanel stageForSession key={personalNotes.identityKey} source={content} target={selectionTarget} notes={personalNotes.notes} activeNoteId={activeNoteId} onLocate={locateNote} onClearActive={() => setActiveNote(null)} storageUnavailable={personalNotes.storageUnavailable} disabled={saving || mode !== 'edit' || !!remoteUpdate || !!unresolvedSocketRevisionRef.current || !!personalNotes.assistRequest} onAdd={personalNotes.add} onReopen={personalNotes.reopen} onDispatch={(ids) => { if (personalNotes.dispatch(ids)) { setSelectionRequest(null); openCollaboration('assist'); } }} />
         </div> : null}
         {(assistMounted || assistOpen) && page ? (
           <div hidden={notesOpen} className="agent-session-host min-h-0 flex-1 flex-col"><React.Suspense fallback={<p>Agent…</p>}><AgentSessionPanel

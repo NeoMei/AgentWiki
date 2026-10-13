@@ -119,3 +119,93 @@ input.document-title:focus { box-shadow: 0 2px #e5e5e5; }
 @media (max-width: 1023px) {
   .document-assist-layer { max-height: calc(100dvh - 100px); }
 }
+
+/* Personal notes stay visible in reading and editing without covering text selection. */
+.personal-note-highlight {
+  background-color: rgb(251 191 36 / 20%);
+  text-decoration-line: underline;
+  text-decoration-color: rgb(217 119 6 / 70%);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  border-radius: 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+.personal-note-highlight[role="button"] { cursor: pointer; }
+.personal-note-highlight-active {
+  background-color: rgb(251 191 36 / 36%);
+  text-decoration-color: #b45309;
+  text-decoration-thickness: 2px;
+}
+.personal-note-highlight:focus-visible {
+  outline: 2px solid #d97706;
+  outline-offset: 2px;
+}
+.personal-note-document {
+  position: relative;
+  padding-inline-end: 30px;
+}
+.personal-note-margin {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 24px;
+  pointer-events: none;
+  user-select: none;
+}
+.personal-note-marker {
+  position: absolute;
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: #d97706;
+  background: #fffdf5;
+  border: 1px solid #fde68a;
+  border-radius: 7px;
+  box-shadow: 0 1px 3px rgb(120 53 15 / 8%);
+  cursor: pointer;
+  pointer-events: auto;
+  user-select: none;
+  z-index: 1;
+}
+.personal-note-marker:hover, .personal-note-marker-active {
+  color: #b45309;
+  background: #fef3c7;
+  border-color: #fbbf24;
+}
+.personal-note-marker:focus-visible { outline: 2px solid #d97706; outline-offset: 2px; }
+.personal-note-marker[data-note-count]::after {
+  content: attr(data-note-count);
+  position: absolute;
+  top: -5px;
+  right: -3px;
+  min-width: 12px;
+  padding: 0 2px;
+  border-radius: 5px;
+  font: 9px/12px system-ui;
+  color: #92400e;
+  background: #fde68a;
+}
+.document-source-editor .cm-content[data-personal-notes] { padding-inline-end: 32px; }
+.document-source-editor .cm-content[data-personal-notes] .cm-line { position: relative; }
+.personal-note-editor-marker { right: -28px; margin-top: 1px; }
+@media (max-width: 1023px) {
+  .document-assist-layer.document-notes-layer {
+    position: static;
+    width: 100% !important;
+    max-width: 100%;
+    height: auto;
+    max-height: none;
+    margin-top: 16px;
+  }
+  .document-notes-layer .document-panel-scroll,
+  .document-notes-layer .document-agent-scroll {
+    height: auto;
+    overflow: visible;
+  }
+  .document-notes-layer .document-panel-resizer { display: none; }
+  .document-notes-layer > .document-panel-scroll > .sticky { position: static; }
+}
