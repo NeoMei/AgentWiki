@@ -45,6 +45,18 @@ const MCP_ID = z.string().min(1).max(100);
 const MCP_SPACE_ID = MCP_ID;
 const MCP_TREE_REVISION = z.string().regex(/^(?:0|[1-9]\d*)$/u);
 const MCP_UPDATED_AT = z.string().datetime({ offset: true });
+const PROPOSE_PAGE_UPDATE_INPUT = z.object({
+  spaceId: MCP_SPACE_ID,
+  pageId: MCP_ID,
+  expectedUpdatedAt: MCP_UPDATED_AT,
+  expectedTreeRevision: MCP_TREE_REVISION,
+  title: z.string().min(1).max(200).regex(NON_BLANK_PAGE_TITLE).optional(),
+  content: z.string().max(200000).optional(),
+  folderId: MCP_ID.nullable().optional(),
+}).strict().refine(
+  input => input.title !== undefined || input.content !== undefined || input.folderId !== undefined,
+  { message: 'Provide at least one Page field to update: title, content or folderId' },
+);
 const LIST_FOLDERS_INPUT = z.object({
   spaceId: MCP_SPACE_ID,
   parentFolderId: MCP_ID.nullable().optional(),
@@ -315,12 +327,27 @@ export class McpService {
         spaceId: z.string().describe(SPACE_ID),
         title: z.string().min(1).regex(NON_BLANK_PAGE_TITLE),
         content: z.string(),
+        folderId: MCP_ID.nullable().optional().describe('Target Folder in this Space. Omit or use null for the Space root.'),
         expectedTreeRevision: z.string().regex(/^(?:0|[1-9]\d*)$/u),
       },
-    }, async ({ spaceId, title, content, expectedTreeRevision }: any) => {
+    }, async ({ spaceId, title, content, folderId, expectedTreeRevision }: any) => {
       await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'editor'], 'pages:write');
       return this.text(await this.review.propose(principal, spaceId, `Proposed page: ${title}`, {
-        type: 'create_page', payload: { title, content, expectedTreeRevision },
+        type: 'create_page', payload: {
+          title, content, expectedTreeRevision,
+          ...(folderId === undefined ? {} : { folderId }),
+        },
+      }));
+    });
+    registerTool('propose_page_update', {
+      description: 'Propose changes to an existing Page through a ChangeSet. First read get_page for expectedUpdatedAt and list_folders for expectedTreeRevision; both producer baselines are required. Omitted fields stay unchanged; folderId null moves the Page to the Space root. The existing Page format is preserved. Editor proposals remain pending review. Publisher proposals auto-publish only when the target Space Grant, Agent mode and Space policy allow it.',
+      inputSchema: PROPOSE_PAGE_UPDATE_INPUT,
+    }, async (raw: unknown) => {
+      const { spaceId, pageId, expectedUpdatedAt, expectedTreeRevision, ...changes } = PROPOSE_PAGE_UPDATE_INPUT.parse(raw);
+      const page = await this.authorization.assertPageAccess(principal, pageId, ['owner', 'editor'], 'pages:write');
+      this.assertResourceSpace(spaceId, page.spaceId);
+      return this.text(await this.review.propose(principal, spaceId, `Proposed update: ${pageId}`, {
+        type: 'update_page', payload: { pageId, expectedUpdatedAt, expectedTreeRevision, changes },
       }));
     });
     registerTool('propose_relation', {

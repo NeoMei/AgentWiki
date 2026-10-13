@@ -1,34 +1,36 @@
 # 当前目标
 
-- 10-12 回归修复已完成 v0.12.24 发布、生产回读与 21 项反馈提交；剩余事项按原环境/产品规则/审核权限跟进。
+- 修正为 Agent 一次接入 AgentWiki，每次按 spaceId 的实时 AgentGrant 授权；解除目标项目空间的旧网关阻塞后，继续 MCP 文档模板改版。
 
 # 范围 / 不做
 
-- 已修复编辑态、来源/模板搜索、摘要、同名校验、协作缺项定位和引用输入提示；不更改历史运行/成员权限/父子完成语义。
-- 保留 v0.12.22 的空间卡片、成员授权和 Plane 界面；无数据库迁移，Local Sync/Obsidian 未发布。
+- 本候选覆盖身份凭据、服务端鉴权、数据库迁移、MCP 网关、接入与协作准备界面和旧同步目录兼容。
+- 用户已明确授权发布，正在执行 Web 0.12.25 / Local Sync 0.12.0 协调发布。文档远程读写仍只用 MCP。
 
 # 当前状态
 
-- 发布 tag v0.12.24 / commit 7708a426aa88090f364d2de276acfce779e6085c；生产 1244 源码文件一致，三个服务健康，内外 health 全 ok，公网 smoke 32/32。
-- 最终全量 7050 通过、6 环境跳过、0 失败，build/type/lint 通过；独立复审无 P1/P2。首屏 JS 546422/550000 字节。
-- 生产 Chrome 已验证预览无提前缺项、提交 Toast 与字段聚焦、返回清错、同名单页中文拦截、引用输入提示。未启动外部 Agent。
-- 最终 21 项回执 ChangeSet cmv6ki9jb00agfsg0v1m9sgr2 已提交并读回，pending_review，需所有者 xuehui 审核。旧 cmv69bve2080911615gw5fz6w 为过时早期反馈。
+- 工作树 agent-identity-space-auth，分支 codex/agent-identity-space-auth，基于 origin/master 6de18645（v0.12.24）。
+- 最终候选 c5a2cb75e022d55ba4ab927668c3b705ba4e07b0 已提交；服务端、客户端、网关及旧 Tree 工作区兼容修复全部通过独立复审。
+- 在 c5a2cb75 上增加 MCP 原页面更新、创建页指定目录和版本元数据；独立审查通过。最终整树测试 7,114 通过、6 跳过、0 失败，其中 Runtime DB 232 零跳过；typecheck/lint/build/diff check 通过。
+- 生产 SSH 和 npm 登录已恢复；配套数据库、附件、应用备份正在执行。外部发布、部署、MCP 升级均须单独验收回执。
+- 目标 Space cmv6biedu005okoisb9fgp64y 仍未通过当前正式 MCP 实读；17 篇模板草稿尚未远程提交。
 
 # 稳定约束
 
-- 路径尾空格；Git 显式 --git-dir 和 --work-tree，不改共享 core.worktree，不重置主检出资料。
-- 构建与完整测试顺序运行。发布前新建数据库/附件/应用配套备份，发布、测试、原环境回放分别记录。
+- 新设计以本轮用户明确纠正为准：不得继续要求逐 Space 接入码；旧凭据标识 Agent，权限按目标 Grant 动态读取。
+- 路径有尾空格。Git 必须正确 cwd 与显式 --work-tree；禁止修改共享 core.worktree 或重置主检出资料。
+- 旧 key 保留生命周期，撤销一个 Grant 不撤销其他 Space；全局停用和撤销仍立即拒绝。不得跨身份自动回退。
+- 数据库测试仅隔离测试库/随机 schema。已实现、独立审查、发布、本机升级、实际 MCP 回读分别记录。
 
 # 关键索引
 
-- agentwiki/docs/verification/regressions-20261013/status.md
-- agentwiki/docs/verification/regressions-20261013/reply-v01224.md
-- .codex-memory/tasks/active/regressions-release-20261013/{brief,decisions,refs}.md
-- 工作树 /Users/neomei/.codex/worktrees/regressions-release-20261013/AgentWiki （实际路径尾空格）
+- .codex-memory/tasks/active/agent-identity-space-auth-20261013/{brief,decisions,refs}.md
+- agentwiki/docs/superpowers/specs/2026-10-13-agent-identity-space-authorization.md
+- agentwiki/docs/superpowers/plans/2026-10-13-agent-identity-space-authorization.md
+- 模板草稿：/Users/neomei/.codex/visualizations/2026/10/13/01a1348e-515b-7fc2-95d5-97af8c721c44/agentwiki-project-template-v2/
 
 # 风险 / 下一步
 
-- 审核页面回执由 owner 完成；浏览器与 Agent 当前均 editor，不可代审批。
-- #4 旧 Agent 暂停/失授权须决定恢复或新建；#7 待原账号浏览器回放；#9 父子完成语义待定。
-- 删除 Agent 与输入时即时校验建议未实施；原生中文输入法、原附件、长文目录及管理权限视角有独立验收边界。
-- 生产回滚备份 /var/backups/agentwiki/regressions-v01224.STptFpy7，previous /root/agentwiki-previous-20261013184857。
+- 完成配套备份后，发布 npm、生产服务端/前端/数据库和 GitHub Release；再升级本机现有 MCP，回读目标 Space。
+- 新数据库允许未绑定 Grant 的凭据；发布需服务端/网关协调，旧服务端不能直接配新数据回滚。
+- MCP 原页面更新能力已补齐；恢复访问后按原页面 ID 提交 17 篇模板并回读正式文档。不能把本地模板或接入修复等同线上文档完成。

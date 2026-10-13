@@ -1,0 +1,23 @@
+{
+  "scope": "MCP page update and release metadata delta on c5a2cb75",
+  "reviewer": "independent mcp_document_path agent",
+  "blockingFindings": [],
+  "checks": [
+    "Strict title/content/folderId allowlist and nonempty update",
+    "Required page timestamp and content tree revision baselines",
+    "Page write access and explicit Space ownership match",
+    "ReviewService live grants, Agent mode, Space policy and conflicts",
+    "Folder ownership validation through ContentTree",
+    "Dynamic gateway exposes wiki_propose_page_update without an extra allowlist"
+  ],
+  "targetedTestsPassed": 37,
+  "gatewayProbe": {
+    "transport": "two MCP SDK InMemoryTransport pairs",
+    "realComponents": ["McpService", "createGatewayServer", "SpaceMcpBridge"],
+    "stubbedComponents": ["Authorization storage", "Review storage"],
+    "result": "passed",
+    "cases": ["tool discovery", "update argument forwarding", "create folder forwarding", "unknown field rejection", "missing baseline rejection", "Page Space mismatch rejection"],
+    "productionAccess": false
+  },
+  "metadataReview": "root reviewed exact version changes, legacy server acceptance and unchanged protocol 0.6.1"
+}

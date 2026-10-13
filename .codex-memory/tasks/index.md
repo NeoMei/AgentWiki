@@ -4,6 +4,8 @@
 
 ## 活跃任务
 
+- [agent-identity-space-auth-20261013](active/agent-identity-space-auth-20261013/brief.md)：按用户确认的一次Agent接入、动态Space授权纠正旧实现；隔离候选研发验证中，尚未上线。
+
 - [regressions-release-20261013](active/regressions-release-20261013/brief.md)：v0.12.23修复候选整合与复审完成，完整门禁重跑；生产SSH与回执所有者审批待恢复。
 
 
