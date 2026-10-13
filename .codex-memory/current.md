@@ -1,6 +1,6 @@
 # 当前目标
 
-- 已完成 Agent 一次接入、按目标 spaceId 实时授权修正及正式发布；原 AgentWiki 项目模板站点已通过 MCP 完成交付。
+- 修复用户新报的“编辑状态单行选不中、跨行才能选中”；真实 Chrome 复现、最小 CSS 修复与本地验收已完成，待后续发布。
 
 # 范围 / 不做
 
@@ -9,6 +9,7 @@
 
 # 当前状态
 
+- 分支 `codex/editor-single-line-selection` 基于 `1bbb428e`：不透明活动行背景遮住 CodeMirror 选区，改为 2% 黑色透明背景。生产原案复现、本地正反拖选/键盘/跨行/软折行/加粗范围/失焦恢复通过；client build 与独立审查通过。此次修复尚未推送或部署。
 - 正式部署源码 48781e5b192101a2d122dd143048d983bca8a29b；GitHub v0.12.25 与 npm 0.12.0 已发布。7,114 pass / 6 skip / 0 fail，typecheck/lint/build 与独立审查通过。
 - 生产迁移、1,252 文件、3 服务、5 health、32 烟测已验；原 71 凭据、482 Grant 稳定字段保留；配套备份可追溯。
 - 用户明确授权目标空间 Publisher 限定范围自动发布，空间策略已保存；Agent 原已允许。原连接与凭据保留，3 授权 Space 实读通过。
@@ -22,6 +23,7 @@
 
 # 关键索引
 
+- agentwiki/docs/verification/editor-single-line-selection-20261014/status.md
 - .codex-memory/tasks/archive/agent-identity-space-auth-20261013/{brief,decisions,refs}.md
 - agentwiki/docs/verification/agent-identity-space-auth-20261014/status.md
 - agentwiki/docs/verification/agent-identity-space-auth-20261014/template-final-publication-receipt.json
@@ -29,6 +31,6 @@
 
 # 风险 / 下一步
 
-- 本轮交付已完成，后续按模板维护日常项目进展。
+- 17 篇项目模板交付已完成。新增编辑器选区修复本地通过，发布后需生产编辑模式回验。
 - 当前旧聊天 MCP 进程未热重载；本机配置已升级，新启动官方0.12.0网关已实测，原连接不变。
 - 批量 MCP 调用应节流（本次至少3.25秒/调用）；原429已通过核对保存结果恢复。侧栏保留既有sortOrder，首页按流程提供导航；旧目录候选仍pending但已被正式发布替代。
