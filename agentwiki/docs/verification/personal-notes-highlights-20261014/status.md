@@ -49,5 +49,5 @@ AGENTWIKI_DEV_API_ORIGIN=http://127.0.0.1:5182 pnpm --filter @agentwiki/client d
 
 阅读标记只覆盖 resolveAssistTarget 能提供唯一、有效上下文的位置；无法严格定位的公式、实体、图片或已歧义文本会保留笔记但不猜测高亮。生产原文和远程 MCP 文档没有修改。
 
-本轮代码仍在本地分支 `codex/editor-single-line-selection`，尚未 commit、push 或部署；当前目标是交给用户审阅后再发布。
+本轮代码已提交到本地分支 `codex/editor-single-line-selection`，提交 `fef21101`；尚未 push 或部署。
 
