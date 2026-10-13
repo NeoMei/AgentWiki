@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { captureAssistTarget } from './assistTargets';
 import { SelectionNoteComposer } from './SelectionNoteComposer';
 
+const auth = vi.hoisted(() => ({ user: { id: 'user', name: 'Alice' } }));
+vi.mock('../../context/AuthContext', () => ({ useAuth: () => auth }));
+
 const version = '2026-10-14T00:00:00.000Z';
 const source = 'A selected passage';
 let rect = { left: 100, top: 120, right: 190, bottom: 144, width: 90, height: 24 };
@@ -21,6 +24,7 @@ const select = async () => {
 };
 const open = async () => { fireEvent.click(await select()); return screen.getByRole('dialog', { name: 'Add personal note' }); };
 beforeEach(() => {
+  auth.user = { id: 'user', name: 'Alice' };
   onAdd.mockReset().mockReturnValue(true);
   rect = { left: 100, top: 120, right: 190, bottom: 144, width: 90, height: 24 };
   vi.spyOn(Range.prototype, 'getBoundingClientRect').mockImplementation(() => ({ ...rect, x: rect.left, y: rect.top, toJSON() {} }));
@@ -28,6 +32,21 @@ beforeEach(() => {
 afterEach(() => { cleanup(); window.getSelection()?.removeAllRanges(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('selection note composer', () => {
+  it('shows the composing account and clears its draft before another account starts a note', async () => {
+    const view = render(fixture());
+    const dialog = await open();
+    expect(within(dialog).getByLabelText('Note author: Alice (you)')).toBeVisible();
+    fireEvent.change(within(dialog).getByRole('textbox'), { target: { value: 'Alice private draft' } });
+    auth.user = { id: 'another-user', name: 'Bob' };
+    view.rerender(fixture({ identity: 'another-user:space:page' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    const nextDialog = await open();
+    expect(within(nextDialog).getByLabelText('Note author: Bob (you)')).toBeVisible();
+    expect(within(nextDialog).getByRole('textbox')).toHaveValue('');
+    expect(screen.queryByText(/Alice/)).not.toBeInTheDocument();
+    expect(onAdd).not.toHaveBeenCalled();
+  });
+
   it('captures the original passage before focus moves, saves only the private note and closes', async () => {
     render(fixture()); const dialog = await open();
     expect(within(dialog).getByRole('textbox', { name: 'Note' })).toHaveFocus();

@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 're
 import { createPortal } from 'react-dom';
 import { MessageSquarePlus } from 'lucide-react';
 import { validateAssistTarget, type AssistTarget } from './assistTargets';
+import { useAuth } from '../../context/AuthContext';
+import { PersonalNoteAuthor } from './PersonalNoteAuthor';
 
 interface Props {
   rootRef: RefObject<HTMLElement | null>;
@@ -24,6 +26,7 @@ interface SelectionSnapshot {
 
 /** Selection is only an entry point. The immutable source/target proof owns the draft after focus moves. */
 export function SelectionNoteComposer(props: Props) {
+  const { user } = useAuth();
   const latest = useRef(props); latest.current = props;
   const [snapshot, setSnapshot] = useState<SelectionSnapshot | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -145,6 +148,7 @@ export function SelectionNoteComposer(props: Props) {
       <MessageSquarePlus size={16} className="text-amber-500" aria-hidden="true" />{zh ? '添加笔记' : 'Add note'}
     </button> : <div className="space-y-3 p-3">
       <div className="flex items-center gap-2 text-sm font-medium text-gray-800"><MessageSquarePlus size={16} className="text-amber-500" aria-hidden="true" />{zh ? '个人笔记' : 'Personal note'}<span className="ml-auto text-xs font-normal text-gray-400">{zh ? '仅自己可见' : 'Only you'}</span></div>
+      <PersonalNoteAuthor userId={user?.id} language={props.language} />
       <blockquote className="max-h-20 overflow-y-auto border-l-2 border-amber-300 bg-amber-50/60 px-2 py-1 text-xs leading-5 text-gray-600 whitespace-pre-wrap">{visible.target.quote}</blockquote>
       <textarea ref={textareaRef} aria-label={zh ? '笔记内容' : 'Note'} value={body} maxLength={10_000} rows={3}
         placeholder={zh ? '记下你的想法…' : 'Write your thoughts…'}
