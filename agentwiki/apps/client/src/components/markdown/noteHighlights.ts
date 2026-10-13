@@ -48,8 +48,8 @@ export function sliceNoteHighlightSegments(segments: readonly NoteHighlightSegme
 export function noteHighlightAttributes(ids: readonly string[], activeId: string | null | undefined, zh: boolean): Record<string, string> {
   const active = Boolean(activeId && ids.includes(activeId));
   const title = ids.length > 1
-    ? zh ? `${ids.length} 条个人笔记 · 点击依次查看` : `${ids.length} personal notes · Click to cycle`
-    : zh ? '查看个人笔记' : 'View personal note';
+    ? zh ? `${ids.length} 条页面笔记 · 点击依次查看` : `${ids.length} page notes · Click to cycle`
+    : zh ? '查看页面笔记' : 'View page note';
   return {
     class: `personal-note-highlight${active ? ' personal-note-highlight-active' : ''}`,
     'data-note-id': active ? activeId! : ids[0],

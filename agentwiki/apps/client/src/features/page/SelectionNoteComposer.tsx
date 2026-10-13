@@ -14,7 +14,7 @@ interface Props {
   disabled?: boolean;
   storageUnavailable?: boolean;
   captureTarget: () => AssistTarget | null;
-  onAdd: (target: AssistTarget, body: string) => boolean;
+  onAdd: (target: AssistTarget, body: string) => boolean | Promise<boolean>;
 }
 interface SelectionSnapshot {
   identity: string;
@@ -32,6 +32,8 @@ export function SelectionNoteComposer(props: Props) {
   const [expanded, setExpanded] = useState(false);
   const [body, setBody] = useState('');
   const [failed, setFailed] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const saveGeneration = useRef(0);
   const [reselectIdentity, setReselectIdentity] = useState<string | null>(null);
   const [geometry, setGeometry] = useState({ left: 12, top: 12, width: 360, maxHeight: 480 });
   const panelRef = useRef<HTMLDivElement>(null);
@@ -41,7 +43,7 @@ export function SelectionNoteComposer(props: Props) {
   // Never expose the previous user's/page's draft for even one render.
   const visible = snapshot?.identity === props.identity ? snapshot : null;
   const stale = !!visible && (props.source !== visible.source || props.updatedAt !== visible.target.baseUpdatedAt);
-  const close = () => { setSnapshot(null); setExpanded(false); setBody(''); setFailed(false); setReselectIdentity(null); };
+  const close = () => { saveGeneration.current++; setSaving(false); setSnapshot(null); setExpanded(false); setBody(''); setFailed(false); setReselectIdentity(null); };
 
   useEffect(() => { close(); }, [props.identity]);
   useEffect(() => {
@@ -129,14 +131,17 @@ export function SelectionNoteComposer(props: Props) {
     <span>{zh ? '草稿已保留，请重新选择原文。' : 'Draft retained. Select the passage again.'}</span><button type="button" onClick={close} className="shrink-0 text-gray-500">{zh ? '取消' : 'Cancel'}</button>
   </div>, document.body) : null;
   if (!expanded && (props.disabled || stale)) return null;
-  const submit = () => {
+  const submit = async () => {
     const current = latest.current;
-    if (current.disabled || current.identity !== visible.identity || current.source !== visible.source || current.updatedAt !== visible.target.baseUpdatedAt || !validateAssistTarget(current.source, visible.target) || !body.trim()) return;
-    if (current.onAdd(visible.target, body.trim())) close(); else setFailed(true);
+    if (saving || current.disabled || current.identity !== visible.identity || current.source !== visible.source || current.updatedAt !== visible.target.baseUpdatedAt || !validateAssistTarget(current.source, visible.target) || !body.trim()) return;
+    const generation = ++saveGeneration.current; setSaving(true);
+    try { const saved = await current.onAdd(visible.target, body.trim()); if (generation !== saveGeneration.current || latest.current.identity !== current.identity) return; if (saved) close(); else setFailed(true); }
+    catch { if (generation === saveGeneration.current && latest.current.identity === current.identity) setFailed(true); }
+    finally { if (generation === saveGeneration.current) setSaving(false); }
   };
   return createPortal(<div ref={panelRef}
     role={expanded ? 'dialog' : undefined}
-    aria-label={expanded ? (zh ? '添加个人笔记' : 'Add personal note') : undefined}
+    aria-label={expanded ? (zh ? '添加页面笔记' : 'Add page note') : undefined}
     className="fixed z-[100] overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-md"
     style={{ left: geometry.left, top: geometry.top, width: geometry.width, maxHeight: geometry.maxHeight }}
     onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); } }}
@@ -147,16 +152,16 @@ export function SelectionNoteComposer(props: Props) {
       onClick={() => { setExpanded(true); setReselectIdentity(null); setFailed(false); }}>
       <MessageSquarePlus size={16} className="text-amber-500" aria-hidden="true" />{zh ? '添加笔记' : 'Add note'}
     </button> : <div className="space-y-3 p-3">
-      <div className="flex items-center gap-2 text-sm font-medium text-gray-800"><MessageSquarePlus size={16} className="text-amber-500" aria-hidden="true" />{zh ? '个人笔记' : 'Personal note'}<span className="ml-auto text-xs font-normal text-gray-400">{zh ? '仅自己可见' : 'Only you'}</span></div>
+      <div className="flex items-center gap-2 text-sm font-medium text-gray-800"><MessageSquarePlus size={16} className="text-amber-500" aria-hidden="true" />{zh ? '页面笔记' : 'Page note'}<span className="ml-auto text-xs font-normal text-gray-400">{zh ? '有权限成员可见' : 'Visible to page members'}</span></div>
       <PersonalNoteAuthor userId={user?.id} language={props.language} />
       <blockquote className="max-h-20 overflow-y-auto border-l-2 border-amber-300 bg-amber-50/60 px-2 py-1 text-xs leading-5 text-gray-600 whitespace-pre-wrap">{visible.target.quote}</blockquote>
-      <textarea ref={textareaRef} aria-label={zh ? '笔记内容' : 'Note'} value={body} maxLength={10_000} rows={3}
+      <textarea ref={textareaRef} aria-label={zh ? '笔记内容' : 'Note'} value={body} maxLength={10_000} rows={3} disabled={saving}
         placeholder={zh ? '记下你的想法…' : 'Write your thoughts…'}
         className="block w-full resize-y rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
         onChange={(event) => { setBody(event.target.value); setFailed(false); }} />
-      {stale || failed || props.disabled ? <p role="alert" className="text-xs leading-5 text-amber-800">{failed && props.storageUnavailable ? (zh ? '浏览器存储暂时不可用，笔记尚未保存。输入已保留，请释放存储空间后重试。' : 'Browser storage is unavailable; the note has not been saved. Your draft is retained. Free up storage and retry.') : stale ? (zh ? '原文或版本已变动。输入已保留，请重新选择原文后添加笔记。' : 'The source or version changed. Your draft is retained; reselect the passage before adding a note.') : (zh ? '暂时无法添加笔记，输入已保留，请检查原文后重试。' : 'The note could not be added. Your draft is retained; check the passage and retry.')}</p> : null}
+      {stale || failed || props.disabled ? <p role="alert" className="text-xs leading-5 text-amber-800">{failed && props.storageUnavailable ? (zh ? '笔记尚未保存到服务器。输入已保留，请检查网络后重试。' : 'The note has not been saved to the server. Your draft is retained. Check your connection and retry.') : stale ? (zh ? '原文或版本已变动。输入已保留，请重新选择原文后添加笔记。' : 'The source or version changed. Your draft is retained; reselect the passage before adding a note.') : (zh ? '暂时无法添加笔记，输入已保留，请检查原文后重试。' : 'The note could not be added. Your draft is retained; check the passage and retry.')}</p> : null}
       {stale || failed ? <button type="button" className="text-xs font-medium text-blue-600 hover:underline" onClick={() => { setExpanded(false); setSnapshot(null); setFailed(false); setReselectIdentity(props.identity); }}>{zh ? '重新选择原文' : 'Reselect passage'}</button> : null}
-      <div className="flex items-center justify-end gap-2"><button type="button" className="rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100" onClick={close}>{zh ? '取消' : 'Cancel'}</button><button type="button" disabled={!body.trim() || stale || props.disabled} className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40" onClick={submit}>{zh ? '添加笔记' : 'Add note'}</button></div>
+      <div className="flex items-center justify-end gap-2"><button type="button" className="rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100" onClick={close}>{zh ? '取消' : 'Cancel'}</button><button type="button" disabled={saving || !body.trim() || stale || props.disabled} className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40" onClick={submit}>{saving ? (zh ? '保存中…' : 'Saving…') : (zh ? '添加笔记' : 'Add note')}</button></div>
     </div>}
   </div>, document.body);
 }

@@ -57,6 +57,8 @@ interface MarkdownWorkspaceProps extends NoteHighlightProps {
   onRequestPageLinks?: RequestPageLinks;
   outlineOverlay?: boolean;
   onOutlineOccupiedWidthChange?: (width: number) => void;
+  externalOutline?: boolean;
+  outlineContainer?: HTMLElement | null;
   pageLinksIdentity?: string;
   tableEditingEnabled?: boolean;
 }
@@ -517,6 +519,8 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   onRequestPageLinks,
   outlineOverlay,
   onOutlineOccupiedWidthChange,
+  externalOutline = false,
+  outlineContainer,
   pageLinksIdentity,
   tableEditingEnabled = true,
   noteHighlights = EMPTY_NOTE_HIGHLIGHTS,
@@ -1038,15 +1042,20 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
     manualHandlers, ...(uploadHandlers ? [uploadHandlers] : []), EditorView.lineWrapping,
   ], [hiddenMarks, manualHandlers, uploadHandlers, noteMarks]);
 
+  const outlinePanel = <ArticleContentsPopover source={value} articleRootRef={previewRootRef} pageKey={`${spaceId}:${pageId}:${mode}`} activeHeadingId={isEdit ? activeHeading : undefined} spaceId={spaceId}
+    embedded={externalOutline} suppressed={!externalOutline && outlineOverlay} floatingTrigger={!externalOutline} onOccupiedWidthChange={externalOutline ? undefined : onOutlineOccupiedWidthChange}
+    onNavigateIntent={isEdit ? undefined : (sourceOffset) => { previewNavigationRef.current = { moved: true, sourceOffset }; }} onNavigate={isEdit ? (item) => {
+      const view = editorViewRef.current; if (!view) return;
+      view.dispatch({ selection: EditorSelection.cursor(item.from), effects: EditorView.scrollIntoView(item.from, { y: 'start' }) }); view.focus();
+    } : undefined} />;
+
   return (
     <section className="document-workspace relative bg-white" aria-label={t('editor.mode')}>
       <div className="document-tool-row">
         {isEdit ? <DocumentTools key={`${pageLinksIdentity ?? ''}:${spaceId}:${pageId}`} view={() => editorViewRef.current} source={value} tableEditingEnabled={tableEditingEnabled} tableEditingIdentity={`${pageLinksIdentity ?? ''}:${spaceId}:${pageId}`} selection={selection} pages={pages} spaceId={spaceId} onRequestPageLinks={onRequestPageLinks} onRequestAssist={onRequestAssist} onRequestImage={onUploadImages ? () => imageInputRef.current?.click() : undefined} /> : null}
-        <ArticleContentsPopover source={value} articleRootRef={previewRootRef} pageKey={`${spaceId}:${pageId}:${mode}`} activeHeadingId={isEdit ? activeHeading : undefined} spaceId={spaceId} suppressed={outlineOverlay} floatingTrigger onOccupiedWidthChange={onOutlineOccupiedWidthChange} onNavigateIntent={isEdit ? undefined : (sourceOffset) => { previewNavigationRef.current = { moved: true, sourceOffset }; }} onNavigate={isEdit ? (item) => {
-          const view = editorViewRef.current; if (!view) return;
-          view.dispatch({ selection: EditorSelection.cursor(item.from), effects: EditorView.scrollIntoView(item.from, { y: 'start' }) }); view.focus();
-        } : undefined} />
+        {!externalOutline ? outlinePanel : null}
       </div>
+      {externalOutline && outlineContainer ? createPortal(outlinePanel, outlineContainer) : null}
       <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden aria-label={zh ? '上传图片' : 'Upload images'} onChange={(event) => {
         const files = Array.from(event.target.files ?? []);
         const view = editorViewRef.current;

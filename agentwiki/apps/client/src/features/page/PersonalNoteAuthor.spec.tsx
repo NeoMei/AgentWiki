@@ -59,3 +59,15 @@ describe('personal note author identity', () => {
     expect(screen.getByLabelText('笔记作者: 用户 alice-id')).toBeVisible();
   });
 });
+
+
+it('uses server author names and an Agent badge without confusing a matching Agent id with the viewer', () => {
+  auth.user = { id: 'same-id', name: 'Human' };
+  const name = 'Research Agent with a deliberately long descriptive name';
+  const view = render(<PersonalNoteAuthor language="en" author={{ type: 'agent', id: 'same-id', name }} />);
+  expect(screen.getByLabelText(`Note author: ${name}`)).toBeVisible();
+  expect(screen.getByText('Agent')).toBeVisible(); expect(screen.queryByText(/you|Human/)).not.toBeInTheDocument();
+  expect(screen.getByTitle(name)).toBeInTheDocument();
+  view.rerender(<PersonalNoteAuthor language="en" author={{ type: 'user', id: 'bob', name: 'Bob from server' }} />);
+  expect(screen.getByLabelText('Note author: Bob from server')).toBeVisible();
+});

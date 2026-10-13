@@ -20,6 +20,35 @@ vi.mock('../../api/client', () => ({
 const contentTreeMocks = vi.hoisted(() => ({ getContentTreeRevision: vi.fn() }));
 vi.mock('../../api/content-tree', () => ({ getContentTreeRevision: contentTreeMocks.getContentTreeRevision }));
 
+
+let serverNotes: import('./pageNotesApi').PageNoteDto[] = [];
+let notesCanCreate = true;
+let notesCreateFailure = false;
+const currentNoteAuthor = () => JSON.parse(localStorage.getItem('user') ?? '{"id":"reader"}');
+const notesRoute = /^\/spaces\/([^/]+)\/pages\/([^/]+)\/notes(?:\/([^/]+))?$/;
+const notesGet = (url: string) => {
+  const route = notesRoute.exec(url); if (!route) return null;
+  return Promise.resolve({ data: { notes: serverNotes.filter((note) => note.spaceId === route[1] && note.pageId === route[2]).map((note) => ({ ...note, canEdit: note.author.type === 'user' && note.author.id === currentNoteAuthor().id })), canCreate: notesCanCreate } });
+};
+const notesPost = (url: string, input: any) => {
+  const route = notesRoute.exec(url); if (!route) return null;
+  if (notesCreateFailure) return Promise.reject(new Error('Note server unavailable'));
+  const author = currentNoteAuthor();
+  const existing = serverNotes.find((note) => note.clientNoteId === input.clientNoteId && note.author.id === author.id);
+  if (existing) return Promise.resolve({ data: existing });
+  const note = { ...input, id: input.clientNoteId, spaceId: route[1], pageId: route[2], status: input.status ?? 'pending', author: { type: 'user' as const, id: author.id, name: author.name ?? 'Reader' }, canEdit: true, createdAt: '2026-10-14T00:00:00.000Z', updatedAt: '2026-10-14T00:00:00.000Z' };
+  serverNotes.push(note); return Promise.resolve({ data: note });
+};
+const notesPatch = (url: string, input: any) => {
+  const route = notesRoute.exec(url); if (!route) return null;
+  const note = serverNotes.find((item) => item.id === route[3]);
+  if (!note) return Promise.reject(new Error('Note missing'));
+  Object.assign(note, input, { updatedAt: new Date(Date.parse(note.updatedAt) + 1).toISOString() });
+  return Promise.resolve({ data: { ...note } });
+};
+const agentPostCalls = () => vi.mocked(api.post).mock.calls.filter(([url]) => url.startsWith('/assist/'));
+const pagePatchCalls = () => vi.mocked(api.patch).mock.calls.filter(([url]) => !notesRoute.test(url));
+
 const source = '- [ ] first task\n- [ ] second task';
 
 const page = (overrides: Record<string, unknown> = {}) => ({
@@ -222,23 +251,25 @@ describe('PagePreview checklist saves', () => {
     expect(await screen.findByRole('note')).toHaveTextContent('review status is unknown');
   });
 
-  it('gives the reading outline space only while its wide-screen rail is visible', async () => {
+  it('reserves one right panel width for every tab on desktop and keeps mobile panels inline', async () => {
     const viewport = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1700);
     queuePages({ data: page({ content: '# Reading outline' }) });
     renderPreview();
-    await screen.findByRole('navigation', { name: 'Contents' });
+    const contents = await screen.findByRole('tab', { name: 'Contents' });
     const occupiedWidth = () => screen.getByRole('article').style.getPropertyValue('--document-panel-width');
-    expect(occupiedWidth()).toBe('296px');
-    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize article contents' }), { key: 'End' });
-    expect(occupiedWidth()).toBe('376px');
-    viewport.mockReturnValue(1280); fireEvent.resize(window);
-    fireEvent.click(screen.getByRole('button', { name: 'Contents' }));
+    expect(occupiedWidth()).toBe('0px');
+    fireEvent.click(contents);
     expect(screen.getByRole('navigation', { name: 'Contents' })).toBeVisible();
+    expect(occupiedWidth()).toBe('420px');
+    viewport.mockReturnValue(1280); fireEvent.resize(window);
+    expect(occupiedWidth()).toBe('420px');
+    fireEvent.click(screen.getByRole('tab', { name: 'Page information' }));
+    expect(screen.queryByRole('navigation', { name: 'Contents' })).not.toBeInTheDocument();
+    expect(occupiedWidth()).toBe('420px');
+    viewport.mockReturnValue(390); fireEvent.resize(window);
     expect(occupiedWidth()).toBe('0px');
-    viewport.mockReturnValue(1700); fireEvent.resize(window);
-    expect(occupiedWidth()).toBe('376px');
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    expect(occupiedWidth()).toBe('0px');
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse side panel' }));
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
     expect(api.patch).not.toHaveBeenCalled();
   });
 
@@ -268,11 +299,16 @@ describe('PagePreview checklist saves', () => {
     pageResponses = [];
     vi.mocked(api.get).mockReset();
     vi.mocked(api.post).mockReset();
+    serverNotes = []; notesCanCreate = true; notesCreateFailure = false;
+    vi.mocked(api.post).mockImplementation((url, input) => notesPost(url, input) ?? Promise.reject(new Error('unexpected post ' + url)));
+    vi.mocked(api.patch).mockImplementation((url, input) => notesPatch(url, input) ?? Promise.reject(new Error('unexpected patch ' + url)));
     vi.mocked(api.patch).mockReset();
     vi.mocked(api.delete).mockReset();
+    vi.mocked(api.patch).mockImplementation((url, input) => notesPatch(url, input) ?? Promise.reject(new Error('unexpected patch ' + url)));
     contentTreeMocks.getContentTreeRevision.mockReset();
     contentTreeMocks.getContentTreeRevision.mockResolvedValue('47');
     vi.mocked(api.get).mockImplementation((url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
       if (url.startsWith('/pages?')) return Promise.resolve({ data: { data: [] } } as any);
       if (url.startsWith('/pages/')) {
@@ -331,7 +367,7 @@ describe('PagePreview checklist saves', () => {
     expect(savedFirst).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Delete page' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Page information' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Page information' }));
     expect(screen.getByRole('button', { name: 'Delete page' })).toBeInTheDocument();
   });
 
@@ -350,6 +386,7 @@ describe('PagePreview checklist saves', () => {
   it('retries the same Page in place after a transient load failure', async () => {
     let pageLoads = 0;
     vi.mocked(api.get).mockImplementation((url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
       if (url === '/pages/page-1') {
         pageLoads += 1;
@@ -379,11 +416,11 @@ describe('PagePreview checklist saves', () => {
     expect(await screen.findByRole('heading', { name: 'Checklist' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Edit' })).toHaveTextContent('Edit');
     expect(screen.queryByText('Docs · markdown')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Contents' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Contents' }));
     expect(screen.getByRole('button', { name: 'Intro' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Details' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'not an outline heading' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Page information' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Page information' }));
     expect(screen.getByText('Docs · markdown')).toBeInTheDocument();
 
     expect(screen.getByRole('article')).toContainElement(screen.getByRole('heading', { name: 'Checklist' }));
@@ -525,7 +562,7 @@ describe('PagePreview checklist saves', () => {
     vi.mocked(api.delete).mockResolvedValue({ data: {} } as any);
     renderPreview();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Page information' }));
+    fireEvent.click(await screen.findByRole('tab', { name: 'Page information' }));
     fireEvent.click(screen.getByRole('button', { name: 'Delete page' }));
 
     await waitFor(() => expect(api.delete).toHaveBeenCalledWith('/pages/page-1', {
@@ -554,7 +591,7 @@ describe('PagePreview checklist saves', () => {
       </LanguageProvider>,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Page information' }));
+    fireEvent.click(await screen.findByRole('tab', { name: 'Page information' }));
     fireEvent.click(screen.getByRole('button', { name: 'Delete page' }));
     await waitFor(() => expect(contentTreeMocks.getContentTreeRevision).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole('button', { name: 'Open second page' }));
@@ -575,7 +612,7 @@ describe('PagePreview checklist saves', () => {
     );
     const harness = await renderCommitNavigablePreview();
     try {
-      fireEvent.click(await screen.findByRole('button', { name: 'Page information' }));
+      fireEvent.click(await screen.findByRole('tab', { name: 'Page information' }));
       fireEvent.click(screen.getByRole('button', { name: 'Delete page' }));
       await waitFor(() => expect(contentTreeMocks.getContentTreeRevision).toHaveBeenCalledTimes(1));
       harness.commitNavigateTo('page-2');
@@ -758,6 +795,7 @@ describe('PagePreview checklist saves', () => {
     const secondA = deferred<any>();
     let pageOneLoads = 0;
     vi.mocked(api.get).mockImplementation((url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
       if (url.startsWith('/pages?')) return Promise.resolve({ data: { data: [] } } as any);
       if (url === '/pages/page-1') return ++pageOneLoads === 1 ? firstA.promise : secondA.promise;
@@ -788,6 +826,7 @@ describe('PagePreview checklist saves', () => {
     const oldSave = deferred<any>();
     let pageOneLoads = 0;
     vi.mocked(api.get).mockImplementation((url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
       if (url.startsWith('/pages?')) return Promise.resolve({ data: { data: [] } } as any);
       if (url === '/pages/page-1') {
@@ -827,6 +866,7 @@ describe('PagePreview checklist saves', () => {
     const oldRefetch = deferred<any>();
     let pageOneLoads = 0;
     vi.mocked(api.get).mockImplementation((url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
       if (url.startsWith('/pages?')) return Promise.resolve({ data: { data: [] } } as any);
       if (url === '/pages/page-1') {
@@ -867,6 +907,7 @@ describe('PagePreview checklist saves', () => {
   it('clears related pages when routing from A to B before the B request completes', async () => {
     const relatedB = deferred<any>();
     vi.mocked(api.get).mockImplementation((url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url.startsWith('/pages?')) return Promise.resolve({ data: { data: [] } } as any);
       if (url === '/pages/page-1') return Promise.resolve({ data: page({ title: 'Page A', spaceId: 'space-a' }) } as any);
       if (url === '/pages/page-2') return Promise.resolve({ data: page({ id: 'page-2', title: 'Page B', spaceId: 'space-b' }) } as any);
@@ -895,6 +936,7 @@ describe('PagePreview checklist saves', () => {
     const firstRelatedA = deferred<any>();
     let relatedALoads = 0;
     vi.mocked(api.get).mockImplementation((url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url.startsWith('/pages?')) return Promise.resolve({ data: { data: [] } } as any);
       if (url === '/pages/page-1') return Promise.resolve({ data: page({ title: 'Page A', spaceId: 'space-a' }) } as any);
       if (url === '/pages/page-2') return Promise.resolve({ data: page({ id: 'page-2', title: 'Page B', spaceId: 'space-b' }) } as any);
@@ -930,6 +972,7 @@ describe('PagePreview checklist saves', () => {
   it('ignores an old related-pages rejection after B related pages have loaded', async () => {
     const oldRelatedA = deferred<any>();
     vi.mocked(api.get).mockImplementation((url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url.startsWith('/pages?')) return Promise.resolve({ data: { data: [] } } as any);
       if (url === '/pages/page-1') return Promise.resolve({ data: page({ title: 'Page A', spaceId: 'space-a' }) } as any);
       if (url === '/pages/page-2') return Promise.resolve({ data: page({ id: 'page-2', title: 'Page B', spaceId: 'space-b' }) } as any);
@@ -953,11 +996,13 @@ describe('PagePreview checklist saves', () => {
 
   it('uses the authoritative Space resolver for wiki links without loading a 200-page index', async () => {
     vi.mocked(api.get).mockImplementation((url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
       if (url === '/pages/page-1') return Promise.resolve({ data: page({ title: 'Page A', content: '[[Page 201]]', spaceId: 'space-a' }) } as any);
       return Promise.reject(new Error(`unexpected get ${url}`));
     });
     vi.mocked(api.post).mockImplementation(async (url, body) => {
+    const noteResponse = notesPost(url, body); if (noteResponse) return noteResponse;
       expect(url).toBe('/spaces/space-a/markdown/resolve');
       const reference = (body as { references: Array<{ key: string }> }).references[0];
       return { data: [{ key: reference.key, status: 'resolved', kind: 'page', pageId: 'target-201', title: 'Page 201', slug: 'page-201' }] };
@@ -972,12 +1017,14 @@ describe('PagePreview checklist saves', () => {
   it('clears a stale A resolver before B resolves its own wiki-link target', async () => {
     const resolverA = deferred<any>();
     vi.mocked(api.get).mockImplementation((url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
       if (url === '/pages/page-1') return Promise.resolve({ data: page({ title: 'Page A', content: '[[Shared]]', spaceId: 'space-a' }) } as any);
       if (url === '/pages/page-2') return Promise.resolve({ data: page({ id: 'page-2', title: 'Page B', content: '[[Shared]]', spaceId: 'space-b' }) } as any);
       return Promise.reject(new Error(`unexpected get ${url}`));
     });
     vi.mocked(api.post).mockImplementation(async (url, body) => {
+    const noteResponse = notesPost(url, body); if (noteResponse) return noteResponse;
       const reference = (body as { references: Array<{ key: string }> }).references[0];
       if (url === '/spaces/space-a/markdown/resolve') return resolverA.promise;
       if (url === '/spaces/space-b/markdown/resolve') return { data: [{ key: reference.key, status: 'resolved', kind: 'page', pageId: 'target-b', title: 'Shared', slug: 'shared' }] };
@@ -1033,6 +1080,7 @@ describe('PagePreview checklist saves', () => {
   it('scrolls a standard heading after the initial hashed page finishes loading', async () => {
     const pageLoad = deferred<any>();
     vi.mocked(api.get).mockImplementation((url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
       if (url === '/pages/page-1') return pageLoad.promise;
       return Promise.reject(new Error(`unexpected get ${url}`));
@@ -1052,6 +1100,7 @@ describe('PagePreview checklist saves', () => {
   it('keeps observing beyond 100 unrelated mutations until an embedded hash target mounts', async () => {
     const embeddedPage = deferred<any>();
     vi.mocked(api.get).mockImplementation((url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
       if (url === '/pages/page-1') return Promise.resolve({
         data: page({ content: '![[Embedded#Late heading]]' }),
@@ -1147,6 +1196,7 @@ describe('PagePreview checklist saves', () => {
   it('does not let an obsolete page load scroll the active page after a fast route change', async () => {
     const oldPageLoad = deferred<any>();
     vi.mocked(api.get).mockImplementation((url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url.startsWith('/knowledge/related/')) return Promise.resolve({ data: [] } as any);
       if (url === '/pages/page-1') return oldPageLoad.promise;
       if (url === '/pages/page-2') return Promise.resolve({
@@ -1174,62 +1224,168 @@ describe('PagePreview checklist saves', () => {
     vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
     const current = page({ content: 'A passage worth noting' });
     localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');
-    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/assist/sessions' || url.startsWith('/knowledge') ? [] : current }));
+    vi.mocked(api.get).mockImplementation(async (url) => notesGet(url) ?? ({ data: url === '/assist/sessions' || url.startsWith('/knowledge') ? [] : current }));
     render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="reader"><MemoryRouter initialEntries={['/pages/page-1']}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
     await screen.findByRole('heading', { name: 'Checklist' });
     scrollIntoViewMock.mockClear();
-    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
-    await waitFor(() => expect(scrollIntoViewMock.mock.instances.some((element) => element === document.querySelector('.document-notes-layer'))).toBe(true));
+    fireEvent.click(screen.getByRole('tab', { name: 'Page notes' }));
+    await waitFor(() => expect(scrollIntoViewMock.mock.instances.some((element) => element === document.querySelector('.document-side-panel'))).toBe(true));
     scrollIntoViewMock.mockClear();
-    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse side panel' }));
     expect(scrollIntoViewMock).not.toHaveBeenCalled();
   });
 
-  it('adds an exact private reading note beside the selection without opening or sending to Agent', async () => {
+  it('switches one icon panel without losing note or Agent drafts or focusing the hidden Agent', async () => {
+    const current = page({ content: '# Draft review\n\nA selected passage', capabilities: { canEdit: false } });
+    localStorage.setItem('user', JSON.stringify({ id: 'panel-reader' })); localStorage.setItem('token', 'test');
+    vi.mocked(api.get).mockImplementation(async (url) => notesGet(url) ?? ({ data: url === '/assist/sessions' || url.startsWith('/knowledge') ? [] : current }));
+    render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="panel-reader"><MemoryRouter initialEntries={['/pages/page-1']}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
+    const passage = await screen.findByText('A selected passage');
+    const panelShells = screen.getAllByRole('tab').map((tab) => document.getElementById(tab.getAttribute('aria-controls')!)!);
+    for (const panel of panelShells) expect(panel).toHaveAttribute('role', 'tabpanel');
+    const range = document.createRange(); range.setStart(passage.firstChild!, 2); range.setEnd(passage.firstChild!, 10);
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range); fireEvent.mouseUp(passage);
+    const notesTab = screen.getByRole('tab', { name: 'Page notes' });
+    notesTab.focus(); fireEvent.click(notesTab);
+    const noteComposer = await screen.findByRole('textbox', { name: 'Note' });
+    await waitFor(() => expect(screen.getByTestId('assist-intent')).toBeEnabled());
+    expect(document.activeElement).toBe(notesTab);
+    fireEvent.change(noteComposer, { target: { value: 'Keep this unfinished annotation' } });
+    fireEvent.click(screen.getByRole('tab', { name: 'Contents' }));
+    expect(screen.getByRole('navigation', { name: 'Contents' })).toBeVisible();
+    expect(screen.queryByRole('region', { name: 'Page notes' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Agent' }));
+    const agentComposer = await screen.findByRole('textbox', { name: 'Message' });
+    fireEvent.change(agentComposer, { target: { value: 'Keep this unsent question' } });
+    fireEvent.click(screen.getByRole('tab', { name: 'Page information' }));
+    expect(screen.queryByRole('textbox', { name: 'Message' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete page' })).not.toBeInTheDocument();
+    fireEvent.click(notesTab);
+    expect(screen.getByRole('textbox', { name: 'Note' })).toBe(noteComposer);
+    expect(noteComposer).toHaveValue('Keep this unfinished annotation');
+    fireEvent.click(screen.getByRole('tab', { name: 'Agent' }));
+    expect(screen.getByRole('textbox', { name: 'Message' })).toBe(agentComposer);
+    expect(agentComposer).toHaveValue('Keep this unsent question');
+    expect(screen.getAllByRole('tablist', { name: 'Document tools' })).toHaveLength(1);
+    expect(screen.getAllByRole('tabpanel')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse side panel' }));
+    expect(screen.queryByRole('tabpanel')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
+    for (const panel of panelShells) expect(document.getElementById(panel.id)).toBe(panel);
+    expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Agent' }));
+    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('keeps reading tab arrow navigation on the tabs and focuses Agent only for its shortcut', async () => {
+    const current = page({ content: '# Reading keyboard', capabilities: { canEdit: false } });
+    localStorage.setItem('user', JSON.stringify({ id: 'panel-reader' })); localStorage.setItem('token', 'test');
+    vi.mocked(api.get).mockImplementation(async (url) => notesGet(url) ?? ({ data: url === '/assist/sessions' || url.startsWith('/knowledge') ? [] : current }));
+    render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="panel-reader"><MemoryRouter initialEntries={['/pages/page-1']}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
+    const info = await screen.findByRole('tab', { name: 'Page information' });
+    info.focus(); fireEvent.click(info); fireEvent.keyDown(info, { key: 'ArrowRight' });
+    const agent = screen.getByRole('tab', { name: 'Agent' });
+    const message = await screen.findByRole('textbox', { name: 'Message' });
+    await waitFor(() => expect(message).toBeEnabled());
+    expect(agent).toHaveFocus();
+    fireEvent.keyDown(agent, { key: 'ArrowRight' });
+    expect(screen.getByRole('tab', { name: 'Page notes' })).toHaveFocus();
+    fireEvent.keyDown(window, { key: 'l', ctrlKey: true });
+    await waitFor(() => expect(message).toHaveFocus());
+  });
+
+
+  it('shows server notes from other users and Agents to a read-only member with author attribution', async () => {
+    const current = page({ content: 'A shared passage', capabilities: { canEdit: false } });
+    const target = captureAssistTarget(current.content, 'selection', 2, 8, current.updatedAt)!;
+    serverNotes = [
+      { id: 'colleague-note', spaceId: current.spaceId, pageId: current.id, body: 'Colleague observation', target, status: 'resolved', author: { type: 'user', id: 'colleague', name: 'Ada' }, canEdit: false, createdAt: current.createdAt, updatedAt: current.updatedAt },
+      { id: 'agent-note', spaceId: current.spaceId, pageId: current.id, body: 'Agent observation', target, status: 'pending', author: { type: 'agent', id: 'agent-codex', name: 'Codex' }, canEdit: false, createdAt: current.createdAt, updatedAt: current.updatedAt },
+    ];
+    localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');
+    vi.mocked(api.get).mockImplementation(async (url) => notesGet(url) ?? ({ data: url === '/assist/sessions' || url.startsWith('/knowledge') ? [] : current }));
+    render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="reader"><MemoryRouter initialEntries={['/pages/page-1']}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Page notes' }));
+    const panel = await screen.findByRole('region', { name: 'Page notes' });
+    fireEvent.click(within(panel).getByRole('button', { name: 'All (2)' }));
+    expect(within(panel).getByLabelText('Note author: Ada')).toBeVisible();
+    expect(within(panel).getByLabelText('Note author: Codex')).toBeVisible();
+    expect(within(panel).getByRole('checkbox', { name: 'Agent observation' })).toBeEnabled();
+    expect(within(panel).queryByRole('button', { name: 'Reopen' })).not.toBeInTheDocument();
+    expect(document.querySelector('[data-note-ids]')).toHaveTextContent('shared');
+    expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
+    expect(agentPostCalls()).toHaveLength(0);
+  });
+
+  it('keeps note creation disabled until server permission loads and after it is revoked', async () => {
+    const current = page({ content: 'A shared passage', capabilities: { canEdit: false } });
+    const pending = deferred<any>();
+    let firstNotes = true;
+    localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');
+    vi.mocked(api.get).mockImplementation(async (url) => {
+      if (notesRoute.test(url) && firstNotes) { firstNotes = false; return pending.promise; }
+      return notesGet(url) ?? { data: url === '/assist/sessions' || url.startsWith('/knowledge') ? [] : current };
+    });
+    render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="reader"><MemoryRouter initialEntries={['/pages/page-1']}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Page notes' }));
+    const panel = await screen.findByRole('region', { name: 'Page notes' });
+    const source = screen.getByRole('textbox', { name: 'Raw Markdown selection' });
+    fireEvent.select(source, { target: { selectionStart: 2, selectionEnd: 8 } });
+    expect(await within(panel).findByRole('textbox', { name: 'Note' })).toBeDisabled();
+    expect(screen.getByText('Loading page notes…')).toBeVisible();
+    await act(async () => pending.resolve({ data: { notes: [], canCreate: true } }));
+    expect(within(panel).getByRole('textbox', { name: 'Note' })).toBeEnabled();
+    fireEvent.change(within(panel).getByRole('textbox', { name: 'Note' }), { target: { value: 'Preserved pending note' } });
+    notesCanCreate = false;
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    expect(within(panel).getByRole('textbox', { name: 'Note' })).toHaveValue('Preserved pending note');
+    expect(within(panel).getByRole('button', { name: 'Add note' })).toBeDisabled();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('adds an exact server reading note beside the selection without opening or sending to Agent', async () => {
     savePersonalNotes({ userId: 'reader', spaceId: 'space-1', pageId: 'page-1' }, []);
     const current = page({ content: 'repeat\n\nrepeat with context', capabilities: { canEdit: false } });
     localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');
-    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url.startsWith('/knowledge') ? [] : current }));
+    vi.mocked(api.get).mockImplementation(async (url) => notesGet(url) ?? ({ data: url.startsWith('/knowledge') ? [] : current }));
     render(<LanguageProvider><AuthProvider><MemoryRouter initialEntries={['/pages/page-1']}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AuthProvider></LanguageProvider>);
     const span = await screen.findByText('repeat with context');
     const range = document.createRange(); range.setStart(span.firstChild!, 0); range.setEnd(span.firstChild!, 6);
     window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range); fireEvent.mouseUp(span);
     fireEvent.click(await screen.findByRole('button', { name: 'Add note to selection' }));
-    const dialog = screen.getByRole('dialog', { name: 'Add personal note' });
+    const dialog = screen.getByRole('dialog', { name: 'Add page note' });
     fireEvent.change(within(dialog).getByRole('textbox', { name: 'Note' }), { target: { value: 'The second occurrence' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Add note' }));
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(document.querySelector('[data-note-ids]')).toHaveTextContent('repeat');
-    const stored = loadPersonalNotes({ userId: 'reader', spaceId: current.spaceId, pageId: current.id });
-    expect(stored).toMatchObject({ status: 'loaded', notes: [expect.objectContaining({ body: 'The second occurrence', target: expect.objectContaining({ from: 8, to: 14 }) })] });
-    expect(screen.queryByRole('region', { name: 'Personal notes' })).not.toBeInTheDocument();
-    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+    expect(serverNotes).toEqual([expect.objectContaining({ body: 'The second occurrence', target: expect.objectContaining({ from: 8, to: 14 }), author: expect.objectContaining({ id: 'reader' }) })]);
+    expect(loadPersonalNotes({ userId: 'reader', spaceId: current.spaceId, pageId: current.id })).toEqual({ status: 'loaded', notes: [] });
+    expect(screen.queryByRole('region', { name: 'Page notes' })).not.toBeInTheDocument();
+    expect(agentPostCalls()).toHaveLength(0); expect(pagePatchCalls()).toHaveLength(0);
   });
 
-  it('keeps the selection note draft on a storage failure and retries without duplicate notes', async () => {
+  it('keeps the selection note draft on a server failure and retries without duplicate notes', async () => {
     savePersonalNotes({ userId: 'reader', spaceId: 'space-1', pageId: 'page-1' }, []);
     const current = page({ content: 'A selected passage', capabilities: { canEdit: false } });
     localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');
-    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url.startsWith('/knowledge') ? [] : current }));
+    vi.mocked(api.get).mockImplementation(async (url) => notesGet(url) ?? ({ data: url.startsWith('/knowledge') ? [] : current }));
     render(<LanguageProvider><AuthProvider><MemoryRouter initialEntries={['/pages/page-1']}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AuthProvider></LanguageProvider>);
     const span = await screen.findByText('A selected passage');
     const range = document.createRange(); range.setStart(span.firstChild!, 2); range.setEnd(span.firstChild!, 10);
     window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range); fireEvent.mouseUp(span);
     fireEvent.click(await screen.findByRole('button', { name: 'Add note to selection' }));
-    const dialog = screen.getByRole('dialog', { name: 'Add personal note' });
+    const dialog = screen.getByRole('dialog', { name: 'Add page note' });
     fireEvent.change(within(dialog).getByRole('textbox', { name: 'Note' }), { target: { value: 'Keep until safely saved' } });
-    const persist = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('Quota exceeded', 'QuotaExceededError'); });
+    notesCreateFailure = true;
     fireEvent.click(within(dialog).getByRole('button', { name: 'Add note' }));
     expect(screen.getByRole('textbox', { name: 'Note' })).toHaveValue('Keep until safely saved');
-    expect(screen.getByRole('alert')).toHaveTextContent('Browser storage is unavailable');
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('has not been saved to the server'));
     expect(document.querySelector('[data-note-ids]')).not.toBeInTheDocument();
-    persist.mockRestore();
+    notesCreateFailure = false;
     fireEvent.click(screen.getByRole('button', { name: 'Add note' }));
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    const stored = loadPersonalNotes({ userId: 'reader', spaceId: current.spaceId, pageId: current.id });
-    expect(stored.status === 'loaded' ? stored.notes : []).toEqual([expect.objectContaining({ body: 'Keep until safely saved' })]);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(serverNotes).toEqual([expect.objectContaining({ body: 'Keep until safely saved' })]);
     expect(document.querySelector('[data-note-ids]')).toHaveTextContent('selected');
-    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+    expect(agentPostCalls()).toHaveLength(0); expect(pagePatchCalls()).toHaveLength(0);
   });
 
   it('keeps saved note highlights visible while the panel is closed and reveals a resolved card without sending it', async () => {
@@ -1239,31 +1395,34 @@ describe('PagePreview checklist saves', () => {
     const note = { ...addPersonalNote(scope, captureAssistTarget(current.content, 'selection', 2, 9, current.updatedAt)!, 'Already reviewed', 'saved-note'), status: 'resolved' as const, taskId: 'previous-task' };
     savePersonalNotes(scope, [note]);
     localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');
-    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/assist/sessions' || url.startsWith('/knowledge') ? [] : current }));
+    vi.mocked(api.get).mockImplementation(async (url) => notesGet(url) ?? ({ data: url === '/assist/sessions' || url.startsWith('/knowledge') ? [] : current }));
     render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="reader"><MemoryRouter initialEntries={['/pages/page-1']}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
     await screen.findByRole('heading', { name: 'Checklist' });
     await waitFor(() => expect(document.querySelector('[data-note-id="saved-note"]')).toHaveTextContent('passage'));
-    expect(screen.queryByRole('region', { name: 'Personal notes' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+    expect(screen.queryByRole('region', { name: 'Page notes' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Page notes' }));
     await waitFor(() => expect(document.querySelector('[data-note-id="saved-note"]')).toHaveTextContent('passage'));
     expect(document.querySelector<HTMLElement>('.document-canvas')?.style.getPropertyValue('--document-panel-width')).toBe('420px');
-    fireEvent.click(screen.getAllByRole('button', { name: 'Personal notes' })[0]);
-    expect(screen.getAllByRole('button', { name: 'Personal notes' })[0]).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(screen.getByRole('tab', { name: 'Page notes' }));
+    expect(screen.getByRole('tab', { name: 'Page notes' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse side panel' }));
+    expect(screen.getByRole('tab', { name: 'Page notes' })).toHaveAttribute('aria-selected', 'false');
     expect(document.querySelector('[data-note-id="saved-note"]')).toHaveTextContent('passage');
     fireEvent.click(document.querySelector<HTMLElement>('[data-note-id="saved-note"]')!);
-    const panel = await screen.findByRole('region', { name: 'Personal notes' });
+    const panel = await screen.findByRole('region', { name: 'Page notes' });
     expect((await within(panel).findByRole('checkbox', { name: 'Already reviewed' })).closest('li')).toHaveAttribute('data-active-note', 'true');
     fireEvent.click(within(panel).getByRole('button', { name: 'Locate passage' }));
     expect(document.activeElement).toBe(document.querySelector('[data-note-id="saved-note"]'));
-    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse side panel' }));
     expect(document.querySelector('[data-note-id="saved-note"]')).toHaveTextContent('passage');
-    fireEvent.click(screen.getAllByRole('button', { name: 'Agent' })[0]);
+    fireEvent.click(screen.getAllByRole('tab', { name: 'Agent' })[0]);
     expect(document.querySelector('[data-note-id="saved-note"]')).toHaveTextContent('passage');
-    expect(document.querySelector<HTMLElement>('.document-canvas')?.style.getPropertyValue('--document-panel-width')).toBe('0px');
+    expect(document.querySelector<HTMLElement>('.document-canvas')?.style.getPropertyValue('--document-panel-width')).toBe('420px');
     fireEvent.click(document.querySelector<HTMLElement>('[data-note-id="saved-note"]')!);
     expect(await screen.findByRole('checkbox', { name: 'Already reviewed' })).toBeVisible();
-    expect(loadPersonalNotes(scope)).toEqual({ status: 'loaded', notes: [note] });
-    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+    expect(loadPersonalNotes(scope)).toEqual({ status: 'loaded', notes: [] });
+    expect(serverNotes).toEqual([expect.objectContaining({ body: note.body, author: expect.objectContaining({ id: 'reader' }) })]);
+    expect(agentPostCalls()).toHaveLength(0); expect(pagePatchCalls()).toHaveLength(0);
   });
 
   it('clears reading highlights immediately when the account changes while Notes is open', async () => {
@@ -1272,14 +1431,17 @@ describe('PagePreview checklist saves', () => {
     savePersonalNotes(scope, [addPersonalNote(scope, captureAssistTarget(current.content, 'selection', 0, 4, current.updatedAt)!, 'My note', 'account-note')]);
     localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');
     const AccountSwitch = () => { const { login } = useAuth(); return <button onClick={() => login('next', { id: 'other-reader' })}>Switch account</button>; };
-    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/assist/sessions' || url.startsWith('/knowledge') ? [] : current }));
+    vi.mocked(api.get).mockImplementation(async (url) => notesGet(url) ?? ({ data: url === '/assist/sessions' || url.startsWith('/knowledge') ? [] : current }));
     render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="reader"><MemoryRouter initialEntries={['/pages/page-1']}><AccountSwitch /><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
     await screen.findByRole('heading', { name: 'Checklist' });
-    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Page notes' }));
     await waitFor(() => expect(document.querySelector('[data-note-id="account-note"]')).toHaveTextContent('Only'));
     fireEvent.click(screen.getByRole('button', { name: 'Switch account' }));
     expect(document.querySelector('[data-note-ids]')).not.toBeInTheDocument();
-    expect(api.post).not.toHaveBeenCalled();
+    expect(screen.queryByRole('region', { name: 'Page notes' })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Page notes' })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.queryByText('My note')).not.toBeInTheDocument();
+    expect(agentPostCalls()).toHaveLength(0);
   });
 
   it('lets a reader annotate an exact reading selection, stage it, add a reference and explicitly send a question', async () => {
@@ -1287,26 +1449,27 @@ describe('PagePreview checklist saves', () => {
     const current = page({ content: readingSource, capabilities: { canEdit: false } });
     const session = { id: 'session-reader', spaceId: 'space-1', title: 'Reader conversation', createdAt: current.createdAt, updatedAt: current.updatedAt };
     localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');
-    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/assist/sessions' ? [] : url === '/search' ? { results: [{ page: { id: 'ref', title: 'Supporting page', spaceId: 'space-1' } }] } : url.startsWith('/knowledge') ? [] : current }));
-    vi.mocked(api.post).mockImplementation(async (url, data: any) => ({ data: url === '/assist/sessions' ? session : { id: 'reader-turn', sessionId: session.id, pageId: current.id, mode: data.mode, intent: data.intent, status: 'done', createdAt: current.updatedAt, pageSnapshot: data.snapshot, references: [{ pageId: 'ref', title: 'Supporting page', updatedAt: current.updatedAt }], noteIds: data.noteIds, annotations: data.annotations, result: { summary: 'Reader answer' }, error: null, progressText: '' } }));
+    vi.mocked(api.get).mockImplementation(async (url) => notesGet(url) ?? ({ data: url === '/assist/sessions' ? [] : url === '/search' ? { results: [{ page: { id: 'ref', title: 'Supporting page', spaceId: 'space-1' } }] } : url.startsWith('/knowledge') ? [] : current }));
+    vi.mocked(api.post).mockImplementation(async (url, data: any) => notesPost(url, data) ?? ({ data: url === '/assist/sessions' ? session : { id: 'reader-turn', sessionId: session.id, pageId: current.id, mode: data.mode, intent: data.intent, status: 'done', createdAt: current.updatedAt, pageSnapshot: data.snapshot, references: [{ pageId: 'ref', title: 'Supporting page', updatedAt: current.updatedAt }], noteIds: data.noteIds, annotations: data.annotations, result: { summary: 'Reader answer' }, error: null, progressText: '' } }));
     render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="reader"><MemoryRouter initialEntries={['/pages/page-1']}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
     const span = await screen.findByText('repeat with context');
     const selection = window.getSelection()!, range = document.createRange(); range.setStart(span.firstChild!, 0); range.setEnd(span.firstChild!, 6); selection.removeAllRanges(); selection.addRange(range);
     fireEvent.mouseUp(span);
-    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
-    const notesPanel = await screen.findByRole('region', { name: 'Personal notes' });
+    fireEvent.click(screen.getByRole('tab', { name: 'Page notes' }));
+    const notesPanel = await screen.findByRole('region', { name: 'Page notes' });
     expect(within(notesPanel).getByText('repeat', { selector: 'blockquote' })).toBeVisible();
     fireEvent.change(within(notesPanel).getByRole('textbox', { name: 'Note' }), { target: { value: 'Why the second occurrence?' } }); fireEvent.click(within(notesPanel).getByRole('button', { name: 'Add note' }));
+    await within(notesPanel).findByRole('checkbox', { name: 'Why the second occurrence?' });
     expect(document.querySelector('[data-note-ids]')).toHaveTextContent('repeat');
     fireEvent.click(within(notesPanel).getByRole('checkbox', { name: 'Why the second occurrence?' })); fireEvent.click(within(notesPanel).getByRole('button', { name: 'Stage selected for Agent' }));
-    expect(api.post).not.toHaveBeenCalled();
+    expect(agentPostCalls()).toHaveLength(0);
     fireEvent.change(await screen.findByRole('textbox', { name: 'Find reference pages' }), { target: { value: 'Supporting' } }); fireEvent.click(await screen.findByRole('button', { name: 'Add Supporting page' }));
     expect(screen.getByRole('option', { name: 'Propose changes' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Send' })); expect(await screen.findByText('Reader answer')).toBeVisible();
     const sent = vi.mocked(api.post).mock.calls.find(([url]) => url.endsWith('/turns'))?.[1] as any;
     expect(sent.mode).toBe('question'); expect(sent.referencePageIds).toEqual(['ref']); expect(sent.snapshot.assistTarget).toMatchObject({ from: 8, to: 14, quote: 'repeat' });
-    expect(sent.annotations).toEqual([expect.objectContaining({ body: 'Why the second occurrence?', quote: 'repeat' })]); expect(sent.intent).not.toMatch(/rewrite|modify/i); expect(api.patch).not.toHaveBeenCalled();
-    fireEvent.click(screen.getAllByRole('button', { name: 'Personal notes' })[0]);
+    expect(sent.annotations).toEqual([expect.objectContaining({ body: 'Why the second occurrence?', quote: 'repeat' })]); expect(sent.intent).not.toMatch(/rewrite|modify/i); expect(pagePatchCalls()).toHaveLength(0);
+    fireEvent.click(screen.getAllByRole('tab', { name: 'Page notes' })[0]);
     expect(screen.getByText('Dispatched')).toBeVisible(); expect(screen.queryByText('Resolved', { exact: true })).not.toBeInTheDocument();
   });
 

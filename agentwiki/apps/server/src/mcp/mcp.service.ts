@@ -1,3 +1,5 @@
+import { PageNoteService } from '../page-notes/page-note.service';
+import { registerPageNoteTools } from './page-note-tools';
 import { SourceFreshnessService } from '../core/source-freshness/source-freshness.service';
 import { ProjectTaskboardService } from '../project-taskboard/project-taskboard.service';
 import { registerTaskboardTools } from './taskboard-tools';
@@ -135,6 +137,7 @@ export class McpService {
     private collaborationExecution: ExecutionService,
     @Optional() private contentTree?: ContentTreeService,
     @Optional() private taskboard?: ProjectTaskboardService,
+    @Optional() private pageNotes?: PageNoteService,
   ) {}
 
   async handle(request: Request, response: Response, principal: Principal): Promise<void> {
@@ -163,6 +166,10 @@ export class McpService {
     const registerTool = (name: string, definition: any, handler: (args: any) => Promise<unknown>) =>
       server.registerTool(name, definition, (args: any) =>
         this.executeMcpCall(`tool.${name}`, principal, requestContext, args, () => handler(args)));
+    registerPageNoteTools(registerTool, principal, () => {
+      if (!this.pageNotes) throw new Error('PageNoteService is required for note MCP tools');
+      return this.pageNotes;
+    });
     registerTaskboardTools(registerTool, principal, this.authorization, () => {
       if (!this.taskboard) throw new Error('ProjectTaskboardService is required for taskboard MCP tools');
       return this.taskboard;

@@ -23,7 +23,7 @@ const { ContentTreeService } = requireFromServer('./dist/content-tree/content-tr
 const { ReadableSyncPathService } = requireFromServer('./dist/core/sync/readable-sync-path.service.js');
 const baseDatabaseUrl = process.env.FOLDER_TEST_DATABASE_URL;
 let publicInventoryBefore;
-const REVIEWED_MIGRATION_TREE_SHA256 = 'b518b4d00afd8dbfd576713a77702b1d7738e8dadd88a3df936e65e16213e0b7';
+const REVIEWED_MIGRATION_TREE_SHA256 = '284c22842a670d2d2c7f6312bc3674d6ca87a167472c62c5061e217d164ebd79';
 
 const folderPgDumpFixture = (token, body) => `--\n-- PostgreSQL database dump\n--\n\n\\restrict ${token}\n\n${body}\n\n--\n-- PostgreSQL database dump complete\n--\n\n\\unrestrict ${token}\n\n`;
 

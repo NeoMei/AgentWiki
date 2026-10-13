@@ -12,7 +12,7 @@ const source = 'A selected passage';
 let rect = { left: 100, top: 120, right: 190, bottom: 144, width: 90, height: 24 };
 const rootRef = createRef<HTMLDivElement>();
 const target = captureAssistTarget(source, 'selection', 2, 10, version)!;
-const onAdd = vi.fn(() => true);
+const onAdd = vi.fn<(...args: any[]) => boolean | Promise<boolean>>(() => true);
 const props = { rootRef, source, updatedAt: version, identity: 'user:space:page', language: 'en', disabled: false, captureTarget: () => target, onAdd };
 const fixture = (overrides: Partial<typeof props> = {}) => <><div ref={rootRef}><p>{source}</p></div><SelectionNoteComposer {...props} {...overrides} /></>;
 const select = async () => {
@@ -22,7 +22,7 @@ const select = async () => {
   fireEvent.mouseUp(rootRef.current!);
   return screen.findByRole('button', { name: 'Add note to selection' });
 };
-const open = async () => { fireEvent.click(await select()); return screen.getByRole('dialog', { name: 'Add personal note' }); };
+const open = async () => { fireEvent.click(await select()); return screen.getByRole('dialog', { name: 'Add page note' }); };
 beforeEach(() => {
   auth.user = { id: 'user', name: 'Alice' };
   onAdd.mockReset().mockReturnValue(true);
@@ -47,7 +47,7 @@ describe('selection note composer', () => {
     expect(onAdd).not.toHaveBeenCalled();
   });
 
-  it('captures the original passage before focus moves, saves only the private note and closes', async () => {
+  it('captures the original passage before focus moves, waits for saving the page note and closes', async () => {
     render(fixture()); const dialog = await open();
     expect(within(dialog).getByRole('textbox', { name: 'Note' })).toHaveFocus();
     expect(within(dialog).getByRole('blockquote')).toHaveTextContent('selected');
@@ -55,7 +55,7 @@ describe('selection note composer', () => {
     fireEvent.change(within(dialog).getByRole('textbox'), { target: { value: 'Explain this' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Add note' }));
     expect(onAdd).toHaveBeenCalledExactlyOnceWith(target, 'Explain this');
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(rootRef.current).toHaveTextContent(source);
   });
   it('keeps the draft and blocks saving when the source or version changes', async () => {
@@ -89,7 +89,7 @@ describe('selection note composer', () => {
     fireEvent.change(within(dialog).getByRole('textbox'), { target: { value: 'Do not lose this' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Add note' }));
     expect(screen.getByRole('textbox')).toHaveValue('Do not lose this');
-    expect(screen.getByRole('alert')).toBeVisible();
+    await waitFor(() => expect(screen.getByRole('alert')).toBeVisible());
     view.rerender(fixture({ identity: 'another-user:space:page' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue('Do not lose this')).not.toBeInTheDocument();
@@ -144,4 +144,20 @@ describe('selection note composer', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(onAdd).not.toHaveBeenCalled();
   });
+});
+
+
+it('does not close or permit duplicate submission before a server receipt, and preserves a rejected draft', async () => {
+  let finish!: (value: boolean) => void;
+  onAdd.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  render(fixture()); const dialog = await open();
+  fireEvent.change(within(dialog).getByRole('textbox'), { target: { value: 'Persist this' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Add note' }));
+  expect(screen.getByRole('button', { name: 'Saving…' })).toBeDisabled();
+  expect(screen.getByRole('textbox')).toBeDisabled();
+  expect(screen.getByRole('textbox')).toHaveValue('Persist this');
+  await act(async () => { finish(false); });
+  expect(screen.getByRole('alert')).toBeVisible(); expect(screen.getByRole('textbox')).toHaveValue('Persist this');
+  expect(screen.getByRole('button', { name: 'Add note' })).toBeEnabled();
+  expect(screen.getByRole('textbox')).toBeEnabled();
 });

@@ -74,6 +74,35 @@ vi.mock('../attachments/attachmentApi', () => ({
 }));
 vi.mock('../../api/content-tree', () => ({ getContentTreeRevision: contentTreeMocks.getContentTreeRevision }));
 
+
+let serverNotes: import('./pageNotesApi').PageNoteDto[] = [];
+let notesCanCreate = true;
+let notesCreateFailure = false;
+const currentNoteAuthor = () => authMock.user;
+const notesRoute = /^\/spaces\/([^/]+)\/pages\/([^/]+)\/notes(?:\/([^/]+))?$/;
+const notesGet = (url: string) => {
+  const route = notesRoute.exec(url); if (!route) return null;
+  return Promise.resolve({ data: { notes: serverNotes.filter((note) => note.spaceId === route[1] && note.pageId === route[2]).map((note) => ({ ...note, canEdit: note.author.type === 'user' && note.author.id === currentNoteAuthor().id })), canCreate: notesCanCreate } });
+};
+const notesPost = (url: string, input: any) => {
+  const route = notesRoute.exec(url); if (!route) return null;
+  if (notesCreateFailure) return Promise.reject(new Error('Note server unavailable'));
+  const author = currentNoteAuthor();
+  const existing = serverNotes.find((note) => note.clientNoteId === input.clientNoteId && note.author.id === author.id);
+  if (existing) return Promise.resolve({ data: existing });
+  const note = { ...input, id: input.clientNoteId, spaceId: route[1], pageId: route[2], status: input.status ?? 'pending', author: { type: 'user' as const, id: author.id, name: author.name ?? 'Reader' }, canEdit: true, createdAt: '2026-10-14T00:00:00.000Z', updatedAt: '2026-10-14T00:00:00.000Z' };
+  serverNotes.push(note); return Promise.resolve({ data: note });
+};
+const notesPatch = (url: string, input: any) => {
+  const route = notesRoute.exec(url); if (!route) return null;
+  const note = serverNotes.find((item) => item.id === route[3]);
+  if (!note) return Promise.reject(new Error('Note missing'));
+  Object.assign(note, input, { updatedAt: new Date(Date.parse(note.updatedAt) + 1).toISOString() });
+  return Promise.resolve({ data: { ...note } });
+};
+const agentPostCalls = () => vi.mocked(api.post).mock.calls.filter(([url]) => url.startsWith('/assist/'));
+const pagePatchCalls = () => vi.mocked(api.patch).mock.calls.filter(([url]) => !notesRoute.test(url));
+
 // Per-test queue of page-detail responses.
 let pageQueue: any[] = [];
 const queuePages = (...responses: any[]) => { pageQueue = responses; };
@@ -183,8 +212,9 @@ const mockAgentSession = (sourcePage: ReturnType<typeof page>, readTurns: () => 
     const request = requests.get(turn.id) ?? {};
     return { sessionId: summary.id, pageId: sourcePage.id, mode: 'proposal', createdAt: sourcePage.updatedAt, pageSnapshot: request.snapshot ?? { title: sourcePage.title, content: sourcePage.content, updatedAt: sourcePage.updatedAt }, noteIds: request.noteIds ?? [], annotations: request.annotations ?? [], references: [], progressText: '', error: null, ...turn };
   };
-  vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/assist/sessions' ? [summary] : url === '/assist/sessions/session-1' ? { ...summary, turns: readTurns().map(canonical) } : sourcePage }));
+  vi.mocked(api.get).mockImplementation(async (url) => notesGet(url) ?? ({ data: url === '/assist/sessions' ? [summary] : url === '/assist/sessions/session-1' ? { ...summary, turns: readTurns().map(canonical) } : sourcePage }));
   vi.mocked(api.post).mockImplementation(async (url, payload: any) => {
+    const noteResponse = notesPost(url, payload); if (noteResponse) return noteResponse;
     if (url !== '/assist/sessions/session-1/turns') throw new Error('Unexpected POST ' + url);
     const turn = await send(payload); requests.set(turn.id, payload); return { data: canonical(turn) };
   });
@@ -213,7 +243,7 @@ const expectNoWritableWorkspace = (container: HTMLElement) => {
   expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Preview' })).not.toBeInTheDocument();
-  expect(screen.queryByTestId('assist-toggle')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('document-panel-tab-assist')).not.toBeInTheDocument();
 };
 
 const NavigationHarness = () => {
@@ -307,6 +337,9 @@ describe('PageEditor remote update safety', () => {
     vi.mocked(api.patch).mockReset();
     vi.mocked(api.delete).mockReset();
     vi.mocked(api.post).mockReset();
+    serverNotes = []; notesCanCreate = true; notesCreateFailure = false;
+    vi.mocked(api.post).mockImplementation((url, input) => notesPost(url, input) ?? Promise.reject(new Error('unexpected post ' + url)));
+    vi.mocked(api.patch).mockImplementation((url, input) => notesPatch(url, input) ?? Promise.reject(new Error('unexpected patch ' + url)));
     contentTreeMocks.getContentTreeRevision.mockReset();
     contentTreeMocks.getContentTreeRevision.mockResolvedValue('31');
     templateMocks.listPageTemplates.mockReset();
@@ -324,6 +357,7 @@ describe('PageEditor remote update safety', () => {
     attachmentMocks.listAttachments.mockResolvedValue({ items: [], total: 0, skip: 0, take: 20 });
     pageQueue = [];
     vi.mocked(api.get).mockImplementation((url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (typeof url === 'string' && url.includes('spaceId=')) {
         return Promise.resolve({ data: { data: [] } } as any);
       }
@@ -452,7 +486,7 @@ describe('PageEditor remote update safety', () => {
     expect(screen.queryByRole('button', { name: 'Recover local draft' })).not.toBeInTheDocument();
     queuePages({ data: page({ capabilities: { canEdit: true } }) });
     fireEvent.focus(window);
-    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/pages/page-1')).toHaveLength(2));
     await act(async () => { await Promise.resolve(); });
     expect(screen.queryByRole('button', { name: 'Recover local draft' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Preview local draft' })).toBeInTheDocument();
@@ -469,7 +503,7 @@ describe('PageEditor remote update safety', () => {
       act(() => socketMock.handlers.get('contentUpdated')?.({ content: 'Remote concurrent edit', userId: 'remote', version: 42 }));
       fireEvent.click(screen.getByRole('button', { name: 'Keep local draft' }));
       await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
-      expect(api.get).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/pages/page-1')).toHaveLength(2);
       expect(screen.queryByRole('button', { name: 'Recover local draft' })).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Preview local draft' })).toBeInTheDocument();
     } finally { vi.useRealTimers(); }
@@ -622,15 +656,32 @@ describe('PageEditor remote update safety', () => {
     queuePages({ data: page({ capabilities: { canEdit: true } }) });
     const view = renderEditorWithCrumbs();
     await screen.findByDisplayValue('Original title');
-    expect(screen.getByRole('button', { name: 'Notes queue' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('tab', { name: 'Page notes' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('separator', { name: 'Resize collaboration panel' })).toHaveAttribute('aria-valuenow', '440');
     expect(contentEditorValue()).toBe('Original content');
     expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse side panel' }));
     view.unmount();
     queuePages({ data: page({ capabilities: { canEdit: true } }) }); renderEditorWithCrumbs();
     await screen.findByDisplayValue('Original title');
-    expect(screen.queryByRole('button', { name: 'Notes queue' })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Page notes' })).toHaveAttribute('aria-selected', 'false');
+  });
+
+  it('keeps editor tab arrow navigation on the tabs and focuses Agent only for its shortcut', async () => {
+    vi.mocked(api.get).mockImplementation(async (url: string) => notesGet(url) ?? ({ data: url === '/assist/sessions' || url === '/review' ? [] : page({ capabilities: { canEdit: true } }) }));
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    for (const tab of screen.getAllByRole('tab')) expect(document.getElementById(tab.getAttribute('aria-controls')!)).toHaveAttribute('role', 'tabpanel');
+    const info = screen.getByRole('tab', { name: 'Page information' });
+    info.focus(); fireEvent.click(info); fireEvent.keyDown(info, { key: 'ArrowRight' });
+    const agent = screen.getByRole('tab', { name: 'Agent' });
+    const message = await screen.findByRole('textbox', { name: 'Message' });
+    await waitFor(() => expect(message).toBeEnabled());
+    expect(agent).toHaveFocus();
+    fireEvent.keyDown(agent, { key: 'ArrowRight' });
+    expect(screen.getByRole('tab', { name: 'Page notes' })).toHaveFocus();
+    fireEvent.keyDown(window, { key: 'l', metaKey: true });
+    await waitFor(() => expect(message).toHaveFocus());
+    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
   });
 
   it('keeps mobile panel dismissal and viewport clamping out of desktop preferences', async () => {
@@ -639,21 +690,21 @@ describe('PageEditor remote update safety', () => {
     localStorage.setItem(key, JSON.stringify({ schemaVersion: 1, collaborationOpen: true, collaborationTab: 'notes', collaborationWidth: 520 }));
     queuePages({ data: page({ capabilities: { canEdit: true } }) }); renderEditorWithCrumbs();
     await screen.findByDisplayValue('Original title');
-    expect(screen.queryByRole('button', { name: 'Notes queue' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
-    expect(document.querySelector('.document-assist-layer')).toHaveStyle({ width: '358px' });
+    expect(screen.getByRole('tab', { name: 'Page notes' })).toHaveAttribute('aria-selected', 'false');
+    fireEvent.click(screen.getByRole('tab', { name: 'Page notes' }));
+    expect(document.querySelector('.document-side-panel')).toHaveStyle({ width: '358px' });
     expect(screen.queryByRole('separator', { name: 'Resize collaboration panel' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse side panel' }));
     expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ collaborationOpen: true, collaborationWidth: 520 });
     viewport.mockReturnValue(1280); fireEvent.resize(window);
-    expect(screen.getByRole('button', { name: 'Notes queue' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('tab', { name: 'Page notes' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('separator', { name: 'Resize collaboration panel' })).toHaveAttribute('aria-valuenow', '520');
     fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize collaboration panel' }), { key: 'Home' });
     expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ collaborationWidth: 320 });
     expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
   });
 
-  it('suppresses a remembered notes tab immediately when live editing permission is lost', async () => {
+  it('keeps page notes available when editing permission becomes read-only', async () => {
     const key = 'agentwiki.workspace.v1:user-1:space-1';
     localStorage.setItem(key, JSON.stringify({ schemaVersion: 1, collaborationOpen: true, collaborationTab: 'notes' }));
     queuePages({ data: page({ capabilities: { canEdit: true } }) });
@@ -664,21 +715,25 @@ describe('PageEditor remote update safety', () => {
       { path: '/pages/:id', element: <DirectEditRedirectTarget /> },
     ] }], { initialEntries: ['/pages/page-1/edit'] });
     render(<LanguageProvider><RouterProvider router={router} /></LanguageProvider>); await screen.findByDisplayValue('Original title');
-    expect(screen.getByRole('button', { name: 'Notes queue' })).toBeVisible();
+    expect(screen.getByRole('tab', { name: 'Page notes' })).toBeVisible();
     editContent('Retained private draft');
     queuePages({ data: page({ capabilities: { canEdit: false } }) });
     await act(async () => window.dispatchEvent(new Event('focus')));
-    expect(screen.queryByRole('button', { name: 'Notes queue' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Personal notes' })).toBeDisabled();
-    expect(screen.getByTestId('assist-toggle')).toBeDisabled();
+    expect(screen.getByRole('tab', { name: 'Page notes' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Page notes' })).toBeEnabled();
+    expect(screen.getByTestId('document-panel-tab-assist')).toBeEnabled();
     expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ collaborationOpen: true, collaborationTab: 'notes' });
+    expect(screen.getByRole('tab', { name: 'Contents' })).toBeEnabled();
+    expect(screen.getByRole('tab', { name: 'Page information' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('tab', { name: 'Page information' }));
+    expect(screen.getByRole('tabpanel', { name: 'Page information' })).toBeVisible();
     expect(contentEditorValue()).toBe('Retained private draft'); expect(api.post).not.toHaveBeenCalled();
   });
 
   it('keeps the opened candidate panel mounted through tabs/close but clears its page identity', async () => {
     const key = 'agentwiki.workspace.v1:user-1:space-1';
     localStorage.setItem(key, JSON.stringify({ schemaVersion: 1, collaborationOpen: true, collaborationTab: 'assist' }));
-    vi.mocked(api.get).mockImplementation(async (url: string) => ({ data: url === '/assist/sessions' || url === '/review' ? [] : page({ id: url.includes('page-2') ? 'page-2' : 'page-1', capabilities: { canEdit: true } }) }));
+    vi.mocked(api.get).mockImplementation(async (url: string) => notesGet(url) ?? ({ data: url === '/assist/sessions' || url === '/review' ? [] : page({ id: url.includes('page-2') ? 'page-2' : 'page-1', capabilities: { canEdit: true } }) }));
     const ScopedEditor = () => {
       const { id } = useParams(); const navigate = useNavigate();
       return <><button onClick={() => navigate('/pages/page-2/edit')}>Next scoped document</button><SpaceWorkspace mode="edit" pageId={id}><PageEditor workspaceRef={workspaceRef} /></SpaceWorkspace></>;
@@ -686,10 +741,10 @@ describe('PageEditor remote update safety', () => {
     render(<LanguageProvider><SpaceWorkspaceProvider userId="user-1"><MemoryRouter initialEntries={['/pages/page-1/edit']}><Routes><Route path="/pages/:id/edit" element={<ScopedEditor />} /></Routes></MemoryRouter></SpaceWorkspaceProvider></LanguageProvider>);
     const intent = await screen.findByTestId('assist-intent');
     fireEvent.change(intent, { target: { value: 'Unsubmitted request' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Notes queue' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Page notes' }));
     expect(intent).not.toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
-    fireEvent.click(screen.getByTestId('assist-toggle'));
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse side panel' }));
+    fireEvent.click(screen.getByTestId('document-panel-tab-assist'));
     expect(screen.getByTestId('assist-intent')).toBe(intent); expect(intent).toHaveValue('Unsubmitted request');
     fireEvent.click(screen.getByRole('button', { name: 'Next scoped document' }));
     await waitFor(() => expect(screen.getByTestId('assist-intent')).not.toBe(intent));
@@ -698,42 +753,81 @@ describe('PageEditor remote update safety', () => {
     expect(localStorage.getItem(key)).not.toContain('Unsubmitted request');
   });
 
-  it('suppresses the article outline for notes-only collaboration then restores its stored choice', async () => {
-    localStorage.setItem('agentwiki.workspace.v1:user-1:space-1', JSON.stringify({ schemaVersion: 1, outlineOpen: true, collaborationOpen: true, collaborationTab: 'notes' }));
-    queuePages({ data: page({ content: '# Outline entry', capabilities: { canEdit: true } }) });
-    renderEditorWithCrumbs(); await screen.findByDisplayValue('Original title');
-    expect(screen.getByRole('button', { name: 'Contents' })).toBeDisabled();
-    expect(screen.queryByRole('navigation', { name: 'Contents' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
-    expect(await screen.findByRole('navigation', { name: 'Contents' })).toBeVisible();
-    fireEvent.click(screen.getByTestId('mode-toggle'));
-    expect(await screen.findByRole('navigation', { name: 'Contents' })).toBeVisible();
-    expect(JSON.parse(localStorage.getItem('agentwiki.workspace.v1:user-1:space-1')!)).toMatchObject({ outlineOpen: true, collaborationOpen: false });
-    expect(contentEditorValue()).toBe('# Outline entry'); expect(api.patch).not.toHaveBeenCalled();
+  it('shows source metadata in the shared info panel and guards history navigation with a dirty draft', async () => {
+    queuePages({ data: page({ capabilities: { canEdit: true }, lastModifiedByAgent: { id: 'agent-1', name: 'Research agent' } }) });
+    renderGuardedEditor(); await screen.findByDisplayValue('Original title');
+    editContent('Keep this unsaved draft');
+    fireEvent.click(screen.getByRole('tab', { name: 'Page information' }));
+    expect(screen.getByText('Agent · Research agent')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Delete page' })).not.toBeInTheDocument();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Version history' }));
+    expect(confirm).toHaveBeenCalled();
+    expect(screen.getByTestId('guarded-location')).toHaveTextContent('/pages/page-1/edit');
+    expect(contentEditorValue()).toBe('Keep this unsaved draft');
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Version history' }));
+    expect(JSON.parse((await screen.findByTestId('history-source-state')).textContent!)).toMatchObject({ pageHistorySource: { pageId: 'page-1', mode: 'edit' } });
   });
 
-  it('reserves Notes beside the document on desktop and keeps the narrower Agent panel as an overlay', async () => {
+  it('keeps an unsubmitted personal note across all side-panel tabs and collapse', async () => {
+    queuePages({ data: page({ content: '# First\n\nA passage', capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    fireEvent.click(screen.getByRole('tab', { name: 'Page notes' }));
+    act(() => currentEditorView().dispatch({ selection: EditorSelection.single(9, 18) }));
+    const draft = screen.getByRole('textbox', { name: 'Note' });
+    fireEvent.change(draft, { target: { value: 'My pending private annotation' } });
+    for (const tab of ['Contents', 'Page information', 'Agent']) {
+      fireEvent.click(screen.getByRole('tab', { name: tab }));
+      expect(draft).toBeInTheDocument(); expect(draft).not.toBeVisible();
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse side panel' }));
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
+    fireEvent.click(screen.getByRole('tab', { name: 'Page notes' }));
+    expect(screen.getByRole('textbox', { name: 'Note' })).toBe(draft);
+    expect(draft).toHaveValue('My pending private annotation');
+    fireEvent.click(screen.getByRole('tab', { name: 'Page notes' }));
+    expect(draft).toBeVisible();
+    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('switches the shared panel between notes and the editor outline without changing the draft', async () => {
+    const key = 'agentwiki.workspace.v1:user-1:space-1';
+    localStorage.setItem(key, JSON.stringify({ schemaVersion: 1, outlineOpen: true, collaborationOpen: true, collaborationTab: 'notes' }));
+    const body = '# One\n\nSome text\n\n# Two';
+    queuePages({ data: page({ content: body, capabilities: { canEdit: true } }) });
+    renderEditorWithCrumbs(); await screen.findByDisplayValue('Original title');
+    expect(screen.getByRole('tab', { name: 'Contents' })).toBeEnabled();
+    expect(screen.queryByRole('navigation', { name: 'Contents' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Contents' }));
+    expect(await screen.findByRole('navigation', { name: 'Contents' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Two' }));
+    expect(currentEditorView().state.selection.main.head).toBe(body.indexOf('# Two'));
+    fireEvent.click(screen.getByTestId('mode-toggle'));
+    expect(await screen.findByRole('navigation', { name: 'Contents' })).toBeVisible();
+    expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ collaborationTab: 'contents', collaborationOpen: true });
+    expect(contentEditorValue()).toBe(body); expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('reserves one panel width for all desktop tabs and releases it on collapse', async () => {
     const viewport = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1700);
     localStorage.setItem('agentwiki.workspace.v1:user-1:space-1', JSON.stringify({ schemaVersion: 1, outlineOpen: true, outlineWidth: 300, collaborationWidth: 440 }));
     queuePages({ data: page({ content: '# Outline entry', capabilities: { canEdit: true } }) });
     renderEditorWithCrumbs(); await screen.findByDisplayValue('Original title');
     const occupiedWidth = () => document.querySelector<HTMLElement>('.document-canvas')?.style.getPropertyValue('--document-panel-width');
-    await waitFor(() => expect(occupiedWidth()).toBe('316px'));
-    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+    expect(occupiedWidth()).toBe('0px');
+    fireEvent.click(screen.getByRole('tab', { name: 'Page notes' }));
     expect(occupiedWidth()).toBe('460px');
     expect(screen.queryByRole('navigation', { name: 'Contents' })).not.toBeInTheDocument();
     viewport.mockReturnValue(1280); fireEvent.resize(window);
-    expect(occupiedWidth()).toBe('460px');
-    fireEvent.click(screen.getByRole('button', { name: 'Candidate queue' }));
+    for (const tab of ['Agent', 'Contents', 'Page information']) {
+      fireEvent.click(screen.getByRole('tab', { name: tab }));
+      expect(occupiedWidth()).toBe('460px');
+      expect(screen.getByRole('tab', { name: tab })).toHaveAttribute('aria-selected', 'true');
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse side panel' }));
     expect(occupiedWidth()).toBe('0px');
-    fireEvent.click(screen.getByRole('button', { name: 'Notes queue' }));
-    expect(screen.getByRole('button', { name: 'Notes queue' })).toBeVisible();
-    viewport.mockReturnValue(1700); fireEvent.resize(window);
-    expect(occupiedWidth()).toBe('460px');
-    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
-    await waitFor(() => expect(occupiedWidth()).toBe('316px'));
-    editContent('No headings');
-    expect(occupiedWidth()).toBe('0px');
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
     expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
   });
 
@@ -762,8 +856,8 @@ describe('PageEditor remote update safety', () => {
       localStorage.setItem(key, JSON.stringify({ schemaVersion: 1, collaborationWidth: 440 }));
       queuePages({ data: page({ capabilities: { canEdit: true } }) });
       const view = renderEditorWithCrumbs(); await screen.findByDisplayValue('Original title');
-      fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
-      const panel = () => document.querySelector('.document-assist-layer');
+      fireEvent.click(screen.getByRole('tab', { name: 'Page notes' }));
+      const panel = () => document.querySelector('.document-side-panel');
       expect(panel()).toHaveStyle({ top: '187px' });
       expect(resizeToolbar).toBeDefined();
       toolbarBottom = 223; act(() => resizeToolbar?.());
@@ -771,7 +865,7 @@ describe('PageEditor remote update safety', () => {
       toolbarBottom = 125; fireEvent.scroll(document);
       expect(panel()).toHaveStyle({ top: '137px' });
       toolbarBottom = 319; viewport.mockReturnValue(390); fireEvent.resize(window);
-      fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+      fireEvent.click(screen.getByRole('tab', { name: 'Page notes' }));
       expect(panel()).toHaveStyle({ top: '331px', width: '358px' });
       toolbarBottom = 367; fireEvent.resize(window);
       expect(panel()).toHaveStyle({ top: '379px' });
@@ -796,10 +890,10 @@ describe('PageEditor remote update safety', () => {
     localStorage.setItem(key, JSON.stringify({ schemaVersion: 1, collaborationOpen: true, collaborationTab: 'notes', collaborationWidth: 520 }));
     queuePages({ data: page({ capabilities: { canEdit: true } }) }); renderEditorWithCrumbs();
     await screen.findByDisplayValue('Original title');
-    expect(document.querySelector('.document-assist-layer')).toHaveStyle({ width: '320px' });
+    expect(document.querySelector('.document-side-panel')).toHaveStyle({ width: '320px' });
     expect(screen.getByRole('separator', { name: 'Resize collaboration panel' })).toHaveAttribute('aria-valuemax', '320');
     canvasLeft = 400; fireEvent.resize(window);
-    expect(document.querySelector('.document-assist-layer')).toHaveStyle({ width: '500px' });
+    expect(document.querySelector('.document-side-panel')).toHaveStyle({ width: '500px' });
     expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ collaborationWidth: 520 });
   });
 
@@ -807,7 +901,7 @@ describe('PageEditor remote update safety', () => {
     let tasks: any[] = [];
     mockAgentSession(page({ capabilities: { canEdit: true } }), () => tasks, async () => { tasks = [{ id: 'assist-1', intent: 'Rewrite', status: 'running' }]; return tasks[0]; });
     renderEditor();
-    fireEvent.click(await screen.findByTestId('assist-toggle'));
+    fireEvent.click(await screen.findByTestId('document-panel-tab-assist'));
     await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
     fireEvent.click(screen.getByTestId('assist-submit'));
     await waitFor(() => expect(screen.getByTestId('assist-submit')).toHaveTextContent('Send'));
@@ -839,7 +933,7 @@ describe('PageEditor remote update safety', () => {
     let tasks: any[] = [];
     mockAgentSession(page({ capabilities: { canEdit: true } }), () => tasks, async () => { tasks = [{ id: 'assist-1', intent: 'Rewrite', status: 'done', result: { changes: 'Candidate' } }]; return tasks[0]; });
     renderEditor();
-    fireEvent.click(await screen.findByTestId('assist-toggle'));
+    fireEvent.click(await screen.findByTestId('document-panel-tab-assist'));
     await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'), { target: { value: 'Rewrite' } });
     fireEvent.click(screen.getByTestId('assist-submit'));
     const accept = await screen.findByRole('button', { name: 'Accept to draft' });
@@ -930,11 +1024,12 @@ describe('PageEditor remote update safety', () => {
     expect(screen.getByTestId('guarded-location')).toHaveTextContent('/pages/page-1/edit');
     expect(contentEditorValue()).toBe('Draft must survive permission loss');
     expect(screen.getByTestId('save-button')).toBeDisabled();
-    expect(screen.getByTestId('assist-toggle')).toBeDisabled();
+    if (loss === 'readonly') expect(screen.getByTestId('document-panel-tab-assist')).toBeEnabled();
+    else expect(screen.getByTestId('document-panel-tab-assist')).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Image attachments' })).not.toBeInTheDocument();
     expect(screen.getByTestId('editor-write-unavailable')).toBeVisible();
     fireEvent.click(screen.getByTestId('save-button'));
-    fireEvent.click(screen.getByTestId('assist-toggle'));
+    fireEvent.click(screen.getByTestId('document-panel-tab-assist'));
     expect(api.patch).not.toHaveBeenCalled();
     expect(attachmentMocks.uploadAttachment).not.toHaveBeenCalled();
   });
@@ -943,6 +1038,7 @@ describe('PageEditor remote update safety', () => {
     let deleted = false;
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     vi.mocked(api.get).mockImplementation(async (url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url === '/pages/page-1') return { data: page({ folderId: null, capabilities: { canEdit: true, canManageAttachments: true } }) };
       if (url === '/spaces/space-1') return { data: { id: 'space-1', name: 'Wiki', members: [{ userId: 'user-1', role: 'owner' }] } };
       if (url === '/spaces/space-1/content-tree') return { data: { spaceId: 'space-1', treeRevision: deleted ? '32' : '31', parentFolderId: null, nextCursor: null, data: deleted ? [] : [{ ...page(), kind: 'page', folderId: null, path: '/Original title', sortOrder: 0, createdAt: 'now' }] } };
@@ -960,7 +1056,7 @@ describe('PageEditor remote update safety', () => {
     fireEvent.click(await screen.findByTestId('content-deletepage-page-1'));
     await waitFor(() => expect(screen.getByTestId('save-button')).toBeDisabled());
     expect(contentEditorValue()).toBe('Deleted server page, retained local draft');
-    expect(screen.getByTestId('assist-toggle')).toBeDisabled();
+    expect(screen.getByTestId('document-panel-tab-assist')).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Image attachments' })).not.toBeInTheDocument();
     expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/pages/page-1')).toHaveLength(1);
     expect(api.patch).not.toHaveBeenCalled();
@@ -992,6 +1088,7 @@ describe('PageEditor remote update safety', () => {
     const revision = () => restored ? '33' : deleted ? '32' : '31';
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     vi.mocked(api.get).mockImplementation(async (url, config) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url === '/pages/page-1') {
         reads += 1;
         if (restored) return restoredRead.promise;
@@ -1049,16 +1146,16 @@ describe('PageEditor remote update safety', () => {
     await act(async () => restoreResult.resolve({ data: { treeRevision: '33' } }));
     await waitFor(() => expect(reads).toBe(3));
     expect(screen.getByTestId('save-button')).toBeDisabled();
-    expect(screen.getByTestId('assist-toggle')).toBeDisabled();
+    expect(screen.getByTestId('document-panel-tab-assist')).toBeDisabled();
     if (typeof outcome === 'number') {
       await act(async () => restoredRead.reject({ response: { status: outcome } }));
       expect(screen.getByTestId('save-button')).toBeDisabled();
-      expect(screen.getByTestId('assist-toggle')).toBeDisabled();
+      expect(screen.getByTestId('document-panel-tab-assist')).toBeDisabled();
       expect(screen.queryByRole('button', { name: 'Image attachments' })).not.toBeInTheDocument();
     } else {
       await act(async () => restoredRead.resolve({ data: page({ folderId: 'child', content: 'Restored server content', updatedAt: '2026-09-09T00:00:00.000Z', capabilities: { canEdit: true, canManageAttachments: true } }) }));
       expect(screen.queryByTestId('editor-write-unavailable')).not.toBeInTheDocument();
-      expect(screen.getByTestId('assist-toggle')).toBeEnabled();
+      expect(screen.getByTestId('document-panel-tab-assist')).toBeEnabled();
       expect(screen.getByTestId('save-button')).toBeDisabled(); // Existing remote revision decision remains required.
       fireEvent.click(screen.getByRole('button', { name: 'Keep local draft' }));
       expect(screen.getByTestId('save-button')).toBeEnabled();
@@ -1095,6 +1192,7 @@ describe('PageEditor remote update safety', () => {
     const defaultGet = vi.mocked(api.get).getMockImplementation()!;
     let pageLinksSignal: AbortSignal | undefined;
     vi.mocked(api.get).mockImplementation((url, config) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url === '/pages') {
         pageLinksSignal = config?.signal as AbortSignal | undefined;
         return status === 'pending' ? pending.promise : Promise.resolve({ data: { data: [{ id: 'private-link', title: 'Private linked page', spaceId: 'space-1' }] } });
@@ -1283,7 +1381,7 @@ describe('PageEditor remote update safety', () => {
     await screen.findByDisplayValue('Original title');
     act(() => currentEditorView().dispatch({ selection: EditorSelection.range(6, 14) }));
     fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Contents' }));
+    fireEvent.click(await screen.findByRole('tab', { name: 'Contents' }));
     screen.getByRole('heading', { name: /B/ }).scrollIntoView = vi.fn();
     vi.spyOn(window, 'scrollBy').mockImplementation(() => {});
     fireEvent.click(screen.getByRole('button', { name: 'B' }));
@@ -1410,7 +1508,7 @@ describe('PageEditor remote update safety', () => {
     expect(await screen.findByRole('navigation', { name: 'Space navigation' })).toBeInTheDocument();
     vi.mocked(api.get).mockRejectedValue(new Error('transient offline'));
     await act(async () => window.dispatchEvent(new Event('focus')));
-    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/pages/page-1')).toHaveLength(2));
     expect(screen.getByRole('navigation', { name: 'Space navigation' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Pages' })).toHaveAttribute('href', '/spaces/space-1');
     expect(screen.getByDisplayValue('Original title')).toBeInTheDocument();
@@ -1498,7 +1596,7 @@ describe('PageEditor remote update safety', () => {
 
     await act(async () => window.dispatchEvent(new Event('focus')));
     await waitFor(() => expect(
-      vi.mocked(api.get).mock.calls.filter(([url]) => typeof url === 'string' && !url.includes('spaceId=')),
+      vi.mocked(api.get).mock.calls.filter(([url]) => url === '/pages/page-1'),
     ).toHaveLength(3));
     fireEvent.click(screen.getByRole('button', { name: 'Accept remote version' }));
 
@@ -1527,6 +1625,7 @@ describe('PageEditor remote update safety', () => {
     const deniedFirstPage = deferred<any>();
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
     vi.mocked(api.get).mockImplementation((url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url === '/pages/page-1') return deniedFirstPage.promise;
       if (url === '/pages/page-2') {
         return Promise.resolve({ data: page({
@@ -1562,6 +1661,7 @@ describe('PageEditor remote update safety', () => {
   it('clears the A Space resolver before B resolves its preview wiki-link target', async () => {
     const resolverB = deferred<any>();
     vi.mocked(api.post).mockImplementation((url: string, body: any) => {
+    const noteResponse = notesPost(url, body); if (noteResponse) return noteResponse;
       const response = { data: [{
         key: body.references[0].key,
         status: 'resolved',
@@ -1573,6 +1673,7 @@ describe('PageEditor remote update safety', () => {
       return url.includes('space-b') ? resolverB.promise.then(() => response) : Promise.resolve(response);
     });
     vi.mocked(api.get).mockImplementation((url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url === '/pages/page-1') return Promise.resolve({ data: page({ content: '[[Shared]]', spaceId: 'space-a' }) } as any);
       if (url === '/pages/page-2') return Promise.resolve({ data: page({
         id: 'page-2', title: 'Second page', content: '[[Shared]]', spaceId: 'space-b',
@@ -1601,6 +1702,7 @@ describe('PageEditor remote update safety', () => {
       capabilities: { canEdit: true, canManageAttachments: true },
     }) });
     vi.mocked(api.get).mockImplementation((url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url === '/pages/page-1') {
         const next = pageQueue.shift();
         if (!next) return Promise.reject(new Error(`unexpected get ${url}`));
@@ -1634,6 +1736,7 @@ describe('PageEditor remote update safety', () => {
   it('ignores a deferred A Space resolver after B preview links have resolved', async () => {
     const oldResolverA = deferred<any>();
     vi.mocked(api.post).mockImplementation((url: string, body: any) => {
+    const noteResponse = notesPost(url, body); if (noteResponse) return noteResponse;
       const response = { data: [{
         key: body.references[0].key,
         status: 'resolved',
@@ -1645,6 +1748,7 @@ describe('PageEditor remote update safety', () => {
       return url.includes('space-a') ? oldResolverA.promise.then(() => response) : Promise.resolve(response);
     });
     vi.mocked(api.get).mockImplementation((url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url === '/pages/page-1') return Promise.resolve({ data: page({ content: '[[Shared]]', spaceId: 'space-a' }) } as any);
       if (url === '/pages/page-2') return Promise.resolve({ data: page({
         id: 'page-2', title: 'Second page', content: '[[Shared]]', spaceId: 'space-b',
@@ -1965,6 +2069,7 @@ describe('PageEditor remote update safety', () => {
     const oldPage = deferred<any>();
     let oldSignal: AbortSignal | undefined;
     vi.mocked(api.get).mockImplementation((url, config) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url === '/pages/page-1') {
         oldSignal = config?.signal as AbortSignal;
         return oldPage.promise;
@@ -2199,6 +2304,7 @@ describe('PageEditor remote update safety', () => {
       .mockImplementationOnce(() => staleCapability.promise)
       .mockResolvedValueOnce(catalog(false));
     vi.mocked(api.get).mockImplementation((url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url.includes('spaceId=')) return Promise.resolve({ data: { data: [] } } as any);
       if (url === '/pages/page-1') return Promise.resolve({ data: page() } as any);
       return Promise.resolve({ data: page({ id: 'page-2', title: 'Second page', spaceId: 'space-2' }) } as any);
@@ -2239,6 +2345,7 @@ describe('PageEditor remote update safety', () => {
   it('closes an old template dialog on route switch', async () => {
     templateMocks.listPageTemplates.mockResolvedValue(catalog(true));
     vi.mocked(api.get).mockImplementation((url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url.includes('spaceId=')) return Promise.resolve({ data: { data: [] } } as any);
       if (url === '/pages/page-1') return Promise.resolve({ data: page() } as any);
       return Promise.resolve({ data: page({ id: 'page-2', title: 'Second page', spaceId: 'space-2' }) } as any);
@@ -2537,6 +2644,7 @@ describe('PageEditor remote update safety', () => {
       return upload.promise;
     });
     vi.mocked(api.get).mockImplementation((url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url.includes('spaceId=')) return Promise.resolve({ data: { data: [] } } as any);
       if (url === '/pages/page-1') return Promise.resolve({ data: page({ capabilities: { canEdit: true, canManageAttachments: true } }) } as any);
       return Promise.resolve({ data: page({
@@ -2613,6 +2721,7 @@ describe('PageEditor remote update safety', () => {
   it('clears an attachment failure when navigating from page A to page B', async () => {
     attachmentMocks.uploadAttachment.mockRejectedValueOnce(new Error('upload failed'));
     vi.mocked(api.get).mockImplementation((url: string) => {
+      const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url.includes('spaceId=')) return Promise.resolve({ data: { data: [] } } as any);
       if (url === '/pages/page-1') return Promise.resolve({ data: page({ capabilities: { canEdit: true, canManageAttachments: true } }) } as any);
       return Promise.resolve({ data: page({
@@ -2732,23 +2841,23 @@ describe('PageEditor remote update safety', () => {
     act(()=>expect(undo(currentEditorView())).toBe(true));expect(contentEditorValue()).toBe(base.replace('old','human'));
     expect(api.patch).not.toHaveBeenCalled();
   });
-  it('sends checked private notes and accepts each linked hunk once with separate undo', async () => {
+  it('sends checked page notes and accepts each linked hunk once with separate undo', async () => {
     const base='one\nkeep\ntwo\n';let tasks:any[]=[];
     mockAgentSession(page({content:base,capabilities:{canEdit:true}}), () => tasks, async () => { tasks=[{id:'notes',intent:'Fix',status:'done',result:{changes:'ONE\nkeep\nTWO\n'}}]; return tasks[0]; });
-    renderEditor();await screen.findByDisplayValue('Original title');fireEvent.click(screen.getByRole('button',{name:'Personal notes'}));
+    renderEditor();await screen.findByDisplayValue('Original title');fireEvent.click(screen.getByRole('tab',{name:'Page notes'}));
     for(const [from,to,body] of [[0,3,'Fix one'],[9,12,'Fix two']] as const){
       act(()=>currentEditorView().dispatch({selection:EditorSelection.single(from,to)}));
-      fireEvent.change(screen.getByRole('textbox',{name:'Note'}),{target:{value:body}});fireEvent.click(screen.getByRole('button',{name:'Add note'}));
+      fireEvent.change(screen.getByRole('textbox',{name:'Note'}),{target:{value:body}});fireEvent.click(screen.getByRole('button',{name:'Add note'})); await waitFor(() => expect(screen.getByRole('textbox', { name: 'Note' })).toHaveValue(''));
     }
-    expect(screen.getByText(/Private notes, stored only/)).toBeInTheDocument();
+    expect(screen.getByText(/Saved on the server/)).toBeInTheDocument();
     for(const body of ['Fix one','Fix two'])fireEvent.click(screen.getByRole('checkbox',{name:body}));
     fireEvent.click(screen.getByRole('button',{name:'Stage selected for Agent'}));
-    expect(api.post).not.toHaveBeenCalled(); await chooseProposal(); fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-    await screen.findByRole('button',{name:'Accept change 1'});fireEvent.click(screen.getByRole('button',{name:'Notes queue'}));expect(screen.getAllByText('Awaiting review')).toHaveLength(2);expect(contentEditorValue()).toBe(base);fireEvent.click(screen.getByRole('button',{name:'Candidate queue'}));
-    fireEvent.click(screen.getByRole('button',{name:'Accept change 1'}));expect(contentEditorValue()).toBe('ONE\nkeep\ntwo\n');fireEvent.click(screen.getByRole('button',{name:'Notes queue'}));fireEvent.click(screen.getByRole('button',{name:'All (2)'}));expect(screen.getAllByText('Resolved')).toHaveLength(1);fireEvent.click(screen.getByRole('button',{name:'Candidate queue'}));
-    fireEvent.click(screen.getByRole('button',{name:'Accept change 2'}));expect(contentEditorValue()).toBe('ONE\nkeep\nTWO\n');fireEvent.click(screen.getByRole('button',{name:'Notes queue'}));fireEvent.click(screen.getByRole('button',{name:'All (2)'}));expect(screen.getAllByText('Resolved')).toHaveLength(2);fireEvent.click(screen.getByRole('button',{name:'Candidate queue'}));
+    expect(agentPostCalls()).toHaveLength(0); await chooseProposal(); fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await screen.findByRole('button',{name:'Accept change 1'});fireEvent.click(screen.getByRole('tab',{name:'Page notes'}));expect(screen.getAllByText('Awaiting review')).toHaveLength(2);expect(contentEditorValue()).toBe(base);fireEvent.click(screen.getByRole('tab',{name:'Agent'}));
+    fireEvent.click(screen.getByRole('button',{name:'Accept change 1'}));expect(contentEditorValue()).toBe('ONE\nkeep\ntwo\n');fireEvent.click(screen.getByRole('tab',{name:'Page notes'}));fireEvent.click(screen.getByRole('button',{name:'All (2)'}));expect(screen.getAllByText('Resolved')).toHaveLength(1);fireEvent.click(screen.getByRole('tab',{name:'Agent'}));
+    fireEvent.click(screen.getByRole('button',{name:'Accept change 2'}));expect(contentEditorValue()).toBe('ONE\nkeep\nTWO\n');fireEvent.click(screen.getByRole('tab',{name:'Page notes'}));fireEvent.click(screen.getByRole('button',{name:'All (2)'}));expect(screen.getAllByText('Resolved')).toHaveLength(2);fireEvent.click(screen.getByRole('tab',{name:'Agent'}));
     fireEvent.click(screen.getByRole('button',{name:'Accept change 1'}));act(()=>expect(undo(currentEditorView())).toBe(true));expect(contentEditorValue()).toBe('ONE\nkeep\ntwo\n');
-    act(()=>expect(undo(currentEditorView())).toBe(true));expect(contentEditorValue()).toBe(base);expect(api.patch).not.toHaveBeenCalled();
+    act(()=>expect(undo(currentEditorView())).toBe(true));expect(contentEditorValue()).toBe(base);expect(pagePatchCalls()).toHaveLength(0);
   });
 
   it('scrolls mobile notes into view only when opening the panel', async () => {
@@ -2760,10 +2869,10 @@ describe('PageEditor remote update safety', () => {
     queuePages({ data: page({ capabilities: { canEdit: true } }) });
     renderEditor(); await screen.findByDisplayValue('Original title');
     scroll.mockClear();
-    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
-    await waitFor(() => expect(scroll.mock.instances.some((element) => element === document.querySelector('.document-notes-layer'))).toBe(true));
+    fireEvent.click(screen.getByRole('tab', { name: 'Page notes' }));
+    await waitFor(() => expect(scroll.mock.instances.some((element) => element === document.querySelector('.document-side-panel'))).toBe(true));
     scroll.mockClear();
-    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse side panel' }));
     expect(scroll).not.toHaveBeenCalled();
     } finally {
       if (original) Object.defineProperty(Element.prototype, 'scrollIntoView', original);
@@ -2784,33 +2893,34 @@ describe('PageEditor remote update safety', () => {
     const depth = undoDepth(view.state);
     fireEvent.change(screen.getByRole('textbox', { name: 'Note' }), { target: { value: 'Explain this passage' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add note' }));
-    expect(screen.queryByRole('dialog', { name: 'Add personal note' })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add page note' })).not.toBeInTheDocument());
     expect(view.contentDOM.querySelector('[data-note-ids]')).toHaveTextContent('passage');
     expect(contentEditorValue()).toBe('A passage worth noting');
     expect(undoDepth(view.state)).toBe(depth);
-    expect(screen.getByRole('button', { name: 'Personal notes' })).toHaveAttribute('aria-pressed', 'false');
-    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+    expect(screen.getByRole('tab', { name: 'Page notes' })).toHaveAttribute('aria-selected', 'false');
+    expect(agentPostCalls()).toHaveLength(0); expect(pagePatchCalls()).toHaveLength(0);
   });
 
-  it('keeps private note marks visible while toggling the panel and locates their passage without editing', async () => {
+  it('keeps shared note marks visible while toggling the panel and locates their passage without editing', async () => {
     vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280);
     const source = 'A passage worth noting';
     queuePages({ data: page({ content: source, capabilities: { canEdit: true } }) });
     renderEditor(); await screen.findByDisplayValue('Original title');
     expect(document.querySelector('.cm-content [data-note-ids]')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Page notes' }));
     act(() => currentEditorView().dispatch({ selection: EditorSelection.single(2, 9) }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Note' }), { target: { value: 'Explain this passage' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add note' }));
+    await waitFor(() => expect(document.querySelector('.cm-content [data-note-ids]')).toHaveTextContent('passage'));
     const marker = document.querySelector<HTMLElement>('.cm-content [data-note-ids]');
     expect(marker).toHaveTextContent('passage');
     expect(Number.parseFloat(document.querySelector<HTMLElement>('.document-canvas')!.style.getPropertyValue('--document-panel-width'))).toBeGreaterThanOrEqual(340);
-    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
-    expect(screen.getByRole('button', { name: 'Personal notes' })).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse side panel' }));
+    expect(screen.getByRole('tab', { name: 'Page notes' })).toHaveAttribute('aria-selected', 'false');
     expect(document.querySelector('.cm-content [data-note-ids]')).toHaveTextContent('passage');
-    fireEvent.click(screen.getByRole('button', { name: 'Personal notes' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Page notes' }));
     const depth = undoDepth(currentEditorView().state);
-    fireEvent.click(screen.getByRole('button', { name: 'Close collaboration panel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse side panel' }));
     expect(document.querySelector('.cm-content [data-note-ids]')).toHaveTextContent('passage');
     act(() => currentEditorView().dispatch({ selection: EditorSelection.cursor(5) }));
     fireEvent.click(document.querySelector<HTMLElement>('.cm-content [data-note-ids]')!);
@@ -2820,49 +2930,49 @@ describe('PageEditor remote update safety', () => {
     expect(currentEditorView().state.selection.main).toMatchObject({ from: 2, to: 9 });
     expect(contentEditorValue()).toBe(source);
     expect(undoDepth(currentEditorView().state)).toBe(depth);
-    fireEvent.click(screen.getByRole('button', { name: 'Candidate queue' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Agent' }));
     expect(document.querySelector('.cm-content [data-note-ids]')).toHaveTextContent('passage');
-    expect(document.querySelector<HTMLElement>('.document-canvas')?.style.getPropertyValue('--document-panel-width')).toBe('0px');
-    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+    expect(Number.parseFloat(document.querySelector<HTMLElement>('.document-canvas')!.style.getPropertyValue('--document-panel-width'))).toBeGreaterThanOrEqual(340);
+    expect(agentPostCalls()).toHaveLength(0); expect(pagePatchCalls()).toHaveLength(0);
   });
 
   it('captures current heading section and sends default document snapshots explicitly', async () => {
     const base='# One\nintro\n## Child\nx\n# Two\ny';let tasks:any[]=[];
     mockAgentSession(page({content:base,capabilities:{canEdit:true}}), () => tasks, async () => { tasks=[{id:'scope',intent:'Fix',status:'done',result:{changes:base.replace('intro','INTRO')}}]; return tasks[0]; });
     renderEditor();await screen.findByDisplayValue('Original title');act(()=>currentEditorView().dispatch({selection:EditorSelection.cursor(7)}));
-    fireEvent.click(screen.getByTestId('assist-toggle'));await chooseProposal(); expect(screen.getByRole('combobox',{name:'Edit scope'})).toHaveValue('document');
+    fireEvent.click(screen.getByTestId('document-panel-tab-assist'));await chooseProposal(); expect(screen.getByRole('combobox',{name:'Edit scope'})).toHaveValue('document');
     await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix'}});fireEvent.click(screen.getByTestId('assist-submit'));await screen.findByRole('button',{name:'Accept to draft'});
     expect(api.post).toHaveBeenLastCalledWith('/assist/sessions/session-1/turns',expect.objectContaining({snapshot:expect.objectContaining({assistTarget:expect.objectContaining({kind:'document',from:0,to:base.length})})}));
     fireEvent.click(screen.getByRole('button',{name:'Discard'}));fireEvent.change(screen.getByRole('combobox',{name:'Edit scope'}),{target:{value:'section'}});
     await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix section'}});fireEvent.click(screen.getByTestId('assist-submit'));
-    await waitFor(()=>expect(api.post).toHaveBeenCalledTimes(2));expect(api.post).toHaveBeenLastCalledWith('/assist/sessions/session-1/turns',expect.objectContaining({snapshot:expect.objectContaining({assistTarget:expect.objectContaining({kind:'section',quote:'# One\nintro\n## Child\nx\n'})})}));expect(contentEditorValue()).toBe(base);
+    await waitFor(()=>expect(agentPostCalls()).toHaveLength(2));expect(api.post).toHaveBeenLastCalledWith('/assist/sessions/session-1/turns',expect.objectContaining({snapshot:expect.objectContaining({assistTarget:expect.objectContaining({kind:'section',quote:'# One\nintro\n## Child\nx\n'})})}));expect(contentEditorValue()).toBe(base);
   });
 
   it.each(['generating','ready','partial'] as const)('preserves %s scoped candidate across closing and reopening the drawer',async(phase)=>{
     const base='one\nkeep\ntwo\n';let tasks:any[]=[];
     mockAgentSession(page({content:base,capabilities:{canEdit:true}}), () => tasks, async () => { tasks=[{id:'continuity',intent:'Fix',status:phase==='generating'?'running':'done',result:{changes:'ONE\nkeep\nTWO\n'}}]; return tasks[0]; });
-    renderEditor();await screen.findByDisplayValue('Original title');fireEvent.click(screen.getByTestId('assist-toggle'));await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix'}});fireEvent.click(screen.getByTestId('assist-submit'));
+    renderEditor();await screen.findByDisplayValue('Original title');fireEvent.click(screen.getByTestId('document-panel-tab-assist'));await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix'}});fireEvent.click(screen.getByTestId('assist-submit'));
     await waitFor(()=>expect(screen.getByTestId('assist-submit')).toHaveTextContent('Send'));
     if(phase!=='generating')await screen.findByRole('button',{name:'Accept change 1'});
     if(phase==='partial')fireEvent.click(screen.getByRole('button',{name:'Accept change 1'}));
-    fireEvent.click(screen.getByRole('button',{name:'Close collaboration panel'}));fireEvent.click(screen.getByTestId('assist-toggle'));
+    fireEvent.click(screen.getByRole('button',{name:'Collapse side panel'}));fireEvent.click(screen.getByTestId('document-panel-tab-assist'));
     tasks=[{id:'continuity',intent:'Fix',status:'done',result:{changes:'ONE\nkeep\nTWO\n'}}];reloadAgentHistory();
     await screen.findByRole('button',{name:'Accept change 2'});
     if(phase==='partial'){expect(screen.getByRole('button',{name:'Accept change 1'})).toBeDisabled();fireEvent.click(screen.getByRole('button',{name:'Accept change 2'}));expect(contentEditorValue()).toBe('ONE\nkeep\nTWO\n');}
     else {expect(screen.getByRole('button',{name:'Accept change 1'})).toBeEnabled();expect(contentEditorValue()).toBe(base);}
-    expect(api.post).toHaveBeenCalledTimes(1);
+    expect(agentPostCalls()).toHaveLength(1);
   });
   it.each(['failed','delayed'] as const)('sends a staged notes request explicitly once across close/reopen after %s POST',async(scenario)=>{
     let tasks:any[]=[];const delayed=deferred<any>();
     mockAgentSession(page({capabilities:{canEdit:true}}), () => tasks, () => scenario === 'failed' ? Promise.reject(new Error('failed')) : delayed.promise);
-    renderEditor();await screen.findByDisplayValue('Original title');fireEvent.click(screen.getByRole('button',{name:'Personal notes'}));
-    act(()=>currentEditorView().dispatch({selection:EditorSelection.single(0,8)}));fireEvent.change(screen.getByRole('textbox',{name:'Note'}),{target:{value:'Fix'}});fireEvent.click(screen.getByRole('button',{name:'Add note'}));fireEvent.click(screen.getByRole('checkbox',{name:'Fix'}));fireEvent.click(screen.getByRole('button',{name:'Stage selected for Agent'}));
-    expect(api.post).not.toHaveBeenCalled(); await chooseProposal(); fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-    await waitFor(()=>expect(api.post).toHaveBeenCalledTimes(1));if(scenario==='failed')await screen.findByRole('alert');
-    fireEvent.click(screen.getByRole('button',{name:'Close collaboration panel'}));fireEvent.click(screen.getByTestId('assist-toggle'));
+    renderEditor();await screen.findByDisplayValue('Original title');fireEvent.click(screen.getByRole('tab',{name:'Page notes'}));
+    act(()=>currentEditorView().dispatch({selection:EditorSelection.single(0,8)}));fireEvent.change(screen.getByRole('textbox',{name:'Note'}),{target:{value:'Fix'}});fireEvent.click(screen.getByRole('button',{name:'Add note'})); await waitFor(() => expect(screen.getByRole('textbox', { name: 'Note' })).toHaveValue(''));fireEvent.click(screen.getByRole('checkbox',{name:'Fix'}));fireEvent.click(screen.getByRole('button',{name:'Stage selected for Agent'}));
+    expect(agentPostCalls()).toHaveLength(0); await chooseProposal(); fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(()=>expect(agentPostCalls()).toHaveLength(1));if(scenario==='failed')await screen.findByRole('alert');
+    fireEvent.click(screen.getByRole('button',{name:'Collapse side panel'}));fireEvent.click(screen.getByTestId('document-panel-tab-assist'));
     if(scenario==='delayed'){tasks=[{id:'delayed',intent:'Fix',status:'done',result:{changes:'Changed content'}}];await act(async()=>delayed.resolve(tasks[0]));await screen.findByRole('button',{name:'Accept change 1'});}
     else expect(screen.getByRole('alert')).toHaveTextContent('Request failed');
-    expect(api.post).toHaveBeenCalledTimes(1);
+    expect(agentPostCalls()).toHaveLength(1);
   });
 
   it('isolates each accepted hunk around an unrelated manual edit and preserves no-replay records after three Undo operations', async () => {
@@ -2871,7 +2981,7 @@ describe('PageEditor remote update safety', () => {
     mockAgentSession(page({ content: base, capabilities: { canEdit: true } }), () => tasks, async () => {
       tasks = [{ id: 'mixed-undo', intent: 'Two changes', status: 'done', result: { changes: base.replace('one', 'ONE').replace('two', 'TWO') } }]; return tasks[0];
     });
-    renderEditor(); fireEvent.click(await screen.findByTestId('assist-toggle')); await chooseProposal();
+    renderEditor(); fireEvent.click(await screen.findByTestId('document-panel-tab-assist')); await chooseProposal();
     fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Two changes' } }); fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Accept change 1' }));
     const first = base.replace('one', 'ONE'); expect(contentEditorValue()).toBe(first);
@@ -2882,7 +2992,7 @@ describe('PageEditor remote update safety', () => {
     act(() => expect(undo(currentEditorView())).toBe(true)); expect(contentEditorValue()).toBe(first);
     act(() => expect(undo(currentEditorView())).toBe(true)); expect(contentEditorValue()).toBe(base);
     expect(screen.getByRole('button', { name: 'Accept change 1' })).toBeDisabled(); expect(screen.getByRole('button', { name: 'Accept change 2' })).toBeDisabled();
-    expect(screen.getByText(/Acceptance record: previously accepted/)).toBeVisible(); expect(api.patch).not.toHaveBeenCalled();
+    expect(screen.getByText(/Acceptance record: previously accepted/)).toBeVisible(); expect(pagePatchCalls()).toHaveLength(0);
   });
 
 });

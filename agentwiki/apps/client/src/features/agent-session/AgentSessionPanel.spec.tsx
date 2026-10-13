@@ -23,6 +23,53 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe('durable Agent session document bridge', () => {
+  it('keeps ordinary tab focus and honors each explicit composer focus request once', async () => {
+    const rendered = render(tree({ autoFocus: false }));
+    await screen.findByText('Earlier answer');
+    const message = screen.getByRole('textbox', { name: 'Message' });
+    const references = screen.getByRole('textbox', { name: 'Find reference pages' });
+    expect(message).not.toHaveFocus();
+    rendered.rerender(tree({ autoFocus: false, focusRequest: 'shortcut-1' }));
+    expect(message).toHaveFocus();
+    references.focus();
+    rendered.rerender(tree({ autoFocus: false, focusRequest: 'shortcut-1' }));
+    expect(references).toHaveFocus();
+    rendered.rerender(tree({ autoFocus: false, focusRequest: 'shortcut-2' }));
+    expect(message).toHaveFocus();
+  });
+  it.each([false, true])('waits for a requested composer load and cancels it when hidden=%s', async (hide) => {
+    let release!: (value: { data: typeof summary[] }) => void;
+    const load = new Promise<{ data: typeof summary[] }>((resolve) => { release = resolve; });
+    const get = vi.mocked(api.get).getMockImplementation()!;
+    vi.mocked(api.get).mockImplementation((url, ...args) => url === '/assist/sessions' ? load : get(url, ...args));
+    const rendered = render(tree({ autoFocus: false, focusRequest: 'shortcut-1' }));
+    const message = screen.getByRole('textbox', { name: 'Message' });
+    expect(message).toBeDisabled(); expect(message).not.toHaveFocus();
+    if (hide) rendered.rerender(tree({ autoFocus: false, focusRequest: 'shortcut-1', visible: false }));
+    await act(async () => release({ data: [summary] }));
+    await screen.findByText('Earlier answer');
+    if (hide) {
+      expect(message).not.toHaveFocus();
+      rendered.rerender(tree({ autoFocus: false, focusRequest: 'shortcut-1', visible: true }));
+      expect(message).not.toHaveFocus();
+    } else expect(message).toHaveFocus();
+  });
+  it('does not steal focus while hidden and preserves the composer between panel switches', async () => {
+    const rendered = render(tree({ visible: false }));
+    await screen.findByText('Earlier answer');
+    const message = screen.getByRole('textbox', { name: 'Message' });
+    expect(message).not.toHaveFocus();
+    rendered.rerender(tree({ visible: true }));
+    expect(message).toHaveFocus();
+    fireEvent.change(message, { target: { value: 'Unsent panel draft' } });
+    const references = screen.getByRole('textbox', { name: 'Find reference pages' });
+    references.focus();
+    rendered.rerender(tree({ visible: false }));
+    expect(references).toHaveFocus();
+    rendered.rerender(tree({ visible: true }));
+    expect(message).toHaveValue('Unsent panel draft');
+    expect(api.post).not.toHaveBeenCalled();
+  });
   it('keeps history across pages/read mode and explicitly sends current draft plus selected references', async () => {
     const applyToWrongPage = vi.fn(); const rendered = render(tree());
     expect(await screen.findByText('Earlier answer')).toBeVisible();

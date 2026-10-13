@@ -21,7 +21,8 @@ import type { MarkdownTaskRef, MarkdownTaskToggle } from '../../components/markd
 import { rebaseMarkdownTask, toggleMarkdownTask } from '../../components/markdown/tasks';
 import { useOptionalSpaceWorkspace, usePageWorkspaceIdentity } from '../space-workspace/SpaceWorkspaceContext';
 import { ArticleContentsPopover } from '../space-workspace/ArticleContentsPopover';
-import { PageInfoPanel } from '../space-workspace/PageInfoPanel';
+import { PageInfoContent } from '../space-workspace/PageInfoPanel';
+import { DocumentPanelToolbar, type DocumentPanelTab } from '../space-workspace/DocumentPanelToolbar';
 import {
   captureReadingPosition,
   readWorkspacePosition,
@@ -78,9 +79,11 @@ export const PagePreview: React.FC = () => {
   const [loadRequest, setLoadRequest] = useState(0);
   const [taskSaveError, setTaskSaveError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [outlineOccupiedWidth, setOutlineOccupiedWidth] = useState(0);
-  const [localPanel, setLocalPanel] = useState({ open: false, notes: false });
-  const [agentMounted, setAgentMounted] = useState(false);
+  const [localPanel, setLocalPanel] = useState<{ scope: string; open: boolean; tab: DocumentPanelTab }>({ scope: '', open: false, tab: 'contents' });
+  const [agentMountedScope, setAgentMountedScope] = useState<string | null>(null);
+  const [notesContainer, setNotesContainer] = useState<HTMLDivElement | null>(null);
+  const [agentContainer, setAgentContainer] = useState<HTMLDivElement | null>(null);
+  const [agentFocusRequest, setAgentFocusRequest] = useState<{ identity: string; request: string } | null>(null);
   const [readingTarget, setReadingTarget] = useState<AssistTarget | null>(null);
   const [selectionUnavailable, setSelectionUnavailable] = useState(false);
   const [activeNote, setActiveNote] = useState<{ identity: string; id: string } | null>(null);
@@ -90,24 +93,37 @@ export const PagePreview: React.FC = () => {
   const activeNoteId = activeNote?.identity === personalNotes.identityKey ? activeNote.id : null;
   const [panelGeometry, setPanelGeometry] = useState({ top: 130, width: window.innerWidth });
   const readingToolbarRef = useRef<HTMLDivElement>(null);
-  const notesPanelRef = useRef<HTMLDivElement>(null);
-  const panelMatches = workspace?.spaceId === page?.spaceId && workspace?.userId === user?.id;
-  const agentOpen = panelGeometry.width >= 1024 && panelMatches ? workspace?.collaborationOpen === true : localPanel.open;
-  const notesOpen = panelMatches ? workspace?.collaborationTab === 'notes' : localPanel.notes;
-  const openAgent = (notes = false) => {
-    setAgentMounted(true); setLocalPanel({ open: true, notes });
-    if (!notes) requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('[data-agent-composer]')?.focus());
-    if (panelMatches) workspace?.setPanelPreferences({ collaborationTab: notes ? 'notes' : 'assist', ...(panelGeometry.width >= 1024 ? { collaborationOpen: true } : {}) });
+  const notesPanelRef = useRef<HTMLElement>(null);
+  const panelScope = `${user?.id ?? 'guest'}\u0000${page?.spaceId ?? ''}`;
+  const panelIdentity = `${panelScope}\u0000${id ?? ''}`;
+  const panelMatches = !!workspace && workspace.spaceId === page?.spaceId && workspace.userId === user?.id;
+  const localPanelMatches = localPanel.scope === panelScope;
+  const panelOpen = panelGeometry.width >= 1024 && panelMatches
+    ? workspace.collaborationOpen === true : localPanelMatches && localPanel.open;
+  const panelTab: DocumentPanelTab = panelMatches
+    ? workspace.collaborationTab ?? 'contents' : localPanelMatches ? localPanel.tab : 'contents';
+  const notesOpen = panelTab === 'notes';
+  const agentMounted = agentMountedScope === panelScope || panelOpen && (notesOpen || panelTab === 'assist');
+  useEffect(() => {
+    if (panelOpen && (notesOpen || panelTab === 'assist')) setAgentMountedScope(panelScope);
+  }, [panelOpen, notesOpen, panelTab, panelScope]);
+  const openPanel = (tab: DocumentPanelTab, focusComposer = false) => {
+    if ((tab === 'notes' || tab === 'assist') && !user?.id) return;
+    if (tab === 'notes' || tab === 'assist') setAgentMountedScope(panelScope);
+    setLocalPanel({ scope: panelScope, open: true, tab });
+    setAgentFocusRequest(tab === 'assist' && focusComposer ? { identity: panelIdentity, request: crypto.randomUUID() } : null);
+    if (panelMatches) workspace.setPanelPreferences({ collaborationTab: tab, ...(panelGeometry.width >= 1024 ? { collaborationOpen: true } : {}) });
   };
-  const closeAgent = () => {
-    setLocalPanel((state) => ({ ...state, open: false }));
-    if (panelMatches && panelGeometry.width >= 1024) workspace?.setPanelPreferences({ collaborationOpen: false });
-    readingToolbarRef.current?.querySelector<HTMLButtonElement>('[data-agent-toggle]')?.focus();
+  const closePanel = () => {
+    setAgentFocusRequest(null);
+    setLocalPanel({ scope: panelScope, open: false, tab: panelTab });
+    if (panelMatches && panelGeometry.width >= 1024) workspace.setPanelPreferences({ collaborationOpen: false });
+    notesPanelRef.current?.querySelector<HTMLButtonElement>(`[data-panel-tab="${panelTab}"]`)?.focus();
   };
   const activateNote = (noteId: string) => {
     if (!noteHighlights.some((note) => note.id === noteId)) return;
     setActiveNote({ identity: personalNotes.identityKey, id: noteId });
-    openAgent(true);
+    openPanel('notes');
   };
   const locateNote = (noteId: string) => {
     if (!noteHighlights.some((note) => note.id === noteId)) return false;
@@ -125,14 +141,14 @@ export const PagePreview: React.FC = () => {
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'l' && page?.id === id && !loading && !error) {
-        event.preventDefault(); openAgent(); requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('[data-agent-composer]')?.focus());
+        event.preventDefault(); openPanel('assist', true);
       }
-      if (event.key === 'Escape' && agentOpen) closeAgent();
+      if (event.key === 'Escape' && panelOpen) closePanel();
     };
     window.addEventListener('keydown', shortcut); return () => window.removeEventListener('keydown', shortcut);
-  }, [id, page?.id, page?.spaceId, loading, error, agentOpen, panelMatches, panelGeometry.width]);
+  }, [id, page?.id, page?.spaceId, loading, error, panelOpen, panelTab, panelMatches, panelGeometry.width, panelScope]);
   useEffect(() => {
-    if (!agentOpen || !notesOpen || panelGeometry.width >= 1024) return;
+    if (!panelOpen || panelGeometry.width >= 1024) return;
     const frame = requestAnimationFrame(() => {
       const panel = notesPanelRef.current;
       if (!panel) return;
@@ -144,7 +160,7 @@ export const PagePreview: React.FC = () => {
       cancelAnimationFrame(frame);
       if (notesPanelRef.current) notesPanelRef.current.style.scrollMarginTop = '';
     };
-  }, [agentOpen, notesOpen, panelGeometry.width]);
+  }, [panelOpen, panelTab, panelGeometry.width]);
   const [relatedPages, setRelatedPages] = useState<any[]>([]);
   const [pendingTaskIndexes, setPendingTaskIndexes] = useState<ReadonlySet<number>>(new Set());
   const mountedRef = useRef(false);
@@ -668,8 +684,6 @@ export const PagePreview: React.FC = () => {
           </Link>
         ) : <span />}
         <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
-          <button type="button" data-agent-toggle aria-pressed={agentOpen && !notesOpen} onClick={() => agentOpen && !notesOpen ? closeAgent() : openAgent()} className="min-h-9 rounded-lg px-3 text-sm hover:bg-gray-100">Agent</button>
-          <button type="button" aria-pressed={agentOpen && notesOpen} disabled={!user?.id} onClick={() => agentOpen && notesOpen ? closeAgent() : openAgent(true)} className="min-h-9 rounded-lg px-3 text-sm hover:bg-gray-100 disabled:opacity-40">{language === 'zh-CN' ? '个人笔记' : 'Personal notes'}</button>
           {page.capabilities?.canEdit === true ? (
             <button
               type="button"
@@ -688,36 +702,51 @@ export const PagePreview: React.FC = () => {
               {t('common.edit')}
             </button>
           ) : null}
-          <ArticleContentsPopover articleRootRef={markdownRootRef} pageKey={page.id} spaceId={page.spaceId} source={page.content || ''} onOccupiedWidthChange={setOutlineOccupiedWidth} suppressed={agentOpen} />
-          <PageInfoPanel
-            key={page.id}
-            spaceId={page.spaceId}
-            provenance={page.provenance}
-            evidence={page.evidence}
-            sourceStatus={page.sourceStatus}
-            lastChange={page.lastChange}
-            lastModifiedByUser={page.lastModifiedByUser}
-            lastModifiedByAgent={page.lastModifiedByAgent}
-            lastModifiedAt={page.lastModifiedAt}
-            canEdit={page.capabilities?.canEdit === true}
-            deleting={deleting}
-            onDelete={handleDelete}
-            onOpenHistory={() => {
-              const toolbarBottom = document.querySelector<HTMLElement>('[data-reading-toolbar]')
-                ?.getBoundingClientRect().bottom ?? 88;
-              const workspacePosition = markdownRootRef.current
-                ? captureReadingPosition(markdownRootRef.current, toolbarBottom, page.id)
-                : null;
-              navigate(`/pages/${page.id}/versions`, {
-                state: { pageHistorySource: { pageId: page.id, mode: 'read', workspacePosition } },
-              });
-            }}
-          />
         </div>
       </div>
 
+      <aside ref={notesPanelRef} data-document-side-panel className={`document-side-panel${panelOpen ? ' is-open' : ''}`} style={{ top: panelGeometry.top, width: Math.min(400, panelGeometry.width - 32) }}>
+        <DocumentPanelToolbar panelIdPrefix="reading-document" activeTab={panelTab} open={panelOpen} onSelect={openPanel} onClose={closePanel} disabledTabs={!user?.id ? ['assist', 'notes'] : undefined} />
+        <div hidden={!panelOpen} className="document-side-panel-body">
+          <section hidden={panelTab !== 'contents'} role="tabpanel" id="reading-document-panel-contents" aria-labelledby="reading-document-tab-contents" data-panel-content="contents" className="document-panel-scroll">
+            <ArticleContentsPopover embedded articleRootRef={markdownRootRef} pageKey={page.id} spaceId={page.spaceId} source={page.content || ''} />
+          </section>
+          <section hidden={panelTab !== 'info'} role="tabpanel" id="reading-document-panel-info" aria-labelledby="reading-document-tab-info" data-panel-content="info" className="document-panel-scroll">
+            {panelOpen && panelTab === 'info' ? <PageInfoContent
+              key={page.id}
+              spaceId={page.spaceId}
+              provenance={page.provenance}
+              evidence={page.evidence}
+              sourceStatus={page.sourceStatus}
+              lastChange={page.lastChange}
+              lastModifiedByUser={page.lastModifiedByUser}
+              lastModifiedByAgent={page.lastModifiedByAgent}
+              lastModifiedAt={page.lastModifiedAt}
+              canEdit={page.capabilities?.canEdit === true}
+              deleting={deleting}
+              onDelete={handleDelete}
+              onOpenHistory={() => {
+                const toolbarBottom = document.querySelector<HTMLElement>('[data-reading-toolbar]')
+                  ?.getBoundingClientRect().bottom ?? 88;
+                const workspacePosition = markdownRootRef.current
+                  ? captureReadingPosition(markdownRootRef.current, toolbarBottom, page.id)
+                  : null;
+                navigate(`/pages/${page.id}/versions`, {
+                  state: { pageHistorySource: { pageId: page.id, mode: 'read', workspacePosition } },
+                });
+              }}
+            /> : null}
+          </section>
+          <div ref={setNotesContainer} role="tabpanel" id="reading-document-panel-notes" aria-labelledby="reading-document-tab-notes" hidden={panelTab !== 'notes'} className="min-h-0 flex-1 overflow-auto" />
+          <div ref={setAgentContainer} role="tabpanel" id="reading-document-panel-assist" aria-labelledby="reading-document-tab-assist" hidden={panelTab !== 'assist'} className="agent-session-host min-h-0 flex-1 flex-col" />
+          <React.Suspense fallback={null}>
+            {agentMounted ? <AgentReadingSidebar key={`${user?.id}:${page.spaceId}:${page.id}`} notesContainer={notesContainer} agentContainer={agentContainer} page={page} notes={personalNotes} activeNoteId={activeNoteId} onLocateNote={locateNote} onClearActiveNote={() => setActiveNote(null)} visible={panelOpen && (notesOpen || panelTab === 'assist')} notesOpen={notesOpen} focusRequest={panelOpen && panelTab === 'assist' && agentFocusRequest?.identity === panelIdentity ? agentFocusRequest.request : undefined} target={readingTarget} selectionUnavailable={selectionUnavailable} onTarget={setReadingTarget} onOpenAgent={() => openPanel('assist')} /> : null}
+          </React.Suspense>
+        </div>
+      </aside>
+
       <SourceStatusNotice status={page.sourceStatus} />
-      <article className="document-canvas min-h-[300px] bg-white" style={{ '--document-panel-width': `${agentOpen && (panelGeometry.width >= 1600 || notesOpen && panelGeometry.width >= 1024) ? 420 : outlineOccupiedWidth}px` } as React.CSSProperties}>
+      <article className="document-canvas min-h-[300px] bg-white" style={{ '--document-panel-width': `${panelOpen && panelGeometry.width >= 1024 ? 420 : 0}px` } as React.CSSProperties}>
         <header className={titleInContent ? "document-content-title-meta" : "document-header document-reading-header"}>
           {!titleInContent ? <h1 title={page.title} className="document-title">{page.title}</h1> : null}
           <div className={`${titleInContent ? "" : "mt-3"} flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500`}>
@@ -769,17 +798,11 @@ export const PagePreview: React.FC = () => {
 
       {notesEnabled ? <SelectionNoteComposer key={personalNotes.identityKey} rootRef={markdownRootRef}
         identity={personalNotes.identityKey} source={page.content} updatedAt={page.updatedAt} language={language}
-        storageUnavailable={personalNotes.storageUnavailable} disabled={!!personalNotes.assistRequest} onAdd={(target, body) => personalNotes.add(target, body, { requirePersistence: true })} captureTarget={() => {
+        storageUnavailable={personalNotes.storageUnavailable} disabled={!personalNotes.loaded || !personalNotes.canCreate || personalNotes.syncing || !!personalNotes.assistRequest} onAdd={(target, body) => personalNotes.add(target, body, { requirePersistence: true })} captureTarget={() => {
           const selection = window.getSelection(), root = markdownRootRef.current?.querySelector<HTMLElement>('[data-markdown-selection-root]');
           return root && selection?.rangeCount && !selection.isCollapsed
             ? captureReadingSelection(root, selection.getRangeAt(0), page.content, page.updatedAt, root.dataset.markdownSelectionVersion ?? '') : null;
         }} /> : null}
-      {agentMounted || agentOpen ? <div ref={notesPanelRef} hidden={!agentOpen} className={`document-assist-layer${notesOpen ? ' document-notes-layer' : ''}`} style={{ top: panelGeometry.top, width: Math.min(400, panelGeometry.width - 32) }}>
-        <div className="document-panel-scroll document-agent-scroll">
-          <div className="flex shrink-0 items-center gap-3 border-b border-gray-200 bg-white p-3 text-sm"><button type="button" onClick={() => openAgent()} aria-pressed={!notesOpen} className={`rounded-lg px-2 py-1 ${!notesOpen ? 'bg-gray-100 font-medium' : 'text-gray-500'}`}>Agent</button><button type="button" onClick={() => openAgent(true)} aria-pressed={notesOpen} className={`rounded-lg px-2 py-1 ${notesOpen ? 'bg-gray-100 font-medium' : 'text-gray-500'}`}>{language === 'zh-CN' ? '个人笔记' : 'Personal notes'}</button><button type="button" className="ml-auto min-h-8 px-2" aria-label={language === 'zh-CN' ? '关闭协作面板' : 'Close collaboration panel'} onClick={closeAgent}>×</button></div>
-          <React.Suspense fallback={<p>Agent…</p>}><AgentReadingSidebar key={`${user?.id}:${page.spaceId}:${page.id}`} page={page} notes={personalNotes} activeNoteId={activeNoteId} onLocateNote={locateNote} onClearActiveNote={() => setActiveNote(null)} notesOpen={agentOpen && notesOpen} target={readingTarget} selectionUnavailable={selectionUnavailable} onTarget={setReadingTarget} onOpenAgent={() => openAgent()} /></React.Suspense>
-        </div>
-      </div> : null}
       {relatedPages.length > 0 && (
         <div className="mx-auto mt-6 max-w-[860px] px-1 sm:px-5 lg:px-8">
           <h2 className="text-lg font-semibold mb-3">{t('page.related')}</h2>

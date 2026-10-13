@@ -19,5 +19,8 @@ export interface AgentSessionPanelProps {
   assistTargets?: { selection?: AssistTarget | null; section?: AssistTarget | null };
   assistRequest?: AssistRequest | null; onRequestHandled?: (id: string) => void;
   notesReady?: boolean;
+  visible?: boolean;
+  autoFocus?: boolean;
+  focusRequest?: string;
   onNotesEvent?: (event: AssistNotesEvent) => void;
 }

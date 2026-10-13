@@ -1,3 +1,4 @@
+import { PAGE_NOTE_REMOTE_INPUT_SCHEMAS } from './page-note-tools.js';
 import { z } from 'zod';
 import {
   CollaborationGetRunInputSchema,
@@ -18,5 +19,5 @@ export const COLLABORATION_REMOTE_INPUT_SCHEMAS: Record<string, z.ZodRawShape> =
 };
 
 export function exactRemoteToolSchema(name: string): z.ZodRawShape | undefined {
-  return COLLABORATION_REMOTE_INPUT_SCHEMAS[name];
+  return COLLABORATION_REMOTE_INPUT_SCHEMAS[name] ?? PAGE_NOTE_REMOTE_INPUT_SCHEMAS[name];
 }

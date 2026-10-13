@@ -17,6 +17,8 @@
 
 ## 最近完成
 
+- [shared-page-notes-20261014](archive/shared-page-notes-20261014/brief.md)：服务器共享笔记、REST/MCP 和统一四图标侧栏已完成；真实数据库/HTTP/MCP、Chrome 及独立复审通过，client2434/server3156与全仓分阶段回归完成，未推送部署。
+
 - [agent-identity-space-auth-20261013](archive/agent-identity-space-auth-20261013/brief.md)：v0.12.25/Local Sync0.12.0发布及迁移验收完成；同Agent动态Space授权恢复，17篇项目模板MCP发布回读、110内链和Agent审计通过。
 
 - [dashboard-space-cards-20261013](archive/dashboard-space-cards-20261013/brief.md)：空间卡片与三项边界修复已复审，v0.12.22正式发布GitHub与生产，哈希/API/Chrome桌面与390px验收通过。

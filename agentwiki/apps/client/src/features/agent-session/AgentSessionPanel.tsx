@@ -21,7 +21,7 @@ function matchesReceipt(turn: AgentTurn, credential: NonNullable<AssistNotesEven
     && annotations.every((annotation) => turn.annotations?.some((sent) => sent.id === annotation.id && sent.body === annotation.body && sent.quote === annotation.quote));
 }
 
-export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdit = false, canAccept = false, onApply, supportsScopedApply = false, assistTargets, assistRequest, onRequestHandled, onNotesEvent, notesReady = true, acceptUnavailableReason }: AgentSessionPanelProps) {
+export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdit = false, canAccept = false, onApply, supportsScopedApply = false, assistTargets, assistRequest, onRequestHandled, onNotesEvent, notesReady = true, visible = true, autoFocus = true, focusRequest, acceptUnavailableReason }: AgentSessionPanelProps) {
   const { user } = useAuth(), { language } = useLanguage(), zh = language === 'zh-CN';
   const userId = typeof user?.id === 'string' ? user.id : '';
   const session = useAgentSession(userId, spaceId);
@@ -53,6 +53,7 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
     return () => { observer?.disconnect(); if (frame !== null) cancelAnimationFrame(frame); };
   }, [session.detail, session.loading, session.selected]);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const handledFocusRequest = useRef<string | undefined>(undefined);
   const [localError, setLocalError] = useState<string | null>(null);
   const scope = `${userId}\u0000${spaceId}\u0000${pageId}`;
   const mountRef = useRef({ scope, token: {} });
@@ -61,7 +62,13 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
   const callbacks = useRef({ onNotesEvent, onRequestHandled }); callbacks.current = { onNotesEvent, onRequestHandled };
   const emitted = useRef(new Map<string, string>());
   useEffect(() => { setLocalError(null); emitted.current.clear(); }, [scope]);
-  useEffect(() => { if (!session.loading) composerRef.current?.focus(); }, [scope, session.loading]);
+  useEffect(() => {
+    // A hidden panel consumes a pending request so a late load cannot steal focus.
+    if (!visible) { handledFocusRequest.current = focusRequest; return; }
+    if (session.loading) return;
+    if (autoFocus || focusRequest !== undefined && handledFocusRequest.current !== focusRequest) composerRef.current?.focus();
+    handledFocusRequest.current = focusRequest;
+  }, [scope, session.loading, visible, autoFocus, focusRequest]);
   useEffect(() => {
     if (session.loading || !assistRequest || [...store.drafts.values()].some((composer) => composer.staged?.request.id === assistRequest.id)
       || [...store.receipts.values()].some((receipt) => receipt.credential.request.id === assistRequest.id)) return;

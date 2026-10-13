@@ -127,6 +127,45 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     expect(container.querySelector('.cm-content')).toBeTruthy();
   });
 
+  it('renders the external outline into its host and navigates the live editor without editing content', async () => {
+    const onChange = vi.fn();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const view = render(<LanguageProvider><MarkdownWorkspace value={'# A\n\n## B'} mode="edit" onChange={onChange} externalOutline outlineContainer={host} /></LanguageProvider>);
+    try {
+      const heading = await screen.findByRole('button', { name: 'B' });
+      expect(host).toContainElement(heading);
+      expect(screen.queryByRole('button', { name: 'Contents' })).not.toBeInTheDocument();
+      fireEvent.click(heading);
+      expect(currentEditorView(view.container).state.selection.main.from).toBe(5);
+      expect(currentEditorView(view.container).state.doc.toString()).toBe('# A\n\n## B');
+      expect(onChange).not.toHaveBeenCalled();
+      expect(heading).toHaveAttribute('aria-current', 'location');
+    } finally { view.unmount(); host.remove(); }
+  });
+
+  it('omits the legacy outline while an external host is not mounted', () => {
+    render(<LanguageProvider><MarkdownWorkspace value="# A" mode="edit" onChange={vi.fn()} externalOutline outlineContainer={null} /></LanguageProvider>);
+    expect(screen.queryByRole('button', { name: 'Contents' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Contents' })).not.toBeInTheDocument();
+  });
+
+  it('records preview navigation from the external outline using the source heading offset', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const ref = createRef<MarkdownWorkspaceHandle>();
+    const view = render(<LanguageProvider><MarkdownWorkspace ref={ref} value={'# A\n\n## B'} mode="preview" onChange={vi.fn()} externalOutline outlineContainer={host} /></LanguageProvider>);
+    const scroll = vi.spyOn(window, 'scrollBy').mockImplementation(() => {});
+    try {
+      const heading = await screen.findByRole('heading', { name: 'B' });
+      heading.scrollIntoView = vi.fn();
+      fireEvent.click(await screen.findByRole('button', { name: 'B' }));
+      expect(heading.scrollIntoView).toHaveBeenCalledWith({ block: 'start' });
+      expect(ref.current!.capturePosition()).toEqual(expect.objectContaining({ previewNavigated: true, sourceOffset: 5 }));
+      expect(screen.getByRole('navigation', { name: 'Contents' })).toBeVisible();
+    } finally { view.unmount(); host.remove(); scroll.mockRestore(); }
+  });
+
   it('enables CodeMirror line wrapping in edit mode', () => {
     const { container } = renderWYS({ initial: '很长的中文内容'.repeat(100) });
     expect(container.querySelector('.cm-lineWrapping')).toBeTruthy();

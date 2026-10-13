@@ -5,7 +5,11 @@ import { notesForDispatch, type PersonalNote } from './reviewComments';
 import { PersonalNoteAuthor } from './PersonalNoteAuthor';
 interface Props {
   stageForSession?: boolean; source: string; target?: AssistTarget | null; notes: PersonalNote[]; disabled?: boolean; storageUnavailable?: boolean;
-  onAdd: (target: AssistTarget, body: string) => boolean | void;
+  onAdd: (target: AssistTarget, body: string) => boolean | void | Promise<boolean | void>;
+  syncing?: boolean;
+  createDisabled?: boolean;
+  identityKey?: string;
+  onRetrySync?: () => void;
   onDispatch: (ids: string[]) => void;
   onReopen: (id: string) => void;
   activeNoteId?: string | null;
@@ -14,11 +18,14 @@ interface Props {
 }
 type NoteFilter = 'all' | 'open' | 'resolved';
 /** Controlled queue: parent persists notes and transitions only after task responses / explicit acceptance. */
-export function PersonalNotesPanel({ stageForSession = false, source, target, notes, disabled, storageUnavailable, onAdd, onDispatch, onReopen, activeNoteId, onLocate, onClearActive }: Props) {
+export function PersonalNotesPanel({ stageForSession = false, source, target, notes, disabled, storageUnavailable, syncing, createDisabled, identityKey, onRetrySync, onAdd, onDispatch, onReopen, activeNoteId, onLocate, onClearActive }: Props) {
   const { language } = useLanguage(); const zh = language === 'zh-CN';
-  const [body, setBody] = useState(''); const [addFailed, setAddFailed] = useState(false); const [selected, setSelected] = useState<string[]>([]);
+  const [body, setBody] = useState(''); const [saving, setSaving] = useState(false);
+  const mountedRef = useRef(true); useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []); const [addFailed, setAddFailed] = useState(false); const [selected, setSelected] = useState<string[]>([]);
   const [filter, setFilter] = useState<NoteFilter>('open');
   const [locationUnavailableId, setLocationUnavailableId] = useState<string | null>(null);
+  const identityRef = useRef(identityKey);
+  if (identityRef.current !== identityKey) { identityRef.current = identityKey; setBody(''); setSelected([]); setAddFailed(false); setSaving(false); }
   const cardRefs = useRef(new Map<string, HTMLLIElement>());
   useEffect(() => {
     const active = notes.find((note) => note.id === activeNoteId);
@@ -29,7 +36,7 @@ export function PersonalNotesPanel({ stageForSession = false, source, target, no
   }, [activeNoteId, notes]);
   const visible = useMemo(() => notes.filter((note) => filter === 'all' || (filter === 'resolved' ? note.status === 'resolved' : note.status !== 'resolved'))
     .map((note) => ({ note, found: resolveAssistTarget(source, note.target).status === 'found' })), [notes, source, filter]);
-  const eligibleIds = useMemo(() => visible.filter(({ note, found }) => note.status === 'pending' && found).map(({ note }) => note.id), [visible]);
+  const eligibleIds = useMemo(() => visible.filter(({ note, found }) => note.status === 'pending' && note.syncState !== 'unsynced' && found).map(({ note }) => note.id), [visible]);
   useEffect(() => {
     if (activeNoteId) cardRefs.current.get(activeNoteId)?.scrollIntoView?.({ block: 'nearest' });
   }, [activeNoteId, visible]);
@@ -48,24 +55,24 @@ export function PersonalNotesPanel({ stageForSession = false, source, target, no
     { id: 'resolved', label: zh ? '已解决' : 'Resolved', count: notes.filter((note) => note.status === 'resolved').length },
   ];
   const anchorUnavailable = !!target && resolveAssistTarget(source, target).status !== 'found';
-  const canAdd = !disabled && !!target && target.quote.length > 0 && !anchorUnavailable && !!body.trim();
+  const canAdd = !saving && !disabled && !createDisabled && !!target && target.quote.length > 0 && !anchorUnavailable && !!body.trim();
   const dispatch = notesForDispatch(notes, selectedEligible, source);
   const showComposer = !!target || body.length > 0;
   const empty = filter === 'resolved' ? (zh ? '暂无已解决笔记。' : 'No resolved notes yet.') : filter === 'open'
     ? (zh ? '暂无未解决笔记，可在“已解决”筛选中查看已解决笔记。' : 'No open notes. Resolved notes are available in the Resolved filter.')
-    : (zh ? '暂无个人笔记，选择一段原文开始添加。' : 'No personal notes yet. Select a passage to add one.');
-  return <section aria-label={zh ? '个人笔记' : 'Personal notes'} className="min-w-0 space-y-3 bg-white p-1 text-sm">
+    : (zh ? '暂无页面笔记，选择一段原文开始添加。' : 'No page notes yet. Select a passage to add one.');
+  return <section aria-label={zh ? '页面笔记' : 'Page notes'} className="min-w-0 space-y-3 bg-white p-1 text-sm">
     <header className="space-y-1.5">
-      <div className="flex items-center justify-between gap-2"><h3 className="font-semibold tracking-wide text-gray-700">{zh ? '个人笔记' : 'Personal notes'}</h3><span className="rounded-lg bg-gray-100 px-2 py-1 text-xs tabular-nums text-gray-500">{notes.length}</span></div>
-      <p className="text-xs text-gray-500">{zh ? '仅自己可见 · 保存在此浏览器' : 'Only you · Saved in this browser'}</p>
-      <p className="text-[11px] leading-relaxed text-gray-400">{zh ? '私人笔记，仅保存在此浏览器，按账号、Space 和页面隔离。发送所选笔记后 Agent 可见其内容。' : 'Private notes, stored only in this browser per account, Space and page. The Agent can see selected notes after you send them.'}</p>
+      <div className="flex items-center justify-between gap-2"><h3 className="font-semibold tracking-wide text-gray-700">{zh ? '页面笔记' : 'Page notes'}</h3><span className="rounded-lg bg-gray-100 px-2 py-1 text-xs tabular-nums text-gray-500">{notes.length}</span></div>
+      <p className="text-xs text-gray-500">{zh ? '保存在服务器 · 有权限成员可见' : 'Saved on the server · Visible to page members'}</p>
+      <p className="text-[11px] leading-relaxed text-gray-400">{zh ? '有页面访问权限的用户和 Agent 均可查看。笔记按作者区分，仅作者可修改。' : 'Users and Agents with page access can read these notes. Each note identifies its author; only the author can change it.'}</p>
     </header>
-    {storageUnavailable ? <p role="status" className="text-amber-800">{zh ? '无法保存个人笔记，请保留副本。' : 'Personal notes could not be saved. Keep a copy.'}</p> : null}
+    {storageUnavailable ? <div role="status" className="space-y-1 text-xs text-amber-800"><p>{zh ? '部分笔记尚未同步到服务器，草稿已保留。' : 'Some notes have not synced to the server. Drafts are retained.'}</p>{onRetrySync ? <button type="button" disabled={syncing} onClick={onRetrySync} className="underline">{zh ? '重试同步' : 'Retry sync'}</button> : null}</div> : null}
     {target ? <blockquote className="max-h-24 overflow-y-auto whitespace-pre-wrap border-l-2 pl-3 text-gray-600 [overflow-wrap:anywhere]">{target.quote}</blockquote> : <p className="text-gray-500">{zh ? '选择一段原文添加笔记。' : 'Select a passage to add a note.'}</p>}
-    {addFailed || anchorUnavailable ? <p role="alert" className="text-amber-800">{zh ? '原文定位不唯一或版本已变化。请选择更长或当前的原文片段后重试，笔记文字已保留。' : 'The source anchor is ambiguous or changed. Select a longer or current excerpt and retry; your note text is preserved.'}</p> : null}
+    {addFailed || anchorUnavailable ? <p role="alert" className="text-amber-800">{zh ? '暂时无法保存笔记。请检查网络或重新选择原文后重试，笔记文字已保留。' : 'The note could not be saved. Check your connection or reselect the passage and retry; your draft is retained.'}</p> : null}
     {showComposer ? <div className="space-y-2">
-      <label className="block">{zh ? '笔记' : 'Note'}<textarea rows={3} value={body} onChange={(e) => { setBody(e.target.value); setAddFailed(false); }} disabled={disabled} className="mt-1 max-h-48 w-full rounded-lg border border-gray-200 p-3 [overflow-wrap:anywhere]" /></label>
-      <button type="button" disabled={!canAdd} onClick={() => { if (canAdd && target) { if (onAdd(target, body.trim()) === false) setAddFailed(true); else { setBody(''); setAddFailed(false); } } }} className="min-h-8 rounded-lg border border-gray-200 px-3 disabled:opacity-50">{zh ? '添加笔记' : 'Add note'}</button>
+      <label className="block">{zh ? '笔记' : 'Note'}<textarea rows={3} value={body} onChange={(e) => { setBody(e.target.value); setAddFailed(false); }} disabled={saving || disabled || createDisabled} className="mt-1 max-h-48 w-full rounded-lg border border-gray-200 p-3 [overflow-wrap:anywhere]" /></label>
+      <button type="button" disabled={!canAdd} onClick={async () => { if (!canAdd || !target) return; const identity = identityRef.current; setSaving(true); try { const saved = await onAdd(target, body.trim()); if (!mountedRef.current || identityRef.current !== identity) return; if (saved === false) setAddFailed(true); else { setBody(''); setAddFailed(false); } } catch { if (mountedRef.current && identityRef.current === identity) setAddFailed(true); } finally { if (mountedRef.current && identityRef.current === identity) setSaving(false); } }} className="min-h-8 rounded-lg border border-gray-200 px-3 disabled:opacity-50">{zh ? '添加笔记' : 'Add note'}</button>
     </div> : null}
     <div role="group" aria-label={zh ? '筛选笔记' : 'Filter notes'} className="flex rounded-lg bg-gray-100 p-1">
       {filters.map(({ id, label, count }) => <button key={id} type="button" aria-pressed={filter === id} onClick={() => { if (filter !== id) { setSelected([]); setFilter(id); onClearActive?.(); } }} className={`min-h-8 min-w-0 flex-1 rounded-md px-2 text-xs ${filter === id ? 'bg-white font-medium text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}>{`${label} (${count})`}</button>)}
@@ -80,16 +87,17 @@ export function PersonalNotesPanel({ stageForSession = false, source, target, no
     {visible.length === 0 ? <p className="rounded-lg border border-dashed border-gray-200 p-3 text-gray-500">{empty}</p> : null}
     <ul className="space-y-3">{visible.map(({ note, found }) => {
       return <li key={note.id} ref={(element) => { if (element) cardRefs.current.set(note.id, element); else cardRefs.current.delete(note.id); }} data-active-note={note.id === activeNoteId ? 'true' : undefined} className={`space-y-2 rounded-xl border p-3 transition-colors ${note.id === activeNoteId ? 'border-amber-400 bg-amber-50 ring-1 ring-amber-200' : 'border-gray-200 bg-white'}`}>
-        <div className="flex min-w-0 items-center gap-2"><input type="checkbox" aria-label={note.body} checked={selectedEligible.includes(note.id)} disabled={disabled || note.status !== 'pending' || !found} onChange={(e) => { if (!disabled && eligibleIds.includes(note.id)) setSelected((ids) => e.target.checked ? [...ids.filter((id) => eligibleIds.includes(id) && id !== note.id), note.id] : ids.filter((id) => id !== note.id)); }} className="shrink-0 accent-blue-500" />
+        <div className="flex min-w-0 items-center gap-2"><input type="checkbox" aria-label={note.body} checked={selectedEligible.includes(note.id)} disabled={disabled || note.status !== 'pending' || note.syncState === 'unsynced' || !found} onChange={(e) => { if (!disabled && eligibleIds.includes(note.id)) setSelected((ids) => e.target.checked ? [...ids.filter((id) => eligibleIds.includes(id) && id !== note.id), note.id] : ids.filter((id) => id !== note.id)); }} className="shrink-0 accent-blue-500" />
           <span className="mr-auto rounded-md bg-gray-100 px-2 py-0.5 text-[11px] text-gray-500">{labels[note.status]}</span>
           {onLocate ? <button type="button" disabled={!found} onClick={() => { if (found) setLocationUnavailableId(onLocate(note.id) === false ? note.id : null); }} className="min-h-7 shrink-0 rounded px-1 text-xs text-gray-500 hover:bg-amber-100 hover:text-amber-800 disabled:opacity-40">{zh ? '定位原文' : 'Locate passage'}</button> : null}
         </div>
-        <PersonalNoteAuthor userId={note.userId} language={language} />
+        <PersonalNoteAuthor userId={note.userId} author={note.author} language={language} />
         <blockquote className="max-h-24 overflow-y-auto whitespace-pre-wrap rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-xs leading-relaxed text-gray-500 [overflow-wrap:anywhere]">{note.target.quote}</blockquote>
         <p className="max-h-40 min-w-0 overflow-y-auto whitespace-pre-wrap leading-relaxed text-gray-800 [overflow-wrap:anywhere]">{note.body}</p>
         {!found ? <p className="text-amber-800">{zh ? '原文已变动或定位不唯一' : 'Original passage changed or anchor is ambiguous'}</p> : null}
         {locationUnavailableId === note.id ? <p role="status" className="text-xs text-amber-800">{zh ? '此片段无法在当前视图定位，请查看原始 Markdown。' : 'This passage cannot be located in this view. Check the original Markdown.'}</p> : null}
-        {note.status !== 'pending' ? <button type="button" disabled={disabled} onClick={() => onReopen(note.id)} className="h-8 rounded-lg border border-gray-200 px-3">{zh ? '重新打开' : 'Reopen'}</button> : null}
+        {note.syncState === 'unsynced' ? <p className="text-xs text-amber-700">{zh ? '尚未同步' : 'Not synced'}</p> : null}
+        {note.status !== 'pending' && note.canEdit !== false ? <button type="button" disabled={disabled} onClick={() => onReopen(note.id)} className="h-8 rounded-lg border border-gray-200 px-3">{zh ? '重新打开' : 'Reopen'}</button> : null}
       </li>;
     })}</ul>
   </section>;

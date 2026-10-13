@@ -22,6 +22,7 @@ export class McpController {
       get_taskboard: 'Space reader/editor/publisher',
       import_taskboard_plans: 'Space editor/publisher',
       update_taskboard_status: 'Space editor/publisher',
+      list_page_notes: 'pages:read', create_page_note: 'pages:write', update_page_note: 'pages:write', delete_page_note: 'pages:write',
       list_pages: 'pages:read', get_page: 'pages:read', search_pages: 'pages:read',
       list_folders: 'folders:read',
       propose_folder_change: 'folders:write (+ folders:delete for delete/restore)',

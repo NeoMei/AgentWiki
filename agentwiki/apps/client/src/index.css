@@ -57,6 +57,21 @@ input.document-title:focus { box-shadow: 0 2px #e5e5e5; }
 .document-slash-menu button[aria-current], .document-slash-menu button:hover { background: #f5f5f5; }
 .document-assist-layer { position: fixed; right: 20px; top: 130px; bottom: 20px; z-index: 35; max-width: calc(100vw - 32px); background: white; border-radius: 8px; box-shadow: 0 8px 32px #0002; }
 .document-panel-scroll { height: 100%; overflow: auto; border-radius: inherit; }
+/* One shared side panel; its collapsed icon row remains available above the document. */
+.document-side-panel { position: relative; max-width: calc(100% - 32px); margin: 12px var(--document-gutter, 24px) 0 auto; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; }
+.document-side-panel:not(.is-open) { position: sticky; z-index: 25; width: fit-content !important; }
+.document-side-panel.is-open { position: fixed; right: 20px; bottom: 20px; z-index: 30; display: flex; flex-direction: column; max-width: calc(100vw - 32px); margin: 0; box-shadow: 0 4px 20px rgb(0 0 0 / 5%); }
+.document-side-panel > :first-child { flex-shrink: 0; }
+.document-side-panel-body:not([hidden]) { display: flex; flex: 1 1 0%; flex-direction: column; min-height: 0; overflow: auto; overscroll-behavior: contain; border-top: 1px solid #f3f4f6; border-radius: 0 0 10px 10px; }
+.document-side-panel-body > .agent-session-host { flex: 1 1 0%; min-height: 0; }
+@media (max-width: 1023px) {
+  .document-side-panel:not(.is-open) { position: relative; top: auto !important; }
+  .document-side-panel.is-open { position: relative; inset: auto !important; width: auto !important; max-width: none; margin: 12px var(--document-gutter, 24px) 0; }
+  .document-side-panel.is-open[style] { width: auto !important; }
+  .document-side-panel-body:not([hidden]) { flex: 0 1 auto; max-height: min(60dvh, 600px); }
+  .document-side-panel-body:has(.agent-session-host:not([hidden])) { height: min(60dvh, 600px); }
+  .document-side-panel .document-panel-resizer { display: none; }
+}
 .document-panel-resizer { position: absolute; z-index: 40; inset: 0 auto 0 -3px; width: 7px; cursor: col-resize; touch-action: none; border-radius: 4px; background: #d1d5db; }
 .document-panel-resizer:hover { background: #9ca3af; }
 .document-panel-resizer:focus-visible { outline: 2px solid #3b82f6; outline-offset: 1px; }
