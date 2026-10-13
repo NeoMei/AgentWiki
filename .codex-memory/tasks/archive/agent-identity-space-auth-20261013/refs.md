@@ -8,3 +8,6 @@
 - 模板草稿：/Users/neomei/.codex/visualizations/2026/10/13/01a1348e-515b-7fc2-95d5-97af8c721c44/agentwiki-project-template-v2/。
 - 本机最终测试日志：/tmp/agentwiki-v01225-{full-test,typecheck,lint,build}.log。
 - 原始 MCP 页面回执只留 /tmp，不提交页面正文、邮箱、auth 信息；仓库只保存数量、ID、状态与内容 hash。
+
+- 最终交付：agentwiki/docs/verification/agent-identity-space-auth-20261014/template-final-publication-receipt.json
+- 线上总览：https://agentwiki.quukk.com/pages/f285b898-65ba-4938-8616-e9a0b8f575f5

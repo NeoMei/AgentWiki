@@ -14,8 +14,10 @@
 
 生产迁移与源码/环境/health/网页资产校验通过，旧 71 个 Credential 与 482 个 Grant 的稳定字段未丢失或变化，在线正常新增分别 1 条。原本机 connection/key/Agent 保留，网关升级 0.12.0；真实官方包 stdio MCP 已读取 3 个授权空间，目标 publisher 空间的 15 页、5 目录及首页。没有重新 onboard，也不声称现存 Codex 工具进程热重载。
 
-## 下一步
+## 完成结果
 
-用户已明确允许 Publisher 自动发布。主代理正在应用审核政策并用 MCP 更新 17 篇模板。现有目录改名提案回执仍为 pending_review，不能算正式发布。按原页面 ID 更新，创建缺失的测试报告/开发日志，补真实文档链接并逐页正式回读后再关闭文档任务。
+目标 Space 的 17 篇最终模板均通过 MCP 正式发布与逐页精确回读。保留 15 个原页面 ID，补 2 个新页面；5 个业务目录、110 内链和 17 页 Agent 审计核验通过。用户明确授权限定范围自动发布，策略已保存。任务 AGW-T-011、用例 AGW-TC-018、反馈 AGW-BUG-012 按实测闭环，历史问题及人类验收边界保留。
 
-证据入口：agentwiki/docs/verification/agent-identity-space-auth-20261014/status.md 与 publication-progress.json；生产/npm/GitHub/本机升级/MCP实读均有独立 sanitized receipt。
+首轮请求限流经确认已保存内容后恢复；最终按3.25秒调用间隔完成。旧目录候选保留为已被替代的pending审计，当前聊天旧网关不声称热重载。任务于2026-10-14完成归档。
+
+证据入口：agentwiki/docs/verification/agent-identity-space-auth-20261014/status.md 与 template-final-publication-receipt.json；正式源码仍为48781e5b，后续Git提交只补交付回执。

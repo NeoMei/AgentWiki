@@ -9,3 +9,5 @@
 
 - 用户2026-10-14明确授权发布软件；Web 0.12.25 / Local Sync 0.12.0 / protocol 0.6.1 已分别验收。
 - 用户随后明确允许 Publisher 自动发布；主代理应用审核政策并继续 MCP 模板发布。政策授权、实际策略更新、提案创建和正式回读分别记录，不能相互替代。
+
+- 2026-10-14：用户授权 Publisher 自动发布；仅目标 Space 审核策略由 always-review 改 scoped-auto-publish，Agent 模式原已允许。最终17页MCP回读后归档，保留旧待审候选、HTTP429与旧聊天缓存边界。

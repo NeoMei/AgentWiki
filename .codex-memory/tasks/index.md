@@ -4,7 +4,6 @@
 
 ## 活跃任务
 
-- [agent-identity-space-auth-20261013](active/agent-identity-space-auth-20261013/brief.md)：按用户确认的一次Agent接入、动态Space授权纠正旧实现；隔离候选研发验证中，尚未上线。
 
 - [regressions-release-20261013](active/regressions-release-20261013/brief.md)：v0.12.23修复候选整合与复审完成，完整门禁重跑；生产SSH与回执所有者审批待恢复。
 
@@ -16,6 +15,8 @@
 - [q3-regressions-20260914](archive/q3-regressions-20260914/brief.md)：Q3人工报告20项代码修复、整分支独立复审与候选验收完成；未发布部署或安装日常Vault。
 
 ## 最近完成
+
+- [agent-identity-space-auth-20261013](archive/agent-identity-space-auth-20261013/brief.md)：v0.12.25/Local Sync0.12.0发布及迁移验收完成；同Agent动态Space授权恢复，17篇项目模板MCP发布回读、110内链和Agent审计通过。
 
 - [dashboard-space-cards-20261013](archive/dashboard-space-cards-20261013/brief.md)：空间卡片与三项边界修复已复审，v0.12.22正式发布GitHub与生产，哈希/API/Chrome桌面与390px验收通过。
 

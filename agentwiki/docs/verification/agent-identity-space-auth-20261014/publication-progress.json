@@ -51,18 +51,22 @@
     "codexRunningToolHotReload": "not_claimed"
   },
   "documents": {
-    "status": "publishing_authorized",
+    "status": "published_verified",
     "targetSpaceId": "cmv6biedu005okoisb9fgp64y",
     "draftPageCount": 17,
     "publisherAutomaticPublicationAuthorizedByUser": true,
-    "policyApplication": "in_progress_by_primary_agent",
+    "policyApplication": "target_space_scoped_auto_publish_saved_agent_mode_already_enabled",
     "existingFolderProposal": {
       "changeSetId": "cmv6xho0000aokqb0jyqmljgb",
       "status": "pending_review",
       "autoPublished": false
     },
-    "newTemplatePagesVerified": 0,
-    "boundary": "Await MCP page writes and per-page published readback; software release and pending_review proposal do not complete the document task."
+    "newTemplatePagesVerified": 17,
+    "boundary": "17 final pages exactly read back through original Agent MCP connection. Historical defects are not bulk-closed. Old folder proposal remains pending but superseded by a published rename; current chat old gateway is not claimed hot-reloaded.",
+    "updatedExistingPages": 15,
+    "createdPages": 2,
+    "internalLinksVerified": 110,
+    "finalReceipt": "template-final-publication-receipt.json"
   },
   "github": {
     "status": "published",
