@@ -14,3 +14,20 @@ v0.12.22 仅在 v0.12.21 的卡片时间展示上补充未来时间保护；服�
 - 改动文件 ESLint、客户端 TypeScript 与生产构建通过；初始 JS 预算维持 549824/550000 字节。
 - 独立静态复核无阻塞，确认仅影响显示，不修改时间数据、后端、权限或分页。
 - 不将 v0.12.21 的完整门禁冒充 v0.12.22 重跑；本版针对新增显示分支运行必要回归，其余未改代码沿用上版证据。
+
+## 正式发布与部署
+
+- GitHub 正式 Release：[v0.12.22](https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.22)，非草稿/预发布。
+- 发布 tag 对应源码 `9e7169e1124efbd41a9bb55603f0a249a3d75a88`，`master` 已快进纳入；后续回执只改文档，不移动 tag。
+- 生产 root/server/client 均 `0.12.22`；1240 个部署源码/配置文件逐个 SHA256 与发布源码一致。
+- 两份环境文件 SHA256 保持；61 个既有迁移，无待执行迁移。
+- API、Worker、Frontend 均 active/running、NRestarts=0。内外 health 五项（status/database/redis/auditPersistence/attachmentStorage）均 ok。
+- 旧应用保留 `/root/agentwiki-previous-20261013151405`。数据库、附件和应用的配套备份沿用本次发布前已验证的快照，不单独回滚应用。
+
+## 生产功能与浏览器验收
+
+- v0.12.22 公网卡片专项 7 项通过：创建空间即返回 0 页/1 成员，编辑正文后 lastUpdatedAt 推进、Space.updatedAt 不变，页面数量正确。自有 Space 和账号全部清理后脚本退出 0。
+- 正式已登录 Chrome 桌面读到页面数、成员数、审核策略与更新时间；来源未来时间正确显示“更新时间待校准”，title 保留原始本地时间。
+- 390px 单列卡片完整可读，整页宽度与 scrollWidth 均为 390，无横向溢出；临时 viewport 已恢复。
+- 控制台无新增 warning/error。浏览器验收没有修改用户空间、页面、权限或启动 Agent。
+- 既有未来时间数据保持原样，本次只增加准确提示，不将其表述为源数据已校准。

@@ -1,35 +1,36 @@
 # 当前目标
 
-- 内置模板与协作页面 Plane 风格改版完成，已按用户授权发布 GitHub 和服务器。
+- “我的知识空间”卡片信息完善及发布完成，最终版本 v0.12.22。
 
 # 范围 / 不做
 
-- 模板目录、预览、协作配置/启动、模板管理、运行面板、任务看板及文档排版已上线。
-- 本次未发布 npm 或独立 Obsidian 插件；保留用户正文与模板历史版本。
+- 页面数、成员数、审核策略、内容更新时间与明确进入入口已上线，桌面/手机布局保持简明。
+- 包含正文更新时间与新建统计修复；未来原始时间提示待校准，不改用户数据。未发布 npm 或独立 Obsidian 插件。
 
 # 当前状态
 
-- AgentWiki v0.12.19 已正式发布。tag/部署源码 `654731b15d507c4defa24ef82f0708eb178b5a07`，root/server/client均0.12.19；master包含发布提交，后续仅补文档回执。
-- 三轮改版审查与独立发布复核关闭全部本期问题；精确发布提交6995测试通过、6既有跳过、0失败，数据库230零跳过；全仓构建/typecheck/lint通过。
-- 1240服务器文件哈希匹配，三个服务running/0重启，内外五项健康ok，公网32项烟测及自有资源清理通过；环境文件哈希不变。
-- Chrome正式登录环境模板/启动/阅读页面桌面及390px验收通过。浏览器未保存正文或启动Agent。
-- 配套数据库/附件/应用备份核验完成，旧应用保留。具体位置与回执见关键索引。
+- GitHub v0.12.22 与生产发布完成，源码/tag `9e7169e1124efbd41a9bb55603f0a249a3d75a88`；root/server/client均0.12.22。
+- v0.12.21 全部测试阶段最终7003pass/6既有skip；首次客户端一项超时经单测及完整客户端重跑通过。v0.12.22仅显示补修，Dashboard38项、tsc/lint/build及独立复审通过，不冒充全门禁重跑。
+- 1240部署文件哈希匹配，环境文件不变，三服务running/0重启，内外五项健康ok。
+- v0.12.22公网卡片7项通过并清理自有资源；v0.12.21通用公网32项烟测通过。Chrome真实账户桌面读验/390px截图通过，无横向溢出及控制台错误。
+- 前期Plane风格内置模板/协作/任务看板/文档改版v0.12.19包含在本版本祖先中。
 
 # 稳定约束
 
-- 仓库路径末尾空格，worktree Git显式--work-tree，不改共享core.worktree。
-- 原检出及其未提交资料保持；原分支codex/assist-qwen-fallback未切换。
-- 本地测试、生产烟测、浏览器读验和真实Agent执行分别记录；本轮没有触发真实Agent执行。
+- 原仓库路径末尾空格；worktree Git显式--git-dir和--work-tree，不改共享core.worktree。
+- 原检出及其未提交研究资料保持；不把浏览器读验等同于真实Agent执行。
+- 用户业务数据未由本轮浏览器修改；API写验只使用可清理的自有账号与Space。
 
 # 关键索引
 
-- GitHub：https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.19
-- 正式站点：https://agentwiki.quukk.com
-- agentwiki/docs/verification/template-layout-v01219-release.md
-- .codex-memory/tasks/archive/template-layout-plane-20261013/{brief,decisions,refs}.md
-- 工作树：`/Users/neomei/.codex/worktrees/template-layout-plane/AgentWiki `。
+- https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.22
+- https://agentwiki.quukk.com/dashboard
+- agentwiki/docs/verification/space-cards-v01222-release.md
+- .codex-memory/tasks/archive/dashboard-space-cards-20261013/{brief,decisions,refs}.md
+- 发布工作树：`/tmp/agentwiki-release-v01221`，分支`codex/release-v0.12.22`。
 
 # 风险 / 下一步
 
-- 本轮改版与发布已完成，无待执行发布步骤。6条平台/独立门禁skip仍按回执保留，不表述为全平台全通过。
-- 保留已核验备份和旧应用；后续回滚须匹配数据库与附件快照。
+- 本次卡片改进、审查、GitHub与生产发布已完成，无待执行发布步骤。
+- 既有未来时间仍保留原始值，界面明确提示待校准；来源数据修正属于另行定位，不擅自改写。
+- 配套备份`/var/backups/agentwiki/cards-v01221.3zjZDWlu`已核验；保留旧应用，回滚须匹配数据快照。

@@ -13,6 +13,8 @@
 
 ## 最近完成
 
+- [dashboard-space-cards-20261013](archive/dashboard-space-cards-20261013/brief.md)：空间卡片与三项边界修复已复审，v0.12.22正式发布GitHub与生产，哈希/API/Chrome桌面与390px验收通过。
+
 - [template-layout-plane-20261013](archive/template-layout-plane-20261013/brief.md)：Plane 风格模板/协作/看板/文档改版三轮审查关闭，v0.12.19已正式发布GitHub与生产；6995pass/6skip、1240文件匹配、公网32烟测及真实登录Chrome验收通过。
 
 - [knowledge-comprehensive-audit-20261007](archive/knowledge-comprehensive-audit-20261007/brief.md)：F1-F7多轮任务/代码/前后端/UI复审完成；最终模板10/10、server2994、client2170、F5 REST/MCP8项、构建与资源清理通过；保留平台skip、模型收益NOT MET、fixture/未部署边界。
