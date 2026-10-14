@@ -233,6 +233,40 @@ describe('ReviewPage detail refresh', () => {
     expect(screen.getByRole('button', { name: 'Approve & publish' })).toBeVisible();
   });
 
+  it('reloads an off-page deep link after state changes and distinguishes filtering from denied access', async () => {
+    let allowReview = true;
+    let readable = true;
+    vi.mocked(api.get).mockImplementation(async (url, config) => {
+      if (url === '/review') {
+        const status = (config?.params as any)?.status ?? 'pending_review';
+        return { data: { items: Array.from({ length: 25 }, (_, index) => ({ ...summary(), id: `first-page-${index}`, status })), total: 197, page: 1, pageSize: 25, spaces: [] } };
+      }
+      if (!readable) throw { response: { status: 403 } };
+      return { data: { ...changeSet(), reviewAccess: { canDecide: allowReview, reason: allowReview ? null : 'owner_required' } } };
+    });
+    render(<LanguageProvider><MemoryRouter initialEntries={['/review?changeSet=cs-1']}><ReviewPage /></MemoryRouter></LanguageProvider>);
+    expect(await screen.findByText('Proposed page')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Pending' }));
+    expect(await screen.findByText('Proposed page')).toBeVisible();
+    expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/change-sets/cs-1')).toHaveLength(2);
+    expect(api.get).toHaveBeenCalledWith('/review', expect.objectContaining({ params: expect.objectContaining({ page: 1, pageSize: 25, status: 'pending_review' }) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Published' }));
+    expect(await screen.findByText('No changes match these filters.')).toBeVisible();
+    expect(screen.queryByText('This change set is not available in your review scope.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Proposed page')).not.toBeInTheDocument();
+    allowReview = false;
+    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+    expect(await screen.findByText('Proposed page')).toBeVisible();
+    expect(screen.getByText('Only a current owner of this space can review or publish this change.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Approve & publish' })).not.toBeInTheDocument();
+    expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/change-sets/cs-1')).toHaveLength(4);
+    readable = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Pending' }));
+    expect(await screen.findByText('This change set is not available in your review scope.')).toBeVisible();
+    expect(screen.queryByText('Proposed page')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Approve & publish' })).not.toBeInTheDocument();
+  });
+
   it('keeps older details without duplicate metadata usable and does not fetch a detector endpoint', async () => {
     vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/review' ? [changeSet()] : changeSet() }));
     renderReview(); await expand();

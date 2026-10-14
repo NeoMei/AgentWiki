@@ -120,6 +120,7 @@ export const ReviewPage: React.FC = () => {
   const [items, setItems] = useState<any[]>([]);
   const [listLoading, setListLoading] = useState(true);
   const [listRefreshing, setListRefreshing] = useState(false);
+  const [deepLinkLoading, setDeepLinkLoading] = useState(false);
   const [refreshSession, setRefreshSession] = useState(0);
   const listPendingRef = useRef(false);
   const expandedRef = useRef<string | null>(null);
@@ -292,9 +293,18 @@ export const ReviewPage: React.FC = () => {
   useEffect(() => {
     requestControllersRef.current.forEach((controller) => controller.abort());
     detailSequenceRef.current.clear(); detailedIdsRef.current.clear();
-    setItems([]); setPermissions({}); setExpanded(null);
+    setItems([]); setPermissions({}); setExpanded(changeSetId);
+    setDeepLinkLoading(!!changeSetId);
     void load();
-  }, [load, user?.id, changeSetId]);
+    // The same scope change invalidates both the page and the selected detail.
+    // A deep link can be outside every filtered first page, so always reread it.
+    if (changeSetId) {
+      const requestedScope = scopeRef.current;
+      void expandChangeSet(changeSetId).finally(() => {
+        if (mountedRef.current && requestedScope === scopeRef.current) setDeepLinkLoading(false);
+      });
+    }
+  }, [load, expandChangeSet, user?.id, changeSetId]);
   const refreshInFlightRef = useRef(false);
   const refresh = useCallback(async () => {
     if (refreshInFlightRef.current || listPendingRef.current || mutatingIdsRef.current.size) return;
@@ -319,12 +329,6 @@ export const ReviewPage: React.FC = () => {
     window.addEventListener('focus', focused);
     return () => { window.removeEventListener(REVIEW_CHANGED_EVENT, changed); window.removeEventListener('focus', focused); };
   }, [refresh]);
-  useEffect(() => {
-    if (changeSetId) {
-      setExpanded(changeSetId);
-      void expandChangeSet(changeSetId);
-    }
-  }, [changeSetId, expandChangeSet]);
   const visibleItems = useMemo(() => {
     const base = changeSetId ? items.filter((item) => item.id === changeSetId) : items;
     return statusFilter === 'all' ? base : base.filter((item) => item.status === statusFilter);
@@ -469,7 +473,7 @@ export const ReviewPage: React.FC = () => {
           </button>
         ))}
       </div>
-      {listLoading || listRefreshing ? <p role="status" className="mb-3 text-sm text-gray-500">{listLoading ? t('common.loading') : t('common.refetching')}</p> : null}
+      {listLoading || deepLinkLoading || listRefreshing ? <p role="status" className="mb-3 text-sm text-gray-500">{listLoading || deepLinkLoading ? t('common.loading') : t('common.refetching')}</p> : null}
       <div className="border rounded-[14px] bg-white divide-y">
         {visibleItems.map((changeSet) => (
           <div key={changeSet.id}>
@@ -525,7 +529,7 @@ export const ReviewPage: React.FC = () => {
             ) : null}
           </div>
         ))}
-        {!listLoading && !listRefreshing && !visibleItems.length ? <div className="py-16 text-center text-sm text-gray-500">{changeSetId ? (zh ? '此变更集不在你的审核范围内。' : 'This change set is not available in your review scope.') : filters.q || filters.from || filters.to || spaceId ? rt('review.noMatches') : statusFilter !== 'all' ? (zh ? '该状态下没有变更集。' : 'No change sets with this status.') : (zh ? '目前没有待审核事项。' : 'Nothing needs review.')}</div> : null}
+        {!listLoading && !deepLinkLoading && !listRefreshing && !visibleItems.length ? <div className="py-16 text-center text-sm text-gray-500">{changeSetId && items.some(item => item.id === changeSetId) ? rt('review.noMatches') : changeSetId ? (zh ? '此变更集不在你的审核范围内。' : 'This change set is not available in your review scope.') : filters.q || filters.from || filters.to || spaceId ? rt('review.noMatches') : statusFilter !== 'all' ? (zh ? '该状态下没有变更集。' : 'No change sets with this status.') : (zh ? '目前没有待审核事项。' : 'Nothing needs review.')}</div> : null}
       </div>
       {!changeSetId ? <nav aria-label={zh ? '审核分页' : 'Review pagination'} className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
         <p>{total} {rt('review.total')} · {rt('review.page')} {page} / {Math.max(1, Math.ceil(total / pageSize))}</p>
