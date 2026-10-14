@@ -22,6 +22,22 @@
   },
   "logsRoot": "/tmp/agentwiki-release-20261014",
   "databaseGate": "passed",
-  "production": "not yet published",
-  "sourceCommit": "e3bbc2012b65ccf2ccba18724c43657989614528"
+  "production": "deployed_and_verified",
+  "sourceCommit": "e3bbc2012b65ccf2ccba18724c43657989614528",
+  "npm": {
+    "status": "published_and_registry_verified",
+    "version": "0.13.0",
+    "registry": "https://registry.npmjs.org/",
+    "integrity": "sha512-x5Gd5xIQhYr1+Ft7sIoSBMgFUUPxefhVrbv4mE6xprR10w174ZbJYTILi4RWuTtddh4pMV25sjadXCAkUfDvcA==",
+    "freshRegistryInstall": "passed",
+    "cliHelp": "passed"
+  },
+  "localGateway": {
+    "status": "upgraded_and_live_readback_verified",
+    "version": "0.13.0",
+    "credentialsUnchanged": true,
+    "identityUnchanged": true,
+    "targetSpaceRead": true,
+    "newNoteTools": 4
+  }
 }

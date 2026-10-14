@@ -1,6 +1,6 @@
 # v0.12.26 发布验收
 
-发布候选：`e3bbc2012b65ccf2ccba18724c43657989614528`。最终门禁与独立复审通过；GitHub master/tag已推送，GitHub master/tag已发布；生产部署与公网回验通过；npm 0.13.0仍等待发布者安全密钥验证。
+发布候选：`e3bbc2012b65ccf2ccba18724c43657989614528`。最终门禁与独立复审通过；GitHub master/tag已推送，GitHub master/tag、npm 0.13.0 与生产部署均已完成并回验；本机 AgentWiki 网关已无改凭据升级到 0.13.0。
 
 | 门禁 | 结果 |
 |---|---|
@@ -34,3 +34,6 @@
 - 公网 `smoke-test.mjs`：32/32通过。临时生产空间的共享笔记 REST/MCP 7项通过，含Owner字段、跨作者拒写、MCP四工具发现与调用、Agent降权即时生效、正文不变。
 - 临时账号、空间、页面、Agent及附件已按精确 nonce 清理；清理为API撤销、附件归档和Space/Page软删除。
 - 首轮图片验收脚本使用 `assets/...` Markdown目标被服务端正确拒绝（`ATTACHMENT_REFERENCE_INVALID`），按正式Wiki图片引用协议修正后重跑通过；该失败与产品实现无关，已保留回执。
+
+- npm registry 实读 0.13.0，完整性为 `sha512-x5Gd5xIQhYr1+Ft7sIoSBMgFUUPxefhVrbv4mE6xprR10w174ZbJYTILi4RWuTtddh4pMV25sjadXCAkUfDvcA==`；全新空目录安装和 CLI help 通过。
+- 本机原连接 ID 保持不变，凭据与身份文件未变；网关 0.13.0 实际启动，34 个工具可见，4 个页面笔记工具存在，目标 Space 实读通过。

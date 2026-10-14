@@ -1,0 +1,14 @@
+{
+  "status": "passed",
+  "gatewayVersion": "0.13.0",
+  "tools": [
+    "wiki_list_page_notes",
+    "wiki_create_page_note",
+    "wiki_update_page_note",
+    "wiki_delete_page_note"
+  ],
+  "totalTools": 34,
+  "originalConnectionId": "87da2b68-1154-54cc-a03a-137dcd778e40",
+  "originalTargetSpaceRead": true,
+  "runningChatHotReload": "not claimed"
+}
