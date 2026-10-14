@@ -60,11 +60,20 @@ const WorkspaceRoute: React.FC<{
   pageRoute?: boolean;
   children: React.ReactNode;
 }> = ({ mode, pageRoute = false, children }) => {
+  const location = useLocation();
   const { id, spaceId } = useParams<{ id?: string; spaceId?: string }>();
+  // Directory navigation already knows the owning Space. Carry that identity
+  // through the in-app route transition so the shared workspace shell can
+  // hydrate and start its Space request immediately. Direct/deep links still
+  // resolve the Space from the loaded page as before.
+  const routedSpaceId = pageRoute && location.state && typeof location.state === 'object'
+    && 'workspaceSpaceId' in location.state && typeof location.state.workspaceSpaceId === 'string'
+    ? location.state.workspaceSpaceId
+    : undefined;
   return (
     <Suspense fallback={<RouteLoading />}><SpaceWorkspace
       mode={mode}
-      spaceId={pageRoute ? undefined : (spaceId ?? id)}
+      spaceId={pageRoute ? routedSpaceId : (spaceId ?? id)}
       pageId={pageRoute ? id : undefined}
       showDirectory={mode !== 'section'}
     >

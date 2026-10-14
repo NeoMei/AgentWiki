@@ -133,6 +133,13 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     if (workspace) workspace.selectFolder(folderId);
     else setLocalCurrentFolderId(folderId);
   }, [workspace]);
+  const openPage = useCallback((page: Pick<ContentTreePageNode, 'id'>, mode: 'read' | 'edit' = 'read') => {
+    // Keep the owning Space with directory-originated navigation. This lets
+    // the page route hydrate the existing workspace shell immediately instead
+    // of waiting for PagePreview to discover the Space and looking like a full
+    // page refresh.
+    navigate(`/pages/${encodeURIComponent(page.id)}${mode === 'edit' ? '/edit' : ''}`, { state: { workspaceSpaceId: id } });
+  }, [id, navigate]);
   const setLocalFolderExpanded = useCallback((folderId: string, expanded: boolean) => {
     setLocalExpandedFolderIds((current) => {
       const next = new Set(current);
@@ -364,7 +371,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     const scope = requireInlineMutation();
     try {
       const result = await api.post('/pages', { title, spaceId: scope.spaceId, folderId: parent?.id ?? null, expectedTreeRevision: scope.revision });
-      if (inlineMutationStillCurrent(scope)) navigate('/pages/' + encodeURIComponent(result.data.id) + '/edit');
+      if (inlineMutationStillCurrent(scope)) navigate('/pages/' + encodeURIComponent(result.data.id) + '/edit', { state: { workspaceSpaceId: scope.spaceId } });
     } catch (failure) { if (inlineMutationStillCurrent(scope)) throw Object.assign(new Error(apiErrorMessage(failure, t, 'page.createFailed')), { cause: failure }); }
   };
   const revealCurrentDocument = () => {
@@ -668,8 +675,8 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
             returnFocusTo: document.activeElement instanceof HTMLElement ? document.activeElement : null,
           })}
           onSelectFolder={(folderId) => setCurrentFolderId(folderId)}
-          onOpenPage={(page) => navigate('/pages/' + page.id)}
-          onEditPage={(page) => navigate('/pages/' + page.id + '/edit')}
+          onOpenPage={(page) => openPage(page)}
+          onEditPage={(page) => openPage(page, 'edit')}
           onDeletePage={(page) => { void handleDeletePage(page); }}
           onCreateSubfolder={(parent) => setFolderDialog({ mode: 'create', parent, returnFocusTo: document.activeElement instanceof HTMLElement ? document.activeElement : null })}
           mutationScopeKey={mutationScopeKey}
@@ -737,8 +744,8 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
           pageDeleteDisabled={archivingPageId !== null}
           emptyText={t('page.empty')}
           onOpenFolder={(folderId) => setCurrentFolderId(folderId)}
-          onOpenPage={(page) => navigate('/pages/' + page.id)}
-          onEditPage={(page) => navigate('/pages/' + page.id + '/edit')}
+          onOpenPage={(page) => openPage(page)}
+          onEditPage={(page) => openPage(page, 'edit')}
           onDeletePage={(page) => { void handleDeletePage(page); }}
           onCreateSubfolder={(parent) => setFolderDialog({ mode: 'create', parent, returnFocusTo: document.activeElement instanceof HTMLElement ? document.activeElement : null })}
           mutationScopeKey={mutationScopeKey}
