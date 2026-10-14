@@ -23,3 +23,11 @@
 - TypeScript、lint、生产构建通过。
 - 生产发布前已完成页面阅读模式与笔记入口的浏览器检查；线上最终验收将在部署后执行。
 - 相关提交：`a5783807`、`15e571dd`。
+
+## 生产部署回执
+
+- 2026-10-14 13:44（Asia/Shanghai）已部署到 `root@113.249.120.24:/root/agentwiki`。
+- root/server/client manifest 均为 `0.12.28`；API、Worker、Frontend 均为 `active/running`，`NRestarts=0`。
+- 公网 `https://agentwiki.quukk.com/api/health` 返回 `status/database/redis/auditPersistence/attachmentStorage: ok`。
+- 公网入口资源 `/assets/index-C4AbKiQ2.js` 与服务器 `apps/client/dist/assets/index-C4AbKiQ2.js` SHA-256 一致。
+- 发布后浏览器只读回读确认：页面阅读模式、编辑器内“预览”模式均显示页面笔记面板；未执行保存或其他业务数据写入。
