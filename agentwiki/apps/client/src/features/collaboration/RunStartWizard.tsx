@@ -91,6 +91,7 @@ export const RunStartWizard: React.FC = () => {
   const [toast, setToast] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
   const idempotencyKey = useMemo(() => `start-${safeUuid()}`, [id, templateId, user?.id, newRunSequence]);
   const initializeRequest = useRef(0);
+  const restoreLegacyPointer = useRef(true);
   const mutationEpoch = useRef(0);
   const memberRefreshRequest = useRef(0);
   const authoritativeMemberRefresh = useRef<{ epoch: number; request: number | null }>({
@@ -127,6 +128,7 @@ export const RunStartWizard: React.FC = () => {
 
   useEffect(() => {
     initializeRequest.current += 1;
+    restoreLegacyPointer.current = true;
     mutationEpoch.current += 1;
     authoritativeMemberRefresh.current = { epoch: mutationEpoch.current, request: null };
     memberRefreshRequest.current += 1;
@@ -182,7 +184,9 @@ export const RunStartWizard: React.FC = () => {
     memberRefreshRequest.current += 1;
     authoritativeMemberRefresh.current = { epoch: mutationEpoch.current, request: null };
     localStorage.removeItem(storageKey);
-    localStorage.removeItem(legacyStorageKey);
+    // An unadopted legacy pointer may belong to another account. Preserve it,
+    // but do not restore it into this explicitly fresh wizard on reinitialization.
+    restoreLegacyPointer.current = false;
     // Detach the local pointer only. The server draft and its audit history remain intact.
     setRun(null);
     setStarted(null);
@@ -215,7 +219,7 @@ export const RunStartWizard: React.FC = () => {
     const request = ++initializeRequest.current;
     setLoading(true);
     setToast(null);
-    setRestoreFailed(false);
+    // Keep a failed restore blocked until the full retry succeeds.
     try {
       const [nextTemplate, nextMembers] = await Promise.all([
         collaborationApi.getTemplate(id, templateId),
@@ -228,11 +232,12 @@ export const RunStartWizard: React.FC = () => {
       setAgents(executable);
       agentsRef.current = executable;
       const scopedRunId = localStorage.getItem(storageKey);
-      const storedRunId = scopedRunId ?? localStorage.getItem(legacyStorageKey);
+      const storedRunId = scopedRunId ?? (restoreLegacyPointer.current ? localStorage.getItem(legacyStorageKey) : null);
       if (storedRunId) {
         try {
           const existing = await loadEditableRun(id, storedRunId);
           if (initializeRequest.current !== request) return;
+          setRestoreFailed(false);
           // Legacy pointers were shared across accounts. Only adopt the original starter's run.
           if ((!scopedRunId && existing.startedById && existing.startedById !== user?.id)
             || (existing.templateId && existing.templateId !== templateId)) return;
@@ -263,6 +268,8 @@ export const RunStartWizard: React.FC = () => {
           // A network/authorization failure must not erase a recoverable draft pointer.
           setRestoreFailed(true);
         }
+      } else {
+        setRestoreFailed(false);
       }
     } catch {
       if (initializeRequest.current !== request) return;
@@ -1004,7 +1011,16 @@ function reconcileConnectionFacts(
 async function loadEditableRun(spaceId: string, runId: string): Promise<CollaborationRun> {
   const summary = await collaborationApi.getRun(spaceId, runId);
   if (['draft', 'ready'].includes(summary.status) && !summary.inputs) {
-    return collaborationApi.getRunDraftDetails(spaceId, runId);
+    const details = await collaborationApi.getRunDraftDetails(spaceId, runId);
+    // The bounded draft projection omits immutable identity fields. Preserve them
+    // from the human summary while using the newer draft version/content.
+    return {
+      ...summary,
+      ...details,
+      startedById: summary.startedById,
+      templateId: summary.templateId,
+      spaceId: summary.spaceId,
+    };
   }
   return summary;
 }

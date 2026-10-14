@@ -233,6 +233,33 @@ describe('RunStartWizard', () => {
     expect(collaborationApi.createRunDraft).not.toHaveBeenCalled();
   });
 
+  it.each(['template', 'members'] as const)('keeps a saved draft blocked when retry fails during $0 loading', async (stage) => {
+    const key = 'agentwiki.collaboration.draft.space-1.template-1';
+    localStorage.setItem(key, 'recoverable');
+    vi.mocked(collaborationApi.getRun).mockRejectedValue(new Error('run offline'));
+    renderWizard();
+    await screen.findByRole('button', { name: 'Retry saved run' });
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+    if (stage === 'template') vi.mocked(collaborationApi.getTemplate).mockRejectedValueOnce(new Error('template offline'));
+    else vi.mocked(collaborationApi.listMembers).mockRejectedValueOnce(new Error('members offline'));
+    fireEvent.click(screen.getByRole('button', { name: 'Retry saved run' }));
+    await screen.findByRole('button', { name: 'Retry saved run' });
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(collaborationApi.createRunDraft).not.toHaveBeenCalled();
+    expect(localStorage.getItem(key)).toBe('recoverable');
+    // A subsequent successful recovery releases the guard and resumes the saved draft.
+    vi.mocked(collaborationApi.getRun).mockResolvedValue({
+      id: 'recoverable', name: 'My recovered draft', status: 'draft', version: 4,
+      startedById: 'user-owner', templateId: 'template-1', inputs: { brief: 'Preserve this' },
+      roleBindings: [], updatedAt: '2026-10-12T09:00:00Z',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Retry saved run' }));
+    await screen.findByRole('heading', { name: '2. Map Agents' });
+    expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled();
+    expect(collaborationApi.createRunDraft).not.toHaveBeenCalled();
+  });
+
   it('loads only the current account draft when another account has a pointer', async () => {
     localStorage.setItem('agentwiki.collaboration.draft.space-1.template-1.other-user', 'other-draft');
     renderWizard();
@@ -252,6 +279,62 @@ describe('RunStartWizard', () => {
     await screen.findByRole('heading', { name: '1. Work input' });
     expect(screen.getByLabelText('Run name')).toHaveValue('');
     expect(localStorage.getItem(key)).toBe('other-draft');
+  });
+
+  it.each([
+    { status: 'draft' as const, startedById: 'other-user', templateId: 'template-1', reason: 'another starter' },
+    { status: 'ready' as const, startedById: 'other-user', templateId: 'template-1', reason: 'another starter' },
+    { status: 'draft' as const, startedById: 'user-owner', templateId: 'another-template', reason: 'another template' },
+    { status: 'ready' as const, startedById: 'user-owner', templateId: 'another-template', reason: 'another template' },
+  ])('rejects a legacy $status pointer for $reason with the real two-request projections', async ({ status, startedById, templateId }) => {
+    const legacyKey = 'agentwiki.collaboration.draft.space-1.template-1';
+    const scopedKey = `${legacyKey}.user-owner`;
+    localStorage.setItem(legacyKey, 'foreign-draft');
+    // HUMAN_RUN_SELECT has identity fields but deliberately omits inputs.
+    vi.mocked(collaborationApi.getRun).mockResolvedValue({
+      id: 'foreign-draft', name: 'Foreign draft', status, startedById, templateId,
+      version: 2, roleBindings: [], updatedAt: '2026-10-12T09:00:00Z',
+    });
+    // getHumanRunDraftDetails has inputs but omits starter/template identity fields.
+    vi.mocked(collaborationApi.getRunDraftDetails).mockResolvedValue({
+      id: 'foreign-draft', name: 'Foreign draft', status, version: 3,
+      inputs: { brief: 'Foreign content' }, roleBindings: [], updatedAt: '2026-10-12T09:01:00Z',
+    });
+    renderWizard();
+    await screen.findByRole('heading', { name: '1. Work input' });
+    expect(collaborationApi.getRunDraftDetails).toHaveBeenCalledWith('space-1', 'foreign-draft');
+    expect(screen.getByLabelText('Run name')).toHaveValue('');
+    expect(screen.getByLabelText('Work brief')).toHaveValue('');
+    expect(localStorage.getItem(scopedKey)).toBeNull();
+    expect(localStorage.getItem(legacyKey)).toBe('foreign-draft');
+    expect(collaborationApi.updateRunDraft).not.toHaveBeenCalled();
+  });
+
+  it('keeps another account’s unadopted legacy pointer while starting from a scoped draft', async () => {
+    const legacyKey = 'agentwiki.collaboration.draft.space-1.template-1';
+    const scopedKey = `${legacyKey}.user-owner`;
+    localStorage.setItem(legacyKey, 'foreign-legacy');
+    localStorage.setItem(scopedKey, 'my-draft');
+    vi.mocked(collaborationApi.getRun).mockResolvedValue({
+      id: 'my-draft', name: 'My draft', status: 'draft', version: 1,
+      startedById: 'user-owner', templateId: 'template-1', roleBindings: [], updatedAt: '2026-10-12T09:00:00Z',
+    });
+    vi.mocked(collaborationApi.getRunDraftDetails).mockResolvedValue({
+      id: 'my-draft', name: 'My draft', status: 'draft', version: 2,
+      inputs: { brief: 'My content' }, roleBindings: [], updatedAt: '2026-10-12T09:01:00Z',
+    });
+    renderWizard({ withLanguageSwitch: true });
+    await screen.findByRole('heading', { name: '2. Map Agents' });
+    expect(collaborationApi.getRun).toHaveBeenCalledWith('space-1', 'my-draft');
+    fireEvent.click(screen.getByRole('button', { name: 'Start a new run' }));
+    await screen.findByRole('heading', { name: '1. Work input' });
+    expect(localStorage.getItem(scopedKey)).toBeNull();
+    expect(localStorage.getItem(legacyKey)).toBe('foreign-legacy');
+    fireEvent.click(screen.getByRole('button', { name: 'Switch language' }));
+    await screen.findByRole('heading', { name: /1\./u });
+    expect(collaborationApi.getRun).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(legacyKey)).toBe('foreign-legacy');
+    expect(collaborationApi.updateRunDraft).not.toHaveBeenCalled();
   });
 
   it('keeps an explicitly abandoned server draft intact while creating a fresh one', async () => {
@@ -1398,7 +1481,8 @@ describe('RunStartWizard', () => {
   it('loads bounded draft details when the main Run summary omits inputs', async () => {
     localStorage.setItem('agentwiki.collaboration.draft.space-1.template-1', 'run-ready');
     vi.mocked(collaborationApi.getRun).mockResolvedValue({
-      id: 'run-ready', name: 'Ready release', status: 'ready', version: 3,
+      id: 'run-ready', name: 'Ready release', status: 'ready', version: 2,
+      startedById: 'user-owner', templateId: 'template-1',
       roleBindings: [], updatedAt: '2026-08-24T00:00:00Z',
     });
     vi.mocked(collaborationApi.getRunDraftDetails).mockResolvedValue({
@@ -1409,6 +1493,15 @@ describe('RunStartWizard', () => {
     renderWizard();
     expect(await screen.findByRole('heading', { name: '3. Review and start' })).toBeVisible();
     expect(collaborationApi.getRunDraftDetails).toHaveBeenCalledWith('space-1', 'run-ready');
+    expect(localStorage.getItem('agentwiki.collaboration.draft.space-1.template-1')).toBeNull();
+    expect(localStorage.getItem('agentwiki.collaboration.draft.space-1.template-1.user-owner')).toBe('run-ready');
+    fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Go back' }));
+    expect(screen.getByLabelText('Work brief')).toHaveValue('Recovered brief');
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(collaborationApi.updateRunDraft).toHaveBeenCalledWith('space-1', 'run-ready', {
+      expectedVersion: 3, name: 'Ready release', inputs: { brief: 'Recovered brief' },
+    }));
   });
 
   it('reloads the authoritative version before retrying preserved mapping changes', async () => {
