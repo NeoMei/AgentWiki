@@ -54,8 +54,41 @@ describe('KnowledgeService related pages', () => {
 });
 
 describe('KnowledgeService graph Page nodes', () => {
+  it('returns complete live Folder metadata and all pages in the requested Space, including empty folders', async () => {
+    const pages = Array.from({ length: 120 }, (_, i) => ({ id: `p${i}`, title: `Page ${i}`, folderId: i < 119 ? 'folder' : null, syncPath: `pages/${i}.md` }));
+    const folders = [{ id: 'folder', name: 'Project', path: 'Project', parentId: null }, { id: 'empty', name: 'Empty', path: 'Empty', parentId: null }];
+    const prisma = {
+      page: { findMany: jest.fn().mockResolvedValue(pages) },
+      folder: { findMany: jest.fn().mockResolvedValue(folders) },
+      knowledgeRelation: { findMany: jest.fn().mockResolvedValue([]) },
+    } as any;
+    const service = new KnowledgeService(freshnessMock, prisma, authorization as any, revisionWriter as any);
+    const result = await service.getGraph('space-1', principal);
+    expect(result).toMatchObject({ folders });
+    expect(result.nodes).toHaveLength(120);
+    expect(prisma.folder.findMany).toHaveBeenCalledWith({
+      where: { spaceId: 'space-1', deletedAt: null },
+      select: { id: true, name: true, path: true, parentId: true },
+      orderBy: [{ path: 'asc' }, { id: 'asc' }],
+    });
+    expect(prisma.page.findMany.mock.calls[0][0]).toEqual({ where: { spaceId: 'space-1', deletedAt: null } });
+  });
+
+  it('retains empty folders when the Space has no pages and does not fetch relations', async () => {
+    const folders = [{ id: 'empty', name: 'Empty', path: 'Empty', parentId: null }];
+    const prisma = {
+      page: { findMany: jest.fn().mockResolvedValue([]) },
+      folder: { findMany: jest.fn().mockResolvedValue(folders) },
+      knowledgeRelation: { findMany: jest.fn() },
+    } as any;
+    const service = new KnowledgeService(freshnessMock, prisma, authorization as any, revisionWriter as any);
+    await expect(service.getGraph('space-1', principal)).resolves.toEqual({ nodes: [], edges: [], folders });
+    expect(prisma.knowledgeRelation.findMany).not.toHaveBeenCalled();
+  });
+
   it('adds Folder placement and canonical path without changing graph coordinates', async () => {
     const prisma = {
+      folder: { findMany: jest.fn().mockResolvedValue([]) },
       page: { findMany: jest.fn().mockResolvedValue([{
         id: 'page-1', title: 'Page', folderId: null, syncPath: 'pages/Page.md',
       }]) },
@@ -73,6 +106,7 @@ describe('KnowledgeService graph Page nodes', () => {
         x: expect.any(Number), y: expect.any(Number),
       })],
       edges: [],
+      folders: [],
     });
   });
 });
@@ -257,6 +291,7 @@ describe('KnowledgeService authorized source projection', () => {
     const page = { id: 'p', title: 'Page', spaceId: 's', sourceId: 'src', sourceVersionId: 'v', sourceGeneration: 1 };
     const source = { id: 'src', spaceId: 's', name: 'Source', type: 'okf', status: 'active', currentSourceVersionId: 'v', currentSourceGeneration: 1 };
     const prisma: any = {
+      folder: { findMany: jest.fn().mockResolvedValue([]) },
       page: { findMany: jest.fn().mockResolvedValue([page, { ...page, id: 'q' }]) },
       knowledgeRelation: { findMany: jest.fn().mockResolvedValue([{ id: 'edge', sourcePageId: 'p', targetPageId: 'q', evidenceId: 'e' }]) },
       evidence: { findMany: jest.fn().mockResolvedValue([{ id: 'e', runId: 'r', sourceVersionId: 'v', quote: 'quote', location: { path: 'doc', config: 'SECRET' } }]) },

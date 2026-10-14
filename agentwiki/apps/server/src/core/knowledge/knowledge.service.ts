@@ -207,9 +207,15 @@ export class KnowledgeService {
       where: { spaceId, deletedAt: null },
     });
 
-    // Handle empty pages gracefully
+    // Read all live folders in the same authorized Space, including empty folders.
+    // This whole-graph endpoint is intentionally unpaginated, like its page nodes.
+    const folders = await this.prisma.folder.findMany({
+      where: { spaceId, deletedAt: null },
+      select: { id: true, name: true, path: true, parentId: true },
+      orderBy: [{ path: 'asc' }, { id: 'asc' }],
+    });
     if (pages.length === 0) {
-      return { nodes: [], edges: [] };
+      return { nodes: [], edges: [], folders };
     }
 
     const pageIds = pages.map((p) => p.id);
@@ -298,6 +304,6 @@ export class KnowledgeService {
     });
     });
 
-    return { nodes, edges };
+    return { nodes, edges, folders };
   }
 }

@@ -1,21 +1,15 @@
+import { bugGraphText } from '../../i18n/bug-graph-messages';
 import { sourceStatusText } from '../../i18n/source-status-messages';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { apiErrorMessage } from '../../api/error-message';
 import api from '../../api/client';
-import { ArrowLeft, Plus, X, Link2, Trash2 } from 'lucide-react';
+import { ArrowLeft, Plus, X, Link2, Trash2, ChevronDown, ChevronRight, Folder } from 'lucide-react';
 import { ModalDialog } from '../../components/ModalDialog';
 import { GRAPH_LABEL_FONT, GRAPH_LABEL_LINE_HEIGHT, layoutGraphLabels } from './graphLabelLayout';
 import { useGraphViewport } from './useGraphViewport';
+import { buildGraphGroups, projectGroupedGraph, type DisplayGraphNode, type GraphFolder, type GraphGroup, type GraphPage } from './graphGrouping';
 import { useLanguage } from '../../context/LanguageContext';
-
-interface KnowledgeNode {
-  id: string;
-  title: string;
-  x: number;
-  y: number;
-  radius: number;
-}
 
 interface KnowledgeEdge {
   id: string;
@@ -35,11 +29,6 @@ interface KnowledgeEdge {
   approvalStatus?: string;
   approval?: { decision: string; createdAt: string; reviewer?: { name?: string; email?: string } } | null;
   publishedAt?: string | null;
-}
-
-interface Page {
-  id: string;
-  title: string;
 }
 
 const ORIGIN_LABELS: Record<string, { zh: string; en: string; className: string }> = {
@@ -67,10 +56,19 @@ export const KnowledgeGraph: React.FC = () => {
   const navigate = useNavigate();
   const { language, t } = useLanguage();
   const zh = language === 'zh-CN';
+  const gt = useCallback((key: Parameters<typeof bugGraphText>[1], params?: Record<string, string | number>) => bugGraphText(language, key, params), [language]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [nodes, setNodes] = useState<KnowledgeNode[]>([]);
+  const [nodes, setNodes] = useState<GraphPage[]>([]);
+  const [folders, setFolders] = useState<GraphFolder[]>([]);
+  const [graphNodes, setGraphNodes] = useState<DisplayGraphNode[]>([]);
   const [edges, setEdges] = useState<KnowledgeEdge[]>([]);
-  const [allPages, setAllPages] = useState<Page[]>([]);
+  const [search, setSearch] = useState('');
+  const [relationType, setRelationType] = useState('');
+  const [grouped, setGrouped] = useState(true);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const requestVersion = useRef(0);
+  const activeSpaceId = useRef(spaceId);
+  activeSpaceId.current = spaceId;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<{ failure: unknown; fallbackKey: string } | null>(null);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
@@ -81,33 +79,80 @@ export const KnowledgeGraph: React.FC = () => {
   const [linkStrength, setLinkStrength] = useState(0.8);
   const [creating, setCreating] = useState(false);
   const [hiddenOrigins, setHiddenOrigins] = useState<Set<string>>(new Set());
-  const viewport = useGraphViewport(canvasRef, nodes, setNodes, !loading && !error && nodes.length > 0);
-  const visibleEdges = edges.filter((edge) => !hiddenOrigins.has(edge.origin));
+  const visibleEdges = useMemo(() => edges.filter(edge => !hiddenOrigins.has(edge.origin)
+    && (!relationType || edge.relation === relationType)), [edges, hiddenOrigins, relationType]);
+  const groups = useMemo(() => buildGraphGroups(nodes, folders), [nodes, folders]);
+  const query = search.trim().toLocaleLowerCase();
+  const filteredNodes = useMemo(() => {
+    const related = new Set(visibleEdges.flatMap(edge => [edge.source, edge.target]));
+    return nodes.filter(node => (!query || `${node.title} ${node.path ?? ''}`.toLocaleLowerCase().includes(query))
+      && (!relationType || related.has(node.id)));
+  }, [nodes, query, relationType, visibleEdges]);
+  const filteredGroups = useMemo(() => {
+    const matches = new Set(filteredNodes.map(node => node.id));
+    return groups.map(group => ({ ...group, pages: group.pages.filter(page => matches.has(page.id)) }))
+      .filter(group => (!query && !relationType) || group.pages.length > 0);
+  }, [groups, filteredNodes, query, relationType]);
+  const projection = useMemo(() => grouped
+    ? projectGroupedGraph(filteredGroups, expandedGroups, visibleEdges)
+    : { nodes: filteredNodes.map(node => ({ ...node, kind: 'page' as const })), edges: visibleEdges },
+  [grouped, filteredGroups, filteredNodes, expandedGroups, visibleEdges]);
+  useEffect(() => { setGraphNodes(projection.nodes); }, [projection]);
+  const viewport = useGraphViewport(canvasRef, graphNodes, setGraphNodes, !loading && !error && graphNodes.length > 0);
+  const graphNodeIds = graphNodes.map(node => node.id).join('|');
+  useEffect(() => { viewport.fit(); }, [graphNodeIds]);
+  const groupTitle = (group: GraphGroup) => group.folder?.name ?? gt(group.kind === 'ungrouped' ? 'graph.ungrouped' : 'graph.folderUnavailable');
+  const toggleGroup = (id: string) => setExpandedGroups(current => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const selectPage = (id: string | null) => {
+    setSelectedNode(id);
+    const group = groups.find(item => item.pages.some(page => page.id === id));
+    if (grouped && group) setExpandedGroups(current => current.has(group.id) ? current : new Set([...current, group.id]));
+  };
+  // Search results expose page buttons without requiring users to guess the folder.
+  useEffect(() => {
+    if (query || relationType) setExpandedGroups(new Set(filteredGroups.map(group => group.id)));
+  }, [query, relationType, filteredGroups]);
+  useEffect(() => {
+    if (selectedNode && !filteredNodes.some(node => node.id === selectedNode)) setSelectedNode(null);
+  }, [filteredNodes, selectedNode]);
 
-  const fetchGraph = async () => {
-    if (!spaceId) return;
+  const fetchGraph = useCallback(async () => {
+    if (!spaceId || activeSpaceId.current !== spaceId) return;
+    const version = ++requestVersion.current;
     try {
-      const [graphRes, pagesRes] = await Promise.all([
-        api.get(`/knowledge/graph/${spaceId}`),
-        api.get(`/pages?spaceId=${spaceId}`),
-      ]);
+      const graphRes = await api.get(`/knowledge/graph/${spaceId}`);
+      if (version !== requestVersion.current) return;
       setNodes(graphRes.data.nodes || []);
       setEdges(graphRes.data.edges || []);
-      setAllPages((pagesRes.data.data || []).map((p: any) => ({ id: p.id, title: p.title })));
-    } catch (err: any) {
-      setError({ failure: err, fallbackKey: 'graph.loadFailed' });
+      setFolders(graphRes.data.folders || []);
+      setError(null);
+    } catch (err: unknown) {
+      if (version === requestVersion.current) setError({ failure: err, fallbackKey: 'graph.loadFailed' });
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchGraph();
   }, [spaceId]);
 
   useEffect(() => {
+    setLoading(true);
+    setSelectedNode(null);
+    setLinkingFrom(null);
+    setShowLinkModal(false);
+    setExpandedGroups(new Set());
+    setSearch('');
+    setRelationType('');
+    setHiddenOrigins(new Set());
+    void fetchGraph();
+    return () => { requestVersion.current++; };
+  }, [fetchGraph]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || nodes.length === 0) return;
+    if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -122,9 +167,9 @@ export const KnowledgeGraph: React.FC = () => {
     ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * x, dpr * y);
 
     // Draw edges
-    visibleEdges.forEach(edge => {
-      const source = nodes.find(n => n.id === edge.source);
-      const target = nodes.find(n => n.id === edge.target);
+    projection.edges.forEach(edge => {
+      const source = graphNodes.find(n => n.id === edge.source);
+      const target = graphNodes.find(n => n.id === edge.target);
       if (source && target) {
         ctx.beginPath();
         ctx.moveTo(source.x, source.y);
@@ -137,7 +182,7 @@ export const KnowledgeGraph: React.FC = () => {
     });
 
     // Draw nodes
-    nodes.forEach(node => {
+    graphNodes.forEach(node => {
       const isSelected = selectedNode === node.id;
       const isLinking = linkingFrom === node.id;
       ctx.beginPath();
@@ -148,6 +193,9 @@ export const KnowledgeGraph: React.FC = () => {
       } else if (isSelected) {
         ctx.fillStyle = '#3B82F6';
         ctx.strokeStyle = '#1D4ED8';
+      } else if (node.kind === 'group') {
+        ctx.fillStyle = '#E5E7EB';
+        ctx.strokeStyle = '#6B7280';
       } else {
         ctx.fillStyle = '#60A5FA';
         ctx.strokeStyle = '#3B82F6';
@@ -161,18 +209,35 @@ export const KnowledgeGraph: React.FC = () => {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.fillStyle = '#1F2937';
-    const projected = nodes.map(node => ({ ...node, x: node.x * scale + x, y: node.y * scale + y, radius: node.radius * scale }));
+    const projected = graphNodes.map(node => ({ ...node, x: node.x * scale + x, y: node.y * scale + y, radius: node.radius * scale }));
     const labels = layoutGraphLabels(projected, width, height, text => ctx.measureText(text).width, selectedNode);
+    // Folder names and counts remain visible before any page is selected.
+    projected.filter(node => node.kind === 'group').forEach(node => {
+      const group = filteredGroups.find(item => item.id === node.id);
+      if (!group) return;
+      const name = groupTitle(group);
+      const chars = [...name];
+      while (chars.length && ctx.measureText(chars.join('') + '…').width > Math.min(180, width - 16)) chars.pop();
+      const title = chars.join('') + (chars.length < [...name].length ? '…' : '');
+      const count = gt('graph.pageCount', { count: node.count ?? 0 });
+      ctx.fillText(title, node.x - ctx.measureText(title).width / 2, node.y + node.radius + 8);
+      ctx.fillText(count, node.x - ctx.measureText(count).width / 2, node.y + node.radius + 28);
+    });
     labels.forEach(label => label.lines.forEach((line, index) => {
       ctx.fillText(line, label.x, label.y + index * GRAPH_LABEL_LINE_HEIGHT);
     }));
-  }, [nodes, visibleEdges, selectedNode, linkingFrom, viewport.view]);
+  }, [graphNodes, projection.edges, selectedNode, linkingFrom, viewport.view, filteredGroups, gt]);
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!canvasRef.current || viewport.suppressClick.current) return;
     if (e.detail <= 1) viewport.suppressDoubleClick.current = false;
     const clicked = viewport.hit(e);
 
+    if (clicked?.kind === 'group') {
+      viewport.suppressDoubleClick.current = true;
+      toggleGroup(clicked.id);
+      return;
+    }
     if (clicked) {
       // If in linking mode and clicked a different node, open link modal
       if (linkingFrom && clicked.id !== linkingFrom) {
@@ -190,7 +255,7 @@ export const KnowledgeGraph: React.FC = () => {
     if (!canvasRef.current || viewport.suppressClick.current || viewport.suppressDoubleClick.current) return;
     const clicked = viewport.hit(e);
 
-    if (clicked) {
+    if (clicked?.kind === 'page') {
       navigate(`/pages/${clicked.id}`);
     }
   };
@@ -239,6 +304,11 @@ export const KnowledgeGraph: React.FC = () => {
     setShowLinkModal(false);
     setLinkingFrom(null);
   };
+
+  const selectedPage = nodes.find(node => node.id === selectedNode);
+  const selectedEdges = visibleEdges.filter(edge => edge.source === selectedNode || edge.target === selectedNode);
+  const relatedPageCount = new Set(selectedEdges.map(edge => edge.source === selectedNode ? edge.target : edge.source)).size;
+  const allPages = nodes;
 
   if (loading) return <div className="text-center py-8 text-gray-500">{zh ? '正在加载知识图谱…' : 'Loading knowledge graph…'}</div>;
   if (error) return (
@@ -297,12 +367,65 @@ export const KnowledgeGraph: React.FC = () => {
         </div>
       )}
 
-      {nodes.length === 0 ? (
+      {nodes.length === 0 && folders.length === 0 ? (
         <div className="text-center py-12 text-gray-500">
           {zh ? '还没有知识图谱数据。创建页面并添加页面间关系后即可形成图谱。' : 'No knowledge graph data yet. Create pages and add links between them to build the graph.'}
         </div>
       ) : (
         <>
+          <div className="mb-4 flex flex-wrap items-end gap-3">
+            <label className="min-w-0 flex-1 text-sm font-medium">
+              {gt('graph.search')}
+              <input type="search" value={search} onChange={event => setSearch(event.target.value)}
+                placeholder={gt('graph.searchPlaceholder')} className="mt-1 h-9 w-full rounded-lg border px-3" />
+            </label>
+            <label className="min-w-0 max-w-full text-sm font-medium">
+              {gt('graph.relationFilter')}
+              <select value={relationType} onChange={event => setRelationType(event.target.value)} className="mt-1 block h-9 max-w-full rounded-lg border px-3">
+                <option value="">{gt('graph.allRelations')}</option>
+                {[...new Set(edges.map(edge => edge.relation))].sort().map(relation => <option key={relation} value={relation}>{relation}</option>)}
+              </select>
+            </label>
+            <div className="flex rounded-lg border p-1 text-sm">
+              <button type="button" aria-pressed={grouped} onClick={() => setGrouped(true)} className={`rounded-md px-3 py-1 ${grouped ? 'bg-gray-100 font-medium' : ''}`}>{gt('graph.grouped')}</button>
+              <button type="button" aria-pressed={!grouped} onClick={() => setGrouped(false)} className={`rounded-md px-3 py-1 ${!grouped ? 'bg-gray-100 font-medium' : ''}`}>{gt('graph.allPages')}</button>
+            </div>
+          </div>
+          <p role="status" className="mb-3 text-sm text-gray-500">{gt('graph.resultCount', { count: filteredNodes.length, total: nodes.length })}</p>
+          {grouped && <>
+            <p className="mb-3 text-sm text-gray-500">{gt('graph.groupsHint')}</p>
+            <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {filteredGroups.map(group => {
+                const expanded = expandedGroups.has(group.id);
+                const total = groups.find(item => item.id === group.id)?.pages.length ?? 0;
+                return <section key={group.id} className="min-w-0 rounded-lg border bg-white">
+                  <button type="button" aria-expanded={expanded} aria-controls={`graph-${group.id}`}
+                    onClick={() => toggleGroup(group.id)} className="flex w-full items-center gap-2 p-3 text-left hover:bg-gray-50">
+                    {expanded ? <ChevronDown size={16} className="shrink-0" /> : <ChevronRight size={16} className="shrink-0" />}
+                    <Folder size={18} className="shrink-0 text-gray-500" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block break-words text-sm font-medium">{groupTitle(group)}</span>
+                      {group.folder && <span className="mt-1 block break-all text-xs text-gray-500">{group.folder.path}</span>}
+                      <span className="mt-1 block text-xs text-gray-500">{gt(query || relationType ? 'graph.matchCount' : 'graph.pageCount', { count: group.pages.length, total })}</span>
+                    </span>
+                  </button>
+                  {expanded && <div id={`graph-${group.id}`} className="max-h-48 overflow-y-auto border-t p-2">
+                    {group.pages.length ? group.pages.map(page => <button key={page.id} type="button" onClick={() => selectPage(page.id)}
+                      aria-pressed={selectedNode === page.id} className={`block w-full rounded-lg px-3 py-2 text-left text-sm ${selectedNode === page.id ? 'bg-blue-50 text-blue-800' : 'hover:bg-gray-50'}`}>
+                      <span className="block break-words">{page.title}</span>
+                      <span className="mt-1 block break-all text-xs text-gray-500">{page.path || gt('graph.pathUnavailable')}</span>
+                    </button>) : <p className="p-2 text-sm text-gray-500">{gt('graph.emptyFolder')}</p>}
+                  </div>}
+                </section>;
+              })}
+            </div>
+          </>}
+          {filteredNodes.length === 0 && (query || relationType) && <div className="mb-4 rounded-lg border p-6 text-center text-sm text-gray-500">
+            <p>{gt('graph.noMatches')}</p>
+            <button type="button" onClick={() => { setSearch(''); setRelationType(''); }} className="mt-2 text-blue-600 hover:underline">{gt('graph.clearFilters')}</button>
+          </div>}
+          <div className={`grid items-start gap-4 ${selectedNode ? 'lg:grid-cols-[minmax(0,1fr)_20rem]' : ''}`}>
+          <div className="min-w-0">
           <div className="text-sm text-gray-400 mb-2">
             <span className="hidden sm:inline">{zh ? '单击选择 · 双击打开 · 使用“建立关系”按钮连接页面' : 'Click to select · Double-click to open · Use “Link” to connect pages'}</span>
             <span className="sm:hidden">{zh ? '轻触选择 · 双击打开' : 'Tap to select · Double-tap to open'}</span>
@@ -330,11 +453,11 @@ export const KnowledgeGraph: React.FC = () => {
               <select
                 id="knowledge-node-browser"
                 value={selectedNode ?? ''}
-                onChange={(event) => setSelectedNode(event.target.value || null)}
+                onChange={(event) => selectPage(event.target.value || null)}
                 className="mt-1 h-10 w-full rounded-lg border px-3 text-sm"
               >
                 <option value="">{zh ? '选择页面…' : 'Select a page…'}</option>
-                {nodes.map((node) => <option key={node.id} value={node.id}>{node.title}</option>)}
+                {filteredNodes.map((node) => <option key={node.id} value={node.id}>{node.title}</option>)}
               </select>
             </label>
             {selectedNode ? (
@@ -351,26 +474,32 @@ export const KnowledgeGraph: React.FC = () => {
               </button>
             )}
           </div>
+          </div>
           {selectedNode && (
-            <div className="mt-4 p-4 bg-blue-50 rounded-lg flex items-center justify-between flex-wrap gap-3">
+            <aside aria-label={gt('graph.pageDetails')} className="min-w-0 max-h-[720px] overflow-y-auto rounded-lg border bg-white p-4">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h2 className="text-sm font-medium">{gt('graph.pageDetails')}</h2>
+                <button type="button" aria-label={gt('graph.closeDetails')} onClick={() => setSelectedNode(null)} className="rounded p-1 hover:bg-gray-100"><X size={16} /></button>
+              </div>
               <div className="min-w-0 flex-1">
                 <h3 className="break-words font-semibold text-blue-900">
-                  {nodes.find(n => n.id === selectedNode)?.title}
+                  {selectedPage?.title}
                 </h3>
-                <p className="text-sm text-blue-700 mt-1">
-                  {zh ? `已连接 ${visibleEdges.filter(e => e.source === selectedNode || e.target === selectedNode).length} 个其他页面` : `Connected to ${visibleEdges.filter(e => e.source === selectedNode || e.target === selectedNode).length} other page(s)`}
-                </p>
-                {visibleEdges.filter(e => e.source === selectedNode || e.target === selectedNode).length > 0 && (
+                <dl className="mt-3 text-sm"><dt className="text-gray-500">{gt('graph.pagePath')}</dt><dd className="mt-1 break-all">{selectedPage?.path || gt('graph.pathUnavailable')}</dd></dl>
+                <h3 className="mt-4 text-sm font-medium">{gt('graph.relatedPages')}</h3>
+                <p className="mt-1 text-sm text-gray-500">{gt('graph.connectedCount', { pages: relatedPageCount, relations: selectedEdges.length })}</p>
+                {selectedEdges.length === 0 && <p className="mt-2 text-sm text-gray-500">{gt('graph.noRelations')}</p>}
+                {selectedEdges.length > 0 && (
                   <div className="mt-2 space-y-1">
-                    {visibleEdges.filter(e => e.source === selectedNode || e.target === selectedNode).map(edge => {
+                    {selectedEdges.map(edge => {
                       const otherId = edge.source === selectedNode ? edge.target : edge.source;
                       const otherNode = nodes.find(n => n.id === otherId);
                       return (
                         <div key={edge.id} className="text-sm bg-white/70 rounded p-3 border border-blue-100">
-                          <div className="flex items-center gap-2">
-                            <span className="text-gray-700 font-medium">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Link to={`/pages/${otherId}`} className="min-w-0 break-words font-medium text-blue-700 hover:underline">
                               {edge.source === selectedNode ? '→' : '←'} {otherNode?.title || (zh ? '未知' : 'Unknown')}
-                            </span>
+                            </Link>
                             <span className="text-xs text-gray-500">({edge.relation})</span>
                             <OriginBadge origin={edge.origin} zh={zh} />
                           <button
@@ -381,13 +510,13 @@ export const KnowledgeGraph: React.FC = () => {
                             <Trash2 size={14} />
                           </button>
                           </div>
-                          <dl className="mt-2 grid sm:grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-500">
+                          <dl className="mt-2 grid gap-1 text-xs text-gray-500">
                             <div><dt className="inline font-medium text-gray-600">{zh ? '来源方式：' : 'Origin: '}</dt><dd className="inline">{edge.origin}</dd></div>
                             <div><dt className="inline font-medium text-gray-600">{zh ? '置信度：' : 'Confidence: '}</dt><dd className="inline">{Math.round((edge.confidence ?? 1) * 100)}%</dd></div>
                             <div><dt className="inline font-medium text-gray-600">{zh ? '生成者：' : 'Generated by: '}</dt><dd className="inline">{edge.createdByAgent?.name || (edge.origin === 'manual' ? (zh ? '人工' : 'Human') : (zh ? '未知' : 'Unknown'))}</dd></div>
                             <div><dt className="inline font-medium text-gray-600">{zh ? '审批：' : 'Approval: '}</dt><dd className="inline">{edge.approvalStatus || (zh ? '未知' : 'unknown')}{edge.approval?.reviewer ? ` · ${edge.approval.reviewer.name || edge.approval.reviewer.email}` : ''}</dd></div>
-                            <div className="sm:col-span-2"><dt className="inline font-medium text-gray-600">{zh ? '来源：' : 'Source: '}</dt><dd className="inline break-all">{edge.sourceInfo ? `${edge.sourceInfo.name} · ${edge.sourceInfo.type}${edge.sourceVersion ? ` · v${edge.sourceVersion}` : ''}` : sourceStatusText(language, 'sourceStatus.unavailable')}{edge.sourceMetadata?.commit ? ` · ${edge.sourceMetadata.commit}` : ''}</dd></div>
-                            <div className="sm:col-span-2"><dt className="inline font-medium text-gray-600">{zh ? '证据：' : 'Evidence: '}</dt><dd className="inline">{edge.evidence?.quote || (zh ? '没有证据片段' : 'No evidence excerpt')}</dd></div>
+                            <div className="break-words"><dt className="inline font-medium text-gray-600">{zh ? '来源：' : 'Source: '}</dt><dd className="inline break-all">{edge.sourceInfo ? `${edge.sourceInfo.name} · ${edge.sourceInfo.type}${edge.sourceVersion ? ` · v${edge.sourceVersion}` : ''}` : sourceStatusText(language, 'sourceStatus.unavailable')}{edge.sourceMetadata?.commit ? ` · ${edge.sourceMetadata.commit}` : ''}</dd></div>
+                            <div className="break-words"><dt className="inline font-medium text-gray-600">{zh ? '证据：' : 'Evidence: '}</dt><dd className="inline">{edge.evidence?.quote || (zh ? '没有证据片段' : 'No evidence excerpt')}</dd></div>
                           </dl>
                         </div>
                       );
@@ -395,7 +524,7 @@ export const KnowledgeGraph: React.FC = () => {
                   </div>
                 )}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="mt-4 flex flex-wrap items-center gap-2">
                 <button
                   onClick={startLinking}
                   className="flex items-center gap-1 px-3 py-2 bg-amber-100 text-amber-700 rounded-md hover:bg-amber-200 text-sm"
@@ -410,8 +539,9 @@ export const KnowledgeGraph: React.FC = () => {
                   {zh ? '打开页面' : 'Open page'}
                 </Link>
               </div>
-            </div>
+            </aside>
           )}
+          </div>
         </>
       )}
 

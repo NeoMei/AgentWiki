@@ -76,6 +76,7 @@ describe('KnowledgeGraph origin filters', () => {
 
     expect(await screen.findByText('自动·链接', {}, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getByText('手动')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '全部页面节点' }));
 
     fireEvent.click(container.querySelector('canvas')!, { clientX: 100, clientY: 100 });
     await waitFor(() => expect(screen.getAllByText('自动·链接')).toHaveLength(2));
@@ -97,7 +98,8 @@ describe('KnowledgeGraph origin filters', () => {
       <Routes><Route path='/spaces/:spaceId/graph' element={<KnowledgeGraph />} /></Routes>
     </MemoryRouter></LanguageProvider>);
     const browser = await screen.findByRole('combobox', { name: '浏览图谱节点' });
-    expect(paint).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '全部页面节点' }));
+    paint.mockClear();
     fireEvent.change(browser, { target: { value: 'p1' } });
     expect(paint.mock.calls.map(call => call[0])).toEqual(['Alpha']);
     paint.mockClear();
@@ -158,6 +160,7 @@ describe('KnowledgeGraph origin filters', () => {
       expect(value).toBeInTheDocument();
       return value!;
     });
+    fireEvent.click(screen.getByRole('button', { name: '全部页面节点' }));
     fireEvent.click(canvas, { clientX: 100, clientY: 100 });
     const opener = screen.getByRole('button', { name: '建立关系…' });
     opener.focus();
@@ -215,6 +218,7 @@ describe('KnowledgeGraph canvas navigation', () => {
         <Route path='/pages/:pageId' element={<div>Opened page</div>} /></Routes>
     </MemoryRouter></LanguageProvider>);
     await screen.findByRole('combobox', { name: 'Browse graph nodes' });
+    fireEvent.click(screen.getByRole('button', { name: 'All page nodes' }));
     return { ...result, canvas: result.container.querySelector('canvas')! };
   }
   function drag(canvas: HTMLCanvasElement, from: number[], to: number[]) {
@@ -238,11 +242,11 @@ describe('KnowledgeGraph canvas navigation', () => {
   it('pans without clearing selection and opens a transformed node on a fresh double click', async () => {
     const { canvas } = await mount();
     fireEvent.click(screen.getByRole('button', { name: 'Reset view' }));
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByRole('combobox', { name: /Browse graph nodes|浏览图谱节点/ }), { target: { value: 'p1' } });
     drag(canvas, [450, 400], [500, 440]);
     expect(drawn[0]).toEqual({ x: 150, y: 140, radius: 20 });
     fireEvent.click(canvas, { clientX: 520, clientY: 470 });
-    expect(screen.getByRole('combobox')).toHaveValue('p1');
+    expect(screen.getByRole('combobox', { name: /Browse graph nodes|浏览图谱节点/ })).toHaveValue('p1');
     fireEvent.mouseDown(canvas, { button: 0, clientX: 170, clientY: 170 });
     fireEvent.mouseUp(window);
     fireEvent.click(canvas, { clientX: 170, clientY: 170, detail: 1 });
@@ -259,7 +263,7 @@ describe('KnowledgeGraph canvas navigation', () => {
     fireEvent.click(canvas, { clientX: 200, clientY: 190 });
     fireEvent.doubleClick(canvas, { clientX: 200, clientY: 190 });
     expect(screen.queryByText('Opened page')).not.toBeInTheDocument();
-    expect(screen.getByRole('combobox')).toHaveValue('');
+    expect(screen.getByRole('combobox', { name: /Browse graph nodes|浏览图谱节点/ })).toHaveValue('');
     fireEvent.click(screen.getByRole('button', { name: 'Reset view' }));
     expect(drawn[0]).toEqual({ x: 140, y: 130, radius: 20 });
   });
@@ -271,7 +275,7 @@ describe('KnowledgeGraph canvas navigation', () => {
     act(() => resize([], {} as ResizeObserver));
     expect(drawn[1].x + drawn[1].radius).toBeLessThan(320);
     fireEvent.click(canvas, { clientX: drawn[1].x + 20, clientY: drawn[1].y + 30 });
-    expect(screen.getByRole('combobox')).toHaveValue('p2');
+    expect(screen.getByRole('combobox', { name: /Browse graph nodes|浏览图谱节点/ })).toHaveValue('p2');
     fireEvent.click(screen.getByRole('button', { name: 'Fit graph' }));
     expect(drawn[0].x - drawn[0].radius).toBeGreaterThanOrEqual(0);
   });
@@ -301,7 +305,7 @@ describe('KnowledgeGraph canvas navigation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reset view' }));
     drag(canvas, [100, 100], [102, 101]);
     fireEvent.click(canvas, { clientX: 122, clientY: 131 });
-    expect(screen.getByRole('combobox')).toHaveValue('p1');
+    expect(screen.getByRole('combobox', { name: /Browse graph nodes|浏览图谱节点/ })).toHaveValue('p1');
     expect(drawn[0]).toEqual({ x: 100, y: 100, radius: 20 });
     fireEvent.mouseDown(canvas, { button: 2, clientX: 120, clientY: 130 });
     fireEvent.mouseMove(window, { clientX: 220, clientY: 230 });
@@ -316,7 +320,7 @@ describe('KnowledgeGraph canvas navigation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
     expect(drawn[0]).toEqual({ x: 50, y: 62.5, radius: 25 });
     fireEvent.click(canvas, { clientX: 70, clientY: 92.5 });
-    expect(screen.getByRole('combobox')).toHaveValue('p1');
+    expect(screen.getByRole('combobox', { name: /Browse graph nodes|浏览图谱节点/ })).toHaveValue('p1');
     expect(canvas.width).toBe(1200);
     fireEvent.click(screen.getByRole('button', { name: 'Zoom out' }));
     expect(drawn[0]).toEqual({ x: 100, y: 100, radius: 20 });
@@ -384,7 +388,7 @@ describe('KnowledgeGraph canvas navigation', () => {
     vi.stubGlobal('PointerEvent', TestPointerEvent);
     const { canvas } = await mount();
     fireEvent.click(screen.getByRole('button', { name: 'Reset view' }));
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByRole('combobox', { name: /Browse graph nodes|浏览图谱节点/ }), { target: { value: 'p1' } });
     const clientX = target === 'node' ? 120 : 470;
     const clientY = target === 'node' ? 130 : 430;
     const touch = { button: 0, pointerId: 7, pointerType: 'touch', isPrimary: true, clientX, clientY };
@@ -396,7 +400,7 @@ describe('KnowledgeGraph canvas navigation', () => {
     fireEvent.mouseDown(canvas, { button: 0, detail: 1, clientX: clientX + 6, clientY });
     fireEvent.mouseUp(canvas, { button: 0, detail: 1, clientX: clientX + 6, clientY });
     fireEvent.click(canvas, { detail: 1, clientX: clientX + 6, clientY });
-    expect(screen.getByRole('combobox')).toHaveValue('p1');
+    expect(screen.getByRole('combobox', { name: /Browse graph nodes|浏览图谱节点/ })).toHaveValue('p1');
     fireEvent.doubleClick(canvas, { detail: 2, clientX: 126, clientY: 130 });
     expect(screen.queryByText('Opened page')).not.toBeInTheDocument();
 
@@ -410,13 +414,13 @@ describe('KnowledgeGraph canvas navigation', () => {
     fireEvent.mouseUp(window, { ...mouse, clientX: 490 });
     fireEvent.click(canvas, { clientX: 490, clientY: 430, detail: 1 });
     expect(drawn[0].x).toBe(126);
-    expect(screen.getByRole('combobox')).toHaveValue('p1');
+    expect(screen.getByRole('combobox', { name: /Browse graph nodes|浏览图谱节点/ })).toHaveValue('p1');
     fireEvent.pointerDown(canvas, { ...mouse, clientX: 146, clientY: 130 });
     fireEvent.mouseDown(canvas, { ...mouse, clientX: 146, clientY: 130 });
     fireEvent.pointerUp(window, { ...mouse, clientX: 146, clientY: 130 });
     fireEvent.mouseUp(window, { ...mouse, clientX: 146, clientY: 130 });
     fireEvent.click(canvas, { clientX: 146, clientY: 130, detail: 1 });
-    expect(screen.getByRole('combobox')).toHaveValue('');
+    expect(screen.getByRole('combobox', { name: /Browse graph nodes|浏览图谱节点/ })).toHaveValue('');
     fireEvent.doubleClick(canvas, { clientX: 146, clientY: 130, detail: 2 });
     expect(screen.getByText('Opened page')).toBeInTheDocument();
   });
