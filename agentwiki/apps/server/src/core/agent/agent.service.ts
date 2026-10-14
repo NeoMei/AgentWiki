@@ -48,9 +48,9 @@ export class AgentService {
     }
   }
 
-  async list(ownerId: string) {
+  async list(ownerId: string, includeArchived = false) {
     const agents = await this.prisma.agent.findMany({
-      where: { ownerId, revokedAt: null },
+      where: { ownerId, revokedAt: null, ...(!includeArchived ? { status: { not: 'archived' } } : {}) },
       include: {
         grants: { include: { space: { select: { id: true, name: true } } } },
         _count: { select: { credentials: true, auditEvents: true } },
@@ -98,9 +98,33 @@ export class AgentService {
 
   async update(ownerId: string, id: string, dto: UpdateAgentDto) {
     await this.getOwned(ownerId, id);
-    const agent = await this.prisma.agent.update({ where: { id }, data: dto });
-    await this.audit(id, dto.status === 'paused' ? 'agent.pause' : 'agent.update', 'success');
-    return agent;
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "User" WHERE "id" = ${ownerId} FOR UPDATE`);
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Agent" WHERE "id" = ${id} AND "ownerId" = ${ownerId} FOR UPDATE`);
+      const current = await tx.agent.findFirst({ where: { id, ownerId, revokedAt: null }, select: { id: true, status: true } });
+      if (!current) throw new NotFoundException('Agent not found');
+      if (current.status === 'archived' && dto.status) throw new BadRequestException('Restore the archived Agent first');
+      const agent = await tx.agent.update({ where: { id }, data: dto });
+      await tx.agentAuditEvent.create({ data: { agentId: id, action: dto.status === 'paused' ? 'agent.pause' : 'agent.update', outcome: 'success' } });
+      return agent;
+    });
+  }
+
+  async setArchived(ownerId: string, id: string, archived: boolean) {
+    await this.getOwned(ownerId, id);
+    return this.prisma.$transaction(async (tx) => {
+      // Same owner -> Agent order as authorization and revocation. Retain all
+      // grants, credentials and audit history; active-only auth stops connections.
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "User" WHERE "id" = ${ownerId} FOR UPDATE`);
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Agent" WHERE "id" = ${id} AND "ownerId" = ${ownerId} FOR UPDATE`);
+      const current = await tx.agent.findFirst({ where: { id, ownerId, revokedAt: null }, select: { id: true, status: true } });
+      if (!current) throw new NotFoundException('Agent not found');
+      if (!archived && current.status !== 'archived') throw new BadRequestException('Agent is not archived');
+      if (archived && current.status === 'archived') return current;
+      const agent = await tx.agent.update({ where: { id }, data: { status: archived ? 'archived' : 'paused' } });
+      await tx.agentAuditEvent.create({ data: { agentId: id, action: archived ? 'agent.archive' : 'agent.restore', outcome: 'success' } });
+      return agent;
+    });
   }
 
   async revoke(ownerId: string, id: string) {

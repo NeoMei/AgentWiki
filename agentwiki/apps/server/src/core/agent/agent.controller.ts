@@ -24,8 +24,8 @@ export class AgentController {
   }
 
   @Get()
-  list(@Req() req: Request) {
-    return this.agents.list((req.user as any).userId);
+  list(@Req() req: Request, @Query('includeArchived') includeArchived?: string) {
+    return this.agents.list((req.user as any).userId, includeArchived === 'true');
   }
 
   @Get(':id')
@@ -36,6 +36,16 @@ export class AgentController {
   @Patch(':id')
   update(@Req() req: Request, @Param('id') id: string, @Body() dto: UpdateAgentDto) {
     return this.agents.update((req.user as any).userId, id, dto);
+  }
+
+  @Post(':id/archive')
+  archive(@Req() req: Request, @Param('id') id: string) {
+    return this.agents.setArchived((req.user as any).userId, id, true);
+  }
+
+  @Post(':id/restore')
+  restore(@Req() req: Request, @Param('id') id: string) {
+    return this.agents.setArchived((req.user as any).userId, id, false);
   }
 
   @Delete(':id')

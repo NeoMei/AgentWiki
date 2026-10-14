@@ -1,3 +1,7 @@
+import { AgentArchiveDialog } from './AgentArchiveDialog';
+import { bugOperationsText } from '../../i18n/bug-operations-messages';
+import { reviewStatusLabel } from '../review/ChangeSetStatusBadge';
+import { runtimeLabel } from '../../i18n/runtime-label';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { KeyRound, Pause, Play, Shield, Trash2 } from 'lucide-react';
@@ -14,6 +18,8 @@ export const AgentDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const { t, language } = useLanguage();
+  const [showArchive, setShowArchive] = useState(false);
+  const op = (key: string) => bugOperationsText(language, key);
   const [agent, setAgent] = useState<any>(null);
   const [loadedAgentId, setLoadedAgentId] = useState<string | null>(null);
   const [spaces, setSpaces] = useState<any[]>([]);
@@ -65,6 +71,7 @@ export const AgentDetail: React.FC = () => {
     setLoadedAgentId(null);
     setError(null);
     setUpdatingStatus(false);
+    setShowArchive(false);
     void load();
     return () => { loadSequenceRef.current += 1; };
   }, [load]);
@@ -97,21 +104,41 @@ export const AgentDetail: React.FC = () => {
       : membership.role === 'editor' ? 'editor' : 'reader';
     return [{ ...space, maxAgentRole }];
   });
+  const safeResultSummary = (item: any) => {
+    const raw = item.metadata?.resultSummary;
+    if (!raw || typeof raw !== 'object') return {};
+    return Object.fromEntries(Object.entries(raw).filter(([key, value]) =>
+      (['total', 'count', 'pageCount', 'changeItems'].includes(key) && typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)
+      || (key === 'hasMore' && typeof value === 'boolean')
+      || (key === 'response' && ['returned', 'error'].includes(String(value)))
+      || (key === 'status' && typeof value === 'string' && ['active', 'paused', 'archived', 'queued', 'pending', 'pending_review', 'approved', 'published', 'completed', 'failed', 'rejected', 'cancelled', 'running', 'ready', 'blocked', 'partial', 'success'].includes(value))));
+  };
   const describeActivity = (item: any) => {
     const action = typeof item.action === 'string' ? item.action : t('agent.activityUnknown');
     const http = action.match(/^([A-Z]+)\s+(.+)$/);
-    const summary = http
-      ? `${http[1] === 'GET' ? t('agent.activityRead') : http[1] === 'POST' ? t('agent.activityWrite') : http[1]} · ${http[2]}`
-      : action.startsWith('mcp.') ? `${t('agent.activityMcp')} · ${action.slice(4)}` : action;
+    const transport = !!http && /\/mcp(?:$|[?/])/.test(http[2]);
+    const summary = transport ? `${op('operations.transport')} · ${http![2]} · ${op('operations.targetUnknown')}`
+      : http ? `${http[1] === 'GET' ? t('agent.activityRead') : http[1] === 'POST' ? t('agent.activityWrite') : http[1]} · ${http[2]}`
+        : action.startsWith('mcp.') ? `${t('agent.activityMcp')} · ${action.slice(4)}` : action;
+    const target = item.resourceType && item.resourceType !== 'McpCapability' && item.resourceId ? ` · ${item.resourceType} ${item.resourceId}` : '';
     const outcome = item.outcome || item.result || item.status;
-    return outcome ? `${summary} · ${String(outcome)}` : summary;
+    return `${summary}${target}${outcome ? ` · ${['success', 'failure', 'denied'].includes(outcome) ? op(`operations.${outcome}`) : String(outcome)}` : ''}`;
+  };
+  const resultSummaryText = (item: any) => {
+    const summary = safeResultSummary(item);
+    const values = Object.entries(summary).map(([key, value]) => {
+      const label = ['status', 'count', 'hasMore', 'response'].includes(key) ? op(`operations.result.${key}`) : key;
+      const text = key === 'status' ? (['pending_review', 'approved', 'published', 'rejected'].includes(String(value)) ? reviewStatusLabel(String(value), language, String(value)) : runtimeLabel(String(value), t)) : key === 'response' ? op(`operations.result.${value}`) : String(value);
+      return `${label}: ${text}`;
+    });
+    return values.length ? `${op('operations.result')}: ${values.join(' · ')}` : op('operations.resultUnknown');
   };
   const safeActivityDetails = (item: any) => {
     if (!item || typeof item !== 'object') return null;
-    const metadata = item.metadata && typeof item.metadata === 'object' ? { ...item.metadata } : undefined;
-    if (metadata) delete metadata.credentialId;
-    const details = { resourceType: item.resourceType, resourceId: item.resourceId, metadata };
-    return Object.values(details).some((value) => value !== undefined && value !== null) ? details : null;
+    const argumentNames = Array.isArray(item.metadata?.argumentNames)
+      ? item.metadata.argumentNames.filter((value: unknown) => typeof value === 'string' && /^[a-zA-Z][a-zA-Z0-9_]{0,64}$/.test(value)).slice(0, 50) : undefined;
+    const details = { resourceType: item.resourceType, resourceId: item.resourceId, argumentNames, resultSummary: safeResultSummary(item) };
+    return item.resourceType || item.resourceId || argumentNames ? details : null;
   };
 
   return (
@@ -121,13 +148,13 @@ export const AgentDetail: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-semibold">{currentAgent.name}</h1>
-            <span className={'text-xs px-2 py-0.5 rounded-full ' + (currentAgent.status === 'active' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700')}>{currentAgent.status}</span>
+            <span className={'text-xs px-2 py-0.5 rounded-full ' + (currentAgent.status === 'active' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700')}>{currentAgent.status === 'archived' ? op('operations.archived') : runtimeLabel(currentAgent.status, t)}</span>
           </div>
           <p className="text-sm text-gray-500 mt-1">{currentAgent.description || t('common.noDescription')}</p>
         </div>
-        <button disabled={updatingStatus} onClick={() => void updateStatus()} className="h-8 px-3 border rounded-lg text-sm flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50">
+        {currentAgent.status !== 'archived' ? <button disabled={updatingStatus} onClick={() => void updateStatus()} className="h-8 px-3 border rounded-lg text-sm flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50">
           {currentAgent.status === 'active' ? <Pause size={14} /> : <Play size={14} />} {currentAgent.status === 'active' ? t('agent.pause') : t('agent.resume')}
-        </button>
+        </button> : null}
       </div>
 
       {error ? <p role="alert" className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p> : null}
@@ -194,9 +221,10 @@ export const AgentDetail: React.FC = () => {
 
       {tab === 'activity' ? <div className="border rounded-[14px] bg-white divide-y">{activity.map((item) => {
         const details = safeActivityDetails(item);
-        return <div key={item.id} className="p-4 text-sm"><div className="flex flex-wrap items-baseline gap-3"><span className="font-medium">{describeActivity(item)}</span><span className="text-gray-400">{new Date(item.createdAt).toLocaleString(language)}</span></div>{details ? <details className="mt-2 text-xs text-gray-500"><summary className="cursor-pointer">{t('agent.activityDetails')}</summary><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-gray-50 p-2">{JSON.stringify(details, null, 2)}</pre></details> : null}</div>;
+        return <div key={item.id} className="p-4 text-sm"><div className="flex flex-wrap items-baseline gap-3"><span className="font-medium">{describeActivity(item)}</span><span className="text-gray-400">{new Date(item.createdAt).toLocaleString(language)}</span></div><p className="mt-1 text-xs text-gray-600">{resultSummaryText(item)}</p>{details ? <details className="mt-2 text-xs text-gray-500"><summary className="cursor-pointer">{t('agent.activityDetails')}</summary><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-gray-50 p-2">{JSON.stringify(details, null, 2)}</pre></details> : null}</div>;
       })}{!activity.length ? <p className="p-5 text-sm text-gray-500">{t('agent.noActivity')}</p> : null}</div> : null}
-      {tab === 'settings' ? <div className="border rounded-[14px] bg-white p-5"><p className="text-sm text-gray-500">{t('agent.approvalMode')}</p><p className="mt-2 text-sm font-medium">{t('agent.approvalFollowsSpace')}</p><p className="mt-2 text-xs text-gray-500">{t('agent.approvalModeReadonlyHelp')}</p></div> : null}
+      {showArchive ? <AgentArchiveDialog key={currentAgent.id} agent={currentAgent} onClose={() => setShowArchive(false)} onChanged={load} /> : null}
+      {tab === 'settings' ? <div className="border rounded-[14px] bg-white p-5"><p className="text-sm text-gray-500">{t('agent.approvalMode')}</p><p className="mt-2 text-sm font-medium">{t('agent.approvalFollowsSpace')}</p><p className="mt-2 text-xs text-gray-500">{t('agent.approvalModeReadonlyHelp')}</p><p className="mt-5 text-sm text-gray-600">{op('operations.archiveHelp')}</p><button type="button" onClick={() => setShowArchive(true)} className="mt-3 rounded-lg border px-3 py-2 text-sm">{op(currentAgent.status === 'archived' ? 'operations.restore' : 'operations.archive')}</button></div> : null}
     </div>
   );
 };

@@ -58,6 +58,23 @@ describe('AgentDetail', () => {
       .mockResolvedValueOnce({ data: { data: [] } } as any);
   });
 
+  it('shows tool, real target and result summary while labeling historical transport honestly', async () => {
+    vi.mocked(api.get).mockReset().mockImplementation(async (url: string) => {
+      if (url === '/agents/agent-1') return { data: { id: 'agent-1', name: '同步助手', status: 'active', grants: [], credentials: [] } };
+      if (url.endsWith('/activity')) return { data: { data: [
+        { id: 'new', action: 'mcp.tool.get_page', outcome: 'success', resourceType: 'Page', resourceId: 'page-1', createdAt: '2026-10-14T00:00:00Z', metadata: { resultSummary: { status: 'published' }, token: 'private-secret' } },
+        { id: 'old', action: 'POST /api/mcp', outcome: 'success', createdAt: '2026-10-13T00:00:00Z' },
+      ] } };
+      return { data: { data: [] } };
+    });
+    renderDetail();
+    fireEvent.click(await screen.findByRole('button', { name: '活动记录' }));
+    expect(screen.getByText(/get_page.*Page.*page-1.*成功/)).toBeVisible();
+    expect(screen.getByText(/结果摘要.*已发布/)).toBeVisible();
+    expect(screen.getByText(/历史记录未保存具体工具或目标/)).toBeVisible();
+    expect(document.body).not.toHaveTextContent('private-secret');
+  });
+
   it('offers direct Space authorization alongside the unified connection card', async () => {
     renderDetail();
 

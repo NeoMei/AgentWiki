@@ -1,3 +1,4 @@
+import { bugOperationsText } from '../../i18n/bug-operations-messages';
 import { runtimeLabel } from '../../i18n/runtime-label';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
@@ -52,7 +53,8 @@ export const SourcesPage: React.FC = () => {
 
 const SourcesView: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const { user } = useAuth();
   const [writePermission, setWritePermission] = useState<{ spaceId: string; userId: string; allowed: boolean } | null>(null);
   const canWrite = writePermission?.spaceId === id && writePermission?.userId === user?.id && writePermission?.allowed === true;
@@ -183,6 +185,7 @@ const SourcesView: React.FC = () => {
     selectedIdRef.current = next;
     setSelectedId(next);
     setDetail(null);
+    setCopyStatus(null);
     detailSequenceRef.current += 1;
     setDetailLoading(false);
     setError(null);
@@ -268,7 +271,12 @@ const SourcesView: React.FC = () => {
             {selectedId === source.id ? <div className="mx-4 mb-4 bg-gray-50 border rounded-lg p-3 text-xs text-gray-600">
               {detailLoading ? <p role="status">{detail ? t('common.refetching') : t('common.loading')}</p> : null}
               {detail?.id === source.id ? <>
-                <p><strong>{t('common.status')}:</strong> {runtimeLabel(detail.status, t)} {detail.uri ? <>· <strong>{t('source.uri')}:</strong> {detail.uri}</> : null}</p>
+                <p><strong>{t('common.status')}:</strong> {runtimeLabel(detail.status, t)}</p>
+                {detail.uri ? <div className="mt-2 min-w-0 space-y-2">
+                  <p className="break-all [overflow-wrap:anywhere]"><strong>{t('source.uri')}:</strong> {detail.uri}</p>
+                  <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(detail.uri); setCopyStatus(bugOperationsText(language, 'operations.copied')); } catch { setCopyStatus(bugOperationsText(language, 'operations.copyFailed')); } }} className="rounded-lg border px-3 py-1">{bugOperationsText(language, 'operations.copyUrl')}</button>
+                  {copyStatus ? <p role="status">{copyStatus}</p> : null}
+                </div> : null}
                 <p className="mt-2"><strong>{t('common.versions')}:</strong> {(detail.versions || []).map((version: any) => `v${version.version} ${version.contentHash?.slice(0, 8) || ''}`).join(' · ') || t('common.none')}</p>
                 <p className="mt-2 font-medium">{t('source.recentRuns')}</p>
                 <div className="mt-2 space-y-3">{(detail.runs || []).map((run: any, index: number) => <div key={run.id || index} className="rounded-lg border bg-white p-3"><IngestRunDetails run={run} spaceId={id} showRunLink={false} /></div>)}{!detail.runs?.length ? t('common.none') : null}</div>

@@ -1,3 +1,6 @@
+import { AgentArchiveDialog } from './AgentArchiveDialog';
+import { bugOperationsText } from '../../i18n/bug-operations-messages';
+import { runtimeLabel } from '../../i18n/runtime-label';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Bot, KeyRound, Pause, Play, Plus, X } from 'lucide-react';
@@ -16,7 +19,10 @@ interface Agent {
 }
 
 export const AgentList: React.FC = () => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const op = (key: string) => bugOperationsText(language, key);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archiveAgent, setArchiveAgent] = useState<Agent | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -26,7 +32,7 @@ export const AgentList: React.FC = () => {
 
   const load = useCallback(async () => {
     try {
-      const response = await api.get('/agents');
+      const response = await api.get('/agents?includeArchived=true');
       setAgents(response.data);
     } catch (err: any) {
       setError(err.response?.data?.message || t('agent.loadFailed'));
@@ -85,7 +91,8 @@ export const AgentList: React.FC = () => {
 
       {error ? <div className="mb-4 p-3 border border-red-200 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div> : null}
 
-      {agents.length === 0 ? (
+      <button type="button" aria-pressed={showArchived} onClick={() => setShowArchived(!showArchived)} className="mb-4 rounded-lg border px-3 py-2 text-sm">{op(showArchived ? 'operations.showCurrent' : 'operations.showArchived')}</button>
+      {agents.filter((agent) => (agent.status === 'archived') === showArchived).length === 0 ? (
         <div className="border rounded-[14px] py-16 text-center bg-white">
           <Bot size={36} className="mx-auto text-gray-300 mb-3" />
           <p className="font-medium">{t('agent.empty')}</p>
@@ -93,14 +100,14 @@ export const AgentList: React.FC = () => {
         </div>
       ) : (
         <div className="border rounded-[14px] bg-white divide-y">
-          {agents.map((agent) => (
-            <div key={agent.id} className="p-4 flex items-center gap-4">
+          {agents.filter((agent) => (agent.status === 'archived') === showArchived).map((agent) => (
+            <div key={agent.id} className="p-4 flex flex-wrap items-center gap-4">
               <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center"><Bot size={20} /></div>
               <Link to={'/agents/' + agent.id} className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="font-medium truncate">{agent.name}{duplicateNames.has(agent.name) ? <span className="ml-2 font-mono text-xs font-normal text-gray-400">#{agent.id.slice(0, 8)}</span> : null}</span>
                   <span className={'text-xs px-2 py-0.5 rounded-full ' + (agent.status === 'active' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700')}>
-                    {agent.status}
+                    {agent.status === 'archived' ? op('operations.archived') : runtimeLabel(agent.status, t)}
                   </span>
                 </div>
                 <p className="text-sm text-gray-500 truncate mt-1">{agent.description || t('common.noDescription')}</p>
@@ -110,15 +117,17 @@ export const AgentList: React.FC = () => {
                   <span>{t('agent.auditCount', { count: agent._count.auditEvents })}</span>
                 </div>
               </Link>
-              <button onClick={() => void toggleStatus(agent)} className="h-8 px-3 border rounded-lg text-sm flex items-center gap-2 hover:bg-gray-50">
+              {agent.status !== 'archived' ? <button onClick={() => void toggleStatus(agent)} className="h-8 px-3 border rounded-lg text-sm flex items-center gap-2 hover:bg-gray-50">
                 {agent.status === 'active' ? <Pause size={14} /> : <Play size={14} />}
                 {agent.status === 'active' ? t('agent.pause') : t('agent.resume')}
-              </button>
+              </button> : null}
+              <button type="button" onClick={() => setArchiveAgent(agent)} className="h-8 rounded-lg border px-3 text-sm hover:bg-gray-50">{op(agent.status === 'archived' ? 'operations.restore' : 'operations.archive')}</button>
             </div>
           ))}
         </div>
       )}
 
+      {archiveAgent ? <AgentArchiveDialog agent={archiveAgent} onClose={() => setArchiveAgent(null)} onChanged={load} /> : null}
       {showCreate ? (
         <ModalDialog
           labelledBy="create-agent-dialog-title"

@@ -548,7 +548,7 @@ export class McpService {
     try {
       const result = await operation();
       const failed = result && typeof result === 'object' && 'isError' in result && result.isError === true;
-      await this.recordMcpCall(action, failed ? 'failure' : 'success', principal, context, args);
+      await this.recordMcpCall(action, failed ? 'failure' : 'success', principal, context, args, result);
       return result;
     } catch (error: any) {
       const outcome = error?.status === 401 || error?.status === 403 ? 'denied' : 'failure';
@@ -563,10 +563,15 @@ export class McpService {
     principal: Principal,
     context: { ipAddress?: string; userAgent?: string },
     args: Record<string, unknown>,
+    result?: unknown,
   ): Promise<void> {
+    const target = mcpAuditTarget(args);
+    const resultSummary = mcpAuditResultSummary(result) ?? { response: outcome === 'success' ? 'returned' : 'error' };
     const metadata = {
       argumentNames: Object.keys(args).sort(),
       credentialId: principal.credentialId,
+      ...(target ? { target } : {}),
+      ...(resultSummary ? { resultSummary } : {}),
     };
     await this.audit.record({
       action: `mcp.${action}`,
@@ -584,8 +589,8 @@ export class McpService {
             agentId: principal.agentId,
             action: `mcp.${action}`,
             outcome,
-            resourceType: 'McpCapability',
-            resourceId: action,
+            resourceType: target?.type || 'McpCapability',
+            resourceId: target?.id || action,
             metadata,
           },
         });
@@ -624,4 +629,35 @@ export class McpService {
   private normalizeHostname(hostname: string): string {
     return hostname.toLowerCase().replace(/^\[|\]$/gu, '');
   }
+}
+
+/** Audit identifiers and structural result fields only; never persist user content. */
+function mcpAuditTarget(args: Record<string, unknown>): { type: string; id: string } | undefined {
+  for (const [key, type] of [['noteId', 'PageNote'], ['pageId', 'Page'], ['runId', 'CollaborationRun'], ['sourceId', 'Source'], ['changeSetId', 'ChangeSet'], ['folderId', 'Folder'], ['spaceId', 'Space']]) {
+    const id = args[key];
+    if (typeof id === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(id)) return { type, id };
+  }
+  return undefined;
+}
+
+function mcpAuditResultSummary(result: unknown): Record<string, string | number | boolean> | undefined {
+  let value: any = result;
+  // MCP wraps JSON DTOs in text. Cap parsing to avoid retaining or processing
+  // large page bodies solely for an audit summary.
+  if (value && typeof value === 'object' && Array.isArray(value.content)) {
+    const text = value.content.find((item: any) => item?.type === 'text' && typeof item.text === 'string')?.text;
+    if (text && text.length <= 65536) { try { value = JSON.parse(text); } catch { value = undefined; } }
+    else value = undefined;
+  }
+  if (Array.isArray(value)) return { count: value.length };
+  if (!value || typeof value !== 'object') return undefined;
+  const summary: Record<string, string | number | boolean> = {};
+  const statuses = new Set(['active', 'paused', 'archived', 'queued', 'pending', 'pending_review', 'approved', 'published', 'completed', 'failed', 'rejected', 'cancelled', 'running', 'ready', 'blocked', 'partial', 'success']);
+  if (typeof value.status === 'string' && statuses.has(value.status)) summary.status = value.status;
+  for (const key of ['total', 'count', 'pageCount', 'changeItems']) {
+    if (Number.isSafeInteger(value[key]) && value[key] >= 0) summary[key] = value[key];
+  }
+  if (Array.isArray(value.data)) summary.count = value.data.length;
+  if (typeof value.hasMore === 'boolean') summary.hasMore = value.hasMore;
+  return Object.keys(summary).length ? summary : undefined;
 }

@@ -319,3 +319,19 @@ it('lets keyboard users switch source and run tabs', async () => {
   expect(sources).toHaveFocus();
   expect(sources).toHaveAttribute('aria-selected', 'true');
 });
+
+it('wraps the complete long source address and copies it exactly', async () => {
+  localStorage.setItem('agentwiki.language.v1', 'zh-CN');
+  vi.mocked(useAuth).mockReturnValue({ user: { id: 'user-1' } } as any);
+  const uri = 'https://example.test/?q=' + 'a'.repeat(300);
+  const source = { id: 'long', name: 'Long address', type: 'url', status: 'active' };
+  vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/sources/long' ? { ...source, uri, runs: [], versions: [] } : [source] }));
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.assign(navigator, { clipboard: { writeText } });
+  renderPage();
+  fireEvent.click(await screen.findByRole('button', { name: /Long address/ }));
+  fireEvent.click(await screen.findByRole('button', { name: '复制完整地址' }));
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith(uri));
+  expect(screen.getByText(uri, { exact: false }).closest('p')).toHaveClass('break-all');
+  expect(await screen.findByText('地址已复制')).toBeVisible();
+});

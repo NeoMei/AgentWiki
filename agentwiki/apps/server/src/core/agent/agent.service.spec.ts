@@ -32,6 +32,51 @@ describe('AgentService grant scope validation', () => {
     prisma.user.findFirst.mockResolvedValue({ id: 'owner-1', platformRole: 'user' });
   });
 
+  it('archives atomically without deleting audit, credentials or grants and restores only paused', async () => {
+    prisma.agent.findUnique.mockResolvedValue({ id: 'agent-1', ownerId: 'owner-1', status: 'active', revokedAt: null, grants: [], credentials: [] });
+    prisma.agent.findFirst.mockResolvedValue({ id: 'agent-1', ownerId: 'owner-1', status: 'active' });
+    prisma.agent.update.mockResolvedValue({ id: 'agent-1', status: 'archived' });
+    await (service as any).setArchived('owner-1', 'agent-1', true);
+    expect(prisma.agent.update).toHaveBeenCalledWith({ where: { id: 'agent-1' }, data: { status: 'archived' } });
+    expect(prisma.agentAuditEvent.create).toHaveBeenCalledWith({ data: { agentId: 'agent-1', action: 'agent.archive', outcome: 'success' } });
+    expect(prisma.agentCredential.updateMany).not.toHaveBeenCalled();
+    expect(prisma.agentGrant.deleteMany).not.toHaveBeenCalled();
+    prisma.agent.findFirst.mockResolvedValue({ id: 'agent-1', ownerId: 'owner-1', status: 'archived' });
+    await (service as any).setArchived('owner-1', 'agent-1', false);
+    expect(prisma.agent.update).toHaveBeenLastCalledWith({ where: { id: 'agent-1' }, data: { status: 'paused' } });
+  });
+
+  it('rejects archived status changes through the normal update endpoint', async () => {
+    prisma.agent.findUnique.mockResolvedValue({ id: 'agent-1', ownerId: 'owner-1', status: 'archived', revokedAt: null, grants: [], credentials: [] });
+    prisma.agent.findFirst.mockResolvedValue({ id: 'agent-1', status: 'archived' });
+    await expect(service.update('owner-1', 'agent-1', { status: 'active' })).rejects.toThrow('Restore the archived Agent first');
+    expect(prisma.agent.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects another owner and a missing transaction snapshot before archiving', async () => {
+    prisma.agent.findUnique.mockResolvedValue({ id: 'agent-1', ownerId: 'other', status: 'active', revokedAt: null, grants: [], credentials: [] });
+    await expect(service.setArchived('owner-1', 'agent-1', true)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.agent.update).not.toHaveBeenCalled();
+    prisma.agent.findUnique.mockResolvedValue({ id: 'agent-1', ownerId: 'owner-1', status: 'active', revokedAt: null, grants: [], credentials: [] });
+    prisma.agent.findFirst.mockResolvedValue(null);
+    await expect(service.setArchived('owner-1', 'agent-1', true)).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.agent.update).not.toHaveBeenCalled();
+  });
+
+  it('does not allow archived Agents to issue connections or resolve live grants', async () => {
+    prisma.agent.findUnique.mockResolvedValue({ id: 'agent-1', ownerId: 'owner-1', status: 'archived', revokedAt: null, grants: [], credentials: [] });
+    await expect(service.assertCanIssueConnection('owner-1', 'agent-1', 'space-1')).rejects.toThrow('Agent must be active');
+    expect(prisma.agentCredential.create).not.toHaveBeenCalled();
+  });
+
+  it('excludes archived Agents from default discovery and supports owner archive management', async () => {
+    prisma.agent.findMany.mockResolvedValue([]);
+    await service.list('owner-1');
+    expect(prisma.agent.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: { ownerId: 'owner-1', revokedAt: null, status: { not: 'archived' } } }));
+    await (service as any).list('owner-1', true);
+    expect(prisma.agent.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: { ownerId: 'owner-1', revokedAt: null } }));
+  });
+
   it('replays one atomic Agent create for the same owner idempotency key', async () => {
     let persisted: any;
     prisma.agent.create.mockImplementation(async ({ data }: any) => {

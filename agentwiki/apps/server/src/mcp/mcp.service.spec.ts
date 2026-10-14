@@ -37,6 +37,19 @@ describe('McpService transport security', () => {
     expect(() => (service as any).validateHost({ headers: { host: '[::1]:7331' } })).not.toThrow();
   });
 
+  it('records a real target and bounded result summary without content or credentials', async () => {
+    jest.clearAllMocks();
+    await (service as any).executeMcpCall('tool.get_page', { userId: 'u', agentId: 'a' }, {},
+      { pageId: 'page-1', query: 'private-query' }, async () => ({ content: [{ type: 'text', text: JSON.stringify({ id: 'page-1', title: 'private-title', content: 'private-content', status: 'published' }) }] }));
+    expect(prisma.agentAuditEvent.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      resourceType: 'Page', resourceId: 'page-1', metadata: expect.objectContaining({ resultSummary: { status: 'published' } }),
+    }) }));
+    const serialized = JSON.stringify(prisma.agentAuditEvent.create.mock.calls);
+    expect(serialized).not.toContain('private-title');
+    expect(serialized).not.toContain('private-content');
+    expect(serialized).not.toContain('private-query');
+  });
+
   it('records capability-level success without persisting argument values', async () => {
     await expect((service as any).executeMcpCall(
       'tool.search_pages',
@@ -48,7 +61,7 @@ describe('McpService transport security', () => {
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
       action: 'mcp.tool.search_pages',
       outcome: 'success',
-      metadata: { argumentNames: ['query', 'spaceId'], credentialId: 'credential-1' },
+      metadata: { argumentNames: ['query', 'spaceId'], credentialId: 'credential-1', target: { type: 'Space', id: 'space-1' }, resultSummary: { response: 'returned' } },
     }));
     expect(JSON.stringify(audit.record.mock.calls[0][0])).not.toContain('secret search');
     expect(prisma.agentAuditEvent.create).toHaveBeenCalled();
@@ -377,7 +390,7 @@ describe('McpService Folder primitives', () => {
         argumentNames: [
           'expectedTreeRevision', 'expectedUpdatedAt', 'folderId', 'name', 'operation', 'spaceId',
         ],
-        credentialId: 'credential-1',
+        credentialId: 'credential-1', target: { type: 'Folder', id: 'folder-1' }, resultSummary: { response: 'error' },
       },
     }));
     expect(JSON.stringify(audit.record.mock.calls)).not.toContain('私密财务项目');
