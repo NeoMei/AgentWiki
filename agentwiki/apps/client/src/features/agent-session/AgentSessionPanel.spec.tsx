@@ -574,3 +574,21 @@ it('removes only the inserted @ at the cursor and preserves the surrounding mess
   fireEvent.click(await screen.findByRole('button', { name: 'Add Reference B' }));
   expect(message).toHaveValue('Before  after @literal');
 });
+
+it.each([false, true])('closes context settings on Tab and continues beside its trigger (shift=%s)', async (shiftKey) => {
+  render(tree()); await screen.findByText('Earlier answer');
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'A question' } });
+  const trigger = document.querySelector<HTMLElement>('[aria-label="Context settings"]')!;
+  fireEvent.click(trigger); const control = screen.getByRole('combobox', { name: 'Edit scope' });
+  fireEvent.keyDown(control, { key: 'Tab', shiftKey });
+  expect(screen.queryByRole('combobox', { name: 'Edit scope' })).not.toBeInTheDocument();
+  expect(shiftKey ? screen.getByRole('combobox', { name: 'Message mode' }) : screen.getByRole('button', { name: 'Send' })).toHaveFocus();
+});
+it('closes context settings on blur to the browser without forcing focus back', async () => {
+  render(tree()); await screen.findByText('Earlier answer');
+  const trigger = document.querySelector<HTMLElement>('[aria-label="Context settings"]')!;
+  fireEvent.click(trigger);
+  fireEvent.blur(screen.getByRole('combobox', { name: 'Edit scope' }), { relatedTarget: null });
+  expect(screen.queryByRole('combobox', { name: 'Edit scope' })).not.toBeInTheDocument();
+  expect(trigger).not.toHaveFocus();
+});

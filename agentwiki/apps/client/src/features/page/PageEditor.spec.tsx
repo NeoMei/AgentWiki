@@ -2288,6 +2288,54 @@ describe('PageEditor remote update safety', () => {
     }
   });
 
+  it('keeps the More menu inside a shifted visual viewport and closes on its own events', async () => {
+    queuePages({ data: page() }); templateMocks.listPageTemplates.mockResolvedValue(catalog(true)); renderEditor();
+    const trigger = await screen.findByRole('button', { name: 'More page actions' });
+    const viewport = Object.assign(new EventTarget(), { offsetLeft: 800, offsetTop: 50, width: 850, height: 180 });
+    const prior = Object.getOwnPropertyDescriptor(window, 'visualViewport');
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+    const geometry = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return (this === trigger ? { left: 1588, right: 1620, top: 90, bottom: 122, width: 32, height: 32 }
+        : this.getAttribute('role') === 'menu' ? { left: 0, right: 256, top: 0, bottom: 300, width: 256, height: 300 }
+        : { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 }) as DOMRect;
+    });
+    try {
+      fireEvent.click(trigger); const menu = screen.getByRole('menu');
+      expect(Number.parseFloat(menu.style.left)).toBeGreaterThanOrEqual(816);
+      expect(Number.parseFloat(menu.style.left) + Number.parseFloat(menu.style.width)).toBeLessThanOrEqual(1634);
+      expect(Number.parseFloat(menu.style.maxHeight)).toBe(148);
+      expect(Number.parseFloat(menu.style.top)).toBeGreaterThanOrEqual(66);
+      expect(Number.parseFloat(menu.style.top) + Number.parseFloat(menu.style.maxHeight)).toBeLessThanOrEqual(214);
+      act(() => viewport.dispatchEvent(new Event('scroll'))); expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+      fireEvent.click(trigger); act(() => viewport.dispatchEvent(new Event('resize'))); expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    } finally {
+      geometry.mockRestore();
+      if (prior) Object.defineProperty(window, 'visualViewport', prior); else Reflect.deleteProperty(window, 'visualViewport');
+    }
+  });
+  it.each([false, true])('closes the More menu on Tab and continues beside its trigger (shift=%s)', async (shiftKey) => {
+    queuePages({ data: page() }); templateMocks.listPageTemplates.mockResolvedValue(catalog(true)); renderEditor();
+    const trigger = await screen.findByRole('button', { name: 'More page actions' });
+    const before = document.createElement('button'), after = document.createElement('button');
+    trigger.before(before); trigger.after(after);
+    fireEvent.click(trigger); const item = screen.getByRole('menuitem', { name: 'Save as Space template' });
+    fireEvent.keyDown(item, { key: 'Tab', shiftKey });
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument(); expect(shiftKey ? before : after).toHaveFocus();
+  });
+  it('closes a disabled More menu when Tab leaves the trigger', async () => {
+    queuePages({ data: page() }); templateMocks.listPageTemplates.mockResolvedValue(catalog(true)); renderEditor();
+    const trigger = await screen.findByRole('button', { name: 'More page actions' });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Page title' }), { target: { value: 'Unsaved title' } });
+    fireEvent.click(trigger); expect(screen.getByRole('menuitem', { name: 'Save as Space template' })).toBeDisabled();
+    fireEvent.keyDown(trigger, { key: 'Tab' }); expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+  it('dismisses the More menu on blur to the browser without restoring focus', async () => {
+    queuePages({ data: page() }); templateMocks.listPageTemplates.mockResolvedValue(catalog(true)); renderEditor();
+    fireEvent.click(await screen.findByRole('button', { name: 'More page actions' }));
+    fireEvent.blur(screen.getByRole('menuitem', { name: 'Save as Space template' }), { relatedTarget: null });
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
   it('closes an open More menu when viewport geometry changes', async () => {
     queuePages({ data: page() });
     templateMocks.listPageTemplates.mockResolvedValue(catalog(true));

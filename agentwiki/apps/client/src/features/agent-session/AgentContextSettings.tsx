@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { SlidersHorizontal } from 'lucide-react';
+import { focusBesidePortalTrigger } from '../../components/portalTabNavigation';
 import { referencePopoverPlacement } from './AgentReferencePicker';
 
 /** Keep settings out of the chat's scrolling and clipping containers. */
@@ -44,9 +45,11 @@ export function AgentContextSettings({ label, scopeLabel, visible, children }: {
     };
   }, [open, visible]);
   return <details ref={root} open={open && visible} className="agent-composer-settings" onKeyDown={(event) => {
+    if (event.key === 'Tab' && open) { event.preventDefault(); setOpen(false); focusBesidePortalTrigger(trigger.current, event.shiftKey, popup.current); }
     if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus({ preventScroll: true }); }
   }} onBlur={(event) => {
-    if (event.relatedTarget instanceof Node && !root.current?.contains(event.relatedTarget) && !popup.current?.contains(event.relatedTarget)) setOpen(false);
+    const next = event.relatedTarget;
+    if (!(next instanceof Node) || !root.current?.contains(next) && !popup.current?.contains(next)) setOpen(false);
   }}>
     <summary ref={trigger} aria-label={label} title={label} aria-expanded={open && visible} onClick={(event) => { event.preventDefault(); setOpen((value) => !value); }}><SlidersHorizontal aria-hidden="true" size={15} />{scopeLabel ? <span>{scopeLabel}</span> : null}</summary>
     {open && visible && placement ? createPortal(<div ref={popup} role="dialog" aria-label={label} className="agent-settings-popover" style={placement}>{children}</div>, document.body) : null}

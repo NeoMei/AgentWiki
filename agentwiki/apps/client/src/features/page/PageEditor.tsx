@@ -1,4 +1,5 @@
 import { createPortal } from 'react-dom';
+import { focusBesidePortalTrigger } from '../../components/portalTabNavigation';
 import React, { useCallback, useEffect, useLayoutEffect, useState, useRef, useMemo, useId } from 'react';
 import { Link, useLocation, useNavigate, useNavigationType, useParams } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
@@ -203,7 +204,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const [remoteUpdate, setRemoteUpdate] = useState<RemotePageUpdate | null>(null);
   const [templateCapability, setTemplateCapability] = useState<{ identity: string; canManage: boolean } | null>(null);
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
-  const [moreActionsPosition, setMoreActionsPosition] = useState<{ left: number; top: number; width: number } | null>(null);
+  const [moreActionsPosition, setMoreActionsPosition] = useState<{ left: number; top: number; width: number; maxHeight: number } | null>(null);
   const [templateDialogSnapshot, setTemplateDialogSnapshot] = useState<TemplateDialogSnapshot | null>(null);
   const [attachmentPickerOpen, setAttachmentPickerOpen] = useState(false);
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false);
@@ -574,18 +575,22 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     if (!trigger || !menu) return;
 
     const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
+    const viewportLeft = window.visualViewport?.offsetLeft ?? 0;
+    const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+    const maxHeight = Math.max(0, viewportHeight - 32);
     const viewportTop = window.visualViewport?.offsetTop ?? 0;
     const viewportBottom = viewportTop + (window.visualViewport?.height ?? window.innerHeight);
-    const menuHeight = menu.getBoundingClientRect().height || 80;
+    const menuHeight = Math.min(menu.getBoundingClientRect().height || 80, maxHeight);
     const availableWidth = Math.max(0, viewportWidth - 32);
     const measuredWidth = menu.getBoundingClientRect().width || 256;
     const width = Math.min(measuredWidth, 256, availableWidth);
     const triggerRect = trigger.getBoundingClientRect();
-    const maximumLeft = Math.max(16, viewportWidth - 16 - width);
-    const left = Math.min(Math.max(triggerRect.right - width, 16), maximumLeft);
+    const minimumLeft = viewportLeft + 16;
+    const maximumLeft = Math.max(minimumLeft, viewportLeft + viewportWidth - 16 - width);
+    const left = Math.min(Math.max(triggerRect.right - width, minimumLeft), maximumLeft);
     const below = triggerRect.bottom + 8;
     const top = below + menuHeight <= viewportBottom - 16 ? below : Math.max(viewportTop + 16, triggerRect.top - 8 - menuHeight);
-    setMoreActionsPosition({ left, top, width });
+    setMoreActionsPosition({ left, top, width, maxHeight });
   }, [moreActionsOpen]);
 
   useEffect(() => {
@@ -610,11 +615,16 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     document.addEventListener('keydown', closeFromEscape);
     window.addEventListener('resize', closeForViewportChange);
     window.addEventListener('scroll', closeForViewportChange, true);
+    const visualViewport = window.visualViewport;
+    visualViewport?.addEventListener('resize', closeForViewportChange);
+    visualViewport?.addEventListener('scroll', closeForViewportChange);
     return () => {
       document.removeEventListener('pointerdown', closeFromOutside);
       document.removeEventListener('keydown', closeFromEscape);
       window.removeEventListener('resize', closeForViewportChange);
       window.removeEventListener('scroll', closeForViewportChange, true);
+      visualViewport?.removeEventListener('resize', closeForViewportChange);
+      visualViewport?.removeEventListener('scroll', closeForViewportChange);
     };
   }, [moreActionsOpen, templateCreationBlocked]);
 
@@ -1209,7 +1219,15 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             <Users size={18} />
           </button> : null}
           {canManageTemplates && page.format === 'markdown' ? (
-            <div ref={moreActionsRef} className="relative">
+            <div ref={moreActionsRef} className="relative" onKeyDown={(event) => {
+              if (event.key === 'Tab' && moreActionsOpen) {
+                event.preventDefault(); setMoreActionsOpen(false);
+                focusBesidePortalTrigger(moreActionsButtonRef.current, event.shiftKey, moreActionsMenuRef.current);
+              }
+            }} onBlur={(event) => {
+              const next = event.relatedTarget;
+              if (!(next instanceof Node) || !moreActionsRef.current?.contains(next) && !moreActionsMenuRef.current?.contains(next)) setMoreActionsOpen(false);
+            }}>
               <button
                 ref={moreActionsButtonRef}
                 type="button"
@@ -1235,11 +1253,21 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
                 <div
                   ref={moreActionsMenuRef}
                   role="menu"
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Tab') return;
+                    event.preventDefault(); event.stopPropagation(); setMoreActionsOpen(false);
+                    focusBesidePortalTrigger(moreActionsButtonRef.current, event.shiftKey, moreActionsMenuRef.current);
+                  }}
+                  onBlur={(event) => {
+                    const next = event.relatedTarget;
+                    if (!(next instanceof Node) || !moreActionsRef.current?.contains(next) && !moreActionsMenuRef.current?.contains(next)) setMoreActionsOpen(false);
+                  }}
                   aria-label={language === 'zh-CN' ? '更多页面操作' : 'More page actions'}
                   style={moreActionsPosition ? {
                     left: moreActionsPosition.left,
                     top: moreActionsPosition.top,
                     width: moreActionsPosition.width,
+                    maxHeight: moreActionsPosition.maxHeight,
                   } : { visibility: 'hidden' }}
                   className="fixed z-[80] w-64 max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-lg border border-gray-200 bg-white p-1 shadow-lg"
                 >
