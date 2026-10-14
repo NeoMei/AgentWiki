@@ -259,7 +259,7 @@ export const Dashboard: React.FC = () => {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {spaces.map((space) => {
               const pageCount = spacePageCount(space);
               const memberCount = spaceMemberCount(space);
@@ -283,32 +283,32 @@ export const Dashboard: React.FC = () => {
                 <div
                 key={space.id}
                 data-testid="space-card"
-                className="group relative flex min-h-[244px] min-w-0 flex-col overflow-hidden rounded-2xl border border-gray-200/80 bg-white p-5 shadow-[0_4px_18px_rgba(15,23,42,0.06)] transition duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_12px_30px_rgba(15,23,42,0.10)]"
+                className="group relative flex min-w-0 flex-col overflow-hidden rounded-[14px] border border-gray-200/80 bg-white p-4 shadow-[0_2px_10px_rgba(15,23,42,0.05)] transition duration-200 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_8px_20px_rgba(15,23,42,0.09)]"
               >
                 <Link
                   to={`/spaces/${space.id}`}
-                  className="flex min-h-0 flex-1 flex-col rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                  className="flex min-h-0 flex-1 flex-col rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 sm:pb-6"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 transition group-hover:bg-blue-100">
-                        <Folder size={21} strokeWidth={2.1} />
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 transition group-hover:bg-blue-100">
+                        <Folder size={18} strokeWidth={2.1} />
                       </span>
-                      <h3 title={space.name} className="min-w-0 truncate text-lg font-semibold tracking-[-0.01em] text-gray-900">{space.name}</h3>
+                      <h3 title={space.name} className="min-w-0 truncate text-base font-semibold tracking-[-0.01em] text-gray-900">{space.name}</h3>
                     </div>
                     {policyLabel ? (
-                      <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${isAutoPublish ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                      <span className={`inline-flex max-w-[46%] shrink-0 items-center gap-1 truncate rounded-full px-1.5 py-0.5 text-[11px] font-medium ${isAutoPublish ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`} title={policyLabel}>
                         {isAutoPublish ? <ShieldCheck size={12} /> : <LockKeyhole size={12} />}
                         {policyLabel}
                       </span>
                     ) : null}
                   </div>
-                  <p className="mt-4 min-h-[2.75rem] text-sm leading-6 text-gray-500 line-clamp-2">{space.description || t('common.noDescription')}</p>
-                  <p className="mt-3 mb-4 flex min-w-0 items-center gap-2 text-sm text-gray-500" title={ownerLabel}>
+                  <p className="mt-3 min-h-[2.5rem] text-sm leading-5 text-gray-500 line-clamp-2">{space.description || t('common.noDescription')}</p>
+                  <p className="mt-2 mb-3 flex min-w-0 items-center gap-2 text-xs text-gray-500" title={ownerLabel}>
                     <UserRound aria-hidden="true" className="shrink-0 text-gray-400" size={14} />
                     <span className="truncate">{ownerLabel}</span>
                   </p>
-                  <div className="mt-auto grid grid-cols-2 gap-2 border-t border-gray-100 pt-4 text-xs text-gray-500">
+                  <div className="mt-auto grid grid-cols-2 gap-2 border-t border-gray-100 pt-3 text-xs text-gray-500">
                     <span className="inline-flex min-w-0 items-center gap-1.5 truncate" title={pageCount == null ? t('dashboard.statsSyncing') : t('dashboard.pages', { count: pageCount })}>
                       <BookOpen className="shrink-0 text-gray-400" size={14} />
                       {pageCount == null ? t('dashboard.statsSyncing') : t('dashboard.pages', { count: pageCount })}
@@ -318,7 +318,7 @@ export const Dashboard: React.FC = () => {
                       {memberCount == null ? t('dashboard.statsSyncing') : t('dashboard.members', { count: memberCount })}
                     </span>
                   </div>
-                  <div className="mt-4 flex items-center justify-between gap-3 text-xs">
+                  <div className="mt-3 flex items-center justify-between gap-3 text-xs sm:pr-28">
                     <span className="inline-flex min-w-0 items-center gap-1.5 truncate text-gray-400" title={updated?.absolute}>
                       <Clock3 className="shrink-0" size={14} />
                       {updatedLabel}
@@ -329,7 +329,7 @@ export const Dashboard: React.FC = () => {
                     </span>
                   </div>
                 </Link>
-                <div className="mt-4 flex items-center gap-2 border-t border-gray-100 pt-3 opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                <div className="pointer-events-auto mt-3 flex items-center gap-2 border-t border-gray-100 pt-2.5 opacity-100 transition sm:pointer-events-none sm:absolute sm:inset-x-4 sm:bottom-3 sm:mt-0 sm:border-0 sm:pt-0 sm:opacity-0 sm:group-hover:pointer-events-auto sm:group-hover:opacity-100 sm:group-focus-within:pointer-events-auto sm:group-focus-within:opacity-100">
                   <Link
                     to={`/spaces/${space.id}/graph`}
                     className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-gray-500 hover:bg-blue-50 hover:text-blue-600"
