@@ -61,3 +61,22 @@
 pnpm build、pnpm typecheck、pnpm lint及git diff --check均exit0，550,000 bytes首屏JS门禁保持。所有五组初审补修复审及整支终审通过（reviews/final-review.md）；图谱最终边界有真实CUA回执。
 
 生产部署前：root/server/client0.12.30、origin/master286928c0，无新远端提交；1298源码文件与前轮manifest一致。联合备份/var/backups/agentwiki/bug-retest-v01231.FSupLpbg完成，463条manifest验证，数据库44,198,961 bytes；备份含DB、attachments、application、config、service units。备份后三服务恢复active。凭据/授权/Agent状态/空间策略的稳定字段摘要在部署前已保存，仅hash及数量，不含明文。
+
+## v0.12.31 生产读回
+
+发布提交bb892e49（master与v0.12.31标签），GitHub正式release：https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.31。deploy.sh退出0；源码1319文件无缺失/不匹配，root/client/server均0.12.31，3服务active、health5项ok；63迁移无pending。部署前后稳定字段digest完全一致：76凭据、487Grant、806Agent、1471Space策略（在smoke新增测试数据之前比较）。公网smoke32项通过并清理fixture。旧树/root/agentwiki-previous-20261015025535与联合备份配对保留。
+
+- #18/#19生产真实浏览器：当前169条匹配记录，25条/页、7页。搜索原UUID 46517d85-e347-4c40-9a42-48a8c51e031c返回3条“项目周报（梅雪峰）”，完整路径/提交者/时间可区分。展开cmv7sdrf00479n2yqd86kmlw4，显示直接提案说明，以及“仅此空间当前的所有者可以审核或发布此变更”；当前MeiXueFeng非该Space所有者，不能绕过权限。未审批任何原记录。
+- #16生产黄金书屋历史16条，读取所有time datetime确认完整降序；顶部明确创建时间排序。production-run-order.png。
+- #14生产原百度失败cmv7w5ffh08zbn2yqjyxzmmoa（10/14 17:12:06）：实际stage fetching、code REMOTE_URL_REJECTED；可读原因/处理建议与脱敏展开一致，未擅自推断DNS或HTTP403具体分支，未重试/绕过安全检查。
+- #15生产原测试百度：完整带查询参数地址换行显示，复制完整地址入口可见。保留源URI，不访问外部地址或触发重新获取。
+
+## 原文逐条回写与最终回读
+
+2026-10-15 03:00:57（Asia/Shanghai）正式发布 ChangeSet `cmv8h6om000azrvh6q8unrd3m`，报告 updatedAt `2026-10-14T19:00:57.327Z`。以发布前 MCP 最新正文与目录版本为基线，仅替换 20 条开发修复进度和 20 条回归测试，原步骤、截图及其他内容逐字保留；发布后 MCP 回读与拟提交内容完全一致，Chrome 已看到全部新回复。脱敏回执见 final-publication-receipt.json。完整原文和页面截图仅保存在私有本地验收目录，未加入公开仓库。
+
+#1 按用户确认记录黄金书屋原案未复现、当前映射实际合并通过；#6 保留原 billy 环境未回放边界。旧待审报告不审批、不重放。发布后仅补充本文档回执，生产产品源码仍对应 release `bb892e49`。
+
+## 本地 fixture 清理
+
+本任务 API4399、Vite5199、Redis6395 已停止，端口/进程读回为空；精确数据库 agentwiki_remaining_test_63414d95a4cb 已删除并确认不存在，临时附件与三份本地测试凭据已删除。用户 Obsidian 恢复备份、验收日志及截图完整保留，未改动其他本地或生产资源。脱敏回执 /tmp/agentwiki-remaining-20261015/cleanup-receipt.json。

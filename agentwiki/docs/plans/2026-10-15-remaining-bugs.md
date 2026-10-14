@@ -2,7 +2,7 @@
 
 ## Global Constraints
 
-- 原始需求：`docs/verification/bug-retest-remaining-20261015/report.md`，按对应编号阅读原步骤、结果、截图说明和建议。用户已明确要求按建议落实剩余条目，已授权测试、修复、发布及逐条回写。
+- 原始需求：[10-14Agentwiki平台复测](https://agentwiki.quukk.com/pages/4088516b-4f90-4803-aeb2-7ddc63a86c32)（私有原文快照保存在本机验收目录，不纳入公开仓库），按对应编号阅读原步骤、结果、截图说明和建议。用户已明确要求按建议落实剩余条目，已授权测试、修复、发布及逐条回写。
 - 基线 286928c0（v0.12.30）；保留直接修改页面、现网空间审核策略及 #2–#4 修复。
 - 工作目录 `/Users/neomei/.codex/worktrees/bug-retest-release/AgentWiki /agentwiki`；只在该隔离树编辑，主检出用户改动保留。Git 必须显式 `--git-dir=/Users/neomei/.local/share/AgentWiki.git/worktrees/AgentWiki-9 --work-tree=/Users/neomei/.codex/worktrees/bug-retest-release/AgentWiki `。
 - 先 CodeGraph 定位（该工作树 app 有 .codegraph），再按实际数据流证明原因，最小修复并作有意义的定向回归。新用户文案中英双语；沿用现有组件、权限、审计与并发校验，不增加另一组件库。
