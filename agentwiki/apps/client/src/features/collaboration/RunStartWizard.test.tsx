@@ -158,6 +158,138 @@ describe('RunStartWizard', () => {
     });
   });
 
+  it('marks run name required, explains an empty name inline, and focuses it', async () => {
+    renderWizard();
+    await screen.findByRole('heading', { name: '1. Work input' });
+    fireEvent.change(screen.getByLabelText('Work brief'), { target: { value: 'A story' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    const name = screen.getByLabelText('Run name');
+    expect(name).toBeRequired();
+    expect(name).toHaveAttribute('aria-invalid', 'true');
+    expect(name).toHaveFocus();
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a run name.');
+    expect(collaborationApi.createRunDraft).not.toHaveBeenCalled();
+    fireEvent.change(name, { target: { value: 'Story' } });
+    expect(name).not.toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it.each(['running', 'completed', 'cancelled'] as const)('can start a separate run from a legacy saved %s record', async (status) => {
+    localStorage.setItem('agentwiki.collaboration.draft.space-1.template-1', 'old-run');
+    vi.mocked(collaborationApi.getRun).mockResolvedValue({
+      id: 'old-run', name: 'Old story', status, version: 9, startedById: 'user-owner',
+      templateId: 'template-1', inputs: { brief: 'Old brief' }, roleBindings: [], updatedAt: '2026-10-12T09:06:51Z',
+    });
+    renderWizard();
+    expect(await screen.findByText('Old story')).toBeVisible();
+    expect(screen.getByText(`Current status: ${messages.en[`collaboration.status.${status}`]}`)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Start a new run' }));
+    await screen.findByRole('heading', { name: '1. Work input' });
+    expect(screen.getByLabelText('Run name')).toHaveValue('');
+    await advanceToMapping();
+    expect(collaborationApi.createRunDraft).toHaveBeenCalledTimes(1);
+    expect(collaborationApi.updateRunDraft).not.toHaveBeenCalled();
+    expect(collaborationApi.startRun).not.toHaveBeenCalled();
+  });
+
+  it('restarts the reported novel template from the old saved story without mutating it', async () => {
+    const spaceId = 'cmtgoy5m002z413nd7a3cwczh';
+    const templateId = 'cmt78nwck002p13l4vm5t3xan';
+    const seed = BUILT_IN_COLLABORATION_TEMPLATES.find((item) => item.slug === 'novel-writing')!;
+    vi.mocked(collaborationApi.getTemplate).mockResolvedValue({
+      ...template, id: templateId, slug: seed.slug, spaceId: null, system: true,
+      name: `${seed.name.zh} / ${seed.name.en}`, definition: seed.definition,
+    });
+    localStorage.setItem(`agentwiki.collaboration.draft.${spaceId}.${templateId}`, 'saved-story');
+    vi.mocked(collaborationApi.getRun).mockResolvedValue({
+      id: 'saved-story', templateId, name: '龟兔赛跑', status: 'running', version: 8,
+      startedById: 'user-owner', inputs: { 'story-premise': '龟兔赛跑' },
+      roleBindings: seed.definition.roleSlots.map((slot) => ({ roleSlotId: slot.id, roleSlotName: slot.name, agentId: 'agent-editor' })),
+      updatedAt: '2026-10-12T09:06:51Z',
+    });
+    renderWizard({ language: 'zh-CN', initialEntry: `/spaces/${spaceId}/collaboration/templates/${templateId}/start` });
+    expect(await screen.findByText('龟兔赛跑')).toBeVisible();
+    expect(screen.getByText('当前状态：运行中')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '开始新运行' }));
+    await screen.findByRole('heading', { name: /1\./u });
+    fireEvent.change(screen.getByLabelText('运行名称'), { target: { value: '新故事' } });
+    fireEvent.change(screen.getByLabelText('故事设定 / Story premise'), { target: { value: '新的故事设定' } });
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    await waitFor(() => expect(collaborationApi.createRunDraft).toHaveBeenCalledWith(spaceId, {
+      templateId, name: '新故事', inputs: { 'story-premise': '新的故事设定' }, roleBindings: [],
+    }));
+    expect(collaborationApi.updateRunDraft).not.toHaveBeenCalled();
+    expect(collaborationApi.startRun).not.toHaveBeenCalled();
+  });
+
+  it('keeps a recoverable draft on transient restore failure', async () => {
+    const key = 'agentwiki.collaboration.draft.space-1.template-1';
+    localStorage.setItem(key, 'recoverable');
+    vi.mocked(collaborationApi.getRun).mockRejectedValue(new Error('offline'));
+    renderWizard();
+    await screen.findByRole('heading', { name: '1. Work input' });
+    expect(localStorage.getItem(key)).toBe('recoverable');
+    expect(screen.getByRole('button', { name: 'Retry saved run' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    expect(collaborationApi.createRunDraft).not.toHaveBeenCalled();
+  });
+
+  it('loads only the current account draft when another account has a pointer', async () => {
+    localStorage.setItem('agentwiki.collaboration.draft.space-1.template-1.other-user', 'other-draft');
+    renderWizard();
+    await screen.findByRole('heading', { name: '1. Work input' });
+    expect(collaborationApi.getRun).not.toHaveBeenCalled();
+    expect(localStorage.getItem('agentwiki.collaboration.draft.space-1.template-1.other-user')).toBe('other-draft');
+  });
+
+  it('does not adopt another starter’s legacy pointer', async () => {
+    const key = 'agentwiki.collaboration.draft.space-1.template-1';
+    localStorage.setItem(key, 'other-draft');
+    vi.mocked(collaborationApi.getRun).mockResolvedValue({
+      id: 'other-draft', name: 'Other draft', status: 'draft', startedById: 'other-user',
+      version: 1, inputs: { brief: 'Other content' }, roleBindings: [], updatedAt: '2026-10-12T09:00:00Z',
+    });
+    renderWizard();
+    await screen.findByRole('heading', { name: '1. Work input' });
+    expect(screen.getByLabelText('Run name')).toHaveValue('');
+    expect(localStorage.getItem(key)).toBe('other-draft');
+  });
+
+  it('keeps an explicitly abandoned server draft intact while creating a fresh one', async () => {
+    const scoped = 'agentwiki.collaboration.draft.space-1.template-1.user-owner';
+    localStorage.setItem(scoped, 'previous-draft');
+    vi.mocked(collaborationApi.getRun).mockResolvedValue({
+      id: 'previous-draft', name: 'Unfinished work', status: 'draft', startedById: 'user-owner',
+      version: 2, inputs: { brief: 'Keep this text' }, roleBindings: [], updatedAt: '2026-10-12T09:00:00Z',
+    });
+    renderWizard();
+    await screen.findByRole('heading', { name: '2. Map Agents' });
+    fireEvent.click(screen.getByRole('button', { name: 'Start a new run' }));
+    await advanceToMapping();
+    expect(collaborationApi.createRunDraft).toHaveBeenCalled();
+    expect(collaborationApi.updateRunDraft).not.toHaveBeenCalled();
+    expect(localStorage.getItem(scoped)).toBe('run-1');
+  });
+
+  it('starts two successive runs with independent idempotency keys', async () => {
+    renderWizard();
+    const finish = async () => {
+      await advanceToMapping();
+      fireEvent.change(screen.getByLabelText('Writer'), { target: { value: 'agent-editor' } });
+      fireEvent.change(screen.getByLabelText('Reviewer'), { target: { value: 'agent-editor' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+      await screen.findByRole('heading', { name: '3. Review and start' });
+      confirmSelfReviewIfRequired();
+      fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
+      await screen.findByRole('heading', { name: 'Collaboration started' });
+    };
+    await finish();
+    fireEvent.click(screen.getByRole('button', { name: 'Start a new run' }));
+    await finish();
+    const calls = vi.mocked(collaborationApi.startRun).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0][2].idempotencyKey).not.toBe(calls[1][2].idempotencyKey);
+  });
+
   it('shows a retryable error instead of a permanent spinner when initialization fails', async () => {
     vi.mocked(collaborationApi.getTemplate)
       .mockRejectedValueOnce(new Error('offline'))

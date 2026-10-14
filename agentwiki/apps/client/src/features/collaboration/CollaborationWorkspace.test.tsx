@@ -660,6 +660,22 @@ describe('CollaborationWorkspace', () => {
     expect(screen.queryByRole('link', { name: 'Start run' })).not.toBeInTheDocument();
   });
 
+  it.each(['active', 'history'] as const)('shows the creation-time order and matching dates for %s runs', async (kind) => {
+    vi.mocked(collaborationApi.listRuns).mockResolvedValue({ items: [
+      { id: 'run-z', name: 'Created newest', status: kind === 'active' ? 'running' : 'completed', createdAt: '2026-10-14T01:00:00Z', updatedAt: '2026-10-14T01:00:00Z' },
+      { id: 'run-b', name: 'Created older B', status: kind === 'active' ? 'ready' : 'cancelled', createdAt: '2026-10-08T01:00:00Z', updatedAt: '2026-10-15T01:00:00Z' },
+      { id: 'run-a', name: 'Created older A', status: kind === 'active' ? 'draft' : 'failed', createdAt: '2026-10-08T01:00:00Z', updatedAt: '2026-10-16T01:00:00Z' },
+    ], nextCursor: null });
+    renderWorkspace();
+    await screen.findByText('Coding collaboration');
+    fireEvent.click(screen.getByRole('tab', { name: kind === 'active' ? 'Active runs' : 'History' }));
+    await screen.findByText('Created newest');
+    expect(screen.getByText('Newest created first · time shown: created at')).toBeVisible();
+    const rows = screen.getAllByRole('link').filter((link) => link.classList.contains('aw-collab-run-row'));
+    expect(rows.map((row) => row.querySelector('.aw-collab-run-name')?.textContent)).toEqual(['Created newest', 'Created older B', 'Created older A']);
+    expect(rows.map((row) => row.querySelector('time')?.getAttribute('datetime'))).toEqual(['2026-10-14T01:00:00Z', '2026-10-08T01:00:00Z', '2026-10-08T01:00:00Z']);
+  });
+
   it('renders a recoverable error state', async () => {
     vi.mocked(collaborationApi.listTemplates).mockRejectedValue(new Error('offline'));
     renderWorkspace();

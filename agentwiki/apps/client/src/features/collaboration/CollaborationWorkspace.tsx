@@ -268,6 +268,7 @@ export const CollaborationWorkspace: React.FC = () => {
           ) : null}
           {state === 'ready' && !catalogTab ? (
             <>
+              <p className="mb-3 text-sm text-gray-500">{t('collaboration.sortCreatedDesc')}</p>
               <RunList
                 spaceId={id}
                 runs={runs}

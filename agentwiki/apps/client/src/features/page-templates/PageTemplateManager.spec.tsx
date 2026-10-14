@@ -160,6 +160,24 @@ describe('PageTemplateManager', () => {
       .toHaveClass('min-w-0', 'break-all', '[overflow-wrap:anywhere]');
   });
 
+  it('shows source matches, count, exact selected path/date, and an empty search state', async () => {
+    mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
+    mocks.listPageTemplateSourcePages.mockResolvedValue({ data: [
+      { id: 'a', title: '周报', path: 'pages/产品/周报.md', updatedAt: '2026-10-14T12:00:00Z', format: 'markdown' },
+      { id: 'b', title: '周报', path: 'pages/研发/周报.md', updatedAt: '2026-10-13T12:00:00Z', format: 'markdown' },
+    ], total: 2, skip: 0, take: 100 });
+    renderManager();
+    fireEvent.click(await screen.findByRole('button', { name: /更新内容 团队周报/ }));
+    expect(await screen.findByText('匹配页面：2')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: /周报.*pages\/研发\/周报.md/ }));
+    expect(screen.getByLabelText('源页面')).toHaveValue('b');
+    expect(screen.getByText(/已选择：周报.*pages\/研发\/周报.md.*2026\/10\/13/)).toBeVisible();
+    mocks.listPageTemplateSourcePages.mockResolvedValue({ data: [], total: 0, skip: 0, take: 100 });
+    fireEvent.change(screen.getByLabelText('按标题或路径搜索'), { target: { value: '无匹配' } });
+    expect(await screen.findByText('未找到匹配页面')).toBeVisible();
+    expect(screen.getByRole('button', { name: '创建新版本' })).toBeDisabled();
+  });
+
   it('creates a new content version from an exact persisted source page', async () => {
     mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
     mocks.listPageTemplateSourcePages.mockResolvedValue({ data: [{

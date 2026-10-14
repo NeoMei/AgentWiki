@@ -18,7 +18,7 @@ export const RunList: React.FC<{
           <CircleDot size={16} className="aw-collab-run-icon" aria-hidden="true" />
           <span className="aw-collab-run-name">{run.name}</span>
           <span className="aw-collab-status" data-status={run.status}>{statusLabel(run.status)}</span>
-          <time className="aw-collab-run-date" dateTime={run.updatedAt}>{new Date(run.updatedAt).toLocaleString(locale)}</time>
+          <time className="aw-collab-run-date" dateTime={run.createdAt}>{run.createdAt ? new Date(run.createdAt).toLocaleString(locale) : '—'}</time>
           <ChevronRight size={14} className="aw-collab-run-chevron" aria-hidden="true" />
         </Link>
       ))}

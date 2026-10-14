@@ -76,6 +76,10 @@ export const RunStartWizard: React.FC = () => {
   const [started, setStarted] = useState<CollaborationRun | null>(null);
   const [step, setStep] = useState<Step>(1);
   const [runName, setRunName] = useState('');
+  const [runNameError, setRunNameError] = useState(false);
+  const [restoreFailed, setRestoreFailed] = useState(false);
+  const [newRunSequence, setNewRunSequence] = useState(0);
+  const runNameRef = useRef<HTMLInputElement>(null);
   const [inputValues, setInputValues] = useState<Record<string, string | number | boolean>>({});
   const [mappingState, setMappingState] = useState<MappingState>(() => emptyMappingState());
   const [loading, setLoading] = useState(true);
@@ -85,7 +89,7 @@ export const RunStartWizard: React.FC = () => {
   const [preparationTarget, setPreparationTarget] = useState<PreparationTarget | null>(null);
   const [preparationAuthorizationInvalidated, setPreparationAuthorizationInvalidated] = useState(false);
   const [toast, setToast] = useState<{ kind: 'success' | 'error'; message: string } | null>(null);
-  const idempotencyKey = useMemo(() => `start-${safeUuid()}`, [id, templateId]);
+  const idempotencyKey = useMemo(() => `start-${safeUuid()}`, [id, templateId, user?.id, newRunSequence]);
   const initializeRequest = useRef(0);
   const mutationEpoch = useRef(0);
   const memberRefreshRequest = useRef(0);
@@ -105,7 +109,8 @@ export const RunStartWizard: React.FC = () => {
   mappingStateRef.current = mappingState;
   stepRef.current = step;
   agentsRef.current = agents;
-  const storageKey = `agentwiki.collaboration.draft.${id}.${templateId}`;
+  const legacyStorageKey = `agentwiki.collaboration.draft.${id}.${templateId}`;
+  const storageKey = `${legacyStorageKey}.${user?.id ?? 'anonymous'}`;
   const { bindings, preparedConnections } = mappingState;
   const pendingConnectionKey = useMemo(() => {
     const boundAgentIds = new Set(bindings.map((binding) => binding.agentId));
@@ -133,6 +138,8 @@ export const RunStartWizard: React.FC = () => {
     setStarted(null);
     setStep(1);
     setRunName('');
+    setRunNameError(false);
+    setRestoreFailed(false);
     setInputValues({});
     setMappingState(emptyMappingState());
     setLoading(true);
@@ -142,10 +149,16 @@ export const RunStartWizard: React.FC = () => {
     setPreparationTarget(null);
     setPreparationAuthorizationInvalidated(false);
     setToast(null);
-  }, [id, templateId]);
+  }, [id, templateId, user?.id]);
 
   const validatedInputs = () => {
-    if (!template || !runName.trim()) return null;
+    if (!template || restoreFailed) return null;
+    if (!runName.trim()) {
+      setRunNameError(true);
+      runNameRef.current?.focus();
+      return null;
+    }
+    setRunNameError(false);
     const normalized: Record<string, string | number | boolean> = {};
     for (const input of template.definition.inputs) {
       const value = inputValues[input.key];
@@ -163,6 +176,30 @@ export const RunStartWizard: React.FC = () => {
     return parsed.data;
   };
 
+  const beginNewRun = () => {
+    initializeRequest.current += 1;
+    mutationEpoch.current += 1;
+    memberRefreshRequest.current += 1;
+    authoritativeMemberRefresh.current = { epoch: mutationEpoch.current, request: null };
+    localStorage.removeItem(storageKey);
+    localStorage.removeItem(legacyStorageKey);
+    // Detach the local pointer only. The server draft and its audit history remain intact.
+    setRun(null);
+    setStarted(null);
+    setStep(1);
+    setRunName('');
+    setRunNameError(false);
+    setRestoreFailed(false);
+    setInputValues({});
+    setMappingState(emptyMappingState());
+    setRetryAction(null);
+    setSelfReviewAcknowledged(false);
+    setPreparationTarget(null);
+    setToast(null);
+    setNewRunSequence((current) => current + 1);
+    window.requestAnimationFrame(() => runNameRef.current?.focus());
+  };
+
   const validatedBindings = () => {
     if (!template) return null;
     const currentBindings = mappingStateRef.current.bindings;
@@ -178,6 +215,7 @@ export const RunStartWizard: React.FC = () => {
     const request = ++initializeRequest.current;
     setLoading(true);
     setToast(null);
+    setRestoreFailed(false);
     try {
       const [nextTemplate, nextMembers] = await Promise.all([
         collaborationApi.getTemplate(id, templateId),
@@ -189,11 +227,17 @@ export const RunStartWizard: React.FC = () => {
       setMembers(nextMembers);
       setAgents(executable);
       agentsRef.current = executable;
-      const storedRunId = localStorage.getItem(storageKey);
+      const scopedRunId = localStorage.getItem(storageKey);
+      const storedRunId = scopedRunId ?? localStorage.getItem(legacyStorageKey);
       if (storedRunId) {
         try {
           const existing = await loadEditableRun(id, storedRunId);
           if (initializeRequest.current !== request) return;
+          // Legacy pointers were shared across accounts. Only adopt the original starter's run.
+          if ((!scopedRunId && existing.startedById && existing.startedById !== user?.id)
+            || (existing.templateId && existing.templateId !== templateId)) return;
+          localStorage.setItem(storageKey, existing.id);
+          if (!scopedRunId && localStorage.getItem(legacyStorageKey) === storedRunId) localStorage.removeItem(legacyStorageKey);
           const restoredMapping = reconcileConnectionFacts(
             convergeAuthoritativeMapping(
               { bindings: existing.roleBindings, preparedConnections: {} },
@@ -215,7 +259,9 @@ export const RunStartWizard: React.FC = () => {
           } else if (existing.status === 'ready') setStep(3);
           else setStep(2);
         } catch {
-          localStorage.removeItem(storageKey);
+          if (initializeRequest.current !== request) return;
+          // A network/authorization failure must not erase a recoverable draft pointer.
+          setRestoreFailed(true);
         }
       }
     } catch {
@@ -224,7 +270,7 @@ export const RunStartWizard: React.FC = () => {
     } finally {
       if (initializeRequest.current === request) setLoading(false);
     }
-  }, [id, storageKey, t, templateId]);
+  }, [id, legacyStorageKey, storageKey, t, templateId, user?.id]);
 
   useEffect(() => { void initialize(); }, [initialize]);
 
@@ -644,8 +690,16 @@ export const RunStartWizard: React.FC = () => {
 
       <div className={`aw-run-start-layout${started ? ' aw-run-start-layout-started' : ''}`}>
         <div className="aw-run-start-main">
-          <fieldset disabled={submitting} className="aw-run-start-fields">
-            {!started && step === 1 ? <InputStep template={template} runName={runName} onRunName={setRunName} values={inputValues} onValues={setInputValues} t={t} /> : null}
+          {restoreFailed ? <div role="alert" className="aw-run-start-notice">
+            <p>{t('collaboration.wizard.restoreFailed')}</p>
+            <button type="button" className="aw-run-start-button" onClick={() => void initialize()}>{t('collaboration.wizard.retrySavedRun')}</button>
+          </div> : null}
+          {run || started || restoreFailed ? <div className="aw-run-start-notice">
+            <p>{t('collaboration.wizard.newRunHelp')}</p>
+            <button type="button" disabled={submitting} onClick={beginNewRun} className="aw-run-start-button">{t('collaboration.wizard.newRun')}</button>
+          </div> : null}
+          <fieldset disabled={submitting || restoreFailed} className="aw-run-start-fields">
+            {!started && step === 1 ? <InputStep template={template} runName={runName} runNameRef={runNameRef} runNameError={runNameError} onRunName={(name) => { setRunName(name); setRunNameError(false); }} values={inputValues} onValues={setInputValues} t={t} /> : null}
             {!started && step === 2 ? (
               <section>
                 <h2 ref={mappingFocusFallbackRef} tabIndex={-1} className="aw-run-start-section-title">{t('collaboration.wizard.step2')}</h2>
@@ -699,7 +753,7 @@ export const RunStartWizard: React.FC = () => {
               <button type="button" disabled={submitting || step === 1} onClick={() => setStep((current) => current === 3 ? 2 : 1)} className="aw-run-start-button">{t('common.back')}</button>
               <div className="aw-run-start-next-actions">
                 {retryAction ? <button type="button" onClick={() => void retry()} disabled={submitting} className="aw-run-start-button aw-run-start-button-warning">{t('collaboration.wizard.retryConflict')}</button> : null}
-                <button type="button" disabled={submitting} onClick={() => step === 1 ? void completeInputs() : step === 2 ? void completeMapping() : void start()} className="aw-run-start-button aw-run-start-button-primary">{submitting ? t('collaboration.wizard.working') : step === 3 ? t('collaboration.start') : t('common.next')}</button>
+                <button type="button" disabled={submitting || restoreFailed} onClick={() => step === 1 ? void completeInputs() : step === 2 ? void completeMapping() : void start()} className="aw-run-start-button aw-run-start-button-primary">{submitting ? t('collaboration.wizard.working') : step === 3 ? t('collaboration.start') : t('common.next')}</button>
               </div>
             </div>
           ) : null}
@@ -738,14 +792,15 @@ export const RunStartWizard: React.FC = () => {
   );
 };
 
-const InputStep: React.FC<{ template: TemplateDetail; runName: string; onRunName: (name: string) => void; values: Record<string, string | number | boolean>; onValues: (values: Record<string, string | number | boolean>) => void; t: Translate }> = ({ template, runName, onRunName, values, onValues, t }) => (
+const InputStep: React.FC<{ template: TemplateDetail; runName: string; runNameRef: React.RefObject<HTMLInputElement>; runNameError: boolean; onRunName: (name: string) => void; values: Record<string, string | number | boolean>; onValues: (values: Record<string, string | number | boolean>) => void; t: Translate }> = ({ template, runName, runNameRef, runNameError, onRunName, values, onValues, t }) => (
   <section>
     <h2 className="aw-run-start-section-title">{t('collaboration.wizard.step1')}</h2>
     <p className="aw-run-start-help">{t('collaboration.wizard.step1Help')}</p>
     <div className="aw-run-start-inputs">
       <label className="aw-run-start-field">
-        <span>{t('collaboration.wizard.runName')}</span>
-        <input aria-label={t('collaboration.wizard.runName')} value={runName} onChange={(event) => onRunName(event.target.value)} className="aw-run-start-input" />
+        <span>{t('collaboration.wizard.runName')}<span className="aw-run-start-required">*</span></span>
+        <input ref={runNameRef} required aria-label={t('collaboration.wizard.runName')} aria-invalid={runNameError || undefined} aria-describedby={runNameError ? 'run-name-error' : undefined} value={runName} onChange={(event) => onRunName(event.target.value)} className="aw-run-start-input" />
+        {runNameError ? <span id="run-name-error" role="alert" className="text-sm text-red-600">{t('collaboration.wizard.runNameRequired')}</span> : null}
       </label>
       {template.definition.inputs.map((input) => <InputControl key={input.key} input={input} value={values[input.key]} onChange={(value) => onValues({ ...values, [input.key]: value })} />)}
     </div>
@@ -842,7 +897,7 @@ const StartedStep: React.FC<{ started: CollaborationRun; instructions: AgentInst
   <section>
     <div className="aw-run-start-success">
       <CheckCircle2 size={20} />
-      <div><h2 className="aw-run-start-section-title">{t('collaboration.wizard.started')}</h2><p className="aw-run-start-help">{started.name}</p></div>
+      <div><h2 className="aw-run-start-section-title">{t('collaboration.wizard.started')}</h2><p className="aw-run-start-help">{started.name}</p><p className="aw-run-start-help">{t('collaboration.wizard.currentStatus', { status: t(`collaboration.status.${started.status}`) })}</p></div>
     </div>
     {hasSelfReview ? <p className="aw-run-start-notice">{t('collaboration.wizard.selfReview')}</p> : null}
     <div className="aw-run-start-instructions">

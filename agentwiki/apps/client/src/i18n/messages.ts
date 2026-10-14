@@ -1,4 +1,5 @@
 import { systemCollaborationMessages } from './system-collaboration-messages';
+import { bugCollaborationMessages } from './bug-collaboration-messages';
 export type Language = 'zh-CN' | 'en';
 
 export const messages: Record<Language, Record<string, string>> = {
@@ -39,6 +40,7 @@ export const messages: Record<Language, Record<string, string>> = {
     "review.existingDuplicatesHelp": "This candidate has exactly the same non-empty body as existing pages in this space. Up to five examples are shown. Check whether duplication is intended; this is not semantic similarity detection and does not block publication.",
 
     ...systemCollaborationMessages.en,
+    ...bugCollaborationMessages.en,
     "collaboration.manageTemplates": "Manage collaboration templates",
     "collaboration.managePageTemplates": "Manage page templates",
     "review.duplicateAdvisory": "Identical non-empty content appears in this change set. Check whether the duplication is intended. This advisory only compares the loaded candidates, not all pages in the space; it does not block publication.",
@@ -1399,6 +1401,7 @@ export const messages: Record<Language, Record<string, string>> = {
     "review.existingDuplicatesHelp": "此候选项的非空正文与当前空间中的已有页面完全相同，最多列出五个示例。请确认是否为有意重复；此提示不是语义相似检测，也不会阻止发布。",
 
     ...systemCollaborationMessages['zh-CN'],
+    ...bugCollaborationMessages['zh-CN'],
     "collaboration.manageTemplates": "管理协作模板",
     "collaboration.managePageTemplates": "管理页面模板",
     "review.duplicateAdvisory": "此变更集中存在完全相同的非空正文，请确认是否为有意重复。此提示仅比较已加载的候选项，并未检查空间中的全部页面，不会阻止发布。",

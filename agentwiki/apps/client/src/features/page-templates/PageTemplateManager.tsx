@@ -60,6 +60,10 @@ function formatSourcePageLabel(page: PageTemplateSourcePage, language: string): 
   return `${page.title} · ${context} · ${updated}`;
 }
 
+function formatSelectedSourcePage(page: PageTemplateSourcePage, language: string): string {
+  return `${page.title} · ${page.path || page.folderId || page.id} · ${new Date(page.updatedAt).toLocaleDateString(language)}`;
+}
+
 const CATEGORIES: PageTemplateCategory[] = ['planning', 'reporting', 'knowledge', 'other'];
 const TEMPLATE_NAME_LIMIT = 80;
 const TEMPLATE_DESCRIPTION_LIMIT = 240;
@@ -837,6 +841,18 @@ export const PageTemplateManager: React.FC = () => {
                 <option value="">{sourcePagesLoading ? t('common.loading') : t('pageTemplate.sourcePage')}</option>
                 {sourcePages.map((page) => <option key={page.id} value={page.id}>{formatSourcePageLabel(page, language)}</option>)}
               </select>
+              <div role="status" aria-live="polite" className="mt-3 text-sm font-normal text-gray-600">
+                {sourcePagesLoading ? t('common.loading') : sourcePagesFailed ? null : t('pageTemplate.sourceMatches', { count: sourcePageTotal })}
+              </div>
+              {!sourcePagesLoading && !sourcePagesFailed ? <>
+                {!sourcePages.length ? <p className="mt-2 text-sm font-normal text-gray-600">{t('pageTemplate.sourceNoMatches')}</p> : <div className="mt-2 max-h-56 space-y-2 overflow-y-auto">
+                  {sourcePages.map((page) => <button key={page.id} type="button" disabled={submitting} aria-pressed={sourcePageId === page.id} onClick={() => setSourcePageId(page.id)} className={`w-full rounded-lg border px-3 py-2 text-left text-sm font-normal break-words [overflow-wrap:anywhere] ${sourcePageId === page.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                    <span className="block font-medium">{page.title}</span>
+                    <span className="block text-xs text-gray-500">{page.path || page.folderId || page.id} · {new Date(page.updatedAt).toLocaleDateString(language)}</span>
+                  </button>)}
+                </div>}
+              </> : null}
+              {sourcePageId && sourcePages.find((page) => page.id === sourcePageId) ? <p className="mt-3 text-sm font-normal break-words [overflow-wrap:anywhere]">{t('pageTemplate.sourceSelected', { page: formatSelectedSourcePage(sourcePages.find((page) => page.id === sourcePageId)!, language) })}</p> : null}
             </div>
             <div className="flex justify-between gap-2">
               <button
