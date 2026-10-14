@@ -5,11 +5,13 @@ import type { usePersonalNotes } from '../page/usePersonalNotes';
 import { PersonalNotesPanel } from '../page/PersonalNotesPanel';
 import { captureAssistTarget, type AssistTarget } from '../page/assistTargets';
 import { AgentSessionPanel } from './AgentSessionPanel';
-export function AgentReadingSidebar({ page, notes, activeNoteId, onLocateNote, onClearActiveNote, visible = true, notesOpen, notesContainer, agentContainer, focusRequest, target, selectionUnavailable, onTarget, onOpenAgent }: {
+import type { AssistCandidate } from '../page/assistCandidate';
+export function AgentReadingSidebar({ page, notes, activeNoteId, onLocateNote, onClearActiveNote, onDirectApply, visible = true, notesOpen, notesContainer, agentContainer, focusRequest, target, selectionUnavailable, onTarget, onOpenAgent }: {
   page: { id: string; spaceId: string; title: string; content: string; updatedAt: string; capabilities?: { canEdit?: boolean } };
   visible?: boolean; notesOpen: boolean; target: AssistTarget | null; selectionUnavailable: boolean; onTarget: (target: AssistTarget | null) => void; onOpenAgent: () => void;
   notesContainer: HTMLElement | null; agentContainer: HTMLElement | null; focusRequest?: string;
   notes: ReturnType<typeof usePersonalNotes>; activeNoteId: string | null; onLocateNote: (id: string) => boolean; onClearActiveNote: () => void;
+  onDirectApply?: (candidate: AssistCandidate, content: string) => boolean | Promise<boolean>;
 }) {
   const { user } = useAuth(), { language } = useLanguage(), zh = language === 'zh-CN';
   return <>
@@ -21,7 +23,7 @@ export function AgentReadingSidebar({ page, notes, activeNoteId, onLocateNote, o
       <PersonalNotesPanel stageForSession identityKey={notes.identityKey} syncing={notes.syncing} onRetrySync={notes.retrySync} createDisabled={!notes.canCreate || notes.syncing} source={page.content} target={target} notes={notes.notes} activeNoteId={visible && notesOpen ? activeNoteId : null} onLocate={onLocateNote} onClearActive={onClearActiveNote} disabled={!user?.id || !notes.loaded || !!notes.assistRequest} storageUnavailable={notes.storageUnavailable} onAdd={notes.add} onReopen={notes.reopen} onDispatch={(ids) => { if (notes.dispatch(ids)) onOpenAgent(); }} />
     </div>, notesContainer) : null}
     {agentContainer ? createPortal(<div className="flex min-h-0 flex-1 flex-col">
-      <AgentSessionPanel visible={visible && !notesOpen} autoFocus={false} focusRequest={focusRequest} pageId={page.id} spaceId={page.spaceId} pageTitle={page.title} canEdit={page.capabilities?.canEdit === true} canAccept={false} supportsScopedApply snapshot={() => ({ title: page.title, content: page.content, updatedAt: page.updatedAt })} assistTargets={{ selection: target }} assistRequest={notes.assistRequest} onRequestHandled={notes.onRequestHandled} notesReady={notes.loaded} onNotesEvent={notes.onNotesEvent} />
+      <AgentSessionPanel visible={visible && !notesOpen} autoFocus={false} focusRequest={focusRequest} pageId={page.id} spaceId={page.spaceId} pageTitle={page.title} canEdit={page.capabilities?.canEdit === true} canAccept={false} onDirectApply={onDirectApply} supportsScopedApply snapshot={() => ({ title: page.title, content: page.content, updatedAt: page.updatedAt })} assistTargets={{ selection: target }} assistRequest={notes.assistRequest} onRequestHandled={notes.onRequestHandled} notesReady={notes.loaded} onNotesEvent={notes.onNotesEvent} />
     </div>, agentContainer) : null}
   </>;
 }

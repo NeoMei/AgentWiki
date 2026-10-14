@@ -40,6 +40,20 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe('durable Agent session document bridge', () => {
+  it('lets an editor explicitly send a direct edit and applies the completed page change', async () => {
+    const onDirectApply = vi.fn().mockResolvedValue(true);
+    vi.mocked(api.post).mockImplementation(async (url, data: any) => url === '/assist/sessions'
+      ? { data: { ...summary, id: 'session-new', title: 'New conversation' } }
+      : { data: { ...turn, ...data, id: 'direct-turn', sessionId: summary.id, mode: 'proposal', status: 'done', pageSnapshot: data.snapshot, references: [], result: { summary: 'Updated', changes: 'Changed source' } } });
+    render(tree({ onDirectApply } as any));
+    await screen.findByText('Earlier answer');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Message mode' }), { target: { value: 'direct' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Rewrite this page' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(onDirectApply).toHaveBeenCalledWith(expect.objectContaining({ content: 'Changed source' }), 'Changed source'));
+    const payload = vi.mocked(api.post).mock.calls.find(([url]) => url.endsWith('/turns'))?.[1] as any;
+    expect(payload.mode).toBe('proposal');
+  });
   it('keeps ordinary tab focus and honors each explicit composer focus request once', async () => {
     const rendered = render(tree({ autoFocus: false }));
     await screen.findByText('Earlier answer');

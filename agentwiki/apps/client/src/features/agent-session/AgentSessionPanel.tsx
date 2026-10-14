@@ -24,7 +24,7 @@ function matchesReceipt(turn: AgentTurn, credential: NonNullable<AssistNotesEven
     && annotations.every((annotation) => turn.annotations?.some((sent) => sent.id === annotation.id && sent.body === annotation.body && sent.quote === annotation.quote));
 }
 
-export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdit = false, canAccept = false, onApply, supportsScopedApply = false, assistTargets, assistRequest, onRequestHandled, onNotesEvent, notesReady = true, visible = true, autoFocus = true, focusRequest, acceptUnavailableReason }: AgentSessionPanelProps) {
+export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdit = false, canAccept = false, onApply, onDirectApply, supportsScopedApply = false, assistTargets, assistRequest, onRequestHandled, onNotesEvent, notesReady = true, visible = true, autoFocus = true, focusRequest, acceptUnavailableReason }: AgentSessionPanelProps) {
   const { user } = useAuth(), { language } = useLanguage(), zh = language === 'zh-CN';
   const userId = typeof user?.id === 'string' ? user.id : '';
   const session = useAgentSession(userId, spaceId);
@@ -65,11 +65,14 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
   const [referenceOpenRequest, setReferenceOpenRequest] = useState(0);
   const conversationPanelId = useId();
   const [localError, setLocalError] = useState<string | null>(null);
+  const directTurnIds = useRef(new Set<string>());
+  const directInFlight = useRef(new Set<string>());
+  const [directAppliedIds, setDirectAppliedIds] = useState<Set<string>>(new Set());
   const scope = `${userId}\u0000${spaceId}\u0000${pageId}`;
   const mountRef = useRef({ scope, token: {} });
   if (mountRef.current.scope !== scope) mountRef.current = { scope, token: {} };
   const mount = mountRef.current.token;
-  const callbacks = useRef({ onNotesEvent, onRequestHandled }); callbacks.current = { onNotesEvent, onRequestHandled };
+  const callbacks = useRef({ onNotesEvent, onRequestHandled, onDirectApply }); callbacks.current = { onNotesEvent, onRequestHandled, onDirectApply };
   const emitted = useRef(new Map<string, string>());
   useEffect(() => { setLocalError(null); emitted.current.clear(); }, [scope]);
   useEffect(() => { composingRef.current = false; }, [scope, session.selected]);
@@ -141,7 +144,42 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
       if (candidate.status === 'failed') emit('fail', candidate);
     }
   }, [session.detail, session.loading, session.error, session.sentRevision, scope, store, notesReady]);
-  useEffect(() => { if (!canEdit && draft.mode !== 'question') session.updateDraft({ mode: 'question' }); }, [canEdit, draft.mode, store]);
+  useEffect(() => {
+    if ((!canEdit || !onDirectApply) && draft.mode === 'direct') session.updateDraft({ mode: 'question' });
+    else if (!canEdit && draft.mode !== 'question') session.updateDraft({ mode: 'question' });
+  }, [canEdit, draft.mode, onDirectApply, store]);
+  useEffect(() => {
+    if (!onDirectApply || !canEdit || session.loading || session.error) return;
+    for (const turn of session.detail?.turns ?? []) {
+      if (!directTurnIds.current.has(turn.id) || directInFlight.current.has(turn.id) || directAppliedIds.has(turn.id)) continue;
+      const record = store.candidates.get(turn.id), candidate = record?.candidate;
+      if (!record || !candidate || candidate.status !== 'ready' || candidate.pageId !== pageId) continue;
+      const liveSnapshot = current();
+      const application = applyCandidateToDraft(candidate, liveSnapshot);
+      if (application.status !== 'applied') {
+        record.candidate = { ...candidate, status: 'conflict' };
+        store.set({ revision: store.get().revision + 1 });
+        continue;
+      }
+      directInFlight.current.add(turn.id);
+      void Promise.resolve(callbacks.current.onDirectApply?.(candidate, application.content)).then((saved) => {
+        if (saved) {
+          record.candidate = { ...candidate, status: 'accepted', acceptedEditIds: application.acceptedEditIds };
+          store.ledger.set(turn.id, { status: 'accepted', acceptedEditIds: application.acceptedEditIds });
+          setDirectAppliedIds((ids) => new Set(ids).add(turn.id));
+          emit('accept', record.candidate);
+        } else {
+          record.candidate = { ...candidate, status: 'conflict' };
+          store.ledger.set(turn.id, { status: 'conflict', acceptedEditIds: candidate.acceptedEditIds });
+          emit('fail', record.candidate);
+        }
+        store.set({ revision: store.get().revision + 1 });
+      }).catch(() => {
+        record.candidate = { ...candidate, status: 'conflict' };
+        store.set({ revision: store.get().revision + 1 });
+      }).finally(() => directInFlight.current.delete(turn.id));
+    }
+  }, [session.detail, session.loading, session.error, session.sentRevision, scope, store, notesReady, canEdit, onDirectApply, pageId, directAppliedIds]);
   const current = () => ({ ...snapshot(), userId, spaceId, pageId, canEdit });
   const accept = (id: string, editId?: string) => {
     const record = store.candidates.get(id);
@@ -163,7 +201,7 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
     record.candidate = { ...record.candidate, status: 'discarded' }; store.ledger.set(id, { status: 'discarded', acceptedEditIds: record.candidate.acceptedEditIds }); emit('discard', record.candidate); store.set({ revision: store.get().revision + 1 });
   };
   const submit = async () => {
-    if (!draft.intent.trim() || session.sending || session.running || session.loading || !userId || (draft.mode === 'proposal' && !canEdit)) return;
+    if (!draft.intent.trim() || session.sending || session.running || session.loading || !userId || ((draft.mode === 'proposal' || draft.mode === 'direct') && !canEdit)) return;
     const staged = draft.staged;
     if (staged && staged.pageId !== pageId) { setLocalError(zh ? '请返回批注所属页面发送，或移除附件。' : 'Return to the annotation page before sending, or remove the attachment.'); return; }
     const source = { ...snapshot() };
@@ -182,7 +220,9 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
       userId, spaceId, pageId, request: structuredClone({ ...staged.request, assistTarget: target }), snapshot: { title: source.title, content: source.content, updatedAt: source.updatedAt },
     } : undefined;
     const submittedSnapshot = { title: source.title, content: source.content, updatedAt: source.updatedAt, draftRevision: source.draftRevision, remoteRevision: source.remoteRevision, ...(target ? { assistTarget: target } : {}) };
-    await session.send({ pageId, mode: draft.mode, intent: draft.intent.trim(), snapshot: submittedSnapshot, referencePageIds: draft.references.map((r) => r.pageId), noteIds: staged?.request.noteIds ?? [], annotations: staged?.request.annotations ?? [] }, (turn) => {
+    const direct = draft.mode === 'direct';
+    await session.send({ pageId, mode: direct ? 'proposal' : draft.mode, intent: draft.intent.trim(), snapshot: submittedSnapshot, referencePageIds: draft.references.map((r) => r.pageId), noteIds: staged?.request.noteIds ?? [], annotations: staged?.request.annotations ?? [] }, (turn) => {
+      if (direct) directTurnIds.current.add(turn.id);
       if (mountRef.current.token === mount && selectedRef.current === turn.sessionId) followTurnsRef.current = true;
       const record = restoreCandidate(turn);
       if (record && !store.candidates.has(turn.id)) { record.mount = mount; store.candidates.set(turn.id, record); }
@@ -260,7 +300,7 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
             <div className="agent-reply-meta"><Bot aria-hidden="true" size={15} /><span>Agent</span><span className={turn.status === 'running' || turn.status === 'queued' ? 'agent-turn-active' : ''}>{statuses[turn.status]}</span></div>
             {turn.result?.summary || turn.progressText ? <div className="agent-reply-content"><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml disallowedElements={['img']} components={{ a: ({ children, href }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> }}>{turn.result?.summary ?? turn.progressText}</ReactMarkdown></div> : null}
             {turn.status === 'failed' ? <p role="alert" className="text-xs text-red-700">{zh ? '本轮执行失败。可检查上下文后重试，或新建会话。' : 'This turn failed. Check the context and retry, or start a new conversation.'}</p> : null}
-            {candidate?.status === 'accepted' || candidate?.acceptedEditIds?.length ? <div className="agent-acceptance-receipt"><p>{zh ? '已接受到草稿，仍需保存页面。' : 'Accepted to draft. Save the page to publish these changes.'}</p><p className="text-xs text-gray-600">{zh ? '历史接受记录：曾接受到草稿。编辑器撤销/重做只改变正文，不回退本记录或笔记；再次应用请重新生成。' : 'Acceptance record: previously accepted into the draft. Editor Undo/Redo changes text, not this record or notes. Regenerate to apply again.'}</p></div> : null}
+            {directAppliedIds.has(turn.id) ? <div className="agent-acceptance-receipt"><p>{zh ? '页面已直接修改并保存。' : 'Page updated and saved directly.'}</p></div> : candidate?.status === 'accepted' || candidate?.acceptedEditIds?.length ? <div className="agent-acceptance-receipt"><p>{zh ? '已接受到草稿，仍需保存页面。' : 'Accepted to draft. Save the page to publish these changes.'}</p><p className="text-xs text-gray-600">{zh ? '历史接受记录：曾接受到草稿。编辑器撤销/重做只改变正文，不回退本记录或笔记；再次应用请重新生成。' : 'Acceptance record: previously accepted into the draft. Editor Undo/Redo changes text, not this record or notes. Regenerate to apply again.'}</p></div> : null}
             {candidate ? <details className="agent-candidate-details" open={['ready', 'conflict', 'generating', 'empty', 'failed'].includes(candidate.status)}>
               <summary><span>{zh ? '查看修改候选' : 'Review proposed changes'}</span><span>{candidate.status === 'accepted' ? (zh ? '已接受' : 'Accepted') : candidate.status === 'discarded' ? (zh ? '已丢弃' : 'Discarded') : candidate.status === 'empty' || candidate.status === 'failed' ? (zh ? '需要重试' : 'Retry needed') : (zh ? '待审阅' : 'Review')}</span><ChevronDown aria-hidden="true" size={14} /></summary>
               {(!samePage || !canAccept) && turn.pageId ? <Link className="block text-blue-700" to={`/pages/${turn.pageId}/edit`}>{zh ? '打开目标文档编辑以审阅' : 'Open target document to review'}</Link> : null}
@@ -303,13 +343,13 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
           event.preventDefault(); void submit();
         }} />
         <div className="agent-composer-actions">
-          <select aria-label={zh ? '会话模式' : 'Message mode'} disabled={session.sending || session.loading} value={canEdit ? draft.mode : 'question'} onChange={(event) => session.updateDraft({ mode: event.target.value as 'question' | 'proposal' })} className="agent-mode-select"><option value="question">{zh ? '问答' : 'Ask a question'}</option><option value="proposal" disabled={!canEdit}>{zh ? '生成修改候选' : 'Propose changes'}</option></select>
+          <select aria-label={zh ? '会话模式' : 'Message mode'} disabled={session.sending || session.loading} value={canEdit ? draft.mode : 'question'} onChange={(event) => session.updateDraft({ mode: event.target.value as 'question' | 'proposal' | 'direct' })} className="agent-mode-select"><option value="question">{zh ? '问答' : 'Ask a question'}</option><option value="proposal" disabled={!canEdit}>{zh ? '生成修改候选' : 'Propose changes'}</option>{onDirectApply ? <option value="direct" disabled={!canEdit}>{zh ? '直接修改页面' : 'Edit page directly'}</option> : null}</select>
           <details ref={settingsRef} className="agent-composer-settings" onKeyDown={(event) => { if (event.key === 'Escape' && settingsRef.current?.open) { event.preventDefault(); settingsRef.current.open = false; settingsRef.current.querySelector<HTMLElement>('summary')?.focus(); } }}>
             <summary aria-label={zh ? '上下文设置' : 'Context settings'} title={zh ? '上下文设置' : 'Context settings'}><SlidersHorizontal aria-hidden="true" size={15} />{targetKind !== 'document' ? <span>{scopeLabel}</span> : null}</summary>
-            <div className="agent-settings-popover"><label>{zh ? '修改范围' : 'Edit scope'}<select aria-label={zh ? '修改范围' : 'Edit scope'} disabled={session.sending || session.loading} value={targetKind} onChange={(event) => session.updateDraft({ targetKind: event.target.value as AssistTarget['kind'] })}><option value="document">{zh ? '整篇文档' : 'Document'}</option><option value="selection" disabled={!assistTargets?.selection && draft.staged?.request.assistTarget?.kind !== 'selection'}>{zh ? '所选段落' : 'Selection'}</option><option value="section" disabled={!assistTargets?.section && draft.staged?.request.assistTarget?.kind !== 'section'}>{zh ? '当前章节' : 'Section'}</option></select></label><p>{zh ? '修改候选需审阅并接受到草稿，再保存页面。' : 'Review and accept proposed changes to the draft, then save the page.'}</p></div>
+            <div className="agent-settings-popover"><label>{zh ? '修改范围' : 'Edit scope'}<select aria-label={zh ? '修改范围' : 'Edit scope'} disabled={session.sending || session.loading} value={targetKind} onChange={(event) => session.updateDraft({ targetKind: event.target.value as AssistTarget['kind'] })}><option value="document">{zh ? '整篇文档' : 'Document'}</option><option value="selection" disabled={!assistTargets?.selection && draft.staged?.request.assistTarget?.kind !== 'selection'}>{zh ? '所选段落' : 'Selection'}</option><option value="section" disabled={!assistTargets?.section && draft.staged?.request.assistTarget?.kind !== 'section'}>{zh ? '当前章节' : 'Section'}</option></select></label><p>{draft.mode === 'direct' ? (zh ? '完成后会再次检查页面版本，并直接保存；版本冲突时不会覆盖页面。' : 'After completion, the page version is checked again and the change is saved directly. Conflicts never overwrite the page.') : (zh ? '修改候选需审阅并接受到草稿，再保存页面。' : 'Review and accept proposed changes to the draft, then save the page.')}</p></div>
           </details>
           <span className="agent-composer-spacer" />
-          {runningTurn ? <button type="button" aria-label={zh ? '停止' : 'Stop'} title={zh ? '停止' : 'Stop'} disabled={session.cancelling} onClick={() => void session.cancel(runningTurn)} className="agent-send-button agent-stop-button"><Square aria-hidden="true" size={13} fill="currentColor" /></button> : <button type="button" aria-label={session.sending ? (zh ? '发送中…' : 'Sending…') : (zh ? '发送' : 'Send')} title={zh ? '发送 · Enter' : 'Send · Enter'} data-testid="assist-submit" disabled={!draft.intent.trim() || session.sending || session.running || session.loading || !userId || (!canEdit && draft.mode === 'proposal')} onClick={() => void submit()} className="agent-send-button"><ArrowUp aria-hidden="true" size={18} /></button>}
+          {runningTurn ? <button type="button" aria-label={zh ? '停止' : 'Stop'} title={zh ? '停止' : 'Stop'} disabled={session.cancelling} onClick={() => void session.cancel(runningTurn)} className="agent-send-button agent-stop-button"><Square aria-hidden="true" size={13} fill="currentColor" /></button> : <button type="button" aria-label={session.sending ? (zh ? '发送中…' : 'Sending…') : (zh ? '发送' : 'Send')} title={zh ? '发送 · Enter' : 'Send · Enter'} data-testid="assist-submit" disabled={!draft.intent.trim() || session.sending || session.running || session.loading || !userId || (!canEdit && (draft.mode === 'proposal' || draft.mode === 'direct'))} onClick={() => void submit()} className="agent-send-button"><ArrowUp aria-hidden="true" size={18} /></button>}
         </div>
       </div>
       {localError || session.error ? <div role="alert" className="agent-composer-error"><p>{localError ?? errors[session.error!]}</p>{session.selected && session.error ? <button type="button" onClick={() => void session.select(session.selected!)} className="mt-1 underline">{zh ? '重新加载会话' : 'Reload conversation'}</button> : null}</div> : null}
