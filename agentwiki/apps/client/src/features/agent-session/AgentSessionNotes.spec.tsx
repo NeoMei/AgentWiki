@@ -40,8 +40,10 @@ const agentPostCalls = () => vi.mocked(api.post).mock.calls.filter(([url]) => ur
 const pagePatchCalls = () => vi.mocked(api.patch).mock.calls.filter(([url]) => !noteRoute.test(url));
 const notesSettled = async () => { await waitFor(() => expect(notes.loaded && !notes.syncing).toBe(true)); };
 const editScope = () => {
-  const select = screen.getByRole('combobox', { name: 'Edit scope', hidden: true });
-  if (!select.closest('details')?.open) fireEvent.click(screen.getByLabelText('Context settings'));
+  if (!screen.queryByRole('dialog', { name: 'Context settings' })) fireEvent.click(screen.getByLabelText('Context settings'));
+  const dialog = screen.getByRole('dialog', { name: 'Context settings' });
+  expect(dialog).toBeVisible();
+  const select = within(dialog).getByRole('combobox', { name: 'Edit scope' });
   expect(select).toBeVisible(); return select;
 };
 const inspectStagedNotes = (body: string) => {
