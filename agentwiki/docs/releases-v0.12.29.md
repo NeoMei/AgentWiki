@@ -22,3 +22,11 @@
 - 直接修改代码仅涉及客户端 7 个文件；服务端 proposal 合约和现有页面 PATCH/CAS 接口未改动
 
 完整发布回执见 `verification/direct-edit-v01229-20261014/status.md`。
+
+## 生产回执
+
+- 提交 `f629983a76bb3aa5a1e0b3aa65c4212d8c0e4c14` 已推送到 GitHub `master`，并创建 [v0.12.29 Release](https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.29)。
+- 2026-10-15 00:07（Asia/Shanghai）部署到 `root@113.249.120.24:/root/agentwiki`；生产 root/client/server 包均为 `0.12.29`，上一版本保留在 `/root/agentwiki-previous-20261015000706`。
+- API、Worker、Frontend 进程存活；本地与公网 `/api/health` 均返回五项 `ok`。
+- 公网 HTML 与候选构建使用同一 `index-BhwdmaEv.js`，SHA-256 为 `12d8871e8f33738c4d5bcbdaf8ca5df001b6dd9880ad3f9d32e865dc546f33d8`。
+- 登录编辑页面已回读“直接修改页面”模式及 CAS 版本冲突提示；本次未向真实项目页面提交测试内容。
