@@ -454,7 +454,7 @@ export const KnowledgeGraph: React.FC = () => {
             <p>{gt('graph.noMatches')}</p>
             <button type="button" onClick={() => { setSearch(''); setRelationType(''); }} className="mt-2 text-blue-600 hover:underline">{gt('graph.clearFilters')}</button>
           </div>}
-          <div className={`grid items-start gap-4 ${selectedNode ? 'lg:grid-cols-[minmax(0,1fr)_20rem]' : ''}`}>
+          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
           <div className="min-w-0">
           <div className="text-sm text-gray-400 mb-2">
             <span className="hidden sm:inline">{zh ? '单击选择 · 双击打开 · 使用“建立关系”按钮连接页面' : 'Click to select · Double-click to open · Use “Link” to connect pages'}</span>
@@ -505,7 +505,7 @@ export const KnowledgeGraph: React.FC = () => {
             )}
           </div>
           </div>
-          {selectedNode && (
+          {selectedNode ? (
             <aside aria-label={gt('graph.pageDetails')} className="min-w-0 max-h-[720px] overflow-y-auto rounded-lg border bg-white p-4">
               <div className="mb-3 flex items-center justify-between gap-2">
                 <h2 className="text-sm font-medium">{gt('graph.pageDetails')}</h2>
@@ -570,6 +570,8 @@ export const KnowledgeGraph: React.FC = () => {
                 </Link>
               </div>
             </aside>
+          ) : (
+            <p className="hidden rounded-lg border bg-gray-50 p-4 text-sm text-gray-500 lg:block">{gt('graph.selectHint')}</p>
           )}
           </div>
         </>

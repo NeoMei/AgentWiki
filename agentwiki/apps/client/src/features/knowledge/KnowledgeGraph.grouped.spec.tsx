@@ -61,6 +61,25 @@ describe('KnowledgeGraph folder browsing', () => {
     expect(screen.getByText('Opened page')).toBeInTheDocument();
   });
 
+  it('keeps the canvas column unchanged when page details appear and close, reserving the sidebar only on desktop', async () => {
+    const { container } = mount();
+    const browser = await screen.findByRole('combobox', { name: '浏览图谱节点' });
+    const canvas = container.querySelector('canvas')!;
+    const workspace = canvas.closest('.grid')!;
+    const beforeSelection = workspace.className;
+    fireEvent.change(browser, { target: { value: 'p1' } });
+    const details = screen.getByRole('complementary', { name: '页面详情' });
+    expect(details.parentElement).toBe(workspace);
+    // A changed column definition would move the second native click into the aside.
+    expect(workspace.className).toBe(beforeSelection);
+    expect(workspace).toHaveClass('lg:grid-cols-[minmax(0,1fr)_20rem]');
+    expect([...workspace.classList].some(value => value.startsWith('grid-cols-'))).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: '关闭页面详情' }));
+    expect(workspace.className).toBe(beforeSelection);
+    expect(screen.getByText('选择页面节点查看路径与关联页面。')).toHaveClass('hidden', 'lg:block');
+    expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
+  });
+
   it('searches titles and canonical paths, reports counts, and clears a no-match canvas', async () => {
     mount();
     const search = await screen.findByRole('searchbox', { name: '搜索页面' });
