@@ -18,7 +18,7 @@ describe('GatewayGuidePreview', () => {
     expect(role).toBeDisabled();
     expect(Array.from(role.querySelectorAll('option')).map((option) => option.value))
       .toEqual(['reader', 'editor', 'publisher']);
-    expect(screen.getByText(/Publisher 自动发布仍受 Space 发布策略限制/)).toBeInTheDocument();
+    expect(screen.getByText(/Space 选择“无需审核”时.*Editor 和 Publisher Agent.*始终审核/)).toBeInTheDocument();
     expect(screen.getByText(/Agent 不能执行人工审批或成员管理/)).toBeInTheDocument();
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '生成统一网关接入指令' })).toBeDisabled();

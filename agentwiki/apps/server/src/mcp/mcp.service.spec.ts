@@ -168,6 +168,8 @@ describe('McpService knowledge-sync tool', () => {
     const result = await controller.info({ user: principal } as any);
 
     expect(result.note).toContain('Publisher');
+    expect(result.note).toContain('Editor');
+    expect(result.note).toContain('no-review');
     expect(result.note).toContain('Space policy');
     expect(result.note).not.toContain('Credential and Space Grant');
     expect(result.note).not.toContain('cannot bypass review');

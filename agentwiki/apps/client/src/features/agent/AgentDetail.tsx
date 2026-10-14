@@ -142,7 +142,7 @@ export const AgentDetail: React.FC = () => {
         <div className="grid sm:grid-cols-3 gap-4">
           <Summary label={t('nav.spaces')} value={currentAgent.grants.length} />
           <Summary label={t('agent.activeCredentials')} value={currentAgent.credentials.filter((item: any) => credentialIsActive(item)).length} />
-          <Summary label={t('agent.approvalMode')} value={currentAgent.approvalMode} />
+          <Summary label={t('agent.approvalMode')} value={t('agent.approvalFollowsSpace')} />
         </div>
       ) : null}
 
@@ -196,7 +196,7 @@ export const AgentDetail: React.FC = () => {
         const details = safeActivityDetails(item);
         return <div key={item.id} className="p-4 text-sm"><div className="flex flex-wrap items-baseline gap-3"><span className="font-medium">{describeActivity(item)}</span><span className="text-gray-400">{new Date(item.createdAt).toLocaleString(language)}</span></div>{details ? <details className="mt-2 text-xs text-gray-500"><summary className="cursor-pointer">{t('agent.activityDetails')}</summary><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-gray-50 p-2">{JSON.stringify(details, null, 2)}</pre></details> : null}</div>;
       })}{!activity.length ? <p className="p-5 text-sm text-gray-500">{t('agent.noActivity')}</p> : null}</div> : null}
-      {tab === 'settings' ? <div className="border rounded-[14px] bg-white p-5"><p className="text-sm text-gray-500">{t('agent.approvalMode')}</p><p className="mt-2 text-sm font-medium">{currentAgent.approvalMode === 'scoped-auto-publish' ? t('settings.autoPublish') : t('settings.alwaysReview')}</p><p className="mt-2 text-xs text-gray-500">{t('agent.approvalModeReadonlyHelp')}</p></div> : null}
+      {tab === 'settings' ? <div className="border rounded-[14px] bg-white p-5"><p className="text-sm text-gray-500">{t('agent.approvalMode')}</p><p className="mt-2 text-sm font-medium">{t('agent.approvalFollowsSpace')}</p><p className="mt-2 text-xs text-gray-500">{t('agent.approvalModeReadonlyHelp')}</p></div> : null}
     </div>
   );
 };

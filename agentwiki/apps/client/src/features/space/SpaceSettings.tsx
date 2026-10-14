@@ -7,11 +7,12 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { SPACE_NAME_MAX_LENGTH } from '@agentwiki/shared';
 import { validatorLength } from '../page-templates/validatorLength';
+import { normalizeSpaceApprovalPolicy, type CanonicalSpaceApprovalPolicy } from '../../api/space-types';
 
 interface SpaceSettingsModel {
   name: string;
   description?: string;
-  approvalPolicy: 'always-review' | 'scoped-auto-publish';
+  approvalPolicy: CanonicalSpaceApprovalPolicy;
   members?: Array<{ userId: string; role: 'owner' | 'admin' | 'editor' | 'viewer' }>;
 }
 interface GraphSettings {
@@ -209,7 +210,7 @@ export const SpaceSettings: React.FC = () => {
     api.get(`/spaces/${id}`)
       .then((response) => {
         if (active) {
-          setSpace(response.data);
+          setSpace({ ...response.data, approvalPolicy: normalizeSpaceApprovalPolicy(response.data.approvalPolicy) });
           setConfirmedName(response.data.name);
           setLoadedSpaceId(id);
         }
@@ -278,7 +279,7 @@ export const SpaceSettings: React.FC = () => {
           <p className="text-sm text-gray-500 mb-3">{t('settings.approvalHelp')}</p>
           <select id="approval-policy" value={currentSpace.approvalPolicy} onChange={(event) => updateDraft({ approvalPolicy: event.target.value as SpaceSettingsModel['approvalPolicy'] })} className="border rounded-lg px-3 py-2 text-sm" disabled={saving || !canEditSpace}>
             <option value="always-review">{t('settings.alwaysReview')}</option>
-            <option value="scoped-auto-publish">{t('settings.autoPublish')}</option>
+            <option value="no-review">{t('settings.autoPublish')}</option>
           </select>
         </div>
         {error ? <p className="text-sm text-red-600">{error}</p> : null}

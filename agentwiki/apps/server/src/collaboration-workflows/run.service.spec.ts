@@ -650,9 +650,19 @@ describe('RunService', () => {
     expect(result.tasks[0].attempts[0]).toMatchObject({ id: 'attempt-1', status: 'running' });
   });
 
-  it.each([['system', 'novel-writing'], ['space', null]])('projects trusted composite %s provenance with no legacy ID', async (scope, slug) => {
+  it.each([
+    ['system', 'novel-workspace', 'novel-writing'],
+    ['system', 'task-list', 'single-page'],
+    ['system', 'project-management', 'single-page'],
+    ['system', 'daily-report', 'single-page'],
+    ['system', 'weekly-report', 'single-page'],
+    ['system', 'meeting-notes', 'single-page'],
+    ['system', 'decision-record', 'single-page'],
+    ['system', 'retrospective', 'single-page'],
+    ['space', 'novel-workspace', null],
+  ])('projects trusted composite %s provenance with no legacy ID', async (scope, stableKey, slug) => {
     const run = { ...ready, templateId: null, template: null,
-      compositeTemplateVersion: { template: { scope, spaceId: scope === 'system' ? null : 'space-1', stableKey: 'novel-workspace' } },
+      compositeTemplateVersion: { template: { scope, spaceId: scope === 'system' ? null : 'space-1', stableKey } },
       tasks: [], roleBindings: bindings };
     tx.collaborationRun.findFirst.mockResolvedValue(ready);
     tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) => projectSelect(run, args.select));
@@ -674,6 +684,15 @@ describe('RunService', () => {
     }, args.select));
     const result = await service.getHumanRun('space-1', 'run-1', humanPrincipal);
     expect(result.systemTemplateSource).toEqual(expected);
+  });
+
+  it('marks page-selection Runs with a dedicated single-page provenance', async () => {
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) => projectSelect({
+      ...ready, sourceKind: 'page_selection', template: null, compositeTemplateVersion: null, tasks: [], roleBindings: bindings,
+    }, args.select));
+    const result = await service.getHumanRun('space-1', 'run-1', humanPrincipal);
+    expect(result.systemTemplateSource).toEqual({ slug: 'single-page' });
   });
 
   it('adds frozen approval criteria to the current Review preview without exposing the template snapshot', async () => {

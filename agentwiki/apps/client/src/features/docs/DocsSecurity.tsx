@@ -28,10 +28,10 @@ export const DocsSecurity: React.FC = () => {
           </div>
           <div className="bg-white border border-green-200 rounded-xl p-6">
             <div className="flex items-center gap-2 mb-2"><Users className="text-green-600" size={20} /><h3 className="font-semibold text-gray-900">{zh ? '审核策略（Approval Policy）' : 'Approval Policy'}</h3></div>
-            <p className="text-sm text-gray-600 leading-relaxed mb-2">{zh ? 'Reader 不可写；Editor 写入进入待审核。Publisher 是否自动发布还取决于 Space 级发布策略：' : 'Reader cannot write, and Editor writes enter pending review. Publisher auto-publishing additionally depends on the Space publishing policy:'}</p>
+            <p className="text-sm text-gray-600 leading-relaxed mb-2">{zh ? 'Reader 始终只读；Editor 和 Publisher 都具备写入能力，Space 策略决定写入是否进入人工审核：' : 'Reader is always read-only; Editor and Publisher are write-capable. The Space policy determines whether writes need human review:'}</p>
             <ul className="text-sm text-gray-600 leading-relaxed list-disc pl-5 space-y-1">
-              <li><code className="text-xs bg-gray-100 px-1 rounded">always-review</code> {zh ? '（默认）：Editor 与 Publisher 写入均进入审核队列，由具备审批权的人类决定。' : '(default): both Editor and Publisher writes enter the review queue for an authorized human to decide.'}</li>
-              <li><code className="text-xs bg-gray-100 px-1 rounded">scoped-auto-publish</code> {zh ? '：仅当 Publisher Space 授权与 Space 发布策略同时允许时自动发布；缺少任一条件都进入待审核。' : ': auto-publishing occurs only when the Publisher Space Grant and Space publishing policy both permit it; a missing gate sends the change to pending review.'}</li>
+              <li><code className="text-xs bg-gray-100 px-1 rounded">always-review</code> {zh ? '（始终审核）：Editor 与 Publisher 写入均进入审核队列，由具备审批权的人类决定。' : '(Always review): Editor and Publisher writes enter the review queue for an authorized human to decide.'}</li>
+              <li><code className="text-xs bg-gray-100 px-1 rounded">no-review</code> {zh ? '（无需审核）：活跃且具备写入能力的 Editor 和 Publisher Agent 可在已有权限范围内自动发布；历史 scoped-auto-publish 值按此模式兼容。' : '(No review): active write-capable Editor and Publisher Agents may auto-publish within existing scopes; legacy scoped-auto-publish values are treated as this mode.'}</li>
             </ul>
             <p className="mt-3 text-sm text-gray-600 leading-relaxed">{zh ? 'Agent 永远不能执行人工审批或成员管理，也永远不具备 review:decide。' : 'Agents can never perform human approval or member management and never receive review:decide.'}</p>
           </div>
@@ -45,8 +45,8 @@ export const DocsSecurity: React.FC = () => {
         <p className="text-gray-600 leading-relaxed mb-4">{zh ? '每次获得授权的 Agent 写入（创建、更新、删除页面或图谱关系）都会形成可审计的变更集（ChangeSet）；它进入待审核还是自动发布，由角色与 Space 策略共同决定：' : 'Every authorized Agent write (create, update, delete pages or graph relations) creates an auditable ChangeSet. Its role and Space policy determine whether it enters pending review or auto-publishes:'}</p>
         <div className="space-y-3 mb-8 not-prose">
           {[
-            zh ? 'Reader 无写入能力；Editor 写入进入待审核 ChangeSet' : 'Reader cannot write; Editor writes enter pending-review ChangeSets',
-            zh ? 'Publisher 只有在 Space 授权与发布策略都允许时自动发布，否则进入待审核' : 'Publisher auto-publishes only when its Space Grant and publishing policy both allow it; otherwise it enters pending review',
+            zh ? '阅读者始终只读；编辑者和发布者在“无需审核”下可在已有权限范围内自动发布' : 'Reader is always read-only; Editor and Publisher Agents may auto-publish within existing scopes in No review',
+            zh ? '“始终审核”下，编辑者和发布者写入进入待审核 ChangeSet' : 'Always review keeps Editor and Publisher writes in pending-review ChangeSets',
             zh ? '具备审批权的人类在审核页面查看待处理变更及完整 diff' : 'Authorized humans inspect pending changes and their complete diffs on the review page',
             zh ? '人类审批人可以逐项或整体接受、拒绝；Agent 永远没有 review:decide' : 'Human approvers can accept or reject items or the whole set; Agents never have review:decide',
             zh ? '自动发布与人工决策都记录到审计日志' : 'Both auto-publishing and human decisions are recorded in the audit log',

@@ -15,7 +15,7 @@ describe('MCP governed Page proposals', () => {
     const writes: any[] = [];
     const prisma: any = {
       space: { findUnique: async () => ({ id: 'space-1', deletedAt: null,
-        approvalPolicy: options.spacePolicy ?? 'scoped-auto-publish' }) },
+        approvalPolicy: options.spacePolicy ?? 'always-review' }) },
       page: { findUnique: async () => ({ id: 'page-1', spaceId: options.pageSpace ?? 'space-1' }) },
       agent: { findUnique: async () => ({ status: 'active', revokedAt: null,
         approvalMode: options.agentMode ?? 'scoped-auto-publish', owner: { deletedAt: null, lockedAt: null } }) },
@@ -105,7 +105,6 @@ describe('MCP governed Page proposals', () => {
 
   it.each([
     ['scoped-auto-publish', 'scoped-auto-publish', true],
-    ['review-required', 'scoped-auto-publish', false],
     ['scoped-auto-publish', 'review-required', false],
   ])('Publisher update follows Review policy: Agent %s / Space %s', async (agentMode, spacePolicy, autoPublish) => {
     const { tools, writes, publish } = fixture({ role: 'publisher', agentMode, spacePolicy });
@@ -117,6 +116,16 @@ describe('MCP governed Page proposals', () => {
     expect(writes[0].status).toBe(autoPublish ? 'approved' : 'pending_review');
     expect(publish).toHaveBeenCalledTimes(autoPublish ? 1 : 0);
     if (autoPublish) expect(publish).toHaveBeenCalledWith('change-1', {
+      ownerId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1',
+    });
+  });
+
+  it('auto-publishes an Editor update in no-review mode without a review scope', async () => {
+    const { tools, writes, publish } = fixture({ role: 'editor', agentMode: 'always-review', spacePolicy: 'no-review' });
+    const response = await tools.propose_page_update.handler({ ...baseline, content: 'New' });
+    expect(JSON.parse(response.content[0].text)).toMatchObject({ status: 'published', autoPublished: true });
+    expect(writes[0].status).toBe('approved');
+    expect(publish).toHaveBeenCalledWith('change-1', {
       ownerId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1',
     });
   });

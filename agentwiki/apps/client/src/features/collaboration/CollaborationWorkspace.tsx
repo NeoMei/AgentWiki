@@ -216,7 +216,7 @@ export const CollaborationWorkspace: React.FC = () => {
               <Plus size={16} aria-hidden="true" />{t('collaboration.createCompositeRun')}
             </button> : null}
             {canManage && tab !== 'manage' ? <Link to={`/spaces/${id}/collaboration?tab=manage`} className="aw-collab-button">{t('collaboration.manageTemplates')}</Link> : null}
-            {canManage ? <Link to={`/spaces/${id}/collaboration/templates/new`} className="aw-collab-button">{t('collaboration.createLegacyTemplate')}</Link> : null}
+            {canManage && tab === 'manage' ? <Link to={`/spaces/${id}/collaboration/templates/new`} className="aw-collab-button">{t('collaboration.createLegacyTemplate')}</Link> : null}
           </div> : null}
         </div>
 
@@ -253,7 +253,7 @@ export const CollaborationWorkspace: React.FC = () => {
                     template={template}
                     name={localizedTemplateName(template, t)}
                     description={localizedTemplateDescription(template, t)}
-                    canManage={canManage}
+                    canManage={canManage && tab === 'manage'}
                     canStart={canStart && tab !== 'manage'}
                     labels={labels}
                     onCopy={openCopy}

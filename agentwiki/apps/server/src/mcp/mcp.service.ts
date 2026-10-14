@@ -211,7 +211,7 @@ export class McpService {
       });
     });
     registerTool('propose_folder_change', {
-      description: 'Create a governed Folder lifecycle ChangeSet. Publishing remains subject to the bound Grant, Agent mode, and Space approval policy.',
+      description: 'Create a governed Folder lifecycle ChangeSet. Publishing follows the Space policy and the bound Grant folder scopes: no-review may auto-publish permitted Editor or Publisher changes, while always-review keeps them pending for human review. Agents never receive review:decide.',
       inputSchema: PROPOSE_FOLDER_CHANGE_INPUT,
     }, async (raw: unknown) => {
       const input = PROPOSE_FOLDER_CHANGE_INPUT.parse(raw);
@@ -329,7 +329,7 @@ export class McpService {
       return this.text(await this.knowledge.getGraph(spaceId, principal));
     });
     registerTool('propose_page', {
-      description: 'Propose a page ChangeSet. Editor proposals remain pending review. Publisher proposals auto-publish only when the bound Space Grant is publisher and both Agent mode and Space policy allow it.',
+      description: 'Propose a page ChangeSet. The Space policy controls review: in no-review mode, the bound Space Grant may be Editor or Publisher and can auto-publish within its existing write scopes; always-review keeps proposals pending for human review. Agents never receive review:decide.',
       inputSchema: {
         spaceId: z.string().describe(SPACE_ID),
         title: z.string().min(1).regex(NON_BLANK_PAGE_TITLE),
@@ -347,7 +347,7 @@ export class McpService {
       }));
     });
     registerTool('propose_page_update', {
-      description: 'Propose changes to an existing Page through a ChangeSet. First read get_page for expectedUpdatedAt and list_folders for expectedTreeRevision; both producer baselines are required. Omitted fields stay unchanged; folderId null moves the Page to the Space root. The existing Page format is preserved. Editor proposals remain pending review. Publisher proposals auto-publish only when the target Space Grant, Agent mode and Space policy allow it.',
+      description: 'Propose changes to an existing Page through a ChangeSet. First read get_page for expectedUpdatedAt and list_folders for expectedTreeRevision; both producer baselines are required. Omitted fields stay unchanged; folderId null moves the Page to the Space root. The existing Page format is preserved. The Space policy controls review: in no-review mode, the bound Space Grant may be Editor or Publisher and can auto-publish within its existing write scopes; always-review keeps proposals pending for human review. Agents never receive review:decide.',
       inputSchema: PROPOSE_PAGE_UPDATE_INPUT,
     }, async (raw: unknown) => {
       const { spaceId, pageId, expectedUpdatedAt, expectedTreeRevision, ...changes } = PROPOSE_PAGE_UPDATE_INPUT.parse(raw);

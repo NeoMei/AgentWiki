@@ -18,8 +18,8 @@ describe('MCP Agent access roles', () => {
     agent: { status: 'active', revokedAt: null },
     space: { id: 'space-1', name: 'NeoMei-Space', deletedAt: null },
   };
-  let spaceApprovalPolicy = 'scoped-auto-publish';
-  let agentApprovalMode = 'scoped-auto-publish';
+  let spaceApprovalPolicy = 'no-review';
+  let agentApprovalMode = 'always-review';
   let credentialAuthorizationId = 'grant-1';
   const prisma = {
     space: { findUnique: jest.fn() },
@@ -56,8 +56,8 @@ describe('MCP Agent access roles', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    spaceApprovalPolicy = 'scoped-auto-publish';
-    agentApprovalMode = 'scoped-auto-publish';
+    spaceApprovalPolicy = 'no-review';
+    agentApprovalMode = 'always-review';
     credentialAuthorizationId = 'grant-1';
     grant.folderScopes = [];
     prisma.space.findUnique.mockImplementation(async ({ select }: any) =>
@@ -143,23 +143,15 @@ describe('MCP Agent access roles', () => {
       const response = await proposal;
       expect(response).toBeDefined();
       const result = JSON.parse(response.content[0].text);
-      if (role === 'editor') {
-        expect(result).toMatchObject({ status: 'pending_review', autoPublished: false });
-        expect(prisma.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({
-          data: expect.objectContaining({ status: 'pending_review' }),
-        }));
-        expect(publish).not.toHaveBeenCalled();
-      } else {
-        expect(result).toMatchObject({ status: 'published', autoPublished: true });
-        expect(prisma.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({
-          data: expect.objectContaining({ status: 'approved' }),
-        }));
-        expect(publish).toHaveBeenCalledWith('change-1', {
-          ownerId: 'owner-1',
-          agentId: 'agent-1',
-          credentialId: 'credential-publisher',
-        });
-      }
+      expect(result).toMatchObject({ status: 'published', autoPublished: true });
+      expect(prisma.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ status: 'approved' }),
+      }));
+      expect(publish).toHaveBeenCalledWith('change-1', {
+        ownerId: 'owner-1',
+        agentId: 'agent-1',
+        credentialId: `credential-${role}`,
+      });
       expect(propose).toHaveBeenCalledWith(
         principal,
         'space-1',
@@ -284,19 +276,9 @@ describe('MCP Agent access roles', () => {
     expect(publish).toHaveBeenCalled();
   });
 
-  it.each([
-    ['Grant role', () => {
-      grant.role = 'editor';
-    }],
-    ['Agent approval mode', () => {
-      agentApprovalMode = 'always-review';
-    }],
-    ['Space policy', () => {
-      spaceApprovalPolicy = 'always-review';
-    }],
-  ] as const)('keeps the MCP proposal pending when the %s gate is missing', async (_gate, arrange) => {
+  it('keeps the MCP proposal pending when the Space policy requires review', async () => {
     grant.role = 'publisher';
-    arrange();
+    spaceApprovalPolicy = 'always-review';
     const principal: Principal = {
       userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1',
       authorizationId: 'grant-1', authorizationSpaceId: 'space-1',

@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useCallback, useRef } from 'react';
 import { runSystemTemplateText } from '../systemTemplateText';
 import { Link } from 'react-router-dom';
+import { ModalDialog } from '../../../components/ModalDialog';
 import type { CollaborationArtifact, CollaborationPageReviewComparison, CollaborationReview, CollaborationRun } from '../types';
 
 export type ReviewDetail =
@@ -16,14 +17,26 @@ export const ReviewPanel: React.FC<{
   artifactErrors: Record<string, boolean>;
   detail: ReviewDetail | null;
   resolvingConflict: boolean;
+  suspendComparison?: boolean;
   onLoadDetail: (review: CollaborationReview) => void;
+  onCloseDetail: () => void;
   onRetryArtifact: (review: CollaborationReview) => void;
   onHistory: () => void;
   onDecision: (kind: 'approve' | 'reject_for_revision' | 'terminate', review: CollaborationReview) => void;
   onResolveConflict: (kind: 'regenerate' | 'adopt_current', review: CollaborationReview, comparison: CollaborationPageReviewComparison) => void;
   isHumanMember?: boolean;
-}> = ({ run, spaceId, t, artifacts, artifactErrors, detail, resolvingConflict, onLoadDetail, onRetryArtifact, onHistory, onDecision, onResolveConflict, isHumanMember = false }) => (
-  <section data-testid="dashboard-section-reviews" className="aw-collab-side-panel aw-collab-review-panel min-h-0 min-w-0 lg:overflow-y-auto lg:overscroll-contain">
+}> = ({ run, spaceId, t, artifacts, artifactErrors, detail, resolvingConflict, suspendComparison = false, onLoadDetail, onCloseDetail, onRetryArtifact, onHistory, onDecision, onResolveConflict, isHumanMember = false }) => {
+  const comparisonTriggers = useRef(new Map<string, HTMLButtonElement>());
+  const selectedReviewId = detail?.reviewId;
+  const resolveComparisonFocus = useCallback(() => {
+    const trigger = selectedReviewId ? comparisonTriggers.current.get(selectedReviewId) : null;
+    // A decision confirmation may have replaced this dialog. Keep its autofocus
+    // instead of moving focus to the now-inert comparison trigger underneath it.
+    return trigger?.closest('[inert]') && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : trigger ?? null;
+  }, [selectedReviewId]);
+  return <section data-testid="dashboard-section-reviews" className="aw-collab-side-panel aw-collab-review-panel min-h-0 min-w-0 lg:overflow-y-auto lg:overscroll-contain">
     <div className="aw-collab-panel-heading"><h2>{t('collaboration.dashboard.reviews')}</h2><span className="aw-collab-count" aria-hidden="true">{(run.reviews ?? []).length}</span></div>
     <div className="aw-collab-panel-body">{(run.reviews ?? []).length ? [...(run.reviews ?? [])].sort((a, b) => Number(b.status === 'pending') - Number(a.status === 'pending')).map((review) => {
       const pageReview = Boolean(review.pagePublication || run.tasks?.some((task) => task.id === review.sourceTaskId && task.targetPageId));
@@ -34,28 +47,50 @@ export const ReviewPanel: React.FC<{
       const canDecide = isHumanMember && review.status === 'pending' && review.canDecide === true && (pageReview ? comparison?.canDecide === true : Boolean(artifact));
       const canApprove = canDecide && (!comparison || (!comparison.conflict && (comparison.mode !== 'candidate' || comparison.baseline.available)));
       const recoverConflict = Boolean(isHumanMember && pageReview && comparison?.mode === 'candidate' && comparison.conflict && canDecide && ((run.status === 'paused' && run.pauseReason === 'page_version_conflict') || (run.status === 'waiting_review' && !run.pauseReason)));
+      const decisionActions = canDecide ? <div className="mt-3 flex flex-wrap gap-2">{canApprove ? <button type="button" disabled={pageReview && resolvingConflict} onClick={() => onDecision('approve', review)} className="aw-collab-button aw-collab-button-primary">{t('collaboration.dashboard.approve')}</button> : null}<button type="button" disabled={pageReview && resolvingConflict} onClick={() => onDecision('reject_for_revision', review)} className="aw-collab-button">{t('collaboration.dashboard.reject')}</button>{review.allowTerminate ? <button type="button" disabled={pageReview && resolvingConflict} onClick={() => onDecision('terminate', review)} className="aw-collab-button aw-collab-button-ghost aw-collab-button-danger">{t('collaboration.dashboard.terminate')}</button> : null}</div> : null;
+      const criteria = review.approvalCriteria?.length ? <div className="mt-3"><h3 className="text-xs font-medium text-gray-700">{t('collaboration.dashboard.approvalCriteria')}</h3><ul className="mt-1 list-disc space-y-1 pl-5 text-xs text-gray-600">{review.approvalCriteria.map((criterion) => <li key={criterion}>{runSystemTemplateText(run, null, criterion, t)}</li>)}</ul></div> : null;
+      const reason = review.reason ? <p className="mt-2 [overflow-wrap:anywhere] text-xs text-gray-500">{review.reason}</p> : null;
+      const readOnly = !canDecide && (comparison || artifact) ? <p className="mt-3 text-xs text-gray-500">{t('collaboration.dashboard.readOnlyReview')}</p> : null;
       return <article key={review.id} data-review-id={review.id} className="aw-collab-review">
         <div data-testid="review-card-header" className="aw-collab-review-heading">
           <p className="aw-collab-status" data-status={review.status}>{t(`collaboration.reviewStatus.${review.status}`)}</p>
-          {canDecide ? <div className="mt-3 flex flex-wrap gap-2">{canApprove ? <button type="button" onClick={() => onDecision('approve', review)} className="aw-collab-button aw-collab-button-primary">{t('collaboration.dashboard.approve')}</button> : null}<button type="button" onClick={() => onDecision('reject_for_revision', review)} className="aw-collab-button">{t('collaboration.dashboard.reject')}</button>{review.allowTerminate ? <button type="button" onClick={() => onDecision('terminate', review)} className="aw-collab-button aw-collab-button-ghost aw-collab-button-danger">{t('collaboration.dashboard.terminate')}</button> : null}</div> : null}
-          {pageReview && !selected ? <button type="button" onClick={() => onLoadDetail(review)} className="aw-collab-button mt-2">{t('collaboration.dashboard.loadPageComparison')}</button> : null}
+          {!pageReview ? decisionActions : null}
+          {pageReview ? <button type="button" ref={(element) => { if (element) comparisonTriggers.current.set(review.id, element); else comparisonTriggers.current.delete(review.id); }} disabled={selected?.kind === 'loading'} onClick={() => onLoadDetail(review)} className="aw-collab-button mt-2">{t('collaboration.dashboard.loadPageComparison')}</button> : null}
         </div>
-        {review.approvalCriteria?.length ? <div className="mt-3"><h3 className="text-xs font-medium text-gray-700">{t('collaboration.dashboard.approvalCriteria')}</h3><ul className="mt-1 list-disc space-y-1 pl-5 text-xs text-gray-600">{review.approvalCriteria.map((criterion) => <li key={criterion}>{runSystemTemplateText(run, null, criterion, t)}</li>)}</ul></div> : null}
+        {!pageReview ? criteria : null}
         {selected?.kind === 'loading' ? <p role="status" className="mt-3 text-xs text-gray-500">{t('common.loading')}</p> : null}
         {selected?.kind === 'error' ? <div role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-xs text-red-700">{selected.message}<button type="button" onClick={() => onLoadDetail(review)} className="ml-2 underline">{t('common.retry')}</button></div> : null}
         {artifact ? <ArtifactDetail artifact={artifact} t={t} /> : null}
         {!pageReview && review.status === 'pending' && !artifact ? <div className="mt-3 rounded-lg bg-gray-50 p-3">{artifactError
           ? <div role="alert" className="text-xs text-red-700">{t('collaboration.dashboard.reviewArtifactFailed')}<button type="button" onClick={() => onRetryArtifact(review)} className="ml-2 underline">{t('common.retry')}</button></div>
           : <p className="text-xs text-gray-500">{t('collaboration.dashboard.loadingReviewArtifact')}</p>}</div> : null}
-        {comparison ? <PageComparison comparison={comparison} spaceId={spaceId} t={t} /> : null}
-        {review.reason ? <p className="mt-2 [overflow-wrap:anywhere] text-xs text-gray-500">{review.reason}</p> : null}
-        {recoverConflict && comparison ? <div className="mt-3 space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-3"><p className="text-xs text-amber-900">{t('collaboration.dashboard.conflictRecoveryHelp')}</p><div className="flex flex-col gap-2 sm:flex-row"><button type="button" disabled={resolvingConflict} onClick={() => onResolveConflict('regenerate', review, comparison)} className="min-h-10 rounded-lg border border-amber-300 bg-white px-3 text-sm disabled:opacity-50">{t('collaboration.dashboard.regenerateFromCurrent')}</button><button type="button" disabled={resolvingConflict} onClick={() => onResolveConflict('adopt_current', review, comparison)} className="min-h-10 rounded-lg bg-amber-700 px-3 text-sm text-white disabled:opacity-50">{t('collaboration.dashboard.adoptCurrent')}</button></div></div>
-          : !canDecide && (comparison || artifact) ? <p className="mt-3 text-xs text-gray-500">{t('collaboration.dashboard.readOnlyReview')}</p> : null}
+        {comparison && !suspendComparison ? <ModalDialog
+          labelledBy={`page-comparison-title-${review.id}`}
+          onRequestClose={onCloseDetail}
+          closeDisabled={resolvingConflict}
+          resolveReturnFocus={resolveComparisonFocus}
+          className="w-full max-w-[min(92vw,1200px)] max-h-[90vh] overflow-auto rounded-xl bg-white p-5 shadow-xl sm:p-6"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h2 id={`page-comparison-title-${review.id}`} className="text-lg font-semibold">{t('collaboration.dashboard.comparisonTitle')}</h2>
+              <p className="mt-1 break-words text-sm text-gray-600">{comparison.target.title}</p>
+            </div>
+            <button type="button" disabled={resolvingConflict} onClick={onCloseDetail} className="aw-collab-button shrink-0">{t('common.close')}</button>
+          </div>
+          {decisionActions}
+          {criteria}
+          <PageComparison comparison={comparison} spaceId={spaceId} t={t} />
+          {reason}
+          {recoverConflict && comparison ? <div className="mt-3 space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-3"><p className="text-xs text-amber-900">{t('collaboration.dashboard.conflictRecoveryHelp')}</p><div className="flex flex-col gap-2 sm:flex-row"><button type="button" disabled={resolvingConflict} onClick={() => onResolveConflict('regenerate', review, comparison)} className="min-h-10 rounded-lg border border-amber-300 bg-white px-3 text-sm disabled:opacity-50">{t('collaboration.dashboard.regenerateFromCurrent')}</button><button type="button" disabled={resolvingConflict} onClick={() => onResolveConflict('adopt_current', review, comparison)} className="min-h-10 rounded-lg bg-amber-700 px-3 text-sm text-white disabled:opacity-50">{t('collaboration.dashboard.adoptCurrent')}</button></div></div>
+          : readOnly}
+        </ModalDialog> : null}
+        {!pageReview ? <>{reason}{readOnly}</> : null}
       </article>;
     }) : <p className="text-sm text-gray-500">{t('collaboration.dashboard.noReviews')}</p>}</div>
     <button type="button" onClick={onHistory} className="aw-collab-panel-history aw-collab-button aw-collab-button-ghost">{t('collaboration.dashboard.viewAllReviews')}</button>
-  </section>
-);
+  </section>;
+};
 
 const ArtifactDetail: React.FC<{ artifact: CollaborationArtifact; t: (key: string) => string }> = ({ artifact, t }) => <div className="mt-3 rounded-lg bg-gray-50 p-3"><h3 className="text-xs font-medium text-gray-700">{t('collaboration.dashboard.reviewArtifact')}</h3><pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] text-xs text-gray-700">{artifactText(artifact.payload)}</pre>{artifact.evidence ? <><h4 className="mt-3 text-xs font-medium text-gray-700">{t('collaboration.dashboard.evidence')}</h4><pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] text-xs text-gray-600">{artifactText(artifact.evidence)}</pre></> : null}</div>;
 

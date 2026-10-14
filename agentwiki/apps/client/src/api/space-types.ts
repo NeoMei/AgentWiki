@@ -1,3 +1,11 @@
+export type SpaceApprovalPolicy = 'always-review' | 'no-review' | 'scoped-auto-publish';
+export type CanonicalSpaceApprovalPolicy = Exclude<SpaceApprovalPolicy, 'scoped-auto-publish'>;
+
+/** Normalize persisted policy values while keeping legacy API responses readable. */
+export const normalizeSpaceApprovalPolicy = (value: unknown): CanonicalSpaceApprovalPolicy => (
+  value === 'no-review' || value === 'scoped-auto-publish' ? 'no-review' : 'always-review'
+);
+
 export interface SpaceSummary {
   id: string;
   name: string;
@@ -7,7 +15,7 @@ export interface SpaceSummary {
   updatedAt?: string;
   lastUpdatedAt?: string;
   visibility?: string;
-  approvalPolicy?: string;
+  approvalPolicy?: SpaceApprovalPolicy;
   members?: Array<{
     type?: string;
     role?: string;

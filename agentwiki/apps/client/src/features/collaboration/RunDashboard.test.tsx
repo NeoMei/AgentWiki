@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
@@ -327,7 +327,58 @@ describe('RunDashboard', () => {
     expect(screen.getByRole('link', { name: /change-1/ })).toHaveAttribute('href', '/review?spaceId=space-1&changeSet=change-1');
     expect(collaborationApi.getPageReviewComparison).toHaveBeenCalledWith('space-1', 'run-1', 'review-1', expect.any(AbortSignal));
 
-    expect(screen.getByRole('button', { name: 'Approve' })).toBeVisible();
+    const dialog = screen.getByRole('dialog', { name: 'Page comparison' });
+    const approve = within(dialog).getByRole('button', { name: 'Approve' });
+    expect(approve).toBeVisible();
+    expect(approve.closest('[inert]')).toBeNull();
+  });
+
+  it('restores the same trigger after asynchronous comparison loading and Escape', async () => {
+    const comparison = await collaborationApi.getPageReviewComparison('space-1', 'run-1', 'review-1');
+    const loading = deferred<any>();
+    vi.mocked(collaborationApi.getPageReviewComparison).mockReturnValueOnce(loading.promise);
+    renderDashboard({ ...waitingReviewRun, reviews: waitingReviewRun.reviews.map(review => ({ ...review, pagePublication: { pageId: 'page-1', changeSetId: 'c' } })) });
+    const trigger = await screen.findByRole('button', { name: 'Load page comparison' });
+    trigger.focus();
+    fireEvent.click(trigger);
+    expect(trigger.isConnected).toBe(true);
+    expect(trigger).toBeDisabled();
+    await act(async () => loading.resolve(comparison));
+    const dialog = await screen.findByRole('dialog', { name: 'Page comparison' });
+    expect(trigger.closest('[inert]')).not.toBeNull();
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Load page comparison' })).toBe(trigger);
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(trigger.closest('[inert]')).toBeNull();
+  });
+
+  it('switches page approval to one focused confirmation and keeps the comparison authority', async () => {
+    const run = { ...waitingReviewRun, reviews: waitingReviewRun.reviews.map(review => ({ ...review, pagePublication: { pageId: 'page-1', changeSetId: 'c' } })) };
+    vi.mocked(collaborationApi.decideReview).mockResolvedValue({ ...run, eventSequence: 9, status: 'completed', reviews: [] } as any);
+    renderDashboard(run);
+    const trigger = await screen.findByRole('button', { name: 'Load page comparison' });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const comparisonDialog = await screen.findByRole('dialog', { name: 'Page comparison' });
+    const approve = within(comparisonDialog).getByRole('button', { name: 'Approve' });
+    approve.focus();
+    fireEvent.click(approve);
+    let confirmation = await screen.findByRole('dialog', { name: 'Approve' });
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(confirmation.closest('[inert]')).toBeNull();
+    await waitFor(() => expect(within(confirmation).getByRole('textbox', { name: 'Reason' })).toHaveFocus());
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Cancel' }));
+    const reopened = await screen.findByRole('dialog', { name: 'Page comparison' });
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    await waitFor(() => expect(within(reopened).getByRole('button', { name: 'Close' })).toHaveFocus());
+    fireEvent.click(within(reopened).getByRole('button', { name: 'Approve' }));
+    confirmation = await screen.findByRole('dialog', { name: 'Approve' });
+    const reason = within(confirmation).getByRole('textbox', { name: 'Reason' });
+    await waitFor(() => expect(reason).toHaveFocus());
+    fireEvent.change(reason, { target: { value: 'Reviewed the page comparison' } });
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Confirm approve' }));
+    await waitFor(() => expect(collaborationApi.decideReview).toHaveBeenCalledWith('space-1', 'run-1', 'review-1', expect.objectContaining({ kind: 'approve', reason: 'Reviewed the page comparison' })));
   });
 
   it('uses only comparison canDecide and keeps an unavailable Page comparison read-only', async () => {
@@ -376,7 +427,10 @@ describe('RunDashboard', () => {
 
       fireEvent.click(await screen.findByRole('button', { name: 'Load page comparison' }));
       const actionName = kind === 'regenerate' ? 'Regenerate from current Page' : 'Adopt current Page';
-      fireEvent.click(await screen.findByRole('button', { name: actionName }));
+      const dialog = await screen.findByRole('dialog', { name: 'Page comparison' });
+      const action = within(dialog).getByRole('button', { name: actionName });
+      expect(action.closest('[inert]')).toBeNull();
+      fireEvent.click(action);
 
       await waitFor(() => expect(collaborationApi.resolvePageConflict).toHaveBeenCalledWith(
         'space-1', 'run-1', 'task-1', expect.objectContaining({

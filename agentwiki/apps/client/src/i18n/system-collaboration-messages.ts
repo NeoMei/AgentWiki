@@ -207,10 +207,23 @@ const systemReviewMessages = (locale: 'en' | 'zh-CN') => Object.fromEntries(syst
 ]));
 
 
+export const systemSinglePageTexts = [
+  ['Write Page', '编写页面'],
+  ['Writes the target Page', '编写目标页面'],
+  ['Produce the complete Markdown content for the target Page', '生成目标页面的完整 Markdown 内容'],
+  ['Write the target Page', '编写目标页面'],
+  ['Review Page', '审核页面'],
+  ['The Markdown is complete and suitable for the target Page', 'Markdown 内容完整且适合目标页面'],
+] as const;
+const systemSinglePageMessages = (locale: 'en' | 'zh-CN') => Object.fromEntries(systemSinglePageTexts.map(([english, chinese], index) => [
+  `collaboration.systemSinglePage.${index}`, locale === 'en' ? english : chinese,
+]));
+
 export const systemCollaborationMessages = {
   "en": {
     ...systemTodoMessages('en'),
     ...systemReviewMessages('en'),
+    ...systemSinglePageMessages('en'),
     'collaboration.artifactKind.markdown': 'Markdown document',
     'collaboration.artifactKind.external_reference': 'External reference',
     'collaboration.artifactKind.json': 'JSON data',
@@ -339,6 +352,7 @@ export const systemCollaborationMessages = {
   "zh-CN": {
     ...systemTodoMessages('zh-CN'),
     ...systemReviewMessages('zh-CN'),
+    ...systemSinglePageMessages('zh-CN'),
     'collaboration.artifactKind.markdown': 'Markdown 文档',
     'collaboration.artifactKind.external_reference': '外部引用',
     'collaboration.artifactKind.json': 'JSON 数据',

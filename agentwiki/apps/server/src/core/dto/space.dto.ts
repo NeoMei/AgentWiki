@@ -30,8 +30,8 @@ export class CreateSpaceDto {
   visibility?: 'public' | 'private';
 
   @IsOptional()
-  @IsIn(['always-review', 'scoped-auto-publish'])
-  approvalPolicy?: 'always-review' | 'scoped-auto-publish';
+  @IsIn(['always-review', 'no-review', 'scoped-auto-publish'])
+  approvalPolicy?: 'always-review' | 'no-review' | 'scoped-auto-publish';
 }
 
 export class UpdateSpaceDto {
@@ -57,8 +57,8 @@ export class UpdateSpaceDto {
   visibility?: 'public' | 'private';
 
   @IsOptional()
-  @IsIn(['always-review', 'scoped-auto-publish'])
-  approvalPolicy?: 'always-review' | 'scoped-auto-publish';
+  @IsIn(['always-review', 'no-review', 'scoped-auto-publish'])
+  approvalPolicy?: 'always-review' | 'no-review' | 'scoped-auto-publish';
 }
 
 export class AddMemberDto {

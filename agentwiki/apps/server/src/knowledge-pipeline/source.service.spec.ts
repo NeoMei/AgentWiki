@@ -722,7 +722,10 @@ describe('SourceService pipeline lifecycle', () => {
     expect(prisma.artifact.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'index' }) }));
   });
 
-  it('passes the current Agent and Credential identity into background auto-publish revalidation', async () => {
+  it.each([
+    ['publisher', 'scoped-auto-publish', 'scoped-auto-publish'],
+    ['editor', 'no-review', 'always-review'],
+  ])('passes the current %s Agent and Credential into background auto-publish revalidation under %s', async (role, approvalPolicy, approvalMode) => {
     const { service, prisma, review, run } = makeHarness();
     run.requestedByUserId = null as any;
     run.requestedByAgentId = 'agent-1' as any;
@@ -730,15 +733,15 @@ describe('SourceService pipeline lifecycle', () => {
     (run as any).requestedCredentialType = 'agent';
     prisma.$queryRaw = jest.fn().mockResolvedValue([{ id: 'locked' }]);
     prisma.space.findUnique.mockResolvedValue({
-      deletedAt: null, approvalPolicy: 'scoped-auto-publish', contentTreeRevision: 17n,
+      deletedAt: null, approvalPolicy, contentTreeRevision: 17n,
     });
     prisma.agent.findUnique.mockResolvedValue({
       ownerId: 'owner-1', status: 'active', revokedAt: null,
-      approvalMode: 'scoped-auto-publish',
+      approvalMode,
       owner: { deletedAt: null, lockedAt: null },
     });
     prisma.agentGrant.findUnique.mockResolvedValue({
-      id: 'grant-1', role: 'publisher',
+      id: 'grant-1', role,
       agent: {
         status: 'active', revokedAt: null,
         owner: { deletedAt: null, lockedAt: null },
@@ -759,6 +762,31 @@ describe('SourceService pipeline lifecycle', () => {
     expect(prisma.agentCredential.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ id: 'credential-1', agentId: 'agent-1' }),
       select: { id: true },
+    }));
+  });
+
+  it('keeps a human personal-key import pending review in a no-review Space', async () => {
+    const { service, prisma, review, run } = makeHarness();
+    Object.assign(run, { requestedCredentialId: 'personal-key-1', requestedCredentialType: 'personal' });
+    prisma.apiKeyCredential = { findFirst: jest.fn().mockResolvedValue({
+      scopes: ['runs:write', 'pages:write', 'graph:write'],
+    }) };
+    prisma.space.findUnique.mockResolvedValue({
+      deletedAt: null, approvalPolicy: 'no-review', contentTreeRevision: 17n,
+    });
+    jest.spyOn(service as any, 'fetch').mockResolvedValue({ content: 'content' });
+
+    await service.processRun('run-1');
+
+    expect(prisma.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'pending_review', createdByUserId: 'user-1' }),
+    }));
+    expect(review.publish).not.toHaveBeenCalled();
+    expect(prisma.ingestRun.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'completed' }),
+    }));
+    expect(prisma.ingestRun.update).not.toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'failed' }),
     }));
   });
 

@@ -178,8 +178,8 @@ describe('LocalSyncInstallCard', () => {
 
     fireEvent.change(screen.getByLabelText('Agent 角色'), { target: { value: 'publisher' } });
 
-    expect(screen.getByText(/仍受 Space 发布策略限制/)).toBeInTheDocument();
-    expect(screen.getByText(/不能执行人工审批或成员管理/)).toBeInTheDocument();
+    expect(screen.getByText(/无需审核下.*编辑者和发布者 Agent.*已有权限范围内自动发布/)).toBeInTheDocument();
+    expect(screen.getByText(/不能审批或管理成员/)).toBeInTheDocument();
   });
 
   it('explains why no Space can be selected for authorization', () => {

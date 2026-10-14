@@ -274,7 +274,7 @@ export const Dashboard: React.FC = () => {
                 : updated.relative
                   ? t('dashboard.updated', { time: updated.relative })
                   : t('dashboard.updateTimeNeedsCalibration');
-              const isAutoPublish = space.approvalPolicy === 'scoped-auto-publish';
+              const isAutoPublish = space.approvalPolicy === 'no-review' || space.approvalPolicy === 'scoped-auto-publish';
               const policyLabel = space.approvalPolicy
                 ? t(isAutoPublish ? 'dashboard.autoPublishPolicy' : 'dashboard.reviewPolicy')
                 : null;

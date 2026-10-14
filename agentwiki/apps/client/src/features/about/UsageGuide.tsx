@@ -152,7 +152,7 @@ export const UsageGuide: React.FC = () => {
                 <div className="flex-1">
                   <h3 className="text-xl font-semibold text-gray-900 mb-2">{zh ? '理解三个 Agent 角色' : 'Understand the Three Agent Roles'}</h3>
                   <p className="text-gray-600 mb-3">
-                    {zh ? 'Reader 只读；Editor 可提交内容变更并进入审核；Publisher 具备 Editor 能力，并可在治理条件满足时自动发布。Publisher 自动发布仍受 Space 发布策略限制，Agent 不能执行人工审批或成员管理。' : 'Reader is read-only. Editor can propose content changes for review. Publisher includes Editor access and may auto-publish only when governance conditions permit. Publisher remains subject to Space publishing policy, and Agents cannot approve reviews or manage members.'}
+                    {zh ? '阅读者始终只读；编辑者和发布者都具备写入能力，在 Space 选择“无需审核”时可在已有权限范围内自动发布，“始终审核”时进入人工审核。Agent 不能执行人工审批或成员管理。' : 'Reader is always read-only. Write-capable Editor and Publisher Agents may auto-publish within existing scopes when the Space uses No review; Always review sends writes to human review. Agents cannot approve reviews or manage members.'}
                   </p>
                   <div className="grid gap-3 sm:grid-cols-3">
                     {['Reader', 'Editor', 'Publisher'].map((role) => (
@@ -194,7 +194,7 @@ export const UsageGuide: React.FC = () => {
                   </p>
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-700 mb-4">
                     <strong>{zh ? '以下以 OpenCode 为例：' : 'OpenCode example: '}</strong>
-                    {zh ? '示例中的 OpenCode 使用 Publisher；仅当 Space 发布策略同时允许时，页面才会自动发布，否则仍进入人工审核。' : 'The example uses Publisher. The page auto-publishes only when Space publishing policy also permits it; otherwise it still enters human review.'}
+                    {zh ? '示例中的 OpenCode 使用发布者角色；Space 选择“无需审核”时，具备写入能力的 Agent 可在已有权限范围内自动发布；“始终审核”时仍进入人工审核。' : 'The example uses Publisher. In No review, a write-capable Agent may auto-publish within its existing scopes; Always review sends the page to human review.'}
                   </div>
                   <GuideScreenshot
                     src="/screenshots/step5-opencode-publish.png"

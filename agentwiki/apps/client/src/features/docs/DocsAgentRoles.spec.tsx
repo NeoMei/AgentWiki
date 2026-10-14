@@ -19,7 +19,7 @@ describe('Agent role documentation', () => {
     renderDoc(<DocsFeatures />);
 
     expect(screen.getAllByText(/Reader、Editor 或 Publisher/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Publisher 自动发布仍受 Space 发布策略限制/)).toBeInTheDocument();
+    expect(screen.getAllByText(/阅读者始终只读.*无需审核/).length).toBeGreaterThan(0);
     expect(document.body.textContent).not.toMatch(/为 Agent 成员配置按 Space 的权限范围/);
   });
 
@@ -47,9 +47,11 @@ describe('Agent role documentation', () => {
     renderDoc(<DocsSecurity />);
     const copy = document.body.textContent || '';
 
-    expect(copy).toMatch(/Reader 不可写/);
-    expect(copy).toMatch(/Editor.*进入待审核/);
-    expect(copy).toMatch(/Publisher Space 授权与 Space 发布策略/);
+    expect(copy).toMatch(/阅读者始终只读/);
+    expect(copy).toMatch(/Editor.*Publisher.*无需审核.*自动发布/);
+    expect(copy).toMatch(/始终审核.*Editor.*Publisher.*待审核/);
+    expect(copy).toMatch(/无需审核/);
+    expect(copy).toMatch(/Editor.*Publisher.*自动发布/);
     expect(copy).toMatch(/Agent 永远不能执行人工审批或成员管理/);
     expect(copy).toMatch(/只撤销该凭据/);
     expect(copy).toMatch(/暂停或撤销 Agent.*全局停止/);
@@ -65,9 +67,11 @@ describe('Agent role documentation', () => {
     renderDoc(<DocsSecurity />, 'en');
     const copy = document.body.textContent || '';
 
-    expect(copy).toMatch(/Reader cannot write/i);
-    expect(copy).toMatch(/Editor.*pending review/i);
-    expect(copy).toMatch(/Publisher Space Grant and Space publishing policy/i);
+    expect(copy).toMatch(/Reader is always read-only/i);
+    expect(copy).toMatch(/Editor.*Publisher.*No review.*auto-publish/i);
+    expect(copy).toMatch(/Always review.*Editor.*Publisher.*pending/i);
+    expect(copy).toMatch(/No review/i);
+    expect(copy).toMatch(/Editor.*Publisher.*auto-publish/i);
     expect(copy).toMatch(/Agents can never perform human approval or member management/i);
     expect(copy).toMatch(/revokes only that credential/i);
     expect(copy).toMatch(/Pausing or revoking the Agent.*global stop/i);

@@ -275,12 +275,27 @@ describe('AgentDetail', () => {
     expect(within(grants!).getByRole('button', { name: '移除团队知识库授权' })).toBeInTheDocument();
   });
 
-  it('shows approval mode as a read-only diagnostic', async () => {
+  it.each([
+    ['zh-CN', 'always-review', '遵循空间策略', '设置'],
+    ['zh-CN', 'scoped-auto-publish', '遵循空间策略', '设置'],
+    ['en', 'always-review', 'Follows Space policy', 'Settings'],
+    ['en', 'scoped-auto-publish', 'Follows Space policy', 'Settings'],
+  ])('shows Space-governed approval in %s regardless of legacy Agent mode %s', async (language, approvalMode, policy, settings) => {
+    localStorage.setItem('agentwiki.language.v1', language);
+    vi.mocked(api.get).mockReset().mockImplementation(async (url: string) => {
+      if (url === '/agents/agent-1') return { data: {
+        id: 'agent-1', name: '同步助手', status: 'active', approvalMode, grants: [], credentials: [],
+      } };
+      return { data: { data: [] } };
+    });
     renderDetail();
 
-    fireEvent.click(await screen.findByRole('button', { name: '设置' }));
+    expect(await screen.findByText(policy)).toBeInTheDocument();
+    expect(screen.queryByText(/^(始终审核|无需审核|Always review|No review)$/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: settings }));
 
-    expect(screen.getByText('始终审核')).toBeInTheDocument();
+    expect(screen.getByText(policy)).toBeInTheDocument();
+    expect(screen.queryByText(/^(始终审核|无需审核|Always review|No review)$/)).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 

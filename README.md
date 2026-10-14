@@ -1,6 +1,6 @@
 # AgentWiki
 
-> 当前源码版本：**v0.12.22** — 空间卡片信息完善，正文更新时间与新建空间统计修复。详见 [发布记录](agentwiki/docs/releases-v0.12.22.md)。
+> 当前源码版本：**v0.12.30** — 单页协作中文化、页面对比弹窗与模板操作去重；保留 v0.12.29 的直接修改页面及现网审批策略。详见 [发布记录](agentwiki/docs/releases-v0.12.30.md)。
 
 > A knowledge base system designed for **people and AI Agents**.
 > Write in Markdown, connect information through a knowledge graph,

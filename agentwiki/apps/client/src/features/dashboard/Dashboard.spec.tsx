@@ -89,6 +89,18 @@ describe('Dashboard Space pagination and creation', () => {
     expect(within(card).getByRole('link', { name: /进入空间/ })).toHaveAttribute('href', '/spaces/space-context');
   });
 
+  it('renders the legacy scoped auto-publish policy as the no-review badge', async () => {
+    vi.mocked(api.get).mockResolvedValue(spacePage([{
+      id: 'legacy-policy', name: '兼容空间', slug: 'legacy-policy', approvalPolicy: 'scoped-auto-publish',
+    }], 1, { nextCursor: null, hasMore: false }));
+
+    renderDashboard();
+
+    const card = await screen.findByTestId('space-card');
+    expect(within(card).getByText('无需审核')).toBeInTheDocument();
+    expect(within(card).queryByText('限定范围自动发布')).not.toBeInTheDocument();
+  });
+
   it('shows every owner, using email for blank names without including other member roles', async () => {
     vi.mocked(api.get).mockResolvedValue(spacePage([{
       id: 'multi-owner', name: '协作空间', slug: 'shared',

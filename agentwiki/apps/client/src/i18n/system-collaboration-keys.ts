@@ -1,10 +1,11 @@
-import { systemReviewTexts, systemTodoTexts } from './system-collaboration-messages';
+import { systemReviewTexts, systemSinglePageTexts, systemTodoTexts } from './system-collaboration-messages';
 
 // Only collaboration routes need the stored-source lookup. Keep it separate from
 // the language dictionaries so loading the app shell does not load this map.
 const systemTodoKeys = Object.fromEntries(systemTodoTexts.map(([english], index) => [english, `collaboration.systemTodo.${index}`]));
 
 export const systemCollaborationKeys: Record<string, string> = {
+  ...Object.fromEntries(systemSinglePageTexts.map(([english], index) => [english, `collaboration.systemSinglePage.${index}`])),
   ...Object.fromEntries(systemReviewTexts.map(([english], index) => [english, `collaboration.systemReview.${index}`])),
   ...systemTodoKeys,
 

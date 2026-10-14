@@ -29,3 +29,12 @@ it('preserves text-identical custom Run fields when the server explicitly denies
     expect(runSystemTemplateText(run, template, value, t)).toBe(value);
   }
 });
+
+it('localizes legacy single-page Run fields only with page-selection provenance', () => {
+  const run = { systemTemplateSource: { slug: 'single-page' } } as CollaborationRun;
+  const t = (key: string) => messages['zh-CN'][key] ?? key;
+  expect(runSystemTemplateText(run, null, 'Write Page', t)).toBe('编写页面');
+  expect(runSystemTemplateText(run, null, 'Produce the complete Markdown content for the target Page', t)).toBe('生成目标页面的完整 Markdown 内容');
+  expect(runSystemTemplateText(run, null, 'Review Page', t)).toBe('审核页面');
+  expect(runSystemTemplateText({ systemTemplateSource: null } as CollaborationRun, null, 'Write Page', t)).toBe('Write Page');
+});
