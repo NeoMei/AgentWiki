@@ -10,6 +10,17 @@ vi.mock('../../api/client', () => ({ default: api }));
 
 const OpenedPage = () => <><div>Opened page</div><output data-testid="opened-page-id">{useParams().pageId}</output></>;
 
+function openFilters() {
+  const summary = screen.getByText(localStorage.getItem('agentwiki.language.v1') === 'en' ? 'Relation types' : '关系类型');
+  if (!summary.closest('details')?.open) fireEvent.click(summary);
+}
+function graphButton(name: string) {
+  const button = screen.queryByRole('button', { name });
+  if (button) return button;
+  openFilters(); return screen.getByRole('button', { name });
+}
+function relationFilter() { openFilters(); return screen.getByRole('combobox', { name: /Filter relation type|筛选关系类型/ }); }
+
 const node = (id: string, title: string) => ({ id, title, x: 100, y: 100, radius: 20 });
 
 describe('KnowledgeGraph origin filters', () => {
@@ -22,7 +33,7 @@ describe('KnowledgeGraph origin filters', () => {
       clearRect: vi.fn(),
       beginPath: vi.fn(),
       moveTo: vi.fn(),
-      lineTo: vi.fn(),
+      lineTo: vi.fn(), bezierCurveTo: vi.fn(), setLineDash: vi.fn(),
       stroke: vi.fn(),
       arc: vi.fn(),
       fill: vi.fn(),
@@ -66,7 +77,7 @@ describe('KnowledgeGraph origin filters', () => {
       return Promise.resolve({ data: { data: [{ id: 'p1', title: 'Alpha' }, { id: 'p2', title: 'Beta' }] } });
     });
 
-    const { container } = render(
+    render(
       <LanguageProvider>
         <MemoryRouter initialEntries={['/spaces/s1/graph']}>
           <Routes>
@@ -78,18 +89,18 @@ describe('KnowledgeGraph origin filters', () => {
 
     expect(await screen.findByText('自动·链接', {}, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getByText('手动')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '全部页面节点' }));
+    fireEvent.click(graphButton('全部页面节点'));
 
-    fireEvent.click(container.querySelector('canvas')!, { clientX: 100, clientY: 100 });
+    fireEvent.change(screen.getByRole('combobox', { name: '浏览图谱节点' }), { target: { value: 'p1' } });
     await waitFor(() => expect(screen.getAllByText('自动·链接')).toHaveLength(2));
 
-    fireEvent.click(screen.getAllByText('自动·链接')[0]);
+    fireEvent.click(graphButton('自动·链接'));
     await waitFor(() => {
       expect(screen.getByText('自动·链接')).toHaveClass('line-through');
     });
   });
 
-  it('paints no default names, paints only selection, then clears on blank canvas', async () => {
+  it('shows page labels before selection and preserves them when blank canvas clears selection', async () => {
     const paint = vi.fn();
     const ctx = HTMLCanvasElement.prototype.getContext.call(document.createElement('canvas'), '2d')!;
     Object.assign(ctx, { fillText: paint });
@@ -100,17 +111,19 @@ describe('KnowledgeGraph origin filters', () => {
       <Routes><Route path='/spaces/:spaceId/graph' element={<KnowledgeGraph />} /></Routes>
     </MemoryRouter></LanguageProvider>);
     const browser = await screen.findByRole('combobox', { name: '浏览图谱节点' });
-    fireEvent.click(screen.getByRole('button', { name: '全部页面节点' }));
+    fireEvent.click(graphButton('全部页面节点'));
     paint.mockClear();
     fireEvent.change(browser, { target: { value: 'p1' } });
-    expect(paint.mock.calls.map(call => call[0])).toEqual(['Alpha']);
+    expect(screen.getByRole('button', { name: 'Alpha 路径不可用' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Beta 路径不可用' })).toBeInTheDocument();
     paint.mockClear();
     fireEvent.change(browser, { target: { value: 'p2' } });
-    expect(paint.mock.calls.map(call => call[0])).toEqual(['Beta']);
+    expect(screen.getByRole('button', { name: 'Beta 路径不可用' })).toHaveAttribute('aria-pressed', 'true');
     paint.mockClear();
     fireEvent.click(container.querySelector('canvas')!, { clientX: 590, clientY: 490 });
     expect(browser).toHaveValue('');
-    expect(paint).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Alpha 路径不可用' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Beta 路径不可用' })).toBeInTheDocument();
     expect(screen.queryByText(/个标题因空间不足/)).not.toBeInTheDocument();
   });
 
@@ -162,7 +175,7 @@ describe('KnowledgeGraph origin filters', () => {
       expect(value).toBeInTheDocument();
       return value!;
     });
-    fireEvent.click(screen.getByRole('button', { name: '全部页面节点' }));
+    fireEvent.click(graphButton('全部页面节点'));
     fireEvent.click(canvas, { clientX: 100, clientY: 100 });
     const opener = screen.getByRole('button', { name: '建立关系…' });
     opener.focus();
@@ -198,7 +211,7 @@ describe('KnowledgeGraph canvas navigation', () => {
       scale() {},
       setTransform(a: number, b: number, c: number, d: number, e: number, f: number) { transform = [a, b, c, d, e, f]; },
       clearRect() { drawn = []; },
-      beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, fill() {}, fillText() {}, measureText(text: string) { return { width: [...text].length * 8 }; },
+      beginPath() {}, moveTo() {}, lineTo() {}, bezierCurveTo() {}, setLineDash() {}, stroke() {}, fill() {}, fillText() {}, measureText(text: string) { return { width: [...text].length * 8 }; },
       arc(x: number, y: number, radius: number) {
         const dpr = window.devicePixelRatio || 1;
         drawn.push({ x: (x * transform[0] + transform[4]) / dpr,
@@ -220,7 +233,7 @@ describe('KnowledgeGraph canvas navigation', () => {
         <Route path='/pages/:pageId' element={<OpenedPage />} /></Routes>
     </MemoryRouter></LanguageProvider>);
     await screen.findByRole('combobox', { name: 'Browse graph nodes' });
-    fireEvent.click(screen.getByRole('button', { name: 'All page nodes' }));
+    fireEvent.click(graphButton('All page nodes'));
     return { ...result, canvas: result.container.querySelector('canvas')! };
   }
   function drag(canvas: HTMLCanvasElement, from: number[], to: number[]) {
@@ -231,10 +244,9 @@ describe('KnowledgeGraph canvas navigation', () => {
   it('opens the first clicked page when the selection sidebar resizes the canvas during a real double-click sequence', async () => {
     width = 1000;
     const { canvas } = await mount();
-    fireEvent.click(screen.getByRole('button', { name: 'Folder groups' }));
+    fireEvent.click(graphButton('Folder groups'));
     fireEvent.click(screen.getByRole('button', { name: 'Ungrouped 2 pages' }));
-    const initial = { ...drawn[1] };
-    expect(initial).toMatchObject({ x: 425, y: 298 });
+    const initial = { ...drawn[0] };
     const first = { button: 0, detail: 1, clientX: initial.x + 20, clientY: initial.y + 30 };
     fireEvent.mouseDown(canvas, first);
     fireEvent.mouseUp(window, first);
@@ -243,8 +255,7 @@ describe('KnowledgeGraph canvas navigation', () => {
     // The sidebar takes 320px plus its 16px gap. ResizeObserver fits the new canvas.
     width = 664;
     act(() => resize([], {} as ResizeObserver));
-    expect(drawn[2]).toMatchObject({ x: 407, y: 298 });
-    expect(Math.hypot(initial.x - drawn[2].x, initial.y - drawn[2].y)).toBeLessThan(drawn[2].radius);
+    expect(drawn[0].x).not.toBe(initial.x);
     const second = { ...first, detail: 2 };
     fireEvent.mouseDown(canvas, second);
     fireEvent.mouseUp(window, second);
@@ -260,7 +271,7 @@ describe('KnowledgeGraph canvas navigation', () => {
     } });
     const { canvas } = await mount();
     if (groupedMode) {
-      fireEvent.click(screen.getByRole('button', { name: 'Folder groups' }));
+      fireEvent.click(graphButton('Folder groups'));
       fireEvent.click(screen.getByRole('button', { name: 'Ungrouped 2 pages' }));
     }
     fireEvent.click(screen.getByRole('button', { name: 'Reset view' }));
@@ -270,16 +281,16 @@ describe('KnowledgeGraph canvas navigation', () => {
     const moved = { ...drawn[index] };
     expect(moved.x).toBe(original.x + 80);
     expect(moved.y).toBe(original.y + 60);
-    fireEvent.click(screen.getByRole('button', { name: 'Manual' }));
+    fireEvent.click(graphButton('Manual'));
     expect(drawn[index]).toEqual(moved);
-    fireEvent.click(screen.getByRole('button', { name: 'Manual' }));
+    fireEvent.click(graphButton('Manual'));
     expect(drawn[index]).toEqual(moved);
     // A relation filter plus origin filter can remove all nodes. Restoring them
     // must preserve the user's world coordinates, not seed the server layout again.
-    fireEvent.change(screen.getByRole('combobox', { name: 'Filter relation type' }), { target: { value: 'references' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Manual' }));
+    fireEvent.change(relationFilter(), { target: { value: 'references' } });
+    fireEvent.click(graphButton('Manual'));
     expect(screen.getByText('Showing 0 / 2 pages')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Manual' }));
+    fireEvent.click(graphButton('Manual'));
     expect(screen.getByText('Showing 2 / 2 pages')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Reset view' }));
     expect(drawn[index]).toEqual(moved);

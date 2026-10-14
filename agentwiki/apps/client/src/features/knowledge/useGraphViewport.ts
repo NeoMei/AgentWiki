@@ -4,16 +4,19 @@ import type { Dispatch, RefObject, SetStateAction } from 'react';
 type Point = { x: number; y: number };
 type GraphNode = Point & { id: string; radius: number };
 type View = Point & { scale: number };
+export type GraphBounds = { left: number; top: number; right: number; bottom: number };
 const identity: View = { x: 0, y: 0, scale: 1 };
-const boundScale = (scale: number) => Math.max(0.25, Math.min(4, scale));
+const boundScale = (scale: number, minimum = 0.25) => Math.max(minimum, Math.min(4, scale));
 
 /** One CSS-pixel viewport for painting, picking, and both input lifecycles. */
 export function useGraphViewport<T extends GraphNode>(
-  canvasRef: RefObject<HTMLCanvasElement>, nodes: T[], setNodes: Dispatch<SetStateAction<T[]>>, enabled: boolean,
+  canvasRef: RefObject<HTMLCanvasElement>, nodes: T[], setNodes: Dispatch<SetStateAction<T[]>>, enabled: boolean, bounds?: GraphBounds, minimumReadableScale = 0.25,
 ) {
   const [view, setView] = useState<View>(identity);
-  const current = useRef({ nodes, view });
+  const current = useRef({ nodes, view, bounds, minimumReadableScale });
   current.current.nodes = nodes;
+  current.current.bounds = bounds;
+  current.current.minimumReadableScale = minimumReadableScale;
   const suppressClick = useRef(false);
   const suppressDoubleClick = useRef(false);
   const cancelGesture = useRef<() => void>(() => {});
@@ -33,17 +36,20 @@ export function useGraphViewport<T extends GraphNode>(
     // Last painted node wins when nodes overlap. The extra pick margin is in CSS pixels.
     return [...current.current.nodes].reverse().find(n => Math.hypot(x - n.x, y - n.y) < n.radius + 5 / v.scale);
   };
-  const fit = () => {
+  const fit = (readable = false) => {
     cancelGesture.current();
     const rect = canvasRef.current?.getBoundingClientRect();
     const items = current.current.nodes;
-    if (!rect?.width || !rect.height || !items.length) return;
+    const box = current.current.bounds;
+    if (!rect?.width || !rect.height || (!items.length && !box)) return;
     // Include labels in the bounds without changing the server's layout.
-    const left = Math.min(...items.map(n => n.x - Math.max(n.radius, 80)));
-    const right = Math.max(...items.map(n => n.x + Math.max(n.radius, 80)));
-    const top = Math.min(...items.map(n => n.y - n.radius));
-    const bottom = Math.max(...items.map(n => n.y + n.radius + 24));
-    const scale = boundScale(Math.min((rect.width - 48) / (right - left), (rect.height - 48) / (bottom - top), 1));
+    const left = Math.min(box?.left ?? Infinity, ...items.map(n => n.x - Math.max(n.radius, 80)));
+    const right = Math.max(box?.right ?? -Infinity, ...items.map(n => n.x + Math.max(n.radius, 80)));
+    const top = Math.min(box?.top ?? Infinity, ...items.map(n => n.y - n.radius));
+    const bottom = Math.max(box?.bottom ?? -Infinity, ...items.map(n => n.y + n.radius + 38));
+    const overviewScale = boundScale(Math.min((rect.width - 48) / (right - left), (rect.height - 48) / (bottom - top), 1), box ? 0.05 : 0.25);
+    const scale = readable ? Math.max(overviewScale, current.current.minimumReadableScale) : overviewScale;
+    if (scale > overviewScale) { update({ scale, x: 24 - left * scale, y: 24 - top * scale }); return; }
     update({ scale, x: rect.width / 2 - (left + right) * scale / 2, y: rect.height / 2 - (top + bottom) * scale / 2 });
   };
   const zoom = (factor: number, anchor?: Point) => {
@@ -51,7 +57,7 @@ export function useGraphViewport<T extends GraphNode>(
     if (!rect) return;
     const p = anchor ?? { x: rect.width / 2, y: rect.height / 2 };
     const v = current.current.view;
-    const scale = boundScale(v.scale * factor);
+    const scale = boundScale(v.scale * factor, current.current.bounds ? 0.05 : 0.25);
     update({ scale, x: p.x - (p.x - v.x) * scale / v.scale, y: p.y - (p.y - v.y) * scale / v.scale });
   };
   useEffect(() => {
@@ -120,10 +126,11 @@ export function useGraphViewport<T extends GraphNode>(
       window.addEventListener('pointercancel', up);
     }
     window.addEventListener('blur', end);
-    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(fit);
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(() => fit(true));
     observer?.observe(canvas);
-    window.addEventListener('resize', fit);
-    fit();
+    const resize = () => fit(true);
+    window.addEventListener('resize', resize);
+    fit(true);
     return () => {
       end();
       observer?.disconnect();
@@ -136,10 +143,23 @@ export function useGraphViewport<T extends GraphNode>(
         window.removeEventListener('pointercancel', up);
       }
       window.removeEventListener('blur', end);
-      window.removeEventListener('resize', fit);
+      window.removeEventListener('resize', resize);
       cancelGesture.current = () => {};
     };
     // Handlers read current nodes/view through refs; do not restart a gesture on each frame.
   }, [enabled, canvasRef, setNodes]);
-  return { view, hit, fit, zoom, suppressClick, suppressDoubleClick, reset: () => { cancelGesture.current(); update({ ...identity }); } };
+  const reveal = (id: string) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    const node = current.current.nodes.find(item => item.id === id);
+    const v = current.current.view;
+    if (!rect || !node) return;
+    if (v.scale < current.current.minimumReadableScale) {
+      const scale = current.current.minimumReadableScale;
+      update({ scale, x: rect.width / 2 - node.x * scale, y: rect.height / 2 - node.y * scale });
+      return;
+    }
+    const x = node.x * v.scale + v.x; const y = node.y * v.scale + v.y;
+    if (x < 20 || x > rect.width - 20 || y < 35 || y > rect.height - 70) update({ ...v, x: rect.width / 2 - node.x * v.scale, y: rect.height / 2 - node.y * v.scale });
+  };
+  return { view, hit, fit: () => fit(), fitReadable: () => fit(true), reveal, zoom, suppressClick, suppressDoubleClick, reset: () => { cancelGesture.current(); update({ ...identity }); } };
 }

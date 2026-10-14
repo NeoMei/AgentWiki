@@ -4,12 +4,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { apiErrorMessage } from '../../api/error-message';
 import api from '../../api/client';
-import { ArrowLeft, Plus, X, Link2, Trash2, ChevronDown, ChevronRight, Folder } from 'lucide-react';
+import { Plus, Minus, X, Link2, Trash2, ChevronDown, Folder, Search, Network, Maximize2, RotateCcw, MoreHorizontal, ExternalLink, FileText, ArrowRight, ArrowLeft } from 'lucide-react';
 import { ModalDialog } from '../../components/ModalDialog';
-import { GRAPH_LABEL_FONT, GRAPH_LABEL_LINE_HEIGHT, layoutGraphLabels } from './graphLabelLayout';
 import { useGraphViewport } from './useGraphViewport';
-import { buildGraphGroups, layoutGroupedNodes, projectGroupedEdges, type DisplayGraphNode, type GraphFolder, type GraphGroup, type GraphPage } from './graphGrouping';
+import { buildGraphGroups, type DisplayGraphNode, type GraphFolder, type GraphGroup, type GraphPage } from './graphGrouping';
+import { layoutFolderGraph, type FolderGraphBox } from './graphFolderLayout';
 import { useLanguage } from '../../context/LanguageContext';
+import './KnowledgeGraph.css';
 
 interface KnowledgeEdge {
   id: string;
@@ -51,6 +52,13 @@ const OriginBadge: React.FC<{ origin: string; zh: boolean }> = ({ origin, zh }) 
   );
 };
 
+function keepPageInFolder(node: DisplayGraphNode, boxes: FolderGraphBox[]): DisplayGraphNode {
+  const box = boxes.find(item => item.group.id === node.groupId);
+  if (!box) return node;
+  return { ...node, x: Math.max(box.x + 40, Math.min(box.x + box.width - 40, node.x)),
+    y: Math.max(box.y + 74, Math.min(box.y + box.height - 47, node.y)) };
+}
+
 export const KnowledgeGraph: React.FC = () => {
   const { spaceId } = useParams<{ spaceId: string }>();
   const navigate = useNavigate();
@@ -66,6 +74,8 @@ export const KnowledgeGraph: React.FC = () => {
   const [edges, setEdges] = useState<KnowledgeEdge[]>([]);
   const [search, setSearch] = useState('');
   const [relationType, setRelationType] = useState('');
+  const [pageFilter, setPageFilter] = useState<'all' | 'connected' | 'unconnected'>('all');
+  const [focusedNode, setFocusedNode] = useState<string | null>(null);
   const [grouped, setGrouped] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const requestVersion = useRef(0);
@@ -83,67 +93,73 @@ export const KnowledgeGraph: React.FC = () => {
   const [hiddenOrigins, setHiddenOrigins] = useState<Set<string>>(new Set());
   const visibleEdges = useMemo(() => edges.filter(edge => !hiddenOrigins.has(edge.origin)
     && (!relationType || edge.relation === relationType)), [edges, hiddenOrigins, relationType]);
+  const connectedIds = useMemo(() => new Set(visibleEdges.flatMap(edge => [edge.source, edge.target])), [visibleEdges]);
+  const focusIds = useMemo(() => focusedNode ? new Set([focusedNode, ...visibleEdges.flatMap(edge =>
+    edge.source === focusedNode ? [edge.target] : edge.target === focusedNode ? [edge.source] : [])]) : null, [focusedNode, visibleEdges]);
   const groups = useMemo(() => buildGraphGroups(nodes, folders), [nodes, folders]);
   const query = search.trim().toLocaleLowerCase();
-  const relationPageIds = useMemo(() => relationType
-    ? new Set(visibleEdges.flatMap(edge => [edge.source, edge.target])) : null, [relationType, visibleEdges]);
   const filteredNodes = useMemo(() => nodes.filter(node =>
     (!query || `${node.title} ${node.path ?? ''}`.toLocaleLowerCase().includes(query))
-    && (!relationPageIds || relationPageIds.has(node.id))), [nodes, query, relationPageIds]);
+    && (!relationType || pageFilter === 'unconnected' || connectedIds.has(node.id))
+    && (pageFilter === 'all' || connectedIds.has(node.id) === (pageFilter === 'connected'))
+    && (!focusIds || focusIds.has(node.id))), [nodes, query, relationType, connectedIds, pageFilter, focusIds]);
+  const filtering = Boolean(query || relationType || pageFilter !== 'all' || focusedNode);
   const filteredGroups = useMemo(() => {
     const matches = new Set(filteredNodes.map(node => node.id));
     return groups.map(group => ({ ...group, pages: group.pages.filter(page => matches.has(page.id)) }))
-      .filter(group => (!query && !relationType) || group.pages.length > 0);
-  }, [groups, filteredNodes, query, relationType]);
-  const projectedNodes = useMemo(() => grouped
-    ? layoutGroupedNodes(filteredGroups, expandedGroups)
-    : filteredNodes.map(node => ({ ...node, kind: 'page' as const })),
-  [grouped, filteredGroups, filteredNodes, expandedGroups]);
-  const projectedEdges = useMemo(() => grouped
-    ? projectGroupedEdges(filteredGroups, expandedGroups, visibleEdges) : visibleEdges,
-  [grouped, filteredGroups, expandedGroups, visibleEdges]);
+      .filter(group => !filtering || group.pages.length > 0);
+  }, [groups, filteredNodes, filtering]);
+  // Preview ranking uses the complete real graph, so toggling origins does not shuffle nodes.
+  const folderLayout = useMemo(() => layoutFolderGraph(filteredGroups, expandedGroups, edges, selectedNode), [filteredGroups, expandedGroups, edges, selectedNode]);
+  const projectedNodes = useMemo(() => grouped ? folderLayout.nodes : filteredNodes.map(node => ({ ...node, kind: 'page' as const })), [grouped, folderLayout.nodes, filteredNodes]);
+  const currentLayout = useRef({ nodes: projectedNodes, boxes: folderLayout.boxes });
+  currentLayout.current = { nodes: projectedNodes, boxes: folderLayout.boxes };
   useEffect(() => {
-    if (movedPositions.current.spaceId !== spaceId) {
-      movedPositions.current = { spaceId, grouped: new Map(), pages: new Map() };
-    }
+    if (movedPositions.current.spaceId !== spaceId) movedPositions.current = { spaceId, grouped: new Map(), pages: new Map() };
     const positions = grouped ? movedPositions.current.grouped : movedPositions.current.pages;
-    setGraphNodes(projectedNodes.map(node => ({ ...node, ...positions.get(node.id) })));
+    setGraphNodes(projectedNodes.map(node => {
+      const position = positions.get(node.id);
+      if (!position) return node;
+      // Group movement is stored relative to the layout, so compacted search results
+      // move the page together with its folder instead of leaving it at an old column.
+      const placed = { ...node, x: grouped ? node.x + position.x : position.x, y: grouped ? node.y + position.y : position.y };
+      return grouped ? keepPageInFolder(placed, currentLayout.current.boxes) : placed;
+    }));
   }, [projectedNodes, grouped, spaceId]);
   const moveGraphNodes = useCallback<React.Dispatch<React.SetStateAction<DisplayGraphNode[]>>>(update => {
     setGraphNodes(current => {
-      const next = typeof update === 'function' ? update(current) : update;
+      const updated = typeof update === 'function' ? update(current) : update;
+      const next = grouped ? updated.map(node => keepPageInFolder(node, currentLayout.current.boxes)) : updated;
       if (movedPositions.current.spaceId === spaceId) {
         const positions = grouped ? movedPositions.current.grouped : movedPositions.current.pages;
         const previous = new Map(current.map(node => [node.id, node]));
         next.forEach(node => {
           const old = previous.get(node.id);
-          if (old && (old.x !== node.x || old.y !== node.y)) positions.set(node.id, { x: node.x, y: node.y });
+          if (old && (old.x !== node.x || old.y !== node.y)) {
+            const seed = grouped ? currentLayout.current.nodes.find(item => item.id === node.id) : undefined;
+            positions.set(node.id, { x: node.x - (seed?.x ?? 0), y: node.y - (seed?.y ?? 0) });
+          }
         });
       }
       return next;
     });
   }, [grouped, spaceId]);
-  const viewport = useGraphViewport(canvasRef, graphNodes, moveGraphNodes, !loading && !error && graphNodes.length > 0);
+  const viewport = useGraphViewport(canvasRef, graphNodes, moveGraphNodes, !loading && !error && (graphNodes.length > 0 || filteredGroups.length > 0), grouped ? folderLayout.bounds : undefined, grouped ? 0.65 : 0.25);
   const graphNodeIds = graphNodes.map(node => node.id).join('|');
-  useEffect(() => { viewport.fit(); }, [graphNodeIds]);
+  const boundsKey = grouped ? JSON.stringify(folderLayout.bounds) : '';
+  useEffect(() => { viewport.fitReadable(); }, [graphNodeIds, boundsKey]);
+  useEffect(() => { if (selectedNode) viewport.reveal(selectedNode); }, [selectedNode, graphNodeIds]);
   const groupTitle = (group: GraphGroup) => group.folder?.name ?? gt(group.kind === 'ungrouped' ? 'graph.ungrouped' : 'graph.folderUnavailable');
   const toggleGroup = (id: string) => setExpandedGroups(current => {
     const next = new Set(current);
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
-  const selectPage = (id: string | null) => {
-    setSelectedNode(id);
-    const group = groups.find(item => item.pages.some(page => page.id === id));
-    if (grouped && group) setExpandedGroups(current => current.has(group.id) ? current : new Set([...current, group.id]));
-  };
-  // Search results expose page buttons without requiring users to guess the folder.
-  useEffect(() => {
-    if (query || relationType) setExpandedGroups(new Set(filteredGroups.map(group => group.id)));
-  }, [query, relationType, filteredGroups]);
+  const selectPage = (id: string | null) => setSelectedNode(id);
   useEffect(() => {
     if (selectedNode && !filteredNodes.some(node => node.id === selectedNode)) setSelectedNode(null);
   }, [filteredNodes, selectedNode]);
+  const clearFilters = () => { setSearch(''); setRelationType(''); setPageFilter('all'); setFocusedNode(null); setHiddenOrigins(new Set()); };
 
   const fetchGraph = useCallback(async () => {
     if (!spaceId || activeSpaceId.current !== spaceId) return;
@@ -165,381 +181,151 @@ export const KnowledgeGraph: React.FC = () => {
   useEffect(() => {
     setLoading(true);
     canvasClickTarget.current = undefined;
-    setSelectedNode(null);
-    setLinkingFrom(null);
-    setShowLinkModal(false);
-    setExpandedGroups(new Set());
-    setSearch('');
-    setRelationType('');
-    setHiddenOrigins(new Set());
+    setSelectedNode(null); setFocusedNode(null); setPageFilter('all');
+    setLinkingFrom(null); setLinkTarget(''); setCreating(false);
+    setShowLinkModal(false); setExpandedGroups(new Set());
+    setSearch(''); setRelationType(''); setHiddenOrigins(new Set());
     void fetchGraph();
     return () => { requestVersion.current++; };
   }, [fetchGraph]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
     const { width, height } = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.round(width * dpr);
-    canvas.height = Math.round(height * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, width, height);
+    canvas.width = Math.round(width * dpr); canvas.height = Math.round(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, width, height);
     const { scale, x, y } = viewport.view;
     ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * x, dpr * y);
-
-    // Draw edges
-    projectedEdges.forEach(edge => {
-      const source = graphNodes.find(n => n.id === edge.source);
-      const target = graphNodes.find(n => n.id === edge.target);
-      if (source && target) {
-        ctx.beginPath();
-        ctx.moveTo(source.x, source.y);
-        ctx.lineTo(target.x, target.y);
-        const isActive = selectedNode && (edge.source === selectedNode || edge.target === selectedNode);
-        ctx.strokeStyle = isActive ? `rgba(59, 130, 246, ${edge.strength * 0.8})` : `rgba(100, 100, 100, ${edge.strength * 0.4})`;
-        ctx.lineWidth = isActive ? edge.strength * 4 : edge.strength * 3;
-        ctx.stroke();
-      }
+    const byId = new Map(graphNodes.map(node => [node.id, node]));
+    visibleEdges.forEach(edge => {
+      const source = byId.get(edge.source); const target = byId.get(edge.target);
+      if (!source || !target || source.id === target.id) return;
+      const active = edge.source === selectedNode || edge.target === selectedNode;
+      const bend = Math.max(48, Math.abs(target.x - source.x) * 0.45);
+      const sign = target.x >= source.x ? 1 : -1;
+      const endX = target.x - sign * (target.radius + 3);
+      ctx.beginPath(); ctx.moveTo(source.x + sign * source.radius, source.y);
+      ctx.bezierCurveTo(source.x + sign * bend, source.y, target.x - sign * bend, target.y, endX, target.y);
+      ctx.strokeStyle = active ? '#9aaac8' : '#c2cad8'; ctx.lineWidth = active ? 1.5 : 1.1;
+      ctx.setLineDash(edge.origin === 'auto_similar' ? [5, 5] : []); ctx.stroke(); ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(endX, target.y); ctx.lineTo(endX - sign * 6, target.y - 3); ctx.lineTo(endX - sign * 6, target.y + 3);
+      ctx.fillStyle = active ? '#9aaac8' : '#c2cad8'; ctx.fill();
     });
-
-    // Draw nodes
     graphNodes.forEach(node => {
-      const isSelected = selectedNode === node.id;
-      const isLinking = linkingFrom === node.id;
-      ctx.beginPath();
-      ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
-      if (isLinking) {
-        ctx.fillStyle = '#F59E0B';
-        ctx.strokeStyle = '#D97706';
-      } else if (isSelected) {
-        ctx.fillStyle = '#3B82F6';
-        ctx.strokeStyle = '#1D4ED8';
-      } else if (node.kind === 'group') {
-        ctx.fillStyle = '#E5E7EB';
-        ctx.strokeStyle = '#6B7280';
-      } else {
-        ctx.fillStyle = '#60A5FA';
-        ctx.strokeStyle = '#3B82F6';
-      }
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.stroke();
+      const selected = selectedNode === node.id; const linking = linkingFrom === node.id;
+      ctx.beginPath(); ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
+      ctx.fillStyle = linking ? '#fef3c7' : selected ? '#4779ff' : '#edf3ff'; ctx.fill();
+      if (selected) { ctx.strokeStyle = '#c4d4ff'; ctx.lineWidth = 7; ctx.stroke(); }
+      ctx.strokeStyle = linking ? '#d97706' : '#6e97ff'; ctx.lineWidth = selected ? 1.8 : 1.15; ctx.stroke();
     });
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.font = GRAPH_LABEL_FONT;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    ctx.fillStyle = '#1F2937';
-    const projected = graphNodes.map(node => ({ ...node, x: node.x * scale + x, y: node.y * scale + y, radius: node.radius * scale }));
-    const labels = layoutGraphLabels(projected, width, height, text => ctx.measureText(text).width, selectedNode);
-    // Folder names and counts remain visible before any page is selected.
-    projected.filter(node => node.kind === 'group').forEach(node => {
-      const group = filteredGroups.find(item => item.id === node.id);
-      if (!group) return;
-      const name = groupTitle(group);
-      const chars = [...name];
-      while (chars.length && ctx.measureText(chars.join('') + '…').width > Math.min(180, width - 16)) chars.pop();
-      const title = chars.join('') + (chars.length < [...name].length ? '…' : '');
-      const count = gt('graph.pageCount', { count: node.count ?? 0 });
-      ctx.fillText(title, node.x - ctx.measureText(title).width / 2, node.y + node.radius + 8);
-      ctx.fillText(count, node.x - ctx.measureText(count).width / 2, node.y + node.radius + 28);
-    });
-    labels.forEach(label => label.lines.forEach((line, index) => {
-      ctx.fillText(line, label.x, label.y + index * GRAPH_LABEL_LINE_HEIGHT);
-    }));
-  }, [graphNodes, projectedEdges, selectedNode, linkingFrom, viewport.view, filteredGroups, gt]);
+  }, [graphNodes, visibleEdges, selectedNode, linkingFrom, viewport.view]);
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!canvasRef.current || viewport.suppressClick.current) return;
-    // Selecting a page can resize and refit the canvas when its sidebar appears.
-    // Keep the first click's identity for the entire native double-click sequence.
-    if (e.detail > 1) return;
+    if (!canvasRef.current || viewport.suppressClick.current || e.detail > 1) return;
     viewport.suppressDoubleClick.current = false;
     const clicked = viewport.hit(e);
-    canvasClickTarget.current = clicked?.kind === 'page' ? clicked.id : null;
-
-    if (clicked?.kind === 'group') {
-      viewport.suppressDoubleClick.current = true;
-      toggleGroup(clicked.id);
-      return;
-    }
-    if (clicked) {
-      // If in linking mode and clicked a different node, open link modal
-      if (linkingFrom && clicked.id !== linkingFrom) {
-        setLinkTarget(clicked.id);
-        setShowLinkModal(true);
-      } else {
-        setSelectedNode(selectedNode === clicked.id ? null : clicked.id);
-      }
-    } else {
-      setSelectedNode(null);
-    }
+    canvasClickTarget.current = clicked?.id ?? null;
+    if (clicked && linkingFrom && clicked.id !== linkingFrom) { setLinkTarget(clicked.id); setShowLinkModal(true); }
+    else setSelectedNode(clicked && selectedNode !== clicked.id ? clicked.id : null);
   };
-
   const handleCanvasDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!canvasRef.current || viewport.suppressClick.current || viewport.suppressDoubleClick.current) return;
-    const clicked = viewport.hit(e);
-    const target = canvasClickTarget.current === undefined
-      ? (clicked?.kind === 'page' ? clicked.id : null) : canvasClickTarget.current;
+    const target = canvasClickTarget.current === undefined ? viewport.hit(e)?.id : canvasClickTarget.current;
     canvasClickTarget.current = undefined;
     if (target && filteredNodes.some(node => node.id === target)) navigate(`/pages/${target}`);
   };
-
   const handleCreateLink = async () => {
     if (!linkingFrom || !linkTarget || !linkRelation.trim()) return;
+    const operationSpace = spaceId;
     setCreating(true);
     try {
-      await api.post('/knowledge/relations', {
-        relation: linkRelation.trim(),
-        sourcePageId: linkingFrom,
-        targetPageId: linkTarget,
-        strength: linkStrength,
-      });
-      setShowLinkModal(false);
-      setLinkingFrom(null);
-      setLinkTarget('');
-      setLinkRelation('related_to');
-      setLinkStrength(0.8);
+      await api.post('/knowledge/relations', { relation: linkRelation.trim(), sourcePageId: linkingFrom, targetPageId: linkTarget, strength: linkStrength });
+      if (activeSpaceId.current !== operationSpace) return;
+      setShowLinkModal(false); setLinkingFrom(null); setLinkTarget(''); setLinkRelation('related_to'); setLinkStrength(0.8);
       await fetchGraph();
-    } catch (err: any) {
-      setError({ failure: err, fallbackKey: 'graph.createFailed' });
-    } finally {
-      setCreating(false);
-    }
+    } catch (err: unknown) {
+      if (activeSpaceId.current === operationSpace) setError({ failure: err, fallbackKey: 'graph.createFailed' });
+    } finally { if (activeSpaceId.current === operationSpace) setCreating(false); }
   };
-
   const handleDeleteRelation = async (relationId: string) => {
     if (!window.confirm(zh ? '确定删除此关系吗？' : 'Delete this relation?')) return;
-    try {
-      await api.delete('/knowledge/relations/' + relationId);
-      await fetchGraph();
-    } catch (err: any) {
-      setError({ failure: err, fallbackKey: 'graph.deleteFailed' });
-    }
+    const operationSpace = spaceId;
+    try { await api.delete('/knowledge/relations/' + relationId); if (activeSpaceId.current === operationSpace) await fetchGraph(); }
+    catch (err: unknown) { if (activeSpaceId.current === operationSpace) setError({ failure: err, fallbackKey: 'graph.deleteFailed' }); }
   };
-
-  const startLinking = () => {
-    if (!selectedNode) return;
-    setLinkingFrom(selectedNode);
-    setShowLinkModal(true);
-  };
-
-  const closeLinkDialog = () => {
-    if (creating) return;
-    setShowLinkModal(false);
-    setLinkingFrom(null);
-  };
-
+  const startLinking = () => { if (selectedNode) { setLinkingFrom(selectedNode); setShowLinkModal(true); } };
+  const closeLinkDialog = () => { if (!creating) { setShowLinkModal(false); setLinkingFrom(null); } };
   const selectedPage = nodes.find(node => node.id === selectedNode);
   const selectedEdges = visibleEdges.filter(edge => edge.source === selectedNode || edge.target === selectedNode);
-  const relatedPageCount = new Set(selectedEdges.map(edge => edge.source === selectedNode ? edge.target : edge.source)).size;
+  const relatedPages = [...new Set(selectedEdges.map(edge => edge.source === selectedNode ? edge.target : edge.source))].map(id => ({
+    id, page: nodes.find(node => node.id === id), edges: selectedEdges.filter(edge => edge.source === id || edge.target === id),
+  }));
   const allPages = nodes;
+  const selectedVisual = graphNodes.find(node => node.id === selectedNode);
+  const canvasWidth = canvasRef.current?.getBoundingClientRect().width || 800;
+  const canvasHeight = canvasRef.current?.getBoundingClientRect().height || 620;
+  const selectedPoint = selectedVisual ? { x: selectedVisual.x * viewport.view.scale + viewport.view.x, y: selectedVisual.y * viewport.view.scale + viewport.view.y } : null;
+  const popupVisible = selectedPoint && selectedPoint.x >= 0 && selectedPoint.x <= canvasWidth && selectedPoint.y >= 0 && selectedPoint.y <= canvasHeight;
 
-  if (loading) return <div className="text-center py-8 text-gray-500">{zh ? '正在加载知识图谱…' : 'Loading knowledge graph…'}</div>;
-  if (error) return (
-    <div className="text-center py-8">
-      <p className="text-red-500 mb-2">{apiErrorMessage(error.failure, t, error.fallbackKey)}</p>
-      <Link to={spaceId ? `/spaces/${spaceId}` : '/'} className="text-blue-600 hover:underline">{zh ? '返回' : 'Go back'}</Link>
+  if (loading) return <div role="status" className="text-center py-8 text-gray-500">{zh ? '正在加载知识图谱…' : 'Loading knowledge graph…'}</div>;
+  if (error) return <div className="text-center py-8"><p role="alert" className="text-red-500 mb-2">{apiErrorMessage(error.failure, t, error.fallbackKey)}</p><Link to={spaceId ? `/spaces/${spaceId}` : '/'} className="text-blue-600 hover:underline">{zh ? '返回' : 'Go back'}</Link></div>;
+
+  return <div className="knowledge-graph">
+    <header className="graph-heading">
+      <nav aria-label={zh ? '面包屑' : 'Breadcrumb'}><Link to={spaceId ? `/spaces/${spaceId}` : '/'}>{zh ? '空间' : 'Space'}</Link><span>/</span><span>{zh ? '知识图谱' : 'Knowledge graph'}</span></nav>
+      <h1>{zh ? '关系网络' : 'Connections'}</h1><p>{gt('graph.subtitle')}</p>
+    </header>
+    <div className="graph-toolbar">
+      <label className="graph-search"><Search size={18} /><span className="sr-only">{gt('graph.search')}</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder={gt('graph.searchPlaceholder')} /></label>
+      <div className="graph-count-filters" aria-label={gt('graph.pageFilter')}>
+        {(['all', 'connected', 'unconnected'] as const).map(filter => <button key={filter} type="button" aria-pressed={pageFilter === filter} onClick={() => { setPageFilter(filter); setFocusedNode(null); }}>
+          {gt(`graph.${filter}`)} <span>{filter === 'all' ? nodes.length : nodes.filter(node => connectedIds.has(node.id) === (filter === 'connected')).length}</span>
+        </button>)}
+      </div>
+      <details className="graph-filter-menu"><summary><Network size={18} />{gt('graph.relationTypes')}<ChevronDown size={14} /></summary>
+        <div className="graph-filter-popover">
+          <label>{gt('graph.relationFilter')}<select value={relationType} onChange={event => setRelationType(event.target.value)}><option value="">{gt('graph.allRelations')}</option>{[...new Set(edges.map(edge => edge.relation))].sort().map(relation => <option key={relation} value={relation}>{relation}</option>)}</select></label>
+          <p>{gt('graph.origins')}</p><div className="graph-origin-filters">{[...new Set(edges.map(edge => edge.origin))].map(origin => {
+            const label = ORIGIN_LABELS[origin];
+            return <button key={origin} type="button" aria-pressed={!hiddenOrigins.has(origin)} className={hiddenOrigins.has(origin) ? 'line-through' : ''} onClick={() => setHiddenOrigins(current => { const next = new Set(current); if (next.has(origin)) next.delete(origin); else next.add(origin); return next; })}>{label ? (zh ? label.zh : label.en) : origin}</button>;
+          })}</div>
+          <p>{gt('graph.view')}</p><div className="graph-origin-filters"><button type="button" aria-pressed={grouped} onClick={() => setGrouped(true)}>{gt('graph.grouped')}</button><button type="button" aria-pressed={!grouped} onClick={() => setGrouped(false)}>{gt('graph.allPages')}</button></div>
+        </div>
+      </details>
+      <div className="graph-view-actions"><button type="button" onClick={viewport.fit}><Maximize2 size={17} />{zh ? '适应图谱' : 'Fit graph'}</button><button type="button" onClick={viewport.reset}><RotateCcw size={17} />{zh ? '重置视图' : 'Reset view'}</button></div>
     </div>
-  );
-
-  return (
-    <div>
-      <div className='flex flex-wrap items-center gap-2 mb-3'>
-        {[...new Set(edges.map((edge) => edge.origin))].map((origin) => {
-          const hidden = hiddenOrigins.has(origin);
-          const label = ORIGIN_LABELS[origin];
-          if (!label) return null;
-          const toggle = () => setHiddenOrigins((current) => {
-            const next = new Set(current);
-            if (next.has(origin)) next.delete(origin);
-            else next.add(origin);
-            return next;
-          });
-          const chipClass = hidden
-            ? 'bg-white text-gray-400 border-gray-200 line-through'
-            : label.className;
-          return (
-            <button
-              key={origin}
-              type='button'
-              onClick={toggle}
-              className={'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition ' + chipClass}
-            >
-              {zh ? label.zh : label.en}
-            </button>
-          );
-        })}
+    <p role="status" className={filtering || hiddenOrigins.size ? 'graph-result-count' : 'sr-only'}>{gt('graph.resultCount', { count: filteredNodes.length, total: nodes.length })}{filtering && <button type="button" onClick={clearFilters}>{gt('graph.clearFilters')}</button>}</p>
+    {linkingFrom && <div className="mb-3 rounded-md bg-amber-50 p-3 text-sm text-amber-700">{zh ? '正在从以下页面建立关系：' : 'Linking from:'} <strong>{nodes.find(node => node.id === linkingFrom)?.title}</strong></div>}
+    <div className="graph-workspace grid lg:grid-cols-[minmax(0,1fr)_292px]">
+      <div className={`graph-stage ${viewport.view.scale < 0.45 ? 'is-overview' : ''}`}>
+        <canvas ref={canvasRef} aria-hidden="true" className="graph-canvas" onClick={handleCanvasClick} onDoubleClick={handleCanvasDoubleClick} />
+        <div className="graph-folders-layer">
+          {grouped && folderLayout.boxes.map(box => <section key={box.group.id} className="graph-folder-box" data-folder-id={box.group.id} style={{ left: box.x * viewport.view.scale + viewport.view.x, top: box.y * viewport.view.scale + viewport.view.y, width: box.width * viewport.view.scale, height: box.height * viewport.view.scale }}>
+            <button type="button" className="graph-folder-title" aria-expanded={expandedGroups.has(box.group.id)} title={box.group.folder?.path} aria-label={`${groupTitle(box.group)} ${box.group.folder?.path ? `${box.group.folder.path} ` : ''}${gt('graph.pageCount', { count: box.group.pages.length })}`} onClick={() => toggleGroup(box.group.id)}><Folder size={21} /><strong>{groupTitle(box.group)}</strong><span>· {gt('graph.pageCount', { count: box.group.pages.length })}</span><MoreHorizontal size={17} className="graph-folder-menu-icon" /></button>
+            {box.group.pages.length === 0 && <p className="graph-empty-folder">{gt('graph.emptyFolder')}</p>}
+          </section>)}
+        </div>
+        <div className="graph-labels-layer">
+          {graphNodes.map(node => <button type="button" key={node.id} className={`graph-node-label ${selectedNode === node.id ? 'is-selected' : ''}`} aria-label={`${node.title} ${node.path || gt('graph.pathUnavailable')}`} aria-pressed={selectedNode === node.id} title={node.path || node.title} data-node-id={node.id} style={{ width: Math.max(74, Math.min(120, 140 * viewport.view.scale)), left: node.x * viewport.view.scale + viewport.view.x, top: (node.y + node.radius) * viewport.view.scale + viewport.view.y + 8 }} onClick={() => selectPage(node.id)} onDoubleClick={() => navigate(`/pages/${node.id}`)}>{node.title}</button>)}
+          {grouped && folderLayout.boxes.filter(box => box.hiddenCount > 0).map(box => <button key={box.group.id} type="button" className="graph-more-node" aria-label={gt('graph.expandFolder', { folder: groupTitle(box.group), count: box.hiddenCount })} onClick={() => toggleGroup(box.group.id)} style={{ left: box.moreX * viewport.view.scale + viewport.view.x, top: box.moreY * viewport.view.scale + viewport.view.y }}><span><Plus size={20} /></span>{gt('graph.more')}</button>)}
+        </div>
+        {popupVisible && selectedPoint && selectedPage && <div className="graph-node-popup" style={{ left: Math.max(8, Math.min(canvasWidth - 208, selectedPoint.x + 28)), top: Math.max(12, Math.min(canvasHeight - 150, selectedPoint.y - 92)) }}><strong>{selectedPage.path || selectedPage.title}</strong><p>{gt('graph.relatedPages')} {relatedPages.length}</p><button type="button" onClick={() => { setFocusedNode(selectedNode); setPageFilter('all'); setSearch(''); }}>{gt('graph.onlyRelated')}</button></div>}
+        {nodes.length === 0 && folders.length === 0 ? <div className="graph-empty-state"><Network size={32} /><p>{zh ? '还没有知识图谱数据。创建页面并添加页面间关系后即可形成图谱。' : 'No knowledge graph data yet. Create pages and add links between them to build the graph.'}</p></div> : filteredGroups.length === 0 && filteredNodes.length === 0 && <div className="graph-empty-state"><Search size={28} /><p>{gt('graph.noMatches')}</p></div>}
+        <div className="graph-legend"><span><i />{gt('graph.manualLegend')}</span><span><i className="is-dashed" />{gt('graph.similarLegend')}</span></div>
+        <div className="graph-zoom"><button type="button" onClick={() => viewport.zoom(1 / 1.25)} aria-label={zh ? '缩小图谱' : 'Zoom out'}><Minus size={16} /></button><output aria-label={zh ? '图谱缩放比例' : 'Graph zoom'}>{Math.round(viewport.view.scale * 100)}%</output><button type="button" onClick={() => viewport.zoom(1.25)} aria-label={zh ? '放大图谱' : 'Zoom in'}><Plus size={16} /></button></div>
       </div>
-      <div className="flex items-center gap-3 mb-4">
-        <Link to={spaceId ? `/spaces/${spaceId}` : '/'} className="p-2 hover:bg-gray-100 rounded" title={zh ? '返回空间' : 'Back to space'}>
-          <ArrowLeft size={20} />
-        </Link>
-        <div className="flex-1">
-          <div className="text-sm text-gray-400">{zh ? '知识图谱' : 'Knowledge graph'}</div>
-          <h1 className="text-2xl font-bold">{zh ? '关系网络' : 'Connections'}</h1>
-        </div>
-      </div>
-
-      {linkingFrom && (
-        <div className="mb-3 p-3 bg-amber-50 rounded-md flex items-center justify-between">
-          <span className="text-sm text-amber-700">
-            {zh ? '正在从以下页面建立关系：' : 'Linking from:'} <strong>{nodes.find(n => n.id === linkingFrom)?.title}</strong> — {zh ? '点击另一个节点或在下方选择' : 'click another node or pick below'}
-          </span>
-          <button onClick={() => { setLinkingFrom(null); setShowLinkModal(false); }} className="p-1 hover:bg-amber-100 rounded">
-            <X size={16} />
-          </button>
-        </div>
-      )}
-
-      {nodes.length === 0 && folders.length === 0 ? (
-        <div className="text-center py-12 text-gray-500">
-          {zh ? '还没有知识图谱数据。创建页面并添加页面间关系后即可形成图谱。' : 'No knowledge graph data yet. Create pages and add links between them to build the graph.'}
-        </div>
-      ) : (
-        <>
-          <div className="mb-4 flex flex-wrap items-end gap-3">
-            <label className="min-w-0 flex-1 text-sm font-medium">
-              {gt('graph.search')}
-              <input type="search" value={search} onChange={event => setSearch(event.target.value)}
-                placeholder={gt('graph.searchPlaceholder')} className="mt-1 h-9 w-full rounded-lg border px-3" />
-            </label>
-            <label className="min-w-0 max-w-full text-sm font-medium">
-              {gt('graph.relationFilter')}
-              <select value={relationType} onChange={event => setRelationType(event.target.value)} className="mt-1 block h-9 max-w-full rounded-lg border px-3">
-                <option value="">{gt('graph.allRelations')}</option>
-                {[...new Set(edges.map(edge => edge.relation))].sort().map(relation => <option key={relation} value={relation}>{relation}</option>)}
-              </select>
-            </label>
-            <div className="flex rounded-lg border p-1 text-sm">
-              <button type="button" aria-pressed={grouped} onClick={() => setGrouped(true)} className={`rounded-md px-3 py-1 ${grouped ? 'bg-gray-100 font-medium' : ''}`}>{gt('graph.grouped')}</button>
-              <button type="button" aria-pressed={!grouped} onClick={() => setGrouped(false)} className={`rounded-md px-3 py-1 ${!grouped ? 'bg-gray-100 font-medium' : ''}`}>{gt('graph.allPages')}</button>
-            </div>
-          </div>
-          <p role="status" className="mb-3 text-sm text-gray-500">{gt('graph.resultCount', { count: filteredNodes.length, total: nodes.length })}</p>
-          {grouped && <>
-            <p className="mb-3 text-sm text-gray-500">{gt('graph.groupsHint')}</p>
-            <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {filteredGroups.map(group => {
-                const expanded = expandedGroups.has(group.id);
-                const total = groups.find(item => item.id === group.id)?.pages.length ?? 0;
-                return <section key={group.id} className="min-w-0 rounded-lg border bg-white">
-                  <button type="button" aria-expanded={expanded} aria-controls={`graph-${group.id}`}
-                    onClick={() => toggleGroup(group.id)} className="flex w-full items-center gap-2 p-3 text-left hover:bg-gray-50">
-                    {expanded ? <ChevronDown size={16} className="shrink-0" /> : <ChevronRight size={16} className="shrink-0" />}
-                    <Folder size={18} className="shrink-0 text-gray-500" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block break-words text-sm font-medium">{groupTitle(group)}</span>
-                      {group.folder && <span className="mt-1 block break-all text-xs text-gray-500">{group.folder.path}</span>}
-                      <span className="mt-1 block text-xs text-gray-500">{gt(query || relationType ? 'graph.matchCount' : 'graph.pageCount', { count: group.pages.length, total })}</span>
-                    </span>
-                  </button>
-                  {expanded && <div id={`graph-${group.id}`} className="max-h-48 overflow-y-auto border-t p-2">
-                    {group.pages.length ? group.pages.map(page => <button key={page.id} type="button" onClick={() => selectPage(page.id)}
-                      aria-pressed={selectedNode === page.id} className={`block w-full rounded-lg px-3 py-2 text-left text-sm ${selectedNode === page.id ? 'bg-blue-50 text-blue-800' : 'hover:bg-gray-50'}`}>
-                      <span className="block break-words">{page.title}</span>
-                      <span className="mt-1 block break-all text-xs text-gray-500">{page.path || gt('graph.pathUnavailable')}</span>
-                    </button>) : <p className="p-2 text-sm text-gray-500">{gt('graph.emptyFolder')}</p>}
-                  </div>}
-                </section>;
-              })}
-            </div>
-          </>}
-          {filteredNodes.length === 0 && (query || relationType) && <div className="mb-4 rounded-lg border p-6 text-center text-sm text-gray-500">
-            <p>{gt('graph.noMatches')}</p>
-            <button type="button" onClick={() => { setSearch(''); setRelationType(''); }} className="mt-2 text-blue-600 hover:underline">{gt('graph.clearFilters')}</button>
-          </div>}
-          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-          <div className="min-w-0">
-          <div className="text-sm text-gray-400 mb-2">
-            <span className="hidden sm:inline">{zh ? '单击选择 · 双击打开 · 使用“建立关系”按钮连接页面' : 'Click to select · Double-click to open · Use “Link” to connect pages'}</span>
-            <span className="sm:hidden">{zh ? '轻触选择 · 双击打开' : 'Tap to select · Double-tap to open'}</span>
-          </div>
-          <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
-            <button type="button" onClick={() => viewport.zoom(1 / 1.25)} aria-label={zh ? '缩小图谱' : 'Zoom out'} className="h-8 rounded-lg border px-3">−</button>
-            <output aria-label={zh ? '图谱缩放比例' : 'Graph zoom'}>{Math.round(viewport.view.scale * 100)}%</output>
-            <button type="button" onClick={() => viewport.zoom(1.25)} aria-label={zh ? '放大图谱' : 'Zoom in'} className="h-8 rounded-lg border px-3">+</button>
-            <button type="button" onClick={viewport.fit} className="h-8 rounded-lg border px-3">{zh ? '适应图谱' : 'Fit graph'}</button>
-            <button type="button" onClick={viewport.reset} className="h-8 rounded-lg border px-3">{zh ? '重置视图' : 'Reset view'}</button>
-          </div>
-          <p className="mb-2 text-sm text-gray-500">{zh ? '滚轮缩放 · 拖动空白处平移 · 拖动节点调整位置' : 'Scroll to zoom · Drag background to pan · Drag nodes to reposition'}</p>
-          <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
-            <canvas
-              ref={canvasRef}
-              aria-hidden="true"
-              className="block w-full h-[500px] cursor-grab touch-none select-none"
-              onClick={handleCanvasClick}
-              onDoubleClick={handleCanvasDoubleClick}
-            />
-          </div>
-          <div className="mt-3 flex flex-col gap-2 rounded-lg border bg-white p-3 sm:flex-row sm:items-end">
-            <label htmlFor="knowledge-node-browser" className="flex-1 text-sm font-medium text-gray-700">
-              {zh ? '浏览图谱节点' : 'Browse graph nodes'}
-              <select
-                id="knowledge-node-browser"
-                value={selectedNode ?? ''}
-                onChange={(event) => selectPage(event.target.value || null)}
-                className="mt-1 h-10 w-full rounded-lg border px-3 text-sm"
-              >
-                <option value="">{zh ? '选择页面…' : 'Select a page…'}</option>
-                {filteredNodes.map((node) => <option key={node.id} value={node.id}>{node.title}</option>)}
-              </select>
-            </label>
-            {selectedNode ? (
-              <Link
-                to={`/pages/${selectedNode}`}
-                aria-label={zh ? '打开所选页面' : 'Open selected page'}
-                className="inline-flex h-10 items-center justify-center rounded-lg border px-4 text-sm text-blue-600 hover:bg-blue-50"
-              >
-                {zh ? '打开所选页面' : 'Open selected page'}
-              </Link>
-            ) : (
-              <button type="button" disabled className="h-10 rounded-lg border px-4 text-sm text-gray-400">
-                {zh ? '打开所选页面' : 'Open selected page'}
-              </button>
-            )}
-          </div>
-          </div>
-          {selectedNode ? (
-            <aside aria-label={gt('graph.pageDetails')} className="min-w-0 max-h-[720px] overflow-y-auto rounded-lg border bg-white p-4">
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <h2 className="text-sm font-medium">{gt('graph.pageDetails')}</h2>
-                <button type="button" aria-label={gt('graph.closeDetails')} onClick={() => setSelectedNode(null)} className="rounded p-1 hover:bg-gray-100"><X size={16} /></button>
-              </div>
-              <div className="min-w-0 flex-1">
-                <h3 className="break-words font-semibold text-blue-900">
-                  {selectedPage?.title}
-                </h3>
-                <dl className="mt-3 text-sm"><dt className="text-gray-500">{gt('graph.pagePath')}</dt><dd className="mt-1 break-all">{selectedPage?.path || gt('graph.pathUnavailable')}</dd></dl>
-                <h3 className="mt-4 text-sm font-medium">{gt('graph.relatedPages')}</h3>
-                <p className="mt-1 text-sm text-gray-500">{gt('graph.connectedCount', { pages: relatedPageCount, relations: selectedEdges.length })}</p>
-                {selectedEdges.length === 0 && <p className="mt-2 text-sm text-gray-500">{gt('graph.noRelations')}</p>}
-                {selectedEdges.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    {selectedEdges.map(edge => {
-                      const otherId = edge.source === selectedNode ? edge.target : edge.source;
-                      const otherNode = nodes.find(n => n.id === otherId);
-                      return (
-                        <div key={edge.id} className="text-sm bg-white/70 rounded p-3 border border-blue-100">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Link to={`/pages/${otherId}`} className="min-w-0 break-words font-medium text-blue-700 hover:underline">
-                              {edge.source === selectedNode ? '→' : '←'} {otherNode?.title || (zh ? '未知' : 'Unknown')}
-                            </Link>
-                            <span className="text-xs text-gray-500">({edge.relation})</span>
-                            <OriginBadge origin={edge.origin} zh={zh} />
-                          <button
-                            onClick={() => handleDeleteRelation(edge.id)}
-                            className="ml-auto p-1 text-gray-400 hover:text-red-600 rounded"
-                            title={zh ? '删除关系' : 'Delete relation'}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                          </div>
+      {selectedNode ? <aside aria-label={gt('graph.pageDetails')} className="graph-details">
+        <div className="graph-details-heading"><h2>{gt('graph.pageDetails')}</h2><button type="button" aria-label={gt('graph.closeDetails')} onClick={() => setSelectedNode(null)}><X size={17} /></button></div>
+        <h3 className="graph-page-title">{selectedPage?.title}</h3><dl className="graph-page-path"><dt>{gt('graph.pagePath')}</dt><dd><Folder size={17} /><span>{selectedPage?.path || gt('graph.pathUnavailable')}</span></dd></dl>
+        <Link to={`/pages/${selectedNode}`} className="graph-open-page"><ExternalLink size={17} />{zh ? '打开页面' : 'Open page'}</Link>
+        <div className="graph-related-heading"><h3>{gt('graph.relatedPages')} <span>{relatedPages.length}</span></h3><p className="sr-only">{gt('graph.connectedCount', { pages: relatedPages.length, relations: selectedEdges.length })}</p></div>
+        {relatedPages.length === 0 && <p className="graph-no-relations">{gt('graph.noRelations')}</p>}
+        <div className="graph-related-pages">{relatedPages.map(related => <article key={related.id}>
+          <Link to={`/pages/${related.id}`} className="graph-related-page"><span className="graph-file-icon"><FileText size={21} /></span><span><strong>{related.page?.title || (zh ? '未知' : 'Unknown')}</strong><small>{related.page?.path || gt('graph.pathUnavailable')}</small></span></Link>
+          <details className="graph-relation-evidence"><summary>{gt('graph.relationshipDetails', { count: related.edges.length })}</summary>{related.edges.map(edge => <div key={edge.id} className="graph-evidence-item"><div className="graph-evidence-title">{edge.source === selectedNode ? <ArrowRight size={13} aria-label={zh ? '出向关系' : 'Outgoing relation'} /> : <ArrowLeft size={13} aria-label={zh ? '入向关系' : 'Incoming relation'} />}<span>({edge.relation})</span><OriginBadge origin={edge.origin} zh={zh} /><button type="button" title={zh ? '删除关系' : 'Delete relation'} onClick={() => handleDeleteRelation(edge.id)}><Trash2 size={14} /></button></div>
                           <dl className="mt-2 grid gap-1 text-xs text-gray-500">
                             <div><dt className="inline font-medium text-gray-600">{zh ? '来源方式：' : 'Origin: '}</dt><dd className="inline">{edge.origin}</dd></div>
                             <div><dt className="inline font-medium text-gray-600">{zh ? '置信度：' : 'Confidence: '}</dt><dd className="inline">{Math.round((edge.confidence ?? 1) * 100)}%</dd></div>
@@ -547,36 +333,16 @@ export const KnowledgeGraph: React.FC = () => {
                             <div><dt className="inline font-medium text-gray-600">{zh ? '审批：' : 'Approval: '}</dt><dd className="inline">{edge.approvalStatus || (zh ? '未知' : 'unknown')}{edge.approval?.reviewer ? ` · ${edge.approval.reviewer.name || edge.approval.reviewer.email}` : ''}</dd></div>
                             <div className="break-words"><dt className="inline font-medium text-gray-600">{zh ? '来源：' : 'Source: '}</dt><dd className="inline break-all">{edge.sourceInfo ? `${edge.sourceInfo.name} · ${edge.sourceInfo.type}${edge.sourceVersion ? ` · v${edge.sourceVersion}` : ''}` : sourceStatusText(language, 'sourceStatus.unavailable')}{edge.sourceMetadata?.commit ? ` · ${edge.sourceMetadata.commit}` : ''}</dd></div>
                             <div className="break-words"><dt className="inline font-medium text-gray-600">{zh ? '证据：' : 'Evidence: '}</dt><dd className="inline">{edge.evidence?.quote || (zh ? '没有证据片段' : 'No evidence excerpt')}</dd></div>
-                          </dl>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <button
-                  onClick={startLinking}
-                  className="flex items-center gap-1 px-3 py-2 bg-amber-100 text-amber-700 rounded-md hover:bg-amber-200 text-sm"
-                >
-                  <Link2 size={16} />
-                  {zh ? '建立关系…' : 'Link to…'}
-                </button>
-                <Link
-                  to={`/pages/${selectedNode}`}
-                  className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
-                >
-                  {zh ? '打开页面' : 'Open page'}
-                </Link>
-              </div>
-            </aside>
-          ) : (
-            <p className="hidden rounded-lg border bg-gray-50 p-4 text-sm text-gray-500 lg:block">{gt('graph.selectHint')}</p>
-          )}
-          </div>
-        </>
-      )}
-
+                          </dl>          </div>)}</details>
+        </article>)}</div>
+        <button type="button" onClick={startLinking} className="graph-link-page"><Link2 size={16} />{zh ? '建立关系…' : 'Link to…'}</button>
+      </aside> : <div className="graph-details graph-details-empty hidden lg:block"><h2>{gt('graph.pageDetails')}</h2><div><Network size={30} /><p>{gt('graph.selectHint')}</p></div></div>}
+    </div>
+    <div className="graph-accessible-browser">
+      <p>{gt('graph.navigationHint')}</p>
+      <label htmlFor="knowledge-node-browser">{zh ? '浏览图谱节点' : 'Browse graph nodes'}</label><select id="knowledge-node-browser" value={selectedNode ?? ''} onChange={event => selectPage(event.target.value || null)}><option value="">{zh ? '选择页面…' : 'Select a page…'}</option>{filteredNodes.map(node => <option key={node.id} value={node.id}>{node.title}</option>)}</select>
+      {selectedNode && <Link to={`/pages/${selectedNode}`}>{zh ? '打开所选页面' : 'Open selected page'}</Link>}
+    </div>
       {showLinkModal && linkingFrom && (
         <ModalDialog
           labelledBy="knowledge-link-dialog-title"
@@ -654,6 +420,5 @@ export const KnowledgeGraph: React.FC = () => {
             </div>
         </ModalDialog>
       )}
-    </div>
-  );
+  </div>;
 };
