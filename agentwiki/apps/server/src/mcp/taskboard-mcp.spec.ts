@@ -58,6 +58,7 @@ describe('taskboard through the existing MCP connection', () => {
     ];
     const first = await call('import_taskboard_plans', { spaceId: 'space-1', documents });
     expect(first.isError).toBe(true);
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ metadata: expect.objectContaining({ resultSummary: { imported: 2, failed: 1 } }) }));
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'mcp.tool.import_taskboard_plans', outcome: 'failure' }));
     expect(first.data.results.map((r: any) => [r.sourcePath, r.status, r.code])).toEqual([
       [documents[0].sourcePath, 'imported', undefined],
@@ -68,6 +69,7 @@ describe('taskboard through the existing MCP connection', () => {
     expect(read.data.board.tasks.filter((t: any) => t.kind === 'implementation_task')).toHaveLength(2);
     const id = read.data.board.tasks.find((t: any) => t.title === 'A task').id;
     await call('update_taskboard_status', { spaceId: 'space-1', taskId: id, status: 'in_progress', expected_status: 'todo', session_id: 'session-a', current_step: 'Verify MCP' });
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'mcp.tool.update_taskboard_status', metadata: expect.objectContaining({ target: { type: 'TaskboardTask', id }, resultSummary: { taskStatus: 'in_progress' } }) }));
     await call('import_taskboard_plans', { spaceId: 'space-1', documents: [documents[0], documents[2]] });
     const after = (await call('get_taskboard', { spaceId: 'space-1' })).data.board;
     expect(after.tasks).toHaveLength(6);

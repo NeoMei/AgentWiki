@@ -108,8 +108,12 @@ export const AgentDetail: React.FC = () => {
     const raw = item.metadata?.resultSummary;
     if (!raw || typeof raw !== 'object') return {};
     return Object.fromEntries(Object.entries(raw).filter(([key, value]) =>
-      (['total', 'count', 'pageCount', 'changeItems'].includes(key) && typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)
-      || (key === 'hasMore' && typeof value === 'boolean')
+      (['total', 'count', 'pageCount', 'changeItems', 'imported', 'failed', 'retryAfterSeconds', 'repairsRemaining', 'issueCount'].includes(key) && typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)
+      || (['hasMore', 'replayed'].includes(key) && typeof value === 'boolean')
+      || (key === 'taskStatus' && typeof value === 'string' && ['todo', 'in_progress', 'blocked', 'in_review', 'done', 'canceled', 'unknown', 'ready', 'claimed', 'running', 'submitted', 'completed', 'retry_wait', 'failed', 'skipped'].includes(value))
+      || (key === 'action' && typeof value === 'string' && ['execute_task', 'waiting_dependency', 'waiting_human', 'paused', 'completed', 'failed', 'cancelled', 'submitted', 'repair_result'].includes(value))
+      || (key === 'artifactStatus' && typeof value === 'string' && ['pending', 'accepted', 'rejected', 'superseded'].includes(value))
+      || (key === 'runStatus' && typeof value === 'string' && ['draft', 'ready', 'running', 'waiting_review', 'paused', 'completed', 'failed', 'cancelled'].includes(value))
       || (key === 'response' && ['returned', 'error'].includes(String(value)))
       || (key === 'status' && typeof value === 'string' && ['active', 'paused', 'archived', 'queued', 'pending', 'pending_review', 'approved', 'published', 'completed', 'failed', 'rejected', 'cancelled', 'running', 'ready', 'blocked', 'partial', 'success'].includes(value))));
   };
@@ -120,15 +124,18 @@ export const AgentDetail: React.FC = () => {
     const summary = transport ? `${op('operations.transport')} · ${http![2]} · ${op('operations.targetUnknown')}`
       : http ? `${http[1] === 'GET' ? t('agent.activityRead') : http[1] === 'POST' ? t('agent.activityWrite') : http[1]} · ${http[2]}`
         : action.startsWith('mcp.') ? `${t('agent.activityMcp')} · ${action.slice(4)}` : action;
-    const target = item.resourceType && item.resourceType !== 'McpCapability' && item.resourceId ? ` · ${item.resourceType} ${item.resourceId}` : '';
+    const relationEndpoint = item.resourceType === 'PageRelation' && item.metadata?.target?.type === 'PageRelation'
+      && item.metadata.target.id === item.resourceId && typeof item.metadata.target.targetPageId === 'string'
+      && /^[a-zA-Z0-9_-]{1,128}$/.test(item.metadata.target.targetPageId) ? item.metadata.target.targetPageId : undefined;
+    const target = item.resourceType && item.resourceType !== 'McpCapability' && item.resourceId ? ` · ${item.resourceType} ${item.resourceId}${relationEndpoint ? ` → ${relationEndpoint}` : ''}` : '';
     const outcome = item.outcome || item.result || item.status;
     return `${summary}${target}${outcome ? ` · ${['success', 'failure', 'denied'].includes(outcome) ? op(`operations.${outcome}`) : String(outcome)}` : ''}`;
   };
   const resultSummaryText = (item: any) => {
     const summary = safeResultSummary(item);
     const values = Object.entries(summary).map(([key, value]) => {
-      const label = ['status', 'count', 'hasMore', 'response'].includes(key) ? op(`operations.result.${key}`) : key;
-      const text = key === 'status' ? (['pending_review', 'approved', 'published', 'rejected'].includes(String(value)) ? reviewStatusLabel(String(value), language, String(value)) : runtimeLabel(String(value), t)) : key === 'response' ? op(`operations.result.${value}`) : String(value);
+      const label = ['status', 'count', 'hasMore', 'response', 'taskStatus', 'action', 'artifactStatus', 'runStatus', 'imported', 'failed', 'retryAfterSeconds', 'repairsRemaining', 'issueCount', 'replayed'].includes(key) ? op(`operations.result.${key}`) : key;
+      const text = key === 'action' ? op(`operations.action.${value}`) : ['artifactStatus', 'runStatus'].includes(key) ? op(`operations.state.${value}`) : key === 'taskStatus' ? op(`operations.task.${value}`) : key === 'status' ? (['pending_review', 'approved', 'published', 'rejected'].includes(String(value)) ? reviewStatusLabel(String(value), language, String(value)) : runtimeLabel(String(value), t)) : key === 'response' ? op(`operations.result.${value}`) : String(value);
       return `${label}: ${text}`;
     });
     return values.length ? `${op('operations.result')}: ${values.join(' · ')}` : op('operations.resultUnknown');
@@ -137,7 +144,10 @@ export const AgentDetail: React.FC = () => {
     if (!item || typeof item !== 'object') return null;
     const argumentNames = Array.isArray(item.metadata?.argumentNames)
       ? item.metadata.argumentNames.filter((value: unknown) => typeof value === 'string' && /^[a-zA-Z][a-zA-Z0-9_]{0,64}$/.test(value)).slice(0, 50) : undefined;
-    const details = { resourceType: item.resourceType, resourceId: item.resourceId, argumentNames, resultSummary: safeResultSummary(item) };
+    const targetPageId = item.resourceType === 'PageRelation' && item.metadata?.target?.type === 'PageRelation'
+      && item.metadata.target.id === item.resourceId && typeof item.metadata.target.targetPageId === 'string'
+      && /^[a-zA-Z0-9_-]{1,128}$/.test(item.metadata.target.targetPageId) ? item.metadata.target.targetPageId : undefined;
+    const details = { targetPageId, resourceType: item.resourceType, resourceId: item.resourceId, argumentNames, resultSummary: safeResultSummary(item) };
     return item.resourceType || item.resourceId || argumentNames ? details : null;
   };
 

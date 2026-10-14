@@ -75,6 +75,46 @@ describe('AgentDetail', () => {
     expect(document.body).not.toHaveTextContent('private-secret');
   });
 
+  it('shows task status and both relation endpoints without leaking extra metadata', async () => {
+    vi.mocked(api.get).mockReset().mockImplementation(async (url: string) => {
+      if (url === '/agents/agent-1') return { data: { id: 'agent-1', name: '同步助手', status: 'active', grants: [], credentials: [] } };
+      if (url.endsWith('/activity')) return { data: { data: [
+        { id: 'task', action: 'mcp.tool.update_taskboard_status', outcome: 'success', resourceType: 'TaskboardTask', resourceId: 'task-7', createdAt: '2026-10-14T00:00:00Z', metadata: { resultSummary: { taskStatus: 'in_progress', current_step: 'private-step' } } },
+        { id: 'relation', action: 'mcp.tool.propose_relation', outcome: 'success', resourceType: 'PageRelation', resourceId: 'page-1', createdAt: '2026-10-14T00:00:00Z', metadata: { target: { type: 'PageRelation', id: 'page-1', targetPageId: 'page-2', relation: 'private-relation' }, resultSummary: { status: 'pending_review' } } },
+      ] } };
+      return { data: { data: [] } };
+    });
+    renderDetail();
+    fireEvent.click(await screen.findByRole('button', { name: '活动记录' }));
+    expect(screen.getByText(/update_taskboard_status.*task-7/)).toBeVisible();
+    expect(screen.getByText(/结果摘要.*进行中/)).toBeVisible();
+    expect(screen.getByText(/propose_relation.*page-1.*page-2/)).toBeVisible();
+    expect(document.body).not.toHaveTextContent('private-step');
+    expect(document.body).not.toHaveTextContent('private-relation');
+  });
+
+  it.each([
+    ['zh-CN', '活动记录', '已提交', '需要修复结果', '等待审核', '已导入: 2'],
+    ['en', 'Activity', 'Submitted', 'Repair result required', 'Waiting for review', 'Imported: 2'],
+  ])('renders distinct collaboration results and import counts in %s', async (language, tab, submitted, repair, waiting, imported) => {
+    localStorage.setItem('agentwiki.language.v1', language);
+    vi.mocked(api.get).mockReset().mockImplementation(async (url: string) => {
+      if (url === '/agents/agent-1') return { data: { id: 'agent-1', name: '同步助手', status: 'active', grants: [], credentials: [] } };
+      if (url.endsWith('/activity')) return { data: { data: [
+        { id: 'submit', action: 'mcp.tool.collaboration_submit_result', outcome: 'success', createdAt: '2026-10-14T00:00:00Z', metadata: { resultSummary: { action: 'submitted', artifactStatus: 'pending', taskStatus: 'submitted', runStatus: 'waiting_review', replayed: false, leaseToken: 'private-lease' } } },
+        { id: 'repair', action: 'mcp.tool.collaboration_submit_result', outcome: 'success', createdAt: '2026-10-14T00:00:00Z', metadata: { resultSummary: { action: 'repair_result', repairsRemaining: 2, issueCount: 1, message: 'private-message' } } },
+        { id: 'import', action: 'mcp.tool.import_taskboard_plans', outcome: 'failure', createdAt: '2026-10-14T00:00:00Z', metadata: { resultSummary: { imported: 2, failed: 1 } } },
+      ] } };
+      return { data: { data: [] } };
+    });
+    renderDetail();
+    fireEvent.click(await screen.findByRole('button', { name: tab }));
+    expect(screen.getByText(new RegExp(`${submitted}.*${waiting}`))).toBeVisible();
+    expect(screen.getByText(new RegExp(repair))).toBeVisible();
+    expect(screen.getByText(new RegExp(imported))).toBeVisible();
+    expect(document.body).not.toHaveTextContent('private-');
+  });
+
   it('offers direct Space authorization alongside the unified connection card', async () => {
     renderDetail();
 

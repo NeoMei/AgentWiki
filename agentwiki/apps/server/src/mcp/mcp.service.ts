@@ -17,9 +17,13 @@ import { KnowledgeSyncService } from '../knowledge-pipeline/knowledge-sync.servi
 import { ReviewService } from '../review/review.service';
 import { IngestQueue } from '../knowledge-pipeline/ingest.queue';
 import { KnowledgeService } from '../core/knowledge/knowledge.service';
+import { TASKBOARD_STATUSES } from '../project-taskboard/taskboard-core';
 import { AuditService } from '../core/security/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import {
+  CollaborationArtifactStatusSchema,
+  CollaborationTaskStatusSchema,
+  CollaborationRunStatusSchema,
   CollaborationGetRunInputSchema,
   CollaborationGetRunOutputSchema,
   CollaborationHeartbeatInputSchema,
@@ -566,7 +570,7 @@ export class McpService {
     result?: unknown,
   ): Promise<void> {
     const target = mcpAuditTarget(args);
-    const resultSummary = mcpAuditResultSummary(result) ?? { response: outcome === 'success' ? 'returned' : 'error' };
+    const resultSummary = mcpAuditResultSummary(result, action) ?? { response: outcome === 'success' ? 'returned' : 'error' };
     const metadata = {
       argumentNames: Object.keys(args).sort(),
       credentialId: principal.credentialId,
@@ -632,7 +636,16 @@ export class McpService {
 }
 
 /** Audit identifiers and structural result fields only; never persist user content. */
-function mcpAuditTarget(args: Record<string, unknown>): { type: string; id: string } | undefined {
+function mcpAuditTarget(args: Record<string, unknown>): { type: string; id: string; targetPageId?: string } | undefined {
+  // Task IDs are exact user/import identifiers, not necessarily CUIDs. The tool
+  // contract caps them at 1024 characters; reject control characters in audits.
+  if (typeof args.taskId === 'string' && args.taskId.length > 0 && args.taskId.length <= 1024 && ![...args.taskId].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) {
+    return { type: 'TaskboardTask', id: args.taskId };
+  }
+  const pageId = (value: unknown): value is string => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(value);
+  if (pageId(args.sourcePageId) && pageId(args.targetPageId)) {
+    return { type: 'PageRelation', id: args.sourcePageId, targetPageId: args.targetPageId };
+  }
   for (const [key, type] of [['noteId', 'PageNote'], ['pageId', 'Page'], ['runId', 'CollaborationRun'], ['sourceId', 'Source'], ['changeSetId', 'ChangeSet'], ['folderId', 'Folder'], ['spaceId', 'Space']]) {
     const id = args[key];
     if (typeof id === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(id)) return { type, id };
@@ -640,7 +653,7 @@ function mcpAuditTarget(args: Record<string, unknown>): { type: string; id: stri
   return undefined;
 }
 
-function mcpAuditResultSummary(result: unknown): Record<string, string | number | boolean> | undefined {
+function mcpAuditResultSummary(result: unknown, action: string): Record<string, string | number | boolean> | undefined {
   let value: any = result;
   // MCP wraps JSON DTOs in text. Cap parsing to avoid retaining or processing
   // large page bodies solely for an audit summary.
@@ -652,6 +665,24 @@ function mcpAuditResultSummary(result: unknown): Record<string, string | number 
   if (Array.isArray(value)) return { count: value.length };
   if (!value || typeof value !== 'object') return undefined;
   const summary: Record<string, string | number | boolean> = {};
+  if (action === 'tool.update_taskboard_status' && typeof value.task?.status === 'string' && (TASKBOARD_STATUSES as readonly string[]).includes(value.task.status)) {
+    summary.taskStatus = value.task.status;
+  }
+  if (action === 'tool.import_taskboard_plans') {
+    for (const key of ['imported', 'failed']) if (Number.isSafeInteger(value[key]) && value[key] >= 0) summary[key] = value[key];
+  }
+  if (action.startsWith('tool.collaboration_')) {
+    const actions = action === 'tool.collaboration_next_action'
+      ? ['execute_task', 'waiting_dependency', 'waiting_human', 'paused', 'completed', 'failed', 'cancelled']
+      : action === 'tool.collaboration_submit_result' ? ['submitted', 'repair_result'] : [];
+    if (typeof value.action === 'string' && actions.includes(value.action)) summary.action = value.action;
+    for (const [key, schema] of [['artifactStatus', CollaborationArtifactStatusSchema], ['taskStatus', CollaborationTaskStatusSchema], ['runStatus', CollaborationRunStatusSchema]] as const) {
+      if (schema.safeParse(value[key]).success) summary[key] = value[key];
+    }
+    for (const key of ['retryAfterSeconds', 'repairsRemaining']) if (Number.isSafeInteger(value[key]) && value[key] >= 0) summary[key] = value[key];
+    if (value.action === 'repair_result' && Array.isArray(value.issues)) summary.issueCount = value.issues.length;
+    if (typeof value.replayed === 'boolean') summary.replayed = value.replayed;
+  }
   const statuses = new Set(['active', 'paused', 'archived', 'queued', 'pending', 'pending_review', 'approved', 'published', 'completed', 'failed', 'rejected', 'cancelled', 'running', 'ready', 'blocked', 'partial', 'success']);
   if (typeof value.status === 'string' && statuses.has(value.status)) summary.status = value.status;
   for (const key of ['total', 'count', 'pageCount', 'changeItems']) {

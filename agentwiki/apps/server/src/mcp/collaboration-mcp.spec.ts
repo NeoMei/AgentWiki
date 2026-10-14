@@ -80,6 +80,27 @@ describe('collaboration MCP tools', () => {
     });
   });
 
+  it.each([
+    { action: 'submitted', artifactId: 'artifact-1', version: 1, artifactStatus: 'pending', taskStatus: 'submitted', runStatus: 'waiting_review', replayed: false },
+    { action: 'repair_result', issues: [{ code: 'EVIDENCE_REQUIRED', path: 'private-path', message: 'private-message' }], repairsRemaining: 2, replayed: false },
+  ])('audits submit_result handler business branch $action without repair text or lease', async (output) => {
+    execution.submitResult.mockResolvedValueOnce(output);
+    const server = service().createServer(editor);
+    await server._registeredTools.collaboration_submit_result.handler({ runId: 'run-1', attemptId: 'attempt-1', leaseToken: 'private-lease'.repeat(4), artifact: { kind: 'markdown', markdown: 'private-content', evidence: [] }, idempotencyKey: 'submit-0001' });
+    const summary = output.action === 'submitted'
+      ? { action: 'submitted', artifactStatus: 'pending', taskStatus: 'submitted', runStatus: 'waiting_review', replayed: false }
+      : { action: 'repair_result', repairsRemaining: 2, issueCount: 1, replayed: false };
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ metadata: expect.objectContaining({ resultSummary: summary }) }));
+    expect(JSON.stringify(audit.record.mock.calls)).not.toContain('private-');
+  });
+
+  it('audits next_action handler branch and retry count without free-form message', async () => {
+    execution.nextAction.mockResolvedValueOnce({ action: 'waiting_dependency', retryAfterSeconds: 3 });
+    const server = service().createServer(editor);
+    await server._registeredTools.collaboration_next_action.handler({ runId: 'run-1', idempotencyKey: 'next-0002' });
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ metadata: expect.objectContaining({ resultSummary: { action: 'waiting_dependency', retryAfterSeconds: 3 } }) }));
+  });
+
   function service(): any {
     return new McpService(freshnessMock,
       { get: jest.fn() } as any,

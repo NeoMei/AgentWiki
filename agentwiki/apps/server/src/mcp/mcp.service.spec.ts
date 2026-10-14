@@ -50,6 +50,44 @@ describe('McpService transport security', () => {
     expect(serialized).not.toContain('private-query');
   });
 
+  it.each(['todo', 'in_progress', 'blocked', 'in_review', 'done', 'canceled', 'unknown'])('audits exact task ID and nested task status %s without task content', async (status) => {
+    jest.clearAllMocks();
+    await (service as any).executeMcpCall('tool.update_taskboard_status', { userId: 'u', agentId: 'a' }, {},
+      { spaceId: 'space-1', taskId: 'task-7', current_step: 'private-step' }, async () => ({ content: [{ type: 'text', text: JSON.stringify({ task: { id: 'task-7', status, title: 'private-title', current_step: 'private-step' } }) }] }));
+    expect(prisma.agentAuditEvent.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      resourceType: 'TaskboardTask', resourceId: 'task-7', metadata: expect.objectContaining({ resultSummary: { taskStatus: status } }),
+    }) }));
+    expect(JSON.stringify(prisma.agentAuditEvent.create.mock.calls)).not.toContain('private-step');
+    expect(JSON.stringify(prisma.agentAuditEvent.create.mock.calls)).not.toContain('private-title');
+  });
+
+  it('audits both relation endpoint IDs and proposal status without relation content', async () => {
+    jest.clearAllMocks();
+    await (service as any).executeMcpCall('tool.propose_relation', { userId: 'u', agentId: 'a' }, {},
+      { spaceId: 'space-1', sourcePageId: 'page-1', targetPageId: 'page-2', relation: 'private-relation' }, async () => ({ content: [{ type: 'text', text: JSON.stringify({ id: 'change-1', status: 'pending_review', content: 'private-content' }) }] }));
+    expect(prisma.agentAuditEvent.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      resourceType: 'PageRelation', resourceId: 'page-1', metadata: expect.objectContaining({ target: { type: 'PageRelation', id: 'page-1', targetPageId: 'page-2' }, resultSummary: { status: 'pending_review' } }),
+    }) }));
+    expect(JSON.stringify(prisma.agentAuditEvent.create.mock.calls)).not.toContain('private-relation');
+    expect(JSON.stringify(prisma.agentAuditEvent.create.mock.calls)).not.toContain('private-content');
+  });
+
+  it('audits the registered relation handler for two different pairs in one Space', async () => {
+    jest.clearAllMocks();
+    const authorization = {
+      assertSpaceAccess: jest.fn().mockResolvedValue({}),
+      assertPageAccess: jest.fn().mockResolvedValue({ spaceId: 'space-1' }),
+    };
+    const review = { propose: jest.fn().mockResolvedValue({ id: 'change-1', status: 'pending_review' }) };
+    const handlerService = new (McpService as any)(freshnessMock, config, authorization, {}, {}, {}, {}, {}, review, {}, audit, prisma, {}, {});
+    const server = handlerService.createServer({ userId: 'u', agentId: 'a' });
+    await server._registeredTools.propose_relation.handler({ spaceId: 'space-1', sourcePageId: 'page-1', targetPageId: 'page-2', relation: 'private-relation' });
+    await server._registeredTools.propose_relation.handler({ spaceId: 'space-1', sourcePageId: 'page-3', targetPageId: 'page-4', relation: 'private-relation' });
+    const targets = prisma.agentAuditEvent.create.mock.calls.map((call: any) => call[0].data.metadata.target);
+    expect(targets).toEqual([{ type: 'PageRelation', id: 'page-1', targetPageId: 'page-2' }, { type: 'PageRelation', id: 'page-3', targetPageId: 'page-4' }]);
+    expect(JSON.stringify(prisma.agentAuditEvent.create.mock.calls)).not.toContain('private-relation');
+  });
+
   it('records capability-level success without persisting argument values', async () => {
     await expect((service as any).executeMcpCall(
       'tool.search_pages',
