@@ -29,10 +29,9 @@ export function buildGraphGroups(pages: GraphPage[], folders: GraphFolder[]): Gr
   return groups;
 }
 
-/** Project collapsed endpoints onto their folder, retaining every actual visible relation. */
-export function projectGroupedGraph(groups: GraphGroup[], expanded: Set<string>, edges: DisplayGraphEdge[]) {
+/** Node initialization is independent of relationship visibility. */
+export function layoutGroupedNodes(groups: GraphGroup[], expanded: Set<string>): DisplayGraphNode[] {
   const nodes: DisplayGraphNode[] = [];
-  const endpoint = new Map<string, string>();
   const columns = Math.max(1, Math.min(3, groups.length));
   const rowHeights = new Map<number, number>();
   groups.forEach((group, index) => {
@@ -49,15 +48,24 @@ export function projectGroupedGraph(groups: GraphGroup[], expanded: Set<string>,
       x, y: rowY, radius: 30, count: group.pages.length });
     group.pages.forEach((page, pageIndex) => {
       const open = expanded.has(group.id);
-      endpoint.set(page.id, open ? page.id : group.id);
       if (open) nodes.push({ ...page, kind: 'page', groupId: group.id,
         x: x + (pageIndex % 2 === 0 ? -75 : 75), y: rowY + 110 + Math.floor(pageIndex / 2) * 100 });
     });
   });
-  const projectedEdges = edges.flatMap(edge => {
+  return nodes;
+}
+
+/** Project collapsed endpoints onto their folder, retaining every actual visible relation. */
+export function projectGroupedEdges(groups: GraphGroup[], expanded: Set<string>, edges: DisplayGraphEdge[]) {
+  const endpoint = new Map<string, string>();
+  groups.forEach(group => group.pages.forEach(page => endpoint.set(page.id, expanded.has(group.id) ? page.id : group.id)));
+  return edges.flatMap(edge => {
     const source = endpoint.get(edge.source);
     const target = endpoint.get(edge.target);
     return source && target && source !== target ? [{ ...edge, source, target }] : [];
   });
-  return { nodes, edges: projectedEdges };
+}
+
+export function projectGroupedGraph(groups: GraphGroup[], expanded: Set<string>, edges: DisplayGraphEdge[]) {
+  return { nodes: layoutGroupedNodes(groups, expanded), edges: projectGroupedEdges(groups, expanded, edges) };
 }

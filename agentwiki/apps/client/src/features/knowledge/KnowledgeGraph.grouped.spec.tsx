@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider, useLanguage } from '../../context/LanguageContext';
 import { KnowledgeGraph } from './KnowledgeGraph';
 
@@ -26,6 +26,7 @@ function mount() {
     <Route path='/pages/:pageId' element={<div>Opened page</div>} />
   </Routes></MemoryRouter></LanguageProvider>);
 }
+afterEach(() => vi.unstubAllGlobals());
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.clearAllMocks();
@@ -116,6 +117,27 @@ describe('KnowledgeGraph folder browsing', () => {
     expect(screen.getByRole('searchbox', { name: 'Search pages' })).toBeInTheDocument();
     expect(screen.getByText('This folder contains no direct pages.')).toBeInTheDocument();
     expect(localStorage.getItem('agentwiki.language.v1')).toBe('en');
+  });
+
+  it('does not reuse a dragged group layout when switching to another Space', async () => {
+    vi.stubGlobal('PointerEvent', undefined);
+    api.get.mockImplementation((url: string) => Promise.resolve({ data: {
+      nodes: [page(url.endsWith('/s1') ? 'old' : 'new', url.endsWith('/s1') ? 'Old page' : 'New page', null, 'pages/page.md')],
+      folders: [], edges: [],
+    } }));
+    const { container } = mount();
+    await screen.findByRole('option', { name: 'Old page' });
+    fireEvent.click(screen.getByRole('button', { name: '重置视图' }));
+    const canvas = container.querySelector('canvas')!;
+    fireEvent.mouseDown(canvas, { button: 0, clientX: 150, clientY: 90 });
+    fireEvent.mouseMove(window, { buttons: 1, clientX: 230, clientY: 150 });
+    fireEvent.mouseUp(window, { button: 0, clientX: 230, clientY: 150 });
+    expect(arcs.mock.calls[arcs.mock.calls.length - 1].slice(0, 2)).toEqual([230, 150]);
+    fireEvent.click(screen.getByRole('button', { name: 'Other Space' }));
+    await screen.findByRole('option', { name: 'New page' });
+    // Both Spaces use the same synthetic ungrouped ID, but layout is Space-local.
+    expect(arcs.mock.calls[arcs.mock.calls.length - 1].slice(0, 2)).toEqual([150, 90]);
+    expect(screen.queryByRole('option', { name: 'Old page' })).not.toBeInTheDocument();
   });
 
   it('does not replace a new Space graph with an older in-flight response', async () => {

@@ -1,12 +1,14 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { Route, Routes } from 'react-router-dom';
+import { Route, Routes, useParams } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider, useLanguage } from '../../context/LanguageContext';
 import { KnowledgeGraph } from './KnowledgeGraph';
 
 const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), delete: vi.fn() }));
 vi.mock('../../api/client', () => ({ default: api }));
+
+const OpenedPage = () => <><div>Opened page</div><output data-testid="opened-page-id">{useParams().pageId}</output></>;
 
 const node = (id: string, title: string) => ({ id, title, x: 100, y: 100, radius: 20 });
 
@@ -215,7 +217,7 @@ describe('KnowledgeGraph canvas navigation', () => {
   async function mount() {
     const result = render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/s1/graph']}>
       <Routes><Route path='/spaces/:spaceId/graph' element={<KnowledgeGraph />} />
-        <Route path='/pages/:pageId' element={<div>Opened page</div>} /></Routes>
+        <Route path='/pages/:pageId' element={<OpenedPage />} /></Routes>
     </MemoryRouter></LanguageProvider>);
     await screen.findByRole('combobox', { name: 'Browse graph nodes' });
     fireEvent.click(screen.getByRole('button', { name: 'All page nodes' }));
@@ -226,6 +228,63 @@ describe('KnowledgeGraph canvas navigation', () => {
     fireEvent.mouseMove(window, { buttons: 1, clientX: to[0] + 20, clientY: to[1] + 30 });
     fireEvent.mouseUp(window, { button: 0, clientX: to[0] + 20, clientY: to[1] + 30 });
   }
+  it('opens the first clicked page when the selection sidebar resizes the canvas during a real double-click sequence', async () => {
+    width = 1000;
+    const { canvas } = await mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Folder groups' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ungrouped 2 pages' }));
+    const initial = { ...drawn[1] };
+    expect(initial).toMatchObject({ x: 425, y: 298 });
+    const first = { button: 0, detail: 1, clientX: initial.x + 20, clientY: initial.y + 30 };
+    fireEvent.mouseDown(canvas, first);
+    fireEvent.mouseUp(window, first);
+    fireEvent.click(canvas, first);
+    expect(screen.getByRole('complementary', { name: 'Page details' })).toBeInTheDocument();
+    // The sidebar takes 320px plus its 16px gap. ResizeObserver fits the new canvas.
+    width = 664;
+    act(() => resize([], {} as ResizeObserver));
+    expect(drawn[2]).toMatchObject({ x: 407, y: 298 });
+    expect(Math.hypot(initial.x - drawn[2].x, initial.y - drawn[2].y)).toBeLessThan(drawn[2].radius);
+    const second = { ...first, detail: 2 };
+    fireEvent.mouseDown(canvas, second);
+    fireEvent.mouseUp(window, second);
+    fireEvent.click(canvas, second);
+    fireEvent.doubleClick(canvas, second);
+    expect(screen.getByTestId('opened-page-id')).toHaveTextContent('p1');
+  });
+
+  it.each([false, true])('retains dragged node positions while filtering origins and restoring hidden nodes (grouped: %s)', async groupedMode => {
+    api.get.mockResolvedValue({ data: {
+      nodes: [node('p1', 'Alpha'), { ...node('p2', 'Beta'), x: 300, y: 200 }],
+      edges: [{ id: 'e1', source: 'p1', target: 'p2', relation: 'references', strength: 1, confidence: 1, origin: 'manual' }],
+    } });
+    const { canvas } = await mount();
+    if (groupedMode) {
+      fireEvent.click(screen.getByRole('button', { name: 'Folder groups' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Ungrouped 2 pages' }));
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Reset view' }));
+    const index = groupedMode ? 1 : 0;
+    const original = { ...drawn[index] };
+    drag(canvas, [original.x, original.y], [original.x + 80, original.y + 60]);
+    const moved = { ...drawn[index] };
+    expect(moved.x).toBe(original.x + 80);
+    expect(moved.y).toBe(original.y + 60);
+    fireEvent.click(screen.getByRole('button', { name: 'Manual' }));
+    expect(drawn[index]).toEqual(moved);
+    fireEvent.click(screen.getByRole('button', { name: 'Manual' }));
+    expect(drawn[index]).toEqual(moved);
+    // A relation filter plus origin filter can remove all nodes. Restoring them
+    // must preserve the user's world coordinates, not seed the server layout again.
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filter relation type' }), { target: { value: 'references' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Manual' }));
+    expect(screen.getByText('Showing 0 / 2 pages')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Manual' }));
+    expect(screen.getByText('Showing 2 / 2 pages')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Reset view' }));
+    expect(drawn[index]).toEqual(moved);
+  });
+
   it('anchors bounded zoom on the cursor and selects where the transformed node is drawn', async () => {
     const { canvas } = await mount();
     fireEvent.click(screen.getByRole('button', { name: 'Reset view' }));

@@ -8,7 +8,7 @@ import { ArrowLeft, Plus, X, Link2, Trash2, ChevronDown, ChevronRight, Folder } 
 import { ModalDialog } from '../../components/ModalDialog';
 import { GRAPH_LABEL_FONT, GRAPH_LABEL_LINE_HEIGHT, layoutGraphLabels } from './graphLabelLayout';
 import { useGraphViewport } from './useGraphViewport';
-import { buildGraphGroups, projectGroupedGraph, type DisplayGraphNode, type GraphFolder, type GraphGroup, type GraphPage } from './graphGrouping';
+import { buildGraphGroups, layoutGroupedNodes, projectGroupedEdges, type DisplayGraphNode, type GraphFolder, type GraphGroup, type GraphPage } from './graphGrouping';
 import { useLanguage } from '../../context/LanguageContext';
 
 interface KnowledgeEdge {
@@ -58,9 +58,11 @@ export const KnowledgeGraph: React.FC = () => {
   const zh = language === 'zh-CN';
   const gt = useCallback((key: Parameters<typeof bugGraphText>[1], params?: Record<string, string | number>) => bugGraphText(language, key, params), [language]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasClickTarget = useRef<string | null | undefined>(undefined);
   const [nodes, setNodes] = useState<GraphPage[]>([]);
   const [folders, setFolders] = useState<GraphFolder[]>([]);
   const [graphNodes, setGraphNodes] = useState<DisplayGraphNode[]>([]);
+  const movedPositions = useRef({ spaceId, grouped: new Map<string, { x: number; y: number }>(), pages: new Map<string, { x: number; y: number }>() });
   const [edges, setEdges] = useState<KnowledgeEdge[]>([]);
   const [search, setSearch] = useState('');
   const [relationType, setRelationType] = useState('');
@@ -83,22 +85,45 @@ export const KnowledgeGraph: React.FC = () => {
     && (!relationType || edge.relation === relationType)), [edges, hiddenOrigins, relationType]);
   const groups = useMemo(() => buildGraphGroups(nodes, folders), [nodes, folders]);
   const query = search.trim().toLocaleLowerCase();
-  const filteredNodes = useMemo(() => {
-    const related = new Set(visibleEdges.flatMap(edge => [edge.source, edge.target]));
-    return nodes.filter(node => (!query || `${node.title} ${node.path ?? ''}`.toLocaleLowerCase().includes(query))
-      && (!relationType || related.has(node.id)));
-  }, [nodes, query, relationType, visibleEdges]);
+  const relationPageIds = useMemo(() => relationType
+    ? new Set(visibleEdges.flatMap(edge => [edge.source, edge.target])) : null, [relationType, visibleEdges]);
+  const filteredNodes = useMemo(() => nodes.filter(node =>
+    (!query || `${node.title} ${node.path ?? ''}`.toLocaleLowerCase().includes(query))
+    && (!relationPageIds || relationPageIds.has(node.id))), [nodes, query, relationPageIds]);
   const filteredGroups = useMemo(() => {
     const matches = new Set(filteredNodes.map(node => node.id));
     return groups.map(group => ({ ...group, pages: group.pages.filter(page => matches.has(page.id)) }))
       .filter(group => (!query && !relationType) || group.pages.length > 0);
   }, [groups, filteredNodes, query, relationType]);
-  const projection = useMemo(() => grouped
-    ? projectGroupedGraph(filteredGroups, expandedGroups, visibleEdges)
-    : { nodes: filteredNodes.map(node => ({ ...node, kind: 'page' as const })), edges: visibleEdges },
-  [grouped, filteredGroups, filteredNodes, expandedGroups, visibleEdges]);
-  useEffect(() => { setGraphNodes(projection.nodes); }, [projection]);
-  const viewport = useGraphViewport(canvasRef, graphNodes, setGraphNodes, !loading && !error && graphNodes.length > 0);
+  const projectedNodes = useMemo(() => grouped
+    ? layoutGroupedNodes(filteredGroups, expandedGroups)
+    : filteredNodes.map(node => ({ ...node, kind: 'page' as const })),
+  [grouped, filteredGroups, filteredNodes, expandedGroups]);
+  const projectedEdges = useMemo(() => grouped
+    ? projectGroupedEdges(filteredGroups, expandedGroups, visibleEdges) : visibleEdges,
+  [grouped, filteredGroups, expandedGroups, visibleEdges]);
+  useEffect(() => {
+    if (movedPositions.current.spaceId !== spaceId) {
+      movedPositions.current = { spaceId, grouped: new Map(), pages: new Map() };
+    }
+    const positions = grouped ? movedPositions.current.grouped : movedPositions.current.pages;
+    setGraphNodes(projectedNodes.map(node => ({ ...node, ...positions.get(node.id) })));
+  }, [projectedNodes, grouped, spaceId]);
+  const moveGraphNodes = useCallback<React.Dispatch<React.SetStateAction<DisplayGraphNode[]>>>(update => {
+    setGraphNodes(current => {
+      const next = typeof update === 'function' ? update(current) : update;
+      if (movedPositions.current.spaceId === spaceId) {
+        const positions = grouped ? movedPositions.current.grouped : movedPositions.current.pages;
+        const previous = new Map(current.map(node => [node.id, node]));
+        next.forEach(node => {
+          const old = previous.get(node.id);
+          if (old && (old.x !== node.x || old.y !== node.y)) positions.set(node.id, { x: node.x, y: node.y });
+        });
+      }
+      return next;
+    });
+  }, [grouped, spaceId]);
+  const viewport = useGraphViewport(canvasRef, graphNodes, moveGraphNodes, !loading && !error && graphNodes.length > 0);
   const graphNodeIds = graphNodes.map(node => node.id).join('|');
   useEffect(() => { viewport.fit(); }, [graphNodeIds]);
   const groupTitle = (group: GraphGroup) => group.folder?.name ?? gt(group.kind === 'ungrouped' ? 'graph.ungrouped' : 'graph.folderUnavailable');
@@ -139,6 +164,7 @@ export const KnowledgeGraph: React.FC = () => {
 
   useEffect(() => {
     setLoading(true);
+    canvasClickTarget.current = undefined;
     setSelectedNode(null);
     setLinkingFrom(null);
     setShowLinkModal(false);
@@ -167,7 +193,7 @@ export const KnowledgeGraph: React.FC = () => {
     ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * x, dpr * y);
 
     // Draw edges
-    projection.edges.forEach(edge => {
+    projectedEdges.forEach(edge => {
       const source = graphNodes.find(n => n.id === edge.source);
       const target = graphNodes.find(n => n.id === edge.target);
       if (source && target) {
@@ -226,12 +252,16 @@ export const KnowledgeGraph: React.FC = () => {
     labels.forEach(label => label.lines.forEach((line, index) => {
       ctx.fillText(line, label.x, label.y + index * GRAPH_LABEL_LINE_HEIGHT);
     }));
-  }, [graphNodes, projection.edges, selectedNode, linkingFrom, viewport.view, filteredGroups, gt]);
+  }, [graphNodes, projectedEdges, selectedNode, linkingFrom, viewport.view, filteredGroups, gt]);
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!canvasRef.current || viewport.suppressClick.current) return;
-    if (e.detail <= 1) viewport.suppressDoubleClick.current = false;
+    // Selecting a page can resize and refit the canvas when its sidebar appears.
+    // Keep the first click's identity for the entire native double-click sequence.
+    if (e.detail > 1) return;
+    viewport.suppressDoubleClick.current = false;
     const clicked = viewport.hit(e);
+    canvasClickTarget.current = clicked?.kind === 'page' ? clicked.id : null;
 
     if (clicked?.kind === 'group') {
       viewport.suppressDoubleClick.current = true;
@@ -254,10 +284,10 @@ export const KnowledgeGraph: React.FC = () => {
   const handleCanvasDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!canvasRef.current || viewport.suppressClick.current || viewport.suppressDoubleClick.current) return;
     const clicked = viewport.hit(e);
-
-    if (clicked?.kind === 'page') {
-      navigate(`/pages/${clicked.id}`);
-    }
+    const target = canvasClickTarget.current === undefined
+      ? (clicked?.kind === 'page' ? clicked.id : null) : canvasClickTarget.current;
+    canvasClickTarget.current = undefined;
+    if (target && filteredNodes.some(node => node.id === target)) navigate(`/pages/${target}`);
   };
 
   const handleCreateLink = async () => {
