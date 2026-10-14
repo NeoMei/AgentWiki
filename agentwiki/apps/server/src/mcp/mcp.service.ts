@@ -683,8 +683,10 @@ function mcpAuditResultSummary(result: unknown, action: string): Record<string, 
     if (value.action === 'repair_result' && Array.isArray(value.issues)) summary.issueCount = value.issues.length;
     if (typeof value.replayed === 'boolean') summary.replayed = value.replayed;
   }
+  const hasTopLevelRunStatus = action === 'tool.collaboration_get_run' || action === 'tool.collaboration_join_run';
+  if (hasTopLevelRunStatus && CollaborationRunStatusSchema.safeParse(value.status).success) summary.runStatus = value.status;
   const statuses = new Set(['active', 'paused', 'archived', 'queued', 'pending', 'pending_review', 'approved', 'published', 'completed', 'failed', 'rejected', 'cancelled', 'running', 'ready', 'blocked', 'partial', 'success']);
-  if (typeof value.status === 'string' && statuses.has(value.status)) summary.status = value.status;
+  if (!hasTopLevelRunStatus && typeof value.status === 'string' && statuses.has(value.status)) summary.status = value.status;
   for (const key of ['total', 'count', 'pageCount', 'changeItems']) {
     if (Number.isSafeInteger(value[key]) && value[key] >= 0) summary[key] = value[key];
   }

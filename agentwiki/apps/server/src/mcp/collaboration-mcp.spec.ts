@@ -101,6 +101,20 @@ describe('collaboration MCP tools', () => {
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ metadata: expect.objectContaining({ resultSummary: { action: 'waiting_dependency', retryAfterSeconds: 3 } }) }));
   });
 
+  it.each(['draft', 'waiting_review', 'running'])('records top-level run status %s for registered join/get handlers without page body', async (status) => {
+    for (const tool of ['collaboration_join_run', 'collaboration_get_run']) {
+      jest.clearAllMocks();
+      const output = { runId: 'run-1', status, roleSlots: [], assignedTasks: [{ ...assignedTask, targetPage: { ...assignedTask.targetPage, content: 'private-page-body' } }] };
+      if (tool === 'collaboration_join_run') execution.joinRun.mockResolvedValueOnce({ ...output, protocol: { nextActionTool: 'wiki_collaboration_next_action', stopOn: ['waiting_human', 'paused', 'completed', 'failed', 'cancelled'] } });
+      else execution.getAgentRun.mockResolvedValueOnce(output);
+      const server = service().createServer(editor);
+      await server._registeredTools[tool].handler({ runId: 'run-1' });
+      expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: `mcp.tool.${tool}`, metadata: expect.objectContaining({ resultSummary: { runStatus: status } }) }));
+      expect(JSON.stringify(audit.record.mock.calls)).not.toContain('private-page-body');
+      expect(prisma.agentAuditEvent.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ metadata: expect.objectContaining({ resultSummary: { runStatus: status } }) }) }));
+    }
+  });
+
   function service(): any {
     return new McpService(freshnessMock,
       { get: jest.fn() } as any,
