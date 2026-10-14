@@ -161,3 +161,23 @@ it('does not close or permit duplicate submission before a server receipt, and p
   expect(screen.getByRole('button', { name: 'Add note' })).toBeEnabled();
   expect(screen.getByRole('textbox')).toBeEnabled();
 });
+
+
+it('never clears a new identity draft when the previous account save returns', async () => {
+  let finish!: (saved: boolean) => void;
+  onAdd.mockImplementationOnce(() => new Promise<boolean>((resolve) => { finish = resolve; }));
+  const view = render(fixture());
+  const dialog = await open();
+  fireEvent.change(within(dialog).getByRole('textbox'), { target: { value: 'Old draft' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Add note' }));
+  expect(screen.getByRole('button', { name: 'Saving…' })).toBeDisabled();
+  auth.user = { id: 'another-user', name: 'Bob' };
+  view.rerender(fixture({ identity: 'another-user:space:page' }));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  const nextDialog = await open();
+  expect(within(nextDialog).getByRole('textbox')).toHaveValue('');
+  fireEvent.change(within(nextDialog).getByRole('textbox'), { target: { value: 'New account draft' } });
+  await act(async () => { finish(true); });
+  expect(screen.getByRole('textbox')).toHaveValue('New account draft');
+  expect(screen.getByRole('button', { name: 'Add note' })).toBeEnabled();
+});

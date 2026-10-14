@@ -1245,9 +1245,10 @@ describe('PagePreview checklist saves', () => {
     for (const panel of panelShells) expect(panel).toHaveAttribute('role', 'tabpanel');
     const range = document.createRange(); range.setStart(passage.firstChild!, 2); range.setEnd(passage.firstChild!, 10);
     window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range); fireEvent.mouseUp(passage);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add note to selection' }));
+    const noteComposer = screen.getByRole('textbox', { name: 'Note' });
     const notesTab = screen.getByRole('tab', { name: 'Page notes' });
     notesTab.focus(); fireEvent.click(notesTab);
-    const noteComposer = await screen.findByRole('textbox', { name: 'Note' });
     await waitFor(() => expect(screen.getByTestId('assist-intent')).toBeEnabled());
     expect(document.activeElement).toBe(notesTab);
     fireEvent.change(noteComposer, { target: { value: 'Keep this unfinished annotation' } });
@@ -1296,6 +1297,7 @@ describe('PagePreview checklist saves', () => {
 
   it('shows server notes from other users and Agents to a read-only member with author attribution', async () => {
     const current = page({ content: 'A shared passage', capabilities: { canEdit: false } });
+    notesCanCreate = false;
     const target = captureAssistTarget(current.content, 'selection', 2, 8, current.updatedAt)!;
     serverNotes = [
       { id: 'colleague-note', spaceId: current.spaceId, pageId: current.id, body: 'Colleague observation', target, status: 'resolved', author: { type: 'user', id: 'colleague', name: 'Ada' }, canEdit: false, createdAt: current.createdAt, updatedAt: current.updatedAt },
@@ -1327,18 +1329,23 @@ describe('PagePreview checklist saves', () => {
     });
     render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="reader"><MemoryRouter initialEntries={['/pages/page-1']}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
     fireEvent.click(await screen.findByRole('tab', { name: 'Page notes' }));
-    const panel = await screen.findByRole('region', { name: 'Page notes' });
-    const source = screen.getByRole('textbox', { name: 'Raw Markdown selection' });
-    fireEvent.select(source, { target: { selectionStart: 2, selectionEnd: 8 } });
-    expect(await within(panel).findByRole('textbox', { name: 'Note' })).toBeDisabled();
+    await screen.findByRole('region', { name: 'Page notes' });
+    const passage = screen.getByText('A shared passage');
+    const range = document.createRange(); range.setStart(passage.firstChild!, 2); range.setEnd(passage.firstChild!, 8);
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range);
+    fireEvent.mouseUp(passage);
+    await act(async () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    expect(screen.queryByRole('button', { name: 'Add note to selection' })).not.toBeInTheDocument();
     expect(screen.getByText('Loading page notes…')).toBeVisible();
     await act(async () => pending.resolve({ data: { notes: [], canCreate: true } }));
-    expect(within(panel).getByRole('textbox', { name: 'Note' })).toBeEnabled();
-    fireEvent.change(within(panel).getByRole('textbox', { name: 'Note' }), { target: { value: 'Preserved pending note' } });
+    fireEvent.mouseUp(passage);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add note to selection' }));
+    const dialog = screen.getByRole('dialog', { name: 'Add page note' });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Note' }), { target: { value: 'Preserved pending note' } });
     notesCanCreate = false;
     await act(async () => window.dispatchEvent(new Event('focus')));
-    expect(within(panel).getByRole('textbox', { name: 'Note' })).toHaveValue('Preserved pending note');
-    expect(within(panel).getByRole('button', { name: 'Add note' })).toBeDisabled();
+    expect(within(dialog).getByRole('textbox', { name: 'Note' })).toHaveValue('Preserved pending note');
+    expect(within(dialog).getByRole('button', { name: 'Add note' })).toBeDisabled();
     expect(api.post).not.toHaveBeenCalled();
   });
 
@@ -1455,10 +1462,14 @@ describe('PagePreview checklist saves', () => {
     const span = await screen.findByText('repeat with context');
     const selection = window.getSelection()!, range = document.createRange(); range.setStart(span.firstChild!, 0); range.setEnd(span.firstChild!, 6); selection.removeAllRanges(); selection.addRange(range);
     fireEvent.mouseUp(span);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add note to selection' }));
+    const dialog = screen.getByRole('dialog', { name: 'Add page note' });
+    expect(within(dialog).getByText('repeat', { selector: 'blockquote' })).toBeVisible();
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Note' }), { target: { value: 'Why the second occurrence?' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add note' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add page note' })).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole('tab', { name: 'Page notes' }));
     const notesPanel = await screen.findByRole('region', { name: 'Page notes' });
-    expect(within(notesPanel).getByText('repeat', { selector: 'blockquote' })).toBeVisible();
-    fireEvent.change(within(notesPanel).getByRole('textbox', { name: 'Note' }), { target: { value: 'Why the second occurrence?' } }); fireEvent.click(within(notesPanel).getByRole('button', { name: 'Add note' }));
     await within(notesPanel).findByRole('checkbox', { name: 'Why the second occurrence?' });
     expect(document.querySelector('[data-note-ids]')).toHaveTextContent('repeat');
     fireEvent.click(within(notesPanel).getByRole('checkbox', { name: 'Why the second occurrence?' })); fireEvent.click(within(notesPanel).getByRole('button', { name: 'Stage selected for Agent' }));

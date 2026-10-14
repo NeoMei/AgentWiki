@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
-import { resolveAssistTarget, type AssistTarget } from './assistTargets';
+import { resolveAssistTarget } from './assistTargets';
 import { notesForDispatch, type PersonalNote } from './reviewComments';
 import { PersonalNoteAuthor } from './PersonalNoteAuthor';
 interface Props {
-  stageForSession?: boolean; source: string; target?: AssistTarget | null; notes: PersonalNote[]; disabled?: boolean; storageUnavailable?: boolean;
-  onAdd: (target: AssistTarget, body: string) => boolean | void | Promise<boolean | void>;
+  stageForSession?: boolean; source: string; notes: PersonalNote[]; disabled?: boolean; storageUnavailable?: boolean;
   syncing?: boolean;
-  createDisabled?: boolean;
   identityKey?: string;
   onRetrySync?: () => void;
   onDispatch: (ids: string[]) => void;
@@ -18,14 +16,13 @@ interface Props {
 }
 type NoteFilter = 'all' | 'open' | 'resolved';
 /** Controlled queue: parent persists notes and transitions only after task responses / explicit acceptance. */
-export function PersonalNotesPanel({ stageForSession = false, source, target, notes, disabled, storageUnavailable, syncing, createDisabled, identityKey, onRetrySync, onAdd, onDispatch, onReopen, activeNoteId, onLocate, onClearActive }: Props) {
+export function PersonalNotesPanel({ stageForSession = false, source, notes, disabled, storageUnavailable, syncing, identityKey, onRetrySync, onDispatch, onReopen, activeNoteId, onLocate, onClearActive }: Props) {
   const { language } = useLanguage(); const zh = language === 'zh-CN';
-  const [body, setBody] = useState(''); const [saving, setSaving] = useState(false);
-  const mountedRef = useRef(true); useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []); const [addFailed, setAddFailed] = useState(false); const [selected, setSelected] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
   const [filter, setFilter] = useState<NoteFilter>('open');
   const [locationUnavailableId, setLocationUnavailableId] = useState<string | null>(null);
   const identityRef = useRef(identityKey);
-  if (identityRef.current !== identityKey) { identityRef.current = identityKey; setBody(''); setSelected([]); setAddFailed(false); setSaving(false); }
+  if (identityRef.current !== identityKey) { identityRef.current = identityKey; setSelected([]); }
   const cardRefs = useRef(new Map<string, HTMLLIElement>());
   useEffect(() => {
     const active = notes.find((note) => note.id === activeNoteId);
@@ -54,10 +51,7 @@ export function PersonalNotesPanel({ stageForSession = false, source, target, no
     { id: 'open', label: zh ? '未解决' : 'Open', count: notes.filter((note) => note.status !== 'resolved').length },
     { id: 'resolved', label: zh ? '已解决' : 'Resolved', count: notes.filter((note) => note.status === 'resolved').length },
   ];
-  const anchorUnavailable = !!target && resolveAssistTarget(source, target).status !== 'found';
-  const canAdd = !saving && !disabled && !createDisabled && !!target && target.quote.length > 0 && !anchorUnavailable && !!body.trim();
   const dispatch = notesForDispatch(notes, selectedEligible, source);
-  const showComposer = !!target || body.length > 0;
   const empty = filter === 'resolved' ? (zh ? '暂无已解决笔记。' : 'No resolved notes yet.') : filter === 'open'
     ? (zh ? '暂无未解决笔记，可在“已解决”筛选中查看已解决笔记。' : 'No open notes. Resolved notes are available in the Resolved filter.')
     : (zh ? '暂无页面笔记，选择一段原文开始添加。' : 'No page notes yet. Select a passage to add one.');
@@ -68,12 +62,6 @@ export function PersonalNotesPanel({ stageForSession = false, source, target, no
       <p className="text-[11px] leading-relaxed text-gray-400">{zh ? '有页面访问权限的用户和 Agent 均可查看。笔记按作者区分，仅作者可修改。' : 'Users and Agents with page access can read these notes. Each note identifies its author; only the author can change it.'}</p>
     </header>
     {storageUnavailable ? <div role="status" className="space-y-1 text-xs text-amber-800"><p>{zh ? '部分笔记尚未同步到服务器，草稿已保留。' : 'Some notes have not synced to the server. Drafts are retained.'}</p>{onRetrySync ? <button type="button" disabled={syncing} onClick={onRetrySync} className="underline">{zh ? '重试同步' : 'Retry sync'}</button> : null}</div> : null}
-    {target ? <blockquote className="max-h-24 overflow-y-auto whitespace-pre-wrap border-l-2 pl-3 text-gray-600 [overflow-wrap:anywhere]">{target.quote}</blockquote> : <p className="text-gray-500">{zh ? '选择一段原文添加笔记。' : 'Select a passage to add a note.'}</p>}
-    {addFailed || anchorUnavailable ? <p role="alert" className="text-amber-800">{zh ? '暂时无法保存笔记。请检查网络或重新选择原文后重试，笔记文字已保留。' : 'The note could not be saved. Check your connection or reselect the passage and retry; your draft is retained.'}</p> : null}
-    {showComposer ? <div className="space-y-2">
-      <label className="block">{zh ? '笔记' : 'Note'}<textarea rows={3} value={body} onChange={(e) => { setBody(e.target.value); setAddFailed(false); }} disabled={saving || disabled || createDisabled} className="mt-1 max-h-48 w-full rounded-lg border border-gray-200 p-3 [overflow-wrap:anywhere]" /></label>
-      <button type="button" disabled={!canAdd} onClick={async () => { if (!canAdd || !target) return; const identity = identityRef.current; setSaving(true); try { const saved = await onAdd(target, body.trim()); if (!mountedRef.current || identityRef.current !== identity) return; if (saved === false) setAddFailed(true); else { setBody(''); setAddFailed(false); } } catch { if (mountedRef.current && identityRef.current === identity) setAddFailed(true); } finally { if (mountedRef.current && identityRef.current === identity) setSaving(false); } }} className="min-h-8 rounded-lg border border-gray-200 px-3 disabled:opacity-50">{zh ? '添加笔记' : 'Add note'}</button>
-    </div> : null}
     <div role="group" aria-label={zh ? '筛选笔记' : 'Filter notes'} className="flex rounded-lg bg-gray-100 p-1">
       {filters.map(({ id, label, count }) => <button key={id} type="button" aria-pressed={filter === id} onClick={() => { if (filter !== id) { setSelected([]); setFilter(id); onClearActive?.(); } }} className={`min-h-8 min-w-0 flex-1 rounded-md px-2 text-xs ${filter === id ? 'bg-white font-medium text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}>{`${label} (${count})`}</button>)}
     </div>

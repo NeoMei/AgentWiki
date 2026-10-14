@@ -16,7 +16,7 @@ describe('personal note author identity', () => {
     auth.user = { id: 'alice-id', name: 'Alice' };
     const target = captureAssistTarget('quote', 'selection', 0, 5, '2026-10-14T00:00:00Z')!;
     const notes = ['alice-id', 'bob-id'].map((userId) => addPersonalNote({ userId, spaceId: 's', pageId: 'p' }, target, `${userId} note`, userId));
-    render(<LanguageProvider><PersonalNotesPanel source="quote" notes={notes} onAdd={() => {}} onDispatch={() => {}} onReopen={() => {}} /></LanguageProvider>);
+    render(<LanguageProvider><PersonalNotesPanel source="quote" notes={notes} onDispatch={() => {}} onReopen={() => {}} /></LanguageProvider>);
     const aliceCard = screen.getByRole('checkbox', { name: 'alice-id note' }).closest('li')!;
     const bobCard = screen.getByRole('checkbox', { name: 'bob-id note' }).closest('li')!;
     expect(within(aliceCard).getByLabelText('Note author: Alice (you)')).toBeVisible();

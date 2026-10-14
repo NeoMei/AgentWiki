@@ -86,7 +86,6 @@ export const PagePreview: React.FC = () => {
   const [agentContainer, setAgentContainer] = useState<HTMLDivElement | null>(null);
   const [agentFocusRequest, setAgentFocusRequest] = useState<{ identity: string; request: string } | null>(null);
   const [readingTarget, setReadingTarget] = useState<AssistTarget | null>(null);
-  const [selectionUnavailable, setSelectionUnavailable] = useState(false);
   const [activeNote, setActiveNote] = useState<{ identity: string; id: string } | null>(null);
   const notesEnabled = !!user?.id && !!page && page.id === id && !loading && !error;
   const personalNotes = usePersonalNotes({ scope: notesEnabled && page ? { userId: user.id, spaceId: page.spaceId, pageId: page.id } : null, canEdit: page?.capabilities?.canEdit === true, enabled: notesEnabled, stageForSession: true, source: page?.content ?? '', updatedAt: page?.updatedAt, language });
@@ -131,7 +130,7 @@ export const PagePreview: React.FC = () => {
     setActiveNote({ identity: personalNotes.identityKey, id: noteId });
     return locateReadingNote(markdownRootRef.current, noteId);
   };
-  useEffect(() => { setReadingTarget(null); setSelectionUnavailable(false); }, [id, page?.updatedAt, user?.id]);
+  useEffect(() => { setReadingTarget(null); }, [id, page?.updatedAt, user?.id]);
   useEffect(() => {
     const position = () => setPanelGeometry({ top: Math.ceil(readingToolbarRef.current?.getBoundingClientRect().bottom ?? 118) + 12, width: window.innerWidth });
     position(); const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(position);
@@ -788,7 +787,7 @@ export const PagePreview: React.FC = () => {
           <div ref={setNotesContainer} role="tabpanel" id="reading-document-panel-notes" aria-labelledby="reading-document-tab-notes" hidden={panelTab !== 'notes'} className="min-h-0 flex-1 overflow-auto" />
           <div ref={setAgentContainer} role="tabpanel" id="reading-document-panel-assist" aria-labelledby="reading-document-tab-assist" hidden={panelTab !== 'assist'} className="agent-session-host min-h-0 flex-1 flex-col" />
           <React.Suspense fallback={null}>
-            {agentMounted ? <AgentReadingSidebar key={`${user?.id}:${page.spaceId}:${page.id}`} notesContainer={notesContainer} agentContainer={agentContainer} page={page} notes={personalNotes} activeNoteId={activeNoteId} onLocateNote={locateNote} onClearActiveNote={() => setActiveNote(null)} onDirectApply={applyAgentDirect} visible={panelOpen && (notesOpen || panelTab === 'assist')} notesOpen={notesOpen} focusRequest={panelOpen && panelTab === 'assist' && agentFocusRequest?.identity === panelIdentity ? agentFocusRequest.request : undefined} target={readingTarget} selectionUnavailable={selectionUnavailable} onTarget={setReadingTarget} onOpenAgent={() => openPanel('assist')} /> : null}
+            {agentMounted ? <AgentReadingSidebar key={`${user?.id}:${page.spaceId}:${page.id}`} notesContainer={notesContainer} agentContainer={agentContainer} page={page} notes={personalNotes} activeNoteId={activeNoteId} onLocateNote={locateNote} onClearActiveNote={() => setActiveNote(null)} onDirectApply={applyAgentDirect} visible={panelOpen && (notesOpen || panelTab === 'assist')} notesOpen={notesOpen} focusRequest={panelOpen && panelTab === 'assist' && agentFocusRequest?.identity === panelIdentity ? agentFocusRequest.request : undefined} target={readingTarget} onOpenAgent={() => openPanel('assist')} /> : null}
           </React.Suspense>
         </div>
       </aside>
@@ -815,12 +814,12 @@ export const PagePreview: React.FC = () => {
           const selection = window.getSelection(), root = markdownRootRef.current?.querySelector<HTMLElement>('[data-markdown-selection-root]');
           if (!root || !selection?.rangeCount || selection.isCollapsed) return;
           const target = captureReadingSelection(root, selection.getRangeAt(0), page.content, page.updatedAt, root.dataset.markdownSelectionVersion ?? '');
-          setReadingTarget(target); setSelectionUnavailable(!target);
+          setReadingTarget(target);
         }} onKeyUp={() => {
           const selection = window.getSelection(), root = markdownRootRef.current?.querySelector<HTMLElement>('[data-markdown-selection-root]');
           if (!root || !selection?.rangeCount || selection.isCollapsed) return;
           const target = captureReadingSelection(root, selection.getRangeAt(0), page.content, page.updatedAt, root.dataset.markdownSelectionVersion ?? '');
-          setReadingTarget(target); setSelectionUnavailable(!target);
+          setReadingTarget(target);
         }}>
           {page.content ? (
             <Markdown

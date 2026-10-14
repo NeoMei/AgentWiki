@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { PersonalNotesPanel } from './PersonalNotesPanel';
@@ -10,7 +10,7 @@ const target = captureAssistTarget('quote', 'selection', 0, 5, '2026-10-06T00:00
 afterEach(cleanup);
 const note = (body: string, id: string, status: 'pending' | 'dispatched' | 'awaiting-review' | 'resolved' = 'pending') => ({ ...addPersonalNote(scope, target, body, id), status, ...(status === 'pending' ? {} : { taskId: 'task' }) });
 function queue(props: Partial<ComponentProps<typeof PersonalNotesPanel>> = {}) {
-  const defaults = { source: 'quote', notes: [], onAdd: vi.fn(), onDispatch: vi.fn(), onReopen: vi.fn(), ...props };
+  const defaults = { source: 'quote', notes: [], onDispatch: vi.fn(), onReopen: vi.fn(), ...props };
   const view = render(<LanguageProvider><PersonalNotesPanel {...defaults} /></LanguageProvider>);
   return { ...view, props: defaults, update: (next: Partial<ComponentProps<typeof PersonalNotesPanel>>) => view.rerender(<LanguageProvider><PersonalNotesPanel {...defaults} {...next} /></LanguageProvider>) };
 }
@@ -53,20 +53,18 @@ describe('personal notes UI', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Locate passage' }));
     expect(screen.queryByText('This passage cannot be located in this view. Check the original Markdown.')).not.toBeInTheDocument();
   });
-  it('labels server visibility, adds a selected passage note, and only sends chosen pending notes', () => {
+  it('labels server visibility and only sends chosen pending notes', () => {
     localStorage.setItem('agentwiki.language.v1', 'en');
-    const onAdd = vi.fn(), onDispatch = vi.fn(); const note = addPersonalNote(scope, target, 'Explain it', 'id');
-    render(<LanguageProvider><PersonalNotesPanel source="quote" target={target} notes={[note]} onAdd={onAdd} onDispatch={onDispatch} onReopen={() => {}} /></LanguageProvider>);
+    const onDispatch = vi.fn(); const note = addPersonalNote(scope, target, 'Explain it', 'id');
+    render(<LanguageProvider><PersonalNotesPanel source="quote" notes={[note]} onDispatch={onDispatch} onReopen={() => {}} /></LanguageProvider>);
     expect(screen.getByText(/Users and Agents with page access/)).toBeInTheDocument();
-    fireEvent.change(screen.getByRole('textbox', { name: 'Note' }), { target: { value: 'More context' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add note' })); expect(onAdd).toHaveBeenCalledWith(target, 'More context');
     expect(screen.getByRole('button', { name: 'Send selected to Agent' })).toBeDisabled();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Explain it' }));
     fireEvent.click(screen.getByRole('button', { name: 'Send selected to Agent' })); expect(onDispatch).toHaveBeenCalledWith(['id']);
   });
   it('keeps orphan quote visible and disables its dispatch, with Chinese labels', () => {
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
-    render(<LanguageProvider><PersonalNotesPanel source="changed" notes={[addPersonalNote(scope, target, 'Explain', 'id')]} onAdd={() => {}} onDispatch={() => {}} onReopen={() => {}} /></LanguageProvider>);
+    render(<LanguageProvider><PersonalNotesPanel source="changed" notes={[addPersonalNote(scope, target, 'Explain', 'id')]} onDispatch={() => {}} onReopen={() => {}} /></LanguageProvider>);
     expect(screen.getByText('quote')).toBeInTheDocument(); expect(screen.getByText('原文已变动或定位不唯一')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Explain' })).toBeDisabled();
   });
@@ -154,19 +152,6 @@ describe('personal notes UI', () => {
     expect(screen.getByRole('checkbox', { name: 'A' })).not.toBeChecked();
     expect(view.props.onDispatch).not.toHaveBeenCalled();
   });
-  it('hides an empty composer without a target and retains an unfinished draft through selection changes', () => {
-    localStorage.setItem('agentwiki.language.v1', 'en');
-    const view = queue();
-    expect(screen.getByText('Select a passage to add a note.')).toBeInTheDocument();
-    expect(screen.queryByRole('textbox', { name: 'Note' })).not.toBeInTheDocument();
-    view.update({ target });
-    fireEvent.change(screen.getByRole('textbox', { name: 'Note' }), { target: { value: 'Keep this draft' } });
-    view.update({ target: null });
-    expect(screen.getByRole('textbox', { name: 'Note' })).toHaveValue('Keep this draft');
-    expect(screen.getByRole('button', { name: 'Add note' })).toBeDisabled();
-    view.update({ target });
-    expect(screen.getByRole('textbox', { name: 'Note' })).toHaveValue('Keep this draft');
-  });
   it('shows Chinese selection feedback, storage warning, and explicit reopen action', () => {
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
     const view = queue({ storageUnavailable: true, notes: [note('待办', 'a'), note('复查', 'b', 'awaiting-review')] });
@@ -185,17 +170,6 @@ describe('personal notes UI', () => {
   });
 });
 
-it('retains note text and offers recovery when the live source rejects an add', async () => {
-  localStorage.setItem('agentwiki.language.v1', 'en');
-  queue({ target, onAdd: () => false });
-  fireEvent.change(screen.getByRole('textbox', { name: 'Note' }), { target: { value: 'Keep this note' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Add note' }));
-  expect(screen.getByRole('textbox', { name: 'Note' })).toHaveValue('Keep this note');
-  await act(async () => {});
-  expect(screen.getByRole('alert')).toHaveTextContent('Check your connection or reselect the passage');
-});
-
-
 it('keeps all authors visible, blocks unsynced dispatch and hides another author reopen action', () => {
   localStorage.setItem('agentwiki.language.v1', 'en');
   const retry = vi.fn();
@@ -211,41 +185,11 @@ it('keeps all authors visible, blocks unsynced dispatch and hides another author
   fireEvent.click(screen.getByRole('button', { name: 'Retry sync' })); expect(retry).toHaveBeenCalledOnce();
 });
 
-it('awaits save and never clears a new identity draft when the previous account save returns', async () => {
+it('stages existing notes for Agent only after explicit selection', () => {
   localStorage.setItem('agentwiki.language.v1', 'en');
-  let finish!: (saved: boolean) => void;
-  const view = queue({ identityKey: 'alice', target, onAdd: () => new Promise<boolean>((resolve) => { finish = resolve; }) });
-  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Old draft' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Add note' }));
-  expect(screen.getByRole('button', { name: 'Add note' })).toBeDisabled();
-  expect(screen.getByRole('textbox')).toHaveValue('Old draft');
-  expect(screen.getByRole('textbox')).toBeDisabled();
-  view.update({ identityKey: 'bob' }); expect(screen.getByRole('textbox')).toHaveValue('');
-  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'New account draft' } });
-  await act(async () => { finish(true); });
-  expect(screen.getByRole('textbox')).toHaveValue('New account draft');
-});
-
-
-it('can discuss existing notes when creation is unavailable', () => {
-  localStorage.setItem('agentwiki.language.v1', 'en');
-  const view = queue({ target, createDisabled: true, notes: [note('Discuss this', 'discuss')] });
-  expect(screen.getByRole('textbox')).toBeDisabled(); expect(screen.getByRole('button', { name: 'Add note' })).toBeDisabled();
+  const view = queue({ stageForSession: true, notes: [note('Discuss this', 'discuss')] });
+  expect(screen.getByRole('button', { name: 'Stage selected for Agent' })).toBeDisabled();
   fireEvent.click(screen.getByRole('checkbox', { name: 'Discuss this' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Send selected to Agent' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Stage selected for Agent' }));
   expect(view.props.onDispatch).toHaveBeenCalledWith(['discuss']);
-});
-
-
-it('locks the submitted draft while saving and unlocks it intact after rejection', async () => {
-  localStorage.setItem('agentwiki.language.v1', 'en');
-  let finish!: (saved: boolean) => void;
-  queue({ identityKey: 'alice', target, onAdd: () => new Promise<boolean>((resolve) => { finish = resolve; }) });
-  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Keep this draft' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Add note' }));
-  expect(screen.getByRole('textbox')).toBeDisabled();
-  await act(async () => { finish(false); });
-  expect(screen.getByRole('textbox')).toBeEnabled();
-  expect(screen.getByRole('textbox')).toHaveValue('Keep this draft');
-  expect(screen.getByRole('alert')).toBeVisible();
 });

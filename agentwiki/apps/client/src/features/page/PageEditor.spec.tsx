@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { undo, undoDepth } from '@codemirror/commands';
 import { EditorSelection } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
@@ -175,6 +175,25 @@ const currentEditorView = () => {
   const view = EditorView.findFromDOM(editor);
   if (!view) throw new Error('CodeMirror view not found');
   return view;
+};
+
+const openEditorNoteComposer = async (from: number, to: number) => {
+  const view = currentEditorView();
+  act(() => { view.focus(); view.dispatch({ selection: EditorSelection.single(from, to) }); });
+  const start = view.domAtPos(from), end = view.domAtPos(to);
+  const range = document.createRange();
+  range.setStart(start.node, start.offset); range.setEnd(end.node, end.offset);
+  window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range);
+  fireEvent.mouseUp(view.contentDOM);
+  fireEvent.click(await screen.findByRole('button', { name: 'Add note to selection' }));
+  return screen.getByRole('dialog', { name: 'Add page note' });
+};
+
+const addEditorNote = async (from: number, to: number, body: string) => {
+  const dialog = await openEditorNoteComposer(from, to);
+  fireEvent.change(within(dialog).getByRole('textbox', { name: 'Note' }), { target: { value: body } });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Add note' }));
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add page note' })).not.toBeInTheDocument());
 };
 
 const pasteImages = (files: File[]) => {
@@ -775,21 +794,21 @@ describe('PageEditor remote update safety', () => {
     expect(JSON.parse((await screen.findByTestId('history-source-state')).textContent!)).toMatchObject({ pageHistorySource: { pageId: 'page-1', mode: 'edit' } });
   });
 
-  it('keeps an unsubmitted personal note across all side-panel tabs and collapse', async () => {
+  it('keeps an unsubmitted selection note across all side-panel tabs and collapse', async () => {
     queuePages({ data: page({ content: '# First\n\nA passage', capabilities: { canEdit: true } }) });
     renderEditor(); await screen.findByDisplayValue('Original title');
     fireEvent.click(screen.getByRole('tab', { name: 'Page notes' }));
-    act(() => currentEditorView().dispatch({ selection: EditorSelection.single(9, 18) }));
-    const draft = screen.getByRole('textbox', { name: 'Note' });
+    const dialog = await openEditorNoteComposer(9, 18);
+    const draft = within(dialog).getByRole('textbox', { name: 'Note' });
     fireEvent.change(draft, { target: { value: 'My pending private annotation' } });
     for (const tab of ['Contents', 'Page information', 'Agent']) {
       fireEvent.click(screen.getByRole('tab', { name: tab }));
-      expect(draft).toBeInTheDocument(); expect(draft).not.toBeVisible();
+      expect(draft).toBeVisible(); expect(draft).toHaveValue('My pending private annotation');
     }
     fireEvent.click(screen.getByRole('button', { name: 'Collapse side panel' }));
     expect(screen.getAllByRole('tab')).toHaveLength(4);
     fireEvent.click(screen.getByRole('tab', { name: 'Page notes' }));
-    expect(screen.getByRole('textbox', { name: 'Note' })).toBe(draft);
+    expect(within(dialog).getByRole('textbox', { name: 'Note' })).toBe(draft);
     expect(draft).toHaveValue('My pending private annotation');
     fireEvent.click(screen.getByRole('tab', { name: 'Page notes' }));
     expect(draft).toBeVisible();
@@ -2905,8 +2924,7 @@ describe('PageEditor remote update safety', () => {
     mockAgentSession(page({content:base,capabilities:{canEdit:true}}), () => tasks, async () => { tasks=[{id:'notes',intent:'Fix',status:'done',result:{changes:'ONE\nkeep\nTWO\n'}}]; return tasks[0]; });
     renderEditor();await screen.findByDisplayValue('Original title');fireEvent.click(screen.getByRole('tab',{name:'Page notes'}));
     for(const [from,to,body] of [[0,3,'Fix one'],[9,12,'Fix two']] as const){
-      act(()=>currentEditorView().dispatch({selection:EditorSelection.single(from,to)}));
-      fireEvent.change(screen.getByRole('textbox',{name:'Note'}),{target:{value:body}});fireEvent.click(screen.getByRole('button',{name:'Add note'})); await waitFor(() => expect(screen.getByRole('textbox', { name: 'Note' })).toHaveValue(''));
+      await addEditorNote(from, to, body);
     }
     expect(screen.getByText(/Saved on the server/)).toBeInTheDocument();
     for(const body of ['Fix one','Fix two'])fireEvent.click(screen.getByRole('checkbox',{name:body}));
@@ -2986,9 +3004,7 @@ describe('PageEditor remote update safety', () => {
     renderEditor(); await screen.findByDisplayValue('Original title');
     expect(document.querySelector('.cm-content [data-note-ids]')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: 'Page notes' }));
-    act(() => currentEditorView().dispatch({ selection: EditorSelection.single(2, 9) }));
-    fireEvent.change(screen.getByRole('textbox', { name: 'Note' }), { target: { value: 'Explain this passage' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add note' }));
+    await addEditorNote(2, 9, 'Explain this passage');
     await waitFor(() => expect(document.querySelector('.cm-content [data-note-ids]')).toHaveTextContent('passage'));
     const marker = document.querySelector<HTMLElement>('.cm-content [data-note-ids]');
     expect(marker).toHaveTextContent('passage');
@@ -3044,7 +3060,7 @@ describe('PageEditor remote update safety', () => {
     let tasks:any[]=[];const delayed=deferred<any>();
     mockAgentSession(page({capabilities:{canEdit:true}}), () => tasks, () => scenario === 'failed' ? Promise.reject(new Error('failed')) : delayed.promise);
     renderEditor();await screen.findByDisplayValue('Original title');fireEvent.click(screen.getByRole('tab',{name:'Page notes'}));
-    act(()=>currentEditorView().dispatch({selection:EditorSelection.single(0,8)}));fireEvent.change(screen.getByRole('textbox',{name:'Note'}),{target:{value:'Fix'}});fireEvent.click(screen.getByRole('button',{name:'Add note'})); await waitFor(() => expect(screen.getByRole('textbox', { name: 'Note' })).toHaveValue(''));fireEvent.click(screen.getByRole('checkbox',{name:'Fix'}));fireEvent.click(screen.getByRole('button',{name:'Stage selected for Agent'}));
+    await addEditorNote(0, 8, 'Fix');fireEvent.click(screen.getByRole('checkbox',{name:'Fix'}));fireEvent.click(screen.getByRole('button',{name:'Stage selected for Agent'}));
     expect(agentPostCalls()).toHaveLength(0); await chooseProposal(); fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(()=>expect(agentPostCalls()).toHaveLength(1));if(scenario==='failed')await screen.findByRole('alert');
     fireEvent.click(screen.getByRole('button',{name:'Collapse side panel'}));fireEvent.click(screen.getByTestId('document-panel-tab-assist'));
