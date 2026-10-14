@@ -19,6 +19,7 @@ import type { AssistRequest } from './AgentAssistPanel';
 const AgentSessionPanel = React.lazy(() => import('../agent-session/AgentSessionPanel').then((module) => ({ default: module.AgentSessionPanel })));
 import { applyCandidateToDraft, type AssistCandidate } from './assistCandidate';
 import { captureAssistTarget } from './assistTargets';
+import { captureReadingSelection } from '../agent-session/readingSelection';
 import { PersonalNotesPanel } from './PersonalNotesPanel';
 import { usePersonalNotes } from './usePersonalNotes';
 import { SelectionNoteComposer } from './SelectionNoteComposer';
@@ -1423,6 +1424,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             ref={bindWorkspaceRef}
             value={content}
             mode={mode}
+            selectionSourceVersion={page.updatedAt}
             noteHighlights={noteHighlights}
             activeNoteId={activeNoteId}
             onNoteActivate={activateNote}
@@ -1442,10 +1444,19 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         </div>
         {panelReadable ? <SelectionNoteComposer key={`${personalNotes.identityKey}:${mode}`} rootRef={noteSelectionRootRef}
           identity={personalNotes.identityKey} source={content} updatedAt={page.updatedAt} language={language}
-          disabled={!personalNotes.loaded || !personalNotes.canCreate || personalNotes.syncing || saving || mode !== 'edit' || !!remoteUpdate || !!unresolvedSocketRevisionRef.current || !!personalNotes.assistRequest}
+          disabled={!personalNotes.loaded || !personalNotes.canCreate || personalNotes.syncing || saving || !!remoteUpdate || !!unresolvedSocketRevisionRef.current || !!personalNotes.assistRequest}
           storageUnavailable={personalNotes.storageUnavailable} onAdd={(target, body) => personalNotes.add(target, body, { requirePersistence: true })} captureTarget={() => {
-            const nativeSelection = window.getSelection(), editorRoot = noteSelectionRootRef.current?.querySelector('.cm-content');
-            if (!nativeSelection?.rangeCount || !editorRoot?.contains(nativeSelection.getRangeAt(0).commonAncestorContainer)) return null;
+            const nativeSelection = window.getSelection();
+            if (!nativeSelection?.rangeCount) return null;
+            const range = nativeSelection.getRangeAt(0);
+            if (mode === 'preview') {
+              const previewRoot = noteSelectionRootRef.current?.querySelector<HTMLElement>('[data-markdown-selection-root]');
+              return previewRoot
+                ? captureReadingSelection(previewRoot, range, content, page.updatedAt, previewRoot.dataset.markdownSelectionVersion ?? '')
+                : null;
+            }
+            const editorRoot = noteSelectionRootRef.current?.querySelector('.cm-content');
+            if (!editorRoot?.contains(range.commonAncestorContainer)) return null;
             const selected = internalWorkspaceRef.current?.captureSelection();
             const source = internalWorkspaceRef.current?.currentValue();
             if (!selected || source !== content || source.slice(selected.from, selected.to) !== selected.text) return null;

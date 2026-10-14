@@ -2906,6 +2906,25 @@ describe('PageEditor remote update safety', () => {
     expect(agentPostCalls()).toHaveLength(0); expect(pagePatchCalls()).toHaveLength(0);
   });
 
+  it('adds a note from the editor reading preview without changing the draft', async () => {
+    queuePages({ data: page({ content: 'A passage worth noting', capabilities: { canEdit: true } }) });
+    renderEditor(); await screen.findByDisplayValue('Original title');
+    fireEvent.click(screen.getByTestId('mode-toggle'));
+    const passage = await screen.findByText('A passage worth noting');
+    const text = passage.firstChild!;
+    const range = document.createRange(); range.setStart(text, 2); range.setEnd(text, 9);
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range);
+    fireEvent.mouseUp(passage);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add note to selection' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Note' }), { target: { value: 'Explain this preview passage' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add note' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add page note' })).not.toBeInTheDocument());
+    expect(document.querySelector('[data-note-ids]')).toHaveTextContent('passage');
+    expect(contentEditorValue()).toBe('A passage worth noting');
+    expect(serverNotes).toEqual([expect.objectContaining({ body: 'Explain this preview passage', target: expect.objectContaining({ from: 2, to: 9 }) })]);
+    expect(pagePatchCalls()).toHaveLength(0);
+  });
+
   it('keeps shared note marks visible while toggling the panel and locates their passage without editing', async () => {
     vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280);
     const source = 'A passage worth noting';

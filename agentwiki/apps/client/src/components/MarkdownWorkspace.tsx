@@ -45,6 +45,8 @@ export type MarkdownMode = 'edit' | 'preview';
 interface MarkdownWorkspaceProps extends NoteHighlightProps {
   value: string;
   mode: MarkdownMode;
+  /** Source version used to prove selections made in the rendered preview. */
+  selectionSourceVersion?: string;
   onChange: (next: string) => void;
   onModeChange?: (mode: MarkdownMode) => void;
   pageId?: string;
@@ -508,6 +510,7 @@ const buildHiddenMarksPlugin = (
 export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWorkspaceProps>(({
   value,
   mode,
+  selectionSourceVersion,
   onChange,
   pageId,
   spaceId,
@@ -1099,6 +1102,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
               {value ? (
                 <Markdown
                   mode="editor-preview"
+                  selectionSourceVersion={selectionSourceVersion}
                   noteHighlights={noteHighlights}
                   activeNoteId={activeNoteId}
                   onNoteActivate={onNoteActivate}
