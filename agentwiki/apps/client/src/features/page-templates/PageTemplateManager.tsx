@@ -4,6 +4,7 @@ import { ArrowLeft, FileText, FolderTree, Search } from 'lucide-react';
 import { apiErrorCode, apiErrorMessage } from '../../api/error-message';
 import { ModalDialog } from '../../components/ModalDialog';
 import { useLanguage } from '../../context/LanguageContext';
+import { sourceSelectionText } from './sourceSelectionText';
 import { CompositeDefinitionEditor, definitionReferenceIssues } from './CompositeDefinitionEditor';
 import {
   archiveCompositeTemplate,
@@ -79,7 +80,9 @@ const usesDefinitionStorage = (template: PageTemplateSummary) => (template as Ma
 
 export const PageTemplateManager: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { language, t } = useLanguage();
+  const { t: sharedT, language } = useLanguage();
+  const t = useCallback((key: string, params?: Record<string, string | number>) =>
+    sourceSelectionText(language, key, params) ?? sharedT(key, params), [language, sharedT]);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<PageTemplateCategory | ''>('');
   const [kind, setKind] = useState<'' | 'single_page' | 'page_group'>('');

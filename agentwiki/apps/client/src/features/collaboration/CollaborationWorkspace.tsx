@@ -6,6 +6,7 @@ import { ModalDialog } from '../../components/ModalDialog';
 import { Toast } from '../../components/Toast';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { runOrderText } from './runOrderText';
 import { collaborationApi } from './api';
 import { RunList } from './components/RunList';
 import { TemplateCard } from './components/TemplateCard';
@@ -24,7 +25,9 @@ export const CollaborationWorkspace: React.FC = () => {
   const { id = '' } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { t, language } = useLanguage();
+  const { t: sharedT, language } = useLanguage();
+  const t = useCallback((key: string, params?: Record<string, string | number>) =>
+    runOrderText(language, key, params) ?? sharedT(key, params), [language, sharedT]);
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab');
   const tab: Tab = requestedTab === 'manage' || requestedTab === 'active' || requestedTab === 'history' ? requestedTab : 'templates';

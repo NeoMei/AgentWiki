@@ -1,29 +1,4 @@
-// Regression feedback for template source selection and collaboration startup.
-export const bugCollaborationMessages = {
-  en: {
-    'pageTemplate.sourceMatches': 'Matching pages: {count}',
-    'pageTemplate.sourceNoMatches': 'No matching pages found',
-    'pageTemplate.sourceSelected': 'Selected: {page}',
-    'collaboration.sortCreatedDesc': 'Newest created first · time shown: created at',
-    'collaboration.createdAt': 'Created at',
-    'collaboration.wizard.runNameRequired': 'Enter a run name.',
-    'collaboration.wizard.newRun': 'Start a new run',
-    'collaboration.wizard.newRunHelp': 'Your existing run remains available in Active runs or History.',
-    'collaboration.wizard.currentStatus': 'Current status: {status}',
-    'collaboration.wizard.restoreFailed': 'Could not load your saved run. Retry, or start a new run. Your existing draft is preserved.',
-    'collaboration.wizard.retrySavedRun': 'Retry saved run',
-  },
-  'zh-CN': {
-    'pageTemplate.sourceMatches': '匹配页面：{count}',
-    'pageTemplate.sourceNoMatches': '未找到匹配页面',
-    'pageTemplate.sourceSelected': '已选择：{page}',
-    'collaboration.sortCreatedDesc': '按创建时间倒序 · 显示时间：创建时间',
-    'collaboration.createdAt': '创建时间',
-    'collaboration.wizard.runNameRequired': '请填写运行名称。',
-    'collaboration.wizard.newRun': '开始新运行',
-    'collaboration.wizard.newRunHelp': '现有运行仍可在进行中的协作或历史记录中查看。',
-    'collaboration.wizard.currentStatus': '当前状态：{status}',
-    'collaboration.wizard.restoreFailed': '无法加载已保存的运行。请重试或开始新运行，原草稿仍保留。',
-    'collaboration.wizard.retrySavedRun': '重试已保存的运行',
-  },
-};
+// Feature-local lazy translators; do not import these into the initial shell.
+export { runStartText } from '../features/collaboration/runStartText';
+export { runOrderText } from '../features/collaboration/runOrderText';
+export { sourceSelectionText } from '../features/page-templates/sourceSelectionText';

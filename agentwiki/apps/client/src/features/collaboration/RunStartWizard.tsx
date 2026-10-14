@@ -5,6 +5,7 @@ import { Link, useParams } from 'react-router-dom';
 import { Toast } from '../../components/Toast';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { runStartText } from './runStartText';
 import { collaborationApi } from './api';
 import { AgentPreparationDialog, type PreparedAgentSelection } from './components/AgentPreparationDialog';
 import { RoleBindingEditor } from './components/RoleBindingEditor';
@@ -67,7 +68,9 @@ function sameBindings(left: RoleBinding[], right: RoleBinding[]): boolean {
 
 export const RunStartWizard: React.FC = () => {
   const { id = '', templateId = '' } = useParams<{ id: string; templateId: string }>();
-  const { t } = useLanguage();
+  const { t: sharedT, language } = useLanguage();
+  const t = useCallback((key: string, params?: Record<string, string | number>) =>
+    runStartText(language, key, params) ?? sharedT(key, params), [language, sharedT]);
   const { user } = useAuth();
   const [template, setTemplate] = useState<TemplateDetail | null>(null);
   const [members, setMembers] = useState<SpaceMemberSummary[]>([]);
