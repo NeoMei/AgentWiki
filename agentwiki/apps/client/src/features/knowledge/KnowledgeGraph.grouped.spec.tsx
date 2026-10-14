@@ -48,7 +48,7 @@ describe('KnowledgeGraph folder browsing', () => {
     expect(screen.getByRole('button', { name: '未分组 1 个页面' })).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByRole('button', { name: '项目 项目 1 个页面' })).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('button', { name: /小明 pages/ })).not.toBeInTheDocument();
-    expect(painted.mock.calls.map(call => call[0])).toContain('人物');
+    await waitFor(() => expect(painted.mock.calls.map(call => call[0])).toContain('人物'));
     fireEvent.click(group);
     fireEvent.click(screen.getByRole('button', { name: '小明 pages/项目/人物/小明.md' }));
     const details = screen.getByRole('complementary', { name: '页面详情' });
@@ -92,9 +92,11 @@ describe('KnowledgeGraph folder browsing', () => {
     fireEvent.change(search, { target: { value: '不存在' } });
     expect(screen.getByText('没有匹配的页面。请调整搜索或关系类型。')).toBeInTheDocument();
     expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
-    expect(cleared).toHaveBeenCalled();
-    // The final paint is empty, so old nodes cannot remain visible after filtering.
-    expect(arcs.mock.invocationCallOrder[arcs.mock.invocationCallOrder.length - 1] ?? 0).toBeLessThan(cleared.mock.invocationCallOrder[cleared.mock.invocationCallOrder.length - 1]!);
+    await waitFor(() => {
+      expect(cleared).toHaveBeenCalled();
+      // The final paint is empty, so old nodes cannot remain visible after filtering.
+      expect(arcs.mock.invocationCallOrder[arcs.mock.invocationCallOrder.length - 1] ?? 0).toBeLessThan(cleared.mock.invocationCallOrder[cleared.mock.invocationCallOrder.length - 1]!);
+    });
     fireEvent.click(screen.getByRole('button', { name: '清除筛选' }));
     expect(screen.getByText('显示 3 / 3 个页面')).toBeInTheDocument();
   });
@@ -146,16 +148,17 @@ describe('KnowledgeGraph folder browsing', () => {
     } }));
     const { container } = mount();
     await screen.findByRole('option', { name: 'Old page' });
+    await waitFor(() => expect(arcs.mock.calls[arcs.mock.calls.length - 1]?.slice(0, 2)).toEqual([150, 90]));
     fireEvent.click(screen.getByRole('button', { name: '重置视图' }));
     const canvas = container.querySelector('canvas')!;
     fireEvent.mouseDown(canvas, { button: 0, clientX: 150, clientY: 90 });
     fireEvent.mouseMove(window, { buttons: 1, clientX: 230, clientY: 150 });
     fireEvent.mouseUp(window, { button: 0, clientX: 230, clientY: 150 });
-    expect(arcs.mock.calls[arcs.mock.calls.length - 1].slice(0, 2)).toEqual([230, 150]);
+    await waitFor(() => expect(arcs.mock.calls[arcs.mock.calls.length - 1]?.slice(0, 2)).toEqual([230, 150]));
     fireEvent.click(screen.getByRole('button', { name: 'Other Space' }));
     await screen.findByRole('option', { name: 'New page' });
     // Both Spaces use the same synthetic ungrouped ID, but layout is Space-local.
-    expect(arcs.mock.calls[arcs.mock.calls.length - 1].slice(0, 2)).toEqual([150, 90]);
+    await waitFor(() => expect(arcs.mock.calls[arcs.mock.calls.length - 1]?.slice(0, 2)).toEqual([150, 90]));
     expect(screen.queryByRole('option', { name: 'Old page' })).not.toBeInTheDocument();
   });
 
