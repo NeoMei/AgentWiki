@@ -1,0 +1,58 @@
+import type { Language } from './messages';
+
+export const bugReviewMessages: Record<Language, Record<string, string>> = {
+  en: {
+    'review.searchHistory': 'Search review history',
+    'review.searchHint': 'Page title, path, submitter or change ID',
+    'review.search': 'Search',
+    'review.noMatches': 'No changes match these filters.',
+    'review.space': 'Space',
+    'review.allSpaces': 'All accessible spaces',
+    'review.from': 'Submitted from',
+    'review.to': 'Submitted through',
+    'review.previousPage': 'Previous page',
+    'review.nextPage': 'Next page',
+    'review.page': 'Page',
+    'review.total': 'matching changes',
+    'review.submitter': 'Submitted by',
+    'review.unknownSubmitter': 'Unknown submitter',
+    'review.unknownTime': 'Submission time unavailable',
+    'review.proposal': 'Direct proposal',
+    'review.sourceImport': 'Source import',
+    'review.unknownOrigin': 'Origin unconfirmed',
+    'review.proposalEvidence': 'Direct proposal; no extracted source evidence is expected.',
+    'review.ownerRequired': 'Only a current owner of this space can review or publish this change.',
+    'review.humanRequired': 'A human space owner must review or publish this change.',
+    'review.checkingAccess': 'Checking review permissions…',
+    'review.targetUnavailable': 'Target page unavailable',
+  },
+  'zh-CN': {
+    'review.searchHistory': '搜索审核历史',
+    'review.searchHint': '页面标题、路径、提交者或变更 ID',
+    'review.search': '搜索',
+    'review.noMatches': '没有符合这些筛选条件的变更。',
+    'review.space': '空间',
+    'review.allSpaces': '全部可访问空间',
+    'review.from': '提交开始日期',
+    'review.to': '提交截止日期',
+    'review.previousPage': '上一页',
+    'review.nextPage': '下一页',
+    'review.page': '页码',
+    'review.total': '条匹配变更',
+    'review.submitter': '提交者',
+    'review.unknownSubmitter': '提交者未知',
+    'review.unknownTime': '提交时间不可用',
+    'review.proposal': '直接提案',
+    'review.sourceImport': '来源导入',
+    'review.unknownOrigin': '来源类型未确认',
+    'review.proposalEvidence': '此项为直接提案，无需提供来源提取证据。',
+    'review.ownerRequired': '仅此空间当前的所有者可以审核或发布此变更。',
+    'review.humanRequired': '此变更须由人类空间所有者审核或发布。',
+    'review.checkingAccess': '正在确认审核权限…',
+    'review.targetUnavailable': '目标页面不可访问',
+  },
+};
+
+export function bugReviewText(language: Language, key: string): string {
+  return bugReviewMessages[language][key] ?? bugReviewMessages.en[key] ?? key;
+}

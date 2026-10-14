@@ -169,6 +169,70 @@ describe('ReviewPage detail refresh', () => {
     expect(vi.mocked(api.get).mock.calls.filter(([url]) => url !== '/spaces/space-1')).toHaveLength(2);
   });
 
+  it('shows server-projected proposal identity and owner actions without loading the whole space', async () => {
+    const detail = { ...changeSet(), title: 'Proposed update: page-1', run: null, reviewKind: 'proposal',
+      createdAt: '2026-10-14T10:00:00Z', submitter: { name: 'Mei', type: 'human' },
+      targets: [{ title: 'Release notes', path: 'project/Release notes.md' }], reviewAccess: { canDecide: true, reason: null } };
+    vi.mocked(api.get).mockImplementation(async url => ({ data: url === '/review' ? { items: [detail], total: 1, spaces: [{ id: 'space-1', name: 'Test space' }] } : detail }));
+    renderReview();
+    fireEvent.click(await screen.findByRole('button', { name: /Release notes/ }));
+    expect(await screen.findByText('Direct proposal; no extracted source evidence is expected.')).toBeVisible();
+    expect(screen.getByText('project/Release notes.md')).toBeVisible();
+    expect(screen.getByText(/Mei/)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Approve & publish' })).toBeEnabled();
+    expect(api.get).not.toHaveBeenCalledWith('/spaces/space-1', expect.anything());
+  });
+
+  it('explains the server owner requirement even if a stale space response claims owner', async () => {
+    const detail = { ...changeSet(), reviewAccess: { canDecide: false, reason: 'owner_required' } };
+    vi.mocked(api.get).mockImplementation(async url => ({ data: url === '/review' ? [detail] : detail }));
+    renderReview(); await expand();
+    expect(screen.getByText('Only a current owner of this space can review or publish this change.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Approve & publish' })).not.toBeInTheDocument();
+  });
+
+  it('requests a later server page and applies all filters to the whole history, resetting the page', async () => {
+    vi.mocked(api.get).mockImplementation(async (_url, config) => ({ data: { items: [{ ...summary(), id: (config?.params as any)?.page === 2 ? 'page-2' : 'cs-1', title: (config?.params as any)?.page === 2 ? 'Older result' : 'Candidate set' }], total: 197, spaces: [{ id: 'space-1', name: 'Test space' }] } }));
+    renderReview();
+    fireEvent.click(await screen.findByRole('button', { name: 'Next page' }));
+    expect(await screen.findByRole('button', { name: /Older result/ })).toBeVisible();
+    expect(api.get).toHaveBeenLastCalledWith('/review', expect.objectContaining({ params: expect.objectContaining({ page: 2, pageSize: 25 }) }));
+    fireEvent.change(screen.getByLabelText('Search review history'), { target: { value: 'Release' } });
+    fireEvent.change(screen.getByLabelText('Submitted from'), { target: { value: '2026-10-01' } });
+    fireEvent.change(screen.getByLabelText('Submitted through'), { target: { value: '2026-10-14' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(api.get).toHaveBeenLastCalledWith('/review', expect.objectContaining({ params: expect.objectContaining({ page: 1, q: 'Release', from: expect.stringContaining('T'), to: expect.stringContaining('T') }) })));
+    fireEvent.change(screen.getByLabelText('Space'), { target: { value: 'space-1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Published' }));
+    await waitFor(() => expect(api.get).toHaveBeenLastCalledWith('/review', expect.objectContaining({ params: expect.objectContaining({ spaceId: 'space-1', status: 'published', page: 1, q: 'Release' }) })));
+  });
+
+  it('discards an old page response when a new history search completes first', async () => {
+    const oldPage = deferred<any>();
+    vi.mocked(api.get).mockImplementation(async (_url, config) => {
+      if ((config?.params as any)?.q === 'new query') return { data: { items: [{ ...summary(), title: 'Found by query' }], total: 1, spaces: [] } };
+      return oldPage.promise;
+    });
+    renderReview();
+    fireEvent.change(screen.getByLabelText('Search review history'), { target: { value: 'new query' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    expect(await screen.findByRole('button', { name: /Found by query/ })).toBeVisible();
+    await act(async () => oldPage.resolve({ data: { items: [{ ...summary(), title: 'Old response' }], total: 197, spaces: [] } }));
+    expect(screen.queryByRole('button', { name: /Old response/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Review pagination' })).toHaveTextContent('1 matching changes');
+  });
+
+  it('keeps a selected deep link outside the first page when the slower page response arrives', async () => {
+    const list = deferred<any>();
+    vi.mocked(api.get).mockImplementation(async url => url === '/review' ? list.promise : { data: { ...changeSet(), reviewAccess: { canDecide: true } } });
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    render(<LanguageProvider><MemoryRouter initialEntries={['/review?changeSet=cs-1']}><ReviewPage /></MemoryRouter></LanguageProvider>);
+    expect(await screen.findByText('Proposed page')).toBeVisible();
+    await act(async () => list.resolve({ data: { items: [{ ...summary(), id: 'other-set', title: 'First page result' }], total: 197, spaces: [] } }));
+    expect(screen.getByText('Proposed page')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Approve & publish' })).toBeVisible();
+  });
+
   it('keeps older details without duplicate metadata usable and does not fetch a detector endpoint', async () => {
     vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/review' ? [changeSet()] : changeSet() }));
     renderReview(); await expand();

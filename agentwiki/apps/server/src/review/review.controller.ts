@@ -4,6 +4,7 @@ import { CombinedAuthGuard } from '../core/auth/combined-auth.guard';
 import { AuthorizationService } from '../core/authorization/authorization.service';
 import { ChangeItemDecisionDto, RevertChangeSetDto, ReviewDecisionDto } from '../core/dto/review.dto';
 import { ReviewService } from './review.service';
+import { parseReviewListQuery } from './review-list.query';
 
 @Controller()
 @UseGuards(CombinedAuthGuard)
@@ -17,9 +18,15 @@ export class ReviewController {
   }
 
   @Get('review')
-  async list(@Req() req: Request, @Query('spaceId') spaceId?: string) {
+  async list(@Req() req: Request, @Query() query: Record<string, unknown>) {
+    const options = parseReviewListQuery(query);
+    const spaceId = query.spaceId as string | undefined;
     const spaceIds = await this.authorization.getAccessibleSpaceIds(req.user as any, 'review:read');
     if (spaceId && !spaceIds.includes(spaceId)) throw new ForbiddenException('Space is not accessible');
+    // Keep the existing array contract for MCP and older HTTP consumers.
+    if (Object.keys(query).some(key => key !== 'spaceId')) {
+      return this.review.listPage(spaceIds, req.user as any, options, spaceId);
+    }
     return this.review.list(spaceId ? [spaceId] : spaceIds, req.user as any);
   }
 

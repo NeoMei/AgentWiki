@@ -1,3 +1,4 @@
+import { bugReviewText } from '../../i18n/bug-review-messages';
 import { sourceStatusText } from '../../i18n/source-status-messages';
 import { SourceStatusNotice } from '../page/SourceStatusNotice';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -91,6 +92,7 @@ const EvidencePanel: React.FC<{ changeSet: any; item: any }> = ({ changeSet, ite
   const evidence = evidences.find((candidate: any) => candidate.id === payload.evidenceId) ||
     evidences.find((candidate: any) => candidate.location?.sourcePath === sourcePath);
   const source = changeSet.run?.source;
+  if (changeSet.reviewKind === 'proposal') return <p className="mt-3 text-xs text-gray-500">{bugReviewText(language, 'review.proposalEvidence')}</p>;
   if (!source && !evidence) return <p className="mt-3 text-xs text-gray-400">{sourceStatusText(language, 'sourceStatus.noAccessibleEvidence')}</p>;
   const metadata = evidence?.sourceVersion?.metadata || {};
   return (
@@ -112,7 +114,8 @@ export const ReviewPage: React.FC = () => {
   const { language, t } = useLanguage();
   const zh = language === 'zh-CN';
   const { user } = useAuth();
-  const [permissions, setPermissions] = useState<Record<string, { userId: string; canDecide: boolean }>>({});
+  const rt = (key: string) => bugReviewText(language, key);
+  const [permissions, setPermissions] = useState<Record<string, { userId: string; canDecide: boolean; reason?: string | null }>>({});
   const canDecide = (id: string) => permissions[id]?.userId === user?.id && permissions[id]?.canDecide === true;
   const [items, setItems] = useState<any[]>([]);
   const [listLoading, setListLoading] = useState(true);
@@ -126,6 +129,12 @@ export const ReviewPage: React.FC = () => {
   const [success, setSuccess] = useState<string | null>(null);
   const [comments, setComments] = useState<Record<string, string>>({});
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [page, setPage] = useState(1);
+  const pageSize = 25;
+  const [total, setTotal] = useState(0);
+  const [spaces, setSpaces] = useState<Array<{ id: string; name: string }>>([]);
+  const [searchDraft, setSearchDraft] = useState({ q: '', from: '', to: '' });
+  const [filters, setFilters] = useState({ q: '', from: '', to: '' });
   const [mutatingIds, setMutatingIds] = useState<Set<string>>(() => new Set());
   const mountedRef = useRef(true);
   const listSequenceRef = useRef(0);
@@ -134,10 +143,10 @@ export const ReviewPage: React.FC = () => {
   const detailedIdsRef = useRef(new Set<string>());
   const mutatingIdsRef = useRef(new Set<string>());
   const requestControllersRef = useRef(new Set<AbortController>());
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const spaceId = searchParams.get('spaceId');
   const changeSetId = searchParams.get('changeSet');
-  const scope = `${user?.id || ''}:${spaceId || ''}:${changeSetId || ''}`;
+  const scope = JSON.stringify([user?.id, spaceId, changeSetId, statusFilter, filters, page]);
   scopeRef.current = scope;
   expandedRef.current = expanded;
 
@@ -182,14 +191,26 @@ export const ReviewPage: React.FC = () => {
     try {
       setError(null);
       if (!options?.background) setSuccess(null);
-      const summaries = (await api.get('/review', {
-        params: spaceId ? { spaceId } : undefined,
+      const response = (await api.get('/review', {
+        params: { page, pageSize, spaceId: spaceId || undefined, status: statusFilter === 'all' ? undefined : statusFilter,
+          q: filters.q || undefined, from: filters.from || undefined, to: filters.to || undefined },
         signal: controller.signal, timeout: 15000,
       })).data;
       if (!mountedRef.current || controller.signal.aborted || sequence !== listSequenceRef.current || requestedScope !== scopeRef.current || accessEpoch !== accessEpochRef.current) return false;
+      const summaries = Array.isArray(response) ? response : response.items;
+      const count = Array.isArray(response) ? response.length : response.total;
+      setTotal(count);
+      if (!changeSetId && page > Math.max(1, Math.ceil(count / pageSize))) setPage(Math.max(1, Math.ceil(count / pageSize)));
+      setPermissions(current => {
+        const next = { ...current };
+        for (const summary of summaries) if (summary.reviewAccess) next[summary.id] = { userId: user?.id, ...summary.reviewAccess };
+        return next;
+      });
+      if (!Array.isArray(response)) setSpaces(response.spaces ?? []);
       if (options?.background) {
         // These summaries carry fresh authorization projections. Older details must not overwrite them.
         const visibleIds = new Set<string>(summaries.map((summary: any) => summary.id));
+        if (changeSetId && detailedIdsRef.current.has(changeSetId)) visibleIds.add(changeSetId);
         for (const [id, detailSequence] of detailSequenceRef.current) {
           detailSequenceRef.current.set(id, detailSequence + 1);
           if (!visibleIds.has(id)) detailedIdsRef.current.delete(id);
@@ -200,10 +221,14 @@ export const ReviewPage: React.FC = () => {
           setExpanded(null);
         }
       }
-      setItems((current) => summaries.map((summary: any) => {
-        const detail = detailedIdsRef.current.has(summary.id) ? current.find((item) => item.id === summary.id) : null;
-        return detail ? (options?.background ? { ...detail, ...summary, run: summary.run, sourceStatus: summary.sourceStatus } : detail) : summary;
-      }));
+      setItems((current) => {
+        const selected = changeSetId && !summaries.some((summary: any) => summary.id === changeSetId)
+          ? current.find(item => item.id === changeSetId) : null;
+        return [...(selected ? [selected] : []), ...summaries.map((summary: any) => {
+          const detail = detailedIdsRef.current.has(summary.id) ? current.find((item) => item.id === summary.id) : null;
+          return detail ? (options?.background ? { ...detail, ...summary, run: summary.run, sourceStatus: summary.sourceStatus } : detail) : summary;
+        })];
+      });
       return true;
     } catch (requestError: any) {
       if (!controller.signal.aborted && mountedRef.current && sequence === listSequenceRef.current && requestedScope === scopeRef.current && accessEpoch === accessEpochRef.current) {
@@ -218,7 +243,7 @@ export const ReviewPage: React.FC = () => {
         setListRefreshing(false); setListLoading(false);
       }
     }
-  }, [spaceId, t, clearInaccessible]);
+  }, [spaceId, changeSetId, page, statusFilter, filters, user?.id, t, clearInaccessible]);
   const expandChangeSet = useCallback(async (id: string, background = false) => {
     const requestedScope = scopeRef.current;
     const accessEpoch = accessEpochRef.current;
@@ -231,10 +256,13 @@ export const ReviewPage: React.FC = () => {
       if (!background) setSuccess(null);
       const detail = (await api.get(`/change-sets/${id}`, { signal: controller.signal, timeout: 15000 })).data;
       const targetSpaceId = detail.spaceId || detail.space?.id;
-      const space = targetSpaceId ? (await api.get(`/spaces/${targetSpaceId}`, { signal: controller.signal })).data : null;
+      // Current servers return live membership capability with the detail. Keep
+      // the membership fallback only for older servers during a rolling update.
+      const space = !detail.reviewAccess && targetSpaceId ? (await api.get(`/spaces/${targetSpaceId}`, { signal: controller.signal })).data : null;
       const role = space?.members?.find((member: any) => member.userId === user?.id)?.role;
+      const access = detail.reviewAccess ?? { canDecide: role === 'owner', reason: role === 'owner' ? null : 'owner_required' };
       if (!mountedRef.current || controller.signal.aborted || detailSequenceRef.current.get(id) !== sequence || requestedScope !== scopeRef.current || accessEpoch !== accessEpochRef.current) return false;
-      setPermissions((current) => ({ ...current, [id]: { userId: user?.id, canDecide: role === 'owner' } }));
+      setPermissions((current) => ({ ...current, [id]: { userId: user?.id, canDecide: access.canDecide === true, reason: access.reason } }));
       detailedIdsRef.current.add(id);
       setItems((current) => current.some((item) => item.id === id)
         ? current.map((item) => item.id === id ? detail : item)
@@ -401,6 +429,27 @@ export const ReviewPage: React.FC = () => {
           ? <Toast kind="success" message={success} onClose={() => setSuccess(null)} />
           : null}
       <div className="mb-6"><h1 className="text-2xl font-semibold">{zh ? '审核' : 'Review'}</h1><p className="text-sm text-gray-500 mt-1">{zh ? '在可追溯的候选变更成为已发布知识前进行审批。' : 'Approve traceable candidate changes before they become published knowledge.'}</p></div>
+      {!changeSetId ? <form className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" onSubmit={event => {
+        event.preventDefault();
+        const start = searchDraft.from ? new Date(`${searchDraft.from}T00:00:00`) : null;
+        const end = searchDraft.to ? new Date(`${searchDraft.to}T00:00:00`) : null;
+        if (end) end.setDate(end.getDate() + 1);
+        setFilters({ q: searchDraft.q.trim(), from: start?.toISOString() ?? '', to: end?.toISOString() ?? '' });
+        setPage(1);
+      }}>
+        <label className="text-xs text-gray-600">{rt('review.searchHistory')}<input type="search" maxLength={200} value={searchDraft.q} onChange={event => setSearchDraft(current => ({ ...current, q: event.target.value }))} placeholder={rt('review.searchHint')} className="mt-1 h-9 w-full rounded-lg border px-3 text-sm" /></label>
+        <label className="text-xs text-gray-600">{rt('review.space')}<select value={spaceId || ''} onChange={event => {
+          const next = new URLSearchParams(searchParams);
+          if (event.target.value) next.set('spaceId', event.target.value); else next.delete('spaceId');
+          setPage(1); setSearchParams(next);
+        }} className="mt-1 h-9 w-full rounded-lg border px-2 text-sm">
+          <option value="">{rt('review.allSpaces')}</option>
+          {spaces.map(space => <option key={space.id} value={space.id}>{space.name}</option>)}
+        </select></label>
+        <label className="text-xs text-gray-600">{rt('review.from')}<input type="date" value={searchDraft.from} max={searchDraft.to || undefined} onChange={event => setSearchDraft(current => ({ ...current, from: event.target.value }))} className="mt-1 h-9 w-full rounded-lg border px-2 text-sm" /></label>
+        <label className="text-xs text-gray-600">{rt('review.to')}<input type="date" value={searchDraft.to} min={searchDraft.from || undefined} onChange={event => setSearchDraft(current => ({ ...current, to: event.target.value }))} className="mt-1 h-9 w-full rounded-lg border px-2 text-sm" /></label>
+        <button type="submit" className="h-9 rounded-lg border px-3 text-sm sm:col-span-2 lg:col-span-4 justify-self-start">{rt('review.search')}</button>
+      </form> : null}
       <div className="flex flex-wrap gap-2 mb-4" role="group" aria-label={zh ? '按状态筛选' : 'Filter by status'}>
         {[
           ['all', zh ? '全部' : 'All'],
@@ -412,7 +461,7 @@ export const ReviewPage: React.FC = () => {
         ].map(([value, label]) => (
           <button
             key={value}
-            onClick={() => setStatusFilter(value)}
+            onClick={() => { setStatusFilter(value); setPage(1); }}
             aria-pressed={statusFilter === value}
             className={`h-7 px-3 rounded-full text-xs border transition ${statusFilter === value ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-blue-300'}`}
           >
@@ -433,8 +482,11 @@ export const ReviewPage: React.FC = () => {
             }} className="w-full p-4 flex items-center gap-3 text-left">
               {expanded === changeSet.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2"><p className="font-medium truncate">{changeSet.title}</p><ChangeSetStatusBadge status={changeSet.status} /></div>
-                <p className="text-xs text-gray-400 mt-1">{changeSet.space.name} · {changeSet.run?.source?.type || 'manual'}</p>
+                <div className="flex items-center gap-2"><p className="font-medium truncate">{changeSet.targets?.find((target: any) => target.title)?.title || changeSet.title}</p><ChangeSetStatusBadge status={changeSet.status} /></div>
+                <p className="text-xs text-gray-500 mt-1">{changeSet.space.name} · {rt(changeSet.reviewKind === 'proposal' ? 'review.proposal' : changeSet.reviewKind === 'source_import' || changeSet.run?.source ? 'review.sourceImport' : 'review.unknownOrigin')}</p>
+                {changeSet.targets?.map((target: any) => <p key={target.itemId || target.path} className="mt-1 text-xs text-gray-500 break-all">{target.path || target.title || rt('review.targetUnavailable')}{target.unavailable ? ` · ${target.pageId}` : ''}</p>)}
+                <p className="mt-1 text-xs text-gray-500">{rt('review.submitter')}: {changeSet.submitter?.name || changeSet.submitter?.id || rt('review.unknownSubmitter')} · {changeSet.createdAt ? new Date(changeSet.createdAt).toLocaleString(language) : rt('review.unknownTime')}</p>
+                <p className="mt-1 truncate text-xs text-gray-400">{changeSet.id}</p>
               </div>
               <span className="text-xs bg-amber-50 text-amber-700 rounded-full px-2 py-1 shrink-0">{changeSet.items.length} {zh ? '项变更' : 'changes'}</span>
             </button>
@@ -444,6 +496,7 @@ export const ReviewPage: React.FC = () => {
                   <p>{t('review.collaborationOwned')}</p>
                   <Link to={changeSet.collaborationArtifactLink.reviewPath} className="mt-2 inline-flex min-h-10 items-center font-medium text-blue-700 underline">{t('review.goToCollaboration')}</Link>
                 </div> : null}
+                {['pending_review', 'approved'].includes(changeSet.status) && !changeSet.collaborationArtifactLink && !canDecide(changeSet.id) ? <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{rt(!permissions[changeSet.id] ? 'review.checkingAccess' : permissions[changeSet.id].reason === 'human_required' ? 'review.humanRequired' : 'review.ownerRequired')}</p> : null}
                 {hasDuplicateCandidateContent(changeSet.items) ? <p role="note" className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{t('review.duplicateAdvisory')}</p> : null}
                 <div className="border rounded-lg divide-y mb-4">
                   {changeSet.items.map((item: any) => (
@@ -472,8 +525,15 @@ export const ReviewPage: React.FC = () => {
             ) : null}
           </div>
         ))}
-        {!listLoading && !listRefreshing && !visibleItems.length ? <div className="py-16 text-center text-sm text-gray-500">{changeSetId ? (zh ? '此变更集不在你的审核范围内。' : 'This change set is not available in your review scope.') : statusFilter !== 'all' ? (zh ? '该状态下没有变更集。' : 'No change sets with this status.') : (zh ? '目前没有待审核事项。' : 'Nothing needs review.')}</div> : null}
+        {!listLoading && !listRefreshing && !visibleItems.length ? <div className="py-16 text-center text-sm text-gray-500">{changeSetId ? (zh ? '此变更集不在你的审核范围内。' : 'This change set is not available in your review scope.') : filters.q || filters.from || filters.to || spaceId ? rt('review.noMatches') : statusFilter !== 'all' ? (zh ? '该状态下没有变更集。' : 'No change sets with this status.') : (zh ? '目前没有待审核事项。' : 'Nothing needs review.')}</div> : null}
       </div>
+      {!changeSetId ? <nav aria-label={zh ? '审核分页' : 'Review pagination'} className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+        <p>{total} {rt('review.total')} · {rt('review.page')} {page} / {Math.max(1, Math.ceil(total / pageSize))}</p>
+        <div className="flex gap-2">
+          <button type="button" disabled={listLoading || page === 1} onClick={() => setPage(current => current - 1)} className="h-9 rounded-lg border px-3 disabled:opacity-50">{rt('review.previousPage')}</button>
+          <button type="button" disabled={listLoading || page * pageSize >= total} onClick={() => setPage(current => current + 1)} className="h-9 rounded-lg border px-3 disabled:opacity-50">{rt('review.nextPage')}</button>
+        </div>
+      </nav> : null}
     </div>
   );
 };

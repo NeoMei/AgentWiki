@@ -36,6 +36,8 @@ import { lockContentStore } from '../core/sync/content-store-lock';
 import { assertPageCandidateBaseline, publishPageUpdateLocked } from './page-update-publication';
 import { supersedePendingPagePublicationsLocked } from '../collaboration-workflows/page-publication-invalidation';
 
+import { REVIEW_STATUSES, type ReviewListQuery } from './review-list.query';
+
 interface AgentAutoPublishContext {
   ownerId?: string;
   agentId: string;
@@ -187,6 +189,97 @@ export class ReviewService {
     return this.freshness.projectChangeSets(results, principal);
   }
 
+  async listPage(accessibleSpaceIds: string[], principal: Principal, query: ReviewListQuery, spaceId?: string) {
+    const spaceIds = spaceId ? accessibleSpaceIds.filter(id => id === spaceId) : accessibleSpaceIds;
+    const spaces = await this.prisma.space.findMany({
+      where: { id: { in: accessibleSpaceIds }, deletedAt: null }, select: { id: true, name: true }, orderBy: [{ name: 'asc' }, { id: 'asc' }],
+    });
+    if (!spaceIds.length) return { items: [], total: 0, page: query.page, pageSize: query.pageSize, spaces };
+    const filters = [Prisma.sql`c."spaceId" IN (${Prisma.join(spaceIds)})`,
+      Prisma.sql`c.status IN (${Prisma.join(query.status ? [query.status] : [...REVIEW_STATUSES])})`];
+    if (query.from) filters.push(Prisma.sql`c."createdAt" >= ${new Date(query.from)}`);
+    if (query.to) filters.push(Prisma.sql`c."createdAt" < ${new Date(query.to)}`);
+    if (query.q) {
+      const pattern = `%${query.q.replace(/[\\%_]/g, '\\$&')}%`;
+      filters.push(Prisma.sql`(c.title ILIKE ${pattern} OR c.id ILIKE ${pattern}
+        OR EXISTS (SELECT 1 FROM "User" u WHERE u.id = c."createdByUserId" AND u.name ILIKE ${pattern})
+        OR EXISTS (SELECT 1 FROM "Agent" a WHERE a.id = c."createdByAgentId" AND a.name ILIKE ${pattern})
+        OR EXISTS (SELECT 1 FROM "ChangeItem" i
+          LEFT JOIN "Page" p ON p.id = i.payload->>'pageId' AND p."spaceId" = c."spaceId" AND p."deletedAt" IS NULL
+          WHERE i."changeSetId" = c.id AND (p.title ILIKE ${pattern} OR p."syncPath" ILIKE ${pattern}
+            OR i.payload->>'title' ILIKE ${pattern} OR i.payload->>'syncPath' ILIKE ${pattern}
+            OR i.payload->'changes'->>'title' ILIKE ${pattern})))`);
+    }
+    const offset = (query.page - 1) * query.pageSize;
+    // Filter the entire authorized history before selecting the page. Count and
+    // page IDs share one statement/snapshot, including an empty/out-of-range page.
+    const rows = await this.prisma.$queryRaw<Array<{ id: string | null; total: bigint }>>(Prisma.sql`
+      WITH matches AS (
+        SELECT c.id, ROW_NUMBER() OVER (ORDER BY CASE c.status
+          WHEN 'pending_review' THEN 0 WHEN 'approved' THEN 1 WHEN 'published' THEN 2
+          WHEN 'rejected' THEN 3 ELSE 4 END, c."createdAt" DESC, c."id" DESC) AS rank
+        FROM "ChangeSet" c WHERE ${Prisma.join(filters, ' AND ')}
+      )
+      SELECT page.id, totals.total FROM (SELECT COUNT(*) AS total FROM matches) totals
+      LEFT JOIN LATERAL (SELECT id, rank FROM matches WHERE rank > ${offset} AND rank <= ${offset + query.pageSize}) page ON true
+      ORDER BY page.rank
+    `);
+    const ids = rows.flatMap(row => row.id ? [row.id] : []);
+    const changeSets = ids.length ? await this.prisma.changeSet.findMany({
+      where: { id: { in: ids }, spaceId: { in: spaceIds } },
+      include: {
+        space: { select: { id: true, name: true } },
+        createdByUser: { select: { id: true, name: true } },
+        createdByAgent: { select: { id: true, name: true } },
+        run: { include: { source: { select: { id: true, name: true, type: true } } } },
+        items: true,
+        collaborationArtifactLink: { select: { artifactId: true, runId: true, taskId: true, spaceId: true, pageId: true } },
+      },
+    }) : [];
+    const ordered = ids.flatMap(id => changeSets.filter(row => row.id === id));
+    const publishedIds = ordered.filter(row => row.status === 'published').map(row => row.id);
+    const sessions = publishedIds.length ? await this.prisma.pushSession.findMany({
+      where: { protocolVersion: '3', publishedChangeSetId: { in: publishedIds } }, select: { publishedChangeSetId: true },
+    }) : [];
+    const nonRevertible = new Set(sessions.map(row => row.publishedChangeSetId));
+    const items = await this.present(ordered.map(row => ({ ...row, revertible: !nonRevertible.has(row.id) })), principal);
+    return { items, total: Number(rows[0]?.total ?? 0), page: query.page, pageSize: query.pageSize, spaces };
+  }
+
+  private async present(rows: Record<string, any>[], principal: Principal): Promise<Record<string, any>[]> {
+    const kinds = new Map(rows.map(row => [row.id, row.runId || row.run?.id || row.items?.some((item: any) => item.payload?.sourceId || item.payload?.sourceVersionId || item.payload?.evidenceId)
+      ? 'source_import' : row.createdByUserId || row.createdByAgentId ? 'proposal' : 'unknown']));
+    const projected = await this.freshness.projectChangeSets(rows, principal);
+    const targets = projected.flatMap(row => (row.items ?? []).flatMap((item: any) =>
+      ['update_page', 'archive_page'].includes(item.type) && typeof item.payload?.pageId === 'string'
+        ? [{ id: item.payload.pageId as string, spaceId: row.spaceId as string, deletedAt: null }] : []));
+    const spaces = [...new Set(projected.map(row => row.spaceId).filter(Boolean))] as string[];
+    const [pages, members]: [Array<{ id: string; spaceId: string; title: string; syncPath: string | null }>, Array<{ spaceId: string; role: string }>] = await Promise.all([
+      targets.length && this.prisma.page?.findMany ? this.prisma.page.findMany({ where: { OR: targets }, select: { id: true, spaceId: true, title: true, syncPath: true } }) : [],
+      principal?.userId && !principal.agentId && spaces.length && this.prisma.spaceMember?.findMany ? this.prisma.spaceMember.findMany({
+        where: { userId: principal.userId, spaceId: { in: spaces }, user: { type: 'human', deletedAt: null, lockedAt: null } },
+        select: { spaceId: true, role: true },
+      }) : [],
+    ]);
+    return projected.map(row => {
+      const canDecide = !!principal?.userId && !principal.agentId && members.some(member => member.spaceId === row.spaceId && member.role === 'owner');
+      const submitter = row.createdByAgent ?? row.createdByUser;
+      return { ...row, reviewKind: kinds.get(row.id),
+        submitter: submitter ? { ...submitter, type: row.createdByAgent ? 'agent' : 'human' } : null,
+        reviewAccess: { canDecide, reason: canDecide ? null : principal?.agentId ? 'human_required' : 'owner_required' },
+        targets: (row.items ?? []).flatMap((item: any) => {
+          const payload = item.payload ?? {};
+          if (item.type === 'create_page') return [{ itemId: item.id, pageId: null, title: payload.title ?? null, path: payload.syncPath ?? null }];
+          if (!['update_page', 'archive_page'].includes(item.type)) return [];
+          const page = pages.find(page => page.id === payload.pageId && page.spaceId === row.spaceId);
+          return [{ itemId: item.id, pageId: payload.pageId, title: page?.title ?? null, path: page?.syncPath ?? null, unavailable: !page }];
+        }),
+        collaborationArtifactLink: row.collaborationArtifactLink ? { ...row.collaborationArtifactLink,
+          reviewPath: `/spaces/${row.collaborationArtifactLink.spaceId}/collaboration/runs/${row.collaborationArtifactLink.runId}` } : null,
+      };
+    });
+  }
+
   async countPending(spaceIds: string[]) {
     const pending = await this.prisma.changeSet.count({
       where: { spaceId: { in: spaceIds }, status: 'pending_review' },
@@ -240,7 +333,7 @@ export class ReviewService {
         }
       });
     }
-    return this.toPublic({ ...changeSet, duplicateContentWarnings }, principal);
+    return (await this.present([{ ...changeSet, duplicateContentWarnings }], principal))[0];
   }
 
   async toPublic(changeSet: Record<string, any>, principal: Principal) {
@@ -254,6 +347,8 @@ export class ReviewService {
       where: { id },
       include: {
         space: true,
+        createdByUser: { select: { id: true, name: true } },
+        createdByAgent: { select: { id: true, name: true } },
         run: {
           include: {
             source: true,
