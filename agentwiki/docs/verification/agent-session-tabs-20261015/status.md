@@ -49,8 +49,17 @@
 
 最终浏览器捕获 `d706701f19725` 未丢弃请求/操作；运行测试只发送创建会话和创建 turn 两个 POST，没有取消或 DELETE。两条控制台错误来自 `chrome-extension://invalid/`，不是网站异常。早期开发捕获受 HMR 与存储上限影响，只作为诊断材料，不作为最终请求完整性依据。
 
-## 交付边界
+## 发布与生产回验
 
-- 修复位于隔离分支 `codex/agent-session-tab-close`，主检出用户改动未触碰。
-- 生产发布未执行；需要发布后在生产原文章页面回验。
+- 用户授权发布后，v0.12.34 已推送至 GitHub master 并建立 tag/Release。发布提交：`479419eff227a09350dd7cdc695450de238bb894`；主检出用户改动未触碰。
+- Web/API/client 均为 0.12.34，Local Sync 0.13.0、protocol 0.6.1 不变。完整 `pnpm build` 通过；独立核对发布包、Git 提交与源码 manifest 均为 1325 文件，无缺失、额外或哈希不符。
+- 部署前暂停 API/Worker，完成并核验数据库、128 个附件、应用、配置与服务单元的配套备份：`/var/backups/agentwiki/session-tabs-v01234.y8z56d5p`。备份后恢复服务；原始私有备份保留服务器，不进入 Git。
+- `deploy.sh 113.249.120.24 root` 退出码 0；63 个迁移无待执行项，保留旧应用 `/root/agentwiki-previous-20261015054835` 与 4506 个旧客户端资源。
+- 生产 1325 个源码文件逐一与发布提交一致；3 服务 active，内网与公网 health 的 status/database/redis/auditPersistence/attachmentStorage 均为 ok。公网 5 个入口资源 SHA256 与服务器构建产物一致。
+- Chrome 在用户原文章 URL 实测当前标签关闭与相邻选择、从历史重开并保留临时输入、全部关闭后整页刷新保持空态。已清除临时输入并恢复原 3 个标签、原顺序和原选择；没有发送模型任务或修改文章。
+- 浏览器捕获没有丢弃请求/操作，Assist 写请求为 0；两条控制台错误均来自 `chrome-extension://invalid/`。原始生产页面截图与捕获仅保留本机 `/tmp`，不提交。
+- [GitHub Release](https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.34) · [生产回执](deployment.json)
+
+## 本地诊断材料
+
 - 原始浏览器捕获、测试及基线日志保留在 `/tmp/agentwiki-session-tabs-final.json`、`/tmp/agentwiki-tab-close-client-final2.log`、`/tmp/agentwiki-tab-baseline-client-complete.log`；不提交原始生产页面数据。

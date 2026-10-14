@@ -1,6 +1,6 @@
 # 当前目标
 
-- 本次修复文章右侧 Agent 多 Session 标签无法关闭：隔离分支 `codex/agent-session-tab-close` 已完成本地实现、独立复审和浏览器验收，尚未推送或发布。
+- 本次文章右侧 Agent 多 Session 标签关闭修复已发布为 v0.12.34，发布提交 `479419eff227a09350dd7cdc695450de238bb894`；GitHub master/tag/Release、生产部署与原文章浏览器回验均已完成。
 - 用户已授权核验全部本轮改动后发布。正在进行Web/API0.12.26、Local Sync0.13.0最终门禁、版本契约、配套备份和上线准备；尚未发布新版本。
 
 # 范围 / 不做
@@ -10,7 +10,7 @@
 
 # 当前状态
 
-- Agent Session 标签关闭：保留历史/草稿/运行任务，支持相邻选择、键盘 Delete、用户与空间隔离的打开状态持久化、窄屏关闭入口；93 项相关测试及 build/tsc/lint 通过。全 client 2572 通过 / 1 个知识图谱既有失败，在未改 v0.12.33 基线也复现；详细回执见 `agentwiki/docs/verification/agent-session-tabs-20261015/status.md`。
+- Agent Session 标签关闭：保留历史/草稿/运行任务，支持相邻选择、键盘 Delete、用户与空间隔离的打开状态持久化、窄屏关闭入口；93 项相关测试及 build/tsc/lint 通过。v0.12.34 生产 1325 文件匹配、3 服务和 health 五项正常，原文章关闭/历史重开/刷新保持空态实测通过。全 client 2572 通过 / 1 个知识图谱既有失败，在未改 v0.12.33 基线也复现；详细回执见 `agentwiki/docs/verification/agent-session-tabs-20261015/status.md`。
 - 空间卡片描述下显示所有者姓名；从现有members.role=owner读取全部Owner，空姓名回退邮箱，无资料明确提示，长名单省略并title保留完整文本。未新增请求/后端字段。Dashboard41测试、build/tsc、定向lint、独立复审及IAB桌面/390px中英验收通过；详见.codex-memory/archive/20261014-space-card-owner.md。
 - Agent聊天简化：顶部会话标签/新建/历史、轻量Markdown对话、一体输入、@引用与笔记摘要；保留候选/草稿/显式Save。151文件2464客户端测试、build/tsc/lint、两轮独立复审及IAB桌面/390px通过；修复浮层裁切、候选提示隐藏、手机多附件溢出。详情agentwiki/design-qa.md，本地fixture预览5184仍保留，未推送部署。
 
@@ -48,7 +48,7 @@
 
 # 风险 / 下一步
 
-- Session 标签关闭已本地验收，生产原案仍待发布后回验；不将本地 fixture 结果计为线上修复。
+- Session 标签关闭生产原案已回验，临时输入已清除且原标签布局已恢复。旧知识图谱全量测试失败另行保留，不将本次发布计为图谱问题修复。
 - 17 篇项目模板交付已完成。编辑器修复、统一面板与服务器笔记均为已验收本地候选，尚未推送/发布；后续上线需执行 PageNote 迁移并生产回验。
 - 多行图片、列表4空格续行图片与超候选预算保守保留完整源码；附件浏览器验证使用本地模拟API，不是生产鉴权验收。
 - 当前旧聊天 MCP 进程未热重载；本机配置已升级，新启动官方0.12.0网关已实测，原连接不变。
