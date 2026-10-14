@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowUp, Bot, ChevronDown, FileText, History, MessageSquare, Plus, Square } from 'lucide-react';
+import { ArrowUp, Bot, ChevronDown, FileText, History, MessageSquare, Plus, Square, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Link } from 'react-router-dom';
@@ -64,6 +64,8 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
   const historyRef = useRef<HTMLDetailsElement>(null);
   const referenceTrigger = useRef<{ intent: string; offset: number; scope: string; session: string | null } | null>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
+  const newSessionRef = useRef<HTMLButtonElement>(null);
+  const closeFocusRef = useRef<string | null | undefined>(undefined);
   const [referenceOpenRequest, setReferenceOpenRequest] = useState(0);
   const conversationPanelId = useId();
   const [localError, setLocalError] = useState<string | null>(null);
@@ -88,11 +90,27 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
     return () => document.removeEventListener('pointerdown', dismiss);
   }, []);
   useLayoutEffect(() => {
-    const tabs = tabsRef.current, selected = tabs?.querySelector<HTMLElement>('[aria-selected="true"]');
+    const tabs = tabsRef.current, selected = tabs?.querySelector<HTMLElement>('.agent-conversation-tab-item[data-selected="true"]');
     if (!tabs || !selected) return;
-    if (selected.offsetLeft < tabs.scrollLeft) tabs.scrollLeft = selected.offsetLeft;
-    else if (selected.offsetLeft + selected.offsetWidth > tabs.scrollLeft + tabs.clientWidth) tabs.scrollLeft = selected.offsetLeft + selected.offsetWidth - tabs.clientWidth;
-  }, [session.selected, session.sessions]);
+    const reveal = () => {
+      if (!tabs.clientWidth) return;
+      const right = selected.offsetLeft + selected.offsetWidth;
+      // Include the sibling close button; if the strip is exceptionally narrow,
+      // keep that action visible even when the whole tab cannot fit.
+      if (selected.offsetWidth > tabs.clientWidth || right > tabs.scrollLeft + tabs.clientWidth) tabs.scrollLeft = Math.max(0, right - tabs.clientWidth);
+      else if (selected.offsetLeft < tabs.scrollLeft) tabs.scrollLeft = selected.offsetLeft;
+    };
+    reveal();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(reveal);
+    observer?.observe(tabs); observer?.observe(selected);
+    return () => observer?.disconnect();
+  }, [session.selected, session.sessions, session.openSessionIds, visible]);
+  useLayoutEffect(() => {
+    if (closeFocusRef.current === undefined) return;
+    const id = closeFocusRef.current; closeFocusRef.current = undefined;
+    if (id) document.getElementById(`${conversationPanelId}-${id}`)?.focus();
+    else newSessionRef.current?.focus();
+  }, [session.openSessionIds, conversationPanelId]);
   useEffect(() => {
     // A hidden panel consumes a pending request so a late load cannot steal focus.
     if (!visible) { handledFocusRequest.current = focusRequest; autoFocusedScope.current = null; return; }
@@ -252,19 +270,33 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
     composerRef.current?.focus();
   };
   const runningTurn = session.detail?.turns.find((turn) => turn.status === 'queued' || turn.status === 'running');
-  const selectedSession = session.sessions.find((item) => item.id === session.selected);
-  const recentSessions = session.sessions.slice(0, 3);
-  const visibleSessions = selectedSession && !recentSessions.some((item) => item.id === selectedSession.id)
-    ? [...recentSessions.slice(0, 2), selectedSession] : recentSessions;
+  const tabsDisabled = session.sending || session.loadingSessions || session.creating;
+  const visibleSessions = (session.openSessionIds ?? []).map((id) => session.sessions.find((item) => item.id === id)
+    ?? { id, title: zh ? '不可访问的会话' : 'Unavailable conversation' });
+  const selectedSession = visibleSessions.find((item) => item.id === session.selected);
   const scopeLabel = targetKind === 'selection' ? (zh ? '所选段落' : 'Selection') : targetKind === 'section' ? (zh ? '当前章节' : 'Section') : (zh ? '整篇文档' : 'Document');
   const selectConversation = (id: string) => {
     if (historyRef.current) historyRef.current.open = false;
     void session.select(id);
   };
+  const closeConversation = (id: string) => {
+    if (tabsDisabled) return;
+    const index = visibleSessions.findIndex((item) => item.id === id);
+    closeFocusRef.current = session.selected === id
+      ? visibleSessions[index + 1]?.id ?? visibleSessions[index - 1]?.id ?? null
+      : session.selected;
+    if (!session.close(id)) closeFocusRef.current = undefined;
+  };
   const returnComposerFocus = () => { if (visible) composerRef.current?.focus(); };
   return <aside aria-label="Agent" data-testid="agent-session-panel" className="agent-session-panel flex min-h-0 min-w-0 flex-1 flex-col bg-white text-sm">
     <header className="agent-conversation-header">
       <div ref={tabsRef} role="tablist" aria-label={zh ? '会话' : 'Conversations'} className="agent-conversation-tabs" onKeyDown={(event) => {
+        if (event.key === 'Delete') {
+          const tab = (event.target as HTMLElement).closest<HTMLButtonElement>('[role="tab"]');
+          const id = tab?.dataset.sessionId;
+          if (id) { event.preventDefault(); closeConversation(id); }
+          return;
+        }
         if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
         const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]:not(:disabled)'));
         const index = tabs.indexOf(document.activeElement as HTMLButtonElement);
@@ -273,15 +305,18 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
         const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
         tabs[next].focus(); tabs[next].click();
       }}>
-        {visibleSessions.map((item) => <button type="button" key={item.id} role="tab" id={`${conversationPanelId}-${item.id}`} aria-controls={conversationPanelId} aria-selected={session.selected === item.id} tabIndex={session.selected === item.id ? 0 : -1} title={item.title} disabled={session.sending} className="agent-conversation-tab" onClick={() => selectConversation(item.id)}><Bot aria-hidden="true" size={15} /><span>{item.title}</span></button>)}
-        {!visibleSessions.length || session.selected && !selectedSession ? <span className="agent-conversation-placeholder"><Bot aria-hidden="true" size={15} />{session.selected ? (zh ? '不可访问的会话' : 'Unavailable conversation') : (zh ? '新会话' : 'New conversation')}</span> : null}
+        {visibleSessions.map((item) => <div key={item.id} role="presentation" className="agent-conversation-tab-item" data-selected={session.selected === item.id}>
+          <button type="button" role="tab" data-session-id={item.id} id={`${conversationPanelId}-${item.id}`} aria-controls={conversationPanelId} aria-selected={session.selected === item.id} tabIndex={session.selected === item.id ? 0 : -1} title={item.title} disabled={tabsDisabled} className="agent-conversation-tab" onClick={() => selectConversation(item.id)}><Bot aria-hidden="true" size={15} /><span>{item.title}</span></button>
+          <button type="button" aria-label={zh ? `关闭 ${item.title}` : `Close ${item.title}`} title={zh ? '关闭会话标签' : 'Close conversation tab'} disabled={tabsDisabled} className="agent-conversation-close" onClick={() => closeConversation(item.id)}><X aria-hidden="true" size={13} /></button>
+        </div>)}
+        {!visibleSessions.length ? <span className="agent-conversation-placeholder"><Bot aria-hidden="true" size={15} />{zh ? '新会话' : 'New conversation'}</span> : null}
       </div>
-      <button type="button" aria-label={zh ? '新建会话' : 'New conversation'} title={zh ? '新建会话' : 'New conversation'} disabled={session.sending || session.loading} onClick={() => void session.newSession()} className="agent-icon-button"><Plus aria-hidden="true" size={17} /></button>
+      <button ref={newSessionRef} type="button" aria-label={zh ? '新建会话' : 'New conversation'} title={zh ? '新建会话' : 'New conversation'} disabled={session.sending || session.loading} onClick={() => void session.newSession()} className="agent-icon-button"><Plus aria-hidden="true" size={17} /></button>
       <details ref={historyRef} className="agent-conversation-history" onKeyDown={(event) => { if (event.key === 'Escape' && historyRef.current?.open) { event.preventDefault(); historyRef.current.open = false; historyRef.current.querySelector<HTMLElement>('summary')?.focus(); } }}>
         <summary aria-label={zh ? '会话历史' : 'Conversation history'} title={zh ? '会话历史' : 'Conversation history'} className="agent-icon-button"><History aria-hidden="true" size={17} /></summary>
         <div className="agent-history-menu">
           <p>{zh ? '会话历史' : 'Conversation history'}</p>
-          {session.sessions.length ? session.sessions.map((item) => <button type="button" key={item.id} disabled={session.sending} aria-current={session.selected === item.id ? 'true' : undefined} onClick={() => { selectConversation(item.id); historyRef.current?.querySelector<HTMLElement>('summary')?.focus(); }}><MessageSquare aria-hidden="true" size={15} /><span>{item.title}</span></button>) : <p className="text-gray-500">{zh ? '还没有历史会话' : 'No conversations yet'}</p>}
+          {session.sessions.length ? session.sessions.map((item) => <button type="button" key={item.id} disabled={tabsDisabled} aria-current={session.selected === item.id ? 'true' : undefined} onClick={() => { selectConversation(item.id); historyRef.current?.querySelector<HTMLElement>('summary')?.focus(); }}><MessageSquare aria-hidden="true" size={15} /><span>{item.title}</span></button>) : <p className="text-gray-500">{zh ? '还没有历史会话' : 'No conversations yet'}</p>}
         </div>
       </details>
     </header>

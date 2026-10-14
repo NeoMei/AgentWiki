@@ -8,11 +8,26 @@ import type { CandidateRecord } from './agentSessionCandidate';
 export interface Composer { intent: string; mode: AgentComposerMode; targetKind: AssistTarget['kind']; references: AgentReference[]; staged?: { pageId: string; request: AssistRequest } }
 const composer = (): Composer => ({ intent: '', mode: 'question', targetKind: 'document', references: [] });
 interface State {
-  sessions: AgentSessionSummary[]; selected: string | null; detail: AgentSessionDetail | null;
-  loading: boolean; sending: boolean; cancelling: boolean; error: string | null; draft: Composer; revision: number; sentRevision: number;
+  sessions: AgentSessionSummary[]; openSessionIds: string[] | null; selected: string | null; detail: AgentSessionDetail | null;
+  loading: boolean; loadingSessions: boolean; creating: boolean; sending: boolean; cancelling: boolean; error: string | null; draft: Composer; revision: number; sentRevision: number;
 }
-function createStore() {
-  let state: State = { sessions: [], selected: null, detail: null, loading: true, sending: false, cancelling: false, error: null, draft: composer(), revision: 0, sentRevision: 0 };
+function createStore(userId: string, spaceId: string) {
+  // Persist tab layout only. Conversation content, credentials and composers stay in memory.
+  const storageKey = `agentwiki:session-tabs:v1:${encodeURIComponent(userId)}:${encodeURIComponent(spaceId)}`;
+  let restored: Pick<State, 'openSessionIds' | 'selected'> = { openSessionIds: null, selected: null };
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
+    if (value && typeof value === 'object' && 'openSessionIds' in value && 'selected' in value) {
+      const { openSessionIds, selected } = value;
+      if (Array.isArray(openSessionIds) && openSessionIds.every((id) => typeof id === 'string' && id.length > 0)
+        && new Set(openSessionIds).size === openSessionIds.length
+        && (selected === null || typeof selected === 'string')
+        && (openSessionIds.length ? typeof selected === 'string' && openSessionIds.includes(selected) : selected === null)) {
+        restored = { openSessionIds, selected };
+      }
+    }
+  } catch { /* Disabled or corrupt storage must not prevent in-memory conversations. */ }
+  let state: State = { sessions: [], ...restored, detail: null, loading: true, loadingSessions: true, creating: false, sending: false, cancelling: false, error: null, draft: composer(), revision: 0, sentRevision: 0 };
   const listeners = new Set<() => void>();
   return {
     epoch: 0, cancelRequest: 0, candidates: new Map<string, CandidateRecord>(),
@@ -22,7 +37,13 @@ function createStore() {
     retry: null as { signature: string; id: string } | null,
     get: () => state,
     subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener); },
-    set: (patch: Partial<State>) => { state = { ...state, ...patch }; listeners.forEach((listener) => listener()); },
+    set: (patch: Partial<State>) => {
+      state = { ...state, ...patch };
+      if (state.openSessionIds !== null && ('openSessionIds' in patch || 'selected' in patch)) {
+        try { localStorage.setItem(storageKey, JSON.stringify({ openSessionIds: state.openSessionIds, selected: state.selected })); } catch { /* Keep the registry usable when storage is unavailable. */ }
+      }
+      listeners.forEach((listener) => listener());
+    },
   };
 }
 export type SessionStore = ReturnType<typeof createStore>;
@@ -43,7 +64,7 @@ export function useAgentSession(userId: string, spaceId: string) {
   const store = useMemo(() => {
     const spaces = registry?.userId === userId ? registry.spaces : fallback.current;
     const key = `${userId}\u0000${spaceId}`;
-    if (!spaces.has(key)) spaces.set(key, createStore());
+    if (!spaces.has(key)) spaces.set(key, createStore(userId, spaceId));
     return spaces.get(key) as SessionStore;
   }, [registry, userId, spaceId]);
   const state = useSyncExternalStore(store.subscribe, store.get, store.get);
@@ -57,19 +78,21 @@ export function useAgentSession(userId: string, spaceId: string) {
     const { data } = await api.get<AgentSessionDetail>(`/assist/sessions/${id}`, { signal });
     if (!valid(epoch) || signal?.aborted || store.get().selected !== id || data.spaceId !== spaceId || data.id !== id) return;
     for (const [taskId, receipt] of receipts) if (store.receipts.get(taskId) === receipt && data.turns.some((turn) => turn.id === taskId)) receipt.awaitingRead = false;
-    store.set({ detail: data, loading: false, error: null, sessions: store.get().sessions.map((s) => s.id === id ? { ...s, title: data.title, updatedAt: data.updatedAt } : s) });
+    const sessions = store.get().sessions;
+    const summary: AgentSessionSummary = { id: data.id, spaceId: data.spaceId, title: data.title, createdAt: data.createdAt, updatedAt: data.updatedAt };
+    store.set({ detail: data, loading: false, error: null, sessions: sessions.some((s) => s.id === id) ? sessions.map((s) => s.id === id ? summary : s) : [...sessions, summary] });
   };
   const fail = (error: unknown, epoch: number) => {
     if (!valid(epoch)) return;
     const reason = sessionError(error);
     if (reason === 'access') { store.candidates.clear(); store.receipts.clear(); store.set({ detail: null, sessions: store.get().sessions.filter((s) => s.id !== store.get().selected) }); }
-    store.set({ loading: false, error: reason });
+    store.set({ loading: false, loadingSessions: false, error: reason });
   };
   useEffect(() => {
     const epoch = ++store.epoch; lifetime.current = epoch; activeStore.current = store;
     const abort = new AbortController(); controller.current = abort;
-    if (!userId || !spaceId) { store.set({ loading: false }); return; }
-    store.cancelRequest++; store.set({ loading: true, cancelling: false });
+    if (!userId || !spaceId) { store.set({ loading: false, loadingSessions: false }); return; }
+    store.cancelRequest++; store.set({ loading: true, loadingSessions: true, cancelling: false });
     void (async () => {
       try {
         const { data } = await api.get<AgentSessionSummary[]>('/assist/sessions', { params: { spaceId }, signal: abort.signal });
@@ -77,8 +100,10 @@ export function useAgentSession(userId: string, spaceId: string) {
         const sessions = data.filter((s) => s.spaceId === spaceId);
         const previous = store.get().selected;
         // The list can omit an inaccessible or older session. Keep its unsent draft and verify it directly.
-        const selected = previous ?? sessions[0]?.id ?? null;
-        store.set({ sessions, selected, ...(previous && !sessions.some((s) => s.id === previous) ? { detail: null } : {}), ...(previous !== selected ? { detail: null, draft: store.drafts.get(selected ?? '') ?? composer() } : {}) });
+        // null means first visit; [] means the user explicitly closed every tab.
+        const openSessionIds = store.get().openSessionIds ?? sessions.slice(0, 3).map((session) => session.id);
+        const selected = previous && openSessionIds.includes(previous) ? previous : openSessionIds[0] ?? null;
+        store.set({ sessions, openSessionIds, selected, loadingSessions: false, ...(previous && !sessions.some((s) => s.id === previous) ? { detail: null } : {}), ...(previous !== selected ? { detail: null, draft: store.drafts.get(selected ?? '') ?? composer() } : {}) });
         if (selected) await read(selected, epoch, abort.signal); else store.set({ detail: null, loading: false, error: null });
       } catch (error) { if (!abort.signal.aborted) fail(error, epoch); }
     })();
@@ -112,27 +137,48 @@ export function useAgentSession(userId: string, spaceId: string) {
     store.drafts.set(store.get().selected ?? '', draft); store.set({ draft });
   };
   const select = async (selected: string) => {
+    if (store.get().loadingSessions || store.get().creating) return;
     store.cancelRequest++;
     controller.current?.abort();
     const epoch = ++store.epoch; lifetime.current = epoch;
     const abort = new AbortController(); controller.current = abort;
-    store.set({ selected, detail: null, draft: store.drafts.get(selected) ?? composer(), cancelling: false, loading: true, error: null });
+    const openSessionIds = store.get().openSessionIds ?? [];
+    store.set({ selected, openSessionIds: openSessionIds.includes(selected) ? openSessionIds : [...openSessionIds, selected], detail: null, draft: store.drafts.get(selected) ?? composer(), cancelling: false, loading: true, error: null });
     try { await read(selected, epoch, abort.signal); } catch (error) { if (!abort.signal.aborted) fail(error, epoch); }
+  };
+  const close = (id: string) => {
+    const current = store.get(), index = current.openSessionIds?.indexOf(id) ?? -1;
+    if (current.sending || current.loadingSessions || current.creating || index < 0) return false;
+    const openSessionIds = current.openSessionIds!.filter((openId) => openId !== id);
+    if (current.selected !== id) { store.set({ openSessionIds }); return true; }
+    // Closing is a view operation: retain drafts, candidates, ledgers and server tasks.
+    const selected = openSessionIds[index] ?? openSessionIds[index - 1] ?? null;
+    store.set({ openSessionIds, selected });
+    if (selected) void select(selected);
+    else {
+      controller.current?.abort(); lifetime.current = ++store.epoch; store.cancelRequest++;
+      store.set({ detail: null, draft: store.drafts.get('') ?? composer(), cancelling: false, loading: false, error: null });
+    }
+    return true;
   };
   const create = async (preserveDraft = false) => {
     const epoch = store.epoch;
     const { data } = await api.post<AgentSessionSummary>('/assist/sessions', { spaceId });
     if (!valid(epoch) || data.spaceId !== spaceId) return null;
     controller.current?.abort(); lifetime.current = ++store.epoch; store.cancelRequest++;
-    store.set({ sessions: [data, ...store.get().sessions], selected: data.id, detail: { ...data, turns: [] }, draft: preserveDraft ? store.get().draft : composer(), cancelling: false, loading: false, error: null });
+    store.set({ sessions: [data, ...store.get().sessions.filter((session) => session.id !== data.id)], openSessionIds: [...(store.get().openSessionIds ?? []).filter((id) => id !== data.id), data.id], selected: data.id, detail: { ...data, turns: [] }, draft: preserveDraft ? store.get().draft : composer(), cancelling: false, loading: false, error: null });
     store.drafts.set(data.id, store.get().draft);
+    // The first Send transfers the empty-state composer to the created session.
+    // Keep it there on send failure, without replaying it after the tab is closed.
+    if (preserveDraft) store.drafts.delete('');
     return data.id;
   };
   const newSession = async () => {
-    if (store.get().sending) return;
-    store.set({ loading: true, error: null });
+    if (store.get().sending || store.get().creating || store.get().loadingSessions) return;
+    store.set({ loading: true, creating: true, error: null });
     const epoch = store.epoch;
     try { await create(); } catch (error) { fail(error, epoch); }
+    finally { store.set({ creating: false }); }
   };
   const send = async (payload: Record<string, unknown>, onSent: (turn: AgentTurn) => void) => {
     if (store.get().sending || !userId || running) return false;
@@ -180,5 +226,5 @@ export function useAgentSession(userId: string, spaceId: string) {
     } catch (error) { fail(error, epoch); }
     finally { if (store.cancelRequest === request) store.set({ cancelling: false }); }
   };
-  return { ...state, store, running, updateDraft, select, newSession, send, cancel };
+  return { ...state, store, running, updateDraft, select, close, newSession, send, cancel };
 }

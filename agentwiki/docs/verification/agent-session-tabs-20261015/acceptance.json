@@ -1,0 +1,79 @@
+{
+  "date": "2026-10-15",
+  "scope": "Local real React UI with synthetic API; production defect observed only; no production deployment",
+  "baseline": "a71942bcda1ef556f7565696e52eb48fac57d097",
+  "branch": "codex/agent-session-tab-close",
+  "sourceDiffSha256": "9aa1dd2bf93a0d012954255be792a81b57fa762f4d26661006c18f89f83b9e9f",
+  "review": {
+    "blockingFindings": 0,
+    "independentTestsPassed": 93
+  },
+  "tests": {
+    "panelPassed": 65,
+    "notesPassed": 28,
+    "fullClientPassed": 2572,
+    "fullClientFailed": 1,
+    "unchangedBaselinePassed": 2555,
+    "unchangedBaselineFailed": 1,
+    "knownBaselineFailure": "KnowledgeGraph.grouped.spec.tsx:180 expected 65 to be less than 25"
+  },
+  "checks": {
+    "clientBuild": "passed",
+    "typecheck": "passed",
+    "changedFileLint": "passed",
+    "diffCheck": "passed"
+  },
+  "browser": {
+    "runId": "d706701f19725",
+    "droppedRequests": 0,
+    "droppedOperations": 0,
+    "assistMutations": [
+      {
+        "id": "d706701f19725:n207",
+        "method": "POST",
+        "url": "http://127.0.0.1:5189/api/assist/sessions",
+        "status": 201
+      },
+      {
+        "id": "d706701f19725:n208",
+        "method": "POST",
+        "url": "http://127.0.0.1:5189/api/assist/sessions/1a1c9c70-8aa1-4720-87dc-51651a6b6c7e/turns",
+        "status": 201
+      }
+    ],
+    "consoleErrors": [
+      {
+        "level": "error",
+        "text": "Failed to load resource: net::ERR_FAILED",
+        "source": "extension",
+        "source_url": "chrome-extension://invalid/"
+      },
+      {
+        "level": "error",
+        "text": "Failed to load resource: net::ERR_FAILED",
+        "source": "extension",
+        "source_url": "chrome-extension://invalid/"
+      }
+    ],
+    "accepted": [
+      "background close preserves selected session and unsent input",
+      "current close selects neighbor",
+      "Delete close returns focus to next tab",
+      "last close leaves empty composer",
+      "history reopen preserves unsent input in current lifecycle",
+      "reader/editor route preserves opened tabs and draft",
+      "all closed persists on full reload",
+      "close running task then reopen completed result",
+      "first-send composer does not reappear after close",
+      "narrow selected X is visible and clickable"
+    ],
+    "viewport": {
+      "emulatedWidth": 390,
+      "cssWidth": 354,
+      "pageScrollWidth": 354,
+      "selectedCloseRight": 261.53,
+      "tabStripRight": 264.65
+    }
+  },
+  "productionDeployed": false
+}

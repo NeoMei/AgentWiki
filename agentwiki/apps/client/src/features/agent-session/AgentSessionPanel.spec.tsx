@@ -34,11 +34,237 @@ function openCandidate() {
 }
 let turns: AgentTurn[];
 beforeEach(() => {
-  auth.id = 'user-a'; turns = [turn];
+  localStorage.clear(); auth.id = 'user-a'; turns = [turn];
   vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/assist/sessions' ? [summary] : url === '/assist/sessions/session-a' ? { ...summary, turns } : { results: [{ page: { id: 'page-b', title: 'Reference B', spaceId: 'space-a' } }] } }));
   vi.mocked(api.post).mockImplementation(async (url, data: any) => url === '/assist/sessions' ? { data: { ...summary, id: 'session-new', title: 'New conversation' } } : { data: { ...turn, ...data, id: 'turn-new', sessionId: summary.id, status: 'queued', pageSnapshot: data.snapshot, references: [], result: null } });
 });
 afterEach(cleanup);
+describe('closable conversation tabs', () => {
+  const summaries = [summary, ...['b', 'c', 'd'].map((id) => ({ ...summary, id: `session-${id}`, title: `Conversation ${id.toUpperCase()}` }))];
+  const mockHistory = () => vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/assist/sessions' ? summaries : { ...summaries.find((item) => url.endsWith(item.id)), turns: url.endsWith(summary.id) ? turns : [] } }));
+  const close = (title: string) => fireEvent.click(screen.getByRole('button', { name: `Close ${title}` }));
+  const reopen = (title: string) => {
+    fireEvent.click(document.querySelector<HTMLElement>('[aria-label="Conversation history"]')!);
+    fireEvent.click(screen.getByRole('button', { name: title }));
+  };
+
+  it('closes a background tab without selecting it or filling its place from history', async () => {
+    mockHistory(); render(tree()); await screen.findByText('Earlier answer');
+    close('Conversation B');
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Conversation A', 'Conversation C']);
+    expect(screen.getByRole('tab', { name: 'Conversation A' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('Earlier answer')).toBeVisible();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('scrolls the selected tab together with its sibling close button into view', async () => {
+    mockHistory();
+    vi.spyOn(HTMLElement.prototype, 'offsetLeft', 'get').mockImplementation(function (this: HTMLElement) { return this.textContent === 'Conversation B' ? 100 : 0; });
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('agent-conversation-tab-item') ? 169 : this.getAttribute('role') === 'tab' ? 142 : 0; });
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) { return this.getAttribute('role') === 'tablist' ? 250 : 0; });
+    render(tree()); await screen.findByText('Earlier answer');
+    selectConversation('session-b');
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled());
+    // The title button ends at 242; the close button extends the whole tab to 269.
+    expect(screen.getByRole('tablist').scrollLeft).toBe(19);
+  });
+
+  it('keeps the selected close button visible after the tab strip narrows and cleans up its observer', async () => {
+    mockHistory(); let stripWidth = 300;
+    const callbacks = new Map<Element, ResizeObserverCallback>();
+    vi.stubGlobal('ResizeObserver', class {
+      private elements: Element[] = [];
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(element: Element) { this.elements.push(element); callbacks.set(element, this.callback); }
+      disconnect() { this.elements.forEach((element) => callbacks.delete(element)); }
+    });
+    vi.spyOn(HTMLElement.prototype, 'offsetLeft', 'get').mockImplementation(function (this: HTMLElement) { return this.textContent === 'Conversation B' ? 100 : 0; });
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('agent-conversation-tab-item') ? 169 : this.getAttribute('role') === 'tab' ? 142 : 0; });
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) { return this.getAttribute('role') === 'tablist' ? stripWidth : 0; });
+    try {
+      const rendered = render(tree()); await screen.findByText('Earlier answer'); selectConversation('session-b');
+      await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled());
+      const tabs = screen.getByRole('tablist'); expect(tabs.scrollLeft).toBe(0);
+      stripWidth = 240; act(() => callbacks.get(tabs)?.([], {} as ResizeObserver));
+      expect(tabs.scrollLeft).toBe(29);
+      rendered.unmount(); expect(callbacks.has(tabs)).toBe(false);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it('closes the selected tab with Delete and focuses its right neighbour, then its left neighbour', async () => {
+    mockHistory(); render(tree({ autoFocus: false })); await screen.findByText('Earlier answer');
+    const first = screen.getByRole('tab', { name: 'Conversation A' });
+    first.focus(); fireEvent.keyDown(first, { key: 'Delete' });
+    await waitFor(() => expect(screen.queryByRole('tab', { name: 'Conversation A' })).not.toBeInTheDocument());
+    expect(screen.getByRole('tab', { name: 'Conversation B' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Conversation B' })).toHaveFocus();
+    fireEvent.click(screen.getByRole('tab', { name: 'Conversation C' }));
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled());
+    const lastClose = screen.getByRole('button', { name: 'Close Conversation C' });
+    lastClose.focus(); fireEvent.click(lastClose);
+    expect(screen.getByRole('tab', { name: 'Conversation B' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Conversation B' })).toHaveFocus();
+  });
+
+  it('closes the last tab to an empty composer without deleting history or sending a request', async () => {
+    render(tree()); await screen.findByText('Earlier answer');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Keep private draft' } });
+    const closeButton = screen.getByRole('button', { name: 'Close Conversation A' });
+    closeButton.focus(); fireEvent.click(closeButton);
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+    expect(screen.queryByText('Earlier answer')).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'New conversation' })).toHaveFocus();
+    reopen('Conversation A'); await screen.findByText('Earlier answer');
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Keep private draft');
+    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+    expect(Array.from({ length: localStorage.length }, (_, index) => localStorage.getItem(localStorage.key(index)!)).join('')).not.toContain('Keep private draft');
+  });
+
+  it('opens new and historical sessions once without evicting other open tabs', async () => {
+    mockHistory(); render(tree()); await screen.findByText('Earlier answer');
+    reopen('Conversation D');
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled());
+    reopen('Conversation D');
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled());
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
+    fireEvent.click(screen.getByRole('button', { name: 'New conversation' }));
+    await screen.findByRole('tab', { name: 'New conversation' });
+    expect(screen.getAllByRole('tab')).toHaveLength(5);
+    expect(screen.getByRole('tab', { name: 'New conversation' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it.each([false, true])('keeps explicitly closed tabs closed after %s all tabs close and panel remount / full reload', async (allClosed) => {
+    mockHistory();
+    const shell = (show: boolean) => <MemoryRouter><AgentSessionRegistryProvider userId={auth.id}>{show ? <AgentSessionPanel {...defaults} /> : null}</AgentSessionRegistryProvider></MemoryRouter>;
+    const first = render(shell(true)); await screen.findByText('Earlier answer');
+    close('Conversation B'); close('Conversation C');
+    if (allClosed) close('Conversation A');
+    first.rerender(shell(false)); first.rerender(shell(true));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'New conversation' })).toBeEnabled());
+    expect(screen.queryAllByRole('tab').map((tab) => tab.textContent)).toEqual(allClosed ? [] : ['Conversation A']);
+    first.unmount(); render(tree());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'New conversation' })).toBeEnabled());
+    expect(screen.queryAllByRole('tab').map((tab) => tab.textContent)).toEqual(allClosed ? [] : ['Conversation A']);
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('keeps tab preferences isolated between accounts and Spaces', async () => {
+    vi.mocked(api.get).mockImplementation(async (url, config: any) => {
+      const scoped = { ...summary, spaceId: url === '/assist/sessions' ? config.params.spaceId : 'space-a' };
+      return { data: url === '/assist/sessions' ? [scoped] : { ...scoped, turns } };
+    });
+    const first = render(tree()); await screen.findByText('Earlier answer'); close('Conversation A'); first.unmount();
+    auth.id = 'user-b'; const otherUser = render(tree({}, 'user-b')); await screen.findByText('Earlier answer');
+    expect(screen.getByRole('tab', { name: 'Conversation A' })).toBeVisible(); otherUser.unmount();
+    auth.id = 'user-a'; const otherSpace = render(tree({ spaceId: 'space-b' }));
+    expect(await screen.findByRole('tab', { name: 'Conversation A' })).toBeVisible(); otherSpace.unmount();
+    render(tree()); await waitFor(() => expect(screen.getByRole('button', { name: 'New conversation' })).toBeEnabled());
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+  });
+
+  it('disables close while Send is pending and lets a running task continue after close and history reopen', async () => {
+    let resolveSend!: (response: any) => void;
+    vi.mocked(api.post).mockReturnValue(new Promise((resolve) => { resolveSend = resolve; }) as any);
+    render(tree()); await screen.findByText('Earlier answer');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Run this' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(screen.getByRole('button', { name: 'Close Conversation A' })).toBeDisabled();
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Conversation A' }), { key: 'Delete' });
+    expect(screen.getByRole('tab', { name: 'Conversation A' })).toBeInTheDocument();
+    turns = [{ ...turn, status: 'running', result: null }];
+    await act(async () => resolveSend({ data: turns[0] }));
+    expect(await screen.findByRole('button', { name: 'Stop' })).toBeEnabled();
+    close('Conversation A');
+    expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument();
+    turns = [{ ...turn, result: { summary: 'Completed while closed' } }];
+    reopen('Conversation A'); expect(await screen.findByText('Completed while closed')).toBeVisible();
+    expect(vi.mocked(api.post).mock.calls.map(([url]) => url)).toEqual(['/assist/sessions/session-a/turns']);
+  });
+
+  it('does not reopen a closed tab when its detail read arrives late', async () => {
+    let resolveRead!: (response: any) => void;
+    vi.mocked(api.get).mockImplementation((url) => url === '/assist/sessions' ? Promise.resolve({ data: [summary] }) : new Promise((resolve) => { resolveRead = resolve; }) as any);
+    render(tree({ autoFocus: false })); await screen.findByRole('tab', { name: 'Conversation A' });
+    close('Conversation A');
+    await act(async () => resolveRead({ data: { ...summary, turns } }));
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument(); expect(screen.queryByText('Earlier answer')).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled();
+  });
+
+  it('waits for the initial history list before allowing restored tabs to close', async () => {
+    const first = render(tree()); await screen.findByText('Earlier answer'); first.unmount();
+    let resolveList!: (response: any) => void;
+    vi.mocked(api.get).mockImplementation((url) => url === '/assist/sessions'
+      ? new Promise((resolve) => { resolveList = resolve; }) as any
+      : Promise.resolve({ data: { ...summary, turns } }));
+    render(tree());
+    const restoredClose = screen.getByRole('button', { name: /^Close / });
+    expect(restoredClose).toBeDisabled(); fireEvent.click(restoredClose);
+    expect(screen.getAllByRole('tab')).toHaveLength(1);
+    await act(async () => resolveList({ data: [summary] }));
+    await screen.findByText('Earlier answer'); close('Conversation A');
+    reopen('Conversation A'); expect(await screen.findByText('Earlier answer')).toBeVisible();
+  });
+
+  it('waits for explicit new-session creation before closing or switching the existing tab', async () => {
+    let resolveCreate!: (response: any) => void;
+    vi.mocked(api.post).mockReturnValue(new Promise((resolve) => { resolveCreate = resolve; }) as any);
+    render(tree()); await screen.findByText('Earlier answer');
+    fireEvent.click(screen.getByRole('button', { name: 'New conversation' }));
+    expect(screen.getByRole('button', { name: 'Close Conversation A' })).toBeDisabled();
+    expect(screen.getByRole('tab', { name: 'Conversation A' })).toBeDisabled();
+    close('Conversation A');
+    await act(async () => resolveCreate({ data: { ...summary, id: 'session-new', title: 'New conversation' } }));
+    expect(screen.getByRole('tab', { name: 'New conversation' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: 'Close Conversation A' })).toBeEnabled();
+    expect(screen.getByRole('tab', { name: 'Conversation A' })).toBeInTheDocument();
+  });
+
+  it('does not restore an already sent empty-state draft after closing the implicitly created session', async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [] });
+    vi.mocked(api.post).mockImplementation(async (url, data: any) => url === '/assist/sessions'
+      ? { data: { ...summary, id: 'session-new', title: 'New conversation' } }
+      : { data: { ...turn, ...data, sessionId: 'session-new', result: { summary: 'Answered' } } });
+    render(tree());
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled());
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Send this once' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await screen.findByText('Answered');
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('');
+    close('New conversation');
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+  });
+
+  it('recovers an open older session directly when it falls outside the history list after reload', async () => {
+    mockHistory(); const first = render(tree()); await screen.findByText('Earlier answer'); reopen('Conversation D');
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled()); first.unmount();
+    const get = vi.mocked(api.get).getMockImplementation()!;
+    vi.mocked(api.get).mockImplementation((url, ...args) => url === '/assist/sessions' ? Promise.resolve({ data: summaries.slice(0, 3) }) : get(url, ...args));
+    render(tree());
+    expect(await screen.findByRole('tab', { name: 'Conversation D' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
+  });
+
+  it('falls back safely when stored tab preferences are malformed', async () => {
+    const first = render(tree()); await screen.findByText('Earlier answer'); close('Conversation A'); first.unmount();
+    expect(localStorage.length).toBe(1); localStorage.setItem(localStorage.key(0)!, '{bad json');
+    render(tree()); expect(await screen.findByText('Earlier answer')).toBeVisible();
+  });
+
+  it('keeps closed state in memory when browser storage is unavailable', async () => {
+    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation((key) => { if (key === 'token') return null; throw new Error('Storage unavailable'); });
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Storage unavailable'); });
+    try {
+      const shell = (show: boolean) => <MemoryRouter><AgentSessionRegistryProvider userId={auth.id}>{show ? <AgentSessionPanel {...defaults} /> : null}</AgentSessionRegistryProvider></MemoryRouter>;
+      const rendered = render(shell(true)); await screen.findByText('Earlier answer'); close('Conversation A');
+      rendered.rerender(shell(false)); rendered.rerender(shell(true));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'New conversation' })).toBeEnabled());
+      expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+    } finally { getItem.mockRestore(); setItem.mockRestore(); }
+  });
+});
 describe('durable Agent session document bridge', () => {
   it('lets an editor explicitly send a direct edit and applies the completed page change', async () => {
     const onDirectApply = vi.fn().mockResolvedValue(true);
@@ -387,13 +613,13 @@ describe('conversation scroll following', () => {
     await screen.findAllByText('Earlier answer'); await waitFor(() => expect(list.scrollTop).toBe(2600));
   });
   it('follows delayed content resize and disconnects the observer on unmount', async () => {
-    let resized: ResizeObserverCallback | undefined; const disconnect = vi.fn();
-    vi.stubGlobal('ResizeObserver', class { constructor(callback: ResizeObserverCallback) { resized = callback; } observe() {} disconnect = disconnect; });
+    const callbacks = new Map<Element, ResizeObserverCallback>(), disconnect = vi.fn();
+    vi.stubGlobal('ResizeObserver', class { constructor(private callback: ResizeObserverCallback) {} observe(element: Element) { callbacks.set(element, this.callback); } disconnect = disconnect; });
     try {
       const rendered = render(tree()); await screen.findAllByText('Earlier answer'); const list = viewport(rendered.container);
-      list.scrollTop = 1600; fireEvent.scroll(list); height = 2500; act(() => resized?.([], {} as ResizeObserver));
+      list.scrollTop = 1600; fireEvent.scroll(list); height = 2500; act(() => callbacks.get(list)?.([], {} as ResizeObserver));
       await waitFor(() => expect(list.scrollTop).toBe(2100));
-      list.scrollTop = 250; fireEvent.scroll(list); height = 2800; act(() => resized?.([], {} as ResizeObserver));
+      list.scrollTop = 250; fireEvent.scroll(list); height = 2800; act(() => callbacks.get(list)?.([], {} as ResizeObserver));
       await new Promise((resolve) => setTimeout(resolve, 35)); expect(list.scrollTop).toBe(250);
       rendered.unmount(); expect(disconnect).toHaveBeenCalled();
     } finally { vi.unstubAllGlobals(); }
