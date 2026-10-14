@@ -204,3 +204,13 @@ it.each([{ isComposing: true }, { keyCode: 229 }])('does not consume IME navigat
   }
   expect(onChange).not.toHaveBeenCalled();
 });
+
+it('shows canonical paths to distinguish same-name search results', async () => {
+  vi.mocked(api.get).mockResolvedValue({ data: { results: [
+    { page: { id: 'a', title: 'Same', spaceId: 'space-a', path: 'pages/One/Same.md' } },
+    { page: { id: 'b', title: 'Same', spaceId: 'space-a', path: 'pages/Two/Same.md' } },
+  ] } });
+  render(tree()); open(); await search('Same');
+  expect(screen.getByText('pages/One/Same.md')).toBeVisible();
+  expect(screen.getByText('pages/Two/Same.md')).toBeVisible();
+});

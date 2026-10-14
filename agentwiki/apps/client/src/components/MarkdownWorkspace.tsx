@@ -1042,6 +1042,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   ), [noteHighlights, value.length, activeNoteId, zh]);
   const editorExtensions = useMemo(() => [
     MARKDOWN_LANGUAGE, LIVE_PREVIEW_HIGHLIGHTING, hiddenMarks, uploadAnchors, noteMarks,
+    EditorView.scrollMargins.of(() => ({ top: Math.max(0, document.querySelector<HTMLElement>('[data-testid="editor-toolbar"]')?.getBoundingClientRect().bottom ?? 0) + 12 })),
     manualHandlers, ...(uploadHandlers ? [uploadHandlers] : []), EditorView.lineWrapping,
   ], [hiddenMarks, manualHandlers, uploadHandlers, noteMarks]);
 

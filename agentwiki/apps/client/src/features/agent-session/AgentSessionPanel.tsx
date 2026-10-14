@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowUp, Bot, ChevronDown, FileText, History, MessageSquare, Plus, SlidersHorizontal, Square } from 'lucide-react';
+import { ArrowUp, Bot, ChevronDown, FileText, History, MessageSquare, Plus, Square } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Link } from 'react-router-dom';
@@ -9,6 +9,8 @@ import { AssistCandidateReview } from '../page/AssistCandidateReview';
 import { applyCandidateToDraft, type AssistCandidate } from '../page/assistCandidate';
 import { captureAssistTarget, validateAssistTarget, type AssistTarget } from '../page/assistTargets';
 import type { AssistNotesEvent } from '../page/AgentAssistPanel';
+import { AgentContextSettings } from './AgentContextSettings';
+import { bugEditorMessages } from '../../i18n/bug-editor-messages';
 import { AgentReferencePicker } from './AgentReferencePicker';
 import { bindCandidate, candidateFromTurn } from './agentSessionCandidate';
 import { useAgentSession } from './useAgentSession';
@@ -60,7 +62,7 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
   const handledFocusRequest = useRef<string | undefined>(undefined);
   const autoFocusedScope = useRef<string | null>(null);
   const historyRef = useRef<HTMLDetailsElement>(null);
-  const settingsRef = useRef<HTMLDetailsElement>(null);
+  const referenceTrigger = useRef<{ intent: string; offset: number; scope: string; session: string | null } | null>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
   const [referenceOpenRequest, setReferenceOpenRequest] = useState(0);
   const conversationPanelId = useId();
@@ -78,7 +80,7 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
   useEffect(() => { composingRef.current = false; }, [scope, session.selected]);
   useEffect(() => {
     const dismiss = (event: PointerEvent) => {
-      for (const details of [historyRef.current, settingsRef.current]) {
+      for (const details of [historyRef.current]) {
         if (details?.open && event.target instanceof Node && !details.contains(event.target)) details.open = false;
       }
     };
@@ -321,7 +323,14 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
       </div>
     </div>
     <div className="agent-session-composer">
-      <div className="agent-composer-context"><span className="agent-current-document" title={pageTitle}><FileText aria-hidden="true" size={13} /><span>{pageTitle}</span></span><AgentReferencePicker key={`${userId}:${spaceId}:${session.selected ?? 'new'}`} userId={userId} spaceId={spaceId} selected={draft.references} onChange={(references) => session.updateDraft({ references })} disabled={session.sending || session.loading || !visible} openRequest={referenceOpenRequest} onClose={returnComposerFocus} /></div>
+      <div className="agent-composer-context"><span className="agent-current-document" title={pageTitle}><FileText aria-hidden="true" size={13} /><span>{pageTitle}</span></span><AgentReferencePicker key={`${userId}:${spaceId}:${session.selected ?? 'new'}`} userId={userId} spaceId={spaceId} selected={draft.references} onChange={(references) => session.updateDraft({ references })} onOpen={() => { referenceTrigger.current = null; }} onSelected={(references) => {
+        const trigger = referenceTrigger.current;
+        referenceTrigger.current = null;
+        const clean = trigger && trigger.scope === scope && trigger.session === session.selected && trigger.intent === draft.intent && draft.intent[trigger.offset] === '@';
+        session.updateDraft({ references, ...(clean ? { intent: draft.intent.slice(0, trigger.offset) + draft.intent.slice(trigger.offset + 1) } : {}) });
+        if (clean) requestAnimationFrame(() => composerRef.current?.setSelectionRange(trigger.offset, trigger.offset));
+      }} disabled={session.sending || session.loading || !visible} openRequest={referenceOpenRequest} onClose={returnComposerFocus} /></div>
+      <p className="agent-reference-hint">{bugEditorMessages[zh ? 'zh-CN' : 'en']['editor.referenceHint']}</p>
       <div className="agent-composer-box">
         {draft.staged ? <details className="agent-staged-context" key={draft.staged.request.id}>
           <summary><MessageSquare aria-hidden="true" size={13} /><span>{draft.staged.request.annotations?.length ? (zh ? `${draft.staged.request.annotations.length} 条笔记 · 待发送` : `${draft.staged.request.annotations.length} page ${draft.staged.request.annotations.length === 1 ? 'note' : 'notes'} · not sent`) : (zh ? '已选择原文范围' : 'Selected source context')}</span><ChevronDown aria-hidden="true" size={13} /></summary>
@@ -336,7 +345,10 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
         </details> : null}
         <textarea ref={composerRef} data-agent-composer data-testid="assist-intent" aria-label={zh ? '消息' : 'Message'} placeholder={zh ? '询问文档或描述修改，@ 引用页面' : 'Ask about this document, @ to reference a page'} rows={3} disabled={session.sending || session.loading} value={draft.intent} onCompositionStart={() => { composingRef.current = true; }} onCompositionEnd={() => { composingRef.current = false; }} onChange={(event) => {
           const value = event.target.value, cursor = event.target.selectionStart;
-          if (!composingRef.current && value.length > draft.intent.length && value[cursor - 1] === '@' && (cursor === 1 || /\s/.test(value[cursor - 2]))) setReferenceOpenRequest((request) => request + 1);
+          if (!composingRef.current && draft.references.length < 5 && value.length > draft.intent.length && value[cursor - 1] === '@' && (cursor === 1 || /\s/.test(value[cursor - 2]))) {
+            referenceTrigger.current = { intent: value, offset: cursor - 1, scope, session: session.selected };
+            setReferenceOpenRequest((request) => request + 1);
+          }
           session.updateDraft({ intent: value });
         }} onKeyDown={(event) => {
           if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing || composingRef.current || event.keyCode === 229) return;
@@ -344,10 +356,7 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
         }} />
         <div className="agent-composer-actions">
           <select aria-label={zh ? '会话模式' : 'Message mode'} disabled={session.sending || session.loading} value={canEdit ? draft.mode : 'question'} onChange={(event) => session.updateDraft({ mode: event.target.value as 'question' | 'proposal' | 'direct' })} className="agent-mode-select"><option value="question">{zh ? '问答' : 'Ask a question'}</option><option value="proposal" disabled={!canEdit}>{zh ? '生成修改候选' : 'Propose changes'}</option>{onDirectApply ? <option value="direct" disabled={!canEdit}>{zh ? '直接修改页面' : 'Edit page directly'}</option> : null}</select>
-          <details ref={settingsRef} className="agent-composer-settings" onKeyDown={(event) => { if (event.key === 'Escape' && settingsRef.current?.open) { event.preventDefault(); settingsRef.current.open = false; settingsRef.current.querySelector<HTMLElement>('summary')?.focus(); } }}>
-            <summary aria-label={zh ? '上下文设置' : 'Context settings'} title={zh ? '上下文设置' : 'Context settings'}><SlidersHorizontal aria-hidden="true" size={15} />{targetKind !== 'document' ? <span>{scopeLabel}</span> : null}</summary>
-            <div className="agent-settings-popover"><label>{zh ? '修改范围' : 'Edit scope'}<select aria-label={zh ? '修改范围' : 'Edit scope'} disabled={session.sending || session.loading} value={targetKind} onChange={(event) => session.updateDraft({ targetKind: event.target.value as AssistTarget['kind'] })}><option value="document">{zh ? '整篇文档' : 'Document'}</option><option value="selection" disabled={!assistTargets?.selection && draft.staged?.request.assistTarget?.kind !== 'selection'}>{zh ? '所选段落' : 'Selection'}</option><option value="section" disabled={!assistTargets?.section && draft.staged?.request.assistTarget?.kind !== 'section'}>{zh ? '当前章节' : 'Section'}</option></select></label><p>{draft.mode === 'direct' ? (zh ? '完成后会再次检查页面版本，并直接保存；版本冲突时不会覆盖页面。' : 'After completion, the page version is checked again and the change is saved directly. Conflicts never overwrite the page.') : (zh ? '修改候选需审阅并接受到草稿，再保存页面。' : 'Review and accept proposed changes to the draft, then save the page.')}</p></div>
-          </details>
+          <AgentContextSettings label={zh ? '上下文设置' : 'Context settings'} scopeLabel={targetKind !== 'document' ? scopeLabel : undefined} visible={visible}><label>{zh ? '修改范围' : 'Edit scope'}<select aria-label={zh ? '修改范围' : 'Edit scope'} disabled={session.sending || session.loading} value={targetKind} onChange={(event) => session.updateDraft({ targetKind: event.target.value as AssistTarget['kind'] })}><option value="document">{zh ? '整篇文档' : 'Document'}</option><option value="selection" disabled={!assistTargets?.selection && draft.staged?.request.assistTarget?.kind !== 'selection'}>{zh ? '所选段落' : 'Selection'}</option><option value="section" disabled={!assistTargets?.section && draft.staged?.request.assistTarget?.kind !== 'section'}>{zh ? '当前章节' : 'Section'}</option></select></label><p>{draft.mode === 'direct' ? (zh ? '完成后会再次检查页面版本，并直接保存；版本冲突时不会覆盖页面。' : 'After completion, the page version is checked again and the change is saved directly. Conflicts never overwrite the page.') : (zh ? '修改候选需审阅并接受到草稿，再保存页面。' : 'Review and accept proposed changes to the draft, then save the page.')}</p></AgentContextSettings>
           <span className="agent-composer-spacer" />
           {runningTurn ? <button type="button" aria-label={zh ? '停止' : 'Stop'} title={zh ? '停止' : 'Stop'} disabled={session.cancelling} onClick={() => void session.cancel(runningTurn)} className="agent-send-button agent-stop-button"><Square aria-hidden="true" size={13} fill="currentColor" /></button> : <button type="button" aria-label={session.sending ? (zh ? '发送中…' : 'Sending…') : (zh ? '发送' : 'Send')} title={zh ? '发送 · Enter' : 'Send · Enter'} data-testid="assist-submit" disabled={!draft.intent.trim() || session.sending || session.running || session.loading || !userId || (!canEdit && (draft.mode === 'proposal' || draft.mode === 'direct'))} onClick={() => void submit()} className="agent-send-button"><ArrowUp aria-hidden="true" size={18} /></button>}
         </div>

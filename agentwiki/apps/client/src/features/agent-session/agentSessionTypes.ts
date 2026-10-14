@@ -4,7 +4,7 @@ import type { AssistTarget } from '../page/assistTargets';
 export type AgentTurnMode = 'question' | 'proposal';
 export type AgentComposerMode = AgentTurnMode | 'direct';
 export interface AgentAnnotation { id: string; body: string; quote: string }
-export interface AgentReference { pageId: string; title: string; updatedAt?: string }
+export interface AgentReference { pageId: string; title: string; updatedAt?: string; path?: string }
 export interface AgentSessionSummary { id: string; spaceId: string; title: string; createdAt: string; updatedAt: string }
 export interface AgentTurn {
   id: string; sessionId: string; pageId: string | null; mode: AgentTurnMode; intent: string;

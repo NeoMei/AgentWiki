@@ -202,9 +202,9 @@ input.document-title:focus { box-shadow: 0 2px #e5e5e5; }
 .agent-composer-settings { position: relative; flex: 0 1 auto; min-width: 0; }
 .agent-composer-settings > summary { display: flex; align-items: center; gap: 4px; min-height: 27px; padding: 4px; border-radius: 5px; color: #9099a6; font-size: 10px; white-space: nowrap; }
 .agent-composer-settings > summary:hover, .agent-composer-settings[open] > summary { background: #f2f4f8; color: #596d8e; }
-.agent-settings-popover { position: absolute; bottom: calc(100% + 8px); right: -40px; z-index: 20; width: 226px; max-width: 72vw; padding: 12px; border: 1px solid #e5e8ed; border-radius: 10px; background: white; box-shadow: 0 8px 25px rgb(27 39 59 / 13%); }
+.agent-settings-popover { position: fixed; z-index: 80; overflow-y: auto; overflow-wrap: anywhere; overscroll-behavior: contain; padding: 12px; border: 1px solid #e5e8ed; border-radius: 10px; background: white; box-shadow: 0 8px 25px rgb(27 39 59 / 13%); }
 .agent-settings-popover label { display: grid; gap: 6px; font-size: 11px; color: #6d7684; }
-.agent-settings-popover select { padding: 6px 7px; border: 1px solid #dfe3ea; border-radius: 6px; background: #fff; font-size: 12px; color: #3c4757; }
+.agent-settings-popover select { min-width: 0; width: 100%; padding: 6px 7px; border: 1px solid #dfe3ea; border-radius: 6px; background: #fff; font-size: 12px; color: #3c4757; }
 .agent-settings-popover p { margin-top: 9px; color: #8a919c; font-size: 10px; line-height: 1.6; }
 .agent-staged-context { flex: 0 1 auto; min-height: 25px; max-height: 150px; overflow-y: auto; overscroll-behavior: contain; margin-bottom: 6px; color: #897044; font-size: 11px; }
 .agent-staged-context > summary { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 4px 7px; border-radius: 6px; background: #fff8e9; }
@@ -314,3 +314,5 @@ input.document-title:focus { box-shadow: 0 2px #e5e5e5; }
   .document-notes-layer .document-panel-resizer { display: none; }
   .document-notes-layer > .document-panel-scroll > .sticky { position: static; }
 }
+
+.agent-reference-hint { margin: 0; color: #6d7684; font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }

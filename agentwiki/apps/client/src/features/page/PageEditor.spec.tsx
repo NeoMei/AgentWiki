@@ -226,8 +226,8 @@ const chooseProposal = async () => {
 };
 const reloadAgentHistory = () => fireEvent.click(screen.getByRole('tab', { name: 'Editor conversation' }));
 const editScope = () => {
-  const select = screen.getByRole('combobox', { name: 'Edit scope', hidden: true });
-  if (!select.closest('details')?.open) fireEvent.click(screen.getByLabelText('Context settings'));
+  if (!screen.queryByRole('combobox', { name: 'Edit scope' })) fireEvent.click(screen.getByLabelText('Context settings'));
+  const select = screen.getByRole('combobox', { name: 'Edit scope' });
   expect(select).toBeVisible(); return select;
 };
 
@@ -2253,7 +2253,7 @@ describe('PageEditor remote update safety', () => {
     expect(screen.getByRole('menu', { name: 'More page actions' })).toBeInTheDocument();
   });
 
-  it.each([8, 358])('clamps the More menu inside a 390px viewport from trigger left %i', async (triggerLeft) => {
+  it.each([[8, 8], [358, 730]])('clamps the More menu inside a 390px viewport from trigger %i, %i', async (triggerLeft, triggerTop) => {
     queuePages({ data: page() });
     templateMocks.listPageTemplates.mockResolvedValue(catalog(true));
     renderEditor();
@@ -2264,20 +2264,24 @@ describe('PageEditor remote update safety', () => {
     });
     const viewport = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
     const geometry = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-      if (this === trigger) return rect(triggerLeft, 32);
-      if (this.getAttribute('role') === 'menu') return rect(0, 256);
+      if (this === trigger) return rect(triggerLeft, 32, triggerTop);
+      if (this.getAttribute('role') === 'menu') return rect(0, 256, 0, 80);
       return rect(0, 0, 0, 0);
     });
 
     try {
       fireEvent.click(trigger);
       const menu = await screen.findByRole('menu');
+      expect(menu.parentElement).toBe(document.body);
       await waitFor(() => expect(menu.style.left).not.toBe(''));
       const left = Number.parseFloat(menu.style.left);
       const width = Number.parseFloat(menu.style.width);
 
       expect(left).toBeGreaterThanOrEqual(16);
       expect(left + width).toBeLessThanOrEqual(374);
+      const top = Number.parseFloat(menu.style.top);
+      expect(top).toBeGreaterThanOrEqual(16);
+      expect(top + 80).toBeLessThanOrEqual(window.innerHeight - 16);
     } finally {
       geometry.mockRestore();
       viewport.mockRestore();
@@ -2298,6 +2302,8 @@ describe('PageEditor remote update safety', () => {
 
     fireEvent.click(trigger);
     await waitFor(() => expect(screen.getByRole('menuitem', { name: 'Save as Space template' })).toHaveFocus());
+    fireEvent.scroll(screen.getByRole('menu'));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
     fireEvent.scroll(window);
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();

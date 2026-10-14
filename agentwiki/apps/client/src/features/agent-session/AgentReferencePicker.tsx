@@ -13,6 +13,8 @@ type AgentReferencePickerProps = {
   disabled?: boolean;
   openRequest?: number;
   onClose?: () => void;
+  onOpen?: () => void;
+  onSelected?: (items: AgentReference[]) => void;
 };
 
 type Bounds = { left: number; right: number; top: number; bottom: number };
@@ -42,7 +44,7 @@ export function AgentReferencePicker(props: AgentReferencePickerProps) {
   return <ReferencePopover key={`${props.userId}\u0000${props.spaceId}\u0000${token ?? ''}`} {...props} token={token} />;
 }
 
-function ReferencePopover({ userId, spaceId, selected, onChange, disabled, openRequest, onClose, token }: AgentReferencePickerProps & { token: string | null }) {
+function ReferencePopover({ userId, spaceId, selected, onChange, disabled, openRequest, onClose, onOpen, onSelected, token }: AgentReferencePickerProps & { token: string | null }) {
   const { language } = useLanguage(), zh = language === 'zh-CN';
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -149,7 +151,7 @@ function ReferencePopover({ userId, spaceId, selected, onChange, disabled, openR
         const unique = new Map<string, AgentReference>();
         for (const row of rows) {
           const page = row.page;
-          if (page?.spaceId === spaceId && typeof page.id === 'string' && typeof page.title === 'string') unique.set(page.id, { pageId: page.id, title: page.title });
+          if (page?.spaceId === spaceId && typeof page.id === 'string' && typeof page.title === 'string') unique.set(page.id, { pageId: page.id, title: page.title, ...(typeof page.path === 'string' && page.path ? { path: page.path } : {}) });
         }
         setResults([...unique.values()]); setLoading(false);
       }).catch((failure: unknown) => {
@@ -166,7 +168,7 @@ function ReferencePopover({ userId, spaceId, selected, onChange, disabled, openR
 
   const choose = (reference: AgentReference) => {
     if (unavailable || localStorage.getItem('token') !== token) return;
-    onChange([...selected, reference]); close(true);
+    if (onSelected) onSelected([...selected, reference]); else onChange([...selected, reference]); close(true);
   };
   return <div ref={rootRef} className="relative flex min-w-0 flex-wrap items-center gap-1.5" onKeyDown={(event) => {
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
@@ -177,7 +179,7 @@ function ReferencePopover({ userId, spaceId, selected, onChange, disabled, openR
     {selected.map((reference) => <button type="button" key={reference.pageId} disabled={disabled} className="inline-flex max-w-full items-center gap-1 rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-600 hover:bg-gray-200 disabled:opacity-50" aria-label={`${zh ? '移除' : 'Remove'} ${reference.title}`} onClick={() => onChange(selected.filter((item) => item.pageId !== reference.pageId))}>
       <FileText size={12} className="shrink-0" aria-hidden="true" /><span className="truncate">{reference.title}</span><X size={11} className="shrink-0" aria-hidden="true" />
     </button>)}
-    <button ref={triggerRef} type="button" disabled={unavailable} aria-label={zh ? '引用文档' : 'Reference pages'} title={selected.length >= 5 ? (zh ? '最多引用 5 篇文档' : 'Up to 5 reference pages') : (zh ? '引用文档（@）' : 'Reference pages (@)')} aria-haspopup="dialog" aria-expanded={open && !unavailable} aria-controls={open && !unavailable ? popupId : undefined} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-800 disabled:opacity-40" onClick={() => { if (open) close(true); else setOpen(true); }}>
+    <button ref={triggerRef} type="button" disabled={unavailable} aria-label={zh ? '引用文档' : 'Reference pages'} title={selected.length >= 5 ? (zh ? '最多引用 5 篇文档' : 'Up to 5 reference pages') : (zh ? '引用文档（@）' : 'Reference pages (@)')} aria-haspopup="dialog" aria-expanded={open && !unavailable} aria-controls={open && !unavailable ? popupId : undefined} className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-800 disabled:opacity-40" onClick={() => { onOpen?.(); if (open) close(true); else setOpen(true); }}>
       <Plus size={16} aria-hidden="true" />
     </button>
     {open && !unavailable && placement ? createPortal(<div ref={popupRef} id={popupId} role="dialog" aria-label={zh ? '引用文档' : 'Reference pages'} style={placement} className="fixed z-[80] flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
@@ -202,7 +204,7 @@ function ReferencePopover({ userId, spaceId, selected, onChange, disabled, openR
               if (next < 0 || next >= visibleResults.length) inputRef.current?.focus(); else resultRefs.current[next]?.focus();
             }
           }}>
-            <FileText size={17} className="shrink-0 text-gray-400" aria-hidden="true" /><span className="min-w-0">{reference.title}</span>
+            <FileText size={17} className="shrink-0 text-gray-400" aria-hidden="true" /><span className="min-w-0"><span className="block">{reference.title}</span>{reference.path ? <span className="mt-0.5 block break-all text-xs text-gray-500">{reference.path}</span> : null}</span>
           </button>
         </li>)}</ul>
       </div>

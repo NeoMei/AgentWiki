@@ -429,7 +429,7 @@ describe('compact conversation interaction', () => {
     fireEvent.change(search, { target: { value: 'Reference' } });
     fireEvent.click(await screen.findByRole('button', { name: 'Add Reference B' }));
     expect(screen.queryByRole('dialog', { name: 'Reference pages' })).not.toBeInTheDocument();
-    expect(message).toHaveFocus(); expect(message).toHaveValue('Compare with @');
+    expect(message).toHaveFocus(); expect(message).toHaveValue('Compare with ');
     expect(screen.getByRole('button', { name: 'Remove Reference B' })).toBeVisible();
     expect(api.post).not.toHaveBeenCalled();
   });
@@ -487,7 +487,7 @@ describe('compact conversation interaction', () => {
     await screen.findByText('Earlier answer');
     expect(screen.getByText('1 page note · not sent')).toBeVisible();
     expect(screen.getByText('A staged note')).not.toBeVisible();
-    expect(screen.getByRole('combobox', { name: 'Edit scope' })).not.toBeVisible();
+    expect(screen.queryByRole('combobox', { name: 'Edit scope' })).not.toBeInTheDocument();
     expect(screen.getByText('Original A')).not.toBeVisible();
     openStaged(); expect(screen.getByText('A staged note')).toBeVisible();
     expect(scopeControl()).toHaveValue('document');
@@ -545,4 +545,32 @@ it('dismisses context settings with Escape or an outside pointer without taking 
   const message = screen.getByRole('textbox', { name: 'Message' });
   message.focus(); fireEvent.pointerDown(message);
   expect(settings.closest('details')?.open).toBe(false); expect(message).toHaveFocus();
+});
+
+it('keeps a cancelled @ trigger and preserves literal @ when adding from the plus button', async () => {
+  render(tree()); await screen.findByText('Earlier answer');
+  const message = screen.getByRole('textbox', { name: 'Message' });
+  fireEvent.change(message, { target: { value: 'Ask @' } });
+  fireEvent.keyDown(await screen.findByRole('textbox', { name: 'Find reference pages' }), { key: 'Escape' });
+  expect(message).toHaveValue('Ask @');
+  fireEvent.click(screen.getByRole('button', { name: 'Reference pages' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Find reference pages' }), { target: { value: 'Reference' } });
+  fireEvent.click(await screen.findByRole('button', { name: 'Add Reference B' }));
+  expect(message).toHaveValue('Ask @');
+});
+it('renders context settings outside the clipping chat containers', async () => {
+  render(tree()); await screen.findByText('Earlier answer');
+  fireEvent.click(document.querySelector<HTMLElement>('[aria-label="Context settings"]')!);
+  const control = await screen.findByRole('combobox', { name: 'Edit scope' });
+  expect(control.closest('.agent-settings-popover')?.parentElement).toBe(document.body);
+  expect(control).toHaveFocus();
+});
+
+it('removes only the inserted @ at the cursor and preserves the surrounding message', async () => {
+  render(tree()); await screen.findByText('Earlier answer');
+  const message = screen.getByRole('textbox', { name: 'Message' });
+  fireEvent.change(message, { target: { value: 'Before @ after @literal', selectionStart: 8 } });
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Find reference pages' }), { target: { value: 'Reference' } });
+  fireEvent.click(await screen.findByRole('button', { name: 'Add Reference B' }));
+  expect(message).toHaveValue('Before  after @literal');
 });

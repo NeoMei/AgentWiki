@@ -5,7 +5,7 @@ import * as tableEditing from './markdown-tools/tableEditing';
 import * as markdownResources from './markdown/resources';
 import { undo, undoDepth } from '@codemirror/commands';
 import { DecorationSet, EditorView } from '@codemirror/view';
-import { forceParsing, language as languageFacet, syntaxTree } from '@codemirror/language';
+import { codeFolding, foldEffect, foldedRanges, forceParsing, language as languageFacet, syntaxTree } from '@codemirror/language';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../context/LanguageContext';
 import { Markdown } from './Markdown';
@@ -348,6 +348,14 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Contents' }));
     fireEvent.click(screen.getAllByRole('button', { name: 'A' })[1]);
     expect(view.state.selection.main.head).toBe(21);
+    const toolbar = document.createElement('div');
+    toolbar.dataset.testid = 'editor-toolbar';
+    toolbar.getBoundingClientRect = () => ({ bottom: 142 } as DOMRect);
+    document.body.append(toolbar);
+    try {
+      const margins = view.state.facet(EditorView.scrollMargins).map((source) => source(view));
+      expect(margins.some((margin) => margin?.top === 154)).toBe(true);
+    } finally { toolbar.remove(); }
     expect(screen.queryByRole('button', { name: 'fake' })).not.toBeInTheDocument();
   });
 
@@ -1748,4 +1756,15 @@ describe('long-document live preview lifecycle', () => {
     hiddenDecorations(view).between(from, from + 2, (start, end) => { if (start === from && end === from + 2) hidden = true; });
     expect(hidden).toBe(true);
   });
+});
+
+it('unfolds a collapsed parent section before navigating to its child heading', () => {
+  const { container } = renderWYS({ initial: '# Parent\ntext\n## Child\nbody\n# End' });
+  const view = currentEditorView(container);
+  act(() => view.dispatch({ effects: [StateEffect.appendConfig.of(codeFolding()), foldEffect.of({ from: 8, to: 27 })] }));
+  expect(foldedRanges(view.state).size).toBe(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Contents' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Child' }));
+  expect(view.state.selection.main.head).toBe(14);
+  expect(foldedRanges(view.state).size).toBe(0);
 });

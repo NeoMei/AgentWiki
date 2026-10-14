@@ -369,6 +369,12 @@ describe('SpaceView new-page flow', () => {
     const trigger = await screen.findByTestId('content-deletefolder-folder-1');
     trigger.focus();
     fireEvent.click(trigger);
+    let expireNotice: (() => void) | undefined;
+    const originalSetTimeout = window.setTimeout.bind(window);
+    const noticeTimer = vi.spyOn(window, 'setTimeout').mockImplementation((callback, milliseconds, ...args) => {
+      if (milliseconds === 10000 && typeof callback === 'function') expireNotice = callback as () => void;
+      return originalSetTimeout(callback, milliseconds, ...args) as unknown as ReturnType<typeof window.setTimeout>;
+    });
     fireEvent.click(await screen.findByTestId('folder-delete-confirm'));
 
     await waitFor(() => expect(mocks.api.delete).toHaveBeenCalledTimes(1));
@@ -383,6 +389,12 @@ describe('SpaceView new-page flow', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     await waitFor(() => expect(screen.queryByTestId('content-deletefolder-folder-1')).not.toBeInTheDocument());
     expect(screen.getByTestId(parentGone ? 'new-folder-button' : 'content-node-parent')).toHaveFocus();
+    try {
+      expect(expireNotice).toBeTypeOf('function');
+      act(() => expireNotice?.());
+      expect(screen.queryByTestId('folder-restored-banner')).not.toBeInTheDocument();
+      expect(screen.getByTestId('folder-restore-button')).toBeInTheDocument();
+    } finally { noticeTimer.mockRestore(); }
   });
 
   it('does not DELETE after changing Space while the tree head is pending', async () => {

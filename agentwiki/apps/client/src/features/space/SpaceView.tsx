@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import api from '../../api/client';
 import { apiErrorMessage } from '../../api/error-message';
-import { Plus, RotateCcw, X } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -21,6 +21,7 @@ import {
 } from '../content-tree/contentTreeApi';
 import { ContentBreadcrumbs } from '../content-tree/ContentBreadcrumbs';
 import { crumbsForFolder, isSelfOrDescendantFolder } from '../content-tree/contentTreeState';
+import { FolderDeletionNotice } from '../content-tree/FolderDeletionNotice';
 import { ContentTree } from '../content-tree/ContentTree';
 import type { ContentMoveRequest } from '../content-tree/ContentTree';
 import { FolderDialog } from '../content-tree/FolderDialog';
@@ -602,21 +603,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
           </button>
         </div>
       )}
-      {restoreInfo && (
-        <div className="mb-4 p-3 bg-green-50 text-green-700 rounded-md text-sm flex items-center justify-between" data-testid="folder-restored-banner">
-          <span>{t('folder.deletedBanner', { name: restoreInfo.folderName })}</span>
-          <button
-            type="button"
-            onClick={handleRestore}
-            disabled={restoring}
-            data-testid="folder-restore-button"
-            className="ml-3 inline-flex items-center gap-1 rounded border border-green-300 px-2 py-1 font-medium text-green-700 hover:bg-green-100 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <RotateCcw size={13} />
-            {t('folder.restore')}
-          </button>
-        </div>
-      )}
+      {restoreInfo && <FolderDeletionNotice key={restoreInfo.deletionBatchId} name={restoreInfo.folderName} restoring={restoring} onRestore={() => void handleRestore()} onDismiss={() => setRestoreInfo(null)} />}
       {!workspace ? <div className="mb-6">
         <div className="flex items-center gap-2 text-sm text-gray-400 mb-2">
           <Link to="/" className="shrink-0 hover:text-blue-600">{t('nav.spaces')}</Link>

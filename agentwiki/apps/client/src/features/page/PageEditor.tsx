@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import React, { useCallback, useEffect, useLayoutEffect, useState, useRef, useMemo, useId } from 'react';
 import { Link, useLocation, useNavigate, useNavigationType, useParams } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
@@ -572,20 +573,25 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     const menu = moreActionsMenuRef.current;
     if (!trigger || !menu) return;
 
-    const viewportWidth = window.innerWidth;
+    const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
+    const viewportTop = window.visualViewport?.offsetTop ?? 0;
+    const viewportBottom = viewportTop + (window.visualViewport?.height ?? window.innerHeight);
+    const menuHeight = menu.getBoundingClientRect().height || 80;
     const availableWidth = Math.max(0, viewportWidth - 32);
     const measuredWidth = menu.getBoundingClientRect().width || 256;
     const width = Math.min(measuredWidth, 256, availableWidth);
     const triggerRect = trigger.getBoundingClientRect();
     const maximumLeft = Math.max(16, viewportWidth - 16 - width);
     const left = Math.min(Math.max(triggerRect.right - width, 16), maximumLeft);
-    setMoreActionsPosition({ left, top: triggerRect.bottom + 8, width });
+    const below = triggerRect.bottom + 8;
+    const top = below + menuHeight <= viewportBottom - 16 ? below : Math.max(viewportTop + 16, triggerRect.top - 8 - menuHeight);
+    setMoreActionsPosition({ left, top, width });
   }, [moreActionsOpen]);
 
   useEffect(() => {
     if (!moreActionsOpen) return;
     const closeFromOutside = (event: PointerEvent) => {
-      if (!moreActionsRef.current?.contains(event.target as Node)) setMoreActionsOpen(false);
+      if (!moreActionsRef.current?.contains(event.target as Node) && !moreActionsMenuRef.current?.contains(event.target as Node)) setMoreActionsOpen(false);
     };
     const closeFromEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
@@ -594,7 +600,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       setMoreActionsPosition(null);
       moreActionsButtonRef.current?.focus();
     };
-    const closeForViewportChange = () => {
+    const closeForViewportChange = (event: Event) => {
+      if (event.target instanceof Node && moreActionsMenuRef.current?.contains(event.target)) return;
       setMoreActionsOpen(false);
       setMoreActionsPosition(null);
       moreActionsButtonRef.current?.focus({ preventScroll: true });
@@ -1224,7 +1231,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
               >
                 <Ellipsis size={18} />
               </button>
-              {moreActionsOpen ? (
+              {moreActionsOpen ? createPortal(
                 <div
                   ref={moreActionsMenuRef}
                   role="menu"
@@ -1234,7 +1241,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
                     top: moreActionsPosition.top,
                     width: moreActionsPosition.width,
                   } : { visibility: 'hidden' }}
-                  className="fixed z-20 w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-gray-200 bg-white p-1 shadow-lg"
+                  className="fixed z-[80] w-64 max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-lg border border-gray-200 bg-white p-1 shadow-lg"
                 >
                   <button
                     ref={saveAsTemplateItemRef}
@@ -1268,7 +1275,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
                       {t('pageTemplate.savePageFirst')}
                     </p>
                   ) : null}
-                </div>
+                </div>, document.body
               ) : null}
             </div>
           ) : null}
