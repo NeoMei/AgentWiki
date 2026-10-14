@@ -105,6 +105,7 @@ const HUMAN_RUN_SUMMARY_SELECT = {
 const HUMAN_RUN_SELECT = {
   id: true,
   spaceId: true,
+  sourceKind: true,
   templateId: true,
   templateVersion: true,
   snapshotHash: true,
@@ -1031,10 +1032,10 @@ export class RunService {
       current.taskIds.push(task.id);
       instructions.set(task.assigneeAgentId, current);
     }
-    const { templateSnapshot: _templateSnapshot, template, compositeTemplateVersion, ...publicRun } = run;
+    const { templateSnapshot: _templateSnapshot, template, compositeTemplateVersion, sourceKind, ...publicRun } = run;
     const response = {
       ...publicRun,
-      systemTemplateSource: systemRunSource(template, compositeTemplateVersion?.template),
+      systemTemplateSource: systemRunSource(template, compositeTemplateVersion?.template, sourceKind),
       tasks,
       reviews: reviewPreviews,
       events: newestEvents.reverse(),
@@ -1210,7 +1211,12 @@ function runSummary(run: any) {
 }
 
 // Trust stored system ownership, never text equality or a copied Space template.
-function systemRunSource(legacy: { system: boolean; spaceId: string | null; slug: string } | null | undefined, composite: { scope: string; spaceId: string | null; stableKey: string } | null | undefined): { slug: string } | null {
+function systemRunSource(
+  legacy: { system: boolean; spaceId: string | null; slug: string } | null | undefined,
+  composite: { scope: string; spaceId: string | null; stableKey: string } | null | undefined,
+  sourceKind?: string,
+): { slug: string } | null {
+  if (sourceKind === 'page_selection') return { slug: 'single-page' };
   const slugs = new Set(['coding', 'bid-writing', 'paper-writing', 'video-script-writing', 'novel-writing']);
   if (legacy?.system && legacy.spaceId === null && slugs.has(legacy.slug)) return { slug: legacy.slug };
   const compositeSlugs: Record<string, string> = { 'coding-workspace': 'coding', 'bid-workspace': 'bid-writing', 'paper-workspace': 'paper-writing', 'video-script-workspace': 'video-script-writing', 'novel-workspace': 'novel-writing' };

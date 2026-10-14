@@ -698,17 +698,12 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
             prefix: `lock_${suffix.slice(0, 8)}`,
             keyHash: `lock-order-key-${suffix}`,
             agentId,
-            authorizationId: grantId,
           } });
           const proposalPrincipal = {
             userId,
             platformRole: 'user',
             agentId,
             credentialId,
-            authorizationId: grantId,
-            authorizationSpaceId: spaceId,
-            agentRole: 'editor',
-            scopes: scopesForAgentAccessRole('editor'),
           };
           const source = await sources.create(spaceId, principal, {
             type: 'text',
@@ -826,17 +821,12 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
             prefix: `revoke_${suffix.slice(0, 8)}`,
             keyHash: `revoked-proposal-key-${suffix}`,
             agentId,
-            authorizationId: grantId,
           } });
           const agentPrincipal = {
             userId,
             platformRole: 'user',
             agentId,
             credentialId,
-            authorizationId: grantId,
-            authorizationSpaceId: spaceId,
-            agentRole: 'editor',
-            scopes: scopesForAgentAccessRole('editor'),
           };
           const source = await sources.create(spaceId, principal, {
             type: 'text', name: 'Revoked Source', content: '# Revoked Source',
@@ -922,17 +912,12 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
             prefix: `policy_${suffix.slice(0, 8)}`,
             keyHash: `policy-boundary-key-${suffix}`,
             agentId,
-            authorizationId: grantId,
           } });
           const agentPrincipal = {
             userId,
             platformRole: 'user',
             agentId,
             credentialId,
-            authorizationId: grantId,
-            authorizationSpaceId: spaceId,
-            agentRole: 'publisher',
-            scopes: scopesForAgentAccessRole('publisher'),
           };
 
           const originalAdvanceTree = writer.advanceContentTreeRevision;
@@ -1465,17 +1450,12 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
             prefix: `folder_${suffix.slice(0, 8)}`,
             keyHash: `folder-producer-key-${suffix}`,
             agentId,
-            authorizationId: grantId,
           } });
           const agentPrincipal = {
             userId,
             platformRole: 'user',
             agentId,
             credentialId,
-            authorizationId: grantId,
-            authorizationSpaceId: spaceId,
-            agentRole: 'editor',
-            scopes: scopesForAgentAccessRole('editor'),
           };
           const tools = mcp.createServer(agentPrincipal)._registeredTools;
 

@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   agentPreparationApi,
   apiResponseStatus,
-  hasActiveSpaceCredential,
+  hasAgentExecutionAuthorization,
+  hasAuthorizedAgentConnection,
+  type ExecutableAgentRole,
   type AgentInstallation,
 } from '../agentPreparationApi';
 import type { PreparedAgent } from '../prepareAgent';
@@ -30,6 +32,7 @@ interface InstructionSnapshot {
   installationId: string;
   installationGeneration: number;
   instructions: string;
+  role: ExecutableAgentRole;
   lifecycleEpoch: number;
   spaceId: string;
 }
@@ -221,6 +224,7 @@ export const useAgentConnectionLifecycle = ({
       installationGeneration,
       installationId: installation.installationId,
       instructions: installation.instructions,
+      role: prepared.role,
       lifecycleEpoch,
       spaceId,
     };
@@ -338,7 +342,11 @@ export const useAgentConnectionLifecycle = ({
         return;
       }
       setErrorKey((current) => current === checkingErrorKey ? null : current);
-      if (hasActiveSpaceCredential(detail, snapshot.spaceId)) {
+      if (!hasAgentExecutionAuthorization(detail, snapshot.spaceId, snapshot.role)) {
+        setErrorKey('collaboration.agentPreparation.error.authorizationChanged');
+        return;
+      }
+      if (hasAuthorizedAgentConnection(detail, snapshot.spaceId, settledAt, snapshot.role)) {
         await completeSelection({
           agentId: snapshot.agentId,
           agentName: snapshot.agentName,
@@ -467,11 +475,12 @@ export const useAgentConnectionLifecycle = ({
 
   const pollAgentId = waiting ? result?.agentId ?? '' : '';
   const pollAgentName = waiting ? result?.agentName ?? '' : '';
+  const pollRole = result?.role;
   const pollGeneration = resultState?.installationGeneration ?? 0;
   const pollLifecycleEpoch = resultState?.lifecycleEpoch ?? 0;
 
   useEffect(() => {
-    if (!pollAgentId || !waitingInstallationId || expired || authorizationLost) return;
+    if (!pollAgentId || !pollRole || !waitingInstallationId || expired || authorizationLost) return;
     const snapshot: InstructionSnapshot = {
       agentId: pollAgentId,
       agentName: pollAgentName,
@@ -479,6 +488,7 @@ export const useAgentConnectionLifecycle = ({
       installationGeneration: pollGeneration,
       installationId: waitingInstallationId,
       instructions: waiting?.instructions ?? '',
+      role: pollRole,
       lifecycleEpoch: pollLifecycleEpoch,
       spaceId,
     };
@@ -489,6 +499,7 @@ export const useAgentConnectionLifecycle = ({
     expired,
     pollAgentId,
     pollAgentName,
+    pollRole,
     pollGeneration,
     pollLifecycleEpoch,
     runCheck,

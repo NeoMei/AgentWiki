@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
-import { PageInfoPanel } from './PageInfoPanel';
+import { PageInfoContent, PageInfoPanel } from './PageInfoPanel';
 
 const details = {
   spaceId: 'space-1',
@@ -26,6 +26,22 @@ const renderPanel = (props: Partial<React.ComponentProps<typeof PageInfoPanel>> 
 );
 
 describe('PageInfoPanel', () => {
+  it('embeds information and permission-gated actions without an independent overlay', () => {
+    const history = vi.fn(), remove = vi.fn();
+    render(<LanguageProvider><MemoryRouter><div data-testid="host"><PageInfoContent {...details} onOpenHistory={history} onDelete={remove} deleting={false} /></div></MemoryRouter></LanguageProvider>);
+    expect(screen.getByTestId('host')).toHaveTextContent('Evidence quote');
+    expect(screen.queryByRole('button', { name: 'Page information' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Version history' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete page' }));
+    expect(history).toHaveBeenCalledOnce();
+    expect(remove).toHaveBeenCalledOnce();
+  });
+  it('does not invent a delete action when the embedded editor only provides history navigation', () => {
+    render(<LanguageProvider><MemoryRouter><PageInfoContent {...details} /></MemoryRouter></LanguageProvider>);
+    expect(screen.getByRole('button', { name: 'Version history' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Delete page' })).not.toBeInTheDocument();
+  });
   it('labels historical evidence and never renders an inaccessible Run link', () => {
     renderPanel({ provenance: { ...details.provenance, run: null }, sourceStatus: { status: 'unavailable', reason: 'source_unavailable' }, evidence: [{ id: 'old', quote: 'Old basis', evidenceState: 'historical' }] });
     fireEvent.click(screen.getByRole('button', { name: 'Page information' }));

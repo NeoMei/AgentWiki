@@ -105,12 +105,36 @@ export const PageAgentBindingDialog: React.FC<{
   const agentNames = useMemo(() => new Map(agents.flatMap((member) => member.agentId && member.agent
     ? [[member.agentId, member.agent.name] as const]
     : [])), [agents]);
+  const duplicateAgentNames = useMemo(() => {
+    const counts = new Map<string, number>();
+    agents.forEach((member) => { if (member.agent?.name) counts.set(member.agent.name, (counts.get(member.agent.name) ?? 0) + 1); });
+    return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([name]) => name));
+  }, [agents]);
   const selectedAgent = agents.find((member) => member.agentId === agentId);
   const selectedPageIdSet = useMemo(() => new Set(selectedPageIds), [selectedPageIds]);
   const scopedPages = scope.kind === 'folder'
     ? pages.filter((page) => selectedPageIdSet.has(page.pageId))
     : pages;
   const hasFolderPageScope = scope.kind !== 'folder' || scopedPages.length > 0;
+  const runIssueLabels = useMemo(() => {
+    if (!runPreview) return [];
+    const roleNames = new Map(runPreview.roles.map((role) => [role.id, role.name]));
+    const inputNames = new Map(runPreview.inputDefinitions.map((input) => [input.key, input.label]));
+    const pageNames = new Map(pages.map((page) => [page.pageId, page.title ?? page.pageId]));
+    const seen = new Set<string>();
+    return runPreview.issues.flatMap((issue) => {
+      const target = String(issue.roleSlotId ?? issue.inputKey ?? issue.pageId ?? issue.nodeId ?? '');
+      const key = `${issue.code}|${target}`;
+      if (seen.has(key)) return [];
+      seen.add(key);
+      const translated = t(`pageTemplate.composite.issue.${issue.code}`);
+      const base = translated === `pageTemplate.composite.issue.${issue.code}` ? issue.code : translated;
+      const name = issue.roleSlotId ? roleNames.get(String(issue.roleSlotId))
+        : issue.inputKey ? inputNames.get(String(issue.inputKey))
+          : issue.pageId ? pageNames.get(String(issue.pageId)) : undefined;
+      return [name ? `${base} · ${name}` : base];
+    });
+  }, [pages, runPreview, t]);
 
   const edits = () => scopedPages.map((page) => ({
     pageId: page.pageId, agentId: agentId || null, roleSlotKey: agentId ? 'owner' : null, expectedUpdatedAt: page.updatedAt,
@@ -280,13 +304,13 @@ export const PageAgentBindingDialog: React.FC<{
           {folderBindingMode === 'bulk_replace' ? <label className="mt-4 block text-sm font-medium">{t('pageTemplate.binding.bulkAgent')}
             <select aria-label={t('pageTemplate.binding.bulkAgent')} value={agentId} onChange={(event) => { setAgentId(event.target.value); signatureRef.current = null; invalidateRunPreview(); }} className="mt-1 h-10 w-full rounded-lg border px-3">
               <option value="">{t('pageTemplate.binding.none')}</option>
-              {agents.flatMap((member) => member.agentId && member.agent ? [<option key={member.agentId} value={member.agentId} disabled={!availability.get(member.agentId)}>{member.agent.name}{availability.get(member.agentId) ? '' : ` — ${member.role === 'reader' ? t('pageTemplate.composite.agentReader') : t('pageTemplate.composite.agentInactive')}`}</option>] : [])}
+              {agents.flatMap((member) => member.agentId && member.agent ? [<option key={member.agentId} value={member.agentId} disabled={!availability.get(member.agentId)}>{member.agent.name}{duplicateAgentNames.has(member.agent.name) ? ` #${member.agentId.slice(0, 8)}` : ''}{availability.get(member.agentId) ? '' : ` — ${member.role === 'reader' ? t('pageTemplate.composite.agentReader') : t('pageTemplate.composite.agentInactive')}`}</option>] : [])}
             </select>
           </label> : null}
         </fieldset> : <label className="mt-5 block text-sm font-medium">{t('pageTemplate.binding.primaryAgent')}
           <select aria-label={t('pageTemplate.binding.primaryAgent')} value={agentId} onChange={(event) => { setAgentId(event.target.value); signatureRef.current = null; invalidateRunPreview(); }} className="mt-1 h-10 w-full rounded-lg border px-3">
             <option value="">{t('pageTemplate.binding.none')}</option>
-            {agents.flatMap((member) => member.agentId && member.agent ? [<option key={member.agentId} value={member.agentId} disabled={!availability.get(member.agentId)}>{member.agent.name}{availability.get(member.agentId) ? '' : ` — ${member.role === 'reader' ? t('pageTemplate.composite.agentReader') : t('pageTemplate.composite.agentInactive')}`}</option>] : [])}
+            {agents.flatMap((member) => member.agentId && member.agent ? [<option key={member.agentId} value={member.agentId} disabled={!availability.get(member.agentId)}>{member.agent.name}{duplicateAgentNames.has(member.agent.name) ? ` #${member.agentId.slice(0, 8)}` : ''}{availability.get(member.agentId) ? '' : ` — ${member.role === 'reader' ? t('pageTemplate.composite.agentReader') : t('pageTemplate.composite.agentInactive')}`}</option>] : [])}
           </select>
         </label>}
         {selectedAgent?.agent ? <p className="mt-2 text-sm text-gray-500">{selectedAgent.agent.name} · {selectedAgent.agent.connected ? t('pageTemplate.binding.connected') : t('pageTemplate.binding.notConnected')}</p> : null}
@@ -314,7 +338,7 @@ export const PageAgentBindingDialog: React.FC<{
             }} />
             <div className="grid min-w-0 gap-4 sm:grid-cols-2"><div><h4 className="text-sm font-medium">{t('pageTemplate.binding.previewTasks')}</h4><ul className="mt-2 space-y-2 text-sm">{runPreview.tasks.map((task) => <li key={task.nodeId} className="rounded-lg bg-gray-50 p-2"><p className="break-words font-medium">{task.name}</p><p className="mt-1 break-all text-xs text-gray-500">{task.nodeId} · {task.roleSlotId}</p></li>)}</ul></div>
             <div><h4 className="text-sm font-medium">{t('pageTemplate.binding.previewParticipants')}</h4><ul className="mt-2 space-y-2 text-sm">{runPreview.participants.map((participant) => <li key={participant} className="break-all rounded-lg bg-gray-50 p-2">{agentNames.get(participant) ?? participant} · {participant}</li>)}</ul></div>
-            {runPreview.issues.length ? <div role="alert" className="rounded-lg bg-red-50 p-3 text-xs text-red-700 sm:col-span-2"><p>{t('pageTemplate.binding.previewIssues', { count: runPreview.issues.length })}</p><ul className="mt-2 list-disc pl-5">{runPreview.issues.map((issue, index) => <li key={`${issue.code}-${index}`}>{t(`pageTemplate.composite.issue.${issue.code}`)}</li>)}</ul></div> : null}</div></div> : null}
+            {runIssueLabels.length ? <div role="alert" className="rounded-lg bg-red-50 p-3 text-xs text-red-700 sm:col-span-2"><p>{t('pageTemplate.binding.previewIssues', { count: runIssueLabels.length })}</p><ul className="mt-2 list-disc pl-5">{runIssueLabels.map((label, index) => <li key={`${label}-${index}`}>{label}</li>)}</ul></div> : null}</div></div> : null}
         </section> : null}
       </>}
     </> : null}

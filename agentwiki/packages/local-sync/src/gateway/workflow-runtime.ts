@@ -27,6 +27,8 @@ export interface AdapterResolver {
 export interface WorkflowRuntimeOptions {
   home: string;
   adapters: AdapterResolver;
+  /** Select only local Space state; preview and source identities keep their existing home. */
+  workspaceHome?: (spaceId: string) => Promise<string>;
   scanSources?: Pick<CodeGraphPipeline, 'plan' | 'collect'>;
   sync: RemoteSync;
   now?: () => Date;
@@ -134,7 +136,8 @@ export function createKnowledgeWorkflowRuntime(options: WorkflowRuntimeOptions):
         return true;
       });
 
-      const manifest = await readManifest(workspacePaths(options.home, input.spaceId));
+      const stateHome = await options.workspaceHome?.(input.spaceId) ?? options.home;
+      const manifest = await readManifest(workspacePaths(stateHome, input.spaceId));
       const baseRevision = manifest?.baseRevision?.revision ?? '0';
       const organized = organizeArtifacts(safeArtifacts, {
        spaceId: input.spaceId,
@@ -159,7 +162,7 @@ export function createKnowledgeWorkflowRuntime(options: WorkflowRuntimeOptions):
         };
       } else {
         try {
-          const baseData = await readBase(workspacePaths(options.home, input.spaceId), baseRevision);
+          const baseData = await readBase(workspacePaths(stateHome, input.spaceId), baseRevision);
           if (baseData === null) throw new Error('Confirmed base bundle is missing');
           const base = confirmedBaseBundle(baseData, baseRevision);
           if (codeBearing) {

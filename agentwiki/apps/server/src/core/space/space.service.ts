@@ -104,7 +104,10 @@ export class SpaceService {
             },
           },
         },
-        include: { members: { select: MEMBER_SELECT } },
+        include: {
+          members: { select: MEMBER_SELECT },
+          _count: { select: { pages: { where: { deletedAt: null } } } },
+        },
       });
     } catch (error: any) {
       if (error.code === 'P2002') {
@@ -152,7 +155,12 @@ export class SpaceService {
         },
       }),
     ]);
-    return { data, total, page: Math.floor(skip / take) + 1, limit: take };
+    return {
+      data: await this.withLastUpdatedAt(this.prisma, data),
+      total,
+      page: Math.floor(skip / take) + 1,
+      limit: take,
+    };
   }
 
   private async findAllByCursor(
@@ -203,7 +211,7 @@ export class SpaceService {
         },
       });
       const hasMore = rows.length > take;
-      const data = hasMore ? rows.slice(0, take) : rows;
+      const data = await this.withLastUpdatedAt(tx, hasMore ? rows.slice(0, take) : rows);
       const last = data[data.length - 1];
       const nextCursor = hasMore && last
         ? this.encodeSpaceCursor(last.createdAt, last.id, revision)
@@ -220,6 +228,27 @@ export class SpaceService {
         resetRequired,
       };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
+
+  private async withLastUpdatedAt<T extends { id: string; updatedAt: Date }>(
+    client: Pick<Prisma.TransactionClient, 'page'>,
+    spaces: T[],
+  ): Promise<Array<T & { lastUpdatedAt: Date }>> {
+    if (!spaces.length) return [];
+    // Bound the aggregate to this authorized result page, not every visible Space.
+    const latestPages = await client.page.groupBy({
+      by: ['spaceId'],
+      where: { spaceId: { in: spaces.map(({ id }) => id) }, deletedAt: null },
+      _max: { updatedAt: true },
+    });
+    const latestBySpace = new Map(latestPages.map((row) => [row.spaceId, row._max.updatedAt]));
+    return spaces.map((space) => {
+      const latestPage = latestBySpace.get(space.id);
+      return {
+        ...space,
+        lastUpdatedAt: latestPage && latestPage > space.updatedAt ? latestPage : space.updatedAt,
+      };
+    });
   }
 
   private spaceCollectionRevision(keys: Array<{ id: string; createdAt: Date }>): string {
@@ -359,15 +388,17 @@ export class SpaceService {
           agentId: true,
           spaceId: true,
           createdAt: true,
-          agent: { select: { id: true, name: true, status: true, revokedAt: true, ownerId: true } },
-          credentials: {
-            where: {
-              revokedAt: null,
-              OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+          agent: { select: {
+            id: true, name: true, status: true, revokedAt: true, ownerId: true,
+            credentials: {
+              where: {
+                revokedAt: null,
+                OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+              },
+              select: { id: true },
+              take: 1,
             },
-            select: { id: true },
-            take: 1,
-          },
+          } },
         },
         orderBy: { createdAt: 'asc' },
       }),
@@ -375,8 +406,8 @@ export class SpaceService {
     return [
       ...humans.map((member) => ({ ...member, type: 'human' as const })),
       ...agentGrants.map((grant) => {
-        const { ownerId, ...agent } = grant.agent;
-        const { credentials = [], ...summary } = grant;
+        const { ownerId, credentials = [], ...agent } = grant.agent;
+        const { agent: _agent, ...summary } = grant;
         return {
           ...summary,
           agent: { ...agent, connected: credentials.length > 0 },

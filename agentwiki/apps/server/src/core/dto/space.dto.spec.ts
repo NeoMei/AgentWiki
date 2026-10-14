@@ -29,3 +29,17 @@ it('allows settings-only updates without a name, but requires a name for creatio
   await expect(pipe.transform(body, { type: 'body', metatype: UpdateSpaceDto })).resolves.toMatchObject(body);
   await expect(pipe.transform(body, { type: 'body', metatype: CreateSpaceDto })).rejects.toMatchObject({ status: 400 });
 });
+
+describe.each([CreateSpaceDto, UpdateSpaceDto])('%p approval policy contract', (metatype) => {
+  const parse = (body: object) => pipe.transform(body, { type: 'body', metatype });
+
+  it.each(['always-review', 'no-review', 'scoped-auto-publish'])('accepts canonical or legacy policy %s', async (approvalPolicy) => {
+    await expect(parse({ ...(metatype === CreateSpaceDto ? { name: 'Space' } : {}), approvalPolicy }))
+      .resolves.toMatchObject({ approvalPolicy });
+  });
+
+  it('rejects removed approval policy values', async () => {
+    await expect(parse({ ...(metatype === CreateSpaceDto ? { name: 'Space' } : {}), approvalPolicy: 'review-required' }))
+      .rejects.toMatchObject({ status: 400 });
+  });
+});

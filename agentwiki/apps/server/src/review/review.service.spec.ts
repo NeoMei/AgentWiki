@@ -2036,17 +2036,48 @@ describe('one-shot review-publish and agent auto-publish', () => {
     expect(result.autoPublished).toBe(true);
   });
 
+  it('auto-publishes an Editor proposal in a no-review Space without review:auto-publish', async () => {
+    prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'no-review', deletedAt: null });
+    prisma.agent.findUnique.mockImplementation(async ({ select }: any) => select?.ownerId
+      ? { ownerId: 'owner-1' }
+      : {
+        status: 'active', revokedAt: null, approvalMode: 'always-review',
+        owner: { deletedAt: null, lockedAt: null },
+    });
+    prisma.agentCredential.findFirst.mockResolvedValue({ revokedAt: null, expiresAt: null });
+    prisma.agentGrant.findUnique.mockResolvedValue({ id: 'grant-1', role: 'editor', folderScopes: ['folders:read', 'folders:write'] });
+    prisma.$queryRaw.mockResolvedValue([{ id: 'credential-1' }]);
+    prisma.changeSet.create.mockResolvedValue({ id: 'cs-editor-auto', status: 'approved' });
+    const autoChangeSet = {
+      id: 'cs-editor-auto', status: 'approved', spaceId: 'space-1', createdByUserId: null, createdByAgentId: 'agent-1',
+      items: [{ id: 'i1', type: 'create_page', status: 'accepted', payload: { title: 'A', content: 'x', expectedTreeRevision: '0' } }],
+      approvals: [], space: {}, run: null,
+    };
+    prisma.changeSet.findUnique
+      .mockResolvedValueOnce(autoChangeSet)
+      .mockResolvedValueOnce({ ...autoChangeSet, status: 'published' });
+    prisma.page.create.mockResolvedValue({ id: 'page-1' });
+
+    const result = await service.propose(
+      { userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1', agentRole: 'editor', scopes: scopesForAgentAccessRole('editor') },
+      'space-1', 'Auto', { type: 'create_page', payload: { title: 'A', content: 'x', expectedTreeRevision: '0' } },
+    );
+
+    expect(prisma.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'approved' }),
+    }));
+    expect(result.autoPublished).toBe(true);
+  });
+
   it.each([
     ['Credential revoked', (state: any) => { state.credential.revokedAt = new Date(); }],
     ['Credential expired', (state: any) => { state.credential.expiresAt = new Date(Date.now() - 1_000); }],
-    ['Credential rebound to another authorization', (state: any) => { state.credential.authorizationId = 'grant-other'; }],
+    ['Credential expired', (state: any) => { state.credential.expiresAt = new Date(0); }],
     ['Agent paused', (state: any) => { state.agent.status = 'paused'; }],
     ['Agent revoked', (state: any) => { state.agent.revokedAt = new Date(); }],
-    ['Agent auto-publish disabled', (state: any) => { state.agent.approvalMode = 'always-review'; }],
     ['Agent owner locked', (state: any) => { state.agent.owner.lockedAt = new Date(); }],
     ['Agent owner deleted', (state: any) => { state.agent.owner.deletedAt = new Date(); }],
     ['Grant removed', (state: any) => { state.grant = null; }],
-    ['Grant role downgraded', (state: any) => { state.grant.role = 'editor'; }],
     ['Space deleted', (state: any) => { state.space.deletedAt = new Date(); }],
     ['Space policy downgraded', (state: any) => { state.space.approvalPolicy = 'always-review'; }],
   ])('revalidates %s inside the final publish transaction and falls back to pending review', async (_gate, mutate) => {
@@ -2152,8 +2183,8 @@ describe('one-shot review-publish and agent auto-publish', () => {
       expect(prisma.changeSet.create).not.toHaveBeenCalled();
   });
 
-  it('keeps an Editor proposal pending despite stale Publisher principal metadata', async () => {
-    prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'scoped-auto-publish', deletedAt: null });
+  it('keeps an Editor proposal pending in always-review despite stale Publisher principal metadata', async () => {
+    prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'always-review', deletedAt: null });
     prisma.agent.findUnique.mockResolvedValue({
       status: 'active', revokedAt: null, approvalMode: 'scoped-auto-publish',
       owner: { deletedAt: null, lockedAt: null },
@@ -2200,13 +2231,10 @@ describe('one-shot review-publish and agent auto-publish', () => {
     expect(result.autoPublished).toBeFalsy();
   });
 
-  it.each([
-    ['Agent approval mode', { spacePolicy: 'scoped-auto-publish', agentMode: 'always-review' }],
-    ['Space policy', { spacePolicy: 'always-review', agentMode: 'scoped-auto-publish' }],
-  ])('keeps publisher proposals pending when the %s gate is missing', async (_gate, values) => {
-    prisma.space.findUnique.mockResolvedValue({ approvalPolicy: values.spacePolicy, deletedAt: null });
+  it('keeps publisher proposals pending when the Space policy requires review', async () => {
+    prisma.space.findUnique.mockResolvedValue({ approvalPolicy: 'always-review', deletedAt: null });
     prisma.agent.findUnique.mockResolvedValue({
-      status: 'active', revokedAt: null, approvalMode: values.agentMode,
+      status: 'active', revokedAt: null, approvalMode: 'scoped-auto-publish',
       owner: { deletedAt: null, lockedAt: null },
     });
     prisma.agentCredential.findFirst.mockResolvedValue({

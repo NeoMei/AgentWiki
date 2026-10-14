@@ -63,6 +63,150 @@ describe('Dashboard Space pagination and creation', () => {
     vi.mocked(api.get).mockResolvedValue(spacePage(spaces, 25));
   });
 
+  it('shows useful Space context on each card', async () => {
+    vi.mocked(api.get).mockResolvedValue(spacePage([{
+      id: 'space-context',
+      name: '产品知识库',
+      slug: 'product-knowledge',
+      description: '沉淀产品决策和交付资料',
+      updatedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      approvalPolicy: 'always-review',
+      _count: { pages: 12 },
+      members: [
+        { type: 'human', role: 'owner', user: { id: 'owner-1', name: '空间负责人', email: 'owner@example.test' } },
+        { type: 'human', role: 'admin', user: { id: 'admin-1', name: 'Admin' } },
+      ],
+    }], 1, { nextCursor: null, hasMore: false }));
+
+    renderDashboard();
+
+    const card = await screen.findByTestId('space-card');
+    expect(within(card).getByText('12 个页面')).toBeInTheDocument();
+    expect(within(card).getByText('2 位成员')).toBeInTheDocument();
+    expect(within(card).getByText('所有者：空间负责人')).toBeInTheDocument();
+    expect(within(card).getByText('始终审核')).toBeInTheDocument();
+    expect(within(card).getByText(/最近更新/)).toBeInTheDocument();
+    expect(within(card).getByRole('link', { name: /进入空间/ })).toHaveAttribute('href', '/spaces/space-context');
+  });
+
+  it('renders the legacy scoped auto-publish policy as the no-review badge', async () => {
+    vi.mocked(api.get).mockResolvedValue(spacePage([{
+      id: 'legacy-policy', name: '兼容空间', slug: 'legacy-policy', approvalPolicy: 'scoped-auto-publish',
+    }], 1, { nextCursor: null, hasMore: false }));
+
+    renderDashboard();
+
+    const card = await screen.findByTestId('space-card');
+    expect(within(card).getByText('无需审核')).toBeInTheDocument();
+    expect(within(card).queryByText('限定范围自动发布')).not.toBeInTheDocument();
+  });
+
+  it('shows every owner, using email for blank names without including other member roles', async () => {
+    vi.mocked(api.get).mockResolvedValue(spacePage([{
+      id: 'multi-owner', name: '协作空间', slug: 'shared',
+      members: [
+        { role: 'admin', user: { id: 'admin-1', name: 'Admin' } },
+        { role: 'owner', user: { id: 'owner-a', name: ' 张三 ', email: 'a@example.test' } },
+        { role: 'editor', user: { id: 'editor', name: '编辑者' } },
+        { role: 'owner', user: { id: 'owner-b', name: '  ', email: 'owner-b@example.test' } },
+      ],
+    }], 1));
+    renderDashboard();
+    const card = await screen.findByTestId('space-card');
+    const owner = within(card).getByText('所有者：张三、owner-b@example.test');
+    expect(owner.closest('p')).toHaveAttribute('title', owner.textContent);
+    expect(within(card).queryByText(/所有者：.*Admin|所有者：.*编辑者/)).not.toBeInTheDocument();
+  });
+
+  it.each(['zh-CN', 'en'])('does not invent an owner when member details are absent (%s)', async (language) => {
+    localStorage.setItem('agentwiki.language.v1', language);
+    vi.mocked(api.get).mockResolvedValue(spacePage([{ id: 'unknown-owner', name: '未知所有者', slug: 'unknown' }], 1));
+    renderDashboard();
+    const card = await screen.findByTestId('space-card');
+    expect(within(card).getByText(language === 'en' ? 'Owner: Not available' : '所有者：暂无信息')).toBeInTheDocument();
+    expect(within(card).queryByText(/Owner: Admin|所有者：Admin/)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { lastUpdatedAt: '2026-10-13T10:00:00.000Z', expected: '最近更新 2小时前' },
+    { lastUpdatedAt: undefined, expected: '最近更新 前天' },
+  ])('shows the latest page activity with a fallback for older API responses: $expected', async ({ lastUpdatedAt, expected }) => {
+    vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-10-13T12:00:00.000Z').getTime());
+    vi.mocked(api.get).mockResolvedValue(spacePage([{
+      id: 'space-recent', name: '有更新的空间', slug: 'recent',
+      updatedAt: '2026-10-11T12:00:00.000Z', lastUpdatedAt,
+    }], 1));
+
+    renderDashboard();
+
+    expect(await screen.findByText(expected)).toHaveAttribute(
+      'title',
+      new Date(lastUpdatedAt ?? '2026-10-11T12:00:00.000Z').toLocaleString('zh-CN'),
+    );
+  });
+
+  it.each([
+    { language: 'zh-CN', field: 'lastUpdatedAt', expected: '更新时间待校准' },
+    { language: 'en', field: 'lastUpdatedAt', expected: 'Update time needs calibration' },
+    { language: 'zh-CN', field: 'updatedAt', expected: '更新时间待校准' },
+  ])('flags a future $field in $language and preserves its local timestamp', async ({ language, field, expected }) => {
+    const futureTimestamp = '2026-10-13T20:00:00.000Z';
+    vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-10-13T12:00:00.000Z').getTime());
+    localStorage.setItem('agentwiki.language.v1', language);
+    vi.mocked(api.get).mockResolvedValue(spacePage([{
+      id: 'space-future', name: '未来时间的空间', slug: 'future',
+      [field]: futureTimestamp,
+    }], 1));
+
+    renderDashboard();
+
+    expect(await screen.findByText(expected)).toHaveAttribute('title', new Date(futureTimestamp).toLocaleString(language));
+    expect(screen.queryByText(/8小时后|in 8 hours/)).not.toBeInTheDocument();
+  });
+
+  it.each([30, 60])('tolerates a %s-second future clock offset as now', async (seconds) => {
+    const now = new Date('2026-10-13T12:00:00.000Z').getTime();
+    const futureTimestamp = new Date(now + seconds * 1000).toISOString();
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    vi.mocked(api.get).mockResolvedValue(spacePage([{
+      id: 'space-clock-offset', name: '刚更新的空间', slug: 'clock-offset',
+      lastUpdatedAt: futureTimestamp,
+    }], 1));
+
+    renderDashboard();
+
+    expect(await screen.findByText('最近更新 现在')).toHaveAttribute('title', new Date(futureTimestamp).toLocaleString('zh-CN'));
+  });
+
+  it.each([undefined, 'invalid-date'])('keeps the existing fallback for a missing or invalid timestamp: %s', async (updatedAt) => {
+    vi.mocked(api.get).mockResolvedValue(spacePage([{
+      id: 'space-no-time', name: '没有更新时间的空间', slug: 'no-time',
+      updatedAt, pageCount: 1, memberCount: 1,
+    }], 1));
+
+    renderDashboard();
+
+    expect(await screen.findByText('统计同步中')).not.toHaveAttribute('title');
+  });
+
+  it('shows zero pages and the owner immediately after creation without an extra list request', async () => {
+    vi.mocked(api.post).mockResolvedValue({ data: {
+      id: 'space-new', name: '新的知识空间', slug: 'new-space',
+      updatedAt: new Date().toISOString(), members: [{ userId: 'admin-1' }], _count: { pages: 0 },
+    } });
+    renderDashboard();
+    fireEvent.click(await screen.findByRole('button', { name: '新建空间' }));
+    fireEvent.change(screen.getByPlaceholderText('例如：我的知识库'), { target: { value: '新的知识空间' } });
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+
+    const heading = await screen.findByRole('heading', { name: '新的知识空间' });
+    const card = heading.closest('[data-testid="space-card"]') as HTMLElement;
+    expect(within(card).getByText('0 个页面')).toBeInTheDocument();
+    expect(within(card).getByText('1 位成员')).toBeInTheDocument();
+    expect(within(card).queryByText('统计同步中')).not.toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledTimes(1);
+  });
+
   it.each(['空', 'a', '😀', '✈️'])('blocks overlong creation without truncating %s input', async (unit) => {
     renderDashboard();
     fireEvent.click(await screen.findByRole('button', { name: '新建空间' }));

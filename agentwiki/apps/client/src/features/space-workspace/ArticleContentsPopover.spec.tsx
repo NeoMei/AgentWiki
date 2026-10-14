@@ -39,6 +39,29 @@ describe('ArticleContentsPopover', () => {
     });
   });
 
+  it('embeds its contents without a trigger, portal, occupied width or automatic dismissal', async () => {
+    const articleRef = React.createRef<HTMLDivElement>();
+    const navigate = vi.fn(), occupied = vi.fn();
+    const view = render(<LanguageProvider><div data-testid="panel"><ArticleContentsPopover embedded articleRootRef={articleRef} pageKey="embedded" source={'# A\n\n## B'} onNavigate={navigate} onOccupiedWidthChange={occupied} /></div><div ref={articleRef} /></LanguageProvider>);
+    const contents = await screen.findByRole('navigation', { name: 'Contents' });
+    expect(screen.getByTestId('panel')).toContainElement(contents);
+    expect(screen.queryByRole('button', { name: 'Contents' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
+    expect(occupied).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'B' }));
+    expect(navigate).toHaveBeenCalledWith({ id: 'b', label: 'B', level: 2, from: 5, to: 9 });
+    fireEvent.pointerDown(document.body);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(contents).toBeVisible();
+    view.unmount();
+    expect(occupied).not.toHaveBeenCalled();
+  });
+
+  it('shows an embedded empty state when the source has no headings', () => {
+    render(<LanguageProvider><ArticleContentsPopover embedded articleRootRef={React.createRef<HTMLDivElement>()} pageKey="empty" source="Just text" /></LanguageProvider>);
+    expect(screen.getByRole('navigation', { name: 'Contents' })).toHaveTextContent('No headings in this document.');
+  });
+
   it('reports only the visible wide-screen rail and clears its space on close, mobile, suppression, empty source, and unmount', async () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1700 });
     const occupied = vi.fn();

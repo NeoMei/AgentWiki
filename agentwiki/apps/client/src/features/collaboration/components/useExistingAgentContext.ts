@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import {
   existingAgentContextApi,
-  hasActiveSpaceCredential,
+  hasActiveAgentCredential,
   type ExecutableAgentRole,
   type OwnedAgentDetail,
   type OwnedAgentSummary,
@@ -110,7 +110,7 @@ export const useExistingAgentContext = ({
       setContext({
         status: 'ready',
         agentId,
-        connected: hasActiveSpaceCredential(detail, spaceId),
+        connected: hasActiveAgentCredential(detail),
         detail,
         grantRole: detail.grants.find((grant) => grant.spaceId === spaceId)?.role ?? null,
         spaceId,

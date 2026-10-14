@@ -10,7 +10,7 @@ const plan = (title: string) => `# ${title}\n\n### Task 1: ${title} task\n\n- [ 
 function setup(role = 'editor') {
   const { prisma, db } = makeDb();
   const grant = { id: 'grant-1', role, folderScopes: [], agent: { status: 'active', revokedAt: null }, space: { deletedAt: null } };
-  prisma.agentGrant = { findUnique: async () => grant };
+  prisma.agentGrant = { findUnique: async ({ where }: any) => where.agentId_spaceId.spaceId === 'space-1' ? grant : null };
   const authorization = new AuthorizationService(prisma);
   const service = new ProjectTaskboardService(prisma, authorization, { publish: async () => undefined } as any);
   const audit = { record: jest.fn().mockResolvedValue(undefined) };

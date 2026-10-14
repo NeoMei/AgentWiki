@@ -1351,7 +1351,6 @@ export class ReviewService {
       !state.agent.revokedAt &&
       !state.user.deletedAt &&
       !state.user.lockedAt &&
-      state.credential.authorizationId === state.grant.id &&
       !state.space.deletedAt;
     if (!authorized) {
       throw new BusinessException('SPACE_ACCESS_DENIED', 'Agent proposal authorization is no longer valid');
@@ -1373,18 +1372,15 @@ export class ReviewService {
     requiredScopes: string[],
   ): boolean {
     const now = new Date();
-    const gatedScopes = ['review:auto-publish', ...requiredScopes];
     return !state.credential.revokedAt &&
       (!state.credential.expiresAt || state.credential.expiresAt > now) &&
       state.agent.status === 'active' &&
       !state.agent.revokedAt &&
-      state.agent.approvalMode === 'scoped-auto-publish' &&
       !state.user.deletedAt &&
       !state.user.lockedAt &&
-      state.credential.authorizationId === state.grant.id &&
       !state.space.deletedAt &&
-      state.space.approvalPolicy === 'scoped-auto-publish' &&
-      gatedScopes.every((scope) => agentGrantAllowsScope(
+      isNoReviewPolicy(state.space.approvalPolicy) &&
+      requiredScopes.every((scope) => agentGrantAllowsScope(
         state.grant.role, state.grant.folderScopes, scope,
       ));
   }
@@ -2321,4 +2317,8 @@ export class ReviewService {
   private slugify(value: string) {
     return value.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-').replace(/^-+|-+$/g, '') || 'generated';
   }
+}
+
+function isNoReviewPolicy(value: unknown): boolean {
+  return value === 'no-review' || value === 'scoped-auto-publish';
 }

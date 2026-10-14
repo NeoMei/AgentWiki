@@ -1,0 +1,62 @@
+{
+  "sourceCommit": "7708a426aa88090f364d2de276acfce779e6085c",
+  "matchedSourceFiles": 1244,
+  "versions": [
+    "0.12.24",
+    "0.12.24",
+    "0.12.24"
+  ],
+  "environmentChecksums": [
+    "/root/agentwiki/.env: OK",
+    "/root/agentwiki/apps/server/.env: OK"
+  ],
+  "services": "NRestarts=0\nId=agentwiki-api.service\nActiveState=active\nSubState=running\n\nNRestarts=0\nId=agentwiki-worker.service\nActiveState=active\nSubState=running\n\nNRestarts=0\nId=agentwiki-frontend.service\nActiveState=active\nSubState=running\n",
+  "internalHealth": {
+    "status": "ok",
+    "database": "ok",
+    "redis": "ok",
+    "auditPersistence": "ok",
+    "attachmentStorage": "ok"
+  },
+  "publicHealth": {
+    "status": "ok",
+    "database": "ok",
+    "redis": "ok",
+    "auditPersistence": "ok",
+    "attachmentStorage": "ok"
+  },
+  "homepageStatus": 200,
+  "publicIndexMatchesDeployed": true,
+  "publicAssets": [
+    {
+      "path": "/assets/index-SLP4VVVy.js",
+      "bytes": 305866,
+      "sha256": "cab11cb0a831c686a0e8d0e4c5cdaff1961e8dd2482e691af3670676691ba5ad",
+      "matchesDeployed": true
+    },
+    {
+      "path": "/assets/_commonjsHelpers-CqkleIqs.js",
+      "bytes": 116,
+      "sha256": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+      "matchesDeployed": true
+    },
+    {
+      "path": "/assets/react-vendor-CTv3miC2.js",
+      "bytes": 239298,
+      "sha256": "7e3a4bf34c49700b5fad7403a908da66c35ca1ad3669d05d3356f1a5e9bae663",
+      "matchesDeployed": true
+    },
+    {
+      "path": "/assets/preload-helper-ckwbz45p.js",
+      "bytes": 1142,
+      "sha256": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+      "matchesDeployed": true
+    },
+    {
+      "path": "/assets/index--KjThhcr.css",
+      "bytes": 69475,
+      "sha256": "428bf2f498faf127fe23789a52e817db1c96a7b8dd0a10355ef961a18f7c3926",
+      "matchesDeployed": true
+    }
+  ]
+}

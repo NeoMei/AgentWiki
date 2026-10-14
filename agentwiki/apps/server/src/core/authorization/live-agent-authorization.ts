@@ -20,7 +20,7 @@ export interface LockedAgentAuthorization {
   };
   space: { deletedAt: Date | null; approvalPolicy: string };
   grant: { id: string; role: AgentAccessRole; folderScopes: string[] };
-  credential: { authorizationId: string; revokedAt: Date | null; expiresAt: Date | null };
+  credential: { revokedAt: Date | null; expiresAt: Date | null };
 }
 
 type LockedNonSpaceAuthorization = Omit<LockedAgentAuthorization, 'space'>;
@@ -121,7 +121,7 @@ async function lockAndReadNonSpaceAuthorization(
   const [credential, agent, grant] = await Promise.all([
     client.agentCredential.findFirst({
       where: { id: context.credentialId, agentId: context.agentId },
-      select: { authorizationId: true, revokedAt: true, expiresAt: true },
+      select: { revokedAt: true, expiresAt: true },
     }),
     client.agent.findUnique({
       where: { id: context.agentId },

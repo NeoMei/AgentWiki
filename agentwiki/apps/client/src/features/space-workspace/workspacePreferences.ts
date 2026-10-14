@@ -1,3 +1,5 @@
+import type { DocumentPanelTab } from './DocumentPanelToolbar';
+
 /** Session-only state: survives directory loading unmounts, never written to storage. */
 export interface DirectorySelectionState {
   scope: string;
@@ -8,7 +10,7 @@ export interface PanelPreferences {
   outlineOpen?: boolean;
   outlineWidth?: number;
   collaborationOpen?: boolean;
-  collaborationTab?: 'assist' | 'notes';
+  collaborationTab?: DocumentPanelTab;
   collaborationWidth?: number;
 }
 export interface WorkspacePreferences extends PanelPreferences {
@@ -22,6 +24,7 @@ export const clampOutlineWidth = (width?: number): number => Math.max(200, Math.
 export const clampCollaborationWidth = (width?: number): number => Math.max(320, Math.min(520, typeof width === 'number' && Number.isFinite(width) ? width : 320));
 export const defaultWorkspacePreferences = (): WorkspacePreferences => ({ expandedFolderIds: new Set(), directoryScrollTop: 0, directoryWidth: 260, directoryCollapsed: false, outlineOpen: undefined, outlineWidth: 280, collaborationOpen: false, collaborationTab: 'assist', collaborationWidth: 320 });
 const keyFor = (userId: string, spaceId: string) => `agentwiki.workspace.v1:${encodeURIComponent(userId)}:${encodeURIComponent(spaceId)}`;
+const validPanelTab = (value: unknown): DocumentPanelTab => value === 'contents' || value === 'info' || value === 'notes' ? value : 'assist';
 export const readWorkspacePreferences = (userId: string, spaceId: string): WorkspacePreferences => {
   const fallback = defaultWorkspacePreferences();
   try {
@@ -37,7 +40,7 @@ export const readWorkspacePreferences = (userId: string, spaceId: string): Works
       outlineOpen: typeof value.outlineOpen === 'boolean' ? value.outlineOpen : undefined,
       outlineWidth: clampOutlineWidth(value.outlineWidth),
       collaborationOpen: value.collaborationOpen === true,
-      collaborationTab: value.collaborationTab === 'notes' ? 'notes' : 'assist',
+      collaborationTab: validPanelTab(value.collaborationTab),
       collaborationWidth: clampCollaborationWidth(value.collaborationWidth),
     };
   } catch { return fallback; }
@@ -47,7 +50,7 @@ export const writeWorkspacePreferences = (userId: string, spaceId: string, value
     schemaVersion: 1, expandedFolderIds: [...value.expandedFolderIds], directoryScrollTop: value.directoryScrollTop,
     directoryWidth: value.directoryWidth, directoryCollapsed: value.directoryCollapsed,
     outlineOpen: value.outlineOpen, outlineWidth: clampOutlineWidth(value.outlineWidth),
-    collaborationOpen: value.collaborationOpen === true, collaborationTab: value.collaborationTab === 'notes' ? 'notes' : 'assist',
+    collaborationOpen: value.collaborationOpen === true, collaborationTab: validPanelTab(value.collaborationTab),
     collaborationWidth: clampCollaborationWidth(value.collaborationWidth),
   })); } catch { /* Preferences remain available in memory if storage is blocked or full. */ }
 };

@@ -1,0 +1,26 @@
+{
+  "api": "https://agentwiki.quukk.com/api",
+  "startedAt": "2026-10-13T21:08:38.848Z",
+  "fixtureNonce": "12945752-15c2-4ed2-8c8a-8b1a42462f29",
+  "removed": [
+    {
+      "kind": "attachment",
+      "id": "cmv768zi2008m59hs8or3avu9"
+    },
+    {
+      "kind": "space",
+      "id": "cmv768z1i008c59hsb4ps4pmx"
+    },
+    {
+      "kind": "reader",
+      "id": "cmv768yyu008b59hsfzc8awml"
+    },
+    {
+      "kind": "owner",
+      "id": "cmv768yn1008a59hse7tru8uy"
+    }
+  ],
+  "status": "passed",
+  "completedAt": "2026-10-13T21:08:40.096Z",
+  "semantics": "API revocation, attachment archive and soft deletion; no database hard deletion"
+}

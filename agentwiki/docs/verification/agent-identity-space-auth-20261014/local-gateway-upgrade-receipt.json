@@ -1,0 +1,16 @@
+{
+  "upgradeSucceeded": true,
+  "dryRun": false,
+  "baselineMatched": true,
+  "packageVerified": true,
+  "regularFilesUnchanged": true,
+  "concurrentStateUnchanged": true,
+  "credentialsUnchanged": true,
+  "identityUnchanged": true,
+  "otherConfigUnchanged": true,
+  "backupPaths": [
+    "/Users/neomei/.agentwiki-archive/gateway-0.12.0-20261013T165821Z-7c368763/config.toml",
+    "/Users/neomei/.agentwiki-archive/gateway-0.12.0-20261013T165821Z-7c368763/local-sync.json",
+    "/Users/neomei/.agentwiki-archive/gateway-0.12.0-20261013T165821Z-7c368763/SKILL.md"
+  ]
+}

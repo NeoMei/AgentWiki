@@ -59,6 +59,7 @@ export class AgentService {
     });
     return agents.map((agent) => ({
       ...agent,
+      credentialScope: 'agent' as const,
       grants: agent.grants.map((grant) => this.grantResponse(grant)),
     }));
   }
@@ -71,14 +72,8 @@ export class AgentService {
         credentials: {
           where: { revokedAt: null },
           select: {
-            id: true, name: true, prefix: true, authorizationId: true,
+            id: true, name: true, prefix: true,
             expiresAt: true, lastUsedAt: true, createdAt: true,
-            authorization: {
-              select: {
-                role: true, folderScopes: true,
-                space: { select: { id: true, name: true } },
-              },
-            },
           },
         },
       },
@@ -87,20 +82,13 @@ export class AgentService {
     if (agent.ownerId !== ownerId) throw new ForbiddenException('You do not own this agent');
     return {
       ...agent,
+      credentialScope: 'agent' as const,
       grants: (agent.grants ?? []).map((grant) => this.grantResponse(grant)),
       credentials: (agent.credentials ?? []).map((credential) => ({
         id: credential.id,
         name: credential.name,
         prefix: credential.prefix,
-        authorization: {
-          id: credential.authorizationId,
-          role: credential.authorization.role,
-          scopes: scopesForAgentGrant(
-            credential.authorization.role,
-            credential.authorization.folderScopes,
-          ),
-          space: credential.authorization.space,
-        },
+        credentialScope: 'agent' as const,
         expiresAt: credential.expiresAt,
         lastUsedAt: credential.lastUsedAt,
         createdAt: credential.createdAt,
@@ -192,6 +180,7 @@ export class AgentService {
     role: AgentAccessRole;
     scopes: string[];
     apiKey: string;
+    credentialScope: 'agent';
   }> {
     return this.prisma.$transaction(async (tx) => {
       await this.lockAgentAuthorizationMutationRows(
@@ -251,7 +240,6 @@ export class AgentService {
         where: { localSyncInstallationId: input.installationId },
         create: {
           agentId: input.agentId,
-          authorizationId: grant.id,
           name: 'AgentWiki connection',
           prefix: input.rawKey.slice(0, 12),
           keyHash,
@@ -261,14 +249,12 @@ export class AgentService {
         select: {
           id: true,
           agentId: true,
-          authorizationId: true,
           keyHash: true,
           revokedAt: true,
         },
       });
       if (
         credential.agentId !== input.agentId
-        || credential.authorizationId !== grant.id
         || credential.keyHash !== keyHash
         || credential.revokedAt
       ) {
@@ -301,6 +287,7 @@ export class AgentService {
         role: grant.role,
         scopes: scopesForAgentGrant(grant.role, grant.folderScopes),
         apiKey: input.rawKey,
+        credentialScope: 'agent',
       };
     });
   }
@@ -318,7 +305,6 @@ export class AgentService {
         where: {
           id: input.credentialId,
           agentId: input.agentId,
-          authorizationId: input.grantId,
           revokedAt: null,
           OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
           agent: {
@@ -328,7 +314,7 @@ export class AgentService {
             owner: { deletedAt: null, lockedAt: null },
           },
         },
-        select: { id: true, authorizationId: true },
+        select: { id: true },
       }),
       this.prisma.agentGrant.findFirst({
         where: {
@@ -349,7 +335,6 @@ export class AgentService {
       !credential
       || !grant
       || credential.id !== input.credentialId
-      || credential.authorizationId !== input.grantId
       || grant.id !== input.grantId
       || grant.role !== input.role
       || grant.space.deletedAt
@@ -364,14 +349,8 @@ export class AgentService {
     const credentials = await this.prisma.agentCredential.findMany({
       where: { agentId, revokedAt: null },
       select: {
-        id: true, name: true, prefix: true, authorizationId: true,
+        id: true, name: true, prefix: true,
         expiresAt: true, lastUsedAt: true, createdAt: true,
-        authorization: {
-          select: {
-            role: true, folderScopes: true,
-            space: { select: { id: true, name: true } },
-          },
-        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -379,15 +358,7 @@ export class AgentService {
       id: credential.id,
       name: credential.name,
       prefix: credential.prefix,
-      authorization: {
-        id: credential.authorizationId,
-        role: credential.authorization.role,
-        scopes: scopesForAgentGrant(
-          credential.authorization.role,
-          credential.authorization.folderScopes,
-        ),
-        space: credential.authorization.space,
-      },
+      credentialScope: 'agent' as const,
       expiresAt: credential.expiresAt,
       lastUsedAt: credential.lastUsedAt,
       createdAt: credential.createdAt,
@@ -518,9 +489,9 @@ export class AgentService {
     });
   }
 
-  async integrationAccess(ownerId: string, agentId?: string, authorizationId?: string) {
+  async integrationAccess(ownerId: string, agentId?: string, credentialId?: string) {
     if (agentId) {
-      if (!authorizationId) throw new ForbiddenException('Connection authorization is unavailable');
+      if (!credentialId) throw new ForbiddenException('Connection credential is unavailable');
       await this.getOwned(ownerId, agentId);
     }
     const agents = await this.prisma.agent.findMany({
@@ -534,7 +505,7 @@ export class AgentService {
         name: true,
         status: true,
         grants: {
-          ...(authorizationId ? { where: { id: authorizationId } } : {}),
+          where: { space: { deletedAt: null } },
           select: {
             role: true, folderScopes: true,
             space: { select: { id: true, name: true } },
@@ -544,17 +515,11 @@ export class AgentService {
         credentials: {
           where: {
             revokedAt: null,
-            ...(authorizationId ? { authorizationId } : {}),
+            ...(credentialId ? { id: credentialId } : {}),
           },
           select: {
-            id: true, name: true, prefix: true, authorizationId: true,
+            id: true, name: true, prefix: true,
             expiresAt: true, lastUsedAt: true,
-            authorization: {
-              select: {
-                role: true, folderScopes: true,
-                space: { select: { id: true, name: true } },
-              },
-            },
           },
           orderBy: { createdAt: 'desc' },
         },
@@ -564,20 +529,13 @@ export class AgentService {
     const now = Date.now();
     return agents.map((agent) => ({
       ...agent,
+      credentialScope: 'agent' as const,
       grants: agent.grants.map((grant) => this.grantResponse(grant)),
       credentials: agent.credentials.map((credential) => ({
         id: credential.id,
         name: credential.name,
         prefix: credential.prefix,
-        authorization: {
-          id: credential.authorizationId,
-          role: credential.authorization.role,
-          scopes: scopesForAgentGrant(
-            credential.authorization.role,
-            credential.authorization.folderScopes,
-          ),
-          space: credential.authorization.space,
-        },
+        credentialScope: 'agent' as const,
         expiresAt: credential.expiresAt,
         lastUsedAt: credential.lastUsedAt,
         active: !credential.expiresAt || credential.expiresAt.getTime() > now,

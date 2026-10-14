@@ -482,10 +482,15 @@ describe('RunDashboard', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'View all activity' }));
 
-    expect(await screen.findByText(/full-event-2/u)).toBeVisible();
+    expect(await screen.findByText(/Lease heartbeat received ·/u)).toBeVisible();
+    const rawEvent = screen.getByText(/full-event-2/u);
+    expect(rawEvent).not.toBeVisible();
+    fireEvent.click(screen.getByText('Technical details'));
+    expect(rawEvent.closest('details')).toHaveAttribute('open');
     expect(screen.queryByText(/full-event-1/u)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
-    expect(await screen.findByText(/full-event-1/u)).toBeVisible();
+    expect(await screen.findByText(/Run started ·/u)).toBeVisible();
+    expect(screen.getByText(/full-event-1/u)).not.toBeVisible();
     expect(collaborationApi.getRunHistory).toHaveBeenNthCalledWith(1, 'space-1', 'run-1', 'events', undefined, 50);
     expect(collaborationApi.getRunHistory).toHaveBeenNthCalledWith(2, 'space-1', 'run-1', 'events', 'cursor-1', 50);
   });

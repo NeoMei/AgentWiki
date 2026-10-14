@@ -15,15 +15,22 @@ import remarkGfm from 'remark-gfm';
 import { visit } from 'unist-util-visit';
 import { useLanguage } from '../context/LanguageContext';
 import { Markdown } from './Markdown';
+import { EMPTY_NOTE_HIGHLIGHTS, noteHighlightSegments, type NoteHighlightProps } from './markdown/noteHighlights';
+import { noteHighlightExtension } from './markdown/noteHighlightExtension';
 import { toggleMarkdownTask } from './markdown/tasks';
 import { PageLinkTarget, resolveWikiHref } from './markdownLinks';
 import { canonicalWikiReferenceKey, parseWikiReference } from './markdown/obsidian';
 import {
   collectMarkdownResourceOccurrences,
+  collectMarkdownImageOccurrences,
+  standardMarkdownImageResourceRef,
+  type MarkdownImageOccurrence,
   resolveMarkdownResources,
   type MarkdownResourceOccurrence,
   type MarkdownResourceMap,
 } from './markdown/resources';
+import { AttachmentImageWidget, MarkdownImageWidget } from './markdown/AttachmentImageWidget';
+import { isExternalHttpsImage, isInternalImage } from './markdown/imageSource';
 import { formatAttachmentReference } from '../features/attachments/attachmentReference';
 import { outlineFor } from './markdown-tools/outline';
 import { insertionTransaction, slashRange, type InsertCommand } from './markdown-tools/commands';
@@ -35,7 +42,7 @@ import { nearestMarkdownSourceBlock } from '../features/space-workspace/workspac
 
 export type MarkdownMode = 'edit' | 'preview';
 
-interface MarkdownWorkspaceProps {
+interface MarkdownWorkspaceProps extends NoteHighlightProps {
   value: string;
   mode: MarkdownMode;
   onChange: (next: string) => void;
@@ -50,6 +57,8 @@ interface MarkdownWorkspaceProps {
   onRequestPageLinks?: RequestPageLinks;
   outlineOverlay?: boolean;
   onOutlineOccupiedWidthChange?: (width: number) => void;
+  externalOutline?: boolean;
+  outlineContainer?: HTMLElement | null;
   pageLinksIdentity?: string;
   tableEditingEnabled?: boolean;
 }
@@ -62,7 +71,7 @@ export interface MarkdownWorkspaceHandle {
   replaceDocument: (next: string) => boolean;
   insertText: (text: string) => void;
   captureSelection: () => MarkdownSelection;
-  restoreSelection: (selection: MarkdownSelection) => boolean;
+  restoreSelection: (selection: MarkdownSelection, options?: { scrollIntoView?: boolean }) => boolean;
   capturePosition: () => MarkdownWorkspacePosition;
   restorePosition: (position: MarkdownWorkspacePosition) => void;
 }
@@ -316,6 +325,7 @@ class WikiLinkWidget extends WidgetType {
   ignoreEvent() { return false; }
 }
 
+
 const EMPTY_PAGES: PageLinkTarget[] = [];
 // Language identity owns the parser cache. React updates must never recreate it.
 const MARKDOWN_LANGUAGE = markdown({ base: markdownLanguage, codeLanguages: languages });
@@ -342,16 +352,22 @@ const RESOURCE_RESOLUTION_DEBOUNCE_MS = 150;
 const buildHiddenMarksPlugin = (
   pages: PageLinkTarget[],
   referenceOccurrences: readonly MarkdownResourceOccurrence[],
+  imageOccurrences: readonly MarkdownImageOccurrence[],
   authoritativeResources: MarkdownResourceMap | null,
+  zh: boolean,
 ) => ViewPlugin.fromClass(class {
   decorations: DecorationSet;
+  focused: boolean;
   constructor(view: EditorView) {
+    this.focused = view.hasFocus;
     this.decorations = this.compute(view);
   }
   update(update: ViewUpdate) {
     // Background parsing must refresh decorations too; viewport/focus updates
     // and moves within one active line leave the existing ranges intact.
-    if (update.docChanged || syntaxTree(update.startState) !== syntaxTree(update.state)
+    const focusChanged = this.focused !== update.view.hasFocus;
+    this.focused = update.view.hasFocus;
+    if (update.docChanged || focusChanged || update.focusChanged || syntaxTree(update.startState) !== syntaxTree(update.state)
       || (update.selectionSet && activeLinesChanged(update.startState, update.state))) {
       this.decorations = this.compute(update.view);
     }
@@ -359,10 +375,67 @@ const buildHiddenMarksPlugin = (
   compute(view: EditorView): DecorationSet {
     const ranges: Range<Decoration>[] = [];
     const activeLines = activeLineNumbers(view.state);
+    const imageActiveLines = view.hasFocus ? activeLines : new Set<number>();
+    const editImageLabel = zh ? '编辑图片链接' : 'Edit image';
+    const unavailableImageLabel = zh ? '图片暂不可用，点击编辑链接' : 'Image unavailable';
+    const doc = view.state.doc;
+    const linkLikeRanges: Array<{ from: number; to: number; kind: 'link' | 'image' | 'autolink' }> = [];
     syntaxTree(view.state).iterate({
       enter: (node) => {
+        if (node.name === 'Link' || node.name === 'Image' || node.name === 'Autolink') {
+          linkLikeRanges.push({ from: node.from, to: node.to, kind: node.name === 'Link' ? 'link' : node.name === 'Image' ? 'image' : 'autolink' });
+        }
+      },
+    });
+    const attachmentRanges: Array<{ from: number; to: number }> = [];
+    for (const occurrence of referenceOccurrences) {
+      const { from, to, reference } = occurrence;
+      if (reference.kind !== 'attachment' || from < 0 || from >= to || to > doc.length || imageActiveLines.has(doc.lineAt(from).number)) continue;
+      const literal = doc.sliceString(from, to);
+      if (!literal.startsWith('![[') || !literal.endsWith(']]')) continue;
+      const resource = authoritativeResources?.get(reference.canonicalKey);
+      if (resource?.status !== 'resolved' || resource.kind !== 'attachment') continue;
+      attachmentRanges.push({ from, to });
+      ranges.push(Decoration.replace({
+        widget: new AttachmentImageWidget(resource.attachmentId, resource.displayName, resource.width, resource.height, literal.slice(3, -2).split('|').slice(-1)[0]?.trim() ?? resource.displayName, 3, editImageLabel, unavailableImageLabel),
+      }).range(from, to));
+    }
+    for (const image of imageOccurrences) {
+      const { from, to, url, alt, title } = image;
+      if (from < 0 || to > doc.length || doc.sliceString(from, to) !== image.source) continue;
+      if (!linkLikeRanges.some((range) => range.kind === 'image' && range.from === from && range.to === to)) continue;
+      // ViewPlugin replacements may not span line breaks. Keep those images
+      // fully editable, including their delimiters, until the source is one line.
+      if (doc.lineAt(from).number !== doc.lineAt(to).number || imageActiveLines.has(doc.lineAt(from).number)) continue;
+      const source = url.trim();
+      if (!isExternalHttpsImage(source) && !isInternalImage(source)) continue;
+      const reference = standardMarkdownImageResourceRef(source);
+      let widget: MarkdownImageWidget;
+      if (reference) {
+        const resource = authoritativeResources?.get(reference.canonicalKey);
+        if (resource?.status !== 'resolved' || resource.kind !== 'attachment') continue;
+        widget = new AttachmentImageWidget(resource.attachmentId, resource.displayName, resource.width, resource.height, alt, 2, editImageLabel, unavailableImageLabel, title);
+      } else {
+        widget = new MarkdownImageWidget({ url: source }, alt, 2, editImageLabel, unavailableImageLabel, title);
+      }
+      attachmentRanges.push({ from, to });
+      ranges.push(Decoration.replace({ widget }).range(from, to));
+    }
+    const insideRange = (from: number, to: number, container: { from: number; to: number }) => from >= container.from && to <= container.to;
+    const coveredByAttachment = (from: number, to: number) => attachmentRanges.some((range) => insideRange(from, to, range));
+    const codeRanges: Array<{ from: number; to: number }> = [];
+    syntaxTree(view.state).iterate({
+      enter: (node) => {
+        if (node.name === 'InlineCode' || node.name === 'FencedCode' || node.name === 'CodeBlock') codeRanges.push({ from: node.from, to: node.to });
+      },
+    });
+    syntaxTree(view.state).iterate({
+      enter: (node) => {
+        // Stop before inspecting active lines: an Image can span several lines.
+        if (node.name === 'Image') return false;
         const line = view.state.doc.lineAt(node.from).number;
         if (activeLines.has(line)) return;
+        if (coveredByAttachment(node.from, node.to)) return false;
         const name = node.name;
         // HeaderMark / EmphasisMark / QuoteMark / CodeMark etc. carry the
         // literal marker characters (##, **, >, `).
@@ -373,15 +446,38 @@ const buildHiddenMarksPlugin = (
           ranges.push(Decoration.replace({}).range(node.from, end));
           return false;
         }
-        if (name === 'EmphasisMark' || name === 'CodeMark' || name === 'QuoteMark' || name === 'LinkMark' || name === 'URL') {
+        if (name === 'EmphasisMark' || name === 'CodeMark' || name === 'QuoteMark' || name === 'LinkMark') {
           ranges.push(Decoration.replace({}).range(node.from, node.to));
           return false;
+        }
+        if (name === 'URL') {
+          const insideLink = linkLikeRanges.some((range) => range.kind === 'link' && insideRange(node.from, node.to, range));
+          if (insideLink) {
+            ranges.push(Decoration.replace({}).range(node.from, node.to));
+            return false;
+          }
         }
         return undefined;
       },
     });
+    // Highlight syntax is an AgentWiki extension not understood by the
+    // CodeMirror Markdown grammar. Keep it source-preserving and skip code.
+    for (let lineNumber = 1; lineNumber <= doc.lines; lineNumber += 1) {
+      if (activeLines.has(lineNumber)) continue;
+      const line = doc.line(lineNumber);
+      const expression = /==([^=\n]+)==/g;
+      let match: RegExpExecArray | null;
+      while ((match = expression.exec(line.text))) {
+        const from = line.from + match.index;
+        const to = from + match[0].length;
+        if (coveredByAttachment(from, to) || codeRanges.some((range) => insideRange(from, to, range))
+          || linkLikeRanges.some((range) => range.kind === 'image' && insideRange(from, to, range))) continue;
+        ranges.push(Decoration.replace({}).range(from, from + 2));
+        ranges.push(Decoration.mark({ class: 'cm-md-highlight' }).range(from + 2, to - 2));
+        ranges.push(Decoration.replace({}).range(to - 2, to));
+      }
+    }
     // Wiki-links: only inspect the bounded, syntax-aware AST occurrences.
-    const doc = view.state.doc;
     for (const occurrence of referenceOccurrences) {
       const { from, to } = occurrence;
       if (from < 0 || from >= to || to > doc.length || activeLines.has(doc.lineAt(from).number)) continue;
@@ -392,6 +488,7 @@ const buildHiddenMarksPlugin = (
       const referenceKey = canonicalWikiReferenceKey(reference);
       if (!reference.target || !reference.fragmentValid || referenceKey !== occurrence.reference.canonicalKey) continue;
       const resource = authoritativeResources?.get(referenceKey);
+      if (resource?.status === 'resolved' && resource.kind === 'attachment') continue;
       const href = resource?.status === 'resolved' && resource.kind === 'page'
         ? resolveWikiHref(reference, [{ id: resource.pageId, title: resource.title, slug: resource.slug }])
         : authoritativeResources === null
@@ -422,8 +519,13 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   onRequestPageLinks,
   outlineOverlay,
   onOutlineOccupiedWidthChange,
+  externalOutline = false,
+  outlineContainer,
   pageLinksIdentity,
   tableEditingEnabled = true,
+  noteHighlights = EMPTY_NOTE_HIGHLIGHTS,
+  activeNoteId,
+  onNoteActivate,
 }, ref) => {
   const { t, language } = useLanguage();
   const zh = language === 'zh-CN';
@@ -609,16 +711,23 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   const editorResourcePlan = useMemo(() => {
     try {
       const occurrences = collectMarkdownResourceOccurrences(value);
+      const images = collectMarkdownImageOccurrences(value);
+      const imageReferences = images.flatMap(({ url }) => {
+        const reference = standardMarkdownImageResourceRef(url);
+        return reference ? [reference] : [];
+      });
       return {
         occurrences,
+        images,
         references: [...new Map(
-          occurrences.map(({ reference }) => [reference.canonicalKey, reference]),
-        ).values()].sort((left, right) => (
+          [...occurrences.map(({ reference }) => reference), ...imageReferences]
+            .map((reference) => [reference.canonicalKey, reference]),
+        ).values()].slice(0, 100).sort((left, right) => (
           left.canonicalKey < right.canonicalKey ? -1 : left.canonicalKey > right.canonicalKey ? 1 : 0
         )),
       };
     } catch {
-      return { occurrences: [], references: [] };
+      return { occurrences: [], images: [], references: [] };
     }
   }, [value]);
   const editorReferences = editorResourcePlan.references;
@@ -799,10 +908,10 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
       const range = view?.state.selection.main;
       return range && view ? { from: range.from, to: range.to, text: view.state.sliceDoc(range.from, range.to) } : { from: 0, to: 0, text: '' };
     },
-    restoreSelection: (selection) => {
+    restoreSelection: (selection, options) => {
       const view = editorViewRef.current;
       if (!view || selection.from < 0 || selection.to < selection.from || selection.to > view.state.doc.length || view.state.sliceDoc(selection.from, selection.to) !== selection.text) return false;
-      view.dispatch({ selection: EditorSelection.single(selection.from, selection.to) }); view.focus(); return true;
+      view.dispatch({ selection: EditorSelection.single(selection.from, selection.to), scrollIntoView: options?.scrollIntoView }); view.focus(); return true;
     },
     capturePosition,
     restorePosition,
@@ -921,22 +1030,32 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
     const pendingPosition = pendingRestoreRef.current;
     if (pendingPosition) restorePosition(pendingPosition);
   }, [refreshSelection, restorePosition]);
-  const hiddenMarks = useMemo(() => buildHiddenMarksPlugin(pages, editorResourcePlan.occurrences, authoritativeResources),
-    [pages, editorResourcePlan.occurrences, authoritativeResources]);
+  const hiddenMarks = useMemo(() => buildHiddenMarksPlugin(pages, editorResourcePlan.occurrences, editorResourcePlan.images, authoritativeResources, zh),
+    [pages, editorResourcePlan.occurrences, editorResourcePlan.images, authoritativeResources, zh]);
+  const noteActivateRef = useRef(onNoteActivate);
+  noteActivateRef.current = onNoteActivate;
+  const noteMarks = useMemo(() => noteHighlightExtension(
+    noteHighlightSegments(noteHighlights, value.length), activeNoteId, (id) => noteActivateRef.current?.(id), zh,
+  ), [noteHighlights, value.length, activeNoteId, zh]);
   const editorExtensions = useMemo(() => [
-    MARKDOWN_LANGUAGE, LIVE_PREVIEW_HIGHLIGHTING, hiddenMarks, uploadAnchors,
+    MARKDOWN_LANGUAGE, LIVE_PREVIEW_HIGHLIGHTING, hiddenMarks, uploadAnchors, noteMarks,
     manualHandlers, ...(uploadHandlers ? [uploadHandlers] : []), EditorView.lineWrapping,
-  ], [hiddenMarks, manualHandlers, uploadHandlers]);
+  ], [hiddenMarks, manualHandlers, uploadHandlers, noteMarks]);
+
+  const outlinePanel = <ArticleContentsPopover source={value} articleRootRef={previewRootRef} pageKey={`${spaceId}:${pageId}:${mode}`} activeHeadingId={isEdit ? activeHeading : undefined} spaceId={spaceId}
+    embedded={externalOutline} suppressed={!externalOutline && outlineOverlay} floatingTrigger={!externalOutline} onOccupiedWidthChange={externalOutline ? undefined : onOutlineOccupiedWidthChange}
+    onNavigateIntent={isEdit ? undefined : (sourceOffset) => { previewNavigationRef.current = { moved: true, sourceOffset }; }} onNavigate={isEdit ? (item) => {
+      const view = editorViewRef.current; if (!view) return;
+      view.dispatch({ selection: EditorSelection.cursor(item.from), effects: EditorView.scrollIntoView(item.from, { y: 'start' }) }); view.focus();
+    } : undefined} />;
 
   return (
     <section className="document-workspace relative bg-white" aria-label={t('editor.mode')}>
       <div className="document-tool-row">
         {isEdit ? <DocumentTools key={`${pageLinksIdentity ?? ''}:${spaceId}:${pageId}`} view={() => editorViewRef.current} source={value} tableEditingEnabled={tableEditingEnabled} tableEditingIdentity={`${pageLinksIdentity ?? ''}:${spaceId}:${pageId}`} selection={selection} pages={pages} spaceId={spaceId} onRequestPageLinks={onRequestPageLinks} onRequestAssist={onRequestAssist} onRequestImage={onUploadImages ? () => imageInputRef.current?.click() : undefined} /> : null}
-        <ArticleContentsPopover source={value} articleRootRef={previewRootRef} pageKey={`${spaceId}:${pageId}:${mode}`} activeHeadingId={isEdit ? activeHeading : undefined} spaceId={spaceId} suppressed={outlineOverlay} floatingTrigger onOccupiedWidthChange={onOutlineOccupiedWidthChange} onNavigateIntent={isEdit ? undefined : (sourceOffset) => { previewNavigationRef.current = { moved: true, sourceOffset }; }} onNavigate={isEdit ? (item) => {
-          const view = editorViewRef.current; if (!view) return;
-          view.dispatch({ selection: EditorSelection.cursor(item.from), effects: EditorView.scrollIntoView(item.from, { y: 'start' }) }); view.focus();
-        } : undefined} />
+        {!externalOutline ? outlinePanel : null}
       </div>
+      {externalOutline && outlineContainer ? createPortal(outlinePanel, outlineContainer) : null}
       <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden aria-label={zh ? '上传图片' : 'Upload images'} onChange={(event) => {
         const files = Array.from(event.target.files ?? []);
         const view = editorViewRef.current;
@@ -980,6 +1099,9 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
               {value ? (
                 <Markdown
                   mode="editor-preview"
+                  noteHighlights={noteHighlights}
+                  activeNoteId={activeNoteId}
+                  onNoteActivate={onNoteActivate}
                   className="document-body"
                   canEdit
                   pageId={pageId}

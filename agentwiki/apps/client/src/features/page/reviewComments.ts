@@ -1,7 +1,8 @@
 import { resolveAssistTarget, validateAssistTarget, type AssistTarget } from './assistTargets';
 export interface PersonalNotesScope { userId: string; spaceId: string; pageId: string }
 export type PersonalNoteStatus = 'pending' | 'dispatched' | 'awaiting-review' | 'resolved';
-export interface PersonalNote extends PersonalNotesScope { schemaVersion: 1; id: string; body: string; target: AssistTarget; status: PersonalNoteStatus; taskId?: string }
+export interface NoteAuthor { type: 'user' | 'agent'; id: string; name: string }
+export interface PersonalNote extends PersonalNotesScope { schemaVersion: 1; id: string; body: string; target: AssistTarget; status: PersonalNoteStatus; taskId?: string; author?: NoteAuthor; canEdit?: boolean; createdAt?: string; updatedAt?: string; clientNoteId?: string; syncState?: 'unsynced' }
 type NotesStorage = Pick<Storage, 'getItem' | 'setItem'>;
 const validText = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
 const validScope = (s: PersonalNotesScope) => validText(s.userId) && validText(s.spaceId) && validText(s.pageId);
@@ -53,6 +54,6 @@ export function transitionPersonalNotes(notes: PersonalNote[], ids: readonly str
 }
 export function notesForDispatch(notes: PersonalNote[], ids: readonly string[], source: string): { status: 'ready'; notes: PersonalNote[] } | { status: 'conflict' } {
   const selected = notes.filter((n) => ids.includes(n.id));
-  return selected.length > 0 && selected.length === new Set(ids).size && selected.every((n) => n.status === 'pending' && resolveAssistTarget(source, n.target).status === 'found')
+  return selected.length > 0 && selected.length === new Set(ids).size && selected.every((n) => n.status === 'pending' && n.syncState !== 'unsynced' && resolveAssistTarget(source, n.target).status === 'found')
     ? { status: 'ready', notes: selected } : { status: 'conflict' };
 }

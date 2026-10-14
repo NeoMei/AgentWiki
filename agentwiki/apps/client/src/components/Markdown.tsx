@@ -1,4 +1,7 @@
-import React, { createContext, useContext, useEffect, useMemo, useState, useId } from 'react';
+import { NoteMargin } from './markdown/NoteMargin';
+import { EMPTY_NOTE_HIGHLIGHTS, nextNoteId, noteHighlightAttributes, noteHighlightSegments, noteIdsFromElement, sliceNoteHighlightSegments, type NoteHighlightProps } from './markdown/noteHighlights';
+import { isExternalHttpsImage, isInternalImage } from './markdown/imageSource';
+import React, { createContext, useContext, useEffect, useMemo, useState, useId, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { ExtraProps } from 'react-markdown';
 import { Link } from 'react-router-dom';
@@ -211,7 +214,7 @@ const MarkdownPre = ({ children: preChildren, node, ...props }: MarkdownPreProps
   return <pre {...props}>{preChildren}</pre>;
 };
 
-export interface MarkdownProps {
+export interface MarkdownProps extends NoteHighlightProps {
   children: string;
   pages?: PageLinkTarget[];
   className?: string;
@@ -414,13 +417,6 @@ const Callout: React.FC<CalloutProps> = ({ type, title, fold, children }) => {
   );
 };
 
-const isExternalHttpsImage = (src: string): boolean => /^https:\/\//i.test(src);
-
-const isInternalImage = (src: string): boolean => {
-  if (!src || src.startsWith('//') || /\\|%5c/i.test(src)) return false;
-  return !/^[a-z][a-z\d+.-]*:/i.test(src);
-};
-
 type SafeImageProps = React.ImgHTMLAttributes<HTMLImageElement> & ExtraProps;
 
 const SafeImage = ({ src, alt = '', node: _node, ...rest }: SafeImageProps) => {
@@ -559,7 +555,18 @@ const MarkdownWikiImage = (props: AgentWikiNodeProps) => {
   return selectionEnabled ? <span data-markdown-unmapped><AgentWikiImage {...props} /></span> : <AgentWikiImage {...props} />;
 };
 
+type MarkdownSpanProps = React.ComponentPropsWithoutRef<'span'> & ExtraProps;
+const LocalizedNoteSpan = ({ node, ...props }: MarkdownSpanProps) => {
+  const { language } = useLanguage();
+  const ids = JSON.parse(String(node?.properties['data-note-ids'] ?? '[]')) as string[];
+  const title = noteHighlightAttributes(ids, null, language === 'zh-CN').title;
+  return <span {...props} title={title} aria-label={title} />;
+};
+const MarkdownSpan = ({ node, ...props }: MarkdownSpanProps) => node?.properties['data-note-ids']
+  ? <LocalizedNoteSpan node={node} {...props} /> : <span {...props} />;
+
 const markdownComponents = {
+  span: MarkdownSpan,
   a: MarkdownAnchor,
   blockquote: MarkdownBlockquote,
   code: MarkdownCode,
@@ -584,22 +591,45 @@ export const Markdown: React.FC<MarkdownProps> = ({
   pageId,
   internalBranch,
   selectionSourceVersion,
+  noteHighlights = EMPTY_NOTE_HIGHLIGHTS,
+  activeNoteId,
+  onNoteActivate,
 }) => {
   const selectionOwner = useId();
-  // Opt-in literal source spans are added after renderer transforms. Generated text never gets guessed offsets.
+  const noteRootRef = useRef<HTMLDivElement>(null);
+  const segments = useMemo(() => noteHighlightSegments(noteHighlights, children.length), [noteHighlights, children.length]);
+  const lastActivated = useRef(activeNoteId);
+  useEffect(() => { lastActivated.current = activeNoteId; }, [activeNoteId]);
+  const pointer = useRef<{ x: number; y: number; dragged: boolean } | null>(null);
+  // Only literal text with proven source offsets may be selected or marked. Each slice retains
+  // its own offset span and single Text child, as required by captureReadingSelection.
   const selectionPlugin = useMemo(() => () => (tree: HastNode) => {
-    if (!selectionSourceVersion) return;
+    if (!selectionSourceVersion && !segments.length) return;
     const annotate = (parent: HastNode) => {
-      parent.children = parent.children?.map((child) => {
-        if (child.type !== 'text') { annotate(child); return child; }
+      parent.children = parent.children?.flatMap((child) => {
+        if (child.type !== 'text') { annotate(child); return [child]; }
         const position = (child as HastNode & { position?: { start: { offset?: number }; end: { offset?: number } } }).position;
         const start = position?.start.offset, end = position?.end.offset;
-        if (typeof start !== 'number' || typeof end !== 'number' || children.slice(start, end) !== child.value) return child;
-        return { type: 'element', tagName: 'span', properties: { 'data-markdown-text-start': start, 'data-markdown-text-end': end, 'data-markdown-text-owner': selectionOwner }, children: [child] } as HastElementNode;
+        if (typeof start !== 'number' || typeof end !== 'number' || children.slice(start, end) !== child.value) return [child];
+        return sliceNoteHighlightSegments(segments, start, end).map((piece) => {
+          const attributes = piece.ids.length ? noteHighlightAttributes(piece.ids, activeNoteId, false) : {};
+          return { type: 'element', tagName: 'span', properties: {
+            ...(selectionSourceVersion ? { 'data-markdown-text-start': piece.from, 'data-markdown-text-end': piece.to, 'data-markdown-text-owner': selectionOwner } : {}),
+            ...attributes,
+            ...(piece.ids.length ? { className: attributes.class, tabIndex: 0, role: 'button', ariaLabel: attributes.title } : {}),
+          }, children: [{ type: 'text', value: children.slice(piece.from, piece.to) }] } as HastElementNode;
+        });
       });
     };
     annotate(tree);
-  }, [children, selectionSourceVersion, selectionOwner]);
+  }, [children, selectionSourceVersion, selectionOwner, segments, activeNoteId]);
+  const activateNote = (target: EventTarget | null, root: HTMLElement) => {
+    const note = noteIdsFromElement(target);
+    if (!note || !onNoteActivate || note.element.closest('[data-markdown-selection-root]') !== root) return false;
+    lastActivated.current = nextNoteId(note.ids, lastActivated.current);
+    onNoteActivate(lastActivated.current);
+    return true;
+  };
   const parentRuntime = useContext(MarkdownRuntimeContext);
   const ownTree = useMemo(
     () => createMarkdownTreeState(spaceId ?? '', mode),
@@ -687,7 +717,23 @@ export const Markdown: React.FC<MarkdownProps> = ({
   return (
     <MarkdownRuntimeContext.Provider value={runtimeValue}>
     <MarkdownInteractionContext.Provider value={{ taskInputsEnabled, pendingTaskIndexes, tasks, selectionEnabled: Boolean(selectionSourceVersion) }}>
-    <div className={className ?? markdownClass} onChange={handleChange} data-markdown-selection-root={selectionOwner} data-markdown-selection-version={selectionSourceVersion}>
+    <div ref={noteRootRef} className={`${className ?? markdownClass}${segments.length ? ' personal-note-document' : ''}`} onChange={handleChange} data-markdown-selection-root={selectionOwner} data-markdown-selection-version={selectionSourceVersion}
+      onMouseDownCapture={segments.length ? (event) => { pointer.current = { x: event.clientX, y: event.clientY, dragged: false }; } : undefined}
+      onMouseMoveCapture={segments.length ? (event) => { if (pointer.current && Math.hypot(event.clientX - pointer.current.x, event.clientY - pointer.current.y) > 4) pointer.current.dragged = true; } : undefined}
+      onClickCapture={segments.length ? (event) => {
+        if (event.target instanceof Element && event.target.closest('[data-note-marker]')) return;
+        const note = noteIdsFromElement(event.target);
+        if (!note || note.element.closest('[data-markdown-selection-root]') !== event.currentTarget) return;
+        // A browser click after a drag must not toggle a parent task or follow its link.
+        if (pointer.current?.dragged || !window.getSelection()?.isCollapsed) { event.preventDefault(); event.stopPropagation(); return; }
+        if (event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) { event.stopPropagation(); return; }
+        if (activateNote(event.target, event.currentTarget)) { event.preventDefault(); event.stopPropagation(); }
+      } : undefined}
+      onKeyDownCapture={segments.length ? (event) => {
+        if (event.target instanceof Element && event.target.closest('[data-note-marker]')) return;
+        if ((event.key === 'Enter' || event.key === ' ') && activateNote(event.target, event.currentTarget)) { event.preventDefault(); event.stopPropagation(); }
+      } : undefined}
+    >
       <ReactMarkdown
         skipHtml
         remarkPlugins={[remarkGfm, remarkMath, obsidianPlugin, remarkBreaks]}
@@ -709,6 +755,10 @@ export const Markdown: React.FC<MarkdownProps> = ({
       >
         {children}
       </ReactMarkdown>
+      {segments.length ? <NoteMargin root={noteRootRef} segments={segments} source={children} activeNoteId={activeNoteId} onActivate={(ids) => {
+        lastActivated.current = nextNoteId(ids, lastActivated.current);
+        onNoteActivate?.(lastActivated.current);
+      }} /> : null}
     </div>
     </MarkdownInteractionContext.Provider>
     </MarkdownRuntimeContext.Provider>

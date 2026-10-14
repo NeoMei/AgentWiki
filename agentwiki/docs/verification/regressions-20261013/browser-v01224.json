@@ -1,0 +1,31 @@
+{
+  "version": "0.12.24",
+  "date": "2026-10-13",
+  "browser": "Chrome",
+  "account": "MeiXueFeng",
+  "spaceRole": "editor",
+  "checks": {
+    "previewCollaborationIssues": 0,
+    "requiredInputToastAndFocus": "collaboration-input-project-brief",
+    "requiredRoleToastAndFocus": "role-binding-project-owner",
+    "backClearsConfigurationErrors": true,
+    "referencePlaceholder": "请输入需要引用的文档名称",
+    "duplicateSinglePageTitle": "当前位置已存在同名页面“10-12Agentwiki平台回归测试情况”，请修改页面标题后重试。",
+    "duplicateManagementTabAbsent": true
+  },
+  "createdPages": 0,
+  "startedRuns": 0,
+  "sentAgentMessages": 0,
+  "limits": [
+    "original reporter account not replayed",
+    "native Chinese IME not verified",
+    "manager-permission view not verified"
+  ],
+  "screenshots": [
+    "production-validation-v01224.png",
+    "production-role-validation-v01224.png",
+    "production-preview-v01224.png",
+    "production-reference-v01224.png",
+    "production-duplicate-title-v01224.png"
+  ]
+}

@@ -1,6 +1,7 @@
 import {
   apiResponseStatus,
-  hasActiveSpaceCredential,
+  hasAgentExecutionAuthorization,
+  hasAuthorizedAgentConnection,
   type AgentIdentity,
   type AgentInstallation,
   type AgentPreparationApi,
@@ -117,7 +118,11 @@ export async function prepareAgent(
     stage = 'checking_connection';
     onStage(stage);
     const detail = await api.getAgent(agent.id);
-    if (hasActiveSpaceCredential(detail, spaceId, input.now)) {
+    if (!hasAgentExecutionAuthorization(detail, spaceId, role)) {
+      stage = 'granting';
+      throw new Error('Agent execution authorization changed during preparation');
+    }
+    if (hasAuthorizedAgentConnection(detail, spaceId, input.now, role)) {
       return {
         agentId: agent.id,
         agentName: agent.name,

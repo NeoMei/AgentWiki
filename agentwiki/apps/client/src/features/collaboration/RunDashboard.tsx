@@ -15,6 +15,7 @@ import { TaskPanel } from './components/TaskPanel';
 import type { AgentInstruction, CollaborationArtifact, CollaborationHistoryKind, CollaborationPageReviewComparison, CollaborationReview, CollaborationRun, CollaborationTask, HumanSpaceRole, SpaceMemberSummary, TemplateSummary } from './types';
 import { useCollaborationRun } from './useCollaborationRun';
 import { buildAgentJoinInstructions } from './agentJoinInstructions';
+import './collaboration-workspace.css';
 
 type RunAction = 'pause' | 'resume' | 'fail' | 'cancel';
 type TaskAction = 'retry' | 'reassign' | 'skip';
@@ -390,26 +391,26 @@ export const RunDashboard: React.FC = () => {
   if (!run) return <div data-testid="collaboration-run-error" className="rounded-xl border border-red-200 bg-red-50 py-12 text-center"><p className="text-sm text-red-700">{t('collaboration.dashboard.loadFailed')}</p><button type="button" onClick={() => void refresh()} className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm"><RefreshCw size={15} />{t('common.retry')}</button></div>;
 
   return (
-    <div data-testid="collaboration-dashboard" className="mx-auto flex max-w-7xl min-w-0 flex-col overflow-x-clip lg:h-[calc(100dvh-13rem)]">
-      <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0"><Link to={`/spaces/${id}/collaboration`} className="inline-flex items-center gap-1 text-sm text-gray-500"><ArrowLeft size={15} />{t('collaboration.title')}</Link><h1 className="mt-2 break-words text-2xl font-semibold">{t('collaboration.dashboard.title')}</h1></div>
-        {state.kind === 'ready' && state.updating ? <span role="status" className="text-sm text-gray-500">{t('collaboration.dashboard.updating')}</span> : <button type="button" aria-label={t('common.refresh')} onClick={() => void Promise.all([refresh(), loadMembers()])} className="rounded-lg border p-2"><RefreshCw size={16} /></button>}
+    <div data-testid="collaboration-dashboard" className="aw-collab aw-collab-dashboard flex min-w-0 flex-col lg:h-[calc(100dvh-13rem)]">
+      <div className="aw-collab-page-header aw-collab-dashboard-header">
+        <div className="min-w-0"><Link to={`/spaces/${id}/collaboration`} className="aw-collab-back"><ArrowLeft size={14} aria-hidden="true" />{t('collaboration.title')}<span aria-hidden="true">/</span>{t('collaboration.dashboard.title')}</Link><h1 className="aw-collab-page-title" tabIndex={0}>{run.name}</h1></div>
+        {state.kind === 'ready' && state.updating ? <span role="status" className="text-sm text-gray-500">{t('collaboration.dashboard.updating')}</span> : <button type="button" aria-label={t('common.refresh')} onClick={() => void Promise.all([refresh(), loadMembers()])} className="aw-collab-button aw-collab-icon-button"><RefreshCw size={16} aria-hidden="true" /></button>}
       </div>
       {state.kind === 'error' ? <div role="alert" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{t('collaboration.dashboard.stale')}</div> : null}
       {membersError ? <div role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{t('collaboration.dashboard.membersFailed')}<button type="button" onClick={() => void loadMembers()} className="ml-2 underline">{t('common.retry')}</button></div> : null}
       {membersLoading ? <span className="sr-only" role="status">{t('common.loading')}</span> : null}
       {showResumeInstructions ? <section className="mt-4 min-h-0 shrink-0 rounded-xl border border-blue-200 bg-blue-50 p-4 lg:max-h-[35%] lg:overflow-y-auto"><div className="flex items-start justify-between gap-3"><div><h2 className="font-semibold text-blue-900">{t('collaboration.dashboard.resumeInstructions')}</h2><p className="mt-1 text-sm text-blue-800">{t('collaboration.dashboard.resumeInstructionsHelp')}</p></div><button type="button" onClick={() => setResumeInstructions([])} className="text-sm text-blue-800">{t('common.close')}</button></div><div className="mt-3 space-y-2">{resumeInstructions.map((instruction) => <div key={instruction.agentId} className="flex min-w-0 flex-col gap-2 rounded-lg bg-white p-3 sm:flex-row sm:items-center"><p className="min-w-0 flex-1 break-words text-sm">{instruction.text}</p><button type="button" onClick={() => void copyResumeInstruction(instruction.text, setToast, t)} className="min-h-9 shrink-0 rounded-lg border px-3 text-sm">{t('collaboration.dashboard.copyResume')}</button></div>)}</div></section> : null}
 
-      <div className="mt-6 grid min-h-0 min-w-0 flex-1 gap-4 lg:grid-rows-[minmax(0,1.8fr)_minmax(0,1fr)_minmax(0,1fr)] lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.8fr)_minmax(0,1fr)]">
-        <RunSummary run={run} role={state.kind === 'ready' && !state.updating && !continuationLoading && !membersLoading && !membersError ? humanRole : undefined} userId={user?.id} t={t} onGetContinuation={() => void getContinuation()} continuationLoading={continuationLoading || (state.kind === 'ready' && state.updating) || membersLoading} onAction={(kind) => openAction({ type: 'run', kind })} />
+      <RunSummary run={run} role={state.kind === 'ready' && !state.updating && !continuationLoading && !membersLoading && !membersError ? humanRole : undefined} userId={user?.id} t={t} onGetContinuation={() => void getContinuation()} continuationLoading={continuationLoading || (state.kind === 'ready' && state.updating) || membersLoading} onAction={(kind) => openAction({ type: 'run', kind })} />
+      <div className="aw-collab-dashboard-grid min-h-0 min-w-0 flex-1">
         <TaskPanel run={run} systemTemplate={systemTemplate} role={state.kind === 'ready' && !state.updating && !continuationLoading && !membersLoading && !membersError ? humanRole : undefined} userId={user?.id} t={t} agentNames={agentNames} onHistory={(kind) => void openHistory(kind)} onAction={(kind, task) => openAction({ type: 'task', kind, task })} />
-        <ReviewPanel run={run} spaceId={id} t={t} artifacts={reviewArtifacts} artifactErrors={reviewArtifactErrors} detail={reviewDetail} resolvingConflict={resolvingConflict} onHistory={() => void openHistory('reviews')} onLoadDetail={(review) => void loadReviewDetail(review)} onRetryArtifact={(review) => void loadReviewArtifact(review)} onDecision={(kind, review) => openAction({ type: 'review', kind, review })} onResolveConflict={(kind, review, comparison) => void resolvePageConflict(kind, review, comparison)} isHumanMember={state.kind === 'ready' && !state.updating && !continuationLoading && !membersLoading && !membersError && humanRole !== undefined} />
+        <ReviewPanel run={run} spaceId={id} t={t} artifacts={reviewArtifacts} artifactErrors={reviewArtifactErrors} detail={reviewDetail} resolvingConflict={resolvingConflict} onHistory={() => void openHistory('reviews')} onLoadDetail={(review) => void loadReviewDetail(review)} onCloseDetail={() => setReviewDetail(null)} onRetryArtifact={(review) => void loadReviewArtifact(review)} onDecision={(kind, review) => openAction({ type: 'review', kind, review })} onResolveConflict={(kind, review, comparison) => void resolvePageConflict(kind, review, comparison)} isHumanMember={state.kind === 'ready' && !state.updating && !continuationLoading && !membersLoading && !membersError && humanRole !== undefined} />
         <ArtifactPanel run={run} t={t} onHistory={() => void openHistory('artifacts')} />
         <AgentActivityPanel run={run} t={t} onHistory={() => void openHistory('events')} />
       </div>
 
       {pending && pendingScope.current === `${id}:${run.id}` ? <ActionDialog pending={pending} run={run} reason={reason} setReason={setReason} agentId={agentId} setAgentId={setAgentId} agents={executableAgents} submitting={submitting} onClose={() => { pendingScope.current = null; setPending(null); }} onConfirm={() => void submitAction()} t={t} /> : null}
-      {historyKind ? <ModalDialog labelledBy="collaboration-history-title" onRequestClose={closeHistory} className="w-full max-w-3xl rounded-xl bg-white p-6 shadow-xl"><div className="flex items-start justify-between gap-3"><div><h2 id="collaboration-history-title" className="text-lg font-semibold">{t(`collaboration.dashboard.history.${historyKind}`)}</h2><p className="mt-1 text-sm text-gray-600">{t('collaboration.dashboard.fullHistoryHelp')}</p></div><button type="button" onClick={closeHistory} className="min-h-10 rounded-lg border px-3 text-sm">{t('common.close')}</button></div>{historyError ? <div role="alert" className="mt-6 text-sm text-red-700">{t('collaboration.dashboard.historyFailed')}<button type="button" onClick={() => historyItems.length ? void loadMoreHistory() : void openHistory(historyKind)} className="ml-2 underline">{t('common.retry')}</button></div> : null}{historyItems.length ? <><ol className="mt-5 max-h-[65vh] space-y-3 overflow-auto">{historyItems.map((item, index) => <li key={historyItemKey(item, index)} className="rounded-lg border bg-gray-50 p-3"><pre className="whitespace-pre-wrap break-words text-xs text-gray-700">{JSON.stringify(item, null, 2)}</pre></li>)}</ol>{historyNextCursor ? <button type="button" disabled={historyLoading} onClick={() => void loadMoreHistory()} className="mt-4 min-h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{historyLoading ? t('common.loading') : t('dashboard.loadMore')}</button> : null}</> : historyLoading ? <p role="status" className="mt-6 text-sm text-gray-500">{t('common.loading')}</p> : !historyError ? <p className="mt-6 text-sm text-gray-500">{t('collaboration.dashboard.noHistory')}</p> : null}</ModalDialog> : null}
+      {historyKind ? <ModalDialog labelledBy="collaboration-history-title" onRequestClose={closeHistory} className="w-full max-w-3xl rounded-xl bg-white p-6 shadow-xl"><div className="flex items-start justify-between gap-3"><div><h2 id="collaboration-history-title" className="text-lg font-semibold">{t(`collaboration.dashboard.history.${historyKind}`)}</h2><p className="mt-1 text-sm text-gray-600">{t('collaboration.dashboard.fullHistoryHelp')}</p></div><button type="button" onClick={closeHistory} className="min-h-10 rounded-lg border px-3 text-sm">{t('common.close')}</button></div>{historyError ? <div role="alert" className="mt-6 text-sm text-red-700">{t('collaboration.dashboard.historyFailed')}<button type="button" onClick={() => historyItems.length ? void loadMoreHistory() : void openHistory(historyKind)} className="ml-2 underline">{t('common.retry')}</button></div> : null}{historyItems.length ? <><ol className="mt-5 max-h-[65vh] space-y-3 overflow-auto">{historyItems.map((item, index) => <li key={historyItemKey(item, index)} className="rounded-lg border bg-gray-50 p-3"><p className="font-medium text-sm text-gray-800">{historyItemSummary(item, historyKind, t)}</p>{historyItemTime(item) ? <p className="mt-1 text-xs text-gray-500">{historyItemTime(item)}</p> : null}<details className="mt-2 text-xs text-gray-500"><summary className="cursor-pointer">{t('collaboration.dashboard.technicalDetails')}</summary><pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words text-gray-700">{JSON.stringify(item, null, 2)}</pre></details></li>)}</ol>{historyNextCursor ? <button type="button" disabled={historyLoading} onClick={() => void loadMoreHistory()} className="mt-4 min-h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{historyLoading ? t('common.loading') : t('dashboard.loadMore')}</button> : null}</> : historyLoading ? <p role="status" className="mt-6 text-sm text-gray-500">{t('common.loading')}</p> : !historyError ? <p className="mt-6 text-sm text-gray-500">{t('collaboration.dashboard.noHistory')}</p> : null}</ModalDialog> : null}
       {toast ? <Toast kind={toast.kind} message={toast.message} onClose={() => setToast(null)} /> : null}
     </div>
   );
@@ -419,6 +420,23 @@ function historyItemKey(item: unknown, index: number): string {
   return item && typeof item === 'object' && typeof (item as { id?: unknown }).id === 'string'
     ? (item as { id: string }).id
     : String(index);
+}
+
+function historyItemSummary(item: unknown, kind: CollaborationHistoryKind, t: (key: string) => string): string {
+  if (!item || typeof item !== 'object') return t('collaboration.dashboard.historyRecord');
+  const record = item as Record<string, unknown>;
+  const operationKey = typeof record.operation === 'string' ? `collaboration.event.${record.operation}` : '';
+  const operation = operationKey && t(operationKey) !== operationKey ? t(operationKey) : null;
+  const value = operation || ['name', 'title', 'action', 'operation', 'event', 'type', 'status'].map((key) => record[key]).find((candidate) => typeof candidate === 'string');
+  const id = typeof record.id === 'string' ? ` · ${record.id.slice(0, 8)}` : '';
+  return `${value || t(`collaboration.dashboard.history.${kind}`)}${id}`;
+}
+
+function historyItemTime(item: unknown): string | null {
+  if (!item || typeof item !== 'object') return null;
+  const record = item as Record<string, unknown>;
+  const value = ['createdAt', 'updatedAt', 'occurredAt', 'finishedAt'].map((key) => record[key]).find((candidate) => typeof candidate === 'string');
+  return typeof value === 'string' ? new Date(value).toLocaleString() : null;
 }
 
 const ActionDialog: React.FC<{

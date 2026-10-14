@@ -191,7 +191,7 @@ describe('Local Sync installation issue/exchange composition', () => {
     expect(composition.state.credential).toBeNull();
   });
 
-  it('issues and exchanges a member Super Admin intent into a Grant-bound Credential', async () => {
+  it('issues and exchanges a member Super Admin intent into an Agent identity Credential', async () => {
     const composition = composeInstallationFlow();
 
     const installation = await issueInstallation(composition, true);
@@ -214,7 +214,7 @@ describe('Local Sync installation issue/exchange composition', () => {
       folderScopes: folderScopesForAgentAccessRole('editor'),
     });
     expect(composition.state.credential).toMatchObject({
-      id: 'credential-1', agentId: 'agent-1', authorizationId: 'grant-1', revokedAt: null,
+      id: 'credential-1', agentId: 'agent-1', revokedAt: null,
     });
     expect(composition.state.credential).not.toHaveProperty('role');
     expect(composition.state.credential).not.toHaveProperty('scopes');

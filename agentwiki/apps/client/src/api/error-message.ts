@@ -27,6 +27,8 @@ const CODE_KEYS: Record<string, string> = {
   PAGE_TEMPLATE_VERSION_CONFLICT: 'pageTemplate.versionConflict',
   PAGE_TEMPLATE_SOURCE_STALE: 'pageTemplate.sourceStale',
   PAGE_TEMPLATE_QUOTA_EXCEEDED: 'pageTemplate.quotaExceeded',
+  FOLDER_NAME_CONFLICT: 'error.folderNameConflict',
+  PAGE_TITLE_CONFLICT: 'error.pageTitleConflict',
   PAGE_VERSION_CONFLICT: 'pageTemplate.binding.pageVersionConflict',
   SOURCE_CHANGED: 'pageTemplate.composite.sourceChanged',
   PAGE_TEMPLATE_INSTANTIATION_UNSUPPORTED: 'pageTemplate.composite.unsupported',
@@ -53,7 +55,17 @@ const CODE_KEYS: Record<string, string> = {
 export function apiErrorMessage(error: unknown, t: Translate, fallbackKey: string): string {
   const response = (error as { response?: { status?: number; data?: { code?: unknown } } })?.response;
   const code = response?.data?.code;
-  if (typeof code === 'string' && CODE_KEYS[code]) return t(CODE_KEYS[code]);
+  if (typeof code === 'string' && CODE_KEYS[code]) {
+    const details = response?.data && typeof response.data === 'object'
+      ? (response.data as { details?: unknown }).details
+      : undefined;
+    const name = details && typeof details === 'object' && typeof (details as { name?: unknown }).name === 'string'
+      ? (details as { name: string }).name
+      : undefined;
+    return name && (code === 'FOLDER_NAME_CONFLICT' || code === 'PAGE_TITLE_CONFLICT')
+      ? t(CODE_KEYS[code], { name })
+      : t((code === 'FOLDER_NAME_CONFLICT' || code === 'PAGE_TITLE_CONFLICT') ? `${CODE_KEYS[code]}Generic` : CODE_KEYS[code]);
+  }
   if (response?.status === 403) return t('error.spaceAccessDenied');
   if (response?.status === 429) return t('error.rateLimited');
   if (!response) return t('error.network');

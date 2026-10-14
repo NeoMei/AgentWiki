@@ -300,8 +300,8 @@ test('new Page approvals reject post-submission authority loss and preserve the 
         revoked: (f) => prisma.agent.update({ where: { id: f.agentId }, data: { status: 'revoked', revokedAt: new Date() } }),
         ownerLocked: (f) => prisma.user.update({ where: { id: f.agentPrincipal.userId }, data: { lockedAt: new Date() } }),
         ownerDeleted: (f) => prisma.user.update({ where: { id: f.agentPrincipal.userId }, data: { deletedAt: new Date() } }),
-        grantReader: (f) => prisma.agentGrant.update({ where: { id: f.agentPrincipal.authorizationId }, data: { role: 'reader' } }),
-        grantRemoved: (f) => prisma.agentGrant.delete({ where: { id: f.agentPrincipal.authorizationId } }),
+        grantReader: (f) => prisma.agentGrant.update({ where: { id: f.grantId }, data: { role: 'reader' } }),
+        grantRemoved: (f) => prisma.agentGrant.delete({ where: { id: f.grantId } }),
         credentialRevoked: (f) => prisma.agentCredential.update({ where: { id: f.agentPrincipal.credentialId }, data: { revokedAt: new Date() } }),
         credentialExpired: (f) => prisma.agentCredential.update({ where: { id: f.agentPrincipal.credentialId }, data: { expiresAt: new Date(0) } }),
       };
@@ -312,8 +312,8 @@ test('new Page approvals reject post-submission authority loss and preserve the 
         await mutate(fixture);
         // A healthy default binding/assignee must never substitute for the actual submitting Attempt.
         const replacement = await prisma.agent.create({ data: { name: 'Replacement', ownerId: fixture.humanPrincipals[1].userId } });
-        const replacementGrant = await prisma.agentGrant.create({ data: { agentId: replacement.id, spaceId: fixture.spaceId, role: 'editor' } });
-        await prisma.agentCredential.create({ data: { name: 'Replacement credential', prefix: `r${randomUUID().slice(0, 8)}`, keyHash: hash(randomUUID()), agentId: replacement.id, authorizationId: replacementGrant.id } });
+        await prisma.agentGrant.create({ data: { agentId: replacement.id, spaceId: fixture.spaceId, role: 'editor' } });
+        await prisma.agentCredential.create({ data: { name: 'Replacement credential', prefix: `r${randomUUID().slice(0, 8)}`, keyHash: hash(randomUUID()), agentId: replacement.id } });
         await prisma.collaborationRunTask.update({ where: { id: run.taskId }, data: { assigneeAgentId: replacement.id } });
         await prisma.pageAgentBinding.create({ data: { pageId: fixture.pageId, spaceId: fixture.spaceId, agentId: replacement.id, assignedByUserId: fixture.humanPrincipals[1].userId } });
         await assertBusinessCode(services.reviews.decide(fixture.spaceId, run.runId, submitted.reviewId,
@@ -537,7 +537,7 @@ async function createFixture(prisma) {
   const grant = await prisma.agentGrant.create({ data: { agentId: agent.id, spaceId: space.id, role: 'editor' } });
   const credential = await prisma.agentCredential.create({ data: {
     id: `conflict_credential_${suffix}`, name: 'Fixture credential', prefix: `cfx${suffix.slice(-8)}`,
-    keyHash: hash(`credential-${suffix}`), agentId: agent.id, authorizationId: grant.id,
+    keyHash: hash(`credential-${suffix}`), agentId: agent.id,
   } });
   const page = await prisma.page.create({ data: {
     id: `conflict_page_${suffix}`, spaceId: space.id, authorId: userA.id,
@@ -552,10 +552,9 @@ async function createFixture(prisma) {
       { userId: userA.id, platformRole: 'user' },
       { userId: userB.id, platformRole: 'user' },
     ],
+    grantId: grant.id,
     agentPrincipal: {
-      userId: userA.id, agentId: agent.id, authorizationId: grant.id,
-      authorizationSpaceId: space.id, credentialId: credential.id,
-      agentRole: 'editor', scopes: ['collaboration:read', 'collaboration:execute'],
+      userId: userA.id, agentId: agent.id, credentialId: credential.id,
     },
   };
 }

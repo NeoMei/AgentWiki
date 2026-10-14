@@ -1,12 +1,13 @@
 import React, { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useDirtyNavigationGuard } from '../space-workspace/workspaceNavigation';
-import { ArrowLeft, FilePlus2, Files, LayoutTemplate, Copy, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, FilePlus2, Files, FileText, Folder, LayoutTemplate, Copy, Search, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../api/client';
 import { getContentTreeRevision } from '../../api/content-tree';
 import { apiErrorMessage } from '../../api/error-message';
 import { ModalDialog } from '../../components/ModalDialog';
+import { Toast } from '../../components/Toast';
 import { useLanguage } from '../../context/LanguageContext';
 import { collaborationApi } from '../collaboration/api';
 import { buildAgentJoinInstructions } from '../collaboration/agentJoinInstructions';
@@ -30,6 +31,7 @@ import { listPageTemplates } from './pageTemplateApi';
 import type { PageTemplateListResponse, PageTemplateSummary } from './pageTemplateTypes';
 import { TemplateTreePreview } from './TemplateTreePreview';
 import { truncateValidatorLength } from './validatorLength';
+import './template-creation.css';
 
 export interface NewPageCreationTarget {
   firstPageId: string | null;
@@ -131,6 +133,9 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
   const [members, setMembers] = useState<SpaceMemberSummary[]>([]);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [validationToast, setValidationToast] = useState<string | null>(null);
+  const configureRef = useRef<HTMLElement>(null);
+  const configureIssuesRef = useRef<HTMLDivElement>(null);
   const [legacyCreating, setLegacyCreating] = useState(false);
   const [result, setResult] = useState<CompositeInstantiationResult | null>(null);
   const [instructions, setInstructions] = useState<AgentInstruction[]>([]);
@@ -149,7 +154,10 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
   const operationRef = useRef(0);
   const controllerRef = useRef<AbortController | null>(null);
   const submittingRef = useRef(false);
-  const idempotencyRef = useRef<{ signature: string; key: string } | null>(null);
+  const idempotencyRef = useRef<{
+    signature: string; inputSignature: string; unknownResult: boolean;
+    request: Parameters<typeof instantiateCompositeTemplate>[2];
+  } | null>(null);
   const taskSelectionInitializedRef = useRef(false);
   const userEditedRef = useRef(false);
 
@@ -170,6 +178,8 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       controllerRef.current?.abort();
     };
   }, []);
+
+  useEffect(() => { setValidationToast(null); }, [phase]);
 
   // Each page preview entry gets one focus attempt, after its disabled input is ready.
   // An explicit focus choice during loading cancels that intent.
@@ -340,8 +350,8 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
     };
   };
 
-  const loadPreview = async (enabled: boolean, settings = collaboration) => {
-    if (!selectedComposite || previewLoading) return;
+  const loadPreview = async (enabled: boolean, settings = collaboration, force = false): Promise<CompositeTemplatePreview | null> => {
+    if (!selectedComposite || (previewLoading && !force)) return null;
     const operation = ++operationRef.current;
     controllerRef.current?.abort();
     const controller = new AbortController();
@@ -353,7 +363,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
         previewCompositeTemplate(spaceId, selectedComposite.id, previewPayload(enabled, settings), controller.signal),
         members.length ? Promise.resolve(members) : collaborationApi.listMembers(spaceId),
       ]);
-      if (!sessionActiveRef.current || controller.signal.aborted || operationRef.current !== operation) return;
+      if (!sessionActiveRef.current || controller.signal.aborted || operationRef.current !== operation) return null;
       setPreview(nextPreview);
       setPreviewStale(false);
       setMembers(nextMembers);
@@ -361,6 +371,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
         taskSelectionInitializedRef.current = true;
         setCollaboration((current) => ({ ...current, enabledTaskNodeIds: nextPreview.tasks.map((task) => task.nodeId) }));
       }
+      return nextPreview;
     } catch (reason) {
       if (sessionActiveRef.current && !controller.signal.aborted && operationRef.current === operation) {
         setError(apiErrorMessage(reason, t, 'pageTemplate.composite.previewFailed'));
@@ -369,6 +380,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       if (controllerRef.current === controller) controllerRef.current = null;
       if (sessionActiveRef.current && operationRef.current === operation) setPreviewLoading(false);
     }
+    return null;
   };
 
   const nextFromSelect = () => {
@@ -421,38 +433,93 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
     }
   };
 
+  const showConfigurationError = (message: string, controlId?: string) => {
+    setError(message);
+    setValidationToast(message);
+    const control = controlId ? Array.from(configureRef.current?.querySelectorAll<HTMLElement>('input, textarea, select') ?? [])
+      .find((element) => element.id === controlId) : null;
+    const target = control ?? configureIssuesRef.current;
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+  };
+
+  const cancelPendingOperation = () => {
+    operationRef.current += 1;
+    controllerRef.current?.abort();
+    controllerRef.current = null;
+    setPreviewLoading(false);
+  };
+
   const createComposite = async () => {
     if (!selectedComposite || !preview || submittingRef.current) return;
     if (previewStale) {
       setError(t('pageTemplate.composite.previewStale'));
       return;
     }
-    if (collaborationEnabled && preview.inputs.some((input) => input.required
-      && (collaboration.inputValues[input.key] === undefined || collaboration.inputValues[input.key] === ''))) {
-      setError(t('pageTemplate.composite.requiredInputs'));
+    const missingInput = collaborationEnabled ? preview.inputs.find((input) => input.required
+      && (collaboration.inputValues[input.key] === undefined || collaboration.inputValues[input.key] === '')) : undefined;
+    if (missingInput) {
+      showConfigurationError(`${t('pageTemplate.composite.requiredInputs')} ${missingInput.label}`, `collaboration-input-${missingInput.key}`);
       return;
     }
-    if (collaborationEnabled && preview.issues.length) {
-      setError(t('pageTemplate.composite.resolveIssues'));
+    const missingRole = collaborationEnabled ? preview.roles.find((role) => role.required
+      && preview.tasks.some((task) => task.roleSlotId === role.id && collaboration.enabledTaskNodeIds.includes(task.nodeId))
+      && !collaboration.bindings.some((binding) => binding.roleSlotId === role.id && binding.agentId)) : undefined;
+    if (missingRole) {
+      showConfigurationError(`${t('pageTemplate.composite.issue.ROLE_BINDING_REQUIRED')} ${missingRole.name}`, `role-binding-${missingRole.id}`);
       return;
     }
-    const input = previewPayload(collaborationEnabled);
-    const signature = JSON.stringify([spaceId, selectedComposite.id, input, preview.treeRevision]);
-    if (idempotencyRef.current?.signature !== signature) {
-      idempotencyRef.current = { signature, key: `instantiate-${safeUuid()}` };
-    }
+    // Own the whole preflight + write, including early returns and failed previews.
     submittingRef.current = true;
-    const operation = ++operationRef.current;
-    const controller = new AbortController();
-    controllerRef.current = controller;
-    dispatchPhase({ type: 'submit' });
-    setError(null);
+    let controller: AbortController | null = null;
+    let operation: number | null = null;
     try {
-      const created = await instantiateCompositeTemplate(spaceId, selectedComposite.id, {
-        ...input,
-        expectedTreeRevision: preview.treeRevision,
-        idempotencyKey: idempotencyRef.current.key,
-      }, controller.signal);
+      const input = previewPayload(collaborationEnabled);
+      const inputSignature = JSON.stringify([spaceId, selectedComposite.id, input]);
+      let attempt = idempotencyRef.current;
+      // An interrupted response may have committed. Reuse its exact body and key,
+      // even if a later preview would observe the revision created by that write.
+      if (!attempt?.unknownResult || attempt.inputSignature !== inputSignature) {
+        let currentPreview = preview;
+        if (collaborationEnabled) {
+          const pendingPreview = loadPreview(true, collaboration, true);
+          const preflightOperation = operationRef.current;
+          const refreshed = await pendingPreview;
+          if (!refreshed || !sessionActiveRef.current || operationRef.current !== preflightOperation) return;
+          currentPreview = refreshed;
+        }
+        const currentMissingInput = collaborationEnabled ? currentPreview.inputs.find((field) => field.required
+          && (collaboration.inputValues[field.key] === undefined || collaboration.inputValues[field.key] === '')) : undefined;
+        if (currentMissingInput) {
+          showConfigurationError(`${t('pageTemplate.composite.requiredInputs')} ${currentMissingInput.label}`, `collaboration-input-${currentMissingInput.key}`);
+          return;
+        }
+        if (collaborationEnabled && currentPreview.issues.length) {
+          const issue = currentPreview.issues[0];
+          const field = currentPreview.inputs.find((item) => item.key === issue.inputKey);
+          const role = currentPreview.roles.find((item) => item.id === issue.roleSlotId);
+          const label = field?.label ?? role?.name;
+          const message = t(`pageTemplate.composite.issue.${issue.code}`);
+          showConfigurationError(label ? `${message} ${label}` : message,
+            field ? `collaboration-input-${field.key}` : role ? `role-binding-${role.id}` : undefined);
+          return;
+        }
+        const signature = JSON.stringify([inputSignature, currentPreview.treeRevision]);
+        if (attempt?.signature !== signature) {
+          attempt = {
+            signature, inputSignature, unknownResult: false,
+            request: { ...input, expectedTreeRevision: currentPreview.treeRevision, idempotencyKey: `instantiate-${safeUuid()}` },
+          };
+          idempotencyRef.current = attempt;
+        }
+      }
+      if (!sessionActiveRef.current) return;
+      operation = ++operationRef.current;
+      controller = new AbortController();
+      controllerRef.current = controller;
+      dispatchPhase({ type: 'submit' });
+      setError(null);
+      const created = await instantiateCompositeTemplate(spaceId, selectedComposite.id, attempt.request, controller.signal);
       if (!sessionActiveRef.current || controller.signal.aborted || operationRef.current !== operation) return;
       setResult(created);
       if (created.runId) {
@@ -469,26 +536,23 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       }
       if (!controller.signal.aborted && operationRef.current === operation) dispatchPhase({ type: 'resolve' });
     } catch (reason) {
-      if (!controller.signal.aborted && operationRef.current === operation) {
+      if (sessionActiveRef.current && controller && !controller.signal.aborted && operationRef.current === operation) {
         const response = (reason as { response?: unknown } | null)?.response;
+        if (idempotencyRef.current) idempotencyRef.current.unknownResult = !response;
         setError(response
           ? apiErrorMessage(reason, t, 'pageTemplate.composite.createFailed')
           : t('pageTemplate.composite.unknownResult'));
         dispatchPhase({ type: 'fail', collaborationEnabled });
       }
     } finally {
-      if (controllerRef.current === controller) controllerRef.current = null;
+      if (controller && controllerRef.current === controller) controllerRef.current = null;
       submittingRef.current = false;
     }
   };
 
   const close = () => {
     if (legacyCreating) return;
-    if (pageMode) { onClose(); return; }
-    operationRef.current += 1;
-    controllerRef.current?.abort();
-    controllerRef.current = null;
-    submittingRef.current = false;
+    if (!pageMode || submittingRef.current) cancelPendingOperation();
     onClose();
   };
 
@@ -520,26 +584,32 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
     dispatchPhase({ type: 'reset', blank: next === 'blank' });
   };
   const content = <>
-    <div className="flex min-w-0 items-start justify-between gap-3">
+    {validationToast ? <Toast kind="error" message={validationToast} onClose={() => setValidationToast(null)} /> : null}
+    {pageMode ? <div className="template-context-row">
+      <button ref={closeButtonRef} type="button" onClick={close} disabled={legacyCreating || phase === 'submitting'}
+        className="template-return"><ArrowLeft size={16} aria-hidden="true" />{t('creation.return')}</button>
+      {targetLocation ? <p className="template-destination" data-testid="new-page-folder-hint">
+        {t('page.createLocation', { location: targetLocation })}
+      </p> : null}
+    </div> : null}
+    <div className="template-creation-header">
       <div className="min-w-0">{pageMode ? <>
-        <button ref={closeButtonRef} type="button" onClick={close} disabled={legacyCreating || phase === 'submitting'}
-          className="mb-4 inline-flex min-h-10 items-center gap-2 text-sm text-gray-500 hover:text-gray-900"><ArrowLeft size={16} />{t('creation.return')}</button>
         <h1 id="new-page-dialog-title" className="text-2xl font-semibold text-gray-900">{t('creation.title')}</h1>
         <p className="mt-2 text-sm text-gray-500">{t('creation.description')}</p>
       </> : <><h2 id="new-page-dialog-title" className="text-xl font-semibold text-gray-900">{t('page.createTitle')}</h2>
         <p className="mt-1 text-sm text-gray-500">{phaseLabel}</p></>}</div>
       {!pageMode ? <button ref={closeButtonRef} type="button" aria-label={t('common.close')} disabled={legacyCreating} onClick={close}
-        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-50"><X size={20} /></button> : null}
+        className="template-close"><X size={20} /></button> : null}
     </div>
-    {targetLocation ? <p className="mt-3 break-words text-sm text-gray-500" data-testid="new-page-folder-hint">
+    {!pageMode && targetLocation ? <p className="template-destination" data-testid="new-page-folder-hint">
       {t('page.createLocation', { location: targetLocation })}
     </p> : null}
-    <div className={pageMode ? 'mt-6 grid min-w-0 gap-6 lg:grid-cols-[192px_minmax(0,1fr)]' : ''}>
-    {pageMode ? <nav aria-label={t('creation.methods')} className="flex gap-2 overflow-x-auto lg:flex-col lg:self-start">
+    <div className={pageMode ? "template-creation-layout" : "template-dialog-body"}>
+    {pageMode ? <nav aria-label={t('creation.methods')} className="template-methods">
       {([['blank', FilePlus2], ['single_page', LayoutTemplate], ['page_group', Files]] as const).map(([value, Icon]) => <button key={value}
         type="button" aria-pressed={method === value} onClick={() => switchMethod(value)} disabled={legacyCreating || phase === 'submitting' || phase === 'result'}
-        className={`inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg px-3 py-3 text-left text-sm disabled:opacity-50 ${method === value ? 'bg-gray-100 font-medium text-gray-950' : 'text-gray-500 hover:bg-gray-50'}`}>
-        <Icon size={18} />{t(`creation.method.${value}`)}</button>)}
+        className="template-method">
+        <Icon size={16} aria-hidden="true" />{t(`creation.method.${value}`)}</button>)}
     </nav> : null}
     <div className="min-w-0">
     {phase === 'select' ? <SelectPhase
@@ -570,29 +640,34 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       onNext={nextFromSelect}
     /> : null}
 
-    {phase === 'legacy-details' ? <form onSubmit={createLegacy} className={pageMode ? "creation-details" : "mt-5"}>
+    {phase === 'legacy-details' ? <form onSubmit={createLegacy} className="template-details">
+      <div className="template-details-layout">
       <SelectedSummary name={selectedLegacy?.name ?? t('pageTemplate.blank.name')}
         description={selectedLegacy?.description ?? t('pageTemplate.blank.description')}
         version={selectedLegacy?.currentVersion} />
+      <div className="template-details-main">
       <label className="mt-4 block text-sm font-medium text-gray-800">{t('common.title')}
         <input data-modal-autofocus autoFocus type="text" required value={title}
           onChange={(event) => { userEditedRef.current = true; setTitle(truncateValidatorLength(event.target.value, PAGE_TITLE_LIMIT)); }}
           placeholder={t('page.titlePlaceholder')}
-          className="mt-1 min-h-10 w-full rounded-lg border border-gray-300 px-3 outline-none focus:ring-2 focus:ring-blue-500" />
+          className="template-name-input" />
       </label>
       {folderId && !targetLocation ? <p className="mt-4 text-xs text-gray-500" data-testid="new-page-folder-hint">
         {t('page.intoCurrentFolder')}
       </p> : null}
       <ErrorNotice message={error} />
+      </div></div>
       <WizardActions hideBack={pageMode && method === 'blank'} backDisabled={legacyCreating} onBack={() => { focusCloseAfterBackRef.current = true; dispatchPhase({ type: 'back' }); }}>
-        <button type="button" disabled={legacyCreating} onClick={onClose} className="min-h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('common.cancel')}</button>
-        <button type="submit" disabled={legacyCreating || !title.trim()} className="min-h-10 rounded-lg bg-blue-600 px-5 text-sm font-medium text-white disabled:opacity-50">
+        <button type="button" disabled={legacyCreating} onClick={onClose} className="template-button">{t('common.cancel')}</button>
+        <button type="submit" disabled={legacyCreating || !title.trim()} className="template-button template-button-primary">
           {legacyCreating ? t('common.creating') : t('common.create')}</button>
       </WizardActions>
     </form> : null}
 
-    {phase === 'preview' ? <section className={pageMode ? 'creation-details' : 'mt-5 space-y-4'}>
+    {phase === 'preview' ? <section className="template-details">
+      <div className="template-details-layout">
       <SelectedSummary name={selectedComposite?.name ?? ''} description={selectedComposite?.description ?? ''} version={selectedComposite?.currentVersion} />
+      <div className="template-details-main">
       <label className="block text-sm font-medium text-gray-800">{t(pageMode ? (selectedComposite?.kind === 'page_group' ? 'creation.groupName' : 'common.title') : 'pageTemplate.composite.rootName')}
         <input ref={previewNameRef} type="text" value={rootName} disabled={previewLoading}
           onChange={(event) => {
@@ -602,13 +677,16 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
             idempotencyRef.current = null;
           }}
           onBlur={() => { if (previewStale && !previewLoading) void loadPreview(collaborationEnabled); }}
-          className="mt-1 min-h-10 w-full rounded-lg border px-3 disabled:opacity-50" />
+          className="template-name-input" />
       </label>
+      <div className="template-structure">
+      <h3 className="template-section-label">{language === 'zh-CN' ? '内容结构' : 'Content structure'}</h3>
       {previewLoading ? <p role="status" className="text-sm text-gray-500">{t('common.loading')}</p>
         : preview ? <TemplateTreePreview nodes={preview.nodes} emptyLabel={t('pageTemplate.composite.treeEmpty')} /> : null}
+      </div>
       {previewStale ? <p role="status" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{t('pageTemplate.composite.previewStale')}</p> : null}
-      {(!pageMode || selectedComposite?.effectiveSupportsCollaboration) ? <label className="flex items-start gap-3 rounded-[14px] border p-4 text-sm font-medium">
-        <input type="checkbox" checked={collaborationEnabled} disabled={!selectedComposite?.effectiveSupportsCollaboration || previewLoading || previewStale}
+      {(!pageMode || selectedComposite?.effectiveSupportsCollaboration) ? <label className="template-collaboration-option">
+        <input type="checkbox" aria-label={t('pageTemplate.composite.enable')} checked={collaborationEnabled} disabled={!selectedComposite?.effectiveSupportsCollaboration || previewLoading || previewStale}
           onChange={(event) => {
             userEditedRef.current = true;
             const enabled = event.target.checked;
@@ -616,20 +694,22 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
             idempotencyRef.current = null;
             void loadPreview(enabled);
           }} />
-        <span>{t('pageTemplate.composite.enable')}</span>
+        <span>{t('pageTemplate.composite.enable')}<small>{language === 'zh-CN' ? '继续配置参与者与协作任务' : 'Configure participants and tasks in the next step'}</small></span>
       </label> : null}
-      <IssueList issues={preview?.issues ?? []} />
+      <IssueList issues={(preview?.issues ?? []).filter((issue) => !/^(ROLE_BINDING_|COLLABORATION_|PAGE_ROLE_)/.test(issue.code))} />
       <ErrorNotice message={error} />
+      </div></div>
       <WizardActions onBack={() => { focusCloseAfterBackRef.current = true; dispatchPhase({ type: 'back' }); }}>
-        <button type="button" onClick={onClose} className="min-h-10 rounded-lg border px-4 text-sm">{t('common.cancel')}</button>
+        <button type="button" onClick={onClose} className="template-button">{t('common.cancel')}</button>
         {collaborationEnabled ? <button type="button" disabled={!preview || previewStale} onClick={() => dispatchPhase({ type: 'configure' })}
-          className="min-h-10 rounded-lg bg-blue-600 px-5 text-sm font-medium text-white disabled:opacity-50">{t('pageTemplate.next')}</button>
+          className="template-button template-button-primary">{t('pageTemplate.next')}</button>
           : <button type="button" disabled={!preview || previewLoading || previewStale} onClick={() => void createComposite()}
-            className="min-h-10 rounded-lg bg-blue-600 px-5 text-sm font-medium text-white disabled:opacity-50">{selectedComposite?.kind === 'page_group' ? t('pageTemplate.composite.createGroup') : t('common.create')}</button>}
+            className="template-button template-button-primary">{selectedComposite?.kind === 'page_group' ? t('pageTemplate.composite.createGroup') : t('common.create')}</button>}
       </WizardActions>
     </section> : null}
 
-    {phase === 'configure' && preview ? <section className="mt-5">
+    {phase === 'configure' && preview ? <section ref={configureRef} className="template-configure">
+      <div className="template-configure-heading"><h2>{t('pageTemplate.composite.configure')}</h2><p>{selectedComposite?.name}</p></div>
       <CollaborationSettingsPanel spaceId={spaceId} roles={preview.roles} inputs={preview.inputs} tasks={preview.tasks}
         agents={members} bindings={collaboration.bindings} inputValues={collaboration.inputValues}
         enabledTaskNodeIds={collaboration.enabledTaskNodeIds} participants={preview.participants}
@@ -638,17 +718,17 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
           if (sessionActiveRef.current) setMembers(nextMembers);
           return nextMembers;
         }}
-        onChange={(value) => { userEditedRef.current = true; setCollaboration(value); idempotencyRef.current = null; }} />
-      <IssueList issues={preview.issues} />
+        onChange={(value) => { if (submittingRef.current) cancelPendingOperation(); userEditedRef.current = true; setCollaboration(value); setError(null); setValidationToast(null); idempotencyRef.current = null; }} />
+      <div ref={configureIssuesRef} tabIndex={-1}><IssueList issues={preview.issues} /></div>
       <ErrorNotice message={error} />
-      <WizardActions onBack={() => dispatchPhase({ type: 'back' })}>
+      <WizardActions onBack={() => { cancelPendingOperation(); setError(null); dispatchPhase({ type: 'back' }); }}>
         <button ref={refreshParticipantsButtonRef} type="button" disabled={previewLoading} onClick={() => {
           restoreRefreshFocusRef.current = true;
           void loadPreview(true);
-        }} className="min-h-10 rounded-lg border px-4 text-sm disabled:opacity-50">
+        }} className="template-button">
           {previewLoading ? t('common.loading') : t('pageTemplate.composite.refreshParticipants')}</button>
         <button type="button" onClick={() => void createComposite()} disabled={previewLoading}
-          className="min-h-10 rounded-lg bg-blue-600 px-5 text-sm font-medium text-white disabled:opacity-50">{t('pageTemplate.composite.createAndStart')}</button>
+          className="template-button template-button-primary">{t('pageTemplate.composite.createAndStart')}</button>
       </WizardActions>
     </section> : null}
 
@@ -663,9 +743,9 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       })} /> : null}
     </div></div>
   </>;
-  return pageMode ? <div className="creation-page mx-auto w-full max-w-6xl pb-4">{content}</div> : <ModalDialog
+  return pageMode ? <div className="creation-page template-creation template-creation-page">{content}</div> : <ModalDialog
     labelledBy="new-page-dialog-title" onRequestClose={close} closeDisabled={legacyCreating} returnFocusTo={returnFocusTo}
-    className="max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto rounded-[14px] bg-white p-4 shadow-xl sm:p-6">
+    className="template-creation template-creation-dialog">
     {content}
   </ModalDialog>;
 };
@@ -699,89 +779,106 @@ const SelectPhase: React.FC<{
 }> = ({ pageMode = false, search, onSearch, selected, scopeFilter, kindFilter, loading, failed, canManage, compositeDisabled, spaceId, compositeTemplates, legacyTemplates,
   hasMore, loadingMore, onScopeFilter, onKindFilter, onLoadMore, onBlank, onComposite, onLegacy, onRetry, onClose, canContinue, onNext }) => {
   const { t } = useLanguage();
+  const selectedTemplate = selected.source !== 'blank' && canContinue ? selected.value
+    : !pageMode && selected.source === 'blank' && canContinue ? {
+      name: t('pageTemplate.blank.name'), description: t('pageTemplate.blank.description'), currentVersion: undefined,
+    } : null;
+  const hasTemplates = compositeTemplates.length > 0 || legacyTemplates.length > 0;
   return <>
-    {pageMode ? <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_180px]">
-      <label className="text-sm text-gray-700">{t('pageTemplate.search')}<input type="search" value={search} onChange={(event) => onSearch(event.target.value)}
-        className="mt-2 min-h-10 w-full rounded-lg border border-gray-200 px-3" /></label>
-      <label className="text-sm text-gray-700">{t('creation.source')}<select aria-label={t('creation.source')} value={scopeFilter} onChange={(event) => onScopeFilter(event.target.value as ScopeFilter)}
-        className="mt-2 min-h-10 w-full rounded-lg border border-gray-200 bg-white px-3">
-        {SCOPE_FILTERS.map((scope) => <option key={scope} value={scope}>{t(`creation.source.${scope}`)}</option>)}
-      </select></label>
-    </div> : <div className="mt-5 space-y-3">
-      <div role="group" aria-label={t('pageTemplate.step.choose')} className="flex flex-wrap gap-2">{SCOPE_FILTERS.map((filter) => <FilterButton key={filter}
-        active={scopeFilter === filter} onClick={() => onScopeFilter(filter)}>{t(`pageTemplate.filter.${filter}`)}</FilterButton>)}</div>
-      <div role="group" aria-label={t('pageTemplate.composite.kind.all')} className="flex flex-wrap gap-2">{KIND_FILTERS.map((filter) => <FilterButton key={filter}
-        active={kindFilter === filter} onClick={() => onKindFilter(filter)}>{t(`pageTemplate.composite.kind.${filter}`)}</FilterButton>)}</div>
-    </div>}
+    <div className="template-catalog-toolbar">
+      <label className="template-search"><span className="sr-only">{t('pageTemplate.search')}</span>
+        <Search size={16} aria-hidden="true" />
+        <input type="search" value={search} placeholder={t('pageTemplate.search')} onChange={(event) => onSearch(event.target.value)} />
+      </label>
+      {pageMode ? <label className="template-source"><span className="sr-only">{t('creation.source')}</span>
+        <select aria-label={t('creation.source')} value={scopeFilter} onChange={(event) => onScopeFilter(event.target.value as ScopeFilter)}>
+          {SCOPE_FILTERS.map((scope) => <option key={scope} value={scope}>{t(`creation.source.${scope}`)}</option>)}
+        </select>
+      </label> : <div role="group" aria-label={t('pageTemplate.step.choose')} className="template-filter-group">
+        {SCOPE_FILTERS.map((filter) => <FilterButton key={filter} active={scopeFilter === filter}
+          onClick={() => onScopeFilter(filter)}>{t(`pageTemplate.filter.${filter}`)}</FilterButton>)}
+      </div>}
+    </div>
+    {!pageMode ? <div role="group" aria-label={t('pageTemplate.composite.kind.all')} className="template-kind-tabs">
+      {KIND_FILTERS.map((filter) => <FilterButton key={filter} active={kindFilter === filter}
+        onClick={() => onKindFilter(filter)}>{t(`pageTemplate.composite.kind.${filter}`)}</FilterButton>)}
+    </div> : null}
     {failed ? <div role="alert" className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900"><span>{t('pageTemplate.loadFailed')}</span>{' '}
-      <button type="button" onClick={onRetry} className="min-h-10 px-2 font-medium underline">{t('pageTemplate.retry')}</button></div> : null}
+      <button type="button" onClick={onRetry} className="min-h-9 px-2 font-medium underline">{t('pageTemplate.retry')}</button></div> : null}
     {compositeDisabled ? <p role="status" className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
       {t('pageTemplate.composite.rolloutFallback')}
     </p> : null}
-    {loading ? <p role="status" className="mt-4 text-sm text-gray-500">{t('common.loading')}</p> : null}
-    <div className={pageMode ? 'mt-5 grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_256px]' : ''}>
-    <div><div role="group" aria-label={t('pageTemplate.step.choose')} className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-      {!pageMode && kindFilter !== 'page_group' ? <TemplateButton name={t('pageTemplate.blank.name')} description={t('pageTemplate.blank.description')}
-        scopeLabel={t('pageTemplate.scope.blank')} selected={selected.source === 'blank'} foundation onClick={onBlank} /> : null}
-      {compositeTemplates.map((template) => <TemplateButton key={template.id} name={template.name} description={template.description}
-        category={t(`pageTemplate.category.${template.category}`)} scopeLabel={t(pageMode && template.scope === 'space' ? 'creation.source.space' : `pageTemplate.scope.${template.scope}`)}
-        selected={selected.source === 'composite' && selected.value.id === template.id}
-        meta={`${t('pageTemplate.composite.pages', { count: template.pageCount })} · ${t('pageTemplate.composite.folders', { count: template.folderCount })}`}
-        onClick={() => onComposite(template)} />)}
-      {legacyTemplates.map((template) => <TemplateButton key={template.id} name={template.name} description={template.description}
-        category={t(`pageTemplate.category.${template.category}`)} scopeLabel={t(pageMode && template.scope === 'space' ? 'creation.source.space' : `pageTemplate.scope.${template.scope}`)}
-        selected={selected.source === 'legacy' && selected.value.id === template.id} onClick={() => onLegacy(template)} />)}
+    {loading ? <p role="status" className="template-loading">{t('common.loading')}</p> : null}
+    <div className="template-catalog-layout">
+      <div className="template-catalog-main">
+        <div role="group" aria-label={t('pageTemplate.step.choose')} className="template-catalog-list">
+          {!pageMode && kindFilter !== 'page_group' ? <TemplateButton name={t('pageTemplate.blank.name')} description={t('pageTemplate.blank.description')}
+            scopeLabel={t('pageTemplate.scope.blank')} selected={selected.source === 'blank'} foundation onClick={onBlank} /> : null}
+          {compositeTemplates.map((template) => <TemplateButton key={template.id} name={template.name} description={template.description}
+            category={t(`pageTemplate.category.${template.category}`)} scopeLabel={t(pageMode && template.scope === 'space' ? 'creation.source.space' : `pageTemplate.scope.${template.scope}`)}
+            selected={selected.source === 'composite' && selected.value.id === template.id} kind={template.kind}
+            meta={`${t('pageTemplate.composite.pages', { count: template.pageCount })} · ${t('pageTemplate.composite.folders', { count: template.folderCount })}`}
+            onClick={() => onComposite(template)} />)}
+          {legacyTemplates.map((template) => <TemplateButton key={template.id} name={template.name} description={template.description}
+            category={t(`pageTemplate.category.${template.category}`)} scopeLabel={t(pageMode && template.scope === 'space' ? 'creation.source.space' : `pageTemplate.scope.${template.scope}`)}
+            selected={selected.source === 'legacy' && selected.value.id === template.id} onClick={() => onLegacy(template)} />)}
+        </div>
+        {!loading && !failed && !hasTemplates ? <p className="template-empty">{t(scopeFilter === 'space' ? 'creation.emptySpace' : 'creation.empty')}</p> : null}
+        {hasMore ? <button type="button" disabled={loadingMore} onClick={onLoadMore}
+          className="template-load-more">{loadingMore ? t('common.loading') : t('pageTemplate.composite.loadMore')}</button> : null}
+      </div>
+      <aside className={`template-selection ${selectedTemplate ? 'has-selection' : ''}`}>
+        <h2 className="template-section-label">{t('creation.selection')}</h2>
+        {selectedTemplate ? <>
+          <span className="template-selection-icon" aria-hidden="true">{selected.source === 'composite' && selected.value.kind === 'page_group' ? <Files size={22} /> : <FileText size={22} />}</span>
+          <p className="template-selection-title">{selectedTemplate.name}</p>
+          <p className="template-selection-description">{selectedTemplate.description}</p>
+          {selected.source === 'composite' ? <div className="template-selection-stats">
+            <span><FileText size={14} aria-hidden="true" />{t('pageTemplate.composite.pages', { count: selected.value.pageCount })}</span>
+            <span><Folder size={14} aria-hidden="true" />{t('pageTemplate.composite.folders', { count: selected.value.folderCount })}</span>
+          </div> : null}
+          <p className="template-selection-version">{selectedTemplate.currentVersion ? t('pageTemplate.version.number', { version: selectedTemplate.currentVersion }) : t('pageTemplate.version.blank')}</p>
+        </> : <div className="template-selection-placeholder"><LayoutTemplate size={28} strokeWidth={1.3} aria-hidden="true" /><p>{t('creation.selectHint')}</p></div>}
+      </aside>
     </div>
-    {pageMode && !loading && !failed && !compositeTemplates.length && !legacyTemplates.length ? <p className="mt-6 rounded-xl border border-dashed p-6 text-sm text-gray-500">{t(scopeFilter === 'space' ? 'creation.emptySpace' : 'creation.empty')}</p> : null}
-    {hasMore ? <button type="button" disabled={loadingMore} onClick={onLoadMore}
-      className="mt-4 min-h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{loadingMore ? t('common.loading') : t('pageTemplate.composite.loadMore')}</button> : null}
-    </div>
-    {pageMode ? <aside className="self-start rounded-[14px] border border-gray-200 bg-gray-50 p-5 xl:sticky xl:top-6">
-      <h2 className="text-sm font-medium text-gray-900">{t('creation.selection')}</h2>
-      {selected.source !== 'blank' && canContinue ? <><p className="mt-3 break-words text-base font-semibold">{selected.value.name}</p>
-        <p className="mt-2 break-words text-sm text-gray-500">{selected.value.description}</p>
-        <p className="mt-4 text-sm text-gray-500">{t('pageTemplate.version.number', { version: selected.value.currentVersion })}</p></>
-        : <p className="mt-3 text-sm text-gray-500">{t('creation.selectHint')}</p>}
-    </aside> : null}</div>
-    <div className="creation-actions mt-6 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-      {canManage ? <Link to={`/spaces/${spaceId}/settings/page-templates`} className="inline-flex min-h-10 items-center text-sm font-medium text-blue-700 hover:underline">{t('pageTemplate.manage')}</Link> : <span />}
-      <div className="flex flex-wrap justify-end gap-2"><button type="button" onClick={onClose} className="min-h-10 rounded-lg border px-4 text-sm">{t('common.cancel')}</button>
-        <button type="button" disabled={!canContinue} onClick={onNext} className="min-h-10 rounded-lg bg-blue-600 px-5 text-sm font-medium text-white disabled:opacity-50">{t('pageTemplate.next')}</button></div>
+    <div className="creation-actions template-actions">
+      {canManage ? <Link to={`/spaces/${spaceId}/settings/page-templates`} className="template-manage-link">{t('pageTemplate.manage')}</Link> : <span />}
+      <div className="template-action-buttons"><button type="button" onClick={onClose} className="template-button">{t('common.cancel')}</button>
+        <button type="button" disabled={!canContinue} onClick={onNext} className="template-button template-button-primary">{t('pageTemplate.next')}<ArrowRight size={14} aria-hidden="true" /></button></div>
     </div>
   </>;
 };
 
 const FilterButton: React.FC<{ active: boolean; onClick: () => void; children: React.ReactNode }> = ({ active, onClick, children }) => <button
-  type="button" aria-pressed={active} onClick={onClick}
-  className={`min-h-10 rounded-full border px-4 text-sm ${active ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600'}`}>{children}</button>;
+  type="button" aria-pressed={active} onClick={onClick} className="template-filter">{children}</button>;
 
 const TemplateButton: React.FC<{
-  name: string; description: string; category?: string; scopeLabel: string; selected: boolean; meta?: string; foundation?: boolean; onClick: () => void;
-}> = ({ name, description, category, scopeLabel, selected, meta, foundation = false, onClick }) => {
+  name: string; description: string; category?: string; scopeLabel: string; selected: boolean; meta?: string; foundation?: boolean; kind?: CompositeTemplateKind; onClick: () => void;
+}> = ({ name, description, category, scopeLabel, selected, meta, foundation = false, kind = 'single_page', onClick }) => {
   const { t } = useLanguage();
-  return <button type="button" aria-pressed={selected} onClick={onClick} className={`min-w-0 rounded-xl border p-4 text-left transition ${selected
-    ? 'border-blue-600 bg-blue-50 ring-1 ring-blue-600'
-    : foundation ? 'border-dashed border-slate-300 bg-slate-50 hover:border-blue-300' : 'border-gray-200 hover:border-blue-300'}`}>
-    <span className="flex flex-wrap items-start justify-between gap-2"><span className="min-w-0 break-words text-sm font-semibold text-gray-900">{name}</span>
-      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{scopeLabel}</span></span>
-    {selected ? <span className="mt-2 block text-xs font-medium text-blue-700">{t('pageTemplate.selected')}</span> : null}
-    {category ? <span className="mt-1 block text-xs text-blue-700">{category}</span> : null}
-    {meta ? <span className="mt-1 block text-xs text-gray-500">{meta}</span> : null}
-    <span className="mt-2 block break-words text-sm text-gray-600">{description}</span>
+  const Icon = foundation ? FilePlus2 : kind === 'page_group' ? Files : FileText;
+  return <button type="button" aria-pressed={selected} onClick={onClick} className="template-catalog-item">
+    <span className="template-item-icon" aria-hidden="true"><Icon size={18} strokeWidth={1.6} /></span>
+    <span className="template-item-content">
+      <span className="template-item-heading"><span className="template-item-name">{name}</span><span className="template-item-scope">{scopeLabel}</span></span>
+      <span className="template-item-description">{description}</span>
+      <span className="template-item-meta">{category ? <span>{category}</span> : null}{meta ? <span>{meta}</span> : null}</span>
+    </span>
+    <span className="template-item-check">{selected ? <><Check size={16} aria-hidden="true" /><span className="sr-only">{t('pageTemplate.selected')}</span></> : null}</span>
   </button>;
 };
 
 const SelectedSummary: React.FC<{ name: string; description: string; version?: number }> = ({ name, description, version }) => {
   const { t } = useLanguage();
-  return <div className="rounded-lg border border-gray-200 bg-gray-50 p-3"><p className="text-xs font-medium uppercase tracking-wide text-gray-500">{t('pageTemplate.selected')}</p>
-    <p className="mt-1 break-words text-sm font-medium text-gray-900">{name}</p><p className="mt-1 break-words text-sm text-gray-600">{description}</p>
-    <p className="mt-2 text-xs font-medium text-gray-500">{version ? t('pageTemplate.version.number', { version }) : t('pageTemplate.version.blank')}</p></div>;
+  return <aside className="template-summary"><p className="template-section-label">{t('pageTemplate.selected')}</p>
+    <p className="template-selection-title">{name}</p><p className="template-selection-description">{description}</p>
+    <p className="template-selection-version">{version ? t('pageTemplate.version.number', { version }) : t('pageTemplate.version.blank')}</p></aside>;
 };
 
 const WizardActions: React.FC<{ hideBack?: boolean; backDisabled?: boolean; onBack: () => void; children: React.ReactNode }> = ({ hideBack = false, backDisabled = false, onBack, children }) => {
   const { t } = useLanguage();
-  return <div className="creation-actions mt-6 flex flex-wrap items-center justify-between gap-3 border-t pt-4">{hideBack ? <span /> : <button type="button" disabled={backDisabled} onClick={onBack}
-    className="min-h-10 rounded-lg border px-4 text-sm disabled:opacity-50">{t('pageTemplate.back')}</button>}<div className="flex flex-wrap justify-end gap-2">{children}</div></div>;
+  return <div className="creation-actions template-actions">{hideBack ? <span /> : <button type="button" disabled={backDisabled} onClick={onBack}
+    className="template-button"><ArrowLeft size={14} aria-hidden="true" />{t('pageTemplate.back')}</button>}<div className="template-action-buttons">{children}</div></div>;
 };
 
 const ErrorNotice: React.FC<{ message: string | null }> = ({ message }) => message
@@ -813,7 +910,7 @@ const ResultPhase: React.FC<{
       <Link to={`/spaces/${spaceId}/collaboration/runs/${result.runId}`} className="mt-4 inline-flex min-h-10 items-center text-sm font-medium text-blue-700 hover:underline">{t('collaboration.wizard.openRun')}</Link></> : null}
     <ErrorNotice message={error} />
     <div className="mt-6 flex justify-end border-t pt-4"><button type="button" onClick={onOpen}
-      className="min-h-10 rounded-lg bg-blue-600 px-5 text-sm font-medium text-white">{template.kind === 'page_group' ? t('pageTemplate.composite.openGroup') : t('pageTemplate.composite.openPage')}</button></div>
+      className="template-button template-button-primary">{template.kind === 'page_group' ? t('pageTemplate.composite.openGroup') : t('pageTemplate.composite.openPage')}</button></div>
   </section>;
 };
 

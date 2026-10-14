@@ -1,0 +1,188 @@
+{
+  "spaceId": "cmv6biedu005okoisb9fgp64y",
+  "status": "published_verified",
+  "phase": "initial_template_publication_before_status_closure",
+  "pageCount": 17,
+  "originalPageIdsPreserved": 15,
+  "createdPageCount": 2,
+  "internalDocumentLinks": 110,
+  "allContentTitlesFoldersMatched": true,
+  "agentId": "cmufeiyw2035s12csmaji1t0v",
+  "credentialChanged": false,
+  "publisherAutoPublishAuthorizedByUser": true,
+  "spaceApprovalPolicy": "scoped-auto-publish",
+  "agentApprovalMode": "scoped-auto-publish_already_enabled",
+  "folderRenameChangeSet": "cmv6y065r00f0kqb0rupa26hb",
+  "supersededPendingFolderChangeSet": "cmv6xho0000aokqb0jyqmljgb",
+  "pages": [
+    {
+      "key": "home",
+      "page_id": "f285b898-65ba-4938-8616-e9a0b8f575f5",
+      "status": "published",
+      "change_set_id": "cmv6y2xiz00lqkqb0iw5vg59v",
+      "readback_match": true,
+      "sha256": "475d011394ba1dd391da5e38ed5bed4fd8cc5c397fe861cedafd5d615117a73b",
+      "updatedAt": "2026-10-13T17:18:23.335Z",
+      "already_matched": true
+    },
+    {
+      "key": "features",
+      "page_id": "c8334a4b-d0ee-43d5-972c-a660e3fb94bd",
+      "status": "published",
+      "change_set_id": "cmv6y369l00o3kqb0ds1y441p",
+      "readback_match": true,
+      "sha256": "8c55b77bc7fa2f8416199731428f9358fa07c8971ba2aa907d1ed8be74ba63f1",
+      "updatedAt": "2026-10-13T17:18:34.668Z",
+      "already_matched": true
+    },
+    {
+      "key": "requirements",
+      "page_id": "e230b7d5-63a9-451e-9bba-ea14c014d219",
+      "status": "published",
+      "change_set_id": "cmv6y3f3g00qfkqb0qm3lrn7z",
+      "readback_match": true,
+      "sha256": "bc6ce44cfe08508181290198a69be3ccb507166035912dfd07dac9847b48fa80",
+      "updatedAt": "2026-10-13T17:18:46.110Z",
+      "already_matched": true
+    },
+    {
+      "key": "scenarios",
+      "page_id": "406af5a1-d716-4440-adec-f0518c36507f",
+      "status": "published",
+      "change_set_id": "cmv6y3o5500srkqb04opnevqd",
+      "readback_match": true,
+      "sha256": "9287b9dc62793b3b776e6bf50f37c7fde140d89cd1104df70a9cd50240f2a12f",
+      "updatedAt": "2026-10-13T17:18:57.822Z",
+      "already_matched": true
+    },
+    {
+      "key": "roadmap",
+      "page_id": "4c566352-5c75-49ba-81e9-04c37ffaf285",
+      "status": "published",
+      "change_set_id": "cmv6y5d7000v9kqb0b7ron8ea",
+      "readback_match": true,
+      "sha256": "92d482fd631eb5aff1a89cbabc7e06de494254d3268f00a3d862faf55fe86d0b",
+      "updatedAt": "2026-10-13T17:20:16.943Z",
+      "already_matched": true
+    },
+    {
+      "key": "tasks",
+      "page_id": "6859a0ce-def6-4ac5-8f9a-b87ff3ece745",
+      "status": "published",
+      "change_set_id": "cmv6y5lyz00xlkqb0wxamy125",
+      "readback_match": true,
+      "sha256": "5d8440471b96f1f6df42d0b9c3f884fe54c819994c39dca63780c7e7df74f3f5",
+      "updatedAt": "2026-10-13T17:20:28.327Z",
+      "already_matched": true
+    },
+    {
+      "key": "risks",
+      "page_id": "116e31d4-3d3d-425f-aa1f-658eaa931d4e",
+      "status": "published",
+      "change_set_id": "cmv6y5upz00zxkqb0x9x9oaqd",
+      "readback_match": true,
+      "sha256": "6f5fac575cd9382fc18cb58c09df036163824dc2fc3aa73ec00416f461afeed8",
+      "updatedAt": "2026-10-13T17:20:39.658Z",
+      "already_matched": true
+    },
+    {
+      "key": "development",
+      "page_id": "5578409e-6f8a-4f8a-804e-f4d8c4f12dff",
+      "status": "published",
+      "change_set_id": "cmv6y63cv0129kqb0pmyn71kr",
+      "readback_match": true,
+      "sha256": "e4da18b14c04fcbb6fef1b739c0529b1083236221c7221ca77edc9f24956b6dd",
+      "updatedAt": "2026-10-13T17:20:50.853Z",
+      "already_matched": true
+    },
+    {
+      "key": "test-cases",
+      "page_id": "e4db9bde-3cc8-4de9-95cf-5223f67a75a9",
+      "status": "published",
+      "change_set_id": "cmv6y7q9g0161kqb0oahzq2f3",
+      "readback_match": true,
+      "sha256": "4aa82c5b27f4ecd2b0c6b49a86a9b2fe80b8f8f04c9e7efc1829b02ef28dc2f1",
+      "updatedAt": "2026-10-13T17:22:07.197Z",
+      "already_matched": true
+    },
+    {
+      "key": "test-report",
+      "page_id": "a95bb8fe-ba55-4dee-b23c-60562102f266",
+      "status": "published",
+      "change_set_id": "cmv6y1rb100gfkqb09egex2ey",
+      "readback_match": true,
+      "sha256": "861d188d53e2049f866ce506018319bce72391de172fc0b7ef7a61eaf14309c3",
+      "updatedAt": "2026-10-13T17:17:28.609Z",
+      "already_matched": true
+    },
+    {
+      "key": "fix-feedback",
+      "page_id": "e7b82345-60df-4d0b-b0cb-b6a8c63bb3fc",
+      "status": "published",
+      "change_set_id": "cmv6y7s07017rkqb07l1crzah",
+      "readback_match": true,
+      "sha256": "cfc34a25fb1e3dca2bd3905170b11a4985538897328649481006a0823499b82f",
+      "updatedAt": "2026-10-13T17:22:09.456Z",
+      "already_matched": true
+    },
+    {
+      "key": "dev-log",
+      "page_id": "fd635dbe-cccc-4ae8-b0f6-b2d478f570fd",
+      "status": "published",
+      "change_set_id": "cmv6y20dk00ipkqb0m0ta22m4",
+      "readback_match": true,
+      "sha256": "0ef2833e26f703b19d7152feff02d051b9fbf1b0864b6d0b6bb1d2453f85d4bd",
+      "updatedAt": "2026-10-13T17:17:40.354Z",
+      "already_matched": true
+    },
+    {
+      "key": "releases",
+      "page_id": "bd0482ad-f4dc-44cc-898b-8a00c0588174",
+      "status": "published",
+      "change_set_id": "cmv6y7tkv019hkqb0r75ibbex",
+      "readback_match": true,
+      "sha256": "539b16ae72bd0aea1960ccddfb5c9b222248e62a6f2fe13d3426fd7ad7b4e881",
+      "updatedAt": "2026-10-13T17:22:11.490Z",
+      "already_matched": true
+    },
+    {
+      "key": "template-guide",
+      "page_id": "78278a1d-4113-400c-874c-cc85418ef31d",
+      "status": "published",
+      "change_set_id": "cmv6y7uwp01axkqb0r3044pie",
+      "readback_match": true,
+      "sha256": "00d8981b78e28c3c2856839a17e55ec5315d1aa8a461c7a3a5b4b963a0f4cda1",
+      "updatedAt": "2026-10-13T17:22:13.224Z",
+      "already_matched": true
+    },
+    {
+      "key": "data-contract",
+      "page_id": "200b75c8-2196-46b1-a791-12fe6128977a",
+      "status": "published",
+      "change_set_id": "cmv6y7wav01cikqb0fmmnnii1",
+      "readback_match": true,
+      "sha256": "78233ae64de6ea548b03647020f134678ee85c3dafe2a12deb0245b66d85eb5d",
+      "updatedAt": "2026-10-13T17:22:15.026Z",
+      "already_matched": true
+    },
+    {
+      "key": "handoff",
+      "page_id": "6926feff-a584-43cf-ad38-a31e3fff2232",
+      "status": "published",
+      "change_set_id": "cmv6yakkm01i8kqb0332i8m5l",
+      "readback_match": true,
+      "sha256": "ab3ca2acfae9c78ffb758db5c0b5bee98f9b1e2de10c15e2d144e28201252859",
+      "updatedAt": "2026-10-13T17:24:19.804Z"
+    },
+    {
+      "key": "governance",
+      "page_id": "5ed79328-3460-47de-8cd6-324cfaaf08fa",
+      "status": "published",
+      "change_set_id": "cmv6yam4q01jokqb0dsdvtb8n",
+      "readback_match": true,
+      "sha256": "2d4441f6ded341058e30ee27185e7608284c33ed26aaf8c3b17205bfb75c664c",
+      "updatedAt": "2026-10-13T17:24:21.805Z"
+    }
+  ],
+  "limitation": "HTTP 429 interrupted initial reads; persisted writes were read back before resuming. Final status closure is a separate update and receipt."
+}

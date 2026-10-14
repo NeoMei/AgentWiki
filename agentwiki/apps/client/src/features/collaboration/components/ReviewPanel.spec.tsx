@@ -6,7 +6,7 @@ import { ReviewPanel } from './ReviewPanel';
 const t = (key: string) => messages['zh-CN'][key] ?? key;
 const review = { id: 'pending', nodeId: 'review', status: 'pending', canDecide: true, approvalCriteria: ['Evidence is complete'], artifactId: 'a', allowTerminate: true };
 const artifact = { id: 'a', payload: { markdown: 'Evidence is complete' }, evidence: 'user evidence' };
-const props: any = { run: { tasks: [], reviews: [{ ...review, id: 'approved', status: 'approved' }, review, { ...review, id: 'pending-2' }], systemTemplateSource: { slug: 'coding' } }, spaceId: 's', t, artifacts: { pending: artifact, 'pending-2': artifact }, artifactErrors: {}, detail: null, resolvingConflict: false, onLoadDetail: vi.fn(), onRetryArtifact: vi.fn(), onHistory: vi.fn(), onDecision: vi.fn(), onResolveConflict: vi.fn(), isHumanMember: true };
+const props: any = { run: { tasks: [], reviews: [{ ...review, id: 'approved', status: 'approved' }, review, { ...review, id: 'pending-2' }], systemTemplateSource: { slug: 'coding' } }, spaceId: 's', t, artifacts: { pending: artifact, 'pending-2': artifact }, artifactErrors: {}, detail: null, resolvingConflict: false, onLoadDetail: vi.fn(), onCloseDetail: vi.fn(), onRetryArtifact: vi.fn(), onHistory: vi.fn(), onDecision: vi.fn(), onResolveConflict: vi.fn(), isHumanMember: true };
 describe('ReviewPanel presentation and decision guards', () => {
   it('puts pending reviews first stably and actions in their card header, localizing criteria only', () => {
     const view = render(<MemoryRouter><ReviewPanel {...props} /></MemoryRouter>);
@@ -28,6 +28,16 @@ describe('ReviewPanel presentation and decision guards', () => {
     fireEvent.click(screen.getByRole('button', { name: '采纳当前页面' }));
     expect(onDecision.mock.calls.map(call => call[0])).toEqual(['reject_for_revision', 'terminate']);
     expect(onResolveConflict.mock.calls.map(call => call[0])).toEqual(['regenerate', 'adopt_current']);
+  });
+  it('opens page comparison in a centered dialog and closes it explicitly', () => {
+    const onCloseDetail = vi.fn();
+    const comparison = { mode: 'candidate', canDecide: false, conflict: false, target: { pageId: 'p', title: 'Page' }, baseline: { available: true, markdown: 'old' }, candidate: { markdown: 'new', changeSetId: 'c' }, current: { markdown: 'current' } };
+    render(<MemoryRouter><ReviewPanel {...props} run={{ ...props.run, reviews: [{ ...review, pagePublication: { pageId: 'p', changeSetId: 'c' } }] }} detail={{ reviewId: 'pending', kind: 'comparison', comparison }} onCloseDetail={onCloseDetail} /></MemoryRouter>);
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: '页面对比' })).toBeVisible();
+    expect(dialog.className).toContain('max-w-[min(92vw,1200px)]');
+    fireEvent.click(within(dialog).getByRole('button', { name: '关闭' }));
+    expect(onCloseDetail).toHaveBeenCalledTimes(1);
   });
   it.each(['unloaded', 'conflict', 'missing-baseline', 'unauthorized'])('never sends approval for %s page comparison', (mode) => {
     const onDecision = vi.fn();

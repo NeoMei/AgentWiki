@@ -1,3 +1,5 @@
+import { PageNoteService } from '../page-notes/page-note.service';
+import { registerPageNoteTools } from './page-note-tools';
 import { SourceFreshnessService } from '../core/source-freshness/source-freshness.service';
 import { ProjectTaskboardService } from '../project-taskboard/project-taskboard.service';
 import { registerTaskboardTools } from './taskboard-tools';
@@ -30,7 +32,6 @@ import {
   CollaborationSubmitResultOutputSchema,
   CollaborationUpdateTodoInputSchema,
   CollaborationUpdateTodoOutputSchema,
-  agentRoleAllowsScope,
 } from '@neomei/agentwiki-sync-protocol';
 import { BusinessException } from '../core/filters/business-error';
 import { ExecutionService } from '../collaboration-workflows/execution.service';
@@ -46,6 +47,18 @@ const MCP_ID = z.string().min(1).max(100);
 const MCP_SPACE_ID = MCP_ID;
 const MCP_TREE_REVISION = z.string().regex(/^(?:0|[1-9]\d*)$/u);
 const MCP_UPDATED_AT = z.string().datetime({ offset: true });
+const PROPOSE_PAGE_UPDATE_INPUT = z.object({
+  spaceId: MCP_SPACE_ID,
+  pageId: MCP_ID,
+  expectedUpdatedAt: MCP_UPDATED_AT,
+  expectedTreeRevision: MCP_TREE_REVISION,
+  title: z.string().min(1).max(200).regex(NON_BLANK_PAGE_TITLE).optional(),
+  content: z.string().max(200000).optional(),
+  folderId: MCP_ID.nullable().optional(),
+}).strict().refine(
+  input => input.title !== undefined || input.content !== undefined || input.folderId !== undefined,
+  { message: 'Provide at least one Page field to update: title, content or folderId' },
+);
 const LIST_FOLDERS_INPUT = z.object({
   spaceId: MCP_SPACE_ID,
   parentFolderId: MCP_ID.nullable().optional(),
@@ -124,6 +137,7 @@ export class McpService {
     private collaborationExecution: ExecutionService,
     @Optional() private contentTree?: ContentTreeService,
     @Optional() private taskboard?: ProjectTaskboardService,
+    @Optional() private pageNotes?: PageNoteService,
   ) {}
 
   async handle(request: Request, response: Response, principal: Principal): Promise<void> {
@@ -152,6 +166,10 @@ export class McpService {
     const registerTool = (name: string, definition: any, handler: (args: any) => Promise<unknown>) =>
       server.registerTool(name, definition, (args: any) =>
         this.executeMcpCall(`tool.${name}`, principal, requestContext, args, () => handler(args)));
+    registerPageNoteTools(registerTool, principal, () => {
+      if (!this.pageNotes) throw new Error('PageNoteService is required for note MCP tools');
+      return this.pageNotes;
+    });
     registerTaskboardTools(registerTool, principal, this.authorization, () => {
       if (!this.taskboard) throw new Error('ProjectTaskboardService is required for taskboard MCP tools');
       return this.taskboard;
@@ -193,7 +211,7 @@ export class McpService {
       });
     });
     registerTool('propose_folder_change', {
-      description: 'Create a governed Folder lifecycle ChangeSet. Publishing remains subject to the bound Grant, Agent mode, and Space approval policy.',
+      description: 'Create a governed Folder lifecycle ChangeSet. Publishing follows the Space policy and the bound Grant folder scopes: no-review may auto-publish permitted Editor or Publisher changes, while always-review keeps them pending for human review. Agents never receive review:decide.',
       inputSchema: PROPOSE_FOLDER_CHANGE_INPUT,
     }, async (raw: unknown) => {
       const input = PROPOSE_FOLDER_CHANGE_INPUT.parse(raw);
@@ -287,9 +305,10 @@ export class McpService {
     });
     registerTool('get_page', {
       description: 'Read a selected page by its nonempty pageId, including full content, provenance and source evidence. Follow search_pages or list_pages with this call before relying on a summary. Compare source versions and distinguish current content from historical evidence; sourceStatus indicates review alignment with the accepted source, not factual correctness.',
-      inputSchema: { pageId: z.string().min(1) },
-    }, async ({ pageId }: any) => {
-      await this.authorization.assertPageAccess(principal, pageId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
+      inputSchema: { pageId: z.string().min(1), spaceId: z.string().min(1).optional().describe(SPACE_ID) },
+    }, async ({ pageId, spaceId }: any) => {
+      const page = await this.authorization.assertPageAccess(principal, pageId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
+      if (spaceId !== undefined) this.assertResourceSpace(spaceId, page.spaceId);
       return this.text(await this.pages.findOne(pageId, principal));
     });
     registerTool('search_pages', {
@@ -310,17 +329,32 @@ export class McpService {
       return this.text(await this.knowledge.getGraph(spaceId, principal));
     });
     registerTool('propose_page', {
-      description: 'Propose a page ChangeSet. Editor proposals remain pending review. Publisher proposals auto-publish only when the bound Space Grant is publisher and both Agent mode and Space policy allow it.',
+      description: 'Propose a page ChangeSet. The Space policy controls review: in no-review mode, the bound Space Grant may be Editor or Publisher and can auto-publish within its existing write scopes; always-review keeps proposals pending for human review. Agents never receive review:decide.',
       inputSchema: {
         spaceId: z.string().describe(SPACE_ID),
         title: z.string().min(1).regex(NON_BLANK_PAGE_TITLE),
         content: z.string(),
+        folderId: MCP_ID.nullable().optional().describe('Target Folder in this Space. Omit or use null for the Space root.'),
         expectedTreeRevision: z.string().regex(/^(?:0|[1-9]\d*)$/u),
       },
-    }, async ({ spaceId, title, content, expectedTreeRevision }: any) => {
+    }, async ({ spaceId, title, content, folderId, expectedTreeRevision }: any) => {
       await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'editor'], 'pages:write');
       return this.text(await this.review.propose(principal, spaceId, `Proposed page: ${title}`, {
-        type: 'create_page', payload: { title, content, expectedTreeRevision },
+        type: 'create_page', payload: {
+          title, content, expectedTreeRevision,
+          ...(folderId === undefined ? {} : { folderId }),
+        },
+      }));
+    });
+    registerTool('propose_page_update', {
+      description: 'Propose changes to an existing Page through a ChangeSet. First read get_page for expectedUpdatedAt and list_folders for expectedTreeRevision; both producer baselines are required. Omitted fields stay unchanged; folderId null moves the Page to the Space root. The existing Page format is preserved. The Space policy controls review: in no-review mode, the bound Space Grant may be Editor or Publisher and can auto-publish within its existing write scopes; always-review keeps proposals pending for human review. Agents never receive review:decide.',
+      inputSchema: PROPOSE_PAGE_UPDATE_INPUT,
+    }, async (raw: unknown) => {
+      const { spaceId, pageId, expectedUpdatedAt, expectedTreeRevision, ...changes } = PROPOSE_PAGE_UPDATE_INPUT.parse(raw);
+      const page = await this.authorization.assertPageAccess(principal, pageId, ['owner', 'editor'], 'pages:write');
+      this.assertResourceSpace(spaceId, page.spaceId);
+      return this.text(await this.review.propose(principal, spaceId, `Proposed update: ${pageId}`, {
+        type: 'update_page', payload: { pageId, expectedUpdatedAt, expectedTreeRevision, changes },
       }));
     });
     registerTool('propose_relation', {
@@ -355,9 +389,10 @@ export class McpService {
     });
     registerTool('start_source_run', {
       description: 'Start ingestion for an existing source.',
-      inputSchema: { sourceId: z.string() },
-    }, async ({ sourceId }: any) => {
-      await this.authorization.assertSourceAccess(principal, sourceId, ['owner', 'editor'], 'runs:write');
+      inputSchema: { sourceId: z.string(), spaceId: z.string().min(1).optional().describe(SPACE_ID) },
+    }, async ({ sourceId, spaceId }: any) => {
+      const source = await this.authorization.assertSourceAccess(principal, sourceId, ['owner', 'editor'], 'runs:write');
+      if (spaceId !== undefined) this.assertResourceSpace(spaceId, source.spaceId);
       const run = await this.sources.createRun(sourceId, principal);
       this.ingestQueue.enqueue();
       return this.text(run);
@@ -380,60 +415,72 @@ export class McpService {
     });
     registerTool('collaboration_join_run', {
       description: 'Join a bound collaboration run as the authenticated Agent and receive the safe execution loop.',
-      inputSchema: CollaborationJoinRunInputSchema.shape,
+      inputSchema: { ...CollaborationJoinRunInputSchema.shape, spaceId: z.string().min(1).optional().describe(SPACE_ID) },
     }, async (args: unknown) => {
       this.assertCollaborationScope(principal, 'collaboration:execute');
-      const input = CollaborationJoinRunInputSchema.parse(args);
+      const { spaceId, ...operationArgs } = args as Record<string, unknown>;
+      const input = CollaborationJoinRunInputSchema.parse(operationArgs);
+      await this.assertCollaborationSpace(spaceId, input.runId);
       return this.text(CollaborationJoinRunOutputSchema.parse(
         await this.collaborationExecution.joinRun(input.runId, principal),
       ));
     });
     registerTool('collaboration_next_action', {
       description: 'Claim one assigned ready task or receive a bounded wait, human-wait, paused, or terminal action.',
-      inputSchema: CollaborationNextActionInputSchema.shape,
+      inputSchema: { ...CollaborationNextActionInputSchema.shape, spaceId: z.string().min(1).optional().describe(SPACE_ID) },
     }, async (args: unknown) => {
       this.assertCollaborationScope(principal, 'collaboration:execute');
-      const input = CollaborationNextActionInputSchema.parse(args);
+      const { spaceId, ...operationArgs } = args as Record<string, unknown>;
+      const input = CollaborationNextActionInputSchema.parse(operationArgs);
+      await this.assertCollaborationSpace(spaceId, input.runId);
       return this.text(CollaborationNextActionOutputSchema.parse(
         await this.collaborationExecution.nextAction(input, principal),
       ));
     });
     registerTool('collaboration_heartbeat', {
       description: 'Extend an active collaboration task lease without exceeding its maximum execution deadline.',
-      inputSchema: CollaborationHeartbeatInputSchema.shape,
+      inputSchema: { ...CollaborationHeartbeatInputSchema.shape, spaceId: z.string().min(1).optional().describe(SPACE_ID) },
     }, async (args: unknown) => {
       this.assertCollaborationScope(principal, 'collaboration:execute');
-      const input = CollaborationHeartbeatInputSchema.parse(args);
+      const { spaceId, ...operationArgs } = args as Record<string, unknown>;
+      const input = CollaborationHeartbeatInputSchema.parse(operationArgs);
+      await this.assertCollaborationSpace(spaceId, input.runId);
       return this.text(CollaborationHeartbeatOutputSchema.parse(
         await this.collaborationExecution.heartbeat(input, principal),
       ));
     });
     registerTool('collaboration_update_todo', {
       description: 'Advance one ordered Todo item in the currently leased collaboration task.',
-      inputSchema: CollaborationUpdateTodoInputSchema.shape,
+      inputSchema: { ...CollaborationUpdateTodoInputSchema.shape, spaceId: z.string().min(1).optional().describe(SPACE_ID) },
     }, async (args: unknown) => {
       this.assertCollaborationScope(principal, 'collaboration:execute');
-      const input = CollaborationUpdateTodoInputSchema.parse(args);
+      const { spaceId, ...operationArgs } = args as Record<string, unknown>;
+      const input = CollaborationUpdateTodoInputSchema.parse(operationArgs);
+      await this.assertCollaborationSpace(spaceId, input.runId);
       return this.text(CollaborationUpdateTodoOutputSchema.parse(
         await this.collaborationExecution.updateTodo(input, principal),
       ));
     });
     registerTool('collaboration_submit_result', {
       description: 'Submit one schema-checked, evidence-backed Artifact for the currently leased task.',
-      inputSchema: CollaborationSubmitResultInputSchema.shape,
+      inputSchema: { ...CollaborationSubmitResultInputSchema.shape, spaceId: z.string().min(1).optional().describe(SPACE_ID) },
     }, async (args: unknown) => {
       this.assertCollaborationScope(principal, 'collaboration:execute');
-      const input = CollaborationSubmitResultInputSchema.parse(args);
+      const { spaceId, ...operationArgs } = args as Record<string, unknown>;
+      const input = CollaborationSubmitResultInputSchema.parse(operationArgs);
+      await this.assertCollaborationSpace(spaceId, input.runId);
       return this.text(CollaborationSubmitResultOutputSchema.parse(
         await this.collaborationExecution.submitResult(input, principal),
       ));
     });
     registerTool('collaboration_get_run', {
       description: 'Read the authenticated Agent\'s safe collaboration run state without lease secrets.',
-      inputSchema: CollaborationGetRunInputSchema.shape,
+      inputSchema: { ...CollaborationGetRunInputSchema.shape, spaceId: z.string().min(1).optional().describe(SPACE_ID) },
     }, async (args: unknown) => {
       this.assertCollaborationScope(principal, 'collaboration:read');
-      const input = CollaborationGetRunInputSchema.parse(args);
+      const { spaceId, ...operationArgs } = args as Record<string, unknown>;
+      const input = CollaborationGetRunInputSchema.parse(operationArgs);
+      await this.assertCollaborationSpace(spaceId, input.runId);
       return this.text(CollaborationGetRunOutputSchema.parse(
         await this.collaborationExecution.getAgentRun(input, principal),
       ));
@@ -468,11 +515,25 @@ export class McpService {
     return this.contentTree;
   }
 
+  private assertResourceSpace(requested: unknown, actual: string): void {
+    if (requested !== undefined && requested !== actual) {
+      throw new BusinessException('SPACE_ACCESS_DENIED', 'Resource does not belong to the requested Space');
+    }
+  }
+
+  private async assertCollaborationSpace(spaceId: unknown, runId: string): Promise<void> {
+    if (spaceId === undefined) return;
+    const run = await this.prisma.collaborationRun.findUnique({ where: { id: runId }, select: { spaceId: true } });
+    if (!run) throw new BusinessException('RESOURCE_NOT_FOUND', 'Collaboration run not found');
+    this.assertResourceSpace(spaceId, run.spaceId);
+  }
+
   private assertCollaborationScope(
     principal: Principal,
     required: 'collaboration:read' | 'collaboration:execute',
   ): void {
-    if (!principal.agentId || !principal.agentRole || !agentRoleAllowsScope(principal.agentRole, required)) {
+    // Run-level authorization resolves the live grant for the run's Space.
+    if (!principal.agentId) {
       throw new BusinessException('AUTH_SCOPE_REQUIRED', `Required scope is missing: ${required}`);
     }
   }

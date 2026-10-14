@@ -578,9 +578,15 @@ export class ContentTreeService {
         nameKey: normalized.nameKey,
         deletedAt: null,
       },
-      select: { id: true },
+      select: { id: true, name: true },
     });
-    if (duplicate) throw new ContentTreeError('FOLDER_NAME_CONFLICT', 'A sibling Folder already uses this portable name');
+    if (duplicate) {
+      throw new ContentTreeError(
+        'FOLDER_NAME_CONFLICT',
+        'A sibling Folder already uses this portable name',
+        { name: duplicate.name },
+      );
+    }
     const siblingOrder = input.sortOrder === undefined
       ? await lockedTx.folder.aggregate({
         where: { spaceId: input.spaceId, parentId: input.parentId, deletedAt: null },
@@ -624,6 +630,24 @@ export class ContentTreeService {
       select: { id: true, path: true },
     }) : null;
     if (input.folderId && !folder) throw new ContentTreeError('FOLDER_NOT_FOUND', 'Folder not found');
+    if (input.requireUniqueTitle) {
+      const duplicate = await lockedTx.page.findFirst({
+        where: {
+          spaceId: input.spaceId,
+          folderId: input.folderId,
+          title: input.title,
+          deletedAt: null,
+        },
+        select: { id: true, title: true },
+      });
+      if (duplicate) {
+        throw new ContentTreeError(
+          'PAGE_TITLE_CONFLICT',
+          'A sibling Page already uses this title',
+          { name: duplicate.title },
+        );
+      }
+    }
     const allocated = await this.syncPaths.allocate(lockedTx, {
       spaceId: input.spaceId,
       directory: folder?.path ?? 'pages',

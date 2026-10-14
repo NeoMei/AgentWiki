@@ -3,6 +3,8 @@ import { visit } from 'unist-util-visit';
 import api from '../../api/client';
 import {
   collectMarkdownResourceOccurrences,
+  collectMarkdownImageOccurrences,
+  editorMarkdownImageParser,
   collectMarkdownResourceRefs,
   editorMarkdownResourceParser,
   extractMarkdownSection,
@@ -62,6 +64,18 @@ describe('collectMarkdownResourceRefs', () => {
     }))).toEqual([
       { literal: '[[Real page]]', target: 'Real page', heading: undefined },
       { literal: '[[Real page#Heading|Alias]]', target: 'Real page', heading: 'Heading' },
+    ]);
+  });
+
+  it('returns source ranges for embedded attachment images so editors can resolve previews', () => {
+    const source = 'before ![[preview.png]] after ![[Page]]';
+
+    expect(collectMarkdownResourceOccurrences(source).map(({ from, to, reference }) => ({
+      literal: source.slice(from, to),
+      kind: reference.kind,
+      target: reference.target,
+    }))).toEqual([
+      { literal: '![[preview.png]]', kind: 'attachment', target: 'preview.png' },
     ]);
   });
 
@@ -691,5 +705,29 @@ describe('extractMarkdownSection', () => {
     expect(extractMarkdownSection('## Straße ΟΣ\n\nbody', 'STRASSE οσ')).toBe(
       '## Straße ΟΣ\n\nbody',
     );
+  });
+});
+
+
+describe('editor Markdown image candidate budget', () => {
+  it.each([
+    ['Before\n[cover]: https://images.example/wrong.png\n\n![ref][cover]', []],
+    ['[broken]: <\n[cover]: https://images.example/wrong.png\n\n![ref][cover]', []],
+    ['[first]: https://images.example/first.png\n[cover]: https://images.example/right.png\n\n![ref][cover]', ['https://images.example/right.png']],
+  ])('preserves definition paragraph context when collecting %s', (source, urls) => {
+    expect(collectMarkdownImageOccurrences(source).map(({ url }) => url)).toEqual(urls);
+  });
+
+  it('renders a distant image in a long document without sending the full document to the image parser', () => {
+    const body = 'A paragraph with ordinary content.\n\n'.repeat(3000);
+    const source = `${body}![distant](https://images.example/distant.png)`;
+    const parse = vi.spyOn(editorMarkdownImageParser, 'parse');
+    const images = collectMarkdownImageOccurrences(source);
+    expect(images).toEqual([{
+      from: body.length, to: source.length, source: '![distant](https://images.example/distant.png)',
+      url: 'https://images.example/distant.png', alt: 'distant', title: null,
+    }]);
+    expect(parse.mock.calls.reduce((total, [input]) => total + input.length, 0)).toBeLessThanOrEqual(32_768);
+    expect(parse).not.toHaveBeenCalledWith(source);
   });
 });

@@ -2,7 +2,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AuthService } from './auth.service';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../database/prisma.service';
-import { scopesForAgentGrant } from '@neomei/agentwiki-sync-protocol';
 
 const mockPrisma = {
   user: {
@@ -119,7 +118,7 @@ describe('AuthService', () => {
       });
     });
 
-    it('derives an Agent principal from the Credential-bound Grant authorization', async () => {
+    it('derives an Agent identity without freezing any Space role', async () => {
       mockPrisma.apiKeyCredential.findUnique.mockResolvedValue(null);
       mockPrisma.agentCredential.findUnique.mockResolvedValue({
         id: 'agent-credential-1',
@@ -142,17 +141,13 @@ describe('AuthService', () => {
       await expect(service.validateApiKey('agk_secret')).resolves.toMatchObject({
         userId: 'owner-1',
         agentId: 'agent-1',
-        authorizationId: 'grant-1',
-        authorizationSpaceId: 'space-1',
-        agentRole: 'editor',
         type: 'agent',
-        scopes: scopesForAgentGrant('editor', []),
+        scopes: [],
       });
       expect(mockPrisma.agentCredential.findUnique).toHaveBeenCalledWith({
         where: expect.any(Object),
         include: {
           agent: { include: { owner: true } },
-          authorization: true,
         },
       });
     });

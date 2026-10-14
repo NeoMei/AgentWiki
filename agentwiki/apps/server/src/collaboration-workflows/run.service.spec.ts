@@ -46,8 +46,7 @@ const draft = {
 const ready = { ...draft, status: 'ready', version: 2 };
 const grant = (agentId: string, role: 'reader' | 'editor' | 'publisher' = 'editor', status = 'active') => ({
   id: `grant-${agentId}`, agentId, spaceId: 'space-1', role,
-  agent: { id: agentId, status, revokedAt: null, owner: { deletedAt: null, lockedAt: null } }, space: { deletedAt: null },
-  credentials: [{ id: `credential-${agentId}` }],
+  agent: { id: agentId, status, revokedAt: null, owner: { deletedAt: null, lockedAt: null }, credentials: [{ id: `credential-${agentId}` }] }, space: { deletedAt: null },
 });
 
 function projectSelect(value: any, select: Record<string, any>): any {
@@ -217,7 +216,7 @@ describe('RunService', () => {
 
   it('preserves legacy Grant-only validation when an Agent has no current credential', async () => {
     tx.collaborationRun.findFirst.mockResolvedValue(draft);
-    tx.agentGrant.findMany.mockResolvedValue([{ ...grant('agent-a'), credentials: [] }, grant('agent-b')]);
+    tx.agentGrant.findMany.mockResolvedValue([{ ...grant('agent-a'), agent: { ...grant('agent-a').agent, credentials: [] } }, grant('agent-b')]);
 
     await expect(service.validateDraft(
       'space-1', 'run-1', { expectedVersion: 1 }, humanPrincipal,
@@ -675,6 +674,15 @@ describe('RunService', () => {
     }, args.select));
     const result = await service.getHumanRun('space-1', 'run-1', humanPrincipal);
     expect(result.systemTemplateSource).toEqual(expected);
+  });
+
+  it('marks page-selection Runs with a dedicated single-page provenance', async () => {
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) => projectSelect({
+      ...ready, sourceKind: 'page_selection', template: null, compositeTemplateVersion: null, tasks: [], roleBindings: bindings,
+    }, args.select));
+    const result = await service.getHumanRun('space-1', 'run-1', humanPrincipal);
+    expect(result.systemTemplateSource).toEqual({ slug: 'single-page' });
   });
 
   it('adds frozen approval criteria to the current Review preview without exposing the template snapshot', async () => {

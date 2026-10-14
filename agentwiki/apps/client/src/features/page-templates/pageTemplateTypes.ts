@@ -31,6 +31,8 @@ export interface PageTemplateSourcePage {
   id: string;
   title: string;
   format: 'markdown';
+  folderId?: string | null;
+  path?: string | null;
   updatedAt: string;
 }
 

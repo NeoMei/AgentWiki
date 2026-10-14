@@ -1,0 +1,69 @@
+/* Configuration stays independent of page and modal parent layouts. */
+.collaboration-settings-panel {
+  container: collaboration-settings / inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+  color: #171717;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.collaboration-settings-panel .collaboration-settings-setup {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  align-items: start;
+  gap: 24px 32px;
+  min-width: 0;
+}
+.collaboration-settings-panel .collaboration-settings-section { min-width: 0; }
+.collaboration-settings-panel .collaboration-settings-section > h3,
+.collaboration-settings-panel .collaboration-settings-section > legend {
+  max-width: 100%;
+  margin: 0 0 12px;
+  padding: 0;
+  color: #737373;
+  font-size: 14px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.collaboration-settings-panel .collaboration-settings-inputs { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.collaboration-settings-panel .collaboration-settings-input { display: flex; flex-direction: column; gap: 8px; min-width: 0; font-weight: 500; }
+.collaboration-settings-panel .collaboration-settings-input > span { min-width: 0; overflow-wrap: anywhere; }
+.collaboration-settings-panel .collaboration-settings-required { margin-left: 4px; color: #d41616; }
+.collaboration-settings-panel .collaboration-settings-input input:not([type="checkbox"]),
+.collaboration-settings-panel .collaboration-settings-input textarea {
+  min-width: 0;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  background: #fff;
+  color: #171717;
+  font: inherit;
+  font-weight: 400;
+}
+.collaboration-settings-panel .collaboration-settings-input textarea { min-height: 80px; resize: vertical; }
+.collaboration-settings-panel .collaboration-settings-input.is-boolean { flex-direction: row; align-items: start; justify-content: space-between; gap: 12px; min-height: 36px; padding-block: 8px; }
+.collaboration-settings-panel .collaboration-settings-input input[type="checkbox"],
+.collaboration-settings-panel .collaboration-settings-task input { flex-shrink: 0; width: 16px; height: 16px; margin-top: 2px; accent-color: #525252; }
+.collaboration-settings-panel .collaboration-settings-tasks { min-width: 0; }
+.collaboration-settings-panel .collaboration-settings-task { display: flex; align-items: start; gap: 8px; min-width: 0; padding: 8px 0; border-bottom: 1px solid #eeeeee; cursor: pointer; }
+.collaboration-settings-panel .collaboration-settings-task:first-child { padding-top: 0; }
+.collaboration-settings-panel .collaboration-settings-task:last-child { border-bottom: 0; }
+.collaboration-settings-panel .collaboration-settings-task > span { min-width: 0; overflow-wrap: anywhere; }
+.collaboration-settings-panel .collaboration-settings-roles { padding-top: 16px; border-top: 1px solid #e5e5e5; }
+.collaboration-settings-panel .collaboration-settings-roles:first-child { padding-top: 0; border-top: 0; }
+.collaboration-settings-panel .collaboration-settings-roles > h3 { margin-bottom: 4px; }
+.collaboration-settings-panel .collaboration-settings-participants { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); align-items: baseline; gap: 8px 24px; padding-top: 16px; border-top: 1px solid #e5e5e5; }
+.collaboration-settings-panel .collaboration-settings-participants > h3 { margin-bottom: 0; }
+.collaboration-settings-panel .collaboration-settings-participants ul { display: flex; flex-wrap: wrap; gap: 8px 16px; min-width: 0; margin: 0; padding: 0; list-style: none; }
+.collaboration-settings-panel .collaboration-settings-participants li,
+.collaboration-settings-panel .collaboration-settings-participants p { min-width: 0; color: #737373; overflow-wrap: anywhere; }
+.collaboration-settings-panel .collaboration-settings-input :focus-visible,
+.collaboration-settings-panel .collaboration-settings-task input:focus-visible,
+.collaboration-settings-panel .collaboration-settings-section > h3:focus-visible { outline: 2px solid #737373; outline-offset: 2px; }
+@container collaboration-settings (max-width: 580px) {
+  .collaboration-settings-panel .collaboration-settings-participants { grid-template-columns: minmax(0, 1fr); }
+}

@@ -42,7 +42,7 @@ describe('KnowledgeSyncController HTTP authorization', () => {
     agk_editor: { userId: 'owner-1', agentId: 'agent-editor', agentRole: 'reader', credentialId: 'credential-3', authorizationId: 'grant-editor', authorizationSpaceId: 'space-1', scopes: ['sources:read'] },
   };
   const grants: Record<string, any> = {
-    'agent-wrong-binding': { id: 'grant-writer', role: 'editor', agent: { status: 'active', revokedAt: null }, space: { deletedAt: null } },
+    'agent-wrong-binding': null,
     'agent-reader': { id: 'grant-reader', role: 'reader', agent: { status: 'active', revokedAt: null }, space: { deletedAt: null } },
     'agent-editor': { id: 'grant-editor', role: 'editor', agent: { status: 'active', revokedAt: null }, space: { deletedAt: null } },
   };
@@ -89,7 +89,7 @@ describe('KnowledgeSyncController HTTP authorization', () => {
     });
   }
 
-  it('rejects a credential that is not bound to the requested space grant', async () => {
+  it('rejects an authenticated Agent identity without a target Space grant', async () => {
     const response = await upload('agk_wrong_binding', {
       'idempotency-key': 'wrong-binding', 'x-agentwiki-user-confirmed': 'true',
     });

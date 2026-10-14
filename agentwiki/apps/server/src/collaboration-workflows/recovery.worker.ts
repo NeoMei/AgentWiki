@@ -203,16 +203,18 @@ export class RecoveryWorker implements OnModuleInit, OnModuleDestroy {
     const grant = await tx.agentGrant.findUnique({
       where: { agentId_spaceId: { agentId, spaceId } },
       include: {
-        agent: { select: { status: true, revokedAt: true, owner: { select: { deletedAt: true, lockedAt: true } } } },
-        space: { select: { deletedAt: true } },
-        credentials: {
-          where: {
-            revokedAt: null,
-            OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        agent: { select: {
+          status: true, revokedAt: true, owner: { select: { deletedAt: true, lockedAt: true } },
+          credentials: {
+            where: {
+              revokedAt: null,
+              OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+            },
+            select: { revokedAt: true, expiresAt: true },
+            take: 1,
           },
-          select: { revokedAt: true, expiresAt: true },
-          take: 1,
-        },
+        } },
+        space: { select: { deletedAt: true } },
       },
     });
     return Boolean(
@@ -222,7 +224,7 @@ export class RecoveryWorker implements OnModuleInit, OnModuleDestroy {
       && !grant.agent.owner.deletedAt
       && !grant.agent.owner.lockedAt
       && !grant.space.deletedAt
-      && grant.credentials?.some((credential) => !credential.revokedAt && (!credential.expiresAt || credential.expiresAt > now))
+      && grant.agent.credentials?.some((credential) => !credential.revokedAt && (!credential.expiresAt || credential.expiresAt > now))
       && AgentAccessRoleSchema.safeParse(grant.role).success
       && agentRoleAllowsScope(grant.role, 'collaboration:execute'),
     );

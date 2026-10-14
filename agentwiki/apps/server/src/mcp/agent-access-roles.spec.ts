@@ -18,8 +18,8 @@ describe('MCP Agent access roles', () => {
     agent: { status: 'active', revokedAt: null },
     space: { id: 'space-1', name: 'NeoMei-Space', deletedAt: null },
   };
-  let spaceApprovalPolicy = 'scoped-auto-publish';
-  let agentApprovalMode = 'scoped-auto-publish';
+  let spaceApprovalPolicy = 'no-review';
+  let agentApprovalMode = 'always-review';
   let credentialAuthorizationId = 'grant-1';
   const prisma = {
     space: { findUnique: jest.fn() },
@@ -56,8 +56,8 @@ describe('MCP Agent access roles', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    spaceApprovalPolicy = 'scoped-auto-publish';
-    agentApprovalMode = 'scoped-auto-publish';
+    spaceApprovalPolicy = 'no-review';
+    agentApprovalMode = 'always-review';
     credentialAuthorizationId = 'grant-1';
     grant.folderScopes = [];
     prisma.space.findUnique.mockImplementation(async ({ select }: any) =>
@@ -143,23 +143,15 @@ describe('MCP Agent access roles', () => {
       const response = await proposal;
       expect(response).toBeDefined();
       const result = JSON.parse(response.content[0].text);
-      if (role === 'editor') {
-        expect(result).toMatchObject({ status: 'pending_review', autoPublished: false });
-        expect(prisma.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({
-          data: expect.objectContaining({ status: 'pending_review' }),
-        }));
-        expect(publish).not.toHaveBeenCalled();
-      } else {
-        expect(result).toMatchObject({ status: 'published', autoPublished: true });
-        expect(prisma.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({
-          data: expect.objectContaining({ status: 'approved' }),
-        }));
-        expect(publish).toHaveBeenCalledWith('change-1', {
-          ownerId: 'owner-1',
-          agentId: 'agent-1',
-          credentialId: 'credential-publisher',
-        });
-      }
+      expect(result).toMatchObject({ status: 'published', autoPublished: true });
+      expect(prisma.changeSet.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ status: 'approved' }),
+      }));
+      expect(publish).toHaveBeenCalledWith('change-1', {
+        ownerId: 'owner-1',
+        agentId: 'agent-1',
+        credentialId: `credential-${role}`,
+      });
       expect(propose).toHaveBeenCalledWith(
         principal,
         'space-1',
@@ -266,7 +258,7 @@ describe('MCP Agent access roles', () => {
     expect(publish).not.toHaveBeenCalled();
   });
 
-  it('rejects the MCP proposal when the live Credential authorization binding is missing', async () => {
+  it('allows an identity credential regardless of historical Space binding', async () => {
     grant.role = 'publisher';
     credentialAuthorizationId = 'grant-other';
     const principal: Principal = {
@@ -278,25 +270,15 @@ describe('MCP Agent access roles', () => {
 
     await expect(tools.propose_page.handler({
       spaceId: 'space-1', title: '吃饭睡觉打豆豆', content: '豆豆不能随便打', expectedTreeRevision: '41',
-    })).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+    })).resolves.toBeDefined();
 
-    expect(prisma.changeSet.create).not.toHaveBeenCalled();
-    expect(publish).not.toHaveBeenCalled();
+    expect(prisma.changeSet.create).toHaveBeenCalled();
+    expect(publish).toHaveBeenCalled();
   });
 
-  it.each([
-    ['Grant role', () => {
-      grant.role = 'editor';
-    }],
-    ['Agent approval mode', () => {
-      agentApprovalMode = 'always-review';
-    }],
-    ['Space policy', () => {
-      spaceApprovalPolicy = 'always-review';
-    }],
-  ] as const)('keeps the MCP proposal pending when the %s gate is missing', async (_gate, arrange) => {
+  it('keeps the MCP proposal pending when the Space policy requires review', async () => {
     grant.role = 'publisher';
-    arrange();
+    spaceApprovalPolicy = 'always-review';
     const principal: Principal = {
       userId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1',
       authorizationId: 'grant-1', authorizationSpaceId: 'space-1',

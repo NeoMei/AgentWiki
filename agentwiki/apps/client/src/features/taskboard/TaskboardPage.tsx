@@ -391,16 +391,20 @@ export const TaskboardPage: React.FC = () => {
   };
 
   const inspectTask = selected ?? pathEnd ?? activeRoot;
-  const syncText = board ? '数据更新 ' + tbFmt(board.updated_at) : '正在读取项目记录';
+  const syncText = board ? (zh ? '数据更新 ' : 'Updated ') + tbFmt(board.updated_at) : (zh ? '正在读取项目记录' : 'Loading project records');
 
   return (
     <div className="tb-page">
       <header>
-        <h1>{board?.project || (zh ? '项目全景' : 'Project Overview')}</h1>
-        <small>{syncText}</small>
-        <span className="updated">{zh ? '项目规划 · 实现进度' : 'Plan · Progress'}</span>
-        <button type="button" onClick={openImportDialog}>{zh ? '导入计划' : 'Import plan'}</button>
-        <button type="button" id="refresh" onClick={() => void load()}>{zh ? '刷新' : 'Refresh'}</button>
+        <div className="page-heading">
+          <h1>{board?.project || (zh ? '项目全景' : 'Project Overview')}</h1>
+          <small>{syncText}</small>
+        </div>
+        <div className="page-actions">
+          <span className="updated">{zh ? '项目规划 · 实现进度' : 'Plan · Progress'}</span>
+          <button type="button" className="tb-button primary" onClick={openImportDialog}>{zh ? '导入计划' : 'Import plan'}</button>
+          <button type="button" className="tb-button" id="refresh" onClick={() => void load()}>{zh ? '刷新' : 'Refresh'}</button>
+        </div>
       </header>
       <main>
         {tasks.length > 0 && <div className="road">
@@ -415,13 +419,14 @@ export const TaskboardPage: React.FC = () => {
                     type="button"
                     data-phase-id={phase.id}
                     className={'milestone' + (phase.id === activeRoot?.id ? ' selected' : '')}
+                    aria-pressed={phase.id === activeRoot?.id}
                     onClick={() => { setViewPath([phase.id]); setSelectedId(phase.id); }}
                   >
                     <div className="mtop"><span className={'letter' + (phase.id === activeRoot?.id ? ' active' : '')}>{tbPhaseMark(phase, index)}</span><span>{tbCleanTitle(phase)}</span></div>
                     <div className="counts">
-                      <span title="已完成执行任务"><i className="dot done" /><div>{c.done}</div></span>
-                      <span title="进行中执行任务"><i className="dot in_progress" /><div>{c.inProgress}</div></span>
-                      <span title="待完成执行任务"><i className="dot todo" /><div>{c.pending}</div></span>
+                      <span title="已完成执行任务"><i className="dot done" /><strong>{c.done}</strong></span>
+                      <span title="进行中执行任务"><i className="dot in_progress" /><strong>{c.inProgress}</strong></span>
+                      <span title="待完成执行任务"><i className="dot todo" /><strong>{c.pending}</strong></span>
                     </div>
                     <small className="scope-summary">{tbTaskStatusSummary(tasks, phase.id)}</small>
                     <small className="scope-summary road-time">{tbTimeText(tasks, phase)}</small>
@@ -448,13 +453,13 @@ export const TaskboardPage: React.FC = () => {
           </div>
         </div>}
         {error && <div id="error" role="status">{error}</div>}
-        {importNote && <div className="box" style={{ margin: '0 15px 10px' }}><p>{importNote}</p></div>}
+        {importNote && <div className="box import-note" role="status"><p>{importNote}</p></div>}
         {importOpen && (
-          <section className="box" style={{ margin: '0 15px 10px' }}>
+          <section className="box import-panel">
             <h3>{t('taskboard.importPlan')}</h3>
             <div className="statusrow">
               <span>{zh ? '计划来源' : 'Source'}</span>
-              <span style={{ display: 'flex', gap: 6 }}>
+              <span className="import-modes">
                 {([['upload', zh ? '上传文件' : 'Upload file'], ['paste', zh ? '粘贴内容' : 'Paste text'], ['page', zh ? '空间页面' : 'Wiki page']] as const).map(([mode, label]) => (
                   <button key={mode} type="button"
                     disabled={busy}
@@ -464,13 +469,12 @@ export const TaskboardPage: React.FC = () => {
                       setImportMode(mode);
                     }}
                     aria-pressed={importMode === mode}
-                    className={'locate' + (importMode === mode ? '' : '')}
-                    style={{ background: importMode === mode ? '#0877ff' : '#f1f5fb', color: importMode === mode ? '#fff' : '#506587' }}>{label}</button>
+                    className="tb-button">{label}</button>
                 ))}
               </span>
             </div>
             {importMode === 'paste' && (
-              <p><textarea aria-label={t('taskboard.planContent')} value={planContent} onChange={(e) => setPlanContent(e.target.value)} rows={7} style={{ width: '100%', border: '1px solid #d8e1ed', borderRadius: 6, padding: 8, fontFamily: 'monospace', fontSize: 12 }} /></p>
+              <p><textarea aria-label={t('taskboard.planContent')} value={planContent} onChange={(e) => setPlanContent(e.target.value)} rows={7} className="plan-content" /></p>
             )}
             {importMode === 'upload' && (
               <div className="plan-upload">
@@ -495,7 +499,7 @@ export const TaskboardPage: React.FC = () => {
                   aria-label={zh ? '选择空间页面' : 'Choose wiki page'}
                   value={selectedPageId}
                   onChange={(e) => setSelectedPageId(e.target.value)}
-                  style={{ flex: 1, border: '1px solid #d8e1ed', borderRadius: 6, padding: '4px 8px' }}
+                  className="field-fill"
                 >
                   <option value="">{spacePages.length ? (zh ? '— 请选择 —' : '— pick —') : (zh ? '本空间暂无页面' : 'No pages in this space')}</option>
                   {spacePages.map((page) => <option key={page.id} value={page.id}>{page.title}</option>)}
@@ -511,16 +515,16 @@ export const TaskboardPage: React.FC = () => {
                 value={importMode === 'page' ? (selectedPageId ? 'agentwiki-page:' + selectedPageId : '') : planSource}
                 readOnly={importMode === 'page'}
                 onChange={(e) => setPlanSource(e.target.value)}
-                style={{ flex: 1, border: '1px solid #d8e1ed', borderRadius: 6, padding: '4px 8px' }}
+                className="field-fill"
               />
             </label>
             </details>
             <label className="statusrow"><span>{t('taskboard.syncStatus')}</span><input type="checkbox" aria-label={t('taskboard.syncStatus')} checked={syncStatus} onChange={(e) => setSyncStatus(e.target.checked)} /></label>
                 <p>{zh ? '支持 Superpowers Markdown 计划或本地任务看板 board.json。' : 'Supports Superpowers Markdown plans and local taskboard board.json.'}</p>
             {importError && <p role="alert">{importError}</p>}
-            <p>
-              <button type="button" className="locate" disabled={busy || fileReading || (importMode === 'page' ? !selectedPageId : !planContent.trim())} onClick={() => void importPlan()} style={{ marginRight: 8 }}>{busy ? (zh ? '正在导入…' : 'Importing…') : t('taskboard.import')}</button>
-              <button type="button" className="locate" disabled={busy} style={{ background: '#f1f5fb', color: '#506587' }} onClick={() => { fileReaderRef.current?.abort(); fileReaderRef.current = null; setImportOpen(false); }}>{t('common.cancel')}</button>
+            <p className="form-actions">
+              <button type="button" className="tb-button primary" disabled={busy || fileReading || (importMode === 'page' ? !selectedPageId : !planContent.trim())} onClick={() => void importPlan()}>{busy ? (zh ? '正在导入…' : 'Importing…') : t('taskboard.import')}</button>
+              <button type="button" className="tb-button" disabled={busy} onClick={() => { fileReaderRef.current?.abort(); fileReaderRef.current = null; setImportOpen(false); }}>{t('common.cancel')}</button>
             </p>
           </section>
         )}
@@ -535,7 +539,8 @@ export const TaskboardPage: React.FC = () => {
                 <div className="canvashead">
                   <span className="letter active">{activeRoot ? tbPhaseMark(activeRoot, roots.findIndex((x) => x.id === activeRoot.id)) : '·'}</span>
                   <div>
-                    <h2>{activeRoot ? tbCleanTitle(activeRoot) + ' · ' + tbTaskStatusSummary(tasks, activeRoot.id) : (board?.project || '')}</h2>
+                    <h2>{activeRoot ? tbCleanTitle(activeRoot) : (board?.project || '')}</h2>
+                    {activeRoot && <p className="canvas-summary">{tbTaskStatusSummary(tasks, activeRoot.id)}</p>}
                     <div className="crumb">
                       {path.map((id, i) => {
                         const node = tasks.find((x) => x.id === id);
@@ -549,13 +554,13 @@ export const TaskboardPage: React.FC = () => {
                       })}
                       <span className="level-hint">{zh ? '第 ' + path.length + ' 层 · ' + (columns.length > path.length ? '可继续展开' : '叶节点') : (path.length + ' levels · ' + (columns.length > path.length ? 'expandable' : 'leaf'))}</span>
                     </div>
-                    <div className="view-summary">当前展开 {path.length} 层，显示 {columns.slice(1).reduce((sum, c) => sum + c.length, 0)} 个节点（各展开层合计）；点击有子节点的卡片继续展开，点击面包屑逐层返回。</div>
+                    <div className="view-summary">{zh ? `当前展开 ${path.length} 层，显示 ${columns.slice(1).reduce((sum, c) => sum + c.length, 0)} 个节点；点击卡片展开，点击面包屑返回。` : `${path.length} levels expanded, ${columns.slice(1).reduce((sum, c) => sum + c.length, 0)} visible nodes. Select a card to expand or a breadcrumb to go back.`}</div>
                   </div>
                 </div>
                 <div className="graphviewport">
                   <div className="graph" ref={graphRef} style={{ height: layout.h, width: layout.width }}>
                     <svg className="wires" viewBox={'0 0 ' + layout.width + ' ' + layout.h} preserveAspectRatio="none">
-                      {layout.wires.map((d, i) => <path key={i} d={d} fill="none" stroke="#94a5c0" strokeWidth="1.2" strokeLinejoin="round" />)}
+                      {layout.wires.map((d, i) => <path key={i} d={d} fill="none" stroke="#d4d4d8" strokeWidth="1.2" strokeLinejoin="round" />)}
                     </svg>
                     {columns.map((items, ci) => items.map((task) => {
                       const key = ci + ':' + task.id;
@@ -569,7 +574,7 @@ export const TaskboardPage: React.FC = () => {
                       );
                     }))}
                     {columns.length === 1 && pathEnd && (
-                      <div className="empty" style={{ position: 'absolute', left: '32%', top: '46%' }}>{zh ? '该节点暂无子项' : 'No children'}</div>
+                      <div className="empty leaf-empty">{zh ? '该节点暂无子项' : 'No children'}</div>
                     )}
                   </div>
                 </div>
@@ -578,7 +583,7 @@ export const TaskboardPage: React.FC = () => {
                 {inspectTask && (
                   <React.Fragment>
                     <div className="inspecthead">
-                      {tbIcon(34)}
+                      {tbIcon(22)}
                       <div>
                         <h2>{tbCleanTitle(inspectTask)}</h2>
                         <div className="crumb">{inspectTask.kind === 'phase' ? (zh ? '项目里程碑' : 'Milestone') : (inspectTask.kind === 'step' ? (zh ? '步骤' : 'Step') : (zh ? '模块 / 实现记录' : 'Module / Record'))}</div>
@@ -596,20 +601,20 @@ export const TaskboardPage: React.FC = () => {
                       <div className="box">
                         <h3>{zh ? '更新执行状态' : 'Update status'}</h3>
                         <label className="statusrow"><span>{t('common.status')}</span>
-                          <select aria-label={t('common.status')} value={statusDraft} onChange={(e) => setStatusDraft(e.target.value)} style={{ border: '1px solid #d8e1ed', borderRadius: 6, padding: '4px 8px' }}>
+                          <select aria-label={t('common.status')} value={statusDraft} onChange={(e) => setStatusDraft(e.target.value)}>
                             {TB_STATUS_ORDER.map((s) => <option key={s} value={s}>{statusZh(s)}</option>)}
                           </select>
                         </label>
                         <label className="statusrow"><span>{t('taskboard.currentStep')}</span>
-                          <input aria-label={t('taskboard.currentStep')} value={stepDraft} onChange={(e) => setStepDraft(e.target.value)} style={{ flex: 1, border: '1px solid #d8e1ed', borderRadius: 6, padding: '4px 8px' }} />
+                          <input aria-label={t('taskboard.currentStep')} value={stepDraft} onChange={(e) => setStepDraft(e.target.value)} className="field-fill" />
                         </label>
                         <label className="statusrow"><span>{zh ? '他人认领时接管' : 'Take over if claimed'}</span>
                           <input type="checkbox" aria-label={zh ? '他人认领时接管' : 'Take over if claimed'} checked={takeoverDraft} onChange={(e) => setTakeoverDraft(e.target.checked)} />
                         </label>
                         <label className="statusrow"><span>{t('taskboard.sessionId')}</span>
-                          <input aria-label={t('taskboard.sessionId')} value={sessionDraft} onChange={(e) => setSessionDraft(e.target.value)} style={{ flex: 1, border: '1px solid #d8e1ed', borderRadius: 6, padding: '4px 8px' }} />
+                          <input aria-label={t('taskboard.sessionId')} value={sessionDraft} onChange={(e) => setSessionDraft(e.target.value)} className="field-fill" />
                         </label>
-                        <p><button type="button" className="locate" disabled={busy} onClick={() => void applyStatus()}>{zh ? '保存' : 'Save'}</button></p>
+                        <p><button type="button" className="tb-button primary" disabled={busy} onClick={() => void applyStatus()}>{zh ? '保存' : 'Save'}</button></p>
                       </div>
                       <div className="box">
                         <h3>{zh ? '认领状态' : 'Claim'}</h3>
@@ -653,9 +658,9 @@ export const TaskboardPage: React.FC = () => {
                       </div>
                       <div className="box">
                         <h3>{selected ? t('taskboard.addChild') : t('taskboard.addRoot')}</h3>
-                        <p>
-                          <input aria-label={t('taskboard.addTaskPlaceholder')} value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder={t('taskboard.addTaskPlaceholder')} style={{ width: '70%', border: '1px solid #d8e1ed', borderRadius: 6, padding: '4px 8px' }} />
-                          <button type="button" className="locate" disabled={busy || !newTitle.trim()} onClick={() => void addChild()} style={{ marginLeft: 8 }}>{zh ? '添加' : 'Add'}</button>
+                        <p className="add-task-row">
+                          <input aria-label={t('taskboard.addTaskPlaceholder')} value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder={t('taskboard.addTaskPlaceholder')} className="field-fill" />
+                          <button type="button" className="locate" disabled={busy || !newTitle.trim()} onClick={() => void addChild()}>{zh ? '添加' : 'Add'}</button>
                         </p>
                       </div>
                     </div>

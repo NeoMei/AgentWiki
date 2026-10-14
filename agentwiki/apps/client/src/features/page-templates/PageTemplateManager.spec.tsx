@@ -257,6 +257,66 @@ describe('PageTemplateManager', () => {
     expect(mocks.listPageTemplateSourcePages).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps the source search on pagination and retry, and clears it when reopening', async () => {
+    mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
+    const sourcePage = (id: string, title: string) => ({
+      id, title, format: 'markdown', updatedAt: '2026-08-25T12:00:00.000Z',
+    });
+    mocks.listPageTemplateSourcePages.mockImplementation(async (_spaceId, { skip, q }) => {
+      if (q === '周报') return {
+        data: [sourcePage(`filtered-${skip}`, `周报结果 ${skip}`)], total: 101, skip, take: 100,
+      };
+      return { data: [sourcePage('all', '全部源页面')], total: 1, skip: 0, take: 100 };
+    });
+    renderManager();
+    fireEvent.click(await screen.findByRole('button', { name: /更新内容 团队周报/ }));
+    await screen.findByRole('option', { name: '全部源页面' });
+    fireEvent.change(screen.getByLabelText('按标题或路径搜索'), { target: { value: '周报' } });
+    await screen.findByRole('option', { name: '周报结果 0' });
+
+    mocks.listPageTemplateSourcePages.mockRejectedValueOnce(new Error('offline'));
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    await screen.findByRole('alert');
+    expect(mocks.listPageTemplateSourcePages).toHaveBeenLastCalledWith('space-1', { skip: 100, take: 100, q: '周报' });
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    expect(await screen.findByRole('option', { name: '周报结果 100' })).toBeInTheDocument();
+    expect(mocks.listPageTemplateSourcePages).toHaveBeenLastCalledWith('space-1', { skip: 100, take: 100, q: '周报' });
+    expect(screen.queryByRole('option', { name: '全部源页面' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '上一页' }));
+    expect(await screen.findByRole('option', { name: '周报结果 0' })).toBeInTheDocument();
+    expect(mocks.listPageTemplateSourcePages).toHaveBeenLastCalledWith('space-1', { skip: 0, take: 100, q: '周报' });
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    fireEvent.click(screen.getByRole('button', { name: /更新内容 团队周报/ }));
+    expect(await screen.findByRole('option', { name: '全部源页面' })).toBeInTheDocument();
+    expect(screen.getByLabelText('按标题或路径搜索')).toHaveValue('');
+    expect(mocks.listPageTemplateSourcePages).toHaveBeenLastCalledWith('space-1', { skip: 0, take: 100 });
+  });
+
+  it('accepts continued source search input during a request and ignores the older response', async () => {
+    mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
+    let resolveOlder!: (value: unknown) => void;
+    mocks.listPageTemplateSourcePages
+      .mockResolvedValueOnce({ data: [], total: 0, skip: 0, take: 100 })
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOlder = resolve; }))
+      .mockResolvedValueOnce({ data: [{
+        id: 'new', title: '周报最新结果', format: 'markdown', updatedAt: '2026-08-25T12:00:00.000Z',
+      }], total: 1, skip: 0, take: 100 });
+    renderManager();
+    fireEvent.click(await screen.findByRole('button', { name: /更新内容 团队周报/ }));
+    const search = screen.getByLabelText('按标题或路径搜索');
+    fireEvent.change(search, { target: { value: '周' } });
+    expect(search).toBeEnabled();
+    fireEvent.change(search, { target: { value: '周报' } });
+    expect(await screen.findByRole('option', { name: '周报最新结果' })).toBeInTheDocument();
+    await act(async () => resolveOlder({ data: [{
+      id: 'old', title: '较早搜索结果', format: 'markdown', updatedAt: '2026-08-25T12:00:00.000Z',
+    }], total: 1, skip: 0, take: 100 }));
+    expect(search).toHaveValue('周报');
+    expect(screen.queryByRole('option', { name: '较早搜索结果' })).not.toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '周报最新结果' })).toBeInTheDocument();
+  });
+
   it('loads only the first bounded source page and renders at most 100 source choices', async () => {
     mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
     const firstPage = Array.from({ length: 100 }, (_, index) => ({

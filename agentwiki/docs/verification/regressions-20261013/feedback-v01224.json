@@ -1,0 +1,15 @@
+{
+  "changeSetId": "cmv6ki9jb00agfsg0v1m9sgr2",
+  "status": "pending_review",
+  "title": "Proposed page: 10-12 回归报告：v0.12.24 最终逐条回执",
+  "spaceId": "cmtmgsk5b00neuo709n0x7nqj",
+  "createdAt": "2026-10-13T10:58:24.071Z",
+  "publishedAt": null,
+  "autoPublished": false,
+  "expectedTreeRevision": "30",
+  "verifiedContentMatches": true,
+  "replyRows": 21,
+  "supersedes": "cmv69bve2080911615gw5fz6w",
+  "reviewUrl": "https://agentwiki.quukk.com/review",
+  "approvalBoundary": "Space owner approval required; current browser user and Agent are editors"
+}

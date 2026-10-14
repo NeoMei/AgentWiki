@@ -401,15 +401,13 @@ model AgentCredential {
 
   agent           Agent      @relation(fields: [agentId], references: [id], onDelete: Cascade)
   agentId         String
-  authorization   AgentGrant @relation(fields: [authorizationId, agentId], references: [id, agentId], onDelete: Cascade)
-  authorizationId String
+  legacyAuthorizationId String? @map("authorizationId")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([prefix])
   @@index([agentId, revokedAt])
-  @@index([authorizationId, agentId])
 }
 
 model AgentGrant {
@@ -421,7 +419,6 @@ model AgentGrant {
   agentId     String
   space       Space             @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   spaceId     String
-  credentials AgentCredential[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -487,6 +484,7 @@ model Page {
 
   tags Tag[]
 
+  notes       PageNote[]
   versions    PageVersion[]
   pathAliases PagePathAlias[]
 
@@ -1941,4 +1939,27 @@ model ProjectBoardTask {
   @@index([boardId, parentId])
   @@index([boardId, ordinal])
   @@index([boardId, status])
+}
+
+// Shared annotations are independent of the canonical Page body. Author identity
+// is an immutable authenticated snapshot, retained when an account is removed.
+model PageNote {
+  id           String   @id @default(cuid())
+  pageId       String
+  spaceId      String
+  page         Page     @relation(fields: [pageId, spaceId], references: [id, spaceId], onDelete: Cascade)
+  authorType   String
+  authorId     String
+  authorName   String
+  clientNoteId String
+  body         String
+  target       Json
+  status       String   @default("pending")
+  taskId       String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  deletedAt    DateTime?
+
+  @@unique([pageId, authorType, authorId, clientNoteId])
+  @@index([spaceId, pageId, deletedAt, createdAt])
 }

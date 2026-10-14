@@ -5,6 +5,12 @@ import { systemReviewTexts, systemTodoTexts } from './system-collaboration-messa
 const systemTodoKeys = Object.fromEntries(systemTodoTexts.map(([english], index) => [english, `collaboration.systemTodo.${index}`]));
 
 export const systemCollaborationKeys: Record<string, string> = {
+  'Write Page': 'collaboration.systemSinglePage.0',
+  'Writes the target Page': 'collaboration.systemSinglePage.1',
+  'Produce the complete Markdown content for the target Page': 'collaboration.systemSinglePage.2',
+  'Write the target Page': 'collaboration.systemSinglePage.3',
+  'Review Page': 'collaboration.systemSinglePage.4',
+  'The Markdown is complete and suitable for the target Page': 'collaboration.systemSinglePage.5',
   ...Object.fromEntries(systemReviewTexts.map(([english], index) => [english, `collaboration.systemReview.${index}`])),
   ...systemTodoKeys,
 

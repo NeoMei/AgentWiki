@@ -1,0 +1,138 @@
+[
+  {
+    "name": "shared-build",
+    "start": "2026-10-13T20:42:14.896Z",
+    "end": "2026-10-13T20:42:15.237Z",
+    "exitCode": 0,
+    "signal": null,
+    "log": "/tmp/agentwiki-release-20261014/shared-build.log"
+  },
+  {
+    "name": "protocol-build",
+    "start": "2026-10-13T20:42:15.238Z",
+    "end": "2026-10-13T20:42:17.774Z",
+    "exitCode": 0,
+    "signal": null,
+    "log": "/tmp/agentwiki-release-20261014/protocol-build.log"
+  },
+  {
+    "name": "server-build",
+    "start": "2026-10-13T20:42:17.774Z",
+    "end": "2026-10-13T20:42:23.301Z",
+    "exitCode": 0,
+    "signal": null,
+    "log": "/tmp/agentwiki-release-20261014/server-build.log"
+  },
+  {
+    "name": "runtime-nondb",
+    "start": "2026-10-13T20:42:23.301Z",
+    "end": "2026-10-13T20:42:30.081Z",
+    "exitCode": 0,
+    "signal": null,
+    "log": "/tmp/agentwiki-release-20261014/runtime-nondb.log"
+  },
+  {
+    "name": "server-test",
+    "start": "2026-10-13T20:42:30.081Z",
+    "end": "2026-10-13T20:42:30.118Z",
+    "exitCode": 1,
+    "signal": null,
+    "log": "/tmp/agentwiki-release-20261014/server-test.log"
+  },
+  {
+    "name": "server-nondb-test",
+    "start": "2026-10-13T20:43:33.312Z",
+    "end": "2026-10-13T20:43:55.612Z",
+    "exitCode": 0,
+    "signal": null,
+    "log": "/tmp/agentwiki-release-20261014/server-nondb-test.log"
+  },
+  {
+    "name": "client-test",
+    "start": "2026-10-13T20:43:55.613Z",
+    "end": "2026-10-13T20:44:19.927Z",
+    "exitCode": 0,
+    "signal": null,
+    "log": "/tmp/agentwiki-release-20261014/client-test.log"
+  },
+  {
+    "name": "protocol-test",
+    "start": "2026-10-13T20:44:19.927Z",
+    "end": "2026-10-13T20:44:20.668Z",
+    "exitCode": 0,
+    "signal": null,
+    "log": "/tmp/agentwiki-release-20261014/protocol-test.log"
+  },
+  {
+    "name": "local-sync-test",
+    "start": "2026-10-13T20:44:20.668Z",
+    "end": "2026-10-13T20:44:55.628Z",
+    "exitCode": 1,
+    "signal": null,
+    "log": "/tmp/agentwiki-release-20261014/local-sync-test.log"
+  },
+  {
+    "name": "local-sync-test-final",
+    "start": "2026-10-13T20:47:31.344Z",
+    "end": "2026-10-13T20:48:05.954Z",
+    "exitCode": 0,
+    "signal": null,
+    "log": "/tmp/agentwiki-release-20261014/local-sync-test-final.log"
+  },
+  {
+    "name": "runtime-nondb-final",
+    "start": "2026-10-13T20:48:05.954Z",
+    "end": "2026-10-13T20:48:13.064Z",
+    "exitCode": 1,
+    "signal": null,
+    "log": "/tmp/agentwiki-release-20261014/runtime-nondb-final.log"
+  },
+  {
+    "name": "runtime-nondb-release-final",
+    "start": "2026-10-13T20:49:20.276Z",
+    "end": "2026-10-13T20:49:27.750Z",
+    "exitCode": 0,
+    "signal": null,
+    "log": "/tmp/agentwiki-release-20261014/runtime-nondb-release-final.log"
+  },
+  {
+    "name": "client-version-tests",
+    "start": "2026-10-13T20:49:27.750Z",
+    "end": "2026-10-13T20:49:35.523Z",
+    "exitCode": 1,
+    "signal": null,
+    "log": "/tmp/agentwiki-release-20261014/client-version-tests.log"
+  },
+  {
+    "name": "client-version-tests-final",
+    "start": "2026-10-13T20:50:15.874Z",
+    "end": "2026-10-13T20:50:17.357Z",
+    "exitCode": 0,
+    "signal": null,
+    "log": "/tmp/agentwiki-release-20261014/client-version-tests-final.log"
+  },
+  {
+    "name": "typecheck",
+    "start": "2026-10-13T20:50:17.357Z",
+    "end": "2026-10-13T20:50:29.041Z",
+    "exitCode": 0,
+    "signal": null,
+    "log": "/tmp/agentwiki-release-20261014/typecheck.log"
+  },
+  {
+    "name": "lint",
+    "start": "2026-10-13T20:50:29.041Z",
+    "end": "2026-10-13T20:50:35.298Z",
+    "exitCode": 0,
+    "signal": null,
+    "log": "/tmp/agentwiki-release-20261014/lint.log"
+  },
+  {
+    "name": "build",
+    "start": "2026-10-13T20:50:35.298Z",
+    "end": "2026-10-13T20:50:56.249Z",
+    "exitCode": 0,
+    "signal": null,
+    "log": "/tmp/agentwiki-release-20261014/build.log"
+  }
+]

@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { KeyRound, Pause, Play, Shield, Trash2 } from 'lucide-react';
 import type { AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import api from '../../api/client';
+import { credentialIsActive, hasActiveAgentCredential } from '../collaboration/agentPreparationApi';
 import { LocalSyncInstallCard } from './LocalSyncInstallCard';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -88,9 +89,6 @@ export const AgentDetail: React.FC = () => {
   const formatDate = (value: string | null | undefined) => value
     ? new Date(value).toLocaleString(language)
     : t('agent.never');
-  const credentialIsActive = (item: { expiresAt?: string | null; revokedAt?: string | null }) => (
-    !item.revokedAt && (!item.expiresAt || Date.parse(item.expiresAt) > Date.now())
-  );
   const manageableSpaces = spaces.flatMap((space) => {
     const membership = space.members?.find((member: any) => member.userId === user?.id);
     if (!membership) return [];
@@ -99,6 +97,22 @@ export const AgentDetail: React.FC = () => {
       : membership.role === 'editor' ? 'editor' : 'reader';
     return [{ ...space, maxAgentRole }];
   });
+  const describeActivity = (item: any) => {
+    const action = typeof item.action === 'string' ? item.action : t('agent.activityUnknown');
+    const http = action.match(/^([A-Z]+)\s+(.+)$/);
+    const summary = http
+      ? `${http[1] === 'GET' ? t('agent.activityRead') : http[1] === 'POST' ? t('agent.activityWrite') : http[1]} · ${http[2]}`
+      : action.startsWith('mcp.') ? `${t('agent.activityMcp')} · ${action.slice(4)}` : action;
+    const outcome = item.outcome || item.result || item.status;
+    return outcome ? `${summary} · ${String(outcome)}` : summary;
+  };
+  const safeActivityDetails = (item: any) => {
+    if (!item || typeof item !== 'object') return null;
+    const metadata = item.metadata && typeof item.metadata === 'object' ? { ...item.metadata } : undefined;
+    if (metadata) delete metadata.credentialId;
+    const details = { resourceType: item.resourceType, resourceId: item.resourceId, metadata };
+    return Object.values(details).some((value) => value !== undefined && value !== null) ? details : null;
+  };
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -127,8 +141,8 @@ export const AgentDetail: React.FC = () => {
       {tab === 'overview' ? (
         <div className="grid sm:grid-cols-3 gap-4">
           <Summary label={t('nav.spaces')} value={currentAgent.grants.length} />
-          <Summary label={t('agent.activeCredentials')} value={currentAgent.credentials.filter(credentialIsActive).length} />
-          <Summary label={t('agent.approvalMode')} value={currentAgent.approvalMode} />
+          <Summary label={t('agent.activeCredentials')} value={currentAgent.credentials.filter((item: any) => credentialIsActive(item)).length} />
+          <Summary label={t('agent.approvalMode')} value={currentAgent.approvalMode === 'scoped-auto-publish' ? t('settings.autoPublish') : t('settings.alwaysReview')} />
         </div>
       ) : null}
 
@@ -138,6 +152,8 @@ export const AgentDetail: React.FC = () => {
             agentId={currentAgent.id}
             spaces={manageableSpaces}
             grants={currentAgent.grants}
+            credentialAvailable={hasActiveAgentCredential(currentAgent)}
+            agentAvailable={currentAgent.status === 'active' && !currentAgent.revokedAt}
             title={t('agent.accessAuthorization')}
             onAuthorized={load}
           />
@@ -163,7 +179,7 @@ export const AgentDetail: React.FC = () => {
               {currentAgent.credentials.map((item: any) => (
                 <div key={item.id} className="flex items-center justify-between gap-3 py-3">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium">{item.name} <span className="ml-2 text-xs font-normal text-gray-500">{item.authorization.space.name} · {roleName(item.authorization.role)}</span></p>
+                    <p className="text-sm font-medium">{item.name} <span className="ml-2 text-xs font-normal text-gray-500">{t('agent.identityConnection')}</span></p>
                     <p className="mt-1 text-xs text-gray-500">{item.prefix}… · {t('agent.lastUsed')}: {formatDate(item.lastUsedAt)} · {t('agent.expires')}: {formatDate(item.expiresAt)}</p>
                     <p className="mt-1 text-xs text-gray-400">{credentialIsActive(item) ? t('agent.credentialActive') : t('agent.credentialExpired')}</p>
                   </div>
@@ -176,7 +192,10 @@ export const AgentDetail: React.FC = () => {
         </div>
       ) : null}
 
-      {tab === 'activity' ? <div className="border rounded-[14px] bg-white divide-y">{activity.map((item) => <div key={item.id} className="p-4 text-sm"><span className="font-medium">{item.action}</span><span className="text-gray-400 ml-3">{new Date(item.createdAt).toLocaleString(language)}</span></div>)}</div> : null}
+      {tab === 'activity' ? <div className="border rounded-[14px] bg-white divide-y">{activity.map((item) => {
+        const details = safeActivityDetails(item);
+        return <div key={item.id} className="p-4 text-sm"><div className="flex flex-wrap items-baseline gap-3"><span className="font-medium">{describeActivity(item)}</span><span className="text-gray-400">{new Date(item.createdAt).toLocaleString(language)}</span></div>{details ? <details className="mt-2 text-xs text-gray-500"><summary className="cursor-pointer">{t('agent.activityDetails')}</summary><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-gray-50 p-2">{JSON.stringify(details, null, 2)}</pre></details> : null}</div>;
+      })}{!activity.length ? <p className="p-5 text-sm text-gray-500">{t('agent.noActivity')}</p> : null}</div> : null}
       {tab === 'settings' ? <div className="border rounded-[14px] bg-white p-5"><p className="text-sm text-gray-500">{t('agent.approvalMode')}</p><p className="mt-2 text-sm font-medium">{currentAgent.approvalMode === 'scoped-auto-publish' ? t('settings.autoPublish') : t('settings.alwaysReview')}</p><p className="mt-2 text-xs text-gray-500">{t('agent.approvalModeReadonlyHelp')}</p></div> : null}
     </div>
   );

@@ -37,6 +37,13 @@ describe('preference validation', () => {
 
 
 describe('right panel preference compatibility', () => {
+  it.each(['contents', 'info', 'assist', 'notes'] as const)('round-trips the %s panel without mixing accounts or Spaces', (tab) => {
+    const preferences = readWorkspacePreferences('alice', 'wiki');
+    writeWorkspacePreferences('alice', 'wiki', { ...preferences, collaborationOpen: true, collaborationTab: tab });
+    expect(readWorkspacePreferences('alice', 'wiki')).toMatchObject({ collaborationOpen: true, collaborationTab: tab });
+    expect(readWorkspacePreferences('bob', 'wiki')).toMatchObject({ collaborationOpen: false, collaborationTab: 'assist' });
+    expect(readWorkspacePreferences('alice', 'other')).toMatchObject({ collaborationOpen: false, collaborationTab: 'assist' });
+  });
   it('keeps old records automatic and validates only the new UI preference fields', () => {
     const key = 'agentwiki.workspace.v1:alice:wiki';
     localStorage.setItem(key, JSON.stringify({ schemaVersion: 1, directoryWidth: 300 }));

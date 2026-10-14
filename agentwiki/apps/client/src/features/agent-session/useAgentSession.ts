@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import api from '../../api/client';
 import { useAgentSessionRegistry } from './AgentSessionRegistry';
-import type { AgentReference, AgentSessionDetail, AgentSessionSummary, AgentTurn, AgentTurnMode } from './agentSessionTypes';
+import type { AgentComposerMode, AgentReference, AgentSessionDetail, AgentSessionSummary, AgentTurn } from './agentSessionTypes';
 import type { AssistNotesEvent, AssistRequest } from '../page/AgentAssistPanel';
 import type { AssistTarget } from '../page/assistTargets';
 import type { CandidateRecord } from './agentSessionCandidate';
-export interface Composer { intent: string; mode: AgentTurnMode; targetKind: AssistTarget['kind']; references: AgentReference[]; staged?: { pageId: string; request: AssistRequest } }
+export interface Composer { intent: string; mode: AgentComposerMode; targetKind: AssistTarget['kind']; references: AgentReference[]; staged?: { pageId: string; request: AssistRequest } }
 const composer = (): Composer => ({ intent: '', mode: 'question', targetKind: 'document', references: [] });
 interface State {
   sessions: AgentSessionSummary[]; selected: string | null; detail: AgentSessionDetail | null;

@@ -20,6 +20,7 @@ describe('SpaceService.findAll pagination', () => {
       findMany: jest.fn(),
       count: jest.fn(),
     },
+    page: { groupBy: jest.fn() },
     $transaction: jest.fn(),
   } as any;
   const service = new SpaceService(prisma, revisionWriter, authorization);
@@ -27,6 +28,7 @@ describe('SpaceService.findAll pagination', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     prisma.$transaction.mockImplementation(async (callback: any) => callback(prisma));
+    prisma.page.groupBy.mockResolvedValue([]);
   });
 
   it('returns the requested page in deterministic newest-first order', async () => {
@@ -41,6 +43,61 @@ describe('SpaceService.findAll pagination', () => {
       take: 20,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     }));
+  });
+
+  it('includes page edits newer than Space metadata and preserves newer metadata or empty Space times', async () => {
+    const metadataTime = new Date('2026-10-01T00:00:00.000Z');
+    const pageTime = new Date('2026-10-13T00:00:00.000Z');
+    const rows = ['edited-page', 'edited-space', 'empty-space'].map((id) => ({ id, updatedAt: metadataTime }));
+    prisma.space.findMany.mockResolvedValue(rows);
+    prisma.space.count.mockResolvedValue(rows.length);
+    prisma.page.groupBy.mockResolvedValue([
+      { spaceId: 'edited-page', _max: { updatedAt: pageTime } },
+      { spaceId: 'edited-space', _max: { updatedAt: new Date('2026-09-01T00:00:00.000Z') } },
+    ]);
+
+    const result = await service.findAll(rows.map(({ id }) => id), 0, 20);
+
+    expect(result.data.map(({ lastUpdatedAt }) => lastUpdatedAt)).toEqual([pageTime, metadataTime, metadataTime]);
+    expect(result.data[0].updatedAt).toEqual(metadataTime);
+    expect(prisma.page.groupBy).toHaveBeenCalledTimes(1);
+    expect(prisma.page.groupBy).toHaveBeenCalledWith({
+      by: ['spaceId'],
+      where: { spaceId: { in: rows.map(({ id }) => id) }, deletedAt: null },
+      _max: { updatedAt: true },
+    });
+  });
+
+  it('aggregates only the returned authorized cursor page, excluding the lookahead Space and deleted pages', async () => {
+    const metadataTime = new Date('2026-10-01T00:00:00.000Z');
+    const pageTime = new Date('2026-10-13T00:00:00.000Z');
+    const rows = ['visible-1', 'visible-2', 'lookahead'].map((id) => ({
+      id, createdAt: metadataTime, updatedAt: metadataTime,
+    }));
+    prisma.space.findMany.mockResolvedValueOnce(rows).mockResolvedValueOnce(rows);
+    prisma.page.groupBy.mockResolvedValue([{ spaceId: 'visible-2', _max: { updatedAt: pageTime } }]);
+
+    const result = await service.findAll(rows.map(({ id }) => id), { take: 2 });
+
+    expect(result.data.map(({ id, lastUpdatedAt }) => [id, lastUpdatedAt])).toEqual([
+      ['visible-1', metadataTime], ['visible-2', pageTime],
+    ]);
+    expect(result.hasMore).toBe(true);
+    expect(prisma.space.findMany).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      where: { deletedAt: null, id: { in: ['visible-1', 'visible-2', 'lookahead'] } },
+    }));
+    expect(prisma.page.groupBy).toHaveBeenCalledWith({
+      by: ['spaceId'],
+      where: { spaceId: { in: ['visible-1', 'visible-2'] }, deletedAt: null },
+      _max: { updatedAt: true },
+    });
+  });
+
+  it('skips page aggregation when no authorized Spaces are returned', async () => {
+    prisma.space.findMany.mockResolvedValue([]);
+    const result = await service.findAll([], { take: 20 });
+    expect(result.data).toEqual([]);
+    expect(prisma.page.groupBy).not.toHaveBeenCalled();
   });
 
   it('keeps cursorless skip/take callers on the production options path', async () => {
@@ -206,6 +263,25 @@ describe('SpaceService.create ownership', () => {
   });
 });
 
+describe('SpaceService.create card statistics', () => {
+  it('returns live page statistics with members in the create response', async () => {
+    const created = { id: 'space-new', members: [{ userId: 'owner-1' }], _count: { pages: 0 } };
+    const prisma = { space: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockResolvedValue(created),
+    } } as any;
+    const service = new SpaceService(prisma, revisionWriter, authorization);
+
+    await expect(service.create({ name: '新空间' } as any, 'owner-1')).resolves.toEqual(created);
+    expect(prisma.space.create).toHaveBeenCalledWith(expect.objectContaining({
+      include: {
+        members: { select: expect.objectContaining({ userId: true }) },
+        _count: { select: { pages: { where: { deletedAt: null } } } },
+      },
+    }));
+  });
+});
+
 describe('SpaceService.listMembers includes agents', () => {
   const prisma = {
     space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
@@ -249,18 +325,16 @@ describe('SpaceService.listMembers includes agents', () => {
     ]));
   });
 
-  it('reports only a live Space credential as connected without exposing credentials', async () => {
+  it('reports only a live Agent identity credential as connected without exposing credentials', async () => {
     prisma.spaceMember.findMany.mockResolvedValue([]);
     prisma.agentGrant.findMany.mockResolvedValue([
       {
         id: 'connected', role: 'editor', agentId: 'ag-connected', spaceId: 'space-1', createdAt: new Date(),
-        agent: { id: 'ag-connected', name: 'Connected', status: 'active', revokedAt: null, ownerId: 'u1' },
-        credentials: [{ id: 'credential-live' }],
+        agent: { id: 'ag-connected', name: 'Connected', status: 'active', revokedAt: null, ownerId: 'u1', credentials: [{ id: 'credential-live' }] },
       },
       {
         id: 'pending', role: 'publisher', agentId: 'ag-pending', spaceId: 'space-1', createdAt: new Date(),
-        agent: { id: 'ag-pending', name: 'Pending', status: 'active', revokedAt: null, ownerId: 'u1' },
-        credentials: [],
+        agent: { id: 'ag-pending', name: 'Pending', status: 'active', revokedAt: null, ownerId: 'u1', credentials: [] },
       },
     ]);
 
@@ -275,6 +349,7 @@ describe('SpaceService.listMembers includes agents', () => {
     ]));
     expect(prisma.agentGrant.findMany).toHaveBeenCalledWith(expect.objectContaining({
       select: expect.objectContaining({
+        agent: expect.objectContaining({ select: expect.objectContaining({
         credentials: expect.objectContaining({
           where: {
             revokedAt: null,
@@ -283,6 +358,7 @@ describe('SpaceService.listMembers includes agents', () => {
           select: { id: true },
           take: 1,
         }),
+        }) }),
       }),
     }));
   });

@@ -309,7 +309,7 @@ test('opaque-path migration is readable, idempotent, and atomic', { skip }, asyn
   }
 });
 
-test('web create and readable migration wait before allocating the same title', { skip, timeout: 25_000 }, async () => {
+test('web duplicate-title rejection and readable migration wait on the same advisory lock', { skip, timeout: 25_000 }, async () => {
   const schema = `readable_paths_concurrency_${randomUUID().replaceAll('-', '')}`;
   const quoted = `"${schema}"`;
   let blockerPrisma;
@@ -337,6 +337,8 @@ test('web create and readable migration wait before allocating the same title', 
           content: 'migration body',
         }],
       });
+      const pagesBefore = await prisma.page.findMany({ where: { spaceId: seeded.spaceId } });
+      assert.equal(pagesBefore.length, 1);
       const [
         { SourceFreshnessService },
         { PageService },
@@ -422,6 +424,7 @@ test('web create and readable migration wait before allocating the same title', 
           batchId,
         ),
       );
+      const settledOutcomes = Promise.allSettled([pageOutcome, migrationOutcome]);
 
       const waitingEntries = await waitForCondition(async () => {
         const rows = await prisma.$queryRawUnsafe(
@@ -449,33 +452,59 @@ test('web create and readable migration wait before allocating the same title', 
 
       releaseBlocker();
       await blockerOutcome;
-      const outcomes = await Promise.allSettled([pageOutcome, migrationOutcome]);
+      const [pageResult, migrationResult] = await settledOutcomes;
 
       assert.equal(
-        outcomes.filter((outcome) => outcome.status === 'fulfilled').length,
-        2,
-        outcomes.map((outcome) => outcome.status === 'rejected'
-          ? `${outcome.reason?.code ?? 'unknown'}:${outcome.reason?.message ?? outcome.reason}`
-          : 'fulfilled').join('\n'),
+        pageResult.status,
+        'rejected',
+        'human creation must reject the active sibling title even while its path is being migrated',
       );
+      assert.equal(pageResult.reason?.code, 'PAGE_TITLE_CONFLICT');
+      assert.deepEqual(pageResult.reason?.details, { name: '标题' });
       assert.equal(
-        outcomes.some((outcome) => outcome.status === 'rejected' && outcome.reason?.code === 'P2002'),
-        false,
+        migrationResult.status,
+        'fulfilled',
+        migrationResult.reason?.message,
       );
+      assert.equal(migrationResult.value.migrated, 1);
+      assert.ok(migrationResult.value.revisionId);
       assert.deepEqual(
-        allocatorCalls.slice().sort(),
-        ['migration', 'page'],
-        'each real entry must call the actual allocator after the blocker is released',
+        allocatorCalls,
+        ['migration'],
+        'migration allocates only after the blocker is released; duplicate human creation never allocates',
       );
       const pages = await prisma.page.findMany({
         where: { spaceId: seeded.spaceId },
-        select: { syncPath: true, syncPathKey: true },
       });
+      assert.equal(pages.length, 1, 'rejected creation must not leave a second Page');
+      assert.equal(pages[0].syncPath, 'pages/标题.md');
+      assert.equal(pages[0].syncPathKey, 'pages/标题.md');
+      for (const [field, value] of Object.entries(pagesBefore[0])) {
+        if (['syncPath', 'syncPathKey', 'updatedAt'].includes(field)) continue;
+        assert.deepEqual(pages[0][field], value, `migration must preserve the existing Page ${field}`);
+      }
+      const versions = await prisma.pageVersion.findMany({ where: { pageId: pages[0].id } });
+      assert.equal(versions.length, 1, 'only migration may save a Page version');
+      assert.equal(versions[0].migrationBatchId, batchId);
+      assert.equal(versions[0].title, pagesBefore[0].title);
+      assert.equal(versions[0].content, pagesBefore[0].content);
+      assert.equal(versions[0].syncPath, pagesBefore[0].syncPath);
+      assert.equal(versions[0].syncPathKey, pagesBefore[0].syncPathKey);
+      const revisions = await prisma.spaceKnowledgeRevision.findMany({ where: { spaceId: seeded.spaceId } });
+      assert.equal(revisions.length, 1, 'rejected creation must not publish a revision');
+      assert.equal(revisions[0].id, migrationResult.value.revisionId);
+      assert.equal(revisions[0].origin, 'migration');
+      assert.equal(revisions[0].migrationBatchId, batchId);
+
+      const repeated = await migrateReadablePathsForSpace(migrationPrisma, seeded.spaceId, batchId);
+      assert.deepEqual(repeated, { migrated: 0, revisionId: migrationResult.value.revisionId });
       assert.deepEqual(
-        new Set(pages.map((page) => page.syncPath)),
-        new Set(['pages/标题.md', 'pages/标题 (2).md']),
+        await prisma.page.findMany({ where: { spaceId: seeded.spaceId } }),
+        pages,
       );
-      assert.equal(new Set(pages.map((page) => page.syncPathKey)).size, 2);
+      assert.deepEqual(await prisma.pageVersion.findMany({ where: { pageId: pages[0].id } }), versions);
+      assert.deepEqual(await prisma.spaceKnowledgeRevision.findMany({ where: { spaceId: seeded.spaceId } }), revisions);
+      assert.deepEqual(allocatorCalls, ['migration'], 'idempotent migration must not allocate again');
     } finally {
       if (allocatorPrototype && originalAllocate) {
         allocatorPrototype.allocate = originalAllocate;

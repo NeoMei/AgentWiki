@@ -1,0 +1,134 @@
+{
+  "status": "passed",
+  "sourceCommit": "48781e5b192101a2d122dd143048d983bca8a29b",
+  "matchedSourceFiles": 1252,
+  "versions": [
+    "0.12.25",
+    "0.12.25",
+    "0.12.25",
+    "0.12.0"
+  ],
+  "environment": {
+    "status": "passed",
+    "allowedKey": "LOCAL_SYNC_PACKAGE_VERSION",
+    "effectiveVersion": "0.12.0",
+    "files": [
+      {
+        "file": ".env",
+        "backupChecksumVerified": true,
+        "onlyAllowedVersionChanged": true,
+        "changed": true
+      },
+      {
+        "file": "apps/server/.env",
+        "backupChecksumVerified": true,
+        "onlyAllowedVersionChanged": true,
+        "changed": true
+      }
+    ]
+  },
+  "database": {
+    "status": "passed",
+    "verifiedAt": "2026-10-13T16:57:30.911Z",
+    "writersStopped": false,
+    "preservation": {
+      "credential": {
+        "beforeCount": 71,
+        "afterCount": 72,
+        "added": 1,
+        "missing": 0,
+        "changedStableRows": 0
+      },
+      "grant": {
+        "beforeCount": 482,
+        "afterCount": 483,
+        "added": 1,
+        "missing": 0,
+        "changedStableRows": 0
+      }
+    },
+    "ignoredActivityFields": [
+      "lastUsedAt",
+      "updatedAt"
+    ],
+    "credentialCount": 72,
+    "grantCount": 483,
+    "baselineStableCredentialAndGrantRowsPreserved": true,
+    "authorizationIdNullable": true,
+    "legacyGrantForeignKeyRemoved": true,
+    "legacyGrantIndexRemoved": true,
+    "agentIdentityForeignKeyPreserved": true,
+    "migrationApplied": "20261014120000_agent_identity_credentials",
+    "migrationChecksumMatches": true
+  },
+  "services": [
+    {
+      "NRestarts": "0",
+      "Id": "agentwiki-api.service",
+      "ActiveState": "active",
+      "SubState": "running"
+    },
+    {
+      "NRestarts": "0",
+      "Id": "agentwiki-worker.service",
+      "ActiveState": "active",
+      "SubState": "running"
+    },
+    {
+      "NRestarts": "0",
+      "Id": "agentwiki-frontend.service",
+      "ActiveState": "active",
+      "SubState": "running"
+    }
+  ],
+  "internalHealth": {
+    "status": "ok",
+    "database": "ok",
+    "redis": "ok",
+    "auditPersistence": "ok",
+    "attachmentStorage": "ok"
+  },
+  "publicHealth": {
+    "status": "ok",
+    "database": "ok",
+    "redis": "ok",
+    "auditPersistence": "ok",
+    "attachmentStorage": "ok"
+  },
+  "homepageStatus": 200,
+  "publicIndexMatchesDeployed": true,
+  "publicAssets": [
+    {
+      "path": "/assets/index-OIgPXA8u.js",
+      "bytes": 307650,
+      "sha256": "03a84bf2fe9627659cbe23ae57dd47037964d6c1d8a0c525d4b92729f5654c9c",
+      "matchesDeployed": true
+    },
+    {
+      "path": "/assets/_commonjsHelpers-CqkleIqs.js",
+      "bytes": 116,
+      "sha256": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+      "matchesDeployed": true
+    },
+    {
+      "path": "/assets/react-vendor-CTv3miC2.js",
+      "bytes": 239298,
+      "sha256": "7e3a4bf34c49700b5fad7403a908da66c35ca1ad3669d05d3356f1a5e9bae663",
+      "matchesDeployed": true
+    },
+    {
+      "path": "/assets/preload-helper-ckwbz45p.js",
+      "bytes": 1142,
+      "sha256": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+      "matchesDeployed": true
+    },
+    {
+      "path": "/assets/index--KjThhcr.css",
+      "bytes": 69475,
+      "sha256": "428bf2f498faf127fe23789a52e817db1c96a7b8dd0a10355ef961a18f7c3926",
+      "matchesDeployed": true
+    }
+  ],
+  "publicOnboardVersion": "0.12.0",
+  "boundary": "Actual Agent MCP grants and target Space read/write must be verified separately."
+}

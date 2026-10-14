@@ -9,14 +9,16 @@ vi.mock('../../api/client', () => ({
   default: { post: vi.fn(), put: vi.fn() },
 }));
 
-const instruction = '# 接入\nnpx --yes @neomei/agentwiki-local-sync@0.11.0 onboard --server https://wiki.test/api --code AW-ABCD-EFGH --protocol ndjson --agent auto';
+const instruction = '# 接入\nnpx --yes @neomei/agentwiki-local-sync@0.13.0 onboard --server https://wiki.test/api --code AW-ABCD-EFGH --protocol ndjson --agent auto';
 
 const renderCard = ({
   agentId = 'agent-1',
+  credentialAvailable = false,
   spaces = [{ id: 'space-1', name: '团队知识库' }],
   grants = [{ spaceId: 'space-1', role: 'reader' as const, space: { id: 'space-1', name: '团队知识库' } }],
 }: {
   agentId?: string;
+  credentialAvailable?: boolean;
   spaces?: Array<{ id: string; name: string; maxAgentRole?: AgentAccessRole }>;
   grants?: Array<{
     spaceId: string;
@@ -25,13 +27,13 @@ const renderCard = ({
   }>;
 } = {}) => render(
   <LanguageProvider>
-    <LocalSyncInstallCard agentId={agentId} spaces={spaces} grants={grants} />
+    <LocalSyncInstallCard agentId={agentId} credentialAvailable={credentialAvailable} spaces={spaces} grants={grants} />
   </LanguageProvider>,
 );
 
 const generate = async () => {
   fireEvent.click(screen.getByRole('button', { name: '生成统一网关接入指令' }));
-  await screen.findByText(/@neomei\/agentwiki-local-sync@0\.11\.0/);
+  await screen.findByText(/@neomei\/agentwiki-local-sync@0\.13\.0/);
 };
 
 describe('LocalSyncInstallCard', () => {
@@ -64,7 +66,7 @@ describe('LocalSyncInstallCard', () => {
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith(
       '/agents/agent-1/local-sync-installations',
-      { pluginVersion: '0.11.0', spaceId: 'space-1', role: 'editor' },
+      { pluginVersion: '0.13.0', spaceId: 'space-1', role: 'editor' },
     ));
   });
 
@@ -79,6 +81,18 @@ describe('LocalSyncInstallCard', () => {
       { role: 'editor' },
     ));
     expect(await screen.findByRole('button', { name: '已授权' })).toBeDisabled();
+  });
+
+
+  it('authorizes a new Space for an existing Agent connection without requiring another installation', async () => {
+    renderCard({ credentialAvailable: true, grants: [], spaces: [{ id: 'space-new', name: '新项目' }] });
+    fireEvent.change(screen.getByLabelText('Agent 角色'), { target: { value: 'editor' } });
+    fireEvent.click(screen.getByRole('button', { name: '授权此空间' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('此空间已授权；已配置该身份凭据的客户端无需重新接入');
+    expect(api.put).toHaveBeenCalledWith('/agents/agent-1/grants/space-new', { role: 'editor' });
+    expect(api.post).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: '生成统一网关接入指令' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '为另一客户端生成接入指令' })).toBeEnabled();
   });
 
   it('offers an update action when changing an existing Space grant role', async () => {
@@ -164,8 +178,8 @@ describe('LocalSyncInstallCard', () => {
 
     fireEvent.change(screen.getByLabelText('Agent 角色'), { target: { value: 'publisher' } });
 
-    expect(screen.getByText(/仍受 Space 发布策略限制/)).toBeInTheDocument();
-    expect(screen.getByText(/不能执行人工审批或成员管理/)).toBeInTheDocument();
+    expect(screen.getByText(/无需审核下.*编辑者和发布者 Agent.*已有权限范围内自动发布/)).toBeInTheDocument();
+    expect(screen.getByText(/不能审批或管理成员/)).toBeInTheDocument();
   });
 
   it('explains why no Space can be selected for authorization', () => {
@@ -318,7 +332,7 @@ describe('LocalSyncInstallCard', () => {
     fireEvent.click(screen.getByRole('button', { name: '生成统一网关接入指令' }));
     await waitFor(() => expect(api.post).toHaveBeenCalledWith(
       '/agents/agent-1/local-sync-installations',
-      { pluginVersion: '0.11.0', spaceId: 'space-2', role: 'reader' },
+      { pluginVersion: '0.13.0', spaceId: 'space-2', role: 'reader' },
     ));
   });
 });

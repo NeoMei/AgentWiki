@@ -1,0 +1,64 @@
+{
+  "applicationVersion": "0.12.25",
+  "localSyncVersion": "0.12.0",
+  "syncProtocolVersion": "0.6.1",
+  "baseCandidate": "c5a2cb75",
+  "registryVersionAvailable": true,
+  "registry": "https://registry.npmjs.org/",
+  "protocolRegistryParity": "identical",
+  "packageGate": {
+    "status": "passed",
+    "protocolSource": "registry",
+    "publisherPaths": [
+      "device-bootstrap",
+      "one-time-code"
+    ],
+    "scopes": 16,
+    "tamperRejected": true,
+    "rawServerPlan": true
+  },
+  "tests": {
+    "localSync": {
+      "files": 70,
+      "passed": 996,
+      "skipped": 1
+    },
+    "versionContract": {
+      "passed": 69
+    },
+    "client": {
+      "files": 6,
+      "passed": 45
+    },
+    "server": {
+      "suites": 5,
+      "passed": 171
+    }
+  },
+  "artifact": {
+    "path": "/tmp/agentwiki-v01225-release/neomei-agentwiki-local-sync-0.12.0.tgz",
+    "sha256": "d4c6128d4945814ca2da54c253bf7514ed54894f6b5733f36462e50b6ba01d2a",
+    "shasum": "73f27e5c4b1b291b88cb5f620943fb0c36f02f77",
+    "integrity": "sha512-It1l46OeY0ETaNL8Wfk3OEgP71XD6EEpwfw8KFAya1Q6UPUFS9BgnT1iKlAPxEKRqQvKN2htiosbiOMtSxMKfg==",
+    "files": 167,
+    "size": 190952
+  },
+  "publication": {
+    "npmPublished": false,
+    "deployed": false
+  },
+  "logs": [
+    "/tmp/agent-identity-release-package.log",
+    "/tmp/agent-identity-release-version-tests.log",
+    "/tmp/agent-identity-release-client-tests.log",
+    "/tmp/agent-identity-release-server-tests.log",
+    "/tmp/agent-identity-release-protocol-parity.log"
+  ],
+  "finalTarballCleanInstall": {
+    "passed": true,
+    "cliVersion": "0.12.0",
+    "cliHelp": true,
+    "emptyInstallAndCache": true,
+    "suspiciousTarballFileNames": []
+  }
+}

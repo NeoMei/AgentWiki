@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import { pageNotesApi } from './pageNotesApi';
 import type { AssistRequest, AssistNotesEvent } from './AgentAssistPanel';
 import { captureAssistTarget, resolveAssistTarget, validateAssistTarget, type AssistTarget, type CandidateEdit } from './assistTargets';
 import { addPersonalNote, loadPersonalNotes, notesForDispatch, personalNotesKey, savePersonalNotes, transitionPersonalNotes, type PersonalNote, type PersonalNotesScope } from './reviewComments';
 interface Props { scope: PersonalNotesScope | null; canEdit: boolean; enabled?: boolean; stageForSession?: boolean; source: string; updatedAt?: string; language?: string }
-interface QueueState { loaded: boolean; notes: PersonalNote[]; assistRequest: AssistRequest | null; storageUnavailable: boolean; conflict: boolean }
-const empty = (): QueueState => ({ loaded: false, notes: [], assistRequest: null, storageUnavailable: false, conflict: false });
+interface QueueState { loaded: boolean; notes: PersonalNote[]; assistRequest: AssistRequest | null; storageUnavailable: boolean; conflict: boolean; syncing: boolean; canCreate: boolean }
+const empty = (): QueueState => ({ loaded: false, notes: [], assistRequest: null, storageUnavailable: false, conflict: false, syncing: false, canCreate: false });
 interface TaskBinding { noteIds: string[]; coverage: Map<string, string[]>; uncertain: Set<string> }
 /** Evidence of source change, not the enclosing line-hunk extent. Ambiguous retained excerpts stay unresolved. */
 const editPassageEvidence = (edit: CandidateEdit, passage: { from: number; to: number }): 'unchanged' | 'changed' | 'uncertain' => {
@@ -20,7 +21,15 @@ const editPassageEvidence = (edit: CandidateEdit, passage: { from: number; to: n
   return !original || edit.after.includes(original) ? 'uncertain' : 'changed';
 };
 
-/** Owns only personal notes and request/event linkage. Parent remains the sole Markdown writer. */
+const accessDenied = (error: unknown) => [401, 403, 404].includes((error as { response?: { status?: number } } | null)?.response?.status ?? 0);
+const sessionToken = () => { try { return localStorage.getItem('token'); } catch { return null; } };
+interface PendingNoteWrites { userId: string; token: string | null; controller: AbortController; tail: Promise<void>; confirmed: Map<string, PersonalNote> }
+// Only explicitly submitted status writes outlive their view. A new view reads after this receipt barrier.
+const pendingNoteWrites = new Map<string, PendingNoteWrites>();
+const cancelNoteWrites = (key: string, lane: PendingNoteWrites) => { lane.controller.abort(); if (pendingNoteWrites.get(key) === lane) pendingNoteWrites.delete(key); };
+
+
+/** Owns server page notes and request/event linkage. Parent remains the sole Markdown writer. */
 export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSession = false, source, updatedAt, language = 'en' }: Props) {
   const latestRef = useRef({ source, updatedAt, language }); latestRef.current = { source, updatedAt, language };
   const key = scope ? personalNotesKey(scope) : '';
@@ -29,31 +38,154 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
   const stateRef = useRef<QueueState>(empty()), bindingsRef = useRef(new Map<string, TaskBinding>());
   const [, setState] = useState<QueueState>(empty());
   const mountedRef = useRef(true);
-  if (identityRef.current !== identity) { identityRef.current = identity; generationRef.current++; stateRef.current = empty(); bindingsRef.current.clear(); }
-  const generation = generationRef.current;
+  const controllerRef = useRef(new AbortController());
+  const accessDeniedRef = useRef(false);
+  const confirmedRef = useRef(new Map<string, PersonalNote>());
+  const pendingWritesRef = useRef(0);
+  const mutationRef = useRef(0), readSequenceRef = useRef(0), requestEpochRef = useRef(0);
+  const draftIdsRef = useRef(new Map<string, string>());
+  if (identityRef.current !== identity) {
+    controllerRef.current.abort(); controllerRef.current = new AbortController();
+    identityRef.current = identity; generationRef.current++; requestEpochRef.current++; accessDeniedRef.current = false; stateRef.current = empty(); bindingsRef.current.clear();
+    confirmedRef.current.clear(); draftIdsRef.current.clear(); pendingWritesRef.current = 0; mutationRef.current++;
+  }
+  for (const [writeKey, lane] of pendingNoteWrites) {
+    if (scope && lane.userId !== scope.userId || lane.token !== sessionToken() || scope && !enabled && writeKey === key) cancelNoteWrites(writeKey, lane);
+  }
+  const generation = generationRef.current, actionEpoch = requestEpochRef.current;
   const active = () => mountedRef.current && generationRef.current === generation && identityRef.current === identity && enabled && !!scope;
-  const publish = (next: QueueState, persist = false) => {
+  const actionActive = () => active() && requestEpochRef.current === actionEpoch;
+  const commit = (next: QueueState) => { if (active()) { stateRef.current = next; setState(next); } };
+  const denyAccess = () => {
     if (!active()) return;
-    if (persist && scope) next = { ...next, storageUnavailable: savePersonalNotes(scope, next.notes).status !== 'saved' };
-    stateRef.current = next; setState(next);
+    // Fence every in-flight receipt and queued write. A later fresh read may restore access.
+    accessDeniedRef.current = true; requestEpochRef.current++; controllerRef.current.abort(); controllerRef.current = new AbortController();
+    bindingsRef.current.clear(); confirmedRef.current.clear();
+    const lane = pendingNoteWrites.get(key); if (lane) cancelNoteWrites(key, lane);
+    pendingWritesRef.current = 0; mutationRef.current++; readSequenceRef.current++;
+    commit({ ...empty(), loaded: true, storageUnavailable: true });
   };
-  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; generationRef.current++; bindingsRef.current.clear(); }; }, []);
-  useEffect(() => {
-    const next = empty();
-    if (scope && enabled) {
-      const loaded = loadPersonalNotes(scope);
-      if (loaded.status === 'loaded') next.notes = loaded.notes;
-      else next.storageUnavailable = true;
+  const publish = (next: QueueState, persist = false) => {
+    if (!actionActive()) return;
+    if (!persist || !scope) { commit(next); return; }
+    // Only the authenticated author may change shared state. Other authors remain usable as Agent context.
+    const changes = next.notes.filter((note) => note.canEdit && note.updatedAt && stateRef.current.notes.find((old) => old.id === note.id) !== note);
+    const changedIds = new Set(changes.map((note) => note.id));
+    next = { ...next, notes: next.notes.map((note) => changedIds.has(note.id) ? note : stateRef.current.notes.find((old) => old.id === note.id) ?? note) };
+    if (!changes.length) { commit(next); return; }
+    mutationRef.current++; pendingWritesRef.current++;
+    commit({ ...next, syncing: true });
+    const epoch = requestEpochRef.current, current = () => active() && requestEpochRef.current === epoch;
+    let lane = pendingNoteWrites.get(key);
+    if (!lane) {
+      lane = { userId: scope.userId, token: sessionToken(), controller: new AbortController(), tail: Promise.resolve(), confirmed: new Map(confirmedRef.current) };
+      pendingNoteWrites.set(key, lane);
+    } else {
+      // A create may finish while this lane is busy. Admit its server receipt without
+      // overwriting the concurrency tokens already advanced by queued status writes.
+      for (const [id, note] of confirmedRef.current) if (!lane.confirmed.has(id)) lane.confirmed.set(id, note);
     }
-    next.loaded = true; stateRef.current = next; setState(next);
+    const writeLane = lane;
+    const canPersist = () => {
+      if (writeLane.token !== sessionToken()) cancelNoteWrites(key, writeLane);
+      if (writeLane.controller.signal.aborted && current()) denyAccess();
+      return !writeLane.controller.signal.aborted;
+    };
+    const queued = writeLane.tail.then(async () => {
+      if (!canPersist()) return;
+      try {
+        for (const desired of changes) {
+          if (!canPersist()) return;
+          const previous = writeLane.confirmed.get(desired.id);
+          if (!previous?.updatedAt || !previous.canEdit) continue;
+          const saved = await pageNotesApi.update(scope, desired.id, { expectedUpdatedAt: previous.updatedAt, status: desired.status, taskId: desired.taskId ?? null }, writeLane.controller.signal);
+          if (!canPersist()) return;
+          writeLane.confirmed.set(saved.id, saved);
+          if (!current()) continue;
+          confirmedRef.current.set(saved.id, saved);
+          // Preserve a newer queued transition while advancing its concurrency token.
+          commit({ ...stateRef.current, notes: stateRef.current.notes.map((note) => note.id !== saved.id ? note : note.status === desired.status && note.taskId === desired.taskId ? saved : { ...note, updatedAt: saved.updatedAt }), storageUnavailable: false });
+        }
+      } catch (error) {
+        if (!canPersist()) return;
+        if (accessDenied(error)) { cancelNoteWrites(key, writeLane); if (current()) denyAccess(); return; }
+        if (current()) commit({ ...stateRef.current, storageUnavailable: true, notes: stateRef.current.notes.map((note) => changedIds.has(note.id) ? confirmedRef.current.get(note.id) ?? note : note) });
+      } finally { if (current()) { pendingWritesRef.current--; commit({ ...stateRef.current, syncing: pendingWritesRef.current > 0 }); } }
+    });
+    writeLane.tail = queued;
+    void queued.finally(() => { if (pendingNoteWrites.get(key) === writeLane && writeLane.tail === queued) pendingNoteWrites.delete(key); });
+  };
+  const refresh = async (migrate = false) => {
+    if (!active() || !scope || pendingWritesRef.current) return;
+    const mutation = mutationRef.current, readSequence = ++readSequenceRef.current, epoch = requestEpochRef.current;
+    const current = () => active() && requestEpochRef.current === epoch;
+    try {
+      for (let lane = pendingNoteWrites.get(key); lane; lane = pendingNoteWrites.get(key)) {
+        await lane.tail;
+        if (!current()) return;
+      }
+      const remote = await pageNotesApi.list(scope, controllerRef.current.signal);
+      if (!current() || readSequence !== readSequenceRef.current || mutation !== mutationRef.current || pendingWritesRef.current) return;
+      accessDeniedRef.current = false;
+      remote.notes.forEach((note) => confirmedRef.current.set(note.id, note));
+      const legacy = loadPersonalNotes(scope);
+      let local = legacy.status === 'loaded' ? legacy.notes : [];
+      commit({ ...stateRef.current, ...remote, loaded: true, storageUnavailable: legacy.status !== 'loaded', notes: [...remote.notes, ...local.filter((note) => !remote.notes.some((saved) => saved.author?.type === 'user' && saved.author.id === scope.userId && saved.clientNoteId === note.id)).map((note) => ({ ...note, syncState: 'unsynced' as const }))] });
+      if (!migrate || !local.length || !remote.canCreate) return;
+      pendingWritesRef.current++; mutationRef.current++; commit({ ...stateRef.current, syncing: true });
+      let failed = false;
+      try {
+        for (const note of [...local]) {
+          if (!current()) return;
+          try {
+            const saved = await pageNotesApi.create(scope, { clientNoteId: note.id, body: note.body, target: note.target, status: note.status, ...(note.taskId ? { taskId: note.taskId } : {}) }, controllerRef.current.signal);
+            if (!current()) return;
+            confirmedRef.current.set(saved.id, saved);
+            local = local.filter((item) => item.id !== note.id);
+            // The server receipt is the only authority for removing the legacy entry.
+            if (savePersonalNotes(scope, local).status !== 'saved') failed = true;
+            commit({ ...stateRef.current, notes: [...stateRef.current.notes.filter((item) => item.id !== note.id && item.id !== saved.id), saved] });
+          } catch (error) { if (current() && accessDenied(error)) { denyAccess(); return; } failed = true; }
+        }
+      } finally { if (current()) { pendingWritesRef.current--; commit({ ...stateRef.current, syncing: pendingWritesRef.current > 0, storageUnavailable: failed || local.length > 0 }); } }
+    } catch (error) {
+      if (!current() || readSequence !== readSequenceRef.current) return;
+      if (accessDenied(error)) { denyAccess(); return; }
+      if (mutation !== mutationRef.current) return;
+      const legacy = loadPersonalNotes(scope);
+      commit({ ...stateRef.current, loaded: true, storageUnavailable: true, notes: stateRef.current.notes.length ? stateRef.current.notes : !accessDeniedRef.current && legacy.status === 'loaded' ? legacy.notes.map((note) => ({ ...note, syncState: 'unsynced' as const })) : [] });
+    }
+  };
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; controllerRef.current.abort(); bindingsRef.current.clear(); }; }, []);
+  useEffect(() => {
+    if (controllerRef.current.signal.aborted) controllerRef.current = new AbortController();
+    if (!scope || !enabled) { stateRef.current = { ...empty(), loaded: true }; setState(stateRef.current); return; }
+    void refresh(true);
+    const onFocus = () => { void refresh(true); };
+    const interval = window.setInterval(() => { if (document.visibilityState !== 'hidden') void refresh(true); }, 30_000);
+    window.addEventListener('focus', onFocus);
+    return () => { clearInterval(interval); window.removeEventListener('focus', onFocus); };
   }, [identity]);
-  const add = (target: AssistTarget, body: string): boolean => {
-    if (!active() || !scope || target.baseUpdatedAt !== latestRef.current.updatedAt || resolveAssistTarget(latestRef.current.source, target).status !== 'found') return false;
-    try { const note = addPersonalNote(scope, target, body); publish({ ...stateRef.current, notes: [...stateRef.current.notes, note] }, true); return true; } catch { return false; }
+  const add = async (target: AssistTarget, body: string, _options?: { requirePersistence?: boolean }): Promise<boolean> => {
+    if (!actionActive() || !scope || !stateRef.current.canCreate || target.baseUpdatedAt !== latestRef.current.updatedAt || resolveAssistTarget(latestRef.current.source, target).status !== 'found') return false;
+    const epoch = requestEpochRef.current, current = () => active() && requestEpochRef.current === epoch;
+    let counted = false;
+    try {
+      const fingerprint = JSON.stringify([target, body.trim()]);
+      const id = draftIdsRef.current.get(fingerprint) ?? crypto.randomUUID(); draftIdsRef.current.set(fingerprint, id);
+      const note = addPersonalNote(scope, target, body, id);
+      pendingWritesRef.current++; counted = true; mutationRef.current++; commit({ ...stateRef.current, syncing: true });
+      const saved = await pageNotesApi.create(scope, { clientNoteId: id, body: note.body, target: note.target }, controllerRef.current.signal);
+      if (!current()) return false;
+      confirmedRef.current.set(saved.id, saved); draftIdsRef.current.delete(fingerprint);
+      commit({ ...stateRef.current, notes: [...stateRef.current.notes.filter((item) => item.id !== saved.id), saved], storageUnavailable: false });
+      return true;
+    } catch (error) { if (current()) { if (accessDenied(error)) denyAccess(); else commit({ ...stateRef.current, storageUnavailable: true }); } return false; }
+    finally { if (current() && counted) { pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1); commit({ ...stateRef.current, syncing: pendingWritesRef.current > 0 }); } }
   };
   const dispatch = (ids: string[]): boolean => {
     const { source: liveSource, updatedAt: liveVersion, language: liveLanguage } = latestRef.current;
-    if (!active() || !liveVersion || stateRef.current.assistRequest) return false;
+    if (!actionActive() || !liveVersion || stateRef.current.assistRequest) return false;
     const selected = notesForDispatch(stateRef.current.notes, ids, liveSource);
     if (selected.status !== 'ready') { publish({ ...stateRef.current, conflict: true }); return false; }
     const located = selected.notes.map((note) => ({ note, position: resolveAssistTarget(liveSource, note.target) }));
@@ -62,7 +194,7 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
     const to = Math.max(...located.map(({ position }) => position.status === 'found' ? position.to : -Infinity));
     const target = captureAssistTarget(liveSource, 'selection', from, to, liveVersion);
     if (!target) return false;
-    const instructions = liveLanguage === 'zh-CN' ? '按以下个人笔记修改引用原文，仅修改指定范围，保留其余 Markdown。每条笔记的原文和上下文用于精确定位：' : 'Address the personal notes below in their quoted passages. Edit only the specified scope and preserve all other Markdown. Use each quote and context to locate its passage:';
+    const instructions = liveLanguage === 'zh-CN' ? '按以下页面笔记修改引用原文，仅修改指定范围，保留其余 Markdown。每条笔记的原文和上下文用于精确定位：' : 'Address the page notes below in their quoted passages. Edit only the specified scope and preserve all other Markdown. Use each quote and context to locate its passage:';
     const passages = located.map(({ note, position }) => ({ note: note.body, quote: note.target.quote, prefix: note.target.prefix, suffix: note.target.suffix, from: position.status === 'found' ? position.from : 0, to: position.status === 'found' ? position.to : 0 }));
     const legacyIntent = instructions + '\n' + JSON.stringify(passages);
     const annotations = selected.notes.map((note) => ({ id: note.id, body: note.body, quote: note.target.quote }));
@@ -71,13 +203,18 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
     const request: AssistRequest = { id: crypto.randomUUID(), intent, autoSubmit: !stageForSession, ...(stageForSession ? { annotations } : {}), assistTarget: target, noteIds: selected.notes.map((note) => note.id) };
     publish({ ...stateRef.current, assistRequest: request, conflict: false }); return true;
   };
-  const onRequestHandled = (id: string) => { if (active() && stateRef.current.assistRequest?.id === id) publish({ ...stateRef.current, assistRequest: null }); };
+  const onRequestHandled = (id: string) => { if (actionActive() && stateRef.current.assistRequest?.id === id) publish({ ...stateRef.current, assistRequest: null }); };
   const reopen = (id: string) => {
-    if (!active()) return;
+    if (!actionActive() || !stateRef.current.notes.some((note) => note.id === id && note.canEdit)) return;
     publish({ ...stateRef.current, notes: transitionPersonalNotes(stateRef.current.notes, [id], 'reopen'), assistRequest: null, conflict: false }, true);
   };
-  const onNotesEvent = (event: AssistNotesEvent) => {
-    if (!active() || !scope || event.candidate.userId !== scope.userId || event.candidate.spaceId !== scope.spaceId || event.candidate.pageId !== scope.pageId || event.taskId !== event.candidate.taskId) return;
+  const onNotesEvent = (input: AssistNotesEvent) => {
+    const aliases = new Map(stateRef.current.notes.filter((note) => note.author?.type === 'user' && note.author.id === scope?.userId && note.clientNoteId).map((note) => [note.clientNoteId!, note.id]));
+    const ids = (values: string[]) => values.map((id) => aliases.get(id) ?? id);
+    const annotations = (values: AssistRequest['annotations']) => values?.map((note) => ({ ...note, id: aliases.get(note.id) ?? note.id }));
+    const request = (value: AssistRequest): AssistRequest => ({ ...value, noteIds: value.noteIds && ids(value.noteIds), annotations: annotations(value.annotations), ...(value.supersedes ? { supersedes: { ...value.supersedes, noteIds: ids(value.supersedes.noteIds), annotations: annotations(value.supersedes.annotations)! } } : {}) });
+    const event: AssistNotesEvent = { ...input, noteIds: ids(input.noteIds), candidate: { ...input.candidate, noteIds: input.candidate.noteIds && ids(input.candidate.noteIds) }, annotations: annotations(input.annotations), ...(input.dispatchRequest ? { dispatchRequest: { ...input.dispatchRequest, request: request(input.dispatchRequest.request) } } : {}) };
+    if (!actionActive() || !scope || event.candidate.userId !== scope.userId || event.candidate.spaceId !== scope.spaceId || event.candidate.pageId !== scope.pageId || event.taskId !== event.candidate.taskId) return;
     const matchesAnnotations = (annotations: AssistRequest['annotations'], content: string, version?: string) => annotations?.length === event.noteIds.length && event.noteIds.every((id) => {
       const note = stateRef.current.notes.find((item) => item.id === id), annotation = annotations.find((item) => item.id === id);
       return !!note && !!annotation && note.body === annotation.body && note.target.quote === annotation.quote
@@ -115,7 +252,7 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
           || !matchesAnnotations(supersedes.annotations, supersedes.snapshot.content, supersedes.snapshot.updatedAt)) return;
         // Reopen only unresolved notes after successful explicit regeneration. Resolved context
         // keeps its historical task; old callbacks stay fenced by each transferred note's new task.
-        const eligibleIds = event.noteIds.filter((id) => stateRef.current.notes.some((note) => note.id === id && note.status !== 'resolved'));
+        const eligibleIds = event.noteIds.filter((id) => stateRef.current.notes.some((note) => note.id === id && note.canEdit && note.status !== 'resolved'));
         if (!eligibleIds.length) return;
         stateRef.current = { ...stateRef.current, notes: transitionPersonalNotes(stateRef.current.notes, eligibleIds, 'reopen', supersedes.taskId) };
       }
@@ -140,15 +277,15 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
         if (evidence.some((edit) => edit.evidence === 'uncertain')) binding.uncertain.add(note.id);
       }
     }
-    let ids = event.noteIds;
+    let eligibleIds = event.noteIds;
     if (event.event === 'accept') {
       const accepted = event.acceptedEditIds ?? event.candidate.acceptedEditIds ?? [];
-      ids = ids.filter((id) => { const changes = binding.coverage.get(id); return !binding.uncertain.has(id) && !!changes?.length && changes.every((change) => accepted.includes(change)); });
+      eligibleIds = eligibleIds.filter((id) => { const changes = binding.coverage.get(id); return !binding.uncertain.has(id) && !!changes?.length && changes.every((change) => accepted.includes(change)); });
     }
-    const notes = transitionPersonalNotes(stateRef.current.notes, ids, event.event, event.taskId);
+    const notes = transitionPersonalNotes(stateRef.current.notes, eligibleIds, event.event, event.taskId);
     publish({ ...stateRef.current, notes }, true);
   };
   const visible = identityRef.current === identity && enabled && scope ? stateRef.current : empty();
   // Refs let sequential callbacks observe synchronous queue changes; setState triggers UI updates.
-  return { ...visible, add, dispatch, reopen, onNotesEvent, onRequestHandled, identityKey: key };
+  return { ...visible, add, dispatch, reopen, onNotesEvent, onRequestHandled, retrySync: () => refresh(true), identityKey: key };
 }

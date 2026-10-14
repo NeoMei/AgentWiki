@@ -42,7 +42,7 @@ describe('RunsPage', () => {
     vi.mocked(api.get).mockResolvedValue({ data: [run('r', 'fetching / 自定义来源', 'fetching')] });
     renderPage();
     expect(await screen.findByText('fetching / 自定义来源')).toBeVisible();
-    expect(screen.getByText(new RegExp(stage))).toBeVisible();
+    expect(screen.getByText(new RegExp(stage), { selector: 'span' })).toBeVisible();
   });
 
   it.each([['zh-CN', '发布中'], ['en', 'Publishing']])('shows the valid publishing stage in %s without changing source names', async (locale, stage) => {
@@ -50,7 +50,7 @@ describe('RunsPage', () => {
     vi.mocked(api.get).mockResolvedValue({ data: [run('r', 'Publisher / 自定义来源', 'publishing')] });
     renderPage();
     expect(await screen.findByText('Publisher / 自定义来源')).toBeVisible();
-    expect(screen.getByText(new RegExp(stage))).toBeVisible();
+    expect(screen.getByText(new RegExp(stage), { selector: 'span' })).toBeVisible();
   });
 
   it.each([
@@ -79,6 +79,41 @@ describe('RunsPage', () => {
     await waitFor(() => expect(screen.getByText('Active')).toBeInTheDocument());
     expect(screen.getAllByTitle('Cancel run')).toHaveLength(1);
     expect(screen.getAllByTitle('Retry run')).toHaveLength(1);
+  });
+
+  it('localizes status filters and filters by source, status and search together', async () => {
+    localStorage.setItem('agentwiki.language.v1', 'zh-CN');
+    vi.mocked(api.get).mockResolvedValue({ data: [
+      run('failed-a', '来源甲', 'failed'), run('completed-a', '来源甲'), run('failed-b', '来源乙', 'failed'),
+    ] });
+    renderPage();
+    expect(await screen.findByRole('option', { name: '失败' })).toHaveValue('failed');
+    expect(screen.getByRole('option', { name: '已完成' })).toHaveValue('completed');
+    fireEvent.change(screen.getByLabelText('按来源筛选'), { target: { value: '来源甲' } });
+    fireEvent.change(screen.getByLabelText('按状态筛选'), { target: { value: 'failed' } });
+    fireEvent.change(screen.getByLabelText('搜索运行记录'), { target: { value: '来源甲' } });
+    expect(screen.getAllByText('来源甲', { selector: 'p' })).toHaveLength(1);
+    expect(screen.queryByText('来源乙', { selector: 'p' })).not.toBeInTheDocument();
+    expect(screen.getAllByTitle('重试任务')).toHaveLength(1);
+    expect(screen.queryByText('已完成', { selector: 'span' })).not.toBeInTheDocument();
+  });
+
+  it('clears all filters when switching Space so its runs are visible', async () => {
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: String(url).includes('space-2')
+      ? [run('second', 'Space Two')]
+      : [run('first', 'Space One', 'failed')] }));
+    render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1/runs']}>
+      <SpaceSwitcher /><Routes><Route path="/spaces/:id/runs" element={<RunsPage />} /></Routes>
+    </MemoryRouter></LanguageProvider>);
+    await screen.findByText('Space One');
+    fireEvent.change(screen.getByLabelText('Search runs'), { target: { value: 'Space One' } });
+    fireEvent.change(screen.getByLabelText('Filter by source'), { target: { value: 'Space One' } });
+    fireEvent.change(screen.getByLabelText('Filter by status'), { target: { value: 'failed' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Switch space' }));
+    expect(await screen.findByText('Space Two')).toBeInTheDocument();
+    expect(screen.getByLabelText('Search runs')).toHaveValue('');
+    expect(screen.getByLabelText('Filter by source')).toHaveValue('');
+    expect(screen.getByLabelText('Filter by status')).toHaveValue('');
   });
 
   it('shows safe URL diagnostics without exposing a raw English failure', async () => {
@@ -181,7 +216,7 @@ describe('RunsPage', () => {
     await act(async () => {});
     terminal = true;
     await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
-    expect(screen.getByText(/Completed/)).toBeVisible();
+    expect(screen.getByText(/Completed/, { selector: 'span' })).toBeVisible();
     const reads = vi.mocked(api.get).mock.calls.length;
     await act(async () => { await vi.advanceTimersByTimeAsync(12000); });
     expect(vi.mocked(api.get).mock.calls).toHaveLength(reads);

@@ -9,6 +9,7 @@ export type ContentTreeErrorCode =
   | 'SPACE_NOT_FOUND'
   | 'FOLDER_NOT_FOUND'
   | 'FOLDER_NAME_CONFLICT'
+  | 'PAGE_TITLE_CONFLICT'
   | 'FOLDER_INVALID_NAME'
   | 'FOLDER_CYCLE'
   | 'FOLDER_DEPTH_LIMIT'
@@ -205,6 +206,8 @@ export interface PlacePageInput {
   pageId: string;
   title: string;
   folderId: string | null;
+  /** Human-created pages opt in; imports retain suffix-based path allocation. */
+  requireUniqueTitle?: boolean;
 }
 
 export interface ListChildrenInput {

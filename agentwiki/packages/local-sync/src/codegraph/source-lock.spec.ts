@@ -257,7 +257,7 @@ describe('source locks', () => {
     const removable = [`${base}.candidate-dead`, `${base}.quarantine-dead-${'a'.repeat(36)}`]; const fresh = `${base}.candidate-fresh`; const live = `${base}.candidate-live`; const mismatch = `${base}.candidate-name`;
     await Promise.all(removable.map(async (name) => { await writeFile(join(root, name), owner('dead')); await utimes(join(root, name), old, old); }));
     await writeFile(join(root, fresh), owner('fresh')); await writeFile(join(root, live), owner('live', 777)); await writeFile(join(root, mismatch), owner('other'));
-    const lock = testLock({ root, staleAfterMs: 100, isProcessAlive: (pid) => pid === 777 }); await lock.withLock(key, async () => undefined);
+    const lock = testLock({ root, staleAfterMs: 100, isProcessAlive: (pid) => pid === process.pid || pid === 777 }); await lock.withLock(key, async () => undefined);
     await Promise.all(removable.map((name) => expect(stat(join(root, name))).rejects.toMatchObject({ code: 'ENOENT' })));
     await Promise.all([fresh, live, mismatch].map((name) => expect(stat(join(root, name))).resolves.toBeDefined()));
   });

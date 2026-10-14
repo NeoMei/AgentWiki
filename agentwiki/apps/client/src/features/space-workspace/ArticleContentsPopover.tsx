@@ -27,6 +27,8 @@ export interface ArticleContentsPopoverProps {
   onOccupiedWidthChange?: (width: number) => void;
   /** Keep the trigger in the viewport while the document workspace scrolls. */
   floatingTrigger?: boolean;
+  /** Render inside the shared document panel without owning a trigger or overlay. */
+  embedded?: boolean;
 }
 
 interface PopoverPosition {
@@ -84,7 +86,7 @@ const scrollParent = (element: HTMLElement): HTMLElement | Window => {
   return window;
 };
 
-export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ articleRootRef, pageKey, source, activeHeadingId, onNavigate, onNavigateIntent, suppressed = false, spaceId, onOccupiedWidthChange, floatingTrigger = false }) => {
+export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ articleRootRef, pageKey, source, activeHeadingId, onNavigate, onNavigateIntent, suppressed = false, spaceId, onOccupiedWidthChange, floatingTrigger = false, embedded = false }) => {
   const { t, language } = useLanguage();
   const workspace = useOptionalSpaceWorkspace();
   const scoped = workspace?.spaceId && (!spaceId || workspace.spaceId === spaceId) ? workspace : null;
@@ -100,19 +102,20 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
   const wide = viewportWidth >= 1600;
   const mobile = viewportWidth < 1024;
   const [items, setItems] = useState<Array<Omit<OutlineItem, 'element'> & { element?: HTMLHeadingElement; from?: number; to?: number }>>([]);
-  const open = !suppressed && (mobile ? mobileOpenFor === viewKey : (preferredOpen ?? wide) && dismissedFor !== viewKey);
+  const open = embedded || (!suppressed && (mobile ? mobileOpenFor === viewKey : (preferredOpen ?? wide) && dismissedFor !== viewKey));
   const [activeId, setActiveId] = useState<string | null>(null);
   const [position, setPosition] = useState<PopoverPosition>({ left: 16, top: 88, width: 280, maxHeight: 0, resizeMax: 360 });
   const [floatingTriggerPosition, setFloatingTriggerPosition] = useState({ top: STICKY_OFFSET, right: 16 });
   const wrapperRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLElement>(null);
-  const occupiedWidth = open && wide && (outline?.length ?? items.length) > 0 && position.resizeMax >= 200 ? position.width + 16 : 0;
+  const occupiedWidth = !embedded && open && wide && (outline?.length ?? items.length) > 0 && position.resizeMax >= 200 ? position.width + 16 : 0;
 
   useEffect(() => {
+    if (embedded) return;
     onOccupiedWidthChange?.(occupiedWidth);
     return () => onOccupiedWidthChange?.(0);
-  }, [onOccupiedWidthChange, occupiedWidth]);
+  }, [embedded, onOccupiedWidthChange, occupiedWidth]);
 
   useEffect(() => {
     const resize = () => setViewportWidth(window.innerWidth);
@@ -157,7 +160,7 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
   }, [getFloatingTriggerPosition]);
 
   useEffect(() => {
-    if (!floatingTrigger) return;
+    if (embedded || !floatingTrigger) return;
     updateFloatingTriggerPosition();
     document.addEventListener('scroll', updateFloatingTriggerPosition, true);
     window.addEventListener('resize', updateFloatingTriggerPosition);
@@ -172,7 +175,7 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
       window.removeEventListener('resize', updateFloatingTriggerPosition);
       observer?.disconnect();
     };
-  }, [articleRootRef, floatingTrigger, items.length, updateFloatingTriggerPosition]);
+  }, [articleRootRef, embedded, floatingTrigger, items.length, updateFloatingTriggerPosition]);
 
   const updatePosition = useCallback(() => {
     const trigger = triggerRef.current;
@@ -253,7 +256,7 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
   }, [activeHeadingId, articleRootRef, items, pageKey]);
 
   useEffect(() => {
-    if (!open || items.length === 0) return;
+    if (embedded || !open || items.length === 0) return;
     updatePosition();
     const closeFromOutside = (event: PointerEvent) => {
       const target = event.target as Node;
@@ -282,9 +285,9 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
       window.removeEventListener('resize', updatePosition);
       toolbarObserver?.disconnect();
     };
-  }, [open, updatePosition, mobile, wide, viewKey, chooseOpen, items.length]);
+  }, [embedded, open, updatePosition, mobile, wide, viewKey, chooseOpen, items.length]);
 
-  if (items.length === 0) return null;
+  if (!embedded && items.length === 0) return null;
 
   const closeAndRestoreFocus = () => {
     chooseOpen(false);
@@ -295,15 +298,30 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
     if (item.from !== undefined) onNavigateIntent?.(item.from);
     if (onNavigate && item.from !== undefined && item.to !== undefined) {
       onNavigate({ id: item.id, label: item.label, level: item.level, from: item.from, to: item.to });
-      setActiveId(item.id); if (mobile) setMobileOpenFor(null); else if (!wide) setDismissedFor(viewKey); return;
+      setActiveId(item.id); if (!embedded) { if (mobile) setMobileOpenFor(null); else if (!wide) setDismissedFor(viewKey); } return;
     }
     if (!item.element) return;
     item.element.scrollIntoView({ block: 'start' });
     const scrollingElement = scrollParent(item.element);
     scrollingElement.scrollBy({ top: -currentStickyOffset(wrapperRef.current), left: 0, behavior: 'instant' });
     setActiveId(item.id);
-    if (mobile) setMobileOpenFor(null); else if (!wide) setDismissedFor(viewKey);
+    if (!embedded) { if (mobile) setMobileOpenFor(null); else if (!wide) setDismissedFor(viewKey); }
   };
+
+  const contents = <div className="min-h-0 flex-1 overflow-y-auto p-2">
+    {items.map((item) => <button key={item.id} type="button" aria-current={activeId === item.id ? 'location' : undefined}
+      onClick={() => navigateTo(item)} title={item.label}
+      className={`block w-full truncate rounded-md py-2 pr-3 text-left text-sm transition focus:outline-none focus:ring-2 focus:ring-blue-500 ${activeId === item.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-gray-700 hover:bg-gray-50'}`}
+      style={{ paddingLeft: `${12 + Math.max(0, item.level - 1) * 14}px` }}>{item.label}</button>)}
+    {items.length === 0 ? <p className="px-2 py-3 text-sm text-gray-500">{language === 'zh-CN' ? '本文暂无标题。' : 'No headings in this document.'}</p> : null}
+  </div>;
+
+  if (embedded) return <div ref={wrapperRef} className="flex min-h-0 flex-1 flex-col">
+    <nav aria-label={t('page.contents')} className="flex min-h-0 flex-1 flex-col">
+      <h2 className="shrink-0 border-b border-gray-100 px-4 py-3 text-sm font-semibold text-gray-800">{t('page.contents')}</h2>
+      {contents}
+    </nav>
+  </div>;
 
   const triggerClassName = 'inline-flex min-h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:border-blue-300 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50';
   const trigger = (
@@ -354,21 +372,7 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
               <X size={17} aria-hidden="true" />
             </button>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-2">
-            {items.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                aria-current={activeId === item.id ? 'location' : undefined}
-                onClick={() => navigateTo(item)}
-                title={item.label}
-                className={`block w-full truncate rounded-md py-2 pr-3 text-left text-sm transition focus:outline-none focus:ring-2 focus:ring-blue-500 ${activeId === item.id ? 'bg-blue-50 font-medium text-blue-700' : 'text-gray-700 hover:bg-gray-50'}`}
-                style={{ paddingLeft: `${12 + Math.max(0, item.level - 1) * 14}px` }}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
+          {contents}
         </nav>
       ), document.body) : null}
     </div>

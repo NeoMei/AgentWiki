@@ -113,7 +113,7 @@ beforeAll(async () => {
         spaceId: 's1',
         role: 'editor',
         serverUrl: base,
-        pluginVersion: '0.11.0',
+        pluginVersion: '0.13.0',
         scopes,
       });
     }
@@ -126,17 +126,12 @@ beforeAll(async () => {
             id: 'a1',
             name: 'Test Agent',
             status: 'active',
-            grants: [{ role: 'editor', space: { id: 's1', name: 'Existing space' } }],
+            grants: [{ role: 'editor', scopes, space: { id: 's1', name: 'Existing space' } }],
             credentials: [
               {
                 id: 'c1',
                 active: true,
-                authorization: {
-                  id: 'auth1',
-                  space: { id: 's1', name: 'Existing space' },
-                  role: 'editor',
-                  scopes,
-                },
+                credentialScope: 'agent',
               },
             ],
           },

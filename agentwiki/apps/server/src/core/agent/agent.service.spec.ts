@@ -171,7 +171,7 @@ describe('AgentService grant scope validation', () => {
     });
   });
 
-  it('reports a credential as an identity bound to one authorization record', async () => {
+  it('reports identity credentials independently of Space grants', async () => {
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1', ownerId: 'owner-1', revokedAt: null,
       grants: [{
@@ -190,13 +190,8 @@ describe('AgentService grant scope validation', () => {
 
     const agent = await service.getOwned('owner-1', 'agent-1');
 
-    expect(agent.credentials[0]).toMatchObject({
-      id: 'credential-1',
-      authorization: {
-        id: 'grant-1', role: 'editor', space: { id: 'space-1', name: 'Space' },
-        scopes: scopesForAgentGrant('editor', []),
-      },
-    });
+    expect(agent.credentials[0]).toMatchObject({ id: 'credential-1', credentialScope: 'agent' });
+    expect(agent.credentials[0]).not.toHaveProperty('authorization');
     expect(agent.credentials[0]).not.toHaveProperty('role');
     expect(agent.credentials[0]).not.toHaveProperty('scopes');
     expect(agent.grants[0]).toMatchObject({
@@ -240,20 +235,20 @@ describe('AgentService grant scope validation', () => {
     expect(prisma.agent.update).not.toHaveBeenCalled();
   });
 
-  it('limits Agent integration diagnostics to the current bound authorization', async () => {
+  it('reports all current Agent grants and only the calling identity credential', async () => {
     prisma.agent.findUnique.mockResolvedValue({
       id: 'agent-1', ownerId: 'owner-1', revokedAt: null, grants: [], credentials: [],
     });
     prisma.agent.findMany.mockResolvedValue([]);
 
-    await service.integrationAccess('owner-1', 'agent-1', 'grant-1');
+    await service.integrationAccess('owner-1', 'agent-1', 'credential-1');
 
     expect(prisma.agent.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ id: 'agent-1' }),
       select: expect.objectContaining({
-        grants: expect.objectContaining({ where: { id: 'grant-1' } }),
+        grants: expect.objectContaining({ where: { space: { deletedAt: null } } }),
         credentials: expect.objectContaining({
-          where: { revokedAt: null, authorizationId: 'grant-1' },
+          where: { revokedAt: null, id: 'credential-1' },
         }),
       }),
     }));
@@ -301,7 +296,8 @@ describe('AgentService grant scope validation', () => {
       },
     }));
     const credentialWrite = prisma.agentCredential.upsert.mock.calls[0][0];
-    expect(credentialWrite.create).toEqual(expect.objectContaining({ authorizationId: 'grant-1' }));
+    expect(credentialWrite.create).toEqual(expect.objectContaining({ agentId: 'agent-1' }));
+    expect(credentialWrite.create).not.toHaveProperty('authorizationId');
     expect(credentialWrite.create).not.toHaveProperty('role');
     expect(credentialWrite.create).not.toHaveProperty('scopes');
     expect(prisma.agentAuditEvent.create).toHaveBeenCalledWith(expect.objectContaining({

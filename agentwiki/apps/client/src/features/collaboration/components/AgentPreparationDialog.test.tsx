@@ -59,7 +59,7 @@ const connectedDetail: OwnedAgentDetail = {
     id: 'credential-1',
     revokedAt: null,
     expiresAt: null,
-    authorization: { role: 'editor', space },
+    credentialScope: 'agent',
   }],
 };
 
@@ -1058,6 +1058,35 @@ describe('AgentPreparationDialog', () => {
     expect(immediateCallCount).toBe(2);
     expect(onPrepared).not.toHaveBeenCalled();
     expect(screen.getByText(/AW-NEW/)).toBeVisible();
+  });
+
+
+  it.each(['reader', 'editor'] as const)('does not complete a Publisher connection check after the grant becomes %s', async (actualRole) => {
+    vi.mocked(prepareAgent).mockResolvedValue(waitingResult({ role: 'publisher' }));
+    vi.mocked(agentPreparationApi.getAgent).mockResolvedValue({
+      ...connectedDetail,
+      grants: [{ id: 'grant-1', spaceId: space.id, role: actualRole, space }],
+    });
+    const { props } = renderDialog();
+    await openWaitingInstruction();
+    fireEvent.click(screen.getByRole('button', { name: 'Check connection now' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('The Agent status or Space role changed. Refresh and prepare it again.');
+    expect(props.onPrepared).not.toHaveBeenCalled();
+    expect(props.onClose).not.toHaveBeenCalled();
+    expect(agentPreparationApi.createInstallation).not.toHaveBeenCalled();
+  });
+
+
+  it('retains the expected Publisher role in the automatic connection poll', async () => {
+    vi.useFakeTimers();
+    vi.mocked(prepareAgent).mockResolvedValue(waitingResult({ role: 'publisher' }));
+    vi.mocked(agentPreparationApi.getAgent).mockResolvedValue(connectedDetail);
+    const { props } = renderDialog();
+    await openWaitingInstructionWithFakeTimers();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(screen.getByRole('alert')).toHaveTextContent('The Agent status or Space role changed. Refresh and prepare it again.');
+    expect(props.onPrepared).not.toHaveBeenCalled();
+    expect(props.onClose).not.toHaveBeenCalled();
   });
 
   it('keeps the dialog open and shows the localized refresh error when onPrepared rejects', async () => {

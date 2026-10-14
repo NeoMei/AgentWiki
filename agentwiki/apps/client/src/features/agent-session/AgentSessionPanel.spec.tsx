@@ -15,6 +15,23 @@ const summary = { id: 'session-a', spaceId: 'space-a', title: 'Conversation A', 
 const turn: AgentTurn = { id: 'turn-a', sessionId: summary.id, pageId: 'page-a', mode: 'question', intent: 'Earlier question', status: 'done', createdAt: version, pageSnapshot: { title: 'Original A', content: 'Original source', updatedAt: version }, references: [{ pageId: 'ref-a', title: 'Original reference', updatedAt: version }], noteIds: [], progressText: '', result: { summary: 'Earlier answer' }, error: null };
 const defaults: AgentSessionPanelProps = { pageId: 'page-a', spaceId: 'space-a', pageTitle: 'Page A', snapshot: () => ({ title: 'Page A', content: 'unsaved current draft', updatedAt: version, draftRevision: 1, remoteRevision: 0 }), canEdit: true, canAccept: true };
 function tree(props: Partial<AgentSessionPanelProps> = {}, user = auth.id) { return <MemoryRouter><AgentSessionRegistryProvider userId={user}><AgentSessionPanel {...defaults} {...props} /></AgentSessionRegistryProvider></MemoryRouter>; }
+function selectConversation(id: string) {
+  const title = id === 'session-a' ? 'Conversation A' : id === 'session-b' ? 'Conversation B' : 'Lost source';
+  fireEvent.click(screen.getByRole('tab', { name: title }));
+}
+function scopeControl() {
+  const summary = document.querySelector<HTMLElement>('[aria-label="Context settings"]')!;
+  if (!summary.closest('details')?.open) fireEvent.click(summary);
+  return screen.getByRole('combobox', { name: 'Edit scope' });
+}
+function openStaged() {
+  const details = document.querySelector<HTMLDetailsElement>('.agent-staged-context');
+  if (details && !details.open) fireEvent.click(details.querySelector('summary')!);
+}
+function openCandidate() {
+  const details = document.querySelector<HTMLDetailsElement>('.agent-candidate-details');
+  if (details && !details.open) fireEvent.click(details.querySelector('summary')!);
+}
 let turns: AgentTurn[];
 beforeEach(() => {
   auth.id = 'user-a'; turns = [turn];
@@ -23,11 +40,73 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe('durable Agent session document bridge', () => {
+  it('lets an editor explicitly send a direct edit and applies the completed page change', async () => {
+    const onDirectApply = vi.fn().mockResolvedValue(true);
+    vi.mocked(api.post).mockImplementation(async (url, data: any) => url === '/assist/sessions'
+      ? { data: { ...summary, id: 'session-new', title: 'New conversation' } }
+      : { data: { ...turn, ...data, id: 'direct-turn', sessionId: summary.id, mode: 'proposal', status: 'done', pageSnapshot: data.snapshot, references: [], result: { summary: 'Updated', changes: 'Changed source' } } });
+    render(tree({ onDirectApply } as any));
+    await screen.findByText('Earlier answer');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Message mode' }), { target: { value: 'direct' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Rewrite this page' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(onDirectApply).toHaveBeenCalledWith(expect.objectContaining({ content: 'Changed source' }), 'Changed source'));
+    const payload = vi.mocked(api.post).mock.calls.find(([url]) => url.endsWith('/turns'))?.[1] as any;
+    expect(payload.mode).toBe('proposal');
+  });
+  it('keeps ordinary tab focus and honors each explicit composer focus request once', async () => {
+    const rendered = render(tree({ autoFocus: false }));
+    await screen.findByText('Earlier answer');
+    const message = screen.getByRole('textbox', { name: 'Message' });
+    const references = screen.getByRole('button', { name: 'Reference pages' });
+    expect(message).not.toHaveFocus();
+    rendered.rerender(tree({ autoFocus: false, focusRequest: 'shortcut-1' }));
+    expect(message).toHaveFocus();
+    references.focus();
+    rendered.rerender(tree({ autoFocus: false, focusRequest: 'shortcut-1' }));
+    expect(references).toHaveFocus();
+    rendered.rerender(tree({ autoFocus: false, focusRequest: 'shortcut-2' }));
+    expect(message).toHaveFocus();
+  });
+  it.each([false, true])('waits for a requested composer load and cancels it when hidden=%s', async (hide) => {
+    let release!: (value: { data: typeof summary[] }) => void;
+    const load = new Promise<{ data: typeof summary[] }>((resolve) => { release = resolve; });
+    const get = vi.mocked(api.get).getMockImplementation()!;
+    vi.mocked(api.get).mockImplementation((url, ...args) => url === '/assist/sessions' ? load : get(url, ...args));
+    const rendered = render(tree({ autoFocus: false, focusRequest: 'shortcut-1' }));
+    const message = screen.getByRole('textbox', { name: 'Message' });
+    expect(message).toBeDisabled(); expect(message).not.toHaveFocus();
+    if (hide) rendered.rerender(tree({ autoFocus: false, focusRequest: 'shortcut-1', visible: false }));
+    await act(async () => release({ data: [summary] }));
+    await screen.findByText('Earlier answer');
+    if (hide) {
+      expect(message).not.toHaveFocus();
+      rendered.rerender(tree({ autoFocus: false, focusRequest: 'shortcut-1', visible: true }));
+      expect(message).not.toHaveFocus();
+    } else expect(message).toHaveFocus();
+  });
+  it('does not steal focus while hidden and preserves the composer between panel switches', async () => {
+    const rendered = render(tree({ visible: false }));
+    await screen.findByText('Earlier answer');
+    const message = screen.getByRole('textbox', { name: 'Message' });
+    expect(message).not.toHaveFocus();
+    rendered.rerender(tree({ visible: true }));
+    expect(message).toHaveFocus();
+    fireEvent.change(message, { target: { value: 'Unsent panel draft' } });
+    const references = screen.getByRole('button', { name: 'Reference pages' });
+    references.focus();
+    rendered.rerender(tree({ visible: false }));
+    expect(references).toHaveFocus();
+    rendered.rerender(tree({ visible: true }));
+    expect(message).toHaveValue('Unsent panel draft');
+    expect(api.post).not.toHaveBeenCalled();
+  });
   it('keeps history across pages/read mode and explicitly sends current draft plus selected references', async () => {
     const applyToWrongPage = vi.fn(); const rendered = render(tree());
     expect(await screen.findByText('Earlier answer')).toBeVisible();
     rendered.rerender(tree({ pageId: 'page-b', pageTitle: 'Page B', canAccept: false, onApply: applyToWrongPage }));
     expect(screen.getByText('Earlier answer')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Reference pages' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Find reference pages' }), { target: { value: 'Reference' } });
     fireEvent.click(await screen.findByRole('button', { name: 'Add Reference B' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Explain this' } });
@@ -51,12 +130,12 @@ describe('durable Agent session document bridge', () => {
     await waitFor(() => expect(screen.queryByText('Earlier answer')).not.toBeInTheDocument());
     expect(screen.getByText('Start a conversation about this document.')).toBeVisible();
   });
-  it('allows reader questions, stages immutable private annotations until explicit Send and never resolves on response', async () => {
+  it('allows reader questions, stages immutable page notes until explicit Send and never resolves on response', async () => {
     const onNotesEvent = vi.fn(), onRequestHandled = vi.fn();
     render(tree({ canEdit: false, canAccept: false, assistRequest: { id: 'req', intent: 'Explain my notes', autoSubmit: true, noteIds: ['note-a'], annotations: [{ id: 'note-a', quote: 'unsaved', body: 'Why?' }] }, onNotesEvent, onRequestHandled }));
     await screen.findByText('Earlier answer');
     expect(api.post).not.toHaveBeenCalled(); expect(screen.getByRole('option', { name: 'Propose changes' })).toBeDisabled();
-    expect(screen.getByText('Why?')).toBeVisible();
+    openStaged(); expect(screen.getByText('Why?')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(onRequestHandled).toHaveBeenCalledWith('req'));
     const payload = vi.mocked(api.post).mock.calls[0][1] as any;
@@ -73,13 +152,13 @@ it('preserves a staged composer when first session creation succeeds but its fir
   await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   await screen.findByRole('alert');
-  expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Keep annotations'); expect(screen.getByText('keep note')).toBeVisible();
+  expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Keep annotations'); openStaged(); expect(screen.getByText('keep note')).toBeVisible();
 });
 it('clears an inaccessible historical source on 400 while keeping the unsent composer recoverable', async () => {
   render(tree()); await screen.findByText('Earlier answer');
   fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Still here' } });
   vi.mocked(api.get).mockRejectedValue({ response: { status: 400, data: { message: 'Session page must exist in the selected Space' } } });
-  fireEvent.change(screen.getByRole('combobox', { name: 'Conversation' }), { target: { value: 'session-a' } });
+  selectConversation('session-a');
   expect(await screen.findByRole('alert')).toHaveTextContent('no longer accessible');
   expect(screen.queryByText('Earlier answer')).not.toBeInTheDocument(); expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Still here');
 });
@@ -106,8 +185,8 @@ it('switches sessions without allowing an older fetch to overwrite the selected 
     if (url.endsWith('session-a')) return delayed as any;
     return { data: { ...second, turns: [{ ...turn, id: 'turn-b', sessionId: 'session-b', result: { summary: 'Answer B' } }] } };
   });
-  render(tree()); await screen.findByRole('option', { name: 'Conversation B' });
-  fireEvent.change(screen.getByRole('combobox', { name: 'Conversation' }), { target: { value: 'session-b' } });
+  render(tree()); await screen.findByRole('tab', { name: 'Conversation B' });
+  selectConversation('session-b');
   await screen.findByText('Answer B');
   await act(async () => resolveA({ data: { ...summary, turns: [turn] } }));
   expect(screen.getByText('Answer B')).toBeVisible(); expect(screen.queryByText('Earlier answer')).not.toBeInTheDocument();
@@ -147,7 +226,7 @@ it('never applies a historical candidate to another page and regenerates with it
   expect(await screen.findByRole('button', { name: 'Accept to draft' })).toBeDisabled(); fireEvent.click(screen.getByRole('button', { name: 'Accept to draft' })); expect(onApply).not.toHaveBeenCalled();
   rendered.rerender(tree({ onApply, supportsScopedApply: true, snapshot: () => ({ ...snapshot, content: 'different draft', draftRevision: 7 }) }));
   fireEvent.click(await screen.findByRole('button', { name: 'Regenerate from current draft' }));
-  expect(screen.getByRole('combobox', { name: 'Edit scope' })).toHaveValue('selection'); expect(screen.getByText('Explain change', { selector: '.agent-session-composer p' })).toBeVisible();
+  expect(scopeControl()).toHaveValue('selection'); openStaged(); expect(screen.getByText('Explain change', { selector: '.agent-session-composer p' })).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: 'Send' })); expect(api.post).not.toHaveBeenCalled(); expect(screen.getAllByRole('alert').some((e) => e.textContent?.includes('Selection or version changed'))).toBe(true);
 });
 it('waits for the current local notes bridge before replaying a historical ready event', async () => {
@@ -176,7 +255,7 @@ it('regenerates a conflicted whole-document proposal from the current source wit
   const manual = 'Manually changed current draft';
   render(tree({ supportsScopedApply: true, snapshot: () => ({ title: 'Page A', content: manual, updatedAt: version, draftRevision: 4, remoteRevision: 0 }) }));
   fireEvent.click(await screen.findByRole('button', { name: 'Regenerate from current draft' }));
-  expect(screen.queryByText('Annotations staged (not sent yet)')).not.toBeInTheDocument();
+  expect(screen.queryByText('These page notes will be included with your message.')).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   await waitFor(() => expect(api.post).toHaveBeenCalled());
   const payload = vi.mocked(api.post).mock.calls[0][1] as any;
@@ -205,11 +284,11 @@ it('preserves the no-replay acceptance ledger when another conversation loses so
   let content = original;
   render(tree({ supportsScopedApply: true, snapshot: () => ({ ...originalSnapshot, content }), onApply: () => { content = 'Changed source'; return true; } }));
   fireEvent.click(await screen.findByRole('button', { name: 'Accept change 1' }));
-  expect(screen.getByRole('button', { name: 'Accept change 1' })).toBeDisabled();
+  openCandidate(); expect(screen.getByRole('button', { name: 'Accept change 1' })).toBeDisabled();
   content = original; // Editor Undo changes source; accepted history must never rewind.
-  fireEvent.change(screen.getByRole('combobox', { name: 'Conversation' }), { target: { value: 'inaccessible' } }); await screen.findByRole('alert');
-  fireEvent.change(screen.getByRole('combobox', { name: 'Conversation' }), { target: { value: 'session-a' } });
-  expect(await screen.findByRole('button', { name: 'Accept change 1' })).toBeDisabled();
+  selectConversation('inaccessible'); await screen.findByRole('alert');
+  selectConversation('session-a');
+  await screen.findByText('Review proposed changes'); openCandidate(); expect(screen.getByRole('button', { name: 'Accept change 1' })).toBeDisabled();
 });
 
 const scopedRoutes = ['remount', 'read/edit', 'page roundtrip', 'session switch'] as const;
@@ -224,17 +303,17 @@ it.each(['selection', 'section'] as const)('preserves regenerated %s context thr
     const view = render(shell());
     fireEvent.click(await screen.findByRole('button', { name: 'Regenerate from current draft' }));
     if (boundary === 'session switch') {
-      fireEvent.change(screen.getByRole('combobox', { name: 'Conversation' }), { target: { value: 'session-b' } });
+      selectConversation('session-b');
       await screen.findByText('Start a conversation about this document.');
-      expect(screen.getByRole('combobox', { name: 'Edit scope' })).toHaveValue('document');
-      fireEvent.change(screen.getByRole('combobox', { name: 'Conversation' }), { target: { value: 'session-a' } });
+      expect(scopeControl()).toHaveValue('document');
+      selectConversation('session-a');
     } else {
       view.rerender(shell(boundary === 'remount' ? 'hidden' : boundary === 'read/edit' ? 'read' : 'other'));
       if (boundary !== 'remount') await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled());
       view.rerender(shell());
     }
     await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled());
-    expect(screen.getByRole('combobox', { name: 'Edit scope' }), boundary).toHaveValue(kind);
+    expect(scopeControl(), boundary).toHaveValue(kind);
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(api.post).toHaveBeenCalled());
     expect((vi.mocked(api.post).mock.calls[0][1] as any).snapshot.assistTarget, boundary).toEqual(target);
@@ -250,8 +329,8 @@ it.each(['selection', 'section'] as const)('refuses a stale restored %s until ex
   await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   expect(api.post).not.toHaveBeenCalled(); expect(screen.getByText('Selection or version changed. Select the source and annotations again.')).toBeVisible();
-  expect(screen.getByRole('combobox', { name: 'Edit scope' })).toHaveValue(kind);
-  fireEvent.click(screen.getByRole('button', { name: kind === 'selection' ? 'Use current selection' : 'Use current section' }));
+  expect(scopeControl()).toHaveValue(kind);
+  openStaged(); fireEvent.click(screen.getByRole('button', { name: kind === 'selection' ? 'Use current selection' : 'Use current section' }));
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   await waitFor(() => expect(api.post).toHaveBeenCalled());
   expect((vi.mocked(api.post).mock.calls[0][1] as any).snapshot.assistTarget).toEqual(currentTarget);
@@ -304,7 +383,7 @@ describe('conversation scroll following', () => {
     vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/assist/sessions' ? [summary, second] : { ...(url.endsWith('session-b') ? second : summary), turns } }));
     const rendered = render(tree()); await screen.findAllByText('Earlier answer');
     const list = viewport(rendered.container); list.scrollTop = 300; fireEvent.scroll(list); height = 3000;
-    fireEvent.change(screen.getByRole('combobox', { name: 'Conversation' }), { target: { value: 'session-b' } });
+    selectConversation('session-b');
     await screen.findAllByText('Earlier answer'); await waitFor(() => expect(list.scrollTop).toBe(2600));
   });
   it('follows delayed content resize and disconnects the observer on unmount', async () => {
@@ -319,4 +398,151 @@ describe('conversation scroll following', () => {
       rendered.unmount(); expect(disconnect).toHaveBeenCalled();
     } finally { vi.unstubAllGlobals(); }
   });
+});
+
+describe('compact conversation interaction', () => {
+  it('sends with Enter, leaves Shift+Enter for a newline, and ignores composition confirmation', async () => {
+    render(tree()); await screen.findByText('Earlier answer');
+    const message = screen.getByRole('textbox', { name: 'Message' });
+    fireEvent.change(message, { target: { value: 'Explain the document' } });
+    expect(fireEvent.keyDown(message, { key: 'Enter', shiftKey: true })).toBe(true);
+    fireEvent.compositionStart(message);
+    fireEvent.keyDown(message, { key: 'Enter' });
+    fireEvent.compositionEnd(message);
+    fireEvent.keyDown(message, { key: 'Enter', isComposing: true });
+    fireEvent.keyDown(message, { key: 'Enter', keyCode: 229 });
+    expect(api.post).not.toHaveBeenCalled();
+    expect(fireEvent.keyDown(message, { key: 'Enter' })).toBe(false);
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.post).mock.calls[0][1]).toMatchObject({ intent: 'Explain the document', pageId: 'page-a' });
+    expect(await screen.findByRole('button', { name: 'Stop' })).toBeEnabled();
+    fireEvent.keyDown(message, { key: 'Enter' });
+    expect(api.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens the reference search from @ and returns to the intact message after a selection', async () => {
+    render(tree()); await screen.findByText('Earlier answer');
+    const message = screen.getByRole('textbox', { name: 'Message' });
+    fireEvent.change(message, { target: { value: 'Compare with @' } });
+    const search = await screen.findByRole('textbox', { name: 'Find reference pages' });
+    expect(search).toHaveFocus();
+    fireEvent.change(search, { target: { value: 'Reference' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Add Reference B' }));
+    expect(screen.queryByRole('dialog', { name: 'Reference pages' })).not.toBeInTheDocument();
+    expect(message).toHaveFocus(); expect(message).toHaveValue('Compare with @');
+    expect(screen.getByRole('button', { name: 'Remove Reference B' })).toBeVisible();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('does not open the reference search for email addresses or while composing', async () => {
+    render(tree()); await screen.findByText('Earlier answer');
+    const message = screen.getByRole('textbox', { name: 'Message' });
+    fireEvent.change(message, { target: { value: 'mail@' } });
+    expect(screen.queryByRole('dialog', { name: 'Reference pages' })).not.toBeInTheDocument();
+    fireEvent.compositionStart(message);
+    fireEvent.change(message, { target: { value: '文字 @' } });
+    expect(screen.queryByRole('dialog', { name: 'Reference pages' })).not.toBeInTheDocument();
+    fireEvent.compositionEnd(message);
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('keeps per-conversation drafts and keyboard focus while moving between tabs', async () => {
+    const second = { ...summary, id: 'session-b', title: 'Conversation B' };
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/assist/sessions' ? [summary, second] : url.endsWith('session-b') ? { ...second, turns: [] } : { ...summary, turns } }));
+    render(tree()); await screen.findByText('Earlier answer');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Draft A' } });
+    const first = screen.getByRole('tab', { name: 'Conversation A' });
+    first.focus(); fireEvent.keyDown(first, { key: 'ArrowRight' });
+    await screen.findByText('Start a conversation about this document.');
+    const secondTab = screen.getByRole('tab', { name: 'Conversation B' });
+    expect(secondTab).toHaveFocus(); expect(secondTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Draft B' } });
+    secondTab.focus(); fireEvent.keyDown(secondTab, { key: 'Home' });
+    await screen.findByText('Earlier answer');
+    expect(first).toHaveFocus(); expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Draft A');
+    fireEvent.keyDown(first, { key: 'End' });
+    await screen.findByText('Start a conversation about this document.');
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Draft B');
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('opens older conversations through history without replacing an unsent draft', async () => {
+    const summaries = [summary, ...['b', 'c', 'd'].map((id) => ({ ...summary, id: `session-${id}`, title: `Conversation ${id.toUpperCase()}` }))];
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/assist/sessions' ? summaries : { ...summaries.find((item) => url.endsWith(item.id)), turns: url.endsWith(summary.id) ? turns : [] } }));
+    render(tree()); await screen.findByText('Earlier answer');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Keep draft A' } });
+    expect(screen.queryByRole('tab', { name: 'Conversation D' })).not.toBeInTheDocument();
+    fireEvent.click(document.querySelector<HTMLElement>('[aria-label="Conversation history"]')!);
+    fireEvent.click(screen.getByRole('button', { name: 'Conversation D' }));
+    await screen.findByText('Start a conversation about this document.');
+    expect(screen.getByRole('tab', { name: 'Conversation D' })).toHaveAttribute('aria-selected', 'true');
+    expect(document.querySelector<HTMLDetailsElement>('.agent-conversation-history')?.open).toBe(false);
+    selectConversation('session-a'); await screen.findByText('Earlier answer');
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Keep draft A');
+  });
+
+  it('collapses context details while keeping staged notes explicit and recoverable', async () => {
+    render(tree({ assistRequest: { id: 'compact-note', intent: 'Explain the note', annotations: [{ id: 'n', quote: 'unsaved', body: 'A staged note' }], noteIds: ['n'] } }));
+    await screen.findByText('Earlier answer');
+    expect(screen.getByText('1 page note · not sent')).toBeVisible();
+    expect(screen.getByText('A staged note')).not.toBeVisible();
+    expect(screen.getByRole('combobox', { name: 'Edit scope' })).not.toBeVisible();
+    expect(screen.getByText('Original A')).not.toBeVisible();
+    openStaged(); expect(screen.getByText('A staged note')).toBeVisible();
+    expect(scopeControl()).toHaveValue('document');
+    expect(api.post).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove context and use the whole document' }));
+    expect(screen.queryByText('1 page note · not sent')).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Explain the note');
+  });
+
+  it('renders readable Markdown without executing raw HTML or unsafe links', async () => {
+    turns = [{ ...turn, result: { summary: '**Decision**\n\n- First item\n- [Page link](/pages/page-b)\n\n```js\nconst value = 1;\n```\n\n[Unsafe](javascript:alert(1))\n\n<script>alert(1)</script>\n\n<img src="https://example.com/track">' } }];
+    const rendered = render(tree());
+    const decision = await screen.findByText('Decision');
+    expect(decision.tagName).toBe('STRONG');
+    expect(screen.getByText('First item').tagName).toBe('LI');
+    expect(screen.getByRole('link', { name: 'Page link' })).toHaveAttribute('href', '/pages/page-b');
+    expect(screen.getByRole('link', { name: 'Page link' })).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(screen.getByText('const value = 1;').tagName).toBe('CODE');
+    expect(screen.getByText('Unsafe')).not.toHaveAttribute('href', expect.stringContaining('javascript:'));
+    expect(rendered.container.querySelector('.agent-reply-content script, .agent-reply-content img')).toBeNull();
+    expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+  });
+});
+
+it('keeps empty proposal feedback visible and offers an explicit regeneration', async () => {
+  turns = [{ ...turn, mode: 'proposal', result: { summary: 'No changes returned' } }];
+  render(tree());
+  expect(await screen.findByText('Assistant returned no usable content. Your draft is unchanged.')).toBeVisible();
+  expect(screen.getByText('Retry needed')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Regenerate from current draft' }));
+  expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Earlier question');
+  expect(api.post).not.toHaveBeenCalled();
+});
+
+it('keeps acceptance and the separate Save requirement visible after collapsing a reviewed diff', async () => {
+  turns = [{ ...turn, mode: 'proposal', pageSnapshot: { title: 'Page A', content: 'unsaved current draft', updatedAt: version }, result: { changes: 'Changed draft' } }];
+  const apply = vi.fn(() => true);
+  render(tree({ onApply: apply }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Accept to draft' }));
+  expect(apply).toHaveBeenCalledTimes(1);
+  expect(screen.getByText('Accepted to draft. Save the page to publish these changes.')).toBeVisible();
+  expect(screen.getByText(/Acceptance record: previously accepted into the draft/)).toBeVisible();
+  expect(document.querySelector<HTMLDetailsElement>('.agent-candidate-details')?.open).toBe(false);
+  expect(api.patch).not.toHaveBeenCalled();
+});
+
+it('dismisses context settings with Escape or an outside pointer without taking focus', async () => {
+  render(tree()); await screen.findByText('Earlier answer');
+  const settings = document.querySelector<HTMLElement>('[aria-label="Context settings"]')!;
+  fireEvent.click(settings);
+  expect(scopeControl()).toBeVisible();
+  fireEvent.keyDown(settings, { key: 'Escape' });
+  expect(settings.closest('details')?.open).toBe(false); expect(settings).toHaveFocus();
+  fireEvent.click(settings);
+  const message = screen.getByRole('textbox', { name: 'Message' });
+  message.focus(); fireEvent.pointerDown(message);
+  expect(settings.closest('details')?.open).toBe(false); expect(message).toHaveFocus();
 });

@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.12.18** — Lets human Space members delegate their own Agents within the live member-role ceiling. The v0.12.17 full-page document workspace and OpenKnowledge-inspired reading/editing baseline remain included. See the [release record](docs/releases-v0.12.18.md) for verification and deployment boundaries.
+> **v0.12.22** — Space cards show page and member counts, approval policy, and the latest space or page update. Newly created spaces show complete counts immediately. See the [release record](docs/releases-v0.12.22.md).
 
 
 ## Hosted Service
@@ -45,7 +45,7 @@ for setup details.
 - **Independent identity** — Agents have their own credentials (`agk_...`), not shared user tokens
 - **Unified Agent roles** — choose Reader, Editor, or Publisher once; `AgentGrant.role` is the only persisted permission and scopes are derived at request time
 - **Review workflow** — Agent writes enter a ChangeSet for human approval before publishing
-- **Least privilege** — each identity-only Credential binds one Space Grant; effective access is limited by its live role, connection/Agent state, Space policy, and domain authorization
+- **Least privilege** — each identity-only Credential belongs to one Agent; each target Space uses its live Grant role, connection/Agent state, Space policy, and domain authorization
 - **MCP protocol** — Agents interact through a Model Context Protocol server
 
 ### Obsidian Sync
@@ -164,7 +164,7 @@ into reviewable AgentWiki knowledge. It installs the shared Agent Skill and the 
 The generated installation code is single-use and expires after 10 minutes. It is not
 a reusable API key. The public package page is
 [`@neomei/agentwiki-local-sync`](https://www.npmjs.com/package/@neomei/agentwiki-local-sync).
-The published Local Sync package and newly generated instructions target 0.11.0; the server continues to accept 0.9.0, 0.9.1, 0.10.0, 0.10.1, 0.10.2, and 0.11.0 during this upgrade. The unified `onboard` command is the only recommended Agent connection path. Exchanging its one-time code atomically creates or updates the Space Grant, then creates an identity-only Credential bound to that Grant. There is no second Credential authorization or custom-scope path.
+The published Local Sync package and newly generated instructions target 0.13.0; the server continues to accept 0.9.0, 0.9.1, 0.10.0, 0.10.1, 0.10.2, 0.11.0, 0.12.0, and 0.13.0 during this upgrade. The unified `onboard` command is the only recommended Agent connection path. Exchanging its one-time code atomically creates or updates the Space Grant, then creates an identity-only Credential owned by the Agent. Each request uses its explicit Space ID to evaluate the current Grant; adding or removing a Space Grant does not require replacing that Credential. There is no second Credential authorization or custom-scope path.
 
 The older published protocol 0.6.0 incorrectly includes `memory:read` and `memory:write` in
 publisher defaults. Current Agent memory synchronization is explicitly unsupported;
@@ -240,7 +240,7 @@ Or via API:
 curl -X POST $BASE/agents/AGENT_ID/local-sync-installations \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"spaceId":"SPACE_ID","role":"editor","pluginVersion":"0.11.0"}'
+  -d '{"spaceId":"SPACE_ID","role":"editor","pluginVersion":"0.13.0"}'
 ```
 
 Paste the returned one-time instruction into Codex, Claude Code, or OpenCode. On
@@ -371,30 +371,30 @@ AgentWiki uses direct deployment with systemd (no Docker for the application):
    coordinated PostgreSQL custom-format backup, attachment-filesystem snapshot and
    path/size/SHA-256 manifest. A database-only or filesystem-only backup is incomplete.
 2. Build and test the exact release commit: `pnpm build && pnpm test`.
-3. Check both patch versions with explicit npm registry metadata before publication.
+3. Check candidate versions with explicit npm registry metadata before publication.
    Run `pnpm test:release:sync-v3-registry` for the Local Sync candidate.
    Build and test the corrected `@neomei/agentwiki-sync-protocol@0.6.1` and
-   `@neomei/agentwiki-local-sync@0.11.0` candidates. Local Sync pins protocol 0.6.1
+   `@neomei/agentwiki-local-sync@0.13.0` candidates. Local Sync pins protocol 0.6.1
    exactly. Run `pnpm test:package:local-sync-clean-install` to pack both candidates
    into an empty install/cache and check both publisher onboarding paths and tamper
    rejection against the real server services.
 4. Protocol 0.6.1 is already published and immutable. Run
    `pnpm test:release:sync-protocol-registry-parity` against the explicit public npm
    registry, then `pnpm test:package:local-sync-registry-protocol`. Publish Local Sync
-   0.11.0 only after those gates pass. Existing protocol 0.6.0 is immutable and must
+   0.13.0 only after those gates pass. Existing protocol 0.6.0 is immutable and must
    not be republished; do not republish 0.6.1 either.
 5. Verify a fresh registry-only install using empty install and cache directories:
-   `npm install --prefix <empty-install-dir> --cache <empty-cache-dir> --registry=https://registry.npmjs.org/ --ignore-scripts --no-audit --no-fund @neomei/agentwiki-local-sync@0.11.0`,
+   `npm install --prefix <empty-install-dir> --cache <empty-cache-dir> --registry=https://registry.npmjs.org/ --ignore-scripts --no-audit --no-fund @neomei/agentwiki-local-sync@0.13.0`,
    then run `<empty-install-dir>/node_modules/.bin/agentwiki-local-sync --help`.
    Deploy the server
-   and web guides together with `LOCAL_SYNC_PACKAGE_VERSION=0.11.0`. Keep npm
+   and web guides together with `LOCAL_SYNC_PACKAGE_VERSION=0.13.0`. Keep npm
    publication, deployment, and live device/code onboarding acceptance as separate
    release evidence. Run migrations (`cd apps/server && npx prisma migrate deploy`)
    and configure all three systemd services using `deploy/systemd/` templates.
 
 The 0.5.0 role migration deliberately resets every existing Agent Credential and Grant
 role to `reader`; it never infers a new role from legacy scopes. The compatibility
-contract accepts Local Sync 0.9.0, 0.9.1, 0.10.0, 0.10.1, 0.10.2, and 0.11.0, and preserves each client's exact plan hash
+contract accepts Local Sync 0.9.0, 0.9.1, 0.10.0, 0.10.1, 0.10.2, 0.11.0, 0.12.0, and 0.13.0, and preserves each client's exact plan hash
 and installation version. Treat rollback as a coordinated restore of
 the verified database backup and matching application archive, not as a schema-only
 downgrade.

@@ -37,8 +37,7 @@ describe('RecoveryWorker', () => {
     tx.collaborationRun.updateMany.mockResolvedValue({ count: 1 });
     tx.collaborationRunTask.findMany.mockResolvedValue([]);
     tx.agentGrant.findUnique.mockResolvedValue({
-      id: 'grant-1', role: 'editor', agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null } }, space: { deletedAt: null },
-      credentials: [{ revokedAt: null, expiresAt: null }],
+      id: 'grant-1', role: 'editor', agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null }, credentials: [{ revokedAt: null, expiresAt: null }] }, space: { deletedAt: null },
     });
     tx.collaborationRun.findUnique.mockResolvedValue({ eventSequence: 7 });
     prisma.collaborationRun.findUnique.mockResolvedValue({ spaceId: 'space-1', eventSequence: 8 });
@@ -105,8 +104,7 @@ describe('RecoveryWorker', () => {
 
   it('pauses when the assignee no longer has a live Credential for the Grant', async () => {
     tx.agentGrant.findUnique.mockResolvedValue({
-      id: 'grant-1', role: 'editor', agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null } }, space: { deletedAt: null },
-      credentials: [{ revokedAt: new Date(), expiresAt: null }],
+      id: 'grant-1', role: 'editor', agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null }, credentials: [{ revokedAt: new Date(), expiresAt: null }] }, space: { deletedAt: null },
     });
     await worker.tick();
     expect(tx.collaborationRun.updateMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -197,8 +195,8 @@ describe('RecoveryWorker', () => {
       run: { id: 'run-1', spaceId: 'space-1', status: 'running' },
     });
     tx.agentGrant.findUnique.mockResolvedValue({
-      id: 'grant-1', role: 'editor', agent: { status: 'active', revokedAt: null, owner },
-      space: { deletedAt: null }, credentials: [{ revokedAt: null, expiresAt: null }],
+      id: 'grant-1', role: 'editor', agent: { status: 'active', revokedAt: null, owner, credentials: [{ revokedAt: null, expiresAt: null }] },
+      space: { deletedAt: null },
     });
 
     await worker.tick();

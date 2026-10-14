@@ -1,0 +1,23 @@
+{
+  "applicationVersion": "0.12.25",
+  "localSyncVersion": "0.12.0",
+  "date": "2026-10-14",
+  "scope": "final release tree including MCP page update and version metadata",
+  "testFull": {
+    "exitCode": 0,
+    "passed": 7114,
+    "skipped": 6,
+    "failed": 0,
+    "runtime": { "passed": 309, "skipped": 1 },
+    "runtimeDatabase": { "passed": 232, "skipped": 0 },
+    "server": { "passed": 3124, "skipped": 4 },
+    "client": { "passed": 2313, "skipped": 0 },
+    "syncProtocol": { "passed": 140, "skipped": 0 },
+    "localSync": { "passed": 996, "skipped": 1 }
+  },
+  "typecheck": { "exitCode": 0 },
+  "lint": { "exitCode": 0 },
+  "build": { "exitCode": 0 },
+  "logs": ["/tmp/agentwiki-v01225-full-test.log", "/tmp/agentwiki-v01225-typecheck.log", "/tmp/agentwiki-v01225-lint.log", "/tmp/agentwiki-v01225-build.log"],
+  "productionVerification": "separate receipt required"
+}

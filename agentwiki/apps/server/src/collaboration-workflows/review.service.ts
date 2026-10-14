@@ -103,15 +103,15 @@ export class ReviewService {
         // usable credential of that same Agent and its live grant in this Space.
         const credential = await tx.agentCredential.findFirst({
           where: {
-            agentId: submittedAgent.id, authorization: { spaceId }, revokedAt: null,
+            agentId: submittedAgent.id, revokedAt: null,
             OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
           },
-          select: { id: true, authorizationId: true }, orderBy: { id: 'asc' },
+          select: { id: true }, orderBy: { id: 'asc' },
         });
-        if (!credential) throw new BusinessException('SPACE_ACCESS_DENIED', 'Submitted Agent has no usable Space credential');
+        if (!credential) throw new BusinessException('SPACE_ACCESS_DENIED', 'Submitted Agent has no usable identity credential');
         mutationTx = await this.authorization.lockLiveAgentWriteAccessAcrossSpaceBoundary(tx, {
           userId: submittedAgent.ownerId, agentId: submittedAgent.id,
-          credentialId: credential.id, authorizationId: credential.authorizationId, authorizationSpaceId: spaceId,
+          credentialId: credential.id,
         }, spaceId, ['collaboration:execute'], lockSpace);
       } else {
         mutationTx = await lockSpace();

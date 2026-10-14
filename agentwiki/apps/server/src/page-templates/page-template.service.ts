@@ -281,7 +281,17 @@ export class PageTemplateService implements OnModuleInit {
   ) {
     return this.prisma.$transaction(async (tx) => {
       await this.assertCanManage(tx, principal, spaceId);
-      const where = { spaceId, deletedAt: null, format: 'markdown' } as const;
+      const where = {
+        spaceId,
+        deletedAt: null,
+        format: 'markdown',
+        ...(query.q?.trim() ? {
+          OR: [
+            { title: { contains: query.q.trim(), mode: 'insensitive' as const } },
+            { syncPath: { contains: query.q.trim(), mode: 'insensitive' as const } },
+          ],
+        } : {}),
+      };
       const [pages, total] = await Promise.all([
         tx.page.findMany({
           where,

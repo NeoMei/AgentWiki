@@ -1,0 +1,117 @@
+{
+  "status": "verified",
+  "backupDirectory": "/var/backups/agentwiki/collaboration-v01226-final.m3we0xr1",
+  "createdAt": "2026-10-13T21:00:17.094312+00:00",
+  "finishedAt": "2026-10-13T21:00:28.837097+00:00",
+  "source": {
+    "appVersion": "0.12.25",
+    "liveDirectory": "/root/agentwiki",
+    "sourceCommitFromPriorReleaseReceipt": "48781e5b192101a2d122dd143048d983bca8a29b",
+    "sourceCommitIndependentlyVerifiedInThisBackup": false,
+    "sourceFileCount": 5976,
+    "sourceUnchangedDuringCopy": true
+  },
+  "database": {
+    "format": "pg_dump custom",
+    "startedAt": "2026-10-13T21:00:23.030388+00:00",
+    "finishedAt": "2026-10-13T21:00:27.830640+00:00",
+    "pgRestoreListPassed": true,
+    "tocEntryCount": 678,
+    "consistentDatabaseSnapshot": true
+  },
+  "application": {
+    "startedAt": "2026-10-13T21:00:17.958552+00:00",
+    "finishedAt": "2026-10-13T21:00:21.398307+00:00",
+    "archiveListingPassed": true,
+    "containsServerAndClientBuilds": true,
+    "excludedDirectoryNames": [
+      ".cache",
+      ".git",
+      ".tmp",
+      ".turbo",
+      "coverage",
+      "node_modules",
+      "temp",
+      "tmp"
+    ],
+    "excludedFilePatterns": [
+      "*.tar.gz"
+    ]
+  },
+  "configuration": {
+    "rootEnvPresent": true,
+    "serverEnvPresent": true,
+    "serviceUnitCount": 3,
+    "archiveListingPassed": true
+  },
+  "attachments": {
+    "liveDirectory": "/var/lib/agentwiki/attachments",
+    "startedAt": "2026-10-13T21:00:27.863654+00:00",
+    "finishedAt": "2026-10-13T21:00:28.212007+00:00",
+    "permanentBlobCount": 86,
+    "archiveMatchesLivePermanentBlobs": true,
+    "beforeAfterManifestIdentical": true,
+    "wholeStorageDirectoryIncluded": true
+  },
+  "artifacts": {
+    "database.dump": {
+      "bytes": 41002485,
+      "sha256": "753cebeb013ff9b3c82ce3e6f355ba26190cf8ef798c3e7698fe1511ccf9fc02"
+    },
+    "application.tar.gz": {
+      "bytes": 33822414,
+      "sha256": "0c3be534e08898c421ea66b8378d6c7b7b1bdde4de5cb2d34e6666817054d16a"
+    },
+    "configuration.tar.gz": {
+      "bytes": 2068,
+      "sha256": "0215879c2ded25ddc19d4bd191144e9c348d8afb56bd6179b33659684af8e950"
+    },
+    "attachments.tar.gz": {
+      "bytes": 9228727,
+      "sha256": "f6adb8b3fd3b2ba9bbc774fc07c5ef9030b6aa6af58ec640c005811a42e83585"
+    },
+    "database-toc.txt": {
+      "bytes": 55402,
+      "sha256": "5218750f2408920405fff54874648491bb1b6f6ef92c850863fa5cd91011b4b9"
+    },
+    "attachment-manifest-before.json": {
+      "bytes": 15862,
+      "sha256": "04cc014a4d6f52fb0725658fee260e02e153d2a8ec7b473425ff9856b0b3bffb"
+    },
+    "attachment-manifest-after.json": {
+      "bytes": 15862,
+      "sha256": "04cc014a4d6f52fb0725658fee260e02e153d2a8ec7b473425ff9856b0b3bffb"
+    },
+    "source-manifest-before.json": {
+      "bytes": 969566,
+      "sha256": "d2189c2d5f996d5a021203220cb6e450c8a56c6e61cf3c25241cd1b0b1e9ae68"
+    },
+    "source-manifest-after.json": {
+      "bytes": 969566,
+      "sha256": "d2189c2d5f996d5a021203220cb6e450c8a56c6e61cf3c25241cd1b0b1e9ae68"
+    }
+  },
+  "sha256Manifest": "SHA256SUMS",
+  "checksumsPassed": true,
+  "servicesBefore": {
+    "agentwiki-api.service": "active",
+    "agentwiki-worker.service": "active",
+    "agentwiki-frontend.service": "active"
+  },
+  "servicesAfter": {
+    "agentwiki-api.service": "active",
+    "agentwiki-worker.service": "active",
+    "agentwiki-frontend.service": "active"
+  },
+  "servicesStopped": true,
+  "writerQuiesceStartedAt": "2026-10-13T21:00:22.936538+00:00",
+  "writersRestoredAt": "2026-10-13T21:00:28.353158+00:00",
+  "writersStoppedStates": {
+    "agentwiki-api.service": "inactive/MainPID=0",
+    "agentwiki-worker.service": "inactive/MainPID=0"
+  },
+  "writersRestored": true,
+  "snapshotBoundary": "Coordinated pre-migration backup: API and worker services were stopped with MainPID=0 for the entire database dump and attachment archive. Frontend remained online. Both writers were immediately restarted after both snapshots passed validation. Source/configuration were archived just before pausing and did not change during copying. Restore this database together with the paired application/configuration/attachment archives; subsequent writes after restart are outside this snapshot.",
+  "backupDirectoryMode": "0o700",
+  "privateArtifactFileMode": "0600"
+}

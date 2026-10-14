@@ -569,21 +569,19 @@ export class SourceService {
           }
         }
 
-        const [spacePolicy, agentPolicy] = liveAuthorization
-          ? [liveAuthorization.space, liveAuthorization.agent]
+        const spacePolicy = liveAuthorization
+          ? liveAuthorization.space
           : await Promise.all([
               lockedTx.space.findUnique({
                 where: { id: run.spaceId },
                 select: { approvalPolicy: true },
               }),
-              Promise.resolve(null),
-            ]);
+            ]).then(([policy]) => policy);
         if (!spacePolicy) throw new Error('Space no longer exists');
         const expectedTreeRevision = lockedTx.contentTreeRevision.toString();
         const autoPublish = !(run.source.type === 'okf' && sourceHead) && changeItems.length > 0
-          && spacePolicy.approvalPolicy === 'scoped-auto-publish'
-          && agentPolicy?.approvalMode === 'scoped-auto-publish'
-          && currentScopes.includes('review:auto-publish');
+          && isNoReviewPolicy(spacePolicy.approvalPolicy)
+          && sourceChangeItemsHaveScopes(changeItems, currentScopes);
         const changeSet = changeItems.length ? await lockedTx.changeSet.create({
           data: {
             spaceId: run.spaceId,
@@ -627,8 +625,7 @@ export class SourceService {
       });
       await this.assertRunActive(id, workerId, leaseMs);
       if (autoPublish && changeSet) {
-        const publishScopes = await this.assertRequesterStillAuthorized(run);
-        if (!publishScopes.includes('review:auto-publish')) throw new Error('Run requester is no longer authorized');
+        await this.assertRequesterStillAuthorized(run);
         if (!run.requestedByAgentId || !run.requestedCredentialId || run.requestedCredentialType !== 'agent') {
           throw new Error('Agent auto-publish identity is missing');
         }
@@ -1193,13 +1190,13 @@ export class SourceService {
                 revokedAt: null,
                 OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
               },
-              select: { authorizationId: true },
+              select: { id: true },
             })
           : Promise.resolve(null),
       ]);
       if (!grant || agentRoleSpaceCapability(grant.role) !== 'editor' || grant.agent.status !== 'active' || grant.agent.revokedAt ||
         grant.agent.owner.deletedAt || grant.agent.owner.lockedAt || grant.space.deletedAt || !credential ||
-        credential.authorizationId !== grant.id || !agentRoleAllowsScope(grant.role, 'runs:write')) {
+        !agentRoleAllowsScope(grant.role, 'runs:write')) {
         throw new Error('Run requester is no longer authorized');
       }
       return scopesForAgentAccessRole(grant.role);
@@ -1256,7 +1253,6 @@ export class SourceService {
       !state.space.deletedAt &&
       !state.credential.revokedAt &&
       (!state.credential.expiresAt || state.credential.expiresAt > now) &&
-      state.credential.authorizationId === state.grant.id &&
       agentRoleSpaceCapability(state.grant.role) === 'editor' &&
       agentRoleAllowsScope(state.grant.role, 'runs:write');
   }
@@ -1279,4 +1275,21 @@ export class SourceService {
       this.logger.error('Ingest run audit failed', auditError instanceof Error ? auditError.stack || auditError.message : String(auditError));
     }
   }
+}
+
+function isNoReviewPolicy(value: unknown): boolean {
+  return value === 'no-review' || value === 'scoped-auto-publish';
+}
+
+function sourceChangeItemsHaveScopes(
+  items: Array<{ type: string }>,
+  currentScopes: string[],
+): boolean {
+  const required = new Set<string>();
+  for (const item of items) {
+    if (['create_page', 'update_page', 'archive_page'].includes(item.type)) required.add('pages:write');
+    else if (['create_relation', 'update_relation', 'archive_relation', 'update_relation_strength'].includes(item.type)) required.add('graph:write');
+    else return false;
+  }
+  return [...required].every((scope) => currentScopes.includes(scope));
 }

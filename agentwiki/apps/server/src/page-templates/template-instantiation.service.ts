@@ -233,6 +233,7 @@ export class TemplateInstantiationService {
       const knowledgeKey = randomUUID();
       const placement = await this.contentTree.placePage(tx, {
         spaceId, pageId, title: node.title, folderId: parentFolderId,
+        requireUniqueTitle: resolved.definition.kind === 'single_page',
       });
       const slug = `${slugify(node.title) || 'page'}-${pageId.slice(0, 12)}`;
       const page = await tx.page.create({ data: {

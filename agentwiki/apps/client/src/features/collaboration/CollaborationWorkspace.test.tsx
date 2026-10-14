@@ -84,6 +84,11 @@ function renderWorkspace(language: 'en' | 'zh-CN' = 'en') {
   );
 }
 
+async function openTemplateManagement() {
+  fireEvent.click(screen.getByRole('link', { name: /Manage collaboration templates|管理协作模板/ }));
+  return screen.findByRole('heading', { name: /Manage collaboration templates|管理协作模板/ });
+}
+
 describe('CollaborationWorkspace', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -104,12 +109,14 @@ describe('CollaborationWorkspace', () => {
     });
   });
 
-  it.each([['en', 'Manage collaboration templates', 'New collaboration template', 'Edit'], ['zh-CN', '管理协作模板', '新建协作模板', '编辑']])('opens a real deep-linked management tab in %s', async (language, label, create, edit) => {
+  it.each([['en', 'Manage collaboration templates', 'New collaboration template', 'Edit'], ['zh-CN', '管理协作模板', '新建协作模板', '编辑']])('opens management from the single header entry in %s', async (language, label, create, edit) => {
     renderWorkspace(language as 'en' | 'zh-CN'); await screen.findByText('Backend release');
+    expect(screen.getAllByRole('link', { name: label })).toHaveLength(1);
+    expect(screen.queryByRole('tab', { name: label })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('link', { name: label }));
     const management = await screen.findByRole('heading', { name: label });
     expect(management).toHaveFocus();
-    expect(screen.getByRole('tab', { name: label })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('tab', { name: label })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: edit })).toHaveAttribute('href', '/spaces/space-1/collaboration/templates/space-template');
     expect(screen.getByRole('link', { name: create })).toHaveAttribute('href', '/spaces/space-1/collaboration/templates/new');
     expect(screen.queryByRole('link', { name: /Manage page templates|管理页面模板/ })).not.toBeInTheDocument();
@@ -146,6 +153,11 @@ describe('CollaborationWorkspace', () => {
 
     expect(await screen.findByText('Coding collaboration')).toBeVisible();
     expect(screen.getByText('Backend release')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Copy as my template' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('link', { name: 'Manage collaboration templates' }));
+    expect(await screen.findByRole('heading', { name: 'Manage collaboration templates' })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Copy as my template' }));
     fireEvent.change(screen.getByLabelText('Template name'), { target: { value: 'Backend release copy' } });
     fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
@@ -162,6 +174,7 @@ describe('CollaborationWorkspace', () => {
     const card = (await screen.findByText('Backend release')).closest('article')!;
     expect(card).toHaveTextContent('Pending upgrade');
     expect(card.querySelector('a[href="/spaces/space-1/collaboration/templates/space-template/start"]')).not.toBeNull();
+    await openTemplateManagement();
     fireEvent.click(screen.getByRole('button', { name: 'Upgrade Backend release' }));
     expect(await screen.findByRole('dialog')).toHaveTextContent('Upgrade dialog Backend release');
   });
@@ -189,6 +202,8 @@ describe('CollaborationWorkspace', () => {
     expect(screen.queryByRole('button', { name: 'Create page group collaboration' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Upgrade Backend release' })).not.toBeInTheDocument();
     expect(card.querySelector('a[href="/spaces/space-1/collaboration/templates/space-template/start"]')).not.toBeNull();
+    expect(screen.queryByRole('link', { name: 'New collaboration template' })).not.toBeInTheDocument();
+    await openTemplateManagement();
     expect(screen.getByRole('link', { name: 'New collaboration template' })).toHaveAttribute(
       'href', '/spaces/space-1/collaboration/templates/new',
     );
@@ -406,6 +421,7 @@ describe('CollaborationWorkspace', () => {
     renderWorkspace();
     await screen.findByText('Coding collaboration');
 
+    await openTemplateManagement();
     fireEvent.click(screen.getByRole('button', { name: 'Copy as my template' }));
     fireEvent.change(screen.getByLabelText('Template name'), { target: { value: 'Space A copy' } });
     await act(async () => navigateWorkspace('/spaces/space-2/collaboration'));
@@ -414,6 +430,7 @@ describe('CollaborationWorkspace', () => {
     expect(screen.queryByRole('heading', { name: 'Copy system template' })).not.toBeInTheDocument();
     expect(collaborationApi.copyTemplate).not.toHaveBeenCalled();
 
+    await openTemplateManagement();
     fireEvent.click(screen.getByRole('button', { name: 'Copy as my template' }));
     expect(screen.getByRole('heading', { name: 'Copy system template' })).toBeVisible();
     fireEvent.click(screen.getByRole('tab', { name: 'Active runs' }));
@@ -435,6 +452,7 @@ describe('CollaborationWorkspace', () => {
     renderWorkspace();
     await screen.findByText('Coding collaboration');
 
+    await openTemplateManagement();
     fireEvent.click(screen.getByRole('button', { name: 'Copy as my template' }));
     fireEvent.change(screen.getByLabelText('Template name'), { target: { value: 'Space A pending copy' } });
     fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
@@ -444,6 +462,7 @@ describe('CollaborationWorkspace', () => {
 
     await act(async () => navigateWorkspace('/spaces/space-2/collaboration'));
     expect(await screen.findByText('Space B template')).toBeVisible();
+    await openTemplateManagement();
     fireEvent.click(screen.getByRole('button', { name: 'Copy as my template' }));
     fireEvent.change(screen.getByLabelText('Template name'), { target: { value: 'Space B pending copy' } });
     fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
@@ -485,11 +504,13 @@ describe('CollaborationWorkspace', () => {
     renderWorkspace();
     await screen.findByText('Coding collaboration');
 
+    await openTemplateManagement();
     fireEvent.click(screen.getByRole('button', { name: 'Copy as my template' }));
     fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
     await waitFor(() => expect(collaborationApi.copyTemplate).toHaveBeenCalledTimes(1));
     await act(async () => navigateWorkspace('/spaces/space-2/collaboration'));
     expect(await screen.findByText('Space B template')).toBeVisible();
+    await openTemplateManagement();
     fireEvent.click(screen.getByRole('button', { name: 'Copy as my template' }));
     fireEvent.change(screen.getByLabelText('Template name'), { target: { value: 'Space B untouched' } });
 
@@ -513,6 +534,7 @@ describe('CollaborationWorkspace', () => {
     });
     const view = renderWorkspace();
     await screen.findByText('Coding collaboration');
+    await openTemplateManagement();
     fireEvent.click(screen.getByRole('button', { name: 'Copy as my template' }));
     fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
     await waitFor(() => expect(collaborationApi.copyTemplate).toHaveBeenCalledTimes(1));
@@ -532,6 +554,7 @@ describe('CollaborationWorkspace', () => {
     });
     renderWorkspace();
     await screen.findByText('Coding collaboration');
+    await openTemplateManagement();
     fireEvent.click(screen.getByRole('button', { name: 'Copy as my template' }));
     fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
     await waitFor(() => expect(collaborationApi.copyTemplate).toHaveBeenCalledTimes(1));
@@ -558,12 +581,14 @@ describe('CollaborationWorkspace', () => {
     renderWorkspace();
     await screen.findByText('Backend release');
 
+    await openTemplateManagement();
     fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
     await waitFor(() => expect(collaborationApi.archiveTemplate).toHaveBeenCalledWith(
       'space-1', 'space-template', 2,
     ));
     await act(async () => navigateWorkspace('/spaces/space-2/collaboration'));
     expect(await screen.findByText('Space B template')).toBeVisible();
+    await openTemplateManagement();
     await act(async () => firstArchive.resolve({ ...spaceTemplate, definition: validDefinition }));
 
     expect(screen.getByText('Space B template')).toBeVisible();
@@ -602,6 +627,7 @@ describe('CollaborationWorkspace', () => {
     });
     const view = renderWorkspace();
     await screen.findByText('Backend release');
+    await openTemplateManagement();
     fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
     await waitFor(() => expect(collaborationApi.archiveTemplate).toHaveBeenCalledTimes(1));
 

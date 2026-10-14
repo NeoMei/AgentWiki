@@ -202,6 +202,29 @@ describe('SpaceSettings auto graph card', () => {
     expect(screen.queryByText('已保存')).not.toBeInTheDocument();
   });
 
+  it('normalizes a legacy scoped auto-publish Space policy to the no-review choice and writes the canonical value', async () => {
+    api.get.mockImplementation((url: string) => {
+      if (url === '/spaces/space-1') {
+        return Promise.resolve({ data: { ...spaceSettings, approvalPolicy: 'scoped-auto-publish' } });
+      }
+      if (url === '/spaces/space-1/graph/settings') return Promise.resolve({ data: graphSettings });
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+    api.patch.mockResolvedValue({ data: { ...spaceSettings, approvalPolicy: 'no-review' } });
+    renderSettings();
+
+    const policy = await screen.findByRole('combobox');
+    expect(policy).toHaveValue('no-review');
+    expect(screen.getByRole('option', { name: '无需审核' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: '限定范围自动发布' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '保存设置' }));
+    await screen.findByText('已保存');
+    expect(api.patch).toHaveBeenCalledWith('/spaces/space-1', {
+      description: undefined, approvalPolicy: 'no-review',
+    });
+  });
+
   it('shows a retryable error instead of silently hiding the card', async () => {
     api.get.mockImplementation((url: string) => {
       if (url === '/spaces/space-1') {
@@ -348,18 +371,18 @@ describe('SpaceSettings auto graph card', () => {
     expect(api.patch).not.toHaveBeenCalled();
   });
 
-  it('explains the complete Publisher auto-publish gate in Chinese', async () => {
+  it('explains the complete write-capable Agent policy in Chinese', async () => {
     renderSettings();
 
-    expect(await screen.findByText(/发布者 Space 授权和 Space 发布策略同时允许/)).toBeInTheDocument();
-    expect(document.body.textContent).not.toMatch(/编辑权限和匹配的写入 Scope/);
+    expect(await screen.findByText(/无需审核.*编辑者和发布者 Agent.*已有权限范围内自动发布/)).toBeInTheDocument();
+    expect(document.body.textContent).toMatch(/阅读者只读/);
   });
 
-  it('explains the complete Publisher auto-publish gate in English', async () => {
+  it('explains the complete write-capable Agent policy in English', async () => {
     localStorage.setItem('agentwiki.language.v1', 'en');
     renderSettings();
 
-    expect(await screen.findByText(/Publisher Space authorization and Space publishing policy both permit/)).toBeInTheDocument();
-    expect(document.body.textContent).not.toMatch(/editor grant and matching write scope/i);
+    expect(await screen.findByText(/No review.*Editor and Publisher Agents.*existing scopes/)).toBeInTheDocument();
+    expect(document.body.textContent).toMatch(/Reader is read-only/i);
   });
 });

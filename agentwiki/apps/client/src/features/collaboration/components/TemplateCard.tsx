@@ -1,5 +1,5 @@
 import React from 'react';
-import { Archive, Copy, LockKeyhole, Pencil, Play, RefreshCw } from 'lucide-react';
+import { Archive, Copy, LockKeyhole, Pencil, Play, RefreshCw, Workflow } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { TemplateSummary } from '../types';
 
@@ -28,41 +28,42 @@ interface TemplateCardProps {
 export const TemplateCard: React.FC<TemplateCardProps> = ({
   spaceId, template, name, description, canManage, canStart, labels, onCopy, onArchive, onUpgrade,
 }) => (
-  <article className="flex min-w-0 flex-col rounded-xl border bg-white p-5 shadow-sm">
-    <div className="flex min-w-0 items-start justify-between gap-3">
-      <div className="min-w-0">
-        <h2 className="break-words text-base font-semibold text-gray-900">{name}</h2>
-        <p className="mt-2 text-sm leading-6 text-gray-600">{description}</p>
+  <article className="aw-collab-template">
+    <div className="aw-collab-template-icon" aria-hidden="true"><Workflow size={18} /></div>
+    <div className="aw-collab-template-content">
+      <div className="aw-collab-template-title">
+        <h2>{name}</h2>
+        <span className="aw-collab-badge">
+          {template.system ? <LockKeyhole size={11} aria-hidden="true" /> : null}
+          {template.system ? labels.system : labels.space}
+        </span>
+        {!template.system ? <span className="aw-collab-badge aw-collab-badge-warning">{labels.pendingUpgrade}</span> : null}
       </div>
-      <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-xs ${template.system ? 'bg-slate-100 text-slate-700' : 'bg-blue-50 text-blue-700'}`}>
-        {template.system ? <LockKeyhole size={12} aria-hidden="true" /> : null}
-        {template.system ? labels.system : labels.space}
-      </span>
+      <p className="aw-collab-template-description">{description}</p>
     </div>
-    {!template.system ? <p className="mt-3 inline-flex w-fit rounded-full bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800">{labels.pendingUpgrade}</p> : null}
-    <div className="mt-auto flex flex-wrap gap-2 pt-5">
+    <div className="aw-collab-template-actions">
       {canStart ? (
         <Link
           to={`/spaces/${spaceId}/collaboration/templates/${template.id}/start`}
-          className="inline-flex min-h-10 items-center gap-1 rounded-lg bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-700"
+          className="aw-collab-button"
         >
           <Play size={14} aria-hidden="true" />{labels.start}
         </Link>
       ) : null}
       {template.system && canManage ? (
-        <button type="button" onClick={() => onCopy(template)} className="inline-flex min-h-10 items-center gap-1 rounded-lg border px-3 text-sm hover:bg-gray-50">
+        <button type="button" onClick={() => onCopy(template)} className="aw-collab-button aw-collab-button-ghost">
           <Copy size={14} aria-hidden="true" />{labels.copy}
         </button>
       ) : null}
       {!template.system && canManage ? (
         <>
-          {onUpgrade ? <button type="button" aria-label={`${labels.upgrade} ${name}`} onClick={(event) => onUpgrade(template, event.currentTarget)} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-amber-200 px-3 text-sm text-amber-800 hover:bg-amber-50">
+          {onUpgrade ? <button type="button" aria-label={`${labels.upgrade} ${name}`} onClick={(event) => onUpgrade(template, event.currentTarget)} className="aw-collab-button">
             <RefreshCw size={14} aria-hidden="true" />{labels.upgrade}
           </button> : null}
-          <Link to={`/spaces/${spaceId}/collaboration/templates/${template.id}`} className="inline-flex min-h-10 items-center gap-1 rounded-lg border px-3 text-sm hover:bg-gray-50">
+          <Link to={`/spaces/${spaceId}/collaboration/templates/${template.id}`} className="aw-collab-button aw-collab-button-ghost">
             <Pencil size={14} aria-hidden="true" />{labels.edit}
           </Link>
-          <button type="button" onClick={() => onArchive(template)} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-red-200 px-3 text-sm text-red-700 hover:bg-red-50">
+          <button type="button" onClick={() => onArchive(template)} className="aw-collab-button aw-collab-button-ghost aw-collab-button-danger">
             <Archive size={14} aria-hidden="true" />{labels.archive}
           </button>
         </>

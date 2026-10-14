@@ -40,8 +40,8 @@ export const GatewayGuidePreview: React.FC = () => {
       </div>
       <p className="mt-3 text-xs leading-5 text-gray-500">
         {zh
-          ? 'Publisher 自动发布仍受 Space 发布策略限制；Agent 不能执行人工审批或成员管理。'
-          : 'Publisher auto-publishing remains subject to Space publishing policy; Agents cannot approve reviews or manage members.'}
+          ? 'Reader 始终只读；Space 选择“无需审核”时，具备写入能力的 Editor 和 Publisher Agent 可在已有权限范围内自动发布；选择“始终审核”时进入人工审核。Agent 不能执行人工审批或成员管理。'
+          : 'Reader is always read-only; in No review, write-capable Editor and Publisher Agents may auto-publish within existing scopes. Agents cannot approve reviews or manage members.'}
       </p>
       <button type="button" disabled className="mt-4 h-9 rounded-lg bg-blue-600 px-4 text-sm text-white disabled:opacity-50">{t('agent.localSync.generate')}</button>
       <p className="mt-3 text-xs text-gray-500">{t('agent.localSync.installOnly')}</p>

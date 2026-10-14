@@ -19,19 +19,19 @@ export const DocsSecurity: React.FC = () => {
         <div className="space-y-4 mb-8 not-prose">
           <div className="bg-white border border-blue-200 rounded-xl p-6">
             <div className="flex items-center gap-2 mb-2"><Key className="text-blue-600" size={20} /><h3 className="font-semibold text-gray-900">{zh ? '连接身份' : 'Connection Identity'}</h3></div>
-            <p className="text-sm text-gray-600 leading-relaxed mb-2">{zh ? '凭据只保存 Agent 身份、绑定的授权记录及有效期/撤销状态，不保存角色或 scopes，也不会形成第二套授权。接入时选择的角色直接写入绑定的 Space 授权。' : 'A credential stores only Agent identity, its bound authorization record, and lifecycle/revocation state. It stores neither a role nor scopes and never forms a second authorization layer. The role chosen during connection is written directly to the bound Space authorization.'}</p>
+            <p className="text-sm text-gray-600 leading-relaxed mb-2">{zh ? '凭据只标识 Agent 身份并管理有效期和撤销状态，不绑定某个 Space，也不保存角色或 scopes。Agent 接入一次后，操作按 spaceId 实时校验独立的 Space 授权；新增授权无需生成新的接入码。' : 'A credential identifies the Agent and has its own expiry and revocation lifecycle. It is not bound to a Space and stores neither a role nor scopes. After connecting once, each operation checks the independent Space grant by spaceId; adding a grant needs no new connection code.'}</p>
             <p className="text-sm text-gray-600 leading-relaxed">{zh ? '撤销操作只撤销该凭据对应的连接；现有会话、其他有效连接与 Space 授权各自独立。暂停或撤销 Agent 才是全局停止。凭据密钥只在连接兑换时交付，之后不可读取。' : 'Revoking a credential revokes only that credential and its connection; existing sessions, other active connections, and Space authorizations remain independent. Pausing or revoking the Agent is the global stop. The credential secret is delivered only during connection exchange and cannot be read again.'}</p>
           </div>
           <div className="bg-white border border-purple-200 rounded-xl p-6">
             <div className="flex items-center gap-2 mb-2"><Shield className="text-purple-600" size={20} /><h3 className="font-semibold text-gray-900">{zh ? 'Space 授权角色' : 'Space Authorization Role'}</h3></div>
-            <p className="text-sm text-gray-600 leading-relaxed">{zh ? 'Reader、Editor 或 Publisher 是 Agent 在该 Space 的唯一权限事实，scopes 在请求时由这个角色派生。未授权的 Space 完全不可见；角色降级会立即收紧所有绑定连接的访问。' : 'Reader, Editor, or Publisher is the sole permission fact for the Agent in that Space; scopes are derived from this role at request time. Unauthorized Spaces are invisible, and downgrading the role immediately tightens every bound connection.'}</p>
+            <p className="text-sm text-gray-600 leading-relaxed">{zh ? 'Reader、Editor 或 Publisher 是 Agent 在该 Space 的唯一权限事实，scopes 在请求时由这个角色派生。未授权的 Space 完全不可见；角色降级会立即收紧该 Agent 对此空间的访问。' : 'Reader, Editor, or Publisher is the sole permission fact for the Agent in that Space; scopes are derived from this role at request time. Unauthorized Spaces are invisible, and downgrading the role immediately tightens that Agent’s access to the affected Space.'}</p>
           </div>
           <div className="bg-white border border-green-200 rounded-xl p-6">
             <div className="flex items-center gap-2 mb-2"><Users className="text-green-600" size={20} /><h3 className="font-semibold text-gray-900">{zh ? '审核策略（Approval Policy）' : 'Approval Policy'}</h3></div>
-            <p className="text-sm text-gray-600 leading-relaxed mb-2">{zh ? 'Reader 不可写；Editor 写入进入待审核。Publisher 是否自动发布还取决于 Space 级发布策略：' : 'Reader cannot write, and Editor writes enter pending review. Publisher auto-publishing additionally depends on the Space publishing policy:'}</p>
+            <p className="text-sm text-gray-600 leading-relaxed mb-2">{zh ? 'Reader 始终只读；Editor 和 Publisher 都具备写入能力，Space 策略决定写入是否进入人工审核：' : 'Reader is always read-only; Editor and Publisher are write-capable. The Space policy determines whether writes need human review:'}</p>
             <ul className="text-sm text-gray-600 leading-relaxed list-disc pl-5 space-y-1">
-              <li><code className="text-xs bg-gray-100 px-1 rounded">always-review</code> {zh ? '（默认）：Editor 与 Publisher 写入均进入审核队列，由具备审批权的人类决定。' : '(default): both Editor and Publisher writes enter the review queue for an authorized human to decide.'}</li>
-              <li><code className="text-xs bg-gray-100 px-1 rounded">scoped-auto-publish</code> {zh ? '：仅当 Publisher Space 授权与 Space 发布策略同时允许时自动发布；缺少任一条件都进入待审核。' : ': auto-publishing occurs only when the Publisher Space Grant and Space publishing policy both permit it; a missing gate sends the change to pending review.'}</li>
+              <li><code className="text-xs bg-gray-100 px-1 rounded">always-review</code> {zh ? '（始终审核）：Editor 与 Publisher 写入均进入审核队列，由具备审批权的人类决定。' : '(Always review): Editor and Publisher writes enter the review queue for an authorized human to decide.'}</li>
+              <li><code className="text-xs bg-gray-100 px-1 rounded">no-review</code> {zh ? '（无需审核）：活跃且具备写入能力的 Editor 和 Publisher Agent 可在已有权限范围内自动发布；历史 scoped-auto-publish 值按此模式兼容。' : '(No review): active write-capable Editor and Publisher Agents may auto-publish within existing scopes; legacy scoped-auto-publish values are treated as this mode.'}</li>
             </ul>
             <p className="mt-3 text-sm text-gray-600 leading-relaxed">{zh ? 'Agent 永远不能执行人工审批或成员管理，也永远不具备 review:decide。' : 'Agents can never perform human approval or member management and never receive review:decide.'}</p>
           </div>
@@ -45,8 +45,8 @@ export const DocsSecurity: React.FC = () => {
         <p className="text-gray-600 leading-relaxed mb-4">{zh ? '每次获得授权的 Agent 写入（创建、更新、删除页面或图谱关系）都会形成可审计的变更集（ChangeSet）；它进入待审核还是自动发布，由角色与 Space 策略共同决定：' : 'Every authorized Agent write (create, update, delete pages or graph relations) creates an auditable ChangeSet. Its role and Space policy determine whether it enters pending review or auto-publishes:'}</p>
         <div className="space-y-3 mb-8 not-prose">
           {[
-            zh ? 'Reader 无写入能力；Editor 写入进入待审核 ChangeSet' : 'Reader cannot write; Editor writes enter pending-review ChangeSets',
-            zh ? 'Publisher 只有在 Space 授权与发布策略都允许时自动发布，否则进入待审核' : 'Publisher auto-publishes only when its Space Grant and publishing policy both allow it; otherwise it enters pending review',
+            zh ? '阅读者始终只读；编辑者和发布者在“无需审核”下可在已有权限范围内自动发布' : 'Reader is always read-only; Editor and Publisher Agents may auto-publish within existing scopes in No review',
+            zh ? '“始终审核”下，编辑者和发布者写入进入待审核 ChangeSet' : 'Always review keeps Editor and Publisher writes in pending-review ChangeSets',
             zh ? '具备审批权的人类在审核页面查看待处理变更及完整 diff' : 'Authorized humans inspect pending changes and their complete diffs on the review page',
             zh ? '人类审批人可以逐项或整体接受、拒绝；Agent 永远没有 review:decide' : 'Human approvers can accept or reject items or the whole set; Agents never have review:decide',
             zh ? '自动发布与人工决策都记录到审计日志' : 'Both auto-publishing and human decisions are recorded in the audit log',

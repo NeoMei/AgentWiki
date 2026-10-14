@@ -57,7 +57,7 @@ describe('UsageGuide Agent connection flow', () => {
     expect(screen.getAllByText('Reader').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Editor').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Publisher').length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Publisher 自动发布仍受 Space 发布策略限制/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Space 选择“无需审核”时.*具备写入能力的 Agent.*始终审核/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Agent 不能执行人工审批或成员管理/).length).toBeGreaterThan(0);
 
     const guideText = document.body.textContent || '';

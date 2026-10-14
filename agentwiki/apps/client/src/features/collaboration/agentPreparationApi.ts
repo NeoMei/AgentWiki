@@ -1,4 +1,4 @@
-import type { AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
+import { agentRoleAllowsScope, type AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import api from '../../api/client';
 import { LOCAL_SYNC_VERSION } from '../../config/localSync';
 
@@ -25,10 +25,8 @@ export interface OwnedAgentCredential {
   id: string;
   revokedAt?: string | null;
   expiresAt?: string | null;
-  authorization: {
-    role: AgentAccessRole;
-    space: { id: string; name: string };
-  };
+  credentialScope?: 'agent';
+  active?: boolean;
 }
 
 export interface OwnedAgentDetail extends OwnedAgentSummary {
@@ -77,19 +75,45 @@ export const existingAgentContextApi = {
   getAgent: agentPreparationApi.getAgent,
 };
 
-export function hasActiveSpaceCredential(
-  agent: Pick<OwnedAgentDetail, 'credentials'>,
-  spaceId: string,
+export function credentialIsActive(
+  credential: Pick<OwnedAgentCredential, 'active' | 'revokedAt' | 'expiresAt'>,
   now = Date.now(),
 ): boolean {
-  return agent.credentials.some((credential) => {
-    if (credential.authorization.space.id !== spaceId) return false;
-    if (credential.revokedAt !== null && credential.revokedAt !== undefined) return false;
-    if (credential.expiresAt === null || credential.expiresAt === undefined) return true;
+  if (credential.active === false) return false;
+  if (credential.revokedAt !== null && credential.revokedAt !== undefined) return false;
+  if (credential.expiresAt === null || credential.expiresAt === undefined) return true;
+  const expiresAt = Date.parse(credential.expiresAt);
+  return Number.isFinite(expiresAt) && expiresAt > now;
+}
 
-    const expiresAt = Date.parse(credential.expiresAt);
-    return Number.isFinite(expiresAt) && expiresAt > now;
-  });
+export function hasActiveAgentCredential(
+  agent: Pick<OwnedAgentDetail, 'credentials'>,
+  now = Date.now(),
+): boolean {
+  return agent.credentials.some((credential) => credentialIsActive(credential, now));
+}
+
+export function hasAgentExecutionAuthorization(
+  agent: Pick<OwnedAgentDetail, 'grants' | 'status' | 'revokedAt'>,
+  spaceId: string,
+  expectedRole?: ExecutableAgentRole,
+): boolean {
+  return agent.status === 'active'
+    && (agent.revokedAt === null || agent.revokedAt === undefined)
+    && agent.grants.some((grant) => grant.spaceId === spaceId
+      && (grant.role === 'editor' || grant.role === 'publisher')
+      && agentRoleAllowsScope(grant.role, 'collaboration:execute')
+      && (expectedRole === undefined || grant.role === expectedRole));
+}
+
+export function hasAuthorizedAgentConnection(
+  agent: Pick<OwnedAgentDetail, 'credentials' | 'grants' | 'status' | 'revokedAt'>,
+  spaceId: string,
+  now = Date.now(),
+  expectedRole?: ExecutableAgentRole,
+): boolean {
+  return hasAgentExecutionAuthorization(agent, spaceId, expectedRole)
+    && hasActiveAgentCredential(agent, now);
 }
 
 export function apiResponseStatus(error: unknown): number | undefined {

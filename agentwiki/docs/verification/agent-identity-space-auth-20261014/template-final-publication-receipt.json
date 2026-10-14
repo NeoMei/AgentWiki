@@ -1,0 +1,322 @@
+{
+  "spaceId": "cmv6biedu005okoisb9fgp64y",
+  "stage": "final_status_closure",
+  "status": "published_verified",
+  "verifiedAt": "2026-10-13T17:39:38.178026+00:00",
+  "pageCount": 17,
+  "originalPageIdsPreserved": 15,
+  "newPageCount": 2,
+  "internalLinksVerified": 110,
+  "externalHistoricalPageReferences": 3,
+  "folderCount": 5,
+  "treeRevision": "62",
+  "folderDistribution": [
+    3,
+    3,
+    6,
+    3,
+    1
+  ],
+  "rootPageCount": 1,
+  "agentModificationAuditMatched": 17,
+  "agentIdentityUnchanged": true,
+  "newCredentialsIssued": false,
+  "transport": "MCP SDK via official @neomei/agentwiki-local-sync@0.12.0 gateway and original connection",
+  "spacePolicy": "scoped-auto-publish",
+  "agentMode": "scoped-auto-publish_already_enabled",
+  "policyExplicitlyAuthorizedByUser": true,
+  "independentReview": {
+    "openP1": 0,
+    "openP2": 0,
+    "localFrozenContentAndCompiledPayloadMatched": true
+  },
+  "retryBoundary": "Initial HTTP 429 was recovered by checking persisted content and reconnecting. Final publication paced at >=3.25 seconds per MCP call. No zero-error claim for the whole run.",
+  "existingChatGatewayHotReloaded": false,
+  "folderRename": {
+    "publishedChangeSet": "cmv6y065r00f0kqb0rupa26hb",
+    "supersededPendingChangeSet": "cmv6xho0000aokqb0jyqmljgb",
+    "oldProposalWithdrawn": false
+  },
+  "sidebarOrdering": "Existing sortOrder retained; ordered workflow navigation provided in home page. Current MCP has no page reorder operation.",
+  "pages": [
+    {
+      "key": "home",
+      "page_id": "f285b898-65ba-4938-8616-e9a0b8f575f5",
+      "status": "published",
+      "change_set_id": "cmv6yl5h601p0kqb03h56y04z",
+      "readback_match": true,
+      "sha256": "34e06f9db48b768de26609aa4962c5ec168fd206f670a32a036c44b17032436b",
+      "updatedAt": "2026-10-13T17:32:33.445Z"
+    },
+    {
+      "key": "features",
+      "page_id": "c8334a4b-d0ee-43d5-972c-a660e3fb94bd",
+      "status": "published",
+      "change_set_id": "cmv6ylfiu01qgkqb00a8ghgm5",
+      "readback_match": true,
+      "sha256": "e781e88aba8da5de199c30d680c4afd79fa0287cf352281d9d112abf3d795299",
+      "updatedAt": "2026-10-13T17:32:46.460Z"
+    },
+    {
+      "key": "requirements",
+      "page_id": "e230b7d5-63a9-451e-9bba-ea14c014d219",
+      "status": "published",
+      "change_set_id": "cmv6ylpjy01rwkqb04bmos089",
+      "readback_match": true,
+      "sha256": "67636793c74090f573229a78a84190cf2900379f53927742005ac0e6742f5b9f",
+      "updatedAt": "2026-10-13T17:32:59.471Z"
+    },
+    {
+      "key": "scenarios",
+      "page_id": "406af5a1-d716-4440-adec-f0518c36507f",
+      "status": "published",
+      "change_set_id": "cmv6ylzld01tckqb0qpidz6ii",
+      "readback_match": true,
+      "sha256": "1e73b7a08da4b989410910e7b6e94222f8134b75295ae7ebd21fc2ae97e4b150",
+      "updatedAt": "2026-10-13T17:33:12.467Z"
+    },
+    {
+      "key": "roadmap",
+      "page_id": "4c566352-5c75-49ba-81e9-04c37ffaf285",
+      "status": "published",
+      "change_set_id": "cmv6ym9mm01uskqb0zzvx8nm6",
+      "readback_match": true,
+      "sha256": "2086d8e55c0e76ab41e1f927c804c3ec92a1476642793138fb900818a4190097",
+      "updatedAt": "2026-10-13T17:33:25.474Z"
+    },
+    {
+      "key": "tasks",
+      "page_id": "6859a0ce-def6-4ac5-8f9a-b87ff3ece745",
+      "status": "published",
+      "change_set_id": "cmv6ymjoc01wgkqb0rkbh222t",
+      "readback_match": true,
+      "sha256": "10961684e5ca45dcf18a4d3a204ceb74d0794510b58955f183daed0f274c99d0",
+      "updatedAt": "2026-10-13T17:33:38.492Z"
+    },
+    {
+      "key": "risks",
+      "page_id": "116e31d4-3d3d-425f-aa1f-658eaa931d4e",
+      "status": "published",
+      "change_set_id": "cmv6ymtpu01y3kqb04pbv5g61",
+      "readback_match": true,
+      "sha256": "1c92e17c192e36bbeec36f5dc64a5b3503011d8f36a36a67029711727791d215",
+      "updatedAt": "2026-10-13T17:33:51.508Z"
+    },
+    {
+      "key": "development",
+      "page_id": "5578409e-6f8a-4f8a-804e-f4d8c4f12dff",
+      "status": "published",
+      "change_set_id": "cmv6yn3rl01zjkqb06o8boye7",
+      "readback_match": true,
+      "sha256": "e2ec3c9a4ebbdf0a3e55a7942d43a77a22ffb54398d3c90412e6cc4f561bf23c",
+      "updatedAt": "2026-10-13T17:34:04.533Z"
+    },
+    {
+      "key": "test-cases",
+      "page_id": "e4db9bde-3cc8-4de9-95cf-5223f67a75a9",
+      "status": "published",
+      "change_set_id": "cmv6yndth020zkqb0f0lzii9s",
+      "readback_match": true,
+      "sha256": "af6048d405af716e9a84514918d9efa90810e9def14cd4f32d35152f050c889e",
+      "updatedAt": "2026-10-13T17:34:17.569Z"
+    },
+    {
+      "key": "test-report",
+      "page_id": "a95bb8fe-ba55-4dee-b23c-60562102f266",
+      "status": "published",
+      "change_set_id": "cmv6ynnus022fkqb0fzkw9e9n",
+      "readback_match": true,
+      "sha256": "5908e09d3fcbbc5dc18449c287cf76c63af0a664b0b68614a26c574a2a729d91",
+      "updatedAt": "2026-10-13T17:34:30.567Z"
+    },
+    {
+      "key": "fix-feedback",
+      "page_id": "e7b82345-60df-4d0b-b0cb-b6a8c63bb3fc",
+      "status": "published",
+      "change_set_id": "cmv6ynxwm023vkqb02q8xf2mt",
+      "readback_match": true,
+      "sha256": "178f32b63947c38a31ad5d9466883bc9428ed675cb1ae5dc2d28f3e41979dc09",
+      "updatedAt": "2026-10-13T17:34:43.589Z"
+    },
+    {
+      "key": "dev-log",
+      "page_id": "fd635dbe-cccc-4ae8-b0f6-b2d478f570fd",
+      "status": "published",
+      "change_set_id": "cmv6yo7x7025bkqb0nslqeosp",
+      "readback_match": true,
+      "sha256": "5a15710c9ad478c62267bb8a3bd5904a4062ae57d8e25ec0fa091c0a5637e940",
+      "updatedAt": "2026-10-13T17:34:56.572Z"
+    },
+    {
+      "key": "releases",
+      "page_id": "bd0482ad-f4dc-44cc-898b-8a00c0588174",
+      "status": "published",
+      "change_set_id": "cmv6yohz0026rkqb0qjho1023",
+      "readback_match": true,
+      "sha256": "9ddd1bd471e4ac8ff70ae0cef70afe05e7a5ec2c8c4141f92cec799c2cfb6321",
+      "updatedAt": "2026-10-13T17:35:09.603Z"
+    },
+    {
+      "key": "template-guide",
+      "page_id": "78278a1d-4113-400c-874c-cc85418ef31d",
+      "status": "published",
+      "change_set_id": "cmv6yos0a0287kqb0hojsvcpz",
+      "readback_match": true,
+      "sha256": "dce7d22203e82a2a81a7a86eeccad2246063b0b77a93b373befd90997a78a553",
+      "updatedAt": "2026-10-13T17:35:22.608Z"
+    },
+    {
+      "key": "data-contract",
+      "page_id": "200b75c8-2196-46b1-a791-12fe6128977a",
+      "status": "published",
+      "change_set_id": "cmv6yp221029nkqb052u0j1bh",
+      "readback_match": true,
+      "sha256": "31330f77228a6cb6334923bcb7ee1c09dabcc1b32b1199673fce15b851f2dcf4",
+      "updatedAt": "2026-10-13T17:35:35.634Z"
+    },
+    {
+      "key": "handoff",
+      "page_id": "6926feff-a584-43cf-ad38-a31e3fff2232",
+      "status": "published",
+      "change_set_id": "cmv6ypc3h02b3kqb03h11630s",
+      "readback_match": true,
+      "sha256": "948bf8e3663bee0bebc60a2a15c487c676474573e60d73b6fb837832e5c67c35",
+      "updatedAt": "2026-10-13T17:35:48.644Z"
+    },
+    {
+      "key": "governance",
+      "page_id": "5ed79328-3460-47de-8cd6-324cfaaf08fa",
+      "status": "published",
+      "change_set_id": "cmv6ypm5b02cjkqb0ibzt3pur",
+      "readback_match": true,
+      "sha256": "ae2b4c6eba99d62672a00e559bdac624ed3379a47a4035a6c6230c6698cde0c4",
+      "updatedAt": "2026-10-13T17:36:01.680Z"
+    }
+  ],
+  "contentVerification": {
+    "stage": "mcp_readback_comparison",
+    "checked": 17,
+    "issues": [],
+    "results": [
+      {
+        "key": "home",
+        "page_id": "f285b898-65ba-4938-8616-e9a0b8f575f5",
+        "matched": true,
+        "updatedAt": "2026-10-13T17:32:33.445Z",
+        "content_sha256": "34e06f9db48b768de26609aa4962c5ec168fd206f670a32a036c44b17032436b"
+      },
+      {
+        "key": "features",
+        "page_id": "c8334a4b-d0ee-43d5-972c-a660e3fb94bd",
+        "matched": true,
+        "updatedAt": "2026-10-13T17:32:46.460Z",
+        "content_sha256": "e781e88aba8da5de199c30d680c4afd79fa0287cf352281d9d112abf3d795299"
+      },
+      {
+        "key": "requirements",
+        "page_id": "e230b7d5-63a9-451e-9bba-ea14c014d219",
+        "matched": true,
+        "updatedAt": "2026-10-13T17:32:59.471Z",
+        "content_sha256": "67636793c74090f573229a78a84190cf2900379f53927742005ac0e6742f5b9f"
+      },
+      {
+        "key": "scenarios",
+        "page_id": "406af5a1-d716-4440-adec-f0518c36507f",
+        "matched": true,
+        "updatedAt": "2026-10-13T17:33:12.467Z",
+        "content_sha256": "1e73b7a08da4b989410910e7b6e94222f8134b75295ae7ebd21fc2ae97e4b150"
+      },
+      {
+        "key": "roadmap",
+        "page_id": "4c566352-5c75-49ba-81e9-04c37ffaf285",
+        "matched": true,
+        "updatedAt": "2026-10-13T17:33:25.474Z",
+        "content_sha256": "2086d8e55c0e76ab41e1f927c804c3ec92a1476642793138fb900818a4190097"
+      },
+      {
+        "key": "tasks",
+        "page_id": "6859a0ce-def6-4ac5-8f9a-b87ff3ece745",
+        "matched": true,
+        "updatedAt": "2026-10-13T17:33:38.492Z",
+        "content_sha256": "10961684e5ca45dcf18a4d3a204ceb74d0794510b58955f183daed0f274c99d0"
+      },
+      {
+        "key": "risks",
+        "page_id": "116e31d4-3d3d-425f-aa1f-658eaa931d4e",
+        "matched": true,
+        "updatedAt": "2026-10-13T17:33:51.508Z",
+        "content_sha256": "1c92e17c192e36bbeec36f5dc64a5b3503011d8f36a36a67029711727791d215"
+      },
+      {
+        "key": "development",
+        "page_id": "5578409e-6f8a-4f8a-804e-f4d8c4f12dff",
+        "matched": true,
+        "updatedAt": "2026-10-13T17:34:04.533Z",
+        "content_sha256": "e2ec3c9a4ebbdf0a3e55a7942d43a77a22ffb54398d3c90412e6cc4f561bf23c"
+      },
+      {
+        "key": "test-cases",
+        "page_id": "e4db9bde-3cc8-4de9-95cf-5223f67a75a9",
+        "matched": true,
+        "updatedAt": "2026-10-13T17:34:17.569Z",
+        "content_sha256": "af6048d405af716e9a84514918d9efa90810e9def14cd4f32d35152f050c889e"
+      },
+      {
+        "key": "test-report",
+        "page_id": "a95bb8fe-ba55-4dee-b23c-60562102f266",
+        "matched": true,
+        "updatedAt": "2026-10-13T17:34:30.567Z",
+        "content_sha256": "5908e09d3fcbbc5dc18449c287cf76c63af0a664b0b68614a26c574a2a729d91"
+      },
+      {
+        "key": "fix-feedback",
+        "page_id": "e7b82345-60df-4d0b-b0cb-b6a8c63bb3fc",
+        "matched": true,
+        "updatedAt": "2026-10-13T17:34:43.589Z",
+        "content_sha256": "178f32b63947c38a31ad5d9466883bc9428ed675cb1ae5dc2d28f3e41979dc09"
+      },
+      {
+        "key": "dev-log",
+        "page_id": "fd635dbe-cccc-4ae8-b0f6-b2d478f570fd",
+        "matched": true,
+        "updatedAt": "2026-10-13T17:34:56.572Z",
+        "content_sha256": "5a15710c9ad478c62267bb8a3bd5904a4062ae57d8e25ec0fa091c0a5637e940"
+      },
+      {
+        "key": "releases",
+        "page_id": "bd0482ad-f4dc-44cc-898b-8a00c0588174",
+        "matched": true,
+        "updatedAt": "2026-10-13T17:35:09.603Z",
+        "content_sha256": "9ddd1bd471e4ac8ff70ae0cef70afe05e7a5ec2c8c4141f92cec799c2cfb6321"
+      },
+      {
+        "key": "template-guide",
+        "page_id": "78278a1d-4113-400c-874c-cc85418ef31d",
+        "matched": true,
+        "updatedAt": "2026-10-13T17:35:22.608Z",
+        "content_sha256": "dce7d22203e82a2a81a7a86eeccad2246063b0b77a93b373befd90997a78a553"
+      },
+      {
+        "key": "data-contract",
+        "page_id": "200b75c8-2196-46b1-a791-12fe6128977a",
+        "matched": true,
+        "updatedAt": "2026-10-13T17:35:35.634Z",
+        "content_sha256": "31330f77228a6cb6334923bcb7ee1c09dabcc1b32b1199673fce15b851f2dcf4"
+      },
+      {
+        "key": "handoff",
+        "page_id": "6926feff-a584-43cf-ad38-a31e3fff2232",
+        "matched": true,
+        "updatedAt": "2026-10-13T17:35:48.644Z",
+        "content_sha256": "948bf8e3663bee0bebc60a2a15c487c676474573e60d73b6fb837832e5c67c35"
+      },
+      {
+        "key": "governance",
+        "page_id": "5ed79328-3460-47de-8cd6-324cfaaf08fa",
+        "matched": true,
+        "updatedAt": "2026-10-13T17:36:01.680Z",
+        "content_sha256": "ae2b4c6eba99d62672a00e559bdac624ed3379a47a4035a6c6230c6698cde0c4"
+      }
+    ]
+  }
+}

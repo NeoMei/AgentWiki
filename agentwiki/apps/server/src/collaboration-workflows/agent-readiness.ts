@@ -38,12 +38,13 @@ export async function inspectCollaborationAgentReadiness(
   const grants = await tx.agentGrant.findMany({
     where: { spaceId, agentId: { in: uniqueIds } },
     include: {
-      agent: { select: { id: true, status: true, revokedAt: true, owner: { select: { deletedAt: true, lockedAt: true } } } },
+      agent: { select: { id: true, status: true, revokedAt: true, owner: { select: { deletedAt: true, lockedAt: true } },
+        credentials: {
+          where: { revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+          select: { id: true },
+        },
+      } },
       space: { select: { deletedAt: true } },
-      credentials: {
-        where: { revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
-        select: { id: true },
-      },
     },
   });
   const byAgent = new Map(grants.map((grant) => [grant.agentId, grant]));
@@ -61,7 +62,7 @@ export async function inspectCollaborationAgentReadiness(
       continue;
     }
     if (!agentRoleAllowsScope(grant.role, 'collaboration:execute')
-      || (requireCredential && grant.credentials.length === 0)) {
+      || (requireCredential && grant.agent.credentials.length === 0)) {
       issues.push({ code: 'COLLABORATION_AGENT_CANNOT_EXECUTE', agentId });
     }
   }

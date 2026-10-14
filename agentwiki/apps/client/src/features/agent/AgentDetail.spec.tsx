@@ -284,15 +284,18 @@ describe('AgentDetail', () => {
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 
-  it('shows the Space authorization bound to a connection record with an accessible revoke action', async () => {
+  it('renders identity connection records separately from each Space role with an accessible revoke action', async () => {
     vi.mocked(api.get)
       .mockReset()
       .mockResolvedValueOnce({ data: {
         id: 'agent-1', name: '同步助手', description: '', status: 'active',
-        approvalMode: 'scoped-auto-publish', grants: [],
+        approvalMode: 'scoped-auto-publish', grants: [
+          { id: 'grant-1', spaceId: 'space-1', role: 'publisher', space: { id: 'space-1', name: '团队知识库' } },
+          { id: 'grant-2', spaceId: 'space-2', role: 'editor', space: { id: 'space-2', name: '项目管理' } },
+        ],
         credentials: [{
           id: 'credential-1', name: 'Deploy key', prefix: 'agk_preview',
-          authorization: { id: 'grant-1', role: 'publisher', scopes: ['pages:read', 'pages:write', 'review:auto-publish'], space: { id: 'space-1', name: '团队知识库' } },
+          credentialScope: 'agent', active: true,
           lastUsedAt: null, expiresAt: '2030-01-01T00:00:00.000Z',
         }],
       } } as any)
@@ -305,12 +308,40 @@ describe('AgentDetail', () => {
     const credentialRow = revoke.closest('div');
     expect(credentialRow).not.toBeNull();
     expect(credentialRow).toHaveTextContent('Deploy key');
-    expect(credentialRow).toHaveTextContent('团队知识库');
-    expect(credentialRow).toHaveTextContent('发布者');
+    expect(credentialRow).toHaveTextContent('Agent 身份连接');
+    expect(credentialRow).not.toHaveTextContent('团队知识库');
+    const grants = screen.getByRole('heading', { name: '已授权空间' }).closest('section')!;
+    expect(within(grants).getByText('团队知识库').parentElement).toHaveTextContent('发布者');
+    expect(within(grants).getByText('项目管理').parentElement).toHaveTextContent('编辑者');
+    expect(grants).not.toHaveTextContent('每个连接凭证仅绑定');
+    expect(grants).toHaveTextContent('按空间 ID 实时校验');
     expect(credentialRow).toHaveTextContent('agk_preview…');
     expect(credentialRow).toHaveTextContent('上次使用: 从未');
     expect(credentialRow).toHaveTextContent('到期时间:');
     expect(credentialRow).toHaveTextContent('有效');
+  });
+
+
+  it.each([
+    ['paused', 'Agent 已暂停；有效身份凭据仍保留'],
+    ['active', '当前客户端的连接状态尚未验证'],
+  ])('does not infer current-client connectivity from a credential when Agent is %s', async (status, message) => {
+    vi.mocked(api.get).mockReset().mockImplementation(async (url: string) => {
+      if (url === '/agents/agent-1') return { data: {
+        id: 'agent-1', name: '同步助手', status, approvalMode: 'always-review',
+        grants: [{ id: 'grant-1', spaceId: 'space-1', role: 'editor', space: { id: 'space-1', name: '团队知识库' } }],
+        credentials: [{ id: 'credential-1', name: 'Desktop', prefix: 'agk_test', credentialScope: 'agent', active: true, expiresAt: null }],
+      } } as any;
+      if (url.startsWith('/spaces?')) return { data: { data: [{ id: 'space-1', name: '团队知识库', members: [{ userId: 'owner-1', role: 'owner' }] }] } } as any;
+      return { data: { data: [] } } as any;
+    });
+    renderDetail();
+    fireEvent.click(await screen.findByRole('button', { name: '访问权限' }));
+    const state = screen.getByRole('status');
+    expect(state).toHaveTextContent(message);
+    expect(state).not.toHaveTextContent('可通过现有连接访问');
+    expect(state).not.toHaveClass('bg-green-50');
+    expect(screen.getByRole('button', { name: '为另一客户端生成接入指令' })).toBeInTheDocument();
   });
 
   it('counts only unrevoked and unexpired credentials as active', async () => {

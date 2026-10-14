@@ -2,10 +2,10 @@ import { z } from 'zod';
 import { SAFE_SPACE_ID_PATTERN } from '../workspace/layout.js';
 
 const spaceId = z.string().regex(SAFE_SPACE_ID_PATTERN).describe(
-  'Internal Space ID from wiki_list_spaces. Selects that Space connection; required when multiple Spaces are connected.',
+  'Internal Space ID from wiki_list_spaces. Each request uses this Space and the connected Agent identity; current grants are checked remotely.',
 ).optional();
 
-// Space selection stays with SpaceMcpBridge, including its existing single-Space
+// Space selection stays with SpaceMcpBridge, including its saved default context
 // compatibility. This layer validates the read arguments, not authorization.
 const READ_FIELDS: Record<string, z.ZodRawShape> = {
   list_spaces: { spaceId },

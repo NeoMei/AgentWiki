@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -7,25 +7,32 @@ import { createGatewayEntry } from './entry.js';
 import { createGatewayServer } from './server.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { AgentWikiClient } from '../agentwiki-client.js';
+import { workspacePaths } from '../workspace/layout.js';
 
 const homes: string[] = [];
 afterEach(async () => { vi.restoreAllMocks(); await Promise.all(homes.splice(0).map((home) => rm(home, { recursive: true, force: true }))); });
 
 async function fixture() {
-  const home = await mkdtemp(join(tmpdir(), 'aw-multi-space-'));
-  homes.push(home);
-  const common = { serverUrl: 'https://wiki.test/api', agentId: 'agent-1', pluginVersion: '0.10.0', client: 'codex' as const, mcpName: 'agentwiki' };
+  const home = await mkdtemp(join(tmpdir(), 'aw-agent-identity-')); homes.push(home);
+  const common = { serverUrl: 'https://wiki.test/api', agentId: 'agent-1', pluginVersion: '0.13.0', client: 'codex' as const, mcpName: 'agentwiki' };
   await saveConfig(home, { version: 1, defaultConnectionId: 'b', connections: {
     a: { ...common, id: 'a', spaceId: 'space-a', credentialId: 'cred-a' },
     b: { ...common, id: 'b', spaceId: 'space-b', credentialId: 'cred-b' },
-    unrelated: { ...common, id: 'unrelated', agentId: 'other-agent', spaceId: 'space-c', credentialId: 'cred-c' },
+    otherAgent: { ...common, id: 'otherAgent', agentId: 'agent-other', spaceId: 'space-c', credentialId: 'cred-c' },
+    otherClient: { ...common, id: 'otherClient', client: 'claude', spaceId: 'space-d', credentialId: 'cred-d' },
+    otherServer: { ...common, id: 'otherServer', serverUrl: 'https://other.test/api', spaceId: 'space-e', credentialId: 'cred-e' },
   } });
-  await saveCredentials(home, { version: 2, credentials: { 'cred-a': { apiKey: 'key-a' }, 'cred-b': { apiKey: 'key-b' }, 'cred-c': { apiKey: 'key-c' } } });
-  const revoked = new Set<string>();
+  await saveCredentials(home, { version: 2, credentials: Object.fromEntries(['a','b','c','d','e'].map((id) => [`cred-${id}`, { apiKey: `key-${id}`, ...(id === 'a' ? { syncDeviceCredential: 'device-a' } : {}) }])) });
+  const grants = new Map<string, 'reader' | 'editor' | 'publisher'>([['space-a', 'reader']]);
   const calls: Array<{ key: string; tool: string; args: Record<string, unknown> }> = [];
+  const access = vi.spyOn(AgentWikiClient.prototype, 'access').mockImplementation(async (connection, key) => {
+    expect(connection.credentialId).toBe('cred-a'); expect(key).toBe('key-a');
+    return { access: [{ id: 'agent-1', name: 'Agent', status: 'active', credentialScope: 'agent', grants: [...grants].map(([id, role]) => ({ role, scopes: [], folderScopes: [], space: { id, name: id } })), credentials: [{ id: 'cred-a', active: true, credentialScope: 'agent' }] }] };
+  });
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
     const key = new Headers(init?.headers).get('authorization')?.replace('Bearer ', '') ?? '';
-    if (revoked.has(key)) return new Response('private detail', { status: 401 });
+    expect(key).toBe('key-a');
     if (init?.method !== 'POST') return new Response('', { status: 405 });
     const message = JSON.parse(String(init?.body));
     if (message.id === undefined) return new Response(null, { status: 202 });
@@ -33,181 +40,125 @@ async function fixture() {
     if (message.method === 'initialize') result = { protocolVersion: '2025-03-26', serverInfo: { name: 'fixture', version: '1' }, capabilities: { tools: {} } };
     else if (message.method === 'tools/list') result = { tools: [
       { name: 'list_spaces', inputSchema: { type: 'object', properties: {} } },
-      { name: 'get_page', inputSchema: { type: 'object', properties: { pageId: { type: 'string' } }, required: ['pageId'] } },
+      { name: 'get_page', inputSchema: { type: 'object', properties: { pageId: { type: 'string' }, spaceId: { type: 'string' } }, required: ['pageId'] } },
       { name: 'list_pages', inputSchema: { type: 'object', properties: { spaceId: { type: 'string' } }, required: ['spaceId'] } },
+      { name: 'propose_page', inputSchema: { type: 'object', properties: { spaceId: { type: 'string' } } } },
     ] };
     else {
-      const { name: tool, arguments: args } = message.params;
-      calls.push({ key, tool, args });
-      const data = tool === 'list_spaces' ? [{ id: key === 'key-a' ? 'space-a' : 'space-b', role: key === 'key-a' ? 'reader' : 'editor' }] : { space: key === 'key-a' ? 'space-a' : 'space-b', pageId: args.pageId ?? null };
-      result = { content: [{ type: 'text', text: JSON.stringify(data) }] };
+      const { name: tool, arguments: args } = message.params; calls.push({ key, tool, args });
+      const role = grants.get(args.spaceId);
+      const denied = tool !== 'list_spaces' && (!role || (tool === 'propose_page' && role === 'reader'));
+      const data = tool === 'list_spaces' ? [...grants].map(([id, role]) => ({ id, name: id, role }))
+        : denied ? { code: 'FORBIDDEN' } : { space: args.spaceId, role, pageId: args.pageId ?? null };
+      result = { content: [{ type: 'text', text: JSON.stringify(data) }], isError: denied };
     }
     return Response.json({ jsonrpc: '2.0', id: message.id, result });
   });
-  return { home, calls, revoked, entry: await createGatewayEntry({ home, connectionId: 'a' }) };
+  return { home, calls, grants, access, entry: await createGatewayEntry({ home, connectionId: 'a' }) };
 }
+const data = (value: unknown) => JSON.parse((value as { content: Array<{ text: string }> }).content[0]!.text);
 
-it('routes concurrent MCP calls by Space and aggregates authorized Space discovery', async () => {
-  const { entry, calls } = await fixture();
-  const { server } = await createGatewayServer(entry);
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: 'test', version: '1' }, { capabilities: {} });
-  await server.connect(serverTransport);
-  await client.connect(clientTransport);
-  try {
-    const listed = await client.callTool({ name: 'wiki_list_spaces', arguments: {} });
-    expect(JSON.parse((listed.content as Array<{ text: string }>)[0]!.text).map((s: { id: string }) => s.id).sort()).toEqual(['space-a', 'space-b']);
-    const results = await Promise.all([
-      client.callTool({ name: 'wiki_get_page', arguments: { spaceId: 'space-a', pageId: 'page-1' } }),
-      client.callTool({ name: 'wiki_get_page', arguments: { spaceId: 'space-b', __args: { pageId: 'page-1' } } }),
-    ]);
-    expect(results.map((r) => JSON.parse((r.content as Array<{ text: string }>)[0]!.text).space)).toEqual(['space-a', 'space-b']);
-    expect(results.map((r) => JSON.parse((r.content as Array<{ text: string }>)[0]!.text).pageId)).toEqual(['page-1', 'page-1']);
-    expect(calls.filter((call) => call.tool === 'get_page').map(({ key }) => key).sort()).toEqual(['key-a', 'key-b']);
-    // Gateway routing metadata must not be sent to strict upstream page-only schemas.
-    expect(calls.filter((call) => call.tool === 'get_page').every(({ args }) => !('spaceId' in args))).toBe(true);
-  } finally { await client.close(); await server.close(); }
-});
-
-it('fails closed for missing, unknown, unrelated, and contradictory Space selectors', async () => {
-  const { entry, calls } = await fixture();
-  for (const args of [{}, { spaceId: 'unknown' }, { spaceId: 'space-c' }]) {
-    const result = await entry.bridge.callGatewayTool('wiki_list_pages', args);
-    expect(result.isError).toBe(true);
-  }
-  expect(calls).toHaveLength(0);
-});
-
-it('revoking one Space does not disable another or expose private diagnostics', async () => {
-  const { entry, revoked } = await fixture();
+it('discovers new grants live through one installed Agent connection without reload or config changes', async () => {
+  const { entry, grants, home } = await fixture();
+  const before = await readFile(join(home, '.agentwiki/local-sync.json'), 'utf8');
   await entry.bridge.listTools();
-  revoked.add('key-a');
-  const a = await entry.bridge.callGatewayTool('wiki_list_pages', { spaceId: 'space-a' });
-  const b = await entry.bridge.callGatewayTool('wiki_list_pages', { spaceId: 'space-b' });
-  expect(a.isError).toBe(true);
-  expect(b.isError).toBe(false);
-  expect(JSON.stringify(a)).not.toMatch(/private detail|key-a|key-b/);
+  expect(data(await entry.bridge.callGatewayTool('wiki_list_spaces', {})).map((s: { id: string }) => s.id)).toEqual(['space-a']);
+  grants.set('space-new', 'publisher');
+  expect(data(await entry.bridge.callGatewayTool('wiki_list_spaces', {})).map((s: { id: string }) => s.id)).toEqual(['space-a', 'space-new']);
+  expect(data(await entry.bridge.callGatewayTool('wiki_list_pages', { spaceId: 'space-new' })).space).toBe('space-new');
+  expect(await readFile(join(home, '.agentwiki/local-sync.json'), 'utf8')).toBe(before);
 });
 
-it('keeps live Space routing checks on named and legacy SDK read calls', async () => {
-  const { entry, revoked, calls } = await fixture();
+it('uses the same selected identity for concurrent named and legacy MCP calls, regardless of stored default or alternate keys', async () => {
+  const { entry, calls, grants } = await fixture(); grants.set('space-b', 'editor');
   const { server } = await createGatewayServer(entry);
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: 'read-routing-test', version: '1' }, { capabilities: {} });
-  await server.connect(serverTransport); await client.connect(clientTransport);
+  const [ct, st] = InMemoryTransport.createLinkedPair(); const client = new Client({ name: 'test', version: '1' }, { capabilities: {} });
+  await server.connect(st); await client.connect(ct);
   try {
-    for (const fields of [{ pageId: 'page-1' }, { spaceId: 'unknown', pageId: 'page-1' }, { spaceId: 'space-c', pageId: 'page-1' }]) {
-      for (const args of [fields, { __args: fields }]) {
-        expect((await client.callTool({ name: 'wiki_get_page', arguments: args })).isError).toBe(true);
-      }
-    }
-    expect(calls).toHaveLength(0);
-    revoked.add('key-a');
-    for (const args of [{ spaceId: 'space-a', pageId: 'page-1' }, { __args: { spaceId: 'space-a', pageId: 'page-1' } }]) {
-      const denied = await client.callTool({ name: 'wiki_get_page', arguments: args });
-      expect(denied.isError).toBe(true);
-      expect(JSON.stringify(denied)).not.toMatch(/private detail|key-a|key-b/);
-    }
-    const allowed = await client.callTool({ name: 'wiki_get_page', arguments: { spaceId: 'space-b', pageId: 'page-1' } });
-    expect(allowed.isError).toBe(false);
-    expect(JSON.parse((allowed.content as Array<{ text: string }>)[0]!.text)).toEqual({ space: 'space-b', pageId: 'page-1' });
+    const results = await Promise.all([
+      client.callTool({ name: 'wiki_get_page', arguments: { spaceId: 'space-a', pageId: 'page-a' } }),
+      client.callTool({ name: 'wiki_get_page', arguments: { __args: { spaceId: 'space-b', pageId: 'page-b' } } }),
+    ]);
+    expect(results.map((r) => data(r).space)).toEqual(['space-a', 'space-b']);
+    expect(calls.map((c) => c.key)).toEqual(['key-a','key-a']);
+    for (const spaceId of ['space-c','space-d','space-e']) expect((await client.callTool({ name: 'wiki_list_pages', arguments: { spaceId } })).isError).toBe(true);
+    expect(calls.every((c) => c.key === 'key-a')).toBe(true);
+    const count = calls.length;
+    expect((await client.callTool({ name: 'wiki_list_pages', arguments: { spaceId: 'space-a', __args: { spaceId: 'space-b' } } })).isError).toBe(true);
+    expect(calls).toHaveLength(count);
   } finally { await client.close(); await server.close(); }
 });
 
-it('keeps a single-Space page-only call compatible without a Space selector', async () => {
-  const { home } = await fixture();
-  const config = await (await import('../config.js')).loadConfig(home);
-  config.connections = { a: config.connections.a! };
-  await saveConfig(home, config);
-  const { bridge } = await createGatewayEntry({ home, connectionId: 'a' });
-  await bridge.listTools();
-  const result = await bridge.callGatewayTool('wiki_get_page', { pageId: 'page-1' });
-  expect(result.isError).toBe(false);
-  expect(JSON.parse((result.content as Array<{ text: string }>)[0]!.text).space).toBe('space-a');
+it('honors remote role changes and revocation without disabling other Spaces or requiring discovery first', async () => {
+  const { entry, grants } = await fixture(); grants.set('space-b', 'editor');
+  expect((await entry.bridge.callGatewayTool('wiki_propose_page', { spaceId: 'space-a' })).isError).toBe(true);
+  grants.set('space-a', 'publisher');
+  expect((await entry.bridge.callGatewayTool('wiki_propose_page', { spaceId: 'space-a' })).isError).toBe(false);
+  grants.delete('space-a');
+  expect((await entry.bridge.callGatewayTool('wiki_list_pages', { spaceId: 'space-a' })).isError).toBe(true);
+  expect((await entry.bridge.callGatewayTool('wiki_list_pages', { spaceId: 'space-b' })).isError).toBe(false);
+  expect(data(await entry.bridge.callGatewayTool('wiki_list_spaces', {})).map((s: { id: string }) => s.id)).toEqual(['space-b']);
 });
 
-it('keeps resolved Spaces available but blocks implicit routing when a legacy binding is unavailable', async () => {
-  const { home, calls } = await fixture();
-  const config = await (await import('../config.js')).loadConfig(home);
-  delete config.connections.a!.spaceId;
-  await saveConfig(home, config);
-  const previousFetch = vi.mocked(globalThis.fetch).getMockImplementation()!;
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
-    if (String(url).endsWith('/integrations/mcp')) return new Response('unavailable', { status: 503 });
-    return previousFetch(url, init);
+it('treats the saved Space as default context only and forwards it without switching credentials', async () => {
+  const { entry } = await fixture();
+  expect(data(await entry.bridge.callGatewayTool('wiki_get_page', { pageId: 'page-1' })).space).toBe('space-a');
+});
+
+it('checks live grants before knowledge preparation and pull, including cached local workspaces', async () => {
+  const { entry, grants, access } = await fixture();
+  grants.delete('space-a');
+  await expect(entry.handlers.prepare({ spaceId: 'space-a', sourcePaths: ['/unused'] })).rejects.toThrow(/Space access denied/);
+  await expect(entry.handlers.pull({ spaceId: 'space-b' })).rejects.toThrow(/Space access denied/);
+  expect(access).toHaveBeenCalledTimes(2);
+});
+
+it('pulls two authorized knowledge workspaces with the selected Agent key, never a saved device or other Space key', async () => {
+  const { entry, grants, home } = await fixture(); grants.set('space-b', 'editor');
+  const head = vi.spyOn(AgentWikiClient.prototype, 'getRevisionHead').mockImplementation(async (_connection, key, spaceId) => {
+    expect(key).toBe('key-a'); return { revisionId: `rev-${spaceId}`, sequence: 1, contentHash: 'hash' };
   });
-  const { bridge } = await createGatewayEntry({ home, connectionId: 'a' });
-  await bridge.listTools();
-  expect((await bridge.callGatewayTool('wiki_get_page', { pageId: 'page-1' })).isError).toBe(true);
-  expect((await bridge.callGatewayTool('wiki_list_pages', { spaceId: 'space-a' })).isError).toBe(true);
-  expect(calls).toHaveLength(0);
-  expect((await bridge.callGatewayTool('wiki_list_pages', { spaceId: 'space-b' })).isError).toBe(false);
-  const listed = await bridge.callGatewayTool('wiki_list_spaces', {});
-  expect(listed.isError).toBe(true);
-  expect(JSON.parse((listed.content as Array<{ text: string }>)[0]!.text)).toMatchObject({ spaces: [{ id: 'space-b' }], unresolvedConnectionIds: ['a'] });
-  expect(bridge.diagnostic()).toMatchObject({ allSpacesConnected: false, unresolvedConnectionIds: ['a'] });
+  vi.spyOn(AgentWikiClient.prototype, 'getSnapshot').mockImplementation(async (_connection, key, spaceId) => {
+    expect(key).toBe('key-a'); return { revisionId: `rev-${spaceId}`, sequence: 1, contentHash: 'hash', schemaVersion: 'knowledge-bundle@1', recipeVersion: 'unified-knowledge@1', bundle: { schemaVersion: 'knowledge-bundle@1', recipeVersion: 'unified-knowledge@1', spaceId, baseRevision: '0', pages: [], memories: [], relations: [], deletions: [], provenance: [] } };
+  });
+  const tree = vi.spyOn(AgentWikiClient.prototype, 'getTreeRevisionHeadV2');
+  await entry.handlers.pull({ spaceId: 'space-a' }); await entry.handlers.pull({ spaceId: 'space-b' });
+  expect(head.mock.calls.map((c) => c[2])).toEqual(['space-a','space-b']); expect(tree).not.toHaveBeenCalled();
+  const a = JSON.parse(await readFile(workspacePaths(home, 'space-a').manifestFile, 'utf8'));
+  const b = JSON.parse(await readFile(workspacePaths(home, 'space-b').manifestFile, 'utf8'));
+  expect(a.spaceId).toBe('space-a'); expect(b.spaceId).toBe('space-b');
 });
 
-it('starts the local gateway when its only legacy binding is unavailable and blocks all Space routes', async () => {
-  const { home, calls } = await fixture();
-  const config = await (await import('../config.js')).loadConfig(home);
-  config.connections = { a: config.connections.a! };
-  delete config.connections.a!.spaceId;
-  await saveConfig(home, config);
-  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('unavailable', { status: 503 }));
-  const entry = await createGatewayEntry({ home, connectionId: 'a' });
+it('keeps local tools available during an identity outage and never falls back to other stored credentials', async () => {
+  const { entry, calls } = await fixture();
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('private server detail', { status: 401 }));
   const { server, toolNames } = await createGatewayServer(entry);
   try {
     expect(toolNames).toContain('local_scan_sources');
-    expect(toolNames).toContain('local_read_artifacts');
-    expect((await entry.bridge.callGatewayTool('wiki_get_page', { pageId: 'page-1' })).isError).toBe(true);
-    await expect(entry.handlers.prepare({ spaceId: 'space-b', sourcePaths: ['/unused'] })).rejects.toThrow(/spaceId space-b/);
-    expect(calls).toHaveLength(0);
+    const denied = await entry.bridge.callGatewayTool('wiki_list_pages', { spaceId: 'space-b' });
+    expect(denied.isError).toBe(true); expect(calls).toHaveLength(0);
+    expect(JSON.stringify(denied)).not.toMatch(/private server detail|key-a|key-b/);
+    expect(entry.bridge.diagnostic()).toMatchObject({ credentialScope: 'agent', authorizationSource: 'live_agent_grants', status: 'authorization_required' });
   } finally { await server.close(); }
 });
 
-it('resolves a single legacy credential and rejects explicit routing to another Space', async () => {
-  const { home, calls } = await fixture();
-  const config = await (await import('../config.js')).loadConfig(home);
-  config.connections = { a: config.connections.a! };
-  delete config.connections.a!.spaceId;
-  await saveConfig(home, config);
-  const previousFetch = vi.mocked(globalThis.fetch).getMockImplementation()!;
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
-    if (String(url).endsWith('/integrations/mcp')) return Response.json({ access: [{ id: 'agent-1', credentials: [{ id: 'cred-a', active: true, authorization: { space: { id: 'space-a', name: 'A' } } }], grants: [] }] });
-    return previousFetch(url, init);
-  });
-  const { handlers, bridge } = await createGatewayEntry({ home, connectionId: 'a' });
-  await bridge.listTools();
-  expect((await bridge.callGatewayTool('wiki_list_pages', { spaceId: 'space-b' })).isError).toBe(true);
-  await expect(handlers.prepare({ spaceId: 'space-b', sourcePaths: ['/unused'] })).rejects.toThrow(/spaceId space-b/);
+it('accepts explicit Spaces for legacy configuration without a saved Space and rejects ambiguous or malformed selectors', async () => {
+  const { home, grants, calls } = await fixture();
+  const { loadConfig } = await import('../config.js');
+  const config = await loadConfig(home); delete config.connections.a!.spaceId; await saveConfig(home, config);
+  grants.set('space-new', 'reader');
+  const { bridge } = await createGatewayEntry({ home, connectionId: 'a' });
+  expect((await bridge.callGatewayTool('wiki_list_pages', {})).isError).toBe(true);
+  expect((await bridge.callGatewayTool('wiki_list_pages', { spaceId: '../bad' })).isError).toBe(true);
   expect(calls).toHaveLength(0);
-  const result = await bridge.callGatewayTool('wiki_get_page', { pageId: 'page-1' });
-  expect(result.isError).toBe(false);
-  expect(JSON.parse((result.content as Array<{ text: string }>)[0]!.text).space).toBe('space-a');
+  expect(data(await bridge.callGatewayTool('wiki_list_spaces', {})).map((s: { id: string }) => s.id)).toEqual(['space-a','space-new']);
+  expect(data(await bridge.callGatewayTool('wiki_list_pages', { spaceId: 'space-new' })).space).toBe('space-new');
 });
 
-it('rejects contradictory gateway selectors without issuing an upstream business call', async () => {
-  const { entry, calls } = await fixture();
-  const { server } = await createGatewayServer(entry);
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: 'test', version: '1' }, { capabilities: {} });
-  await server.connect(serverTransport); await client.connect(clientTransport);
-  try {
-    const result = await client.callTool({ name: 'wiki_list_pages', arguments: { spaceId: 'space-a', __args: { spaceId: 'space-b' } } });
-    expect(result.isError).toBe(true);
-    expect(calls).toHaveLength(0);
-  } finally { await client.close(); await server.close(); }
-});
-
-it('marks discovery and diagnostics incomplete when one configured Space is unavailable', async () => {
-  const { entry, revoked } = await fixture();
-  revoked.add('key-a');
-  await entry.bridge.listTools();
-  const result = await entry.bridge.callGatewayTool('wiki_list_spaces', {});
-  expect(result.isError).toBe(true);
-  expect(JSON.parse((result.content as Array<{ text: string }>)[0]!.text)).toMatchObject({ spaces: [{ id: 'space-b' }], unavailableSpaceIds: ['space-a'] });
-  expect(entry.bridge.diagnostic()).toMatchObject({ allSpacesConnected: false, spaces: [
-    { spaceId: 'space-a', status: 'authorization_required' }, { spaceId: 'space-b', status: 'connected' },
-  ] });
+it('fails knowledge preflight closed when access discovery is unavailable or the selected credential is inactive', async () => {
+  const { entry, access } = await fixture();
+  access.mockRejectedValueOnce(new Error('Access discovery unavailable'));
+  await expect(entry.handlers.prepare({ spaceId: 'space-a', sourcePaths: ['/unused'] })).rejects.toThrow(/unavailable/);
+  access.mockResolvedValueOnce({ access: [{ id: 'agent-1', name: 'Agent', status: 'active', grants: [{ role: 'publisher', space: { id: 'space-a', name: 'A' } }], credentials: [{ id: 'cred-a', active: false }] }] });
+  await expect(entry.handlers.pull({ spaceId: 'space-a' })).rejects.toThrow(/Space access denied/);
 });

@@ -4,8 +4,11 @@ import { createInterface as createPromisesInterface } from 'node:readline/promis
 import { join } from 'node:path';
 
 import type { OnboardCliInput } from '../cli.js';
-import { loadConfig, loadCredentials, connectionForSpace } from '../config.js';
-import { loadSpaceConnections } from '../space-connections.js';
+import { loadConfig } from '../config.js';
+import { loadAgentConnection, authorizedAgentCredential } from '../space-connections.js';
+import { agentKnowledgeWorkspace, LEGACY_TREE_WORKSPACE_WARNING } from '../gateway/agent-knowledge-workspace.js';
+import { workspacePaths } from '../workspace/layout.js';
+import { readManifest } from '../workspace/state.js';
 import { AgentWikiClient } from '../agentwiki-client.js';
 import { AdapterManager } from '../adapter/manager.js';
 import { SyncEngine } from '../sync/sync-engine.js';
@@ -50,7 +53,7 @@ export async function runOnboarding(
     encoder: new ProtocolEncoder(sessionId, sink),
     source,
     serverBaseUrl: input.serverBaseUrl,
-    packageVersion: '0.11.0',
+    packageVersion: '0.13.0',
     home: input.home,
     preflight: overrides.preflight ?? preflight,
     bootstrapInstall: overrides.bootstrapInstall ?? createBootstrapInstaller(),
@@ -84,20 +87,20 @@ function stdinSource(): ProtocolSource {
 
 function installedKnowledge(home: string): KnowledgeWorkflowFn {
   let workflows: KnowledgeWorkflows | undefined;
+  let authorize: ((spaceId: string) => Promise<unknown>) | undefined;
   const scanSources = new CodeGraphPipeline({ home, provider: createCodeGraphProvider({ home }) });
   const load = async (): Promise<KnowledgeWorkflows> => {
     if (workflows) return workflows;
     const config = await loadConfig(home);
     const connectionId = config.defaultConnectionId;
     if (!connectionId) throw new Error('onboarding gateway connection is missing');
-    const { group } = await loadSpaceConnections(home, connectionId);
+    const { connection } = await loadAgentConnection(home, connectionId);
     const client = new AgentWikiClient();
+    authorize = (spaceId) => authorizedAgentCredential(home, connection, spaceId, client);
     const engine = async (spaceId: string) => {
-      const connection = connectionForSpace(group, spaceId);
-      const credentials = await loadCredentials(home);
-      const privateCredential = credentials.credentials[connection.credentialId];
-      if (!privateCredential?.apiKey) throw new Error('onboarding gateway credential is missing');
-      return new SyncEngine({ connection, apiKey: privateCredential.apiKey, syncDeviceCredential: privateCredential.syncDeviceCredential, client, home, spaceId });
+      const privateCredential = await authorizedAgentCredential(home, connection, spaceId, client);
+      const workspace = await agentKnowledgeWorkspace(home, spaceId);
+      return new SyncEngine({ connection, apiKey: privateCredential.apiKey, client, home: workspace.home, spaceId });
     };
     const sync: RemoteSync = {
       pull: async (spaceId) => ({ revisionId: (await (await engine(spaceId)).pull()).revisionId }),
@@ -121,6 +124,7 @@ function installedKnowledge(home: string): KnowledgeWorkflowFn {
     };
     workflows = createKnowledgeWorkflowRuntime({
       home,
+      workspaceHome: async (spaceId) => (await agentKnowledgeWorkspace(home, spaceId)).home,
       adapters: new AdapterManager({ runtimeHome: join(home, '.agentwiki', 'adapters') }),
       sync,
       scanSources,
@@ -130,10 +134,16 @@ function installedKnowledge(home: string): KnowledgeWorkflowFn {
   return {
     planLocalScan: async (value) => scanSources.plan(value),
     pull: async (value) => (await load()).pull(value),
-    prepare: async (value) => (await load()).prepare({
-      ...value,
-      sourceType: value.sourceType as 'auto' | 'code' | 'documents' | undefined,
-    }),
+    prepare: async (value) => {
+      const current = await load();
+      await authorize!(value.spaceId);
+      const workspace = await agentKnowledgeWorkspace(home, value.spaceId);
+      if (workspace.isolated && !(await readManifest(workspacePaths(workspace.home, value.spaceId)))?.baseRevision) {
+        await current.pull({ spaceId: value.spaceId });
+      }
+      const result = await current.prepare({ ...value, sourceType: value.sourceType as 'auto' | 'code' | 'documents' | undefined });
+      return workspace.isolated ? { ...result, warnings: [...result.warnings, LEGACY_TREE_WORKSPACE_WARNING] } : result;
+    },
     confirmAndSync: async (value) => (await load()).confirmAndSync(value),
   };
 }
