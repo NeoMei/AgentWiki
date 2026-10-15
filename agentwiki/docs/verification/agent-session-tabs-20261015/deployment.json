@@ -1,0 +1,120 @@
+{
+  "version": "0.12.34",
+  "releaseCommit": "479419eff227a09350dd7cdc695450de238bb894",
+  "githubRelease": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.34",
+  "deployed": true,
+  "deploymentExitCode": 0,
+  "previousApplication": "/root/agentwiki-previous-20261015054835",
+  "backup": {
+    "directory": "/var/backups/agentwiki/session-tabs-v01234.y8z56d5p",
+    "status": "verified",
+    "checksumsPassed": true,
+    "databaseDumpReadable": true,
+    "attachmentBlobsVerified": 128,
+    "writersQuiesced": true,
+    "writersRestored": true
+  },
+  "production": {
+    "verifiedAt": "2026-10-14T21:49:03.779714+00:00",
+    "revision": "479419eff227a09350dd7cdc695450de238bb894",
+    "sourceFilesVerified": 1325,
+    "mismatches": [],
+    "versions": {
+      "web": "0.12.34",
+      "client": "0.12.34",
+      "api": "0.12.34",
+      "localSync": "0.13.0",
+      "protocol": "0.6.1"
+    },
+    "services": {
+      "agentwiki-api.service": "active",
+      "agentwiki-worker.service": "active",
+      "agentwiki-frontend.service": "active"
+    },
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryAssets": {
+      "/assets/index-ZfGLoHWY.js": "e7a9ba415ba03daa5609a19482f023f6dc0ac47f317e9fd0cd9f86377658ad05",
+      "/assets/_commonjsHelpers-CqkleIqs.js": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+      "/assets/react-vendor-CTv3miC2.js": "7e3a4bf34c49700b5fad7403a908da66c35ca1ad3669d05d3356f1a5e9bae663",
+      "/assets/preload-helper-ckwbz45p.js": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+      "/assets/index-C9U3nFEu.css": "36d1d5a5d6501d8187dc19b80acdb315f70dd5494eddac3b503232be7541c819"
+    }
+  },
+  "public": {
+    "assets": {
+      "/assets/index-ZfGLoHWY.js": {
+        "sha256": "e7a9ba415ba03daa5609a19482f023f6dc0ac47f317e9fd0cd9f86377658ad05",
+        "matchesDeployed": true
+      },
+      "/assets/_commonjsHelpers-CqkleIqs.js": {
+        "sha256": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+        "matchesDeployed": true
+      },
+      "/assets/react-vendor-CTv3miC2.js": {
+        "sha256": "7e3a4bf34c49700b5fad7403a908da66c35ca1ad3669d05d3356f1a5e9bae663",
+        "matchesDeployed": true
+      },
+      "/assets/preload-helper-ckwbz45p.js": {
+        "sha256": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+        "matchesDeployed": true
+      },
+      "/assets/index-C9U3nFEu.css": {
+        "sha256": "36d1d5a5d6501d8187dc19b80acdb315f70dd5494eddac3b503232be7541c819",
+        "matchesDeployed": true
+      }
+    },
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    }
+  },
+  "migrations": {
+    "count": 63,
+    "pending": 0,
+    "appliedThisRelease": 0
+  },
+  "browser": {
+    "pageUrl": "https://agentwiki.quukk.com/pages/46517d85-e347-4c40-9a42-48a8c51e031c",
+    "captureId": "d2dae833e9e18",
+    "droppedRequests": 0,
+    "droppedOperations": 0,
+    "currentCloseAndNeighborSelection": true,
+    "historyReopenAndDraftRetention": true,
+    "allClosedPersistsAfterReload": true,
+    "originalTabsAndSelectionRestored": true,
+    "temporaryInputCleared": true,
+    "assistMutatingRequestCount": 0,
+    "consoleErrors": [
+      {
+        "level": "error",
+        "source": "extension",
+        "source_url": "chrome-extension://invalid/",
+        "text": "Failed to load resource: net::ERR_FAILED"
+      },
+      {
+        "level": "error",
+        "source": "extension",
+        "source_url": "chrome-extension://invalid/",
+        "text": "Failed to load resource: net::ERR_FAILED"
+      }
+    ]
+  },
+  "validation": {
+    "fullBuildPassed": true,
+    "independentReleasePackageFileCount": 1325,
+    "independentReleasePackageMismatches": 0,
+    "featureAndNotesTestsPassed": 93,
+    "clientTestsPassed": 2572,
+    "clientKnownBaselineFailures": 1,
+    "knownBaselineFailure": "KnowledgeGraph.grouped.spec.tsx:180 expected 65 to be less than 25; independently reproduced on unchanged v0.12.33"
+  }
+}

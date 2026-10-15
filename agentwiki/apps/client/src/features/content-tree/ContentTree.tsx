@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bot, ChevronDown, ChevronRight, Edit, FileText, Folder, FolderPlus, Pencil, Save, Trash2 } from 'lucide-react';
+import { Bot, Check, ChevronDown, ChevronRight, Edit, FileText, Folder, FolderPlus, Pencil, Save, Trash2, X } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { TreeActionMenu } from './TreeActionMenu';
 import { buildMoveRequest, sortNodes } from './contentTreeState';
@@ -501,8 +501,19 @@ export const InlineTreeName: React.FC<{
     catch (failure) { if (activeRef.current) setError(failure instanceof Error ? failure.message : t('folder.saveFailed')); }
     finally { submittingRef.current = false; if (activeRef.current) setBusy(false); }
   }} onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'Escape' && !busy) { event.preventDefault(); onCancel(); } }}>
-    <input ref={inputRef} aria-label={label} maxLength={200} disabled={busy} value={name} onChange={(event) => setName(event.target.value)} className="min-h-8 w-full rounded border border-gray-300 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-    <div className="flex gap-2 text-xs"><button type="submit" disabled={busy || !name.trim()}>{t('common.save')}</button><button type="button" disabled={busy} onClick={onCancel}>{t('common.cancel')}</button></div>
+    <div className="relative">
+      <input ref={inputRef} aria-label={label} maxLength={200} disabled={busy} value={name} onChange={(event) => setName(event.target.value)} className="min-h-8 w-full rounded border border-gray-300 py-1 pl-2 pr-16 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      <div className="absolute inset-y-0 right-1 flex items-center gap-1">
+        <button type="submit" disabled={busy || !name.trim()} aria-label={t('common.save')} title={t('common.save')}
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-blue-600 hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-40">
+          <Check size={14} aria-hidden="true" />
+        </button>
+        <button type="button" disabled={busy} onClick={onCancel} aria-label={t('common.cancel')} title={t('common.cancel')}
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-gray-500 hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-40">
+          <X size={14} aria-hidden="true" />
+        </button>
+      </div>
+    </div>
     {error ? <p role="alert" className="text-xs text-red-600">{error}</p> : null}
   </form>;
 };
