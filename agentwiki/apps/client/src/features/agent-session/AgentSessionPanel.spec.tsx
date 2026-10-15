@@ -509,12 +509,13 @@ it('preserves the no-replay acceptance ledger when another conversation loses so
   });
   let content = original;
   render(tree({ supportsScopedApply: true, snapshot: () => ({ ...originalSnapshot, content }), onApply: () => { content = 'Changed source'; return true; } }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Accept change 1' }));
-  openCandidate(); expect(screen.getByRole('button', { name: 'Accept change 1' })).toBeDisabled();
+  fireEvent.click(await screen.findByRole('button', { name: 'Accept to draft' }));
+  openCandidate(); expect(screen.queryByRole('button', { name: 'Accept to draft' })).not.toBeInTheDocument();
   content = original; // Editor Undo changes source; accepted history must never rewind.
   selectConversation('inaccessible'); await screen.findByRole('alert');
   selectConversation('session-a');
-  await screen.findByText('Review proposed changes'); openCandidate(); expect(screen.getByRole('button', { name: 'Accept change 1' })).toBeDisabled();
+  await screen.findByText('View changes'); openCandidate(); expect(screen.queryByRole('button', { name: 'Accept to draft' })).not.toBeInTheDocument();
+  expect(screen.getByText('Accepted to draft. Save the page to publish these changes.')).toBeVisible();
 });
 
 const scopedRoutes = ['remount', 'read/edit', 'page roundtrip', 'session switch'] as const;
@@ -599,7 +600,11 @@ describe('conversation scroll following', () => {
   it.each([true, false])('follows polled streaming replies only when near the bottom (%s)', async (nearBottom) => {
     turns[turns.length - 1] = { ...turns[turns.length - 1], status: 'running', result: null, progressText: 'Working' };
     const rendered = render(tree()); await screen.findByText('Working');
-    const list = viewport(rendered.container); list.scrollTop = nearBottom ? 1580 : 300; fireEvent.scroll(list); height = 2400;
+    const list = viewport(rendered.container);
+    await waitFor(() => expect(list.scrollTop).toBe(1600));
+    list.scrollTop = 300; fireEvent.scroll(list);
+    if (nearBottom) { list.scrollTop = 1580; fireEvent.scroll(list); }
+    height = 2400;
     turns = turns.map((item, i) => i === turns.length - 1 ? { ...item, status: 'done', result: { summary: 'New streamed answer' } } : item);
     await screen.findByText('New streamed answer');
     await waitFor(() => expect(list.scrollTop).toBe(nearBottom ? 2000 : 300));
@@ -611,6 +616,34 @@ describe('conversation scroll following', () => {
     const list = viewport(rendered.container); list.scrollTop = 300; fireEvent.scroll(list); height = 3000;
     selectConversation('session-b');
     await screen.findAllByText('Earlier answer'); await waitFor(() => expect(list.scrollTop).toBe(2600));
+  });
+  it('keeps new activity visible when a delayed programmatic scroll arrives after content grows', async () => {
+    const callbacks = new Map<Element, ResizeObserverCallback>();
+    vi.stubGlobal('ResizeObserver', class { constructor(private callback: ResizeObserverCallback) {} observe(element: Element) { callbacks.set(element, this.callback); } disconnect() {} });
+    try {
+      const rendered = render(tree()); await screen.findAllByText('Earlier answer'); const list = viewport(rendered.container);
+      await waitFor(() => expect(list.scrollTop).toBe(1600));
+      list.scrollTop = 300; fireEvent.scroll(list);
+      fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Follow-up with no answer yet' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Send' })); await screen.findByRole('button', { name: 'Stop' });
+      await waitFor(() => expect(list.scrollTop).toBe(1600));
+      for (const nextHeight of [2093, 2400]) {
+        // The browser queues the scroll event from our previous scrollTop write.
+        // New phase/answer layout grows before that event is dispatched.
+        height = nextHeight; fireEvent.scroll(list);
+        act(() => callbacks.get(list)?.([], {} as ResizeObserver));
+        await waitFor(() => expect(list.scrollTop).toBe(nextHeight - 400));
+      }
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it('does not pull a user back down after a small upward scroll near the bottom', async () => {
+    turns[turns.length - 1] = { ...turns[turns.length - 1], status: 'running', result: null, progressText: 'Working' };
+    const rendered = render(tree()); await screen.findByText('Working'); const list = viewport(rendered.container);
+    await waitFor(() => expect(list.scrollTop).toBe(1600));
+    list.scrollTop = 1580; fireEvent.scroll(list); height = 2400;
+    turns = turns.map((item, i) => i === turns.length - 1 ? { ...item, status: 'done', result: { summary: 'Final answer' } } : item);
+    await screen.findByText('Final answer');
+    await new Promise((resolve) => setTimeout(resolve, 35)); expect(list.scrollTop).toBe(1580);
   });
   it('follows delayed content resize and disconnects the observer on unmount', async () => {
     const callbacks = new Map<Element, ResizeObserverCallback>(), disconnect = vi.fn();
@@ -755,6 +788,8 @@ it('keeps acceptance and the separate Save requirement visible after collapsing 
   fireEvent.click(await screen.findByRole('button', { name: 'Accept to draft' }));
   expect(apply).toHaveBeenCalledTimes(1);
   expect(screen.getByText('Accepted to draft. Save the page to publish these changes.')).toBeVisible();
+  expect(screen.getByText(/Acceptance record: previously accepted into the draft/)).not.toBeVisible();
+  fireEvent.click(screen.getByText('About this acceptance record'));
   expect(screen.getByText(/Acceptance record: previously accepted into the draft/)).toBeVisible();
   expect(document.querySelector<HTMLDetailsElement>('.agent-candidate-details')?.open).toBe(false);
   expect(api.patch).not.toHaveBeenCalled();
@@ -817,4 +852,41 @@ it('closes context settings on blur to the browser without forcing focus back', 
   fireEvent.blur(screen.getByRole('combobox', { name: 'Edit scope' }), { relatedTarget: null });
   expect(screen.queryByRole('combobox', { name: 'Edit scope' })).not.toBeInTheDocument();
   expect(trigger).not.toHaveFocus();
+});
+
+
+describe('execution feedback', () => {
+  it('responds immediately while sending and keeps phase feedback separate from the answer', async () => {
+    let finish!: (value: any) => void;
+    vi.mocked(api.post).mockReturnValue(new Promise((resolve) => { finish = resolve; }) as any);
+    const view = render(tree()); await screen.findByText('Earlier answer');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'A slow request' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(screen.getByRole('status', { name: 'Agent activity' })).toHaveTextContent('Sending request');
+    expect(screen.getByText('0s elapsed')).toBeVisible();
+    expect(view.container.querySelector('.agent-activity .agent-reply-content')).toBeNull();
+    await act(async () => finish({ data: { ...turn, id: 'sent', result: { summary: 'Completed' } } }));
+    expect(screen.queryByRole('status', { name: 'Agent activity' })).not.toBeInTheDocument();
+  });
+  it('shows actual execution phases and retries even before any answer exists', async () => {
+    turns = [{ ...turn, status: 'running', result: null, progressText: '', progress: { phase: 'waiting', attempt: 2 } }];
+    render(tree());
+    const status = await screen.findByRole('status', { name: 'Agent activity' });
+    expect(status).toHaveTextContent('Waiting for model'); expect(status).toHaveTextContent('Retry · attempt 2');
+    expect(document.querySelector('.agent-reply-content')).toBeNull();
+    turns = [{ ...turn, status: 'running', result: null, progressText: 'Real answer', progress: { phase: 'generating', attempt: 2 } }];
+    expect(await screen.findByText('Real answer', {}, { timeout: 2000 })).toBeVisible();
+    expect(screen.getByRole('status', { name: 'Agent activity' })).toHaveTextContent('Generating response');
+    expect(screen.getByText('Real answer').closest('.agent-activity')).toBeNull();
+    turns = [{ ...turn, result: { summary: 'Completed answer' } }];
+    await screen.findByText('Completed answer', {}, { timeout: 2000 });
+    expect(screen.queryByRole('status', { name: 'Agent activity' })).not.toBeInTheDocument();
+  });
+  it.each(['queued', 'running'] as const)('keeps an empty %s turn visible without a duplicate generating candidate', async (status) => {
+    turns = [{ ...turn, mode: 'proposal', status, result: null, progressText: '' }];
+    render(tree());
+    expect(await screen.findByRole('status', { name: 'Agent activity' })).toHaveTextContent(status === 'queued' ? 'Queued for execution' : 'Agent is working');
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeVisible();
+    expect(screen.queryByRole('region', { name: 'Candidate review' })).not.toBeInTheDocument();
+  });
 });

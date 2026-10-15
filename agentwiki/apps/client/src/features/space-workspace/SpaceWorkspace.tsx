@@ -1,7 +1,8 @@
 import React, { useCallback, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { SpaceNav } from '../../components/SpaceNav';
-import { SpaceWorkspaceScope, type SpaceWorkspaceMode } from './SpaceWorkspaceContext';
+import { type SpaceWorkspaceMode } from './SpaceWorkspaceContext';
+import { SpaceWorkspaceScope } from './SpaceWorkspaceScope';
 import {
   folderIdFromSearch,
   spaceFolderHref,
@@ -32,17 +33,20 @@ export const SpaceWorkspace: React.FC<SpaceWorkspaceProps> = ({
   const location = useLocation();
   const navigate = useNavigate();
   const [pageResolution, setPageResolution] = useState<{ pageId: string; spaceId: string; folderId: string | null } | null>(null);
+  const [deniedPageId, setDeniedPageId] = useState<string | null>(null);
   const [deletedPageId, setDeletedPageId] = useState<string | null>(null);
   const [pageRefresh, setPageRefresh] = useState<{ pageId: string | null; request: number }>({ pageId: null, request: 0 });
-  const resolvedSpaceId = spaceId ?? (
+  const resolvedSpaceId = deniedPageId === pageId ? null : spaceId ?? (
     pageResolution && pageResolution.pageId === pageId ? pageResolution.spaceId : null
   );
   const resolvedSection = activeSection ?? workspaceSectionFromPath(location.pathname) ?? 'pages';
   const selectedFolderId = folderIdFromSearch(location.search);
   const useSharedSpaceShell = showDirectory || mode === 'section';
 
-  const reportPageIdentity = useCallback((reportedPageId: string, reportedSpaceId: string | null, folderId: string | null = null) => {
+  const reportPageIdentity = useCallback((reportedPageId: string, reportedSpaceId: string | null, folderId: string | null = null, accessDenied = false) => {
     if (!pageId || reportedPageId !== pageId) return;
+    if (accessDenied) setDeniedPageId(reportedPageId);
+    else if (reportedSpaceId) setDeniedPageId(null);
     setPageResolution((current) => {
       if (!reportedSpaceId) return current?.pageId === reportedPageId ? null : current;
       if (current?.pageId === reportedPageId && current.spaceId === reportedSpaceId && current.folderId === folderId) return current;

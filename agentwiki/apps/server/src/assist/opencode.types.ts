@@ -1,4 +1,5 @@
 import { AgentHistoryTurn, AgentSessionContext, AgentTurnMode } from './assist-session.types';
+import { AgentExecutionProgress } from './assist-progress';
 export type ModelTier = 'free' | 'paid';
 export type FailureCode =
   | 'auth_failed' | 'binary_unavailable' | 'budget_exhausted' | 'cancelled'
@@ -16,6 +17,8 @@ export interface AssistInput {
   signal?: AbortSignal;
   /** Validated answer summary only, never reasoning/tool/provider event payloads. */
   onAnswerText?: StreamChunkCallback;
+  /** Safe execution phases only; independent of the validated answer callback. */
+  onProgress?: (progress: AgentExecutionProgress) => void;
   pageSnapshot: unknown;
   leaseExpiresAtMs?: number;
   isActive?: () => Promise<boolean>;

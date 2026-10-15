@@ -41,7 +41,7 @@ describe('useSpaceDirectory', () => {
     expect(result.current.crumbs.map((crumb) => crumb.id)).toEqual([null, 'a', 'b', 'c']);
   });
 
-  it('rehydrates reachable expanded levels when the selected folder target changes', async () => {
+  it('keeps loaded levels visible without rereading them while page selection changes', async () => {
     const expandedFolderIds = new Set(['a', 'b', 'c']);
     vi.mocked(listFolderAncestry).mockResolvedValue({
       folders: new Map([
@@ -61,12 +61,190 @@ describe('useSpaceDirectory', () => {
     }), { initialProps: { targetFolderId: 'c' as string | null } });
     await waitFor(() => expect(result.current.locating).toBe(false));
     expect([...result.current.levels.keys()]).toEqual([null, 'a', 'b', 'c']);
+    const loadedLevels = result.current.levels;
 
     rerender({ targetFolderId: null });
+    expect(result.current.levels).toBe(loadedLevels);
+    expect(result.current.locating).toBe(false);
+    rerender({ targetFolderId: 'b' });
+    rerender({ targetFolderId: 'c' });
+    await act(async () => {});
+
+    expect(result.current.levels).toBe(loadedLevels);
+    expect(listTreeChildren).toHaveBeenCalledTimes(4);
+    expect(listFolderAncestry).toHaveBeenCalledTimes(1);
+    expect(result.current.crumbs.map((crumb) => crumb.id)).toEqual([null, 'a', 'b', 'c']);
+  });
+
+  it('loads only missing ancestor levels while keeping the existing tree visible', async () => {
+    let resolveAncestry!: (value: Awaited<ReturnType<typeof listFolderAncestry>>) => void;
+    vi.mocked(listFolderAncestry).mockImplementation(() => new Promise((resolve) => { resolveAncestry = resolve; }));
+    vi.mocked(listTreeChildren).mockImplementation(async (_spaceId, parent) => level(parent, parent === null ? 'a' : `${parent}-child`));
+    const setFolderExpanded = vi.fn();
+    const { result, rerender } = renderHook(({ targetFolderId }) => useSpaceDirectory({
+      spaceId: 'space-1', targetFolderId, expandedFolderIds: new Set(['a']), setFolderExpanded,
+    }), { initialProps: { targetFolderId: null as string | null } });
+    await waitFor(() => expect(result.current.locating).toBe(false));
+    const loadedLevels = result.current.levels;
+
+    rerender({ targetFolderId: 'deep' });
+    expect(result.current.levels).toBe(loadedLevels);
+    await act(async () => resolveAncestry({
+      folders: new Map([
+        ['a', { id: 'a', parentId: null, name: 'A', path: '/A', createdAt: 'now', updatedAt: 'now' }],
+        ['deep', { id: 'deep', parentId: 'a', name: 'Deep', path: '/A/Deep', createdAt: 'now', updatedAt: 'now' }],
+      ]), ancestorIds: ['a', 'deep'], treeRevision: '7',
+    }));
+
+    await waitFor(() => expect(result.current.levels.has('deep')).toBe(true));
+    expect(vi.mocked(listTreeChildren).mock.calls.map((call) => call[1])).toEqual([null, 'a', 'deep']);
+    expect(result.current.levels.get(null)).toBe(loadedLevels.get(null));
+    expect(result.current.levels.get('a')).toBe(loadedLevels.get('a'));
+  });
+
+  it('leaves a pending lazy branch alive when selection changes within the same Space', async () => {
+    let resolveLazy!: (value: ContentTreeListResponse) => void;
+    let lazySignal: AbortSignal | undefined;
+    vi.mocked(listTreeChildren).mockImplementation(async (_spaceId, parent, signal) => {
+      if (parent === 'a') {
+        lazySignal = signal;
+        return new Promise((resolve) => { resolveLazy = resolve; });
+      }
+      if (parent === null) return { ...level(null, 'a'), data: [...level(null, 'a').data, ...level(null, 'b').data] };
+      return level(parent, parent === null ? 'a' : `${parent}-child`);
+    });
+    const setFolderExpanded = vi.fn();
+    const { result, rerender } = renderHook(({ targetFolderId }) => useSpaceDirectory({
+      spaceId: 'space-1', targetFolderId, expandedFolderIds: new Set(), setFolderExpanded,
+    }), { initialProps: { targetFolderId: null as string | null } });
+    await waitFor(() => expect(result.current.locating).toBe(false));
+    await act(() => result.current.reloadLevel('b'));
+    let lazyRequest!: Promise<void>;
+    act(() => { lazyRequest = result.current.reloadLevel('a'); });
+    expect(result.current.loadingBranches.has('a')).toBe(true);
+
+    await act(() => result.current.reloadLevel('b-child'));
+    rerender({ targetFolderId: 'b-child' });
+    expect(lazySignal?.aborted).toBe(false);
+    resolveLazy(level('a', 'lazy-child'));
+    await act(() => lazyRequest);
+    expect(result.current.levels.get('a')?.nodes[0].id).toBe('lazy-child');
+    expect(result.current.loadingBranches.has('a')).toBe(false);
+  });
+
+  it('ignores a late target response after navigating back to a loaded target', async () => {
+    let resolveAncestry!: (value: Awaited<ReturnType<typeof listFolderAncestry>>) => void;
+    let ancestrySignal: AbortSignal | undefined;
+    vi.mocked(listFolderAncestry).mockImplementation((_space, _target, signal) => {
+      ancestrySignal = signal;
+      return new Promise((resolve) => { resolveAncestry = resolve; });
+    });
+    vi.mocked(listTreeChildren).mockImplementation(async (_space, parent) => level(parent, 'a'));
+    const setFolderExpanded = vi.fn();
+    const { result, rerender } = renderHook(({ targetFolderId }) => useSpaceDirectory({
+      spaceId: 'space-1', targetFolderId, expandedFolderIds: new Set(), setFolderExpanded,
+    }), { initialProps: { targetFolderId: null as string | null } });
+    await waitFor(() => expect(result.current.locating).toBe(false));
+    rerender({ targetFolderId: 'old-target' });
+    rerender({ targetFolderId: null });
+    expect(ancestrySignal?.aborted).toBe(true);
+    await act(async () => resolveAncestry({ folders: new Map(), ancestorIds: ['old-target'], treeRevision: '7' }));
+
+    expect(result.current.levels.get(null)?.nodes[0].id).toBe('a');
+    expect(result.current.levels.has('old-target')).toBe(false);
+    expect(listTreeChildren).toHaveBeenCalledTimes(1);
+    expect(setFolderExpanded).not.toHaveBeenCalledWith('old-target', true);
+  });
+
+  it('rebuilds the full snapshot when an added ancestor has a newer revision', async () => {
+    vi.mocked(listFolderAncestry).mockResolvedValue({ folders: new Map(), ancestorIds: ['deep'], treeRevision: '8' });
+    vi.mocked(listTreeChildren)
+      .mockResolvedValueOnce(level(null, 'old-root', '7'))
+      .mockImplementation(async (_space, parent) => level(parent, parent ? 'fresh-page' : 'deep', '8'));
+    const setFolderExpanded = vi.fn();
+    const { result, rerender } = renderHook(({ targetFolderId }) => useSpaceDirectory({
+      spaceId: 'space-1', targetFolderId, expandedFolderIds: new Set(), setFolderExpanded,
+    }), { initialProps: { targetFolderId: null as string | null } });
+    await waitFor(() => expect(result.current.treeRevision).toBe('7'));
+    rerender({ targetFolderId: 'deep' });
     await waitFor(() => expect(result.current.locating).toBe(false));
 
-    expect([...result.current.levels.keys()]).toEqual([null, 'a', 'b', 'c']);
-    expect(vi.mocked(listTreeChildren).mock.calls.slice(4).map((call) => call[1])).toEqual([null, 'a', 'b', 'c']);
+    expect(result.current.treeRevision).toBe('8');
+    expect([...result.current.levels.values()].every((entry) => entry.treeRevision === '8')).toBe(true);
+    expect(result.current.levels.get(null)?.nodes[0].id).toBe('deep');
+    expect(result.current.levels.get('deep')?.nodes[0].id).toBe('fresh-page');
+  });
+
+  it('stops locating and clears the cache if a concurrent branch request loses permission', async () => {
+    let resolveAncestry!: (value: Awaited<ReturnType<typeof listFolderAncestry>>) => void;
+    vi.mocked(listFolderAncestry).mockImplementation(() => new Promise((resolve) => { resolveAncestry = resolve; }));
+    vi.mocked(listTreeChildren).mockResolvedValueOnce(level(null, 'a')).mockRejectedValue({ response: { status: 403 } });
+    const setFolderExpanded = vi.fn();
+    const { result, rerender } = renderHook(({ targetFolderId }) => useSpaceDirectory({
+      spaceId: 'space-1', targetFolderId, expandedFolderIds: new Set(), setFolderExpanded,
+    }), { initialProps: { targetFolderId: null as string | null } });
+    await waitFor(() => expect(result.current.locating).toBe(false));
+    rerender({ targetFolderId: 'unknown' });
+    await act(() => result.current.reloadLevel('a'));
+    expect(result.current.locating).toBe(false);
+    expect(result.current.levels.size).toBe(0);
+    await act(async () => resolveAncestry({ folders: new Map(), ancestorIds: ['unknown'], treeRevision: '7' }));
+    expect(result.current.levels.size).toBe(0);
+    expect(result.current.error).toBeTruthy();
+  });
+
+  it('clears a recovered target branch error without dropping unrelated errors', async () => {
+    let fail = true;
+    vi.mocked(listTreeChildren).mockImplementation(async (_spaceId, parent) => {
+      if (parent && fail) throw new Error('unavailable');
+      return level(parent, parent ? 'child' : 'a');
+    });
+    const setFolderExpanded = vi.fn();
+    const { result, rerender } = renderHook(({ targetFolderId }) => useSpaceDirectory({
+      spaceId: 'space-1', targetFolderId, expandedFolderIds: new Set(), setFolderExpanded,
+    }), { initialProps: { targetFolderId: null as string | null } });
+    await waitFor(() => expect(result.current.locating).toBe(false));
+    await act(() => result.current.reloadLevel('a'));
+    await act(() => result.current.reloadLevel('b'));
+    fail = false;
+    rerender({ targetFolderId: 'a' });
+    await waitFor(() => expect(result.current.levels.has('a')).toBe(true));
+    expect(result.current.branchErrors.has('a')).toBe(false);
+    expect(result.current.branchErrors.has('b')).toBe(true);
+  });
+
+  it('retains a lazy branch that finishes while a missing target level loads', async () => {
+    let finishTarget!: (value: ContentTreeListResponse) => void;
+    vi.mocked(listTreeChildren).mockImplementation(async (_space, parent) => {
+      if (parent === 'a') return new Promise((resolve) => { finishTarget = resolve; });
+      return level(parent, parent ? 'lazy-child' : 'a');
+    });
+    const setFolderExpanded = vi.fn();
+    const { result, rerender } = renderHook(({ targetFolderId }) => useSpaceDirectory({
+      spaceId: 'space-1', targetFolderId, expandedFolderIds: new Set(), setFolderExpanded,
+    }), { initialProps: { targetFolderId: null as string | null } });
+    await waitFor(() => expect(result.current.locating).toBe(false));
+    rerender({ targetFolderId: 'a' });
+    await act(() => result.current.reloadLevel('b'));
+    await act(async () => finishTarget(level('a', 'target-child')));
+    expect(result.current.levels.get('a')?.nodes[0].id).toBe('target-child');
+    expect(result.current.levels.get('b')?.nodes[0].id).toBe('lazy-child');
+  });
+
+  it.each(['retry', 'mutation'] as const)('discards loaded levels after an explicit %s', async (action) => {
+    let resolveRefresh!: (value: ContentTreeListResponse) => void;
+    vi.mocked(listTreeChildren).mockResolvedValueOnce(level(null, 'old-root'))
+      .mockImplementation(() => new Promise((resolve) => { resolveRefresh = resolve; }));
+    const setFolderExpanded = vi.fn();
+    const { result } = renderHook(() => useSpaceDirectory({
+      spaceId: 'space-1', targetFolderId: null, expandedFolderIds: new Set(), setFolderExpanded,
+    }));
+    await waitFor(() => expect(result.current.locating).toBe(false));
+    act(() => action === 'retry' ? result.current.retry() : result.current.acceptTreeRevision('8'));
+    expect(result.current.levels.size).toBe(0);
+    await act(async () => resolveRefresh(level(null, 'fresh-root', '8')));
+    expect(result.current.levels.get(null)?.nodes[0].id).toBe('fresh-root');
+    expect(result.current.treeRevision).toBe('8');
   });
 
   it('rehydrates only reachable expanded branches after a transient unresolved Space identity', async () => {

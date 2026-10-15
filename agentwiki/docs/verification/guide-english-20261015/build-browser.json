@@ -1,0 +1,578 @@
+[
+  {
+    "width": 1440,
+    "language": "en",
+    "images": [
+      {
+        "src": "/screenshots/step1-agent-list-en.png",
+        "loaded": true,
+        "width": 828,
+        "height": 267,
+        "naturalWidth": 2240,
+        "naturalHeight": 722,
+        "fit": "contain",
+        "alt": "Agent List Page"
+      },
+      {
+        "src": "/screenshots/step2-space-members-en.png",
+        "loaded": true,
+        "width": 828,
+        "height": 399,
+        "naturalWidth": 2240,
+        "naturalHeight": 1080,
+        "fit": "contain",
+        "alt": "Space Members Page"
+      },
+      {
+        "src": "/screenshots/step5-agent-publish-en.png",
+        "loaded": true,
+        "width": 772,
+        "height": 358,
+        "naturalWidth": 2240,
+        "naturalHeight": 1040,
+        "fit": "contain",
+        "alt": "Example Agent page publishing flow"
+      },
+      {
+        "src": "/screenshots/step6-agent-success-en.png",
+        "loaded": true,
+        "width": 772,
+        "height": 477,
+        "naturalWidth": 2240,
+        "naturalHeight": 1384,
+        "fit": "contain",
+        "alt": "Example Agent connection and publishing result"
+      },
+      {
+        "src": "/screenshots/step6-published-page-en.png",
+        "loaded": true,
+        "width": 772,
+        "height": 599,
+        "naturalWidth": 2240,
+        "naturalHeight": 1738,
+        "fit": "contain",
+        "alt": "Published AgentWiki page"
+      },
+      {
+        "src": "/screenshots/step6-activity-log-en.png",
+        "loaded": true,
+        "width": 772,
+        "height": 408,
+        "naturalWidth": 2240,
+        "naturalHeight": 1184,
+        "fit": "contain",
+        "alt": "AgentWiki MCP activity log"
+      },
+      {
+        "src": "/screenshots/local-sync-preview-en.png",
+        "loaded": true,
+        "width": 828,
+        "height": 510,
+        "naturalWidth": 2240,
+        "naturalHeight": 1380,
+        "fit": "contain",
+        "alt": "Example local knowledge preview before upload"
+      },
+      {
+        "src": "/screenshots/local-sync-result-en.png",
+        "loaded": true,
+        "width": 403,
+        "height": 244,
+        "naturalWidth": 2240,
+        "naturalHeight": 1358,
+        "fit": "contain",
+        "alt": "Example local knowledge synchronization result"
+      },
+      {
+        "src": "/screenshots/step6-published-page-en.png",
+        "loaded": true,
+        "width": 403,
+        "height": 313,
+        "naturalWidth": 2240,
+        "naturalHeight": 1738,
+        "fit": "contain",
+        "alt": "AgentWiki page published by a local Agent"
+      }
+    ]
+  },
+  {
+    "width": 1440,
+    "language": "zh-CN",
+    "images": [
+      {
+        "src": "/screenshots/step1-agent-list.png",
+        "loaded": true,
+        "width": 828,
+        "height": 286,
+        "naturalWidth": 1280,
+        "naturalHeight": 720,
+        "fit": "cover",
+        "alt": "Agent 列表页面"
+      },
+      {
+        "src": "/screenshots/step2-space-members.png",
+        "loaded": true,
+        "width": 828,
+        "height": 286,
+        "naturalWidth": 1280,
+        "naturalHeight": 720,
+        "fit": "cover",
+        "alt": "Space Members 页面"
+      },
+      {
+        "src": "/screenshots/step5-opencode-publish.png",
+        "loaded": true,
+        "width": 772,
+        "height": 286,
+        "naturalWidth": 1067,
+        "naturalHeight": 600,
+        "fit": "cover",
+        "alt": "OpenCode 发布页面过程"
+      },
+      {
+        "src": "/screenshots/step6-opencode-success.png",
+        "loaded": true,
+        "width": 772,
+        "height": 254,
+        "naturalWidth": 1280,
+        "naturalHeight": 720,
+        "fit": "cover",
+        "alt": "OpenCode 接入成功结果"
+      },
+      {
+        "src": "/screenshots/step6-published-page.png",
+        "loaded": true,
+        "width": 772,
+        "height": 254,
+        "naturalWidth": 1280,
+        "naturalHeight": 720,
+        "fit": "cover",
+        "alt": "AgentWiki 已发布页面"
+      },
+      {
+        "src": "/screenshots/step6-activity-log.png",
+        "loaded": true,
+        "width": 772,
+        "height": 254,
+        "naturalWidth": 1280,
+        "naturalHeight": 720,
+        "fit": "cover",
+        "alt": "AgentWiki MCP 活动记录"
+      },
+      {
+        "src": "/screenshots/step5-opencode-publish.png",
+        "loaded": true,
+        "width": 828,
+        "height": 286,
+        "naturalWidth": 1067,
+        "naturalHeight": 600,
+        "fit": "contain",
+        "alt": "本地 Agent 执行 AgentWiki 工作流的真实示例"
+      },
+      {
+        "src": "/screenshots/step6-opencode-success.png",
+        "loaded": true,
+        "width": 403,
+        "height": 254,
+        "naturalWidth": 1280,
+        "naturalHeight": 720,
+        "fit": "contain",
+        "alt": "本地 Agent 接入并发布成功的真实示例"
+      },
+      {
+        "src": "/screenshots/step6-published-page.png",
+        "loaded": true,
+        "width": 403,
+        "height": 254,
+        "naturalWidth": 1280,
+        "naturalHeight": 720,
+        "fit": "contain",
+        "alt": "本地 Agent 发布的 AgentWiki 页面示例"
+      }
+    ]
+  },
+  {
+    "width": 1440,
+    "language": "en",
+    "images": [
+      {
+        "src": "/screenshots/step1-agent-list-en.png",
+        "loaded": true,
+        "width": 828,
+        "height": 267,
+        "naturalWidth": 2240,
+        "naturalHeight": 722,
+        "fit": "contain",
+        "alt": "Agent List Page"
+      },
+      {
+        "src": "/screenshots/step2-space-members-en.png",
+        "loaded": true,
+        "width": 828,
+        "height": 399,
+        "naturalWidth": 2240,
+        "naturalHeight": 1080,
+        "fit": "contain",
+        "alt": "Space Members Page"
+      },
+      {
+        "src": "/screenshots/step5-agent-publish-en.png",
+        "loaded": true,
+        "width": 772,
+        "height": 358,
+        "naturalWidth": 2240,
+        "naturalHeight": 1040,
+        "fit": "contain",
+        "alt": "Example Agent page publishing flow"
+      },
+      {
+        "src": "/screenshots/step6-agent-success-en.png",
+        "loaded": true,
+        "width": 772,
+        "height": 477,
+        "naturalWidth": 2240,
+        "naturalHeight": 1384,
+        "fit": "contain",
+        "alt": "Example Agent connection and publishing result"
+      },
+      {
+        "src": "/screenshots/step6-published-page-en.png",
+        "loaded": true,
+        "width": 772,
+        "height": 599,
+        "naturalWidth": 2240,
+        "naturalHeight": 1738,
+        "fit": "contain",
+        "alt": "Published AgentWiki page"
+      },
+      {
+        "src": "/screenshots/step6-activity-log-en.png",
+        "loaded": true,
+        "width": 772,
+        "height": 408,
+        "naturalWidth": 2240,
+        "naturalHeight": 1184,
+        "fit": "contain",
+        "alt": "AgentWiki MCP activity log"
+      },
+      {
+        "src": "/screenshots/local-sync-preview-en.png",
+        "loaded": true,
+        "width": 828,
+        "height": 510,
+        "naturalWidth": 2240,
+        "naturalHeight": 1380,
+        "fit": "contain",
+        "alt": "Example local knowledge preview before upload"
+      },
+      {
+        "src": "/screenshots/local-sync-result-en.png",
+        "loaded": true,
+        "width": 403,
+        "height": 244,
+        "naturalWidth": 2240,
+        "naturalHeight": 1358,
+        "fit": "contain",
+        "alt": "Example local knowledge synchronization result"
+      },
+      {
+        "src": "/screenshots/step6-published-page-en.png",
+        "loaded": true,
+        "width": 403,
+        "height": 313,
+        "naturalWidth": 2240,
+        "naturalHeight": 1738,
+        "fit": "contain",
+        "alt": "AgentWiki page published by a local Agent"
+      }
+    ]
+  },
+  {
+    "width": 390,
+    "language": "en",
+    "images": [
+      {
+        "src": "/screenshots/step1-agent-list-en.png",
+        "loaded": true,
+        "width": 290,
+        "height": 93,
+        "naturalWidth": 2240,
+        "naturalHeight": 722,
+        "fit": "contain",
+        "alt": "Agent List Page"
+      },
+      {
+        "src": "/screenshots/step2-space-members-en.png",
+        "loaded": true,
+        "width": 290,
+        "height": 140,
+        "naturalWidth": 2240,
+        "naturalHeight": 1080,
+        "fit": "contain",
+        "alt": "Space Members Page"
+      },
+      {
+        "src": "/screenshots/step5-agent-publish-en.png",
+        "loaded": true,
+        "width": 234,
+        "height": 109,
+        "naturalWidth": 2240,
+        "naturalHeight": 1040,
+        "fit": "contain",
+        "alt": "Example Agent page publishing flow"
+      },
+      {
+        "src": "/screenshots/step6-agent-success-en.png",
+        "loaded": true,
+        "width": 234,
+        "height": 145,
+        "naturalWidth": 2240,
+        "naturalHeight": 1384,
+        "fit": "contain",
+        "alt": "Example Agent connection and publishing result"
+      },
+      {
+        "src": "/screenshots/step6-published-page-en.png",
+        "loaded": true,
+        "width": 234,
+        "height": 182,
+        "naturalWidth": 2240,
+        "naturalHeight": 1738,
+        "fit": "contain",
+        "alt": "Published AgentWiki page"
+      },
+      {
+        "src": "/screenshots/step6-activity-log-en.png",
+        "loaded": true,
+        "width": 234,
+        "height": 124,
+        "naturalWidth": 2240,
+        "naturalHeight": 1184,
+        "fit": "contain",
+        "alt": "AgentWiki MCP activity log"
+      },
+      {
+        "src": "/screenshots/local-sync-preview-en.png",
+        "loaded": true,
+        "width": 314,
+        "height": 193,
+        "naturalWidth": 2240,
+        "naturalHeight": 1380,
+        "fit": "contain",
+        "alt": "Example local knowledge preview before upload"
+      },
+      {
+        "src": "/screenshots/local-sync-result-en.png",
+        "loaded": true,
+        "width": 314,
+        "height": 190,
+        "naturalWidth": 2240,
+        "naturalHeight": 1358,
+        "fit": "contain",
+        "alt": "Example local knowledge synchronization result"
+      },
+      {
+        "src": "/screenshots/step6-published-page-en.png",
+        "loaded": true,
+        "width": 314,
+        "height": 244,
+        "naturalWidth": 2240,
+        "naturalHeight": 1738,
+        "fit": "contain",
+        "alt": "AgentWiki page published by a local Agent"
+      }
+    ]
+  },
+  {
+    "width": 390,
+    "language": "zh-CN",
+    "images": [
+      {
+        "src": "/screenshots/step1-agent-list.png",
+        "loaded": true,
+        "width": 290,
+        "height": 222,
+        "naturalWidth": 1280,
+        "naturalHeight": 720,
+        "fit": "cover",
+        "alt": "Agent 列表页面"
+      },
+      {
+        "src": "/screenshots/step2-space-members.png",
+        "loaded": true,
+        "width": 290,
+        "height": 222,
+        "naturalWidth": 1280,
+        "naturalHeight": 720,
+        "fit": "cover",
+        "alt": "Space Members 页面"
+      },
+      {
+        "src": "/screenshots/step5-opencode-publish.png",
+        "loaded": true,
+        "width": 234,
+        "height": 222,
+        "naturalWidth": 1067,
+        "naturalHeight": 600,
+        "fit": "cover",
+        "alt": "OpenCode 发布页面过程"
+      },
+      {
+        "src": "/screenshots/step6-opencode-success.png",
+        "loaded": true,
+        "width": 234,
+        "height": 206,
+        "naturalWidth": 1280,
+        "naturalHeight": 720,
+        "fit": "cover",
+        "alt": "OpenCode 接入成功结果"
+      },
+      {
+        "src": "/screenshots/step6-published-page.png",
+        "loaded": true,
+        "width": 234,
+        "height": 206,
+        "naturalWidth": 1280,
+        "naturalHeight": 720,
+        "fit": "cover",
+        "alt": "AgentWiki 已发布页面"
+      },
+      {
+        "src": "/screenshots/step6-activity-log.png",
+        "loaded": true,
+        "width": 234,
+        "height": 206,
+        "naturalWidth": 1280,
+        "naturalHeight": 720,
+        "fit": "cover",
+        "alt": "AgentWiki MCP 活动记录"
+      },
+      {
+        "src": "/screenshots/step5-opencode-publish.png",
+        "loaded": true,
+        "width": 314,
+        "height": 222,
+        "naturalWidth": 1067,
+        "naturalHeight": 600,
+        "fit": "contain",
+        "alt": "本地 Agent 执行 AgentWiki 工作流的真实示例"
+      },
+      {
+        "src": "/screenshots/step6-opencode-success.png",
+        "loaded": true,
+        "width": 314,
+        "height": 206,
+        "naturalWidth": 1280,
+        "naturalHeight": 720,
+        "fit": "contain",
+        "alt": "本地 Agent 接入并发布成功的真实示例"
+      },
+      {
+        "src": "/screenshots/step6-published-page.png",
+        "loaded": true,
+        "width": 314,
+        "height": 206,
+        "naturalWidth": 1280,
+        "naturalHeight": 720,
+        "fit": "contain",
+        "alt": "本地 Agent 发布的 AgentWiki 页面示例"
+      }
+    ]
+  },
+  {
+    "width": 390,
+    "language": "en",
+    "images": [
+      {
+        "src": "/screenshots/step1-agent-list-en.png",
+        "loaded": true,
+        "width": 290,
+        "height": 93,
+        "naturalWidth": 2240,
+        "naturalHeight": 722,
+        "fit": "contain",
+        "alt": "Agent List Page"
+      },
+      {
+        "src": "/screenshots/step2-space-members-en.png",
+        "loaded": true,
+        "width": 290,
+        "height": 140,
+        "naturalWidth": 2240,
+        "naturalHeight": 1080,
+        "fit": "contain",
+        "alt": "Space Members Page"
+      },
+      {
+        "src": "/screenshots/step5-agent-publish-en.png",
+        "loaded": true,
+        "width": 234,
+        "height": 109,
+        "naturalWidth": 2240,
+        "naturalHeight": 1040,
+        "fit": "contain",
+        "alt": "Example Agent page publishing flow"
+      },
+      {
+        "src": "/screenshots/step6-agent-success-en.png",
+        "loaded": true,
+        "width": 234,
+        "height": 145,
+        "naturalWidth": 2240,
+        "naturalHeight": 1384,
+        "fit": "contain",
+        "alt": "Example Agent connection and publishing result"
+      },
+      {
+        "src": "/screenshots/step6-published-page-en.png",
+        "loaded": true,
+        "width": 234,
+        "height": 182,
+        "naturalWidth": 2240,
+        "naturalHeight": 1738,
+        "fit": "contain",
+        "alt": "Published AgentWiki page"
+      },
+      {
+        "src": "/screenshots/step6-activity-log-en.png",
+        "loaded": true,
+        "width": 234,
+        "height": 124,
+        "naturalWidth": 2240,
+        "naturalHeight": 1184,
+        "fit": "contain",
+        "alt": "AgentWiki MCP activity log"
+      },
+      {
+        "src": "/screenshots/local-sync-preview-en.png",
+        "loaded": true,
+        "width": 314,
+        "height": 193,
+        "naturalWidth": 2240,
+        "naturalHeight": 1380,
+        "fit": "contain",
+        "alt": "Example local knowledge preview before upload"
+      },
+      {
+        "src": "/screenshots/local-sync-result-en.png",
+        "loaded": true,
+        "width": 314,
+        "height": 190,
+        "naturalWidth": 2240,
+        "naturalHeight": 1358,
+        "fit": "contain",
+        "alt": "Example local knowledge synchronization result"
+      },
+      {
+        "src": "/screenshots/step6-published-page-en.png",
+        "loaded": true,
+        "width": 314,
+        "height": 244,
+        "naturalWidth": 2240,
+        "naturalHeight": 1738,
+        "fit": "contain",
+        "alt": "AgentWiki page published by a local Agent"
+      }
+    ]
+  }
+]

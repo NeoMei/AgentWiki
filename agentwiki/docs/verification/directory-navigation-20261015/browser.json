@@ -1,0 +1,21 @@
+{
+  "before": "目录请求：7",
+  "during": [
+    {
+      "directory": "目录请求：7",
+      "loading": false,
+      "nodes": 5,
+      "pending": "文档加载中：1",
+      "treeVisible": true
+    },
+    {
+      "directory": "目录请求：7",
+      "loading": false,
+      "nodes": 5,
+      "pending": "文档加载中：1",
+      "treeVisible": true
+    }
+  ],
+  "after": "目录请求：7",
+  "pages": "文档请求：3"
+}

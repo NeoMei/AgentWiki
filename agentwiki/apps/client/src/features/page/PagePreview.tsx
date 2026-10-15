@@ -242,6 +242,7 @@ export const PagePreview: React.FC = () => {
     content: string,
     responseData: Partial<Page>,
   ) => {
+    workspace?.requestDirectoryRefresh?.();
     if (!routeIsActive(pageId, generation)) return;
     lastCommittedPageRef.current = {
       ...baseline,
@@ -399,6 +400,7 @@ export const PagePreview: React.FC = () => {
           content,
           expectedUpdatedAt: current.updatedAt,
         });
+        workspace?.requestDirectoryRefresh?.();
         if (!routeIsActive(pageId, generation)) return false;
         const committed: Page = {
           ...current,
@@ -488,7 +490,7 @@ export const PagePreview: React.FC = () => {
       .catch((loadError: any) => {
         if (!routeIsActive(requestedId, generation) || pageLoadSequenceRef.current !== loadSequence) return;
         const status = loadError.response?.status;
-        if (status === 401 || status === 403) reportPageIdentity(requestedId, null);
+        if (status === 401 || status === 403) reportPageIdentity(requestedId, null, null, true);
         setError(apiErrorMessage(loadError, tRef.current, 'editor.loadFailed'));
       })
       .finally(() => {
@@ -661,10 +663,13 @@ export const PagePreview: React.FC = () => {
       await api.delete(`/pages/${requestedPageId}`, {
         data: { expectedUpdatedAt: requestedUpdatedAt, expectedTreeRevision },
       });
+      workspace?.requestDirectoryRefresh?.();
       if (
         routeIsActive(requestedPageId, requestedGeneration)
         && deleteOperationRef.current === operation
-      ) navigate(`/spaces/${requestedSpaceId}`);
+      ) {
+        navigate(`/spaces/${requestedSpaceId}`);
+      }
     } catch (err: any) {
       if (
         routeIsActive(requestedPageId, requestedGeneration)

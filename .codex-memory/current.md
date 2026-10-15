@@ -1,9 +1,10 @@
 # 当前目标
 
-- 收起文档工具栏细边框与分段样式已发布部署 v0.12.35（ca71d4b6）；客户端2573项、全仓build及桌面/390px实际组件验收通过；生产1325源码文件一致、3服务/5健康检查/32烟测通过，真实文章页收起与重开验证通过。回执：agentwiki/docs/verification/collapsed-toolbar-20261015/deployment.json。
+- 英文 Guide 截图修复已发布部署 v0.12.39（583c6a5a）：8张英文示例覆盖9处图片，按语言切换；已合入 v0.12.38。Guide7项及最终构建/双端页面验收通过；全量基线7519通过，最终客户端2609通过/既有图谱1项波动（独立13/13通过）。生产1345源码文件匹配、3服务/5健康检查/32烟测与双端中英切换通过；8英文图片公网哈希匹配。回执 agentwiki/docs/verification/guide-english-20261015/deployment.json。
 
-- 本次文章右侧 Agent 多 Session 标签关闭修复已发布为 v0.12.34，发布提交 `479419eff227a09350dd7cdc695450de238bb894`；GitHub master/tag/Release、生产部署与原文章浏览器回验均已完成。
-- 用户已授权核验全部本轮改动后发布。正在进行Web/API0.12.26、Local Sync0.13.0最终门禁、版本契约、配套备份和上线准备；尚未发布新版本。
+- 目录点击反复加载修复已发布部署 v0.12.38（53064514），保留 v0.12.37 功能。159 文件 / 2609 客户端测试、构建/类型/lint/33 契约及独立复审通过。线上1333源码匹配、三服务/五健康/32烟测通过；原页面同目录/跨目录/返回三次新增目录请求均0，文章加载时目录20节点保留。回执：agentwiki/docs/verification/directory-navigation-20261015/deployment.json。
+- 内嵌 Agent 聊天过程反馈与候选确认简化已发布部署 v0.12.37（9b7a3b90）；回执：agentwiki/docs/verification/agent-chat-feedback-20261015/deployment.json。
+- 目录名称编辑图标 v0.12.36 已发布部署，并在原文章页面验收。
 
 # 范围 / 不做
 
@@ -12,7 +13,9 @@
 
 # 当前状态
 
-- 目录名称编辑图标候选 v0.12.36 基于 v0.12.35 完成：输入框右侧勾选/叉号，保留键盘及禁用/错误状态；客户端156文件2573项、构建、lint、独立集成审查与实际组件验证通过。用户已授权发布，联合备份已验证，待生产部署和读回。
+- 目录切页卡顿：生产原案单次导航重复发起 11–12 个目录请求，目标身份临时为空导致全树清空/串行重读。候选改为按用户/Space复用已加载层，目标变化与失效分离；创建、保存、删除、任务勾选、Agent正文更新均显式刷新，保存后目录乐观锁同步；同Space晚回执只刷新目录、不抢当前路由，跨身份回执拒绝。Chrome合成慢响应下两次切页新增目录请求0、5节点持续可见。初始JS548340/550000。回执：agentwiki/docs/verification/directory-navigation-20261015/status.md。工作树：`/Users/neomei/.codex/worktrees/inline-name-icons-release/AgentWiki `（尾空格）。
+
+- 目录名称编辑图标已发布部署 v0.12.36（3996c627）：输入框右侧勾选保存/叉号取消，页面与目录重命名及新建复用。客户端2573项串行通过，各阶段合计7482通过/6既有跳过；构建、lint、独立审查通过。联合备份验证、1325源码文件一致、3服务/5health/32公网smoke及原项目周报页面图标/取消/Esc真实Chrome验收通过；凭据/Grant/Agent/Space策略稳定字段摘要一致。详见 agentwiki/docs/verification/inline-name-icons-20261015/deployment.json。
 
 - Agent Session 标签关闭：保留历史/草稿/运行任务，支持相邻选择、键盘 Delete、用户与空间隔离的打开状态持久化、窄屏关闭入口；93 项相关测试及 build/tsc/lint 通过。v0.12.34 生产 1325 文件匹配、3 服务和 health 五项正常，原文章关闭/历史重开/刷新保持空态实测通过。全 client 2572 通过 / 1 个知识图谱既有失败，在未改 v0.12.33 基线也复现；详细回执见 `agentwiki/docs/verification/agent-session-tabs-20261015/status.md`。
 - 空间卡片描述下显示所有者姓名；从现有members.role=owner读取全部Owner，空姓名回退邮箱，无资料明确提示，长名单省略并title保留完整文本。未新增请求/后端字段。Dashboard41测试、build/tsc、定向lint、独立复审及IAB桌面/390px中英验收通过；详见.codex-memory/archive/20261014-space-card-owner.md。
@@ -38,6 +41,9 @@
 
 # 关键索引
 
+- agentwiki/docs/verification/directory-navigation-20261015/status.md
+- .codex-memory/tasks/archive/agent-chat-feedback-20261015/{brief,decisions,refs}.md
+
 - agentwiki/docs/verification/agent-session-tabs-20261015/status.md
 - .codex-memory/tasks/archive/agent-chat-simplification-20261014/{brief,decisions,refs}.md
 - .codex-memory/tasks/archive/shared-page-notes-20261014/{brief,decisions,refs}.md
@@ -51,6 +57,8 @@
 - 项目首页：https://agentwiki.quukk.com/pages/f285b898-65ba-4938-8616-e9a0b8f575f5
 
 # 风险 / 下一步
+
+- 目录缓存修复 v0.12.38 已完成生产回验。原主检出仍旧且带用户改动，不得覆盖；后续从最新 origin/master 继续。原有页面刷新后加载新版资源。
 
 - Session 标签关闭生产原案已回验，临时输入已清除且原标签布局已恢复。旧知识图谱全量测试失败另行保留，不将本次发布计为图谱问题修复。
 - 17 篇项目模板交付已完成。编辑器修复、统一面板与服务器笔记均为已验收本地候选，尚未推送/发布；后续上线需执行 PageNote 迁移并生产回验。

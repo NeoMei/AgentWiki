@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { GuideScreenshot } from './GuideScreenshot';
+import { guideScreenshot } from './guideScreenshots';
 import { LocalSyncGuideSection } from './LocalSyncGuideSection';
 import { GatewayGuidePreview } from './GatewayGuidePreview';
 
@@ -110,13 +111,15 @@ export const UsageGuide: React.FC = () => {
                 </div>
               </div>
               <GuideScreenshot
-                src="/screenshots/step1-agent-list.png"
+                src={guideScreenshot('agents', zh)}
+                heightClassName={zh ? 'h-56 sm:h-72' : 'h-auto'}
+                fit={zh ? 'cover' : 'contain'}
                 alt={zh ? 'Agent 列表页面' : 'Agent List Page'}
                 focus="top"
               />
               <div className="mt-3 text-center text-xs text-gray-500 flex items-center justify-center gap-1">
                 <MousePointerClick size={12} />
-                {zh ? 'Agent 列表页面 — 点击右上角「创建智能体」' : 'Agent List Page — Click "Create Agent" in top right'}
+                {zh ? 'Agent 列表页面 — 点击右上角「创建智能体」' : 'Agent List Page — Click "New agent" in the top right'}
               </div>
             </div>
 
@@ -136,7 +139,9 @@ export const UsageGuide: React.FC = () => {
                 </div>
               </div>
               <GuideScreenshot
-                src="/screenshots/step2-space-members.png"
+                src={guideScreenshot('members', zh)}
+                heightClassName={zh ? 'h-56 sm:h-72' : 'h-auto'}
+                fit={zh ? 'cover' : 'contain'}
                 alt={zh ? 'Space Members 页面' : 'Space Members Page'}
               />
               <div className="mt-3 text-center text-xs text-gray-500 flex items-center justify-center gap-1">
@@ -193,12 +198,14 @@ export const UsageGuide: React.FC = () => {
                     {zh ? '把整段接入指令作为一条消息交给本地 Agent。AgentWiki 的接入方式不绑定具体产品，Codex、Claude Code、OpenCode 等 Agent 都使用同一套流程：由 Agent 自行配置 MCP、校验身份并调用工具。' : 'Give the complete connection prompt to your local Agent as one message. AgentWiki is not tied to a specific product: Agents such as Codex, Claude Code, and OpenCode use the same flow to configure MCP, verify their identity, and call the tools themselves.'}
                   </p>
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-700 mb-4">
-                    <strong>{zh ? '以下以 OpenCode 为例：' : 'OpenCode example: '}</strong>
-                    {zh ? '示例中的 OpenCode 使用发布者角色；Space 选择“无需审核”时，具备写入能力的 Agent 可在已有权限范围内自动发布；“始终审核”时仍进入人工审核。' : 'The example uses Publisher. In No review, a write-capable Agent may auto-publish within its existing scopes; Always review sends the page to human review.'}
+                    <strong>{zh ? '以下以 OpenCode 为例：' : 'English example: '}</strong>
+                    {zh ? '示例中的 OpenCode 使用发布者角色；Space 选择“无需审核”时，具备写入能力的 Agent 可在已有权限范围内自动发布；“始终审核”时仍进入人工审核。' : 'The illustrative Product Handbook example uses Publisher. In No review, a write-capable Agent may auto-publish within its existing scopes; Always review sends the page to human review.'}
                   </div>
                   <GuideScreenshot
-                    src="/screenshots/step5-opencode-publish.png"
-                    alt={zh ? 'OpenCode 发布页面过程' : 'OpenCode page publishing flow'}
+                    src={guideScreenshot('publish', zh)}
+                    heightClassName={zh ? 'h-56 sm:h-72' : 'h-auto'}
+                    fit={zh ? 'cover' : 'contain'}
+                    alt={zh ? 'OpenCode 发布页面过程' : 'Example Agent page publishing flow'}
                     focus="top"
                   />
                 </div>
@@ -212,34 +219,37 @@ export const UsageGuide: React.FC = () => {
                 <div className="flex-1 min-w-0">
                   <h3 className="text-xl font-semibold text-gray-900 mb-2">{zh ? '确认 Agent 接入与页面发布结果' : 'Confirm Agent Connection and Page Publishing'}</h3>
                   <p className="text-gray-600 mb-5">
-                    {zh ? '无论使用哪种本地 Agent，接入成功都应同时看到三项结果：Agent 明确报告成功、AgentWiki 中出现正式页面、活动记录中出现对应的 MCP 工具调用。以下截图继续展示 OpenCode 的真实验证结果。' : 'Regardless of which local Agent you use, a successful connection has three signals: the Agent reports success, the published page appears in AgentWiki, and the activity log records the corresponding MCP tool calls. The screenshots below show the verified OpenCode example.'}
+                    {zh ? '无论使用哪种本地 Agent，接入成功都应同时看到三项结果：Agent 明确报告成功、AgentWiki 中出现正式页面、活动记录中出现对应的 MCP 工具调用。以下截图继续展示 OpenCode 的真实验证结果。' : 'Regardless of which local Agent you use, a successful connection has three signals: the Agent reports success, the published page appears in AgentWiki, and the activity log records the corresponding MCP tool calls. The English screenshots use an illustrative Product Handbook project with sample Agent messages and data.'}
                   </p>
                   <div className="space-y-6">
                     <div>
-                      <p className="text-sm font-medium text-gray-900 mb-2">{zh ? '1. OpenCode 返回接入和发布结果' : '1. OpenCode reports connection and publishing success'}</p>
+                      <p className="text-sm font-medium text-gray-900 mb-2">{zh ? '1. OpenCode 返回接入和发布结果' : '1. The Agent reports connection and publishing success'}</p>
                       <GuideScreenshot
-                        src="/screenshots/step6-opencode-success.png"
-                        alt={zh ? 'OpenCode 接入成功结果' : 'OpenCode connection success'}
+                        src={guideScreenshot('result', zh)}
+                        fit={zh ? 'cover' : 'contain'}
+                        alt={zh ? 'OpenCode 接入成功结果' : 'Example Agent connection and publishing result'}
                         focus="top"
-                        heightClassName="h-52 sm:h-64"
+                        heightClassName={zh ? 'h-52 sm:h-64' : 'h-auto'}
                       />
                     </div>
                     <div>
                       <p className="text-sm font-medium text-gray-900 mb-2">{zh ? '2. AgentWiki 显示已发布页面及 Agent 来源' : '2. AgentWiki shows the published page and Agent provenance'}</p>
                       <GuideScreenshot
-                        src="/screenshots/step6-published-page.png"
+                        src={guideScreenshot('page', zh)}
+                        fit={zh ? 'cover' : 'contain'}
                         alt={zh ? 'AgentWiki 已发布页面' : 'Published AgentWiki page'}
                         focus="top"
-                        heightClassName="h-52 sm:h-64"
+                        heightClassName={zh ? 'h-52 sm:h-64' : 'h-auto'}
                       />
                     </div>
                     <div>
                       <p className="text-sm font-medium text-gray-900 mb-2">{zh ? '3. 活动记录保留完整 MCP 调用证据' : '3. The activity log preserves the MCP call evidence'}</p>
                       <GuideScreenshot
-                        src="/screenshots/step6-activity-log.png"
+                        src={guideScreenshot('activity', zh)}
+                        fit={zh ? 'cover' : 'contain'}
                         alt={zh ? 'AgentWiki MCP 活动记录' : 'AgentWiki MCP activity log'}
                         focus="top"
-                        heightClassName="h-52 sm:h-64"
+                        heightClassName={zh ? 'h-52 sm:h-64' : 'h-auto'}
                       />
                     </div>
                   </div>

@@ -92,7 +92,9 @@ export const PageVersionHistory: React.FC = () => {
         reportPageIdentity(id, pageRes.data?.spaceId || null, pageRes.data?.folderId ?? null);
       } catch (err: unknown) {
         if (active) {
-          reportPageIdentity(id, null);
+          const status = (err as { response?: { status?: number } })?.response?.status;
+          if (status === 401 || status === 403) reportPageIdentity(id, null, null, true);
+          else reportPageIdentity(id, null);
           setError(apiErrorMessage(err, t, 'version.loadFailed'));
         }
       } finally {

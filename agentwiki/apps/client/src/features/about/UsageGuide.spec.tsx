@@ -1,4 +1,6 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LOCAL_SYNC_PACKAGE_URL } from '../../config/localSync';
@@ -21,6 +23,25 @@ const renderGuide = () => render(
 
 describe('UsageGuide Agent connection flow', () => {
   beforeEach(() => localStorage.setItem('agentwiki.language.v1', 'zh-CN'));
+
+  it('switches every screenshot with the guide language and ships both sets of images', () => {
+    renderGuide();
+    const chineseSources = screen.getAllByRole('img').map((image) => image.getAttribute('src'));
+    expect(chineseSources).toHaveLength(9);
+    fireEvent.click(screen.getByRole('button', { name: '切换语言' }));
+    expect(screen.getByRole('heading', { name: 'How to Use AgentWiki' })).toBeVisible();
+    const englishSources = screen.getAllByRole('img').map((image) => image.getAttribute('src'));
+    expect(englishSources).toHaveLength(chineseSources.length);
+    for (const [index, src] of englishSources.entries()) {
+      expect(src).not.toBe(chineseSources[index]);
+      expect(src).toMatch(/-en\.png$/);
+    }
+    for (const src of [...chineseSources, ...englishSources]) {
+      expect(existsSync(path.resolve(process.cwd(), 'public', src!.slice(1))), src!).toBe(true);
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Switch language' }));
+    expect(screen.getAllByRole('img').map((image) => image.getAttribute('src'))).toEqual(chineseSources);
+  });
 
   it('presents a generic Agent flow with OpenCode as the verified example', () => {
     renderGuide();

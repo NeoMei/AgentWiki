@@ -14,6 +14,7 @@ export interface DirectoryLevel {
 interface UseSpaceDirectoryOptions {
   spaceId: string | null;
   identityKey?: string;
+  refreshKey?: number;
   targetFolderId: string | null;
   expandedFolderIds: ReadonlySet<string>;
   setFolderExpanded: (folderId: string, expanded: boolean) => void;
@@ -48,9 +49,23 @@ const responseStatus = (error: unknown): number | undefined => (
   (error as { response?: { status?: number } } | null)?.response?.status
 );
 
+const cachedAncestors = (index: FolderIndex, folderId: string | null): string[] | null => {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  while (folderId) {
+    const entry = index.get(folderId);
+    if (!entry || seen.has(folderId)) return null;
+    seen.add(folderId);
+    ids.unshift(folderId);
+    folderId = entry.parentId;
+  }
+  return ids;
+};
+
 export const useSpaceDirectory = ({
   spaceId,
   identityKey = spaceId ?? '',
+  refreshKey = 0,
   targetFolderId,
   expandedFolderIds,
   setFolderExpanded,
@@ -60,6 +75,7 @@ export const useSpaceDirectory = ({
   const errorMessage = useCallback((failure: unknown) => failure instanceof DirectoryRevisionChangedError
     ? t('folder.directoryChanged') : apiErrorMessage(failure, t, 'folder.loadFailed'), [t]);
   const installedIdentityRef = useRef(identityKey);
+  const installedSpaceRef = useRef(spaceId);
   const generationRef = useRef(0);
   const snapshotControllerRef = useRef<AbortController | null>(null);
   const reloadControllersRef = useRef<Map<string, AbortController>>(new Map());
@@ -115,6 +131,7 @@ export const useSpaceDirectory = ({
   const installLevel = useCallback((level: DirectoryLevel, generation: number) => {
     if (generationRef.current !== generation) return;
     if (revisionRef.current !== null && revisionRef.current !== level.treeRevision) {
+      invalidateRequests();
       clearDirectory(null);
       setRetryKey((value) => value + 1);
       return;
@@ -124,7 +141,7 @@ export const useSpaceDirectory = ({
     nextLevels.set(level.parentFolderId, level);
     registerFolders(nextIndex, level.nodes, level.parentFolderId);
     installSnapshot(nextLevels, nextIndex, level.treeRevision, generation);
-  }, [clearDirectory, installSnapshot]);
+  }, [clearDirectory, installSnapshot, invalidateRequests]);
 
   const reloadLevel = useCallback(async (parentFolderId: string | null) => {
     if (!spaceId) return;
@@ -146,6 +163,7 @@ export const useSpaceDirectory = ({
       if (responseStatus(loadError) === 401 || responseStatus(loadError) === 403) {
         invalidateRequests();
         clearDirectory(null);
+        setLocating(false);
         setError(loadError);
       } else if (parentFolderId) {
         setBranchErrors((current) => new Map(current).set(parentFolderId, loadError));
@@ -160,33 +178,46 @@ export const useSpaceDirectory = ({
 
   useEffect(() => {
     installedIdentityRef.current = identityKey;
-    const generation = generationRef.current + 1;
-    generationRef.current = generation;
-    for (const reloadController of reloadControllersRef.current.values()) reloadController.abort();
-    reloadControllersRef.current.clear();
+    installedSpaceRef.current = spaceId;
+    invalidateRequests();
     clearDirectory(null);
     setError(null);
     setLocating(Boolean(spaceId));
+    return invalidateRequests;
+  }, [clearDirectory, identityKey, invalidateRequests, refreshKey, retryKey, spaceId]);
+
+  useEffect(() => {
     if (!spaceId) return undefined;
+    const generation = generationRef.current;
+    const reuse = levelsRef.current.has(null) && revisionRef.current !== null;
+    const knownAncestors = reuse ? cachedAncestors(indexRef.current, targetFolderId) : null;
+    setError(null);
+    if (reuse && knownAncestors && knownAncestors.every((id) => levelsRef.current.has(id))) {
+      for (const id of knownAncestors) setFolderExpanded(id, true);
+      setLocating(false);
+      return undefined;
+    }
+    setLocating(true);
     const controller = new AbortController();
     snapshotControllerRef.current = controller;
     const expandedFolderIdsAtStart = expandedFolderIdsRef.current;
     void (async () => {
       try {
         for (let attempt = 0; attempt < SNAPSHOT_ATTEMPTS; attempt += 1) {
-          const ancestry = targetFolderId
+          const ancestry = targetFolderId && !knownAncestors
             ? await listFolderAncestry(spaceId, targetFolderId, controller.signal)
             : null;
-          if (generationRef.current !== generation) return;
-          const ancestorIds = ancestry?.ancestorIds ?? [];
+          if (controller.signal.aborted || generationRef.current !== generation) return;
+          const ancestorIds = knownAncestors ?? ancestry?.ancestorIds ?? [];
           const nextLevels = new Map<string | null, DirectoryLevel>();
           const nextIndex = new Map(ancestry?.folders ?? []);
           const nextBranchErrors = new Map<string, unknown>();
-          let revision = ancestry?.treeRevision || null;
-          let changed = false;
+          let revision = reuse ? revisionRef.current : ancestry?.treeRevision || null;
+          let changed = Boolean(reuse && ancestry && ancestry.treeRevision !== revision);
           const pendingExpandedFolderIds: string[] = [];
           const queuedExpandedFolderIds = new Set<string>();
           const enqueueExpandedFolders = (nodes: ContentTreeNode[]) => {
+            if (reuse) return;
             for (const node of nodes) {
               if (node.kind !== 'folder' || !expandedFolderIdsAtStart.has(node.id) || queuedExpandedFolderIds.has(node.id)) continue;
               queuedExpandedFolderIds.add(node.id);
@@ -195,8 +226,10 @@ export const useSpaceDirectory = ({
           };
 
           for (const parentFolderId of [null, ...ancestorIds] as Array<string | null>) {
+            if (changed) break;
+            if (reuse && levelsRef.current.has(parentFolderId)) continue;
             const response = await listTreeChildren(spaceId, parentFolderId, controller.signal);
-            if (generationRef.current !== generation) return;
+            if (controller.signal.aborted || generationRef.current !== generation) return;
             revision ??= response.treeRevision;
             if (response.treeRevision !== revision) {
               changed = true;
@@ -220,7 +253,7 @@ export const useSpaceDirectory = ({
               nextBranchErrors.set(parentFolderId, branchError);
               continue;
             }
-            if (generationRef.current !== generation) return;
+            if (controller.signal.aborted || generationRef.current !== generation) return;
             revision ??= response.treeRevision;
             if (response.treeRevision !== revision) {
               changed = true;
@@ -233,12 +266,29 @@ export const useSpaceDirectory = ({
           }
 
           if (changed) {
+            if (reuse) {
+              invalidateRequests();
+              clearDirectory(null);
+              setRetryKey((value) => value + 1);
+              return;
+            }
             if (attempt + 1 === SNAPSHOT_ATTEMPTS) throw new DirectoryRevisionChangedError();
             continue;
           }
           if (!revision) throw new Error('The directory response did not include a revision.');
-          setBranchErrors(nextBranchErrors);
-          installSnapshot(nextLevels, nextIndex, revision, generation);
+          setBranchErrors((current) => {
+            if (!reuse) return nextBranchErrors;
+            const remaining = new Map(current);
+            for (const id of nextLevels.keys()) if (id) remaining.delete(id);
+            return remaining;
+          });
+          // Lazy branch loads may finish while a new target is being located.
+          // Merge additions into the live cache so those results are retained.
+          installSnapshot(
+            reuse ? new Map([...levelsRef.current, ...nextLevels]) : nextLevels,
+            reuse ? new Map([...indexRef.current, ...nextIndex]) : nextIndex,
+            revision, generation,
+          );
           for (const ancestorId of ancestorIds) setFolderExpanded(ancestorId, true);
           return;
         }
@@ -261,10 +311,8 @@ export const useSpaceDirectory = ({
     return () => {
       controller.abort();
       if (snapshotControllerRef.current === controller) snapshotControllerRef.current = null;
-      for (const reloadController of reloadControllersRef.current.values()) reloadController.abort();
-      reloadControllersRef.current.clear();
     };
-  }, [clearDirectory, installSnapshot, invalidateRequests, retryKey, setFolderExpanded, spaceId, targetFolderId, identityKey]);
+  }, [clearDirectory, installSnapshot, invalidateRequests, refreshKey, retryKey, setFolderExpanded, spaceId, targetFolderId, identityKey]);
 
   const toggleFolder = useCallback(async (folderId: string) => {
     const expanded = expandedFolderIds.has(folderId);
@@ -280,7 +328,7 @@ export const useSpaceDirectory = ({
 
   const crumbs = useMemo(() => crumbsForFolder(folderIndex, targetFolderId, rootLabel), [folderIndex, rootLabel, targetFolderId]);
 
-  const identityMatches = installedIdentityRef.current === identityKey;
+  const identityMatches = installedIdentityRef.current === identityKey && installedSpaceRef.current === spaceId;
   return {
     levels: identityMatches ? levels : new Map(),
     folderIndex: identityMatches ? folderIndex : new Map(),

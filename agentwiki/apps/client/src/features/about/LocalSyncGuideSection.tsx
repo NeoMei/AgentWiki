@@ -6,6 +6,7 @@ import {
   LOCAL_SYNC_VERSION,
 } from '../../config/localSync';
 import { GuideScreenshot } from './GuideScreenshot';
+import { guideScreenshot } from './guideScreenshots';
 
 const commands = [
   ['wiki_*', '远程页面、图谱、来源、审核和记忆操作', 'Remote pages, graph, sources, reviews, and memory'],
@@ -90,11 +91,11 @@ export const LocalSyncGuideSection: React.FC<LocalSyncGuideSectionProps> = ({ zh
           <div>
             <h3 className="text-lg font-semibold text-gray-900">{zh ? '扫描目录并检查预览' : 'Scan a directory and inspect the preview'}</h3>
             <p className="mt-2 text-sm leading-6 text-gray-600">
-              {zh ? '告诉 Agent 本地目录和目标 Space。它会先检查代码、Markdown、TXT、PDF 或 DOCX，并展示新增、更新、删除、未变化、跳过文件、上传大小和模型边界。此时不会上传。' : 'Tell the Agent the local directory and target Space. It inspects code, Markdown, TXT, PDF, or DOCX and shows added, updated, deleted, unchanged, skipped files, upload size, and model boundary. Nothing is uploaded yet.'}
+              {zh ? '告诉 Agent 本地目录和目标 Space。它会先检查代码、Markdown、TXT、PDF 或 DOCX，并展示新增、更新、删除、未变化、跳过文件、上传大小和模型边界。此时不会上传。' : 'Tell the Agent the local directory and target Space. It inspects code, Markdown, TXT, PDF, or DOCX and shows added, updated, deleted, unchanged, skipped files, upload size, and model boundary. Nothing is uploaded yet. The English screenshots below illustrate a Product Handbook example.'}
             </p>
           </div>
         </div>
-        <GuideScreenshot src="/screenshots/step5-opencode-publish.png" alt={zh ? '本地 Agent 执行 AgentWiki 工作流的真实示例' : 'Real local Agent workflow example in AgentWiki'} fit="contain" heightClassName="h-56 sm:h-72" />
+        <GuideScreenshot src={guideScreenshot('localPreview', zh)} alt={zh ? '本地 Agent 执行 AgentWiki 工作流的真实示例' : 'Example local knowledge preview before upload'} fit="contain" heightClassName={zh ? 'h-56 sm:h-72' : 'h-auto'} />
       </li>
 
       <li className="rounded-xl border border-gray-200 bg-white p-5 sm:p-8">
@@ -107,9 +108,9 @@ export const LocalSyncGuideSection: React.FC<LocalSyncGuideSectionProps> = ({ zh
             </p>
           </div>
         </div>
-        <div className="grid gap-5 lg:grid-cols-2">
-          <GuideScreenshot src="/screenshots/step6-opencode-success.png" alt={zh ? '本地 Agent 接入并发布成功的真实示例' : 'Real local Agent connection and publishing result'} fit="contain" heightClassName="h-52 sm:h-64" />
-          <GuideScreenshot src="/screenshots/step6-published-page.png" alt={zh ? '本地 Agent 发布的 AgentWiki 页面示例' : 'AgentWiki page published by a local Agent'} fit="contain" heightClassName="h-52 sm:h-64" />
+        <div className={`grid gap-5 lg:grid-cols-2 ${zh ? '' : 'items-start'}`}>
+          <GuideScreenshot src={guideScreenshot('localResult', zh)} alt={zh ? '本地 Agent 接入并发布成功的真实示例' : 'Example local knowledge synchronization result'} fit="contain" heightClassName={zh ? 'h-52 sm:h-64' : 'h-auto'} />
+          <GuideScreenshot src={guideScreenshot('page', zh)} alt={zh ? '本地 Agent 发布的 AgentWiki 页面示例' : 'AgentWiki page published by a local Agent'} fit="contain" heightClassName={zh ? 'h-52 sm:h-64' : 'h-auto'} />
         </div>
       </li>
     </ol>

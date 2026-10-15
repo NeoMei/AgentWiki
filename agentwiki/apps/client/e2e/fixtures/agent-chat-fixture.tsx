@@ -4,7 +4,8 @@ import { MemoryRouter, Route, Routes, Link, useLocation, useParams } from 'react
 import { AuthProvider, useAuth } from '../../src/context/AuthContext';
 import { LanguageProvider } from '../../src/context/LanguageContext';
 import { AgentSessionRegistryProvider } from '../../src/features/agent-session/AgentSessionRegistry';
-import { SpaceWorkspaceProvider, SpaceWorkspaceScope } from '../../src/features/space-workspace/SpaceWorkspaceContext';
+import { SpaceWorkspaceProvider } from '../../src/features/space-workspace/SpaceWorkspaceContext';
+import { SpaceWorkspaceScope } from '../../src/features/space-workspace/SpaceWorkspaceScope';
 import { defaultWorkspacePreferences, writeWorkspacePreferences } from '../../src/features/space-workspace/workspacePreferences';
 import { PagePreview } from '../../src/features/page/PagePreview';
 import { PageEditor } from '../../src/features/page/PageEditor';

@@ -1,0 +1,132 @@
+{
+  "version": "0.12.39",
+  "releaseCommit": "583c6a5aaed770a6869a3cf76c438319525b8bfa",
+  "githubRelease": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.39",
+  "deployed": true,
+  "deploymentExitCode": 0,
+  "previousApplication": "/root/agentwiki-previous-20261015194153",
+  "backup": {
+    "backupDirectory": "/var/backups/agentwiki/guide-v01239.ngp2zzh_",
+    "status": "verified",
+    "checksumsPassed": true,
+    "writersRestored": true,
+    "servicesAfter": {
+      "agentwiki-api.service": "active",
+      "agentwiki-worker.service": "active",
+      "agentwiki-frontend.service": "active"
+    },
+    "database": {
+      "format": "pg_dump custom",
+      "startedAt": "2026-10-15T11:35:25.661791+00:00",
+      "finishedAt": "2026-10-15T11:35:31.111486+00:00",
+      "pgRestoreListPassed": true,
+      "tocEntryCount": 684,
+      "consistentDatabaseSnapshot": true
+    },
+    "attachments": {
+      "liveDirectory": "/var/lib/agentwiki/attachments",
+      "startedAt": "2026-10-15T11:35:31.157667+00:00",
+      "finishedAt": "2026-10-15T11:35:31.833353+00:00",
+      "permanentBlobCount": 142,
+      "archiveMatchesLivePermanentBlobs": true,
+      "beforeAfterManifestIdentical": true,
+      "wholeStorageDirectoryIncluded": true
+    }
+  },
+  "production": {
+    "verifiedAt": "2026-10-15T11:42:28.363485+00:00",
+    "revision": "583c6a5aaed770a6869a3cf76c438319525b8bfa",
+    "sourceFilesVerified": 1345,
+    "mismatches": [],
+    "versions": {
+      "web": "0.12.39",
+      "client": "0.12.39",
+      "api": "0.12.39",
+      "localSync": "0.13.0",
+      "protocol": "0.6.1"
+    },
+    "services": {
+      "agentwiki-api.service": "active",
+      "agentwiki-worker.service": "active",
+      "agentwiki-frontend.service": "active"
+    },
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryAssets": {
+      "/assets/index-B2mkyrZG.js": "5b90fb259668c1e060d580fdd1ff901a3377b7a89ceb5d2423e4a6128d54cce8",
+      "/assets/_commonjsHelpers-CqkleIqs.js": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+      "/assets/react-vendor-CTv3miC2.js": "7e3a4bf34c49700b5fad7403a908da66c35ca1ad3669d05d3356f1a5e9bae663",
+      "/assets/preload-helper-ckwbz45p.js": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+      "/assets/index-FVzw0mIZ.css": "62488e0b36b7c4eafe9838aec5b809efb4596869e8ff0695d3c8b5e1125cacee"
+    }
+  },
+  "public": {
+    "englishScreenshotHashesMatch": [
+      "local-sync-preview-en.png",
+      "local-sync-result-en.png",
+      "step1-agent-list-en.png",
+      "step2-space-members-en.png",
+      "step5-agent-publish-en.png",
+      "step6-activity-log-en.png",
+      "step6-agent-success-en.png",
+      "step6-published-page-en.png"
+    ],
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryAssetsMatchProduction": [
+      "/assets/index-B2mkyrZG.js",
+      "/assets/_commonjsHelpers-CqkleIqs.js",
+      "/assets/react-vendor-CTv3miC2.js",
+      "/assets/preload-helper-ckwbz45p.js",
+      "/assets/index-FVzw0mIZ.css"
+    ],
+    "pageHttpStatus": 200
+  },
+  "smoke": {
+    "status": "passed",
+    "checks": 32
+  },
+  "browser": {
+    "origin": "https://agentwiki.quukk.com",
+    "widths": [
+      1440,
+      390
+    ],
+    "languageSequence": [
+      "en",
+      "zh-CN",
+      "en"
+    ],
+    "imagePositions": 9,
+    "englishAssets": 8,
+    "missingImages": 0,
+    "horizontalOverflow": false,
+    "aspectRatioPreserved": true,
+    "pageErrors": 0,
+    "realChrome": {
+      "verified": true,
+      "imageDecodeConfirmed": true,
+      "captureRequests": 28,
+      "captureErrors": 0,
+      "originalLanguageRestored": "zh-CN",
+      "sessionStopped": true
+    }
+  },
+  "tests": "See release-gates.json. The unchanged graph test remains flaky; final complete client suite was not green. Guide regression and production acceptance passed.",
+  "cleanup": {
+    "localDev5194Stopped": true,
+    "localPreview5195Stopped": true,
+    "userSshSessionPreserved": true
+  },
+  "scope": "English Guide screenshots, image selection and sizing; no backend business, schema or dependency changes."
+}

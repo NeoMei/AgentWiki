@@ -514,9 +514,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     } catch (err: any) {
       if (controller.signal.aborted || !mountedRef.current || sequence !== loadSequenceRef.current || activePageIdRef.current !== requestedId) return;
       if ([401, 403, 404].includes(err.response?.status)) { readableUserIdRef.current = null; invalidateWriteCapability(); }
-      if (showLoading || err.response?.status === 401 || err.response?.status === 403) {
-        reportPageIdentity(requestedId, null);
-      }
+      if (err.response?.status === 401 || err.response?.status === 403) reportPageIdentity(requestedId, null, null, true);
+      else if (showLoading) reportPageIdentity(requestedId, null);
       if (showLoading) setError(apiErrorMessage(err, tRef.current, 'editor.loadFailed'));
     } finally {
       requestControllersRef.current.delete(controller);
@@ -1033,6 +1032,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         content: submittedContent,
         expectedUpdatedAt: baseline.updatedAt,
       });
+      workspace?.requestDirectoryRefresh?.();
       if (
         !mountedRef.current
         || saveOperationRef.current !== operation
