@@ -8,26 +8,26 @@ export interface ContentBreadcrumbsProps {
 }
 
 export const ContentBreadcrumbs: React.FC<ContentBreadcrumbsProps> = ({ crumbs, onSelect }) => (
-  <nav aria-label="breadcrumb" className="flex min-w-0 max-w-full flex-wrap items-center gap-1 text-sm" data-testid="content-breadcrumbs">
+  <nav aria-label="breadcrumb" className="flex min-w-0 max-w-full flex-1 flex-wrap items-center gap-1 text-sm" data-testid="content-breadcrumbs">
     {crumbs.map((crumb, index) => {
       const isLast = index === crumbs.length - 1;
       return (
         <React.Fragment key={crumb.id ?? 'root'}>
-          {index > 0 ? <ChevronRight size={13} className="shrink-0 text-gray-300" /> : null}
+          {index > 0 ? <ChevronRight size={14} className="shrink-0 text-gray-300" aria-hidden="true" /> : null}
           {isLast ? (
-            <span title={crumb.name} className="flex min-w-0 max-w-full items-center gap-1 font-medium text-gray-700">
-              <Folder size={13} className="shrink-0 text-amber-500" />
-              <span className="truncate">{crumb.name}</span>
+            <span title={crumb.name} className="flex min-w-0 max-w-full items-center gap-1 px-1.5 py-1 font-medium text-gray-700">
+              <Folder size={14} className="shrink-0 text-amber-500" aria-hidden="true" />
+              <span className="max-w-40 truncate">{crumb.name}</span>
             </span>
           ) : (
             <button
               type="button"
               title={crumb.name}
               onClick={() => onSelect(crumb.id)}
-              className="flex min-w-0 max-w-full items-center gap-1 rounded px-1 text-gray-500 hover:bg-gray-100 hover:text-blue-600"
+              className="flex min-w-0 max-w-full items-center gap-1 rounded px-1.5 py-1 text-gray-500 hover:bg-gray-100 hover:text-blue-600"
             >
-              <Folder size={13} className="shrink-0 text-gray-400" />
-              <span className="truncate">{crumb.name}</span>
+              <Folder size={14} className="shrink-0 text-gray-400" aria-hidden="true" />
+              <span className="max-w-40 truncate">{crumb.name}</span>
             </button>
           )}
         </React.Fragment>

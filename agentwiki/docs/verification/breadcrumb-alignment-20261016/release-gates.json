@@ -1,0 +1,43 @@
+{
+  "version": "0.12.44",
+  "base": "0c98274ca116db5f6494b58803cb52d014c55ef7",
+  "scope": "Share document toolbar dimensions and breadcrumb spacing across articles, folders and the Pages root; retain list and other section content padding",
+  "productionBefore": {
+    "articleTextTop": 128,
+    "folderAndRootTextTop": 140,
+    "folderAndRootVerticalOffsetFromArticle": 12,
+    "folderHorizontalOffsetFromArticle": -3,
+    "rootHorizontalOffsetFromArticle": -7
+  },
+  "tests": {
+    "targetedPassed": 69,
+    "targetedFiles": 5,
+    "fullClientCommand": "pnpm --filter @agentwiki/client exec vitest run --maxWorkers=2",
+    "exitCode": 0,
+    "files": 159,
+    "passed": 2633,
+    "failed": 0
+  },
+  "build": {"command": "pnpm build", "exitCode": 0, "initialJavaScriptBytes": 548270, "budgetBytes": 550000},
+  "typecheck": {"command": "pnpm typecheck", "exitCode": 0},
+  "lint": {"command": "pnpm lint", "exitCode": 0},
+  "independentReview": {"blockers": 0, "scope": "Other section padding, loading and denied states, permissions, navigation, long paths and responsive layout"},
+  "localBrowser": {
+    "environment": "Chrome CUA with real App and loopback synthetic API",
+    "actualDesktopCssWidth": 1554,
+    "actualMobileCssWidth": 390,
+    "siteZoom": "Existing 110% localhost zoom retained; actual CSS viewport dimensions recorded",
+    "layoutStates": 11,
+    "menuSwitchChecks": 7,
+    "desktopNormalToolbarHeight": 48.99857711791992,
+    "normalEntryTextPositionOffset": {"horizontal": 0, "vertical": 0},
+    "readonlyFolderAndRootRemainAligned": true,
+    "longPathsWrapWithoutClipping": true,
+    "allToolbarButtonsWithinBounds": true,
+    "otherSectionContentPadding": "16px 24px",
+    "horizontalOverflow": false,
+    "consoleWarningsOrErrors": 0,
+    "viewportOverrideReset": true
+  },
+  "packageBoundary": {"webApi": "0.12.44", "localSync": "0.13.0", "protocol": "0.6.1", "npmPublicationRequired": false}
+}

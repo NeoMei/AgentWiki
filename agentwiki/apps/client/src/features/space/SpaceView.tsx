@@ -106,7 +106,9 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
 
   const workspace = useOptionalSpaceWorkspace();
   const documentWorkspace = workspace?.mode === 'read' || workspace?.mode === 'edit';
-  const contentClassName = documentWorkspace ? 'min-w-0 flex-1' : 'min-w-0 flex-1 px-4 py-4 lg:px-6';
+  const contentClassName = documentWorkspace || workspaceContent == null
+    ? 'min-w-0 flex-1'
+    : 'min-w-0 flex-1 px-4 py-4 lg:px-6';
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
   const [localCurrentFolderId, setLocalCurrentFolderId] = useState<string | null>(null);
@@ -682,13 +684,13 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
           onMove={(request) => { void handleContentMove(request); }}
         /> : null}
         <main className={contentClassName}>
-        {workspaceContent ?? <>
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        {workspaceContent ?? <div className="document-page">
+      <div className="document-toolbar flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-white">
         <ContentBreadcrumbs
           crumbs={crumbs}
           onSelect={(folderId) => setCurrentFolderId(folderId)}
         />
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
           {canEdit ? (
             <button
               ref={folderOpenerRef}
@@ -701,7 +703,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
                 returnFocusTo: document.activeElement instanceof HTMLElement ? document.activeElement : null,
               })}
               data-testid="new-folder-button"
-              className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-gray-300 px-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-gray-300 px-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
               {t('folder.createTitle')}
             </button>
@@ -711,7 +713,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
               ref={createPageOpenerRef}
               type="button"
               onClick={() => navigate(newContentHref(id, targetFolderId))}
-              className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white"
+              className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white"
             >
               <Plus size={18} />
               {t('page.new')}
@@ -720,6 +722,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
         </div>
       </div>
 
+      <div className="px-4 py-4 lg:px-6">
       <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-3">
         <div className="mb-2 flex items-center justify-between text-xs text-gray-400">
           <span data-testid="folder-page-count">{t('space.pages')} ({pageCount})</span>
@@ -765,7 +768,8 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
           onMove={(request) => { void handleContentMove(request); }}
         />
       </div>
-      </>}
+      </div>
+      </div>}
         </main>
       </div>
 
