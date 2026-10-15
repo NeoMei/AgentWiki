@@ -1,0 +1,60 @@
+{
+  "version": "0.12.40",
+  "base": "bc414ae0fc160cb046a1e18e608f91a9ca1bb177",
+  "featureCommit": "cd6b3a7d",
+  "fullTest": {
+    "command": "pnpm test:full",
+    "exitCode": 0,
+    "passed": 7539,
+    "skipped": 6,
+    "runtime": 309,
+    "database": 239,
+    "server": 3243,
+    "client": 2610,
+    "protocol": 140,
+    "localSync": 998
+  },
+  "build": {
+    "command": "pnpm build",
+    "exitCode": 0,
+    "initialJavaScriptBytes": 548390,
+    "budgetBytes": 550000
+  },
+  "typecheck": {
+    "command": "pnpm typecheck",
+    "exitCode": 0
+  },
+  "lint": {
+    "command": "pnpm lint",
+    "exitCode": 0
+  },
+  "independentReview": {
+    "blockers": 0,
+    "scope": "Layout and existing test expectation, Web/API version metadata only; latest v0.12.39 retained"
+  },
+  "localBrowser": {
+    "base": "v0.12.36 plus feature commit",
+    "viewports": [
+      1440,
+      390
+    ],
+    "flow": "folder -> page -> folder, Space root, trailing slash",
+    "beforeOffset": {
+      "vertical": 32,
+      "horizontal": 16
+    },
+    "afterOffset": {
+      "vertical": 0,
+      "horizontal": 0
+    },
+    "consoleErrors": 0,
+    "horizontalOverflow": false,
+    "data": "synthetic local API; production readback pending"
+  },
+  "packageBoundary": {
+    "webApi": "0.12.40",
+    "localSync": "0.13.0",
+    "protocol": "0.6.1",
+    "npmPublicationRequired": false
+  }
+}
