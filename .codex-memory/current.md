@@ -1,6 +1,6 @@
 # 当前目标
 
-- 内嵌 Agent 聊天过程反馈与候选确认简化：独立工作树 codex/agent-chat-feedback 基于 v0.12.34，候选 b2620dc7，已完成双端测试/构建与桌面、390px真实浏览器合成API验收；最终独立复审通过（3项发现已关闭、0项遗留），本任务临时服务和标签已清理；用户已授权发布，正在整合最新 v0.12.36 并准备 v0.12.37。
+- 内嵌 Agent 聊天过程反馈与候选确认简化已发布部署 v0.12.37（9b7a3b90）：7518pass/6既有skip，双端build/typecheck/lint与独立集成复审通过；1328源码匹配、3服务/5health/32烟测、真实provider及IAB接受草稿/显式Save数据库回读通过，临时测试资源已清理。回执：agentwiki/docs/verification/agent-chat-feedback-20261015/deployment.json。
 
 - 收起文档工具栏细边框与分段样式已发布部署 v0.12.35（ca71d4b6）；客户端2573项、全仓build及桌面/390px实际组件验收通过；生产1325源码文件一致、3服务/5健康检查/32烟测通过，真实文章页收起与重开验证通过。回执：agentwiki/docs/verification/collapsed-toolbar-20261015/deployment.json。
 

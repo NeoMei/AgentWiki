@@ -3,7 +3,7 @@ Base: v0.12.34 479419eff227a09350dd7cdc695450de238bb894
 Workspace: `/Users/neomei/.codex/worktrees/agent-chat-feedback/AgentWiki `
 All git calls MUST specify --work-tree="$PWD" from workspace root (common core.worktree points elsewhere).
 ## Status
-Local implementation and validation complete. Final independent review: Spec PASS / Quality APPROVE, 3 findings addressed / 0 open, code candidate b2620dc7. User authorized release; latest v0.12.36 integrated, v0.12.37 release gates passed (7518 pass / 6 skip). Production backup/deployment in progress; no publication or deployment receipt yet. Task-owned local fixtures cleaned up; managed worktree retained.
+Released and deployed as v0.12.37, commit 9b7a3b90efd538bcea067fbab0344fec856d9b6f. Integrated v0.12.36; 7518 pass / 6 existing skips; build, typecheck, lint, independent integrated review and coordinated backup passed. Production source/public assets, real provider question/proposal, browser progress/compact review and draft-vs-explicit-Save database readbacks passed. Temporary test resources soft-deleted and task browser closed; user SSH connection retained. See agentwiki/docs/verification/agent-chat-feedback-20261015/deployment.json.
 
 ## Goal
 Embedded chat must visibly respond while executing. Compact the edit review by removing duplicate summaries/actions and folding optional details.

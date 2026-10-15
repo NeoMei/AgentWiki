@@ -51,6 +51,6 @@
     "exitCode": 0
   },
   "independentIntegrationReview": "passed",
-  "production": "pending backup completion and deploy",
+  "production": "deployed and verified; see deployment.json",
   "scope": "Web/API only; Local Sync 0.13.0 and protocol 0.6.1 unchanged; no schema/dependency changes"
 }

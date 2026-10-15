@@ -1,0 +1,279 @@
+{
+  "version": "0.12.37",
+  "releaseCommit": "9b7a3b90efd538bcea067fbab0344fec856d9b6f",
+  "githubRelease": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.37",
+  "deployed": true,
+  "deploymentExitCode": 0,
+  "previousApplication": "/root/agentwiki-previous-20261015191331",
+  "backup": {
+    "backupDirectory": "/var/backups/agentwiki/chat-feedback-v01237.o8m783ek",
+    "status": "verified",
+    "checksumsPassed": true,
+    "writersRestored": true,
+    "servicesAfter": {
+      "agentwiki-api.service": "active",
+      "agentwiki-worker.service": "active",
+      "agentwiki-frontend.service": "active"
+    }
+  },
+  "production": {
+    "verifiedAt": "2026-10-15T11:14:00.226829+00:00",
+    "revision": "9b7a3b90",
+    "sourceFilesVerified": 1328,
+    "mismatches": [],
+    "versions": {
+      "web": "0.12.37",
+      "client": "0.12.37",
+      "api": "0.12.37",
+      "localSync": "0.13.0",
+      "protocol": "0.6.1"
+    },
+    "services": {
+      "agentwiki-api.service": "active",
+      "agentwiki-worker.service": "active",
+      "agentwiki-frontend.service": "active"
+    },
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryAssets": {
+      "/assets/index-BwqtJTD4.js": "76e23e572dfd8e542e993bdd38e6698b122d4e8d6a933d0471757e1610c82924",
+      "/assets/_commonjsHelpers-CqkleIqs.js": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+      "/assets/react-vendor-CTv3miC2.js": "7e3a4bf34c49700b5fad7403a908da66c35ca1ad3669d05d3356f1a5e9bae663",
+      "/assets/preload-helper-ckwbz45p.js": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+      "/assets/index-IS8Bb3d-.css": "47fdd8ab03641c18398f7e23982324890673b54e7d90c555b3a7b1a6d4916e48"
+    }
+  },
+  "public": {
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryAssetsMatchProduction": [
+      "/assets/index-BwqtJTD4.js",
+      "/assets/_commonjsHelpers-CqkleIqs.js",
+      "/assets/react-vendor-CTv3miC2.js",
+      "/assets/preload-helper-ckwbz45p.js",
+      "/assets/index-IS8Bb3d-.css"
+    ],
+    "pageHttpStatus": 200
+  },
+  "stableIdentityAndPolicyAudit": {
+    "beforeVersion": "0.12.36",
+    "afterVersion": "0.12.37",
+    "match": true,
+    "counts": {
+      "credentials": 83,
+      "grants": 495,
+      "agents": 813,
+      "spacePolicies": 1476
+    }
+  },
+  "smoke": {
+    "status": "passed",
+    "checks": 32
+  },
+  "tests": {
+    "runtime": {
+      "passed": 309,
+      "skipped": 1
+    },
+    "database": {
+      "passed": 239,
+      "skipped": 0
+    },
+    "server": {
+      "passed": 3243,
+      "skipped": 4
+    },
+    "client": {
+      "files": 157,
+      "passed": 2589,
+      "skipped": 0
+    },
+    "protocol": {
+      "passed": 140,
+      "skipped": 0
+    },
+    "localSync": {
+      "passed": 998,
+      "skipped": 1
+    },
+    "total": {
+      "passed": 7518,
+      "skipped": 6,
+      "failed": 0
+    },
+    "command": "pnpm test:full",
+    "exitCode": 0
+  },
+  "realProvider": {
+    "status": "passed",
+    "turns": [
+      {
+        "mode": "question",
+        "samples": [
+          {
+            "at": "2026-10-15T11:15:17.864Z",
+            "status": "queued",
+            "progress": null,
+            "answerChars": 0
+          },
+          {
+            "at": "2026-10-15T11:15:19.681Z",
+            "status": "running",
+            "progress": {
+              "phase": "preparing"
+            },
+            "answerChars": 0
+          },
+          {
+            "at": "2026-10-15T11:15:21.488Z",
+            "status": "running",
+            "progress": {
+              "phase": "waiting",
+              "attempt": 1
+            },
+            "answerChars": 0
+          },
+          {
+            "at": "2026-10-15T11:15:25.115Z",
+            "status": "running",
+            "progress": {
+              "phase": "generating",
+              "attempt": 1
+            },
+            "answerChars": 0
+          },
+          {
+            "at": "2026-10-15T11:15:28.723Z",
+            "status": "done",
+            "progress": null,
+            "answerChars": 31
+          }
+        ],
+        "clientRequestId": "2c40b312-cb59-4852-93aa-20d3b00ea8f1",
+        "startedAt": "2026-10-15T11:15:17.640Z",
+        "id": "cmv9fzp0a007yb6jb4pvh7ecm",
+        "completedAt": "2026-10-15T11:15:28.725Z",
+        "status": "done",
+        "result": {
+          "summaryChars": 31,
+          "changesChars": 0,
+          "changesSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "savedPageUnchanged": true
+      },
+      {
+        "mode": "proposal",
+        "samples": [
+          {
+            "at": "2026-10-15T11:15:29.037Z",
+            "status": "queued",
+            "progress": null,
+            "answerChars": 0
+          },
+          {
+            "at": "2026-10-15T11:15:31.757Z",
+            "status": "running",
+            "progress": {
+              "phase": "waiting",
+              "attempt": 1
+            },
+            "answerChars": 0
+          },
+          {
+            "at": "2026-10-15T11:15:35.374Z",
+            "status": "running",
+            "progress": {
+              "phase": "generating",
+              "attempt": 1
+            },
+            "answerChars": 0
+          },
+          {
+            "at": "2026-10-15T11:15:39.917Z",
+            "status": "done",
+            "progress": null,
+            "answerChars": 20
+          }
+        ],
+        "clientRequestId": "128f4669-ca3e-4c8b-839d-1b44bd71698d",
+        "startedAt": "2026-10-15T11:15:28.831Z",
+        "id": "cmv9fzxn4008eb6jbrto68r0q",
+        "completedAt": "2026-10-15T11:15:39.921Z",
+        "status": "done",
+        "result": {
+          "summaryChars": 20,
+          "changesChars": 67,
+          "changesSha256": "3312b6c671d29c337c9236e28bf1fc74d4548335e12e547e63e5c35160adcfce"
+        },
+        "savedPageUnchanged": true
+      }
+    ],
+    "cleanup": {
+      "spaceReadback": 404,
+      "sessionReadback": 403,
+      "loginReadback": 401,
+      "jwtReadback": 401,
+      "completedAt": "2026-10-15T11:15:41.011Z",
+      "scope": "API soft deletion and access revocation; audit/database records may remain"
+    }
+  },
+  "browser": {
+    "url": "https://agentwiki.quukk.com/pages/6b0ea0af-8882-4a2f-9330-8f876e7feceb/edit",
+    "sendingImmediate": true,
+    "realPhase": "generating",
+    "elapsedSecondsVisible": 7,
+    "singleAcceptButton": true,
+    "diffInitiallyCollapsed": true,
+    "saveDisabledBeforeAccept": true,
+    "acceptOnlyUpdatesDraft": true,
+    "explicitSaveChangedRevision": true,
+    "explicitSaveChangedContent": true,
+    "savedHeadingPresent": true,
+    "consoleErrorsAndWarnings": 0,
+    "screenshots": [
+      "/tmp/agentwiki-chat-feedback/production-active.png",
+      "/tmp/agentwiki-chat-feedback/production-compact.png",
+      "/tmp/agentwiki-chat-feedback/production-saved.png"
+    ]
+  },
+  "cleanup": {
+    "spaces": [
+      {
+        "id": "cmv9fyz0z007fb6jbpgk8dou8",
+        "deletedAt": "2026-10-15T11:18:46.891Z"
+      },
+      {
+        "id": "cmv9fzo6w007lb6jb4ygsi7yk",
+        "deletedAt": "2026-10-15T11:15:40.509Z"
+      }
+    ],
+    "page": {
+      "id": "6b0ea0af-8882-4a2f-9330-8f876e7feceb",
+      "deletedAt": "2026-10-15T11:18:46.882Z"
+    },
+    "users": [
+      {
+        "id": "cmv9fyheh007cb6jb09ngbhfv",
+        "deletedAt": "2026-10-15T11:14:21.815Z"
+      },
+      {
+        "id": "cmv9fzo3r007kb6jbn162bugt",
+        "deletedAt": "2026-10-15T11:15:40.807Z"
+      }
+    ],
+    "activeTasks": 0,
+    "passed": true,
+    "scope": "soft deletion and access revocation; retained audit records"
+  },
+  "scope": "Web/API only; real phase feedback, not token streaming. Local Sync 0.13.0 and protocol 0.6.1 unchanged; no new schema migration or dependency."
+}

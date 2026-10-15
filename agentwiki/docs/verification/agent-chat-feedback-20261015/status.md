@@ -1,8 +1,12 @@
 # Agent 聊天反馈 v0.12.37 发布
 
-- 用户已授权发布。基于最新 v0.12.36 整合，业务候选 b2620dc7，集成 f615ec77。
-- 整合后完整回归 7518 passed / 6 existing skipped / 0 failed；239 数据库测试零跳过。API/Worker 生产模块编译在完整服务端套件内。类型检查、全量 lint、全仓构建和独立集成复核通过。
-- 本地桌面/390px验收见任务 refs；真实生产发布和功能验收待补回执。
-- 0.12.37 当前准备发布，生产仍为0.12.36。
+已于2026-10-15发布GitHub并部署生产。发布提交 `9b7a3b90efd538bcea067fbab0344fec856d9b6f`，tag `v0.12.37`。
 
-范围：执行阶段、重试、耗时与停止反馈；紧凑候选接受和折叠差异。保持草稿/显式Save与权限/CAS语义。不是逐字流式输出。
+- 整合最新v0.12.36，完整回归7518 passed / 6 existing skipped / 0 failed；239数据库测试零跳过。API/Worker生产模块编译包含在服务端完整套件。build/typecheck/lint与独立集成复核通过。
+- 备份：`/var/backups/agentwiki/chat-feedback-v01237.o8m783ek`。数据库custom dump、应用、配置、附件配套备份与SHA256校验通过；保留旧应用 `/root/agentwiki-previous-20261015191331`。
+- 生产1328个源码文件与发布提交匹配，3个服务active、5项health全部ok，公网HTML及入口资源hash一致，32项公网烟测通过。原有凭据/Grant/Agent/Space策略稳定字段摘要在部署前后完全相同。
+- 真实provider问答和修改候选均done；观察到preparing/waiting/generating，公开进度只有phase/attempt，终态进度清除，生成候选不改保存正文。
+- 真实IAB生产浏览器：发送即排队，随后生成阶段/7秒/停止可见；完成后仅1个接受按钮、差异默认折叠。接受后数据库正文hash与updatedAt不变；显式Save后两者变化且出现新增标题。控制台error/warn为0。
+- 临时浏览器空间/页面及API探针账号/空间均已软删除并核对，0个运行/排队测试任务；审计历史按产品语义保留。任务创建的浏览器标签已关闭，用户恢复的SSH连接保留。
+
+执行反馈为真实阶段，不是逐字流式输出。Local Sync0.13.0、协议0.6.1不变，无新增数据库迁移或依赖。完整回执见deployment.json；本地桌面/390px验收见任务refs。

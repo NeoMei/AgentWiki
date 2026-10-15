@@ -14,3 +14,7 @@
 - Final independent review: Spec PASS / Quality APPROVE; 3 addressed / 0 unaddressed / 0 new blocking. See final-review.md in this directory.
 - Implementation and task-review reports preserved alongside this record.
 - Cleanup: task-owned API5183/Vite5184 stopped (exit130), IAB tab2 closed, temporary viewport reset; managed worktree retained.
+
+- Release v0.12.37: 9b7a3b90efd538bcea067fbab0344fec856d9b6f; https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.37
+- Final integrated release gates and production receipts: agentwiki/docs/verification/agent-chat-feedback-20261015/{release-gates,deployment}.json and status.md.
+- Real provider and browser production verification now supersede the earlier local-only provider boundary. Production fixture cleanup verified; audit history intentionally retained.
