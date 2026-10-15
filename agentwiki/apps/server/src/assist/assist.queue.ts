@@ -145,7 +145,11 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
         const leaseExpiresAt = new Date(Date.now() + leaseMs);
         const claim = await this.prisma.assistTask.updateMany({
           where: { id: candidate.id, status: 'queued' },
-          data: { status: 'running', lockedAt: new Date(), leaseOwner: this.workerId, leaseExpiresAt },
+          data: { status: 'running', lockedAt: new Date(), leaseOwner: this.workerId, leaseExpiresAt,
+            // A recovered session must not expose the previous execution's
+            // phase while the new worker is still acquiring authorization.
+            ...(candidate.sessionId ? { result: Prisma.DbNull } : {}),
+          },
         });
         if (!claim.count) continue;
         this.active += 1;

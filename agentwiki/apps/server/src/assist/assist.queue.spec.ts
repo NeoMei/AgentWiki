@@ -3,6 +3,7 @@ import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.s
 import { AuthorizationService } from '../core/authorization/authorization.service';
 import { EMPTY_USAGE, OpencodeRoutingError } from './opencode.types';
 import { Prisma } from '@prisma/client';
+import { AssistSessionService } from './assist-session.service';
 
 describe('AssistQueue task processing', () => {
   const prisma = {
@@ -238,6 +239,7 @@ describe('AssistQueue task processing', () => {
 
     const claim = prisma.assistTask.updateMany.mock.calls.find((call: any[]) => call[0].data.status === 'running')[0];
     expect(claim.data.leaseExpiresAt).toEqual(new Date(1_060_000));
+    expect(claim.data).not.toHaveProperty('result'); // Legacy tasks retain their result semantics.
     expect(prisma.assistTask.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ space: { deletedAt: null } }),
     }));
@@ -336,6 +338,76 @@ describe('AssistQueue task processing', () => {
       where: { id: { in: ['t1'] }, status: 'running', leaseExpiresAt: { lte: expect.any(Date) } },
       data: expect.objectContaining({ status: 'queued', leaseOwner: null, attempts: { increment: 1 } }),
     }));
+  });
+
+  it('clears recovered session phases atomically on claim before startup authorization completes', async () => {
+    jest.useFakeTimers();
+    const version = new Date('2026-01-01T00:00:00.000Z');
+    const row: any = { id: 't1', sessionId: 's1', spaceId: 'space-1', requestedByUserId: 'user-1', pageId: 'page-1',
+      mode: 'question', intent: 'why', status: 'running', createdAt: version, attempts: 1, maxAttempts: 3,
+      leaseOwner: 'expired-worker', leaseExpiresAt: new Date(Date.now() - 1),
+      pageSnapshot: { content: 'source', updatedAt: version.toISOString() }, context: { pageId: 'page-1', references: [], noteIds: [] },
+      result: { progress: { phase: 'finalizing', attempt: 2 } } };
+    const matches = (where: any) => Object.entries(where).every(([key, value]: any) => {
+      if (key === 'space') return true;
+      if (key === 'OR') return value.some((condition: any) => matches(condition));
+      if (value?.in) return value.in.includes(row[key]);
+      if (value?.lte) return row[key] !== null && row[key] <= value.lte;
+      if (value?.gt) return row[key] !== null && row[key] > value.gt;
+      return row[key] === value;
+    });
+    let startupEntered!: () => void;
+    const startup = new Promise<void>(resolve => { startupEntered = resolve; });
+    let releaseStartup!: () => void;
+    const startupBlocked = new Promise<void>(resolve => { releaseStartup = resolve; });
+    let freshWritten!: () => void;
+    const fresh = new Promise<void>(resolve => { freshWritten = resolve; });
+    let releaseRuntime!: () => void;
+    const runtimeBlocked = new Promise<void>(resolve => { releaseRuntime = resolve; });
+    const db: any = { ...prisma,
+      $transaction: async (callback: any) => callback(db),
+      page: { ...prisma.page, count: async () => 1 },
+      assistSession: { findFirst: async () => ({ id: 's1', spaceId: 'space-1', requestedByUserId: 'user-1', title: 'Chat', createdAt: version, updatedAt: version }) },
+      assistTask: {
+        findMany: async ({ where }: any) => matches(where) ? [{ ...row }] : [],
+        findFirst: async ({ where }: any) => matches(where) ? { ...row } : null,
+        count: async ({ where }: any) => { startupEntered(); await startupBlocked; return matches(where) ? 1 : 0; },
+        updateMany: async ({ where, data }: any) => {
+          if (!matches(where)) return { count: 0 };
+          for (const [key, value] of Object.entries(data) as [string, any][]) row[key] = value === Prisma.DbNull ? null : value?.increment ? (row[key] || 0) + value.increment : value;
+          if (row.result?.progress?.phase === 'waiting') freshWritten();
+          return { count: 1 };
+        },
+      },
+    };
+    const authorization = new AuthorizationService(db);
+    const writer = new SpaceRevisionWriterService(db, {} as any);
+    const sessions = new AssistSessionService(db, authorization, writer, config);
+    const queue = new AssistQueue(db, config, runner, gateway, authorization, writer, sessions);
+    let processing: Promise<void> | undefined;
+    const processOne = (queue as any).processOne.bind(queue);
+    jest.spyOn(queue as any, 'processOne').mockImplementation((task: any) => { processing = processOne(task); return processing; });
+    runner.run.mockImplementation(async (input: any) => { input.onProgress({ phase: 'waiting', attempt: 1 }); await runtimeBlocked; return { summary: 'fresh answer' }; });
+    try {
+      await (queue as any).recoverExpiredLeases();
+      expect(row.status).toBe('queued');
+      expect((await sessions.get('s1', 'user-1')).turns[0]).not.toHaveProperty('progress');
+      jest.setSystemTime(Date.now() + 15_001);
+      await (queue as any).tick();
+      await startup;
+      const claimed = (await sessions.get('s1', 'user-1')).turns[0];
+      expect(claimed.status).toBe('running');
+      expect(claimed).not.toHaveProperty('progress');
+      expect(runner.run).not.toHaveBeenCalled();
+      releaseStartup();
+      await fresh;
+      expect((await sessions.get('s1', 'user-1')).turns[0].progress).toEqual({ phase: 'waiting', attempt: 1 });
+    } finally {
+      await queue.onModuleDestroy();
+      releaseStartup(); releaseRuntime();
+      await processing;
+      jest.useRealTimers();
+    }
   });
 
   it('fails tasks that exhausted their retry budget instead of requeueing forever', async () => {
