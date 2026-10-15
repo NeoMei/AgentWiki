@@ -1,0 +1,49 @@
+{
+  "version": "0.12.42",
+  "base": "8b735ec7",
+  "scope": "Align the document breadcrumb/action toolbar with the Space header at a 49px single-row height, while retaining natural wrapping",
+  "regression": {
+    "targetedComponents": ["PageEditor", "PagePreview", "SpaceView"],
+    "targetedPassed": 236,
+    "productionBefore": {"spaceHeaderHeight": 49, "documentToolbarHeight": 61}
+  },
+  "clientTests": {
+    "command": "pnpm --filter @agentwiki/client exec vitest run --maxWorkers=2",
+    "exitCode": 0,
+    "files": 159,
+    "passed": 2633,
+    "failed": 0
+  },
+  "build": {
+    "command": "pnpm build",
+    "exitCode": 0,
+    "initialJavaScriptBytes": 548270,
+    "budgetBytes": 550000
+  },
+  "typecheck": {"command": "pnpm typecheck", "exitCode": 0},
+  "lint": {"command": "pnpm lint", "exitCode": 0},
+  "independentReview": {
+    "blockers": 0,
+    "scope": "Readonly minimum height, collaborator badge dimensions, natural wrapping, dynamically measured sticky/sidebar offsets, package versions"
+  },
+  "localBrowser": {
+    "environment": "real App via Chrome CUA, synthetic API and collaboration server bound to loopback",
+    "desktopCssViewportWidth": 1554,
+    "narrowCssViewportWidth": 354,
+    "siteZoom": "Existing 110% localhost site zoom retained; measurements report actual innerWidth",
+    "states": 10,
+    "coverage": ["read", "edit with collaborator", "readonly", "long read", "long edit", "narrow long edit", "narrow read", "narrow readonly", "narrow edit with sidebar", "folder regression"],
+    "singleRowDesktopHeights": {"spaceHeader": 48.90625, "documentToolbar": 48.99857711791992},
+    "fractionalZoomMeasurementTolerancePixels": 0.1,
+    "longPathAndNarrowScreenWrap": "natural growth retained; no fixed height or clipping",
+    "horizontalOverflow": false,
+    "consoleWarningsOrErrors": 0
+  },
+  "packageBoundary": {
+    "webApi": "0.12.42",
+    "localSync": "0.13.0",
+    "protocol": "0.6.1",
+    "npmPublicationRequired": false
+  },
+  "backendRegression": "No backend runtime, database, dependency or sync package source changed. Full client suite and repository build/typecheck/lint were rerun."
+}

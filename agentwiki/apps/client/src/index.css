@@ -2,7 +2,7 @@
 
 /* A continuous document surface; wide-screen rails reserve only their visible space. */
 .document-page { width: 100%; min-width: 0; min-height: calc(100dvh - 112px); background: white; --document-gutter: 24px; }
-.document-toolbar { padding: 12px var(--document-gutter, 32px); }
+.document-toolbar { min-height: calc(3rem + 1px); padding: 6px var(--document-gutter, 32px); }
 .document-canvas { width: 100%; min-width: 0; padding: 24px var(--document-gutter, 24px) 48px; padding-right: calc(var(--document-gutter, 32px) + var(--document-panel-width, 0px)); }
 .document-header { margin-bottom: 44px; }
 .document-reading-header { margin-bottom: 24px; padding-bottom: 24px; border-bottom: 1px solid #e5e5e5; }

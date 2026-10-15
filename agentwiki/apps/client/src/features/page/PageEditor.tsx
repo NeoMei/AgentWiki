@@ -1183,7 +1183,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             <span>{t('editor.returnToReading')}</span>
           </button>
           {activeUsers.length > 0 && (
-            <div className="flex items-center gap-1 px-3 py-2 bg-green-50 rounded-md">
+            <div className="flex items-center gap-1 px-3 py-1.5 bg-green-50 rounded-md">
               <Users size={16} className="text-green-600" />
               <div className="flex -space-x-1">
                 {activeUsers.map((u) => (
