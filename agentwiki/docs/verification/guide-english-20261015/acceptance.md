@@ -17,3 +17,7 @@
 - Initial unconfigured `pnpm test` stopped at missing test database variables. The supported `pnpm test:full` runner provisioned its isolated environment and passed: runtime 309/1 skip, DB 239, server 3243/4 skip, client 2590, protocol 140, Local Sync 998/1 skip (7519 passed, 6 existing skipped).
 - After v0.12.38 integration, the first serial client run had 2609 passes and one existing KnowledgeGraph.grouped test failure at line 48. The graph source/test are unchanged; isolated rerun passes 13/13. The complete rerun is recorded in release-gates.json.
 - Final full parallel rerun: 2609 passes / 1 failure in the same unchanged graph file, now at line 180 (Fit graph timing), after the isolated 13/13 pass. This is recorded as an outstanding test-flakiness limitation; no claim that the final complete client suite is green or that the graph defect is fixed. All other 158 files pass. Guide and both built-page viewport/language checks pass.
+
+## Production receipt
+
+v0.12.39 deployed from 583c6a5a. All 1345 shipped source files match; web/client/API versions agree, 3 services are active and all 5 health fields are OK. Public entry assets and all 8 English PNG hashes match. Production 1440/390 px EN/ZH/EN checks pass for all 9 images; a real Chrome language switch was also visually reviewed after image decoding. Smoke passes 32 checks. Temporary browser/dev/preview sessions stopped; the user's SSH master remains untouched. See deployment.json.
