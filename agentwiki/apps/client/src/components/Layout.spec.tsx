@@ -16,7 +16,7 @@ const renderLayout = (path: string) => render(
 );
 
 describe('Layout workspace sizing', () => {
-  it.each(['/pages/page-1', '/pages/page-1/edit', '/pages/page-1/edit/'])('uses an edge-to-edge surface for document route %s', (path) => {
+  it.each(['/pages/page-1', '/pages/page-1/edit', '/pages/page-1/edit/', '/spaces/space-1'])('uses an edge-to-edge surface for directory and document route %s', (path) => {
     renderLayout(path);
     const main = screen.getByRole('main');
     expect(main).toHaveClass('w-full');
@@ -24,7 +24,7 @@ describe('Layout workspace sizing', () => {
     expect(main.parentElement).toHaveClass('bg-white');
   });
 
-  it.each(['/pages/page-1/versions', '/spaces/space-1', '/spaces/space-1/settings'])('retains the surrounding workspace layout for %s', (path) => {
+  it.each(['/pages/page-1/versions', '/spaces/space-1/settings'])('retains the surrounding workspace layout for %s', (path) => {
     renderLayout(path);
     const main = screen.getByRole('main');
     expect(main).toHaveClass('w-full', 'px-4', 'py-8');
