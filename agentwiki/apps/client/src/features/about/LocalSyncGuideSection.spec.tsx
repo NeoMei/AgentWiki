@@ -53,12 +53,12 @@ describe('LocalSyncGuideSection', () => {
     expect(screen.getByText(/reports the Source, Run, ChangeSet, and review status but never approves for you/)).toBeInTheDocument();
     expect(screen.getByText(/Open Access on the Agent detail page/)).toBeVisible();
     expect(screen.queryByRole('img', { name: 'Generated AgentWiki Local Sync instructions' })).not.toBeInTheDocument();
-    expect(screen.getByRole('img', { name: 'Real local Agent workflow example in AgentWiki' }))
-      .toHaveAttribute('src', '/screenshots/step5-opencode-publish.png');
-    expect(screen.getByRole('img', { name: 'Real local Agent connection and publishing result' }))
-      .toHaveAttribute('src', '/screenshots/step6-opencode-success.png');
+    expect(screen.getByRole('img', { name: 'Example local knowledge preview before upload' }))
+      .toHaveAttribute('src', '/screenshots/local-sync-preview-en.png');
+    expect(screen.getByRole('img', { name: 'Example local knowledge synchronization result' }))
+      .toHaveAttribute('src', '/screenshots/local-sync-result-en.png');
     expect(screen.getByRole('img', { name: 'AgentWiki page published by a local Agent' }))
-      .toHaveAttribute('src', '/screenshots/step6-published-page.png');
+      .toHaveAttribute('src', '/screenshots/step6-published-page-en.png');
     const screenshots = within(container).getAllByRole('img');
     expect(screenshots).toHaveLength(3);
     for (const image of screenshots) {

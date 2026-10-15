@@ -1,5 +1,7 @@
 # 当前目标
 
+- 英文 Guide 截图修复准备发布 v0.12.39：8张英文示例覆盖9处图片，按语言切换；已合入 v0.12.38。Guide7项及最终构建/双端页面验收通过；全量基线7519通过，最终客户端2609通过/既有图谱1项波动（独立13/13通过）。详情 agentwiki/docs/verification/guide-english-20261015/。
+
 - 目录点击反复加载修复已发布部署 v0.12.38（53064514），保留 v0.12.37 功能。159 文件 / 2609 客户端测试、构建/类型/lint/33 契约及独立复审通过。线上1333源码匹配、三服务/五健康/32烟测通过；原页面同目录/跨目录/返回三次新增目录请求均0，文章加载时目录20节点保留。回执：agentwiki/docs/verification/directory-navigation-20261015/deployment.json。
 - 内嵌 Agent 聊天过程反馈与候选确认简化已发布部署 v0.12.37（9b7a3b90）；回执：agentwiki/docs/verification/agent-chat-feedback-20261015/deployment.json。
 - 目录名称编辑图标 v0.12.36 已发布部署，并在原文章页面验收。

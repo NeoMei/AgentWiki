@@ -1,0 +1,60 @@
+{
+  "version": "0.12.39",
+  "base": "9c9bdcacc235600b07abcd7db4a61e3452b4cb23",
+  "fullBeforeDirectoryIntegration": {
+    "command": "pnpm test:full",
+    "exitCode": 0,
+    "passed": 7519,
+    "skipped": 6,
+    "runtimePassed": 309,
+    "databasePassed": 239,
+    "serverPassed": 3243,
+    "clientPassed": 2590,
+    "protocolPassed": 140,
+    "localSyncPassed": 998
+  },
+  "finalClient": {
+    "files": 159,
+    "passed": 2609,
+    "failed": 1,
+    "serialAndParallelRuns": "Both failed at different assertions in unchanged KnowledgeGraph.grouped.spec.tsx (line 48, then line 180). No Guide failures.",
+    "isolatedGraphRerun": {
+      "passed": 13,
+      "failed": 0
+    },
+    "nonGraphFilesPassed": 158,
+    "limitation": "Complete final client suite is not green; existing graph scheduling flakiness retained, not counted as fixed."
+  },
+  "focusedGuide": {
+    "files": 3,
+    "passed": 7,
+    "failed": 0
+  },
+  "build": {
+    "command": "pnpm build",
+    "exitCode": 0
+  },
+  "lint": {
+    "command": "pnpm --filter @agentwiki/client lint; eslint scripts/capture-guide-screenshots.mjs",
+    "exitCode": 0
+  },
+  "browser": {
+    "widths": [
+      1440,
+      390
+    ],
+    "languages": [
+      "en",
+      "zh-CN",
+      "en"
+    ],
+    "imagePositions": 9,
+    "englishAssets": 8,
+    "brokenImages": 0,
+    "overflow": false,
+    "aspectRatioPreserved": true,
+    "pageErrors": 0
+  },
+  "releaseDecision": "Proceed with localized Guide scope: unchanged graph suite passed isolated and in the earlier complete run; all other final client files and Guide acceptance passed. No graph closure claimed.",
+  "scope": "Guide frontend and screenshot assets only; no server business, database schema or dependency changes; retain v0.12.38 directory fixes."
+}

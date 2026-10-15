@@ -1,0 +1,34 @@
+{
+  "local-sync-preview-en.png": {
+    "bytes": 127269,
+    "sha256": "3f80875f7e7d0f5ff9c658b625f27b94d823a6db070a1e5eac0deb8ebc658d8b"
+  },
+  "local-sync-result-en.png": {
+    "bytes": 131668,
+    "sha256": "b299bf49a1db3314767e69c03621338fe6a4bfb20ddc8aeb034b0046e3cc7894"
+  },
+  "step1-agent-list-en.png": {
+    "bytes": 80826,
+    "sha256": "d4251f604cd78ac7c4bb1feaddd54df0fc5b29543b2294f1ead225e99611ba29"
+  },
+  "step2-space-members-en.png": {
+    "bytes": 145994,
+    "sha256": "422f4418a86d3a1ffe25ff5690de82943c58de95c33e9830a81cb5338f420837"
+  },
+  "step5-agent-publish-en.png": {
+    "bytes": 140963,
+    "sha256": "be6e5ef6185405cf4c790d55a1c06bf9e6a30815188d7071fa3f68bac79eb431"
+  },
+  "step6-activity-log-en.png": {
+    "bytes": 147258,
+    "sha256": "12b4a29c9f32d56af527ca21f521618c6307cde497e77b745883d2ba079b06c0"
+  },
+  "step6-agent-success-en.png": {
+    "bytes": 125884,
+    "sha256": "6284f2f80820514786b1162fa092e8dc3c3edf5fd182a9ef10c9faa162bdd6d7"
+  },
+  "step6-published-page-en.png": {
+    "bytes": 235878,
+    "sha256": "342adb6e291908eb88f4f9646071b1b0b658915bdff2ea47ffbec59e99a8eda4"
+  }
+}

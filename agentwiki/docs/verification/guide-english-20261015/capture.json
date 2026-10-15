@@ -1,0 +1,98 @@
+[
+  {
+    "filename": "step1-agent-list-en.png",
+    "view": "agents",
+    "bounds": {
+      "x": 0,
+      "y": 0,
+      "width": 1120,
+      "height": 361
+    },
+    "text": "AgentWiki · Product Handbook\nEnglish guide · Sample data\nAgents\n\nCreate controlled automation identities and grant only the spaces they need.\n\nNew agent\nView archived Agents\nHandbook Assistant\nActive\n\nMaintains the product handbook and release documentation.\n\n1 spaces\n1 credentials\n3 audit events\nPause\nArchive",
+    "errors": []
+  },
+  {
+    "filename": "step2-space-members-en.png",
+    "view": "members",
+    "bounds": {
+      "x": 0,
+      "y": 0,
+      "width": 1120,
+      "height": 540
+    },
+    "text": "AgentWiki · Product Handbook\nEnglish guide · Sample data\nSpace\n/\nMembers\nMembers\n\nManage human member roles and Agent access roles separately.\n\nAdd member\nA\nAlex Morgan\n\nalex@example.com\n\nOwner\nHandbook Assistant\nAgent\n\nAuto-publishing remains subject to Space policy; Agents cannot approve reviews.\n\nReader\nEditor\nPublisher\n\nHuman member roles\n\nOwner, Admin, Editor, and Viewer control human collaboration and member management.\n\nAgent access roles\n\nReader · Editor · Publisher — Reader is read-only; in No review, write-capable Editor and Publisher Agents may auto-publish within existing scopes. Agents cannot approve reviews or manage members.",
+    "errors": []
+  },
+  {
+    "filename": "step5-agent-publish-en.png",
+    "view": "publish",
+    "bounds": {
+      "x": 0,
+      "y": 0,
+      "width": 1120,
+      "height": 520
+    },
+    "text": "AgentWiki · Product Handbook\nEnglish guide · Sample data\nLocal Agent\nIllustrative conversation\n\nConnect to AgentWiki with the instructions I supplied. Check the Product Handbook space, then publish an English page called “Release checklist”.\n\nI will verify the connection and the granted role before writing.\n\nCheck the Handbook Assistant identity and Product Handbook access.\nRead the Space review policy and confirm the Publisher role.\nPrepare Release checklist with tasks for Product, QA, and Engineering.\nSubmit the page, then read it back and check the activity log.\n\nPublishing follows the Space review policy. An Agent cannot approve a human review.",
+    "errors": []
+  },
+  {
+    "filename": "step6-agent-success-en.png",
+    "view": "result",
+    "bounds": {
+      "x": 0,
+      "y": 0,
+      "width": 1120,
+      "height": 692
+    },
+    "text": "AgentWiki · Product Handbook\nEnglish guide · Sample data\nLocal Agent\nIllustrative conversation\n\nShow me the connection and publishing result.\n\nConnection and publishing result #\nCheck\tExample result\nAgent identity\tHandbook Assistant\nAuthorized Space\tProduct Handbook\nAgent role\tPublisher\nSpace review policy\tNo review\nPage\tRelease checklist\nPublication\tPublished under the Space policy\n\nThe page has been read back in AgentWiki. The activity log records the corresponding MCP calls.",
+    "errors": []
+  },
+  {
+    "filename": "step6-published-page-en.png",
+    "view": "page",
+    "bounds": {
+      "x": 0,
+      "y": 0,
+      "width": 1120,
+      "height": 869
+    },
+    "text": "AgentWiki · Product Handbook\nEnglish guide · Sample data\nBack to space\nEdit\nSource and changes\nCREATED BY\n\nAgent · Handbook Assistant\n\nSOURCE\n\nProduct Handbook · markdown\n\ndocs/release-checklist.md\n\nEXTRACTION RUN\n\nhandbook-sync · completed\n\nCANDIDATE CHANGE\n\nPublish release checklist · published\n\nAPPROVAL\n\nPolicy auto-published\n\nPublished 10/15/2026, 9:30:00 AM\n\nLATEST CHANGE\n\nAgent · Handbook Assistant\n\nPublish release checklist · published\n\nChanged 10/15/2026, 9:30:00 AM\n\nEVIDENCE (0)\n\nNo extracted evidence; this item may be human-authored.\n\nVersion history\nDelete page\nRelease checklist\nAlex Morgan\n10/15/2026\nBefore you publish #\n\nUse this checklist to prepare a product release and keep the team informed.\n\nTask\tOwner\tStatus\nReview the release notes\tProduct team\tComplete\nVerify the main user flows\tQA team\tComplete\nConfirm the rollback plan\tEngineering\tReady\nAfter the release #\n\nCheck the live version, review the activity log, and share the release notes with the team.",
+    "errors": []
+  },
+  {
+    "filename": "step6-activity-log-en.png",
+    "view": "activity",
+    "bounds": {
+      "x": 0,
+      "y": 0,
+      "width": 1120,
+      "height": 592
+    },
+    "text": "AgentWiki · Product Handbook\nEnglish guide · Sample data\n← Agents\nHandbook Assistant\nActive\n\nMaintains the product handbook and release documentation.\n\nPause\nOverview\nAccess\nActivity\nSettings\nMCP operation · tool.get_page · Page release-checklist · Success\n10/15/2026, 9:30:00 AM\n\nResult summary: Status: Published\n\nTechnical details\nMCP operation · tool.propose_page · Page release-checklist · Success\n10/15/2026, 9:30:00 AM\n\nResult summary: Status: Published\n\nTechnical details\nMCP operation · tool.list_spaces · Space product-handbook · Success\n10/15/2026, 9:30:00 AM\n\nResult summary: Rows returned: 1\n\nTechnical details",
+    "errors": []
+  },
+  {
+    "filename": "local-sync-preview-en.png",
+    "view": "local-preview",
+    "bounds": {
+      "x": 0,
+      "y": 0,
+      "width": 1120,
+      "height": 690
+    },
+    "text": "AgentWiki · Product Handbook\nEnglish guide · Sample data\nLocal Agent\nIllustrative conversation\n\nInspect ./docs for the Product Handbook space. Show the preview before uploading anything.\n\nLocal knowledge preview #\nChange\tFiles\nAdded\t1 — release-checklist.md\nUpdated / deleted\t0 / 0\nUnchanged / skipped\t2 / 0\nUpload size\t2.4 KB\n\nTarget: Product Handbook · Preview: handbook-preview\n\nNo content has been uploaded. No remote model is used in this example.\n\nSync this preview to AgentWiki?",
+    "errors": []
+  },
+  {
+    "filename": "local-sync-result-en.png",
+    "view": "local-result",
+    "bounds": {
+      "x": 0,
+      "y": 0,
+      "width": 1120,
+      "height": 679
+    },
+    "text": "AgentWiki · Product Handbook\nEnglish guide · Sample data\nLocal Agent\nIllustrative conversation\n\nYes, sync the handbook-preview I just reviewed to Product Handbook.\n\nSynchronization result #\nItem\tExample result\nSource\tProduct Handbook docs\nRun\thandbook-sync · completed\nChangeSet\thandbook-update\nPage\tRelease checklist\nReview status\tPublished under the Space policy\n\nThe example Space uses No review and the Agent has Publisher access. With Always review, the change would wait for a human reviewer.",
+    "errors": []
+  }
+]
