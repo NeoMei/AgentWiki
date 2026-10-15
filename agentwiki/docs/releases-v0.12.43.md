@@ -5,3 +5,5 @@
 Web/API 0.12.43；Local Sync 0.13.0、protocol 0.6.1 不变，无数据库结构或 npm 包变更。
 
 验证：目录与空间工作区 4 文件 / 83 项已有测试通过，全仓 build、typecheck、lint 与独立审查通过。Chrome 合成数据验证阅读、编辑、400px 高短窗口以及 390px 宽目录抽屉；左右标题栏高度、顶部和底部相同，无横向溢出或控制台错误，抽屉关闭后焦点返回入口。详见 [发布门禁](verification/directory-header-20261016/release-gates.json)。
+
+生产验收：截图对应周报在 1710px Chrome 阅读及编辑模式下，左右两栏均为 49px，顶部及底部偏移为 0；390px 手机目录抽屉标题同为 49px，关闭后焦点正常返回。1345 源码文件匹配发布提交，3 服务 active、5 健康项 ok、32 公网冒烟通过；公网资源哈希与原授权稳定字段摘要核对一致。详见 [部署回执](verification/directory-header-20261016/deployment.json)。

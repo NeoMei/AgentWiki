@@ -1,0 +1,115 @@
+{
+  "version": "0.12.43",
+  "releaseCommit": "284c9a887214a41f859e56c2570431274624608d",
+  "githubRelease": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.43",
+  "deployment": {
+    "exitCode": 0,
+    "previousTree": "/root/agentwiki-previous-20261016014302"
+  },
+  "backup": {
+    "status": "verified",
+    "directory": "/var/backups/agentwiki/directory-header-v01243.4xmm9qiv",
+    "components": [
+      "application",
+      "configuration",
+      "database",
+      "attachments"
+    ],
+    "coordinatedWriterPause": true,
+    "checksumsPassed": true,
+    "databaseTocEntries": 684,
+    "permanentAttachmentBlobs": 142,
+    "archiveMatchesPermanentBlobs": true,
+    "writersRestored": true
+  },
+  "production": {
+    "verifiedAt": "2026-10-15T17:43:32.126723+00:00",
+    "revision": "284c9a887214a41f859e56c2570431274624608d",
+    "sourceFilesVerified": 1345,
+    "mismatches": [],
+    "versions": {
+      "web": "0.12.43",
+      "client": "0.12.43",
+      "api": "0.12.43",
+      "localSync": "0.13.0",
+      "protocol": "0.6.1"
+    },
+    "services": {
+      "agentwiki-api.service": "active",
+      "agentwiki-worker.service": "active",
+      "agentwiki-frontend.service": "active"
+    },
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryAssets": {
+      "/assets/index-j79cYa-W.js": "2c22edb39de06bd2ffb92b9092baf112ebbd94a8ac185af1e667cc5d496852c0",
+      "/assets/_commonjsHelpers-CqkleIqs.js": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+      "/assets/react-vendor-CTv3miC2.js": "7e3a4bf34c49700b5fad7403a908da66c35ca1ad3669d05d3356f1a5e9bae663",
+      "/assets/preload-helper-ckwbz45p.js": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+      "/assets/index-B3fqh6vi.css": "46d17c2afeb950ee850a82f754f6b1c4e983a4b3888397a8c72b063d28510d10"
+    }
+  },
+  "public": {
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryAssetsMatchProduction": [
+      "/assets/index-j79cYa-W.js",
+      "/assets/_commonjsHelpers-CqkleIqs.js",
+      "/assets/react-vendor-CTv3miC2.js",
+      "/assets/preload-helper-ckwbz45p.js",
+      "/assets/index-B3fqh6vi.css"
+    ],
+    "pageHttpStatus": 200
+  },
+  "stableAuthorizationFields": {
+    "match": true,
+    "beforeVersion": "0.12.42",
+    "afterVersion": "0.12.43",
+    "counts": {
+      "credentials": 89,
+      "grants": 501,
+      "agents": 819,
+      "spacePolicies": 1484
+    },
+    "comparisonBeforeSmoke": true
+  },
+  "smoke": {
+    "status": "passed",
+    "checks": 32,
+    "exitCode": 0
+  },
+  "browser": {
+    "environment": "production signed-in Chrome, original weekly report",
+    "contentEditsOrSaveActions": false,
+    "desktopWidth": 1710,
+    "mobileWidth": 390,
+    "states": [
+      "read",
+      "edit",
+      "mobile directory drawer"
+    ],
+    "desktopDirectoryHeaderHeight": 49,
+    "desktopDocumentToolbarHeight": 49,
+    "desktopTopOffset": 0,
+    "desktopBottomOffset": 0,
+    "mobileDrawerHeaderHeight": 49,
+    "closeReturnsFocusToTrigger": true,
+    "horizontalOverflow": false,
+    "consoleWarningsOrErrors": 0,
+    "viewportOverrideReset": true,
+    "entryAsset": "https://agentwiki.quukk.com/assets/index-j79cYa-W.js",
+    "evidencePrivacy": "Original route identifiers and screenshots retained locally; excluded from public receipt"
+  },
+  "releaseGates": "release-gates.json",
+  "npmPublicationRequired": false
+}
