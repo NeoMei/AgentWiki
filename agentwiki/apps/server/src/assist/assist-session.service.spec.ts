@@ -56,6 +56,35 @@ describe('AssistSessionService', () => {
     await expect(service.create('s1', 'u1')).rejects.toThrow();
   });
 
+  it('returns only sanitized structured running progress separately from answers', async () => {
+    await service.send('session1', 'u1', request());
+    tasks[0].status = 'running';
+    tasks[0].result = { progress: { phase: 'generating', attempt: 2, message: 'SECRET reasoning', model: 'SECRET model' }, raw: 'SECRET provider output' };
+    const turn = (await service.get('session1', 'u1')).turns[0];
+    expect(turn.progress).toEqual({ phase: 'generating', attempt: 2 });
+    expect(turn.progressText).toBe('');
+    expect(turn.result).toBeNull();
+    expect(JSON.stringify(turn)).not.toContain('SECRET');
+  });
+
+  it.each(['queued', 'done', 'failed', 'cancelled'])('hides stale progress for a %s turn', async status => {
+    await service.send('session1', 'u1', request());
+    tasks[0].status = status;
+    tasks[0].result = { progress: { phase: 'generating', attempt: 2 }, summary: 'answer' };
+    const turn = (await service.get('session1', 'u1')).turns[0];
+    expect(turn).not.toHaveProperty('progress');
+    expect(turn.result).toEqual(status === 'done' ? { summary: 'answer' } : null);
+  });
+
+  it.each([
+    { phase: 'SECRET provider message' }, { phase: 'waiting', attempt: 0 },
+    { phase: 'waiting', attempt: 101 }, { phase: 'waiting', attempt: 1.5 }, { phase: 'waiting', attempt: '2' },
+  ])('omits malformed stored progress %j', async progress => {
+    await service.send('session1', 'u1', request());
+    tasks[0].status = 'running'; tasks[0].result = { progress };
+    expect((await service.get('session1', 'u1')).turns[0]).not.toHaveProperty('progress');
+  });
+
   it('allows a viewer question with canonical current and reference snapshots and flat history', async () => {
     const turn = await service.send('session1', 'u1', request({ referencePageIds: ['p2'] }));
     expect(turn.mode).toBe('question');

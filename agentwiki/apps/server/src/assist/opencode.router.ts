@@ -6,6 +6,7 @@ import { buildCandidates, OpencodeModelCatalog } from './opencode.catalog';
 import { readRoutingConfig, RoutingConfig } from './opencode.config';
 import { OpencodeCliRunner } from './opencode.runner';
 import { composeAssistOutputScope } from './assist-target';
+import { AgentExecutionProgress } from './assist-progress';
 import {
   AssistAttemptSummary,
   AssistInput,
@@ -41,6 +42,7 @@ export class OpencodeModelRouter implements OpencodeRunner, AgentRuntimePort, On
 
   async run(task: AssistInput): Promise<AssistRunResult> {
     if (task.signal?.aborted) throw this.routingError('cancelled', [], { ...EMPTY_USAGE }, 0);
+    task.onProgress?.({ phase: 'preparing' });
     if (!this.config) this.onModuleInit();
 
     let prompt: string;
@@ -110,12 +112,18 @@ export class OpencodeModelRouter implements OpencodeRunner, AgentRuntimePort, On
       }
 
       try {
+        const attempt = attempts.length + 1;
+        task.onProgress?.({ phase: 'preparing', attempt });
         const result = await this.runner.runModel(
           prompt,
           candidate.id,
           Math.min(this.config.attemptTimeoutMs, remaining),
           task.onStreamChunk,
-          ...(task.signal || task.mode || task.onAnswerText ? [{ signal: task.signal, mode: task.mode, onAnswerText: task.onAnswerText }] : []),
+          ...(task.signal || task.mode || task.onAnswerText || task.onProgress ? [{ signal: task.signal, mode: task.mode, onAnswerText: task.onAnswerText,
+            ...(task.onProgress ? { onProgress: (progress: AgentExecutionProgress) => {
+              if (!task.signal?.aborted) task.onProgress?.({ phase: progress.phase, attempt });
+            } } : {}),
+          }] : []),
         );
         if (task.signal?.aborted) throw new OpencodeExecutionError('cancelled', 'cancelled', 'global', EMPTY_USAGE);
         if (task.mode !== 'question') {

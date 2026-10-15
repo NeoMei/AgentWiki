@@ -6,6 +6,7 @@ import { BusinessException } from '../core/filters/business-error';
 import { AuthorizationService } from '../core/authorization/authorization.service';
 import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.service';
 import { assertAssistTargetVersion, validateAssistTarget } from './assist-target';
+import { sanitizeAgentProgress } from './assist-progress';
 import {
   AGENT_OUTPUT_LIMIT_ERROR, AGENT_SESSION_LIMITS as LIMIT, AgentHistoryTurn, AgentSessionContext, AgentSessionDetail,
   AgentSessionSummary, AgentTurnMode, AgentTurnRequest, AgentTurnStatus, AgentTurnView,
@@ -257,11 +258,12 @@ export class AssistSessionService {
   }
   private view(task: AssistTask): AgentTurnView {
     const context = this.context(task);
+    const progress = task.status === 'running' && isObject(task.result) ? sanitizeAgentProgress(task.result.progress) : undefined;
     return { id: task.id, sessionId: task.sessionId!, pageId: task.pageId, mode: task.mode as AgentTurnMode,
       intent: task.intent, status: task.status as AgentTurnStatus, createdAt: task.createdAt.toISOString(),
       pageSnapshot: isObject(task.pageSnapshot) ? task.pageSnapshot : null,
       references: context.references.map(({ pageId, title, updatedAt }) => ({ pageId, title, updatedAt })),
-      noteIds: context.noteIds, ...(context.annotations ? { annotations: context.annotations.map(({ id, body, quote }) => ({ id, body, quote })) } : {}), progressText: task.progressText || '', result: this.publicResult(task),
+      noteIds: context.noteIds, ...(context.annotations ? { annotations: context.annotations.map(({ id, body, quote }) => ({ id, body, quote })) } : {}), progressText: task.progressText || '', ...(progress ? { progress } : {}), result: this.publicResult(task),
       error: task.status === 'failed' ? (task.error === AGENT_OUTPUT_LIMIT_ERROR ? AGENT_OUTPUT_LIMIT_ERROR : 'Assistant failed; retry with a new turn') : null };
   }
 }

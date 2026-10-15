@@ -24,6 +24,7 @@ import {
 import { AGENT_SESSION_LIMITS as LIMIT } from './assist-session.types';
 import { AgentRuntimePort, BUILTIN_RUNTIME_CAPABILITIES } from './agent-runtime.port';
 import { assertAssistOutputScope, composeAssistOutputScope, validateAssistTarget } from './assist-target';
+import { AgentExecutionProgress } from './assist-progress';
 
 const MAX_OUTPUT_BYTES = 2_000_000;
 const TERMINATION_GRACE_MS = 5_000;
@@ -39,7 +40,7 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
   async run(task: AssistInput): Promise<AssistRunResult> {
     const prompt = this.buildPrompt(task);
     const timeoutMs = Number(this.config.get('ASSIST_OPENCODE_TIMEOUT_MS') || 300_000);
-    const output = await this.exec(['run', '--format', 'json'], timeoutMs, 'model', task.onStreamChunk, task.signal, task.onAnswerText, task.mode, prompt);
+    const output = await this.exec(['run', '--format', 'json'], timeoutMs, 'model', task.onStreamChunk, task.signal, task.onAnswerText, task.mode, prompt, task.onProgress);
     const result = this.parse(output, task.mode);
     if (task.mode !== 'question') {
       result.changes = composeAssistOutputScope(task.pageSnapshot, result.changes) as string;
@@ -78,7 +79,7 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
     return this.exec(['models', '--verbose'], timeoutMs, 'catalog');
   }
 
-  async runModel(prompt: string, model: string, timeoutMs: number, onStreamChunk?: StreamChunkCallback, options?: Pick<AssistInput, 'signal' | 'mode' | 'onAnswerText'>): Promise<OpencodeAttemptResult> {
+  async runModel(prompt: string, model: string, timeoutMs: number, onStreamChunk?: StreamChunkCallback, options?: Pick<AssistInput, 'signal' | 'mode' | 'onAnswerText' | 'onProgress'>): Promise<OpencodeAttemptResult> {
     // A proposal must return the entire Markdown source.  Enabling OpenCode's
     // reasoning stream consumes the provider output budget before the JSON
     // proposal is complete, which truncates long pages mid-string. Questions
@@ -89,7 +90,7 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
       ['run', '--model', model, ...thinkingArgs, '--format', 'json'],
       timeoutMs,
       'model',
-      onStreamChunk, options?.signal, options?.onAnswerText, options?.mode, prompt,
+      onStreamChunk, options?.signal, options?.onAnswerText, options?.mode, prompt, options?.onProgress,
     );
     return this.parse(output, options?.mode);
   }
@@ -132,7 +133,7 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
     return resolveOpencodeLaunchFile(target, platform);
   }
 
-  private exec(args: string[], timeoutMs: number, invocation: 'catalog' | 'model', onStreamChunk?: StreamChunkCallback, signal?: AbortSignal, onAnswerText?: StreamChunkCallback, mode?: AssistInput['mode'], promptInput?: string): Promise<string> {
+  private exec(args: string[], timeoutMs: number, invocation: 'catalog' | 'model', onStreamChunk?: StreamChunkCallback, signal?: AbortSignal, onAnswerText?: StreamChunkCallback, mode?: AssistInput['mode'], promptInput?: string, onProgress?: AssistInput['onProgress']): Promise<string> {
     if (signal?.aborted) return Promise.reject(this.executionError('cancelled', 'global'));
     const launch = this.resolveLaunch();
     const sandbox = mkdtempSync(join(tmpdir(), 'agentwiki-assist-'));
@@ -180,6 +181,12 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
       let answerBuffer = '';
       let lastAnswer = '';
       let terminating = false;
+      let lastPhase: AgentExecutionProgress['phase'] | undefined;
+      const emitProgress = (phase: AgentExecutionProgress['phase']) => {
+        if (terminating || signal?.aborted || phase === lastPhase) return;
+        lastPhase = phase;
+        onProgress?.({ phase });
+      };
       // Progressive streaming: opencode emits the full text of a step at once
       // (--format json is step-scoped, not token-scoped). Chunk it and release
       // it gradually so the editor updates live instead of all at once.
@@ -250,7 +257,7 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
         if (!settled && !closed && !terminating) terminate(this.executionError('process_error', 'global', out));
       };
       const emitStreamChunk = (data: Buffer | string) => {
-        if ((!onStreamChunk && !onAnswerText) || terminating || signal?.aborted) return;
+        if ((!onStreamChunk && !onAnswerText && !onProgress) || terminating || signal?.aborted) return;
         const chunk = data.toString();
         lineBuffer += chunk;
         let newlineIndex: number;
@@ -260,6 +267,7 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
           if (!line) continue;
           try {
             const event = JSON.parse(line);
+            if (event?.type === 'step_start' || (event?.type === 'text' && typeof event?.part?.text === 'string')) emitProgress('generating');
             if (onAnswerText && event?.type === 'text' && typeof event?.part?.text === 'string') {
               answerBuffer += event.part.text;
               const response = this.finalResponse(answerBuffer, mode);
@@ -331,7 +339,7 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
       const onClose = (code: number | null) => {
         closed = true;
         cleanup();
-        if (code === 0) settle(undefined, out);
+        if (code === 0) { emitProgress('finalizing'); settle(undefined, out); }
         else {
           const failureCode = this.classifyOutputFailure(out, err);
           const scope = failureCode === 'process_error' ? 'global' : 'model';
@@ -354,6 +362,7 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
       signal?.addEventListener('abort', onAbort, { once: true });
       if (signal?.aborted) onAbort();
       else {
+        if (invocation === 'model') emitProgress('waiting');
         // OpenCode reads non-TTY stdin until EOF. Avoid Linux's per-argument
         // size cap and keep document text out of the process argument list.
         try { child.stdin.end(promptInput || '', 'utf8'); }

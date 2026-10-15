@@ -2,6 +2,7 @@ import { AssistQueue } from './assist.queue';
 import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.service';
 import { AuthorizationService } from '../core/authorization/authorization.service';
 import { EMPTY_USAGE, OpencodeRoutingError } from './opencode.types';
+import { Prisma } from '@prisma/client';
 
 describe('AssistQueue task processing', () => {
   const prisma = {
@@ -37,6 +38,95 @@ describe('AssistQueue task processing', () => {
     runner.run.mockReset();
     prisma.assistTask.count.mockResolvedValue(1);
     prisma.assistTask.updateMany.mockResolvedValue({ count: 1 });
+  });
+
+  it('serializes sanitized phase and answer writes, deduplicates phases, and replaces them with the final answer', async () => {
+    const sessions = { executionContext: async () => ({ history: [] }) };
+    const queue = new AssistQueue(prisma, config, runner, gateway, new AuthorizationService(prisma), new SpaceRevisionWriterService(prisma, {} as any), sessions as any);
+    runner.run.mockImplementation(async (input: any) => {
+      input.onProgress?.({ phase: 'preparing' });
+      input.onProgress?.({ phase: 'generating', attempt: 1, raw: 'SECRET reasoning' });
+      input.onProgress?.({ phase: 'generating', attempt: 1 });
+      input.onAnswerText('Valid answer');
+      input.onProgress?.({ phase: 'arbitrary SECRET message', attempt: 1 });
+      input.onProgress?.({ phase: 'waiting', attempt: 101 });
+      input.onProgress?.({ phase: 'waiting', attempt: 2 });
+      return { summary: 'Final answer' };
+    });
+    await (queue as any).processOne({ id: 't1', spaceId: 'space-1', requestedByUserId: 'user-1', sessionId: 's1', pageId: 'page-1', mode: 'question', intent: 'why', pageSnapshot: {} });
+    const writes = prisma.assistTask.updateMany.mock.calls.map((call: any[]) => call[0]);
+    expect(writes.map((write: any) => write.data.result || write.data.progressText)).toEqual([
+      { progress: { phase: 'preparing' } }, { progress: { phase: 'generating', attempt: 1 } },
+      'Valid answer', { progress: { phase: 'waiting', attempt: 2 } }, { summary: 'Final answer' },
+    ]);
+    for (const write of writes) expect(write.where).toMatchObject({ status: 'running', leaseOwner: (queue as any).workerId, leaseExpiresAt: { gt: expect.any(Date) } });
+    expect(JSON.stringify(writes)).not.toContain('SECRET');
+    expect(gateway.emitAssistStream).not.toHaveBeenCalled();
+  });
+
+  it.each(['cancelled', 'stale lease'])('cannot write queued phases after %s takes ownership', async reason => {
+    const sessions = { executionContext: async () => ({ history: [] }) };
+    const queue = new AssistQueue(prisma, config, runner, gateway, new AuthorizationService(prisma), new SpaceRevisionWriterService(prisma, {} as any), sessions as any);
+    const row: any = { status: 'running', leaseOwner: (queue as any).workerId, result: null };
+    prisma.assistTask.updateMany.mockImplementation(async ({ where, data }: any) => {
+      if (row.status !== where.status || row.leaseOwner !== where.leaseOwner) return { count: 0 };
+      Object.assign(row, data); return { count: 1 };
+    });
+    runner.run.mockImplementation(async (input: any) => {
+      if (reason === 'cancelled') row.status = 'cancelled'; else row.leaseOwner = 'new-worker';
+      row.result = { terminal: 'preserved' };
+      input.onProgress?.({ phase: 'generating', attempt: 1 });
+      input.onAnswerText('late answer');
+      return { summary: 'late answer' };
+    });
+    await (queue as any).processOne({ id: 't1', spaceId: 'space-1', requestedByUserId: 'user-1', sessionId: 's1', pageId: 'page-1', mode: 'question', intent: 'why', pageSnapshot: {} });
+    expect(row.result).toEqual({ terminal: 'preserved' });
+    expect(row.progressText).toBeUndefined();
+    expect(row.status).toBe(reason === 'cancelled' ? 'cancelled' : 'running');
+  });
+
+  it('stops an in-flight progress transaction before marking a runtime failure terminal', async () => {
+    let progressEntered!: () => void;
+    const entered = new Promise<void>(resolve => { progressEntered = resolve; });
+    let releaseProgress!: () => void;
+    const blocked = new Promise<void>(resolve => { releaseProgress = resolve; });
+    let blockProgress = false;
+    const sessions = { executionContext: async () => {
+      if (blockProgress) { progressEntered(); await blocked; }
+      return { history: [] };
+    } };
+    const queue = new AssistQueue(prisma, config, runner, gateway, new AuthorizationService(prisma), new SpaceRevisionWriterService(prisma, {} as any), sessions as any);
+    runner.run.mockImplementation(async (input: any) => {
+      blockProgress = true;
+      input.onProgress({ phase: 'generating' });
+      await entered;
+      input.signal.addEventListener('abort', releaseProgress, { once: true });
+      throw new Error('SECRET provider failure');
+    });
+    await (queue as any).processOne({ id: 't1', spaceId: 'space-1', requestedByUserId: 'user-1', sessionId: 's1', pageId: 'page-1', mode: 'question', intent: 'why', pageSnapshot: {} });
+    const writes = prisma.assistTask.updateMany.mock.calls.map((call: any[]) => call[0].data);
+    expect(writes).toHaveLength(2);
+    expect(writes[0].result).toEqual({ progress: { phase: 'preparing' } });
+    expect(writes[1]).toMatchObject({ status: 'failed', progressText: '', result: Prisma.DbNull });
+    expect(JSON.stringify(writes)).not.toContain('SECRET');
+  });
+
+  it('revalidates authorization before every progress write', async () => {
+    let allowed = true;
+    const sessions = { executionContext: async () => {
+      if (!allowed) throw new Error('permission lost');
+      return { history: [] };
+    } };
+    const queue = new AssistQueue(prisma, config, runner, gateway, new AuthorizationService(prisma), new SpaceRevisionWriterService(prisma, {} as any), sessions as any);
+    runner.run.mockImplementation(async (input: any) => {
+      allowed = false;
+      input.onProgress({ phase: 'generating' });
+      return { summary: 'late answer' };
+    });
+    await (queue as any).processOne({ id: 't1', spaceId: 'space-1', requestedByUserId: 'user-1', sessionId: 's1', pageId: 'page-1', mode: 'question', intent: 'why', pageSnapshot: {} });
+    const writes = prisma.assistTask.updateMany.mock.calls.map((call: any[]) => call[0].data);
+    expect(writes.map((data: any) => data.result?.progress?.phase).filter(Boolean)).toEqual(['preparing']);
+    expect(writes.some((data: any) => data.status === 'done')).toBe(false);
   });
 
   it('actively aborts a running session after cancellation and never publishes its late answer', async () => {
@@ -111,7 +201,7 @@ describe('AssistQueue task processing', () => {
     const queue = new AssistQueue(prisma, config, runner, gateway, new AuthorizationService(prisma), new SpaceRevisionWriterService(prisma, {} as any), sessions as any);
     runner.run.mockResolvedValue(result);
     await (queue as any).processOne({ id: 't1', spaceId: 'space-1', requestedByUserId: 'user-1', sessionId: 's1', pageId: 'page-1', mode: 'question', intent: 'why', pageSnapshot: {} });
-    expect(prisma.assistTask.updateMany.mock.calls.map((call: any[]) => call[0].data.status)).toEqual(['failed']);
+    expect(prisma.assistTask.updateMany.mock.calls.map((call: any[]) => call[0].data.status).filter(Boolean)).toEqual(['failed']);
     expect(gateway.emitAssistError).not.toHaveBeenCalled();
   });
 

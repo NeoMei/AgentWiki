@@ -1,3 +1,5 @@
+import { AgentExecutionProgress } from './assist-progress';
+
 export type AgentTurnMode = 'question' | 'proposal';
 export type AgentTurnStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
 export interface AgentSessionSummary { id: string; spaceId: string; title: string; createdAt: string; updatedAt: string }
@@ -12,6 +14,7 @@ export interface AgentTurnView {
   status: AgentTurnStatus; createdAt: string; pageSnapshot: Record<string, unknown> | null;
   references: { pageId: string; title: string; updatedAt: string }[];
   noteIds: string[]; annotations?: AgentTurnAnnotation[]; progressText: string;
+  progress?: AgentExecutionProgress;
   result: { summary?: string; changes?: string } | null; error: string | null;
 }
 export interface AgentSessionDetail extends AgentSessionSummary { turns: AgentTurnView[] }
