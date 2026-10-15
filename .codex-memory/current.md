@@ -1,5 +1,7 @@
 # 当前目标
 
+- 内嵌 Agent 聊天过程反馈与候选确认简化：独立工作树 codex/agent-chat-feedback 基于 v0.12.34，候选 b2620dc7，已完成双端测试/构建与桌面、390px真实浏览器合成API验收；最终独立复审通过（3项发现已关闭、0项遗留），本任务临时服务和标签已清理；未发布部署。
+
 - 本次修复文章右侧 Agent 多 Session 标签无法关闭：隔离分支 `codex/agent-session-tab-close` 已完成本地实现、独立复审和浏览器验收，尚未推送或发布。
 - 用户已授权核验全部本轮改动后发布。正在进行Web/API0.12.26、Local Sync0.13.0最终门禁、版本契约、配套备份和上线准备；尚未发布新版本。
 
@@ -33,6 +35,8 @@
 - 工作树路径有尾空格；Git 显式 --work-tree，保留主检出用户工作。
 
 # 关键索引
+
+- .codex-memory/tasks/archive/agent-chat-feedback-20261015/{brief,decisions,refs}.md
 
 - agentwiki/docs/verification/agent-session-tabs-20261015/status.md
 - .codex-memory/tasks/archive/agent-chat-simplification-20261014/{brief,decisions,refs}.md
