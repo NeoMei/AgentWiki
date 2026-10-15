@@ -3,7 +3,8 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { ArticleContentsPopover } from './ArticleContentsPopover';
-import { SpaceWorkspaceProvider, SpaceWorkspaceScope } from './SpaceWorkspaceContext';
+import { SpaceWorkspaceProvider } from './SpaceWorkspaceContext';
+import { SpaceWorkspaceScope } from './SpaceWorkspaceScope';
 
 const Harness = ({ pageKey = 'page-1', children }: { pageKey?: string; children: React.ReactNode }) => {
   const articleRef = useRef<HTMLDivElement>(null);

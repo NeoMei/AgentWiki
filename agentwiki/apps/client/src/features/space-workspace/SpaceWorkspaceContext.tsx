@@ -1,5 +1,5 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { clampDirectoryWidth, clampOutlineWidth, clampCollaborationWidth, defaultWorkspacePreferences, readWorkspacePreferences, writeWorkspacePreferences, type WorkspacePreferences, type PanelPreferences, type DirectorySelectionState } from './workspacePreferences';
+import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import { readWorkspacePreferences, writeWorkspacePreferences, type WorkspacePreferences, type PanelPreferences, type DirectorySelectionState } from './workspacePreferences';
 import type { SpaceNavSection } from './workspaceNavigation';
 
 export type SpaceWorkspaceMode = 'directory' | 'read' | 'edit' | 'versions' | 'section';
@@ -23,6 +23,8 @@ export interface SpaceWorkspaceContextValue extends BrowsingState {
   selectedPageId: string | null;
   selectedPageFolderId: string | null;
   pageRefreshRequest: number;
+  directoryRefreshRequest?: number;
+  requestDirectoryRefresh?: () => void;
   pageDeleted?: boolean;
   setFolderExpanded: (folderId: string, expanded: boolean) => void;
   setDirectoryScrollTop: (scrollTop: number) => void;
@@ -30,16 +32,14 @@ export interface SpaceWorkspaceContextValue extends BrowsingState {
   setDirectoryCollapsed: (collapsed: boolean) => void;
   setPanelPreferences: (preferences: PanelPreferences) => void;
   selectFolder: (folderId: string | null) => void;
-  reportPageIdentity: (pageId: string, spaceId: string | null, folderId?: string | null) => void;
+  reportPageIdentity: (pageId: string, spaceId: string | null, folderId?: string | null, accessDenied?: boolean) => void;
   requestPageRefresh: (pageId: string, options?: { deleted?: boolean }) => void;
   directoryCrumbs: ReadonlyArray<{ id: string | null; name: string }>;
   reportDirectoryCrumbs: (crumbs: ReadonlyArray<{ id: string | null; name: string }>) => void;
 }
 
-const EMPTY_STATE = defaultWorkspacePreferences();
-
-const WorkspaceRegistryContext = createContext<WorkspaceRegistryValue | null>(null);
-const SpaceWorkspaceContext = createContext<SpaceWorkspaceContextValue | null>(null);
+export const WorkspaceRegistryContext = createContext<WorkspaceRegistryValue | null>(null);
+export const SpaceWorkspaceContext = createContext<SpaceWorkspaceContextValue | null>(null);
 
 export const SpaceWorkspaceProvider: React.FC<{ userId: string; children: React.ReactNode }> = ({ userId, children }) => {
   const statesRef = useRef(new Map<string, BrowsingState>());
@@ -66,113 +66,6 @@ export const SpaceWorkspaceProvider: React.FC<{ userId: string; children: React.
   }, [scopeKey, userId]);
   const value = useMemo(() => ({ userId, stateFor, selectionFor, updateState }), [stateFor, selectionFor, updateState, userId]);
   return <WorkspaceRegistryContext.Provider value={value}>{children}</WorkspaceRegistryContext.Provider>;
-};
-
-interface SpaceWorkspaceScopeProps {
-  mode: SpaceWorkspaceMode;
-  spaceId: string | null;
-  activeSection: SpaceNavSection;
-  selectedFolderId: string | null;
-  selectedPageId: string | null;
-  selectedPageFolderId: string | null;
-  pageRefreshRequest: number;
-  pageDeleted?: boolean;
-  selectFolder: (folderId: string | null) => void;
-  reportPageIdentity: (pageId: string, spaceId: string | null, folderId?: string | null) => void;
-  requestPageRefresh: (pageId: string, options?: { deleted?: boolean }) => void;
-  children: React.ReactNode;
-}
-
-export const SpaceWorkspaceScope: React.FC<SpaceWorkspaceScopeProps> = ({
-  mode,
-  spaceId,
-  activeSection,
-  selectedFolderId,
-  selectedPageId,
-  selectedPageFolderId,
-  pageRefreshRequest,
-  pageDeleted = false,
-  selectFolder,
-  reportPageIdentity,
-  requestPageRefresh,
-  children,
-}) => {
-  const registry = useContext(WorkspaceRegistryContext);
-  if (!registry) throw new Error('SpaceWorkspace must be rendered within SpaceWorkspaceProvider');
-  const browsingState = spaceId ? registry.stateFor(spaceId) : EMPTY_STATE;
-  const [directoryCrumbs, setDirectoryCrumbs] = useState<ReadonlyArray<{ id: string | null; name: string }>>([]);
-  useEffect(() => setDirectoryCrumbs([]), [spaceId]);
-  const setFolderExpanded = useCallback((folderId: string, expanded: boolean) => {
-    if (!spaceId) return;
-    registry.updateState(spaceId, (current) => {
-      const expandedFolderIds = new Set(current.expandedFolderIds);
-      if (expanded) expandedFolderIds.add(folderId);
-      else expandedFolderIds.delete(folderId);
-      return { ...current, expandedFolderIds };
-    });
-  }, [registry.updateState, spaceId]);
-  const setDirectoryScrollTop = useCallback((directoryScrollTop: number) => {
-    if (!spaceId) return;
-    registry.updateState(spaceId, (current) => ({ ...current, directoryScrollTop }));
-  }, [registry.updateState, spaceId]);
-  const setDirectoryWidth = useCallback((width: number) => {
-    if (spaceId) registry.updateState(spaceId, (current) => ({ ...current, directoryWidth: clampDirectoryWidth(width) }));
-  }, [registry.updateState, spaceId]);
-  const setDirectoryCollapsed = useCallback((directoryCollapsed: boolean) => {
-    if (spaceId) registry.updateState(spaceId, (current) => ({ ...current, directoryCollapsed }));
-  }, [registry.updateState, spaceId]);
-  const setPanelPreferences = useCallback((preferences: PanelPreferences) => {
-    if (spaceId) registry.updateState(spaceId, (current) => ({
-      ...current, ...preferences,
-      outlineWidth: clampOutlineWidth(preferences.outlineWidth ?? current.outlineWidth),
-      collaborationWidth: clampCollaborationWidth(preferences.collaborationWidth ?? current.collaborationWidth),
-    }));
-  }, [registry.updateState, spaceId]);
-  const value = useMemo<SpaceWorkspaceContextValue>(() => ({
-    ...browsingState,
-    directorySelection: spaceId ? registry.selectionFor(spaceId) : undefined,
-    userId: registry.userId,
-    spaceId,
-    mode,
-    activeSection,
-    selectedFolderId,
-    selectedPageId,
-    selectedPageFolderId,
-    pageRefreshRequest,
-    pageDeleted,
-    setFolderExpanded,
-    setDirectoryScrollTop,
-    setDirectoryCollapsed,
-    setDirectoryWidth,
-    setPanelPreferences,
-    selectFolder,
-    reportPageIdentity,
-    requestPageRefresh,
-    directoryCrumbs,
-    reportDirectoryCrumbs: setDirectoryCrumbs,
-  }), [
-    activeSection,
-    browsingState,
-    directoryCrumbs,
-    mode,
-    pageRefreshRequest,
-    pageDeleted,
-    registry.userId,
-    registry.selectionFor,
-    reportPageIdentity,
-    requestPageRefresh,
-    selectFolder,
-    selectedFolderId,
-    selectedPageId,
-    selectedPageFolderId,
-    setDirectoryScrollTop,
-    setDirectoryCollapsed,
-    setDirectoryWidth,
-    setPanelPreferences,
-    setFolderExpanded,
-    spaceId,
-  ]);
-  return <SpaceWorkspaceContext.Provider value={value}>{children}</SpaceWorkspaceContext.Provider>;
 };
 
 export const useSpaceWorkspace = (): SpaceWorkspaceContextValue => {

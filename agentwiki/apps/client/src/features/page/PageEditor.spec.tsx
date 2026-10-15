@@ -12,7 +12,8 @@ import { PageEditor } from './PageEditor';
 import { AgentSessionRegistryProvider } from '../agent-session/AgentSessionRegistry';
 import { loadDraft, saveDraft } from './localDrafts';
 import { SpaceWorkspace } from '../space-workspace/SpaceWorkspace';
-import { SpaceWorkspaceProvider, SpaceWorkspaceScope, useSpaceWorkspace } from '../space-workspace/SpaceWorkspaceContext';
+import { SpaceWorkspaceProvider, useSpaceWorkspace } from '../space-workspace/SpaceWorkspaceContext';
+import { SpaceWorkspaceScope } from '../space-workspace/SpaceWorkspaceScope';
 import { NavigationGuardProvider, resetWorkspacePositions } from '../space-workspace/workspaceNavigation';
 
 const templateMocks = vi.hoisted(() => ({

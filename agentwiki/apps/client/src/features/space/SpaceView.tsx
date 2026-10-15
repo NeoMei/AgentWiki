@@ -159,6 +159,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     spaceId: showDirectory && space?.id === id && id ? id : null,
     targetFolderId,
     identityKey: `${user?.id}\u0000${id}`,
+    refreshKey: workspace?.directoryRefreshRequest,
     expandedFolderIds,
     setFolderExpanded,
     rootLabel: space?.name ?? '',
@@ -340,20 +341,23 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     if (!revision) throw new Error(t('folder.revisionMissing'));
     return { spaceId: id, userId: userIdentityRef.current, revision, generation: inlineNavigationGenerationRef.current };
   };
-  const inlineMutationStillCurrent = (scope: { spaceId: string; userId: string | undefined; generation: number }) => (
+  const inlineMutationScopeCurrent = (scope: { spaceId: string; userId: string | undefined }) => (
     mountedRef.current && activeRouteIdRef.current === scope.spaceId && userIdentityRef.current === scope.userId
-      && inlineNavigationGenerationRef.current === scope.generation
+  );
+  const inlineMutationStillCurrent = (scope: { spaceId: string; userId: string | undefined; generation: number }) => (
+    inlineMutationScopeCurrent(scope) && inlineNavigationGenerationRef.current === scope.generation
   );
   const handleInlineRename = async (node: ContentTreeNode, name: string) => {
     const scope = requireInlineMutation();
     try {
       if (node.kind === 'folder') {
         const result = await renameFolder(scope.spaceId, node.id, name, scope.revision, node.updatedAt);
-        if (inlineMutationStillCurrent(scope)) directoryRef.current.acceptTreeRevision(result.treeRevision);
+        if (inlineMutationScopeCurrent(scope)) directoryRef.current.acceptTreeRevision(result.treeRevision);
       } else {
         await api.patch('/pages/' + encodeURIComponent(node.id), { title: name, expectedUpdatedAt: node.updatedAt, expectedTreeRevision: scope.revision });
-        if (!inlineMutationStillCurrent(scope)) return;
+        if (!inlineMutationScopeCurrent(scope)) return;
         directoryRef.current.retry();
+        if (!inlineMutationStillCurrent(scope)) return;
         const active = workspaceRef.current;
         if (active?.selectedPageId === node.id && (active.mode === 'read' || active.mode === 'versions')) active.requestPageRefresh(node.id);
       }
@@ -363,8 +367,8 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     const scope = requireInlineMutation();
     try {
       const result = await createFolder(scope.spaceId, name, parent?.id ?? null, scope.revision);
-      if (!inlineMutationStillCurrent(scope)) return;
-      if (parent) setFolderExpanded(parent.id, true);
+      if (!inlineMutationScopeCurrent(scope)) return;
+      if (parent && inlineMutationStillCurrent(scope)) setFolderExpanded(parent.id, true);
       directoryRef.current.acceptTreeRevision(result.treeRevision);
     } catch (failure) { if (inlineMutationStillCurrent(scope)) throw Object.assign(new Error(apiErrorMessage(failure, t, 'folder.saveFailed')), { cause: failure }); }
   };
@@ -372,7 +376,10 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
     const scope = requireInlineMutation();
     try {
       const result = await api.post('/pages', { title, spaceId: scope.spaceId, folderId: parent?.id ?? null, expectedTreeRevision: scope.revision });
-      if (inlineMutationStillCurrent(scope)) navigate('/pages/' + encodeURIComponent(result.data.id) + '/edit', { state: { workspaceSpaceId: scope.spaceId } });
+      if (inlineMutationScopeCurrent(scope)) directoryRef.current.retry();
+      if (inlineMutationStillCurrent(scope)) {
+        navigate('/pages/' + encodeURIComponent(result.data.id) + '/edit', { state: { workspaceSpaceId: scope.spaceId } });
+      }
     } catch (failure) { if (inlineMutationStillCurrent(scope)) throw Object.assign(new Error(apiErrorMessage(failure, t, 'page.createFailed')), { cause: failure }); }
   };
   const revealCurrentDocument = () => {

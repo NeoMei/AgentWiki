@@ -1,9 +1,7 @@
 # 当前目标
 
-- 收起文档工具栏细边框与分段样式已发布部署 v0.12.35（ca71d4b6）；客户端2573项、全仓build及桌面/390px实际组件验收通过；生产1325源码文件一致、3服务/5健康检查/32烟测通过，真实文章页收起与重开验证通过。回执：agentwiki/docs/verification/collapsed-toolbar-20261015/deployment.json。
-
-- 本次文章右侧 Agent 多 Session 标签关闭修复已发布为 v0.12.34，发布提交 `479419eff227a09350dd7cdc695450de238bb894`；GitHub master/tag/Release、生产部署与原文章浏览器回验均已完成。
-- 用户已授权核验全部本轮改动后发布。正在进行Web/API0.12.26、Local Sync0.13.0最终门禁、版本契约、配套备份和上线准备；尚未发布新版本。
+- 目录点击反复加载修复已完成本地候选，分支 `codex/directory-navigation-cache`，基于 `10473919`。已加载目标保留目录、零目录重读，缺失路径增量获取；已知数据变更与权限失效仍主动更新。最终 158 文件 / 2593 客户端测试、全仓构建、lint、两轮独立审查及 Chrome 真实组件慢响应验收通过。尚未推送/部署，生产仍为 v0.12.36。
+- 上次目录名称编辑图标 v0.12.36 已发布部署，并在原文章页面验收。
 
 # 范围 / 不做
 
@@ -11,6 +9,8 @@
 - 历史缺陷与人工验收不因本次发布而批量关闭。
 
 # 当前状态
+
+- 目录切页卡顿：生产原案单次导航重复发起 11–12 个目录请求，目标身份临时为空导致全树清空/串行重读。候选改为按用户/Space复用已加载层，目标变化与失效分离；创建、保存、删除、任务勾选、Agent正文更新均显式刷新，保存后目录乐观锁同步；同Space晚回执只刷新目录、不抢当前路由，跨身份回执拒绝。Chrome合成慢响应下两次切页新增目录请求0、5节点持续可见。初始JS548340/550000。回执：agentwiki/docs/verification/directory-navigation-20261015/status.md。工作树：`/Users/neomei/.codex/worktrees/inline-name-icons-release/AgentWiki `（尾空格）。
 
 - 目录名称编辑图标已发布部署 v0.12.36（3996c627）：输入框右侧勾选保存/叉号取消，页面与目录重命名及新建复用。客户端2573项串行通过，各阶段合计7482通过/6既有跳过；构建、lint、独立审查通过。联合备份验证、1325源码文件一致、3服务/5health/32公网smoke及原项目周报页面图标/取消/Esc真实Chrome验收通过；凭据/Grant/Agent/Space策略稳定字段摘要一致。详见 agentwiki/docs/verification/inline-name-icons-20261015/deployment.json。
 
@@ -38,6 +38,8 @@
 
 # 关键索引
 
+- agentwiki/docs/verification/directory-navigation-20261015/status.md
+
 - agentwiki/docs/verification/agent-session-tabs-20261015/status.md
 - .codex-memory/tasks/archive/agent-chat-simplification-20261014/{brief,decisions,refs}.md
 - .codex-memory/tasks/archive/shared-page-notes-20261014/{brief,decisions,refs}.md
@@ -51,6 +53,8 @@
 - 项目首页：https://agentwiki.quukk.com/pages/f285b898-65ba-4938-8616-e9a0b8f575f5
 
 # 风险 / 下一步
+
+- 目录缓存修复候选已验收但尚未发布；后续发布从上述工作树进行，原主检出仍旧且带用户改动，不得覆盖。生产已发布版本为 v0.12.36。
 
 - Session 标签关闭生产原案已回验，临时输入已清除且原标签布局已恢复。旧知识图谱全量测试失败另行保留，不将本次发布计为图谱问题修复。
 - 17 篇项目模板交付已完成。编辑器修复、统一面板与服务器笔记均为已验收本地候选，尚未推送/发布；后续上线需执行 PageNote 迁移并生产回验。

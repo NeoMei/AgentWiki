@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readWorkspacePreferences, writeWorkspacePreferences } from './workspacePreferences';
-import { SpaceWorkspaceProvider, SpaceWorkspaceScope, useSpaceWorkspace } from './SpaceWorkspaceContext';
+import { SpaceWorkspaceProvider, useSpaceWorkspace } from './SpaceWorkspaceContext';
+import { SpaceWorkspaceScope } from './SpaceWorkspaceScope';
 const Probe = () => {
   const state = useSpaceWorkspace();
   return <><output data-testid="preferences">{JSON.stringify({ expanded: [...state.expandedFolderIds], scroll: state.directoryScrollTop, width: state.directoryWidth, collapsed: state.directoryCollapsed })}</output><button onClick={() => { state.setFolderExpanded('guide', true); state.setDirectoryScrollTop(137); state.setDirectoryWidth?.(320); state.setDirectoryCollapsed(true); }}>change preferences</button></>;

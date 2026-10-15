@@ -1,11 +1,14 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useEffect } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter, Route, Router, Routes, useNavigate, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { SpaceView } from './SpaceView';
-import { SpaceWorkspaceProvider, SpaceWorkspaceScope } from '../space-workspace/SpaceWorkspaceContext';
+import { SpaceWorkspaceProvider, usePageWorkspaceIdentity } from '../space-workspace/SpaceWorkspaceContext';
+import { SpaceWorkspaceScope } from '../space-workspace/SpaceWorkspaceScope';
+import { SpaceWorkspace } from '../space-workspace/SpaceWorkspace';
 import { NewContentPage } from '../page-templates/NewContentPage';
 import type { ContentTreeNode } from '../content-tree/contentTreeTypes';
 
@@ -641,7 +644,50 @@ describe('SpaceView inline directory mutations', () => {
     await waitFor(() => expect(mocks.api.post).toHaveBeenCalledWith('/pages', { title: 'New document', spaceId: 'space-1', folderId: null, expectedTreeRevision: '7' }));
     expect(screen.getByRole('button', { name: 'Templates…' })).toBeInTheDocument();
   });
+  it('shows an inline-created page in its already loaded parent after navigation', async () => {
+    let created = false;
+    mocks.api.get.mockImplementation(async (url: string, config?: { params?: { parentFolderId?: string } }) => {
+      if (url === '/spaces/space-1') return spaceResponse('space-1', 'Wiki', 'owner');
+      const treeRevision = created ? '8' : '7';
+      if (url === '/spaces/space-1/folders') return { data: {
+        spaceId: 'space-1', treeRevision, data: [{ ...folder, parentId: null }], nextCursor: null,
+      } };
+      const parentFolderId = config?.params?.parentFolderId ?? null;
+      const children = [pageNode('page-1', 'Brief'), ...(created ? [pageNode('created-page', 'New document')] : [])]
+        .map((page) => ({ ...page, folderId: 'guide' }));
+      return { data: { ...treeResponse('space-1', parentFolderId === 'guide' ? children : [folder]).data,
+        parentFolderId, treeRevision } };
+    });
+    mocks.api.post.mockImplementation(async () => { created = true; return { data: { id: 'created-page' } }; });
+    const Document = ({ pageId }: { pageId: string }) => {
+      const reportIdentity = usePageWorkspaceIdentity();
+      const location = useLocation();
+      useEffect(() => { reportIdentity(pageId, 'space-1', 'guide'); }, [pageId, reportIdentity]);
+      return <p>Document route: {location.pathname}</p>;
+    };
+    const Harness = () => {
+      const location = useLocation();
+      const pageId = location.pathname.split('/')[2];
+      return <SpaceWorkspace spaceId="space-1" pageId={pageId} mode={location.pathname.endsWith('/edit') ? 'edit' : 'read'} showDirectory>
+        <Document pageId={pageId} />
+      </SpaceWorkspace>;
+    };
+    render(<LanguageProvider><MemoryRouter initialEntries={['/pages/page-1']}><SpaceWorkspaceProvider userId="user-1"><Harness /></SpaceWorkspaceProvider></MemoryRouter></LanguageProvider>);
+    expect(await screen.findByTestId('content-item-page-1')).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(screen.getByTestId('content-newpage-guide'));
+    const input = screen.getByRole('textbox', { name: 'New page: Guide' });
+    fireEvent.change(input, { target: { value: 'New document' } });
+    fireEvent.submit(input.closest('form')!);
+
+    expect(await screen.findByText('Document route: /pages/created-page/edit')).toBeInTheDocument();
+    expect(await screen.findByTestId('content-item-created-page')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('content-node-created-page')).toHaveTextContent('New document');
+  });
   it.each([false, true])('never navigates on a deferred create after same-Space navigation (ABA=%s)', async (aba) => {
+    let created = false;
+    mocks.api.get.mockImplementation(async (url: string) => url === '/spaces/space-1'
+      ? spaceResponse('space-1', 'Wiki', 'owner')
+      : { data: { ...treeResponse('space-1', created ? [folder, pageNode('late-created', 'Pending page')] : [folder]).data, treeRevision: created ? '8' : '7' } });
     const pending = deferred<{ data: { id: string } }>(); mocks.api.post.mockReturnValue(pending.promise);
     const Harness = () => {
       const navigate = useNavigate(); const location = useLocation(); const pageId = location.pathname.split('/')[2];
@@ -654,9 +700,10 @@ describe('SpaceView inline directory mutations', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'New page' })); const input = screen.getByRole('textbox', { name: 'New page' }); fireEvent.change(input, { target: { value: 'Pending page' } }); fireEvent.submit(input.closest('form')!);
     await waitFor(() => expect(mocks.api.post).toHaveBeenCalledWith('/pages', expect.objectContaining({ title: 'Pending page' })));
     fireEvent.click(screen.getByText('next document')); if (aba) fireEvent.click(screen.getByText('back document'));
-    await act(async () => pending.resolve({ data: { id: 'late-created' } }));
+    await act(async () => { created = true; pending.resolve({ data: { id: 'late-created' } }); });
     expect(screen.getByText(`Document route: /pages/${aba ? 'page-a' : 'page-b'}`)).toBeInTheDocument();
     expect(screen.queryByText('Document route: /pages/late-created/edit')).not.toBeInTheDocument();
+    expect(await screen.findByTestId('content-item-late-created')).toBeInTheDocument();
   });
   it('retains original directory and document after server permission denial', async () => {
     mocks.api.patch.mockRejectedValue({ response: { status: 403 } });
