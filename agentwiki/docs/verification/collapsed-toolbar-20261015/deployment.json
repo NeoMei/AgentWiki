@@ -1,0 +1,116 @@
+{
+  "version": "0.12.35",
+  "releaseCommit": "ca71d4b684cf9314e66268ee8bd08ffecb19dc6f",
+  "githubRelease": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.35",
+  "deployed": true,
+  "deploymentExitCode": 0,
+  "previousApplication": "/root/agentwiki-previous-20261015140644",
+  "backup": {
+    "backupDirectory": "/var/backups/agentwiki/toolbar-v01235.zes__hzf",
+    "status": "verified",
+    "checksumsPassed": true,
+    "writersRestored": true,
+    "servicesAfter": {
+      "agentwiki-api.service": "active",
+      "agentwiki-worker.service": "active",
+      "agentwiki-frontend.service": "active"
+    }
+  },
+  "production": {
+    "verifiedAt": "2026-10-15T06:07:30.196827+00:00",
+    "revision": "ca71d4b684cf9314e66268ee8bd08ffecb19dc6f",
+    "sourceFilesVerified": 1325,
+    "mismatches": [],
+    "versions": {
+      "web": "0.12.35",
+      "client": "0.12.35",
+      "api": "0.12.35",
+      "localSync": "0.13.0",
+      "protocol": "0.6.1"
+    },
+    "services": {
+      "agentwiki-api.service": "active",
+      "agentwiki-worker.service": "active",
+      "agentwiki-frontend.service": "active"
+    },
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryAssets": {
+      "/assets/index-CUXtkU33.js": "766b4ef54a113f3c908db4b4e32d1d6d7f15f0cad3968fc70bf7fda07208e0d7",
+      "/assets/_commonjsHelpers-CqkleIqs.js": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+      "/assets/react-vendor-CTv3miC2.js": "7e3a4bf34c49700b5fad7403a908da66c35ca1ad3669d05d3356f1a5e9bae663",
+      "/assets/preload-helper-ckwbz45p.js": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+      "/assets/index-BITIdRQQ.css": "75de42fe3cafa00a1298fe324b15183dbead9458ca31a16c60fa24c252da8e3c"
+    }
+  },
+  "public": {
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryAssetsMatchProduction": [
+      "/assets/index-CUXtkU33.js",
+      "/assets/_commonjsHelpers-CqkleIqs.js",
+      "/assets/react-vendor-CTv3miC2.js",
+      "/assets/preload-helper-ckwbz45p.js",
+      "/assets/index-BITIdRQQ.css"
+    ],
+    "pageHttpStatus": 200
+  },
+  "smoke": {
+    "status": "passed",
+    "checks": 32
+  },
+  "clientTests": {
+    "files": 156,
+    "passed": 2573,
+    "failed": 0,
+    "workers": 1,
+    "initialParallelRun": "2572 passed / 1 graph-test failure; serial full rerun passed"
+  },
+  "browser": {
+    "collapsed": {
+      "border": "1px",
+      "buttons": [
+        {
+          "label": "目录",
+          "width": 36
+        },
+        {
+          "label": "页面信息",
+          "width": 36
+        },
+        {
+          "label": "Agent",
+          "width": 36
+        },
+        {
+          "label": "页面笔记",
+          "width": 36
+        }
+      ],
+      "height": 38,
+      "horizontalOverflow": false,
+      "open": false,
+      "radius": "14px",
+      "toolbarBottomBorder": "0px",
+      "url": "https://agentwiki.quukk.com/pages/f285b898-65ba-4938-8616-e9a0b8f575f5",
+      "width": 182
+    },
+    "reopenAgentPanel": true,
+    "applicationErrors": 0,
+    "extensionErrors": 1,
+    "capturedRequests": 86,
+    "droppedRequests": 0,
+    "source": "real authenticated Chrome production page"
+  },
+  "scope": "Collapsed document toolbar styles only; no server business logic, dependency or database schema changes."
+}
