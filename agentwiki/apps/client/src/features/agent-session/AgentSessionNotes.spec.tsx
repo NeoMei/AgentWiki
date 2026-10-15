@@ -91,7 +91,7 @@ it.each(['read/edit', 'page roundtrip'])('binds only explicitly staged notes aft
   expect((agentPostCalls()[0][1] as any).noteIds).toEqual([ids[0]]);
   turns = [{ ...turns[0], status: 'done', result: { changes: 'ONE\nkeep\ntwo\n' } }];
   await waitFor(() => expect(notes.notes[0].status).toBe('awaiting-review'), { timeout: 2000 });
-  fireEvent.click(await screen.findByRole('button', { name: 'Accept change 1' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Accept to draft' }));
   expect(notes.notes.map((note) => note.status)).toEqual(['resolved', 'pending']); expect(pagePatchCalls()).toHaveLength(0);
 });
 it('retains Pending notes on a failed remounted Send and links them only after successful retry', async () => {
@@ -167,7 +167,7 @@ it.each(['unrelated append', 'anchor change'])('binds sent notes to the immutabl
   expect(turns[0].pageSnapshot?.content).toBe(original); expect(content).toBe(manuallyEdited);
   turns = [{ ...turns[0], status: 'done', result: { changes: 'ONE\nkeep\ntwo\n' } }];
   await waitFor(() => expect(notes.notes[0].status).toBe('awaiting-review'), { timeout: 2000 });
-  fireEvent.click(await screen.findByRole('button', { name: 'Accept change 1' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Accept to draft' }));
   if (change === 'unrelated append') {
     expect(notes.notes[0].status).toBe('resolved'); expect(content).toBe('ONE\nkeep\ntwo\nManual end\n');
   } else {
@@ -196,7 +196,7 @@ it.each(['read/edit', 'away during receipt', 'return before receipt'])('reconcil
   expect(agentPostCalls()).toHaveLength(1);
   turns = [{ ...turns[0], status: 'done', result: { changes: 'ONE\nkeep\ntwo\n' } }];
   await waitFor(() => expect(notes.notes[0].status).toBe('awaiting-review'), { timeout: 2000 });
-  fireEvent.click(await screen.findByRole('button', { name: 'Accept change 1' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Accept to draft' }));
   expect(content).toBe('ONE\nkeep\ntwo\n');
   expect(notes.notes.map((note) => note.status)).toEqual(['resolved', 'pending']);
   expect(notes.notes[1].taskId).toBeUndefined(); expect(pagePatchCalls()).toHaveLength(0);
@@ -240,7 +240,7 @@ it.each(['selection', 'document'])('rebinds explicitly regenerated %s notes afte
   expect(notes.notes[0]).toMatchObject({ status: 'dispatched', taskId: 'regenerated-turn' });
   turns = [first, { ...turns[1], status: 'done', result: { changes: 'ONE\nkeep\ntwo\nManual end\nTyped after regenerate\n' } }];
   await waitFor(() => expect(notes.notes[0].status).toBe('awaiting-review'), { timeout: 2000 });
-  fireEvent.click(within(screen.getByTestId('agent-turn-regenerated-turn')).getByRole('button', { name: 'Accept change 1' }));
+  fireEvent.click(within(screen.getByTestId('agent-turn-regenerated-turn')).getByRole('button', { name: 'Accept to draft' }));
   expect(content).toBe('ONE\nkeep\ntwo\nManual end\nTyped after regenerate\n');
   expect(notes.notes.map((note) => note.status)).toEqual(['resolved', 'pending']);
   expect(notes.notes[1].taskId).toBeUndefined(); expect(pagePatchCalls()).toHaveLength(0);
@@ -264,6 +264,8 @@ it.each([{ resolvedIndex: 0, regenerateAgain: false }, { resolvedIndex: 1, regen
   await waitFor(() => expect(notes.notes[unresolvedIndex].status).toBe('dispatched'));
   turns = [{ ...turns[0], status: 'done', result: { changes: 'ONE\nkeep\nTWO\n' } }];
   await waitFor(() => expect(notes.notes[unresolvedIndex].status).toBe('awaiting-review'), { timeout: 2000 });
+  fireEvent.click(screen.getByText('View changes'));
+  expect(screen.getByRole('button', { name: `Accept change ${resolvedIndex + 1}` })).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: `Accept change ${resolvedIndex + 1}` }));
   expect(content).toBe(resolvedIndex === 0 ? 'ONE\nkeep\ntwo\n' : 'one\nkeep\nTWO\n');
   // The server concurrency token may advance after this optimistic snapshot; all semantic fields must remain unchanged.
@@ -303,7 +305,7 @@ it.each([{ resolvedIndex: 0, regenerateAgain: false }, { resolvedIndex: 1, regen
     if (regenerateAgain && nextId === 'regenerated-turn') content += 'Another manual end\n';
     previousId = nextId;
   }
-  fireEvent.click(within(screen.getByTestId(`agent-turn-${previousId}`)).getByRole('button', { name: 'Accept change 1' }));
+  fireEvent.click(within(screen.getByTestId(`agent-turn-${previousId}`)).getByRole('button', { name: 'Accept to draft' }));
   expect(notes.notes[unresolvedIndex]).toMatchObject({ status: 'resolved', taskId: previousId });
   expect(notes.notes[resolvedIndex]).toEqual({ ...resolvedNote, updatedAt: expect.any(String) });
   expect(notes.notes[2]).toEqual(unstagedNote);
@@ -410,7 +412,7 @@ it('persists an accepted note across a route roundtrip while its server PATCH re
       };
     });
   });
-  fireEvent.click(await screen.findByRole('button', { name: 'Accept change 1' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Accept to draft' }));
   await waitFor(() => expect(finish).toBeTypeOf('function'));
   expect(notes.notes[0]).toMatchObject({ id: ids[0], status: 'resolved', taskId: 'sent-turn' });
   expect(serverNotes[0].status).toBe('awaiting-review');

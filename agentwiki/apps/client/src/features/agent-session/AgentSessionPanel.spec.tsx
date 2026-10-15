@@ -509,12 +509,13 @@ it('preserves the no-replay acceptance ledger when another conversation loses so
   });
   let content = original;
   render(tree({ supportsScopedApply: true, snapshot: () => ({ ...originalSnapshot, content }), onApply: () => { content = 'Changed source'; return true; } }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Accept change 1' }));
-  openCandidate(); expect(screen.getByRole('button', { name: 'Accept change 1' })).toBeDisabled();
+  fireEvent.click(await screen.findByRole('button', { name: 'Accept to draft' }));
+  openCandidate(); expect(screen.queryByRole('button', { name: 'Accept to draft' })).not.toBeInTheDocument();
   content = original; // Editor Undo changes source; accepted history must never rewind.
   selectConversation('inaccessible'); await screen.findByRole('alert');
   selectConversation('session-a');
-  await screen.findByText('Review proposed changes'); openCandidate(); expect(screen.getByRole('button', { name: 'Accept change 1' })).toBeDisabled();
+  await screen.findByText('View changes'); openCandidate(); expect(screen.queryByRole('button', { name: 'Accept to draft' })).not.toBeInTheDocument();
+  expect(screen.getByText('Accepted to draft. Save the page to publish these changes.')).toBeVisible();
 });
 
 const scopedRoutes = ['remount', 'read/edit', 'page roundtrip', 'session switch'] as const;
@@ -755,6 +756,8 @@ it('keeps acceptance and the separate Save requirement visible after collapsing 
   fireEvent.click(await screen.findByRole('button', { name: 'Accept to draft' }));
   expect(apply).toHaveBeenCalledTimes(1);
   expect(screen.getByText('Accepted to draft. Save the page to publish these changes.')).toBeVisible();
+  expect(screen.getByText(/Acceptance record: previously accepted into the draft/)).not.toBeVisible();
+  fireEvent.click(screen.getByText('About this acceptance record'));
   expect(screen.getByText(/Acceptance record: previously accepted into the draft/)).toBeVisible();
   expect(document.querySelector<HTMLDetailsElement>('.agent-candidate-details')?.open).toBe(false);
   expect(api.patch).not.toHaveBeenCalled();
@@ -817,4 +820,41 @@ it('closes context settings on blur to the browser without forcing focus back', 
   fireEvent.blur(screen.getByRole('combobox', { name: 'Edit scope' }), { relatedTarget: null });
   expect(screen.queryByRole('combobox', { name: 'Edit scope' })).not.toBeInTheDocument();
   expect(trigger).not.toHaveFocus();
+});
+
+
+describe('execution feedback', () => {
+  it('responds immediately while sending and keeps phase feedback separate from the answer', async () => {
+    let finish!: (value: any) => void;
+    vi.mocked(api.post).mockReturnValue(new Promise((resolve) => { finish = resolve; }) as any);
+    const view = render(tree()); await screen.findByText('Earlier answer');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'A slow request' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(screen.getByRole('status', { name: 'Agent activity' })).toHaveTextContent('Sending request');
+    expect(screen.getByText('0s elapsed')).toBeVisible();
+    expect(view.container.querySelector('.agent-activity .agent-reply-content')).toBeNull();
+    await act(async () => finish({ data: { ...turn, id: 'sent', result: { summary: 'Completed' } } }));
+    expect(screen.queryByRole('status', { name: 'Agent activity' })).not.toBeInTheDocument();
+  });
+  it('shows actual execution phases and retries even before any answer exists', async () => {
+    turns = [{ ...turn, status: 'running', result: null, progressText: '', progress: { phase: 'waiting', attempt: 2 } }];
+    render(tree());
+    const status = await screen.findByRole('status', { name: 'Agent activity' });
+    expect(status).toHaveTextContent('Waiting for model'); expect(status).toHaveTextContent('Retry · attempt 2');
+    expect(document.querySelector('.agent-reply-content')).toBeNull();
+    turns = [{ ...turn, status: 'running', result: null, progressText: 'Real answer', progress: { phase: 'generating', attempt: 2 } }];
+    expect(await screen.findByText('Real answer', {}, { timeout: 2000 })).toBeVisible();
+    expect(screen.getByRole('status', { name: 'Agent activity' })).toHaveTextContent('Generating response');
+    expect(screen.getByText('Real answer').closest('.agent-activity')).toBeNull();
+    turns = [{ ...turn, result: { summary: 'Completed answer' } }];
+    await screen.findByText('Completed answer', {}, { timeout: 2000 });
+    expect(screen.queryByRole('status', { name: 'Agent activity' })).not.toBeInTheDocument();
+  });
+  it.each(['queued', 'running'] as const)('keeps an empty %s turn visible without a duplicate generating candidate', async (status) => {
+    turns = [{ ...turn, mode: 'proposal', status, result: null, progressText: '' }];
+    render(tree());
+    expect(await screen.findByRole('status', { name: 'Agent activity' })).toHaveTextContent(status === 'queued' ? 'Queued for execution' : 'Agent is working');
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeVisible();
+    expect(screen.queryByRole('region', { name: 'Candidate review' })).not.toBeInTheDocument();
+  });
 });

@@ -9,6 +9,7 @@ import { AssistCandidateReview } from '../page/AssistCandidateReview';
 import { applyCandidateToDraft, type AssistCandidate } from '../page/assistCandidate';
 import { captureAssistTarget, validateAssistTarget, type AssistTarget } from '../page/assistTargets';
 import type { AssistNotesEvent } from '../page/AgentAssistPanel';
+import { AgentActivity } from './AgentActivity';
 import { AgentContextSettings } from './AgentContextSettings';
 import { bugEditorMessages } from '../../i18n/bug-editor-messages';
 import { AgentReferencePicker } from './AgentReferencePicker';
@@ -56,7 +57,7 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
     if (turnsContentRef.current) observer?.observe(turnsContentRef.current);
     observer?.observe(viewport);
     return () => { observer?.disconnect(); if (frame !== null) cancelAnimationFrame(frame); };
-  }, [session.detail, session.loading, session.selected]);
+  }, [session.detail, session.loading, session.selected, session.sending]);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const composingRef = useRef(false);
   const handledFocusRequest = useRef<string | undefined>(undefined);
@@ -234,6 +235,7 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
       setLocalError(zh ? '选文或版本已变化，请重新选择原文和批注。' : 'Selection or version changed. Select the source and annotations again.'); return;
     }
     setLocalError(null);
+    followTurnsRef.current = true;
     const credential: AssistNotesEvent['dispatchRequest'] = staged ? {
       // Regeneration may defer its document target until Send; the receipt proves the actual
       // submitted target, including edits made after staging, rather than the staged placeholder.
@@ -335,15 +337,15 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
           <div className="agent-user-message"><p className="whitespace-pre-wrap">{turn.intent}</p></div>
           <div className="agent-reply">
             <div className="agent-reply-meta"><Bot aria-hidden="true" size={15} /><span>Agent</span><span className={turn.status === 'running' || turn.status === 'queued' ? 'agent-turn-active' : ''}>{statuses[turn.status]}</span></div>
+            {turn.status === 'queued' || turn.status === 'running' ? <AgentActivity status={turn.status} progress={turn.progress} createdAt={turn.createdAt} /> : null}
             {turn.result?.summary || turn.progressText ? <div className="agent-reply-content"><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml disallowedElements={['img']} components={{ a: ({ children, href }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> }}>{turn.result?.summary ?? turn.progressText}</ReactMarkdown></div> : null}
             {turn.status === 'failed' ? <p role="alert" className="text-xs text-red-700">{zh ? '本轮执行失败。可检查上下文后重试，或新建会话。' : 'This turn failed. Check the context and retry, or start a new conversation.'}</p> : null}
-            {directAppliedIds.has(turn.id) ? <div className="agent-acceptance-receipt"><p>{zh ? '页面已直接修改并保存。' : 'Page updated and saved directly.'}</p></div> : candidate?.status === 'accepted' || candidate?.acceptedEditIds?.length ? <div className="agent-acceptance-receipt"><p>{zh ? '已接受到草稿，仍需保存页面。' : 'Accepted to draft. Save the page to publish these changes.'}</p><p className="text-xs text-gray-600">{zh ? '历史接受记录：曾接受到草稿。编辑器撤销/重做只改变正文，不回退本记录或笔记；再次应用请重新生成。' : 'Acceptance record: previously accepted into the draft. Editor Undo/Redo changes text, not this record or notes. Regenerate to apply again.'}</p></div> : null}
-            {candidate ? <details className="agent-candidate-details" open={['ready', 'conflict', 'generating', 'empty', 'failed'].includes(candidate.status)}>
-              <summary><span>{zh ? '查看修改候选' : 'Review proposed changes'}</span><span>{candidate.status === 'accepted' ? (zh ? '已接受' : 'Accepted') : candidate.status === 'discarded' ? (zh ? '已丢弃' : 'Discarded') : candidate.status === 'empty' || candidate.status === 'failed' ? (zh ? '需要重试' : 'Retry needed') : (zh ? '待审阅' : 'Review')}</span><ChevronDown aria-hidden="true" size={14} /></summary>
+            {directAppliedIds.has(turn.id) ? <div className="agent-acceptance-receipt"><p>{zh ? '页面已直接修改并保存。' : 'Page updated and saved directly.'}</p></div> : candidate?.status === 'accepted' || candidate?.acceptedEditIds?.length ? <div className="agent-acceptance-receipt"><p>{zh ? '已接受到草稿，仍需保存页面。' : 'Accepted to draft. Save the page to publish these changes.'}</p><details className="agent-acceptance-history"><summary>{zh ? '接受记录说明' : 'About this acceptance record'}</summary><p className="text-xs text-gray-600">{zh ? '历史接受记录：曾接受到草稿。编辑器撤销/重做只改变正文，不回退本记录或笔记；再次应用请重新生成。' : 'Acceptance record: previously accepted into the draft. Editor Undo/Redo changes text, not this record or notes. Regenerate to apply again.'}</p></details></div> : null}
+            {candidate && candidate.status !== 'generating' ? <div className="agent-candidate-review">
               {(!samePage || !canAccept) && turn.pageId ? <Link className="block text-blue-700" to={`/pages/${turn.pageId}/edit`}>{zh ? '打开目标文档编辑以审阅' : 'Open target document to review'}</Link> : null}
-              {samePage && !canAccept ? <p>{acceptUnavailableReason ?? (zh ? '返回编辑模式后可接受候选。' : 'Return to edit to accept this candidate.')}</p> : null}
-              <AssistCandidateReview candidate={candidate} canEdit={canEdit && canAccept && samePage && (!candidate.assistTarget || supportsScopedApply)} supportsScopedApply={supportsScopedApply} onAccept={(editId) => accept(turn.id, editId)} onDiscard={() => discard(turn.id)} />
-            </details> : null}
+              {samePage && !canAccept ? <p role="status">{acceptUnavailableReason ?? (zh ? '返回编辑模式后可接受候选。' : 'Return to edit to accept this candidate.')}</p> : null}
+              <AssistCandidateReview compact candidate={candidate} canEdit={canEdit && canAccept && samePage && (!candidate.assistTarget || supportsScopedApply)} supportsScopedApply={supportsScopedApply} onAccept={(editId) => accept(turn.id, editId)} onDiscard={() => discard(turn.id)} />
+            </div> : null}
             <details className="agent-turn-sources"><summary>{zh ? '发送时的来源与版本' : 'Sources and versions at send'}<ChevronDown aria-hidden="true" size={13} /></summary><div className="mt-2 space-y-2">
               <p><span>{turn.pageSnapshot?.title ?? turn.pageId}</span> · {turn.pageSnapshot?.updatedAt ?? (zh ? '版本未知' : 'Unknown version')}</p>
               {turn.pageSnapshot?.assistTarget?.quote ? <blockquote className="max-h-32 overflow-auto whitespace-pre-wrap border-l-2 border-gray-200 pl-2">{turn.pageSnapshot.assistTarget.quote}</blockquote> : null}
@@ -355,6 +357,7 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
           </div>
         </article>;
       })}
+      {session.sending ? <div className="agent-reply agent-sending-feedback"><AgentActivity status="sending" /></div> : null}
       </div>
     </div>
     <div className="agent-session-composer">

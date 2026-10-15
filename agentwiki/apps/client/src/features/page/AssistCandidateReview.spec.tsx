@@ -100,3 +100,42 @@ describe('independent candidate edit review', () => {
     expect(screen.getByRole('button', {name: '下载候选'})).toBeVisible();
   });
 });
+
+
+describe('compact candidate review', () => {
+  const candidate = completeAssistCandidate({ taskId: 't', pageId: 'p', spaceId: 's', userId: 'u', baseTitle: 'T', baseContent: 'one\nkeep\ntwo\n', baseUpdatedAt: '2026-10-06T00:00:00Z', assistTarget: captureAssistTarget('one\nkeep\ntwo\n', 'document', 0, 0, '2026-10-06T00:00:00Z')!, content: '', status: 'generating' }, 'ONE\nkeep\nTWO\n');
+  it('keeps only the change count and main actions visible until details are opened', () => {
+    const onAccept = vi.fn();
+    const view = render(<LanguageProvider><AssistCandidateReview candidate={{ ...candidate, summary: 'Repeated answer' }} compact canEdit supportsScopedApply onAccept={onAccept} onDiscard={vi.fn()} /></LanguageProvider>);
+    expect(screen.getByText('2 changes')).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Candidate review' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Repeated answer')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Accept to draft' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Discard' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Accept change 1' })).not.toBeVisible();
+    expect(screen.getByRole('button', { name: 'Download candidate' })).not.toBeVisible();
+    fireEvent.click(screen.getByText('View changes'));
+    fireEvent.click(screen.getByRole('button', { name: 'Accept change 2' }));
+    expect(onAccept).toHaveBeenCalledWith('edit-2');
+    expect(screen.getByRole('button', { name: 'Download candidate' })).toBeVisible();
+    expect(view.container.querySelector('.agent-candidate-details')).toHaveAttribute('open');
+  });
+  it('does not duplicate the accept action for a single change', () => {
+    const single = completeAssistCandidate({ ...candidate, editPlan: undefined, status: 'generating' }, 'ONE\nkeep\ntwo\n');
+    render(<LanguageProvider><AssistCandidateReview candidate={single} compact canEdit supportsScopedApply onAccept={vi.fn()} onDiscard={vi.fn()} /></LanguageProvider>);
+    expect(screen.getByText('1 change')).toBeVisible(); fireEvent.click(screen.getByText('View changes'));
+    expect(screen.queryByRole('button', { name: 'Accept change 1' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Accept to draft' })).toBeEnabled();
+  });
+  it.each(['conflict', 'failed', 'empty'] as const)('keeps %s feedback outside collapsed details', (status) => {
+    render(<LanguageProvider><AssistCandidateReview candidate={{ ...candidate, status }} compact canEdit supportsScopedApply onAccept={vi.fn()} onDiscard={vi.fn()} /></LanguageProvider>);
+    const alert = screen.getByRole('alert'); expect(alert).toBeVisible(); expect(alert.closest('details')).toBeNull();
+  });
+  it('keeps permission and long-preview warnings visible before opening details', () => {
+    const long = { ...candidate, baseContent: candidate.baseContent + 'same\n'.repeat(350), content: candidate.content + 'same\n'.repeat(350) };
+    render(<LanguageProvider><AssistCandidateReview candidate={long} compact canEdit={false} supportsScopedApply onAccept={vi.fn()} onDiscard={vi.fn()} /></LanguageProvider>);
+    expect(screen.getByText(/Long document:/)).toBeVisible(); expect(screen.getByText(/Long document:/).closest('details')).toBeNull();
+    expect(screen.getByText('This candidate cannot be accepted in the current view.')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Accept to draft' })).toBeDisabled();
+  });
+});
