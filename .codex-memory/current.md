@@ -1,6 +1,6 @@
 # 当前目标
 
-- 空间菜单页头已完整补修并发布部署 v0.12.41（cebf1f81）：统一全部 isWorkspacePath 外层布局，补齐 v0.12.40 遗漏的图谱/来源/协作/任务看板/成员/设置与嵌套入口，保留内容内部边距。31 路由先复现19失败后通过，相关110项及全客户端2633项、build/typecheck/lint、独立审查通过。生产1345源码文件匹配、3服务/5健康/32烟测通过；原项目7菜单在1710px/390px真实Chrome逐项加载回验，页头横纵偏移0且无溢出/控制台错误。回执 agentwiki/docs/verification/menu-header-20261016/deployment.json；原主检出用户改动保留。
+- 页头与菜单栏修复已发布部署 v0.12.42（5583956f）：延续 v0.12.41 全空间路由无外层留白，文章面包屑/操作栏与上层菜单的单行高度统一49px，阅读/编辑/只读及协作者徽标覆盖，长路径与窄屏自然换行。相关236项、全客户端2633项、build/typecheck/lint及独立代码与回执复审通过。生产1345源码匹配、3服务/5健康/32烟测、公网资源哈希及原授权稳定摘要通过；原文章1710px阅读/编辑两栏均49px，390px无溢出且按钮在栏内。回执 agentwiki/docs/verification/toolbar-height-20261016/deployment.json；原主检出用户改动保留。
 
 - 英文 Guide 截图修复已发布部署 v0.12.39（583c6a5a）：8张英文示例覆盖9处图片，按语言切换；已合入 v0.12.38。Guide7项及最终构建/双端页面验收通过；全量基线7519通过，最终客户端2609通过/既有图谱1项波动（独立13/13通过）。生产1345源码文件匹配、3服务/5健康检查/32烟测与双端中英切换通过；8英文图片公网哈希匹配。回执 agentwiki/docs/verification/guide-english-20261015/deployment.json。
 
@@ -10,7 +10,7 @@
 
 # 范围 / 不做
 
-- Web/API 0.12.41 / Local Sync 0.13.0 / protocol 0.6.1；目标 Space cmv6biedu005okoisb9fgp64y 的 5 个目录、17 篇模板。
+- Web/API 0.12.42 / Local Sync 0.13.0 / protocol 0.6.1；目标 Space cmv6biedu005okoisb9fgp64y 的 5 个目录、17 篇模板。
 - 历史缺陷与人工验收不因本次发布而批量关闭。
 
 # 当前状态
@@ -43,6 +43,7 @@
 
 # 关键索引
 
+- agentwiki/docs/verification/toolbar-height-20261016/deployment.json
 - agentwiki/docs/verification/menu-header-20261016/deployment.json
 
 - agentwiki/docs/verification/directory-navigation-20261015/status.md

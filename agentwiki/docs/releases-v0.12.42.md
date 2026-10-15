@@ -5,3 +5,5 @@
 Web/API 0.12.42；Local Sync 0.13.0、protocol 0.6.1 不变，无数据库结构或 npm 包变更。
 
 验证：相关 236 项及完整客户端 159 文件 / 2633 项通过；全仓 build、typecheck、lint 与独立审查通过。真实 App 的 Chrome 合成数据验收覆盖阅读、编辑、只读、深层路径、协作者徽标、目录和窄屏侧栏，未见横向溢出或控制台错误。发布门禁见 [回执](verification/toolbar-height-20261016/release-gates.json)。
+
+生产验收：原文章在 1710px Chrome 的阅读及编辑模式下，上层菜单与下层面包屑栏实测均为 49px；390px 窄屏自然换行，按钮未越界、无横向溢出和控制台错误。1345 源码文件匹配发布提交，3 服务 active、5 健康项 ok、32 公网冒烟通过，公网资源哈希一致，原授权稳定字段摘要相同。详见 [部署回执](verification/toolbar-height-20261016/deployment.json)。

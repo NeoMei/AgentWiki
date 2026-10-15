@@ -1,0 +1,140 @@
+{
+  "version": "0.12.42",
+  "releaseCommit": "5583956fc7d110acb2f5771ca878e0f142700041",
+  "githubRelease": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.42",
+  "deployment": {
+    "exitCode": 0,
+    "previousTree": "/root/agentwiki-previous-20261016012814"
+  },
+  "backup": {
+    "status": "verified",
+    "directory": "/var/backups/agentwiki/toolbar-height-v01242.62cfrpan",
+    "components": [
+      "application",
+      "configuration",
+      "database",
+      "attachments"
+    ],
+    "coordinatedWriterPause": true,
+    "checksumsPassed": true,
+    "databaseTocEntries": 684,
+    "permanentAttachmentBlobs": 142,
+    "archiveMatchesPermanentBlobs": true,
+    "writersRestored": true
+  },
+  "production": {
+    "verifiedAt": "2026-10-15T17:28:45.437566+00:00",
+    "revision": "5583956fc7d110acb2f5771ca878e0f142700041",
+    "sourceFilesVerified": 1345,
+    "mismatches": [],
+    "versions": {
+      "web": "0.12.42",
+      "client": "0.12.42",
+      "api": "0.12.42",
+      "localSync": "0.13.0",
+      "protocol": "0.6.1"
+    },
+    "services": {
+      "agentwiki-api.service": "active",
+      "agentwiki-worker.service": "active",
+      "agentwiki-frontend.service": "active"
+    },
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryAssets": {
+      "/assets/index-BesIBQsn.js": "c226a3f41026f250ce9da97bd3b218e74b716916e0b2fcde5dfd58497b89698e",
+      "/assets/_commonjsHelpers-CqkleIqs.js": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+      "/assets/react-vendor-CTv3miC2.js": "7e3a4bf34c49700b5fad7403a908da66c35ca1ad3669d05d3356f1a5e9bae663",
+      "/assets/preload-helper-ckwbz45p.js": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+      "/assets/index-6S7LqJUu.css": "45f8d60bfd0116afa146c8598ec718c97ba8a6a756895c7170bb55b32c7f4dcb"
+    }
+  },
+  "public": {
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryAssetsMatchProduction": [
+      "/assets/index-BesIBQsn.js",
+      "/assets/_commonjsHelpers-CqkleIqs.js",
+      "/assets/react-vendor-CTv3miC2.js",
+      "/assets/preload-helper-ckwbz45p.js",
+      "/assets/index-6S7LqJUu.css"
+    ],
+    "pageHttpStatus": 200
+  },
+  "stableAuthorizationFields": {
+    "match": true,
+    "beforeVersion": "0.12.41",
+    "afterVersion": "0.12.42",
+    "counts": {
+      "credentials": 88,
+      "grants": 500,
+      "agents": 818,
+      "spacePolicies": 1483
+    },
+    "comparisonBeforeSmoke": true
+  },
+  "smoke": {
+    "status": "passed",
+    "checks": 32,
+    "exitCode": 0
+  },
+  "browser": {
+    "environment": "production signed-in Chrome, original reported article",
+    "contentEditsOrSaveActions": false,
+    "desktopWidth": 1710,
+    "mobileWidth": 390,
+    "states": 4,
+    "geometry": [
+      {
+        "state": "production-read",
+        "width": 1710,
+        "spaceHeaderHeight": 49,
+        "documentToolbarHeight": 49,
+        "horizontalOverflow": false
+      },
+      {
+        "state": "production-edit",
+        "width": 1710,
+        "spaceHeaderHeight": 49,
+        "documentToolbarHeight": 49,
+        "horizontalOverflow": false
+      },
+      {
+        "state": "production-mobile-edit",
+        "width": 390,
+        "spaceHeaderHeight": 95,
+        "documentToolbarHeight": 133,
+        "horizontalOverflow": false
+      },
+      {
+        "state": "production-mobile-read",
+        "width": 390,
+        "spaceHeaderHeight": 95,
+        "documentToolbarHeight": 89,
+        "horizontalOverflow": false
+      }
+    ],
+    "desktopBefore": {
+      "spaceHeaderHeight": 49,
+      "documentToolbarHeight": 61
+    },
+    "buttonsWithinToolbarBounds": true,
+    "narrowScreenWrap": "natural growth retained",
+    "consoleWarningsOrErrors": 0,
+    "viewportOverrideReset": true,
+    "entryAsset": "https://agentwiki.quukk.com/assets/index-BesIBQsn.js",
+    "evidencePrivacy": "Original route identifiers and screenshots retained locally; excluded from public receipt"
+  },
+  "releaseGates": "release-gates.json",
+  "npmPublicationRequired": false
+}
