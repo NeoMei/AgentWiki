@@ -49,7 +49,7 @@
     },
     "consoleErrors": 0,
     "horizontalOverflow": false,
-    "data": "synthetic local API; production readback pending"
+    "data": "synthetic local API; production verification recorded separately in deployment.json"
   },
   "packageBoundary": {
     "webApi": "0.12.40",

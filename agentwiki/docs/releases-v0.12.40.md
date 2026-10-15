@@ -5,3 +5,5 @@
 基于 v0.12.39，保留聊天执行反馈、目录导航缓存和英文指南更新。Web/API 0.12.40；Local Sync 0.13.0、protocol 0.6.1 不变，无数据库结构、依赖或 npm 包变更。
 
 验证：整合最新基线后 `pnpm test:full` 退出码 0，合计 7539 项通过 / 6 项既有跳过，其中客户端 159 文件 / 2610 项全部通过。全仓 build、typecheck、lint 与独立差异审查通过；初始 JavaScript 548390 / 550000 bytes。
+
+生产验收：已部署 v0.12.40，1345 个源码文件匹配发布提交，API/Worker/Frontend 均 active，五项健康状态为 ok，32 项公网冒烟通过。公网入口资源与服务器文件哈希一致。原报告目录的文件夹 → 页面 → 文件夹切换已在 1710px 桌面和 390px 窄屏 Chrome 实测，页头位置一致、无横向溢出和控制台错误；原凭据、Grant、Agent、Space 策略稳定字段摘要保持一致。详见 [部署回执](verification/folder-header-20261015/deployment.json)。

@@ -1,5 +1,7 @@
 # 当前目标
 
+- 文件夹/页面页头对齐已发布部署 v0.12.40（7933db3c），整合并保留 v0.12.39。根 Space 目录与阅读/编辑页统一无外层 padding 的白底，消除 32px 纵向和 16px 横向偏移。全量 7539 通过 / 6 既有跳过，build/typecheck/lint、独立审查通过；生产 1345 源码文件匹配、3 服务/5 健康/32 烟测通过，原报告文件夹→页面→文件夹在 1710px/390px Chrome 实测页头偏移 0。回执：agentwiki/docs/verification/folder-header-20261015/deployment.json；工作树 `/Users/neomei/.codex/worktrees/folder-header-alignment/AgentWiki `。原主检出用户改动保留。
+
 - 英文 Guide 截图修复已发布部署 v0.12.39（583c6a5a）：8张英文示例覆盖9处图片，按语言切换；已合入 v0.12.38。Guide7项及最终构建/双端页面验收通过；全量基线7519通过，最终客户端2609通过/既有图谱1项波动（独立13/13通过）。生产1345源码文件匹配、3服务/5健康检查/32烟测与双端中英切换通过；8英文图片公网哈希匹配。回执 agentwiki/docs/verification/guide-english-20261015/deployment.json。
 
 - 目录点击反复加载修复已发布部署 v0.12.38（53064514），保留 v0.12.37 功能。159 文件 / 2609 客户端测试、构建/类型/lint/33 契约及独立复审通过。线上1333源码匹配、三服务/五健康/32烟测通过；原页面同目录/跨目录/返回三次新增目录请求均0，文章加载时目录20节点保留。回执：agentwiki/docs/verification/directory-navigation-20261015/deployment.json。
@@ -8,7 +10,7 @@
 
 # 范围 / 不做
 
-- Web 0.12.25 / Local Sync 0.12.0 / protocol 0.6.1；目标 Space cmv6biedu005okoisb9fgp64y 的 5 个目录、17 篇模板。
+- Web/API 0.12.40 / Local Sync 0.13.0 / protocol 0.6.1；目标 Space cmv6biedu005okoisb9fgp64y 的 5 个目录、17 篇模板。
 - 历史缺陷与人工验收不因本次发布而批量关闭。
 
 # 当前状态
@@ -40,6 +42,8 @@
 - 工作树路径有尾空格；Git 显式 --work-tree，保留主检出用户工作。
 
 # 关键索引
+
+- agentwiki/docs/verification/folder-header-20261015/deployment.json
 
 - agentwiki/docs/verification/directory-navigation-20261015/status.md
 - .codex-memory/tasks/archive/agent-chat-feedback-20261015/{brief,decisions,refs}.md

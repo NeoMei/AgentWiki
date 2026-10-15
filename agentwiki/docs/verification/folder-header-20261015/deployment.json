@@ -1,0 +1,138 @@
+{
+  "version": "0.12.40",
+  "releaseCommit": "7933db3ca02e290b14c2e89885359355f7b5a3fe",
+  "githubRelease": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.40",
+  "deployment": {
+    "exitCode": 0,
+    "previousTree": "/root/agentwiki-previous-20261015230657"
+  },
+  "backup": {
+    "status": "verified",
+    "directory": "/var/backups/agentwiki/folder-header-v01240.uhxvesn_",
+    "components": [
+      "application",
+      "configuration",
+      "database",
+      "attachments"
+    ],
+    "coordinatedWriterPause": true,
+    "checksumsPassed": true,
+    "databaseTocEntries": 684,
+    "permanentAttachmentBlobs": 142,
+    "archiveMatchesPermanentBlobs": true,
+    "writersRestored": true
+  },
+  "production": {
+    "verifiedAt": "2026-10-15T15:07:46.123572+00:00",
+    "revision": "7933db3ca02e290b14c2e89885359355f7b5a3fe",
+    "sourceFilesVerified": 1345,
+    "mismatches": [],
+    "versions": {
+      "web": "0.12.40",
+      "client": "0.12.40",
+      "api": "0.12.40",
+      "localSync": "0.13.0",
+      "protocol": "0.6.1"
+    },
+    "services": {
+      "agentwiki-api.service": "active",
+      "agentwiki-worker.service": "active",
+      "agentwiki-frontend.service": "active"
+    },
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryAssets": {
+      "/assets/index-oLGD5d63.js": "b1e13ad041bcf91e3b453e89a50bd03dce5315fa6577713080df0f88edd10a1d",
+      "/assets/_commonjsHelpers-CqkleIqs.js": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+      "/assets/react-vendor-CTv3miC2.js": "7e3a4bf34c49700b5fad7403a908da66c35ca1ad3669d05d3356f1a5e9bae663",
+      "/assets/preload-helper-ckwbz45p.js": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+      "/assets/index-FVzw0mIZ.css": "62488e0b36b7c4eafe9838aec5b809efb4596869e8ff0695d3c8b5e1125cacee"
+    }
+  },
+  "public": {
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryAssetsMatchProduction": [
+      "/assets/index-oLGD5d63.js",
+      "/assets/_commonjsHelpers-CqkleIqs.js",
+      "/assets/react-vendor-CTv3miC2.js",
+      "/assets/preload-helper-ckwbz45p.js",
+      "/assets/index-FVzw0mIZ.css"
+    ],
+    "pageHttpStatus": 200
+  },
+  "stableAuthorizationFields": {
+    "match": true,
+    "beforeVersion": "0.12.39",
+    "afterVersion": "0.12.40",
+    "counts": {
+      "credentials": 86,
+      "grants": 498,
+      "agents": 816,
+      "spacePolicies": 1481
+    },
+    "comparisonBeforeSmoke": true
+  },
+  "smoke": {
+    "status": "passed",
+    "checks": 32,
+    "exitCode": 0,
+    "target": "https://agentwiki.quukk.com/api"
+  },
+  "browser": {
+    "environment": "production Chrome, signed-in original report folder and page",
+    "flow": "folder -> page -> folder through directory; mobile drawer navigation",
+    "readOnly": true,
+    "desktopWidth": 1710,
+    "mobileWidth": 390,
+    "outerPadding": "0px",
+    "normalizedNavOffsetFromPage": {
+      "desktop": {
+        "folder": {
+          "horizontal": 0,
+          "vertical": 0
+        },
+        "page": {
+          "horizontal": 0,
+          "vertical": 0
+        },
+        "returnFolder": {
+          "horizontal": 0,
+          "vertical": 0
+        }
+      },
+      "mobile": {
+        "folder": {
+          "horizontal": 0,
+          "vertical": 0
+        },
+        "page": {
+          "horizontal": 0,
+          "vertical": 0
+        },
+        "returnFolder": {
+          "horizontal": 0,
+          "vertical": 0
+        }
+      }
+    },
+    "normalization": "viewport rectangle y + window.scrollY; sidebar focus can scroll the document",
+    "horizontalOverflow": false,
+    "consoleWarningsOrErrors": 0,
+    "viewportOverrideReset": true,
+    "entryAsset": "https://agentwiki.quukk.com/assets/index-oLGD5d63.js",
+    "evidencePrivacy": "Screenshots and original route identifiers retained locally, excluded from this public receipt"
+  },
+  "releaseGates": "release-gates.json",
+  "npmPublicationRequired": false
+}
