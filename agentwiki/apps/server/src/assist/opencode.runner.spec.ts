@@ -32,6 +32,57 @@ describe('OpencodeCliRunner', () => {
 
   afterEach(() => jest.useRealTimers());
 
+  it('reports real execution phases before an answer and excludes provider payloads', async () => {
+    const child = childProcess();
+    const phases: unknown[] = [];
+    const answer = jest.fn();
+    const promise = new OpencodeCliRunner(config).run({ intent: 'why', pageSnapshot: null, mode: 'question',
+      onAnswerText: answer, onProgress: progress => phases.push(progress) });
+    const waiting = [...phases];
+    child.stdout.write(JSON.stringify({ type: 'reasoning', part: { text: 'SECRET reasoning' } }) + '\n');
+    child.stdout.write(JSON.stringify({ type: 'provider_event', secret: 'SECRET provider' }) + '\n');
+    const beforeStart = [...phases];
+    child.stdout.write(JSON.stringify({ type: 'step_start', part: { secret: 'SECRET metadata' } }) + '\n');
+    child.stdout.write(JSON.stringify({ type: 'step_start' }) + '\n');
+    const generating = [...phases];
+    const answerBeforeOutput = answer.mock.calls.length;
+    child.stdout.write(JSON.stringify({ type: 'text', part: { text: '{"summary":"Public answer"}' } }) + '\n');
+    child.emit('close', 0);
+    await expect(promise).resolves.toMatchObject({ summary: 'Public answer' });
+    expect(waiting).toEqual([{ phase: 'waiting' }]);
+    expect(beforeStart).toEqual(waiting);
+    expect(generating).toEqual([{ phase: 'waiting' }, { phase: 'generating' }]);
+    expect(answerBeforeOutput).toBe(0);
+    expect(answer.mock.calls).toEqual([['Public answer']]);
+    expect(phases).toEqual([{ phase: 'waiting' }, { phase: 'generating' }, { phase: 'finalizing' }]);
+    expect(JSON.stringify(phases)).not.toContain('SECRET');
+  });
+
+  it('stops phase feedback immediately on cancellation without finalizing a late close', async () => {
+    const child = childProcess();
+    const abort = new AbortController();
+    const phases: unknown[] = [];
+    const promise = new OpencodeCliRunner(config).run({ intent: 'why', pageSnapshot: null, mode: 'question', signal: abort.signal,
+      onProgress: progress => phases.push(progress) });
+    abort.abort();
+    child.stdout.write(JSON.stringify({ type: 'step_start' }) + '\n');
+    child.emit('close', 0);
+    await expect(promise).rejects.toMatchObject({ code: 'cancelled' });
+    expect(phases).toEqual([{ phase: 'waiting' }]);
+  });
+
+  it('reports generation without requiring an answer or raw-stream subscriber and never finalizes a failure', async () => {
+    const child = childProcess();
+    const phases: unknown[] = [];
+    const promise = new OpencodeCliRunner(config).runModel('why', 'fixture/model', 10_000, undefined,
+      { mode: 'question', onProgress: progress => phases.push(progress) });
+    child.stdout.write(JSON.stringify({ type: 'step_start' }) + '\n');
+    child.stdout.write(JSON.stringify({ type: 'error', error: { data: { statusCode: 429, message: 'SECRET provider' } } }));
+    child.emit('close', 1);
+    await expect(promise).rejects.toMatchObject({ code: 'rate_limited' });
+    expect(phases).toEqual([{ phase: 'waiting' }, { phase: 'generating' }]);
+  });
+
   it('answers a read-only question without generating changes', async () => {
     const child = childProcess();
     const runner = new OpencodeCliRunner(config);

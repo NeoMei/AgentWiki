@@ -122,4 +122,3 @@ export const SpaceWorkspaceScope: React.FC<SpaceWorkspaceScopeProps> = ({
   ]);
   return <SpaceWorkspaceContext.Provider value={value}>{children}</SpaceWorkspaceContext.Provider>;
 };
-

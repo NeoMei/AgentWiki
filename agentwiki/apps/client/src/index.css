@@ -320,3 +320,17 @@ input.document-title:focus { box-shadow: 0 2px #e5e5e5; }
 }
 
 .agent-reference-hint { margin: 0; color: #6d7684; font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+
+/* Execution phases remain visible while the model has not produced answer text. */
+.agent-activity { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 5px 10px; margin: 4px 0 10px; padding: 9px 10px; border-radius: 8px; background: #f4f7fb; color: #42648b; font-size: 12px; }
+.agent-activity-status { display: flex; flex: 1 1 auto; align-items: center; flex-wrap: wrap; gap: 6px; }
+.agent-activity-spinner { flex: none; animation: agent-activity-spin 1.3s linear infinite; }
+.agent-activity-elapsed { color: #7c8797; font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.agent-activity-retry { font-size: 11px; color: #8e642c; }
+.agent-sending-feedback { margin-top: 12px; }
+.agent-candidate-review { margin-top: 12px; padding: 10px 11px; border: 1px solid #e9ecf2; border-radius: 9px; background: #fcfcfd; }
+.agent-compact-review > .agent-candidate-details { margin-top: 8px; padding: 0; border: 0; background: transparent; }
+.agent-acceptance-history { margin-top: 4px; font-size: 11px; color: #738275; }
+.agent-acceptance-history > p { margin-top: 5px; }
+@keyframes agent-activity-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .agent-activity-spinner { animation: none; } }

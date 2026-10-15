@@ -10,6 +10,7 @@ export interface AgentTurn {
   id: string; sessionId: string; pageId: string | null; mode: AgentTurnMode; intent: string;
   status: 'queued' | 'running' | 'done' | 'failed' | 'cancelled'; createdAt: string;
   pageSnapshot: AssistSnapshot | null; references: AgentReference[]; noteIds: string[]; annotations?: AgentAnnotation[];
+  progress?: { phase: 'preparing' | 'waiting' | 'generating' | 'finalizing'; attempt?: number };
   progressText: string; result: { summary?: string; changes?: string } | null; error: string | null;
 }
 export interface AgentSessionDetail extends AgentSessionSummary { turns: AgentTurn[] }

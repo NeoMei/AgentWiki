@@ -950,7 +950,7 @@ describe('PageEditor remote update safety', () => {
     expect(loadDraft(draftScope)).toBeNull();
     expect(screen.queryByTestId('local-draft-status')).not.toBeInTheDocument();
     reloadAgentHistory();
-    await screen.findByText('Accepted to draft');
+    await screen.findByText('Accepted to draft. Save the page to publish these changes.');
     expect(contentEditorValue()).toBe('Original content');
   });
 
@@ -2931,7 +2931,7 @@ describe('PageEditor remote update safety', () => {
     for(const body of ['Fix one','Fix two'])fireEvent.click(screen.getByRole('checkbox',{name:body}));
     fireEvent.click(screen.getByRole('button',{name:'Stage selected for Agent'}));
     expect(agentPostCalls()).toHaveLength(0); await chooseProposal(); fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-    await screen.findByRole('button',{name:'Accept change 1'});fireEvent.click(screen.getByRole('tab',{name:'Page notes'}));expect(screen.getAllByText('Awaiting review')).toHaveLength(2);expect(contentEditorValue()).toBe(base);fireEvent.click(screen.getByRole('tab',{name:'Agent'}));
+    fireEvent.click(await screen.findByText('View changes')); expect(screen.getByRole('button',{name:'Accept change 1'})).toBeVisible();fireEvent.click(screen.getByRole('tab',{name:'Page notes'}));expect(screen.getAllByText('Awaiting review')).toHaveLength(2);expect(contentEditorValue()).toBe(base);fireEvent.click(screen.getByRole('tab',{name:'Agent'}));
     fireEvent.click(screen.getByRole('button',{name:'Accept change 1'}));expect(contentEditorValue()).toBe('ONE\nkeep\ntwo\n');fireEvent.click(screen.getByRole('tab',{name:'Page notes'}));fireEvent.click(screen.getByRole('button',{name:'All (2)'}));expect(screen.getAllByText('Resolved')).toHaveLength(1);fireEvent.click(screen.getByRole('tab',{name:'Agent'}));
     fireEvent.click(screen.getByRole('button',{name:'Accept change 2'}));expect(contentEditorValue()).toBe('ONE\nkeep\nTWO\n');fireEvent.click(screen.getByRole('tab',{name:'Page notes'}));fireEvent.click(screen.getByRole('button',{name:'All (2)'}));expect(screen.getAllByText('Resolved')).toHaveLength(2);fireEvent.click(screen.getByRole('tab',{name:'Agent'}));
     fireEvent.click(screen.getByRole('button',{name:'Accept change 1'}));act(()=>expect(undo(currentEditorView())).toBe(true));expect(contentEditorValue()).toBe('ONE\nkeep\ntwo\n');
@@ -3048,11 +3048,12 @@ describe('PageEditor remote update safety', () => {
     mockAgentSession(page({content:base,capabilities:{canEdit:true}}), () => tasks, async () => { tasks=[{id:'continuity',intent:'Fix',status:phase==='generating'?'running':'done',result:{changes:'ONE\nkeep\nTWO\n'}}]; return tasks[0]; });
     renderEditor();await screen.findByDisplayValue('Original title');fireEvent.click(screen.getByTestId('document-panel-tab-assist'));await chooseProposal(); fireEvent.change(screen.getByTestId('assist-intent'),{target:{value:'Fix'}});fireEvent.click(screen.getByTestId('assist-submit'));
     await screen.findByRole('button', { name: phase === 'generating' ? 'Stop' : 'Send' });
-    if(phase!=='generating')await screen.findByRole('button',{name:'Accept change 1'});
+    if(phase!=='generating'){fireEvent.click(await screen.findByText('View changes'));expect(screen.getByRole('button',{name:'Accept change 1'})).toBeVisible();}
     if(phase==='partial')fireEvent.click(screen.getByRole('button',{name:'Accept change 1'}));
     fireEvent.click(screen.getByRole('button',{name:'Collapse side panel'}));fireEvent.click(screen.getByTestId('document-panel-tab-assist'));
     tasks=[{id:'continuity',intent:'Fix',status:'done',result:{changes:'ONE\nkeep\nTWO\n'}}];reloadAgentHistory();
-    await screen.findByRole('button',{name:'Accept change 2'});
+    const details = (await screen.findByText('View changes')).closest('details')!; if(!details.open)fireEvent.click(details.querySelector('summary')!);
+    expect(screen.getByRole('button',{name:'Accept change 2'})).toBeVisible();
     if(phase==='partial'){expect(screen.getByRole('button',{name:'Accept change 1'})).toBeDisabled();fireEvent.click(screen.getByRole('button',{name:'Accept change 2'}));expect(contentEditorValue()).toBe('ONE\nkeep\nTWO\n');}
     else {expect(screen.getByRole('button',{name:'Accept change 1'})).toBeEnabled();expect(contentEditorValue()).toBe(base);}
     expect(agentPostCalls()).toHaveLength(1);
@@ -3065,9 +3066,31 @@ describe('PageEditor remote update safety', () => {
     expect(agentPostCalls()).toHaveLength(0); await chooseProposal(); fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(()=>expect(agentPostCalls()).toHaveLength(1));if(scenario==='failed')await screen.findByRole('alert');
     fireEvent.click(screen.getByRole('button',{name:'Collapse side panel'}));fireEvent.click(screen.getByTestId('document-panel-tab-assist'));
-    if(scenario==='delayed'){tasks=[{id:'delayed',intent:'Fix',status:'done',result:{changes:'Changed content'}}];await act(async()=>delayed.resolve(tasks[0]));await screen.findByRole('button',{name:'Accept change 1'});}
+    if(scenario==='delayed'){tasks=[{id:'delayed',intent:'Fix',status:'done',result:{changes:'Changed content'}}];await act(async()=>delayed.resolve(tasks[0]));await screen.findByRole('button',{name:'Accept to draft'});}
     else expect(screen.getByRole('alert')).toHaveTextContent('Request failed');
     expect(agentPostCalls()).toHaveLength(1);
+  });
+
+  it('accepts a compact single change after an unrelated manual edit while preserving both undo steps', async () => {
+    const base = 'one\n' + 'unchanged paragraph\n'.repeat(70) + 'tail\n';
+    let tasks: any[] = [];
+    mockAgentSession(page({ content: base, capabilities: { canEdit: true } }), () => tasks, async () => {
+      tasks = [{ id: 'single-merge', intent: 'One change', status: 'done', result: { changes: base.replace('one', 'ONE') } }]; return tasks[0];
+    });
+    renderEditor(); fireEvent.click(await screen.findByTestId('document-panel-tab-assist')); await chooseProposal();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'One change' } }); fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    const accept = await screen.findByRole('button', { name: 'Accept to draft' });
+    expect(screen.queryByRole('button', { name: 'Accept change 1' })).not.toBeInTheDocument();
+    const offset = 700, manual = base.slice(0, offset) + 'Human addition\n' + base.slice(offset);
+    act(() => currentEditorView().dispatch({ changes: { from: offset, insert: 'Human addition\n' } }));
+    expect(contentEditorValue()).toBe(manual);
+    fireEvent.click(accept);
+    expect(contentEditorValue()).toBe(manual.replace('one', 'ONE'));
+    expect(screen.getByText('Accepted to draft. Save the page to publish these changes.')).toBeVisible();
+    expect(pagePatchCalls()).toHaveLength(0);
+    act(() => expect(undo(currentEditorView())).toBe(true)); expect(contentEditorValue()).toBe(manual);
+    act(() => expect(undo(currentEditorView())).toBe(true)); expect(contentEditorValue()).toBe(base);
+    expect(screen.queryByRole('button', { name: 'Accept to draft' })).not.toBeInTheDocument();
   });
 
   it('isolates each accepted hunk around an unrelated manual edit and preserves no-replay records after three Undo operations', async () => {
@@ -3078,7 +3101,9 @@ describe('PageEditor remote update safety', () => {
     });
     renderEditor(); fireEvent.click(await screen.findByTestId('document-panel-tab-assist')); await chooseProposal();
     fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Two changes' } }); fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Accept change 1' }));
+    fireEvent.click(await screen.findByText('View changes'));
+    expect(screen.getByRole('button', { name: 'Accept change 1' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Accept change 1' }));
     const first = base.replace('one', 'ONE'); expect(contentEditorValue()).toBe(first);
     const offset = 700, manual = first.slice(0, offset) + 'Human addition\n' + first.slice(offset);
     act(() => currentEditorView().dispatch({ changes: { from: offset, insert: 'Human addition\n' } })); expect(contentEditorValue()).toBe(manual);
@@ -3087,6 +3112,8 @@ describe('PageEditor remote update safety', () => {
     act(() => expect(undo(currentEditorView())).toBe(true)); expect(contentEditorValue()).toBe(first);
     act(() => expect(undo(currentEditorView())).toBe(true)); expect(contentEditorValue()).toBe(base);
     expect(screen.getByRole('button', { name: 'Accept change 1' })).toBeDisabled(); expect(screen.getByRole('button', { name: 'Accept change 2' })).toBeDisabled();
+    expect(screen.getByText('Accepted to draft. Save the page to publish these changes.')).toBeVisible();
+    fireEvent.click(screen.getByText('About this acceptance record'));
     expect(screen.getByText(/Acceptance record: previously accepted/)).toBeVisible(); expect(pagePatchCalls()).toHaveLength(0);
   });
 

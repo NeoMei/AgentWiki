@@ -40,9 +40,11 @@ function settle(session) {
     if (!job || turn.status === 'cancelled') continue;
     if (Date.now() < job.completeAt) {
       turn.status = 'running';
-      turn.progressText = '正在阅读当前文档，并整理与本次问题相关的内容…';
+      const elapsed = Date.now() - job.startedAt;
+      turn.progress = { phase: elapsed < 1600 ? 'preparing' : elapsed < 3200 ? 'waiting' : Date.now() >= job.completeAt - 1600 ? 'finalizing' : 'generating', attempt: job.retry && elapsed >= 3200 ? 2 : 1 };
+      turn.progressText = ''; // Real phases must not masquerade as streamed answer text.
     } else {
-      turn.status = 'done'; turn.progressText = ''; turn.result = resultFor(turn);
+      turn.status = 'done'; delete turn.progress; turn.progressText = ''; turn.result = resultFor(turn);
       session.updatedAt = now(); pending.delete(turn.id);
     }
   }
@@ -80,11 +82,11 @@ const server = http.createServer(async (request, response) => {
         const referenceIds = input.referencePageIds ?? [];
         if (!Array.isArray(referenceIds) || referenceIds.some(id => !pages.has(id))) return send(403, { message: 'Reference outside fixture Space' });
         if (input.intent.includes('[fixture-error]')) return send(503, { message: '当前服务暂时不可用，请稍后重试。已填写的消息、引用文档和笔记仍保留在输入区。' });
-        const turn = { id: randomUUID(), sessionId: session.id, pageId: input.pageId, mode: input.mode, intent: input.intent, status: 'queued', createdAt: now(), pageSnapshot: structuredClone(input.snapshot), references: referenceIds.map(id => ({ pageId: id, title: pages.get(id).title, updatedAt: pages.get(id).updatedAt })), noteIds: input.noteIds ?? [], annotations: input.annotations ?? [], progressText: '正在准备上下文…', result: null, error: null };
+        const turn = { id: randomUUID(), sessionId: session.id, pageId: input.pageId, mode: input.mode, intent: input.intent, status: 'queued', createdAt: now(), pageSnapshot: structuredClone(input.snapshot), references: referenceIds.map(id => ({ pageId: id, title: pages.get(id).title, updatedAt: pages.get(id).updatedAt })), noteIds: input.noteIds ?? [], annotations: input.annotations ?? [], progressText: '', result: null, error: null };
         if (!session.turns.length) session.title = input.intent.slice(0, 18);
         session.turns.push(turn); session.updatedAt = turn.createdAt;
         retries.set(retryKey, turn);
-        pending.set(turn.id, { completeAt: Date.now() + (/停止|stop/iu.test(input.intent) ? 20_000 : 2_400) });
+        pending.set(turn.id, { startedAt: Date.now(), completeAt: Date.now() + (/停止|stop/iu.test(input.intent) ? 20_000 : 10_400), retry: /重试|retry/iu.test(input.intent) });
         return send(201, turn);
       }
       return send(405, { message: 'Unsupported fixture method' });
@@ -93,7 +95,7 @@ const server = http.createServer(async (request, response) => {
     if (cancel && request.method === 'POST') {
       const turn = [...sessions.values()].flatMap(session => session.turns).find(turn => turn.id === cancel[1]);
       if (!turn) return send(404, { message: 'Turn not found' });
-      if (['queued', 'running'].includes(turn.status)) { turn.status = 'cancelled'; turn.progressText = ''; pending.delete(turn.id); }
+      if (['queued', 'running'].includes(turn.status)) { turn.status = 'cancelled'; delete turn.progress; turn.progressText = ''; pending.delete(turn.id); }
       return send(200, turn);
     }
     if (path === '/api/search' && request.method === 'GET') {

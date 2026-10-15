@@ -19,6 +19,8 @@
 
 ## 最近完成
 
+- [agent-chat-feedback-20261015](archive/agent-chat-feedback-20261015/brief.md)：v0.12.37已发布并部署；7518pass/6既有skip，独立复审、配套备份、源码/资源hash、真实provider/浏览器/DB草稿与Save验收及临时资源清理通过。
+
 - [agent-chat-simplification-20261014](archive/agent-chat-simplification-20261014/brief.md)：聊天简化、@引用、按需上下文完成；2464客户端测试/build/lint、独立复审和桌面/390px真实浏览器验收通过，未推送部署。
 
 - [shared-page-notes-20261014](archive/shared-page-notes-20261014/brief.md)：服务器共享笔记、REST/MCP 和统一四图标侧栏已完成；真实数据库/HTTP/MCP、Chrome 及独立复审通过，client2434/server3156与全仓分阶段回归完成，未推送部署。

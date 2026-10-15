@@ -1,0 +1,26 @@
+{
+  "version": "0.12.38",
+  "candidate": "866f7b27",
+  "mergedProductionBase": "6734a00f9eb9cd58f7916a5932989445c5248cda",
+  "client": {
+    "files": 159,
+    "passed": 2609,
+    "failed": 0,
+    "durationSeconds": 125.28
+  },
+  "runtimeContract": {
+    "passed": 33,
+    "failed": 0
+  },
+  "build": {
+    "exitCode": 0,
+    "initialJavaScriptBytes": 548340,
+    "budgetBytes": 550000
+  },
+  "typecheckExitCode": 0,
+  "lintExitCode": 0,
+  "independentIntegrationReview": "passed; v0.12.37 intact",
+  "serverBusinessAndDatabaseChange": false,
+  "localSync": "0.13.0",
+  "protocol": "0.6.1"
+}

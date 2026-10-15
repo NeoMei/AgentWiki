@@ -1,0 +1,56 @@
+{
+  "version": "0.12.37",
+  "base": "10473919495697c1245871b605ed1ce0e670ae59",
+  "integrationCommit": "f615ec77",
+  "tests": {
+    "runtime": {
+      "passed": 309,
+      "skipped": 1
+    },
+    "database": {
+      "passed": 239,
+      "skipped": 0
+    },
+    "server": {
+      "passed": 3243,
+      "skipped": 4
+    },
+    "client": {
+      "files": 157,
+      "passed": 2589,
+      "skipped": 0
+    },
+    "protocol": {
+      "passed": 140,
+      "skipped": 0
+    },
+    "localSync": {
+      "passed": 998,
+      "skipped": 1
+    },
+    "total": {
+      "passed": 7518,
+      "skipped": 6,
+      "failed": 0
+    },
+    "command": "pnpm test:full",
+    "exitCode": 0
+  },
+  "build": {
+    "command": "pnpm build",
+    "exitCode": 0,
+    "initialJavaScriptBytes": 549905,
+    "initialJavaScriptBudget": 550000
+  },
+  "typecheck": {
+    "command": "pnpm typecheck",
+    "exitCode": 0
+  },
+  "lint": {
+    "command": "pnpm lint",
+    "exitCode": 0
+  },
+  "independentIntegrationReview": "passed",
+  "production": "deployed and verified; see deployment.json",
+  "scope": "Web/API only; Local Sync 0.13.0 and protocol 0.6.1 unchanged; no schema/dependency changes"
+}

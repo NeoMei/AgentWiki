@@ -127,6 +127,32 @@ describe('OpencodeModelRouter', () => {
     jest.useRealTimers();
   });
 
+  it('reports preparing while catalog is pending and identifies retries without exposing models or failures', async () => {
+    let release!: (models: ReturnType<typeof model>[]) => void;
+    const catalogPending = new Promise<ReturnType<typeof model>[]>(resolve => { release = resolve; });
+    const { router, runner } = createRouter({ getModels: jest.fn(() => catalogPending) });
+    const phases: unknown[] = [];
+    let invocation = 0;
+    runner.runModel.mockImplementation(async (_prompt, _model, _timeout, _stream, options) => {
+      options?.onProgress?.({ phase: 'waiting' });
+      options?.onProgress?.({ phase: 'generating' });
+      if (++invocation === 1) throw modelFailure('rate_limited', EMPTY_USAGE, 0, 'SECRET provider error');
+      options?.onProgress?.({ phase: 'finalizing' });
+      return success('# Result');
+    });
+    const pending = router.run({ ...task, onProgress: progress => phases.push(progress) });
+    const beforeCatalog = [...phases];
+    release([model('SECRET/one', 'free'), model('SECRET/two', 'free')]);
+    await expect(pending).resolves.toMatchObject({ attemptCount: 2 });
+    expect(beforeCatalog).toEqual([{ phase: 'preparing' }]);
+    expect(phases).toEqual([
+      { phase: 'preparing' },
+      { phase: 'preparing', attempt: 1 }, { phase: 'waiting', attempt: 1 }, { phase: 'generating', attempt: 1 },
+      { phase: 'preparing', attempt: 2 }, { phase: 'waiting', attempt: 2 }, { phase: 'generating', attempt: 2 }, { phase: 'finalizing', attempt: 2 },
+    ]);
+    expect(JSON.stringify(phases)).not.toContain('SECRET');
+  });
+
   it('never starts a fallback after abort even if an in-flight attempt reports a model failure', async () => {
     const { router, runner, health } = createRouter();
     const abort = new AbortController();

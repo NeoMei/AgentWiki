@@ -10,6 +10,7 @@ import { assertAssistOutputScope, assertAssistTargetVersion, validateAssistTarge
 import { AssistSessionService } from './assist-session.service';
 import { AgentTurnMode, AGENT_SESSION_LIMITS as LIMIT, AGENT_OUTPUT_LIMIT_ERROR } from './assist-session.types';
 import { CollaborationGateway } from '../core/collaboration/collaboration.gateway';
+import { sanitizeAgentProgress } from './assist-progress';
 
 export type { AssistRunResult, OpencodeRunner } from './opencode.types';
 
@@ -144,7 +145,11 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
         const leaseExpiresAt = new Date(Date.now() + leaseMs);
         const claim = await this.prisma.assistTask.updateMany({
           where: { id: candidate.id, status: 'queued' },
-          data: { status: 'running', lockedAt: new Date(), leaseOwner: this.workerId, leaseExpiresAt },
+          data: { status: 'running', lockedAt: new Date(), leaseOwner: this.workerId, leaseExpiresAt,
+            // A recovered session must not expose the previous execution's
+            // phase while the new worker is still acquiring authorization.
+            ...(candidate.sessionId ? { result: Prisma.DbNull } : {}),
+          },
         });
         if (!claim.count) continue;
         this.active += 1;
@@ -165,6 +170,27 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
     let monitor: NodeJS.Timeout | undefined;
     let leaseTimer: NodeJS.Timeout | undefined;
     let progress = Promise.resolve();
+    let lastPhaseKey: string | undefined;
+    const writeProgress = (data: Prisma.AssistTaskUpdateManyMutationInput) => {
+      progress = progress.then(async () => {
+        if (abort.signal.aborted) return;
+        const write = await this.prisma.$transaction(async tx => {
+          await this.sessionContext(tx, task);
+          if (abort.signal.aborted) return { count: 0 };
+          return tx.assistTask.updateMany({ where: this.activeTaskWhere(task), data: { ...data, progressVersion: { increment: 1 } } });
+        });
+        if (!write.count) abort.abort();
+      }).catch(() => { abort.abort(); });
+    };
+    const onProgress = (value: unknown) => {
+      if (abort.signal.aborted) return;
+      const state = sanitizeAgentProgress(value);
+      if (!state) return;
+      const key = `${state.phase}:${state.attempt ?? ''}`;
+      if (key === lastPhaseKey) return;
+      lastPhaseKey = key;
+      writeProgress({ result: { progress: { ...state } } });
+    };
     try {
       if (!await this.isTaskActive(task)) throw new BadRequestException('Assist authorization is no longer valid');
       const execution = task.sessionId ? await this.prisma.$transaction(tx => this.sessionContext(tx, task)) : undefined;
@@ -180,22 +206,21 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
           .catch(() => abort.abort()).finally(() => { observing = false; });
       }, 500);
       monitor.unref();
+      if (task.sessionId) {
+        onProgress({ phase: 'preparing' });
+        await progress;
+        if (abort.signal.aborted) throw new BadRequestException('Assist execution stopped');
+      }
       const result = await this.runner.run({
         intent: task.intent, pageSnapshot: task.pageSnapshot, mode: task.mode,
         ...execution, signal: abort.signal,
         leaseExpiresAtMs: task.leaseExpiresAtMs,
         isActive: () => this.isTaskActive(task),
         ...(task.sessionId ? {
+          onProgress,
           onAnswerText: (answer: string) => {
             if (abort.signal.aborted || !answer.trim() || answer.length > LIMIT.answer) return;
-            progress = progress.then(async () => {
-              if (abort.signal.aborted) return;
-              const write = await this.prisma.$transaction(async tx => {
-                await this.sessionContext(tx, task);
-                return tx.assistTask.updateMany({ where: this.activeTaskWhere(task), data: { progressText: answer, progressVersion: { increment: 1 } } });
-              });
-              if (!write.count) abort.abort();
-            }).catch(() => { abort.abort(); });
+            writeProgress({ progressText: answer });
           },
         } : {
           onStreamChunk: (chunk: string) => {
@@ -231,6 +256,8 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
       }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
       if (completion.count && task.pageId && !task.sessionId) this.collaborationGateway.emitAssistComplete(task.pageId, task.id);
     } catch (error: unknown) {
+      abort.abort();
+      await progress;
       const routing = error instanceof OpencodeRoutingError ? error : undefined;
       const outputLimit = (error instanceof BadRequestException && error.message === AGENT_OUTPUT_LIMIT_ERROR) || routing?.result.attempts?.some(attempt => attempt.errorCode === 'output_limit');
       const completion = await this.prisma.assistTask.updateMany({
@@ -238,7 +265,7 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
         data: {
           status: 'failed', error: task.sessionId ? (outputLimit ? AGENT_OUTPUT_LIMIT_ERROR : 'Assistant failed; retry with a new turn') : routing ? routing.message : 'Editing assistant failed',
           ...(routing && !task.sessionId ? { result: routing.result as any } : {}),
-          ...(task.sessionId ? { progressText: '' } : {}),
+          ...(task.sessionId ? { progressText: '', result: Prisma.DbNull } : {}),
           completedAt: new Date(), leaseOwner: null, leaseExpiresAt: null, lockedAt: null,
         },
       });

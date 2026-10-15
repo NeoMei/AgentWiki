@@ -1,7 +1,8 @@
 # 当前目标
 
-- 目录点击反复加载修复已完成本地候选，分支 `codex/directory-navigation-cache`，基于 `10473919`。已加载目标保留目录、零目录重读，缺失路径增量获取；已知数据变更与权限失效仍主动更新。最终 158 文件 / 2593 客户端测试、全仓构建、lint、两轮独立审查及 Chrome 真实组件慢响应验收通过。尚未推送/部署，生产仍为 v0.12.36。
-- 上次目录名称编辑图标 v0.12.36 已发布部署，并在原文章页面验收。
+- 目录点击反复加载修复候选已与线上 v0.12.37 合并，正在执行 v0.12.38 发布门禁；已加载目录复用，变更/权限失效仍主动更新。用户已授权发布并要求检查线上版本。
+- 内嵌 Agent 聊天过程反馈与候选确认简化已发布部署 v0.12.37（9b7a3b90）；回执：agentwiki/docs/verification/agent-chat-feedback-20261015/deployment.json。
+- 目录名称编辑图标 v0.12.36 已发布部署，并在原文章页面验收。
 
 # 范围 / 不做
 
@@ -39,6 +40,7 @@
 # 关键索引
 
 - agentwiki/docs/verification/directory-navigation-20261015/status.md
+- .codex-memory/tasks/archive/agent-chat-feedback-20261015/{brief,decisions,refs}.md
 
 - agentwiki/docs/verification/agent-session-tabs-20261015/status.md
 - .codex-memory/tasks/archive/agent-chat-simplification-20261014/{brief,decisions,refs}.md
@@ -54,7 +56,7 @@
 
 # 风险 / 下一步
 
-- 目录缓存修复候选已验收但尚未发布；后续发布从上述工作树进行，原主检出仍旧且带用户改动，不得覆盖。生产已发布版本为 v0.12.36。
+- 目录缓存修复候选已验收但尚未发布；后续发布从上述工作树进行，原主检出仍旧且带用户改动，不得覆盖。生产已发布版本为 v0.12.37，正在准备 v0.12.38。
 
 - Session 标签关闭生产原案已回验，临时输入已清除且原标签布局已恢复。旧知识图谱全量测试失败另行保留，不将本次发布计为图谱问题修复。
 - 17 篇项目模板交付已完成。编辑器修复、统一面板与服务器笔记均为已验收本地候选，尚未推送/发布；后续上线需执行 PageNote 迁移并生产回验。
