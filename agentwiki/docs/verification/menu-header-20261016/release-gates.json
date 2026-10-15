@@ -1,0 +1,81 @@
+{
+  "version": "0.12.41",
+  "base": "3f215c40",
+  "scope": "Remove outer padding for the entire shared Space workspace, retaining SpaceView content spacing and non-workspace containers",
+  "regression": {
+    "layoutRoutes": 31,
+    "failedBeforeFix": 19,
+    "targetedFiles": 7,
+    "targetedPassed": 110
+  },
+  "clientTests": {
+    "command": "pnpm --filter @agentwiki/client exec vitest run --maxWorkers=2",
+    "exitCode": 0,
+    "files": 159,
+    "passed": 2633,
+    "failed": 0,
+    "firstRun": {
+      "passed": 2632,
+      "failed": 1,
+      "test": "KnowledgeGraph.grouped.spec.tsx / keeps a many-folder opening view readable while explicit Fit graph offers an overview",
+      "note": "Existing timing-sensitive graph test failed in initial high-parallelism run; complete suite passed at two workers. No graph source or test changed."
+    }
+  },
+  "build": {
+    "command": "pnpm build",
+    "exitCode": 0,
+    "initialJavaScriptBytes": 548270,
+    "budgetBytes": 550000
+  },
+  "typecheck": {
+    "command": "pnpm typecheck",
+    "exitCode": 0
+  },
+  "lint": {
+    "command": "pnpm lint",
+    "exitCode": 0
+  },
+  "independentReview": {
+    "blockers": 0,
+    "scope": "Layout, route coverage, inner spacing, narrow-screen and version-history routes, ordinary application pages, package versions"
+  },
+  "localBrowser": {
+    "environment": "real App via Chrome CUA, synthetic API bound to loopback; external API disabled",
+    "desktopWidth": 1554,
+    "mobileWidth": 390,
+    "states": 20,
+    "navigation": [
+      "pages",
+      "graph",
+      "sources",
+      "collaboration",
+      "taskboard",
+      "members",
+      "settings"
+    ],
+    "additional": [
+      "folder",
+      "page read",
+      "page edit",
+      "version history",
+      "new page",
+      "page templates"
+    ],
+    "navOffsetWithinEachViewport": {
+      "horizontal": 0,
+      "vertical": 0
+    },
+    "measurementTolerancePixels": 0.01,
+    "outerPadding": "0px",
+    "horizontalOverflow": false,
+    "frameworkOverlay": false,
+    "consoleWarningsOrErrors": 0
+  },
+  "packageBoundary": {
+    "webApi": "0.12.41",
+    "localSync": "0.13.0",
+    "protocol": "0.6.1",
+    "npmPublicationRequired": false
+  },
+  "backendRegression": "No backend runtime, database, dependency, or sync package source changed. Prior v0.12.40 full suite receipt retained separately."
+}

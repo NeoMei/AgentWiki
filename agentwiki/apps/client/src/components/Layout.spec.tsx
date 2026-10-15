@@ -16,34 +16,54 @@ const renderLayout = (path: string) => render(
 );
 
 describe('Layout workspace sizing', () => {
-  it.each(['/pages/page-1', '/pages/page-1/edit', '/pages/page-1/edit/', '/spaces/space-1'])('uses an edge-to-edge surface for directory and document route %s', (path) => {
+  it.each([
+    '/spaces/space-1',
+    '/spaces/space-1/',
+    '/spaces/space-1?folder=folder-1',
+    '/spaces/space-1/graph',
+    '/spaces/space-1/sources',
+    '/spaces/space-1/sources?tab=runs',
+    '/spaces/space-1/collaboration',
+    '/spaces/space-1/taskboard',
+    '/spaces/space-1/members',
+    '/spaces/space-1/settings',
+    '/spaces/space-1/settings/',
+    '/spaces/space-1/settings/page-templates',
+    '/spaces/space-1/new?folder=folder-1',
+    '/spaces/space-1/docs',
+    '/spaces/space-1/runs',
+    '/spaces/space-1/runs/run-1',
+    '/spaces/space-1/collaboration/templates/new',
+    '/spaces/space-1/collaboration/templates/template-1',
+    '/spaces/space-1/collaboration/templates/template-1/start',
+    '/spaces/space-1/collaboration/runs/run-1',
+    '/pages/page-1',
+    '/pages/page-1/',
+    '/pages/page-1/edit',
+    '/pages/page-1/edit/',
+    '/pages/page-1/versions',
+    '/pages/page-1/versions?version=2',
+  ])('keeps the workspace header edge-to-edge for %s', (path) => {
     renderLayout(path);
     const main = screen.getByRole('main');
     expect(main).toHaveClass('w-full');
-    expect(main).not.toHaveClass('px-4', 'py-8');
+    expect(main).not.toHaveClass('container');
+    expect(main).not.toHaveClass('px-4');
+    expect(main).not.toHaveClass('py-8');
     expect(main.parentElement).toHaveClass('bg-white');
   });
 
-  it.each(['/pages/page-1/versions', '/spaces/space-1/settings'])('retains the surrounding workspace layout for %s', (path) => {
+  it.each([
+    '/dashboard',
+    '/search?q=wiki',
+    '/agents/agent-1',
+    '/profile',
+    '/review',
+  ])('keeps the existing constrained container for non-workspace route %s', (path) => {
     renderLayout(path);
     const main = screen.getByRole('main');
-    expect(main).toHaveClass('w-full', 'px-4', 'py-8');
+    expect(main).toHaveClass('container', 'mx-auto', 'px-4', 'py-8');
+    expect(main).not.toHaveClass('w-full');
     expect(main.parentElement).toHaveClass('bg-gray-50');
-  });
-
-  it('gives space and page workspaces the full application width', () => {
-    const { unmount } = renderLayout('/pages/page-1/edit');
-    expect(screen.getByRole('main')).toHaveClass('w-full');
-    expect(screen.getByRole('main')).not.toHaveClass('container');
-
-    unmount();
-    renderLayout('/spaces/space-1?folder=folder-1');
-    expect(screen.getByRole('main')).toHaveClass('w-full');
-  });
-
-  it('keeps the existing constrained container for non-workspace routes', () => {
-    renderLayout('/search?q=wiki');
-    expect(screen.getByRole('main')).toHaveClass('container');
-    expect(screen.getByRole('main')).not.toHaveClass('w-full');
   });
 });
