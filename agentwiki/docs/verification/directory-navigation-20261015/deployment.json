@@ -1,0 +1,314 @@
+{
+  "version": "0.12.38",
+  "releaseCommit": "53064514ebe1f8a24564c5169a4442ed291682a7",
+  "releaseUrl": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.38",
+  "deploymentExitCode": 0,
+  "previousApplicationTree": "/root/agentwiki-previous-20261015193337",
+  "backup": {
+    "status": "verified",
+    "backupDirectory": "/var/backups/agentwiki/directory-cache-v01238.r_mdrf1h",
+    "createdAt": "2026-10-15T11:30:29.597532+00:00",
+    "finishedAt": "2026-10-15T11:30:44.213488+00:00",
+    "source": {
+      "appVersion": "0.12.37",
+      "liveDirectory": "/root/agentwiki",
+      "sourceCommitFromPriorReleaseReceipt": "9b7a3b90efd538bcea067fbab0344fec856d9b6f",
+      "sourceCommitIndependentlyVerifiedInThisBackup": false,
+      "sourceFileCount": 7449,
+      "sourceUnchangedDuringCopy": true
+    },
+    "database": {
+      "format": "pg_dump custom",
+      "startedAt": "2026-10-15T11:30:37.038356+00:00",
+      "finishedAt": "2026-10-15T11:30:42.616412+00:00",
+      "pgRestoreListPassed": true,
+      "tocEntryCount": 684,
+      "consistentDatabaseSnapshot": true
+    },
+    "application": {
+      "startedAt": "2026-10-15T11:30:30.744557+00:00",
+      "finishedAt": "2026-10-15T11:30:35.049245+00:00",
+      "archiveListingPassed": true,
+      "containsServerAndClientBuilds": true,
+      "excludedDirectoryNames": [
+        ".cache",
+        ".git",
+        ".tmp",
+        ".turbo",
+        "coverage",
+        "node_modules",
+        "temp",
+        "tmp"
+      ],
+      "excludedFilePatterns": [
+        "*.tar.gz"
+      ]
+    },
+    "configuration": {
+      "rootEnvPresent": true,
+      "serverEnvPresent": true,
+      "serviceUnitCount": 3,
+      "archiveListingPassed": true
+    },
+    "attachments": {
+      "liveDirectory": "/var/lib/agentwiki/attachments",
+      "startedAt": "2026-10-15T11:30:42.648433+00:00",
+      "finishedAt": "2026-10-15T11:30:43.345373+00:00",
+      "permanentBlobCount": 142,
+      "archiveMatchesLivePermanentBlobs": true,
+      "beforeAfterManifestIdentical": true,
+      "wholeStorageDirectoryIncluded": true
+    },
+    "artifacts": {
+      "database.dump": {
+        "bytes": 46076308,
+        "sha256": "2785be7ce43626d0418ac86edb638d7a3c940978b7d7572ef93bd27ba7473be3"
+      },
+      "application.tar.gz": {
+        "bytes": 42231374,
+        "sha256": "11213bdba14fb7aa70533597568fb8ad26890d3d1db0a508feb04c5f7e725958"
+      },
+      "configuration.tar.gz": {
+        "bytes": 2066,
+        "sha256": "e1d87792b6da14c03fb71db3ede2cd641961a4821d4ad363058306c6971206fe"
+      },
+      "attachments.tar.gz": {
+        "bytes": 18860811,
+        "sha256": "1aa989fcfda2fa8f02d0c1f6443a058e857ee44d2435011fd4b0aa1e7525d5f6"
+      },
+      "database-toc.txt": {
+        "bytes": 55836,
+        "sha256": "18020571b62e5528ced10bee5b2500fd50636d47a8e7239e7b97c1860ebf0f36"
+      },
+      "attachment-manifest-before.json": {
+        "bytes": 26199,
+        "sha256": "fb52a1c00e26858cdaab6bf8e326b09872a5e8c0b9ac8bbec21f105e799afce2"
+      },
+      "attachment-manifest-after.json": {
+        "bytes": 26199,
+        "sha256": "fb52a1c00e26858cdaab6bf8e326b09872a5e8c0b9ac8bbec21f105e799afce2"
+      },
+      "source-manifest-before.json": {
+        "bytes": 1205753,
+        "sha256": "143c2351dea51620590b82da2bcc797c24cdbdf46b0d636208cba24ae1903ace"
+      },
+      "source-manifest-after.json": {
+        "bytes": 1205753,
+        "sha256": "143c2351dea51620590b82da2bcc797c24cdbdf46b0d636208cba24ae1903ace"
+      }
+    },
+    "sha256Manifest": "SHA256SUMS",
+    "checksumsPassed": true,
+    "servicesBefore": {
+      "agentwiki-api.service": "active",
+      "agentwiki-worker.service": "active",
+      "agentwiki-frontend.service": "active"
+    },
+    "servicesAfter": {
+      "agentwiki-api.service": "active",
+      "agentwiki-worker.service": "active",
+      "agentwiki-frontend.service": "active"
+    },
+    "servicesStopped": true,
+    "writerQuiesceStartedAt": "2026-10-15T11:30:36.917042+00:00",
+    "writersRestoredAt": "2026-10-15T11:30:43.609145+00:00",
+    "writersStoppedStates": {
+      "agentwiki-api.service": "inactive/MainPID=0",
+      "agentwiki-worker.service": "inactive/MainPID=0"
+    },
+    "writersRestored": true,
+    "snapshotBoundary": "Coordinated pre-migration backup: API and worker services were stopped with MainPID=0 for the entire database dump and attachment archive. Frontend remained online. Both writers were immediately restarted after both snapshots passed validation. Source/configuration were archived just before pausing and did not change during copying. Restore this database together with the paired application/configuration/attachment archives; subsequent writes after restart are outside this snapshot.",
+    "backupDirectoryMode": "0o700",
+    "privateArtifactFileMode": "0600"
+  },
+  "production": {
+    "lazyChunkAssets": {
+      "/assets/SpaceWorkspace-CVwDGsGI.js": "fbd572fa3056fcaff54d0d4051021c2c3a10e0eda562621314eef45d8824658f",
+      "/assets/PagePreview-BMx86XOW.js": "0199c733bcc1c474e88eb70d0dd160b00691e61c038edded9f46d32a21d4f1dc"
+    },
+    "verifiedAt": "2026-10-15T11:33:54.907052+00:00",
+    "revision": "53064514ebe1f8a24564c5169a4442ed291682a7",
+    "sourceFilesVerified": 1333,
+    "mismatches": [],
+    "versions": {
+      "web": "0.12.38",
+      "client": "0.12.38",
+      "api": "0.12.38",
+      "localSync": "0.13.0",
+      "protocol": "0.6.1"
+    },
+    "services": {
+      "agentwiki-api.service": "active",
+      "agentwiki-worker.service": "active",
+      "agentwiki-frontend.service": "active"
+    },
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryAssets": {
+      "/assets/index-Bw-Qrh6p.js": "437cdee9f5dd1f265c6e9a759353018eb344782a6820a883c1319fec4b3497ea",
+      "/assets/_commonjsHelpers-CqkleIqs.js": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+      "/assets/react-vendor-CTv3miC2.js": "7e3a4bf34c49700b5fad7403a908da66c35ca1ad3669d05d3356f1a5e9bae663",
+      "/assets/preload-helper-ckwbz45p.js": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+      "/assets/index-FVzw0mIZ.css": "62488e0b36b7c4eafe9838aec5b809efb4596869e8ff0695d3c8b5e1125cacee"
+    }
+  },
+  "public": {
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryAssetsMatchProduction": [
+      "/assets/index-Bw-Qrh6p.js",
+      "/assets/_commonjsHelpers-CqkleIqs.js",
+      "/assets/react-vendor-CTv3miC2.js",
+      "/assets/preload-helper-ckwbz45p.js",
+      "/assets/index-FVzw0mIZ.css"
+    ],
+    "pageHttpStatus": 200,
+    "lazyChunkAssetCountVerified": 149
+  },
+  "stableIdentityAndAuthorization": {
+    "before": {
+      "version": "0.12.37",
+      "stable": {
+        "credentials": {
+          "count": 84,
+          "sha256": "937a125de7a96690f79898f761f101e0afdb9b1fc5c9430150d57c50bb9e8ac5"
+        },
+        "grants": {
+          "count": 496,
+          "sha256": "a81d4741ee5540beeeab2f2b1e7177597f5c4677a246c312d4836d2f16f12897"
+        },
+        "agents": {
+          "count": 814,
+          "sha256": "f46876e13b280ebf5dd216aa21af234d29d63e2ae7a2a1c3ffabf0b61e931093"
+        },
+        "spacePolicies": {
+          "count": 1479,
+          "sha256": "61eb516407a8fa0950c8c88dd6006d15403b7cdf859a996d2c6729cc1af9dfd2"
+        }
+      }
+    },
+    "after": {
+      "version": "0.12.38",
+      "stable": {
+        "credentials": {
+          "count": 84,
+          "sha256": "937a125de7a96690f79898f761f101e0afdb9b1fc5c9430150d57c50bb9e8ac5"
+        },
+        "grants": {
+          "count": 496,
+          "sha256": "a81d4741ee5540beeeab2f2b1e7177597f5c4677a246c312d4836d2f16f12897"
+        },
+        "agents": {
+          "count": 814,
+          "sha256": "f46876e13b280ebf5dd216aa21af234d29d63e2ae7a2a1c3ffabf0b61e931093"
+        },
+        "spacePolicies": {
+          "count": 1479,
+          "sha256": "61eb516407a8fa0950c8c88dd6006d15403b7cdf859a996d2c6729cc1af9dfd2"
+        }
+      }
+    },
+    "unchanged": true
+  },
+  "smoke": {
+    "status": "passed",
+    "checks": 32
+  },
+  "browser": {
+    "version": "0.12.38",
+    "verifiedAt": "2026-10-15T11:36:15.392Z",
+    "url": "https://agentwiki.quukk.com/pages/3ed1dd26-07ed-43c9-9e9f-36820057b755",
+    "loadedAssets": [
+      {
+        "url": "https://agentwiki.quukk.com/assets/index-FVzw0mIZ.css",
+        "status": 200
+      },
+      {
+        "url": "https://agentwiki.quukk.com/assets/index-Bw-Qrh6p.js",
+        "status": 200
+      },
+      {
+        "url": "https://agentwiki.quukk.com/assets/SpaceWorkspace-CVwDGsGI.js",
+        "status": 200
+      },
+      {
+        "url": "https://agentwiki.quukk.com/assets/PagePreview-BMx86XOW.js",
+        "status": 200
+      }
+    ],
+    "navigations": [
+      {
+        "case": "same-folder",
+        "treeItemsDuringPageLoading": 20,
+        "pageHeadingAbsentDuringLoading": true,
+        "directoryRequests": [],
+        "requestUrls": [
+          "https://agentwiki.quukk.com/api/review/count",
+          "https://agentwiki.quukk.com/api/pages/2bcce6fd-fa18-48dc-97f9-e218f17afb94",
+          "https://agentwiki.quukk.com/api/knowledge/related/2bcce6fd-fa18-48dc-97f9-e218f17afb94",
+          "https://agentwiki.quukk.com/favicon.ico",
+          "https://agentwiki.quukk.com/favicon.ico",
+          "https://agentwiki.quukk.com/api/spaces/cmtmgsk5b00neuo709n0x7nqj/pages/2bcce6fd-fa18-48dc-97f9-e218f17afb94/notes",
+          "https://agentwiki.quukk.com/api/review/count",
+          "https://agentwiki.quukk.com/api/review/count"
+        ],
+        "truncated": false,
+        "hasMore": false
+      },
+      {
+        "case": "cross-loaded-folder",
+        "treeItemsDuringPageLoading": 20,
+        "pageHeadingAbsentDuringLoading": true,
+        "directoryRequests": [],
+        "requestUrls": [
+          "https://agentwiki.quukk.com/favicon.ico",
+          "https://agentwiki.quukk.com/api/review/count",
+          "https://agentwiki.quukk.com/api/pages/46517d85-e347-4c40-9a42-48a8c51e031c",
+          "https://agentwiki.quukk.com/api/knowledge/related/46517d85-e347-4c40-9a42-48a8c51e031c",
+          "https://agentwiki.quukk.com/api/spaces/cmtmgsk5b00neuo709n0x7nqj/pages/46517d85-e347-4c40-9a42-48a8c51e031c/notes",
+          "https://agentwiki.quukk.com/api/review/count",
+          "https://agentwiki.quukk.com/api/review/count"
+        ],
+        "truncated": false,
+        "hasMore": false
+      },
+      {
+        "case": "return-to-original",
+        "treeItemsAfterLoad": 20,
+        "directoryRequests": [],
+        "requestUrls": [
+          "https://agentwiki.quukk.com/favicon.ico",
+          "https://agentwiki.quukk.com/api/review/count",
+          "https://agentwiki.quukk.com/api/pages/3ed1dd26-07ed-43c9-9e9f-36820057b755",
+          "https://agentwiki.quukk.com/api/knowledge/related/3ed1dd26-07ed-43c9-9e9f-36820057b755",
+          "https://agentwiki.quukk.com/api/spaces/cmtmgsk5b00neuo709n0x7nqj/pages/3ed1dd26-07ed-43c9-9e9f-36820057b755/notes",
+          "https://agentwiki.quukk.com/api/review/count",
+          "https://agentwiki.quukk.com/api/review/count",
+          "https://agentwiki.quukk.com/api/review/count",
+          "https://agentwiki.quukk.com/api/review/count",
+          "https://agentwiki.quukk.com/api/review/count",
+          "https://agentwiki.quukk.com/api/review/count",
+          "https://agentwiki.quukk.com/api/spaces/cmtmgsk5b00neuo709n0x7nqj/pages/3ed1dd26-07ed-43c9-9e9f-36820057b755/notes",
+          "https://agentwiki.quukk.com/api/review/count",
+          "https://agentwiki.quukk.com/api/review/count",
+          "https://agentwiki.quukk.com/api/review/count",
+          "https://agentwiki.quukk.com/api/review/count",
+          "https://agentwiki.quukk.com/api/review/count"
+        ],
+        "truncated": false,
+        "hasMore": false
+      }
+    ]
+  },
+  "screenshot": "/Users/neomei/.codex/visualizations/2026/10/15/01a13ebb-52f0-7373-98ff-685765d0ab50/directory-navigation-production.png"
+}
