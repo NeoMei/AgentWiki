@@ -5,3 +5,5 @@
 本次补齐 v0.12.40 仅覆盖目录和文章读写的遗漏，不再按菜单逐项特判。Web/API 0.12.41；Local Sync 0.13.0、protocol 0.6.1 不变，无数据库结构或 npm 包变更。
 
 验证：31 个布局路由用例先复现 19 个失败，修复后相关 110 项通过；完整客户端 159 文件 / 2633 项通过，全仓 build、typecheck、lint 及独立审查通过。真实 App 的 Chrome 桌面与 390px 窄屏共 20 个状态验证全部菜单和主要二级入口，菜单横纵偏移为 0，未见横向溢出、框架错误或控制台错误。发布门禁见 [回执](verification/menu-header-20261016/release-gates.json)。
+
+生产验收：原项目七个菜单在 1710px 桌面及 390px 窄屏 Chrome 逐项切换并等待内容加载后，菜单横纵偏移均为 0，无横向溢出和控制台错误。1345 源码文件匹配发布提交，3 服务 active、5 健康项 ok、32 公网冒烟通过，公网资源哈希一致；原凭据、Grant、Agent 与 Space 策略稳定字段摘要保持一致。详见 [部署回执](verification/menu-header-20261016/deployment.json)。
