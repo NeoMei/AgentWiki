@@ -12,7 +12,7 @@
 
 # 当前状态
 
-- 目录名称编辑图标候选 v0.12.36 基于 v0.12.35 完成：输入框右侧勾选/叉号，保留键盘及禁用/错误状态；客户端156文件2573项、构建、lint、独立集成审查与实际组件验证通过。用户已授权发布，联合备份已验证，待生产部署和读回。
+- 目录名称编辑图标已发布部署 v0.12.36（3996c627）：输入框右侧勾选保存/叉号取消，页面与目录重命名及新建复用。客户端2573项串行通过，各阶段合计7482通过/6既有跳过；构建、lint、独立审查通过。联合备份验证、1325源码文件一致、3服务/5health/32公网smoke及原项目周报页面图标/取消/Esc真实Chrome验收通过；凭据/Grant/Agent/Space策略稳定字段摘要一致。详见 agentwiki/docs/verification/inline-name-icons-20261015/deployment.json。
 
 - Agent Session 标签关闭：保留历史/草稿/运行任务，支持相邻选择、键盘 Delete、用户与空间隔离的打开状态持久化、窄屏关闭入口；93 项相关测试及 build/tsc/lint 通过。v0.12.34 生产 1325 文件匹配、3 服务和 health 五项正常，原文章关闭/历史重开/刷新保持空态实测通过。全 client 2572 通过 / 1 个知识图谱既有失败，在未改 v0.12.33 基线也复现；详细回执见 `agentwiki/docs/verification/agent-session-tabs-20261015/status.md`。
 - 空间卡片描述下显示所有者姓名；从现有members.role=owner读取全部Owner，空姓名回退邮箱，无资料明确提示，长名单省略并title保留完整文本。未新增请求/后端字段。Dashboard41测试、build/tsc、定向lint、独立复审及IAB桌面/390px中英验收通过；详见.codex-memory/archive/20261014-space-card-owner.md。

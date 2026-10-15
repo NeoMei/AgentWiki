@@ -1,0 +1,166 @@
+{
+  "version": "0.12.36",
+  "releaseCommit": "3996c62725848ed004f7d3513bf928ab3a32c818",
+  "githubRelease": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.36",
+  "deployed": true,
+  "deploymentExitCode": 0,
+  "previousApplication": "/root/agentwiki-previous-20261015175522",
+  "backup": {
+    "backupDirectory": "/var/backups/agentwiki/inline-icons-v01236.85sf3mo8",
+    "status": "verified",
+    "checksumsPassed": true,
+    "writersRestored": true,
+    "servicesAfter": {
+      "agentwiki-api.service": "active",
+      "agentwiki-worker.service": "active",
+      "agentwiki-frontend.service": "active"
+    }
+  },
+  "production": {
+    "verifiedAt": "2026-10-15T09:55:53.958953+00:00",
+    "revision": "3996c627",
+    "sourceFilesVerified": 1325,
+    "mismatches": [],
+    "versions": {
+      "web": "0.12.36",
+      "client": "0.12.36",
+      "api": "0.12.36",
+      "localSync": "0.13.0",
+      "protocol": "0.6.1"
+    },
+    "services": {
+      "agentwiki-api.service": "active",
+      "agentwiki-worker.service": "active",
+      "agentwiki-frontend.service": "active"
+    },
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryAssets": {
+      "/assets/index-DZEje4VD.js": "bd51e6833c1000243149ce413cfe9514fa4f57819200fb9c07e0717a3de00a68",
+      "/assets/_commonjsHelpers-CqkleIqs.js": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+      "/assets/react-vendor-CTv3miC2.js": "7e3a4bf34c49700b5fad7403a908da66c35ca1ad3669d05d3356f1a5e9bae663",
+      "/assets/preload-helper-ckwbz45p.js": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+      "/assets/index-DP7OhU5a.css": "a3d667c8870fceb896e54760e24f81715f43a4fe70e17149733180320655126d"
+    }
+  },
+  "public": {
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryAssetsMatchProduction": [
+      "/assets/index-DZEje4VD.js",
+      "/assets/_commonjsHelpers-CqkleIqs.js",
+      "/assets/react-vendor-CTv3miC2.js",
+      "/assets/preload-helper-ckwbz45p.js",
+      "/assets/index-DP7OhU5a.css"
+    ],
+    "pageHttpStatus": 200
+  },
+  "stableIdentityAndPolicyAudit": {
+    "match": true,
+    "beforeVersion": "0.12.35",
+    "afterVersion": "0.12.36",
+    "counts": {
+      "credentials": 81,
+      "grants": 493,
+      "agents": 811,
+      "spacePolicies": 1475
+    }
+  },
+  "smoke": {
+    "status": "passed",
+    "checks": 32
+  },
+  "tests": {
+    "runtime": {
+      "passed": 309,
+      "skipped": 1
+    },
+    "database": {
+      "passed": 239,
+      "skipped": 0
+    },
+    "server": {
+      "passed": 3223,
+      "skipped": 4
+    },
+    "client": {
+      "files": 156,
+      "passed": 2573,
+      "skipped": 0,
+      "workers": 1
+    },
+    "protocol": {
+      "passed": 140,
+      "skipped": 0
+    },
+    "localSync": {
+      "passed": 998,
+      "skipped": 1
+    },
+    "aggregate": {
+      "passed": 7482,
+      "skipped": 6
+    },
+    "fullWrapperExitCode": 1,
+    "qualification": "Full wrapper passed runtime, database and server, then stopped on an existing parallel KnowledgeGraph grouped test instability. Complete serial client run passed; protocol and Local Sync phases were subsequently run separately and passed. Initial plain pnpm test lacked database environment; the full-test wrapper provisioned isolated databases and all 239 database tests passed."
+  },
+  "validation": {
+    "build": "passed",
+    "initialJavaScriptBytes": 549905,
+    "initialJavaScriptBudget": 550000,
+    "targetedLint": "passed",
+    "independentIntegrationReview": "passed",
+    "scope": "Only InlineTreeName icon layout and release metadata; no server business, schema, dependency or npm package change."
+  },
+  "browser": {
+    "url": "https://agentwiki.quukk.com/pages/46517d85-e347-4c40-9a42-48a8c51e031c",
+    "geometry": {
+      "buttons": [
+        {
+          "height": 24,
+          "label": "保存",
+          "svg": true,
+          "text": "",
+          "width": 24,
+          "x": 194.59375,
+          "y": 549
+        },
+        {
+          "height": 24,
+          "label": "取消",
+          "svg": true,
+          "text": "",
+          "width": 24,
+          "x": 222.59375,
+          "y": 549
+        }
+      ],
+      "crop": {
+        "height": 88,
+        "width": 250.59375,
+        "x": 40,
+        "y": 497
+      },
+      "horizontalOverflow": false,
+      "input": {
+        "height": 32,
+        "width": 166.59375,
+        "x": 84,
+        "y": 545
+      }
+    },
+    "cancelRestoresTitle": true,
+    "escapeClosesEditor": true,
+    "logs": []
+  }
+}
