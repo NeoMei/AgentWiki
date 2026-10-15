@@ -1,0 +1,37 @@
+{
+  "version": "0.12.43",
+  "base": "178d8677908020b5e9ecae6c64f152886a27bd4c",
+  "scope": "Align SpaceDirectory title row to the document toolbar's 49px single-row height; prevent flex shrink",
+  "productionBefore": {"directoryHeaderHeight": 45, "documentToolbarHeight": 49, "bottomOffset": 4},
+  "tests": {
+    "command": "pnpm --filter @agentwiki/client exec vitest run src/features/space-workspace/SpaceDirectory.spec.tsx src/features/space-workspace/SpaceWorkspace.spec.tsx src/features/space-workspace/SpaceWorkspace.navigation.spec.tsx src/features/space/SpaceView.spec.tsx --maxWorkers=2",
+    "exitCode": 0,
+    "files": 4,
+    "passed": 83,
+    "failed": 0,
+    "scopeNote": "Existing targeted tests rerun for this one-line styling change; no new implementation-mirroring test added"
+  },
+  "build": {"command": "pnpm build", "exitCode": 0, "initialJavaScriptBytes": 548270, "budgetBytes": 550000},
+  "typecheck": {"command": "pnpm typecheck", "exitCode": 0},
+  "lint": {"command": "pnpm lint", "exitCode": 0},
+  "independentReview": {"blockers": 0, "scope": "Desktop and drawer dimensions, close button, short viewport flex behavior, scrolling and package versions"},
+  "localBrowser": {
+    "environment": "Chrome CUA with real App and loopback synthetic API",
+    "actualDesktopCssWidth": 1554,
+    "actualMobileCssWidth": 390,
+    "shortViewportCssHeight": 400,
+    "siteZoom": "Existing 110% localhost zoom retained; actual CSS viewport dimensions recorded",
+    "states": ["read", "edit", "short viewport edit", "mobile directory drawer"],
+    "directoryHeaderHeight": 48.99857711791992,
+    "documentToolbarHeight": 48.99857711791992,
+    "desktopTopOffset": 0,
+    "desktopBottomOffset": 0,
+    "drawerHeaderHeight": 48.99857711791992,
+    "directoryHeaderFlexShrink": 0,
+    "closeReturnsFocusToTrigger": true,
+    "horizontalOverflow": false,
+    "consoleWarningsOrErrors": 0,
+    "viewportOverrideReset": true
+  },
+  "packageBoundary": {"webApi": "0.12.43", "localSync": "0.13.0", "protocol": "0.6.1", "npmPublicationRequired": false}
+}

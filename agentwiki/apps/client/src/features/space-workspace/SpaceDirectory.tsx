@@ -161,7 +161,7 @@ export const SpaceDirectory: React.FC<SpaceDirectoryProps> = ({
     if (!query) restoreAndReveal();
   };
   const renderDirectory = (scrollRef: React.RefObject<HTMLDivElement>, scrollTestId: string, titleId?: string) => <>
-      <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-3">
+      <div className="flex min-h-[calc(3rem+1px)] shrink-0 items-center gap-2 border-b border-gray-100 px-3 py-2">
         <h2 id={titleId} className="truncate text-sm font-medium text-gray-600">{t('folder.treeTitle')}</h2>
         {titleId ? <button type="button" onClick={() => setDrawerOpen(false)} aria-label={t('folder.closeDirectory')}
           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
