@@ -600,7 +600,11 @@ describe('conversation scroll following', () => {
   it.each([true, false])('follows polled streaming replies only when near the bottom (%s)', async (nearBottom) => {
     turns[turns.length - 1] = { ...turns[turns.length - 1], status: 'running', result: null, progressText: 'Working' };
     const rendered = render(tree()); await screen.findByText('Working');
-    const list = viewport(rendered.container); list.scrollTop = nearBottom ? 1580 : 300; fireEvent.scroll(list); height = 2400;
+    const list = viewport(rendered.container);
+    await waitFor(() => expect(list.scrollTop).toBe(1600));
+    list.scrollTop = 300; fireEvent.scroll(list);
+    if (nearBottom) { list.scrollTop = 1580; fireEvent.scroll(list); }
+    height = 2400;
     turns = turns.map((item, i) => i === turns.length - 1 ? { ...item, status: 'done', result: { summary: 'New streamed answer' } } : item);
     await screen.findByText('New streamed answer');
     await waitFor(() => expect(list.scrollTop).toBe(nearBottom ? 2000 : 300));
@@ -612,6 +616,34 @@ describe('conversation scroll following', () => {
     const list = viewport(rendered.container); list.scrollTop = 300; fireEvent.scroll(list); height = 3000;
     selectConversation('session-b');
     await screen.findAllByText('Earlier answer'); await waitFor(() => expect(list.scrollTop).toBe(2600));
+  });
+  it('keeps new activity visible when a delayed programmatic scroll arrives after content grows', async () => {
+    const callbacks = new Map<Element, ResizeObserverCallback>();
+    vi.stubGlobal('ResizeObserver', class { constructor(private callback: ResizeObserverCallback) {} observe(element: Element) { callbacks.set(element, this.callback); } disconnect() {} });
+    try {
+      const rendered = render(tree()); await screen.findAllByText('Earlier answer'); const list = viewport(rendered.container);
+      await waitFor(() => expect(list.scrollTop).toBe(1600));
+      list.scrollTop = 300; fireEvent.scroll(list);
+      fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Follow-up with no answer yet' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Send' })); await screen.findByRole('button', { name: 'Stop' });
+      await waitFor(() => expect(list.scrollTop).toBe(1600));
+      for (const nextHeight of [2093, 2400]) {
+        // The browser queues the scroll event from our previous scrollTop write.
+        // New phase/answer layout grows before that event is dispatched.
+        height = nextHeight; fireEvent.scroll(list);
+        act(() => callbacks.get(list)?.([], {} as ResizeObserver));
+        await waitFor(() => expect(list.scrollTop).toBe(nextHeight - 400));
+      }
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it('does not pull a user back down after a small upward scroll near the bottom', async () => {
+    turns[turns.length - 1] = { ...turns[turns.length - 1], status: 'running', result: null, progressText: 'Working' };
+    const rendered = render(tree()); await screen.findByText('Working'); const list = viewport(rendered.container);
+    await waitFor(() => expect(list.scrollTop).toBe(1600));
+    list.scrollTop = 1580; fireEvent.scroll(list); height = 2400;
+    turns = turns.map((item, i) => i === turns.length - 1 ? { ...item, status: 'done', result: { summary: 'Final answer' } } : item);
+    await screen.findByText('Final answer');
+    await new Promise((resolve) => setTimeout(resolve, 35)); expect(list.scrollTop).toBe(1580);
   });
   it('follows delayed content resize and disconnects the observer on unmount', async () => {
     const callbacks = new Map<Element, ResizeObserverCallback>(), disconnect = vi.fn();

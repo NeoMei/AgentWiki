@@ -36,6 +36,7 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
   const turnsRef = useRef<HTMLDivElement>(null);
   const turnsContentRef = useRef<HTMLDivElement>(null);
   const followTurnsRef = useRef(true);
+  const scrollPositionRef = useRef(0);
   const selectedRef = useRef(session.selected); selectedRef.current = session.selected;
   // Capture user intent before incoming content changes the bottom distance.
   useLayoutEffect(() => { followTurnsRef.current = true; }, [`${userId}\u0000${spaceId}`, session.selected]);
@@ -47,7 +48,11 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
       if (frame !== null) cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         frame = null;
-        if (followTurnsRef.current) viewport.scrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+        if (followTurnsRef.current) {
+          viewport.scrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+          // Record our write now: its scroll event may arrive after content grows.
+          scrollPositionRef.current = viewport.scrollTop;
+        }
       });
     };
     follow();
@@ -324,7 +329,14 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, canEdi
     </header>
     <div id={conversationPanelId} role="tabpanel" aria-labelledby={selectedSession ? `${conversationPanelId}-${selectedSession.id}` : undefined} aria-label={selectedSession ? undefined : (zh ? '当前会话' : 'Current conversation')} ref={turnsRef} className="agent-session-turns min-h-0 flex-1 overflow-y-auto [overflow-wrap:anywhere]" aria-live="polite" onScroll={(event) => {
       const viewport = event.currentTarget;
-      followTurnsRef.current = viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 80;
+      const top = viewport.scrollTop, previous = scrollPositionRef.current;
+      const distance = viewport.scrollHeight - viewport.clientHeight - top;
+      // A larger bottom gap alone is layout growth, not a request to read history.
+      // Ignore our own queued scroll events; actual upward movement exits follow.
+      // Shrinking content can clamp scrollTop at the bottom without user input.
+      if (top < previous && distance > 1) followTurnsRef.current = false;
+      else if (top > previous && distance <= 80) followTurnsRef.current = true;
+      scrollPositionRef.current = top;
     }}>
       <div ref={turnsContentRef} className="agent-conversation-messages">
       {session.loading ? <p role="status" className="agent-chat-empty">{zh ? '加载会话…' : 'Loading conversation…'}</p> : null}

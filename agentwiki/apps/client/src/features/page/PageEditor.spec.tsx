@@ -3070,6 +3070,28 @@ describe('PageEditor remote update safety', () => {
     expect(agentPostCalls()).toHaveLength(1);
   });
 
+  it('accepts a compact single change after an unrelated manual edit while preserving both undo steps', async () => {
+    const base = 'one\n' + 'unchanged paragraph\n'.repeat(70) + 'tail\n';
+    let tasks: any[] = [];
+    mockAgentSession(page({ content: base, capabilities: { canEdit: true } }), () => tasks, async () => {
+      tasks = [{ id: 'single-merge', intent: 'One change', status: 'done', result: { changes: base.replace('one', 'ONE') } }]; return tasks[0];
+    });
+    renderEditor(); fireEvent.click(await screen.findByTestId('document-panel-tab-assist')); await chooseProposal();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'One change' } }); fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    const accept = await screen.findByRole('button', { name: 'Accept to draft' });
+    expect(screen.queryByRole('button', { name: 'Accept change 1' })).not.toBeInTheDocument();
+    const offset = 700, manual = base.slice(0, offset) + 'Human addition\n' + base.slice(offset);
+    act(() => currentEditorView().dispatch({ changes: { from: offset, insert: 'Human addition\n' } }));
+    expect(contentEditorValue()).toBe(manual);
+    fireEvent.click(accept);
+    expect(contentEditorValue()).toBe(manual.replace('one', 'ONE'));
+    expect(screen.getByText('Accepted to draft. Save the page to publish these changes.')).toBeVisible();
+    expect(pagePatchCalls()).toHaveLength(0);
+    act(() => expect(undo(currentEditorView())).toBe(true)); expect(contentEditorValue()).toBe(manual);
+    act(() => expect(undo(currentEditorView())).toBe(true)); expect(contentEditorValue()).toBe(base);
+    expect(screen.queryByRole('button', { name: 'Accept to draft' })).not.toBeInTheDocument();
+  });
+
   it('isolates each accepted hunk around an unrelated manual edit and preserves no-replay records after three Undo operations', async () => {
     const base = 'one\n' + 'unchanged paragraph\n'.repeat(70) + 'two\n';
     let tasks: any[] = [];

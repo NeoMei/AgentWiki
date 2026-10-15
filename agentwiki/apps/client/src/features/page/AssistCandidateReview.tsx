@@ -54,9 +54,11 @@ export function AssistCandidateReview({ candidate, canEdit, onAccept, onDiscard,
       <button type="button" onClick={() => download(candidate.content, 'assist-candidate.md')}>{zh ? '下载候选' : 'Download candidate'}</button>
     </div> : null}
   </>;
+  // A compact single action keeps the scoped merge semantics of its former per-edit button.
+  const singleEdit = compact && supportsScopedApply && candidate.editPlan?.edits.length === 1 ? candidate.editPlan.edits[0].id : undefined;
   const actions = <>
     {active ? <div className="flex flex-wrap gap-2">
-      <button type="button" disabled={!canEdit || candidate.status !== 'ready'} onClick={() => onAccept()} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs text-white disabled:opacity-40">{zh ? '接受到草稿' : 'Accept to draft'}</button>
+      <button type="button" disabled={!canEdit || candidate.status !== 'ready'} onClick={() => singleEdit ? onAccept(singleEdit) : onAccept()} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs text-white disabled:opacity-40">{zh ? '接受到草稿' : 'Accept to draft'}</button>
       <button type="button" onClick={onDiscard} className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs">{zh ? '丢弃' : 'Discard'}</button>
     </div> : null}
   </>;
