@@ -1,0 +1,45 @@
+{
+  "webSourceCommit": "07d6abc976efdadf9b755793e5682bcf982a7df3",
+  "webBase": "35f73159",
+  "command": "pnpm test:full",
+  "exitCode": 0,
+  "passed": 7624,
+  "skipped": 6,
+  "failed": 0,
+  "groups": {
+    "runtime": {
+      "passed": 309,
+      "skipped": 1
+    },
+    "database": {
+      "passed": 239,
+      "skipped": 0
+    },
+    "server": {
+      "passed": 3281,
+      "skipped": 4
+    },
+    "client": {
+      "passed": 2657,
+      "skipped": 0
+    },
+    "protocol": {
+      "passed": 140,
+      "skipped": 0
+    },
+    "localSync": {
+      "passed": 998,
+      "skipped": 1
+    }
+  },
+  "typecheck": 0,
+  "lint": 0,
+  "build": 0,
+  "initialJavaScriptBytes": 548270,
+  "initialJavaScriptLimit": 550000,
+  "obsidianSourceCommit": "85b40785e00b8fc78d17837946e11728c69e4af4",
+  "obsidianPassed": 1478,
+  "obsidianIndependentFocusedPassed": 37,
+  "deployed": false,
+  "windowsOriginalCaseVerified": false
+}

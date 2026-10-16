@@ -1,0 +1,38 @@
+{
+  "sourceCommit": "85b40785e00b8fc78d17837946e11728c69e4af4",
+  "sourceBase": "f9004ff6a708744e25c0dbcac6a80603a1082e6d",
+  "reviewedFiles": {
+    "src/application/pull-transaction.ts": "39c1165ab660d7122b4ba868d516ee5287685aff530f966216d456919d1904a9",
+    "src/application/sync-runtime.ts": "124cbbacc1cbe995cfa1269db20228de5f0704aa69e182875b34f1a79a152844",
+    "src/core/user-errors.ts": "9dd47c3bf2495fc4964a6dde309bba83c492a537e80edfd7dfd4da8a0da72464",
+    "src/main.ts": "afd702a96ca1fc222c731cd6df02f4def905a2c610c90068c92a6bfd2c2e2e97",
+    "src/obsidian/adapters.ts": "50ef8506a4bc1892bfb12f87a276546c17ac6778decbd07f0d3017f98ab26bcc",
+    "src/storage/baseline.ts": "450bdae89df8f21276ed91e8161c266d93e8ce502ae88953130e7e09d69e3e35",
+    "src/storage/local-image-upgrade.ts": "d58a496430992e91c97c2b95e937d20ae65284a2e8f5c68ee272aa3384d87282",
+    "src/storage/mapping-detach.ts": "678d15d5efd6190d11ade6d309a5293d86fc03d7d26f2d80d3c6ec7bbb220215",
+    "src/storage/mapping-transactions.ts": "dcbbd19da18a97b1f002f50fec992ccb7af1429239dc340d9b358dd420ed1166",
+    "src/storage/tree-baseline.ts": "6389b766e29995c6f3a805123b9a44529e68755c925f13b5ea38f5b3525ea19b",
+    "tests/fakes/plugin-harness.ts": "e7ccac78845566c96888d8f3a49cf40fd1049a937523e3772cabf75e370c359a",
+    "tests/integration/mapping-detach.test.ts": "0a9e6b9849cdb3429ce3b31d0547c0dd2f7fae42daf29cb8b3d7941c40779d72"
+  },
+  "artifacts": {
+    "main.js": {
+      "sha256": "f57b162bd6d5b7263f41fa0e1c74b83ff2c35cd709bf0ee5fc1f4465de2488f2",
+      "bytes": 1760502
+    },
+    "manifest.json": {
+      "sha256": "23ce5404b97e394cdc8fd55bc8f37bf807578250761575295a8a4719b5c9e283",
+      "bytes": 232
+    },
+    "styles.css": {
+      "sha256": "5dfe15839220724a57a64ad7ab136761ba2ffaaff3c0235faac1cf1238e762b8",
+      "bytes": 4880
+    }
+  },
+  "verificationCommit": "f7b4c3f26d986c6bfbfed08725d5dc116c0dc40a",
+  "patchPath": "/tmp/agentwiki-retest-obsidian-candidate.patch",
+  "patchSha256": "98e421b43864f30b3d3f733b05383eec5e11bc82bcbbce22a6cc906ed6d23ddb",
+  "zipPath": "/tmp/agentwiki-obsidian-retest-candidate-85b4078.zip",
+  "persistentZipPath": "/Users/neomei/项目/codexprojects/AgentWiki-Obsidian/.worktrees/retest-baseline-20261016/releases/retest-feedback-20261016/agentwiki-obsidian-retest-candidate-85b4078.zip",
+  "zipSha256": "cdea1c24114c95c89a3f6a5e495949203e2a33e0f52b2a9f6562ff7301ad3907"
+}
