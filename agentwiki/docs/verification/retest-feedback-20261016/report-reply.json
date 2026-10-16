@@ -1,0 +1,30 @@
+{
+  "pageId": "4088516b-4f90-4803-aeb2-7ddc63a86c32",
+  "title": "10-14Agentwiki平台复测",
+  "changeSetId": "cmvapwbi103xs11li8egpbslj",
+  "status": "published",
+  "autoPublished": true,
+  "publishedAt": "2026-10-16T08:40:22.694Z",
+  "updatedAt": "2026-10-16T08:40:22.681Z",
+  "contentExactMatch": true,
+  "titleFolderFormatUnchanged": true,
+  "repliedItems": [
+    1,
+    2,
+    12,
+    13,
+    17,
+    19
+  ],
+  "originalIssueTextAndRetestOpinionsPreserved": true,
+  "contentSha256": "56e87ba342b69ef6ea44fb5cc6ec4007d05f9f040651d1463dc917ba6d52a51d",
+  "browserReadback": {
+    "status": "passed",
+    "fixReplyCount": 6,
+    "retestReplyCount": 6,
+    "goldenReadOnlyBoundaryVisible": true,
+    "session": "edqd",
+    "sessionStopped": true
+  },
+  "privateEvidenceDirectory": "/tmp/agentwiki-bug-reply-20261016"
+}

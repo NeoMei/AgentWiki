@@ -8,6 +8,8 @@
 - Obsidian [0.5.11](https://github.com/NeoMei/agentwiki-sync/releases/tag/0.5.11) 已正式发布，固定源码 `7e81b9f1163083928033dc311fd14d87e5d3d055`；CI 与三资产来源证明通过。
 - Windows 真实 Vault 已备份升级正式0.5.11；实际runtime已启用，两个Space原生只读差异检查通过，113个正文文件、配置、映射和基线未变。详见 [Windows最终回执](official-plugin-windows-0511.md)。
 
+原始 bug 文档现已逐条追加 #1/#2/#12/#13/#17/#19 的“本轮修复回复 / 本轮回验结果”，保留原问题、截图与复测意见。ChangeSet `cmvapwbi103xs11li8egpbslj` 已自动发布；MCP 回读正文精确匹配，真实浏览器确认六组回复均已渲染。详见 [原文回复回执](report-reply.json)。
+
 ## 逐项结果
 
 | 项 | 原因与修复 | 验收 |
