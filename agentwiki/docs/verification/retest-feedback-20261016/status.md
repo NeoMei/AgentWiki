@@ -6,7 +6,7 @@ Web五项与 Windows 差异加载所暴露的服务端历史链兼容修复均�
 
 ## 0.12.46 历史单页模板补修
 
-0.12.45真实回验发现 #2 仍未关闭，根因是旧个人/Space模板冻结版本的 definition/schemaVersion/definitionHash 全为null，目录的合法legacy转换此前没有在运行来源识别中覆盖。产品候选cfc1db6a补齐严格历史格式识别，真实生产只读候选DTO仅systemTemplateSource变化，未改正文、模板或运行。fresh独立审查PASS、独立144测试通过；最终整仓7653通过/6既有跳过/0失败、typecheck/lint/build均通过。0.12.46正在备份发布，原运行UI回验仍待上线后执行。证据单列于[v0.12.46目录](v0.12.46/release-preparation.md)，不覆盖0.12.45回执。
+0.12.45真实回验发现 #2 仍未关闭，根因是旧个人/Space模板冻结版本的 definition/schemaVersion/definitionHash 全为null，目录的合法legacy转换此前没有在运行来源识别中覆盖。产品候选cfc1db6a补齐严格历史格式识别，真实生产只读候选DTO仅systemTemplateSource变化，未改正文、模板或运行。fresh独立审查PASS、独立144测试通过；最终整仓7653通过/6既有跳过/0失败、typecheck/lint/build均通过。0.12.46已正式发布并部署，1351源码/两个编译模块hash、三服务、内外health、63迁移和32项smoke均通过；原运行UI回验由主任务单独执行，#2不能仅据此关闭。证据单列于[v0.12.46目录](v0.12.46/release-preparation.md)，不覆盖0.12.45回执。
 
 0.12.45的 #12/#17/#19 已由主任务生产浏览器回验通过，#13常显入口通过独立只读回验，见[v0.12.46/production-ui-before-hotfix.md](v0.12.46/production-ui-before-hotfix.md)。Windows原NeoMei-Space的官方0.5.10只读回验确认版本过期错误已消失，显示Sync v2、本地0变化和服务器有更新；服务端变化数量未显示，未执行同步写入，正文与基线未变。
 

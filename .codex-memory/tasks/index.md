@@ -4,7 +4,7 @@
 
 ## 活跃任务
 
-- [retest-feedback-20261016](active/retest-feedback-20261016/brief.md)：Web五项与Windows v2/head服务端兼容修复审查PASS，7644通过/6既有跳过，最终静态/构建门禁通过，0.12.45已备份发布部署且1351源码hash/health/32项smoke通过；黄金书屋官方0.5.10只读预览成功，另一映射待部署后回验，新插件竞态补修独立进行。
+- [retest-feedback-20261016](active/retest-feedback-20261016/brief.md)：Web0.12.45与旧模板补修0.12.46已备份发布部署，7653通过/6既有跳过、独立审查及1351源码hash/health/32smoke通过；#12/#13/#17/#19生产回验通过，#2原run待0.12.46回验；Windows官方0.5.10预览通过，插件新修复独立推进。
 
 - [release-v01226-20261014](active/release-v01226-20261014/brief.md)：用户授权全量发布；最终门禁、配套备份及0.12.26/0.13.0版本准备进行中。
 

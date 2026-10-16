@@ -1,6 +1,6 @@
 # 0.12.46 发布准备
 
-状态：固定候选独立审查PASS，最终整仓7653通过/6既有跳过/0失败，typecheck、lint、build均exit0；配套备份已验证并恢复写服务，随后推送发布部署。
+状态：固定候选独立审查PASS，最终整仓7653通过/6既有跳过/0失败，typecheck、lint、build均exit0；配套备份、正式GitHub Release和生产部署均已完成；1351源码hash、两个修复模块的编译hash、公网5入口资源、三服务、内外health、63迁移与32项业务smoke通过。原运行浏览器回验单独进行，不由发布成功推定。
 
 ## 问题与候选
 
@@ -20,3 +20,9 @@
 - 配套备份脚本只改变预期旧版本、备份label和旧发布提交三个元数据字符串，操作逻辑完全不变，差异见backup-metadata.diff。语法检查通过。
 - 备份将同时保存应用、配置、PostgreSQL custom dump和完整附件，API/Worker在DB与附件采集阶段停止，校验通过后恢复；已执行并通过DB toc/附件manifest/SHA校验，写服务已恢复，见backup-receipt.json；没有执行恢复演练。
 - 0.12.45的全部发布回执保留在上层目录，不覆盖。本次部署和32项业务smoke将另写deployment.json；原生浏览器与Windows验收由主任务单独记录。
+
+## 正式发布回执
+
+[v0.12.46](https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.46) 对应42142cdc，固定产品为cfc1db6a。全部生产检查见deployment.json；源码1351文件全部匹配，run.service编译模块与最终本地build相同，旧sync读链修复也保留。无新迁移，三个服务active，公网32smoke通过且专用对象完成API清理。前端代码未改变，因此主入口仍为index-BwaLUeIQ.js；不能把入口文件名不变误判为旧服务端仍在运行。
+
+旧应用目录保留在/root/agentwiki-previous-20261016145004，回滚必须与本次备份的数据库、配置、附件成组恢复，不单独恢复应用。没有执行恢复演练。
