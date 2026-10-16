@@ -196,7 +196,9 @@ describe('KnowledgeGraph folder browsing', () => {
 
   it('moves dragged pages with their folder when search compacts columns and restores their relative offset', async () => {
     vi.stubGlobal('PointerEvent', undefined);
-    const { container } = mount(); await screen.findByRole('option', { name: '小明' });
+    const { container } = mount();
+    // Options use API data; wait for the effect-derived graph nodes before resetting/dragging.
+    await screen.findByRole('button', { name: '小明 pages/项目/人物/小明.md' });
     fireEvent.click(screen.getByRole('button', { name: '重置视图' }));
     const canvas = container.querySelector('canvas')!;
     fireEvent.mouseDown(canvas, { button: 0, clientX: 790, clientY: 178 });
@@ -245,7 +247,9 @@ describe('KnowledgeGraph folder browsing', () => {
   it('keeps a many-folder opening view readable while explicit Fit graph offers an overview', async () => {
     const manyFolders = Array.from({ length: 18 }, (_, i) => ({ id: `f${i}`, name: `Folder ${i}`, path: `Folder ${i}`, parentId: null }));
     api.get.mockResolvedValue({ data: { nodes: manyFolders.map((folder, i) => page(`p${i}`, `Page ${i}`, folder.id, `pages/Page ${i}.md`)), edges: [], folders: manyFolders } });
-    const { container } = mount(); await screen.findByRole('option', { name: 'Page 17' });
+    const { container } = mount();
+    // The initial fit follows graph-node projection, which happens after options appear.
+    await screen.findByRole('button', { name: 'Page 17 pages/Page 17.md' });
     expect(Number(screen.getByLabelText('图谱缩放比例').textContent?.replace('%', ''))).toBeGreaterThanOrEqual(65);
     fireEvent.click(screen.getByRole('button', { name: '适应图谱' })); expect(Number(screen.getByLabelText('图谱缩放比例').textContent?.replace('%', ''))).toBeLessThan(25);
     const lastBox = container.querySelectorAll<HTMLElement>('.graph-folder-box')[17];
