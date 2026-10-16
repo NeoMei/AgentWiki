@@ -99,6 +99,18 @@ const cursorForHeading = (value: string, headingText: string | null): number =>
 const nearestMarkdownHeading = (value: string, cursorOffset: number): string | null =>
   outlineFor(value).filter((item) => item.from <= cursorOffset).slice(-1)[0]?.label ?? null;
 
+const editorOutlineViewport = (view: EditorView) => {
+  let top = 0, bottom = window.innerHeight;
+  for (let node: HTMLElement | null = view.scrollDOM; node; node = node.parentElement) {
+    if (!/auto|scroll|overlay/u.test(window.getComputedStyle(node).overflowY)) continue;
+    const rect = node.getBoundingClientRect();
+    top = Math.max(top, rect.top + node.clientTop);
+    bottom = Math.min(bottom, rect.bottom);
+  }
+  const toolbarBottom = document.querySelector<HTMLElement>('[data-testid="editor-toolbar"]')?.getBoundingClientRect().bottom ?? 0;
+  return { top, bottom, boundary: Math.max(top, toolbarBottom) + 12 };
+};
+
 const renderedHeadingLabel = (heading: HTMLElement): string => {
   const clone = heading.cloneNode(true) as HTMLElement;
   clone.querySelectorAll('[aria-hidden="true"], .heading-anchor').forEach((node) => node.remove());
@@ -543,6 +555,22 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   const [slashPosition, setSlashPosition] = useState<MenuPosition>({ top: 38, left: 12, maxHeight: 300, maxWidth: Math.max(0, window.innerWidth - 24) });
   const slashMenuRef = useRef<HTMLDivElement>(null);
   const [activeOutlineOffset, setActiveOutlineOffset] = useState(0);
+  const outlineNavigationRef = useRef<{ from: number; top: number | null; height: number } | null>(null);
+  const alignOutlineNavigation = useCallback((view: EditorView) => {
+    const navigation = outlineNavigationRef.current;
+    requestAnimationFrame(() => {
+      if (!navigation || !view.dom.isConnected || outlineNavigationRef.current !== navigation) return;
+      navigation.top = null;
+      view.dispatch({ effects: EditorView.scrollIntoView(navigation.from, { y: 'start', yMargin: 0 }) });
+      requestAnimationFrame(() => {
+        if (!view.dom.isConnected || outlineNavigationRef.current !== navigation) return;
+        // A no-op scroll emits no event. Still record its settled position so a
+        // later scroll (even without an input gesture) releases this anchor.
+        navigation.top = view.coordsAtPos(navigation.from)?.top ?? null;
+        navigation.height = view.contentDOM.getBoundingClientRect().height;
+      });
+    });
+  }, []);
   const [slashIndex, setSlashIndex] = useState(0);
   const slashRef = useRef(slash);
   slashRef.current = slash;
@@ -563,6 +591,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   const slashKey = (view: EditorView) => `${view.state.doc.lineAt(view.state.selection.main.head).text}:${view.state.selection.main.head}`;
   const refreshSelection = useCallback((view: EditorView) => {
     const range = view.state.selection.main;
+    if (outlineNavigationRef.current?.from !== range.from) outlineNavigationRef.current = null;
     const next = { from: range.from, to: range.to, text: view.state.sliceDoc(range.from, range.to) };
     setSelection((current) => current.from === next.from && current.to === next.to && current.text === next.text ? current : next);
     setActiveOutlineOffset(range.from);
@@ -695,22 +724,53 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   const uploadRunningRef = useRef(false);
   useEffect(() => {
     if (!isEdit) return;
-    const update = () => {
+    const isEditorScroll = (view: EditorView, target: EventTarget | null) => target === document
+      || target === view.scrollDOM || (target instanceof HTMLElement && target.contains(view.dom));
+    const update = (event: Event) => {
       const view = editorViewRef.current; if (!view) return;
-      const boundary = (document.querySelector<HTMLElement>('[data-testid="editor-toolbar"]')?.getBoundingClientRect().bottom ?? 88) + 12;
-      let nearest = outline[0]?.from ?? 0;
-      for (const heading of outline) {
-        try {
-          const coords = view.coordsAtPos(heading.from);
-          if (coords && coords.top <= boundary) nearest = heading.from;
-          else if (coords) break;
-        } catch { /* Off-viewport headings are measured after they enter the view. */ }
+      if (!isEditorScroll(view, event.target)) return;
+      const { top, bottom, boundary } = editorOutlineViewport(view);
+      const navigation = outlineNavigationRef.current;
+      if (navigation) {
+        const coords = view.coordsAtPos(navigation.from);
+        // DOM height changes before CodeMirror's cached height map catches up.
+        const height = view.contentDOM.getBoundingClientRect().height;
+        const layoutChanged = navigation.height !== height;
+        // A short document or its final heading cannot always reach the top.
+        // Retain the clicked target at its visible position, including height
+        // corrections while CodeMirror measures newly rendered/folded lines.
+        if (coords && (layoutChanged || (coords.top >= top && coords.top < bottom
+          && (navigation.top === null || Math.abs(navigation.top - coords.top) <= 1)))) {
+          navigation.top = coords.top;
+          navigation.height = height;
+          if (layoutChanged) alignOutlineNavigation(view);
+          setActiveOutlineOffset(navigation.from);
+          return;
+        }
+        outlineNavigationRef.current = null;
       }
-      setActiveOutlineOffset(nearest);
+      // The height map includes virtualized and folded content. Measuring each
+      // heading DOM node returns null for headings outside the rendered viewport.
+      setActiveOutlineOffset(view.lineBlockAtHeight(Math.max(0, boundary - view.documentTop)).from);
     };
+    const clearNavigation = (event: Event) => {
+      const view = editorViewRef.current;
+      if (!view || !(event.target instanceof Node)) return;
+      if (!view.dom.contains(event.target) && !isEditorScroll(view, event.target)) return;
+      if (event instanceof KeyboardEvent && !['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) return;
+      outlineNavigationRef.current = null;
+    };
+    const resized = () => { outlineNavigationRef.current = null; };
+    const inputs = ['wheel', 'touchmove', 'pointerdown', 'keydown'];
+    inputs.forEach((type) => document.addEventListener(type, clearNavigation, true));
     document.addEventListener('scroll', update, true);
-    return () => document.removeEventListener('scroll', update, true);
-  }, [isEdit, outline]);
+    window.addEventListener('resize', resized);
+    return () => {
+      inputs.forEach((type) => document.removeEventListener(type, clearNavigation, true));
+      document.removeEventListener('scroll', update, true);
+      window.removeEventListener('resize', resized);
+    };
+  }, [isEdit, alignOutlineNavigation]);
   const editorResourcePlan = useMemo(() => {
     try {
       const occurrences = collectMarkdownResourceOccurrences(value);
@@ -1024,6 +1084,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   changeCallbackRef.current = onChange;
   const handleChange = useCallback((next: string) => changeCallbackRef.current(next), []);
   const handleUpdate = useCallback((update: ViewUpdate) => {
+    if (update.docChanged) outlineNavigationRef.current = null;
     if (update.selectionSet || update.docChanged) refreshSelection(update.view);
   }, [refreshSelection]);
   const handleCreateEditor = useCallback((view: EditorView) => {
@@ -1042,7 +1103,10 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   ), [noteHighlights, value.length, activeNoteId, zh]);
   const editorExtensions = useMemo(() => [
     MARKDOWN_LANGUAGE, LIVE_PREVIEW_HIGHLIGHTING, hiddenMarks, uploadAnchors, noteMarks,
-    EditorView.scrollMargins.of(() => ({ top: Math.max(0, document.querySelector<HTMLElement>('[data-testid="editor-toolbar"]')?.getBoundingClientRect().bottom ?? 0) + 12 })),
+    EditorView.scrollMargins.of((view) => {
+      const { top, boundary } = editorOutlineViewport(view);
+      return { top: boundary - top };
+    }),
     manualHandlers, ...(uploadHandlers ? [uploadHandlers] : []), EditorView.lineWrapping,
   ], [hiddenMarks, manualHandlers, uploadHandlers, noteMarks]);
 
@@ -1050,7 +1114,13 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
     embedded={externalOutline} suppressed={!externalOutline && outlineOverlay} floatingTrigger={!externalOutline} onOccupiedWidthChange={externalOutline ? undefined : onOutlineOccupiedWidthChange}
     onNavigateIntent={isEdit ? undefined : (sourceOffset) => { previewNavigationRef.current = { moved: true, sourceOffset }; }} onNavigate={isEdit ? (item) => {
       const view = editorViewRef.current; if (!view) return;
-      view.dispatch({ selection: EditorSelection.cursor(item.from), effects: EditorView.scrollIntoView(item.from, { y: 'start' }) }); view.focus();
+      const navigation = { from: item.from, top: null, height: view.contentDOM.getBoundingClientRect().height };
+      outlineNavigationRef.current = navigation;
+      setActiveOutlineOffset(item.from);
+      view.dispatch({ selection: EditorSelection.cursor(item.from), effects: EditorView.scrollIntoView(item.from, { y: 'start', yMargin: 0 }) }); view.focus();
+      // Revealing the source marks or unfolding can change wrapped line heights.
+      // Re-align through that layout, unless the user already moved on.
+      alignOutlineNavigation(view);
     } : undefined} />;
 
   return (
