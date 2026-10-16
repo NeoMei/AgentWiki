@@ -4,7 +4,7 @@
 
 ## 活跃任务
 
-- [retest-feedback-20261016](active/retest-feedback-20261016/brief.md)：复测剩余6项已形成Web与Obsidian候选，逐任务审查及本地验收通过；整支最终门禁7624通过/6既有跳过，未发布部署，Windows原案待验。
+- [retest-feedback-20261016](active/retest-feedback-20261016/brief.md)：Web五项候选审查与7624通过/6既有跳过门禁完成，未发布部署；旧插件候选撤回，改验正式0.5.10，Windows安装启用通过但差异加载仍报远端版本过期，首条失败请求待诊断，黄金书屋原案未回验。
 
 - [release-v01226-20261014](active/release-v01226-20261014/brief.md)：用户授权全量发布；最终门禁、配套备份及0.12.26/0.13.0版本准备进行中。
 

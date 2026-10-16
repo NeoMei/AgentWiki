@@ -4,8 +4,8 @@
 Web候选基线 v0.12.44 / 35f73159，分支 codex/retest-feedback-20261016；主目录用户改动保持。
 原报告MCP读取版本2026-10-16T10:54:37.034Z；原文仅本地保存，不提交公开仓库。
 Web：协作中文/输入校验、编辑器目录、图谱关系删除入口、审核日期。
-插件：独立 AgentWiki-Obsidian 工作树 codex/retest-baseline-20261016（f9004ff）。已有另一个聊天在处理远端归档恢复，禁止互改其工作树。
+插件：用户指出bug已另行修复，现以正式0.5.10 / 2df7cfa为准；本聊天旧独立候选已撤回，不再整合或交付。
 进度见 agentwiki/docs/verification/retest-feedback-20261016/progress.md。
 
 
-本轮完成：Web产品与回归07d6abc9，完整门禁7624通过/6既有跳过，独立整支审查PASS；插件源码85b4078/回执f7b4c3f，1478测试及独立37回归通过。两个隔离分支，未推送合并发布部署或安装。Windows/native原案待验。最终记录见status.md。
+本轮完成：Web产品与回归07d6abc9，完整门禁7624通过/6既有跳过，独立整支审查PASS，未推送合并发布部署。正式插件0.5.10已核实发布与Mac归档恢复验收，并通过用户授权的Windows远程Session备份升级、核实三官方资产和原生启用版本；只读差异仍报“远端版本已过期”，具体失败请求未捕获，不定因。正文、连接与原控制文件保持，仅新增两个空tree-identities文件。黄金书屋原Vault尚未定位；旧组合候选845920be另有并发P2，撤回记录e3b1450。最终记录见status.md与official-plugin-windows.md。
