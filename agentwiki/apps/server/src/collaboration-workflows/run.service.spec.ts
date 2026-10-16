@@ -5,6 +5,8 @@ import { HistoryCursorService } from './history-cursor.service';
 import { RunService } from './run.service';
 import { RunExpansionService, createSinglePageWorkflow } from './run-expansion.service';
 import { PageResultService } from './page-result.service';
+import { normalizeLegacyVersion } from '../page-templates/composite-template-validator';
+import { selectCompositeCollaboration } from '../page-templates/template-instantiation.service';
 
 const humanPrincipal: Principal = { userId: 'user-1' };
 const starterPrincipal: Principal = { userId: 'starter-1' };
@@ -738,6 +740,49 @@ describe('RunService', () => {
       tasks: [], roleBindings: bindings,
     }, args.select));
     expect((await service.getHumanRun('space-1', 'run-1', humanPrincipal)).systemTemplateSource).toEqual({ slug: 'single-page' });
+  });
+
+  it.each([
+    ['personal', 'running'], ['personal', 'completed'],
+    ['space', 'running'], ['space', 'completed'],
+  ])('recognizes generated %s single-page workflow from a legacy frozen version in %s runs', async (scope, status) => {
+    // The catalog adapts legacy PageTemplateVersion rows at read time; it does
+    // not persist the resulting composite definition back into the old version.
+    const frozenVersion = {
+      definition: null, schemaVersion: null, definitionHash: null,
+      contentI18n: { 'zh-CN': '# User-authored legacy content' },
+      template: { scope, spaceId: scope === 'space' ? 'space-1' : null, stableKey: 'user-template' },
+    };
+    const workflow = selectCompositeCollaboration(normalizeLegacyVersion(frozenVersion.contentI18n), undefined).workflow;
+    expect(workflow).toEqual(createSinglePageWorkflow('writer'));
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) => projectSelect({
+      ...ready, status, sourceKind: 'composite', templateId: null, template: null,
+      templateSnapshot: workflow, compositeTemplateVersion: frozenVersion,
+      tasks: [], roleBindings: bindings,
+    }, args.select));
+    const result = await service.getHumanRun('space-1', 'run-1', humanPrincipal);
+    expect(result.systemTemplateSource).toEqual({ slug: 'single-page' });
+    expect(JSON.stringify(result)).not.toContain('User-authored legacy content');
+    expect(result).not.toHaveProperty('compositeTemplateVersion');
+  });
+
+  it.each([
+    ['missing frozen metadata', { definition: null, contentI18n: { en: '# Content' } }],
+    ['partial composite schema', { definition: null, schemaVersion: 1, definitionHash: null, contentI18n: { en: '# Content' } }],
+    ['partial composite hash', { definition: null, schemaVersion: null, definitionHash: 'a'.repeat(64), contentI18n: { en: '# Content' } }],
+    ['invalid legacy content', { definition: null, schemaVersion: null, definitionHash: null, contentI18n: {} }],
+    ['missing frozen version', null],
+  ])('does not infer legacy single-page provenance from %s', async (_label, frozenVersion) => {
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) => projectSelect({
+      ...ready, sourceKind: 'composite', templateId: null, template: null,
+      templateSnapshot: createSinglePageWorkflow('writer'),
+      compositeTemplateVersion: frozenVersion && { ...frozenVersion,
+        template: { scope: 'space', spaceId: 'space-1', stableKey: 'user-template' } },
+      tasks: [], roleBindings: bindings,
+    }, args.select));
+    expect((await service.getHumanRun('space-1', 'run-1', humanPrincipal)).systemTemplateSource).toBeNull();
   });
 
   it.each([

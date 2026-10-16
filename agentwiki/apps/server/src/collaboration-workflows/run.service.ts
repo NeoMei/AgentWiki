@@ -29,6 +29,7 @@ import { parseCollaborationInputs, parseCollaborationRunName } from './run-input
 import { supersedeRunPagePublicationsLocked } from './page-publication-invalidation';
 import { canonicalPageContentHash } from './page-baseline';
 import { PageResultService } from './page-result.service';
+import { LocalizedValueSchema } from '../page-templates/page-template.types';
 
 const READ_ROLES: SpaceRole[] = ['owner', 'admin', 'editor', 'viewer'];
 const EDIT_ROLES: SpaceRole[] = ['owner', 'admin', 'editor'];
@@ -121,7 +122,10 @@ const HUMAN_RUN_SELECT = {
   updatedAt: true,
   templateSnapshot: true,
   template: { select: { system: true, spaceId: true, slug: true } },
-  compositeTemplateVersion: { select: { definition: true, template: { select: { scope: true, spaceId: true, stableKey: true } } } },
+  compositeTemplateVersion: { select: {
+    definition: true, schemaVersion: true, definitionHash: true, contentI18n: true,
+    template: { select: { scope: true, spaceId: true, stableKey: true } },
+  } },
   roleBindings: {
     select: { id: true, runId: true, roleSlotId: true, roleSlotName: true, agentId: true },
   },
@@ -1037,7 +1041,7 @@ export class RunService {
     const { templateSnapshot: _templateSnapshot, template, compositeTemplateVersion, sourceKind, ...publicRun } = run;
     const response = {
       ...publicRun,
-      systemTemplateSource: systemRunSource(template, compositeTemplateVersion?.template, sourceKind, compositeTemplateVersion?.definition),
+      systemTemplateSource: systemRunSource(template, compositeTemplateVersion?.template, sourceKind, compositeTemplateVersion),
       tasks,
       reviews: reviewPreviews,
       events: newestEvents.reverse(),
@@ -1217,11 +1221,25 @@ function systemRunSource(
   legacy: { system: boolean; spaceId: string | null; slug: string } | null | undefined,
   composite: { scope: string; spaceId: string | null; stableKey: string } | null | undefined,
   sourceKind?: string,
-  compositeDefinition?: unknown,
+  compositeVersion?: {
+    definition?: unknown;
+    schemaVersion?: number | null;
+    definitionHash?: string | null;
+    contentI18n?: unknown;
+  } | null,
 ): { slug: string } | null {
   if (sourceKind === 'page_selection') return { slug: 'single-page' };
+  // The catalog normalizes immutable legacy PageTemplateVersion rows into an
+  // ordinary single page in memory. No composite definition is stored on them.
+  // Require the complete legacy format, not missing metadata or matching text.
+  if (sourceKind === 'composite' && compositeVersion?.definition === null
+    && compositeVersion.schemaVersion === null && compositeVersion.definitionHash === null
+    && LocalizedValueSchema.safeParse(compositeVersion.contentI18n).success) {
+    return { slug: 'single-page' };
+  }
   // Personal and Space single-page templates also use the generated workflow.
   // Inspect their immutable version, not today's template or matching task text.
+  const compositeDefinition = compositeVersion?.definition;
   if (sourceKind === 'composite' && compositeDefinition && typeof compositeDefinition === 'object') {
     const definition = compositeDefinition as Record<string, unknown>;
     if (definition.kind === 'single_page'
