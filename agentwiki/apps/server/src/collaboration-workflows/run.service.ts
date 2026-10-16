@@ -1224,7 +1224,8 @@ function systemRunSource(
   // Inspect their immutable version, not today's template or matching task text.
   if (sourceKind === 'composite' && compositeDefinition && typeof compositeDefinition === 'object') {
     const definition = compositeDefinition as Record<string, unknown>;
-    if (definition.kind === 'single_page' && definition.collaboration === undefined
+    if (definition.kind === 'single_page'
+      && (definition.collaboration === null || definition.collaboration === undefined)
       && Array.isArray(definition.nodes) && definition.nodes.length === 1
       && definition.nodes[0]?.kind === 'page') return { slug: 'single-page' };
   }

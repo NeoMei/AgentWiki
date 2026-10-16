@@ -1,8 +1,9 @@
+import { CompositeTemplateDefinitionSchema } from '@neomei/agentwiki-sync-protocol';
 import type { Principal } from '../core/authorization/authorization.service';
 import { BusinessException } from '../core/filters/business-error';
 import { HistoryCursorService } from './history-cursor.service';
 import { RunService } from './run.service';
-import { RunExpansionService } from './run-expansion.service';
+import { RunExpansionService, createSinglePageWorkflow } from './run-expansion.service';
 import { PageResultService } from './page-result.service';
 
 const humanPrincipal: Principal = { userId: 'user-1' };
@@ -33,6 +34,17 @@ const definition = {
   dependencies: [{ from: 'plan', to: 'build', mode: 'all' }],
   terminalNodeIds: ['build'],
 };
+const singlePageDefinition = CompositeTemplateDefinitionSchema.parse({
+  schemaVersion: 1,
+  kind: 'single_page',
+  nodes: [{
+    nodeId: 'page', parentNodeId: null, kind: 'page', order: 0,
+    titleI18n: { 'zh-CN': '个人页面', en: 'Personal page' },
+    contentI18n: { 'zh-CN': '# 自定义正文', en: '# User-authored content' },
+    roleSlotKey: null,
+  }],
+  collaboration: null,
+});
 const template = { id: 'template-1', version: 4, system: false, spaceId: 'space-1', archivedAt: null, definition };
 const bindings = [
   { id: 'binding-1', runId: 'run-1', roleSlotId: 'planner', roleSlotName: 'Planner', agentId: 'agent-a' },
@@ -700,11 +712,14 @@ describe('RunService', () => {
     expect(result.systemTemplateSource).toEqual(expected);
   });
 
-  it.each(['running', 'completed'])('recognizes generated personal single-page workflow in %s runs from the frozen version', async (status) => {
+  it.each([
+    ['personal', 'running'], ['personal', 'completed'],
+    ['space', 'running'], ['space', 'completed'],
+  ])('recognizes schema-valid generated %s single-page workflow in %s runs from the frozen version', async (scope, status) => {
     const run = { ...ready, status, sourceKind: 'composite', templateId: null, template: null,
       compositeTemplateVersion: {
-        definition: { kind: 'single_page', nodes: [{ kind: 'page', nodeId: 'page' }] },
-        template: { scope: 'personal', spaceId: null, stableKey: 'my-template' },
+        definition: singlePageDefinition,
+        template: { scope, spaceId: scope === 'space' ? 'space-1' : null, stableKey: 'my-template' },
       }, tasks: [], roleBindings: bindings };
     tx.collaborationRun.findFirst.mockResolvedValue(ready);
     tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) => projectSelect(run, args.select));
@@ -713,11 +728,34 @@ describe('RunService', () => {
     expect(result).not.toHaveProperty('compositeTemplateVersion');
   });
 
+  it('still recognizes a historical generated single-page definition with an omitted collaboration field', async () => {
+    const { collaboration: _collaboration, ...legacyDefinition } = singlePageDefinition;
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) => projectSelect({
+      ...ready, sourceKind: 'composite', templateId: null, template: null,
+      compositeTemplateVersion: { definition: legacyDefinition,
+        template: { scope: 'personal', spaceId: null, stableKey: 'my-template' } },
+      tasks: [], roleBindings: bindings,
+    }, args.select));
+    expect((await service.getHumanRun('space-1', 'run-1', humanPrincipal)).systemTemplateSource).toEqual({ slug: 'single-page' });
+  });
+
   it.each([
-    { kind: 'single_page', nodes: [{ kind: 'page' }], collaboration: { workflow: definition } },
-    { kind: 'page_group', nodes: [{ kind: 'page' }] },
-    null,
-  ])('does not infer generated provenance for a custom or unknown frozen workflow', async (frozenDefinition) => {
+    ['explicit custom workflow', CompositeTemplateDefinitionSchema.parse({
+      ...singlePageDefinition,
+      collaboration: {
+        workflow: createSinglePageWorkflow('writer'),
+        taskTargets: [{ taskNodeId: 'write-page', pageNodeId: 'page' }],
+      },
+    })],
+    ['page group', CompositeTemplateDefinitionSchema.parse({
+      ...singlePageDefinition, kind: 'page_group', nodes: [
+        { nodeId: 'root', parentNodeId: null, kind: 'folder', order: 0, nameI18n: { en: 'Group' } },
+        { ...singlePageDefinition.nodes[0], parentNodeId: 'root' },
+      ],
+    })],
+    ['unknown definition', null],
+  ])('does not infer generated provenance for %s', async (_label, frozenDefinition) => {
     tx.collaborationRun.findFirst.mockResolvedValue(ready);
     tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) => projectSelect({
       ...ready, sourceKind: 'composite', templateId: null, template: null,
