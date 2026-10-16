@@ -1,0 +1,25 @@
+{
+  "status": "verified",
+  "directory": "/var/backups/agentwiki/retest-feedback-v01245.3q9wezps",
+  "createdAt": "2026-10-16T06:21:11.066711+00:00",
+  "finishedAt": "2026-10-16T06:21:31.410642+00:00",
+  "components": [
+    "application",
+    "configuration",
+    "database",
+    "attachments"
+  ],
+  "coordinatedWriterPause": true,
+  "writersStoppedStates": {
+    "agentwiki-api.service": "inactive/MainPID=0",
+    "agentwiki-worker.service": "inactive/MainPID=0"
+  },
+  "writerQuiesceStartedAt": "2026-10-16T06:21:23.692834+00:00",
+  "writersRestoredAt": "2026-10-16T06:21:30.754663+00:00",
+  "checksumsPassed": true,
+  "databaseTocEntries": 684,
+  "permanentAttachmentBlobs": 154,
+  "archiveMatchesPermanentBlobs": true,
+  "writersRestored": true,
+  "restoreDrillPerformed": false
+}

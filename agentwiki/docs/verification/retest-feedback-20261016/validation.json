@@ -1,9 +1,11 @@
 {
-  "webSourceCommit": "07d6abc976efdadf9b755793e5682bcf982a7df3",
-  "webBase": "35f73159",
+  "webSourceCommit": "021571863d78932174f7265b33f9ed169b3024a9",
+  "webBase": "35f73159620feb8ac82a137cc64aed7928ab5717",
+  "webFiveItemCommit": "07d6abc976efdadf9b755793e5682bcf982a7df3",
+  "serverCompatibilityCommit": "65e91103bfdf25067c5960bab4cd3b775a4032c4",
   "command": "pnpm test:full",
   "exitCode": 0,
-  "passed": 7624,
+  "passed": 7644,
   "skipped": 6,
   "failed": 0,
   "groups": {
@@ -16,7 +18,7 @@
       "skipped": 0
     },
     "server": {
-      "passed": 3281,
+      "passed": 3301,
       "skipped": 4
     },
     "client": {
@@ -37,9 +39,30 @@
   "build": 0,
   "initialJavaScriptBytes": 548270,
   "initialJavaScriptLimit": 550000,
-  "obsidianSourceCommit": "85b40785e00b8fc78d17837946e11728c69e4af4",
-  "obsidianPassed": 1478,
-  "obsidianIndependentFocusedPassed": 37,
-  "deployed": false,
-  "windowsOriginalCaseVerified": false
+  "review": {
+    "webFiveItems": "PASS",
+    "releaseMetadata": "PASS",
+    "serverCompatibility": "PASS"
+  },
+  "logs": {
+    "full": {
+      "privatePath": "/tmp/agentwiki-retest-01245-full-final.log",
+      "sha256": "94e51a62ff95c9e35111d646b6707c5941c98b16bf2da59889da715032fa3fc6"
+    },
+    "typecheck": {
+      "privatePath": "/tmp/agentwiki-retest-01245-typecheck-final.log",
+      "sha256": "d0a87d9e039ecf277453e5bf5e153e25986e53af6f6456b0f1c7a11ba35dc86d"
+    },
+    "lint": {
+      "privatePath": "/tmp/agentwiki-retest-01245-lint-final.log",
+      "sha256": "d5b17ee595fbfdae02af58fd347506b1d5a827a69c28da8385dc57ae52ef712d"
+    },
+    "build": {
+      "privatePath": "/tmp/agentwiki-retest-01245-build-final.log",
+      "sha256": "d25f3dc6047efd87d1f3679f9d6e50f1e7141373d2073ddf5677959270aba310"
+    }
+  },
+  "productionReceipt": "deployment.json (written after deployment)",
+  "originalCaseAcceptance": "Recorded separately; not inferred from deployment or test totals",
+  "obsoletePluginCandidate": "withdrawn; no old candidate installation or release"
 }

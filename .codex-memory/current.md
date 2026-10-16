@@ -1,40 +1,39 @@
 # 当前目标
 
-处理 10 月 16 日复测报告剩余 #1/#2/#12/#13/#17/#19，保留其余14项用户已确认修复的结论。Web五项候选已通过独立审查和整仓门禁。用户指出插件已另行修复发布，现以正式0.5.10为准，通过现有Windows远程Session验证；不再交付旧插件候选。
+完成 10 月 16 日复测报告剩余 #1/#2/#12/#13/#17/#19 的修复、生产发布与原环境回验；保留其余14项用户已确认结论。
 
 # 范围 / 不做
 
-- Web候选基线 v0.12.44 / 35f73159，分支 codex/retest-feedback-20261016；产品代码最终 07d6abc9。已集成远端5c9d52cf文档回执并准备Web/API 0.12.45；Local Sync 0.13.0 / protocol 0.6.1不变。
-- 旧插件候选 codex/retest-baseline-20261016 已撤回；以正式0.5.10 / 2df7cfa为准，不合入旧mapping-detach实现。
-- Web本轮尚未合入主分支、推送、发布或部署，未修改生产报告。用户授权Windows远程验收后，已备份并升级正式插件0.5.10；连接、正文与原控制文件保持，未执行内容同步或覆盖。
+- Web/API 0.12.45 候选基线 v0.12.44 / 35f73159，分支 codex/retest-feedback-20261016；最终产品候选02157186。Local Sync0.13.0/protocol0.6.1不变，无依赖、Prisma迁移或npm发布。
+- 旧插件候选已撤回，不安装不发布；基于正式0.5.10另行补修映射与后台写入竞态。生产正文同步、Pull/Push或覆盖不在只读验收操作内。
+- 主检出有用户修改，保持原样；本任务隔离工作树发布。
 
 # 当前状态
 
-- #2：个人/Space普通单页的默认workflow从冻结定义识别，兼容合法 collaboration:null 与历史缺字段；自定义workflow不翻译。初版遗漏null已被独立审查抓出并修正复审。
-- #17：所有必填统一行内提示与首错误聚焦，空白字符串拒绝，0/false和可选语义保留。
-- #12：编辑目录统一滚动边界并用高度映射处理虚拟化；点击高亮随测量稳定，人工滚动立即恢复跟踪。原报告全文本地回放和1440/390px真实浏览器通过。
-- #13：逐关系常显中英文删除按钮，保留确认/权限/API与失败上下文；两处既有异步测试等待已收紧，未改产品行为或弱化断言。
-- #19：日期SQL参数转UTC无时区时间，与存储列对齐；真实浏览器→服务→PostgreSQL验证单日三条边界，前后天排除。
-- #1：正式插件0.5.10 / 2df7cfa已另聊天发布并完成Mac原生Wiki零差异验收。Windows已由0.5.8升级0.5.10，官方三资产hash、进程重启和启用版本均核实；同步中心仍报远端版本过期，首条失败endpoint未捕获，根因待诊断。仅新增两个空tree-identities文件，原设置、正文、基线和事务未变。黄金书屋原Vault尚未定位，此错误不等于原基线身份错误。旧845920be组合审查有未修复并发P2，已撤回，不可安装/发布。
-- Web typecheck/lint/build通过，初始JS 548270/550000。最终test:full exit0，7624通过/6既有跳过/0失败；完整结论见本轮status.md。
+- Web #2普通单页默认workflow本地化、#17必填行内校验/聚焦、#12编辑目录定位高亮、#13常显删除关系入口、#19UTC日期边界均已修复、独立审查和本地真实浏览器通过。
+- Windows官方0.5.10的真实v2/head 410已定位为已清理legacy历史后的普通首次v2链被误拒。65e91103新增最窄可信边界，02157186完善DB测试清理；完整hash/parent/连续性检查保留。真实生产数据只读候选验证通过，fixed-HEAD独立审查PASS。
+- 最终整仓7644通过/6既有跳过/0失败；typecheck/lint/build全部exit0，initial JS548270/550000。联合备份已完成并恢复写服务，后续推送发布部署；最终部署事实以本轮deployment.json为准。
+- 原Windows黄金书屋映射已找到，官方0.5.10只读差异加载显示本地24项/远端0项，未出现原身份错误，正文与基线保持不变。另一个映射410需服务端上线后原生复验。
+- 新插件修复尚在独立补修/审查中，不以已有0.5.10安装或Web上线作为新插件交付。
 
 # 稳定约束
 
 - Agent身份按目标实时Grant授权，不跨身份回退；文档正式读写用MCP并保持版本保护。
-- 代码、独立审查、本地浏览器、生产上线及原环境验收分别留证；不以fixture或测试总数代替产品原案回验。
-- 主检出有用户改动，保持原样。工作树路径尾空格，AgentWiki Git必须显式--work-tree。
-- 原报告全文、账号及生产debug只保留本地私有/tmp文件，不进入public fixture或Git提交。
+- 代码、独立审查、本地浏览器、生产上线、Windows原案分别留证；不以fixture或测试总数替代原环境复验。
+- Git必须显式 --work-tree 指向带尾空格的工作树。
+- 原报告全文、账号、生产debug及完整Vault清单仅保留私有临时证据，不提交公开仓库。
 
 # 关键索引
 
 - .codex-memory/tasks/active/retest-feedback-20261016/{brief,decisions,refs}.md
-- agentwiki/docs/verification/retest-feedback-20261016/{status,progress,browser-acceptance,final-web-review,official-plugin-windows}.md
+- agentwiki/docs/verification/retest-feedback-20261016/ 下的 status.md、validation.json、release-preparation.md、server-chain-review.md、backup-receipt.json
 - Web工作树：/Users/neomei/.codex/worktrees/retest-feedback-20261016/AgentWiki （尾空格）。
-- 插件工作树：/Users/neomei/项目/codexprojects/AgentWiki-Obsidian/.worktrees/retest-baseline-20261016。
-- 最近已保存发布回执：agentwiki/docs/verification/breadcrumb-alignment-20261016/deployment.json（v0.12.44 / 35f73159）、directory-header-20261016/deployment.json、toolbar-height-20261016/deployment.json、menu-header-20261016/deployment.json。
+- 新插件工作树：/Users/neomei/项目/codexprojects/AgentWiki-Obsidian/.worktrees/official-baseline-retest-20261016。
 - 原报告：https://agentwiki.quukk.com/pages/4088516b-4f90-4803-aeb2-7ddc63a86c32。
 
 # 风险 / 下一步
 
-- Web整仓门禁与本轮状态记录已完成；0.12.45发布准备已完成docs集成及build/typecheck，生产1345文件与v0.12.44匹配。待独立发布审查、配套备份、推送发布部署及线上回验；发布前再次核对远端，不能覆盖其他聊天改动。见本轮release-preparation.md。
-- Windows正式版安装通过、差异加载未通过；下一次需要首条失败请求的路径/状态/错误码来定因。requestUrl通道未出现在可访问Network列表，不推定v3/head或旧revision。旧插件候选不再推进。
+- 完成配套备份、无强推的版本发布和生产部署；核实源码/公网资产、三服务、health及32项smoke，再由原浏览器与Windows回验。
+- 保留旧数据库+应用+附件同组备份，不单独回滚任何一半。
+- 新插件待竞态补修后的固定候选复审、完整check与Windows验收，再独立发布。
+- 服务端ordinary cutover的历史清理仍保守拒绝，属于既有限制，本次读链修复没有放开retention。

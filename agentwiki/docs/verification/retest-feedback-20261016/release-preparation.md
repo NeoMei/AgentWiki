@@ -1,6 +1,16 @@
 # Web 0.12.45 发布准备
 
-状态：发布候选已准备；尚未推送、创建标签、发布 Release、执行生产备份或部署。用户在已明确剩余发布与原环境验证后要求继续修复，本轮据此推进发布准备。
+状态：候选 02157186 的五项 Web 修复与新增服务端历史链兼容修复均通过独立审查，最终发布门禁通过；配套备份已完成并恢复写服务，随后推送、发布和部署。真实结果以 deployment.json 为准。用户已授权继续修复和发布，并恢复 SSH 登录。
+
+## 配套备份回执
+
+备份已于2026-10-16T06:21:31Z完成，API/Worker停写约7秒后恢复。PostgreSQL custom dump、应用、配置和154个永久附件blob已成组校验，`pg_restore --list`与SHA256清单通过，三个服务均active。回执见backup-receipt.json；没有执行恢复演练。
+
+## 最终候选更新
+
+- 原版本准备之后加入服务端补丁 65e91103 及测试清理 02157186，修复 Windows 官方 0.5.10 v2/head 的 REVISION_GONE；不改库、不重建基线，严格校验保留。固定 HEAD 独立审查 PASS，见 server-chain-review.md。
+- 最终 `pnpm test:full` exit0：runtime309/1skip、DB239/0skip、server3301/4skip、client2657、protocol140、local-sync998/1skip，合计7644通过/6既有跳过/0失败。最终 typecheck、lint、build 均exit0；初始JS预算仍548270/550000。
+- 旧版准备中的“产品未变、7624门禁”只描述264c64fd阶段，不覆盖上述新增修复；最终证据以 validation.json 为准。
 
 ## 集成与版本
 
