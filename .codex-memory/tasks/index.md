@@ -4,7 +4,6 @@
 
 ## 活跃任务
 
-- [retest-feedback-20261016](active/retest-feedback-20261016/brief.md)：Web0.12.45与旧模板补修0.12.46已备份发布部署，7653通过/6既有跳过、独立审查及1351源码hash/health/32smoke通过；#12/#13/#17/#19生产回验通过，#2原run待0.12.46回验；Windows官方0.5.10预览通过，插件新修复独立推进。
 
 - [release-v01226-20261014](active/release-v01226-20261014/brief.md)：用户授权全量发布；最终门禁、配套备份及0.12.26/0.13.0版本准备进行中。
 
@@ -20,6 +19,8 @@
 - [q3-regressions-20260914](archive/q3-regressions-20260914/brief.md)：Q3人工报告20项代码修复、整分支独立复审与候选验收完成；未发布部署或安装日常Vault。
 
 ## 最近完成
+
+- [retest-feedback-20261016](archive/retest-feedback-20261016/brief.md)：Web0.12.46五项生产回验通过；插件0.5.11正式发布并升级真实Windows Vault，两映射只读通过、113正文/配置/映射/基线不变；黄金书屋只读权限与24本地差异保留。
 
 - [agent-chat-feedback-20261015](archive/agent-chat-feedback-20261015/brief.md)：v0.12.37已发布并部署；7518pass/6既有skip，独立复审、配套备份、源码/资源hash、真实provider/浏览器/DB草稿与Save验收及临时资源清理通过。
 

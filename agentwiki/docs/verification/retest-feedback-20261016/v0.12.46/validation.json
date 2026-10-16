@@ -69,5 +69,10 @@
       "sha256": "1be0bfddf8fdac909f2324b37d42f5de438fb566cb6b8387688c7891f3cfb837"
     }
   },
-  "productionOriginalRunAcceptance": "Pending after deployment; not inferred from unit tests or read-only candidate DTO probe"
+  "productionOriginalRunAcceptance": {
+    "status": "passed",
+    "verifiedAt": "2026-10-16T14:53:40+08:00",
+    "receipt": "production-ui-after-hotfix.md",
+    "basis": "Same previously failing personal run and original screenshot control both render the three Chinese workflow labels; actual source slug single-page; 134 requests all GET; original run version and updatedAt unchanged."
+  }
 }

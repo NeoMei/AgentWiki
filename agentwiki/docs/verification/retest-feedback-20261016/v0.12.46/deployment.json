@@ -120,7 +120,12 @@
   },
   "releaseGates": "validation.json",
   "npmPublicationRequired": false,
-  "originalRunBrowserAcceptance": "Pending separate native browser replay; deployment does not by itself close issue 2",
+  "originalRunBrowserAcceptance": {
+    "status": "passed",
+    "verifiedAt": "2026-10-16T14:53:40+08:00",
+    "receipt": "production-ui-after-hotfix.md",
+    "basis": "Same previously failing personal run and original screenshot control both render the three Chinese workflow labels; actual source slug single-page; 134 requests all GET; original run version and updatedAt unchanged."
+  },
   "frontendEntryNote": "The frontend logic is unchanged from 0.12.45, so index-BwaLUeIQ.js and its SHA-256 are intentionally unchanged. The server run.service.js module matches the final new build.",
   "privateLogs": {
     "deploy.log": {
