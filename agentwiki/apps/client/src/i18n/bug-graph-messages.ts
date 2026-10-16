@@ -16,6 +16,9 @@ export const bugGraphMessages = {
     'graph.manualLegend': '手动关系',
     'graph.similarLegend': '自动·相似',
     'graph.relationshipDetails': '关系与来源 · {count}',
+    'graph.evidenceDetails': '证据详情',
+    'graph.deleteRelation': '删除关系',
+    'graph.deleteRelationLabel': '删除关系：{source} → {target} ({relation}) · {origin}',
     'graph.navigationHint': '单击选择 · 双击打开 · 拖动节点或空白处 · 滚轮缩放',
 
     'graph.grouped': '文件夹分组',
@@ -57,6 +60,9 @@ export const bugGraphMessages = {
     'graph.manualLegend': 'Manual',
     'graph.similarLegend': 'Auto·Similar',
     'graph.relationshipDetails': 'Relations & sources · {count}',
+    'graph.evidenceDetails': 'Evidence details',
+    'graph.deleteRelation': 'Delete relation',
+    'graph.deleteRelationLabel': 'Delete relation: {source} → {target} ({relation}) · {origin}',
     'graph.navigationHint': 'Click to select · Double-click to open · Drag nodes or background · Scroll to zoom',
 
     'graph.grouped': 'Folder groups',

@@ -81,14 +81,19 @@
 .graph-related-page > span:last-child { min-width: 0; }
 .graph-related-page strong { display: block; font-size: 14px; font-weight: 500; color: #263552; overflow-wrap: anywhere; }
 .graph-related-page small { display: block; font-size: 12px; color: #8792a8; line-height: 1.6; overflow-wrap: anywhere; }
-.graph-relation-evidence { margin: 5px 0 0 48px; font-size: 11px; color: #8994a8; }
+.graph-relation-count { margin: 8px 0 4px; font-size: 11px; color: #8994a8; }
+.graph-relations { list-style: none; padding: 0; margin: 0; }
+.graph-relation-item { padding: 10px 0; min-width: 0; }
+.graph-relation-item + .graph-relation-item { border-top: 1px solid #e6ebf3; }
+.graph-relation-title { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; font-size: 12px; color: #52617d; overflow-wrap: anywhere; }
+.graph-relation-title > svg { flex-shrink: 0; }
+.graph-relation-title > span { min-width: 0; }
+.graph-delete-relation { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; margin-top: 6px; padding: 4px 8px; border: 1px solid #e6ebf3; border-radius: 6px; color: #b42318; font-size: 12px; }
+.graph-delete-relation:hover { background: #fef2f2; border-color: #fecaca; }
+.graph-delete-relation > svg { flex-shrink: 0; }
+.graph-relation-error { margin-top: 6px; color: #b42318; font-size: 12px; overflow-wrap: anywhere; }
+.graph-relation-evidence { margin-top: 8px; font-size: 11px; color: #8994a8; }
 .graph-relation-evidence > summary { cursor: pointer; }
-.graph-relation-evidence[open] { margin-left: 0; padding: 10px; border: 1px solid #e6ebf3; border-radius: 6px; }
-.graph-evidence-item { padding: 9px 0; }
-.graph-evidence-item + .graph-evidence-item { border-top: 1px solid #e6ebf3; }
-.graph-evidence-title { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
-.graph-evidence-title > button { margin-left: auto; color: #8692a8; }
-.graph-evidence-title > button:hover { color: #dc2626; }
 .graph-link-page { display: inline-flex; align-items: center; gap: 7px; margin-top: 22px; border: 1px solid #dce2ed; border-radius: 6px; padding: 7px 11px; font-size: 12px; color: #516381; }
 .graph-details-empty > div { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 13px; margin-top: 165px; color: #9aa8bd; font-size: 14px; line-height: 1.7; }
 .graph-no-relations { color: #8b97ac; font-size: 12px; }

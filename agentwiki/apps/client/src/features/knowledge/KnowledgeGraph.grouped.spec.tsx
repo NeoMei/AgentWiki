@@ -39,6 +39,76 @@ beforeEach(() => {
 });
 
 describe('KnowledgeGraph folder browsing', () => {
+  it.each([
+    ['zh-CN', '删除关系', '浏览图谱节点', '页面详情'],
+    ['en', 'Delete relation', 'Browse graph nodes', 'Page details'],
+  ])('keeps every relation deletion visible without expanding evidence in %s', async (language, deleteText, browserLabel, detailsLabel) => {
+    localStorage.setItem('agentwiki.language.v1', language);
+    api.get.mockResolvedValue({ data: { nodes, folders, edges: [
+      edge('outgoing', 'p1', 'p2', 'references'),
+      edge('incoming', 'p2', 'p1', 'depends_on'),
+      edge('automatic', 'p1', 'p2', 'similar_to', 'auto_similar'),
+    ] } });
+    mount();
+    fireEvent.change(await screen.findByRole('combobox', { name: browserLabel }), { target: { value: 'p1' } });
+    const details = screen.getByRole('complementary', { name: detailsLabel });
+    const buttons = within(details).getAllByTitle(deleteText);
+    expect(buttons).toHaveLength(3);
+    buttons.forEach(button => {
+      expect(button).toBeVisible();
+      expect(button).toHaveTextContent(deleteText);
+      expect(button).toHaveAccessibleName(new RegExp(deleteText));
+    });
+    expect(within(details).getByText('(references)')).toBeVisible();
+    expect(within(details).getByText('(depends_on)')).toBeVisible();
+    expect(within(details).getByText(language === 'zh-CN' ? '自动·相似' : 'Auto·Similar')).toBeVisible();
+  });
+
+  it('confirms and deletes only the chosen reverse-direction relation, keeping both pages and the other relations', async () => {
+    let remainingEdges = [edge('e1', 'p1', 'p2', 'references'), edge('e2', 'p2', 'p1', 'depends_on'), edge('e3', 'p1', 'p2', 'similar_to', 'auto_similar')];
+    api.get.mockImplementation(() => Promise.resolve({ data: { nodes, folders, edges: remainingEdges } }));
+    api.delete.mockImplementation((url: string) => {
+      remainingEdges = remainingEdges.filter(item => url !== `/knowledge/relations/${item.id}`);
+      return Promise.resolve({ data: { success: true } });
+    });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
+    mount();
+    fireEvent.change(await screen.findByRole('combobox', { name: '浏览图谱节点' }), { target: { value: 'p1' } });
+    const deleteButton = screen.getByRole('button', { name: /删除关系.*小明.*大纲.*depends_on/ });
+    fireEvent.click(deleteButton);
+    expect(confirm).toHaveBeenCalledWith('确定删除此关系吗？');
+    expect(api.delete).not.toHaveBeenCalled();
+    expect(screen.getByText('1 个关联页面 · 3 条关系')).toBeInTheDocument();
+    fireEvent.click(deleteButton);
+    await screen.findByText('1 个关联页面 · 2 条关系');
+    expect(api.delete).toHaveBeenCalledExactlyOnceWith('/knowledge/relations/e2');
+    expect(screen.queryByText('(depends_on)')).not.toBeInTheDocument();
+    expect(screen.getByText('(references)')).toBeVisible();
+    expect(screen.getByText('(similar_to)')).toBeVisible();
+    expect(screen.getByRole('option', { name: '大纲' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '小明' })).toBeInTheDocument();
+  });
+
+  it.each([
+    [{ response: { status: 403, data: { message: 'Forbidden' } } }, '你没有权限执行此操作。请联系空间所有者或管理员确认成员角色后重试。'],
+    [new Error('Network Error'), '网络连接失败，请稍后重试'],
+  ])('retains the selected page, relations, and evidence after a rejected deletion', async (failure, message) => {
+    api.delete.mockRejectedValueOnce(failure);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    api.get.mockResolvedValue({ data: { nodes, folders, edges: [{ ...edges[0], evidence: { quote: '保留原始证据', confidence: 1 } }] } });
+    mount();
+    fireEvent.change(await screen.findByRole('combobox', { name: '浏览图谱节点' }), { target: { value: 'p1' } });
+    fireEvent.click(screen.getByTitle('删除关系'));
+    expect(await screen.findByRole('alert')).toHaveTextContent(message as string);
+    const details = screen.getByRole('complementary', { name: '页面详情' });
+    expect(within(details).getByText('1 个关联页面 · 1 条关系')).toBeInTheDocument();
+    expect(within(details).getByRole('button', { name: /删除关系/ })).toBeVisible();
+    const evidence = within(details).getByText('保留原始证据').closest('details')!;
+    fireEvent.click(evidence.querySelector('summary')!);
+    expect(within(details).getByText('保留原始证据')).toBeVisible();
+    expect(api.get).toHaveBeenCalledTimes(1);
+  });
+
   it('shows real folder containers and page labels immediately, retains empty folders, and deduplicates related pages', async () => {
     const { container } = mount();
     const group = await screen.findByRole('button', { name: '人物 项目/人物 1 个页面' });
@@ -51,10 +121,10 @@ describe('KnowledgeGraph folder browsing', () => {
     expect(within(details).getByText('1 个关联页面 · 2 条关系')).toBeInTheDocument();
     const relatedLinks = within(details).getAllByRole('link').filter(link => link.getAttribute('href') === '/pages/p1');
     expect(relatedLinks).toHaveLength(1);
-    expect(within(details).getByText('关系与来源 · 2').closest('details')).not.toHaveAttribute('open');
-    fireEvent.click(within(details).getByText('关系与来源 · 2'));
-    expect(within(details).getByText('(references)')).toBeInTheDocument();
-    expect(within(details).getByText('(depends_on)')).toBeInTheDocument();
+    expect(within(details).getByText('关系与来源 · 2')).toBeVisible();
+    within(details).getAllByText('证据详情').forEach(summary => expect(summary.closest('details')).not.toHaveAttribute('open'));
+    expect(within(details).getByText('(references)')).toBeVisible();
+    expect(within(details).getByText('(depends_on)')).toBeVisible();
     expect(screen.getByText('此文件夹没有直接包含的页面。')).toBeInTheDocument();
     expect(container.querySelectorAll('.graph-folder-box')).toHaveLength(4);
     fireEvent.click(within(details).getByRole('link', { name: '打开页面' }));

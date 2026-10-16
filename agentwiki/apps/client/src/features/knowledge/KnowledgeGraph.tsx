@@ -83,6 +83,7 @@ export const KnowledgeGraph: React.FC = () => {
   activeSpaceId.current = spaceId;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<{ failure: unknown; fallbackKey: string } | null>(null);
+  const [deleteError, setDeleteError] = useState<{ relationId: string; failure: unknown } | null>(null);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [linkingFrom, setLinkingFrom] = useState<string | null>(null);
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -184,6 +185,7 @@ export const KnowledgeGraph: React.FC = () => {
     setSelectedNode(null); setFocusedNode(null); setPageFilter('all');
     setLinkingFrom(null); setLinkTarget(''); setCreating(false);
     setShowLinkModal(false); setExpandedGroups(new Set());
+    setDeleteError(null);
     setSearch(''); setRelationType(''); setHiddenOrigins(new Set());
     void fetchGraph();
     return () => { requestVersion.current++; };
@@ -253,8 +255,9 @@ export const KnowledgeGraph: React.FC = () => {
   const handleDeleteRelation = async (relationId: string) => {
     if (!window.confirm(zh ? '确定删除此关系吗？' : 'Delete this relation?')) return;
     const operationSpace = spaceId;
+    setDeleteError(null);
     try { await api.delete('/knowledge/relations/' + relationId); if (activeSpaceId.current === operationSpace) await fetchGraph(); }
-    catch (err: unknown) { if (activeSpaceId.current === operationSpace) setError({ failure: err, fallbackKey: 'graph.deleteFailed' }); }
+    catch (err: unknown) { if (activeSpaceId.current === operationSpace) setDeleteError({ relationId, failure: err }); }
   };
   const startLinking = () => { if (selectedNode) { setLinkingFrom(selectedNode); setShowLinkModal(true); } };
   const closeLinkDialog = () => { if (!creating) { setShowLinkModal(false); setLinkingFrom(null); } };
@@ -325,7 +328,17 @@ export const KnowledgeGraph: React.FC = () => {
         {relatedPages.length === 0 && <p className="graph-no-relations">{gt('graph.noRelations')}</p>}
         <div className="graph-related-pages">{relatedPages.map(related => <article key={related.id}>
           <Link to={`/pages/${related.id}`} className="graph-related-page"><span className="graph-file-icon"><FileText size={21} /></span><span><strong>{related.page?.title || (zh ? '未知' : 'Unknown')}</strong><small>{related.page?.path || gt('graph.pathUnavailable')}</small></span></Link>
-          <details className="graph-relation-evidence"><summary>{gt('graph.relationshipDetails', { count: related.edges.length })}</summary>{related.edges.map(edge => <div key={edge.id} className="graph-evidence-item"><div className="graph-evidence-title">{edge.source === selectedNode ? <ArrowRight size={13} aria-label={zh ? '出向关系' : 'Outgoing relation'} /> : <ArrowLeft size={13} aria-label={zh ? '入向关系' : 'Incoming relation'} />}<span>({edge.relation})</span><OriginBadge origin={edge.origin} zh={zh} /><button type="button" title={zh ? '删除关系' : 'Delete relation'} onClick={() => handleDeleteRelation(edge.id)}><Trash2 size={14} /></button></div>
+          <p className="graph-relation-count">{gt('graph.relationshipDetails', { count: related.edges.length })}</p>
+          <ul className="graph-relations">{related.edges.map(edge => <li key={edge.id} className="graph-relation-item">
+            <div className="graph-relation-title">{edge.source === selectedNode ? <ArrowRight size={14} aria-label={zh ? '出向关系' : 'Outgoing relation'} /> : <ArrowLeft size={14} aria-label={zh ? '入向关系' : 'Incoming relation'} />}<span>({edge.relation})</span><OriginBadge origin={edge.origin} zh={zh} /></div>
+            <button type="button" className="graph-delete-relation" title={gt('graph.deleteRelation')} aria-label={gt('graph.deleteRelationLabel', {
+              source: nodes.find(node => node.id === edge.source)?.title || edge.source,
+              target: nodes.find(node => node.id === edge.target)?.title || edge.target,
+              relation: edge.relation,
+              origin: ORIGIN_LABELS[edge.origin]?.[zh ? 'zh' : 'en'] || edge.origin,
+            })} onClick={() => handleDeleteRelation(edge.id)}><Trash2 size={14} aria-hidden="true" />{gt('graph.deleteRelation')}</button>
+            {deleteError?.relationId === edge.id && <p role="alert" className="graph-relation-error">{apiErrorMessage(deleteError.failure, t, 'graph.deleteFailed')}</p>}
+            <details className="graph-relation-evidence"><summary>{gt('graph.evidenceDetails')}</summary>
                           <dl className="mt-2 grid gap-1 text-xs text-gray-500">
                             <div><dt className="inline font-medium text-gray-600">{zh ? '来源方式：' : 'Origin: '}</dt><dd className="inline">{edge.origin}</dd></div>
                             <div><dt className="inline font-medium text-gray-600">{zh ? '置信度：' : 'Confidence: '}</dt><dd className="inline">{Math.round((edge.confidence ?? 1) * 100)}%</dd></div>
@@ -333,7 +346,9 @@ export const KnowledgeGraph: React.FC = () => {
                             <div><dt className="inline font-medium text-gray-600">{zh ? '审批：' : 'Approval: '}</dt><dd className="inline">{edge.approvalStatus || (zh ? '未知' : 'unknown')}{edge.approval?.reviewer ? ` · ${edge.approval.reviewer.name || edge.approval.reviewer.email}` : ''}</dd></div>
                             <div className="break-words"><dt className="inline font-medium text-gray-600">{zh ? '来源：' : 'Source: '}</dt><dd className="inline break-all">{edge.sourceInfo ? `${edge.sourceInfo.name} · ${edge.sourceInfo.type}${edge.sourceVersion ? ` · v${edge.sourceVersion}` : ''}` : sourceStatusText(language, 'sourceStatus.unavailable')}{edge.sourceMetadata?.commit ? ` · ${edge.sourceMetadata.commit}` : ''}</dd></div>
                             <div className="break-words"><dt className="inline font-medium text-gray-600">{zh ? '证据：' : 'Evidence: '}</dt><dd className="inline">{edge.evidence?.quote || (zh ? '没有证据片段' : 'No evidence excerpt')}</dd></div>
-                          </dl>          </div>)}</details>
+                          </dl>
+            </details>
+          </li>)}</ul>
         </article>)}</div>
         <button type="button" onClick={startLinking} className="graph-link-page"><Link2 size={16} />{zh ? '建立关系…' : 'Link to…'}</button>
       </aside> : <div className="graph-details graph-details-empty hidden lg:block"><h2>{gt('graph.pageDetails')}</h2><div><Network size={30} /><p>{gt('graph.selectHint')}</p></div></div>}
