@@ -701,10 +701,12 @@ export interface ValidatedRevisionChainTrust {
 }
 
 /**
- * Resolve the only two allowed retained-chain trust boundaries. A checkpoint
+ * Resolve the retained-chain trust boundaries. A checkpoint
  * also validates its live anchor snapshot and exact immutable delta hash; a
  * legacy-prefix cutover validates the complete Task 6 genesis snapshot and
- * its canonical full-upsert delta before it becomes trusted.
+ * its canonical full-upsert delta before it becomes trusted. An ordinary
+ * writer's first v2 transition additionally requires its retained, marker-free
+ * legacy predecessor; it cannot stand in for a missing v2 ancestor.
  */
 export async function validateRevisionChainTrust(
   tx: Prisma.TransactionClient,
@@ -752,8 +754,47 @@ export async function validateRevisionChainTrust(
     assertCompleteRevisionV2(candidate, evidence, null);
     return { checkpoint: null, trustedGenesis: candidate };
   }
-  if (!hasCompleteRevisionChain(current, ancestors)) revisionV2IntegrityFailure();
-  return { checkpoint: null, trustedGenesis: null };
+  if (hasCompleteRevisionChain(current, ancestors)) {
+    return { checkpoint: null, trustedGenesis: null };
+  }
+
+  // Before chain checkpoints existed, legacy retention could prune the prefix
+  // preceding a normal web/editor/Sync transition to v2. That writer already
+  // persisted a complete v2 snapshot and full-upsert delta, but no Task 6
+  // migration receipt. Trust only that first transition, never a later v2 row
+  // whose own predecessor has disappeared.
+  const transition = retained
+    .filter((revision) => revision.schemaVersion === 'content-tree@2'
+      && revision.recipeVersion === 'space-folders-v1')
+    .sort((left, right) => left.sequence - right.sequence)[0];
+  if (
+    !transition
+    || !['web_editor', 'change_set', 'obsidian_sync'].includes(transition.origin ?? '')
+    || transition.migrationBatchId !== null
+    || transition.attachmentCount !== 0n
+  ) revisionV2IntegrityFailure();
+  const legacyPrefix = retained.filter((revision) => revision.sequence < transition.sequence);
+  const predecessor = legacyPrefix.find((revision) => revision.sequence === transition.sequence - 1);
+  const firstLegacySequence = legacyPrefix.reduce(
+    (first, revision) => Math.min(first, revision.sequence), transition.sequence,
+  );
+  if (
+    !predecessor
+    || !hasExactRevisionPredecessor(transition, predecessor)
+    || legacyPrefix.length !== transition.sequence - firstLegacySequence
+    || legacyPrefix.some((revision) => revision.schemaVersion !== 'knowledge-bundle@1'
+      || revision.recipeVersion !== 'none'
+      || revision.attachmentCount !== 0n)
+    || !await hasTrustedV2GenesisBoundary(tx, spaceId, transition, legacyPrefix)
+    || !hasCompleteRevisionChain(current, ancestors, { trustedGenesis: transition })
+  ) revisionV2IntegrityFailure();
+  const evidence = await loadRevisionV2Evidence(tx, spaceId, transition.id);
+  const migration = record(record(evidence.sidecar)?.spaceFolderMigration);
+  if (!migration || Object.keys(migration).length !== 1 || !migration.v2Revision) {
+    revisionV2IntegrityFailure();
+  }
+  assertCompleteRevisionV2(transition, evidence, null);
+  return { checkpoint: null, trustedGenesis: transition };
 }
 
 /**

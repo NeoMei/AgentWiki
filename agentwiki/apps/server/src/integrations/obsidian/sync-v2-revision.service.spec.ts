@@ -141,12 +141,17 @@ async function fixture(maxResponseBytes = 4 * 1024 * 1024, maxDeltaItems = 15_00
         .sort((left, right) => right.sequence - left.sequence)),
     },
     syncRevisionFolderRow: {
+      findFirst: jest.fn(async ({ where }: any) => where.revisionId.in
+        .flatMap((revisionId: string) => foldersByRevision.get(revisionId) ?? [])[0] ?? null),
       findMany: jest.fn(async ({ where }: any) => {
         const ids = typeof where.revisionId === 'string' ? [where.revisionId] : where.revisionId.in;
         return ids.flatMap((revisionId: string) => foldersByRevision.get(revisionId) ?? []);
       }),
     },
     syncRevisionPageRow: {
+      findFirst: jest.fn(async ({ where }: any) => where.revisionId.in
+        .flatMap((revisionId: string) => pagesByRevision.get(revisionId) ?? [])
+        .find((item: any) => item.folderId !== null) ?? null),
       findMany: jest.fn(async ({ where }: any) => {
         const ids = typeof where.revisionId === 'string' ? [where.revisionId] : where.revisionId.in;
         return ids.flatMap((revisionId: string) => pagesByRevision.get(revisionId) ?? []);
@@ -163,6 +168,8 @@ async function fixture(maxResponseBytes = 4 * 1024 * 1024, maxDeltaItems = 15_00
       })),
     },
     syncRevisionTreeDeltaRow: {
+      findFirst: jest.fn(async ({ where }: any) => where.revisionId.in
+        .flatMap((revisionId: string) => deltaRows.get(revisionId) ?? [])[0] ?? null),
       findMany: jest.fn(async ({ where }: any) => {
         const ids = typeof where.revisionId === 'string' ? [where.revisionId] : where.revisionId.in;
         return ids.flatMap((revisionId: string) => (deltaRows.get(revisionId) ?? [])
@@ -180,6 +187,24 @@ async function fixture(maxResponseBytes = 4 * 1024 * 1024, maxDeltaItems = 15_00
     ),
     prisma, cursors, revisions, foldersByRevision, pagesByRevision, sidecars, deltaCounts, deltaRows,
   };
+}
+
+async function retainedOrdinaryV2TransitionFixture() {
+  const state = await fixture();
+  const firstV2 = state.revisions.get('rev-1');
+  Object.assign(firstV2, {
+    sequence: 19, parentRevisionId: 'legacy-18', origin: 'web_editor', migrationBatchId: null,
+  });
+  state.revisions.get('rev-2').sequence = 20;
+  state.sidecars.get('rev-1').sidecar.spaceFolderMigration = {
+    v2Revision: state.sidecars.get('rev-1').sidecar.spaceFolderMigration.v2Revision,
+  };
+  state.revisions.set('legacy-18', {
+    id: 'legacy-18', spaceId: 'space-1', sequence: 18, parentRevisionId: 'pruned-legacy-17',
+    schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none', origin: 'change_set',
+    migrationBatchId: null, attachmentCount: 0n, createdAt: at('2026-08-27T00:00:00.000Z'),
+  });
+  return state;
 }
 
 async function convertCurrentToNativeV3(state: Awaited<ReturnType<typeof fixture>>) {
@@ -596,6 +621,81 @@ describe('SyncV2RevisionService', () => {
 
     await expect(state.service.snapshot('space-1', 'rev-2', undefined, 100))
       .resolves.toEqual(expect.objectContaining({ revision: 'rev-2', folderCount: '2', pageCount: '1' }));
+  });
+
+  it('reads an ordinary first v2 transition after a physically pruned marker-free legacy prefix', async () => {
+    const state = await retainedOrdinaryV2TransitionFixture();
+
+    await expect(state.service.head('space-1'))
+      .resolves.toMatchObject({ revision: 'rev-2', sequence: 20, pageCount: '1' });
+    await expect(state.service.snapshot('space-1', 'rev-1', undefined, 100))
+      .resolves.toMatchObject({ revision: 'rev-1', sequence: 19, pageCount: '2' });
+  });
+
+  it.each([
+    ['missing exact legacy predecessor', (state: Awaited<ReturnType<typeof retainedOrdinaryV2TransitionFixture>>) => {
+      state.revisions.delete('legacy-18');
+    }],
+    ['wrong legacy predecessor', (state: Awaited<ReturnType<typeof retainedOrdinaryV2TransitionFixture>>) => {
+      state.revisions.get('rev-1').parentRevisionId = 'wrong-legacy-18';
+    }],
+    ['cross-Space predecessor', (state: Awaited<ReturnType<typeof retainedOrdinaryV2TransitionFixture>>) => {
+      state.revisions.get('legacy-18').spaceId = 'other-space';
+    }],
+    ['a retained older v2 schema', (state: Awaited<ReturnType<typeof retainedOrdinaryV2TransitionFixture>>) => {
+      state.revisions.get('legacy-18').schemaVersion = 'content-tree@2';
+    }],
+    ['a retained older v2 sidecar', (state: Awaited<ReturnType<typeof retainedOrdinaryV2TransitionFixture>>) => {
+      state.sidecars.set('legacy-18', { sidecar: { spaceFolderMigration: { v2Revision: {} } } });
+    }],
+    ['retained older Folder evidence', (state: Awaited<ReturnType<typeof retainedOrdinaryV2TransitionFixture>>) => {
+      state.foldersByRevision.set('legacy-18', [{ ...root, revisionId: 'legacy-18' }]);
+    }],
+    ['retained older placed Page evidence', (state: Awaited<ReturnType<typeof retainedOrdinaryV2TransitionFixture>>) => {
+      state.pagesByRevision.set('legacy-18', [{ ...state.pagesByRevision.get('rev-1')![0], revisionId: 'legacy-18' }]);
+    }],
+    ['retained older tree delta evidence', (state: Awaited<ReturnType<typeof retainedOrdinaryV2TransitionFixture>>) => {
+      state.deltaRows.set('legacy-18', [{ ...state.deltaRows.get('rev-1')![0] }]);
+    }],
+    ['forged migration origin without the migration receipt', (state: Awaited<ReturnType<typeof retainedOrdinaryV2TransitionFixture>>) => {
+      state.revisions.get('rev-1').origin = 'migration';
+    }],
+    ['partial migration marker on an ordinary writer', (state: Awaited<ReturnType<typeof retainedOrdinaryV2TransitionFixture>>) => {
+      state.revisions.get('rev-1').migrationBatchId = 'space-folders-v1:space-1';
+    }],
+    ['an incomplete migration receipt', (state: Awaited<ReturnType<typeof retainedOrdinaryV2TransitionFixture>>) => {
+      state.sidecars.get('rev-1').sidecar.spaceFolderMigration.status = 'completed';
+    }],
+    ['an unsupported legacy recipe', (state: Awaited<ReturnType<typeof retainedOrdinaryV2TransitionFixture>>) => {
+      state.revisions.get('legacy-18').recipeVersion = 'future-recipe';
+    }],
+    ['disconnected retained legacy history', (state: Awaited<ReturnType<typeof retainedOrdinaryV2TransitionFixture>>) => {
+      state.revisions.set('legacy-16', { ...state.revisions.get('legacy-18'), id: 'legacy-16', sequence: 16 });
+    }],
+    ['first v2 corrupt manifest hash', (state: Awaited<ReturnType<typeof retainedOrdinaryV2TransitionFixture>>) => {
+      state.revisions.get('rev-1').revisionContentHash = 'f'.repeat(64);
+    }],
+    ['first v2 same-count corrupt full delta', (state: Awaited<ReturnType<typeof retainedOrdinaryV2TransitionFixture>>) => {
+      state.deltaRows.get('rev-1')![0].folderId = 'wrong';
+    }],
+    ['first v2 corrupt immutable body', (state: Awaited<ReturnType<typeof retainedOrdinaryV2TransitionFixture>>) => {
+      state.pagesByRevision.get('rev-1')![0].content.body += 'corrupt';
+    }],
+    ['missing v2 ancestor', (state: Awaited<ReturnType<typeof retainedOrdinaryV2TransitionFixture>>) => {
+      state.revisions.get('rev-2').sequence = 21;
+      state.revisions.get('rev-2').parentRevisionId = 'missing-v2-20';
+    }],
+    ['a legacy prefix hole referring to a still-existing row', (state: Awaited<ReturnType<typeof retainedOrdinaryV2TransitionFixture>>) => {
+      state.revisions.set('pruned-legacy-17', {
+        ...state.revisions.get('legacy-18'), id: 'pruned-legacy-17', spaceId: 'other-space', sequence: 17,
+      });
+    }],
+  ])('rejects an ordinary v2 transition with %s', async (_label, mutate) => {
+    const state = await retainedOrdinaryV2TransitionFixture();
+    mutate(state);
+
+    await expect(state.service.head('space-1'))
+      .rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
   });
 
   it('accepts an initial v2 revision with a null parent', async () => {

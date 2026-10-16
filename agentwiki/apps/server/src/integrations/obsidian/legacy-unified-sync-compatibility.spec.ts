@@ -7,12 +7,15 @@ import {
   canonicalBytes,
   canonicalTreeRevisionManifestV2,
   contentHash,
+  pathKey,
   revisionContentHash,
   treeRevisionContentHashV2,
+  treeRevisionDeltaV2,
 } from '@neomei/agentwiki-sync-protocol';
 import { AuthorizationService } from '../../core/authorization/authorization.service';
 import { legacyBundleHash } from '../../core/sync/legacy-serializer';
 import { SpaceRevisionWriterService } from '../../core/sync/space-revision-writer.service';
+import { storedTreeDeltaRowsV2 } from '../../core/sync/revision-v2-integrity';
 import { SyncV3RevisionWriterService } from '../../core/sync/sync-v3-revision-writer.service';
 import type { AttachmentConfig } from '../../attachments/attachment.config';
 import { LocalAttachmentStorage } from '../../attachments/local-attachment.storage';
@@ -467,6 +470,117 @@ describe('legacy unified-knowledge compatibility', () => {
       await prisma.$disconnect();
       await storage.onModuleDestroy();
       await rm(storageRoot, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  dbIt('reads a normal v2 cutover after legacy retention without rewriting revision history', async () => {
+    const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+    const suffix = randomUUID().replaceAll('-', '');
+    const userId = `cutover_user_${suffix}`;
+    const spaceId = `cutover_space_${suffix}`;
+    const familyId = randomUUID();
+    const credentialId = randomUUID();
+    const principal = {
+      userId, credentialId, credentialFamilyId: familyId,
+      deviceId: randomUUID(), vaultId: randomUUID(), status: 'active' as const,
+      platformRole: 'user' as const,
+    };
+    const legacyId = `legacy_18_${suffix}`;
+    const firstV2Id = `v2_19_${suffix}`;
+    const headId = `v2_20_${suffix}`;
+    const bodyHashes: string[] = [];
+    try {
+      await prisma.user.create({ data: { id: userId, email: `${suffix}@cutover.test` } });
+      await prisma.space.create({ data: { id: spaceId, name: 'Ordinary cutover', slug: spaceId } });
+      await prisma.spaceMember.create({ data: { userId, spaceId, role: 'owner' } });
+      await prisma.humanDeviceCredentialFamily.create({ data: {
+        id: familyId, userId, deviceId: principal.deviceId, vaultId: principal.vaultId,
+      } });
+      await prisma.humanDeviceCredential.create({ data: {
+        id: credentialId, credentialFamilyId: familyId, userId,
+        deviceId: principal.deviceId, vaultId: principal.vaultId,
+        deviceName: 'Cutover fixture', credentialHash: `hash_${suffix}`,
+        status: 'active', activatedAt: new Date(),
+      } });
+      // Historical retention removed revisions 1..17 before the first normal
+      // Folder-aware publication. Its retained v1 predecessor has no v2 data.
+      await prisma.spaceKnowledgeRevision.create({ data: {
+        id: legacyId, spaceId, sequence: 18, parentRevisionId: `pruned_17_${suffix}`,
+        schemaVersion: 'knowledge-bundle@1', recipeVersion: 'none', origin: 'change_set',
+        contentHash: 'a'.repeat(64), revisionContentHash: 'b'.repeat(64),
+        pageCount: 0n, revisionBodyBytes: 0n, revisionManifestByteLength: 0n,
+      } });
+      let previous: ReturnType<typeof canonicalTreeRevisionManifestV2> | null = null;
+      for (const [index, revisionId] of [firstV2Id, headId].entries()) {
+        const body = `# Synthetic cutover ${suffix} / ${index}\n`;
+        const hash = await contentHash(body);
+        bodyHashes.push(hash);
+        const updatedAt = '2026-09-10T00:00:00.000Z';
+        const manifest = canonicalTreeRevisionManifestV2({
+          protocolVersion: '2', spaceId,
+          folders: [{ folderId: `folder_${suffix}`, parentFolderId: null, name: 'Docs',
+            path: 'pages/Docs', sortOrder: 0, updatedAt }],
+          pages: [{ pageId: `page_${suffix}`, folderId: `folder_${suffix}`,
+            path: 'pages/Docs/Page.md', title: 'Page', body, contentHash: hash, updatedAt }],
+        });
+        const revisionHash = await treeRevisionContentHashV2(manifest);
+        const manifestBytes = canonicalBytes(manifest).byteLength;
+        const bodyBytes = Buffer.byteLength(body);
+        const deltaRows = storedTreeDeltaRowsV2(treeRevisionDeltaV2(previous, manifest));
+        await prisma.spaceKnowledgeRevision.create({ data: {
+          id: revisionId, spaceId, sequence: 19 + index,
+          parentRevisionId: index === 0 ? legacyId : firstV2Id,
+          schemaVersion: 'content-tree@2', recipeVersion: 'space-folders-v1',
+          origin: 'web_editor', migrationBatchId: null,
+          contentHash: revisionHash, revisionContentHash: revisionHash, pageCount: 1n,
+          revisionManifestByteLength: BigInt(manifestBytes), revisionBodyBytes: BigInt(bodyBytes),
+        } });
+        await prisma.syncPageContentRow.create({ data: { contentHash: hash, body, byteLength: bodyBytes } });
+        await prisma.syncRevisionFolderRow.createMany({ data: manifest.folders.map((folder) => ({
+          revisionId, ...folder, pathKey: pathKey(folder.path), updatedAt: new Date(updatedAt),
+        })) });
+        await prisma.syncRevisionPageRow.createMany({ data: manifest.pages.map(({ body: _body, ...page }) => ({
+          revisionId, ...page, pathKey: pathKey(page.path), updatedAt: new Date(updatedAt),
+        })) });
+        await prisma.syncRevisionTreeDeltaRow.createMany({ data: deltaRows.map((row) => ({ revisionId, ...row })) });
+        await prisma.legacyRevisionSidecar.create({ data: { revisionId, sidecar: { spaceFolderMigration: {
+          v2Revision: {
+            protocolVersion: '2', manifestSchema: 'TreeRevisionContentManifestV2',
+            folderCount: '1', pageCount: '1', revisionContentHash: revisionHash,
+            revisionManifestByteLength: String(manifestBytes), revisionBodyBytes: String(bodyBytes),
+            treeDeltaCount: String(deltaRows.length),
+          },
+        } } } });
+        previous = manifest;
+      }
+      const markdown = new MarkdownResourceService(prisma as any, new AuthorizationService(prisma as any));
+      const v3Writer = new SyncV3RevisionWriterService(markdown, {} as LocalAttachmentStorage);
+      const cursors = new SyncCursorService({ get: () => 'cutover-test-pepper' } as any);
+      const capabilities = new SyncCapabilitiesService(prisma as any, v3Writer);
+      const v2Reader = new SyncV2RevisionService(
+        prisma as any, cursors, capabilities, v3Writer, new SyncV3ImmutableRevisionService(),
+      );
+      const v3Reader = new SyncV3RevisionService(prisma as any, cursors, capabilities, v3Writer);
+      const before = await prisma.spaceKnowledgeRevision.findMany({ where: { spaceId }, orderBy: { sequence: 'asc' } });
+
+      await expect(v2Reader.head(spaceId)).resolves.toMatchObject({ revision: headId, sequence: 20, pageCount: '1' });
+      await expect(v2Reader.snapshot(spaceId, firstV2Id)).resolves.toMatchObject({ revision: firstV2Id, sequence: 19 });
+      await expect(v2Reader.delta(spaceId, firstV2Id)).resolves.toMatchObject({ toRevision: headId });
+      await expect(v3Reader.listSpaces(principal)).resolves.toMatchObject({ spaces: [
+        expect.objectContaining({ spaceId, syncMode: 'legacy_v2', currentRevision: headId }),
+      ] });
+      expect(await prisma.spaceKnowledgeRevision.findMany({ where: { spaceId }, orderBy: { sequence: 'asc' } })).toEqual(before);
+      expect(await prisma.spaceRevisionChainCheckpoint.findUnique({ where: { spaceId } })).toBeNull();
+
+      await prisma.syncRevisionTreeDeltaRow.updateMany({
+        where: { revisionId: firstV2Id, ordinal: 0 }, data: { folderId: 'corrupt-folder' },
+      });
+      await expect(v2Reader.head(spaceId)).rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
+    } finally {
+      await prisma.space.deleteMany({ where: { id: spaceId } });
+      await prisma.user.deleteMany({ where: { id: userId } });
+      await prisma.syncPageContentRow.deleteMany({ where: { contentHash: { in: bodyHashes } } });
+      await prisma.$disconnect();
     }
   }, 60_000);
 });
