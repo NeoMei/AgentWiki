@@ -7,5 +7,7 @@ Web：协作中文/输入校验、编辑器目录、图谱关系删除入口、�
 插件：用户指出bug已另行修复，现以正式0.5.10 / 2df7cfa为准；本聊天旧独立候选已撤回，不再整合或交付。
 进度见 agentwiki/docs/verification/retest-feedback-20261016/progress.md。
 
+发布准备：用户要求继续修复后，已集成远端5c9d52cf的v0.12.44回执文档（c7dfce0d），准备Web/API 0.12.45；产品与测试相对07d6abc9未变，版本准备后build/typecheck通过。生产只读1345源码hash匹配v0.12.44、63迁移完成、三服务及health正常；备份方案就绪但未执行，尚未推送发布部署，等待独立发布审查。详见release-preparation.md。
+
 
 本轮完成：Web产品与回归07d6abc9，完整门禁7624通过/6既有跳过，独立整支审查PASS，未推送合并发布部署。正式插件0.5.10已核实发布与Mac归档恢复验收，并通过用户授权的Windows远程Session备份升级、核实三官方资产和原生启用版本；只读差异仍报“远端版本已过期”，具体失败请求未捕获，不定因。正文、连接与原控制文件保持，仅新增两个空tree-identities文件。黄金书屋原Vault尚未定位；旧组合候选845920be另有并发P2，撤回记录e3b1450。最终记录见status.md与official-plugin-windows.md。
