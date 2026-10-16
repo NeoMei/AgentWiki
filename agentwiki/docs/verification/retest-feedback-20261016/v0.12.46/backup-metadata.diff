@@ -1,0 +1,29 @@
+--- v0.12.45-backup-script
++++ v0.12.46-backup-script
+@@ -5,7 +5,7 @@
+ release_lock=open('/root/.agentwiki-deploy.lock','a')
+ fcntl.flock(release_lock,fcntl.LOCK_EX | fcntl.LOCK_NB)
+ ROOT=pathlib.Path('/root/agentwiki')
+-BACKUP=pathlib.Path(tempfile.mkdtemp(prefix='retest-feedback-v01245.', dir='/var/backups/agentwiki'))
++BACKUP=pathlib.Path(tempfile.mkdtemp(prefix='retest-feedback-v01246.', dir='/var/backups/agentwiki'))
+ LOG=BACKUP/'backup-command.log'
+ started=datetime.datetime.now(datetime.timezone.utc).isoformat()
+ def now(): return datetime.datetime.now(datetime.timezone.utc).isoformat()
+@@ -45,7 +45,7 @@
+ try:
+     progress('preflight')
+     app_version=json.loads((ROOT/'package.json').read_text())['version']
+-    assert app_version=='0.12.44', 'Unexpected production version; refusing mismatched backup'
++    assert app_version=='0.12.45', 'Unexpected production version; refusing mismatched backup'
+     service_before=services()
+     # Node parses dotenv syntax; values are captured only in this process and never emitted.
+     node="const fs=require('node:fs');const {parseEnv}=require('node:util');let e={};for(const p of process.argv.slice(1)){Object.assign(e,parseEnv(fs.readFileSync(p,'utf8')))}process.stdout.write(JSON.stringify(e));"
+@@ -155,7 +155,7 @@
+         if path.is_file(): path.chmod(0o600)
+     receipt={
+       'status':'verified','backupDirectory':str(BACKUP),'createdAt':started,'finishedAt':now(),
+-      'source':{'appVersion':app_version,'liveDirectory':str(ROOT),'sourceCommitFromPriorReleaseReceipt':'35f73159620feb8ac82a137cc64aed7928ab5717','sourceCommitIndependentlyVerifiedInThisBackup':False,'sourceFileCount':len(source_before),'sourceUnchangedDuringCopy':source_stable},
++      'source':{'appVersion':app_version,'liveDirectory':str(ROOT),'sourceCommitFromPriorReleaseReceipt':'a80746e680e3c971c99f73747ded0c7425376464','sourceCommitIndependentlyVerifiedInThisBackup':False,'sourceFileCount':len(source_before),'sourceUnchangedDuringCopy':source_stable},
+       'database':{'format':'pg_dump custom','startedAt':db_started,'finishedAt':db_finished,'pgRestoreListPassed':True,'tocEntryCount':len([line for line in toc_text.splitlines() if line and not line.startswith(';')]),'consistentDatabaseSnapshot':True},
+       'application':{'startedAt':app_started,'finishedAt':app_finished,'archiveListingPassed':True,'containsServerAndClientBuilds':True,'excludedDirectoryNames':sorted(exclusions),'excludedFilePatterns':['*.tar.gz']},
+       'configuration':{'rootEnvPresent':True,'serverEnvPresent':True,'serviceUnitCount':len(service_before),'archiveListingPassed':True},

@@ -4,6 +4,12 @@
 
 Web五项与 Windows 差异加载所暴露的服务端历史链兼容修复均已通过独立审查，最终整仓 7644 通过 / 6 既有跳过 / 0 失败，typecheck、lint、build 通过。0.12.45 已发布 GitHub 并部署生产；1351 个源码文件、编译后的服务端修复模块、公网入口资产、三服务、health 和32项业务smoke均已通过，见 deployment.json。Obsidian 原案和插件新修复独立验收，不交付旧已撤回候选。
 
+## 0.12.46 历史单页模板补修
+
+0.12.45真实回验发现 #2 仍未关闭，根因是旧个人/Space模板冻结版本的 definition/schemaVersion/definitionHash 全为null，目录的合法legacy转换此前没有在运行来源识别中覆盖。产品候选cfc1db6a补齐严格历史格式识别，真实生产只读候选DTO仅systemTemplateSource变化，未改正文、模板或运行。fresh独立审查PASS、独立144测试通过；最终整仓7653通过/6既有跳过/0失败、typecheck/lint/build均通过。0.12.46正在备份发布，原运行UI回验仍待上线后执行。证据单列于[v0.12.46目录](v0.12.46/release-preparation.md)，不覆盖0.12.45回执。
+
+0.12.45的 #12/#17/#19 已由主任务生产浏览器回验通过，#13常显入口通过独立只读回验，见[v0.12.46/production-ui-before-hotfix.md](v0.12.46/production-ui-before-hotfix.md)。Windows原NeoMei-Space的官方0.5.10只读回验确认版本过期错误已消失，显示Sync v2、本地0变化和服务器有更新；服务端变化数量未显示，未执行同步写入，正文与基线未变。
+
 ## 生产发布回执
 
 正式版本 [v0.12.45](https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.45) 对应 a80746e6，2026-10-16T06:26Z 部署完成。部署前应用/配置/DB/附件配套备份通过并恢复写服务；旧应用目录保留。1351个发布源码长度/SHA全部匹配，服务端历史链编译模块与最终本地build相同，公网5个入口资源hash匹配生产，主入口index-BwaLUeIQ.js。Web/client/API均0.12.45，三个systemd服务active，内外health五项ok，63个迁移均完成且无新迁移。公网32项业务smoke通过并完成专用fixture的API清理。

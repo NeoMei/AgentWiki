@@ -1,0 +1,73 @@
+{
+  "productCandidateCommit": "cfc1db6a58c7ab77c65d1b86648d2af564748209",
+  "previousReleaseCommit": "a80746e680e3c971c99f73747ded0c7425376464",
+  "versions": {
+    "web": "0.12.46",
+    "client": "0.12.46",
+    "api": "0.12.46",
+    "localSync": "0.13.0",
+    "protocol": "0.6.1"
+  },
+  "command": "pnpm test:full",
+  "exitCode": 0,
+  "passed": 7653,
+  "skipped": 6,
+  "failed": 0,
+  "groups": {
+    "runtime": {
+      "passed": 309,
+      "skipped": 1
+    },
+    "database": {
+      "passed": 239,
+      "skipped": 0
+    },
+    "server": {
+      "passed": 3310,
+      "skipped": 4
+    },
+    "client": {
+      "passed": 2657,
+      "skipped": 0
+    },
+    "protocol": {
+      "passed": 140,
+      "skipped": 0
+    },
+    "localSync": {
+      "passed": 998,
+      "skipped": 1
+    }
+  },
+  "typecheck": 0,
+  "lint": 0,
+  "build": 0,
+  "initialJavaScriptBytes": 548270,
+  "initialJavaScriptLimit": 550000,
+  "independentReview": {
+    "verdict": "PASS",
+    "fixedCommit": "cfc1db6a58c7ab77c65d1b86648d2af564748209",
+    "testSuites": 4,
+    "tests": 144,
+    "receipt": "independent-review.md"
+  },
+  "privateLogs": {
+    "full.log": {
+      "path": "/tmp/agentwiki-retest-release-v01246-20261016/full.log",
+      "sha256": "5009eb75d405caa2360e34335305e19d398ba3ab88acc874489d79d7279f6934"
+    },
+    "typecheck.log": {
+      "path": "/tmp/agentwiki-retest-release-v01246-20261016/typecheck.log",
+      "sha256": "d0a87d9e039ecf277453e5bf5e153e25986e53af6f6456b0f1c7a11ba35dc86d"
+    },
+    "lint.log": {
+      "path": "/tmp/agentwiki-retest-release-v01246-20261016/lint.log",
+      "sha256": "d5b17ee595fbfdae02af58fd347506b1d5a827a69c28da8385dc57ae52ef712d"
+    },
+    "build.log": {
+      "path": "/tmp/agentwiki-retest-release-v01246-20261016/build.log",
+      "sha256": "1be0bfddf8fdac909f2324b37d42f5de438fb566cb6b8387688c7891f3cfb837"
+    }
+  },
+  "productionOriginalRunAcceptance": "Pending after deployment; not inferred from unit tests or read-only candidate DTO probe"
+}
