@@ -1,8 +1,14 @@
-# 复测反馈第二轮修复候选
+# 复测反馈第二轮修复与发布
 
 报告： https://agentwiki.quukk.com/pages/4088516b-4f90-4803-aeb2-7ddc63a86c32 ，读取版本 2026-10-16T10:54:37.034Z。原报告其余14项保持用户“复测已修复”的结论。
 
-Web五项与 Windows 差异加载所暴露的服务端历史链兼容修复均已通过独立审查，最终整仓 7644 通过 / 6 既有跳过 / 0 失败，typecheck、lint、build 通过。正在执行 0.12.45 配套备份与生产发布；实际部署结果以 deployment.json 为准。Obsidian 原案和插件新修复独立验收，不交付旧已撤回候选。
+Web五项与 Windows 差异加载所暴露的服务端历史链兼容修复均已通过独立审查，最终整仓 7644 通过 / 6 既有跳过 / 0 失败，typecheck、lint、build 通过。0.12.45 已发布 GitHub 并部署生产；1351 个源码文件、编译后的服务端修复模块、公网入口资产、三服务、health 和32项业务smoke均已通过，见 deployment.json。Obsidian 原案和插件新修复独立验收，不交付旧已撤回候选。
+
+## 生产发布回执
+
+正式版本 [v0.12.45](https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.45) 对应 a80746e6，2026-10-16T06:26Z 部署完成。部署前应用/配置/DB/附件配套备份通过并恢复写服务；旧应用目录保留。1351个发布源码长度/SHA全部匹配，服务端历史链编译模块与最终本地build相同，公网5个入口资源hash匹配生产，主入口index-BwaLUeIQ.js。Web/client/API均0.12.45，三个systemd服务active，内外health五项ok，63个迁移均完成且无新迁移。公网32项业务smoke通过并完成专用fixture的API清理。
+
+此回执只证明生产发布与业务烟测；浏览器逐项和Windows原环境验收由主任务单独记录。
 
 ## 2026-10-16 发布阶段更新
 

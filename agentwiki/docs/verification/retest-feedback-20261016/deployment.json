@@ -1,0 +1,120 @@
+{
+  "version": "0.12.45",
+  "releaseCommit": "a80746e680e3c971c99f73747ded0c7425376464",
+  "productCandidateCommit": "021571863d78932174f7265b33f9ed169b3024a9",
+  "githubRelease": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.45",
+  "publishedAt": "2026-10-16T06:24:35Z",
+  "deployment": {
+    "exitCode": 0,
+    "completedBy": "2026-10-16T06:26:30Z",
+    "previousTree": "/root/agentwiki-previous-20261016142615",
+    "runtimePreflight": "OpenCode 1.18.12 passed",
+    "newDatabaseMigrations": 0
+  },
+  "backup": {
+    "status": "verified",
+    "directory": "/var/backups/agentwiki/retest-feedback-v01245.3q9wezps",
+    "createdAt": "2026-10-16T06:21:11.066711+00:00",
+    "finishedAt": "2026-10-16T06:21:31.410642+00:00",
+    "components": [
+      "application",
+      "configuration",
+      "database",
+      "attachments"
+    ],
+    "coordinatedWriterPause": true,
+    "writersStoppedStates": {
+      "agentwiki-api.service": "inactive/MainPID=0",
+      "agentwiki-worker.service": "inactive/MainPID=0"
+    },
+    "writerQuiesceStartedAt": "2026-10-16T06:21:23.692834+00:00",
+    "writersRestoredAt": "2026-10-16T06:21:30.754663+00:00",
+    "checksumsPassed": true,
+    "databaseTocEntries": 684,
+    "permanentAttachmentBlobs": 154,
+    "archiveMatchesPermanentBlobs": true,
+    "writersRestored": true,
+    "restoreDrillPerformed": false
+  },
+  "production": {
+    "verifiedAt": "2026-10-16T06:26:43.352694+00:00",
+    "revision": "a80746e680e3c971c99f73747ded0c7425376464",
+    "sourceFilesVerified": 1351,
+    "mismatches": [],
+    "versions": {
+      "web": "0.12.45",
+      "client": "0.12.45",
+      "api": "0.12.45",
+      "localSync": "0.13.0",
+      "protocol": "0.6.1"
+    },
+    "services": {
+      "agentwiki-api.service": "active",
+      "agentwiki-worker.service": "active",
+      "agentwiki-frontend.service": "active"
+    },
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryAssets": {
+      "/assets/index-BwaLUeIQ.js": "d6f7657e6945c041d8fb3478333342457fa14d1719083236821252c628491811",
+      "/assets/_commonjsHelpers-CqkleIqs.js": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+      "/assets/react-vendor-CTv3miC2.js": "7e3a4bf34c49700b5fad7403a908da66c35ca1ad3669d05d3356f1a5e9bae663",
+      "/assets/preload-helper-ckwbz45p.js": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+      "/assets/index-B3fqh6vi.css": "46d17c2afeb950ee850a82f754f6b1c4e983a4b3888397a8c72b063d28510d10"
+    }
+  },
+  "public": {
+    "verifiedAt": "2026-10-16T06:26:47.635363+00:00",
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "pageHttpStatus": 200,
+    "entryAssetsMatchProduction": [
+      "/assets/index-BwaLUeIQ.js",
+      "/assets/_commonjsHelpers-CqkleIqs.js",
+      "/assets/react-vendor-CTv3miC2.js",
+      "/assets/preload-helper-ckwbz45p.js",
+      "/assets/index-B3fqh6vi.css"
+    ]
+  },
+  "compiledServerModule": {
+    "path": "apps/server/dist/core/sync/revision-v2-integrity.js",
+    "sha256": "c37073cc429b92341ffb4a0cb829d015bfc8df1bb88dbaa5cd22b43e6fee719e",
+    "matchesFinalLocalBuild": true
+  },
+  "migrations": {
+    "expectedCount": 63,
+    "appliedCount": 63,
+    "pending": [],
+    "unresolved": []
+  },
+  "smoke": {
+    "status": "passed",
+    "checks": 32,
+    "exitCode": 0,
+    "target": "https://agentwiki.quukk.com/api",
+    "fixtureCleanup": "Dedicated smoke Agent, Space, and User cleanup completed through the existing API cleanup path; cleanup failures fail the command"
+  },
+  "releaseGates": "validation.json",
+  "npmPublicationRequired": false,
+  "browserAndWindowsAcceptance": "Performed separately after this production verification; no original-case acceptance inferred here",
+  "privateLogs": {
+    "deploy.log": {
+      "path": "/tmp/agentwiki-retest-release-20261016/deploy.log",
+      "sha256": "012fb23e144fd5f63179004d0d48b50ea45aca00da78c6224234f2eba937568f"
+    },
+    "smoke.log": {
+      "path": "/tmp/agentwiki-retest-release-20261016/smoke.log",
+      "sha256": "beeaaa2ea15b1bd4b00dc5f191f8aee75e4f3d4e76e8954b0ccc987e4efccff7"
+    }
+  }
+}
