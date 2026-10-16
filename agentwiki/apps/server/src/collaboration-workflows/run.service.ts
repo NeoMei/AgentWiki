@@ -25,7 +25,7 @@ import { withCollaborationSerializableRetry } from './serializable-retry';
 import { reviewerMemberIssues, rolesAtLeast } from './reviewer-members';
 import { RunExpansionService } from './run-expansion.service';
 import { assertCollaborationAgentGrantsExecutable } from './agent-readiness';
-import { parseCollaborationInputs } from './run-input-validation';
+import { parseCollaborationInputs, parseCollaborationRunName } from './run-input-validation';
 import { supersedeRunPagePublicationsLocked } from './page-publication-invalidation';
 import { canonicalPageContentHash } from './page-baseline';
 import { PageResultService } from './page-result.service';
@@ -121,7 +121,7 @@ const HUMAN_RUN_SELECT = {
   updatedAt: true,
   templateSnapshot: true,
   template: { select: { system: true, spaceId: true, slug: true } },
-  compositeTemplateVersion: { select: { template: { select: { scope: true, spaceId: true, stableKey: true } } } },
+  compositeTemplateVersion: { select: { definition: true, template: { select: { scope: true, spaceId: true, stableKey: true } } } },
   roleBindings: {
     select: { id: true, runId: true, roleSlotId: true, roleSlotName: true, agentId: true },
   },
@@ -173,6 +173,7 @@ export class RunService {
       const template = await this.loadTemplate(tx, spaceId, body.templateId);
       const definition = parseDefinition(template.definition);
       const inputs = parseCollaborationInputs(definition, body.inputs);
+      const name = parseCollaborationRunName(body.name);
       const bindings = this.normalizeBindings(definition, body.roleBindings, true);
       const run = await tx.collaborationRun.create({
         data: {
@@ -181,7 +182,7 @@ export class RunService {
           templateVersion: template.version,
           templateSnapshot: toJson({}),
           snapshotHash: hashJson({}),
-          name: body.name.trim(),
+          name,
           status: 'draft',
           version: 1,
           inputs: toJson(inputs),
@@ -210,6 +211,7 @@ export class RunService {
       const template = await this.loadLegacyRunTemplate(tx, spaceId, current);
       const definition = parseDefinition(template.definition);
       const inputs = body.inputs === undefined ? undefined : parseCollaborationInputs(definition, body.inputs);
+      const name = body.name === undefined ? undefined : parseCollaborationRunName(body.name);
       if (body.roleBindings) {
         const bindings = this.normalizeBindings(definition, body.roleBindings);
         await tx.collaborationRoleBinding.deleteMany({ where: { runId } });
@@ -221,7 +223,7 @@ export class RunService {
         where: { id: runId, spaceId, status: { in: ['draft', 'ready'] }, version: body.expectedVersion },
         data: {
           status: 'draft',
-          ...(body.name === undefined ? {} : { name: body.name.trim() }),
+          ...(name === undefined ? {} : { name }),
           ...(inputs === undefined ? {} : { inputs: toJson(inputs) }),
           version: { increment: 1 },
         },
@@ -1035,7 +1037,7 @@ export class RunService {
     const { templateSnapshot: _templateSnapshot, template, compositeTemplateVersion, sourceKind, ...publicRun } = run;
     const response = {
       ...publicRun,
-      systemTemplateSource: systemRunSource(template, compositeTemplateVersion?.template, sourceKind),
+      systemTemplateSource: systemRunSource(template, compositeTemplateVersion?.template, sourceKind, compositeTemplateVersion?.definition),
       tasks,
       reviews: reviewPreviews,
       events: newestEvents.reverse(),
@@ -1210,13 +1212,22 @@ function runSummary(run: any) {
   };
 }
 
-// Trust stored system ownership, never text equality or a copied Space template.
+// Trust stored system ownership or the frozen definition that generated a default workflow, never text equality.
 function systemRunSource(
   legacy: { system: boolean; spaceId: string | null; slug: string } | null | undefined,
   composite: { scope: string; spaceId: string | null; stableKey: string } | null | undefined,
   sourceKind?: string,
+  compositeDefinition?: unknown,
 ): { slug: string } | null {
   if (sourceKind === 'page_selection') return { slug: 'single-page' };
+  // Personal and Space single-page templates also use the generated workflow.
+  // Inspect their immutable version, not today's template or matching task text.
+  if (sourceKind === 'composite' && compositeDefinition && typeof compositeDefinition === 'object') {
+    const definition = compositeDefinition as Record<string, unknown>;
+    if (definition.kind === 'single_page' && definition.collaboration === undefined
+      && Array.isArray(definition.nodes) && definition.nodes.length === 1
+      && definition.nodes[0]?.kind === 'page') return { slug: 'single-page' };
+  }
   const slugs = new Set(['coding', 'bid-writing', 'paper-writing', 'video-script-writing', 'novel-writing']);
   if (legacy?.system && legacy.spaceId === null && slugs.has(legacy.slug)) return { slug: legacy.slug };
   // The built-in single-page catalog is stored as PageTemplates with stable

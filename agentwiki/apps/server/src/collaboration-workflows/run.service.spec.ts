@@ -151,6 +151,8 @@ describe('RunService', () => {
   it.each([
     ['unknown key', { objective: 'Ship feature', extra: 'not allowed' }],
     ['wrong type', { objective: 42 }],
+    ['empty required text', { objective: '' }],
+    ['whitespace required text', { objective: ' \t\n　' }],
     ['oversized UTF-8 value', { objective: '汉'.repeat(400_000) }],
   ])('rejects %s before creating a draft', async (_label, inputs) => {
     await expect(service.createDraft('space-1', {
@@ -164,6 +166,18 @@ describe('RunService', () => {
     await expect(service.updateDraft('space-1', 'run-1', {
       expectedVersion: 2, inputs: { objective: false },
     }, humanPrincipal)).rejects.toMatchObject({ businessCode: 'COLLABORATION_TEMPLATE_INVALID' });
+    expect(tx.collaborationRun.updateMany).not.toHaveBeenCalled();
+  });
+
+  it.each(['', ' \t\n　'])('rejects blank run names on create and update: %j', async (name) => {
+    await expect(service.createDraft('space-1', {
+      templateId: 'template-1', name, inputs: { objective: 'Ship' }, roleBindings: [],
+    }, humanPrincipal)).rejects.toMatchObject({ businessCode: 'COLLABORATION_TEMPLATE_INVALID' });
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    await expect(service.updateDraft('space-1', 'run-1', {
+      expectedVersion: 2, name,
+    }, humanPrincipal)).rejects.toMatchObject({ businessCode: 'COLLABORATION_TEMPLATE_INVALID' });
+    expect(tx.collaborationRun.create).not.toHaveBeenCalled();
     expect(tx.collaborationRun.updateMany).not.toHaveBeenCalled();
   });
 
@@ -684,6 +698,34 @@ describe('RunService', () => {
     }, args.select));
     const result = await service.getHumanRun('space-1', 'run-1', humanPrincipal);
     expect(result.systemTemplateSource).toEqual(expected);
+  });
+
+  it.each(['running', 'completed'])('recognizes generated personal single-page workflow in %s runs from the frozen version', async (status) => {
+    const run = { ...ready, status, sourceKind: 'composite', templateId: null, template: null,
+      compositeTemplateVersion: {
+        definition: { kind: 'single_page', nodes: [{ kind: 'page', nodeId: 'page' }] },
+        template: { scope: 'personal', spaceId: null, stableKey: 'my-template' },
+      }, tasks: [], roleBindings: bindings };
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) => projectSelect(run, args.select));
+    const result = await service.getHumanRun('space-1', 'run-1', humanPrincipal);
+    expect(result.systemTemplateSource).toEqual({ slug: 'single-page' });
+    expect(result).not.toHaveProperty('compositeTemplateVersion');
+  });
+
+  it.each([
+    { kind: 'single_page', nodes: [{ kind: 'page' }], collaboration: { workflow: definition } },
+    { kind: 'page_group', nodes: [{ kind: 'page' }] },
+    null,
+  ])('does not infer generated provenance for a custom or unknown frozen workflow', async (frozenDefinition) => {
+    tx.collaborationRun.findFirst.mockResolvedValue(ready);
+    tx.collaborationRun.findUnique.mockImplementationOnce(async (args: any) => projectSelect({
+      ...ready, sourceKind: 'composite', templateId: null, template: null,
+      compositeTemplateVersion: { definition: frozenDefinition,
+        template: { scope: 'personal', spaceId: null, stableKey: 'my-template' } },
+      tasks: [], roleBindings: bindings,
+    }, args.select));
+    expect((await service.getHumanRun('space-1', 'run-1', humanPrincipal)).systemTemplateSource).toBeNull();
   });
 
   it('marks page-selection Runs with a dedicated single-page provenance', async () => {

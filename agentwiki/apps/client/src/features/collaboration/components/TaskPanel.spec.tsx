@@ -38,6 +38,30 @@ describe('system collaboration task presentation', () => {
     expect(screen.getByText('1. 定义世界规则')).toBeVisible();
     expect(screen.getByText(/Define world rules$/)).toBeVisible();
   });
+  it.each([
+    ['zh-CN', 'running', '编写页面', '生成目标页面的完整 Markdown 内容', '编写目标页面'],
+    ['zh-CN', 'completed', '编写页面', '生成目标页面的完整 Markdown 内容', '编写目标页面'],
+    ['en', 'running', 'Write Page', 'Produce the complete Markdown content for the target Page', 'Write the target Page'],
+    ['en', 'completed', 'Write Page', 'Produce the complete Markdown content for the target Page', 'Write the target Page'],
+  ])('localizes generated personal single-page tasks in %s for %s runs without changing Agent names or stored text', (locale, status, name, goal, todo) => {
+    localStorage.setItem('agentwiki.language.v1', locale);
+    const value = { ...run, status, templateId: undefined, systemTemplateSource: { slug: 'single-page' }, tasks: [{
+      ...run.tasks![0], name: 'Write Page', objective: undefined,
+      objectivePreview: 'Produce the complete Markdown content for the target Page',
+      todos: [{ id: 'todo', name: 'Write the target Page', ordinal: 0, status: 'pending', required: true, generation: 1 }],
+    }] } as CollaborationRun;
+    const source = { ...template, slug: 'my-personal-page', system: false, spaceId: null };
+    const view = render(<LanguageProvider><Panel value={value} source={source} /></LanguageProvider>);
+    expect(screen.getByRole('heading', { name })).toBeVisible();
+    expect(screen.getByText(goal)).toBeVisible();
+    expect(screen.getByText(`1. ${todo}`)).toBeVisible();
+    expect(screen.getByText(/Define world rules \/ 自定义 Agent/)).toBeVisible();
+    expect(value.tasks![0].name).toBe('Write Page');
+    view.rerender(<LanguageProvider><Panel value={{ ...value, systemTemplateSource: null }} source={source} /></LanguageProvider>);
+    expect(screen.getByRole('heading', { name: 'Write Page' })).toBeVisible();
+    expect(screen.getByText('Produce the complete Markdown content for the target Page')).toBeVisible();
+    expect(screen.getByText('1. Write the target Page')).toBeVisible();
+  });
   it('does not translate copied/custom templates or edited prose', () => {
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
     const view = render(<LanguageProvider><Panel source={{ ...template, system: false }} /></LanguageProvider>);

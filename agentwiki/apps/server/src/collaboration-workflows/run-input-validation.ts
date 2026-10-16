@@ -40,8 +40,9 @@ export function inspectCollaborationInputs(
   }
   for (const input of definition.inputs) {
     const value = parsed.data[input.key];
-    if (input.required && value === undefined) {
+    if (input.required && (value === undefined || (typeof value === 'string' && !value.trim()))) {
       issues.push({ code: 'COLLABORATION_INPUT_REQUIRED', inputKey: input.key });
+      continue;
     }
     if (value === undefined) continue;
     if (input.type === 'number' && typeof value !== 'number') {
@@ -73,4 +74,10 @@ function isHttpsUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+export function parseCollaborationRunName(value: string): string {
+  const name = value.trim();
+  if (!name) throw new BusinessException('COLLABORATION_TEMPLATE_INVALID', 'Run name is required');
+  return name;
 }

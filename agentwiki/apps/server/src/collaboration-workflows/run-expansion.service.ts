@@ -19,7 +19,7 @@ import { CollaborationEventsService } from './collaboration-events.service';
 import { canonicalRequestHash, RunEventStore } from './run-event.store';
 import { withCollaborationSerializableRetry } from './serializable-retry';
 import { assertCollaborationAgentsReady } from './agent-readiness';
-import { parseCollaborationInputs } from './run-input-validation';
+import { parseCollaborationInputs, parseCollaborationRunName } from './run-input-validation';
 import { canonicalPageContentHash } from './page-baseline';
 
 type Tx = Prisma.TransactionClient;
@@ -74,7 +74,7 @@ export class RunExpansionService {
     const target = `${input.spaceId}:page-selection`;
     const requestHash = canonicalRequestHash({
       spaceId: input.spaceId,
-      name: input.name.trim(),
+      name: parseCollaborationRunName(input.name),
       pageIds: input.pageIds,
     });
     const receipt = await withCollaborationSerializableRetry(() => this.prisma.$transaction(async (tx) => {
@@ -183,7 +183,7 @@ export class RunExpansionService {
       templateVersion: input.source.templateVersion,
       templateSnapshot: toJson(snapshot),
       snapshotHash: hashCollaborationTemplate(snapshot),
-      name: input.name.trim(),
+      name: parseCollaborationRunName(input.name),
       status: 'running',
       version: 1,
       inputs: toJson(values),

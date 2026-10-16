@@ -80,6 +80,8 @@ export const RunStartWizard: React.FC = () => {
   const [step, setStep] = useState<Step>(1);
   const [runName, setRunName] = useState('');
   const [runNameError, setRunNameError] = useState(false);
+  const [inputErrors, setInputErrors] = useState<Record<string, string>>({});
+  const inputRefs = useRef<Record<string, HTMLInputElement | HTMLTextAreaElement | null>>({});
   const [restoreFailed, setRestoreFailed] = useState(false);
   const [newRunSequence, setNewRunSequence] = useState(0);
   const runNameRef = useRef<HTMLInputElement>(null);
@@ -144,6 +146,7 @@ export const RunStartWizard: React.FC = () => {
     setStep(1);
     setRunName('');
     setRunNameError(false);
+    setInputErrors({});
     setRestoreFailed(false);
     setInputValues({});
     setMappingState(emptyMappingState());
@@ -158,20 +161,28 @@ export const RunStartWizard: React.FC = () => {
 
   const validatedInputs = () => {
     if (!template || restoreFailed) return null;
-    if (!runName.trim()) {
-      setRunNameError(true);
-      runNameRef.current?.focus();
-      return null;
-    }
-    setRunNameError(false);
+    const missingName = !runName.trim();
+    const errors: Record<string, string> = Object.create(null);
     const normalized: Record<string, string | number | boolean> = {};
     for (const input of template.definition.inputs) {
-      const value = inputValues[input.key];
-      if (input.required && (value === undefined || value === '')) {
-        setToast({ kind: 'error', message: t('collaboration.wizard.requiredInputs') });
-        return null;
+      // An untouched required checkbox represents false, not missing input.
+      const value = inputValues[input.key] ?? (input.type === 'boolean' && input.required ? false : undefined);
+      if (input.required && (value === undefined || (typeof value === 'string' && !value.trim()))) {
+        errors[input.key] = 'collaboration.wizard.inputRequired';
+      } else if (value !== undefined && value !== '') {
+        normalized[input.key] = value;
       }
-      if (value !== undefined && value !== '') normalized[input.key] = value;
+    }
+    setRunNameError(missingName);
+    setInputErrors(errors);
+    if (missingName || Object.keys(errors).length > 0) {
+      setToast(null);
+      if (missingName) runNameRef.current?.focus();
+      else {
+        const firstInvalidInput = template.definition.inputs.find((input) => errors[input.key]);
+        if (firstInvalidInput) inputRefs.current[firstInvalidInput.key]?.focus();
+      }
+      return null;
     }
     const parsed = CollaborationInputValuesSchema.safeParse(normalized);
     if (!parsed.success) {
@@ -196,6 +207,7 @@ export const RunStartWizard: React.FC = () => {
     setStep(1);
     setRunName('');
     setRunNameError(false);
+    setInputErrors({});
     setRestoreFailed(false);
     setInputValues({});
     setMappingState(emptyMappingState());
@@ -709,7 +721,10 @@ export const RunStartWizard: React.FC = () => {
             <button type="button" disabled={submitting} onClick={beginNewRun} className="aw-run-start-button">{t('collaboration.wizard.newRun')}</button>
           </div> : null}
           <fieldset disabled={submitting || restoreFailed} className="aw-run-start-fields">
-            {!started && step === 1 ? <InputStep template={template} runName={runName} runNameRef={runNameRef} runNameError={runNameError} onRunName={(name) => { setRunName(name); setRunNameError(false); }} values={inputValues} onValues={setInputValues} t={t} /> : null}
+            {!started && step === 1 ? <InputStep template={template} runName={runName} runNameRef={runNameRef} runNameError={runNameError} onRunName={(name) => { setRunName(name); setRunNameError(false); }} values={inputValues} inputErrors={inputErrors} inputRefs={inputRefs} onValues={(values, key) => {
+              setInputValues(values);
+              setInputErrors((current) => { const next = { ...current }; delete next[key]; return next; });
+            }} t={t} /> : null}
             {!started && step === 2 ? (
               <section>
                 <h2 ref={mappingFocusFallbackRef} tabIndex={-1} className="aw-run-start-section-title">{t('collaboration.wizard.step2')}</h2>
@@ -802,7 +817,7 @@ export const RunStartWizard: React.FC = () => {
   );
 };
 
-const InputStep: React.FC<{ template: TemplateDetail; runName: string; runNameRef: React.RefObject<HTMLInputElement>; runNameError: boolean; onRunName: (name: string) => void; values: Record<string, string | number | boolean>; onValues: (values: Record<string, string | number | boolean>) => void; t: Translate }> = ({ template, runName, runNameRef, runNameError, onRunName, values, onValues, t }) => (
+const InputStep: React.FC<{ template: TemplateDetail; runName: string; runNameRef: React.RefObject<HTMLInputElement>; runNameError: boolean; onRunName: (name: string) => void; values: Record<string, string | number | boolean>; onValues: (values: Record<string, string | number | boolean>, key: string) => void; inputErrors: Record<string, string>; inputRefs: React.MutableRefObject<Record<string, HTMLInputElement | HTMLTextAreaElement | null>>; t: Translate }> = ({ template, runName, runNameRef, runNameError, onRunName, values, onValues, inputErrors, inputRefs, t }) => (
   <section>
     <h2 className="aw-run-start-section-title">{t('collaboration.wizard.step1')}</h2>
     <p className="aw-run-start-help">{t('collaboration.wizard.step1Help')}</p>
@@ -812,23 +827,41 @@ const InputStep: React.FC<{ template: TemplateDetail; runName: string; runNameRe
         <input ref={runNameRef} required aria-label={t('collaboration.wizard.runName')} aria-invalid={runNameError || undefined} aria-describedby={runNameError ? 'run-name-error' : undefined} value={runName} onChange={(event) => onRunName(event.target.value)} className="aw-run-start-input" />
         {runNameError ? <span id="run-name-error" role="alert" className="text-sm text-red-600">{t('collaboration.wizard.runNameRequired')}</span> : null}
       </label>
-      {template.definition.inputs.map((input) => <InputControl key={input.key} input={input} value={values[input.key]} onChange={(value) => onValues({ ...values, [input.key]: value })} />)}
+      {template.definition.inputs.map((input) => <InputControl key={input.key} input={input} value={values[input.key]} error={inputErrors[input.key] ? t(inputErrors[input.key]) : undefined} controlRef={(element) => { inputRefs.current[input.key] = element; }} onChange={(value) => onValues({ ...values, [input.key]: value }, input.key)} />)}
     </div>
   </section>
 );
 
-const InputControl: React.FC<{ input: TemplateDetail['definition']['inputs'][number]; value: string | number | boolean | undefined; onChange: (value: string | number | boolean) => void }> = ({ input, value, onChange }) => (
-  <label className={`aw-run-start-field${input.type === 'boolean' ? ' aw-run-start-field-checkbox' : ''}`}>
-    <span>{input.label}{input.required ? <span className="aw-run-start-required">*</span> : null}</span>
-    {input.type === 'long_text' ? (
-      <textarea aria-label={input.label} value={String(value ?? '')} onChange={(event) => onChange(event.target.value)} className="aw-run-start-input aw-run-start-textarea" />
-    ) : input.type === 'boolean' ? (
-      <input aria-label={input.label} type="checkbox" checked={value === true} onChange={(event) => onChange(event.target.checked)} />
-    ) : (
-      <input aria-label={input.label} type={input.type === 'number' ? 'number' : input.type === 'url' ? 'url' : 'text'} value={String(value ?? '')} onChange={(event) => onChange(input.type === 'number' && event.target.value !== '' ? Number(event.target.value) : event.target.value)} className="aw-run-start-input" />
-    )}
-  </label>
-);
+const InputControl: React.FC<{
+  input: TemplateDetail['definition']['inputs'][number];
+  value: string | number | boolean | undefined;
+  error?: string;
+  controlRef: (element: HTMLInputElement | HTMLTextAreaElement | null) => void;
+  onChange: (value: string | number | boolean) => void;
+}> = ({ input, value, error, controlRef, onChange }) => {
+  const errorId = `run-input-${input.key}-error`;
+  const accessibility = {
+    'aria-label': input.label,
+    'aria-invalid': error ? true as const : undefined,
+    'aria-describedby': error ? errorId : undefined,
+    'aria-required': input.required || undefined,
+  };
+  return (
+    <div className="aw-run-start-field">
+      <label className={`aw-run-start-field${input.type === 'boolean' ? ' aw-run-start-field-checkbox' : ''}`}>
+        <span>{input.label}{input.required ? <span className="aw-run-start-required">*</span> : null}</span>
+        {input.type === 'long_text' ? (
+          <textarea {...accessibility} ref={controlRef} required={input.required} value={String(value ?? '')} onChange={(event) => onChange(event.target.value)} className="aw-run-start-input aw-run-start-textarea" />
+        ) : input.type === 'boolean' ? (
+          <input {...accessibility} ref={controlRef} type="checkbox" checked={value === true} onChange={(event) => onChange(event.target.checked)} />
+        ) : (
+          <input {...accessibility} ref={controlRef} required={input.required} type={input.type === 'number' ? 'number' : input.type === 'url' ? 'url' : 'text'} value={String(value ?? '')} onChange={(event) => onChange(input.type === 'number' && event.target.value !== '' ? Number(event.target.value) : event.target.value)} className="aw-run-start-input" />
+        )}
+      </label>
+      {error ? <span id={errorId} role="alert" className="text-sm text-red-600">{error}</span> : null}
+    </div>
+  );
+};
 
 function localizedFlowDescription(template: TemplateDetail, t: Translate): string {
   if (!template.system || template.spaceId !== null) return template.description;

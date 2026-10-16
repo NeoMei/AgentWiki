@@ -1340,6 +1340,61 @@ describe('RunStartWizard', () => {
     expect(collaborationApi.updateRunDraft).not.toHaveBeenCalled();
   });
 
+  it.each(['en', 'zh-CN'] as const)('shows all required errors inline and focuses the first invalid field in %s', async (language) => {
+    vi.mocked(collaborationApi.getTemplate).mockResolvedValue({ ...template, definition: {
+      ...validDefinition,
+      inputs: [
+        { key: 'brief', label: 'Work brief', required: true, type: 'long_text' },
+        { key: '2', label: 'Scope', required: true, type: 'short_text' },
+        { key: 'optional', label: 'Optional', required: false, type: 'short_text' },
+      ],
+    } });
+    renderWizard({ language });
+    const name = await screen.findByLabelText(language === 'en' ? 'Run name' : '运行名称');
+    const brief = screen.getByLabelText('Work brief');
+    const scope = screen.getByLabelText('Scope');
+    fireEvent.change(brief, { target: { value: ' \t\n　' } });
+    fireEvent.click(screen.getByRole('button', { name: language === 'en' ? 'Next' : '下一页' }));
+    for (const control of [name, brief, scope]) {
+      expect(control).toHaveAttribute('aria-invalid', 'true');
+      const error = document.getElementById(control.getAttribute('aria-describedby')!);
+      expect(error).toBeVisible();
+      expect(error).toHaveAttribute('role', 'alert');
+    }
+    expect(name).toHaveFocus();
+    expect(screen.getByLabelText('Optional')).not.toHaveAttribute('aria-invalid');
+    expect(collaborationApi.createRunDraft).not.toHaveBeenCalled();
+    fireEvent.change(name, { target: { value: 'My run' } });
+    fireEvent.click(screen.getByRole('button', { name: language === 'en' ? 'Next' : '下一页' }));
+    expect(brief).toHaveFocus();
+    fireEvent.change(brief, { target: { value: ' User text ' } });
+    expect(brief).not.toHaveAttribute('aria-invalid');
+    expect(scope).toHaveAttribute('aria-invalid', 'true');
+    fireEvent.change(scope, { target: { value: 'Scope text' } });
+    fireEvent.click(screen.getByRole('button', { name: language === 'en' ? 'Next' : '下一页' }));
+    await waitFor(() => expect(collaborationApi.createRunDraft).toHaveBeenCalledWith('space-1', {
+      templateId: 'template-1', name: 'My run', inputs: { brief: ' User text ', '2': 'Scope text' }, roleBindings: [],
+    }));
+  });
+
+  it('accepts required zero and unchecked false while omitting untouched optional inputs', async () => {
+    vi.mocked(collaborationApi.getTemplate).mockResolvedValue({ ...template, definition: {
+      ...validDefinition,
+      inputs: [
+        { key: 'count', label: 'Count', required: true, type: 'number' },
+        { key: 'enabled', label: 'Enabled', required: true, type: 'boolean' },
+        { key: 'note', label: 'Note', required: false, type: 'short_text' },
+      ],
+    } });
+    renderWizard();
+    fireEvent.change(await screen.findByLabelText('Run name'), { target: { value: 'Zero run' } });
+    fireEvent.change(screen.getByLabelText('Count'), { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(collaborationApi.createRunDraft).toHaveBeenCalledWith('space-1', {
+      templateId: 'template-1', name: 'Zero run', inputs: { count: 0, enabled: false }, roleBindings: [],
+    }));
+  });
+
   it('keeps an emptied required number empty instead of silently converting it to zero', async () => {
     vi.mocked(collaborationApi.getTemplate).mockResolvedValue({
       ...template,
@@ -1357,7 +1412,7 @@ describe('RunStartWizard', () => {
     fireEvent.change(duration, { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
 
-    expect(await screen.findByText('Complete every required input.')).toBeVisible();
+    expect(await screen.findByText('Complete this required input.')).toBeVisible();
     expect(collaborationApi.createRunDraft).not.toHaveBeenCalled();
   });
 

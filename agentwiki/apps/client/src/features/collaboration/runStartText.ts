@@ -3,6 +3,7 @@ import type { Language } from '../../i18n/messages';
 const messages: Record<Language, Record<string, string>> = {
   en: {
     'collaboration.wizard.runNameRequired': 'Enter a run name.',
+    'collaboration.wizard.inputRequired': 'Complete this required input.',
     'collaboration.wizard.newRun': 'Start a new run',
     'collaboration.wizard.newRunHelp': 'Your existing run remains available in Active runs or History.',
     'collaboration.wizard.currentStatus': 'Current status: {status}',
@@ -11,6 +12,7 @@ const messages: Record<Language, Record<string, string>> = {
   },
   'zh-CN': {
     'collaboration.wizard.runNameRequired': '请填写运行名称。',
+    'collaboration.wizard.inputRequired': '请填写此必填项。',
     'collaboration.wizard.newRun': '开始新运行',
     'collaboration.wizard.newRunHelp': '现有运行仍可在进行中的协作或历史记录中查看。',
     'collaboration.wizard.currentStatus': '当前状态：{status}',
