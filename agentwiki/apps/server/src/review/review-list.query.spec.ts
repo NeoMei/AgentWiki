@@ -10,7 +10,19 @@ describe('review list query validation', () => {
     { pageSize: '101' }, { pageSize: 'NaN' }, { status: 'draft' }, { q: 'x'.repeat(201) },
     { q: ['first', 'second'] }, { spaceId: ['one', 'two'] }, { from: 'yesterday' },
     { from: '2026-10-15T00:00:00Z', to: '2026-10-14T00:00:00Z' },
+    { from: '2026-10-14T00:00:00' }, { to: '2026-10-15T00:00:00' },
+    { from: '2026-02-30T00:00:00Z' }, { to: '2025-02-29T00:00:00+08:00' },
+    { from: '2026-10-14T00:00:00+25:00' },
+    { from: '2026-10-14T08:00:00+08:00', to: '2026-10-14T00:00:00Z' },
   ])('rejects malformed or oversized query %j', query => {
     expect(() => parseReviewListQuery(query)).toThrow();
+  });
+
+  it.each([
+    { from: '2026-10-14T00:00:00+08:00' },
+    { to: '2026-03-09T00:00:00-04:00' },
+    { from: '2024-02-29T00:00:00.000Z', to: '2024-03-01T00:00:00.000Z' },
+  ])('accepts explicit instants, including one-sided bounds %j', query => {
+    expect(parseReviewListQuery(query)).toMatchObject(query);
   });
 });

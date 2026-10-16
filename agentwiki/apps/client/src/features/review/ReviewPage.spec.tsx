@@ -207,6 +207,30 @@ describe('ReviewPage detail refresh', () => {
     await waitFor(() => expect(api.get).toHaveBeenLastCalledWith('/review', expect.objectContaining({ params: expect.objectContaining({ spaceId: 'space-1', status: 'published', page: 1, q: 'Release' }) })));
   });
 
+  it.each([
+    { zone: 'Asia/Shanghai', day: '2026-10-14', from: '2026-10-13T16:00:00.000Z', to: '2026-10-14T16:00:00.000Z' },
+    { zone: 'UTC', day: '2026-10-14', from: '2026-10-14T00:00:00.000Z', to: '2026-10-15T00:00:00.000Z' },
+    { zone: 'America/New_York', day: '2026-03-08', from: '2026-03-08T05:00:00.000Z', to: '2026-03-09T04:00:00.000Z' },
+    { zone: 'America/New_York', day: '2026-11-01', from: '2026-11-01T04:00:00.000Z', to: '2026-11-02T05:00:00.000Z' },
+  ].flatMap(calendar => ['both', 'from', 'to'].map(bound => ({ ...calendar, bound }))))(
+    'sends local calendar bounds for $day in $zone ($bound), including DST changes', async ({ zone, day, from, to, bound }) => {
+      vi.stubEnv('TZ', zone);
+      try {
+        vi.mocked(api.get).mockResolvedValue({ data: { items: [], total: 0, spaces: [] } });
+        renderReview();
+        await waitFor(() => expect(api.get).toHaveBeenCalledOnce());
+        if (bound !== 'to') fireEvent.change(screen.getByLabelText('Submitted from'), { target: { value: day } });
+        if (bound !== 'from') fireEvent.change(screen.getByLabelText('Submitted through'), { target: { value: day } });
+        fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+        await waitFor(() => expect(api.get).toHaveBeenLastCalledWith('/review', expect.objectContaining({
+          params: expect.objectContaining({ from: bound === 'to' ? undefined : from, to: bound === 'from' ? undefined : to, page: 1 }),
+        })));
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
+
   it('discards an old page response when a new history search completes first', async () => {
     const oldPage = deferred<any>();
     vi.mocked(api.get).mockImplementation(async (_url, config) => {

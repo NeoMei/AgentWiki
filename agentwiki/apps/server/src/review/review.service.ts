@@ -197,8 +197,11 @@ export class ReviewService {
     if (!spaceIds.length) return { items: [], total: 0, page: query.page, pageSize: query.pageSize, spaces };
     const filters = [Prisma.sql`c."spaceId" IN (${Prisma.join(spaceIds)})`,
       Prisma.sql`c.status IN (${Prisma.join(query.status ? [query.status] : [...REVIEW_STATUSES])})`];
-    if (query.from) filters.push(Prisma.sql`c."createdAt" >= ${new Date(query.from)}`);
-    if (query.to) filters.push(Prisma.sql`c."createdAt" < ${new Date(query.to)}`);
+    // Prisma stores createdAt as a UTC timestamp without timezone, but binds raw
+    // Date parameters as timestamptz. Compare UTC timestamps explicitly so the
+    // database session timezone cannot shift the user's half-open date range.
+    if (query.from) filters.push(Prisma.sql`c."createdAt" >= (${new Date(query.from)}::timestamptz AT TIME ZONE 'UTC')`);
+    if (query.to) filters.push(Prisma.sql`c."createdAt" < (${new Date(query.to)}::timestamptz AT TIME ZONE 'UTC')`);
     if (query.q) {
       const pattern = `%${query.q.replace(/[\\%_]/g, '\\$&')}%`;
       filters.push(Prisma.sql`(c.title ILIKE ${pattern} OR c.id ILIKE ${pattern}

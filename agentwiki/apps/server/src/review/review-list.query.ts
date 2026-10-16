@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { isISO8601 } from 'class-validator';
 
 export const REVIEW_STATUSES = ['pending_review', 'approved', 'published', 'rejected', 'reverted'] as const;
 export interface ReviewListQuery {
@@ -6,7 +7,9 @@ export interface ReviewListQuery {
   pageSize: number;
   q?: string;
   status?: string;
+  /** Inclusive instant with an explicit timezone; the client resolves its local calendar day. */
   from?: string;
+  /** Exclusive instant with an explicit timezone, usually the next local day's midnight. */
   to?: string;
 }
 
@@ -24,7 +27,10 @@ export function parseReviewListQuery(query: Record<string, unknown>): ReviewList
   if (q && q.length > 200) throw new BadRequestException('Search is too long');
   if (status && !REVIEW_STATUSES.includes(status as any)) throw new BadRequestException('Invalid review status');
   for (const date of [from, to]) {
-    if (date && (!/^\d{4}-\d{2}-\d{2}T/.test(date) || !Number.isFinite(Date.parse(date)))) throw new BadRequestException('Invalid review date');
+    if (date && (!/^\d{4}-\d{2}-\d{2}T/.test(date) || !/(Z|[+-]\d{2}:\d{2})$/.test(date)
+      || !isISO8601(date, { strict: true, strictSeparator: true }) || !Number.isFinite(Date.parse(date)))) {
+      throw new BadRequestException('Invalid review date');
+    }
   }
   if (from && to && Date.parse(from) >= Date.parse(to)) throw new BadRequestException('Invalid review date range');
   return { page: number('page', 1, 1000000), pageSize: number('pageSize', 25, 100), q: q?.trim(), status, from, to };
