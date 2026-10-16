@@ -1,0 +1,138 @@
+{
+  "version": "0.12.44",
+  "releaseCommit": "35f73159620feb8ac82a137cc64aed7928ab5717",
+  "githubRelease": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.44",
+  "deployment": {
+    "exitCode": 0,
+    "previousTree": "/root/agentwiki-previous-20261016020939"
+  },
+  "backup": {
+    "status": "verified",
+    "directory": "/var/backups/agentwiki/breadcrumb-alignment-v01244.eihmrzqs",
+    "components": [
+      "application",
+      "configuration",
+      "database",
+      "attachments"
+    ],
+    "coordinatedWriterPause": true,
+    "checksumsPassed": true,
+    "databaseTocEntries": 684,
+    "permanentAttachmentBlobs": 142,
+    "archiveMatchesPermanentBlobs": true,
+    "writersRestored": true
+  },
+  "production": {
+    "verifiedAt": "2026-10-15T18:10:15.408742+00:00",
+    "revision": "35f73159620feb8ac82a137cc64aed7928ab5717",
+    "sourceFilesVerified": 1345,
+    "mismatches": [],
+    "versions": {
+      "web": "0.12.44",
+      "client": "0.12.44",
+      "api": "0.12.44",
+      "localSync": "0.13.0",
+      "protocol": "0.6.1"
+    },
+    "services": {
+      "agentwiki-api.service": "active",
+      "agentwiki-worker.service": "active",
+      "agentwiki-frontend.service": "active"
+    },
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryAssets": {
+      "/assets/index-DohJ8yzG.js": "8ce074c492d4f0469b3db16b5e35f5c4b5b7edc82c12fc3493825a941183658c",
+      "/assets/_commonjsHelpers-CqkleIqs.js": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+      "/assets/react-vendor-CTv3miC2.js": "7e3a4bf34c49700b5fad7403a908da66c35ca1ad3669d05d3356f1a5e9bae663",
+      "/assets/preload-helper-ckwbz45p.js": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+      "/assets/index-B3fqh6vi.css": "46d17c2afeb950ee850a82f754f6b1c4e983a4b3888397a8c72b063d28510d10"
+    }
+  },
+  "public": {
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryAssetsMatchProduction": [
+      "/assets/index-DohJ8yzG.js",
+      "/assets/_commonjsHelpers-CqkleIqs.js",
+      "/assets/react-vendor-CTv3miC2.js",
+      "/assets/preload-helper-ckwbz45p.js",
+      "/assets/index-B3fqh6vi.css"
+    ],
+    "pageHttpStatus": 200
+  },
+  "stableAuthorizationFields": {
+    "match": true,
+    "beforeVersion": "0.12.43",
+    "afterVersion": "0.12.44",
+    "counts": {
+      "credentials": 90,
+      "grants": 502,
+      "agents": 820,
+      "spacePolicies": 1485
+    },
+    "comparisonBeforeSmoke": true
+  },
+  "smoke": {
+    "status": "passed",
+    "checks": 32,
+    "exitCode": 0
+  },
+  "browser": {
+    "environment": "production signed-in Chrome, original project, article and folder from report plus Pages root",
+    "readOnly": true,
+    "desktopWidth": 1710,
+    "mobileWidth": 390,
+    "states": 6,
+    "desktopToolbarHeight": 49,
+    "desktopTextTop": 128,
+    "desktopTextPositionOffsets": {
+      "article": {
+        "horizontal": 0,
+        "vertical": 0
+      },
+      "folder": {
+        "horizontal": 0,
+        "vertical": 0
+      },
+      "pagesRoot": {
+        "horizontal": 0,
+        "vertical": 0
+      }
+    },
+    "mobileToolbarHeight": 89,
+    "mobileTextTop": 227,
+    "mobileTextPositionOffsets": {
+      "article": {
+        "horizontal": 0,
+        "vertical": 0
+      },
+      "folder": {
+        "horizontal": 0,
+        "vertical": 0
+      },
+      "pagesRoot": {
+        "horizontal": 0,
+        "vertical": 0
+      }
+    },
+    "horizontalOverflow": false,
+    "consoleWarningsOrErrors": 0,
+    "viewportOverrideReset": true,
+    "entryAsset": "https://agentwiki.quukk.com/assets/index-DohJ8yzG.js",
+    "comparisonMethod": "Same viewport and document scroll position; desktop folder verified by native accessibility click on the visible directory item",
+    "evidencePrivacy": "Original route identifiers and screenshots retained locally; excluded from public receipt"
+  },
+  "releaseGates": "release-gates.json",
+  "npmPublicationRequired": false
+}

@@ -31,7 +31,7 @@
 - agentwiki/docs/verification/retest-feedback-20261016/{status,progress,browser-acceptance,final-web-review,official-plugin-windows}.md
 - Web工作树：/Users/neomei/.codex/worktrees/retest-feedback-20261016/AgentWiki （尾空格）。
 - 插件工作树：/Users/neomei/项目/codexprojects/AgentWiki-Obsidian/.worktrees/retest-baseline-20261016。
-- 最近已保存发布回执：agentwiki/docs/verification/directory-header-20261016/deployment.json、toolbar-height-20261016/deployment.json、menu-header-20261016/deployment.json。
+- 最近已保存发布回执：agentwiki/docs/verification/breadcrumb-alignment-20261016/deployment.json（v0.12.44 / 35f73159）、directory-header-20261016/deployment.json、toolbar-height-20261016/deployment.json、menu-header-20261016/deployment.json。
 - 原报告：https://agentwiki.quukk.com/pages/4088516b-4f90-4803-aeb2-7ddc63a86c32。
 
 # 风险 / 下一步
