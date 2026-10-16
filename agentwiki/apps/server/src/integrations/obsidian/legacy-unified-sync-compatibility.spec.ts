@@ -577,10 +577,20 @@ describe('legacy unified-knowledge compatibility', () => {
       });
       await expect(v2Reader.head(spaceId)).rejects.toMatchObject({ syncCode: 'REVISION_GONE' });
     } finally {
-      await prisma.space.deleteMany({ where: { id: spaceId } });
-      await prisma.user.deleteMany({ where: { id: userId } });
-      await prisma.syncPageContentRow.deleteMany({ where: { contentHash: { in: bodyHashes } } });
-      await prisma.$disconnect();
+      try {
+        const revisionIds = [legacyId, firstV2Id, headId];
+        await prisma.$transaction([
+          prisma.syncRevisionPageRow.deleteMany({ where: { revisionId: { in: revisionIds } } }),
+          prisma.syncRevisionFolderRow.deleteMany({ where: { revisionId: { in: revisionIds } } }),
+          prisma.syncRevisionTreeDeltaRow.deleteMany({ where: { revisionId: { in: revisionIds } } }),
+          prisma.legacyRevisionSidecar.deleteMany({ where: { revisionId: { in: revisionIds } } }),
+          prisma.space.deleteMany({ where: { id: spaceId } }),
+          prisma.user.deleteMany({ where: { id: userId } }),
+          prisma.syncPageContentRow.deleteMany({ where: { contentHash: { in: bodyHashes } } }),
+        ]);
+      } finally {
+        await prisma.$disconnect();
+      }
     }
   }, 60_000);
 });
