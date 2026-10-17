@@ -1,0 +1,45 @@
+{
+  "status": "published_registry_and_clean_install_verified",
+  "package": "@neomei/agentwiki-local-sync",
+  "version": "0.13.1",
+  "registry": "https://registry.npmjs.org/",
+  "candidateSourceCommit": "98dcfe7ab389eb0a4adba35bcdcac75e439964e5",
+  "verifiedAt": "2026-10-17T09:20:14.026294+00:00",
+  "registryVersion": "0.13.1",
+  "distTags": {
+    "latest": "0.13.1"
+  },
+  "publishedAt": "2026-10-17T09:19:54.785Z",
+  "dist": {
+    "shasum": "d9191fe6fe9b23dd1a92e5322f8662397feb9028",
+    "tarball": "https://registry.npmjs.org/@neomei/agentwiki-local-sync/-/agentwiki-local-sync-0.13.1.tgz",
+    "fileCount": 171,
+    "integrity": "sha512-TcD3PTX2K3vprrZtlAwEBoR8or29UGmZ43E6/8U9hi8ld7sGlcnEmONwNNg6LYzrBQOPAuc7zZKP5hBDMK70jw==",
+    "signatures": [
+      {
+        "sig": "MEUCIHSrgYMBdb6IGdOaYm0NTsTJgdT5ujdH7lvytfnvvWySAiEAzZrGheqBBzPkIv9vbq5kKRrxPI5gVy9L8r53lI5FD1E=",
+        "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U"
+      },
+      {
+        "sig": "MEYCIQD6WjfYWbks1+RQlcMcMBftEJd2w1dDrELPs00bkjvLmgIhAPCxuUJkIVdRIcC0RffO1zW3Hm/aak5QFMPyrueCekK8",
+        "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U"
+      }
+    ],
+    "unpackedSize": 935968
+  },
+  "sha256": "9e0ded6ca35d53755e2dddae5f8140e35b5d5087525ee17c9fd446ec246ac9f2",
+  "integrity": "sha512-TcD3PTX2K3vprrZtlAwEBoR8or29UGmZ43E6/8U9hi8ld7sGlcnEmONwNNg6LYzrBQOPAuc7zZKP5hBDMK70jw==",
+  "tarballByteEqualToCandidate": true,
+  "tarballFileCount": 171,
+  "allTarballFilesMatchCandidate": true,
+  "cleanInstall": {
+    "command": "npm install --prefix <empty-dir> --cache <empty-cache> --registry=https://registry.npmjs.org/ --prefer-online --ignore-scripts --no-audit --no-fund @neomei/agentwiki-local-sync@0.13.1",
+    "exitCode": 0,
+    "startedWithEmptyDirectoryAndCache": true,
+    "installedFileCount": 171,
+    "allInstalledFilesMatchCandidate": true,
+    "protocolVersion": "0.6.1",
+    "cliHelpExitCode": 0,
+    "pageUpdateSchemaPresent": true
+  }
+}

@@ -1,8 +1,8 @@
 {
   "date": "2026-10-17",
-  "stage": "github_published_npm_auth_required_production_not_deployed",
+  "stage": "published_deployed_production_verified_feedback_published",
   "base": "1fa3bf7e",
-  "webVersion": "0.12.46",
+  "webVersion": "0.12.47",
   "commits": [
     "915d58f4",
     "cbee4b19",
@@ -63,6 +63,37 @@
       "passed": 102,
       "independentReviewPassed": 113,
       "typecheckLintBuildBundle": "passed"
+    },
+    "releaseFull": {
+      "fullExit": 0,
+      "fullSourceCommit": "a192d775ab7c7eda27b1969d46b495a03d212dc0",
+      "build": "passed",
+      "typecheck": "passed",
+      "lint": "passed",
+      "independentReview": "no_open_P1_P2",
+      "server": {
+        "passed": 3318,
+        "skipped": 4
+      },
+      "client": {
+        "passed": 2659
+      },
+      "protocol": {
+        "passed": 140
+      },
+      "localSync": {
+        "passed": 1018,
+        "skipped": 1
+      },
+      "runtime": {
+        "passed": 309,
+        "skipped": 1
+      },
+      "serialDatabase": {
+        "passed": 239,
+        "skipped": 0
+      },
+      "firstAttemptFailure": "Outer GIT_WORK_TREE inherited by fixture git init; cleared Git environment and full rerun passed; no product code change"
     }
   },
   "candidateAcceptance": {
@@ -77,8 +108,8 @@
       "halfOpenBounds": "passed"
     },
     "sourceRunsNavigation": "passed_fixture",
-    "fullProductionShell": "pending",
-    "narrowViewport": "pending",
+    "fullProductionShell": "passed_production_0.12.47",
+    "narrowViewport": "passed_390px",
     "pluginNative": "isolated_Mac_real_modal_retry_export_failure_ordinary_network_published_local_unconfirmed_passed",
     "sentinelSha256": "da755d4292e8411bd1111f3544b87220b6aea79811d5acf4e7d3b29defa3ea3d"
   },
@@ -97,18 +128,39 @@
     "item4": "production_edit_interaction_passed_no_save",
     "item5": "production_validation_passed_no_run_created",
     "item6Date": "production_10_14_53_rows_3_pages_and_10_15_5_rows_passed",
-    "item6Sort": "production_still_failing_not_deployed",
+    "item6Sort": "production_53_rows_3_pages_3_statuses_global_descending_passed",
     "windowsPlugin": "pending",
     "goldenBookWrapperError": "not_reproduced"
   },
   "release": {
     "pushed": true,
-    "published": "GitHub Web 0.12.47 and plugin 0.5.12 only; npm pending security key",
-    "deployed": false,
+    "published": true,
+    "deployed": true,
     "dailyPluginUpgraded": false,
     "originalFeedbackReply": "published_autoPublished_exact_readback_and_browser_render_8_sections",
     "currentReleaseReceipt": "release.json",
-    "originalFeedbackReleaseProgress": "cmvbwqnjz00bjrinsnvx39hrd published autoPublished exact readback and rendered"
+    "originalFeedbackReleaseProgress": "historical cmvbwqnjz00bjrinsnvx39hrd",
+    "finalOriginalFeedback": {
+      "changeSetId": "cmvc730wt00albu4scw93k18c",
+      "status": "published",
+      "autoPublished": true,
+      "updatedAt": "2026-10-17T09:29:15.171Z",
+      "contentLength": 14359,
+      "contentSha256": "42df07a38a7029b18c162f26b2f30db4843230248b753799910d7bd7c3cc48d4",
+      "exactContentReadback": true,
+      "independentMcpReadback": true,
+      "preserved": {
+        "title": true,
+        "format": true,
+        "folderId": true
+      },
+      "browserRendered": true,
+      "perItemFinalReleaseResults": 8,
+      "previousProgressChangeSet": "cmvbwqnjz00bjrinsnvx39hrd",
+      "gatewayVersion": "0.13.1",
+      "argumentStyle": "top_level_named_fields"
+    },
+    "currentConfiguredCodexGateway": "0.13.0_not_modified"
   },
   "pluginCommits": [
     "da22f21",

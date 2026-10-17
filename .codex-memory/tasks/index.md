@@ -4,7 +4,6 @@
 
 ## 活跃任务
 
-- [retest-20261017](active/retest-20261017/brief.md)：Web0.12.47 GitHub和插件0.5.12已正式发布；npm0.13.1待本人安全密钥认证、生产未部署。全量及备份通过，原页逐项发布进度已回读；原Windows待验。
 
 
 - [release-v01226-20261014](active/release-v01226-20261014/brief.md)：用户授权全量发布；最终门禁、配套备份及0.12.26/0.13.0版本准备进行中。
@@ -21,6 +20,8 @@
 - [q3-regressions-20260914](archive/q3-regressions-20260914/brief.md)：Q3人工报告20项代码修复、整分支独立复审与候选验收完成；未发布部署或安装日常Vault。
 
 ## 最近完成
+
+- [retest-20261017](archive/retest-20261017/brief.md)：Web0.12.47生产、npm0.13.1与插件0.5.12正式发布；官方包/资产、1354源码/5公网资源/32烟测、真实日期排序/导航/390px及新SDK顶层原页published回读通过。Windows待验，日常Vault和当前Codex0.13.0配置保留。
 
 - [retest-feedback-20261016](archive/retest-feedback-20261016/brief.md)：Web0.12.46五项生产回验通过；插件0.5.11正式发布并升级真实Windows Vault，两映射只读通过、113正文/配置/映射/基线不变；黄金书屋只读权限与24本地差异保留。
 

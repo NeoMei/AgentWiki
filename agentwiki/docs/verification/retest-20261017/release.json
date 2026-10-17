@@ -1,6 +1,6 @@
 {
-  "recordedAt": "2026-10-17T04:40:00Z",
-  "status": "github_published_npm_auth_required_production_not_deployed",
+  "recordedAt": "2026-10-17T09:31:42.283562+00:00",
+  "status": "published_deployed_production_verified_feedback_published",
   "authorization": "User explicitly requested 发布",
   "web": {
     "version": "0.12.47",
@@ -9,20 +9,27 @@
     "tag": "v0.12.47",
     "url": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.47",
     "published": true,
-    "productionDeployed": false
+    "productionDeployed": true
   },
   "localSync": {
     "version": "0.13.1",
     "packageSourceCommit": "98dcfe7ab389eb0a4adba35bcdcac75e439964e5",
     "packageTreeUnchangedAtReleaseHead": true,
-    "published": false,
-    "reason": "npm requires account security-key authentication; first web challenge expired",
+    "published": true,
     "packageSha256": "9e0ded6ca35d53755e2dddae5f8140e35b5d5087525ee17c9fd446ec246ac9f2",
     "integrity": "sha512-TcD3PTX2K3vprrZtlAwEBoR8or29UGmZ43E6/8U9hi8ld7sGlcnEmONwNNg6LYzrBQOPAuc7zZKP5hBDMK70jw==",
     "files": 171,
     "bytes": 192411,
     "cleanInstallLocalAndRegistryProtocol": "passed",
-    "productionTopLevelSdkVerification": "pending"
+    "productionTopLevelSdkVerification": "passed_published_exact_readback",
+    "publishedAt": "2026-10-17T09:19:54.785Z",
+    "latest": "0.13.1",
+    "registry": "https://registry.npmjs.org/",
+    "officialTarballByteEqual": true,
+    "installedFileCount": 171,
+    "allInstalledFilesMatch": true,
+    "currentConfiguredCodexGateway": "0.13.0_not_modified",
+    "verificationRuntime": "official_0.13.1_clean_install_using_existing_connection_identity"
   },
   "plugin": {
     "version": "0.5.12",
@@ -65,38 +72,142 @@
     "firstAttemptFailure": "Outer GIT_WORK_TREE inherited by fixture git init; cleared Git environment and full rerun passed; no product code change"
   },
   "production": {
-    "version": "0.12.46",
-    "services": "3_active",
+    "version": "0.12.47",
+    "services": {
+      "agentwiki-api.service": "active",
+      "agentwiki-worker.service": "active",
+      "agentwiki-frontend.service": "active"
+    },
     "sourceFilesVerifiedBeforeRelease": 1351,
     "newManifestFiles": 1354,
-    "backupDirectory": "/var/backups/agentwiki/retest-feedback-v01247.cb1ekxak",
+    "backupDirectory": "/var/backups/agentwiki/retest-feedback-v01247.xgdw975j",
     "backupChecksumsPassed": true,
     "pairedDatabaseAppConfigurationAttachments": true,
     "writersRestored": true,
     "restoreDrill": false,
-    "postDeployBrowserAndSmoke": "pending"
+    "postDeployBrowserAndSmoke": "passed",
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "sourceFilesVerified": 1354,
+    "sourceMismatches": [],
+    "releaseSourceCommit": "a192d775ab7c7eda27b1969d46b495a03d212dc0",
+    "entryAssetHashes": {
+      "/assets/index-Dmhk_r-l.js": "c0158f9d9310b264792b6f40cf9dfe593bda08913d42f7c4d118099ab805b027",
+      "/assets/_commonjsHelpers-CqkleIqs.js": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+      "/assets/react-vendor-CTv3miC2.js": "7e3a4bf34c49700b5fad7403a908da66c35ca1ad3669d05d3356f1a5e9bae663",
+      "/assets/preload-helper-ckwbz45p.js": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+      "/assets/index-B3fqh6vi.css": "46d17c2afeb950ee850a82f754f6b1c4e983a4b3888397a8c72b063d28510d10"
+    },
+    "publicAssetMatchCount": 5,
+    "backupFinishedAt": "2026-10-17T09:19:04.963135+00:00",
+    "previousApplicationTree": "/root/agentwiki-previous-20261017172214",
+    "apiSmokeChecks": 32,
+    "migrations": 63,
+    "pendingMigrations": 0,
+    "compiledReviewServiceSha256": "420e511967564c1be603a9de810ef63e6cf08180c6b2591b8f600fb9e8c63a6c"
   },
   "feedback": {
-    "changeSetId": "cmvbwqnjz00bjrinsnvx39hrd",
+    "changeSetId": "cmvc730wt00albu4scw93k18c",
     "status": "published",
     "autoPublished": true,
-    "updatedAt": "2026-10-17T04:39:41.828Z",
-    "exactContent": true,
-    "titleUnchanged": true,
-    "folderUnchanged": true,
-    "formatUnchanged": true,
+    "updatedAt": "2026-10-17T09:29:15.171Z",
+    "contentLength": 14359,
+    "contentSha256": "42df07a38a7029b18c162f26b2f30db4843230248b753799910d7bd7c3cc48d4",
+    "exactContentReadback": true,
+    "independentMcpReadback": true,
+    "preserved": {
+      "title": true,
+      "format": true,
+      "folderId": true
+    },
     "browserRendered": true,
-    "perItemReleaseProgress": 8
+    "perItemFinalReleaseResults": 8,
+    "previousProgressChangeSet": "cmvbwqnjz00bjrinsnvx39hrd",
+    "gatewayVersion": "0.13.1",
+    "argumentStyle": "top_level_named_fields"
   },
-  "pending": [
-    "npm official publication and registry readback",
-    "production deployment and source/public asset verification",
-    "production smoke and real browser sort/navigation/narrow viewport",
-    "official gateway top-level page update and published exact readback",
-    "final per-item release receipt"
-  ],
+  "pending": [],
   "remainingOriginalEnvironment": [
-    "Windows original Vault",
-    "GoldenBook wrapper failure not reproduced"
-  ]
+    "Windows original Vault not upgraded or replayed",
+    "GoldenBook original wrapper error not reproduced"
+  ],
+  "supersedes": {
+    "recordedAt": "2026-10-17T04:40:00Z",
+    "status": "github_published_npm_auth_required_production_not_deployed",
+    "reason": "User completed npm security-key authentication; official package, production deployment and real acceptance completed"
+  },
+  "browserAcceptance": {
+    "review14": {
+      "rows": 53,
+      "pages": 3,
+      "uniqueIds": 53,
+      "sameDay": true,
+      "descending": true,
+      "states": [
+        "已拒绝",
+        "已发布",
+        "待审核"
+      ]
+    },
+    "review15": {
+      "rows": 5,
+      "sameDay": true,
+      "descending": true
+    },
+    "source": {
+      "duplicateReturnLinks": 0,
+      "spaceNavigationLinks": 7
+    },
+    "runs": {
+      "duplicateReturnLinks": 0,
+      "spaceNavigationLinks": 7
+    },
+    "settings": {
+      "duplicateReturnLinks": 0,
+      "spaceNavigationLinks": 7
+    },
+    "narrow": {
+      "backLinks": 0,
+      "documentWidth": 390,
+      "spaceNavLinks": 7,
+      "width": 390
+    },
+    "settingsSourceRunsSwitch390": true,
+    "rawEvidence": "private ignored production-* screenshot and JSON files",
+    "routes": [
+      "/review",
+      "/spaces/cmtgoy5m002z413nd7a3cwczh/sources",
+      "/spaces/cmtgoy5m002z413nd7a3cwczh/sources?view=runs&run=cmv7w5ffh08zbn2yqjyxzmmoa",
+      "/spaces/cmtgoy5m002z413nd7a3cwczh/settings"
+    ]
+  },
+  "cleanup": {
+    "smokeFixtureCleanupPassed": true,
+    "sdkChildrenClosed": true,
+    "browserRestoredToDesktop": true,
+    "dailyVaultUnchanged": true,
+    "managedWorktreeRetainedForEvidence": true
+  },
+  "finalIndependentReview": {
+    "status": "passed_no_P1_P2",
+    "verified": [
+      "live_GitHub_tag_and_release",
+      "live_npm_integrity_and_171_files",
+      "1354_manifest_source_files",
+      "5_live_public_asset_hashes_and_health",
+      "final_changeset_only_content_append_and_exact_hash",
+      "rendered_eight_final_items"
+    ],
+    "boundaries": [
+      "original_Windows_pending",
+      "GoldenBook_wrapper_not_reproduced",
+      "existing_Codex_gateway_0.13.0_not_modified",
+      "restore_drill_not_performed"
+    ]
+  }
 }

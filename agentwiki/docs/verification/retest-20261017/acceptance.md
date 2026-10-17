@@ -42,3 +42,12 @@ ReviewPage→本地HTTP当前ReviewService→专有隔离PostgreSQL：59条五�
 2026-10-17：Web/API 0.12.47（a192d775）已推送master/tag并正式发布GitHub；插件0.5.12正式发布且完整1551项/三份资产/来源证明通过。主最终full退出0：runtime309通过/1既有skip、串行DB239通过/0skip、server3318通过/4skip、client2659、protocol140、local-sync1018通过/1skip。首次full因外层GIT_WORK_TREE污染临时git init失败；清除该环境变量后完整通过，无产品代码补丁。
 
 npm0.13.1尚待本人安全密钥认证。为避免线上接入指令指向未发布包，生产仍保留0.12.46；新Web生产排序/导航/窄屏、新包SDK顶层真实写回和最终上线回执均pending。配套应用/配置/数据库/附件备份已校验并恢复writers，未演练恢复。原反馈8项发布进度追加published/autoPublished/精确回读/浏览器渲染通过（cmvbwqnjz00bjrinsnvx39hrd）。以release.json为本阶段权威状态，前文为历史候选记录。
+
+
+## 最终正式发布与生产验收（取代此前认证阻断状态）
+
+2026-10-17 17:19（Asia/Shanghai）npm0.13.1正式发布；官方tarball与固定候选逐字节、171文件匹配，空目录/空缓存registry安装通过。Web/API0.12.47随即部署，1354源码文件匹配a192d775，3服务active，全部5健康字段ok，公网5入口assets同hash；编译review.service.js SHA256 420e511967564c1be603a9de810ef63e6cf08180c6b2591b8f600fb9e8c63a6c与本地一致。63迁移无pending，32烟测通过并清理fixture。新配套备份retest-feedback-v01247.xgdw975j校验通过且writers恢复；旧应用树保留，未做恢复演练。
+
+真实Chrome生产回验：10/14共53条、3页、53唯一ID，已拒绝/已发布/待审核三状态整体倒序且日期正确；10/15共5条日期和倒序通过。原黄金书屋来源展开既有失败→失败运行详情→内嵌Runs→设置，0重复返回且7空间nav；390×809设备视图完成设置/来源/Runs/设置点击切换，document.scrollWidth=390。设备视图中的CDP点击超时后使用真实Chrome原生AX点击完成，未注入页面事件；最终恢复1710宽桌面并关闭DevTools。
+
+正式0.13.1 SDK复用唯一既有连接身份读取原反馈、树revision并使用顶层参数更新。cmvc730wt00albu4scw93k18c published/autoPublished=true；全文精确回读、title/format/folder保持，独立MCP读取及Chrome最终8项呈现通过。正文14359字符，SHA256 42df07a38a7029b18c162f26b2f30db4843230248b753799910d7bd7c3cc48d4。当前Codex配置仍固定0.13.0、未强制重启；正式包验收进程用已校验官方cleaninstall启动并关闭。Windows原Vault仍待验、未升级日常Vault；原黄金书屋wrapper错误仍未复现。最终release.json为权威回执。

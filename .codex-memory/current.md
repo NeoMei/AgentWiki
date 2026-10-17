@@ -1,32 +1,32 @@
 # 当前目标
 
-用户已授权发布本轮8项复测修复。GitHub Web/API0.12.47与插件0.5.12已正式发布；npm0.13.1等待本人安全密钥认证，生产部署尚未执行。
+2026-10-17反馈8项核实、修复、正式发布、生产回验和原页逐项反馈已完成。保留原Windows与原黄金书屋wrapper错误的验收边界。
 
 # 范围 / 不做
 
-保护原检出用户修改、原正文/事务/身份/hash；不修改日常Vault。原Windows与原黄金书屋wrapper错误仍待验/未复现。没有依赖或数据库迁移变化。
+本轮Web/API0.12.47、Local Sync0.13.1、Obsidian0.5.12已发布；未变更protocol0.6.1、依赖或数据库结构。原检出用户修改、日常Vault、正文/事务/身份/hash保持。未升级当前Codex的0.13.0配置或强制重启。
 
 # 当前状态
 
-- Web/API正式源码a192d775，origin/master及tag v0.12.47已推送，GitHub非draft正式release已回读。独立审查无P1/P2。
-- 插件0.5.12正式源码fd06387，main/tag CI与Release CI通过，三个官方资产逐字节/来源证明通过；完整1551项。回执plugin-release.json/md。
-- Local Sync0.13.1固定tgz已通过两种空目录安装、公开protocol0.6.1一致性与专用schema检查。npm尚未发布，安全密钥认证超时，需要本人完成新的挑战；不得绕过2FA或新增身份。
-- 最新full exit0：server3318/4skip、client2659、protocol140、local1018/1skip、runtime309/1skip、串行DB239/0skip。build/typecheck/lint及元数据独立复审通过。首次full失败由测试继承GIT_WORK_TREE造成，清除后通过。
-- 生产仍0.12.46；1351源码文件匹配既有发行，3服务active。配套备份/var/backups/agentwiki/retest-feedback-v01247.cb1ekxak已校验，writers恢复，未演练恢复。新源码manifest1354文件已准备。
-- 原页8项发布进度已追加published/autoPublished，ChangeSet cmvbwqnjz00bjrinsnvx39hrd，精确MCP回读/Chrome渲染通过。没有将GitHub发布标记为生产上线。
+- Web/API正式代码a192d775，tag v0.12.47；后续仅回执文档提交。生产1354源码匹配，编译审核服务同hash，公网5资源匹配，3服务active/5健康字段ok，63迁移无pending，32烟测及清理通过。
+- npm0.13.1已正式发布，官方包与固定候选逐字节/171文件一致；空目录/空缓存安装及正式SDK顶层schema/原页发布/精确回读通过。临时验收进程复用唯一既有连接并已关闭，不新增身份。
+- 插件0.5.12正式源码fd06387，3 CI success，官方3资产逐字节/来源证明通过，完整1551项。原Windows待验，日常Vault未升级。
+- 主最终full exit0：server3318/4skip、client2659、protocol140、local1018/1skip、runtime309/1skip、串行DB239/0skip；build/typecheck/lint及独立审查通过。
+- 真实Chrome：10/14共53条3页53唯一ID、3状态全局倒序和日期通过；10/15共5条通过。来源/内嵌Runs/设置0重复返回且7nav，390px切换无整页横溢出通过；恢复桌面。
+- 原页8项正式回执cmvc730wt00albu4scw93k18c published/autoPublished，全文精确/独立MCP回读及Chrome渲染通过。原报告、图片、测试人员回归栏和历史候选记录保留。
+- 最新配套备份/var/backups/agentwiki/retest-feedback-v01247.xgdw975j已校验并恢复writers；旧应用树/root/agentwiki-previous-20261017172214保留，未演练恢复。
 
 # 稳定约束
 
-Git命令显式--work-tree指向带尾空格的工作树；不要把GIT_WORK_TREE导出给测试，临时git init会失败。唯一现有MCP连接/身份保持；旧0.13.0接入会话继续原固定版本命令，不改版本/hash。私有生产截图/原页材料不提交。
+Git仅单条命令显式--work-tree指向带尾空格工作树；测试清除GIT_WORK_TREE/GIT_DIR，避免污染临时git init。唯一MCP身份与Space动态授权不变；旧0.13.0未完成接入继续原固定版本命令，不改version/hash。私有生产截图与正文不提交。
 
 # 关键索引
 
-- .codex-memory/tasks/active/retest-20261017/{brief,decisions,refs}.md
-- agentwiki/docs/verification/retest-20261017/{release.json,plugin-release.json,status.md,acceptance.md,validation.json}
-- .superpowers/sdd/retest-20261017-plan/release-pack/ 固定发行包及完整清单
-- .superpowers/sdd/retest-20261017-plan/release-sdk/verify-installed-gateway.mjs 已独立复审的正式包验收脚本
-- /tmp/agentwiki-release-20261017/ 备份、manifest、full retry与生产验证脚本
+- .codex-memory/tasks/archive/retest-20261017/{brief,decisions,refs}.md
+- agentwiki/docs/verification/retest-20261017/{release.json,npm-release.json,plugin-release.json,status.md,acceptance.md,validation.json}
+- .superpowers/sdd/retest-20261017-plan/release-sdk/final-release-receipt.json
+- /tmp/agentwiki-release-20261017/ 备份、部署、源码/public验证、烟测、full原始日志
 
 # 风险 / 下一步
 
-本人完成npm发布安全密钥后，发布并回读0.13.1官方包；再显式host113.249.120.24/root使用已有SSH control部署，验源码/公网assets/健康/烟测/真实浏览器日期排序导航与窄屏；正式gateway复用现有连接做顶层参数更新本页并确认published/精确回读。追加最终逐项上线回执后再归档此任务。原Windows仍单列待验。
+本轮发布工作完成。Windows原Vault/事务另行原环境回归；黄金书屋原wrapper错误未复现，不借本次项目管理Space成功结论关闭。其他客户端旧进程不会因npm发布自动升级；既有Codex0.13.0配置保留。工作树和备份为交付证据保留。
