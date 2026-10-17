@@ -1,6 +1,6 @@
 {
   "date": "2026-10-17",
-  "stage": "candidate_verified_feedback_published",
+  "stage": "github_published_npm_auth_required_production_not_deployed",
   "base": "1fa3bf7e",
   "webVersion": "0.12.46",
   "commits": [
@@ -102,11 +102,13 @@
     "goldenBookWrapperError": "not_reproduced"
   },
   "release": {
-    "pushed": false,
-    "published": false,
+    "pushed": true,
+    "published": "GitHub Web 0.12.47 and plugin 0.5.12 only; npm pending security key",
     "deployed": false,
     "dailyPluginUpgraded": false,
-    "originalFeedbackReply": "published_autoPublished_exact_readback_and_browser_render_8_sections"
+    "originalFeedbackReply": "published_autoPublished_exact_readback_and_browser_render_8_sections",
+    "currentReleaseReceipt": "release.json",
+    "originalFeedbackReleaseProgress": "cmvbwqnjz00bjrinsnvx39hrd published autoPublished exact readback and rendered"
   },
   "pluginCommits": [
     "da22f21",

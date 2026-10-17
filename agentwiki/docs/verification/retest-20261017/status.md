@@ -1,6 +1,8 @@
-# 2026-10-17 复测状态
+# 2026-10-17 复测与发布状态
 
-当前为本地候选，未推送、发布或部署；Web仍标识0.12.46，正式插件仍0.5.11，未升级日常Vault。基线1fa3bf7e；候选Web/MCP提交915d58f4、cbee4b19、ff6885fb、18c05eb1。插件最终提交15c37be。原反馈8项回复已自动发布，最终ChangeSet cmvbrz6x30cqj11lissy142ra；精确MCP回读与Chrome渲染通过，原文/截图/回归栏保留。
+Web/API 0.12.47 已正式发布 GitHub（a192d775、v0.12.47）；插件 0.5.12 已发布且三个官方资产/来源证明通过。Local Sync 0.13.1 发行包已验，npm 正等待本人安全密钥认证，尚未发布；生产仍0.12.46，未部署新版本。日常Vault未升级，Windows原场景待验。最新全量测试exit0、构建/类型/lint/独立审查通过。详见 [release.json](release.json) 和 [plugin-release.md](plugin-release.md)。
+
+原反馈发布进度逐项追加已published/autoPublished，ChangeSet cmvbwqnjz00bjrinsnvx39hrd；精确回读、标题/目录/格式保持及Chrome渲染通过。下表保留候选/原环境证据，插件候选现已正式发布。
 
 | 项 | 当前依据 | 尚未关闭的边界 |
 |---|---|---|
@@ -11,6 +13,6 @@
 | #5 必填空白 | 原线上空字段同时行内提示与首错焦点；混合空白被拦截，未创建运行 | 本轮未修改该基线实现 |
 | #6 日期/排序 | 线上10/14共53条3页、10/15共5条日期正确；排序仍错；候选真实ReviewPage→HTTP ReviewService→隔离PG五状态全局倒序及日期边界通过 | 排序未部署；完整生产shell/窄屏待验 |
 | #7 来源/设置返回 | 候选来源→展开→失败详情真实RunsPage无重复返回，7条顶栏导航保留；来源/设置切换正常 | 完整生产shell/窄屏待验；尚未部署 |
-| #8 MCP现有页更新 | SDK参数链路与真实桥接stateful HTTP读写回读/CAS/授权拒绝不改通过；独立复审通过 | 当前授权空间完整wrapper生产published/精确回读/渲染通过；原黄金书屋wrapper报错未复现，新schema未上线 |
+| #8 MCP现有页更新 | SDK参数链路与真实桥接stateful HTTP读写回读/CAS/授权拒绝不改通过；独立复审通过 | 当前授权空间完整wrapper生产published/精确回读/渲染通过；原黄金书屋wrapper报错未复现，npm认证待完成，新schema未上线 |
 
 详细证据与测试边界见[acceptance.md](acceptance.md)及[validation.json](validation.json)。私有原反馈、生产回读材料不纳入提交。

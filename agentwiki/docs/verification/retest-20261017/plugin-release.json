@@ -1,0 +1,210 @@
+{
+  "schemaVersion": 1,
+  "component": "AgentWiki Sync Obsidian plugin",
+  "repository": "NeoMei/agentwiki-sync",
+  "version": "0.5.12",
+  "tag": "0.5.12",
+  "status": "published_and_assets_verified",
+  "sourceSha": "fd06387b121aeb1db02b08cc290a077fc8d267e7",
+  "tagObjectSha": "c81de844d94ac09d3136a3f87f2ec0473467d823",
+  "previousMainSha": "200670106282f23cd2c1e29cfc6ede40e5287fba",
+  "candidateProductSha": "15c37be433a444a00bb52936cba6affa0de832e4",
+  "releaseUrl": "https://github.com/NeoMei/agentwiki-sync/releases/tag/0.5.12",
+  "publicationMethod": "Existing tag-triggered GitHub Actions Release workflow; atomic non-force fast-forward main plus annotated tag push",
+  "releaseWorkflow": {
+    "runId": 39002468357,
+    "url": "https://github.com/NeoMei/agentwiki-sync/actions/runs/39002468357",
+    "status": "completed",
+    "conclusion": "success",
+    "sourceSha": "fd06387b121aeb1db02b08cc290a077fc8d267e7",
+    "testFiles": 75,
+    "testsPassed": 1551,
+    "testsFailed": 0,
+    "steps": [
+      {
+        "name": "Set up job",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Run actions/checkout@v4",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Run actions/setup-node@v4",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Run npm ci",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Verify tag version",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Run npm run check",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Attest release assets",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Publish GitHub release",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Post Run actions/setup-node@v4",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Post Run actions/checkout@v4",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "Complete job",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "localValidation": {
+    "npmCi": "passed",
+    "node": "v24.18.0",
+    "npm": "11.16.0",
+    "check": "passed",
+    "testFiles": 75,
+    "testsPassed": 1551,
+    "testsFailed": 0,
+    "format": "passed",
+    "lintErrors": 0,
+    "lintWarnings": 20,
+    "typecheck": "passed",
+    "build": "passed",
+    "bundleSafety": "passed",
+    "releaseMetadata": "passed",
+    "diffCheck": "passed",
+    "releaseMetadataIndependentReview": {
+      "P1": 0,
+      "P2": 0,
+      "result": "passed"
+    },
+    "runtimeSourceChangedDuringReleasePreparation": false,
+    "dependencyVersionsChanged": false,
+    "auditProductionVulnerabilities": 0,
+    "auditExistingDevelopmentVulnerabilities": {
+      "moderate": 5,
+      "high": 3,
+      "critical": 2,
+      "total": 10
+    },
+    "checkLog": "/Users/neomei/.codex/worktrees/retest-20261017/AgentWiki-Obsidian/.superpowers/release-0.5.12-check.log"
+  },
+  "assets": [
+    {
+      "name": "main.js",
+      "bytes": 1785587,
+      "localNpmSha256": "cb7ad672e2183b148673acf697ca19e64eb7e0b4ae6febd6ca139b000ef250f7",
+      "sha256": "cb7ad672e2183b148673acf697ca19e64eb7e0b4ae6febd6ca139b000ef250f7",
+      "githubDigest": "sha256:cb7ad672e2183b148673acf697ca19e64eb7e0b4ae6febd6ca139b000ef250f7",
+      "officialDownloadUrl": "https://github.com/NeoMei/agentwiki-sync/releases/download/0.5.12/main.js",
+      "githubAssetId": 649525618,
+      "byteEqualToLocalNpmBuild": true,
+      "attestation": {
+        "verified": true,
+        "exitCode": 0,
+        "sourceRef": "refs/tags/0.5.12",
+        "sourceDigest": "fd06387b121aeb1db02b08cc290a077fc8d267e7",
+        "signerWorkflow": "https://github.com/NeoMei/agentwiki-sync/.github/workflows/release.yml@refs/tags/0.5.12",
+        "runnerEnvironment": "github-hosted",
+        "runInvocationURI": "https://github.com/NeoMei/agentwiki-sync/actions/runs/39002468357/attempts/1"
+      }
+    },
+    {
+      "name": "manifest.json",
+      "bytes": 233,
+      "localNpmSha256": "0402a93982e1efc857751869c23c4f01f0114697a77ee5c326c6b5ac5deb3995",
+      "sha256": "0402a93982e1efc857751869c23c4f01f0114697a77ee5c326c6b5ac5deb3995",
+      "githubDigest": "sha256:0402a93982e1efc857751869c23c4f01f0114697a77ee5c326c6b5ac5deb3995",
+      "officialDownloadUrl": "https://github.com/NeoMei/agentwiki-sync/releases/download/0.5.12/manifest.json",
+      "githubAssetId": 649525616,
+      "byteEqualToLocalNpmBuild": true,
+      "attestation": {
+        "verified": true,
+        "exitCode": 0,
+        "sourceRef": "refs/tags/0.5.12",
+        "sourceDigest": "fd06387b121aeb1db02b08cc290a077fc8d267e7",
+        "signerWorkflow": "https://github.com/NeoMei/agentwiki-sync/.github/workflows/release.yml@refs/tags/0.5.12",
+        "runnerEnvironment": "github-hosted",
+        "runInvocationURI": "https://github.com/NeoMei/agentwiki-sync/actions/runs/39002468357/attempts/1"
+      }
+    },
+    {
+      "name": "styles.css",
+      "bytes": 4880,
+      "localNpmSha256": "5dfe15839220724a57a64ad7ab136761ba2ffaaff3c0235faac1cf1238e762b8",
+      "sha256": "5dfe15839220724a57a64ad7ab136761ba2ffaaff3c0235faac1cf1238e762b8",
+      "githubDigest": "sha256:5dfe15839220724a57a64ad7ab136761ba2ffaaff3c0235faac1cf1238e762b8",
+      "officialDownloadUrl": "https://github.com/NeoMei/agentwiki-sync/releases/download/0.5.12/styles.css",
+      "githubAssetId": 649525619,
+      "byteEqualToLocalNpmBuild": true,
+      "attestation": {
+        "verified": true,
+        "exitCode": 0,
+        "sourceRef": "refs/tags/0.5.12",
+        "sourceDigest": "fd06387b121aeb1db02b08cc290a077fc8d267e7",
+        "signerWorkflow": "https://github.com/NeoMei/agentwiki-sync/.github/workflows/release.yml@refs/tags/0.5.12",
+        "runnerEnvironment": "github-hosted",
+        "runInvocationURI": "https://github.com/NeoMei/agentwiki-sync/actions/runs/39002468357/attempts/1"
+      }
+    }
+  ],
+  "acceptanceBoundaries": {
+    "dailyVaultModified": false,
+    "realSyncAccountConnected": false,
+    "transactionsCleared": false,
+    "originalWindowsFeedbackReplay": "pending",
+    "officialPackageNativeInstall": "not_run_in_this_release_task",
+    "priorMacSyntheticNativeAcceptance": "Recorded separately by parent; not original Windows replay"
+  },
+  "updatedAt": "2026-10-17T04:28:50.571036+00:00",
+  "publishedAt": "2026-10-17T04:25:45Z",
+  "releaseId": 415580819,
+  "draft": false,
+  "prerelease": false,
+  "releaseNotesExactBodyIncluded": true,
+  "continuousIntegration": [
+    {
+      "branch": "main",
+      "runId": 39002468403,
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/NeoMei/agentwiki-sync/actions/runs/39002468403"
+    },
+    {
+      "branch": "0.5.12",
+      "runId": 39002468461,
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/NeoMei/agentwiki-sync/actions/runs/39002468461"
+    }
+  ],
+  "officialDownloadDirectory": "/Users/neomei/.codex/worktrees/retest-20261017/AgentWiki-Obsidian/.superpowers/release-0.5.12-official",
+  "releaseWorkflowLog": "/Users/neomei/.codex/worktrees/retest-20261017/AgentWiki-Obsidian/.superpowers/release-0.5.12-ci.log",
+  "finalReceiptIndependentReview": {
+    "result": "passed",
+    "P1": 0,
+    "P2": 0,
+    "scope": "tag/source, Release workflow, three official assets, SHA256/byte parity, saved attestation identity, release notes and acceptance boundaries"
+  }
+}

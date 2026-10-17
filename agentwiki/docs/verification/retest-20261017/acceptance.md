@@ -35,3 +35,10 @@ ReviewPage→本地HTTP当前ReviewService→专有隔离PostgreSQL：59条五�
 主分支pnpm build/typecheck/lint及完整测试exit0。主日志：server3311通过/4跳过，client2659通过，protocol140通过，local-sync1018通过/1跳过；runtime TAP310项/1跳过、另239项/0跳过。不同层级/重跑不相加为唯一总数。Web补修定向70通过；审核定向133通过及隔离DB16通过，专有测试库清理count=0。插件9c66a7e完整check1550通过；最终15c37be局部修复后102定向、tsc/lint/build/bundle通过，独立审查113项通过。主仓最终18c05eb1类型/lint/client build再验通过。
 
 原环境Windows、完整生产shell/窄屏、新MCP顶层schema现网与正式发布部署仍待后续阶段。没有代码push、软件发布、部署或日常插件升级。反馈文档的发布已完成。临时Web/HTTP服务已停止，专有PG库删除后count=0，四个临时fixture已移除，临时Vault窗口关闭，工作树与合成证据保留。
+
+
+## 用户授权发布后的进度
+
+2026-10-17：Web/API 0.12.47（a192d775）已推送master/tag并正式发布GitHub；插件0.5.12正式发布且完整1551项/三份资产/来源证明通过。主最终full退出0：runtime309通过/1既有skip、串行DB239通过/0skip、server3318通过/4skip、client2659、protocol140、local-sync1018通过/1skip。首次full因外层GIT_WORK_TREE污染临时git init失败；清除该环境变量后完整通过，无产品代码补丁。
+
+npm0.13.1尚待本人安全密钥认证。为避免线上接入指令指向未发布包，生产仍保留0.12.46；新Web生产排序/导航/窄屏、新包SDK顶层真实写回和最终上线回执均pending。配套应用/配置/数据库/附件备份已校验并恢复writers，未演练恢复。原反馈8项发布进度追加published/autoPublished/精确回读/浏览器渲染通过（cmvbwqnjz00bjrinsnvx39hrd）。以release.json为本阶段权威状态，前文为历史候选记录。

@@ -1,0 +1,102 @@
+{
+  "recordedAt": "2026-10-17T04:40:00Z",
+  "status": "github_published_npm_auth_required_production_not_deployed",
+  "authorization": "User explicitly requested 发布",
+  "web": {
+    "version": "0.12.47",
+    "commit": "a192d775ab7c7eda27b1969d46b495a03d212dc0",
+    "branch": "master",
+    "tag": "v0.12.47",
+    "url": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.47",
+    "published": true,
+    "productionDeployed": false
+  },
+  "localSync": {
+    "version": "0.13.1",
+    "packageSourceCommit": "98dcfe7ab389eb0a4adba35bcdcac75e439964e5",
+    "packageTreeUnchangedAtReleaseHead": true,
+    "published": false,
+    "reason": "npm requires account security-key authentication; first web challenge expired",
+    "packageSha256": "9e0ded6ca35d53755e2dddae5f8140e35b5d5087525ee17c9fd446ec246ac9f2",
+    "integrity": "sha512-TcD3PTX2K3vprrZtlAwEBoR8or29UGmZ43E6/8U9hi8ld7sGlcnEmONwNNg6LYzrBQOPAuc7zZKP5hBDMK70jw==",
+    "files": 171,
+    "bytes": 192411,
+    "cleanInstallLocalAndRegistryProtocol": "passed",
+    "productionTopLevelSdkVerification": "pending"
+  },
+  "plugin": {
+    "version": "0.5.12",
+    "published": true,
+    "officialAssetsVerified": true,
+    "attestationsVerified": 3,
+    "receipt": "plugin-release.json",
+    "dailyVaultUpgraded": false,
+    "originalWindows": "pending"
+  },
+  "validation": {
+    "fullExit": 0,
+    "fullSourceCommit": "a192d775ab7c7eda27b1969d46b495a03d212dc0",
+    "build": "passed",
+    "typecheck": "passed",
+    "lint": "passed",
+    "independentReview": "no_open_P1_P2",
+    "server": {
+      "passed": 3318,
+      "skipped": 4
+    },
+    "client": {
+      "passed": 2659
+    },
+    "protocol": {
+      "passed": 140
+    },
+    "localSync": {
+      "passed": 1018,
+      "skipped": 1
+    },
+    "runtime": {
+      "passed": 309,
+      "skipped": 1
+    },
+    "serialDatabase": {
+      "passed": 239,
+      "skipped": 0
+    },
+    "firstAttemptFailure": "Outer GIT_WORK_TREE inherited by fixture git init; cleared Git environment and full rerun passed; no product code change"
+  },
+  "production": {
+    "version": "0.12.46",
+    "services": "3_active",
+    "sourceFilesVerifiedBeforeRelease": 1351,
+    "newManifestFiles": 1354,
+    "backupDirectory": "/var/backups/agentwiki/retest-feedback-v01247.cb1ekxak",
+    "backupChecksumsPassed": true,
+    "pairedDatabaseAppConfigurationAttachments": true,
+    "writersRestored": true,
+    "restoreDrill": false,
+    "postDeployBrowserAndSmoke": "pending"
+  },
+  "feedback": {
+    "changeSetId": "cmvbwqnjz00bjrinsnvx39hrd",
+    "status": "published",
+    "autoPublished": true,
+    "updatedAt": "2026-10-17T04:39:41.828Z",
+    "exactContent": true,
+    "titleUnchanged": true,
+    "folderUnchanged": true,
+    "formatUnchanged": true,
+    "browserRendered": true,
+    "perItemReleaseProgress": 8
+  },
+  "pending": [
+    "npm official publication and registry readback",
+    "production deployment and source/public asset verification",
+    "production smoke and real browser sort/navigation/narrow viewport",
+    "official gateway top-level page update and published exact readback",
+    "final per-item release receipt"
+  ],
+  "remainingOriginalEnvironment": [
+    "Windows original Vault",
+    "GoldenBook wrapper failure not reproduced"
+  ]
+}
