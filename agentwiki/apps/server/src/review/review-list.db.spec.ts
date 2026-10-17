@@ -72,6 +72,34 @@ dbDescribe('review full-history search in real PostgreSQL', () => {
     expect(await review.listPage([space.id], { userId: owner.id }, { page: 1, pageSize: 25, from: '2026-10-15T00:00:00Z' })).toMatchObject({ items: [], total: 0 });
   });
 
+  it('orders all states globally across pages, breaking timestamp ties by descending ID', async () => {
+    const orderingSpace = await db.space.create({ data: { name: 'Ordering', slug: `${prefix}-ordering`, members: { create: { userId: owner.id, role: 'owner' } } } });
+    try {
+      const states = ['pending_review', 'approved', 'published', 'rejected', 'reverted'];
+      const rows = Array.from({ length: 55 }, (_, index) => ({
+        id: `${prefix}-ordering-${String(index).padStart(3, '0')}`,
+        title: 'Mixed status order', spaceId: orderingSpace.id, status: states[index % states.length],
+        createdByUserId: owner.id,
+        createdAt: new Date(time.getTime() + Math.floor(index / 4) * 1000),
+      }));
+      await db.changeSet.createMany({ data: rows });
+      const expected = [...rows].reverse().map(row => row.id);
+      const actual: string[] = [];
+      for (let page = 1; page <= 3; page++) {
+        const result = await review.listPage([orderingSpace.id], { userId: owner.id }, { page, pageSize: 25 });
+        expect(result.total).toBe(55);
+        actual.push(...result.items.map(row => row.id));
+      }
+      expect(actual).toEqual(expected);
+      expect(new Set(actual).size).toBe(55);
+      expect((await review.list([orderingSpace.id], { userId: owner.id })).map(row => row.id)).toEqual(expected);
+      const repeated = await review.listPage([orderingSpace.id], { userId: owner.id }, { page: 2, pageSize: 25 });
+      expect(repeated.items.map(row => row.id)).toEqual(expected.slice(25, 50));
+    } finally {
+      await db.space.delete({ where: { id: orderingSpace.id } });
+    }
+  });
+
   it('does not resolve or search a cross-space target and reads owner revocation live', async () => {
     await db.changeItem.updateMany({ where: { changeSetId: id(0) }, data: { payload: { pageId: hiddenTarget.id } } });
     const query = await review.listPage([space.id, other.id], { userId: owner.id }, { page: 1, pageSize: 25, q: 'Private title' });

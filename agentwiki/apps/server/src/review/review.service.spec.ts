@@ -90,14 +90,17 @@ describe('ReviewService queue presentation', () => {
     });
   });
 
-  it('orders pending and approved work before historical states, newest first within status', async () => {
-    prisma.changeSet.findMany.mockResolvedValue([
-      { id: 'published', status: 'published', createdAt: new Date('2026-08-19T10:00:00Z') },
+  it('orders all five states by submission time with descending ID ties', async () => {
+    const rows = [
       { id: 'pending-old', status: 'pending_review', createdAt: new Date('2026-08-19T09:00:00Z') },
-      { id: 'pending-new', status: 'pending_review', createdAt: new Date('2026-08-19T11:00:00Z') },
-    ]);
+      { id: 'published', status: 'published', createdAt: new Date('2026-08-19T10:00:00Z') },
+      { id: 'approved', status: 'approved', createdAt: new Date('2026-08-19T11:00:00Z') },
+      { id: 'a-rejected', status: 'rejected', createdAt: new Date('2026-08-19T12:00:00Z') },
+      { id: 'z-reverted', status: 'reverted', createdAt: new Date('2026-08-19T12:00:00Z') },
+    ];
+    prisma.changeSet.findMany.mockResolvedValue(rows);
     await expect(service.list(['space-1'], { userId: 'u' })).resolves.toMatchObject([
-      { id: 'pending-new' }, { id: 'pending-old' }, { id: 'published' },
+      { id: 'z-reverted' }, { id: 'a-rejected' }, { id: 'approved' }, { id: 'published' }, { id: 'pending-old' },
     ]);
   });
 

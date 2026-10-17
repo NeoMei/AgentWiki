@@ -37,7 +37,8 @@ describe('review identity and paginated search', () => {
     const result = await (service as any).listPage(['space'], principal, { page: 3, pageSize: 25, q: "Human_%'", status: 'pending_review', from: '2026-10-01T00:00:00.000Z', to: '2026-10-15T00:00:00.000Z' });
     expect(result).toMatchObject({ total: 51, page: 3, pageSize: 25, items: [{ id: 'cs' }], spaces: [{ id: 'space' }] });
     const sql = prisma.$queryRaw.mock.calls[0][0];
-    expect(sql.text).toContain('ROW_NUMBER() OVER');
+    expect(sql.text).toContain('ROW_NUMBER() OVER (ORDER BY c."createdAt" DESC, c."id" DESC)');
+    expect(sql.text).not.toContain('CASE c.status');
     expect(sql.text).toContain('"createdAt" DESC');
     expect(sql.text).toContain('"id" DESC');
     expect(sql.text).toContain('"Page"');

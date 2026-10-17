@@ -236,7 +236,7 @@ const SourcesView: React.FC = () => {
   return (
     <div className="max-w-5xl mx-auto">
       <div className="flex items-start justify-between mb-6">
-        <div><Link to={'/spaces/' + id} className="text-sm text-gray-500">← {t('common.space')}</Link><h1 className="text-2xl font-semibold mt-3">{t('source.title')}</h1><p className="text-sm text-gray-500 mt-1">{t('source.description')}</p></div>
+        <div><h1 className="text-2xl font-semibold">{t('source.title')}</h1><p className="text-sm text-gray-500 mt-1">{t('source.description')}</p></div>
         {canWrite ? <button disabled={submitting} onClick={() => setShowCreate(!showCreate)} className="h-8 px-3 rounded-lg bg-blue-600 text-white text-sm flex items-center gap-2 disabled:opacity-50"><Plus size={15} /> {t('source.add')}</button> : null}
       </div>
       {error ? <div role="alert" className="flex flex-wrap items-center justify-between gap-3 p-3 mb-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm"><span>{error}</span><button type="button" onClick={() => void load()} className="rounded border border-red-300 bg-white px-3 py-1 hover:bg-red-100">{t('common.retry')}</button></div> : null}

@@ -157,15 +157,8 @@ export class ReviewService {
           select: { artifactId: true, runId: true, taskId: true, spaceId: true, pageId: true },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
-    const priority: Record<string, number> = {
-      pending_review: 0,
-      approved: 1,
-      published: 2,
-      rejected: 3,
-      reverted: 4,
-    };
     const publishedIds = changeSets
       .filter((changeSet) => changeSet.status === 'published')
       .map((changeSet) => changeSet.id);
@@ -183,8 +176,8 @@ export class ReviewService {
       ...changeSet,
       revertible: !nonRevertibleIds.has(changeSet.id),
     })).sort((left, right) =>
-      (priority[left.status] ?? 99) - (priority[right.status] ?? 99) ||
-      right.createdAt.getTime() - left.createdAt.getTime(),
+      right.createdAt.getTime() - left.createdAt.getTime()
+      || (left.id < right.id ? 1 : left.id > right.id ? -1 : 0),
     );
     return this.freshness.projectChangeSets(results, principal);
   }
@@ -218,9 +211,7 @@ export class ReviewService {
     // page IDs share one statement/snapshot, including an empty/out-of-range page.
     const rows = await this.prisma.$queryRaw<Array<{ id: string | null; total: bigint }>>(Prisma.sql`
       WITH matches AS (
-        SELECT c.id, ROW_NUMBER() OVER (ORDER BY CASE c.status
-          WHEN 'pending_review' THEN 0 WHEN 'approved' THEN 1 WHEN 'published' THEN 2
-          WHEN 'rejected' THEN 3 ELSE 4 END, c."createdAt" DESC, c."id" DESC) AS rank
+        SELECT c.id, ROW_NUMBER() OVER (ORDER BY c."createdAt" DESC, c."id" DESC) AS rank
         FROM "ChangeSet" c WHERE ${Prisma.join(filters, ' AND ')}
       )
       SELECT page.id, totals.total FROM (SELECT COUNT(*) AS total FROM matches) totals
