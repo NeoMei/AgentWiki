@@ -38,7 +38,7 @@ The gateway bridges to the server internally. Users and Agents must not register
 
 Connect an Agent to AgentWiki once. The gateway uses that Agent's selected connection and credential for every Space. Adding the Agent to another Space grants access immediately: no new installation instruction, local Space connection, or gateway reload is needed. `wiki_list_spaces` reads the current grants and roles from AgentWiki on every call.
 
-For remote calls, supply the internal `spaceId`; the server checks that Space's current grant, role, and resource membership. Knowledge read tools accept named arguments and the legacy `__args` wrapper; duplicate fields must agree. Other generic tools accept, for example, `{ "spaceId": "<id>", "__args": { "pageId": "<page-id>" } }`. Existing `spaceId` in local configuration is only a default context for older callers. There is no mutable global current Space.
+For remote calls, supply the internal `spaceId`; the server checks that Space's current grant, role, and resource membership. Knowledge read tools and `wiki_propose_page_update` accept named arguments and the legacy `__args` wrapper; duplicate fields must agree. Other generic tools accept, for example, `{ "spaceId": "<id>", "__args": { "pageId": "<page-id>" } }`. Existing `spaceId` in local configuration is only a default context for older callers. There is no mutable global current Space.
 
 Revoking or changing a Space grant affects subsequent calls using the same Agent connection. The gateway never retries with another Agent, server, host-client connection, or stored key. Existing local connections and credentials are preserved; they are not merged or used as a Space allowlist. `onboard_status` reports the selected identity's remote connection; use `wiki_list_spaces` to inspect live Space authorization.
 
@@ -237,3 +237,5 @@ scopes and omit unsupported `memory:read`/`memory:write`. Upgrade from 0.10.0 fo
 both device and one-time-code publisher onboarding. Confirmed plan hashes, role,
 Agent, Space, exact scope order/count, and package version remain strictly checked.
 The raw server plan contains no client-supplied scopes.
+
+`wiki_propose_page_update` requires `spaceId`, `pageId`, `expectedUpdatedAt` from `wiki_get_page`, and `expectedTreeRevision` from `wiki_list_folders`, plus at least one of `title`, `content`, or `folderId`. Named fields and legacy `__args` may be mixed when duplicate values agree; conflicts and unknown fields are rejected. Empty content and null folderId are preserved. Existing Space permissions, review policy, and version conflict checks still apply.

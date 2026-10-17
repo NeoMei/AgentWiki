@@ -1,3 +1,4 @@
+import { pageUpdateToolDefinition } from './page-update-tools.js';
 /**
  * The single gateway MCP server.
  *
@@ -189,17 +190,19 @@ export async function createGatewayServer(context: GatewayContext): Promise<Gate
       const upstreamSchema = exactRemoteToolSchema(remote.name);
       const exactSchema = upstreamSchema ? { spaceId: z.string().regex(SAFE_SPACE_ID_PATTERN).optional(), ...upstreamSchema } : undefined;
       const readDefinition = knowledgeReadToolDefinition(remote.name);
+      const pageUpdateDefinition = pageUpdateToolDefinition(remote.name);
       toolNames.push(gatewayName);
       server.registerTool(
         gatewayName,
         {
           description: remote.description ?? `Remote AgentWiki tool: ${remote.name}`,
-          inputSchema: readDefinition?.inputSchema ?? exactSchema ?? { spaceId: z.string().regex(SAFE_SPACE_ID_PATTERN).optional(), __args: z.record(z.unknown()).optional() },
+          inputSchema: pageUpdateDefinition?.inputSchema ?? readDefinition?.inputSchema ?? exactSchema ?? { spaceId: z.string().regex(SAFE_SPACE_ID_PATTERN).optional(), __args: z.record(z.unknown()).optional() },
         },
         async (input: unknown) => {
-          if (readDefinition) {
+          if (pageUpdateDefinition || readDefinition) {
+            const definition = pageUpdateDefinition ?? readDefinition!;
             let args: Record<string, unknown>;
-            try { args = readDefinition.normalize(input); }
+            try { args = definition.normalize(input); }
             catch (error) {
               return remoteResult({ content: [{ type: 'text', text: error instanceof Error ? error.message : 'Invalid knowledge read arguments' }], isError: true });
             }
