@@ -37,6 +37,12 @@ describe('RunsPage', () => {
     vi.mocked(api.post).mockResolvedValue({ data: {} });
   });
 
+  it('retains a return link when rendered as a standalone page', async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [] });
+    renderPage();
+    expect(await screen.findByRole('link', { name: /Space/ })).toHaveAttribute('href', '/spaces/space-1');
+  });
+
   it.each([['zh-CN', '正在抓取'], ['en', 'Fetching']])('localizes runtime stages and preserves source names in %s', async (locale, stage) => {
     localStorage.setItem('agentwiki.language.v1', locale);
     vi.mocked(api.get).mockResolvedValue({ data: [run('r', 'fetching / 自定义来源', 'fetching')] });

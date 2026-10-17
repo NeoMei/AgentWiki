@@ -46,7 +46,7 @@ export const SourcesPage: React.FC = () => {
         onClick={() => selectView(runs)}>{t(runs ? 'space.runs' : 'space.sources')}</button>)}
     </div>
     <div role="tabpanel" id="sources-view-panel" aria-labelledby={runsActive ? 'sources-runs-tab' : 'sources-list-tab'}>
-      {runsActive ? <RunsPage /> : <SourcesView />}
+      {runsActive ? <RunsPage embedded /> : <SourcesView />}
     </div>
   </div>;
 };

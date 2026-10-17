@@ -11,7 +11,7 @@ import { isActiveIngestRun, useBoundedPolling } from './useBoundedPolling';
 const CANCELLABLE = new Set(['queued', 'reserved', 'fetching', 'extracting', 'compiling', 'indexing']);
 const RETRYABLE = new Set(['failed', 'partial', 'cancelled']);
 
-export const RunsPage: React.FC = () => {
+export const RunsPage: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const { id } = useParams<{ id: string }>();
   const { t } = useLanguage();
   const [searchParams] = useSearchParams();
@@ -112,8 +112,8 @@ export const RunsPage: React.FC = () => {
 
   return (
     <div className="max-w-5xl mx-auto">
-      <Link to={'/spaces/' + id} className="text-sm text-gray-500">← {t('common.space')}</Link>
-      <div className="flex items-center justify-between mt-3 mb-6">
+      {!embedded ? <Link to={'/spaces/' + id} className="text-sm text-gray-500">← {t('common.space')}</Link> : null}
+      <div className={`flex items-center justify-between mb-6${embedded ? '' : ' mt-3'}`}>
         <div>
           <h1 className="text-2xl font-semibold">{t('run.title')}</h1>
           <p className="text-sm text-gray-500 mt-1">{t('run.description')}</p>

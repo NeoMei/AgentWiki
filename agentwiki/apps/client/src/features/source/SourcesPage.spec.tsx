@@ -46,6 +46,13 @@ describe('SourcesPage file upload', () => {
     vi.mocked(api.post).mockResolvedValue({ data: {} });
   });
 
+  it('keeps the runs tab within the space navigation without a duplicate return link', async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('tab', { name: '运行记录' }));
+    expect(await screen.findByRole('heading', { name: '运行记录' })).toBeVisible();
+    expect(screen.queryByRole('link', { name: /知识空间/ })).not.toBeInTheDocument();
+  });
+
   it('keeps a nonmember platform admin read-only while showing source details', async () => {
     members = [];
     vi.mocked(api.get).mockResolvedValue({ data: [{ id: 'source-1', type: 'text', name: 'Visible source', _count: { versions: 1, runs: 0 } }] });
