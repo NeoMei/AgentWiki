@@ -1,0 +1,133 @@
+{
+  "date": "2026-10-17",
+  "stage": "candidate_verified_feedback_published",
+  "base": "1fa3bf7e",
+  "webVersion": "0.12.46",
+  "commits": [
+    "915d58f4",
+    "cbee4b19",
+    "ff6885fb",
+    "18c05eb1"
+  ],
+  "gates": {
+    "build": "passed",
+    "typecheck": "passed",
+    "lint": "passed",
+    "full_test_exit": 0,
+    "finalTypecheckLintClientBuild": "passed_at_18c05eb1"
+  },
+  "tests": {
+    "server": {
+      "passed": 3311,
+      "skipped": 4
+    },
+    "client": {
+      "passed": 2659
+    },
+    "protocol": {
+      "passed": 140
+    },
+    "localSync": {
+      "passed": 1018,
+      "skipped": 1
+    },
+    "runtimeTap": {
+      "tests": 310,
+      "skipped": 1
+    },
+    "additionalRuntimeTap": {
+      "tests": 239,
+      "skipped": 0
+    },
+    "webRepairTargeted": {
+      "passed": 70
+    },
+    "reviewTargeted": {
+      "passed": 133
+    },
+    "reviewIsolatedPostgres": {
+      "passed": 16,
+      "temporaryDatabaseRemaining": 0
+    },
+    "pluginInitialCheck": {
+      "passed": 1548,
+      "supersededBy": "pluginFullCheck"
+    },
+    "pluginFullCheck": {
+      "commit": "9c66a7e",
+      "passed": 1550,
+      "files": 75
+    },
+    "pluginFinalTargeted": {
+      "commit": "15c37be",
+      "passed": 102,
+      "independentReviewPassed": 113,
+      "typecheckLintBuildBundle": "passed"
+    }
+  },
+  "candidateAcceptance": {
+    "reviewHttpPostgres": {
+      "rows": 59,
+      "uniqueIds": 59,
+      "pages": 3,
+      "fiveStatuses": true,
+      "globalDescendingOrder": "passed",
+      "singleDayRows": 50,
+      "singleDayPages": 2,
+      "halfOpenBounds": "passed"
+    },
+    "sourceRunsNavigation": "passed_fixture",
+    "fullProductionShell": "pending",
+    "narrowViewport": "pending",
+    "pluginNative": "isolated_Mac_real_modal_retry_export_failure_ordinary_network_published_local_unconfirmed_passed",
+    "sentinelSha256": "da755d4292e8411bd1111f3544b87220b6aea79811d5acf4e7d3b29defa3ea3d"
+  },
+  "review": {
+    "task2": "passed",
+    "task2Repair": "passed",
+    "task3P2": "closed",
+    "task3P3": "nonblocking_listener_cleanup",
+    "pluginP2R1R2": "closed",
+    "pluginP2R3": "closed",
+    "wholeBranches": "passed_no_open_P1_P2",
+    "pluginP3": "nonblocking_export_metadata"
+  },
+  "originalEnvironment": {
+    "item3": "production_readback_passed",
+    "item4": "production_edit_interaction_passed_no_save",
+    "item5": "production_validation_passed_no_run_created",
+    "item6Date": "production_10_14_53_rows_3_pages_and_10_15_5_rows_passed",
+    "item6Sort": "production_still_failing_not_deployed",
+    "windowsPlugin": "pending",
+    "goldenBookWrapperError": "not_reproduced"
+  },
+  "release": {
+    "pushed": false,
+    "published": false,
+    "deployed": false,
+    "dailyPluginUpgraded": false,
+    "originalFeedbackReply": "published_autoPublished_exact_readback_and_browser_render_8_sections"
+  },
+  "pluginCommits": [
+    "da22f21",
+    "9c66a7e",
+    "15c37be"
+  ],
+  "feedbackReceipt": {
+    "firstChangeSetId": "cmvbryrfr0cot11li8twsnawj",
+    "finalChangeSetId": "cmvbrz6x30cqj11lissy142ra",
+    "status": "published",
+    "autoPublished": true,
+    "updatedAt": "2026-10-17T02:26:22.086Z",
+    "exactReadback": true,
+    "browserRenderedSections": 8,
+    "originalTextImagesRegressionSlotsPreserved": true
+  },
+  "cleanup": {
+    "temporaryDatabaseRemaining": 0,
+    "fourTemporaryWebFixturesRemoved": true,
+    "taskViteAndBridgeStopped": true,
+    "temporaryVaultWindowClosed": true,
+    "worktreesRetained": true
+  }
+}
