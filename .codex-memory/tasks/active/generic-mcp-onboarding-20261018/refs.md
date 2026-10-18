@@ -1,17 +1,26 @@
 # 参考
 
-- 用户本轮4项反馈及 WorkBuddy doctor 5条细项。
-- WorkBuddy官方MCP文档：https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide
-- 基线：9851195ecdbdcb9d2fbcddb74bdd950b3d4454a5。
-- 隔离路径：/Users/neomei/.codex/worktrees/generic-mcp-onboarding/AgentWiki （尾空格）。Git显式--work-tree。
-- agentwiki/docs/verification/generic-mcp-onboarding-20261018/ 保存修复/审查/浏览器证据。
+- 用户本轮反馈、真实 WorkBuddy 验收要求及明确“发布”授权。
+- WorkBuddy 官方 MCP 文档：https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide
+- 隔离路径：`/Users/neomei/.codex/worktrees/generic-mcp-onboarding/AgentWiki `（尾空格）；Git 在根显式 `--work-tree="$PWD"`。
 
-- 冻结发布候选：0a299231667f03e68f6b97a0501c632602a75ae5；Web/API 0.12.48、Local Sync 0.13.2、protocol 0.6.1。用户已明确批准发布及后续真实验收，授权持续有效。
-- 真实旧连接与新流程边界：agentwiki/docs/verification/generic-mcp-onboarding-20261018/workbuddy-real-acceptance.md。
-- 发布包与执行计划：同目录 release-candidate.{md,json}、release-execution-plan.md；tarball 位于 /tmp/agentwiki-0132-release-candidate/，准备脚本和清单位于 /tmp/agentwiki-release-20261019-plan/。
-- 2026-10-19正式发布回执：同目录release.json与release-progress.json，npm0.13.2正式可用、Web/API0.12.48生产部署及公网资源通过；新WorkBuddy本机真实验收已通过，使用固定官方包与绝对Node24路径修复本机运行环境，默认npx路径仍未通过。
-- 原始本地证据：/tmp/agentwiki-release-20261019-plan/{registry-verified.json,production-source-check.json,public-release.json,backup-receipt.json}；仅脱敏元数据进入仓库。
-- 远端协调备份：/var/backups/agentwiki/generic-mcp-v01248.f0el29jz，154blob匹配、writers已恢复；旧应用/root/agentwiki-previous-20261019004923。未执行恢复演练。
-- 本机最终验收：/tmp/agentwiki-workbuddy-acceptance-20261018/0132-node24-host-read-proof.json，包含真实MCP调用回执、只读空间权限、正文哈希、WorkBuddy后代进程与实际Node24证明；原始日志与页面正文不入仓库。
-- 最终可见界面：同一私有目录0132-node24-final-read.png；客户端信任界面0132-node24-client-trusted.png；doctor回执0132-final-doctor.json。旧Node22读页证据保留于0132-host-read-proof.json。
-- 后续指引修复提交d23bd089已测试并独立审查，尚未发布；当前生产/正式包仍是冻结候选0a299231，不包含该修复。
+## 当前发布
+
+- `release-candidate.json` 与 `review.json` 是发布前阶段快照，其 prepared/not-yet 文字仅表示当时状态；当前正式执行结果以 `release.json` 为准。旧快照只补冻结关联和最终 cause 保留检查，不重写历史。
+
+- 冻结提交：`1e3fb14001ec33f1c77be1dbfe86f9b02406d382`；Web/API/client/root 0.12.49、Local Sync 0.13.3、protocol 0.6.1。
+- `agentwiki/docs/verification/workbuddy-guidance-20261019/{release-candidate.json,review.json,release.json}`：候选门禁、独立审查与执行回执；npm、生产源码/资源/健康、真实 Chrome/API 指南、既有宿主部署后 MCP 读页兼容均通过；0.13.3 新接入和默认 npx 路径未验收。
+- `agentwiki/docs/releases-v0.12.49.md`：指引和跨版本推进保护的发行范围及默认路径边界。
+- `/tmp/agentwiki-0133-release-candidate/`：最终175文件tarball、package-files.json、npm-pack.json、fixed-pack-verified.json与门禁日志。
+- `/tmp/agentwiki-release-0133-plan/`：registry-verified.json、backup-receipt.json、冻结源码清单、部署/线上验证，含 production-source-check.json、public-release.json、guide-verification.json、workbuddy-postdeploy-read.json；仅脱敏回执提交。
+- 远端协调备份：`/var/backups/agentwiki/generic-mcp-v01249.gzemy54b`；154 blob、约7.001秒 writer暂停、恢复完成，未演练恢复。
+
+- 本轮保留旧应用：`/root/agentwiki-previous-20261019015824`。真实 Chrome 截图仅存 `/tmp/agentwiki-release-0133-plan/production-guide.png`，原生 WorkBuddy 结果截图为同目录 `workbuddy-postdeploy-read.png`，均不提交。
+
+## 历史证据
+
+- 0.13.2 / Web0.12.48 冻结提交：`0a299231667f03e68f6b97a0501c632602a75ae5`；其发布和真实本机验收在 `agentwiki/docs/verification/generic-mcp-onboarding-20261018/`。
+- 真实原始证据：`/tmp/agentwiki-workbuddy-acceptance-20261018/{0132-node24-host-read-proof.json,0132-host-read-proof.json,0132-final-doctor.json}`；前者证明本机 Node24 修正后真实读页，第二个保留旧 Node22 边界。
+- 私有最终界面：同目录 `0132-node24-final-read.png` 和 `0132-node24-client-trusted.png`；图片、正文和凭据不提交。
+- 0.13.2 发布原始元数据：`/tmp/agentwiki-release-20261019-plan/{registry-verified.json,production-source-check.json,public-release.json,backup-receipt.json}`；其备份 `/var/backups/agentwiki/generic-mcp-v01248.f0el29jz` 与旧应用 `/root/agentwiki-previous-20261019004923` 保留。
+- `browser-isolation-correction.md`：wiki.test错误开窗和先前验收结论撤回；不能由本轮自动化门禁覆盖真实验收边界。

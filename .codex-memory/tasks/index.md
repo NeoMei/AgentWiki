@@ -4,7 +4,7 @@
 
 ## 活跃任务
 
-- [generic-mcp-onboarding-20261018](active/generic-mcp-onboarding-20261018/brief.md)：冻结0a299231已发布；npm0.13.2/WebAPI0.12.48回读及生产健康通过。经固定官方包与Node24本机修复，真实WorkBuddy授权、权限、完整重启及reader MCP读页验收通过。默认npx/safe-delete与托管Node22兼容问题仍待产品修复；后续指引修复d23bd089未发布，保留活跃任务。
+- [generic-mcp-onboarding-20261018](active/generic-mcp-onboarding-20261018/brief.md)：新候选1e3fb140已发布npm0.13.3并完成官方175文件/空缓存回读；WebAPI0.12.49生产1357源码/公网资源/健康及真实Chrome/API指南通过，既有0.13.2固定Node24连接部署后真实MCP读页兼容通过。本轮发布收口，0.13.3新授权未重跑；默认npx/safe-delete与托管Node22仍未修复。
 
 
 

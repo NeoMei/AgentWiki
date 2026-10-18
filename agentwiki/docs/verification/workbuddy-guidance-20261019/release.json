@@ -1,0 +1,231 @@
+{
+  "status": "npm_and_production_released_verified_existing_workbuddy_compatible",
+  "updatedAt": "2026-10-18T18:03:59.284385+00:00",
+  "sourceRevision": "1e3fb14001ec33f1c77be1dbfe86f9b02406d382",
+  "authorization": "User explicitly approved this release; authorization remains valid. No additional release approval is needed.",
+  "versions": {
+    "web": "0.12.49",
+    "api": "0.12.49",
+    "client": "0.12.49",
+    "localSync": "0.13.3",
+    "syncProtocol": "0.6.1"
+  },
+  "scope": [
+    "Authorization polling and real MCP diagnostics guidance, including public /api/onboard",
+    "Exact package version markers and fail-closed cross-version continuation in JSON steps and legacy resume",
+    "Preserve 0.13.2 generic/WorkBuddy request support and original session version/planHash bindings"
+  ],
+  "npm": {
+    "status": "passed",
+    "version": "0.13.3",
+    "latest": "0.13.3",
+    "tarballSha256": "032773b2da2ddd8e53d1dd1aefe42922dfe0d9d58f0a9d803a0ea0ab333acdf3",
+    "registryTarballMatchesFrozenCandidate": true,
+    "installedFilesMatch": 175,
+    "emptyCacheInstallPassed": true,
+    "protocolVersion": "0.6.1",
+    "statusHelpExplainsApprovalPolling": true,
+    "publishCliExitCode": 0,
+    "package": "@neomei/agentwiki-local-sync",
+    "packageSizeBytes": 200911,
+    "metadataBeforeTarballAvailability": "Official metadata appeared before tarball propagation; waited through temporary tarball HTTP404 and verified the eventual official artifact.",
+    "frozenCandidateFile": "/tmp/agentwiki-0133-release-candidate/neomei-agentwiki-local-sync-0.13.3.tgz"
+  },
+  "backup": {
+    "status": "verified",
+    "directory": "/var/backups/agentwiki/generic-mcp-v01249.gzemy54b",
+    "createdAt": "2026-10-18T17:41:02.887672+00:00",
+    "finishedAt": "2026-10-18T17:41:23.743277+00:00",
+    "checksumsPassed": true,
+    "writersRestored": true,
+    "writerQuiesceStartedAt": "2026-10-18T17:41:15.996697+00:00",
+    "writersRestoredAt": "2026-10-18T17:41:22.997318+00:00",
+    "writerPauseSeconds": 7.000621,
+    "permanentBlobs": 154,
+    "attachmentArchiveMatches": true,
+    "consistentDatabaseSnapshot": true,
+    "databaseTocEntries": 684,
+    "pgRestoreListPassed": true,
+    "applicationArchiveListingPassed": true,
+    "configurationArchiveListingPassed": true,
+    "sourceVersion": "0.12.48",
+    "sourceUnchangedDuringCopy": true,
+    "sourceCommitIndependentlyVerifiedInBackup": false,
+    "servicesRestoredActive": 3,
+    "restoreDrillPerformed": false,
+    "databaseRestoreAutomatic": false,
+    "restoreBoundary": "Snapshot is paired database/application/configuration/attachments. Writes after writers restart are outside the snapshot; do not automatically restore over later user writes."
+  },
+  "production": {
+    "status": "passed",
+    "deploymentSource": "frozen export of sourceRevision",
+    "deployExitCode": 0,
+    "previousApplication": "/root/agentwiki-previous-20261019015824",
+    "host": {
+      "mode": "host",
+      "revision": "1e3fb14001ec33f1c77be1dbfe86f9b02406d382",
+      "sourceFilesVerified": 1357,
+      "mismatches": [],
+      "versions": {
+        "web": "0.12.49",
+        "client": "0.12.49",
+        "api": "0.12.49",
+        "localSync": "0.13.3",
+        "protocol": "0.6.1"
+      },
+      "nodeVersion": "v24.18.0",
+      "services": {
+        "agentwiki-api.service": "active",
+        "agentwiki-worker.service": "active",
+        "agentwiki-frontend.service": "active"
+      },
+      "health": {
+        "status": "ok",
+        "database": "ok",
+        "redis": "ok",
+        "auditPersistence": "ok",
+        "attachmentStorage": "ok"
+      },
+      "entryHtmlSha256": "fe0c1e9458596477e132cafc3e2323cad5eb2195ada09632096ce0cd52a7d586",
+      "entryAssets": {
+        "/assets/index-CbRwFz_9.js": "27f0d958134b77ac288675072838f8dbaee5a0ae4f5bf37620b1dc30ce6c34ea",
+        "/assets/_commonjsHelpers-CqkleIqs.js": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+        "/assets/react-vendor-CTv3miC2.js": "7e3a4bf34c49700b5fad7403a908da66c35ca1ad3669d05d3356f1a5e9bae663",
+        "/assets/preload-helper-ckwbz45p.js": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+        "/assets/index-B3fqh6vi.css": "46d17c2afeb950ee850a82f754f6b1c4e983a4b3888397a8c72b063d28510d10"
+      },
+      "status": "passed",
+      "verifiedAt": "2026-10-18T17:58:54.683167+00:00"
+    },
+    "public": {
+      "mode": "public",
+      "revision": "1e3fb14001ec33f1c77be1dbfe86f9b02406d382",
+      "origin": "https://agentwiki.quukk.com",
+      "health": {
+        "status": "ok",
+        "database": "ok",
+        "redis": "ok",
+        "auditPersistence": "ok",
+        "attachmentStorage": "ok"
+      },
+      "pageHttpStatus": 200,
+      "entryHtmlMatchProduction": true,
+      "entryAssetsMatchProduction": [
+        "/assets/index-CbRwFz_9.js",
+        "/assets/_commonjsHelpers-CqkleIqs.js",
+        "/assets/react-vendor-CTv3miC2.js",
+        "/assets/preload-helper-ckwbz45p.js",
+        "/assets/index-B3fqh6vi.css"
+      ],
+      "entryAssetCount": 5,
+      "status": "passed",
+      "verifiedAt": "2026-10-18T17:58:58.991241+00:00"
+    },
+    "sourceVerification": "passed",
+    "publicAssetsVerification": "passed",
+    "serviceHealthVerification": "passed"
+  },
+  "browser": {
+    "status": "passed",
+    "renderedGuidanceVerified": true,
+    "guideVerification": {
+      "status": "passed",
+      "verifiedAt": "2026-10-18T18:02:35.452406+00:00",
+      "publicOnboard": {
+        "url": "https://agentwiki.quukk.com/api/onboard",
+        "httpStatus": 200,
+        "sha256": "2d247c8f5a2e0d8e83150d1855218dea6cfe23d639cde274010f1e9fd04273d8",
+        "checks": {
+          "pinnedPackage0133": true,
+          "statusLocalOnly": true,
+          "continueFetchesApproval": true,
+          "browserFallback": true,
+          "currentGatewayFields": true,
+          "realPageRead": true,
+          "clientPermissionsAndRestart": true,
+          "unsupportedIdentityToolRemoved": true
+        }
+      },
+      "browser": {
+        "url": "https://agentwiki.quukk.com/guide/agent-onboard",
+        "client": "Chrome",
+        "realRenderedPage": true,
+        "versionBadge": "0.13.3",
+        "selectedClient": "WorkBuddy",
+        "promptExpanded": true,
+        "visibleStatusPollingBrowserFallbackAndGatewayInstructions": true,
+        "screenshot": "/tmp/agentwiki-release-0133-plan/production-guide.png"
+      },
+      "newAuthorizationAttempted": false
+    },
+    "privateScreenshot": "/tmp/agentwiki-release-0133-plan/production-guide.png"
+  },
+  "workbuddy": {
+    "existing0132ClientAgainstNewBackend": "passed",
+    "new0133FlowAccepted": false,
+    "new0133FlowTested": false,
+    "defaultNpxFlowAccepted": false,
+    "existingClientConfiguration": "Preserved official Local Sync0.13.2 at absolute Node24/CLI paths; this release did not upgrade the host package, change its configuration, or create a new identity.",
+    "priorAcceptance": "0.13.2 real browser authorization/client trust/two complete restarts/reader MCP read passed after a local runtime configuration repair, documented separately in generic-mcp-onboarding-20261018.",
+    "postDeployVerification": {
+      "status": "passed_new_backend_existing_0132_client_real_workbuddy_mcp_read",
+      "capturedAt": "2026-10-18T18:02:53.177831+00:00",
+      "scope": "Compatibility of newly deployed Web/API 0.12.49 backend with the existing fixed Local Sync 0.13.2 client and absolute Node 24 configuration. This is not acceptance of fresh 0.13.3 authorization or the default npx path.",
+      "checks": {
+        "newCompletedReadAfterBoundary": true,
+        "expectedPageAndSpace": true,
+        "actualWorkbuddyMcpDispatch": true,
+        "noShellOrOtherToolSubstitution": true,
+        "pageContentMatchesPriorRealRead": true,
+        "currentMcpConfigMatchesPreRequestSnapshot": true,
+        "currentFixedPackageVersionIs0132": true
+      },
+      "workbuddySessionId": "f3aa7904-b547-48c6-a20b-5cc304aa5508",
+      "read": {
+        "callLine": 26,
+        "resultLine": 27,
+        "callId": "call-73dd777a-cae2-42ed-9a37-fe3cea41b074",
+        "hostDispatchTool": "DeferExecuteTool",
+        "actualMcpTool": "mcp__agentwiki__wiki_get_page",
+        "calledAt": "2026-10-18T18:01:49.556000+00:00",
+        "completedAt": "2026-10-18T18:01:50.664000+00:00",
+        "hostResultStatus": "completed",
+        "contentUtf8Bytes": 8156,
+        "contentSha256": "34e06f9db48b768de26609aa4962c5ec168fd206f670a32a036c44b17032436b",
+        "updatedAt": "2026-10-13T17:32:33.445Z",
+        "bodyOmitted": true
+      },
+      "postBoundaryToolCalls": 1,
+      "shellOrOtherToolSubstitution": false,
+      "clientVersion": "0.13.2",
+      "configuredExecutable": "/usr/local/bin/node",
+      "configurationChanged": false,
+      "runtimeRecapturedThisRound": false,
+      "priorActualRuntimeVersion": "v24.18.0",
+      "runtimeBoundary": "This deployment round did not change the host configuration. Node 24 was previously verified from the actual gateway executable; current configuration still uses that same absolute executable.",
+      "nativeUiConfirmed": true,
+      "privateScreenshot": "/tmp/agentwiki-release-0133-plan/workbuddy-postdeploy-read.png"
+    }
+  },
+  "knownBoundaries": [
+    "Default WorkBuddy npx safe-delete refusal remains unresolved",
+    "WorkBuddy managed Node22 selection remains unresolved",
+    "Automated build/package tests and production health do not prove real WorkBuddy browser/host acceptance",
+    "Prior real 0.13.2 local acceptance is not new 0.13.3 onboarding evidence"
+  ],
+  "evidence": {
+    "candidate": "release-candidate.json",
+    "review": "review.json",
+    "privateDirectory": "/tmp/agentwiki-release-0133-plan",
+    "registry": "/tmp/agentwiki-release-0133-plan/registry-verified.json",
+    "backup": "/tmp/agentwiki-release-0133-plan/backup-receipt.json",
+    "priorLocalAcceptance": "../generic-mcp-onboarding-20261018/workbuddy-real-acceptance.md",
+    "productionSource": "/tmp/agentwiki-release-0133-plan/production-source-check.json",
+    "publicResources": "/tmp/agentwiki-release-0133-plan/public-release.json",
+    "browserScreenshot": "/tmp/agentwiki-release-0133-plan/production-guide.png",
+    "guideVerification": "/tmp/agentwiki-release-0133-plan/guide-verification.json",
+    "workbuddyPostDeployRead": "/tmp/agentwiki-release-0133-plan/workbuddy-postdeploy-read.json",
+    "workbuddyNativeUiScreenshot": "/tmp/agentwiki-release-0133-plan/workbuddy-postdeploy-read.png"
+  },
+  "receiptPrecedence": "This release.json is the current execution receipt. release-candidate.json and review.json are pre-release phase snapshots; their prepared/not-yet-published wording describes that earlier phase and must not override the verified current release status here. Only freeze linkage and final cause-preservation verification were appended to those snapshots."
+}

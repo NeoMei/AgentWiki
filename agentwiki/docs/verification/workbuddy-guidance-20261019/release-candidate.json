@@ -2,7 +2,7 @@
   "status": "prepared_and_verified_not_published",
   "preparedAt": "2026-10-18T17:48:48.368074+00:00",
   "baseRevision": "d29adb7ad0ce0dda6375f2b4ab8dcdce52e942bd",
-  "freezeRevision": null,
+  "freezeRevision": "1e3fb14001ec33f1c77be1dbfe86f9b02406d382",
   "authorization": "User explicitly authorized this new release; parent will freeze, publish and deploy after final review.",
   "versions": {
     "root": "0.12.49",

@@ -22,5 +22,7 @@
     "historicalPlanDiagnostics": 3,
     "localSyncTypecheck": "passed"
   },
-  "publication": "not yet executed"
+  "publication": "not yet executed",
+  "frozenRevision": "1e3fb14001ec33f1c77be1dbfe86f9b02406d382",
+  "finalCausePreservationReview": "passed; CLI outputs only outer message and bounded fields, not cause or raw checkpoint"
 }

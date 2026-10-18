@@ -1,43 +1,41 @@
 # 当前目标
 
-用户在确认本机可用、默认路径仍有兼容问题后明确要求“发布”。当前执行待发布指引修复d23bd089及公开API指南同步，准备Local Sync0.13.3/WebAPI0.12.49；发布前补齐跨版本未完成会话的安全拒绝。用户已授权此次发布，无需重复确认。默认WorkBuddy npx/safe-delete与托管Node22兼容不在本候选修复范围，不能宣称完全解决。
+执行用户明确要求的发布：指引修正及跨版本会话推进保护已冻结为 `1e3fb140`，Local Sync 0.13.3 正式 npm 包及 Web/API 0.12.49 生产部署已验证通过。真实 Chrome 与公开 API 指南验证通过；既有 WorkBuddy 0.13.2 固定 Node24 连接部署后真实 MCP 读页通过，本轮发布收口完成。
 
 # 范围 / 不做
 
-- 本轮准备Web/API/client/root0.12.49、LocalSync0.13.3；protocol保持0.6.1，依赖、lockfile、数据库结构不变。
-- 冻结新候选后发布，后续回执文档提交不改变源码包；已发布0.13.2/Web0.12.48与此前真实本机验收证据保留。
-- 保留原检出用户修改、日常 Vault、当前 Codex 0.13.0 配置及既有身份/Space 授权；不向对话索取密码、OTP 或密钥，不覆盖旧回执。
-- 数据库回滚不是自动部署失败处理；必须保存故障现场并确认快照后用户写入的数据窗口，再单独决定恢复。
+- Web/API/client/root 0.12.49、Local Sync 0.13.3；protocol 0.6.1、依赖、lockfile 与数据库结构不变。
+- 本轮修复授权轮询、真实 MCP 诊断指引及跨版本误续进；默认 WorkBuddy npx/safe-delete 和托管 Node22 兼容仍未修复。
+- 保留 WorkBuddy 已验证的官方 0.13.2 + 绝对 Node24/CLI 配置、当前 Codex 0.13.0、既有身份和 Space 授权、原检出修改及日常 Vault。旧 0.13.2 回执不覆盖。
+- 不索取或输出认证材料；数据库恢复不自动执行，须单独评估快照后用户写入。
 
 # 当前状态
 
-- 修复提交 1812d6b1；测试浏览器泄漏修复 6fffd762；正式版本候选冻结为 0a299231。版本/构建/包门禁与独立审查通过，175 文件 tarball 与候选一致。
-- 发布前新WorkBuddy接入曾在旧生产device/start被HTTP400阻断；旧WorkBuddy5.8.3连接已真实退出重启后通过0.13.1 MCP读到项目总览。两者是历史证据，不能代替本次新接入验收。
-- npm第二次publish认证成功后经历HTTP202/Validating，现官方registry version/latest均0.13.2；官方tarball与冻结包字节一致，SHA256 836a92c65c9fae6ba3fbc181a6b861cbd4380517764291115b6ce45bc86556b9；175文件逐项匹配，空目录/空缓存安装0.13.2和protocol0.6.1通过。首次挑战超时E404作为历史保留。
-- 固定0a299231部署脚本exit0；生产1357源码逐项匹配、Web/API/client0.12.48、Local Sync0.13.2、protocol0.6.1，Node24.18.0、3服务active、5healthok。公网HTML及5个入口资源与生产逐字节匹配；旧树/root/agentwiki-previous-20261019004923保留。
-- 公开/api/onboard指令包含generic/WorkBuddy和固定0.13.2；真实Chrome接入指南已渲染通用默认、WorkBuddy、自动浏览器授权及客户端权限/重启提示。网页指南成功不是实际宿主完成证据。
-- 协调备份/var/backups/agentwiki/generic-mcp-v01248.f0el29jz已verified/checksumsPassed/writersRestored；154永久blob匹配、writer暂停约7.114秒后恢复，备份后内外健康通过。未做恢复演练。
-- 真实浏览器已允许，同一session创建reader Agent cmve2uzzo00atx1bm3j91lo13并安装completed/备份成功。第一次完整重启85486→退出→15551，信任提示后绿灯34/34（未归因主任务点击）；新会话真实MCP reader读页成功，但实际网关继承Node22，不符合支持范围，且wiki_identity不存在、onboard_status无当前身份。
-- 本机配置备份后固定官方175文件匹配安装、绝对`/usr/local/bin/node`（Node24）+CLI；第二次15551全退出→20291，主任务明确点击客户端信任、绿灯34/34。独立证明gateway24353实际Node v24.18.0，真实新会话reader读页两次8156B/相同SHA通过，无非MCP替代；本机外部真实验收passed，CLI hostVerification仍not_started。身份来自实际argv+本地映射，不是onboard_status返回。
-- 默认WorkBuddy npx safe-delete/concurrency.lock与网关托管Node22兼容仍未修复；本机固定runtime成功不抹去此边界。指引补修d23bd089已提交/测试但未发布；已发布0.13.2/Web0.12.48仍对应0a299231。
+- 候选冻结 `1e3fb14001ec33f1c77be1dbfe86f9b02406d382`；独立审查无阻塞。最终 prepack 74 文件/1085 通过/1 Windows 专属 skip；版本契约 46、服务端兼容 202、公开指南 3、网页 47 通过，构建/lint/diff 与官方 protocol parity 通过。
+- npm publish 已认证成功、exit0；metadata 先开放而 tarball 短暂 404 后，官方 version/latest 均 0.13.3，正式包 SHA256 `032773b2da2ddd8e53d1dd1aefe42922dfe0d9d58f0a9d803a0ea0ab333acdf3` 与冻结包一致。175 文件匹配、空目录/空缓存安装 0.13.3 + protocol 0.6.1 通过。
+- 新协调备份 `/var/backups/agentwiki/generic-mcp-v01249.gzemy54b` 已 verified/checksumsPassed/writersRestored；154 blob 匹配、writer 暂停约 7.001 秒后恢复。备份未做恢复演练。
+- 固定导出 deploy exit0；生产 1357 源码与 `1e3fb140` 零差异，实际版本 0.12.49/0.13.3/0.6.1、Node24.18.0，3 服务 active、5 项健康通过。公网 HTML 与 5 入口资源逐字节匹配；previous 为 `/root/agentwiki-previous-20261019015824`。
+- 真实 Chrome 已刷新线上指南并展开 WorkBuddy 0.13.3 prompt；公开 `/api/onboard` 200，固定版本、status 本地只读、continue 轮询、浏览器回退、真实网关字段、读页、权限/重启、移除不存在身份工具等八项核对通过。结构化回执已保存，截图仅私有保留，未重新发起授权。
+- 旧 WorkBuddy 固定 0.13.2 + Node24 的本机真实授权、信任、两次完整重启和 reader MCP 读页已通过，旧证据独立保留。本轮部署后该既有连接新发起一次真实 MCP 读页，18:01:50.664Z completed、8156B/原 SHA 一致，仅 MCP 派发无替代工具；配置未改，原生 UI 已核实。本轮未重采 Node 进程证据，Node24 实际运行证明沿用此前独立回执；没有完成新的 0.13.3 默认接入验收。
 
 # 稳定约束
 
-- Git 单条命令显式 `--work-tree` 指向带尾空格工作树；测试清除 GIT_WORK_TREE/GIT_DIR，避免污染临时 git init。
-- 单一 MCP 身份与动态 Space 授权不变；旧接入会话继续原精确版本命令，不改 version/planHash。
-- 配置、网关检查、浏览器授权、宿主权限、重启和真实宿主读页分别记证；mock、curl、SDK 和旧连接成功均不替代新流程验收。
-- 私有生产截图、正文、认证材料和备份不提交。既有发布授权持续有效；账户登录由用户完成，认证成功后继续已批准步骤。
+- Git 命令在带尾空格仓库根显式 `--work-tree="$PWD"`；实际发布源码始终为冻结提交，后续文档不改变发布包。
+- 新会话持久化精确包版本；缺失/不匹配 marker 在推进前返回 SESSION_VERSION_MISMATCH，保留检查点/token、不请求远端。旧会话用原启动命令的精确包继续，不改 version/planHash；MCP 历史诊断仍可只读查看。
+- 发布/正式包回读、部署/健康、网页渲染、宿主真实调用分别记证。旧连接、curl、SDK 或模拟测试不能替代新接入真实验收。
+- 私有截图、页面正文、凭据和备份不提交。既有发布授权有效，认证中断不等于授权撤销。
 
 # 关键索引
 
-- .codex-memory/tasks/active/generic-mcp-onboarding-20261018/{brief,decisions,refs}.md
-- agentwiki/docs/verification/generic-mcp-onboarding-20261018/{workbuddy-real-acceptance.md,release-candidate.json,release-candidate.md,release-execution-plan.md,release-progress.json,release.json,browser-isolation-correction.md}
-- /tmp/agentwiki-0132-release-candidate/neomei-agentwiki-local-sync-0.13.2.tgz
-- /tmp/agentwiki-release-20261019-plan/：备份脚本副本、元数据差异、1357 文件源码清单。
-- agentwiki/docs/verification/retest-20261017/{release.json,npm-release.json,plugin-release.json,acceptance.md}：最近正式基线与历史验收。
+- `.codex-memory/tasks/active/generic-mcp-onboarding-20261018/{brief,decisions,refs}.md`
+- `agentwiki/docs/verification/workbuddy-guidance-20261019/{release-candidate.json,review.json,release.json}`
+- `agentwiki/docs/releases-v0.12.49.md`
+- `/tmp/agentwiki-0133-release-candidate/`：最终 tarball、文件 manifest 与候选门禁。
+- `/tmp/agentwiki-release-0133-plan/`：本轮发布、协调备份、部署与线上验证原始回执。
+- `agentwiki/docs/verification/generic-mcp-onboarding-20261018/`：0.13.2 发布和真实本机验收历史证据。
 
 # 风险 / 下一步
 
-1. 完成新候选指引同步、跨版本推进保护、定向/打包/版本兼容门禁与独立审查，再发布0.13.3和部署0.12.49，分别做官方包回读与线上指南验收。
-2. 新协调备份/var/backups/agentwiki/generic-mcp-v01249.gzemy54b已验证，154blob匹配、writer暂停约7秒后恢复、公网5healthok；私有发布计划与回执在/tmp/agentwiki-release-0133-plan。未执行恢复演练。
-3. 当前WorkBuddy固定0.13.2+Node24的可用配置保留，默认npx/safe-delete与托管Node22兼容仍未修复。不要重复发布已存在版本，也不要自动恢复覆盖快照后用户写入。
+1. 本轮 npm/生产发布、线上指南、既有客户端后端兼容验证及执行回执已完成；后续仍需处理默认路径问题，不重复发布或重新创建身份。
+2. 默认 npx/safe-delete 与托管 Node22 仍属未解决产品问题，0.13.3 全新浏览器接入没有实测；当前本机已验证配置保持。
+3. 不自动恢复覆盖快照后的用户写入；备份恢复演练未执行。
