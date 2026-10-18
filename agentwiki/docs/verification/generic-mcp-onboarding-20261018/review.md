@@ -1,5 +1,7 @@
 # Generic MCP onboarding review — 2026-10-18
 
+**复核遗漏更正：** 先前只修复了 `runtime.spec.ts` 的浏览器隔离，遗漏 `onboarding-e2e-driver.ts` 的10个模拟授权用例。因此“范围内无未解决阻塞缺陷”的结论不完整。用户反馈后确认该driver回退到真实OS opener，打开不可访问的wiki.test页面。独立调用链审计还发现根测试会再次运行这10例，子进程测试的PATH shim仅覆盖macOS/Linux。修复及新的验证记录见 `browser-isolation-correction.md`；原审查不证明真实宿主接入。
+
 审查范围：当前隔离工作树中 `cli.ts`、`steps.ts`、`runtime.ts`、`browser.ts`、`node-runtime.ts`、`protocol.ts` 及相关用例；复核新增客户端进入服务端 DTO 与配置安装的路径。该记录不代表生产发布或真实 WorkBuddy 进程验收。
 
 初轮发现并已修复、复测：

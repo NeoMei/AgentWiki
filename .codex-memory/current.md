@@ -1,6 +1,6 @@
 # 当前目标
 
-- 2026-10-18通用MCP与WorkBuddy接入反馈：隔离源码候选完成，Local Sync1071/1skip、服务端271/3skip、前端82、runtime33及构建/类型/lint通过；未发包部署。见 tasks/active/generic-mcp-onboarding-20261018/brief.md。
+- 2026-10-18通用MCP与WorkBuddy接入反馈：隔离源码候选1812d6b1，未发包部署。用户指出测试打开大量不可访问页面；driver漏注入opener已修，新增零原生调用断言，撤回完整浏览器验收结论。安全复现10失败→10通过，全套1071/1skip、根入口8通过，Chrome前后8页无新增/无wiki.test。证据更正见 tasks/active/generic-mcp-onboarding-20261018/brief.md。真实WorkBuddy接入未验收完成。
 
 2026-10-17反馈8项核实、修复、正式发布、生产回验和原页逐项反馈已完成。保留原Windows与原黄金书屋wrapper错误的验收边界。
 

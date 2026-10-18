@@ -38,6 +38,7 @@ export interface OnboardingStateMachineHarnessResult {
   events: OnboardingEvent[];
   replies: Array<Record<string, unknown>>;
   calls: {
+    browser: string[];
     plan: Array<Record<string, unknown>>;
     bootstrap: Array<Record<string, unknown>>;
     bootstrapResults: Array<{ role: AgentAccessRole; scopes: string[] }>;
@@ -55,7 +56,7 @@ export async function runOnboardingStateMachineHarness(
   const events: OnboardingEvent[] = [];
   const replies: Array<Record<string, unknown>> = [];
   const calls: OnboardingStateMachineHarnessResult['calls'] = {
-    plan: [], bootstrap: [], bootstrapResults: [], init: [], prepare: [], sync: [],
+    browser: [], plan: [], bootstrap: [], bootstrapResults: [], init: [], prepare: [], sync: [],
   };
   let inputSent = false;
   let confirmationIndex = 0;
@@ -89,6 +90,11 @@ export async function runOnboardingStateMachineHarness(
         sessionId: () => 'state-machine-e2e',
         sink,
         source,
+        // Authorization is simulated here; never hand its fixture URL to the OS.
+        openBrowser: async (url) => {
+          calls.browser.push(url);
+          return false;
+        },
         client: {
           start: async () => ({
             deviceCode: 'awd_test', userCode: 'E2E-CODE', verificationUri: 'https://wiki.test/onboard/device',

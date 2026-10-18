@@ -2,6 +2,8 @@
 
 日期：2026-10-18（Asia/Shanghai）。基线：origin/master 9851195ecdbdcb9d2fbcddb74bdd950b3d4454a5。隔离分支：codex/generic-mcp-onboarding。
 
+**验收结论更正：真实接入未验收完成。** 用户看到的不可访问页面是状态机测试把虚构 `wiki.test` 授权地址交给真实系统浏览器造成的；模拟授权轮询仍返回成功，先前绿色测试没有发现这个副作用。以下自动化及本地页面记录不能作为完整浏览器/WorkBuddy验收通过的依据。问题证据、隔离修复和复测见 `browser-isolation-correction.md`。
+
 ## 逐项结果
 
 | 用户反馈 | 原因与修复 | 验证及边界 |
@@ -20,7 +22,7 @@
 
 ## 最终验证
 
-- Local Sync全套：74 files，1071 passed / 1既有Windows skip；`vitest run --maxWorkers=2 --testTimeout=20000` exit0。包括真实有限进程重试、授权、配置与网关检查。
+- Local Sync先前全套：74 files，1071 passed / 1既有Windows skip；`vitest run --maxWorkers=2 --testTimeout=20000` exit0。进程/配置/网关边界是真实运行，远端授权由fixture模拟；该轮遗漏真实浏览器副作用，不能作为真实授权成功证据。
 - 服务端接入/安装/DTO：9 suites，271 passed / 3既有skip，exit0。
 - 前端相关7 files：82 passed，exit0。
 - Node/runtime contract：33 passed，含真实打包与CLI帮助，exit0。
@@ -32,6 +34,6 @@
 
 本轮未push、未发布npm、未部署生产、未修改用户真实MCP配置。版本常量保持基线0.13.1，**已经发布的0.13.1不包含本轮能力**。正式发布必须提升Local Sync新版本，同步Web/API版本、服务端允许范围及精确版本命令，并执行新包/生产门禁；不能只部署当前网站/API而让它生成指向旧0.13.1的generic/workbuddy命令。历史版本仅保留其原有支持选项。
 
-没有把本地网关检查、mock授权页或系统打开成功当成用户原WorkBuddy接入成功。原环境仍需新版本安装、用户批准客户端权限、重载/重启后在WorkBuddy调用wiki_*读取已知页面。
+先前对用户报告“浏览器验收通过”表述过度，现撤回完整性结论。原环境仍需新版本安装、真实授权页面正常加载并由用户授权、批准客户端权限、重载/重启后在WorkBuddy调用wiki_*读取已知页面。
 
 WorkBuddy配置路径参考其官方文档：https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide 。

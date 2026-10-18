@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,17 +6,27 @@ import { join } from 'node:path';
 import { hashServerPlan } from './plan-hash.js';
 import { hashOnboardingPlan } from './local-plan-hash.js';
 import { runOnboardingStateMachineHarness } from './onboarding-e2e-driver.js';
+import { openAuthorizationBrowser } from './browser.js';
 import type { LocalScanPlan } from '../codegraph/contracts.js';
 import { readRawConfig } from '../installer/client-config.js';
 import type { AgentClient } from '../agent-clients.js';
 import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
+
+// Keep a regression safe even if the harness forgets its browser dependency:
+// the production opener must never be reached by these simulated auth flows.
+vi.mock('./browser.js', () => ({ openAuthorizationBrowser: vi.fn(async () => false) }));
 
 const homes: string[] = [];
 const PLAN_A_HASH = 'b'.repeat(64);
 const PLAN_B_HASH = 'c'.repeat(64);
 
 afterEach(async () => {
-  await Promise.all(homes.splice(0).map((home) => rm(home, { recursive: true, force: true })));
+  try {
+    expect(openAuthorizationBrowser).not.toHaveBeenCalled();
+  } finally {
+    vi.clearAllMocks();
+    await Promise.all(homes.splice(0).map((home) => rm(home, { recursive: true, force: true })));
+  }
 });
 
 function localPlan(localScanPlanHash: string): LocalScanPlan {
@@ -51,6 +61,8 @@ describe('onboarding runtime state-machine E2E', () => {
     });
 
     expect(harness.error).toBeUndefined();
+    expect(harness.calls.browser).toEqual(['https://wiki.test/onboard/device?user_code=E2E-CODE']);
+    expect(harness.events.find((event) => event.type === 'authorization_required')).toMatchObject({ browserOpened: false });
     expect(harness.events.filter((event) => event.type === 'confirmation_required')).toHaveLength(2);
     expect(harness.calls.plan).toEqual([
       expect.objectContaining({ analysisMode: 'standard' }),

@@ -24,5 +24,13 @@
     "apps/client/src/features/about/OnboardPage.tsx": "f2951072d27c36b9bfb11f9ca992edcace79e61b780c36105ec34cd01588cda6",
     "apps/client/src/features/about/OnboardDevicePage.tsx": "1c03eac284f7dbd121fdd95795843e64323d1aa75c49f73155da56a9b2648891",
     "apps/client/src/config/localSync.ts": "9733c157268ca9720f1c2633490066b0a82e3ed702d64efbfd12a92f3ead8483"
+  },
+  "acceptanceStatus": "incomplete-real-host-authorization-not-verified",
+  "correction": {
+    "reason": "User observed inaccessible wiki.test tabs opened by simulated state-machine tests with an uninjected native opener",
+    "evidence": "browser-test-leak.png",
+    "report": "browser-isolation-correction.md",
+    "priorBlanketBrowserAcceptance": "retracted",
+    "priorAllTabsClosedClaim": "retracted"
   }
 }

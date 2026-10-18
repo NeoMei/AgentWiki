@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 /Users/neomei/.codex/worktrees/generic-mcp-onboarding/AgentWiki /agentwiki/packages/local-sync
+
+
+ Test Files  74 passed (74)
+      Tests  1071 passed | 1 skipped (1072)
+   Start at  23:42:02
+   Duration  41.75s (transform 786ms, setup 0ms, import 2.86s, tests 76.05s, environment 3ms)
+

@@ -1,4 +1,10 @@
-# 通用 MCP 接入：本地浏览器验收
+# 通用 MCP 接入：本地页面检查（非完整接入验收）
+
+## 用户反馈后的更正
+
+用户指出本轮打开了大量不可访问的页面。2026-10-18 23:39（Asia/Shanghai）通过 CUA 确认仍有 `https://wiki.test/onboard/device?user_code=E2E-CODE` 标签页，实际显示“无法访问此网站 / ERR_CONNECTION_CLOSED”；截图见 `browser-test-leak.png`。这是状态机测试遗漏 `openBrowser` 注入造成的真实浏览器副作用：10 个模拟授权用例每轮都可能调用系统打开命令，随后由 mock 轮询直接返回 authorized，因此测试绿色掩盖了页面失败。
+
+撤回“浏览器验收通过”和“全部验收标签页已关闭”的完整性结论。下面保留的证据只覆盖特定本地页面显示和一次本地 opener 检查，不证明真实授权、WorkBuddy 激活或接入成功，也未覆盖测试套件的副作用。发现问题后已关闭当时唯一仍可见的 `wiki.test` 测试错误页；其他用户页面保持原状。修复和复测见 `browser-isolation-correction.md`。
 
 日期：2026-10-18（Asia/Shanghai）。环境：隔离工作树中的 Vite 本地源码；**不是生产部署或已发布 npm 包验收**。页面显示的 0.13.1 是当时尚未统一更新的版本常量，不代表 npm 0.13.1 已含本轮功能。
 
@@ -34,4 +40,4 @@
 
 ## 边界
 
-浏览器真实页面、按钮状态、响应式和文案通过；本轮未安装或重启 WorkBuddy，未修改本机 MCP 配置，未提交真实授权，未把网关检查等同于当前宿主成功读取。OS opener 独立实证见 `browser-opener.json`。全部验收标签页已关闭，临时 Vite 和 fixture 服务已停止。
+上述指定本地页面的按钮状态、响应式和文案检查有截图记录；本轮未安装或重启 WorkBuddy，未修改本机 MCP 配置，未提交真实授权。OS opener 的单次本地页面记录见 `browser-opener.json`。临时 Vite 和 fixture 服务已停止；原“全部验收标签页已关闭”说法遗漏了测试套件打开的错误页，已在本文顶部更正。

@@ -8,3 +8,4 @@
 - doctor --all-clients 检查已知配置，缺少可选宿主为 unverified；generic不冒充实际注册。
 - 已有Agent接入命令当前源码候选用generic、历史包保留auto；正式发布必须同步提升版本，不能把当前候选以0.13.1重新发布。
 - 同名未知MCP必须在preflight/写入前拒绝；用户保留或重命名冲突条目后，同一session重新确认，不重新建身份。
+- 模拟授权测试必须显式注入浏览器依赖，并断言真实opener零调用；系统命令成功与mock轮询成功不能当作页面可访问或真实授权成功。用户反馈发现的wiki.test开窗漏口与验收结论更正记录在browser-isolation-correction.md。
