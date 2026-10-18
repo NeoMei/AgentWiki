@@ -11,7 +11,7 @@
 
 # 当前状态
 
-- 本轮0.13.4候选完整prepack75文件/1121通过/1既有Windows skip，类型/lint/前后端构建/协议parity/空缓存179文件比对通过。固定包SHA256 `d8dc68a986ff9716055a1731a8ee48aabdbff6ce31525f50aaca38e019b3dde0`；独立审查无开放问题，源码基线1362文件零差异。新生成npx配置已在真实WorkBuddy启动正式0.13.3并完成信任、完整重启、三次MCP调用与读页哈希核对；本轮未发布。
+- 本轮冻结候选 `99b247c7e21a3322398c7c8a2e7bda4995151e03`。0.13.4候选完整prepack75文件/1121通过/1既有Windows skip，类型/lint/前后端构建/协议parity/空缓存179文件比对通过。固定包SHA256 `d8dc68a986ff9716055a1731a8ee48aabdbff6ce31525f50aaca38e019b3dde0`；独立审查无开放问题，源码基线1362文件零差异。新生成npx配置已在真实WorkBuddy启动正式0.13.3并完成信任、完整重启、三次MCP调用与读页哈希核对；本轮未发布。
 - 上一轮正式候选冻结 `1e3fb14001ec33f1c77be1dbfe86f9b02406d382`；独立审查无阻塞。最终 prepack 74 文件/1085 通过/1 Windows 专属 skip；版本契约 46、服务端兼容 202、公开指南 3、网页 47 通过，构建/lint/diff 与官方 protocol parity 通过。
 - npm publish 已认证成功、exit0；metadata 先开放而 tarball 短暂 404 后，官方 version/latest 均 0.13.3，正式包 SHA256 `032773b2da2ddd8e53d1dd1aefe42922dfe0d9d58f0a9d803a0ea0ab333acdf3` 与冻结包一致。175 文件匹配、空目录/空缓存安装 0.13.3 + protocol 0.6.1 通过。
 - 新协调备份 `/var/backups/agentwiki/generic-mcp-v01249.gzemy54b` 已 verified/checksumsPassed/writersRestored；154 blob 匹配、writer 暂停约 7.001 秒后恢复。备份未做恢复演练。
@@ -37,6 +37,6 @@
 
 # 风险 / 下一步
 
-1. 最终0.13.4 pack门禁通过并准备冻结；请用户批准本轮新版本发布后执行官方npm回读/生产备份部署/新正式包WorkBuddy读页。
+1. 最终0.13.4 pack门禁通过已冻结 `99b247c7e21a3322398c7c8a2e7bda4995151e03`；请用户批准本轮新版本发布后执行官方npm回读/生产备份部署/新正式包WorkBuddy读页。
 2. 启动命令变化后WorkBuddy需在「专家·技能·连接器→连接器→自定义连接器」重新信任；已纳入安装提示。首次重启未信任导致无工具的失败证据独立保留，信任后启动成功。不冒充重新完成了新浏览器授权。
 3. 不自动恢复覆盖快照后的用户写入；备份恢复演练未执行。

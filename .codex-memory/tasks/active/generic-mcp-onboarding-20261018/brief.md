@@ -17,3 +17,5 @@ npm 官方 version/latest 均 0.13.3；正式 tarball SHA256 `032773b2da2ddd8e53
 用户要求必须解决。真实 WorkBuddy 中 Node24.18.0/npm11.16.0 执行正式0.13.3的 --help 在 npm 删除 _npx/concurrency.lock 时被内置safe-delete拒绝，CLI未运行。仅改为 fs.mkdtempSync(os.tmpdir()) 的0700专属缓存后相同npx固定包成功。不是权限关闭或删除旧cache。正在修改首次接入指引与WorkBuddy网关配置生成，验证使用与配置完全一致的命令/环境；后续以真实默认npx网关读页验收，不以旧固定包路径代替。
 
 当前修复已收敛：每次启动私有cache校验/重建、Node/npm绑定、Windows env归一、TMP覆盖一致、完整安装receipt防未确认env重试、验证进程组清理均已独立审查。候选0.13.4/WebAPI0.12.50最终打包中。真实生成配置先调用正式0.13.3：首次重启未信任而无工具；UI重新信任后cold npx下载成功、34/34启用，再次完全重启后的新会话已真实返回MCP诊断/reader空间/目标页。独立日志哈希核对进行中，新正式包尚未发布。
+
+最终冻结候选 `99b247c7e21a3322398c7c8a2e7bda4995151e03`，0.13.4固定包SHA256 d8dc68a986ff9716055a1731a8ee48aabdbff6ce31525f50aaca38e019b3dde0；1121测试通过/1既有skip、179打包文件空缓存安装一致、独立审查无开放问题，冻结部署导出1360文件哈希匹配。新版本npm/生产发布尚未执行，等待本轮明确批准。当前本机仍使用已验收的正式0.13.3 npx生成配置。

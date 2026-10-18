@@ -2,7 +2,7 @@
   "status": "prepared_verified_awaiting_new_release_authorization",
   "preparedAt": "2026-10-18T18:59:04.414266+00:00",
   "baseRevision": "db767ee6f87c38d85d92ec15ead8c1a1eed0fee7",
-  "freezeRevision": null,
+  "freezeRevision": "99b247c7e21a3322398c7c8a2e7bda4995151e03",
   "versions": {
     "root": "0.12.50",
     "server": "0.12.50",
@@ -132,5 +132,11 @@
       "webApi": "0.12.49"
     },
     "requiresNewReleaseApproval": true
+  },
+  "frozenExport": {
+    "sourceFiles": 1360,
+    "mismatches": 0,
+    "sourceManifestSha256": "d5032e0a6e3eaf670dd502cbe642bda6c4729ed2aa8af7de6cb91a281025afc8",
+    "scope": "Deployment source whitelist; candidate review manifest includes additional repository documentation/configuration"
   }
 }
