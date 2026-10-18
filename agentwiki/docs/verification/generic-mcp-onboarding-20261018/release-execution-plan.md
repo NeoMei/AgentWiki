@@ -1,6 +1,6 @@
-# 0.12.48 / 0.13.2 发布执行计划（未获发布许可，未执行）
+# 0.12.48 / 0.13.2 发布执行计划（已获许可，认证阻塞，未发布部署）
 
-本计划只供审阅。2026-10-19 当前尚未取得用户发布许可；下面含 npm 写入、生产停写、部署及恢复命令，均不能因为文档已经生成而执行。此轮只读取本地规程/历史回执并准备本地文件，没有建立 SSH 操作、访问生产或修改冻结候选。
+2026-10-19 用户已明确批准冻结候选 `0a299231667f03e68f6b97a0501c632602a75ae5` 发布 npm Local Sync 0.13.2、部署 Web/API 0.12.48，并继续真实 WorkBuddy 验收。该授权持续有效；当前是账户/SSH 认证阻塞，不需要重复发布审批。已进行认证前检，尚未发布、部署或执行远端写入。数据库配对恢复仍须按本文 F 节单独确认新写入的数据窗口，不能作为自动失败处理。
 
 ## 固定候选和目标
 
@@ -41,7 +41,7 @@ npm whoami --registry=https://registry.npmjs.org/
 
 候选已通过的本地门禁见 `release-candidate.json`。若候选源码/打包内容发生变化，先重新审查和验包，不能沿用此摘要。
 
-## B. 生产只读前检（取得发布许可后先执行）
+## B. 生产只读前检（已获许可，SSH 认证恢复后执行）
 
 ```bash
 ssh root@113.249.120.24 'bash -se' <<'REMOTE'
@@ -60,7 +60,7 @@ REMOTE
 
 只输出白名单版本、服务和存储信息，不 cat `.env` 或打印环境。要求 Web/API/client 为 0.12.47、Local Sync 0.13.1、protocol 0.6.1，Node 24/26，三个服务 active，健康项均 ok，附件路径正规且 0700。实际生产有其他改动时停止，先核对前一次发布清单；不能直接以版本号相同替代源码核实。
 
-## C. npm 发布与官方回读（只有明确许可后）
+## C. npm 发布与官方回读（已获许可，npm 认证恢复后执行）
 
 ```bash
 npm publish "$release_tgz" --access public --tag latest --registry=https://registry.npmjs.org/
@@ -97,7 +97,7 @@ PY
 
 ## D. 协调备份与不可变源码部署
 
-取得发布许可、生产基线复核和 npm 回读通过后：
+沿已取得的发布许可，在 SSH 认证恢复、生产基线复核和 npm 回读通过后：
 
 ```bash
 scp "$release_plan/backup-production.py" root@113.249.120.24:/tmp/agentwiki-backup-v01248.py
@@ -190,3 +190,12 @@ systemctl --user daemon-reload
 ```
 
 `failed_application` 必须是预留且不存在的独立路径。恢复后先按规程在 loopback 13000 运行私有健康探针、`prisma migrate status` 和附件 manifest 校验，保留正常 writer 停止；验证成功且操作人明确恢复服务后，再 `systemctl --user start` 三个服务并检查公网健康/已知受保护附件。不要混用另一轮 database.dump、附件和 previous 应用。现有备份归档可校验不代表此恢复流程已经演练。
+
+## 2026-10-19 执行实况：发布已获许可，等待用户完成认证
+
+- 用户已明确批准冻结0a299231发布npm0.13.2/WebAPI0.12.48并继续真实验收。本次批准持续有效，下面认证完成后直接恢复已批准流程，不重复请求相同许可。
+- `npm whoami --registry=https://registry.npmjs.org/` 返回 E401。已启动 npm web login，打开真实 Chrome 安全密钥认证页，等待用户在界面操作；登录成功尚未确认。
+- SSH BatchMode 前检返回 `Permission denied`；`/tmp/agentwiki-release-ssh/control` 不存在，`~/.ssh` 当前仅 config/known_hosts，无可用私钥。已请用户在自己的终端完成登录并建立同一 ControlPath；不能从用户取得或在输出中包含密码。
+- 没有执行 npm 发布、生产部署、备份或其他远端写入。固定源码包和此前发布回执保持不变；认证前检失败不能写成发布完成或真实新流程通过。
+- 用户建立控制连接后，先用 `ssh -S /tmp/agentwiki-release-ssh/control -O check root@113.249.120.24` 验证复用状态；后续 SSH/SCP 使用该 ControlPath，部署通过 `AGENTWIKI_SSH_CONTROL_PATH=/tmp/agentwiki-release-ssh/control bash ./deploy.sh 113.249.120.24 root` 复用已登录连接，不在脚本/命令行传密码。
+- 两项认证恢复后，重核包摘要和 registry版本占用，再依次进行正式npm发布/回读/空缓存安装、生产只读基线、协调备份、固定候选部署和真实WorkBuddy新授权/权限/重启/MCP读页。若其中一项认证先完成，可推进其独立前检，不能把另一项视作自动成功。

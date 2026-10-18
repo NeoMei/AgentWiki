@@ -8,4 +8,4 @@
 
 最新真实验收：生产device/start对workbuddy返回HTTP400（仅旧3client）；未开授权页、未新增身份。WorkBuddy5.8.3原生UI显示agentwiki启用34/34工具、原有完全访问；完全退出重启后新会话通过已发布0.13.1原有连接真实调用wiki_get_page读取项目总览。6次MCP执行由原始会话日志佐证，未用终端HTTP替代。新浏览器接入仍未完成。详见workbuddy-real-acceptance.md。
 
-发布候选：0a299231将Web/API提升0.12.48、Local Sync提升0.13.2，protocol0.6.1不变。版本/构建/打包/空缓存门禁和独立审查通过，175文件tarball与源码一致。发布许可已向用户提出，尚未获回复；未发布npm、未部署生产。下一步获准后先正式npm回读/安装，再同步部署Web/API；随后继续真实浏览器授权、新配置、客户端权限与重启读页。
+发布候选：0a299231将Web/API提升0.12.48、Local Sync提升0.13.2，protocol0.6.1不变。版本/构建/打包/空缓存门禁和独立审查通过，175文件tarball与源码一致。用户已明确批准该冻结候选发布npm 0.13.2、部署Web/API 0.12.48并继续真实验收；授权持续有效，不需重复请求同一许可。尚未发布npm、未部署生产。当前阻塞为认证：npm whoami返回E401，已启动真实Chrome npm web login等待用户安全密钥操作；SSH BatchMode Permission denied，/tmp/agentwiki-release-ssh/control不存在，~/.ssh仅config/known_hosts无可用私钥，已请用户在自己的终端建立该ControlPath登录。未执行远端写入，不索取或输出密码。认证完成后直接按已批准执行计划继续npm正式发布/回读/空缓存安装、协调备份与同步部署，再完成真实新浏览器授权、客户端权限、重启及新会话MCP读页。

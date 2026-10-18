@@ -1,36 +1,41 @@
 # 当前目标
 
-- 2026-10-19通用MCP/WorkBuddy：真实新接入被生产device/start HTTP400阻断（只接受旧3client），未打开授权页。WorkBuddy5.8.3已真实完全退出重启，新会话通过原有0.13.1连接调用wiki_get_page读到项目总览；这不代表新流程通过。0.12.48/0.13.2发布候选已冻结0a299231、门禁和独立审查通过，发布许可问题已提出，尚未发布部署。见 tasks/active/generic-mcp-onboarding-20261018/brief.md 与 workbuddy-real-acceptance.md。
-
-2026-10-17反馈8项核实、修复、正式发布、生产回验和原页逐项反馈已完成。保留原Windows与原黄金书屋wrapper错误的验收边界。
+完成通用 MCP / WorkBuddy 新接入的正式发布及真实宿主验收。用户已明确批准冻结候选 `0a299231667f03e68f6b97a0501c632602a75ae5` 发布 npm Local Sync 0.13.2、部署 Web/API 0.12.48，并继续验证真实浏览器授权、客户端权限、重启及 MCP 读页。授权持续有效，当前阻塞是认证，不需重复请求发布批准。
 
 # 范围 / 不做
 
-本轮Web/API0.12.47、Local Sync0.13.1、Obsidian0.5.12已发布；未变更protocol0.6.1、依赖或数据库结构。原检出用户修改、日常Vault、正文/事务/身份/hash保持。未升级当前Codex的0.13.0配置或强制重启。
+- 本轮发布 Web/API/client/root 0.12.48 和 Local Sync 0.13.2；protocol 保持 0.6.1，依赖、lockfile、数据库结构不变。
+- 只发布冻结候选，后续回执文档提交不改变源码包；已发布 npm 0.13.1 不包含 generic/WorkBuddy 新流程。
+- 保留原检出用户修改、日常 Vault、当前 Codex 0.13.0 配置及既有身份/Space 授权；不向对话索取密码、OTP 或密钥，不覆盖旧回执。
+- 数据库回滚不是自动部署失败处理；必须保存故障现场并确认快照后用户写入的数据窗口，再单独决定恢复。
 
 # 当前状态
 
-- Web/API正式代码a192d775，tag v0.12.47；后续仅回执文档提交。生产1354源码匹配，编译审核服务同hash，公网5资源匹配，3服务active/5健康字段ok，63迁移无pending，32烟测及清理通过。
-- npm0.13.1已正式发布，官方包与固定候选逐字节/171文件一致；空目录/空缓存安装及正式SDK顶层schema/原页发布/精确回读通过。临时验收进程复用唯一既有连接并已关闭，不新增身份。
-- 插件0.5.12正式源码fd06387，3 CI success，官方3资产逐字节/来源证明通过，完整1551项。原Windows待验，日常Vault未升级。
-- 主最终full exit0：server3318/4skip、client2659、protocol140、local1018/1skip、runtime309/1skip、串行DB239/0skip；build/typecheck/lint及独立审查通过。
-- 真实Chrome：10/14共53条3页53唯一ID、3状态全局倒序和日期通过；10/15共5条通过。来源/内嵌Runs/设置0重复返回且7nav，390px切换无整页横溢出通过；恢复桌面。
-- 原页8项正式回执cmvc730wt00albu4scw93k18c published/autoPublished，全文精确/独立MCP回读及Chrome渲染通过。原报告、图片、测试人员回归栏和历史候选记录保留。
-- 最新配套备份/var/backups/agentwiki/retest-feedback-v01247.xgdw975j已校验并恢复writers；旧应用树/root/agentwiki-previous-20261017172214保留，未演练恢复。
+- 修复提交 1812d6b1；测试浏览器泄漏修复 6fffd762；正式版本候选冻结为 0a299231。版本/构建/包门禁与独立审查通过，175 文件 tarball 与候选一致。
+- 新 WorkBuddy 接入在生产 device/start 被 HTTP 400 阻断（生产仍只接受旧三类 client），未打开新授权页、未新增身份。WorkBuddy 5.8.3 已真实退出重启，新会话通过既有 0.13.1 连接调用 wiki_get_page 读取项目总览；这仅证明旧连接重启/读页，不代表新流程通过。
+- 用户已批准本轮发布并继续真实验收。执行前检中 `npm whoami` 返回 E401；已启动 npm web login，真实 Chrome 安全密钥认证等待用户操作。
+- SSH BatchMode 返回 Permission denied；预期 `/tmp/agentwiki-release-ssh/control` 不存在，本机 `~/.ssh` 仅有 config/known_hosts，无可用私钥。已请用户在自己的终端完成 SSH 登录并建立该 ControlPath，不获取或输出密码。
+- 尚未执行 npm 发布、生产部署或远端写入。当前认证恢复后，沿已获授权继续执行，不再次请求同一发布许可。
+- 最近正式基线为 Web/API 0.12.47、npm 0.13.1、Obsidian 0.5.12，发布/原页回执见 retest-20261017；原 Windows Vault 与黄金书屋 wrapper 边界保留。
 
 # 稳定约束
 
-Git仅单条命令显式--work-tree指向带尾空格工作树；测试清除GIT_WORK_TREE/GIT_DIR，避免污染临时git init。唯一MCP身份与Space动态授权不变；旧0.13.0未完成接入继续原固定版本命令，不改version/hash。私有生产截图与正文不提交。
+- Git 单条命令显式 `--work-tree` 指向带尾空格工作树；测试清除 GIT_WORK_TREE/GIT_DIR，避免污染临时 git init。
+- 单一 MCP 身份与动态 Space 授权不变；旧接入会话继续原精确版本命令，不改 version/planHash。
+- 配置、网关检查、浏览器授权、宿主权限、重启和真实宿主读页分别记证；mock、curl、SDK 和旧连接成功均不替代新流程验收。
+- 私有生产截图、正文、认证材料和备份不提交。既有发布授权持续有效；账户登录由用户完成，认证成功后继续已批准步骤。
 
 # 关键索引
 
-- .codex-memory/tasks/archive/retest-20261017/{brief,decisions,refs}.md
-- agentwiki/docs/verification/retest-20261017/{release.json,npm-release.json,plugin-release.json,status.md,acceptance.md,validation.json}
-- .superpowers/sdd/retest-20261017-plan/release-sdk/final-release-receipt.json
-- /tmp/agentwiki-release-20261017/ 备份、部署、源码/public验证、烟测、full原始日志
+- .codex-memory/tasks/active/generic-mcp-onboarding-20261018/{brief,decisions,refs}.md
+- agentwiki/docs/verification/generic-mcp-onboarding-20261018/{workbuddy-real-acceptance.md,release-candidate.json,release-candidate.md,release-execution-plan.md,browser-isolation-correction.md}
+- /tmp/agentwiki-0132-release-candidate/neomei-agentwiki-local-sync-0.13.2.tgz
+- /tmp/agentwiki-release-20261019-plan/：备份脚本副本、元数据差异、1357 文件源码清单。
+- agentwiki/docs/verification/retest-20261017/{release.json,npm-release.json,plugin-release.json,acceptance.md}：最近正式基线与历史验收。
 
 # 风险 / 下一步
 
-- 本轮接入候选仍沿用基线版本常量0.13.1以待统一发布准备；已发布npm0.13.1不含generic/workbuddy新功能。正式发布必须提升新包版本并同步Web/API允许范围与命令，不能将未发布源码提示词用于现网安装。原WorkBuddy宿主实际授权/重启/已知页读取待验。
-
-本轮发布工作完成。Windows原Vault/事务另行原环境回归；黄金书屋原wrapper错误未复现，不借本次项目管理Space成功结论关闭。其他客户端旧进程不会因npm发布自动升级；既有Codex0.13.0配置保留。工作树和备份为交付证据保留。
+1. 等待用户完成真实 npm 安全密钥认证和 SSH ControlPath 登录，分别只读验证 `npm whoami` 与控制连接；认证信息不进入对话或日志。
+2. 复核冻结 tarball 摘要、npm 版本占用及生产基线；执行已批准的 npm 发布、官方逐字节/175 文件回读和空缓存安装。
+3. 按执行计划完成协调备份，再从固定 0a299231 导出并部署 Web/API 0.12.48 与 LOCAL_SYNC_PACKAGE_VERSION=0.13.2，核对源码/服务/公网资源。
+4. 继续真实 WorkBuddy 新浏览器授权、客户端权限、重启及新会话 MCP 读页；结果逐项记录，未通过前不宣称完整接入完成。
