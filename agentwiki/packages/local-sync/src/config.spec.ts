@@ -32,7 +32,7 @@ afterEach(async () => {
 describe('secure local state', () => {
   it('preserves legacy Space hints without turning them into a credential router', async () => {
     const home = await createHome();
-    const common = { serverUrl: 'https://wiki.test/api', agentId: 'agent-1', pluginVersion: '0.13.1', client: 'codex' as const, mcpName: 'agentwiki' };
+    const common = { serverUrl: 'https://wiki.test/api', agentId: 'agent-1', pluginVersion: '0.13.2', client: 'codex' as const, mcpName: 'agentwiki' };
     await saveConfig(home, { version: 1, defaultConnectionId: 'b', connections: {
       a: { ...common, id: 'a', credentialId: 'cred-a' },
       b: { ...common, id: 'b', credentialId: 'cred-b', spaceId: 'space-b' },
@@ -45,7 +45,7 @@ describe('secure local state', () => {
 
   it('can update the default Space context for the same identity while rejecting a different host client', async () => {
     const home = await createHome();
-    const connection = { id: 'a', serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'cred-a', pluginVersion: '0.13.1', client: 'codex' as const, mcpName: 'agentwiki', spaceId: 'space-a' };
+    const connection = { id: 'a', serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'cred-a', pluginVersion: '0.13.2', client: 'codex' as const, mcpName: 'agentwiki', spaceId: 'space-a' };
     await mergeConnection(home, connection, 'key-a');
     await mergeConnection(home, { ...connection, spaceId: 'space-b' }, 'key-a');
     expect((await loadConfig(home)).connections.a?.spaceId).toBe('space-b');
@@ -73,7 +73,7 @@ describe('secure local state', () => {
       connections: {
         local: {
           id: 'local', serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'cred-1',
-          pluginVersion: '0.13.1', client: 'codex', mcpName: 'agentwiki',
+          pluginVersion: '0.13.2', client: 'codex', mcpName: 'agentwiki',
         },
       },
     });

@@ -4,7 +4,7 @@ describe('public Agent connection guide', () => {
   it('advertises bounded version-pinned steps, explicit confirmation, and actual host-read verification', () => {
     const controller = new OnboardController({} as any, {} as any);
     const guide = controller.getMarkdown();
-    expect(guide).toContain("@neomei/agentwiki-local-sync@0.13.1 onboard start --server 'https://agentwiki.quukk.com/api' --client generic --protocol json");
+    expect(guide).toContain("@neomei/agentwiki-local-sync@0.13.2 onboard start --server 'https://agentwiki.quukk.com/api' --client generic --protocol json");
     expect(guide).toContain('--client workbuddy');
     expect(guide).toContain('Node.js 24 或 26');
     expect(guide).toContain('browserOpened:false');

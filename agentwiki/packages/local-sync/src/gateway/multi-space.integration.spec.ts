@@ -15,7 +15,7 @@ afterEach(async () => { vi.restoreAllMocks(); await Promise.all(homes.splice(0).
 
 async function fixture() {
   const home = await mkdtemp(join(tmpdir(), 'aw-agent-identity-')); homes.push(home);
-  const common = { serverUrl: 'https://wiki.test/api', agentId: 'agent-1', pluginVersion: '0.13.1', client: 'codex' as const, mcpName: 'agentwiki' };
+  const common = { serverUrl: 'https://wiki.test/api', agentId: 'agent-1', pluginVersion: '0.13.2', client: 'codex' as const, mcpName: 'agentwiki' };
   await saveConfig(home, { version: 1, defaultConnectionId: 'b', connections: {
     a: { ...common, id: 'a', spaceId: 'space-a', credentialId: 'cred-a' },
     b: { ...common, id: 'b', spaceId: 'space-b', credentialId: 'cred-b' },

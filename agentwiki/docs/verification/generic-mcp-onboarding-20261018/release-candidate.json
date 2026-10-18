@@ -1,0 +1,96 @@
+{
+  "status": "prepared_not_published_or_deployed",
+  "preparedAt": "2026-10-18T16:01:31.486889+00:00",
+  "baseCommit": "6fffd7623260856e06f60b3556972e2a80d26998",
+  "candidateState": "uncommitted worktree version preparation; freeze reviewed commit before release",
+  "versions": {
+    "application": "0.12.48",
+    "localSync": "0.13.2",
+    "syncProtocol": "0.6.1"
+  },
+  "registry": {
+    "url": "https://registry.npmjs.org/",
+    "observedLatestLocalSync": "0.13.1",
+    "candidateVersionAvailable": true,
+    "protocolParity": "identical"
+  },
+  "package": {
+    "name": "@neomei/agentwiki-local-sync",
+    "version": "0.13.2",
+    "filename": "neomei-agentwiki-local-sync-0.13.2.tgz",
+    "size": 199526,
+    "unpackedSize": 958157,
+    "shasum": "37b272c769328a87ce53e8152fc6e6e2f433fc66",
+    "integrity": "sha512-QXYpp3lgUOziGR8koQlMKctBFNxoZ5Ja33RrYE98wjDg5gHRlGQkGHaA17IAKy3FMHrT0aa47AD6oOyoVFrGrg==",
+    "entryCount": 175
+  },
+  "packageFile": "/tmp/agentwiki-0132-release-candidate/neomei-agentwiki-local-sync-0.13.2.tgz",
+  "sha256": "836a92c65c9fae6ba3fbc181a6b861cbd4380517764291115b6ce45bc86556b9",
+  "checks": {
+    "runtimeAndRegistryContracts": {
+      "passed": 46
+    },
+    "serverVersionAndOnboardingContracts": {
+      "files": 5,
+      "passed": 195
+    },
+    "clientVersionAndInstructionsContracts": {
+      "files": 5,
+      "passed": 38
+    },
+    "localSyncPrepack": {
+      "files": 74,
+      "passed": 1071,
+      "skipped": 1,
+      "skip": "existing Windows-only case on macOS"
+    },
+    "builds": [
+      "local-sync",
+      "server",
+      "client"
+    ],
+    "protocolRegistryParity": "passed",
+    "cleanInstallRegistryProtocol": {
+      "passed": true,
+      "protocolSource": "registry",
+      "publisherPaths": [
+        "device-bootstrap",
+        "one-time-code"
+      ],
+      "scopes": 16,
+      "tamperRejected": true,
+      "rawServerPlan": true
+    },
+    "diffCheck": "passed"
+  },
+  "notPerformed": [
+    "npm publication",
+    "production deployment",
+    "production calls",
+    "user configuration changes",
+    "real WorkBuddy browser/permission/restart/read acceptance"
+  ],
+  "logs": [
+    "/tmp/agentwiki-0132-protocol-parity.log",
+    "/tmp/agentwiki-0132-clean-install.log",
+    "/tmp/agentwiki-0132-release-candidate/npm-pack.json"
+  ],
+  "compatibility": {
+    "acceptedLocalSyncVersions": [
+      "0.9.0",
+      "0.9.1",
+      "0.10.0",
+      "0.10.1",
+      "0.10.2",
+      "0.11.0",
+      "0.12.0",
+      "0.13.0",
+      "0.13.1",
+      "0.13.2"
+    ],
+    "oldSessions": "retain exact original package version and plan hash",
+    "dependenciesChanged": false,
+    "lockfileChanged": false,
+    "databaseMigrationsChanged": false
+  }
+}

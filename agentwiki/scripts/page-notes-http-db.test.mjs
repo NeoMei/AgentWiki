@@ -21,7 +21,7 @@ test('shared page notes persist across human and MCP identities with live page a
     try {
       Object.assign(process.env, {
         NODE_ENV: 'test', PROCESS_ROLE: 'api', DATABASE_URL: databaseUrl, REDIS_URL: redis.url,
-        LOCAL_SYNC_PACKAGE_VERSION: '0.13.1',
+        LOCAL_SYNC_PACKAGE_VERSION: '0.13.2',
         JWT_SECRET: `notes-http-${randomUUID()}-${randomUUID()}`,
         AGENTWIKI_SERVER_PEPPER: `notes-http-${randomUUID()}`,
         AGENTWIKI_DEPLOYMENT_SEED: randomBytes(32).toString('base64'),
@@ -94,7 +94,7 @@ test('shared page notes persist across human and MCP identities with live page a
         assert.equal((await request(path, { token: reader.token })).notes.find(n => n.id === own.id).body, '已补充验收条件');
       });
       const agent = await request('/agents', { token: owner.token, method: 'POST', body: { name: '验收 Agent' } });
-      const installation = await request(`/agents/${agent.id}/local-sync-installations`, { token: owner.token, method: 'POST', body: { spaceId: space.id, role: 'editor', pluginVersion: '0.13.1' } });
+      const installation = await request(`/agents/${agent.id}/local-sync-installations`, { token: owner.token, method: 'POST', body: { spaceId: space.id, role: 'editor', pluginVersion: '0.13.2' } });
       const { apiKey } = await request('/integrations/local-sync/exchange', { method: 'POST', body: { code: installation.code } });
       const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
       const { StreamableHTTPClientTransport } = require('@modelcontextprotocol/sdk/client/streamableHttp.js');

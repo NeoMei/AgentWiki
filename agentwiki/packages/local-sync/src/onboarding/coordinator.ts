@@ -78,7 +78,7 @@ export interface CoordinatorDeps {
   encoder: ProtocolEncoder;
   source: ProtocolSource;
   serverBaseUrl: string;
-  packageVersion: '0.13.1';
+  packageVersion: '0.13.2';
   home: string;
   preflight: PreflightFn;
   bootstrapInstall: BootstrapInstallFn;
@@ -435,7 +435,7 @@ export class OnboardingCoordinator {
         : { mode: 'create', name: inputs.spaceName as string },
       agentName: inputs.agentName as string,
       role: inputs.role as 'reader' | 'editor' | 'publisher',
-      packageVersion: '0.13.1',
+      packageVersion: '0.13.2',
     };
   }
 
