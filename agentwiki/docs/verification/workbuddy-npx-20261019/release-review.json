@@ -1,0 +1,119 @@
+{
+  "status": "passed",
+  "verifiedAt": "2026-10-18T19:28:09.941197+00:00",
+  "scope": [
+    "release.json",
+    "real-workbuddy-0134.json",
+    "native-cache-0134.json"
+  ],
+  "checks": [
+    {
+      "check": "host receipt exact",
+      "passed": true
+    },
+    {
+      "check": "public receipt exact",
+      "passed": true
+    },
+    {
+      "check": "guide receipt exact after intended screenshot path redaction",
+      "passed": true
+    },
+    {
+      "check": "MCP receipt hash",
+      "passed": true
+    },
+    {
+      "check": "config hash",
+      "passed": true
+    },
+    {
+      "check": "launcher hash",
+      "passed": true
+    },
+    {
+      "check": "calls copied accurately",
+      "passed": true
+    },
+    {
+      "check": "reader space",
+      "passed": true
+    },
+    {
+      "check": "only expected MCP and discovery in snapshot",
+      "passed": true
+    },
+    {
+      "check": "no in-window failures",
+      "passed": true
+    },
+    {
+      "check": "snapshot18lines",
+      "passed": true
+    },
+    {
+      "check": "first18lines hash exact",
+      "passed": true
+    },
+    {
+      "check": "process chain exact",
+      "passed": true
+    },
+    {
+      "check": "safety boundary exact",
+      "passed": true
+    },
+    {
+      "check": "backup receipt hash",
+      "passed": true
+    },
+    {
+      "check": "no apparent credentials or local user config paths",
+      "passed": true
+    },
+    {
+      "check": "npm registry receipt exact",
+      "passed": true
+    },
+    {
+      "check": "deployment receipt exact",
+      "passed": true
+    },
+    {
+      "check": "native Bash copied evidence fields exact",
+      "passed": true
+    },
+    {
+      "check": "native Bash source fields exact after path redaction",
+      "passed": true
+    },
+    {
+      "check": "native Bash npm fields exact after path redaction",
+      "passed": true
+    },
+    {
+      "check": "native Bash owner correct",
+      "passed": true
+    },
+    {
+      "check": "native Bash cache exact after uid/path redaction",
+      "passed": true
+    },
+    {
+      "check": "native Bash receipt SHA in release",
+      "passed": true
+    },
+    {
+      "check": "native receipt no private paths/tokens",
+      "passed": true
+    }
+  ],
+  "supersedes": "final-receipt-independent-review.json",
+  "priorFalseMismatchExplained": "Guide comparison initially included source-only private screenshot path. Deliberate redaction was verified and all remaining guide content is exact. No product finding.",
+  "blockingFindings": [],
+  "newTestsExecuted": false,
+  "sourceOrUiModified": false,
+  "limitations": [
+    "UI fields are backed by parent receipts; independent review uses original real tool results and artifacts, without operating UI."
+  ]
+}

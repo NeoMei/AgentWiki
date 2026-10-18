@@ -4,7 +4,6 @@
 
 ## 活跃任务
 
-- [generic-mcp-onboarding-20261018](active/generic-mcp-onboarding-20261018/brief.md)：新候选1e3fb140已发布npm0.13.3并完成官方175文件/空缓存回读；WebAPI0.12.49生产1357源码/公网资源/健康及真实Chrome/API指南通过，既有0.13.2固定Node24连接部署后真实MCP读页兼容通过。本轮发布收口，0.13.3新授权未重跑；默认npx/safe-delete与托管Node22仍未修复。
 
 
 
@@ -22,6 +21,8 @@
 - [q3-regressions-20260914](archive/q3-regressions-20260914/brief.md)：Q3人工报告20项代码修复、整分支独立复审与候选验收完成；未发布部署或安装日常Vault。
 
 ## 最近完成
+
+- [generic-mcp-onboarding-20261018](archive/generic-mcp-onboarding-20261018/brief.md)：冻结99b247c7已发布npm0.13.4/WebAPI0.12.50，官方179文件/空缓存安装、生产1360源码/公网资源/健康通过。真实WorkBuddy更新后重新信任、完整重启、新会话三次MCP与Reader读页8156B哈希通过；保留已有账号授权，默认启动改用私有系统临时cache及Node24/26，未关闭保护。
 
 - [retest-20261017](archive/retest-20261017/brief.md)：Web0.12.47生产、npm0.13.1与插件0.5.12正式发布；官方包/资产、1354源码/5公网资源/32烟测、真实日期排序/导航/390px及新SDK顶层原页published回读通过。Windows待验，日常Vault和当前Codex0.13.0配置保留。
 

@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 1,
+  "status": "published_deployed_real_workbuddy_read_verified",
+  "recordedAt": "2026-10-18T19:23:45.701391+00:00",
+  "revision": "99b247c7e21a3322398c7c8a2e7bda4995151e03",
+  "authorization": {
+    "userInstruction": "发布",
+    "candidateExplicitlyApproved": true
+  },
+  "versions": {
+    "webApi": "0.12.50",
+    "localSync": "0.13.4",
+    "protocol": "0.6.1"
+  },
+  "npm": {
+    "status": "passed",
+    "version": "0.13.4",
+    "latest": "0.13.4",
+    "tarballSha256": "d8dc68a986ff9716055a1731a8ee48aabdbff6ce31525f50aaca38e019b3dde0",
+    "registryTarballMatchesFrozenCandidate": true,
+    "installedFilesMatch": 179,
+    "emptyCacheInstallPassed": true,
+    "protocolVersion": "0.6.1",
+    "statusHelpExplainsApprovalPolling": true
+  },
+  "deployment": {
+    "revision": "99b247c7e21a3322398c7c8a2e7bda4995151e03",
+    "startedAt": "2026-10-18T19:16:06.887274+00:00",
+    "finishedAt": "2026-10-18T19:17:47.628907+00:00",
+    "exitCode": 0
+  },
+  "backup": {
+    "directory": "/var/backups/agentwiki/generic-mcp-v01250.koa2dsst",
+    "status": "verified",
+    "checksumsPassed": true,
+    "writerServicesRestored": true,
+    "permanentAttachmentBlobs": 154,
+    "applicationConfigurationDatabaseAttachmentsPaired": true,
+    "writerPauseSeconds": 7.211649,
+    "restoreDrillPerformed": false,
+    "receiptSha256": "4d3ffb9b1f74db4ca4b7b59d05767e5897b7776fdea644d2248be441004c574c"
+  },
+  "previousApplicationDirectory": "/root/agentwiki-previous-20261019031732",
+  "host": {
+    "mode": "host",
+    "revision": "99b247c7e21a3322398c7c8a2e7bda4995151e03",
+    "sourceFilesVerified": 1360,
+    "mismatches": [],
+    "versions": {
+      "web": "0.12.50",
+      "client": "0.12.50",
+      "api": "0.12.50",
+      "localSync": "0.13.4",
+      "protocol": "0.6.1"
+    },
+    "nodeVersion": "v24.18.0",
+    "services": {
+      "agentwiki-api.service": "active",
+      "agentwiki-worker.service": "active",
+      "agentwiki-frontend.service": "active"
+    },
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryHtmlSha256": "65cf1117f964190ca9653bf13080ced2916896fde3344d4b9910f21ebe60f44e",
+    "entryAssets": {
+      "/assets/index-h-Yq2PrB.js": "6bfaf4f4c0ea2451db9d138ddf74dd626c660f8cdb50ae2fb224922143819df0",
+      "/assets/_commonjsHelpers-CqkleIqs.js": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+      "/assets/react-vendor-CTv3miC2.js": "7e3a4bf34c49700b5fad7403a908da66c35ca1ad3669d05d3356f1a5e9bae663",
+      "/assets/preload-helper-ckwbz45p.js": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+      "/assets/index-B3fqh6vi.css": "46d17c2afeb950ee850a82f754f6b1c4e983a4b3888397a8c72b063d28510d10"
+    },
+    "status": "passed",
+    "verifiedAt": "2026-10-18T19:18:19.148304+00:00"
+  },
+  "public": {
+    "mode": "public",
+    "revision": "99b247c7e21a3322398c7c8a2e7bda4995151e03",
+    "origin": "https://agentwiki.quukk.com",
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "pageHttpStatus": 200,
+    "entryHtmlMatchProduction": true,
+    "entryAssetsMatchProduction": [
+      "/assets/index-h-Yq2PrB.js",
+      "/assets/_commonjsHelpers-CqkleIqs.js",
+      "/assets/react-vendor-CTv3miC2.js",
+      "/assets/preload-helper-ckwbz45p.js",
+      "/assets/index-B3fqh6vi.css"
+    ],
+    "entryAssetCount": 5,
+    "status": "passed",
+    "verifiedAt": "2026-10-18T19:18:41.325921+00:00"
+  },
+  "guide": {
+    "status": "passed",
+    "verifiedAt": "2026-10-18T19:20:52.251120+00:00",
+    "publicOnboard": {
+      "url": "https://agentwiki.quukk.com/api/onboard",
+      "httpStatus": 200,
+      "sha256": "2af97c753c15da5372b1e685b26ff9f624d5fd7889482f7e886061e984f43407",
+      "checks": {
+        "pinnedPackage0134": true,
+        "workbuddyPreparation": true,
+        "cacheRunner": true,
+        "node24or26": true,
+        "safetyPreserved": true,
+        "sameSession": true,
+        "browserOpenAndPolling": true,
+        "actualGatewayAndPageRead": true
+      }
+    },
+    "browser": {
+      "url": "https://agentwiki.quukk.com/guide/agent-onboard",
+      "client": "Chrome",
+      "checks": {
+        "versionBadge": true,
+        "workbuddySelected": true,
+        "promptExpanded": true,
+        "cachePreparationBeforeFirstNpx": true,
+        "permissionsAndRestart": true,
+        "sameVersionRunner": true
+      }
+    },
+    "newAuthorizationAttempted": false
+  },
+  "realWorkBuddyReceipt": "real-workbuddy-0134.json",
+  "realWorkBuddyReceiptSha256": "7e019ae91f46ed87f62ece805d4fc934e0664d09ff8f9ee8c7156ad4ec4a0cf3",
+  "independentFreezeVerification": {
+    "status": "passed",
+    "verifiedAt": "2026-10-18T19:11:49.354579+00:00",
+    "revision": "99b247c7e21a3322398c7c8a2e7bda4995151e03",
+    "tarballSha256": "d8dc68a986ff9716055a1731a8ee48aabdbff6ce31525f50aaca38e019b3dde0",
+    "deploymentSourceFilesComparedToFrozenGit": 1360,
+    "sourceMismatches": 0,
+    "candidateLogHashesMatched": 30,
+    "reviewFocusedFilesMatchedFrozenGit": 14,
+    "reviewReceiptMatchesFrozenGit": true,
+    "reviewOpenFindings": [],
+    "backupBaselineVersion": "0.12.49",
+    "targetVersions": {
+      "application": "0.12.50",
+      "localSync": "0.13.4",
+      "protocol": "0.6.1"
+    },
+    "backupExecuted": false,
+    "publishExecuted": false,
+    "productionWriteExecuted": false,
+    "blockingFindings": []
+  },
+  "boundaries": [
+    "release-candidate.json/review.json/real-workbuddy.json retain historical preparation and prerelease evidence; current release facts are in this receipt",
+    "No new browser authorization, Agent identity or grant was created for this update",
+    "No database schema/dependency/lockfile change; production migration reports no pending migrations",
+    "Windows original-host acceptance and backup restore drill not performed",
+    "Raw logs, screenshots, configuration, credentials and page content are not committed"
+  ],
+  "realWorkBuddyBashReceipt": "native-cache-0134.json",
+  "realWorkBuddyBashReceiptSha256": "d1cf3bef45f4fc65553e08d620bf6c14e68edf74af1c1d840e6e0b465bdf5df3"
+}
