@@ -1,0 +1,26 @@
+{
+  "reviewedBase": "d29adb7a",
+  "scope": "Working-tree source changes for Local Sync0.13.3 and Web/API0.12.49; freeze after package gates",
+  "reviewer": "independent real_onboard_path_audit agent",
+  "openBlockingFindings": 0,
+  "fixedFindings": [
+    "Public /api/onboard guidance lagged behind the web prompt",
+    "Early JSON and legacy checkpoints could be resumed across exact package versions"
+  ],
+  "confirmedBoundaries": [
+    "Missing/mismatched package markers reject before state/token mutation or remote/install/browser actions",
+    "Server retains 0.13.2 support and generic client instructions",
+    "MCP historical diagnostic reads remain available for old checkpoints",
+    "Canonical plan-hash algorithms and MCP tool manifest unchanged",
+    "Default WorkBuddy npx safe-delete and managed Node22 compatibility are not repaired"
+  ],
+  "independentChecks": {
+    "sessionAndDiagnostic": 165,
+    "serverInstallationCompatibility": 67,
+    "publicGuide": 3,
+    "webGuide": 9,
+    "historicalPlanDiagnostics": 3,
+    "localSyncTypecheck": "passed"
+  },
+  "publication": "not yet executed"
+}

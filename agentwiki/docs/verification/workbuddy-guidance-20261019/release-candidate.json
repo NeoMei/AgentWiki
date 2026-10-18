@@ -1,0 +1,199 @@
+{
+  "status": "prepared_and_verified_not_published",
+  "preparedAt": "2026-10-18T17:48:48.368074+00:00",
+  "baseRevision": "d29adb7ad0ce0dda6375f2b4ab8dcdce52e942bd",
+  "freezeRevision": null,
+  "authorization": "User explicitly authorized this new release; parent will freeze, publish and deploy after final review.",
+  "versions": {
+    "root": "0.12.49",
+    "server": "0.12.49",
+    "client": "0.12.49",
+    "localSync": "0.13.3",
+    "syncProtocol": "0.6.1"
+  },
+  "scope": [
+    "Authorization polling and actual MCP diagnostic guidance from d23bd089 plus matching public /api/onboard guidance",
+    "Exact creator-package checkpoint marker and early cross-version resume rejection for JSON steps and legacy coordinator",
+    "Preserve prior 0.13.2 generic/WorkBuddy instruction compatibility; keep every existing session pinned to its original package"
+  ],
+  "npmCollisionCheck": {
+    "registry": "https://registry.npmjs.org/",
+    "latestObserved": "0.13.2",
+    "candidate": "0.13.3",
+    "status": "available"
+  },
+  "productionBaseline": {
+    "application": "0.12.48",
+    "localSync": "0.13.2",
+    "syncProtocol": "0.6.1",
+    "source": "0a299231667f03e68f6b97a0501c632602a75ae5",
+    "publicOnboardInstruction": "0.13.2"
+  },
+  "package": {
+    "name": "@neomei/agentwiki-local-sync",
+    "version": "0.13.3",
+    "filename": "neomei-agentwiki-local-sync-0.13.3.tgz",
+    "size": 200911,
+    "unpackedSize": 962470,
+    "entryCount": 175,
+    "shasum": "b811bf9c215f2cb4924f74aca4c104f34f672758",
+    "integrity": "sha512-C1XVF2R56YlgH972/A7ZNqdHnRQF70rhGU+XEtbLbtNfrZVbaH14dp9Q4Q1HRaC7IGNSdScwpBZ+mhdW118KCA=="
+  },
+  "packageFile": "/tmp/agentwiki-0133-release-candidate/neomei-agentwiki-local-sync-0.13.3.tgz",
+  "sha256": "032773b2da2ddd8e53d1dd1aefe42922dfe0d9d58f0a9d803a0ea0ab333acdf3",
+  "fixedArtifactVerification": {
+    "status": "passed",
+    "verifiedAt": "2026-10-18T17:48:06.166Z",
+    "filename": "neomei-agentwiki-local-sync-0.13.3.tgz",
+    "size": 200911,
+    "sha256": "032773b2da2ddd8e53d1dd1aefe42922dfe0d9d58f0a9d803a0ea0ab333acdf3",
+    "filesMatched": 175,
+    "localSyncVersion": "0.13.3",
+    "syncProtocolVersion": "0.6.1",
+    "emptyInstall": true,
+    "emptyCache": true,
+    "registry": "https://registry.npmjs.org/",
+    "onboardingContract": {
+      "publisherPaths": [
+        "device-bootstrap",
+        "one-time-code"
+      ],
+      "scopes": 16,
+      "tamperRejected": true,
+      "rawServerPlan": true
+    }
+  },
+  "checks": {
+    "prepack": {
+      "filesPassed": 74,
+      "testsPassed": 1085,
+      "testsSkipped": 1,
+      "skipReason": "Windows-only ACL diagnostic test does not run on macOS"
+    },
+    "affectedSessionSuites": {
+      "filesPassed": 8,
+      "testsPassed": 224,
+      "testsSkipped": 1
+    },
+    "historicalMcpStatus": {
+      "testsPassed": 3,
+      "preservesHistorical0132Checkpoint": true
+    },
+    "newVersionGuardRegression": {
+      "stepsRedThenGreen": 9,
+      "legacyRedThenGreen": 4,
+      "oldCheckpointAndTokenUnchanged": true,
+      "noRemoteInstallOrBrowserOnRejection": true
+    },
+    "versionAndRegistryContracts": {
+      "testsPassed": 46
+    },
+    "serverCompatibility": {
+      "suitesPassed": 4,
+      "testsPassed": 202
+    },
+    "publicOnboardGuide": {
+      "testsPassed": 3
+    },
+    "clientGuideAndFixedVersion": {
+      "filesPassed": 6,
+      "testsPassed": 47
+    },
+    "localSyncBuild": "passed",
+    "serverBuild": "passed after final public guide",
+    "clientBuild": "passed with existing >500kB chunk warning",
+    "changedFileLint": "passed",
+    "diffCheck": "passed",
+    "syncProtocolRegistryParity": "identical to official 0.6.1",
+    "officialProtocolCleanInstall": "passed",
+    "fixedFinalTarballEmptyCacheInstall": "passed; 175 files identical; packed server contract passed"
+  },
+  "unchanged": {
+    "syncProtocol": true,
+    "dependencies": true,
+    "lockfile": true,
+    "databaseSchema": true,
+    "existingUserSessionsAndConfiguration": true
+  },
+  "boundaries": [
+    "No npm publish, production deployment, or Git commit performed by this preparation task",
+    "Existing 0.13.2 WorkBuddy acceptance used a local absolute Node24 and stable official package configuration repair; it is not evidence for default 0.13.3 onboarding",
+    "Default WorkBuddy npx safe-delete refusal and managed Node22 selection remain unresolved",
+    "Source tests and packed service contracts are automated checks, not real WorkBuddy browser/host acceptance"
+  ],
+  "evidenceDirectory": "/tmp/agentwiki-0133-release-candidate",
+  "changedFiles": [
+    "agentwiki/.env.example",
+    "agentwiki/README.md",
+    "agentwiki/apps/client/e2e/local-sync.spec.ts",
+    "agentwiki/apps/client/e2e/onboarding-device.spec.ts",
+    "agentwiki/apps/client/package.json",
+    "agentwiki/apps/client/src/config/localSync.ts",
+    "agentwiki/apps/client/src/features/about/GatewayGuidePreview.spec.tsx",
+    "agentwiki/apps/client/src/features/about/LocalSyncGuideSection.spec.tsx",
+    "agentwiki/apps/client/src/features/about/onboardPrompt.spec.ts",
+    "agentwiki/apps/client/src/features/agent/LocalSyncInstallCard.spec.tsx",
+    "agentwiki/apps/client/src/features/collaboration/agentPreparationApi.test.ts",
+    "agentwiki/apps/server/.env.example",
+    "agentwiki/apps/server/package.json",
+    "agentwiki/apps/server/src/core/agent/local-sync-installation.service.spec.ts",
+    "agentwiki/apps/server/src/core/agent/local-sync-installation.service.ts",
+    "agentwiki/apps/server/src/core/dto/local-sync.dto.spec.ts",
+    "agentwiki/apps/server/src/core/local-sync-version.ts",
+    "agentwiki/apps/server/src/onboard/onboard-bootstrap.service.spec.ts",
+    "agentwiki/apps/server/src/onboard/onboard-guide.spec.ts",
+    "agentwiki/apps/server/src/onboard/onboard.controller.ts",
+    "agentwiki/apps/server/src/onboard/onboard.dto.spec.ts",
+    "agentwiki/docker-compose.yml",
+    "agentwiki/package.json",
+    "agentwiki/packages/local-sync/README.md",
+    "agentwiki/packages/local-sync/package.json",
+    "agentwiki/packages/local-sync/skill/SKILL.md",
+    "agentwiki/packages/local-sync/src/agentwiki-client.ts",
+    "agentwiki/packages/local-sync/src/cli.spec.ts",
+    "agentwiki/packages/local-sync/src/codegraph/package-boundary.spec.ts",
+    "agentwiki/packages/local-sync/src/config.spec.ts",
+    "agentwiki/packages/local-sync/src/gateway/entry.spec.ts",
+    "agentwiki/packages/local-sync/src/gateway/entry.ts",
+    "agentwiki/packages/local-sync/src/gateway/legacy-tree-workspace.integration.spec.ts",
+    "agentwiki/packages/local-sync/src/gateway/multi-space.integration.spec.ts",
+    "agentwiki/packages/local-sync/src/gateway/remote-mcp-bridge.ts",
+    "agentwiki/packages/local-sync/src/gateway/server.ts",
+    "agentwiki/packages/local-sync/src/gateway/status.spec.ts",
+    "agentwiki/packages/local-sync/src/installer/client-config.spec.ts",
+    "agentwiki/packages/local-sync/src/installer/plan.spec.ts",
+    "agentwiki/packages/local-sync/src/installer/plan.ts",
+    "agentwiki/packages/local-sync/src/onboarding/agent-identity-access.spec.ts",
+    "agentwiki/packages/local-sync/src/onboarding/attach.spec.ts",
+    "agentwiki/packages/local-sync/src/onboarding/client.spec.ts",
+    "agentwiki/packages/local-sync/src/onboarding/client.ts",
+    "agentwiki/packages/local-sync/src/onboarding/coordinator.spec.ts",
+    "agentwiki/packages/local-sync/src/onboarding/coordinator.ts",
+    "agentwiki/packages/local-sync/src/onboarding/errors.ts",
+    "agentwiki/packages/local-sync/src/onboarding/install.spec.ts",
+    "agentwiki/packages/local-sync/src/onboarding/install.ts",
+    "agentwiki/packages/local-sync/src/onboarding/local-plan-hash.spec.ts",
+    "agentwiki/packages/local-sync/src/onboarding/multi-space-install.spec.ts",
+    "agentwiki/packages/local-sync/src/onboarding/onboarding-e2e-driver.spec.ts",
+    "agentwiki/packages/local-sync/src/onboarding/plan-hash.spec.ts",
+    "agentwiki/packages/local-sync/src/onboarding/plan-hash.ts",
+    "agentwiki/packages/local-sync/src/onboarding/runtime.ts",
+    "agentwiki/packages/local-sync/src/onboarding/session.spec.ts",
+    "agentwiki/packages/local-sync/src/onboarding/session.ts",
+    "agentwiki/packages/local-sync/src/onboarding/steps-install-safety.spec.ts",
+    "agentwiki/packages/local-sync/src/onboarding/steps-install.ts",
+    "agentwiki/packages/local-sync/src/onboarding/steps-process.spec.ts",
+    "agentwiki/packages/local-sync/src/onboarding/steps.spec.ts",
+    "agentwiki/packages/local-sync/src/onboarding/steps.ts",
+    "agentwiki/packages/local-sync/src/onboarding/verifier.ts",
+    "agentwiki/scripts/composite-template-e2e.test.mjs",
+    "agentwiki/scripts/cross-machine-e2e.mjs",
+    "agentwiki/scripts/node-runtime-contract.test.mjs",
+    "agentwiki/scripts/onboarding-e2e.mjs",
+    "agentwiki/scripts/page-notes-http-db.test.mjs",
+    "agentwiki/scripts/sync-v3-registry-collision-gate.test.mjs",
+    "agentwiki/docs/releases-v0.12.49.md"
+  ],
+  "releaseNotes": "agentwiki/docs/releases-v0.12.49.md",
+  "review": "agentwiki/docs/verification/workbuddy-guidance-20261019/review.json"
+}

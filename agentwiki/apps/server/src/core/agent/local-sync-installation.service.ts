@@ -469,7 +469,7 @@ export class LocalSyncInstallationService {
   private instructions(code: string, pluginVersion: string, serverUrl: string): string {
     // Historical packages keep their supported client options. The current
     // candidate and its public setup instructions must be released together.
-    const genericMcp = pluginVersion === CURRENT_LOCAL_SYNC_VERSION;
+    const genericMcp = pluginVersion === '0.13.2' || pluginVersion === CURRENT_LOCAL_SYNC_VERSION;
     return [
       genericMcp
         ? 'Run this pinned command with your current Agent, which must support local stdio MCP:'

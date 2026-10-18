@@ -17,7 +17,7 @@ import { hashOnboardingPlan } from './local-plan-hash.js';
 import { ProtocolEncoder, parseReply, isConfirmationReply, type ProtocolSource, type OnboardingEvent } from './protocol.js';
 import type { OnboardingClient, ClientType, ServerPlan, StartResult } from './client.js';
 import { OnboardingInputsSchema, type SessionStore, type OnboardingCheckpoint, type OnboardingInputs, type OnboardingState } from './session.js';
-import { assertTransition } from './session.js';
+import { assertTransition, assertSessionPackageVersion } from './session.js';
 import { OnboardingError, type OnboardingFailure } from './errors.js';
 import { PublicLocalScanPlanSchema, publicLocalScanPlan, type LocalScanPlan, type PublicLocalScanPlan } from '../codegraph/contracts.js';
 import type { PlanCodeScanInput } from '../codegraph/provider.js';
@@ -78,7 +78,7 @@ export interface CoordinatorDeps {
   encoder: ProtocolEncoder;
   source: ProtocolSource;
   serverBaseUrl: string;
-  packageVersion: '0.13.2';
+  packageVersion: '0.13.3';
   home: string;
   preflight: PreflightFn;
   bootstrapInstall: BootstrapInstallFn;
@@ -101,12 +101,14 @@ export class OnboardingCoordinator {
 
   /** Run the full onboarding state machine to completion. */
   async run(): Promise<{ sessionId: string; report: Record<string, unknown> }> {
-    let checkpoint = await this.deps.store.load();
+    let checkpoint = await this.deps.store.load(this.deps.packageVersion);
+    if (checkpoint !== null) assertSessionPackageVersion(checkpoint.packageVersion, this.deps.packageVersion);
     if (checkpoint === null) {
       checkpoint = {
         sessionId: this.sessionId,
         state: 'collecting_input',
         protocolVersion: SUPPORTED_PROTOCOL_VERSION,
+        packageVersion: this.deps.packageVersion,
         serverUrl: this.deps.serverBaseUrl,
         clientType: 'generic',
         createdAt: new Date().toISOString(),
@@ -435,7 +437,7 @@ export class OnboardingCoordinator {
         : { mode: 'create', name: inputs.spaceName as string },
       agentName: inputs.agentName as string,
       role: inputs.role as 'reader' | 'editor' | 'publisher',
-      packageVersion: '0.13.2',
+      packageVersion: '0.13.3',
     };
   }
 

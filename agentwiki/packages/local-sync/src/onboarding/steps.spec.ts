@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCli } from '../cli.js';
@@ -76,6 +76,53 @@ it('returns authorization then read-only status from persisted private state', a
   expect((await f.cont()).status).toBe('input_required');
   expect(poll).toHaveBeenCalledExactlyOnceWith('https://wiki.test/api', 'awd_private');
 });
+it('persists the exact package version before the first authorization checkpoint', async () => {
+  const f = await fixture();
+  const path = join(f.home, '.agentwiki', 'onboarding', 'steps', `${f.start.sessionId}.json`);
+  expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({
+    stage: 'authorization', packageVersion: '0.13.3',
+  });
+});
+
+it.each([
+  ['authorization', undefined, 'continue'], ['input', undefined, 'continue'],
+  ['authorization', '0.13.2', 'continue'], ['input', '0.13.2', 'continue'],
+  ['authorization', undefined, 'status'], ['input', undefined, 'status'],
+  ['authorization', '0.13.2', 'status'], ['input', '0.13.2', 'status'],
+] as const)('refuses %s checkpoint version %s on %s without changing state or calling remote services', async (stage, packageVersion, action) => {
+  const f = await fixture();
+  const input = stage === 'input' ? await f.cont() : undefined;
+  const directory = join(f.home, '.agentwiki', 'onboarding', 'steps');
+  const path = join(directory, `${f.start.sessionId}.json`);
+  const legacy = JSON.parse(await readFile(path, 'utf8'));
+  delete legacy.packageVersion;
+  if (packageVersion) legacy.packageVersion = packageVersion;
+  expect(legacy.plan).toBeUndefined();
+  expect(legacy.exchange).toBeUndefined();
+  const before = JSON.stringify(legacy);
+  await writeFile(path, before, { mode: 0o600 });
+  const beforeStat = await stat(path);
+  const beforeFiles = await readdir(directory);
+  const network = vi.fn<typeof fetch>();
+  const client = new OnboardingClient({ fetchImpl: network });
+  const install = vi.fn();
+  const openBrowser = vi.fn();
+  const replyFile = input && action === 'continue' ? await f.reply({
+    requestId: input.requestId,
+    values: { spaceMode: 'existing', spaceId: 's1', agentName: 'Agent', role: 'reader' },
+  }) : undefined;
+  await expect(runOnboardingSteps(
+    { action, home: f.home, sessionId: f.start.sessionId, replyFile },
+    { client, install, openBrowser },
+  )).rejects.toThrow(/SESSION_VERSION_MISMATCH:.*exact package version from the original onboard start command/);
+  expect(network).not.toHaveBeenCalled();
+  expect(install).not.toHaveBeenCalled();
+  expect(openBrowser).not.toHaveBeenCalled();
+  expect(await readFile(path, 'utf8')).toBe(before);
+  expect((await stat(path)).mtimeMs).toBe(beforeStat.mtimeMs);
+  expect(await readdir(directory)).toEqual(beforeFiles);
+});
+
 it('collects only connection fields and rejects stale/wrong confirmation before installation', async () => {
   const f = await fixture();
   const input = await f.cont();

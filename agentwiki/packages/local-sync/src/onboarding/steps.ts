@@ -10,6 +10,8 @@ import { hashServerPlan } from './plan-hash.js';
 import { readStepReply, stepsDirectory, stepsFile, withStepLock, writeStepState } from './steps-store.js';
 import { installStepConnection } from './steps-install.js';
 import { assertSupportedNodeRuntime } from '../node-runtime.js';
+import { assertSessionPackageVersion } from './session.js';
+import { OnboardingError } from './errors.js';
 import { openAuthorizationBrowser } from './browser.js';
 
 const name = z.string().trim().min(1).max(200);
@@ -22,7 +24,7 @@ const planSchema = z
     ]),
     agentName: name,
     role: AgentAccessRoleSchema,
-    packageVersion: z.literal('0.13.2'),
+    packageVersion: z.literal('0.13.3'),
   })
   .strict();
 const valuesSchema = z.discriminatedUnion('spaceMode', [
@@ -46,12 +48,13 @@ const exchangeSchema = z.object({
   spaceId: z.string(),
   role: AgentAccessRoleSchema,
   serverUrl: z.string().url(),
-  pluginVersion: z.literal('0.13.2'),
+  pluginVersion: z.literal('0.13.3'),
   scopes: z.array(z.string()),
 });
 const stateSchema = z
   .object({
     version: z.literal(1),
+    packageVersion: z.literal('0.13.3'),
     sessionId: z.string().uuid(),
     serverBaseUrl: z.string().url(),
     clientType: z.enum(['codex', 'claude', 'opencode', 'workbuddy', 'generic']),
@@ -284,11 +287,14 @@ export async function runOnboardingSteps(
   const path = stepsFile(input.home, sessionId);
   const load = async (): Promise<StepState> => {
     try {
-      const state = stateSchema.parse(JSON.parse(await readFile(path, 'utf8')));
+      const parsed = JSON.parse(await readFile(path, 'utf8'));
+      assertSessionPackageVersion(parsed?.packageVersion, '0.13.3');
+      const state = stateSchema.parse(parsed);
       if (state.sessionId !== sessionId) throw new Error();
       return state;
-    } catch {
-      throw new Error('SESSION_INVALID: session is missing or invalid');
+    } catch (error) {
+      if (error instanceof OnboardingError && error.code === 'SESSION_VERSION_MISMATCH') throw error;
+      throw new Error('SESSION_INVALID: session is missing or invalid', { cause: error });
     }
   };
   if (input.action === 'status') return publicResult(await load(), input.home, deps.now());
@@ -301,11 +307,12 @@ export async function runOnboardingSteps(
       const auth = await deps.client.start({
         serverBaseUrl,
         clientType: input.clientType,
-        packageVersion: '0.13.2',
+        packageVersion: '0.13.3',
         purpose: 'agent-connect',
       });
       const state: StepState = {
         version: 1,
+        packageVersion: '0.13.3',
         sessionId,
         serverBaseUrl,
         clientType: input.clientType,
@@ -345,7 +352,7 @@ export async function runOnboardingSteps(
               : { mode: 'existing', id: values.spaceId },
           agentName: values.agentName,
           role: values.role,
-          packageVersion: '0.13.2',
+          packageVersion: '0.13.3',
         };
         state.configHash = (await connectionPreflight(state.clientType, input.home, state.serverBaseUrl)).configHash;
         request(state, 'confirmation', now, input.home);

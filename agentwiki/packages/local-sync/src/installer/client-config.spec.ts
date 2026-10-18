@@ -159,7 +159,7 @@ describe('installGatewayEntry', () => {
     expect(entry.command).toEqual([
       'npx',
       '--yes',
-      '@neomei/agentwiki-local-sync@0.13.2',
+      '@neomei/agentwiki-local-sync@0.13.3',
       'gateway',
       '--connection',
       'conn-42',
@@ -188,7 +188,7 @@ describe('installGatewayEntry', () => {
     };
     expect(config.mcp.servers.agentwiki).toEqual({
       type: 'local',
-      command: ['npx', '--yes', '@neomei/agentwiki-local-sync@0.13.2', 'gateway', '--connection', 'conn-v2'],
+      command: ['npx', '--yes', '@neomei/agentwiki-local-sync@0.13.3', 'gateway', '--connection', 'conn-v2'],
       disabled: false,
       timeout: { execution: 1_800_000 },
     });
@@ -311,7 +311,7 @@ describe('installGatewayEntry client formats', () => {
     const entry = config.mcpServers[GATEWAY_MCP_NAME];
     expect(entry.command).toBe('npx');
     expect(entry.args).toEqual([
-      '--yes', '@neomei/agentwiki-local-sync@0.13.2', 'gateway', '--connection', 'conn-1',
+      '--yes', '@neomei/agentwiki-local-sync@0.13.3', 'gateway', '--connection', 'conn-1',
     ]);
   });
 
@@ -452,7 +452,7 @@ describe('standard MCP host integration', () => {
     const config = JSON.parse(await readFile(expectedPath, 'utf8'));
     expect(config).toEqual({ theme: 'dark', mcpServers: {
       unrelated: { command: 'other-tool', args: ['--safe'] },
-      agentwiki: { command: 'npx', args: ['--yes', '@neomei/agentwiki-local-sync@0.13.2', 'gateway', '--connection', 'conn-standard'] },
+      agentwiki: { command: 'npx', args: ['--yes', '@neomei/agentwiki-local-sync@0.13.3', 'gateway', '--connection', 'conn-standard'] },
     } });
     expect(await readFile(installed.backupPath, 'utf8')).toBe(original);
     if (process.platform !== 'win32') expect((await stat(expectedPath)).mode & 0o777).toBe(0o600);
