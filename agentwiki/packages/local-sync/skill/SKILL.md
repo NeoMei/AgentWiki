@@ -7,7 +7,7 @@ compatibility: local stdio MCP clients, including codex, claude-code, opencode, 
 
 # AgentWiki Unified Gateway
 
-Use the one MCP entry named `agentwiki`, installed by `@neomei/agentwiki-local-sync@0.13.3` (AgentWiki 0.12.49 or later for onboarding). It exposes all AgentWiki capabilities through stable tool families:
+Use the one MCP entry named `agentwiki`, installed by `@neomei/agentwiki-local-sync@0.13.4` (AgentWiki 0.12.50 or later for onboarding). It exposes all AgentWiki capabilities through stable tool families:
 
 - `wiki_*` calls remote AgentWiki tools.
 - `local_*` inspects local sources without uploading.

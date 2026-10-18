@@ -96,16 +96,42 @@ export class OnboardController {
 
 const BASE_URL = 'https://agentwiki.quukk.com';
 const API_BASE = `${BASE_URL}/api`;
-const PACKAGE_VERSION = '0.13.3';
+const PACKAGE_VERSION = '0.13.4';
 const PUBLIC_COMMAND = `npx --yes @neomei/agentwiki-local-sync@${PACKAGE_VERSION} onboard start --server '${API_BASE}' --client generic --protocol json`;
+const WORKBUDDY_RUNNER = `npx --cache '<absolute-npm-cache>' --yes @neomei/agentwiki-local-sync@${PACKAGE_VERSION}`;
+const WORKBUDDY_CACHE_BOOTSTRAP = `node -e "const fs=require('node:fs'),os=require('node:os'),path=require('node:path');if(![24,26].includes(Number(process.versions.node.split('.')[0])))throw new Error('Use Node.js 24 or 26 in this host');const cache=fs.mkdtempSync(path.join(os.tmpdir(),'agentwiki-npx-'));if(process.platform!=='win32')fs.chmodSync(cache,0o700);console.log(JSON.stringify({node:process.execPath,nodeVersion:process.version,npmCache:cache}));"`;
 
 const ONBOARD_MD = `# AgentWiki Agent 接入 / Connect your Agent
 
-将本页完整交给支持本地 stdio MCP 的 Agent。默认 --client generic 导出通用 MCP 配置，供当前宿主导入；不会替未知宿主写入 Codex 配置。使用 WorkBuddy 时可改为 --client workbuddy，其他快捷配置为 --client codex、--client claude、--client opencode。
-Give this complete guide to any Agent supporting local stdio MCP. The default --client generic exports MCP configuration for your current host to import; it does not write Codex configuration for unknown hosts. Use --client workbuddy for WorkBuddy, or the codex, claude and opencode presets for those clients.
+将本页完整交给支持本地 stdio MCP 的 Agent。默认 --client generic 导出通用 MCP 配置，供当前宿主导入；不会替未知宿主写入 Codex 配置。先识别当前宿主：WorkBuddy 必须先完成下面的启动准备并使用 --client workbuddy，其他快捷配置为 --client codex、--client claude、--client opencode。
+Give this complete guide to any Agent supporting local stdio MCP. The default --client generic exports MCP configuration for your current host to import; it does not write Codex configuration for unknown hosts. Identify the current host first: WorkBuddy must complete the preparation below and use --client workbuddy; codex, claude and opencode presets are available for those clients.
 
-1. 本机需要 Node.js 24 或 26。执行启动命令；环境预检失败时按返回的修复指引处理后再继续。每条命令结束后读取一个 JSON 对象并保存 sessionId。后续使用同一会话，不并行重复启动。
-Node.js 24 or 26 is required locally. Run the start command; if environment preflight fails, follow its repair instructions before continuing. Read the single JSON response and preserve sessionId. Continue that same session throughout.
+1. 本机需要 Node.js 24 或 26。完成适用的准备后执行启动命令；环境预检失败时按返回的修复指引处理后再继续。每条接入命令结束后读取一个 JSON 对象并保存 sessionId。后续使用同一会话，不并行重复启动。
+Node.js 24 or 26 is required locally. Complete the applicable preparation before the start command; if environment preflight fails, follow its repair instructions before continuing. Read each onboarding command's single JSON response and preserve sessionId. Continue that same session throughout.
+
+WorkBuddy 启动准备：包括选择 generic 但实际宿主是 WorkBuddy 的情况，必须在首次 npx 前完成；其他宿主跳过本准备。先在当前宿主的工具执行环境定位或安装 Node.js 24 或 26 及配套 npm/npx；单独终端的版本不能证明 WorkBuddy 的版本，托管 Node.js 22 不受支持。将下方 node 安全替换为该 Node 的绝对路径，执行后核对返回的 node 与 nodeVersion。
+WorkBuddy preparation: this also applies when generic is selected but the actual host is WorkBuddy, and must happen before the first npx invocation. Other hosts skip this preparation. In the current host's tool execution environment, locate or install Node.js 24 or 26 and its accompanying npm/npx. A version in a separate terminal does not establish WorkBuddy's runtime; managed Node.js 22 is unsupported. Safely replace node below with that Node executable's absolute path, execute it, and verify the returned node and nodeVersion.
+
+\`\`\`sh
+${WORKBUDDY_CACHE_BOOTSTRAP}
+\`\`\`
+
+此命令在系统 os.tmpdir() 下随机创建私有 npm 缓存，POSIX 权限0700，Windows 使用当前用户系统 Temp ACL。持久保存绝对 npmCache 路径、Node/npx 绝对路径及精确包版本。每次调用都在当前宿主将该 Node 所在目录放在子进程 PATH 首位，并把命令开头的 npx 换成同一安装的绝对 npx 路径，防止包的子进程回到托管 Node.js 22；使用参数数组或当前 shell 的安全引用（PowerShell 调用带引号的可执行路径需要 &）。将 <absolute-npm-cache> 替换为保存的 npmCache，所有 start/status/continue/--reply-file 命令都复用下方同一个 runner，--cache 必须在包名之前。
+This creates a random private npm cache under the system os.tmpdir(), with POSIX mode 0700 and the current user's system Temp ACL on Windows. Persist the absolute npmCache path, absolute Node/npx paths, and exact package version. For every invocation in this host, prepend that Node directory to the child process PATH and replace the leading npx with the absolute npx from the same installation so package subprocesses cannot fall back to managed Node.js 22. Use an argument array or safe native-shell quoting (PowerShell needs & before a quoted executable path). Replace <absolute-npm-cache> with the saved npmCache. Reuse the following runner for every start/status/continue/--reply-file command; --cache must precede the package name.
+
+\`\`\`sh
+${WORKBUDDY_RUNNER}
+\`\`\`
+
+缓存只存放可丢弃的 npm 文件；session、回复文件与凭据仍在各自正常持久目录，绝不放进缓存。每次复用（包括长期恢复会话）前确认缓存仍位于系统 os.tmpdir() 下、属于当前用户且是真实目录而非符号链接，POSIX 权限0700，Windows 仍受当前用户 Temp ACL 保护。缓存缺失、被替换或权限变化时，不 chmod、不接管不明旧缓存；按同一规则新建私有缓存、更新保存的路径并重新下载同一精确版本，保留原 sessionId 和会话文件。不要修改 NODE_OPTIONS、关闭安全保护或删除旧 npm 缓存。
+The cache holds disposable npm files only. Keep sessions, reply files, and credentials in their normal persistent locations, never inside this cache. Before every reuse, including a later session resume, verify that it is still under the system os.tmpdir() and is a real directory owned by the current user, not a symlink, with POSIX mode 0700 or the current user's Temp ACL on Windows. If it is missing, replaced, or has changed permissions, do not chmod or take over an unknown old cache: create a new private cache by the same rule, update the saved path, and reinstall the same exact version while preserving sessionId and session files. Do not change NODE_OPTIONS, disable security protections, or delete the old npm cache.
+
+WorkBuddy：先按上述规则替换全部路径和执行环境，然后启动 / WorkBuddy: resolve all paths and the execution environment above, then start:
+\`\`\`sh
+${WORKBUDDY_RUNNER} onboard start --server '${API_BASE}' --client workbuddy --protocol json
+\`\`\`
+
+其他宿主 / Other hosts:
 
 \`\`\`sh
 ${PUBLIC_COMMAND}
@@ -113,6 +139,8 @@ ${PUBLIC_COMMAND}
 
 2. 将 <sessionId> 替换为返回的会话 ID；<absolute-json-file> 替换为实际绝对文件路径，并安全引用 shell 参数。
 Replace placeholders with the returned session ID or actual absolute file path, quoting shell arguments safely.
+WorkBuddy 的后续命令始终将下方 npx --yes 包名替换为步骤1保存的带 --cache runner（同一运行时、缓存、精确包版本）；其余参数保持一致。
+For WorkBuddy, always replace npx --yes and the package below with the saved --cache runner from step 1 (same runtime, cache, and exact package version); keep the remaining arguments unchanged.
 只读查看本地检查点（不会联系服务器领取浏览器批准结果） / Inspect the saved local checkpoint (does not retrieve browser approval from the server):
 \`\`\`sh
 npx --yes @neomei/agentwiki-local-sync@${PACKAGE_VERSION} onboard status --session <sessionId> --protocol json

@@ -11,3 +11,9 @@ npm 官方 version/latest 均 0.13.3；正式 tarball SHA256 `032773b2da2ddd8e53
 历史纠正保留：首次“真实 Chrome 验收”曾被错误地建立在 wiki.test 模拟状态机开窗上，该结论已撤回，浏览器依赖注入和 opener 零调用回归已修复。完整过程见旧目录 browser-isolation-correction.md 和 workbuddy-real-acceptance.md；不以新文档覆盖原始错误及真实 0.13.2 证据。
 
 本轮记录：`agentwiki/docs/verification/workbuddy-guidance-20261019/{release-candidate.json,review.json,release.json}`。当前收口：npm/生产/真实指南和既有客户端兼容读页均通过，发布与回执已完成；后续仍需处理默认路径问题，未实测的 0.13.3 全新授权边界继续保留。
+
+## 当前追加修复：默认 npx 缓存锁
+
+用户要求必须解决。真实 WorkBuddy 中 Node24.18.0/npm11.16.0 执行正式0.13.3的 --help 在 npm 删除 _npx/concurrency.lock 时被内置safe-delete拒绝，CLI未运行。仅改为 fs.mkdtempSync(os.tmpdir()) 的0700专属缓存后相同npx固定包成功。不是权限关闭或删除旧cache。正在修改首次接入指引与WorkBuddy网关配置生成，验证使用与配置完全一致的命令/环境；后续以真实默认npx网关读页验收，不以旧固定包路径代替。
+
+当前修复已收敛：每次启动私有cache校验/重建、Node/npm绑定、Windows env归一、TMP覆盖一致、完整安装receipt防未确认env重试、验证进程组清理均已独立审查。候选0.13.4/WebAPI0.12.50最终打包中。真实生成配置先调用正式0.13.3：首次重启未信任而无工具；UI重新信任后cold npx下载成功、34/34启用，再次完全重启后的新会话已真实返回MCP诊断/reader空间/目标页。独立日志哈希核对进行中，新正式包尚未发布。

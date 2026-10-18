@@ -40,11 +40,13 @@ const planHashGolden = JSON.parse(readFileSync(join(
 ), 'utf8')) as { plan: ServerPlan; sha256: string };
 
 describe('onboarding DTO contract', () => {
-  it.each(['workbuddy', 'generic'] as const)('accepts %s for attaching an existing Agent', async (clientType) => {
-    await expect(validationErrors(StartDeviceDto, { packageVersion: '0.13.3', clientType, purpose: 'agent-connect' })).resolves.toEqual([]);
+  it.each(['0.13.2', '0.13.3', '0.13.4'] as const)('accepts generic and WorkBuddy attachment for version %s', async (packageVersion) => {
+    for (const clientType of ['workbuddy', 'generic'] as const) {
+      await expect(validationErrors(StartDeviceDto, { packageVersion, clientType, purpose: 'agent-connect' })).resolves.toEqual([]);
+    }
   });
 
-  it.each(['0.9.0', '0.9.1', '0.10.0', '0.10.1', '0.10.2', '0.11.0', '0.12.0', '0.13.0', '0.13.1', '0.13.2', '0.13.3'] as const)(
+  it.each(['0.9.0', '0.9.1', '0.10.0', '0.10.1', '0.10.2', '0.11.0', '0.12.0', '0.13.0', '0.13.1', '0.13.2', '0.13.3', '0.13.4'] as const)(
     'accepts supported package version %s from every client',
     async (packageVersion) => {
       for (const clientType of ['codex', 'claude', 'opencode', 'workbuddy', 'generic'] as const) {
@@ -57,7 +59,7 @@ describe('onboarding DTO contract', () => {
     },
   );
 
-  it.each(['0.9.0', '0.9.1', '0.10.0', '0.10.1', '0.10.2', '0.11.0', '0.12.0', '0.13.0', '0.13.1', '0.13.2', '0.13.3'] as const)(
+  it.each(['0.9.0', '0.9.1', '0.10.0', '0.10.1', '0.10.2', '0.11.0', '0.12.0', '0.13.0', '0.13.1', '0.13.2', '0.13.3', '0.13.4'] as const)(
     'accepts a bootstrap plan from supported package version %s',
     async (packageVersion) => {
       await expect(validationErrors(BootstrapDto, {

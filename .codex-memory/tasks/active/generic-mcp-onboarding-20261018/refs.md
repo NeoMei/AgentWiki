@@ -24,3 +24,8 @@
 - 私有最终界面：同目录 `0132-node24-final-read.png` 和 `0132-node24-client-trusted.png`；图片、正文和凭据不提交。
 - 0.13.2 发布原始元数据：`/tmp/agentwiki-release-20261019-plan/{registry-verified.json,production-source-check.json,public-release.json,backup-receipt.json}`；其备份 `/var/backups/agentwiki/generic-mcp-v01248.f0el29jz` 与旧应用 `/root/agentwiki-previous-20261019004923` 保留。
 - `browser-isolation-correction.md`：wiki.test错误开窗和先前验收结论撤回；不能由本轮自动化门禁覆盖真实验收边界。
+
+- `agentwiki/docs/verification/workbuddy-npx-20261019/`：本轮npx修复/真实客户端/候选门禁及审查回执。
+- `/tmp/agentwiki-npx-fix-20261019/`：原生冷/热npx对照、原配置备份、失败与可信重启独立证据、私有截图。
+- `/tmp/agentwiki-0134-release-candidate/`：固定0.13.4候选tarball与门禁。
+- `/tmp/agentwiki-release-0134-plan/`：仅准备的新发布/备份/验证脚本；本轮尚未生产写入。

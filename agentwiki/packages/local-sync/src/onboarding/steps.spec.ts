@@ -80,14 +80,16 @@ it('persists the exact package version before the first authorization checkpoint
   const f = await fixture();
   const path = join(f.home, '.agentwiki', 'onboarding', 'steps', `${f.start.sessionId}.json`);
   expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({
-    stage: 'authorization', packageVersion: '0.13.3',
+    stage: 'authorization', packageVersion: '0.13.4',
   });
 });
 
 it.each([
   ['authorization', undefined, 'continue'], ['input', undefined, 'continue'],
+  ['authorization', '0.13.3', 'continue'], ['input', '0.13.3', 'continue'],
   ['authorization', '0.13.2', 'continue'], ['input', '0.13.2', 'continue'],
   ['authorization', undefined, 'status'], ['input', undefined, 'status'],
+  ['authorization', '0.13.3', 'status'], ['input', '0.13.3', 'status'],
   ['authorization', '0.13.2', 'status'], ['input', '0.13.2', 'status'],
 ] as const)('refuses %s checkpoint version %s on %s without changing state or calling remote services', async (stage, packageVersion, action) => {
   const f = await fixture();

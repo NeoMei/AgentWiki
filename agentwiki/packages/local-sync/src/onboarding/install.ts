@@ -14,7 +14,8 @@ import { AgentWikiClient, type ExchangeResult } from '../agentwiki-client.js';
 import { installSkill, packagedSkillSource } from '../agent-clients.js';
 import { loadConfig, loadCredentials, mergeConnection, type LocalSyncConnection } from '../config.js';
 import { archiveLegacyState, initCleanState, restoreArchivedState, type ArchiveResult } from '../installer/archive.js';
-import { installGatewayEntry } from '../installer/client-config.js';
+import { installGatewayEntry, readWorkBuddyGatewayLaunch } from '../installer/client-config.js';
+import { mergeWorkBuddyEnvironment } from '../installer/workbuddy-runtime.js';
 import { verifyGateway, type VerifyResult } from './verifier.js';
 
 type InstallInput = Parameters<BootstrapInstallFn>[0];
@@ -42,7 +43,7 @@ export interface BootstrapInstallerDeps {
     home: string,
     serverBaseUrl?: string,
   ): Promise<{ backupPath: string; rollback: () => Promise<void> }>;
-  verify(connectionId: string, home: string): Promise<VerifyResult>;
+  verify(connectionId: string, home: string, client?: InstallInput['client']): Promise<VerifyResult>;
   verifyAccess(
     connection: LocalSyncConnection,
     apiKey: string,
@@ -104,7 +105,7 @@ export function createBootstrapInstaller(overrides: Partial<BootstrapInstallerDe
       );
       rollbackConfig = installed.rollback;
 
-      const verified = await deps.verify(input.connectionId, input.home);
+      const verified = await deps.verify(input.connectionId, input.home, input.client);
       if (!verified.ok) {
         throw new OnboardingError({
           code: 'MCP_HANDSHAKE_FAILED',
@@ -155,7 +156,7 @@ export interface ExchangedGatewayInstallInput {
   expectedSpaceId: string;
   expectedRole: AgentAccessRole;
   expectedScopes: string[];
-  expectedPluginVersion: '0.13.3';
+  expectedPluginVersion: '0.13.4';
   exchange: ExchangeResult;
   /** Retain only after the client entry switched successfully; pre-switch failures restore old active state. */
   retainOnFailure?: boolean;
@@ -226,7 +227,7 @@ async function installGatewayConnection(
       rollbackConfig = installed.rollback;
       await input.onConfigured?.(installed.backupPath);
       if (input.retainOnFailure) await deps.installSkill(input.home, input.client);
-      const verified = await deps.verify(input.connectionId, input.home);
+      const verified = await deps.verify(input.connectionId, input.home, input.client);
       if (!verified.ok) {
         throw new OnboardingError({
           code: 'MCP_HANDSHAKE_FAILED',
@@ -292,7 +293,7 @@ async function installGatewayConnection(
     rollbackConfig = installed.rollback;
     await input.onConfigured?.(installed.backupPath);
     if (input.retainOnFailure) await deps.installSkill(input.home, input.client);
-    const verified = await deps.verify(input.connectionId, input.home);
+    const verified = await deps.verify(input.connectionId, input.home, input.client);
     if (!verified.ok) {
       throw new OnboardingError({
         code: 'MCP_HANDSHAKE_FAILED',
@@ -381,11 +382,18 @@ export function productionDependencies(request?: typeof fetch): BootstrapInstall
     saveConnection: (home, connection, apiKey) => mergeConnection(home, connection, apiKey),
     installSkill: (home, client) => installSkill(home, packagedSkillSource, client),
     installClient: installGatewayEntry,
-    verify: (connectionId, home) => verifyGateway({
-      command: gatewayVerificationCommand(connectionId),
-      cwd: home,
-      env: { ...process.env, HOME: home } as Record<string, string>,
-    }),
+    verify: async (connectionId, home, client) => {
+      const launch = client === 'workbuddy' ? await readWorkBuddyGatewayLaunch(home, connectionId) : undefined;
+      return verifyGateway({
+        command: launch ? [launch.command, ...launch.args] : gatewayVerificationCommand(connectionId),
+        cwd: home,
+        // WorkBuddy verifies the real npx command, including a possible cold package download.
+        deadlineMs: launch ? 180_000 : undefined,
+        env: launch
+          ? mergeWorkBuddyEnvironment(process.env, { HOME: home, ...launch.env })
+          : { ...process.env, HOME: home } as Record<string, string>,
+      });
+    },
     verifyAccess: async (connection, apiKey, expected) => {
       const access = await agentwiki.access(connection, apiKey);
       const agent = access.access.find((candidate) => candidate.id === expected.agentId);
@@ -409,7 +417,7 @@ export function productionDependencies(request?: typeof fetch): BootstrapInstall
   };
 }
 
-function assertExchange(exchange: ExchangeResult, bootstrap: BootstrapResult, version: '0.13.3'): void {
+function assertExchange(exchange: ExchangeResult, bootstrap: BootstrapResult, version: '0.13.4'): void {
   assertExchangePackage(exchange, {
     agentId: bootstrap.agent.id,
     spaceId: bootstrap.space.id,
@@ -445,13 +453,13 @@ function assertExchangePackage(
     spaceId: string;
     role: AgentAccessRole;
     scopes: string[];
-    pluginVersion: '0.13.3';
+    pluginVersion: '0.13.4';
   },
 ): void {
   const canonicalScopes = scopesForAgentAccessRole(expected.role);
   if (
-    expected.pluginVersion !== '0.13.3'
-    || exchange.pluginVersion !== '0.13.3'
+    expected.pluginVersion !== '0.13.4'
+    || exchange.pluginVersion !== '0.13.4'
     || exchange.pluginVersion !== expected.pluginVersion
     || exchange.agentId !== expected.agentId
     || exchange.spaceId !== expected.spaceId

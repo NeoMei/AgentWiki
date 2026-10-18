@@ -1,10 +1,32 @@
 import { OnboardController } from './onboard.controller';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 
 describe('public Agent connection guide', () => {
+  it('provides an executable WorkBuddy cache bootstrap before any package startup', () => {
+    const guide = new OnboardController({} as any, {} as any).getMarkdown();
+    const bootstrap = guide.match(/^node -e "(.+)"$/m)?.[1];
+    expect(bootstrap).toBeDefined();
+    const root = mkdtempSync(join(tmpdir(), 'agentwiki-api-guide-test-'));
+    try {
+      const result = JSON.parse(execFileSync(process.execPath, ['-e', bootstrap!], {
+        encoding: 'utf8', env: { ...process.env, TMPDIR: root, TMP: root, TEMP: root },
+      }));
+      expect(dirname(result.npmCache)).toBe(root);
+      expect(result.node).toBe(process.execPath);
+      if (process.platform !== 'win32') expect(statSync(result.npmCache).mode & 0o777).toBe(0o700);
+      expect(guide.indexOf('node -e')).toBeLessThan(guide.indexOf('onboard start'));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('advertises bounded version-pinned steps, explicit confirmation, and actual host-read verification', () => {
     const controller = new OnboardController({} as any, {} as any);
     const guide = controller.getMarkdown();
-    expect(guide).toContain("@neomei/agentwiki-local-sync@0.13.3 onboard start --server 'https://agentwiki.quukk.com/api' --client generic --protocol json");
+    expect(guide).toContain("@neomei/agentwiki-local-sync@0.13.4 onboard start --server 'https://agentwiki.quukk.com/api' --client generic --protocol json");
     expect(guide).toContain('--client workbuddy');
     expect(guide).toContain('Node.js 24 或 26');
     expect(guide).toContain('browserOpened:false');

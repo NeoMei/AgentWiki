@@ -24,7 +24,7 @@ const planSchema = z
     ]),
     agentName: name,
     role: AgentAccessRoleSchema,
-    packageVersion: z.literal('0.13.3'),
+    packageVersion: z.literal('0.13.4'),
   })
   .strict();
 const valuesSchema = z.discriminatedUnion('spaceMode', [
@@ -48,13 +48,13 @@ const exchangeSchema = z.object({
   spaceId: z.string(),
   role: AgentAccessRoleSchema,
   serverUrl: z.string().url(),
-  pluginVersion: z.literal('0.13.3'),
+  pluginVersion: z.literal('0.13.4'),
   scopes: z.array(z.string()),
 });
 const stateSchema = z
   .object({
     version: z.literal(1),
-    packageVersion: z.literal('0.13.3'),
+    packageVersion: z.literal('0.13.4'),
     sessionId: z.string().uuid(),
     serverBaseUrl: z.string().url(),
     clientType: z.enum(['codex', 'claude', 'opencode', 'workbuddy', 'generic']),
@@ -288,7 +288,7 @@ export async function runOnboardingSteps(
   const load = async (): Promise<StepState> => {
     try {
       const parsed = JSON.parse(await readFile(path, 'utf8'));
-      assertSessionPackageVersion(parsed?.packageVersion, '0.13.3');
+      assertSessionPackageVersion(parsed?.packageVersion, '0.13.4');
       const state = stateSchema.parse(parsed);
       if (state.sessionId !== sessionId) throw new Error();
       return state;
@@ -307,12 +307,12 @@ export async function runOnboardingSteps(
       const auth = await deps.client.start({
         serverBaseUrl,
         clientType: input.clientType,
-        packageVersion: '0.13.3',
+        packageVersion: '0.13.4',
         purpose: 'agent-connect',
       });
       const state: StepState = {
         version: 1,
-        packageVersion: '0.13.3',
+        packageVersion: '0.13.4',
         sessionId,
         serverBaseUrl,
         clientType: input.clientType,
@@ -352,7 +352,7 @@ export async function runOnboardingSteps(
               : { mode: 'existing', id: values.spaceId },
           agentName: values.agentName,
           role: values.role,
-          packageVersion: '0.13.3',
+          packageVersion: '0.13.4',
         };
         state.configHash = (await connectionPreflight(state.clientType, input.home, state.serverBaseUrl)).configHash;
         request(state, 'confirmation', now, input.home);

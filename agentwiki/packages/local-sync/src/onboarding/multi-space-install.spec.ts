@@ -10,15 +10,15 @@ afterEach(async () => { vi.restoreAllMocks(); for (const home of homes.splice(0)
 
 it.each([true, false])('preserves a legacy connection and its workspace when explicitly installing another Agent credential (success=%s)', async (ok) => {
   const home = await mkdtemp(join(tmpdir(), 'aw-install-multi-')); homes.push(home);
-  const common = { serverUrl: 'https://wiki.test/api', agentId: 'agent-1', pluginVersion: '0.13.3', client: 'codex' as const, mcpName: 'agentwiki' };
+  const common = { serverUrl: 'https://wiki.test/api', agentId: 'agent-1', pluginVersion: '0.13.4', client: 'codex' as const, mcpName: 'agentwiki' };
   await saveConfig(home, { version: 1, defaultConnectionId: 'a', connections: { a: { ...common, id: 'a', credentialId: 'cred-a' } } });
   await saveCredentials(home, { version: 2, credentials: { 'cred-a': { apiKey: 'key-a' } } });
   const original = join(home, '.agentwiki', 'spaces', 'space-a', 'wiki');
   await mkdir(original, { recursive: true }); await writeFile(join(original, 'page.md'), 'original knowledge');
   const deps = productionDependencies();
   const run = installExchangedGateway({ home, client: 'codex', connectionId: 'b', expectedConfigHash: 'hash',
-    expectedAgentId: 'agent-1', expectedSpaceId: 'space-b', expectedRole: 'reader', expectedScopes: scopesForAgentAccessRole('reader'), expectedPluginVersion: '0.13.3',
-    exchange: { ...common, apiKey: 'key-b', credentialId: 'cred-b', spaceId: 'space-b', role: 'reader', scopes: scopesForAgentAccessRole('reader'), pluginVersion: '0.13.3' },
+    expectedAgentId: 'agent-1', expectedSpaceId: 'space-b', expectedRole: 'reader', expectedScopes: scopesForAgentAccessRole('reader'), expectedPluginVersion: '0.13.4',
+    exchange: { ...common, apiKey: 'key-b', credentialId: 'cred-b', spaceId: 'space-b', role: 'reader', scopes: scopesForAgentAccessRole('reader'), pluginVersion: '0.13.4' },
   }, { ...deps, installSkill: async () => undefined, installClient: async () => ({ backupPath: '/backup', rollback: async () => undefined }), verify: async () => ({ ok, toolNames: [], manifestHash: 'hash', errors: ok ? [] : ['failed'] }), verifyAccess: async () => undefined, revokeCredential: async () => undefined });
   if (ok) await run; else await expect(run).rejects.toMatchObject({ code: 'MCP_HANDSHAKE_FAILED' });
   expect((await loadConfig(home)).connections.a?.credentialId).toBe('cred-a');
