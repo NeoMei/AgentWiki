@@ -1,6 +1,6 @@
 # 当前目标
 
-- 2026-10-18通用MCP与WorkBuddy接入反馈：隔离源码候选1812d6b1，未发包部署。用户指出测试打开大量不可访问页面；driver漏注入opener已修，新增零原生调用断言，撤回完整浏览器验收结论。安全复现10失败→10通过，全套1071/1skip、根入口8通过，Chrome前后8页无新增/无wiki.test。证据更正见 tasks/active/generic-mcp-onboarding-20261018/brief.md。真实WorkBuddy接入未验收完成。
+- 2026-10-19通用MCP/WorkBuddy：真实新接入被生产device/start HTTP400阻断（只接受旧3client），未打开授权页。WorkBuddy5.8.3已真实完全退出重启，新会话通过原有0.13.1连接调用wiki_get_page读到项目总览；这不代表新流程通过。0.12.48/0.13.2发布候选已冻结0a299231、门禁和独立审查通过，发布许可问题已提出，尚未发布部署。见 tasks/active/generic-mcp-onboarding-20261018/brief.md 与 workbuddy-real-acceptance.md。
 
 2026-10-17反馈8项核实、修复、正式发布、生产回验和原页逐项反馈已完成。保留原Windows与原黄金书屋wrapper错误的验收边界。
 

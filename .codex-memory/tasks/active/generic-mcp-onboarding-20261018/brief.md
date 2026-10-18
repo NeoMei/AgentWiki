@@ -6,4 +6,6 @@
 
 交付与证据：agentwiki/docs/verification/generic-mcp-onboarding-20261018/{acceptance.md,review.md,browser-qa.md,browser-opener.json}。
 
-下一步：正式发布时必须先提升 Local Sync 新版本并同步 Web/API 版本、服务端允许范围及精确版本命令，再执行正式打包/发布/部署门禁。现有已发布0.13.1不含此候选功能；原 WorkBuddy 安装、用户许可、重载后真实页读取仍待验。
+最新真实验收：生产device/start对workbuddy返回HTTP400（仅旧3client）；未开授权页、未新增身份。WorkBuddy5.8.3原生UI显示agentwiki启用34/34工具、原有完全访问；完全退出重启后新会话通过已发布0.13.1原有连接真实调用wiki_get_page读取项目总览。6次MCP执行由原始会话日志佐证，未用终端HTTP替代。新浏览器接入仍未完成。详见workbuddy-real-acceptance.md。
+
+发布候选：0a299231将Web/API提升0.12.48、Local Sync提升0.13.2，protocol0.6.1不变。版本/构建/打包/空缓存门禁和独立审查通过，175文件tarball与源码一致。发布许可已向用户提出，尚未获回复；未发布npm、未部署生产。下一步获准后先正式npm回读/安装，再同步部署Web/API；随后继续真实浏览器授权、新配置、客户端权限与重启读页。

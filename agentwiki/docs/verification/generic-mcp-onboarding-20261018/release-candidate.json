@@ -2,7 +2,7 @@
   "status": "prepared_not_published_or_deployed",
   "preparedAt": "2026-10-18T16:01:31.486889+00:00",
   "baseCommit": "6fffd7623260856e06f60b3556972e2a80d26998",
-  "candidateState": "uncommitted worktree version preparation; freeze reviewed commit before release",
+  "candidateState": "frozen reviewed release candidate; publication and production deployment awaiting user approval",
   "versions": {
     "application": "0.12.48",
     "localSync": "0.13.2",
@@ -92,5 +92,6 @@
     "dependenciesChanged": false,
     "lockfileChanged": false,
     "databaseMigrationsChanged": false
-  }
+  },
+  "candidateCommit": "0a299231"
 }
