@@ -1,6 +1,6 @@
 # 当前目标
 
-完成通用 MCP / WorkBuddy 新接入的正式发布及真实宿主验收。用户已明确批准冻结候选 `0a299231667f03e68f6b97a0501c632602a75ae5` 发布 npm Local Sync 0.13.2、部署 Web/API 0.12.48，并继续验证真实浏览器授权、客户端权限、重启及 MCP 读页。授权持续有效；npm0.13.2正式可用及Web/API0.12.48生产部署已验证完成，当前继续真实新WorkBuddy接入验收，不重复发布或请求同一批准。
+完成通用 MCP / WorkBuddy 新接入的正式发布及真实宿主验收。用户已明确批准冻结候选 `0a299231667f03e68f6b97a0501c632602a75ae5` 发布 npm Local Sync 0.13.2、部署 Web/API 0.12.48，并继续验证真实浏览器授权、客户端权限、重启及 MCP 读页。授权持续有效；npm0.13.2和Web/API0.12.48发布已验证，本机经官方包+绝对Node24路径修正后的真实授权/信任/重启/MCP读页闭环已通过。保留默认npx路径未通过和未发布指引修复的产品边界，不重复发布现有版本。
 
 # 范围 / 不做
 
@@ -17,7 +17,9 @@
 - 固定0a299231部署脚本exit0；生产1357源码逐项匹配、Web/API/client0.12.48、Local Sync0.13.2、protocol0.6.1，Node24.18.0、3服务active、5healthok。公网HTML及5个入口资源与生产逐字节匹配；旧树/root/agentwiki-previous-20261019004923保留。
 - 公开/api/onboard指令包含generic/WorkBuddy和固定0.13.2；真实Chrome接入指南已渲染通用默认、WorkBuddy、自动浏览器授权及客户端权限/重启提示。网页指南成功不是实际宿主完成证据。
 - 协调备份/var/backups/agentwiki/generic-mcp-v01248.f0el29jz已verified/checksumsPassed/writersRestored；154永久blob匹配、writer暂停约7.114秒后恢复，备份后内外健康通过。未做恢复演练。
-- 真实新WorkBuddy会话c3b10b4e-5a05-4f1b-9f8e-d9b9a0ada18f已由官方0.13.2已安装CLI自动打开真实Chrome授权页，用户授权仍pending、hostVerification未开始。原npx启动被宿主safe-delete拒绝操作缓存concurrency.lock，实际改为任务目录npm install后直跑CLI；不能称原始npx路径通过。后续权限、新配置、重启和新会话MCP读页未完成，newFlowAccepted仍false。
+- 真实浏览器已允许，同一session创建reader Agent cmve2uzzo00atx1bm3j91lo13并安装completed/备份成功。第一次完整重启85486→退出→15551，信任提示后绿灯34/34（未归因主任务点击）；新会话真实MCP reader读页成功，但实际网关继承Node22，不符合支持范围，且wiki_identity不存在、onboard_status无当前身份。
+- 本机配置备份后固定官方175文件匹配安装、绝对`/usr/local/bin/node`（Node24）+CLI；第二次15551全退出→20291，主任务明确点击客户端信任、绿灯34/34。独立证明gateway24353实际Node v24.18.0，真实新会话reader读页两次8156B/相同SHA通过，无非MCP替代；本机外部真实验收passed，CLI hostVerification仍not_started。身份来自实际argv+本地映射，不是onboard_status返回。
+- 默认WorkBuddy npx safe-delete/concurrency.lock与网关托管Node22兼容仍未修复；本机固定runtime成功不抹去此边界。指引补修d23bd089已提交/测试但未发布；已发布0.13.2/Web0.12.48仍对应0a299231。
 
 # 稳定约束
 
@@ -36,6 +38,6 @@
 
 # 风险 / 下一步
 
-1. 沿已有授权完成真实WorkBuddy新浏览器授权、客户端权限、新配置生效、完全重启和新会话MCP读页，逐项保存真实结果；本地模拟、公开指南和旧连接读页均不替代。
-2. npm与生产发布已通过，不重复publish/deploy；后续若发现新问题，绑定具体版本和真实步骤再修复。
-3. 保留协调备份、previous应用树、候选包与原始验收证据。备份后用户写入不属于旧快照，不自动恢复覆盖；不提交私有截图或认证材料。
+1. 本机真实接入验收完成，范围为固定官方0.13.2包+绝对Node24配置修正；保留安装/两次重启/信任/两次真实MCP读页及实际进程证明，不把旧Node22路径写成成功。
+2. 产品默认npx启动safe-delete与托管Node22兼容仍未解决。d23bd089只是已提交测试、未发布的指引修复，后续修复/版本必须独立核验，不能宣称当前默认安装路径已通过。
+3. npm0.13.2/Web0.12.48无需重复发布。保留备份、previous应用、候选包及原始验收证据；不提交私有截图/正文/认证材料，不自动恢复覆盖快照后用户写入。

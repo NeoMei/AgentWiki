@@ -1,6 +1,6 @@
 {
-  "recordedAt": "2026-10-18T16:56:04.992966+00:00",
-  "status": "published_deployed_verified_workbuddy_acceptance_in_progress",
+  "recordedAt": "2026-10-18T17:26:51.131404+00:00",
+  "status": "npm_production_and_local_workbuddy_verified_default_npx_unresolved",
   "authorization": {
     "userPublicationApproval": true,
     "continuesToApply": true,
@@ -95,26 +95,26 @@
     "restoreDrillPerformed": false
   },
   "workBuddy": {
-    "newFlowAccepted": false,
+    "newFlowAccepted": true,
     "oldConnectionRestartAndMcpRead": "passed_on_existing_0.13.1_only",
     "remaining": [
-      "User approval in the real browser authorization page",
-      "New install plan and actual client permissions",
-      "New configuration activation and WorkBuddy restart",
-      "New-session MCP page read on released 0.13.2",
-      "Resolve or explicitly retain the original npx startup compatibility boundary"
+      "Product default WorkBuddy npx startup compatibility remains unresolved",
+      "Default generated gateway can inherit managed Node22; local pinning is not a released default-path repair",
+      "Guidance correction d23bd089 is committed/tested but not published",
+      "Current Agent identity is not exposed by onboard_status; wiki_identity is unavailable"
     ],
-    "status": "browser_opened_awaiting_user_authorization",
+    "status": "local_real_flow_passed_with_pinned_official_package_and_node24",
     "packageVersion": "0.13.2",
     "sessionId": "c3b10b4e-5a05-4f1b-9f8e-d9b9a0ada18f",
-    "accountAuthorization": "pending_user",
-    "hostVerification": "not_started",
+    "accountAuthorization": "approved_in_real_browser",
+    "hostVerification": "external_real_host_acceptance_passed",
     "browserLaunch": {
       "browserOpened": true,
       "realPageObserved": true,
       "origin": "https://agentwiki.quukk.com",
       "path": "/onboard/device",
-      "pageText": "WorkBuddy Agent 连接 0.13.2"
+      "pageText": "WorkBuddy Agent 连接 0.13.2",
+      "authorizationRenewal": "Original authorization expired before continuation; same-session renewal opened a real browser page whose approved state was observed"
     },
     "startup": {
       "originalNpxPathPassed": false,
@@ -122,21 +122,167 @@
       "actualSuccessfulStart": "Official 0.13.2 installed with npm in the WorkBuddy task directory, then the installed CLI invoked directly",
       "boundary": "Browser launch is proven for the direct installed CLI path only; the original npx command remains unaccepted"
     },
-    "evidence": "Private 0132-browser-start-proof.json: WorkBuddy native session log and actual Chrome tab observation"
+    "evidence": "Private 0132-browser-start-proof.json: WorkBuddy native session log and actual Chrome tab observation",
+    "agent": {
+      "id": "cmve2uzzo00atx1bm3j91lo13",
+      "name": "WorkBuddy 接入验收 0132",
+      "role": "reader"
+    },
+    "installation": {
+      "status": "completed",
+      "gatewayVerification": "passed",
+      "connectionStatus": "connected",
+      "installerHostVerification": "not_started",
+      "clientReloadRequired": true,
+      "configBackupPath": "/Users/neomei/.agentwiki-archive/workbuddy-2026-10-18T170643361Z",
+      "boundary": "Installer completion is not host acceptance",
+      "continuationActor": "Primary execution task invoked the same official installed CLI after native WorkBuddy continuation stalled; not a claim that the WorkBuddy agent autonomously performed the full installation"
+    },
+    "firstRestart": {
+      "oldMainPid": 85486,
+      "completeExitVerified": true,
+      "newMainPid": 15551,
+      "trustPromptObserved": true,
+      "greenToolsEnabled": "34/34",
+      "trustApprovalActor": "not_attributed; primary task observed prompt and later green state but did not click the first prompt"
+    },
+    "firstNewIdentityHostRead": {
+      "status": "passed_under_unsupported_node22",
+      "workbuddySessionId": "b1ea8cb0-86b4-4524-83fb-7647be824a65",
+      "toolResults": [
+        "wiki_list_spaces returned reader Space",
+        "wiki_get_page returned expected known page"
+      ],
+      "actualNodeVersion": "v22.22.2",
+      "actualPackageVersion": "0.13.2",
+      "supportedRuntime": false,
+      "pageContentSha256": "34e06f9db48b768de26609aa4962c5ec168fd206f670a32a036c44b17032436b",
+      "bodyOmitted": true,
+      "pageRetrievalViaMcp": true,
+      "nonMcpRetrievalSubstitutionObserved": false
+    },
+    "identityEvidence": {
+      "source": "Configured connection and independently observed process connection binding; remote tool identity is unavailable",
+      "configuredAgentId": "cmve2uzzo00atx1bm3j91lo13",
+      "connectionId": "c3b10b4e-5a05-4f1b-9f8e-d9b9a0ada18f",
+      "wikiIdentityToolExists": false,
+      "onboardStatusReturnsCurrentIdentity": false,
+      "boundary": "Do not claim wiki_identity or onboard_status verified remote Agent identity"
+    },
+    "supportedRuntimeCorrection": {
+      "officialPackageFilesMatched": 175,
+      "stableInstallPath": "~/.agentwiki/runtime/local-sync-0.13.2",
+      "configBackupPath": "/Users/neomei/.agentwiki-archive/workbuddy-0132-before-node24-20261019T0115.json",
+      "command": "/usr/local/bin/node",
+      "args": [
+        "/Users/neomei/.agentwiki/runtime/local-sync-0.13.2/node_modules/@neomei/agentwiki-local-sync/dist/cli.js",
+        "gateway",
+        "--connection",
+        "c3b10b4e-5a05-4f1b-9f8e-d9b9a0ada18f"
+      ],
+      "connectionIdUnchanged": true,
+      "reason": "WorkBuddy MCP inherited managed Node22; pin supported Node24 with official stable installed package",
+      "configWritten": true,
+      "runtimeExecutionVerified": true,
+      "secondRestart": {
+        "oldMainPid": 15551,
+        "completeExitVerified": true,
+        "newProcessLaunched": "Verified actual WorkBuddy ancestor chain in independent proof",
+        "newMainPid": 20291
+      },
+      "clientTrust": "Primary task explicitly clicked trust for the revised official Node24 configuration and observed green 34/34 tools",
+      "newSessionMcpRead": "passed_twice_with_same_hash"
+    },
+    "unpublishedSourceCorrection": {
+      "status": "committed_tested_not_published",
+      "purpose": "Correct misleading identity/runtime onboarding instructions",
+      "boundary": "Official Local Sync0.13.2 and Web/API0.12.48 still use frozen0a299231; no claim this guidance commit is deployed or fixes host npx/managed-Node22 compatibility",
+      "commit": "d23bd089"
+    },
+    "newFlowAcceptanceScope": "This Mac only, after task-local direct-CLI startup and backed-up MCP configuration repair to an absolute Node24 executable and stable official 0.13.2 CLI; default npx flow is not accepted",
+    "defaultNpxFlowAccepted": false,
+    "cliHostVerification": "not_started",
+    "externalHostAcceptance": {
+      "status": "passed",
+      "evidence": "/tmp/agentwiki-workbuddy-acceptance-20261018/0132-node24-host-read-proof.json",
+      "independentProofCreatedAt": "2026-10-18T17:24:12.228888+00:00",
+      "checks": {
+        "threeRequestedMcpToolsCompleted": true,
+        "repeatedLiveReadCompleted": true,
+        "onlyDiscoveryAndMcpFunctionsObserved": true,
+        "readerGrantMatches": true,
+        "bothReadHashesMatch": true,
+        "actualRuntimeSupported": true,
+        "actualConnectionMatches": true,
+        "actualFixedCliMatches": true,
+        "hostAncestorPresent": true,
+        "configuredAgentMatches": true,
+        "configuredSpaceMatches": true,
+        "runtimePackageMatchesFrozenTarball": true,
+        "runtimePackageVersionMatches": true
+      },
+      "workbuddySessionId": "f3aa7904-b547-48c6-a20b-5cc304aa5508",
+      "observedTools": [
+        "onboard_status",
+        "wiki_list_spaces",
+        "wiki_get_page",
+        "wiki_get_page (repeat live read)"
+      ],
+      "nonMcpExecutionObserved": false,
+      "readerGrantMatches": true,
+      "pageTitle": "00 项目总览｜模板案例导航",
+      "contentUtf8Bytes": 8156,
+      "contentSha256": "34e06f9db48b768de26609aa4962c5ec168fd206f670a32a036c44b17032436b",
+      "repeatReadHashMatches": true,
+      "bodyOmitted": true,
+      "actualRuntime": {
+        "hostMainPid": 20291,
+        "gatewayPid": 24353,
+        "executable": "/usr/local/bin/node",
+        "nodeVersion": "v24.18.0",
+        "packageVersion": "0.13.2",
+        "matchedOfficialTarballFiles": 175,
+        "connectionId": "c3b10b4e-5a05-4f1b-9f8e-d9b9a0ada18f"
+      },
+      "identityEvidence": "Actual descendant gateway argv connection ID plus local registry mapping; not onboard_status or wiki_identity output",
+      "uiEvidenceBoundary": "Primary task observed and clicked second-config client trust; independent extractor verifies tool/runtime/package evidence, not the click",
+      "finalNativeUiEvidence": {
+        "privateScreenshot": "/tmp/agentwiki-workbuddy-acceptance-20261018/0132-node24-final-read.png",
+        "fileMode": "0600",
+        "committed": false,
+        "observedBy": "primary execution task",
+        "visibleResult": "Successful tool call, expected page title and updatedAt"
+      },
+      "doctor": {
+        "checksPassed": 10,
+        "checksTotal": 10,
+        "observedBy": "primary execution task",
+        "boundary": "Diagnostic checks are supplementary to the separately recorded actual host read and runtime proof"
+      }
+    },
+    "productFollowup": {
+      "defaultNpxStartup": "not_passed_host_safe_delete_concurrency_lock",
+      "defaultGatewayRuntime": "original_generated_npx_config_used_unsupported_managed_Node22",
+      "wikiIdentity": "tool_unavailable",
+      "onboardStatusIdentity": "does_not_return_current_connection_or_agent",
+      "sourceGuidanceFixCommit": "d23bd089",
+      "sourceGuidanceFixStatus": "committed_and_tested_not_published",
+      "publishedSourceRevision": "0a299231667f03e68f6b97a0501c632602a75ae5"
+    }
   },
   "remaining": [
-    "User approval in the real browser authorization page",
-    "New install plan and actual client permissions",
-    "New configuration activation and WorkBuddy restart",
-    "New-session MCP page read on released 0.13.2",
-    "Resolve or explicitly retain the original npx startup compatibility boundary"
+    "Product default WorkBuddy npx startup compatibility remains unresolved",
+    "Default generated gateway can inherit managed Node22; local pinning is not a released default-path repair",
+    "Guidance correction d23bd089 is committed/tested but not published",
+    "Current Agent identity is not exposed by onboard_status; wiki_identity is unavailable"
   ],
   "boundaries": [
-    "npm publication and production deployment are verified; actual new WorkBuddy acceptance remains in progress",
     "Original 0.13.1 host restart/read evidence is separate from the new flow",
     "No database restore drill performed",
     "No claim of GitHub push, tag, or release publication in this receipt",
-    "Original WorkBuddy npx startup was blocked by host safe-delete; successful direct installed CLI browser launch does not prove the original npx command passed"
+    "Original WorkBuddy npx startup was blocked by host safe-delete; successful direct installed CLI browser launch does not prove the original npx command passed",
+    "Local real acceptance passed only after explicitly pinning the official 0.13.2 package and absolute Node24 path; original npx/default managed Node22 compatibility is not fixed",
+    "CLI hostVerification remains not_started; external real-host evidence is recorded separately, and current identity is bound from actual argv plus local registry rather than onboard_status"
   ],
   "evidence": {
     "progress": "release-progress.json",
