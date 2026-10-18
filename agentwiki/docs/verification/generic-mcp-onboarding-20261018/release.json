@@ -1,0 +1,151 @@
+{
+  "recordedAt": "2026-10-18T16:56:04.992966+00:00",
+  "status": "published_deployed_verified_workbuddy_acceptance_in_progress",
+  "authorization": {
+    "userPublicationApproval": true,
+    "continuesToApply": true,
+    "repeatApprovalRequired": false
+  },
+  "sourceRevision": "0a299231667f03e68f6b97a0501c632602a75ae5",
+  "localSync": {
+    "name": "@neomei/agentwiki-local-sync",
+    "version": "0.13.2",
+    "latest": "0.13.2",
+    "registry": "https://registry.npmjs.org/",
+    "published": true,
+    "officialTarballByteEqual": true,
+    "packageSha256": "836a92c65c9fae6ba3fbc181a6b861cbd4380517764291115b6ce45bc86556b9",
+    "installedFilesMatched": 175,
+    "cleanInstall": true,
+    "emptyCache": true,
+    "protocolVersion": "0.6.1"
+  },
+  "production": {
+    "executed": true,
+    "exitCode": 0,
+    "status": "deployed_source_and_public_assets_verified",
+    "candidateRevision": "0a299231667f03e68f6b97a0501c632602a75ae5",
+    "sourceFilesVerified": 1357,
+    "sourceMismatches": [],
+    "versions": {
+      "web": "0.12.48",
+      "client": "0.12.48",
+      "api": "0.12.48",
+      "localSync": "0.13.2",
+      "protocol": "0.6.1"
+    },
+    "services": {
+      "agentwiki-api.service": "active",
+      "agentwiki-worker.service": "active",
+      "agentwiki-frontend.service": "active"
+    },
+    "nodeVersion": "v24.18.0",
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "previousApplicationTree": "/root/agentwiki-previous-20261019004923",
+    "hostVerifiedAt": "2026-10-18T16:50:20.502364+00:00",
+    "publicVerifiedAt": "2026-10-18T16:50:24.893310+00:00",
+    "publicHealth": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "publicHtmlMatchesProduction": true,
+    "publicAssetMatchCount": 5,
+    "publicEntryAssets": {
+      "/assets/index-iAZ9dDzH.js": "f35397f8d50f743b4285ccc049a512ee6892095f98593e5b91131fb759db511a",
+      "/assets/_commonjsHelpers-CqkleIqs.js": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+      "/assets/react-vendor-CTv3miC2.js": "7e3a4bf34c49700b5fad7403a908da66c35ca1ad3669d05d3356f1a5e9bae663",
+      "/assets/preload-helper-ckwbz45p.js": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+      "/assets/index-B3fqh6vi.css": "46d17c2afeb950ee850a82f754f6b1c4e983a4b3888397a8c72b063d28510d10"
+    },
+    "publicGuide": {
+      "markdownInstructionVersion": "0.13.2",
+      "genericAndWorkbuddyPresent": true,
+      "realChromeRendered": true,
+      "renderedFeatures": [
+        "generic default",
+        "WorkBuddy option",
+        "automatic browser authorization",
+        "client permission and restart guidance"
+      ],
+      "evidence": "Observed by primary execution task; private screenshot not committed"
+    }
+  },
+  "backup": {
+    "status": "verified",
+    "directory": "/var/backups/agentwiki/generic-mcp-v01248.f0el29jz",
+    "finishedAt": "2026-10-18T16:36:47.287732+00:00",
+    "checksumsPassed": true,
+    "writersRestored": true,
+    "writerQuiesceStartedAt": "2026-10-18T16:36:39.479691+00:00",
+    "writersRestoredAt": "2026-10-18T16:36:46.593598+00:00",
+    "writerPauseSeconds": 7.114,
+    "permanentBlobCount": 154,
+    "archiveMatchesLivePermanentBlobs": true,
+    "beforeAfterManifestIdentical": true,
+    "pgRestoreListPassed": true,
+    "restoreDrillPerformed": false
+  },
+  "workBuddy": {
+    "newFlowAccepted": false,
+    "oldConnectionRestartAndMcpRead": "passed_on_existing_0.13.1_only",
+    "remaining": [
+      "User approval in the real browser authorization page",
+      "New install plan and actual client permissions",
+      "New configuration activation and WorkBuddy restart",
+      "New-session MCP page read on released 0.13.2",
+      "Resolve or explicitly retain the original npx startup compatibility boundary"
+    ],
+    "status": "browser_opened_awaiting_user_authorization",
+    "packageVersion": "0.13.2",
+    "sessionId": "c3b10b4e-5a05-4f1b-9f8e-d9b9a0ada18f",
+    "accountAuthorization": "pending_user",
+    "hostVerification": "not_started",
+    "browserLaunch": {
+      "browserOpened": true,
+      "realPageObserved": true,
+      "origin": "https://agentwiki.quukk.com",
+      "path": "/onboard/device",
+      "pageText": "WorkBuddy Agent 连接 0.13.2"
+    },
+    "startup": {
+      "originalNpxPathPassed": false,
+      "originalNpxResult": "Host safe-delete refused the npx cache concurrency.lock operation",
+      "actualSuccessfulStart": "Official 0.13.2 installed with npm in the WorkBuddy task directory, then the installed CLI invoked directly",
+      "boundary": "Browser launch is proven for the direct installed CLI path only; the original npx command remains unaccepted"
+    },
+    "evidence": "Private 0132-browser-start-proof.json: WorkBuddy native session log and actual Chrome tab observation"
+  },
+  "remaining": [
+    "User approval in the real browser authorization page",
+    "New install plan and actual client permissions",
+    "New configuration activation and WorkBuddy restart",
+    "New-session MCP page read on released 0.13.2",
+    "Resolve or explicitly retain the original npx startup compatibility boundary"
+  ],
+  "boundaries": [
+    "npm publication and production deployment are verified; actual new WorkBuddy acceptance remains in progress",
+    "Original 0.13.1 host restart/read evidence is separate from the new flow",
+    "No database restore drill performed",
+    "No claim of GitHub push, tag, or release publication in this receipt",
+    "Original WorkBuddy npx startup was blocked by host safe-delete; successful direct installed CLI browser launch does not prove the original npx command passed"
+  ],
+  "evidence": {
+    "progress": "release-progress.json",
+    "privateLocalFiles": [
+      "/tmp/agentwiki-release-20261019-plan/registry-verified.json",
+      "/tmp/agentwiki-release-20261019-plan/production-source-check.json",
+      "/tmp/agentwiki-release-20261019-plan/public-release.json",
+      "/tmp/agentwiki-release-20261019-plan/backup-receipt.json"
+    ],
+    "rawScreenshots": "Private; not committed"
+  }
+}

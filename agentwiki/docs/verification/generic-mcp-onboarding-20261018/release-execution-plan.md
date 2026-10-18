@@ -1,6 +1,6 @@
-# 0.12.48 / 0.13.2 发布执行计划（已获许可，认证阻塞，未发布部署）
+# 0.12.48 / 0.13.2 发布执行计划（npm与生产发布验证完成，真实新WorkBuddy验收进行中）
 
-2026-10-19 用户已明确批准冻结候选 `0a299231667f03e68f6b97a0501c632602a75ae5` 发布 npm Local Sync 0.13.2、部署 Web/API 0.12.48，并继续真实 WorkBuddy 验收。该授权持续有效；当前是账户/SSH 认证阻塞，不需要重复发布审批。已进行认证前检，尚未发布、部署或执行远端写入。数据库配对恢复仍须按本文 F 节单独确认新写入的数据窗口，不能作为自动失败处理。
+2026-10-19 用户已明确批准冻结候选 `0a299231667f03e68f6b97a0501c632602a75ae5` 发布 npm Local Sync 0.13.2、部署 Web/API 0.12.48，并继续真实 WorkBuddy 验收。该授权持续有效，不需要重复发布审批。npm0.13.2官方回读和空缓存安装、Web/API0.12.48固定候选部署、1357源码与公网HTML/5入口资源均已验证通过；正在继续真实新WorkBuddy接入验收，尚未完成宿主端到端结论。数据库配对恢复仍须按本文 F 节单独确认新写入的数据窗口，不能作为自动失败处理。
 
 ## 固定候选和目标
 
@@ -41,7 +41,7 @@ npm whoami --registry=https://registry.npmjs.org/
 
 候选已通过的本地门禁见 `release-candidate.json`。若候选源码/打包内容发生变化，先重新审查和验包，不能沿用此摘要。
 
-## B. 生产只读前检（已获许可，SSH 认证恢复后执行）
+## B. 生产只读前检（本轮已通过，部署前按需复核）
 
 ```bash
 ssh root@113.249.120.24 'bash -se' <<'REMOTE'
@@ -60,7 +60,7 @@ REMOTE
 
 只输出白名单版本、服务和存储信息，不 cat `.env` 或打印环境。要求 Web/API/client 为 0.12.47、Local Sync 0.13.1、protocol 0.6.1，Node 24/26，三个服务 active，健康项均 ok，附件路径正规且 0700。实际生产有其他改动时停止，先核对前一次发布清单；不能直接以版本号相同替代源码核实。
 
-## C. npm 发布与官方回读（已获许可，npm 认证恢复后执行）
+## C. npm 发布与官方回读（登录已通过，独立发布安全密钥验证待重试）
 
 ```bash
 npm publish "$release_tgz" --access public --tag latest --registry=https://registry.npmjs.org/
@@ -97,7 +97,7 @@ PY
 
 ## D. 协调备份与不可变源码部署
 
-沿已取得的发布许可，在 SSH 认证恢复、生产基线复核和 npm 回读通过后：
+协调备份可在npm发布二次认证等待期间先行，本轮备份已通过；下面备份命令为既有执行步骤，不应无故重复。正式部署仍须先完成npm正式发布及回读：
 
 ```bash
 scp "$release_plan/backup-production.py" root@113.249.120.24:/tmp/agentwiki-backup-v01248.py
@@ -191,11 +191,14 @@ systemctl --user daemon-reload
 
 `failed_application` 必须是预留且不存在的独立路径。恢复后先按规程在 loopback 13000 运行私有健康探针、`prisma migrate status` 和附件 manifest 校验，保留正常 writer 停止；验证成功且操作人明确恢复服务后，再 `systemctl --user start` 三个服务并检查公网健康/已知受保护附件。不要混用另一轮 database.dump、附件和 previous 应用。现有备份归档可校验不代表此恢复流程已经演练。
 
-## 2026-10-19 执行实况：发布已获许可，等待用户完成认证
+## 2026-10-19 执行实况：npm与生产发布验证完成，真实新WorkBuddy验收进行中
 
-- 用户已明确批准冻结0a299231发布npm0.13.2/WebAPI0.12.48并继续真实验收。本次批准持续有效，下面认证完成后直接恢复已批准流程，不重复请求相同许可。
-- `npm whoami --registry=https://registry.npmjs.org/` 返回 E401。已启动 npm web login，打开真实 Chrome 安全密钥认证页，等待用户在界面操作；登录成功尚未确认。
-- SSH BatchMode 前检返回 `Permission denied`；`/tmp/agentwiki-release-ssh/control` 不存在，`~/.ssh` 当前仅 config/known_hosts，无可用私钥。已请用户在自己的终端完成登录并建立同一 ControlPath；不能从用户取得或在输出中包含密码。
-- 没有执行 npm 发布、生产部署、备份或其他远端写入。固定源码包和此前发布回执保持不变；认证前检失败不能写成发布完成或真实新流程通过。
-- 用户建立控制连接后，先用 `ssh -S /tmp/agentwiki-release-ssh/control -O check root@113.249.120.24` 验证复用状态；后续 SSH/SCP 使用该 ControlPath，部署通过 `AGENTWIKI_SSH_CONTROL_PATH=/tmp/agentwiki-release-ssh/control bash ./deploy.sh 113.249.120.24 root` 复用已登录连接，不在脚本/命令行传密码。
-- 两项认证恢复后，重核包摘要和 registry版本占用，再依次进行正式npm发布/回读/空缓存安装、生产只读基线、协调备份、固定候选部署和真实WorkBuddy新授权/权限/重启/MCP读页。若其中一项认证先完成，可推进其独立前检，不能把另一项视作自动成功。
+- 冻结0a299231的发布与继续验收已获用户授权，授权持续有效。
+- 初期npm E401/SSH缺失已恢复；首次publish独立安全密钥挑战超时E404保留历史。第二次认证成功、CLIexit0/PUT202经历官方Validating后，registry version/latest均为0.13.2；不能将此前上传接受时间误记为可安装时间。
+- 官方tarball与冻结候选字节一致，SHA256 `836a92c65c9fae6ba3fbc181a6b861cbd4380517764291115b6ce45bc86556b9`；175文件逐项匹配，空目录/空缓存安装LocalSync0.13.2及protocol0.6.1通过。
+- 协调备份 `/var/backups/agentwiki/generic-mcp-v01248.f0el29jz` verified/checksumsPassed/writersRestored；154blob匹配，writer暂停约7.114秒后恢复，备份后内外health通过。未执行恢复演练。
+- 从固定commit导出的deploy.sh返回exit0，previous为`/root/agentwiki-previous-20261019004923`。host回执UTC2026-10-18T16:50:20验证1357源码全部匹配0a299231、Web/API/client0.12.48、LocalSync0.13.2、protocol0.6.1、Node24.18.0、3active/5healthok。
+- 公网回执UTC2026-10-18T16:50:24验证HTML及5入口资源与生产exactmatch，公网5healthok。公开`/api/onboard`指令含generic/WorkBuddy和固定0.13.2；真实Chrome指南渲染通用默认、WorkBuddy、自动打开浏览器及客户端权限/重启说明。
+- 当前真实新WorkBuddy授权、权限、新配置生效、重启和新会话MCP读页正在执行；未标记complete，旧连接读页和指南渲染不替代此最终验收。
+- 正式脱敏回执 `release.json`，分阶段历史 `release-progress.json`；原始本地`registry-verified.json`、`production-source-check.json`、`public-release.json`、`backup-receipt.json`保留。私有截图不提交。
+- npm/生产发布无需重复执行。保留备份与previous应用；快照后用户写入不在恢复点内，不自动回滚覆盖。

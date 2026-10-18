@@ -4,7 +4,7 @@
 
 ## 活跃任务
 
-- [generic-mcp-onboarding-20261018](active/generic-mcp-onboarding-20261018/brief.md)：通用MCP/WorkBuddy修复与0a299231候选已获明确发布授权（Web/API0.12.48、npm0.13.2）；旧连接真实重启/读页通过，新流程待正式部署后验收。当前npm E401及SSH认证阻塞，等待用户完成登录后沿既有授权继续；未发布部署。
+- [generic-mcp-onboarding-20261018](active/generic-mcp-onboarding-20261018/brief.md)：冻结0a299231已授权发布；npm0.13.2官方回读/175文件/空缓存安装、Web/API0.12.48生产1357源码/公网HTML+5资源/健康通过。真实新WorkBuddy授权、权限、新配置、重启及MCP读页验收正在跑，未complete。
 
 
 
