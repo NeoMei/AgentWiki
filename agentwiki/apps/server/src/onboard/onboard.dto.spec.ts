@@ -40,10 +40,14 @@ const planHashGolden = JSON.parse(readFileSync(join(
 ), 'utf8')) as { plan: ServerPlan; sha256: string };
 
 describe('onboarding DTO contract', () => {
+  it.each(['workbuddy', 'generic'] as const)('accepts %s for attaching an existing Agent', async (clientType) => {
+    await expect(validationErrors(StartDeviceDto, { packageVersion: '0.13.1', clientType, purpose: 'agent-connect' })).resolves.toEqual([]);
+  });
+
   it.each(['0.9.0', '0.9.1', '0.10.0', '0.10.1', '0.10.2', '0.11.0', '0.12.0', '0.13.0', '0.13.1'] as const)(
     'accepts supported package version %s from every client',
     async (packageVersion) => {
-      for (const clientType of ['codex', 'claude', 'opencode'] as const) {
+      for (const clientType of ['codex', 'claude', 'opencode', 'workbuddy', 'generic'] as const) {
         await expect(validationErrors(StartDeviceDto, {
           packageVersion,
           clientType,

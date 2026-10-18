@@ -27,9 +27,9 @@ describe('preflight', () => {
     expect(result.reloadRequired).toBe(false);
   });
 
-  it('marks opencode as requiring reload', async () => {
+  it.each(['opencode', 'workbuddy', 'generic'] as const)('marks %s as requiring reload', async (client) => {
     const home = await freshHome();
-    const result = await preflight('opencode', home);
+    const result = await preflight(client, home);
     expect(result.reloadRequired).toBe(true);
   });
 

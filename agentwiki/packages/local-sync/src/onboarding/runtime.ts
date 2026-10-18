@@ -1,3 +1,5 @@
+import { assertSupportedNodeRuntime } from '../node-runtime.js';
+import { openAuthorizationBrowser } from './browser.js';
 import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { createInterface as createPromisesInterface } from 'node:readline/promises';
@@ -24,6 +26,8 @@ import { CodeGraphPipeline } from '../codegraph/pipeline.js';
 import { createCodeGraphProvider } from '../codegraph/provider.js';
 
 export interface OnboardingRuntimeDeps {
+  nodeVersion: string;
+  openBrowser: (url: string) => Promise<boolean>;
   sessionId(): string;
   sink: ProtocolSink;
   source: ProtocolSource;
@@ -38,6 +42,7 @@ export async function runOnboarding(
   input: OnboardCliInput,
   overrides: Partial<OnboardingRuntimeDeps> = {},
 ): Promise<{ sessionId: string; report: Record<string, unknown> }> {
+  assertSupportedNodeRuntime(overrides.nodeVersion ?? process.version);
   const sessionId = input.sessionId ?? (overrides.sessionId ?? randomUUID)();
   const human = input.protocol === 'human' && !overrides.sink && !overrides.source
     ? humanTransport()
@@ -59,6 +64,7 @@ export async function runOnboarding(
     bootstrapInstall: overrides.bootstrapInstall ?? createBootstrapInstaller(),
     knowledge,
     sleep: overrides.sleep,
+    openBrowser: overrides.openBrowser ?? openAuthorizationBrowser,
   });
   try {
     return await coordinator.run();
@@ -156,7 +162,7 @@ function humanTransport(): { sink: ProtocolSink; source: ProtocolSource } {
       const event = JSON.parse(line) as Record<string, unknown>;
       if (event.type === 'input_required' || event.type === 'confirmation_required') pending = event;
       else if (event.type === 'authorization_required') {
-        process.stdout.write(`\n请在浏览器授权：${String(event.url)}\n授权码：${String(event.userCode)}\n`);
+        process.stdout.write(`\n${event.browserOpened ? '已尝试打开浏览器，请完成授权；若未出现请打开' : '无法自动打开浏览器，请打开'}：${String(event.url)}\n授权码：${String(event.userCode)}\n`);
       } else if (event.type === 'progress') {
         process.stdout.write(`[${String(event.step)}] ${String(event.status)}\n`);
       } else if (event.type === 'preview') {

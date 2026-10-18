@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
   clientConfigPath,
+  clientSetupInstructions,
   readRawConfig,
   installGatewayEntry,
   removeGatewayEntry,
@@ -21,7 +22,7 @@ afterEach(async () => {
   tempHome = '';
 });
 
-async function seedConfig(client: 'codex' | 'claude' | 'opencode', home: string, content: string): Promise<void> {
+async function seedConfig(client: 'codex' | 'claude' | 'opencode' | 'workbuddy' | 'generic', home: string, content: string): Promise<void> {
   const path = clientConfigPath(client, home);
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, content);
@@ -433,5 +434,67 @@ describe('removeGatewayEntry', () => {
     };
     expect(config.mcp.agentwiki).toBeUndefined();
     expect(config.mcp.other).toBeDefined();
+  });
+});
+
+
+describe('standard MCP host integration', () => {
+  it.each(['workbuddy', 'generic'] as const)('writes and backs up %s standard stdio config while preserving unrelated entries', async (client) => {
+    const home = await freshHome();
+    const expectedPath = client === 'workbuddy'
+      ? join(home, '.workbuddy', 'mcp.json')
+      : join(home, '.config', 'agentwiki', 'mcp.json');
+    expect(clientConfigPath(client, home)).toBe(expectedPath);
+    const original = JSON.stringify({ theme: 'dark', mcpServers: { unrelated: { command: 'other-tool', args: ['--safe'] } } });
+    await seedConfig(client, home, original);
+    const analysis = await analyzeConfig(client, home);
+    const installed = await installGatewayEntry(client, 'conn-standard', analysis.hash, home);
+    const config = JSON.parse(await readFile(expectedPath, 'utf8'));
+    expect(config).toEqual({ theme: 'dark', mcpServers: {
+      unrelated: { command: 'other-tool', args: ['--safe'] },
+      agentwiki: { command: 'npx', args: ['--yes', '@neomei/agentwiki-local-sync@0.13.1', 'gateway', '--connection', 'conn-standard'] },
+    } });
+    expect(await readFile(installed.backupPath, 'utf8')).toBe(original);
+    if (process.platform !== 'win32') expect((await stat(expectedPath)).mode & 0o777).toBe(0o600);
+    expect(await removeGatewayEntry(client, home)).toEqual({ removed: true });
+    expect(JSON.parse(await readFile(expectedPath, 'utf8'))).toEqual(JSON.parse(original));
+    await installed.rollback();
+    expect(await readFile(expectedPath, 'utf8')).toBe(original);
+  });
+
+  it.each(['workbuddy', 'generic'] as const)('detects conflicts and invalid %s configuration before mutation', async (client) => {
+    const home = await freshHome();
+    await seedConfig(client, home, JSON.stringify({ mcpServers: { agentwiki: { command: 'other-tool' } } }));
+    expect((await analyzeConfig(client, home)).hasConflict).toBe(true);
+    await seedConfig(client, home, JSON.stringify({ mcpServers: [] }));
+    await expect(analyzeConfig(client, home)).rejects.toThrow('CONFIG_NOT_WRITABLE');
+  });
+
+  it('labels generic configuration as an export requiring import, permission and host activation', async () => {
+    const home = await freshHome();
+    expect(clientSetupInstructions('generic', home)).toMatchObject({
+      configPath: join(home, '.config', 'agentwiki', 'mcp.json'),
+      configurationMode: 'manual-import',
+      hostActivationRequired: true,
+    });
+    expect(clientSetupInstructions('generic', home).hostActivationSteps.join(' ')).toMatch(/导入/);
+    expect(clientSetupInstructions('generic', home).hostActivationSteps.join(' ')).toMatch(/授权/);
+    expect(clientSetupInstructions('generic', home).hostActivationSteps.join(' ')).toMatch(/重启/);
+    expect(clientSetupInstructions('workbuddy', home)).toMatchObject({ configurationMode: 'host-config', hostActivationRequired: true });
+  });
+});
+
+
+describe('gateway name ownership at commit', () => {
+  it.each(['codex', 'claude', 'opencode', 'workbuddy', 'generic'] as const)('rejects an unrelated same-name %s server even with a confirmed current config hash', async (client) => {
+    const home = await freshHome();
+    const original = client === 'codex'
+      ? '[mcp_servers.agentwiki]\ncommand = "unrelated-tool"\nargs = ["--serve"]\n'
+      : JSON.stringify(client === 'opencode'
+        ? { mcp: { agentwiki: { type: 'local', command: ['unrelated-tool', '--serve'] } } }
+        : { mcpServers: { agentwiki: { command: 'unrelated-tool', args: ['--serve'] } } });
+    await seedConfig(client, home, original);
+    await expect(installGatewayEntry(client, 'conn-1', hashConfig(original), home, undefined, client === 'opencode' ? 1 : undefined)).rejects.toThrow('CONFIG_CONFLICT');
+    expect(await readRawConfig(client, home)).toBe(original);
   });
 });

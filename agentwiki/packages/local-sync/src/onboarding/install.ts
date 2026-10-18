@@ -4,6 +4,7 @@ import {
 } from '@neomei/agentwiki-sync-protocol';
 import { join } from 'node:path';
 import { withStepLock } from './steps-store.js';
+import { supportsHotReload } from './preflight.js';
 import { fileURLToPath } from 'node:url';
 import type { BootstrapResult } from './client.js';
 import { OnboardingClient } from './client.js';
@@ -88,7 +89,7 @@ export function createBootstrapInstaller(overrides: Partial<BootstrapInstallerDe
         }, deps);
         return {
           bootstrap,
-          reloadRequired: input.client === 'opencode',
+          reloadRequired: !supportsHotReload(input.client),
           configBackupPath: installed.configBackupPath,
           manifestHash: installed.manifestHash,
           connectionId: input.connectionId,
@@ -120,7 +121,7 @@ export function createBootstrapInstaller(overrides: Partial<BootstrapInstallerDe
 
       return {
         bootstrap,
-        reloadRequired: input.client === 'opencode',
+        reloadRequired: !supportsHotReload(input.client),
         configBackupPath: installed.backupPath,
         manifestHash: verified.manifestHash,
         connectionId: input.connectionId,

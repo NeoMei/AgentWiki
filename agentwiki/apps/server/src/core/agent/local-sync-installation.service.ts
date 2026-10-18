@@ -13,6 +13,7 @@ import {
 import { RedisService } from '../../database/redis.service';
 import { BusinessException } from '../filters/business-error';
 import {
+  CURRENT_LOCAL_SYNC_VERSION,
   isSupportedLocalSyncVersion,
   type SupportedLocalSyncVersion,
 } from '../local-sync-version';
@@ -466,10 +467,22 @@ export class LocalSyncInstallationService {
   }
 
   private instructions(code: string, pluginVersion: string, serverUrl: string): string {
+    // Historical packages keep their supported client options. The current
+    // candidate and its public setup instructions must be released together.
+    const genericMcp = pluginVersion === CURRENT_LOCAL_SYNC_VERSION;
     return [
-      'Run this pinned command with your local Agent:',
-      `npx --yes @neomei/agentwiki-local-sync@${pluginVersion} onboard --server ${serverUrl} --code ${code} --protocol ndjson --agent auto`,
+      genericMcp
+        ? 'Run this pinned command with your current Agent, which must support local stdio MCP:'
+        : 'Run this pinned command with your local Codex, Claude Code, or OpenCode Agent:',
+      `npx --yes @neomei/agentwiki-local-sync@${pluginVersion} onboard --server ${serverUrl} --code ${code} --protocol ndjson --agent ${genericMcp ? 'generic' : 'auto'}`,
+      ...(genericMcp ? [
+        'The generic mode exports MCP settings for import into this host. For WorkBuddy native configuration, replace --agent generic with --agent workbuddy; use --agent codex, claude, or opencode only for those hosts.',
+        'Follow the returned configurationMode, configPath, and hostActivationSteps. For manual-import, import mcpServers.agentwiki or create a stdio MCP service with the exact command and args, preserving other host settings. If you cannot operate the settings, show the export path and wait for the user to finish.',
+      ] : []),
+      'Enable agentwiki and approve the client MCP/tool permissions; browser or website account approval does not replace client authorization.',
+      'Reload MCP; if reload is unavailable or tools remain missing, fully quit and restart the client, then start a new conversation.',
       'After installation, report the complete doctor output to the user.',
+      'Configuration and gateway checks do not verify the host. Use this host\'s agentwiki MCP wiki_* tools to read a known page the user can access and verify its title and content before reporting successful host access.',
       'Installation only configures the unified agentwiki gateway; it does not scan or sync local knowledge.',
     ].join('\n');
   }

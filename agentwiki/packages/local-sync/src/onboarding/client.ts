@@ -16,7 +16,7 @@ const DEFAULT_POLL_DEADLINE_MS = 10_000;
 const DEFAULT_MAX_POLL_ATTEMPTS = 240; // ~20 min at 5s intervals
 const MIN_POLL_INTERVAL_MS = 2_000;
 
-export type ClientType = 'codex' | 'claude' | 'opencode';
+export type ClientType = 'codex' | 'claude' | 'opencode' | 'workbuddy' | 'generic';
 
 export interface StartParams {
   serverBaseUrl: string;

@@ -716,13 +716,12 @@ test('application release versions and independent sync versions stay aligned', 
 });
 
 test('the local-sync CLI exposes gateway and onboard commands without connect', async () => {
-  const source = await read('packages/local-sync/src/cli.ts');
-  const usage = source.match(/CLI_USAGE = '([^']+)'/);
-  assert.ok(usage, 'CLI_USAGE must be defined');
-  assert.match(usage[1], /onboard/, 'CLI must expose onboard');
-  assert.match(usage[1], /gateway/, 'CLI must expose gateway');
-  assert.doesNotMatch(usage[1], /\bconnect\b/, 'CLI must not expose connect');
-  assert.doesNotMatch(usage[1], /--orchestrator/, 'CLI must not expose --orchestrator');
+  const result = spawnSync(process.execPath, [resolve(root, 'packages/local-sync/dist/cli.js'), '--help'], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /onboard/, 'CLI must expose onboard');
+  assert.match(result.stdout, /gateway/, 'CLI must expose gateway');
+  assert.doesNotMatch(result.stdout, /\bconnect\b/, 'CLI must not expose connect');
+  assert.doesNotMatch(result.stdout, /--orchestrator/, 'CLI must not expose --orchestrator');
 });
 
 test('every active Agent connection surface exposes only the unified gateway', async () => {

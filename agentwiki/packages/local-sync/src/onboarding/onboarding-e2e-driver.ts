@@ -21,7 +21,7 @@ type E2EInput = {
   spaceId?: string;
   agentName: string;
   role: 'reader' | 'editor' | 'publisher';
-  clientType: 'codex' | 'claude' | 'opencode';
+  clientType: 'codex' | 'claude' | 'opencode' | 'workbuddy' | 'generic';
   sourcePaths: string[];
   sourceType: 'auto' | 'code' | 'documents';
   analysisMode: 'standard' | 'deep';

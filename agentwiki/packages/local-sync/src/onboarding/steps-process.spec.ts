@@ -51,6 +51,9 @@ beforeAll(async () => {
     '#!/bin/sh\nprintf scan-invoked > "$HOME/scan-invoked"\nexit 90\n',
     { mode: 0o700 },
   );
+  for (const browserCommand of ['open', 'xdg-open']) {
+    await writeFile(join(home, 'bin', browserCommand), '#!/bin/sh\nprintf "%s\\n" "$1" >> "$HOME/browser-opened"\n', { mode: 0o700 });
+  }
   server = createServer(async (req, res) => {
     let raw = '';
     for await (const chunk of req) raw += chunk;
@@ -151,9 +154,24 @@ afterAll(async () => {
   }
   if (home) await rm(home, { recursive: true, force: true });
 });
+it('prints subcommand help and rejects invalid options with nonzero exit and actionable errors', async () => {
+  const env = { ...process.env, HOME: home };
+  for (const args of [['onboard', '--help'], ['onboard', 'continue', '--help'], ['doctor', '--help'], ['gateway', '-h'], ['uninstall', '--help']]) {
+    const result = await exec(process.execPath, [entry, ...args], { env, timeout: 5000 });
+    expect(result.stdout).toContain(`Usage: agentwiki-local-sync ${args[0]}`);
+    expect(result.stderr).toBe('');
+  }
+  await expect(exec(process.execPath, [entry, 'gateway', '--connection', 'fixture', '--protocol', 'json'], { env }))
+    .rejects.toMatchObject({ code: 1, stdout: '', stderr: expect.stringContaining("Unknown option '--protocol' for gateway") });
+  await expect(exec(process.execPath, [entry, 'onboard', 'start', '--protocol', 'human'], { env }))
+    .rejects.toMatchObject({ code: 1, stdout: expect.stringContaining('onboard start requires --protocol json'), stderr: '' });
+});
 it('resumes in independent processes, serializes concurrent continuation, retries lost bootstrap and retains configuration across verification failure without any scan/upload', async () => {
   const start = await command('start', '--server', base, '--client', 'claude');
   expect(start.status).toBe('authorization_required');
+  if (process.platform === 'darwin' || process.platform === 'linux') {
+    expect(await readFile(join(home, 'browser-opened'), 'utf8')).toBe(`${base}/onboard?userCode=CODE\n`);
+  }
   const id = start.sessionId;
   const firstStatus = await command('status', '--session', id);
   expect(firstStatus.sessionId).toBe(id);

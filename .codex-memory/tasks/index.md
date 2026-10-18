@@ -4,6 +4,8 @@
 
 ## 活跃任务
 
+- [generic-mcp-onboarding-20261018](active/generic-mcp-onboarding-20261018/brief.md)：通用MCP/WorkBuddy、自动浏览器授权、客户端激活提示、Node预检、doctor全客户端与CLI帮助/错误修复；本地候选验收，未发布部署。
+
 
 
 - [release-v01226-20261014](active/release-v01226-20261014/brief.md)：用户授权全量发布；最终门禁、配套备份及0.12.26/0.13.0版本准备进行中。

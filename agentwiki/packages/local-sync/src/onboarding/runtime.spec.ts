@@ -54,6 +54,7 @@ describe('runOnboarding', () => {
       { home, protocol: 'ndjson', serverBaseUrl: 'https://wiki.test/api' },
       {
         sessionId: () => 'session-1',
+        openBrowser: vi.fn(async () => false),
         sink,
         source,
         client: {

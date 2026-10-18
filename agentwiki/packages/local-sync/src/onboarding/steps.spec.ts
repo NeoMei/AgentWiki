@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCli } from '../cli.js';
@@ -31,7 +31,7 @@ async function fixture() {
       throw new Error('Unexpected network / scan / upload');
     }) as typeof fetch,
   });
-  const deps = { client };
+  const deps = { client, openBrowser: vi.fn(async () => true) };
   const start = await runOnboardingSteps(
     { action: 'start', home, clientType: 'claude', serverBaseUrl: 'https://wiki.test/api' },
     deps,
@@ -114,6 +114,9 @@ it('renews the same authorization and invalidates old confirmation after token e
   );
   expect(state.status).toBe('authorization_required');
   expect(renew).toHaveBeenCalledWith('https://wiki.test/api', 'awd_private');
+  expect(state.browserOpened).toBe(true);
+  expect(f.deps.openBrowser).toHaveBeenLastCalledWith('https://wiki.test/onboard?userCode=NEW');
+  expect(f.deps.openBrowser).toHaveBeenCalledTimes(2);
   await expect(
     f.cont(await f.reply({ requestId: confirmed.requestId, confirmed: true, planHash: confirmed.planHash })),
   ).rejects.toThrow(/REPLY_STALE/);
@@ -188,4 +191,85 @@ it('does not tell the caller to repeatedly retry an unsupported server endpoint'
   const result = await f.cont();
   expect(result.error).toEqual({ code: 'REMOTE_UNAVAILABLE', retryable: false });
   expect(result.nextAction).toMatch(/Stop/);
+});
+
+
+it('opens fresh browser authorization once and keeps status read-only', async () => {
+  const f = await fixture();
+  expect(f.start.browserOpened).toBe(true);
+  expect(f.deps.openBrowser).toHaveBeenCalledExactlyOnceWith('https://wiki.test/onboard?userCode=CODE');
+  const status = await runOnboardingSteps({ action: 'status', home: f.home, sessionId: f.start.sessionId }, f.deps);
+  expect(status.browserOpened).toBe(true);
+  expect(f.deps.openBrowser).toHaveBeenCalledTimes(1);
+});
+
+it('preserves a usable authorization URL and session when opening the browser fails', async () => {
+  const f = await fixture();
+  const openBrowser = vi.fn(async () => { throw new Error('no desktop'); });
+  const result = await runOnboardingSteps(
+    { action: 'start', home: f.home, clientType: 'claude', serverBaseUrl: 'https://wiki.test/api' },
+    { ...f.deps, openBrowser },
+  );
+  expect(result).toMatchObject({ status: 'authorization_required', browserOpened: false, authorizationUrl: 'https://wiki.test/onboard?userCode=CODE' });
+  expect(result.nextAction).toMatch(/open.*authorizationUrl/i);
+});
+
+it('rejects unsupported Node before device authorization or local session creation', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'aw-node-check-'));
+  homes.push(home);
+  const client = new OnboardingClient();
+  const start = vi.spyOn(client, 'start');
+  await expect(runOnboardingSteps(
+    { action: 'start', home, clientType: 'claude', serverBaseUrl: 'https://wiki.test/api' },
+    { client, nodeVersion: 'v22.22.2' },
+  )).rejects.toThrow(/NODE_UNSUPPORTED.*24.*26.*node --version/);
+  expect(start).not.toHaveBeenCalled();
+  expect(await readdir(home)).toEqual([]);
+});
+
+
+it.each(['generic', 'workbuddy'] as const)('persists %s and exposes the actual config destination without claiming host verification', async (clientType) => {
+  const f = await fixture();
+  const started = await runOnboardingSteps(
+    { action: 'start', home: f.home, clientType, serverBaseUrl: 'https://wiki.test/api' }, f.deps,
+  );
+  const status = await runOnboardingSteps({ action: 'status', home: f.home, sessionId: started.sessionId }, f.deps);
+  expect(status).toMatchObject({
+    configurationMode: clientType === 'generic' ? 'manual-import' : 'host-config',
+    hostVerification: 'not_started', hostActivationRequired: true,
+    configPath: join(f.home, clientType === 'generic' ? '.config/agentwiki/mcp.json' : '.workbuddy/mcp.json'),
+  });
+});
+
+
+it('rejects an unrelated MCP entry before authorization without modifying its config', async () => {
+  const f = await fixture();
+  await mkdir(join(f.home, '.workbuddy'), { recursive: true });
+  const config = join(f.home, '.workbuddy', 'mcp.json');
+  const original = JSON.stringify({ mcpServers: { agentwiki: { command: 'unrelated-tool' } } });
+  await writeFile(config, original);
+  const start = vi.spyOn(f.deps.client, 'start');
+  await expect(runOnboardingSteps({ action: 'start', home: f.home, clientType: 'workbuddy', serverBaseUrl: 'https://wiki.test/api' }, f.deps)).rejects.toThrow(/CONFIG_CONFLICT/);
+  expect(start).not.toHaveBeenCalled();
+  expect(await readFile(config, 'utf8')).toBe(original);
+});
+
+
+it('rejects a newly conflicting config before remote bootstrap after confirmation', async () => {
+  const f = await fixture();
+  const input = await f.cont();
+  const confirmation = await f.cont(await f.reply({requestId: input.requestId, values: {spaceMode: 'existing', spaceId: 's1', agentName: 'Agent', role: 'reader'}}));
+  await f.cont(await f.reply({requestId: confirmation.requestId, confirmed: true, planHash: confirmation.planHash}));
+  const bootstrap = vi.spyOn(f.deps.client, 'bootstrap');
+  const original = JSON.stringify({mcpServers: {agentwiki: {command: 'other-server'}}});
+  await writeFile(join(f.home, '.claude.json'), original);
+  const blocked = await f.cont();
+  expect(blocked.error).toMatchObject({code: 'CONFIG_CONFLICT', retryable: false});
+  expect(bootstrap).not.toHaveBeenCalled();
+  expect(await readFile(join(f.home, '.claude.json'), 'utf8')).toBe(original);
+  await writeFile(join(f.home, '.claude.json'), '{}');
+  const recovered = await f.cont();
+  expect(recovered.status).toBe('confirmation_required');
+  expect(recovered.requestId).not.toBe(confirmation.requestId);
+  expect(bootstrap).not.toHaveBeenCalled();
 });

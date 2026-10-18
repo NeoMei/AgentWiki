@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -11,11 +11,13 @@ vi.mock('node:child_process', async (importOriginal) => {
     spawnSync: vi.fn(() => ({ status: 0, stdout: '', stderr: '', error: undefined })),
   };
 });
+vi.mock('./onboarding/steps.js', () => ({ runOnboardingSteps: vi.fn(async (input) => input) }));
 
 import { spawnSync } from 'node:child_process';
 import { isSupportedNodeVersion, runCli, runDoctor, runner, CLI_USAGE } from './cli.js';
 import { formatMcpOutput } from './gateway/output.js';
 import { loadConfig, loadCredentials, saveConfig, saveCredentials } from './config.js';
+import { runOnboardingSteps } from './onboarding/steps.js';
 
 const temporaryPaths: string[] = [];
 
@@ -51,6 +53,106 @@ describe('local sync command orchestration', () => {
     const home = await temporaryDirectory('agentwiki-version-');
 
     await expect(runCli(['--version'], home)).resolves.toEqual({ version: '0.13.1' });
+  });
+
+  it.each(['onboard', 'gateway', 'doctor', 'uninstall'])('shows %s help without runtime side effects', async (command) => {
+    const home = await temporaryDirectory('agentwiki-command-help-');
+    const onboard = vi.fn();
+    const gateway = vi.fn();
+
+    const help = await runCli([command, '--help'], home, { onboard, gateway });
+    expect(help).toContain(`Usage: agentwiki-local-sync ${command}`);
+    expect(help).toContain('Example');
+    expect(onboard).not.toHaveBeenCalled();
+    expect(gateway).not.toHaveBeenCalled();
+    await expect(runCli([command, '-h'], home)).resolves.toEqual(help);
+  });
+
+  it('documents step-specific required options and the private reply-file formats', async () => {
+    const home = await temporaryDirectory('agentwiki-steps-help-');
+    const startHelp = await runCli(['onboard', 'start', '--help'], home);
+    expect(startHelp).toContain('--server URL');
+    expect(startHelp).toContain('--protocol json');
+    expect(startHelp).toContain('generic');
+    expect(startHelp).toContain('workbuddy');
+    const replyHelp = await runCli(['onboard', 'continue', '--help'], home);
+    expect(replyHelp).toContain('--session UUID');
+    expect(replyHelp).toContain('"requestId"');
+    expect(replyHelp).toContain('"spaceMode"');
+    expect(replyHelp).toContain('"spaceId"');
+    expect(replyHelp).toContain('"confirmed"');
+    expect(replyHelp).toContain('"planHash"');
+    expect(replyHelp).toContain('0600');
+  });
+
+  it('explicitly rejects unsupported gateway options before starting the MCP server', async () => {
+    const home = await temporaryDirectory('agentwiki-gateway-invalid-option-');
+    const gateway = vi.fn();
+    await expect(runCli(['gateway', '--connection', 'test', '--protocol', 'json'], home, { gateway }))
+      .rejects.toThrow("Unknown option '--protocol' for gateway");
+    expect(gateway).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, 'generic', 'workbuddy'])('accepts the generic host flow and WorkBuddy preset (%s)', async (client) => {
+    const home = await temporaryDirectory('agentwiki-client-option-');
+    await runCli(['onboard', 'start', '--server', 'https://wiki.test/api', '--protocol', 'json',
+      ...(client ? ['--client', client] : [])], home);
+    expect(runOnboardingSteps).toHaveBeenLastCalledWith(expect.objectContaining({
+      action: 'start', clientType: client ?? 'generic',
+    }));
+  });
+
+  it('reports the specific invalid step option and required protocol', async () => {
+    const home = await temporaryDirectory('agentwiki-step-invalid-option-');
+    await expect(runCli(['onboard', 'status', '--session', randomUUID(), '--protocol', 'json', '--client', 'codex'], home))
+      .rejects.toThrow("Unknown option '--client' for onboard status");
+    await expect(runCli(['onboard', 'start', '--server', 'https://wiki.test/api'], home))
+      .rejects.toThrow('onboard start requires --protocol json');
+  });
+
+  it('doctor scans every known client and distinguishes configuration from a live host tool call', async () => {
+    const home = await temporaryDirectory('agentwiki-doctor-all-');
+    const connection = {
+      id: randomUUID(), serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'credential-1',
+      pluginVersion: '0.13.1', client: 'codex' as const, mcpName: 'agentwiki',
+    };
+    await mkdir(join(home, '.codex'), { recursive: true });
+    await writeFile(join(home, '.codex', 'config.toml'), '[mcp_servers.agentwiki]\ncommand = "npx"\n');
+    await mkdir(join(home, '.workbuddy'), { recursive: true });
+    await writeFile(join(home, '.workbuddy', 'mcp.json'), JSON.stringify({ mcpServers: { agentwiki: {
+      command: 'npx', args: ['-y', '@neomei/agentwiki-local-sync@0.13.1', 'gateway', '--connection', connection.id],
+    } } }));
+    await mkdir(join(home, '.config', 'opencode'), { recursive: true });
+    await writeFile(join(home, '.config', 'opencode', 'opencode.json'), JSON.stringify({ mcp: {} }));
+    const report = await runDoctor(home, connection, {
+      client: { access: vi.fn().mockResolvedValue({ access: [] }) } as never,
+      readApiKey: async () => 'agk_test',
+      run: vi.fn(() => ({ status: 0, stdout: 'tool 1.0.0', stderr: '' })),
+      codeGraph: { diagnose: vi.fn().mockResolvedValue({ available: false }) },
+    }, undefined, { allClients: true });
+
+    expect(report.checks).toContainEqual(expect.objectContaining({ name: 'mcp-registration:codex', status: 'pass' }));
+    expect(report.checks).toContainEqual(expect.objectContaining({ name: 'mcp-registration:workbuddy', status: 'pass' }));
+    expect(report.checks).toContainEqual(expect.objectContaining({ name: 'mcp-registration:claude', status: 'unverified', detail: expect.stringContaining('configuration file is absent') }));
+    expect(report.checks).toContainEqual(expect.objectContaining({ name: 'mcp-registration:opencode', status: 'fail', detail: expect.stringContaining('missing') }));
+    expect(report.connection.hostVerification).toBe('not_started');
+    expect(report.checks.find((entry) => entry.name === 'mcp-registration:workbuddy')?.detail).toContain('not verified');
+  });
+
+  it('doctor does not claim generic MCP registration was verified', async () => {
+    const home = await temporaryDirectory('agentwiki-doctor-generic-');
+    const connection = {
+      id: randomUUID(), serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'credential-1',
+      pluginVersion: '0.13.1', client: 'generic' as const, mcpName: 'agentwiki',
+    };
+    const run = vi.fn((_command: string) => ({ status: 0, stdout: 'tool 1.0.0', stderr: '' }));
+    const report = await runDoctor(home, connection, {
+      client: { access: vi.fn().mockResolvedValue({ access: [] }) } as never,
+      readApiKey: async () => 'agk_test', run,
+      codeGraph: { diagnose: vi.fn().mockResolvedValue({ available: false }) },
+    });
+    expect(report.checks).toContainEqual(expect.objectContaining({ name: 'mcp-registration', status: 'unverified' }));
+    expect(run.mock.calls.some(([command]) => command === 'generic')).toBe(false);
   });
 
   it('redacts secrets in MCP output before serializing it', () => {

@@ -24,7 +24,7 @@ function fixture(confirmed = true): { deps: AttachmentDependencies; calls: strin
       }),
       confirm: vi.fn(async (plan) => {
         calls.push('confirm-plan');
-        expect(plan).toEqual({
+        expect(plan).toMatchObject({
           client: 'codex',
           serverUrl: 'https://wiki.test/api',
           mcpName: 'agentwiki',
@@ -81,7 +81,7 @@ describe('runAttachment', () => {
     expect(test.calls).toEqual([
       'detect-client', 'analyze-config', 'confirm-plan', 'exchange-code', 'install-gateway',
     ]);
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       connectionId: 'connection-1',
       agentId: 'agent-1',
       client: 'codex',
@@ -168,4 +168,27 @@ describe('runAttachment', () => {
     });
     expect(test.deps.close).toHaveBeenCalledOnce();
   });
+});
+
+
+it.each(['generic', 'workbuddy'] as const)('confirms %s configuration path and reports host activation separately', async (client) => {
+  const test = fixture();
+  vi.mocked(test.deps.detectClients).mockReturnValue([client]);
+  vi.mocked(test.deps.confirm).mockResolvedValue(true);
+  vi.mocked(test.deps.install).mockResolvedValue({ connectionId: 'connection-1', configBackupPath: '/tmp/backup', manifestHash: 'hash' });
+  const result = await runAttachment({ ...input(), requestedClient: client }, test.deps);
+  expect(test.deps.confirm).toHaveBeenCalledWith(expect.objectContaining({
+    configPath: expect.stringContaining(client === 'generic' ? '/.config/agentwiki/mcp.json' : '/.workbuddy/mcp.json'),
+    configurationMode: client === 'generic' ? 'manual-import' : 'host-config',
+  }));
+  expect(result).toMatchObject({ hostActivationRequired: true, hostVerified: false, reloadRequired: true });
+});
+
+
+it('rejects unsupported Node before exchanging an installation code or writing client configuration', async () => {
+  const test = fixture();
+  await expect(runAttachment(input(), { ...test.deps, nodeVersion: 'v22.22.2' })).rejects.toThrow(/NODE_UNSUPPORTED.*nvm install 24/);
+  expect(test.deps.exchange).not.toHaveBeenCalled();
+  expect(test.deps.install).not.toHaveBeenCalled();
+  expect(test.deps.confirm).not.toHaveBeenCalled();
 });

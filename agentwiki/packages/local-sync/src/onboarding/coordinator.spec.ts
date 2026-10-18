@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { OnboardingCoordinator, type CoordinatorDeps } from './coordinator.js';
 import { ProtocolEncoder, type ProtocolSink, type ProtocolSource } from './protocol.js';
 import { OnboardingClient } from './client.js';
+import { OnboardingError } from './errors.js';
 import { createSessionStore, sessionFilePath, type OnboardingInputs, type SessionStore } from './session.js';
 import { readFile, writeFile } from 'node:fs/promises';
 import type { LocalScanPlan } from '../codegraph/contracts.js';
@@ -658,5 +659,54 @@ describe('OnboardingCoordinator local scan consent', () => {
     await new OnboardingCoordinator(fixture.deps).run();
     expect(fixture.deps.bootstrapInstall).not.toHaveBeenCalled();
     expect(fixture.deps.knowledge.prepare).toHaveBeenCalledWith(expect.objectContaining({ localScanPlanHash: 'c'.repeat(64), confirmedLocalScan: true }));
+  });
+});
+
+
+describe('generic MCP onboarding and activation guidance', () => {
+  it.each(['generic', 'workbuddy'] as const)('previews the %s configuration destination and keeps host activation pending after gateway checks', async (clientType) => {
+    const fixture = mockDeps({ openBrowser: vi.fn(async () => true) });
+    fixture.deps.source = successfulSource(fixture.sink, {
+      spaceMode: 'create', spaceName: 'Space', agentName: 'MCP Agent', role: 'editor',
+      clientType, sourcePaths: ['.'], sourceType: 'documents',
+    });
+    const result = await new OnboardingCoordinator(fixture.deps).run();
+    const events = fixture.sink.lines.map((line) => JSON.parse(line));
+    expect(events.find((event) => event.type === 'input_required').fields.find((field: { name: string }) => field.name === 'clientType').choices).toContain(clientType);
+    expect(events.find((event) => event.type === 'preview').plan).toMatchObject({
+      configPath: expect.stringContaining(clientType === 'generic' ? '/.config/agentwiki/mcp.json' : '/.workbuddy/mcp.json'),
+      configurationMode: clientType === 'generic' ? 'manual-import' : 'host-config',
+      hostActivationRequired: true,
+    });
+    expect(result.report).toMatchObject({ hostActivationRequired: true, hostVerified: false });
+    expect(fixture.deps.openBrowser).toHaveBeenCalledWith('https://test/onboard/device?user_code=ABCD');
+    expect(events.find((event) => event.type === 'authorization_required')).toMatchObject({ browserOpened: true });
+  });
+});
+
+
+describe('legacy authorization browser boundary', () => {
+  it.each(['https://other.test/onboard', 'https://user:password@test/onboard'])('rejects unsafe authorization URL %s before browser launch and polling', async (url) => {
+    const openBrowser = vi.fn(async () => true);
+    const fixture = mockDeps({ openBrowser });
+    vi.mocked(fixture.deps.client.start).mockResolvedValue({ deviceCode: 'awd_test', userCode: 'CODE', verificationUri: url, verificationUriComplete: url, expiresIn: 600, interval: 5 });
+    fixture.deps.source = successfulSource(fixture.sink, { spaceMode: 'create', spaceName: 'Space', agentName: 'Agent', role: 'editor', clientType: 'generic', sourcePaths: ['.'], sourceType: 'documents' });
+    await expect(new OnboardingCoordinator(fixture.deps).run()).rejects.toMatchObject({ code: 'PROTOCOL_UNSUPPORTED' });
+    expect(openBrowser).not.toHaveBeenCalled();
+    expect(fixture.deps.client.pollUntilSettled).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])('does not reopen the authorization browser after resumable polling failure (launch=%s)', async (opened) => {
+    const openBrowser = vi.fn(async () => opened);
+    const fixture = mockDeps({ openBrowser });
+    fixture.deps.source = successfulSource(fixture.sink, { spaceMode: 'create', spaceName: 'Space', agentName: 'Agent', role: 'editor', clientType: 'generic', sourcePaths: ['.'], sourceType: 'documents' });
+    vi.mocked(fixture.deps.client.pollUntilSettled).mockRejectedValueOnce(new OnboardingError({ code: 'REMOTE_UNAVAILABLE', message: 'temporary network interruption', retryable: true }));
+    await expect(new OnboardingCoordinator(fixture.deps).run()).rejects.toThrow('temporary network interruption');
+    expect(openBrowser).toHaveBeenCalledTimes(1);
+    await new OnboardingCoordinator(fixture.deps).run();
+    expect(openBrowser).toHaveBeenCalledTimes(1);
+    const authorizations = fixture.sink.lines.map((line) => JSON.parse(line)).filter((event) => event.type === 'authorization_required');
+    expect(authorizations).toHaveLength(2);
+    expect(authorizations[1].browserOpened).toBe(opened);
   });
 });

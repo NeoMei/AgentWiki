@@ -1,6 +1,6 @@
 /**
  * Atomic client configuration: read, backup, write and rollback the single
- * `agentwiki` gateway entry across Codex, Claude Code and OpenCode.
+ * `agentwiki` gateway entry across known hosts and the generic stdio configuration export.
  *
  * All mutations go through temp-file + fsync + atomic rename. Before writing,
  * the current config hash is re-checked; a mismatch means someone changed the
@@ -36,7 +36,38 @@ export function clientConfigPath(client: AgentClient, home: string = homedir()):
       return join(home, '.claude.json');
     case 'opencode':
       return join(home, '.config', 'opencode', 'opencode.json');
+    case 'workbuddy':
+      return join(home, '.workbuddy', 'mcp.json');
+    case 'generic':
+      // Keep the export separate from runtime state, which may be archived.
+      return join(home, '.config', 'agentwiki', 'mcp.json');
   }
+}
+
+export interface ClientSetupInstructions {
+  configPath: string;
+  configurationMode: 'host-config' | 'manual-import';
+  hostActivationRequired: true;
+  hostActivationSteps: string[];
+}
+
+/** File installation never proves that a running host has loaded or authorized MCP. */
+export function clientSetupInstructions(client: AgentClient, home: string = homedir()): ClientSetupInstructions {
+  const configPath = clientConfigPath(client, home);
+  const name = { codex: 'Codex', claude: 'Claude Code', opencode: 'OpenCode', workbuddy: 'WorkBuddy', generic: '当前 Agent 客户端' }[client];
+  return {
+    configPath,
+    configurationMode: client === 'generic' ? 'manual-import' : 'host-config',
+    hostActivationRequired: true,
+    hostActivationSteps: [
+      ...(client === 'generic'
+        ? [`将 ${configPath} 中的 mcpServers.agentwiki 导入当前客户端；若界面不支持导入 JSON，请创建 stdio MCP 服务并原样填写 command 和 args。`]
+        : [`在 ${name} 的 MCP 设置中检查并启用 agentwiki。`]),
+      '按客户端提示授权运行本地 MCP 服务及使用工具；网站授权不会替代客户端授权。',
+      `重新加载 ${name} 的 MCP 服务；如果没有重新加载入口或仍看不到工具，完全退出并重启客户端，然后开始新会话。`,
+      '在当前客户端调用 wiki_identity 和 wiki_list_spaces，确认身份和空间；本地网关自检不代表客户端已接入。',
+    ],
+  };
 }
 
 export function backupPathFor(client: AgentClient, home: string = homedir()): string {
@@ -117,6 +148,9 @@ export async function assertConfirmedGatewayConfig(
 
 async function inspectConfirmedConfig(client: AgentClient, connectionId: string, expectedHash: string, home: string) {
   const current = await readRawConfig(client, home);
+  if (hasUnknownGatewayEntry(client, current)) {
+    throw new Error('CONFIG_CONFLICT: an unrelated entry already occupies the agentwiki MCP name');
+  }
   if (hashConfig(current ?? '') === expectedHash) return { current, originalBackup: null };
   if (current !== null && hasExactGatewayEntry(client, current, connectionId)) {
     const originalBackup = await findOriginalBackup(client, home);
@@ -149,6 +183,8 @@ function removeGatewayFromConfig(client: AgentClient, current: string): string |
     case 'codex':
       return removeTomlGateway(current);
     case 'claude':
+    case 'workbuddy':
+    case 'generic':
       return removeOwnedJsonGateway(current, ['mcpServers']);
     case 'opencode':
       return removeOwnedOpenCodeGateway(current);
@@ -229,7 +265,9 @@ function buildConfigWithGateway(
     case 'codex':
       return buildToml(current, command, serverBaseUrl);
     case 'claude':
-      return buildJson(current, command, serverBaseUrl);
+    case 'workbuddy':
+    case 'generic':
+      return buildJson(current, command, serverBaseUrl, client);
     case 'opencode':
       if (openCodeMajor === undefined) throw new Error('OpenCode major version is required');
       return buildOpenCodeJson(current, command, serverBaseUrl, openCodeMajor);
@@ -249,20 +287,20 @@ function buildToml(current: string | null, command: string[], serverBaseUrl?: st
   return `${base}\n[mcp_servers.${GATEWAY_MCP_NAME}]\ncommand = "${escapeTomlString(cmd)}"\nargs = [${argsStr}]\n`;
 }
 
-function buildJson(current: string | null, command: string[], serverBaseUrl?: string): string {
+function buildJson(current: string | null, command: string[], serverBaseUrl: string | undefined, client: AgentClient): string {
   let config: Record<string, unknown> = {};
   if (current) {
     try {
       config = JSON.parse(current) as Record<string, unknown>;
     } catch (error) {
-      throw new Error('CONFIG_NOT_WRITABLE: Claude configuration is not valid JSON', { cause: error });
+      throw new Error(`CONFIG_NOT_WRITABLE: ${client} configuration is not valid JSON`, { cause: error });
     }
   }
   if (!isJsonObject(config)) {
-    throw new Error('CONFIG_NOT_WRITABLE: Claude configuration must be a JSON object');
+    throw new Error(`CONFIG_NOT_WRITABLE: ${client} configuration must be a JSON object`);
   }
   if (config.mcpServers !== undefined && !isJsonObject(config.mcpServers)) {
-    throw new Error('CONFIG_NOT_WRITABLE: Claude mcpServers must be an object');
+    throw new Error(`CONFIG_NOT_WRITABLE: ${client} mcpServers must be an object`);
   }
   const mcpServers = (config.mcpServers ?? {}) as Record<string, unknown>;
   // Remove old AgentWiki entries.
@@ -407,7 +445,7 @@ export async function analyzeConfig(
     try {
       const config = JSON.parse(raw) as unknown;
       if (!isJsonObject(config)) throw new Error('configuration root must be an object');
-      if (client === 'claude' && config.mcpServers !== undefined && !isJsonObject(config.mcpServers)) {
+      if (client !== 'opencode' && config.mcpServers !== undefined && !isJsonObject(config.mcpServers)) {
         throw new Error('Claude mcpServers must be an object');
       }
       if (client === 'opencode') {
@@ -423,17 +461,11 @@ export async function analyzeConfig(
     }
   }
   const oldEntries: string[] = [];
-  let hasConflict = false;
+  const hasConflict = hasUnknownGatewayEntry(client, raw);
 
   const entryNames = extractEntryNames(client, raw);
   for (const [name, text] of entryNames) {
-    if (name === GATEWAY_MCP_NAME) {
-      // If the agentwiki name doesn't look like our gateway, it's a conflict.
-      if (!text.includes('agentwiki-local-sync')) {
-        hasConflict = true;
-      }
-      continue;
-    }
+    if (name === GATEWAY_MCP_NAME) continue;
     if (looksLikeAgentWikiEntry(name, text, serverBaseUrl)) {
       oldEntries.push(name);
     }
@@ -474,6 +506,12 @@ function filterTomlMcpBlocks(
   return parts.join('').replace(/\n{3,}/g, '\n\n').replace(/\n+$/g, '\n').trimEnd() + '\n';
 }
 
+function hasUnknownGatewayEntry(client: AgentClient, raw: string | null): boolean {
+  return extractEntryNames(client, raw).some(([name, text]) => (
+    name === GATEWAY_MCP_NAME && !text.includes('agentwiki-local-sync')
+  ));
+}
+
 function extractEntryNames(client: AgentClient, raw: string | null): Array<[string, string]> {
   if (!raw) return [];
   const entries: Array<[string, string]> = [];
@@ -488,7 +526,7 @@ function extractEntryNames(client: AgentClient, raw: string | null): Array<[stri
       ]) {
         entries.push([name, JSON.stringify(value)]);
       }
-    } else if (client === 'claude') {
+    } else if (client !== 'codex') {
       const config = JSON.parse(raw) as Record<string, unknown>;
       const servers = (config.mcpServers as Record<string, unknown>) ?? {};
       for (const [name, value] of Object.entries(servers)) {

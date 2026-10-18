@@ -1,0 +1,28 @@
+{
+  "date": "2026-10-18",
+  "timezone": "Asia/Shanghai",
+  "environment": "isolated-local-vite-source-not-production",
+  "browser": "CUA Chrome extension",
+  "origin": "http://127.0.0.1:5274",
+  "resolvedRoute": "/guide/agent-onboard",
+  "desktopCssViewport": {
+    "width": 1554,
+    "height": 865
+  },
+  "mobileCssViewport": {
+    "width": 390,
+    "height": 843
+  },
+  "mobileScrollWidth": 390,
+  "mobileClientWidth": 390,
+  "viewportReset": true,
+  "consoleWarningsAndErrors": [],
+  "clipboardExactReadback": "not-verified-accessor-did-not-match-current-copy",
+  "authorizedStateSource": "read-only-local-approved-fixture-no-authorization-POST",
+  "sourceHashes": {
+    "apps/client/src/features/about/onboardPrompt.ts": "2b89e41d9ea2dc9151de04610ed7b513b12c38f5a470cff5f721e17f5d29ca38",
+    "apps/client/src/features/about/OnboardPage.tsx": "f2951072d27c36b9bfb11f9ca992edcace79e61b780c36105ec34cd01588cda6",
+    "apps/client/src/features/about/OnboardDevicePage.tsx": "1c03eac284f7dbd121fdd95795843e64323d1aa75c49f73155da56a9b2648891",
+    "apps/client/src/config/localSync.ts": "9733c157268ca9720f1c2633490066b0a82e3ed702d64efbfd12a92f3ead8483"
+  }
+}

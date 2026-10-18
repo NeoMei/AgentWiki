@@ -73,8 +73,8 @@ async function fixture(cachedExchange = true, archiveStarted = false, tokenExpir
   vi.spyOn(AgentWikiClient.prototype, 'revokeCurrentCredential').mockImplementation(async () => {
     throw new Error('must retain the private receipt for retry');
   });
-  const start = await runOnboardingSteps({ action: 'start', home, clientType: 'claude', serverBaseUrl: 'https://wiki.test/api' }, { client, now: () => now });
-  const cont = (replyFile?: string) => runOnboardingSteps({ action: 'continue', home, sessionId: start.sessionId, replyFile }, { client, now: () => now });
+  const start = await runOnboardingSteps({ action: 'start', home, clientType: 'claude', serverBaseUrl: 'https://wiki.test/api' }, { client, now: () => now, openBrowser: async () => false });
+  const cont = (replyFile?: string) => runOnboardingSteps({ action: 'continue', home, sessionId: start.sessionId, replyFile }, { client, now: () => now, openBrowser: async () => false });
   const reply = async (body: unknown) => {
     const path = join(home, `reply-${Math.random()}.json`);
     await fs.writeFile(path, JSON.stringify(body), { mode: 0o600 });

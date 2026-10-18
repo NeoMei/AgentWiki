@@ -399,3 +399,10 @@ describe('resumable connection installation', () => {
     expect(fixture.calls).not.toContain('rollback-config');
   });
 });
+
+
+it.each(['workbuddy', 'generic'] as const)('requires host reload for %s after independent gateway verification', async (client) => {
+  const fixture = dependencies();
+  const result = await createBootstrapInstaller(fixture.deps)({ ...input(), client });
+  expect(result.reloadRequired).toBe(true);
+});

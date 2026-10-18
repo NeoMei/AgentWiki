@@ -74,6 +74,24 @@ describe('OnboardDevicePage', () => {
     });
   });
 
+  it.each([
+    ['zh-CN', 'generic', '通用 MCP 客户端'],
+    ['en', 'generic', 'Generic MCP client'],
+    ['zh-CN', 'workbuddy', 'WorkBuddy'],
+    ['en', 'workbuddy', 'WorkBuddy'],
+  ])('authorizes the %s %s client and explains host permission separately', async (language, clientType, label) => {
+    localStorage.setItem('agentwiki.language.v1', language);
+    vi.mocked(api.get).mockResolvedValue({data: {...session, clientType, purpose: 'agent-connect'}});
+    vi.mocked(api.post).mockResolvedValue({data: {status: 'approved'}});
+    renderPage();
+    expect(await screen.findByText(label)).toBeInTheDocument();
+    expect(screen.getByText(language === 'zh-CN' ? /客户端仍需允许 MCP 和工具调用/ : /Your client still needs to allow MCP and tool calls/)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', {name: language === 'zh-CN' ? '允许接入' : 'Authorize connection'}));
+    expect(await screen.findByText(language === 'zh-CN' ? '已允许此 Agent 接入' : 'This Agent is authorized to connect')).toBeInTheDocument();
+    expect(screen.getByText(language === 'zh-CN' ? /回到客户端继续配置/ : /Return to your client to finish configuration/)).toBeVisible();
+    expect(api.post).toHaveBeenCalledWith('/onboard/device/decision', {userCode: 'ABCD-EFGH', decision: 'approve'});
+  });
+
   it('preserves a safe return target for a signed-out user', async () => {
     authState.token = null;
     renderPage();

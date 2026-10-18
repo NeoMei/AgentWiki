@@ -1,0 +1,18 @@
+{
+  "date": "2026-10-18",
+  "timezone": "Asia/Shanghai",
+  "platform": "darwin",
+  "node": "v24.18.0",
+  "method": "real openAuthorizationBrowser with OS open, no injected runner",
+  "url": "http://127.0.0.1:5274/guide/agent-onboard?qa=browser-opener",
+  "opened": true,
+  "sourceSha256": "83b8c40fb06980016a1b77fd9db76e1481f8f92259ed9ae75aaba1b0108e9506",
+  "scope": "local read-only page, no authorization request or credential",
+  "browserRenderedVerification": {
+    "verified": true,
+    "tabId": "2011631302",
+    "url": "http://127.0.0.1:5274/guide/agent-onboard?qa=browser-opener",
+    "title": "AgentWiki",
+    "heading": "连接你的 Agent"
+  }
+}

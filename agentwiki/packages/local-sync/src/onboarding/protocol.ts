@@ -65,6 +65,7 @@ export const AuthorizationRequiredEvent = z.object({
   url: z.string().url(),
   userCode: z.string().min(1),
   expiresInSeconds: z.number().int().positive(),
+  browserOpened: z.boolean().optional(),
 });
 
 export const ProgressEvent = z.object({

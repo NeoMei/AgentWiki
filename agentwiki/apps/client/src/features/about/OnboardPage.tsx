@@ -7,7 +7,7 @@ import { buildOnboardPrompt, ONBOARD_CLIENTS, type OnboardClient } from './onboa
 export const OnboardPage: React.FC = () => {
   const { language } = useLanguage();
   const zh = language === 'zh-CN';
-  const [client, setClient] = useState<OnboardClient>('codex');
+  const [client, setClient] = useState<OnboardClient>('generic');
   const [copiedPrompt, setCopiedPrompt] = useState<string | null>(null);
   const [copyFailed, setCopyFailed] = useState(false);
   const serverUrl = `${window.location.origin}/api`;
@@ -23,29 +23,32 @@ export const OnboardPage: React.FC = () => {
   };
   const steps = zh ? [
     ['准备环境', 'Agent 检查环境并启动接入。'],
-    ['浏览器授权', '在当前服务器登录，允许这次接入。'],
+    ['浏览器授权', '自动打开浏览器，在当前服务器登录并允许接入；未打开时提供链接。'],
     ['确认空间和权限', '按名称选择空间，确认账号、角色和配置位置。'],
-    ['完成客户端配置', 'Agent 保存进度，配置连接并检查网关。'],
-    ['实际读取验证', '需要时重载客户端，再实际读取一篇已知页面。'],
+    ['配置并允许工具', '导入或保存连接配置，在客户端允许 MCP 和工具调用。'],
+    ['实际读取验证', '需要时重载或重启客户端并新建对话，再读取一篇已知页面。'],
   ] : [
     ['Prepare the environment', 'Your Agent checks the environment and starts setup.'],
-    ['Authorize in your browser', 'Sign in to this server and approve the connection.'],
+    ['Authorize in your browser', 'Your browser opens automatically for sign-in and approval; a link is available if it cannot open.'],
     ['Confirm space and permissions', 'Choose a space by name and review the account, role, and configuration path.'],
-    ['Configure your client', 'Your Agent saves progress, configures the connection, and checks the gateway.'],
-    ['Verify a real page read', 'Reload the client when needed, then actually read a known page.'],
+    ['Configure and allow tools', 'Import or save the connection. Allow MCP and tool calls in your client.'],
+    ['Verify a real page read', 'Reload or restart your client and start a new conversation when needed, then read a known page.'],
   ];
   return (
     <article className="min-w-0 text-gray-900">
       <header>
         <p className="flex items-center gap-2 text-sm text-gray-500"><Bot size={18} /> AgentWiki · {LOCAL_SYNC_VERSION}</p>
         <h1 className="mt-4 text-2xl font-semibold">{zh ? '连接你的 Agent' : 'Connect your Agent'}</h1>
-        <p className="mt-3 max-w-2xl text-base leading-6 text-gray-600">{zh ? '选择正在使用的客户端，复制完整提示词。Agent 会引导你授权、确认配置并验证实际读取。' : 'Choose your client and copy the complete prompt. Your Agent guides authorization, configuration, and a real page-read check.'}</p>
+        <p className="mt-3 max-w-2xl text-base leading-6 text-gray-600">{zh ? '把通用提示词交给支持本地 MCP 的 Agent，即可开始接入。Agent 会引导你授权、配置工具并验证实际读取。' : 'Give the universal prompt to any Agent with local MCP support. Your Agent guides authorization, tool setup, and a real page-read check.'}</p>
       </header>
       <section className="mt-6 rounded-xl border border-gray-200 bg-white p-4 sm:p-6" aria-labelledby="agent-connect-title">
         <h2 id="agent-connect-title" className="text-lg font-semibold">{zh ? '复制整段提示词到你的 Agent' : 'Copy the full prompt into your Agent'}</h2>
         <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label={zh ? '选择客户端' : 'Choose a client'}>
-          {ONBOARD_CLIENTS.map(item => <button key={item.id} type="button" aria-pressed={client === item.id} onClick={() => { setClient(item.id); setCopiedPrompt(null); setCopyFailed(false); }} className={`rounded-lg border px-4 py-2 text-sm font-medium ${client === item.id ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'}`}>{item.label}</button>)}
+          {ONBOARD_CLIENTS.map(item => <button key={item.id} type="button" aria-pressed={client === item.id} onClick={() => { setClient(item.id); setCopiedPrompt(null); setCopyFailed(false); }} className={`rounded-lg border px-4 py-2 text-sm font-medium ${client === item.id ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'}`}>{zh && 'labelZh' in item ? item.labelZh : item.label}</button>)}
         </div>
+        <p className="mt-3 text-sm leading-6 text-gray-600">{client === 'generic'
+          ? (zh ? '通用方式生成标准 MCP 配置，由 Agent 导入当前客户端。已知客户端也可使用上方快捷配置。' : 'Generic setup exports standard MCP configuration for your Agent to import into this client. Known clients can also use the shortcuts above.')
+          : (zh ? '将为所选客户端写入 MCP 配置。请把提示词粘贴到该客户端，之后按提示允许工具并重载。' : 'Setup writes MCP configuration for the selected client. Paste the prompt into that client, then allow tools and reload as directed.')}</p>
         <button type="button" onClick={() => void copyPrompt()} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800 sm:w-auto">
           {copied ? <Check size={16} /> : <Copy size={16} />}{zh ? '复制提示词' : 'Copy prompt'}
         </button>

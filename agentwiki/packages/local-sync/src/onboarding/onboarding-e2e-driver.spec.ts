@@ -42,7 +42,7 @@ const codeInput = {
 };
 
 describe('onboarding runtime state-machine E2E', () => {
-  it.each(['codex', 'claude', 'opencode'] as const)('completes the standard-only two-confirmation flow through one AgentWiki MCP for %s', async (clientType: AgentClient) => {
+  it.each(['codex', 'claude', 'opencode', 'workbuddy', 'generic'] as const)('completes the standard-only two-confirmation flow through one AgentWiki MCP for %s', async (clientType: AgentClient) => {
     const home = await freshHome();
     const harness = await runOnboardingStateMachineHarness({
       home,
@@ -66,7 +66,7 @@ describe('onboarding runtime state-machine E2E', () => {
       expect(rawConfig?.match(/\[mcp_servers\.agentwiki\]/gu)).toHaveLength(1);
     } else {
       const parsed = JSON.parse(rawConfig!);
-      const entries = clientType === 'claude'
+      const entries = clientType !== 'opencode'
         ? parsed.mcpServers
         : (parsed.mcp.servers ?? parsed.mcp);
       expect(Object.keys(entries)).toEqual(['agentwiki']);

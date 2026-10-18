@@ -1,11 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { assertSupportedNodeRuntime } from '../node-runtime.js';
 import { spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { createInterface as createPromisesInterface } from 'node:readline/promises';
 
 import { AgentWikiClient, redactSecrets, type ExchangeResult } from '../agentwiki-client.js';
 import { detectInstalledClients, type AgentClient } from '../agent-clients.js';
-import { analyzeConfig } from '../installer/client-config.js';
+import { supportsHotReload } from './preflight.js';
+import { analyzeConfig, clientSetupInstructions, type ClientSetupInstructions } from '../installer/client-config.js';
 import { GATEWAY_PACKAGE_VERSION } from '../installer/plan.js';
 import { installExchangedGateway, type ExchangedGatewayInstallInput } from './install.js';
 import { OnboardingError, type OnboardingFailure } from './errors.js';
@@ -19,7 +21,7 @@ export interface AttachCliInput {
   requestedClient: AgentClient | 'auto';
 }
 
-export interface AttachmentPlan {
+export interface AttachmentPlan extends ClientSetupInstructions {
   client: AgentClient;
   serverUrl: string;
   mcpName: 'agentwiki';
@@ -33,7 +35,8 @@ export interface AttachmentInstallResult {
   manifestHash: string;
 }
 
-export interface AttachReport extends AttachmentInstallResult {
+export interface AttachReport extends AttachmentInstallResult, ClientSetupInstructions {
+  hostVerified: false;
   agentId: string;
   client: AgentClient;
   mcpName: 'agentwiki';
@@ -42,6 +45,7 @@ export interface AttachReport extends AttachmentInstallResult {
 }
 
 export interface AttachmentDependencies {
+  nodeVersion?: string;
   detectClients(requested: AgentClient | 'auto'): AgentClient[];
   selectClient(candidates: AgentClient[]): Promise<AgentClient>;
   analyzeConfig(
@@ -61,6 +65,7 @@ export async function runAttachment(
   input: AttachCliInput,
   overrides: Partial<AttachmentDependencies> = {},
 ): Promise<AttachReport> {
+  assertSupportedNodeRuntime(overrides.nodeVersion ?? process.version);
   const deps = { ...productionDependencies(input), ...overrides };
   try {
     const candidates = deps.detectClients(input.requestedClient);
@@ -81,11 +86,12 @@ export async function runAttachment(
       });
     }
     const plan: AttachmentPlan = {
+      ...clientSetupInstructions(client, input.home),
       client,
       serverUrl: input.serverBaseUrl.replace(/\/+$/, ''),
       mcpName: 'agentwiki',
       oldEntries: analysis.oldEntries,
-      reloadRequired: client === 'opencode',
+      reloadRequired: !supportsHotReload(client),
     };
     if (!await deps.confirm(plan)) {
       throw new OnboardingError({
@@ -111,11 +117,13 @@ export async function runAttachment(
     });
     const report: AttachReport = {
       ...installed,
+      ...clientSetupInstructions(client, input.home),
+      hostVerified: false,
       agentId: exchange.agentId,
       client,
       mcpName: 'agentwiki',
       migratedEntries: analysis.oldEntries,
-      reloadRequired: client === 'opencode',
+      reloadRequired: !supportsHotReload(client),
     };
     deps.complete?.(report);
     return report;
@@ -175,7 +183,7 @@ function attachmentProtocol(input: AttachCliInput): {
         return answer === 'y' || answer === 'yes';
       },
       complete(report) {
-        process.stdout.write(`\n接入完成：\n${JSON.stringify(report, null, 2)}\n`);
+        process.stdout.write(`\n本地网关配置完成，仍需客户端激活：\n${JSON.stringify(report, null, 2)}\n`);
       },
       fail: () => undefined,
       close: () => terminal.close(),

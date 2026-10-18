@@ -75,7 +75,7 @@ export interface OnboardingCheckpoint {
   state: OnboardingState;
   protocolVersion: number;
   serverUrl: string;
-  clientType: 'codex' | 'claude' | 'opencode';
+  clientType: 'codex' | 'claude' | 'opencode' | 'workbuddy' | 'generic';
   createdAt: string;
   updatedAt: string;
   /** Input values collected from the user (space, agent, sources). */
@@ -84,6 +84,8 @@ export interface OnboardingCheckpoint {
   deviceCode?: string;
   userCode?: string;
   verificationUri?: string;
+  /** Presence records a browser launch attempt, including a failed attempt. */
+  browserOpened?: boolean;
   /** Hex digest of the confirmed server plan. */
   serverPlanHash?: string;
   /** Hex digest of the confirmed local CodeGraph plan, when code is present. */
@@ -127,7 +129,7 @@ const canonicalSourcePathSchema = textSchema.superRefine((value, context) => {
 const inputOptionsShape = {
   agentName: textSchema,
   role: AgentAccessRoleSchema,
-  clientType: z.enum(['codex', 'claude', 'opencode']),
+  clientType: z.enum(['codex', 'claude', 'opencode', 'workbuddy', 'generic']),
   sourcePaths: z.array(canonicalSourcePathSchema).min(1),
   sourceType: z.enum(['auto', 'code', 'documents']),
   analysisMode: z.enum(['standard', 'deep']),
@@ -186,9 +188,9 @@ const bootstrapSummarySchema = z.object({
 
 const checkpointSchema = z.object({
   sessionId: opaqueIdSchema, state: z.enum(['collecting_input', 'waiting_for_web_auth', 'preflight', 'waiting_for_confirmation', 'bootstrapping', 'installing_gateway', 'verifying_gateway', 'scanning', 'waiting_for_sync_confirmation', 'syncing', 'completed', 'failed_recoverable', 'failed_terminal', 'cancelled']),
-  protocolVersion: z.number().int().positive(), serverUrl: z.string().url(), clientType: z.enum(['codex', 'claude', 'opencode']),
+  protocolVersion: z.number().int().positive(), serverUrl: z.string().url(), clientType: z.enum(['codex', 'claude', 'opencode', 'workbuddy', 'generic']),
   createdAt: z.string().datetime({ offset: true }), updatedAt: z.string().datetime({ offset: true }),
-  inputs: OnboardingInputsSchema.optional(), deviceCode: textSchema.optional(), userCode: textSchema.optional(), verificationUri: z.string().url().optional(),
+  inputs: OnboardingInputsSchema.optional(), deviceCode: textSchema.optional(), userCode: textSchema.optional(), verificationUri: z.string().url().optional(), browserOpened: z.boolean().optional(),
   serverPlanHash: hashSchema.optional(), localScanPlanHash: hashSchema.optional(), onboardingPlanHash: hashSchema.optional(),
   serverPlan: serverPlanSchema.optional(), localScanPlan: localPlanPreviewSchema.optional(), bootstrapResult: bootstrapSummarySchema.optional(),
   jobId: z.string().min(1).optional(), previewHash: z.string().min(1).optional(), lastErrorCode: z.string().min(1).optional(), resumeHint: z.string().min(1).optional(),

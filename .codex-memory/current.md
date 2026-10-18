@@ -1,5 +1,7 @@
 # 当前目标
 
+- 2026-10-18通用MCP与WorkBuddy接入反馈：隔离源码候选完成，Local Sync1071/1skip、服务端271/3skip、前端82、runtime33及构建/类型/lint通过；未发包部署。见 tasks/active/generic-mcp-onboarding-20261018/brief.md。
+
 2026-10-17反馈8项核实、修复、正式发布、生产回验和原页逐项反馈已完成。保留原Windows与原黄金书屋wrapper错误的验收边界。
 
 # 范围 / 不做
@@ -28,5 +30,7 @@ Git仅单条命令显式--work-tree指向带尾空格工作树；测试清除GIT
 - /tmp/agentwiki-release-20261017/ 备份、部署、源码/public验证、烟测、full原始日志
 
 # 风险 / 下一步
+
+- 本轮接入候选仍沿用基线版本常量0.13.1以待统一发布准备；已发布npm0.13.1不含generic/workbuddy新功能。正式发布必须提升新包版本并同步Web/API允许范围与命令，不能将未发布源码提示词用于现网安装。原WorkBuddy宿主实际授权/重启/已知页读取待验。
 
 本轮发布工作完成。Windows原Vault/事务另行原环境回归；黄金书屋原wrapper错误未复现，不借本次项目管理Space成功结论关闭。其他客户端旧进程不会因npm发布自动升级；既有Codex0.13.0配置保留。工作树和备份为交付证据保留。

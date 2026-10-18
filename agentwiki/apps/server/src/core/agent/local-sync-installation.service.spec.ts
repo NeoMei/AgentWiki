@@ -130,8 +130,30 @@ describe('LocalSyncInstallationService', () => {
       const stored = JSON.parse(redis.setOnce.mock.calls[0][1]);
       expect(stored.pluginVersion).toBe(pluginVersion);
       expect(result.instructions).toContain(`@neomei/agentwiki-local-sync@${pluginVersion} onboard`);
+      if (pluginVersion !== '0.13.1') {
+        expect(result.instructions).toContain('--agent auto');
+        expect(result.instructions).not.toContain('--agent generic');
+        expect(result.instructions).not.toContain('--agent workbuddy');
+      }
     },
   );
+
+  it('issues generic MCP instructions for the current package without depending on another installed client', async () => {
+    const result = await service.create(
+      'owner-1', 'agent-1', 'space-1', 'editor', '0.13.1', 'https://wiki.test/api',
+    );
+
+    const command = result.instructions.split('\n').find((line) => line.startsWith('npx '));
+    expect(command).toBe(`npx --yes @neomei/agentwiki-local-sync@0.13.1 onboard --server https://wiki.test/api --code ${result.code} --protocol ndjson --agent generic`);
+    expect(result.instructions).toContain('local stdio MCP');
+    expect(result.instructions).toContain('--agent workbuddy');
+    expect(result.instructions).toContain('import');
+    expect(result.instructions).toContain('MCP/tool permissions');
+    expect(result.instructions).toContain('restart');
+    expect(result.instructions).toContain('known page');
+    expect(result.instructions).toContain('doctor');
+    expect(result.instructions).not.toContain('--agent auto');
+  });
 
   it.each(['0.9.0', '0.9.1', '0.10.0', '0.10.1', '0.10.2', '0.11.0', '0.12.0', '0.13.0', '0.13.1'] as const)(
     'keeps supported request %s valid while the deployed default remains 0.9.0',

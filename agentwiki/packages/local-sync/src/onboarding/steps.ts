@@ -5,10 +5,12 @@ import { z } from 'zod';
 import { AgentAccessRoleSchema } from '@neomei/agentwiki-sync-protocol';
 import { OnboardingClient, type ClientType, type ServerPlan } from './client.js';
 import { preflight } from './preflight.js';
-import { clientConfigPath } from '../installer/client-config.js';
+import { clientConfigPath, clientSetupInstructions } from '../installer/client-config.js';
 import { hashServerPlan } from './plan-hash.js';
 import { readStepReply, stepsDirectory, stepsFile, withStepLock, writeStepState } from './steps-store.js';
 import { installStepConnection } from './steps-install.js';
+import { assertSupportedNodeRuntime } from '../node-runtime.js';
+import { openAuthorizationBrowser } from './browser.js';
 
 const name = z.string().trim().min(1).max(200);
 const space = z.object({ id: z.string().min(1), name: z.string() }).strict();
@@ -52,7 +54,7 @@ const stateSchema = z
     version: z.literal(1),
     sessionId: z.string().uuid(),
     serverBaseUrl: z.string().url(),
-    clientType: z.enum(['codex', 'claude', 'opencode']),
+    clientType: z.enum(['codex', 'claude', 'opencode', 'workbuddy', 'generic']),
     stage: z.enum([
       'authorization',
       'input',
@@ -64,6 +66,7 @@ const stateSchema = z
     ]),
     deviceCode: z.string(),
     authorizationUrl: z.string().url(),
+    browserOpened: z.boolean().optional(),
     authorizationExpiresAt: z.number(),
     pollAfter: z.number(),
     pollInterval: z.number(),
@@ -116,6 +119,14 @@ export interface StepDeps {
   client: OnboardingClient;
   install: typeof installStepConnection;
   now: () => number;
+  nodeVersion: string;
+  openBrowser: (url: string) => Promise<boolean>;
+}
+
+async function connectionPreflight(client: ClientType, home: string, server: string) {
+  const result = await preflight(client, home, server);
+  if (result.hasConflict) throw new Error('CONFIG_CONFLICT: an unrelated MCP entry already uses the name agentwiki; preserve or rename that existing entry before retrying.');
+  return result;
 }
 
 function needsBootstrap(state: StepState, now: number): boolean {
@@ -152,10 +163,12 @@ function publicResult(state: StepState, home: string, now: number): StepResult {
     clientReloadRequired: state.configured === true,
     knowledgeImport: 'not_started',
     hostVerification: 'not_started',
+    ...clientSetupInstructions(state.clientType, home),
     ...(state.lastError ? { error: state.lastError } : {}),
     ...(status === 'authorization_required'
       ? {
           authorizationUrl: state.authorizationUrl,
+          browserOpened: state.browserOpened ?? false,
           expiresAt: new Date(state.authorizationExpiresAt).toISOString(),
           retryAfterMs: Math.max(0, state.pollAfter - now),
         }
@@ -178,7 +191,7 @@ function publicResult(state: StepState, home: string, now: number): StepResult {
       ? {
           plan: {
             ...state.plan,
-            configuration: { clientType: state.clientType, path: clientConfigPath(state.clientType, home) },
+            configuration: { clientType: state.clientType, path: clientConfigPath(state.clientType, home), ...clientSetupInstructions(state.clientType, home) },
             authorization: {
               server: state.serverBaseUrl,
               account: 'Account explicitly approved in the browser',
@@ -191,7 +204,7 @@ function publicResult(state: StepState, home: string, now: number): StepResult {
     ...(state.manifestHash ? { manifestHash: state.manifestHash } : {}),
     nextAction:
       state.stage === 'completed'
-        ? 'Reload the client MCP configuration, then use an actual host tool call to read a known page. Optional knowledge_* import requires a separate preview and confirmation.'
+        ? `${clientSetupInstructions(state.clientType, home).hostActivationSteps.join(' ')} Then use an actual host tool call to read a known page. Optional knowledge_* import requires a separate preview and confirmation.`
         : expired
           ? 'Run continue without a reply to renew browser authorization for this same session.'
           : state.lastError?.retryable === false
@@ -199,7 +212,9 @@ function publicResult(state: StepState, home: string, now: number): StepResult {
             : state.stage === 'cancelled'
               ? 'No further action.'
               : state.stage === 'authorization'
-                ? 'Open authorizationUrl, approve in the browser, then run continue after retryAfterMs.'
+                ? state.browserOpened
+                  ? 'Browser launch requested. Approve in the browser (open authorizationUrl if it did not appear), then run continue after retryAfterMs.'
+                  : 'Could not open the browser automatically. Open authorizationUrl, approve in the browser, then run continue after retryAfterMs.'
                 : state.request
                   ? 'Ask the user, write a private absolute JSON reply file, then continue with --reply-file.'
                   : 'Run continue without a reply to resume this session.',
@@ -260,8 +275,11 @@ export async function runOnboardingSteps(
     client: new OnboardingClient(),
     install: installStepConnection,
     now: Date.now,
+    nodeVersion: process.version,
+    openBrowser: openAuthorizationBrowser,
     ...overrides,
   };
+  if (input.action !== 'status') assertSupportedNodeRuntime(deps.nodeVersion);
   const sessionId = input.action === 'start' ? randomUUID() : input.sessionId!;
   const path = stepsFile(input.home, sessionId);
   const load = async (): Promise<StepState> => {
@@ -279,7 +297,7 @@ export async function runOnboardingSteps(
       if (!input.serverBaseUrl || !input.clientType)
         throw new Error('INVALID_COMMAND: server and client required');
       const serverBaseUrl = safeServer(input.serverBaseUrl);
-      await preflight(input.clientType, input.home, serverBaseUrl);
+      await connectionPreflight(input.clientType, input.home, serverBaseUrl);
       const auth = await deps.client.start({
         serverBaseUrl,
         clientType: input.clientType,
@@ -299,6 +317,8 @@ export async function runOnboardingSteps(
         pollInterval: auth.interval * 1000,
         authRevision: 1,
       };
+      await writeStepState(path, stateSchema.parse(state));
+      state.browserOpened = await deps.openBrowser(state.authorizationUrl).catch(() => false);
       await writeStepState(path, stateSchema.parse(state));
       return publicResult(state, input.home, deps.now());
     }
@@ -327,7 +347,7 @@ export async function runOnboardingSteps(
           role: values.role,
           packageVersion: '0.13.1',
         };
-        state.configHash = (await preflight(state.clientType, input.home, state.serverBaseUrl)).configHash;
+        state.configHash = (await connectionPreflight(state.clientType, input.home, state.serverBaseUrl)).configHash;
         request(state, 'confirmation', now, input.home);
         delete state.lastError;
         await save();
@@ -359,6 +379,7 @@ export async function runOnboardingSteps(
     if (state.stage === 'completed' || state.stage === 'cancelled')
       return publicResult(state, input.home, now);
     try {
+      const recoveringConfigConflict = state.lastError?.code === 'CONFIG_CONFLICT' && state.lastError.retryable === false;
       delete state.lastError;
       if (
         needsBootstrap(state, now) &&
@@ -373,10 +394,19 @@ export async function runOnboardingSteps(
         state.pollAfter = now + state.pollInterval;
         state.authRevision++;
         state.stage = 'authorization';
+        state.browserOpened = false;
         delete state.token;
         delete state.tokenExpiresAt;
         delete state.request;
         delete state.confirmedHash;
+        await save();
+        state.browserOpened = await deps.openBrowser(state.authorizationUrl).catch(() => false);
+        await save();
+        return publicResult(state, input.home, deps.now());
+      }
+      if (recoveringConfigConflict && state.plan) {
+        state.configHash = (await connectionPreflight(state.clientType, input.home, state.serverBaseUrl)).configHash;
+        request(state, 'confirmation', now, input.home);
         await save();
         return publicResult(state, input.home, deps.now());
       }
@@ -417,14 +447,14 @@ export async function runOnboardingSteps(
       if (state.stage === 'input' && !state.request) {
         state.spaces = await deps.client.spaces(state.serverBaseUrl, state.token!);
         if (state.plan) {
-          state.configHash = (await preflight(state.clientType, input.home, state.serverBaseUrl)).configHash;
+          state.configHash = (await connectionPreflight(state.clientType, input.home, state.serverBaseUrl)).configHash;
           request(state, 'confirmation', now, input.home);
         } else request(state, 'input', now, input.home);
         await save();
       } else if (state.stage === 'bootstrap') {
         if (!state.confirmedHash || state.confirmedHash !== confirmedPlanHash(state, input.home))
           throw new Error('CONFIRMATION_REQUIRED: confirmed plan evidence missing');
-        const current = await preflight(state.clientType, input.home, state.serverBaseUrl);
+        const current = await connectionPreflight(state.clientType, input.home, state.serverBaseUrl);
         if (current.configHash !== state.configHash) {
           state.configHash = current.configHash;
           request(state, 'confirmation', now, input.home);
@@ -476,9 +506,13 @@ export async function runOnboardingSteps(
             : !['PACKAGE_INTEGRITY_FAILED', 'TOOLSET_MISMATCH'].includes(code),
       };
       if (code === 'CONFIG_CONFLICT') {
-        state.configHash = (await preflight(state.clientType, input.home, state.serverBaseUrl)).configHash;
-        request(state, 'confirmation', now, input.home);
+        const current = await preflight(state.clientType, input.home, state.serverBaseUrl);
+        state.configHash = current.configHash;
         delete state.confirmedHash;
+        if (current.hasConflict) {
+          state.lastError.retryable = false;
+          delete state.request;
+        } else request(state, 'confirmation', now, input.home);
       }
       if (code === 'AUTH_EXPIRED' && needsBootstrap(state, now)) {
         state.tokenExpiresAt = 0;

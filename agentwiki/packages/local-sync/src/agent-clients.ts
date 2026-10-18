@@ -5,7 +5,8 @@ import { dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { SpawnSyncOptions } from 'node:child_process';
 
-export type AgentClient = 'codex' | 'claude' | 'opencode';
+export const AGENT_CLIENTS = ['codex', 'claude', 'opencode', 'workbuddy', 'generic'] as const;
+export type AgentClient = typeof AGENT_CLIENTS[number];
 
 export interface CommandResult {
   status: number | null;
@@ -209,6 +210,9 @@ export async function registerMcp(
     return;
   }
 
+  if (client === 'workbuddy' || client === 'generic') {
+    throw new Error('Use onboard start or attach to install the unified AgentWiki gateway for this client');
+  }
   const major = detectOpenCodeMajorVersion(runner);
   const path = opencodePath(home);
   const { config } = await readOpenCodeConfig(path);
@@ -238,6 +242,9 @@ export async function removeMcp(
     return;
   }
 
+  if (client === 'workbuddy' || client === 'generic') {
+    throw new Error('Use uninstall to remove the unified AgentWiki gateway for this client');
+  }
   const path = opencodePath(home);
   const { exists, config } = await readOpenCodeConfig(path);
   if (!exists) return;
