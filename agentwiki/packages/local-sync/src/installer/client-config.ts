@@ -65,7 +65,8 @@ export function clientSetupInstructions(client: AgentClient, home: string = home
         : [`在 ${name} 的 MCP 设置中检查并启用 agentwiki。`]),
       '按客户端提示授权运行本地 MCP 服务及使用工具；网站授权不会替代客户端授权。',
       `重新加载 ${name} 的 MCP 服务；如果没有重新加载入口或仍看不到工具，完全退出并重启客户端，然后开始新会话。`,
-      '在当前客户端调用 wiki_identity 和 wiki_list_spaces，确认身份和空间；本地网关自检不代表客户端已接入。',
+      '在当前客户端调用 onboard_status（空参数），检查当前 gateway.status 和 gateway.clientReloadRequired，按 gateway.recovery 处理连接或重载问题；顶层字段是历史安装记录，不用于验证当前身份或连接。',
+      '调用 wiki_list_spaces 确认当前空间权限，再用 wiki_get_page 读取一篇有权限的已知页面并核对标题和内容；只有实际读取成功才能确认当前客户端接入可用。',
     ],
   };
 }

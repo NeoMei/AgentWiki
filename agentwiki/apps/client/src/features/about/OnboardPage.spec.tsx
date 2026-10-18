@@ -46,6 +46,10 @@ describe('Agent connection steps guide',()=>{
     expect(prompt).toContain('configurationMode');
     expect(prompt).toContain('manual-import');
     expect(prompt).toContain('hostActivationSteps');
+    expect(prompt).toContain('onboard_status');
+    expect(prompt).toContain('wiki_list_spaces');
+    expect(prompt).toContain('wiki_get_page');
+    expect(prompt).not.toContain('wiki_identity');
     expect(prompt).toContain(zh ? '自动打开' : 'automatically opens');
     expect(prompt).toContain(zh ? '新建对话' : 'new conversation');
     expect(prompt).toContain(zh ? '允许 MCP 和工具调用' : 'allow MCP and tool calls');
@@ -56,6 +60,12 @@ describe('Agent connection steps guide',()=>{
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalled());
     const prompt = vi.mocked(navigator.clipboard.writeText).mock.calls[0][0];
     const renewal = prompt.split('\n').find(line => line.startsWith('3.'))!;
+    expect(renewal).toMatch(language === 'zh-CN'
+      ? /status.*本地检查点.*不会联系服务器/
+      : /status.*local checkpoint.*does not contact the server/);
+    expect(renewal).toMatch(language === 'zh-CN'
+      ? /continue.*领取浏览器批准结果/
+      : /continue.*retrieve browser approval/);
     expect(renewal).toMatch(language === 'zh-CN'
       ? /authorization_expired.*不带 --reply-file.*continue.*authorization_required.*authorizationUrl/
       : /authorization_expired.*continue.*without --reply-file.*authorization_required.*authorizationUrl/);

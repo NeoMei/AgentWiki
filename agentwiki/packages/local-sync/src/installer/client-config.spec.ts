@@ -480,6 +480,13 @@ describe('standard MCP host integration', () => {
     expect(clientSetupInstructions('generic', home).hostActivationSteps.join(' ')).toMatch(/导入/);
     expect(clientSetupInstructions('generic', home).hostActivationSteps.join(' ')).toMatch(/授权/);
     expect(clientSetupInstructions('generic', home).hostActivationSteps.join(' ')).toMatch(/重启/);
+    const activation = clientSetupInstructions('generic', home).hostActivationSteps.join(' ');
+    expect(activation).toContain('onboard_status');
+    expect(activation).toContain('gateway');
+    expect(activation).toContain('wiki_list_spaces');
+    expect(activation).toContain('wiki_get_page');
+    expect(activation).not.toContain('wiki_identity');
+    expect(activation).toContain('历史安装记录');
     expect(clientSetupInstructions('workbuddy', home)).toMatchObject({ configurationMode: 'host-config', hostActivationRequired: true });
   });
 });

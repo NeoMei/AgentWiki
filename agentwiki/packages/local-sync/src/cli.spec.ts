@@ -75,7 +75,12 @@ describe('local sync command orchestration', () => {
     expect(startHelp).toContain('--protocol json');
     expect(startHelp).toContain('generic');
     expect(startHelp).toContain('workbuddy');
+    const statusHelp = await runCli(['onboard', 'status', '--help'], home);
+    expect(statusHelp).toContain('local checkpoint');
+    expect(statusHelp).toContain('does not contact the server');
+    expect(statusHelp).toContain('continue');
     const replyHelp = await runCli(['onboard', 'continue', '--help'], home);
+    expect(replyHelp).toContain('retrieve browser approval');
     expect(replyHelp).toContain('--session UUID');
     expect(replyHelp).toContain('"requestId"');
     expect(replyHelp).toContain('"spaceMode"');

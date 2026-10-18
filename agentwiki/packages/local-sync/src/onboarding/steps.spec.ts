@@ -48,6 +48,7 @@ async function fixture() {
 it('returns authorization then read-only status from persisted private state', async () => {
   const f = await fixture();
   expect(f.start.status).toBe('authorization_required');
+  const poll = vi.spyOn(OnboardingClient.prototype, 'poll');
   const dir = join(f.home, '.agentwiki', 'onboarding', 'steps');
   const before = await Promise.all(
     (await readdir(dir)).map(async (name) => [name, await readFile(join(dir, name), 'utf8')]),
@@ -62,11 +63,18 @@ it('returns authorization then read-only status from persisted private state', a
     knowledgeImport: 'not_started',
   });
   expect(JSON.stringify(status)).not.toMatch(/awd_|awo_|deviceCode|onboardingToken/);
+  expect(status).toHaveProperty('nextAction', expect.stringMatching(/continue.*retrieve browser approval/));
+  expect(status).toHaveProperty('nextAction', expect.stringContaining('local checkpoint'));
+  const repeated = await runOnboardingSteps({ action: 'status', home: f.home, sessionId: f.start.sessionId }, f.deps);
+  expect(repeated.status).toBe('authorization_required');
+  expect(poll).not.toHaveBeenCalled();
   expect(
     await Promise.all(
       (await readdir(dir)).map(async (name) => [name, await readFile(join(dir, name), 'utf8')]),
     ),
   ).toEqual(before);
+  expect((await f.cont()).status).toBe('input_required');
+  expect(poll).toHaveBeenCalledExactlyOnceWith('https://wiki.test/api', 'awd_private');
 });
 it('collects only connection fields and rejects stale/wrong confirmation before installation', async () => {
   const f = await fixture();

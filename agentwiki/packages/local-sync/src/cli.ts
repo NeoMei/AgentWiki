@@ -48,11 +48,13 @@ CLIENT defaults to generic, which exports standard MCP settings for any compatib
 Native presets: codex, claude, opencode, workbuddy. Use generic for other hosts.
 Example: agentwiki-local-sync onboard start --server https://agentwiki.quukk.com/api --client workbuddy --protocol json`;
 const ONBOARD_STATUS_HELP = `Usage: agentwiki-local-sync onboard status --session UUID --protocol json
-Required: --session UUID from start, --protocol json. Reads saved progress without advancing it.
+Required: --session UUID from start, --protocol json. Reads the local checkpoint without advancing it; does not contact the server.
+After browser approval, wait retryAfterMs and run onboard continue without --reply-file to retrieve approval; repeatedly running status cannot observe it.
 Example: agentwiki-local-sync onboard status --session <session-id> --protocol json`;
 const ONBOARD_CONTINUE_HELP = `Usage: agentwiki-local-sync onboard continue --session UUID --protocol json [--reply-file PATH]
 Required: --session UUID from start, --protocol json.
-Omit --reply-file to poll browser authorization or advance one pending step.
+Omit --reply-file to retrieve browser approval from the server or advance one pending step.
+For authorization_required, wait retryAfterMs before continuing; status only reads the local checkpoint.
 --reply-file must be an absolute path to a private, owned regular JSON file (0600 on POSIX, at most 64 KiB).
 Copy requestId and planHash from the latest result; stale replies are rejected.
 Input reply, new Space:

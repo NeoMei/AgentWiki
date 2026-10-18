@@ -212,9 +212,9 @@ function publicResult(state: StepState, home: string, now: number): StepResult {
             : state.stage === 'cancelled'
               ? 'No further action.'
               : state.stage === 'authorization'
-                ? state.browserOpened
-                  ? 'Browser launch requested. Approve in the browser (open authorizationUrl if it did not appear), then run continue after retryAfterMs.'
-                  : 'Could not open the browser automatically. Open authorizationUrl, approve in the browser, then run continue after retryAfterMs.'
+                ? `${state.browserOpened
+                  ? 'Browser launch requested. Approve in the browser (open authorizationUrl if it did not appear).'
+                  : 'Could not open the browser automatically. Open authorizationUrl and approve in the browser.'} After retryAfterMs, run continue without --reply-file to retrieve browser approval from the server. The status command only reads the local checkpoint and never polls for approval.`
                 : state.request
                   ? 'Ask the user, write a private absolute JSON reply file, then continue with --reply-file.'
                   : 'Run continue without a reply to resume this session.',
