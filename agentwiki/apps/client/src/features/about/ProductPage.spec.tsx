@@ -221,7 +221,7 @@ describe('ProductPage workspace intent', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it.each(['missing-at', 'tester@example', 'tester@example.', ''])('blocks malformed registration email %s before sending a request', (value) => {
+  it.each(['missing-at', 'tester@example', 'tester@example.', 'tester@example.c', ''])('blocks malformed registration email %s before sending a request', (value) => {
     const { email, submit } = registrationForm();
     fireEvent.change(email, { target: { value } });
     fireEvent.click(submit);
@@ -231,6 +231,36 @@ describe('ProductPage workspace intent', () => {
     fireEvent.change(email, { target: { value: 'fixed@example.com' } });
     expect(email).toHaveAttribute('aria-invalid', 'false');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it.each(['zh-CN', 'en'] as const)('validates login email locally and renders server email errors in %s', async (language) => {
+    const zh = language === 'zh-CN';
+    const { email } = registrationForm(language);
+    fireEvent.click(screen.getByRole('tab', { name: zh ? '切换到登录' : 'Switch to sign in' }));
+    const submit = screen.getByRole('button', { name: zh ? '登录' : 'Sign in' });
+    fireEvent.change(email, { target: { value: 'billy_7608@163.c' } });
+    fireEvent.click(submit);
+    const expected = zh ? '请输入有效的邮箱地址，例如 name@example.com。' : 'Enter a valid email address, such as name@example.com.';
+    expect(api.post).not.toHaveBeenCalled();
+    expect(email).toHaveAccessibleDescription(expected);
+    expect(email).toHaveFocus();
+    fireEvent.change(email, { target: { value: 'name+tag@sub.example.technology' } });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    vi.mocked(api.post).mockRejectedValue({ response: { status: 400, data: { code: 'BAD_REQUEST', message: 'email must be an email' } } });
+    fireEvent.click(submit);
+    expect(await screen.findByRole('alert')).toHaveTextContent(expected);
+    expect(api.post).toHaveBeenCalledWith('/auth/login', { email: 'name+tag@sub.example.technology', password: 'Password1' });
+    expect(email).toHaveAccessibleDescription(expected);
+    expect(screen.queryByRole('button', { name: zh ? '去登录' : 'Go to sign in' })).not.toBeInTheDocument();
+  });
+
+  it('localizes native login-email validation without sending a request', () => {
+    const { email } = registrationForm();
+    fireEvent.click(screen.getByRole('tab', { name: '切换到登录' }));
+    fireEvent.change(email, { target: { value: 'missing-at' } });
+    fireEvent.click(screen.getByRole('button', { name: '登录' }));
+    expect(api.post).not.toHaveBeenCalled();
+    expect(email).toHaveAccessibleDescription('请输入有效的邮箱地址，例如 name@example.com。');
   });
 
   it.each(['zh-CN', 'en'] as const)('renders the server email-validation fallback at the field in %s', async (language) => {

@@ -56,13 +56,13 @@ api.defaults.adapter = async (config: InternalAxiosRequestConfig) => {
     if (scenario === 'duplicate-legacy') return reject(config, 409, {
       statusCode: 409, code: 'RESOURCE_CONFLICT', message: 'Email already in use',
     });
-    if (scenario === 'invalid-server') return reject(config, 400, {
-      statusCode: 400, code: 'BAD_REQUEST', message: 'email must be an email', error: 'Bad Request',
-    });
-    if (scenario === 'unknown-server') return reject(config, 400, {
-      statusCode: 400, code: 'BAD_REQUEST', message: 'An unrelated validation failed', error: 'Bad Request',
-    });
   }
+  if (scenario === 'invalid-server') return reject(config, 400, {
+    statusCode: 400, code: 'BAD_REQUEST', message: 'email must be an email', error: 'Bad Request',
+  });
+  if (scenario === 'unknown-server') return reject(config, 400, {
+    statusCode: 400, code: 'BAD_REQUEST', message: 'An unrelated validation failed', error: 'Bad Request',
+  });
   record(config, 200);
   return {
     data: { access_token: 'inert-fixture-value', user: { id: 'fixture-user', name: '本地验收用户', email: 'fixture@example.test' } },
@@ -95,6 +95,7 @@ function Fixture() {
           </select>
         </label>
         <span>注册请求：<output data-testid="registration-requests" aria-live="polite">{requestLog.filter(item => item.url === '/auth/register').length}</output></span>
+        <span>登录请求：<output data-testid="login-requests" aria-live="polite">{requestLog.filter(item => item.url === '/auth/login').length}</output></span>
         <span>总请求：<output data-testid="total-requests" aria-live="polite">{requestLog.length}</output></span>
         <button type="button" className="rounded border border-indigo-300 bg-white px-3 py-1 hover:bg-indigo-100"
           onClick={() => reset(activeScenario)}>重置验收</button>

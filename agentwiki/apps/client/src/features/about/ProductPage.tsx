@@ -12,7 +12,7 @@ import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { GlobalNavigation } from '../../components/GlobalNavigation';
 import { safeReturnTo } from '../auth/safeReturnTo';
 import { apiErrorMessage } from '../../api/error-message';
-import { registrationEmailError, type RegistrationEmailError } from '../auth/registration-error';
+import { authEmailError, type AuthEmailError } from '../auth/auth-email-error';
 
 const validatePassword = (pwd: string, t: (key: string) => string): string | null => {
   if (pwd.length < 8) return t('auth.passwordMin');
@@ -35,7 +35,7 @@ export const ProductPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [authError, setAuthError] = useState('');
-  const [emailError, setEmailError] = useState<RegistrationEmailError | null>(null);
+  const [emailError, setEmailError] = useState<AuthEmailError | null>(null);
   const [passwordError, setPasswordError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -79,13 +79,13 @@ export const ProductPage: React.FC = () => {
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@.]{2,}$/.test(email)) {
+      setAuthError('');
+      setEmailError('invalid');
+      emailInputRef.current?.focus();
+      return;
+    }
     if (authMode === 'register') {
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        setAuthError('');
-        setEmailError('invalid');
-        emailInputRef.current?.focus();
-        return;
-      }
       const pwdErr = validatePassword(password, t);
       if (pwdErr) { setPasswordError(pwdErr); return; }
     }
@@ -100,7 +100,7 @@ export const ProductPage: React.FC = () => {
       login(res.data.access_token, res.data.user);
       navigate(returnTarget ?? '/dashboard');
     } catch (err: unknown) {
-      const fieldError = authMode === 'register' ? registrationEmailError(err) : null;
+      const fieldError = authEmailError(err, authMode === 'register');
       if (fieldError) {
         setEmailError(fieldError);
       } else {
@@ -298,7 +298,6 @@ export const ProductPage: React.FC = () => {
                       value={email}
                       onChange={(e) => { setEmail(e.target.value); setEmailError(null); setAuthError(''); }}
                       onInvalid={(e) => {
-                        if (authMode !== 'register') return;
                         e.preventDefault();
                         setEmailError('invalid');
                         emailInputRef.current?.focus();
