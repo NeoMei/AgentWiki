@@ -4,7 +4,6 @@
 
 ## 活跃任务
 
-- [unified-select-audit-20261020](active/unified-select-audit-20261020/brief.md)：全站56处下拉框统一共享组件、清除局部样式与lint防回归，客户端2759测试及构建通过，浏览器验收进行中。
 
 
 
@@ -24,6 +23,8 @@
 - [q3-regressions-20260914](archive/q3-regressions-20260914/brief.md)：Q3人工报告20项代码修复、整分支独立复审与候选验收完成；未发布部署或安装日常Vault。
 
 ## 最近完成
+
+- [unified-select-audit-20261020](archive/unified-select-audit-20261020/brief.md)：v0.12.55已发布部署，全站56处统一组件与lint防回归；8117通过/6既有跳过，本地6条E2E+24组与真实生产只读回验通过，备份/1393源码/公网资产/健康验证完成。
 
 - [template-preview-custom-20261019](archive/template-preview-custom-20261019/brief.md)：v0.12.54模板正文预览/自定义创建管理使用已部署，8109pass/6既有skip，生产11项与临时Space清理、备份/1389源码/公网健康验证通过。
 

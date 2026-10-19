@@ -1,0 +1,240 @@
+{
+  "status": "passed_with_pending_production_ui",
+  "reviewedAt": "2026-10-19T18:06:42.705858+00:00",
+  "revision": "fb61b3cc55558b8e71aa05ad15a33aafa40b8f51",
+  "version": "0.12.55",
+  "reviewScope": "independent read-only consistency review after deployment; production UI belongs to separate QA",
+  "checks": {
+    "validation_counts": {
+      "passed": true,
+      "detail": {
+        "commands": {
+          "pnpm build": 0,
+          "pnpm test:full": 0,
+          "pnpm typecheck": 0,
+          "pnpm lint": 0
+        },
+        "phases": {
+          "runtime": {
+            "passed": 314,
+            "skipped": 1
+          },
+          "serialDatabase": {
+            "passed": 239,
+            "skipped": 0
+          },
+          "server": {
+            "passed": 3544,
+            "skipped": 4
+          },
+          "client": {
+            "passed": 2759,
+            "skipped": 0
+          },
+          "protocol": {
+            "passed": 140,
+            "skipped": 0
+          },
+          "localSync": {
+            "passed": 1121,
+            "skipped": 1
+          }
+        },
+        "totalPassed": 8117,
+        "totalSkipped": 6,
+        "failed": 0,
+        "executionClaim": "single pnpm test:full completed; no phased retry required"
+      }
+    },
+    "validation_logs": {
+      "passed": true,
+      "detail": {
+        "logHashesMatch": {
+          "release-build.log": true,
+          "release-full-test.log": true,
+          "release-typecheck.log": true,
+          "release-lint.log": true,
+          "client-tests.log": true,
+          "template-e2e.log": true,
+          "lint-guard.log": true
+        },
+        "allPhaseSummariesFound": true,
+        "fullTestTopLevelInvocations": 1
+      }
+    },
+    "isolated_test_cleanup": {
+      "passed": true,
+      "detail": {
+        "status": "passed",
+        "databaseNames": [
+          "agentwiki_full_test_59953_mvfjvs93",
+          "agentwiki_sync_version_test_59953_mvfjvs93"
+        ],
+        "databaseRowsRemaining": [],
+        "databaseCheckExit": 0,
+        "redisPidAbsent": true,
+        "redisPortClosed": true,
+        "temporaryDirectoriesAbsent": true
+      }
+    },
+    "frozen_manifest_and_deployed_revision": {
+      "passed": true,
+      "detail": {
+        "revision": "fb61b3cc55558b8e71aa05ad15a33aafa40b8f51",
+        "sourceFilesVerified": 1393,
+        "versions": {
+          "web": "0.12.55",
+          "client": "0.12.55",
+          "api": "0.12.55",
+          "localSync": "0.13.4",
+          "protocol": "0.6.1"
+        },
+        "frozenReviewChecks": 12
+      }
+    },
+    "deployment_services_health_and_public_assets": {
+      "passed": true,
+      "detail": {
+        "services": {
+          "agentwiki-api.service": "active",
+          "agentwiki-worker.service": "active",
+          "agentwiki-frontend.service": "active"
+        },
+        "health": {
+          "status": "ok",
+          "database": "ok",
+          "redis": "ok",
+          "auditPersistence": "ok",
+          "attachmentStorage": "ok"
+        },
+        "publicHealth": {
+          "status": "ok",
+          "database": "ok",
+          "redis": "ok",
+          "auditPersistence": "ok",
+          "attachmentStorage": "ok"
+        },
+        "entryAssetCount": 5,
+        "hostVerifiedAt": "2026-10-19T18:02:49.642268+00:00",
+        "publicVerifiedAt": "2026-10-19T18:03:02.037806+00:00"
+      }
+    },
+    "migration_scope": {
+      "passed": true,
+      "detail": {
+        "status": "passed",
+        "appliedCount": 64,
+        "pending": [],
+        "failedCount": 0,
+        "autoModeApplied": true
+      }
+    },
+    "backup_baseline": {
+      "passed": true,
+      "detail": {
+        "backupDirectory": "/var/backups/agentwiki/selects-v01255.aeirxzlk",
+        "sourceVersion": "0.12.54",
+        "baselineRevision": "e067fa3728b68db844d39e60f049801937f3cc96",
+        "baselineFilesIndependentlyMatchedToActualBackupSourceManifest": 1389,
+        "wholeBackupFiles": 9238,
+        "backupReceiptHonestAboutOwnCommitVerification": true
+      }
+    },
+    "backup_snapshot_and_restore_writers": {
+      "passed": true,
+      "detail": {
+        "writerQuiesceStartedAt": "2026-10-19T17:55:41.153026+00:00",
+        "databaseStartedAt": "2026-10-19T17:55:41.417971+00:00",
+        "attachmentsFinishedAt": "2026-10-19T17:55:48.675811+00:00",
+        "writersRestoredAt": "2026-10-19T17:55:48.953169+00:00",
+        "wholeStorageManifestEntries": 548,
+        "permanentBlobs": 159,
+        "writersRestored": true
+      }
+    },
+    "backup_artifacts_independent_rehash": {
+      "passed": true,
+      "detail": {
+        "filesRehashed": 10,
+        "allMatch": true,
+        "directoryMode": "0o700",
+        "allArtifactsMode0600": true,
+        "verifiedAt": "2026-10-19T18:04:56.757708+00:00"
+      }
+    },
+    "production_config_and_attachment_root": {
+      "passed": true,
+      "detail": {
+        "configurationByteComparison": {
+          ".env": true,
+          "apps/server/.env": true
+        },
+        "attachmentRoot": {
+          "path": "/var/lib/agentwiki/attachments",
+          "canonical": true,
+          "isSymlink": false,
+          "mode": "0o700",
+          "outsideApplicationRoot": true
+        }
+      }
+    },
+    "remote_publication": {
+      "passed": true,
+      "detail": {
+        "refs/heads/codex/unified-select-audit": "fb61b3cc55558b8e71aa05ad15a33aafa40b8f51",
+        "refs/heads/master": "fb61b3cc55558b8e71aa05ad15a33aafa40b8f51",
+        "refs/tags/v0.12.55": "8a71cf9ab9b2b6866989e8592f58d83cc318eba2",
+        "refs/tags/v0.12.55^{}": "fb61b3cc55558b8e71aa05ad15a33aafa40b8f51"
+      }
+    },
+    "release_scope": {
+      "passed": true,
+      "detail": {
+        "backendMigrationsPublishedPackagesLockfileDeployChanges": [],
+        "reviewedMigrationProof": "prior AST review 56/56 non-style attributes, handlers and option children unchanged",
+        "noNpmPublicationRequired": true
+      }
+    },
+    "current_source_preserved": {
+      "passed": true,
+      "detail": {
+        "head": "fb61b3cc55558b8e71aa05ad15a33aafa40b8f51",
+        "trackedChanges": [
+          "agentwiki/docs/verification/unified-select-audit-20261020/README.md"
+        ],
+        "nonEvidenceSourceChanges": [],
+        "workingTreeStatusAtReview": " M agentwiki/docs/verification/unified-select-audit-20261020/README.md\n?? agentwiki/docs/verification/unified-select-audit-20261020/production/\n",
+        "meaning": "parent is appending verification evidence after deployment; these documentation-only edits do not alter frozen deployed source"
+      }
+    },
+    "deploy_log_completion": {
+      "passed": true,
+      "detail": {
+        "completeMarkerFound": true,
+        "previousApplicationTree": "/root/agentwiki-previous-20261020020219",
+        "startupCurlConnectionRefusals": "transient inside bounded restart wait; later service and HTTP receipts passed",
+        "backupCompletedBeforeNewServicesStarted": true
+      }
+    }
+  },
+  "blockingFindings": [],
+  "remainingAcceptanceGates": [
+    {
+      "gate": "production-browser-ui",
+      "status": "pending-separate-QA-receipt",
+      "requirement": "Wait for QA actual production browser report; local 6 fixture E2E and24 component checks are not production UI acceptance."
+    },
+    {
+      "gate": "final-release-documentation",
+      "status": "pending-ui-result",
+      "requirement": "Append exact QA acceptance or remaining limitations to release evidence/current state; preserve candidate revision distinct from later documentation commits."
+    }
+  ],
+  "limitations": [
+    "No build, test, backup, deployment or production write performed by this reviewer.",
+    "Test exit codes are taken from parent validation receipt and checked against unchanged logs/phase summaries; this review did not rerun tests.",
+    "Backup was rehashed and matched against baseline source manifest; no restore rehearsal was executed.",
+    "Health/source/assets validation does not establish visual acceptance or all operating-system picker interaction behavior."
+  ],
+  "conclusion": "部署、固定候选、8117通过/6既有skip、成套备份基线、配置和远端refs一致；没有发现发布证据阻塞。生产UI仍等待独立QA回执，不宣称最终验收完成。"
+}

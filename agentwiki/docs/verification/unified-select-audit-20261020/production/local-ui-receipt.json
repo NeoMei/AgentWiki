@@ -1,0 +1,74 @@
+{
+  "completedAt": "2026-10-19T17:51:19.248360+00:00",
+  "candidateHead": "fb61b3cc55558b8e71aa05ad15a33aafa40b8f51",
+  "scope": "Local real React components with synthetic API/axios adapter; production reproduction was read-only",
+  "productionWrites": 0,
+  "templateE2E": {
+    "passed": 6,
+    "durationSeconds": 6.9,
+    "log": "template-e2e.log"
+  },
+  "crossComponentChecks": {
+    "passed": 24,
+    "viewports": [
+      "1440x900",
+      "390x900"
+    ],
+    "consoleErrors": 0,
+    "pageErrors": 0,
+    "receipt": "local-ui-receipt.json"
+  },
+  "productionRootCause": {
+    "template": {
+      "appearance": "auto",
+      "arrow": "native",
+      "border": "1px",
+      "focusOutline": "2px dark with 2px offset"
+    },
+    "agentScopeBefore": {
+      "appearance": "none",
+      "arrow": "sibling SVG",
+      "focusOutline": "2px light blue"
+    }
+  },
+  "localResult": {
+    "appearance": "none",
+    "arrow": "one shared CSS SVG",
+    "desktopHeight": 32,
+    "mobileMinHeight": 44,
+    "radius": 8,
+    "font": 14,
+    "focus": "16% gray 2px box-shadow; outline none",
+    "forcedColors": "appearance auto, background-image none, visible system Highlight 2px outline"
+  },
+  "limitations": [
+    "macOS Chrome native popup key handling cannot be reliably driven by Playwright ArrowDown; keyboard Tab focus asserted separately from selectOption real change/render checks",
+    "BrowserSkill long capture includes one Vite restart WebSocket failure and one browser extension removeListeners error; final separate Playwright matrix has zero console/page errors"
+  ],
+  "cleanup": {
+    "session": "bcal stopped",
+    "api": {
+      "pid": 56349,
+      "port": 3424,
+      "terminated": true
+    },
+    "vite": {
+      "pid": 56607,
+      "port": 2714,
+      "terminated": true
+    },
+    "fixtures": "private tmp only; not committed"
+  },
+  "representativeScreenshots": [
+    "preview-keyboard-focus.png",
+    "agent-scope-unfocused.png",
+    "template/desktop-page-group-focused.png",
+    "template/mobile-page-group-focused.png",
+    "roles-390.png",
+    "agent-390.png",
+    "taskboard-390.png",
+    "graph-filter-390.png",
+    "forced-colors-control-390.png",
+    "manager-390.png"
+  ]
+}
