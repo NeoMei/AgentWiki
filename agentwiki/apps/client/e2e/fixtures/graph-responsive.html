@@ -2,4 +2,4 @@
 <html lang="zh-CN"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><title>AgentWiki · Graph viewport acceptance</title>
 <style>html,body{margin:0;background:#fff}iframe{display:block;border:0}</style></head>
 <body><iframe title="Graph viewport acceptance" src="./graph-reference.html" width="390" height="844"></iframe>
-<script>const frame=document.querySelector('iframe');if(new URLSearchParams(location.search).get('viewport')==='desktop'){frame.width='1404';frame.height='790';}</script></body></html>
+<script>const frame=document.querySelector('iframe');const params=new URLSearchParams(location.search);const scenario=params.get('scenario');if(scenario){const url=new URL(frame.src);url.searchParams.set('scenario',scenario);frame.src=url.href;}if(params.get('viewport')==='desktop'){frame.width='1404';frame.height='790';}</script></body></html>

@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { apiErrorMessage } from '../../api/error-message';
 import api from '../../api/client';
-import { Plus, Minus, X, Link2, Trash2, ChevronDown, Folder, Search, Network, Maximize2, RotateCcw, MoreHorizontal, ExternalLink, FileText, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Plus, Minus, X, Link2, Trash2, ChevronDown, Folder, Search, Network, Maximize2, RotateCcw, ExternalLink, FileText, ArrowRight, ArrowLeft } from 'lucide-react';
 import { ModalDialog } from '../../components/ModalDialog';
 import { useGraphViewport } from './useGraphViewport';
 import { buildGraphGroups, type DisplayGraphNode, type GraphFolder, type GraphGroup, type GraphPage } from './graphGrouping';
@@ -55,8 +55,8 @@ const OriginBadge: React.FC<{ origin: string; zh: boolean }> = ({ origin, zh }) 
 function keepPageInFolder(node: DisplayGraphNode, boxes: FolderGraphBox[]): DisplayGraphNode {
   const box = boxes.find(item => item.group.id === node.groupId);
   if (!box) return node;
-  return { ...node, x: Math.max(box.x + 40, Math.min(box.x + box.width - 40, node.x)),
-    y: Math.max(box.y + 74, Math.min(box.y + box.height - 47, node.y)) };
+  return { ...node, x: Math.max(box.x + 80, Math.min(box.x + box.width - 80, node.x)),
+    y: Math.max(box.y + 88, Math.min(box.y + box.height - 96, node.y)) };
 }
 
 export const KnowledgeGraph: React.FC = () => {
@@ -77,6 +77,7 @@ export const KnowledgeGraph: React.FC = () => {
   const [pageFilter, setPageFilter] = useState<'all' | 'connected' | 'unconnected'>('all');
   const [focusedNode, setFocusedNode] = useState<string | null>(null);
   const [grouped, setGrouped] = useState(true);
+  const [graphColumns, setGraphColumns] = useState(2);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const requestVersion = useRef(0);
   const activeSpaceId = useRef(spaceId);
@@ -111,8 +112,10 @@ export const KnowledgeGraph: React.FC = () => {
       .filter(group => !filtering || group.pages.length > 0);
   }, [groups, filteredNodes, filtering]);
   // Preview ranking uses the complete real graph, so toggling origins does not shuffle nodes.
-  const folderLayout = useMemo(() => layoutFolderGraph(filteredGroups, expandedGroups, edges, selectedNode), [filteredGroups, expandedGroups, edges, selectedNode]);
+  const folderLayout = useMemo(() => layoutFolderGraph(filteredGroups, expandedGroups, edges, selectedNode, graphColumns), [filteredGroups, expandedGroups, edges, selectedNode, graphColumns]);
   const projectedNodes = useMemo(() => grouped ? folderLayout.nodes : filteredNodes.map(node => ({ ...node, kind: 'page' as const })), [grouped, folderLayout.nodes, filteredNodes]);
+  const layoutKey = JSON.stringify([spaceId, grouped, graphColumns, grouped ? folderLayout.bounds : null, projectedNodes.map(node => [node.id, node.x, node.y])]);
+  const [appliedLayoutKey, setAppliedLayoutKey] = useState('');
   const currentLayout = useRef({ nodes: projectedNodes, boxes: folderLayout.boxes });
   currentLayout.current = { nodes: projectedNodes, boxes: folderLayout.boxes };
   useEffect(() => {
@@ -126,7 +129,10 @@ export const KnowledgeGraph: React.FC = () => {
       const placed = { ...node, x: grouped ? node.x + position.x : position.x, y: grouped ? node.y + position.y : position.y };
       return grouped ? keepPageInFolder(placed, currentLayout.current.boxes) : placed;
     }));
-  }, [projectedNodes, grouped, spaceId]);
+    // Fit only after the rendered nodes and their folder bounds share a layout.
+    // A drag or selection within that layout must not reset the user's viewport.
+    setAppliedLayoutKey(layoutKey);
+  }, [projectedNodes, grouped, spaceId, layoutKey]);
   const moveGraphNodes = useCallback<React.Dispatch<React.SetStateAction<DisplayGraphNode[]>>>(update => {
     setGraphNodes(current => {
       const updated = typeof update === 'function' ? update(current) : update;
@@ -145,10 +151,24 @@ export const KnowledgeGraph: React.FC = () => {
       return next;
     });
   }, [grouped, spaceId]);
-  const viewport = useGraphViewport(canvasRef, graphNodes, moveGraphNodes, !loading && !error && (graphNodes.length > 0 || filteredGroups.length > 0), grouped ? folderLayout.bounds : undefined, grouped ? 0.65 : 0.25);
+  // Leave room below the graph for the fixed legend and zoom controls.
+  const viewportBounds = grouped && folderLayout.bounds ? { ...folderLayout.bounds, bottom: folderLayout.bounds.bottom + 64 } : undefined;
+  const viewport = useGraphViewport(canvasRef, graphNodes, moveGraphNodes, !loading && !error && (graphNodes.length > 0 || filteredGroups.length > 0), viewportBounds, grouped ? (graphColumns === 1 ? 0.85 : 0.65) : 0.25);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || loading || error) return;
+    const resize = () => {
+      const width = canvas.getBoundingClientRect().width;
+      setGraphColumns(width >= 900 ? 3 : width >= 600 ? 2 : 1);
+    };
+    resize();
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(resize);
+    observer?.observe(canvas);
+    window.addEventListener('resize', resize);
+    return () => { observer?.disconnect(); window.removeEventListener('resize', resize); };
+  }, [loading, error]);
   const graphNodeIds = graphNodes.map(node => node.id).join('|');
-  const boundsKey = grouped ? JSON.stringify(folderLayout.bounds) : '';
-  useEffect(() => { viewport.fitReadable(); }, [graphNodeIds, boundsKey]);
+  useEffect(() => { viewport.fitReadable(); }, [appliedLayoutKey]);
   useEffect(() => { if (selectedNode) viewport.reveal(selectedNode); }, [selectedNode, graphNodeIds]);
   const groupTitle = (group: GraphGroup) => group.folder?.name ?? gt(group.kind === 'ungrouped' ? 'graph.ungrouped' : 'graph.folderUnavailable');
   const toggleGroup = (id: string) => setExpandedGroups(current => {
@@ -219,9 +239,9 @@ export const KnowledgeGraph: React.FC = () => {
     graphNodes.forEach(node => {
       const selected = selectedNode === node.id; const linking = linkingFrom === node.id;
       ctx.beginPath(); ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
-      ctx.fillStyle = linking ? '#fef3c7' : selected ? '#4779ff' : '#edf3ff'; ctx.fill();
+      ctx.fillStyle = linking ? '#fef3c7' : selected ? '#4263eb' : '#fff'; ctx.fill();
       if (selected) { ctx.strokeStyle = '#c4d4ff'; ctx.lineWidth = 7; ctx.stroke(); }
-      ctx.strokeStyle = linking ? '#d97706' : '#6e97ff'; ctx.lineWidth = selected ? 1.8 : 1.15; ctx.stroke();
+      ctx.strokeStyle = linking ? '#d97706' : selected ? '#4263eb' : '#a8b9d7'; ctx.lineWidth = selected ? 1.8 : 1.15; ctx.stroke();
     });
   }, [graphNodes, visibleEdges, selectedNode, linkingFrom, viewport.view]);
 
@@ -267,11 +287,6 @@ export const KnowledgeGraph: React.FC = () => {
     id, page: nodes.find(node => node.id === id), edges: selectedEdges.filter(edge => edge.source === id || edge.target === id),
   }));
   const allPages = nodes;
-  const selectedVisual = graphNodes.find(node => node.id === selectedNode);
-  const canvasWidth = canvasRef.current?.getBoundingClientRect().width || 800;
-  const canvasHeight = canvasRef.current?.getBoundingClientRect().height || 620;
-  const selectedPoint = selectedVisual ? { x: selectedVisual.x * viewport.view.scale + viewport.view.x, y: selectedVisual.y * viewport.view.scale + viewport.view.y } : null;
-  const popupVisible = selectedPoint && selectedPoint.x >= 0 && selectedPoint.x <= canvasWidth && selectedPoint.y >= 0 && selectedPoint.y <= canvasHeight;
 
   if (loading) return <div role="status" className="text-center py-8 text-gray-500">{zh ? '正在加载知识图谱…' : 'Loading knowledge graph…'}</div>;
   if (error) return <div className="text-center py-8"><p role="alert" className="text-red-500 mb-2">{apiErrorMessage(error.failure, t, error.fallbackKey)}</p><Link to={spaceId ? `/spaces/${spaceId}` : '/'} className="text-blue-600 hover:underline">{zh ? '返回' : 'Go back'}</Link></div>;
@@ -279,7 +294,7 @@ export const KnowledgeGraph: React.FC = () => {
   return <div className="knowledge-graph">
     <header className="graph-heading">
       <nav aria-label={zh ? '面包屑' : 'Breadcrumb'}><Link to={spaceId ? `/spaces/${spaceId}` : '/'}>{zh ? '空间' : 'Space'}</Link><span>/</span><span>{zh ? '知识图谱' : 'Knowledge graph'}</span></nav>
-      <h1>{zh ? '关系网络' : 'Connections'}</h1><p>{gt('graph.subtitle')}</p>
+      <div className="graph-heading-line"><span className="graph-heading-icon"><Network size={22} /></span><div><h1>{zh ? '关系网络' : 'Connections'}</h1><p>{gt('graph.subtitle')}</p></div></div>
     </header>
     <div className="graph-toolbar">
       <label className="graph-search"><Search size={18} /><span className="sr-only">{gt('graph.search')}</span><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder={gt('graph.searchPlaceholder')} /></label>
@@ -302,28 +317,30 @@ export const KnowledgeGraph: React.FC = () => {
     </div>
     <p role="status" className={filtering || hiddenOrigins.size ? 'graph-result-count' : 'sr-only'}>{gt('graph.resultCount', { count: filteredNodes.length, total: nodes.length })}{filtering && <button type="button" onClick={clearFilters}>{gt('graph.clearFilters')}</button>}</p>
     {linkingFrom && <div className="mb-3 rounded-md bg-amber-50 p-3 text-sm text-amber-700">{zh ? '正在从以下页面建立关系：' : 'Linking from:'} <strong>{nodes.find(node => node.id === linkingFrom)?.title}</strong></div>}
-    <div className="graph-workspace grid lg:grid-cols-[minmax(0,1fr)_292px]">
-      <div className={`graph-stage ${viewport.view.scale < 0.45 ? 'is-overview' : ''}`}>
+    <div className="graph-workspace grid lg:grid-cols-[minmax(0,1fr)_248px]">
+      <div className={`graph-stage ${viewport.view.scale < 0.65 ? 'is-overview' : ''}`}>
         <canvas ref={canvasRef} aria-hidden="true" className="graph-canvas" onClick={handleCanvasClick} onDoubleClick={handleCanvasDoubleClick} />
         <div className="graph-folders-layer">
           {grouped && folderLayout.boxes.map(box => <section key={box.group.id} className="graph-folder-box" data-folder-id={box.group.id} style={{ left: box.x * viewport.view.scale + viewport.view.x, top: box.y * viewport.view.scale + viewport.view.y, width: box.width * viewport.view.scale, height: box.height * viewport.view.scale }}>
-            <button type="button" className="graph-folder-title" aria-expanded={expandedGroups.has(box.group.id)} title={box.group.folder?.path} aria-label={`${groupTitle(box.group)} ${box.group.folder?.path ? `${box.group.folder.path} ` : ''}${gt('graph.pageCount', { count: box.group.pages.length })}`} onClick={() => toggleGroup(box.group.id)}><Folder size={21} /><strong>{groupTitle(box.group)}</strong><span>· {gt('graph.pageCount', { count: box.group.pages.length })}</span><MoreHorizontal size={17} className="graph-folder-menu-icon" /></button>
+            <button type="button" className="graph-folder-title" aria-expanded={expandedGroups.has(box.group.id)} title={box.group.folder?.path} aria-label={`${groupTitle(box.group)} ${box.group.folder?.path ? `${box.group.folder.path} ` : ''}${gt('graph.pageCount', { count: box.group.pages.length })}`} onClick={() => toggleGroup(box.group.id)}><Folder size={21} /><strong>{groupTitle(box.group)}</strong><span>{gt('graph.pageCount', { count: box.group.pages.length })}</span><ChevronDown size={15} className="graph-folder-menu-icon" /></button>
             {box.group.pages.length === 0 && <p className="graph-empty-folder">{gt('graph.emptyFolder')}</p>}
           </section>)}
         </div>
         <div className="graph-labels-layer">
-          {graphNodes.map(node => <button type="button" key={node.id} className={`graph-node-label ${selectedNode === node.id ? 'is-selected' : ''}`} aria-label={`${node.title} ${node.path || gt('graph.pathUnavailable')}`} aria-pressed={selectedNode === node.id} title={node.path || node.title} data-node-id={node.id} style={{ width: Math.max(74, Math.min(120, 140 * viewport.view.scale)), left: node.x * viewport.view.scale + viewport.view.x, top: (node.y + node.radius) * viewport.view.scale + viewport.view.y + 8 }} onClick={() => selectPage(node.id)} onDoubleClick={() => navigate(`/pages/${node.id}`)}>{node.title}</button>)}
-          {grouped && folderLayout.boxes.filter(box => box.hiddenCount > 0).map(box => <button key={box.group.id} type="button" className="graph-more-node" aria-label={gt('graph.expandFolder', { folder: groupTitle(box.group), count: box.hiddenCount })} onClick={() => toggleGroup(box.group.id)} style={{ left: box.moreX * viewport.view.scale + viewport.view.x, top: box.moreY * viewport.view.scale + viewport.view.y }}><span><Plus size={20} /></span>{gt('graph.more')}</button>)}
+          {graphNodes.map(node => <span key={`icon-${node.id}`} aria-hidden="true" className={`graph-node-icon ${selectedNode === node.id ? 'is-selected' : ''}`} style={{ left: node.x * viewport.view.scale + viewport.view.x, top: node.y * viewport.view.scale + viewport.view.y }}><FileText size={Math.max(10, Math.min(14, node.radius * viewport.view.scale + 2))} /></span>)}
+          {graphNodes.map(node => <button type="button" key={node.id} className={`graph-node-label ${selectedNode === node.id ? 'is-selected' : ''}`} aria-label={`${node.title} ${node.path || gt('graph.pathUnavailable')}`} aria-pressed={selectedNode === node.id} title={node.path || node.title} data-node-id={node.id} style={{ width: Math.max(96, Math.min(144, 144 * viewport.view.scale)), left: node.x * viewport.view.scale + viewport.view.x, top: (node.y + node.radius) * viewport.view.scale + viewport.view.y + 8 }} onClick={() => selectPage(node.id)} onDoubleClick={() => navigate(`/pages/${node.id}`)}><span>{node.title}</span></button>)}
+          {grouped && folderLayout.boxes.filter(box => box.hiddenCount > 0).map(box => <button key={box.group.id} type="button" className="graph-more-node" aria-label={gt('graph.expandFolder', { folder: groupTitle(box.group), count: box.hiddenCount })} onClick={() => toggleGroup(box.group.id)} style={{ left: box.moreX * viewport.view.scale + viewport.view.x, top: box.moreY * viewport.view.scale + viewport.view.y }}><Plus size={14} /><span>{gt('graph.morePages', { count: box.hiddenCount })}</span></button>)}
         </div>
-        {popupVisible && selectedPoint && selectedPage && <div className="graph-node-popup" style={{ left: Math.max(8, Math.min(canvasWidth - 208, selectedPoint.x + 28)), top: Math.max(12, Math.min(canvasHeight - 150, selectedPoint.y - 92)) }}><strong>{selectedPage.path || selectedPage.title}</strong><p>{gt('graph.relatedPages')} {relatedPages.length}</p><button type="button" onClick={() => { setFocusedNode(selectedNode); setPageFilter('all'); setSearch(''); }}>{gt('graph.onlyRelated')}</button></div>}
+
         {nodes.length === 0 && folders.length === 0 ? <div className="graph-empty-state"><Network size={32} /><p>{zh ? '还没有知识图谱数据。创建页面并添加页面间关系后即可形成图谱。' : 'No knowledge graph data yet. Create pages and add links between them to build the graph.'}</p></div> : filteredGroups.length === 0 && filteredNodes.length === 0 && <div className="graph-empty-state"><Search size={28} /><p>{gt('graph.noMatches')}</p></div>}
         <div className="graph-legend"><span><i />{gt('graph.manualLegend')}</span><span><i className="is-dashed" />{gt('graph.similarLegend')}</span></div>
         <div className="graph-zoom"><button type="button" onClick={() => viewport.zoom(1 / 1.25)} aria-label={zh ? '缩小图谱' : 'Zoom out'}><Minus size={16} /></button><output aria-label={zh ? '图谱缩放比例' : 'Graph zoom'}>{Math.round(viewport.view.scale * 100)}%</output><button type="button" onClick={() => viewport.zoom(1.25)} aria-label={zh ? '放大图谱' : 'Zoom in'}><Plus size={16} /></button></div>
       </div>
       {selectedNode ? <aside aria-label={gt('graph.pageDetails')} className="graph-details">
         <div className="graph-details-heading"><h2>{gt('graph.pageDetails')}</h2><button type="button" aria-label={gt('graph.closeDetails')} onClick={() => setSelectedNode(null)}><X size={17} /></button></div>
-        <h3 className="graph-page-title">{selectedPage?.title}</h3><dl className="graph-page-path"><dt>{gt('graph.pagePath')}</dt><dd><Folder size={17} /><span>{selectedPage?.path || gt('graph.pathUnavailable')}</span></dd></dl>
+        <div className="graph-detail-icon"><FileText size={22} /></div><h3 className="graph-page-title">{selectedPage?.title}</h3><dl className="graph-page-path"><dt>{gt('graph.pagePath')}</dt><dd><Folder size={17} /><span>{selectedPage?.path || gt('graph.pathUnavailable')}</span></dd></dl>
         <Link to={`/pages/${selectedNode}`} className="graph-open-page"><ExternalLink size={17} />{zh ? '打开页面' : 'Open page'}</Link>
+        <button type="button" className="graph-focus-page" onClick={() => { setFocusedNode(selectedNode); setPageFilter('all'); setSearch(''); }}><Network size={15} />{gt('graph.onlyRelated')}</button>
         <div className="graph-related-heading"><h3>{gt('graph.relatedPages')} <span>{relatedPages.length}</span></h3><p className="sr-only">{gt('graph.connectedCount', { pages: relatedPages.length, relations: selectedEdges.length })}</p></div>
         {relatedPages.length === 0 && <p className="graph-no-relations">{gt('graph.noRelations')}</p>}
         <div className="graph-related-pages">{relatedPages.map(related => <article key={related.id}>
@@ -351,7 +368,14 @@ export const KnowledgeGraph: React.FC = () => {
           </li>)}</ul>
         </article>)}</div>
         <button type="button" onClick={startLinking} className="graph-link-page"><Link2 size={16} />{zh ? '建立关系…' : 'Link to…'}</button>
-      </aside> : <div className="graph-details graph-details-empty hidden lg:block"><h2>{gt('graph.pageDetails')}</h2><div><Network size={30} /><p>{gt('graph.selectHint')}</p></div></div>}
+      </aside> : <div className="graph-details graph-overview hidden lg:block">
+        <div className="graph-details-heading"><h2>{gt('graph.overview')}</h2><Network size={17} /></div>
+        <dl className="graph-stats"><div><dt>{gt('graph.pages')}</dt><dd>{nodes.length}</dd></div><div><dt>{gt('graph.folders')}</dt><dd>{folders.length}</dd></div><div><dt>{gt('graph.relations')}</dt><dd>{edges.length}</dd></div></dl>
+        <div className="graph-overview-note"><Link2 size={17} /><p>{gt(edges.length ? 'graph.exploreHint' : 'graph.noConnectionsHint')}</p></div>
+        <h3 className="graph-directory-heading">{gt('graph.folderDirectory')}</h3>
+        <ul className="graph-directory">{groups.map(group => <li key={group.id}><Folder size={15} /><span title={groupTitle(group)}>{groupTitle(group)}</span><span>{group.pages.length}</span></li>)}</ul>
+        <div className="graph-select-hint"><span><FileText size={20} /></span><p>{gt('graph.selectHint')}</p></div>
+      </div>}
     </div>
     <div className="graph-accessible-browser">
       <p>{gt('graph.navigationHint')}</p>

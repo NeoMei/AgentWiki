@@ -2,7 +2,15 @@ import type { Language } from './messages';
 
 export const bugGraphMessages = {
   'zh-CN': {
-    'graph.subtitle': '按文件夹浏览页面关系',
+    'graph.subtitle': '浏览知识结构，发现页面之间的联系',
+    'graph.overview': '图谱概览',
+    'graph.pages': '页面',
+    'graph.folders': '文件夹',
+    'graph.relations': '关系',
+    'graph.folderDirectory': '空间目录',
+    'graph.morePages': '展开其余 {count} 页',
+    'graph.noConnectionsHint': '页面尚未建立关系。选择一个页面，即可为它添加关联。',
+    'graph.exploreHint': '连线表示页面之间的关系。选择节点，查看关联页面与来源。',
     'graph.pageFilter': '页面连接状态',
     'graph.all': '全部',
     'graph.connected': '有关系',
@@ -46,7 +54,15 @@ export const bugGraphMessages = {
     'graph.selectHint': '选择页面节点查看路径与关联页面。',
   },
   en: {
-    'graph.subtitle': 'Browse page connections by folder',
+    'graph.subtitle': 'Explore your knowledge and the connections between pages',
+    'graph.overview': 'Graph overview',
+    'graph.pages': 'Pages',
+    'graph.folders': 'Folders',
+    'graph.relations': 'Relations',
+    'graph.folderDirectory': 'Space directory',
+    'graph.morePages': 'Show {count} more pages',
+    'graph.noConnectionsHint': 'No page connections yet. Select a page to add its first relation.',
+    'graph.exploreHint': 'Lines connect related pages. Select a node to explore its connections and sources.',
     'graph.pageFilter': 'Page connection status',
     'graph.all': 'All',
     'graph.connected': 'Connected',

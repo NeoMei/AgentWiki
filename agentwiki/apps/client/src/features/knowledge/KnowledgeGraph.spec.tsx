@@ -277,10 +277,11 @@ describe('KnowledgeGraph canvas navigation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reset view' }));
     const index = groupedMode ? 1 : 0;
     const original = { ...drawn[index] };
-    drag(canvas, [original.x, original.y], [original.x + 80, original.y + 60]);
+    const offset = groupedMode ? { x: -20, y: 0 } : { x: 80, y: 60 };
+    drag(canvas, [original.x, original.y], [original.x + offset.x, original.y + offset.y]);
     const moved = { ...drawn[index] };
-    expect(moved.x).toBe(original.x + 80);
-    expect(moved.y).toBe(original.y + 60);
+    expect(moved.x).toBe(original.x + offset.x);
+    expect(moved.y).toBe(original.y + offset.y);
     fireEvent.click(graphButton('Manual'));
     expect(drawn[index]).toEqual(moved);
     fireEvent.click(graphButton('Manual'));

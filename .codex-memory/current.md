@@ -1,12 +1,15 @@
 # 当前目标
 
-2026-10-17反馈8项核实、修复、正式发布、生产回验和原页逐项反馈已完成。保留原Windows与原黄金书屋wrapper错误的验收边界。
+2026-10-19 图谱界面优化已本地实现并验收：紧凑自适应目录、两行节点标题、图谱概览和统一详情操作。分支 codex/graph-ui-polish，基于 origin/master 9851195e；未推送、合并或部署。
 
 # 范围 / 不做
 
 本轮Web/API0.12.47、Local Sync0.13.1、Obsidian0.5.12已发布；未变更protocol0.6.1、依赖或数据库结构。原检出用户修改、日常Vault、正文/事务/身份/hash保持。未升级当前Codex的0.13.0配置或强制重启。
 
 # 当前状态
+
+- 图谱优化：17页/5目录加未分组的截图场景、38页关系场景、95页适配/隐藏节点定位，以及390px/1404px、中英文IAB验收通过。65%/81%标签几何及390→1200列数切换回归通过；最终client159文件2666项通过，build/typecheck/定向lint、独立代码与UI审查通过。构建仍有既有Mermaid循环分块/大包告警。浏览器使用本地合成transport，不等同生产发布验收；仅线上读取原17页/0关系状态，未写生产数据。
+- 预览：http://127.0.0.1:5187/e2e/fixtures/graph-reference.html?scenario=project；截图 /tmp/agentwiki-graph-ui-polish/desktop.png；构建与全量测试日志 /tmp/agentwiki-graph-build-final.log、/tmp/agentwiki-graph-client-tests-final.log。主检出用户改动保留。
 
 - Web/API正式代码a192d775，tag v0.12.47；后续仅回执文档提交。生产1354源码匹配，编译审核服务同hash，公网5资源匹配，3服务active/5健康字段ok，63迁移无pending，32烟测及清理通过。
 - npm0.13.1已正式发布，官方包与固定候选逐字节/171文件一致；空目录/空缓存安装及正式SDK顶层schema/原页发布/精确回读通过。临时验收进程复用唯一既有连接并已关闭，不新增身份。

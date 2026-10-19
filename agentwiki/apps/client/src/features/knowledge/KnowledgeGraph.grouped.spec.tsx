@@ -27,6 +27,13 @@ function mount() {
   </Routes></MemoryRouter></LanguageProvider>);
 }
 function filters() { const summary = screen.getByText('关系类型'); if (!summary.closest('details')?.open) fireEvent.click(summary); }
+function drawnNode(container: HTMLElement, id: string) {
+  const labels = [...container.querySelectorAll<HTMLElement>('[data-node-id]')];
+  const index = labels.findIndex(label => label.dataset.nodeId === id);
+  expect(index).toBeGreaterThanOrEqual(0);
+  const [x, y, radius] = arcs.mock.calls.slice(-labels.length)[index];
+  return { x: x as number, y: y as number, radius: radius as number };
+}
 afterEach(() => vi.unstubAllGlobals());
 beforeEach(() => {
   vi.restoreAllMocks(); vi.clearAllMocks(); localStorage.setItem('agentwiki.language.v1', 'zh-CN');
@@ -131,15 +138,18 @@ describe('KnowledgeGraph folder browsing', () => {
     expect(screen.getByText('Opened page')).toBeInTheDocument();
   });
 
-  it('keeps the canvas column unchanged when page details appear and close, reserving 292px only on desktop', async () => {
+  it('keeps the canvas column unchanged when page details replace the 248px desktop overview and close', async () => {
     const { container } = mount(); const browser = await screen.findByRole('combobox', { name: '浏览图谱节点' });
     const workspace = container.querySelector('canvas')!.closest('.grid')!; const before = workspace.className;
+    expect(screen.getByRole('heading', { name: '图谱概览' }).closest('.graph-overview')).toHaveClass('hidden', 'lg:block');
+    expect(screen.getByRole('heading', { name: '空间目录' })).toBeInTheDocument();
     fireEvent.change(browser, { target: { value: 'p1' } });
     expect(screen.getByRole('complementary', { name: '页面详情' }).parentElement).toBe(workspace);
-    expect(workspace.className).toBe(before); expect(workspace).toHaveClass('lg:grid-cols-[minmax(0,1fr)_292px]');
+    expect(workspace.className).toBe(before); expect(workspace).toHaveClass('lg:grid-cols-[minmax(0,1fr)_248px]');
+    expect(screen.queryByRole('heading', { name: '图谱概览' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '关闭页面详情' }));
     expect(workspace.className).toBe(before); expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
-    expect(screen.getByText('选择页面节点查看路径与关联页面。').closest('.graph-details')).toHaveClass('hidden', 'lg:block');
+    expect(screen.getByRole('heading', { name: '图谱概览' }).closest('.graph-overview')).toHaveClass('hidden', 'lg:block');
   });
 
   it('searches canonical paths, reports counts, and clears the old canvas on no matches', async () => {
@@ -172,7 +182,8 @@ describe('KnowledgeGraph folder browsing', () => {
     mount(); await screen.findByRole('button', { name: '全部 8' });
     expect(screen.getByRole('button', { name: '有关系 2' })).toBeInTheDocument(); expect(screen.getByRole('button', { name: '未连接 6' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Page 7 pages/ })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '展开 项目 的其余 3 个页面' })); expect(screen.getByRole('button', { name: /Page 7 pages/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Page 5 pages/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '展开 项目 的其余 2 个页面' })); expect(screen.getByRole('button', { name: /Page 7 pages/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '有关系 2' })); expect(screen.getByText('显示 2 / 8 个页面')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '未连接 6' })); expect(screen.getByText('显示 6 / 8 个页面')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '全部 8' })); fireEvent.change(screen.getByRole('combobox', { name: '浏览图谱节点' }), { target: { value: 'p0' } });
@@ -201,21 +212,29 @@ describe('KnowledgeGraph folder browsing', () => {
     await screen.findByRole('button', { name: '小明 pages/项目/人物/小明.md' });
     fireEvent.click(screen.getByRole('button', { name: '重置视图' }));
     const canvas = container.querySelector('canvas')!;
-    fireEvent.mouseDown(canvas, { button: 0, clientX: 790, clientY: 178 });
-    fireEvent.mouseMove(window, { buttons: 1, clientX: 800, clientY: 178 }); fireEvent.mouseUp(window);
-    expect(arcs.mock.calls.slice(-3)[1].slice(0, 2)).toEqual([800, 178]);
+    const original = drawnNode(container, 'p2');
+    const originalBoxLeft = parseFloat(container.querySelector<HTMLElement>('[data-folder-id="folder:f2"]')!.style.left);
+    fireEvent.mouseDown(canvas, { button: 0, clientX: original.x, clientY: original.y });
+    fireEvent.mouseMove(window, { buttons: 1, clientX: original.x + 10, clientY: original.y }); fireEvent.mouseUp(window);
+    expect(drawnNode(container, 'p2')).toEqual({ ...original, x: original.x + 10 });
     fireEvent.change(screen.getByRole('searchbox', { name: '搜索页面' }), { target: { value: '小明' } });
+    fireEvent.click(screen.getByRole('button', { name: '重置视图' }));
     const box = container.querySelector<HTMLElement>('[data-folder-id="folder:f2"]')!;
     const label = container.querySelector<HTMLElement>('[data-node-id="p2"]')!;
     expect(parseFloat(label.style.left)).toBeGreaterThan(parseFloat(box.style.left));
     expect(parseFloat(label.style.left)).toBeLessThan(parseFloat(box.style.left) + parseFloat(box.style.width));
-    expect(arcs.mock.calls[arcs.mock.calls.length - 1].slice(0, 2)).toEqual([240, 156]);
+    expect(drawnNode(container, 'p2').x - parseFloat(box.style.left)).toBe(original.x - originalBoxLeft + 10);
+    expect(drawnNode(container, 'p2').y).toBe(original.y);
     fireEvent.change(screen.getByRole('searchbox', { name: '搜索页面' }), { target: { value: '' } });
-    expect(arcs.mock.calls.slice(-3)[1].slice(0, 2)).toEqual([800, 178]);
+    expect(drawnNode(container, 'p2')).toEqual({ ...original, x: original.x + 10 });
     fireEvent.click(screen.getByRole('button', { name: '重置视图' }));
-    fireEvent.mouseDown(canvas, { button: 0, clientX: 800, clientY: 178 });
-    fireEvent.mouseMove(window, { buttons: 1, clientX: 1800, clientY: 178 }); fireEvent.mouseUp(window);
-    expect(arcs.mock.calls.slice(-3)[1][0]).toBeLessThanOrEqual(980);
+    const restored = drawnNode(container, 'p2');
+    fireEvent.mouseDown(canvas, { button: 0, clientX: restored.x, clientY: restored.y });
+    fireEvent.mouseMove(window, { buttons: 1, clientX: restored.x + 1000, clientY: restored.y }); fireEvent.mouseUp(window);
+    const restoredBox = container.querySelector<HTMLElement>('[data-folder-id="folder:f2"]')!;
+    const clipped = drawnNode(container, 'p2');
+    expect(clipped.x).toBeGreaterThan(restored.x);
+    expect(clipped.x + 72).toBeLessThan(parseFloat(restoredBox.style.left) + parseFloat(restoredBox.style.width));
   });
 
   it('uses origin for dashed automatic similarity edges and draws each actual edge as a curve', async () => {
@@ -251,9 +270,16 @@ describe('KnowledgeGraph folder browsing', () => {
     // The initial fit follows graph-node projection, which happens after options appear.
     await screen.findByRole('button', { name: 'Page 17 pages/Page 17.md' });
     expect(Number(screen.getByLabelText('图谱缩放比例').textContent?.replace('%', ''))).toBeGreaterThanOrEqual(65);
-    fireEvent.click(screen.getByRole('button', { name: '适应图谱' })); expect(Number(screen.getByLabelText('图谱缩放比例').textContent?.replace('%', ''))).toBeLessThan(25);
+    const initialScale = Number(screen.getByLabelText('图谱缩放比例').textContent?.replace('%', ''));
+    fireEvent.click(screen.getByRole('button', { name: '适应图谱' }));
+    expect(Number(screen.getByLabelText('图谱缩放比例').textContent?.replace('%', ''))).toBeLessThan(initialScale);
     const lastBox = container.querySelectorAll<HTMLElement>('.graph-folder-box')[17];
     expect(parseFloat(lastBox.style.top) + parseFloat(lastBox.style.height)).toBeLessThanOrEqual(620);
+    // Overview mode depends on zoom, not on the number or previous height of folder cards.
+    for (let attempt = 0; attempt < 10 && Number(screen.getByLabelText('图谱缩放比例').textContent?.replace('%', '')) >= 65; attempt++) {
+      fireEvent.click(screen.getByRole('button', { name: '缩小图谱' }));
+    }
+    expect(container.querySelector('.graph-stage')).toHaveClass('is-overview');
     const overview = Number(screen.getByLabelText('图谱缩放比例').textContent?.replace('%', ''));
     fireEvent.click(screen.getByRole('button', { name: '缩小图谱' }));
     expect(Number(screen.getByLabelText('图谱缩放比例').textContent?.replace('%', ''))).toBeLessThan(overview);
@@ -261,16 +287,54 @@ describe('KnowledgeGraph folder browsing', () => {
     expect(screen.getByRole('complementary', { name: '页面详情' })).toHaveTextContent('Page 17');
   });
 
+  it('fits the applied three-column layout after resizing from a single column', async () => {
+    let width = 390;
+    const resizeCallbacks = new Set<ResizeObserverCallback>();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockImplementation(() => new DOMRect(0, 0, width, 620));
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(private readonly callback: ResizeObserverCallback) { resizeCallbacks.add(callback); }
+      observe() {}
+      disconnect() { resizeCallbacks.delete(this.callback); }
+    });
+    const resizeFolders = Array.from({ length: 6 }, (_, i) => ({ id: `f${i}`, name: `Folder ${i}`, path: `Folder ${i}`, parentId: null }));
+    api.get.mockResolvedValue({ data: {
+      nodes: resizeFolders.map((folder, i) => page(`p${i}`, `Page ${i}`, folder.id, `pages/Page ${i}.md`)),
+      edges: [], folders: resizeFolders,
+    } });
+    const { container } = mount();
+    await screen.findByRole('button', { name: 'Page 5 pages/Page 5.md' });
+    const boxes = () => [...container.querySelectorAll<HTMLElement>('.graph-folder-box')];
+    const scale = () => Number(screen.getByLabelText('图谱缩放比例').textContent?.replace('%', ''));
+    expect(new Set(boxes().map(box => box.style.left)).size).toBe(1);
+    expect(scale()).toBeGreaterThanOrEqual(85);
+
+    width = 1200;
+    act(() => { for (const callback of [...resizeCallbacks]) callback([], {} as ResizeObserver); });
+    await waitFor(() => expect(new Set(boxes().slice(0, 3).map(box => box.style.top)).size).toBe(1));
+    expect(new Set(boxes().slice(0, 3).map(box => box.style.left)).size).toBe(3);
+    const automaticScale = scale();
+    // Mixing the new three-column bounds with old single-column nodes fits the
+    // tall, obsolete node positions and leaves this wide canvas at the 65% floor.
+    expect(automaticScale).toBeGreaterThan(65);
+    fireEvent.click(screen.getByRole('button', { name: '适应图谱' }));
+    expect(scale()).toBe(automaticScale);
+    for (const box of boxes()) {
+      expect(parseFloat(box.style.left)).toBeGreaterThanOrEqual(0);
+      expect(parseFloat(box.style.left) + parseFloat(box.style.width)).toBeLessThanOrEqual(width);
+      expect(parseFloat(box.style.top) + parseFloat(box.style.height)).toBeLessThanOrEqual(620);
+    }
+  });
+
   it('does not reuse dragged page coordinates after a Space switch', async () => {
     vi.stubGlobal('PointerEvent', undefined);
     api.get.mockImplementation((url: string) => Promise.resolve({ data: { nodes: [page('same', url.endsWith('/s1') ? 'Old page' : 'New page', null, 'pages/page.md')], folders: [], edges: [] } }));
-    const { container } = mount(); await screen.findByRole('option', { name: 'Old page' });
+    const { container } = mount(); await screen.findByRole('button', { name: 'Old page pages/page.md' });
     fireEvent.click(screen.getByRole('button', { name: '重置视图' }));
-    const original = arcs.mock.calls[arcs.mock.calls.length - 1]!.slice(0, 2); const canvas = container.querySelector('canvas')!;
-    fireEvent.mouseDown(canvas, { button: 0, clientX: original[0], clientY: original[1] }); fireEvent.mouseMove(window, { buttons: 1, clientX: original[0] + 80, clientY: original[1] + 60 }); fireEvent.mouseUp(window);
-    expect(arcs.mock.calls[arcs.mock.calls.length - 1]!.slice(0, 2)).toEqual([original[0] + 80, original[1] + 60]);
-    fireEvent.click(screen.getByRole('button', { name: 'Other Space' })); await screen.findByRole('option', { name: 'New page' });
-    expect(arcs.mock.calls[arcs.mock.calls.length - 1]!.slice(0, 2)).toEqual(original); expect(screen.queryByRole('option', { name: 'Old page' })).not.toBeInTheDocument();
+    const original = drawnNode(container, 'same'); const canvas = container.querySelector('canvas')!;
+    fireEvent.mouseDown(canvas, { button: 0, clientX: original.x, clientY: original.y }); fireEvent.mouseMove(window, { buttons: 1, clientX: original.x + 20, clientY: original.y }); fireEvent.mouseUp(window);
+    expect(drawnNode(container, 'same')).toEqual({ ...original, x: original.x + 20 });
+    fireEvent.click(screen.getByRole('button', { name: 'Other Space' })); await screen.findByRole('button', { name: 'New page pages/page.md' });
+    expect(drawnNode(container, 'same')).toEqual(original); expect(screen.queryByRole('option', { name: 'Old page' })).not.toBeInTheDocument();
   });
 
   it('does not replace a new Space graph with an older in-flight response', async () => {
