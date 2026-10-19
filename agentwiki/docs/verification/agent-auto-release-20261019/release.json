@@ -1,0 +1,374 @@
+{
+  "status": "published_deployed_verified",
+  "recordedAt": "2026-10-19T14:21:13.626436+00:00",
+  "authorization": "User explicitly requested 发布",
+  "revision": "05373af7816851706a259b8a99daabee99042af7",
+  "webVersion": "0.12.52",
+  "tag": "v0.12.52",
+  "releaseUrl": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.52",
+  "previousProductionRevision": "800dce6fa4214a31abda9e8d69c976b2d3a18b9e",
+  "preservedLocalSync": "0.13.4",
+  "preservedProtocol": "0.6.1",
+  "validation": {
+    "revision": "05373af7816851706a259b8a99daabee99042af7",
+    "status": "passed",
+    "runtime": {
+      "passed": 309,
+      "skipped": 1
+    },
+    "serialDatabase": {
+      "passed": 239,
+      "skipped": 0
+    },
+    "server": {
+      "passed": 3544,
+      "skipped": 4
+    },
+    "client": {
+      "passed": 2727
+    },
+    "protocol": {
+      "passed": 140
+    },
+    "localSync": {
+      "passed": 1121,
+      "skipped": 1
+    },
+    "totalPassed": 8080,
+    "totalSkipped": 6,
+    "build": "passed",
+    "typecheck": "passed",
+    "lint": "passed",
+    "entryJavaScriptBytes": 549985,
+    "entryJavaScriptBudget": 550000,
+    "firstAttempt": "New auto-mode migration changed the complete migration corpus hash. Updated exactly four pinned test fingerprints after verifying all historical migration bytes unchanged; no validation logic bypassed. Entire full suite reran successfully.",
+    "logs": {
+      "full-test-rerun.log": "90a77a4663a42afe473bf52142be55aa7f7eca54c7f6f9f0b4aefd28cb99f380",
+      "build.log": "3e804e19dce194394d584d4ba7e2f172eaaee9fe9445d4b4eaf3ab33dd44547a",
+      "typecheck.log": "d0a87d9e039ecf277453e5bf5e153e25986e53af6f6456b0f1c7a11ba35dc86d",
+      "lint.log": "d5b17ee595fbfdae02af58fd347506b1d5a827a69c28da8385dc57ae52ef712d"
+    }
+  },
+  "candidate": {
+    "exportFilesMatchedGit": 2391,
+    "deploymentManifestFilesMatchedGit": 1377,
+    "allHistoricalMigrationsUnchanged": true,
+    "newMigration": "20261019131500_assist_auto_mode",
+    "newMigrationSha256": "dbeb470ee9be4d3d55e387ca964fec0045f4b3f41c67f4dc7e00ef0962c115eb",
+    "dependenciesAndLockfileUnchanged": true
+  },
+  "backup": {
+    "directory": "/var/backups/agentwiki/auto-chat-v01252.rsx23ym7",
+    "status": "verified",
+    "checksumsPassed": true,
+    "writersRestored": true,
+    "wholeAttachmentManifestEntries": 548,
+    "permanentBlobCount": 159,
+    "wholeAttachmentArchiveVerified": true,
+    "applicationConfigurationDatabaseAttachmentsPaired": true,
+    "writerPauseSeconds": 7.613673,
+    "restoreDrillPerformed": false,
+    "rollbackBoundary": "New auto sessions are incompatible with old service validation. Prefer forward repair; application-only rollback is not a complete rollback. Paired restore must account for writes after the backup."
+  },
+  "deployment": {
+    "exitCode": 0,
+    "previousApplicationDirectory": "/root/agentwiki-previous-20261019220622",
+    "migrations": {
+      "status": "passed",
+      "appliedCount": 64,
+      "pending": [],
+      "failedCount": 0,
+      "autoModeApplied": true
+    },
+    "servicesRestartCounts": {
+      "api": 0,
+      "worker": 0,
+      "frontend": 0
+    }
+  },
+  "host": {
+    "mode": "host",
+    "revision": "05373af7816851706a259b8a99daabee99042af7",
+    "sourceFilesVerified": 1377,
+    "mismatches": [],
+    "versions": {
+      "web": "0.12.52",
+      "client": "0.12.52",
+      "api": "0.12.52",
+      "localSync": "0.13.4",
+      "protocol": "0.6.1"
+    },
+    "nodeVersion": "v24.18.0",
+    "services": {
+      "agentwiki-api.service": "active",
+      "agentwiki-worker.service": "active",
+      "agentwiki-frontend.service": "active"
+    },
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryHtmlSha256": "03a089d78b936024549c7108678ae0e7a1a92c1d1a972c9ee2d9e4c9489e4122",
+    "entryAssets": {
+      "/assets/index-CBLvDO5i.js": "8d4d5ab399dc1414a108df9becb76b451d1d61b922aec27ab79a0b9e2a21cbc7",
+      "/assets/_commonjsHelpers-CqkleIqs.js": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+      "/assets/react-vendor-CTv3miC2.js": "7e3a4bf34c49700b5fad7403a908da66c35ca1ad3669d05d3356f1a5e9bae663",
+      "/assets/preload-helper-ckwbz45p.js": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+      "/assets/index-a9Nlt0PX.css": "2a449f4023a003912bb4ea2ee26b85f15b11bac6936ea879f86e1a9769937613"
+    },
+    "status": "passed",
+    "verifiedAt": "2026-10-19T14:20:21.518904+00:00"
+  },
+  "public": {
+    "mode": "public",
+    "revision": "05373af7816851706a259b8a99daabee99042af7",
+    "origin": "https://agentwiki.quukk.com",
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "pageHttpStatus": 200,
+    "entryHtmlMatchProduction": true,
+    "entryAssetsMatchProduction": [
+      "/assets/index-CBLvDO5i.js",
+      "/assets/_commonjsHelpers-CqkleIqs.js",
+      "/assets/react-vendor-CTv3miC2.js",
+      "/assets/preload-helper-ckwbz45p.js",
+      "/assets/index-a9Nlt0PX.css"
+    ],
+    "entryAssetCount": 5,
+    "status": "passed",
+    "verifiedAt": "2026-10-19T14:20:25.846773+00:00"
+  },
+  "realModelApi": {
+    "target": "https://agentwiki.quukk.com/api",
+    "release": "0.12.52",
+    "startedAt": "2026-10-19T14:00:43.686Z",
+    "cases": [
+      {
+        "name": "recursive-directory-answer",
+        "sessionId": "cmvfbwfr9005a444m35xg8gi5",
+        "turnId": "cmvfbwfus005d444md7c82uc8",
+        "action": "answer",
+        "summary": "目录遍历完成，共 2 篇文档（含子目录）：\n\n1. **项目计划**\n   - 验收标识：ORCHID-ROOT-8db7f854ba\n   - 预算：10 万元\n\n2. **子目录资料**\n   - 验收标识：ORCHID-CHILD-b83bcafa7d\n   - 预算：20 万元\n\n**总预算：30 万元**",
+        "document": null,
+        "pagesBefore": 2,
+        "pagesAfter": 2,
+        "noUnrelatedChanges": true,
+        "requestIdempotent": true,
+        "passed": true
+      },
+      {
+        "name": "create-in-current-folder",
+        "sessionId": "cmvfbxqkk006c444m52iwjzoa",
+        "turnId": "cmvfbxqnr006f444m81dagv6l",
+        "action": "create",
+        "summary": "准备在验收目录中创建新文档，标题为自动创建验收记录，内容包含验收标识信息",
+        "document": {
+          "operation": "created",
+          "pageId": "4b45f76a-6618-4569-9543-a67754c0b3a6",
+          "title": "自动创建验收记录",
+          "updatedAt": "2026-10-19T14:08:48.502Z",
+          "url": "/pages/4b45f76a-6618-4569-9543-a67754c0b3a6"
+        },
+        "pagesBefore": 2,
+        "pagesAfter": 3,
+        "noUnrelatedChanges": true,
+        "requestIdempotent": true,
+        "passed": true
+      },
+      {
+        "name": "update-current-page",
+        "sessionId": "cmvfby9yy006w444m7cr2caeu",
+        "turnId": "cmvfbya2f006z444mvculcsbw",
+        "action": "update",
+        "summary": "已准备替换项目计划正文，更新验收标识与预算并新增评审节点。",
+        "document": {
+          "operation": "updated",
+          "pageId": "55f7a621-e42a-4ff0-ac16-2d0c345b8c3a",
+          "title": "项目计划",
+          "updatedAt": "2026-10-19T14:09:10.839Z",
+          "url": "/pages/55f7a621-e42a-4ff0-ac16-2d0c345b8c3a"
+        },
+        "pagesBefore": 3,
+        "pagesAfter": 3,
+        "noUnrelatedChanges": true,
+        "requestIdempotent": true,
+        "passed": true
+      },
+      {
+        "name": "question-without-save",
+        "sessionId": "cmvfbyro6007f444mn09av2gq",
+        "turnId": "cmvfbyrr9007i444mti8iaig6",
+        "action": "answer",
+        "summary": "验收标识：ORCHID-UPDATED-b47af323be；项目预算：35 万元",
+        "document": null,
+        "pagesBefore": 3,
+        "pagesAfter": 3,
+        "noUnrelatedChanges": true,
+        "requestIdempotent": true,
+        "passed": true
+      }
+    ],
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "fixture": {
+      "userId": "cmvfbnwnk0094a210vncon58f",
+      "spaceId": "cmvfbnx4w0095a21082geqgwa",
+      "folderId": "cmvfbnxbh009ba210qu76zuwt",
+      "childFolderId": "cmvfbnxin009ha2103ldq5idy",
+      "pageIds": [
+        "55f7a621-e42a-4ff0-ac16-2d0c345b8c3a",
+        "7fc9b2a4-3c57-4923-967e-e56808668042"
+      ]
+    },
+    "finishedAt": "2026-10-19T14:09:31.161Z",
+    "passed": true,
+    "cleanup": {
+      "spaceDeleteAttemptedAt": "2026-10-19T14:19:49.829Z",
+      "spaceRemoved": true,
+      "spaceRemovalReadback": "unavailable and absent from complete authorized inventory",
+      "userDeleteAttemptedAt": "2026-10-19T14:19:50.152Z",
+      "userRemoved": true,
+      "userRemovalUncertain": false,
+      "userTokenRejected": true,
+      "complete": true,
+      "finishedAt": "2026-10-19T14:19:50.352Z",
+      "method": "Official API soft deletion; audit/tombstones may remain"
+    }
+  },
+  "browser": {
+    "status": "passed",
+    "origin": "https://agentwiki.quukk.com",
+    "verifiedAt": "2026-10-19T14:21:13.623991+00:00",
+    "manualModeSelectorAbsent": true,
+    "recursiveDirectoryAnswer": {
+      "documentCount": 3,
+      "sourceBodyMarkersVerified": 3,
+      "budgetTotal": 55,
+      "noDocumentChanges": true,
+      "turn": {
+        "id": "cmvfc08dk0083444mvsnktb70",
+        "sessionId": "cmvfc08a80080444md7lzchr0",
+        "pageId": null,
+        "mode": "auto",
+        "intent": "遍历当前目录及子目录下的文档，列出每篇文章标题、验收标识和预算，并计算总预算。直接在聊天里显示总结。",
+        "status": "done",
+        "createdAt": "2026-10-19T14:10:21.416Z",
+        "directory": {
+          "folderId": "cmvfbnxbh009ba210qu76zuwt",
+          "title": "验收目录",
+          "recursive": true,
+          "pageCount": 3
+        },
+        "result": {
+          "action": "answer",
+          "summary": "## 验收目录文档总结\n\n共遍历到 **3 篇文档**（含子目录），汇总如下：\n\n| # | 标题 | 验收标识 | 预算 |\n|---|------|---------|------|\n| 1 | [自动创建验收记录](/pages/4b45f76a-6618-4569-9543-a67754c0b3a6) | ORCHID-NEW-bbac3367a3 | 未提及 |\n| 2 | [项目计划](/pages/55f7a621-e42a-4ff0-ac16-2d0c345b8c3a) | ORCHID-UPDATED-b47af323be | 35 万元 |\n| 3 | [子目录资料](/pages/7fc9b2a4-3c57-4923-967e-e56808668042)（子目录） | ORCHID-CHILD-b83bcafa7d | 20 万元 |\n\n**总预算：55 万元**（仅统计明确提及预算的文档；「自动创建验收记录」未给出预算金额）。"
+        },
+        "error": null
+      }
+    },
+    "create": {
+      "addedPages": 1,
+      "existingPagesChanged": 0,
+      "currentFolderConfirmed": true,
+      "directoryRefreshedWithoutNavigation": true,
+      "saveReceiptMatchesPublicReadback": true,
+      "turn": {
+        "id": "cmvfc55m900a1444myccddjv1",
+        "sessionId": "cmvfc08a80080444md7lzchr0",
+        "pageId": null,
+        "mode": "auto",
+        "intent": "请在当前目录新建并保存一篇文章，标题为“浏览器发布验收总结”，正文记录刚才的预算汇总：项目计划35万元，子目录资料20万元，总预算55万元。",
+        "status": "done",
+        "createdAt": "2026-10-19T14:14:11.121Z",
+        "directory": {
+          "folderId": "cmvfbnxbh009ba210qu76zuwt",
+          "title": "验收目录",
+          "recursive": true,
+          "pageCount": 3
+        },
+        "result": {
+          "action": "create",
+          "summary": "已准备新文档，记录预算汇总信息，等待系统保存。",
+          "changes": "# 浏览器发布验收总结\n\n## 预算汇总\n\n- 项目计划：35 万元\n- 子目录资料：20 万元\n- 总预算：55 万元",
+          "changesSha256": "dcbbc4784b30053af97dda402c2cab65c50a28d5d9555bf68e5a6af0fab554d0",
+          "document": {
+            "operation": "created",
+            "pageId": "0ca9e7aa-222a-4dcc-a80e-62483511ec13",
+            "title": "浏览器发布验收总结",
+            "updatedAt": "2026-10-19T14:14:32.707Z",
+            "url": "/pages/0ca9e7aa-222a-4dcc-a80e-62483511ec13"
+          }
+        },
+        "error": null
+      }
+    },
+    "update": {
+      "changedPages": 1,
+      "onlyCurrentPageChanged": true,
+      "readingBodyRefreshedWithoutReload": true,
+      "saveReceiptMatchesPublicReadback": true,
+      "turn": {
+        "id": "cmvfc9hqc00b7444my33atmtp",
+        "sessionId": "cmvfc08a80080444md7lzchr0",
+        "pageId": "0ca9e7aa-222a-4dcc-a80e-62483511ec13",
+        "mode": "auto",
+        "intent": "请修改并保存当前文章：保留现有预算汇总，在正文末尾追加一行“浏览器验收通过：目录读取、自动写入和聊天回答均已验证。”",
+        "status": "done",
+        "createdAt": "2026-10-19T14:17:33.445Z",
+        "directory": {
+          "folderId": "cmvfbnxbh009ba210qu76zuwt",
+          "title": "验收目录",
+          "recursive": true,
+          "pageCount": 4
+        },
+        "result": {
+          "action": "update",
+          "summary": "保留预算汇总，在正文末尾追加验收说明",
+          "changes": "# 浏览器发布验收总结\n\n## 预算汇总\n\n- 项目计划：35 万元\n- 子目录资料：20 万元\n- 总预算：55 万元\n\n浏览器验收通过：目录读取、自动写入和聊天回答均已验证。",
+          "changesSha256": "eb743f35a092e3543899d9d8cf95b689b59766941331577acad296d48f2f55dd",
+          "document": {
+            "operation": "updated",
+            "pageId": "0ca9e7aa-222a-4dcc-a80e-62483511ec13",
+            "title": "浏览器发布验收总结",
+            "updatedAt": "2026-10-19T14:18:04.573Z",
+            "url": "/pages/0ca9e7aa-222a-4dcc-a80e-62483511ec13"
+          }
+        },
+        "error": null
+      }
+    },
+    "screenshots": [
+      "browser-directory-summary.png",
+      "browser-document-created.png",
+      "browser-document-updated.png"
+    ],
+    "snapshotHashes": {
+      "browser-readback-before.json": "09843318bdd4a8e9902b86c28a287380d8a8b778f233d3c897e0c966e5af432a",
+      "browser-readback-after-answer.json": "2391e7f978fa37dbb38a8faec30c95247434f71aab285d062b0c7ddfc7360a20",
+      "browser-readback-after-create.json": "a4b13dc89c106c47267f6885a2e9c4a5a64dfc78a88c5377422364ca9ec03f2c",
+      "browser-readback-after-update.json": "5fdab91d8c8f2128a89cff2e295019179db9c2937e04c09484904201337c4262"
+    },
+    "temporaryBrowserTabClosed": true
+  },
+  "independentReview": {
+    "status": "passed_final_release_evidence_review",
+    "blockingFindings": [],
+    "pending": {},
+    "reviewReceiptSha256": "13d857ad3f57a04765f3f2dabd38c388d591349b541acf5cc0218e5623ea9e78",
+    "scope": "Implementation reviews, migration fingerprint safety, frozen packaging, backup/probe scripts and final release receipts, including three screenshots, exact readbacks and cleanup. Reviewer did not independently contact production."
+  },
+  "temporaryCredentialsRemoved": true
+}

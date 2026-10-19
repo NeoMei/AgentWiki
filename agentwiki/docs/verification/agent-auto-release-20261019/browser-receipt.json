@@ -1,0 +1,115 @@
+{
+  "status": "passed",
+  "origin": "https://agentwiki.quukk.com",
+  "verifiedAt": "2026-10-19T14:21:13.623991+00:00",
+  "manualModeSelectorAbsent": true,
+  "recursiveDirectoryAnswer": {
+    "documentCount": 3,
+    "sourceBodyMarkersVerified": 3,
+    "budgetTotal": 55,
+    "noDocumentChanges": true,
+    "turn": {
+      "id": "cmvfc08dk0083444mvsnktb70",
+      "sessionId": "cmvfc08a80080444md7lzchr0",
+      "pageId": null,
+      "mode": "auto",
+      "intent": "遍历当前目录及子目录下的文档，列出每篇文章标题、验收标识和预算，并计算总预算。直接在聊天里显示总结。",
+      "status": "done",
+      "createdAt": "2026-10-19T14:10:21.416Z",
+      "directory": {
+        "folderId": "cmvfbnxbh009ba210qu76zuwt",
+        "title": "验收目录",
+        "recursive": true,
+        "pageCount": 3
+      },
+      "result": {
+        "action": "answer",
+        "summary": "## 验收目录文档总结\n\n共遍历到 **3 篇文档**（含子目录），汇总如下：\n\n| # | 标题 | 验收标识 | 预算 |\n|---|------|---------|------|\n| 1 | [自动创建验收记录](/pages/4b45f76a-6618-4569-9543-a67754c0b3a6) | ORCHID-NEW-bbac3367a3 | 未提及 |\n| 2 | [项目计划](/pages/55f7a621-e42a-4ff0-ac16-2d0c345b8c3a) | ORCHID-UPDATED-b47af323be | 35 万元 |\n| 3 | [子目录资料](/pages/7fc9b2a4-3c57-4923-967e-e56808668042)（子目录） | ORCHID-CHILD-b83bcafa7d | 20 万元 |\n\n**总预算：55 万元**（仅统计明确提及预算的文档；「自动创建验收记录」未给出预算金额）。"
+      },
+      "error": null
+    }
+  },
+  "create": {
+    "addedPages": 1,
+    "existingPagesChanged": 0,
+    "currentFolderConfirmed": true,
+    "directoryRefreshedWithoutNavigation": true,
+    "saveReceiptMatchesPublicReadback": true,
+    "turn": {
+      "id": "cmvfc55m900a1444myccddjv1",
+      "sessionId": "cmvfc08a80080444md7lzchr0",
+      "pageId": null,
+      "mode": "auto",
+      "intent": "请在当前目录新建并保存一篇文章，标题为“浏览器发布验收总结”，正文记录刚才的预算汇总：项目计划35万元，子目录资料20万元，总预算55万元。",
+      "status": "done",
+      "createdAt": "2026-10-19T14:14:11.121Z",
+      "directory": {
+        "folderId": "cmvfbnxbh009ba210qu76zuwt",
+        "title": "验收目录",
+        "recursive": true,
+        "pageCount": 3
+      },
+      "result": {
+        "action": "create",
+        "summary": "已准备新文档，记录预算汇总信息，等待系统保存。",
+        "changes": "# 浏览器发布验收总结\n\n## 预算汇总\n\n- 项目计划：35 万元\n- 子目录资料：20 万元\n- 总预算：55 万元",
+        "changesSha256": "dcbbc4784b30053af97dda402c2cab65c50a28d5d9555bf68e5a6af0fab554d0",
+        "document": {
+          "operation": "created",
+          "pageId": "0ca9e7aa-222a-4dcc-a80e-62483511ec13",
+          "title": "浏览器发布验收总结",
+          "updatedAt": "2026-10-19T14:14:32.707Z",
+          "url": "/pages/0ca9e7aa-222a-4dcc-a80e-62483511ec13"
+        }
+      },
+      "error": null
+    }
+  },
+  "update": {
+    "changedPages": 1,
+    "onlyCurrentPageChanged": true,
+    "readingBodyRefreshedWithoutReload": true,
+    "saveReceiptMatchesPublicReadback": true,
+    "turn": {
+      "id": "cmvfc9hqc00b7444my33atmtp",
+      "sessionId": "cmvfc08a80080444md7lzchr0",
+      "pageId": "0ca9e7aa-222a-4dcc-a80e-62483511ec13",
+      "mode": "auto",
+      "intent": "请修改并保存当前文章：保留现有预算汇总，在正文末尾追加一行“浏览器验收通过：目录读取、自动写入和聊天回答均已验证。”",
+      "status": "done",
+      "createdAt": "2026-10-19T14:17:33.445Z",
+      "directory": {
+        "folderId": "cmvfbnxbh009ba210qu76zuwt",
+        "title": "验收目录",
+        "recursive": true,
+        "pageCount": 4
+      },
+      "result": {
+        "action": "update",
+        "summary": "保留预算汇总，在正文末尾追加验收说明",
+        "changes": "# 浏览器发布验收总结\n\n## 预算汇总\n\n- 项目计划：35 万元\n- 子目录资料：20 万元\n- 总预算：55 万元\n\n浏览器验收通过：目录读取、自动写入和聊天回答均已验证。",
+        "changesSha256": "eb743f35a092e3543899d9d8cf95b689b59766941331577acad296d48f2f55dd",
+        "document": {
+          "operation": "updated",
+          "pageId": "0ca9e7aa-222a-4dcc-a80e-62483511ec13",
+          "title": "浏览器发布验收总结",
+          "updatedAt": "2026-10-19T14:18:04.573Z",
+          "url": "/pages/0ca9e7aa-222a-4dcc-a80e-62483511ec13"
+        }
+      },
+      "error": null
+    }
+  },
+  "screenshots": [
+    "browser-directory-summary.png",
+    "browser-document-created.png",
+    "browser-document-updated.png"
+  ],
+  "snapshotHashes": {
+    "browser-readback-before.json": "09843318bdd4a8e9902b86c28a287380d8a8b778f233d3c897e0c966e5af432a",
+    "browser-readback-after-answer.json": "2391e7f978fa37dbb38a8faec30c95247434f71aab285d062b0c7ddfc7360a20",
+    "browser-readback-after-create.json": "a4b13dc89c106c47267f6885a2e9c4a5a64dfc78a88c5377422364ca9ec03f2c",
+    "browser-readback-after-update.json": "5fdab91d8c8f2128a89cff2e295019179db9c2937e04c09484904201337c4262"
+  },
+  "temporaryBrowserTabClosed": true
+}
