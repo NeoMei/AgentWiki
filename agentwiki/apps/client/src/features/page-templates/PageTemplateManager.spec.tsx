@@ -8,6 +8,7 @@ import { PageTemplateManager } from './PageTemplateManager';
 const mocks = vi.hoisted(() => ({
   api: { get: vi.fn() },
   listPageTemplates: vi.fn(),
+  createPageTemplate: vi.fn(),
   getPageTemplate: vi.fn(),
   listPageTemplateSourcePages: vi.fn(),
   updatePageTemplate: vi.fn(),
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../api/client', () => ({ default: mocks.api }));
 vi.mock('./pageTemplateApi', () => ({
   listPageTemplates: mocks.listPageTemplates,
+  createPageTemplate: mocks.createPageTemplate,
   getPageTemplate: mocks.getPageTemplate,
   listPageTemplateSourcePages: mocks.listPageTemplateSourcePages,
   updatePageTemplate: mocks.updatePageTemplate,
@@ -80,6 +82,71 @@ describe('PageTemplateManager', () => {
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
     mocks.api.get.mockResolvedValue({ data: { data: [], total: 0 } });
     mocks.listPageTemplateSourcePages.mockResolvedValue({ data: [], total: 0, skip: 0, take: 100 });
+  });
+
+  it('links active templates to creation with their identity and original destination', async () => {
+    mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
+    renderManager('/spaces/space-1/settings/page-templates?folder=target-folder');
+    expect(await screen.findByRole('link', { name: '使用模板 团队周报' })).toHaveAttribute('href',
+      '/spaces/space-1/new?template=space-1-template&kind=single_page&scope=space&folder=target-folder');
+    expect(screen.getByRole('link', { name: '使用模板 任务清单' })).toHaveAttribute('href',
+      '/spaces/space-1/new?template=system-tasks&kind=single_page&scope=system&folder=target-folder');
+    expect(screen.getByRole('button', { name: '从页面创建模板' })).toBeInTheDocument();
+  });
+
+  it('offers a direct use link after creating a template from an existing page', async () => {
+    mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
+    mocks.listPageTemplateSourcePages.mockResolvedValue({
+      data: [{ id: 'page-1', title: '来源页面', format: 'markdown', updatedAt: spaceTemplate.updatedAt }], total: 1, skip: 0, take: 100,
+    });
+    mocks.createPageTemplate.mockResolvedValue({ ...spaceTemplate, id: 'saved-template', name: '来源页面', content: '# Source', sourcePageId: 'page-1', contentLocale: 'zh-CN' });
+    renderManager('/spaces/space-1/settings/page-templates?folder=target-folder');
+    fireEvent.click(await screen.findByRole('button', { name: '从页面创建模板' }));
+    fireEvent.click(await screen.findByRole('button', { name: /来源页面 page-1/ }));
+    fireEvent.click(screen.getByRole('button', { name: '保存为 Space 模板' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存模板' }));
+    expect(await screen.findByText('模板已保存，可在新建内容时使用。')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '使用模板 来源页面' })).toHaveAttribute('href',
+      '/spaces/space-1/new?template=saved-template&kind=single_page&scope=space&folder=target-folder');
+  });
+
+  it('does not offer archived templates for use or creation to read-only users', async () => {
+    mocks.listPageTemplates.mockResolvedValue({ ...ownerCatalog, space: [{ ...spaceTemplate, archivedAt: '2026-10-19T01:00:00.000Z' }], capabilities: { canManage: false } });
+    renderManager();
+    await screen.findByText('团队周报');
+    expect(screen.queryByRole('link', { name: '使用模板 团队周报' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '从页面创建模板' })).not.toBeInTheDocument();
+  });
+
+  it('closes template creation on a language change and ignores its old source-page response', async () => {
+    let resolveSource!: (value: unknown) => void;
+    mocks.listPageTemplates.mockResolvedValue(ownerCatalog);
+    mocks.listPageTemplateSourcePages.mockImplementation(() => new Promise((resolve) => { resolveSource = resolve; }));
+    render(<LanguageHarness />);
+    fireEvent.click(await screen.findByRole('button', { name: '从页面创建模板' }));
+    await waitFor(() => expect(resolveSource).toBeTypeOf('function'));
+    fireEvent.click(screen.getByRole('button', { name: 'Switch language' }));
+    expect(await screen.findByRole('button', { name: 'Create template from page' })).toBeInTheDocument();
+    await act(async () => resolveSource({ data: [{ id: 'old', title: '旧页面', format: 'markdown', updatedAt: spaceTemplate.updatedAt }], total: 1, skip: 0, take: 100 }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByText('旧页面')).not.toBeInTheDocument();
+  });
+
+  it('discards template creation when navigating to a space without management permission', async () => {
+    let resolveSource!: (value: unknown) => void;
+    mocks.listPageTemplates.mockImplementation((spaceId: string) => Promise.resolve({ ...ownerCatalog, capabilities: { canManage: spaceId === 'space-1' } }));
+    mocks.listPageTemplateSourcePages.mockImplementation(() => new Promise((resolve) => { resolveSource = resolve; }));
+    render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1/settings/page-templates']}><SpaceSwitch />
+      <Routes><Route path="/spaces/:id/settings/page-templates" element={<PageTemplateManager />} /></Routes>
+    </MemoryRouter></LanguageProvider>);
+    fireEvent.click(await screen.findByRole('button', { name: '从页面创建模板' }));
+    await waitFor(() => expect(resolveSource).toBeTypeOf('function'));
+    fireEvent.click(screen.getByRole('button', { name: 'Switch space' }));
+    await waitFor(() => expect(mocks.listPageTemplates).toHaveBeenCalledWith('space-2', expect.anything()));
+    await act(async () => resolveSource({ data: [{ id: 'old', title: '旧空间页面', format: 'markdown', updatedAt: spaceTemplate.updatedAt }], total: 1, skip: 0, take: 100 }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '从页面创建模板' })).not.toBeInTheDocument();
+    expect(screen.queryByText('旧空间页面')).not.toBeInTheDocument();
   });
 
   it('edits metadata with the loaded optimistic timestamp', async () => {

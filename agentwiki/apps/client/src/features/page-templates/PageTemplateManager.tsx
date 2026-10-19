@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { ArrowLeft, FileText, FolderTree, Search } from 'lucide-react';
 import { apiErrorCode, apiErrorMessage } from '../../api/error-message';
 import { ModalDialog } from '../../components/ModalDialog';
-import { useLanguage } from '../../context/LanguageContext';
+import { useTemplateEntryLanguage as useLanguage } from './useTemplateEntryLanguage';
 import { sourceSelectionText } from './sourceSelectionText';
 import { CompositeDefinitionEditor, definitionReferenceIssues } from './CompositeDefinitionEditor';
 import {
@@ -20,6 +20,9 @@ import type {
   CompositeTemplateSummary,
 } from './compositeTemplateTypes';
 import { TemplateTreePreview } from './TemplateTreePreview';
+import { CreatePageTemplateDialog } from './CreatePageTemplateDialog';
+import { templateContentHref } from './templateContentNavigation';
+import { folderIdFromSearch } from '../space-workspace/workspaceNavigation';
 import {
   archivePageTemplate,
   createPageTemplateVersion,
@@ -31,6 +34,7 @@ import {
 } from './pageTemplateApi';
 import type {
   PageTemplateCategory,
+  PageTemplateDetail,
   PageTemplateListResponse,
   PageTemplateSourcePage,
   PageTemplateSummary,
@@ -43,7 +47,7 @@ type PendingDialog =
   | { type: 'version'; template: PageTemplateSummary }
   | null;
 
-type ManagementCatalog = Omit<PageTemplateListResponse, 'capabilities'> & { capabilities: { canManage: boolean; canManageDefinitions?: boolean } };
+type ManagementCatalog = Omit<PageTemplateListResponse, 'capabilities'> & { capabilities: { canManage: boolean; canManageDefinitions?: boolean; canCreate?: boolean } };
 
 const EMPTY_TEMPLATES: ManagementCatalog = {
   system: [],
@@ -80,9 +84,14 @@ const usesDefinitionStorage = (template: PageTemplateSummary) => (template as Ma
 
 export const PageTemplateManager: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+  const folderId = folderIdFromSearch(location.search);
   const { t: sharedT, language } = useLanguage();
   const t = useCallback((key: string, params?: Record<string, string | number>) =>
     sourceSelectionText(language, key, params) ?? sharedT(key, params), [language, sharedT]);
+  const [creating, setCreating] = useState(false);
+  const [createdTemplate, setCreatedTemplate] = useState<{ spaceId: string; template: PageTemplateDetail } | null>(null);
+  const createButtonRef = useRef<HTMLButtonElement>(null);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<PageTemplateCategory | ''>('');
   const [kind, setKind] = useState<'' | 'single_page' | 'page_group'>('');
@@ -130,10 +139,13 @@ export const PageTemplateManager: React.FC = () => {
   identityRef.current = identity;
   const visibleTemplates = templatesIdentity === identity ? templates : EMPTY_TEMPLATES;
 
+  useEffect(() => { setCreating(false); setCreatedTemplate(null); }, [id, language]);
+
   const canMutateTemplate = (template: PageTemplateSummary) => visibleTemplates.capabilities.canManage
     && (!usesDefinitionStorage(template) || visibleTemplates.capabilities.canManageDefinitions === true);
 
   const invalidateCatalog = useCallback(() => {
+    setCreatedTemplate(null);
     compositeDialogEpochRef.current += 1;
     compositeDialogKeyRef.current = null;
     templatesRef.current = EMPTY_TEMPLATES;
@@ -181,7 +193,7 @@ export const PageTemplateManager: React.FC = () => {
           system: data.filter((item) => item.scope === 'system') as PageTemplateSummary[],
           space: data.filter((item) => item.scope === 'space') as PageTemplateSummary[],
           totalSpace: unified.total, skip: unified.skip, take: unified.take,
-          capabilities: { canManage: unified.capabilities.canManage === true, canManageDefinitions: unified.capabilities.canManageDefinitions === true },
+          capabilities: { canManage: unified.capabilities.canManage === true, canManageDefinitions: unified.capabilities.canManageDefinitions === true, canCreate: unified.capabilities.canCreate === true },
         };
         batchCount = data.length;
       } else {
@@ -204,7 +216,7 @@ export const PageTemplateManager: React.FC = () => {
               system: data.filter((item) => item.scope === 'system') as PageTemplateSummary[],
               space: data.filter((item) => item.scope === 'space') as PageTemplateSummary[],
               totalSpace: refreshed.total, skip: refreshed.skip, take: refreshed.take,
-              capabilities: { canManage: refreshed.capabilities.canManage === true, canManageDefinitions: refreshed.capabilities.canManageDefinitions === true },
+              capabilities: { canManage: refreshed.capabilities.canManage === true, canManageDefinitions: refreshed.capabilities.canManageDefinitions === true, canCreate: refreshed.capabilities.canCreate === true },
             };
             batchCount = data.length;
           } else {
@@ -616,6 +628,9 @@ export const PageTemplateManager: React.FC = () => {
 
   const renderTemplate = (template: PageTemplateSummary, mutable: boolean) => {
     const archivePending = pendingArchiveKeys.has(`${id ?? ''}\u0000${template.id}`);
+    const canUseTemplate = usesDefinitionStorage(template)
+      ? visibleTemplates.capabilities.canCreate === true
+      : visibleTemplates.capabilities.canCreate === true || visibleTemplates.capabilities.canManage;
     const TemplateIcon = (template as ManagedTemplate).kind === 'page_group' ? FolderTree : FileText;
     return (
       <article key={template.id} className="page-template-manager-row">
@@ -634,8 +649,12 @@ export const PageTemplateManager: React.FC = () => {
             </p>
           </div>
         </div>
-        {mutable && canMutateTemplate(template) ? (
-          <div className="page-template-manager-actions">
+        <div className="page-template-manager-actions">
+          {!template.archivedAt && id && canUseTemplate ? <Link className="page-template-manager-button" aria-label={`${t('pageTemplate.use')} ${template.name}`}
+            to={templateContentHref(id, { templateId: template.id, kind: (template as ManagedTemplate).kind ?? 'single_page', scope: template.scope, folderId })}>
+            {t('pageTemplate.use')}
+          </Link> : null}
+          {mutable && canMutateTemplate(template) ? <>
             {!template.archivedAt ? (
               <>
                 <button type="button" disabled={archivePending} aria-label={`${t('common.edit')} ${template.name}`} className="page-template-manager-button max-w-full break-all [overflow-wrap:anywhere]" onClick={() => openMetadata(template)}>
@@ -656,8 +675,8 @@ export const PageTemplateManager: React.FC = () => {
                 </button>
               </>
             )}
-          </div>
-        ) : null}
+          </> : null}
+        </div>
       </article>
     );
   };
@@ -670,7 +689,15 @@ export const PageTemplateManager: React.FC = () => {
         </Link>
         <h1>{t('pageTemplate.settingsTitle')}</h1>
         <p>{t('pageTemplate.settingsDescription')}</p>
+        {visibleTemplates.capabilities.canManage ? <div className="page-template-manager-create">
+          <button ref={createButtonRef} type="button" className="page-template-manager-button" onClick={() => { setCreatedTemplate(null); setCreating(true); }}>{t('pageTemplate.createFromPage')}</button>
+          <p>{t('pageTemplate.createHelp')}</p>
+        </div> : null}
       </header>
+      {createdTemplate && id && createdTemplate.spaceId === id ? <div className="page-template-manager-created">
+        <p role="status">{t('pageTemplate.createdReady')}</p>
+        <Link className="page-template-manager-button" to={templateContentHref(id, { templateId: createdTemplate.template.id, kind: 'single_page', scope: 'space', folderId })}>{t('pageTemplate.use')} {createdTemplate.template.name}</Link>
+      </div> : null}
 
       {visibleTemplates.space.some((template) => usesDefinitionStorage(template))
         && visibleTemplates.capabilities.canManageDefinitions !== true ? <p role="status" className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{t('pageTemplate.composite.manageUnavailable')}</p> : null}
@@ -773,6 +800,10 @@ export const PageTemplateManager: React.FC = () => {
         ) : null}
       </section>
 
+      {creating && id && visibleTemplates.capabilities.canManage ? <CreatePageTemplateDialog key={id} spaceId={id}
+        returnFocusTo={createButtonRef.current} onClose={() => setCreating(false)} onSaved={(template) => {
+          setCreating(false); setCreatedTemplate({ spaceId: id, template }); void load(true);
+        }} /> : null}
       {pendingDialog?.type === 'metadata' && canMutateTemplate(pendingDialog.template) ? (
         <ModalDialog labelledBy="metadata-dialog-title" onRequestClose={closeDialog} closeDisabled={submitting || conflictReloading} fallbackFocusRef={fallbackFocusRef} className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-[14px] bg-white p-5">
           <div className="flex items-start justify-between gap-3">

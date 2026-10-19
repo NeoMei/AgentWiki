@@ -36,6 +36,7 @@ describe('PageTemplateSettingsCard', () => {
     expect(screen.getByRole('link', { name: '管理模板' })).toHaveAttribute(
       'href', '/spaces/space-1/settings/page-templates',
     );
+    expect(screen.getByRole('link', { name: '使用自定义模板' })).toHaveAttribute('href', '/spaces/space-1/new?scope=space');
     expect(mocks.listPageTemplates).toHaveBeenCalledWith('space-1', {
       locale: 'zh-CN', scope: 'space', take: 1,
     });

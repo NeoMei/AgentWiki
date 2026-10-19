@@ -4,6 +4,8 @@
 
 ## 活跃任务
 
+- [template-preview-custom-20261019](active/template-preview-custom-20261019/brief.md)：两项模板反馈本地修复及验证，未发布部署。
+
 
 
 

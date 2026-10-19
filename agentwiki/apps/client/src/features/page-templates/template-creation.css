@@ -38,7 +38,7 @@
 .template-filter { min-height: 32px; padding: 4px 12px; border-radius: 8px; color: var(--template-muted); white-space: nowrap; }
 .template-filter[aria-pressed="true"] { background: #f5f5f5; color: #171717; font-weight: 500; }
 .template-kind-tabs { margin-top: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--template-border); }
-.template-catalog-layout { display: grid; grid-template-columns: minmax(0, 1fr) 240px; align-items: start; gap: 24px; margin-top: 24px; min-width: 0; }
+.template-catalog-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); align-items: start; gap: 24px; margin-top: 24px; min-width: 0; }
 .template-catalog-main, .template-catalog-list { min-width: 0; }
 .template-catalog-list { display: flex; flex-direction: column; gap: 4px; }
 .template-catalog-item { display: flex; width: 100%; min-width: 0; align-items: flex-start; gap: 12px; padding: 16px 12px; border: 1px solid transparent; border-bottom-color: #f0f0f0; border-radius: 8px; text-align: left; transition: background 120ms, border-color 120ms; }
@@ -78,7 +78,7 @@
 .template-manage-link { display: inline-flex; align-items: center; min-height: 36px; color: #525252; font-size: 14px; }
 .template-manage-link:hover { color: #171717; text-decoration: underline; }
 .template-details, .template-configure { min-width: 0; }
-.template-details-layout { display: grid; grid-template-columns: minmax(0, 1fr) 240px; align-items: start; gap: 24px; }
+.template-details-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); align-items: start; gap: 24px; }
 .template-details-main { grid-column: 1; grid-row: 1; min-width: 0; display: flex; flex-direction: column; gap: 24px; }
 .template-details-main > label { margin-top: 0; }
 .template-summary { grid-column: 2; grid-row: 1; }
@@ -140,3 +140,12 @@
   .template-tree-branch { margin-left: 8px; padding-left: 8px; }
 }
 @media (prefers-reduced-motion: reduce) { .template-catalog-item { transition: none; } }
+
+.template-manage-entry { flex-shrink: 0; }
+.template-custom-label { color: var(--template-muted); }
+@media (max-width: 767px) {
+  .template-creation-header { flex-wrap: wrap; }
+  .template-methods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible; }
+  .template-method { white-space: normal; }
+  .template-creation-page .template-selection.has-selection { grid-row: 1; }
+}

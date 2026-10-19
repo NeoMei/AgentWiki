@@ -5,6 +5,7 @@ import { LanguageProvider } from '../../context/LanguageContext';
 import { NewContentPage } from './NewContentPage';
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
+vi.mock('./TemplateContentPreview', () => ({ TemplateContentPreview: () => null }));
 vi.mock('../../api/client', () => ({ default: mocks }));
 vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ user: { id: 'owner', platformRole: 'user' } }) }));
 function Destination() { const location = useLocation(); return <h1>{location.pathname + location.search}</h1>; }
@@ -19,6 +20,11 @@ function gets(role: string, withFolder = true) {
     if (url === '/spaces/demo') return { data: { id: 'demo', name: '知识库', members: [{ userId: 'owner', role }] } };
     if (url === '/spaces/demo/folders') return { data: { spaceId: 'demo', treeRevision: '11', nextCursor: null,
       data: withFolder ? [{ id: 'folder-1', parentId: null, name: '项目', path: '/项目' }] : [] } };
+    if (url === '/spaces/demo/templates') return { data: { data: [{ id: 'team', scope: 'space', stableKey: 'team',
+      category: 'reporting', kind: 'single_page', name: '团队周报', description: '团队模板', defaultTitle: '团队周报',
+      currentVersion: 2, archivedAt: null, updatedAt: '2026-10-19', pageCount: 1, folderCount: 0, roleCount: 0,
+      supportsCollaboration: false, effectiveSupportsCollaboration: false }], total: 1, skip: 0, take: 100,
+      capabilities: { canManage: role === 'owner', canCreate: role !== 'viewer' } } };
     if (url === '/spaces/demo/content-tree') return { data: { treeRevision: '11' } };
     throw new Error(`Unexpected ${url}`);
   });
@@ -33,11 +39,27 @@ describe('Creation route context', () => {
     expect(await screen.findByRole('heading', { name: '/pages/page-new/edit' })).toBeVisible();
     expect(mocks.post).toHaveBeenCalledWith('/pages', { title: '项目笔记', spaceId: 'demo', folderId: 'folder-1', expectedTreeRevision: '11' });
   });
+  it('selects the template from the management link while retaining its destination', async () => {
+    gets('owner'); setup('/spaces/demo/new?template=team&kind=single_page&scope=space&folder=folder-1');
+    expect(await screen.findByRole('button', { name: /团队周报.*空间自定义/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '下一步' })).toBeEnabled();
+    expect(screen.getByText(/知识库 \/ 项目/)).toBeVisible();
+  });
   it('denies a viewer opening the creation URL directly', async () => {
     gets('viewer'); setup();
     expect(await screen.findByRole('alert')).toHaveTextContent('没有在此空间创建内容的权限');
     expect(screen.queryByRole('button', { name: '创建' })).not.toBeInTheDocument();
     expect(mocks.post).not.toHaveBeenCalled();
+  });
+  it('exposes template management from the blank start and keeps the destination folder', async () => {
+    gets('owner'); setup();
+    expect(await screen.findByRole('link', { name: '管理自定义模板' })).toHaveAttribute('href',
+      '/spaces/demo/settings/page-templates?folder=folder-1');
+  });
+  it('lets editors browse custom templates without exposing management', async () => {
+    gets('editor'); setup();
+    expect(await screen.findByRole('button', { name: '自定义模板' })).toBeVisible();
+    expect(screen.queryByRole('link', { name: '管理自定义模板' })).not.toBeInTheDocument();
   });
   it('does not silently create at the root when the requested folder is unavailable', async () => {
     gets('owner', false); setup();

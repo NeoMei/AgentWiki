@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   api: { post: vi.fn() }, listComposite: vi.fn(), preview: vi.fn(), instantiate: vi.fn(),
   listLegacy: vi.fn(), listMembers: vi.fn(), getRun: vi.fn(), getRevision: vi.fn(),
 }));
+// Preview fetching/rendering is covered by TemplateContentPreview.spec.tsx and the browser flow.
+vi.mock('./TemplateContentPreview', () => ({ TemplateContentPreview: () => null }));
 vi.mock('../../api/client', () => ({ default: mocks.api }));
 vi.mock('../../api/content-tree', () => ({ getContentTreeRevision: mocks.getRevision }));
 vi.mock('./pageTemplateApi', () => ({ listPageTemplates: mocks.listLegacy }));

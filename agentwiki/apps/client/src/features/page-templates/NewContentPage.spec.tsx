@@ -3,9 +3,11 @@ import { createMemoryRouter, RouterProvider, Routes, Route, useLocation } from '
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { NavigationGuardProvider } from '../space-workspace/workspaceNavigation';
-import { NewPageDialog } from './NewPageDialog';
+import { NewPageDialog, type NewPageDialogProps } from './NewPageDialog';
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), list: vi.fn(), legacy: vi.fn(), revision: vi.fn(), preview: vi.fn(), members: vi.fn() }));
+// Preview fetching/rendering is covered by TemplateContentPreview.spec.tsx and the browser flow.
+vi.mock('./TemplateContentPreview', () => ({ TemplateContentPreview: () => null }));
 vi.mock('../../api/client', () => ({ default: { get: mocks.get, post: mocks.post } }));
 vi.mock('../../api/content-tree', () => ({ getContentTreeRevision: mocks.revision }));
 vi.mock('./compositeTemplateApi', () => ({ listCompositeTemplates: mocks.list, previewCompositeTemplate: mocks.preview }));
@@ -17,11 +19,11 @@ const template = { id: 'team', scope: 'space', stableKey: 'team', category: 'rep
   archivedAt: null, updatedAt: '2026-09-10T00:00:00.000Z' };
 
 function Location() { const location = useLocation(); return <p>{location.pathname + location.search}</p>; }
-function renderFlow() {
+function renderFlow(props: Partial<NewPageDialogProps> = {}) {
   const router = createMemoryRouter([{ path: '*', element: <LanguageProvider><NavigationGuardProvider><Routes>
     <Route path="/new" element={<NewPageDialog presentation="page" spaceId="space-1" folderId="folder-1"
       targetLocation="知识库 / 项目" onClose={() => router.navigate('/spaces/space-1?folder=folder-1')}
-      onCreated={() => router.navigate('/pages/new-page/edit')} />} />
+      onCreated={() => router.navigate('/pages/new-page/edit')} {...props} />} />
     <Route path="*" element={<Location />} />
   </Routes></NavigationGuardProvider></LanguageProvider> }], { initialEntries: ['/new'] });
   render(<RouterProvider router={router} />);
@@ -74,6 +76,82 @@ describe('New content page flow', () => {
     expect(await screen.findByText('/pages/new-page/edit')).toBeVisible();
     expect(mocks.post).toHaveBeenCalledWith('/pages', expect.objectContaining({ templateId: 'team', templateVersion: 2, templateLocale: 'zh-CN' }));
   });
+  it('opens custom templates directly from the creation sidebar', async () => {
+    renderFlow();
+    fireEvent.click(screen.getByRole('button', { name: '自定义模板' }));
+    expect(await screen.findByRole('button', { name: /团队周报/ })).toBeVisible();
+    expect(mocks.list).toHaveBeenCalledWith('space-1', expect.objectContaining({ scope: 'space' }));
+    expect(mocks.list.mock.lastCall?.[1]).not.toHaveProperty('kind');
+  });
+  const compositeTemplate = (id: string) => ({ ...template, id, name: `模板 ${id}`, kind: 'single_page',
+    pageCount: 1, folderCount: 0, roleCount: 0, supportsCollaboration: false, effectiveSupportsCollaboration: false });
+  const catalogPage = (skip: number, ids: string[], total: number) => ({
+    data: ids.map(compositeTemplate), total, skip, take: 100, capabilities: { canManage: true, canCreate: true },
+  });
+  const firstPageIds = Array.from({ length: 100 }, (_, index) => `first-${index}`);
+
+  it('finds and selects a deep-linked template beyond 100 results while retaining its scope and kind', async () => {
+    mocks.list.mockImplementation((_space: string, options: { skip: number }) => Promise.resolve(options.skip === 0
+      ? catalogPage(0, firstPageIds, 201)
+      : options.skip === 100 ? catalogPage(100, ['middle'], 201) : catalogPage(200, ['target'], 201)));
+    renderFlow({ initialKind: 'single_page', initialScope: 'space', initialTemplateId: 'target' });
+    const target = (await screen.findByText('模板 target')).closest('button');
+    await waitFor(() => expect(target).toHaveAttribute('aria-pressed', 'true'));
+    expect(screen.getByRole('button', { name: '下一步' })).toBeEnabled();
+    expect(screen.getByLabelText('模板来源')).toHaveValue('space');
+    expect(mocks.list.mock.calls.map((call) => call[1].skip)).toEqual([0, 100, 200]);
+    for (const call of mocks.list.mock.calls) {
+      expect(call[1]).toEqual(expect.objectContaining({ scope: 'space', kind: 'single_page' }));
+    }
+  });
+
+  it('stops at the last catalog page and explains that a missing deep-linked template is unavailable', async () => {
+    mocks.list.mockImplementation((_space: string, options: { skip: number }) => Promise.resolve(options.skip === 0
+      ? catalogPage(0, firstPageIds, 101) : catalogPage(100, ['last'], 101)));
+    renderFlow({ initialKind: 'custom', initialTemplateId: 'missing' });
+    expect(await screen.findByRole('alert')).toHaveTextContent('指定模板已不可用，请选择其他模板');
+    expect(screen.getByRole('button', { name: '下一步' })).toBeDisabled();
+    expect(mocks.list.mock.calls.map((call) => call[1].skip)).toEqual([0, 100]);
+    expect(screen.queryByText('正在查找指定模板…')).not.toBeInTheDocument();
+  });
+
+  it('keeps the loaded catalog after a deep-link lookup failure and retries only the failed page', async () => {
+    let failed = false;
+    mocks.list.mockImplementation((_space: string, options: { skip: number }) => {
+      if (options.skip === 0) return Promise.resolve(catalogPage(0, firstPageIds, 101));
+      if (!failed) { failed = true; return Promise.reject(new Error('offline')); }
+      return Promise.resolve(catalogPage(100, ['target'], 101));
+    });
+    renderFlow({ initialKind: 'custom', initialTemplateId: 'target' });
+    expect(await screen.findByRole('alert')).toHaveTextContent('暂时无法继续加载模板，请重试');
+    expect(screen.getByRole('button', { name: /模板 first-0 / })).toBeVisible();
+    expect(screen.getByRole('button', { name: '下一步' })).toBeDisabled();
+    expect(mocks.list).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    const target = (await screen.findByText('模板 target')).closest('button');
+    await waitFor(() => expect(target).toHaveAttribute('aria-pressed', 'true'));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(mocks.list.mock.calls.map((call) => call[1].skip)).toEqual([0, 100, 100]);
+  });
+
+  it('cancels pending deep-link selection when the user changes the creation method', async () => {
+    let finishSecondPage!: (value: ReturnType<typeof catalogPage>) => void;
+    mocks.list.mockImplementation((_space: string, options: { skip: number }) => options.skip === 0
+      ? Promise.resolve(catalogPage(0, firstPageIds, 101))
+      : new Promise((resolve) => { finishSecondPage = resolve; }));
+    renderFlow({ initialKind: 'custom', initialTemplateId: 'target' });
+    await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2));
+    const pendingSignal = mocks.list.mock.calls[1][1].signal as AbortSignal;
+    fireEvent.click(screen.getByRole('button', { name: '空白页面' }));
+    expect(pendingSignal.aborted).toBe(true);
+    await act(async () => finishSecondPage(catalogPage(100, ['target'], 101)));
+    expect(screen.getByLabelText('标题')).toHaveValue('');
+    mocks.list.mockResolvedValue(catalogPage(0, ['target'], 1));
+    fireEvent.click(screen.getByRole('button', { name: '自定义模板' }));
+    expect(await screen.findByRole('button', { name: /模板 target/ })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: '下一步' })).toBeDisabled();
+  });
+
   it('keeps a pending preview alive when returning is cancelled', async () => {
     let resolve!: (value: unknown) => void;
     mocks.preview.mockReturnValue(new Promise((done) => { resolve = done; }));

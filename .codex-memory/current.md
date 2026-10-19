@@ -1,19 +1,18 @@
 # 当前目标
 
-内嵌 Agent 目录访问、自动聊天及“修改范围”下拉框样式修复均已上线。Web/API/client 当前发布版本为 0.12.53。
+模板内容预览与自定义模板管理/使用入口两项反馈已完成独立本地候选、验证与审查。生产最新仍为 v0.12.53。
 
 # 范围 / 不做
 
-Agent 可遍历当前授权目录及子目录，无需逐篇引用；聊天按提示词回答、修改当前文章或在当前目录创建文章，不需要选择模式。0.12.53 仅优化下拉箭头、间距和聚焦边框，保留原生键盘与辅助功能行为。Local Sync 保持 0.13.4，protocol 保持 0.6.1；未发布 npm 或修改原反馈页。
+只修复新建内容与模板管理的客户端流程，不更改服务端权限、数据库模型、既有模板版本或用户内容。无发布、部署或 npm 变更。
 
 # 当前状态
 
-- 工作树 `/Users/neomei/.codex/worktrees/agent-directory-access/AgentWiki `（尾空格），分支 `codex/agent-directory-access`。版本标签 v0.12.53 和冻结源码 `476408cb4e59cf4cc078ea35010f68b47c6ecd7f` 已推送并部署，GitHub Release 已发布。
-- 0.12.53 的 116 项相关测试、客户端生产构建与改动 TSX 的 ESLint 通过；首屏 JS 549985/550000 字节。桌面与窄面板、箭头点击、方向键和 Esc 已验证；生产浏览器确认新样式，无 warning/error。
-- 1377 生产源码文件、公网 HTML 与五项入口资源匹配；64 项迁移无 pending；API/Worker/Frontend active，五项健康 ok。0.12.53 无新迁移、依赖或锁文件变更。
-- 0.12.52 已完成全量 8080 通过、6 既有跳过、真实数据库 239 项无跳过，以及真实模型 API 四场景与浏览器目录总结、新建、修改三场景验收；0.12.53 未重复运行该全量验收。
-- 0.12.53 临时验收账号/Space 已官方 API 软删除并回读确认，令牌失效，临时浏览器页和本地预览已关闭。
-- 配对备份 `/var/backups/agentwiki/scope-ui-v01253.x49anmnl` 校验通过，旧应用保留 `/root/agentwiki-previous-20261019225209`。未执行恢复演练。
+- 工作树 `/Users/neomei/.codex/worktrees/template-preview-custom/AgentWiki `（尾空格），分支 `codex/template-preview-custom`，基线 f13c5f0a。
+- 预览显示真实正文缩略图、页面组切页和放大只读内容，处理错误/空内容/旧响应/版本漂移。
+- 新建页左侧自定义模板，管理员顶部管理入口；管理页从页面创建和直接使用，保留folder目的地及编辑/版本/归档/恢复。
+- 生产构建通过；首屏JS 547823/550000字节。客户端2756项、浏览器5条、ESLint及独立复审通过。回执见关键索引。
+- 生产 v0.12.53 内嵌Agent自动聊天/目录访问/下拉框样式的发布状态保持；旧发布回执见 docs/releases-v0.12.53.md。
 
 # 稳定约束
 
@@ -21,14 +20,12 @@ Git 在对应工作树 cwd 下显式 --work-tree 指向带尾空格路径，不�
 
 # 关键索引
 
+- .codex-memory/tasks/active/template-preview-custom-20261019/{brief,decisions,refs}.md
+- agentwiki/docs/verification/template-preview-custom-20261019/acceptance.md
+- agentwiki/docs/verification/template-preview-custom-20261019/README.md
 - agentwiki/docs/releases-v0.12.53.md
-- 本次私有验收回执 `/private/tmp/agentwiki-scope-release-20261019/release-receipt.json`
-- agentwiki/docs/releases-v0.12.52.md
-- agentwiki/docs/verification/agent-auto-release-20261019/acceptance.md
 - agentwiki/docs/verification/agent-auto-release-20261019/release.json
-- agentwiki/docs/verification/agent-directory-20261019/acceptance.md
-- agentwiki/docs/verification/agent-auto-chat-20261019/acceptance.md
 
 # 风险 / 下一步
 
-当前无未完成发布事项。新 auto/目录会话不兼容旧版服务校验，优先前向修复；不能只切旧应用视为完整回滚。配对恢复需处理备份之后的用户写入。
+本轮仅本地修复。浏览器验收使用真实产品组件和本地内存HTTP API，不能等同线上权限、数据库或生产发布验收。后续发布需另做版本、备份、部署与线上回读。
