@@ -11,7 +11,7 @@
 - Node.js 24 or 26
 - Python 3.10 or later (only required for PDF/DOCX conversion)
 - `npx`
-- A supported local client (Codex, Claude Code, or OpenCode)
+- Any Agent client that supports local stdio MCP. Codex, Claude Code, OpenCode, and WorkBuddy also have direct configuration presets.
 - An AgentWiki-generated, one-time installation instruction and its unexpired install
   code
 
@@ -40,7 +40,7 @@ Connect an Agent to AgentWiki once. The gateway uses that Agent's selected conne
 
 For remote calls, supply the internal `spaceId`; the server checks that Space's current grant, role, and resource membership. Knowledge read tools and `wiki_propose_page_update` accept named arguments and the legacy `__args` wrapper; duplicate fields must agree. Other generic tools accept, for example, `{ "spaceId": "<id>", "__args": { "pageId": "<page-id>" } }`. Existing `spaceId` in local configuration is only a default context for older callers. There is no mutable global current Space.
 
-Revoking or changing a Space grant affects subsequent calls using the same Agent connection. The gateway never retries with another Agent, server, host-client connection, or stored key. Existing local connections and credentials are preserved; they are not merged or used as a Space allowlist. `onboard_status` reports the selected identity's remote connection; use `wiki_list_spaces` to inspect live Space authorization.
+Revoking or changing a Space grant affects subsequent calls using the same Agent connection. The gateway never retries with another Agent, server, host-client connection, or stored key. Existing local connections and credentials are preserved; they are not merged or used as a Space allowlist. Call `onboard_status` with empty arguments and inspect `gateway.status`, `gateway.clientReloadRequired`, and `gateway.recovery` for the running gateway's current remote connection. Top-level fields such as `state`, `agent`, or `connectionId` describe historical installation checkpoints, not the current gateway identity; they may be absent or refer to an older session. Use `wiki_list_spaces` to inspect live Space authorization, then `wiki_get_page` to verify a real authorized page read.
 
 Knowledge preparation and pull require `spaceId`; confirmation uses the Space sealed inside the preview bundle. Workspaces remain isolated by Space ID. Before consuming cached knowledge or syncing, the gateway verifies live grants and uses the same Agent key for the knowledge revision/submission APIs. Human sync-device credentials keep their separate lifecycle and are not reused for Agent multi-Space sync. When upgrading a gateway that previously used a human device/tree workspace, the Agent workspace is isolated under `.agentwiki/agent-knowledge/spaces/<spaceId>` within the configured local home. Existing tree state and unsynced edits stay at their original path unchanged. Pull and prepare report this isolation; those device edits are not automatically imported or submitted.
 
@@ -51,23 +51,45 @@ CodeGraph MCP to AgentWiki.
 
 ## Resumable connection onboarding
 
-Local Sync 0.13.1 requires AgentWiki 0.12.47 or later for onboarding, including its
-0.13.1 version allowlist, Agent identity
+The 0.13.3 release corrects browser-authorization polling and real MCP diagnostic instructions, and prevents cross-version checkpoint continuation. Existing 0.13.2 and earlier onboarding sessions must continue with their original exact-version command; do not rewrite a saved version or plan hash. New sessions persist their exact package version before authorization; continuation rejects missing or mismatched version markers with `SESSION_VERSION_MISMATCH`, preserving the checkpoint and token without remote requests. Historical MCP status remains readable. WorkBuddy's observed `npx` cache `safe-delete` refusal occurs before this package executes, so follow the startup preparation below before the first npx command. The prior real WorkBuddy acceptance used the official 0.13.2 package with an absolute Node.js 24 executable and CLI path; it is separate from validation of this npx startup path.
+
+The 0.13.4 release installs a WorkBuddy MCP command pinned to the verified Node.js 24 or 26 runtime and its accompanying official npm/npx, with a private disposable cache checked at every startup. Installation verification runs that saved command, arguments, and environment. Keep existing 0.13.3, 0.13.2, and earlier sessions on their original exact-version command; this release does not migrate session markers or plan hashes.
+
+**WorkBuddy startup preparation**
+
+This applies even when the generic guide is selected: identify the actual host before starting, and use `--client workbuddy` for WorkBuddy. Other hosts keep their normal npx commands. In WorkBuddy's tool execution environment, locate or install Node.js 24 or 26 and its accompanying npm/npx; a different terminal's version does not establish the managed runtime. Before npx, run this with the safely quoted absolute path of that supported Node executable:
+
+```sh
+node -e "const fs=require('node:fs'),os=require('node:os'),path=require('node:path');if(![24,26].includes(Number(process.versions.node.split('.')[0])))throw new Error('Use Node.js 24 or 26 in this host');const cache=fs.mkdtempSync(path.join(os.tmpdir(),'agentwiki-npx-'));if(process.platform!=='win32')fs.chmodSync(cache,0o700);console.log(JSON.stringify({node:process.execPath,nodeVersion:process.version,npmCache:cache}));"
+```
+
+Verify `node` and `nodeVersion`, and persist the absolute `npmCache`, Node/npx paths and exact package version. The random directory is inside the system temporary directory, with POSIX mode 0700 or the current user's system Temp ACL on Windows. For **every** onboarding invocation, prepend the selected Node directory to the child process `PATH` and invoke the absolute npx from the same installation; npm's package subprocess must not fall back to WorkBuddy's managed Node.js 22. Use an argument array or native-shell quoting (PowerShell requires `&` before a quoted executable path). Replace the placeholders and leading npx below with those saved values:
+
+```sh
+npx --cache '<absolute-npm-cache>' --yes @neomei/agentwiki-local-sync@0.13.4 onboard start --server https://agentwiki.quukk.com/api --client workbuddy --protocol json
+npx --cache '<absolute-npm-cache>' --yes @neomei/agentwiki-local-sync@0.13.4 onboard status --session <uuid> --protocol json
+npx --cache '<absolute-npm-cache>' --yes @neomei/agentwiki-local-sync@0.13.4 onboard continue --session <uuid> --protocol json
+npx --cache '<absolute-npm-cache>' --yes @neomei/agentwiki-local-sync@0.13.4 onboard continue --session <uuid> --reply-file /absolute/reply.json --protocol json
+```
+
+Keep `--cache` before the package name and reuse the same absolute cache and supported runtime for start, status, and every continue. Store only disposable npm files in this cache; session files, replies, and credentials stay in their normal persistent directories. Before every reuse, including a later session resume, verify that the cache is still under the system os.tmpdir() and is a real directory owned by the current user, not a symlink, with POSIX mode 0700 or the current user's Temp ACL on Windows. If it is missing, replaced, or has changed permissions, do not chmod or take over an unknown old cache: create a new private temporary cache by the same rule, update its saved path, and reinstall the same exact package version while preserving the session and its `sessionId`. Do not change `NODE_OPTIONS`, disable security protections, or delete old npm caches. A successful npx launch alone does not prove client registration or a real host MCP read.
+
+Local Sync 0.13.4 requires AgentWiki 0.12.50 or later for onboarding, including its
+0.13.4 version allowlist, Agent identity
 authorization, `agent-connect`, `/onboard/spaces`, and `/onboard/device/renew`
 support. Use the exact-version connection instruction generated by that server.
 The following commands also work from an installed or built package:
 
 ```bash
-node dist/cli.js onboard start --server https://agentwiki.quukk.com/api --client codex --protocol json
+node dist/cli.js onboard start --server https://agentwiki.quukk.com/api --client generic --protocol json
 node dist/cli.js onboard status --session <uuid> --protocol json
 node dist/cli.js onboard continue --session <uuid> --reply-file /absolute/reply.json --protocol json
 node dist/cli.js onboard continue --session <uuid> --protocol json
 ```
 
-Each command exits with one JSON object. Start checks local configuration and returns
-`authorization_required` with `authorizationUrl`, `expiresAt`, and `retryAfterMs`.
-Ask the user to authorize in the browser, then run continue after that delay. Status
-is strictly read-only and cannot poll, install, scan, or reveal credentials.
+Each command exits with one JSON object. Start checks Node.js before creating a session, contacting the server, or opening a browser. Unsupported versions stop with installation and PATH/restart instructions. It checks local configuration, then attempts to open the browser and returns
+`authorization_required` with `authorizationUrl`, `browserOpened`, `expiresAt`, and `retryAfterMs`.
+The browser launch does not grant approval: the user still signs in and authorizes. If no window appears or `browserOpened` is false, open the returned URL manually. After `retryAfterMs`, run `onboard continue --session <uuid> --protocol json` without `--reply-file` to retrieve browser approval from the server and advance. If `authorization_required` remains, wait the returned delay and continue again. CLI `onboard status` only reads the local checkpoint and does not contact the server: repeated status calls cannot observe browser approval. This CLI command is distinct from the MCP `onboard_status` connection diagnostic and cannot poll, install, scan, or reveal credentials.
 
 After authorization, `input_required` contains `requestId`, `replyExpiresAt`, and
 eligible `spaces: [{id, name}]`. Present the names and ask for the Space, Agent name,
@@ -96,10 +118,15 @@ current phase and connection state; inspect it before retrying. `authorization_e
 can be renewed with continue: approve the new browser URL and confirm again.
 The server session, plan, and bootstrap idempotency key stay unchanged.
 
+For `--client generic` (also the default), installation exports a standard `mcpServers.agentwiki` configuration to `~/.config/agentwiki/mcp.json`. Import it into your current client, or add a local **stdio** MCP server and copy the `command` and each `args` value exactly. The export contains a connection ID and a pinned gateway command, never the API key. It does not edit an unknown client's private config. `--client workbuddy` writes directly to `~/.workbuddy/mcp.json` while backing up and preserving other entries.
+
+Website authorization and client authorization are separate: enable `agentwiki` in the host and approve its MCP/tool permissions. Reload MCP; if the client has no reload action or tools remain missing, fully quit and restart it and begin a new conversation. Use the current host's tools to read a known authorized page before claiming host access works.
+
 Completion reports separate evidence:
 
 - `connectionStatus: "connected"` and `gatewayVerification: "passed"`: installation,
   local gateway MCP handshake, and remote identity/Space access checks passed.
+- `configurationMode`, `configPath`, `hostActivationRequired`, `hostActivationSteps`: distinguish a generic export requiring import from a known host configuration.
 - `clientReloadRequired: true`, `hostVerification: "not_started"`: reload the actual
   client's MCP configuration and make a real host tool call to read a known page.
 - `knowledgeImport: "not_started"`: no repository scan, read-only pull, or upload ran.
@@ -111,12 +138,12 @@ under `~/.agentwiki/onboarding/steps/`; never copy their contents into prompts o
 Concurrent continuation is rejected with `SESSION_BUSY`; crashed process locks recover
 on the next command. Changed client configuration requires a fresh confirmation.
 
-## Onboarding (0.13.1)
+## Onboarding (0.13.4)
 
 Use the pinned onboarding command to complete the full self-service flow:
 
 ```bash
-npx --yes @neomei/agentwiki-local-sync@0.13.1 onboard \
+npx --yes @neomei/agentwiki-local-sync@0.13.4 onboard \
   --server https://agentwiki.quukk.com/api \
   --protocol ndjson
 ```
@@ -127,7 +154,7 @@ with a read-only pull after gateway verification and never calls the write-sync 
 Editor and Publisher run the first local scan and sync after explicit preview
 confirmation. Passwords and login information never enter the Agent conversation.
 
-Every 0.13.1 plan contains one role: `reader`, `editor`, or `publisher`. For an existing
+Every 0.13.4 plan contains one role: `reader`, `editor`, or `publisher`. For an existing
 Agent, the user chooses the Space and role before generating the one-time code; exchange
 atomically creates or updates the Space Grant and creates an identity-only Credential owned by the Agent.
 The selected Space is the initial context; subsequent requests can use every currently authorized Space.
@@ -146,7 +173,7 @@ deterministically routes `wiki_*`, `local_*`, and `knowledge_*` tools.
 When an Agent already exists in AgentWiki, generate the one-time unified-gateway instruction from that Agent's access page. The generated command uses the same `onboard` entry point with `--code`; it attaches the existing identity without creating a second MCP:
 
 ```bash
-npx --yes @neomei/agentwiki-local-sync@0.13.1 onboard \
+npx --yes @neomei/agentwiki-local-sync@0.13.4 onboard \
   --server https://agentwiki.quukk.com/api \
   --code <one-time-code> \
   --protocol ndjson \
@@ -164,6 +191,12 @@ npx --yes @neomei/agentwiki-local-sync@0.13.1 onboard \
 ```bash
 # Verify the installed MCP entry, local dependencies, identity, and permissions.
 agentwiki-local-sync doctor
+
+# Inspect all known host config files; absent optional hosts are unverified.
+agentwiki-local-sync doctor --all-clients
+
+# Discover required flags, examples, and the private reply-file JSON format.
+agentwiki-local-sync onboard continue --help
 
 # Remove MCP connections for one client (or all clients when --agent is omitted).
 # Credentials and sync-state.json are retained by default.
@@ -216,11 +249,13 @@ and connection ID, never the API key.
 | Codex | Atomic `~/.codex/config.toml` entry using `command` + `args` | Codex CLI 0.147.0 |
 | Claude Code | Atomic `~/.claude.json` entry using `command` + `args` | Claude Code 2.1.211 |
 | OpenCode | Version-aware v1/v2 config using a command array | OpenCode 1.18.18 |
+| WorkBuddy | Atomic `~/.workbuddy/mcp.json`, preserving other `mcpServers` | Configuration tests; live host verification still required |
+| Any local stdio MCP client | Export `~/.config/agentwiki/mcp.json` for import into the host | Configuration tests; live host verification still required |
 
-These versions were tested with isolated temporary HOME directories on 2026-08-15. The
+The three original client versions were tested with isolated temporary HOME directories on 2026-08-15. WorkBuddy uses its [official user-level MCP configuration](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide). The
 package uses an exact version in every registered gateway command.
 
-The 0.13.1 package requires the corrected
+The 0.13.4 package requires the corrected
 `@neomei/agentwiki-sync-protocol@0.6.1`, which contains the collaboration and Sync v3
 contracts. Release verification packs the Local Sync candidate, installs it with the
 public protocol into an empty directory, and runs the CLI before publication.
@@ -233,7 +268,7 @@ credentials, or absolute local paths.
 
 ### Publisher integrity correction
 
-0.13.1 pins protocol 0.6.1, whose publisher defaults contain the 16 supported
+0.13.4 pins protocol 0.6.1, whose publisher defaults contain the 16 supported
 scopes and omit unsupported `memory:read`/`memory:write`. Upgrade from 0.10.0 for
 both device and one-time-code publisher onboarding. Confirmed plan hashes, role,
 Agent, Space, exact scope order/count, and package version remain strictly checked.

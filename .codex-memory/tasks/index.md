@@ -6,6 +6,7 @@
 
 
 
+
 - [release-v01226-20261014](active/release-v01226-20261014/brief.md)：用户授权全量发布；最终门禁、配套备份及0.12.26/0.13.0版本准备进行中。
 
 - [editor-live-preview-20261014](active/editor-live-preview-20261014/brief.md)：单行选区与编辑态图片预览均已本地修复，2325客户端测试/build/lint/独立复审和真实Chrome交互通过，未推送部署。
@@ -20,6 +21,8 @@
 - [q3-regressions-20260914](archive/q3-regressions-20260914/brief.md)：Q3人工报告20项代码修复、整分支独立复审与候选验收完成；未发布部署或安装日常Vault。
 
 ## 最近完成
+
+- [generic-mcp-onboarding-20261018](archive/generic-mcp-onboarding-20261018/brief.md)：冻结99b247c7已发布npm0.13.4/WebAPI0.12.50，官方179文件/空缓存安装、生产1360源码/公网资源/健康通过。真实WorkBuddy更新后重新信任、完整重启、新会话三次MCP与Reader读页8156B哈希通过；保留已有账号授权，默认启动改用私有系统临时cache及Node24/26，未关闭保护。
 
 - [retest-20261017](archive/retest-20261017/brief.md)：Web0.12.47生产、npm0.13.1与插件0.5.12正式发布；官方包/资产、1354源码/5公网资源/32烟测、真实日期排序/导航/390px及新SDK顶层原页published回读通过。Windows待验，日常Vault和当前Codex0.13.0配置保留。
 

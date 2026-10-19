@@ -15,7 +15,7 @@ export interface LocalSyncConnection {
   agentId: string;
   credentialId: string;
   pluginVersion: string;
-  client: 'codex' | 'claude' | 'opencode';
+  client: 'codex' | 'claude' | 'opencode' | 'workbuddy' | 'generic';
   mcpName: string;
   /** Default Space context only, never an authorization boundary. Legacy configs may omit it. */
   spaceId?: string;

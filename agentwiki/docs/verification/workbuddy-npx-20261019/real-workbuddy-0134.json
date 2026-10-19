@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 1,
+  "status": "official_0134_real_workbuddy_mcp_read_passed",
+  "verifiedAt": "2026-10-18T19:21:10.359272+00:00",
+  "publishedPackage": "@neomei/agentwiki-local-sync@0.13.4",
+  "workbuddyVersion": "5.8.3",
+  "configurationSha256": "7a7a6b6eea4d5f3754e7c572cae6f069f02b1e1485e2bb30d0e825b7acbe1180",
+  "launcherSha256": "83a1f664d39fb9704ddaadd138de63dc64bbe4b6266d7fff33688eeab3026914",
+  "priorConfigBackedUp": true,
+  "identityConnectionAndReaderGrantUnchanged": true,
+  "sessionId": "9bedded8-9cae-4585-9b8d-20f911996854",
+  "evidenceBoundary": {
+    "since": "2026-10-18T19:19:13Z",
+    "until": "2026-10-18T19:20:00Z",
+    "sourceLogFirst18LinesSha256": "7da84425c383c962937e58d551d0f8900740a60f76a4f6121a45a28ff5163e25",
+    "laterExplicitBashAcceptanceSeparate": true
+  },
+  "calls": [
+    {
+      "tool": "mcp__agentwiki__onboard_status",
+      "callId": "call_2bfb15bd0df94ed1a506a832",
+      "calledAt": "2026-10-18T19:19:23.578000+00:00",
+      "returnedAt": "2026-10-18T19:19:24.588000+00:00",
+      "transportStatus": "completed",
+      "summary": {
+        "sessionState": "failed_terminal",
+        "agentReload": false,
+        "onboardingStateMeaning": "historical",
+        "gateway": {
+          "status": "connected",
+          "code": "REMOTE_CONNECTED",
+          "checkedAt": "2026-10-18T19:19:24.574Z",
+          "cachedToolCount": 28,
+          "credentialScope": "agent",
+          "authorizationSource": "live_agent_grants",
+          "localToolsAvailable": true,
+          "registeredRemoteToolCount": 28,
+          "clientReloadRequired": false
+        }
+      },
+      "accepted": true
+    },
+    {
+      "tool": "mcp__agentwiki__wiki_list_spaces",
+      "callId": "call_438c582374a54128a07781ec",
+      "calledAt": "2026-10-18T19:19:27.539000+00:00",
+      "returnedAt": "2026-10-18T19:19:27.863000+00:00",
+      "transportStatus": "completed",
+      "summary": {
+        "count": 1,
+        "spaceIds": [
+          "cmv6biedu005okoisb9fgp64y"
+        ],
+        "spaces": [
+          {
+            "id": "cmv6biedu005okoisb9fgp64y",
+            "role": "reader"
+          }
+        ],
+        "expectedSpaceReader": true
+      },
+      "accepted": true
+    },
+    {
+      "tool": "mcp__agentwiki__wiki_get_page",
+      "callId": "call_f9331a9fd117437bb27e9823",
+      "calledAt": "2026-10-18T19:19:30.214000+00:00",
+      "returnedAt": "2026-10-18T19:19:30.605000+00:00",
+      "transportStatus": "completed",
+      "summary": {
+        "pageId": "f285b898-65ba-4938-8616-e9a0b8f575f5",
+        "spaceId": "cmv6biedu005okoisb9fgp64y",
+        "format": "markdown",
+        "updatedAt": "2026-10-13T17:32:33.445Z",
+        "contentBytes": 8156,
+        "contentSha256": "34e06f9db48b768de26609aa4962c5ec168fd206f670a32a036c44b17032436b",
+        "expectedBytes": 8156,
+        "expectedSha256": "34e06f9db48b768de26609aa4962c5ec168fd206f670a32a036c44b17032436b",
+        "matchesExpected": true
+      },
+      "accepted": true
+    }
+  ],
+  "failedCallsInBoundary": [],
+  "actualRuntime": {
+    "node": "24.18.0",
+    "npm": "11.16.0",
+    "evidence": "New WorkBuddy cache npm debug logs and observed Electron to npm exec to gateway process chain"
+  },
+  "registryPackage": {
+    "version": "0.13.4",
+    "integrityMatchesCandidate": true,
+    "filesCompared": 179,
+    "mismatches": []
+  },
+  "cache": {
+    "currentUserOwned": true,
+    "mode": "0700",
+    "symlink": false,
+    "createdByOfficialInstaller": true,
+    "coldOfficialDownload": true
+  },
+  "nativeUi": {
+    "changedCommandRetrusted": true,
+    "greenToolsEnabled": "34/34",
+    "fullQuitBeforeUpdateVerified": true,
+    "fullQuitAfterTrustVerified": true,
+    "mainPids": {
+      "beforeUserRestart": 71909,
+      "afterTrustLaunch": 87933,
+      "afterFullRestart": 89235
+    },
+    "newConversationReadResultVisible": true
+  },
+  "observedProcessChain": [
+    {
+      "pid": 89235,
+      "ppid": 1,
+      "comm": "/Applications/WorkBuddy.app/Contents/MacOS/Electron"
+    },
+    {
+      "pid": 89300,
+      "ppid": 89235,
+      "comm": "/Applications/WorkBuddy.app/Contents/MacOS/Electron"
+    },
+    {
+      "pid": 89615,
+      "ppid": 89300,
+      "comm": "/Applications/WorkBuddy.app/Contents/MacOS/Electron"
+    },
+    {
+      "pid": 89903,
+      "ppid": 89615,
+      "comm": "npm exec"
+    },
+    {
+      "pid": 89955,
+      "ppid": 89903,
+      "comm": "node"
+    }
+  ],
+  "mcpSafetyBoundary": "Gateway NODE_OPTIONS existed; neither node-language-shim.cjs nor node-safe-delete-shim.cjs was referenced in the observed NODE_OPTIONS. This does not establish module execution or lack of any other WorkBuddy safety layer. No safety setting was modified by this collector.",
+  "limitations": [
+    "Existing browser account authorization reused; no new account authorization flow claimed",
+    "Windows native host not tested",
+    "Historical failed_terminal is preserved and separate from connected live gateway",
+    "Bash safe-delete environment verification is a separate receipt"
+  ]
+}

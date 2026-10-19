@@ -444,7 +444,7 @@ test('the ChangeSet revision migration replaces the unique index with a lookup i
 
 test('Nginx sends Socket.IO websocket upgrades directly to the API', async () => {
   const nginx = await read('deploy/nginx/agentwiki.conf');
-  const socketLocation = nginx.match(/location \/socket\.io\/ \{([\s\S]*?)\n    \}/)?.[1];
+  const socketLocation = nginx.match(/location \/socket\.io\/ \{([\s\S]*?)\n {4}\}/)?.[1];
 
   assert.ok(socketLocation, 'Nginx must define a dedicated /socket.io/ location');
   assert.match(socketLocation, /proxy_pass http:\/\/127\.0\.0\.1:3000;/);
@@ -624,7 +624,7 @@ test('local-sync builds and packs without retired modules or public subpaths', a
 
 test('every active local-sync release surface uses the package version', async () => {
   const version = JSON.parse(await read('packages/local-sync/package.json')).version;
-  assert.equal(version, '0.13.1');
+  assert.equal(version, '0.13.4');
   for (const path of [
     '.env.example',
     'README.md',
@@ -686,9 +686,9 @@ test('every user-facing local-sync surface uses the published npm package name',
 
 
 
-test('the onboard controller advertises the pinned 0.13.1 onboarding command', async () => {
+test('the onboard controller advertises the pinned 0.13.4 onboarding command', async () => {
   const source = await read('apps/server/src/onboard/onboard.controller.ts');
-  assert.match(source, /0\.13\.1/, 'onboard controller must reference 0.13.1');
+  assert.match(source, /0\.13\.4/, 'onboard controller must reference 0.13.4');
   assert.match(source, /onboard start --server/, 'onboard controller must advertise the pinned finite-process onboard command');
   assert.doesNotMatch(source, /connect --server/, 'onboard controller must not advertise the retired connect command');
   assert.doesNotMatch(source, /--orchestrator/, 'onboard controller must not advertise --orchestrator');
@@ -707,22 +707,21 @@ test('application release versions and independent sync versions stay aligned', 
     [appVersion, appVersion, appVersion],
     'application packages must use the same canonical semantic version as the root package',
   );
-  assert.equal(localSyncPackage.version, '0.13.1');
+  assert.equal(localSyncPackage.version, '0.13.4');
   assert.equal(syncProtocolPackage.version, '0.6.1');
   assert.equal(rootPackage.scripts['test:e2e:collaboration-db'], 'node --test scripts/collaboration-workflows-db.test.mjs');
   assert.equal(rootPackage.scripts['test:e2e:collaboration'], 'node scripts/collaboration-workflows-e2e.mjs');
-  assert.match(await read('.env.example'), /LOCAL_SYNC_PACKAGE_VERSION=0\.13\.1/u);
-  assert.match(await read('docker-compose.yml'), /LOCAL_SYNC_PACKAGE_VERSION:-0\.13\.1/u);
+  assert.match(await read('.env.example'), /LOCAL_SYNC_PACKAGE_VERSION=0\.13\.4/u);
+  assert.match(await read('docker-compose.yml'), /LOCAL_SYNC_PACKAGE_VERSION:-0\.13\.4/u);
 });
 
 test('the local-sync CLI exposes gateway and onboard commands without connect', async () => {
-  const source = await read('packages/local-sync/src/cli.ts');
-  const usage = source.match(/CLI_USAGE = '([^']+)'/);
-  assert.ok(usage, 'CLI_USAGE must be defined');
-  assert.match(usage[1], /onboard/, 'CLI must expose onboard');
-  assert.match(usage[1], /gateway/, 'CLI must expose gateway');
-  assert.doesNotMatch(usage[1], /\bconnect\b/, 'CLI must not expose connect');
-  assert.doesNotMatch(usage[1], /--orchestrator/, 'CLI must not expose --orchestrator');
+  const result = spawnSync(process.execPath, [resolve(root, 'packages/local-sync/dist/cli.js'), '--help'], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /onboard/, 'CLI must expose onboard');
+  assert.match(result.stdout, /gateway/, 'CLI must expose gateway');
+  assert.doesNotMatch(result.stdout, /\bconnect\b/, 'CLI must not expose connect');
+  assert.doesNotMatch(result.stdout, /--orchestrator/, 'CLI must not expose --orchestrator');
 });
 
 test('every active Agent connection surface exposes only the unified gateway', async () => {

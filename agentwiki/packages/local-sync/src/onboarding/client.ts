@@ -16,11 +16,11 @@ const DEFAULT_POLL_DEADLINE_MS = 10_000;
 const DEFAULT_MAX_POLL_ATTEMPTS = 240; // ~20 min at 5s intervals
 const MIN_POLL_INTERVAL_MS = 2_000;
 
-export type ClientType = 'codex' | 'claude' | 'opencode';
+export type ClientType = 'codex' | 'claude' | 'opencode' | 'workbuddy' | 'generic';
 
 export interface StartParams {
   serverBaseUrl: string;
-  packageVersion: '0.13.1';
+  packageVersion: '0.13.4';
   clientType: ClientType;
   purpose?: 'full-onboarding' | 'agent-connect';
   fetchImpl?: typeof fetch;
@@ -57,7 +57,7 @@ export interface ServerPlan {
   space: ServerPlanSpace | ServerPlanExistingSpace;
   agentName: string;
   role: AgentAccessRole;
-  packageVersion: '0.13.1';
+  packageVersion: '0.13.4';
 }
 
 export interface BootstrapParams {

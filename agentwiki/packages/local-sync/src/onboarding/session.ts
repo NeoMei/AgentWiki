@@ -15,6 +15,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { AgentAccessRoleSchema } from '@neomei/agentwiki-sync-protocol';
 import { hashServerPlan, type ServerPlan } from './plan-hash.js';
+import { OnboardingError } from './errors.js';
 import { hashOnboardingPlan } from './local-plan-hash.js';
 import { PublicRelativeDisplayPathSchema } from '../codegraph/contracts.js';
 
@@ -74,8 +75,10 @@ export interface OnboardingCheckpoint {
   sessionId: string;
   state: OnboardingState;
   protocolVersion: number;
+  /** Exact creator package; absent only in historical checkpoints. */
+  packageVersion?: string;
   serverUrl: string;
-  clientType: 'codex' | 'claude' | 'opencode';
+  clientType: 'codex' | 'claude' | 'opencode' | 'workbuddy' | 'generic';
   createdAt: string;
   updatedAt: string;
   /** Input values collected from the user (space, agent, sources). */
@@ -84,6 +87,8 @@ export interface OnboardingCheckpoint {
   deviceCode?: string;
   userCode?: string;
   verificationUri?: string;
+  /** Presence records a browser launch attempt, including a failed attempt. */
+  browserOpened?: boolean;
   /** Hex digest of the confirmed server plan. */
   serverPlanHash?: string;
   /** Hex digest of the confirmed local CodeGraph plan, when code is present. */
@@ -108,7 +113,7 @@ export interface OnboardingCheckpoint {
 
 export interface SessionStore {
   save(checkpoint: OnboardingCheckpoint): Promise<void>;
-  load(): Promise<OnboardingCheckpoint | null>;
+  load(expectedPackageVersion?: string): Promise<OnboardingCheckpoint | null>;
   saveSecret(token: string): Promise<void>;
   loadSecret(): Promise<string | null>;
   deleteSecret(): Promise<void>;
@@ -127,7 +132,7 @@ const canonicalSourcePathSchema = textSchema.superRefine((value, context) => {
 const inputOptionsShape = {
   agentName: textSchema,
   role: AgentAccessRoleSchema,
-  clientType: z.enum(['codex', 'claude', 'opencode']),
+  clientType: z.enum(['codex', 'claude', 'opencode', 'workbuddy', 'generic']),
   sourcePaths: z.array(canonicalSourcePathSchema).min(1),
   sourceType: z.enum(['auto', 'code', 'documents']),
   analysisMode: z.enum(['standard', 'deep']),
@@ -176,7 +181,7 @@ const localPlanPreviewSchema = z.object({
 
 const serverPlanSchema = z.object({
   space: z.union([z.object({ mode: z.literal('create'), name: z.string().min(1) }).strict(), z.object({ mode: z.literal('existing'), id: z.string().min(1) }).strict()]),
-  agentName: z.string().min(1), role: AgentAccessRoleSchema, packageVersion: z.literal('0.13.1'),
+  agentName: z.string().min(1), role: AgentAccessRoleSchema, packageVersion: z.literal('0.13.4'),
 }).strict();
 const bootstrapSummarySchema = z.object({
   space: z.object({ id: z.string().min(1), name: z.string().min(1) }).strict(),
@@ -186,9 +191,10 @@ const bootstrapSummarySchema = z.object({
 
 const checkpointSchema = z.object({
   sessionId: opaqueIdSchema, state: z.enum(['collecting_input', 'waiting_for_web_auth', 'preflight', 'waiting_for_confirmation', 'bootstrapping', 'installing_gateway', 'verifying_gateway', 'scanning', 'waiting_for_sync_confirmation', 'syncing', 'completed', 'failed_recoverable', 'failed_terminal', 'cancelled']),
-  protocolVersion: z.number().int().positive(), serverUrl: z.string().url(), clientType: z.enum(['codex', 'claude', 'opencode']),
+  packageVersion: z.string().min(1).optional(),
+  protocolVersion: z.number().int().positive(), serverUrl: z.string().url(), clientType: z.enum(['codex', 'claude', 'opencode', 'workbuddy', 'generic']),
   createdAt: z.string().datetime({ offset: true }), updatedAt: z.string().datetime({ offset: true }),
-  inputs: OnboardingInputsSchema.optional(), deviceCode: textSchema.optional(), userCode: textSchema.optional(), verificationUri: z.string().url().optional(),
+  inputs: OnboardingInputsSchema.optional(), deviceCode: textSchema.optional(), userCode: textSchema.optional(), verificationUri: z.string().url().optional(), browserOpened: z.boolean().optional(),
   serverPlanHash: hashSchema.optional(), localScanPlanHash: hashSchema.optional(), onboardingPlanHash: hashSchema.optional(),
   serverPlan: serverPlanSchema.optional(), localScanPlan: localPlanPreviewSchema.optional(), bootstrapResult: bootstrapSummarySchema.optional(),
   jobId: z.string().min(1).optional(), previewHash: z.string().min(1).optional(), lastErrorCode: z.string().min(1).optional(), resumeHint: z.string().min(1).optional(),
@@ -253,6 +259,16 @@ async function writeAtomically(path: string, contents: string, mode: 0o600 | 0o7
   await rename(temporary, path);
 }
 
+/** Resume-only guard; diagnostic readers must not rewrite or upgrade historical state. */
+export function assertSessionPackageVersion(actual: unknown, expected: string): void {
+  if (actual === expected) return;
+  throw new OnboardingError({
+    code: 'SESSION_VERSION_MISMATCH',
+    message: `SESSION_VERSION_MISMATCH: this CLI only resumes sessions started with package version ${expected}. Use the exact package version from the original onboard start command; preserve this checkpoint and do not edit its version or plan hash, or create a replacement Agent.`,
+    retryable: false,
+  });
+}
+
 export function createSessionStore(
   sessionId: string,
   home: string = homedir(),
@@ -271,11 +287,14 @@ export function createSessionStore(
       await writeAtomically(path, JSON.stringify(verified, null, 2), 0o600);
     },
 
-    async load(): Promise<OnboardingCheckpoint | null> {
+    async load(expectedPackageVersion?: string): Promise<OnboardingCheckpoint | null> {
       try {
         const raw = await readFile(path, 'utf8');
-        return checkpointSchema.parse(JSON.parse(raw)) as OnboardingCheckpoint;
+        const parsed = JSON.parse(raw);
+        if (expectedPackageVersion !== undefined) assertSessionPackageVersion(parsed?.packageVersion, expectedPackageVersion);
+        return checkpointSchema.parse(parsed) as OnboardingCheckpoint;
       } catch (error) {
+        if (error instanceof OnboardingError && error.code === 'SESSION_VERSION_MISMATCH') throw error;
         if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return null;
         const stateError = new Error('stored onboarding state is invalid');
         Object.assign(stateError, { diagnostic: error instanceof Error ? error.message : String(error) });

@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createSessionStore } from '../onboarding/session.js';
+import { createSessionStore, sessionFilePath } from '../onboarding/session.js';
 import { hashOnboardingPlan } from '../onboarding/local-plan-hash.js';
 import { hashServerPlan } from '../onboarding/plan-hash.js';
 import { readOnboardingStatus, readPreviewArtifactSummaries } from './status.js';
@@ -37,13 +37,35 @@ describe('readPreviewArtifactSummaries', () => {
 });
 
 describe('readOnboardingStatus', () => {
+  it('reads historical 0.13.2 checkpoint metadata without resuming or rewriting it', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'aw-historical-status-'));
+    homes.push(home);
+    const path = sessionFilePath('historical-session', home);
+    await mkdir(join(home, '.agentwiki', 'onboarding'), { recursive: true });
+    const original = JSON.stringify({
+      sessionId: 'historical-session', state: 'completed', protocolVersion: 1,
+      serverUrl: 'https://wiki.test/api', clientType: 'workbuddy',
+      serverPlan: { space: { mode: 'existing', id: 'space-1' }, agentName: 'Agent', role: 'reader', packageVersion: '0.13.2' },
+      bootstrapResult: { space: { id: 'space-1', name: 'Space' }, agent: { id: 'agent-1', name: 'Agent' }, revisionId: 'rev-old' },
+      createdAt: '2026-10-18T00:00:00.000Z', updatedAt: '2026-10-18T00:01:00.000Z',
+    });
+    await writeFile(path, original, { mode: 0o600 });
+    const before = await stat(path);
+    expect(await readOnboardingStatus(home, 'historical-session')).toMatchObject({
+      sessionId: 'historical-session', state: 'completed', revisionId: 'rev-old',
+      space: { id: 'space-1', name: 'Space' }, agent: { id: 'agent-1', name: 'Agent' },
+    });
+    expect(await readFile(path, 'utf8')).toBe(original);
+    expect((await stat(path)).mtimeMs).toBe(before.mtimeMs);
+  });
+
   it('returns the persisted non-secret completion report for the requested session', async () => {
     const home = await mkdtemp(join(tmpdir(), 'aw-status-'));
     homes.push(home);
     const store = createSessionStore('session-1', home);
     const serverPlan = {
       space: { mode: 'create' as const, name: 'Space' }, agentName: 'Agent', role: 'editor' as const,
-      packageVersion: '0.13.1' as const,
+      packageVersion: '0.13.4' as const,
     };
     const serverPlanHash = hashServerPlan(serverPlan);
     await store.save({

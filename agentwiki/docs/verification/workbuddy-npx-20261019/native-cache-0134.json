@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "result": "REAL_WORKBUDDY_BASH_COLD_AND_WARM_PASSED",
+  "recordedAt": "2026-10-18T19:27:02.529926+00:00",
+  "tool": "Bash",
+  "callId": "call_0ccffcc277244becacbd0006",
+  "calledAt": "2026-10-18T19:22:48.169000+00:00",
+  "returnedAt": "2026-10-18T19:23:54.347000+00:00",
+  "transportStatus": "completed",
+  "commandSha256": "c233090884773fe3ab2836b2bab8a18d2fcdfe9130c24e0760c3ebd353d6ce90",
+  "rawResultBytes": 4620,
+  "rawResultSha256": "8cb529fa5491f4365422b9eabe2c94884e000c58cf63b90668970ba093b17bf1",
+  "sameBashNodeProbe": {
+    "node": "v24.18.0",
+    "safeDeleteShimLoaded": true,
+    "languageShimLoaded": true
+  },
+  "probeBoundary": "Preceding Node probe in same Bash environment confirms both modules loaded there; no claim of module loads inside separate npm process. NODE_OPTIONS not altered.",
+  "commandAudit": {
+    "absoluteNode": true,
+    "officialNpxCli": true,
+    "nodeOptionsAssignmentOrUnset": false,
+    "containsOldCacheDeletionCommand": false,
+    "freshRandomOsTempCache": true
+  },
+  "runs": [
+    {
+      "kind": "cold",
+      "exitCode": 0
+    },
+    {
+      "kind": "warm",
+      "exitCode": 0
+    }
+  ],
+  "officialPackages": [
+    {
+      "name": "@neomei/agentwiki-local-sync",
+      "version": "0.13.4",
+      "lockVersion": "0.13.4",
+      "uniquePackageSuffixMatched": true,
+      "lockUsesCanonicalAliasRelativePath": true,
+      "registryIsOfficial": true,
+      "integrityMatchesCandidate": true,
+      "filesCompared": 179,
+      "mismatches": []
+    }
+  ],
+  "privacy": "No raw command/output, page body, credentials, full environment or token stored.",
+  "boundary": "Separate from earlier18-line MCP acceptance. Bash help tests do not substitute for real MCP page reads.",
+  "sourceLog": {
+    "sessionId": "9bedded8-9cae-4585-9b8d-20f911996854",
+    "sha256": "887a6494903cefe8dd445e460fbe40ac1fca3d8edc718880eba9c14d887e93bf",
+    "lineCount": 26,
+    "boundarySinceInclusive": "2026-10-18T19:22:26Z",
+    "callLine": 24,
+    "resultLine": 25
+  },
+  "cache": {
+    "mode": "0700",
+    "isSymlink": false,
+    "isDirectory": true,
+    "ownedByCurrentUser": true
+  },
+  "npmLogs": [
+    {
+      "sha256": "8bacc946c3a52553d4a15875cc575f1fa73793fd45cea36b2217971c68604b3c",
+      "versions": [
+        "npm@11.16.0",
+        "node@v24.18.0"
+      ],
+      "exit": "0",
+      "mentionsPinnedPackage": true,
+      "mentionsCache": true,
+      "safeDeleteBlockError": false
+    },
+    {
+      "sha256": "3a4cc689a7e140255660e8fceedeed02b419c521587137bacb3a1da895bf7e7c",
+      "versions": [
+        "npm@11.16.0",
+        "node@v24.18.0"
+      ],
+      "exit": "0",
+      "mentionsPinnedPackage": true,
+      "mentionsCache": true,
+      "safeDeleteBlockError": false
+    }
+  ]
+}

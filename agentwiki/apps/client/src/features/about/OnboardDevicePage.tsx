@@ -11,7 +11,7 @@ const USER_CODE_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{4}$/;
 type DeviceStatus = 'pending' | 'approved' | 'authorized' | 'denied' | 'expired';
 
 interface PublicDeviceSession {
-  clientType: 'codex' | 'claude' | 'opencode' | 'obsidian';
+  clientType: 'generic' | 'codex' | 'claude' | 'opencode' | 'workbuddy' | 'obsidian';
   purpose: 'full-onboarding' | 'agent-connect' | 'obsidian-connect';
   packageVersion: string;
   status: DeviceStatus;
@@ -19,9 +19,11 @@ interface PublicDeviceSession {
 }
 
 const CLIENT_LABELS: Record<PublicDeviceSession['clientType'], string> = {
+  generic: 'Generic MCP client',
   codex: 'Codex',
   claude: 'Claude Code',
   opencode: 'OpenCode',
+  workbuddy: 'WorkBuddy',
   obsidian: 'Obsidian',
 };
 
@@ -64,7 +66,7 @@ export const OnboardDevicePage: React.FC = () => {
         if (!active) return;
         const validPurpose = data?.purpose === 'obsidian-connect'
           ? data.clientType === 'obsidian'
-          : ['full-onboarding', 'agent-connect'].includes(data?.purpose) && ['codex', 'claude', 'opencode'].includes(data.clientType);
+          : ['full-onboarding', 'agent-connect'].includes(data?.purpose) && ['generic', 'codex', 'claude', 'opencode', 'workbuddy'].includes(data.clientType);
         if (!validPurpose || !['pending','approved','authorized','denied','expired'].includes(data.status) || !Number.isFinite(Date.parse(data.expiresAt))) { setInvalid(true); return; }
         setNow(Date.now());
         setSession(data as PublicDeviceSession);
@@ -152,7 +154,7 @@ export const OnboardDevicePage: React.FC = () => {
                   <div className="flex items-center gap-3">
                     <Bot size={22} className="text-blue-600" />
                     <div>
-                      <div className="font-semibold">{CLIENT_LABELS[session.clientType]}</div>
+                      <div className="font-semibold">{session.clientType === 'generic' && zh ? '通用 MCP 客户端' : CLIENT_LABELS[session.clientType]}</div>
                       <div className="text-sm text-gray-500">{obsidian ? (zh ? '连接当前账号' : 'Connect your account') : legacy ? (zh ? '完整 Agent 接入' : 'Full Agent onboarding') : (zh ? 'Agent 连接' : 'Agent connection')}</div>
                     </div>
                     <span className="ml-auto rounded-full border border-gray-200 bg-white px-2.5 py-1 text-xs text-gray-600">{session.packageVersion}</span>
@@ -165,6 +167,8 @@ export const OnboardDevicePage: React.FC = () => {
                     : legacy ? (zh ? '允许后，本地 Agent 将继续让你确认 Agent、Space、权限和扫描计划。当前页面不会展示或保存接入密钥。' : 'After approval, your local Agent will ask you to confirm the Agent, Space, permissions, and scan plan. This page never displays or stores connection credentials.')
                     : (zh ? '允许后，本地 Agent 将继续让你确认空间、角色与客户端配置。知识导入可以稍后进行。' : 'After approval, your Agent asks you to confirm the space, role, and client configuration. Knowledge import can wait until later.')}
                 </p>
+
+                {!obsidian && !legacy ? <p className="text-sm leading-6 text-gray-600">{zh ? '此页面只授权 AgentWiki 账号。客户端仍需允许 MCP 和工具调用，配置后按提示重载或重启，并在需要时新建对话。' : 'This page authorizes your AgentWiki account. Your client still needs to allow MCP and tool calls; reload or restart after setup and start a new conversation when needed.'}</p> : null}
 
                 {decisionMessage ? (
                   <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-4 text-sm font-medium text-green-700">
@@ -197,7 +201,7 @@ export const OnboardDevicePage: React.FC = () => {
                   </div>
                 )}
                 {effectiveStatus === 'expired' || effectiveStatus === 'denied' ? <p className="text-sm leading-6 text-gray-600">{obsidian ? (zh ? '请回到 Obsidian，重新点击“连接 AgentWiki”。' : 'Return to Obsidian and click “Connect AgentWiki” again.') : legacy ? (zh ? '请回到本地 Agent，按原接入流程重新获取授权链接。' : 'Return to your local Agent and follow the original onboarding flow for a fresh authorization link.') : (zh ? '请让本地 Agent 继续原会话，获取新的浏览器授权链接。' : 'Ask your local Agent to continue the same session for a fresh authorization link.')}</p> : null}
-                {(effectiveStatus === 'approved' || effectiveStatus === 'authorized') && !decisionMessage ? <p className="text-sm leading-6 text-gray-600">{obsidian ? (zh ? '请回到 Obsidian，等待连接完成。' : 'Return to Obsidian and wait for the connection to finish.') : legacy ? (zh ? '请回到本地 Agent 继续确认 Agent、Space、权限和扫描计划。' : 'Return to your local Agent to confirm the Agent, Space, permissions, and scan plan.') : (zh ? '请回到本地 Agent 继续确认空间与配置。' : 'Return to your local Agent to continue space and configuration setup.')}</p> : null}
+                {(effectiveStatus === 'approved' || effectiveStatus === 'authorized') ? <p className="text-sm leading-6 text-gray-600">{obsidian ? (zh ? '请回到 Obsidian，等待连接完成。' : 'Return to Obsidian and wait for the connection to finish.') : legacy ? (zh ? '请回到本地 Agent 继续确认 Agent、Space、权限和扫描计划。' : 'Return to your local Agent to confirm the Agent, Space, permissions, and scan plan.') : (zh ? '请回到客户端继续配置，允许工具后验证实际页面读取。' : 'Return to your client to finish configuration, allow tools, and verify a real page read.')}</p> : null}
                 {actionError ? <p role="alert" className="text-sm text-red-600">{actionError}</p> : null}
               </div>
             )}

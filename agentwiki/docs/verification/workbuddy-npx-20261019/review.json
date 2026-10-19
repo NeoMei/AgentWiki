@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "reviewedAtUtc": "2026-10-18T18:59:10.297546+00:00",
+  "reviewer": "independent-review-subagent",
+  "reviewStatus": "passed-with-no-open-findings",
+  "baseHead": "db767ee6f87c38d85d92ec15ead8c1a1eed0fee7",
+  "openFindings": [],
+  "scope": {
+    "description": "Source review of the WorkBuddy supported-Node and private temporary npm-cache launch, installation and retry binding, verification process cleanup, onboarding guidance and release version changes.",
+    "finalIncrementsReviewed": [
+      "WorkBuddy custom-connector navigation and first-install or changed-command trust guidance plus its two assertions.",
+      "Test-only lint changes: an explicitly typed mock call signature and an equivalent four-space regular expression.",
+      "Client test compatibility change from replaceAll to equivalent split and join calls."
+    ],
+    "independence": {
+      "independentlyReviewedByThisReviewer": "All reviewed changes except the two server files listed below.",
+      "implementedByThisReviewer": [
+        "agentwiki/apps/server/src/core/agent/local-sync-installation.service.ts",
+        "agentwiki/apps/server/src/core/agent/local-sync-installation.service.spec.ts"
+      ],
+      "independentlyReviewedByParent": {
+        "files": [
+          "agentwiki/apps/server/src/core/agent/local-sync-installation.service.ts",
+          "agentwiki/apps/server/src/core/agent/local-sync-installation.service.spec.ts"
+        ],
+        "result": "No blocking findings; the parent confirmed the current-version-only branch, preparation before npx, explicit WorkBuddy cache and agent arguments, separate other-host command and preserved historical compatibility."
+      }
+    },
+    "currentVersions": {
+      "package.json": "0.12.50",
+      "apps/server/package.json": "0.12.50",
+      "apps/client/package.json": "0.12.50",
+      "packages/local-sync/package.json": "0.13.4",
+      "packages/sync-protocol/package.json": "0.6.1"
+    }
+  },
+  "sourceFingerprint": {
+    "candidateManifestSha256": "181fcf013065c1098f14fb69ef489bc9bb9603b665effd4931059bef68758e69",
+    "candidateManifestSourceFileCount": 1362,
+    "currentSourceManifestMismatchCount": 0,
+    "changedSourceFileCount": 74,
+    "changedSourceSha256": "6f724cd2b451faa9ad6a1872357bf2e4bf78bd7196296e9a820dc3f5ac8c5bff",
+    "changedSourceAlgorithm": "SHA-256 over sorted repository-relative changed or untracked file paths, each followed by NUL, file bytes and NUL; agentwiki/docs is excluded.",
+    "focusedFileSha256": {
+      "agentwiki/packages/local-sync/src/installer/workbuddy-launcher.ts": "e5c1ebaf172c549e96d38889daa05bb51405696d8be138e73f09e863b6910202",
+      "agentwiki/packages/local-sync/src/installer/workbuddy-runtime.ts": "db4561f8a2718ab825d42eac58e423a380888042c0864e55517d4c2020b40012",
+      "agentwiki/packages/local-sync/src/installer/client-config.ts": "4640e52553b8b87f033a0f7bdbe829afef9d13bd9a005789d4f04c015a31b0fc",
+      "agentwiki/packages/local-sync/src/installer/client-config.spec.ts": "a44fcf35c23207f67ec301ad8481c32de8b45e4445db831021f720c9ed8d8d37",
+      "agentwiki/packages/local-sync/src/onboarding/install.ts": "6e2c0764138981ac45be73009c7c427dee8664781c279e58e14f87d782865078",
+      "agentwiki/packages/local-sync/src/onboarding/verifier.ts": "ecbc1394e45581bcb4269d12146f59d691bc63c4fa0f5d1315a56558bc373750",
+      "agentwiki/apps/client/src/features/about/onboardPrompt.ts": "f84ad50c3c039cb8c06b311d0557136d5c2d1a5d20979bff60f4e5c1ecbef369",
+      "agentwiki/apps/client/src/features/about/onboardPrompt.spec.ts": "ee278506edc1b8fb4dc5bd3dfbea9808487bcb7be8f874b72692ecba6a055c1e",
+      "agentwiki/apps/server/src/onboard/onboard.controller.ts": "57ea63bd1d1cd2d86e25072e899627253c9bd5a26748fde9b387c5119aa4df42",
+      "agentwiki/packages/local-sync/README.md": "2d8173a855d8bd5ca35c50bcb69c34a236a04674202db1a43e7e2ef6a01a29d5",
+      "agentwiki/packages/local-sync/src/cli.spec.ts": "febd3b7c0ac2f493c259c153ed120b2b2f3d4f8c0fd3cc4d11d1a54933af4582",
+      "agentwiki/scripts/node-runtime-contract.test.mjs": "8b4306e1188aae7413da897bb4f809f3bd5575a8adc36bc8a4066784c4801df2",
+      "agentwiki/apps/server/src/core/agent/local-sync-installation.service.ts": "619ebab9cc57b78672a29d4f6d17a76c1e4fefa7980b2d10fe955699095c0fc1",
+      "agentwiki/apps/server/src/core/agent/local-sync-installation.service.spec.ts": "8dde0184adef7f1dd727c2c4a0129790879eb82cfe8ae6dc2e94b7936022cb5a"
+    }
+  },
+  "resolvedFindings": [
+    {
+      "id": "startup-cache-validation",
+      "status": "verified",
+      "result": "The actual launch rechecks the cache path, directory type, ownership and private permissions, rejects unsafe existing paths, and recreates a missing cache with mode 0700 before loading the official npx CLI."
+    },
+    {
+      "id": "windows-environment-casing",
+      "status": "reviewed-and-tested",
+      "result": "Windows environment merging normalizes variable casing and uses the same effective environment for runtime selection and verification. Native Windows acceptance is outside this receipt."
+    },
+    {
+      "id": "unconfirmed-retry-side-effects",
+      "status": "verified",
+      "result": "Retry validation is read-only: a changed command is rejected without execution and a missing disposable cache is not recreated during validation."
+    },
+    {
+      "id": "effective-temporary-root",
+      "status": "verified",
+      "result": "Creation and validation follow the merged temporary-directory environment. An isolated real Node and npm launch succeeded after its cache was removed and recreated privately."
+    },
+    {
+      "id": "verification-child-process-cleanup",
+      "status": "verified",
+      "result": "Verification resolves after bounded cleanup of its owned process group or tree. An isolated run of the actual gateway with a pending HTTP request no longer left the gateway alive 500 ms after timeout."
+    },
+    {
+      "id": "retry-environment-and-backup-binding",
+      "status": "verified",
+      "result": "A private installation receipt binds the complete installed configuration, connection and confirmed original backup. Retry and verification readback reject changed environment values; the harmless NODE_OPTIONS preload probe was not executed after the fix."
+    },
+    {
+      "id": "one-time-code-workbuddy-guidance",
+      "status": "implemented-and-independently-reviewed-by-parent",
+      "result": "Current-version installation-code instructions now prepare the actual WorkBuddy runtime, private temporary cache, matching absolute npx and child PATH before executing the pinned package. WorkBuddy uses --cache before the package and --agent workbuddy. Historical 0.13.2 and 0.13.3 instructions remain unchanged."
+    }
+  ],
+  "verification": [
+    {
+      "kind": "independent-targeted-source-tests",
+      "command": "pnpm --filter @neomei/agentwiki-local-sync exec vitest run src/installer/workbuddy-runtime.spec.ts src/installer/client-config.spec.ts src/onboarding/install.spec.ts src/onboarding/verifier.spec.ts src/onboarding/steps-install-safety.spec.ts --testTimeout=20000",
+      "result": "passed",
+      "testFiles": 5,
+      "testsPassed": 105,
+      "snapshot": "Executed before the final WorkBuddy activation wording and later test-only or server-only increments."
+    },
+    {
+      "kind": "independent-incremental-source-tests",
+      "command": "pnpm --filter @neomei/agentwiki-local-sync exec vitest run src/installer/client-config.spec.ts --testTimeout=20000",
+      "result": "passed",
+      "testFiles": 1,
+      "testsPassed": 48,
+      "snapshot": "Executed after the WorkBuddy activation wording and its two assertions. These tests overlap the prior 105 tests and are not an additional unique-test total."
+    },
+    {
+      "kind": "implementation-regression-red",
+      "command": "pnpm --filter @agentwiki/server exec jest --runInBand src/core/agent/local-sync-installation.service.spec.ts",
+      "result": "expected-failure",
+      "testsPassed": 73,
+      "testsFailed": 1,
+      "failure": "The current-version WorkBuddy bootstrap was absent: bootstrapIndex was -1."
+    },
+    {
+      "kind": "implementation-regression-green",
+      "command": "pnpm --filter @agentwiki/server exec jest --runInBand src/core/agent/local-sync-installation.service.spec.ts src/onboard/onboard-guide.spec.ts",
+      "result": "passed",
+      "testFiles": 2,
+      "testsPassed": 78,
+      "additionalChecks": [
+        "Server typecheck passed.",
+        "ESLint for the two changed server files passed.",
+        "git diff --check for the two changed server files passed."
+      ],
+      "evidenceStorage": "Executed directly in this task and observed in tool output; no separate saved test log is claimed."
+    },
+    {
+      "kind": "final-source-integrity",
+      "result": "passed",
+      "sourceFilesCompared": 1362,
+      "mismatches": 0,
+      "note": "All current source-file bytes matched the final candidate manifest. Full prepack, build and packaged-contract results are separate release evidence."
+    }
+  ],
+  "acceptanceBoundary": [
+    "This receipt records source review and isolated source verification; it does not substitute for a real WorkBuddy client session.",
+    "Real WorkBuddy tool discovery, trust dialogs and page reads are recorded separately by the parent task.",
+    "Native Windows execution and ACL behavior were not independently accepted on a Windows host in this review.",
+    "Full prepack, build, packaging, publication and deployed-version acceptance are separate release gates and are not claimed by this receipt."
+  ],
+  "privacy": "Repository-relative source paths and hashes only; no user configuration, credentials, private filesystem paths or connection identifiers are included."
+}

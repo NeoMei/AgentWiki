@@ -8,7 +8,7 @@ import type { SupportedLocalSyncVersion } from '../core/local-sync-version';
 
 export type StartDeviceInput = {
   packageVersion: SupportedLocalSyncVersion;
-  clientType: 'codex' | 'claude' | 'opencode';
+  clientType: 'codex' | 'claude' | 'opencode' | 'workbuddy' | 'generic';
   purpose: 'full-onboarding' | 'agent-connect';
 };
 

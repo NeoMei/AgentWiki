@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "status": "source_generated_npx_launch_passed_in_real_workbuddy",
+  "candidateLocalSyncVersion": "0.13.4",
+  "candidateWebApiVersion": "0.12.50",
+  "publishedPackageUsedForLaunchAcceptance": "0.13.3",
+  "workbuddyVersion": "5.8.3",
+  "currentRegistryCandidatePublished": false,
+  "generatedConfigurationSha256": "48c993ba130d1ea8707aa63df522856b0fdad707a36d4d0d6459e7f324a4144f",
+  "launcherSha256": "83a1f664d39fb9704ddaadd138de63dc64bbe4b6266d7fff33688eeab3026914",
+  "sessionId": "a51d6e22-fac5-4e48-9f74-cbfc69ed974d",
+  "sourceLogSha256": "00f3c2f23d2597675557c4dee91c7889b739a9d1ea1383779e09b0b5a7aa3c9b",
+  "actualMcpCalls": [
+    "onboard_status",
+    "wiki_list_spaces",
+    "wiki_get_page"
+  ],
+  "readerSpaceConfirmed": true,
+  "pageBodyUtf8Bytes": 8156,
+  "pageBodySha256": "34e06f9db48b768de26609aa4962c5ec168fd206f670a32a036c44b17032436b",
+  "node": "24.18.0",
+  "npm": "11.16.0",
+  "privateCache": {
+    "ownerMatchesCurrentUser": true,
+    "mode": "0700",
+    "symlink": false
+  },
+  "clientTrustAndFullRestartObserved": true,
+  "firstUntrustedAttemptFailedAndPreserved": true,
+  "limitations": [
+    "Final 0.13.4 npm package is not published or accepted in WorkBuddy yet",
+    "Existing browser authorization and identity reused; no fresh account authorization claimed",
+    "Windows native host not tested",
+    "Live npm/gateway ancestry not captured; npm logs confirm runtime"
+  ]
+}

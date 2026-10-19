@@ -1,0 +1,142 @@
+{
+  "status": "prepared_verified_awaiting_new_release_authorization",
+  "preparedAt": "2026-10-18T18:59:04.414266+00:00",
+  "baseRevision": "db767ee6f87c38d85d92ec15ead8c1a1eed0fee7",
+  "freezeRevision": "99b247c7e21a3322398c7c8a2e7bda4995151e03",
+  "versions": {
+    "root": "0.12.50",
+    "server": "0.12.50",
+    "client": "0.12.50",
+    "localSync": "0.13.4",
+    "syncProtocol": "0.6.1"
+  },
+  "package": {
+    "name": "@neomei/agentwiki-local-sync",
+    "version": "0.13.4",
+    "filename": "neomei-agentwiki-local-sync-0.13.4.tgz",
+    "size": 207205,
+    "unpackedSize": 983727,
+    "entryCount": 179,
+    "shasum": "6963a9e2619405d32246ac75a413e1639e6bf58c",
+    "integrity": "sha512-fJVAm22Dnv3IPdM8d3txL0o7UtXezvuqF/hgO+hmL5sHNUIiLRxo1pTCSx59HLXbSZuhto+QtzQ2br6kn+lyYg=="
+  },
+  "sha256": "d8dc68a986ff9716055a1731a8ee48aabdbff6ce31525f50aaca38e019b3dde0",
+  "fixedArtifactVerification": {
+    "status": "passed",
+    "verifiedAt": "2026-10-18T18:56:46.665Z",
+    "filename": "neomei-agentwiki-local-sync-0.13.4.tgz",
+    "size": 207205,
+    "sha256": "d8dc68a986ff9716055a1731a8ee48aabdbff6ce31525f50aaca38e019b3dde0",
+    "filesMatched": 179,
+    "localSyncVersion": "0.13.4",
+    "syncProtocolVersion": "0.6.1",
+    "emptyInstall": true,
+    "emptyCache": true,
+    "registry": "https://registry.npmjs.org/",
+    "onboardingContract": {
+      "publisherPaths": [
+        "device-bootstrap",
+        "one-time-code"
+      ],
+      "scopes": 16,
+      "tamperRejected": true,
+      "rawServerPlan": true
+    }
+  },
+  "finalServerPackedContract": {
+    "status": "passed",
+    "verifiedAt": "2026-10-18T18:58:10.767Z",
+    "finalServerBuild": true,
+    "publisherPaths": [
+      "device-bootstrap",
+      "one-time-code"
+    ],
+    "scopes": 16,
+    "tamperRejected": true,
+    "rawServerPlan": true
+  },
+  "compatibility": {
+    "serverKeeps0133And0132": true,
+    "genericAndWorkbuddyBothSupported": true,
+    "oldSessionsRequireOriginalExactPackageVersion": true,
+    "oldVersionOrPlanHashNeverMigrated": true,
+    "existingIdentitiesUnchanged": true,
+    "workbuddyRetryRequiresPrivateReceipt": "Complete final config hash, connection and matching original backup are bound; unconfirmed env is rejected before retry or verifier spawn."
+  },
+  "unchanged": {
+    "status": "passed",
+    "checkedAt": "2026-10-18T18:57:27.710287+00:00",
+    "packageDependencyAndEngineFieldsUnchanged": true,
+    "manifestFiles": [
+      "package.json",
+      "apps/server/package.json",
+      "apps/client/package.json",
+      "packages/local-sync/package.json",
+      "packages/sync-protocol/package.json"
+    ],
+    "lockfileUnchanged": true,
+    "protocolSourceUnchanged": true,
+    "schemaUnchanged": true
+  },
+  "correctionsDuringValidation": [
+    {
+      "issue": "Two pre-existing lint problems in files touched by version bump",
+      "fix": "Preserved vi.fn call signature with unused implementation parameter removed; regex literal four spaces changed to {4}; tests and lint passed."
+    },
+    {
+      "issue": "New client test used replaceAll with older TypeScript library target",
+      "fix": "Equivalent split/join replacements; final client build, whole typecheck, prompt7 and targeted lint passed."
+    },
+    {
+      "issue": "First prepack inherited private runner umask077, causing existing0644 permission-rejection fixture to be0600",
+      "fix": "Preserved failure logs; ran actual npm/prepack child with standard umask022 while candidate dir/log files remain private; all1121 tests passed. No source change for this failure."
+    }
+  ],
+  "boundaries": [
+    "No npm publication, production writer-stop/backup or deployment performed for this candidate.",
+    "No new Agent identity or user configuration changed by this preparation task.",
+    "Windows tree-kill code is implemented; real Windows execution was not performed here.",
+    "Real WorkBuddy acceptance and browser rendering belong to parent receipts; automated candidate checks alone do not establish host acceptance.",
+    "Prior0.13.3/0.12.49 production remains the deployment baseline; protocol0.6.1 is unchanged."
+  ],
+  "checks": {
+    "localSyncPrepack": {
+      "files": 75,
+      "passed": 1121,
+      "skipped": 1,
+      "skipReason": "Existing Windows-only ACL diagnostic on macOS"
+    },
+    "workspaceTypecheck": "passed",
+    "changedFileLint": "passed",
+    "clientAndServerBuild": "passed",
+    "protocol061OfficialParity": "identical",
+    "npm0134CollisionGate": "available",
+    "fixedTarballEmptyCacheInstallAnd179FileComparison": "passed",
+    "serverCompatibilityTests": 215,
+    "clientGuideTests": 43,
+    "runtimeAndRegistryContractTests": 46,
+    "finalServerOneTimeCodeAndPublicGuideTests": 78,
+    "review": "review.json",
+    "realWorkBuddyLaunchAcceptance": "real-workbuddy.json"
+  },
+  "sourceBaseline": {
+    "sha256": "181fcf013065c1098f14fb69ef489bc9bb9603b665effd4931059bef68758e69",
+    "sourceFiles": 1362,
+    "mismatches": 0
+  },
+  "publication": {
+    "npmPublished": false,
+    "productionDeployed": false,
+    "currentProductionVersions": {
+      "localSync": "0.13.3",
+      "webApi": "0.12.49"
+    },
+    "requiresNewReleaseApproval": true
+  },
+  "frozenExport": {
+    "sourceFiles": 1360,
+    "mismatches": 0,
+    "sourceManifestSha256": "d5032e0a6e3eaf670dd502cbe642bda6c4729ed2aa8af7de6cb91a281025afc8",
+    "scope": "Deployment source whitelist; candidate review manifest includes additional repository documentation/configuration"
+  }
+}

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,17 +6,27 @@ import { join } from 'node:path';
 import { hashServerPlan } from './plan-hash.js';
 import { hashOnboardingPlan } from './local-plan-hash.js';
 import { runOnboardingStateMachineHarness } from './onboarding-e2e-driver.js';
+import { openAuthorizationBrowser } from './browser.js';
 import type { LocalScanPlan } from '../codegraph/contracts.js';
 import { readRawConfig } from '../installer/client-config.js';
 import type { AgentClient } from '../agent-clients.js';
 import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
+
+// Keep a regression safe even if the harness forgets its browser dependency:
+// the production opener must never be reached by these simulated auth flows.
+vi.mock('./browser.js', () => ({ openAuthorizationBrowser: vi.fn(async () => false) }));
 
 const homes: string[] = [];
 const PLAN_A_HASH = 'b'.repeat(64);
 const PLAN_B_HASH = 'c'.repeat(64);
 
 afterEach(async () => {
-  await Promise.all(homes.splice(0).map((home) => rm(home, { recursive: true, force: true })));
+  try {
+    expect(openAuthorizationBrowser).not.toHaveBeenCalled();
+  } finally {
+    vi.clearAllMocks();
+    await Promise.all(homes.splice(0).map((home) => rm(home, { recursive: true, force: true })));
+  }
 });
 
 function localPlan(localScanPlanHash: string): LocalScanPlan {
@@ -42,7 +52,7 @@ const codeInput = {
 };
 
 describe('onboarding runtime state-machine E2E', () => {
-  it.each(['codex', 'claude', 'opencode'] as const)('completes the standard-only two-confirmation flow through one AgentWiki MCP for %s', async (clientType: AgentClient) => {
+  it.each(['codex', 'claude', 'opencode', 'workbuddy', 'generic'] as const)('completes the standard-only two-confirmation flow through one AgentWiki MCP for %s', async (clientType: AgentClient) => {
     const home = await freshHome();
     const harness = await runOnboardingStateMachineHarness({
       home,
@@ -51,6 +61,8 @@ describe('onboarding runtime state-machine E2E', () => {
     });
 
     expect(harness.error).toBeUndefined();
+    expect(harness.calls.browser).toEqual(['https://wiki.test/onboard/device?user_code=E2E-CODE']);
+    expect(harness.events.find((event) => event.type === 'authorization_required')).toMatchObject({ browserOpened: false });
     expect(harness.events.filter((event) => event.type === 'confirmation_required')).toHaveLength(2);
     expect(harness.calls.plan).toEqual([
       expect.objectContaining({ analysisMode: 'standard' }),
@@ -66,7 +78,7 @@ describe('onboarding runtime state-machine E2E', () => {
       expect(rawConfig?.match(/\[mcp_servers\.agentwiki\]/gu)).toHaveLength(1);
     } else {
       const parsed = JSON.parse(rawConfig!);
-      const entries = clientType === 'claude'
+      const entries = clientType !== 'opencode'
         ? parsed.mcpServers
         : (parsed.mcp.servers ?? parsed.mcp);
       expect(Object.keys(entries)).toEqual(['agentwiki']);
@@ -81,7 +93,7 @@ describe('onboarding runtime state-machine E2E', () => {
     const planConfirmation = harness.events.find((event) => event.type === 'confirmation_required' && event.requestId === 'plan');
     expect(planConfirmation?.type).toBe('confirmation_required');
     if (!planConfirmation || planConfirmation.type !== 'confirmation_required') throw new Error('missing real plan confirmation');
-    expect(planConfirmation).toMatchObject({ planHash: hashOnboardingPlan({ serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'E2E Space' }, agentName: 'E2E Agent', role: 'editor', packageVersion: '0.13.1' }), localScanPlanHash: PLAN_A_HASH }) });
+    expect(planConfirmation).toMatchObject({ planHash: hashOnboardingPlan({ serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'E2E Space' }, agentName: 'E2E Agent', role: 'editor', packageVersion: '0.13.4' }), localScanPlanHash: PLAN_A_HASH }) });
     expect(harness.replies).toContainEqual({ requestId: 'plan', confirmed: true, planHash: planConfirmation.planHash });
     expect(harness.calls.bootstrap).toHaveLength(1);
     expect(harness.calls.bootstrap[0]).toMatchObject({ serverPlanHash: expect.stringMatching(/^[a-f0-9]{64}$/u) });
@@ -106,7 +118,7 @@ describe('onboarding runtime state-machine E2E', () => {
         space: { mode: 'create', name: 'E2E Space' },
         agentName: 'E2E Agent',
         role,
-        packageVersion: '0.13.1',
+        packageVersion: '0.13.4',
       }),
     });
     expect(harness.calls.bootstrapResults).toEqual([{

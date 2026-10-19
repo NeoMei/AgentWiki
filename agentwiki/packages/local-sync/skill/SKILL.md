@@ -2,18 +2,20 @@
 name: agentwiki-local-sync
 description: Use when working with AgentWiki pages or preparing confirmed local code or document knowledge synchronization through the installed AgentWiki gateway.
 license: MIT
-compatibility: codex, claude-code, opencode
+compatibility: local stdio MCP clients, including codex, claude-code, opencode, workbuddy
 ---
 
 # AgentWiki Unified Gateway
 
-Use the one MCP entry named `agentwiki`, installed by `@neomei/agentwiki-local-sync@0.13.1` (AgentWiki 0.12.47 or later for onboarding). It exposes all AgentWiki capabilities through stable tool families:
+Use the one MCP entry named `agentwiki`, installed by `@neomei/agentwiki-local-sync@0.13.4` (AgentWiki 0.12.50 or later for onboarding). It exposes all AgentWiki capabilities through stable tool families:
 
 - `wiki_*` calls remote AgentWiki tools.
 - `local_*` inspects local sources without uploading.
 - `knowledge_*` coordinates local preparation with confirmed server synchronization.
 
 Never create a second direct AgentWiki MCP connection, a credential-specific MCP name, or a separate local-sync MCP entry. API credentials shown in AgentWiki are for APIs, scripts, and external systems; Agent access always uses this gateway.
+
+For initial setup, generic mode exports standard stdio MCP settings for import into the current host; the WorkBuddy preset writes its native configuration. Follow the returned top-level `configurationMode`, `configPath` and `hostActivationSteps`. Importing or writing settings does not authorize or activate the host: enable `agentwiki`, approve the client's MCP/tool permissions, then reload MCP or fully restart the client and start a new conversation if needed. Browser account approval is separate. Only an actual known-page read through this host verifies host access; a gateway handshake does not.
 
 Connect one Agent identity once. Space membership and roles are live server grants; adding an authorized Space requires no installation, connection code, or gateway reload. Call `wiki_list_spaces` to discover the current grants. Always provide the chosen internal `spaceId` on remote calls; the server checks the target Space and resource membership for every request. Knowledge read tools and `wiki_propose_page_update` accept named arguments and the legacy `__args` wrapper (duplicate fields must agree); other generic tools accept `__args`, and collaboration tools accept their usual arguments. A saved local `spaceId` is only a legacy default context. Do not use a global current Space, aggregate credentials from stored connections, or retry a denied operation using another identity or key. `onboard_status` diagnoses the selected Agent connection; it does not replace live Space discovery. Knowledge workspaces remain isolated by Space ID and require live authorization before preparation or sync. If an older human/device tree workspace exists, the gateway keeps it and its unsynced edits intact and uses a separate Agent knowledge workspace. Explain the returned preservation warning; do not claim those old edits were migrated, submitted, or published.
 

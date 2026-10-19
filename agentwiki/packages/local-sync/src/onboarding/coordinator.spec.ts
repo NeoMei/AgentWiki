@@ -5,8 +5,10 @@ import { resolve } from 'node:path';
 import { OnboardingCoordinator, type CoordinatorDeps } from './coordinator.js';
 import { ProtocolEncoder, type ProtocolSink, type ProtocolSource } from './protocol.js';
 import { OnboardingClient } from './client.js';
-import { createSessionStore, sessionFilePath, type OnboardingInputs, type SessionStore } from './session.js';
-import { readFile, writeFile } from 'node:fs/promises';
+import { OnboardingError } from './errors.js';
+import { createSessionStore, secretFilePath, sessionFilePath, type OnboardingInputs, type SessionStore } from './session.js';
+import { readFile, writeFile, stat } from 'node:fs/promises';
+import { readOnboardingStatus } from '../gateway/status.js';
 import type { LocalScanPlan } from '../codegraph/contracts.js';
 import { hashServerPlan } from './plan-hash.js';
 import { hashOnboardingPlan } from './local-plan-hash.js';
@@ -89,7 +91,7 @@ function mockDeps(overrides?: Partial<CoordinatorDeps> & { source?: ProtocolSour
     encoder,
     source: overrides?.source ?? scriptedSource([]),
     serverBaseUrl: 'https://test/api',
-    packageVersion: '0.13.1',
+    packageVersion: '0.13.4',
     home: tmpHome,
     preflight: vi.fn(async () => ({ configHash: CONFIG_HASH, oldEntries: [], hasConflict: false, archivePath: null, reloadRequired: false })),
     bootstrapInstall: vi.fn(async (input) => ({
@@ -194,7 +196,7 @@ describe('OnboardingCoordinator happy path', () => {
     expect(fixture.deps.bootstrapInstall).toHaveBeenCalledWith(expect.objectContaining({
       serverPlan: expect.objectContaining({ role }),
       serverPlanHash: hashServerPlan({
-        space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', role, packageVersion: '0.13.1',
+        space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', role, packageVersion: '0.13.4',
       }),
     }));
     await expect(vi.mocked(fixture.deps.bootstrapInstall).mock.results[0]?.value).resolves.toMatchObject({
@@ -331,7 +333,7 @@ describe('OnboardingCoordinator happy path', () => {
     await fixture.store.save({
       sessionId: 'sess-test',
       state: 'scanning',
-      protocolVersion: 1,
+      protocolVersion: 1, packageVersion: '0.13.4',
       serverUrl: 'https://test/api',
       clientType: 'codex',
       createdAt: '2026-08-11T00:00:00.000Z',
@@ -341,9 +343,9 @@ describe('OnboardingCoordinator happy path', () => {
         clientType: 'codex', sourcePaths: [resolve('/tmp/source')], sourceType: 'documents', analysisMode: 'standard',
         configHash: CONFIG_HASH, oldEntries: [], reloadRequired: false,
       },
-      serverPlan: { space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', role: 'editor', packageVersion: '0.13.1' },
-      serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', role: 'editor', packageVersion: '0.13.1' }),
-      onboardingPlanHash: hashOnboardingPlan({ serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', role: 'editor', packageVersion: '0.13.1' }) }),
+      serverPlan: { space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', role: 'editor', packageVersion: '0.13.4' },
+      serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', role: 'editor', packageVersion: '0.13.4' }),
+      onboardingPlanHash: hashOnboardingPlan({ serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'R&D' }, agentName: 'Codex', role: 'editor', packageVersion: '0.13.4' }) }),
       bootstrapResult: {
         space: { id: 'space-1', name: 'R&D' },
         agent: { id: 'agent-1', name: 'Codex' },
@@ -365,6 +367,50 @@ describe('OnboardingCoordinator happy path', () => {
     expect(fixture.deps.preflight).not.toHaveBeenCalled();
     expect(fixture.deps.bootstrapInstall).not.toHaveBeenCalled();
     expect(await fixture.store.loadSecret()).toBeNull();
+    expect((await fixture.store.load())?.packageVersion).toBe('0.13.4');
+  });
+});
+
+describe('OnboardingCoordinator exact-version resume', () => {
+  it.each([
+    ['waiting_for_web_auth', undefined], ['preflight', undefined],
+    ['waiting_for_web_auth', '0.13.3'], ['preflight', '0.13.3'],
+    ['waiting_for_web_auth', '0.13.2'], ['preflight', '0.13.2'],
+  ] as const)('refuses %s checkpoint version %s without replacing state or token', async (state, packageVersion) => {
+    const fixture = mockDeps();
+    await fixture.store.save({
+      sessionId: 'sess-test', state, protocolVersion: 1, packageVersion: '0.13.4',
+      serverUrl: 'https://test/api', clientType: 'codex',
+      createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
+      deviceCode: 'awd_original', userCode: 'ORIGINAL', verificationUri: 'https://test/onboard/device',
+      inputs: { spaceMode: 'existing', spaceId: 'space-1', agentName: 'Agent', role: 'reader',
+        clientType: 'codex', sourcePaths: [resolve('/tmp/source')], sourceType: 'documents', analysisMode: 'standard' },
+    });
+    await fixture.store.saveSecret('awo_original');
+    const path = sessionFilePath('sess-test', fixture.deps.home);
+    const secretPath = secretFilePath('sess-test', fixture.deps.home);
+    const legacy = JSON.parse(await readFile(path, 'utf8'));
+    delete legacy.packageVersion;
+    if (packageVersion) legacy.packageVersion = packageVersion;
+    const before = JSON.stringify(legacy);
+    await writeFile(path, before);
+    const beforeStat = await stat(path);
+    const beforeSecret = await readFile(secretPath, 'utf8');
+    const beforeSecretStat = await stat(secretPath);
+    await expect(new OnboardingCoordinator(fixture.deps).run()).rejects.toThrow(
+      /SESSION_VERSION_MISMATCH:.*exact package version from the original onboard start command/,
+    );
+    expect(await readFile(path, 'utf8')).toBe(before);
+    expect((await stat(path)).mtimeMs).toBe(beforeStat.mtimeMs);
+    expect(await readFile(secretPath, 'utf8')).toBe(beforeSecret);
+    expect((await stat(secretPath)).mtimeMs).toBe(beforeSecretStat.mtimeMs);
+    expect(fixture.deps.client.start).not.toHaveBeenCalled();
+    expect(fixture.deps.client.pollUntilSettled).not.toHaveBeenCalled();
+    expect(fixture.deps.preflight).not.toHaveBeenCalled();
+    expect(fixture.deps.bootstrapInstall).not.toHaveBeenCalled();
+    expect(fixture.deps.knowledge.prepare).not.toHaveBeenCalled();
+    expect(fixture.sink.lines).toEqual([]);
+    expect(await readOnboardingStatus(fixture.deps.home, 'sess-test')).toMatchObject({ sessionId: 'sess-test', state });
   });
 });
 
@@ -406,13 +452,13 @@ describe('OnboardingCoordinator failure handling', () => {
     const path = sessionFilePath('sess-test', fixture.deps.home);
     const poisonedPath = 'repository\u009bprivate';
     const raw = JSON.stringify({
-      sessionId: 'sess-test', state: 'collecting_input', protocolVersion: 1,
+      sessionId: 'sess-test', state: 'collecting_input', protocolVersion: 1, packageVersion: '0.13.4',
       serverUrl: 'https://test/api', clientType: 'codex',
       createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
       localScanPlanHash: 'a'.repeat(64),
       localScanPlan: localPlanPreview('a'.repeat(64)),
     }).replace('"source"', JSON.stringify(poisonedPath));
-    await fixture.store.save({ sessionId: 'sess-test', state: 'collecting_input', protocolVersion: 1, serverUrl: 'https://test/api', clientType: 'codex', createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z' });
+    await fixture.store.save({ sessionId: 'sess-test', state: 'collecting_input', protocolVersion: 1, packageVersion: '0.13.4', serverUrl: 'https://test/api', clientType: 'codex', createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z' });
     await writeFile(path, raw);
 
     await expect(new OnboardingCoordinator(fixture.deps).run()).rejects.toThrow('stored onboarding state is invalid');
@@ -427,12 +473,12 @@ describe('OnboardingCoordinator failure handling', () => {
   it('rejects an invalid checkpoint before planning, bootstrap, or preparation', async () => {
     const fixture = mockDeps();
     await fixture.store.save({
-      sessionId: 'sess-test', state: 'collecting_input', protocolVersion: 1,
+      sessionId: 'sess-test', state: 'collecting_input', protocolVersion: 1, packageVersion: '0.13.4',
       serverUrl: 'https://test/api', clientType: 'codex',
       createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
     });
     await writeFile(sessionFilePath('sess-test', fixture.deps.home), JSON.stringify({
-      sessionId: 'sess-test', state: 'collecting_input', protocolVersion: 1,
+      sessionId: 'sess-test', state: 'collecting_input', protocolVersion: 1, packageVersion: '0.13.4',
       serverUrl: 'https://test/api', clientType: 'codex',
       createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
       inputs: { apiKey: 'awo_should_not_be_accepted' },
@@ -446,16 +492,16 @@ describe('OnboardingCoordinator failure handling', () => {
 
   it('rejects and preserves a scanning checkpoint without composite confirmation evidence before any side effect', async () => {
     const fixture = mockDeps();
-    const serverPlan = { space: { mode: 'create' as const, name: 'S' }, agentName: 'A', role: 'editor' as const, packageVersion: '0.13.1' as const };
+    const serverPlan = { space: { mode: 'create' as const, name: 'S' }, agentName: 'A', role: 'editor' as const, packageVersion: '0.13.4' as const };
     const raw = JSON.stringify({
-      sessionId: 'sess-test', state: 'scanning', protocolVersion: 1, serverUrl: 'https://test/api', clientType: 'codex',
+      sessionId: 'sess-test', state: 'scanning', protocolVersion: 1, packageVersion: '0.13.4', serverUrl: 'https://test/api', clientType: 'codex',
       createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
       inputs: { spaceMode: 'create', spaceName: 'S', agentName: 'A', role: 'editor', clientType: 'codex', sourcePaths: [resolve('/tmp/source')], sourceType: 'code', analysisMode: 'standard' },
       serverPlan, serverPlanHash: hashServerPlan(serverPlan), localScanPlanHash: 'a'.repeat(64), localScanPlan: localPlanPreview('a'.repeat(64)),
       bootstrapResult: { space: { id: 'space-1', name: 'S' }, agent: { id: 'agent-1', name: 'A' } },
     });
     await fixture.store.save({
-      sessionId: 'sess-test', state: 'collecting_input', protocolVersion: 1, serverUrl: 'https://test/api', clientType: 'codex',
+      sessionId: 'sess-test', state: 'collecting_input', protocolVersion: 1, packageVersion: '0.13.4', serverUrl: 'https://test/api', clientType: 'codex',
       createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
     });
     const path = sessionFilePath('sess-test', fixture.deps.home);
@@ -544,7 +590,7 @@ describe('OnboardingCoordinator local scan consent', () => {
     expect(preview.plan).toMatchObject({ serverPlan: expect.any(Object), localScanPlan: { localScanPlanHash: 'a'.repeat(64) } });
     expect(confirmation.planHash).not.toBe('a'.repeat(64));
     expect(fixture.deps.bootstrapInstall).toHaveBeenCalledWith(expect.objectContaining({
-      serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.13.1' }),
+      serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.13.4' }),
     }));
     expect(fixture.deps.knowledge.prepare).toHaveBeenCalledWith(expect.objectContaining({ analysisMode: 'standard', localScanPlanHash: 'a'.repeat(64), confirmedLocalScan: true }));
   });
@@ -601,8 +647,8 @@ describe('OnboardingCoordinator local scan consent', () => {
       confirmAndSync: vi.fn(async () => ({ revisionId: 'rev-1' })),
     } });
     await fixture.store.save({
-      sessionId: 'sess-test', state: 'scanning', protocolVersion: 1, serverUrl: 'https://test/api', clientType: 'codex', createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
-      inputs: { ...codeInputs }, serverPlan: { space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.13.1' }, serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.13.1' }), localScanPlanHash: 'b'.repeat(64), onboardingPlanHash: hashOnboardingPlan({ serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.13.1' }), localScanPlanHash: 'b'.repeat(64) }),
+      sessionId: 'sess-test', state: 'scanning', protocolVersion: 1, packageVersion: '0.13.4', serverUrl: 'https://test/api', clientType: 'codex', createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
+      inputs: { ...codeInputs }, serverPlan: { space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.13.4' }, serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.13.4' }), localScanPlanHash: 'b'.repeat(64), onboardingPlanHash: hashOnboardingPlan({ serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.13.4' }), localScanPlanHash: 'b'.repeat(64) }),
       localScanPlan: localPlanPreview('b'.repeat(64)), bootstrapResult: { space: { id: 'space-1', name: 'S' } },
     });
     await expect(new OnboardingCoordinator(fixture.deps).run()).rejects.toMatchObject({ code: 'CODEGRAPH_SCAN_PLAN_CHANGED' });
@@ -620,8 +666,8 @@ describe('OnboardingCoordinator local scan consent', () => {
       confirmAndSync: vi.fn(async () => ({ revisionId: 'rev-1' })),
     } });
     await fixture.store.save({
-      sessionId: 'sess-test', state: 'scanning', protocolVersion: 1, serverUrl: 'https://test/api', clientType: 'codex', createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
-      inputs: { ...codeInputs }, serverPlan: { space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.13.1' }, serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.13.1' }), localScanPlanHash: 'b'.repeat(64), onboardingPlanHash: hashOnboardingPlan({ serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.13.1' }), localScanPlanHash: 'b'.repeat(64) }),
+      sessionId: 'sess-test', state: 'scanning', protocolVersion: 1, packageVersion: '0.13.4', serverUrl: 'https://test/api', clientType: 'codex', createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
+      inputs: { ...codeInputs }, serverPlan: { space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.13.4' }, serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.13.4' }), localScanPlanHash: 'b'.repeat(64), onboardingPlanHash: hashOnboardingPlan({ serverPlanHash: hashServerPlan({ space: { mode: 'create', name: 'S' }, agentName: 'A', role: 'editor', packageVersion: '0.13.4' }), localScanPlanHash: 'b'.repeat(64) }),
       localScanPlan: localPlanPreview('b'.repeat(64)), bootstrapResult: { space: { id: 'space-1', name: 'S' } },
     });
 
@@ -645,7 +691,7 @@ describe('OnboardingCoordinator local scan consent', () => {
       confirmAndSync: vi.fn(async () => ({ revisionId: 'rev-1' })),
     } });
     await fixture.store.save({
-      sessionId: 'sess-test', state: 'failed_recoverable', resumeState: 'waiting_for_confirmation', protocolVersion: 1, serverUrl: 'https://test/api', clientType: 'codex', createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
+      sessionId: 'sess-test', state: 'failed_recoverable', resumeState: 'waiting_for_confirmation', protocolVersion: 1, packageVersion: '0.13.4', serverUrl: 'https://test/api', clientType: 'codex', createdAt: '2026-08-11T00:00:00.000Z', updatedAt: '2026-08-11T00:00:00.000Z',
       inputs: { ...codeInputs }, serverPlanHash: 'a'.repeat(64), localScanPlanHash: 'b'.repeat(64), onboardingPlanHash: hashOnboardingPlan({ serverPlanHash: 'a'.repeat(64), localScanPlanHash: 'b'.repeat(64) }),
       localScanPlan: localPlanPreview('b'.repeat(64)), bootstrapResult: { space: { id: 'space-1', name: 'S' } },
     });
@@ -658,5 +704,54 @@ describe('OnboardingCoordinator local scan consent', () => {
     await new OnboardingCoordinator(fixture.deps).run();
     expect(fixture.deps.bootstrapInstall).not.toHaveBeenCalled();
     expect(fixture.deps.knowledge.prepare).toHaveBeenCalledWith(expect.objectContaining({ localScanPlanHash: 'c'.repeat(64), confirmedLocalScan: true }));
+  });
+});
+
+
+describe('generic MCP onboarding and activation guidance', () => {
+  it.each(['generic', 'workbuddy'] as const)('previews the %s configuration destination and keeps host activation pending after gateway checks', async (clientType) => {
+    const fixture = mockDeps({ openBrowser: vi.fn(async () => true) });
+    fixture.deps.source = successfulSource(fixture.sink, {
+      spaceMode: 'create', spaceName: 'Space', agentName: 'MCP Agent', role: 'editor',
+      clientType, sourcePaths: ['.'], sourceType: 'documents',
+    });
+    const result = await new OnboardingCoordinator(fixture.deps).run();
+    const events = fixture.sink.lines.map((line) => JSON.parse(line));
+    expect(events.find((event) => event.type === 'input_required').fields.find((field: { name: string }) => field.name === 'clientType').choices).toContain(clientType);
+    expect(events.find((event) => event.type === 'preview').plan).toMatchObject({
+      configPath: expect.stringContaining(clientType === 'generic' ? '/.config/agentwiki/mcp.json' : '/.workbuddy/mcp.json'),
+      configurationMode: clientType === 'generic' ? 'manual-import' : 'host-config',
+      hostActivationRequired: true,
+    });
+    expect(result.report).toMatchObject({ hostActivationRequired: true, hostVerified: false });
+    expect(fixture.deps.openBrowser).toHaveBeenCalledWith('https://test/onboard/device?user_code=ABCD');
+    expect(events.find((event) => event.type === 'authorization_required')).toMatchObject({ browserOpened: true });
+  });
+});
+
+
+describe('legacy authorization browser boundary', () => {
+  it.each(['https://other.test/onboard', 'https://user:password@test/onboard'])('rejects unsafe authorization URL %s before browser launch and polling', async (url) => {
+    const openBrowser = vi.fn(async () => true);
+    const fixture = mockDeps({ openBrowser });
+    vi.mocked(fixture.deps.client.start).mockResolvedValue({ deviceCode: 'awd_test', userCode: 'CODE', verificationUri: url, verificationUriComplete: url, expiresIn: 600, interval: 5 });
+    fixture.deps.source = successfulSource(fixture.sink, { spaceMode: 'create', spaceName: 'Space', agentName: 'Agent', role: 'editor', clientType: 'generic', sourcePaths: ['.'], sourceType: 'documents' });
+    await expect(new OnboardingCoordinator(fixture.deps).run()).rejects.toMatchObject({ code: 'PROTOCOL_UNSUPPORTED' });
+    expect(openBrowser).not.toHaveBeenCalled();
+    expect(fixture.deps.client.pollUntilSettled).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])('does not reopen the authorization browser after resumable polling failure (launch=%s)', async (opened) => {
+    const openBrowser = vi.fn(async () => opened);
+    const fixture = mockDeps({ openBrowser });
+    fixture.deps.source = successfulSource(fixture.sink, { spaceMode: 'create', spaceName: 'Space', agentName: 'Agent', role: 'editor', clientType: 'generic', sourcePaths: ['.'], sourceType: 'documents' });
+    vi.mocked(fixture.deps.client.pollUntilSettled).mockRejectedValueOnce(new OnboardingError({ code: 'REMOTE_UNAVAILABLE', message: 'temporary network interruption', retryable: true }));
+    await expect(new OnboardingCoordinator(fixture.deps).run()).rejects.toThrow('temporary network interruption');
+    expect(openBrowser).toHaveBeenCalledTimes(1);
+    await new OnboardingCoordinator(fixture.deps).run();
+    expect(openBrowser).toHaveBeenCalledTimes(1);
+    const authorizations = fixture.sink.lines.map((line) => JSON.parse(line)).filter((event) => event.type === 'authorization_required');
+    expect(authorizations).toHaveLength(2);
+    expect(authorizations[1].browserOpened).toBe(opened);
   });
 });

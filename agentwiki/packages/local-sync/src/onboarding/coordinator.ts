@@ -9,13 +9,15 @@
  * replies on the injected source.
  */
 import { randomUUID } from 'node:crypto';
+import { AGENT_CLIENTS } from '../agent-clients.js';
+import { clientSetupInstructions } from '../installer/client-config.js';
 import { resolve } from 'node:path';
 import { hashServerPlan as computeServerPlanHash } from './plan-hash.js';
 import { hashOnboardingPlan } from './local-plan-hash.js';
 import { ProtocolEncoder, parseReply, isConfirmationReply, type ProtocolSource, type OnboardingEvent } from './protocol.js';
 import type { OnboardingClient, ClientType, ServerPlan, StartResult } from './client.js';
 import { OnboardingInputsSchema, type SessionStore, type OnboardingCheckpoint, type OnboardingInputs, type OnboardingState } from './session.js';
-import { assertTransition } from './session.js';
+import { assertTransition, assertSessionPackageVersion } from './session.js';
 import { OnboardingError, type OnboardingFailure } from './errors.js';
 import { PublicLocalScanPlanSchema, publicLocalScanPlan, type LocalScanPlan, type PublicLocalScanPlan } from '../codegraph/contracts.js';
 import type { PlanCodeScanInput } from '../codegraph/provider.js';
@@ -76,7 +78,7 @@ export interface CoordinatorDeps {
   encoder: ProtocolEncoder;
   source: ProtocolSource;
   serverBaseUrl: string;
-  packageVersion: '0.13.1';
+  packageVersion: '0.13.4';
   home: string;
   preflight: PreflightFn;
   bootstrapInstall: BootstrapInstallFn;
@@ -84,6 +86,8 @@ export interface CoordinatorDeps {
   sessionId?: string;
   /** Sleep injection for test speed. */
   sleep?: (ms: number) => Promise<void>;
+  /** Open only the authorization URL; a false result leaves the URL as fallback. */
+  openBrowser?: (url: string) => Promise<boolean>;
 }
 
 const SUPPORTED_PROTOCOL_VERSION = 1;
@@ -97,14 +101,16 @@ export class OnboardingCoordinator {
 
   /** Run the full onboarding state machine to completion. */
   async run(): Promise<{ sessionId: string; report: Record<string, unknown> }> {
-    let checkpoint = await this.deps.store.load();
+    let checkpoint = await this.deps.store.load(this.deps.packageVersion);
+    if (checkpoint !== null) assertSessionPackageVersion(checkpoint.packageVersion, this.deps.packageVersion);
     if (checkpoint === null) {
       checkpoint = {
         sessionId: this.sessionId,
         state: 'collecting_input',
         protocolVersion: SUPPORTED_PROTOCOL_VERSION,
+        packageVersion: this.deps.packageVersion,
         serverUrl: this.deps.serverBaseUrl,
-        clientType: 'codex',
+        clientType: 'generic',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -177,7 +183,7 @@ export class OnboardingCoordinator {
       { name: 'spaceId', label: 'Existing Space ID', type: 'string', required: false },
       { name: 'agentName', label: 'Agent name', type: 'string', required: true },
       { name: 'role', label: 'Access role', type: 'choice', choices: ['reader', 'editor', 'publisher'], required: true },
-      { name: 'clientType', label: 'Agent client', type: 'choice', choices: ['codex', 'claude', 'opencode'], required: true },
+      { name: 'clientType', label: 'Agent client', type: 'choice', choices: [...AGENT_CLIENTS], required: true, defaultValue: 'generic' },
       { name: 'sourcePaths', label: 'Source paths', type: 'paths', required: true },
       { name: 'sourceType', label: 'Source type', type: 'choice', choices: ['auto', 'code', 'documents'], required: false, defaultValue: 'auto' },
       { name: 'analysisMode', label: 'Analysis mode', type: 'choice', choices: ['standard', 'deep'], required: false, defaultValue: 'standard' },
@@ -188,7 +194,7 @@ export class OnboardingCoordinator {
   }
 
   private async authorize(prev: OnboardingCheckpoint): Promise<OnboardingCheckpoint> {
-    const clientType: ClientType = prev.clientType ?? 'codex';
+    const clientType: ClientType = prev.clientType ?? 'generic';
     const started: StartResult = prev.deviceCode && prev.userCode && prev.verificationUri
       ? {
           deviceCode: prev.deviceCode,
@@ -203,6 +209,10 @@ export class OnboardingCoordinator {
           packageVersion: this.deps.packageVersion,
           clientType,
         });
+    const authorizationUrl = new URL(started.verificationUriComplete);
+    if (authorizationUrl.origin !== new URL(this.deps.serverBaseUrl).origin || authorizationUrl.username || authorizationUrl.password) {
+      throw this.fail('PROTOCOL_UNSUPPORTED', 'authorization URL must have the server origin and no credentials', false);
+    }
     if (!prev.deviceCode) {
       prev = await this.transition({
         ...prev,
@@ -211,8 +221,16 @@ export class OnboardingCoordinator {
         verificationUri: started.verificationUriComplete,
       }, 'waiting_for_web_auth');
     }
+    if (prev.browserOpened === undefined) {
+      // Persist the attempt before invoking the OS so resume never opens another window.
+      prev = await this.transition({ ...prev, browserOpened: false }, 'waiting_for_web_auth');
+      const opened = await this.deps.openBrowser?.(authorizationUrl.href).catch(() => false) ?? false;
+      prev = await this.transition({ ...prev, browserOpened: opened }, 'waiting_for_web_auth');
+    }
+    const browserOpened = prev.browserOpened;
     this.emit({
       type: 'authorization_required',
+      browserOpened,
       requestId: 'auth',
       url: started.verificationUriComplete,
       userCode: started.userCode,
@@ -236,7 +254,7 @@ export class OnboardingCoordinator {
   private async preflight(prev: OnboardingCheckpoint): Promise<OnboardingCheckpoint> {
     this.emit({ type: 'progress', step: 'preflight', status: 'running' });
     const result = await this.deps.preflight(
-      prev.clientType ?? 'codex',
+      prev.clientType ?? 'generic',
       this.deps.home,
       this.deps.serverBaseUrl,
     );
@@ -272,6 +290,7 @@ export class OnboardingCoordinator {
       plan: {
         serverPlan,
         ...(publicPlan ? { localScanPlan: publicPlan } : {}),
+        ...clientSetupInstructions(prev.clientType, this.deps.home),
         configHash: inputs.configHash,
         oldEntries: inputs.oldEntries ?? [],
         reloadRequired: inputs.reloadRequired ?? false,
@@ -308,7 +327,7 @@ export class OnboardingCoordinator {
       idempotencyKey: `${this.sessionId}-${prev.serverPlanHash}`,
       serverPlan: this.buildServerPlan(prev.inputs!),
       serverPlanHash: prev.serverPlanHash!,
-      client: prev.clientType ?? 'codex',
+      client: prev.clientType ?? 'generic',
       connectionId,
       home: this.deps.home,
       expectedConfigHash: prev.inputs!.configHash as string,
@@ -367,6 +386,7 @@ export class OnboardingCoordinator {
         plan: {
           serverPlan: this.buildServerPlan(next.inputs!),
           ...(publicPlan ? { localScanPlan: publicPlan } : {}),
+          ...clientSetupInstructions(next.clientType, this.deps.home),
           configHash: next.inputs!.configHash,
           oldEntries: next.inputs!.oldEntries ?? [],
           reloadRequired: next.inputs!.reloadRequired ?? false,
@@ -417,7 +437,7 @@ export class OnboardingCoordinator {
         : { mode: 'create', name: inputs.spaceName as string },
       agentName: inputs.agentName as string,
       role: inputs.role as 'reader' | 'editor' | 'publisher',
-      packageVersion: '0.13.1',
+      packageVersion: '0.13.4',
     };
   }
 
@@ -461,7 +481,7 @@ export class OnboardingCoordinator {
     if (role !== 'reader' && role !== 'editor' && role !== 'publisher') {
       throw this.fail('PROTOCOL_UNSUPPORTED', 'role must be reader, editor, or publisher', false);
     }
-    if (clientType !== 'codex' && clientType !== 'claude' && clientType !== 'opencode') {
+    if (!AGENT_CLIENTS.includes(clientType as ClientType)) {
       throw this.fail('PROTOCOL_UNSUPPORTED', 'clientType is invalid', false);
     }
     if (!Array.isArray(sourcePaths) || sourcePaths.length === 0 || !sourcePaths.every(isNonEmptyString)) {
@@ -516,6 +536,8 @@ export class OnboardingCoordinator {
   private buildReport(checkpoint: OnboardingCheckpoint): Record<string, unknown> {
     return {
       sessionId: this.sessionId,
+      ...clientSetupInstructions(checkpoint.clientType, this.deps.home),
+      hostVerified: false,
       space: (checkpoint.bootstrapResult as { space?: { id: string; name: string } })?.space,
       agent: (checkpoint.bootstrapResult as { agent?: { id: string; name: string } })?.agent,
       revisionId: (checkpoint.bootstrapResult as { revisionId?: string })?.revisionId,

@@ -27,8 +27,8 @@ export class StartDeviceDto implements StartDeviceInput {
   @IsIn(SUPPORTED_LOCAL_SYNC_VERSIONS)
   packageVersion: SupportedLocalSyncVersion;
 
-  @IsIn(['codex', 'claude', 'opencode'])
-  clientType: 'codex' | 'claude' | 'opencode';
+  @IsIn(['codex', 'claude', 'opencode', 'workbuddy', 'generic'])
+  clientType: 'codex' | 'claude' | 'opencode' | 'workbuddy' | 'generic';
 
   @IsIn(['full-onboarding', 'agent-connect'])
   purpose: 'full-onboarding' | 'agent-connect';
