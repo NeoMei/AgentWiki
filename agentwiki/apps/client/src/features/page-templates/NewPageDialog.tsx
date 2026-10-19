@@ -1,3 +1,4 @@
+import { NativeSelect } from '../../components/NativeSelect';
 import React, { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useDirtyNavigationGuard } from '../space-workspace/workspaceNavigation';
@@ -866,9 +867,9 @@ const SelectPhase: React.FC<{
         <input type="search" value={search} placeholder={t('pageTemplate.search')} onChange={(event) => onSearch(event.target.value)} />
       </label>
       {customMode ? <span className="template-custom-label">{t('creation.source.space')}</span> : pageMode ? <label className="template-source"><span className="sr-only">{t('creation.source')}</span>
-        <select aria-label={t('creation.source')} value={scopeFilter} onChange={(event) => onScopeFilter(event.target.value as ScopeFilter)}>
+        <NativeSelect aria-label={t('creation.source')} value={scopeFilter} onChange={(event) => onScopeFilter(event.target.value as ScopeFilter)}>
           {SCOPE_FILTERS.map((scope) => <option key={scope} value={scope}>{t(`creation.source.${scope}`)}</option>)}
-        </select>
+        </NativeSelect>
       </label> : <div role="group" aria-label={t('pageTemplate.step.choose')} className="template-filter-group">
         {SCOPE_FILTERS.map((filter) => <FilterButton key={filter} active={scopeFilter === filter}
           onClick={() => onScopeFilter(filter)}>{t(`pageTemplate.filter.${filter}`)}</FilterButton>)}

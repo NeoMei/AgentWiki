@@ -1,3 +1,4 @@
+import { NativeSelect } from '../../components/NativeSelect';
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import api from '../../api/client';
@@ -276,10 +277,10 @@ export const SpaceSettings: React.FC = () => {
         <div>
           <label className="block text-sm font-medium mb-1" htmlFor="approval-policy">{t('settings.approval')}</label>
           <p className="text-sm text-gray-500 mb-3">{t('settings.approvalHelp')}</p>
-          <select id="approval-policy" value={currentSpace.approvalPolicy} onChange={(event) => updateDraft({ approvalPolicy: event.target.value as SpaceSettingsModel['approvalPolicy'] })} className="border rounded-lg px-3 py-2 text-sm" disabled={saving || !canEditSpace}>
+          <NativeSelect id="approval-policy" value={currentSpace.approvalPolicy} onChange={(event) => updateDraft({ approvalPolicy: event.target.value as SpaceSettingsModel['approvalPolicy'] })}  disabled={saving || !canEditSpace}>
             <option value="always-review">{t('settings.alwaysReview')}</option>
             <option value="no-review">{t('settings.autoPublish')}</option>
-          </select>
+          </NativeSelect>
         </div>
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
         <div className="flex items-center gap-3">

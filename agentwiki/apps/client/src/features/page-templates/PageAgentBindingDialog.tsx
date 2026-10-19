@@ -1,3 +1,4 @@
+import { NativeSelect } from '../../components/NativeSelect';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Copy, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -302,16 +303,16 @@ export const PageAgentBindingDialog: React.FC<{
           <label className="mt-2 flex items-start gap-2 text-sm"><input type="radio" name="folder-binding-mode" value="keep_current" checked={folderBindingMode === 'keep_current'} onChange={() => { setFolderBindingMode('keep_current'); setAgentId(''); signatureRef.current = null; invalidateRunPreview(); }} />{t('pageTemplate.binding.keepCurrentBindings')}</label>
           <label className="mt-3 flex items-start gap-2 text-sm"><input type="radio" name="folder-binding-mode" value="bulk_replace" checked={folderBindingMode === 'bulk_replace'} onChange={() => { setFolderBindingMode('bulk_replace'); signatureRef.current = null; invalidateRunPreview(); }} />{t('pageTemplate.binding.bulkReplaceBindings')}</label>
           {folderBindingMode === 'bulk_replace' ? <label className="mt-4 block text-sm font-medium">{t('pageTemplate.binding.bulkAgent')}
-            <select aria-label={t('pageTemplate.binding.bulkAgent')} value={agentId} onChange={(event) => { setAgentId(event.target.value); signatureRef.current = null; invalidateRunPreview(); }} className="mt-1 h-10 w-full rounded-lg border px-3">
+            <NativeSelect aria-label={t('pageTemplate.binding.bulkAgent')} value={agentId} onChange={(event) => { setAgentId(event.target.value); signatureRef.current = null; invalidateRunPreview(); }} className="mt-1 w-full">
               <option value="">{t('pageTemplate.binding.none')}</option>
               {agents.flatMap((member) => member.agentId && member.agent ? [<option key={member.agentId} value={member.agentId} disabled={!availability.get(member.agentId)}>{member.agent.name}{duplicateAgentNames.has(member.agent.name) ? ` #${member.agentId.slice(0, 8)}` : ''}{availability.get(member.agentId) ? '' : ` — ${member.role === 'reader' ? t('pageTemplate.composite.agentReader') : t('pageTemplate.composite.agentInactive')}`}</option>] : [])}
-            </select>
+            </NativeSelect>
           </label> : null}
         </fieldset> : <label className="mt-5 block text-sm font-medium">{t('pageTemplate.binding.primaryAgent')}
-          <select aria-label={t('pageTemplate.binding.primaryAgent')} value={agentId} onChange={(event) => { setAgentId(event.target.value); signatureRef.current = null; invalidateRunPreview(); }} className="mt-1 h-10 w-full rounded-lg border px-3">
+          <NativeSelect aria-label={t('pageTemplate.binding.primaryAgent')} value={agentId} onChange={(event) => { setAgentId(event.target.value); signatureRef.current = null; invalidateRunPreview(); }} className="mt-1 w-full">
             <option value="">{t('pageTemplate.binding.none')}</option>
             {agents.flatMap((member) => member.agentId && member.agent ? [<option key={member.agentId} value={member.agentId} disabled={!availability.get(member.agentId)}>{member.agent.name}{duplicateAgentNames.has(member.agent.name) ? ` #${member.agentId.slice(0, 8)}` : ''}{availability.get(member.agentId) ? '' : ` — ${member.role === 'reader' ? t('pageTemplate.composite.agentReader') : t('pageTemplate.composite.agentInactive')}`}</option>] : [])}
-          </select>
+          </NativeSelect>
         </label>}
         {selectedAgent?.agent ? <p className="mt-2 text-sm text-gray-500">{selectedAgent.agent.name} · {selectedAgent.agent.connected ? t('pageTemplate.binding.connected') : t('pageTemplate.binding.notConnected')}</p> : null}
         <label className="mt-4 flex items-center gap-2 text-sm"><input type="checkbox" checked={startNow} disabled={!canStart || !canBind || (scope.kind === 'page' ? !agentId : !hasFolderPageScope || (folderBindingMode === 'bulk_replace' && !agentId))} onChange={(event) => { setStartNow(canStart && canBind && event.target.checked); signatureRef.current = null; invalidateRunPreview(); }} />{t('pageTemplate.binding.startNow')}</label>

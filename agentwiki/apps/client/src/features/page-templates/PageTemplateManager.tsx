@@ -1,3 +1,4 @@
+import { NativeSelect } from '../../components/NativeSelect';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { ArrowLeft, FileText, FolderTree, Search } from 'lucide-react';
@@ -721,30 +722,30 @@ export const PageTemplateManager: React.FC = () => {
         </label>
         <label className="page-template-manager-filter">
           <span className="page-template-manager-filter-label">{t('pageTemplate.composite.kindFilter')}</span>
-          <select value={kind} onChange={(event) => setKind(event.target.value as typeof kind)} className="page-template-manager-control">
+          <NativeSelect value={kind} onChange={(event) => setKind(event.target.value as typeof kind)} className="page-template-manager-control">
             <option value="">{t('pageTemplate.filter.all')}</option>
             <option value="single_page">{t('pageTemplate.composite.singlePage')}</option>
             <option value="page_group">{t('pageTemplate.composite.pageGroup')}</option>
-          </select>
+          </NativeSelect>
         </label>
         <label className="page-template-manager-filter">
           <span className="page-template-manager-filter-label">{t('pageTemplate.composite.scopeFilter')}</span>
-          <select value={scope} onChange={(event) => setScope(event.target.value as typeof scope)} className="page-template-manager-control">
+          <NativeSelect value={scope} onChange={(event) => setScope(event.target.value as typeof scope)} className="page-template-manager-control">
             <option value="all">{t('pageTemplate.filter.all')}</option>
             <option value="system">{t('pageTemplate.filter.system')}</option>
             <option value="space">{t('pageTemplate.filter.space')}</option>
-          </select>
+          </NativeSelect>
         </label>
         <label className="page-template-manager-filter">
           <span className="page-template-manager-filter-label">{t('pageTemplate.category')}</span>
-          <select
+          <NativeSelect
             value={category}
             onChange={(event) => setCategory(event.target.value as PageTemplateCategory | '')}
             className="page-template-manager-control"
           >
             <option value="">{t('pageTemplate.filter.all')}</option>
             {CATEGORIES.map((value) => <option key={value} value={value}>{t(`pageTemplate.category.${value}`)}</option>)}
-          </select>
+          </NativeSelect>
         </label>
         <label className="page-template-manager-archived">
           <input type="checkbox" checked={showArchived} onChange={(event) => setShowArchived(event.target.checked)} />
@@ -821,9 +822,9 @@ export const PageTemplateManager: React.FC = () => {
             </label>
             <label className="block text-sm font-medium">
               {t('pageTemplate.category')}
-              <select className="mt-1 h-10 w-full rounded-lg border px-3 font-normal" value={metadataCategory} onChange={(event) => setMetadataCategory(event.target.value as PageTemplateCategory)}>
+              <NativeSelect className="mt-1 w-full" value={metadataCategory} onChange={(event) => setMetadataCategory(event.target.value as PageTemplateCategory)}>
                 {CATEGORIES.map((value) => <option key={value} value={value}>{t(`pageTemplate.category.${value}`)}</option>)}
-              </select>
+              </NativeSelect>
             </label>
             <label className="block text-sm font-medium">
               {t('pageTemplate.defaultTitle')}
@@ -863,10 +864,10 @@ export const PageTemplateManager: React.FC = () => {
                 aria-label={t('pageTemplate.sourcePageSearch')}
                 disabled={submitting}
               />
-              <select
+              <NativeSelect
                 aria-label={t('pageTemplate.sourcePage')}
                 data-modal-autofocus
-                className="mt-1 h-10 w-full rounded-lg border px-3 font-normal"
+                className="mt-1 w-full"
                 value={sourcePageId}
                 onChange={(event) => setSourcePageId(event.target.value)}
                 disabled={sourcePagesLoading || submitting}
@@ -874,7 +875,7 @@ export const PageTemplateManager: React.FC = () => {
               >
                 <option value="">{sourcePagesLoading ? t('common.loading') : t('pageTemplate.sourcePage')}</option>
                 {sourcePages.map((page) => <option key={page.id} value={page.id}>{formatSourcePageLabel(page, language)}</option>)}
-              </select>
+              </NativeSelect>
               <div role="status" aria-live="polite" className="mt-3 text-sm font-normal text-gray-600">
                 {sourcePagesLoading ? t('common.loading') : sourcePagesFailed ? null : t('pageTemplate.sourceMatches', { count: sourcePageTotal })}
               </div>

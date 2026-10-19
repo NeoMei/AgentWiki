@@ -6,7 +6,7 @@
   color: #24272e;
 }
 
-.aw-collab :is(button, a, input, select, textarea, [tabindex='0']):focus-visible {
+.aw-collab :is(button, a, input, textarea, [tabindex='0']):not(.aw-select):focus-visible {
   outline: 2px solid #2563eb;
   outline-offset: 3px;
 }

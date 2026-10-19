@@ -18,7 +18,7 @@
 .page-template-manager .page-template-manager-filter { flex: 1 1 128px; min-width: 0; }
 .page-template-manager .page-template-manager-search { flex: 2 1 240px; }
 .page-template-manager .page-template-manager-filter-label { display: block; margin-bottom: 8px; color: #525252; font-weight: 500; }
-.page-template-manager .page-template-manager-control { display: block; width: 100%; min-width: 0; height: 36px; border: 1px solid var(--manager-border); border-radius: 8px; padding: 0 12px; color: #262626; background: #fff; font: inherit; }
+.page-template-manager .page-template-manager-control:not(.aw-select) { display: block; width: 100%; min-width: 0; height: 36px; border: 1px solid var(--manager-border); border-radius: 8px; padding: 0 12px; color: #262626; background: #fff; font: inherit; }
 .page-template-manager .page-template-manager-search-input { display: flex; align-items: center; gap: 8px; border: 1px solid var(--manager-border); border-radius: 8px; padding-left: 12px; color: var(--manager-muted); }
 .page-template-manager .page-template-manager-search-input svg { flex-shrink: 0; }
 .page-template-manager .page-template-manager-search-input input { height: 34px; border: 0; padding-left: 0; background: transparent; }
@@ -48,7 +48,7 @@
 .page-template-manager .page-template-manager-loading { margin-top: 24px; color: var(--manager-muted); }
 .page-template-manager .page-template-manager-empty { padding: 32px 16px; margin-top: 24px; border: 1px solid var(--manager-border); border-radius: 8px; color: var(--manager-muted); text-align: center; }
 .page-template-manager .page-template-manager-load-more { margin-top: 16px; }
-.page-template-manager :is(button, a, select, input):focus-visible { outline: 2px solid #737373; outline-offset: 2px; }
+.page-template-manager :is(button, a, input):focus-visible { outline: 2px solid #737373; outline-offset: 2px; }
 @media (max-width: 1023px) {
   .page-template-manager .page-template-manager-row { flex-direction: column; gap: 12px; }
   .page-template-manager .page-template-manager-summary { width: 100%; }
@@ -67,3 +67,5 @@
 .page-template-manager .page-template-manager-create { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
 .page-template-manager .page-template-manager-create p { flex: 1 1 320px; margin: 0; }
 .page-template-manager .page-template-manager-created { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 16px; padding: 12px 16px; border: 1px solid var(--manager-border); border-radius: 8px; }
+
+.page-template-manager .aw-select.page-template-manager-control { display: block; width: 100%; }

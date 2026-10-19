@@ -1,3 +1,4 @@
+import { NativeSelect } from '../../components/NativeSelect';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Bot, CheckCircle2, Loader2, RefreshCw, Send, XCircle, Brain, Sparkles } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
@@ -416,11 +417,11 @@ export const AgentAssistPanel: React.FC<AgentAssistPanelProps> = ({ pageId, spac
       <div className="flex-1 space-y-4 overflow-auto p-4">
         <div>
           <label className="mb-2 block text-xs text-gray-600">{zh ? '修改范围' : 'Edit scope'}
-            <select aria-label={zh ? '修改范围' : 'Edit scope'} value={targetKind} disabled={submitting || !canEdit} onChange={(event) => { setTargetKind(event.target.value as AssistTarget['kind']); }} className="ml-2 rounded-lg border border-gray-200 p-1">
+            <NativeSelect aria-label={zh ? '修改范围' : 'Edit scope'} value={targetKind} disabled={submitting || !canEdit} onChange={(event) => { setTargetKind(event.target.value as AssistTarget['kind']); }} className="ml-2">
               <option value="document">{zh ? '整篇文档' : 'Document'}</option>
               <option value="selection" disabled={!assistTargets?.selection && assistRequest?.assistTarget?.kind !== 'selection'}>{zh ? '所选段落' : 'Selection'}</option>
               <option value="section" disabled={!assistTargets?.section && assistRequest?.assistTarget?.kind !== 'section'}>{zh ? '当前章节' : 'Section'}</option>
-            </select>
+            </NativeSelect>
           </label>
           {(requestRef.current?.assistTarget?.kind === targetKind ? requestRef.current.assistTarget : (targetKind !== 'document' ? assistTargets?.[targetKind] : null)) ? <blockquote className="mb-2 max-h-24 overflow-auto whitespace-pre-wrap border-l-2 pl-2 text-xs text-gray-500">{(requestRef.current?.assistTarget?.kind === targetKind ? requestRef.current.assistTarget : (targetKind !== 'document' ? assistTargets?.[targetKind] : null))?.quote}</blockquote> : null}
           <p className="mb-2 text-xs text-gray-500">{zh ? '只修改所选范围；候选须审阅接受后才进入草稿。' : 'Change only the chosen scope. Review and accept the candidate before it enters your draft.'}</p>

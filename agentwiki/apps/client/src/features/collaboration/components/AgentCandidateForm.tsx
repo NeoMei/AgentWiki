@@ -1,3 +1,4 @@
+import { NativeSelect } from '../../../components/NativeSelect';
 import React, { useId, useRef } from 'react';
 import { useLanguage } from '../../../context/LanguageContext';
 import type { ExecutableAgentRole, OwnedAgentSummary } from '../agentPreparationApi';
@@ -170,15 +171,15 @@ export const AgentCandidateForm: React.FC<AgentCandidateFormProps> = ({
         {agents.length > 0 ? (
           <label className="block text-sm font-medium">
             {t('collaboration.dashboard.agent')}
-            <select
+            <NativeSelect
               aria-label={t('collaboration.dashboard.agent')}
               value={selectedAgentId}
               disabled={busy || mode !== 'existing'}
               onChange={(event) => onSelectedAgentIdChange(event.target.value)}
-              className="mt-1 h-10 w-full min-w-0 rounded-lg border px-3 text-sm disabled:bg-gray-100"
+              className="mt-1 w-full min-w-0"
             >
               {agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
-            </select>
+            </NativeSelect>
           </label>
         ) : null}
         {selectedAgent ? (
@@ -225,16 +226,16 @@ export const AgentCandidateForm: React.FC<AgentCandidateFormProps> = ({
 
       <label className="block text-sm font-medium">
         {t('collaboration.agentPreparation.role')}
-        <select
+        <NativeSelect
           aria-label={t('collaboration.agentPreparation.role')}
           value={role}
           disabled={busy || Boolean(lockedAgent)}
           onChange={(event) => onRoleChange(event.target.value as ExecutableAgentRole)}
-          className="mt-1 h-10 w-full min-w-0 rounded-lg border px-3 text-sm disabled:bg-gray-100"
+          className="mt-1 w-full min-w-0"
         >
           <option value="editor">{t('agent.role.editor.name')}</option>
           <option value="publisher">{t('agent.role.publisher.name')}</option>
-        </select>
+        </NativeSelect>
       </label>
 
       {!lockedAgent

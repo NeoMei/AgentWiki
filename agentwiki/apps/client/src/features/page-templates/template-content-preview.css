@@ -4,11 +4,11 @@
 .template-content-control { display: inline-flex; min-height: 32px; flex-shrink: 0; align-items: center; justify-content: center; gap: 8px; padding: 4px 8px; border-radius: 8px; color: #525252; font-size: 14px; cursor: pointer; }
 .template-content-control:hover { background: #ededed; color: #171717; }
 .template-content-control:disabled { opacity: .45; cursor: not-allowed; }
-.template-content-control:focus-visible, .template-content-thumbnail:focus-visible, .template-content-full:focus-visible, .template-content-page-select select:focus-visible { outline: 2px solid #737373; outline-offset: 2px; }
+.template-content-control:focus-visible, .template-content-thumbnail:focus-visible, .template-content-full:focus-visible { outline: 2px solid #737373; outline-offset: 2px; }
 .template-content-message { padding: 24px 12px; color: #737373; font-size: 14px; line-height: 1.6; text-align: center; }
 .template-content-retry { margin-top: 8px; padding: 4px 12px; border: 1px solid #d4d4d4; background: #fff; }
 .template-content-page-select { display: flex; min-width: 0; flex-direction: column; gap: 8px; margin: 0 0 12px; font-size: 14px; color: #737373; }
-.template-content-page-select select { display: block; width: 100%; min-width: 0; min-height: 32px; padding: 4px 8px; border: 1px solid #dedede; border-radius: 8px; background: #fff; color: #404040; }
+.template-content-page-select .aw-select { display: block; width: 100%; }
 .template-content-thumbnail { min-height: 200px; max-height: 360px; overflow: auto; overscroll-behavior: contain; border: 1px solid #e5e5e5; border-radius: 8px; background: #fff; }
 .template-content-document { min-width: 0; padding: 16px; overflow-wrap: anywhere; }
 .template-content-document-title { margin: 0 0 16px; font-size: 16px; font-weight: 600; line-height: 1.4; }

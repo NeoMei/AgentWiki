@@ -4,6 +4,8 @@
 
 ## 活跃任务
 
+- [unified-select-audit-20261020](active/unified-select-audit-20261020/brief.md)：全站56处下拉框统一共享组件、清除局部样式与lint防回归，客户端2759测试及构建通过，浏览器验收进行中。
+
 
 
 

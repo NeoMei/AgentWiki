@@ -1,3 +1,4 @@
+import { NativeSelect } from '../../components/NativeSelect';
 import './taskboard.css';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
@@ -438,7 +439,7 @@ export const TaskboardPage: React.FC = () => {
           <div className="roadnav">
             <button type="button" aria-label={t('taskboard.prevPhase')} title={t('taskboard.prevPhase')} disabled={!railCanScroll || railAtStart} onClick={() => scrollRailByStep(-1)}>‹</button>
             <button type="button" aria-label={t('taskboard.nextPhase')} title={t('taskboard.nextPhase')} disabled={!railCanScroll || railAtEnd} onClick={() => scrollRailByStep(1)}>›</button>
-            <select
+            <NativeSelect
               className="jumpmenu"
               aria-label={t('taskboard.jumpToPhase')}
               title={t('taskboard.jumpToPhase')}
@@ -449,7 +450,7 @@ export const TaskboardPage: React.FC = () => {
                 const c = tbTaskStatusCounts(tasks, phase.id);
                 return <option key={phase.id} value={phase.id}>{tbPhaseMark(phase, index)} · {tbCleanTitle(phase)} ({c.done}/{c.total})</option>;
               })}
-            </select>
+            </NativeSelect>
           </div>
         </div>}
         {error && <div id="error" role="status">{error}</div>}
@@ -495,7 +496,7 @@ export const TaskboardPage: React.FC = () => {
             )}
             {importMode === 'page' && (
               <label className="statusrow"><span>{zh ? '选择空间页面' : 'Wiki page'}</span>
-                <select
+                <NativeSelect
                   aria-label={zh ? '选择空间页面' : 'Choose wiki page'}
                   value={selectedPageId}
                   onChange={(e) => setSelectedPageId(e.target.value)}
@@ -503,7 +504,7 @@ export const TaskboardPage: React.FC = () => {
                 >
                   <option value="">{spacePages.length ? (zh ? '— 请选择 —' : '— pick —') : (zh ? '本空间暂无页面' : 'No pages in this space')}</option>
                   {spacePages.map((page) => <option key={page.id} value={page.id}>{page.title}</option>)}
-                </select>
+                </NativeSelect>
               </label>
             )}
             <details>
@@ -601,9 +602,9 @@ export const TaskboardPage: React.FC = () => {
                       <div className="box">
                         <h3>{zh ? '更新执行状态' : 'Update status'}</h3>
                         <label className="statusrow"><span>{t('common.status')}</span>
-                          <select aria-label={t('common.status')} value={statusDraft} onChange={(e) => setStatusDraft(e.target.value)}>
+                          <NativeSelect aria-label={t('common.status')} value={statusDraft} onChange={(e) => setStatusDraft(e.target.value)}>
                             {TB_STATUS_ORDER.map((s) => <option key={s} value={s}>{statusZh(s)}</option>)}
-                          </select>
+                          </NativeSelect>
                         </label>
                         <label className="statusrow"><span>{t('taskboard.currentStep')}</span>
                           <input aria-label={t('taskboard.currentStep')} value={stepDraft} onChange={(e) => setStepDraft(e.target.value)} className="field-fill" />

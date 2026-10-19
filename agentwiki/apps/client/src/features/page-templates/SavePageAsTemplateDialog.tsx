@@ -1,3 +1,4 @@
+import { NativeSelect } from '../../components/NativeSelect';
 import React, { useEffect, useRef, useState } from 'react';
 import { apiErrorMessage } from '../../api/error-message';
 import { ModalDialog } from '../../components/ModalDialog';
@@ -124,19 +125,19 @@ export const SavePageAsTemplateDialog: React.FC<SavePageAsTemplateDialogProps> =
 
         <label htmlFor="page-template-category" className="block space-y-1 text-sm font-medium">
           <span>{t('pageTemplate.category')}</span>
-          <select
+          <NativeSelect
             id="page-template-category"
             value={draft.category}
             onChange={(event) => setDraft((value) => ({
               ...value,
               category: event.target.value as PageTemplateCategory,
             }))}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2"
+            className="w-full"
           >
             {CATEGORIES.map((category) => (
               <option key={category} value={category}>{t(`pageTemplate.category.${category}`)}</option>
             ))}
-          </select>
+          </NativeSelect>
         </label>
 
         <label htmlFor="page-template-default-title" className="block space-y-1 text-sm font-medium">

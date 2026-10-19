@@ -1,3 +1,4 @@
+import { NativeSelect } from '../../components/NativeSelect';
 import { bugGraphText } from '../../i18n/bug-graph-messages';
 import { sourceStatusText } from '../../i18n/source-status-messages';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -305,7 +306,7 @@ export const KnowledgeGraph: React.FC = () => {
       </div>
       <details className="graph-filter-menu"><summary><Network size={18} />{gt('graph.relationTypes')}<ChevronDown size={14} /></summary>
         <div className="graph-filter-popover">
-          <label>{gt('graph.relationFilter')}<select value={relationType} onChange={event => setRelationType(event.target.value)}><option value="">{gt('graph.allRelations')}</option>{[...new Set(edges.map(edge => edge.relation))].sort().map(relation => <option key={relation} value={relation}>{relation}</option>)}</select></label>
+          <label>{gt('graph.relationFilter')}<NativeSelect value={relationType} onChange={event => setRelationType(event.target.value)}><option value="">{gt('graph.allRelations')}</option>{[...new Set(edges.map(edge => edge.relation))].sort().map(relation => <option key={relation} value={relation}>{relation}</option>)}</NativeSelect></label>
           <p>{gt('graph.origins')}</p><div className="graph-origin-filters">{[...new Set(edges.map(edge => edge.origin))].map(origin => {
             const label = ORIGIN_LABELS[origin];
             return <button key={origin} type="button" aria-pressed={!hiddenOrigins.has(origin)} className={hiddenOrigins.has(origin) ? 'line-through' : ''} onClick={() => setHiddenOrigins(current => { const next = new Set(current); if (next.has(origin)) next.delete(origin); else next.add(origin); return next; })}>{label ? (zh ? label.zh : label.en) : origin}</button>;
@@ -379,7 +380,7 @@ export const KnowledgeGraph: React.FC = () => {
     </div>
     <div className="graph-accessible-browser">
       <p>{gt('graph.navigationHint')}</p>
-      <label htmlFor="knowledge-node-browser">{zh ? '浏览图谱节点' : 'Browse graph nodes'}</label><select id="knowledge-node-browser" value={selectedNode ?? ''} onChange={event => selectPage(event.target.value || null)}><option value="">{zh ? '选择页面…' : 'Select a page…'}</option>{filteredNodes.map(node => <option key={node.id} value={node.id}>{node.title}</option>)}</select>
+      <label htmlFor="knowledge-node-browser">{zh ? '浏览图谱节点' : 'Browse graph nodes'}</label><NativeSelect id="knowledge-node-browser" value={selectedNode ?? ''} onChange={event => selectPage(event.target.value || null)}><option value="">{zh ? '选择页面…' : 'Select a page…'}</option>{filteredNodes.map(node => <option key={node.id} value={node.id}>{node.title}</option>)}</NativeSelect>
       {selectedNode && <Link to={`/pages/${selectedNode}`}>{zh ? '打开所选页面' : 'Open selected page'}</Link>}
     </div>
       {showLinkModal && linkingFrom && (
@@ -410,16 +411,16 @@ export const KnowledgeGraph: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">{zh ? '到' : 'To'} *</label>
-                <select
+                <NativeSelect
                   value={linkTarget}
                   onChange={e => setLinkTarget(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full"
                 >
                   <option value="">{zh ? '选择页面…' : 'Select a page…'}</option>
                   {allPages.filter(p => p.id !== linkingFrom).map(page => (
                     <option key={page.id} value={page.id}>{page.title}</option>
                   ))}
-                </select>
+                </NativeSelect>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">{zh ? '关系类型' : 'Relation type'}</label>

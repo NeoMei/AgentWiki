@@ -1,3 +1,4 @@
+import { NativeSelect } from '../../components/NativeSelect';
 import { useEffect, useId, useState } from 'react';
 import { Maximize2, X } from 'lucide-react';
 import { Markdown } from '../../components/Markdown';
@@ -97,10 +98,10 @@ function SelectedTemplatePreview({ spaceId, template }: TemplateContentPreviewPr
   const pageSelector = (suffix: string) => pages.length > 1 && (
     <label className="template-content-page-select" htmlFor={`${id}-${suffix}-page`}>
       <span>{text.page}</span>
-      <select id={`${id}-${suffix}-page`} value={selectedPage?.id ?? ''}
+      <NativeSelect id={`${id}-${suffix}-page`} value={selectedPage?.id ?? ''}
         onChange={(event) => setPageId(event.target.value)}>
         {pages.map((page, index) => <option key={page.id} value={page.id}>{index + 1}. {page.title}</option>)}
-      </select>
+      </NativeSelect>
     </label>
   );
   const document = selectedPage && (

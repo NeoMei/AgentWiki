@@ -1,3 +1,4 @@
+import { NativeSelect } from '../../components/NativeSelect';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { apiErrorCode, apiErrorMessage } from '../../api/error-message';
@@ -322,13 +323,13 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
         }} className="mt-1 h-10 w-full rounded-lg border px-3 disabled:opacity-50" />
       </label>
       <label className="text-sm font-medium">{t('attachment.status')}
-        <select aria-label={t('attachment.status')} value={status} disabled={criteriaLocked} onChange={(event) => {
+        <NativeSelect aria-label={t('attachment.status')} value={status} disabled={criteriaLocked} onChange={(event) => {
           if (!operationRef.current) setStatus(event.target.value as AttachmentListStatus);
-        }} className="mt-1 h-10 w-full rounded-lg border px-3 disabled:opacity-50">
+        }} className="mt-1 w-full">
           <option value="active">{t('attachment.statusActive')}</option>
           <option value="archived">{t('attachment.statusArchived')}</option>
           <option value="all">{t('attachment.statusAll')}</option>
-        </select>
+        </NativeSelect>
       </label>
     </div>
 

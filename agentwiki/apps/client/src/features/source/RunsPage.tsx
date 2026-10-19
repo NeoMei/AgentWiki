@@ -1,3 +1,4 @@
+import { NativeSelect } from '../../components/NativeSelect';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Ban, RefreshCw, RotateCcw } from 'lucide-react';
@@ -123,14 +124,14 @@ export const RunsPage: React.FC<{ embedded?: boolean }> = ({ embedded = false })
       {error ? <div role="alert" className="p-3 mb-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div> : null}
       <div className="mb-4 grid gap-2 rounded-[14px] border bg-white p-3 sm:grid-cols-[minmax(0,1fr)_12rem_12rem]">
         <input aria-label={t('run.search')} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('run.searchPlaceholder')} className="h-9 rounded-lg border px-3 text-sm" />
-        <select aria-label={t('run.filterSource')} value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)} className="h-9 rounded-lg border px-3 text-sm">
+        <NativeSelect aria-label={t('run.filterSource')} value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)} >
           <option value="">{t('run.allSources')}</option>
           {sourceOptions.map(([value, label], index) => <option key={value} value={value}>{index + 1} · {label}</option>)}
-        </select>
-        <select aria-label={t('run.filterStatus')} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="h-9 rounded-lg border px-3 text-sm">
+        </NativeSelect>
+        <NativeSelect aria-label={t('run.filterStatus')} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} >
           <option value="">{t('run.allStatuses')}</option>
           {[...new Set(runs.map((run) => run.status).filter(Boolean))].map((status) => <option key={status} value={status}>{runtimeLabel(status, t)}</option>)}
-        </select>
+        </NativeSelect>
         <p className="text-xs text-gray-500 sm:col-span-3">{t('run.resultCount', { count: visibleRuns.length })}</p>
       </div>
       <div className="border rounded-[14px] bg-white divide-y">

@@ -32,6 +32,45 @@ const actionVisible = async (page: Page, label: string) => {
   expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
 };
 
+test('preview page selectors keep the shared style through keyboard focus, modal and mobile states', async ({ page }) => {
+  await page.goto(fixture);
+  await page.getByRole('navigation', { name: '创建方式' }).getByRole('button', { name: '页面组', exact: true }).click();
+  await page.getByRole('button', { name: /^项目启动页面组 系统/u }).click();
+  const selector = page.getByRole('combobox', { name: '预览页面' });
+  await expect(selector).toHaveCSS('appearance', 'none');
+  await expect(selector).toHaveCSS('background-image', /data:image\/svg\+xml/u);
+  await expect(selector).toHaveCSS('border-radius', '8px');
+  await expect(selector).toHaveCSS('height', '32px');
+  await expect(selector).toHaveCSS('font-size', '14px');
+  // Enter via Tab so the regression covers the visible focus state from the report.
+  await page.getByRole('button', { name: '放大预览' }).focus();
+  await page.keyboard.press('Tab');
+  await expect(selector).toBeFocused();
+  await expect(selector).toHaveCSS('outline-style', 'none');
+  await expect(selector).not.toHaveCSS('box-shadow', 'none');
+  await shot(page, 'desktop-page-group-focused');
+  // Native popup key handling differs by OS; Tab verifies keyboard focus,
+  // while selectOption verifies the actual change event and rendered page.
+  await selector.selectOption('project-risks');
+  await expect(selector).toHaveValue('project-risks');
+  await expect(page.locator('.template-content-preview')).toContainText('这是页面组的第二篇内容。');
+  await page.getByRole('button', { name: '放大预览' }).click();
+  const expanded = page.getByRole('dialog').getByRole('combobox', { name: '预览页面' });
+  await expect(expanded).toHaveCSS('appearance', 'none');
+  await expect(expanded).toHaveValue('project-risks');
+  await expanded.selectOption('project-overview');
+  await expect(page.getByRole('dialog')).toContainText('这是页面组的第一篇内容。');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(expanded).toHaveCSS('height', '44px');
+  await shot(page, 'mobile-page-group-focused');
+  await overflow(page);
+  await page.emulateMedia({ forcedColors: 'active' });
+  await expanded.focus();
+  await expect(expanded).toHaveCSS('appearance', 'auto');
+  await expect(expanded).toHaveCSS('background-image', 'none');
+  await page.emulateMedia({ forcedColors: 'none' });
+});
+
 test('desktop selection renders real Markdown, expanded preview and multi-page switching', async ({ page }) => {
   await page.goto(fixture);
   await expect(page).toHaveTitle('模板内容预览与自定义管理 · 本地 UI 验证');

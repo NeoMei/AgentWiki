@@ -29,4 +29,14 @@ export default tseslint.config(
       '@typescript-eslint/no-require-imports': 'off',
     },
   },
+  {
+    files: ['apps/client/src/**/*.{jsx,tsx}'],
+    ignores: ['apps/client/src/components/NativeSelect.tsx', '**/*.{spec,test}.{jsx,tsx}', '**/__tests__/**'],
+    rules: {
+      'no-restricted-syntax': ['error', {
+        selector: 'JSXOpeningElement[name.type="JSXIdentifier"][name.name="select"]',
+        message: 'Use NativeSelect from components/NativeSelect so every dropdown follows the shared visual style.',
+      }],
+    },
+  },
 );

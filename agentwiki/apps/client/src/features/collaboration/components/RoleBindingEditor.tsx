@@ -1,3 +1,4 @@
+import { NativeSelect } from '../../../components/NativeSelect';
 import React from 'react';
 import type { CollaborationTemplateDefinition } from '@neomei/agentwiki-sync-protocol';
 import type { RoleBinding, SpaceMemberSummary } from '../types';
@@ -28,7 +29,7 @@ export const RoleBindingEditor: React.FC<{
             {showDescription ? <p id={`${selectId}-description`}>{description}</p> : null}
           </div>
           <div className="role-binding-controls flex-wrap">
-            <select
+            <NativeSelect
               id={selectId}
               aria-label={slot.name}
               aria-describedby={showDescription ? `${selectId}-description` : undefined}
@@ -46,7 +47,7 @@ export const RoleBindingEditor: React.FC<{
                   {member.agent.name}{availability?.reason ? ` — ${availability.reason}` : ''}
                 </option>];
               })}
-            </select>
+            </NativeSelect>
             {onPrepare && prepareLabel ? (
               <button
                 type="button"

@@ -1,3 +1,4 @@
+import { NativeSelect } from '../../components/NativeSelect';
 import React from 'react';
 import { ExternalLink, PlugZap } from 'lucide-react';
 import { AGENT_ACCESS_ROLES } from '@neomei/agentwiki-sync-protocol';
@@ -25,17 +26,17 @@ export const GatewayGuidePreview: React.FC = () => {
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <label className="text-xs font-medium text-gray-700">
           Space
-          <select aria-label="Space" disabled className="mt-1 h-9 w-full rounded-lg border bg-gray-50 px-2 text-sm">
+          <NativeSelect aria-label="Space" disabled className="mt-1 w-full">
             <option>{zh ? '选择 Space' : 'Choose a Space'}</option>
-          </select>
+          </NativeSelect>
         </label>
         <label className="text-xs font-medium text-gray-700">
           {zh ? 'Agent 角色' : 'Agent role'}
-          <select aria-label={zh ? 'Agent 角色' : 'Agent role'} disabled className="mt-1 h-9 w-full rounded-lg border bg-gray-50 px-2 text-sm">
+          <NativeSelect aria-label={zh ? 'Agent 角色' : 'Agent role'} disabled className="mt-1 w-full">
             {AGENT_ACCESS_ROLES.map((role) => (
               <option key={role} value={role}>{role === 'reader' ? 'Reader' : role === 'editor' ? 'Editor' : 'Publisher'}</option>
             ))}
-          </select>
+          </NativeSelect>
         </label>
       </div>
       <p className="mt-3 text-xs leading-5 text-gray-500">
