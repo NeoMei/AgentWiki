@@ -1,0 +1,242 @@
+{
+  "status": "published_deployed_verified_feedback_updated",
+  "recordedAt": "2026-10-19T11:55:51.580713+00:00",
+  "authorization": "User explicitly requested 发布",
+  "revision": "800dce6fa4214a31abda9e8d69c976b2d3a18b9e",
+  "webVersion": "0.12.51",
+  "tag": "v0.12.51",
+  "releaseUrl": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.51",
+  "previousProductionRevision": "99b247c7e21a3322398c7c8a2e7bda4995151e03",
+  "preservedLocalSync": "0.13.4",
+  "preservedProtocol": "0.6.1",
+  "validation": {
+    "revision": "800dce6fa4214a31abda9e8d69c976b2d3a18b9e",
+    "status": "passed",
+    "totalPassed": 7868,
+    "totalSkipped": 6,
+    "runtime": {
+      "passed": 309,
+      "skipped": 1
+    },
+    "serialDatabase": {
+      "passed": 239,
+      "skipped": 0
+    },
+    "server": {
+      "passed": 3355,
+      "skipped": 4
+    },
+    "client": {
+      "passed": 2704
+    },
+    "protocol": {
+      "passed": 140
+    },
+    "localSync": {
+      "passed": 1121,
+      "skipped": 1
+    },
+    "build": "passed",
+    "typecheck": "passed",
+    "lint": "passed",
+    "entryJavaScriptBytes": 549973,
+    "entryJavaScriptBudget": 550000,
+    "firstAttempt": "Concurrent independent build cleared server dist during test execution; four missing-module infrastructure failures. After build completed, entire full suite reran serially and passed without code changes.",
+    "logs": {
+      "full-test-rerun.log": "0b51d9a20e30ca0cb2713d4ffe5f3860a6bc1bd2be0876d49109f41905cd39fe",
+      "build.log": "42c3002c57dc6231e53295c6d7d15402d2272dcb5314180d3ae60b6e06201bc4",
+      "typecheck.log": "d0a87d9e039ecf277453e5bf5e153e25986e53af6f6456b0f1c7a11ba35dc86d",
+      "lint.log": "d5b17ee595fbfdae02af58fd347506b1d5a827a69c28da8385dc57ae52ef712d"
+    }
+  },
+  "review": {
+    "revision": "800dce6fa4214a31abda9e8d69c976b2d3a18b9e",
+    "status": "passed",
+    "blockingFindings": [],
+    "deployedBaseline": "99b247c7e21a3322398c7c8a2e7bda4995151e03",
+    "integratedReceiptHead": "fb0cc173",
+    "exportFilesMatchedGit": 2351,
+    "deploymentManifestFilesMatchedGit": 1365,
+    "productionChangesPreserved": true,
+    "unpublishedDd421decExcluded": true,
+    "schemaDependenciesLockfileUnchanged": true,
+    "reviewer": "release_candidate_review"
+  },
+  "backup": {
+    "directory": "/var/backups/agentwiki/graph-auth-v01251.86cj49b1",
+    "status": "verified",
+    "checksumsPassed": true,
+    "writersRestored": true,
+    "wholeAttachmentManifestEntries": 548,
+    "permanentBlobCount": 159,
+    "wholeAttachmentArchiveVerified": true,
+    "applicationConfigurationDatabaseAttachmentsPaired": true,
+    "writerPauseSeconds": 7.495551,
+    "restoreDrillPerformed": false
+  },
+  "deployment": {
+    "exitCode": 0,
+    "previousApplicationDirectory": "/root/agentwiki-previous-20261019194514",
+    "migrations": 63,
+    "pendingMigrations": 0
+  },
+  "host": {
+    "mode": "host",
+    "revision": "800dce6fa4214a31abda9e8d69c976b2d3a18b9e",
+    "sourceFilesVerified": 1365,
+    "mismatches": [],
+    "versions": {
+      "web": "0.12.51",
+      "client": "0.12.51",
+      "api": "0.12.51",
+      "localSync": "0.13.4",
+      "protocol": "0.6.1"
+    },
+    "nodeVersion": "v24.18.0",
+    "services": {
+      "agentwiki-api.service": "active",
+      "agentwiki-worker.service": "active",
+      "agentwiki-frontend.service": "active"
+    },
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "entryHtmlSha256": "ff031bd81a38e6cf445fb00dc9023a8453b94936ddc9004779ba5ce36aeb45a6",
+    "entryAssets": {
+      "/assets/index-ChuXGIKm.js": "dca0d1451e6b3f5fbb80874444ffc94092e374b5c830178fa59df1e0588fb705",
+      "/assets/_commonjsHelpers-CqkleIqs.js": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+      "/assets/react-vendor-CTv3miC2.js": "7e3a4bf34c49700b5fad7403a908da66c35ca1ad3669d05d3356f1a5e9bae663",
+      "/assets/preload-helper-ckwbz45p.js": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+      "/assets/index-BYFGXsAi.css": "cfbd2511604186e62e2b5c1ab45ceb93fe24ecf4e2b891f5ddbcc2513f7dab41"
+    },
+    "status": "passed",
+    "verifiedAt": "2026-10-19T11:46:24.789438+00:00"
+  },
+  "public": {
+    "mode": "public",
+    "revision": "800dce6fa4214a31abda9e8d69c976b2d3a18b9e",
+    "origin": "https://agentwiki.quukk.com",
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "pageHttpStatus": 200,
+    "entryHtmlMatchProduction": true,
+    "entryAssetsMatchProduction": [
+      "/assets/index-ChuXGIKm.js",
+      "/assets/_commonjsHelpers-CqkleIqs.js",
+      "/assets/react-vendor-CTv3miC2.js",
+      "/assets/preload-helper-ckwbz45p.js",
+      "/assets/index-BYFGXsAi.css"
+    ],
+    "entryAssetCount": 5,
+    "status": "passed",
+    "verifiedAt": "2026-10-19T11:46:29.156059+00:00"
+  },
+  "authApi": {
+    "verifiedAt": "2026-10-19T11:46:30.534409+00:00",
+    "status": "passed",
+    "cases": [
+      {
+        "case": "duplicate_registration",
+        "status": 409,
+        "code": "AUTH_EMAIL_IN_USE",
+        "message": "Email already in use"
+      },
+      {
+        "case": "invalid_registration",
+        "status": 400,
+        "code": "BAD_REQUEST",
+        "message": "email must be an email"
+      },
+      {
+        "case": "invalid_login",
+        "status": 400,
+        "code": "BAD_REQUEST",
+        "message": "email must be an email"
+      }
+    ],
+    "createdAccount": false
+  },
+  "browser": {
+    "status": "passed",
+    "verifiedAt": "2026-10-19T11:53:55.942788+00:00",
+    "origin": "https://agentwiki.quukk.com",
+    "graph": {
+      "spaceId": "cmv6biedu005okoisb9fgp64y",
+      "pages": 17,
+      "folders": 5,
+      "relationships": 0,
+      "searchVersionPage": true,
+      "selectionDetails": true,
+      "clearSearch": true,
+      "zoomAndFit": true,
+      "folderExpansion": true,
+      "narrowViewport": 390,
+      "narrowDocumentWidth": 390,
+      "desktopViewport": 1690,
+      "desktopRestored": true
+    },
+    "auth": {
+      "duplicate409Message": true,
+      "goToSignIn": true,
+      "emailPreserved": "visually_confirmed_in_screenshot; DOM and clipboard redacted values",
+      "invalidRegistrationRequests": 0,
+      "invalidLoginRequests": 0,
+      "server400RegistrationFieldError": true,
+      "server400LoginFieldError": true,
+      "languageSwitch": true,
+      "narrowViewport": 390,
+      "narrowDocumentWidth": 390,
+      "createdAccount": false
+    },
+    "smoke": {
+      "status": "passed",
+      "checks": 32,
+      "isolatedTemporaryUserSpaceAgentCleanup": true
+    },
+    "privateScreenshots": {
+      "graph-desktop.png": "b59807b9874e8ddfd2dc227a6b1befe722e3cb9903578bd69cc7c67a333de01d",
+      "graph-mobile.png": "756a0a4ad4c4b6d4b7dfe456b1e9e7f6abbc1add4c3b431e202b2c499c4f4dbc",
+      "auth-en.png": "e309726df756d1a74c3d240eb392e4eef7f000b039e71a3937e27e1630778072",
+      "auth-mobile.png": "12b2e57a13fd01eefcddf48ad3ed370a4b8abf93a471a5cd4b044a7d005b7e2f"
+    }
+  },
+  "feedback": {
+    "pageId": "117ada12-8288-4055-b547-459db6dc4c54",
+    "url": "https://agentwiki.quukk.com/pages/117ada12-8288-4055-b547-459db6dc4c54",
+    "status": "published",
+    "method": "user-authorized existing browser account",
+    "developerReplyCount": 3,
+    "exactReadbackAfterReload": true,
+    "readPageRendered": true,
+    "originalReportImagesAndRegressionFieldsPreserved": true,
+    "testerRegression": "pending",
+    "contentSha256": "35763e9b06fe03f2a6720831a0cc76f62c6114652c8b694ce18e1b1a48cc97d8",
+    "screenshotSha256": "0a41e885d622219558d1669f46c42d43436a4d1faec5fe547c3862ccd7dfb2ab"
+  },
+  "boundaries": [
+    "Tester-owned regression fields remain pending.",
+    "Backup restore drill was not performed.",
+    "This release retains Local Sync 0.13.4 and protocol 0.6.1; no npm republish or database schema change.",
+    "Raw screenshots, original feedback content, environments and credentials remain private and are not committed."
+  ],
+  "finalIndependentReview": {
+    "status": "passed_no_blocking_findings",
+    "reviewer": "release_candidate_review",
+    "publicReverifiedAt": "2026-10-19T11:57:12Z",
+    "releaseAndTagVerified": true,
+    "testsAndLogHashesVerified": true,
+    "productionPublicHtmlAnd5AssetsVerified": true,
+    "only3DeveloperReplyFieldsChanged": true,
+    "originalReport3Images3RegressionFieldsPreserved": true,
+    "privateScreenshotsAndFeedbackHashesVerified": true
+  }
+}

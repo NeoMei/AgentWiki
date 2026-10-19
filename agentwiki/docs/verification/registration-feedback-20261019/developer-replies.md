@@ -28,3 +28,9 @@
 - 本地截图：`/tmp/agentwiki-registration-feedback/duplicate.jpg`。
 - 新增登录补丁日志：`/tmp/agentwiki-login-feedback-tests.log`、`/tmp/agentwiki-login-feedback-build.log`；首屏JavaScript 549980/550000字节，预算通过。Chrome使用原复现格式验证登录0请求及服务端400中英文兜底。
 - 本次未推送、合并或部署；本地合成浏览器验收不代表线上回归通过。
+
+## 0.12.51 正式发布补充（2026-10-19）
+
+用户授权后，固定提交800dce6f已发布GitHub并部署。三项回复均在原页更新为“已发布至 Web/API v0.12.51，并完成开发侧线上验收，待测试人员回归”，补充各项真实接口/浏览器结果；保存后重载全文精确一致，原报告、图片和测试回归字段保持。生产验收与完整范围见 [release.json](../graph-auth-release-20261019/release.json)。
+
+重复邮箱返回409/AUTH_EMAIL_IN_USE，真实页面专用提示与保留邮箱的登录切换通过；注册/登录无效邮箱均0请求，实际服务端400字段兜底、中英文与390px布局通过。原测试人员回归尚待其执行。
