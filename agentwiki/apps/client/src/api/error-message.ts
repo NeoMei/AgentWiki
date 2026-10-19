@@ -2,6 +2,7 @@ export type Translate = (key: string, params?: Record<string, string | number>) 
 
 const CODE_KEYS: Record<string, string> = {
   AUTH_INVALID_CREDENTIALS: 'error.authInvalidCredentials',
+  AUTH_EMAIL_IN_USE: 'auth.emailInUse',
   AUTH_RATE_LIMITED: 'error.rateLimited',
   AUTH_PASSWORD_POLICY: 'error.passwordPolicy',
   AUTH_PASSWORD_MISMATCH: 'error.passwordMismatch',

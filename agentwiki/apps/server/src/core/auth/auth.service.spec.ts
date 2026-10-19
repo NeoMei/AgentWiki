@@ -70,6 +70,41 @@ describe('AuthService', () => {
   });
 
   describe('registration', () => {
+    it('reports a duplicate email with the specific 409 business code', async () => {
+      jest.spyOn(service, 'hashPassword').mockResolvedValue('hashed');
+      mockPrisma.user.create.mockRejectedValueOnce({ code: 'P2002', meta: { target: ['email'] } });
+
+      await expect(service.register('existing@test.com', 'Password1', 'Existing'))
+        .rejects.toMatchObject({
+          businessCode: 'AUTH_EMAIL_IN_USE',
+          statusCode: 409,
+          response: {
+            statusCode: 409,
+            code: 'AUTH_EMAIL_IN_USE',
+            message: 'Email already in use',
+            error: 'Conflict',
+          },
+        });
+    });
+
+    it.each([
+      { code: 'P2024', message: 'Connection pool timeout' },
+      new Error('Database is unavailable'),
+    ])('keeps unrelated registration errors as a generic 500', async (failure) => {
+      jest.spyOn(service, 'hashPassword').mockResolvedValue('hashed');
+      mockPrisma.user.create.mockRejectedValueOnce(failure);
+
+      await expect(service.register('new@test.com', 'Password1', 'New'))
+        .rejects.toMatchObject({
+          status: 500,
+          response: {
+            statusCode: 500,
+            message: 'Registration failed',
+            error: 'Internal Server Error',
+          },
+        });
+    });
+
     it('always creates a human account', async () => {
       mockPrisma.user.create.mockImplementation(({ data }: any) => ({
         id: 'new-user',

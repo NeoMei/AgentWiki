@@ -1,6 +1,6 @@
 # 当前目标
 
-2026-10-19 图谱界面优化已本地实现并验收：紧凑自适应目录、两行节点标题、图谱概览和统一详情操作。分支 codex/graph-ui-polish，基于 origin/master 9851195e；未推送、合并或部署。
+2026-10-19 图谱界面优化及10-19原反馈页的两项注册提示修复均已本地实现并验收。图谱提交83a90d46；注册修复包含重复邮箱专用错误及登录入口、邮箱字段校验。分支 codex/graph-ui-polish，基于 origin/master 9851195e；未推送、合并或部署。原页逐条回复因当前Agent缺少“项目管理”空间授权待发布。
 
 # 范围 / 不做
 
@@ -8,6 +8,8 @@
 
 # 当前状态
 
+- 注册修复：实际入口ProductPage；服务端新增AUTH_EMAIL_IN_USE/409，前端兼容旧409并在邮箱字段显示中英提示及“去登录”。原生邮箱校验与缺少域后缀的提交前校验、服务端400兜底、错误清除/聚焦、登录保留邮箱均验证。client全量160文件2688项、末次定向67项、server13项、typecheck/lint/build及独立审查通过；IAB本地合成接口390px/中英文通过。未部署，未创建生产账号。回复草稿见agentwiki/docs/verification/registration-feedback-20261019/developer-replies.md。
+- 原反馈页117ada12-8288-4055-b547-459db6dc4c54位于“项目管理”cmtmgsk5b00neuo709n0x7nqj；当前gateway live grants仅AgentWiki项目cmv6biedu005okoisb9fgp64y/publisher。浏览器已读原页，两条回复尚未写入；不得换身份/密钥绕权限。授权后需新get_page/list_folders基线、窄范围提案及发布/精确回读/渲染验证，保留原报告与测试回归栏。
 - 图谱优化：17页/5目录加未分组的截图场景、38页关系场景、95页适配/隐藏节点定位，以及390px/1404px、中英文IAB验收通过。65%/81%标签几何及390→1200列数切换回归通过；最终client159文件2666项通过，build/typecheck/定向lint、独立代码与UI审查通过。构建仍有既有Mermaid循环分块/大包告警。浏览器使用本地合成transport，不等同生产发布验收；仅线上读取原17页/0关系状态，未写生产数据。
 - 预览：http://127.0.0.1:5187/e2e/fixtures/graph-reference.html?scenario=project；截图 /tmp/agentwiki-graph-ui-polish/desktop.png；构建与全量测试日志 /tmp/agentwiki-graph-build-final.log、/tmp/agentwiki-graph-client-tests-final.log。主检出用户改动保留。
 
@@ -25,6 +27,7 @@ Git仅单条命令显式--work-tree指向带尾空格工作树；测试清除GIT
 
 # 关键索引
 
+- agentwiki/docs/verification/registration-feedback-20261019/developer-replies.md
 - .codex-memory/tasks/archive/retest-20261017/{brief,decisions,refs}.md
 - agentwiki/docs/verification/retest-20261017/{release.json,npm-release.json,plugin-release.json,status.md,acceptance.md,validation.json}
 - .superpowers/sdd/retest-20261017-plan/release-sdk/final-release-receipt.json
@@ -32,4 +35,4 @@ Git仅单条命令显式--work-tree指向带尾空格工作树；测试清除GIT
 
 # 风险 / 下一步
 
-本轮发布工作完成。Windows原Vault/事务另行原环境回归；黄金书屋原wrapper错误未复现，不借本次项目管理Space成功结论关闭。其他客户端旧进程不会因npm发布自动升级；既有Codex0.13.0配置保留。工作树和备份为交付证据保留。
+本轮图谱与注册修复尚未部署；原页回复等待当前Agent获得项目管理Space权限。历史发布已完成，Windows原Vault/事务另行原环境回归；黄金书屋原wrapper错误未复现，不借其他Space成功结论关闭。工作树和备份为交付证据保留。

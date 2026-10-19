@@ -12,6 +12,7 @@ import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { GlobalNavigation } from '../../components/GlobalNavigation';
 import { safeReturnTo } from '../auth/safeReturnTo';
 import { apiErrorMessage } from '../../api/error-message';
+import { registrationEmailError, type RegistrationEmailError } from '../auth/registration-error';
 
 const validatePassword = (pwd: string, t: (key: string) => string): string | null => {
   if (pwd.length < 8) return t('auth.passwordMin');
@@ -34,6 +35,7 @@ export const ProductPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [authError, setAuthError] = useState('');
+  const [emailError, setEmailError] = useState<RegistrationEmailError | null>(null);
   const [passwordError, setPasswordError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -49,9 +51,15 @@ export const ProductPage: React.FC = () => {
     emailInputRef.current?.focus({ preventScroll: true });
   }, [authIntent, token]);
 
+  useEffect(() => {
+    if (emailError && !isSubmitting) emailInputRef.current?.focus();
+  }, [emailError, isSubmitting]);
+
   const selectAuthMode = (mode: 'login' | 'register') => {
     setAuthMode(mode);
     setAuthError('');
+    setEmailError(null);
+    setPasswordError('');
   };
 
   const handleAuthTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
@@ -70,12 +78,20 @@ export const ProductPage: React.FC = () => {
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     if (authMode === 'register') {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        setAuthError('');
+        setEmailError('invalid');
+        emailInputRef.current?.focus();
+        return;
+      }
       const pwdErr = validatePassword(password, t);
       if (pwdErr) { setPasswordError(pwdErr); return; }
     }
     setIsSubmitting(true);
     setAuthError('');
+    setEmailError(null);
     try {
       const payload: Record<string, string> = { email, password };
       if (authMode === 'register' && name) payload.name = name;
@@ -84,7 +100,12 @@ export const ProductPage: React.FC = () => {
       login(res.data.access_token, res.data.user);
       navigate(returnTarget ?? '/dashboard');
     } catch (err: unknown) {
-      setAuthError(apiErrorMessage(err, t, authMode === 'login' ? 'auth.loginFailed' : 'auth.registrationFailed'));
+      const fieldError = authMode === 'register' ? registrationEmailError(err) : null;
+      if (fieldError) {
+        setEmailError(fieldError);
+      } else {
+        setAuthError(apiErrorMessage(err, t, authMode === 'login' ? 'auth.loginFailed' : 'auth.registrationFailed'));
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -209,6 +230,7 @@ export const ProductPage: React.FC = () => {
                     type="button"
                     role="tab"
                     id="product-auth-tab-login"
+                    disabled={isSubmitting}
                     aria-controls="product-auth-panel"
                     aria-selected={authMode === 'login'}
                     tabIndex={authMode === 'login' ? 0 : -1}
@@ -224,6 +246,7 @@ export const ProductPage: React.FC = () => {
                     type="button"
                     role="tab"
                     id="product-auth-tab-register"
+                    disabled={isSubmitting}
                     aria-controls="product-auth-panel"
                     aria-selected={authMode === 'register'}
                     tabIndex={authMode === 'register' ? 0 : -1}
@@ -254,6 +277,7 @@ export const ProductPage: React.FC = () => {
                       <label htmlFor="product-auth-name" className="sr-only">{t('common.name')}</label>
                       <input
                         id="product-auth-name"
+                        disabled={isSubmitting}
                         type="text"
                         placeholder={t('common.name')}
                         value={name}
@@ -268,18 +292,40 @@ export const ProductPage: React.FC = () => {
                     <input
                       id="product-auth-email"
                       ref={emailInputRef}
+                      disabled={isSubmitting}
                       type="email"
                       placeholder={t('common.email')}
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                      onChange={(e) => { setEmail(e.target.value); setEmailError(null); setAuthError(''); }}
+                      onInvalid={(e) => {
+                        if (authMode !== 'register') return;
+                        e.preventDefault();
+                        setEmailError('invalid');
+                        emailInputRef.current?.focus();
+                      }}
+                      aria-invalid={Boolean(emailError)}
+                      aria-describedby={emailError ? 'product-auth-email-error' : undefined}
+                      className={`w-full px-4 py-3 border rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 transition ${emailError ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'}`}
                       required
                     />
+                    {emailError && (
+                      <div id="product-auth-email-error" role="alert" className="mt-2 text-sm text-red-600">
+                        {t(emailError === 'inUse' ? 'auth.emailInUse' : 'auth.emailInvalid')}
+                        {emailError === 'inUse' && (
+                          <button
+                            type="button"
+                            onClick={() => { selectAuthMode('login'); emailInputRef.current?.focus(); }}
+                            className="mt-1 block font-medium text-blue-600 underline underline-offset-2 hover:text-blue-700"
+                          >{t('auth.goToSignIn')}</button>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="relative">
                     <label htmlFor="product-auth-password" className="sr-only">{t('common.password')}</label>
                     <input
                       id="product-auth-password"
+                      disabled={isSubmitting}
                       type={showPassword ? 'text' : 'password'}
                       placeholder={t('common.password')}
                       value={password}

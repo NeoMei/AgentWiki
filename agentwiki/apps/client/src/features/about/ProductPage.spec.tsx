@@ -20,6 +20,20 @@ const LocationProbe = () => {
   return <p>{location.pathname + location.search}</p>;
 };
 
+const registrationForm = (language: 'zh-CN' | 'en' = 'zh-CN') => {
+  localStorage.setItem('agentwiki.language.v1', language);
+  const zh = language === 'zh-CN';
+  render(<LanguageProvider><MemoryRouter><ProductPage /></MemoryRouter></LanguageProvider>);
+  fireEvent.click(screen.getByRole('tab', { name: zh ? '切换到注册' : 'Switch to register' }));
+  fireEvent.change(screen.getByLabelText(zh ? '名称' : 'Name'), { target: { value: 'Tester' } });
+  fireEvent.change(screen.getByLabelText(zh ? '邮箱' : 'Email'), { target: { value: 'tester@example.com' } });
+  fireEvent.change(screen.getByLabelText(zh ? '密码' : 'Password'), { target: { value: 'Password1' } });
+  return {
+    email: screen.getByLabelText(zh ? '邮箱' : 'Email'),
+    submit: screen.getByRole('button', { name: zh ? '注册' : 'Register' }),
+  };
+};
+
 describe('ProductPage workspace intent', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -190,5 +204,61 @@ describe('ProductPage workspace intent', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('邮箱或密码错误');
     expect(screen.queryByText('Invalid credentials')).not.toBeInTheDocument();
+  });
+
+  it.each(['zh-CN', 'en'] as const)('explains duplicate email and preserves it when switching to login in %s', async (language) => {
+    vi.mocked(api.post).mockRejectedValue({ response: { status: 409, data: { code: 'AUTH_EMAIL_IN_USE' } } });
+    const { email, submit } = registrationForm(language);
+    fireEvent.click(submit);
+    const expected = language === 'zh-CN' ? '该邮箱已注册，请登录。' : 'This email is already registered. Please sign in.';
+    expect(await screen.findByRole('alert')).toHaveTextContent(expected);
+    expect(email).toHaveAttribute('aria-invalid', 'true');
+    expect(email).toHaveAccessibleDescription(expect.stringContaining(expected));
+    expect(email).toHaveFocus();
+    fireEvent.click(screen.getByRole('button', { name: language === 'zh-CN' ? '去登录' : 'Go to sign in' }));
+    expect(screen.getByRole('tab', { name: language === 'zh-CN' ? '切换到登录' : 'Switch to sign in' })).toHaveAttribute('aria-selected', 'true');
+    expect(email).toHaveValue('tester@example.com');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it.each(['missing-at', 'tester@example', 'tester@example.', ''])('blocks malformed registration email %s before sending a request', (value) => {
+    const { email, submit } = registrationForm();
+    fireEvent.change(email, { target: { value } });
+    fireEvent.click(submit);
+    expect(api.post).not.toHaveBeenCalled();
+    expect(email).toHaveAccessibleDescription('请输入有效的邮箱地址，例如 name@example.com。');
+    expect(email).toHaveFocus();
+    fireEvent.change(email, { target: { value: 'fixed@example.com' } });
+    expect(email).toHaveAttribute('aria-invalid', 'false');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it.each(['zh-CN', 'en'] as const)('renders the server email-validation fallback at the field in %s', async (language) => {
+    vi.mocked(api.post).mockRejectedValue({ response: { status: 400, data: { code: 'BAD_REQUEST', message: 'email must be an email' } } });
+    const { email, submit } = registrationForm(language);
+    fireEvent.click(submit);
+    const expected = language === 'zh-CN' ? '请输入有效的邮箱地址，例如 name@example.com。' : 'Enter a valid email address, such as name@example.com.';
+    expect(await screen.findByRole('alert')).toHaveTextContent(expected);
+    expect(email).toHaveAccessibleDescription(expected);
+    expect(screen.queryByText('email must be an email')).not.toBeInTheDocument();
+  });
+
+  it('handles the deployed legacy duplicate-email response', async () => {
+    vi.mocked(api.post).mockRejectedValue({ response: { status: 409, data: { code: 'RESOURCE_CONFLICT', message: 'Email already in use' } } });
+    const { submit } = registrationForm();
+    fireEvent.click(submit);
+    expect(await screen.findByRole('alert')).toHaveTextContent('该邮箱已注册，请登录。');
+  });
+
+  it.each([
+    [400, 'BAD_REQUEST', 'name must be a string', '注册失败'],
+    [409, 'RESOURCE_CONFLICT', 'Other conflict', '该项目与已有资源冲突'],
+    [429, 'AUTH_RATE_LIMITED', 'Too many requests', '请求过于频繁'],
+  ])('retains the shared fallback for non-email errors %s / %s', async (status, code, message, expected) => {
+    vi.mocked(api.post).mockRejectedValue({ response: { status, data: { code, message } } });
+    const { email, submit } = registrationForm();
+    fireEvent.click(submit);
+    expect(await screen.findByRole('alert')).toHaveTextContent(expected);
+    expect(email).toHaveAttribute('aria-invalid', 'false');
   });
 });

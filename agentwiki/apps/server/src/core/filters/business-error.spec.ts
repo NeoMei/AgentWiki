@@ -1,7 +1,20 @@
 import { ContentTreeError } from '../../content-tree/content-tree.types';
-import { BusinessException } from './business-error';
+import { BusinessException, getBusinessCode } from './business-error';
 
 describe('BusinessException HTTP labels', () => {
+  it('exposes a specific conflict contract for an already registered email', () => {
+    const error = new BusinessException('AUTH_EMAIL_IN_USE');
+
+    expect(error.getStatus()).toBe(409);
+    expect(getBusinessCode(error)).toBe('AUTH_EMAIL_IN_USE');
+    expect(error.getResponse()).toEqual({
+      statusCode: 409,
+      code: 'AUTH_EMAIL_IN_USE',
+      message: 'Email already in use',
+      error: 'Conflict',
+    });
+  });
+
   it('labels a gone immutable revision as Gone', () => {
     const error = new ContentTreeError('CONTENT_TREE_REVISION_GONE', 'Revision is not available');
 

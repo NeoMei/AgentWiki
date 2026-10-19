@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AgentWiki · Registration responsive acceptance</title>
+    <style>
+      body { margin: 0; padding: 20px; background: #e5e7eb; font: 14px system-ui; }
+      iframe { display: block; margin: 12px auto; background: white; border: 1px solid #cbd5e1; }
+      p { margin: 0; text-align: center; }
+    </style>
+  </head>
+  <body>
+    <p id="viewport-label"></p>
+    <iframe title="注册页面窄屏验收" width="390" height="844"></iframe>
+    <script>
+      const query = new URLSearchParams(location.search);
+      const frame = document.querySelector('iframe');
+      const desktop = query.get('viewport') === 'desktop';
+      frame.width = desktop ? '1404' : '390';
+      frame.height = desktop ? '790' : '844';
+      document.getElementById('viewport-label').textContent = `${frame.width} × ${frame.height} · 本地注册验收`;
+      const fixture = new URL('./registration-feedback.html', location.href);
+      if (query.has('scenario')) fixture.searchParams.set('scenario', query.get('scenario'));
+      frame.src = fixture.href;
+    </script>
+  </body>
+</html>

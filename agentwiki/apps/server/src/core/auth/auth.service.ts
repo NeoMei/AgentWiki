@@ -182,7 +182,7 @@ export class AuthService {
       };
     } catch (error: any) {
       if (error.code === 'P2002') {
-        throw new BusinessException('RESOURCE_CONFLICT', 'Email already in use');
+        throw new BusinessException('AUTH_EMAIL_IN_USE');
       }
       throw new InternalServerErrorException('Registration failed');
     }

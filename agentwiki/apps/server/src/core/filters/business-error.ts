@@ -15,6 +15,7 @@ export interface BusinessErrorPayload {
  */
 const ERROR_CODE_MAP: Record<string, { status: HttpStatus; message: string }> = {
   AUTH_INVALID_CREDENTIALS: { status: HttpStatus.UNAUTHORIZED, message: 'Invalid credentials' },
+  AUTH_EMAIL_IN_USE: { status: HttpStatus.CONFLICT, message: 'Email already in use' },
   AUTH_DENIED: { status: HttpStatus.FORBIDDEN, message: 'Authorization was denied' },
   AUTH_EXPIRED: { status: HttpStatus.UNAUTHORIZED, message: 'Authorization has expired' },
   AUTH_RATE_LIMITED: { status: HttpStatus.TOO_MANY_REQUESTS, message: 'Too many requests' },
