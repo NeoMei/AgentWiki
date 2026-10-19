@@ -39,6 +39,92 @@ beforeEach(() => {
   vi.mocked(api.post).mockImplementation(async (url, data: any) => url === '/assist/sessions' ? { data: { ...summary, id: 'session-new', title: 'New conversation' } } : { data: { ...turn, ...data, id: 'turn-new', sessionId: summary.id, status: 'queued', pageSnapshot: data.snapshot, references: [], result: null } });
 });
 afterEach(cleanup);
+describe('directory conversations', () => {
+  it('does not auto-open a running conversation from another directory', async () => {
+    turns = [{ ...turn, status: 'running' }];
+    render(tree({ pageId: null, pageTitle: 'Research B', snapshot: undefined, directory: { folderId: 'folder-b' }, canEdit: false }));
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled());
+    expect(screen.queryByRole('tab', { name: 'Conversation A' })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Read only Research B' } });
+    expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/assist/sessions', { spaceId: 'space-a' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/assist/sessions/session-new/turns', expect.objectContaining({ directory: { folderId: 'folder-b', recursive: true } })));
+  });
+
+  it('labels unavailable directory content without claiming an empty directory was read', async () => {
+    turns = [{ ...turn, directory: { folderId: 'folder-a', title: 'Research', recursive: true, pageCount: 0, unavailableReason: 'Directory exceeds the document limit' } } as AgentTurn];
+    render(tree());
+    await screen.findByText('Earlier answer');
+    expect(screen.getByText(/Directory content was not loaded/)).toBeVisible();
+    expect(screen.queryByText(/Research · 0 pages/)).not.toBeInTheDocument();
+  });
+
+  it.each([null, 'folder-a'])('sends a recursive question from directory %s without a page snapshot', async (folderId) => {
+    render(tree({ pageId: null, pageTitle: 'Research', snapshot: undefined, directory: { folderId }, canEdit: false, canAccept: false }));
+    await screen.findByText('Start a conversation about this directory.');
+    expect(screen.queryByRole('combobox', { name: 'Message mode' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Edit scope' })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Summarize every page in this directory' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalled());
+    const payload = vi.mocked(api.post).mock.calls.find(([url]) => url.endsWith('/turns'))![1] as any;
+    expect(payload).toMatchObject({ pageId: null, mode: 'question', directory: { folderId, recursive: true } });
+    expect(payload).not.toHaveProperty('snapshot');
+    expect(payload).not.toHaveProperty('annotations');
+  });
+
+  it('keeps unsent directory drafts isolated from the root and from document edit mode', async () => {
+    const rendered = render(tree());
+    await screen.findByText('Earlier answer');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Message mode' }), { target: { value: 'proposal' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Document edit' } });
+    rendered.rerender(tree({ pageId: null, pageTitle: 'Research', snapshot: undefined, directory: { folderId: 'folder-a' }, canEdit: false }));
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled());
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Research question' } });
+    rendered.rerender(tree({ pageId: null, pageTitle: 'Root', snapshot: undefined, directory: { folderId: null }, canEdit: false }));
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled());
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('');
+    rendered.rerender(tree({ pageId: null, pageTitle: 'Research', snapshot: undefined, directory: { folderId: 'folder-a' }, canEdit: false }));
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Research question'));
+  });
+
+  it('shows the resolved directory and page count while document sends keep their current draft', async () => {
+    turns = [{ ...turn, directory: { folderId: 'folder-a', title: 'Research', recursive: true, pageCount: 8 } }];
+    render(tree());
+    await screen.findByText('Earlier answer');
+    expect(screen.getByText('Research · 8 pages · including subfolders')).toBeVisible();
+    expect(screen.getByText(/current directory and subfolders are available automatically/i)).toBeVisible();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Read the current directory' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalled());
+    const payload = vi.mocked(api.post).mock.calls.find(([url]) => url.endsWith('/turns'))![1] as any;
+    expect(payload.pageId).toBe('page-a');
+    expect(payload.snapshot.content).toBe('unsaved current draft');
+    expect(payload).not.toHaveProperty('directory');
+  });
+
+  it('keeps a late directory send in its originating scope after navigation to the root', async () => {
+    let finish!: (value: { data: AgentTurn }) => void;
+    vi.mocked(api.post).mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    const rendered = render(tree({ pageId: null, pageTitle: 'Research', snapshot: undefined, directory: { folderId: 'folder-a' }, canEdit: false }));
+    await screen.findByText('Start a conversation about this directory.');
+    fireEvent.click(document.querySelector<HTMLElement>('[aria-label="Conversation history"]')!);
+    fireEvent.click(screen.getByRole('button', { name: 'Conversation A' }));
+    await screen.findByText('Earlier answer');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Read research' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    rendered.rerender(tree({ pageId: null, pageTitle: 'Root', snapshot: undefined, directory: { folderId: null }, canEdit: false }));
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled());
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'New root question' } });
+    await act(async () => finish({ data: { ...turn, id: 'late-directory', pageId: null, pageSnapshot: null, intent: 'Read research', directory: { folderId: 'folder-a', title: 'Research', recursive: true, pageCount: 8 }, result: { summary: 'Late Research answer' } } }));
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('New root question');
+    expect(screen.queryByText('Late Research answer')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
+  });
+});
 describe('closable conversation tabs', () => {
   const summaries = [summary, ...['b', 'c', 'd'].map((id) => ({ ...summary, id: `session-${id}`, title: `Conversation ${id.toUpperCase()}` }))];
   const mockHistory = () => vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/assist/sessions' ? summaries : { ...summaries.find((item) => url.endsWith(item.id)), turns: url.endsWith(summary.id) ? turns : [] } }));

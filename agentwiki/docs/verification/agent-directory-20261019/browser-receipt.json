@@ -1,0 +1,22 @@
+{
+  "sessionId": "cmvf8el8p000mnnbmzyiqaoe3",
+  "turnId": "cmvf8elg5000pnnbmezlwt6aa",
+  "status": "done",
+  "pageId": null,
+  "referenceCount": 0,
+  "directory": {
+    "folderId": "directory-folder",
+    "recursive": true,
+    "pageCount": 7
+  },
+  "intent": "遍历当前目录下文档，生成总结。请逐篇读完并列出口令和来源链接，汇总预算。",
+  "answer": "已遍历并完整阅读全部 7 篇文档，汇总如下：\n\n| 文档 | 口令 | 预算 | 来源 |\n|------|------|------|------|\n| 文档1 | ORCHID-1 | 10 万元 | [链接](/pages/directory-doc-1) |\n| 文档2 | ORCHID-2 | 20 万元 | [链接](/pages/directory-doc-2) |\n| 文档3 | ORCHID-3 | 30 万元 | [链接](/pages/directory-doc-3) |\n| 文档4 | ORCHID-4 | 40 万元 | [链接](/pages/directory-doc-4) |\n| 文档5 | ORCHID-5 | 50 万元 | [链接](/pages/directory-doc-5) |\n| 文档6 | ORCHID-6 | 60 万元 | [链接](/pages/directory-doc-6) |\n| 文档7 | ORCHID-7 | 70 万元 | [链接](/pages/directory-doc-7) |\n\n**总预算：280 万元**",
+  "completedAt": "2026-10-19T12:29:59.524Z",
+  "checks": [
+    "browser-submit-without-page-or-references",
+    "real-api-worker-model-completed",
+    "seven-body-only-canaries",
+    "seven-source-links",
+    "budget-total-280"
+  ]
+}

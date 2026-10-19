@@ -24,7 +24,7 @@ describe('WorkerModule dependency graph', () => {
       pageSnapshot: { title: 'Source', content: 'worker fixture source', updatedAt: version.toISOString() },
       context: { pageId: 'p1', references: [], noteIds: [] } };
     const db: any = {
-      $transaction: async (fn: any) => fn(db), $queryRaw: async () => [{ id: 'u1' }], $executeRaw: async () => 1,
+      $transaction: async (fn: any) => fn(db), $queryRaw: async (query: { text?: string }) => query.text?.includes('FROM "AssistTask"') ? [task] : [{ id: 'u1' }], $executeRaw: async () => 1,
       user: { findUnique: async () => ({ id: 'u1', type: 'human', platformRole: 'user' }) },
       space: { findUnique: async () => ({ id: 's1' }) }, spaceMember: { findUnique: async () => ({ role: 'viewer' }) },
       page: { count: async () => 1, findFirst: async () => ({ id: 'p1', title: 'Source', content: 'worker fixture source', updatedAt: version }) },

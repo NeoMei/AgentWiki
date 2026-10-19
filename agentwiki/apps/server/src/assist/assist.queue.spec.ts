@@ -365,6 +365,7 @@ describe('AssistQueue task processing', () => {
     let releaseRuntime!: () => void;
     const runtimeBlocked = new Promise<void>(resolve => { releaseRuntime = resolve; });
     const db: any = { ...prisma,
+      $queryRaw: async (query: any) => query.sql?.includes('jsonb_array_elements') ? [{ ...row }] : [{ id: 'user-1' }],
       $transaction: async (callback: any) => callback(db),
       page: { ...prisma.page, count: async () => 1 },
       assistSession: { findFirst: async () => ({ id: 's1', spaceId: 'space-1', requestedByUserId: 'user-1', title: 'Chat', createdAt: version, updatedAt: version }) },

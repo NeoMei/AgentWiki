@@ -1,0 +1,113 @@
+{
+  "model": "bailian-coding-plan/qwen3.7-plus",
+  "durationMs": 36087,
+  "pageCount": 7,
+  "events": [
+    {
+      "tool": "agentwiki_directory_list_documents",
+      "input": {
+        "cursor": 0,
+        "limit": 3
+      },
+      "status": "completed"
+    },
+    {
+      "tool": "agentwiki_directory_list_documents",
+      "input": {
+        "cursor": 3,
+        "limit": 3
+      },
+      "status": "completed"
+    },
+    {
+      "tool": "agentwiki_directory_list_documents",
+      "input": {
+        "cursor": 6,
+        "limit": 3
+      },
+      "status": "completed"
+    },
+    {
+      "tool": "agentwiki_directory_read_document",
+      "input": {
+        "length": 100,
+        "offset": 0,
+        "pageId": "directory-doc-1"
+      },
+      "status": "completed"
+    },
+    {
+      "tool": "agentwiki_directory_read_document",
+      "input": {
+        "length": 100,
+        "offset": 0,
+        "pageId": "directory-doc-2"
+      },
+      "status": "completed"
+    },
+    {
+      "tool": "agentwiki_directory_read_document",
+      "input": {
+        "length": 100,
+        "offset": 0,
+        "pageId": "directory-doc-3"
+      },
+      "status": "completed"
+    },
+    {
+      "tool": "agentwiki_directory_read_document",
+      "input": {
+        "length": 100,
+        "offset": 0,
+        "pageId": "directory-doc-4"
+      },
+      "status": "completed"
+    },
+    {
+      "tool": "agentwiki_directory_read_document",
+      "input": {
+        "length": 100,
+        "offset": 0,
+        "pageId": "directory-doc-5"
+      },
+      "status": "completed"
+    },
+    {
+      "tool": "agentwiki_directory_read_document",
+      "input": {
+        "length": 100,
+        "offset": 0,
+        "pageId": "directory-doc-6"
+      },
+      "status": "completed"
+    },
+    {
+      "tool": "agentwiki_directory_read_document",
+      "input": {
+        "length": 100,
+        "offset": 0,
+        "pageId": "directory-doc-7"
+      },
+      "status": "completed"
+    }
+  ],
+  "summary": "目录共列出 7 篇文档（含子目录），逐篇读取正文后得到的唯一验收口令如下：\n\n1. 文档1 [directory-doc-1](/pages/directory-doc-1)：验收口令 ORCHID-1\n2. 文档2 [directory-doc-2](/pages/directory-doc-2)：验收口令 ORCHID-2\n3. 文档3 [directory-doc-3](/pages/directory-doc-3)：验收口令 ORCHID-3\n4. 文档4 [directory-doc-4](/pages/directory-doc-4)：验收口令 ORCHID-4\n5. 文档5 [directory-doc-5](/pages/directory-doc-5)：验收口令 ORCHID-5\n6. 文档6 [directory-doc-6](/pages/directory-doc-6)：验收口令 ORCHID-6\n7. 文档7 [directory-doc-7](/pages/directory-doc-7)：验收口令 ORCHID-7（位于子目录 directory-nested）\n\n所有 7 篇口令互不相同，分别为 ORCHID-1 ~ ORCHID-7。",
+  "usage": {
+    "input": 66,
+    "output": 1408,
+    "reasoning": 0,
+    "cacheRead": 42034,
+    "cacheWrite": 5549,
+    "total": 49057
+  },
+  "allDocumentLinks": true,
+  "readDocumentIds": [
+    "directory-doc-1",
+    "directory-doc-2",
+    "directory-doc-3",
+    "directory-doc-4",
+    "directory-doc-5",
+    "directory-doc-6",
+    "directory-doc-7"
+  ]
+}

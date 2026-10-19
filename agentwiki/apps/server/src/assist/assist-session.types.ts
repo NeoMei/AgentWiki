@@ -5,11 +5,20 @@ export type AgentTurnStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancel
 export interface AgentSessionSummary { id: string; spaceId: string; title: string; createdAt: string; updatedAt: string }
 export interface AgentTurnAnnotation { id: string; body: string; quote: string }
 export interface AgentTurnRequest {
-  clientRequestId: string; intent: string; mode: AgentTurnMode; pageId: string;
+  clientRequestId: string; intent: string; mode: AgentTurnMode; pageId?: string | null;
+  directory?: { folderId: string | null; recursive?: boolean };
   snapshot?: { title: string; content: string; updatedAt?: string; draftRevision?: number; remoteRevision?: number; assistTarget?: unknown };
   referencePageIds?: string[]; noteIds?: string[]; annotations?: AgentTurnAnnotation[];
 }
+export interface AgentDirectoryContext {
+  unavailableReason?: string;
+  folderId: string | null; title: string; recursive: boolean;
+  documents: { pageId: string; title: string; content: string; updatedAt: string; folderId: string | null }[];
+}
+export interface AgentDirectoryScope { unavailableReason?: string; folderId: string | null; title: string; recursive: boolean; pageCount: number }
+export const AGENT_DIRECTORY_LIMITS = Object.freeze({ documents: 1000, characters: 5_000_000, folders: 10_000 });
 export interface AgentTurnView {
+  directory?: AgentDirectoryScope;
   id: string; sessionId: string; pageId: string | null; mode: AgentTurnMode; intent: string;
   status: AgentTurnStatus; createdAt: string; pageSnapshot: Record<string, unknown> | null;
   references: { pageId: string; title: string; updatedAt: string }[];
@@ -23,12 +32,14 @@ export const AGENT_SESSION_LIMITS = Object.freeze({
   context: 100_000, historyTurns: 10, history: 120_000, noteIds: 100, annotations: 10_000, answer: 50_000, output: 100_000,
 });
 export interface AgentSessionContext {
-  pageId: string;
+  pageId: string | null;
+  directory?: AgentDirectoryContext;
   references: { pageId: string; title: string; content: string; updatedAt: string }[];
   noteIds: string[];
   annotations?: AgentTurnAnnotation[];
 }
 export interface AgentHistoryTurn {
+  directory?: AgentDirectoryScope;
   /** Captured at send time; never replaced with current Page bodies. */
   pageSnapshot: Record<string, unknown> | null;
   references: AgentSessionContext['references'];

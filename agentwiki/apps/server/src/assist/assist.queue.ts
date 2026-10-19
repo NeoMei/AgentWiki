@@ -193,7 +193,7 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
     };
     try {
       if (!await this.isTaskActive(task)) throw new BadRequestException('Assist authorization is no longer valid');
-      const execution = task.sessionId ? await this.prisma.$transaction(tx => this.sessionContext(tx, task)) : undefined;
+      const execution = task.sessionId ? await this.prisma.$transaction(tx => this.sessionContext(tx, task, true)) : undefined;
       if (this.stopped) abort.abort();
       if (task.leaseExpiresAtMs !== undefined) {
         leaseTimer = setTimeout(() => abort.abort(), Math.max(0, task.leaseExpiresAtMs - Date.now()));
@@ -278,9 +278,9 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private sessionContext(tx: Prisma.TransactionClient, task: ClaimedAssistTask) {
+  private sessionContext(tx: Prisma.TransactionClient, task: ClaimedAssistTask, includeDirectoryContent = false) {
     if (!this.sessions) throw new BadRequestException('Session authorization unavailable');
-    return this.sessions.executionContext(tx, { id: task.id, sessionId: task.sessionId || null, spaceId: task.spaceId, requestedByUserId: task.requestedByUserId });
+    return this.sessions.executionContext(tx, { id: task.id, sessionId: task.sessionId || null, spaceId: task.spaceId, requestedByUserId: task.requestedByUserId }, includeDirectoryContent);
   }
 
   private activeTaskWhere(task: ClaimedAssistTask) {

@@ -1,11 +1,22 @@
 import { BadRequestException, Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
-import { ArrayMaxSize, ArrayUnique, IsArray, IsIn, IsObject, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { ArrayMaxSize, ArrayUnique, IsArray, IsIn, IsObject, IsOptional, IsString, Matches, MaxLength, MinLength, Validate, ValidationArguments, ValidatorConstraint, ValidatorConstraintInterface } from 'class-validator';
 import { CombinedAuthGuard } from '../core/auth/combined-auth.guard';
 import { HumanOnlyGuard } from '../core/auth/human-only.guard';
 import { AssistSessionService } from './assist-session.service';
 import { AssistQueue } from './assist.queue';
 import { AgentTurnMode, AgentTurnRequest } from './assist-session.types';
+import { validDirectoryRequest } from './assist-directory.context';
+
+@ValidatorConstraint({ name: 'directoryScope', async: false })
+class DirectoryScopeValidator implements ValidatorConstraintInterface {
+  validate(value: unknown, args: ValidationArguments) {
+    const request = args.object as AgentTurnRequest;
+    if (value !== undefined && !validDirectoryRequest(value)) return false;
+    return request.pageId != null || (request.mode === 'question' && value !== undefined);
+  }
+  defaultMessage() { return 'directory must contain a valid folderId (or null for Space root) and optional boolean recursive'; }
+}
 
 export class CreateAgentSessionDto {
   @IsString() @MinLength(1) @MaxLength(128) spaceId!: string;
@@ -15,7 +26,8 @@ export class AgentTurnDto implements AgentTurnRequest {
   @IsString() @MinLength(1) @MaxLength(128) clientRequestId!: string;
   @IsString() @MinLength(1) @MaxLength(10_000) intent!: string;
   @IsIn(['question', 'proposal']) mode!: AgentTurnMode;
-  @IsString() @MinLength(1) @MaxLength(128) pageId!: string;
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(128) @Matches(/\S/) pageId?: string | null;
+  @Validate(DirectoryScopeValidator) directory?: AgentTurnRequest['directory'];
   @IsOptional() @IsObject() snapshot?: AgentTurnRequest['snapshot'];
   @IsOptional() @IsArray() @ArrayMaxSize(5) @ArrayUnique() @IsString({ each: true }) @MaxLength(128, { each: true }) referencePageIds?: string[];
   @IsOptional() @IsArray() @ArrayMaxSize(100) @ArrayUnique() @IsString({ each: true }) @MaxLength(128, { each: true }) noteIds?: string[];

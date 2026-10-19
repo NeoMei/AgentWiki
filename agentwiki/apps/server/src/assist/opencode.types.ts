@@ -1,4 +1,4 @@
-import { AgentHistoryTurn, AgentSessionContext, AgentTurnMode } from './assist-session.types';
+import { AgentDirectoryContext, AgentHistoryTurn, AgentSessionContext, AgentTurnMode } from './assist-session.types';
 import { AgentExecutionProgress } from './assist-progress';
 export type ModelTier = 'free' | 'paid';
 export type FailureCode =
@@ -43,6 +43,9 @@ export interface AssistRunResult {
   usage?: ModelUsage; cost?: number; attempts?: AssistAttemptSummary[];
 }
 export interface OpencodeRunner { run(task: AssistInput): Promise<AssistRunResult> }
+export type OpencodeAttemptOptions = Pick<AssistInput, 'signal' | 'mode' | 'onAnswerText' | 'onProgress'> & {
+  directory?: AgentDirectoryContext;
+};
 
 export class OpencodeExecutionError extends Error {
   constructor(

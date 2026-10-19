@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { PassThrough, Writable } from 'stream';
@@ -31,6 +31,141 @@ describe('OpencodeCliRunner', () => {
   });
 
   afterEach(() => jest.useRealTimers());
+
+  it('advertises bounded tools without advertising interactive permission or provider resume support', () => {
+    expect(new OpencodeCliRunner(config).capabilities).toMatchObject({ tools: true, permissions: false, resume: false });
+  });
+
+  const directory = { folderId: 'folder-1', title: 'Research', recursive: true, documents: [
+    { pageId: 'page-1', title: 'Report', content: 'PRIVATE_DIRECTORY_BODY', updatedAt: 'v1', folderId: 'folder-1' },
+  ] };
+
+  it('describes directory tools without copying directory bodies into the prompt', () => {
+    const prompt = new OpencodeCliRunner(config).buildPrompt({ intent: 'Summarize all', pageSnapshot: null, mode: 'question',
+      context: { pageId: null, references: [], noteIds: [], directory } } as any);
+    expect(prompt).not.toContain('PRIVATE_DIRECTORY_BODY');
+    expect(prompt).toContain('agentwiki_directory_list_documents');
+    expect(prompt).toContain('agentwiki_directory_read_document');
+    expect(prompt).toContain('"documentCount":1');
+    expect(prompt).not.toContain('Do NOT call any tools');
+  });
+
+  it('distinguishes an unavailable directory snapshot from a genuinely empty directory', () => {
+    const prompt = new OpencodeCliRunner(config).buildPrompt({ intent: 'Question', pageSnapshot: null, mode: 'question',
+      context: { pageId: null, references: [], noteIds: [], directory: { ...directory, documents: [], unavailableReason: 'Directory exceeds the safe snapshot limit' } } } as any);
+    expect(prompt).toContain('Directory exceeds the safe snapshot limit');
+    expect(prompt).toContain('directory was not read');
+    expect(prompt).toContain('do not describe it as empty');
+  });
+
+  it.each(['success', 'abort', 'timeout'] as const)('provides only the authorized directory in a private snapshot and cleans up on %s', async ending => {
+    jest.useFakeTimers();
+    const child = childProcess();
+    const abort = new AbortController();
+    const promise = new OpencodeCliRunner(config).run({ intent: 'Summarize', pageSnapshot: null, mode: 'question', signal: abort.signal,
+      context: { pageId: null, references: [], noteIds: [], directory } } as any);
+    const expectation = ending === 'success' ? expect(promise).resolves.toMatchObject({ summary: 'Answer' })
+      : expect(promise).rejects.toMatchObject({ code: ending === 'abort' ? 'cancelled' : 'timeout' });
+    const options = (spawn as jest.Mock).mock.calls[0][2];
+    const isolated = JSON.parse(options.env.OPENCODE_CONFIG_CONTENT);
+    expect(isolated.permission).toEqual({ '*': 'deny', 'agentwiki_directory_*': 'allow' });
+    const mcp = isolated.mcp.agentwiki_directory;
+    expect(mcp).toMatchObject({ type: 'local', enabled: true });
+    expect(mcp.command[0]).toBe(process.execPath);
+    expect(mcp.command[1]).toMatch(/assist-directory-mcp\.js$/);
+    const snapshotPath = mcp.command[2];
+    expect(JSON.parse(readFileSync(snapshotPath, 'utf8'))).toEqual(directory);
+    if (process.platform !== 'win32') expect(statSync(snapshotPath).mode & 0o777).toBe(0o600);
+    expect(options.shell).toBe(false);
+    if (ending === 'abort') abort.abort();
+    if (ending === 'timeout') await jest.advanceTimersByTimeAsync(300_000);
+    child.stdout.write(JSON.stringify({ type: 'text', part: { text: '{"summary":"Answer"}' } }));
+    child.emit('close', ending === 'success' ? 0 : null);
+    await expectation;
+    expect(existsSync(snapshotPath)).toBe(false);
+    expect(existsSync(options.cwd)).toBe(false);
+  });
+
+  it('accepts only directory list/read tool events when a directory scope is supplied', async () => {
+    const child = childProcess();
+    const promise = new OpencodeCliRunner(config).runModel('prompt', 'fixture/model', 10_000, undefined,
+      { mode: 'question', directory } as any);
+    for (const tool of ['agentwiki_directory_list_documents', 'agentwiki_directory_read_document']) {
+      child.stdout.write(JSON.stringify({ type: 'tool_use', part: { tool, state: { status: 'completed', output: 'source' } } }) + '\n');
+    }
+    child.stdout.write(JSON.stringify({ type: 'text', part: { text: '{"summary":"Answer"}' } }));
+    child.emit('close', 0);
+    await expect(promise).resolves.toMatchObject({ summary: 'Answer' });
+  });
+
+  it('does not count repeated read-only tool bodies against the final output budget or retain them in captured output', async () => {
+    const child = childProcess();
+    const runner = new OpencodeCliRunner(config);
+    const parse = jest.spyOn(runner as any, 'parse');
+    const promise = runner.runModel('prompt', 'fixture/model', 10_000, undefined, { mode: 'question', directory } as any);
+    const expectation = expect(promise).resolves.toMatchObject({ summary: 'Complete' });
+    const source = 'PRIVATE_TOOL_BODY'.repeat(2_000);
+    for (let i = 0; i < 80; i += 1) {
+      const line = JSON.stringify({ type: 'tool_use', part: { tool: 'agentwiki_directory_read_document', state: { status: 'completed', output: source } } }) + '\n';
+      child.stdout.write(line.slice(0, 100));
+      child.stdout.write(line.slice(100));
+    }
+    child.stdout.write(JSON.stringify({ type: 'text', part: { text: '{"summary":"Complete"}' } }));
+    child.emit('close', 0);
+    await expectation;
+    expect(parse.mock.calls[0][0]).not.toContain('PRIVATE_TOOL_BODY');
+  });
+
+  it('retains usage and Unicode answers with directory event framing split across bytes', async () => {
+    const child = childProcess();
+    const promise = new OpencodeCliRunner(config).runModel('prompt', 'fixture/model', 10_000, undefined, { mode: 'question', directory } as any);
+    const output = Buffer.from([
+      JSON.stringify({ type: 'tool_use', part: { tool: 'agentwiki_directory_read_document', state: { output: 'Private source' } } }),
+      JSON.stringify({ type: 'step_finish', part: { cost: 0.25, tokens: { input: 10, output: 5, total: 15 } } }),
+      JSON.stringify({ type: 'text', part: { text: '{"summary":"中文🙂"}' } }),
+    ].join('\n'));
+    for (const byte of output) child.stdout.write(Buffer.from([byte]));
+    child.emit('close', 0);
+    await expect(promise).resolves.toMatchObject({ summary: '中文🙂', cost: 0.25, usage: { input: 10, output: 5, total: 15 } });
+  });
+
+  it('preserves provider error classification after completed directory tool calls', async () => {
+    const child = childProcess();
+    const promise = new OpencodeCliRunner(config).runModel('prompt', 'fixture/model', 10_000, undefined, { mode: 'question', directory } as any);
+    child.stdout.write(JSON.stringify({ type: 'tool_use', part: { tool: 'agentwiki_directory_list_documents' } }) + '\n');
+    child.stdout.write(JSON.stringify({ type: 'error', error: { data: { statusCode: 429 } } }));
+    child.emit('close', 1);
+    await expect(promise).rejects.toMatchObject({ code: 'rate_limited', scope: 'model' });
+  });
+
+  it.each([false, true])('bounds each directory transport frame even when it is an allowed tool (newline=%s)', async newline => {
+    const child = childProcess();
+    const promise = new OpencodeCliRunner(config).runModel('prompt', 'fixture/model', 10_000, undefined, { mode: 'question', directory } as any);
+    const expectation = expect(promise).rejects.toMatchObject({ code: 'output_limit' });
+    child.stdout.write(JSON.stringify({ type: 'tool_use', part: { tool: 'agentwiki_directory_read_document', state: { output: 'x'.repeat(2_000_001) } } }) + (newline ? '\n' : ''));
+    child.emit('close', 1);
+    await expectation;
+  });
+
+  it('still bounds cumulative answer output in directory mode', async () => {
+    const child = childProcess();
+    const promise = new OpencodeCliRunner(config).runModel('prompt', 'fixture/model', 10_000, undefined, { mode: 'question', directory } as any);
+    const expectation = expect(promise).rejects.toMatchObject({ code: 'output_limit' });
+    const line = JSON.stringify({ type: 'text', part: { text: 'x'.repeat(1_000_000) } }) + '\n';
+    child.stdout.write(line); child.stdout.write(line);
+    child.emit('close', 1);
+    await expectation;
+  });
+
+  it.each(['bash', 'read', 'webfetch', 'agentwiki_directory_delete', undefined])('rejects %s even while the directory tools are allowed', async tool => {
+    const child = childProcess();
+    const promise = new OpencodeCliRunner(config).runModel('prompt', 'fixture/model', 10_000, undefined,
+      { mode: 'question', directory } as any);
+    child.stdout.write(JSON.stringify({ type: 'tool_use', part: { tool } }) + '\n');
+    child.stdout.write(JSON.stringify({ type: 'text', part: { text: '{"summary":"Answer"}' } }));
+    child.emit('close', 0);
+    await expect(promise).rejects.toMatchObject({ code: 'process_error' });
+  });
 
   it('reports real execution phases before an answer and excludes provider payloads', async () => {
     const child = childProcess();

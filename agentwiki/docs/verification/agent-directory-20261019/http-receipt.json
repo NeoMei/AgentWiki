@@ -1,0 +1,45 @@
+{
+  "checks": [
+    "recursive-directory",
+    "root-directory",
+    "article-inferred-parent",
+    "direct-children-only",
+    "empty-directory",
+    "missing-directory",
+    "forged-directory",
+    "invalid-directory-shape",
+    "proposal-without-page"
+  ],
+  "turns": [
+    {
+      "name": "recursive-directory",
+      "sessionId": "cmvf8mghb001mnnbmckn5bp8m",
+      "turnId": "cmvf8mghv001pnnbmzvv1i8vc",
+      "pageCount": 7
+    },
+    {
+      "name": "root-directory",
+      "sessionId": "cmvf8mgip001unnbm4x5nmkps",
+      "turnId": "cmvf8mgj4001xnnbm1fb0fa08",
+      "pageCount": 9
+    },
+    {
+      "name": "article-inferred-parent",
+      "sessionId": "cmvf8mgjw0022nnbm3xuxs4f6",
+      "turnId": "cmvf8mgkc0025nnbmou92e6mn",
+      "pageCount": 7
+    },
+    {
+      "name": "direct-children-only",
+      "sessionId": "cmvf8mgl1002annbmox4zyzs7",
+      "turnId": "cmvf8mgla002dnnbm2no0as9g",
+      "pageCount": 6
+    },
+    {
+      "name": "empty-directory",
+      "sessionId": "cmvf8mglw002innbmowg6r8q8",
+      "turnId": "cmvf8mgm4002lnnbm5dd8wkee",
+      "pageCount": 0
+    }
+  ]
+}

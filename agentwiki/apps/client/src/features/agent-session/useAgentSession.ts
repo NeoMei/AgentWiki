@@ -11,9 +11,9 @@ interface State {
   sessions: AgentSessionSummary[]; openSessionIds: string[] | null; selected: string | null; detail: AgentSessionDetail | null;
   loading: boolean; loadingSessions: boolean; creating: boolean; sending: boolean; cancelling: boolean; error: string | null; draft: Composer; revision: number; sentRevision: number;
 }
-function createStore(userId: string, spaceId: string) {
+function createStore(userId: string, spaceId: string, contextKey: string) {
   // Persist tab layout only. Conversation content, credentials and composers stay in memory.
-  const storageKey = `agentwiki:session-tabs:v1:${encodeURIComponent(userId)}:${encodeURIComponent(spaceId)}`;
+  const storageKey = `agentwiki:session-tabs:v1:${encodeURIComponent(userId)}:${encodeURIComponent(spaceId)}${contextKey ? `:${encodeURIComponent(contextKey)}` : ''}`;
   let restored: Pick<State, 'openSessionIds' | 'selected'> = { openSessionIds: null, selected: null };
   try {
     const value: unknown = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
@@ -58,15 +58,15 @@ export function sessionError(error: unknown): string {
   return 'network';
 }
 /** REST is authoritative. Each mounted bridge and session switch fences outstanding responses. */
-export function useAgentSession(userId: string, spaceId: string) {
+export function useAgentSession(userId: string, spaceId: string, contextKey = '') {
   const registry = useAgentSessionRegistry();
   const fallback = useRef(new Map<string, unknown>());
   const store = useMemo(() => {
     const spaces = registry?.userId === userId ? registry.spaces : fallback.current;
-    const key = `${userId}\u0000${spaceId}`;
-    if (!spaces.has(key)) spaces.set(key, createStore(userId, spaceId));
+    const key = `${userId}\u0000${spaceId}${contextKey ? `\u0000${contextKey}` : ''}`;
+    if (!spaces.has(key)) spaces.set(key, createStore(userId, spaceId, contextKey));
     return spaces.get(key) as SessionStore;
-  }, [registry, userId, spaceId]);
+  }, [registry, userId, spaceId, contextKey]);
   const state = useSyncExternalStore(store.subscribe, store.get, store.get);
   const activeStore = useRef<SessionStore | null>(store); activeStore.current = store;
   const lifetime = useRef(0), controller = useRef<AbortController | null>(null);
@@ -101,7 +101,7 @@ export function useAgentSession(userId: string, spaceId: string) {
         const previous = store.get().selected;
         // The list can omit an inaccessible or older session. Keep its unsent draft and verify it directly.
         // null means first visit; [] means the user explicitly closed every tab.
-        const openSessionIds = store.get().openSessionIds ?? sessions.slice(0, 3).map((session) => session.id);
+        const openSessionIds = store.get().openSessionIds ?? (contextKey ? [] : sessions.slice(0, 3).map((session) => session.id));
         const selected = previous && openSessionIds.includes(previous) ? previous : openSessionIds[0] ?? null;
         store.set({ sessions, openSessionIds, selected, loadingSessions: false, ...(previous && !sessions.some((s) => s.id === previous) ? { detail: null } : {}), ...(previous !== selected ? { detail: null, draft: store.drafts.get(selected ?? '') ?? composer() } : {}) });
         if (selected) await read(selected, epoch, abort.signal); else store.set({ detail: null, loading: false, error: null });

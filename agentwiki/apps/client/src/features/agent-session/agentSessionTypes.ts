@@ -10,12 +10,15 @@ export interface AgentTurn {
   id: string; sessionId: string; pageId: string | null; mode: AgentTurnMode; intent: string;
   status: 'queued' | 'running' | 'done' | 'failed' | 'cancelled'; createdAt: string;
   pageSnapshot: AssistSnapshot | null; references: AgentReference[]; noteIds: string[]; annotations?: AgentAnnotation[];
+  directory?: { folderId: string | null; title: string; recursive: boolean; pageCount: number; unavailableReason?: string };
   progress?: { phase: 'preparing' | 'waiting' | 'generating' | 'finalizing'; attempt?: number };
   progressText: string; result: { summary?: string; changes?: string } | null; error: string | null;
 }
 export interface AgentSessionDetail extends AgentSessionSummary { turns: AgentTurn[] }
 export interface AgentSessionPanelProps {
-  pageId: string; spaceId: string; pageTitle: string; snapshot: () => AssistSnapshot;
+  pageId: string | null; spaceId: string; pageTitle: string; snapshot?: () => AssistSnapshot;
+  /** A directory-only question. Document turns resolve their parent directory on the server. */
+  directory?: { folderId: string | null; recursive?: boolean };
   canEdit?: boolean; canAccept?: boolean; supportsScopedApply?: boolean; acceptUnavailableReason?: string;
   onApply?: (candidate: AssistCandidate, editId?: string) => boolean;
   /** Apply a completed candidate directly to the saved page. The callback must enforce its own CAS. */

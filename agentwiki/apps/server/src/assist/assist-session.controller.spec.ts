@@ -44,4 +44,25 @@ describe('AssistSessionController', () => {
     const dto = plainToInstance(AgentTurnDto, { clientRequestId: 'r1', pageId: 'p1', intent: 'why', mode: 'question', ...extra });
     expect((await validate(dto)).length).toBeGreaterThan(0);
   });
+  it.each([null, undefined])('accepts an explicit directory question with optional pageId %s', async pageId => {
+    const dto = plainToInstance(AgentTurnDto, { clientRequestId: 'r1', pageId, intent: 'why', mode: 'question', directory: { folderId: null, recursive: false } });
+    expect(await validate(dto)).toEqual([]);
+  });
+  it.each([
+    null, [], {}, { folderId: 7 }, { folderId: '' }, { folderId: ' ' },
+    { folderId: 'x'.repeat(129) }, { folderId: 'f1', recursive: null }, { folderId: 'f1', recursive: 'true' },
+    { folderId: 'f1', documents: [] },
+  ])('rejects malformed directory DTO %j', async directory => {
+    const dto = plainToInstance(AgentTurnDto, { clientRequestId: 'r1', pageId: 'p1', intent: 'why', mode: 'question', directory });
+    expect((await validate(dto)).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    { pageId: null }, { pageId: undefined }, { pageId: ' ' },
+    { pageId: null, mode: 'proposal', directory: { folderId: null } },
+  ])('rejects an HTTP request without the page or directory required by its mode', async extra => {
+    const dto = plainToInstance(AgentTurnDto, { clientRequestId: 'r1', intent: 'why', mode: 'question', ...extra });
+    expect((await validate(dto)).length).toBeGreaterThan(0);
+  });
+
 });

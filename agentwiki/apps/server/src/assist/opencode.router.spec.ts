@@ -123,6 +123,15 @@ const createRouter = (options: {
 };
 
 describe('OpencodeModelRouter', () => {
+  it('preserves an empty directory scope across fallback model attempts', async () => {
+    const { router, runner } = createRouter();
+    const directory = { folderId: null, title: 'Root', recursive: true, documents: [] };
+    runner.runModel.mockRejectedValueOnce(modelFailure('rate_limited')).mockResolvedValueOnce({ summary: 'Empty', usage: EMPTY_USAGE, cost: 0 });
+    await expect(router.run({ intent: 'List all', pageSnapshot: null, mode: 'question',
+      context: { pageId: null, references: [], noteIds: [], directory } } as any)).resolves.toMatchObject({ summary: 'Empty', attemptCount: 2 });
+    expect(runner.runModel.mock.calls.map(call => call[4]?.directory)).toEqual([directory, directory]);
+  });
+
   afterEach(() => {
     jest.useRealTimers();
   });

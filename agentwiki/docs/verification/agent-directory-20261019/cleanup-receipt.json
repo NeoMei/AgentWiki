@@ -1,0 +1,12 @@
+{
+  "apiPort3149Stopped": true,
+  "previewPort5249Stopped": true,
+  "redisPort16493Stopped": true,
+  "workerStopped": true,
+  "temporaryDatabaseRemoved": true,
+  "temporaryCredentialsRemoved": true,
+  "temporaryBrowserTabClosed": true,
+  "temporaryArtifactsRemoved": true,
+  "verificationArtifactsRetained": "docs/verification/agent-directory-20261019",
+  "productionDeployed": false
+}

@@ -7,6 +7,7 @@ import { AuthorizationService } from '../core/authorization/authorization.servic
 import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.service';
 import { assertAssistTargetVersion, validateAssistTarget } from './assist-target';
 import { sanitizeAgentProgress } from './assist-progress';
+import { assertDirectoryReadable, captureDirectory, DirectoryLimitException, directoryScope, InaccessibleDirectoryException, readDirectoryTree, readSessionTurnMetadata, unavailableDirectory, validDirectoryContext, validDirectoryRequest } from './assist-directory.context';
 import {
   AGENT_OUTPUT_LIMIT_ERROR, AGENT_SESSION_LIMITS as LIMIT, AgentHistoryTurn, AgentSessionContext, AgentSessionDetail,
   AgentSessionSummary, AgentTurnMode, AgentTurnRequest, AgentTurnStatus, AgentTurnView,
@@ -49,7 +50,7 @@ export class AssistSessionService {
           await this.authorizedTurns(tx, session);
           visible.push(this.summary(session));
         } catch (error) {
-          if (error instanceof InaccessibleSessionException
+          if (error instanceof InaccessibleSessionException || error instanceof InaccessibleDirectoryException
             || (error instanceof BusinessException && error.businessCode === 'SPACE_ACCESS_DENIED')) continue;
           throw error; // Database failures and corrupt data must stay observable.
         }
@@ -81,26 +82,33 @@ export class AssistSessionService {
           if (turns.some(turn => turn.status === 'queued' || turn.status === 'running')) throw new ConflictException('A turn is already active in this session');
           if (turns.length >= LIMIT.turns) throw new BadRequestException('Session reached 100 turns; start a new conversation');
           await this.authorization.assertLiveHumanSpaceAccess(tx, { userId }, session.spaceId, input.mode === 'proposal' ? ['owner', 'editor'] : [...readRoles]);
-          const page = await this.page(tx, input.pageId, session.spaceId);
-          const snapshot = input.snapshot ? this.snapshot(input.snapshot, page.updatedAt) : { title: page.title, content: page.content, updatedAt: page.updatedAt.toISOString() };
+          const page = input.pageId == null ? null : await this.page(tx, input.pageId, session.spaceId);
+          const snapshot = page ? (input.snapshot ? this.snapshot(input.snapshot, page.updatedAt) : { title: page.title, content: page.content, updatedAt: page.updatedAt.toISOString() }) : null;
           if (JSON.stringify(snapshot).length > LIMIT.snapshot) throw new BadRequestException('Page snapshot is too large (50000 characters)');
-          assertAssistTargetVersion(validateAssistTarget(snapshot), page.updatedAt);
+          if (page) assertAssistTargetVersion(validateAssistTarget(snapshot), page.updatedAt);
           const references: AgentSessionContext['references'] = [];
           for (const pageId of input.referencePageIds || []) {
             const reference = await this.page(tx, pageId, session.spaceId);
             references.push({ pageId, title: reference.title, content: reference.content, updatedAt: reference.updatedAt.toISOString() });
           }
-          if (input.annotations?.some(note => note.quote && !(snapshot.content as string).includes(note.quote))) throw new BadRequestException('Annotation quote does not match the sent snapshot');
-          const context: AgentSessionContext = { pageId: page.id, references, noteIds: input.noteIds || [],
+          if (input.annotations?.some(note => note.quote && !((snapshot?.content as string | undefined) || '').includes(note.quote))) throw new BadRequestException('Annotation quote does not match the sent snapshot');
+          const context: AgentSessionContext = { pageId: page?.id ?? null, references, noteIds: input.noteIds || [],
             ...(input.annotations ? { annotations: input.annotations.map(({ id, body, quote }) => ({ id, body, quote })) } : {}) };
           if (JSON.stringify(snapshot).length + JSON.stringify(context).length > LIMIT.context) throw new BadRequestException('Selected context is too large (100000 characters)');
+          const directory = input.directory ?? { folderId: page?.folderId ?? null };
+          try {
+            context.directory = await captureDirectory(tx, session.spaceId, directory);
+          } catch (error) {
+            if (!page || input.directory !== undefined || !(error instanceof DirectoryLimitException)) throw error;
+            context.directory = await unavailableDirectory(tx, session.spaceId, directory, error);
+          }
           const configured = Number(this.config.get('ASSIST_MAX_OUTSTANDING_PER_USER') || 10);
           const max = Number.isInteger(configured) && configured > 0 ? configured : 10;
           if (await tx.assistTask.count({ where: { requestedByUserId: userId, spaceId: session.spaceId, status: { in: ['queued', 'running'] } } }) >= max) throw new HttpException('Too many outstanding assist tasks', 429);
           const turn = await tx.assistTask.create({ data: {
             sessionId: id, spaceId: session.spaceId, requestedByUserId: userId,
-            pageId: page.id, clientRequestId: input.clientRequestId, intent: input.intent,
-            mode: input.mode, pageSnapshot: snapshot as Prisma.InputJsonValue,
+            pageId: page?.id ?? null, clientRequestId: input.clientRequestId, intent: input.intent,
+            mode: input.mode, pageSnapshot: snapshot === null ? Prisma.DbNull : snapshot as Prisma.InputJsonValue,
             context: context as unknown as Prisma.InputJsonValue, status: 'queued',
           } });
           await tx.assistSession.update({ where: { id }, data: { updatedAt: new Date(), ...(turns.length === 0 && session.title === 'New conversation' ? { title: input.intent.trim().replace(/\s+/gu, ' ').slice(0, 120) } : {}) } });
@@ -116,7 +124,7 @@ export class AssistSessionService {
   async cancel(id: string, userId: string): Promise<AgentTurnView> {
     this.id(id); this.id(userId);
     return this.prisma.$transaction(async tx => {
-      const task = await tx.assistTask.findFirst({ where: { id, requestedByUserId: userId } });
+      const task = await tx.assistTask.findFirst({ where: { id, requestedByUserId: userId }, select: { sessionId: true } });
       if (!task?.sessionId) throw new NotFoundException('Session turn not found');
       const session = await this.session(tx, task.sessionId, userId);
       const turns = await this.authorizedTurns(tx, session);
@@ -125,13 +133,13 @@ export class AssistSessionService {
       await tx.assistTask.updateMany({ where: { id, requestedByUserId: userId, sessionId: session.id, status: { in: ['queued', 'running'] } }, data: {
         status: 'cancelled', completedAt: new Date(), leaseOwner: null, leaseExpiresAt: null, lockedAt: null, progressText: '', result: Prisma.DbNull,
       } });
-      const cancelled = await tx.assistTask.findFirst({ where: { id, requestedByUserId: userId } });
+      const cancelled = (await this.authorizedTurns(tx, session)).find(row => row.id === id);
       return this.view(cancelled!);
     });
   }
 
   /** Called during start, polling, progress and final publication with live DB state. */
-  async executionContext(tx: Prisma.TransactionClient, task: Pick<AssistTask, 'id' | 'sessionId' | 'spaceId' | 'requestedByUserId'>) {
+  async executionContext(tx: Prisma.TransactionClient, task: Pick<AssistTask, 'id' | 'sessionId' | 'spaceId' | 'requestedByUserId'>, includeDirectoryContent = false) {
     if (!task.sessionId || !task.requestedByUserId) throw new BadRequestException('Invalid session turn');
     const session = await this.session(tx, task.sessionId, task.requestedByUserId);
     if (session.spaceId !== task.spaceId) throw new BadRequestException('Session Space mismatch');
@@ -139,25 +147,36 @@ export class AssistSessionService {
     const currentIndex = turns.findIndex(turn => turn.id === task.id);
     if (currentIndex < 0) throw new NotFoundException('Session turn not found');
     const current = turns[currentIndex];
-    const source = await this.page(tx, this.context(current).pageId, session.spaceId);
-    const snapshot = current.pageSnapshot;
-    if (!isObject(snapshot) || typeof snapshot.updatedAt !== 'string' || snapshot.updatedAt !== source.updatedAt.toISOString()) throw new ConflictException('Page snapshot is stale');
-    assertAssistTargetVersion(validateAssistTarget(snapshot), source.updatedAt);
+    let currentContext = this.context(current);
+    if (includeDirectoryContent && currentContext.directory) {
+      const stored = await tx.assistTask.findFirst({ where: { id: current.id, sessionId: session.id, spaceId: session.spaceId, requestedByUserId: session.requestedByUserId }, select: { context: true } });
+      if (!stored) throw new NotFoundException('Session turn not found');
+      currentContext = this.context(stored);
+    }
+    if (currentContext.pageId !== null) {
+      const source = await tx.page.findFirst({ where: { id: currentContext.pageId, spaceId: session.spaceId, deletedAt: null }, select: { updatedAt: true } });
+      if (!source) throw new InaccessibleSessionException('Session source is no longer available');
+      const snapshot = current.pageSnapshot;
+      if (!isObject(snapshot) || typeof snapshot.updatedAt !== 'string' || snapshot.updatedAt !== source.updatedAt.toISOString()) throw new ConflictException('Page snapshot is stale');
+      assertAssistTargetVersion(validateAssistTarget(snapshot), source.updatedAt);
+    }
     const completed = turns.slice(0, currentIndex).filter(turn => turn.status === 'done');
     const history: AgentHistoryTurn[] = [];
     let characters = 2; // Serialized array brackets also count toward the window.
     for (const turn of completed.slice(-LIMIT.historyTurns).reverse()) {
       const result = this.publicResult(turn);
+      const context = this.context(turn);
       const item: AgentHistoryTurn = { intent: turn.intent, answer: result?.summary || '', mode: turn.mode as AgentTurnMode, pageId: turn.pageId,
         pageSnapshot: isObject(turn.pageSnapshot) ? turn.pageSnapshot : null,
-        references: this.context(turn).references,
+        references: context.references,
+        ...(context.directory ? { directory: directoryScope(context.directory) } : {}),
         ...(result?.changes ? { changes: result.changes } : {}),
-        ...(this.context(turn).annotations ? { annotations: this.context(turn).annotations } : {}) };
+        ...(context.annotations ? { annotations: context.annotations } : {}) };
       const size = JSON.stringify(item).length + (history.length ? 1 : 0);
       if (characters + size > LIMIT.history) break;
       history.unshift(item); characters += size;
     }
-    return { context: this.context(current), history, historyWindow: { included: history.length, omitted: completed.length - history.length, maxTurns: LIMIT.historyTurns, maxCharacters: LIMIT.history } };
+    return { context: currentContext, history, historyWindow: { included: history.length, omitted: completed.length - history.length, maxTurns: LIMIT.historyTurns, maxCharacters: LIMIT.history } };
   }
 
   private async lockAccess(tx: Prisma.TransactionClient, userId: string, spaceId: string) {
@@ -175,14 +194,20 @@ export class AssistSessionService {
   }
 
   private async authorizedTurns(tx: Prisma.TransactionClient, session: AssistSession) {
-    const turns = await tx.assistTask.findMany({ where: { sessionId: session.id }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: LIMIT.turns + 1 });
+    const turns = await readSessionTurnMetadata(tx, session.id, LIMIT.turns + 1);
     if (turns.length > LIMIT.turns) throw new BadRequestException('Session exceeded 100 turns');
     const sourceIds = new Set<string>();
+    let directoryTree: Awaited<ReturnType<typeof readDirectoryTree>> | undefined;
     for (const turn of turns) {
       if (turn.requestedByUserId !== session.requestedByUserId || turn.spaceId !== session.spaceId || !['question', 'proposal'].includes(turn.mode)) throw new BadRequestException('Invalid session binding');
       const context = this.context(turn);
       if (turn.pageId !== context.pageId) throw new InaccessibleSessionException('Session source is no longer available');
-      sourceIds.add(context.pageId);
+      if (context.pageId !== null) sourceIds.add(context.pageId);
+      else if (turn.mode !== 'question' || !context.directory) throw new BadRequestException('A page is required for this session turn');
+      if (context.directory) {
+        if (!context.directory.unavailableReason) directoryTree ??= await readDirectoryTree(tx, session.spaceId);
+        await assertDirectoryReadable(tx, session.spaceId, context.directory, directoryTree);
+      }
       context.references.forEach(ref => sourceIds.add(ref.pageId));
     }
     if (turns.some(turn => turn.mode === 'proposal')) await this.authorization.assertLiveHumanSpaceAccess(tx, { userId: session.requestedByUserId }, session.spaceId, ['owner', 'editor']);
@@ -191,19 +216,20 @@ export class AssistSessionService {
   }
 
   private async page(tx: Prisma.TransactionClient, id: string, spaceId: string) {
-    const page = await tx.page.findFirst({ where: { id, spaceId, deletedAt: null }, select: { id: true, title: true, content: true, updatedAt: true } });
+    const page = await tx.page.findFirst({ where: { id, spaceId, deletedAt: null }, select: { id: true, title: true, content: true, updatedAt: true, folderId: true } });
     if (!page) throw new BadRequestException('Session page must exist in the selected Space');
     return page;
   }
 
   private context(task: Pick<AssistTask, 'context'>): AgentSessionContext {
     const value = task.context;
-    if (!isObject(value) || typeof value.pageId !== 'string' || !Array.isArray(value.references) || value.references.length > LIMIT.references || !Array.isArray(value.noteIds)
+    if (!isObject(value) || (value.pageId !== null && typeof value.pageId !== 'string') || !Array.isArray(value.references) || value.references.length > LIMIT.references || !Array.isArray(value.noteIds)
       || value.references.some(ref => !isObject(ref) || ['pageId', 'title', 'content', 'updatedAt'].some(key => typeof ref[key] !== 'string'))
       || value.noteIds.some(id => typeof id !== 'string')) throw new BadRequestException('Invalid session context');
     if (value.annotations !== undefined && (!Array.isArray(value.annotations) || value.annotations.length > LIMIT.noteIds
       || JSON.stringify(value.annotations).length > LIMIT.annotations
       || value.annotations.some(note => !isObject(note) || typeof note.id !== 'string' || !(value.noteIds as string[]).includes(note.id) || typeof note.body !== 'string' || typeof note.quote !== 'string'))) throw new BadRequestException('Invalid session annotations');
+    if (value.directory !== undefined && !validDirectoryContext(value.directory)) throw new BadRequestException('Invalid session directory context');
     return value as unknown as AgentSessionContext;
   }
 
@@ -218,7 +244,11 @@ export class AssistSessionService {
 
   private validateRequest(input: AgentTurnRequest) {
     if (!isObject(input)) throw new BadRequestException('Turn request is required');
-    this.id(input.clientRequestId); this.id(input.pageId);
+    this.id(input.clientRequestId);
+    if (input.pageId != null) this.id(input.pageId);
+    if (input.directory !== undefined && !validDirectoryRequest(input.directory)) throw new BadRequestException('Invalid directory scope');
+    if (input.pageId == null && (input.mode !== 'question' || input.directory === undefined)) throw new BadRequestException('Questions without a page require an explicit directory; proposals require a page');
+    if (input.pageId == null && (input.snapshot !== undefined || input.noteIds?.length || input.annotations?.length)) throw new BadRequestException('Page snapshots and annotations require a page');
     if (!['question', 'proposal'].includes(input.mode)) throw new BadRequestException('Invalid turn mode');
     if (typeof input.intent !== 'string' || !input.intent.trim() || input.intent.length > LIMIT.intent) throw new BadRequestException('Intent must contain 1–10000 characters');
     for (const [ids, maximum] of [[input.referencePageIds, LIMIT.references], [input.noteIds, LIMIT.noteIds]] as const) {
@@ -262,6 +292,7 @@ export class AssistSessionService {
     return { id: task.id, sessionId: task.sessionId!, pageId: task.pageId, mode: task.mode as AgentTurnMode,
       intent: task.intent, status: task.status as AgentTurnStatus, createdAt: task.createdAt.toISOString(),
       pageSnapshot: isObject(task.pageSnapshot) ? task.pageSnapshot : null,
+      ...(context.directory ? { directory: directoryScope(context.directory) } : {}),
       references: context.references.map(({ pageId, title, updatedAt }) => ({ pageId, title, updatedAt })),
       noteIds: context.noteIds, ...(context.annotations ? { annotations: context.annotations.map(({ id, body, quote }) => ({ id, body, quote })) } : {}), progressText: task.progressText || '', ...(progress ? { progress } : {}), result: this.publicResult(task),
       error: task.status === 'failed' ? (task.error === AGENT_OUTPUT_LIMIT_ERROR ? AGENT_OUTPUT_LIMIT_ERROR : 'Assistant failed; retry with a new turn') : null };

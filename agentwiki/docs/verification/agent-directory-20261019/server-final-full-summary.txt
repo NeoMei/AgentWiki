@@ -1,0 +1,12 @@
+[Nest] 18785  - 10/19/2026, 8:31:04 PM     LOG [SearchService] Searching authorized page index
+[Nest] 18785  - 10/19/2026, 8:31:04 PM     LOG [SearchService] Searching authorized page index
+[Nest] 18785  - 10/19/2026, 8:31:04 PM     LOG [SearchService] Searching authorized page index
+[Nest] 18785  - 10/19/2026, 8:31:07 PM    WARN [AssistQueue] Recovered 1 expired assist task(s)
+[Nest] 18785  - 10/19/2026, 8:31:07 PM    WARN [AssistQueue] Recovered 1 expired assist task(s)
+[Nest] 18785  - 10/19/2026, 8:31:07 PM    WARN [AssistQueue] Assist retry budget exhausted for 1 task(s)
+
+Test Suites: 7 skipped, 177 passed, 177 of 184 total
+Tests:       45 skipped, 3422 passed, 3467 total
+Snapshots:   0 total
+Time:        30.137 s, estimated 104 s
+Ran all test suites.

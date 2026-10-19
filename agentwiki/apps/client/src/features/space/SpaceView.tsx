@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import api from '../../api/client';
 import { apiErrorMessage } from '../../api/error-message';
-import { Plus, X } from 'lucide-react';
+import { Bot, Plus, X } from 'lucide-react';
 import { SpaceNav } from '../../components/SpaceNav';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -35,6 +35,8 @@ import type {
 import { useOptionalSpaceWorkspace } from '../space-workspace/SpaceWorkspaceContext';
 import { useSpaceDirectory } from '../space-workspace/useSpaceDirectory';
 import { SpaceDirectory } from '../space-workspace/SpaceDirectory';
+
+const AgentSessionPanel = React.lazy(() => import('../agent-session/AgentSessionPanel').then((module) => ({ default: module.AgentSessionPanel })));
 
 interface SpaceMemberSummary {
   userId: string;
@@ -95,6 +97,17 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   const archiveControllerRef = useRef<AbortController | null>(null);
   const archiveInFlightRef = useRef<string | null>(null);
   const folderOpenerRef = useRef<HTMLButtonElement | null>(null);
+  const directoryAgentOpenerRef = useRef<HTMLButtonElement | null>(null);
+  const directoryAgentId = React.useId();
+  const [directoryAgentOpen, setDirectoryAgentOpen] = useState(false);
+  const agentMessages = language === 'zh-CN'
+    ? { open: '询问 Agent', close: '关闭 Agent 面板' }
+    : { open: 'Ask Agent', close: 'Close Agent panel' };
+  useEffect(() => { setDirectoryAgentOpen(false); }, [user?.id, id]);
+  const closeDirectoryAgent = () => {
+    setDirectoryAgentOpen(false);
+    directoryAgentOpenerRef.current?.focus();
+  };
 
   const [space, setSpace] = useState<Space | null>(null);
   const [loading, setLoading] = useState(true);
@@ -691,6 +704,11 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
           onSelect={(folderId) => setCurrentFolderId(folderId)}
         />
         <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
+          <button ref={directoryAgentOpenerRef} type="button" aria-expanded={directoryAgentOpen} aria-controls={directoryAgentId}
+            onClick={() => setDirectoryAgentOpen((open) => !open)}
+            className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-gray-300 px-3 text-sm font-medium text-gray-700 hover:bg-gray-50">
+            <Bot aria-hidden="true" size={16} />{agentMessages.open}
+          </button>
           {canEdit ? (
             <button
               ref={folderOpenerRef}
@@ -771,6 +789,19 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
       </div>
       </div>}
         </main>
+        {workspaceContent == null && directoryAgentOpen ? <section id={directoryAgentId} aria-label={agentMessages.open}
+          className="flex h-[min(75dvh,720px)] min-h-80 w-full min-w-0 flex-col border-t border-gray-200 bg-white lg:sticky lg:top-0 lg:h-[calc(100dvh-8rem)] lg:w-[384px] lg:shrink-0 lg:border-l lg:border-t-0"
+          onKeyDown={(event) => { if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); closeDirectoryAgent(); } }}>
+          <div className="flex min-h-10 items-center justify-between border-b border-gray-100 px-3">
+            <span className="truncate text-sm font-medium">{currentFolderId ? folderIndex.get(currentFolderId)?.name ?? (language === 'zh-CN' ? '当前目录' : 'Current directory') : space.name}</span>
+            <button type="button" aria-label={agentMessages.close} title={agentMessages.close} onClick={closeDirectoryAgent} className="rounded p-1 text-gray-500 hover:bg-gray-100"><X aria-hidden="true" size={16} /></button>
+          </div>
+          <React.Suspense fallback={<p role="status" className="p-3 text-sm text-gray-500">{t('common.loading')}</p>}>
+            <AgentSessionPanel key={`${user?.id}:${id}:${JSON.stringify(currentFolderId)}`} pageId={null} spaceId={id}
+              pageTitle={currentFolderId ? folderIndex.get(currentFolderId)?.name ?? (language === 'zh-CN' ? '当前目录' : 'Current directory') : space.name}
+              directory={{ folderId: currentFolderId, recursive: true }} />
+          </React.Suspense>
+        </section> : null}
       </div>
 
       {bindingScope && canEdit && bindingEnabled && id ? <PageAgentBindingDialog

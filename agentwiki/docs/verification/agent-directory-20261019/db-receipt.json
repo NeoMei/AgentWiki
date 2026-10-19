@@ -1,0 +1,10 @@
+{
+  "checks": [
+    "postgres-jsonb-metadata-has-no-body",
+    "initial-execution-reads-complete-current-snapshot",
+    "http-view-omits-directory-bodies",
+    "move-outside-directory-revokes-snapshot",
+    "live-membership-revocation-denies-session",
+    "invalid-json-field-survives-projection-and-is-denied"
+  ]
+}

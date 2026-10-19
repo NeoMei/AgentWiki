@@ -119,7 +119,8 @@ export class OpencodeModelRouter implements OpencodeRunner, AgentRuntimePort, On
           candidate.id,
           Math.min(this.config.attemptTimeoutMs, remaining),
           task.onStreamChunk,
-          ...(task.signal || task.mode || task.onAnswerText || task.onProgress ? [{ signal: task.signal, mode: task.mode, onAnswerText: task.onAnswerText,
+          ...(task.signal || task.mode || task.onAnswerText || task.onProgress || task.context?.directory ? [{ signal: task.signal, mode: task.mode, onAnswerText: task.onAnswerText,
+            ...(task.context?.directory ? { directory: task.context.directory } : {}),
             ...(task.onProgress ? { onProgress: (progress: AgentExecutionProgress) => {
               if (!task.signal?.aborted) task.onProgress?.({ phase: progress.phase, attempt });
             } } : {}),

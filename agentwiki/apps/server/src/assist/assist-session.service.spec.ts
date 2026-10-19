@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { AssistQueue } from './assist.queue';
 import { AssistSessionService } from './assist-session.service';
 import { AuthorizationService } from '../core/authorization/authorization.service';
@@ -10,6 +11,7 @@ describe('AssistSessionService', () => {
   let db: any;
   let tasks: any[];
   let pages: any[];
+  let folders: any[];
   let session: any;
   let role: string | null;
   const version = '2026-01-01T00:00:00.000Z';
@@ -17,19 +19,32 @@ describe('AssistSessionService', () => {
   beforeEach(() => {
     tasks = [];
     role = 'viewer';
+    folders = [];
     pages = ['p1', 'p2'].map(id => ({ id, spaceId: 's1', title: id, content: `saved ${id}`, updatedAt: new Date(version) }));
     session = { id: 'session1', spaceId: 's1', requestedByUserId: 'u1', title: 'Chat', createdAt: new Date(version), updatedAt: new Date(version) };
     const matches = (row: any, where: any) => Object.entries(where || {}).every(([key, value]: any) => {
-      if (key === 'status' && value?.in) return value.in.includes(row.status);
-      return row[key] === value;
+      if (key === 'OR') return value.some((condition: any) => matches(row, condition));
+      if (value?.in) return value.in.includes(row[key] ?? null);
+      return (row[key] ?? null) === value;
     });
     db = {
-      $transaction: async (fn: any) => fn(db), $executeRaw: jest.fn().mockResolvedValue(1), $queryRaw: jest.fn().mockResolvedValue([{ id: 'u1' }]),
+      $transaction: async (fn: any) => fn(db), $executeRaw: jest.fn().mockResolvedValue(1), $queryRaw: jest.fn(async (query: any) => {
+        if (!query.sql?.includes('jsonb_array_elements')) return [{ id: 'u1' }];
+        return tasks.filter(task => task.sessionId === query.values[0]).map(task => {
+          const directory = task.context?.directory;
+          return { ...task, context: Array.isArray(directory?.documents) ? { ...task.context, directory: { ...directory,
+            documents: directory.documents.map((document: any) => typeof document?.content === 'string' ? { ...document, content: '' } : document),
+          } } : task.context };
+        });
+      }),
       user: { findUnique: async ({ where }: any) => where.id === 'u1' ? { id: 'u1', type: 'human', platformRole: 'user' } : null },
       space: { findUnique: async ({ where }: any) => where.id === 's1' ? { id: 's1' } : null },
       spaceMember: { findUnique: async () => role ? { role } : null },
-      page: { findFirst: async ({ where }: any) => pages.find(p => p.id === where.id && p.spaceId === where.spaceId) ?? null,
-        count: async ({ where }: any) => pages.filter(p => where.id.in.includes(p.id) && p.spaceId === where.spaceId).length },
+      folder: { findMany: async ({ where, take }: any) => folders.filter(f => matches(f, where)).slice(0, take),
+        findFirst: async ({ where }: any) => folders.find(f => matches(f, where)) ?? null },
+      page: { findFirst: async ({ where }: any) => pages.find(p => matches(p, where)) ?? null,
+        findMany: async ({ where, take, skip = 0 }: any) => pages.filter(p => matches(p, where)).slice(skip, skip + take),
+        count: async ({ where }: any) => pages.filter(p => matches(p, where)).length },
       assistSession: {
         findFirst: async ({ where }: any) => matches(session, where) ? session : null,
         findMany: jest.fn(async () => [session]), create: async ({ data }: any) => ({ ...session, ...data }),
@@ -39,7 +54,7 @@ describe('AssistSessionService', () => {
         findFirst: async ({ where }: any) => tasks.find(t => matches(t, where)) ?? null,
         findMany: async ({ where }: any) => tasks.filter(t => matches(t, where)),
         count: async ({ where }: any) => tasks.filter(t => matches(t, where)).length,
-        create: jest.fn(async ({ data }: any) => { const row = { id: `t${tasks.length + 1}`, createdAt: new Date(), ...data }; tasks.push(row); return row; }),
+        create: jest.fn(async ({ data }: any) => { const row = { id: `t${tasks.length + 1}`, createdAt: new Date(), ...data, ...(data.pageSnapshot === Prisma.DbNull ? { pageSnapshot: null } : {}) }; tasks.push(row); return row; }),
         updateMany: async ({ where, data }: any) => { const found = tasks.filter(t => matches(t, where)); found.forEach(t => Object.assign(t, data)); return { count: found.length }; },
       },
     };
@@ -312,4 +327,247 @@ describe('AssistSessionService', () => {
     tasks = Array.from({ length: 100 }, (_, i) => ({ id: `${i}`, sessionId: 'session1', requestedByUserId: 'u1', spaceId: 's1', pageId: 'p1', status: 'done', mode: 'question', intent: 'a', context: { pageId: 'p1', references: [], noteIds: [] } }));
     await expect(service.send('session1', 'u1', request())).rejects.toThrow('100');
   });
+
+  describe('directory context', () => {
+    beforeEach(() => {
+      folders = [
+        { id: 'f1', name: 'Current folder', parentId: null, spaceId: 's1' },
+        { id: 'child', name: 'Child', parentId: 'f1', spaceId: 's1' },
+        { id: 'other', name: 'Other', parentId: null, spaceId: 's1' },
+        { id: 'foreign', name: 'Foreign', parentId: null, spaceId: 's2' },
+        { id: 'deleted', name: 'Deleted', parentId: null, spaceId: 's1', deletedAt: new Date(version) },
+        { id: 'hidden-child', name: 'Hidden child', parentId: 'deleted', spaceId: 's1' },
+      ];
+      pages = [
+        ...Array.from({ length: 7 }, (_, i) => ({ id: `p${i + 1}`, folderId: i < 4 ? 'f1' : 'child', spaceId: 's1', title: `Page ${i + 1}`, content: `DIRECTORY_BODY_${i + 1}`, updatedAt: new Date(version) })),
+        { id: 'root', folderId: null, spaceId: 's1', title: 'Root', content: 'ROOT_BODY', updatedAt: new Date(version) },
+        { id: 'outside', folderId: 'other', spaceId: 's1', title: 'Outside', content: 'OUTSIDE_BODY', updatedAt: new Date(version) },
+        { id: 'cross-space', folderId: 'foreign', spaceId: 's2', title: 'Foreign', content: 'FOREIGN_BODY', updatedAt: new Date(version) },
+        { id: 'trash', folderId: 'f1', spaceId: 's1', title: 'Trash', content: 'DELETED_BODY', updatedAt: new Date(version), deletedAt: new Date(version) },
+        { id: 'hidden', folderId: 'hidden-child', spaceId: 's1', title: 'Hidden', content: 'HIDDEN_BODY', updatedAt: new Date(version) },
+      ];
+    });
+
+    it('captures the current database folder recursively beyond the five manual references', async () => {
+      const turn: any = await service.send('session1', 'u1', request());
+      expect(turn.directory).toEqual({ folderId: 'f1', title: 'Current folder', recursive: true, pageCount: 7 });
+      expect(tasks[0].context.directory.documents.map((p: any) => p.pageId)).toEqual(['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7']);
+      expect(turn.references).toEqual([]);
+      expect(JSON.stringify(turn.directory)).not.toContain('DIRECTORY_BODY');
+      expect(JSON.stringify(tasks[0].context.directory)).not.toMatch(/OUTSIDE_BODY|FOREIGN_BODY|DELETED_BODY|HIDDEN_BODY/);
+    });
+
+    it.each([null, undefined])('runs a question without a page snapshot or version (%s)', async pageId => {
+      const turn: any = await service.send('session1', 'u1', request({ pageId, directory: { folderId: 'f1' } }));
+      expect(turn).toMatchObject({ pageId: null, pageSnapshot: null, directory: { folderId: 'f1', pageCount: 7 } });
+      const execution = await service.executionContext(db, tasks[0]);
+      expect(execution.context.pageId).toBeNull();
+      expect((execution.context as any).directory.documents).toHaveLength(7);
+      const runtime = { run: jest.fn().mockResolvedValue({ summary: 'Directory answer' }) };
+      db.assistTask.count = async () => 1;
+      db.assistTask.updateMany = async () => ({ count: 1 });
+      const queue = new AssistQueue(db, { get: () => undefined } as any, runtime, {} as any,
+        new AuthorizationService(db), new SpaceRevisionWriterService(db, {} as any), service);
+      await (queue as any).processOne({ ...tasks[0], leaseExpiresAtMs: Date.now() + 60_000 });
+      expect(runtime.run).toHaveBeenCalledTimes(1);
+      expect(runtime.run.mock.calls[0][0].context.directory.documents).toHaveLength(7);
+    });
+
+    it.each([true, false])('restricts Space root recursive=%s to live visible folders', async recursive => {
+      await service.send('session1', 'u1', request({ pageId: null, directory: { folderId: null, recursive } }));
+      const ids = tasks[0].context.directory.documents.map((doc: any) => doc.pageId);
+      expect(ids).toEqual(recursive ? ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'root', 'outside'] : ['root']);
+    });
+
+    it('supports direct-only and empty directories without inventing references', async () => {
+      await service.send('session1', 'u1', request({ directory: { folderId: 'f1', recursive: false } }));
+      expect(tasks[0].context.directory.documents).toHaveLength(4);
+      tasks[0].status = 'done';
+      folders.push({ id: 'empty', name: 'Empty', parentId: null, spaceId: 's1' });
+      const turn: any = await service.send('session1', 'u1', request({ clientRequestId: 'empty', pageId: null, directory: { folderId: 'empty' } }));
+      expect(turn.directory).toMatchObject({ title: 'Empty', pageCount: 0 });
+    });
+
+    it('keeps large directory bodies outside the manual 100000-character context budget and history', async () => {
+      pages[1].content = 'UNQUOTED_DIRECTORY_DETAIL' + 'd'.repeat(150_000);
+      await service.send('session1', 'u1', request());
+      tasks[0].status = 'done'; tasks[0].result = { summary: 'First answer' };
+      await service.send('session1', 'u1', request({ clientRequestId: 'next' }));
+      const execution: any = await service.executionContext(db, tasks[1], true);
+      expect(execution.context.directory.documents[1].content.length).toBeGreaterThan(150_000);
+      expect(execution.history[0].directory).toEqual({ folderId: 'f1', title: 'Current folder', recursive: true, pageCount: 7 });
+      expect(JSON.stringify(execution.history)).not.toContain('UNQUOTED_DIRECTORY_DETAIL');
+      expect(JSON.stringify((await service.get('session1', 'u1')).turns)).not.toContain('UNQUOTED_DIRECTORY_DETAIL');
+    });
+
+    it.each(['foreign', 'missing', 'deleted', 'hidden-child'])('rejects inaccessible or forged folder %s', async folderId => {
+      await expect(service.send('session1', 'u1', request({ directory: { folderId } }))).rejects.toThrow(/directory/i);
+      expect(tasks).toHaveLength(0);
+    });
+
+    it.each([
+      { pageId: null }, { pageId: '' }, { directory: null }, { directory: [] },
+      { directory: {} }, { directory: { folderId: 123 } }, { directory: { folderId: ' ' } },
+      { directory: { folderId: 'f1', recursive: 'true' } }, { directory: { folderId: 'f1', recursive: null } },
+      { directory: { folderId: 'f1', documents: [{ content: 'forged' }] } },
+      { pageId: null, mode: 'proposal', directory: { folderId: null } },
+      { pageId: null, directory: { folderId: null }, snapshot: { title: 'forged', content: 'forged' } },
+      { pageId: null, directory: { folderId: null }, noteIds: ['n1'], annotations: [{ id: 'n1', body: 'note', quote: '' }] },
+    ])('rejects invalid or ambiguous directory request %j', async extra => {
+      role = 'editor';
+      await expect(service.send('session1', 'u1', request(extra))).rejects.toThrow();
+      expect(tasks).toHaveLength(0);
+    });
+
+    it.each(['revoked', 'page-deleted', 'page-moved', 'page-cross-space', 'folder-deleted', 'folder-cross-space', 'child-moved'])('blocks stored directory content after %s', async reason => {
+      await service.send('session1', 'u1', request({ pageId: null, directory: { folderId: 'f1' } }));
+      tasks[0].status = 'done'; tasks[0].result = { summary: 'SECRET historical answer' };
+      if (reason === 'revoked') role = null;
+      if (reason === 'page-deleted') pages[1].deletedAt = new Date(version);
+      if (reason === 'page-moved') pages[1].folderId = 'other';
+      if (reason === 'page-cross-space') pages[1].spaceId = 's2';
+      if (reason === 'folder-deleted') folders[0].deletedAt = new Date(version);
+      if (reason === 'folder-cross-space') folders[0].spaceId = 's2';
+      if (reason === 'child-moved') folders[1].parentId = 'other';
+      await expect(service.get('session1', 'u1')).rejects.toThrow();
+      await expect(service.executionContext(db, tasks[0])).rejects.toThrow();
+      if (reason !== 'revoked') expect(await service.list('s1', 'u1')).toEqual([]);
+    });
+
+    it.each(['documents', 'characters', 'folders'])('rejects directory %s overflow explicitly instead of truncating', async limit => {
+      if (limit === 'documents') pages = Array.from({ length: 1001 }, (_, i) => ({ ...pages[0], id: `large${i}` }));
+      if (limit === 'characters') pages[1].content = 'd'.repeat(5_000_000);
+      if (limit === 'folders') folders = Array.from({ length: 10001 }, (_, i) => ({ id: `f${i}`, name: 'Folder', parentId: null, spaceId: 's1' }));
+      await expect(service.send('session1', 'u1', request({ pageId: null, directory: { folderId: null } }))).rejects.toThrow(/directory.*(limit|large|maximum)/i);
+      expect(tasks).toHaveLength(0);
+    });
+
+    it.each(['documents', 'characters', 'folders'])('keeps an automatic page question and proposal usable after directory %s overflow', async limit => {
+      role = 'editor';
+      if (limit === 'documents') pages.push(...Array.from({ length: 1001 }, (_, i) => ({ ...pages[0], id: `large${i}` })));
+      if (limit === 'characters') pages[1].content = 'd'.repeat(5_000_000);
+      if (limit === 'folders') folders.push(...Array.from({ length: 10001 }, (_, i) => ({ id: `large-folder${i}`, name: 'Folder', parentId: null, spaceId: 's1' })));
+      for (const mode of ['question', 'proposal']) {
+        const turn: any = await service.send('session1', 'u1', request({ clientRequestId: mode, mode }));
+        expect(turn.status).toBe('queued');
+        expect(turn.pageSnapshot.content).toBe('DIRECTORY_BODY_1');
+        expect(turn.directory).toMatchObject({ folderId: 'f1', title: 'Current folder', recursive: true, pageCount: 0, unavailableReason: expect.stringMatching(/directory.*(limit|large|maximum)/i) });
+        expect(tasks[tasks.length - 1].context.directory.documents).toEqual([]);
+        const execution: any = await service.executionContext(db, tasks[tasks.length - 1]);
+        expect(execution.context.directory.unavailableReason).toBe(turn.directory.unavailableReason);
+        const readback = await service.get('session1', 'u1');
+        expect(readback.turns[readback.turns.length - 1]).toMatchObject({ directory: turn.directory });
+        tasks[tasks.length - 1].status = 'done'; tasks[tasks.length - 1].result = { summary: 'Single page result' };
+      }
+      const execution: any = await service.executionContext(db, tasks[tasks.length - 1]);
+      expect(execution.history[0].directory.unavailableReason).toMatch(/directory/i);
+    });
+
+    it.each(['deleted-folder', 'cross-space-folder', 'deleted-ancestor', 'revoked', 'database-error'])('does not hide %s behind automatic resource fallback', async reason => {
+      folders.push(...Array.from({ length: 10001 }, (_, i) => ({ id: `large-folder${i}`, name: 'Folder', parentId: null, spaceId: 's1' })));
+      if (reason === 'deleted-folder') folders[0].deletedAt = new Date(version);
+      if (reason === 'cross-space-folder') folders[0].spaceId = 's2';
+      if (reason === 'deleted-ancestor') folders[0].parentId = 'deleted';
+      if (reason === 'revoked') role = null;
+      if (reason === 'database-error') db.folder.findMany = () => { throw new Error('Database unavailable'); };
+      await expect(service.send('session1', 'u1', request())).rejects.toThrow();
+      expect(tasks).toHaveLength(0);
+    });
+
+    it('rechecks the unavailable directory identity after an automatic fallback', async () => {
+      folders.push(...Array.from({ length: 10001 }, (_, i) => ({ id: `large-folder${i}`, name: 'Folder', parentId: null, spaceId: 's1' })));
+      await service.send('session1', 'u1', request());
+      folders[0].deletedAt = new Date(version);
+      await expect(service.get('session1', 'u1')).rejects.toThrow(/directory/i);
+      await expect(service.executionContext(db, tasks[0])).rejects.toThrow(/directory/i);
+      expect(await service.list('s1', 'u1')).toEqual([]);
+    });
+
+    it('still rejects an explicitly requested oversized directory with a page', async () => {
+      pages[1].content = 'd'.repeat(5_000_000);
+      await expect(service.send('session1', 'u1', request({ directory: { folderId: 'f1' } }))).rejects.toThrow(/directory.*(limit|large|maximum)/i);
+      expect(tasks).toHaveLength(0);
+    });
+
+    it('captures multiple bounded batches without losing pages or changing their order', async () => {
+      pages = Array.from({ length: 61 }, (_, i) => ({ ...pages[0], id: `doc${String(i + 1).padStart(3, '0')}` }));
+      const read = db.page.findMany;
+      let largestBatch = 0;
+      db.page.findMany = async (args: any) => { const rows = await read(args); largestBatch = Math.max(largestBatch, rows.length); return rows; };
+      await service.send('session1', 'u1', request({ pageId: null, directory: { folderId: 'f1' } }));
+      expect(tasks[0].context.directory.documents.map((doc: any) => doc.pageId)).toEqual(Array.from({ length: 61 }, (_, i) => `doc${String(i + 1).padStart(3, '0')}`));
+      expect(largestBatch).toBeLessThanOrEqual(25);
+    });
+
+    it('rejects a document-count overflow before reading any directory bodies', async () => {
+      pages = Array.from({ length: 1001 }, (_, i) => ({ ...pages[0], id: `doc${i}` }));
+      db.page.findMany = () => { throw new Error('Directory bodies should not be loaded'); };
+      await expect(service.send('session1', 'u1', request({ pageId: null, directory: { folderId: 'f1' } }))).rejects.toThrow(/Directory.*1000 documents/);
+    });
+
+    it('stops loading directory batches when accumulated content exceeds the limit', async () => {
+      pages = Array.from({ length: 80 }, (_, i) => ({ ...pages[0], id: `doc${i}`, content: 'x'.repeat(200_000) }));
+      const read = db.page.findMany;
+      let bodiesLoaded = 0;
+      db.page.findMany = async (args: any) => { const rows = await read(args); bodiesLoaded += rows.length; return rows; };
+      await expect(service.send('session1', 'u1', request({ pageId: null, directory: { folderId: 'f1' } }))).rejects.toThrow(/Directory.*5000000/);
+      expect(bodiesLoaded).toBeLessThanOrEqual(25);
+      expect(tasks).toHaveLength(0);
+    });
+
+    it('loads directory bodies once for runtime execution and omits them during repeated authorization', async () => {
+      await service.send('session1', 'u1', request({ pageId: null, directory: { folderId: 'f1' } }));
+      tasks[0].status = 'done'; tasks[0].result = { summary: 'Past result' };
+      await service.send('session1', 'u1', request({ pageId: null, directory: { folderId: 'f1' }, clientRequestId: 'current' }));
+      const authorized: any = await service.executionContext(db, tasks[1]);
+      expect(authorized.context.directory.documents[1].content).toBe('');
+      expect(JSON.stringify(authorized)).not.toContain('DIRECTORY_BODY');
+      const read = db.assistTask.findFirst;
+      let bodyReads = 0;
+      db.assistTask.findFirst = async (args: any) => { if (args.select?.context) bodyReads += 1; return read(args); };
+      const runtime = { run: jest.fn(async (input: any) => {
+        expect(input.context.directory.documents[1].content).toBe('DIRECTORY_BODY_2');
+        expect(JSON.stringify(input.history)).not.toContain('DIRECTORY_BODY');
+        await input.isActive(); await input.isActive();
+        input.onProgress({ phase: 'generating', attempt: 1 });
+        input.onAnswerText('Answer');
+        return { summary: 'Answer' };
+      }) };
+      db.assistTask.count = async () => 1;
+      db.assistTask.updateMany = async () => ({ count: 1 });
+      const queue = new AssistQueue(db, { get: () => undefined } as any, runtime, {} as any,
+        new AuthorizationService(db), new SpaceRevisionWriterService(db, {} as any), service);
+      await (queue as any).processOne({ ...tasks[1], leaseExpiresAtMs: Date.now() + 60_000 });
+      expect(runtime.run).toHaveBeenCalledTimes(1);
+      expect(bodyReads).toBe(1);
+    });
+
+    it('keeps send-time directory bodies immutable while reading only live metadata', async () => {
+      await service.send('session1', 'u1', request({ pageId: null, directory: { folderId: 'f1' } }));
+      pages[1].content = 'NEW_CONTENT'; pages[1].updatedAt = new Date('2026-02-01');
+      db.page.findMany = () => { throw new Error('Current bodies must not be reloaded during authorization'); };
+      const execution: any = await service.executionContext(db, tasks[0], true);
+      expect(execution.context.directory.documents[1]).toMatchObject({ pageId: 'p2', content: 'DIRECTORY_BODY_2', updatedAt: version });
+    });
+
+    it.each([
+      null, {}, { folderId: 'f1', title: 'Folder', recursive: true, documents: [{ pageId: 'p1' }] },
+      { folderId: 'f1', title: 'Folder', recursive: true, documents: [
+        { pageId: 'p1', title: 'Page', content: 'SECRET', updatedAt: version, folderId: 'f1' },
+        { pageId: 'p1', title: 'Page', content: 'SECRET', updatedAt: version, folderId: 'f1' },
+      ] },
+    ])('fails closed on malformed stored directory context %j', async directory => {
+      await service.send('session1', 'u1', request());
+      tasks[0].context.directory = directory;
+      await expect(service.get('session1', 'u1')).rejects.toThrow(/directory/i);
+    });
+
+    it('keeps persisted sessions without directory snapshots readable', async () => {
+      await service.send('session1', 'u1', request());
+      delete tasks[0].context.directory;
+      expect((await service.get('session1', 'u1')).turns[0]).not.toHaveProperty('directory');
+      await expect(service.executionContext(db, tasks[0])).resolves.toMatchObject({ context: { pageId: 'p1' } });
+    });
+  });
+
 });
