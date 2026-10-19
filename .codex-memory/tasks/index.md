@@ -4,7 +4,6 @@
 
 ## 活跃任务
 
-- [template-preview-custom-20261019](active/template-preview-custom-20261019/brief.md)：两项模板反馈本地修复及验证，未发布部署。
 
 
 
@@ -23,6 +22,8 @@
 - [q3-regressions-20260914](archive/q3-regressions-20260914/brief.md)：Q3人工报告20项代码修复、整分支独立复审与候选验收完成；未发布部署或安装日常Vault。
 
 ## 最近完成
+
+- [template-preview-custom-20261019](archive/template-preview-custom-20261019/brief.md)：v0.12.54模板正文预览/自定义创建管理使用已部署，8109pass/6既有skip，生产11项与临时Space清理、备份/1389源码/公网健康验证通过。
 
 - [generic-mcp-onboarding-20261018](archive/generic-mcp-onboarding-20261018/brief.md)：冻结99b247c7已发布npm0.13.4/WebAPI0.12.50，官方179文件/空缓存安装、生产1360源码/公网资源/健康通过。真实WorkBuddy更新后重新信任、完整重启、新会话三次MCP与Reader读页8156B哈希通过；保留已有账号授权，默认启动改用私有系统临时cache及Node24/26，未关闭保护。
 

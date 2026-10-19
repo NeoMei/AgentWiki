@@ -1,0 +1,144 @@
+{
+  "reviewType": "pre_deployment_read_only",
+  "reviewedAt": "2026-10-19T15:53:22.558635+00:00",
+  "revision": "e067fa3728b68db844d39e60f049801937f3cc96",
+  "baselineRevision": "476408cb4e59cf4cc078ea35010f68b47c6ecd7f",
+  "exportRoot": "/private/tmp/agentwiki-template-release-20261019/export/agentwiki",
+  "blockingFindings": [],
+  "checks": {
+    "frozen_worktree": {
+      "passed": true,
+      "detail": {
+        "head": "e067fa3728b68db844d39e60f049801937f3cc96",
+        "status": ""
+      }
+    },
+    "frozen_archive_matches_git": {
+      "passed": true,
+      "detail": {
+        "gitArchiveSha256": "bca7a2d332e9bde6902b8c9bd1ecb03b8fee596bae0da63f71c5eff395cd7e3a",
+        "frozenArchiveSha256": "bca7a2d332e9bde6902b8c9bd1ecb03b8fee596bae0da63f71c5eff395cd7e3a"
+      }
+    },
+    "export_matches_frozen_git_tree": {
+      "passed": true,
+      "detail": {
+        "gitFiles": 2433,
+        "exportFiles": 2433,
+        "contentMismatches": [],
+        "extraFiles": [],
+        "missingFiles": [],
+        "nonRegularGitEntries": [],
+        "exportSymlinks": []
+      }
+    },
+    "manifest_matches_export": {
+      "passed": true,
+      "detail": {
+        "revision": "e067fa3728b68db844d39e60f049801937f3cc96",
+        "count": 1389,
+        "uniqueCount": 1389,
+        "mismatches": []
+      }
+    },
+    "deploy_package_matches_manifest": {
+      "passed": true,
+      "detail": {
+        "packagedFiles": 1389,
+        "extraFiles": [],
+        "missingFiles": [],
+        "nonRegularEntries": [],
+        "secretsOrBuildOutputIncluded": []
+      }
+    },
+    "versions": {
+      "passed": true,
+      "detail": {
+        "web": "0.12.54",
+        "client": "0.12.54",
+        "api": "0.12.54",
+        "localSync": "0.13.4",
+        "protocol": "0.6.1"
+      }
+    },
+    "verifier_fixed_inputs": {
+      "passed": true,
+      "detail": {
+        "REVISION": "e067fa3728b68db844d39e60f049801937f3cc96",
+        "EXPECTED_FILES": 1389,
+        "VERSIONS": {
+          "web": "0.12.54",
+          "client": "0.12.54",
+          "api": "0.12.54",
+          "localSync": "0.13.4",
+          "protocol": "0.6.1"
+        },
+        "PUBLIC_ORIGIN": "https://agentwiki.quukk.com"
+      }
+    },
+    "backup_baseline_receipt_consistent": {
+      "passed": true,
+      "detail": {
+        "backupDirectory": "/var/backups/agentwiki/templates-v01254.mexgfxtm",
+        "baselineRevision": "476408cb4e59cf4cc078ea35010f68b47c6ecd7f",
+        "baselineSourceFilesVerified": 1377,
+        "backupVersion": "0.12.53",
+        "artifactChecksumsPassed": 10,
+        "baselineVerifiedAt": "2026-10-19T15:45:02.203632+00:00",
+        "backupFinishedAt": "2026-10-19T15:46:25.140548+00:00",
+        "writersRestored": true,
+        "attachmentWholeStorageEntries": 548
+      }
+    },
+    "backup_consistent_snapshot_boundary": {
+      "passed": true,
+      "detail": {
+        "coordinatedDatabaseAndAttachments": true,
+        "sourceCommitIndependentlyVerifiedInBackup": false,
+        "independentBaselineVerificationSupplied": true,
+        "servicesAfter": {
+          "agentwiki-api.service": "active",
+          "agentwiki-worker.service": "active",
+          "agentwiki-frontend.service": "active"
+        }
+      }
+    },
+    "authorized_change_scope": {
+      "passed": true,
+      "detail": {
+        "changedFiles": 58,
+        "outOfTemplateReleaseScope": [],
+        "deployBackendMigrationsLockfileChanges": []
+      }
+    },
+    "deploy_script_syntax": {
+      "passed": true,
+      "detail": {
+        "exitCode": 0,
+        "stderr": ""
+      }
+    }
+  },
+  "limits": [
+    "No deployment or production write was performed by this reviewer.",
+    "The remote backup artifacts were not re-downloaded; receipt, baseline-host, backup execution transcript and independent checksum log were checked for consistency.",
+    "Full test execution belongs to the separate test agent and is outside this review."
+  ],
+  "deploymentBoundary": {
+    "requiredWorkingDirectory": "/private/tmp/agentwiki-template-release-20261019/export/agentwiki",
+    "requiredRemoteUser": "root (verified baseline lives at /root/agentwiki; deploy.sh defaults to neomei and must be overridden)",
+    "targetMustBeExplicit": "Use the already verified production SSH target/control socket, not script defaults.",
+    "unchangedDeployScript": true,
+    "effects": [
+      "Uploads a tar archive then acquires the remote deployment lock.",
+      "Validates attachment storage and rewrites existing attachment-path/min-free env settings before staged build.",
+      "Builds staged source and preserves old client assets before stopping services.",
+      "Runs prisma migrate deploy after stopping API, worker and frontend. No new migration is included in this candidate.",
+      "Moves live tree to timestamped previous tree, activates staged tree and restarts three user services.",
+      "Retains prior application tree; restoration requires the matching database/configuration/attachment backup."
+    ],
+    "verificationBoundary": "Post-deploy host and independent public verification plus real production UI acceptance remain required; this review is not deployment acceptance."
+  },
+  "status": "passed",
+  "conclusion": "冻结导出、1389项发布清单、版本和发布核验脚本一致；备份与生产基线证据相互一致；未发现发布前阻塞。"
+}
