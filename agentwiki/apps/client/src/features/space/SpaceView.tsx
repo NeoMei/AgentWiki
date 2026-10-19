@@ -799,7 +799,8 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
           <React.Suspense fallback={<p role="status" className="p-3 text-sm text-gray-500">{t('common.loading')}</p>}>
             <AgentSessionPanel key={`${user?.id}:${id}:${JSON.stringify(currentFolderId)}`} pageId={null} spaceId={id}
               pageTitle={currentFolderId ? folderIndex.get(currentFolderId)?.name ?? (language === 'zh-CN' ? '当前目录' : 'Current directory') : space.name}
-              directory={{ folderId: currentFolderId, recursive: true }} />
+              directory={{ folderId: currentFolderId, recursive: true }} canEdit={canEdit}
+              onDocumentWritten={() => { directoryRef.current.retry(); workspaceRef.current?.requestDirectoryRefresh?.(); }} />
           </React.Suspense>
         </section> : null}
       </div>

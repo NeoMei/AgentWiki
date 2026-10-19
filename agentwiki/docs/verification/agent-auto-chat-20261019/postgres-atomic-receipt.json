@@ -1,0 +1,55 @@
+{
+  "database": "isolated local PostgreSQL",
+  "fixtureSpace": "atomic-1792415718411-space",
+  "startedAt": "2026-10-19T13:15:18.411Z",
+  "checks": [
+    {
+      "name": "deployed migration permits automatic mode in the real database constraint",
+      "passed": true
+    },
+    {
+      "name": "answer does not mutate pages, versions, or revisions",
+      "passed": true
+    },
+    {
+      "name": "create and completion receipt commit together with canonical tree revision",
+      "passed": true,
+      "turnId": "cmvfa1ftz000im7f9my07t3i3",
+      "pageId": "916a8109-282a-4a3b-bc97-8bfd14c4f6ec"
+    },
+    {
+      "name": "update saves previous version and advances content revision without moving page",
+      "passed": true
+    },
+    {
+      "name": "failure after page and tree mutations rolls back all document writes and done transition",
+      "passed": true
+    },
+    {
+      "name": "page CAS rejects stale automatic output after concurrent save",
+      "passed": true
+    },
+    {
+      "name": "cancellation wins against late model result without a page write",
+      "passed": true
+    },
+    {
+      "name": "expired lease cannot publish a document",
+      "passed": true
+    },
+    {
+      "name": "live role downgrade prevents document publication",
+      "passed": true
+    },
+    {
+      "name": "concurrent completion, worker retry and repeated request publish exactly once",
+      "passed": true
+    },
+    {
+      "name": "lease expiry while final receipt UPDATE is pending rolls back page, revision, and receipt",
+      "passed": true
+    }
+  ],
+  "finishedAt": "2026-10-19T13:15:19.192Z",
+  "checkCount": 11
+}

@@ -19,7 +19,8 @@ import { truncateValidatorLength } from '../page-templates/validatorLength';
 import { listCompositeTemplates } from '../page-templates/compositeTemplateApi';
 import type { AssistRequest } from './AgentAssistPanel';
 const AgentSessionPanel = React.lazy(() => import('../agent-session/AgentSessionPanel').then((module) => ({ default: module.AgentSessionPanel })));
-import { applyCandidateToDraft, type AssistCandidate } from './assistCandidate';
+import type { AgentDocumentReceipt } from '../agent-session/agentSessionTypes';
+import { applyCandidateToDraft, type AssistSnapshot, type AssistCandidate } from './assistCandidate';
 import { captureAssistTarget } from './assistTargets';
 import { captureReadingSelection } from '../agent-session/readingSelection';
 import { PersonalNotesPanel } from './PersonalNotesPanel';
@@ -476,7 +477,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     setRemoteUpdate(null);
   }, [abortAttachmentUploads, localDraft.suspend]);
 
-  const loadPage = useCallback(async (showLoading = false, forcePrompt = false) => {
+  const loadPage = useCallback(async (showLoading = false, forcePrompt = false, agentSnapshot?: AssistSnapshot) => {
     if (!id) return;
     const requestedId = id;
     const requestedUserId = user?.id;
@@ -506,7 +507,34 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       setError(null);
       authorizedUserIdRef.current = requestedUserId ?? null;
       latestRemoteUpdatedAtRef.current = res.data.updatedAt;
-      offerRemotePage(res.data, pageRevision(res.data), forcePrompt);
+      if (agentSnapshot) {
+        // Recheck after the read: typing, a save or a remote revision may arrive while it is in flight.
+        const unchanged = titleRef.current === agentSnapshot.title
+          && (internalWorkspaceRef.current?.currentValue() ?? contentRef.current) === agentSnapshot.content
+          && editRevisionRef.current === agentSnapshot.draftRevision
+          && assistRemoteRevisionRef.current === agentSnapshot.remoteRevision
+          && pageRef.current?.updatedAt === agentSnapshot.updatedAt && !unresolvedSocketRevisionRef.current;
+        if (unchanged) {
+          // The automatic writer saves the body only. Retain a title the user
+          // had already edited before submitting instead of treating it as saved.
+          const retainedTitle = agentSnapshot.title !== pageRef.current?.title ? agentSnapshot.title : res.data.title;
+          const savedDraft = localDraft.prepareSave(agentSnapshot.title, agentSnapshot.content);
+          adoptRemotePage(res.data);
+          titleRef.current = retainedTitle;
+          setTitle(retainedTitle);
+          if (retainedTitle !== res.data.title) {
+            updateDirty(true);
+            localDraft.schedule(retainedTitle, res.data.content);
+          }
+          const context = draftContext();
+          if (context) localDraft.saved(savedDraft, context, retainedTitle, res.data.content);
+        } else {
+          // Even a locally saved/undone draft must not be replaced after its revision changed.
+          assistRemoteRevisionRef.current += 1;
+          abortAttachmentUploads();
+          setRemoteUpdate({ page: res.data, revision: pageRevision(res.data) });
+        }
+      } else offerRemotePage(res.data, pageRevision(res.data), forcePrompt);
       const acceptedPage = pageRef.current;
       if (acceptedPage?.id === requestedId) {
         reportPageIdentity(requestedId, acceptedPage.spaceId || null, acceptedPage.folderId ?? null);
@@ -523,7 +551,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         setLoading(false);
       }
     }
-  }, [id, user?.id, invalidateWriteCapability, navigate, offerRemotePage, reportPageIdentity]);
+  }, [id, user?.id, invalidateWriteCapability, navigate, offerRemotePage, reportPageIdentity, adoptRemotePage, draftContext, localDraft.prepareSave, localDraft.saved, localDraft.schedule, updateDirty, abortAttachmentUploads]);
 
   useEffect(() => {
     contentRef.current = content;
@@ -989,6 +1017,13 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     return true;
   };
 
+  const handleAgentDocumentWritten = (receipt: AgentDocumentReceipt, submittedSnapshot: AssistSnapshot | null) => {
+    workspace?.requestDirectoryRefresh?.();
+    if (receipt.operation === 'updated' && receipt.pageId === activePageIdRef.current && submittedSnapshot) {
+      void loadPage(false, true, submittedSnapshot);
+    }
+  };
+
   const handleSave = async () => {
     const baseline = pageRef.current;
     if (!id || !baseline?.updatedAt || baseline.capabilities?.canEdit === false || remoteUpdate) return;
@@ -1398,6 +1433,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             notesReady={personalNotes.loaded}
             onNotesEvent={personalNotes.onNotesEvent}
             onApply={applyAgentChanges}
+            onDocumentWritten={handleAgentDocumentWritten}
           /></React.Suspense>
           ) : null}
           </div>

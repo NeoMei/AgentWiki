@@ -7,10 +7,14 @@ export type FailureCode =
   | 'no_models' | 'output_limit' | 'process_error' | 'rate_limited' | 'timeout';
 
 export type StreamChunkCallback = (chunk: string) => void;
+export type AgentAutoAction = 'answer' | 'update' | 'create';
+export interface AgentAutoActions { update: boolean; create: boolean }
 
 export interface AssistInput {
   intent: string;
   mode?: AgentTurnMode;
+  /** Computed by the application from current access; never taken from a prompt. */
+  actions?: AgentAutoActions;
   context?: AgentSessionContext;
   history?: AgentHistoryTurn[];
   historyWindow?: { included: number; omitted: number; maxTurns: number; maxCharacters: number };
@@ -31,20 +35,23 @@ export interface ModelUsage {
 export interface ModelPrice { input: number; output: number; cacheRead: number; cacheWrite: number }
 export interface ModelCandidate { id: string; tier: ModelTier; price: ModelPrice; estimatedCost: number }
 export interface OpencodeAttemptResult {
-  summary: string; changes?: string; raw?: string; usage: ModelUsage; cost: number;
+  summary: string; changes?: string; action?: AgentAutoAction; title?: string; raw?: string; usage: ModelUsage; cost: number;
 }
 export interface AssistAttemptSummary {
   model: string; tier: ModelTier; durationMs: number; status: 'succeeded' | 'failed';
   errorCode?: FailureCode; usage: ModelUsage; cost: number;
 }
 export interface AssistRunResult {
-  summary: string; changes?: string; proposedChangeSetId?: string; raw?: string;
+  summary: string; changes?: string; action?: AgentAutoAction; title?: string; proposedChangeSetId?: string; raw?: string;
   model?: string; modelTier?: ModelTier; attemptCount?: number;
   usage?: ModelUsage; cost?: number; attempts?: AssistAttemptSummary[];
 }
 export interface OpencodeRunner { run(task: AssistInput): Promise<AssistRunResult> }
 export type OpencodeAttemptOptions = Pick<AssistInput, 'signal' | 'mode' | 'onAnswerText' | 'onProgress'> & {
   directory?: AgentDirectoryContext;
+  actions?: AgentAutoActions;
+  stage?: 'decision';
+  action?: AgentAutoAction;
 };
 
 export class OpencodeExecutionError extends Error {

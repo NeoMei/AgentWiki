@@ -1,11 +1,14 @@
 import { AgentExecutionProgress } from './assist-progress';
 
-export type AgentTurnMode = 'question' | 'proposal';
+export type AgentTurnMode = 'auto' | 'question' | 'proposal';
+export type AgentAction = 'answer' | 'update' | 'create';
+export interface AgentDocumentReceipt { operation: 'updated' | 'created'; pageId: string; title: string; updatedAt: string; url: string }
+export type AgentAutoResult = { action: 'answer'; summary: string } | { action: 'update'; summary: string; changes: string } | { action: 'create'; summary: string; title: string; changes: string };
 export type AgentTurnStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
 export interface AgentSessionSummary { id: string; spaceId: string; title: string; createdAt: string; updatedAt: string }
 export interface AgentTurnAnnotation { id: string; body: string; quote: string }
 export interface AgentTurnRequest {
-  clientRequestId: string; intent: string; mode: AgentTurnMode; pageId?: string | null;
+  clientRequestId: string; intent: string; mode?: AgentTurnMode; pageId?: string | null;
   directory?: { folderId: string | null; recursive?: boolean };
   snapshot?: { title: string; content: string; updatedAt?: string; draftRevision?: number; remoteRevision?: number; assistTarget?: unknown };
   referencePageIds?: string[]; noteIds?: string[]; annotations?: AgentTurnAnnotation[];
@@ -24,7 +27,7 @@ export interface AgentTurnView {
   references: { pageId: string; title: string; updatedAt: string }[];
   noteIds: string[]; annotations?: AgentTurnAnnotation[]; progressText: string;
   progress?: AgentExecutionProgress;
-  result: { summary?: string; changes?: string } | null; error: string | null;
+  result: { action?: AgentAction; summary?: string; changes?: string; document?: AgentDocumentReceipt } | null; error: string | null;
 }
 export interface AgentSessionDetail extends AgentSessionSummary { turns: AgentTurnView[] }
 export const AGENT_SESSION_LIMITS = Object.freeze({
@@ -43,6 +46,7 @@ export interface AgentHistoryTurn {
   /** Captured at send time; never replaced with current Page bodies. */
   pageSnapshot: Record<string, unknown> | null;
   references: AgentSessionContext['references'];
+  action?: AgentAction; document?: AgentDocumentReceipt;
   intent: string; answer: string; mode: AgentTurnMode; pageId: string | null; changes?: string; annotations?: AgentTurnAnnotation[];
 }
 

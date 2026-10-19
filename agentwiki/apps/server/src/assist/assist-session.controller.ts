@@ -13,7 +13,7 @@ class DirectoryScopeValidator implements ValidatorConstraintInterface {
   validate(value: unknown, args: ValidationArguments) {
     const request = args.object as AgentTurnRequest;
     if (value !== undefined && !validDirectoryRequest(value)) return false;
-    return request.pageId != null || (request.mode === 'question' && value !== undefined);
+    return request.pageId != null || (request.mode !== 'proposal' && value !== undefined);
   }
   defaultMessage() { return 'directory must contain a valid folderId (or null for Space root) and optional boolean recursive'; }
 }
@@ -25,7 +25,7 @@ export class CreateAgentSessionDto {
 export class AgentTurnDto implements AgentTurnRequest {
   @IsString() @MinLength(1) @MaxLength(128) clientRequestId!: string;
   @IsString() @MinLength(1) @MaxLength(10_000) intent!: string;
-  @IsIn(['question', 'proposal']) mode!: AgentTurnMode;
+  @IsOptional() @IsIn(['auto', 'question', 'proposal']) mode?: AgentTurnMode;
   @IsOptional() @IsString() @MinLength(1) @MaxLength(128) @Matches(/\S/) pageId?: string | null;
   @Validate(DirectoryScopeValidator) directory?: AgentTurnRequest['directory'];
   @IsOptional() @IsObject() snapshot?: AgentTurnRequest['snapshot'];

@@ -44,6 +44,11 @@ describe('AssistSessionController', () => {
     const dto = plainToInstance(AgentTurnDto, { clientRequestId: 'r1', pageId: 'p1', intent: 'why', mode: 'question', ...extra });
     expect((await validate(dto)).length).toBeGreaterThan(0);
   });
+  it.each(['auto', undefined])('accepts automatic and omitted modes for both page and directory turns (%s)', async mode => {
+    for (const scope of [{ pageId: 'p1' }, { directory: { folderId: null } }]) {
+      expect(await validate(plainToInstance(AgentTurnDto, { clientRequestId: 'r1', intent: 'Please summarize', mode, ...scope }))).toEqual([]);
+    }
+  });
   it.each([null, undefined])('accepts an explicit directory question with optional pageId %s', async pageId => {
     const dto = plainToInstance(AgentTurnDto, { clientRequestId: 'r1', pageId, intent: 'why', mode: 'question', directory: { folderId: null, recursive: false } });
     expect(await validate(dto)).toEqual([]);

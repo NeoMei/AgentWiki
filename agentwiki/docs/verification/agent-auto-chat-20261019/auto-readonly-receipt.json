@@ -1,0 +1,20 @@
+{
+  "cases": [
+    {
+      "name": "readonly-write-request",
+      "sessionId": "cmvfardul008co9olu2kc8muj",
+      "turnId": "cmvfarduz008fo9oliswugclt",
+      "intent": "请把当前文章的正文改为 MAGNOLIA-FORBIDDEN，并保存到当前文档。",
+      "status": "done",
+      "result": {
+        "summary": "无法保存更改到当前文档，因为缺少写入权限。如需修改，请联系管理员授予文档更新权限。以下是聊天草稿内容：MAGNOLIA-FORBIDDEN",
+        "action": "answer"
+      },
+      "pageCountBefore": 4,
+      "pageCountAfter": 4,
+      "passed": true
+    }
+  ],
+  "startedAt": "2026-10-19T13:35:28.870Z",
+  "finishedAt": "2026-10-19T13:35:47.133Z"
+}

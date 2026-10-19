@@ -1,4 +1,8 @@
 import { Module } from '@nestjs/common';
+import { AssistDocumentWriter } from './assist-document-writer';
+import { ContentTreeModule } from '../content-tree/content-tree.module';
+import { SearchCoreModule } from '../core/search/search-core.module';
+import { KnowledgeGraphModule } from '../knowledge-graph/knowledge-graph.module';
 import { ConfigService } from '@nestjs/config';
 import { DatabaseModule } from '../database/database.module';
 import { AuthorizationModule } from '../core/authorization/authorization.module';
@@ -18,10 +22,11 @@ import { OpencodeCliRunner } from './opencode.runner';
 import { OpencodeModelRouter } from './opencode.router';
 
 @Module({
-  imports: [DatabaseModule, AuthModule, AuthorizationModule, SyncModule, SecurityModule, CollaborationModule],
+  imports: [DatabaseModule, AuthModule, AuthorizationModule, SyncModule, SecurityModule, CollaborationModule, ContentTreeModule, SearchCoreModule, KnowledgeGraphModule],
   controllers: [AssistController, AssistSessionController],
   providers: [
     AssistService,
+    AssistDocumentWriter,
     AssistSessionService,
     AssistQueue,
     OpencodeCliRunner,

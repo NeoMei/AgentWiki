@@ -1,0 +1,33 @@
+{
+  "client": {
+    "files": 161,
+    "passed": 2727
+  },
+  "server": {
+    "suitesPassed": 179,
+    "passed": 3503,
+    "skipped": 45
+  },
+  "typecheck": {
+    "client": "passed",
+    "server": "passed"
+  },
+  "lintChangedFiles": 35,
+  "build": {
+    "client": "passed",
+    "server": "passed",
+    "initialJavaScriptBytes": 549985,
+    "budgetBytes": 550000
+  },
+  "postgresAtomicChecks": 11,
+  "realModelHttpCases": 6,
+  "readonlyRealModelCases": 1,
+  "browserCases": [
+    "create and refresh directory",
+    "update and refresh page",
+    "answer in chat without write"
+  ],
+  "independentReview": "passed after fixes",
+  "productionDeployed": false,
+  "temporaryResourcesRemoved": true
+}

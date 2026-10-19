@@ -5,10 +5,12 @@ import { ModelHealthStore } from './model-health.store';
 import { buildCandidates, OpencodeModelCatalog } from './opencode.catalog';
 import { readRoutingConfig, RoutingConfig } from './opencode.config';
 import { OpencodeCliRunner } from './opencode.runner';
+import { AUTO_JSON_FORMAT_REMINDER, autoActions, parseAutoDecision, parseAutoResponse, withAutoFormatRetry } from './assist-auto-response';
 import { composeAssistOutputScope } from './assist-target';
 import { AgentExecutionProgress } from './assist-progress';
 import {
   AssistAttemptSummary,
+  AgentAutoAction,
   AssistInput,
   AssistRunResult,
   EMPTY_USAGE,
@@ -47,7 +49,7 @@ export class OpencodeModelRouter implements OpencodeRunner, AgentRuntimePort, On
 
     let prompt: string;
     try {
-      prompt = this.runner.buildPrompt(task);
+      prompt = task.mode === 'auto' ? this.runner.buildDecisionPrompt(task) : this.runner.buildPrompt(task);
     } catch {
       throw this.routingError('configuration_error', [], { ...EMPTY_USAGE }, 0);
     }
@@ -85,6 +87,8 @@ export class OpencodeModelRouter implements OpencodeRunner, AgentRuntimePort, On
     const attempts: AssistAttemptSummary[] = [];
     const totalUsage = { ...EMPTY_USAGE };
     let totalCost = 0;
+    let action: AgentAutoAction | undefined;
+    const actions = autoActions(task);
 
     for (const candidate of selected) {
       if (task.signal?.aborted) throw this.routingError('cancelled', attempts, totalUsage, totalCost, candidate);
@@ -111,23 +115,54 @@ export class OpencodeModelRouter implements OpencodeRunner, AgentRuntimePort, On
         );
       }
 
+      const attemptUsage = { ...EMPTY_USAGE };
+      let attemptCost = 0;
+      const attemptDeadline = Math.min(deadline, startedAt + this.config.attemptTimeoutMs);
       try {
         const attempt = attempts.length + 1;
         task.onProgress?.({ phase: 'preparing', attempt });
-        const result = await this.runner.runModel(
-          prompt,
-          candidate.id,
-          Math.min(this.config.attemptTimeoutMs, remaining),
-          task.onStreamChunk,
-          ...(task.signal || task.mode || task.onAnswerText || task.onProgress || task.context?.directory ? [{ signal: task.signal, mode: task.mode, onAnswerText: task.onAnswerText,
-            ...(task.context?.directory ? { directory: task.context.directory } : {}),
-            ...(task.onProgress ? { onProgress: (progress: AgentExecutionProgress) => {
-              if (!task.signal?.aborted) task.onProgress?.({ phase: progress.phase, attempt });
-            } } : {}),
-          }] : []),
-        );
+        if (task.mode === 'auto' && !action) {
+          const decision = await this.runner.runModel(prompt, candidate.id, attemptDeadline - this.now(), undefined,
+            { signal: task.signal, mode: 'auto', stage: 'decision', actions,
+              ...(task.onProgress ? { onProgress: (progress: AgentExecutionProgress) => {
+                if (!task.signal?.aborted) task.onProgress?.({ phase: progress.phase, attempt });
+              } } : {}),
+            });
+          this.addUsage(attemptUsage, decision.usage);
+          attemptCost += decision.cost;
+          action = parseAutoDecision(JSON.stringify({ action: decision.action }), actions);
+          prompt = this.runner.buildPrompt(task, action);
+        }
+        const result = await withAutoFormatRetry(task.mode === 'auto', async retry => {
+          if (task.signal?.aborted || task.mode === 'auto' && task.isActive && !await this.withinDeadline(task.isActive, deadline)) {
+            throw new OpencodeExecutionError('cancelled', 'cancelled', 'global', EMPTY_USAGE);
+          }
+          const generationRemaining = attemptDeadline - this.now();
+          if (generationRemaining <= 0) {
+            if (deadline <= this.now()) throw this.budgetError();
+            throw new OpencodeExecutionError('timeout', 'timeout', 'model', EMPTY_USAGE);
+          }
+          return this.runner.runModel(
+            prompt + (retry ? AUTO_JSON_FORMAT_REMINDER : ''),
+            candidate.id,
+            generationRemaining,
+            task.onStreamChunk,
+            ...(task.signal || task.mode || task.onAnswerText || task.onProgress || task.context?.directory ? [{ signal: task.signal, mode: task.mode, onAnswerText: task.onAnswerText,
+              ...(task.mode === 'auto' ? { action, actions } : {}),
+              ...(task.context?.directory ? { directory: task.context.directory } : {}),
+              ...(task.onProgress ? { onProgress: (progress: AgentExecutionProgress) => {
+                if (!task.signal?.aborted) task.onProgress?.({ phase: progress.phase, attempt });
+              } } : {}),
+            }] : []),
+          );
+        });
+        this.addUsage(attemptUsage, result.usage);
+        attemptCost += result.cost;
         if (task.signal?.aborted) throw new OpencodeExecutionError('cancelled', 'cancelled', 'global', EMPTY_USAGE);
-        if (task.mode !== 'question') {
+        if (task.mode === 'auto') parseAutoResponse(JSON.stringify({ action: result.action, summary: result.summary,
+          ...(result.changes !== undefined ? { changes: result.changes } : {}), ...(result.title !== undefined ? { title: result.title } : {}),
+        }), action, actions);
+        if (task.mode === 'auto' ? result.action === 'update' : task.mode !== 'question') {
           // The production path routes through runModel(), so apply the same
           // bounded-anchor repair as the direct runner before the queue's
           // strict scope assertion. Provider formatting drift outside the
@@ -136,20 +171,22 @@ export class OpencodeModelRouter implements OpencodeRunner, AgentRuntimePort, On
           result.changes = composeAssistOutputScope(task.pageSnapshot, result.changes) as string;
         }
         const completedAt = this.now();
-        this.addUsage(totalUsage, result.usage);
-        totalCost += result.cost;
+        this.addUsage(totalUsage, attemptUsage);
+        totalCost += attemptCost;
         attempts.push({
           model: candidate.id,
           tier: candidate.tier,
           durationMs: this.duration(startedAt, completedAt),
           status: 'succeeded',
-          usage: { ...result.usage },
-          cost: result.cost,
+          usage: { ...attemptUsage },
+          cost: attemptCost,
         });
         this.resetHealth(candidate.id, completedAt);
         return {
           summary: result.summary,
-          changes: result.changes,
+          ...(result.changes !== undefined ? { changes: result.changes } : {}),
+          ...(result.action ? { action: result.action } : {}),
+          ...(result.title ? { title: result.title } : {}),
           model: candidate.id,
           modelTier: candidate.tier,
           attemptCount: attempts.length,
@@ -160,12 +197,9 @@ export class OpencodeModelRouter implements OpencodeRunner, AgentRuntimePort, On
       } catch (error) {
         const completedAt = this.now();
         const code = task.signal?.aborted ? 'cancelled' : this.errorCode(error);
-        const failureUsage = error instanceof OpencodeExecutionError
-          ? error.usage
-          : EMPTY_USAGE;
-        const failureCost = error instanceof OpencodeExecutionError
-          ? error.cost
-          : 0;
+        const failureUsage = { ...attemptUsage };
+        if (error instanceof OpencodeExecutionError) this.addUsage(failureUsage, error.usage);
+        const failureCost = attemptCost + (error instanceof OpencodeExecutionError ? error.cost : 0);
         this.addUsage(totalUsage, failureUsage);
         totalCost += failureCost;
         attempts.push({

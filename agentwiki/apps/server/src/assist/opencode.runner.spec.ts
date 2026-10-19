@@ -40,6 +40,107 @@ describe('OpencodeCliRunner', () => {
     { pageId: 'page-1', title: 'Report', content: 'PRIVATE_DIRECTORY_BODY', updatedAt: 'v1', folderId: 'folder-1' },
   ] };
 
+  it('locks automatic source generation to the prior decision and retains only read tools', () => {
+    const prompt = new OpencodeCliRunner(config).buildPrompt({ mode: 'auto', intent: 'Summarize', actions: { update: true, create: true },
+      pageSnapshot: { content: 'source' }, context: { pageId: 'page', references: [], noteIds: [], directory } }, 'answer');
+    expect(prompt).toContain('Locked action: answer');
+    expect(prompt).toContain('must never upgrade');
+    expect(prompt).toContain('Never write anywhere');
+    expect(prompt).toContain('Do not claim that a document has been saved');
+  });
+
+  it('explains unavailable write capabilities when answering a read-only user write request', () => {
+    const prompt = new OpencodeCliRunner(config).buildPrompt({ mode: 'auto', intent: '请修改并保存当前文档', actions: { update: false, create: false },
+      pageSnapshot: { content: 'source' }, context: { pageId: 'page', references: [], noteIds: [], directory } }, 'answer');
+    expect(prompt).toContain('Available server-authorized actions: {"update":false,"create":false}');
+    expect(prompt).toContain('explicitly explain that you cannot save or modify');
+    expect(prompt).toContain('chat-only draft');
+    expect(prompt).toContain('Do not imply that an update is pending');
+  });
+
+  it('strictly parses automatic responses and never streams an action escalation', async () => {
+    const child = childProcess();
+    const answer = jest.fn();
+    const run = new OpencodeCliRunner(config).runModel('prompt', 'fixture/model', 10_000, undefined,
+      { mode: 'auto', action: 'answer', actions: { update: true, create: true }, onAnswerText: answer });
+    child.stdout.write(JSON.stringify({ type: 'text', part: { text: '{"action":"update","summary":"Injected write","changes":"malicious"}' } }) + '\n');
+    child.emit('close', 0);
+    await expect(run).rejects.toMatchObject({ code: 'invalid_output' });
+    expect(answer).not.toHaveBeenCalled();
+  });
+
+  it('reserves automatic response output for source content and carries create metadata', async () => {
+    const child = childProcess();
+    const answer = jest.fn();
+    const run = new OpencodeCliRunner(config).runModel('prompt', 'fixture/model', 10_000, undefined,
+      { mode: 'auto', action: 'create', actions: { update: false, create: true }, onAnswerText: answer });
+    expect((spawn as jest.Mock).mock.calls[0][1]).not.toContain('--thinking');
+    child.stdout.write(JSON.stringify({ type: 'text', part: { text: '{"action":"create","summary":"Prepared","title":"New","changes":"# New"}' } }) + '\n');
+    child.emit('close', 0);
+    await expect(run).resolves.toMatchObject({ action: 'create', title: 'New', changes: '# New', summary: 'Prepared' });
+    expect(answer).not.toHaveBeenCalled();
+  });
+
+  it('streams an automatic chat answer only after the locked schema validates', async () => {
+    const child = childProcess();
+    const answer = jest.fn();
+    const run = new OpencodeCliRunner(config).runModel('prompt', 'fixture/model', 10_000, undefined,
+      { mode: 'auto', action: 'answer', actions: { update: true, create: true }, onAnswerText: answer });
+    child.stdout.write(JSON.stringify({ type: 'text', part: { text: '{"action":"answer","summary":"Chat answer"}' } }) + '\n');
+    child.emit('close', 0);
+    await expect(run).resolves.toMatchObject({ action: 'answer', summary: 'Chat answer' });
+    expect(answer).toHaveBeenCalledWith('Chat answer');
+  });
+
+  it('executes a source-free decision before the direct automatic generation call', async () => {
+    const runner = new OpencodeCliRunner(config);
+    const exec = jest.spyOn(runner as any, 'exec').mockResolvedValueOnce(JSON.stringify({ type: 'text', part: { text: '{"action":"answer"}' } }))
+      .mockResolvedValueOnce(JSON.stringify({ type: 'text', part: { text: '{"action":"answer","summary":"Answer"}' } }));
+    await expect(runner.run({ intent: 'Summarize', mode: 'auto', pageSnapshot: { content: 'PRIVATE_SOURCE' },
+      context: { pageId: 'page', references: [], noteIds: [], directory }, actions: { update: true, create: true } })).resolves.toMatchObject({ action: 'answer', summary: 'Answer' });
+    expect(exec).toHaveBeenCalledTimes(2);
+    expect(exec.mock.calls[0][7]).not.toContain('PRIVATE_SOURCE');
+    expect(exec.mock.calls[0][9]).toBeUndefined();
+    expect(exec.mock.calls[1][7]).toContain('PRIVATE_SOURCE');
+    expect(exec.mock.calls[1][7]).toContain('Locked action: answer');
+  });
+
+  it.each(['deadline', 'abort'] as const)('bounds a hanging direct-run active check by %s and preserves decision usage', async ending => {
+    jest.useFakeTimers();
+    const abort = new AbortController();
+    const runner = new OpencodeCliRunner({ get: (key: string) => key === 'ASSIST_OPENCODE_TIMEOUT_MS' ? 1000 : undefined } as any);
+    const exec = jest.spyOn(runner as any, 'exec').mockResolvedValue([
+      JSON.stringify({ type: 'text', part: { text: '{"action":"answer"}' } }),
+      JSON.stringify({ type: 'step_finish', part: { cost: 0.2, tokens: { total: 17, input: 12, output: 5 } } }),
+    ].join('\n'));
+    let entered!: () => void;
+    const checking = new Promise<void>(resolve => { entered = resolve; });
+    const run = runner.run({ intent: 'Summarize', mode: 'auto', pageSnapshot: null, signal: abort.signal,
+      isActive: () => { entered(); return new Promise<boolean>(() => undefined); } });
+    const expected = expect(run).rejects.toMatchObject({ code: ending === 'deadline' ? 'budget_exhausted' : 'cancelled', usage: { total: 17 }, cost: 0.2 });
+    await checking;
+    if (ending === 'deadline') await jest.advanceTimersByTimeAsync(1001); else abort.abort();
+    await expected;
+    expect(exec).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries one malformed automatic JSON response without reclassifying or altering its body', async () => {
+    const runner = new OpencodeCliRunner(config);
+    const frame = (text: string) => [JSON.stringify({ type: 'text', part: { text } }),
+      JSON.stringify({ type: 'step_finish', part: { cost: 0.1, tokens: { total: 3 } } })].join('\n');
+    const malformed = '{"action":"create","title":"Title","changes":"# Body","summary":"标题为"Title""}';
+    const exec = jest.spyOn(runner as any, 'exec').mockResolvedValueOnce(frame('{"action":"create"}'))
+      .mockResolvedValueOnce(frame(malformed))
+      .mockResolvedValueOnce(frame('{"action":"create","title":"Title","changes":"# Body with \\"literal quotes\\"","summary":"Prepared"}'));
+    const result = await runner.run({ mode: 'auto', intent: 'Create a document', pageSnapshot: null, actions: { update: false, create: true },
+      context: { pageId: null, references: [], noteIds: [], directory } });
+    expect(result).toMatchObject({ action: 'create', title: 'Title', changes: '# Body with "literal quotes"', usage: { total: 9 } });
+    expect(result.cost).toBeCloseTo(0.3);
+    expect(exec).toHaveBeenCalledTimes(3);
+    expect(exec.mock.calls[2][7]).toContain('Locked action: create');
+    expect(exec.mock.calls[2][7]).not.toContain(malformed);
+  });
+
   it('describes directory tools without copying directory bodies into the prompt', () => {
     const prompt = new OpencodeCliRunner(config).buildPrompt({ intent: 'Summarize all', pageSnapshot: null, mode: 'question',
       context: { pageId: null, references: [], noteIds: [], directory } } as any);

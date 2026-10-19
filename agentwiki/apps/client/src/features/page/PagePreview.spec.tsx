@@ -1477,40 +1477,41 @@ describe('PagePreview checklist saves', () => {
     expect(agentPostCalls()).toHaveLength(0);
     fireEvent.click(await screen.findByRole('button', { name: 'Reference pages' }));
     fireEvent.change(await screen.findByRole('textbox', { name: 'Find reference pages' }), { target: { value: 'Supporting' } }); fireEvent.click(await screen.findByRole('button', { name: 'Add Supporting page' }));
-    expect(screen.getByRole('option', { name: 'Propose changes' })).toBeDisabled();
-    expect(screen.getByRole('option', { name: 'Edit page directly' })).toBeDisabled();
+    expect(screen.queryByRole('combobox', { name: 'Message mode' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Send' })); expect(await screen.findByText('Reader answer')).toBeVisible();
     const sent = vi.mocked(api.post).mock.calls.find(([url]) => url.endsWith('/turns'))?.[1] as any;
-    expect(sent.mode).toBe('question'); expect(sent.referencePageIds).toEqual(['ref']); expect(sent.snapshot.assistTarget).toMatchObject({ from: 8, to: 14, quote: 'repeat' });
+    expect(sent.mode).toBe('auto'); expect(sent.referencePageIds).toEqual(['ref']); expect(sent.snapshot.assistTarget).toMatchObject({ from: 8, to: 14, quote: 'repeat' });
     expect(sent.annotations).toEqual([expect.objectContaining({ body: 'Why the second occurrence?', quote: 'repeat' })]); expect(sent.intent).not.toMatch(/rewrite|modify/i); expect(pagePatchCalls()).toHaveLength(0);
     fireEvent.click(screen.getAllByRole('tab', { name: 'Page notes' })[0]);
     expect(screen.getByText('Dispatched')).toBeVisible(); expect(screen.queryByText('Resolved', { exact: true })).not.toBeInTheDocument();
   });
 
-  it('lets an editor explicitly apply a completed Agent change from the reading sidebar', async () => {
-    const current = page({ content: 'Original source', capabilities: { canEdit: true } });
+  it('refreshes a server-saved automatic change without issuing a second page write', async () => {
+    let current = page({ content: 'Original source', capabilities: { canEdit: true } });
+    let turns: any[] = [];
     const session = { id: 'session-direct', spaceId: current.spaceId, title: 'Direct edits', createdAt: current.createdAt, updatedAt: current.updatedAt };
     localStorage.setItem('user', JSON.stringify({ id: 'editor' })); localStorage.setItem('token', 'test');
     vi.mocked(api.get).mockImplementation(async (url) => {
       const noteResponse = notesGet(url); if (noteResponse) return noteResponse;
       if (url === '/assist/sessions') return { data: [session] };
-      if (url === `/assist/sessions/${session.id}`) return { data: { ...session, turns: [] } };
+      if (url === `/assist/sessions/${session.id}`) return { data: { ...session, turns } };
       return { data: url.startsWith('/knowledge') ? [] : current };
     });
-    vi.mocked(api.post).mockImplementation(async (url, data: any) => url === '/assist/sessions'
-      ? { data: session }
-      : { data: { id: 'direct-turn', sessionId: session.id, pageId: current.id, mode: 'proposal', intent: data.intent, status: 'done', createdAt: current.updatedAt, pageSnapshot: data.snapshot, references: [], noteIds: [], annotations: [], progressText: '', result: { summary: 'Updated', changes: 'Changed source' }, error: null } });
-    vi.mocked(api.patch).mockResolvedValue({ data: patchPage({ content: 'Changed source', updatedAt: '2026-10-14T01:01:00.000Z' }) });
+    vi.mocked(api.post).mockImplementation(async (_url, data: any) => {
+      current = { ...current, content: 'Changed source', updatedAt: '2026-10-14T01:01:00.000Z' };
+      turns = [{ id: 'auto-turn', sessionId: session.id, pageId: current.id, mode: 'auto', intent: data.intent, status: 'done', createdAt: current.updatedAt, pageSnapshot: data.snapshot, references: [], noteIds: [], annotations: [], progressText: '', result: { action: 'update', summary: 'Updated', changes: 'Changed source', document: { operation: 'updated', pageId: current.id, title: current.title, updatedAt: current.updatedAt, url: `/pages/${current.id}` } }, error: null }];
+      return { data: turns[0] };
+    });
 
     render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="editor"><MemoryRouter initialEntries={['/pages/page-1']}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
     fireEvent.click(await screen.findByRole('tab', { name: 'Agent' }));
     await screen.findByRole('tab', { name: 'Direct edits' });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Message mode' }), { target: { value: 'direct' } });
     fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Rewrite this page' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
-    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/pages/page-1', expect.objectContaining({ content: 'Changed source', expectedUpdatedAt: current.updatedAt })));
-    expect(await screen.findByText('Page updated and saved directly.')).toBeVisible();
+    expect(await screen.findByText('Document updated and saved.')).toBeVisible();
+    await waitFor(() => expect(document.querySelector('.document-body')).toHaveTextContent('Changed source'));
+    expect(pagePatchCalls()).toHaveLength(0);
   });
 
 });

@@ -69,7 +69,7 @@ describe('directory conversations', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(api.post).toHaveBeenCalled());
     const payload = vi.mocked(api.post).mock.calls.find(([url]) => url.endsWith('/turns'))![1] as any;
-    expect(payload).toMatchObject({ pageId: null, mode: 'question', directory: { folderId, recursive: true } });
+    expect(payload).toMatchObject({ pageId: null, mode: 'auto', directory: { folderId, recursive: true } });
     expect(payload).not.toHaveProperty('snapshot');
     expect(payload).not.toHaveProperty('annotations');
   });
@@ -77,7 +77,6 @@ describe('directory conversations', () => {
   it('keeps unsent directory drafts isolated from the root and from document edit mode', async () => {
     const rendered = render(tree());
     await screen.findByText('Earlier answer');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Message mode' }), { target: { value: 'proposal' } });
     fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Document edit' } });
     rendered.rerender(tree({ pageId: null, pageTitle: 'Research', snapshot: undefined, directory: { folderId: 'folder-a' }, canEdit: false }));
     await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled());
@@ -352,19 +351,66 @@ describe('closable conversation tabs', () => {
   });
 });
 describe('durable Agent session document bridge', () => {
-  it('lets an editor explicitly send a direct edit and applies the completed page change', async () => {
-    const onDirectApply = vi.fn().mockResolvedValue(true);
-    vi.mocked(api.post).mockImplementation(async (url, data: any) => url === '/assist/sessions'
-      ? { data: { ...summary, id: 'session-new', title: 'New conversation' } }
-      : { data: { ...turn, ...data, id: 'direct-turn', sessionId: summary.id, mode: 'proposal', status: 'done', pageSnapshot: data.snapshot, references: [], result: { summary: 'Updated', changes: 'Changed source' } } });
-    render(tree({ onDirectApply } as any));
+  it('sends automatic messages without a mode selector and reports a server-saved document once', async () => {
+    const onDocumentWritten = vi.fn();
+    const document = { operation: 'updated', pageId: 'page-a', title: 'Page A', updatedAt: '2026-10-06T02:00:00.000Z', url: '/pages/page-a' };
+    vi.mocked(api.post).mockImplementation(async (_url, data: any) => {
+      const completed = { ...turn, ...data, id: 'auto-turn', mode: 'auto', status: 'done', pageSnapshot: data.snapshot, references: [], result: { action: 'update', summary: 'Updated', changes: 'Changed source', document } } as AgentTurn;
+      turns = [...turns, completed];
+      return { data: completed };
+    });
+    const rendered = render(tree({ onDocumentWritten } as any));
     await screen.findByText('Earlier answer');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Message mode' }), { target: { value: 'direct' } });
+    expect(screen.queryByRole('combobox', { name: 'Message mode' })).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Rewrite this page' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-    await waitFor(() => expect(onDirectApply).toHaveBeenCalledWith(expect.objectContaining({ content: 'Changed source' }), 'Changed source'));
-    const payload = vi.mocked(api.post).mock.calls.find(([url]) => url.endsWith('/turns'))?.[1] as any;
-    expect(payload.mode).toBe('proposal');
+    await waitFor(() => expect(onDocumentWritten).toHaveBeenCalledWith(document, expect.objectContaining({ content: 'unsaved current draft', draftRevision: 1 })));
+    expect(vi.mocked(api.post).mock.calls.slice(-1)[0]?.[1]).toMatchObject({ mode: 'auto' });
+    expect(screen.getByText('Document updated and saved.')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Page A' })).toHaveAttribute('href', '/pages/page-a');
+    expect(screen.queryByText('Accept to draft')).not.toBeInTheDocument();
+    expect(api.patch).not.toHaveBeenCalled();
+    rendered.rerender(tree({ onDocumentWritten } as any));
+    expect(onDocumentWritten).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows historical saved receipts without refreshing or rewriting their documents', async () => {
+    const onDocumentWritten = vi.fn();
+    turns = [{ ...turn, mode: 'auto', result: { action: 'create', summary: 'Created', document: { operation: 'created', pageId: 'new-page', title: 'New document', updatedAt: version, url: '/pages/new-page' } } } as AgentTurn];
+    render(tree({ onDocumentWritten } as any));
+    await screen.findByText('Created');
+    expect(screen.getByText('Document created and saved.')).toBeVisible();
+    expect(onDocumentWritten).not.toHaveBeenCalled();
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('does not refresh a different page when an automatic completion arrives after navigation', async () => {
+    let complete!: (value: { data: AgentTurn }) => void;
+    const onDocumentWritten = vi.fn();
+    vi.mocked(api.post).mockImplementation(() => new Promise((resolve) => { complete = resolve; }));
+    const rendered = render(tree({ onDocumentWritten }));
+    await screen.findByText('Earlier answer');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Rewrite this page' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalled());
+    const payload = vi.mocked(api.post).mock.calls[0][1] as any;
+    rendered.rerender(tree({ pageId: 'page-b', onDocumentWritten }));
+    await act(async () => complete({ data: { ...turn, id: 'late-written', mode: 'auto', status: 'done', pageSnapshot: payload.snapshot, result: { action: 'update', summary: 'Saved on A', document: { operation: 'updated', pageId: 'page-a', title: 'Page A', updatedAt: version, url: '/pages/page-a' } } } }));
+    expect(onDocumentWritten).not.toHaveBeenCalled();
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('keeps an automatic answer in chat without refreshing or writing the page', async () => {
+    const onDocumentWritten = vi.fn();
+    vi.mocked(api.post).mockImplementation(async (_url, data: any) => ({ data: { ...turn, ...data, id: 'answer-turn', sessionId: summary.id, mode: 'auto', status: 'done', pageSnapshot: data.snapshot, references: [], result: { action: 'answer', summary: 'Here is the explanation.' } } }));
+    render(tree({ onDocumentWritten }));
+    await screen.findByText('Earlier answer');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Explain this page' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await screen.findByText('Here is the explanation.');
+    expect(onDocumentWritten).not.toHaveBeenCalled();
+    expect(api.patch).not.toHaveBeenCalled();
+    expect(screen.queryByText('Document updated and saved.')).not.toBeInTheDocument();
   });
   it('keeps ordinary tab focus and honors each explicit composer focus request once', async () => {
     const rendered = render(tree({ autoFocus: false }));
@@ -446,12 +492,12 @@ describe('durable Agent session document bridge', () => {
     const onNotesEvent = vi.fn(), onRequestHandled = vi.fn();
     render(tree({ canEdit: false, canAccept: false, assistRequest: { id: 'req', intent: 'Explain my notes', autoSubmit: true, noteIds: ['note-a'], annotations: [{ id: 'note-a', quote: 'unsaved', body: 'Why?' }] }, onNotesEvent, onRequestHandled }));
     await screen.findByText('Earlier answer');
-    expect(api.post).not.toHaveBeenCalled(); expect(screen.getByRole('option', { name: 'Propose changes' })).toBeDisabled();
+    expect(api.post).not.toHaveBeenCalled(); expect(screen.queryByRole('combobox', { name: 'Message mode' })).not.toBeInTheDocument();
     openStaged(); expect(screen.getByText('Why?')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(onRequestHandled).toHaveBeenCalledWith('req'));
     const payload = vi.mocked(api.post).mock.calls[0][1] as any;
-    expect(payload.mode).toBe('question'); expect(payload.annotations).toEqual([{ id: 'note-a', quote: 'unsaved', body: 'Why?' }]);
+    expect(payload.mode).toBe('auto'); expect(payload.annotations).toEqual([{ id: 'note-a', quote: 'unsaved', body: 'Why?' }]);
     expect(onNotesEvent.mock.calls[0][0].event).toBe('dispatch'); expect(onNotesEvent.mock.invocationCallOrder[0]).toBeLessThan(onRequestHandled.mock.invocationCallOrder[0]);
     expect(onNotesEvent.mock.calls.some(([e]) => e.event === 'accept')).toBe(false);
   });
@@ -571,7 +617,7 @@ it('regenerates a conflicted whole-document proposal from the current source wit
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   await waitFor(() => expect(api.post).toHaveBeenCalled());
   const payload = vi.mocked(api.post).mock.calls[0][1] as any;
-  expect(payload.mode).toBe('proposal'); expect(payload.snapshot.content).toBe(manual); expect(payload.snapshot.assistTarget).toMatchObject({ kind: 'document', quote: manual, to: manual.length }); expect(payload.annotations).toEqual([]);
+  expect(payload.mode).toBe('auto'); expect(payload.snapshot.content).toBe(manual); expect(payload.snapshot.assistTarget).toMatchObject({ kind: 'document', quote: manual, to: manual.length }); expect(payload.annotations).toEqual([]);
 });
 it('keeps an unsent composer when route remount discovers its selected session was omitted from the accessible list', async () => {
   const shell = (show: boolean) => <MemoryRouter><AgentSessionRegistryProvider userId={auth.id}>{show ? <AgentSessionPanel {...defaults} /> : null}</AgentSessionRegistryProvider></MemoryRouter>;
@@ -929,7 +975,7 @@ it.each([false, true])('closes context settings on Tab and continues beside its 
   fireEvent.click(trigger); const control = screen.getByRole('combobox', { name: 'Edit scope' });
   fireEvent.keyDown(control, { key: 'Tab', shiftKey });
   expect(screen.queryByRole('combobox', { name: 'Edit scope' })).not.toBeInTheDocument();
-  expect(shiftKey ? screen.getByRole('combobox', { name: 'Message mode' }) : screen.getByRole('button', { name: 'Send' })).toHaveFocus();
+  expect(shiftKey ? screen.getByRole('textbox', { name: 'Message' }) : screen.getByRole('button', { name: 'Send' })).toHaveFocus();
 });
 it('closes context settings on blur to the browser without forcing focus back', async () => {
   render(tree()); await screen.findByText('Earlier answer');

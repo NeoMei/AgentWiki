@@ -6,6 +6,7 @@ import {
   OpencodeRoutingError,
 } from './opencode.types';
 import { OpencodeModelRouter } from './opencode.router';
+import { validateAutoDocumentResult } from './assist-document-writer';
 
 const FREE_PRICE = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 const PAID_PRICE = { input: 0.000001, output: 0.000002, cacheRead: 0, cacheWrite: 0 };
@@ -102,6 +103,7 @@ const createRouter = (options: {
   };
   const runner = {
     buildPrompt: jest.fn().mockReturnValue('prompt'),
+    buildDecisionPrompt: jest.fn().mockReturnValue('source-free decision prompt'),
     runModel: jest.fn(),
   };
   const health = {
@@ -123,6 +125,130 @@ const createRouter = (options: {
 };
 
 describe('OpencodeModelRouter', () => {
+  const automaticTask = { intent: 'Summarize the current page', mode: 'auto' as const, pageSnapshot: { content: 'private source' },
+    context: { pageId: 'page', references: [], noteIds: [], directory: { folderId: null, title: 'Root', recursive: true, documents: [] } },
+    actions: { update: true, create: true } };
+
+  it('returns an automatic answer that passes the document publication boundary unchanged', async () => {
+    const { router, runner } = createRouter();
+    runner.runModel.mockResolvedValueOnce({ summary: '', action: 'answer', usage: EMPTY_USAGE, cost: 0 })
+      .mockResolvedValueOnce({ summary: 'Answer', action: 'answer', usage: EMPTY_USAGE, cost: 0 });
+    const result = await router.run(automaticTask);
+    expect(Object.prototype.hasOwnProperty.call(result, 'changes')).toBe(false);
+    expect(validateAutoDocumentResult(result)).toEqual({ action: 'answer', summary: 'Answer' });
+  });
+
+  it('locks the automatic action across fallback and counts both stages in one attempt budget', async () => {
+    let now = 0;
+    const { router, runner } = createRouter({ now: () => now });
+    runner.runModel.mockImplementationOnce(async () => { now = 15_000; return { summary: '', action: 'answer', usage: usage(5), cost: 0.01 }; })
+      .mockRejectedValueOnce(modelFailure('invalid_output', usage(7), 0.02))
+      .mockRejectedValueOnce(modelFailure('invalid_output', usage(8), 0.04))
+      .mockResolvedValueOnce({ summary: 'Answer', action: 'answer', usage: usage(9), cost: 0.03 });
+    const result = await router.run(automaticTask);
+    expect(result).toMatchObject({ action: 'answer', summary: 'Answer', attemptCount: 2, usage: { total: 29 } });
+    expect(result.cost).toBeCloseTo(0.1);
+    expect(runner.runModel.mock.calls.map(call => call[4]?.stage)).toEqual(['decision', undefined, undefined, undefined]);
+    expect(runner.runModel.mock.calls[0][0]).toBe('source-free decision prompt');
+    expect(runner.runModel.mock.calls[0][4].directory).toBeUndefined();
+    expect(runner.runModel.mock.calls[1][2]).toBe(45_000);
+    expect(runner.runModel.mock.calls[1][4].action).toBe('answer');
+    expect(runner.runModel.mock.calls[2][4].action).toBe('answer');
+  });
+
+  it('retries automatic generation format once on the same model within its remaining attempt budget', async () => {
+    let now = 0;
+    const { router, runner } = createRouter({ now: () => now });
+    runner.runModel.mockImplementationOnce(async () => { now = 10_000; return { summary: '', action: 'answer', usage: usage(1), cost: 0.01 }; })
+      .mockImplementationOnce(async () => { now = 25_000; throw modelFailure('invalid_output', usage(2), 0.02); })
+      .mockResolvedValueOnce({ summary: 'Valid answer', action: 'answer', usage: usage(3), cost: 0.03 });
+    const result = await router.run(automaticTask);
+    expect(result).toMatchObject({ summary: 'Valid answer', attemptCount: 1, usage: { total: 6 } });
+    expect(result.cost).toBeCloseTo(0.06);
+    expect(runner.runModel.mock.calls.map(call => call[1])).toEqual(['free/one', 'free/one', 'free/one']);
+    expect(runner.runModel.mock.calls.map(call => call[2])).toEqual([60_000, 50_000, 35_000]);
+    expect(runner.runModel.mock.calls[2][4].action).toBe('answer');
+  });
+
+  it.each(['abort', 'inactive', 'deadline'] as const)('stops the format retry on %s and retains failed generation usage', async ending => {
+    let now = 0;
+    const abort = new AbortController();
+    const isActive = jest.fn().mockResolvedValue(true);
+    const { router, runner } = createRouter({ now: () => now, config: { ...routingConfig, totalTimeoutMs: 30_000 } });
+    runner.runModel.mockResolvedValueOnce({ summary: '', action: 'answer', usage: usage(1), cost: 0.01 })
+      .mockImplementationOnce(async () => {
+        if (ending === 'abort') abort.abort();
+        if (ending === 'inactive') isActive.mockResolvedValue(false);
+        if (ending === 'deadline') now = 30_001;
+        throw modelFailure('invalid_output', usage(2), 0.02);
+      });
+    const error = await captureRoutingError(router.run({ ...automaticTask, signal: abort.signal, isActive }));
+    expect(error.message).toContain(ending === 'deadline' ? 'budget_exhausted' : 'cancelled');
+    expect(error.result.usage?.total).toBe(3);
+    expect(runner.runModel).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not format-retry the source-free decision phase', async () => {
+    const { router, runner } = createRouter({ models: [model('free/one', 'free')] });
+    runner.runModel.mockRejectedValue(modelFailure('invalid_output', usage(2), 0.02));
+    const error = await captureRoutingError(router.run(automaticTask));
+    expect(error.message).toContain('invalid_output');
+    expect(runner.runModel).toHaveBeenCalledTimes(1);
+    expect(runner.runModel.mock.calls[0][4].stage).toBe('decision');
+  });
+
+  it('does not restart the total deadline between automatic stages', async () => {
+    let now = 0;
+    const { router, runner } = createRouter({ now: () => now, config: { ...routingConfig, totalTimeoutMs: 20_000 } });
+    runner.runModel.mockImplementationOnce(async () => { now = 20_001; return { summary: '', action: 'answer', usage: usage(5), cost: 0.01 }; });
+    const error = await captureRoutingError(router.run(automaticTask));
+    expect(error.message).toContain('budget_exhausted');
+    expect(error.result).toMatchObject({ usage: { total: 5 }, cost: 0.01 });
+    expect(runner.runModel).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an automatic write escalation even from a replacement runtime', async () => {
+    const { router, runner } = createRouter({ models: [model('free/one', 'free')] });
+    runner.runModel.mockResolvedValueOnce({ summary: '', action: 'answer', usage: EMPTY_USAGE, cost: 0 })
+      .mockResolvedValue({ summary: 'Escalation', action: 'update', changes: 'bad', usage: EMPTY_USAGE, cost: 0 });
+    const error = await captureRoutingError(router.run(automaticTask));
+    expect(error.message).toContain('invalid_output');
+  });
+
+  it('preserves automatic create title without applying current-page selection scope', async () => {
+    const { router, runner } = createRouter();
+    runner.runModel.mockResolvedValueOnce({ summary: '', action: 'create', usage: EMPTY_USAGE, cost: 0 })
+      .mockResolvedValueOnce({ summary: 'Prepared', action: 'create', title: 'New title', changes: '# New document', usage: EMPTY_USAGE, cost: 0 });
+    const pageSnapshot = { content: 'pre OLD post', updatedAt: '2026-01-01T00:00:00.000Z', assistTarget: {
+      kind: 'selection', from: 4, to: 7, quote: 'OLD', prefix: 'pre ', suffix: ' post', baseUpdatedAt: '2026-01-01T00:00:00.000Z',
+    } };
+    await expect(router.run({ ...automaticTask, pageSnapshot })).resolves.toMatchObject({ action: 'create', title: 'New title', changes: '# New document' });
+  });
+
+  it('preserves content outside a selected automatic update', async () => {
+    const { router, runner } = createRouter();
+    runner.runModel.mockResolvedValueOnce({ summary: '', action: 'update', usage: EMPTY_USAGE, cost: 0 })
+      .mockResolvedValueOnce({ summary: 'Prepared', action: 'update', changes: 'NEW', usage: EMPTY_USAGE, cost: 0 });
+    const pageSnapshot = { content: 'pre OLD post', updatedAt: '2026-01-01T00:00:00.000Z', assistTarget: {
+      kind: 'selection', from: 4, to: 7, quote: 'OLD', prefix: 'pre ', suffix: ' post', baseUpdatedAt: '2026-01-01T00:00:00.000Z',
+    } };
+    await expect(router.run({ ...automaticTask, pageSnapshot })).resolves.toMatchObject({ action: 'update', changes: 'pre NEW post' });
+  });
+
+  it.each(['abort', 'inactive'] as const)('stops between automatic stages on %s without losing usage', async cause => {
+    const abort = new AbortController();
+    const { router, runner } = createRouter();
+    const isActive = jest.fn().mockResolvedValueOnce(true).mockResolvedValue(false);
+    runner.runModel.mockImplementationOnce(async () => {
+      if (cause === 'abort') abort.abort();
+      return { summary: '', action: 'answer', usage: usage(3), cost: 0.01 };
+    });
+    const error = await captureRoutingError(router.run({ ...automaticTask, signal: abort.signal, ...(cause === 'inactive' ? { isActive } : {}) }));
+    expect(error.message).toContain('cancelled');
+    expect(error.result.usage?.total).toBe(3);
+    expect(runner.runModel).toHaveBeenCalledTimes(1);
+  });
+
   it('preserves an empty directory scope across fallback model attempts', async () => {
     const { router, runner } = createRouter();
     const directory = { folderId: null, title: 'Root', recursive: true, documents: [] };

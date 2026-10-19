@@ -112,6 +112,40 @@ describe('AssistSessionService', () => {
     expect(detail).not.toHaveProperty('session');
     expect(JSON.stringify(detail)).not.toContain('saved p2');
   });
+  it('defaults omitted mode to automatic answers for viewers and exposes only read actions', async () => {
+    const turn = await service.send('session1', 'u1', request({ mode: undefined }));
+    expect(turn.mode).toBe('auto');
+    expect((await service.executionContext(db, tasks[0]) as any).actions).toEqual({ update: false, create: false });
+  });
+  it('allows automatic directory conversations and derives write actions from live membership', async () => {
+    role = 'editor';
+    await service.send('session1', 'u1', request({ mode: 'auto', pageId: null, directory: { folderId: null } }));
+    expect((await service.executionContext(db, tasks[0]) as any).actions).toEqual({ update: false, create: true });
+    role = 'viewer';
+    expect((await service.executionContext(db, tasks[0]) as any).actions).toEqual({ update: false, create: false });
+  });
+  it('keeps existing administrator editing capabilities in automatic mode', async () => {
+    role = 'admin';
+    await service.send('session1', 'u1', request({ mode: 'auto' }));
+    expect((await service.executionContext(db, tasks[0])).actions).toEqual({ update: true, create: true });
+  });
+  it('reuses a completed automatic turn for the same idempotency key', async () => {
+    role = 'editor';
+    const first = await service.send('session1', 'u1', request({ mode: 'auto' }));
+    tasks[0].status = 'done'; tasks[0].result = { action: 'answer', summary: 'Done' };
+    expect((await service.send('session1', 'u1', request({ mode: 'auto' }))).id).toBe(first.id);
+    expect(tasks).toHaveLength(1);
+  });
+  it('returns automatic write receipts and preserves them in canonical history', async () => {
+    role = 'editor';
+    await service.send('session1', 'u1', request({ mode: 'auto' }));
+    const document = { operation: 'updated', pageId: 'p1', title: 'p1', updatedAt: version, url: '/pages/p1' };
+    tasks[0].status = 'done'; tasks[0].result = { action: 'update', summary: 'Saved', changes: 'new body', document, raw: 'private' };
+    const result = (await service.get('session1', 'u1')).turns[0].result;
+    expect(result).toEqual({ action: 'update', summary: 'Saved', changes: 'new body', document });
+    await service.send('session1', 'u1', request({ mode: 'auto', clientRequestId: 'r2' }));
+    expect((await service.executionContext(db, tasks[1])).history[0]).toMatchObject({ action: 'update', document });
+  });
   it('denies a viewer proposal', async () => {
     await expect(service.send('session1', 'u1', request({ mode: 'proposal' }))).rejects.toThrow();
     expect(tasks).toHaveLength(0);

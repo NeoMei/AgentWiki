@@ -220,10 +220,18 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
       return !!note && !!annotation && note.body === annotation.body && note.target.quote === annotation.quote
         && note.target.baseUpdatedAt === version && resolveAssistTarget(content, note.target).status === 'found';
     });
+    // A new automatic save may complete while this page is unmounted. Its
+    // registry-bound receipt proves the current saved body, while annotations
+    // and diff coverage still validate against the immutable original source.
+    const savedCurrent = stageForSession && ['dispatch', 'ready', 'accept'].includes(event.event)
+      && event.savedDocument?.taskId === event.taskId && event.savedDocument.pageId === scope.pageId
+      && !!event.savedDocument.updatedAt && event.savedDocument.updatedAt === latestRef.current.updatedAt
+      && event.candidate.content === latestRef.current.source;
+    const sourceVersionMatches = event.candidate.baseUpdatedAt === latestRef.current.updatedAt || savedCurrent;
     // Session events carry the whole canonical context, including immutable resolved annotations.
     // Validate it before choosing which notes may transition or recovering a route's coverage map.
     if (stageForSession && (event.candidate.noteIds?.length !== event.noteIds.length || new Set(event.noteIds).size !== event.noteIds.length
-      || event.noteIds.some((id) => !event.candidate.noteIds?.includes(id)) || event.candidate.baseUpdatedAt !== latestRef.current.updatedAt
+      || event.noteIds.some((id) => !event.candidate.noteIds?.includes(id)) || !sourceVersionMatches
       || !matchesAnnotations(event.annotations, event.candidate.baseContent, event.candidate.baseUpdatedAt))) return;
     if (event.event === 'dispatch') {
       const localRequest = stateRef.current.assistRequest, credential = event.dispatchRequest;
@@ -240,11 +248,11 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
       if (stageForSession) {
         if (!credential || !request?.id || event.candidate.baseContent !== credential.snapshot.content
           || event.candidate.baseTitle !== credential.snapshot.title || event.candidate.baseUpdatedAt !== credential.snapshot.updatedAt
-          || !request.assistTarget || request.assistTarget.baseUpdatedAt !== latestRef.current.updatedAt
+          || !request.assistTarget || request.assistTarget.baseUpdatedAt !== event.candidate.baseUpdatedAt
           || !validateAssistTarget(event.candidate.baseContent, request.assistTarget)
           || !matchesAnnotations(request.annotations, event.candidate.baseContent, event.candidate.baseUpdatedAt)) return;
       }
-      if (!request || !event.noteIds.length || request.noteIds?.length !== event.noteIds.length || event.noteIds.some((id) => !request.noteIds?.includes(id)) || event.candidate.baseUpdatedAt !== latestRef.current.updatedAt) return;
+      if (!request || !event.noteIds.length || request.noteIds?.length !== event.noteIds.length || event.noteIds.some((id) => !request.noteIds?.includes(id)) || !sourceVersionMatches) return;
       if (supersedes) {
         if (supersedes.taskId === event.taskId || supersedes.snapshot.updatedAt !== event.candidate.baseUpdatedAt
           || supersedes.snapshot.title !== event.candidate.baseTitle || supersedes.noteIds.length !== event.noteIds.length

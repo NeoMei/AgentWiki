@@ -598,3 +598,95 @@ describe('AssistQueue task processing', () => {
   });
 
 });
+
+describe('AssistQueue automatic document publication', () => {
+  let db: any; let runner: any; let sessions: any; let writer: any; let queue: AssistQueue; let active: boolean;
+  const task: any = { id: 't1', pageId: 'p1', pageSnapshot: { title: 'Page', content: 'old', updatedAt: '2026-01-01T00:00:00.000Z' }, spaceId: 's1', requestedByUserId: 'u1', sessionId: 'chat1', mode: 'auto', intent: 'Save this change' };
+  const receipt = { operation: 'updated', pageId: 'p1', title: 'Page', updatedAt: '2026-01-02T00:00:00.000Z', url: '/pages/p1' };
+  beforeEach(() => {
+    active = true;
+    db = { $transaction: jest.fn(async (fn: any) => fn(db)), assistTask: { count: jest.fn(async () => active ? 1 : 0), updateMany: jest.fn(async () => ({ count: active ? 1 : 0 })), update: jest.fn() } };
+    runner = { run: jest.fn().mockResolvedValue({ action: 'update', summary: 'Saved', changes: 'new' }) };
+    sessions = { executionContext: jest.fn().mockResolvedValue({ context: { pageId: 'p1', references: [], noteIds: [], directory: { folderId: null, recursive: true, title: 'Root', documents: [] } }, actions: { update: true, create: true } }) };
+    writer = { write: jest.fn().mockResolvedValue(receipt), afterCommit: jest.fn() };
+    queue = new AssistQueue(db, { get: () => undefined } as any, runner, {} as any, { lockLiveHumanPrincipal: jest.fn() } as any, { lockSpace: async () => db } as any, sessions, writer);
+  });
+  it('leaves pages untouched for automatic answers', async () => {
+    runner.run.mockResolvedValue({ action: 'answer', summary: 'Here is the summary' });
+    await (queue as any).processOne(task);
+    expect(writer.write).not.toHaveBeenCalled();
+    expect(db.assistTask.updateMany.mock.calls.find(([input]: any[]) => input.data.status === 'done')[0].data.result).toEqual({ action: 'answer', summary: 'Here is the summary' });
+  });
+  it('claims the terminal task fence before writing and stores the real receipt in the same transaction', async () => {
+    let fenced = false;
+    db.assistTask.updateMany.mockImplementation(async ({ data }: any) => { if (data.status === 'done') fenced = true; return { count: 1 }; });
+    writer.write.mockImplementation(async (tx: any) => { expect(tx).toBe(db); expect(fenced).toBe(true); return receipt; });
+    await (queue as any).processOne(task);
+    expect(writer.write).toHaveBeenCalledTimes(1);
+    expect(db.assistTask.update).toHaveBeenCalledWith({ where: { id: 't1' }, data: { result: { action: 'update', summary: 'Saved', changes: 'new', document: receipt } } });
+    expect(writer.afterCommit).toHaveBeenCalledWith('s1', receipt);
+  });
+  it.each(['cancelled', 'expired lease'])('does not write when %s wins the terminal fence', async () => {
+    runner.run.mockImplementation(async () => { active = false; return { action: 'update', summary: 'Saved', changes: 'new' }; });
+    await (queue as any).processOne(task);
+    expect(writer.write).not.toHaveBeenCalled(); expect(writer.afterCommit).not.toHaveBeenCalled();
+  });
+  it('rejects write results when initial live capabilities were read-only', async () => {
+    sessions.executionContext.mockResolvedValue({ context: { pageId: 'p1' }, actions: { update: false, create: false } });
+    await (queue as any).processOne(task);
+    expect(writer.write).not.toHaveBeenCalled();
+    expect(db.assistTask.updateMany.mock.calls.some(([input]: any[]) => input.data.status === 'failed')).toBe(true);
+  });
+  it('rolls back the completion transaction if live write authorization or page CAS fails', async () => {
+    let rolledBack = false;
+    writer.write.mockRejectedValue(new Error('revoked or changed'));
+    db.$transaction.mockImplementation(async (fn: any) => { try { return await fn(db); } catch (error) { rolledBack = true; throw error; } });
+    await (queue as any).processOne(task);
+    expect(rolledBack).toBe(true); expect(db.assistTask.update).not.toHaveBeenCalled(); expect(writer.afterCommit).not.toHaveBeenCalled();
+  });
+  it.each([
+    { action: 'answer', summary: 'Read', changes: 'write' }, { action: 'update', summary: 'Saved', changes: 'new', pageId: 'foreign' },
+    { action: 'create', summary: 'Saved', title: 'New', changes: 'new', folderId: 'foreign' }, { action: 'delete', summary: 'Deleted' },
+  ])('rejects malformed or target-bearing result %j', async result => {
+    runner.run.mockResolvedValue(result);
+    await (queue as any).processOne(task);
+    expect(writer.write).not.toHaveBeenCalled();
+    expect(db.assistTask.updateMany.mock.calls.some(([input]: any[]) => input.data.status === 'failed')).toBe(true);
+  });
+  it('rolls back a write if the lease expires during the document transaction', async () => {
+    jest.useFakeTimers();
+    let release!: () => void; let started!: () => void;
+    const writing = new Promise<void>(resolve => { started = resolve; });
+    const waiting = new Promise<void>(resolve => { release = resolve; });
+    let rolledBack = false;
+    writer.write.mockImplementation(async () => { started(); await waiting; return receipt; });
+    db.$transaction.mockImplementation(async (fn: any) => { try { return await fn(db); } catch (error) { rolledBack = true; throw error; } });
+    const pending = (queue as any).processOne({ ...task, leaseExpiresAtMs: Date.now() + 1000 });
+    await writing;
+    await jest.advanceTimersByTimeAsync(1100);
+    release(); await pending;
+    expect(rolledBack).toBe(true); expect(db.assistTask.update).not.toHaveBeenCalled(); expect(writer.afterCommit).not.toHaveBeenCalled();
+    jest.useRealTimers();
+  });
+  it('rolls back if the final receipt write finishes after the lease expires', async () => {
+    jest.useFakeTimers();
+    let release!: () => void; let started!: () => void;
+    const writing = new Promise<void>(resolve => { started = resolve; });
+    const waiting = new Promise<void>(resolve => { release = resolve; });
+    let rolledBack = false;
+    db.assistTask.update.mockImplementation(async () => { started(); await waiting; });
+    db.$transaction.mockImplementation(async (fn: any) => { try { return await fn(db); } catch (error) { rolledBack = true; throw error; } });
+    const pending = (queue as any).processOne({ ...task, leaseExpiresAtMs: Date.now() + 1000 });
+    await writing;
+    await jest.advanceTimersByTimeAsync(1100);
+    release(); await pending;
+    expect(rolledBack).toBe(true); expect(writer.afterCommit).not.toHaveBeenCalled();
+    jest.useRealTimers();
+  });
+  it('does not repeat publication for an already completed task on worker retry', async () => {
+    await (queue as any).processOne(task);
+    active = false;
+    await (queue as any).processOne(task);
+    expect(writer.write).toHaveBeenCalledTimes(1); expect(runner.run).toHaveBeenCalledTimes(1);
+  });
+});

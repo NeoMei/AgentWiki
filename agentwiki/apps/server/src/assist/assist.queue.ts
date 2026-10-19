@@ -8,7 +8,8 @@ import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.s
 import { AuthorizationService } from '../core/authorization/authorization.service';
 import { assertAssistOutputScope, assertAssistTargetVersion, validateAssistTarget } from './assist-target';
 import { AssistSessionService } from './assist-session.service';
-import { AgentTurnMode, AGENT_SESSION_LIMITS as LIMIT, AGENT_OUTPUT_LIMIT_ERROR } from './assist-session.types';
+import { AssistDocumentWriter, validateAutoDocumentResult } from './assist-document-writer';
+import { AgentAutoResult, AgentDocumentReceipt, AgentTurnMode, AGENT_SESSION_LIMITS as LIMIT, AGENT_OUTPUT_LIMIT_ERROR } from './assist-session.types';
 import { CollaborationGateway } from '../core/collaboration/collaboration.gateway';
 import { sanitizeAgentProgress } from './assist-progress';
 
@@ -41,6 +42,7 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
     private readonly authorization: AuthorizationService,
     private readonly revisionWriter: SpaceRevisionWriterService,
     private readonly sessions?: AssistSessionService,
+    private readonly documents?: AssistDocumentWriter,
   ) {}
 
   async onModuleInit() {
@@ -230,15 +232,21 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
       });
       await progress;
       if (abort.signal.aborted) throw new BadRequestException('Assist execution stopped');
+      let automatic: AgentAutoResult | undefined;
       if (task.sessionId) {
+        if (task.mode === 'auto') {
+          automatic = validateAutoDocumentResult(result);
+          if (automatic.action !== 'answer' && !execution?.actions?.[automatic.action]) throw new BadRequestException('Document action is not available');
+        }
         if (typeof result.summary === 'string' && (result.summary.length > LIMIT.answer || JSON.stringify({ summary: result.summary, changes: result.changes }).length > LIMIT.output)) throw new BadRequestException(AGENT_OUTPUT_LIMIT_ERROR);
         if (typeof result.summary !== 'string' || !result.summary.trim()) throw new BadRequestException('Missing assistant answer');
         if (task.mode === 'question') {
           if (result.changes !== undefined && result.changes !== '') throw new BadRequestException('Questions cannot generate changes');
           delete result.changes;
-        } else if (typeof result.changes !== 'string' || !result.changes.trim()) throw new BadRequestException('Missing assistant proposal');
+        } else if (task.mode !== 'auto' && (typeof result.changes !== 'string' || !result.changes.trim())) throw new BadRequestException('Missing assistant proposal');
       }
-      if (task.mode !== 'question') assertAssistOutputScope(task.pageSnapshot, result.changes);
+      if (task.mode !== 'question' && (task.mode !== 'auto' || automatic?.action === 'update')) assertAssistOutputScope(task.pageSnapshot, result.changes);
+      let writtenDocument: AgentDocumentReceipt | undefined;
       const completion = await this.prisma.$transaction(async (tx) => {
         if (!task.requestedByUserId) throw new BadRequestException('Assist requester is required');
         // Same User -> Space lock order as membership and Page writers, held
@@ -247,13 +255,24 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
         const lockedTx = await this.revisionWriter.lockSpace(tx, task.spaceId);
         await this.assertTaskAuthorization(lockedTx, task);
         if (abort.signal.aborted) return { count: 0 };
-        return lockedTx.assistTask.updateMany({
+        // Win the active lease/cancel fence before mutating a page. Both this
+        // state transition and document publication roll back on any failure.
+        const terminal = await lockedTx.assistTask.updateMany({
           where: this.activeTaskWhere(task),
-          data: { status: 'done', result: (task.sessionId ? { summary: result.summary, ...(result.changes ? { changes: result.changes } : {}) } : result) as unknown as Prisma.InputJsonValue,
+          data: { status: 'done', result: (automatic ?? (task.sessionId ? { summary: result.summary, ...(result.changes ? { changes: result.changes } : {}) } : result)) as unknown as Prisma.InputJsonValue,
             ...(task.sessionId ? { progressText: result.summary, progressVersion: { increment: 1 } } : {}),
             completedAt: new Date(), leaseOwner: null, leaseExpiresAt: null, lockedAt: null },
         });
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+        if (terminal.count && automatic && automatic.action !== 'answer') {
+          if (!this.documents || !execution?.context) throw new BadRequestException('Document publication unavailable');
+          writtenDocument = await this.documents.write(lockedTx, task, execution.context, automatic);
+          if (abort.signal.aborted || (task.leaseExpiresAtMs !== undefined && task.leaseExpiresAtMs <= Date.now())) throw new BadRequestException('Assist execution stopped before document publication');
+          await lockedTx.assistTask.update({ where: { id: task.id }, data: { result: { ...automatic, document: { ...writtenDocument } } as Prisma.InputJsonValue } });
+          if (abort.signal.aborted || (task.leaseExpiresAtMs !== undefined && task.leaseExpiresAtMs <= Date.now())) throw new BadRequestException('Assist execution stopped before receipt publication');
+        }
+        return terminal;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 120_000 });
+      if (completion.count && writtenDocument) await this.documents!.afterCommit(task.spaceId, writtenDocument);
       if (completion.count && task.pageId && !task.sessionId) this.collaborationGateway.emitAssistComplete(task.pageId, task.id);
     } catch (error: unknown) {
       abort.abort();

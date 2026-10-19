@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { DatabaseModule } from './database/database.module';
 import { IngestQueue } from './knowledge-pipeline/ingest.queue';
+import { AssistDocumentWriter } from './assist/assist-document-writer';
 import { AssistSessionService } from './assist/assist-session.service';
 import { AssistQueue } from './assist/assist.queue';
 import { RedisModelHealthStore } from './assist/model-health.store';
@@ -37,6 +38,7 @@ import { TemplateEffectsService } from './page-templates/template-effects.servic
     IngestQueue,
     AssistQueue,
     AssistSessionService,
+    AssistDocumentWriter,
     OpencodeCliRunner,
     {
       provide: OpencodeModelCatalog,

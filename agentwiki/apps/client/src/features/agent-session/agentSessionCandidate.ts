@@ -4,7 +4,7 @@ export interface CandidateRecord { candidate: AssistCandidate; mount: object | n
 /** Original source/version always comes from the immutable turn, never the current page. */
 export function candidateFromTurn(turn: AgentTurn, userId: string, spaceId: string): CandidateRecord | null {
   const source = turn.pageSnapshot;
-  if (turn.mode !== 'proposal' || !turn.pageId || !source || typeof source.title !== 'string' || typeof source.content !== 'string') return null;
+  if ((turn.mode !== 'proposal' && (turn.mode !== 'auto' || turn.status === 'done' && turn.result?.action !== 'update')) || !turn.pageId || !source || typeof source.title !== 'string' || typeof source.content !== 'string') return null;
   let candidate: AssistCandidate = { taskId: turn.id, pageId: turn.pageId, spaceId, userId,
     baseTitle: source.title, baseContent: source.content, baseUpdatedAt: source.updatedAt,
     baseDraftRevision: source.draftRevision, baseRemoteRevision: source.remoteRevision,

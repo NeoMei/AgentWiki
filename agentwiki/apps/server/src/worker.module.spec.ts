@@ -1,5 +1,8 @@
+import { ConfigModule } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AssistQueue } from './assist/assist.queue';
+import { AssistDocumentWriter } from './assist/assist-document-writer';
+import { AssistModule } from './assist/assist.module';
 import { AssistSessionService } from './assist/assist-session.service';
 import { PrismaService } from './database/prisma.service';
 import { WorkerModule } from './worker.module';
@@ -40,6 +43,12 @@ describe('WorkerModule dependency graph', () => {
     expect(runner.run).toHaveBeenCalledWith(expect.objectContaining({ mode: 'question', context: { pageId: 'p1', references: [], noteIds: [] } }));
     expect(db.assistTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'done', result: { summary: 'Worker answer' } }) }));
     expect(moduleRef.get(AssistSessionService)).toBeDefined();
+  });
+
+  it('wires automatic document publication into the API dependency graph', async () => {
+    moduleRef = await Test.createTestingModule({ imports: [ConfigModule.forRoot({ isGlobal: true, load: [() => ({ JWT_SECRET: 'unit-test-only-secret' })] }), AssistModule] }).compile();
+    expect(moduleRef.get(AssistDocumentWriter)).toBeDefined();
+    expect(moduleRef.get(AssistQueue)).toBeDefined();
   });
 
   it('compiles without importing HTTP controllers or guards', async () => {

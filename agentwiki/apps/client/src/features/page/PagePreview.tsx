@@ -5,7 +5,7 @@ import { useParams, Link, useLocation, useNavigate, useNavigationType } from 're
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { captureReadingSelection } from '../agent-session/readingSelection';
-import type { AssistCandidate } from './assistCandidate';
+import type { AgentDocumentReceipt } from '../agent-session/agentSessionTypes';
 import type { AssistTarget } from './assistTargets';
 import { usePersonalNotes } from './usePersonalNotes';
 import { SelectionNoteComposer } from './SelectionNoteComposer';
@@ -376,52 +376,11 @@ export const PagePreview: React.FC = () => {
       });
   };
 
-  /**
-   * Commit an Agent candidate from the reading sidebar through the same
-   * optimistic-page/CAS path used by the editor's task controls. The Agent
-   * panel only calls this after the user explicitly selected direct editing;
-   * the candidate's source version is checked again immediately before PATCH.
-   */
-  const applyAgentDirect = async (candidate: AssistCandidate, content: string): Promise<boolean> => {
-    const pageId = id;
-    const generation = routeGenerationRef.current;
-    const baseline = pageRef.current;
-    if (!pageId || !baseline || baseline.id !== pageId || baseline.capabilities?.canEdit !== true
-      || candidate.pageId !== pageId || candidate.spaceId !== baseline.spaceId
-      || candidate.baseUpdatedAt !== baseline.updatedAt || !routeIsActive(pageId, generation)) return false;
-
-    const save = saveChainRef.current.then(async () => {
-      if (!routeIsActive(pageId, generation)) return false;
-      const current = pageRef.current;
-      if (!current || current.id !== pageId || current.capabilities?.canEdit !== true
-        || current.updatedAt !== candidate.baseUpdatedAt) return false;
-      try {
-        const response = await api.patch(`/pages/${pageId}`, {
-          content,
-          expectedUpdatedAt: current.updatedAt,
-        });
-        workspace?.requestDirectoryRefresh?.();
-        if (!routeIsActive(pageId, generation)) return false;
-        const committed: Page = {
-          ...current,
-          ...(response.data || {}),
-          content,
-          capabilities: response.data?.capabilities ?? current.capabilities,
-        };
-        lastCommittedPageRef.current = committed;
-        pageRef.current = committed;
-        setTaskSaveError(null);
-        replayPendingOperations(pageId, generation);
-        return true;
-      } catch (error: any) {
-        if (routeIsActive(pageId, generation) && error.response?.status !== 409) {
-          setTaskSaveError(tRef.current('page.taskSaveFailed'));
-        }
-        return false;
-      }
-    });
-    saveChainRef.current = save.then(() => undefined, () => undefined);
-    return save;
+  const handleAgentDocumentWritten = (receipt: AgentDocumentReceipt) => {
+    workspace?.requestDirectoryRefresh?.();
+    if (receipt.operation === 'updated' && receipt.pageId === activePageIdRef.current && mountedRef.current) {
+      setLoadRequest((request) => request + 1);
+    }
   };
 
   useEffect(() => {
@@ -460,7 +419,7 @@ export const PagePreview: React.FC = () => {
       setRelatedPages([]);
       if (id) reportPageIdentity(id, null);
     }
-    setLoading(true);
+    if (routeChanged || !pageRef.current) setLoading(true);
     setError(null);
     if (!id) {
       setLoading(false);
@@ -792,7 +751,7 @@ export const PagePreview: React.FC = () => {
           <div ref={setNotesContainer} role="tabpanel" id="reading-document-panel-notes" aria-labelledby="reading-document-tab-notes" hidden={panelTab !== 'notes'} className="min-h-0 flex-1 overflow-auto" />
           <div ref={setAgentContainer} role="tabpanel" id="reading-document-panel-assist" aria-labelledby="reading-document-tab-assist" hidden={panelTab !== 'assist'} className="agent-session-host min-h-0 flex-1 flex-col" />
           <React.Suspense fallback={null}>
-            {agentMounted ? <AgentReadingSidebar key={`${user?.id}:${page.spaceId}:${page.id}`} notesContainer={notesContainer} agentContainer={agentContainer} page={page} notes={personalNotes} activeNoteId={activeNoteId} onLocateNote={locateNote} onClearActiveNote={() => setActiveNote(null)} onDirectApply={applyAgentDirect} visible={panelOpen && (notesOpen || panelTab === 'assist')} notesOpen={notesOpen} focusRequest={panelOpen && panelTab === 'assist' && agentFocusRequest?.identity === panelIdentity ? agentFocusRequest.request : undefined} target={readingTarget} onOpenAgent={() => openPanel('assist')} /> : null}
+            {agentMounted ? <AgentReadingSidebar key={`${user?.id}:${page.spaceId}:${page.id}`} notesContainer={notesContainer} agentContainer={agentContainer} page={page} notes={personalNotes} activeNoteId={activeNoteId} onLocateNote={locateNote} onClearActiveNote={() => setActiveNote(null)} onDocumentWritten={handleAgentDocumentWritten} visible={panelOpen && (notesOpen || panelTab === 'assist')} notesOpen={notesOpen} focusRequest={panelOpen && panelTab === 'assist' && agentFocusRequest?.identity === panelIdentity ? agentFocusRequest.request : undefined} target={readingTarget} onOpenAgent={() => openPanel('assist')} /> : null}
           </React.Suspense>
         </div>
       </aside>

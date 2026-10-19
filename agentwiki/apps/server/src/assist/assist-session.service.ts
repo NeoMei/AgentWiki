@@ -10,7 +10,7 @@ import { sanitizeAgentProgress } from './assist-progress';
 import { assertDirectoryReadable, captureDirectory, DirectoryLimitException, directoryScope, InaccessibleDirectoryException, readDirectoryTree, readSessionTurnMetadata, unavailableDirectory, validDirectoryContext, validDirectoryRequest } from './assist-directory.context';
 import {
   AGENT_OUTPUT_LIMIT_ERROR, AGENT_SESSION_LIMITS as LIMIT, AgentHistoryTurn, AgentSessionContext, AgentSessionDetail,
-  AgentSessionSummary, AgentTurnMode, AgentTurnRequest, AgentTurnStatus, AgentTurnView,
+  AgentDocumentReceipt, AgentSessionSummary, AgentTurnMode, AgentTurnRequest, AgentTurnStatus, AgentTurnView,
 } from './assist-session.types';
 
 /** A single conversation has lost its source; unrelated sessions remain usable. */
@@ -68,6 +68,7 @@ export class AssistSessionService {
   }
 
   async send(id: string, userId: string, input: AgentTurnRequest): Promise<AgentTurnView> {
+    if (isObject(input) && input.mode === undefined) input = { ...input, mode: 'auto' };
     this.validateRequest(input);
     // Row locks serialize normal callers. Unique indexes also protect external
     // writers; a retry re-reads the canonical idempotent result after a race.
@@ -171,12 +172,17 @@ export class AssistSessionService {
         references: context.references,
         ...(context.directory ? { directory: directoryScope(context.directory) } : {}),
         ...(result?.changes ? { changes: result.changes } : {}),
+        ...(result?.action ? { action: result.action } : {}),
+        ...(result?.document ? { document: result.document } : {}),
         ...(context.annotations ? { annotations: context.annotations } : {}) };
       const size = JSON.stringify(item).length + (history.length ? 1 : 0);
       if (characters + size > LIMIT.history) break;
       history.unshift(item); characters += size;
     }
-    return { context: currentContext, history, historyWindow: { included: history.length, omitted: completed.length - history.length, maxTurns: LIMIT.historyTurns, maxCharacters: LIMIT.history } };
+    const access = await this.authorization.assertLiveHumanSpaceAccess(tx, { userId: session.requestedByUserId }, session.spaceId, [...readRoles]);
+    const canWrite = ['owner', 'admin', 'editor'].includes(access.role);
+    const actions = { update: canWrite && current.pageId !== null, create: canWrite && !!currentContext.directory && !currentContext.directory.unavailableReason };
+    return { context: currentContext, actions, history, historyWindow: { included: history.length, omitted: completed.length - history.length, maxTurns: LIMIT.historyTurns, maxCharacters: LIMIT.history } };
   }
 
   private async lockAccess(tx: Prisma.TransactionClient, userId: string, spaceId: string) {
@@ -199,16 +205,21 @@ export class AssistSessionService {
     const sourceIds = new Set<string>();
     let directoryTree: Awaited<ReturnType<typeof readDirectoryTree>> | undefined;
     for (const turn of turns) {
-      if (turn.requestedByUserId !== session.requestedByUserId || turn.spaceId !== session.spaceId || !['question', 'proposal'].includes(turn.mode)) throw new BadRequestException('Invalid session binding');
+      if (turn.requestedByUserId !== session.requestedByUserId || turn.spaceId !== session.spaceId || !['auto', 'question', 'proposal'].includes(turn.mode)) throw new BadRequestException('Invalid session binding');
       const context = this.context(turn);
       if (turn.pageId !== context.pageId) throw new InaccessibleSessionException('Session source is no longer available');
       if (context.pageId !== null) sourceIds.add(context.pageId);
-      else if (turn.mode !== 'question' || !context.directory) throw new BadRequestException('A page is required for this session turn');
+      else if (turn.mode === 'proposal' || !context.directory) throw new BadRequestException('A page is required for this session turn');
       if (context.directory) {
         if (!context.directory.unavailableReason) directoryTree ??= await readDirectoryTree(tx, session.spaceId);
         await assertDirectoryReadable(tx, session.spaceId, context.directory, directoryTree);
       }
       context.references.forEach(ref => sourceIds.add(ref.pageId));
+      const document = turn.mode === 'auto' && turn.status === 'done' && isObject(turn.result) ? this.documentReceipt(turn.result.document) : undefined;
+      if (document) {
+        if ((document.operation === 'updated' && document.pageId !== turn.pageId) || !context.directory) throw new BadRequestException('Invalid saved document binding');
+        sourceIds.add(document.pageId);
+      }
     }
     if (turns.some(turn => turn.mode === 'proposal')) await this.authorization.assertLiveHumanSpaceAccess(tx, { userId: session.requestedByUserId }, session.spaceId, ['owner', 'editor']);
     if (sourceIds.size && await tx.page.count({ where: { id: { in: [...sourceIds] }, spaceId: session.spaceId, deletedAt: null } }) !== sourceIds.size) throw new InaccessibleSessionException('Session page must exist in the selected Space');
@@ -247,9 +258,9 @@ export class AssistSessionService {
     this.id(input.clientRequestId);
     if (input.pageId != null) this.id(input.pageId);
     if (input.directory !== undefined && !validDirectoryRequest(input.directory)) throw new BadRequestException('Invalid directory scope');
-    if (input.pageId == null && (input.mode !== 'question' || input.directory === undefined)) throw new BadRequestException('Questions without a page require an explicit directory; proposals require a page');
+    if (input.pageId == null && (input.mode === 'proposal' || input.directory === undefined)) throw new BadRequestException('Questions without a page require an explicit directory; proposals require a page');
     if (input.pageId == null && (input.snapshot !== undefined || input.noteIds?.length || input.annotations?.length)) throw new BadRequestException('Page snapshots and annotations require a page');
-    if (!['question', 'proposal'].includes(input.mode)) throw new BadRequestException('Invalid turn mode');
+    if (!['auto', 'question', 'proposal'].includes(input.mode || '')) throw new BadRequestException('Invalid turn mode');
     if (typeof input.intent !== 'string' || !input.intent.trim() || input.intent.length > LIMIT.intent) throw new BadRequestException('Intent must contain 1–10000 characters');
     for (const [ids, maximum] of [[input.referencePageIds, LIMIT.references], [input.noteIds, LIMIT.noteIds]] as const) {
       if (ids === undefined) continue;
@@ -281,10 +292,21 @@ export class AssistSessionService {
   private summary(session: AssistSession): AgentSessionSummary {
     return { id: session.id, spaceId: session.spaceId, title: session.title, createdAt: session.createdAt.toISOString(), updatedAt: session.updatedAt.toISOString() };
   }
+  private documentReceipt(value: unknown): AgentDocumentReceipt | undefined {
+    if (!isObject(value) || !['created', 'updated'].includes(String(value.operation))
+      || ['pageId', 'title', 'updatedAt'].some(key => typeof value[key] !== 'string')
+      || !value.pageId || !Number.isFinite(Date.parse(value.updatedAt as string))) return undefined;
+    return { operation: value.operation as 'created' | 'updated', pageId: value.pageId as string, title: value.title as string,
+      updatedAt: value.updatedAt as string, url: `/pages/${encodeURIComponent(value.pageId as string)}` };
+  }
   private publicResult(task: AssistTask): AgentTurnView['result'] {
     if (task.status !== 'done' || !isObject(task.result)) return null;
+    const action = task.mode === 'auto' && ['answer', 'update', 'create'].includes(String(task.result.action))
+      ? task.result.action as 'answer' | 'update' | 'create' : undefined;
+    const document = action === 'create' || action === 'update' ? this.documentReceipt(task.result.document) : undefined;
     return { ...(typeof task.result.summary === 'string' ? { summary: task.result.summary } : {}),
-      ...(task.mode === 'proposal' && typeof task.result.changes === 'string' ? { changes: task.result.changes } : {}) };
+      ...((task.mode === 'proposal' || (action && action !== 'answer')) && typeof task.result.changes === 'string' ? { changes: task.result.changes } : {}),
+      ...(action ? { action } : {}), ...(document ? { document } : {}) };
   }
   private view(task: AssistTask): AgentTurnView {
     const context = this.context(task);

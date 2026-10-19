@@ -41,7 +41,7 @@ it('opens Agent for a viewer at the root and follows directory navigation withou
   fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Read Research and every subfolder' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   await screen.findByText('Read all eight pages.');
-  expect(vi.mocked(api.post).mock.calls.find(([url]) => url.endsWith('/turns'))?.[1]).toMatchObject({ mode: 'question', pageId: null, directory: { folderId: 'research', recursive: true } });
+  expect(vi.mocked(api.post).mock.calls.find(([url]) => url.endsWith('/turns'))?.[1]).toMatchObject({ mode: 'auto', pageId: null, directory: { folderId: 'research', recursive: true } });
   expect(screen.getByLabelText('Directory read scope')).toHaveTextContent('Research · 8 pages · including subfolders');
   fireEvent.click(screen.getByRole('button', { name: 'Close Agent panel' }));
   expect(screen.queryByTestId('agent-session-panel')).not.toBeInTheDocument();
@@ -52,4 +52,27 @@ it('opens Agent for a viewer at the root and follows directory navigation withou
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   await waitFor(() => expect(vi.mocked(api.post).mock.calls.filter(([url]) => url.endsWith('/turns'))).toHaveLength(2));
   expect(vi.mocked(api.post).mock.calls.filter(([url]) => url.endsWith('/turns'))[1][1]).toMatchObject({ pageId: null, directory: { folderId: null, recursive: true } });
+});
+
+it('refreshes the current directory after a saved new document without navigating away', async () => {
+  const get = vi.mocked(api.get).getMockImplementation()!;
+  vi.mocked(api.get).mockImplementation((url, ...args) => url === '/spaces/space-a'
+    ? Promise.resolve({ data: { id: 'space-a', name: 'Wiki', members: [{ userId: 'viewer', role: 'editor' }] } }) : get(url, ...args));
+  const post = vi.mocked(api.post).getMockImplementation()!;
+  vi.mocked(api.post).mockImplementation(async (...args) => {
+    const response = await post(...args) as { data: any };
+    if (args[0].endsWith('/turns')) response.data.result = { action: 'create', summary: 'Summary document is ready.', document: { operation: 'created', pageId: 'new-summary', title: 'Research summary', updatedAt: version, url: '/pages/new-summary' } };
+    return response;
+  });
+  render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/space-a?folder=research']}><AgentSessionRegistryProvider userId="viewer"><SpaceWorkspaceProvider userId="viewer"><Routes><Route path="/spaces/:id" element={<Workspace />} /></Routes></SpaceWorkspaceProvider></AgentSessionRegistryProvider></MemoryRouter></LanguageProvider>);
+  fireEvent.click(await screen.findByRole('button', { name: 'Ask Agent' }));
+  await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled());
+  const reads = vi.mocked(api.get).mock.calls.filter(([url]) => url === '/spaces/space-a/content-tree').length;
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Create a summary document in this directory' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await screen.findByText('Document created and saved.');
+  expect(screen.getByRole('link', { name: 'Research summary' })).toHaveAttribute('href', '/pages/new-summary');
+  await waitFor(() => expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/spaces/space-a/content-tree').length).toBeGreaterThan(reads));
+  expect(screen.getByTestId('agent-session-panel')).toBeVisible();
+  expect(vi.mocked(api.post).mock.calls.filter(([url]) => url === '/pages')).toHaveLength(0);
 });

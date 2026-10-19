@@ -53,10 +53,10 @@ const inspectStagedNotes = (body: string) => {
   expect(label).toBeVisible();
   expect(within(details).getByText(body)).toBeVisible();
 };
-let notes: ReturnType<typeof usePersonalNotes>, turns: AgentTurn[], content: string;
+let notes: ReturnType<typeof usePersonalNotes>, turns: AgentTurn[], content: string, currentVersion: string;
 function Bridge({ pageId = 'page-a', spaceId = 'space-a', edit = false }: { pageId?: string; spaceId?: string; edit?: boolean }) {
-  notes = usePersonalNotes({ scope: { userId: auth.id, spaceId, pageId }, canEdit: edit, enabled: true, stageForSession: true, source: content, updatedAt: version });
-  return <><output data-testid="notes">{JSON.stringify(notes.notes)}</output><AgentSessionPanel pageId={pageId} spaceId={spaceId} pageTitle="Page A" snapshot={() => ({ title: 'Page A', content, updatedAt: version })} canEdit canAccept={edit} supportsScopedApply assistRequest={notes.assistRequest} onRequestHandled={notes.onRequestHandled} onNotesEvent={notes.onNotesEvent} notesReady={notes.loaded} onApply={(candidate, editId) => { const applied = applyCandidateToDraft(candidate, { userId: auth.id, spaceId, pageId, title: 'Page A', content, updatedAt: version, canEdit: edit }, editId); if (applied.status !== 'applied') return false; content = applied.content; return true; }} /></>;
+  notes = usePersonalNotes({ scope: { userId: auth.id, spaceId, pageId }, canEdit: edit, enabled: true, stageForSession: true, source: content, updatedAt: currentVersion });
+  return <><output data-testid="notes">{JSON.stringify(notes.notes)}</output><AgentSessionPanel pageId={pageId} spaceId={spaceId} pageTitle="Page A" snapshot={() => ({ title: 'Page A', content, updatedAt: currentVersion })} canEdit canAccept={edit} supportsScopedApply assistRequest={notes.assistRequest} onRequestHandled={notes.onRequestHandled} onNotesEvent={notes.onNotesEvent} notesReady={notes.loaded} onApply={(candidate, editId) => { const applied = applyCandidateToDraft(candidate, { userId: auth.id, spaceId, pageId, title: 'Page A', content, updatedAt: version, canEdit: edit }, editId); if (applied.status !== 'applied') return false; content = applied.content; return true; }} /></>;
 }
 const shell = (route = 'read') => <MemoryRouter><AgentSessionRegistryProvider userId={auth.id}><Bridge key={route} pageId={route === 'other' ? 'page-b' : 'page-a'} spaceId={route === 'other-space' ? 'space-b' : 'space-a'} edit={route === 'edit'} /></AgentSessionRegistryProvider></MemoryRouter>;
 async function stageFirst() {
@@ -69,12 +69,13 @@ async function stageFirst() {
   return ids;
 }
 beforeEach(() => {
-  localStorage.clear(); auth.id = 'user-a'; turns = []; content = original; serverNotes = []; noteRevision = 0;
+  localStorage.clear(); auth.id = 'user-a'; turns = []; content = original; currentVersion = version; serverNotes = []; noteRevision = 0;
   vi.mocked(api.patch).mockImplementation(notesPatch);
   vi.mocked(api.get).mockImplementation(async (url) => notesGet(url) ?? ({ data: url === '/assist/sessions' ? [summary] : { ...summary, turns } }));
   vi.mocked(api.post).mockImplementation(async (_url, data: any) => {
     const noteResponse = notesPost(_url, data); if (noteResponse) return noteResponse;
-    const turn: AgentTurn = { ...data, id: 'sent-turn', sessionId: summary.id, status: 'queued', createdAt: version, pageSnapshot: data.snapshot, references: [], progressText: '', result: null, error: null };
+    // Legacy proposal responses remain reviewable after the composer switches to auto.
+    const turn: AgentTurn = { ...data, mode: 'proposal', id: 'sent-turn', sessionId: summary.id, status: 'queued', createdAt: version, pageSnapshot: data.snapshot, references: [], progressText: '', result: null, error: null };
     turns = [turn]; return { data: turn };
   });
 });
@@ -84,7 +85,6 @@ it.each(['read/edit', 'page roundtrip'])('binds only explicitly staged notes aft
   if (boundary === 'page roundtrip') { view.rerender(shell('other')); await screen.findByText('Start a conversation about this document.'); }
   view.rerender(shell('edit')); await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled());
   expect(notes.assistRequest).toBeNull(); expect(notes.notes.map((note) => note.status)).toEqual(['pending', 'pending']);
-  fireEvent.change(screen.getByRole('combobox', { name: 'Message mode' }), { target: { value: 'proposal' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   await waitFor(() => expect(notes.notes[0]).toMatchObject({ id: ids[0], status: 'dispatched', taskId: 'sent-turn' }));
   expect(notes.notes[1]).toMatchObject({ id: ids[1], status: 'pending' }); expect(notes.notes[1].taskId).toBeUndefined();
@@ -156,7 +156,6 @@ it.each(['unrelated append', 'anchor change'])('binds sent notes to the immutabl
   let finish!: () => void;
   const post = vi.mocked(api.post).getMockImplementation()!;
   vi.mocked(api.post).mockImplementation((...args) => new Promise((resolve) => { finish = () => { void Promise.resolve(post(...args)).then(resolve); }; }));
-  fireEvent.change(screen.getByRole('combobox', { name: 'Message mode' }), { target: { value: 'proposal' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   const manuallyEdited = change === 'unrelated append' ? original + 'Manual end\n' : original.replace('one', 'Manual beginning');
   content = manuallyEdited; view.rerender(shell('edit'));
@@ -181,7 +180,6 @@ it.each(['read/edit', 'away during receipt', 'return before receipt'])('reconcil
   let finish!: () => void;
   const post = vi.mocked(api.post).getMockImplementation()!;
   vi.mocked(api.post).mockImplementation((...args) => new Promise((resolve) => { finish = () => { void Promise.resolve(post(...args)).then(resolve); }; }));
-  fireEvent.change(screen.getByRole('combobox', { name: 'Message mode' }), { target: { value: 'proposal' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   if (boundary !== 'read/edit') { view.rerender(shell('other')); await waitFor(() => expect(notes.notes).toEqual([])); }
   if (boundary !== 'away during receipt') view.rerender(shell('edit'));
@@ -204,7 +202,6 @@ it.each(['read/edit', 'away during receipt', 'return before receipt'])('reconcil
 
 it.each(['selection', 'document'])('rebinds explicitly regenerated %s notes after a remount conflict and successful retry', async (scope) => {
   const view = render(shell('edit')); const ids = await stageFirst();
-  fireEvent.change(screen.getByRole('combobox', { name: 'Message mode' }), { target: { value: 'proposal' } });
   fireEvent.change(editScope(), { target: { value: scope } });
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   await waitFor(() => expect(notes.notes[0].status).toBe('dispatched'));
@@ -224,7 +221,7 @@ it.each(['selection', 'document'])('rebinds explicitly regenerated %s notes afte
   expect(screen.getByRole('textbox', { name: 'Message' })).not.toHaveValue('');
   vi.mocked(api.post).mockImplementation(async (_url, data: any) => {
     const noteResponse = notesPost(_url, data); if (noteResponse) return noteResponse;
-    const turn: AgentTurn = { ...data, id: 'regenerated-turn', sessionId: summary.id, status: 'queued', createdAt: version, pageSnapshot: data.snapshot, references: [], progressText: '', result: null, error: null };
+    const turn: AgentTurn = { ...data, mode: 'proposal', id: 'regenerated-turn', sessionId: summary.id, status: 'queued', createdAt: version, pageSnapshot: data.snapshot, references: [], progressText: '', result: null, error: null };
     turns = [first, turn]; return { data: turn };
   });
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
@@ -258,7 +255,6 @@ it.each([{ resolvedIndex: 0, regenerateAgain: false }, { resolvedIndex: 1, regen
   const ids = notes.notes.slice(0, 2).map((note) => note.id), unresolvedIndex = 1 - resolvedIndex;
   const unstagedNote = structuredClone(notes.notes[2]);
   act(() => { expect(notes.dispatch(ids)).toBe(true); });
-  fireEvent.change(screen.getByRole('combobox', { name: 'Message mode' }), { target: { value: 'proposal' } });
   fireEvent.change(editScope(), { target: { value: 'document' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   await waitFor(() => expect(notes.notes[unresolvedIndex].status).toBe('dispatched'));
@@ -289,7 +285,7 @@ it.each([{ resolvedIndex: 0, regenerateAgain: false }, { resolvedIndex: 1, regen
     expect(notes.notes).toEqual(beforeSend);
     vi.mocked(api.post).mockImplementation(async (_url, data: any) => {
     const noteResponse = notesPost(_url, data); if (noteResponse) return noteResponse;
-      const turn: AgentTurn = { ...data, id: nextId, sessionId: summary.id, status: 'queued', createdAt: version, pageSnapshot: data.snapshot, references: [], progressText: '', result: null, error: null };
+      const turn: AgentTurn = { ...data, mode: 'proposal', id: nextId, sessionId: summary.id, status: 'queued', createdAt: version, pageSnapshot: data.snapshot, references: [], progressText: '', result: null, error: null };
       turns = [...turns, turn]; return { data: turn };
     });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
@@ -380,7 +376,7 @@ it('waits for the current bridge authorization read before delivering an old-mou
   const view = render(shell()); await stageFirst();
   let finish!: () => void;
   vi.mocked(api.post).mockImplementation((_url, data: any) => {
-    const turn: AgentTurn = { ...data, id: 'sent-turn', sessionId: summary.id, status: 'queued', createdAt: version, pageSnapshot: data.snapshot, references: [], progressText: '', result: null, error: null };
+    const turn: AgentTurn = { ...data, mode: 'proposal', id: 'sent-turn', sessionId: summary.id, status: 'queued', createdAt: version, pageSnapshot: data.snapshot, references: [], progressText: '', result: null, error: null };
     turns = [turn];
     return new Promise((resolve) => { finish = () => resolve({ data: turn }); });
   });
@@ -397,7 +393,6 @@ it('waits for the current bridge authorization read before delivering an old-mou
 
 it('persists an accepted note across a route roundtrip while its server PATCH receipt is pending', async () => {
   const view = render(shell('edit')); const ids = await stageFirst();
-  fireEvent.change(screen.getByRole('combobox', { name: 'Message mode' }), { target: { value: 'proposal' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
   await waitFor(() => expect(notes.notes[0]).toMatchObject({ status: 'dispatched', taskId: 'sent-turn' }));
   turns = [{ ...turns[0], status: 'done', result: { changes: 'ONE\nkeep\ntwo\n' } }];
@@ -427,5 +422,61 @@ it('persists an accepted note across a route roundtrip while its server PATCH re
   expect(content).toBe('ONE\nkeep\ntwo\n');
   expect(agentPostCalls()).toHaveLength(1);
   expect(vi.mocked(api.patch).mock.calls.filter(([, input]) => (input as any).status === 'resolved')).toHaveLength(1);
+  expect(pagePatchCalls()).toHaveLength(0);
+});
+
+it('resolves only the notes covered by a server-saved automatic update', async () => {
+  const view = render(shell()); const ids = await stageFirst(); view.rerender(shell('edit'));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled());
+  const post = vi.mocked(api.post).getMockImplementation()!;
+  vi.mocked(api.post).mockImplementation(async (...args) => {
+    const response = await post(...args) as { data: AgentTurn };
+    if (args[0].endsWith('/turns')) { turns[0].mode = 'auto'; response.data.mode = 'auto'; }
+    return response;
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await waitFor(() => expect(notes.notes[0].status).toBe('dispatched'));
+  turns = [{ ...turns[0], mode: 'auto', status: 'done', result: { action: 'update', changes: 'ONE\nkeep\ntwo\n', document: { operation: 'updated', pageId: 'page-a', title: 'Page A', updatedAt: '2026-10-06T02:00:00.000Z', url: '/pages/page-a' } } }];
+  await waitFor(() => expect(notes.notes[0]).toMatchObject({ id: ids[0], status: 'resolved', taskId: 'sent-turn' }), { timeout: 2000 });
+  expect(notes.notes[1]).toMatchObject({ id: ids[1], status: 'pending' });
+  expect(screen.queryByRole('button', { name: 'Accept to draft' })).not.toBeInTheDocument();
+  expect(pagePatchCalls()).toHaveLength(0);
+});
+
+it.each(['accepted POST', 'late POST', 'changed version', 'changed content', 'legacy proposal', 'no local send'])('uses only a current scoped receipt after automatic completion away from the page with %s', async (timing) => {
+  const view = render(shell()); const ids = await stageFirst(); view.rerender(shell('edit'));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled());
+  let release!: (value: { data: AgentTurn }) => void;
+  let sent!: AgentTurn;
+  vi.mocked(api.post).mockImplementation(async (url, data: any) => {
+    const noteResponse = notesPost(url, data); if (noteResponse) return noteResponse;
+    sent = { ...data, mode: 'auto', id: 'away-turn', sessionId: summary.id, status: 'queued', createdAt: version, pageSnapshot: data.snapshot, references: [], progressText: '', result: null, error: null };
+    turns = [sent];
+    return timing === 'late POST' ? new Promise((resolve) => { release = resolve; }) : { data: sent };
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await waitFor(() => expect(sent).toBeDefined());
+  if (timing !== 'late POST') {
+    await waitFor(() => expect(notes.notes[0].status).toBe('dispatched'));
+    await notesSettled();
+  }
+  view.rerender(shell('other'));
+  content = 'ONE\nkeep\ntwo\n'; currentVersion = '2026-10-06T02:00:00.000Z';
+  const completed: AgentTurn = { ...sent, status: 'done', result: { action: 'update', changes: content, document: { operation: 'updated', pageId: 'page-a', title: 'Page A', updatedAt: currentVersion, url: '/pages/page-a' } } };
+  if (timing === 'legacy proposal') completed.mode = 'proposal';
+  turns = [completed];
+  if (timing === 'changed version') currentVersion = '2026-10-06T03:00:00.000Z';
+  if (timing === 'changed content') content += 'Another edit';
+  if (timing === 'late POST') await act(async () => release({ data: completed }));
+  if (timing === 'no local send') { view.unmount(); render(shell('edit')); }
+  else view.rerender(shell('edit'));
+  if (timing === 'accepted POST' || timing === 'late POST') {
+    await waitFor(() => expect(notes.notes[0]).toMatchObject({ id: ids[0], status: 'resolved', taskId: 'away-turn' }));
+  } else {
+    await screen.findByText('Document updated and saved.');
+    await notesSettled();
+    expect(notes.notes[0]).toMatchObject({ id: ids[0], status: 'dispatched', taskId: 'away-turn' });
+  }
+  expect(notes.notes[1]).toMatchObject({ id: ids[1], status: 'pending' });
   expect(pagePatchCalls()).toHaveLength(0);
 });

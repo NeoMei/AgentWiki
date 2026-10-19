@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import api from '../../api/client';
 import { useAgentSessionRegistry } from './AgentSessionRegistry';
-import type { AgentComposerMode, AgentReference, AgentSessionDetail, AgentSessionSummary, AgentTurn } from './agentSessionTypes';
+import type { AgentReference, AgentSessionDetail, AgentSessionSummary, AgentTurn } from './agentSessionTypes';
 import type { AssistNotesEvent, AssistRequest } from '../page/AgentAssistPanel';
+import type { AssistSnapshot } from '../page/assistCandidate';
 import type { AssistTarget } from '../page/assistTargets';
 import type { CandidateRecord } from './agentSessionCandidate';
-export interface Composer { intent: string; mode: AgentComposerMode; targetKind: AssistTarget['kind']; references: AgentReference[]; staged?: { pageId: string; request: AssistRequest } }
-const composer = (): Composer => ({ intent: '', mode: 'question', targetKind: 'document', references: [] });
+export interface Composer { intent: string; targetKind: AssistTarget['kind']; references: AgentReference[]; staged?: { pageId: string; request: AssistRequest } }
+const composer = (): Composer => ({ intent: '', targetKind: 'document', references: [] });
 interface State {
   sessions: AgentSessionSummary[]; openSessionIds: string[] | null; selected: string | null; detail: AgentSessionDetail | null;
   loading: boolean; loadingSessions: boolean; creating: boolean; sending: boolean; cancelling: boolean; error: string | null; draft: Composer; revision: number; sentRevision: number;
@@ -31,6 +32,7 @@ function createStore(userId: string, spaceId: string, contextKey: string) {
   const listeners = new Set<() => void>();
   return {
     epoch: 0, cancelRequest: 0, candidates: new Map<string, CandidateRecord>(),
+    writtenTurns: new Map<string, { sessionId: string; scope: string; awaitingRead: boolean; snapshot: AssistSnapshot | null }>(),
     receipts: new Map<string, { sessionId: string; awaitingRead: boolean; credential: NonNullable<AssistNotesEvent['dispatchRequest']> }>(),
     // Content may be purged after access loss; operation history must still prevent replay after Undo.
     ledger: new Map<string, Pick<CandidateRecord['candidate'], 'status' | 'acceptedEditIds'>>(), drafts: new Map<string, Composer>(),
@@ -75,9 +77,11 @@ export function useAgentSession(userId: string, spaceId: string, contextKey = ''
     // Only receipts present when this authorized read STARTS may be verified by it. A queued
     // history read started before a late POST receipt cannot vouch for that receipt's current access.
     const receipts = [...store.receipts.entries()].filter(([, receipt]) => receipt.sessionId === id);
+    const writtenTurns = [...store.writtenTurns.entries()].filter(([, receipt]) => receipt.sessionId === id);
     const { data } = await api.get<AgentSessionDetail>(`/assist/sessions/${id}`, { signal });
     if (!valid(epoch) || signal?.aborted || store.get().selected !== id || data.spaceId !== spaceId || data.id !== id) return;
     for (const [taskId, receipt] of receipts) if (store.receipts.get(taskId) === receipt && data.turns.some((turn) => turn.id === taskId)) receipt.awaitingRead = false;
+    for (const [taskId, receipt] of writtenTurns) if (store.writtenTurns.get(taskId) === receipt && data.turns.some((turn) => turn.id === taskId)) receipt.awaitingRead = false;
     const sessions = store.get().sessions;
     const summary: AgentSessionSummary = { id: data.id, spaceId: data.spaceId, title: data.title, createdAt: data.createdAt, updatedAt: data.updatedAt };
     store.set({ detail: data, loading: false, error: null, sessions: sessions.some((s) => s.id === id) ? sessions.map((s) => s.id === id ? summary : s) : [...sessions, summary] });
@@ -85,7 +89,7 @@ export function useAgentSession(userId: string, spaceId: string, contextKey = ''
   const fail = (error: unknown, epoch: number) => {
     if (!valid(epoch)) return;
     const reason = sessionError(error);
-    if (reason === 'access') { store.candidates.clear(); store.receipts.clear(); store.set({ detail: null, sessions: store.get().sessions.filter((s) => s.id !== store.get().selected) }); }
+    if (reason === 'access') { store.candidates.clear(); store.receipts.clear(); store.writtenTurns.clear(); store.set({ detail: null, sessions: store.get().sessions.filter((s) => s.id !== store.get().selected) }); }
     store.set({ loading: false, loadingSessions: false, error: reason });
   };
   useEffect(() => {
@@ -201,6 +205,8 @@ export function useAgentSession(userId: string, spaceId: string, contextKey = ''
       onSent(data);
       const receipt = store.receipts.get(data.id);
       if (receipt) receipt.awaitingRead = !valid(epoch);
+      const writtenTurn = store.writtenTurns.get(data.id);
+      if (writtenTurn) writtenTurn.awaitingRead = !valid(epoch);
       const storedDraft = store.drafts.get(id) ?? (store.get().selected === id ? store.get().draft : undefined);
       const consumed = storedDraft ? { ...storedDraft,
         ...(storedDraft === sentDraft ? { intent: '' } : {}),
