@@ -7,7 +7,10 @@ import { AgentSessionPanel } from './AgentSessionPanel';
 import type { AgentSessionPanelProps, AgentTurn } from './agentSessionTypes';
 import { captureAssistTarget } from '../page/assistTargets';
 vi.mock('../../api/client', () => ({ default: { get: vi.fn(), post: vi.fn(), patch: vi.fn() } }));
-vi.mock('../../context/LanguageContext', () => ({ useLanguage: () => ({ language: 'en' }) }));
+vi.mock('../../context/LanguageContext', () => ({ useLanguage: () => ({ language: 'en', t: (key: string) => key }) }));
+vi.mock('../../components/markdown/MermaidDiagram', () => ({
+  MermaidDiagram: ({ source }: { source: string }) => <div data-testid="agent-mermaid-diagram">{source}</div>,
+}));
 const auth = vi.hoisted(() => ({ id: 'user-a' }));
 vi.mock('../../context/AuthContext', () => ({ useAuth: () => ({ user: auth }) }));
 const version = '2026-10-06T01:00:00.000Z';
@@ -900,6 +903,13 @@ describe('compact conversation interaction', () => {
     expect(screen.getByText('Unsafe')).not.toHaveAttribute('href', expect.stringContaining('javascript:'));
     expect(rendered.container.querySelector('.agent-reply-content script, .agent-reply-content img')).toBeNull();
     expect(api.post).not.toHaveBeenCalled(); expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('renders fenced Mermaid replies as diagrams while keeping reply images disabled', async () => {
+    turns = [{ ...turn, result: { summary: '```mermaid\ngraph TD; A-->B\n```\n\n![tracking](https://example.com/track.png)' } }];
+    const rendered = render(tree());
+    expect(await screen.findByTestId('agent-mermaid-diagram')).toHaveTextContent('graph TD; A-->B');
+    expect(rendered.container.querySelector('.agent-reply-content img')).toBeNull();
   });
 });
 
