@@ -36,6 +36,7 @@ const AgentDetail = lazy(() => import('./features/agent/AgentDetail').then((modu
 const SourcesPage = lazy(() => import('./features/source/SourcesPage').then((module) => ({ default: module.SourcesPage })));
 const LegacyRunsRoute = lazy(() => import('./features/source/SourcesPage').then((module) => ({ default: module.LegacyRunsRoute })));
 const ReviewPage = lazy(() => import('./features/review/ReviewPage').then((module) => ({ default: module.ReviewPage })));
+const NotificationsPage = lazy(() => import('./features/notifications/NotificationsPage').then((module) => ({ default: module.NotificationsPage })));
 const PageEditor = lazy(() => import('./features/page/PageEditor').then((module) => ({ default: module.PageEditor })));
 const PageVersionHistory = lazy(() => import('./features/page/PageVersionHistory').then((module) => ({ default: module.PageVersionHistory })));
 const PagePreview = lazy(() => import('./features/page/PagePreview').then((module) => ({ default: module.PagePreview })));
@@ -126,6 +127,7 @@ const AppRoutes: React.FC = () => {
         <Route path="/spaces/:id/collaboration/runs/:runId" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><RunDashboard /></Suspense></WorkspaceRoute>} />
         <Route path="/spaces/:id/taskboard" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><TaskboardPage /></Suspense></WorkspaceRoute>} />
         <Route path="/review" element={<Suspense fallback={<RouteLoading />}><ReviewPage /></Suspense>} />
+        <Route path="/notifications" element={<Suspense fallback={<RouteLoading />}><NotificationsPage /></Suspense>} />
         <Route path="/admin" element={<Suspense fallback={<RouteLoading />}><AdminPage /></Suspense>} />
       </Route>
       <Route path="/" element={<ProductPage />} />
