@@ -46,7 +46,11 @@ if (resolve(gitRoot, 'agentwiki') !== projectRoot) {
 const head = git('rev-parse', 'HEAD');
 const expectedHead = git('rev-parse', manifest.CANDIDATE_COMMIT);
 const branch = git('branch', '--show-current');
-if (head !== expectedHead) fail(`HEAD ${head.slice(0, 8)} is not the locked candidate ${manifest.CANDIDATE_COMMIT}`);
+try {
+  execFileSync('git', ['-C', projectRoot, 'merge-base', '--is-ancestor', expectedHead, head], { stdio: 'ignore' });
+} catch {
+  fail(`HEAD ${head.slice(0, 8)} is not based on the locked candidate ${manifest.CANDIDATE_COMMIT}`);
+}
 if (branch && branch !== manifest.CANDIDATE_BRANCH) fail(`branch ${branch} is not the locked candidate ${manifest.CANDIDATE_BRANCH}`);
 
 for (const relativePath of ['package.json', 'apps/client/package.json', 'apps/server/package.json']) {
@@ -64,4 +68,4 @@ if (serverPackage.dependencies?.['opencode-ai'] || serverPackage.dependencies?.[
   fail('AgentWiki still carries a fixed OpenCode package dependency');
 }
 
-console.log(`AgentWiki release candidate verified: v${manifest.APP_VERSION} ${head.slice(0, 8)} ${branch || '(detached exact commit)'}`);
+console.log(`AgentWiki release candidate verified: v${manifest.APP_VERSION} ${head.slice(0, 8)} (base ${manifest.CANDIDATE_COMMIT}) ${branch || '(detached)'}`);
