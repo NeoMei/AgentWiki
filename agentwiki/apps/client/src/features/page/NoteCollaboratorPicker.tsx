@@ -8,7 +8,6 @@ export interface NoteCollaborator {
   email: string;
   role?: string;
 }
-
 interface MemberResponse {
   userId?: string;
   type?: string;

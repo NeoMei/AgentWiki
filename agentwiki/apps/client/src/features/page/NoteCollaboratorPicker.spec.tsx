@@ -37,4 +37,3 @@ describe('NoteCollaboratorPicker', () => {
     expect(screen.getByRole('listbox')).toBeVisible();
   });
 });
-
