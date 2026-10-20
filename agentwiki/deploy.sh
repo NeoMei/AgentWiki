@@ -20,6 +20,11 @@ require_supported_node() {
 
 require_supported_node node
 
+# Never package a historical checkout just because a new Session opened in the
+# parent worktree. The candidate lock also checks the visible Agent chat and
+# the external OpenCode dependency boundary.
+node scripts/agentwiki-release-guard.mjs
+
 REMOTE_HOST="${1:-100.64.35.78}"
 REMOTE_USER="${2:-neomei}"
 PROJECT_DIR="agentwiki"
