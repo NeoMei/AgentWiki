@@ -120,7 +120,7 @@ export function parseSuperpowersPlan(text: string, sourcePath = 'superpowers-pla
   const lines = text.split(/\r?\n/);
   const taskHeaders: Array<{ index: number; number: number; title: string }> = [];
   lines.forEach((line, index) => {
-    const match = line.match(/^###\s+Task\s+(\d+)\s*:\s*(.+?)\s*$/);
+    const match = line.match(/^#{2,3}\s+Task\s+(\d+)\s*:\s*(.+?)\s*$/);
     if (match) taskHeaders.push({ index, number: Number(match[1]), title: match[2].trim() });
   });
 

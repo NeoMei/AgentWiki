@@ -105,9 +105,29 @@ describe('ProjectTaskboardService', () => {
     const { service, db } = makeService();
     await expect(service.importPlan({ userId: 'u1' }, 'space-1', {
       content: '# 项目规划\n\n## 里程碑\n讨论范围。', sourcePath: 'roadmap.md',
-    })).rejects.toThrow('### Task');
+    })).rejects.toThrow('Task 1');
     expect(db.boards).toHaveLength(0);
     expect(db.tasks).toHaveLength(0);
+  });
+
+  it('imports the ## Task headings emitted by standard Superpowers plans', async () => {
+    const { service, db } = makeService();
+    const result = await service.importPlan({ userId: 'u1' }, 'space-1', {
+      content: [
+        '# Example Implementation Plan',
+        '',
+        '**Goal:** Build the example.',
+        '',
+        '## Task 1: Create the contract',
+        '',
+        '- [ ] **Step 1: Write the failing test**',
+      ].join('\n'),
+      sourcePath: 'docs/superpowers/plans/example.md',
+    });
+    expect(result.summary).toEqual({ added: 3, updated: 0 });
+    expect(result.board.tasks.map((task) => task.kind)).toEqual(['phase', 'implementation_task', 'step']);
+    expect(result.board.tasks[1].title).toBe('Create the contract');
+    expect(db.tasks).toHaveLength(3);
   });
 
   it('auto-creates the board and persists a created task', async () => {

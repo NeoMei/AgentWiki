@@ -22,6 +22,18 @@ const PLAN = [
 ].join('\n');
 
 describe('parseSuperpowersPlan', () => {
+  it('accepts the ## Task heading used by standard Superpowers plans', () => {
+    const plan = parseSuperpowersPlan([
+      '# Example Implementation Plan',
+      '',
+      '## Task 1: Create the contract',
+      '',
+      '- [ ] **Step 1: Write the failing test**',
+    ].join('\n'), '/tmp/example.md');
+    expect(plan.tasks.map((task) => task.kind)).toEqual(['phase', 'implementation_task', 'step']);
+    expect(plan.tasks[1].title).toBe('Create the contract');
+  });
+
   it('imports tasks and steps as a hierarchy with derived statuses', () => {
     const plan = parseSuperpowersPlan(PLAN, '/tmp/account-flow.md');
     expect(plan.project).toBe('Account Flow');

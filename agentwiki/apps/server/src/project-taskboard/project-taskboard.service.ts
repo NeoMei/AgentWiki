@@ -261,7 +261,7 @@ export class ProjectTaskboardService {
     const syncStatus = dto.syncStatus ?? dto.sync_status ?? false;
     const incoming: ParsedSuperpowersPlan = parseTaskboardDocument(content, sourcePath);
     if (!incoming.tasks.some((task) => ['implementation_task', 'task', 'work_item'].includes(task.kind ?? ''))) {
-      throw new BusinessException('TASKBOARD_PLAN_NO_TASKS', '未识别到任务，请使用包含 ### Task 1: 任务名称 的 Markdown 计划');
+      throw new BusinessException('TASKBOARD_PLAN_NO_TASKS', '未识别到任务，请使用包含 ## Task 1: 任务名称（或 ### Task 1: 任务名称）的 Markdown 计划');
     }
     const { board, result } = await this.withBoardTx(
       spaceId,
