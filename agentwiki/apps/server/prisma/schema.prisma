@@ -141,6 +141,9 @@ model User {
   pageAgentBindingEvents        PageAgentBindingEvent[]                   @relation("PageAgentBindingEventActor")
   attachmentsUploaded           SpaceAttachment[]                         @relation("AttachmentUploadedBy")
   foldersCreated                Folder[]                                  @relation("FolderCreatedByUser")
+  notificationsReceived         UserNotification[]                        @relation("NotificationRecipient")
+  notificationsActed            UserNotification[]                        @relation("NotificationActor")
+  pageNoteRecipients            PageNoteRecipient[]
   foldersLastModified           Folder[]                                  @relation("FolderLastModifiedByUser")
   lockedAt                      DateTime?
   mustChangePassword            Boolean                                   @default(false)
@@ -484,7 +487,8 @@ model Page {
 
   tags Tag[]
 
-  notes       PageNote[]
+  notes         PageNote[]
+  notifications UserNotification[]
   versions    PageVersion[]
   pathAliases PagePathAlias[]
 
@@ -1958,8 +1962,45 @@ model PageNote {
   taskId       String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-  deletedAt    DateTime?
+  deletedAt     DateTime?
+  recipients    PageNoteRecipient[]
+  notifications UserNotification[]
 
   @@unique([pageId, authorType, authorId, clientNoteId])
   @@index([spaceId, pageId, deletedAt, createdAt])
+}
+
+
+model PageNoteRecipient {
+  id        String   @id @default(cuid())
+  note      PageNote @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  noteId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  createdAt DateTime @default(now())
+
+  @@unique([noteId, userId])
+  @@index([userId, createdAt])
+}
+
+model UserNotification {
+  id              String    @id @default(cuid())
+  recipient       User      @relation("NotificationRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
+  recipientUserId String
+  actor           User?     @relation("NotificationActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorUserId     String?
+  spaceId         String
+  page            Page      @relation(fields: [pageId, spaceId], references: [id, spaceId], onDelete: Cascade)
+  pageId          String
+  pageNote        PageNote  @relation(fields: [pageNoteId], references: [id], onDelete: Cascade)
+  pageNoteId      String
+  type            String
+  title           String
+  body            String
+  payload         Json
+  readAt          DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@unique([type, pageNoteId, recipientUserId])
+  @@index([recipientUserId, readAt, createdAt])
 }
