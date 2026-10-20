@@ -1,6 +1,6 @@
 # 当前目标
 
-内嵌 Agent 目录访问、自动聊天及“修改范围”下拉框样式修复均已上线。Web/API/client 当前发布版本为 0.12.53。
+AgentWiki 的发布源已锁定为 `codex/agent-autochat-external-opencode`，候选基线 `f2eadab9`，当前连续性门禁为 `39cd7885`。新 Session 必须先运行 `cd agentwiki && node scripts/agentwiki-release-guard.mjs`；历史 `codex/assist-qwen-fallback` 与 `codex/agent-directory-access` 均不是发布源。Web/API/client 当前发布版本为 0.12.53。
 
 # 范围 / 不做
 
