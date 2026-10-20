@@ -11,6 +11,7 @@
 - When working under `agentwiki/`, treat `agentwiki/AGENTWIKI_RELEASE_CANDIDATE` as the release source lock. A new Session must run `cd agentwiki && node scripts/agentwiki-release-guard.mjs` before editing or publishing.
 - If the guard fails, stop. Inspect `git worktree list --porcelain` and continue from the locked candidate branch/worktree; do not repair the failure by switching to the historical checkout or by publishing from it.
 - The historical `codex/assist-qwen-fallback` checkout is intentionally release-blocked. A new Session must not infer the active AgentWiki version from its current directory, a stale build, a prior chat, or a page.
+- The canonical local checkout for this candidate is `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`.
 
 <!-- CODEX-MEMORY:START -->
 ## 项目级上下文管理
