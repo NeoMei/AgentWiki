@@ -71,6 +71,15 @@ describe('scoped personal notes controller',()=>{
   });
 });
 
+it('supports explicit resolve by the note author and persists it without an Agent task', async () => {
+  server = [{ ...serverNote(addPersonalNote(scope, first, 'Close this note', 'own')), status: 'pending' }];
+  const { result } = renderHook(() => usePersonalNotes({ scope, canEdit: true, source, updatedAt: version })); await act(async () => {});
+  await act(async () => { result.current.resolve('own'); });
+  expect(result.current.notes[0]).toMatchObject({ id: 'own', status: 'resolved' });
+  expect(server[0]).toMatchObject({ id: 'own', status: 'resolved', taskId: undefined });
+  expect(pageNotesApi.update).toHaveBeenCalledWith(scope, 'own', expect.objectContaining({ status: 'resolved', taskId: null }), expect.any(AbortSignal));
+});
+
 it('uses latest source/version and retains draft ownership when the server rejects a save', async () => {
   const { result, rerender } = renderHook((props) => usePersonalNotes(props), { initialProps: { scope, canEdit: true, source, updatedAt: version } }); await act(async () => {});
   const oldAdd = result.current.add;

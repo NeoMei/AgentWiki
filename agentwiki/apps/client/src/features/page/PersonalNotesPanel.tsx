@@ -9,14 +9,15 @@ interface Props {
   identityKey?: string;
   onRetrySync?: () => void;
   onDispatch: (ids: string[]) => void;
+  onResolve: (id: string) => void;
   onReopen: (id: string) => void;
   activeNoteId?: string | null;
   onLocate?: (id: string) => boolean | void;
   onClearActive?: () => void;
 }
 type NoteFilter = 'all' | 'open' | 'resolved';
-/** Controlled queue: parent persists notes and transitions only after task responses / explicit acceptance. */
-export function PersonalNotesPanel({ stageForSession = false, source, notes, disabled, storageUnavailable, syncing, identityKey, onRetrySync, onDispatch, onReopen, activeNoteId, onLocate, onClearActive }: Props) {
+/** Controlled queue: parent persists notes and transitions after task responses, acceptance, or author action. */
+export function PersonalNotesPanel({ stageForSession = false, source, notes, disabled, storageUnavailable, syncing, identityKey, onRetrySync, onDispatch, onResolve, onReopen, activeNoteId, onLocate, onClearActive }: Props) {
   const { language } = useLanguage(); const zh = language === 'zh-CN';
   const [selected, setSelected] = useState<string[]>([]);
   const [filter, setFilter] = useState<NoteFilter>('open');
@@ -85,7 +86,8 @@ export function PersonalNotesPanel({ stageForSession = false, source, notes, dis
         {!found ? <p className="text-amber-800">{zh ? '原文已变动或定位不唯一' : 'Original passage changed or anchor is ambiguous'}</p> : null}
         {locationUnavailableId === note.id ? <p role="status" className="text-xs text-amber-800">{zh ? '此片段无法在当前视图定位，请查看原始 Markdown。' : 'This passage cannot be located in this view. Check the original Markdown.'}</p> : null}
         {note.syncState === 'unsynced' ? <p className="text-xs text-amber-700">{zh ? '尚未同步' : 'Not synced'}</p> : null}
-        {note.status !== 'pending' && note.canEdit !== false ? <button type="button" disabled={disabled} onClick={() => onReopen(note.id)} className="h-8 rounded-lg border border-gray-200 px-3">{zh ? '重新打开' : 'Reopen'}</button> : null}
+        {note.status !== 'resolved' && note.canEdit === true && note.syncState !== 'unsynced' ? <button type="button" disabled={disabled} onClick={() => onResolve(note.id)} className="h-8 rounded-lg border border-blue-200 px-3 text-blue-700">{zh ? '标记已解决' : 'Mark resolved'}</button> : null}
+        {note.status !== 'pending' && note.canEdit === true && note.syncState !== 'unsynced' ? <button type="button" disabled={disabled} onClick={() => onReopen(note.id)} className="h-8 rounded-lg border border-gray-200 px-3">{zh ? '重新打开' : 'Reopen'}</button> : null}
       </li>;
     })}</ul>
   </section>;

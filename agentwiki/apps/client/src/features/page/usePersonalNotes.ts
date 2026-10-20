@@ -208,6 +208,15 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
     if (!actionActive() || !stateRef.current.notes.some((note) => note.id === id && note.canEdit)) return;
     publish({ ...stateRef.current, notes: transitionPersonalNotes(stateRef.current.notes, [id], 'reopen'), assistRequest: null, conflict: false }, true);
   };
+  const resolve = (id: string) => {
+    if (!actionActive() || !stateRef.current.notes.some((note) => note.id === id && note.canEdit && note.status !== 'resolved')) return;
+    publish({
+      ...stateRef.current,
+      notes: stateRef.current.notes.map((note) => note.id === id && note.canEdit ? { ...note, status: 'resolved' as const } : note),
+      assistRequest: null,
+      conflict: false,
+    }, true);
+  };
   const onNotesEvent = (input: AssistNotesEvent) => {
     const aliases = new Map(stateRef.current.notes.filter((note) => note.author?.type === 'user' && note.author.id === scope?.userId && note.clientNoteId).map((note) => [note.clientNoteId!, note.id]));
     const ids = (values: string[]) => values.map((id) => aliases.get(id) ?? id);
@@ -295,5 +304,5 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
   };
   const visible = identityRef.current === identity && enabled && scope ? stateRef.current : empty();
   // Refs let sequential callbacks observe synchronous queue changes; setState triggers UI updates.
-  return { ...visible, add, dispatch, reopen, onNotesEvent, onRequestHandled, retrySync: () => refresh(true), identityKey: key };
+  return { ...visible, add, dispatch, resolve, reopen, onNotesEvent, onRequestHandled, retrySync: () => refresh(true), identityKey: key };
 }
