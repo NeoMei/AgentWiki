@@ -4,6 +4,7 @@ import { OpencodeCliRunner } from './opencode.runner';
 import {
   buildCandidates,
   OpencodeModelCatalog,
+  parsePlainModels,
   parseVerboseModels,
 } from './opencode.catalog';
 
@@ -82,6 +83,24 @@ describe('OpenCode model catalog', () => {
     ]);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledWith('vendor/malformed');
+  });
+
+  it('parses OpenCode v2 plain model output using configured tier boundaries', () => {
+    const models = parsePlainModels([
+      'DESCRIPTION',
+      'opencode/big-pickle',
+      'bailian-coding-plan/qwen3.7-plus',
+      'other/provider-model',
+      'invalid line',
+    ].join('\n'), {
+      freeModels: ['opencode/big-pickle'],
+      paidModels: ['bailian-coding-plan/qwen3.7-plus'],
+    });
+
+    expect(models).toEqual([
+      { id: 'opencode/big-pickle', tier: 'free', price: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
+      { id: 'bailian-coding-plan/qwen3.7-plus', tier: 'paid', price: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
+    ]);
   });
 
   it('orders confirmed free models before estimated-cost paid fallback', () => {

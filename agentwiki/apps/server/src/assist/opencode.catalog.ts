@@ -109,6 +109,20 @@ const byFreePreference = (left: CatalogModel, right: CatalogModel) => {
   return byId(left, right);
 };
 
+const ZERO_PRICE: ModelPrice = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+
+export function parsePlainModels(
+  output: string,
+  config: Pick<RoutingConfig, 'freeModels' | 'paidModels'>,
+): CatalogModel[] {
+  const free = new Set(config.freeModels);
+  const paid = new Set(config.paidModels || []);
+  return [...new Set(output.split(/\r?\n/u).map(line => line.trim()))]
+    .filter((id) => MODEL_ID.test(id))
+    .filter((id) => free.has(id) || paid.has(id) || id.startsWith('opencode/'))
+    .map((id) => ({ id, tier: paid.has(id) ? 'paid' : 'free', price: ZERO_PRICE }));
+}
+
 export const buildCandidates = (
   models: CatalogModel[],
   config: RoutingConfig,
@@ -187,7 +201,9 @@ export class OpencodeModelCatalog {
   private async refresh(): Promise<CatalogModel[]> {
     try {
       const output = await this.runner.listModels(this.config.modelEnumTimeoutMs);
-      const models = parseVerboseModels(output);
+      const models = this.runner.cliMajor === 2
+        ? parsePlainModels(output, this.config)
+        : parseVerboseModels(output);
       this.snapshot = { loadedAt: Date.now(), models };
       return [...models];
     } catch (error) {

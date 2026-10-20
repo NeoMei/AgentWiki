@@ -8,27 +8,26 @@ import {
   statSync,
   writeFileSync,
 } from 'fs';
-import { createRequire } from 'module';
 import { tmpdir } from 'os';
 import { dirname, isAbsolute, join, relative, resolve } from 'path';
 import {
   OpencodeLaunch,
-  resolveBundledOpencodeLaunch,
+  probeOpencodeLaunch,
   resolveOpencodeLaunchFile,
 } from './opencode-launch';
 
-export const EXPECTED_OPENCODE_VERSION = '1.18.12';
-
-type SpawnVersion = (
+export type SpawnVersion = (
   command: string,
   args: readonly string[],
   options: Parameters<typeof spawnSync>[2],
 ) => Pick<SpawnSyncReturns<string>, 'error' | 'status' | 'stdout' | 'stderr'>;
 
-interface PreflightOptions {
+export interface PreflightOptions {
   stagedRoot: string;
   liveRoot: string;
   homeRoot: string;
+  /** Test seam; production uses spawnSync directly. */
+  spawnProbe?: SpawnVersion;
 }
 
 interface EnvironmentAssignment {
@@ -37,20 +36,29 @@ interface EnvironmentAssignment {
 }
 
 function opencodeAssignments(file: string): EnvironmentAssignment[] {
-  return readFileSync(file, 'utf8').split(/(?<=\n)/u).flatMap((line) => {
-    const match = line.replace(/\r?\n$/u, '').match(/^\s*OPENCODE_BIN\s*=\s*(.*?)\s*$/u);
-    if (!match) return [];
-    let value = match[1];
-    if ((value.startsWith('"') && value.endsWith('"'))
-      || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
-    }
-    return [{ file, value }];
-  });
+  try {
+    return readFileSync(file, 'utf8').split(/(?<=\n)/u).flatMap((line) => {
+      const match = line.replace(/\r?\n$/u, '').match(/^\s*OPENCODE_BIN\s*=\s*(.*?)\s*$/u);
+      if (!match) return [];
+      let value = match[1];
+      if ((value.startsWith('"') && value.endsWith('"'))
+        || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      return [{ file, value }];
+    });
+  } catch {
+    return [];
+  }
 }
 
 function removeOpencodeAssignments(file: string): void {
-  const source = readFileSync(file, 'utf8');
+  let source: string;
+  try {
+    source = readFileSync(file, 'utf8');
+  } catch {
+    return;
+  }
   const retained = source.split(/(?<=\n)/u).filter((line) => (
     !/^\s*OPENCODE_BIN\s*=/u.test(line)
   )).join('');
@@ -89,105 +97,38 @@ function isKnownLegacyShim(value: string, liveRoot: string): boolean {
   ].some((candidate) => target === resolve(candidate));
 }
 
-export function runOpencodeVersion(
-  launch: OpencodeLaunch,
-  expectedVersion = EXPECTED_OPENCODE_VERSION,
-  spawnVersion: SpawnVersion = spawnSync,
-): string {
-  const sandbox = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-preflight-'));
-  try {
-    const result = spawnVersion(
-      launch.command,
-      [...launch.argsPrefix, '--version'],
-      {
-        cwd: sandbox,
-        encoding: 'utf8',
-        env: {
-          PATH: process.env.PATH ?? '/usr/bin:/bin',
-          HOME: sandbox,
-          XDG_CONFIG_HOME: join(sandbox, '.config'),
-          XDG_DATA_HOME: join(sandbox, '.local', 'share'),
-          XDG_CACHE_HOME: join(sandbox, '.cache'),
-          XDG_STATE_HOME: join(sandbox, '.local', 'state'),
-        },
-        maxBuffer: 1024 * 1024,
-        shell: false,
-        timeout: 15_000,
-      },
-    );
-    if (result.error || result.status !== 0 || result.stderr !== ''
-      || result.stdout.trim() !== expectedVersion) {
-      throw new Error(`Expected OpenCode version ${expectedVersion} from a direct shell-free launch`);
-    }
-    return expectedVersion;
-  } finally {
-    rmSync(sandbox, { recursive: true, force: true });
-  }
+function launchForExternalPath(target: string): OpencodeLaunch {
+  const launch = resolveOpencodeLaunchFile(target, process.platform);
+  if (!launch) throw new Error('Unsupported explicit OPENCODE_BIN launch file');
+  return launch;
 }
 
-function expectedVersion(stagedRoot: string): string {
-  const serverManifest = JSON.parse(readFileSync(
-    join(stagedRoot, 'apps', 'server', 'package.json'),
-    'utf8',
-  )) as { dependencies?: Record<string, string> };
-  if (serverManifest.dependencies?.['opencode-ai'] !== EXPECTED_OPENCODE_VERSION) {
-    throw new Error(`Staged server must pin opencode-ai ${EXPECTED_OPENCODE_VERSION}`);
+function launchForPath(
+  value: string | undefined,
+  stagedRoot: string,
+  liveRoot: string,
+  homeRoot: string,
+): OpencodeLaunch {
+  if (!value) {
+    // PATH is intentionally resolved by the child process without a shell.
+    // The deploy host supplies /usr/local/bin/opencode through systemd PATH.
+    return {
+      command: process.platform === 'win32' ? 'opencode.exe' : 'opencode',
+      argsPrefix: [],
+      cliMajor: 1,
+      packageName: 'configured',
+    };
   }
-  const packageManifestPath = realpathSync(createRequire(
-    join(stagedRoot, 'apps', 'server', 'package.json'),
-  ).resolve('opencode-ai/package.json'));
-  const packageManifest = JSON.parse(readFileSync(packageManifestPath, 'utf8')) as {
-    name?: string;
-    version?: string;
-  };
-  if (packageManifest.name !== 'opencode-ai'
-    || packageManifest.version !== EXPECTED_OPENCODE_VERSION) {
-    throw new Error(`Staged OpenCode package must be version ${EXPECTED_OPENCODE_VERSION}`);
-  }
-  return EXPECTED_OPENCODE_VERSION;
-}
-
-export function preflightStagedOpencodeRuntime({
-  stagedRoot,
-  liveRoot,
-  homeRoot,
-}: PreflightOptions): { migratedKnownShim: boolean; version: string } {
-  const rootEnv = join(stagedRoot, '.env');
-  const serverEnv = join(stagedRoot, 'apps', 'server', '.env');
-  const version = expectedVersion(stagedRoot);
-  const bundled = resolveBundledOpencodeLaunch(
-    join(stagedRoot, 'apps', 'server'),
-    process.platform,
-    process.arch,
-  );
-  if (!bundled) throw new Error('Staged bundled OpenCode runtime is unavailable');
-  runOpencodeVersion(bundled, version);
-
-  const assignments = [
-    ...opencodeAssignments(rootEnv),
-    ...opencodeAssignments(serverEnv),
-  ];
-  const effective = assignments[assignments.length - 1];
-  if (!effective || effective.value === '') {
-    return { migratedKnownShim: false, version };
-  }
-
-  if (isKnownLegacyShim(effective.value, liveRoot)) {
-    removeOpencodeAssignments(rootEnv);
-    removeOpencodeAssignments(serverEnv);
-    return { migratedKnownShim: true, version };
-  }
-
-  if (!isAbsolute(effective.value)) {
+  if (!isAbsolute(value)) {
     throw new Error('Explicit OPENCODE_BIN must be an absolute path');
   }
-  const applicationTreeOverride = pathIsLexicallyWithin(effective.value, liveRoot);
-  if (!applicationTreeOverride && pathIsLexicallyWithin(effective.value, homeRoot)) {
+  const applicationTreeOverride = pathIsLexicallyWithin(value, liveRoot);
+  if (!applicationTreeOverride && pathIsLexicallyWithin(value, homeRoot)) {
     throw new Error('Explicit OPENCODE_BIN is hidden by ProtectHome and needs an approved exact bind');
   }
   const validationTarget = applicationTreeOverride
-    ? join(stagedRoot, relative(resolve(liveRoot), resolve(effective.value)))
-    : effective.value;
+    ? join(stagedRoot, relative(resolve(liveRoot), resolve(value)))
+    : value;
   let realOverride: string;
   try {
     realOverride = realpathSync(validationTarget);
@@ -205,10 +146,83 @@ export function preflightStagedOpencodeRuntime({
       + 'place it in the application tree, /usr, or /opt, or add an approved exact read-only bind',
     );
   }
-  const override = resolveOpencodeLaunchFile(realOverride, process.platform);
-  if (!override) throw new Error('Unsupported explicit OPENCODE_BIN launch file');
-  runOpencodeVersion(override, version);
-  return { migratedKnownShim: false, version };
+  return launchForExternalPath(realOverride);
+}
+
+export function runOpencodeVersion(
+  launch: OpencodeLaunch,
+  spawnVersion: SpawnVersion = spawnSync,
+): string {
+  const sandbox = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-preflight-'));
+  try {
+    const result = spawnVersion(
+      launch.command,
+      [...launch.argsPrefix, '--version'],
+      {
+        cwd: sandbox,
+        encoding: 'utf8',
+        env: {
+          PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+          HOME: sandbox,
+          XDG_CONFIG_HOME: join(sandbox, '.config'),
+          XDG_DATA_HOME: join(sandbox, '.local', 'share'),
+          XDG_CACHE_HOME: join(sandbox, '.cache'),
+          XDG_STATE_HOME: join(sandbox, '.local', 'state'),
+        },
+        maxBuffer: 1024 * 1024,
+        shell: false,
+        timeout: 15_000,
+      },
+    );
+    const reportedVersion = result.stdout.trim().match(/(?:^|\s)v?(\d+\.\d+\.\d+)(?:\s|$)/u)?.[1];
+    if (result.error || result.status !== 0 || result.stderr !== '' || !reportedVersion) {
+      throw new Error('OpenCode version probe failed from a direct shell-free launch');
+    }
+    return reportedVersion;
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+}
+
+export function preflightStagedOpencodeRuntime({
+  stagedRoot,
+  liveRoot,
+  homeRoot,
+  spawnProbe = spawnSync,
+}: PreflightOptions): { migratedKnownShim: boolean; version: string; cliMajor: 1 | 2 } {
+  const rootEnv = join(stagedRoot, '.env');
+  const serverEnv = join(stagedRoot, 'apps', 'server', '.env');
+  const assignments = [
+    ...opencodeAssignments(rootEnv),
+    ...opencodeAssignments(serverEnv),
+  ];
+  const effective = assignments[assignments.length - 1];
+  const knownShim = Boolean(effective && isKnownLegacyShim(effective.value, liveRoot));
+  // A known npm shim is migrated to the host runtime. It is never executed.
+  const launch = launchForPath(
+    !effective || effective.value === '' || knownShim ? undefined : effective.value,
+    stagedRoot,
+    liveRoot,
+    homeRoot,
+  );
+  let probed: OpencodeLaunch;
+  try {
+    probed = probeOpencodeLaunch(launch, spawnProbe);
+  } catch (error) {
+    throw Object.assign(
+      new Error(`OpenCode external runtime preflight failed: ${error instanceof Error ? error.message : String(error)}`),
+      { cause: error },
+    );
+  }
+  if (knownShim) {
+    removeOpencodeAssignments(rootEnv);
+    removeOpencodeAssignments(serverEnv);
+  }
+  return {
+    migratedKnownShim: knownShim,
+    version: probed.version ?? runOpencodeVersion(launch, spawnProbe),
+    cliMajor: probed.cliMajor,
+  };
 }
 
 function main(argv: string[]): void {
@@ -220,8 +234,7 @@ function main(argv: string[]): void {
     liveRoot: argv[1],
     homeRoot: dirname(argv[1]),
   });
-  const migration = result.migratedKnownShim ? '; removed known staged OPENCODE_BIN shim' : '';
-  process.stdout.write(`OpenCode runtime preflight passed (${result.version})${migration}\n`);
+  process.stdout.write(`OpenCode external runtime preflight passed (${result.version}, cli v${result.cliMajor})\n`);
 }
 
 if (require.main === module) {

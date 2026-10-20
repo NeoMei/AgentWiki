@@ -279,6 +279,7 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
       await progress;
       const routing = error instanceof OpencodeRoutingError ? error : undefined;
       const outputLimit = (error instanceof BadRequestException && error.message === AGENT_OUTPUT_LIMIT_ERROR) || routing?.result.attempts?.some(attempt => attempt.errorCode === 'output_limit');
+      this.logger.warn(`Assist task ${task.id} failed: ${error instanceof Error ? error.message : String(error)}${routing?.result.attempts ? `; attempts=${JSON.stringify(routing.result.attempts.map(attempt => ({ model: attempt.model, status: attempt.status, errorCode: attempt.errorCode })))}` : ''}`);
       const completion = await this.prisma.assistTask.updateMany({
         where: this.activeTaskWhere(task),
         data: {
