@@ -1,7 +1,7 @@
 import type { PageSourceStatus } from '@agentwiki/shared';
 import { SourceStatusNotice } from './SourceStatusNotice';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useParams, Link, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
+import { useParams, Link, useLocation, useNavigate, useNavigationType, useSearchParams } from 'react-router-dom';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { captureReadingSelection } from '../agent-session/readingSelection';
@@ -67,6 +67,7 @@ export const PagePreview: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigationType = useNavigationType();
   const { t, language } = useLanguage();
   const { user } = useAuth();
@@ -87,6 +88,7 @@ export const PagePreview: React.FC = () => {
   const [agentFocusRequest, setAgentFocusRequest] = useState<{ identity: string; request: string } | null>(null);
   const [readingTarget, setReadingTarget] = useState<AssistTarget | null>(null);
   const [activeNote, setActiveNote] = useState<{ identity: string; id: string } | null>(null);
+  const activatedNoteDeepLinkRef = useRef<string | null>(null);
   const notesEnabled = !!user?.id && !!page && page.id === id && !loading && !error;
   const personalNotes = usePersonalNotes({ scope: notesEnabled && page ? { userId: user.id, spaceId: page.spaceId, pageId: page.id } : null, canEdit: page?.capabilities?.canEdit === true, enabled: notesEnabled, stageForSession: true, source: page?.content ?? '', updatedAt: page?.updatedAt, language });
   const noteHighlights = useMemo(() => resolvePersonalNoteHighlights(page?.content ?? '', personalNotes.notes), [page?.content, personalNotes.notes]);
@@ -131,6 +133,21 @@ export const PagePreview: React.FC = () => {
     return locateReadingNote(markdownRootRef.current, noteId);
   };
   useEffect(() => { setReadingTarget(null); }, [id, page?.updatedAt, user?.id]);
+  useEffect(() => {
+    const noteId = searchParams.get('note');
+    if (!noteId) {
+      activatedNoteDeepLinkRef.current = null;
+      return;
+    }
+    if (loading || !page || page.id !== id || !personalNotes.loaded) return;
+    const activationKey = `${personalNotes.identityKey}:${noteId}`;
+    if (activatedNoteDeepLinkRef.current === activationKey || !noteHighlights.some((note) => note.id === noteId)) return;
+    activatedNoteDeepLinkRef.current = activationKey;
+    activateNote(noteId);
+    const nextSearchParams = new URLSearchParams(searchParams);
+    nextSearchParams.delete('note');
+    setSearchParams(nextSearchParams, { replace: true });
+  }, [id, loading, page, noteHighlights, personalNotes.identityKey, personalNotes.loaded, searchParams, setSearchParams]);
   useEffect(() => {
     const position = () => setPanelGeometry({ top: Math.ceil(readingToolbarRef.current?.getBoundingClientRect().bottom ?? 118) + 12, width: window.innerWidth });
     position(); const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(position);
