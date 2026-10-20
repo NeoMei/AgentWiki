@@ -36,7 +36,7 @@ const AgentDetail = lazy(() => import('./features/agent/AgentDetail').then((modu
 const SourcesPage = lazy(() => import('./features/source/SourcesPage').then((module) => ({ default: module.SourcesPage })));
 const LegacyRunsRoute = lazy(() => import('./features/source/SourcesPage').then((module) => ({ default: module.LegacyRunsRoute })));
 const ReviewPage = lazy(() => import('./features/review/ReviewPage').then((module) => ({ default: module.ReviewPage })));
-const NotificationsPage = lazy(() => import('./features/notifications/NotificationsPage').then((module) => ({ default: module.NotificationsPage })));
+const NotificationsPage = lazy(() => import('./features/notifications/Notifications').then((module) => ({ default: module.NotificationsPage })));
 const PageEditor = lazy(() => import('./features/page/PageEditor').then((module) => ({ default: module.PageEditor })));
 const PageVersionHistory = lazy(() => import('./features/page/PageVersionHistory').then((module) => ({ default: module.PageVersionHistory })));
 const PagePreview = lazy(() => import('./features/page/PagePreview').then((module) => ({ default: module.PagePreview })));

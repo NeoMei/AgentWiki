@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Bot, ChevronDown, ClipboardCheck, LogOut, Search, Shield, User } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
@@ -8,7 +8,8 @@ import { LanguageSwitcher } from './LanguageSwitcher';
 import { GlobalNavigation } from './GlobalNavigation';
 import { UserAvatar } from './UserAvatar';
 import { REVIEW_CHANGED_EVENT } from '../features/review/review-events';
-import { NotificationBell } from '../features/notifications/NotificationBell';
+
+const NotificationBell = lazy(() => import('../features/notifications/Notifications').then((module) => ({ default: module.NotificationBell })));
 
 export const Navbar: React.FC = () => {
   const { token, user, logout } = useAuth();
@@ -79,7 +80,7 @@ export const Navbar: React.FC = () => {
       </div>
       <div className="flex items-center gap-1 sm:gap-4">
         <Link to="/search" className={`p-2 rounded transition ${active('/search') ? 'bg-blue-50 text-blue-600' : 'hover:bg-gray-100 text-gray-600'}`} title={t('common.search')}><Search size={20} /></Link>
-        <NotificationBell />
+        <Suspense fallback={null}><NotificationBell /></Suspense>
         <LanguageSwitcher compact />
         <div className="relative" ref={menuRef}>
           <button onClick={() => setMenuOpen((value) => !value)} className="flex items-center gap-2 p-1 rounded-lg hover:bg-gray-100" aria-expanded={menuOpen} aria-label={t('nav.personalMenu')}>

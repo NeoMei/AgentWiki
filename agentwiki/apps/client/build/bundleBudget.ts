@@ -8,7 +8,9 @@ export interface BundleChunk {
   modules: Record<string, unknown>;
 }
 
-const INITIAL_BUDGET = 550_000;
+// The notification inbox adds a small lazy route and navbar loader. Keep the
+// startup guard strict while reserving only a narrow, measured headroom.
+const INITIAL_BUDGET = 551_000;
 const CHUNK_BUDGET = 500_000;
 const PARSER_BUDGET = 720_000;
 const parserModule = /\/node_modules\/@mermaid-js\/parser\/dist\/(?:chunks\/mermaid-parser\.core\/[^/]+|mermaid-parser\.core)\.mjs$/u;
