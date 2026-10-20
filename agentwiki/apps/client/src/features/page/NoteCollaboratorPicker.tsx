@@ -93,4 +93,3 @@ export function NoteCollaboratorPicker({ spaceId, language, selectedUserIds, onC
     </div>
   </div>;
 }
-
