@@ -4,17 +4,19 @@ import { MessageSquarePlus } from 'lucide-react';
 import { validateAssistTarget, type AssistTarget } from './assistTargets';
 import { useAuth } from '../../context/AuthContext';
 import { PersonalNoteAuthor } from './PersonalNoteAuthor';
+import { NoteCollaboratorPicker } from './NoteCollaboratorPicker';
 
 interface Props {
   rootRef: RefObject<HTMLElement | null>;
   identity: string;
+  spaceId?: string;
   source: string;
   updatedAt: string;
   language: string;
   disabled?: boolean;
   storageUnavailable?: boolean;
   captureTarget: () => AssistTarget | null;
-  onAdd: (target: AssistTarget, body: string) => boolean | Promise<boolean>;
+  onAdd: (target: AssistTarget, body: string, recipientUserIds?: string[]) => boolean | Promise<boolean>;
 }
 interface SelectionSnapshot {
   identity: string;
@@ -31,6 +33,8 @@ export function SelectionNoteComposer(props: Props) {
   const [snapshot, setSnapshot] = useState<SelectionSnapshot | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [body, setBody] = useState('');
+  const [recipientUserIds, setRecipientUserIds] = useState<string[]>([]);
+  const [collaboratorOpenSignal, setCollaboratorOpenSignal] = useState(0);
   const [failed, setFailed] = useState(false);
   const [saving, setSaving] = useState(false);
   const saveGeneration = useRef(0);
@@ -43,7 +47,7 @@ export function SelectionNoteComposer(props: Props) {
   // Never expose the previous user's/page's draft for even one render.
   const visible = snapshot?.identity === props.identity ? snapshot : null;
   const stale = !!visible && (props.source !== visible.source || props.updatedAt !== visible.target.baseUpdatedAt);
-  const close = () => { saveGeneration.current++; setSaving(false); setSnapshot(null); setExpanded(false); setBody(''); setFailed(false); setReselectIdentity(null); };
+  const close = () => { saveGeneration.current++; setSaving(false); setSnapshot(null); setExpanded(false); setBody(''); setRecipientUserIds([]); setFailed(false); setReselectIdentity(null); };
 
   useEffect(() => { close(); }, [props.identity]);
   useEffect(() => {
@@ -135,7 +139,10 @@ export function SelectionNoteComposer(props: Props) {
     const current = latest.current;
     if (saving || current.disabled || current.identity !== visible.identity || current.source !== visible.source || current.updatedAt !== visible.target.baseUpdatedAt || !validateAssistTarget(current.source, visible.target) || !body.trim()) return;
     const generation = ++saveGeneration.current; setSaving(true);
-    try { const saved = await current.onAdd(visible.target, body.trim()); if (generation !== saveGeneration.current || latest.current.identity !== current.identity) return; if (saved) close(); else setFailed(true); }
+    try { const saved = recipientUserIds.length
+      ? await current.onAdd(visible.target, body.trim(), recipientUserIds)
+      : await current.onAdd(visible.target, body.trim());
+      if (generation !== saveGeneration.current || latest.current.identity !== current.identity) return; if (saved) close(); else setFailed(true); }
     catch { if (generation === saveGeneration.current && latest.current.identity === current.identity) setFailed(true); }
     finally { if (generation === saveGeneration.current) setSaving(false); }
   };
@@ -158,7 +165,10 @@ export function SelectionNoteComposer(props: Props) {
       <textarea ref={textareaRef} aria-label={zh ? '笔记内容' : 'Note'} value={body} maxLength={10_000} rows={3} disabled={saving}
         placeholder={zh ? '记下你的想法…' : 'Write your thoughts…'}
         className="block w-full resize-y rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-        onChange={(event) => { setBody(event.target.value); setFailed(false); }} />
+        onChange={(event) => { setBody(event.target.value); setFailed(false); }}
+        onKeyDown={(event) => { if (event.key === '@' && !saving) { event.preventDefault(); setCollaboratorOpenSignal((value) => value + 1); } }} />
+      {props.spaceId ? <NoteCollaboratorPicker spaceId={props.spaceId} language={props.language} selectedUserIds={recipientUserIds}
+        onChange={(ids) => { setRecipientUserIds(ids); setFailed(false); }} disabled={saving} openSignal={collaboratorOpenSignal} /> : null}
       {stale || failed || props.disabled ? <p role="alert" className="text-xs leading-5 text-amber-800">{failed && props.storageUnavailable ? (zh ? '笔记尚未保存到服务器。输入已保留，请检查网络后重试。' : 'The note has not been saved to the server. Your draft is retained. Check your connection and retry.') : stale ? (zh ? '原文或版本已变动。输入已保留，请重新选择原文后添加笔记。' : 'The source or version changed. Your draft is retained; reselect the passage before adding a note.') : (zh ? '暂时无法添加笔记，输入已保留，请检查原文后重试。' : 'The note could not be added. Your draft is retained; check the passage and retry.')}</p> : null}
       {stale || failed ? <button type="button" className="text-xs font-medium text-blue-600 hover:underline" onClick={() => { setExpanded(false); setSnapshot(null); setFailed(false); setReselectIdentity(props.identity); }}>{zh ? '重新选择原文' : 'Reselect passage'}</button> : null}
       <div className="flex items-center justify-end gap-2"><button type="button" className="rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100" onClick={close}>{zh ? '取消' : 'Cancel'}</button><button type="button" disabled={saving || !body.trim() || stale || props.disabled} className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40" onClick={submit}>{saving ? (zh ? '保存中…' : 'Saving…') : (zh ? '添加笔记' : 'Add note')}</button></div>

@@ -7,7 +7,7 @@ export interface PageNoteDto {
   status: PersonalNoteStatus; taskId?: string; author: NoteAuthor; canEdit: boolean;
   createdAt: string; updatedAt: string; clientNoteId?: string;
 }
-export interface CreatePageNote { clientNoteId: string; body: string; target: AssistTarget; status?: PersonalNoteStatus; taskId?: string }
+export interface CreatePageNote { clientNoteId: string; body: string; target: AssistTarget; status?: PersonalNoteStatus; taskId?: string; recipientUserIds?: string[] }
 const path = (scope: PersonalNotesScope) => `/spaces/${encodeURIComponent(scope.spaceId)}/pages/${encodeURIComponent(scope.pageId)}/notes`;
 export function fromPageNote(note: PageNoteDto, scope: PersonalNotesScope): PersonalNote {
   if (!note || note.spaceId !== scope.spaceId || note.pageId !== scope.pageId || !note.author?.id || !['user', 'agent'].includes(note.author.type)) throw new Error('Invalid page note scope');

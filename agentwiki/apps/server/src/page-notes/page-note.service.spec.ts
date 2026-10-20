@@ -110,4 +110,25 @@ describe('shared page notes', () => {
     await expect(s.service.update(human, 'space-1', 'page-1', note.id, { expectedUpdatedAt: note.updatedAt, authorId: 'other' })).rejects.toThrow('Invalid page note');
     await expect(s.service.update(human, 'space-1', 'page-1', note.id, { expectedUpdatedAt: note.updatedAt })).rejects.toThrow('Invalid page note');
   });
+
+  it('creates collaborator notifications in the same note transaction and keeps retries idempotent', async () => {
+    const s = setupNotes();
+    s.db.page = { findUnique: jest.fn(async () => ({ title: 'Project page' })) };
+    const notifications = { createPageNoteNotifications: jest.fn(async () => undefined) } as any;
+    const service = new (s.service.constructor as any)(s.db, s.authorization, notifications);
+    const body = { ...input, recipientUserIds: ['user-2', 'user-3'] };
+    const first = await service.create(human, 'space-1', 'page-1', body);
+    expect(notifications.createPageNoteNotifications).toHaveBeenCalledWith(s.db, expect.objectContaining({
+      noteId: first.id, pageId: 'page-1', spaceId: 'space-1', authorUserId: 'user-1',
+      recipientUserIds: ['user-2', 'user-3'], pageTitle: 'Project page', body: input.body, quote: target.quote,
+    }));
+    await service.create(human, 'space-1', 'page-1', body);
+    expect(notifications.createPageNoteNotifications).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds collaborator ids before persistence', async () => {
+    const s = setupNotes();
+    await expect(create(s, human, { ...input, recipientUserIds: Array.from({ length: 51 }, (_, index) => `user-${index}`) })).rejects.toThrow('Invalid page note');
+    expect(s.rows).toEqual([]);
+  });
 });

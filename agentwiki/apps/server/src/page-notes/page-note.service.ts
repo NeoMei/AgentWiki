@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { PageNote, Prisma } from '@prisma/client';
 import { AuthorizationService, Principal, SpaceRole } from '../core/authorization/authorization.service';
 import { BusinessException } from '../core/filters/business-error';
 import { PrismaService } from '../database/prisma.service';
+import { NotificationService } from '../notifications/notification.service';
 import { NOTE_CREATE, NOTE_DELETE, NOTE_ID, NOTE_ROUTE, NOTE_UPDATE, parseNoteInput } from './page-note.schema';
 
 const READ_ROLES: SpaceRole[] = ['owner', 'admin', 'editor', 'viewer'];
@@ -12,7 +13,11 @@ const identity = (principal: Principal) => principal.agentId
 
 @Injectable()
 export class PageNoteService {
-  constructor(private readonly prisma: PrismaService, private readonly authorization: AuthorizationService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly authorization: AuthorizationService,
+    @Optional() private readonly notifications?: NotificationService,
+  ) {}
 
   async list(principal: Principal, spaceId: string, pageId: string) {
     await this.assertRead(principal, spaceId, pageId);
@@ -51,6 +56,19 @@ export class PageNoteService {
         clientNoteId: input.clientNoteId, body: input.body, target: input.target as Prisma.InputJsonValue,
         status: input.status ?? 'pending', taskId: !input.status || input.status === 'pending' ? null : input.taskId ?? null,
       } });
+      if (this.notifications && input.recipientUserIds?.length) {
+        const page = await db.page.findUnique({ where: { id: pageId }, select: { title: true } });
+        await this.notifications.createPageNoteNotifications(db, {
+          noteId: note.id,
+          pageId,
+          spaceId,
+          authorUserId: principal.userId,
+          recipientUserIds: input.recipientUserIds,
+          pageTitle: page?.title ?? '',
+          body: note.body,
+          quote: input.target.quote,
+        });
+      }
       return this.project(note, principal, true);
     });
   }

@@ -1514,9 +1514,9 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
           />
         </div>
         {panelReadable ? <SelectionNoteComposer key={`${personalNotes.identityKey}:${mode}`} rootRef={noteSelectionRootRef}
-          identity={personalNotes.identityKey} source={content} updatedAt={page.updatedAt} language={language}
+          identity={personalNotes.identityKey} spaceId={page.spaceId} source={content} updatedAt={page.updatedAt} language={language}
           disabled={!personalNotes.loaded || !personalNotes.canCreate || personalNotes.syncing || saving || !!remoteUpdate || !!unresolvedSocketRevisionRef.current || !!personalNotes.assistRequest}
-          storageUnavailable={personalNotes.storageUnavailable} onAdd={(target, body) => personalNotes.add(target, body, { requirePersistence: true })} captureTarget={() => {
+          storageUnavailable={personalNotes.storageUnavailable} onAdd={(target, body, recipientUserIds) => personalNotes.add(target, body, { requirePersistence: true, recipientUserIds })} captureTarget={() => {
             const nativeSelection = window.getSelection();
             if (!nativeSelection?.rangeCount) return null;
             const range = nativeSelection.getRangeAt(0);

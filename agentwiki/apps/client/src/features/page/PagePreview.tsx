@@ -808,8 +808,8 @@ export const PagePreview: React.FC = () => {
       </article>
 
       {notesEnabled ? <SelectionNoteComposer key={personalNotes.identityKey} rootRef={markdownRootRef}
-        identity={personalNotes.identityKey} source={page.content} updatedAt={page.updatedAt} language={language}
-        storageUnavailable={personalNotes.storageUnavailable} disabled={!personalNotes.loaded || !personalNotes.canCreate || personalNotes.syncing || !!personalNotes.assistRequest} onAdd={(target, body) => personalNotes.add(target, body, { requirePersistence: true })} captureTarget={() => {
+        identity={personalNotes.identityKey} spaceId={page.spaceId} source={page.content} updatedAt={page.updatedAt} language={language}
+        storageUnavailable={personalNotes.storageUnavailable} disabled={!personalNotes.loaded || !personalNotes.canCreate || personalNotes.syncing || !!personalNotes.assistRequest} onAdd={(target, body, recipientUserIds) => personalNotes.add(target, body, { requirePersistence: true, recipientUserIds })} captureTarget={() => {
           const selection = window.getSelection(), root = markdownRootRef.current?.querySelector<HTMLElement>('[data-markdown-selection-root]');
           return root && selection?.rangeCount && !selection.isCollapsed
             ? captureReadingSelection(root, selection.getRangeAt(0), page.content, page.updatedAt, root.dataset.markdownSelectionVersion ?? '') : null;
