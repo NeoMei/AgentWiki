@@ -1,0 +1,59 @@
+{
+  "session": "ejbm",
+  "run": {
+    "id": "deec7bfdead65",
+    "session_id": "ejbm",
+    "tab_id": 2011631578,
+    "name": "template-preview-final",
+    "url": "http://127.0.0.1:2714/e2e/fixtures/template-preview.html",
+    "started_at": 1792423874486.0,
+    "state": "capturing",
+    "requests": 140,
+    "operations": 4,
+    "errors": 0,
+    "dropped_requests": 0,
+    "dropped_operations": 0,
+    "dropped_console": 0,
+    "coverage": [
+      "from_start",
+      "task_tab",
+      "text_bodies_bounded",
+      "time_window_not_causality",
+      "page_main_frame",
+      "worker_targets_not_captured",
+      "manual_main_frame_only",
+      "initial_load_not_recorded"
+    ],
+    "next_since": 1057,
+    "active_rules": 0,
+    "saved_at": 1792423890104.0,
+    "storage": {
+      "bytes": 3229711,
+      "dropped": 0,
+      "pins": 0,
+      "requests": 140
+    },
+    "environment": {
+      "extension_version": "0.3.3",
+      "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36"
+    }
+  },
+  "console": [
+    {
+      "level": "debug",
+      "text": "[vite] connecting...",
+      "source_url": "http://127.0.0.1:2714/@vite/client"
+    },
+    {
+      "level": "debug",
+      "text": "[vite] connected.",
+      "source_url": "http://127.0.0.1:2714/@vite/client"
+    },
+    {
+      "level": "info",
+      "text": "%cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold",
+      "source_url": "http://127.0.0.1:2714/node_modules/.vite/deps/chunk-XI35OFE4.js?v=a68545bc"
+    }
+  ],
+  "relevantErrors": []
+}

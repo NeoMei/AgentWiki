@@ -1,0 +1,68 @@
+{
+  "worktree": "/Users/neomei/.codex/worktrees/template-preview-custom/AgentWiki ",
+  "validation": "real React components, in-memory HTTP fixture, not production acceptance",
+  "files": [
+    {
+      "path": "apps/client/src/features/page-templates/NewPageDialog.tsx",
+      "sha256": "60ac234a8add323e0ae0456dfbf62ac91995aad88360bf2c2e11a36f79866eba"
+    },
+    {
+      "path": "apps/client/src/features/page-templates/NewContentPage.tsx",
+      "sha256": "667dc4942d31896b1d20121fb9aeb6bdcca8b96f9a85a053a7836b53d253e3f4"
+    },
+    {
+      "path": "apps/client/src/features/page-templates/TemplateContentPreview.tsx",
+      "sha256": "5b283f053e0f80ff2a2d84cd0e7dda1b10d149082e7abc8b7a1c110ed4a16853"
+    },
+    {
+      "path": "apps/client/src/features/page-templates/template-content-preview.css",
+      "sha256": "20fd7e26dc1ad36708333a5d1fa86b957b07dbccc84057332bdf2a68956d3f12"
+    },
+    {
+      "path": "apps/client/src/features/page-templates/template-creation.css",
+      "sha256": "3bb1b7848db4c0d3d7faf393d5a42c0f1dc1375f1cb91f423c799220ef3835bf"
+    },
+    {
+      "path": "apps/client/src/features/page-templates/PageTemplateManager.tsx",
+      "sha256": "7a33b9b5be8335bdfb7628f856f540456319ef40c9cc8af71f046beedd0e4787"
+    },
+    {
+      "path": "apps/client/src/features/page-templates/CreatePageTemplateDialog.tsx",
+      "sha256": "c85d498f2866be5517515dc231d12add499556b43d44551f645fb54a4dfb196c"
+    },
+    {
+      "path": "apps/client/src/i18n/templateEntryMessages.ts",
+      "sha256": "9bae1308a7355e3039acc9b58847bee13f0c88c2107fcb1f972b3bca0c1c7d82"
+    },
+    {
+      "path": "apps/client/e2e/template-preview-custom.spec.ts",
+      "sha256": "9cfc55b3f7ff4206690921b1ac5cd5723482d890020135782743f4f328f49e8f"
+    },
+    {
+      "path": "apps/client/e2e/fixtures/template-preview.html",
+      "sha256": "7c99108117fa88828caab41e174ccd0e1676e09da2fa6b83aa76c3acf536f217"
+    },
+    {
+      "path": "apps/client/e2e/fixtures/template-preview.tsx",
+      "sha256": "cc67943cadcf1b634933750aff7de11c7c0fb65d5cbba596298bd7acd359f7a7"
+    },
+    {
+      "path": "apps/client/e2e/fixtures/template-preview-api.mjs",
+      "sha256": "020c406e81f48dc193f166b1cda72ebc27398ebd877446d3d2f9efffda5822ef"
+    },
+    {
+      "path": "apps/client/src/context/LanguageContext.tsx",
+      "sha256": "54a733f1ea829cc94b0d1d212dc4c265e25040674c4e1335ee582dbccbe0880a"
+    },
+    {
+      "path": "apps/client/src/i18n/messages.ts",
+      "sha256": "b025508539d844f78e41236a947063a7528dab29e0af72fb426344f181cd3205"
+    },
+    {
+      "path": "apps/client/src/features/page-templates/useTemplateEntryLanguage.ts",
+      "sha256": "febc806e03929c4f06870129319cab4fed742e376d2556e776ed85418f41ae75"
+    }
+  ],
+  "validatedAt": "2026-10-19T23:37:50.620944+08:00",
+  "testResult": "5 passed (10.2s)"
+}

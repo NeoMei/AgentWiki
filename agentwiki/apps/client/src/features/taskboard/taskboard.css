@@ -11,10 +11,10 @@
   font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
 }
 .tb-page * { box-sizing: border-box; }
-.tb-page button, .tb-page input, .tb-page select, .tb-page textarea { font: inherit; color: inherit; }
+.tb-page button, .tb-page input, .tb-page textarea { font: inherit; color: inherit; }
 .tb-page button { cursor: pointer; }
 .tb-page button:disabled { cursor: not-allowed; opacity: .45; }
-.tb-page :is(button, input, select, textarea, summary):focus-visible { outline: 2px solid #64748b; outline-offset: 3px; }
+.tb-page :is(button, input, textarea, summary):focus-visible { outline: 2px solid #64748b; outline-offset: 3px; }
 .tb-page small, .tb-page .muted { color: var(--tb-muted); font-size: 12px; }
 .tb-page h1, .tb-page h2, .tb-page h3 { color: var(--tb-text); font-weight: 600; }
 .tb-page h1 { margin: 0; font-size: 24px; line-height: 1.35; letter-spacing: -.4px; overflow-wrap: anywhere; }
@@ -26,7 +26,7 @@
 .tb-page .page-heading { display: grid; gap: 5px; min-width: 0; }
 .tb-page .page-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .tb-page .updated { margin-right: 8px; color: var(--tb-muted); font-size: 12px; }
-.tb-page .tb-button, .tb-page .locate, .tb-page .roadnav button, .tb-page .jumpmenu {
+.tb-page .tb-button, .tb-page .locate, .tb-page .roadnav button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -44,7 +44,7 @@
 .tb-page :is(.tb-button, .locate, .roadnav button):hover:not(:disabled) { background: #f4f4f5; border-color: #d4d4d8; }
 .tb-page .tb-button.primary { color: #fff; background: #27272a; border-color: #27272a; }
 .tb-page .tb-button.primary:hover:not(:disabled) { background: #3f3f46; border-color: #3f3f46; }
-.tb-page input:not([type=checkbox]):not([type=file]), .tb-page select, .tb-page textarea {
+.tb-page input:not([type=checkbox]):not([type=file]), .tb-page textarea {
   min-width: 0;
   max-width: 100%;
   min-height: 32px;
@@ -80,9 +80,9 @@
 .tb-page .scope-summary { display: block; margin-top: 7px; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .tb-page .road-time { margin-top: 2px; }
 .tb-page .roadnav { display: flex; flex-direction: column; justify-content: center; gap: 6px; flex-shrink: 0; }
-.tb-page .roadnav button, .tb-page .roadnav .jumpmenu { width: 32px; height: 32px; min-height: 32px; padding: 0; }
+.tb-page .roadnav button { width: 32px; height: 32px; min-height: 32px; padding: 0; }
 .tb-page .roadnav button { font-size: 18px; }
-.tb-page .roadnav .jumpmenu { font-size: 12px; padding-left: 3px; }
+.tb-page .roadnav .jumpmenu { width: 80px; flex-shrink: 0; }
 
 /* Use color only for state and task type signals. */
 .tb-page .done, .tb-page .passed { --state: #12a367; }
@@ -216,9 +216,9 @@
   .tb-page .legend .note { width: 100%; margin-left: 0; }
   .tb-page .legend-divider { display: none; }
   .tb-page .import-panel > .statusrow:first-of-type { align-items: flex-start; flex-direction: column; }
-  .tb-page .tb-button, .tb-page .locate, .tb-page .roadnav button, .tb-page .roadnav .jumpmenu, .tb-page .crumb-button { min-height: 44px; }
-  .tb-page .roadnav button, .tb-page .roadnav .jumpmenu { width: 44px; height: 44px; }
-  .tb-page input:not([type=checkbox]):not([type=file]), .tb-page select { min-height: 44px; }
+  .tb-page .tb-button, .tb-page .locate, .tb-page .roadnav button, .tb-page .crumb-button { min-height: 44px; }
+  .tb-page .roadnav button { width: 44px; height: 44px; }
+  .tb-page input:not([type=checkbox]):not([type=file]) { min-height: 44px; }
   .tb-page .plan-upload input::file-selector-button { min-height: 44px; }
   .tb-page .import-panel summary, .tb-page details.audit summary { min-height: 44px; }
 }

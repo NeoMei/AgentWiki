@@ -1,0 +1,419 @@
+{
+  "version": "0.12.55",
+  "revision": "fb61b3cc55558b8e71aa05ad15a33aafa40b8f51",
+  "completedAt": "2026-10-19T18:10:20.681479+00:00",
+  "scope": "Original user production browser; read-only UI; no created resources",
+  "checksPassed": 20,
+  "checks": [
+    {
+      "name": "template_desktop_unfocused",
+      "status": "passed"
+    },
+    {
+      "name": "template_desktop_keyboard_focus",
+      "status": "passed"
+    },
+    {
+      "name": "template_compact_page_switch",
+      "status": "passed"
+    },
+    {
+      "name": "template_expanded_preserves_selection",
+      "status": "passed"
+    },
+    {
+      "name": "template_expanded_page_switch",
+      "status": "passed"
+    },
+    {
+      "name": "template_mobile_expanded_390",
+      "status": "passed"
+    },
+    {
+      "name": "template_mobile_compact_keyboard_390",
+      "status": "passed"
+    },
+    {
+      "name": "agent_desktop_focus",
+      "status": "passed"
+    },
+    {
+      "name": "agent_mobile_focus_390",
+      "status": "passed"
+    },
+    {
+      "name": "taskboard_source_desktop_focus",
+      "status": "passed"
+    },
+    {
+      "name": "taskboard_source_mobile_390",
+      "status": "passed"
+    },
+    {
+      "name": "graph_filter_desktop_focus",
+      "status": "passed"
+    },
+    {
+      "name": "graph_filter_mobile_focus_390",
+      "status": "passed"
+    },
+    {
+      "name": "graph_node_mobile_focus_390",
+      "status": "passed"
+    },
+    {
+      "name": "graph_node_selection_updates_details",
+      "status": "passed"
+    },
+    {
+      "name": "manager_capabilities_false",
+      "status": "passed"
+    },
+    {
+      "name": "browser_js_css_entry_matches_release",
+      "status": "passed"
+    },
+    {
+      "name": "five_public_assets_hash_match",
+      "status": "passed"
+    },
+    {
+      "name": "network_no_business_writes",
+      "status": "passed"
+    },
+    {
+      "name": "session_cleanup_and_viewport_reset",
+      "status": "passed"
+    }
+  ],
+  "computedStyleMeasurements": 22,
+  "styles": [
+    {
+      "case": "template-unfocused",
+      "height": 32,
+      "viewport": 1690,
+      "appearance": "none",
+      "radius": "8px",
+      "font": "14px",
+      "focusVisible": false,
+      "outline": "rgb(10, 10, 10) none 3px",
+      "shadow": "none"
+    },
+    {
+      "case": "template-unfocused",
+      "height": 32,
+      "viewport": 1690,
+      "appearance": "none",
+      "radius": "8px",
+      "font": "14px",
+      "focusVisible": false,
+      "outline": "rgb(10, 10, 10) none 3px",
+      "shadow": "none"
+    },
+    {
+      "case": "template-keyboard",
+      "height": 32,
+      "viewport": 1690,
+      "appearance": "none",
+      "radius": "8px",
+      "font": "14px",
+      "focusVisible": false,
+      "outline": "rgb(10, 10, 10) none 3px",
+      "shadow": "none"
+    },
+    {
+      "case": "template-keyboard",
+      "height": 32,
+      "viewport": 1690,
+      "appearance": "none",
+      "radius": "8px",
+      "font": "14px",
+      "focusVisible": true,
+      "outline": "rgb(10, 10, 10) none 3px",
+      "shadow": "rgba(115, 115, 115, 0.16) 0px 0px 0px 1.99918px"
+    },
+    {
+      "case": "template-expanded-desktop",
+      "height": 32,
+      "viewport": 1690,
+      "appearance": "none",
+      "radius": "8px",
+      "font": "14px",
+      "focusVisible": false,
+      "outline": "rgb(10, 10, 10) none 3px",
+      "shadow": "none"
+    },
+    {
+      "case": "template-expanded-desktop",
+      "height": 32,
+      "viewport": 1690,
+      "appearance": "none",
+      "radius": "8px",
+      "font": "14px",
+      "focusVisible": false,
+      "outline": "rgb(10, 10, 10) none 3px",
+      "shadow": "none"
+    },
+    {
+      "case": "template-expanded-desktop",
+      "height": 32,
+      "viewport": 1690,
+      "appearance": "none",
+      "radius": "8px",
+      "font": "14px",
+      "focusVisible": true,
+      "outline": "rgb(10, 10, 10) none 3px",
+      "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px"
+    },
+    {
+      "case": "template-expanded-mobile",
+      "height": 44,
+      "viewport": 390,
+      "appearance": "none",
+      "radius": "8px",
+      "font": "14px",
+      "focusVisible": false,
+      "outline": "rgb(10, 10, 10) none 3px",
+      "shadow": "none"
+    },
+    {
+      "case": "template-expanded-mobile",
+      "height": 44,
+      "viewport": 390,
+      "appearance": "none",
+      "radius": "8px",
+      "font": "14px",
+      "focusVisible": false,
+      "outline": "rgb(10, 10, 10) none 3px",
+      "shadow": "none"
+    },
+    {
+      "case": "template-expanded-mobile",
+      "height": 44,
+      "viewport": 390,
+      "appearance": "none",
+      "radius": "8px",
+      "font": "14px",
+      "focusVisible": true,
+      "outline": "rgb(10, 10, 10) none 3px",
+      "shadow": "rgba(115, 115, 115, 0.16) 0px 0px 0px 2px"
+    },
+    {
+      "case": "template-compact-mobile",
+      "height": 44,
+      "viewport": 390,
+      "appearance": "none",
+      "radius": "8px",
+      "font": "14px",
+      "focusVisible": false,
+      "outline": "rgb(10, 10, 10) none 3px",
+      "shadow": "none"
+    },
+    {
+      "case": "template-compact-mobile",
+      "height": 44,
+      "viewport": 390,
+      "appearance": "none",
+      "radius": "8px",
+      "font": "14px",
+      "focusVisible": true,
+      "outline": "rgb(10, 10, 10) none 3px",
+      "shadow": "rgba(115, 115, 115, 0.16) 0px 0px 0px 1.99908px"
+    },
+    {
+      "case": "agent-desktop",
+      "height": 32,
+      "viewport": 1440,
+      "appearance": "none",
+      "radius": "8px",
+      "font": "14px",
+      "focusVisible": true,
+      "outline": "rgb(10, 10, 10) none 3px",
+      "shadow": "rgba(115, 115, 115, 0.16) 0px 0px 0px 2px"
+    },
+    {
+      "case": "agent-mobile",
+      "height": 44,
+      "viewport": 390,
+      "appearance": "none",
+      "radius": "8px",
+      "font": "14px",
+      "focusVisible": true,
+      "outline": "rgb(10, 10, 10) none 3px",
+      "shadow": "rgba(115, 115, 115, 0.16) 0px 0px 0px 2px"
+    },
+    {
+      "case": "taskboard-source-desktop",
+      "height": 32,
+      "viewport": 1440,
+      "appearance": "none",
+      "radius": "8px",
+      "font": "14px",
+      "focusVisible": true,
+      "outline": "rgb(10, 10, 10) none 3px",
+      "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px"
+    },
+    {
+      "case": "taskboard-source-mobile",
+      "height": 44,
+      "viewport": 390,
+      "appearance": "none",
+      "radius": "8px",
+      "font": "14px",
+      "focusVisible": true,
+      "outline": "rgb(10, 10, 10) none 3px",
+      "shadow": "rgba(115, 115, 115, 0.16) 0px 0px 0px 2px"
+    },
+    {
+      "case": "graph-mobile",
+      "height": 44,
+      "viewport": 390,
+      "appearance": "none",
+      "radius": "8px",
+      "font": "14px",
+      "focusVisible": true,
+      "outline": "rgb(10, 10, 10) none 3px",
+      "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px"
+    },
+    {
+      "case": "graph-mobile",
+      "height": 44,
+      "viewport": 390,
+      "appearance": "none",
+      "radius": "8px",
+      "font": "14px",
+      "focusVisible": false,
+      "outline": "rgb(10, 10, 10) none 3px",
+      "shadow": "none"
+    },
+    {
+      "case": "graph-node-mobile",
+      "height": 44,
+      "viewport": 390,
+      "appearance": "none",
+      "radius": "8px",
+      "font": "14px",
+      "focusVisible": false,
+      "outline": "rgb(10, 10, 10) none 3px",
+      "shadow": "none"
+    },
+    {
+      "case": "graph-node-mobile",
+      "height": 44,
+      "viewport": 390,
+      "appearance": "none",
+      "radius": "8px",
+      "font": "14px",
+      "focusVisible": true,
+      "outline": "rgb(10, 10, 10) none 3px",
+      "shadow": "rgba(115, 115, 115, 0.16) 0px 0px 0px 2px"
+    },
+    {
+      "case": "graph-desktop",
+      "height": 32,
+      "viewport": 1440,
+      "appearance": "none",
+      "radius": "8px",
+      "font": "14px",
+      "focusVisible": true,
+      "outline": "rgb(10, 10, 10) none 3px",
+      "shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px"
+    },
+    {
+      "case": "graph-desktop",
+      "height": 32,
+      "viewport": 1440,
+      "appearance": "none",
+      "radius": "8px",
+      "font": "14px",
+      "focusVisible": false,
+      "outline": "rgb(10, 10, 10) none 3px",
+      "shadow": "none"
+    }
+  ],
+  "styleSamplingNote": "Some direct-focus captures are at the 120ms transition start (transparent 0px shadow). Settled keyboard/template and Agent/mobile captures show the shared rgba(115,115,115,.16) 2px ring; all focused samples have outline-style none.",
+  "boundaries": [
+    {
+      "name": "manager_filters",
+      "reason": "Original project canManage=false; management link and filters unavailable to current editor"
+    },
+    {
+      "name": "taskboard_jump_and_status",
+      "reason": "Original project has no board tasks; controls absent"
+    },
+    {
+      "name": "graph_relation_change",
+      "reason": "No graph relationships; filter has only all option"
+    },
+    {
+      "name": "agent_scope_change",
+      "reason": "Focus only; no draft selection change and no message sent"
+    }
+  ],
+  "network": {
+    "capturedRequests": 319,
+    "apiRequests": 90,
+    "methodCounts": {
+      "GET": 317,
+      "POST": 2
+    },
+    "postCount": 2,
+    "posts": [
+      {
+        "route": "templates/:templateId/preview",
+        "httpStatus": 201,
+        "semantics": "read-only template preview"
+      },
+      {
+        "route": "markdown/resolve",
+        "httpStatus": 201,
+        "semantics": "read-only markdown reference resolution"
+      }
+    ],
+    "businessWrites": 0,
+    "putPatchDeleteCount": 0,
+    "resourceCreateUpdateDeleteCount": 0,
+    "agentMessagesSent": 0,
+    "httpErrorCount": 1,
+    "errorBoundary": "One GET of an existing inaccessible Agent session returned 400; UI showed unavailable-session state. Scope dropdown remained testable; no message was sent.",
+    "consoleErrorCount": 1,
+    "debugCaptureDroppedRequests": 0
+  },
+  "assets": {
+    "browserEntrypointsMatch": true,
+    "assets": [
+      {
+        "asset": "/assets/index-aLXRk4DV.js",
+        "sha256": "cf5ff2c783e78d75b58063f97676f9479b4327ccc5298ba7fea2040100792c32",
+        "matchesHost": true
+      },
+      {
+        "asset": "/assets/_commonjsHelpers-CqkleIqs.js",
+        "sha256": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+        "matchesHost": true
+      },
+      {
+        "asset": "/assets/react-vendor-CTv3miC2.js",
+        "sha256": "7e3a4bf34c49700b5fad7403a908da66c35ca1ad3669d05d3356f1a5e9bae663",
+        "matchesHost": true
+      },
+      {
+        "asset": "/assets/preload-helper-ckwbz45p.js",
+        "sha256": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+        "matchesHost": true
+      },
+      {
+        "asset": "/assets/index-23qTUFr4.css",
+        "sha256": "aef32aab7b5a8227d9f031a1e658111ae5ef8f261a453f76dea7a46bfb5baa5c",
+        "matchesHost": true
+      }
+    ]
+  },
+  "cleanup": {
+    "session": "fhft stopped",
+    "emulation": "cleared before stop",
+    "createdTab": "closed by session stop",
+    "borrowedUserTabs": 0
+  },
+  "evidencePrivacy": "All raw screenshots/debug remain local private directory; no names/emails/business text in this receipt"
+}

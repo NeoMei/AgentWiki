@@ -21,7 +21,6 @@
 .role-binding-editor .role-binding-required { margin-left: 4px; color: #d41616; }
 .role-binding-editor .role-binding-description p { margin-top: 4px; color: #737373; }
 .role-binding-editor .role-binding-controls { display: flex; flex-wrap: wrap; align-items: start; gap: 8px; min-width: 0; }
-.role-binding-editor .role-binding-controls select,
 .role-binding-editor .role-binding-controls button {
   min-width: 0;
   max-width: 100%;
@@ -33,10 +32,10 @@
   color: #404040;
   font: inherit;
 }
-.role-binding-editor .role-binding-controls select { flex: 1 1 160px; width: 0; text-overflow: ellipsis; }
+.role-binding-editor .role-binding-controls .aw-select { flex: 1 1 160px; width: 0; text-overflow: ellipsis; }
 .role-binding-editor .role-binding-controls button { flex: 0 1 auto; overflow-wrap: anywhere; font-weight: 500; }
 .role-binding-editor .role-binding-controls button:hover { background: #fafafa; }
-.role-binding-editor .role-binding-controls :focus-visible { outline: 2px solid #737373; outline-offset: 2px; }
+.role-binding-editor .role-binding-controls :focus-visible:not(.aw-select) { outline: 2px solid #737373; outline-offset: 2px; }
 @container role-bindings (max-width: 580px) {
   .role-binding-editor .role-binding-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
 }

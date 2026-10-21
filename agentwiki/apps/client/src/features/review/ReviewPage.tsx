@@ -1,3 +1,4 @@
+import { NativeSelect } from '../../components/NativeSelect';
 import { bugReviewText } from '../../i18n/bug-review-messages';
 import { sourceStatusText } from '../../i18n/source-status-messages';
 import { SourceStatusNotice } from '../page/SourceStatusNotice';
@@ -442,14 +443,14 @@ export const ReviewPage: React.FC = () => {
         setPage(1);
       }}>
         <label className="text-xs text-gray-600">{rt('review.searchHistory')}<input type="search" maxLength={200} value={searchDraft.q} onChange={event => setSearchDraft(current => ({ ...current, q: event.target.value }))} placeholder={rt('review.searchHint')} className="mt-1 h-9 w-full rounded-lg border px-3 text-sm" /></label>
-        <label className="text-xs text-gray-600">{rt('review.space')}<select value={spaceId || ''} onChange={event => {
+        <label className="text-xs text-gray-600">{rt('review.space')}<NativeSelect value={spaceId || ''} onChange={event => {
           const next = new URLSearchParams(searchParams);
           if (event.target.value) next.set('spaceId', event.target.value); else next.delete('spaceId');
           setPage(1); setSearchParams(next);
-        }} className="mt-1 h-9 w-full rounded-lg border px-2 text-sm">
+        }} className="mt-1 w-full">
           <option value="">{rt('review.allSpaces')}</option>
           {spaces.map(space => <option key={space.id} value={space.id}>{space.name}</option>)}
-        </select></label>
+        </NativeSelect></label>
         <label className="text-xs text-gray-600">{rt('review.from')}<input type="date" value={searchDraft.from} max={searchDraft.to || undefined} onChange={event => setSearchDraft(current => ({ ...current, from: event.target.value }))} className="mt-1 h-9 w-full rounded-lg border px-2 text-sm" /></label>
         <label className="text-xs text-gray-600">{rt('review.to')}<input type="date" value={searchDraft.to} min={searchDraft.from || undefined} onChange={event => setSearchDraft(current => ({ ...current, to: event.target.value }))} className="mt-1 h-9 w-full rounded-lg border px-2 text-sm" /></label>
         <button type="submit" className="h-9 rounded-lg border px-3 text-sm sm:col-span-2 lg:col-span-4 justify-self-start">{rt('review.search')}</button>

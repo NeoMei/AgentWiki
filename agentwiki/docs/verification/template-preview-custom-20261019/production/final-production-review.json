@@ -1,0 +1,287 @@
+{
+  "reviewType": "post_deployment_read_only",
+  "stage": "technical_and_production_browser_acceptance_complete",
+  "reviewedAt": "2026-10-19T16:21:59.845886+00:00",
+  "revision": "e067fa3728b68db844d39e60f049801937f3cc96",
+  "version": "0.12.54",
+  "checks": {
+    "validation_logs_and_totals": {
+      "passed": true,
+      "detail": {
+        "totalPassed": 8109,
+        "totalSkipped": 6,
+        "serialDatabasePassed": 239,
+        "serialDatabaseSkipped": 0,
+        "logHashMismatches": [],
+        "mode": "passed_in_phases",
+        "attemptsPreserved": [
+          "failed_missing_test_environment",
+          "runtime_database_server_passed_client_one_timeout",
+          "passed",
+          "passed"
+        ],
+        "qualification": "All repository phases completed successfully on unchanged frozen source. One initially failing client timing check passed both isolated and in the complete client inventory with a single worker; evidence supports parallel resource contention. This is phased validation, not a single clean pnpm test:full invocation."
+      }
+    },
+    "validation_cleanup_receipt": {
+      "passed": true,
+      "detail": {
+        "verified": true,
+        "databases": [
+          "agentwiki_full_test_11762_mvfflh33",
+          "agentwiki_sync_version_test_11762_mvfflh33"
+        ],
+        "databaseRemainingCount": 0,
+        "redisPid": 11848,
+        "redisPort": 6392,
+        "redisProcessGone": true,
+        "temporaryDirectory": "/private/var/folders/0n/49qgdd8x7kgcvh719fw743mh0000gn/T/agentwiki-full-test-qT5lQF",
+        "temporaryDirectoryRemoved": true,
+        "existingBusinessAndProductionDatabasesUntouched": true,
+        "existingRedis6379Untouched": true
+      }
+    },
+    "deployed_source_and_version": {
+      "passed": true,
+      "detail": {
+        "revision": "e067fa3728b68db844d39e60f049801937f3cc96",
+        "sourceFilesVerified": 1389,
+        "versions": {
+          "web": "0.12.54",
+          "client": "0.12.54",
+          "api": "0.12.54",
+          "localSync": "0.13.4",
+          "protocol": "0.6.1"
+        },
+        "nodeVersion": "v24.18.0",
+        "hostVerifiedAt": "2026-10-19T16:06:27.106697+00:00"
+      }
+    },
+    "services_and_health": {
+      "passed": true,
+      "detail": {
+        "hostServices": {
+          "agentwiki-api.service": "active",
+          "agentwiki-worker.service": "active",
+          "agentwiki-frontend.service": "active"
+        },
+        "hostHealth": {
+          "status": "ok",
+          "database": "ok",
+          "redis": "ok",
+          "auditPersistence": "ok",
+          "attachmentStorage": "ok"
+        },
+        "publicHealth": {
+          "status": "ok",
+          "database": "ok",
+          "redis": "ok",
+          "auditPersistence": "ok",
+          "attachmentStorage": "ok"
+        }
+      }
+    },
+    "public_entry_matches_host": {
+      "passed": true,
+      "detail": {
+        "publicVerifiedAt": "2026-10-19T16:06:31.426852+00:00",
+        "entryHtmlSha256": "e2c715710b7e255b3527fa49281cdeef171c8c5350bb26994235c086f3dc3033",
+        "assetsMatched": [
+          "/assets/index-SrQnT1Xx.js",
+          "/assets/_commonjsHelpers-CqkleIqs.js",
+          "/assets/react-vendor-CTv3miC2.js",
+          "/assets/preload-helper-ckwbz45p.js",
+          "/assets/index-hXfaIQQr.css"
+        ]
+      }
+    },
+    "independent_live_public_recheck": {
+      "passed": true,
+      "detail": {
+        "command": "python3 verify-release.py --mode public --host-receipt production-host.json",
+        "exitCode": 0,
+        "verifiedAt": "2026-10-19T16:08:29.065197+00:00",
+        "revision": "e067fa3728b68db844d39e60f049801937f3cc96",
+        "status": "passed",
+        "entryAssetsMatched": 5,
+        "allFiveHealthKeys": "ok",
+        "writesPerformed": false
+      }
+    },
+    "migration_state": {
+      "passed": true,
+      "detail": {
+        "receipt": {
+          "status": "passed",
+          "appliedCount": 64,
+          "pending": [],
+          "failedCount": 0,
+          "autoModeApplied": true
+        },
+        "frozenExpectedMigrationCount": 64,
+        "newMigrationsInThisRelease": false,
+        "verificationMethod": "Read-only query of _prisma_migrations plus comparison to deployed migration directories."
+      }
+    },
+    "configuration_unchanged": {
+      "passed": true,
+      "detail": {
+        "rootAndServerEnvHashesUnchanged": true,
+        "servicesAfterConfigurationCheck": 3,
+        "credentialsReadOrExposedByReviewer": false
+      }
+    },
+    "deployment_completed": {
+      "passed": true,
+      "detail": {
+        "previousApplicationTree": "/root/agentwiki-previous-20261020000557",
+        "runtimeRoot": "/root/agentwiki",
+        "normalStartupConnectionRetriesObserved": true,
+        "subsequentHostAndPublicHealthPassed": true,
+        "deployLogSha256": "200489af5643fef331eb391a221b728465190d81f9ab3cad91682e699490630c"
+      }
+    },
+    "backup_to_deployment_continuity": {
+      "passed": true,
+      "detail": {
+        "backupDirectory": "/var/backups/agentwiki/templates-v01254.mexgfxtm",
+        "backupVersion": "0.12.53",
+        "backupFinishedAt": "2026-10-19T15:46:25.140548+00:00",
+        "preDeploymentBaselineRevision": "476408cb4e59cf4cc078ea35010f68b47c6ecd7f",
+        "preDeploymentBaselineVerifiedAt": "2026-10-19T16:03:19.777659+00:00",
+        "priorTreeRetained": "/root/agentwiki-previous-20261020000557",
+        "recoveryBoundary": "Paired database/application/configuration/attachments snapshot exists and was checksum verified; backup was not restored as part of this review."
+      }
+    },
+    "frozen_source_still_unchanged": {
+      "passed": true,
+      "detail": {
+        "head": "e067fa3728b68db844d39e60f049801937f3cc96",
+        "packagedSourceFilesRehashed": 1389,
+        "sourceMismatches": [],
+        "concurrentDocumentationChangesOutsideReleasePackage": [
+          ".codex-memory/current.md"
+        ],
+        "allowedPostReleaseEvidence": "Untracked docs/verification/template-preview-custom-20261019/production/ and root .codex-memory current updates do not enter deployment package."
+      }
+    },
+    "production_browser_receipt_identity": {
+      "passed": true,
+      "detail": {
+        "version": "0.12.54",
+        "candidateRevision": "e067fa3728b68db844d39e60f049801937f3cc96",
+        "checksPassed": 11,
+        "mockedTraffic": false,
+        "finishedAt": "2026-10-19T16:19:05.903204+00:00",
+        "browser": "original user Chrome session via BrowserSkill, new task window"
+      }
+    },
+    "browser_source_template_generated_identity_chain": {
+      "passed": true,
+      "detail": {
+        "spaceId": "cmvfgagke005p4m4q0i4f81ih",
+        "sourcePageId": "a41a05b0-aa0e-458c-850d-e66825d1cfd8",
+        "templateId": "cmvfgdgzx006n4m4q3igmw93h",
+        "generatedPageId": "d16191ab-58af-4727-badb-5d88ce023c9d",
+        "templateVersion": 1,
+        "expectedSourceUpdatedAtMatchesReadback": true,
+        "generatedPageProvenanceMatchesTemplate": true
+      }
+    },
+    "browser_durable_content_readback": {
+      "passed": true,
+      "detail": {
+        "twoDistinctPageIds": true,
+        "sameSyntheticSpace": true,
+        "contentSha256": "d820321dc14e3f5bd25023ae02d07e9c4f0152b258e8ea9b403bbf68e3b8bbc0",
+        "actualSourceTemplateAndGeneratedBodiesEqual": true,
+        "readbackMethod": "Captured official GET response bodies hashed independently; no new production request."
+      }
+    },
+    "browser_exact_cleanup": {
+      "passed": true,
+      "detail": {
+        "exactSpaceId": "cmvfgagke005p4m4q0i4f81ih",
+        "exactTemplateId": "cmvfgdgzx006n4m4q3igmw93h",
+        "templateArchiveStatus": 200,
+        "spaceDeleteStatus": 200,
+        "spaceDeletedAt": "2026-10-19T16:17:22.812Z",
+        "completeInventoryTotal": 6,
+        "completeInventoryRows": 6,
+        "hasMore": false,
+        "temporarySpaceAbsent": true,
+        "cleanupBoundary": "Official soft deletion and template archive verified; audit records and soft-delete tombstones may remain."
+      }
+    },
+    "browser_write_scope_and_permissions": {
+      "passed": true,
+      "detail": {
+        "mutatingMethodRequestsReviewed": 15,
+        "outOfScopeWrites": [],
+        "originalProjectCatalogCanManage": false,
+        "originalProjectCatalogCanCreate": true,
+        "originalProjectMutationBoundary": "Only read-only template preview POST requests were observed in original project; business documents and permissions were not mutated.",
+        "privateTemporarySpaceVerifiedFromCreateResponse": true
+      }
+    },
+    "browser_chronology_and_capture_completion": {
+      "passed": true,
+      "detail": {
+        "requestChainChronological": true,
+        "runId": "d029c0eddddcb",
+        "captureState": "stopped",
+        "captureStoppedAt": "2026-10-19T16:18:20.734000+00:00",
+        "consoleErrors": 0,
+        "activeInterceptionRules": 0,
+        "droppedRequests": 0,
+        "droppedOperations": 0,
+        "droppedConsole": 0
+      }
+    },
+    "browser_private_visual_evidence": {
+      "passed": true,
+      "detail": {
+        "privateScreenshotsPresent": 7,
+        "independentlyViewed": [
+          "production-ui-daily-thumbnail.png",
+          "production-ui-custom-entry-preview.png"
+        ],
+        "visualResult": "Original project daily preview shows rendered headings/body; isolated custom template entry shows actual checklist/table body and manager link.",
+        "copiedExternally": false
+      }
+    }
+  },
+  "blockingFindings": [],
+  "pendingFinalAcceptance": [],
+  "status": "passed",
+  "conclusion": "v0.12.54冻结源码、生产版本/健康/迁移/配置与备份证据一致；真实浏览器11项验收、源模板生成页正文持久化及唯一临时空间精确清理均核验通过，无阻塞项。",
+  "evidenceSha256": {
+    "validation.json": "f7e0510323a4b49a9780a30bd5609eab39d56d0c984cc3104086d70816a20bb1",
+    "deploy.log": "200489af5643fef331eb391a221b728465190d81f9ab3cad91682e699490630c",
+    "production-host.json": "ede521efc41c373d6f81ba10930686dd35dcd1b645956955f3be942cfbf91cbd",
+    "production-public.json": "8dc894fa6a7625e1b76f347bb6bc5de556a1ffc608b7ad7a390e8cde72db7971",
+    "production-migrations.json": "9bf5b24e3daeaf113d30af7ae022b9f4485418a6ab6aab67f055ec32a3d6090e",
+    "env-services-after-deploy.log": "eaf312083c27ce6d5e99b6d361f76c6fc52ca5b29e94fa56174e8a9b46548a89",
+    "baseline-host-before-deploy.json": "44164f2d62a0f7c929ee4a70ff27b7c58fe93afcc0f083e5bc5927fca93922a5",
+    "backup-receipt.json": "a8fcf8a843699c6ac924cacdef7ea98da305c00d094746df9f80bb3eba570e7d",
+    "final-release-review.json": "9e5d4497166b1c3b23540d01cf267e78d7520b23a562aed5d360e4e2ff8cb1f5",
+    "production-ui-receipt.json": "32060f07c0c5e212bd3f5aa27d7c99842d94c13167a756ca3ae7a7aeb0952f7c"
+  },
+  "limitations": [
+    "Template version-creation was not repeated in this production run; local suite covers it.",
+    "Screenshots and raw debug exports remain private local artifacts because navigation includes account identity.",
+    "Validation passed in phases with 8109 passed and 6 existing skipped tests; the original parallel timeout and missing-environment attempt remain recorded.",
+    "No new production request was performed during final browser receipt review."
+  ],
+  "privateEvidenceIntegrity": {
+    "production-ui-final-debug.json": "16a14c4604bd27fe7278373b5d8162b6a4dc912d5f47d2f4b582fae76b620ddc",
+    "production-ui-cleanup-manifest.json": "597672e44b10a27e7d7517ff82f9cba5ece358cadcd0aa3db9638f54649a7a8b",
+    "production-ui-daily-thumbnail.png": "796c21c1a7d382ec7ed8606f03f9e41af2d294ab106e90e1930abdd17a1e97d8",
+    "production-ui-daily-expanded.png": "3c43c431b160a5072d64c9c1f924b70803d5efa87ce48788878c1da63648a6cf",
+    "production-ui-group-risk.png": "9a0ebadc90ab8266a570aab6aa0f93db32075de4925d3c2fef64efdd019cf2a9",
+    "production-ui-owner-entry.png": "2269cec882e297966b09dc6ce751368aa300a05b5b0a4bdd3473c71cffa9be06",
+    "production-ui-manager-restored.png": "dd98576e9e07f7f436ccd51995059c5c4bb13d0667f93b8a90b440c7d3f29591",
+    "production-ui-custom-entry-preview.png": "444675b6a940da5f480f72a1be8ed839df872f6e8eac350a036c873196208830",
+    "production-ui-created-page.png": "6c76d84efff8aff3e42c6bb16fbb090da36506cc41ecf90df64348eb5109fec3"
+  }
+}

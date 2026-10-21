@@ -1,3 +1,4 @@
+import { NativeSelect } from '../../components/NativeSelect';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiErrorCode, apiErrorMessage } from '../../api/error-message';
 import { ModalDialog } from '../../components/ModalDialog';
@@ -228,14 +229,14 @@ export const UpgradeWorkflowTemplateDialog: React.FC<UpgradeWorkflowTemplateDial
         <label className="text-sm font-medium">{t('pageTemplate.name')}<input data-modal-autofocus value={draft.name} onChange={(event) => { setDraft((value) => ({ ...value, name: truncateValidatorLength(event.target.value, NAME_LIMIT) })); setValidated(null); }} className="mt-1 h-10 w-full rounded-lg border px-3 font-normal" /></label>
         <label className="text-sm font-medium">{t('pageTemplate.defaultTitle')}<input value={draft.defaultTitle} onChange={(event) => { setDraft((value) => ({ ...value, defaultTitle: truncateValidatorLength(event.target.value, TITLE_LIMIT) })); setValidated(null); }} className="mt-1 h-10 w-full rounded-lg border px-3 font-normal" /></label>
         <label className="text-sm font-medium sm:col-span-2">{t('pageTemplate.description')}<textarea value={draft.description} onChange={(event) => { setDraft((value) => ({ ...value, description: truncateValidatorLength(event.target.value, DESCRIPTION_LIMIT) })); setValidated(null); }} className="mt-1 min-h-20 w-full rounded-lg border p-3 font-normal" /></label>
-        <label className="text-sm font-medium">{t('pageTemplate.category')}<select value={draft.category} onChange={(event) => { setDraft((value) => ({ ...value, category: event.target.value as typeof CATEGORIES[number] })); setValidated(null); }} className="mt-1 h-10 w-full rounded-lg border px-3 font-normal">{CATEGORIES.map((category) => <option key={category} value={category}>{t(`pageTemplate.category.${category}`)}</option>)}</select></label>
+        <label className="text-sm font-medium">{t('pageTemplate.category')}<NativeSelect value={draft.category} onChange={(event) => { setDraft((value) => ({ ...value, category: event.target.value as typeof CATEGORIES[number] })); setValidated(null); }} className="mt-1 w-full">{CATEGORIES.map((category) => <option key={category} value={category}>{t(`pageTemplate.category.${category}`)}</option>)}</NativeSelect></label>
       </div>
 
       <section className="rounded-[14px] border p-4">
         <h3 className="font-semibold">{t('pageTemplate.upgrade.folderHeading')}</h3>
         <p className="mt-1 text-sm text-gray-600">{t('pageTemplate.upgrade.folderHelp')}</p>
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
-          <label className="min-w-0 flex-1 text-sm font-medium">{t('pageTemplate.upgrade.sourceFolder')}<select value={folderId} onChange={(event) => { setFolderId(event.target.value); setDefinition(null); setValidated(null); }} className="mt-1 h-10 w-full rounded-lg border px-3 font-normal"><option value="">{t('pageTemplate.upgrade.chooseFolder')}</option>{folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</select></label>
+          <label className="min-w-0 flex-1 text-sm font-medium">{t('pageTemplate.upgrade.sourceFolder')}<NativeSelect value={folderId} onChange={(event) => { setFolderId(event.target.value); setDefinition(null); setValidated(null); }} className="mt-1 w-full"><option value="">{t('pageTemplate.upgrade.chooseFolder')}</option>{folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}</NativeSelect></label>
           <button type="button" disabled={!folderId || loadingFolder || !source} onClick={() => void loadFolder()} className="min-h-10 rounded-lg border px-4 text-sm">{loadingFolder ? t('common.loading') : t('pageTemplate.upgrade.loadFolder')}</button>
         </div>
         {!folders.length && !loading ? <p className="mt-3 text-sm text-amber-700">{t('pageTemplate.upgrade.noFolders')}</p> : null}

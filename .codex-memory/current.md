@@ -1,34 +1,31 @@
 # 当前目标
 
-AgentWiki 的发布源已锁定为 `codex/agent-autochat-external-opencode`，候选基线 `f2eadab9`，当前连续性门禁为 `645546ea`。新 Session 必须先运行 `cd agentwiki && node scripts/agentwiki-release-guard.mjs`；历史 `codex/assist-qwen-fallback` 与 `codex/agent-directory-access` 均不是发布源。Canonical local checkout: `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`. Web/API/client 当前发布版本为 0.12.53。
+全站下拉选择控件统一任务已完成，v0.12.55于2026-10-20部署并正式发布；原反馈页面生产只读回验通过。
 
 # 范围 / 不做
 
-Agent 可遍历当前授权目录及子目录，无需逐篇引用；聊天按提示词回答、修改当前文章或在当前目录创建文章，不需要选择模式。0.12.53 仅优化下拉箭头、间距和聚焦边框，保留原生键盘与辅助功能行为。Local Sync 保持 0.13.4，protocol 保持 0.6.1；未发布 npm 或修改原反馈页。
+客户端56处选择控件、28个业务文件接入NativeSelect，移除局部外观覆盖并增加lint防回归。无服务端业务、数据库、依赖或用户内容修改；Local Sync0.13.4与protocol0.6.1不变，不发布npm。
 
 # 当前状态
 
-- 工作树 `/Users/neomei/.codex/worktrees/agent-directory-access/AgentWiki `（尾空格），分支 `codex/agent-directory-access`。版本标签 v0.12.53 和冻结源码 `476408cb4e59cf4cc078ea35010f68b47c6ecd7f` 已推送并部署，GitHub Release 已发布。
-- 0.12.53 的 116 项相关测试、客户端生产构建与改动 TSX 的 ESLint 通过；首屏 JS 549985/550000 字节。桌面与窄面板、箭头点击、方向键和 Esc 已验证；生产浏览器确认新样式，无 warning/error。
-- 1377 生产源码文件、公网 HTML 与五项入口资源匹配；64 项迁移无 pending；API/Worker/Frontend active，五项健康 ok。0.12.53 无新迁移、依赖或锁文件变更。
-- 0.12.52 已完成全量 8080 通过、6 既有跳过、真实数据库 239 项无跳过，以及真实模型 API 四场景与浏览器目录总结、新建、修改三场景验收；0.12.53 未重复运行该全量验收。
-- 0.12.53 临时验收账号/Space 已官方 API 软删除并回读确认，令牌失效，临时浏览器页和本地预览已关闭。
-- 配对备份 `/var/backups/agentwiki/scope-ui-v01253.x49anmnl` 校验通过，旧应用保留 `/root/agentwiki-previous-20261019225209`。未执行恢复演练。
+- 工作树 `/Users/neomei/.codex/worktrees/template-preview-custom/AgentWiki `（尾空格），分支 `codex/unified-select-audit`；发布冻结fb61b3cc55558b8e71aa05ad15a33aafa40b8f51，后续仅验收文档提交。
+- 根因是先前只修复Agent设置的局部样式；全站共享组件现统一箭头、边框、圆角、字号、尺寸与焦点，业务CSS只保留布局。56/56事件、属性和选项独立AST审查一致。
+- build/typecheck/lint与单次test:full通过，8117passed/6既有skipped，数据库239零skip；本地6条模板E2E、24组跨组件desktop/390px通过。
+- 生产模板普通/聚焦/切页/放大/手机、Agent范围、看板来源与图谱选择控件通过；网络审计零业务写入，自建标签/会话关闭。
+- 1393源码及公网5入口资源匹配，3服务active/5健康ok，64迁移无待办，配置字节保持。配套备份selects-v01255.aeirxzlk验证通过，隔离测试环境清理完成。
 
 # 稳定约束
 
-Git 在对应工作树 cwd 下显式 --work-tree 指向带尾空格路径，不指定 common --git-dir。保留主检出用户改动。不要并行运行会清理同一 dist 的 build 与依赖 dist 的验证。发布以实时生产源码核对为准。
+Git在工作树cwd下显式--work-tree指向带尾空格路径；主检出用户改动保留。业务JSX必须用NativeSelect，新增裸select由lint拒绝；样式规则见component-reuse。不要并行执行清理同一dist的build与依赖dist的验证。
 
 # 关键索引
 
-- agentwiki/docs/releases-v0.12.53.md
-- 本次私有验收回执 `/private/tmp/agentwiki-scope-release-20261019/release-receipt.json`
-- agentwiki/docs/releases-v0.12.52.md
-- agentwiki/docs/verification/agent-auto-release-20261019/acceptance.md
-- agentwiki/docs/verification/agent-auto-release-20261019/release.json
-- agentwiki/docs/verification/agent-directory-20261019/acceptance.md
-- agentwiki/docs/verification/agent-auto-chat-20261019/acceptance.md
+- .codex-memory/tasks/archive/unified-select-audit-20261020/{brief,decisions,refs}.md
+- .codex-memory/spec/component-reuse.md
+- agentwiki/docs/releases-v0.12.55.md
+- agentwiki/docs/verification/unified-select-audit-20261020/production/
+- https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.55
 
 # 风险 / 下一步
 
-当前无未完成发布事项。新 auto/目录会话不兼容旧版服务校验，优先前向修复；不能只切旧应用视为完整回滚。配对恢复需处理备份之后的用户写入。
+原账号editor的管理入口依权限隐藏；原项目无任务，jump/status只做本地真实组件验收。生产1条既有Agent会话GET400未扩展修复，未发送Agent消息。备份已核验但未演练恢复；本次下拉样式任务无待办实现或发布步骤。

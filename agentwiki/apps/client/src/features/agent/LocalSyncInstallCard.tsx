@@ -1,3 +1,4 @@
+import { NativeSelect } from '../../components/NativeSelect';
 import React, { useEffect, useState } from 'react';
 import { Check, Copy, ExternalLink, PlugZap } from 'lucide-react';
 import { AGENT_ACCESS_ROLES, type AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
@@ -159,29 +160,29 @@ export const LocalSyncInstallCard: React.FC<{
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <label className="text-sm text-gray-700" htmlFor="local-sync-space">
           <span className="mb-1 block font-medium">{t('agent.localSync.spaceLabel')}</span>
-          <select
+          <NativeSelect
             id="local-sync-space"
             value={spaceId}
             disabled={spaces.length === 0}
             onChange={(event) => setSpaceId(event.target.value)}
-            className="h-8 w-full rounded-lg border px-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100"
+            className="w-full"
           >
             {spaces.map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}
-          </select>
+          </NativeSelect>
         </label>
         <label className="text-sm text-gray-700" htmlFor="local-sync-role">
           <span className="mb-1 block font-medium">{t('agent.roleLabel')}</span>
-          <select
+          <NativeSelect
             id="local-sync-role"
             value={role}
             disabled={!spaceId}
             onChange={(event) => setRole(event.target.value as AgentAccessRole)}
-            className="h-8 w-full rounded-lg border px-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100"
+            className="w-full"
           >
             {availableRoles.map((item) => (
               <option key={item} value={item}>{roleName(item)}</option>
             ))}
-          </select>
+          </NativeSelect>
         </label>
       </div>
       {spaces.length === 0 ? (

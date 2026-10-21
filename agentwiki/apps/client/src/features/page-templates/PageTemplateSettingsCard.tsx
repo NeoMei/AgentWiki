@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useLanguage } from '../../context/LanguageContext';
+import { useTemplateEntryLanguage as useLanguage } from './useTemplateEntryLanguage';
+import { customTemplatesHref } from './templateContentNavigation';
 import { listPageTemplates } from './pageTemplateApi';
 import type { PageTemplateListResponse } from './pageTemplateTypes';
 
@@ -43,12 +44,14 @@ export const PageTemplateSettingsCard: React.FC<{ spaceId: string }> = ({ spaceI
       ) : null}
       {visibleState ? <p className="mt-3 text-sm text-gray-600">{t('pageTemplate.activeCount', { count: visibleState.totalSpace })}</p> : null}
       {visibleState?.capabilities.canManage ? (
-        <Link
-          className="mt-4 inline-flex min-h-10 items-center rounded-lg border px-4 text-sm"
+        <div className="mt-4 flex flex-wrap items-center gap-3"><Link
+          className="inline-flex min-h-10 items-center rounded-lg border px-4 text-sm"
           to={`/spaces/${spaceId}/settings/page-templates`}
         >
           {t('pageTemplate.manage')}
         </Link>
+        <Link className="inline-flex min-h-10 items-center rounded-lg border px-4 text-sm" to={customTemplatesHref(spaceId)}>{t('pageTemplate.browseCustom')}</Link>
+        </div>
       ) : null}
     </section>
   );

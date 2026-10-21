@@ -1,5 +1,5 @@
 .knowledge-graph { color: #202938; min-width: 0; --graph-accent: #4263eb; }
-.knowledge-graph button, .knowledge-graph summary, .knowledge-graph a, .knowledge-graph select, .knowledge-graph input { outline-offset: 3px; }
+.knowledge-graph button, .knowledge-graph summary, .knowledge-graph a, .knowledge-graph input { outline-offset: 3px; }
 .graph-heading { margin-bottom: 18px; }
 .graph-heading nav { display: flex; align-items: center; gap: 8px; color: #7b8494; font-size: 12px; margin-bottom: 12px; }
 .graph-heading nav a:hover { color: #4779ff; }
@@ -18,7 +18,7 @@
 .graph-filter-menu > summary::-webkit-details-marker { display: none; }
 .graph-filter-menu[open] > summary { border-color: #a4bcff; background: #f7f9ff; }
 .graph-filter-popover { position: absolute; top: 46px; left: 0; width: 270px; max-width: calc(100vw - 48px); z-index: 40; background: #fff; border: 1px solid #dce2ed; border-radius: 10px; padding: 16px; box-shadow: 0 10px 28px #263a5b1a; }
-.graph-filter-popover select { display: block; width: 100%; border: 1px solid #d6dce7; border-radius: 6px; padding: 7px; margin-top: 6px; }
+.graph-filter-popover .aw-select { display: block; width: 100%; margin-top: 6px; }
 .graph-filter-popover p { font-size: 12px; color: #8190a6; margin: 15px 0 7px; }
 .graph-origin-filters { display: flex; flex-wrap: wrap; gap: 7px; }
 .graph-origin-filters button { padding: 5px 8px; border: 1px solid #e0e6f1; border-radius: 5px; font-size: 12px; }
@@ -94,7 +94,7 @@
 .graph-empty-state { position: absolute; inset: 70px 25px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 15px; text-align: center; color: #8c9ab0; font-size: 14px; pointer-events: none; }
 .graph-accessible-browser { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-top: 12px; font-size: 12px; color: #7a8597; }
 .graph-accessible-browser p { margin-right: auto; }
-.graph-accessible-browser select { max-width: 160px; min-width: 0; border: 1px solid #e2e7ef; border-radius: 5px; padding: 4px 6px; background: #fff; color: #697995; }
+.graph-accessible-browser .aw-select { max-width: 160px; }
 .graph-accessible-browser a { color: #4779ff; }
 @media (max-width: 1023px) { .graph-details { height: auto; max-height: 520px; } .graph-stage { height: 570px; } }
 @media (max-width: 640px) { .graph-heading { margin-bottom: 15px; } .graph-heading h1 { font-size: 25px; } .graph-toolbar { gap: 9px; } .graph-search { flex-basis: 100%; max-width: none; } .graph-count-filters { flex: 1 1 100%; } .graph-count-filters button { flex: 1; padding: 0 8px; } .graph-view-actions { gap: 6px; } .graph-view-actions button { padding: 0 9px; font-size: 11px; gap: 5px; } .graph-filter-menu > summary { padding: 0 9px; gap: 5px; font-size: 12px; } .graph-stage { height: 470px; } .graph-folder-title { top: 12px; left: 13px; right: 10px; gap: 5px; } .graph-folder-title > span { font-size: 10px; } .graph-legend { gap: 10px; font-size: 10px; left: 10px; padding: 0 8px; bottom: 12px; } .graph-legend i { width: 16px; } .graph-zoom { right: 10px; bottom: 12px; } .graph-zoom button { width: 28px; } .graph-zoom output { min-width: 39px; } .graph-accessible-browser p { flex-basis: 100%; font-size: 10px; } }

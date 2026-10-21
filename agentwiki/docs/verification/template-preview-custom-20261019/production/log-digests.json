@@ -1,0 +1,38 @@
+{
+  "build.log": {
+    "bytes": 33219,
+    "sha256": "1e517ee4469d22f2095a641de0c407301b050a1d454352e6e3cc96086e3bb433"
+  },
+  "test.log": {
+    "bytes": 73604,
+    "sha256": "8e6ba6e313b3e207c8cde6d6add18de0fde270ef060da947920c3f11e4cdccdd"
+  },
+  "full-test.log": {
+    "bytes": 204293,
+    "sha256": "f0a44a8598fb3e4910cd1846a62cd5108336c6d536252f3b3bb5713ab8ecb36c"
+  },
+  "client-single-worker.log": {
+    "bytes": 292,
+    "sha256": "7a146f5c93be5ba30df8eb3d2ccb5cfeb0ae7b490199afb1d40081235efc300d"
+  },
+  "protocol-tests.log": {
+    "bytes": 302,
+    "sha256": "00dd8408ee965440e7c4c18b055ba2955767240218dc50bba1a77a37d7041621"
+  },
+  "local-sync-tests.log": {
+    "bytes": 336,
+    "sha256": "919d6da492a6d0ba763ed5508ca5ec4a3e4d75161390ae01a707042fc5257de8"
+  },
+  "deploy.log": {
+    "bytes": 43587,
+    "sha256": "200489af5643fef331eb391a221b728465190d81f9ab3cad91682e699490630c"
+  },
+  "env-services-after-deploy.log": {
+    "bytes": 175,
+    "sha256": "eaf312083c27ce6d5e99b6d361f76c6fc52ca5b29e94fa56174e8a9b46548a89"
+  },
+  "backup-independent-check.log": {
+    "bytes": 435,
+    "sha256": "48b5bc815da5f705a2b92a581c0384e3dc3d242625baf0c50f810deeae9d16b6"
+  }
+}

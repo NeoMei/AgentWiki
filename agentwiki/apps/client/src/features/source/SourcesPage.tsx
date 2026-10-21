@@ -1,3 +1,4 @@
+import { NativeSelect } from '../../components/NativeSelect';
 import { bugOperationsText } from '../../i18n/bug-operations-messages';
 import { runtimeLabel } from '../../i18n/runtime-label';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -243,7 +244,7 @@ const SourcesView: React.FC = () => {
       {canWrite && showCreate ? (
         <form onSubmit={create} className="border rounded-[14px] bg-white p-5 mb-6">
           <div className="grid sm:grid-cols-2 gap-4">
-            <div><label htmlFor="source-type" className="text-sm font-medium block mb-1">{t('common.type')}</label><select id="source-type" disabled={submitting} value={form.type} onChange={(e) => { setForm({ ...form, type: e.target.value }); if (e.target.value !== 'file') setFile(null); }} className="w-full h-8 border rounded-lg px-2 text-sm"><option value="text">{t('source.text')}</option><option value="file">{t('source.file')}</option><option value="url">{t('source.url')}</option></select></div>
+            <div><label htmlFor="source-type" className="text-sm font-medium block mb-1">{t('common.type')}</label><NativeSelect id="source-type" disabled={submitting} value={form.type} onChange={(e) => { setForm({ ...form, type: e.target.value }); if (e.target.value !== 'file') setFile(null); }} className="w-full"><option value="text">{t('source.text')}</option><option value="file">{t('source.file')}</option><option value="url">{t('source.url')}</option></NativeSelect></div>
             <div><label htmlFor="source-name" className="text-sm font-medium block mb-1">{t('common.name')}</label><input id="source-name" disabled={submitting} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full h-8 border rounded-lg px-3" required /></div>
           </div>
           {form.type === 'text' ? <textarea aria-label={t('source.pasteText')} disabled={submitting} value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} className="w-full border rounded-lg p-3 mt-4" rows={7} placeholder={t('source.pasteText')} required /> : null}

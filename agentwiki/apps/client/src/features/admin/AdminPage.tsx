@@ -1,3 +1,4 @@
+import { NativeSelect } from '../../components/NativeSelect';
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Shield, Users, BookOpen, Bot, Lock, Unlock, Key, Trash2, Search, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -197,17 +198,17 @@ export const AdminPage: React.FC = () => {
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm" placeholder={t('common.search')} value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} />
           </div>
-          <select className="border rounded-lg px-3 py-2 text-sm" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}>
+          <NativeSelect  value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}>
             <option value="all">{t('admin.allStatus')}</option>
             <option value="active">{t('admin.statusActive')}</option>
             <option value="locked">{t('admin.statusLocked')}</option>
             <option value="deleted">{t('admin.statusDeleted')}</option>
-          </select>
-          <select className="border rounded-lg px-3 py-2 text-sm" value={roleFilter} onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }}>
+          </NativeSelect>
+          <NativeSelect  value={roleFilter} onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }}>
             <option value="all">{t('admin.allRoles')}</option>
             <option value="user">{t('admin.roleUser')}</option>
             <option value="super_admin">{t('admin.roleAdmin')}</option>
-          </select>
+          </NativeSelect>
         </div>
 
         {loading ? <p className="text-gray-400 text-sm">{t('common.loading')}</p> : (

@@ -1,3 +1,4 @@
+import { NativeSelect } from '../../components/NativeSelect';
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { AGENT_ACCESS_ROLES, type AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
@@ -221,19 +222,19 @@ export const SpaceMembers: React.FC = () => {
                 </div>
                 <div className="flex flex-shrink-0 items-center gap-2">
                   {member.canManageRole ? (
-                    <select
+                    <NativeSelect
                       aria-label={zh ? `${name} 的 Agent 角色` : `${name} Agent role`}
                       value={member.role}
                       onChange={(event) => void handleAgentRoleChange(member.agentId!, event.target.value as AgentAccessRole)}
                       disabled={updatingId === member.agentId}
-                      className="rounded-md border px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+
                     >
                       {agentRoleOptions.map((role, index) => (
                         <option key={role} value={role} disabled={exceedsCurrentCeiling && index === 0}>
                           {t(`agent.role.${role}.name`)}{exceedsCurrentCeiling && index === 0 ? (zh ? '（当前授权高于你的 Space 角色上限）' : ' (above your current Space ceiling)') : ''}
                         </option>
                       ))}
-                    </select>
+                    </NativeSelect>
                   ) : (
                     <span className={`rounded-full px-2 py-1 text-xs font-medium ${AGENT_ROLE_STYLES[member.role]}`}>
                       {t(`agent.role.${member.role}.name`)}
@@ -273,18 +274,18 @@ export const SpaceMembers: React.FC = () => {
                           : (zh ? '查看者' : 'Viewer')}
                   </span>
                 ) : (
-                  <select
+                  <NativeSelect
                     aria-label={zh ? `${name} 的成员角色` : `${name} member role`}
                     value={member.role}
                     onChange={(event) => void handleHumanRoleChange(member.userId!, event.target.value as HumanRole)}
                     disabled={updatingId === member.userId}
-                    className="rounded-md border px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+
                   >
                     {canGrantOwner ? <option value="owner">{zh ? '所有者' : 'Owner'}</option> : null}
                     <option value="admin">{zh ? '管理员' : 'Admin'}</option>
                     <option value="editor">{zh ? '编辑者' : 'Editor'}</option>
                     <option value="viewer">{zh ? '查看者' : 'Viewer'}</option>
-                  </select>
+                  </NativeSelect>
                 )}
                 {canManage && member.role !== 'owner' ? (
                   <button

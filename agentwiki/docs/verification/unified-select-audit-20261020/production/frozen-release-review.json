@@ -1,0 +1,108 @@
+{
+  "status": "passed",
+  "reviewType": "read-only frozen release artifact review",
+  "reviewedAt": "2026-10-19T17:52:44.617987+00:00",
+  "revision": "fb61b3cc55558b8e71aa05ad15a33aafa40b8f51",
+  "productionBaselineRevision": "e067fa3728b68db844d39e60f049801937f3cc96",
+  "releaseRoot": "/private/tmp/agentwiki-select-audit-20261020/release",
+  "checks": {
+    "frozen_worktree": {
+      "passed": true,
+      "detail": {
+        "head": "fb61b3cc55558b8e71aa05ad15a33aafa40b8f51",
+        "status": ""
+      }
+    },
+    "script_prepare-frozen-release.py": {
+      "passed": true,
+      "detail": {
+        "onlyExpectedReplacements": true,
+        "sha256": "e51c0ba40d7c5d651a2af2b95afdacdec7d51b4ab113fdf65231f45b98e13bf0",
+        "syntaxParsedWithoutExecution": true
+      }
+    },
+    "script_backup-production.py": {
+      "passed": true,
+      "detail": {
+        "onlyExpectedReplacements": true,
+        "sha256": "2355558c7eabc6dd95b6b8ca19a20d41c1bc34e749379115ba009bad6c04859d",
+        "syntaxParsedWithoutExecution": true
+      }
+    },
+    "script_verify-release.template.py": {
+      "passed": true,
+      "detail": {
+        "onlyExpectedReplacements": true,
+        "sha256": "11ae48d5831a69ceb7dc1d01d788aa6b33ffe4ccda46382133619fd40b283d05",
+        "syntaxParsedWithoutExecution": true
+      }
+    },
+    "script_verify-release.py": {
+      "passed": true,
+      "detail": {
+        "onlyExpectedReplacements": true,
+        "sha256": "018bc106cc2c121b84abfebcc56450799f4f1f7101280f1769f4a3e3587cee64",
+        "syntaxParsedWithoutExecution": true
+      }
+    },
+    "frozen_revision_file": {
+      "passed": true,
+      "detail": "fb61b3cc55558b8e71aa05ad15a33aafa40b8f51"
+    },
+    "frozen_archive_matches_git": {
+      "passed": true,
+      "detail": {
+        "gitArchiveSha256": "c4cf30acfcc952277263ff465f4c42b842ba9524e6ac8414a3fdb7f112b86827",
+        "frozenArchiveSha256": "c4cf30acfcc952277263ff465f4c42b842ba9524e6ac8414a3fdb7f112b86827"
+      }
+    },
+    "export_matches_frozen_archive": {
+      "passed": true,
+      "detail": {
+        "archiveFiles": 2455,
+        "exportFiles": 2455,
+        "mismatches": [],
+        "extra": [],
+        "missing": [],
+        "symlinks": []
+      }
+    },
+    "manifest_matches_export": {
+      "passed": true,
+      "detail": {
+        "revision": "fb61b3cc55558b8e71aa05ad15a33aafa40b8f51",
+        "count": 1393,
+        "mismatches": []
+      }
+    },
+    "deploy_package_matches_manifest": {
+      "passed": true,
+      "detail": {
+        "packagedFiles": 1393,
+        "extra": [],
+        "missing": [],
+        "nonregular": []
+      }
+    },
+    "versions": {
+      "passed": true,
+      "detail": {
+        "package.json": "0.12.55",
+        "apps/client/package.json": "0.12.55",
+        "apps/server/package.json": "0.12.55",
+        "packages/local-sync/package.json": "0.13.4",
+        "packages/sync-protocol/package.json": "0.6.1"
+      }
+    },
+    "unchanged_backend_migrations_dependencies_deploy": {
+      "passed": true,
+      "detail": []
+    }
+  },
+  "blockingFindings": [],
+  "limits": [
+    "No source or release script edits, build/test, backup or deployment performed.",
+    "Backup script validated statically only; actual new coordinated backup and checksum receipt remain mandatory.",
+    "Complete test gate and production browser acceptance belong to parent/QA."
+  ]
+}

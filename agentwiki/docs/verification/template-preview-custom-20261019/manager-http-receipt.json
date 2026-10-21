@@ -1,0 +1,327 @@
+{
+  "templates": [
+    {
+      "id": "system-daily",
+      "name": "日报",
+      "scope": "system",
+      "kind": "single_page",
+      "stableKey": "system-daily",
+      "category": "reporting",
+      "description": "日报：复用页面内容与组织结构",
+      "defaultTitle": "日报",
+      "sourceLocale": null,
+      "currentVersion": 1,
+      "archivedAt": null,
+      "updatedAt": "2026-10-19T06:00:00.000Z",
+      "storageKind": "legacy_content",
+      "supportsCollaboration": false,
+      "effectiveSupportsCollaboration": false,
+      "pageCount": 1,
+      "folderCount": 0,
+      "roleCount": 0,
+      "content": "# 日报\n\n## 今日成果\n\n| 工作事项 | 进度 | 负责人 |\n| --- | --- | --- |\n| 模板预览修复 | 已完成 | 项目团队 |\n| 自定义模板入口 | 验证中 | 产品团队 |\n\n## 明日计划\n\n- [x] 核对模板实际内容\n- [ ] 完成用户验收\n\n## 风险与依赖\n\n记录阻塞事项、协作需求以及下一步安排。",
+      "contentLocale": "zh-CN",
+      "sourcePageId": null
+    },
+    {
+      "id": "custom-retro",
+      "name": "团队复盘模板",
+      "scope": "space",
+      "kind": "single_page",
+      "stableKey": "custom-retro",
+      "category": "reporting",
+      "description": "团队复盘模板：复用页面内容与组织结构",
+      "defaultTitle": "团队复盘模板",
+      "sourceLocale": "zh-CN",
+      "currentVersion": 1,
+      "archivedAt": null,
+      "updatedAt": "2026-10-19T06:00:00.000Z",
+      "storageKind": "legacy_content",
+      "supportsCollaboration": false,
+      "effectiveSupportsCollaboration": false,
+      "pageCount": 1,
+      "folderCount": 0,
+      "roleCount": 0,
+      "content": "# 团队复盘\n\n## 目标与结果\n\n这是团队自定义的复盘正文，与日报内容不同。\n\n| 改进事项 | 负责人 |\n| --- | --- |\n| 保留实际验收证据 | 测试团队 |\n\n## 行动计划\n\n- [ ] 下周复盘执行情况",
+      "contentLocale": "zh-CN",
+      "sourcePageId": "saved-report"
+    },
+    {
+      "id": "project-group",
+      "name": "项目启动页面组",
+      "scope": "system",
+      "kind": "page_group",
+      "stableKey": "project-group",
+      "category": "reporting",
+      "description": "项目启动页面组：复用页面内容与组织结构",
+      "defaultTitle": "项目启动页面组",
+      "sourceLocale": null,
+      "currentVersion": 1,
+      "archivedAt": null,
+      "updatedAt": "2026-10-19T06:00:00.000Z",
+      "storageKind": "definition",
+      "supportsCollaboration": false,
+      "effectiveSupportsCollaboration": false,
+      "pageCount": 2,
+      "folderCount": 1,
+      "roleCount": 0,
+      "content": "",
+      "contentLocale": "zh-CN",
+      "sourcePageId": null
+    },
+    {
+      "id": "saved-template-1",
+      "name": "本地验收周报模板 v2",
+      "scope": "space",
+      "kind": "single_page",
+      "stableKey": "saved-template-1",
+      "category": "other",
+      "description": "从已保存页面建立的可复用内容",
+      "defaultTitle": "已保存的项目周报",
+      "sourceLocale": "zh-CN",
+      "currentVersion": 1,
+      "archivedAt": null,
+      "updatedAt": "2026-10-19T06:00:05.000Z",
+      "storageKind": "legacy_content",
+      "supportsCollaboration": false,
+      "effectiveSupportsCollaboration": false,
+      "pageCount": 1,
+      "folderCount": 0,
+      "roleCount": 0,
+      "sourcePageId": "saved-report",
+      "contentLocale": "zh-CN",
+      "content": "# 项目周报\n\n## 本周交付\n\n从已保存页面复制的自定义正文。\n\n- [x] 完成模板修复\n- [ ] 记录真实用户反馈"
+    }
+  ],
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/spaces/template-preview-space/templates",
+      "query": {
+        "locale": "zh-CN",
+        "scope": "all",
+        "archived": "active",
+        "skip": "0",
+        "take": "50"
+      },
+      "input": {},
+      "role": "owner"
+    },
+    {
+      "method": "GET",
+      "path": "/api/spaces/template-preview-space/page-templates/source-pages",
+      "query": {
+        "skip": "0",
+        "take": "100"
+      },
+      "input": {},
+      "role": "owner"
+    },
+    {
+      "method": "POST",
+      "path": "/api/spaces/template-preview-space/page-templates",
+      "query": {},
+      "input": {
+        "name": "本地验收周报模板",
+        "description": "从已保存页面建立的可复用内容",
+        "category": "other",
+        "defaultTitle": "已保存的项目周报",
+        "locale": "zh-CN",
+        "sourcePageId": "saved-report",
+        "expectedSourceUpdatedAt": "2026-10-19T06:00:00.000Z"
+      },
+      "role": "owner"
+    },
+    {
+      "method": "GET",
+      "path": "/api/spaces/template-preview-space/templates",
+      "query": {
+        "locale": "zh-CN",
+        "scope": "all",
+        "archived": "active",
+        "skip": "0",
+        "take": "50"
+      },
+      "input": {},
+      "role": "owner"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/spaces/template-preview-space/page-templates/saved-template-1",
+      "query": {},
+      "input": {
+        "name": "本地验收周报模板 v2",
+        "description": "从已保存页面建立的可复用内容",
+        "category": "other",
+        "defaultTitle": "已保存的项目周报",
+        "expectedUpdatedAt": "2026-10-19T06:00:01.000Z"
+      },
+      "role": "owner"
+    },
+    {
+      "method": "GET",
+      "path": "/api/spaces/template-preview-space/templates",
+      "query": {
+        "locale": "zh-CN",
+        "scope": "all",
+        "archived": "active",
+        "skip": "0",
+        "take": "50"
+      },
+      "input": {},
+      "role": "owner"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/spaces/template-preview-space/page-templates/saved-template-1",
+      "query": {},
+      "input": {
+        "expectedUpdatedAt": "2026-10-19T06:00:02.000Z"
+      },
+      "role": "owner"
+    },
+    {
+      "method": "GET",
+      "path": "/api/spaces/template-preview-space/templates",
+      "query": {
+        "locale": "zh-CN",
+        "scope": "all",
+        "archived": "active",
+        "skip": "0",
+        "take": "50"
+      },
+      "input": {},
+      "role": "owner"
+    },
+    {
+      "method": "GET",
+      "path": "/api/spaces/template-preview-space/templates",
+      "query": {
+        "locale": "zh-CN",
+        "scope": "all",
+        "archived": "all",
+        "skip": "0",
+        "take": "50"
+      },
+      "input": {},
+      "role": "owner"
+    },
+    {
+      "method": "POST",
+      "path": "/api/spaces/template-preview-space/page-templates/saved-template-1/restore",
+      "query": {},
+      "input": {
+        "expectedUpdatedAt": "2026-10-19T06:00:04.000Z"
+      },
+      "role": "owner"
+    },
+    {
+      "method": "GET",
+      "path": "/api/spaces/template-preview-space/templates",
+      "query": {
+        "locale": "zh-CN",
+        "scope": "all",
+        "archived": "all",
+        "skip": "0",
+        "take": "50"
+      },
+      "input": {},
+      "role": "owner"
+    },
+    {
+      "method": "GET",
+      "path": "/api/spaces/template-preview-space",
+      "query": {},
+      "input": {},
+      "role": "owner"
+    },
+    {
+      "method": "GET",
+      "path": "/api/spaces/template-preview-space/folders",
+      "query": {
+        "take": "200"
+      },
+      "input": {},
+      "role": "owner"
+    },
+    {
+      "method": "GET",
+      "path": "/api/spaces/template-preview-space/templates",
+      "query": {
+        "locale": "zh-CN",
+        "scope": "space",
+        "kind": "single_page",
+        "archived": "active",
+        "skip": "0",
+        "take": "100"
+      },
+      "input": {},
+      "role": "owner"
+    },
+    {
+      "method": "POST",
+      "path": "/api/spaces/template-preview-space/templates/saved-template-1/preview",
+      "query": {},
+      "input": {
+        "templateVersion": 1,
+        "locale": "zh-CN",
+        "rootName": "已保存的项目周报",
+        "variables": {},
+        "collaborationEnabled": false
+      },
+      "role": "owner"
+    },
+    {
+      "method": "POST",
+      "path": "/api/spaces/template-preview-space/templates/saved-template-1/preview",
+      "query": {},
+      "input": {
+        "templateVersion": 1,
+        "locale": "zh-CN",
+        "rootName": "已保存的项目周报",
+        "variables": {},
+        "collaborationEnabled": false,
+        "targetParentFolderId": "reports"
+      },
+      "role": "owner"
+    },
+    {
+      "method": "GET",
+      "path": "/api/spaces/template-preview-space/members",
+      "query": {},
+      "input": {},
+      "role": "owner"
+    },
+    {
+      "method": "POST",
+      "path": "/api/spaces/template-preview-space/templates/saved-template-1/instantiate",
+      "query": {},
+      "input": {
+        "templateVersion": 1,
+        "locale": "zh-CN",
+        "rootName": "已保存的项目周报",
+        "variables": {},
+        "collaborationEnabled": false,
+        "targetParentFolderId": "reports",
+        "expectedTreeRevision": "5",
+        "idempotencyKey": "instantiate-89008f14-d335-4c38-837b-bbb517bc14b0"
+      },
+      "role": "owner"
+    }
+  ],
+  "created": [
+    {
+      "templateId": "saved-template-1",
+      "templateVersion": 1,
+      "locale": "zh-CN",
+      "rootName": "已保存的项目周报",
+      "variables": {},
+      "collaborationEnabled": false,
+      "targetParentFolderId": "reports",
+      "expectedTreeRevision": "5",
+      "idempotencyKey": "instantiate-89008f14-d335-4c38-837b-bbb517bc14b0",
+      "pageId": "created-page-1",
+      "content": "# 项目周报\n\n## 本周交付\n\n从已保存页面复制的自定义正文。\n\n- [x] 完成模板修复\n- [ ] 记录真实用户反馈"
+    }
+  ]
+}

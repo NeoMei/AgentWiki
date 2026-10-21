@@ -1,3 +1,4 @@
+import { NativeSelect } from '../../../components/NativeSelect';
 import React, { useEffect, useState } from 'react';
 import type { CollaborationTemplateDefinition } from '@neomei/agentwiki-sync-protocol';
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
@@ -123,7 +124,7 @@ const AgentTaskForm: React.FC<{ task: AgentTask; definition: CollaborationTempla
     onChange({ ...task, todos });
   };
   return <>
-    <label className="block text-sm font-medium">{labels.role}<select value={task.roleSlotId} onChange={(event) => onChange({ ...task, roleSlotId: event.target.value })} className="mt-1 h-10 w-full rounded-lg border px-3">{definition.roleSlots.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label>
+    <label className="block text-sm font-medium">{labels.role}<NativeSelect value={task.roleSlotId} onChange={(event) => onChange({ ...task, roleSlotId: event.target.value })} className="mt-1 w-full">{definition.roleSlots.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</NativeSelect></label>
     <label className="block text-sm font-medium">{labels.objective}<textarea value={task.objective} onChange={(event) => onChange({ ...task, objective: event.target.value })} className="mt-1 min-h-24 w-full rounded-lg border p-3" /></label>
     <fieldset className="rounded-lg border p-3"><legend className="px-1 text-sm font-medium">{labels.runInputs}</legend>
       <div className="space-y-2">{definition.inputs.length ? definition.inputs.map((input) => <label key={input.key} className="block text-sm"><input aria-label={`${labels.runInput} ${input.label}`} type="checkbox" checked={task.inputKeys.includes(input.key)} onChange={(event) => onChange({ ...task, inputKeys: event.target.checked ? [...new Set([...task.inputKeys, input.key])] : task.inputKeys.filter((key) => key !== input.key) })} /> {input.label}</label>) : <p className="text-xs text-gray-500">{labels.noRunInputs}</p>}</div>
@@ -150,7 +151,7 @@ const AgentTaskForm: React.FC<{ task: AgentTask; definition: CollaborationTempla
               : node),
         });
       }} className="mt-1 h-10 w-full rounded-lg border px-3" /></label>
-      <label className="block text-sm font-medium">{labels.outputKind}<select value={task.output.kind} onChange={(event) => onChange({ ...task, output: { key: task.output.key, kind: event.target.value as AgentTask['output']['kind'], ...(event.target.value === 'json' ? { jsonSchema: { type: 'object' } } : {}) } })} className="mt-1 h-10 w-full rounded-lg border px-3"><option value="markdown">{labels.outputMarkdown}</option><option value="json">{labels.outputJson}</option><option value="external_reference">{labels.outputExternalReference}</option><option value="evidence_summary">{labels.outputEvidenceSummary}</option></select></label>
+      <label className="block text-sm font-medium">{labels.outputKind}<NativeSelect value={task.output.kind} onChange={(event) => onChange({ ...task, output: { key: task.output.key, kind: event.target.value as AgentTask['output']['kind'], ...(event.target.value === 'json' ? { jsonSchema: { type: 'object' } } : {}) } })} className="mt-1 w-full"><option value="markdown">{labels.outputMarkdown}</option><option value="json">{labels.outputJson}</option><option value="external_reference">{labels.outputExternalReference}</option><option value="evidence_summary">{labels.outputEvidenceSummary}</option></NativeSelect></label>
     </div>
     <fieldset className="rounded-lg border p-3"><legend className="px-1 text-sm font-medium">{labels.todo}</legend>
       <div className="space-y-2">{task.todos.map((todo, index) => <div key={`${todo.id}-${index}`} className="flex min-w-0 items-center gap-2"><input aria-label={`${labels.todoName} ${index + 1}`} value={todo.name} onChange={(event) => updateTodo(index, { name: event.target.value })} className="h-9 min-w-0 flex-1 rounded-lg border px-2 text-sm" /><label className="text-xs"><input type="checkbox" checked={todo.required} onChange={(event) => updateTodo(index, { required: event.target.checked })} /> {labels.required}</label><button type="button" aria-label={`${labels.moveUp} ${labels.todo} ${index + 1}`} onClick={() => moveTodo(index, -1)}><ArrowUp size={14} /></button><button type="button" aria-label={`${labels.moveDown} ${labels.todo} ${index + 1}`} onClick={() => moveTodo(index, 1)}><ArrowDown size={14} /></button>{task.todos.length > 1 ? <button type="button" aria-label={`${labels.removeTodo} ${index + 1}`} onClick={() => onChange({ ...task, todos: task.todos.filter((_, todoIndex) => todoIndex !== index) })}><Trash2 size={14} /></button> : null}</div>)}</div>
@@ -169,9 +170,9 @@ const ReviewForm: React.FC<{ node: Extract<Node, { kind: 'human_review' }>; defi
     })),
   ];
   return <>
-    <label className="block text-sm font-medium">{labels.artifactTask}<select value={node.artifactTaskId} onChange={(event) => onChange({ ...node, artifactTaskId: event.target.value })} className="mt-1 h-10 w-full rounded-lg border px-3">{tasks.map((task) => <option key={task.id} value={task.id}>{task.name}</option>)}</select></label>
-    <label className="block text-sm font-medium">{labels.revisionTask}<select value={node.revisionTaskId} onChange={(event) => onChange({ ...node, revisionTaskId: event.target.value })} className="mt-1 h-10 w-full rounded-lg border px-3">{tasks.map((task) => <option key={task.id} value={task.id}>{task.name}</option>)}</select></label>
-    <label className="block text-sm font-medium">{labels.minimumRole}<select value={node.minimumRole} onChange={(event) => {
+    <label className="block text-sm font-medium">{labels.artifactTask}<NativeSelect value={node.artifactTaskId} onChange={(event) => onChange({ ...node, artifactTaskId: event.target.value })} className="mt-1 w-full">{tasks.map((task) => <option key={task.id} value={task.id}>{task.name}</option>)}</NativeSelect></label>
+    <label className="block text-sm font-medium">{labels.revisionTask}<NativeSelect value={node.revisionTaskId} onChange={(event) => onChange({ ...node, revisionTaskId: event.target.value })} className="mt-1 w-full">{tasks.map((task) => <option key={task.id} value={task.id}>{task.name}</option>)}</NativeSelect></label>
+    <label className="block text-sm font-medium">{labels.minimumRole}<NativeSelect value={node.minimumRole} onChange={(event) => {
       const minimumRole = event.target.value as typeof node.minimumRole;
       const membersById = new Map(reviewers.map((member) => [member.userId, member]));
       onChange({
@@ -182,7 +183,7 @@ const ReviewForm: React.FC<{ node: Extract<Node, { kind: 'human_review' }>; defi
           return !member || (roleLevel[member.role] ?? -1) >= roleLevel[minimumRole];
         }),
       });
-    }} className="mt-1 h-10 w-full rounded-lg border px-3"><option value="editor">{labels.roleEditor}</option><option value="admin">{labels.roleAdmin}</option><option value="owner">{labels.roleOwner}</option></select></label>
+    }} className="mt-1 w-full"><option value="editor">{labels.roleEditor}</option><option value="admin">{labels.roleAdmin}</option><option value="owner">{labels.roleOwner}</option></NativeSelect></label>
     <fieldset className="rounded-lg border p-3"><legend className="px-1 text-sm font-medium">{labels.reviewerUserIds}</legend><p className="mb-2 text-xs text-gray-500">{labels.reviewerUserIdsHelp}</p><div className="space-y-2">{reviewerOptions.map((member) => {
       const selected = !!member.userId && node.reviewerUserIds.includes(member.userId);
       const eligible = (roleLevel[member.role] ?? -1) >= roleLevel[node.minimumRole];
@@ -197,7 +198,7 @@ const DependencyEditor: React.FC<{ selected: Node; definition: CollaborationTemp
   const incoming = definition.dependencies.filter((edge) => edge.to === selected.id);
   const candidates = definition.nodes.filter((node) => node.id !== selected.id);
   return <fieldset className="rounded-lg border p-3"><legend className="px-1 text-sm font-medium">{labels.dependencies}</legend>
-    <div className="space-y-2">{incoming.map((edge, index) => <div key={`${edge.from}-${edge.to}`} className="flex gap-2"><select aria-label={`${labels.dependency} ${index + 1}`} value={edge.from} onChange={(event) => onChange({ ...definition, dependencies: definition.dependencies.map((item) => item === edge ? { ...item, from: event.target.value } : item) })} className="h-9 min-w-0 flex-1 rounded-lg border px-2 text-sm">{candidates.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}</select><select aria-label={`${labels.dependencyMode} ${index + 1}`} value={edge.mode} onChange={(event) => onChange({ ...definition, dependencies: definition.dependencies.map((item) => item === edge ? { ...item, mode: event.target.value as 'all' | 'any' } : item) })} className="h-9 rounded-lg border px-2 text-sm"><option value="all">{labels.dependencyAll}</option><option value="any">{labels.dependencyAny}</option></select><button type="button" aria-label={`${labels.removeDependency} ${index + 1}`} onClick={() => onChange({ ...definition, dependencies: definition.dependencies.filter((item) => item !== edge) })}><Trash2 size={14} /></button></div>)}</div>
+    <div className="space-y-2">{incoming.map((edge, index) => <div key={`${edge.from}-${edge.to}`} className="flex gap-2"><NativeSelect aria-label={`${labels.dependency} ${index + 1}`} value={edge.from} onChange={(event) => onChange({ ...definition, dependencies: definition.dependencies.map((item) => item === edge ? { ...item, from: event.target.value } : item) })} className="min-w-0 flex-1">{candidates.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}</NativeSelect><NativeSelect aria-label={`${labels.dependencyMode} ${index + 1}`} value={edge.mode} onChange={(event) => onChange({ ...definition, dependencies: definition.dependencies.map((item) => item === edge ? { ...item, mode: event.target.value as 'all' | 'any' } : item) })} ><option value="all">{labels.dependencyAll}</option><option value="any">{labels.dependencyAny}</option></NativeSelect><button type="button" aria-label={`${labels.removeDependency} ${index + 1}`} onClick={() => onChange({ ...definition, dependencies: definition.dependencies.filter((item) => item !== edge) })}><Trash2 size={14} /></button></div>)}</div>
     {candidates.length ? <button type="button" onClick={() => onChange({ ...definition, dependencies: [...definition.dependencies, { from: candidates[0].id, to: selected.id, mode: 'all' }] })} className="mt-3 inline-flex items-center gap-1 text-sm text-blue-700"><Plus size={14} />{labels.addDependency}</button> : null}
   </fieldset>;
 };

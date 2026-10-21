@@ -1,14 +1,15 @@
+import { NativeSelect } from '../../components/NativeSelect';
 import React, { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useDirtyNavigationGuard } from '../space-workspace/workspaceNavigation';
-import { ArrowLeft, ArrowRight, Check, FilePlus2, Files, FileText, Folder, LayoutTemplate, Copy, Search, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, FilePlus2, Files, FileText, Folder, LayoutTemplate, Copy, Search, Settings2, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../../api/client';
 import { getContentTreeRevision } from '../../api/content-tree';
 import { apiErrorMessage } from '../../api/error-message';
 import { ModalDialog } from '../../components/ModalDialog';
 import { Toast } from '../../components/Toast';
-import { useLanguage } from '../../context/LanguageContext';
+import { useTemplateEntryLanguage as useLanguage } from './useTemplateEntryLanguage';
 import { collaborationApi } from '../collaboration/api';
 import { buildAgentJoinInstructions } from '../collaboration/agentJoinInstructions';
 import type { AgentInstruction, RoleBinding, SpaceMemberSummary } from '../collaboration/types';
@@ -49,7 +50,10 @@ export interface NewPageDialogProps {
   onCreated: (target: string | NewPageCreationTarget) => void;
   now?: Date;
   presentation?: 'dialog' | 'page';
-  initialKind?: 'blank' | 'single_page' | 'page_group';
+  initialKind?: 'blank' | 'single_page' | 'page_group' | 'custom';
+  initialScope?: ScopeFilter;
+  initialTemplateId?: string;
+  canManageTemplates?: boolean;
 }
 
 type ScopeFilter = 'all' | 'system' | 'space';
@@ -72,6 +76,8 @@ type CatalogState =
   | { generation: number; status: 'error' }
   | { generation: number; status: 'legacy'; value: PageTemplateListResponse; compositeDisabled: boolean }
   | { generation: number; status: 'composite'; value: CompositeTemplateCatalog };
+
+const TemplateContentPreview = React.lazy(() => import('./TemplateContentPreview').then((module) => ({ default: module.TemplateContentPreview })));
 
 const PAGE_TITLE_LIMIT = 200;
 const MARKDOWN_IMPORT_MAX_CHARS = 200_000;
@@ -124,6 +130,9 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
   now = new Date(),
   presentation = 'dialog',
   initialKind = 'blank',
+  initialScope = initialKind === 'custom' ? 'space' : 'all',
+  initialTemplateId,
+  canManageTemplates = false,
 }) => {
   const { language, t } = useLanguage();
   const pageMode = presentation === 'page';
@@ -132,8 +141,8 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
   const [completed, setCompleted] = useState(false);
   const [phase, dispatchPhase] = useReducer(phaseReducer, pageMode && initialKind === 'blank' ? 'legacy-details' : 'select');
   const [selected, setSelected] = useState<SelectedTemplate>({ source: 'blank' });
-  const [scopeFilter, setScopeFilter] = useState<ScopeFilter>('all');
-  const [kindFilter, setKindFilter] = useState<KindFilter>(pageMode && initialKind !== 'blank' ? initialKind : 'all');
+  const [scopeFilter, setScopeFilter] = useState<ScopeFilter>(initialScope);
+  const [kindFilter, setKindFilter] = useState<KindFilter>(pageMode && (initialKind === 'single_page' || initialKind === 'page_group') ? initialKind : 'all');
   const [title, setTitle] = useState('');
   const [rootName, setRootName] = useState('');
   const [collaborationEnabled, setCollaborationEnabled] = useState(false);
@@ -156,6 +165,10 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
   const [catalogOffset, setCatalogOffset] = useState(0);
   const [nextCatalogOffset, setNextCatalogOffset] = useState(0);
   const [catalogLoadingMore, setCatalogLoadingMore] = useState(false);
+  const [catalogPaginationFailed, setCatalogPaginationFailed] = useState(false);
+  const [catalogPageAttempt, setCatalogPageAttempt] = useState(0);
+  const initialSelectionHandled = useRef(false);
+  const [initialSelectionStatus, setInitialSelectionStatus] = useState<'locating' | 'missing' | null>(initialTemplateId ? 'locating' : null);
   const [catalogState, setCatalogState] = useState<CatalogState>({ generation: 0, status: 'loading' });
   const previewNameRef = useRef<HTMLInputElement>(null);
   const markdownInputRef = useRef<HTMLInputElement>(null);
@@ -238,8 +251,9 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
     let active = true;
     const controller = new AbortController();
     const appending = catalogOffset > 0;
-    if (appending) setCatalogLoadingMore(true);
-    else setCatalogState({ generation: reloadKey, status: 'loading' });
+    setCatalogLoadingMore(appending);
+    setCatalogPaginationFailed(false);
+    if (!appending) setCatalogState({ generation: reloadKey, status: 'loading' });
     void listCompositeTemplates(spaceId, {
       locale: language,
       scope: scopeFilter,
@@ -252,14 +266,16 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       .then(async (value) => {
         if (!active) return;
         if (!value.capabilities.canCreate) {
-          if (appending) return;
+          if (appending) throw new Error('Composite template catalog is no longer available');
           const legacy = await listPageTemplates(spaceId, { locale: language, ...(pageMode ? { q: search.trim(), scope: scopeFilter } : {}) });
           if (active) setCatalogState({
             generation: reloadKey, status: 'legacy', value: legacy, compositeDisabled: true,
           });
           return;
         }
-        setNextCatalogOffset(value.skip + value.take);
+        const nextOffset = value.skip + value.take;
+        if (nextOffset <= catalogOffset) throw new Error('Template catalog pagination did not advance');
+        setNextCatalogOffset(nextOffset);
         setCatalogState((current) => {
           if (!appending || current.status !== 'composite') {
             return { generation: reloadKey, status: 'composite', value };
@@ -274,7 +290,10 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
         });
       })
       .catch(async () => {
-        if (appending) return;
+        if (appending) {
+          if (active) setCatalogPaginationFailed(true);
+          return;
+        }
         try {
           const value = await listPageTemplates(spaceId, { locale: language, ...(pageMode ? { q: search.trim(), scope: scopeFilter } : {}) });
           if (active) setCatalogState({
@@ -288,7 +307,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
         if (active && appending) setCatalogLoadingMore(false);
       });
     return () => { active = false; controller.abort(); };
-  }, [catalogOffset, kindFilter, language, reloadKey, scopeFilter, spaceId, search, pageMode, method]);
+  }, [catalogOffset, catalogPageAttempt, kindFilter, language, reloadKey, scopeFilter, spaceId, search, pageMode, method]);
 
   useLayoutEffect(() => {
     if (phase !== 'select' || !focusCloseAfterBackRef.current) return;
@@ -301,7 +320,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
     : { generation: reloadKey, status: 'loading' };
   const compositeCatalog = currentCatalog.status === 'composite' ? currentCatalog.value : null;
   const legacyCatalog = currentCatalog.status === 'legacy' ? currentCatalog.value : null;
-  const canManage = compositeCatalog?.capabilities.canManage ?? legacyCatalog?.capabilities.canManage ?? false;
+  const canManage = compositeCatalog?.capabilities.canManage ?? legacyCatalog?.capabilities.canManage ?? canManageTemplates;
   const compositeTemplates = useMemo(() => (compositeCatalog?.data ?? []).filter((template) =>
     (scopeFilter === 'all' || template.scope === scopeFilter)
     && (kindFilter === 'all' || template.kind === kindFilter)), [compositeCatalog, kindFilter, scopeFilter]);
@@ -320,11 +339,17 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       ? compositeTemplates.some((template) => template.id === selected.value.id)
       : legacyTemplates.some((template) => template.id === selected.value.id);
 
+  const cancelInitialSelection = () => {
+    initialSelectionHandled.current = true;
+    setInitialSelectionStatus(null);
+  };
   const chooseBlank = () => {
+    cancelInitialSelection();
     setSelected({ source: 'blank' });
     setError(null);
   };
   const chooseLegacy = (template: PageTemplateSummary) => {
+    cancelInitialSelection();
     setSelected({ source: 'legacy', value: template });
     setTitle(truncateValidatorLength(template.scope === 'system'
       ? interpolateDefaultPageTitle(template.defaultTitle, now)
@@ -332,6 +357,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
     setError(null);
   };
   const chooseComposite = (template: CompositeTemplateSummary) => {
+    cancelInitialSelection();
     setSelected({ source: 'composite', value: template });
     setRootName(truncateValidatorLength(template.scope === 'system' && template.kind === 'single_page'
       ? interpolateDefaultPageTitle(template.defaultTitle, now)
@@ -343,6 +369,36 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
     taskSelectionInitializedRef.current = false;
     setError(null);
   };
+
+  useEffect(() => {
+    if (!initialTemplateId || initialSelectionHandled.current
+      || currentCatalog.status === 'loading' || currentCatalog.status === 'error'
+      || catalogLoadingMore || catalogPaginationFailed) return;
+    const composite = compositeTemplates.find((item) => item.id === initialTemplateId);
+    const legacy = legacyTemplates.find((item) => item.id === initialTemplateId);
+    if (!composite && !legacy) {
+      if (compositeCatalog && nextCatalogOffset < compositeCatalog.total) {
+        if (nextCatalogOffset > catalogOffset) setCatalogOffset(nextCatalogOffset);
+        return;
+      }
+      initialSelectionHandled.current = true;
+      setInitialSelectionStatus('missing');
+      return;
+    }
+    initialSelectionHandled.current = true;
+    setInitialSelectionStatus(null);
+    const template = composite ?? legacy!;
+    const defaultTitle = truncateValidatorLength(template.scope === 'system'
+      ? interpolateDefaultPageTitle(template.defaultTitle, now) : template.defaultTitle, PAGE_TITLE_LIMIT);
+    if (composite) {
+      setSelected({ source: 'composite', value: composite });
+      setRootName(defaultTitle);
+    } else {
+      setSelected({ source: 'legacy', value: legacy! });
+      setTitle(defaultTitle);
+    }
+  }, [initialTemplateId, currentCatalog.status, compositeCatalog, compositeTemplates, legacyTemplates, now,
+    catalogLoadingMore, catalogPaginationFailed, catalogOffset, nextCatalogOffset]);
 
   const previewPayload = (enabled: boolean, settings = collaboration): CompositePreviewInputPayload => {
     if (!selectedComposite) throw new Error('Composite template is not selected');
@@ -635,7 +691,11 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
     controllerRef.current?.abort();
     setPreviewLoading(false);
     setMethod(next);
-    setKindFilter(next === 'blank' ? 'all' : next);
+    setKindFilter(next === 'blank' || next === 'custom' ? 'all' : next);
+    setScopeFilter(next === 'custom' ? 'space' : 'all');
+    cancelInitialSelection();
+    setCatalogPaginationFailed(false);
+    setCatalogLoadingMore(false);
     setCatalogOffset(0);
     setNextCatalogOffset(0);
     setSearch('');
@@ -661,6 +721,11 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
         <p className="mt-2 text-sm text-gray-500">{t('creation.description')}</p>
       </> : <><h2 id="new-page-dialog-title" className="text-xl font-semibold text-gray-900">{t('page.createTitle')}</h2>
         <p className="mt-1 text-sm text-gray-500">{phaseLabel}</p></>}</div>
+      {pageMode && canManage ? <Link className="template-button template-manage-entry"
+        aria-disabled={legacyCreating || phase === 'submitting'}
+        onClick={(event) => { if (legacyCreating || phase === 'submitting') event.preventDefault(); }}
+        to={`/spaces/${encodeURIComponent(spaceId)}/settings/page-templates${folderId ? `?${new URLSearchParams({ folder: folderId })}` : ''}`}>
+        <Settings2 size={16} aria-hidden="true" />{t('creation.manageCustom')}</Link> : null}
       {!pageMode ? <button ref={closeButtonRef} type="button" aria-label={t('common.close')} disabled={legacyCreating || markdownImporting} onClick={close}
         className="template-close"><X size={20} /></button> : null}
     </div>
@@ -675,7 +740,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
     </p> : null}
     <div className={pageMode ? "template-creation-layout" : "template-dialog-body"}>
     {pageMode ? <nav aria-label={t('creation.methods')} className="template-methods">
-      {([['blank', FilePlus2], ['single_page', LayoutTemplate], ['page_group', Files]] as const).map(([value, Icon]) => <button key={value}
+      {([['blank', FilePlus2], ['single_page', LayoutTemplate], ['page_group', Files], ['custom', Copy]] as const).map(([value, Icon]) => <button key={value}
         type="button" aria-pressed={method === value} onClick={() => switchMethod(value)} disabled={legacyCreating || phase === 'submitting' || phase === 'result'}
         className="template-method">
         <Icon size={16} aria-hidden="true" />{t(`creation.method.${value}`)}</button>)}
@@ -683,6 +748,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
     <div className="min-w-0">
     {phase === 'select' ? <SelectPhase
       pageMode={pageMode}
+      customMode={method === 'custom'}
       search={search}
       onSearch={(value) => { setCatalogOffset(0); setNextCatalogOffset(0); setSearch(value); }}
       selected={selected}
@@ -697,9 +763,15 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
       legacyTemplates={legacyTemplates}
       hasMore={Boolean(compositeCatalog && nextCatalogOffset < compositeCatalog.total)}
       loadingMore={catalogLoadingMore}
+      paginationFailed={catalogPaginationFailed}
+      initialSelectionStatus={initialSelectionStatus}
+      onRetryPage={() => setCatalogPageAttempt((current) => current + 1)}
       onScopeFilter={(filter) => { setCatalogOffset(0); setNextCatalogOffset(0); setScopeFilter(filter); }}
       onKindFilter={(filter) => { setCatalogOffset(0); setNextCatalogOffset(0); setKindFilter(filter); }}
-      onLoadMore={() => setCatalogOffset(nextCatalogOffset)}
+      onLoadMore={() => {
+        if (catalogPaginationFailed) setCatalogPageAttempt((current) => current + 1);
+        else setCatalogOffset(nextCatalogOffset);
+      }}
       onBlank={chooseBlank}
       onComposite={chooseComposite}
       onLegacy={chooseLegacy}
@@ -821,6 +893,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
 
 const SelectPhase: React.FC<{
   pageMode?: boolean;
+  customMode?: boolean;
   search: string;
   onSearch: (value: string) => void;
   selected: SelectedTemplate;
@@ -835,6 +908,9 @@ const SelectPhase: React.FC<{
   legacyTemplates: PageTemplateSummary[];
   hasMore: boolean;
   loadingMore: boolean;
+  paginationFailed: boolean;
+  initialSelectionStatus: 'locating' | 'missing' | null;
+  onRetryPage: () => void;
   onScopeFilter: (filter: ScopeFilter) => void;
   onKindFilter: (filter: KindFilter) => void;
   onLoadMore: () => void;
@@ -845,8 +921,8 @@ const SelectPhase: React.FC<{
   onClose: () => void;
   canContinue: boolean;
   onNext: () => void;
-}> = ({ pageMode = false, search, onSearch, selected, scopeFilter, kindFilter, loading, failed, canManage, compositeDisabled, spaceId, compositeTemplates, legacyTemplates,
-  hasMore, loadingMore, onScopeFilter, onKindFilter, onLoadMore, onBlank, onComposite, onLegacy, onRetry, onClose, canContinue, onNext }) => {
+}> = ({ pageMode = false, customMode = false, search, onSearch, selected, scopeFilter, kindFilter, loading, failed, canManage, compositeDisabled, spaceId, compositeTemplates, legacyTemplates,
+  hasMore, loadingMore, paginationFailed, initialSelectionStatus, onRetryPage, onScopeFilter, onKindFilter, onLoadMore, onBlank, onComposite, onLegacy, onRetry, onClose, canContinue, onNext }) => {
   const { t } = useLanguage();
   const selectedTemplate = selected.source !== 'blank' && canContinue ? selected.value
     : !pageMode && selected.source === 'blank' && canContinue ? {
@@ -859,10 +935,10 @@ const SelectPhase: React.FC<{
         <Search size={16} aria-hidden="true" />
         <input type="search" value={search} placeholder={t('pageTemplate.search')} onChange={(event) => onSearch(event.target.value)} />
       </label>
-      {pageMode ? <label className="template-source"><span className="sr-only">{t('creation.source')}</span>
-        <select aria-label={t('creation.source')} value={scopeFilter} onChange={(event) => onScopeFilter(event.target.value as ScopeFilter)}>
+      {customMode ? <span className="template-custom-label">{t('creation.source.space')}</span> : pageMode ? <label className="template-source"><span className="sr-only">{t('creation.source')}</span>
+        <NativeSelect aria-label={t('creation.source')} value={scopeFilter} onChange={(event) => onScopeFilter(event.target.value as ScopeFilter)}>
           {SCOPE_FILTERS.map((scope) => <option key={scope} value={scope}>{t(`creation.source.${scope}`)}</option>)}
-        </select>
+        </NativeSelect>
       </label> : <div role="group" aria-label={t('pageTemplate.step.choose')} className="template-filter-group">
         {SCOPE_FILTERS.map((filter) => <FilterButton key={filter} active={scopeFilter === filter}
           onClick={() => onScopeFilter(filter)}>{t(`pageTemplate.filter.${filter}`)}</FilterButton>)}
@@ -874,6 +950,11 @@ const SelectPhase: React.FC<{
     </div> : null}
     {failed ? <div role="alert" className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900"><span>{t('pageTemplate.loadFailed')}</span>{' '}
       <button type="button" onClick={onRetry} className="min-h-9 px-2 font-medium underline">{t('pageTemplate.retry')}</button></div> : null}
+    {paginationFailed ? <div role="alert" className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+      <span>{t('creation.catalogPageFailed')}</span>{' '}
+      <button type="button" onClick={onRetryPage} className="min-h-9 px-2 font-medium underline">{t('pageTemplate.retry')}</button>
+    </div> : initialSelectionStatus === 'missing' ? <p role="alert" className="template-loading">{t('creation.initialTemplateMissing')}</p>
+      : initialSelectionStatus === 'locating' && !loading && !failed ? <p role="status" className="template-loading">{t('creation.locatingTemplate')}</p> : null}
     {compositeDisabled ? <p role="status" className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
       {t('pageTemplate.composite.rolloutFallback')}
     </p> : null}
@@ -899,9 +980,11 @@ const SelectPhase: React.FC<{
       <aside className={`template-selection ${selectedTemplate ? 'has-selection' : ''}`}>
         <h2 className="template-section-label">{t('creation.selection')}</h2>
         {selectedTemplate ? <>
-          <span className="template-selection-icon" aria-hidden="true">{selected.source === 'composite' && selected.value.kind === 'page_group' ? <Files size={22} /> : <FileText size={22} />}</span>
           <p className="template-selection-title">{selectedTemplate.name}</p>
           <p className="template-selection-description">{selectedTemplate.description}</p>
+          {selected.source !== 'blank' ? <React.Suspense fallback={<p role="status" className="template-loading">{t('common.loading')}</p>}>
+            <TemplateContentPreview spaceId={spaceId} template={selected} />
+          </React.Suspense> : null}
           {selected.source === 'composite' ? <div className="template-selection-stats">
             <span><FileText size={14} aria-hidden="true" />{t('pageTemplate.composite.pages', { count: selected.value.pageCount })}</span>
             <span><Folder size={14} aria-hidden="true" />{t('pageTemplate.composite.folders', { count: selected.value.folderCount })}</span>
@@ -911,7 +994,7 @@ const SelectPhase: React.FC<{
       </aside>
     </div>
     <div className="creation-actions template-actions">
-      {canManage ? <Link to={`/spaces/${spaceId}/settings/page-templates`} className="template-manage-link">{t('pageTemplate.manage')}</Link> : <span />}
+      {canManage && !pageMode ? <Link to={`/spaces/${encodeURIComponent(spaceId)}/settings/page-templates`} className="template-manage-link">{t('pageTemplate.manage')}</Link> : <span />}
       <div className="template-action-buttons"><button type="button" onClick={onClose} className="template-button">{t('common.cancel')}</button>
         <button type="button" disabled={!canContinue} onClick={onNext} className="template-button template-button-primary">{t('pageTemplate.next')}<ArrowRight size={14} aria-hidden="true" /></button></div>
     </div>

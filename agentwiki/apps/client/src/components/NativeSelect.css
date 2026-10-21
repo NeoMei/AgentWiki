@@ -1,0 +1,91 @@
+.aw-select {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  height: 32px;
+  padding: 0 32px 0 12px;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: #ffffff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 12px center;
+  background-repeat: no-repeat;
+  background-size: 14px 14px;
+  color: #0a0a0a;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.aw-select:hover:not(:disabled) {
+  border-color: #a3a3a3;
+}
+
+.aw-select:focus {
+  outline: none;
+}
+
+.aw-select:focus-visible {
+  border-color: #737373;
+  box-shadow: 0 0 0 2px rgb(115 115 115 / 16%);
+}
+
+.aw-select[aria-invalid='true'],
+.aw-select:user-invalid {
+  border-color: #d41616;
+}
+
+.aw-select:disabled {
+  background-color: #f5f5f5;
+  color: #737373;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.aw-select--listbox {
+  height: auto;
+  min-height: 32px;
+  padding: 4px 12px;
+  background-image: none;
+}
+
+@media (max-width: 767px) {
+  .aw-select {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aw-select {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .aw-select {
+    appearance: auto;
+    -webkit-appearance: auto;
+    background-image: none;
+    color: FieldText;
+    background-color: Field;
+    border-color: ButtonText;
+  }
+
+  .aw-select:disabled {
+    color: GrayText;
+    border-color: GrayText;
+  }
+
+  .aw-select:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+    border-color: Highlight;
+    box-shadow: none;
+  }
+}

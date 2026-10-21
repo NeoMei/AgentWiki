@@ -1,3 +1,4 @@
+import { NativeSelect } from '../NativeSelect';
 import { useCallback, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Transaction, type Text } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
@@ -72,10 +73,10 @@ export const TableEditor = ({ table, onApply, onClose, resolveReturnFocus }: Tab
       <button type="button" onClick={removeColumn} disabled={draft.columns.length === 1}>{copy('删除列', 'Remove column')}</button>
       <button type="button" onClick={() => moveColumn(-1)} disabled={active.column === 0}>{copy('列左移', 'Move column left')}</button>
       <button type="button" onClick={() => moveColumn(1)} disabled={active.column === draft.columns.length - 1}>{copy('列右移', 'Move column right')}</button>
-      <label>{copy(`第 ${active.column + 1} 列对齐`, `Alignment for column ${active.column + 1}`)} <select value={draft.columns[active.column].alignment ?? 'none'} onChange={(event) => {
+      <label>{copy(`第 ${active.column + 1} 列对齐`, `Alignment for column ${active.column + 1}`)} <NativeSelect value={draft.columns[active.column].alignment ?? 'none'} onChange={(event) => {
         const alignment = event.target.value === 'none' ? null : event.target.value as TableAlignment;
         setDraft((previous) => ({ ...previous, columns: previous.columns.map((column, i) => i === active.column ? { ...column, alignment } : column) }));
-      }}><option value="none">{copy('默认', 'Default')}</option><option value="left">{copy('左对齐', 'Left')}</option><option value="center">{copy('居中', 'Center')}</option><option value="right">{copy('右对齐', 'Right')}</option></select></label>
+      }}><option value="none">{copy('默认', 'Default')}</option><option value="left">{copy('左对齐', 'Left')}</option><option value="center">{copy('居中', 'Center')}</option><option value="right">{copy('右对齐', 'Right')}</option></NativeSelect></label>
     </div>
     <div className="document-table-scroll" role="region" aria-label={copy('表格单元格', 'Table cells')}>
       <table><tbody>{draft.rows.map((row, rowIndex) => <tr key={row.id}>{row.cells.map((cell, columnIndex) => <td key={draft.columns[columnIndex].id} data-active={active.row === rowIndex && active.column === columnIndex}>

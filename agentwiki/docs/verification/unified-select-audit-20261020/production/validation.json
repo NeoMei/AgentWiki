@@ -1,0 +1,69 @@
+{
+  "status": "passed",
+  "revision": "fb61b3cc55558b8e71aa05ad15a33aafa40b8f51",
+  "recordedAt": "2026-10-19T18:00:41.815485+00:00",
+  "workingTreeClean": true,
+  "commands": {
+    "pnpm build": 0,
+    "pnpm test:full": 0,
+    "pnpm typecheck": 0,
+    "pnpm lint": 0
+  },
+  "phases": {
+    "runtime": {
+      "passed": 314,
+      "skipped": 1
+    },
+    "serialDatabase": {
+      "passed": 239,
+      "skipped": 0
+    },
+    "server": {
+      "passed": 3544,
+      "skipped": 4
+    },
+    "client": {
+      "passed": 2759,
+      "skipped": 0
+    },
+    "protocol": {
+      "passed": 140,
+      "skipped": 0
+    },
+    "localSync": {
+      "passed": 1121,
+      "skipped": 1
+    }
+  },
+  "totalPassed": 8117,
+  "totalSkipped": 6,
+  "failed": 0,
+  "localBrowser": {
+    "templateE2EPassed": 6,
+    "crossComponentChecksPassed": 24,
+    "productionEquivalent": false
+  },
+  "skipsBoundary": "6 existing skips: runtime 1, server 4, localSync 1; isolated database phase 239 with zero skips.",
+  "cleanup": {
+    "verified": true,
+    "databasesRemoved": [
+      "agentwiki_full_test_59953_mvfjvs93",
+      "agentwiki_sync_version_test_59953_mvfjvs93"
+    ],
+    "redisPidRemoved": 60044,
+    "redisPort": 6392,
+    "temporaryDirectoriesRemoved": [
+      "/var/folders/0n/49qgdd8x7kgcvh719fw743mh0000gn/T/agentwiki-full-test-VC0inK"
+    ],
+    "businessDatabasesUntouched": true
+  },
+  "logSha256": {
+    "release-build.log": "04947fa3fd469e59ea8e29700b959fe6ba49945aaef37e95a80ee25dc6bde142",
+    "release-full-test.log": "1df7fb7192ee9659333847b59795a915fafbea9ecf2147bd42bcbbcda95905a2",
+    "release-typecheck.log": "d0a87d9e039ecf277453e5bf5e153e25986e53af6f6456b0f1c7a11ba35dc86d",
+    "release-lint.log": "d5b17ee595fbfdae02af58fd347506b1d5a827a69c28da8385dc57ae52ef712d",
+    "client-tests.log": "87ae4f58fc34128104acab3ebf7ce580e64501929603c6937cad9d0f4b036dfc",
+    "template-e2e.log": "1bb03e55c2d304a595b710b5f8961e18aecf6e09a0c4dd1e7ccc5822d7282158",
+    "lint-guard.log": "2be71b86c49500af8334718e0bc9b8cbb41917f7ab9185eaddb98da46e744a3e"
+  }
+}

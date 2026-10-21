@@ -94,6 +94,15 @@ describe('PageTemplateManager composite catalog', () => {
     mocks.createCompositeTemplateVersion.mockResolvedValue({ ...summary, templateId: summary.id, currentVersion: 3, version: 3, locale: 'en', definitionHash: 'b'.repeat(64), definition });
   });
 
+  it('offers editor use for page groups without exposing management writes', async () => {
+    mocks.listCompositeTemplates.mockResolvedValue({ data: [summary], total: 1, skip: 0, take: 50,
+      capabilities: { canManage: false, canCreate: true, canManageDefinitions: false } });
+    renderManager();
+    expect(await screen.findByRole('link', { name: 'Use template Project group' })).toHaveAttribute('href', '/spaces/space-1/new?template=group-1&kind=page_group&scope=space');
+    expect(screen.queryByRole('button', { name: 'Edit Project group' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create template from page' })).not.toBeInTheDocument();
+  });
+
   it('uses independent kind and scope filters against the bounded unified catalog', async () => {
     renderManager();
     await screen.findByText('Project group');
@@ -135,6 +144,8 @@ describe('PageTemplateManager composite catalog', () => {
 
     expect(await screen.findByText('Composite page groups are not enabled for this Space. Legacy single-page templates remain available.')).toBeVisible();
     expect(screen.getByText('Legacy note')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Use template Legacy note' })).toHaveAttribute('href', '/spaces/space-1/new?template=legacy-1&kind=single_page&scope=space');
+    expect(screen.queryByRole('link', { name: 'Use template Project group' })).not.toBeInTheDocument();
     expect(screen.queryByText('Project group')).not.toBeInTheDocument();
   });
 

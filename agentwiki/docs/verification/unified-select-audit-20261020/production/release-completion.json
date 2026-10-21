@@ -1,0 +1,13 @@
+{
+  "status": "completed",
+  "at": "2026-10-19T18:11:22.943928+00:00",
+  "revision": "fb61b3cc55558b8e71aa05ad15a33aafa40b8f51",
+  "version": "0.12.55",
+  "independentPreUiReview": "final-release-review.json",
+  "productionUiReceipt": "production-ui-receipt.json",
+  "productionChecksPassed": 20,
+  "businessWrites": 0,
+  "remainingRequiredReleaseGates": [],
+  "limitationsPreserved": true,
+  "githubRelease": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.55"
+}

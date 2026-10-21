@@ -1,0 +1,127 @@
+{
+  "status": "passed_in_phases",
+  "revision": "e067fa3728b68db844d39e60f049801937f3cc96",
+  "recordedAt": "2026-10-19T16:05:00.508821+00:00",
+  "worktree": "/Users/neomei/.codex/worktrees/template-preview-custom/AgentWiki ",
+  "workingTreeClean": true,
+  "sourceChangesDuringValidation": false,
+  "testAssertionsTimeoutsAndConfigurationUnchanged": true,
+  "build": {
+    "status": "passed",
+    "log": "build.log",
+    "executedBy": "parent"
+  },
+  "phases": {
+    "runtime": {
+      "passed": 309,
+      "skipped": 1,
+      "failed": 0,
+      "log": "full-test.log"
+    },
+    "serialDatabase": {
+      "passed": 239,
+      "skipped": 0,
+      "failed": 0,
+      "log": "full-test.log",
+      "fullTestZeroSkipGate": true
+    },
+    "server": {
+      "passed": 3544,
+      "skipped": 4,
+      "failed": 0,
+      "suitesPassed": 185,
+      "suitesSkipped": 1,
+      "log": "full-test.log"
+    },
+    "client": {
+      "passed": 2756,
+      "skipped": 0,
+      "failed": 0,
+      "filesPassed": 163,
+      "log": "client-single-worker.log",
+      "command": "pnpm --filter @agentwiki/client exec vitest run --maxWorkers=1"
+    },
+    "protocol": {
+      "passed": 140,
+      "skipped": 0,
+      "failed": 0,
+      "filesPassed": 10,
+      "log": "protocol-tests.log"
+    },
+    "localSync": {
+      "passed": 1121,
+      "skipped": 1,
+      "failed": 0,
+      "filesPassed": 75,
+      "log": "local-sync-tests.log"
+    }
+  },
+  "totalPassed": 8109,
+  "totalSkipped": 6,
+  "totalUnresolvedFailures": 0,
+  "attempts": [
+    {
+      "command": "pnpm test",
+      "result": "failed_missing_test_environment",
+      "databasePhaseFailed": 10,
+      "databasePhaseSkipped": 97,
+      "log": "test.log",
+      "detail": "pnpm test does not provision a dedicated database; no product regression inferred from missing PAGE_TEMPLATE_TEST_DATABASE_URL and related variables."
+    },
+    {
+      "command": "pnpm test:full",
+      "result": "runtime_database_server_passed_client_one_timeout",
+      "log": "full-test.log",
+      "clientPassed": 2755,
+      "clientFailed": 1,
+      "detail": "NewContentPage.spec.tsx deep-linked template beyond 100 results exceeded Testing Library default findByText wait during unconstrained parallel jsdom execution. Harness stopped before protocol/localSync. Original failed run preserved."
+    },
+    {
+      "command": "pnpm exec vitest run src/features/page-templates/NewContentPage.spec.tsx --maxWorkers=1",
+      "result": "passed",
+      "passed": 10,
+      "log": "deep-link-recheck.log",
+      "detail": "No source, assertions, timeout or test configuration changes."
+    },
+    {
+      "command": "pnpm --filter @agentwiki/client exec vitest run --maxWorkers=1; then protocol and local-sync package tests sequentially",
+      "result": "passed",
+      "detail": "Full client inventory passed with one worker. No tests filtered or suppressed. Runtime/database/server evidence retained from same unchanged frozen revision."
+    }
+  ],
+  "interpretation": "All repository phases completed successfully on unchanged frozen source. One initially failing client timing check passed both isolated and in the complete client inventory with a single worker; evidence supports parallel resource contention. This is phased validation, not a single clean pnpm test:full invocation.",
+  "skipsBoundary": "239 serial runtime database checks have zero skips. Six existing skips remain across runtime (1), server (4), localSync (1); server skips include the separately opt-in connection authorization database suite (3 tests) and a Windows-native test (1).",
+  "environment": {
+    "mode": "automatic_isolated",
+    "AGENTWIKI_FULL_TEST": "1",
+    "postgresHost": "127.0.0.1",
+    "postgresPort": 5432,
+    "postgresUser": "neomei",
+    "vectorVersion": "0.8.6",
+    "compositeTemplateDatabaseBinding": "COMPOSITE_TEMPLATE_E2E_DATABASE_URL falls back to auto-provisioned PAGE_TEMPLATE_TEST_DATABASE_URL"
+  },
+  "cleanup": {
+    "verified": true,
+    "databases": [
+      "agentwiki_full_test_11762_mvfflh33",
+      "agentwiki_sync_version_test_11762_mvfflh33"
+    ],
+    "databaseRemainingCount": 0,
+    "redisPid": 11848,
+    "redisPort": 6392,
+    "redisProcessGone": true,
+    "temporaryDirectory": "/private/var/folders/0n/49qgdd8x7kgcvh719fw743mh0000gn/T/agentwiki-full-test-qT5lQF",
+    "temporaryDirectoryRemoved": true,
+    "existingBusinessAndProductionDatabasesUntouched": true,
+    "existingRedis6379Untouched": true
+  },
+  "logs": {
+    "test.log": "8e6ba6e313b3e207c8cde6d6add18de0fde270ef060da947920c3f11e4cdccdd",
+    "full-test.log": "f0a44a8598fb3e4910cd1846a62cd5108336c6d536252f3b3bb5713ab8ecb36c",
+    "deep-link-recheck.log": "d882f821a698113a94c54fa7c7798a4bce016b943e7d404361c91900c9a1d7a0",
+    "client-single-worker.log": "7a146f5c93be5ba30df8eb3d2ccb5cfeb0ae7b490199afb1d40081235efc300d",
+    "protocol-tests.log": "00dd8408ee965440e7c4c18b055ba2955767240218dc50bba1a77a37d7041621",
+    "local-sync-tests.log": "919d6da492a6d0ba763ed5508ca5ec4a3e4d75161390ae01a707042fc5257de8",
+    "build.log": "1e517ee4469d22f2095a641de0c407301b050a1d454352e6e3cc96086e3bb433"
+  }
+}

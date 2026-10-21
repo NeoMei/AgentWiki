@@ -1,3 +1,4 @@
+import { NativeSelect } from '../../components/NativeSelect';
 import React, { useEffect, useState } from 'react';
 import { Bot, Loader2, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -181,16 +182,16 @@ export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
                 <label htmlFor="space-human-role" className="mb-1 block text-sm font-medium">
                   {zh ? '角色' : 'Role'}
                 </label>
-                <select
+                <NativeSelect
                   id="space-human-role"
                   value={humanRole}
                   onChange={(event) => setHumanRole(event.target.value)}
-                  className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full"
                 >
                   <option value="admin">{zh ? '管理员' : 'Admin'}</option>
                   <option value="editor">{zh ? '编辑者' : 'Editor'}</option>
                   <option value="viewer">{zh ? '查看者' : 'Viewer'}</option>
-                </select>
+                </NativeSelect>
               </div>
             </>
           ) : (
@@ -226,35 +227,35 @@ export const AddSpaceMemberDialog: React.FC<AddSpaceMemberDialogProps> = ({
                     <label htmlFor="space-agent" className="mb-1 block text-sm font-medium">
                       {zh ? '智能体' : 'Agent'}
                     </label>
-                    <select
+                    <NativeSelect
                       id="space-agent"
                       value={agentId}
                       onChange={(event) => setAgentId(event.target.value)}
-                      className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full"
                     >
                       {agents.map((agent) => (
                         <option key={agent.id} value={agent.id}>
                           {agent.name} · {zh ? '已启用' : 'Active'}
                         </option>
                       ))}
-                    </select>
+                    </NativeSelect>
                   </div>
                   <div>
                     <label htmlFor="space-agent-role" className="mb-1 block text-sm font-medium">
                       {zh ? '智能体角色' : 'Agent role'}
                     </label>
-                    <select
+                    <NativeSelect
                       id="space-agent-role"
                       value={agentRole}
                       onChange={(event) => setAgentRole(event.target.value as AgentAccessRole)}
-                      className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full"
                     >
                       {availableAgentRoles.map((role) => (
                         <option key={role} value={role}>
                           {t(`agent.role.${role}.name`)}
                         </option>
                       ))}
-                    </select>
+                    </NativeSelect>
                   </div>
                   <div className="rounded-lg bg-blue-50 p-3">
                     <p className="text-xs font-medium text-blue-900">

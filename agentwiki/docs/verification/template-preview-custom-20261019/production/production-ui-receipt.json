@@ -1,0 +1,189 @@
+{
+  "target": "https://agentwiki.quukk.com",
+  "version": "0.12.54",
+  "candidateRevision": "e067fa3728b68db844d39e60f049801937f3cc96",
+  "finishedAt": "2026-10-19T16:19:05.903204+00:00",
+  "passed": true,
+  "browser": "original user Chrome session via BrowserSkill, new task window",
+  "mockedTraffic": false,
+  "credentialExtraction": false,
+  "originalProject": {
+    "roleVerifiedViaMembersUI": "editor",
+    "canManage": false,
+    "canCreate": true,
+    "managementEntryHiddenAsDesigned": true,
+    "memberPermissionsUnchanged": true,
+    "businessDocumentsUnchangedByThisTest": true
+  },
+  "checks": [
+    {
+      "name": "production daily real-body thumbnail",
+      "passed": true
+    },
+    {
+      "name": "daily expanded read-only preview",
+      "passed": true
+    },
+    {
+      "name": "page-group content switches from overview to risks",
+      "passed": true
+    },
+    {
+      "name": "custom-template navigation present",
+      "passed": true
+    },
+    {
+      "name": "owner manager entry and source-page picker",
+      "passed": true
+    },
+    {
+      "name": "create custom template from saved page",
+      "passed": true
+    },
+    {
+      "name": "edit metadata, archive, show archived, restore",
+      "passed": true
+    },
+    {
+      "name": "manager direct-use link and custom category preview",
+      "passed": true
+    },
+    {
+      "name": "instantiate custom template and open durable page",
+      "passed": true
+    },
+    {
+      "name": "source and generated page GET bodies exactly match",
+      "passed": true
+    },
+    {
+      "name": "precise template archive and temporary Space cleanup",
+      "passed": true
+    }
+  ],
+  "fixture": {
+    "spaceId": "cmvfgagke005p4m4q0i4f81ih",
+    "pageIds": [
+      "a41a05b0-aa0e-458c-850d-e66825d1cfd8",
+      "d16191ab-58af-4727-badb-5d88ce023c9d"
+    ],
+    "templateIds": [
+      "cmvfgdgzx006n4m4q3igmw93h"
+    ],
+    "syntheticOnly": true,
+    "privateSpace": true
+  },
+  "persistence": {
+    "createTemplate": {
+      "id": "d029c0eddddcb:n175",
+      "method": "POST",
+      "status": 201,
+      "started_at": 1792426357504.0,
+      "finished_at": 1792426357629.0
+    },
+    "editTemplate": {
+      "id": "d029c0eddddcb:n187",
+      "method": "PATCH",
+      "status": 200,
+      "started_at": 1792426406841.0,
+      "finished_at": 1792426406946.0
+    },
+    "restoreTemplate": {
+      "id": "d029c0eddddcb:n200",
+      "method": "POST",
+      "status": 201,
+      "started_at": 1792426449089.0,
+      "finished_at": 1792426449199.0
+    },
+    "instantiate": {
+      "id": "d029c0eddddcb:n219",
+      "method": "POST",
+      "status": 201,
+      "started_at": 1792426493673.0,
+      "finished_at": 1792426493900.0
+    },
+    "pageReadbacks": [
+      {
+        "pageId": "a41a05b0-aa0e-458c-850d-e66825d1cfd8",
+        "spaceId": "cmvfgagke005p4m4q0i4f81ih",
+        "contentSha256": "d820321dc14e3f5bd25023ae02d07e9c4f0152b258e8ea9b403bbf68e3b8bbc0",
+        "containsSyntheticMarker": true,
+        "request": {
+          "id": "d029c0eddddcb:n153",
+          "method": "GET",
+          "status": 200,
+          "started_at": 1792426309868.0,
+          "finished_at": 1792426309962.0
+        },
+        "updatedAt": "2026-10-19T16:11:32.190Z"
+      },
+      {
+        "pageId": "d16191ab-58af-4727-badb-5d88ce023c9d",
+        "spaceId": "cmvfgagke005p4m4q0i4f81ih",
+        "contentSha256": "d820321dc14e3f5bd25023ae02d07e9c4f0152b258e8ea9b403bbf68e3b8bbc0",
+        "containsSyntheticMarker": true,
+        "request": {
+          "id": "d029c0eddddcb:n236",
+          "method": "GET",
+          "status": 200,
+          "started_at": 1792426535656.0,
+          "finished_at": 1792426535764.0
+        },
+        "updatedAt": "2026-10-19T16:14:53.771Z"
+      }
+    ],
+    "sourceEqualsGeneratedContent": true
+  },
+  "cleanup": {
+    "complete": true,
+    "templateArchived": true,
+    "templateArchiveRequest": {
+      "id": "d029c0eddddcb:n300",
+      "method": "DELETE",
+      "status": 200,
+      "started_at": 1792426576417.0,
+      "finished_at": 1792426576532.0
+    },
+    "spaceSoftDeleted": true,
+    "spaceDeleteRequest": {
+      "id": "d029c0eddddcb:n323",
+      "method": "DELETE",
+      "status": 200,
+      "started_at": 1792426642718.0,
+      "finished_at": 1792426642857.0
+    },
+    "spaceDeletedAt": "2026-10-19T16:17:22.812Z",
+    "completeAccessibleInventoryReadback": {
+      "id": "d029c0eddddcb:n324",
+      "method": "GET",
+      "status": 200,
+      "started_at": 1792426642857.0,
+      "finished_at": 1792426642967.0
+    },
+    "spaceAbsentFromCompleteInventory": true,
+    "temporaryAccountCreated": false,
+    "method": "UI requests to official API; audit and soft-delete tombstones may remain"
+  },
+  "browserCapture": {
+    "runId": "d029c0eddddcb",
+    "operations": 49,
+    "requests": 335,
+    "consoleErrors": 0,
+    "droppedRequests": 0,
+    "droppedOperations": 0,
+    "sessionStopped": true
+  },
+  "limitations": [
+    "Template version-creation was not repeated in this production run; local suite covers it.",
+    "Screenshots and raw debug exports remain private local artifacts because navigation includes account identity."
+  ],
+  "privateEvidence": [
+    "production-ui-daily-thumbnail.png",
+    "production-ui-daily-expanded.png",
+    "production-ui-group-risk.png",
+    "production-ui-owner-entry.png",
+    "production-ui-manager-restored.png",
+    "production-ui-custom-entry-preview.png",
+    "production-ui-created-page.png"
+  ]
+}
