@@ -5,7 +5,7 @@ import api from '../../api/client';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { TaskboardPage } from './TaskboardPage';
 
-vi.mock('../../api/client', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
+vi.mock('../../api/client', () => ({ default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() } }));
 
 const socketHandlers: Record<string, () => void> = {};
 const fakeSocket = {
@@ -189,6 +189,25 @@ describe('TaskboardPage 项目全景 UI', () => {
       { status: 'in_progress' },
     ));
     expect(fakeSocket.emit).toHaveBeenCalledWith('taskboard:subscribe', { spaceId: 'space-1' });
+  });
+
+  it('renames a task from the inspector and deletes a task after confirmation', async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: planBoard() });
+    vi.mocked(api.patch).mockResolvedValue({ data: { task: { id: 'superpowers-plan-x-task-1', title: '新名称' } } });
+    vi.mocked(api.delete).mockResolvedValue({ data: { deleted_task_ids: ['superpowers-plan-x-task-1', 'superpowers-plan-x-task-1-step-1'] } });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: '登录契约' }));
+    expect(screen.getByLabelText('任务名称')).toHaveValue('登录契约');
+    fireEvent.change(screen.getByLabelText('任务名称'), { target: { value: '  新名称  ' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存名称' }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith(
+      '/spaces/space-1/taskboard/tasks/superpowers-plan-x-task-1', { title: '新名称' },
+    ));
+    fireEvent.click(screen.getByRole('button', { name: '删除任务卡片' }));
+    await waitFor(() => expect(api.delete).toHaveBeenCalledWith('/spaces/space-1/taskboard/tasks/superpowers-plan-x-task-1'));
+    expect(confirm).toHaveBeenCalled();
+    confirm.mockRestore();
   });
 });
 

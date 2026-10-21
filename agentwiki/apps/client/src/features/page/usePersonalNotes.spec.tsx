@@ -10,7 +10,7 @@ import type { AssistNotesEvent, AssistRequest } from './AgentAssistPanel';
 const scope={userId:'u',spaceId:'s',pageId:'p'}, version='2026-10-06T00:00:00Z', source='one\nkeep\ntwo\n';
 const first=captureAssistTarget(source,'selection',0,3,version)!, second=captureAssistTarget(source,'selection',9,12,version)!;
 const candidate=(ids:string[], target:any):AssistCandidate=>completeAssistCandidate({taskId:'task',pageId:'p',spaceId:'s',userId:'u',baseTitle:'T',baseContent:source,baseUpdatedAt:version,assistTarget:target,noteIds:ids,content:'',status:'generating'},'ONE\nkeep\nTWO\n');
-vi.mock('./pageNotesApi', () => ({ pageNotesApi: { list: vi.fn(), create: vi.fn(), update: vi.fn() } }));
+vi.mock('./pageNotesApi', () => ({ pageNotesApi: { list: vi.fn(), create: vi.fn(), update: vi.fn(), remove: vi.fn() } }));
 let server: PersonalNote[] = [], revision = 0;
 const serverNote = (note: PersonalNote) => ({ ...note, author: { type: 'user' as const, id: note.userId, name: note.userId }, canEdit: true, createdAt: version, updatedAt: String(++revision), clientNoteId: note.id });
 beforeEach(() => {
@@ -27,6 +27,12 @@ beforeEach(() => {
     if (index < 0 || server[index].updatedAt !== input.expectedUpdatedAt) throw new Error('conflict');
     server[index] = { ...server[index], ...input, taskId: input.taskId ?? undefined, updatedAt: String(++revision) };
     return structuredClone(server[index]);
+  });
+  vi.mocked(pageNotesApi.remove).mockImplementation(async (current, id, input) => {
+    const index = server.findIndex((note) => note.id === id && note.userId === current.userId);
+    if (index < 0 || server[index].updatedAt !== input.expectedUpdatedAt) throw new Error('conflict');
+    server.splice(index, 1);
+    return { deleted: true };
   });
 }); afterEach(cleanup);
 
@@ -78,6 +84,16 @@ it('supports explicit resolve by the note author and persists it without an Agen
   expect(result.current.notes[0]).toMatchObject({ id: 'own', status: 'resolved' });
   expect(server[0]).toMatchObject({ id: 'own', status: 'resolved', taskId: undefined });
   expect(pageNotesApi.update).toHaveBeenCalledWith(scope, 'own', expect.objectContaining({ status: 'resolved', taskId: null }), expect.any(AbortSignal));
+});
+
+it('deletes an authored orphan note with its current concurrency token', async () => {
+  server = [{ ...serverNote({ ...addPersonalNote(scope, first, 'Stale note', 'stale'), target: captureAssistTarget('changed', 'selection', 0, 3, version)! }) }];
+  const { result } = renderHook(() => usePersonalNotes({ scope, canEdit: true, source: 'changed', updatedAt: version })); await act(async () => {});
+  expect(result.current.notes).toHaveLength(1);
+  await act(async () => { result.current.remove('stale'); });
+  expect(result.current.notes).toEqual([]);
+  expect(pageNotesApi.remove).toHaveBeenCalledWith(scope, 'stale', { expectedUpdatedAt: '1' }, expect.any(AbortSignal));
+  expect(server).toEqual([]);
 });
 
 it('uses latest source/version and retains draft ownership when the server rejects a save', async () => {

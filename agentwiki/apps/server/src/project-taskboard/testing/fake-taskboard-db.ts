@@ -60,6 +60,14 @@ export function makeDb(): { prisma: any; db: FakeDb } {
         Object.assign(row, data, { updatedAt: new Date() });
         return row;
       }),
+      deleteMany: jest.fn(async ({ where }: any) => {
+        const ids = new Set<string>(where.id?.in ?? []);
+        const before = db.tasks.length;
+        for (let index = db.tasks.length - 1; index >= 0; index -= 1) {
+          if (db.tasks[index].boardId === where.boardId && ids.has(db.tasks[index].id)) db.tasks.splice(index, 1);
+        }
+        return { count: before - db.tasks.length };
+      }),
     },
     page: {
       findFirst: jest.fn(async ({ where }: any) =>

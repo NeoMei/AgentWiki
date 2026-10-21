@@ -70,6 +70,19 @@ describe('AuthService', () => {
   });
 
   describe('registration', () => {
+    it.each([
+      ['Password 1', 'ValidName'],
+      ['Password1', 'Valid Name'],
+      ['   ', 'ValidName'],
+    ])('rejects whitespace in registration credentials before persistence (%s / %s)', async (password, name) => {
+      await expect(service.register('new@test.com', password, name))
+        .rejects.toMatchObject({
+          businessCode: password.includes(' ') ? 'AUTH_PASSWORD_POLICY' : 'AUTH_NAME_POLICY',
+          statusCode: 400,
+        });
+      expect(mockPrisma.user.create).not.toHaveBeenCalled();
+    });
+
     it('reports a duplicate email with the specific 409 business code', async () => {
       jest.spyOn(service, 'hashPassword').mockResolvedValue('hashed');
       mockPrisma.user.create.mockRejectedValueOnce({ code: 'P2002', meta: { target: ['email'] } });

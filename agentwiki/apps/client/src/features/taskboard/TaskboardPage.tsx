@@ -68,6 +68,7 @@ export const TaskboardPage: React.FC = () => {
   const [takeoverDraft, setTakeoverDraft] = useState(false);
   const [importNote, setImportNote] = useState('');
   const [newTitle, setNewTitle] = useState('');
+  const [titleDraft, setTitleDraft] = useState('');
   const [statusDraft, setStatusDraft] = useState('');
   const [stepDraft, setStepDraft] = useState('');
   const [busy, setBusy] = useState(false);
@@ -163,7 +164,12 @@ export const TaskboardPage: React.FC = () => {
     [tasks],
   );
 
-  useEffect(() => { setStatusDraft(selected?.status ?? ''); setStepDraft(selected?.current_step ?? ''); setTakeoverDraft(false); }, [selected?.id, selected?.status, selected?.current_step]);
+  useEffect(() => {
+    setStatusDraft(selected?.status ?? '');
+    setStepDraft(selected?.current_step ?? '');
+    setTitleDraft(selected?.title ?? '');
+    setTakeoverDraft(false);
+  }, [selected?.id, selected?.status, selected?.current_step, selected?.title]);
 
   const updateRailButtons = useCallback(() => {
     const rail = railRef.current;
@@ -244,6 +250,33 @@ export const TaskboardPage: React.FC = () => {
         ...(takeoverDraft ? { takeover: true } : {}),
         ...(sessionDraft ? { session_id: sessionDraft } : {}),
       });
+      await load();
+    } catch (requestError: unknown) { setError(apiErrorMessage(requestError, t, 'taskboard.actionFailed')); }
+    finally { setBusy(false); }
+  };
+
+  const applyTitle = async () => {
+    const title = titleDraft.trim();
+    if (!spaceId || !selected || !title || title === selected.title) return;
+    setBusy(true);
+    try {
+      await taskboardApi.patchTask(spaceId, selected.id, { title });
+      await load();
+    } catch (requestError: unknown) { setError(apiErrorMessage(requestError, t, 'taskboard.actionFailed')); }
+    finally { setBusy(false); }
+  };
+
+  const removeSelectedTask = async () => {
+    if (!spaceId || !selected) return;
+    const confirmed = window.confirm(zh
+      ? `删除“${tbCleanTitle(selected)}”及其全部子任务？此操作不可撤销。`
+      : `Delete “${tbCleanTitle(selected)}” and all child tasks? This cannot be undone.`);
+    if (!confirmed) return;
+    setBusy(true);
+    try {
+      await taskboardApi.deleteTask(spaceId, selected.id);
+      setSelectedId(null);
+      setViewPath((current) => current.slice(0, Math.max(0, current.findIndex((id) => id === selected.id))));
       await load();
     } catch (requestError: unknown) { setError(apiErrorMessage(requestError, t, 'taskboard.actionFailed')); }
     finally { setBusy(false); }
@@ -592,6 +625,20 @@ export const TaskboardPage: React.FC = () => {
                     </div>
                     <div className="inside">
                       <div className="box">
+                        <h3>{zh ? '任务名称' : 'Task name'}</h3>
+                        <input
+                          aria-label={zh ? '任务名称' : 'Task name'}
+                          value={titleDraft}
+                          onChange={(event) => setTitleDraft(event.target.value)}
+                          className="field-fill"
+                          disabled={busy}
+                        />
+                        <p className="form-actions">
+                          <button type="button" className="tb-button primary" disabled={busy || !titleDraft.trim() || titleDraft.trim() === selected?.title} onClick={() => void applyTitle()}>{zh ? '保存名称' : 'Save name'}</button>
+                          <button type="button" className="tb-button" disabled={busy || titleDraft === selected?.title} onClick={() => setTitleDraft(selected?.title ?? '')}>{zh ? '取消' : 'Cancel'}</button>
+                        </p>
+                      </div>
+                      <div className="box">
                         {tbStages(tasks, inspectTask).map((v, i) => (
                           <div key={STAGE_KEYS[i]} className="statusrow">
                             <strong>{STAGE_NAMES[i]}</strong>
@@ -616,6 +663,10 @@ export const TaskboardPage: React.FC = () => {
                           <input aria-label={t('taskboard.sessionId')} value={sessionDraft} onChange={(e) => setSessionDraft(e.target.value)} className="field-fill" />
                         </label>
                         <p><button type="button" className="tb-button primary" disabled={busy} onClick={() => void applyStatus()}>{zh ? '保存' : 'Save'}</button></p>
+                      </div>
+                      <div className="box danger-box">
+                        <h3>{zh ? '危险操作' : 'Danger zone'}</h3>
+                        <p><button type="button" className="tb-button danger" disabled={busy} onClick={() => void removeSelectedTask()}>{zh ? '删除任务卡片' : 'Delete task card'}</button></p>
                       </div>
                       <div className="box">
                         <h3>{zh ? '认领状态' : 'Claim'}</h3>

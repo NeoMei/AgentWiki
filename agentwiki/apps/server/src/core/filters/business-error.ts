@@ -20,6 +20,7 @@ const ERROR_CODE_MAP: Record<string, { status: HttpStatus; message: string }> = 
   AUTH_EXPIRED: { status: HttpStatus.UNAUTHORIZED, message: 'Authorization has expired' },
   AUTH_RATE_LIMITED: { status: HttpStatus.TOO_MANY_REQUESTS, message: 'Too many requests' },
   AUTH_PASSWORD_POLICY: { status: HttpStatus.BAD_REQUEST, message: 'Password does not meet policy requirements' },
+  AUTH_NAME_POLICY: { status: HttpStatus.BAD_REQUEST, message: 'Name cannot contain whitespace' },
   AUTH_PASSWORD_MISMATCH: { status: HttpStatus.BAD_REQUEST, message: 'Passwords do not match' },
   AUTH_INVALID_STATE: { status: HttpStatus.CONFLICT, message: 'Authentication state does not allow this operation' },
   AUTH_SCOPE_REQUIRED: { status: HttpStatus.FORBIDDEN, message: 'Required scope is missing' },

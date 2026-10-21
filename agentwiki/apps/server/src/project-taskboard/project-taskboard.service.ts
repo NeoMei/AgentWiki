@@ -240,6 +240,37 @@ export class ProjectTaskboardService {
     return { task: result.task, board_updated_at: board.updated_at };
   }
 
+  async deleteTask(principal: Principal, spaceId: string, taskId: string) {
+    const actor = await this.authorizeWrite(principal, spaceId);
+    const { board, result } = await this.withBoardTx(spaceId, principal, actor, async (board, tx, boardId, events) => {
+      const mapping = assertTaskboardTree(board.tasks);
+      if (!mapping.has(taskId)) throw taskNotFound(taskId);
+      const ids = new Set<string>([taskId]);
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const task of board.tasks) {
+          if (task.parent_id && ids.has(task.parent_id) && !ids.has(task.id)) {
+            ids.add(task.id);
+            changed = true;
+          }
+        }
+      }
+      const deletedTaskIds = board.tasks.filter((task) => ids.has(task.id)).map((task) => task.id);
+      await tx.projectBoardTask.deleteMany({ where: { boardId, id: { in: deletedTaskIds } } });
+      board.tasks = board.tasks.filter((task) => !ids.has(task.id));
+      events.push({
+        actorKind: actor.kind,
+        actorId: actor.id,
+        operation: 'delete',
+        taskId,
+        detail: { deleted_task_ids: deletedTaskIds },
+      });
+      return { deletedTaskIds };
+    });
+    return { deleted_task_ids: result.deletedTaskIds, board_updated_at: board.updated_at };
+  }
+
   async importPlan(principal: Principal, spaceId: string, dto: TaskboardImportPlanDto) {
     const actor = await this.authorizeWrite(principal, spaceId);
     let content = dto.content;

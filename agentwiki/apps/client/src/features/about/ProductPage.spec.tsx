@@ -84,6 +84,47 @@ describe('ProductPage workspace intent', () => {
     expect(password).toHaveAccessibleDescription('密码至少需要 8 个字符');
   });
 
+  it.each([
+    ['name', 'Neo Mei', 'Password1', '名称不能包含空格。'],
+    ['password', 'Neo', 'Password 1', '密码不能包含空格。'],
+  ] as const)('blocks registration %s whitespace before sending a request', (field, name, password, expected) => {
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/?intent=workspace#login']}>
+          <ProductPage />
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+
+    fireEvent.click(screen.getByRole('tab', { name: '切换到注册' }));
+    fireEvent.change(screen.getByLabelText('名称'), { target: { value: name } });
+    fireEvent.change(screen.getByLabelText('邮箱'), { target: { value: 'neo@example.com' } });
+    fireEvent.change(screen.getByLabelText('密码'), { target: { value: password } });
+    fireEvent.click(screen.getByRole('button', { name: '注册' }));
+
+    expect(api.post).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent(expected);
+    expect(field === 'name'
+      ? screen.getByLabelText('名称')
+      : screen.getByLabelText('密码')).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('uses in-page validation for an empty password instead of a browser prompt', () => {
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={['/?intent=workspace#login']}>
+          <ProductPage />
+        </MemoryRouter>
+      </LanguageProvider>,
+    );
+    fireEvent.change(screen.getByPlaceholderText('邮箱'), { target: { value: 'neo@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: '登录' }));
+
+    expect(api.post).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('请输入密码。');
+    expect(screen.getByLabelText('密码')).toHaveFocus();
+  });
+
   it('implements keyboard navigation and panel association for the auth tabs', () => {
     render(
       <LanguageProvider>

@@ -8,6 +8,7 @@ import {
   Patch,
   Post,
   Put,
+  Delete,
   Req,
   Res,
   UseGuards,
@@ -103,6 +104,15 @@ export class ProjectTaskboardController {
     @Body() body: TaskboardTaskDto,
   ) {
     return this.taskboard.patchTask(req.user as Principal, spaceId, taskId, body);
+  }
+
+  @Delete('tasks/:taskId')
+  remove(
+    @Req() req: Request,
+    @Param('spaceId') spaceId: string,
+    @Param('taskId') taskId: string,
+  ) {
+    return this.taskboard.deleteTask(req.user as Principal, spaceId, taskId);
   }
 
   @Post('import-plan')

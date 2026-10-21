@@ -34,4 +34,18 @@ export const pageNotesApi = {
       }],
     })).data, scope);
   },
+  async remove(scope: PersonalNotesScope, id: string, input: { expectedUpdatedAt: string }, signal?: AbortSignal) {
+    const token = localStorage.getItem('token');
+    const transformRequest = [(data: unknown) => {
+      if (localStorage.getItem('token') !== token) throw new Error('Page note session changed');
+      return JSON.stringify(data);
+    }];
+    await api.delete(`${path(scope)}/${encodeURIComponent(id)}`, {
+      data: input,
+      signal,
+      timeout: 15_000,
+      transformRequest,
+    });
+    return { deleted: true as const };
+  },
 };

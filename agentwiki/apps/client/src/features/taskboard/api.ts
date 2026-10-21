@@ -26,4 +26,8 @@ export const taskboardApi = {
     input: TaskboardTaskInput,
   ): Promise<{ task: TaskboardTask }> =>
     (await api.post<{ task: TaskboardTask }>(boardBase(spaceId) + '/tasks/' + parentId + '/children', input)).data,
+  patchTask: async (spaceId: string, taskId: string, input: Partial<TaskboardTaskInput>): Promise<{ task: TaskboardTask }> =>
+    (await api.patch<{ task: TaskboardTask }>(boardBase(spaceId) + '/tasks/' + taskId, input)).data,
+  deleteTask: async (spaceId: string, taskId: string): Promise<{ deleted_task_ids: string[] }> =>
+    (await api.delete<{ deleted_task_ids: string[] }>(boardBase(spaceId) + '/tasks/' + taskId)).data,
 };

@@ -155,6 +155,30 @@ describe('ProjectTaskboardService', () => {
       .rejects.toMatchObject({ businessCode: 'TASKBOARD_PARENT_NOT_FOUND' });
   });
 
+  it('deletes a task and all descendants as one attributed board event', async () => {
+    const { service, db } = makeService();
+    await service.createTask({ userId: 'u1' } as any, 'space-1', { id: 'root', title: 'Root' });
+    await service.createChild({ userId: 'u1' } as any, 'space-1', 'root', { id: 'child', title: 'Child' });
+    await service.createChild({ userId: 'u1' } as any, 'space-1', 'child', { id: 'leaf', title: 'Leaf' });
+
+    const result = await service.deleteTask({ userId: 'u1' } as any, 'space-1', 'root');
+
+    expect(result.deleted_task_ids).toEqual(['root', 'child', 'leaf']);
+    expect(db.tasks).toHaveLength(0);
+    expect(db.events[db.events.length - 1]).toMatchObject({ operation: 'delete', taskId: 'root', actorId: 'u1' });
+    await expect(service.deleteTask({ userId: 'u1' } as any, 'space-1', 'root'))
+      .rejects.toMatchObject({ businessCode: 'TASKBOARD_TASK_NOT_FOUND' });
+  });
+
+  it('trims task titles when patching from the task details editor', async () => {
+    const { service } = makeService();
+    await service.createTask({ userId: 'u1' } as any, 'space-1', { id: 'task-1', title: 'Old title' });
+
+    const result = await service.patchTask({ userId: 'u1' } as any, 'space-1', 'task-1', { title: '  New title  ' });
+
+    expect(result.task.title).toBe('New title');
+  });
+
   it('reports status idempotently with started/completed stamps and history', async () => {
     const { service } = makeService();
     await service.createTask({ userId: 'u1' } as any, 'space-1', { id: 'task-1', title: '实现' });
