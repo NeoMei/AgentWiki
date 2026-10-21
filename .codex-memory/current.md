@@ -1,31 +1,31 @@
 # 当前目标
 
-全站下拉选择控件统一任务已完成，v0.12.55于2026-10-20部署并正式发布；原反馈页面生产只读回验通过。
+Agent 扫描目录总结失败与同一 Session 后续会话丢失上下文已修复，候选提交 `3f0e9896` 已部署到生产。
 
 # 范围 / 不做
 
-客户端56处选择控件、28个业务文件接入NativeSelect，移除局部外观覆盖并增加lint防回归。无服务端业务、数据库、依赖或用户内容修改；Local Sync0.13.4与protocol0.6.1不变，不发布npm。
+范围为 OpenCode v2 目录 MCP/工具声明与权限配置、Session 失败/取消终态回放及对应测试。生产目标固定为 `root@113.249.120.24:/root/agentwiki`；不从历史 checkout 发布，不打印生产环境密钥。
 
 # 当前状态
 
-- 工作树 `/Users/neomei/.codex/worktrees/template-preview-custom/AgentWiki `（尾空格），分支 `codex/unified-select-audit`；发布冻结fb61b3cc55558b8e71aa05ad15a33aafa40b8f51，后续仅验收文档提交。
-- 根因是先前只修复Agent设置的局部样式；全站共享组件现统一箭头、边框、圆角、字号、尺寸与焦点，业务CSS只保留布局。56/56事件、属性和选项独立AST审查一致。
-- build/typecheck/lint与单次test:full通过，8117passed/6既有skipped，数据库239零skip；本地6条模板E2E、24组跨组件desktop/390px通过。
-- 生产模板普通/聚焦/切页/放大/手机、Agent范围、看板来源与图谱选择控件通过；网络审计零业务写入，自建标签/会话关闭。
-- 1393源码及公网5入口资源匹配，3服务active/5健康ok，64迁移无待办，配置字节保持。配套备份selects-v01255.aeirxzlk验证通过，隔离测试环境清理完成。
+- 工作树 `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`，分支 `codex/agent-autochat-external-opencode`；候选守卫通过，提交已同步到 `origin`。
+- OpenCode v2 现在声明 `capabilities.tools`、`mcp.servers`、数组权限规则；Session execution context 回放 `done/failed/cancelled`，失败错误已脱敏。
+- assist 相关 443 个测试、构建、typecheck、lint通过；完整测试受当前环境缺失 `PAGE_TEMPLATE_TEST_DATABASE_URL` 阻塞，不能宣称全量通过。
+- 生产 `root@113.249.120.24:/root/agentwiki` 已完成 staged build、65 个迁移无待执行项和原子切换；三服务 active、内外健康接口五项均 ok、前端 HTTP 200。
+- 协调备份 `/var/backups/agentwiki/assist-session-v01256.y9kniutw` 已验证；旧应用保留在 `/root/agentwiki-previous-20261022040109`。
 
 # 稳定约束
 
-Git在工作树cwd下显式--work-tree指向带尾空格路径；主检出用户改动保留。业务JSX必须用NativeSelect，新增裸select由lint拒绝；样式规则见component-reuse。不要并行执行清理同一dist的build与依赖dist的验证。
+Git在候选工作树中操作，发布前必须通过 `scripts/agentwiki-release-guard.mjs`。生产发布须使用显式 `deploy.sh 113.249.120.24 root`，先做协调数据库/附件备份并保留旧应用树；禁止从历史 checkout 发布或猜测 SSH 密码。
 
 # 关键索引
 
-- .codex-memory/tasks/archive/unified-select-audit-20261020/{brief,decisions,refs}.md
-- .codex-memory/spec/component-reuse.md
-- agentwiki/docs/releases-v0.12.55.md
-- agentwiki/docs/verification/unified-select-audit-20261020/production/
-- https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.55
+- `AGENTWIKI_RELEASE_CANDIDATE`
+- `apps/server/src/assist/opencode.runner.ts`
+- `apps/server/src/assist/assist-session.service.ts`
+- `docs/verification/generic-mcp-onboarding-20261018/release-execution-plan.md`
+- `deploy.sh`
 
 # 风险 / 下一步
 
-原账号editor的管理入口依权限隐藏；原项目无任务，jump/status只做本地真实组件验收。生产1条既有Agent会话GET400未扩展修复，未发送Agent消息。备份已核验但未演练恢复；本次下拉样式任务无待办实现或发布步骤。
+生产部署和服务回读已完成；目录扫描与同一 Session 的真实浏览器端到端回归仍需在登录后的用户界面执行，当前证据覆盖候选代码、部署文件哈希、服务健康和公网 HTTP。
