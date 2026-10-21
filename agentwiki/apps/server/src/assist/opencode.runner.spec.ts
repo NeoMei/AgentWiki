@@ -44,6 +44,21 @@ describe('OpencodeCliRunner', () => {
     expect(new OpencodeCliRunner(config).capabilities).toMatchObject({ tools: true, permissions: false, resume: false });
   });
 
+  it('uses the OpenCode v2 permission and MCP schema and advertises model tool support', () => {
+    const runner = new OpencodeCliRunner({ get: (key: string) => key === 'ASSIST_ALIYUN_CODING_PLAN_API_KEY' ? 'test-coding-plan-key' : undefined } as any);
+    const isolated = (runner as any).isolatedConfig('/tmp/directory-snapshot.json', 2);
+    expect(isolated).not.toHaveProperty('permission');
+    expect(isolated.permissions).toEqual([
+      { action: '*', resource: '*', effect: 'deny' },
+      { action: 'agentwiki_directory_*', resource: '*', effect: 'allow' },
+    ]);
+    expect(isolated.mcp.servers.agentwiki_directory).toMatchObject({ type: 'local', codemode: false });
+    expect(isolated.mcp).not.toHaveProperty('agentwiki_directory');
+    expect(isolated.providers['bailian-coding-plan'].models['qwen3.7-plus'].capabilities).toMatchObject({
+      tools: true, input: ['text'], output: ['text'],
+    });
+  });
+
   const directory = { folderId: 'folder-1', title: 'Research', recursive: true, documents: [
     { pageId: 'page-1', title: 'Report', content: 'PRIVATE_DIRECTORY_BODY', updatedAt: 'v1', folderId: 'folder-1' },
   ] };
@@ -505,6 +520,18 @@ describe('OpencodeCliRunner', () => {
       '## User intent',
       'Make it concise',
     ].join('\n'));
+  });
+
+  it('includes the bounded prior Session history in the next prompt', () => {
+    const prompt = new OpencodeCliRunner(config).buildPrompt({
+      mode: 'question', intent: '继续', pageSnapshot: null,
+      historyWindow: { included: 1, omitted: 0, maxTurns: 10, maxCharacters: 120_000 },
+      history: [{ status: 'failed', intent: 'Summarize every document', answer: '', error: 'Assistant failed; retry with a new turn',
+        mode: 'question', pageId: null, pageSnapshot: null, references: [] }],
+    });
+    expect(prompt).toContain('Canonical conversation history');
+    expect(prompt).toContain('Summarize every document');
+    expect(prompt).toContain('Assistant failed; retry with a new turn');
   });
 
   it.each([
