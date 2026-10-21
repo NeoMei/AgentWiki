@@ -42,6 +42,10 @@ export interface AgentSessionContext {
   annotations?: AgentTurnAnnotation[];
 }
 export interface AgentHistoryTurn {
+  /** Terminal state of the prior turn. Failed/cancelled turns are replayed so a follow-up can retry them. */
+  status?: AgentTurnStatus;
+  /** Sanitized failure marker; raw provider/database errors never enter model history. */
+  error?: string;
   directory?: AgentDirectoryScope;
   /** Captured at send time; never replaced with current Page bodies. */
   pageSnapshot: Record<string, unknown> | null;

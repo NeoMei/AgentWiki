@@ -256,6 +256,19 @@ describe('AssistSessionService', () => {
     const detail = await service.get('session1', 'u1');
     expect(detail.turns[0].result).toEqual({ summary: 'previous answer' });
   });
+  it('replays a sanitized failed turn so a follow-up can continue the same Session', async () => {
+    await service.send('session1', 'u1', request({ intent: 'Summarize every document in this directory' }));
+    tasks[0].status = 'failed'; tasks[0].error = 'SECRET provider response';
+    await service.send('session1', 'u1', request({ clientRequestId: 'r2', intent: '继续' }));
+    const modelInput = await service.executionContext(db, tasks[1]);
+    expect(modelInput.history[0]).toMatchObject({
+      status: 'failed',
+      intent: 'Summarize every document in this directory',
+      error: 'Assistant failed; retry with a new turn',
+    });
+    expect(JSON.stringify(modelInput.history)).not.toContain('SECRET provider response');
+    expect(modelInput.historyWindow).toMatchObject({ included: 1, omitted: 0 });
+  });
   it('persists cancellation and allows a following turn', async () => {
     const turn = await service.send('session1', 'u1', request());
     const cancelledTask = await service.cancel(turn.id, 'u1');

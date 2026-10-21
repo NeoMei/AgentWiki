@@ -575,20 +575,33 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
         'qwen3.7-plus': {
           name: 'Qwen 3.7 Plus',
           limit: { context: 1_000_000, output: 32_768 },
-          capabilities: { input: ['text'], output: ['text'] },
+          // OpenCode V2 uses the config-level `tools` capability to advertise
+          // native tool calls. Without it, the MCP definitions are never
+          // included in the provider request even though the server connects.
+          capabilities: { tools: true, input: ['text'], output: ['text'] },
         },
       },
     };
+    if (cliMajor === 2) {
+      return {
+        permissions: [
+          { action: '*', resource: '*', effect: 'deny' },
+          ...(directorySnapshotPath ? [{ action: 'agentwiki_directory_*', resource: '*', effect: 'allow' }] : []),
+        ],
+        ...(directorySnapshotPath ? { mcp: { servers: { agentwiki_directory: {
+          type: 'local', codemode: false,
+          command: [process.execPath, join(__dirname, 'assist-directory-mcp.js'), directorySnapshotPath],
+        } } } } : {}),
+        ...(apiKey ? { providers: { 'bailian-coding-plan': v2Provider } } : {}),
+      };
+    }
     return {
       permission: { '*': 'deny', ...(directorySnapshotPath ? { 'agentwiki_directory_*': 'allow' } : {}) },
       ...(directorySnapshotPath ? { mcp: { agentwiki_directory: {
         type: 'local', enabled: true,
         command: [process.execPath, join(__dirname, 'assist-directory-mcp.js'), directorySnapshotPath],
       } } } : {}),
-      ...(apiKey ? cliMajor === 2
-        ? { providers: { 'bailian-coding-plan': v2Provider } }
-        : { provider: { 'bailian-coding-plan': v1Provider } }
-        : {}),
+      ...(apiKey ? { provider: { 'bailian-coding-plan': v1Provider } } : {}),
     };
   }
 

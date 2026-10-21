@@ -161,15 +161,24 @@ export class AssistSessionService {
       if (!isObject(snapshot) || typeof snapshot.updatedAt !== 'string' || snapshot.updatedAt !== source.updatedAt.toISOString()) throw new ConflictException('Page snapshot is stale');
       assertAssistTargetVersion(validateAssistTarget(snapshot), source.updatedAt);
     }
-    const completed = turns.slice(0, currentIndex).filter(turn => turn.status === 'done');
+    // Keep terminal failures/cancellations in the bounded replay window. A
+    // user commonly follows a failed directory scan with “继续”; dropping
+    // that turn makes the model report that the Session has no context.
+    const replayable = turns.slice(0, currentIndex).filter(turn => ['done', 'failed', 'cancelled'].includes(turn.status));
     const history: AgentHistoryTurn[] = [];
     let characters = 2; // Serialized array brackets also count toward the window.
-    for (const turn of completed.slice(-LIMIT.historyTurns).reverse()) {
+    for (const turn of replayable.slice(-LIMIT.historyTurns).reverse()) {
       const result = this.publicResult(turn);
       const context = this.context(turn);
+      const status = turn.status as AgentTurnStatus;
+      const failure = status === 'failed'
+        ? (turn.error === AGENT_OUTPUT_LIMIT_ERROR ? AGENT_OUTPUT_LIMIT_ERROR : 'Assistant failed; retry with a new turn')
+        : status === 'cancelled' ? 'The previous assistant turn was cancelled before completion' : undefined;
       const item: AgentHistoryTurn = { intent: turn.intent, answer: result?.summary || '', mode: turn.mode as AgentTurnMode, pageId: turn.pageId,
+        status,
         pageSnapshot: isObject(turn.pageSnapshot) ? turn.pageSnapshot : null,
         references: context.references,
+        ...(failure ? { error: failure } : {}),
         ...(context.directory ? { directory: directoryScope(context.directory) } : {}),
         ...(result?.changes ? { changes: result.changes } : {}),
         ...(result?.action ? { action: result.action } : {}),
@@ -182,7 +191,7 @@ export class AssistSessionService {
     const access = await this.authorization.assertLiveHumanSpaceAccess(tx, { userId: session.requestedByUserId }, session.spaceId, [...readRoles]);
     const canWrite = ['owner', 'admin', 'editor'].includes(access.role);
     const actions = { update: canWrite && current.pageId !== null, create: canWrite && !!currentContext.directory && !currentContext.directory.unavailableReason };
-    return { context: currentContext, actions, history, historyWindow: { included: history.length, omitted: completed.length - history.length, maxTurns: LIMIT.historyTurns, maxCharacters: LIMIT.history } };
+    return { context: currentContext, actions, history, historyWindow: { included: history.length, omitted: replayable.length - history.length, maxTurns: LIMIT.historyTurns, maxCharacters: LIMIT.history } };
   }
 
   private async lockAccess(tx: Prisma.TransactionClient, userId: string, spaceId: string) {
