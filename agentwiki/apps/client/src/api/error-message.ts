@@ -5,6 +5,7 @@ const CODE_KEYS: Record<string, string> = {
   AUTH_EMAIL_IN_USE: 'auth.emailInUse',
   AUTH_RATE_LIMITED: 'error.rateLimited',
   AUTH_PASSWORD_POLICY: 'error.passwordPolicy',
+  AUTH_NAME_POLICY: 'error.namePolicy',
   AUTH_PASSWORD_MISMATCH: 'error.passwordMismatch',
   SPACE_ACCESS_DENIED: 'error.spaceAccessDenied',
   AUTH_SCOPE_REQUIRED: 'error.spaceAccessDenied',

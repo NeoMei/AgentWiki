@@ -170,6 +170,12 @@ export class AuthService {
   }
 
   async register(email: string, password: string, name: string) {
+    if (/\s/u.test(name)) {
+      throw new BusinessException('AUTH_NAME_POLICY', 'Name cannot contain whitespace');
+    }
+    if (/\s/u.test(password)) {
+      throw new BusinessException('AUTH_PASSWORD_POLICY', 'Password cannot contain whitespace');
+    }
     try {
       const hashed = await this.hashPassword(password);
       const user = await this.prisma.user.create({

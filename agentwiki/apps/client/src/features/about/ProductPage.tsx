@@ -29,6 +29,8 @@ export const ProductPage: React.FC = () => {
   const navigate = useNavigate();
   const loginCardRef = useRef<HTMLDivElement>(null);
   const emailInputRef = useRef<HTMLInputElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
   const authTabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
@@ -36,6 +38,7 @@ export const ProductPage: React.FC = () => {
   const [name, setName] = useState('');
   const [authError, setAuthError] = useState('');
   const [emailError, setEmailError] = useState<AuthEmailError | null>(null);
+  const [nameError, setNameError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -59,6 +62,7 @@ export const ProductPage: React.FC = () => {
     setAuthMode(mode);
     setAuthError('');
     setEmailError(null);
+    setNameError('');
     setPasswordError('');
   };
 
@@ -79,21 +83,54 @@ export const ProductPage: React.FC = () => {
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@.]{2,}$/.test(email)) {
+    const normalizedEmail = email.trim();
+    if (!normalizedEmail) {
+      setAuthError('');
+      setEmailError('invalid');
+      emailInputRef.current?.focus();
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@.]{2,}$/.test(normalizedEmail)) {
       setAuthError('');
       setEmailError('invalid');
       emailInputRef.current?.focus();
       return;
     }
     if (authMode === 'register') {
+      if (!name.trim()) {
+        setAuthError('');
+        setEmailError(null);
+        setNameError(t('auth.nameRequired'));
+        nameInputRef.current?.focus();
+        return;
+      }
+      if (/\s/u.test(name)) {
+        setAuthError('');
+        setEmailError(null);
+        setNameError(t('auth.nameWhitespace'));
+        return;
+      }
+    }
+    if (!password.trim()) {
+      setAuthError('');
+      setEmailError(null);
+      setPasswordError(t('auth.passwordRequired'));
+      passwordInputRef.current?.focus();
+      return;
+    }
+    if (authMode === 'register') {
       const pwdErr = validatePassword(password, t);
       if (pwdErr) { setPasswordError(pwdErr); return; }
+      if (/\s/u.test(password)) {
+        setPasswordError(t('auth.passwordWhitespace'));
+        return;
+      }
     }
     setIsSubmitting(true);
     setAuthError('');
     setEmailError(null);
     try {
-      const payload: Record<string, string> = { email, password };
+      const payload: Record<string, string> = { email: normalizedEmail, password };
       if (authMode === 'register' && name) payload.name = name;
       const endpoint = authMode === 'login' ? '/auth/login' : '/auth/register';
       const res = await api.post(endpoint, payload);
@@ -277,14 +314,17 @@ export const ProductPage: React.FC = () => {
                       <label htmlFor="product-auth-name" className="sr-only">{t('common.name')}</label>
                       <input
                         id="product-auth-name"
+                        ref={nameInputRef}
                         disabled={isSubmitting}
                         type="text"
                         placeholder={t('common.name')}
                         value={name}
-                        onChange={(e) => setName(e.target.value)}
+                        onChange={(e) => { setName(e.target.value); setNameError(''); setAuthError(''); }}
+                        aria-invalid={Boolean(nameError)}
+                        aria-describedby={nameError ? 'product-auth-name-error' : undefined}
                         className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
-                        required
                       />
+                      {nameError && <div id="product-auth-name-error" role="alert" className="mt-2 text-sm text-red-600">{nameError}</div>}
                     </div>
                   )}
                   <div>
@@ -305,7 +345,6 @@ export const ProductPage: React.FC = () => {
                       aria-invalid={Boolean(emailError)}
                       aria-describedby={emailError ? 'product-auth-email-error' : undefined}
                       className={`w-full px-4 py-3 border rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 transition ${emailError ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'}`}
-                      required
                     />
                     {emailError && (
                       <div id="product-auth-email-error" role="alert" className="mt-2 text-sm text-red-600">
@@ -324,15 +363,15 @@ export const ProductPage: React.FC = () => {
                     <label htmlFor="product-auth-password" className="sr-only">{t('common.password')}</label>
                     <input
                       id="product-auth-password"
+                      ref={passwordInputRef}
                       disabled={isSubmitting}
                       type={showPassword ? 'text' : 'password'}
                       placeholder={t('common.password')}
                       value={password}
-                      aria-invalid={authMode === 'register' && Boolean(passwordError)}
-                      aria-describedby={authMode === 'register' && passwordError ? 'product-auth-password-error' : undefined}
-                      onChange={(e) => { setPassword(e.target.value); setPasswordError(''); }}
+                      aria-invalid={Boolean(passwordError)}
+                      aria-describedby={passwordError ? 'product-auth-password-error' : undefined}
+                      onChange={(e) => { setPassword(e.target.value); setPasswordError(''); setAuthError(''); }}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition pr-10"
-                      required
                     />
                     <button
                       type="button"
@@ -345,7 +384,7 @@ export const ProductPage: React.FC = () => {
                       {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
                   </div>
-                  {authMode === 'register' && passwordError && (
+                  {passwordError && (
                     <div id="product-auth-password-error" role="alert" className="text-red-600 text-xs">{passwordError}</div>
                   )}
                   <button

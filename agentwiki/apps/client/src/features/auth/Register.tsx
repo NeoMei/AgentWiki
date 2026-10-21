@@ -18,6 +18,7 @@ export const Register: React.FC = () => {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
+  const [nameError, setNameError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -27,9 +28,27 @@ export const Register: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!name.trim()) {
+      setNameError(t('auth.nameRequired'));
+      setError('');
+      return;
+    }
+    if (/\s/u.test(name)) {
+      setNameError(t('auth.nameWhitespace'));
+      setError('');
+      return;
+    }
+    setNameError('');
+    if (!email.trim()) { setError(t('auth.emailRequired')); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@.]{2,}$/.test(email.trim())) { setError(t('auth.emailInvalid')); return; }
+    if (!password.trim()) { setPasswordError(t('auth.passwordRequired')); return; }
     const pwdErr = validatePassword(password, t);
     if (pwdErr) {
       setPasswordError(pwdErr);
+      return;
+    }
+    if (/\s/u.test(password)) {
+      setPasswordError(t('auth.passwordWhitespace'));
       return;
     }
     setIsSubmitting(true);
@@ -64,11 +83,13 @@ export const Register: React.FC = () => {
             <input
               type="text"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => { setName(e.target.value); setNameError(''); setError(''); }}
+              aria-invalid={Boolean(nameError)}
+              aria-describedby={nameError ? 'register-name-error' : undefined}
               className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
               autoFocus
             />
+            {nameError && <div id="register-name-error" role="alert" className="text-red-500 text-sm mt-1">{nameError}</div>}
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">{t('common.email')}</label>
@@ -77,7 +98,6 @@ export const Register: React.FC = () => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
             />
           </div>
           <div>
@@ -91,7 +111,6 @@ export const Register: React.FC = () => {
                   setPasswordError(validatePassword(e.target.value, t) || '');
                 }}
                 className="w-full px-3 py-2 pr-10 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
               />
               <button
                 type="button"

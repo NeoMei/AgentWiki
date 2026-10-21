@@ -178,8 +178,13 @@ export function applyTaskboardPatch(
   if (unknown.length > 0) throw invalid(`不可更新字段：${unknown.join(', ')}`);
   const beforeStatus = task.status ?? null;
   for (const [key, value] of Object.entries(patch)) {
-    if (key === 'title' && !String(value ?? '').trim()) throw invalid('title 不能为空');
-    task[key] = value;
+    if (key === 'title') {
+      const title = String(value ?? '').trim();
+      if (!title) throw invalid('title 不能为空');
+      task[key] = title;
+    } else {
+      task[key] = value;
+    }
   }
   if (task.status !== undefined && !isTaskboardStatus(task.status)) {
     throw invalid(`不支持的状态：${task.status}`);

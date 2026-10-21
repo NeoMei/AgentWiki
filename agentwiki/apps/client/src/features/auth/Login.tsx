@@ -19,6 +19,8 @@ export const Login: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email.trim()) { setError(t('auth.emailRequired')); return; }
+    if (!password.trim()) { setError(t('auth.passwordRequired')); return; }
     setIsSubmitting(true);
     setError('');
     try {
@@ -54,7 +56,6 @@ export const Login: React.FC = () => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
               autoFocus
             />
           </div>
@@ -67,7 +68,6 @@ export const Login: React.FC = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-3 py-2 pr-10 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
               />
               <button
                 type="button"
