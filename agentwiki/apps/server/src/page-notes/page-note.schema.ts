@@ -21,6 +21,7 @@ export const NOTE_CREATE_FIELDS = {
   target: NOTE_TARGET,
   status: NOTE_STATUS.optional(),
   taskId: id.optional(),
+  recipientUserIds: z.array(id).max(50).optional(),
 };
 export const NOTE_CREATE = z.object(NOTE_CREATE_FIELDS).strict();
 export const NOTE_UPDATE_FIELDS = {

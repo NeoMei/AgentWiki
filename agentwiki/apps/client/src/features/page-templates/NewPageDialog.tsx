@@ -80,6 +80,18 @@ type CatalogState =
 const TemplateContentPreview = React.lazy(() => import('./TemplateContentPreview').then((module) => ({ default: module.TemplateContentPreview })));
 
 const PAGE_TITLE_LIMIT = 200;
+const MARKDOWN_IMPORT_MAX_CHARS = 200_000;
+
+const readMarkdownFile = (file: File): Promise<string> => {
+  const text = (file as File & { text?: unknown }).text;
+  if (typeof text === 'function') return (text as () => Promise<string>).call(file);
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener('load', () => resolve(typeof reader.result === 'string' ? reader.result : ''));
+    reader.addEventListener('error', () => reject(reader.error ?? new Error('MARKDOWN_FILE_READ_FAILED')));
+    reader.readAsText(file);
+  });
+};
 const SCOPE_FILTERS: ScopeFilter[] = ['all', 'system', 'space'];
 const KIND_FILTERS: KindFilter[] = ['all', 'single_page', 'page_group'];
 
@@ -146,6 +158,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
   const configureRef = useRef<HTMLElement>(null);
   const configureIssuesRef = useRef<HTMLDivElement>(null);
   const [legacyCreating, setLegacyCreating] = useState(false);
+  const [markdownImporting, setMarkdownImporting] = useState(false);
   const [result, setResult] = useState<CompositeInstantiationResult | null>(null);
   const [instructions, setInstructions] = useState<AgentInstruction[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
@@ -158,6 +171,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
   const [initialSelectionStatus, setInitialSelectionStatus] = useState<'locating' | 'missing' | null>(initialTemplateId ? 'locating' : null);
   const [catalogState, setCatalogState] = useState<CatalogState>({ generation: 0, status: 'loading' });
   const previewNameRef = useRef<HTMLInputElement>(null);
+  const markdownInputRef = useRef<HTMLInputElement>(null);
   const previewEntryFocusRef = useRef(false);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const refreshParticipantsButtonRef = useRef<HTMLButtonElement>(null);
@@ -175,7 +189,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
   const userEditedRef = useRef(false);
 
   useDirtyNavigationGuard(pageMode && !completed && phase !== 'result'
-    && Boolean(title.trim() || rootName.trim() || collaborationEnabled || legacyCreating || phase === 'submitting'),
+    && Boolean(title.trim() || rootName.trim() || collaborationEnabled || legacyCreating || markdownImporting || phase === 'submitting'),
     t('creation.unsaved'));
 
   const finish = (target: string | NewPageCreationTarget) => {
@@ -489,6 +503,55 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
     }
   };
 
+  const importMarkdown = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = '';
+    if (!file || markdownImporting || legacyCreating || submittingRef.current) return;
+    if (!/\.(?:md|markdown)$/iu.test(file.name)) {
+      setError(language === 'zh-CN' ? '请选择 .md 或 .markdown 文件。' : 'Choose a .md or .markdown file.');
+      return;
+    }
+    setMarkdownImporting(true);
+    const operation = ++operationRef.current;
+    const controller = new AbortController();
+    controllerRef.current?.abort();
+    controllerRef.current = controller;
+    setError(null);
+    try {
+      const content = (await readMarkdownFile(file)).replace(/^\uFEFF/u, '');
+      if (content.length > MARKDOWN_IMPORT_MAX_CHARS) {
+        const max = MARKDOWN_IMPORT_MAX_CHARS.toLocaleString(language === 'zh-CN' ? 'zh-CN' : 'en-US');
+        setError(language === 'zh-CN' ? `Markdown 文件超过 ${max} 字符限制。` : `The Markdown file exceeds the ${max} character limit.`);
+        return;
+      }
+      const importedTitle = truncateValidatorLength(
+        file.name.replace(/\.(?:md|markdown)$/iu, '').trim(),
+        PAGE_TITLE_LIMIT,
+      );
+      if (!importedTitle) {
+        setError(language === 'zh-CN' ? '请选择 .md 或 .markdown 文件。' : 'Choose a .md or .markdown file.');
+        return;
+      }
+      const expectedTreeRevision = await getContentTreeRevision(spaceId, controller.signal);
+      if (!sessionActiveRef.current || controller.signal.aborted || operationRef.current !== operation) return;
+      const response = await api.post('/pages', {
+        title: importedTitle,
+        content,
+        spaceId,
+        expectedTreeRevision,
+        folderId: folderId ?? null,
+      }, { signal: controller.signal });
+      if (sessionActiveRef.current && !controller.signal.aborted && operationRef.current === operation) finish(response.data.id);
+    } catch (reason) {
+      if (sessionActiveRef.current && !controller.signal.aborted && operationRef.current === operation) {
+        setError(apiErrorMessage(reason, t, 'page.createFailed'));
+      }
+    } finally {
+      if (controllerRef.current === controller) controllerRef.current = null;
+      if (sessionActiveRef.current && operationRef.current === operation) setMarkdownImporting(false);
+    }
+  };
+
   const showConfigurationError = (message: string, controlId?: string) => {
     setError(message);
     setValidationToast(message);
@@ -607,7 +670,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
   };
 
   const close = () => {
-    if (legacyCreating) return;
+    if (legacyCreating || markdownImporting) return;
     if (!pageMode || submittingRef.current) cancelPendingOperation();
     onClose();
   };
@@ -646,7 +709,7 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
   const content = <>
     {validationToast ? <Toast kind="error" message={validationToast} onClose={() => setValidationToast(null)} /> : null}
     {pageMode ? <div className="template-context-row">
-      <button ref={closeButtonRef} type="button" onClick={close} disabled={legacyCreating || phase === 'submitting'}
+      <button ref={closeButtonRef} type="button" onClick={close} disabled={legacyCreating || markdownImporting || phase === 'submitting'}
         className="template-return"><ArrowLeft size={16} aria-hidden="true" />{t('creation.return')}</button>
       {targetLocation ? <p className="template-destination" data-testid="new-page-folder-hint">
         {t('page.createLocation', { location: targetLocation })}
@@ -663,8 +726,14 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
         onClick={(event) => { if (legacyCreating || phase === 'submitting') event.preventDefault(); }}
         to={`/spaces/${encodeURIComponent(spaceId)}/settings/page-templates${folderId ? `?${new URLSearchParams({ folder: folderId })}` : ''}`}>
         <Settings2 size={16} aria-hidden="true" />{t('creation.manageCustom')}</Link> : null}
-      {!pageMode ? <button ref={closeButtonRef} type="button" aria-label={t('common.close')} disabled={legacyCreating} onClick={close}
+      {!pageMode ? <button ref={closeButtonRef} type="button" aria-label={t('common.close')} disabled={legacyCreating || markdownImporting} onClick={close}
         className="template-close"><X size={20} /></button> : null}
+    </div>
+    <div className="flex justify-end">
+      <button type="button" className="template-button" disabled={legacyCreating || markdownImporting || phase === 'submitting' || phase === 'result'} onClick={() => markdownInputRef.current?.click()}>
+        <FilePlus2 size={15} aria-hidden="true" />{markdownImporting ? t('common.loading') : `${t('source.uploadFile')} · ${t('editor.markdown')}`}
+      </button>
+      <input ref={markdownInputRef} type="file" accept=".md,.markdown,text/markdown" aria-label={t('source.uploadFile')} className="sr-only" onChange={(event) => void importMarkdown(event)} />
     </div>
     {!pageMode && targetLocation ? <p className="template-destination" data-testid="new-page-folder-hint">
       {t('page.createLocation', { location: targetLocation })}

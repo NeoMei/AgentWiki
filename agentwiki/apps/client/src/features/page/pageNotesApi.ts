@@ -1,17 +1,18 @@
 import api from '../../api/client';
 import type { AssistTarget } from './assistTargets';
-import type { NoteAuthor, PersonalNote, PersonalNoteStatus, PersonalNotesScope } from './reviewComments';
+import type { NoteAuthor, NoteRecipient, PersonalNote, PersonalNoteStatus, PersonalNotesScope } from './reviewComments';
 
 export interface PageNoteDto {
   id: string; spaceId: string; pageId: string; body: string; target: AssistTarget;
   status: PersonalNoteStatus; taskId?: string; author: NoteAuthor; canEdit: boolean;
+  recipients?: NoteRecipient[];
   createdAt: string; updatedAt: string; clientNoteId?: string;
 }
-export interface CreatePageNote { clientNoteId: string; body: string; target: AssistTarget; status?: PersonalNoteStatus; taskId?: string }
+export interface CreatePageNote { clientNoteId: string; body: string; target: AssistTarget; status?: PersonalNoteStatus; taskId?: string; recipientUserIds?: string[] }
 const path = (scope: PersonalNotesScope) => `/spaces/${encodeURIComponent(scope.spaceId)}/pages/${encodeURIComponent(scope.pageId)}/notes`;
 export function fromPageNote(note: PageNoteDto, scope: PersonalNotesScope): PersonalNote {
   if (!note || note.spaceId !== scope.spaceId || note.pageId !== scope.pageId || !note.author?.id || !['user', 'agent'].includes(note.author.type)) throw new Error('Invalid page note scope');
-  return { ...note, schemaVersion: 1, userId: note.author.type === 'user' ? note.author.id : `agent:${note.author.id}` };
+  return { ...note, recipients: note.recipients ?? [], schemaVersion: 1, userId: note.author.type === 'user' ? note.author.id : `agent:${note.author.id}` };
 }
 export const pageNotesApi = {
   async list(scope: PersonalNotesScope, signal?: AbortSignal) {

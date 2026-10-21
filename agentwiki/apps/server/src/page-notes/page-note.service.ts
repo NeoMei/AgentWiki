@@ -1,8 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { PageNote, Prisma } from '@prisma/client';
 import { AuthorizationService, Principal, SpaceRole } from '../core/authorization/authorization.service';
 import { BusinessException } from '../core/filters/business-error';
 import { PrismaService } from '../database/prisma.service';
+import { NotificationService } from '../notifications/notification.service';
+import type { PageNoteRecipientSummary } from '../notifications/notification.schema';
 import { NOTE_CREATE, NOTE_DELETE, NOTE_ID, NOTE_ROUTE, NOTE_UPDATE, parseNoteInput } from './page-note.schema';
 
 const READ_ROLES: SpaceRole[] = ['owner', 'admin', 'editor', 'viewer'];
@@ -12,7 +14,11 @@ const identity = (principal: Principal) => principal.agentId
 
 @Injectable()
 export class PageNoteService {
-  constructor(private readonly prisma: PrismaService, private readonly authorization: AuthorizationService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly authorization: AuthorizationService,
+    @Optional() private readonly notifications?: NotificationService,
+  ) {}
 
   async list(principal: Principal, spaceId: string, pageId: string) {
     await this.assertRead(principal, spaceId, pageId);
@@ -24,6 +30,7 @@ export class PageNoteService {
     }
     const rows = await this.prisma.pageNote.findMany({
       where: { spaceId, pageId, deletedAt: null }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      include: { recipients: { orderBy: { createdAt: 'asc' }, include: { user: { select: { id: true, name: true, email: true } } } } },
     });
     return { notes: rows.map(note => this.project(note, principal, canCreate)), canCreate };
   }
@@ -51,7 +58,21 @@ export class PageNoteService {
         clientNoteId: input.clientNoteId, body: input.body, target: input.target as Prisma.InputJsonValue,
         status: input.status ?? 'pending', taskId: !input.status || input.status === 'pending' ? null : input.taskId ?? null,
       } });
-      return this.project(note, principal, true);
+      let recipients: PageNoteRecipientSummary[] = [];
+      if (this.notifications && input.recipientUserIds?.length) {
+        const page = await db.page.findUnique({ where: { id: pageId }, select: { title: true } });
+        recipients = await this.notifications.createPageNoteNotifications(db, {
+          noteId: note.id,
+          pageId,
+          spaceId,
+          authorUserId: principal.userId,
+          recipientUserIds: input.recipientUserIds,
+          pageTitle: page?.title ?? '',
+          body: note.body,
+          quote: input.target.quote,
+        });
+      }
+      return this.project(note, principal, true, recipients);
     });
   }
 
@@ -131,7 +152,7 @@ export class PageNoteService {
     return note;
   }
 
-  private project(note: PageNote, principal: Principal, canWrite: boolean) {
+  private project(note: PageNote & { recipients?: Array<{ userId: string; user: { id: string; name: string | null; email: string } }> }, principal: Principal, canWrite: boolean, createdRecipients?: PageNoteRecipientSummary[]) {
     const author = identity(principal);
     return {
       id: note.id, spaceId: note.spaceId, pageId: note.pageId, body: note.body, target: note.target,
@@ -139,6 +160,11 @@ export class PageNoteService {
       author: { type: note.authorType, id: note.authorId, name: note.authorName },
       createdAt: note.createdAt.toISOString(), updatedAt: note.updatedAt.toISOString(),
       canEdit: canWrite && note.authorType === author.authorType && note.authorId === author.authorId,
+      recipients: createdRecipients ?? note.recipients?.map(recipient => ({
+        userId: recipient.user.id,
+        name: recipient.user.name?.trim() || recipient.user.email,
+        email: recipient.user.email,
+      })) ?? [],
       ...(note.authorType === author.authorType && note.authorId === author.authorId ? { clientNoteId: note.clientNoteId } : {}),
     };
   }

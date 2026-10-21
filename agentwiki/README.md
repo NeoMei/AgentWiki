@@ -114,8 +114,11 @@ JWT_SECRET=your-secret-key
 APP_SECRET=your-app-secret
 
 # AI Assist (optional — enables server-side OpenCode editing helper)
+# OpenCode is an externally managed CLI; AgentWiki does not bundle its npm package.
 OPENCODE_BIN=opencode
 ANTHROPIC_API_KEY=your-key   # or OPENAI_API_KEY, OPENROUTER_API_KEY, etc.
+# Optional worker limit; each task gets its own isolated OpenCode process.
+# ASSIST_CONCURRENCY=2
 
 # Worker process role
 PROCESS_ROLE=all   # 'api' | 'worker' | 'all'

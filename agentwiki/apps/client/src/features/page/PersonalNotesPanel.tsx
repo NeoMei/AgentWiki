@@ -9,14 +9,15 @@ interface Props {
   identityKey?: string;
   onRetrySync?: () => void;
   onDispatch: (ids: string[]) => void;
+  onResolve: (id: string) => void;
   onReopen: (id: string) => void;
   activeNoteId?: string | null;
   onLocate?: (id: string) => boolean | void;
   onClearActive?: () => void;
 }
 type NoteFilter = 'all' | 'open' | 'resolved';
-/** Controlled queue: parent persists notes and transitions only after task responses / explicit acceptance. */
-export function PersonalNotesPanel({ stageForSession = false, source, notes, disabled, storageUnavailable, syncing, identityKey, onRetrySync, onDispatch, onReopen, activeNoteId, onLocate, onClearActive }: Props) {
+/** Controlled queue: parent persists notes and transitions after task responses, acceptance, or author action. */
+export function PersonalNotesPanel({ stageForSession = false, source, notes, disabled, storageUnavailable, syncing, identityKey, onRetrySync, onDispatch, onResolve, onReopen, activeNoteId, onLocate, onClearActive }: Props) {
   const { language } = useLanguage(); const zh = language === 'zh-CN';
   const [selected, setSelected] = useState<string[]>([]);
   const [filter, setFilter] = useState<NoteFilter>('open');
@@ -80,12 +81,14 @@ export function PersonalNotesPanel({ stageForSession = false, source, notes, dis
           {onLocate ? <button type="button" disabled={!found} onClick={() => { if (found) setLocationUnavailableId(onLocate(note.id) === false ? note.id : null); }} className="min-h-7 shrink-0 rounded px-1 text-xs text-gray-500 hover:bg-amber-100 hover:text-amber-800 disabled:opacity-40">{zh ? '定位原文' : 'Locate passage'}</button> : null}
         </div>
         <PersonalNoteAuthor userId={note.userId} author={note.author} language={language} />
+        {note.recipients?.length ? <p aria-label={zh ? '笔记收件人' : 'Note recipients'} className="text-xs text-blue-700"><span className="font-medium">{zh ? '已 @：' : 'Mentioned: '}</span>{note.recipients.map((recipient) => `@${recipient.name}`).join(' ')}</p> : null}
         <blockquote className="max-h-24 overflow-y-auto whitespace-pre-wrap rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-xs leading-relaxed text-gray-500 [overflow-wrap:anywhere]">{note.target.quote}</blockquote>
         <p className="max-h-40 min-w-0 overflow-y-auto whitespace-pre-wrap leading-relaxed text-gray-800 [overflow-wrap:anywhere]">{note.body}</p>
         {!found ? <p className="text-amber-800">{zh ? '原文已变动或定位不唯一' : 'Original passage changed or anchor is ambiguous'}</p> : null}
         {locationUnavailableId === note.id ? <p role="status" className="text-xs text-amber-800">{zh ? '此片段无法在当前视图定位，请查看原始 Markdown。' : 'This passage cannot be located in this view. Check the original Markdown.'}</p> : null}
         {note.syncState === 'unsynced' ? <p className="text-xs text-amber-700">{zh ? '尚未同步' : 'Not synced'}</p> : null}
-        {note.status !== 'pending' && note.canEdit !== false ? <button type="button" disabled={disabled} onClick={() => onReopen(note.id)} className="h-8 rounded-lg border border-gray-200 px-3">{zh ? '重新打开' : 'Reopen'}</button> : null}
+        {note.status !== 'resolved' && note.canEdit === true && note.syncState !== 'unsynced' ? <button type="button" disabled={disabled} onClick={() => onResolve(note.id)} className="h-8 rounded-lg border border-blue-200 px-3 text-blue-700">{zh ? '标记已解决' : 'Mark resolved'}</button> : null}
+        {note.status !== 'pending' && note.canEdit === true && note.syncState !== 'unsynced' ? <button type="button" disabled={disabled} onClick={() => onReopen(note.id)} className="h-8 rounded-lg border border-gray-200 px-3">{zh ? '重新打开' : 'Reopen'}</button> : null}
       </li>;
     })}</ul>
   </section>;

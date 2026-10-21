@@ -1,11 +1,10 @@
 import { NativeSelect } from '../../components/NativeSelect';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowUp, Bot, ChevronDown, FileText, Folder, History, MessageSquare, Plus, Square, X } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { Markdown } from '../../components/Markdown';
 import { AssistCandidateReview } from '../page/AssistCandidateReview';
 import { applyCandidateToDraft, type AssistCandidate } from '../page/assistCandidate';
 import { captureAssistTarget, validateAssistTarget, type AssistTarget } from '../page/assistTargets';
@@ -354,7 +353,7 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, direct
             <div className="agent-reply-meta"><Bot aria-hidden="true" size={15} /><span>Agent</span><span className={turn.status === 'running' || turn.status === 'queued' ? 'agent-turn-active' : ''}>{statuses[turn.status]}</span></div>
             {turn.status === 'queued' || turn.status === 'running' ? <AgentActivity status={turn.status} progress={turn.progress} createdAt={turn.createdAt} /> : null}
             {turn.directory ? <p className="mb-2 text-xs text-gray-500" aria-label={messages['agent.directoryRead']}>{turn.directory.unavailableReason ? `${turn.directory.title} · ${messages['agent.directoryUnavailable']}` : <>{turn.directory.title} · {turn.directory.pageCount}{zh ? ' 篇文档' : ` ${turn.directory.pageCount === 1 ? 'page' : 'pages'}`}{turn.directory.recursive ? ` · ${messages['agent.subfolders']}` : ''}</>}</p> : null}
-            {turn.result?.summary || turn.progressText ? <div className="agent-reply-content"><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml disallowedElements={['img']} components={{ a: ({ children, href }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> }}>{turn.result?.summary ?? turn.progressText}</ReactMarkdown></div> : null}
+            {turn.result?.summary || turn.progressText ? <Markdown className="agent-reply-content" allowImages={false} highlightCode={false}>{turn.result?.summary ?? turn.progressText}</Markdown> : null}
             {turn.status === 'failed' ? <p role="alert" className="text-xs text-red-700">{zh ? '本轮执行失败。可检查上下文后重试，或新建会话。' : 'This turn failed. Check the context and retry, or start a new conversation.'}</p> : null}
             {turn.result?.document ? <div className="agent-acceptance-receipt"><p>{turn.result.document.operation === 'created' ? (zh ? '文档已创建并保存。' : 'Document created and saved.') : (zh ? '文档已修改并保存。' : 'Document updated and saved.')}</p><Link to={`/pages/${encodeURIComponent(turn.result.document.pageId)}`}>{turn.result.document.title}</Link></div> : candidate?.status === 'accepted' || candidate?.acceptedEditIds?.length ? <div className="agent-acceptance-receipt"><p>{zh ? '已接受到草稿，仍需保存页面。' : 'Accepted to draft. Save the page to publish these changes.'}</p><details className="agent-acceptance-history"><summary>{zh ? '接受记录说明' : 'About this acceptance record'}</summary><p className="text-xs text-gray-600">{zh ? '历史接受记录：曾接受到草稿。编辑器撤销/重做只改变正文，不回退本记录或笔记；再次应用请重新生成。' : 'Acceptance record: previously accepted into the draft. Editor Undo/Redo changes text, not this record or notes. Regenerate to apply again.'}</p></details></div> : null}
             {turn.mode === 'proposal' && candidate && candidate.status !== 'generating' ? <div className="agent-candidate-review">

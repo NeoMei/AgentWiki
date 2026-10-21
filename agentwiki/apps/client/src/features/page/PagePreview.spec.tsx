@@ -1433,6 +1433,37 @@ describe('PagePreview checklist saves', () => {
     expect(agentPostCalls()).toHaveLength(0); expect(pagePatchCalls()).toHaveLength(0);
   });
 
+  it('opens and activates a page note from the query while preserving hash scrolling', async () => {
+    const current = page({ content: '# Passage\n\nA passage worth noting', capabilities: { canEdit: false } });
+    const target = captureAssistTarget(current.content, 'selection', current.content.indexOf('A passage'), current.content.indexOf('A passage') + 9, current.updatedAt)!;
+    serverNotes = [{
+      id: 'deep-note', spaceId: current.spaceId, pageId: current.id, body: 'Open this note', target,
+      status: 'pending', author: { type: 'user', id: 'reader', name: 'Reader' }, canEdit: true,
+      createdAt: current.createdAt, updatedAt: current.updatedAt,
+    }];
+    localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');
+    vi.mocked(api.get).mockImplementation(async (url) => notesGet(url) ?? ({ data: url === '/assist/sessions' || url.startsWith('/knowledge') ? [] : current }));
+    window.history.replaceState(null, '', '/pages/page-1?note=deep-note#passage');
+    render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="reader"><MemoryRouter initialEntries={['/pages/page-1?note=deep-note#passage']}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
+
+    const heading = await screen.findByRole('heading', { name: 'Passage' });
+    await waitFor(() => expect(scrollIntoViewMock.mock.instances).toContain(heading));
+    const panel = await screen.findByRole('region', { name: 'Page notes' });
+    expect(within(panel).getByRole('checkbox', { name: 'Open this note' }).closest('li')).toHaveAttribute('data-active-note', 'true');
+  });
+
+  it('keeps the page usable when a page-note deep link does not belong to the loaded page', async () => {
+    const current = page({ content: 'A passage worth noting', capabilities: { canEdit: false } });
+    localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');
+    vi.mocked(api.get).mockImplementation(async (url) => notesGet(url) ?? ({ data: url === '/assist/sessions' || url.startsWith('/knowledge') ? [] : current }));
+    render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="reader"><MemoryRouter initialEntries={['/pages/page-1?note=foreign-note']}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
+
+    expect(await screen.findByRole('heading', { name: 'Checklist' })).toBeVisible();
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/spaces/space-1/pages/page-1/notes', expect.anything()));
+    expect(screen.queryByRole('region', { name: 'Page notes' })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Page notes' })).toHaveAttribute('aria-selected', 'false');
+  });
+
   it('clears reading highlights immediately when the account changes while Notes is open', async () => {
     const current = page({ content: 'Only my private annotation' });
     const scope = { userId: 'reader', spaceId: current.spaceId, pageId: current.id };

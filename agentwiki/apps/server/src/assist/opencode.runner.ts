@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { isAbsolute, join } from 'path';
 import { StringDecoder } from 'string_decoder';
 import {
   AssistInput,
@@ -20,7 +20,8 @@ import {
 } from './opencode.types';
 import {
   OpencodeLaunch,
-  resolveBundledOpencodeLaunch,
+  buildOpencodeInvocationArgs,
+  probeOpencodeLaunch,
   resolveOpencodeLaunchFile,
 } from './opencode-launch';
 
@@ -39,7 +40,12 @@ const DIRECTORY_TOOLS = new Set(['agentwiki_directory_list_documents', 'agentwik
 @Injectable()
 export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
   readonly capabilities = BUILTIN_RUNTIME_CAPABILITIES;
+  private launchCache?: OpencodeLaunch;
   constructor(private readonly config: ConfigService) {}
+
+  get cliMajor(): 1 | 2 {
+    return this.resolveLaunch().cliMajor;
+  }
 
   async run(task: AssistInput): Promise<AssistRunResult> {
     const timeoutMs = Number(this.config.get('ASSIST_OPENCODE_TIMEOUT_MS') || 300_000);
@@ -193,34 +199,47 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
   }
 
   /**
-   * Resolve the opencode CLI binary. Checks OPENCODE_BIN, then the usual
-   * node_modules/.bin locations including the pnpm .pnpm virtual store where
-   * pnpm places bins when the top-level .bin is not linked.
+   * Resolve the external OpenCode CLI. AgentWiki intentionally does not
+   * resolve a copy from its own node_modules tree: the administrator owns the
+   * OpenCode lifecycle and can upgrade it independently of this application.
+   * An explicit OPENCODE_BIN wins; otherwise the service PATH is used.
    */
   private resolveLaunch(): OpencodeLaunch {
+    if (this.launchCache) return this.launchCache;
     const configured = this.config.get<string>('OPENCODE_BIN');
+    let launch: OpencodeLaunch | undefined;
     if (configured) {
-      if (!existsSync(configured)) return { command: configured, argsPrefix: [] };
-      const launch = this.launchFile(configured, process.platform);
-      if (launch) return launch;
-      throw this.executionError('binary_unavailable', 'global');
+      // A bare command name is resolved by the service PATH. Relative paths
+      // containing a directory are rejected because they make the executable
+      // depend on the worker's current directory and are easy to hijack.
+      if (!isAbsolute(configured) && (configured.includes('/') || configured.includes('\\'))) {
+        throw this.executionError('process_error', 'global');
+      }
+      if (isAbsolute(configured) && existsSync(configured)) {
+        launch = this.launchFile(configured, process.platform);
+      }
+      if (!launch) launch = {
+        command: configured, argsPrefix: [], cliMajor: 1, packageName: 'configured',
+      };
     }
-
-    const cwd = process.cwd();
-    const bundled = this.resolveBundledLaunch(cwd, process.platform, process.arch);
-    if (bundled) return bundled;
-
-    // A bare executable name lets Windows resolve opencode.exe from PATH while
-    // never selecting pnpm/npm's POSIX .bin shim or invoking a command shell.
-    return { command: process.platform === 'win32' ? 'opencode.exe' : 'opencode', argsPrefix: [] };
-  }
-
-  private resolveBundledLaunch(
-    cwd: string,
-    platform: NodeJS.Platform,
-    arch: string,
-  ): OpencodeLaunch | undefined {
-    return resolveBundledOpencodeLaunch(cwd, platform, arch);
+    if (!launch) {
+      // Resolve the administrator-managed binary from PATH. The deployment
+      // preflight probes its capabilities before the first request so an
+      // incompatible upstream release fails closed.
+      launch = {
+        command: process.platform === 'win32' ? 'opencode.exe' : 'opencode',
+        argsPrefix: [], cliMajor: 1, packageName: 'configured',
+      };
+    }
+    try {
+      this.launchCache = probeOpencodeLaunch(launch);
+      return this.launchCache;
+    } catch (error) {
+      throw this.executionError(
+        (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'binary_unavailable' : 'process_error',
+        'global',
+      );
+    }
   }
 
   private launchFile(
@@ -256,7 +275,7 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
         XDG_CACHE_HOME: join(sandbox, '.cache'),
         XDG_STATE_HOME: join(sandbox, '.local', 'state'),
         OPENCODE_CONFIG_DIR: isolatedConfigDir,
-        OPENCODE_CONFIG_CONTENT: JSON.stringify(this.isolatedConfig(directorySnapshotPath)),
+        OPENCODE_CONFIG_CONTENT: JSON.stringify(this.isolatedConfig(directorySnapshotPath, launch.cliMajor)),
         OPENCODE_DISABLE_EXTERNAL_SKILLS: 'true',
         OPENCODE_DISABLE_PROJECT_CONFIG: 'true',
         OPENCODE_DISABLE_DEFAULT_PLUGINS: 'true',
@@ -265,7 +284,7 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
       };
       let child: ChildProcessWithoutNullStreams;
       try {
-        child = spawn(launch.command, [...launch.argsPrefix, '--pure', ...args], {
+        child = spawn(launch.command, [...launch.argsPrefix, ...buildOpencodeInvocationArgs(launch, args)], {
           env,
           cwd: sandbox,
           shell: false,
@@ -528,31 +547,48 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
     return out;
   }
 
-  private isolatedConfig(directorySnapshotPath?: string) {
+  private isolatedConfig(directorySnapshotPath?: string, cliMajor: 1 | 2 = 1) {
     const apiKey = this.config.get<string>('ASSIST_ALIYUN_CODING_PLAN_API_KEY');
+    const v1Provider = {
+      npm: '@ai-sdk/anthropic',
+      name: 'Alibaba Cloud Coding Plan',
+      options: {
+        baseURL: 'https://coding.dashscope.aliyuncs.com/apps/anthropic/v1',
+        apiKey,
+      },
+      models: {
+        'qwen3.7-plus': {
+          name: 'Qwen 3.7 Plus',
+          limit: { context: 1_000_000, output: 32_768 },
+          modalities: { input: ['text'], output: ['text'] },
+        },
+      },
+    };
+    const v2Provider = {
+      package: '@opencode/ai/providers/anthropic-compatible',
+      name: 'Alibaba Cloud Coding Plan',
+      settings: {
+        baseURL: 'https://coding.dashscope.aliyuncs.com/apps/anthropic/v1',
+        apiKey,
+      },
+      models: {
+        'qwen3.7-plus': {
+          name: 'Qwen 3.7 Plus',
+          limit: { context: 1_000_000, output: 32_768 },
+          capabilities: { input: ['text'], output: ['text'] },
+        },
+      },
+    };
     return {
       permission: { '*': 'deny', ...(directorySnapshotPath ? { 'agentwiki_directory_*': 'allow' } : {}) },
       ...(directorySnapshotPath ? { mcp: { agentwiki_directory: {
         type: 'local', enabled: true,
         command: [process.execPath, join(__dirname, 'assist-directory-mcp.js'), directorySnapshotPath],
       } } } : {}),
-      ...(apiKey ? { provider: {
-        'bailian-coding-plan': {
-          npm: '@ai-sdk/anthropic',
-          name: 'Alibaba Cloud Coding Plan',
-          options: {
-            baseURL: 'https://coding.dashscope.aliyuncs.com/apps/anthropic/v1',
-            apiKey,
-          },
-          models: {
-            'qwen3.7-plus': {
-              name: 'Qwen 3.7 Plus',
-              limit: { context: 1_000_000, output: 32_768 },
-              modalities: { input: ['text'], output: ['text'] },
-            },
-          },
-        },
-      } } : {}),
+      ...(apiKey ? cliMajor === 2
+        ? { providers: { 'bailian-coding-plan': v2Provider } }
+        : { provider: { 'bailian-coding-plan': v1Provider } }
+        : {}),
     };
   }
 
@@ -562,11 +598,14 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
         const event = JSON.parse(line);
         if (event?.type !== 'error') continue;
         const data = event.error?.data;
-        const status = data?.statusCode;
+        const status = data?.statusCode ?? data?.status ?? event.error?.status;
         if (status === 401 || status === 403) return 'auth_failed';
         if (status === 429) return 'rate_limited';
         if (status === 404 || (typeof status === 'number' && status >= 500 && status < 600)) return 'model_unavailable';
-        const code = this.classifyFailure(typeof data?.message === 'string' ? data.message : '');
+        const message = typeof data?.message === 'string'
+          ? data.message
+          : typeof event.error?.message === 'string' ? event.error.message : '';
+        const code = this.classifyFailure(message);
         if (code !== 'process_error') return code;
       } catch { /* Ignore non-JSON output; never classify generated text as an error. */ }
     }

@@ -39,6 +39,20 @@ describe('Creation route context', () => {
     expect(await screen.findByRole('heading', { name: '/pages/page-new/edit' })).toBeVisible();
     expect(mocks.post).toHaveBeenCalledWith('/pages', { title: '项目笔记', spaceId: 'demo', folderId: 'folder-1', expectedTreeRevision: '11' });
   });
+  it('imports a Markdown file into a new page in the requested folder', async () => {
+    gets('editor'); mocks.post.mockResolvedValue({ data: { id: 'page-imported' } }); setup();
+    expect(await screen.findByText(/知识库 \/ 项目/)).toBeVisible();
+    const file = new File(['# Imported\n\n```mermaid\ngraph TD; A-->B\n```'], 'Imported.md', { type: 'text/markdown' });
+    fireEvent.change(screen.getByLabelText('上传文件'), { target: { files: [file] } });
+    expect(await screen.findByRole('heading', { name: '/pages/page-imported/edit' })).toBeVisible();
+    expect(mocks.post).toHaveBeenCalledWith('/pages', {
+      title: 'Imported',
+      content: '# Imported\n\n```mermaid\ngraph TD; A-->B\n```',
+      spaceId: 'demo',
+      folderId: 'folder-1',
+      expectedTreeRevision: '11',
+    }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  });
   it('selects the template from the management link while retaining its destination', async () => {
     gets('owner'); setup('/spaces/demo/new?template=team&kind=single_page&scope=space&folder=folder-1');
     expect(await screen.findByRole('button', { name: /团队周报.*空间自定义/ })).toHaveAttribute('aria-pressed', 'true');

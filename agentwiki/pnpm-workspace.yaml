@@ -37,23 +37,9 @@ allowBuilds:
   '@prisma/engines': true
   esbuild: false
   msgpackr-extract: set this to true or false
-  opencode-ai: true
   prisma: true
   unrs-resolver: true
 minimumReleaseAgeExclude:
-  - opencode-ai@1.18.12
-  - opencode-darwin-arm64@1.18.12
-  - opencode-darwin-x64-baseline@1.18.12
-  - opencode-darwin-x64@1.18.12
-  - opencode-linux-arm64-musl@1.18.12
-  - opencode-linux-arm64@1.18.12
-  - opencode-linux-x64-baseline-musl@1.18.12
-  - opencode-linux-x64-baseline@1.18.12
-  - opencode-linux-x64-musl@1.18.12
-  - opencode-linux-x64@1.18.12
-  - opencode-windows-arm64@1.18.12
-  - opencode-windows-x64-baseline@1.18.12
-  - opencode-windows-x64@1.18.12
   - tmp@0.2.7
   - glob@10.5.0
   - ajv@8.18.0

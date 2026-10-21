@@ -8,9 +8,9 @@ import type { ComponentProps } from 'react';
 const scope = { userId: 'u', spaceId: 's', pageId: 'p' };
 const target = captureAssistTarget('quote', 'selection', 0, 5, '2026-10-06T00:00:00Z')!;
 afterEach(cleanup);
-const note = (body: string, id: string, status: 'pending' | 'dispatched' | 'awaiting-review' | 'resolved' = 'pending') => ({ ...addPersonalNote(scope, target, body, id), status, ...(status === 'pending' ? {} : { taskId: 'task' }) });
+const note = (body: string, id: string, status: 'pending' | 'dispatched' | 'awaiting-review' | 'resolved' = 'pending') => ({ ...addPersonalNote(scope, target, body, id), canEdit: true, status, ...(status === 'pending' ? {} : { taskId: 'task' }) });
 function queue(props: Partial<ComponentProps<typeof PersonalNotesPanel>> = {}) {
-  const defaults = { source: 'quote', notes: [], onDispatch: vi.fn(), onReopen: vi.fn(), ...props };
+  const defaults = { source: 'quote', notes: [], onDispatch: vi.fn(), onResolve: vi.fn(), onReopen: vi.fn(), ...props };
   const view = render(<LanguageProvider><PersonalNotesPanel {...defaults} /></LanguageProvider>);
   return { ...view, props: defaults, update: (next: Partial<ComponentProps<typeof PersonalNotesPanel>>) => view.rerender(<LanguageProvider><PersonalNotesPanel {...defaults} {...next} /></LanguageProvider>) };
 }
@@ -56,15 +56,24 @@ describe('personal notes UI', () => {
   it('labels server visibility and only sends chosen pending notes', () => {
     localStorage.setItem('agentwiki.language.v1', 'en');
     const onDispatch = vi.fn(); const note = addPersonalNote(scope, target, 'Explain it', 'id');
-    render(<LanguageProvider><PersonalNotesPanel source="quote" notes={[note]} onDispatch={onDispatch} onReopen={() => {}} /></LanguageProvider>);
+    render(<LanguageProvider><PersonalNotesPanel source="quote" notes={[note]} onDispatch={onDispatch} onResolve={() => {}} onReopen={() => {}} /></LanguageProvider>);
     expect(screen.getByText(/Users and Agents with page access/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Send selected to Agent' })).toBeDisabled();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Explain it' }));
     fireEvent.click(screen.getByRole('button', { name: 'Send selected to Agent' })); expect(onDispatch).toHaveBeenCalledWith(['id']);
   });
+  it('shows the server recipient summaries for each @ mention', () => {
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    const mentioned = { ...addPersonalNote(scope, target, 'Explain it', 'mentioned'), recipients: [
+      { userId: 'u2', name: 'Bob', email: 'bob@example.test' },
+      { userId: 'u', name: 'Alice', email: 'alice@example.test' },
+    ] };
+    render(<LanguageProvider><PersonalNotesPanel source="quote" notes={[mentioned]} onDispatch={() => {}} onResolve={() => {}} onReopen={() => {}} /></LanguageProvider>);
+    expect(screen.getByLabelText('Note recipients')).toHaveTextContent('Mentioned: @Bob @Alice');
+  });
   it('keeps orphan quote visible and disables its dispatch, with Chinese labels', () => {
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
-    render(<LanguageProvider><PersonalNotesPanel source="changed" notes={[addPersonalNote(scope, target, 'Explain', 'id')]} onDispatch={() => {}} onReopen={() => {}} /></LanguageProvider>);
+    render(<LanguageProvider><PersonalNotesPanel source="changed" notes={[addPersonalNote(scope, target, 'Explain', 'id')]} onDispatch={() => {}} onResolve={() => {}} onReopen={() => {}} /></LanguageProvider>);
     expect(screen.getByText('quote')).toBeInTheDocument(); expect(screen.getByText('原文已变动或定位不唯一')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Explain' })).toBeDisabled();
   });
@@ -148,9 +157,19 @@ describe('personal notes UI', () => {
     localStorage.setItem('agentwiki.language.v1', 'en');
     const view = queue({ disabled: true, notes: [note('A', 'a'), note('Sent', 'sent', 'dispatched')] });
     for (const name of ['Select all eligible', 'Clear selection', 'Send selected to Agent', 'Reopen']) expect(screen.getByRole('button', { name })).toBeDisabled();
+    expect(screen.getAllByRole('button', { name: 'Mark resolved' }).every((button) => (button as HTMLButtonElement).disabled)).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Select all eligible' }));
     expect(screen.getByRole('checkbox', { name: 'A' })).not.toBeChecked();
     expect(view.props.onDispatch).not.toHaveBeenCalled();
+  });
+  it('lets the note author mark an open note resolved and leaves Agent dispatch explicit', () => {
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    const onResolve = vi.fn();
+    const view = queue({ notes: [note('Close this note', 'close')], onResolve });
+    fireEvent.click(screen.getByRole('button', { name: 'Mark resolved' }));
+    expect(onResolve).toHaveBeenCalledExactlyOnceWith('close');
+    expect(view.props.onDispatch).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Reopen' })).not.toBeInTheDocument();
   });
   it('shows Chinese selection feedback, storage warning, and explicit reopen action', () => {
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
@@ -182,6 +201,7 @@ it('keeps all authors visible, blocks unsynced dispatch and hides another author
   fireEvent.click(screen.getByRole('button', { name: 'All (2)' }));
   expect(screen.getByLabelText('Note author: Bob')).toBeVisible();
   expect(screen.queryByRole('button', { name: 'Reopen' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Mark resolved' })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Retry sync' })); expect(retry).toHaveBeenCalledOnce();
 });
 

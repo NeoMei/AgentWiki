@@ -13,244 +13,174 @@ import { join } from 'path';
 import {
   preflightStagedOpencodeRuntime,
   runOpencodeVersion,
+  SpawnVersion,
 } from './opencode-deployment-preflight';
 
-const expectedVersion = '1.18.12';
-
-function stagedFixture(root: string, version = expectedVersion) {
+function stagedFixture(root: string) {
   const stagedRoot = join(root, 'staged');
-  const packageRoot = join(stagedRoot, 'apps', 'server', 'node_modules', 'opencode-ai');
-  const target = join(packageRoot, 'bin', 'opencode.js');
   mkdirSync(join(stagedRoot, 'apps', 'server'), { recursive: true });
-  mkdirSync(join(packageRoot, 'bin'), { recursive: true });
   writeFileSync(join(stagedRoot, 'apps', 'server', 'package.json'), JSON.stringify({
-    dependencies: { 'opencode-ai': expectedVersion },
+    dependencies: {},
   }));
-  writeFileSync(join(packageRoot, 'package.json'), JSON.stringify({
-    name: 'opencode-ai', version: expectedVersion, bin: { opencode: './bin/opencode.js' },
-  }));
-  writeFileSync(target, `process.stdout.write(${JSON.stringify(`${version}\n`)});\n`);
   writeFileSync(join(stagedRoot, '.env'), 'DATABASE_URL=postgresql://preserved\n');
   writeFileSync(join(stagedRoot, 'apps', 'server', '.env'), 'ASSIST_MODELS=model-a,model-b\n');
-  return { stagedRoot, target };
+  return { stagedRoot };
+}
+
+function fakeProbe(version = '2.9.4', major: 1 | 2 = 2): jest.MockedFunction<SpawnVersion> {
+  return jest.fn((_command, args, _options) => {
+    const last = args[args.length - 1];
+    if (last === '--version') return { status: 0, stdout: 'opencode v' + version + '\n', stderr: '' };
+    if (last === '--help' && args.includes('run')) {
+      return {
+        status: 0,
+        stdout: major === 2 ? 'run [--standalone] [--format json]' : 'run [--pure]',
+        stderr: '',
+      };
+    }
+    if (last === '--help' && args.includes('models')) {
+      return {
+        status: 0,
+        stdout: major === 2 ? 'models [--standalone]' : 'models [--verbose]',
+        stderr: '',
+      };
+    }
+    return { status: 1, stdout: '', stderr: 'unexpected args' };
+  });
 }
 
 describe('OpenCode deployment preflight', () => {
-  it('validates bundled native before removing only the known staged shim assignments', () => {
+  it('probes an arbitrary host version and migrates only the known npm shim', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-preflight-'));
     const liveRoot = join(fixture, 'home', 'agentwiki');
     const shim = join(liveRoot, 'node_modules', '.pnpm', 'node_modules', '.bin', 'opencode');
-    const sentinel = join(fixture, 'shim-ran');
-    const { stagedRoot, target } = stagedFixture(fixture, '1.18.11');
-    const rootEnv = `ASSIST_OPENCODE_ALLOW_PAID_FALLBACK=false\nOPENCODE_BIN=${shim}\nOPENAI_API_KEY=preserve-root\n`;
-    const serverEnv = `OPENCODE_BIN=${shim}\nASSIST_MODELS=model-a,model-b\nOPENROUTER_API_KEY=preserve-server\n`;
+    const { stagedRoot } = stagedFixture(fixture);
+    const rootEnv = 'ASSIST_OPENCODE_ALLOW_PAID_FALLBACK=false\nOPENCODE_BIN=' + shim + '\nOPENAI_API_KEY=preserve-root\n';
+    const serverEnv = 'OPENCODE_BIN=' + shim + '\nASSIST_MODELS=model-a,model-b\nOPENROUTER_API_KEY=preserve-server\n';
     mkdirSync(join(shim, '..'), { recursive: true });
-    writeFileSync(shim, `#!/bin/sh\ntouch ${JSON.stringify(sentinel)}\n`);
+    writeFileSync(shim, '#!/bin/sh\nexit 23\n');
     chmodSync(shim, 0o755);
     writeFileSync(join(stagedRoot, '.env'), rootEnv);
     writeFileSync(join(stagedRoot, 'apps', 'server', '.env'), serverEnv);
-
     try {
-      expect(() => preflightStagedOpencodeRuntime({
-        stagedRoot,
-        liveRoot,
-        homeRoot: join(fixture, 'home'),
-      })).toThrow(/expected OpenCode version 1\.18\.12/iu);
-      expect(readFileSync(join(stagedRoot, '.env'), 'utf8')).toBe(rootEnv);
-      expect(readFileSync(join(stagedRoot, 'apps', 'server', '.env'), 'utf8')).toBe(serverEnv);
-
-      writeFileSync(target, `process.stdout.write(${JSON.stringify(`${expectedVersion}\n`)});\n`);
       expect(preflightStagedOpencodeRuntime({
         stagedRoot,
         liveRoot,
         homeRoot: join(fixture, 'home'),
-      })).toEqual({ migratedKnownShim: true, version: expectedVersion });
+        spawnProbe: fakeProbe('2.9.4', 2),
+      })).toEqual({ migratedKnownShim: true, version: '2.9.4', cliMajor: 2 });
       expect(readFileSync(join(stagedRoot, '.env'), 'utf8')).toBe(
         'ASSIST_OPENCODE_ALLOW_PAID_FALLBACK=false\nOPENAI_API_KEY=preserve-root\n',
       );
       expect(readFileSync(join(stagedRoot, 'apps', 'server', '.env'), 'utf8')).toBe(
         'ASSIST_MODELS=model-a,model-b\nOPENROUTER_API_KEY=preserve-server\n',
       );
-      expect(existsSync(sentinel)).toBe(false);
+      expect(existsSync(shim)).toBe(true);
     } finally {
       rmSync(fixture, { recursive: true, force: true });
     }
   });
 
-  it('uses systemd file order and preserves a valid explicit override byte-for-byte', () => {
-    const fixture = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-override-'));
-    const { stagedRoot } = stagedFixture(fixture);
-    const liveRoot = join(fixture, 'home', 'agentwiki');
-    const override = join(stagedRoot, 'operator-tools', 'opencode.js');
-    mkdirSync(join(override, '..'), { recursive: true });
-    writeFileSync(override, `process.stdout.write(${JSON.stringify(`${expectedVersion}\n`)});\n`);
-    const rootEnv = 'OPENCODE_BIN=/missing/first\nASSIST_OPENCODE_ALLOW_PAID_FALLBACK=true\n';
-    const serverEnv = `ASSIST_MODELS=model-a\nOPENCODE_BIN=${override}\nANTHROPIC_API_KEY=preserved\n`;
-    writeFileSync(join(stagedRoot, '.env'), rootEnv);
-    writeFileSync(join(stagedRoot, 'apps', 'server', '.env'), serverEnv);
-
-    try {
-      expect(preflightStagedOpencodeRuntime({
-        stagedRoot,
-        liveRoot,
-        homeRoot: join(fixture, 'home'),
-      })).toEqual({ migratedKnownShim: false, version: expectedVersion });
-      expect(readFileSync(join(stagedRoot, '.env'), 'utf8')).toBe(rootEnv);
-      expect(readFileSync(join(stagedRoot, 'apps', 'server', '.env'), 'utf8')).toBe(serverEnv);
-    } finally {
-      rmSync(fixture, { recursive: true, force: true });
-    }
-  });
-
-  it('rejects a direct explicit override from the external temporary tree', () => {
-    const fixture = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-external-tmp-'));
-    const { stagedRoot } = stagedFixture(fixture);
-    const liveRoot = join(fixture, 'home', 'agentwiki');
-    const override = join(fixture, 'external', 'opencode.js');
-    mkdirSync(join(override, '..'), { recursive: true });
-    writeFileSync(override, `process.stdout.write(${JSON.stringify(`${expectedVersion}\n`)});\n`);
-    const serverEnv = `OPENCODE_BIN=${override}\nASSIST_MODELS=model-a\n`;
-    writeFileSync(join(stagedRoot, 'apps', 'server', '.env'), serverEnv);
-
-    try {
-      expect(() => preflightStagedOpencodeRuntime({
-        stagedRoot,
-        liveRoot,
-        homeRoot: join(fixture, 'home'),
-      })).toThrow(/runtime-visible.*exact read-only bind/iu);
-      expect(readFileSync(join(stagedRoot, 'apps', 'server', '.env'), 'utf8')).toBe(serverEnv);
-    } finally {
-      rmSync(fixture, { recursive: true, force: true });
-    }
-  });
-
-  it('rejects an application-tree symlink whose canonical target escapes to temporary storage', () => {
-    const fixture = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-staged-symlink-'));
-    const { stagedRoot } = stagedFixture(fixture);
-    const liveRoot = join(fixture, 'home', 'agentwiki');
-    const relativeOverride = join('vendor', 'opencode.js');
-    const liveOverride = join(liveRoot, relativeOverride);
-    const stagedOverride = join(stagedRoot, relativeOverride);
-    const externalTarget = join(fixture, 'external', 'opencode.js');
-    mkdirSync(join(liveOverride, '..'), { recursive: true });
-    mkdirSync(join(stagedOverride, '..'), { recursive: true });
-    mkdirSync(join(externalTarget, '..'), { recursive: true });
-    writeFileSync(liveOverride, `process.stdout.write(${JSON.stringify('0.0.0\n')});\n`);
-    writeFileSync(externalTarget, `process.stdout.write(${JSON.stringify(`${expectedVersion}\n`)});\n`);
-    symlinkSync(externalTarget, stagedOverride);
-    const serverEnv = `OPENCODE_BIN=${liveOverride}\nASSIST_MODELS=model-a\n`;
-    writeFileSync(join(stagedRoot, 'apps', 'server', '.env'), serverEnv);
-
-    try {
-      expect(() => preflightStagedOpencodeRuntime({
-        stagedRoot,
-        liveRoot,
-        homeRoot: join(fixture, 'home'),
-      })).toThrow(/runtime-visible.*exact read-only bind/iu);
-      expect(readFileSync(join(stagedRoot, 'apps', 'server', '.env'), 'utf8')).toBe(serverEnv);
-    } finally {
-      rmSync(fixture, { recursive: true, force: true });
-    }
-  });
-
-  it('validates an application-tree override from the staged replacement tree', () => {
+  it('supports an explicit executable inside the staged application tree', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-staged-override-'));
     const { stagedRoot } = stagedFixture(fixture);
     const liveRoot = join(fixture, 'home', 'agentwiki');
-    const relativeOverride = join('vendor', 'opencode.js');
-    const liveOverride = join(liveRoot, relativeOverride);
-    const stagedOverride = join(stagedRoot, relativeOverride);
+    const liveOverride = join(liveRoot, 'vendor', 'opencode.js');
+    const stagedOverride = join(stagedRoot, 'vendor', 'opencode.js');
     mkdirSync(join(liveOverride, '..'), { recursive: true });
     mkdirSync(join(stagedOverride, '..'), { recursive: true });
-    writeFileSync(liveOverride, `process.stdout.write(${JSON.stringify('0.0.0\n')});\n`);
-    writeFileSync(stagedOverride, `process.stdout.write(${JSON.stringify(`${expectedVersion}\n`)});\n`);
-    const serverEnv = `OPENCODE_BIN=${liveOverride}\nASSIST_MODELS=model-a\n`;
+    writeFileSync(stagedOverride, 'process.stdout.write("unused");\n');
+    const serverEnv = 'ASSIST_MODELS=model-a\nOPENCODE_BIN=' + liveOverride + '\n';
     writeFileSync(join(stagedRoot, 'apps', 'server', '.env'), serverEnv);
-
     try {
       expect(preflightStagedOpencodeRuntime({
         stagedRoot,
         liveRoot,
         homeRoot: join(fixture, 'home'),
-      })).toEqual({ migratedKnownShim: false, version: expectedVersion });
+        spawnProbe: fakeProbe('3.4.5', 2),
+      })).toEqual({ migratedKnownShim: false, version: '3.4.5', cliMajor: 2 });
       expect(readFileSync(join(stagedRoot, 'apps', 'server', '.env'), 'utf8')).toBe(serverEnv);
     } finally {
       rmSync(fixture, { recursive: true, force: true });
     }
   });
 
-  it('treats a later empty assignment as an intentional bundled-runtime selection', () => {
-    const fixture = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-empty-override-'));
-    const { stagedRoot } = stagedFixture(fixture);
-    const liveRoot = join(fixture, 'home', 'agentwiki');
-    const rootEnv = 'OPENCODE_BIN=/missing/earlier\nASSIST_MODELS=model-a\n';
-    const serverEnv = 'OPENCODE_BIN=\nOPENAI_API_KEY=preserved\n';
-    writeFileSync(join(stagedRoot, '.env'), rootEnv);
-    writeFileSync(join(stagedRoot, 'apps', 'server', '.env'), serverEnv);
-
-    try {
-      expect(preflightStagedOpencodeRuntime({
-        stagedRoot,
-        liveRoot,
-        homeRoot: join(fixture, 'home'),
-      })).toEqual({ migratedKnownShim: false, version: expectedVersion });
-      expect(readFileSync(join(stagedRoot, '.env'), 'utf8')).toBe(rootEnv);
-      expect(readFileSync(join(stagedRoot, 'apps', 'server', '.env'), 'utf8')).toBe(serverEnv);
-    } finally {
-      rmSync(fixture, { recursive: true, force: true });
-    }
-  });
-
-  it('fails closed without changing staged files for an unsupported explicit shim', () => {
-    const fixture = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-invalid-'));
-    const { stagedRoot } = stagedFixture(fixture);
-    const liveRoot = join(fixture, 'home', 'agentwiki');
-    const override = join(stagedRoot, 'operator-tools', 'opencode');
-    mkdirSync(join(override, '..'), { recursive: true });
-    writeFileSync(override, '#!/bin/sh\nexit 0\n');
-    chmodSync(override, 0o755);
-    const serverEnv = `OPENCODE_BIN=${override}\nASSIST_MODELS=model-a\n`;
-    writeFileSync(join(stagedRoot, 'apps', 'server', '.env'), serverEnv);
-
-    try {
-      expect(() => preflightStagedOpencodeRuntime({
-        stagedRoot,
-        liveRoot,
-        homeRoot: join(fixture, 'home'),
-      })).toThrow(/unsupported explicit OPENCODE_BIN/iu);
-      expect(readFileSync(join(stagedRoot, 'apps', 'server', '.env'), 'utf8')).toBe(serverEnv);
-    } finally {
-      rmSync(fixture, { recursive: true, force: true });
-    }
-  });
-
-  it('fails closed for a valid override hidden elsewhere beneath home', () => {
-    const fixture = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-hidden-home-'));
+  it('rejects an explicit path hidden by ProtectHome or outside runtime-visible roots', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-path-'));
     const { stagedRoot } = stagedFixture(fixture);
     const homeRoot = join(fixture, 'home');
     const liveRoot = join(homeRoot, 'agentwiki');
     const override = join(homeRoot, 'operator-tools', 'opencode.js');
     mkdirSync(join(override, '..'), { recursive: true });
-    writeFileSync(override, `process.stdout.write(${JSON.stringify(`${expectedVersion}\n`)});\n`);
-    const serverEnv = `OPENCODE_BIN=${override}\nASSIST_MODELS=model-a\n`;
-    writeFileSync(join(stagedRoot, 'apps', 'server', '.env'), serverEnv);
-
+    writeFileSync(override, 'process.stdout.write("unused");\n');
+    writeFileSync(join(stagedRoot, 'apps', 'server', '.env'), 'OPENCODE_BIN=' + override + '\n');
     try {
-      expect(() => preflightStagedOpencodeRuntime({ stagedRoot, liveRoot, homeRoot }))
-        .toThrow(/hidden by ProtectHome/iu);
-      expect(readFileSync(join(stagedRoot, 'apps', 'server', '.env'), 'utf8')).toBe(serverEnv);
+      expect(() => preflightStagedOpencodeRuntime({
+        stagedRoot,
+        liveRoot,
+        homeRoot,
+        spawnProbe: fakeProbe(),
+      })).toThrow(/hidden by ProtectHome/iu);
     } finally {
       rmSync(fixture, { recursive: true, force: true });
     }
   });
 
-  it('launches the exact native target without a shell and with no argument prefix', () => {
-    const spawn = jest.fn(() => ({ status: 0, stdout: `${expectedVersion}\n`, stderr: '' }));
+  it('rejects a staged symlink whose canonical target escapes the runtime tree', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-symlink-'));
+    const { stagedRoot } = stagedFixture(fixture);
+    const liveRoot = join(fixture, 'home', 'agentwiki');
+    const liveOverride = join(liveRoot, 'vendor', 'opencode.js');
+    const stagedOverride = join(stagedRoot, 'vendor', 'opencode.js');
+    const external = join(fixture, 'external', 'opencode.js');
+    mkdirSync(join(liveOverride, '..'), { recursive: true });
+    mkdirSync(join(stagedOverride, '..'), { recursive: true });
+    mkdirSync(join(external, '..'), { recursive: true });
+    writeFileSync(external, 'process.stdout.write("unused");\n');
+    symlinkSync(external, stagedOverride);
+    writeFileSync(join(stagedRoot, 'apps', 'server', '.env'), 'OPENCODE_BIN=' + liveOverride + '\n');
+    try {
+      expect(() => preflightStagedOpencodeRuntime({
+        stagedRoot,
+        liveRoot,
+        homeRoot: join(fixture, 'home'),
+        spawnProbe: fakeProbe(),
+      })).toThrow(/runtime-visible.*exact read-only bind/iu);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed when the external CLI does not expose a supported capability set', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'agentwiki-opencode-unsupported-'));
+    const { stagedRoot } = stagedFixture(fixture);
+    const liveRoot = join(fixture, 'home', 'agentwiki');
+    const unsupported = join(stagedRoot, 'operator-tools', 'opencode.js');
+    mkdirSync(join(unsupported, '..'), { recursive: true });
+    writeFileSync(unsupported, 'process.stdout.write("unused");\n');
+    writeFileSync(join(stagedRoot, 'apps', 'server', '.env'), 'OPENCODE_BIN=' + unsupported + '\n');
+    const probe = jest.fn((_command, args) => {
+      if (args[args.length - 1] === '--version') return { status: 0, stdout: 'opencode v9.0.0\n', stderr: '' };
+      return { status: 0, stdout: 'future command', stderr: '' };
+    });
+    try {
+      expect(() => preflightStagedOpencodeRuntime({
+        stagedRoot,
+        liveRoot,
+        homeRoot: join(fixture, 'home'),
+        spawnProbe: probe,
+      })).toThrow(/Unsupported OpenCode CLI/iu);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
+  it('runs a shell-free version probe and accepts any semantic version', () => {
+    const spawn = jest.fn(() => ({ status: 0, stdout: 'opencode v10.11.12\n', stderr: '' }));
     expect(runOpencodeVersion(
-      { command: '/opt/opencode/bin/opencode', argsPrefix: [] },
-      expectedVersion,
+      { command: '/opt/opencode/bin/opencode', argsPrefix: [], cliMajor: 2, packageName: 'configured' },
       spawn as never,
-    )).toBe(expectedVersion);
+    )).toBe('10.11.12');
     expect(spawn).toHaveBeenCalledWith(
       '/opt/opencode/bin/opencode',
       ['--version'],

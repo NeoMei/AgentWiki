@@ -2,7 +2,8 @@ import { resolveAssistTarget, validateAssistTarget, type AssistTarget } from './
 export interface PersonalNotesScope { userId: string; spaceId: string; pageId: string }
 export type PersonalNoteStatus = 'pending' | 'dispatched' | 'awaiting-review' | 'resolved';
 export interface NoteAuthor { type: 'user' | 'agent'; id: string; name: string }
-export interface PersonalNote extends PersonalNotesScope { schemaVersion: 1; id: string; body: string; target: AssistTarget; status: PersonalNoteStatus; taskId?: string; author?: NoteAuthor; canEdit?: boolean; createdAt?: string; updatedAt?: string; clientNoteId?: string; syncState?: 'unsynced' }
+export interface NoteRecipient { userId: string; name: string; email: string }
+export interface PersonalNote extends PersonalNotesScope { schemaVersion: 1; id: string; body: string; target: AssistTarget; status: PersonalNoteStatus; taskId?: string; author?: NoteAuthor; recipients?: NoteRecipient[]; canEdit?: boolean; createdAt?: string; updatedAt?: string; clientNoteId?: string; syncState?: 'unsynced' }
 type NotesStorage = Pick<Storage, 'getItem' | 'setItem'>;
 const validText = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
 const validScope = (s: PersonalNotesScope) => validText(s.userId) && validText(s.spaceId) && validText(s.pageId);

@@ -1407,7 +1407,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
           {(notesMounted || notesOpen) && panelReadable ? <>
           {!personalNotes.loaded ? <p role="status" className="mb-2 text-sm text-gray-500">{language === 'zh-CN' ? '正在加载页面笔记…' : 'Loading page notes…'}</p> : null}
           {personalNotes.conflict ? <p role="alert" className="mb-2 text-sm text-amber-800">{language === 'zh-CN' ? '所选笔记原文已变动、定位不唯一或内容过长，请检查后重试。' : 'Selected passages changed, are ambiguous, or exceed the request limit. Review them before retrying.'}</p> : null}
-          <PersonalNotesPanel stageForSession key={personalNotes.identityKey} identityKey={personalNotes.identityKey} syncing={personalNotes.syncing} onRetrySync={personalNotes.retrySync} source={content} notes={personalNotes.notes} activeNoteId={notesOpen ? activeNoteId : null} onLocate={locateNote} onClearActive={() => setActiveNote(null)} storageUnavailable={personalNotes.storageUnavailable} disabled={!personalNotes.loaded || !!personalNotes.assistRequest} onReopen={personalNotes.reopen} onDispatch={(ids) => { if (personalNotes.dispatch(ids)) { setSelectionRequest(null); openCollaboration('assist'); } }} />
+          <PersonalNotesPanel stageForSession key={personalNotes.identityKey} identityKey={personalNotes.identityKey} syncing={personalNotes.syncing} onRetrySync={personalNotes.retrySync} source={content} notes={personalNotes.notes} activeNoteId={notesOpen ? activeNoteId : null} onLocate={locateNote} onClearActive={() => setActiveNote(null)} storageUnavailable={personalNotes.storageUnavailable} disabled={!personalNotes.loaded || !!personalNotes.assistRequest} onResolve={personalNotes.resolve} onReopen={personalNotes.reopen} onDispatch={(ids) => { if (personalNotes.dispatch(ids)) { setSelectionRequest(null); openCollaboration('assist'); } }} />
           </> : null}
           </div>
           <div role="tabpanel" id={`${panelIdPrefix}-panel-assist`} aria-labelledby={`${panelIdPrefix}-tab-assist`} hidden={!assistOpen} className="agent-session-host min-h-0 flex-1 flex-col">
@@ -1514,9 +1514,9 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
           />
         </div>
         {panelReadable ? <SelectionNoteComposer key={`${personalNotes.identityKey}:${mode}`} rootRef={noteSelectionRootRef}
-          identity={personalNotes.identityKey} source={content} updatedAt={page.updatedAt} language={language}
+          identity={personalNotes.identityKey} spaceId={page.spaceId} source={content} updatedAt={page.updatedAt} language={language}
           disabled={!personalNotes.loaded || !personalNotes.canCreate || personalNotes.syncing || saving || !!remoteUpdate || !!unresolvedSocketRevisionRef.current || !!personalNotes.assistRequest}
-          storageUnavailable={personalNotes.storageUnavailable} onAdd={(target, body) => personalNotes.add(target, body, { requirePersistence: true })} captureTarget={() => {
+          storageUnavailable={personalNotes.storageUnavailable} onAdd={(target, body, recipientUserIds) => personalNotes.add(target, body, { requirePersistence: true, recipientUserIds })} captureTarget={() => {
             const nativeSelection = window.getSelection();
             if (!nativeSelection?.rangeCount) return null;
             const range = nativeSelection.getRangeAt(0);

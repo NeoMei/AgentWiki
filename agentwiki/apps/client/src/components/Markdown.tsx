@@ -218,6 +218,10 @@ export interface MarkdownProps extends NoteHighlightProps {
   children: string;
   pages?: PageLinkTarget[];
   className?: string;
+  /** Keep untrusted assistant replies from loading arbitrary Markdown images. */
+  allowImages?: boolean;
+  /** Keep compact assistant replies readable without syntax-highlighted child spans. */
+  highlightCode?: boolean;
   mode?: MarkdownRenderMode;
   canEdit?: boolean;
   pendingTaskIndexes?: ReadonlySet<number>;
@@ -420,6 +424,8 @@ const Callout: React.FC<CalloutProps> = ({ type, title, fold, children }) => {
 type SafeImageProps = React.ImgHTMLAttributes<HTMLImageElement> & ExtraProps;
 
 const SafeImage = ({ src, alt = '', node: _node, ...rest }: SafeImageProps) => {
+  const { allowImages } = useContext(MarkdownRenderOptionsContext);
+  if (!allowImages) return null;
   const runtime = useContext(MarkdownRuntimeContext);
   const source = typeof src === 'string' ? src.trim() : '';
   const external = isExternalHttpsImage(source);
@@ -499,6 +505,8 @@ const MarkdownInteractionContext = createContext<{
   tasks: ReturnType<typeof collectMarkdownTasks>;
   selectionEnabled: boolean;
 }>({ taskInputsEnabled: false, pendingTaskIndexes: new Set(), tasks: [], selectionEnabled: false });
+
+const MarkdownRenderOptionsContext = createContext<{ allowImages: boolean }>({ allowImages: true });
 
 // Keep renderer component identities stable. Defining them inside Markdown
 // remounts their entire subtree on reading-page scroll/resize updates, revoking
@@ -583,6 +591,8 @@ export const Markdown: React.FC<MarkdownProps> = ({
   children,
   pages = [],
   className,
+  allowImages = true,
+  highlightCode = true,
   mode = 'static',
   canEdit = false,
   pendingTaskIndexes = new Set<number>(),
@@ -715,6 +725,7 @@ export const Markdown: React.FC<MarkdownProps> = ({
   const runtimeValue = useMemo(() => ({ tree, branch, resourceState }), [branch, resourceState, tree]);
 
   return (
+    <MarkdownRenderOptionsContext.Provider value={{ allowImages }}>
     <MarkdownRuntimeContext.Provider value={runtimeValue}>
     <MarkdownInteractionContext.Provider value={{ taskInputsEnabled, pendingTaskIndexes, tasks, selectionEnabled: Boolean(selectionSourceVersion) }}>
     <div ref={noteRootRef} className={`${className ?? markdownClass}${segments.length ? ' personal-note-document' : ''}`} onChange={handleChange} data-markdown-selection-root={selectionOwner} data-markdown-selection-version={selectionSourceVersion}
@@ -747,7 +758,7 @@ export const Markdown: React.FC<MarkdownProps> = ({
             properties: { className: ['heading-anchor'], ariaHidden: true, tabIndex: -1 },
             content: { type: 'text', value: ' #' },
           }],
-          rehypeHighlight,
+          ...(highlightCode ? [rehypeHighlight] : []),
           rehypeAnnotateCodeBlocks,
           selectionPlugin,
         ]}
@@ -762,5 +773,6 @@ export const Markdown: React.FC<MarkdownProps> = ({
     </div>
     </MarkdownInteractionContext.Provider>
     </MarkdownRuntimeContext.Provider>
+    </MarkdownRenderOptionsContext.Provider>
   );
 };

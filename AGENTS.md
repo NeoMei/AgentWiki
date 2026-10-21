@@ -6,6 +6,13 @@
 - 面对需求分析、数据调研、文档撰写、Notion 沉淀、表格处理、轻量开发等任务时，优先采用最直接、可落地的方式完成。
 - 当遇到重复处理、重复整理、重复分析或明显可复用的任务模式时，主动将其抽象沉淀为最适合 Codex 理解和复用的 skill；必要时补充 SKILL.md、脚本、参考资料或模板，并在后续类似任务中优先复用。
 
+## AgentWiki Session Continuity
+
+- When working under `agentwiki/`, treat `agentwiki/AGENTWIKI_RELEASE_CANDIDATE` as the release source lock. A new Session must run `cd agentwiki && node scripts/agentwiki-release-guard.mjs` before editing or publishing.
+- If the guard fails, stop. Inspect `git worktree list --porcelain` and continue from the locked candidate branch/worktree; do not repair the failure by switching to the historical checkout or by publishing from it.
+- The historical `codex/assist-qwen-fallback` checkout is intentionally release-blocked. A new Session must not infer the active AgentWiki version from its current directory, a stale build, a prior chat, or a page.
+- The canonical local checkout for this candidate is `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`.
+
 <!-- CODEX-MEMORY:START -->
 ## 项目级上下文管理
 

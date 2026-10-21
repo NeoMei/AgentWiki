@@ -3,6 +3,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { captureAssistTarget } from './assistTargets';
 import { SelectionNoteComposer } from './SelectionNoteComposer';
+import api from '../../api/client';
+
+vi.mock('../../api/client', () => ({ default: { get: vi.fn() } }));
 
 const auth = vi.hoisted(() => ({ user: { id: 'user', name: 'Alice' } }));
 vi.mock('../../context/AuthContext', () => ({ useAuth: () => auth }));
@@ -13,7 +16,7 @@ let rect = { left: 100, top: 120, right: 190, bottom: 144, width: 90, height: 24
 const rootRef = createRef<HTMLDivElement>();
 const target = captureAssistTarget(source, 'selection', 2, 10, version)!;
 const onAdd = vi.fn<(...args: any[]) => boolean | Promise<boolean>>(() => true);
-const props = { rootRef, source, updatedAt: version, identity: 'user:space:page', language: 'en', disabled: false, captureTarget: () => target, onAdd };
+const props = { rootRef, source, updatedAt: version, identity: 'user:space:page', spaceId: undefined as string | undefined, language: 'en', disabled: false, captureTarget: () => target, onAdd };
 const fixture = (overrides: Partial<typeof props> = {}) => <><div ref={rootRef}><p>{source}</p></div><SelectionNoteComposer {...props} {...overrides} /></>;
 const select = async () => {
   const text = rootRef.current!.querySelector('p')!.firstChild!;
@@ -25,6 +28,7 @@ const select = async () => {
 const open = async () => { fireEvent.click(await select()); return screen.getByRole('dialog', { name: 'Add page note' }); };
 beforeEach(() => {
   auth.user = { id: 'user', name: 'Alice' };
+  vi.mocked(api.get).mockResolvedValue({ data: [] });
   onAdd.mockReset().mockReturnValue(true);
   rect = { left: 100, top: 120, right: 190, bottom: 144, width: 90, height: 24 };
   vi.spyOn(Range.prototype, 'getBoundingClientRect').mockImplementation(() => ({ ...rect, x: rect.left, y: rect.top, toJSON() {} }));
@@ -57,6 +61,39 @@ describe('selection note composer', () => {
     expect(onAdd).toHaveBeenCalledExactlyOnceWith(target, 'Explain this');
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(rootRef.current).toHaveTextContent(source);
+  });
+  it('opens Space member suggestions while typing @ and inserts the selected mention', async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [
+      { type: 'human', userId: 'u1', role: 'editor', user: { id: 'u1', type: 'human', name: 'Alice', email: 'alice@example.test' } },
+      { type: 'human', userId: 'u2', role: 'viewer', user: { id: 'u2', type: 'human', name: 'Bob', email: 'bob@example.test' } },
+      { type: 'human', userId: 'agent', role: 'viewer', user: { id: 'agent', type: 'agent', name: 'Agent', email: 'agent@example.test' } },
+    ] });
+    render(fixture({ spaceId: 'space-1' }));
+    const dialog = await open();
+    const textbox = within(dialog).getByRole('textbox', { name: 'Note' });
+    fireEvent.change(textbox, { target: { value: '@Al', selectionStart: 3, selectionEnd: 3 } });
+    const option = await within(dialog).findByRole('option', { name: /Alice/ });
+    expect(within(dialog).queryByRole('option', { name: /Bob/ })).not.toBeInTheDocument();
+    fireEvent.click(option);
+    expect(textbox).toHaveValue('@Alice ');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add note' }));
+    expect(onAdd).toHaveBeenCalledExactlyOnceWith(target, '@Alice', ['u1']);
+  });
+  it('supports keyboard navigation and selection in the @ list', async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [
+      { type: 'human', userId: 'u1', role: 'editor', user: { id: 'u1', type: 'human', name: 'Alice', email: 'alice@example.test' } },
+      { type: 'human', userId: 'u2', role: 'viewer', user: { id: 'u2', type: 'human', name: 'Bob', email: 'bob@example.test' } },
+    ] });
+    render(fixture({ spaceId: 'space-1' }));
+    const dialog = await open();
+    const textbox = within(dialog).getByRole('textbox', { name: 'Note' });
+    fireEvent.change(textbox, { target: { value: '@', selectionStart: 1, selectionEnd: 1 } });
+    await within(dialog).findByRole('option', { name: /Alice/ });
+    fireEvent.keyDown(textbox, { key: 'ArrowDown' });
+    fireEvent.keyDown(textbox, { key: 'Enter' });
+    expect(textbox).toHaveValue('@Bob ');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add note' }));
+    expect(onAdd).toHaveBeenCalledExactlyOnceWith(target, '@Bob', ['u2']);
   });
   it('keeps the draft and blocks saving when the source or version changes', async () => {
     const view = render(fixture()); const dialog = await open();

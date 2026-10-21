@@ -1,4 +1,5 @@
 import { PageNoteModule } from './page-notes/page-note.module';
+import { NotificationModule } from './notifications/notification.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { DatabaseModule } from './database/database.module';
@@ -31,7 +32,7 @@ import { ContentTreeModule } from './content-tree/content-tree.module';
 import { ProjectTaskboardModule } from './project-taskboard/project-taskboard.module';
 
 @Module({
-  imports: [PageNoteModule,
+  imports: [PageNoteModule, NotificationModule,
     ConfigModule.forRoot({ isGlobal: true }),
     DatabaseModule,
     SyncModule,

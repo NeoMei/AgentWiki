@@ -15,6 +15,16 @@ describe('shared page notes', () => {
     expect(result.notes.every(n => !('clientNoteId' in n))).toBe(true);
   });
 
+  it('returns the human recipient summaries so readers can see who an @ mention targets', async () => {
+    const s = setupNotes();
+    const created = await create(s);
+    s.rows[0].recipients = [{ userId: 'user-2', user: { id: 'user-2', name: 'Bob', email: 'bob@example.test' } }];
+    const result = await s.service.list({ userId: 'user-2' }, 'space-1', 'page-1');
+    expect(result.notes.find(note => note.id === created.id)?.recipients).toEqual([
+      { userId: 'user-2', name: 'Bob', email: 'bob@example.test' },
+    ]);
+  });
+
   it('uses Agent identity independently from its human owner and preserves target context', async () => {
     const s = setupNotes();
     const note = await create(s, agent);
@@ -109,5 +119,26 @@ describe('shared page notes', () => {
     const s = setupNotes(); const note = await create(s);
     await expect(s.service.update(human, 'space-1', 'page-1', note.id, { expectedUpdatedAt: note.updatedAt, authorId: 'other' })).rejects.toThrow('Invalid page note');
     await expect(s.service.update(human, 'space-1', 'page-1', note.id, { expectedUpdatedAt: note.updatedAt })).rejects.toThrow('Invalid page note');
+  });
+
+  it('creates collaborator notifications in the same note transaction and keeps retries idempotent', async () => {
+    const s = setupNotes();
+    s.db.page = { findUnique: jest.fn(async () => ({ title: 'Project page' })) };
+    const notifications = { createPageNoteNotifications: jest.fn(async () => undefined) } as any;
+    const service = new (s.service.constructor as any)(s.db, s.authorization, notifications);
+    const body = { ...input, recipientUserIds: ['user-2', 'user-3'] };
+    const first = await service.create(human, 'space-1', 'page-1', body);
+    expect(notifications.createPageNoteNotifications).toHaveBeenCalledWith(s.db, expect.objectContaining({
+      noteId: first.id, pageId: 'page-1', spaceId: 'space-1', authorUserId: 'user-1',
+      recipientUserIds: ['user-2', 'user-3'], pageTitle: 'Project page', body: input.body, quote: target.quote,
+    }));
+    await service.create(human, 'space-1', 'page-1', body);
+    expect(notifications.createPageNoteNotifications).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds collaborator ids before persistence', async () => {
+    const s = setupNotes();
+    await expect(create(s, human, { ...input, recipientUserIds: Array.from({ length: 51 }, (_, index) => `user-${index}`) })).rejects.toThrow('Invalid page note');
+    expect(s.rows).toEqual([]);
   });
 });

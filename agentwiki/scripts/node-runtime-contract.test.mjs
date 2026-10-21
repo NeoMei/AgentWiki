@@ -209,9 +209,14 @@ test('the repository supports Node 24 and Node 26', async () => {
   const serverPackage = JSON.parse(await read('apps/server/package.json'));
   assert.equal(serverPackage.devDependencies['@types/node'], '^24.0.0');
   assert.equal(
+    serverPackage.dependencies['@opencode/cli'],
+    undefined,
+    'the worker must use the externally managed OpenCode CLI',
+  );
+  assert.equal(
     serverPackage.dependencies['opencode-ai'],
-    '1.18.12',
-    'the worker release must install the pinned OpenCode CLI it executes',
+    undefined,
+    'the worker must not bundle the legacy OpenCode runtime',
   );
 });
 

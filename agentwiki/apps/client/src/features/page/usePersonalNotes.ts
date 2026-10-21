@@ -166,16 +166,17 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
     window.addEventListener('focus', onFocus);
     return () => { clearInterval(interval); window.removeEventListener('focus', onFocus); };
   }, [identity]);
-  const add = async (target: AssistTarget, body: string, _options?: { requirePersistence?: boolean }): Promise<boolean> => {
+  const add = async (target: AssistTarget, body: string, options?: { requirePersistence?: boolean; recipientUserIds?: string[] }): Promise<boolean> => {
     if (!actionActive() || !scope || !stateRef.current.canCreate || target.baseUpdatedAt !== latestRef.current.updatedAt || resolveAssistTarget(latestRef.current.source, target).status !== 'found') return false;
     const epoch = requestEpochRef.current, current = () => active() && requestEpochRef.current === epoch;
     let counted = false;
     try {
-      const fingerprint = JSON.stringify([target, body.trim()]);
+      const recipientUserIds = [...new Set(options?.recipientUserIds ?? [])];
+      const fingerprint = JSON.stringify([target, body.trim(), recipientUserIds]);
       const id = draftIdsRef.current.get(fingerprint) ?? crypto.randomUUID(); draftIdsRef.current.set(fingerprint, id);
       const note = addPersonalNote(scope, target, body, id);
       pendingWritesRef.current++; counted = true; mutationRef.current++; commit({ ...stateRef.current, syncing: true });
-      const saved = await pageNotesApi.create(scope, { clientNoteId: id, body: note.body, target: note.target }, controllerRef.current.signal);
+      const saved = await pageNotesApi.create(scope, { clientNoteId: id, body: note.body, target: note.target, ...(recipientUserIds.length ? { recipientUserIds } : {}) }, controllerRef.current.signal);
       if (!current()) return false;
       confirmedRef.current.set(saved.id, saved); draftIdsRef.current.delete(fingerprint);
       commit({ ...stateRef.current, notes: [...stateRef.current.notes.filter((item) => item.id !== saved.id), saved], storageUnavailable: false });
@@ -207,6 +208,15 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
   const reopen = (id: string) => {
     if (!actionActive() || !stateRef.current.notes.some((note) => note.id === id && note.canEdit)) return;
     publish({ ...stateRef.current, notes: transitionPersonalNotes(stateRef.current.notes, [id], 'reopen'), assistRequest: null, conflict: false }, true);
+  };
+  const resolve = (id: string) => {
+    if (!actionActive() || !stateRef.current.notes.some((note) => note.id === id && note.canEdit && note.status !== 'resolved')) return;
+    publish({
+      ...stateRef.current,
+      notes: stateRef.current.notes.map((note) => note.id === id && note.canEdit ? { ...note, status: 'resolved' as const } : note),
+      assistRequest: null,
+      conflict: false,
+    }, true);
   };
   const onNotesEvent = (input: AssistNotesEvent) => {
     const aliases = new Map(stateRef.current.notes.filter((note) => note.author?.type === 'user' && note.author.id === scope?.userId && note.clientNoteId).map((note) => [note.clientNoteId!, note.id]));
@@ -295,5 +305,5 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
   };
   const visible = identityRef.current === identity && enabled && scope ? stateRef.current : empty();
   // Refs let sequential callbacks observe synchronous queue changes; setState triggers UI updates.
-  return { ...visible, add, dispatch, reopen, onNotesEvent, onRequestHandled, retrySync: () => refresh(true), identityKey: key };
+  return { ...visible, add, dispatch, resolve, reopen, onNotesEvent, onRequestHandled, retrySync: () => refresh(true), identityKey: key };
 }
