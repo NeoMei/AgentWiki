@@ -2,7 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { fromPageNote, pageNotesApi, type PageNoteDto } from './pageNotesApi';
 import { captureAssistTarget } from './assistTargets';
-vi.mock('../../api/client', () => ({ default: { get: vi.fn(), post: vi.fn(), patch: vi.fn() } }));
+vi.mock('../../api/client', () => ({ default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() } }));
 const scope = { userId: 'viewer', spaceId: 'space', pageId: 'page' };
 const target = captureAssistTarget('quote', 'selection', 0, 5, '2026-10-14T00:00:00Z')!;
 const dto: PageNoteDto = { id: 'server-id', spaceId: 'space', pageId: 'page', body: 'body', target, status: 'pending', author: { type: 'agent', id: 'agent-id', name: 'Agent name' }, canEdit: false, createdAt: 'v1', updatedAt: 'v1' };
@@ -19,12 +19,14 @@ it('rejects a response for a different page or an unknown author type', () => {
   expect(() => fromPageNote({ ...dto, author: { ...dto.author, type: 'unknown' as any } }, scope)).toThrow();
 });
 it('never submits the viewer identity as a note author and includes the server version for writes', async () => {
-  vi.mocked(api.post).mockResolvedValue({ data: dto }); vi.mocked(api.patch).mockResolvedValue({ data: dto });
+  vi.mocked(api.post).mockResolvedValue({ data: dto }); vi.mocked(api.patch).mockResolvedValue({ data: dto }); vi.mocked(api.delete).mockResolvedValue({ data: { deleted: true } });
   const signal = new AbortController().signal;
   await pageNotesApi.create(scope, { clientNoteId: 'retry-key', body: 'body', target }, signal);
   expect(api.post).toHaveBeenCalledWith('/spaces/space/pages/page/notes', { clientNoteId: 'retry-key', body: 'body', target }, { signal });
   await pageNotesApi.update(scope, dto.id, { expectedUpdatedAt: 'v1', status: 'resolved' }, signal);
   expect(api.patch).toHaveBeenCalledWith('/spaces/space/pages/page/notes/server-id', { expectedUpdatedAt: 'v1', status: 'resolved' }, expect.objectContaining({ signal, timeout: 15_000, transformRequest: expect.any(Array) }));
+  await pageNotesApi.remove(scope, dto.id, { expectedUpdatedAt: 'v1' }, signal);
+  expect(api.delete).toHaveBeenCalledWith('/spaces/space/pages/page/notes/server-id', { data: { expectedUpdatedAt: 'v1' }, signal, timeout: 15_000, transformRequest: expect.any(Array) });
 });
 
 

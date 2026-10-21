@@ -218,6 +218,49 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
       conflict: false,
     }, true);
   };
+  const remove = async (id: string): Promise<boolean> => {
+    if (!actionActive() || !scope) return false;
+    const note = stateRef.current.notes.find((item) => item.id === id && item.canEdit && item.syncState !== 'unsynced');
+    const confirmed = note ? confirmedRef.current.get(id) ?? note : undefined;
+    if (!confirmed?.updatedAt) return false;
+    const epoch = requestEpochRef.current, current = () => active() && requestEpochRef.current === epoch;
+    pendingWritesRef.current++; mutationRef.current++; commit({ ...stateRef.current, syncing: true });
+    let lane = pendingNoteWrites.get(key);
+    if (!lane) {
+      lane = { userId: scope.userId, token: sessionToken(), controller: new AbortController(), tail: Promise.resolve(), confirmed: new Map(confirmedRef.current) };
+      pendingNoteWrites.set(key, lane);
+    } else {
+      for (const [savedId, saved] of confirmedRef.current) if (!lane.confirmed.has(savedId)) lane.confirmed.set(savedId, saved);
+    }
+    const writeLane = lane;
+    const canPersist = () => {
+      if (writeLane.token !== sessionToken()) cancelNoteWrites(key, writeLane);
+      if (writeLane.controller.signal.aborted && current()) denyAccess();
+      return !writeLane.controller.signal.aborted;
+    };
+    const queued = writeLane.tail.then(async () => {
+      if (!canPersist()) return false;
+      try {
+        const latest = writeLane.confirmed.get(id) ?? confirmed;
+        if (!latest.updatedAt) return false;
+        await pageNotesApi.remove(scope, id, { expectedUpdatedAt: latest.updatedAt }, writeLane.controller.signal);
+        if (!canPersist()) return false;
+        writeLane.confirmed.delete(id); confirmedRef.current.delete(id);
+        if (current()) commit({ ...stateRef.current, notes: stateRef.current.notes.filter((item) => item.id !== id), storageUnavailable: false });
+        return true;
+      } catch (error) {
+        if (!canPersist()) return false;
+        if (accessDenied(error)) { cancelNoteWrites(key, writeLane); if (current()) denyAccess(); return false; }
+        if (current()) commit({ ...stateRef.current, storageUnavailable: true });
+        return false;
+      } finally {
+        if (current()) { pendingWritesRef.current--; commit({ ...stateRef.current, syncing: pendingWritesRef.current > 0 }); }
+      }
+    });
+    const tail = writeLane.tail = queued.then(() => undefined);
+    void tail.finally(() => { if (pendingNoteWrites.get(key) === writeLane && writeLane.tail === tail) pendingNoteWrites.delete(key); });
+    return queued;
+  };
   const onNotesEvent = (input: AssistNotesEvent) => {
     const aliases = new Map(stateRef.current.notes.filter((note) => note.author?.type === 'user' && note.author.id === scope?.userId && note.clientNoteId).map((note) => [note.clientNoteId!, note.id]));
     const ids = (values: string[]) => values.map((id) => aliases.get(id) ?? id);
@@ -305,5 +348,5 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
   };
   const visible = identityRef.current === identity && enabled && scope ? stateRef.current : empty();
   // Refs let sequential callbacks observe synchronous queue changes; setState triggers UI updates.
-  return { ...visible, add, dispatch, resolve, reopen, onNotesEvent, onRequestHandled, retrySync: () => refresh(true), identityKey: key };
+  return { ...visible, add, dispatch, resolve, reopen, remove, onNotesEvent, onRequestHandled, retrySync: () => refresh(true), identityKey: key };
 }

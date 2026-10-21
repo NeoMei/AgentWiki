@@ -11,13 +11,14 @@ interface Props {
   onDispatch: (ids: string[]) => void;
   onResolve: (id: string) => void;
   onReopen: (id: string) => void;
+  onDelete?: (id: string) => void;
   activeNoteId?: string | null;
   onLocate?: (id: string) => boolean | void;
   onClearActive?: () => void;
 }
 type NoteFilter = 'all' | 'open' | 'resolved';
 /** Controlled queue: parent persists notes and transitions after task responses, acceptance, or author action. */
-export function PersonalNotesPanel({ stageForSession = false, source, notes, disabled, storageUnavailable, syncing, identityKey, onRetrySync, onDispatch, onResolve, onReopen, activeNoteId, onLocate, onClearActive }: Props) {
+export function PersonalNotesPanel({ stageForSession = false, source, notes, disabled, storageUnavailable, syncing, identityKey, onRetrySync, onDispatch, onResolve, onReopen, onDelete, activeNoteId, onLocate, onClearActive }: Props) {
   const { language } = useLanguage(); const zh = language === 'zh-CN';
   const [selected, setSelected] = useState<string[]>([]);
   const [filter, setFilter] = useState<NoteFilter>('open');
@@ -89,6 +90,7 @@ export function PersonalNotesPanel({ stageForSession = false, source, notes, dis
         {note.syncState === 'unsynced' ? <p className="text-xs text-amber-700">{zh ? '尚未同步' : 'Not synced'}</p> : null}
         {note.status !== 'resolved' && note.canEdit === true && note.syncState !== 'unsynced' ? <button type="button" disabled={disabled} onClick={() => onResolve(note.id)} className="h-8 rounded-lg border border-blue-200 px-3 text-blue-700">{zh ? '标记已解决' : 'Mark resolved'}</button> : null}
         {note.status !== 'pending' && note.canEdit === true && note.syncState !== 'unsynced' ? <button type="button" disabled={disabled} onClick={() => onReopen(note.id)} className="h-8 rounded-lg border border-gray-200 px-3">{zh ? '重新打开' : 'Reopen'}</button> : null}
+        {onDelete && note.canEdit === true && note.syncState !== 'unsynced' ? <button type="button" disabled={disabled} onClick={() => onDelete(note.id)} className="h-8 rounded-lg border border-red-200 px-3 text-red-700">{zh ? '删除笔记' : 'Delete note'}</button> : null}
       </li>;
     })}</ul>
   </section>;

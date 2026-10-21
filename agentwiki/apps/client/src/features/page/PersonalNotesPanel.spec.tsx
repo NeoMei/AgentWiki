@@ -77,6 +77,14 @@ describe('personal notes UI', () => {
     expect(screen.getByText('quote')).toBeInTheDocument(); expect(screen.getByText('原文已变动或定位不唯一')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Explain' })).toBeDisabled();
   });
+  it('offers the note author a delete action for an orphaned quote', () => {
+    localStorage.setItem('agentwiki.language.v1', 'zh-CN');
+    const onDelete = vi.fn();
+    queue({ source: 'changed', onDelete, notes: [note('失效笔记', 'stale')] });
+    expect(screen.getByText('原文已变动或定位不唯一')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '删除笔记' }));
+    expect(onDelete).toHaveBeenCalledExactlyOnceWith('stale');
+  });
   it('defaults to Open and filters the queue with accurate counts and empty feedback', () => {
     localStorage.setItem('agentwiki.language.v1', 'en');
     const view = queue({ notes: [note('A', 'a'), note('B', 'b', 'dispatched'), note('C', 'c', 'awaiting-review'), note('D', 'd', 'resolved')] });
