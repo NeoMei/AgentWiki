@@ -8,10 +8,11 @@ const target = captureAssistTarget('quote', 'selection', 0, 5, '2026-10-14T00:00
 const dto: PageNoteDto = { id: 'server-id', spaceId: 'space', pageId: 'page', body: 'body', target, status: 'pending', author: { type: 'agent', id: 'agent-id', name: 'Agent name' }, canEdit: false, createdAt: 'v1', updatedAt: 'v1' };
 beforeEach(() => { vi.resetAllMocks(); localStorage.clear(); });
 it('keeps server human/Agent author and uses the page-scoped API', async () => {
-  vi.mocked(api.get).mockResolvedValue({ data: { notes: [dto], canCreate: true } });
+  vi.mocked(api.get).mockResolvedValue({ data: { notes: [{ ...dto, recipients: [{ userId: 'u1', name: 'Alice', email: 'alice@example.test' }] }], canCreate: true } });
   const result = await pageNotesApi.list(scope);
   expect(api.get).toHaveBeenCalledWith('/spaces/space/pages/page/notes', { signal: undefined });
   expect(result.notes[0]).toMatchObject({ author: dto.author, userId: 'agent:agent-id', canEdit: false });
+  expect(result.notes[0].recipients).toEqual([{ userId: 'u1', name: 'Alice', email: 'alice@example.test' }]);
 });
 it('rejects a response for a different page or an unknown author type', () => {
   expect(() => fromPageNote({ ...dto, pageId: 'other' }, scope)).toThrow();

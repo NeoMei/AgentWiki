@@ -81,6 +81,7 @@ export function PersonalNotesPanel({ stageForSession = false, source, notes, dis
           {onLocate ? <button type="button" disabled={!found} onClick={() => { if (found) setLocationUnavailableId(onLocate(note.id) === false ? note.id : null); }} className="min-h-7 shrink-0 rounded px-1 text-xs text-gray-500 hover:bg-amber-100 hover:text-amber-800 disabled:opacity-40">{zh ? '定位原文' : 'Locate passage'}</button> : null}
         </div>
         <PersonalNoteAuthor userId={note.userId} author={note.author} language={language} />
+        {note.recipients?.length ? <p aria-label={zh ? '笔记收件人' : 'Note recipients'} className="text-xs text-blue-700"><span className="font-medium">{zh ? '已 @：' : 'Mentioned: '}</span>{note.recipients.map((recipient) => `@${recipient.name}`).join(' ')}</p> : null}
         <blockquote className="max-h-24 overflow-y-auto whitespace-pre-wrap rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-xs leading-relaxed text-gray-500 [overflow-wrap:anywhere]">{note.target.quote}</blockquote>
         <p className="max-h-40 min-w-0 overflow-y-auto whitespace-pre-wrap leading-relaxed text-gray-800 [overflow-wrap:anywhere]">{note.body}</p>
         {!found ? <p className="text-amber-800">{zh ? '原文已变动或定位不唯一' : 'Original passage changed or anchor is ambiguous'}</p> : null}

@@ -15,6 +15,16 @@ describe('shared page notes', () => {
     expect(result.notes.every(n => !('clientNoteId' in n))).toBe(true);
   });
 
+  it('returns the human recipient summaries so readers can see who an @ mention targets', async () => {
+    const s = setupNotes();
+    const created = await create(s);
+    s.rows[0].recipients = [{ userId: 'user-2', user: { id: 'user-2', name: 'Bob', email: 'bob@example.test' } }];
+    const result = await s.service.list({ userId: 'user-2' }, 'space-1', 'page-1');
+    expect(result.notes.find(note => note.id === created.id)?.recipients).toEqual([
+      { userId: 'user-2', name: 'Bob', email: 'bob@example.test' },
+    ]);
+  });
+
   it('uses Agent identity independently from its human owner and preserves target context', async () => {
     const s = setupNotes();
     const note = await create(s, agent);

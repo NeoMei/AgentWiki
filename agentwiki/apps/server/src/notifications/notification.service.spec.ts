@@ -44,10 +44,13 @@ describe('NotificationService', () => {
     }));
   });
 
-  it('creates one notification per new recipient and skips the author', async () => {
+  it('creates one notification per new recipient, including an explicit self mention', async () => {
     const tx: any = {
       spaceMember: {
-        findMany: jest.fn().mockResolvedValue([{ userId: 'u2' }]),
+        findMany: jest.fn().mockResolvedValue([
+          { userId: 'u1', user: { id: 'u1', name: 'Alice', email: 'alice@example.test' } },
+          { userId: 'u2', user: { id: 'u2', name: 'Bob', email: 'bob@example.test' } },
+        ]),
       },
       pageNoteRecipient: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
       userNotification: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
@@ -58,11 +61,18 @@ describe('NotificationService', () => {
       pageTitle: 'Page', body: 'A note', quote: 'quoted',
     });
     expect(tx.pageNoteRecipient.createMany).toHaveBeenCalledWith(expect.objectContaining({
-      data: [{ noteId: 'n1', userId: 'u2' }], skipDuplicates: true,
+      data: [{ noteId: 'n1', userId: 'u1' }, { noteId: 'n1', userId: 'u2' }], skipDuplicates: true,
     }));
     expect(tx.userNotification.createMany).toHaveBeenCalledWith(expect.objectContaining({
-      data: [expect.objectContaining({ recipientUserId: 'u2', pageNoteId: 'n1', type: 'page_note_mention' })], skipDuplicates: true,
+      data: [
+        expect.objectContaining({ recipientUserId: 'u1', pageNoteId: 'n1', type: 'page_note_mention' }),
+        expect.objectContaining({ recipientUserId: 'u2', pageNoteId: 'n1', type: 'page_note_mention' }),
+      ], skipDuplicates: true,
     }));
+    await expect(service.createPageNoteNotifications(tx as Prisma.TransactionClient, {
+      noteId: 'n2', pageId: 'p1', spaceId: 's1', authorUserId: 'u1', recipientUserIds: ['u1'],
+      pageTitle: 'Page', body: 'Self note', quote: 'quoted',
+    })).resolves.toEqual([{ userId: 'u1', name: 'Alice', email: 'alice@example.test' }]);
   });
 
   it('rejects recipients outside the current Space or non-human accounts', async () => {

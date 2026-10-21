@@ -62,6 +62,15 @@ describe('personal notes UI', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'Explain it' }));
     fireEvent.click(screen.getByRole('button', { name: 'Send selected to Agent' })); expect(onDispatch).toHaveBeenCalledWith(['id']);
   });
+  it('shows the server recipient summaries for each @ mention', () => {
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    const mentioned = { ...addPersonalNote(scope, target, 'Explain it', 'mentioned'), recipients: [
+      { userId: 'u2', name: 'Bob', email: 'bob@example.test' },
+      { userId: 'u', name: 'Alice', email: 'alice@example.test' },
+    ] };
+    render(<LanguageProvider><PersonalNotesPanel source="quote" notes={[mentioned]} onDispatch={() => {}} onResolve={() => {}} onReopen={() => {}} /></LanguageProvider>);
+    expect(screen.getByLabelText('Note recipients')).toHaveTextContent('Mentioned: @Bob @Alice');
+  });
   it('keeps orphan quote visible and disables its dispatch, with Chinese labels', () => {
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
     render(<LanguageProvider><PersonalNotesPanel source="changed" notes={[addPersonalNote(scope, target, 'Explain', 'id')]} onDispatch={() => {}} onResolve={() => {}} onReopen={() => {}} /></LanguageProvider>);

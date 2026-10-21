@@ -8,6 +8,7 @@ import {
   NotificationListQuery,
   NotificationListResult,
   PAGE_NOTE_NOTIFICATION_TYPE,
+  PageNoteRecipientSummary,
 } from './notification.schema';
 
 const MAX_SNAPSHOT_LENGTH = 1000;
@@ -69,9 +70,11 @@ export class NotificationService {
   async createPageNoteNotifications(
     tx: Prisma.TransactionClient,
     input: CreatePageNoteNotificationsInput,
-  ): Promise<void> {
-    const recipientUserIds = [...new Set(input.recipientUserIds)].filter(id => id !== input.authorUserId);
-    if (recipientUserIds.length === 0) return;
+  ): Promise<PageNoteRecipientSummary[]> {
+    // An explicit self mention is meaningful: it creates a normal inbox item
+    // and keeps the note's @ recipients visible to every reader.
+    const recipientUserIds = [...new Set(input.recipientUserIds)];
+    if (recipientUserIds.length === 0) return [];
 
     const members = await tx.spaceMember.findMany({
       where: {
@@ -79,10 +82,10 @@ export class NotificationService {
         userId: { in: recipientUserIds },
         user: { type: 'human', deletedAt: null },
       },
-      select: { userId: true },
+      select: { userId: true, user: { select: { id: true, name: true, email: true } } },
     });
     const verifiedIds = new Set(members.map(member => member.userId));
-    if (verifiedIds.size !== recipientUserIds.length) {
+    if (recipientUserIds.some(userId => !verifiedIds.has(userId))) {
       throw new BadRequestException({
         code: 'PAGE_NOTE_RECIPIENT_INVALID',
         message: 'One or more page note recipients are not human members of this Space',
@@ -109,6 +112,12 @@ export class NotificationService {
       })),
       skipDuplicates: true,
     });
+    const requestedIds = new Set(recipientUserIds);
+    return members.filter(member => requestedIds.has(member.userId)).map(member => ({
+      userId: member.user.id,
+      name: member.user.name?.trim() || member.user.email,
+      email: member.user.email,
+    }));
   }
 
   private visibleWhere(principal: Principal, unreadOnly: boolean): Prisma.UserNotificationWhereInput {

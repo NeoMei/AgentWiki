@@ -46,6 +46,13 @@ export interface CreatePageNoteNotificationsInput {
   quote: string;
 }
 
+/** Stable, non-sensitive recipient display data returned with a page note. */
+export interface PageNoteRecipientSummary {
+  userId: string;
+  name: string;
+  email: string;
+}
+
 export interface NotificationListItem {
   id: string;
   type: PageNoteNotificationType | string;
