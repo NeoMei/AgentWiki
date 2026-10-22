@@ -33,6 +33,7 @@ export class GraphExtractionService {
     pages: Array<{ id: string; title: string; slug: string }>,
     links: WikiLinkTarget[],
   ): { resolved: ResolvedPair[]; dangling: number } {
+    const pageIds = new Set(pages.map(page => page.id));
     const byExact = new Map<string, string>();
     const byLower = new Map<string, string>();
     const bySlug = new Map<string, string>();
@@ -51,7 +52,7 @@ export class GraphExtractionService {
     const resolved: ResolvedPair[] = [];
     let dangling = 0;
     for (const link of links) {
-      const targetId = this.resolveTarget(
+      const targetId = pageIds.has(link.target) ? link.target : this.resolveTarget(
         link.target,
         byExact,
         byLower,

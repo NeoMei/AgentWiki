@@ -127,7 +127,7 @@ test('real isolated HTTP Sync v3 lifecycle is durable, idempotent, guarded, and 
       const email = `sync-v3-${randomUUID()}@example.test`;
       const password = `Pass-${randomUUID()}!`;
       const registration = await requestJson(baseUrl, '/auth/register', {
-        method: 'POST', body: { email, password, name: 'Sync v3 owner' },
+        method: 'POST', body: { email, password, name: 'SyncV3Owner' },
       });
       const humanToken = registration.data.access_token;
       const space = (await requestJson(baseUrl, '/spaces', {

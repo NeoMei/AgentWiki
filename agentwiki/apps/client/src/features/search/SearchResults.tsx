@@ -12,34 +12,50 @@ interface SearchResult {
     spaceId: string;
     space?: { id: string; name: string };
     content?: string;
+    path?: string | null;
   };
   similarity?: number;
   matchType?: 'text' | 'semantic';
 }
 
 export const SearchResults: React.FC = () => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const zh = language === 'zh-CN';
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
+  const [submittedQuery, setSubmittedQuery] = useState('');
+  const [resultLimit, setResultLimit] = useState(10);
+  const [maxLimit, setMaxLimit] = useState(100);
+  const [hasMore, setHasMore] = useState<boolean | null>(null);
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!query.trim()) return;
+  const search = async (searchQuery: string, limit: number, expanding = false) => {
     setLoading(true);
     setError(null);
     setSearched(true);
+    if (!expanding) {
+      setSubmittedQuery(searchQuery);
+      setResults([]);
+      setHasMore(null);
+    }
     try {
-      const res = await api.get('/search', { params: { q: query } });
+      const res = await api.get('/search', { params: { q: searchQuery, limit } });
       setResults(res.data.results || []);
+      setResultLimit(res.data.limit ?? limit);
+      setMaxLimit(res.data.maxLimit ?? 100);
+      setHasMore(typeof res.data.hasMore === 'boolean' ? res.data.hasMore : null);
     } catch (err: any) {
       setError(err.response?.data?.message || t('search.failed'));
-      setResults([]);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (query.trim() && !loading) void search(query.trim(), 10);
   };
 
   return (
@@ -75,13 +91,20 @@ export const SearchResults: React.FC = () => {
       {searched && !loading && results.length === 0 && !error && (
         <div className="text-center py-8">
           <FileText size={36} className="mx-auto text-gray-300 mb-3" />
-          <p className="text-gray-500">{t('search.noResults', { query })}</p>
+          <p className="text-gray-500">{t('search.noResults', { query: submittedQuery })}</p>
         </div>
       )}
 
+      {searched && results.length > 0 ? <div className="mb-4 space-y-1 text-sm text-gray-500">
+        <p role="status">{zh ? `已显示第 1–${results.length} 条结果；未统计匹配总数。` : `Showing 1–${results.length} results; total not counted.`}</p>
+        {hasMore === false ? <p>{zh ? '本次搜索没有更多结果。' : 'No more results for this search.'}</p>
+          : resultLimit >= maxLimit ? <p>{zh ? `最多显示前 ${maxLimit} 条结果，请细化关键词以查找更多页面。` : `Only the first ${maxLimit} results can be shown. Refine your query to find more pages.`}</p>
+            : <p>{zh ? `继续加载将扩大搜索范围并重新排序，最多显示 ${maxLimit} 条。` : `Loading more expands and reranks the results, up to ${maxLimit}.`}</p>}
+      </div> : null}
+
       <div className="space-y-3">
         {results.map((result) => (
-          <div
+          <article
             key={result.page.id}
             className="flex items-start gap-3 p-4 bg-white rounded-lg shadow-sm hover:shadow-md transition border border-gray-100"
           >
@@ -90,6 +113,9 @@ export const SearchResults: React.FC = () => {
               <Link to={`/pages/${result.page.id}`} className="block">
                 <h3 className="font-medium text-blue-600 hover:underline">{result.page.title}</h3>
               </Link>
+              <p className="mt-1 break-all text-sm text-gray-500">
+                {result.page.path || (zh ? `路径未记录 · ID: ${result.page.id}` : `Path not recorded · ID: ${result.page.id}`)}
+              </p>
               {result.page.content && (
                 <p className="text-sm text-gray-400 mt-1 line-clamp-2">
                   {result.page.content.substring(0, 150)}
@@ -111,9 +137,15 @@ export const SearchResults: React.FC = () => {
                 )}
               </div>
             </div>
-          </div>
+          </article>
         ))}
       </div>
+      {results.length > 0 && hasMore !== false && resultLimit < maxLimit ? <button
+        type="button"
+        disabled={loading}
+        onClick={() => void search(submittedQuery, Math.min(resultLimit + 10, maxLimit), true)}
+        className="mt-4 h-8 rounded-lg border px-3 text-sm disabled:opacity-50"
+      >{loading ? t('common.loading') : zh ? '继续加载结果' : 'Load more results'}</button> : null}
     </div>
   );
 };

@@ -188,10 +188,10 @@ test.describe.serial('page template library', () => {
       baseURL: `${apiBaseUrl.replace(/\/+$/u, '')}/`,
     });
 
-    owner = await register('owner', 'Template Owner');
-    admin = await register('admin', 'Template Admin');
-    editor = await register('editor', 'Template Editor');
-    viewer = await register('viewer', 'Template Viewer');
+    owner = await register('owner', 'TemplateOwner');
+    admin = await register('admin', 'TemplateAdmin');
+    editor = await register('editor', 'TemplateEditor');
+    viewer = await register('viewer', 'TemplateViewer');
 
     const createdSpace = await json<{ id: string }>(await api.post('spaces', {
       headers: ownerHeaders(),

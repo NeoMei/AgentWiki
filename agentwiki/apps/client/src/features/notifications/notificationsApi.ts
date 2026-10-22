@@ -1,4 +1,5 @@
 import api from '../../api/client';
+import { notifyNotificationsChanged } from './notificationEvents';
 
 export interface UserNotification {
   id: string;
@@ -42,8 +43,10 @@ export const notificationsApi = {
   },
   async markRead(id: string): Promise<void> {
     await api.patch(`/notifications/${encodeURIComponent(id)}/read`);
+    notifyNotificationsChanged();
   },
   async markAllRead(): Promise<void> {
     await api.post('/notifications/read-all');
+    notifyNotificationsChanged();
   },
 };

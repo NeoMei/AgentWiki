@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCheck, ExternalLink, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { notificationsApi, type UserNotification } from './notificationsApi';
+import { subscribeNotificationsChanged } from './notificationEvents';
 
 const formatDate = (value: string, language: string) => {
   const date = new Date(value);
@@ -23,30 +24,43 @@ export const NotificationsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const sequenceRef = useRef(0);
 
   const load = useCallback(async (nextLimit = limit, background = false) => {
     if (!token || !user?.id) return;
+    const sequence = ++sequenceRef.current;
     if (background) setRefreshing(true); else setLoading(true);
     try {
       setError(null);
       const result = await notificationsApi.list({ unreadOnly, limit: nextLimit });
+      if (sequence !== sequenceRef.current) return;
       setNotifications(result.notifications);
       setUnreadCount(result.unreadCount);
     } catch {
-      setError(zh ? '通知加载失败，请重试。' : 'Failed to load notifications. Retry.');
+      if (sequence === sequenceRef.current) setError(zh ? '通知加载失败，请重试。' : 'Failed to load notifications. Retry.');
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (sequence === sequenceRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [limit, token, user?.id, unreadOnly, zh]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!token || !user?.id) {
+      setNotifications([]);
+      setUnreadCount(0);
+      setLoading(false);
+      return;
+    }
+    void load();
+    const unsubscribe = subscribeNotificationsChanged(() => { void load(limit, true); });
+    return () => { ++sequenceRef.current; unsubscribe(); };
+  }, [load, limit, token, user?.id]);
 
   const openNotification = async (notification: UserNotification) => {
     if (!notification.readAt) {
       try { await notificationsApi.markRead(notification.id); } catch { /* navigation still works */ }
-      setNotifications((items) => items.map((item) => item.id === notification.id ? { ...item, readAt: new Date().toISOString() } : item));
-      setUnreadCount((count) => Math.max(0, count - 1));
     }
     navigate(notification.href);
   };
@@ -54,8 +68,6 @@ export const NotificationsPage: React.FC = () => {
   const markAll = async () => {
     try {
       await notificationsApi.markAllRead();
-      setNotifications((items) => items.map((item) => ({ ...item, readAt: item.readAt ?? new Date().toISOString() })));
-      setUnreadCount(0);
     } catch {
       setError(zh ? '标记已读失败，请重试。' : 'Failed to mark notifications as read. Retry.');
     }
@@ -82,6 +94,6 @@ export const NotificationsPage: React.FC = () => {
         <div className="flex items-start gap-3"><span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${notification.readAt ? 'bg-gray-200' : 'bg-blue-600'}`} /><span className="min-w-0 flex-1"><span className="block font-medium text-gray-900">{notification.title}</span><span className="mt-1 block text-sm text-gray-600">{notification.body}</span><span className="mt-2 block text-xs text-gray-400">{formatDate(notification.createdAt, language)}</span></span><ExternalLink size={16} className="mt-1 shrink-0 text-gray-400" /></div>
       </button>)}
     </div> : null}
-    {!loading && notifications.length >= limit ? <button type="button" onClick={() => { const next = limit + 30; setLimit(next); void load(next); }} className="mx-auto mt-5 block rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">{zh ? '加载更多' : 'Load more'}</button> : null}
+    {!loading && notifications.length >= limit ? <button type="button" onClick={() => setLimit((value) => value + 30)} className="mx-auto mt-5 block rounded-lg border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">{zh ? '加载更多' : 'Load more'}</button> : null}
   </main>;
 };

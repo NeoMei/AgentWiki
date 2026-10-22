@@ -1,7 +1,7 @@
 /**
  * Gateway verifier: launches the installed gateway as a child process and
  * confirms it completes the MCP initialize + tools/list handshake with the
- * exact 0.13.4 tool manifest.
+ * exact 0.13.5 tool manifest.
  */
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
@@ -116,7 +116,7 @@ async function defaultListTools(options: VerifyOptions): Promise<string[]> {
     });
 
     // Send initialize + tools/list.
-    const initReq = { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'agentwiki-verifier', version: '0.13.4' } } };
+    const initReq = { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'agentwiki-verifier', version: '0.13.5' } } };
     const toolsReq = { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} };
     try {
       child.stdin?.write(JSON.stringify(initReq) + '\n');

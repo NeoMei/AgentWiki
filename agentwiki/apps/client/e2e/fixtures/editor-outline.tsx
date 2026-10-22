@@ -30,6 +30,7 @@ const shortSource = '# Short start\n\nA short document.\n\n## Short end\nEnd.';
 
 function Fixture() {
   const [source, setSource] = useState(longSource);
+  const preview = new URLSearchParams(location.search).has('preview');
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
     const getView = () => EditorView.findFromDOM(document.querySelector('.cm-editor') as HTMLElement)!;
@@ -41,23 +42,24 @@ function Fixture() {
         view.dispatch({ effects: [StateEffect.appendConfig.of(codeFolding()), foldEffect.of({ from, to: text.length })] });
       },
       metrics: () => {
-        const view = getView();
+        const view = preview ? null : getView();
+        const currentSource = view?.state.doc.toString() ?? source;
         return {
-          source: view.state.doc.toString(), selection: view.state.selection.main.head,
-          folds: foldedRanges(view.state).size,
+          source: currentSource, selection: view?.state.selection.main.head ?? -1,
+          folds: view ? foldedRanges(view.state).size : 0,
           toolbarBottom: document.querySelector('[data-testid="editor-toolbar"]')!.getBoundingClientRect().bottom,
-          headings: outlineFor(view.state.doc.toString()).map((heading) => ({
-            ...heading, top: view.coordsAtPos(heading.from)?.top ?? null,
+          headings: outlineFor(currentSource).map((heading) => ({
+            ...heading, top: view ? view.coordsAtPos(heading.from)?.top ?? null : document.getElementById(heading.id)?.getBoundingClientRect().top ?? null,
           })),
           scrollTop: document.querySelector('[data-testid="outline-scroll"]')!.scrollTop,
         };
       },
     } });
-  }, []);
+  }, [preview, source]);
   return <>
     <div data-testid="editor-toolbar" style={{ position: 'fixed', inset: '0 0 auto', height: 98, background: 'white', zIndex: 30 }}>Editor toolbar</div>
     <div data-testid="outline-scroll" style={{ position: 'fixed', inset: '98px min(220px, 34vw) 0 0', overflow: 'auto', padding: 24 }}>
-      <MarkdownWorkspace value={source} mode="edit" onChange={setSource} externalOutline outlineContainer={host} />
+      <MarkdownWorkspace value={source} mode={preview ? 'preview' : 'edit'} onChange={setSource} externalOutline outlineContainer={host} />
     </div>
     <div ref={setHost} style={{ position: 'fixed', inset: '98px 0 0 auto', width: 'min(220px, 34vw)', display: 'flex', flexDirection: 'column' }} />
   </>;

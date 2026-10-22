@@ -149,7 +149,7 @@ export class LocalSyncInstallationService {
           installationId,
           code,
           expiresAt,
-          instructions: this.instructions(code, pluginVersion, canonicalServerUrl),
+          instructions: this.instructions(code, pluginVersion, canonicalServerUrl, agentId, spaceId),
         };
       }
     }
@@ -466,35 +466,30 @@ export class LocalSyncInstallationService {
       .digest('base64url')}`;
   }
 
-  private instructions(code: string, pluginVersion: string, serverUrl: string): string {
+  private instructions(code: string, pluginVersion: string, serverUrl: string, agentId: string, spaceId: string): string {
     // Historical packages keep their supported client options. The current
     // candidate and its public setup instructions must be released together.
-    const genericMcp = pluginVersion === '0.13.2' || pluginVersion === '0.13.3' || pluginVersion === CURRENT_LOCAL_SYNC_VERSION;
-    const currentPackage = pluginVersion === CURRENT_LOCAL_SYNC_VERSION;
+    const genericMcp = pluginVersion === '0.13.2' || pluginVersion === '0.13.3' || pluginVersion === '0.13.4' || pluginVersion === CURRENT_LOCAL_SYNC_VERSION;
+    const hostAwarePreparation = pluginVersion === '0.13.4' || pluginVersion === CURRENT_LOCAL_SYNC_VERSION;
     return [
-      ...(currentPackage ? [
-        'Identify the current host first. WorkBuddy preparation also applies when generic is selected but the actual host is WorkBuddy, and must happen before the first npx invocation. Other hosts skip the WorkBuddy section below.',
-        "WorkBuddy preparation: in the current host's tool execution environment, locate or install Node.js 24 or 26 and its accompanying npm/npx. A version in a separate terminal does not establish WorkBuddy's runtime; managed Node.js 22 is unsupported. Safely replace node below with that Node executable's absolute path, execute it, and verify the returned node and nodeVersion.",
-        `node -e "const fs=require('node:fs'),os=require('node:os'),path=require('node:path');if(![24,26].includes(Number(process.versions.node.split('.')[0])))throw new Error('Use Node.js 24 or 26 in this host');const cache=fs.mkdtempSync(path.join(os.tmpdir(),'agentwiki-npx-'));if(process.platform!=='win32')fs.chmodSync(cache,0o700);console.log(JSON.stringify({node:process.execPath,nodeVersion:process.version,npmCache:cache}));"`,
-        "This creates a random private npm cache under the system os.tmpdir(), with POSIX mode 0700 and the current user's system Temp ACL on Windows. Persist the absolute npmCache path, absolute Node/npx paths, and exact package version. The cache holds disposable npm files only; keep sessions, reply files and credentials in their normal persistent locations.",
-        'For every invocation in this host, prepend that Node directory to the child process PATH and replace the leading npx with the absolute npx from the same installation. Use an argument array or safe native-shell quoting (PowerShell needs & before a quoted executable path). Replace <absolute-npm-cache> with the saved npmCache and reuse this runtime, cache and exact package version; --cache must precede the package name.',
-        "Before every reuse, including a later session resume, verify that the cache is still under the system os.tmpdir() and is a real directory owned by the current user, not a symlink, with POSIX mode 0700 or the current user's Temp ACL on Windows. If it is missing, replaced or has changed permissions, do not chmod or take over an unknown old cache: create a new private cache by the same rule and update the saved path while preserving sessions and credentials. Do not change NODE_OPTIONS, disable security protections, or delete the old npm cache.",
-        'WorkBuddy only: resolve all paths and the execution environment above, then run:',
-        `npx --cache '<absolute-npm-cache>' --yes @neomei/agentwiki-local-sync@${pluginVersion} onboard --server ${serverUrl} --code ${code} --protocol ndjson --agent workbuddy`,
-        'Other hosts:',
+      `This installation code is bound to the selected Agent ID ${JSON.stringify(agentId)} and Space ID ${JSON.stringify(spaceId)}. Preserve that identity; do not create or rename an Agent based on a client label, sample, or old connection.`,
+      ...(hostAwarePreparation ? [
+        'Identify the actual current host from its runtime or host metadata before any command. Use --agent codex for Codex, --agent claude for Claude Code, --agent opencode for OpenCode, or --agent workbuddy for that host. Use --agent generic only for other local stdio MCP hosts. If the host cannot be identified, ask the user rather than guessing from an Agent display name.',
+        `Before the first npx invocation, read the plain-text runtime preparation at ${serverUrl}/onboard/runtime?client=<host-client>&packageVersion=${pluginVersion}, replacing <host-client> with the identified preset. Complete that preparation in this host and reuse its runner if specified. This preparation does not start onboarding; continue with the same code below.`,
+        '--agent selects the host configuration format, not the server Agent name or identity. Replace <host-client> below with the same identified preset before running it.',
       ] : []),
       genericMcp
         ? 'Run this pinned command with your current Agent, which must support local stdio MCP:'
         : 'Run this pinned command with your local Codex, Claude Code, or OpenCode Agent:',
-      `npx --yes @neomei/agentwiki-local-sync@${pluginVersion} onboard --server ${serverUrl} --code ${code} --protocol ndjson --agent ${genericMcp ? 'generic' : 'auto'}`,
+      `npx --yes @neomei/agentwiki-local-sync@${pluginVersion} onboard --server ${serverUrl} --code ${code} --protocol ndjson --agent ${hostAwarePreparation ? '<host-client>' : genericMcp ? 'generic' : 'auto'}`,
       ...(genericMcp ? [
-        currentPackage
-          ? 'The generic mode exports MCP settings for import into this host. WorkBuddy must use the prepared --cache runner and --agent workbuddy above; use --agent codex, claude, or opencode only for those hosts.'
+        hostAwarePreparation
+          ? 'The generic mode exports MCP settings for import into this host. Known host presets write only that host configuration; preserve other client settings.'
           : 'The generic mode exports MCP settings for import into this host. For WorkBuddy native configuration, replace --agent generic with --agent workbuddy; use --agent codex, claude, or opencode only for those hosts.',
         'Follow the returned configurationMode, configPath, and hostActivationSteps. For manual-import, import mcpServers.agentwiki or create a stdio MCP service with the exact command and args, preserving other host settings. If you cannot operate the settings, show the export path and wait for the user to finish.',
       ] : []),
       'Enable agentwiki and approve the client MCP/tool permissions; browser or website account approval does not replace client authorization.',
-      'Reload MCP; if reload is unavailable or tools remain missing, fully quit and restart the client, then start a new conversation.',
+      'Reload MCP after installation. If reload is unavailable, tools remain missing, or they still show the old Agent/Spaces, fully quit and restart the client, then start a new conversation. Compare onboard_status gateway.connection (connectionId, agentId, client) with the installation result before treating a denied read as missing Space authorization. For older gateways without this field, check the running process and client configuration --connection arguments.',
       'After installation, report the complete doctor output to the user.',
       'Configuration and gateway checks do not verify the host. Use this host\'s agentwiki MCP wiki_* tools to read a known page the user can access and verify its title and content before reporting successful host access.',
       'Installation only configures the unified agentwiki gateway; it does not scan or sync local knowledge.',

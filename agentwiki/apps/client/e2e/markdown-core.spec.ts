@@ -125,7 +125,7 @@ const register = async (role: string): Promise<AuthAccount> => json<AuthAccount>
     data: {
       email: `${role}-${runId}@markdown-core.test`,
       password: 'AgentWiki9Test',
-      name: `Markdown ${role}`,
+      name: `Markdown-${role}`,
     },
   }),
   `register ${role}`,

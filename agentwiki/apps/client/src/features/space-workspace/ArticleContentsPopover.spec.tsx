@@ -305,6 +305,34 @@ describe('ArticleContentsPopover', () => {
     expect(screen.getByRole('button', { name: 'Two' })).not.toHaveAttribute('aria-current');
   });
 
+  it('keeps a clicked end heading through late scroll events and releases it on real article movement', async () => {
+    const articleRef = React.createRef<HTMLDivElement>();
+    const view = render(<LanguageProvider><div data-reading-toolbar ref={(node) => {
+      if (node) vi.spyOn(node, 'getBoundingClientRect').mockReturnValue({ bottom: 98 } as DOMRect);
+    }} /><div style={{ overflowY: 'auto' }} data-testid="reading-scrollport"><div ref={articleRef}>
+      <h2 id="start">Start</h2><h2 id="end">End</h2>
+    </div></div><ArticleContentsPopover embedded articleRootRef={articleRef} pageKey="read-1" /></LanguageProvider>);
+    const scroller = screen.getByTestId('reading-scrollport');
+    const end = document.getElementById('end')!;
+    vi.spyOn(scroller, 'getBoundingClientRect').mockReturnValue({ top: 98 } as DOMRect);
+    vi.spyOn(document.getElementById('start')!, 'getBoundingClientRect').mockImplementation(() => ({ top: 120 - scroller.scrollTop } as DOMRect));
+    vi.spyOn(end, 'getBoundingClientRect').mockImplementation(() => ({ top: 600 - scroller.scrollTop } as DOMRect));
+    // At the end, the scrollport clamps before this heading can reach the toolbar.
+    Object.defineProperty(end, 'scrollIntoView', { value: () => { scroller.scrollTop = 300; } });
+    scroller.scrollBy = (options?: ScrollToOptions | number) => {
+      if (typeof options === 'object') scroller.scrollTop = Math.min(300, scroller.scrollTop + (options.top ?? 0));
+    };
+    fireEvent.click(await screen.findByRole('button', { name: 'End' }));
+    fireEvent.scroll(scroller);
+    expect(screen.getByRole('button', { name: 'End' })).toHaveAttribute('aria-current', 'location');
+    fireEvent.resize(window);
+    expect(screen.getByRole('button', { name: 'End' })).toHaveAttribute('aria-current', 'location');
+    scroller.scrollTop = 200;
+    fireEvent.scroll(scroller);
+    expect(screen.getByRole('button', { name: 'Start' })).toHaveAttribute('aria-current', 'location');
+    view.unmount();
+  });
+
   it('offsets navigation below the actual sticky reading toolbar', async () => {
     const articleRef = React.createRef<HTMLDivElement>();
     render(<LanguageProvider><div data-reading-toolbar ref={(node) => {

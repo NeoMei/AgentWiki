@@ -144,7 +144,7 @@ test.describe.serial('space folder hierarchy', () => {
     api = await playwrightRequest.newContext({
       baseURL: `${apiBaseUrl.replace(/\/+$/u, '')}/`,
     });
-    owner = await register('owner', 'Folder Owner');
+    owner = await register('owner', 'FolderOwner');
     const createdSpace = await json<{ id: string }>(await api.post('spaces', {
       headers: ownerHeaders(),
       data: { name: spaceName, description: 'Disposable folder browser acceptance' },

@@ -37,6 +37,30 @@ describe('GraphExtractionService', () => {
       expect(result.dangling).toBe(0);
     });
 
+    it('resolves page-picker ID links and aliases before conflicting titles', () => {
+      const content = '[[p2|Renamed beta]] [[p3]]';
+      const result = service.resolveWikiLinks([
+        ...pages,
+        { id: 'p4', title: 'p2', slug: 'p2' },
+      ], service.extractWikiLinks(content).map(target => ({ sourcePageId: 'p1', target })));
+
+      expect(result).toEqual({
+        resolved: [
+          { sourcePageId: 'p1', targetPageId: 'p2' },
+          { sourcePageId: 'p1', targetPageId: 'p3' },
+        ],
+        dangling: 0,
+      });
+    });
+
+    it('keeps unknown, self and out-of-space ID targets dangling without falling back to alias text', () => {
+      const content = '[[missing-id|Beta Notes]] [[p1|Beta Notes]] [[outside-space-id|Beta Notes]]';
+      const result = service.resolveWikiLinks(pages,
+        service.extractWikiLinks(content).map(target => ({ sourcePageId: 'p1', target })));
+
+      expect(result).toEqual({ resolved: [], dangling: 3 });
+    });
+
     it('counts dangling, ambiguous, and self targets without edges', () => {
       const ambiguousPages = [
         { id: 'a1', title: 'Same', slug: 'same-1' },

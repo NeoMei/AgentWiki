@@ -24,8 +24,10 @@ export class SearchController {
     @Query('spaceId') spaceId?: string,
     @Query('limit') limit?: string,
   ) {
+    const resultLimit = parseLimit(limit, 10);
+    const maxLimit = 100;
     if (!query) {
-      return { results: [], total: 0 };
+      return { results: [], total: 0, returnedCount: 0, limit: resultLimit, maxLimit, hasMore: false };
     }
     this.logger.log('Search requested');
     const principal = req.user as any;
@@ -33,14 +35,25 @@ export class SearchController {
       await this.authorization.assertSpaceAccess(principal, spaceId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read');
     }
     const accessibleSpaceIds = await this.authorization.getAccessibleSpaceIds(principal, 'pages:read');
-    const results = await this.searchService.searchPages(
+    // One extra authorized match tells the client whether it can expand the
+    // ranked window. This endpoint has no offset/cursor or full-result count.
+    const candidates = await this.searchService.searchPages(
       query,
       spaceId,
-      parseLimit(limit, 10),
+      resultLimit + 1,
       accessibleSpaceIds,
     );
+    const results = candidates.slice(0, resultLimit);
     const pages = await this.freshness.projectPages(results.map(result => result.page), principal);
-    return { results: results.map((result, index) => ({ ...result, page: pages[index] })), total: results.length };
+    return {
+      results: results.map((result, index) => ({ ...result, page: pages[index] })),
+      // Legacy compatibility: total has always meant this window's count.
+      total: results.length,
+      returnedCount: results.length,
+      limit: resultLimit,
+      maxLimit,
+      hasMore: candidates.length > resultLimit,
+    };
   }
 
   @Post('index/:pageId')

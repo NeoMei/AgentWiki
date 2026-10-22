@@ -91,12 +91,22 @@ describe('New content page flow', () => {
   const firstPageIds = Array.from({ length: 100 }, (_, index) => `first-${index}`);
 
   it('finds and selects a deep-linked template beyond 100 results while retaining its scope and kind', async () => {
-    mocks.list.mockImplementation((_space: string, options: { skip: number }) => Promise.resolve(options.skip === 0
-      ? catalogPage(0, firstPageIds, 201)
-      : options.skip === 100 ? catalogPage(100, ['middle'], 201) : catalogPage(200, ['target'], 201)));
+    const pendingPages = new Map<number, (value: ReturnType<typeof catalogPage>) => void>();
+    mocks.list.mockImplementation((_space: string, options: { skip: number }) => new Promise((resolve) => {
+      pendingPages.set(options.skip, resolve);
+    }));
     renderFlow({ initialKind: 'single_page', initialScope: 'space', initialTemplateId: 'target' });
-    const target = (await screen.findByText('模板 target')).closest('button');
-    await waitFor(() => expect(target).toHaveAttribute('aria-pressed', 'true'));
+    // Deliver each response inside act so pagination/rendering is not timed by a DOM-query deadline.
+    expect(mocks.list.mock.calls.map((call) => call[1].skip)).toEqual([0]);
+    await act(async () => pendingPages.get(0)!(catalogPage(0, firstPageIds, 201)));
+    expect(screen.getByText('模板 first-99')).toBeVisible();
+    expect(mocks.list.mock.calls.map((call) => call[1].skip)).toEqual([0, 100]);
+    await act(async () => pendingPages.get(100)!(catalogPage(100, ['middle'], 201)));
+    expect(mocks.list.mock.calls.map((call) => call[1].skip)).toEqual([0, 100, 200]);
+    expect(screen.queryByText('模板 target')).not.toBeInTheDocument();
+    await act(async () => pendingPages.get(200)!(catalogPage(200, ['target'], 201)));
+    const target = screen.getByRole('button', { name: /模板 target/ });
+    expect(target).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: '下一步' })).toBeEnabled();
     expect(screen.getByLabelText('模板来源')).toHaveValue('space');
     expect(mocks.list.mock.calls.map((call) => call[1].skip)).toEqual([0, 100, 200]);

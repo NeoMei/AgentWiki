@@ -23,7 +23,7 @@ test.beforeAll(async () => {
   await mkdir(artifacts, { recursive: true });
   api = await playwrightRequest.newContext({ baseURL: `${apiBaseUrl.replace(/\/+$/u, '')}/` });
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const registration = await api.post('auth/register', { data: { email: `ui-qa-${suffix}@example.com`, password: 'AgentWiki9Test', name: 'UI QA' } });
+  const registration = await api.post('auth/register', { data: { email: `ui-qa-${suffix}@example.com`, password: 'AgentWiki9Test', name: 'UIQA' } });
   expect(registration.ok()).toBeTruthy();
   const auth = await registration.json();
   token = auth.access_token;

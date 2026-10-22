@@ -18,9 +18,9 @@ export interface PreflightResult {
 
 /** True when the host Agent binary supports MCP hot-reload without restart. */
 export function supportsHotReload(client: AgentClient): boolean {
-  // Codex and Claude Code reload MCP servers on config change; OpenCode needs
-  // a restart after JSON mutation. This is conservative and testable.
-  return client === 'codex' || client === 'claude';
+  // Codex Desktop can keep the previous MCP process after a config change.
+  // Require explicit reload/restart before checking access through that host.
+  return client === 'claude';
 }
 
 /**

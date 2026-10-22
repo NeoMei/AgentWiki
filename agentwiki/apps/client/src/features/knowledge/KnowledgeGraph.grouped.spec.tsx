@@ -11,7 +11,7 @@ const page = (id: string, title: string, folderId: string | null, path: string) 
 const nodes = [page('p1', '大纲', 'f1', 'pages/项目/大纲.md'), page('p2', '小明', 'f2', 'pages/项目/人物/小明.md'), page('p3', '草稿', null, 'pages/草稿.md')];
 const edge = (id: string, source: string, target: string, relation: string, origin = 'manual') => ({ id, source, target, relation, strength: 1, confidence: 1, origin });
 const edges = [edge('e1', 'p1', 'p2', 'references'), edge('e2', 'p1', 'p2', 'depends_on'), edge('e3', 'p1', 'p3', 'related_to')];
-let arcs: ReturnType<typeof vi.fn>;
+let arcs: ReturnType<typeof vi.fn<(x: number, y: number, radius: number) => void>>;
 let cleared: ReturnType<typeof vi.fn>;
 let curves: ReturnType<typeof vi.fn>;
 let dash: ReturnType<typeof vi.fn>;
@@ -39,8 +39,14 @@ beforeEach(() => {
   vi.restoreAllMocks(); vi.clearAllMocks(); localStorage.setItem('agentwiki.language.v1', 'zh-CN');
   arcs = vi.fn(); cleared = vi.fn(); curves = vi.fn(); dash = vi.fn();
   vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 800, 620));
+  let transform = [1, 0, 0, 1, 0, 0];
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
-    setTransform: vi.fn(), clearRect: cleared, beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(), arc: arcs, fill: vi.fn(), bezierCurveTo: curves, setLineDash: dash,
+    setTransform(a: number, b: number, c: number, d: number, e: number, f: number) { transform = [a, b, c, d, e, f]; },
+    arc(x: number, y: number, radius: number) {
+      const dpr = window.devicePixelRatio || 1;
+      arcs((x * transform[0] + transform[4]) / dpr, (y * transform[3] + transform[5]) / dpr, radius * transform[0] / dpr);
+    },
+    clearRect: cleared, beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), stroke: vi.fn(), fill: vi.fn(), bezierCurveTo: curves, setLineDash: dash,
   } as unknown as CanvasRenderingContext2D);
   api.get.mockResolvedValue({ data: { nodes, edges, folders } });
 });
@@ -92,8 +98,8 @@ describe('KnowledgeGraph folder browsing', () => {
     expect(screen.queryByText('(depends_on)')).not.toBeInTheDocument();
     expect(screen.getByText('(references)')).toBeVisible();
     expect(screen.getByText('(similar_to)')).toBeVisible();
-    expect(screen.getByRole('option', { name: '大纲' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: '小明' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '大纲 · pages/项目/大纲.md' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '小明 · pages/项目/人物/小明.md' })).toBeInTheDocument();
   });
 
   it.each([
@@ -197,8 +203,8 @@ describe('KnowledgeGraph folder browsing', () => {
     mount(); await screen.findByRole('button', { name: '全部 3' }); filters();
     fireEvent.change(screen.getByRole('combobox', { name: '筛选关系类型' }), { target: { value: 'references' } });
     fireEvent.click(screen.getByRole('button', { name: '未连接 1' }));
-    expect(screen.getByRole('option', { name: '草稿' })).toBeInTheDocument();
-    expect(screen.queryByRole('option', { name: '小明' })).not.toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '草稿 · pages/草稿.md' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: '小明 · pages/项目/人物/小明.md' })).not.toBeInTheDocument();
     expect(screen.getByText('显示 1 / 3 个页面')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '手动' }));
     expect(screen.getByRole('button', { name: '未连接 3' })).toBeInTheDocument();
@@ -213,7 +219,9 @@ describe('KnowledgeGraph folder browsing', () => {
     fireEvent.click(screen.getByRole('button', { name: '重置视图' }));
     const canvas = container.querySelector('canvas')!;
     const original = drawnNode(container, 'p2');
-    const originalBoxLeft = parseFloat(container.querySelector<HTMLElement>('[data-folder-id="folder:f2"]')!.style.left);
+    const originalBox = container.querySelector<HTMLElement>('[data-folder-id="folder:f2"]')!;
+    const originalBoxLeft = parseFloat(originalBox.style.left);
+    const originalBoxTop = parseFloat(originalBox.style.top);
     fireEvent.mouseDown(canvas, { button: 0, clientX: original.x, clientY: original.y });
     fireEvent.mouseMove(window, { buttons: 1, clientX: original.x + 10, clientY: original.y }); fireEvent.mouseUp(window);
     expect(drawnNode(container, 'p2')).toEqual({ ...original, x: original.x + 10 });
@@ -224,7 +232,7 @@ describe('KnowledgeGraph folder browsing', () => {
     expect(parseFloat(label.style.left)).toBeGreaterThan(parseFloat(box.style.left));
     expect(parseFloat(label.style.left)).toBeLessThan(parseFloat(box.style.left) + parseFloat(box.style.width));
     expect(drawnNode(container, 'p2').x - parseFloat(box.style.left)).toBe(original.x - originalBoxLeft + 10);
-    expect(drawnNode(container, 'p2').y).toBe(original.y);
+    expect(drawnNode(container, 'p2').y - parseFloat(box.style.top)).toBe(original.y - originalBoxTop);
     fireEvent.change(screen.getByRole('searchbox', { name: '搜索页面' }), { target: { value: '' } });
     expect(drawnNode(container, 'p2')).toEqual({ ...original, x: original.x + 10 });
     fireEvent.click(screen.getByRole('button', { name: '重置视图' }));
@@ -252,7 +260,7 @@ describe('KnowledgeGraph folder browsing', () => {
     api.get.mockResolvedValue({ data: { nodes: many, edges: [], folders } }); mount();
     const browser = await screen.findByRole('combobox', { name: '浏览图谱节点' }); expect(within(browser).getAllByRole('option')).toHaveLength(126);
     fireEvent.change(browser, { target: { value: 'p124' } }); expect(screen.getByRole('button', { name: 'Page 124 pages/项目/Page 124.md' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '建立关系…' })); expect(within(screen.getByRole('dialog')).getByRole('option', { name: 'Page 123' })).toHaveAttribute('value', 'p123');
+    fireEvent.click(screen.getByRole('button', { name: '建立关系…' })); expect(within(screen.getByRole('dialog')).getByRole('option', { name: 'Page 123 · pages/项目/Page 123.md' })).toHaveAttribute('value', 'p123');
     expect(api.get.mock.calls.map(call => call[0])).toEqual(['/knowledge/graph/s1']);
   });
 
@@ -334,15 +342,15 @@ describe('KnowledgeGraph folder browsing', () => {
     fireEvent.mouseDown(canvas, { button: 0, clientX: original.x, clientY: original.y }); fireEvent.mouseMove(window, { buttons: 1, clientX: original.x + 20, clientY: original.y }); fireEvent.mouseUp(window);
     expect(drawnNode(container, 'same')).toEqual({ ...original, x: original.x + 20 });
     fireEvent.click(screen.getByRole('button', { name: 'Other Space' })); await screen.findByRole('button', { name: 'New page pages/page.md' });
-    expect(drawnNode(container, 'same')).toEqual(original); expect(screen.queryByRole('option', { name: 'Old page' })).not.toBeInTheDocument();
+    expect(drawnNode(container, 'same')).toEqual(original); expect(screen.queryByRole('option', { name: 'Old page · pages/page.md' })).not.toBeInTheDocument();
   });
 
   it('does not replace a new Space graph with an older in-flight response', async () => {
     let resolveOld: (value: unknown) => void = () => {};
     api.get.mockImplementation((url: string) => url.endsWith('/s1') ? new Promise(resolve => { resolveOld = resolve; }) : Promise.resolve({ data: { nodes: [page('new', 'New Space page', null, 'pages/new.md')], folders: [], edges: [] } }));
-    mount(); fireEvent.click(screen.getByRole('button', { name: 'Other Space' })); await screen.findByRole('option', { name: 'New Space page' });
+    mount(); fireEvent.click(screen.getByRole('button', { name: 'Other Space' })); await screen.findByRole('option', { name: 'New Space page · pages/new.md' });
     await act(async () => { resolveOld({ data: { nodes, edges, folders } }); });
-    expect(screen.queryByRole('option', { name: '大纲' })).not.toBeInTheDocument(); expect(screen.getByRole('option', { name: 'New Space page' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: '大纲 · pages/项目/大纲.md' })).not.toBeInTheDocument(); expect(screen.getByRole('option', { name: 'New Space page · pages/new.md' })).toBeInTheDocument();
     expect(api.get).toHaveBeenCalledTimes(2);
   });
 });

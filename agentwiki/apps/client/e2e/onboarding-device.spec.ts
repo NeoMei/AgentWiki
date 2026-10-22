@@ -19,7 +19,7 @@ test.beforeAll(async () => {
   api = await playwrightRequest.newContext({ baseURL: `${apiBaseUrl.replace(/\/+$/u, '')}/` });
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const registration = await api.post('auth/register', {
-    data: { email: `device-ui-${suffix}@example.com`, password: 'AgentWiki9Test', name: 'Device UI E2E' },
+    data: { email: `device-ui-${suffix}@example.com`, password: 'AgentWiki9Test', name: 'DeviceUIE2E' },
   });
   expect(registration.ok()).toBeTruthy();
   const auth = await registration.json();
@@ -27,7 +27,7 @@ test.beforeAll(async () => {
   user = auth.user;
 
   const started = await api.post('onboard/device/start', {
-    data: { packageVersion: '0.13.4', clientType: 'codex', purpose: 'full-onboarding' },
+    data: { packageVersion: '0.13.5', clientType: 'codex', purpose: 'full-onboarding' },
   });
   expect(started.ok()).toBeTruthy();
   const session = await started.json();
@@ -47,7 +47,7 @@ test('browser authorizes a device request and the token is issued once', async (
   await page.goto(`/onboard/device?user_code=${encodeURIComponent(userCode)}`);
   await expect(page.getByRole('heading', { name: 'Authorize Agent connection' })).toBeVisible();
   await expect(page.getByText('Codex')).toBeVisible();
-  await expect(page.getByText('0.13.4')).toBeVisible();
+  await expect(page.getByText('0.13.5')).toBeVisible();
   const signIn = page.getByRole('link', { name: 'Sign in or register to authorize' });
   await expect(signIn).toHaveAttribute('href', new RegExp(`returnTo=.*${userCode}`));
 

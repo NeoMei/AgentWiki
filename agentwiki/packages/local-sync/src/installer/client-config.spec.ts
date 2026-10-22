@@ -161,7 +161,7 @@ describe('installGatewayEntry', () => {
     expect(entry.command).toEqual([
       'npx',
       '--yes',
-      '@neomei/agentwiki-local-sync@0.13.4',
+      '@neomei/agentwiki-local-sync@0.13.5',
       'gateway',
       '--connection',
       'conn-42',
@@ -190,7 +190,7 @@ describe('installGatewayEntry', () => {
     };
     expect(config.mcp.servers.agentwiki).toEqual({
       type: 'local',
-      command: ['npx', '--yes', '@neomei/agentwiki-local-sync@0.13.4', 'gateway', '--connection', 'conn-v2'],
+      command: ['npx', '--yes', '@neomei/agentwiki-local-sync@0.13.5', 'gateway', '--connection', 'conn-v2'],
       disabled: false,
       timeout: { execution: 1_800_000 },
     });
@@ -313,7 +313,7 @@ describe('installGatewayEntry client formats', () => {
     const entry = config.mcpServers[GATEWAY_MCP_NAME];
     expect(entry.command).toBe('npx');
     expect(entry.args).toEqual([
-      '--yes', '@neomei/agentwiki-local-sync@0.13.4', 'gateway', '--connection', 'conn-1',
+      '--yes', '@neomei/agentwiki-local-sync@0.13.5', 'gateway', '--connection', 'conn-1',
     ]);
   });
 
@@ -456,12 +456,12 @@ describe('standard MCP host integration', () => {
     expect(config.mcpServers.unrelated).toEqual({ command: 'other-tool', args: ['--safe'] });
     if (client === 'workbuddy') {
       expect(config.mcpServers.agentwiki.command).toBe(process.execPath);
-      expect(config.mcpServers.agentwiki.args.slice(-5)).toEqual(['--yes', '@neomei/agentwiki-local-sync@0.13.4', 'gateway', '--connection', 'conn-standard']);
+      expect(config.mcpServers.agentwiki.args.slice(-5)).toEqual(['--yes', '@neomei/agentwiki-local-sync@0.13.5', 'gateway', '--connection', 'conn-standard']);
       expect(config.mcpServers.agentwiki.args[3]).toBe('--cache');
       expect(config.mcpServers.agentwiki.env.PATH.startsWith(`${dirname(process.execPath)}${delimiter}`)).toBe(true);
       await rm(config.mcpServers.agentwiki.args[4], { recursive: true });
     } else {
-      expect(config.mcpServers.agentwiki).toEqual({ command: 'npx', args: ['--yes', '@neomei/agentwiki-local-sync@0.13.4', 'gateway', '--connection', 'conn-standard'] });
+      expect(config.mcpServers.agentwiki).toEqual({ command: 'npx', args: ['--yes', '@neomei/agentwiki-local-sync@0.13.5', 'gateway', '--connection', 'conn-standard'] });
     }
     expect(await readFile(installed.backupPath, 'utf8')).toBe(original);
     if (process.platform !== 'win32') expect((await stat(expectedPath)).mode & 0o777).toBe(0o600);
@@ -580,7 +580,7 @@ describe('WorkBuddy retry runtime contract', () => {
   it('does not write the client config when the private installation receipt cannot be written', async () => {
     const home = await freshHome();
     const original = JSON.stringify({ mcpServers: { agentwiki: {
-      command: 'npx', args: ['@neomei/agentwiki-local-sync@0.13.4', 'gateway'], env: { TMPDIR: home, TMP: home, TEMP: home },
+      command: 'npx', args: ['@neomei/agentwiki-local-sync@0.13.5', 'gateway'], env: { TMPDIR: home, TMP: home, TEMP: home },
     } } });
     await seedConfig('workbuddy', home, original);
     vi.useFakeTimers({ toFake: ['Date'] });
@@ -594,7 +594,7 @@ describe('WorkBuddy retry runtime contract', () => {
   it('does not accept the old bare-npx command as an already completed installation', async () => {
     const home = await freshHome();
     await seedConfig('workbuddy', home, JSON.stringify({ mcpServers: { agentwiki: {
-      command: 'npx', args: ['--yes', '@neomei/agentwiki-local-sync@0.13.4', 'gateway', '--connection', 'conn-1'],
+      command: 'npx', args: ['--yes', '@neomei/agentwiki-local-sync@0.13.5', 'gateway', '--connection', 'conn-1'],
     } } }));
     await mkdir(join(home, '.agentwiki-archive'));
     await writeFile(join(home, '.agentwiki-archive', 'workbuddy-original'), '{}');
@@ -630,7 +630,7 @@ describe('WorkBuddy retry runtime contract', () => {
   it('preserves existing entry environment and reuses the exact saved runtime and original backup', async () => {
     const home = await freshHome();
     const original = JSON.stringify({ mcpServers: { agentwiki: {
-      command: 'npx', args: ['--yes', '@neomei/agentwiki-local-sync@0.13.4', 'gateway', '--connection', 'conn-1'],
+      command: 'npx', args: ['--yes', '@neomei/agentwiki-local-sync@0.13.5', 'gateway', '--connection', 'conn-1'],
       env: { CUSTOM_SETTING: 'keep me', NODE_OPTIONS: '--no-warnings', PATH: '/custom/bin' },
     } } });
     await seedConfig('workbuddy', home, original);

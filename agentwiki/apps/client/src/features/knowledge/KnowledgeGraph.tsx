@@ -93,6 +93,18 @@ export const KnowledgeGraph: React.FC = () => {
   const [linkRelation, setLinkRelation] = useState('related_to');
   const [linkStrength, setLinkStrength] = useState(0.8);
   const [creating, setCreating] = useState(false);
+  // The server's unique key is (source, target, relation). Automatic relations
+  // remain eligible because creating them manually confirms their provenance.
+  const linkTargets = useMemo(() => {
+    const existing = new Set(edges.filter(edge => edge.source === linkingFrom
+      && edge.relation === linkRelation.trim() && !edge.origin.startsWith('auto_')).map(edge => edge.target));
+    return nodes.filter(page => page.id !== linkingFrom && !existing.has(page.id));
+  }, [edges, linkingFrom, linkRelation, nodes]);
+  const validLinkTarget = linkTargets.some(page => page.id === linkTarget);
+  useEffect(() => {
+    if (linkTarget && !validLinkTarget) setLinkTarget('');
+  }, [linkTarget, validLinkTarget]);
+
   const [hiddenOrigins, setHiddenOrigins] = useState<Set<string>>(new Set());
   const visibleEdges = useMemo(() => edges.filter(edge => !hiddenOrigins.has(edge.origin)
     && (!relationType || edge.relation === relationType)), [edges, hiddenOrigins, relationType]);
@@ -261,7 +273,7 @@ export const KnowledgeGraph: React.FC = () => {
     if (target && filteredNodes.some(node => node.id === target)) navigate(`/pages/${target}`);
   };
   const handleCreateLink = async () => {
-    if (!linkingFrom || !linkTarget || !linkRelation.trim()) return;
+    if (!linkingFrom || !validLinkTarget || !linkRelation.trim()) return;
     const operationSpace = spaceId;
     setCreating(true);
     try {
@@ -287,7 +299,7 @@ export const KnowledgeGraph: React.FC = () => {
   const relatedPages = [...new Set(selectedEdges.map(edge => edge.source === selectedNode ? edge.target : edge.source))].map(id => ({
     id, page: nodes.find(node => node.id === id), edges: selectedEdges.filter(edge => edge.source === id || edge.target === id),
   }));
-  const allPages = nodes;
+  const pageOptionLabel = (page: GraphPage) => page.path ? `${page.title} · ${page.path}` : page.title;
 
   if (loading) return <div role="status" className="text-center py-8 text-gray-500">{zh ? '正在加载知识图谱…' : 'Loading knowledge graph…'}</div>;
   if (error) return <div className="text-center py-8"><p role="alert" className="text-red-500 mb-2">{apiErrorMessage(error.failure, t, error.fallbackKey)}</p><Link to={spaceId ? `/spaces/${spaceId}` : '/'} className="text-blue-600 hover:underline">{zh ? '返回' : 'Go back'}</Link></div>;
@@ -380,7 +392,7 @@ export const KnowledgeGraph: React.FC = () => {
     </div>
     <div className="graph-accessible-browser">
       <p>{gt('graph.navigationHint')}</p>
-      <label htmlFor="knowledge-node-browser">{zh ? '浏览图谱节点' : 'Browse graph nodes'}</label><NativeSelect id="knowledge-node-browser" value={selectedNode ?? ''} onChange={event => selectPage(event.target.value || null)}><option value="">{zh ? '选择页面…' : 'Select a page…'}</option>{filteredNodes.map(node => <option key={node.id} value={node.id}>{node.title}</option>)}</NativeSelect>
+      <label htmlFor="knowledge-node-browser">{zh ? '浏览图谱节点' : 'Browse graph nodes'}</label><NativeSelect id="knowledge-node-browser" value={selectedNode ?? ''} onChange={event => selectPage(event.target.value || null)}><option value="">{zh ? '选择页面…' : 'Select a page…'}</option>{filteredNodes.map(node => <option key={node.id} value={node.id}>{pageOptionLabel(node)}</option>)}</NativeSelect>
       {selectedNode && <Link to={`/pages/${selectedNode}`}>{zh ? '打开所选页面' : 'Open selected page'}</Link>}
     </div>
       {showLinkModal && linkingFrom && (
@@ -417,8 +429,8 @@ export const KnowledgeGraph: React.FC = () => {
                   className="w-full"
                 >
                   <option value="">{zh ? '选择页面…' : 'Select a page…'}</option>
-                  {allPages.filter(p => p.id !== linkingFrom).map(page => (
-                    <option key={page.id} value={page.id}>{page.title}</option>
+                  {linkTargets.map(page => (
+                    <option key={page.id} value={page.id}>{pageOptionLabel(page)}</option>
                   ))}
                 </NativeSelect>
               </div>
@@ -450,7 +462,7 @@ export const KnowledgeGraph: React.FC = () => {
                 </button>
                 <button
                   onClick={handleCreateLink}
-                  disabled={creating || !linkTarget}
+                  disabled={creating || !validLinkTarget || !linkRelation.trim()}
                   className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
                 >
                   <Plus size={18} />

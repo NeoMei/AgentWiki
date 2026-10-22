@@ -1,5 +1,6 @@
 import { ForbiddenException } from '@nestjs/common';
 import { GraphMaintenance } from './graph-maintenance';
+import { graphSnapshotHash } from './graph-refresh.service';
 
 describe('GraphMaintenance', () => {
   const build = (role = 'worker') => {
@@ -91,8 +92,7 @@ describe('GraphMaintenance', () => {
 
   it('skips spaces whose content hash is unchanged during sweep', async () => {
     const { maintenance, refresh, prisma } = build('api');
-    const { createHash } = require('crypto');
-    const hash = createHash('sha256').update('').digest('hex');
+    const hash = graphSnapshotHash([]);
     prisma.space.findMany.mockResolvedValue([{
       id: 'space-1',
       graphState: { wikilinkEnabled: true, similarEnabled: false, llmEnabled: false, lastContentHash: hash },
@@ -117,11 +117,7 @@ describe('GraphMaintenance', () => {
       { id: 'p2', updatedAt: new Date('2026-08-18T00:02:00.000Z') },
       { id: 'p1', updatedAt: new Date('2026-08-18T00:01:00.000Z') },
     ];
-    const { createHash } = require('crypto');
-    const expected = createHash('sha256')
-      .update('p1').update('\0').update('2026-08-18T00:01:00.000Z').update('\0')
-      .update('p2').update('\0').update('2026-08-18T00:02:00.000Z').update('\0')
-      .digest('hex');
+    const expected = graphSnapshotHash([...pages].reverse());
     prisma.space.findMany.mockResolvedValue([{
       id: 'space-1',
       graphState: { wikilinkEnabled: true, similarEnabled: false, llmEnabled: false, lastContentHash: expected },

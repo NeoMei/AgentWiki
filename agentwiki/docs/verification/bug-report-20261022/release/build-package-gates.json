@@ -1,0 +1,54 @@
+{
+  "status": "passed",
+  "verifiedAt": "2026-10-22T17:47:21.154621+00:00",
+  "gates": [
+    {
+      "command": "pnpm build",
+      "exitCode": 0,
+      "logSha256": "3a30a0f39dbef00815cf080ccf4ba010de47210760b13bae8b091854d7bbcdf8"
+    },
+    {
+      "command": "pnpm typecheck",
+      "exitCode": 0,
+      "logSha256": "d0a87d9e039ecf277453e5bf5e153e25986e53af6f6456b0f1c7a11ba35dc86d"
+    },
+    {
+      "command": "pnpm lint",
+      "exitCode": 0,
+      "logSha256": "d5b17ee595fbfdae02af58fd347506b1d5a827a69c28da8385dc57ae52ef712d"
+    },
+    {
+      "command": "pnpm test:release:sync-protocol-registry-parity",
+      "exitCode": 0,
+      "logSha256": "22714c700ebfb9afb6cd2581e9b30a485cc3a7271e4036c9a22f519c299a88ae"
+    },
+    {
+      "command": "npm_config_registry=https://registry.npmjs.org/ pnpm test:package:local-sync-clean-install",
+      "exitCode": 0,
+      "logSha256": "0fcbcc781a77efd34f7b13f304a40ba3e4ba16498302398cc4960be91576701e"
+    },
+    {
+      "command": "npm_config_registry=https://registry.npmjs.org/ pnpm test:package:local-sync-registry-protocol",
+      "exitCode": 0,
+      "logSha256": "0a6047c6f00f413e3c582f7b2950a6cbb9c369431b0c881be3f9129cb645cc30"
+    }
+  ],
+  "packageVersions": {
+    "localSync": "0.13.5",
+    "protocol": "0.6.1"
+  },
+  "protocolRegistryParity": "identical",
+  "publisherContract": {
+    "paths": [
+      "device-bootstrap",
+      "one-time-code"
+    ],
+    "scopes": 16,
+    "tamperRejected": true,
+    "rawServerPlan": true
+  },
+  "scope": "Local packaged artifacts and local built server with test adapters; not real-host or production browser acceptance.",
+  "buildWarnings": [
+    "Existing Mermaid circular dependency and large output chunk warnings"
+  ]
+}

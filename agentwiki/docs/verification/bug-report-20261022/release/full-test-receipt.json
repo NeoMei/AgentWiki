@@ -1,0 +1,57 @@
+{
+  "status": "passed",
+  "command": "pnpm test:full",
+  "exitCode": 0,
+  "date": "2026-10-23",
+  "sourceBase": "ec4faa7f32dc6ab1c09bfe050e5e0ca4d0b443e7",
+  "candidateVersions": {
+    "app": "0.12.57",
+    "localSync": "0.13.5",
+    "protocol": "0.6.1"
+  },
+  "phases": [
+    {
+      "phase": "runtime non-database",
+      "passed": 314,
+      "skipped": 1
+    },
+    {
+      "phase": "runtime PostgreSQL",
+      "passed": 239,
+      "skipped": 0
+    },
+    {
+      "phase": "server",
+      "passed": 3591,
+      "skipped": 3
+    },
+    {
+      "phase": "client",
+      "passed": 2814,
+      "skipped": 0
+    },
+    {
+      "phase": "sync protocol",
+      "passed": 140,
+      "skipped": 0
+    },
+    {
+      "phase": "local sync",
+      "passed": 1125,
+      "skipped": 1
+    }
+  ],
+  "totals": {
+    "passed": 8223,
+    "skipped": 5,
+    "failed": 0
+  },
+  "skipReasons": [
+    "CodeGraph independently installed acceptance (1)",
+    "Dedicated connection-authorization PostgreSQL/Redis suite (3)",
+    "Windows ACL behavior on macOS (1)"
+  ],
+  "logSha256": "7e0d276113a7eae54d6340c4bc28a239b638b670cf1f253621280e2bde756dc8",
+  "logPath": "/tmp/agentwiki-release-20261023/test-full-final.log",
+  "scope": "One uninterrupted full-suite invocation after final version-compatibility and fixture repairs; isolated disposable local PostgreSQL/Redis, not production acceptance."
+}

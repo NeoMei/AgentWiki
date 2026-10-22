@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { notificationsApi, type NotificationList, type UserNotification } from './notificationsApi';
+import { subscribeNotificationsChanged } from './notificationEvents';
 
 const POLL_INTERVAL = 5_000;
 
@@ -41,7 +42,7 @@ export const NotificationBell: React.FC = () => {
     } finally {
       if (!signal?.aborted && sequence === sequenceRef.current) setLoading(false);
     }
-  }, [canPoll]);
+  }, [canPoll, token, user?.id]);
 
   useEffect(() => {
     if (!canPoll) {
@@ -53,6 +54,7 @@ export const NotificationBell: React.FC = () => {
     const controller = new AbortController();
     void load(controller.signal);
     const refresh = () => { void load(); };
+    const unsubscribe = subscribeNotificationsChanged(refresh);
     const refreshWhenVisible = () => { if (document.visibilityState === 'visible') refresh(); };
     const timer = window.setInterval(refresh, POLL_INTERVAL);
     window.addEventListener('focus', refresh);
@@ -61,6 +63,7 @@ export const NotificationBell: React.FC = () => {
       ++sequenceRef.current;
       controller.abort();
       window.clearInterval(timer);
+      unsubscribe();
       window.removeEventListener('focus', refresh);
       document.removeEventListener('visibilitychange', refreshWhenVisible);
     };
@@ -82,11 +85,6 @@ export const NotificationBell: React.FC = () => {
       // Navigation remains useful when marking read is unavailable.
     } finally {
       setMarkingId(null);
-      setState((current) => ({
-        ...current,
-        unreadCount: notification.readAt ? current.unreadCount : Math.max(0, current.unreadCount - 1),
-        notifications: current.notifications.map((item) => item.id === notification.id ? { ...item, readAt: item.readAt ?? new Date().toISOString() } : item),
-      }));
       setOpen(false);
       navigate(notification.href);
     }

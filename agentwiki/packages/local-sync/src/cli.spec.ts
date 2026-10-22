@@ -52,7 +52,7 @@ describe('local sync command orchestration', () => {
   it('returns the package version for --version without requiring a connection', async () => {
     const home = await temporaryDirectory('agentwiki-version-');
 
-    await expect(runCli(['--version'], home)).resolves.toEqual({ version: '0.13.4' });
+    await expect(runCli(['--version'], home)).resolves.toEqual({ version: '0.13.5' });
   });
 
   it.each(['onboard', 'gateway', 'doctor', 'uninstall'])('shows %s help without runtime side effects', async (command) => {
@@ -119,13 +119,13 @@ describe('local sync command orchestration', () => {
     const home = await temporaryDirectory('agentwiki-doctor-all-');
     const connection = {
       id: randomUUID(), serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'credential-1',
-      pluginVersion: '0.13.4', client: 'codex' as const, mcpName: 'agentwiki',
+      pluginVersion: '0.13.5', client: 'codex' as const, mcpName: 'agentwiki',
     };
     await mkdir(join(home, '.codex'), { recursive: true });
     await writeFile(join(home, '.codex', 'config.toml'), '[mcp_servers.agentwiki]\ncommand = "npx"\n');
     await mkdir(join(home, '.workbuddy'), { recursive: true });
     await writeFile(join(home, '.workbuddy', 'mcp.json'), JSON.stringify({ mcpServers: { agentwiki: {
-      command: 'npx', args: ['-y', '@neomei/agentwiki-local-sync@0.13.4', 'gateway', '--connection', connection.id],
+      command: 'npx', args: ['-y', '@neomei/agentwiki-local-sync@0.13.5', 'gateway', '--connection', connection.id],
     } } }));
     await mkdir(join(home, '.config', 'opencode'), { recursive: true });
     await writeFile(join(home, '.config', 'opencode', 'opencode.json'), JSON.stringify({ mcp: {} }));
@@ -148,7 +148,7 @@ describe('local sync command orchestration', () => {
     const home = await temporaryDirectory('agentwiki-doctor-generic-');
     const connection = {
       id: randomUUID(), serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'credential-1',
-      pluginVersion: '0.13.4', client: 'generic' as const, mcpName: 'agentwiki',
+      pluginVersion: '0.13.5', client: 'generic' as const, mcpName: 'agentwiki',
     };
     const run = vi.fn<(command: string) => { status: number; stdout: string; stderr: string }>(() => ({ status: 0, stdout: 'tool 1.0.0', stderr: '' }));
     const report = await runDoctor(home, connection, {
@@ -433,7 +433,7 @@ it('doctor checks required tool availability without invoking remote model provi
     const home = await temporaryDirectory('agentwiki-doctor-windows-acl-');
     const connection = {
       id: randomUUID(), serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'credential-1',
-      pluginVersion: '0.13.4', client: 'codex' as const, mcpName: 'agentwiki',
+      pluginVersion: '0.13.5', client: 'codex' as const, mcpName: 'agentwiki',
     };
     await saveConfig(home, { version: 1, defaultConnectionId: connection.id, connections: { [connection.id]: connection } });
     await saveCredentials(home, { version: 1, credentials: { [connection.credentialId]: { apiKey: 'agk_doctor_secret' } } });

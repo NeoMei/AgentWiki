@@ -71,7 +71,7 @@ export async function runSpaceAgentMemberUI(environment = process.env) {
   try {
     const registration = await request(apiUrl, '/auth/register', {
       method: 'POST',
-      body: { email, password, name: 'Space Agent UI E2E' },
+      body: { email, password, name: 'SpaceAgentUIE2E' },
     });
     token = registration.access_token;
     fixture.userId = registration.user.id;

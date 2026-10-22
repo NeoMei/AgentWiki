@@ -13,7 +13,7 @@ afterEach(async () => { vi.restoreAllMocks(); await Promise.all(homes.splice(0).
 
 it.each(['pull', 'prepare'])('isolates old device tree state and preserves dirty files when the first operation is %s', async (firstOperation) => {
   const home = await mkdtemp(join(tmpdir(), 'aw-old-tree-')); homes.push(home);
-  const connection = { id: 'a', serverUrl: 'https://wiki.test/api', agentId: 'agent-a', credentialId: 'cred-a', pluginVersion: '0.13.4', client: 'codex' as const, mcpName: 'agentwiki', spaceId: 'space-a' };
+  const connection = { id: 'a', serverUrl: 'https://wiki.test/api', agentId: 'agent-a', credentialId: 'cred-a', pluginVersion: '0.13.5', client: 'codex' as const, mcpName: 'agentwiki', spaceId: 'space-a' };
   await saveConfig(home, { version: 1, connections: { a: connection } });
   await saveCredentials(home, { version: 2, credentials: { 'cred-a': { apiKey: 'agent-key', syncDeviceCredential: 'human-device-key' } } });
   const legacy = workspacePaths(home, 'space-a');
@@ -74,7 +74,7 @@ it('keeps the chosen isolated Space after the old tree workspace is moved', asyn
 
 it('fails closed when a referenced legacy base is missing and preserves dirty files before remote sync or preparation', async () => {
   const home = await mkdtemp(join(tmpdir(), 'aw-old-base-missing-')); homes.push(home);
-  const connection = { id: 'a', serverUrl: 'https://wiki.test/api', agentId: 'agent-a', credentialId: 'cred-a', pluginVersion: '0.13.4', client: 'codex' as const, mcpName: 'agentwiki', spaceId: 'space-a' };
+  const connection = { id: 'a', serverUrl: 'https://wiki.test/api', agentId: 'agent-a', credentialId: 'cred-a', pluginVersion: '0.13.5', client: 'codex' as const, mcpName: 'agentwiki', spaceId: 'space-a' };
   await saveConfig(home, { version: 1, connections: { a: connection } });
   await saveCredentials(home, { version: 2, credentials: { 'cred-a': { apiKey: 'agent-key' } } });
   const legacy = workspacePaths(home, 'space-a'); await ensureWorkspace(legacy);

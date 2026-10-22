@@ -234,7 +234,7 @@ export async function serve({ databaseUrl, statePath }) {
         }, controller.signal);
         const suffix = randomUUID();
         phase = 'fixture-seeding';
-        const owner = await request(apiUrl, '/auth/register', { body: { email: `retrieval-${suffix}@example.test`, password: `Retrieval-${suffix}!`, name: 'Synthetic Retrieval Owner' } });
+        const owner = await request(apiUrl, '/auth/register', { body: { email: `retrieval-${suffix}@example.test`, password: `Retrieval-${suffix}!`, name: 'SyntheticRetrievalOwner' } });
         const token = owner.access_token;
         api.secretValues.push(token);
         const space = await request(apiUrl, '/spaces', { token, body: { name: 'Knowledge Retrieval Fixture' } });

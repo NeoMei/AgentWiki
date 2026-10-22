@@ -15,6 +15,8 @@ export interface RefreshResult {
   llm: { changeSetId: string | null; proposed: number; reason?: string };
 }
 
+// Bump when extraction rules change so unchanged spaces are reconciled once.
+const GRAPH_EXTRACTION_VERSION = 'wikilink-page-id-v1';
 const ORIGIN_WIKILINK = 'auto_wikilink';
 const ORIGIN_SIMILAR = 'auto_similar';
 const LLM_PAGE_BATCH = 6;
@@ -25,7 +27,7 @@ export function graphSnapshotHash(pages: Array<{
   id: string;
   updatedAt?: Date | string;
 }>): string {
-  const hash = createHash('sha256');
+  const hash = createHash('sha256').update(GRAPH_EXTRACTION_VERSION).update('\0');
   for (const page of [...pages].sort((left, right) => left.id.localeCompare(right.id))) {
     hash.update(page.id).update('\0');
     hash.update(page.updatedAt instanceof Date ? page.updatedAt.toISOString() : String(page.updatedAt ?? '')).update('\0');

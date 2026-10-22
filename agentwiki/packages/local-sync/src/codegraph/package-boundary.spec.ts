@@ -11,7 +11,7 @@ describe('local-sync package boundary', () => {
     const manifest = JSON.parse(await readFile(packageJson, 'utf8')) as { version: string };
     const content = await readFile(readme, 'utf8');
 
-    expect(manifest.version).toBe('0.13.4');
+    expect(manifest.version).toBe('0.13.5');
     expect(content).toContain(`## Onboarding (${manifest.version})`);
     const pinnedReferences = content.match(/@neomei\/agentwiki-local-sync@[^\s`]+/g) ?? [];
     expect(pinnedReferences.length).toBeGreaterThan(0);

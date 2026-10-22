@@ -4,7 +4,7 @@
  * single stdio MCP server.
  */
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { createGatewayServer, type GatewayHandlers } from './server.js';
+import { createGatewayServer, type GatewayConnection, type GatewayHandlers } from './server.js';
 import { SpaceMcpBridge } from './space-mcp-bridge.js';
 import { RemoteMcpBridge } from './remote-mcp-bridge.js';
 import type { RemoteSync } from './knowledge-workflows.js';
@@ -32,6 +32,7 @@ export interface GatewayEntryDeps {
 export interface GatewayEntry {
   handlers: GatewayHandlers;
   bridge: RemoteMcpBridge;
+  connection: GatewayConnection;
 }
 
 /** Builds the real handler closures once so scan and preparation share one pipeline. */
@@ -120,11 +121,20 @@ export async function createGatewayEntry(deps: GatewayEntryDeps): Promise<Gatewa
     },
   }, connection.spaceId);
 
-  return { handlers, bridge };
+  return {
+    handlers,
+    bridge,
+    connection: {
+      connectionId: connection.id,
+      agentId: connection.agentId,
+      client: connection.client,
+      serverUrl: connection.serverUrl,
+    },
+  };
 }
 
 export async function runGateway(deps: GatewayEntryDeps): Promise<void> {
-  const { handlers, bridge } = await createGatewayEntry({ ...deps, reportRemoteDiagnostic: deps.reportRemoteDiagnostic ?? ((message) => { process.stderr.write(`${message}\n`); }) });
-  const { server } = await createGatewayServer({ handlers, bridge, version: '0.13.4' });
+  const entry = await createGatewayEntry({ ...deps, reportRemoteDiagnostic: deps.reportRemoteDiagnostic ?? ((message) => { process.stderr.write(`${message}\n`); }) });
+  const { server } = await createGatewayServer({ ...entry, version: '0.13.5' });
   await server.connect(new StdioServerTransport());
 }

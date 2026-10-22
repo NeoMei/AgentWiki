@@ -198,7 +198,17 @@ export const SpaceDirectory: React.FC<SpaceDirectoryProps> = ({
       }}
         className="min-h-0 flex-1 overflow-y-auto p-3">
         {treeProps.error && onRetry ? <button type="button" onClick={onRetry} className="mb-2 text-sm font-medium text-blue-700 underline">{t('common.retry')}</button> : null}
-        <ContentTree
+        {query && !visibleRoots.length && !treeProps.loading && !treeProps.error ? (
+          <div className="py-10 text-center">
+            <p role="status" className="text-sm text-gray-500">{copy('已加载项目中没有匹配结果。', 'No loaded items match this filter.')}</p>
+            <button type="button" onClick={() => {
+              setFilter('');
+              scrollRef.current?.parentElement?.querySelector<HTMLInputElement>('input[type="search"]')?.focus();
+            }} className="mt-3 min-h-8 rounded-lg border border-gray-300 px-3 text-sm text-gray-600 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+              {copy('清空过滤', 'Clear filter')}
+            </button>
+          </div>
+        ) : <ContentTree
           {...treeProps}
           nodes={visibleRoots}
           highlightQuery={filter}
@@ -212,7 +222,7 @@ export const SpaceDirectory: React.FC<SpaceDirectoryProps> = ({
           onOpenFolder={onSelectFolder}
           pageDeleteDisabled={pageDeleteDisabled}
           emptyText=""
-        />
+        />}
       </div>
     </>;
 

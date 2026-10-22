@@ -20,7 +20,7 @@ export type ClientType = 'codex' | 'claude' | 'opencode' | 'workbuddy' | 'generi
 
 export interface StartParams {
   serverBaseUrl: string;
-  packageVersion: '0.13.4';
+  packageVersion: '0.13.5';
   clientType: ClientType;
   purpose?: 'full-onboarding' | 'agent-connect';
   fetchImpl?: typeof fetch;
@@ -57,7 +57,7 @@ export interface ServerPlan {
   space: ServerPlanSpace | ServerPlanExistingSpace;
   agentName: string;
   role: AgentAccessRole;
-  packageVersion: '0.13.4';
+  packageVersion: '0.13.5';
 }
 
 export interface BootstrapParams {

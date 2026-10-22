@@ -119,7 +119,7 @@ export async function runSmoke(environment = process.env) {
     assert.equal(health.data.status, 'ok');
 
     const registration = await request(apiUrl, '/auth/register', {
-      method: 'POST', body: { email, password, name: 'Smoke E2E' },
+      method: 'POST', body: { email, password, name: 'SmokeE2E' },
     });
     token = registration.data.access_token;
     fixture.userId = registration.data.user.id;

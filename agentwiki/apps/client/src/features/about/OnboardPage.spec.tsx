@@ -19,7 +19,7 @@ describe('Agent connection steps guide',()=>{
       fireEvent.click(screen.getByRole('button',{name:zh?'复制提示词':'Copy prompt'}));
       await waitFor(()=>expect(navigator.clipboard.writeText).toHaveBeenCalled());
       const prompt=vi.mocked(navigator.clipboard.writeText).mock.calls.slice(-1)[0][0];
-      expect(prompt).toContain(`@neomei/agentwiki-local-sync@${LOCAL_SYNC_VERSION} onboard start --server '${window.location.origin}/api' --client ${client} --protocol json`);
+      expect(prompt).toContain(`@neomei/agentwiki-local-sync@${LOCAL_SYNC_VERSION} onboard start --server '${window.location.origin}/api' --client ${client === 'generic' ? '<actual-client>' : client} --protocol json`);
       expect(prompt).toContain('onboard status --session');expect(prompt).toContain('onboard continue --session');
       expect(prompt).toContain('--reply-file');expect(prompt).toContain('0600');
       expect(prompt).toContain('authorizationUrl');expect(prompt).toContain('retryAfterMs');expect(prompt).toContain('browserOpened');
@@ -29,18 +29,22 @@ describe('Agent connection steps guide',()=>{
       expect(prompt).not.toContain('onboard resume');
     }
   });
-  it.each(['zh-CN','en'] as const)('defaults to a generic MCP export and explains host activation in %s', async language => {
+  it.each(['zh-CN','en'] as const)('defaults to host identification and explains host activation in %s', async language => {
     renderPage(language);
     const zh = language === 'zh-CN';
     expect(screen.getByRole('button', {name: zh ? '通用 MCP（推荐）' : 'Generic MCP (recommended)'})).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', {name: 'Codex'})).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByText(zh ? /先识别当前客户端/ : /First identify the current client/, {selector: 'p'})).toBeVisible();
     expect(screen.getByText(zh ? /允许 MCP 和工具调用/ : /Allow MCP and tool calls/, {selector: 'p'})).toBeVisible();
     expect(screen.getByText(zh ? /重载或重启客户端并新建对话/ : /Reload or restart your client and start a new conversation/, {selector: 'p'})).toBeVisible();
     fireEvent.click(screen.getByRole('button', {name: zh ? '复制提示词' : 'Copy prompt'}));
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalled());
     const prompt = vi.mocked(navigator.clipboard.writeText).mock.calls[0][0];
-    expect(prompt).toContain('--client generic');
+    expect(prompt).toContain('--client <actual-client>');
     expect(prompt).not.toContain('--client codex');
+    expect(prompt).not.toContain('--client workbuddy');
+    expect(prompt).not.toContain('node -e');
+    expect(prompt).toContain(`${window.location.origin}/api/onboard/runtime?client=<actual-client>`);
     expect(prompt).toContain('stdio');
     expect(prompt).not.toContain('clientSetupInstructions');
     expect(prompt).toContain('configurationMode');

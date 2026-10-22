@@ -76,6 +76,8 @@ const readOutline = (root: HTMLElement): OutlineItem[] => (
     .filter((item) => item.label.length > 0)
 );
 
+const scrollTop = (scroller: HTMLElement | Window): number => scroller === window ? window.scrollY : (scroller as HTMLElement).scrollTop;
+
 const scrollParent = (element: HTMLElement): HTMLElement | Window => {
   let parent = element.parentElement;
   while (parent) {
@@ -109,6 +111,7 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLElement>(null);
+  const navigationRef = useRef<{ key: string; id: string; top: number; scroller: HTMLElement | Window } | null>(null);
   const occupiedWidth = !embedded && open && wide && (outline?.length ?? items.length) > 0 && position.resizeMax >= 200 ? position.width + 16 : 0;
 
   useEffect(() => {
@@ -239,9 +242,21 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
     const scrollingElement = scrollParent(root);
     const updateActive = () => {
       if (activeHeadingId) { setActiveId(activeHeadingId); return; }
+      const navigation = navigationRef.current;
+      // The browser may deliver the navigation scroll after the click. Keep its
+      // exact target at the settled position, including headings near the end
+      // that cannot reach the toolbar. Any subsequent article scroll releases it.
+      if (navigation?.key === viewKey && navigation.scroller === scrollingElement
+        && items.some((item) => item.id === navigation.id)
+        && Math.abs(scrollTop(scrollingElement) - navigation.top) < 1) {
+        setActiveId(navigation.id);
+        return;
+      }
+      navigationRef.current = null;
+      const boundary = Math.max(currentStickyOffset(wrapperRef.current), scrollingElement === window ? 0 : (scrollingElement as HTMLElement).getBoundingClientRect().top);
       let current = items[0];
       for (const item of items) {
-        if (item.element && item.element.getBoundingClientRect().top <= currentStickyOffset(wrapperRef.current)) current = item;
+        if (item.element && item.element.getBoundingClientRect().top <= boundary + 1) current = item;
         else break;
       }
       setActiveId(current?.id ?? null);
@@ -253,7 +268,7 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
       scrollingElement.removeEventListener('scroll', updateActive);
       window.removeEventListener('resize', updateActive);
     };
-  }, [activeHeadingId, articleRootRef, items, pageKey]);
+  }, [activeHeadingId, articleRootRef, items, pageKey, viewKey]);
 
   useEffect(() => {
     if (embedded || !open || items.length === 0) return;
@@ -303,7 +318,11 @@ export const ArticleContentsPopover: React.FC<ArticleContentsPopoverProps> = ({ 
     if (!item.element) return;
     item.element.scrollIntoView({ block: 'start' });
     const scrollingElement = scrollParent(item.element);
-    scrollingElement.scrollBy({ top: -currentStickyOffset(wrapperRef.current), left: 0, behavior: 'instant' });
+    const boundary = Math.max(currentStickyOffset(wrapperRef.current), scrollingElement === window ? 0 : (scrollingElement as HTMLElement).getBoundingClientRect().top);
+    // scrollIntoView aligns with the scrollport, whose top need not be zero.
+    // Correct the actual heading position instead of subtracting a global offset.
+    scrollingElement.scrollBy({ top: item.element.getBoundingClientRect().top - boundary, left: 0, behavior: 'instant' });
+    navigationRef.current = { key: viewKey, id: item.id, top: scrollTop(scrollingElement), scroller: scrollingElement };
     setActiveId(item.id);
     if (!embedded) { if (mobile) setMobileOpenFor(null); else if (!wide) setDismissedFor(viewKey); }
   };

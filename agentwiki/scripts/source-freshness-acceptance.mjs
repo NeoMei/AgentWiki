@@ -342,7 +342,7 @@ export async function serve({ databaseUrl, statePath, confirmation, expectedComm
         await waitReady(apiChild, () => apiChild.output.includes(`Server running on http://localhost:${apiPort}`) ? checkApiHealth(apiUrl) : Promise.resolve(false), controller.signal);
         const email = `source-review-${randomUUID()}@example.test`;
         const password = `Synthetic-${randomUUID()}!`; secrets.push(password);
-        const registration = await createApi({ apiUrl, record, signal: controller.signal })('/auth/register', { method: 'POST', body: { email, password, name: 'Synthetic Source Reviewer' } });
+        const registration = await createApi({ apiUrl, record, signal: controller.signal })('/auth/register', { method: 'POST', body: { email, password, name: 'SyntheticSourceReviewer' } });
         const owner = { email, password, token: registration.access_token, userId: registration.user.id }; secrets.push(owner.token);
         const api = createApi({ apiUrl, owner, secrets, record, signal: controller.signal });
         const space = await api('/spaces', { method: 'POST', body: { name: 'Source Review Acceptance' } });

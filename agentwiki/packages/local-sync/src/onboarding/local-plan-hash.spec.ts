@@ -4,7 +4,7 @@ import { hashOnboardingPlan } from './local-plan-hash.js';
 
 const serverPlan = {
   space: { mode: 'create' as const, name: 'R&D' }, agentName: 'Codex',
-  role: 'editor' as const, packageVersion: '0.13.4' as const,
+  role: 'editor' as const, packageVersion: '0.13.5' as const,
 };
 
 describe('onboarding plan hashing', () => {

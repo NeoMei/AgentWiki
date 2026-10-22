@@ -111,6 +111,24 @@ describe('SpaceSettings auto graph card', () => {
     });
   });
 
+  it.each(['', '  \n  '])('persists a cleared description across a reload (%j)', async (cleared) => {
+    let persisted = { ...spaceSettings, description: 'Original description' };
+    api.get.mockImplementation((url: string) => Promise.resolve({ data: url.endsWith('/graph/settings') ? graphSettings : persisted }));
+    api.patch.mockImplementation((_url, body) => {
+      // HTTP JSON drops undefined fields, matching the real PATCH persistence boundary.
+      persisted = { ...persisted, ...JSON.parse(JSON.stringify(body)) };
+      return Promise.resolve({ data: persisted });
+    });
+    const view = renderSettings();
+    fireEvent.change(await screen.findByLabelText('描述'), { target: { value: cleared } });
+    fireEvent.click(screen.getByRole('button', { name: '保存设置' }));
+    await screen.findByText('已保存');
+    expect(screen.getByLabelText('描述')).toHaveValue('');
+    view.unmount();
+    renderSettings();
+    expect(await screen.findByLabelText('描述')).toHaveValue('');
+  });
+
   it('does not submit a whitespace-only rename', async () => {
     renderSettings();
     const input = await screen.findByLabelText('名称');
@@ -221,7 +239,7 @@ describe('SpaceSettings auto graph card', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存设置' }));
     await screen.findByText('已保存');
     expect(api.patch).toHaveBeenCalledWith('/spaces/space-1', {
-      description: undefined, approvalPolicy: 'no-review',
+      description: '', approvalPolicy: 'no-review',
     });
   });
 

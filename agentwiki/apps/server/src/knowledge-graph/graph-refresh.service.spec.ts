@@ -1,7 +1,9 @@
 import { ForbiddenException } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { GraphRefreshService } from './graph-refresh.service';
 import { GraphExtractionService } from './graph-extraction.service';
+import { GraphMaintenance } from './graph-maintenance';
 
 describe('GraphRefreshService', () => {
   const extraction = new GraphExtractionService();
@@ -103,6 +105,26 @@ describe('GraphRefreshService', () => {
       skipDuplicates: true,
     });
     (global.Date as any).mockRestore();
+  });
+
+  it('creates one automatic reference for same-space picker IDs and excludes unknown, self and other-space IDs', async () => {
+    const prisma = buildPrisma();
+    const allPages = [
+      { id: 'p1', spaceId: 'space-1', deletedAt: null, title: 'Alpha', slug: 'alpha', content: '[[p2|Beta]] [[p2]] [[p1|Self]] [[p3|Other space]] [[missing|Beta]]' },
+      { id: 'p2', spaceId: 'space-1', deletedAt: null, title: 'Beta', slug: 'beta', content: '' },
+      { id: 'p3', spaceId: 'space-2', deletedAt: null, title: 'Other space', slug: 'other-space', content: '' },
+    ];
+    prisma.page.findMany.mockImplementation(async ({ where }: any) =>
+      allPages.filter(page => page.spaceId === where.spaceId && page.deletedAt === where.deletedAt));
+    const service = new GraphRefreshService(prisma, extraction, buildLlm() as any);
+
+    const result = await service.refresh('space-1', ['wikilink']);
+
+    expect(result.wikilink).toEqual({ created: 1, removed: 0, dangling: 3 });
+    expect(prisma.knowledgeRelation.createMany).toHaveBeenCalledWith({
+      data: [{ sourcePageId: 'p1', targetPageId: 'p2', relation: 'references', origin: 'auto_wikilink', confidence: 1, strength: 1 }],
+      skipDuplicates: true,
+    });
   });
 
   it('keeps reconciliation atomic when relation creation fails', async () => {
@@ -502,6 +524,45 @@ describe('GraphRefreshService', () => {
     expect(result.llm.reason).toBe('rate_limited');
     const finalUpsert = prisma.spaceGraphState.upsert.mock.calls.at(-1)[0];
     expect(finalUpsert.update).not.toHaveProperty('lastContentHash');
+  });
+
+  it('refreshes legacy snapshots for unchanged page-ID links once and skips the new snapshot on the next sweep', async () => {
+    const prisma = buildPrisma();
+    const pages = [
+      { id: 'p1', title: 'Alpha', slug: 'alpha', content: '[[p2|Beta]]', updatedAt: '2026-08-18T00:00:00.000Z' },
+      { id: 'p2', title: 'Beta', slug: 'beta', content: '', updatedAt: '2026-08-18T00:00:00.000Z' },
+    ];
+    // Persisted by the previous release: only page IDs and versions, with no extraction version.
+    const legacyHash = createHash('sha256')
+      .update('p1').update('\0').update('2026-08-18T00:00:00.000Z').update('\0')
+      .update('p2').update('\0').update('2026-08-18T00:00:00.000Z').update('\0')
+      .digest('hex');
+    const state = { wikilinkEnabled: true, similarEnabled: false, llmEnabled: false, lastContentHash: legacyHash };
+    prisma.space.findMany = jest.fn(async () => [{ id: 'space-1', graphState: { ...state } }]);
+    prisma.page.findMany.mockResolvedValue(pages);
+    prisma.spaceGraphState.findUnique.mockImplementation(async () => ({ ...state }));
+    prisma.spaceGraphState.upsert.mockImplementation(async ({ update }: any) => {
+      Object.assign(state, update);
+      return { ...state };
+    });
+    const refresh = new GraphRefreshService(prisma, extraction, buildLlm() as any);
+    const maintenance = new GraphMaintenance(prisma, { get: jest.fn() } as any, refresh);
+
+    await maintenance.sweep();
+
+    expect(prisma.knowledgeRelation.createMany).toHaveBeenCalledWith({
+      data: [{ sourcePageId: 'p1', targetPageId: 'p2', relation: 'references', origin: 'auto_wikilink', confidence: 1, strength: 1 }],
+      skipDuplicates: true,
+    });
+    expect(state.lastContentHash).not.toBe(legacyHash);
+    const currentHash = state.lastContentHash;
+    const transactions = prisma.$transaction.mock.calls.length;
+
+    await maintenance.sweep();
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(transactions);
+    expect(prisma.knowledgeRelation.createMany).toHaveBeenCalledTimes(1);
+    expect(state.lastContentHash).toBe(currentHash);
   });
 
   it('uses a deterministic content hash regardless of database row order', async () => {

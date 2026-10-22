@@ -169,7 +169,7 @@ async function prepareFixture(apiUrl) {
     body: {
       email: `composite-owner-${suffix}@example.test`,
       password: `Acceptance-${suffix}!`,
-      name: 'Composite acceptance owner',
+      name: 'CompositeAcceptanceOwner',
     },
   });
   const space = await request(apiUrl, '/spaces', {

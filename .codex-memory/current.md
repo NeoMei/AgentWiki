@@ -1,31 +1,32 @@
 # 当前目标
 
-Agent 扫描目录总结失败与同一 Session 后续会话丢失上下文已修复，候选提交 `3f0e9896` 已部署到生产。
+执行用户明确授权的 v0.12.57 / Local Sync 0.13.5 发布，包含《10-22Agentwiki测试问题》12项修复及宿主识别/连接身份修复。
 
 # 范围 / 不做
 
-范围为 OpenCode v2 目录 MCP/工具声明与权限配置、Session 失败/取消终态回放及对应测试。生产目标固定为 `root@113.249.120.24:/root/agentwiki`；不从历史 checkout 发布，不打印生产环境密钥。
+发布本轮已验证修复。原报告逐项保留，不把发布健康或本地测试当作原billy环境人工验收；不改既有Agent、MCP配置或生产权限。
 
 # 当前状态
 
-- 工作树 `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`，分支 `codex/agent-autochat-external-opencode`；候选守卫通过，提交已同步到 `origin`。
-- OpenCode v2 现在声明 `capabilities.tools`、`mcp.servers`、数组权限规则；Session execution context 回放 `done/failed/cancelled`，失败错误已脱敏。
-- assist 相关 443 个测试、构建、typecheck、lint通过；完整测试受当前环境缺失 `PAGE_TEMPLATE_TEST_DATABASE_URL` 阻塞，不能宣称全量通过。
-- 生产 `root@113.249.120.24:/root/agentwiki` 已完成 staged build、65 个迁移无待执行项和原子切换；三服务 active、内外健康接口五项均 ok、前端 HTTP 200。
-- 协调备份 `/var/backups/agentwiki/assist-session-v01256.y9kniutw` 已验证；旧应用保留在 `/root/agentwiki-previous-20261022040109`。
+- canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`，分支`codex/agent-autochat-external-opencode`；基线`ec4faa7f`，v0.12.57守卫通过。
+- 12项缺陷及宿主识别/连接身份修复、.13.5版本联动已完成并独立复审；旧.13.4会话继续固定原版本runner。
+- 最终`pnpm test:full`一次性exit0：8223 pass/5环境skip；build/typecheck/lint、协议0.6.1官方parity、两种独立安装及publisher合约均通过。此前17项本地Chrome回归通过。
+- 最终npm包179文件，sha256 b566ae2a895e17fc4d5d22645e8184bd484d333fe5a87af330b2e897349c9e05；npm认证已完成。待冻结提交并正式发布。
+- 生产配对备份`bugs-v01257.oap6txmn`已校验及独立复核。最新只读预检：三服务/health正常，1409个旧源码与基线一致，线上仍.12.56/.13.4。
+- 原报告已追加12条开发回复和12条本地回归，MCP精确回读及Chrome渲染通过，原文及18图完整保留。发布后追加上线证据。
 
 # 稳定约束
 
-Git在候选工作树中操作，发布前必须通过 `scripts/agentwiki-release-guard.mjs`。生产发布须使用显式 `deploy.sh 113.249.120.24 root`，先做协调数据库/附件备份并保留旧应用树；禁止从历史 checkout 发布或猜测 SSH 密码。
+编辑/发布前运行release guard；生产目标固定`root@113.249.120.24:/root/agentwiki`。Space授权实时查询，不为绕过拒绝换身份/密钥或用DB读写正文。发布需配对备份、冻结包/源码、npm回读及生产独立回验。
 
 # 关键索引
 
-- `AGENTWIKI_RELEASE_CANDIDATE`
-- `apps/server/src/assist/opencode.runner.ts`
-- `apps/server/src/assist/assist-session.service.ts`
-- `docs/verification/generic-mcp-onboarding-20261018/release-execution-plan.md`
-- `deploy.sh`
+- tasks/active/release-v01257-20261023/{brief,decisions,refs}.md
+- tasks/active/bug-report-20261022/{brief,decisions,refs}.md
+- tasks/active/onboarding-host-identity-20261023/{brief,decisions,refs}.md
+- agentwiki/docs/verification/bug-report-20261022/release/README.md
+- agentwiki/AGENTWIKI_RELEASE_CANDIDATE
 
 # 风险 / 下一步
 
-生产部署和服务回读已完成；目录扫描与同一 Session 的真实浏览器端到端回归仍需在登录后的用户界面执行，当前证据覆盖候选代码、部署文件哈希、服务健康和公网 HTTP。
+npm先发布临时tag release-0-12-57，精确包回读/空缓存验收后再部署Web .57；生产源码、资源、health及浏览器通过后提升latest。原billy环境及真实host升级后的MCP实际读取保持独立验收边界。

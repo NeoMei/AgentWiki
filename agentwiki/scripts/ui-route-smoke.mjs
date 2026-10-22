@@ -76,7 +76,7 @@ export async function runUiRouteSmoke(environment = process.env) {
 
   try {
     const registration = await request(apiUrl, '/auth/register', {
-      method: 'POST', body: { email, password, name: 'UI Route E2E' },
+      method: 'POST', body: { email, password, name: 'UIRouteE2E' },
     });
     token = registration.access_token;
     fixture.userId = registration.user.id;

@@ -80,7 +80,7 @@ it('persists the exact package version before the first authorization checkpoint
   const f = await fixture();
   const path = join(f.home, '.agentwiki', 'onboarding', 'steps', `${f.start.sessionId}.json`);
   expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({
-    stage: 'authorization', packageVersion: '0.13.4',
+    stage: 'authorization', packageVersion: '0.13.5',
   });
 });
 

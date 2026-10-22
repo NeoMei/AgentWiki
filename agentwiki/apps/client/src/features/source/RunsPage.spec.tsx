@@ -122,6 +122,37 @@ describe('RunsPage', () => {
     expect(screen.getByLabelText('Filter by status')).toHaveValue('');
   });
 
+  it.each(['失败', '抓取来源', '安全检查', 'fetching', 'REMOTE_URL_REJECTED'])('searches displayed status, failure stage and safe diagnostics for %s together with source/status filters', async (query) => {
+    localStorage.setItem('agentwiki.language.v1', 'zh-CN');
+    vi.mocked(api.get).mockResolvedValue({ data: [
+      { ...run('blocked-a', '来源甲', 'failed'), stage: 'failed', result: { failure: { stage: 'fetching', code: 'REMOTE_URL_REJECTED' } } },
+      { ...run('blocked-b', '来源乙', 'failed'), stage: 'failed', result: { failure: { stage: 'fetching', code: 'REMOTE_URL_REJECTED' } } },
+      run('completed-a', '来源甲'),
+    ] });
+    renderPage();
+    await screen.findByRole('option', { name: '失败' });
+    fireEvent.change(screen.getByLabelText('按来源筛选'), { target: { value: '来源甲' } });
+    fireEvent.change(screen.getByLabelText('按状态筛选'), { target: { value: 'failed' } });
+    fireEvent.change(screen.getByLabelText('搜索运行记录'), { target: { value: query } });
+    expect(screen.getAllByText('来源甲', { selector: 'p' })).toHaveLength(1);
+    expect(screen.queryByText('来源乙', { selector: 'p' })).not.toBeInTheDocument();
+    expect(screen.getByText(/来源地址被安全检查拒绝/)).toBeVisible();
+    expect(screen.getByText('匹配 1 条运行记录')).toBeVisible();
+  });
+
+  it('searches the localized HTTP failure reason shown to the user', async () => {
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    vi.mocked(api.get).mockResolvedValue({ data: [
+      { ...run('http', 'Restricted', 'failed'), result: { failure: { stage: 'fetching', code: 'REMOTE_REQUEST_FAILED' }, sourceMetadata: { statusCode: 403 } } },
+      run('ok', 'Working'),
+    ] });
+    renderPage();
+    await screen.findByText('Restricted');
+    fireEvent.change(screen.getByLabelText('Search runs'), { target: { value: 'denied access' } });
+    expect(screen.getByText('Restricted')).toBeVisible();
+    expect(screen.queryByText('Working')).not.toBeInTheDocument();
+  });
+
   it('shows safe URL diagnostics without exposing a raw English failure', async () => {
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
     vi.mocked(api.get).mockResolvedValue({ data: [{

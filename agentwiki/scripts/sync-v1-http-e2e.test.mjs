@@ -105,7 +105,7 @@ test('full sync v1 HTTP flow over real Prisma and Redis', { skip }, async () => 
     const email = `sync-${randomUUID()}@example.test`;
     const password = `Pass-${randomUUID()}!`;
     const registration = await request(baseUrl, '/auth/register', {
-      method: 'POST', body: { email, password, name: 'Sync E2E' },
+      method: 'POST', body: { email, password, name: 'SyncE2E' },
     });
     assert.equal(registration.status, 201, JSON.stringify(registration.data));
     const token = registration.data.access_token;
@@ -645,7 +645,7 @@ test('full sync v1 HTTP flow over real Prisma and Redis', { skip }, async () => 
     const superEmail = `super-${randomUUID()}@example.test`;
     const superPassword = `Super-${randomUUID()}!`;
     const superRegistration = await request(baseUrl, '/auth/register', {
-      method: 'POST', body: { email: superEmail, password: superPassword, name: 'Super Admin E2E' },
+      method: 'POST', body: { email: superEmail, password: superPassword, name: 'SuperAdminE2E' },
     });
     assert.equal(superRegistration.status, 201, JSON.stringify(superRegistration.data));
     const superToken = superRegistration.data.access_token;
@@ -729,7 +729,7 @@ test('full sync v1 HTTP flow over real Prisma and Redis', { skip }, async () => 
     const deletedUserEmail = `deleted-${randomUUID()}@example.test`;
     const deletedUserPassword = `Deleted-${randomUUID()}!`;
     const deletedRegistration = await request(baseUrl, '/auth/register', {
-      method: 'POST', body: { email: deletedUserEmail, password: deletedUserPassword, name: 'Deleted User E2E' },
+      method: 'POST', body: { email: deletedUserEmail, password: deletedUserPassword, name: 'DeletedUserE2E' },
     });
     assert.equal(deletedRegistration.status, 201, JSON.stringify(deletedRegistration.data));
     const deletedUserToken = deletedRegistration.data.access_token;

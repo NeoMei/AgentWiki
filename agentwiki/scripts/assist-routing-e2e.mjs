@@ -216,7 +216,7 @@ export async function main(environment = process.env) {
       method: 'POST',
       body: {
         email,
-        name: 'Assist E2E',
+        name: 'AssistE2E',
         password,
       },
     });

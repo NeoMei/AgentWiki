@@ -3,6 +3,7 @@ import { Request } from 'express';
 import { HumanOnlyGuard } from '../core/auth/human-only.guard';
 import { JwtAuthGuard } from '../core/auth/jwt-auth.guard';
 import { BootstrapDto, DeviceDecisionDto, PollDeviceDto, StartDeviceDto } from './onboard.dto';
+import { onboardRuntimeGuide } from './onboard-runtime-guide';
 import { OnboardBootstrapService } from './onboard-bootstrap.service';
 import { OnboardDeviceService } from './onboard-device.service';
 import { OnboardingTokenGuard, type OnboardingPrincipal } from './onboarding-token.guard';
@@ -77,6 +78,16 @@ export class OnboardController {
     return ONBOARD_MD;
   }
 
+  @Get('onboard/runtime')
+  @Header('Content-Type', 'text/plain; charset=utf-8')
+  @Header('Cache-Control', 'public, max-age=3600')
+  getRuntime(
+    @Query('client') client?: string,
+    @Query('packageVersion') packageVersion?: string,
+  ): string {
+    return onboardRuntimeGuide(client, packageVersion);
+  }
+
   @Get('onboard.json')
   @HttpCode(HttpStatus.GONE)
   getJsonRedirect(): { statusCode: number; error: string; replacement: string } {
@@ -96,42 +107,19 @@ export class OnboardController {
 
 const BASE_URL = 'https://agentwiki.quukk.com';
 const API_BASE = `${BASE_URL}/api`;
-const PACKAGE_VERSION = '0.13.4';
-const PUBLIC_COMMAND = `npx --yes @neomei/agentwiki-local-sync@${PACKAGE_VERSION} onboard start --server '${API_BASE}' --client generic --protocol json`;
-const WORKBUDDY_RUNNER = `npx --cache '<absolute-npm-cache>' --yes @neomei/agentwiki-local-sync@${PACKAGE_VERSION}`;
-const WORKBUDDY_CACHE_BOOTSTRAP = `node -e "const fs=require('node:fs'),os=require('node:os'),path=require('node:path');if(![24,26].includes(Number(process.versions.node.split('.')[0])))throw new Error('Use Node.js 24 or 26 in this host');const cache=fs.mkdtempSync(path.join(os.tmpdir(),'agentwiki-npx-'));if(process.platform!=='win32')fs.chmodSync(cache,0o700);console.log(JSON.stringify({node:process.execPath,nodeVersion:process.version,npmCache:cache}));"`;
+const PACKAGE_VERSION = '0.13.5';
+const PUBLIC_COMMAND = `npx --yes @neomei/agentwiki-local-sync@${PACKAGE_VERSION} onboard start --server '${API_BASE}' --client <host-client> --protocol json`;
 
 const ONBOARD_MD = `# AgentWiki Agent 接入 / Connect your Agent
 
-将本页完整交给支持本地 stdio MCP 的 Agent。默认 --client generic 导出通用 MCP 配置，供当前宿主导入；不会替未知宿主写入 Codex 配置。先识别当前宿主：WorkBuddy 必须先完成下面的启动准备并使用 --client workbuddy，其他快捷配置为 --client codex、--client claude、--client opencode。
-Give this complete guide to any Agent supporting local stdio MCP. The default --client generic exports MCP configuration for your current host to import; it does not write Codex configuration for unknown hosts. Identify the current host first: WorkBuddy must complete the preparation below and use --client workbuddy; codex, claude and opencode presets are available for those clients.
+将本页完整交给支持本地 stdio MCP 的 Agent。先识别当前宿主，再选择对应 --client codex、--client claude、--client opencode 或 --client workbuddy；其他宿主使用 --client generic 导出配置并导入当前宿主。--client 只选择客户端配置格式，agentName 是用户选择的服务端显示名，两者不能混用。
+Give this complete guide to any Agent supporting local stdio MCP. Identify the current host first and select its --client codex, --client claude, --client opencode, or --client workbuddy preset. Other hosts use --client generic to export and import configuration. --client selects a host configuration format; agentName is a user-selected server display name. Do not confuse the two or copy a name from another client.
 
 1. 本机需要 Node.js 24 或 26。完成适用的准备后执行启动命令；环境预检失败时按返回的修复指引处理后再继续。每条接入命令结束后读取一个 JSON 对象并保存 sessionId。后续使用同一会话，不并行重复启动。
 Node.js 24 or 26 is required locally. Complete the applicable preparation before the start command; if environment preflight fails, follow its repair instructions before continuing. Read each onboarding command's single JSON response and preserve sessionId. Continue that same session throughout.
 
-WorkBuddy 启动准备：包括选择 generic 但实际宿主是 WorkBuddy 的情况，必须在首次 npx 前完成；其他宿主跳过本准备。先在当前宿主的工具执行环境定位或安装 Node.js 24 或 26 及配套 npm/npx；单独终端的版本不能证明 WorkBuddy 的版本，托管 Node.js 22 不受支持。将下方 node 安全替换为该 Node 的绝对路径，执行后核对返回的 node 与 nodeVersion。
-WorkBuddy preparation: this also applies when generic is selected but the actual host is WorkBuddy, and must happen before the first npx invocation. Other hosts skip this preparation. In the current host's tool execution environment, locate or install Node.js 24 or 26 and its accompanying npm/npx. A version in a separate terminal does not establish WorkBuddy's runtime; managed Node.js 22 is unsupported. Safely replace node below with that Node executable's absolute path, execute it, and verify the returned node and nodeVersion.
-
-\`\`\`sh
-${WORKBUDDY_CACHE_BOOTSTRAP}
-\`\`\`
-
-此命令在系统 os.tmpdir() 下随机创建私有 npm 缓存，POSIX 权限0700，Windows 使用当前用户系统 Temp ACL。持久保存绝对 npmCache 路径、Node/npx 绝对路径及精确包版本。每次调用都在当前宿主将该 Node 所在目录放在子进程 PATH 首位，并把命令开头的 npx 换成同一安装的绝对 npx 路径，防止包的子进程回到托管 Node.js 22；使用参数数组或当前 shell 的安全引用（PowerShell 调用带引号的可执行路径需要 &）。将 <absolute-npm-cache> 替换为保存的 npmCache，所有 start/status/continue/--reply-file 命令都复用下方同一个 runner，--cache 必须在包名之前。
-This creates a random private npm cache under the system os.tmpdir(), with POSIX mode 0700 and the current user's system Temp ACL on Windows. Persist the absolute npmCache path, absolute Node/npx paths, and exact package version. For every invocation in this host, prepend that Node directory to the child process PATH and replace the leading npx with the absolute npx from the same installation so package subprocesses cannot fall back to managed Node.js 22. Use an argument array or safe native-shell quoting (PowerShell needs & before a quoted executable path). Replace <absolute-npm-cache> with the saved npmCache. Reuse the following runner for every start/status/continue/--reply-file command; --cache must precede the package name.
-
-\`\`\`sh
-${WORKBUDDY_RUNNER}
-\`\`\`
-
-缓存只存放可丢弃的 npm 文件；session、回复文件与凭据仍在各自正常持久目录，绝不放进缓存。每次复用（包括长期恢复会话）前确认缓存仍位于系统 os.tmpdir() 下、属于当前用户且是真实目录而非符号链接，POSIX 权限0700，Windows 仍受当前用户 Temp ACL 保护。缓存缺失、被替换或权限变化时，不 chmod、不接管不明旧缓存；按同一规则新建私有缓存、更新保存的路径并重新下载同一精确版本，保留原 sessionId 和会话文件。不要修改 NODE_OPTIONS、关闭安全保护或删除旧 npm 缓存。
-The cache holds disposable npm files only. Keep sessions, reply files, and credentials in their normal persistent locations, never inside this cache. Before every reuse, including a later session resume, verify that it is still under the system os.tmpdir() and is a real directory owned by the current user, not a symlink, with POSIX mode 0700 or the current user's Temp ACL on Windows. If it is missing, replaced, or has changed permissions, do not chmod or take over an unknown old cache: create a new private cache by the same rule, update the saved path, and reinstall the same exact version while preserving sessionId and session files. Do not change NODE_OPTIONS, disable security protections, or delete the old npm cache.
-
-WorkBuddy：先按上述规则替换全部路径和执行环境，然后启动 / WorkBuddy: resolve all paths and the execution environment above, then start:
-\`\`\`sh
-${WORKBUDDY_RUNNER} onboard start --server '${API_BASE}' --client workbuddy --protocol json
-\`\`\`
-
-其他宿主 / Other hosts:
+首次 npx 前，先读取与实际宿主对应的运行环境准备（纯文本）：${API_BASE}/onboard/runtime?client=<host-client>&packageVersion=${PACKAGE_VERSION}。将 <host-client> 替换为已识别的 codex、claude、opencode、workbuddy；其他支持本地 stdio MCP 的宿主才选 generic。执行返回的对应准备后，将下面命令的 <host-client> 替换为同一值；若准备要求专用 runner，所有命令复用它。此页面不会创建或命名 Agent。不能识别宿主时先请用户说明，不根据现有连接名猜测。
+Before the first npx invocation, read the plain-text runtime preparation for the actual host: ${API_BASE}/onboard/runtime?client=<host-client>&packageVersion=${PACKAGE_VERSION}. Replace <host-client> with codex, claude, opencode, or workbuddy only for that identified host; use generic for other local stdio MCP hosts. Complete that preparation, substitute the same client in the command below, and reuse its runner if specified. This runtime page does not create or name an Agent. If the host cannot be identified, ask the user; never infer it from an existing connection name.
 
 \`\`\`sh
 ${PUBLIC_COMMAND}
@@ -139,8 +127,8 @@ ${PUBLIC_COMMAND}
 
 2. 将 <sessionId> 替换为返回的会话 ID；<absolute-json-file> 替换为实际绝对文件路径，并安全引用 shell 参数。
 Replace placeholders with the returned session ID or actual absolute file path, quoting shell arguments safely.
-WorkBuddy 的后续命令始终将下方 npx --yes 包名替换为步骤1保存的带 --cache runner（同一运行时、缓存、精确包版本）；其余参数保持一致。
-For WorkBuddy, always replace npx --yes and the package below with the saved --cache runner from step 1 (same runtime, cache, and exact package version); keep the remaining arguments unchanged.
+若步骤1返回专用 runner，后续每条命令均复用该运行时、缓存与精确包版本；其余参数保持一致。
+If step 1 supplies a dedicated runner, reuse that runtime, cache, and exact package version for every later command; keep the remaining arguments unchanged.
 只读查看本地检查点（不会联系服务器领取浏览器批准结果） / Inspect the saved local checkpoint (does not retrieve browser approval from the server):
 \`\`\`sh
 npx --yes @neomei/agentwiki-local-sync@${PACKAGE_VERSION} onboard status --session <sessionId> --protocol json
@@ -170,8 +158,8 @@ npx --yes @neomei/agentwiki-local-sync@${PACKAGE_VERSION} onboard continue --ses
 6. configuration_pending 时继续同一会话。网络中断或 error.retryable:true 时先 status 后重试 continue；不可重试错误报告 code/nextAction。保留原计划和配置，不重复创建 Agent/Space。
 For configuration_pending, continue the same session. After interruptions or retryable errors, inspect status and retry continue. Report code/nextAction for permanent errors. Preserve the original plan and configuration; do not recreate resources.
 
-7. completed 只表示配置结束，分别报告 connectionStatus、gatewayVerification、clientReloadRequired、knowledgeImport、hostVerification，并按返回的顶层 configurationMode、configPath、hostActivationSteps 继续。generic 的 manual-import 只导出配置：将 configPath 文件中的 mcpServers.agentwiki 导入当前客户端；若不支持导入 JSON，则按该客户端的格式创建 stdio MCP 服务，原样填写 command 和 args，保留其他设置。无法操作设置时展示导出路径和导入步骤，等待用户完成，不得声称已注册。明确提示客户端授权：在宿主启用 agentwiki 并允许本地 MCP 服务与工具调用，网站账号授权不能替代这一步。重载 MCP；没有重载入口或仍看不到工具时，完全退出并重启客户端，再新建对话，保留同一 sessionId。随后在当前宿主调用 agentwiki MCP 的 onboard_status（空参数）检查 gateway.status、gateway.clientReloadRequired 和 gateway.recovery；顶层字段是历史安装记录，不用于验证当前身份或连接。再用 wiki_list_spaces 确认当前空间权限，并调用 wiki_get_page 读取有权限的一篇已知页面，核对标题和内容。只有这次实际工具调用成功，才能报告宿主读取成功。仅工具列表或握手不算实际读取。
-completed only ends configuration. Report connectionStatus, gatewayVerification, clientReloadRequired, knowledgeImport and hostVerification separately, then follow the top-level configurationMode, configPath and hostActivationSteps. For generic manual-import, import mcpServers.agentwiki from configPath into the current host. If JSON import is unavailable, create a stdio MCP service in the host's required format with the exact command and args, preserving other settings. If you cannot operate settings, show the export path and import steps and wait for the user; do not claim registration. Explicitly request client authorization: enable agentwiki and allow local MCP and tool calls; website account approval does not replace this step. Reload MCP; if reload is unavailable or tools remain missing, fully quit and restart the client, then start a new conversation while preserving sessionId. Then call this host's agentwiki MCP onboard_status with empty arguments and inspect gateway.status, gateway.clientReloadRequired, and gateway.recovery. Top-level fields describe historical installation, not the current identity or connection. Use wiki_list_spaces to check current Space access, then wiki_get_page to read a known page the user can access and verify its title and contents. Only this actual successful tool call proves host reading works. A handshake or tools/list is not a successful page read.
+7. completed 只表示配置结束，分别报告 connectionStatus、gatewayVerification、clientReloadRequired、knowledgeImport、hostVerification，并按返回的顶层 configurationMode、configPath、hostActivationSteps 继续。generic 的 manual-import 只导出配置：将 configPath 文件中的 mcpServers.agentwiki 导入当前客户端；若不支持导入 JSON，则按该客户端的格式创建 stdio MCP 服务，原样填写 command 和 args，保留其他设置。无法操作设置时展示导出路径和导入步骤，等待用户完成，不得声称已注册。明确提示客户端授权：在宿主启用 agentwiki 并允许本地 MCP 服务与工具调用，网站账号授权不能替代这一步。重载 MCP；没有重载入口或仍看不到工具时，完全退出并重启客户端，再新建对话，保留同一 sessionId。随后在当前宿主调用 agentwiki MCP 的 onboard_status（空参数）检查 gateway.status、gateway.clientReloadRequired 和 gateway.recovery；顶层字段是历史安装记录，不用于验证当前身份或连接。若工具仍显示旧空间，先核对当前进程返回的 gateway.connection（connectionId、agentId、client）与安装结果；旧版本没有该字段时，核对运行进程与客户端配置的 --connection 参数；不一致时重载或完全重启，不能将旧身份结果误判为新授权失败。再用 wiki_list_spaces 确认当前空间权限，并调用 wiki_get_page 读取有权限的一篇已知页面，核对标题和内容。只有这次实际工具调用成功，才能报告宿主读取成功。仅工具列表或握手不算实际读取。
+completed only ends configuration. Report connectionStatus, gatewayVerification, clientReloadRequired, knowledgeImport and hostVerification separately, then follow the top-level configurationMode, configPath and hostActivationSteps. For generic manual-import, import mcpServers.agentwiki from configPath into the current host. If JSON import is unavailable, create a stdio MCP service in the host's required format with the exact command and args, preserving other settings. If you cannot operate settings, show the export path and import steps and wait for the user; do not claim registration. Explicitly request client authorization: enable agentwiki and allow local MCP and tool calls; website account approval does not replace this step. Reload MCP; if reload is unavailable or tools remain missing, fully quit and restart the client, then start a new conversation while preserving sessionId. Then call this host's agentwiki MCP onboard_status with empty arguments and inspect gateway.status, gateway.clientReloadRequired, and gateway.recovery. Top-level fields describe historical installation, not the current identity or connection. If tools still show old Spaces, compare onboard_status gateway.connection (connectionId, agentId, client) with the installation result, or the running process and client configuration --connection arguments for older gateways without that field; reload or fully restart on mismatch; do not treat an old identity as a failure of the new grant. Use wiki_list_spaces to check current Space access, then wiki_get_page to read a known page the user can access and verify its title and contents. Only this actual successful tool call proves host reading works. A handshake or tools/list is not a successful page read.
 
 基础连接不扫描、不导入、不上传。知识导入可稍后使用 knowledge_* 工具预览并明确确认。不要为验证创建伪文档。
 Basic connection does not scan, import or upload. Knowledge import is a later, separately confirmed knowledge_* workflow; do not create placeholder documents for verification.

@@ -47,7 +47,7 @@ export const OnboardPage: React.FC = () => {
           {ONBOARD_CLIENTS.map(item => <button key={item.id} type="button" aria-pressed={client === item.id} onClick={() => { setClient(item.id); setCopiedPrompt(null); setCopyFailed(false); }} className={`rounded-lg border px-4 py-2 text-sm font-medium ${client === item.id ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'}`}>{zh && 'labelZh' in item ? item.labelZh : item.label}</button>)}
         </div>
         <p className="mt-3 text-sm leading-6 text-gray-600">{client === 'generic'
-          ? (zh ? '通用方式生成标准 MCP 配置，由 Agent 导入当前客户端。已知客户端也可使用上方快捷配置。' : 'Generic setup exports standard MCP configuration for your Agent to import into this client. Known clients can also use the shortcuts above.')
+          ? (zh ? '先识别当前客户端，再使用对应的准备和配置方式；其他支持 MCP 的客户端使用标准配置导入。' : 'First identify the current client, then use its preparation and configuration steps. Other MCP clients use standard configuration import.')
           : (zh ? '将为所选客户端写入 MCP 配置。请把提示词粘贴到该客户端，之后按提示允许工具并重载。' : 'Setup writes MCP configuration for the selected client. Paste the prompt into that client, then allow tools and reload as directed.')}</p>
         <button type="button" onClick={() => void copyPrompt()} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800 sm:w-auto">
           {copied ? <Check size={16} /> : <Copy size={16} />}{zh ? '复制提示词' : 'Copy prompt'}

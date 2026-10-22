@@ -131,7 +131,7 @@ test.beforeAll(async () => {
 
   owner = await json<AuthAccount>(
     await api.post('auth/register', {
-      data: { email: ownerEmail, password: ownerPassword, name: 'Collaboration Owner' },
+      data: { email: ownerEmail, password: ownerPassword, name: 'CollaborationOwner' },
     }),
     'register collaboration owner',
   );

@@ -107,7 +107,7 @@ export async function runCrossMachineE2E(environment = process.env) {
   try {
     const registration = await request(apiUrl, '/auth/register', {
       method: 'POST',
-      body: { email: `cross-machine-${suffix}@example.test`, password: `Cross-${suffix}!`, name: 'Cross-machine E2E' },
+      body: { email: `cross-machine-${suffix}@example.test`, password: `Cross-${suffix}!`, name: 'Cross-machineE2E' },
     });
     token = registration.access_token;
     fixture.userId = registration.user.id;
@@ -123,7 +123,7 @@ export async function runCrossMachineE2E(environment = process.env) {
 
     const installation = await request(apiUrl, `/agents/${agent.id}/local-sync-installations`, {
       method: 'POST', token,
-      body: { spaceId: space.id, role: 'publisher', pluginVersion: '0.13.4' },
+      body: { spaceId: space.id, role: 'publisher', pluginVersion: '0.13.5' },
     });
     const credential = await request(apiUrl, '/integrations/local-sync/exchange', {
       method: 'POST', body: { code: installation.code },
@@ -137,7 +137,7 @@ export async function runCrossMachineE2E(environment = process.env) {
       serverUrl: apiUrl,
       agentId: agent.id,
       credentialId: credential.id,
-      pluginVersion: '0.13.4',
+      pluginVersion: '0.13.5',
       client: 'codex',
       mcpName: 'agentwiki',
     };

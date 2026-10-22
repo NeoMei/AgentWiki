@@ -112,7 +112,7 @@ async function prepareAcceptanceState({ apiUrl, schemaName, resourceRoot }) {
     apiUrl,
     `release-owner-${suffix}@example.test`,
     `Release-${suffix}!`,
-    'Release acceptance owner',
+    'ReleaseAcceptanceOwner',
   );
   const space = await request(apiUrl, '/spaces', {
     method: 'POST',

@@ -123,7 +123,7 @@ function defaultSpawn({ baseUrl, clientType, home, cliFile, environment }) {
   };
   const detached = process.platform !== 'win32';
   if (cliFile) return spawn(process.execPath, [resolve(cliFile), ...args], { stdio: ['pipe', 'pipe', 'pipe'], env, detached });
-  return spawnPackageManager('npx', ['--yes', '@neomei/agentwiki-local-sync@0.13.4', ...args], {
+  return spawnPackageManager('npx', ['--yes', '@neomei/agentwiki-local-sync@0.13.5', ...args], {
     stdio: ['pipe', 'pipe', 'pipe'], env: { ...env, AGENTWIKI_E2E_CLIENT: clientType }, detached,
   });
 }
@@ -191,7 +191,7 @@ async function authorizeDevice(context, userCode) {
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const registration = await context.fetchImpl(`${context.baseUrl}/auth/register`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: `onboard-e2e-${suffix}@example.com`, password: 'AgentWiki9Test', name: 'Onboarding E2E' }),
+    body: JSON.stringify({ email: `onboard-e2e-${suffix}@example.com`, password: 'AgentWiki9Test', name: 'OnboardingE2E' }),
   });
   if (!registration.ok) throw new Error(`E2E registration failed with ${registration.status}`);
   const registered = await registration.json();

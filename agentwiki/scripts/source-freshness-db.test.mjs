@@ -29,7 +29,7 @@ test('source generations, receipts, revocation and atomic reviewed publication i
   let schema;
   await withCollaborationTestDatabase(baseDatabaseUrl, async scope => {
     schema = scope.schemaName;
-    assert.equal(scope.migrationTreeDigest, 'e66aaf3fbf082ffc2948df9a400da9ab4e2a366e0c2f18ba407613676fca412c');
+    assert.equal(scope.migrationTreeDigest, '91187a50faf4b7128751a33b199fcbeafd4642eae5d0963651c3aaec60095d78');
     const db = new PrismaClient({ datasources: { db: { url: scope.databaseUrl } } });
     const authorization = new AuthorizationService(db);
     const freshness = new SourceFreshnessService(db, authorization);

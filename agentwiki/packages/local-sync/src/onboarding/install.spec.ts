@@ -37,7 +37,7 @@ function input(): Parameters<BootstrapInstallFn>[0] {
     idempotencyKey: 'idem-1',
     serverPlan: {
       space: { mode: 'create', name: 'Space' }, agentName: 'Agent', role: 'editor',
-      packageVersion: '0.13.4',
+      packageVersion: '0.13.5',
     },
     serverPlanHash: 'hash-1',
     client: 'codex',
@@ -71,7 +71,7 @@ function dependencies(verifyOk = true): { deps: BootstrapInstallerDeps; calls: s
         calls.push('exchange');
         return {
           apiKey: 'agk_test', agentId: 'agent-1', credentialId: 'credential-1', serverUrl: 'https://wiki.test/api',
-          pluginVersion: '0.13.4' as const, scopes: EDITOR_SCOPES, role: 'editor' as const, spaceId: 'space-1',
+          pluginVersion: '0.13.5' as const, scopes: EDITOR_SCOPES, role: 'editor' as const, spaceId: 'space-1',
         };
       }),
       saveConnection: vi.fn(async () => { calls.push('save-connection'); }),
@@ -89,14 +89,14 @@ function dependencies(verifyOk = true): { deps: BootstrapInstallerDeps; calls: s
 }
 
 describe('createBootstrapInstaller', () => {
-  it('activates the confirmed gateway and verifies both MCP and remote access', async () => {
+  it('installs and verifies the confirmed gateway while requiring Codex to reload it', async () => {
     const fixture = dependencies();
     const install = createBootstrapInstaller(fixture.deps);
 
     const result = await install(input());
 
     expect(result).toMatchObject({
-      reloadRequired: false,
+      reloadRequired: true,
       configBackupPath: '/tmp/config-backup',
       manifestHash: 'manifest-hash',
       bootstrap: { space: { id: 'space-1' }, agent: { id: 'agent-1' } },
@@ -122,14 +122,15 @@ describe('createBootstrapInstaller', () => {
     fixture.deps.loadExisting = vi.fn(async () => ({
       connection: {
         id: 'connection-1', serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'credential-1',
-        pluginVersion: '0.13.4', client: 'codex' as const, mcpName: 'agentwiki',
+        pluginVersion: '0.13.5', client: 'codex' as const, mcpName: 'agentwiki',
       },
       apiKey: 'agk_existing',
     }));
     const install = createBootstrapInstaller(fixture.deps);
 
-    await install(input());
+    const result = await install(input());
 
+    expect(result.reloadRequired).toBe(true);
     expect(fixture.deps.archive).not.toHaveBeenCalled();
     expect(fixture.deps.exchange).not.toHaveBeenCalled();
     expect(fixture.deps.saveConnection).not.toHaveBeenCalled();
@@ -148,7 +149,7 @@ describe('createBootstrapInstaller', () => {
     const fixture = dependencies();
     vi.mocked(fixture.deps.exchange).mockResolvedValue({
       apiKey: 'agk_test', agentId: 'agent-1', credentialId: 'credential-1', serverUrl: 'https://wiki.test/api',
-      pluginVersion: '0.13.4', scopes: EDITOR_SCOPES, role: 'editor', spaceId: 'space-1',
+      pluginVersion: '0.13.5', scopes: EDITOR_SCOPES, role: 'editor', spaceId: 'space-1',
       [field]: value,
     });
 
@@ -202,7 +203,7 @@ describe('installExchangedGateway', () => {
     agentId: 'agent-1',
     credentialId: 'credential-1',
     serverUrl: 'https://wiki.test/api',
-    pluginVersion: '0.13.4' as const,
+    pluginVersion: '0.13.5' as const,
     scopes: EDITOR_SCOPES,
     role: 'editor' as const,
     spaceId: 'space-1',
@@ -224,7 +225,7 @@ describe('installExchangedGateway', () => {
       expectedSpaceId: 'space-1',
       expectedRole: 'editor',
       expectedScopes: EDITOR_SCOPES,
-      expectedPluginVersion: '0.13.4',
+      expectedPluginVersion: '0.13.5',
       exchange: { ...exchanged, [field]: value },
     }, fixture.deps)).rejects.toMatchObject({ code: 'PACKAGE_INTEGRITY_FAILED' });
 
@@ -243,14 +244,14 @@ describe('installExchangedGateway', () => {
       expectedSpaceId: 'space-1',
       expectedRole: 'editor',
       expectedScopes: EDITOR_SCOPES,
-      expectedPluginVersion: '0.13.4',
+      expectedPluginVersion: '0.13.5',
       exchange: exchanged,
     }, fixture.deps);
 
     expect(result).toMatchObject({
       connection: {
         id: 'connection-1', agentId: 'agent-1', credentialId: 'credential-1',
-        pluginVersion: '0.13.4', client: 'codex', mcpName: 'agentwiki',
+        pluginVersion: '0.13.5', client: 'codex', mcpName: 'agentwiki',
       },
       configBackupPath: '/tmp/config-backup',
       manifestHash: 'manifest-hash',
@@ -266,7 +267,7 @@ describe('installExchangedGateway', () => {
     fixture.deps.loadExisting = vi.fn(async () => ({
       connection: {
         id: 'connection-1', serverUrl: 'https://wiki.test/api', agentId: 'agent-1',
-        credentialId: 'credential-1', pluginVersion: '0.13.4', client: 'codex' as const,
+        credentialId: 'credential-1', pluginVersion: '0.13.5', client: 'codex' as const,
         mcpName: 'agentwiki',
       },
       apiKey: 'agk_attach_secret',
@@ -281,7 +282,7 @@ describe('installExchangedGateway', () => {
       expectedSpaceId: 'space-1',
       expectedRole: 'editor',
       expectedScopes: EDITOR_SCOPES,
-      expectedPluginVersion: '0.13.4',
+      expectedPluginVersion: '0.13.5',
       exchange: exchanged,
     }, fixture.deps);
 
@@ -304,7 +305,7 @@ describe('installExchangedGateway', () => {
       expectedSpaceId: 'space-1',
       expectedRole: 'editor',
       expectedScopes: EDITOR_SCOPES,
-      expectedPluginVersion: '0.13.4',
+      expectedPluginVersion: '0.13.5',
       exchange: exchanged,
     }, fixture.deps)).rejects.toMatchObject({ code: 'MCP_HANDSHAKE_FAILED' });
 
@@ -326,7 +327,7 @@ describe('installExchangedGateway', () => {
       expectedSpaceId: 'space-1',
       expectedRole: 'editor',
       expectedScopes: EDITOR_SCOPES,
-      expectedPluginVersion: '0.13.4',
+      expectedPluginVersion: '0.13.5',
       exchange: exchanged,
     }, fixture.deps)).rejects.toMatchObject({
       code: 'SYNC_FAILED',
@@ -351,7 +352,7 @@ describe('installExchangedGateway', () => {
       expectedSpaceId: 'space-1',
       expectedRole: 'editor',
       expectedScopes: EDITOR_SCOPES,
-      expectedPluginVersion: '0.13.4',
+      expectedPluginVersion: '0.13.5',
       exchange: exchanged,
     }, fixture.deps)).rejects.toMatchObject({
       code: 'SYNC_FAILED',
@@ -365,7 +366,7 @@ describe('installExchangedGateway', () => {
     fixture.deps.loadExisting = vi.fn(async () => ({
       connection: {
         id: 'connection-1', serverUrl: 'https://wiki.test/api', agentId: 'agent-1',
-        credentialId: 'credential-1', pluginVersion: '0.13.4', client: 'codex' as const,
+        credentialId: 'credential-1', pluginVersion: '0.13.5', client: 'codex' as const,
         mcpName: 'agentwiki',
       },
       apiKey: 'agk_attach_secret',
@@ -384,7 +385,7 @@ describe('installExchangedGateway', () => {
       expectedSpaceId: 'space-1',
       expectedRole: 'editor',
       expectedScopes: EDITOR_SCOPES,
-      expectedPluginVersion: '0.13.4',
+      expectedPluginVersion: '0.13.5',
       exchange: exchanged,
     }, fixture.deps)).rejects.toMatchObject({
       code: 'SYNC_FAILED',
@@ -399,7 +400,7 @@ describe('resumable connection installation', () => {
     const fixture = dependencies(false);
     const configured = vi.fn(async () => undefined);
     const exchange = await fixture.deps.exchange('https://wiki.test/api','install-code');
-    await expect(installExchangedGateway({home:'/tmp/home',client:'codex',connectionId:'connection-1',expectedConfigHash:'hash',expectedAgentId:'agent-1',expectedSpaceId:'space-1',expectedRole:'editor',expectedScopes:EDITOR_SCOPES,expectedPluginVersion:'0.13.4',exchange,retainOnFailure:true,onConfigured:configured},fixture.deps)).rejects.toMatchObject({code:'MCP_HANDSHAKE_FAILED'});
+    await expect(installExchangedGateway({home:'/tmp/home',client:'codex',connectionId:'connection-1',expectedConfigHash:'hash',expectedAgentId:'agent-1',expectedSpaceId:'space-1',expectedRole:'editor',expectedScopes:EDITOR_SCOPES,expectedPluginVersion:'0.13.5',exchange,retainOnFailure:true,onConfigured:configured},fixture.deps)).rejects.toMatchObject({code:'MCP_HANDSHAKE_FAILED'});
     expect(configured).toHaveBeenCalledOnce();
     expect(fixture.calls).not.toContain('revoke-credential');
     expect(fixture.calls).not.toContain('restore-state');
@@ -454,7 +455,7 @@ it('verifies the saved WorkBuddy runtime, npm arguments and env rather than bypa
     expect(result.ok).toBe(true);
     expect(deadlines).toHaveBeenCalledWith(expect.any(Function), 180_000);
     expect(JSON.parse(await readFile(join(home, 'captured.json'), 'utf8'))).toEqual({
-      args: ['--cache', cache, '--yes', '@neomei/agentwiki-local-sync@0.13.4', 'gateway', '--connection', 'conn-installed'],
+      args: ['--cache', cache, '--yes', '@neomei/agentwiki-local-sync@0.13.5', 'gateway', '--connection', 'conn-installed'],
       nodeOptions: saved.env.NODE_OPTIONS, custom: 'retained', path: saved.env.PATH, home,
     });
   } finally {

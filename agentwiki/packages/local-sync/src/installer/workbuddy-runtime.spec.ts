@@ -42,7 +42,7 @@ describe('WorkBuddy npm launch', () => {
     const cache = cacheOf(launch);
     cleanup.push(cache);
     expect(launch.command).toBe(fixture.nodePath);
-    expect(launch.args).toEqual(['-e', expect.any(String), await realpath(fixture.cli), '--cache', cache, '--yes', '@neomei/agentwiki-local-sync@0.13.4', 'gateway', '--connection', 'connection with spaces']);
+    expect(launch.args).toEqual(['-e', expect.any(String), await realpath(fixture.cli), '--cache', cache, '--yes', '@neomei/agentwiki-local-sync@0.13.5', 'gateway', '--connection', 'connection with spaces']);
     expect(launch.env).toEqual({ ...env, PATH: `${fixture.bin}${delimiter}${env.PATH}` });
     expect(dirname(cache)).toBe(await realpath(tmpdir()));
     expect((await lstat(cache)).isSymbolicLink()).toBe(false);

@@ -16,6 +16,7 @@ import type { BridgeCallResult, RemoteMcpBridge } from './remote-mcp-bridge.js';
 import { PublicLocalScanResultSchema, type PublicLocalScanResult } from '../codegraph/contracts.js';
 import { exactRemoteToolSchema } from './collaboration-tools.js';
 import { knowledgeReadToolDefinition } from './knowledge-read-tools.js';
+import type { LocalSyncConnection } from '../config.js';
 
 /** Wrap a result as an MCP text content response. */
 function text(result: unknown): { content: Array<{ type: 'text'; text: string }> } {
@@ -36,10 +37,14 @@ export interface GatewayHandlers {
   pull(input: { spaceId: string }): Promise<unknown>;
 }
 
+/** Safe metadata for the connection actually captured when this gateway starts. */
+export type GatewayConnection = Pick<LocalSyncConnection, 'agentId' | 'client' | 'serverUrl'> & { connectionId: string };
+
 export interface GatewayContext {
   handlers: GatewayHandlers;
   bridge?: RemoteMcpBridge;
   version?: string;
+  connection?: GatewayConnection;
 }
 
 export interface GatewayServer {
@@ -69,7 +74,13 @@ export const gatewayToolInputSchemas = {
  * tools are registered and remote calls return REMOTE_UNAVAILABLE.
  */
 export async function createGatewayServer(context: GatewayContext): Promise<GatewayServer> {
-  const version = context.version ?? '0.13.4';
+  const version = context.version ?? '0.13.5';
+  const connection = context.connection ? {
+    connectionId: context.connection.connectionId,
+    agentId: context.connection.agentId,
+    client: context.connection.client,
+    serverUrl: context.connection.serverUrl,
+  } : undefined;
   const server = new McpServer({ name: 'agentwiki', version });
   const toolNames: string[] = [];
 
@@ -93,6 +104,7 @@ export async function createGatewayServer(context: GatewayContext): Promise<Gate
         onboardingStateMeaning: 'historical',
         gateway: {
           ...(diagnostic ?? { status: 'not_configured', code: 'REMOTE_NOT_CONFIGURED', checkedAt: null, cachedToolCount: 0, recovery: 'Configure an AgentWiki connection, then reload this client MCP gateway.' }),
+          ...(connection ? { connection } : {}),
           localToolsAvailable: true,
           registeredRemoteToolCount,
           clientReloadRequired,

@@ -76,3 +76,36 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole('button', { name: 'Short end', exact: true })).toHaveAttribute('aria-current', 'location');
   });
 }
+
+for (const width of [1440, 390]) {
+  test(`preview outline keeps ordinary, duplicate and final headings active at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto(`${fixtureURL}?preview`);
+    await page.waitForFunction(() => window.outlineFixture);
+    await page.getByRole('navigation', { name: 'Contents' }).evaluate((nav) => {
+      const buttons = [...nav.querySelectorAll('button')];
+      buttons.find((button) => button.textContent === 'Chapter 3')!.click();
+      buttons.find((button) => button.textContent === 'Chapter 12')!.click();
+    });
+    await settle(page);
+    await expect(page.getByRole('button', { name: 'Chapter 12', exact: true })).toHaveAttribute('aria-current', 'location');
+    for (const [label, index] of [['Chapter 12', 0], ['Repeated heading', 1], ['Final child', 0]] as const) {
+      const target = page.getByRole('button', { name: label, exact: true }).nth(index);
+      await target.click();
+      await settle(page);
+      await testInfo.attach(`${label}-${index}.json`, { body: JSON.stringify(await metrics(page), null, 2), contentType: 'application/json' });
+      await expect(target).toHaveAttribute('aria-current', 'location');
+      const heading = (await metrics(page)).headings.filter((item) => item.label === label)[index];
+      expect(heading.top).toBeGreaterThan((await metrics(page)).toolbarBottom);
+      expect(heading.top).toBeLessThan(800);
+    }
+    await page.getByTestId('outline-scroll').evaluate((element) => { element.scrollTop -= 600; });
+    await settle(page);
+    await expect(page.getByRole('button', { name: 'Final child', exact: true })).not.toHaveAttribute('aria-current');
+    await page.evaluate(() => window.outlineFixture.short());
+    const end = page.getByRole('button', { name: 'Short end', exact: true });
+    await end.click();
+    await settle(page);
+    await expect(end).toHaveAttribute('aria-current', 'location');
+  });
+}

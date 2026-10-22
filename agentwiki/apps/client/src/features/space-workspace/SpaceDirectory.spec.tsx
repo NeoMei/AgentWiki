@@ -201,10 +201,29 @@ describe('SpaceDirectory', () => {
 });
 
 describe('directory tools', () => {
+  afterEach(() => localStorage.setItem('agentwiki.language.v1', 'en'));
   const levels = new Map<string | null, DirectoryLevel>([[null, { parentFolderId: null, treeRevision: '3', nodes: [folder] }], ['guide', { parentFolderId: 'guide', treeRevision: '3', nodes: [page] }]]);
   const props = { spaceName: 'Wiki', levels, expandedFolderIds: new Set<string>(), selectedFolderId: null, selectedPageId: 'page-a', loading: false, error: null, canEdit: true, onToggleFolder: vi.fn(), onSelectFolder: vi.fn(), onOpenPage: vi.fn(), onEditPage: vi.fn(), onDeletePage: vi.fn(), onCreateSubfolder: vi.fn(), onRenameFolder: vi.fn(), onDeleteFolder: vi.fn(), onMove: vi.fn() };
   it('filters loaded items with ancestor context, disables reorder, and restores expansion', () => {
     render(<Providers><SpaceDirectory {...props} /></Providers>); expect(screen.queryByTestId('content-node-page-a')).not.toBeInTheDocument(); const filter = screen.getByRole('searchbox', { name: 'Filter loaded items' }); fireEvent.change(filter, { target: { value: 'Same title' } }); expect(screen.getByTestId('content-node-guide')).toBeInTheDocument(); expect(screen.getByTestId('content-node-page-a').querySelector('mark')).toHaveTextContent('Same title'); expect(screen.getByTestId('content-row-page-a')).toHaveAttribute('draggable', 'false'); fireEvent.change(filter, { target: { value: '' } }); expect(screen.queryByTestId('content-node-page-a')).not.toBeInTheDocument(); expect(props.onToggleFolder).not.toHaveBeenCalled();
+  });
+  it.each([['en', 'No loaded items match this filter.', 'Clear filter'], ['zh-CN', '已加载项目中没有匹配结果。', '清空过滤']])('explains empty filter results and restores the tree in %s', (locale, message, clearLabel) => {
+    localStorage.setItem('agentwiki.language.v1', locale);
+    const onDirectoryScrollTopChange = vi.fn();
+    render(<Providers><SpaceDirectory {...props} directoryScrollTop={145} onDirectoryScrollTopChange={onDirectoryScrollTopChange} /></Providers>);
+    const filter = screen.getByRole('searchbox');
+    fireEvent.change(filter, { target: { value: 'missing-title' } });
+    expect(screen.getByRole('status')).toHaveTextContent(message);
+    expect(screen.getByText(message)).toBeVisible();
+    expect(screen.queryByTestId('content-node-guide')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: clearLabel }));
+    expect(filter).toHaveValue('');
+    expect(filter).toHaveFocus();
+    expect(screen.getByTestId('content-node-guide')).toBeVisible();
+    expect(screen.queryByTestId('content-node-page-a')).not.toBeInTheDocument();
+    expect(screen.getByTestId('space-directory-scroll').scrollTop).toBe(145);
+    expect(onDirectoryScrollTopChange).not.toHaveBeenCalled();
+    localStorage.setItem('agentwiki.language.v1', 'en');
   });
   it('keeps the saved scroll position while browsing filter results', () => {
     const onDirectoryScrollTopChange = vi.fn(); render(<Providers><SpaceDirectory {...props} directoryScrollTop={145} onDirectoryScrollTopChange={onDirectoryScrollTopChange} /></Providers>);

@@ -313,6 +313,7 @@ it('onboard_status distinguishes historical completed state from a fresh remote 
   const read = async () => JSON.parse(JSON.parse((await registered.handler({})).content[0]!.text));
   const failed = await read();
   expect(failed).toMatchObject({ state: 'completed', onboardingStateMeaning: 'historical', gateway: { status: 'authorization_required', localToolsAvailable: true, registeredRemoteToolCount: 0 } });
+  expect(failed.gateway).not.toHaveProperty('connection');
   expect(JSON.stringify(failed)).not.toMatch(/private-upstream|agk_secret|agk_private/);
   httpStatus = 200;
   expect(await read()).toMatchObject({ gateway: { status: 'connected', clientReloadRequired: true, registeredRemoteToolCount: 0 } });

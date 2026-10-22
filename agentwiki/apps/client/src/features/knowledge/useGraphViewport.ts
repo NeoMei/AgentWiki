@@ -36,7 +36,7 @@ export function useGraphViewport<T extends GraphNode>(
     // Last painted node wins when nodes overlap. The extra pick margin is in CSS pixels.
     return [...current.current.nodes].reverse().find(n => Math.hypot(x - n.x, y - n.y) < n.radius + 5 / v.scale);
   };
-  const fit = (readable = false) => {
+  const fit = (readable = false, fixedScale?: number) => {
     cancelGesture.current();
     const rect = canvasRef.current?.getBoundingClientRect();
     const items = current.current.nodes;
@@ -48,8 +48,8 @@ export function useGraphViewport<T extends GraphNode>(
     const top = Math.min(box?.top ?? Infinity, ...items.map(n => n.y - n.radius));
     const bottom = Math.max(box?.bottom ?? -Infinity, ...items.map(n => n.y + n.radius + 38));
     const overviewScale = boundScale(Math.min((rect.width - 48) / (right - left), (rect.height - 48) / (bottom - top), 1), box ? 0.05 : 0.25);
-    const scale = readable ? Math.max(overviewScale, current.current.minimumReadableScale) : overviewScale;
-    if (scale > overviewScale) { update({ scale, x: 24 - left * scale, y: 24 - top * scale }); return; }
+    const scale = fixedScale ?? (readable ? Math.max(overviewScale, current.current.minimumReadableScale) : overviewScale);
+    if (readable && scale > overviewScale) { update({ scale, x: 24 - left * scale, y: 24 - top * scale }); return; }
     update({ scale, x: rect.width / 2 - (left + right) * scale / 2, y: rect.height / 2 - (top + bottom) * scale / 2 });
   };
   const zoom = (factor: number, anchor?: Point) => {
@@ -161,5 +161,5 @@ export function useGraphViewport<T extends GraphNode>(
     const x = node.x * v.scale + v.x; const y = node.y * v.scale + v.y;
     if (x < 20 || x > rect.width - 20 || y < 35 || y > rect.height - 70) update({ ...v, x: rect.width / 2 - node.x * v.scale, y: rect.height / 2 - node.y * v.scale });
   };
-  return { view, hit, fit: () => fit(), fitReadable: () => fit(true), reveal, zoom, suppressClick, suppressDoubleClick, reset: () => { cancelGesture.current(); update({ ...identity }); } };
+  return { view, hit, fit: () => fit(), fitReadable: () => fit(true), reveal, zoom, suppressClick, suppressDoubleClick, reset: () => fit(false, 1) };
 }

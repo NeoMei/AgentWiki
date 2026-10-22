@@ -233,7 +233,7 @@ export const SpaceSettings: React.FC = () => {
     try {
       const response = await api.patch(`/spaces/${id}`, {
         ...(nameChanged ? { name: currentSpace.name.trim() } : {}),
-        description: currentSpace.description?.trim() || undefined,
+        description: currentSpace.description?.trim() ?? '',
         approvalPolicy: currentSpace.approvalPolicy,
       });
       if (activeSpaceId.current !== id) return;

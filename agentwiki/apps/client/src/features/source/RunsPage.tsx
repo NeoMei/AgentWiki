@@ -8,13 +8,14 @@ import { apiErrorMessage } from '../../api/error-message';
 import { runtimeLabel } from '../../i18n/runtime-label';
 import { IngestRunDetails } from './IngestRunDetails';
 import { isActiveIngestRun, useBoundedPolling } from './useBoundedPolling';
+import { ingestRunFailure } from './ingestRunFailure';
 
 const CANCELLABLE = new Set(['queued', 'reserved', 'fetching', 'extracting', 'compiling', 'indexing']);
 const RETRYABLE = new Set(['failed', 'partial', 'cancelled']);
 
 export const RunsPage: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const { id } = useParams<{ id: string }>();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [searchParams] = useSearchParams();
   const requestedRunId = searchParams.get('run');
   const [detail, setDetail] = useState<any>(null);
@@ -77,13 +78,16 @@ export const RunsPage: React.FC<{ embedded?: boolean }> = ({ embedded = false })
     const normalized = query.trim().toLocaleLowerCase();
     return runs.filter((run) => {
       const sourceKey = run.source?.id || run.source?.name || '';
-      const haystack = [run.source?.name, run.status, run.stage, run.error, run.result?.failure?.code]
+      const failure = ingestRunFailure(run, language, t);
+      const haystack = [run.source?.name, run.status, run.stage,
+        runtimeLabel(run.status, t), run.stage ? runtimeLabel(run.stage, t) : '',
+        failure?.code, failure?.stage, failure?.stageLabel, failure?.reason, failure?.advice]
         .filter(Boolean).join(' ').toLocaleLowerCase();
       return (!normalized || haystack.includes(normalized))
         && (!sourceFilter || sourceKey === sourceFilter)
         && (!statusFilter || run.status === statusFilter);
     });
-  }, [query, runs, sourceFilter, statusFilter]);
+  }, [query, runs, sourceFilter, statusFilter, language, t]);
   useEffect(() => {
     if (!requestedRunId || !runs.some((run) => run.id === requestedRunId)) { setDetail(null); return; }
     const controller = new AbortController();

@@ -56,9 +56,9 @@ await withCollaborationTestDatabase(baseDatabaseUrl, async ({ databaseUrl, schem
     worker = startProcess('worker', resolve(root, 'apps/server/dist/worker.js'), { ...environment, PROCESS_ROLE: 'worker' });
     await waitForOutput(worker, /AgentWiki ingestion worker started/u, 30_000);
 
-    const owner = await register(apiUrl, `owner-${suffix}@example.test`, `Owner-${suffix}!`, 'Workflow Owner');
-    const editorHuman = await register(apiUrl, `editor-${suffix}@example.test`, `Editor-${suffix}!`, 'Workflow Editor');
-    const viewerHuman = await register(apiUrl, `viewer-${suffix}@example.test`, `Viewer-${suffix}!`, 'Workflow Viewer');
+    const owner = await register(apiUrl, `owner-${suffix}@example.test`, `Owner-${suffix}!`, 'WorkflowOwner');
+    const editorHuman = await register(apiUrl, `editor-${suffix}@example.test`, `Editor-${suffix}!`, 'WorkflowEditor');
+    const viewerHuman = await register(apiUrl, `viewer-${suffix}@example.test`, `Viewer-${suffix}!`, 'WorkflowViewer');
     const space = (await request(apiUrl, '/spaces', {
       method: 'POST', token: owner.token, body: { name: `Collaboration E2E ${suffix.slice(-8)}` },
     })).data;

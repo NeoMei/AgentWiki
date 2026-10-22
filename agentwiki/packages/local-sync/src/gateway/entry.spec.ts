@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -12,6 +12,7 @@ import type { RemoteSync } from './knowledge-workflows.js';
 import type { KnowledgeBundle } from '../protocol/bundle.js';
 import { createGatewayServer } from './server.js';
 import { AgentWikiClient } from '../agentwiki-client.js';
+import { sessionFilePath } from '../onboarding/session.js';
 
 const construction = vi.hoisted(() => ({
   provider: undefined as unknown as CodeGraphProvider,
@@ -69,7 +70,7 @@ describe('gateway entry', () => {
     await saveConfig(home, {
       version: 1,
       connections: {
-        primary: { id: 'primary', serverUrl: 'https://example.test', agentId: 'agent-1', credentialId: 'credential-1', pluginVersion: '0.13.4', client: 'codex', mcpName: 'agentwiki', spaceId: 'space-1' },
+        primary: { id: 'primary', serverUrl: 'https://example.test', agentId: 'agent-1', credentialId: 'credential-1', pluginVersion: '0.13.5', client: 'codex', mcpName: 'agentwiki', spaceId: 'space-1' },
       },
     });
     await saveCredentials(home, { version: 1, credentials: { 'credential-1': { apiKey: 'test-key' } } });
@@ -135,7 +136,7 @@ describe('gateway entry', () => {
     await saveConfig(home, {
       version: 1,
       connections: {
-        primary: { id: 'primary', serverUrl: 'https://example.test', agentId: 'agent-1', credentialId: 'credential-1', pluginVersion: '0.13.4', client: 'codex', mcpName: 'agentwiki', spaceId: 'space-1' },
+        primary: { id: 'primary', serverUrl: 'https://example.test', agentId: 'agent-1', credentialId: 'credential-1', pluginVersion: '0.13.5', client: 'codex', mcpName: 'agentwiki', spaceId: 'space-1' },
       },
     });
     await saveCredentials(home, {
@@ -214,6 +215,40 @@ it('uses the same selected Agent credential for concurrent sync and lets live gr
   await expect(remote.pull('unknown')).rejects.toThrow(/space/i);
   await expect(remote.pull('space-c')).rejects.toThrow(/space/i);
   expect(construction.syncEngines).toHaveLength(2);
+});
+
+it('reports the running connection independently of newer configuration and onboarding history', async () => {
+  const home = await temporaryHome();
+  const running = {
+    id: 'running-connection', serverUrl: 'https://running.test/api', agentId: 'running-agent',
+    credentialId: 'running-credential-private', pluginVersion: '0.13.5', client: 'codex' as const, mcpName: 'agentwiki',
+  };
+  await saveConfig(home, { version: 1, defaultConnectionId: running.id, connections: { [running.id]: running } });
+  await saveCredentials(home, { version: 1, credentials: { [running.credentialId]: { apiKey: 'agk_running_private' } } });
+  const entry = await createGatewayEntry({ home, connectionId: running.id });
+
+  const latest = { ...running, id: 'latest-connection', agentId: 'latest-agent', client: 'workbuddy' as const };
+  await saveConfig(home, { version: 1, defaultConnectionId: latest.id, connections: { [latest.id]: latest } });
+  await mkdir(join(home, '.agentwiki', 'onboarding'), { recursive: true });
+  await writeFile(sessionFilePath('latest-session', home), JSON.stringify({
+    sessionId: 'latest-session', state: 'completed', updatedAt: '2026-10-22T10:00:00.000Z',
+    inputs: { connectionId: latest.id }, bootstrapResult: { agent: { id: latest.agentId, name: 'Latest Agent' } },
+  }));
+
+  // Keep this read-only status test independent of remote network availability.
+  const { server } = await createGatewayServer({ ...entry, bridge: undefined });
+  try {
+    const status = (server as unknown as { _registeredTools: Record<string, { handler(input: unknown): Promise<{ content: Array<{ text: string }> }> }> })._registeredTools.onboard_status!;
+    const response = await status.handler({});
+    const report = JSON.parse(JSON.parse(response.content[0]!.text));
+    expect(report).toMatchObject({ connectionId: 'latest-connection', agent: { id: 'latest-agent' }, onboardingStateMeaning: 'historical' });
+    expect(report.gateway.connection).toEqual({
+      connectionId: 'running-connection', agentId: 'running-agent', client: 'codex', serverUrl: 'https://running.test/api',
+    });
+    expect(JSON.stringify(report)).not.toMatch(/running-credential-private|agk_running_private|credentialId|apiKey/);
+  } finally {
+    await server.close();
+  }
 });
 
 function mockAccess(spaces = ['space-1'], credentialId = 'credential-1') {

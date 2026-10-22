@@ -29,7 +29,7 @@ function fixture(confirmed = true): { deps: AttachmentDependencies; calls: strin
           serverUrl: 'https://wiki.test/api',
           mcpName: 'agentwiki',
           oldEntries: ['agentwiki-old'],
-          reloadRequired: false,
+          reloadRequired: true,
         });
         return confirmed;
       }),
@@ -40,7 +40,7 @@ function fixture(confirmed = true): { deps: AttachmentDependencies; calls: strin
           agentId: 'agent-1',
           credentialId: 'credential-1',
           serverUrl: 'https://wiki.test/api',
-          pluginVersion: '0.13.4' as const,
+          pluginVersion: '0.13.5' as const,
           scopes: scopesForAgentAccessRole('publisher'),
           role: 'publisher' as const,
           spaceId: 'space-1',
@@ -56,7 +56,7 @@ function fixture(confirmed = true): { deps: AttachmentDependencies; calls: strin
           expectedSpaceId: 'space-1',
           expectedRole: 'publisher',
           expectedScopes: scopesForAgentAccessRole('publisher'),
-          expectedPluginVersion: '0.13.4',
+          expectedPluginVersion: '0.13.5',
           exchange: { agentId: 'agent-1', credentialId: 'credential-1' },
         });
         return {
@@ -89,7 +89,9 @@ describe('runAttachment', () => {
       migratedEntries: ['agentwiki-old'],
       configBackupPath: '/tmp/config-backup',
       manifestHash: 'manifest-hash',
-      reloadRequired: false,
+      reloadRequired: true,
+      hostActivationRequired: true,
+      hostVerified: false,
     });
     expect(test.deps.close).toHaveBeenCalledOnce();
     expect(test.deps.fail).not.toHaveBeenCalled();
