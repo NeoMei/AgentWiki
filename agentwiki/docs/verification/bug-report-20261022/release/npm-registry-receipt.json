@@ -1,0 +1,31 @@
+{
+  "status": "passed",
+  "verifiedAt": "2026-10-22T17:54:31.678Z",
+  "package": "@neomei/agentwiki-local-sync",
+  "version": "0.13.5",
+  "protocol": "0.6.1",
+  "registry": "https://registry.npmjs.org/",
+  "distTags": {
+    "latest": "0.13.4",
+    "release-0-12-57": "0.13.5"
+  },
+  "integrity": "sha512-tD4hai2Z55FRLpUxjJNyi7aubL2cn8nGeARWqSxleR86AEqQHnvv2QCzm/mAUju6CrfOIH55XlhQc89JvAUmZw==",
+  "shasum": "89a911ac2eac043f240b68bbd18fe50c5d09ee19",
+  "sha256": "b566ae2a895e17fc4d5d22645e8184bd484d333fe5a87af330b2e897349c9e05",
+  "exactTarballBytes": true,
+  "frozenDigestMatch": true,
+  "emptyCacheInstall": true,
+  "isolatedNpmConfig": true,
+  "installedLockfileMatchesOfficialRegistry": true,
+  "cliHelp": true,
+  "onboardingContract": {
+    "publisherPaths": [
+      "device-bootstrap",
+      "one-time-code"
+    ],
+    "scopes": 16,
+    "tamperRejected": true,
+    "rawServerPlan": true
+  },
+  "onboardingContractScope": "Published package against local built server using bounded storage and credential adapters; not real-host acceptance"
+}

@@ -1,0 +1,40 @@
+{
+  "status": "passed",
+  "verifiedAt": "2026-10-22T18:08:27.781134+00:00",
+  "browser": "Chrome 155.0.0.0",
+  "origin": "https://agentwiki.quukk.com",
+  "checks": {
+    "generic": {
+      "hasPrompt": true,
+      "oldVersionAbsent": true,
+      "version": true,
+      "actualConnectionGuidance": true,
+      "actualHostReadGuidance": true
+    },
+    "codex": {
+      "codexSelected": true,
+      "realReadRequired": true,
+      "reloadGuidance": true,
+      "version": true
+    },
+    "workbuddy": {
+      "inlinePreparation": true,
+      "nodeVersions": true,
+      "privateCacheGuidance": true,
+      "runtimeEndpointNotUsed": true,
+      "version": true,
+      "workbuddySelected": true
+    },
+    "report": {
+      "boundaryPreserved": true,
+      "deployedRevision": true,
+      "developerReplies": 12,
+      "images": 18,
+      "regressionReplies": 12,
+      "releaseReplies": 12,
+      "title": "10-22Agentwiki测试问题 #"
+    }
+  },
+  "scope": "Rendered public guide tabs and authenticated original-report readback; not original billy business-scenario acceptance.",
+  "probeCorrection": "WorkBuddy uses inline preparation and directly pinned package commands, not the separate runtime endpoint. A first URL-parameter assertion was inapplicable; final DOM checks verify the actual inline contract."
+}

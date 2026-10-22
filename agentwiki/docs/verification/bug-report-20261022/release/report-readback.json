@@ -1,0 +1,19 @@
+{
+  "status": "passed",
+  "spaceId": "cmtmgsk5b00neuo709n0x7nqj",
+  "pageId": "f31ccf05-70d0-4376-95c3-f507a5bb1bce",
+  "changeSetId": "cmvjujvlh006kaba3m4yav8wz",
+  "updatedAt": "2026-10-22T18:00:35.864Z",
+  "publishedUnderExistingPolicy": true,
+  "releaseReplies": 12,
+  "imageReferences": 18,
+  "originalContentPreserved": true,
+  "exactMcpReadback": true,
+  "contentSha256": "67667ccccd4c38a2dffc0b79997dcb61904b28c54405f8dd297e1ec5141c2343",
+  "productionBusinessRetestsClosed": false,
+  "browserReadback": true,
+  "browserReleaseReplies": 12,
+  "browserDeveloperReplies": 12,
+  "browserRegressionReplies": 12,
+  "browserImageElements": 18
+}

@@ -4,11 +4,11 @@
 
 ## 活跃任务
 
-- [release-v01257-20261023](active/release-v01257-20261023/brief.md)：用户已授权发布，.57/.5联动与最终验证进行中，配套备份及npm安全密钥登录通过，完整测试及构建/包验收通过，最终发布包冻结中。
+- [release-v01257-20261023](active/release-v01257-20261023/brief.md)：Web .57/精确npm .5/GitHub已发布并验收；完整测试8223/5skip，生产1422源码及浏览器/原报告通过；仅npm latest推广因安全密钥超时待继续。
 
-- [bug-report-20261022](active/bug-report-20261022/brief.md)：12项本地修复和浏览器回归已完成，整仓复验及原报告逐项回写进行中；未发布部署。
+- [bug-report-20261022](active/bug-report-20261022/brief.md)：12项修复已随v0.12.57上线，8223/5skip及原页36条回复/18图回读通过；保留原billy逐项人工复验。
 
-- [onboarding-host-identity-20261023](active/onboarding-host-identity-20261023/brief.md)：接入提示宿主隔离/Agent身份诊断已本地修复，215项测试通过；未发布，原Bug页工作待客户端重载。
+- [onboarding-host-identity-20261023](active/onboarding-host-identity-20261023/brief.md)：宿主隔离/当前连接身份诊断已随Web .57/npm .5发布；旧.4固定runner兼容通过，真实客户端升级/重启后读取仍待验。
 
 
 

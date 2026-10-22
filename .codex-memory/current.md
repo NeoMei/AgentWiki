@@ -1,23 +1,23 @@
 # 当前目标
 
-执行用户明确授权的 v0.12.57 / Local Sync 0.13.5 发布，包含《10-22Agentwiki测试问题》12项修复及宿主识别/连接身份修复。
+本轮Web/API v0.12.57、Local Sync0.13.5及GitHub Release已发布，完成剩余npm latest标签切换；原billy业务回归保持独立。
 
 # 范围 / 不做
 
-发布本轮已验证修复。原报告逐项保留，不把发布健康或本地测试当作原billy环境人工验收；不改既有Agent、MCP配置或生产权限。
+本轮12项Bug及宿主识别/当前连接诊断修复已上线。原报告原文和18图完整保留；不把源码/健康/本地测试当作原billy人工验收，不改既有Agent或MCP配置。
 
 # 当前状态
 
-- canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`，分支`codex/agent-autochat-external-opencode`；基线`ec4faa7f`，v0.12.57守卫通过。
-- 12项缺陷及宿主识别/连接身份修复、.13.5版本联动已完成并独立复审；旧.13.4会话继续固定原版本runner。
-- 最终`pnpm test:full`一次性exit0：8223 pass/5环境skip；build/typecheck/lint、协议0.6.1官方parity、两种独立安装及publisher合约均通过。此前17项本地Chrome回归通过。
-- 最终npm包179文件，sha256 b566ae2a895e17fc4d5d22645e8184bd484d333fe5a87af330b2e897349c9e05；npm认证已完成。待冻结提交并正式发布。
-- 生产配对备份`bugs-v01257.oap6txmn`已校验及独立复核。最新只读预检：三服务/health正常，1409个旧源码与基线一致，线上仍.12.56/.13.4。
-- 原报告已追加12条开发回复和12条本地回归，MCP精确回读及Chrome渲染通过，原文及18图完整保留。发布后追加上线证据。
+- canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`；分支`codex/agent-autochat-external-opencode`；发布源码commit `192315ed13e43df6d4a88dd7572076dbaca5fb19`，release lock基线ec4faa7f，v0.12.57。
+- 单次full suite 8223 pass/5环境skip；build/typecheck/lint、protocol0.6.1官方parity、两种pack安装、179文件正式npm包/空cache/合约及独立字节复核通过。
+- npm0.13.5已发布并验证在release-0-12-57标签；latest仍0.13.4。latest操作单独WebAuthn超时，CLI47656已E404结束，help2223已取消；需要用户就绪后重新发起，不复用旧URL。
+- 生产部署exit0。1422源码、5包版本、HTML/5公网资源一致；三user服务、五项health正常；65 migrations无pending；14 runtime guide与外部OpenCode2.1.1 CLI探针通过。GitHub Release v0.12.57/资产哈希及tag指向192315ed已回读确认。
+- 配对备份 `/var/backups/agentwiki/bugs-v01257.oap6txmn` 校验通过；previous `/root/agentwiki-previous-20261023015646`。未做恢复演练。
+- 原Bug页追加12条发布跟进（ChangeSet cmvjujvlh006kaba3m4yav8wz），updatedAt2026-10-22T18:00:35.864Z；MCP精确回读与Chrome12条发布/24条先前回复/18图元素全部通过。公开guide三客户端也通过。
 
 # 稳定约束
 
-编辑/发布前运行release guard；生产目标固定`root@113.249.120.24:/root/agentwiki`。Space授权实时查询，不为绕过拒绝换身份/密钥或用DB读写正文。发布需配对备份、冻结包/源码、npm回读及生产独立回验。
+编辑/发布前运行release guard；生产目标固定`root@113.249.120.24:/root/agentwiki`。Space授权实时查询，不绕过授权换身份或DB读写正文。恢复需考虑配对备份及备份后写入；真实host升级/重启/MCP读页和原业务场景独立验收。
 
 # 关键索引
 
@@ -25,8 +25,8 @@
 - tasks/active/bug-report-20261022/{brief,decisions,refs}.md
 - tasks/active/onboarding-host-identity-20261023/{brief,decisions,refs}.md
 - agentwiki/docs/verification/bug-report-20261022/release/README.md
-- agentwiki/AGENTWIKI_RELEASE_CANDIDATE
+- https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.57
 
 # 风险 / 下一步
 
-npm先发布临时tag release-0-12-57，精确包回读/空缓存验收后再部署Web .57；生产源码、资源、health及浏览器通过后提升latest。原billy环境及真实host升级后的MCP实际读取保持独立验收边界。
+仅剩npm latest推广认证。用户准备好时运行 `npm dist-tag add @neomei/agentwiki-local-sync@0.13.5 latest --registry=https://registry.npmjs.org/ --browser=false`，打开新官方链接让用户完成安全密钥，随后回读dist-tags。无需重发包、重建或重新部署。若清理本轮tag，只在确认指向.5后处理；不更改任何其他tag。原billy的12项人工复验、真实客户端升级后的读取、Windows行为仍未冒充完成。

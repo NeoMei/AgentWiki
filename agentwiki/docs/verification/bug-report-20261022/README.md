@@ -2,6 +2,8 @@
 
 Original: https://agentwiki.quukk.com/pages/f31ccf05-70d0-4376-95c3-f507a5bb1bce
 
+This file preserves the local-remediation phase. The subsequent deployed v0.12.57 / published npm 0.13.5 result, production checks and remaining latest-tag authentication are recorded in [release/README.md](release/README.md).
+
 Candidate: canonical worktree, branch `codex/agent-autochat-external-opencode`, base HEAD `cec79c4e`, release guard v0.12.56. Changes remain local and uncommitted; no release, deployment, or production bug closure is claimed. The pre-existing onboarding identity changes are preserved.
 
 | Item | Root cause and change | Verification |

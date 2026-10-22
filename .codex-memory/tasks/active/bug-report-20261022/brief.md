@@ -1,17 +1,15 @@
 # 目标
 
-逐项修复并回写《10-22Agentwiki测试问题》12项；原页 f31ccf05-70d0-4376-95c3-f507a5bb1bce，项目管理 Space cmtmgsk5b00neuo709n0x7nqj。
+逐项修复并回写《10-22Agentwiki测试问题》12项；原页f31ccf05-70d0-4376-95c3-f507a5bb1bce，项目管理Space cmtmgsk5b00neuo709n0x7nqj。
 
 # 当前状态
 
-- 新会话真实 MCP list_spaces/get_page 已成功，新身份权限无需再授权。
-- 12项已完成本地修复；#7依据现有关系唯一约束明确按同向/同类型过滤，保留不同类型、反向、自动转手动。
-- 独立审查发现旧图谱hash跳过ID补建，已补版本盐及旧hash升级回归，复审无阻断。
-- 前端169文件2814项全通过；本地Chrome17项通过；三端build、全typecheck/lint通过。浏览器为真实组件+合成API，不等于生产验收。
-- 迁移corpus锁遗漏、正向注册夹具及模板测试异步/文字选择器竞态均已修复并复审；未放宽产品认证、数据库保护或测试timeout。最终分组8202通过、5环境限定跳过；runtime数据库239项0skip，server3572、client2814、协议140、local-sync1123通过。单次test:full停在旧client测试，修测试后完整client及剩余包另跑通过，不声称单次全仓exit0。
-- 原报告已逐项追加并发布：12条开发回复+12条回归，MCP精确回读及Chrome渲染通过；移除新增回复后与原文逐字一致，18图保留。
-- 产品代码尚未提交、发布或部署；原报告均注明本地验证与生产待复验。
+- 12项修复已随Web/API v0.12.57发布，源码commit192315ed；Local Sync0.13.5精确版本和GitHub Release也已发布。npm latest标签仍需用户完成新的安全密钥验证，见release-v01257-20261023。
+- 图谱ID解析/旧快照升级、同向同类型去重、空描述、目录提示/高亮、搜索路径/范围、中文运行过滤、终态任务、通知同页/跨页同步均已修复并独立复审。
+- 最终单次full suite8223 pass/5环境skip；server3591、client2814、protocol140、local-sync1125、runtime314+239；build/typecheck/lint及17项本地Chrome通过。本地浏览器使用合成API，不能冒充生产业务验收。
+- 生产1422源码、HTML/5资源、三服务/五项health通过。发布记录见agentwiki/docs/verification/bug-report-20261022/release/README.md。
+- 原报告12条开发回复、12条回归及12条发布跟进均已保存并精确MCP回读，Chrome36条标签和18图元素核实，原文保留；最新ChangeSet cmvjujvlh006kaba3m4yav8wz。
 
 # 后续
 
-本地修复/验证/回写完成，验证回执见agentwiki/docs/verification/bug-report-20261022/README.md；发布前另行准备版本、配对备份、部署/生产真实验收。之前onboarding-host-identity修复在同一工作树，需一并保留。
+原billy环境逐项业务人工回归，尤其持久化、关系再提取、通知跨标签等，尚未计为完成；原报告每项保留具体待验场景。原本地阶段详细证据保留于docs/verification/bug-report-20261022/README.md，当前发布状态以release记录为准。

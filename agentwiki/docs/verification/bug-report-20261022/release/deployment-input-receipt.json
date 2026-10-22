@@ -1,0 +1,11 @@
+{
+  "status": "passed",
+  "revision": "192315ed13e43df6d4a88dd7572076dbaca5fb19",
+  "deploymentInputFiles": 1422,
+  "extraFiles": 0,
+  "missingFiles": 0,
+  "contentMismatches": 0,
+  "manifestSha256": "8f11477c24d94bfc40e7cbd4618ca682022a63ceee1f5e52936ecd704c3f36e3",
+  "source": "Clean detached checkout of frozen candidate; release guard passed",
+  "note": "Canonical checkout retained three ignored Playwright evidence files, so deploy was run from a clean frozen checkout. Local evidence was preserved."
+}

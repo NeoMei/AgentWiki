@@ -1,0 +1,13 @@
+{
+  "status": "latest-authentication-required",
+  "verifiedAt": "2026-10-22T18:08:28.499374+00:00",
+  "package": "@neomei/agentwiki-local-sync",
+  "publishedVersion": "0.13.5",
+  "distTags": {
+    "latest": "0.13.4",
+    "release-0-12-57": "0.13.5"
+  },
+  "promotionAttempt": "npm dist-tag add @neomei/agentwiki-local-sync@0.13.5 latest",
+  "result": "npm separate WebAuthn URL expired; CLI returned E404 for auth done endpoint. The published package remains available and production deployment passed.",
+  "nextAction": "Retry the same tag command when the user is ready to complete the fresh security-key prompt."
+}
