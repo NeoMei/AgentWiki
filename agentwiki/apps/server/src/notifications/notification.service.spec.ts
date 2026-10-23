@@ -34,6 +34,9 @@ describe('NotificationService', () => {
         }),
       }),
     }));
+    expect(prisma.userNotification.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({ recipientUserId: 'u1', readAt: null }),
+    });
   });
 
   it('marks only the current user notification as read and is idempotent', async () => {

@@ -41,7 +41,7 @@ export class NotificationService {
           readAt: true,
         },
       }),
-      this.prisma.userNotification.count({ where: this.visibleWhere(principal, false) }),
+      this.prisma.userNotification.count({ where: this.visibleWhere(principal, true) }),
     ]);
     return {
       unreadCount,
