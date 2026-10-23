@@ -4,6 +4,8 @@
 
 ## 活跃任务
 
+- [agent-auto-edit-20261024](active/agent-auto-edit-20261024/brief.md)：Agent自动更新失败/误称只读排查；格式和意图修复本地完成，真实CLI发送tools=0的工具注入缺口仍在定位，未部署。
+
 - [notification-unread-20261023](active/notification-unread-20261023/brief.md)：#12服务端count漏readAt过滤已补发.58，真实PG红绿、server3591/3skip及生产实际服务unread1→0/历史不变通过；原报告回复回读，billy浏览器待验。
 
 - [release-v01257-20261023](active/release-v01257-20261023/brief.md)：Web .57/精确npm .5/GitHub已发布并验收；完整测试8223/5skip，生产1422源码及浏览器/原报告通过；仅npm latest推广因安全密钥超时待继续。

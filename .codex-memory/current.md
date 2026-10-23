@@ -1,32 +1,31 @@
 # 当前目标
 
-原报告第12项通知未读计数漏修已补发Web/API v0.12.58并回写；保留billy浏览器人工复验及独立npm latest认证。
+内置 Agent 自动编辑失败已完成候选修复及真实Qwen合成目录验收；用户已确认现在发布v0.12.59，正在备份与冻结发布源码。
 
 # 范围 / 不做
 
-仅修复NotificationService未读计数遗漏readAt:null；原报告18图、12项人工复测及历史开发回复保留。未改线上通知数据、未切换浏览器账号；Local Sync0.13.5和protocol0.6.1不变。
+修复自动意图/JSON最终响应解析、目录工具启动时序与错误权限解释。本轮未改写原Bug汇总表、未放宽角色或写入权限、未修改provider凭据，尚未部署。
 
 # 当前状态
 
-- canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`；分支codex/agent-autochat-external-opencode；发布源码19da88ebc90c9213a3835403c69f60e3669c5d86，lock基线ec4faa7f，app/client/api0.12.58。
-- #12根因是count(visibleWhere(false))统计所有可见已读历史；只改true。真实DB旧4组断言失败→新5pass/0skip；server3591pass/3既有环境skip、client通知9pass，typecheck/定向lint/build及独立审查通过。这是本轮定向+全server回归，不是再次test:full；.57全仓8223/5skip是前次证据。
-- 生产1423源码、HTML/5入口资产、三服务/五health全通过，65迁移no pending。billy实际服务只读诊断unread1→0，保留已读历史1；通知ID/readAt状态哈希前后一致，无需数据修补。
-- 原报告新增#12补修跟进，ChangeSet cmvl1my2g006icw07pgo8qd28 published，updatedAt2026-10-23T14:06:42.652Z；MCP精确回读、原文/18图保留，MeiXueFeng Chrome DOM核对通过。原报告1-11已有他人记录的人工通过，未冒充本轮亲测；#12原人工失败结论保留待billy再验。
-- 本轮配对备份 `/var/backups/agentwiki/notification-v01258.uqg3e9fw` 校验并独立复核；previous `/root/agentwiki-previous-20261023220511` 保留。未做恢复演练。GitHub Release v0.12.58已创建。
-- npm0.13.5仍已发布release-0-12-57；latest此前仍0.13.4且安全密钥验证超时，本轮未触发npm操作。真实host升级/重启/MCP读取保持独立。
+- canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`；分支 `codex/agent-autochat-external-opencode`；本轮起点HEAD `4e2846dd`，release guard通过。
+- 当前线上仍Web/API v0.12.58，发布源码 `19da88ebc90c9213a3835403c69f60e3669c5d86`，lock基线 `ec4faa7f`。通知未读计数补修和原报告回写已发布；billy人工复验独立待记录。
+- 本轮候选：单个完整JSON围栏兼容、仅解析最终步骤、目标标题metadata、正确说明answer/应用写入；v2目录请求等待真实tool registry并校验context能力回执，保留deny-all与两个只读工具。
+- 服务端3593pass/44专用环境skip、独立145pass、typecheck/lint/build/diff-check通过。真实Qwen+生产同版CLI2.1.1：list1/read9、9个正文marker全覆盖、update通过；其他页/viewer/只聊天均answer。未执行真实用户浏览器保存。
+- Local Sync0.13.5仍在release-0-12-57，npm latest此前0.13.4；npm认证与host升级验收保持独立。
 
 # 稳定约束
 
-编辑/发布前运行release guard；生产目标root@113.249.120.24:/root/agentwiki。Space授权实时查询，不绕过权限换身份或DB读写正文；本轮只读诊断仅通知元数据及真实服务返回，不伪造HTTP登录。恢复需考虑配对备份和备份后写入。
+编辑/发布前运行release guard；生产目标 `root@113.249.120.24:/root/agentwiki`。当前外部OpenCode在 `/opt/agentwiki-opencode/opencode`，版本2.1.1。用户角色/Space权限实时检查，页面写入保持绑定目标与CAS，不用DB直接改业务正文。发布恢复需考虑配对备份和备份后写入。
 
 # 关键索引
 
+- tasks/active/agent-auto-edit-20261024/{brief,decisions,refs}.md
+- agentwiki/docs/verification/agent-auto-edit-20261024/README.md
 - tasks/active/notification-unread-20261023/{brief,decisions,refs}.md
 - tasks/active/bug-report-20261022/brief.md
 - tasks/active/release-v01257-20261023/brief.md
-- agentwiki/docs/verification/notification-unread-20261023/README.md
-- https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.58
 
 # 风险 / 下一步
 
-billy浏览器重新读取后的未读/铃铛、单条/全部及跨标签人工复验待记录。npm latest仅在用户就绪后重新发起官方WebAuthn，不复用旧链接，不重发包。当前owned浏览器已关闭；本地临时测试数据库已清理，本轮临时冻结checkout已安全移除，源码和验证回执保留。
+候选修复未提交或部署；用户已批准发布v0.12.59，生产部署与上线后验证待完成。发布前后须保留版本、备份与服务健康检查，生产真实浏览器保存和原9篇业务内容验收另行记录。免费备用模型auth_failed仍是独立环境问题。通知人工复验及npm latest官方WebAuthn保持独立，勿复用旧认证链接。

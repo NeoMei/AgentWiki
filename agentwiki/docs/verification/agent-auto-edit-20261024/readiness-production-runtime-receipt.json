@@ -1,0 +1,93 @@
+{
+  "createdAt": "2026-10-23T20:34:22.482Z",
+  "syntheticOnly": true,
+  "realProviderCredentials": false,
+  "applicationWrites": false,
+  "platform": "linux",
+  "nodeVersion": "v24.18.0",
+  "executable": "/opt/agentwiki-opencode/opencode",
+  "candidateModuleSha256": {
+    "opencode-directory-readiness": "1edbd51656d9d55ebbc508c500de8f2112ae0d6e153ccddaf45c65f5055e3223",
+    "assist-auto-response": "fd1a267736a0ed7dc70045483f239ce0f73f540a4038de405260ac3f9eb59bc8",
+    "opencode.runner": "b8481af32c6a3e43429b7f274f15c5d7de122fb333ff4c242010a64c6f80772a"
+  },
+  "checks": [
+    {
+      "scenario": "success",
+      "passed": true,
+      "cliVersion": "2.1.1",
+      "elapsedMs": 5247,
+      "originalPermissionPolicyPreserved": true,
+      "codemode": false,
+      "startupDelayMs": 3000,
+      "businessRequests": 3,
+      "titleRequests": 1,
+      "firstBusinessTools": [
+        "agentwiki_directory_list_documents",
+        "agentwiki_directory_read_document"
+      ],
+      "listed": true,
+      "readMarkers": 9,
+      "acceptedAction": "update",
+      "failure": null
+    },
+    {
+      "scenario": "init-failure",
+      "passed": true,
+      "cliVersion": "2.1.1",
+      "elapsedMs": 25545,
+      "originalPermissionPolicyPreserved": true,
+      "codemode": false,
+      "startupDelayMs": null,
+      "businessRequests": 0,
+      "titleRequests": 0,
+      "firstBusinessTools": [],
+      "listed": false,
+      "readMarkers": 0,
+      "acceptedAction": null,
+      "failure": {
+        "code": "timeout",
+        "scope": "model"
+      }
+    },
+    {
+      "scenario": "cancel",
+      "passed": true,
+      "cliVersion": "2.1.1",
+      "elapsedMs": 873,
+      "originalPermissionPolicyPreserved": true,
+      "codemode": false,
+      "startupDelayMs": 6000,
+      "businessRequests": 0,
+      "titleRequests": 0,
+      "firstBusinessTools": [],
+      "listed": false,
+      "readMarkers": 0,
+      "acceptedAction": null,
+      "failure": {
+        "code": "cancelled",
+        "scope": "global"
+      }
+    },
+    {
+      "scenario": "timeout",
+      "passed": true,
+      "cliVersion": "2.1.1",
+      "elapsedMs": 2041,
+      "originalPermissionPolicyPreserved": true,
+      "codemode": false,
+      "startupDelayMs": 6000,
+      "businessRequests": 0,
+      "titleRequests": 0,
+      "firstBusinessTools": [],
+      "listed": false,
+      "readMarkers": 0,
+      "acceptedAction": null,
+      "failure": {
+        "code": "timeout",
+        "scope": "model"
+      }
+    }
+  ],
+  "passed": true
+}

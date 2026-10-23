@@ -1,0 +1,159 @@
+{
+  "candidate": true,
+  "syntheticOnly": true,
+  "writesApplicationData": false,
+  "checks": [
+    {
+      "label": "named current page, directory as source",
+      "action": "update",
+      "expected": "update",
+      "passed": true
+    },
+    {
+      "label": "nine reports in replacement markdown",
+      "action": "update",
+      "sourceMarkers": 9,
+      "changesLength": 724,
+      "passed": true
+    },
+    {
+      "label": "different bound page",
+      "action": "answer",
+      "expected": "answer",
+      "passed": true
+    },
+    {
+      "label": "viewer cannot write",
+      "action": "answer",
+      "expected": "answer",
+      "passed": true
+    },
+    {
+      "label": "explicit chat-only output",
+      "action": "answer",
+      "expected": "answer",
+      "passed": true
+    }
+  ],
+  "status": "passed",
+  "traces": [
+    {
+      "stage": "decision",
+      "events": [
+        {
+          "type": "step_start"
+        },
+        {
+          "type": "text",
+          "text": "{\"action\":\"update\"}"
+        }
+      ]
+    },
+    {
+      "stage": "generation",
+      "events": [
+        {
+          "type": "step_start"
+        },
+        {
+          "type": "tool_use",
+          "tool": "agentwiki_directory_list_documents"
+        },
+        {
+          "type": "step_finish",
+          "finish": "tool-calls"
+        },
+        {
+          "type": "step_start"
+        },
+        {
+          "type": "text",
+          "text": "Now let me read all 9 test reports in parallel:\n\n"
+        },
+        {
+          "type": "tool_use",
+          "tool": "agentwiki_directory_read_document"
+        },
+        {
+          "type": "tool_use",
+          "tool": "agentwiki_directory_read_document"
+        },
+        {
+          "type": "tool_use",
+          "tool": "agentwiki_directory_read_document"
+        },
+        {
+          "type": "tool_use",
+          "tool": "agentwiki_directory_read_document"
+        },
+        {
+          "type": "tool_use",
+          "tool": "agentwiki_directory_read_document"
+        },
+        {
+          "type": "tool_use",
+          "tool": "agentwiki_directory_read_document"
+        },
+        {
+          "type": "tool_use",
+          "tool": "agentwiki_directory_read_document"
+        },
+        {
+          "type": "tool_use",
+          "tool": "agentwiki_directory_read_document"
+        },
+        {
+          "type": "tool_use",
+          "tool": "agentwiki_directory_read_document"
+        },
+        {
+          "type": "step_finish",
+          "finish": "tool-calls"
+        },
+        {
+          "type": "step_start"
+        },
+        {
+          "type": "text",
+          "text": "{\"action\":\"update\",\"summary\":\"根据 9 份测试报告更新 Bug 状态汇总表，汇总所有 Bug（AW-FIXTURE-01 至 AW-FIXTURE-09）的状态信息\",\"changes\":\"# Bug 状态汇总表\\n\\n| Bug ID | 问题描述 | 状态 | 来源报告 |\\n| --- | --- | --- | --- |\\n| AW-FIXTURE-01 | 注册提示问题 | 已修复，人工回归通过 | [测试报告 1](/pages/report-0) |\\n| AW-FIXTURE-02 | 注册提示问题 | 已修复，人工回归通过 | [测试报告 2](/pages/report-1) |\\n| AW-FIXTURE-03 | 注册提示问题 | 已修复，人工回归通过 | [测试报告 3](/pages/report-2) |\\n| AW-FIXTURE-04 | 注册提示问题 | 已修复，人工回归通过 | [测试报告 4](/pages/report-3) |\\n| AW-FIXTURE-05 | 注册提示问题 | 已修复，人工回归通过 | [测试报告 5](/pages/report-4) |\\n| AW-FIXTURE-06 | 注册提示问题 | 已修复，人工回归通过 | [测试报告 6](/pages/report-5) |\\n| AW-FIXTURE-07 | 注册提示问题 | 已修复，人工回归通过 | [测试报告 7](/pages/report-6) |\\n| AW-FIXTURE-08 | 注册提示问题 | 已修复，人工回归通过 | [测试报告 8](/pages/report-7) |\\n| AW-FIXTURE-09 | 注册提示问题 | 已修复，人工回归通过 | [测试报告 9](/pages/report-8) |\\n\\n**统计：**\\n- 总计 Bug：9\\n- 已修复，人工回归通过：9\\n- 其他状态：0\"}"
+        }
+      ]
+    },
+    {
+      "stage": "decision",
+      "events": [
+        {
+          "type": "step_start"
+        },
+        {
+          "type": "text",
+          "text": "```json\n{\"action\":\"answer\"}\n```"
+        }
+      ]
+    },
+    {
+      "stage": "decision",
+      "events": [
+        {
+          "type": "step_start"
+        },
+        {
+          "type": "text",
+          "text": "```json\n{\"action\":\"answer\"}\n```"
+        }
+      ]
+    },
+    {
+      "stage": "decision",
+      "events": [
+        {
+          "type": "step_start"
+        },
+        {
+          "type": "text",
+          "text": "{\"action\":\"answer\"}"
+        }
+      ]
+    }
+  ]
+}

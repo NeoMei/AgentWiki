@@ -63,6 +63,45 @@ describe('OpencodeCliRunner', () => {
     { pageId: 'page-1', title: 'Report', content: 'PRIVATE_DIRECTORY_BODY', updatedAt: 'v1', folderId: 'folder-1' },
   ] };
 
+  it.each(['ready', 'missing', 'invalid'] as const)('requires the v2 directory readiness receipt before accepting output: %s', async state => {
+    const child = childProcess();
+    const runner = new OpencodeCliRunner(config);
+    (runner as any).launchCache = { command: 'opencode', argsPrefix: [], cliMajor: 2, packageName: 'configured' };
+    const answer = jest.fn();
+    const execution = runner.runModel('prompt', 'fixture/model', 10_000, undefined,
+      { mode: 'auto', action: 'answer', actions: { update: true, create: true }, directory, onAnswerText: answer });
+    const expectation = state === 'ready' ? expect(execution).resolves.toMatchObject({ summary: 'Answer' })
+      : expect(execution).rejects.toMatchObject({ code: 'configuration_error', scope: 'global' });
+    const options = (spawn as jest.Mock).mock.calls[0][2];
+    const isolated = JSON.parse(options.env.OPENCODE_CONFIG_CONTENT);
+    expect(isolated.plugins).toEqual([join(options.cwd, 'directory-readiness-plugin')]);
+    expect(existsSync(join(isolated.plugins[0], 'index.js'))).toBe(true);
+    expect(isolated.permissions).toEqual([
+      { action: '*', resource: '*', effect: 'deny' },
+      { action: 'agentwiki_directory_*', resource: '*', effect: 'allow' },
+    ]);
+    if (state !== 'missing') writeFileSync(join(options.cwd, 'directory-tools-ready'), state === 'ready' ? 'agentwiki-directory-tools-ready-v1' : 'invalid');
+    child.stdout.write(JSON.stringify({ type: 'text', part: { text: '{"action":"answer","summary":"Answer"}' } }) + '\n');
+    child.emit('close', 0);
+    await expectation;
+    expect(answer).toHaveBeenCalledTimes(state === 'ready' ? 1 : 0);
+    expect(existsSync(options.cwd)).toBe(false);
+  });
+
+  it('keeps v2 source-free action decisions free of the directory server and readiness plugin', async () => {
+    const child = childProcess();
+    const runner = new OpencodeCliRunner(config);
+    (runner as any).launchCache = { command: 'opencode', argsPrefix: [], cliMajor: 2, packageName: 'configured' };
+    const execution = runner.runModel('prompt', 'fixture/model', 10_000, undefined,
+      { mode: 'auto', stage: 'decision', actions: { update: true, create: true }, directory });
+    const isolated = JSON.parse((spawn as jest.Mock).mock.calls[0][2].env.OPENCODE_CONFIG_CONTENT);
+    expect(isolated).not.toHaveProperty('plugins');
+    expect(isolated).not.toHaveProperty('mcp');
+    child.stdout.write(JSON.stringify({ type: 'text', part: { text: '{"action":"update"}' } }) + '\n');
+    child.emit('close', 0);
+    await expect(execution).resolves.toMatchObject({ action: 'update' });
+  });
+
   it('locks automatic source generation to the prior decision and retains only read tools', () => {
     const prompt = new OpencodeCliRunner(config).buildPrompt({ mode: 'auto', intent: 'Summarize', actions: { update: true, create: true },
       pageSnapshot: { content: 'source' }, context: { pageId: 'page', references: [], noteIds: [], directory } }, 'answer');
@@ -79,6 +118,14 @@ describe('OpencodeCliRunner', () => {
     expect(prompt).toContain('explicitly explain that you cannot save or modify');
     expect(prompt).toContain('chat-only draft');
     expect(prompt).toContain('Do not imply that an update is pending');
+  });
+
+  it('does not supply a permission-denial response when a writable document turn chooses answer', () => {
+    const prompt = new OpencodeCliRunner(config).buildPrompt({ mode: 'auto', intent: '为什么刚才没更新成功？', actions: { update: true, create: true },
+      pageSnapshot: { content: 'source' }, context: { pageId: 'page', references: [], noteIds: [], directory } }, 'answer');
+    expect(prompt).toContain('Available server-authorized actions: {"update":true,"create":true}');
+    expect(prompt).not.toContain('explicitly explain that you cannot save or modify');
+    expect(prompt).not.toContain('Do not imply that an update is pending');
   });
 
   it('strictly parses automatic responses and never streams an action escalation', async () => {
@@ -113,6 +160,158 @@ describe('OpencodeCliRunner', () => {
     child.emit('close', 0);
     await expect(run).resolves.toMatchObject({ action: 'answer', summary: 'Chat answer' });
     expect(answer).toHaveBeenCalledWith('Chat answer');
+  });
+
+  it('parses only the final automatic assistant step after directory tool narration and sums all usage', () => {
+    const runner = new OpencodeCliRunner(config);
+    const output = [
+      { type: 'step_start' },
+      { type: 'text', part: { text: 'I will read every report first.' } },
+      { type: 'tool_use', part: { tool: 'agentwiki_directory_read_document' } },
+      { type: 'step_finish', part: { reason: 'tool-calls', tokens: { total: 10 }, cost: 0.1 } },
+      { type: 'step_start' },
+      { type: 'text', part: { text: '{"action":"update","summary":"Prepared",' } },
+      { type: 'text', part: { text: '"changes":"# Updated"}' } },
+      { type: 'step_finish', part: { reason: 'stop', tokens: { total: 20 }, cost: 0.2 } },
+    ].map(event => JSON.stringify(event)).join('\n');
+    const result = (runner as any).parse(output, 'auto', directory, { action: 'update', actions: { update: true, create: true } });
+    expect(result).toMatchObject({ action: 'update', summary: 'Prepared', changes: '# Updated', usage: { total: 30 } });
+    expect(result.cost).toBeCloseTo(0.3);
+  });
+
+  it.each([
+    ['embedded JSON', [{ type: 'text', part: { text: 'Here is the result: {"action":"answer","summary":"Embedded"}' } }]],
+    ['two JSON objects', [{ type: 'text', part: { text: '{"action":"answer","summary":"One"}{"action":"answer","summary":"Two"}' } }]],
+    ['last malformed step', [{ type: 'text', part: { text: '{"action":"answer","summary":' } }]],
+    ['last empty step', []],
+    ['last tool-only step', [{ type: 'tool_use', part: { tool: 'agentwiki_directory_list_documents' } }]],
+    ['tool call after a valid final object', [
+      { type: 'text', part: { text: '{"action":"answer","summary":"Not final"}' } },
+      { type: 'tool_use', part: { tool: 'agentwiki_directory_list_documents' } },
+    ]],
+  ])('does not salvage an earlier automatic answer from %s', (_name, finalEvents) => {
+    const runner = new OpencodeCliRunner(config);
+    const output = [
+      { type: 'step_start' },
+      { type: 'text', part: { text: '{"action":"answer","summary":"Earlier answer"}' } },
+      { type: 'step_finish', part: { tokens: { total: 7 } } },
+      { type: 'step_start' },
+      ...finalEvents as object[],
+      { type: 'step_finish', part: { tokens: { total: 9 } } },
+    ].map(event => JSON.stringify(event)).join('\n');
+    expect(() => (runner as any).parse(output, 'auto', directory, { action: 'answer', actions: { update: true, create: true } }))
+      .toThrow(expect.objectContaining({ code: 'invalid_output', usage: expect.objectContaining({ total: 16 }) }));
+  });
+
+  it.each(['step_start', 'step_finish'])('never joins automatic JSON fragments across %s', type => {
+    const runner = new OpencodeCliRunner(config);
+    const output = [
+      { type: 'text', part: { text: '{"action":"update","summary":"Prepared",' } },
+      { type },
+      { type: 'text', part: { text: '"changes":"# Joined across steps"}' } },
+    ].map(event => JSON.stringify(event)).join('\n');
+    expect(() => (runner as any).parse(output, 'auto', directory, { action: 'update', actions: { update: true, create: true } }))
+      .toThrow(expect.objectContaining({ code: 'invalid_output' }));
+  });
+
+  it.each([
+    ['reasoning', [{ type: 'reasoning', part: { text: 'Reconsidering the earlier candidate.' } }], { reason: 'stop' }],
+    ['thinking', [{ type: 'thinking', part: { text: 'No final response was generated.' } }], { reason: 'stop' }],
+    ['an empty finished step', [], { reason: 'stop' }],
+  ])('rejects an earlier automatic write when the final implicit step contains %s only', (_name, finalEvents, finish) => {
+    const runner = new OpencodeCliRunner(config);
+    const output = [
+      { type: 'text', part: { text: '{"action":"update","summary":"Earlier candidate","changes":"# Earlier content"}' } },
+      { type: 'step_finish', part: { reason: 'stop', tokens: { total: 5 } } },
+      ...finalEvents as object[],
+      { type: 'step_finish', part: { ...finish, tokens: { total: 7 } } },
+    ].map(event => JSON.stringify(event)).join('\n');
+    expect(() => (runner as any).parse(output, 'auto', undefined, { action: 'update', actions: { update: true, create: true } }))
+      .toThrow(expect.objectContaining({ code: 'invalid_output', usage: expect.objectContaining({ total: 12 }) }));
+  });
+
+  it('rejects an automatic write that hit the provider output limit even when its JSON is complete', () => {
+    const runner = new OpencodeCliRunner(config);
+    const output = [
+      { type: 'step_start' },
+      { type: 'text', part: { text: '{"action":"update","summary":"Candidate before truncation","changes":"# Partial analysis"}' } },
+      { type: 'step_finish', part: { reason: 'length', tokens: { total: 13 }, cost: 0.2 } },
+    ].map(event => JSON.stringify(event)).join('\n');
+    expect(() => (runner as any).parse(output, 'auto', undefined, { action: 'update', actions: { update: true, create: true } }))
+      .toThrow(expect.objectContaining({ code: 'output_limit', usage: expect.objectContaining({ total: 13 }), cost: 0.2 }));
+  });
+
+  it('accepts a complete final automatic step at EOF without a step_finish event', () => {
+    const runner = new OpencodeCliRunner(config);
+    const output = [
+      { type: 'step_start' },
+      { type: 'text', part: { text: 'Reading sources.' } },
+      { type: 'tool_use', part: { tool: 'agentwiki_directory_list_documents' } },
+      { type: 'step_start' },
+      { type: 'text', part: { text: '{"action":"answer","summary":"Final answer"}' } },
+    ].map(event => JSON.stringify(event)).join('\n');
+    expect((runner as any).parse(output, 'auto', directory, { action: 'answer', actions: { update: true, create: true } }))
+      .toMatchObject({ action: 'answer', summary: 'Final answer' });
+  });
+
+  it('parses an automatic decision from the final step without joining earlier text', () => {
+    const runner = new OpencodeCliRunner(config);
+    const output = [
+      { type: 'text', part: { text: 'Considering the requested destination.' } },
+      { type: 'step_finish' },
+      { type: 'text', part: { text: '{"action":"update"}' } },
+    ].map(event => JSON.stringify(event)).join('\n');
+    expect((runner as any).parse(output, 'auto', undefined, { stage: 'decision', actions: { update: true, create: false } }))
+      .toMatchObject({ action: 'update' });
+  });
+
+  it.each([
+    ['forbidden earlier tool', [{ type: 'tool_use', part: { tool: 'bash' } }], '{"action":"answer","summary":"Safe looking"}', 'process_error'],
+    ['oversized final answer', [], JSON.stringify({ action: 'answer', summary: 'x'.repeat(50_001) }), 'output_limit'],
+    ['oversized final update', [], JSON.stringify({ action: 'update', summary: 'Prepared', changes: 'x'.repeat(100_001) }), 'output_limit'],
+    ['final action escalation', [], '{"action":"create","summary":"Prepared","title":"Injected","changes":"Injected"}', 'invalid_output'],
+  ])('preserves automatic %s rejection when selecting a final step', (_name, earlierEvents, finalText, code) => {
+    const runner = new OpencodeCliRunner(config);
+    const output = [
+      { type: 'step_start' },
+      ...earlierEvents as object[],
+      { type: 'step_finish', part: { tokens: { total: 3 } } },
+      { type: 'step_start' },
+      { type: 'text', part: { text: finalText } },
+    ].map(event => JSON.stringify(event)).join('\n');
+    expect(() => (runner as any).parse(output, 'auto', directory, { action: 'update', actions: { update: true, create: true } }))
+      .toThrow(expect.objectContaining({ code, usage: expect.objectContaining({ total: 3 }) }));
+  });
+
+  it('streams only the validated final automatic answer after all tool steps and EOF', async () => {
+    const child = childProcess();
+    const answer = jest.fn();
+    const run = new OpencodeCliRunner(config).runModel('prompt', 'fixture/model', 10_000, undefined,
+      { mode: 'auto', action: 'answer', actions: { update: true, create: true }, directory, onAnswerText: answer });
+    child.stdout.write([
+      { type: 'step_start' },
+      { type: 'text', part: { text: '{"action":"answer","summary":"Intermediate"}' } },
+      { type: 'tool_use', part: { tool: 'agentwiki_directory_read_document' } },
+      { type: 'step_finish' },
+      { type: 'step_start' },
+      { type: 'text', part: { text: '{"action":"answer","summary":"Final answer"}' } },
+    ].map(event => JSON.stringify(event)).join('\n'));
+    expect(answer).not.toHaveBeenCalled();
+    child.emit('close', 0);
+    await expect(run).resolves.toMatchObject({ action: 'answer', summary: 'Final answer' });
+    expect(answer.mock.calls).toEqual([['Final answer']]);
+  });
+
+  it('never streams an automatic answer if the CLI later emits an error terminal', async () => {
+    const child = childProcess();
+    const answer = jest.fn();
+    const run = new OpencodeCliRunner(config).runModel('prompt', 'fixture/model', 10_000, undefined,
+      { mode: 'auto', action: 'answer', actions: { update: true, create: true }, onAnswerText: answer });
+    child.stdout.write(JSON.stringify({ type: 'text', part: { text: '{"action":"answer","summary":"Incomplete run"}' } }) + '\n');
+    child.stdout.write(JSON.stringify({ type: 'error', error: { data: { message: 'Failed' } } }));
+    child.emit('close', 0);
+    await expect(run).rejects.toMatchObject({ code: 'invalid_output' });
+    expect(answer).not.toHaveBeenCalled();
   });
 
   it('executes a source-free decision before the direct automatic generation call', async () => {
