@@ -1,0 +1,131 @@
+{
+  "status": "verified",
+  "backupDirectory": "/var/backups/agentwiki/agent-auto-v01259.z755u0mq",
+  "createdAt": "2026-10-23T20:36:51.205268+00:00",
+  "finishedAt": "2026-10-23T20:37:20.364058+00:00",
+  "source": {
+    "appVersion": "0.12.58",
+    "liveDirectory": "/root/agentwiki",
+    "sourceCommitFromPriorReleaseReceipt": "19da88ebc90c9213a3835403c69f60e3669c5d86",
+    "sourceCommitIndependentlyVerifiedInThisBackup": true,
+    "baselineSourceFilesVerified": 1423,
+    "sourceFileCount": 10282,
+    "sourceUnchangedDuringCopy": true
+  },
+  "database": {
+    "format": "pg_dump custom",
+    "startedAt": "2026-10-23T20:37:09.502072+00:00",
+    "finishedAt": "2026-10-23T20:37:17.696822+00:00",
+    "pgRestoreListPassed": true,
+    "tocEntryCount": 700,
+    "consistentDatabaseSnapshot": true
+  },
+  "application": {
+    "startedAt": "2026-10-23T20:36:59.364469+00:00",
+    "finishedAt": "2026-10-23T20:37:06.154844+00:00",
+    "archiveListingPassed": true,
+    "containsServerAndClientBuilds": true,
+    "excludedDirectoryNames": [
+      ".cache",
+      ".git",
+      ".tmp",
+      ".turbo",
+      "coverage",
+      "node_modules",
+      "temp",
+      "tmp"
+    ],
+    "excludedFilePatterns": [
+      "*.tar.gz"
+    ]
+  },
+  "configuration": {
+    "rootEnvPresent": true,
+    "serverEnvPresent": true,
+    "serviceUnitCount": 3,
+    "archiveListingPassed": true
+  },
+  "attachments": {
+    "liveDirectory": "/var/lib/agentwiki/attachments",
+    "startedAt": "2026-10-23T20:37:17.737460+00:00",
+    "finishedAt": "2026-10-23T20:37:19.007857+00:00",
+    "permanentBlobCount": 232,
+    "archiveMatchesLivePermanentBlobs": true,
+    "beforeAfterManifestIdentical": true,
+    "wholeStorageDirectoryIncluded": true,
+    "wholeStorageManifestEntries": 752,
+    "archiveMatchesWholeStorageManifest": true,
+    "manifestFields": [
+      "type",
+      "pathBase64",
+      "size",
+      "sha256"
+    ],
+    "symlinksSpecialFilesAndHardLinksRejected": true
+  },
+  "artifacts": {
+    "database.dump": {
+      "bytes": 65211503,
+      "sha256": "9bebb1327e429207cb19a79c0f20ad24ff8b6803e70aac67c325f22ae4e35b16"
+    },
+    "application.tar.gz": {
+      "bytes": 60187239,
+      "sha256": "4b7c523d3cda4317109e5929d14ec38782c41a8c925e46d99c97f77733b324aa"
+    },
+    "configuration.tar.gz": {
+      "bytes": 2081,
+      "sha256": "e3f8d28497f94d589b21dd33ae16e84d23957e00aa1800289e59aa8341e26a72"
+    },
+    "attachments.tar.gz": {
+      "bytes": 35665459,
+      "sha256": "868815ee5da787071ce5cb7d26c0261afef5523ffd5afff51bd275789f6861c9"
+    },
+    "database-toc.txt": {
+      "bytes": 57174,
+      "sha256": "29a27911ffd1393f0e1475c0b28a6e6dc179f3f23f6e50e2749f8ac611f571f3"
+    },
+    "attachment-manifest-before.json": {
+      "bytes": 113261,
+      "sha256": "28dedff98c33971ff2147e7fac5b5307be5bfc5c3c9b886bcfef12ab05f93599"
+    },
+    "attachment-manifest-after.json": {
+      "bytes": 113261,
+      "sha256": "28dedff98c33971ff2147e7fac5b5307be5bfc5c3c9b886bcfef12ab05f93599"
+    },
+    "attachment-manifest-archive.json": {
+      "bytes": 113261,
+      "sha256": "28dedff98c33971ff2147e7fac5b5307be5bfc5c3c9b886bcfef12ab05f93599"
+    },
+    "source-manifest-before.json": {
+      "bytes": 1660544,
+      "sha256": "955a570e1361272d8f19aa5311f4e358395dd47bc541845767af5578c2b09691"
+    },
+    "source-manifest-after.json": {
+      "bytes": 1660544,
+      "sha256": "955a570e1361272d8f19aa5311f4e358395dd47bc541845767af5578c2b09691"
+    }
+  },
+  "sha256Manifest": "SHA256SUMS",
+  "checksumsPassed": true,
+  "servicesBefore": {
+    "agentwiki-api.service": "active",
+    "agentwiki-worker.service": "active",
+    "agentwiki-frontend.service": "active"
+  },
+  "servicesAfter": {
+    "agentwiki-api.service": "active",
+    "agentwiki-worker.service": "active",
+    "agentwiki-frontend.service": "active"
+  },
+  "servicesStopped": true,
+  "writerQuiesceStartedAt": "2026-10-23T20:37:08.890502+00:00",
+  "writersRestoredAt": "2026-10-23T20:37:19.451475+00:00",
+  "writersStoppedStates": {
+    "agentwiki-api.service": "inactive/MainPID=0",
+    "agentwiki-worker.service": "inactive/MainPID=0"
+  },
+  "writersRestored": true,
+  "snapshotBoundary": "Coordinated pre-migration backup: API and worker services were stopped with MainPID=0 for the entire database dump and attachment archive. Frontend remained online. Both writers were immediately restarted after both snapshots passed validation. Source/configuration were archived just before pausing and did not change during copying. Restore this database together with the paired application/configuration/attachment archives; subsequent writes after restart are outside this snapshot.",
+  "backupDirectoryMode": "0o700",
+  "privateArtifactFileMode": "0600"
+}

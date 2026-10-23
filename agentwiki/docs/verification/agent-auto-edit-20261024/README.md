@@ -1,6 +1,6 @@
 # 内置 Agent 自动编辑失败修复（2026-10-24）
 
-候选补丁已完成，用户已授权发布 v0.12.59；部署回执另行记录。用户贴出的原 Bug 汇总页没有被本轮验证改写。
+v0.12.59 已部署，冻结源码为 `69520f568f2e1a1682eebcc46d858fe2475b8065`；上线后实际生产路由与真实 Qwen 的随机来源标记验收通过。用户贴出的原 Bug 汇总页没有被本轮验证改写。
 
 ## 问题与证据
 
@@ -37,10 +37,33 @@
 pnpm --filter @agentwiki/server build
 node docs/verification/agent-auto-edit-20261024/readiness-runtime-probe.cjs --opencode /absolute/path/to/opencode
 node docs/verification/agent-auto-edit-20261024/live-provider-probe.cjs --candidate
+# 部署后运行实际路由（含模型选择、同一截止时间和一次格式重试）
+node docs/verification/agent-auto-edit-20261024/live-provider-probe.cjs --router
 ```
 
 真实 provider probe 使用已配置 provider，只发送合成资料；候选模块仅载入诊断进程内存，不替换生产文件、不写业务数据库。回环 probe 使用假 key 和本机 HTTP fixture，不向真实 provider 发请求。
 
 ## 边界
 
-本轮没有运行真实用户浏览器的保存流程，也未将候选部署到线上。权限/CAS/写入路径由现有服务端回归覆盖，真实 Qwen 验收止于已验证的更新内容。真实原始 9 篇报告的业务结论未在本轮重新汇总。免费备用模型认证失败仍属独立运行环境问题。
+本轮没有运行真实用户浏览器的保存流程。权限/CAS/写入路径由现有服务端回归覆盖，真实 Qwen 验收止于已验证的更新内容。真实原始 9 篇报告的业务结论未在本轮重新汇总。免费备用模型认证失败仍属独立运行环境问题。
+
+## 发布与恢复
+
+- 从干净 detached checkout 运行部署；实际归档1425文件与冻结清单完全一致，无多余/遗漏/hash差异。
+- 生产1425源码、三包0.12.59、三项用户服务、五项health及公网HTML/5入口资源核验通过；65迁移已应用，pending0/failed0。
+- 新配对备份 `/var/backups/agentwiki/agent-auto-v01259.z755u0mq` 对应发布前0.12.58 / 19da88eb / 1423源码。独立10/10校验通过；写服务暂停约10.6秒后恢复。应用、配置、数据库、完整附件配对，未做恢复演练。
+- previous应用树 `/root/agentwiki-previous-20261024043922` 保留。恢复须配套数据库、配置、附件并考虑备份后写入，不能只切回旧应用树。
+- 配套回执：[发布输入](./deployment-input-receipt.json)、[配对备份](./backup-receipt.json)、[主机](./production-host.json)、[公网](./production-public.json)、[独立运行状态](./production-runtime-receipt.json)。
+
+## 上线后真实 provider 复验
+
+单次 `runModel` 初验读完9篇，但最终文本含额外说明+JSON围栏，被严格格式校验拒绝；原始失败记录保留在 [单次回执](./live-deployed-single-attempt-receipt.json)。未放宽解析器。
+
+随后诊断脚本增加 `--router`，调用线上实际 `OpencodeModelRouter`、模型目录和配置，覆盖生产两阶段决策、统一执行截止时间以及既有最多一次格式重试；[完整路由回执](./live-deployed-router-receipt.json)通过，成功模型为 `bailian-coding-plan/qwen3.7-plus`。
+
+诊断的模型健康状态保留在进程内，不修改共享Redis熔断状态；它不能替代队列运行、真实用户权限/CAS/保存及浏览器验收。后续增强版使用每篇独立随机UUID标记，并按生产ASSIST_LEASE_MS提供租约上限，防止根据连续编号补齐结果。
+
+
+[增强随机来源验收](./live-deployed-random-router-receipt.json)最终通过：线上部署模块、真实catalog/config/router、Qwen主模型、300秒请求预算与360秒租约；最终update完整包含9个各文档正文独有的随机UUID标记。其他绑定页、viewer与明确聊天输出均answer。该轮一次生成完成，未触发格式重试；格式重试路径仍由既有单测覆盖，不把前一次单次失败记录伪称为本轮自动重试成功。
+
+GitHub Release：https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.59

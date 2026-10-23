@@ -4,7 +4,6 @@
 
 ## 活跃任务
 
-- [agent-auto-edit-20261024](active/agent-auto-edit-20261024/brief.md)：Agent自动更新失败/误称只读排查；格式和意图修复本地完成，真实CLI发送tools=0的工具注入缺口仍在定位，未部署。
 
 - [notification-unread-20261023](active/notification-unread-20261023/brief.md)：#12服务端count漏readAt过滤已补发.58，真实PG红绿、server3591/3skip及生产实际服务unread1→0/历史不变通过；原报告回复回读，billy浏览器待验。
 
@@ -33,6 +32,8 @@
 - [q3-regressions-20260914](archive/q3-regressions-20260914/brief.md)：Q3人工报告20项代码修复、整分支独立复审与候选验收完成；未发布部署或安装日常Vault。
 
 ## 最近完成
+
+- [agent-auto-edit-20261024](archive/agent-auto-edit-20261024/brief.md)：v0.12.59已部署发布；自动意图/最终JSON/目录工具就绪修复，server3593/44skip，真实Qwen随机9报告与1425源码/公网/健康验收通过；原业务页与浏览器保存未改写/复验。
 
 - [unified-select-audit-20261020](archive/unified-select-audit-20261020/brief.md)：v0.12.55已发布部署，全站56处统一组件与lint防回归；8117通过/6既有跳过，本地6条E2E+24组与真实生产只读回验通过，备份/1393源码/公网资产/健康验证完成。
 

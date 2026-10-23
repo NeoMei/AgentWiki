@@ -8,6 +8,8 @@ const { spawnSync } = require('node:child_process');
 const root = path.resolve(__dirname, '../../..');
 const candidate = process.argv.includes('--candidate');
 const decisionOnly = process.argv.includes('--decision-only');
+const routed = process.argv.includes('--router');
+if (routed && decisionOnly) throw new Error('--router and --decision-only are mutually exclusive');
 const modules = candidate ? ['assist-auto-response', 'opencode-directory-readiness', 'opencode.runner'].map(name => ({
   name, source: fs.readFileSync(path.join(root, 'apps/server/dist/assist', name + '.js'), 'utf8'),
 })) : [];
@@ -46,13 +48,14 @@ runner.parse = (output, mode, directory, contract) => {
   return parse(output, mode, directory, contract);
 };
 const model = 'bailian-coding-plan/qwen3.7-plus';
+const sourceMarkers = Array.from({ length: 9 }, () => 'AW-FIXTURE-' + require('node:crypto').randomUUID());
 const task = { mode: 'auto', intent: '根据本目录 所有测试报告，更新 bug 状态汇总表', actions: { update: true, create: true },
   pageSnapshot: { title: 'Bug 状态汇总表', content: '# Bug 状态汇总表\\n\\n暂无记录。', updatedAt: '2026-10-24T00:00:00.000Z' },
   context: { pageId: 'summary', references: [], noteIds: [], directory: { folderId: 'fixture', title: '测试报告', recursive: true,
     documents: Array.from({ length: 9 }, (_, index) => ({ pageId: 'report-' + index, title: '测试报告 ' + (index + 1),
-      content: '# 测试报告\\n\\nAW-FIXTURE-' + String(index + 1).padStart(2, '0') + '：注册提示问题；已修复，人工回归通过。',
+      content: '# 测试报告\\n\\n' + sourceMarkers[index] + '：注册提示问题；已修复，人工回归通过。',
       folderId: 'fixture', updatedAt: '2026-10-24T00:00:00.000Z' })) } } };
-const result = { candidate: ${candidate}, syntheticOnly: true, writesApplicationData: false, checks: [] };
+const result = { candidate: ${candidate}, routed: ${routed}, syntheticOnly: true, writesApplicationData: false, fixtureMarkers: sourceMarkers, checks: [] };
 async function decide(label, input, expected) {
   const value = await runner.runModel(runner.buildDecisionPrompt(input), model, 60000, undefined,
     { mode: 'auto', stage: 'decision', actions: input.actions });
@@ -61,12 +64,28 @@ async function decide(label, input, expected) {
   return value.action;
 }
 (async () => {
-  const action = await decide('named current page, directory as source', task, 'update');
+  const action = ${routed} ? undefined : await decide('named current page, directory as source', task, 'update');
   if (!${decisionOnly}) {
-    const value = await runner.runModel(runner.buildPrompt(task, action), model, 180000, undefined,
-      { mode: 'auto', action, actions: task.actions, directory: task.context.directory });
-    const seen = Array.from({ length: 9 }, (_, index) => 'AW-FIXTURE-' + String(index + 1).padStart(2, '0'))
-      .filter(key => value.changes?.includes(key));
+    let value;
+    if (${routed}) {
+      const { OpencodeModelRouter } = require('./dist/assist/opencode.router');
+      const { OpencodeModelCatalog } = require('./dist/assist/opencode.catalog');
+      const { readRoutingConfig } = require('./dist/assist/opencode.config');
+      const config = new ConfigService();
+      const settings = readRoutingConfig(config);
+      // Use the real catalog, routing, shared deadline and one format retry.
+      // Circuit observations stay local to this diagnostic; do not mutate Redis.
+      const health = { get: async () => null, recordFailure: async () => {}, recordSuccess: async () => {}, tryAcquireProbe: async () => true };
+      const router = new OpencodeModelRouter(new OpencodeModelCatalog(runner, settings), runner, health, config);
+      const leaseMs = Number(config.get('ASSIST_LEASE_MS') || 6 * 60000);
+      value = await router.run({ ...task, leaseExpiresAtMs: Date.now() + leaseMs });
+      result.routing = { totalTimeoutMs: settings.totalTimeoutMs, attemptTimeoutMs: settings.attemptTimeoutMs, leaseMs, attempts: value.attempts };
+      if (value.model !== model) throw new Error('expected_primary_qwen_model');
+    } else {
+      value = await runner.runModel(runner.buildPrompt(task, action), model, 180000, undefined,
+        { mode: 'auto', action, actions: task.actions, directory: task.context.directory });
+    }
+    const seen = sourceMarkers.filter(key => value.changes?.includes(key));
     result.checks.push({ label: 'nine reports in replacement markdown', action: value.action, sourceMarkers: seen.length,
       changesLength: value.changes?.length, passed: value.action === 'update' && seen.length === 9 });
     if (value.action !== 'update' || seen.length !== 9) throw new Error('incomplete_update');
@@ -80,7 +99,7 @@ async function decide(label, input, expected) {
 `;
 const result = spawnSync('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', 'root@113.249.120.24',
   'cd /root/agentwiki/apps/server && node --env-file=../../.env --env-file-if-exists=.env'],
-{ input: program, encoding: 'utf8', timeout: 420000, maxBuffer: 2 * 1024 * 1024 });
+{ input: program, encoding: 'utf8', timeout: routed ? 600000 : 420000, maxBuffer: 2 * 1024 * 1024 });
 if (result.stdout) process.stdout.write(result.stdout);
 if (result.status !== 0) process.stderr.write('Provider probe failed; see the bounded synthetic receipt.\n');
 process.exitCode = result.status === 0 ? 0 : 1;

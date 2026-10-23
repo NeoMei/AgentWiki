@@ -1,31 +1,32 @@
 # 当前目标
 
-内置 Agent 自动编辑失败已完成候选修复及真实Qwen合成目录验收；用户已确认现在发布v0.12.59，正在备份与冻结发布源码。
+内置Agent自动编辑故障已随v0.12.59发布部署并验收；保留真实业务报告与用户浏览器回归边界。
 
 # 范围 / 不做
 
-修复自动意图/JSON最终响应解析、目录工具启动时序与错误权限解释。本轮未改写原Bug汇总表、未放宽角色或写入权限、未修改provider凭据，尚未部署。
+本轮修复自动意图/最终JSON解析、目录工具启动时序和误称只读权限。未改写原Bug汇总表、未放宽用户角色/绑定目标/CAS、未改provider凭据；Local Sync与protocol不变。
 
 # 当前状态
 
-- canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`；分支 `codex/agent-autochat-external-opencode`；本轮起点HEAD `4e2846dd`，release guard通过。
-- 当前线上仍Web/API v0.12.58，发布源码 `19da88ebc90c9213a3835403c69f60e3669c5d86`，lock基线 `ec4faa7f`。通知未读计数补修和原报告回写已发布；billy人工复验独立待记录。
-- 本轮候选：单个完整JSON围栏兼容、仅解析最终步骤、目标标题metadata、正确说明answer/应用写入；v2目录请求等待真实tool registry并校验context能力回执，保留deny-all与两个只读工具。
-- 服务端3593pass/44专用环境skip、独立145pass、typecheck/lint/build/diff-check通过。真实Qwen+生产同版CLI2.1.1：list1/read9、9个正文marker全覆盖、update通过；其他页/viewer/只聊天均answer。未执行真实用户浏览器保存。
-- Local Sync0.13.5仍在release-0-12-57，npm latest此前0.13.4；npm认证与host升级验收保持独立。
+- canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`；分支 `codex/agent-autochat-external-opencode`；当前Web/API/client **0.12.59**，发布冻结源码 `69520f568f2e1a1682eebcc46d858fe2475b8065`，lock祖先 `4e2846dd`。GitHub Release/tag已发布。
+- 目录generation通过临时插件等待真实tool registry并核验context回执；模型仍仅两个只读工具，业务写入由应用授权/CAS完成。answer只指本轮回答，不是会话永久只读。
+- server3593pass/44专用环境skip，独立145pass，typecheck/lint/build通过；CLI2.1.1/2.1.4四项生命周期均pass。上线后真实router+Qwen读取9个各正文随机UUID并返回update；其他目标/viewer/只聊天均answer。
+- 生产1425源码与冻结提交一致，三服务、五health、65迁移、HTML/5入口资源均通过。新配对备份 `/var/backups/agentwiki/agent-auto-v01259.z755u0mq` 与previous `/root/agentwiki-previous-20261024043922` 保留，备份校验10/10。
+- Local Sync0.13.5仍在release-0-12-57，protocol0.6.1；npm latest此前0.13.4，认证/真实host升级保持独立。
 
 # 稳定约束
 
-编辑/发布前运行release guard；生产目标 `root@113.249.120.24:/root/agentwiki`。当前外部OpenCode在 `/opt/agentwiki-opencode/opencode`，版本2.1.1。用户角色/Space权限实时检查，页面写入保持绑定目标与CAS，不用DB直接改业务正文。发布恢复需考虑配对备份和备份后写入。
+编辑/发布前运行release guard；历史主检出禁止发布。生产目标 `root@113.249.120.24:/root/agentwiki`，使用root用户级systemd；外部OpenCode `/opt/agentwiki-opencode/opencode` 2.1.1。Space权限实时查询，写入保留固定目标/CAS；不直接DB改业务正文。恢复必须配对应用、配置、DB及附件并考虑备份后写入。
 
 # 关键索引
 
-- tasks/active/agent-auto-edit-20261024/{brief,decisions,refs}.md
+- tasks/archive/agent-auto-edit-20261024/{brief,decisions,refs}.md
 - agentwiki/docs/verification/agent-auto-edit-20261024/README.md
+- https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.59
 - tasks/active/notification-unread-20261023/{brief,decisions,refs}.md
 - tasks/active/bug-report-20261022/brief.md
 - tasks/active/release-v01257-20261023/brief.md
 
 # 风险 / 下一步
 
-候选修复未提交或部署；用户已批准发布v0.12.59，生产部署与上线后验证待完成。发布前后须保留版本、备份与服务健康检查，生产真实浏览器保存和原9篇业务内容验收另行记录。免费备用模型auth_failed仍是独立环境问题。通知人工复验及npm latest官方WebAuthn保持独立，勿复用旧认证链接。
+原业务9篇报告的内容汇总和真实浏览器保存未在本轮执行；router诊断不修改共享Redis健康状态，不等同队列/实时授权/落盘验收。保留一次模型前言导致single-runModel被拒的回执；完整router两次通过，没有伪称实测了自动重试分支。免费备用模型认证失败未改。通知billy人工回归与npm官方WebAuthn仍为独立后续事项。
