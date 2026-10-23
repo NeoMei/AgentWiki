@@ -4,9 +4,11 @@
 
 ## 活跃任务
 
+- [notification-unread-20261023](active/notification-unread-20261023/brief.md)：#12服务端count漏readAt过滤已补发.58，真实PG红绿、server3591/3skip及生产实际服务unread1→0/历史不变通过；原报告回复回读，billy浏览器待验。
+
 - [release-v01257-20261023](active/release-v01257-20261023/brief.md)：Web .57/精确npm .5/GitHub已发布并验收；完整测试8223/5skip，生产1422源码及浏览器/原报告通过；仅npm latest推广因安全密钥超时待继续。
 
-- [bug-report-20261022](active/bug-report-20261022/brief.md)：12项修复已随v0.12.57上线，8223/5skip及原页36条回复/18图回读通过；保留原billy逐项人工复验。
+- [bug-report-20261022](active/bug-report-20261022/brief.md)：前11项原报告已有人工通过记录；#12计数漏修已随v0.12.58补发，保留原人工失败并追加根因/验证，billy浏览器再验待记录。
 
 - [onboarding-host-identity-20261023](active/onboarding-host-identity-20261023/brief.md)：宿主隔离/当前连接身份诊断已随Web .57/npm .5发布；旧.4固定runner兼容通过，真实客户端升级/重启后读取仍待验。
 

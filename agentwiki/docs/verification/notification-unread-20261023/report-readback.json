@@ -1,0 +1,18 @@
+{
+  "pageId": "f31ccf05-70d0-4376-95c3-f507a5bb1bce",
+  "updatedAt": "2026-10-23T14:06:42.652Z",
+  "changeSetId": "cmvl1my2g006icw07pgo8qd28",
+  "status": "published",
+  "exactReadback": true,
+  "originalRetained": true,
+  "images": 18,
+  "browser": {
+    "account": "MeiXueFeng",
+    "followupRendered": true,
+    "rootCauseRendered": true,
+    "historicalFailureRetained": true,
+    "manualBoundaryRendered": true,
+    "images": 18
+  },
+  "originalBillyBrowserRetest": "not performed"
+}

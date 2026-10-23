@@ -1,0 +1,52 @@
+{
+  "revision": "19da88ebc90c9213a3835403c69f60e3669c5d86",
+  "databaseRegression": {
+    "oldImplementation": {
+      "subcasesFailed": 4,
+      "exitCode": 1,
+      "skip": 0
+    },
+    "fixedImplementation": {
+      "pass": 5,
+      "fail": 0,
+      "skip": 0,
+      "exitCode": 0,
+      "parentTestIncluded": true
+    },
+    "fixtureDatabaseCleaned": true
+  },
+  "serverSuite": {
+    "pass": 3591,
+    "skip": 3,
+    "fail": 0,
+    "exitCode": 0,
+    "skipReason": "existing dedicated connection UX PostgreSQL/Redis gate not configured for this harness"
+  },
+  "clientNotificationTests": {
+    "files": 3,
+    "pass": 9,
+    "fail": 0,
+    "exitCode": 0
+  },
+  "notificationServiceContract": {
+    "beforeExitCode": 1,
+    "afterPass": 4,
+    "afterExitCode": 0,
+    "includedInServerSuite": true
+  },
+  "serverBuild": {
+    "exitCode": 0
+  },
+  "clientBuild": {
+    "exitCode": 0,
+    "existingChunkSizeWarning": true
+  },
+  "serverTypecheck": {
+    "exitCode": 0
+  },
+  "changedServerFilesEslint": {
+    "exitCode": 0
+  },
+  "independentReview": "no blocking findings",
+  "scope": "targeted database/client regression and full server suite; not a new full repository test:full run"
+}

@@ -1,0 +1,11 @@
+{
+  "status": "passed",
+  "sourceRevision": "19da88ebc90c9213a3835403c69f60e3669c5d86",
+  "productionCompiledServiceSha256": "1f813fce3f6ef8b0aa7d4bf0c8eb3b50c5a3a6dcb2779e2a6edd680f88b3a268",
+  "productionCountUnreadFilter": true,
+  "historyReadStateUnchanged": true,
+  "sourceFilesVerified": 1423,
+  "publicEntryAssets": 5,
+  "reviewerActions": "read-only; no changes to data, identity, or services",
+  "originalBillyBrowserInteractionAcceptance": "not claimed"
+}

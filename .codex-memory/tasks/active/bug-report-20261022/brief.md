@@ -4,6 +4,8 @@
 
 # 当前状态
 
+- 2026-10-23最新用户复测：原页1-11记录人工通过，第12仍失败。已确认服务端count缺readAt:null，补发v0.12.58（19da88eb），生产实际服务对原billy数据未读1→0且通知读状态不变；真实DB红绿、server3591/3skip、client通知9pass和部署1423/5资源/health通过。#12新增补修跟进published cmvl1my2g006icw07pgo8qd28并精确/Chrome回读，仍保留billy浏览器再验边界。
+
 - 12项修复已随Web/API v0.12.57发布，源码commit192315ed；Local Sync0.13.5精确版本和GitHub Release也已发布。npm latest标签仍需用户完成新的安全密钥验证，见release-v01257-20261023。
 - 图谱ID解析/旧快照升级、同向同类型去重、空描述、目录提示/高亮、搜索路径/范围、中文运行过滤、终态任务、通知同页/跨页同步均已修复并独立复审。
 - 最终单次full suite8223 pass/5环境skip；server3591、client2814、protocol140、local-sync1125、runtime314+239；build/typecheck/lint及17项本地Chrome通过。本地浏览器使用合成API，不能冒充生产业务验收。

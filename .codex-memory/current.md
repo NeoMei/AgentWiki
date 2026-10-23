@@ -1,32 +1,32 @@
 # 当前目标
 
-本轮Web/API v0.12.57、Local Sync0.13.5及GitHub Release已发布，完成剩余npm latest标签切换；原billy业务回归保持独立。
+原报告第12项通知未读计数漏修已补发Web/API v0.12.58并回写；保留billy浏览器人工复验及独立npm latest认证。
 
 # 范围 / 不做
 
-本轮12项Bug及宿主识别/当前连接诊断修复已上线。原报告原文和18图完整保留；不把源码/健康/本地测试当作原billy人工验收，不改既有Agent或MCP配置。
+仅修复NotificationService未读计数遗漏readAt:null；原报告18图、12项人工复测及历史开发回复保留。未改线上通知数据、未切换浏览器账号；Local Sync0.13.5和protocol0.6.1不变。
 
 # 当前状态
 
-- canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`；分支`codex/agent-autochat-external-opencode`；发布源码commit `192315ed13e43df6d4a88dd7572076dbaca5fb19`，release lock基线ec4faa7f，v0.12.57。
-- 单次full suite 8223 pass/5环境skip；build/typecheck/lint、protocol0.6.1官方parity、两种pack安装、179文件正式npm包/空cache/合约及独立字节复核通过。
-- npm0.13.5已发布并验证在release-0-12-57标签；latest仍0.13.4。latest操作单独WebAuthn超时，CLI47656已E404结束，help2223已取消；需要用户就绪后重新发起，不复用旧URL。
-- 生产部署exit0。1422源码、5包版本、HTML/5公网资源一致；三user服务、五项health正常；65 migrations无pending；14 runtime guide与外部OpenCode2.1.1 CLI探针通过。GitHub Release v0.12.57/资产哈希及tag指向192315ed已回读确认。
-- 配对备份 `/var/backups/agentwiki/bugs-v01257.oap6txmn` 校验通过；previous `/root/agentwiki-previous-20261023015646`。未做恢复演练。
-- 原Bug页追加12条发布跟进（ChangeSet cmvjujvlh006kaba3m4yav8wz），updatedAt2026-10-22T18:00:35.864Z；MCP精确回读与Chrome12条发布/24条先前回复/18图元素全部通过。公开guide三客户端也通过。
+- canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`；分支codex/agent-autochat-external-opencode；发布源码19da88ebc90c9213a3835403c69f60e3669c5d86，lock基线ec4faa7f，app/client/api0.12.58。
+- #12根因是count(visibleWhere(false))统计所有可见已读历史；只改true。真实DB旧4组断言失败→新5pass/0skip；server3591pass/3既有环境skip、client通知9pass，typecheck/定向lint/build及独立审查通过。这是本轮定向+全server回归，不是再次test:full；.57全仓8223/5skip是前次证据。
+- 生产1423源码、HTML/5入口资产、三服务/五health全通过，65迁移no pending。billy实际服务只读诊断unread1→0，保留已读历史1；通知ID/readAt状态哈希前后一致，无需数据修补。
+- 原报告新增#12补修跟进，ChangeSet cmvl1my2g006icw07pgo8qd28 published，updatedAt2026-10-23T14:06:42.652Z；MCP精确回读、原文/18图保留，MeiXueFeng Chrome DOM核对通过。原报告1-11已有他人记录的人工通过，未冒充本轮亲测；#12原人工失败结论保留待billy再验。
+- 本轮配对备份 `/var/backups/agentwiki/notification-v01258.uqg3e9fw` 校验并独立复核；previous `/root/agentwiki-previous-20261023220511` 保留。未做恢复演练。GitHub Release v0.12.58已创建。
+- npm0.13.5仍已发布release-0-12-57；latest此前仍0.13.4且安全密钥验证超时，本轮未触发npm操作。真实host升级/重启/MCP读取保持独立。
 
 # 稳定约束
 
-编辑/发布前运行release guard；生产目标固定`root@113.249.120.24:/root/agentwiki`。Space授权实时查询，不绕过授权换身份或DB读写正文。恢复需考虑配对备份及备份后写入；真实host升级/重启/MCP读页和原业务场景独立验收。
+编辑/发布前运行release guard；生产目标root@113.249.120.24:/root/agentwiki。Space授权实时查询，不绕过权限换身份或DB读写正文；本轮只读诊断仅通知元数据及真实服务返回，不伪造HTTP登录。恢复需考虑配对备份和备份后写入。
 
 # 关键索引
 
-- tasks/active/release-v01257-20261023/{brief,decisions,refs}.md
-- tasks/active/bug-report-20261022/{brief,decisions,refs}.md
-- tasks/active/onboarding-host-identity-20261023/{brief,decisions,refs}.md
-- agentwiki/docs/verification/bug-report-20261022/release/README.md
-- https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.57
+- tasks/active/notification-unread-20261023/{brief,decisions,refs}.md
+- tasks/active/bug-report-20261022/brief.md
+- tasks/active/release-v01257-20261023/brief.md
+- agentwiki/docs/verification/notification-unread-20261023/README.md
+- https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.58
 
 # 风险 / 下一步
 
-仅剩npm latest推广认证。用户准备好时运行 `npm dist-tag add @neomei/agentwiki-local-sync@0.13.5 latest --registry=https://registry.npmjs.org/ --browser=false`，打开新官方链接让用户完成安全密钥，随后回读dist-tags。无需重发包、重建或重新部署。若清理本轮tag，只在确认指向.5后处理；不更改任何其他tag。原billy的12项人工复验、真实客户端升级后的读取、Windows行为仍未冒充完成。
+billy浏览器重新读取后的未读/铃铛、单条/全部及跨标签人工复验待记录。npm latest仅在用户就绪后重新发起官方WebAuthn，不复用旧链接，不重发包。当前owned浏览器已关闭；本地临时测试数据库已清理，本轮临时冻结checkout已安全移除，源码和验证回执保留。
