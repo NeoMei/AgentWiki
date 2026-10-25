@@ -1,0 +1,66 @@
+{
+  "sourceTaskId": "cmvnzrwde01a913pya6324rid",
+  "candidateChangesCharacters": 5651,
+  "candidateChangesSha256": "d102d9faab023e5a9466389f723a9bb3a2f1a288768b7d53adebc52e72b2dd90",
+  "readOnly": true,
+  "originalPageWritten": false,
+  "statistics": {
+    "reported": { "pendingRegression": 5, "fixed": 63, "unresolved": 19, "total": 87 },
+    "actual": { "pendingRegression": 5, "fixed": 63, "unresolved": 19, "total": 87 },
+    "consistent": true,
+    "note": "The reviewed candidate reports 87, not 85."
+  },
+  "old66Coverage": {
+    "normalizedDescriptionMatches": 64,
+    "manualSemanticMatches": 2,
+    "missing": 0,
+    "rewrittenMappings": [
+      { "old": "section III row 2", "new": "section II row 5", "reason": "Personal single-page template Chinese runtime text; moved to fixed using the 10-16 evidence." },
+      { "old": "section III row 17", "new": "section III row 16", "reason": "Duplicate-folder English error message; wording shortened, original issue and source retained." }
+    ]
+  },
+  "newBatchCoverage": {
+    "datedReportLinks": 7,
+    "oct20NumberedIssues": "all 7 covered",
+    "oct21DuplicateIssues": "all 3 merged into oct20 issues with both source dates",
+    "oct22NumberedIssues": "all 12 covered",
+    "oct22NotificationBoundary": "correctly remains pending human regression after v0.12.58 service verification"
+  },
+  "findings": [
+    {
+      "id": "content-1",
+      "severity": "medium",
+      "kind": "source_omission",
+      "candidateLocation": "source list and all 87 rows",
+      "sourcePageId": "3300a11b-0daf-4617-8e4c-ff008e069b85",
+      "summary": "The old general test report is not cited or represented. Its rate-limit issue is explicitly unconfirmed, and its MCP overwrite/publish-failure reports have no explicit closure.",
+      "requiredCorrection": "Include this source; keep its confirmed image-preview fix and unresolved items, or give an evidence-backed mapping to an existing row. Do not infer that MCP overwrite/publish failure is the later parameter bug."
+    },
+    {
+      "id": "content-2",
+      "severity": "medium",
+      "kind": "lost_regression_boundary",
+      "candidateLocation": "section II rows 48, 49, 50 and 52",
+      "sourcePageIds": ["aa1739e9-092e-4b61-a4a1-8c63d634817a", "c90bcb40-1a3c-472a-a414-6a9f4298041a"],
+      "summary": "The candidate lists old-note deletion, task deletion, task rename, and mention notification as fixed without preserving explicit unperformed production actions or cross-account regression limits.",
+      "requiredCorrection": "Keep code/deployment fixed if desired, but add pending checks for real invalid-note deletion, recursive task deletion, renamed-title persistence, and cross-account notification/deep-link flows. The source proves UI entries or automation; it does not prove those actions passed in production.",
+      "claimCalibration": "The section title says it includes development and manual checks; it does not literally say every row was manually passed. This is a material qualification omission, not proof that the code remains broken."
+    },
+    {
+      "id": "content-3",
+      "severity": "low",
+      "kind": "scope_qualification",
+      "candidateLocation": "section II row 59",
+      "sourcePageId": "f31ccf05-70d0-4376-95c3-f507a5bb1bce",
+      "summary": "Relationship target filtering is reported as fixed without preserving the verified same-source, same-target, same-type boundary.",
+      "requiredCorrection": "Specify same direction and same type; do not suggest other types, reverse relationships or automatic-to-manual conversion were manually reverified."
+    }
+  ],
+  "verdict": {
+    "oldRowPreservation": "pass",
+    "countArithmetic": "pass",
+    "newDatedReportCoverage": "pass",
+    "fullSourceAndEvidenceQualification": "needs correction",
+    "runtimeSuccessMeaning": "A complete-source runtime update succeeded; this does not by itself prove the generated summary is ready to overwrite the user's original page."
+  }
+}

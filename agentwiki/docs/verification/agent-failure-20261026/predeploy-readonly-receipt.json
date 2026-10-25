@@ -1,0 +1,465 @@
+{
+  "checkedAt": "2026-10-25T20:42:01.844Z",
+  "assistTaskByStatus": [
+    {
+      "_count": {
+        "_all": 67
+      },
+      "status": "failed"
+    },
+    {
+      "_count": {
+        "_all": 1
+      },
+      "status": "cancelled"
+    },
+    {
+      "_count": {
+        "_all": 166
+      },
+      "status": "done"
+    }
+  ],
+  "collaborationRunByStatus": [
+    {
+      "_count": {
+        "_all": 3
+      },
+      "status": "ready"
+    },
+    {
+      "_count": {
+        "_all": 12
+      },
+      "status": "completed"
+    },
+    {
+      "_count": {
+        "_all": 24
+      },
+      "status": "draft"
+    },
+    {
+      "_count": {
+        "_all": 40
+      },
+      "status": "running"
+    },
+    {
+      "_count": {
+        "_all": 4
+      },
+      "status": "failed"
+    },
+    {
+      "_count": {
+        "_all": 3
+      },
+      "status": "waiting_review"
+    },
+    {
+      "_count": {
+        "_all": 2
+      },
+      "status": "paused"
+    },
+    {
+      "_count": {
+        "_all": 13
+      },
+      "status": "cancelled"
+    }
+  ],
+  "collaborationRunTaskByStatus": [
+    {
+      "_count": {
+        "_all": 169
+      },
+      "status": "blocked"
+    },
+    {
+      "_count": {
+        "_all": 66
+      },
+      "status": "ready"
+    },
+    {
+      "_count": {
+        "_all": 1
+      },
+      "status": "claimed"
+    },
+    {
+      "_count": {
+        "_all": 6
+      },
+      "status": "submitted"
+    },
+    {
+      "_count": {
+        "_all": 93
+      },
+      "status": "completed"
+    }
+  ],
+  "collaborationTaskAttemptByStatus": [
+    {
+      "_count": {
+        "_all": 3
+      },
+      "status": "invalidated"
+    },
+    {
+      "_count": {
+        "_all": 4
+      },
+      "status": "expired"
+    },
+    {
+      "_count": {
+        "_all": 103
+      },
+      "status": "completed"
+    }
+  ],
+  "activeAssistTasks": [],
+  "collaborationActiveRuns": [
+    {
+      "id": "cmth1q8dv04xr13ndpuldon03",
+      "status": "running",
+      "updatedAt": "2026-08-31T09:45:00.296Z"
+    },
+    {
+      "id": "cmtnq2fxg02dytrxh35mba04e",
+      "status": "running",
+      "updatedAt": "2026-09-05T01:48:10.819Z"
+    },
+    {
+      "id": "cmtwjjto00aq63418dv0bg3wz",
+      "status": "running",
+      "updatedAt": "2026-09-28T06:08:11.914Z"
+    },
+    {
+      "id": "cmtwnppcm0bqa34189tekycea",
+      "status": "running",
+      "updatedAt": "2026-09-11T07:50:50.154Z"
+    },
+    {
+      "id": "cmu2bobcg03bvpt1yiblphu7s",
+      "status": "running",
+      "updatedAt": "2026-09-15T07:00:39.143Z"
+    },
+    {
+      "id": "cmu2bpdn003ctpt1y6l3ix0r3",
+      "status": "running",
+      "updatedAt": "2026-09-18T05:23:52.682Z"
+    },
+    {
+      "id": "cmukmwkbr066rl5rj4aqxbxls",
+      "status": "running",
+      "updatedAt": "2026-09-28T02:35:10.853Z"
+    },
+    {
+      "id": "cmuktr46h07akl5rj70re41mq",
+      "status": "running",
+      "updatedAt": "2026-09-28T06:11:48.088Z"
+    },
+    {
+      "id": "cmukxk9vl085ql5rjuol3snvq",
+      "status": "running",
+      "updatedAt": "2026-09-28T07:38:19.306Z"
+    },
+    {
+      "id": "cmupe646h00bi88go4uucex97",
+      "status": "running",
+      "updatedAt": "2026-10-01T10:28:55.395Z"
+    },
+    {
+      "id": "cmupexvrw00t488goobbhckjm",
+      "status": "running",
+      "updatedAt": "2026-10-01T10:50:37.843Z"
+    },
+    {
+      "id": "cmupf1i9o011l88goxen50so4",
+      "status": "running",
+      "updatedAt": "2026-10-01T10:53:21.983Z"
+    },
+    {
+      "id": "cmuqifulo03xx88goenuqga06",
+      "status": "running",
+      "updatedAt": "2026-10-02T05:16:21.921Z"
+    },
+    {
+      "id": "cmuqihzr9045v88gotoauujjo",
+      "status": "running",
+      "updatedAt": "2026-10-02T05:18:02.305Z"
+    },
+    {
+      "id": "cmuyyh3b702sv1dyklo65vjfe",
+      "status": "running",
+      "updatedAt": "2026-10-08T03:07:44.125Z"
+    },
+    {
+      "id": "cmuyyswst02vj1dyktaeo347f",
+      "status": "running",
+      "updatedAt": "2026-10-08T03:16:40.434Z"
+    },
+    {
+      "id": "cmv0ilpov09xfjakfzf9vy7rv",
+      "status": "running",
+      "updatedAt": "2026-10-09T05:18:28.687Z"
+    },
+    {
+      "id": "cmv0inmxf0a0tjakfja7eqlzp",
+      "status": "running",
+      "updatedAt": "2026-10-09T05:36:02.554Z"
+    },
+    {
+      "id": "cmv1r5mle00k8pksh4tosgqzl",
+      "status": "running",
+      "updatedAt": "2026-10-10T02:05:40.898Z"
+    },
+    {
+      "id": "cmv1rz4i100xnpkshkbssudlx",
+      "status": "running",
+      "updatedAt": "2026-10-10T02:28:46.605Z"
+    },
+    {
+      "id": "cmv1tiecl0213pkshbaqmf8lq",
+      "status": "running",
+      "updatedAt": "2026-10-10T03:11:35.973Z"
+    },
+    {
+      "id": "cmv1tm0hs0227pksh9kp4nfcw",
+      "status": "running",
+      "updatedAt": "2026-10-10T03:14:24.640Z"
+    },
+    {
+      "id": "cmv4n7epa0hu5ywq9iuxyu4ql",
+      "status": "running",
+      "updatedAt": "2026-10-12T02:38:24.046Z"
+    },
+    {
+      "id": "cmv4nb02n0hvuywq9sqpeyhlm",
+      "status": "running",
+      "updatedAt": "2026-10-12T02:41:11.712Z"
+    },
+    {
+      "id": "cmv4nre480i1hywq9mu6dk167",
+      "status": "running",
+      "updatedAt": "2026-10-12T02:54:09.149Z"
+    },
+    {
+      "id": "cmv4nur3j0i73ywq981qepayh",
+      "status": "running",
+      "updatedAt": "2026-10-12T02:56:33.199Z"
+    },
+    {
+      "id": "cmv4nyoyw0iafywq96n0r9867",
+      "status": "running",
+      "updatedAt": "2026-10-13T04:13:42.226Z"
+    },
+    {
+      "id": "cmv62xcer03y01161ik122abf",
+      "status": "running",
+      "updatedAt": "2026-10-13T02:46:14.547Z"
+    },
+    {
+      "id": "cmv63ewm804bv1161bwfgjt79",
+      "status": "running",
+      "updatedAt": "2026-10-13T02:59:53.888Z"
+    },
+    {
+      "id": "cmv63glhz04de1161zlxu3gu0",
+      "status": "running",
+      "updatedAt": "2026-10-13T03:01:12.791Z"
+    },
+    {
+      "id": "cmv63i0pk04ed11611ggv5srn",
+      "status": "running",
+      "updatedAt": "2026-10-13T03:02:19.160Z"
+    },
+    {
+      "id": "cmv7j6f4m00u5o58p5iclyy6x",
+      "status": "running",
+      "updatedAt": "2026-10-14T03:09:16.021Z"
+    },
+    {
+      "id": "cmv7j831f00wzo58pkzmal1bp",
+      "status": "running",
+      "updatedAt": "2026-10-14T03:10:15.651Z"
+    },
+    {
+      "id": "cmv7j8lcp00ylo58p7hj9a6ho",
+      "status": "running",
+      "updatedAt": "2026-10-14T03:10:39.385Z"
+    },
+    {
+      "id": "cmv7jbjqf011oo58pcsfrm8iu",
+      "status": "running",
+      "updatedAt": "2026-10-14T03:12:57.255Z"
+    },
+    {
+      "id": "cmv7pr84o01bkn2yqclbqu5cb",
+      "status": "running",
+      "updatedAt": "2026-10-14T06:13:06.408Z"
+    },
+    {
+      "id": "cmv956jzb00bcnkvweqiwb8bv",
+      "status": "running",
+      "updatedAt": "2026-10-15T06:12:42.023Z"
+    },
+    {
+      "id": "cmv957orm00c3nkvwha7v2geu",
+      "status": "running",
+      "updatedAt": "2026-10-15T06:13:34.883Z"
+    },
+    {
+      "id": "cmvaej4lh05tr69tyu8g3ava9",
+      "status": "running",
+      "updatedAt": "2026-10-16T03:22:11.333Z"
+    },
+    {
+      "id": "cmvelucyn03byzv5dp78wycmi",
+      "status": "running",
+      "updatedAt": "2026-10-19T01:57:57.407Z"
+    }
+  ],
+  "sourceVerification": {
+    "expectedDocuments": 9,
+    "currentDocuments": 9,
+    "documents": [
+      {
+        "pageId": "0459b4aa-47b3-4959-b092-20c9a9d8dbf8",
+        "updatedAt": "2026-10-22T11:04:55.543Z",
+        "chars": 4258,
+        "sha256": "9e7decb744cc74a33844f324f79a965371ab36e51b2deeda7144b1d4300836c5",
+        "matchProbe": true
+      },
+      {
+        "pageId": "117ada12-8288-4055-b547-459db6dc4c54",
+        "updatedAt": "2026-10-22T11:04:55.543Z",
+        "chars": 2462,
+        "sha256": "6e0de5360d2b3a4f86f30e66eba9ec07bc0b2e7142ec2d54ede35e0be6537c4b",
+        "matchProbe": true
+      },
+      {
+        "pageId": "3300a11b-0daf-4617-8e4c-ff008e069b85",
+        "updatedAt": "2026-10-22T11:04:55.543Z",
+        "chars": 536,
+        "sha256": "9eab531eae5687ce68cb7f21966141b9bc2879d4919ea0eee20bd142769808ec",
+        "matchProbe": true
+      },
+      {
+        "pageId": "4088516b-4f90-4803-aeb2-7ddc63a86c32",
+        "updatedAt": "2026-10-22T11:04:55.543Z",
+        "chars": 31174,
+        "sha256": "56e87ba342b69ef6ea44fb5cc6ec4007d05f9f040651d1463dc917ba6d52a51d",
+        "matchProbe": true
+      },
+      {
+        "pageId": "4ca9b323-82c2-4077-b9f2-b025fff74d98",
+        "updatedAt": "2026-10-22T11:04:55.543Z",
+        "chars": 48693,
+        "sha256": "5b95c16c61272fa7234edba3dcd32d1a5acaa755eae9e714e499a5e51b3fc396",
+        "matchProbe": true
+      },
+      {
+        "pageId": "aa1739e9-092e-4b61-a4a1-8c63d634817a",
+        "updatedAt": "2026-10-22T11:04:55.543Z",
+        "chars": 14151,
+        "sha256": "54edac7a9c2b98c4a20eba8e04b8f4e64fbb8001e47462c0083bae470c5f7494",
+        "matchProbe": true
+      },
+      {
+        "pageId": "c74b5272-7110-414c-a948-4bf03073d028",
+        "updatedAt": "2026-10-22T11:04:55.543Z",
+        "chars": 17097,
+        "sha256": "9cd0be4f9a3f3d7375cf417250a597036f8ba159a4aa38ce333dba233f99a5bf",
+        "matchProbe": true
+      },
+      {
+        "pageId": "c90bcb40-1a3c-472a-a414-6a9f4298041a",
+        "updatedAt": "2026-10-22T11:04:55.543Z",
+        "chars": 3373,
+        "sha256": "e059e43bd4d3ecee7bb7ce8d9aa76c128ee0800dac75ec772178f46eee1e8960",
+        "matchProbe": true
+      },
+      {
+        "pageId": "f31ccf05-70d0-4376-95c3-f507a5bb1bce",
+        "updatedAt": "2026-10-23T14:06:42.652Z",
+        "chars": 16135,
+        "sha256": "281fc842bb04f9af6dc566b6d7a013e5cb7f6b4b0c8cd350ae0b41691d5a7555",
+        "matchProbe": true
+      }
+    ],
+    "allMatch": true
+  },
+  "serviceHealth": {
+    "agentwiki-api.service": {
+      "activeState": "active",
+      "subState": "running",
+      "mainPid": 2009836,
+      "restarts": 0
+    },
+    "agentwiki-worker.service": {
+      "activeState": "active",
+      "subState": "running",
+      "mainPid": 2009839,
+      "restarts": 0
+    },
+    "agentwiki-frontend.service": {
+      "activeState": "active",
+      "subState": "running",
+      "mainPid": 2010418,
+      "restarts": 0
+    },
+    "localApi": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "publicApi": {
+      "status": "ok",
+      "database": "ok",
+      "redis": "ok",
+      "auditPersistence": "ok",
+      "attachmentStorage": "ok"
+    },
+    "localFrontendHttpStatus": 200,
+    "publicFrontendHttpStatus": 200
+  },
+  "disk": {
+    "filesystem": "/dev/vda1",
+    "mount": "/",
+    "size": "500G",
+    "used": "238G",
+    "available": "263G",
+    "usedPercent": 48
+  },
+  "collaborationActiveExecution": {
+    "activeAttemptCount": 0,
+    "staleRunningRunCount": 40,
+    "staleClaimedTaskCount": 1,
+    "claimedTaskId": "07ef8d05-d79a-44f9-ba46-ccd1d9ea924b",
+    "claimedTaskUpdatedAt": "2026-10-08T03:32:14.430Z",
+    "claimedTaskRunStatus": "failed",
+    "claimedTaskAttemptStatus": "invalidated",
+    "claimedTaskLeaseExpiredAt": "2026-10-08T03:42:14.431Z",
+    "latestRunEventAt": "2026-10-14T17:12:48.312Z",
+    "note": "Historical nonterminal workflow rows exist; no current claimed/running attempt. No workflow state was changed."
+  },
+  "credentialLookup": {
+    "scope": "Explicit repository verification files only; no password stores or browser tokens inspected",
+    "existingPersistentHumanTestCredentialsFound": false,
+    "supportingFiles": [
+      "docs/verification/completion-audit-2026-08-18.md",
+      "docs/verification/agentwikiq2-v01211.md",
+      "docs/verification/space-cards-v01221-release.md",
+      "docs/verification/bug-retest-remaining-20261015/acceptance.md"
+    ],
+    "note": "Prior verification records describe temporary test accounts and cleanup. No JWT fabricated and no account created."
+  }
+}
