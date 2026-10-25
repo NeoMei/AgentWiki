@@ -1,6 +1,6 @@
 # AgentWiki brand-only update (2026-10-25)
 
-The public brand is now **AgentWiki** in both Chinese and English. The approved minimalist Chinese-knot mark remains the visual logo; no visible `天枢` or `Tianshu` name remains in the public home, guide, login, registration, or workspace navigation.
+The public brand is localized as **天枢** in Chinese and **AgentWiki** in English. The approved minimalist Chinese-knot mark remains the visual logo; the English UI contains no `Tianshu` spelling.
 
 ## Source and validation
 
@@ -9,7 +9,7 @@ The public brand is now **AgentWiki** in both Chinese and English. The approved 
 - Client build passed; initial JavaScript was `550514/551000` bytes.
 - Six related client test files passed: 70 tests.
 - Browser checks passed at 320px local, desktop local, and 390px production widths. No horizontal overflow was observed.
-- Production HTML and four PNG/SVG entry assets matched the local build byte-for-byte. Production title is `AgentWiki`; DOM text contains neither `天枢` nor `Tianshu`.
+- Production HTML and four PNG/SVG entry assets matched the local build byte-for-byte. Production title is `天枢` in Chinese and `AgentWiki` in English; the English DOM contains no `Tianshu` spelling.
 - Production API health: `status`, `database`, `redis`, `auditPersistence`, and `attachmentStorage` all `ok`.
 
 ## Deployment and rollback
@@ -21,4 +21,4 @@ The public brand is now **AgentWiki** in both Chinese and English. The approved 
 
 ## Logo assets
 
-The approved mark was extracted with imagegen from the user-approved Chinese-knot concept, then exported as transparent PNGs at 256px (brand), 64px (favicon), and 180px (touch icon). The legacy favicon.svg wraps the PNG rather than claiming to be vector artwork. Internal versioned asset paths retain their original `tianshu-` prefix for continuity; visible names are AgentWiki. The extraction prompt is saved alongside this record.
+The approved mark was extracted with imagegen from the user-approved Chinese-knot concept, then exported as transparent PNGs at 256px (brand), 64px (favicon), and 180px (touch icon). The legacy favicon.svg wraps the PNG rather than claiming to be vector artwork. The active website asset paths use the `agentwiki-` prefix; older immutable `tianshu-` assets remain retained only for already-open tabs and rollback compatibility. The extraction prompt is saved alongside this record.
