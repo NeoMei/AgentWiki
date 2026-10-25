@@ -7,7 +7,8 @@ import { AgentSessionPanel } from './AgentSessionPanel';
 import type { AgentSessionPanelProps, AgentTurn } from './agentSessionTypes';
 import { captureAssistTarget } from '../page/assistTargets';
 vi.mock('../../api/client', () => ({ default: { get: vi.fn(), post: vi.fn(), patch: vi.fn() } }));
-vi.mock('../../context/LanguageContext', () => ({ useLanguage: () => ({ language: 'en', t: (key: string) => key }) }));
+const languageState = vi.hoisted(() => ({ value: 'en' }));
+vi.mock('../../context/LanguageContext', () => ({ useLanguage: () => ({ language: languageState.value, t: (key: string) => key }) }));
 vi.mock('../../components/markdown/MermaidDiagram', () => ({
   MermaidDiagram: ({ source }: { source: string }) => <div data-testid="agent-mermaid-diagram">{source}</div>,
 }));
@@ -37,6 +38,7 @@ function openCandidate() {
 }
 let turns: AgentTurn[];
 beforeEach(() => {
+  languageState.value = 'en';
   localStorage.clear(); auth.id = 'user-a'; turns = [turn];
   vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/assist/sessions' ? [summary] : url === '/assist/sessions/session-a' ? { ...summary, turns } : { results: [{ page: { id: 'page-b', title: 'Reference B', spaceId: 'space-a' } }] } }));
   vi.mocked(api.post).mockImplementation(async (url, data: any) => url === '/assist/sessions' ? { data: { ...summary, id: 'session-new', title: 'New conversation' } } : { data: { ...turn, ...data, id: 'turn-new', sessionId: summary.id, status: 'queued', pageSnapshot: data.snapshot, references: [], result: null } });
@@ -998,6 +1000,31 @@ it('closes context settings on blur to the browser without forcing focus back', 
 
 
 describe('execution feedback', () => {
+  it('explains a timeout in Chinese without displaying the raw error', async () => {
+    languageState.value = 'zh-CN';
+    turns = [{ ...turn, status: 'failed', result: null, error: 'SECRET raw provider error', failureCode: 'timeout' }];
+    render(tree());
+    expect(await screen.findByRole('alert')).toHaveTextContent('执行超时，本轮未保存任何文档修改。');
+    expect(screen.queryByText(/SECRET/)).not.toBeInTheDocument();
+  });
+  it.each([
+    ['timeout', /execution timed out/], ['invalid_output', /response format/],
+    ['service_unavailable', /service is unavailable/], ['rate_limited', /busy or rate limited/], ['output_limit', /output limit/],
+  ])('shows the safe %s failure reason without raw provider details', async (failureCode, expected) => {
+    turns = [{ ...turn, status: 'failed', result: null, error: 'SECRET raw provider error', failureCode } as AgentTurn];
+    render(tree());
+    expect(await screen.findByRole('alert')).toHaveTextContent(expected);
+    expect(screen.getByRole('alert')).toHaveTextContent('No document changes were saved');
+    expect(screen.queryByText(/SECRET/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the generic message for an unknown failure category instead of rendering server prose', async () => {
+    turns = [{ ...turn, status: 'failed', result: null, error: 'SECRET provider response', failureCode: 'constructor' } as unknown as AgentTurn];
+    render(tree());
+    expect(await screen.findByRole('alert')).toHaveTextContent('This turn failed.');
+    expect(screen.queryByText(/SECRET/)).not.toBeInTheDocument();
+  });
+
   it('responds immediately while sending and keeps phase feedback separate from the answer', async () => {
     let finish!: (value: any) => void;
     vi.mocked(api.post).mockReturnValue(new Promise((resolve) => { finish = resolve; }) as any);

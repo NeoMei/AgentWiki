@@ -11,6 +11,7 @@ import { assertDirectoryReadable, captureDirectory, DirectoryLimitException, dir
 import {
   AGENT_OUTPUT_LIMIT_ERROR, AGENT_SESSION_LIMITS as LIMIT, AgentHistoryTurn, AgentSessionContext, AgentSessionDetail,
   AgentDocumentReceipt, AgentSessionSummary, AgentTurnMode, AgentTurnRequest, AgentTurnStatus, AgentTurnView,
+  safeAgentFailureCode, safeAgentFailureMessage,
 } from './assist-session.types';
 
 /** A single conversation has lost its source; unrelated sessions remain usable. */
@@ -171,14 +172,16 @@ export class AssistSessionService {
       const result = this.publicResult(turn);
       const context = this.context(turn);
       const status = turn.status as AgentTurnStatus;
+      const failureCode = this.failureCode(turn);
       const failure = status === 'failed'
-        ? (turn.error === AGENT_OUTPUT_LIMIT_ERROR ? AGENT_OUTPUT_LIMIT_ERROR : 'Assistant failed; retry with a new turn')
+        ? (failureCode ? safeAgentFailureMessage(failureCode) : 'Assistant failed; retry with a new turn')
         : status === 'cancelled' ? 'The previous assistant turn was cancelled before completion' : undefined;
       const item: AgentHistoryTurn = { intent: turn.intent, answer: result?.summary || '', mode: turn.mode as AgentTurnMode, pageId: turn.pageId,
         status,
         pageSnapshot: isObject(turn.pageSnapshot) ? turn.pageSnapshot : null,
         references: context.references,
         ...(failure ? { error: failure } : {}),
+        ...(failureCode ? { failureCode } : {}),
         ...(context.directory ? { directory: directoryScope(context.directory) } : {}),
         ...(result?.changes ? { changes: result.changes } : {}),
         ...(result?.action ? { action: result.action } : {}),
@@ -317,8 +320,15 @@ export class AssistSessionService {
       ...((task.mode === 'proposal' || (action && action !== 'answer')) && typeof task.result.changes === 'string' ? { changes: task.result.changes } : {}),
       ...(action ? { action } : {}), ...(document ? { document } : {}) };
   }
+  private failureCode(task: AssistTask) {
+    if (task.status !== 'failed') return undefined;
+    if (task.error === AGENT_OUTPUT_LIMIT_ERROR) return 'output_limit' as const;
+    const failure = isObject(task.result) ? task.result.failure : undefined;
+    return isObject(failure) ? safeAgentFailureCode(failure.code) : undefined;
+  }
   private view(task: AssistTask): AgentTurnView {
     const context = this.context(task);
+    const failureCode = this.failureCode(task);
     const progress = task.status === 'running' && isObject(task.result) ? sanitizeAgentProgress(task.result.progress) : undefined;
     return { id: task.id, sessionId: task.sessionId!, pageId: task.pageId, mode: task.mode as AgentTurnMode,
       intent: task.intent, status: task.status as AgentTurnStatus, createdAt: task.createdAt.toISOString(),
@@ -326,6 +336,7 @@ export class AssistSessionService {
       ...(context.directory ? { directory: directoryScope(context.directory) } : {}),
       references: context.references.map(({ pageId, title, updatedAt }) => ({ pageId, title, updatedAt })),
       noteIds: context.noteIds, ...(context.annotations ? { annotations: context.annotations.map(({ id, body, quote }) => ({ id, body, quote })) } : {}), progressText: task.progressText || '', ...(progress ? { progress } : {}), result: this.publicResult(task),
-      error: task.status === 'failed' ? (task.error === AGENT_OUTPUT_LIMIT_ERROR ? AGENT_OUTPUT_LIMIT_ERROR : 'Assistant failed; retry with a new turn') : null };
+      ...(failureCode ? { failureCode } : {}),
+      error: task.status === 'failed' ? (failureCode ? safeAgentFailureMessage(failureCode) : 'Assistant failed; retry with a new turn') : null };
   }
 }

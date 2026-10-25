@@ -21,6 +21,17 @@ describe('directory MCP real stdio boundary', () => {
     expect(result.isError).not.toBe(true);
     return JSON.parse((result.content as Array<{ text: string }>)[0].text);
   };
+  let snapshotCounter = 0;
+  const withSnapshot = async (scopeDocuments: typeof documents, run: (scopedClient: Client) => Promise<void>, title = 'Research') => {
+    const snapshot = join(sandbox, `case-${snapshotCounter++}.json`);
+    writeFileSync(snapshot, JSON.stringify({ folderId: 'folder', title, recursive: true, documents: scopeDocuments }));
+    const scopedClient = new Client({ name: 'bounded-response-test', version: '1' });
+    try {
+      await scopedClient.connect(new StdioClientTransport({ command: process.execPath,
+        args: [join(sandbox, 'directory.cjs'), snapshot], env: { NODE_PATH: resolve(__dirname, '../../node_modules') }, stderr: 'pipe' }));
+      await run(scopedClient);
+    } finally { await scopedClient.close(); }
+  };
 
   beforeAll(async () => {
     sandbox = mkdtempSync(join(tmpdir(), 'assist-directory-stdio-'));
@@ -117,6 +128,79 @@ describe('directory MCP real stdio boundary', () => {
     }
     expect(assembled).toBe(content);
     expect(await call('read_document', { pageId: 'page-0', offset: content.length })).toMatchObject({ content: '', hasMore: false, nextOffset: null });
+  });
+
+  it.each([
+    ['Chinese', '汉'.repeat(20_000) + 'END'],
+    ['JSON escaping', '\u0000"\n\\'.repeat(5_000) + '尾🙂'],
+    ['emoji', '🙂'.repeat(10_000) + 'END'],
+  ])('keeps every %s page below 40 KiB and reconstructs the exact complete source', async (_label, body) => {
+    await withSnapshot([{ ...documents[0], content: body }], async scopedClient => {
+      let assembled = '';
+      let offset = 0;
+      for (let iteration = 0; iteration < 100; iteration += 1) {
+        const result = await scopedClient.callTool({ name: 'read_document', arguments: { pageId: 'page-0', offset, length: 20_000 } });
+        expect(result.isError).not.toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(40 * 1024);
+        expect(text.split('\n')).toHaveLength(1);
+        const page = JSON.parse(text);
+        expect(page.offset).toBe(offset);
+        expect(page.content.length).toBeLessThanOrEqual(20_000);
+        expect(/^[\udc00-\udfff]|[\ud800-\udbff]$/u.test(page.content)).toBe(false);
+        assembled += page.content;
+        if (!page.hasMore) { expect(page.nextOffset).toBeNull(); break; }
+        expect(page.nextOffset).toBe(offset + page.content.length);
+        expect(page.nextOffset).toBeGreaterThan(offset);
+        offset = page.nextOffset;
+      }
+      expect(assembled === body).toBe(true);
+    });
+  });
+
+  it('does not split a surrogate pair at a requested page boundary or silently stall', async () => {
+    await withSnapshot([{ ...documents[0], content: 'A🙂B' }], async scopedClient => {
+      const first = await scopedClient.callTool({ name: 'read_document', arguments: { pageId: 'page-0', length: 2 } });
+      expect(JSON.parse((first.content as Array<{ text: string }>)[0].text)).toMatchObject({ content: 'A', nextOffset: 1 });
+      const next = await scopedClient.callTool({ name: 'read_document', arguments: { pageId: 'page-0', offset: 1, length: 2 } });
+      expect(JSON.parse((next.content as Array<{ text: string }>)[0].text)).toMatchObject({ content: '🙂', nextOffset: 3 });
+      expect((await scopedClient.callTool({ name: 'read_document', arguments: { pageId: 'page-0', offset: 1, length: 1 } })).isError).toBe(true);
+      expect((await scopedClient.callTool({ name: 'read_document', arguments: { pageId: 'page-0', offset: 2 } })).isError).toBe(true);
+    });
+  });
+
+  it('bounds list metadata by bytes and exposes a cursor for every omitted entry', async () => {
+    const largeTitles = documents.map(document => ({ ...document, title: '长标题'.repeat(500) }));
+    await withSnapshot(largeTitles, async scopedClient => {
+      const seen: string[] = [];
+      let cursor = 0;
+      for (let iteration = 0; iteration < 103; iteration += 1) {
+        const result = await scopedClient.callTool({ name: 'list_documents', arguments: { cursor, limit: 100 } });
+        expect(result.isError).not.toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(Buffer.byteLength(text, 'utf8')).toBeLessThanOrEqual(40 * 1024);
+        const page = JSON.parse(text);
+        seen.push(...page.documents.map((document: { pageId: string }) => document.pageId));
+        if (!page.hasMore) { expect(page.nextCursor).toBeNull(); break; }
+        expect(page.nextCursor).toBe(cursor + page.documents.length);
+        expect(page.nextCursor).toBeGreaterThan(cursor);
+        cursor = page.nextCursor;
+      }
+      expect(seen).toEqual(documents.map(document => document.pageId));
+    });
+  });
+
+  it('errors when a metadata envelope alone cannot fit instead of returning an oversized or zero-progress page', async () => {
+    await withSnapshot([{ ...documents[0], title: '过'.repeat(14_000), content: '' }], async scopedClient => {
+      for (const name of ['list_documents', 'read_document']) {
+        const result = await scopedClient.callTool({ name, arguments: name === 'read_document' ? { pageId: 'page-0' } : {} });
+        expect(result.isError).toBe(true);
+        expect(Buffer.byteLength(JSON.stringify(result), 'utf8')).toBeLessThan(40 * 1024);
+      }
+    });
+    await withSnapshot([], async scopedClient => {
+      expect((await scopedClient.callTool({ name: 'list_documents', arguments: {} })).isError).toBe(true);
+    }, '过'.repeat(14_000));
   });
 
   it.each([

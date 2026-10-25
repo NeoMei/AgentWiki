@@ -265,6 +265,23 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, direct
     network: zh ? '请求失败，输入已保留。请重试。' : 'Request failed. Your message is preserved. Please retry.',
   };
   const statuses = zh ? { queued: '排队中', running: '执行中', done: '已完成', failed: '失败', cancelled: '已停止' } : { queued: 'Queued', running: 'Running', done: 'Done', failed: 'Failed', cancelled: 'Stopped' };
+  const failureMessage = (turn: AgentTurn) => {
+    const messages: Record<string, string> = zh ? {
+      timeout: '执行超时，本轮未保存任何文档修改。可缩小处理范围后重试。',
+      invalid_output: '模型返回的格式不符合要求，本轮未保存任何文档修改。请重试；若持续出现，请联系管理员。',
+      service_unavailable: 'Agent 服务暂不可用，本轮未保存任何文档修改。请联系管理员检查服务配置。',
+      rate_limited: '模型服务繁忙或请求受限，本轮未保存任何文档修改。请稍后重试。',
+      output_limit: '生成内容超过输出上限，本轮未保存任何文档修改。请缩小修改范围或分章节处理。',
+    } : {
+      timeout: 'Assistant execution timed out. No document changes were saved. Retry with a smaller scope.',
+      invalid_output: 'The model response format was invalid. No document changes were saved. Retry, or contact an administrator if this persists.',
+      service_unavailable: 'The Agent service is unavailable. No document changes were saved. Ask an administrator to check the service configuration.',
+      rate_limited: 'The model service is busy or rate limited. No document changes were saved. Please retry later.',
+      output_limit: 'The response exceeded the output limit. No document changes were saved. Reduce the edit scope or work one section at a time.',
+    };
+    return turn.failureCode && Object.prototype.hasOwnProperty.call(messages, turn.failureCode) ? messages[turn.failureCode]
+      : zh ? '本轮执行失败。可检查上下文后重试，或新建会话。' : 'This turn failed. Check the context and retry, or start a new conversation.';
+  };
   const regenerate = (turn: AgentTurn) => {
     if (!pageId) return;
     const originalTarget = turn.pageSnapshot?.assistTarget;
@@ -354,7 +371,7 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, direct
             {turn.status === 'queued' || turn.status === 'running' ? <AgentActivity status={turn.status} progress={turn.progress} createdAt={turn.createdAt} /> : null}
             {turn.directory ? <p className="mb-2 text-xs text-gray-500" aria-label={messages['agent.directoryRead']}>{turn.directory.unavailableReason ? `${turn.directory.title} · ${messages['agent.directoryUnavailable']}` : <>{turn.directory.title} · {turn.directory.pageCount}{zh ? ' 篇文档' : ` ${turn.directory.pageCount === 1 ? 'page' : 'pages'}`}{turn.directory.recursive ? ` · ${messages['agent.subfolders']}` : ''}</>}</p> : null}
             {turn.result?.summary || turn.progressText ? <Markdown className="agent-reply-content" allowImages={false} highlightCode={false}>{turn.result?.summary ?? turn.progressText}</Markdown> : null}
-            {turn.status === 'failed' ? <p role="alert" className="text-xs text-red-700">{zh ? '本轮执行失败。可检查上下文后重试，或新建会话。' : 'This turn failed. Check the context and retry, or start a new conversation.'}</p> : null}
+            {turn.status === 'failed' ? <p role="alert" className="text-xs text-red-700">{failureMessage(turn)}</p> : null}
             {turn.result?.document ? <div className="agent-acceptance-receipt"><p>{turn.result.document.operation === 'created' ? (zh ? '文档已创建并保存。' : 'Document created and saved.') : (zh ? '文档已修改并保存。' : 'Document updated and saved.')}</p><Link to={`/pages/${encodeURIComponent(turn.result.document.pageId)}`}>{turn.result.document.title}</Link></div> : candidate?.status === 'accepted' || candidate?.acceptedEditIds?.length ? <div className="agent-acceptance-receipt"><p>{zh ? '已接受到草稿，仍需保存页面。' : 'Accepted to draft. Save the page to publish these changes.'}</p><details className="agent-acceptance-history"><summary>{zh ? '接受记录说明' : 'About this acceptance record'}</summary><p className="text-xs text-gray-600">{zh ? '历史接受记录：曾接受到草稿。编辑器撤销/重做只改变正文，不回退本记录或笔记；再次应用请重新生成。' : 'Acceptance record: previously accepted into the draft. Editor Undo/Redo changes text, not this record or notes. Regenerate to apply again.'}</p></details></div> : null}
             {turn.mode === 'proposal' && candidate && candidate.status !== 'generating' ? <div className="agent-candidate-review">
               {(!samePage || !canAccept) && turn.pageId ? <Link className="block text-blue-700" to={`/pages/${turn.pageId}/edit`}>{zh ? '打开目标文档编辑以审阅' : 'Open target document to review'}</Link> : null}

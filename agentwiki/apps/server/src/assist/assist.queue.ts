@@ -9,7 +9,7 @@ import { AuthorizationService } from '../core/authorization/authorization.servic
 import { assertAssistOutputScope, assertAssistTargetVersion, validateAssistTarget } from './assist-target';
 import { AssistSessionService } from './assist-session.service';
 import { AssistDocumentWriter, validateAutoDocumentResult } from './assist-document-writer';
-import { AgentAutoResult, AgentDocumentReceipt, AgentTurnMode, AGENT_SESSION_LIMITS as LIMIT, AGENT_OUTPUT_LIMIT_ERROR } from './assist-session.types';
+import { AgentAutoResult, AgentDocumentReceipt, AgentTurnMode, AgentFailureCode, AGENT_SESSION_LIMITS as LIMIT, AGENT_OUTPUT_LIMIT_ERROR, safeAgentFailureCode, safeAgentFailureMessage } from './assist-session.types';
 import { CollaborationGateway } from '../core/collaboration/collaboration.gateway';
 import { sanitizeAgentProgress } from './assist-progress';
 
@@ -278,14 +278,22 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
       abort.abort();
       await progress;
       const routing = error instanceof OpencodeRoutingError ? error : undefined;
-      const outputLimit = (error instanceof BadRequestException && error.message === AGENT_OUTPUT_LIMIT_ERROR) || routing?.result.attempts?.some(attempt => attempt.errorCode === 'output_limit');
+      // Match only the router's fixed error envelope. Never classify arbitrary
+      // exception/provider prose (which may contain misleading keywords).
+      const runtimeCode = routing?.message.match(/^OpenCode routing failed: ([a-z_]+)$/u)?.[1];
+      const outputLimit = (error instanceof BadRequestException && error.message === AGENT_OUTPUT_LIMIT_ERROR) || runtimeCode === 'output_limit';
+      const failureCode: AgentFailureCode | undefined = outputLimit ? 'output_limit'
+        : runtimeCode === 'budget_exhausted' || runtimeCode === 'timeout' ? 'timeout'
+          : ['auth_failed', 'no_models', 'configuration_error', 'binary_unavailable', 'model_unavailable', 'process_error'].includes(runtimeCode || '')
+            ? 'service_unavailable' : safeAgentFailureCode(runtimeCode);
+      const failureMessage = failureCode ? safeAgentFailureMessage(failureCode) : undefined;
       this.logger.warn(`Assist task ${task.id} failed: ${error instanceof Error ? error.message : String(error)}${routing?.result.attempts ? `; attempts=${JSON.stringify(routing.result.attempts.map(attempt => ({ model: attempt.model, status: attempt.status, errorCode: attempt.errorCode })))}` : ''}`);
       const completion = await this.prisma.assistTask.updateMany({
         where: this.activeTaskWhere(task),
         data: {
-          status: 'failed', error: task.sessionId ? (outputLimit ? AGENT_OUTPUT_LIMIT_ERROR : 'Assistant failed; retry with a new turn') : routing ? routing.message : 'Editing assistant failed',
+          status: 'failed', error: task.sessionId ? (outputLimit ? AGENT_OUTPUT_LIMIT_ERROR : failureMessage || 'Assistant failed; retry with a new turn') : routing ? routing.message : 'Editing assistant failed',
           ...(routing && !task.sessionId ? { result: routing.result as any } : {}),
-          ...(task.sessionId ? { progressText: '', result: Prisma.DbNull } : {}),
+          ...(task.sessionId ? { progressText: '', result: failureCode ? { failure: { code: failureCode } } : Prisma.DbNull } : {}),
           completedAt: new Date(), leaseOwner: null, leaseExpiresAt: null, lockedAt: null,
         },
       });

@@ -319,6 +319,35 @@ describe('AssistQueue task processing', () => {
     expect(prisma.assistTask.update).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['budget_exhausted', 'timeout'], ['timeout', 'timeout'], ['invalid_output', 'invalid_output'],
+    ['auth_failed', 'service_unavailable'], ['no_models', 'service_unavailable'],
+    ['configuration_error', 'service_unavailable'], ['rate_limited', 'rate_limited'], ['output_limit', 'output_limit'],
+  ])('retains a safe session failure category for %s without provider details', async (code, expected) => {
+    const sessions = { executionContext: async () => ({ history: [] }) };
+    const queue = new AssistQueue(prisma, config, runner, gateway, new AuthorizationService(prisma), new SpaceRevisionWriterService(prisma, {} as any), sessions as any);
+    runner.run.mockRejectedValue(new OpencodeRoutingError(`OpenCode routing failed: ${code}`, {
+      summary: 'SECRET provider response', raw: 'SECRET body', model: 'SECRET model',
+      attempts: [{ model: 'SECRET model', tier: 'paid', durationMs: 300_000, status: 'failed', errorCode: 'timeout', usage: EMPTY_USAGE, cost: 0 }],
+    }));
+    await (queue as any).processOne({ id: 't1', spaceId: 'space-1', requestedByUserId: 'user-1', sessionId: 's1', pageId: 'page-1', mode: 'auto', intent: 'update', pageSnapshot: {} });
+    const failed = prisma.assistTask.updateMany.mock.calls.map((call: any[]) => call[0].data).find((data: any) => data.status === 'failed');
+    expect(failed.result).toEqual({ failure: { code: expected } });
+    expect(JSON.stringify({ error: failed.error, result: failed.result })).not.toContain('SECRET');
+  });
+
+  it('reports the final timeout even when an earlier model hit its output limit', async () => {
+    const sessions = { executionContext: async () => ({ history: [] }) };
+    const queue = new AssistQueue(prisma, config, runner, gateway, new AuthorizationService(prisma), new SpaceRevisionWriterService(prisma, {} as any), sessions as any);
+    runner.run.mockRejectedValue(new OpencodeRoutingError('OpenCode routing failed: budget_exhausted', {
+      summary: 'Failed', attempts: [{ model: 'primary', tier: 'paid', durationMs: 1, status: 'failed', errorCode: 'output_limit', usage: EMPTY_USAGE, cost: 0 }],
+    }));
+    await (queue as any).processOne({ id: 't1', spaceId: 'space-1', requestedByUserId: 'user-1', sessionId: 's1', pageId: 'page-1', mode: 'auto', intent: 'update', pageSnapshot: {} });
+    const failed = prisma.assistTask.updateMany.mock.calls.map((call: any[]) => call[0].data).find((data: any) => data.status === 'failed');
+    expect(failed.result).toEqual({ failure: { code: 'timeout' } });
+    expect(failed.error).toContain('timed out');
+  });
+
   it('absorbs and logs tick failures', async () => {
     const queue = createQueue();
     jest.spyOn(queue as any, 'tick').mockRejectedValue(new Error('database unavailable'));

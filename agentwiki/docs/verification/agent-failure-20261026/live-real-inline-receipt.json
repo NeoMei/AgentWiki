@@ -1,0 +1,437 @@
+{
+  "taskId": "cmvnzrwde01a913pya6324rid",
+  "readOnly": true,
+  "candidate": true,
+  "privateDirectory": "/var/tmp/agentwiki-real-probe-V0G33M",
+  "subprocesses": [
+    {
+      "index": 0,
+      "invocation": "catalog",
+      "startedAt": "2026-10-25T20:34:12.314Z",
+      "events": [],
+      "stdoutBytes": 384,
+      "stderrBytes": 0,
+      "stdin": {
+        "chars": 0,
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "sourceSnapshotParsed": false,
+        "sourceSnapshotDocumentCount": 0,
+        "sourceSnapshotUniqueIds": 0,
+        "allSourceBodiesPresent": false,
+        "documentCoverage": [
+          {
+            "pageId": "f31ccf05-70d0-4376-95c3-f507a5bb1bce",
+            "chars": 16135,
+            "sha256": "281fc842bb04f9af6dc566b6d7a013e5cb7f6b4b0c8cd350ae0b41691d5a7555",
+            "decodedPromptChars": null,
+            "decodedPromptSha256": null,
+            "completeBodyInPrompt": false
+          },
+          {
+            "pageId": "c90bcb40-1a3c-472a-a414-6a9f4298041a",
+            "chars": 3373,
+            "sha256": "e059e43bd4d3ecee7bb7ce8d9aa76c128ee0800dac75ec772178f46eee1e8960",
+            "decodedPromptChars": null,
+            "decodedPromptSha256": null,
+            "completeBodyInPrompt": false
+          },
+          {
+            "pageId": "aa1739e9-092e-4b61-a4a1-8c63d634817a",
+            "chars": 14151,
+            "sha256": "54edac7a9c2b98c4a20eba8e04b8f4e64fbb8001e47462c0083bae470c5f7494",
+            "decodedPromptChars": null,
+            "decodedPromptSha256": null,
+            "completeBodyInPrompt": false
+          },
+          {
+            "pageId": "117ada12-8288-4055-b547-459db6dc4c54",
+            "chars": 2462,
+            "sha256": "6e0de5360d2b3a4f86f30e66eba9ec07bc0b2e7142ec2d54ede35e0be6537c4b",
+            "decodedPromptChars": null,
+            "decodedPromptSha256": null,
+            "completeBodyInPrompt": false
+          },
+          {
+            "pageId": "c74b5272-7110-414c-a948-4bf03073d028",
+            "chars": 17097,
+            "sha256": "9cd0be4f9a3f3d7375cf417250a597036f8ba159a4aa38ce333dba233f99a5bf",
+            "decodedPromptChars": null,
+            "decodedPromptSha256": null,
+            "completeBodyInPrompt": false
+          },
+          {
+            "pageId": "4088516b-4f90-4803-aeb2-7ddc63a86c32",
+            "chars": 31174,
+            "sha256": "56e87ba342b69ef6ea44fb5cc6ec4007d05f9f040651d1463dc917ba6d52a51d",
+            "decodedPromptChars": null,
+            "decodedPromptSha256": null,
+            "completeBodyInPrompt": false
+          },
+          {
+            "pageId": "4ca9b323-82c2-4077-b9f2-b025fff74d98",
+            "chars": 48693,
+            "sha256": "5b95c16c61272fa7234edba3dcd32d1a5acaa755eae9e714e499a5e51b3fc396",
+            "decodedPromptChars": null,
+            "decodedPromptSha256": null,
+            "completeBodyInPrompt": false
+          },
+          {
+            "pageId": "0459b4aa-47b3-4959-b092-20c9a9d8dbf8",
+            "chars": 4258,
+            "sha256": "9e7decb744cc74a33844f324f79a965371ab36e51b2deeda7144b1d4300836c5",
+            "decodedPromptChars": null,
+            "decodedPromptSha256": null,
+            "completeBodyInPrompt": false
+          },
+          {
+            "pageId": "3300a11b-0daf-4617-8e4c-ff008e069b85",
+            "chars": 536,
+            "sha256": "9eab531eae5687ce68cb7f21966141b9bc2879d4919ea0eee20bd142769808ec",
+            "decodedPromptChars": null,
+            "decodedPromptSha256": null,
+            "completeBodyInPrompt": false
+          }
+        ]
+      },
+      "exitCode": 0,
+      "signal": null,
+      "elapsedMs": 946
+    },
+    {
+      "index": 1,
+      "invocation": "model",
+      "startedAt": "2026-10-25T20:34:13.262Z",
+      "events": [
+        {
+          "atMs": 1889,
+          "type": "step_start",
+          "toolTruncated": false
+        },
+        {
+          "atMs": 6283,
+          "type": "text",
+          "textChars": 31,
+          "toolTruncated": false
+        }
+      ],
+      "stdoutBytes": 586,
+      "stderrBytes": 0,
+      "stdin": {
+        "chars": 2536,
+        "bytes": 2638,
+        "sha256": "9ed81e31ac4b4050c894de41b83dc41642757467f39b7cee25cf3ce7120b9cb0",
+        "sourceSnapshotParsed": false,
+        "sourceSnapshotDocumentCount": 0,
+        "sourceSnapshotUniqueIds": 0,
+        "allSourceBodiesPresent": false,
+        "documentCoverage": [
+          {
+            "pageId": "f31ccf05-70d0-4376-95c3-f507a5bb1bce",
+            "chars": 16135,
+            "sha256": "281fc842bb04f9af6dc566b6d7a013e5cb7f6b4b0c8cd350ae0b41691d5a7555",
+            "decodedPromptChars": null,
+            "decodedPromptSha256": null,
+            "completeBodyInPrompt": false
+          },
+          {
+            "pageId": "c90bcb40-1a3c-472a-a414-6a9f4298041a",
+            "chars": 3373,
+            "sha256": "e059e43bd4d3ecee7bb7ce8d9aa76c128ee0800dac75ec772178f46eee1e8960",
+            "decodedPromptChars": null,
+            "decodedPromptSha256": null,
+            "completeBodyInPrompt": false
+          },
+          {
+            "pageId": "aa1739e9-092e-4b61-a4a1-8c63d634817a",
+            "chars": 14151,
+            "sha256": "54edac7a9c2b98c4a20eba8e04b8f4e64fbb8001e47462c0083bae470c5f7494",
+            "decodedPromptChars": null,
+            "decodedPromptSha256": null,
+            "completeBodyInPrompt": false
+          },
+          {
+            "pageId": "117ada12-8288-4055-b547-459db6dc4c54",
+            "chars": 2462,
+            "sha256": "6e0de5360d2b3a4f86f30e66eba9ec07bc0b2e7142ec2d54ede35e0be6537c4b",
+            "decodedPromptChars": null,
+            "decodedPromptSha256": null,
+            "completeBodyInPrompt": false
+          },
+          {
+            "pageId": "c74b5272-7110-414c-a948-4bf03073d028",
+            "chars": 17097,
+            "sha256": "9cd0be4f9a3f3d7375cf417250a597036f8ba159a4aa38ce333dba233f99a5bf",
+            "decodedPromptChars": null,
+            "decodedPromptSha256": null,
+            "completeBodyInPrompt": false
+          },
+          {
+            "pageId": "4088516b-4f90-4803-aeb2-7ddc63a86c32",
+            "chars": 31174,
+            "sha256": "56e87ba342b69ef6ea44fb5cc6ec4007d05f9f040651d1463dc917ba6d52a51d",
+            "decodedPromptChars": null,
+            "decodedPromptSha256": null,
+            "completeBodyInPrompt": false
+          },
+          {
+            "pageId": "4ca9b323-82c2-4077-b9f2-b025fff74d98",
+            "chars": 48693,
+            "sha256": "5b95c16c61272fa7234edba3dcd32d1a5acaa755eae9e714e499a5e51b3fc396",
+            "decodedPromptChars": null,
+            "decodedPromptSha256": null,
+            "completeBodyInPrompt": false
+          },
+          {
+            "pageId": "0459b4aa-47b3-4959-b092-20c9a9d8dbf8",
+            "chars": 4258,
+            "sha256": "9e7decb744cc74a33844f324f79a965371ab36e51b2deeda7144b1d4300836c5",
+            "decodedPromptChars": null,
+            "decodedPromptSha256": null,
+            "completeBodyInPrompt": false
+          },
+          {
+            "pageId": "3300a11b-0daf-4617-8e4c-ff008e069b85",
+            "chars": 536,
+            "sha256": "9eab531eae5687ce68cb7f21966141b9bc2879d4919ea0eee20bd142769808ec",
+            "decodedPromptChars": null,
+            "decodedPromptSha256": null,
+            "completeBodyInPrompt": false
+          }
+        ]
+      },
+      "exitCode": 0,
+      "signal": null,
+      "elapsedMs": 6387
+    },
+    {
+      "index": 2,
+      "invocation": "model",
+      "startedAt": "2026-10-25T20:34:19.657Z",
+      "events": [
+        {
+          "atMs": 7787,
+          "type": "step_start",
+          "toolTruncated": false
+        },
+        {
+          "atMs": 208016,
+          "type": "text",
+          "textChars": 6079,
+          "toolTruncated": false
+        }
+      ],
+      "stdoutBytes": 11068,
+      "stderrBytes": 0,
+      "stdin": {
+        "chars": 244029,
+        "bytes": 436880,
+        "sha256": "a7af8a04931a6bb8dcbfb85f47b37b0d2132a2845d2686053d8e2ffaf930388d",
+        "sourceSnapshotParsed": true,
+        "sourceSnapshotDocumentCount": 9,
+        "sourceSnapshotUniqueIds": 9,
+        "allSourceBodiesPresent": true,
+        "documentCoverage": [
+          {
+            "pageId": "f31ccf05-70d0-4376-95c3-f507a5bb1bce",
+            "chars": 16135,
+            "sha256": "281fc842bb04f9af6dc566b6d7a013e5cb7f6b4b0c8cd350ae0b41691d5a7555",
+            "decodedPromptChars": 16135,
+            "decodedPromptSha256": "281fc842bb04f9af6dc566b6d7a013e5cb7f6b4b0c8cd350ae0b41691d5a7555",
+            "completeBodyInPrompt": true
+          },
+          {
+            "pageId": "c90bcb40-1a3c-472a-a414-6a9f4298041a",
+            "chars": 3373,
+            "sha256": "e059e43bd4d3ecee7bb7ce8d9aa76c128ee0800dac75ec772178f46eee1e8960",
+            "decodedPromptChars": 3373,
+            "decodedPromptSha256": "e059e43bd4d3ecee7bb7ce8d9aa76c128ee0800dac75ec772178f46eee1e8960",
+            "completeBodyInPrompt": true
+          },
+          {
+            "pageId": "aa1739e9-092e-4b61-a4a1-8c63d634817a",
+            "chars": 14151,
+            "sha256": "54edac7a9c2b98c4a20eba8e04b8f4e64fbb8001e47462c0083bae470c5f7494",
+            "decodedPromptChars": 14151,
+            "decodedPromptSha256": "54edac7a9c2b98c4a20eba8e04b8f4e64fbb8001e47462c0083bae470c5f7494",
+            "completeBodyInPrompt": true
+          },
+          {
+            "pageId": "117ada12-8288-4055-b547-459db6dc4c54",
+            "chars": 2462,
+            "sha256": "6e0de5360d2b3a4f86f30e66eba9ec07bc0b2e7142ec2d54ede35e0be6537c4b",
+            "decodedPromptChars": 2462,
+            "decodedPromptSha256": "6e0de5360d2b3a4f86f30e66eba9ec07bc0b2e7142ec2d54ede35e0be6537c4b",
+            "completeBodyInPrompt": true
+          },
+          {
+            "pageId": "c74b5272-7110-414c-a948-4bf03073d028",
+            "chars": 17097,
+            "sha256": "9cd0be4f9a3f3d7375cf417250a597036f8ba159a4aa38ce333dba233f99a5bf",
+            "decodedPromptChars": 17097,
+            "decodedPromptSha256": "9cd0be4f9a3f3d7375cf417250a597036f8ba159a4aa38ce333dba233f99a5bf",
+            "completeBodyInPrompt": true
+          },
+          {
+            "pageId": "4088516b-4f90-4803-aeb2-7ddc63a86c32",
+            "chars": 31174,
+            "sha256": "56e87ba342b69ef6ea44fb5cc6ec4007d05f9f040651d1463dc917ba6d52a51d",
+            "decodedPromptChars": 31174,
+            "decodedPromptSha256": "56e87ba342b69ef6ea44fb5cc6ec4007d05f9f040651d1463dc917ba6d52a51d",
+            "completeBodyInPrompt": true
+          },
+          {
+            "pageId": "4ca9b323-82c2-4077-b9f2-b025fff74d98",
+            "chars": 48693,
+            "sha256": "5b95c16c61272fa7234edba3dcd32d1a5acaa755eae9e714e499a5e51b3fc396",
+            "decodedPromptChars": 48693,
+            "decodedPromptSha256": "5b95c16c61272fa7234edba3dcd32d1a5acaa755eae9e714e499a5e51b3fc396",
+            "completeBodyInPrompt": true
+          },
+          {
+            "pageId": "0459b4aa-47b3-4959-b092-20c9a9d8dbf8",
+            "chars": 4258,
+            "sha256": "9e7decb744cc74a33844f324f79a965371ab36e51b2deeda7144b1d4300836c5",
+            "decodedPromptChars": 4258,
+            "decodedPromptSha256": "9e7decb744cc74a33844f324f79a965371ab36e51b2deeda7144b1d4300836c5",
+            "completeBodyInPrompt": true
+          },
+          {
+            "pageId": "3300a11b-0daf-4617-8e4c-ff008e069b85",
+            "chars": 536,
+            "sha256": "9eab531eae5687ce68cb7f21966141b9bc2879d4919ea0eee20bd142769808ec",
+            "decodedPromptChars": 536,
+            "decodedPromptSha256": "9eab531eae5687ce68cb7f21966141b9bc2879d4919ea0eee20bd142769808ec",
+            "completeBodyInPrompt": true
+          }
+        ]
+      },
+      "exitCode": 0,
+      "signal": null,
+      "elapsedMs": 208270
+    }
+  ],
+  "events": [
+    {
+      "stage": "decision",
+      "events": [
+        {
+          "type": "step_start",
+          "toolTruncated": false
+        },
+        {
+          "type": "text",
+          "textChars": 31,
+          "toolTruncated": false
+        }
+      ]
+    },
+    {
+      "stage": "generation",
+      "events": [
+        {
+          "type": "step_start",
+          "toolTruncated": false
+        },
+        {
+          "type": "text",
+          "textChars": 6079,
+          "toolTruncated": false
+        }
+      ]
+    }
+  ],
+  "progress": [
+    {
+      "atMs": 0,
+      "phase": "preparing"
+    },
+    {
+      "atMs": 1465,
+      "phase": "preparing",
+      "attempt": 1
+    },
+    {
+      "atMs": 1478,
+      "phase": "waiting",
+      "attempt": 1
+    },
+    {
+      "atMs": 3354,
+      "phase": "generating",
+      "attempt": 1
+    },
+    {
+      "atMs": 7873,
+      "phase": "waiting",
+      "attempt": 1
+    },
+    {
+      "atMs": 15647,
+      "phase": "generating",
+      "attempt": 1
+    },
+    {
+      "atMs": 216131,
+      "phase": "finalizing",
+      "attempt": 1
+    }
+  ],
+  "startedAt": "2026-10-25T20:34:11.329Z",
+  "input": {
+    "mode": "auto",
+    "intentChars": 25,
+    "snapshotChars": 4258,
+    "directoryDocuments": 9,
+    "directoryChars": 137879,
+    "historyTurns": 10,
+    "historyChars": 115789,
+    "decisionPromptChars": 2536,
+    "updatePromptChars": 244029
+  },
+  "result": {
+    "action": "update",
+    "summaryChars": 269,
+    "changesChars": 5651,
+    "attempts": [
+      {
+        "model": "bailian-coding-plan/qwen3.7-plus",
+        "tier": "paid",
+        "durationMs": 214667,
+        "status": "succeeded",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        },
+        "cost": 0
+      }
+    ],
+    "changesSha256": "d102d9faab023e5a9466389f723a9bb3a2f1a288768b7d53adebc52e72b2dd90",
+    "sourceLinks": [
+      "/pages/f31ccf05-70d0-4376-95c3-f507a5bb1bce",
+      "/pages/c90bcb40-1a3c-472a-a414-6a9f4298041a",
+      "/pages/aa1739e9-092e-4b61-a4a1-8c63d634817a",
+      "/pages/117ada12-8288-4055-b547-459db6dc4c54",
+      "/pages/c74b5272-7110-414c-a948-4bf03073d028",
+      "/pages/4088516b-4f90-4803-aeb2-7ddc63a86c32",
+      "/pages/4ca9b323-82c2-4077-b9f2-b025fff74d98"
+    ]
+  },
+  "status": "passed",
+  "elapsedMs": 216601,
+  "finishedAt": "2026-10-25T20:37:47.930Z",
+  "validation": {
+    "inputSourceCoverageVerified": true,
+    "coveredDocuments": 9,
+    "allSourceBodiesExact": true,
+    "formatRetryCount": 0,
+    "sourceBodyToolTruncationObserved": false,
+    "routerReturnedUpdate": true,
+    "semanticContentAcceptance": "pending independent comparison against the original 66 items and later report status evidence",
+    "originalPageWritten": false
+  }
+}

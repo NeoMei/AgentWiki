@@ -5,6 +5,22 @@ export type AgentAction = 'answer' | 'update' | 'create';
 export interface AgentDocumentReceipt { operation: 'updated' | 'created'; pageId: string; title: string; updatedAt: string; url: string }
 export type AgentAutoResult = { action: 'answer'; summary: string } | { action: 'update'; summary: string; changes: string } | { action: 'create'; summary: string; title: string; changes: string };
 export type AgentTurnStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
+/** Safe, provider-independent reasons that may cross the session API boundary. */
+export type AgentFailureCode = 'timeout' | 'invalid_output' | 'service_unavailable' | 'rate_limited' | 'output_limit';
+const AGENT_FAILURE_MESSAGES: Record<AgentFailureCode, string> = {
+  timeout: 'Assistant execution timed out. No document changes were saved. This does not indicate missing document permissions.',
+  invalid_output: 'Assistant returned an invalid response format; no document changes were saved.',
+  service_unavailable: 'Assistant service is unavailable; no document changes were saved.',
+  rate_limited: 'Assistant service is busy or rate limited; no document changes were saved.',
+  output_limit: 'Assistant response exceeded the output limit; no document changes were saved.',
+};
+export const safeAgentFailureMessage = (code: AgentFailureCode): string => AGENT_FAILURE_MESSAGES[code];
+
+/** Validate persisted categories; arbitrary provider text is never a message. */
+export function safeAgentFailureCode(value: unknown): AgentFailureCode | undefined {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(AGENT_FAILURE_MESSAGES, value)
+    ? value as AgentFailureCode : undefined;
+}
 export interface AgentSessionSummary { id: string; spaceId: string; title: string; createdAt: string; updatedAt: string }
 export interface AgentTurnAnnotation { id: string; body: string; quote: string }
 export interface AgentTurnRequest {
@@ -27,7 +43,7 @@ export interface AgentTurnView {
   references: { pageId: string; title: string; updatedAt: string }[];
   noteIds: string[]; annotations?: AgentTurnAnnotation[]; progressText: string;
   progress?: AgentExecutionProgress;
-  result: { action?: AgentAction; summary?: string; changes?: string; document?: AgentDocumentReceipt } | null; error: string | null;
+  result: { action?: AgentAction; summary?: string; changes?: string; document?: AgentDocumentReceipt } | null; error: string | null; failureCode?: AgentFailureCode;
 }
 export interface AgentSessionDetail extends AgentSessionSummary { turns: AgentTurnView[] }
 export const AGENT_SESSION_LIMITS = Object.freeze({
@@ -44,6 +60,7 @@ export interface AgentSessionContext {
 export interface AgentHistoryTurn {
   /** Terminal state of the prior turn. Failed/cancelled turns are replayed so a follow-up can retry them. */
   status?: AgentTurnStatus;
+  failureCode?: AgentFailureCode;
   /** Sanitized failure marker; raw provider/database errors never enter model history. */
   error?: string;
   directory?: AgentDirectoryScope;

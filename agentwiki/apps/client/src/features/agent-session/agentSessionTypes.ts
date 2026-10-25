@@ -2,6 +2,7 @@ import type { AssistSnapshot, AssistCandidate } from '../page/assistCandidate';
 import type { AssistRequest, AssistNotesEvent } from '../page/AgentAssistPanel';
 import type { AssistTarget } from '../page/assistTargets';
 export type AgentTurnMode = 'auto' | 'question' | 'proposal';
+export type AgentFailureCode = 'timeout' | 'invalid_output' | 'service_unavailable' | 'rate_limited' | 'output_limit';
 export interface AgentDocumentReceipt { operation: 'updated' | 'created'; pageId: string; title: string; updatedAt: string; url: string }
 export interface AgentAnnotation { id: string; body: string; quote: string }
 export interface AgentReference { pageId: string; title: string; updatedAt?: string; path?: string }
@@ -12,6 +13,7 @@ export interface AgentTurn {
   pageSnapshot: AssistSnapshot | null; references: AgentReference[]; noteIds: string[]; annotations?: AgentAnnotation[];
   directory?: { folderId: string | null; title: string; recursive: boolean; pageCount: number; unavailableReason?: string };
   progress?: { phase: 'preparing' | 'waiting' | 'generating' | 'finalizing'; attempt?: number };
+  failureCode?: AgentFailureCode;
   progressText: string; result: { summary?: string; action?: 'answer' | 'update' | 'create'; changes?: string; document?: AgentDocumentReceipt } | null; error: string | null;
 }
 export interface AgentSessionDetail extends AgentSessionSummary { turns: AgentTurn[] }

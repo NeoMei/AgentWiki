@@ -1,0 +1,334 @@
+{
+  "taskId": "cmvnzrwde01a913pya6324rid",
+  "readOnly": true,
+  "candidate": true,
+  "privateDirectory": "/var/tmp/agentwiki-real-probe-PtYre8",
+  "subprocesses": [
+    {
+      "index": 0,
+      "invocation": "catalog",
+      "startedAt": "2026-10-25T20:21:53.505Z",
+      "events": [],
+      "stdoutBytes": 384,
+      "stderrBytes": 0,
+      "exitCode": 0,
+      "signal": null,
+      "elapsedMs": 1005
+    },
+    {
+      "index": 1,
+      "invocation": "model",
+      "startedAt": "2026-10-25T20:21:54.513Z",
+      "events": [
+        {
+          "atMs": 1872,
+          "type": "step_start"
+        },
+        {
+          "atMs": 7361,
+          "type": "text",
+          "textChars": 31
+        }
+      ],
+      "stdoutBytes": 586,
+      "stderrBytes": 0,
+      "exitCode": 0,
+      "signal": null,
+      "elapsedMs": 7530
+    },
+    {
+      "index": 2,
+      "invocation": "model",
+      "startedAt": "2026-10-25T20:22:02.050Z",
+      "events": [
+        {
+          "atMs": 4049,
+          "type": "step_start"
+        },
+        {
+          "atMs": 6333,
+          "type": "tool_use",
+          "tool": "agentwiki_directory_list_documents",
+          "toolOutputChars": 2208,
+          "toolStatus": "completed",
+          "input": {
+            "limit": 100
+          },
+          "output": {
+            "hasMore": false,
+            "total": 9,
+            "documents": [
+              {
+                "pageId": "f31ccf05-70d0-4376-95c3-f507a5bb1bce",
+                "contentLength": 16135
+              },
+              {
+                "pageId": "c90bcb40-1a3c-472a-a414-6a9f4298041a",
+                "contentLength": 3373
+              },
+              {
+                "pageId": "aa1739e9-092e-4b61-a4a1-8c63d634817a",
+                "contentLength": 14151
+              },
+              {
+                "pageId": "117ada12-8288-4055-b547-459db6dc4c54",
+                "contentLength": 2462
+              },
+              {
+                "pageId": "c74b5272-7110-414c-a948-4bf03073d028",
+                "contentLength": 17097
+              },
+              {
+                "pageId": "4088516b-4f90-4803-aeb2-7ddc63a86c32",
+                "contentLength": 31174
+              },
+              {
+                "pageId": "4ca9b323-82c2-4077-b9f2-b025fff74d98",
+                "contentLength": 48693
+              },
+              {
+                "pageId": "0459b4aa-47b3-4959-b092-20c9a9d8dbf8",
+                "contentLength": 4258
+              },
+              {
+                "pageId": "3300a11b-0daf-4617-8e4c-ff008e069b85",
+                "contentLength": 536
+              }
+            ]
+          }
+        },
+        {
+          "atMs": 6333,
+          "type": "step_finish",
+          "finish": "tool-calls",
+          "usage": {
+            "input": 6,
+            "output": 139,
+            "reasoning": 0,
+            "cache": {
+              "read": 0,
+              "write": 59575
+            }
+          }
+        },
+        {
+          "atMs": 7681,
+          "type": "step_start"
+        },
+        {
+          "atMs": 16461,
+          "type": "text",
+          "textChars": 134
+        },
+        {
+          "atMs": 20080,
+          "type": "tool_use",
+          "tool": "agentwiki_directory_read_documents",
+          "toolOutputChars": 139,
+          "toolStatus": "completed",
+          "input": {
+            "pageIds": [
+              "aa1739e9-092e-4b61-a4a1-8c63d634817a",
+              "117ada12-8288-4055-b547-459db6dc4c54",
+              "c74b5272-7110-414c-a948-4bf03073d028",
+              "4088516b-4f90-4803-aeb2-7ddc63a86c32",
+              "4ca9b323-82c2-4077-b9f2-b025fff74d98",
+              "3300a11b-0daf-4617-8e4c-ff008e069b85"
+            ]
+          }
+        },
+        {
+          "atMs": 20080,
+          "type": "step_finish",
+          "finish": "tool-calls",
+          "usage": {
+            "input": 6,
+            "output": 772,
+            "reasoning": 0,
+            "cache": {
+              "read": 59575,
+              "write": 1485
+            }
+          }
+        },
+        {
+          "atMs": 21278,
+          "type": "step_start"
+        },
+        {
+          "atMs": 169981,
+          "type": "text",
+          "textChars": 5646
+        }
+      ],
+      "stdoutBytes": 19220,
+      "stderrBytes": 0,
+      "exitCode": 0,
+      "signal": null,
+      "elapsedMs": 170191
+    }
+  ],
+  "events": [
+    {
+      "stage": "decision",
+      "events": [
+        {
+          "type": "step_start"
+        },
+        {
+          "type": "text",
+          "textChars": 31
+        }
+      ]
+    },
+    {
+      "stage": "generation",
+      "events": [
+        {
+          "type": "step_start"
+        },
+        {
+          "type": "tool_use",
+          "tool": "agentwiki_directory_list_documents"
+        },
+        {
+          "type": "step_finish",
+          "finish": "tool-calls",
+          "usage": {
+            "input": 6,
+            "output": 139,
+            "reasoning": 0,
+            "cache": {
+              "read": 0,
+              "write": 59575
+            }
+          }
+        },
+        {
+          "type": "step_start"
+        },
+        {
+          "type": "text",
+          "textChars": 134
+        },
+        {
+          "type": "tool_use",
+          "tool": "agentwiki_directory_read_documents"
+        },
+        {
+          "type": "step_finish",
+          "finish": "tool-calls",
+          "usage": {
+            "input": 6,
+            "output": 772,
+            "reasoning": 0,
+            "cache": {
+              "read": 59575,
+              "write": 1485
+            }
+          }
+        },
+        {
+          "type": "step_start"
+        },
+        {
+          "type": "text",
+          "textChars": 5646
+        }
+      ]
+    }
+  ],
+  "progress": [
+    {
+      "atMs": 0,
+      "phase": "preparing"
+    },
+    {
+      "atMs": 1543,
+      "phase": "preparing",
+      "attempt": 1
+    },
+    {
+      "atMs": 1557,
+      "phase": "waiting",
+      "attempt": 1
+    },
+    {
+      "atMs": 3416,
+      "phase": "generating",
+      "attempt": 1
+    },
+    {
+      "atMs": 9086,
+      "phase": "waiting",
+      "attempt": 1
+    },
+    {
+      "atMs": 13130,
+      "phase": "generating",
+      "attempt": 1
+    },
+    {
+      "atMs": 179274,
+      "phase": "finalizing",
+      "attempt": 1
+    }
+  ],
+  "startedAt": "2026-10-25T20:21:52.480Z",
+  "input": {
+    "mode": "auto",
+    "intentChars": 25,
+    "snapshotChars": 4258,
+    "directoryDocuments": 9,
+    "directoryChars": 137879,
+    "historyTurns": 10,
+    "historyChars": 115789,
+    "decisionPromptChars": 2536,
+    "updatePromptChars": 99596
+  },
+  "result": {
+    "action": "update",
+    "summaryChars": 223,
+    "changesChars": 5271,
+    "attempts": [
+      {
+        "model": "bailian-coding-plan/qwen3.7-plus",
+        "tier": "paid",
+        "durationMs": 177732,
+        "status": "succeeded",
+        "usage": {
+          "input": 12,
+          "output": 911,
+          "reasoning": 0,
+          "cacheRead": 59575,
+          "cacheWrite": 61060,
+          "total": 0
+        },
+        "cost": 0
+      }
+    ],
+    "changesSha256": "a7f7fa92d0f768d4e5b823a5551b0fc2178417bbc4786260f9c8a60489b92886",
+    "sourceLinks": [
+      "/pages/f31ccf05-70d0-4376-95c3-f507a5bb1bce",
+      "/pages/c90bcb40-1a3c-472a-a414-6a9f4298041a",
+      "/pages/aa1739e9-092e-4b61-a4a1-8c63d634817a",
+      "/pages/117ada12-8288-4055-b547-459db6dc4c54",
+      "/pages/c74b5272-7110-414c-a948-4bf03073d028",
+      "/pages/4088516b-4f90-4803-aeb2-7ddc63a86c32",
+      "/pages/4ca9b323-82c2-4077-b9f2-b025fff74d98"
+    ]
+  },
+  "status": "passed",
+  "elapsedMs": 179765,
+  "finishedAt": "2026-10-25T20:24:52.245Z",
+  "validation": {
+    "accepted": false,
+    "routerReturnedUpdate": true,
+    "completeDirectoryRead": false,
+    "requestedDocumentCount": 6,
+    "listedDocumentCount": 9,
+    "toolOutputTruncated": true,
+    "batchOutputChars": 139,
+    "reason": "OpenCode replaced the one-line JSON batch with a 0-line truncation notice; no complete source body was delivered by the batch tool. Router success is not source-completeness acceptance."
+  }
+}

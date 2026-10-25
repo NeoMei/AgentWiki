@@ -91,6 +91,30 @@ describe('AssistSessionService', () => {
     expect(turn.result).toEqual(status === 'done' ? { summary: 'answer' } : null);
   });
 
+  it('returns the safe timeout reason in the view and subsequent history without exposing diagnostics', async () => {
+    await service.send('session1', 'u1', request());
+    tasks[0].status = 'failed'; tasks[0].error = 'SECRET stderr';
+    tasks[0].result = { failure: { code: 'timeout', message: 'SECRET provider response' }, raw: 'SECRET body' };
+    const turn = (await service.get('session1', 'u1')).turns[0];
+    expect(turn).toMatchObject({ failureCode: 'timeout', result: null });
+    expect(turn.error).toMatch(/timed out/);
+    expect(JSON.stringify(turn)).not.toContain('SECRET');
+    await service.send('session1', 'u1', request({ clientRequestId: 'r2', intent: 'Why did that fail?' }));
+    const history = (await service.executionContext(db, tasks[1])).history;
+    expect(history[0]).toMatchObject({ failureCode: 'timeout', error: expect.stringMatching(/timed out/) });
+    expect(history[0].error).toContain('does not indicate missing document permissions');
+    expect(JSON.stringify(history)).not.toContain('SECRET');
+  });
+
+  it.each(['SECRET provider error', '__proto__', 'constructor', null, {}])('rejects an unknown stored failure category %j', async code => {
+    await service.send('session1', 'u1', request());
+    tasks[0].status = 'failed'; tasks[0].error = 'SECRET stderr'; tasks[0].result = { failure: { code } };
+    const turn = (await service.get('session1', 'u1')).turns[0];
+    expect(turn).not.toHaveProperty('failureCode');
+    expect(turn.error).toBe('Assistant failed; retry with a new turn');
+    expect(JSON.stringify(turn)).not.toContain('SECRET');
+  });
+
   it.each([
     { phase: 'SECRET provider message' }, { phase: 'waiting', attempt: 0 },
     { phase: 'waiting', attempt: 101 }, { phase: 'waiting', attempt: 1.5 }, { phase: 'waiting', attempt: '2' },

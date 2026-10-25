@@ -1,0 +1,16 @@
+{
+  "status": "passed",
+  "scope": "Local disposable Git fixture only; no production backup/deployment/network calls",
+  "checks": [
+    "frozen commit manifest generated",
+    "tracked .env excluded",
+    "dirty working-tree changes ignored",
+    "standalone verifier compiles",
+    "host source files match fixture",
+    "modified source file rejected",
+    "existing output directory rejected",
+    "invalid commit identity rejected",
+    "backup shell syntax passed"
+  ],
+  "fixtureFiles": 6
+}
