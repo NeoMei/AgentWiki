@@ -72,7 +72,6 @@ export const Register: React.FC = () => {
         <div className="text-center">
           <BrandMark size={56} className="mx-auto mb-4" />
           <h1 className="text-3xl font-bold text-gray-900">{t('brand.name')}</h1>
-          <p className="mt-1 text-sm text-gray-500">AgentWiki</p>
           <h2 className="text-xl text-gray-600 mt-2">{t('auth.createAccount')}</h2>
         </div>
         {error && (

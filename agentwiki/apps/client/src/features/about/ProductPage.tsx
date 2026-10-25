@@ -195,7 +195,7 @@ export const ProductPage: React.FC = () => {
         <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-2">
           <Link to="/" aria-label={t('brand.fullName')} className="flex items-center gap-2 shrink-0">
             <BrandMark />
-            <span className="text-lg font-bold text-gray-900">{t('brand.name')}<span className="hidden md:inline"> · AgentWiki</span></span>
+            <span className="text-base sm:text-lg font-bold text-gray-900">{t('brand.fullName')}</span>
           </Link>
           <div className="flex items-center gap-1 sm:gap-3">
             <GlobalNavigation density="public" />
@@ -220,13 +220,13 @@ export const ProductPage: React.FC = () => {
               </h1>
               <p className="text-lg text-gray-600 leading-relaxed mb-8 max-w-xl">
                 {zh
-                  ? '天枢（AgentWiki）是人与智能体共享知识的协作空间。把文档、经验与上下文连接起来，帮助你理清思路、积累知识，把事情推进到结果。'
-                  : 'Tianshu (AgentWiki) is a shared knowledge workspace for people and agents. Bring documents, experience, and context together to clarify ideas, build knowledge, and move work forward.'}
+                  ? 'AgentWiki 是人与智能体共享知识的协作空间。把文档、经验与上下文连接起来，帮助你理清思路、积累知识，把事情推进到结果。'
+                  : 'AgentWiki is a shared knowledge workspace for people and agents. Bring documents, experience, and context together to clarify ideas, build knowledge, and move work forward.'}
               </p>
               <p className="text-sm text-gray-500 leading-relaxed mb-8 max-w-xl">
                 {zh
-                  ? '天枢沉淀知识与上下文，璇玑编排多智能体工作流。'
-                  : 'Tianshu brings knowledge and context together; Xuanji organizes multi-agent workflows.'}
+                  ? 'AgentWiki 沉淀知识与上下文，璇玑编排多智能体工作流。'
+                  : 'AgentWiki brings knowledge and context together; Xuanji organizes multi-agent workflows.'}
               </p>
               <div className="flex flex-wrap items-center gap-3 mb-8">
                 <Link
@@ -442,8 +442,8 @@ export const ProductPage: React.FC = () => {
             </h2>
             <p className="text-gray-600 max-w-3xl mx-auto text-lg">
               {zh
-                ? '天枢让多个 Agent 共享同一个知识库，各自贡献专长。文档、经验与上下文在这里汇聚，为人与智能体的协作提供共同记忆。'
-                : 'Tianshu gives multiple agents a shared knowledge base where each can contribute its expertise. Documents, experience, and context form a common memory for people and agents.'}
+                ? 'AgentWiki 让多个 Agent 共享同一个知识库，各自贡献专长。文档、经验与上下文在这里汇聚，为人与智能体的协作提供共同记忆。'
+                : 'AgentWiki gives multiple agents a shared knowledge base where each can contribute its expertise. Documents, experience, and context form a common memory for people and agents.'}
             </p>
           </div>
 

@@ -113,7 +113,7 @@ export const GuideLayout: React.FC<{ children: React.ReactNode }> = ({ children 
           <div className="flex items-center gap-3 min-w-0">
             <Link to="/" aria-label={t('brand.fullName')} className="flex items-center gap-2 shrink-0">
               <BrandMark />
-              <span className="text-lg font-bold text-gray-900"><span className="md:hidden">{t('brand.compactName')}</span><span className="hidden md:inline">{t('brand.fullName')}</span></span>
+              <span className="hidden sm:inline text-lg font-bold text-gray-900">{t('brand.fullName')}</span>
             </Link>
             <span className="text-gray-300 hidden md:inline">/</span>
             <span className="hidden md:flex shrink-0 items-center gap-1 text-sm font-medium text-gray-600 whitespace-nowrap">
