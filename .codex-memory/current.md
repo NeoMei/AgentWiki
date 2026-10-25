@@ -8,6 +8,7 @@
 
 # 当前状态
 
+- 已正式发布 GitHub Latest `v0.12.60`，annotated tag 精确指向生产提交 `99e66da0e72be583a9d1363760f17f2481a9d4ba`；发布前再次 host/public 验证通过。正式地址 https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.60 。
 - 生产 v0.12.60，冻结源码 `99e66da0e72be583a9d1363760f17f2481a9d4ba`，已部署。1436 源码 hash、三服务、五健康项和公网入口/5资源通过。
 - 失败根因：9篇正文137879字符+10轮历史115789字符，串行读取及格式前言触发重试，耗尽300秒。现按完整prompt预算全量inline、历史exact去重、读工具40KiB精确分页，并显示安全failureCode。
 - 最终生产原案只读回放147111ms，9/9正文exact/hash，无格式重试。隔离9篇副本通过浏览器原句新会话，113.839s完成update，DB正文与result.changes逐字相等，原9页和8非目标副本未变。夹具已正常软删：批次51779f1d-a8a3-423d-9fd6-487a10365967，1目录/9页。
