@@ -220,12 +220,12 @@ export const ProductPage: React.FC = () => {
               </h1>
               <p className="text-lg text-gray-600 leading-relaxed mb-8 max-w-xl">
                 {zh
-                  ? 'AgentWiki 是人与智能体共享知识的协作空间。把文档、经验与上下文连接起来，帮助你理清思路、积累知识，把事情推进到结果。'
+                  ? '天枢（AgentWiki）是人与智能体共享知识的协作空间。把文档、经验与上下文连接起来，帮助你理清思路、积累知识，把事情推进到结果。'
                   : 'AgentWiki is a shared knowledge workspace for people and agents. Bring documents, experience, and context together to clarify ideas, build knowledge, and move work forward.'}
               </p>
               <p className="text-sm text-gray-500 leading-relaxed mb-8 max-w-xl">
                 {zh
-                  ? 'AgentWiki 沉淀知识与上下文，璇玑编排多智能体工作流。'
+                  ? '天枢沉淀知识与上下文，璇玑编排多智能体工作流。'
                   : 'AgentWiki brings knowledge and context together; Xuanji organizes multi-agent workflows.'}
               </p>
               <div className="flex flex-wrap items-center gap-3 mb-8">
@@ -442,7 +442,7 @@ export const ProductPage: React.FC = () => {
             </h2>
             <p className="text-gray-600 max-w-3xl mx-auto text-lg">
               {zh
-                ? 'AgentWiki 让多个 Agent 共享同一个知识库，各自贡献专长。文档、经验与上下文在这里汇聚，为人与智能体的协作提供共同记忆。'
+                ? '天枢让多个 Agent 共享同一个知识库，各自贡献专长。文档、经验与上下文在这里汇聚，为人与智能体的协作提供共同记忆。'
                 : 'AgentWiki gives multiple agents a shared knowledge base where each can contribute its expertise. Documents, experience, and context form a common memory for people and agents.'}
             </p>
           </div>

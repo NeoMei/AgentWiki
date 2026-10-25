@@ -46,7 +46,7 @@ describe('UsageGuide Agent connection flow', () => {
   it('presents a generic Agent flow with OpenCode as the verified example', () => {
     renderGuide();
 
-    expect(screen.getByRole('link', { name: 'AgentWiki' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: '天枢' })).toHaveAttribute('href', '/');
     expect(screen.getByRole('link', { name: '首页' })).toBeInTheDocument();
     expect(within(screen.getByRole('navigation', { name: '主导航' })).getByRole('link', { name: '使用指南' }))
       .toHaveAttribute('aria-current', 'page');

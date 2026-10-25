@@ -32,7 +32,7 @@ describe('Navbar global destinations', () => {
       </LanguageProvider>,
     );
 
-    expect(screen.getByRole('link', { name: 'AgentWiki' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: '天枢' })).toHaveAttribute('href', '/');
     expect(screen.getByRole('link', { name: '首页' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '工作台' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: '智能体' })).toBeInTheDocument();
