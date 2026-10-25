@@ -1,6 +1,6 @@
 # 当前目标
 
-按用户要求完成内置 Agent 多轮排查、修复和回归。代码已冻结，四轮审查、最终全仓测试及生产构建验收完成。任务：tasks/archive/agent-audit-20261026/brief.md。
+用户已授权再查、再修后发布。基线 ee955c72，追加审查与 v0.12.62 发布进行中。任务：tasks/active/agent-audit-release-20261026/brief.md。
 
 # 范围 / 不做
 
