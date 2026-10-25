@@ -1,6 +1,6 @@
 # 当前目标
 
-内置Agent自动编辑故障已随v0.12.59发布部署并验收；保留真实业务报告与用户浏览器回归边界。
+官网中文名「天枢」已在 agentwiki.quukk.com 上线；内置Agent自动编辑故障仍以v0.12.59验收记录为准，保留真实业务报告回归边界。
 
 # 范围 / 不做
 
@@ -8,7 +8,8 @@
 
 # 当前状态
 
-- canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`；分支 `codex/agent-autochat-external-opencode`；当前Web/API/client **0.12.59**，发布冻结源码 `69520f568f2e1a1682eebcc46d858fe2475b8065`，lock祖先 `4e2846dd`。GitHub Release/tag已发布。
+- 官网品牌为「天枢 · AgentWiki」/「Tianshu · AgentWiki」，前端补丁源码 `f92889daa5b1f47abfb3a83ef1572bd27b13ee3b` 已部署；Web/API版本仍0.12.59，技术标识/域名/接口不变。70定向测试、构建、320/390px与桌面中英CUA、生产源码/资源与健康校验通过。配对备份 `/var/backups/agentwiki/tianshu-brand.l5LrYtAk`，见天枢验收记录。
+- canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`；分支 `codex/agent-autochat-external-opencode`；当前Web/API/client **0.12.59**，v0.12.59发布冻结源码 `69520f568f2e1a1682eebcc46d858fe2475b8065`（前端品牌现使用上述后续补丁），lock祖先 `4e2846dd`。GitHub Release/tag已发布。
 - 目录generation通过临时插件等待真实tool registry并核验context回执；模型仍仅两个只读工具，业务写入由应用授权/CAS完成。answer只指本轮回答，不是会话永久只读。
 - server3593pass/44专用环境skip，独立145pass，typecheck/lint/build通过；CLI2.1.1/2.1.4四项生命周期均pass。上线后真实router+Qwen读取9个各正文随机UUID并返回update；其他目标/viewer/只聊天均answer。
 - 生产1425源码与冻结提交一致，三服务、五health、65迁移、HTML/5入口资源均通过。新配对备份 `/var/backups/agentwiki/agent-auto-v01259.z755u0mq` 与previous `/root/agentwiki-previous-20261024043922` 保留，备份校验10/10。
@@ -20,6 +21,7 @@
 
 # 关键索引
 
+- agentwiki/docs/verification/tianshu-brand-20261025/README.md
 - tasks/archive/agent-auto-edit-20261024/{brief,decisions,refs}.md
 - agentwiki/docs/verification/agent-auto-edit-20261024/README.md
 - https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.59
