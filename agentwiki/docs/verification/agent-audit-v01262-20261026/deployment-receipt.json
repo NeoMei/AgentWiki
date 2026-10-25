@@ -1,0 +1,17 @@
+{
+  "version": "0.12.62",
+  "revision": "2635bc66dd669d94f00650d3488f62e455719cab",
+  "sourceFixes": [
+    "ee955c72ac7ff0260f27da3e4e1b4546e8c82a19",
+    "1a6de6c8028e18c1c0fa3fdfd5c0dd32fed1e0a2"
+  ],
+  "backup": "/var/backups/agentwiki/agent-audit-v01262.7nox7xx3",
+  "backupStatus": "verified; checksums, paired database/attachment snapshot and restored health verified",
+  "previousTree": "/root/agentwiki-previous-20261026063503",
+  "deployExitCode": 0,
+  "pendingMigrations": 0,
+  "hostReceipt": "production-host.json",
+  "publicReceipt": "production-public.json",
+  "sourceFiles": 1437,
+  "publicEntryAssets": 5
+}

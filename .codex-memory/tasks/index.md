@@ -4,8 +4,6 @@
 
 ## 活跃任务
 
-- [agent-audit-release-20261026](active/agent-audit-release-20261026/brief.md)：用户已授权追加审查修复后发布 v0.12.62；队列 lease 竞态验证与发布准备中。
-
 
 
 - [notification-unread-20261023](active/notification-unread-20261023/brief.md)：#12服务端count漏readAt过滤已补发.58，真实PG红绿、server3591/3skip及生产实际服务unread1→0/历史不变通过；原报告回复回读，billy浏览器待验。
@@ -35,6 +33,8 @@
 - [q3-regressions-20260914](archive/q3-regressions-20260914/brief.md)：Q3人工报告20项代码修复、整分支独立复审与候选验收完成；未发布部署或安装日常Vault。
 
 ## 最近完成
+
+- [agent-audit-release-20261026](archive/agent-audit-release-20261026/brief.md)：追加租约竞态修复，v0.12.62已发布部署2635bc66；8375通过/5既有skip、1437源/公网/3模式真实模型/生产浏览器全过，原页未改写。
 
 - [agent-audit-20261026](archive/agent-audit-20261026/brief.md)：四轮排查修复，会话/权限竞态、UTF-8与最终step、队列残留、DTO和Portal；全仓8373通过/5既有跳过、类型/lint/build/本地浏览器通过。未发布，线上仍.61。
 

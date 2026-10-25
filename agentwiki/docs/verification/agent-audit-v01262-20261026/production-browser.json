@@ -1,0 +1,86 @@
+{
+  "recordedAt": "2026-10-25T22:40:35.003465+00:00",
+  "release": {
+    "version": "0.12.62",
+    "commit": "2635bc66dd669d94f00650d3488f62e455719cab",
+    "observedEntryAsset": "/assets/index-BsEX45fL.js"
+  },
+  "surface": {
+    "browser": "Chrome 155",
+    "origin": "https://agentwiki.quukk.com",
+    "pageAlias": "target-page",
+    "loggedIn": true,
+    "accountIdentityVerifiedViaVisibleMenu": true
+  },
+  "scope": {
+    "isolatedSession": true,
+    "modelSendActions": 0,
+    "pageEditActions": 0,
+    "databaseOrRedisDirectWrites": 0,
+    "sessionCreationViaNormalUI": 2,
+    "noPageBodyStoredInReceipt": true
+  },
+  "beforeClear": {
+    "selectedSessionAlias": "isolated-session-before-clear",
+    "draftNonEmpty": true,
+    "draftLength": 48,
+    "clearButtonEnabled": true,
+    "currentPageSourceVisible": true,
+    "turnCount": 0
+  },
+  "afterClear": {
+    "selectedSessionAlias": "isolated-session-after-clear",
+    "newSessionCreated": true,
+    "draftLength": 0,
+    "emptyConversation": true,
+    "currentPageSourceVisible": true,
+    "focusTag": "TEXTAREA",
+    "focusAriaLabel": "消息",
+    "clearButtonDisabled": true,
+    "otherSessionTabsRetained": true
+  },
+  "history": {
+    "historyEntryOpened": true,
+    "preClearSessionReopenedViaHistory": true,
+    "preClearDraftPreserved": true,
+    "returnedToClearedSession": true,
+    "allOriginalHistoryEntriesRetained": true
+  },
+  "keyboard": {
+    "portalTabClosesAndFocusesComposer": true,
+    "portalShiftTabClosesAndFocusesHistorySummary": true,
+    "method": "Native BrowserSkill press Tab/Shift+Tab from observed reference-search input; read-only DOM checked focus and dialog absence"
+  },
+  "afterReload": {
+    "selectedSessionAlias": "isolated-session-after-clear",
+    "selectedSessionPreserved": true,
+    "draftLength": 0,
+    "clearButtonDisabled": true,
+    "emptyConversation": true,
+    "currentPageSourceVisible": true,
+    "samePageUrl": true,
+    "sourcePreserved": true,
+    "allOpenTabsPreserved": true
+  },
+  "network": {
+    "captureReportedRequests": 251,
+    "captureErrors": 0,
+    "droppedRequests": 0,
+    "assistSessionCreates": 2,
+    "assistTurnOrTaskPosts": 0,
+    "otherWrites": 0,
+    "pageTitleBodyAndVersionUnchangedOnReload": true
+  },
+  "cleanup": {
+    "ownBrowserSessionStopped": true,
+    "userTabsBorrowed": 0,
+    "userHistoryDeleted": false,
+    "testSessionsRetainedAsEmptyHistory": true
+  },
+  "evidence": {
+    "method": "Normal production UI actions, read-only DOM/AX observations, full reload and BrowserSkill debug request verification",
+    "result": "pass",
+    "limits": "Covers empty session creation, unsent draft clearing, retained history/tabs/source, portal Tab/Shift+Tab and reload. No model turn executed and no page content saved.",
+    "privacy": "Page, Space, session and account identifiers are omitted; business text, credentials and raw network payloads are not included."
+  }
+}

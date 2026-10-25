@@ -1,0 +1,27 @@
+{
+  "test-full": {
+    "path": "/tmp/agentwiki-v01262-test-full.log",
+    "bytes": 195691,
+    "sha256": "56a655d45b71d72dad0e75d7b704e0b466423c812c7525f0d16d65631fe65604"
+  },
+  "typecheck": {
+    "path": "/tmp/agentwiki-v01262-typecheck.log",
+    "bytes": 317,
+    "sha256": "d0a87d9e039ecf277453e5bf5e153e25986e53af6f6456b0f1c7a11ba35dc86d"
+  },
+  "lint": {
+    "path": "/tmp/agentwiki-v01262-lint.log",
+    "bytes": 84,
+    "sha256": "d5b17ee595fbfdae02af58fd347506b1d5a827a69c28da8385dc57ae52ef712d"
+  },
+  "build": {
+    "path": "/tmp/agentwiki-v01262-build.log",
+    "bytes": 34118,
+    "sha256": "e3c6a6c0b5e483a39e6df755a6d0fd6c7b58fea97076e8513f072f06c84938b0"
+  },
+  "deploy": {
+    "path": "/tmp/agentwiki-v01262-deploy.log",
+    "bytes": 43864,
+    "sha256": "39331303174fea74b364241735666968eba931263564a6191f7bf0315b76a695"
+  }
+}

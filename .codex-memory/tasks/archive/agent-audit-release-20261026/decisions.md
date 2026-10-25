@@ -6,3 +6,6 @@
 
 - 追加审查确认同worker重新领取恢复任务时，旧attempt迟到结果/失败能覆盖新attempt。activeTaskWhere增加exact leaseExpiresAt+未过期双条件，生产claim均携带原日期。2个测试先红后绿，Assist550通过，独立复审通过。
 - 最终完整门禁启动于冻结产品改动之后；无新依赖/迁移。GitHub连接器不提供release创建，因此本轮用现有gh CLI发布。
+
+- 从干净detached2635bc66部署，manifest严格绑定1437文件和SHA256；备份验证恢复服务后才部署。GitHub Release/tag与生产同SHA，后续证据文档单独提交。
+- 三种真实模型烟测采用当前生产router/CLI但合成内容和内存health，避开业务页面改写；生产UI只建隔离空会话，不发送任务或改正文。

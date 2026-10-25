@@ -1,0 +1,37 @@
+{
+  "mode": "host",
+  "revision": "2635bc66dd669d94f00650d3488f62e455719cab",
+  "sourceFilesVerified": 1437,
+  "manifestSha256": "48cbf3ee42efe2f447130d7fb7cf91d7e049dc5f94070e4cec756e393c743734",
+  "mismatches": [],
+  "versions": {
+    "web": "0.12.62",
+    "client": "0.12.62",
+    "api": "0.12.62",
+    "localSync": "0.13.5",
+    "protocol": "0.6.1"
+  },
+  "nodeVersion": "v24.18.0",
+  "services": {
+    "agentwiki-api.service": "active",
+    "agentwiki-worker.service": "active",
+    "agentwiki-frontend.service": "active"
+  },
+  "health": {
+    "status": "ok",
+    "database": "ok",
+    "redis": "ok",
+    "auditPersistence": "ok",
+    "attachmentStorage": "ok"
+  },
+  "entryHtmlSha256": "43edfd7af15d59454e51f9c8ebd90c86347afa37bf05dc94d1c8f50652f34e25",
+  "entryAssets": {
+    "/assets/index-BsEX45fL.js": "6b05d899c0ee11b29b7b3754c001e99ef77fba0e6827f83d11449e451116720e",
+    "/assets/_commonjsHelpers-CqkleIqs.js": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+    "/assets/react-vendor-CTv3miC2.js": "7e3a4bf34c49700b5fad7403a908da66c35ca1ad3669d05d3356f1a5e9bae663",
+    "/assets/preload-helper-ckwbz45p.js": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+    "/assets/index-CX0xQB8p.css": "0994035ed6b2bcca57a155567674d070cb9a309ceeb91a1076836ffa80374cde"
+  },
+  "status": "passed",
+  "verifiedAt": "2026-10-25T22:35:21.355317+00:00"
+}

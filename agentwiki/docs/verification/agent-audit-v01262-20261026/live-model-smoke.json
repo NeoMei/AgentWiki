@@ -1,0 +1,150 @@
+{
+  "revision": "2635bc66dd669d94f00650d3488f62e455719cab",
+  "scope": "deployed CLI/router with synthetic data; no database/Redis/Page mutations",
+  "modes": [
+    {
+      "mode": "question",
+      "status": "passed",
+      "durationMs": 8464,
+      "sourceSha256": "c3d24b34d5dc7fa4a9c95f18674df57cb6d4ca55c8b87bf80093511bc6d7b592",
+      "summarySha256": "7b4648eea7b4b6c5480ef68b22f8886def798b2592cdb51931ce9416171b5956",
+      "changesSha256": null,
+      "assertions": {
+        "summaryNonEmpty": true,
+        "noReplacementCharacter": true,
+        "summaryContainsNonce": true,
+        "summaryContainsEmoji": true,
+        "noChanges": true
+      },
+      "modelSha256": "ce2105c5bdfbe37050a473a1892d2469225ab604223729cd92ac2c1e21b87ce0",
+      "modelTier": "paid",
+      "attemptCount": 1,
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0
+      },
+      "cost": 0,
+      "attempts": [
+        {
+          "modelSha256": "ce2105c5bdfbe37050a473a1892d2469225ab604223729cd92ac2c1e21b87ce0",
+          "tier": "paid",
+          "status": "succeeded",
+          "durationMs": 7007,
+          "usage": {
+            "input": 0,
+            "output": 0,
+            "reasoning": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          },
+          "cost": 0
+        }
+      ]
+    },
+    {
+      "mode": "proposal",
+      "status": "passed",
+      "durationMs": 11418,
+      "sourceSha256": "b2aceabfce8907c43fbc66c251f974336b2b88c4344aac9d106d4f3201e9ef68",
+      "summarySha256": "1ded4c013e19f05904fd66da2f4287199aee274555b86a6f6301ed570d8aeec3",
+      "changesSha256": "401d1827d20dec1e235d96f4865f79995cb164af943c306e2e6caf400c0566b3",
+      "assertions": {
+        "summaryNonEmpty": true,
+        "noReplacementCharacter": true,
+        "changesContainNonce": true,
+        "expectedState": true,
+        "unchangedTextPreservedIgnoringFinalNewlines": true
+      },
+      "modelSha256": "ce2105c5bdfbe37050a473a1892d2469225ab604223729cd92ac2c1e21b87ce0",
+      "modelTier": "paid",
+      "attemptCount": 1,
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0
+      },
+      "cost": 0,
+      "attempts": [
+        {
+          "modelSha256": "ce2105c5bdfbe37050a473a1892d2469225ab604223729cd92ac2c1e21b87ce0",
+          "tier": "paid",
+          "status": "succeeded",
+          "durationMs": 11417,
+          "usage": {
+            "input": 0,
+            "output": 0,
+            "reasoning": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          },
+          "cost": 0
+        }
+      ]
+    },
+    {
+      "mode": "auto",
+      "status": "passed",
+      "durationMs": 14050,
+      "sourceSha256": "6f15280f8654d81ff4cd6ebe751af6ac22dbcbd31c777aa637c559e7248bdeb4",
+      "summarySha256": "3960fe32d0b38c131760c8b9d43e0bb8b42a0442f91db0abd5af9bcdd0fd53e9",
+      "changesSha256": null,
+      "assertions": {
+        "summaryNonEmpty": true,
+        "noReplacementCharacter": true,
+        "summaryContainsNonce": true,
+        "summaryContainsEmoji": true,
+        "noChanges": true,
+        "answerAction": true,
+        "noTitle": true
+      },
+      "modelSha256": "ce2105c5bdfbe37050a473a1892d2469225ab604223729cd92ac2c1e21b87ce0",
+      "modelTier": "paid",
+      "attemptCount": 1,
+      "usage": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0
+      },
+      "cost": 0,
+      "attempts": [
+        {
+          "modelSha256": "ce2105c5bdfbe37050a473a1892d2469225ab604223729cd92ac2c1e21b87ce0",
+          "tier": "paid",
+          "status": "succeeded",
+          "durationMs": 14050,
+          "usage": {
+            "input": 0,
+            "output": 0,
+            "reasoning": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          },
+          "cost": 0
+        }
+      ]
+    }
+  ],
+  "result": {
+    "status": "passed",
+    "durationMs": 33935,
+    "totalBudgetMs": 900000,
+    "assertions": {
+      "allModesPassed": true,
+      "withinConfiguredBudget": true
+    }
+  },
+  "usageNote": "Usage/cost are provider-reported metadata; zeros do not establish that a real model call is free."
+}
