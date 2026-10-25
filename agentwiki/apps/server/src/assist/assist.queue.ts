@@ -75,6 +75,8 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
         data: {
           status: 'failed',
           error: 'Assistant retry budget exhausted',
+          progressText: '',
+          result: Prisma.DbNull,
           lockedAt: null,
           leaseOwner: null,
           leaseExpiresAt: null,
@@ -94,6 +96,8 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
         where: { id: { in: retryIds }, status: 'running', leaseExpiresAt: { lte: now } },
         data: {
           status: 'queued',
+          progressText: '',
+          result: Prisma.DbNull,
           lockedAt: null,
           leaseOwner: null,
           leaseExpiresAt: null,
@@ -150,7 +154,7 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
           data: { status: 'running', lockedAt: new Date(), leaseOwner: this.workerId, leaseExpiresAt,
             // A recovered session must not expose the previous execution's
             // phase while the new worker is still acquiring authorization.
-            ...(candidate.sessionId ? { result: Prisma.DbNull } : {}),
+            ...(candidate.sessionId ? { result: Prisma.DbNull, progressText: '' } : {}),
           },
         });
         if (!claim.count) continue;

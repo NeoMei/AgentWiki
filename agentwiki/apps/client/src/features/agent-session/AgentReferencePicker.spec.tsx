@@ -62,6 +62,27 @@ it('closes on Escape and clears search when reopened', async () => {
   open(); expect(screen.getByRole('textbox')).toHaveValue('');
 });
 
+it.each([false, true])('leaves the reference portal beside its trigger at the Tab boundary (shift=%s)', async (shiftKey) => {
+  vi.mocked(api.get).mockResolvedValue({ data: { results: [page('a', 'Alpha')] } });
+  render(<><button>Before reference picker</button>{tree()}<textarea aria-label="Message" /></>);
+  open(); await search('Alpha');
+  const boundary = shiftKey ? screen.getByRole('textbox', { name: 'Find reference pages' }) : screen.getByRole('button', { name: 'Add Alpha' });
+  boundary.focus();
+  fireEvent.keyDown(boundary, { key: 'Tab', shiftKey });
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(shiftKey ? screen.getByRole('button', { name: 'Before reference picker' }) : screen.getByRole('textbox', { name: 'Message' })).toHaveFocus();
+});
+
+it('keeps Tab navigation inside the reference portal before reaching its boundary', async () => {
+  vi.mocked(api.get).mockResolvedValue({ data: { results: [page('a', 'Alpha')] } });
+  render(tree()); open(); await search('Alpha');
+  const input = screen.getByRole('textbox', { name: 'Find reference pages' });
+  const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+  fireEvent(input, event);
+  expect(event.defaultPrevented).toBe(false);
+  expect(screen.getByRole('dialog')).toBeVisible();
+});
+
 it('clears results with the search control and dismisses outside without stealing focus', async () => {
   const onClose = vi.fn();
   vi.mocked(api.get).mockResolvedValue({ data: { results: [page('a', 'Alpha')] } });
@@ -73,6 +94,16 @@ it('clears results with the search control and dismisses outside without stealin
   fireEvent.pointerDown(screen.getByRole('button', { name: 'Outside' }));
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(onClose).not.toHaveBeenCalled();
+});
+
+it('dismisses the reference search when focus leaves the document without stealing focus back', async () => {
+  const onClose = vi.fn();
+  render(tree({ onClose })); open(); await search('private query');
+  fireEvent.blur(screen.getByRole('textbox', { name: 'Find reference pages' }), { relatedTarget: null });
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(onClose).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Reference pages' })).not.toHaveFocus();
+  open(); expect(screen.getByRole('textbox', { name: 'Find reference pages' })).toHaveValue('');
 });
 
 it('responds to each new open request once and consumes requests while hidden or disabled', () => {

@@ -704,6 +704,20 @@ it('switches sessions without allowing an older fetch to overwrite the selected 
   await act(async () => resolveA({ data: { ...summary, turns: [turn] } }));
   expect(screen.getByText('Answer B')).toBeVisible(); expect(screen.queryByText('Earlier answer')).not.toBeInTheDocument();
 });
+it('clears a send validation error when switching to another conversation', async () => {
+  const second = { ...summary, id: 'session-b', title: 'Conversation B' };
+  vi.mocked(api.get).mockImplementation(async (url) => url === '/assist/sessions'
+    ? { data: [summary, second] }
+    : url.endsWith('session-b') ? { data: { ...second, turns: [] } } : { data: { ...summary, turns } });
+  render(tree({ snapshot: () => ({ title: 'Page A', content: 'unsaved current draft', updatedAt: version, remoteConflict: true }) }));
+  await screen.findByText('Earlier answer');
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Try the stale source' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent(/Selection or version changed/i);
+  selectConversation('session-b');
+  await screen.findByText('Start a conversation about this document.');
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
 it('recovers server history after refresh and clears all visible history on account and Space switches', async () => {
   const first = render(tree()); await screen.findByText('Earlier answer'); first.unmount();
   const restored = render(tree()); expect(await screen.findByText('Earlier answer')).toBeVisible();

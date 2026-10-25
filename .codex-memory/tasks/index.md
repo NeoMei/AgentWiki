@@ -34,6 +34,8 @@
 
 ## 最近完成
 
+- [agent-audit-20261026](archive/agent-audit-20261026/brief.md)：四轮排查修复，会话/权限竞态、UTF-8与最终step、队列残留、DTO和Portal；全仓8373通过/5既有跳过、类型/lint/build/本地浏览器通过。未发布，线上仍.61。
+
 - [agent-failure-20261026](archive/agent-failure-20261026/brief.md)：v0.12.60执行修复已部署；原案147s/9源exact，隔离UI114s保存逐字回读并清理，1436源码/服务/公网通过。内容审查仍有错链/回归限定问题，额外提示候选失败撤回，原表未覆盖。
 
 - [agent-auto-edit-20261024](archive/agent-auto-edit-20261024/brief.md)：v0.12.59已部署发布；自动意图/最终JSON/目录工具就绪修复，server3593/44skip，真实Qwen随机9报告与1425源码/公网/健康验收通过；原业务页与浏览器保存未改写/复验。

@@ -376,6 +376,7 @@ describe('AssistQueue task processing', () => {
       mode: 'question', intent: 'why', status: 'running', createdAt: version, attempts: 1, maxAttempts: 3,
       leaseOwner: 'expired-worker', leaseExpiresAt: new Date(Date.now() - 1),
       pageSnapshot: { content: 'source', updatedAt: version.toISOString() }, context: { pageId: 'page-1', references: [], noteIds: [] },
+      progressText: 'Unfinished answer from the previous worker',
       result: { progress: { phase: 'finalizing', attempt: 2 } } };
     const matches = (where: any) => Object.entries(where).every(([key, value]: any) => {
       if (key === 'space') return true;
@@ -421,13 +422,17 @@ describe('AssistQueue task processing', () => {
     try {
       await (queue as any).recoverExpiredLeases();
       expect(row.status).toBe('queued');
+      expect(row.progressText).toBe('');
       expect((await sessions.get('s1', 'user-1')).turns[0]).not.toHaveProperty('progress');
+      // Also tolerate queued rows recovered by a previous deployed worker.
+      row.progressText = 'Abandoned answer persisted before this worker started';
       jest.setSystemTime(Date.now() + 15_001);
       await (queue as any).tick();
       await startup;
       const claimed = (await sessions.get('s1', 'user-1')).turns[0];
       expect(claimed.status).toBe('running');
       expect(claimed).not.toHaveProperty('progress');
+      expect(claimed.progressText).toBe('');
       expect(runner.run).not.toHaveBeenCalled();
       releaseStartup();
       await fresh;
@@ -450,6 +455,20 @@ describe('AssistQueue task processing', () => {
       where: { id: { in: ['t1'] }, status: 'running', leaseExpiresAt: { lte: expect.any(Date) } },
       data: expect.objectContaining({ status: 'failed', error: 'Assistant retry budget exhausted' }),
     }));
+  });
+
+  it('clears abandoned answer state when expired execution exhausts its retries', async () => {
+    const row: any = { id: 't1', status: 'running', attempts: 3, maxAttempts: 3,
+      progressText: 'Unfinished answer', result: { progress: { phase: 'generating' } } };
+    prisma.assistTask.findMany.mockResolvedValue([{ ...row }]);
+    prisma.assistTask.updateMany.mockImplementation(async ({ data }: any) => {
+      Object.assign(row, data);
+      return { count: 1 };
+    });
+    await (createQueue() as any).recoverExpiredLeases();
+    expect(row.status).toBe('failed');
+    expect(row.progressText).toBe('');
+    expect(row.result).toBe(Prisma.DbNull);
   });
   const scopedTask = () => ({
     id: 't1', spaceId: 'space-1', requestedByUserId: 'user-1', pageId: 'page-1', intent: 'polish',

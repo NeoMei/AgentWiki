@@ -335,7 +335,8 @@ export class AssistSessionService {
       pageSnapshot: isObject(task.pageSnapshot) ? task.pageSnapshot : null,
       ...(context.directory ? { directory: directoryScope(context.directory) } : {}),
       references: context.references.map(({ pageId, title, updatedAt }) => ({ pageId, title, updatedAt })),
-      noteIds: context.noteIds, ...(context.annotations ? { annotations: context.annotations.map(({ id, body, quote }) => ({ id, body, quote })) } : {}), progressText: task.progressText || '', ...(progress ? { progress } : {}), result: this.publicResult(task),
+      noteIds: context.noteIds, ...(context.annotations ? { annotations: context.annotations.map(({ id, body, quote }) => ({ id, body, quote })) } : {}),
+      progressText: task.status === 'running' ? task.progressText || '' : '', ...(progress ? { progress } : {}), result: this.publicResult(task),
       ...(failureCode ? { failureCode } : {}),
       error: task.status === 'failed' ? (failureCode ? safeAgentFailureMessage(failureCode) : 'Assistant failed; retry with a new turn') : null };
   }

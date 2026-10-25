@@ -1,5 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
+import { Transform } from 'class-transformer';
 import { IsObject, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { CombinedAuthGuard } from '../core/auth/combined-auth.guard';
 import { HumanOnlyGuard } from '../core/auth/human-only.guard';
@@ -7,17 +8,22 @@ import { AuthorizationService } from '../core/authorization/authorization.servic
 import { AssistService } from './assist.service';
 import { AssistQueue } from './assist.queue';
 
-class CreateAssistTaskDto {
+const PreserveRawInput = () => Transform(({ obj, key }) => obj[key], { toClassOnly: true });
+
+export class CreateAssistTaskDto {
+  @PreserveRawInput()
   @IsString()
   @MinLength(1)
   @MaxLength(128)
   spaceId: string;
 
   @IsOptional()
+  @PreserveRawInput()
   @IsString()
   @MaxLength(128)
   pageId?: string;
 
+  @PreserveRawInput()
   @IsString()
   @MinLength(1)
   @MaxLength(10_000)

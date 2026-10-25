@@ -31,7 +31,7 @@ function createStore(userId: string, spaceId: string, contextKey: string) {
   let state: State = { sessions: [], ...restored, detail: null, loading: true, loadingSessions: true, creating: false, sending: false, cancelling: false, error: null, draft: composer(), revision: 0, sentRevision: 0 };
   const listeners = new Set<() => void>();
   return {
-    epoch: 0, cancelRequest: 0, candidates: new Map<string, CandidateRecord>(),
+    epoch: 0, readRequest: 0, cancelRequest: 0, candidates: new Map<string, CandidateRecord>(),
     writtenTurns: new Map<string, { sessionId: string; scope: string; awaitingRead: boolean; snapshot: AssistSnapshot | null }>(),
     receipts: new Map<string, { sessionId: string; awaitingRead: boolean; credential: NonNullable<AssistNotesEvent['dispatchRequest']> }>(),
     // Content may be purged after access loss; operation history must still prevent replay after Undo.
@@ -54,7 +54,13 @@ export type SessionStore = ReturnType<typeof createStore>;
 export function sessionError(error: unknown): string {
   const response = (error as { response?: { status?: number; data?: { message?: unknown } } })?.response;
   const status = response?.status;
-  if (status === 400 && ['Session source is no longer available', 'Session page must exist in the selected Space'].includes(String(response?.data?.message))) return 'access';
+  if (status === 400 && [
+    'Session source is no longer available',
+    'Session page must exist in the selected Space',
+    'Selected directory is no longer available in this Space',
+    'Session directory documents are no longer available in the selected directory',
+    'Selected directory ancestry cannot be verified',
+  ].includes(String(response?.data?.message))) return 'access';
   if (status === 401 || status === 403 || status === 404) return 'access';
   if (status === 409) return 'conflict';
   if (status === 400 || status === 413) return 'limits';
@@ -76,12 +82,16 @@ export function useAgentSession(userId: string, spaceId: string, contextKey = ''
   const lifetime = useRef(0), controller = useRef<AbortController | null>(null);
   const valid = (epoch: number) => activeStore.current === store && store.epoch === epoch && lifetime.current === epoch;
   const read = async (id: string, epoch: number, signal?: AbortSignal) => {
+    const request = ++store.readRequest;
+    const current = () => valid(epoch) && request === store.readRequest && !signal?.aborted && store.get().selected === id;
     // Only receipts present when this authorized read STARTS may be verified by it. A queued
     // history read started before a late POST receipt cannot vouch for that receipt's current access.
     const receipts = [...store.receipts.entries()].filter(([, receipt]) => receipt.sessionId === id);
     const writtenTurns = [...store.writtenTurns.entries()].filter(([, receipt]) => receipt.sessionId === id);
-    const { data } = await api.get<AgentSessionDetail>(`/assist/sessions/${id}`, { signal });
-    if (!valid(epoch) || signal?.aborted || store.get().selected !== id || data.spaceId !== spaceId || data.id !== id) return;
+    let data: AgentSessionDetail;
+    try { ({ data } = await api.get<AgentSessionDetail>(`/assist/sessions/${id}`, { signal })); }
+    catch (error) { if (current()) throw error; return; }
+    if (!current() || data.spaceId !== spaceId || data.id !== id) return;
     for (const [taskId, receipt] of receipts) if (store.receipts.get(taskId) === receipt && data.turns.some((turn) => turn.id === taskId)) receipt.awaitingRead = false;
     for (const [taskId, receipt] of writtenTurns) if (store.writtenTurns.get(taskId) === receipt && data.turns.some((turn) => turn.id === taskId)) receipt.awaitingRead = false;
     const sessions = store.get().sessions;
@@ -91,7 +101,26 @@ export function useAgentSession(userId: string, spaceId: string, contextKey = ''
   const fail = (error: unknown, epoch: number) => {
     if (!valid(epoch)) return;
     const reason = sessionError(error);
-    if (reason === 'access') { store.candidates.clear(); store.receipts.clear(); store.writtenTurns.clear(); store.set({ detail: null, sessions: store.get().sessions.filter((s) => s.id !== store.get().selected) }); }
+    if (reason === 'access') {
+      // Invalidate every in-flight history/poll read before removing the
+      // selected detail. A response already in the event queue must not
+      // resurrect content after an authorization failure.
+      store.readRequest++;
+      const selected = store.get().selected;
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      if (status === 401 || status === 403) {
+        // Authentication or Space authorization is no longer valid. Do not
+        // retain any receipt that was created under the old authorization.
+        store.candidates.clear(); store.receipts.clear(); store.writtenTurns.clear();
+      } else {
+        // A 400 source-loss response is scoped to the selected conversation;
+        // other conversations still need their submitted snapshots reconciled.
+        store.candidates.clear();
+        for (const [id, receipt] of store.receipts) if (receipt.sessionId === selected) store.receipts.delete(id);
+        for (const [id, receipt] of store.writtenTurns) if (receipt.sessionId === selected) store.writtenTurns.delete(id);
+      }
+      store.set({ detail: null, sessions: store.get().sessions.filter((s) => s.id !== selected) });
+    }
     store.set({ loading: false, loadingSessions: false, error: reason });
   };
   useEffect(() => {
@@ -241,7 +270,12 @@ export function useAgentSession(userId: string, spaceId: string, contextKey = ''
     try {
       const { data } = await api.post<AgentTurn>(`/assist/tasks/${turn.id}/cancel`);
       const detail = store.get().detail;
-      if (valid(epoch) && detail?.id === turn.sessionId && data.id === turn.id && data.sessionId === turn.sessionId) store.set({ detail: { ...detail, turns: detail.turns.map((t) => t.id === turn.id ? data : t) } });
+      if (valid(epoch) && detail?.id === turn.sessionId && data.id === turn.id && data.sessionId === turn.sessionId) {
+        // A poll captured before cancellation can finish in the same render
+        // batch. Fence it immediately, before effect cleanup aborts that poll.
+        store.readRequest++;
+        store.set({ detail: { ...detail, turns: detail.turns.map((t) => t.id === turn.id ? data : t) } });
+      }
     } catch (error) { fail(error, epoch); }
     finally { if (store.cancelRequest === request) store.set({ cancelling: false }); }
   };

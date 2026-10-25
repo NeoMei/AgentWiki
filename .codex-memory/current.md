@@ -1,18 +1,18 @@
 # 当前目标
 
-内置 Agent “清空上下文”图标按钮已上线并正式发布 v0.12.61，完成发布验收与交接。
+按用户要求完成内置 Agent 多轮排查、修复和回归。代码已冻结，四轮审查、最终全仓测试及生产构建验收完成。任务：tasks/archive/agent-audit-20261026/brief.md。
 
 # 范围 / 不做
 
-清空成功后以全新会话替换当前标签，聊天、输入草稿、显式引用和待发批注归零；旧会话与其他标签保留，当前页面/目录仍作为来源。运行/排队/发送/创建/加载/取消时禁用；失败保留原上下文。未新增后端删除接口，未改权限或原 Bug 汇总表。
+覆盖会话状态、清空/历史/取消/引用 UI、REST 类型校验与来源权限、队列恢复、OpenCode 流解码及最终结果解析。保留现有写入授权和来源隔离。不修改原 Bug 汇总表，不操作其他生产用户会话；本轮未发布部署、未发送真实模型请求。
 
 # 当前状态
 
-- Eraser 图标位于新建会话与历史之间，提供中英文提示。处理空态旧草稿/批注回流和异步创建后的焦点意图，兼容 Chromium 禁用按钮失焦。
-- 最终全客户端 169 文件 / 2830 项测试通过（面板 98、批注桥接 35）；TypeScript、改动 ESLint、生产构建及 diff 检查通过。Chrome 155 本地真实组件覆盖清空/历史/新会话发送/失败保留/运行禁用/延迟焦点；中英文 1280px、390px 使用实际 CSS 验收。queued 由组件测试覆盖。
-- v0.12.61 生产、正式 tag 与 GitHub Release 均绑定 `4075638e390d9f6c8174721761a4a232b7d014a3`，功能提交 `0c0777f9`。1436 源文件逐项一致；三服务 active、五项健康 ok；公网 HTML 与 5 个入口资源匹配。
-- https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.61 为非草稿、非预发布、latest，target 和 tag 均核对正确。
-- v0.12.60 原失败用例的 9/9 来源输入、只读执行与隔离真实保存证据仍有效；原 Bug 汇总表未覆盖，语义完整性需独立核对。旧提示词 0.12.61 实验已撤回，本次新功能版本无该实验改动。
+- 修复 UTF-8 chunk 乱码、question/proposal 使用最终 step 判断、旧读取覆盖新状态、取消/失权后旧 poll 恢复内容、目录来源失效错误分类、单会话失效误清其他会话保存回执。
+- 修复重试残留 progress/result、生产 DTO 隐式类型转换、切换会话残留错误、引用弹层 Tab 顺序和离开浏览器时关闭。
+- 每项缺陷有失败复现与回归。第三轮交叉复查新增权限竞态并修复；修复后两位独立审阅者未再发现新的可复现重要问题。最终全仓8373通过/0失败/5既有条件跳过；build/typecheck/lint/diff检查均通过。
+- 本地真实 React + 生产 CSS 中英文/1280px/390px验收通过；覆盖切换、历史、草稿、清空、Tab及模拟 composing Enter。网络层为合成 fixture，非真实模型或原业务数据验收。
+- 线上仍为 v0.12.61，tag/Release/部署提交4075638e390d9f6c8174721761a4a232b7d014a3。清空图标已上线，旧会话保留。生产只读审计未见 .61 之后的新运行或卡住任务。
 
 # 稳定约束
 
@@ -20,12 +20,13 @@ canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`
 
 # 关键索引
 
-- agentwiki/apps/client/src/features/agent-session/{AgentSessionPanel.tsx,useAgentSession.ts,AgentSessionPanel.spec.tsx}
-- agentwiki/docs/verification/agent-clear-context-20261026/README.md
-- agentwiki/docs/verification/agent-clear-context-20261026/release-tools.md
+- tasks/archive/agent-audit-20261026/{brief,decisions,refs}.md
+- agentwiki/apps/client/src/features/agent-session/
+- agentwiki/apps/server/src/assist/
+- agentwiki/docs/verification/agent-clear-context-20261026/{README,release-tools}.md
 - agentwiki/docs/verification/agent-failure-20261026/README.md
 - tasks/archive/agent-failure-20261026/{brief,decisions,refs}.md
 
 # 风险 / 下一步
 
-生产浏览器已验收清空生成新会话、草稿归零、回焦、保留其他标签/历史、刷新持久性与当前页来源；全程未发送模型请求或写页面。新会话隔离旧 turns，当前页面/目录来源保留；成功运行不等于生成内容完整正确。v0.12.61 配套备份 `/var/backups/agentwiki/agent-clear-context-v01261.IrzEQtJp`，前应用树 `/root/agentwiki-previous-20261026055218`，恢复须匹配数据库/附件备份。免费备用模型认证、通知浏览器回验及 npm 认证仍为独立事项。
+本轮修复已完成本地验收，尚未发布。当前通过的自动化与本地交互不证明真实模型内容完整正确，原 Bug 汇总表的语义核对仍独立；上次 .60 原案9来源执行及隔离保存证据可追溯。线上 .61 配套备份 `/var/backups/agentwiki/agent-clear-context-v01261.IrzEQtJp`，前应用树 `/root/agentwiki-previous-20261026055218`。免费备用模型认证、通知浏览器回验和 npm 认证仍为独立事项。

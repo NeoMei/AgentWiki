@@ -2,7 +2,8 @@ import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
-import { AgentTurnDto, AssistSessionController } from './assist-session.controller';
+import { ValidationPipe } from '@nestjs/common';
+import { AgentTurnDto, AssistSessionController, CreateAgentSessionDto } from './assist-session.controller';
 import { CombinedAuthGuard } from '../core/auth/combined-auth.guard';
 import { HumanOnlyGuard } from '../core/auth/human-only.guard';
 
@@ -43,6 +44,22 @@ describe('AssistSessionController', () => {
   ])('rejects invalid request DTO fields', async extra => {
     const dto = plainToInstance(AgentTurnDto, { clientRequestId: 'r1', pageId: 'p1', intent: 'why', mode: 'question', ...extra });
     expect((await validate(dto)).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    { clientRequestId: 123 }, { clientRequestId: true }, { intent: 123 }, { intent: false }, { pageId: 123 },
+  ])('rejects raw non-string turn identifiers and intents under production transformation (%j)', async extra => {
+    const pipe = new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true,
+      transformOptions: { enableImplicitConversion: true } });
+    await expect(pipe.transform({ clientRequestId: 'r1', pageId: 'p1', intent: 'why', ...extra },
+      { type: 'body', metatype: AgentTurnDto })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it.each([{ spaceId: 123 }, { title: 123 }, { title: true }])('rejects raw non-string session fields under production transformation (%j)', async extra => {
+    const pipe = new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true,
+      transformOptions: { enableImplicitConversion: true } });
+    await expect(pipe.transform({ spaceId: 's1', title: 'Topic', ...extra },
+      { type: 'body', metatype: CreateAgentSessionDto })).rejects.toMatchObject({ status: 400 });
   });
   it.each(['auto', undefined])('accepts automatic and omitted modes for both page and directory turns (%s)', async mode => {
     for (const scope of [{ pageId: 'p1' }, { directory: { folderId: null } }]) {

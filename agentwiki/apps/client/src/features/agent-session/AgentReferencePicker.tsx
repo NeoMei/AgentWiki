@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties
 import { createPortal } from 'react-dom';
 import { FileText, LoaderCircle, Plus, Search, X } from 'lucide-react';
 import api from '../../api/client';
+import { focusBesidePortalTrigger } from '../../components/portalTabNavigation';
 import { useLanguage } from '../../context/LanguageContext';
 import type { AgentReference } from './agentSessionTypes';
 
@@ -173,8 +174,17 @@ function ReferencePopover({ userId, spaceId, selected, onChange, disabled, openR
   return <div ref={rootRef} className="relative flex min-w-0 flex-wrap items-center gap-1.5" onKeyDown={(event) => {
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (open && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(true); }
+    if (open && event.key === 'Tab' && popupRef.current?.contains(event.target as Node)) {
+      const controls = [...popupRef.current.querySelectorAll<HTMLElement>('input, button')].filter((node) => node.tabIndex >= 0 && !node.matches(':disabled'));
+      const boundary = event.shiftKey ? controls[0] : controls[controls.length - 1];
+      if (event.target === boundary) {
+        event.preventDefault();
+        focusBesidePortalTrigger(triggerRef.current, event.shiftKey, popupRef.current);
+        close();
+      }
+    }
   }} onBlur={(event) => {
-    if (open && event.relatedTarget instanceof Node && !contains(event.relatedTarget)) close();
+    if (open && (!(event.relatedTarget instanceof Node) || !contains(event.relatedTarget))) close();
   }}>
     {selected.map((reference) => <button type="button" key={reference.pageId} disabled={disabled} className="inline-flex max-w-full items-center gap-1 rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-600 hover:bg-gray-200 disabled:opacity-50" aria-label={`${zh ? '移除' : 'Remove'} ${reference.title}`} onClick={() => onChange(selected.filter((item) => item.pageId !== reference.pageId))}>
       <FileText size={12} className="shrink-0" aria-hidden="true" /><span className="truncate">{reference.title}</span><X size={11} className="shrink-0" aria-hidden="true" />

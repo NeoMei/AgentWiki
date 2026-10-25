@@ -91,6 +91,15 @@ describe('AssistSessionService', () => {
     expect(turn.result).toEqual(status === 'done' ? { summary: 'answer' } : null);
   });
 
+  it.each(['queued', 'failed', 'cancelled'])('does not display an abandoned partial answer for a %s turn', async status => {
+    await service.send('session1', 'u1', request());
+    tasks[0].status = status;
+    tasks[0].progressText = 'Unfinished answer from an interrupted attempt';
+    const turn = (await service.get('session1', 'u1')).turns[0];
+    expect(turn.progressText).toBe('');
+    expect(turn.result).toBeNull();
+  });
+
   it('returns the safe timeout reason in the view and subsequent history without exposing diagnostics', async () => {
     await service.send('session1', 'u1', request());
     tasks[0].status = 'failed'; tasks[0].error = 'SECRET stderr';

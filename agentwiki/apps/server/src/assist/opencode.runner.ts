@@ -346,6 +346,9 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
       let settled = false;
       let forceKillTimer: NodeJS.Timeout | undefined;
       let lineBuffer = '';
+      // A pipe chunk can end inside a Chinese character or emoji. Decode across
+      // chunks before parsing JSON or streaming public answers.
+      const outputDecoder = new StringDecoder('utf8');
       const directoryDecoder = new StringDecoder('utf8');
       let directoryLineBuffer = '';
       let answerBuffer = '';
@@ -517,7 +520,7 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
         appendOutput('stdout', line + '\n');
       };
       const onStdout = (data: Buffer | string) => {
-        if (!directory) { appendOutput('stdout', data); return; }
+        if (!directory) { appendOutput('stdout', typeof data === 'string' ? data : outputDecoder.write(data)); return; }
         directoryLineBuffer += typeof data === 'string' ? data : directoryDecoder.write(data);
         let newlineIndex: number;
         while (!terminating && (newlineIndex = directoryLineBuffer.indexOf('\n')) >= 0) {
@@ -537,6 +540,7 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
         settle(this.executionError(code, 'global', out));
       };
       const onClose = (code: number | null) => {
+        if (!directory && !terminating) appendOutput('stdout', outputDecoder.end());
         if (directory && !terminating) {
           directoryLineBuffer += directoryDecoder.end();
           if (directoryLineBuffer) appendDirectoryLine(directoryLineBuffer);
@@ -775,51 +779,52 @@ export class OpencodeCliRunner implements OpencodeRunner, AgentRuntimePort {
       }
     }
     let text = '';
-    let autoStepFinished = false;
-    let autoStepHasTools = false;
-    let autoStepOutputLimit = false;
+    let stepFinished = false;
+    let stepHasTools = false;
+    let stepOutputLimit = false;
     try {
       for (const line of output.split('\n')) {
         const trimmed = line.trim();
         if (!trimmed) continue;
         const event = JSON.parse(trimmed);
         if (event?.type === 'error') throw new Error('OpenCode error terminal');
-        if (mode === 'auto') {
-          // Tool narration belongs to earlier assistant steps, not to the
-          // final JSON response. Preserve all text within the final step so
-          // strict schema parsing still rejects prose, extra objects or broken
-          // JSON; never search earlier steps for a response that happens to fit.
-          if (event?.type === 'step_start') {
+        // Legacy non-session tasks retain their historical fragment protocol.
+        if (mode === undefined) {
+          if (event?.type === 'text' && typeof event.part?.text === 'string') text += event.part.text;
+          continue;
+        }
+        // Every session mode must use the final assistant step. Earlier candidates
+        // cannot turn an empty, interrupted or tool-only final step into success.
+        if (event?.type === 'step_start') {
+          text = '';
+          stepFinished = false;
+          stepHasTools = false;
+          stepOutputLimit = false;
+        } else if (event?.type === 'step_finish') {
+          if (stepFinished) { text = ''; stepHasTools = false; }
+          stepFinished = true;
+          stepOutputLimit = event.part?.reason === 'length';
+          if (event.part?.reason === 'tool-calls') stepHasTools = true;
+        } else if (['text', 'tool_use', 'tool_result', 'reasoning', 'thinking'].includes(event?.type)) {
+          if (stepFinished) {
             text = '';
-            autoStepFinished = false;
-            autoStepHasTools = false;
-            autoStepOutputLimit = false;
-          } else if (event?.type === 'step_finish') {
-            // A second finished step with no content is not permission to
-            // reuse an earlier candidate when the CLI omits step_start.
-            if (autoStepFinished) { text = ''; autoStepHasTools = false; }
-            autoStepFinished = true;
-            autoStepOutputLimit = event.part?.reason === 'length';
-            if (event.part?.reason === 'tool-calls') autoStepHasTools = true;
-          } else if (['text', 'tool_use', 'tool_result', 'reasoning', 'thinking'].includes(event?.type)) {
-            if (autoStepFinished) {
-              text = '';
-              autoStepFinished = false;
-              autoStepHasTools = false;
-              autoStepOutputLimit = false;
-            }
-            if (event.type === 'text' && typeof event.part?.text === 'string') text += event.part.text;
-            else if (event.type === 'tool_use' || event.type === 'tool_result') autoStepHasTools = true;
+            stepFinished = false;
+            stepHasTools = false;
+            stepOutputLimit = false;
           }
-        } else if (event?.type === 'text' && typeof event?.part?.text === 'string') {
-          text += event.part.text;
+          if (event.type === 'text' && typeof event.part?.text === 'string') {
+            // Older read/proposal streams may omit step markers between a
+            // completed tool and its response; discard pre-tool narration.
+            if (mode !== 'auto' && stepHasTools) { text = ''; stepHasTools = false; }
+            text += event.part.text;
+          } else if (event.type === 'tool_use' || event.type === 'tool_result') stepHasTools = true;
         }
       }
+      // OpenCode v2 may omit step_finish. Successful EOF with a complete
+      // response is accepted, but a truncated or unfinished tool step is not.
+      if (stepOutputLimit) throw new OpencodeExecutionError('output_limit', 'output_limit', 'model', usage, cost);
+      if (stepHasTools) throw new Error('unfinished assistant tool step');
       if (mode === 'auto') {
-        // OpenCode v2 may omit step_finish: successful process EOF and a
-        // complete JSON object are sufficient, but a tool step is not final.
-        if (autoStepOutputLimit) throw new OpencodeExecutionError('output_limit', 'output_limit', 'model', usage, cost);
-        if (autoStepHasTools) throw new Error('unfinished automatic tool step');
         if (contract?.stage === 'decision') return { action: parseAutoDecision(text, contract.actions), summary: '', usage, cost };
         return { ...parseAutoResponse(text, contract?.action, contract?.actions), usage, cost };
       }

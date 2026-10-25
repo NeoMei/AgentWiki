@@ -93,7 +93,10 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, direct
   const mount = mountRef.current.token;
   const callbacks = useRef({ onNotesEvent, onRequestHandled, onDocumentWritten }); callbacks.current = { onNotesEvent, onRequestHandled, onDocumentWritten };
   const emitted = useRef(new Map<string, string>());
-  useEffect(() => { setLocalError(null); emitted.current.clear(); }, [scope]);
+  // Validation errors belong to the current conversation. Switching tabs must not
+  // make a stale source/version error appear beside another conversation.
+  useEffect(() => { setLocalError(null); }, [scope, session.selected]);
+  useEffect(() => { emitted.current.clear(); }, [scope]);
   useEffect(() => { composingRef.current = false; }, [scope, session.selected]);
   useEffect(() => {
     // Chromium moves focus to body when a button becomes disabled. A later user

@@ -1,5 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
+import { Transform } from 'class-transformer';
 import { ArrayMaxSize, ArrayUnique, IsArray, IsIn, IsObject, IsOptional, IsString, Matches, MaxLength, MinLength, Validate, ValidationArguments, ValidatorConstraint, ValidatorConstraintInterface } from 'class-validator';
 import { CombinedAuthGuard } from '../core/auth/combined-auth.guard';
 import { HumanOnlyGuard } from '../core/auth/human-only.guard';
@@ -7,6 +8,8 @@ import { AssistSessionService } from './assist-session.service';
 import { AssistQueue } from './assist.queue';
 import { AgentTurnMode, AgentTurnRequest } from './assist-session.types';
 import { validDirectoryRequest } from './assist-directory.context';
+
+const PreserveRawInput = () => Transform(({ obj, key }) => obj[key], { toClassOnly: true });
 
 @ValidatorConstraint({ name: 'directoryScope', async: false })
 class DirectoryScopeValidator implements ValidatorConstraintInterface {
@@ -19,14 +22,14 @@ class DirectoryScopeValidator implements ValidatorConstraintInterface {
 }
 
 export class CreateAgentSessionDto {
-  @IsString() @MinLength(1) @MaxLength(128) spaceId!: string;
-  @IsOptional() @IsString() @MinLength(1) @MaxLength(120) title?: string;
+  @PreserveRawInput() @IsString() @MinLength(1) @MaxLength(128) spaceId!: string;
+  @PreserveRawInput() @IsOptional() @IsString() @MinLength(1) @MaxLength(120) title?: string;
 }
 export class AgentTurnDto implements AgentTurnRequest {
-  @IsString() @MinLength(1) @MaxLength(128) clientRequestId!: string;
-  @IsString() @MinLength(1) @MaxLength(10_000) intent!: string;
+  @PreserveRawInput() @IsString() @MinLength(1) @MaxLength(128) clientRequestId!: string;
+  @PreserveRawInput() @IsString() @MinLength(1) @MaxLength(10_000) intent!: string;
   @IsOptional() @IsIn(['auto', 'question', 'proposal']) mode?: AgentTurnMode;
-  @IsOptional() @IsString() @MinLength(1) @MaxLength(128) @Matches(/\S/) pageId?: string | null;
+  @PreserveRawInput() @IsOptional() @IsString() @MinLength(1) @MaxLength(128) @Matches(/\S/) pageId?: string | null;
   @Validate(DirectoryScopeValidator) directory?: AgentTurnRequest['directory'];
   @IsOptional() @IsObject() snapshot?: AgentTurnRequest['snapshot'];
   @IsOptional() @IsArray() @ArrayMaxSize(5) @ArrayUnique() @IsString({ each: true }) @MaxLength(128, { each: true }) referencePageIds?: string[];

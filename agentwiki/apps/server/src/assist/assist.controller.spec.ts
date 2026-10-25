@@ -1,7 +1,9 @@
+import 'reflect-metadata';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { CombinedAuthGuard } from '../core/auth/combined-auth.guard';
 import { HumanOnlyGuard } from '../core/auth/human-only.guard';
-import { AssistController } from './assist.controller';
+import { AssistController, CreateAssistTaskDto } from './assist.controller';
+import { ValidationPipe } from '@nestjs/common';
 
 describe('AssistController authorization boundary', () => {
   it('keeps the privileged editing assistant human-only', () => {
@@ -46,6 +48,13 @@ describe('AssistController authorization boundary', () => {
     assist.get.mockResolvedValue({ id: 'task-1', pageId: 'page-1', spaceId: 'space-1', requestedByUserId: 'user-1' });
     authorization.assertSpaceAccess.mockRejectedValue(new Error('revoked'));
     await expect(controller.getTask('task-1', { user: { userId: 'user-1' } } as any)).rejects.toThrow('revoked');
+  });
+
+  it.each([{ spaceId: 123 }, { pageId: 123 }, { intent: 123 }, { intent: false }])('rejects raw non-string task fields under production transformation (%j)', async extra => {
+    const pipe = new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true,
+      transformOptions: { enableImplicitConversion: true } });
+    await expect(pipe.transform({ spaceId: 'space-1', intent: 'edit', ...extra },
+      { type: 'body', metatype: CreateAssistTaskDto })).rejects.toMatchObject({ status: 400 });
   });
 
 });
