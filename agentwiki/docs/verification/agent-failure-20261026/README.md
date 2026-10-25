@@ -37,6 +37,6 @@ The generated table was not applied to the user's original page. Independent rev
 
 OpenCode source inspected: [stdin handling](https://github.com/anomalyco/opencode/blob/v2.1.1/packages/cli/src/run/run.ts), [tool-output limit](https://github.com/anomalyco/opencode/blob/v2.1.1/packages/core/src/tool-output.ts).
 
-## Follow-up candidate
+## Rejected follow-up candidate
 
-The 0.12.61 candidate adds explicit current title/URL mapping and pending-human-verification instructions after independent review found citation and status qualification errors in the isolated output. These are model guidance, not a deterministic semantic validator. Its real-data verification remains separate from the successful v0.12.60 execution and save receipts above.
+An additional 0.12.61 prompt candidate was tested read-only and **not deployed**. It completed in 107,372 ms with all nine exact bodies, and improved some citations and verification qualifiers, but independent review found a missing original issue and incomplete older-source coverage. Its two extra prompt rules and version bump were withdrawn; the product source remains identical to the verified v0.12.60 release. `live-v01261-candidate-receipt.json` is retained as rejected-candidate evidence, not acceptance evidence. Solving those semantic errors requires a separately verifiable reconciliation workflow; a model response or successful save alone is insufficient.

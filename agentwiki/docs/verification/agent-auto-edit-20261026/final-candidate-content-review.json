@@ -1,0 +1,85 @@
+{
+  "reviewedAt": "2026-10-25T21:04:25.683Z",
+  "release": {
+    "candidate": "v0.12.61",
+    "receipt": "docs/verification/agent-failure-20261026/live-v01261-candidate-receipt.json"
+  },
+  "sourceTaskId": "cmvnzrwde01a913pya6324rid",
+  "resultPath": "/var/tmp/agentwiki-real-probe-ZgK4Jl/result.json",
+  "result": {
+    "action": "update",
+    "chars": 5809,
+    "sha256": "4ee2724e5ecdb4ad646d6e092821e5ea9bfcb24cb34c6e23366fd34dda242eda",
+    "attempts": 1,
+    "sourceLinks": 7,
+    "sourceLinkIDs": [
+      "f31ccf05-70d0-4376-95c3-f507a5bb1bce",
+      "c90bcb40-1a3c-472a-a414-6a9f4298041a",
+      "aa1739e9-092e-4b61-a4a1-8c63d634817a",
+      "117ada12-8288-4055-b547-459db6dc4c54",
+      "c74b5272-7110-414c-a948-4bf03073d028",
+      "4088516b-4f90-4803-aeb2-7ddc63a86c32",
+      "4ca9b323-82c2-4077-b9f2-b025fff74d98"
+    ],
+    "missingSourcePageId": "3300a11b-0daf-4617-8e4c-ff008e069b85"
+  },
+  "statistics": {
+    "rows": 86,
+    "pendingRegression": 1,
+    "fixed": 66,
+    "unresolved": 19,
+    "total": 86,
+    "arithmeticConsistent": true
+  },
+  "old66": {
+    "descriptionMatches": 65,
+    "sourceDateMatches": 65,
+    "moduleMatches": 65,
+    "missing": [
+      {
+        "baselineId": "三-10",
+        "description": "来源运行记录过长，缺少筛选和搜索",
+        "source": "10-12",
+        "module": "来源模块",
+        "reason": "No matching row or explicit merge/mapping; 10-22 Chinese status search is a different issue."
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "source-omission",
+      "severity": "medium",
+      "summary": "The ninth early general report is still not cited. Its rate-limit issue was only not reproduced, and MCP overwrite/publish-failure issues have no explicit closure or evidence-backed mapping."
+    },
+    {
+      "id": "old-row-loss",
+      "severity": "high",
+      "summary": "Old III-10 (source-run history too long, lacking filtering/search) is absent; this breaks the required 66-key preservation."
+    },
+    {
+      "id": "regression-qualification",
+      "severity": "medium",
+      "summary": "Version-only fixed rows still omit explicit boundaries for original Obsidian Vault replay, original MCP identity/environment, real invalid-note deletion, recursive task deletion, rename-refresh persistence and drag/refresh/read-only checks."
+    },
+    {
+      "id": "personal-template-classification",
+      "severity": "medium",
+      "summary": "Personal single-page template Chinese task text remains in unresolved section while saying 10-16 marked fixed; the source records original-run regression fixed, so candidate classification is internally stale/ambiguous."
+    },
+    {
+      "id": "mention-scope",
+      "severity": "medium",
+      "summary": "10-20 mention-recipient/self-notification/picker chain and cross-account manual boundary are not represented in rows or merge notes."
+    }
+  ],
+  "passes": [
+    "7 dated report links are correctly mapped to their corresponding source page IDs.",
+    "Notification row preserves service/DB success plus billy browser manual regression pending.",
+    "Relationship row preserves same-direction and same-type rule.",
+    "Original 10-20/10-21 task deletion and rename rows merge both dates; no wrong 10-21 link observed.",
+    "Runtime update succeeded with all 9 full source bodies in exact inline context."
+  ],
+  "verdict": "runtime pass; content acceptance fails because one old row is missing and source/evidence coverage is incomplete",
+  "readOnly": true,
+  "originalPageWritten": false
+}

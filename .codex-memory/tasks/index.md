@@ -5,6 +5,7 @@
 ## 活跃任务
 
 
+
 - [notification-unread-20261023](active/notification-unread-20261023/brief.md)：#12服务端count漏readAt过滤已补发.58，真实PG红绿、server3591/3skip及生产实际服务unread1→0/历史不变通过；原报告回复回读，billy浏览器待验。
 
 - [release-v01257-20261023](active/release-v01257-20261023/brief.md)：Web .57/精确npm .5/GitHub已发布并验收；完整测试8223/5skip，生产1422源码及浏览器/原报告通过；仅npm latest推广因安全密钥超时待继续。
@@ -32,6 +33,8 @@
 - [q3-regressions-20260914](archive/q3-regressions-20260914/brief.md)：Q3人工报告20项代码修复、整分支独立复审与候选验收完成；未发布部署或安装日常Vault。
 
 ## 最近完成
+
+- [agent-failure-20261026](archive/agent-failure-20261026/brief.md)：v0.12.60执行修复已部署；原案147s/9源exact，隔离UI114s保存逐字回读并清理，1436源码/服务/公网通过。内容审查仍有错链/回归限定问题，额外提示候选失败撤回，原表未覆盖。
 
 - [agent-auto-edit-20261024](archive/agent-auto-edit-20261024/brief.md)：v0.12.59已部署发布；自动意图/最终JSON/目录工具就绪修复，server3593/44skip，真实Qwen随机9报告与1425源码/公网/健康验收通过；原业务页与浏览器保存未改写/复验。
 

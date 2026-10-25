@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare v0.12.61 deployment hashes and a standalone read-only verifier.
+"""Prepare v0.12.60 deployment hashes and a standalone read-only verifier.
 
 All source bytes, including the reused verifier implementation, come from the
 explicit Git revision. No working-tree file, environment file or credential is
@@ -16,7 +16,7 @@ import tarfile
 FIXED = {'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'tsconfig.json', '.dockerignore', 'deploy.sh',
          'docs/verification/document-workspace-20261006/visual-editor-probe/fixtures.json'}
 PREFIXES = ('apps/', 'packages/', 'scripts/', 'deploy/')
-VERSIONS = {'package.json': '0.12.61', 'apps/client/package.json': '0.12.61', 'apps/server/package.json': '0.12.61',
+VERSIONS = {'package.json': '0.12.60', 'apps/client/package.json': '0.12.60', 'apps/server/package.json': '0.12.60',
             'packages/local-sync/package.json': '0.13.5', 'packages/sync-protocol/package.json': '0.6.1'}
 BASE = 'docs/verification/notification-unread-20261023/verify-release.py'
 ENTRY = 'docs/verification/agent-failure-20261026/verify-release.py'
@@ -63,7 +63,7 @@ def main():
             if relative in VERSIONS:
                 packages[relative] = json.loads(data)['version']
     if packages != VERSIONS:
-        raise RuntimeError('Commit versions do not match 0.12.61/0.13.5/0.6.1')
+        raise RuntimeError('Commit versions do not match 0.12.60/0.13.5/0.6.1')
     if set(verification_sources) != {BASE, ENTRY}:
         raise RuntimeError('The frozen commit must contain both the reusable verifier and the new entry')
     rows.sort(key=lambda row: row['path'])

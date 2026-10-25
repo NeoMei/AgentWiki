@@ -1,34 +1,33 @@
 # 当前目标
 
-官网按语言显示「天枢」/「AgentWiki」，保留用户确认的极简中国结 Logo，已在 agentwiki.quukk.com 上线；内置Agent自动编辑故障仍以v0.12.59验收记录为准，保留真实业务报告回归边界。
+修复 AgentWiki 内嵌 Agent 反复执行失败，并保留真实用例与内容准确性验收边界。
 
 # 范围 / 不做
 
-本轮修复自动意图/最终JSON解析、目录工具启动时序和误称只读权限。未改写原Bug汇总表、未放宽用户角色/绑定目标/CAS、未改provider凭据；Local Sync与protocol不变。
+修复授权目录完整输入、重复历史、工具输出截断和失败原因展示。原 Bug 状态汇总表未覆盖；不放宽权限、固定目标或 CAS，不改 provider 凭据和 Local Sync/protocol。
 
 # 当前状态
 
-- 用户最新确认中文使用「天枢」、英文使用「AgentWiki」，不出现 Tianshu 拼音；极简中国结保留。最终前端源码 `c43bc93d4e75530ea9b001a693e0b44d1b51a9b8` 已部署；Logo集成 `d81994d4`。Web/API仍0.12.59。70相关测试、构建、320px本地/390px生产与桌面中英验收通过，生产11源码/411资源和5health核验一致。配对备份 `/var/backups/agentwiki/tianshu-logo.nR8o0Xq4`，旧dist `/root/agentwiki/apps/client/dist.before-final-localized-c43bc93d`。
-- canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`；分支 `codex/agent-autochat-external-opencode`；当前Web/API/client **0.12.59**，v0.12.59发布冻结源码 `69520f568f2e1a1682eebcc46d858fe2475b8065`（前端品牌现使用上述后续补丁），lock祖先 `4e2846dd`。GitHub Release/tag已发布。
-- 目录generation通过临时插件等待真实tool registry并核验context回执；模型仍仅两个只读工具，业务写入由应用授权/CAS完成。answer只指本轮回答，不是会话永久只读。
-- server3593pass/44专用环境skip，独立145pass，typecheck/lint/build通过；CLI2.1.1/2.1.4四项生命周期均pass。上线后真实router+Qwen读取9个各正文随机UUID并返回update；其他目标/viewer/只聊天均answer。
-- 生产1425源码与冻结提交一致，三服务、五health、65迁移、HTML/5入口资源均通过。新配对备份 `/var/backups/agentwiki/agent-auto-v01259.z755u0mq` 与previous `/root/agentwiki-previous-20261024043922` 保留，备份校验10/10。
-- Local Sync0.13.5仍在release-0-12-57，protocol0.6.1；npm latest此前0.13.4，认证/真实host升级保持独立。
+- 生产 v0.12.60，冻结源码 `99e66da0e72be583a9d1363760f17f2481a9d4ba`，已部署。1436 源码 hash、三服务、五健康项和公网入口/5资源通过。
+- 失败根因：9篇正文137879字符+10轮历史115789字符，串行读取及格式前言触发重试，耗尽300秒。现按完整prompt预算全量inline、历史exact去重、读工具40KiB精确分页，并显示安全failureCode。
+- 最终生产原案只读回放147111ms，9/9正文exact/hash，无格式重试。隔离9篇副本通过浏览器原句新会话，113.839s完成update，DB正文与result.changes逐字相等，原9页和8非目标副本未变。夹具已正常软删：批次51779f1d-a8a3-423d-9fd6-487a10365967，1目录/9页。
+- 内容审查发现旧来源遗漏、10-21链接/批次误配与人工待验限定丢失，故未覆盖原汇总。额外0.12.61提示候选107372ms运行成功但漏掉原有条目，内容验收失败；提示与版本已撤回，产品源码逐文件与已部署99e66da0完全一致。
+- server全量3628pass/44专用环境skip，Agent面板89pass，changed ESLint/server+client build通过。后续两次prompt小改均115 runner/history回归通过。
+- 中文「天枢」、英文「AgentWiki」，极简中国结Logo保留。Local Sync0.13.5/protocol0.6.1不变。
 
 # 稳定约束
 
-编辑/发布前运行release guard；历史主检出禁止发布。生产目标 `root@113.249.120.24:/root/agentwiki`，使用root用户级systemd；外部OpenCode `/opt/agentwiki-opencode/opencode` 2.1.1。Space权限实时查询，写入保留固定目标/CAS；不直接DB改业务正文。恢复必须配对应用、配置、DB及附件并考虑备份后写入。
+canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`，分支 `codex/agent-autochat-external-opencode`。编辑发布前运行release guard；历史检出禁止发布。生产 `root@113.249.120.24:/root/agentwiki`，root用户级systemd，外部OpenCode2.1.1。Space权限实时查询，固定目标/CAS写入；不直接DB改业务正文。恢复需配对应用/配置/DB/附件并考虑备份后写入。
 
 # 关键索引
 
-- agentwiki/docs/verification/agentwiki-brand-only-20261025/README.md
-- tasks/archive/agent-auto-edit-20261024/{brief,decisions,refs}.md
-- agentwiki/docs/verification/agent-auto-edit-20261024/README.md
-- https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.59
-- tasks/active/notification-unread-20261023/{brief,decisions,refs}.md
-- tasks/active/bug-report-20261022/brief.md
-- tasks/active/release-v01257-20261023/brief.md
+- tasks/archive/agent-failure-20261026/{brief,decisions,refs}.md
+- agentwiki/docs/verification/agent-failure-20261026/README.md
+- agentwiki/docs/verification/agent-failure-20261026/live-deployed-real-inline-receipt.json
+- agentwiki/docs/verification/agent-auto-edit-20261026/live-ui-queue-save-receipt.json
+- agentwiki/docs/verification/agent-auto-edit-20261026/final-deployed-content-review.md
+- 备份 `/var/backups/agentwiki/agent-failure-v01260.PcRiCrTx`；前应用树 `/root/agentwiki-previous-20261026044641`
 
 # 风险 / 下一步
 
-原业务9篇报告的内容汇总和真实浏览器保存未在本轮执行；router诊断不修改共享Redis健康状态，不等同队列/实时授权/落盘验收。保留一次模型前言导致single-runModel被拒的回执；完整router两次通过，没有伪称实测了自动重试分支。免费备用模型认证失败未改。通知billy人工回归与npm官方WebAuthn仍为独立后续事项。
+执行/真实保存已验证；内容完整性仍是独立边界，不能把模型success当作业务结论准确。原页保留。0.12.61提示候选未发布；后续准确性需要可验证的逐项来源对账流程，不能以提示追加代替语义验收。生产40条历史running协作记录无active attempt，未顺手清理。免费备用模型认证、billy通知浏览器回验及npm认证保持独立事项。
