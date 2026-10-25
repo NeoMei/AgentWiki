@@ -316,11 +316,17 @@ export class AssistQueue implements OnModuleInit, OnModuleDestroy {
   }
 
   private activeTaskWhere(task: ClaimedAssistTask) {
+    // The process worker id is stable for the lifetime of a worker. If an old
+    // attempt outlives its lease and the same worker claims the recovered row,
+    // checking only leaseOwner would let the old attempt mutate the new one.
+    // Fence by the exact lease expiry that was captured at claim time too.
+    const leaseExpiresAt = task.leaseExpiresAtMs === undefined ? undefined : new Date(task.leaseExpiresAtMs);
     return {
       id: task.id, status: 'running', leaseOwner: this.workerId,
       spaceId: task.spaceId, pageId: task.pageId ?? null,
       requestedByUserId: task.requestedByUserId,
-      leaseExpiresAt: { gt: new Date() }, space: { deletedAt: null },
+      leaseExpiresAt: leaseExpiresAt ? { equals: leaseExpiresAt, gt: new Date() } : { gt: new Date() },
+      space: { deletedAt: null },
     };
   }
 

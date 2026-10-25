@@ -86,6 +86,73 @@ describe('AssistQueue task processing', () => {
     expect(row.status).toBe(reason === 'cancelled' ? 'cancelled' : 'running');
   });
 
+  it('cannot write a recovered task after the same worker claims a fresh lease', async () => {
+    const sessions = { executionContext: async () => ({ history: [] }) };
+    const queue = new AssistQueue(prisma, config, runner, gateway, new AuthorizationService(prisma), new SpaceRevisionWriterService(prisma, {} as any), sessions as any);
+    const firstLease = Date.now() + 60_000;
+    const row: any = { status: 'running', leaseOwner: (queue as any).workerId, leaseExpiresAt: new Date(firstLease), result: null };
+    prisma.assistTask.updateMany.mockImplementation(async ({ where, data }: any) => {
+      const lease = where.leaseExpiresAt;
+      if (row.status !== where.status || row.leaseOwner !== where.leaseOwner
+        || lease?.equals && row.leaseExpiresAt.getTime() !== lease.equals.getTime()
+        || lease?.gt && row.leaseExpiresAt <= lease.gt) return { count: 0 };
+      Object.assign(row, data); return { count: 1 };
+    });
+    runner.run.mockImplementation(async (input: any) => {
+      // The old lease expired and this same process reclaimed the row. The
+      // stale attempt must not write progress or publish its late answer.
+      row.leaseExpiresAt = new Date(firstLease + 60_000);
+      row.result = { terminal: 'fresh attempt' };
+      input.onProgress?.({ phase: 'generating', attempt: 1 });
+      input.onAnswerText('late answer');
+      return { summary: 'late answer' };
+    });
+    await (queue as any).processOne({ id: 't1', spaceId: 'space-1', requestedByUserId: 'user-1', sessionId: 's1', pageId: 'page-1', mode: 'question', intent: 'why', pageSnapshot: {}, leaseExpiresAtMs: firstLease });
+    expect(row.result).toEqual({ terminal: 'fresh attempt' });
+    expect(row.status).toBe('running');
+    expect(prisma.assistTask.updateMany.mock.calls.some(([input]: any[]) => input.data.status === 'done')).toBe(false);
+  });
+
+  it('keeps the new same-worker attempt running when the expired runtime rejects late', async () => {
+    jest.useFakeTimers();
+    const sessions = { executionContext: async () => ({ history: [] }) };
+    const queue = new AssistQueue(prisma, config, runner, gateway, new AuthorizationService(prisma), new SpaceRevisionWriterService(prisma, {} as any), sessions as any);
+    const firstLease = Date.now() + 1000;
+    const row: any = { status: 'running', leaseOwner: (queue as any).workerId, leaseExpiresAt: new Date(firstLease), result: null };
+    prisma.assistTask.updateMany.mockImplementation(async ({ where, data }: any) => {
+      const lease = where.leaseExpiresAt;
+      if (row.status !== where.status || row.leaseOwner !== where.leaseOwner
+        || lease?.equals && row.leaseExpiresAt.getTime() !== lease.equals.getTime()
+        || lease?.gt && row.leaseExpiresAt <= lease.gt) return { count: 0 };
+      Object.assign(row, data); return { count: 1 };
+    });
+    let started!: () => void, failRuntime!: () => void;
+    let signal: AbortSignal | undefined;
+    const entered = new Promise<void>(resolve => { started = resolve; });
+    const blocked = new Promise<void>(resolve => { failRuntime = resolve; });
+    runner.run.mockImplementation(async (input: any) => {
+      signal = input.signal; started();
+      await blocked;
+      throw new Error('Expired runtime finally stopped');
+    });
+    const pending = (queue as any).processOne({ id: 't1', spaceId: 'space-1', requestedByUserId: 'user-1', sessionId: 's1', pageId: 'page-1', mode: 'question', intent: 'why', pageSnapshot: {}, leaseExpiresAtMs: firstLease });
+    try {
+      await entered;
+      await jest.advanceTimersByTimeAsync(1001);
+      expect(signal?.aborted).toBe(true);
+      // Another free concurrency slot recovered and claimed this task while
+      // its old runtime was still shutting down in the same process.
+      row.leaseExpiresAt = new Date(Date.now() + 60_000);
+      row.result = { progress: { phase: 'generating', attempt: 2 } };
+      failRuntime(); await pending;
+      expect(row.status).toBe('running');
+      expect(row.result).toEqual({ progress: { phase: 'generating', attempt: 2 } });
+    } finally {
+      failRuntime(); await pending;
+      jest.useRealTimers();
+    }
+  });
+
   it('stops an in-flight progress transaction before marking a runtime failure terminal', async () => {
     let progressEntered!: () => void;
     const entered = new Promise<void>(resolve => { progressEntered = resolve; });
