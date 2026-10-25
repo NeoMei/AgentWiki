@@ -1,0 +1,14 @@
+{
+  "status": "passed",
+  "revision": "99e66da0e72be583a9d1363760f17f2481a9d4ba",
+  "version": "0.12.60",
+  "backupDirectory": "/var/backups/agentwiki/agent-failure-v01260.PcRiCrTx",
+  "backupVerified": true,
+  "servicesRestoredAfterBackup": true,
+  "previousApplicationTree": "/root/agentwiki-previous-20261026044641",
+  "deploymentExitCode": 0,
+  "pendingMigrations": 0,
+  "sourceFilesVerified": 1436,
+  "runtime": "OpenCode external 2.1.1",
+  "originalSummaryPageWritten": false
+}

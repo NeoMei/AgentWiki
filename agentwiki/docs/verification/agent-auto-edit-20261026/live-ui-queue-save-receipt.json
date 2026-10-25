@@ -1,0 +1,424 @@
+{
+  "checkedAt": "2026-10-25T20:54:54.472Z",
+  "readOnly": true,
+  "task": {
+    "id": "cmvoazyc000hzn9qqceqpl4to",
+    "sessionId": "cmvoazq4800hwn9qqyrfk1hbk",
+    "status": "done",
+    "mode": "auto",
+    "pageId": "14a4fd1b-8abb-4397-9806-9291232ced8e",
+    "createdAt": "2026-10-25T20:52:04.368Z",
+    "updatedAt": "2026-10-25T20:53:58.935Z",
+    "completedAt": "2026-10-25T20:53:58.207Z",
+    "elapsedMs": 113839,
+    "queueRetryCount": 0,
+    "modelAttemptCount": null,
+    "modelAttemptCountNote": "Successful model route attempts are not persisted in final session task result; queueRetryCount is not model attempt count",
+    "error": null,
+    "resultAction": "update",
+    "summaryChars": 421,
+    "changesChars": 5561,
+    "changesSha256": "24560b49d9b584620d5abe093ad24a671ca923c82895549a89a5cfabd9ae24f8",
+    "documentReceipt": {
+      "url": "/pages/14a4fd1b-8abb-4397-9806-9291232ced8e",
+      "title": "Bug 状态汇总表",
+      "pageId": "14a4fd1b-8abb-4397-9806-9291232ced8e",
+      "operation": "updated",
+      "updatedAt": "2026-10-25T20:53:58.236Z"
+    },
+    "resultSourceLinks": [
+      "/pages/b59e49a2-1083-4242-9eda-162277157604",
+      "/pages/6c3a1081-0e49-451c-bbd6-fd6a2a0686fc",
+      "/pages/3bbea57f-db70-4a7a-a967-3b50ae5852ae",
+      "/pages/73d6842c-f4c7-48a8-afe7-39f3eb69c696",
+      "/pages/37ccf69c-f1f1-4487-b5e6-01709fd4a929",
+      "/pages/022eb04d-be59-41a7-ba52-61d92ad8fccd"
+    ]
+  },
+  "target": {
+    "id": "14a4fd1b-8abb-4397-9806-9291232ced8e",
+    "folderId": "cmvoavhn00066n9qqri208ulc",
+    "chars": 5561,
+    "sha256": "24560b49d9b584620d5abe093ad24a671ca923c82895549a89a5cfabd9ae24f8",
+    "updatedAt": "2026-10-25T20:53:58.236Z",
+    "deletedAt": "2026-10-25T20:54:36.581Z",
+    "exactSavedChanges": true,
+    "receiptVersionMatches": true,
+    "receiptTargetMatches": true,
+    "versionAdvanced": true
+  },
+  "inputContext": {
+    "directoryKeys": [
+      "title",
+      "folderId",
+      "recursive"
+    ],
+    "documentCount": 9,
+    "uniqueDocumentIds": 9,
+    "totalCharacters": 137879,
+    "allNineBodiesExact": true,
+    "documents": [
+      {
+        "pageId": "b59e49a2-1083-4242-9eda-162277157604",
+        "sourceId": "f31ccf05-70d0-4376-95c3-f507a5bb1bce",
+        "chars": 16135,
+        "sha256": "281fc842bb04f9af6dc566b6d7a013e5cb7f6b4b0c8cd350ae0b41691d5a7555",
+        "bodyExactToSource": true,
+        "hashMatchesFixture": true,
+        "versionMatchesFixture": true
+      },
+      {
+        "pageId": "08135186-349c-4117-80a0-aa2158687d43",
+        "sourceId": "c90bcb40-1a3c-472a-a414-6a9f4298041a",
+        "chars": 3373,
+        "sha256": "e059e43bd4d3ecee7bb7ce8d9aa76c128ee0800dac75ec772178f46eee1e8960",
+        "bodyExactToSource": true,
+        "hashMatchesFixture": true,
+        "versionMatchesFixture": true
+      },
+      {
+        "pageId": "6c3a1081-0e49-451c-bbd6-fd6a2a0686fc",
+        "sourceId": "aa1739e9-092e-4b61-a4a1-8c63d634817a",
+        "chars": 14151,
+        "sha256": "54edac7a9c2b98c4a20eba8e04b8f4e64fbb8001e47462c0083bae470c5f7494",
+        "bodyExactToSource": true,
+        "hashMatchesFixture": true,
+        "versionMatchesFixture": true
+      },
+      {
+        "pageId": "3bbea57f-db70-4a7a-a967-3b50ae5852ae",
+        "sourceId": "117ada12-8288-4055-b547-459db6dc4c54",
+        "chars": 2462,
+        "sha256": "6e0de5360d2b3a4f86f30e66eba9ec07bc0b2e7142ec2d54ede35e0be6537c4b",
+        "bodyExactToSource": true,
+        "hashMatchesFixture": true,
+        "versionMatchesFixture": true
+      },
+      {
+        "pageId": "73d6842c-f4c7-48a8-afe7-39f3eb69c696",
+        "sourceId": "c74b5272-7110-414c-a948-4bf03073d028",
+        "chars": 17097,
+        "sha256": "9cd0be4f9a3f3d7375cf417250a597036f8ba159a4aa38ce333dba233f99a5bf",
+        "bodyExactToSource": true,
+        "hashMatchesFixture": true,
+        "versionMatchesFixture": true
+      },
+      {
+        "pageId": "37ccf69c-f1f1-4487-b5e6-01709fd4a929",
+        "sourceId": "4088516b-4f90-4803-aeb2-7ddc63a86c32",
+        "chars": 31174,
+        "sha256": "56e87ba342b69ef6ea44fb5cc6ec4007d05f9f040651d1463dc917ba6d52a51d",
+        "bodyExactToSource": true,
+        "hashMatchesFixture": true,
+        "versionMatchesFixture": true
+      },
+      {
+        "pageId": "022eb04d-be59-41a7-ba52-61d92ad8fccd",
+        "sourceId": "4ca9b323-82c2-4077-b9f2-b025fff74d98",
+        "chars": 48693,
+        "sha256": "5b95c16c61272fa7234edba3dcd32d1a5acaa755eae9e714e499a5e51b3fc396",
+        "bodyExactToSource": true,
+        "hashMatchesFixture": true,
+        "versionMatchesFixture": true
+      },
+      {
+        "pageId": "14a4fd1b-8abb-4397-9806-9291232ced8e",
+        "sourceId": "0459b4aa-47b3-4959-b092-20c9a9d8dbf8",
+        "chars": 4258,
+        "sha256": "9e7decb744cc74a33844f324f79a965371ab36e51b2deeda7144b1d4300836c5",
+        "bodyExactToSource": true,
+        "hashMatchesFixture": true,
+        "versionMatchesFixture": true
+      },
+      {
+        "pageId": "547b29cf-8530-4a99-8713-fc14e37ef23c",
+        "sourceId": "3300a11b-0daf-4617-8e4c-ff008e069b85",
+        "chars": 536,
+        "sha256": "9eab531eae5687ce68cb7f21966141b9bc2879d4919ea0eee20bd142769808ec",
+        "bodyExactToSource": true,
+        "hashMatchesFixture": true,
+        "versionMatchesFixture": true
+      }
+    ],
+    "pageSnapshotChars": 4258,
+    "pageSnapshotExactToOriginal": true
+  },
+  "originalSources": {
+    "count": 9,
+    "allUnchanged": true,
+    "pages": [
+      {
+        "pageId": "f31ccf05-70d0-4376-95c3-f507a5bb1bce",
+        "exists": true,
+        "chars": 16135,
+        "sha256": "281fc842bb04f9af6dc566b6d7a013e5cb7f6b4b0c8cd350ae0b41691d5a7555",
+        "contentUnchanged": true,
+        "updatedAt": "2026-10-23T14:06:42.652Z",
+        "versionUnchanged": true,
+        "deletedAt": null
+      },
+      {
+        "pageId": "c90bcb40-1a3c-472a-a414-6a9f4298041a",
+        "exists": true,
+        "chars": 3373,
+        "sha256": "e059e43bd4d3ecee7bb7ce8d9aa76c128ee0800dac75ec772178f46eee1e8960",
+        "contentUnchanged": true,
+        "updatedAt": "2026-10-22T11:04:55.543Z",
+        "versionUnchanged": true,
+        "deletedAt": null
+      },
+      {
+        "pageId": "aa1739e9-092e-4b61-a4a1-8c63d634817a",
+        "exists": true,
+        "chars": 14151,
+        "sha256": "54edac7a9c2b98c4a20eba8e04b8f4e64fbb8001e47462c0083bae470c5f7494",
+        "contentUnchanged": true,
+        "updatedAt": "2026-10-22T11:04:55.543Z",
+        "versionUnchanged": true,
+        "deletedAt": null
+      },
+      {
+        "pageId": "117ada12-8288-4055-b547-459db6dc4c54",
+        "exists": true,
+        "chars": 2462,
+        "sha256": "6e0de5360d2b3a4f86f30e66eba9ec07bc0b2e7142ec2d54ede35e0be6537c4b",
+        "contentUnchanged": true,
+        "updatedAt": "2026-10-22T11:04:55.543Z",
+        "versionUnchanged": true,
+        "deletedAt": null
+      },
+      {
+        "pageId": "c74b5272-7110-414c-a948-4bf03073d028",
+        "exists": true,
+        "chars": 17097,
+        "sha256": "9cd0be4f9a3f3d7375cf417250a597036f8ba159a4aa38ce333dba233f99a5bf",
+        "contentUnchanged": true,
+        "updatedAt": "2026-10-22T11:04:55.543Z",
+        "versionUnchanged": true,
+        "deletedAt": null
+      },
+      {
+        "pageId": "4088516b-4f90-4803-aeb2-7ddc63a86c32",
+        "exists": true,
+        "chars": 31174,
+        "sha256": "56e87ba342b69ef6ea44fb5cc6ec4007d05f9f040651d1463dc917ba6d52a51d",
+        "contentUnchanged": true,
+        "updatedAt": "2026-10-22T11:04:55.543Z",
+        "versionUnchanged": true,
+        "deletedAt": null
+      },
+      {
+        "pageId": "4ca9b323-82c2-4077-b9f2-b025fff74d98",
+        "exists": true,
+        "chars": 48693,
+        "sha256": "5b95c16c61272fa7234edba3dcd32d1a5acaa755eae9e714e499a5e51b3fc396",
+        "contentUnchanged": true,
+        "updatedAt": "2026-10-22T11:04:55.543Z",
+        "versionUnchanged": true,
+        "deletedAt": null
+      },
+      {
+        "pageId": "0459b4aa-47b3-4959-b092-20c9a9d8dbf8",
+        "exists": true,
+        "chars": 4258,
+        "sha256": "9e7decb744cc74a33844f324f79a965371ab36e51b2deeda7144b1d4300836c5",
+        "contentUnchanged": true,
+        "updatedAt": "2026-10-22T11:04:55.543Z",
+        "versionUnchanged": true,
+        "deletedAt": null
+      },
+      {
+        "pageId": "3300a11b-0daf-4617-8e4c-ff008e069b85",
+        "exists": true,
+        "chars": 536,
+        "sha256": "9eab531eae5687ce68cb7f21966141b9bc2879d4919ea0eee20bd142769808ec",
+        "contentUnchanged": true,
+        "updatedAt": "2026-10-22T11:04:55.543Z",
+        "versionUnchanged": true,
+        "deletedAt": null
+      }
+    ]
+  },
+  "otherFixtureCopies": {
+    "count": 8,
+    "allUnchanged": false,
+    "pages": [
+      {
+        "pageId": "b59e49a2-1083-4242-9eda-162277157604",
+        "exists": true,
+        "chars": 16135,
+        "sha256": "281fc842bb04f9af6dc566b6d7a013e5cb7f6b4b0c8cd350ae0b41691d5a7555",
+        "contentUnchanged": true,
+        "updatedAt": "2026-10-25T20:50:27.086Z",
+        "versionUnchanged": true,
+        "deletedAt": "2026-10-25T20:54:36.581Z",
+        "inFixture": true
+      },
+      {
+        "pageId": "08135186-349c-4117-80a0-aa2158687d43",
+        "exists": true,
+        "chars": 3373,
+        "sha256": "e059e43bd4d3ecee7bb7ce8d9aa76c128ee0800dac75ec772178f46eee1e8960",
+        "contentUnchanged": true,
+        "updatedAt": "2026-10-25T20:50:45.239Z",
+        "versionUnchanged": true,
+        "deletedAt": "2026-10-25T20:54:36.581Z",
+        "inFixture": true
+      },
+      {
+        "pageId": "6c3a1081-0e49-451c-bbd6-fd6a2a0686fc",
+        "exists": true,
+        "chars": 14151,
+        "sha256": "54edac7a9c2b98c4a20eba8e04b8f4e64fbb8001e47462c0083bae470c5f7494",
+        "contentUnchanged": true,
+        "updatedAt": "2026-10-25T20:50:46.900Z",
+        "versionUnchanged": true,
+        "deletedAt": "2026-10-25T20:54:36.581Z",
+        "inFixture": true
+      },
+      {
+        "pageId": "3bbea57f-db70-4a7a-a967-3b50ae5852ae",
+        "exists": true,
+        "chars": 2462,
+        "sha256": "6e0de5360d2b3a4f86f30e66eba9ec07bc0b2e7142ec2d54ede35e0be6537c4b",
+        "contentUnchanged": true,
+        "updatedAt": "2026-10-25T20:50:48.349Z",
+        "versionUnchanged": true,
+        "deletedAt": "2026-10-25T20:54:36.581Z",
+        "inFixture": true
+      },
+      {
+        "pageId": "73d6842c-f4c7-48a8-afe7-39f3eb69c696",
+        "exists": true,
+        "chars": 17097,
+        "sha256": "9cd0be4f9a3f3d7375cf417250a597036f8ba159a4aa38ce333dba233f99a5bf",
+        "contentUnchanged": true,
+        "updatedAt": "2026-10-25T20:50:49.762Z",
+        "versionUnchanged": true,
+        "deletedAt": "2026-10-25T20:54:36.581Z",
+        "inFixture": true
+      },
+      {
+        "pageId": "37ccf69c-f1f1-4487-b5e6-01709fd4a929",
+        "exists": true,
+        "chars": 31174,
+        "sha256": "56e87ba342b69ef6ea44fb5cc6ec4007d05f9f040651d1463dc917ba6d52a51d",
+        "contentUnchanged": true,
+        "updatedAt": "2026-10-25T20:50:51.419Z",
+        "versionUnchanged": true,
+        "deletedAt": "2026-10-25T20:54:36.581Z",
+        "inFixture": true
+      },
+      {
+        "pageId": "022eb04d-be59-41a7-ba52-61d92ad8fccd",
+        "exists": true,
+        "chars": 48693,
+        "sha256": "5b95c16c61272fa7234edba3dcd32d1a5acaa755eae9e714e499a5e51b3fc396",
+        "contentUnchanged": true,
+        "updatedAt": "2026-10-25T20:50:52.997Z",
+        "versionUnchanged": true,
+        "deletedAt": "2026-10-25T20:54:36.581Z",
+        "inFixture": true
+      },
+      {
+        "pageId": "547b29cf-8530-4a99-8713-fc14e37ef23c",
+        "exists": true,
+        "chars": 536,
+        "sha256": "9eab531eae5687ce68cb7f21966141b9bc2879d4919ea0eee20bd142769808ec",
+        "contentUnchanged": true,
+        "updatedAt": "2026-10-25T20:50:56.168Z",
+        "versionUnchanged": true,
+        "deletedAt": "2026-10-25T20:54:36.581Z",
+        "inFixture": true
+      }
+    ],
+    "allContentAndVersionsUnchanged": true,
+    "allActive": false,
+    "note": "All eight source-copy contents and updatedAt versions are unchanged. They were soft-deleted together during the parent browser cleanup before this independent readback."
+  },
+  "boundaries": {
+    "databaseWrites": false,
+    "redisWrites": false,
+    "submittedNewTurns": false,
+    "uiReloadAcceptanceIncluded": false,
+    "semanticContentAcceptance": "pending independent review of saved content",
+    "uiLiveSavedConfirmationObservedByParent": true
+  },
+  "cleanup": {
+    "checkedAt": "2026-10-25T20:55:38.211Z",
+    "folder": {
+      "id": "cmvoavhn00066n9qqri208ulc",
+      "spaceId": "cmtmgsk5b00neuo709n0x7nqj",
+      "deletedAt": "2026-10-25T20:54:36.581Z",
+      "deletionBatchId": "51779f1d-a8a3-423d-9fd6-487a10365967",
+      "updatedAt": "2026-10-25T20:48:36.108Z"
+    },
+    "batch": {
+      "id": "51779f1d-a8a3-423d-9fd6-487a10365967",
+      "rootFolderId": "cmvoavhn00066n9qqri208ulc",
+      "folderCount": 1,
+      "pageCount": 9,
+      "deletedTreeRevision": "128",
+      "createdAt": "2026-10-25T20:54:36.581Z",
+      "restoredAt": null
+    },
+    "tombstones": [
+      {
+        "id": "022eb04d-be59-41a7-ba52-61d92ad8fccd",
+        "deletedAt": "2026-10-25T20:54:36.581Z",
+        "deletionBatchId": "51779f1d-a8a3-423d-9fd6-487a10365967",
+        "updatedAt": "2026-10-25T20:50:52.997Z"
+      },
+      {
+        "id": "14a4fd1b-8abb-4397-9806-9291232ced8e",
+        "deletedAt": "2026-10-25T20:54:36.581Z",
+        "deletionBatchId": "51779f1d-a8a3-423d-9fd6-487a10365967",
+        "updatedAt": "2026-10-25T20:53:58.236Z"
+      },
+      {
+        "id": "37ccf69c-f1f1-4487-b5e6-01709fd4a929",
+        "deletedAt": "2026-10-25T20:54:36.581Z",
+        "deletionBatchId": "51779f1d-a8a3-423d-9fd6-487a10365967",
+        "updatedAt": "2026-10-25T20:50:51.419Z"
+      },
+      {
+        "id": "73d6842c-f4c7-48a8-afe7-39f3eb69c696",
+        "deletedAt": "2026-10-25T20:54:36.581Z",
+        "deletionBatchId": "51779f1d-a8a3-423d-9fd6-487a10365967",
+        "updatedAt": "2026-10-25T20:50:49.762Z"
+      },
+      {
+        "id": "3bbea57f-db70-4a7a-a967-3b50ae5852ae",
+        "deletedAt": "2026-10-25T20:54:36.581Z",
+        "deletionBatchId": "51779f1d-a8a3-423d-9fd6-487a10365967",
+        "updatedAt": "2026-10-25T20:50:48.349Z"
+      },
+      {
+        "id": "6c3a1081-0e49-451c-bbd6-fd6a2a0686fc",
+        "deletedAt": "2026-10-25T20:54:36.581Z",
+        "deletionBatchId": "51779f1d-a8a3-423d-9fd6-487a10365967",
+        "updatedAt": "2026-10-25T20:50:46.900Z"
+      },
+      {
+        "id": "08135186-349c-4117-80a0-aa2158687d43",
+        "deletedAt": "2026-10-25T20:54:36.581Z",
+        "deletionBatchId": "51779f1d-a8a3-423d-9fd6-487a10365967",
+        "updatedAt": "2026-10-25T20:50:45.239Z"
+      },
+      {
+        "id": "b59e49a2-1083-4242-9eda-162277157604",
+        "deletedAt": "2026-10-25T20:54:36.581Z",
+        "deletionBatchId": "51779f1d-a8a3-423d-9fd6-487a10365967",
+        "updatedAt": "2026-10-25T20:50:27.086Z"
+      },
+      {
+        "id": "547b29cf-8530-4a99-8713-fc14e37ef23c",
+        "deletedAt": "2026-10-25T20:54:36.581Z",
+        "deletionBatchId": "51779f1d-a8a3-423d-9fd6-487a10365967",
+        "updatedAt": "2026-10-25T20:50:56.168Z"
+      }
+    ],
+    "allNinePagesSoftDeleted": true,
+    "noActivePages": true
+  }
+}

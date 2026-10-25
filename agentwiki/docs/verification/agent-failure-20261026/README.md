@@ -21,12 +21,22 @@ The strict JSON parser, action decision, fixed write destination, current author
 
 The correct candidate replay used the same failed task and stored history, the same model and 300-second budget. It completed in **216,601 ms**, returning `action=update` without a format retry. The generation prompt was 244,029 characters / 436,880 bytes. The probe decoded its directory section and verified all **9/9 bodies by exact equality and SHA-256**. No directory tool calls or tool-output truncation occurred. See `live-real-inline-receipt.json`.
 
+After deployment, the same read-only replay completed in **147,111 ms** with one successful Qwen attempt and no format retry. The final generation prompt was 244,601 characters / 437,452 bytes and again verified 9/9 exact bodies. See `live-deployed-real-inline-receipt.json`; the original page, database task state and Redis health state were not changed by either probe.
+
 The replay is read-only: it does not change pages, task rows or shared router health. Its success proves source delivery and execution, not final document correctness or queue/save behavior. Generated content remains private on the server; independent content review and isolated queue/save acceptance are separate evidence.
 
 Local verification on the final product patch: server 3,628 passed / 44 skipped; Agent panel 89 passed; offline acceptance-plan tests 5 passed; typecheck, changed-source ESLint, server/client builds and `git diff --check` passed. The server suite includes 115 runner/history tests and 25 real MCP stdio pagination tests. The skipped tests require dedicated environments. An independent product review found no P1/P2 blocker.
 
-## Release state
+## Production and save acceptance
 
-The prepared candidate is v0.12.60 on `codex/agent-autochat-external-opencode`. Production deployment and post-deployment receipts will be added only after they actually complete. The user's original status table has not been overwritten.
+v0.12.60 (`99e66da0e72be583a9d1363760f17f2481a9d4ba`) is deployed. The paired backup `/var/backups/agentwiki/agent-failure-v01260.PcRiCrTx` was verified and services were restored before deployment. A 1,436-file manifest, three services, five health checks and the public entry assets all match the frozen release; see `production-host.json`, `production-public.json` and `deployment-receipt.json`.
+
+An isolated folder with exact copies of the nine current source pages was created through the normal governed MCP path. A new browser session submitted the original request and reached `done` in 113.839 seconds with `action=update`, an `updated` document receipt for the isolated target, and a persisted 5,561-character result. Database readback matched the saved page to the receipt byte-for-byte; the nine original source pages and eight non-target copies retained their original bodies and versions. The isolated folder was then removed through the normal browser folder flow (recoverable soft delete). See `../agent-auto-edit-20261026/mcp-fixture-receipt.json` and the acceptance sequence.
+
+The generated table was not applied to the user's original page. Independent review found the 66 original items retained, but the model still needs human review for source-link completeness and a few “code fixed versus manual regression verified” qualifiers. The execution failure is resolved; this content review boundary prevents an automatic overwrite of the original table with an incomplete status interpretation.
 
 OpenCode source inspected: [stdin handling](https://github.com/anomalyco/opencode/blob/v2.1.1/packages/cli/src/run/run.ts), [tool-output limit](https://github.com/anomalyco/opencode/blob/v2.1.1/packages/core/src/tool-output.ts).
+
+## Follow-up candidate
+
+The 0.12.61 candidate adds explicit current title/URL mapping and pending-human-verification instructions after independent review found citation and status qualification errors in the isolated output. These are model guidance, not a deterministic semantic validator. Its real-data verification remains separate from the successful v0.12.60 execution and save receipts above.

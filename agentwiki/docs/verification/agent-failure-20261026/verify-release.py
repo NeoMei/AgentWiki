@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify v0.12.60 against explicitly supplied frozen source identifiers.
+"""Verify v0.12.61 against explicitly supplied frozen source identifiers.
 
 Reuses the v0.12.58 read-only host/public checks. prepare-source-manifest.py
 embeds that implementation into a standalone copy for transfer to production.
@@ -13,7 +13,7 @@ import re
 import sys
 
 BASE_VERIFIER_SOURCE = globals().get('BASE_VERIFIER_SOURCE')
-VERSIONS = {'web': '0.12.60', 'client': '0.12.60', 'api': '0.12.60', 'localSync': '0.13.5', 'protocol': '0.6.1'}
+VERSIONS = {'web': '0.12.61', 'client': '0.12.61', 'api': '0.12.61', 'localSync': '0.13.5', 'protocol': '0.6.1'}
 
 
 def base_source():

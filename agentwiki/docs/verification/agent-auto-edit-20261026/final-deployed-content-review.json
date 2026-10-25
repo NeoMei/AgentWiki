@@ -1,0 +1,171 @@
+{
+  "reviewedAt": "2026-10-25T20:58:42.325Z",
+  "release": {
+    "version": "0.12.60",
+    "commit": "99e66da0"
+  },
+  "methodology": "Read-only production result and source snapshots; normalized per-row comparison plus independent review of source evidence. No full report or generated body is stored here. No original page was changed.",
+  "baseline": {
+    "taskId": "cmvnzrwde01a913pya6324rid",
+    "sourceDocuments": 9,
+    "sourceCharacters": 137879,
+    "oldRows": 66
+  },
+  "deployedOriginalSessionProbe": {
+    "resultPath": "/var/tmp/agentwiki-real-probe-tZkXOd/result.json",
+    "characters": 5660,
+    "sha256": "c45d942d891ee7e00836a64ee13f401306af7fa2542dd9727b86a33647a48fcb",
+    "runtimeMs": 147111,
+    "runtimeOutcome": "update succeeded; read-only probe",
+    "statistics": {
+      "pendingRegression": 1,
+      "fixed": 66,
+      "unresolved": 20,
+      "total": 87,
+      "reportedMatchesRows": true
+    },
+    "old66Coverage": {
+      "normalizedDescriptions": 66,
+      "preservedPriorSourceDates": 66,
+      "preservedModules": 66,
+      "missing": 0
+    },
+    "sources": {
+      "datedReportLinks": 7,
+      "datedReportLinksCorrect": true,
+      "oldGeneralReportLinked": false
+    },
+    "findings": [
+      {
+        "id": "probe-source-omission",
+        "severity": "medium",
+        "summary": "The early general report is omitted: unconfirmed rate-limit issue and MCP overwrite/publish failures have no explicit closure or mapping.",
+        "sourcePageId": "3300a11b-0daf-4617-8e4c-ff008e069b85"
+      },
+      {
+        "id": "probe-regression-limits",
+        "severity": "medium",
+        "locations": [
+          "II-2",
+          "II-3",
+          "II-9",
+          "II-48",
+          "II-52",
+          "II-53",
+          "II-54",
+          "II-55"
+        ],
+        "summary": "Version-only fixed rows omit original Windows/Vault replay limits, original MCP identity/environment qualification, real invalid-note/task deletion, renamed-title persistence, drag/refresh/read-only boundary, and cross-account notification/deep-link checks. Code/deployment fixes can remain fixed, but these pending verification limits must remain visible."
+      },
+      {
+        "id": "probe-relation-scope",
+        "severity": "low",
+        "location": "II-62",
+        "summary": "Same-direction relation filtering is described without the verified same-type restriction."
+      },
+      {
+        "id": "probe-stale-personal-template",
+        "severity": "medium",
+        "location": "III-2",
+        "summary": "Personal single-page template Chinese task text remains in unresolved group despite source 10-16 explicitly recording original-run regression fixed; candidate acknowledges that evidence but adds an unsupported final-regression wait."
+      }
+    ],
+    "passes": [
+      "All original 66 descriptions, original source dates and modules retained.",
+      "Count arithmetic is consistent.",
+      "All 12 numbered 10-22 issues present.",
+      "Notification count correctly distinguishes v0.12.58 service/DB verification from pending browser human regression."
+    ],
+    "contentVerdict": "needs correction; execution success is not full content acceptance"
+  },
+  "uiSavedResult": {
+    "sessionId": "cmvoazq4800hwn9qqyrfk1hbk",
+    "taskId": "cmvoazyc000hzn9qqceqpl4to",
+    "targetPageId": "14a4fd1b-8abb-4397-9806-9291232ced8e",
+    "characters": 5561,
+    "sha256": "24560b49d9b584620d5abe093ad24a671ca923c82895549a89a5cfabd9ae24f8",
+    "status": "done",
+    "saveVerification": "Independent runtime agent confirmed exact result.changes equality with stored target body; fixture subsequently soft-deleted via normal UI.",
+    "statistics": {
+      "pendingRegression": 0,
+      "fixed": 67,
+      "unresolved": 19,
+      "total": 86,
+      "reportedMatchesRows": true
+    },
+    "old66Coverage": {
+      "normalizedDescriptions": 66,
+      "preservedPriorSourceDates": 66,
+      "preservedModules": 66,
+      "missing": 0
+    },
+    "sources": {
+      "linkLabels": 7,
+      "uniqueDatedReportTargets": 6,
+      "oldGeneralReportLinked": false
+    },
+    "findings": [
+      {
+        "id": "ui-wrong-source-link",
+        "severity": "high",
+        "summary": "10-21 report label links to the 10-20 copy, while 10-20 label also links to that page. This is a concrete provenance error.",
+        "actualTarget": "6c3a1081-0e49-451c-bbd6-fd6a2a0686fc",
+        "expectedTarget": "08135186-349c-4117-80a0-aa2158687d43"
+      },
+      {
+        "id": "ui-wrong-batch-labels",
+        "severity": "medium",
+        "locations": [
+          "II-47 through II-54"
+        ],
+        "summary": "Eight rows originating in 10-20 are all attributed only to 10-21. The 10-21 report repeats space-only validation, task deletion and task rename; repeated rows should retain both dates, and other 10-20 issues should retain their actual source."
+      },
+      {
+        "id": "ui-notification-boundary-lost",
+        "severity": "high",
+        "location": "II-67 and pending-regression section",
+        "summary": "Notification unread count is reduced to fixed/v0.12.58 and the table says no pending regression. The report explicitly leaves browser human verification pending after service/DB verification. This overstates closure."
+      },
+      {
+        "id": "ui-early-report-omitted",
+        "severity": "medium",
+        "summary": "Early general report not cited or represented; unconfirmed rate limit and MCP overwrite/publish failures remain unaccounted for.",
+        "sourcePageId": "547b29cf-8530-4a99-8713-fc14e37ef23c"
+      },
+      {
+        "id": "ui-mention-update-omitted",
+        "severity": "medium",
+        "summary": "10-20 mention-recipient display, self-mention notification and picker update have no row or stated merge mapping; the only @ row concerns the old document-reference input. Cross-account pending validation is consequently absent."
+      },
+      {
+        "id": "ui-other-regression-limits",
+        "severity": "medium",
+        "locations": [
+          "II-2",
+          "II-3",
+          "II-9",
+          "II-50",
+          "II-51",
+          "II-52",
+          "II-53"
+        ],
+        "summary": "Windows original-Vault replay, original MCP identity/environment, real note/task deletion, rename refresh and drag/read-only manual checks are omitted from version-only fixed rows."
+      },
+      {
+        "id": "ui-relation-scope",
+        "severity": "low",
+        "location": "II-62",
+        "summary": "Same-direction relation filtering lacks the same-type qualification."
+      }
+    ],
+    "passes": [
+      "Original 66 descriptions, source dates and modules retained.",
+      "Count arithmetic consistent.",
+      "12 numbered 10-22 issues present.",
+      "Personal-template Chinese runtime text now classified fixed using 10-16 evidence.",
+      "Real new-session queue execution and database save succeeded."
+    ],
+    "contentVerdict": "fails full-source/evidence-qualification acceptance; isolated save proves runtime, not readiness to overwrite original summary"
+  },
+  "scope": "No product changes or original-page writes were performed for this review. UI reload persistence is not claimed by this record."
+}
