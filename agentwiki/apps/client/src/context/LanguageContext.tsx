@@ -32,6 +32,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   useEffect(() => {
     document.documentElement.lang = language;
+    document.title = messages[language]['brand.fullName'];
   }, [language]);
 
   const t = useCallback((key: string, params?: Record<string, string | number>) => {

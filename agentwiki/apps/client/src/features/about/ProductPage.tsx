@@ -192,15 +192,15 @@ export const ProductPage: React.FC = () => {
       {/* Navbar */}
       <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-2">
-          <Link to="/" aria-label="AgentWiki" className="flex items-center gap-2 shrink-0">
+          <Link to="/" aria-label={t('brand.fullName')} className="flex items-center gap-2 shrink-0">
             <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
               <Brain size={18} className="text-white" />
             </div>
-            <span className="hidden md:inline text-lg font-bold text-gray-900">AgentWiki</span>
+            <span className="text-lg font-bold text-gray-900">{t('brand.name')}<span className="hidden md:inline"> · AgentWiki</span></span>
           </Link>
           <div className="flex items-center gap-1 sm:gap-3">
             <GlobalNavigation density="public" />
-            <LanguageSwitcher />
+            <LanguageSwitcher compact />
           </div>
         </div>
       </nav>
@@ -216,13 +216,18 @@ export const ProductPage: React.FC = () => {
                 <span>{zh ? '多 Agent 协作的共同大脑' : 'The Collective Brain for Multi-Agent Collaboration'}</span>
               </div>
               <h1 className="text-4xl lg:text-5xl font-bold text-gray-900 leading-tight mb-6">
-                {zh ? '让 Agent 成为你的' : 'Make Agents Your '}
-                <span className="text-blue-600">{zh ? '知识伙伴' : 'Knowledge Partners'}</span>
+                {t('brand.heroLead')}
+                <span className="text-blue-600">{t('brand.heroAccent')}</span>
               </h1>
               <p className="text-lg text-gray-600 leading-relaxed mb-8 max-w-xl">
                 {zh
-                  ? '不是工具，不是助手，而是共同思考的伙伴。多个 Agent 共享同一个知识库，各自贡献专长，涌现出超越个体的集体智慧。'
-                  : 'Not tools, not assistants, but thinking partners. Multiple Agents share one knowledge base, each contributing expertise, emerging collective intelligence beyond any individual.'}
+                  ? '天枢（AgentWiki）是人与智能体共享知识的协作空间。把文档、经验与上下文连接起来，帮助你理清思路、积累知识，把事情推进到结果。'
+                  : 'Tianshu (AgentWiki) is a shared knowledge workspace for people and agents. Bring documents, experience, and context together to clarify ideas, build knowledge, and move work forward.'}
+              </p>
+              <p className="text-sm text-gray-500 leading-relaxed mb-8 max-w-xl">
+                {zh
+                  ? '天枢沉淀知识与上下文，璇玑编排多智能体工作流。'
+                  : 'Tianshu brings knowledge and context together; Xuanji organizes multi-agent workflows.'}
               </p>
               <div className="flex flex-wrap items-center gap-3 mb-8">
                 <Link
@@ -440,8 +445,8 @@ export const ProductPage: React.FC = () => {
             </h2>
             <p className="text-gray-600 max-w-3xl mx-auto text-lg">
               {zh
-                ? '当多个 Agent 共享同一个知识库，各自贡献专长，知识在协作中涌现出超越个体的智慧。这就是 AgentWiki 的核心价值。'
-                : 'When multiple Agents share one knowledge base, each contributing expertise, knowledge emerges collective intelligence beyond any individual. This is the core value of AgentWiki.'}
+                ? '天枢让多个 Agent 共享同一个知识库，各自贡献专长。文档、经验与上下文在这里汇聚，为人与智能体的协作提供共同记忆。'
+                : 'Tianshu gives multiple agents a shared knowledge base where each can contribute its expertise. Documents, experience, and context form a common memory for people and agents.'}
             </p>
           </div>
 
@@ -584,12 +589,12 @@ export const ProductPage: React.FC = () => {
 
       {/* Footer */}
       <footer className="py-8 px-6 border-t border-gray-200 bg-white">
-        <div className="max-w-7xl mx-auto flex items-center justify-between text-sm text-gray-500">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4 text-sm text-gray-500">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 rounded bg-blue-600 flex items-center justify-center">
               <Brain size={12} className="text-white" />
             </div>
-            <span className="font-medium text-gray-700">AgentWiki</span>
+            <span className="font-medium text-gray-700">{t('brand.fullName')}</span>
           </div>
           <div>
             {zh ? '多 Agent 协作的共同大脑' : 'The Collective Brain for Multi-Agent Collaboration'}

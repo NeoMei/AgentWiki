@@ -67,9 +67,9 @@ export const Navbar: React.FC = () => {
   return (
     <nav className="bg-white border-b px-2 sm:px-4 py-3 flex items-center justify-between gap-1 sticky top-0 z-40">
       <div className="flex items-center gap-1 sm:gap-2 lg:gap-4 min-w-0">
-        <Link to="/" aria-label="AgentWiki" className="text-xl font-bold text-blue-600 shrink-0">
-          <span className="hidden lg:inline">AgentWiki</span>
-          <span className="lg:hidden">AW</span>
+        <Link to="/" aria-label={t('brand.fullName')} className="text-xl font-bold text-blue-600 shrink-0">
+          <span className="hidden lg:inline">{t('brand.fullName')}</span>
+          <span className="lg:hidden">{t('brand.compactName')}</span>
         </Link>
         <GlobalNavigation density="workspace" />
         <Link to="/agents" className={navClass('/agents')} title={t('nav.agents')}><Bot size={18} /><span className="hidden sm:inline">{t('nav.agents')}</span></Link>

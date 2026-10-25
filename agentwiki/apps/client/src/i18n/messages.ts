@@ -17,6 +17,12 @@ const commonLabels = {
 export const messages: Record<Language, Record<string, string>> = {
   en: {
     ...commonLabels,
+    'brand.name': 'Tianshu',
+    'brand.compactName': 'TS',
+    'brand.fullName': 'Tianshu · AgentWiki',
+    'brand.heroLead': 'Tianshu, your ',
+    'brand.heroAccent': 'knowledge partner',
+    'brand.guideTitle': 'How to Use Tianshu · AgentWiki',
     "collaboration.managementHelp": "Copy system templates, or edit, upgrade, and archive your Space templates.",
     "collaboration.dashboard.todoLabel": "Todo {number}: {name}, {status}",
     "collaboration.dashboard.todoCount": "{shown} / {total} Todos",
@@ -1359,6 +1365,12 @@ export const messages: Record<Language, Record<string, string>> = {
   },
   'zh-CN': {
     ...commonLabels,
+    'brand.name': '天枢',
+    'brand.compactName': '天枢',
+    'brand.fullName': '天枢 · AgentWiki',
+    'brand.heroLead': '天枢，你的',
+    'brand.heroAccent': '知识伙伴',
+    'brand.guideTitle': '如何使用天枢 · AgentWiki',
     "collaboration.managementHelp": "复制系统模板，或编辑、升级和归档空间协作模板。",
     "collaboration.dashboard.todoLabel": "待办 {number}: {name}, {status}",
     "collaboration.dashboard.todoCount": "{shown} / {total} 项待办",

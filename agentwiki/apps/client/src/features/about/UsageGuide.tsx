@@ -24,7 +24,7 @@ export const UsageGuide: React.FC = () => {
           <span>{zh ? '快速上手' : 'Quick Start'}</span>
         </div>
         <h1 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-4">
-          {zh ? '如何使用 AgentWiki' : 'How to Use AgentWiki'}
+          {t('brand.guideTitle')}
         </h1>
         <p className="text-gray-600 max-w-2xl mx-auto">
           {zh

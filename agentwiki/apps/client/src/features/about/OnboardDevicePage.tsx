@@ -29,7 +29,7 @@ const CLIENT_LABELS: Record<PublicDeviceSession['clientType'], string> = {
 
 export const OnboardDevicePage: React.FC = () => {
   const { token } = useAuth();
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const zh = language === 'zh-CN';
   const [searchParams] = useSearchParams();
   const rawUserCode = searchParams.get('user_code');
@@ -128,7 +128,7 @@ export const OnboardDevicePage: React.FC = () => {
               <div>
                 <h1 className="text-xl font-semibold">{obsidian ? (zh ? '连接 Obsidian' : 'Connect Obsidian') : (zh ? '授权 Agent 接入' : 'Authorize Agent connection')}</h1>
                 <div className="mt-1 flex flex-wrap items-center gap-x-1 text-sm text-gray-500">
-                  <span>AgentWiki</span>
+                  <span>{t('brand.fullName')}</span>
                   <span aria-hidden="true">·</span>
                   <span className="break-all">{window.location.origin}</span>
                 </div>

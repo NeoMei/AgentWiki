@@ -5,7 +5,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { buildOnboardPrompt, ONBOARD_CLIENTS, type OnboardClient } from './onboardPrompt';
 
 export const OnboardPage: React.FC = () => {
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const zh = language === 'zh-CN';
   const [client, setClient] = useState<OnboardClient>('generic');
   const [copiedPrompt, setCopiedPrompt] = useState<string | null>(null);
@@ -37,7 +37,7 @@ export const OnboardPage: React.FC = () => {
   return (
     <article className="min-w-0 text-gray-900">
       <header>
-        <p className="flex items-center gap-2 text-sm text-gray-500"><Bot size={18} /> AgentWiki · {LOCAL_SYNC_VERSION}</p>
+        <p className="flex items-center gap-2 text-sm text-gray-500"><Bot size={18} /> {t('brand.fullName')} · {LOCAL_SYNC_VERSION}</p>
         <h1 className="mt-4 text-2xl font-semibold">{zh ? '连接你的 Agent' : 'Connect your Agent'}</h1>
         <p className="mt-3 max-w-2xl text-base leading-6 text-gray-600">{zh ? '把通用提示词交给支持本地 MCP 的 Agent，即可开始接入。Agent 会引导你授权、配置工具并验证实际读取。' : 'Give the universal prompt to any Agent with local MCP support. Your Agent guides authorization, tool setup, and a real page-read check.'}</p>
       </header>

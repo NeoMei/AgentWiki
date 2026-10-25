@@ -29,7 +29,7 @@ describe('UsageGuide Agent connection flow', () => {
     const chineseSources = screen.getAllByRole('img').map((image) => image.getAttribute('src'));
     expect(chineseSources).toHaveLength(9);
     fireEvent.click(screen.getByRole('button', { name: '切换语言' }));
-    expect(screen.getByRole('heading', { name: 'How to Use AgentWiki' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'How to Use Tianshu · AgentWiki' })).toBeVisible();
     const englishSources = screen.getAllByRole('img').map((image) => image.getAttribute('src'));
     expect(englishSources).toHaveLength(chineseSources.length);
     for (const [index, src] of englishSources.entries()) {
@@ -46,7 +46,7 @@ describe('UsageGuide Agent connection flow', () => {
   it('presents a generic Agent flow with OpenCode as the verified example', () => {
     renderGuide();
 
-    expect(screen.getByRole('link', { name: 'AgentWiki' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: '天枢 · AgentWiki' })).toHaveAttribute('href', '/');
     expect(screen.getByRole('link', { name: '首页' })).toBeInTheDocument();
     expect(within(screen.getByRole('navigation', { name: '主导航' })).getByRole('link', { name: '使用指南' }))
       .toHaveAttribute('aria-current', 'page');

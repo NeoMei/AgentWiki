@@ -99,7 +99,7 @@ export const guideGroups: GuideGroup[] = [
 export const docSections: GuideEntry[] = guideGroups[1].items;
 
 export const GuideLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const zh = language === 'zh-CN';
   const { pathname } = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -110,11 +110,11 @@ export const GuideLayout: React.FC<{ children: React.ReactNode }> = ({ children 
       <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-3 min-w-0">
-            <Link to="/" aria-label="AgentWiki" className="flex items-center gap-2 shrink-0">
+            <Link to="/" aria-label={t('brand.fullName')} className="flex items-center gap-2 shrink-0">
               <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
                 <Bot size={18} className="text-white" />
               </div>
-              <span className="hidden md:inline text-lg font-bold text-gray-900">AgentWiki</span>
+              <span className="text-lg font-bold text-gray-900"><span className="md:hidden">{t('brand.compactName')}</span><span className="hidden md:inline">{t('brand.fullName')}</span></span>
             </Link>
             <span className="text-gray-300 hidden md:inline">/</span>
             <span className="hidden md:flex shrink-0 items-center gap-1 text-sm font-medium text-gray-600 whitespace-nowrap">
@@ -124,7 +124,7 @@ export const GuideLayout: React.FC<{ children: React.ReactNode }> = ({ children 
           </div>
           <div className="flex items-center gap-1 sm:gap-2">
             <GlobalNavigation density="public" />
-            <LanguageSwitcher />
+            <LanguageSwitcher compact />
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
               className="lg:hidden p-1.5 rounded-lg hover:bg-gray-100"

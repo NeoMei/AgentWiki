@@ -69,7 +69,8 @@ export const Register: React.FC = () => {
       <div className="absolute right-4 top-4"><LanguageSwitcher /></div>
       <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow">
         <div className="text-center">
-          <h1 className="text-3xl font-bold text-blue-600">AgentWiki</h1>
+          <h1 className="text-3xl font-bold text-blue-600">{t('brand.name')}</h1>
+          <p className="mt-1 text-sm text-gray-500">AgentWiki</p>
           <h2 className="text-xl text-gray-600 mt-2">{t('auth.createAccount')}</h2>
         </div>
         {error && (
