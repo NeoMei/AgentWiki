@@ -36,6 +36,8 @@ function createStore(userId: string, spaceId: string, contextKey: string) {
     receipts: new Map<string, { sessionId: string; awaitingRead: boolean; credential: NonNullable<AssistNotesEvent['dispatchRequest']> }>(),
     // Content may be purged after access loss; operation history must still prevent replay after Undo.
     ledger: new Map<string, Pick<CandidateRecord['candidate'], 'status' | 'acceptedEditIds'>>(), drafts: new Map<string, Composer>(),
+    // A cleared unsent request must not be restored by unchanged parent props.
+    clearedRequestIds: new Set<string>(),
     retry: null as { signature: string; id: string } | null,
     get: () => state,
     subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener); },
@@ -165,23 +167,34 @@ export function useAgentSession(userId: string, spaceId: string, contextKey = ''
     }
     return true;
   };
-  const create = async (preserveDraft = false) => {
+  const create = async (preserveDraft = false, replaceCurrent = false) => {
     const epoch = store.epoch;
     const { data } = await api.post<AgentSessionSummary>('/assist/sessions', { spaceId });
     if (!valid(epoch) || data.spaceId !== spaceId) return null;
     controller.current?.abort(); lifetime.current = ++store.epoch; store.cancelRequest++;
-    store.set({ sessions: [data, ...store.get().sessions.filter((session) => session.id !== data.id)], openSessionIds: [...(store.get().openSessionIds ?? []).filter((id) => id !== data.id), data.id], selected: data.id, detail: { ...data, turns: [] }, draft: preserveDraft ? store.get().draft : composer(), cancelling: false, loading: false, error: null });
+    const current = store.get(), openIds = (current.openSessionIds ?? []).filter((id) => id !== data.id);
+    // Clear only after creation succeeds; the previous conversation stays in history.
+    const openSessionIds = replaceCurrent && current.selected && openIds.includes(current.selected)
+      ? openIds.map((id) => id === current.selected ? data.id : id) : [...openIds, data.id];
+    if (replaceCurrent && !current.selected) {
+      const clearedRequestId = current.draft.staged?.request.id;
+      if (clearedRequestId) store.clearedRequestIds.add(clearedRequestId);
+      store.drafts.delete('');
+    }
+    store.set({ sessions: [data, ...current.sessions.filter((session) => session.id !== data.id)], openSessionIds, selected: data.id, detail: { ...data, turns: [] }, draft: preserveDraft ? current.draft : composer(), cancelling: false, loading: false, error: null });
     store.drafts.set(data.id, store.get().draft);
     // The first Send transfers the empty-state composer to the created session.
     // Keep it there on send failure, without replaying it after the tab is closed.
     if (preserveDraft) store.drafts.delete('');
     return data.id;
   };
-  const newSession = async () => {
-    if (store.get().sending || store.get().creating || store.get().loadingSessions) return;
+  const newSession = async ({ replaceCurrent = false }: { replaceCurrent?: boolean } = {}) => {
+    const current = store.get();
+    if (current.sending || current.creating || current.loadingSessions
+      || replaceCurrent && (current.loading || current.cancelling || current.detail?.turns.some((turn) => turn.status === 'queued' || turn.status === 'running'))) return;
     store.set({ loading: true, creating: true, error: null });
     const epoch = store.epoch;
-    try { await create(); } catch (error) { fail(error, epoch); }
+    try { return await create(false, replaceCurrent); } catch (error) { fail(error, epoch); return null; }
     finally { store.set({ creating: false }); }
   };
   const send = async (payload: Record<string, unknown>, onSent: (turn: AgentTurn) => void) => {

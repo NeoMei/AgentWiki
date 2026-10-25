@@ -224,6 +224,156 @@ describe('closable conversation tabs', () => {
     expect(screen.getByRole('tab', { name: 'New conversation' })).toHaveAttribute('aria-selected', 'true');
   });
 
+  it('clears conversation attachments, retains recoverable history and sends current page context after reload', async () => {
+    const fresh = { ...summary, id: 'session-new', title: 'New conversation' };
+    let created = false;
+    vi.mocked(api.get).mockImplementation(async (url) => ({ data: url === '/assist/sessions'
+      ? created ? [fresh, ...summaries] : summaries
+      : url === '/assist/sessions/session-new' ? { ...fresh, turns: [] }
+      : url.startsWith('/assist/sessions/') ? { ...summaries.find((item) => url.endsWith(item.id)), turns: url.endsWith(summary.id) ? turns : [] }
+      : { results: [{ page: { id: 'page-b', title: 'Reference B', spaceId: 'space-a' } }] } }));
+    vi.mocked(api.post).mockImplementation(async (url, data: any) => {
+      if (url === '/assist/sessions') { created = true; return { data: fresh }; }
+      return { data: { ...turn, ...data, id: 'turn-new', sessionId: fresh.id, status: 'done', pageSnapshot: data.snapshot, references: [], result: { summary: 'Fresh answer' } } };
+    });
+    const rendered = render(tree({ autoFocus: false, assistRequest: { id: 'clear-note', intent: 'Review the old selection', noteIds: ['note-clear'], annotations: [{ id: 'note-clear', quote: 'unsaved', body: 'Old staged note' }], assistTarget: captureAssistTarget('unsaved current draft', 'selection', 0, 7, version)! } }));
+    await screen.findByText('Earlier answer');
+    fireEvent.click(screen.getByRole('button', { name: 'Reference pages' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Find reference pages' }), { target: { value: 'Reference' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Add Reference B' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Fresh context question' } });
+    const clearButton = screen.getByRole('button', { name: 'Clear conversation context' });
+    expect(clearButton).toHaveAttribute('title', 'Clear conversation context; previous conversations remain in history');
+    clearButton.focus(); fireEvent.click(clearButton);
+
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'New conversation' })).toHaveAttribute('aria-selected', 'true'));
+    expect(screen.queryByText('Earlier answer')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['New conversation', 'Conversation B', 'Conversation C']);
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('');
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveFocus();
+    expect(screen.queryByRole('button', { name: 'Remove Reference B' })).not.toBeInTheDocument();
+    expect(screen.queryByText('1 page note · not sent')).not.toBeInTheDocument();
+    expect(scopeControl()).toHaveValue('document');
+
+    reopen('Conversation A'); await screen.findByText('Earlier answer');
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Fresh context question');
+    expect(screen.getByRole('button', { name: 'Remove Reference B' })).toBeVisible();
+    expect(screen.getByText('1 page note · not sent')).toBeVisible();
+    expect(scopeControl()).toHaveValue('selection');
+    fireEvent.click(screen.getByRole('tab', { name: 'New conversation' }));
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled());
+    rendered.unmount();
+    // A full reload restores tab IDs, not in-memory composers or page-note requests.
+    render(tree());
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled());
+    expect(screen.getByRole('tab', { name: 'New conversation' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByText('Earlier answer')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), { target: { value: 'Only fresh history' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/assist/sessions/session-new/turns', expect.objectContaining({
+      intent: 'Only fresh history', pageId: 'page-a', referencePageIds: [], noteIds: [], annotations: [],
+      snapshot: expect.objectContaining({ title: 'Page A', content: 'unsaved current draft', updatedAt: version, assistTarget: expect.objectContaining({ kind: 'document' }) }),
+    })));
+    expect(vi.mocked(api.post).mock.calls.filter(([url]) => url === '/assist/sessions')).toHaveLength(1);
+  });
+
+  it('deduplicates pending clears and retains history, draft, references and staged notes when creation fails', async () => {
+    let rejectCreate!: (error: Error) => void;
+    vi.mocked(api.post).mockImplementation(() => new Promise((_resolve, reject) => { rejectCreate = reject; }));
+    render(tree({ assistRequest: { id: 'retained-note', intent: 'Keep my draft', noteIds: ['retained-note'], annotations: [{ id: 'retained-note', quote: 'unsaved', body: 'Keep this note' }], assistTarget: captureAssistTarget('unsaved current draft', 'selection', 0, 7, version)! } }));
+    await screen.findByText('Earlier answer');
+    fireEvent.click(screen.getByRole('button', { name: 'Reference pages' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Find reference pages' }), { target: { value: 'Reference' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Add Reference B' }));
+    const clearButton = screen.getByRole('button', { name: 'Clear conversation context' });
+    fireEvent.click(clearButton); fireEvent.click(clearButton);
+    expect(clearButton).toBeDisabled();
+    expect(api.post).toHaveBeenCalledTimes(1);
+    expect(api.post).toHaveBeenCalledWith('/assist/sessions', { spaceId: 'space-a' });
+    await act(async () => rejectCreate(new Error('Network unavailable')));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Request failed. Your message is preserved. Please retry.');
+    expect(screen.getByRole('tab', { name: 'Conversation A' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('Earlier answer')).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Keep my draft');
+    expect(screen.getByRole('button', { name: 'Remove Reference B' })).toBeVisible();
+    openStaged(); expect(screen.getByText('Keep this note')).toBeVisible();
+    expect(scopeControl()).toHaveValue('selection');
+    expect(clearButton).toBeEnabled();
+    expect(screen.queryByRole('tab', { name: 'New conversation' })).not.toBeInTheDocument();
+  });
+
+  it.each(['queued', 'running'] as const)('disables clearing conversation context after a %s turn has loaded', async (status) => {
+    turns = [{ ...turn, status, result: null }];
+    render(tree());
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled());
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
+    const clearButton = screen.getByRole('button', { name: 'Clear conversation context' });
+    expect(clearButton).toBeDisabled();
+    expect(clearButton).toHaveAttribute('title', 'Stop the current task before clearing context');
+    fireEvent.click(clearButton);
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('labels clearing in Chinese and focuses the fresh composer without creating redundant empty sessions', async () => {
+    languageState.value = 'zh-CN';
+    render(tree({ autoFocus: false })); await screen.findByText('Earlier answer');
+    const clearButton = screen.getByRole('button', { name: '清空上下文' });
+    expect(clearButton).toHaveAttribute('title', '清空对话上下文，历史会话仍可查看');
+    clearButton.focus(); fireEvent.click(clearButton);
+    await waitFor(() => expect(screen.getByRole('textbox', { name: '消息' })).toBeEnabled());
+    expect(screen.getByRole('textbox', { name: '消息' })).toHaveValue('');
+    expect(screen.getByRole('textbox', { name: '消息' })).toHaveFocus();
+    expect(clearButton).toBeDisabled();
+    fireEvent.click(clearButton);
+    expect(api.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reclaim focus from the editor while clearing waits for the new session', async () => {
+    let resolveCreate!: (value: any) => void;
+    vi.mocked(api.post).mockImplementation(() => new Promise((resolve) => { resolveCreate = resolve; }) as any);
+    render(<MemoryRouter><AgentSessionRegistryProvider userId={auth.id}><button type="button">Editor control</button><AgentSessionPanel {...defaults} autoFocus={false} /></AgentSessionRegistryProvider></MemoryRouter>);
+    await screen.findByText('Earlier answer');
+    const clearButton = screen.getByRole('button', { name: 'Clear conversation context' });
+    clearButton.focus(); fireEvent.click(clearButton);
+    const editor = screen.getByRole('button', { name: 'Editor control' });
+    editor.focus(); fireEvent.click(editor);
+    await act(async () => resolveCreate({ data: { ...summary, id: 'session-new', title: 'New conversation' } }));
+    expect(screen.getByRole('button', { name: 'Editor control' })).toHaveFocus();
+  });
+
+  it.each([false, true])('handles a disabled clear button losing focus without overriding a later background click (%s)', async (clickBackground) => {
+    let resolveCreate!: (value: any) => void;
+    vi.mocked(api.post).mockImplementation(() => new Promise((resolve) => { resolveCreate = resolve; }) as any);
+    render(tree({ autoFocus: false })); await screen.findByText('Earlier answer');
+    const clearButton = screen.getByRole('button', { name: 'Clear conversation context' });
+    clearButton.focus(); fireEvent.click(clearButton);
+    // JSDOM cannot blur an already-disabled button; simulate Chromium's native blur.
+    (clearButton as HTMLButtonElement).disabled = false;
+    clearButton.blur();
+    (clearButton as HTMLButtonElement).disabled = true;
+    expect(document.body).toHaveFocus();
+    if (clickBackground) fireEvent.pointerDown(document.body);
+    await act(async () => resolveCreate({ data: { ...summary, id: 'session-new', title: 'New conversation' } }));
+    expect(clickBackground ? document.body : screen.getByRole('textbox', { name: 'Message' })).toHaveFocus();
+  });
+
+  it('does not resurrect a staged request when clearing an empty composer', async () => {
+    const onRequestHandled = vi.fn();
+    const request = { id: 'empty-clear-request', intent: 'Discard this staged request', noteIds: ['note-empty'], annotations: [{ id: 'note-empty', quote: 'unsaved', body: 'Discard this note' }], assistTarget: captureAssistTarget('unsaved current draft', 'selection', 0, 7, version)! };
+    vi.mocked(api.get).mockResolvedValue({ data: [] });
+    render(tree({ assistRequest: request, onRequestHandled }));
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('Discard this staged request'));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear conversation context' }));
+    await screen.findByRole('tab', { name: 'New conversation' });
+    await waitFor(() => expect(onRequestHandled).toHaveBeenCalledWith(request.id));
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('');
+    fireEvent.click(screen.getByRole('button', { name: 'Close New conversation' }));
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('');
+    expect(screen.queryByText('Discard this note')).not.toBeInTheDocument();
+  });
+
   it.each([false, true])('keeps explicitly closed tabs closed after %s all tabs close and panel remount / full reload', async (allClosed) => {
     mockHistory();
     const shell = (show: boolean) => <MemoryRouter><AgentSessionRegistryProvider userId={auth.id}>{show ? <AgentSessionPanel {...defaults} /> : null}</AgentSessionRegistryProvider></MemoryRouter>;

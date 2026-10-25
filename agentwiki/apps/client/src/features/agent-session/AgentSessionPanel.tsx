@@ -1,6 +1,6 @@
 import { NativeSelect } from '../../components/NativeSelect';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowUp, Bot, ChevronDown, FileText, Folder, History, MessageSquare, Plus, Square, X } from 'lucide-react';
+import { ArrowUp, Bot, ChevronDown, Eraser, FileText, Folder, History, MessageSquare, Plus, Square, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -75,10 +75,19 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, direct
   const tabsRef = useRef<HTMLDivElement>(null);
   const newSessionRef = useRef<HTMLButtonElement>(null);
   const closeFocusRef = useRef<string | null | undefined>(undefined);
+  const clearContextButtonRef = useRef<HTMLButtonElement>(null);
+  const clearFocusRef = useRef<{ scope: string; selected: string | null; source: HTMLButtonElement | null; cancelled: boolean } | null>(null);
   const [referenceOpenRequest, setReferenceOpenRequest] = useState(0);
   const conversationPanelId = useId();
   const [localError, setLocalError] = useState<string | null>(null);
   const scope = `${userId}\u0000${spaceId}\u0000${pageId ?? directoryKey}`;
+  useLayoutEffect(() => {
+    const request = clearFocusRef.current;
+    if (!request || session.creating) return;
+    clearFocusRef.current = null;
+    if (request.scope === scope && session.selected !== request.selected && !session.loading && visible && !request.cancelled
+      && request.source && (document.activeElement === request.source || document.activeElement === document.body)) composerRef.current?.focus();
+  }, [scope, session.creating, session.loading, session.selected, visible]);
   const mountRef = useRef({ scope, token: {} });
   if (mountRef.current.scope !== scope) mountRef.current = { scope, token: {} };
   const mount = mountRef.current.token;
@@ -86,6 +95,25 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, direct
   const emitted = useRef(new Map<string, string>());
   useEffect(() => { setLocalError(null); emitted.current.clear(); }, [scope]);
   useEffect(() => { composingRef.current = false; }, [scope, session.selected]);
+  useEffect(() => {
+    // Chromium moves focus to body when a button becomes disabled. A later user
+    // interaction cancels the pending return to the composer.
+    const cancelPendingFocus = (event: Event) => {
+      const request = clearFocusRef.current, target = event.target;
+      if (!request || request.cancelled || request.source && target instanceof Node && request.source.contains(target)) return;
+      request.cancelled = true;
+    };
+    document.addEventListener('pointerdown', cancelPendingFocus, true);
+    document.addEventListener('keydown', cancelPendingFocus, true);
+    document.addEventListener('focusin', cancelPendingFocus, true);
+    window.addEventListener('blur', cancelPendingFocus);
+    return () => {
+      document.removeEventListener('pointerdown', cancelPendingFocus, true);
+      document.removeEventListener('keydown', cancelPendingFocus, true);
+      document.removeEventListener('focusin', cancelPendingFocus, true);
+      window.removeEventListener('blur', cancelPendingFocus);
+    };
+  }, []);
   useEffect(() => {
     const dismiss = (event: PointerEvent) => {
       for (const details of [historyRef.current]) {
@@ -127,7 +155,8 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, direct
   }, [scope, session.loading, visible, autoFocus, focusRequest]);
   useEffect(() => {
     if (!pageId || session.loading || !assistRequest || [...store.drafts.values()].some((composer) => composer.staged?.request.id === assistRequest.id)
-      || [...store.receipts.values()].some((receipt) => receipt.credential.request.id === assistRequest.id)) return;
+      || [...store.receipts.values()].some((receipt) => receipt.credential.request.id === assistRequest.id)
+      || store.clearedRequestIds.has(assistRequest.id)) return;
     session.updateDraft({ intent: assistRequest.intent, targetKind: assistRequest.assistTarget?.kind ?? 'document', staged: { pageId, request: assistRequest } });
   }, [assistRequest?.id, session.loading, session.selected, scope]);
   const savedDocument = (turn?: AgentTurn): AssistNotesEvent['savedDocument'] => {
@@ -297,6 +326,11 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, direct
   };
   const runningTurn = session.detail?.turns.find((turn) => turn.status === 'queued' || turn.status === 'running');
   const tabsDisabled = session.sending || session.loadingSessions || session.creating;
+  const clearContextDisabled = tabsDisabled || session.loading || session.running || session.cancelling || !userId
+    || !(session.detail?.turns.length || draft.intent || draft.references.length || draft.staged || draft.targetKind !== 'document' || session.error);
+  const clearContextTitle = session.running || session.cancelling
+    ? (zh ? '请先停止当前任务，再清空上下文' : 'Stop the current task before clearing context')
+    : (zh ? '清空对话上下文，历史会话仍可查看' : 'Clear conversation context; previous conversations remain in history');
   const visibleSessions = (session.openSessionIds ?? []).map((id) => session.sessions.find((item) => item.id === id)
     ?? { id, title: zh ? '不可访问的会话' : 'Unavailable conversation' });
   const selectedSession = visibleSessions.find((item) => item.id === session.selected);
@@ -314,6 +348,17 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, direct
     if (!session.close(id)) closeFocusRef.current = undefined;
   };
   const returnComposerFocus = () => { if (visible) composerRef.current?.focus(); };
+  const clearContext = () => {
+    if (clearContextDisabled) return;
+    const clearedRequestId = session.selected ? null : draft.staged?.request.id;
+    clearFocusRef.current = { scope, selected: session.selected, source: clearContextButtonRef.current, cancelled: false };
+    setLocalError(null);
+    referenceTrigger.current = null;
+    if (historyRef.current) historyRef.current.open = false;
+    void session.newSession({ replaceCurrent: true }).then((id) => {
+      if (id && clearedRequestId && mountRef.current.token === mount) callbacks.current.onRequestHandled?.(clearedRequestId);
+    });
+  };
   return <aside aria-label="Agent" data-testid="agent-session-panel" className="agent-session-panel flex min-h-0 min-w-0 flex-1 flex-col bg-white text-sm">
     <header className="agent-conversation-header">
       <div ref={tabsRef} role="tablist" aria-label={zh ? '会话' : 'Conversations'} className="agent-conversation-tabs" onKeyDown={(event) => {
@@ -338,6 +383,7 @@ export function AgentSessionPanel({ pageId, spaceId, pageTitle, snapshot, direct
         {!visibleSessions.length ? <span className="agent-conversation-placeholder"><Bot aria-hidden="true" size={15} />{zh ? '新会话' : 'New conversation'}</span> : null}
       </div>
       <button ref={newSessionRef} type="button" aria-label={zh ? '新建会话' : 'New conversation'} title={zh ? '新建会话' : 'New conversation'} disabled={session.sending || session.loading} onClick={() => void session.newSession()} className="agent-icon-button"><Plus aria-hidden="true" size={17} /></button>
+      <button ref={clearContextButtonRef} type="button" aria-label={zh ? '清空上下文' : 'Clear conversation context'} title={clearContextTitle} disabled={clearContextDisabled} onClick={clearContext} className="agent-icon-button"><Eraser aria-hidden="true" size={17} /></button>
       <details ref={historyRef} className="agent-conversation-history" onKeyDown={(event) => { if (event.key === 'Escape' && historyRef.current?.open) { event.preventDefault(); historyRef.current.open = false; historyRef.current.querySelector<HTMLElement>('summary')?.focus(); } }}>
         <summary aria-label={zh ? '会话历史' : 'Conversation history'} title={zh ? '会话历史' : 'Conversation history'} className="agent-icon-button"><History aria-hidden="true" size={17} /></summary>
         <div className="agent-history-menu">

@@ -1,34 +1,32 @@
 # 当前目标
 
-修复 AgentWiki 内嵌 Agent 反复执行失败，并保留真实用例与内容准确性验收边界。
+为内置 Agent 加入“清空上下文”图标按钮，清除当前聊天显示和下一轮对话历史。
 
 # 范围 / 不做
 
-修复授权目录完整输入、重复历史、工具输出截断和失败原因展示。原 Bug 状态汇总表未覆盖；不放宽权限、固定目标或 CAS，不改 provider 凭据和 Local Sync/protocol。
+只改客户端面板、会话状态及行为测试。清空成功后替换当前标签为全新会话，输入、显式引用和批注归零；历史会话与其他标签保留。当前页面/目录仍作为来源。运行中须先停止。未新增后端删除接口，未改权限、页面内容、版本号或生产部署。
 
 # 当前状态
 
-- 已正式发布 GitHub Latest `v0.12.60`，annotated tag 精确指向生产提交 `99e66da0e72be583a9d1363760f17f2481a9d4ba`；发布前再次 host/public 验证通过。正式地址 https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.60 。
-- 生产 v0.12.60，冻结源码 `99e66da0e72be583a9d1363760f17f2481a9d4ba`，已部署。1436 源码 hash、三服务、五健康项和公网入口/5资源通过。
-- 失败根因：9篇正文137879字符+10轮历史115789字符，串行读取及格式前言触发重试，耗尽300秒。现按完整prompt预算全量inline、历史exact去重、读工具40KiB精确分页，并显示安全failureCode。
-- 最终生产原案只读回放147111ms，9/9正文exact/hash，无格式重试。隔离9篇副本通过浏览器原句新会话，113.839s完成update，DB正文与result.changes逐字相等，原9页和8非目标副本未变。夹具已正常软删：批次51779f1d-a8a3-423d-9fd6-487a10365967，1目录/9页。
-- 内容审查发现旧来源遗漏、10-21链接/批次误配与人工待验限定丢失，故未覆盖原汇总。额外0.12.61提示候选107372ms运行成功但漏掉原有条目，内容验收失败；提示与版本已撤回，产品源码逐文件与已部署99e66da0完全一致。
-- server全量3628pass/44专用环境skip，Agent面板89pass，changed ESLint/server+client build通过。后续两次prompt小改均115 runner/history回归通过。
-- 中文「天枢」、英文「AgentWiki」，极简中国结Logo保留。Local Sync0.13.5/protocol0.6.1不变。
+- 新增双语 Eraser 图标，位于新建会话与历史按钮之间。创建失败保留原聊天与草稿，重复点击不重复创建；空白草稿清空后不复活旧批注。
+- 异步创建完成后按用户焦点意图回到输入框；兼容 Chromium 禁用按钮自动失焦，后续点击、按键、外部聚焦或窗口失焦会取消回焦。
+- 最终定向测试 AgentSessionPanel 98 + AgentSessionNotes 35 = 133 通过；客户端构建（含 TypeScript）、改动文件 ESLint、git diff --check 通过。此前完整客户端 169 文件 / 2827 项通过，之后新增的焦点/空态边界由最终定向测试验证。
+- Chrome 155 本地真实组件交互已验收：清空、历史恢复、新会话发送、失败保留、运行禁用及延迟焦点；中英文桌面 1280px 与窄屏 390px 均用实际构建 CSS 验收，工具按钮与输入框无裁剪。浏览器覆盖 running；queued 由组件测试覆盖。测试使用隔离 API 数据，无生产操作。
+- 生产仍为已正式发布的 v0.12.60，tag/运行源码 `99e66da0e72be583a9d1363760f17f2481a9d4ba`；此前 1436 文件、三服务、健康与公网检查通过。https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.60
+- v0.12.60 内嵌 Agent 原失败用例 9/9 完整来源输入、只读执行与隔离真实保存已通过；原 Bug 汇总表仍未覆盖，语义完整性需要单独核对。旧 v0.12.61 提示候选已撤回。
 
 # 稳定约束
 
-canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`，分支 `codex/agent-autochat-external-opencode`。编辑发布前运行release guard；历史检出禁止发布。生产 `root@113.249.120.24:/root/agentwiki`，root用户级systemd，外部OpenCode2.1.1。Space权限实时查询，固定目标/CAS写入；不直接DB改业务正文。恢复需配对应用/配置/DB/附件并考虑备份后写入。
+canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`，分支 `codex/agent-autochat-external-opencode`。编辑发布前运行 release guard；历史检出禁止发布。生产 `root@113.249.120.24:/root/agentwiki`，root 用户级 systemd、外部 OpenCode 2.1.1。中文“天枢”、英文“AgentWiki”，中国结 Logo。Local Sync 0.13.5 / protocol 0.6.1。保留未跟踪 design/。
 
 # 关键索引
 
-- tasks/archive/agent-failure-20261026/{brief,decisions,refs}.md
+- agentwiki/apps/client/src/features/agent-session/AgentSessionPanel.tsx
+- agentwiki/apps/client/src/features/agent-session/useAgentSession.ts
+- agentwiki/apps/client/src/features/agent-session/AgentSessionPanel.spec.tsx
 - agentwiki/docs/verification/agent-failure-20261026/README.md
-- agentwiki/docs/verification/agent-failure-20261026/live-deployed-real-inline-receipt.json
-- agentwiki/docs/verification/agent-auto-edit-20261026/live-ui-queue-save-receipt.json
-- agentwiki/docs/verification/agent-auto-edit-20261026/final-deployed-content-review.md
-- 备份 `/var/backups/agentwiki/agent-failure-v01260.PcRiCrTx`；前应用树 `/root/agentwiki-previous-20261026044641`
+- tasks/archive/agent-failure-20261026/{brief,decisions,refs}.md
 
 # 风险 / 下一步
 
-执行/真实保存已验证；内容完整性仍是独立边界，不能把模型success当作业务结论准确。原页保留。0.12.61提示候选未发布；后续准确性需要可验证的逐项来源对账流程，不能以提示追加代替语义验收。生产40条历史running协作记录无active attempt，未顺手清理。免费备用模型认证、通知浏览器回验及 npm 认证保持独立事项。
+清空按钮尚未发布，生产仍为 v0.12.60。新会话隔离旧 turns，保留当前页面/目录来源；成功运行不等于生成内容完整正确。正式发布须另冻结新候选与验证。已发布版本备份 `/var/backups/agentwiki/agent-failure-v01260.PcRiCrTx`，前应用树 `/root/agentwiki-previous-20261026044641`。免费备用模型认证、通知浏览器回验及 npm 认证仍为独立事项。
