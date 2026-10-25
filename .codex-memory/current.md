@@ -30,4 +30,4 @@ canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`
 
 # 风险 / 下一步
 
-执行/真实保存已验证；内容完整性仍是独立边界，不能把模型success当作业务结论准确。原页保留。0.12.61提示候选未发布；后续准确性需要可验证的逐项来源对账流程，不能以提示追加代替语义验收。生产40条历史running协作记录无active attempt，未顺手清理。免费备用模型认证、billy通知浏览器回验及npm认证保持独立事项。
+执行/真实保存已验证；内容完整性仍是独立边界，不能把模型success当作业务结论准确。原页保留。0.12.61提示候选未发布；后续准确性需要可验证的逐项来源对账流程，不能以提示追加代替语义验收。生产40条历史running协作记录无active attempt，未顺手清理。免费备用模型认证、通知浏览器回验及 npm 认证保持独立事项。

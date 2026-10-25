@@ -74,7 +74,7 @@
   ],
   "passes": [
     "7 dated report links are correctly mapped to their corresponding source page IDs.",
-    "Notification row preserves service/DB success plus billy browser manual regression pending.",
+    "Notification row preserves service/DB success plus original test-account browser manual regression pending.",
     "Relationship row preserves same-direction and same-type rule.",
     "Original 10-20/10-21 task deletion and rename rows merge both dates; no wrong 10-21 link observed.",
     "Runtime update succeeded with all 9 full source bodies in exact inline context."
