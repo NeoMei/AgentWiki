@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
+import { BrandMark } from '../../components/BrandMark';
 import { GlobalNavigation } from '../../components/GlobalNavigation';
 import { safeReturnTo } from '../auth/safeReturnTo';
 import { apiErrorMessage } from '../../api/error-message';
@@ -193,9 +194,7 @@ export const ProductPage: React.FC = () => {
       <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-2">
           <Link to="/" aria-label={t('brand.fullName')} className="flex items-center gap-2 shrink-0">
-            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
-              <Brain size={18} className="text-white" />
-            </div>
+            <BrandMark />
             <span className="text-lg font-bold text-gray-900">{t('brand.name')}<span className="hidden md:inline"> · AgentWiki</span></span>
           </Link>
           <div className="flex items-center gap-1 sm:gap-3">
@@ -414,9 +413,7 @@ export const ProductPage: React.FC = () => {
               </div>
             ) : (
               <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-8 text-center">
-                <div className="w-16 h-16 rounded-full bg-blue-600 flex items-center justify-center mx-auto mb-4">
-                  <Brain size={28} className="text-white" />
-                </div>
+                <BrandMark size={64} className="mx-auto mb-4" />
                 <h3 className="text-xl font-bold text-gray-900 mb-2">{zh ? '欢迎回来' : 'Welcome back'}</h3>
                 <p className="text-gray-600 text-sm mb-6">{zh ? '继续你的知识管理之旅' : 'Continue your knowledge journey'}</p>
                 <Link
@@ -591,9 +588,7 @@ export const ProductPage: React.FC = () => {
       <footer className="py-8 px-6 border-t border-gray-200 bg-white">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4 text-sm text-gray-500">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded bg-blue-600 flex items-center justify-center">
-              <Brain size={12} className="text-white" />
-            </div>
+            <BrandMark size={24} />
             <span className="font-medium text-gray-700">{t('brand.fullName')}</span>
           </div>
           <div>

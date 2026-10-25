@@ -5,6 +5,7 @@ import { useAuth } from '../../context';
 import { Eye, EyeOff } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
+import { BrandMark } from '../../components/BrandMark';
 import { apiErrorMessage } from '../../api/error-message';
 
 export const Login: React.FC = () => {
@@ -39,7 +40,8 @@ export const Login: React.FC = () => {
       <div className="absolute right-4 top-4"><LanguageSwitcher /></div>
       <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow">
         <div className="text-center">
-          <h1 className="text-3xl font-bold text-blue-600">{t('brand.name')}</h1>
+          <BrandMark size={56} className="mx-auto mb-4" />
+          <h1 className="text-3xl font-bold text-gray-900">{t('brand.name')}</h1>
           <p className="mt-1 text-sm text-gray-500">AgentWiki</p>
           <h2 className="text-xl text-gray-600 mt-2">{t('auth.signIn')}</h2>
         </div>

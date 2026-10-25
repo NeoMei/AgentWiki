@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
-  BookOpen, Bot, Compass, Gem, GitBranch, Layers, Menu, Rocket, Server, Shield, X,
+  BookOpen, Compass, Gem, GitBranch, Layers, Menu, Rocket, Server, Shield, X,
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
+import { BrandMark } from '../../components/BrandMark';
 import { GlobalNavigation } from '../../components/GlobalNavigation';
 
 export interface GuideEntry {
@@ -111,9 +112,7 @@ export const GuideLayout: React.FC<{ children: React.ReactNode }> = ({ children 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-3 min-w-0">
             <Link to="/" aria-label={t('brand.fullName')} className="flex items-center gap-2 shrink-0">
-              <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
-                <Bot size={18} className="text-white" />
-              </div>
+              <BrandMark />
               <span className="text-lg font-bold text-gray-900"><span className="md:hidden">{t('brand.compactName')}</span><span className="hidden md:inline">{t('brand.fullName')}</span></span>
             </Link>
             <span className="text-gray-300 hidden md:inline">/</span>
