@@ -1,0 +1,418 @@
+{
+  "browser": "155.0.8059.85",
+  "css": "apps/client/dist/assets/index-CX0xQB8p.css",
+  "cases": [
+    {
+      "lang": "en",
+      "width": 1280,
+      "direction": "column",
+      "panel": {
+        "x": 451,
+        "y": 41,
+        "width": 378,
+        "height": 758,
+        "right": 829,
+        "bottom": 799
+      },
+      "header": {
+        "x": 451,
+        "y": 41,
+        "width": 378,
+        "height": 47,
+        "right": 829,
+        "bottom": 88
+      },
+      "turns": {
+        "x": 451,
+        "y": 88,
+        "width": 378,
+        "height": 507.609375,
+        "right": 829,
+        "bottom": 595.609375
+      },
+      "composer": {
+        "x": 451,
+        "y": 595.609375,
+        "width": 378,
+        "height": 203.390625,
+        "right": 829,
+        "bottom": 799
+      },
+      "vertical": true,
+      "controls": [
+        {
+          "label": "New conversation",
+          "tag": "BUTTON",
+          "rect": {
+            "x": 727,
+            "y": 49.5,
+            "width": 29,
+            "height": 29,
+            "right": 756,
+            "bottom": 78.5
+          },
+          "insidePanel": true,
+          "insideViewport": true,
+          "visibleAtCenter": true
+        },
+        {
+          "label": "Clear conversation context",
+          "tag": "BUTTON",
+          "rect": {
+            "x": 759,
+            "y": 49.5,
+            "width": 29,
+            "height": 29,
+            "right": 788,
+            "bottom": 78.5
+          },
+          "insidePanel": true,
+          "insideViewport": true,
+          "visibleAtCenter": true
+        },
+        {
+          "label": "Conversation history",
+          "tag": "SUMMARY",
+          "rect": {
+            "x": 791,
+            "y": 49.5,
+            "width": 29,
+            "height": 29,
+            "right": 820,
+            "bottom": 78.5
+          },
+          "insidePanel": true,
+          "insideViewport": true,
+          "visibleAtCenter": true
+        },
+        {
+          "label": "Message",
+          "tag": "TEXTAREA",
+          "rect": {
+            "x": 471,
+            "y": 677.609375,
+            "width": 338,
+            "height": 71.390625,
+            "right": 809,
+            "bottom": 749
+          },
+          "insidePanel": true,
+          "insideViewport": true,
+          "visibleAtCenter": true
+        }
+      ],
+      "allControlsVisible": true,
+      "height": 900,
+      "path": "agentwiki-clear-context-en-1280-real-css.png"
+    },
+    {
+      "lang": "en",
+      "width": 390,
+      "direction": "column",
+      "panel": {
+        "x": 1,
+        "y": 41,
+        "width": 388,
+        "height": 802,
+        "right": 389,
+        "bottom": 843
+      },
+      "header": {
+        "x": 1,
+        "y": 41,
+        "width": 388,
+        "height": 42.140625,
+        "right": 389,
+        "bottom": 83.140625
+      },
+      "turns": {
+        "x": 1,
+        "y": 83.140625,
+        "width": 388,
+        "height": 573.859375,
+        "right": 389,
+        "bottom": 657
+      },
+      "composer": {
+        "x": 1,
+        "y": 657,
+        "width": 388,
+        "height": 186,
+        "right": 389,
+        "bottom": 843
+      },
+      "vertical": true,
+      "controls": [
+        {
+          "label": "New conversation",
+          "tag": "BUTTON",
+          "rect": {
+            "x": 287,
+            "y": 47.0625,
+            "width": 29,
+            "height": 29,
+            "right": 316,
+            "bottom": 76.0625
+          },
+          "insidePanel": true,
+          "insideViewport": true,
+          "visibleAtCenter": true
+        },
+        {
+          "label": "Clear conversation context",
+          "tag": "BUTTON",
+          "rect": {
+            "x": 319,
+            "y": 47.0625,
+            "width": 29,
+            "height": 29,
+            "right": 348,
+            "bottom": 76.0625
+          },
+          "insidePanel": true,
+          "insideViewport": true,
+          "visibleAtCenter": true
+        },
+        {
+          "label": "Conversation history",
+          "tag": "SUMMARY",
+          "rect": {
+            "x": 351,
+            "y": 47.0625,
+            "width": 29,
+            "height": 29,
+            "right": 380,
+            "bottom": 76.0625
+          },
+          "insidePanel": true,
+          "insideViewport": true,
+          "visibleAtCenter": true
+        },
+        {
+          "label": "Message",
+          "tag": "TEXTAREA",
+          "rect": {
+            "x": 19,
+            "y": 733,
+            "width": 352,
+            "height": 52,
+            "right": 371,
+            "bottom": 785
+          },
+          "insidePanel": true,
+          "insideViewport": true,
+          "visibleAtCenter": true
+        }
+      ],
+      "allControlsVisible": true,
+      "height": 844,
+      "path": "agentwiki-clear-context-en-390-real-css.png"
+    },
+    {
+      "lang": "zh",
+      "width": 1280,
+      "direction": "column",
+      "panel": {
+        "x": 451,
+        "y": 41,
+        "width": 378,
+        "height": 758,
+        "right": 829,
+        "bottom": 799
+      },
+      "header": {
+        "x": 451,
+        "y": 41,
+        "width": 378,
+        "height": 47,
+        "right": 829,
+        "bottom": 88
+      },
+      "turns": {
+        "x": 451,
+        "y": 88,
+        "width": 378,
+        "height": 522.609375,
+        "right": 829,
+        "bottom": 610.609375
+      },
+      "composer": {
+        "x": 451,
+        "y": 610.609375,
+        "width": 378,
+        "height": 188.390625,
+        "right": 829,
+        "bottom": 799
+      },
+      "vertical": true,
+      "controls": [
+        {
+          "label": "\u65b0\u5efa\u4f1a\u8bdd",
+          "tag": "BUTTON",
+          "rect": {
+            "x": 727,
+            "y": 49.5,
+            "width": 29,
+            "height": 29,
+            "right": 756,
+            "bottom": 78.5
+          },
+          "insidePanel": true,
+          "insideViewport": true,
+          "visibleAtCenter": true
+        },
+        {
+          "label": "\u6e05\u7a7a\u4e0a\u4e0b\u6587",
+          "tag": "BUTTON",
+          "rect": {
+            "x": 759,
+            "y": 49.5,
+            "width": 29,
+            "height": 29,
+            "right": 788,
+            "bottom": 78.5
+          },
+          "insidePanel": true,
+          "insideViewport": true,
+          "visibleAtCenter": true
+        },
+        {
+          "label": "\u4f1a\u8bdd\u5386\u53f2",
+          "tag": "SUMMARY",
+          "rect": {
+            "x": 791,
+            "y": 49.5,
+            "width": 29,
+            "height": 29,
+            "right": 820,
+            "bottom": 78.5
+          },
+          "insidePanel": true,
+          "insideViewport": true,
+          "visibleAtCenter": true
+        },
+        {
+          "label": "\u6d88\u606f",
+          "tag": "TEXTAREA",
+          "rect": {
+            "x": 471,
+            "y": 677.609375,
+            "width": 338,
+            "height": 71.390625,
+            "right": 809,
+            "bottom": 749
+          },
+          "insidePanel": true,
+          "insideViewport": true,
+          "visibleAtCenter": true
+        }
+      ],
+      "allControlsVisible": true,
+      "height": 900,
+      "path": "agentwiki-clear-context-zh-1280-real-css.png"
+    },
+    {
+      "lang": "zh",
+      "width": 390,
+      "direction": "column",
+      "panel": {
+        "x": 1,
+        "y": 41,
+        "width": 388,
+        "height": 802,
+        "right": 389,
+        "bottom": 843
+      },
+      "header": {
+        "x": 1,
+        "y": 41,
+        "width": 388,
+        "height": 42.140625,
+        "right": 389,
+        "bottom": 83.140625
+      },
+      "turns": {
+        "x": 1,
+        "y": 83.140625,
+        "width": 388,
+        "height": 588.859375,
+        "right": 389,
+        "bottom": 672
+      },
+      "composer": {
+        "x": 1,
+        "y": 672,
+        "width": 388,
+        "height": 171,
+        "right": 389,
+        "bottom": 843
+      },
+      "vertical": true,
+      "controls": [
+        {
+          "label": "\u65b0\u5efa\u4f1a\u8bdd",
+          "tag": "BUTTON",
+          "rect": {
+            "x": 287,
+            "y": 47.0625,
+            "width": 29,
+            "height": 29,
+            "right": 316,
+            "bottom": 76.0625
+          },
+          "insidePanel": true,
+          "insideViewport": true,
+          "visibleAtCenter": true
+        },
+        {
+          "label": "\u6e05\u7a7a\u4e0a\u4e0b\u6587",
+          "tag": "BUTTON",
+          "rect": {
+            "x": 319,
+            "y": 47.0625,
+            "width": 29,
+            "height": 29,
+            "right": 348,
+            "bottom": 76.0625
+          },
+          "insidePanel": true,
+          "insideViewport": true,
+          "visibleAtCenter": true
+        },
+        {
+          "label": "\u4f1a\u8bdd\u5386\u53f2",
+          "tag": "SUMMARY",
+          "rect": {
+            "x": 351,
+            "y": 47.0625,
+            "width": 29,
+            "height": 29,
+            "right": 380,
+            "bottom": 76.0625
+          },
+          "insidePanel": true,
+          "insideViewport": true,
+          "visibleAtCenter": true
+        },
+        {
+          "label": "\u6d88\u606f",
+          "tag": "TEXTAREA",
+          "rect": {
+            "x": 19,
+            "y": 733,
+            "width": 352,
+            "height": 52,
+            "right": 371,
+            "bottom": 785
+          },
+          "insidePanel": true,
+          "insideViewport": true,
+          "visibleAtCenter": true
+        }
+      ],
+      "allControlsVisible": true,
+      "height": 844,
+      "path": "agentwiki-clear-context-zh-390-real-css.png"
+    }
+  ]
+}

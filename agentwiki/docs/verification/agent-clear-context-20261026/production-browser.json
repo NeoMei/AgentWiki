@@ -1,0 +1,72 @@
+{
+  "recordedAt": "2026-10-25T21:57:01.248053+00:00",
+  "release": {
+    "version": "0.12.61",
+    "commit": "4075638e390d9f6c8174721761a4a232b7d014a3",
+    "observedEntryAsset": "/assets/index-BY7Z52Ue.js"
+  },
+  "surface": {
+    "browser": "Chrome",
+    "origin": "https://agentwiki.quukk.com",
+    "pageId": "page-under-test",
+    "loggedIn": true
+  },
+  "scope": {
+    "isolatedSession": true,
+    "modelSendActions": 0,
+    "pageEditActions": 0,
+    "databaseOrRedisDirectWrites": 0,
+    "testSessionCreationViaNormalUI": true,
+    "noPageBodyStoredInReceipt": true
+  },
+  "beforeClear": {
+    "selectedSessionId": "isolated-session-before-clear",
+    "draftNonEmpty": true,
+    "clearButtonEnabled": true,
+    "currentPageSourceVisible": true,
+    "existingOtherSessionIds": [
+      "existing-session-a",
+      "existing-session-b"
+    ]
+  },
+  "afterClear": {
+    "selectedSessionId": "isolated-session-after-clear",
+    "newSessionCreated": true,
+    "draftLength": 0,
+    "emptyConversationIntroductionVisible": true,
+    "currentPageSourceVisible": true,
+    "focusTag": "TEXTAREA",
+    "focusAriaLabel": "消息",
+    "clearButtonDisabledForEmptyConversation": true,
+    "otherSessionTabsRetained": true
+  },
+  "history": {
+    "historyEntryOpened": true,
+    "preClearSessionReopenedViaHistory": true,
+    "preClearSessionId": "isolated-session-before-clear",
+    "returnedToClearedSession": true,
+    "originalHistoricalTaskTabRetained": true
+  },
+  "afterReload": {
+    "selectedSessionId": "isolated-session-after-clear",
+    "selectedSessionPreserved": true,
+    "draftLength": 0,
+    "textboxEnabled": true,
+    "clearButtonDisabledForEmptyConversation": true,
+    "emptyConversationIntroductionVisible": true,
+    "currentPageSourceVisible": true,
+    "samePageUrl": true,
+    "tabSessionIds": [
+      "existing-session-a",
+      "existing-session-b",
+      "isolated-session-after-clear",
+      "isolated-session-before-clear"
+    ]
+  },
+  "evidence": {
+    "method": "Normal production UI actions, read-only DOM/AX observations, full page reload, final screenshot displayed in CUA result",
+    "result": "pass",
+    "limits": "This verifies clearing drafts, session replacement, history access, retained tabs/source and reload behavior. It does not execute a model turn or change page content; running-state/error/keyboard/mobile checks are covered separately by local validation.",
+    "privacy": "Production page/session identifiers replaced with stable aliases in the public receipt."
+  }
+}

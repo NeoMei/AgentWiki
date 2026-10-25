@@ -1,0 +1,27 @@
+{
+  "status": "passed",
+  "checks": [
+    "Bash syntax validated",
+    "Python source compilation validated",
+    "Independent read-only tool review passed",
+    "1436 manifest entries matched Git blobs byte-for-byte",
+    "Only 3 client files plus 3 package versions differ in deployed inputs from v0.12.60",
+    "Server source, packages, scripts, deploy tooling and lockfile unchanged",
+    "Rejected prompt experiment is absent"
+  ],
+  "clientTests": {
+    "filesPassed": 169,
+    "testsPassed": 2830
+  },
+  "featureTests": {
+    "panel": 98,
+    "notes": 35
+  },
+  "typescript": "passed",
+  "changedSourceEslint": "passed",
+  "clientProductionBuild": "passed",
+  "existingBuildWarnings": [
+    "Mermaid circular chunks",
+    "Some chunks above 500 KB; bundle budget passed"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "status": "passed",
+  "version": "0.12.61",
+  "revision": "4075638e390d9f6c8174721761a4a232b7d014a3",
+  "deployExitCode": 0,
+  "deploymentSource": "clean detached worktree at the frozen revision",
+  "previousApplicationTree": "/root/agentwiki-previous-20261026055218",
+  "backupDirectory": "/var/backups/agentwiki/agent-clear-context-v01261.IrzEQtJp",
+  "databaseMigrations": "65 available; no pending migrations",
+  "hostReceipt": "production-host.json",
+  "publicReceipt": "production-public.json"
+}

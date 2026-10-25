@@ -1,0 +1,188 @@
+{
+  "browser": "155.0.8059.85",
+  "localOnly": true,
+  "checks": [
+    {
+      "name": "en-1280-clear",
+      "passed": true,
+      "focus": {
+        "tag": "TEXTAREA",
+        "aria": "Message",
+        "text": ""
+      },
+      "createCount": 1
+    },
+    {
+      "name": "en-1280-fresh-send",
+      "passed": true,
+      "url": "/assist/sessions/session-new/turns",
+      "pageId": "page-local",
+      "snapshotContent": "unsaved current draft"
+    },
+    {
+      "name": "en-1280-history-reopen",
+      "passed": true
+    },
+    {
+      "name": "en-390-clear",
+      "passed": true,
+      "focus": {
+        "tag": "TEXTAREA",
+        "aria": "Message",
+        "text": ""
+      },
+      "createCount": 1
+    },
+    {
+      "name": "en-390-fresh-send",
+      "passed": true,
+      "url": "/assist/sessions/session-new/turns",
+      "pageId": "page-local",
+      "snapshotContent": "unsaved current draft"
+    },
+    {
+      "name": "en-390-history-reopen",
+      "passed": true
+    },
+    {
+      "name": "zh-1280-clear",
+      "passed": true,
+      "focus": {
+        "tag": "TEXTAREA",
+        "aria": "\u6d88\u606f",
+        "text": ""
+      },
+      "createCount": 1
+    },
+    {
+      "name": "zh-1280-fresh-send",
+      "passed": true,
+      "url": "/assist/sessions/session-new/turns",
+      "pageId": "page-local",
+      "snapshotContent": "unsaved current draft"
+    },
+    {
+      "name": "zh-1280-history-reopen",
+      "passed": true
+    },
+    {
+      "name": "zh-390-clear",
+      "passed": true,
+      "focus": {
+        "tag": "TEXTAREA",
+        "aria": "\u6d88\u606f",
+        "text": ""
+      },
+      "createCount": 1
+    },
+    {
+      "name": "zh-390-fresh-send",
+      "passed": true,
+      "url": "/assist/sessions/session-new/turns",
+      "pageId": "page-local",
+      "snapshotContent": "unsaved current draft"
+    },
+    {
+      "name": "zh-390-history-reopen",
+      "passed": true
+    },
+    {
+      "name": "delayed-success",
+      "passed": true,
+      "pending": {
+        "tag": "BODY",
+        "aria": null,
+        "text": "English\u4e2d\u6587ResetConversation AConversation"
+      },
+      "beforeResolve": {
+        "tag": "BODY",
+        "aria": null,
+        "text": "English\u4e2d\u6587ResetConversation AConversation"
+      },
+      "after": {
+        "tag": "TEXTAREA",
+        "aria": "Message",
+        "text": ""
+      }
+    },
+    {
+      "name": "delayed-external-focus",
+      "passed": true,
+      "pending": {
+        "tag": "BODY",
+        "aria": null,
+        "text": "English\u4e2d\u6587ResetConversation AConversation"
+      },
+      "beforeResolve": {
+        "tag": "BUTTON",
+        "aria": null,
+        "text": "Editor control"
+      },
+      "after": {
+        "tag": "BUTTON",
+        "aria": null,
+        "text": "Editor control"
+      }
+    },
+    {
+      "name": "delayed-blank-click",
+      "passed": true,
+      "pending": {
+        "tag": "BODY",
+        "aria": null,
+        "text": "English\u4e2d\u6587ResetConversation AConversation"
+      },
+      "beforeResolve": {
+        "tag": "BODY",
+        "aria": null,
+        "text": "English\u4e2d\u6587ResetConversation AConversation"
+      },
+      "after": {
+        "tag": "BODY",
+        "aria": null,
+        "text": "English\u4e2d\u6587ResetNew conversationConversati"
+      }
+    },
+    {
+      "name": "delayed-external-keyboard",
+      "passed": true,
+      "pending": {
+        "tag": "BODY",
+        "aria": null,
+        "text": "English\u4e2d\u6587ResetConversation AConversation"
+      },
+      "beforeResolve": {
+        "tag": "SUMMARY",
+        "aria": "Conversation history",
+        "text": ""
+      },
+      "after": {
+        "tag": "SUMMARY",
+        "aria": "Conversation history",
+        "text": ""
+      }
+    },
+    {
+      "name": "en-running-disabled",
+      "passed": true,
+      "title": "Stop the current task before clearing context"
+    },
+    {
+      "name": "zh-running-disabled",
+      "passed": true,
+      "title": "\u8bf7\u5148\u505c\u6b62\u5f53\u524d\u4efb\u52a1\uff0c\u518d\u6e05\u7a7a\u4e0a\u4e0b\u6587"
+    },
+    {
+      "name": "creation-error-retains-context",
+      "passed": true,
+      "draft": "Preserved draft",
+      "old": true,
+      "refs": true,
+      "notes": true,
+      "alert": "Request failed. Your message is preserved. Please retry.\n\nReload conversation"
+    }
+  ],
+  "pageErrors": [],
+  "blockedRequests": [],
+  "evidenceNote": "Initial fixture layout lacked utility CSS. Its geometry checks and screenshots are excluded. Only interaction assertions are retained; local-browser-visual.json supplies corrected layout evidence with the real production CSS."
+}

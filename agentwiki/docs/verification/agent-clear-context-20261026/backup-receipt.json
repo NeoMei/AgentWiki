@@ -1,0 +1,24 @@
+{
+  "status": "verified",
+  "directory": "/var/backups/agentwiki/agent-clear-context-v01261.IrzEQtJp",
+  "startedAt": "2026-10-25T21:50:12Z",
+  "finishedAt": "2026-10-25T21:50:40Z",
+  "healthAfter": {
+    "status": "ok",
+    "database": "ok",
+    "redis": "ok",
+    "auditPersistence": "ok",
+    "attachmentStorage": "ok"
+  },
+  "artifactsVerified": [
+    "application.tar.gz",
+    "configuration.tar.gz",
+    "database.dump",
+    "database-toc.txt",
+    "MANIFEST.jsonl",
+    "MANIFEST.live-before.jsonl",
+    "MANIFEST.live-after.jsonl",
+    "MANIFEST.recheck.jsonl"
+  ],
+  "sensitiveBackupLocation": "server-private; not copied into repository"
+}

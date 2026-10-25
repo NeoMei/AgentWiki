@@ -8,4 +8,8 @@ Source implementation: `0c0777f9`. Final feature verification: all 169 client te
 
 The previous prompt-only candidate that briefly used version 0.12.61 was rejected and reverted before this feature. Its receipts under `agent-failure-20261026` are historical rejected evidence; none is acceptance evidence for this release. This release does not add those prompt changes or claim that generated Bug summary contents are semantically complete.
 
-Deployment will use a frozen Git commit, a newly verified paired backup, a source manifest and independent host/public checks. Actual deployment and publication receipts are recorded separately after completion.
+Deployed and published as [v0.12.61](https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.61) at exact commit `4075638e390d9f6c8174721761a4a232b7d014a3`. Production host verification matched all 1436 source files and all expected package versions. API, worker and frontend are active; all five health fields are `ok`. Public HTTPS verification matched the production entry HTML and all five entry assets.
+
+A newly verified paired backup remains server-private at `/var/backups/agentwiki/agent-clear-context-v01261.IrzEQtJp`. The previous application tree is `/root/agentwiki-previous-20261026055218`. No migration was pending. GitHub release is public, non-draft, non-prerelease and latest; the annotated tag resolves to the exact deployed commit.
+
+`local-browser-interactions.json` excludes the original fixture's invalid geometry checks. `local-browser-visual.json` and the four `real-css.png` screenshots contain the corrected CSS verification. Production browser acceptance passed: an isolated draft was cleared into a fresh session, focus returned to the composer, other tabs and history remained accessible, and refresh preserved the empty new session and current-page source. No model request or page write was performed; see `production-browser.json`.
