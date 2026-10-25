@@ -1,0 +1,36 @@
+{
+  "assets": [
+    {
+      "path": "/",
+      "sha256": "7896618a26c0afef293b87d98796e73bffe1fde19dfb089ab494f891ce01d0f9",
+      "bytes": 990
+    },
+    {
+      "path": "/brand/tianshu-knot-v1.png",
+      "sha256": "1ae8066047acbb182e3aefe3ace024e15309c5a7c3f641c78a8ba6e8b83fdf15",
+      "bytes": 47600
+    },
+    {
+      "path": "/brand/tianshu-favicon-v1.png",
+      "sha256": "2f7530b8fbc7be3c70d68f617380c6ccee1ddfe16040e3671c8dca9ddabed5e9",
+      "bytes": 5339
+    },
+    {
+      "path": "/brand/tianshu-touch-v1.png",
+      "sha256": "f09478dbcc76e699d27fc765f7efa9ee27959ccd0497d95ef03ed949c174dee1",
+      "bytes": 25800
+    },
+    {
+      "path": "/favicon.svg",
+      "sha256": "f90302452cc2ba8caa1214bf2ae2afcce4a5e2a9be8640ef90d32927af5001d5",
+      "bytes": 7272
+    }
+  ],
+  "health": {
+    "status": "ok",
+    "database": "ok",
+    "redis": "ok",
+    "auditPersistence": "ok",
+    "attachmentStorage": "ok"
+  }
+}

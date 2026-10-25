@@ -18,3 +18,7 @@ The public brand is now **AgentWiki** in both Chinese and English. The approved 
 - Deployed frontend manifest: `/var/backups/agentwiki/tianshu-logo.XDki5U2f/deployed-frontend-manifest.json`.
 - Previous frontend dist retained at `/root/agentwiki/apps/client/dist.before-agentwiki-only-d242c634`.
 - Only `agentwiki-frontend.service` was restarted; API and Worker remained active after the deployment. Existing immutable client assets were retained for open tabs and rollback.
+
+## Logo assets
+
+The approved mark was extracted with imagegen from the user-approved Chinese-knot concept, then exported as transparent PNGs at 256px (brand), 64px (favicon), and 180px (touch icon). The legacy favicon.svg wraps the PNG rather than claiming to be vector artwork. Internal versioned asset paths retain their original `tianshu-` prefix for continuity; visible names are AgentWiki. The extraction prompt is saved alongside this record.
