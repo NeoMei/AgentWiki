@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.12.30** — Localized single-page collaboration, larger page comparisons, and distinct template management actions. Preserves direct page editing and the live approval policy. See the [release record](docs/releases-v0.12.30.md).
+> **v0.12.62** — Embedded Agent reliability improvements, same-worker lease fencing, and production verification. See the [release record](docs/verification/agent-audit-v01262-20261026/README.md) or [GitHub release](https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.62).
 
 
 ## Hosted Service
@@ -410,7 +410,7 @@ before any production migration, backup, restore or cleanup.
 
 ## License
 
-Private project. All rights reserved.
+AgentWiki is distributed under the [MIT License](LICENSE).
 
 ## Author
 
