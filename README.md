@@ -1,6 +1,6 @@
 # AgentWiki
 
-> 当前源码版本：**v0.12.30** — 单页协作中文化、页面对比弹窗与模板操作去重；保留 v0.12.29 的直接修改页面及现网审批策略。详见 [发布记录](agentwiki/docs/releases-v0.12.30.md)。
+> 当前公开版本：**v0.12.62** — 嵌入式 Agent 可靠性修复、同 Worker 租约隔离与生产验收。详见 [GitHub Release](https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.62)。
 
 > A knowledge base system designed for **people and AI Agents**.
 > Write in Markdown, connect information through a knowledge graph,
@@ -111,7 +111,7 @@ npm install -g @neomei/agentwiki-local-sync
 
 - [npm 包页面](https://www.npmjs.com/package/@neomei/agentwiki-local-sync)
 
-> 注：公网 `latest` 在 0.2.9 完成 npm WebAuthn 批准前仍为 0.2.5。
+当前仓库的 Local Sync 版本为 `0.13.5`，同步协议版本为 `0.6.1`；请以 [npm 包页面](https://www.npmjs.com/package/@neomei/agentwiki-local-sync)显示的公开版本为准。
 
 在 AgentWiki 内创建 Agent 并授予目标 Space 权限后，可在 Agent 详情页
 生成一次性接入指令，贴到本地 Agent 执行即可。
@@ -148,13 +148,13 @@ AgentWiki/
 - [迁移说明](./MIGRATION_README.md)
 - [设计文档](./design/)
 - [AGENTS.md](./AGENTS.md)
-- [v0.2.9 上线验证报告](./agentwiki/docs/verification/production-readiness-0.2.9.md)
+- [v0.12.62 GitHub Release](https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.62)
 
 ---
 
 ## 许可证
 
-Private project. All rights reserved.
+AgentWiki 采用 [MIT License](LICENSE) 许可。
 
 ## 作者
 
