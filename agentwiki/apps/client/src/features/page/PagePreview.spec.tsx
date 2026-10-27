@@ -1494,7 +1494,7 @@ describe('PagePreview checklist saves', () => {
     render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="reader"><MemoryRouter initialEntries={['/pages/page-1?note=stale-deep-note&notesReturn=' + encodeURIComponent(back)]}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
 
     const panel = await screen.findByRole('region', { name: 'Page notes' });
-    expect(within(panel).getByRole('checkbox', { name: 'Keep this searchable note' }).closest('li')).toHaveAttribute('data-active-note', 'true');
+    await waitFor(() => expect(within(panel).getByRole('checkbox', { name: 'Keep this searchable note' }).closest('li')).toHaveAttribute('data-active-note', 'true'));
     expect(within(panel).getByText('Original passage changed or anchor is ambiguous')).toBeVisible();
     expect(screen.getByRole('link', { name: 'Back to notes' })).toHaveAttribute('href', back);
     expect(screen.getByRole('tab', { name: /Current page/ })).toHaveAttribute('aria-selected', 'true');
