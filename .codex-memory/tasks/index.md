@@ -4,9 +4,6 @@
 
 ## 活跃任务
 
-
-
-
 - [notification-unread-20261023](active/notification-unread-20261023/brief.md)：#12服务端count漏readAt过滤已补发.58，真实PG红绿、server3591/3skip及生产实际服务unread1→0/历史不变通过；原报告回复回读，billy浏览器待验。
 
 - [release-v01257-20261023](active/release-v01257-20261023/brief.md)：Web .57/精确npm .5/GitHub已发布并验收；完整测试8223/5skip，生产1422源码及浏览器/原报告通过；仅npm latest推广因安全密钥超时待继续。
@@ -15,17 +12,7 @@
 
 - [onboarding-host-identity-20261023](active/onboarding-host-identity-20261023/brief.md)：宿主隔离/当前连接身份诊断已随Web .57/npm .5发布；旧.4固定runner兼容通过，真实客户端升级/重启后读取仍待验。
 
-
-
-
-
-
-- [release-v01226-20261014](active/release-v01226-20261014/brief.md)：用户授权全量发布；最终门禁、配套备份及0.12.26/0.13.0版本准备进行中。
-
-- [editor-live-preview-20261014](active/editor-live-preview-20261014/brief.md)：单行选区与编辑态图片预览均已本地修复，2325客户端测试/build/lint/独立复审和真实Chrome交互通过，未推送部署。
-
-- [regressions-release-20261013](active/regressions-release-20261013/brief.md)：v0.12.23修复候选整合与复审完成，完整门禁重跑；生产SSH与回执所有者审批待恢复。
-
+- [regressions-release-20261013](active/regressions-release-20261013/brief.md)：v0.12.24/7708a426已发布部署；7050通过/6跳过、1244源码和32公网烟测通过。原#4/#7/#9、owner审核及列明的原环境验收仍待，保留活跃。
 
 - [test-triage-20261008](active/test-triage-20261008/brief.md)：网页0.12.17已部署、插件0.5.8已发布；Windows真实同步已执行，0.5.8最终冲突原生验收通过，生产测试资源已撤销，原案边界保留。
 
@@ -35,11 +22,13 @@
 
 ## 最近完成
 
+- [local-workspace-hygiene-20261028](archive/local-workspace-hygiene-20261028/brief.md)：正式仓库直连GitHub、6条失效登记清理、9个历史状态恢复快照与旧主目录归档、过期任务索引修正完成；仅本地整理。
+
 - [bug-report-20261027](archive/bug-report-20261027/brief.md)：v0.12.63/c4fe12bd已GitHub发布及生产部署；8425pass、1443源码、公网和Chrome33/33通过；配对备份/恢复验证、临时资源清理及原报告回复完成。
 
 - [agent-audit-release-20261026](archive/agent-audit-release-20261026/brief.md)：追加租约竞态修复，v0.12.62已发布部署2635bc66；8375通过/5既有skip、1437源/公网/3模式真实模型/生产浏览器全过，原页未改写。
 
-- [agent-audit-20261026](archive/agent-audit-20261026/brief.md)：四轮排查修复，会话/权限竞态、UTF-8与最终step、队列残留、DTO和Portal；全仓8373通过/5既有跳过、类型/lint/build/本地浏览器通过。未发布，线上仍.61。
+- [agent-audit-20261026](archive/agent-audit-20261026/brief.md)：四轮本地修复与验收完成，后续随agent-audit-release-20261026纳入v0.12.62发布部署；全仓8373通过/5既有跳过及本地交互证据保留，原Bug汇总内容语义完整性仍独立待验。
 
 - [agent-failure-20261026](archive/agent-failure-20261026/brief.md)：v0.12.60执行修复已部署；原案147s/9源exact，隔离UI114s保存逐字回读并清理，1436源码/服务/公网通过。内容审查仍有错链/回归限定问题，额外提示候选失败撤回，原表未覆盖。
 
@@ -57,9 +46,13 @@
 
 - [agent-chat-feedback-20261015](archive/agent-chat-feedback-20261015/brief.md)：v0.12.37已发布并部署；7518pass/6既有skip，独立复审、配套备份、源码/资源hash、真实provider/浏览器/DB草稿与Save验收及临时资源清理通过。
 
-- [agent-chat-simplification-20261014](archive/agent-chat-simplification-20261014/brief.md)：聊天简化、@引用、按需上下文完成；2464客户端测试/build/lint、独立复审和桌面/390px真实浏览器验收通过，未推送部署。
+- [release-v01226-20261014](archive/release-v01226-20261014/brief.md)：Web/API v0.12.26、Local Sync0.13.0已发布部署；7316通过/6既有跳过，1297源码、32公网烟测及生产共享笔记REST/MCP验收通过。
 
-- [shared-page-notes-20261014](archive/shared-page-notes-20261014/brief.md)：服务器共享笔记、REST/MCP 和统一四图标侧栏已完成；真实数据库/HTTP/MCP、Chrome 及独立复审通过，client2434/server3156与全仓分阶段回归完成，未推送部署。
+- [editor-live-preview-20261014](archive/editor-live-preview-20261014/brief.md)：选区、编辑图片和笔记标记已随v0.12.26发布部署；原阶段本地验收证据保留，手机末轮截图和原生环境未验边界不据此补写完成。
+
+- [agent-chat-simplification-20261014](archive/agent-chat-simplification-20261014/brief.md)：聊天简化、@引用和按需上下文已随v0.12.26发布部署；2464客户端测试/build/lint、独立复审和桌面/390px本地浏览器证据保留，不将原合成fixture当作真实模型或生产鉴权验收。
+
+- [shared-page-notes-20261014](archive/shared-page-notes-20261014/brief.md)：服务器共享笔记、REST/MCP和统一四图标侧栏已随v0.12.26发布部署；PageNote迁移、生产共享笔记REST/MCP七项验收通过，原作者权限与正文保存边界保留。
 
 - [agent-identity-space-auth-20261013](archive/agent-identity-space-auth-20261013/brief.md)：v0.12.25/Local Sync0.12.0发布及迁移验收完成；同Agent动态Space授权恢复，17篇项目模板MCP发布回读、110内链和Agent审计通过。
 

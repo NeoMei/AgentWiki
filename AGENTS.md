@@ -12,6 +12,8 @@
 - If the guard fails, stop. Inspect `git worktree list --porcelain` and continue from the locked candidate branch/worktree; do not repair the failure by switching to the historical checkout or by publishing from it.
 - The historical `codex/assist-qwen-fallback` checkout is intentionally release-blocked. A new Session must not infer the active AgentWiki version from its current directory, a stale build, a prior chat, or a page.
 - The canonical local checkout for this candidate is `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`.
+- The canonical repository's `origin` must point directly to `https://github.com/NeoMei/AgentWiki.git`; its candidate branch tracks the same branch on `origin`. A local clone is not evidence of GitHub synchronization. `legacy-local` is recovery-only and excluded from routine fetches.
+- `/Users/neomei/项目/codexprojects/AgentWiki-current` is a convenience symlink to the canonical repository. The trailing-space historical directory remains a local archive; do not replay its patches wholesale or treat its task index as current.
 
 <!-- CODEX-MEMORY:START -->
 ## 项目级上下文管理
