@@ -1,0 +1,94 @@
+{
+  "startedAt": "2026-10-27T11:04:46Z",
+  "finishedAt": "2026-10-27T11:11:52Z",
+  "durationSeconds": 426.21,
+  "head": "3f3768e7d6f481085972df2d08876821670196d5",
+  "versions": {
+    "package.json": "0.12.63",
+    "apps/client/package.json": "0.12.63",
+    "apps/server/package.json": "0.12.63"
+  },
+  "command": "TASKBOARD_TEST_DATABASE_URL=<dedicated-loopback-db> pnpm test:full",
+  "exitCode": 0,
+  "error": null,
+  "logPath": "/tmp/agentwiki-v01263-test-full.log",
+  "logSha256": "a487dd106e916e840d3205b8eeb72b13112bcd800de47df3b8d471fdf142afff",
+  "cleanup": {
+    "taskboardDatabase": "agentwiki_taskboard_full_8365_1793099086",
+    "taskboardExists": false,
+    "newFullTestDatabasesRemaining": [],
+    "newFullTestTempDirectoriesRemaining": [],
+    "redisPort": 6392,
+    "redisListenerRemaining": false
+  },
+  "status": "passed",
+  "phases": {
+    "runtime": {
+      "passed": 319,
+      "skipped": 1,
+      "failed": 0
+    },
+    "runtimeDatabase": {
+      "passed": 244,
+      "skipped": 0,
+      "failed": 0
+    },
+    "server": {
+      "suitesPassed": 191,
+      "suitesSkipped": 1,
+      "passed": 3710,
+      "skipped": 3,
+      "failed": 0,
+      "taskboardRealPostgresTestsIncluded": 4
+    },
+    "client": {
+      "filesPassed": 171,
+      "passed": 2887,
+      "skipped": 0,
+      "failed": 0
+    },
+    "syncProtocol": {
+      "filesPassed": 10,
+      "passed": 140,
+      "skipped": 0,
+      "failed": 0
+    },
+    "localSync": {
+      "filesPassed": 75,
+      "passed": 1125,
+      "skipped": 1,
+      "failed": 0
+    }
+  },
+  "totals": {
+    "passed": 8425,
+    "skipped": 5,
+    "failed": 0
+  },
+  "skipReasons": [
+    {
+      "count": 1,
+      "phase": "runtime",
+      "reason": "Existing optional independently installed CodeGraph acceptance requires AGENTWIKI_CODEGRAPH_E2E=1; no scanner index was created."
+    },
+    {
+      "count": 3,
+      "phase": "server",
+      "reason": "Existing dedicated connection authorization DB/Redis gate requires CONNECTION_UX_DB_TEST=1 and a connection_ux_server_test_* database."
+    },
+    {
+      "count": 1,
+      "phase": "localSync",
+      "reason": "Windows-only ACL non-claim test in src/cli.spec.ts is skipped on macOS."
+    }
+  ],
+  "sourceSha256": {
+    "package.json": "15770a8686752a2ac58648c2593746964637674a1f69da0d209a9638e8ac3c08",
+    "apps/client/package.json": "b5ebad5cda405b4cfdb309d1865dbdbe64b6ac37e91539e5c5de7d1677a1486e",
+    "apps/server/package.json": "56a4177ccb6ea8c198870d5932e67aa6b0ac103625cdbdfe971d12c894c9b17e",
+    "AGENTWIKI_RELEASE_CANDIDATE": "7a1b3849c915cea5869af494f47f8222ee40128f2be7250f79fde92ee7ad58da",
+    "apps/server/src/project-taskboard/project-taskboard.service.ts": "a7c4a63451dd5696340c194fb8f702790c3ff8da464f5fc2801940753226026f",
+    "apps/server/src/project-taskboard/project-taskboard.db.spec.ts": "55729b9243d114d38e94331caaf197391b3de9f7abdcb03e4cedd72a32521646"
+  },
+  "sourceNote": "Application version 0.12.63 was prepared in the working tree over recorded HEAD. Parent release process freezes the final version commit; no product source was modified by the test agent."
+}

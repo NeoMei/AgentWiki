@@ -2,7 +2,7 @@
 
 A knowledge base system designed for **people and AI Agents**. Write in Markdown, connect information through a knowledge graph, search semantically, and let Agents participate in your knowledge workflow with fine-grained permissions.
 
-> **v0.12.62** — Embedded Agent reliability improvements, same-worker lease fencing, and production verification. See the [release record](docs/verification/agent-audit-v01262-20261026/README.md) or [GitHub release](https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.62).
+> **v0.12.63** — Consistent authentication validation, stale-note deletion, taskboard concurrency protection, and directory reordering. See the [release record](docs/verification/bug-release-v01263-20261027/README.md).
 
 
 ## Hosted Service

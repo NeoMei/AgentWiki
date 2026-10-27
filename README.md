@@ -1,6 +1,6 @@
 # AgentWiki
 
-> 当前源码版本：**v0.12.62** — 嵌入式 Agent 可靠性修复、同 Worker 租约隔离与生产验收。详见 [v0.12.62 发布与验收记录](agentwiki/docs/verification/agent-audit-v01262-20261026/README.md) 或 [GitHub Release](https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.62)。
+> 当前源码版本：**v0.12.63** — 统一实际登录/注册入口校验，补齐失效笔记删除、任务并发保护和目录排序。详见 [v0.12.63 发布记录](agentwiki/docs/verification/bug-release-v01263-20261027/README.md)。
 
 > A knowledge base system designed for **people and AI Agents**.
 > Write in Markdown, connect information through a knowledge graph,
@@ -148,7 +148,7 @@ AgentWiki/
 - [迁移说明](./MIGRATION_README.md)
 - [设计文档](./design/)
 - [AGENTS.md](./AGENTS.md)
-- [v0.12.62 上线验证报告](./agentwiki/docs/verification/agent-audit-v01262-20261026/README.md)
+- [v0.12.63 发布记录](./agentwiki/docs/verification/bug-release-v01263-20261027/README.md)
 
 ---
 

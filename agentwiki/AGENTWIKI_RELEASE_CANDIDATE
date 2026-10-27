@@ -1,4 +1,4 @@
 # AgentWiki release candidate lock. Update this file in the same commit as a release.
-APP_VERSION=0.12.62
+APP_VERSION=0.12.63
 CANDIDATE_BRANCH=codex/agent-autochat-external-opencode
-CANDIDATE_COMMIT=1a6de6c8028e18c1c0fa3fdfd5c0dd32fed1e0a2
+CANDIDATE_COMMIT=1a417a6706cc528940689dd32cc390fd35c51232

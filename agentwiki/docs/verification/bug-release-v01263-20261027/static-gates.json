@@ -1,0 +1,24 @@
+{
+  "version": "0.12.63",
+  "logs": {
+    "build": {
+      "path": "/tmp/agentwiki-v01263-build.log",
+      "sha256": "399d1f5c2870e5f7d1e3c9a346137fa807d762c66415544629c2b2f80eec2f55",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "path": "/tmp/agentwiki-v01263-typecheck.log",
+      "sha256": "591ff93dfdb1b526071bc341836657a75b7cf5295480b8bc5114aae276e81c59",
+      "exitCode": 0
+    },
+    "lint": {
+      "path": "/tmp/agentwiki-v01263-lint.log",
+      "sha256": "d5b17ee595fbfdae02af58fd347506b1d5a827a69c28da8385dc57ae52ef712d",
+      "exitCode": 0
+    }
+  },
+  "initialJavaScriptBytes": 550990,
+  "initialJavaScriptBudget": 551000,
+  "schemaMigrationChange": false,
+  "npmReleaseNeeded": false
+}
