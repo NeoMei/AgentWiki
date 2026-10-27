@@ -38,7 +38,22 @@ export const NOTE_DELETE = z.object({ expectedUpdatedAt: timestamp }).strict();
 export const NOTE_ROUTE = z.object({ spaceId: id, pageId: id }).strict();
 export const NOTE_ID = id;
 
-export function parseNoteInput<T>(schema: z.ZodType<T>, raw: unknown): T {
+const discoveryLimit = z.union([
+  z.number(),
+  z.string().regex(/^[1-9]\d*$/).transform(Number),
+]).pipe(z.number().int().min(1).max(50)).default(20);
+export const NOTE_DISCOVERY_QUERY = z.object({
+  query: z.string().max(200).transform(value => value.trim()).default(''),
+  spaceId: id.optional(),
+  author: z.enum(['all', 'me', 'mentioned']).default('all'),
+  status: z.enum(['all', 'open', 'resolved']).default('all'),
+  cursor: z.string().min(1).max(512).regex(/^[A-Za-z0-9_-]+$/).optional(),
+  limit: discoveryLimit,
+}).strict();
+export type NoteDiscoveryQuery = z.infer<typeof NOTE_DISCOVERY_QUERY>;
+export const parseNoteDiscoveryQuery = (raw: unknown): NoteDiscoveryQuery => parseNoteInput(NOTE_DISCOVERY_QUERY, raw ?? {});
+
+export function parseNoteInput<Schema extends z.ZodTypeAny>(schema: Schema, raw: unknown): z.output<Schema> {
   const parsed = schema.safeParse(raw);
   if (!parsed.success) throw new BadRequestException({ code: 'PAGE_NOTE_INVALID', message: 'Invalid page note', details: parsed.error.flatten() });
   return parsed.data;

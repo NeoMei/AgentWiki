@@ -1,0 +1,318 @@
+{
+  "version": "0.12.64",
+  "origin": "http://127.0.0.1:5180",
+  "startedAt": "2026-10-27T17:33:09.985Z",
+  "prefix": "aw64-01dabfc3",
+  "isolatedProfile": true,
+  "existingUserProfileUntouched": true,
+  "setupVia": "Normal authenticated API, task-created accounts and resources only; normal UI sign-in",
+  "tests": [
+    {
+      "name": "Authenticated discovery paginates 26 readable notes without disclosing the other owner secret Space",
+      "passed": true
+    },
+    {
+      "name": "Fresh system Chrome context signs in through the normal UI",
+      "passed": true
+    },
+    {
+      "name": "Reading sidebar switches between Current page and All notes and can return to the current page",
+      "passed": true
+    },
+    {
+      "name": "This-space/all-spaces, written-by-me/mentioning-me and open/resolved filters reflect shared authors and mentions",
+      "passed": true
+    },
+    {
+      "name": "Search matches note body, quoted source and source-page title across Spaces",
+      "passed": true
+    },
+    {
+      "name": "Source deep link activates an older note; read/edit/read preserves return filters and restores two pages and card position",
+      "passed": true
+    },
+    {
+      "name": "Changed source retains the selected stale note with an explicit disabled-anchor fallback and no page mutation",
+      "passed": true
+    },
+    {
+      "name": "Resolved-note source deep link reveals the selected resolved card",
+      "passed": true
+    },
+    {
+      "name": "Clicking the same source highlight repeatedly reopens Current page from All notes",
+      "passed": true
+    },
+    {
+      "name": "Displayed Chinese-knot logo matches the release resource hash and Quukk blue #155DFC",
+      "passed": true,
+      "sha256": "d5a4028c8827c120d58d07780d8ea4f4ceb5e104982b2ead16439b1e83314fb0",
+      "width": 256,
+      "height": 256,
+      "opaquePixels": 1459,
+      "wrongBluePixels": 0
+    },
+    {
+      "name": "390px note-library layout has no horizontal overflow",
+      "passed": true,
+      "viewport": 390,
+      "document": 390,
+      "body": 390
+    },
+    {
+      "name": "390px stale-note source and open notes sidebar have no horizontal overflow",
+      "passed": true,
+      "viewport": 390,
+      "document": 390,
+      "body": 390
+    },
+    {
+      "name": "Revoking only the temporary viewer membership changes accessRevision; next-page discovery/UI removes accumulated inaccessible cards",
+      "passed": true,
+      "beforeTotal": 26,
+      "afterTotal": 1
+    }
+  ],
+  "cleanup": {
+    "notes": [
+      {
+        "id": "cmvqyrwp4004nx88o2zszdeth",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwo1004kx88on6ymj7al",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwmu004fx88o4geml05r",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwm4004cx88ou6s0yk0a",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwln0049x88odjpiehjd",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwkn0046x88obuvukdt3",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwk10043x88oqg13as5a",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwjl0040x88oks79ij8x",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwj2003xx88o8k7xpw5r",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwii003ux88oblv9lcut",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwi8003rx88o6jiv0irp",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwhs003ox88otsgwmamg",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwh9003lx88oflg27l9e",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwgx003ix88ovuzesjem",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwgn003fx88oi5qr44d6",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwg8003cx88oajzrcumx",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwfn0039x88ooaa9ijwu",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwfc0036x88owe8l0oza",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwf00033x88ofn972cyj",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrweq0030x88oe5u0ffs6",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwee002xx88o4ne94b0s",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwe3002ux88ocmll3fvq",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwdr002rx88ou8n5kwlo",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwde002ox88ou9wqtevu",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwcz002lx88okslotq7i",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwcl002ix88oqk7kt5cg",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqyrwc6002fx88oyx5jr2wy",
+        "deleted": true,
+        "readbackAbsent": true
+      }
+    ],
+    "pages": [
+      {
+        "id": "469e61c5-779c-4f95-9c89-58c8e4d5e6c1",
+        "deleted": true,
+        "readbackStatus": 404
+      },
+      {
+        "id": "3760a31c-0f0e-4d74-8bc0-f0e6e6b0851b",
+        "deleted": true,
+        "readbackStatus": 404
+      },
+      {
+        "id": "b06db2c7-1366-43da-936a-9cfd6dc1c05a",
+        "deleted": true,
+        "readbackStatus": 404
+      },
+      {
+        "id": "30941aea-a446-4891-898d-85b7aaa69c99",
+        "deleted": true,
+        "readbackStatus": 404
+      }
+    ],
+    "spaces": [
+      {
+        "id": "cmvqyrvu2001nx88owf0n0czt",
+        "deleted": true,
+        "readbackStatus": 404
+      },
+      {
+        "id": "cmvqyrvtt001kx88od7j2ppti",
+        "deleted": true,
+        "readbackStatus": 404
+      },
+      {
+        "id": "cmvqyrvta001hx88octz3p31w",
+        "deleted": true,
+        "readbackStatus": 404
+      }
+    ],
+    "users": [
+      {
+        "id": "cmvqyrvsv001gx88ora9tlvpo",
+        "deleted": true,
+        "readbackStatus": 401
+      },
+      {
+        "id": "cmvqyrvlu001fx88ofkyyxm1k",
+        "deleted": false,
+        "error": "Error: expect(received).toBe(expected) // Object.is equality\n\nExpected: 401\nReceived: 429"
+      }
+    ],
+    "browserClosed": true
+  },
+  "resources": {
+    "userIds": [
+      "cmvqyrvlu001fx88ofkyyxm1k",
+      "cmvqyrvsv001gx88ora9tlvpo"
+    ],
+    "spaceIds": [
+      "cmvqyrvta001hx88octz3p31w",
+      "cmvqyrvtt001kx88od7j2ppti",
+      "cmvqyrvu2001nx88owf0n0czt"
+    ],
+    "pageIds": [
+      "30941aea-a446-4891-898d-85b7aaa69c99",
+      "b06db2c7-1366-43da-936a-9cfd6dc1c05a",
+      "3760a31c-0f0e-4d74-8bc0-f0e6e6b0851b",
+      "469e61c5-779c-4f95-9c89-58c8e4d5e6c1"
+    ],
+    "noteIds": [
+      "cmvqyrwc6002fx88oyx5jr2wy",
+      "cmvqyrwcl002ix88oqk7kt5cg",
+      "cmvqyrwcz002lx88okslotq7i",
+      "cmvqyrwde002ox88ou9wqtevu",
+      "cmvqyrwdr002rx88ou8n5kwlo",
+      "cmvqyrwe3002ux88ocmll3fvq",
+      "cmvqyrwee002xx88o4ne94b0s",
+      "cmvqyrweq0030x88oe5u0ffs6",
+      "cmvqyrwf00033x88ofn972cyj",
+      "cmvqyrwfc0036x88owe8l0oza",
+      "cmvqyrwfn0039x88ooaa9ijwu",
+      "cmvqyrwg8003cx88oajzrcumx",
+      "cmvqyrwgn003fx88oi5qr44d6",
+      "cmvqyrwgx003ix88ovuzesjem",
+      "cmvqyrwh9003lx88oflg27l9e",
+      "cmvqyrwhs003ox88otsgwmamg",
+      "cmvqyrwi8003rx88o6jiv0irp",
+      "cmvqyrwii003ux88oblv9lcut",
+      "cmvqyrwj2003xx88o8k7xpw5r",
+      "cmvqyrwjl0040x88oks79ij8x",
+      "cmvqyrwk10043x88oqg13as5a",
+      "cmvqyrwkn0046x88obuvukdt3",
+      "cmvqyrwln0049x88odjpiehjd",
+      "cmvqyrwm4004cx88ou6s0yk0a",
+      "cmvqyrwmu004fx88o4geml05r",
+      "cmvqyrwo1004kx88on6ymj7al",
+      "cmvqyrwp4004nx88o2zszdeth"
+    ]
+  },
+  "browser": "156.0.8078.48",
+  "passed": false,
+  "noModelRequests": true,
+  "interrupted": false,
+  "completedAt": "2026-10-27T17:33:42.953Z"
+}

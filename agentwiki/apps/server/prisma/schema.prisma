@@ -1968,6 +1968,8 @@ model PageNote {
 
   @@unique([pageId, authorType, authorId, clientNoteId])
   @@index([spaceId, pageId, deletedAt, createdAt])
+  @@index([spaceId, deletedAt, updatedAt(sort: Desc), id(sort: Desc)], map: "PageNote_space_discovery_idx")
+  @@index([deletedAt, updatedAt(sort: Desc), id(sort: Desc)], map: "PageNote_global_discovery_idx")
 }
 
 

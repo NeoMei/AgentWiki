@@ -24,7 +24,7 @@ const requireFromServer = createRequire(new URL('../apps/server/package.json', i
 const { PrismaClient } = requireFromServer('@prisma/client');
 const SAFE_SCHEMA = /^folder_test_[a-z0-9_]+$/u;
 // Review receipt: docs/verification/migration-corpus-20261023.md.
-const REVIEWED_MIGRATION_TREE_SHA256 = '91187a50faf4b7128751a33b199fcbeafd4642eae5d0963651c3aaec60095d78';
+const REVIEWED_MIGRATION_TREE_SHA256 = '5199e2d702c345c64b0438daad1cfa17da4c0aa624f5d62dc0fc762c58a833fc';
 const DEFAULT_MIGRATIONS_ROOT = fileURLToPath(new URL('../apps/server/prisma/migrations/', import.meta.url));
 const DEFAULT_SCHEMA_PATH = fileURLToPath(new URL('../apps/server/prisma/schema.prisma', import.meta.url));
 const VECTOR_EXTENSION_FRAGMENT = 'CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;';

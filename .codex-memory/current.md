@@ -1,10 +1,10 @@
 # 当前目标
 
-天枢 logo 已按 Quukk 主站改为纯蓝色 #155DFC，覆盖页面、标签页与触屏图标，本地验收完成，未推送或部署。正式已发布版本仍为 v0.12.63 / c4fe12bda31e41c355735cd0d09dbcad834c30b5；原发布与生产验收见 tasks/archive/bug-report-20261027/brief.md。
+用户已批准笔记跨页发现的双视图方案并指令发布；正在实现、验收并准备 v0.12.64，包含此前蓝色 logo。精确进度见 tasks/active/notes-discovery-release-20261028/progress.md。正式生产仍为 v0.12.63 / c4fe12bda31e41c355735cd0d09dbcad834c30b5。
 
 # 范围 / 不做
 
-本轮仅品牌图片与引用路径改色，无业务逻辑/schema/npm/protocol 改动、GitHub 写入或生产部署。历史独有实现未批量合入，原环境待验事项保留。
+本轮发布笔记当前/全部双视图、授权跨页检索/筛选/分页、笔记入口、来源与失效原文降级、检索返回和蓝色logo；schema仅新增发现索引，npm/protocol无业务变更时保持现版本。历史独有实现未批量合入，原环境待验事项保留。
 
 # 当前状态
 
@@ -24,6 +24,8 @@ canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`
 
 # 关键索引
 
+- tasks/active/notes-discovery-release-20261028/{brief,design,plan,progress,decisions,refs}.md
+- agentwiki/docs/verification/notes-release-v01264-20261028/
 - tasks/archive/tianshu-logo-blue-20261028/{brief,decisions,refs}.md
 - agentwiki/apps/client/public/brand/README.md
 - tasks/archive/local-workspace-hygiene-20261028/{brief,decisions,refs}.md

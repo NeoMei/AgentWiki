@@ -1,0 +1,14 @@
+{
+  "users": [
+    {
+      "id": "cmvqyrvlu001fx88ofkyyxm1k",
+      "deleted": true
+    },
+    {
+      "id": "cmvqyrvsv001gx88ora9tlvpo",
+      "deleted": true
+    }
+  ],
+  "verifiedVia": "isolated local PostgreSQL deletedAt readback",
+  "allDeleted": true
+}

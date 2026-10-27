@@ -61,6 +61,7 @@ describe('workspaceNavigation', () => {
     expect(workspaceSectionFromPath('/spaces/space-1/collaboration/runs/run-1')).toBe('collaboration');
     expect(workspaceSectionFromPath('/spaces/space-1/settings/page-templates')).toBe('settings');
     expect(workspaceSectionFromPath('/pages/page-1/versions')).toBe('pages');
+    expect(workspaceSectionFromPath('/spaces/space-1/notes')).toBe('notes');
   });
 
   it('captures the last visible rendered heading instead of deriving a pixel ratio', () => {

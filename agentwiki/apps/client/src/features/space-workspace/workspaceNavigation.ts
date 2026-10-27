@@ -15,7 +15,7 @@ import {
   type NavigateFunction,
 } from 'react-router-dom';
 
-export type SpaceNavSection = 'pages' | 'graph' | 'sources' | 'runs' | 'collaboration' | 'taskboard' | 'members' | 'settings';
+export type SpaceNavSection = 'pages' | 'notes' | 'graph' | 'sources' | 'runs' | 'collaboration' | 'taskboard' | 'members' | 'settings';
 
 export interface WorkspacePosition {
   pageId: string;
@@ -195,6 +195,6 @@ export const workspaceSectionFromPath = (pathname: string): SpaceNavSection | nu
   const section = match[1];
   if (section === 'runs') return 'sources';
   if (!section || section === 'new') return 'pages';
-  return (['graph', 'sources', 'runs', 'collaboration', 'taskboard', 'members', 'settings'] as const)
+  return (['notes', 'graph', 'sources', 'runs', 'collaboration', 'taskboard', 'members', 'settings'] as const)
     .find((candidate) => candidate === section) ?? null;
 };

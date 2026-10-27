@@ -24,6 +24,8 @@ import { applyCandidateToDraft, type AssistSnapshot, type AssistCandidate } from
 import { captureAssistTarget } from './assistTargets';
 import { captureReadingSelection } from '../agent-session/readingSelection';
 import { PersonalNotesPanel } from './PersonalNotesPanel';
+import { NotesScopePanel } from './NotesScopePanel';
+import { NotesReturnLink, notesReturnSearch } from './NotesReturnLink';
 import { usePersonalNotes } from './usePersonalNotes';
 import { SelectionNoteComposer } from './SelectionNoteComposer';
 import { locateReadingNote, resolvePersonalNoteHighlights } from './personalNoteHighlights';
@@ -1192,6 +1194,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
           </button>
         )}
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end" data-testid="editor-actions">
+          <NotesReturnLink />
           <button
             type="button"
             onClick={() => {
@@ -1207,7 +1210,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
                 const sourceOffset = Number(nearestBlock?.dataset.markdownSourceStart);
                 if (position && Number.isFinite(sourceOffset)) position = { ...position, sourceOffset };
               }
-              guardedNavigate(`/pages/${id}`, {
+              guardedNavigate(`/pages/${id}${notesReturnSearch(location.search)}`, {
                 state: { workspacePosition: position ? { ...position, pageId: page.id } : null },
               });
             }}
@@ -1407,7 +1410,9 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
           {(notesMounted || notesOpen) && panelReadable ? <>
           {!personalNotes.loaded ? <p role="status" className="mb-2 text-sm text-gray-500">{language === 'zh-CN' ? '正在加载页面笔记…' : 'Loading page notes…'}</p> : null}
           {personalNotes.conflict ? <p role="alert" className="mb-2 text-sm text-amber-800">{language === 'zh-CN' ? '所选笔记原文已变动、定位不唯一或内容过长，请检查后重试。' : 'Selected passages changed, are ambiguous, or exceed the request limit. Review them before retrying.'}</p> : null}
-          <PersonalNotesPanel stageForSession key={personalNotes.identityKey} identityKey={personalNotes.identityKey} syncing={personalNotes.syncing} onRetrySync={personalNotes.retrySync} source={content} notes={personalNotes.notes} activeNoteId={notesOpen ? activeNoteId : null} onLocate={locateNote} onClearActive={() => setActiveNote(null)} storageUnavailable={personalNotes.storageUnavailable} disabled={!personalNotes.loaded || !!personalNotes.assistRequest} onResolve={personalNotes.resolve} onReopen={personalNotes.reopen} onDelete={personalNotes.remove} onDispatch={(ids) => { if (personalNotes.dispatch(ids)) { setSelectionRequest(null); openCollaboration('assist'); } }} />
+          <NotesScopePanel key={personalNotes.identityKey} spaceId={page.spaceId} pageId={page.id} pageTitle={title || page.title} notes={personalNotes.notes} activeNoteId={activeNoteId} activation={activeNote}>
+            <PersonalNotesPanel stageForSession identityKey={personalNotes.identityKey} syncing={personalNotes.syncing} onRetrySync={personalNotes.retrySync} source={content} notes={personalNotes.notes} activeNoteId={notesOpen ? activeNoteId : null} onLocate={locateNote} onClearActive={() => setActiveNote(null)} storageUnavailable={personalNotes.storageUnavailable} disabled={!personalNotes.loaded || !!personalNotes.assistRequest} onResolve={personalNotes.resolve} onReopen={personalNotes.reopen} onDelete={personalNotes.remove} onDispatch={(ids) => { if (personalNotes.dispatch(ids)) { setSelectionRequest(null); openCollaboration('assist'); } }} />
+          </NotesScopePanel>
           </> : null}
           </div>
           <div role="tabpanel" id={`${panelIdPrefix}-panel-assist`} aria-labelledby={`${panelIdPrefix}-tab-assist`} hidden={!assistOpen} className="agent-session-host min-h-0 flex-1 flex-col">

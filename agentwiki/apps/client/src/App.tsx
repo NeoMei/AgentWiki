@@ -14,6 +14,7 @@ import {
 import { NavigationGuardProvider } from './features/space-workspace/workspaceNavigation';
 
 const Dashboard = lazy(() => import('./features/dashboard/Dashboard').then((module) => ({ default: module.Dashboard })));
+const NotesPage = lazy(() => import('./features/page-notes/NotesPage').then((module) => ({ default: module.NotesPage })));
 const SearchResults = lazy(() => import('./features/search/SearchResults').then((module) => ({ default: module.SearchResults })));
 const Profile = lazy(() => import('./features/profile/Profile').then((module) => ({ default: module.Profile })));
 const ForcePasswordChange = lazy(() => import('./features/auth/ForcePasswordChange').then((module) => ({ default: module.ForcePasswordChange })));
@@ -83,6 +84,11 @@ const WorkspaceRoute: React.FC<{
   );
 };
 
+// Reuse section loading chrome so additional lazy sections keep startup bytes bounded.
+const SectionRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}>{children}</Suspense></WorkspaceRoute>
+);
+
 export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { token, user } = useAuth();
   const location = useLocation();
@@ -102,30 +108,31 @@ const AppRoutes: React.FC = () => {
     <Routes>
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route path="/dashboard" element={<Suspense fallback={<RouteLoading />}><Dashboard /></Suspense>} />
-        <Route path="/spaces/:id/new" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><NewContentPage /></Suspense></WorkspaceRoute>} />
+        <Route path="/spaces/:id/new" element={<SectionRoute><NewContentPage /></SectionRoute>} />
         <Route path="/spaces/:id" element={<WorkspaceRoute mode="directory"><></></WorkspaceRoute>} />
         <Route path="/pages/:id" element={<WorkspaceRoute mode="read" pageRoute><Suspense fallback={<RouteLoading />}><PagePreview /></Suspense></WorkspaceRoute>} />
         <Route path="/pages/:id/edit" element={<WorkspaceRoute mode="edit" pageRoute><Suspense fallback={<RouteLoading />}><PageEditor /></Suspense></WorkspaceRoute>} />
         <Route path="/pages/:id/versions" element={<WorkspaceRoute mode="versions" pageRoute><Suspense fallback={<RouteLoading />}><PageVersionHistory /></Suspense></WorkspaceRoute>} />
         <Route path="/search" element={<Suspense fallback={<RouteLoading />}><SearchResults /></Suspense>} />
-        <Route path="/spaces/:spaceId/graph" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><KnowledgeGraph /></Suspense></WorkspaceRoute>} />
-        <Route path="/spaces/:id/members" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><SpaceMembers /></Suspense></WorkspaceRoute>} />
-        <Route path="/spaces/:id/settings" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><SpaceSettings /></Suspense></WorkspaceRoute>} />
-        <Route path="/spaces/:id/settings/page-templates" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><PageTemplateManager /></Suspense></WorkspaceRoute>} />
+        <Route path="/spaces/:spaceId/graph" element={<SectionRoute><KnowledgeGraph /></SectionRoute>} />
+        <Route path="/spaces/:id/members" element={<SectionRoute><SpaceMembers /></SectionRoute>} />
+        <Route path="/spaces/:id/settings" element={<SectionRoute><SpaceSettings /></SectionRoute>} />
+        <Route path="/spaces/:id/settings/page-templates" element={<SectionRoute><PageTemplateManager /></SectionRoute>} />
         <Route path="/spaces/:id/docs" element={<WorkspaceRoute mode="section"><Navigate to="../sources" relative="path" replace /></WorkspaceRoute>} />
         <Route path="/change-password" element={<Suspense fallback={<RouteLoading />}><ForcePasswordChange /></Suspense>} />
         <Route path="/profile" element={<Suspense fallback={<RouteLoading />}><Profile /></Suspense>} />
         <Route path="/agents" element={<Suspense fallback={<RouteLoading />}><AgentList /></Suspense>} />
         <Route path="/agents/:id" element={<Suspense fallback={<RouteLoading />}><AgentDetail /></Suspense>} />
-        <Route path="/spaces/:id/sources" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><SourcesPage /></Suspense></WorkspaceRoute>} />
-        <Route path="/spaces/:id/runs/:runId" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><LegacyRunsRoute /></Suspense></WorkspaceRoute>} />
-        <Route path="/spaces/:id/runs" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><LegacyRunsRoute /></Suspense></WorkspaceRoute>} />
-        <Route path="/spaces/:id/collaboration" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><CollaborationWorkspace /></Suspense></WorkspaceRoute>} />
-        <Route path="/spaces/:id/collaboration/templates/new" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><TemplateEditor mode="create" /></Suspense></WorkspaceRoute>} />
-        <Route path="/spaces/:id/collaboration/templates/:templateId" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><TemplateEditor mode="edit" /></Suspense></WorkspaceRoute>} />
-        <Route path="/spaces/:id/collaboration/templates/:templateId/start" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><RunStartWizard /></Suspense></WorkspaceRoute>} />
-        <Route path="/spaces/:id/collaboration/runs/:runId" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><RunDashboard /></Suspense></WorkspaceRoute>} />
-        <Route path="/spaces/:id/taskboard" element={<WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}><TaskboardPage /></Suspense></WorkspaceRoute>} />
+        <Route path="/spaces/:id/sources" element={<SectionRoute><SourcesPage /></SectionRoute>} />
+        <Route path="/spaces/:id/runs/:runId" element={<SectionRoute><LegacyRunsRoute /></SectionRoute>} />
+        <Route path="/spaces/:id/runs" element={<SectionRoute><LegacyRunsRoute /></SectionRoute>} />
+        <Route path="/spaces/:id/collaboration" element={<SectionRoute><CollaborationWorkspace /></SectionRoute>} />
+        <Route path="/spaces/:id/collaboration/templates/new" element={<SectionRoute><TemplateEditor mode="create" /></SectionRoute>} />
+        <Route path="/spaces/:id/collaboration/templates/:templateId" element={<SectionRoute><TemplateEditor mode="edit" /></SectionRoute>} />
+        <Route path="/spaces/:id/collaboration/templates/:templateId/start" element={<SectionRoute><RunStartWizard /></SectionRoute>} />
+        <Route path="/spaces/:id/collaboration/runs/:runId" element={<SectionRoute><RunDashboard /></SectionRoute>} />
+        <Route path="/spaces/:id/taskboard" element={<SectionRoute><TaskboardPage /></SectionRoute>} />
+        <Route path="/spaces/:id/notes" element={<SectionRoute><NotesPage /></SectionRoute>} />
         <Route path="/review" element={<Suspense fallback={<RouteLoading />}><ReviewPage /></Suspense>} />
         <Route path="/notifications" element={<Suspense fallback={<RouteLoading />}><NotificationsPage /></Suspense>} />
         <Route path="/admin" element={<Suspense fallback={<RouteLoading />}><AdminPage /></Suspense>} />

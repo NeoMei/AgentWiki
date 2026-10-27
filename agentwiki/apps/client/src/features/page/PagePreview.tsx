@@ -9,6 +9,7 @@ import type { AgentDocumentReceipt } from '../agent-session/agentSessionTypes';
 import type { AssistTarget } from './assistTargets';
 import { usePersonalNotes } from './usePersonalNotes';
 import { SelectionNoteComposer } from './SelectionNoteComposer';
+import { NotesReturnLink, notesReturnSearch } from './NotesReturnLink';
 import { locateReadingNote, resolvePersonalNoteHighlights } from './personalNoteHighlights';
 const AgentReadingSidebar = React.lazy(() => import('../agent-session/AgentReadingSidebar').then((module) => ({ default: module.AgentReadingSidebar })));
 import { apiErrorMessage } from '../../api/error-message';
@@ -123,7 +124,7 @@ export const PagePreview: React.FC = () => {
     notesPanelRef.current?.querySelector<HTMLButtonElement>(`[data-panel-tab="${panelTab}"]`)?.focus();
   };
   const activateNote = (noteId: string) => {
-    if (!noteHighlights.some((note) => note.id === noteId)) return;
+    if (!personalNotes.notes.some((note) => note.id === noteId)) return;
     setActiveNote({ identity: personalNotes.identityKey, id: noteId });
     openPanel('notes');
   };
@@ -141,13 +142,13 @@ export const PagePreview: React.FC = () => {
     }
     if (loading || !page || page.id !== id || !personalNotes.loaded) return;
     const activationKey = `${personalNotes.identityKey}:${noteId}`;
-    if (activatedNoteDeepLinkRef.current === activationKey || !noteHighlights.some((note) => note.id === noteId)) return;
+    if (activatedNoteDeepLinkRef.current === activationKey || !personalNotes.notes.some((note) => note.id === noteId)) return;
     activatedNoteDeepLinkRef.current = activationKey;
     activateNote(noteId);
     const nextSearchParams = new URLSearchParams(searchParams);
     nextSearchParams.delete('note');
     setSearchParams(nextSearchParams, { replace: true });
-  }, [id, loading, page, noteHighlights, personalNotes.identityKey, personalNotes.loaded, searchParams, setSearchParams]);
+  }, [id, loading, page, personalNotes.notes, personalNotes.identityKey, personalNotes.loaded, searchParams, setSearchParams]);
   useEffect(() => {
     const position = () => setPanelGeometry({ top: Math.ceil(readingToolbarRef.current?.getBoundingClientRect().bottom ?? 118) + 12, width: window.innerWidth });
     position(); const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(position);
@@ -712,6 +713,7 @@ export const PagePreview: React.FC = () => {
           </Link>
         ) : <span />}
         <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
+          <NotesReturnLink />
           {page.capabilities?.canEdit === true ? (
             <button
               type="button"
@@ -719,7 +721,7 @@ export const PagePreview: React.FC = () => {
                 const root = markdownRootRef.current;
                 const toolbarBottom = document.querySelector<HTMLElement>('[data-reading-toolbar]')
                   ?.getBoundingClientRect().bottom ?? 88;
-                navigate(`/pages/${id}/edit`, {
+                navigate(`/pages/${id}/edit${notesReturnSearch(location.search)}`, {
                   state: { workspacePosition: root ? captureReadingPosition(root, toolbarBottom, page.id) : null },
                 });
               }}
@@ -768,7 +770,7 @@ export const PagePreview: React.FC = () => {
           <div ref={setNotesContainer} role="tabpanel" id="reading-document-panel-notes" aria-labelledby="reading-document-tab-notes" hidden={panelTab !== 'notes'} className="min-h-0 flex-1 overflow-auto" />
           <div ref={setAgentContainer} role="tabpanel" id="reading-document-panel-assist" aria-labelledby="reading-document-tab-assist" hidden={panelTab !== 'assist'} className="agent-session-host min-h-0 flex-1 flex-col" />
           <React.Suspense fallback={null}>
-            {agentMounted ? <AgentReadingSidebar key={`${user?.id}:${page.spaceId}:${page.id}`} notesContainer={notesContainer} agentContainer={agentContainer} page={page} notes={personalNotes} activeNoteId={activeNoteId} onLocateNote={locateNote} onClearActiveNote={() => setActiveNote(null)} onDocumentWritten={handleAgentDocumentWritten} visible={panelOpen && (notesOpen || panelTab === 'assist')} notesOpen={notesOpen} focusRequest={panelOpen && panelTab === 'assist' && agentFocusRequest?.identity === panelIdentity ? agentFocusRequest.request : undefined} target={readingTarget} onOpenAgent={() => openPanel('assist')} /> : null}
+            {agentMounted ? <AgentReadingSidebar key={`${user?.id}:${page.spaceId}:${page.id}`} notesContainer={notesContainer} agentContainer={agentContainer} page={page} notes={personalNotes} activeNoteId={activeNoteId} noteActivation={activeNote} onLocateNote={locateNote} onClearActiveNote={() => setActiveNote(null)} onDocumentWritten={handleAgentDocumentWritten} visible={panelOpen && (notesOpen || panelTab === 'assist')} notesOpen={notesOpen} focusRequest={panelOpen && panelTab === 'assist' && agentFocusRequest?.identity === panelIdentity ? agentFocusRequest.request : undefined} target={readingTarget} onOpenAgent={() => openPanel('assist')} /> : null}
           </React.Suspense>
         </div>
       </aside>

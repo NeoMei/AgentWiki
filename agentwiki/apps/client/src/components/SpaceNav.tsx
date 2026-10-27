@@ -1,11 +1,12 @@
 import React from 'react';
-import { Database, FileText, KanbanSquare, Network, Settings, Users, Workflow } from 'lucide-react';
+import { Database, FileText, KanbanSquare, MessageSquare, Network, Settings, Users, Workflow } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext';
 import { workspaceSectionFromPath, type SpaceNavSection } from '../features/space-workspace/workspaceNavigation';
 
 const ITEMS = [
   { key: 'pages', labelKey: 'space.pages', suffix: '', icon: FileText },
+  { key: 'notes', labelKey: 'space.notes', suffix: '/notes', icon: MessageSquare },
   { key: 'graph', labelKey: 'space.graph', suffix: '/graph', icon: Network },
   { key: 'sources', labelKey: 'space.sources', suffix: '/sources', icon: Database },
   { key: 'collaboration', labelKey: 'space.collaboration', suffix: '/collaboration', icon: Workflow },

@@ -1,0 +1,78 @@
+{
+  "status": "passed",
+  "verifiedAt": "2026-10-27T17:11:23.862439+00:00",
+  "scope": "release tooling only; mock PostgreSQL and syntax/CLI checks; no production access or writes",
+  "checks": [
+    {
+      "check": "python-syntax",
+      "path": "prepare-source-manifest.py",
+      "status": "passed"
+    },
+    {
+      "check": "python-syntax",
+      "path": "verify-backup-restore.py",
+      "status": "passed"
+    },
+    {
+      "check": "python-syntax",
+      "path": "verify-backup-restore.spec.py",
+      "status": "passed"
+    },
+    {
+      "check": "python-syntax",
+      "path": "verify-release.py",
+      "status": "passed"
+    },
+    {
+      "check": "backup-shell-syntax",
+      "status": "passed",
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "check": "isolated-restore-control-flow",
+      "status": "passed",
+      "exitCode": 0,
+      "output": "......\n----------------------------------------------------------------------\nRan 6 tests in 0.004s\n\nOK"
+    },
+    {
+      "check": "cli-help",
+      "path": "prepare-source-manifest.py",
+      "status": "passed",
+      "exitCode": 0
+    },
+    {
+      "check": "cli-help",
+      "path": "verify-release.py",
+      "status": "passed",
+      "exitCode": 0
+    },
+    {
+      "check": "version-and-prefix-pairing",
+      "status": "passed"
+    },
+    {
+      "check": "browser-acceptance-node-syntax",
+      "status": "passed"
+    },
+    {
+      "check": "browser-acceptance-opt-in-guard",
+      "status": "passed",
+      "exitCode": 1,
+      "productionAccess": false
+    },
+    {
+      "check": "browser-request-rate-limit-policy",
+      "status": "passed",
+      "tests": 7,
+      "exitCode": 0,
+      "verifiedAt": "2026-10-27T17:36:56.241053+00:00",
+      "productionAccess": false,
+      "mockWaitsOnly": true,
+      "output": "✔ GET retries twice at most, preserving the terminal response (9.700917ms)\n✔ HEAD may recover once while writes never repeat on 429 (0.525708ms)\n✔ Retry-After accepts seconds/date, caps at 61 seconds, and uses next bucket when absent (0.070083ms)\n✔ Every individual wait is at most 60 seconds, including 61-second bucket fallback (0.21175ms)\n✔ Explicit requests are spaced by 200ms without real sleeps (0.1275ms)\n✔ Network failure never triggers automatic mutation retry (0.188792ms)\n✔ Each fetch attempt receives a fresh timeout, separate from the retry wait (0.217209ms)\nℹ tests 7\nℹ suites 0\nℹ pass 7\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 44.948542"
+    }
+  ],
+  "productionBackupRun": false,
+  "productionDeployRun": false,
+  "frozenManifestPrepared": false
+}

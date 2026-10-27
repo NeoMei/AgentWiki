@@ -1479,6 +1479,75 @@ describe('PagePreview checklist saves', () => {
     expect(within(panel).getByRole('checkbox', { name: 'Open this note' }).closest('li')).toHaveAttribute('data-active-note', 'true');
   });
 
+  it('opens a resolved note even when its quoted passage has been removed, and preserves a safe search return', async () => {
+    const oldContent = 'Original passage that has now been removed';
+    const current = page({ content: 'Replacement page body', capabilities: { canEdit: false } });
+    const target = captureAssistTarget(oldContent, 'selection', 0, oldContent.length, current.updatedAt)!;
+    serverNotes = [{
+      id: 'stale-deep-note', spaceId: current.spaceId, pageId: current.id, body: 'Keep this searchable note', target,
+      status: 'resolved', author: { type: 'user', id: 'reader', name: 'Reader' }, canEdit: true,
+      createdAt: current.createdAt, updatedAt: current.updatedAt,
+    }];
+    localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');
+    vi.mocked(api.get).mockImplementation(async (url) => notesGet(url) ?? ({ data: url === '/assist/sessions' || url.startsWith('/knowledge') ? [] : current }));
+    const back = '/spaces/space-1/notes?query=removed&status=all&author=me&scope=space';
+    render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="reader"><MemoryRouter initialEntries={['/pages/page-1?note=stale-deep-note&notesReturn=' + encodeURIComponent(back)]}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
+
+    const panel = await screen.findByRole('region', { name: 'Page notes' });
+    expect(within(panel).getByRole('checkbox', { name: 'Keep this searchable note' }).closest('li')).toHaveAttribute('data-active-note', 'true');
+    expect(within(panel).getByText('Original passage changed or anchor is ambiguous')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Back to notes' })).toHaveAttribute('href', back);
+    expect(screen.getByRole('tab', { name: /Current page/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'All notes' })).toBeVisible();
+    expect(pagePatchCalls()).toHaveLength(0);
+    expect(agentPostCalls()).toHaveLength(0);
+  });
+
+  it('keeps current-page note selections while browsing the separate all-notes scope', async () => {
+    const current = page({ content: 'A passage worth noting', capabilities: { canEdit: false } });
+    const target = captureAssistTarget(current.content, 'selection', 0, 9, current.updatedAt)!;
+    serverNotes = [{ id: 'kept-selection', spaceId: current.spaceId, pageId: current.id, body: 'Keep my selection', target,
+      status: 'pending', author: { type: 'user', id: 'reader', name: 'Reader' }, canEdit: true,
+      createdAt: current.createdAt, updatedAt: current.updatedAt }];
+    localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');
+    vi.mocked(api.get).mockImplementation(async (url) => url === '/page-notes'
+      ? { data: { notes: [], total: 0, nextCursor: null } }
+      : notesGet(url) ?? ({ data: url === '/assist/sessions' || url.startsWith('/knowledge') ? [] : current }));
+    render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="reader"><MemoryRouter initialEntries={['/pages/page-1']}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Page notes' }));
+    const panel = await screen.findByRole('region', { name: 'Page notes' });
+    fireEvent.click(await within(panel).findByRole('checkbox', { name: 'Keep my selection' }));
+    fireEvent.click(document.querySelector<HTMLElement>('[data-note-id="kept-selection"]')!);
+    fireEvent.click(screen.getByRole('tab', { name: 'All notes' }));
+    await screen.findByRole('region', { name: 'All notes' });
+    expect(screen.queryByRole('region', { name: 'Page notes' })).not.toBeInTheDocument();
+    fireEvent.click(document.querySelector<HTMLElement>('[data-note-id="kept-selection"]')!);
+    await waitFor(() => expect(screen.getByRole('tab', { name: /Current page/ })).toHaveAttribute('aria-selected', 'true'));
+    expect(within(screen.getByRole('region', { name: 'Page notes' })).getByRole('checkbox', { name: 'Keep my selection' })).toBeChecked();
+    expect(pagePatchCalls()).toHaveLength(0);
+    expect(agentPostCalls()).toHaveLength(0);
+  });
+
+  it('preserves the note-search return context when entering edit mode', async () => {
+    const current = page();
+    localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');
+    vi.mocked(api.get).mockImplementation(async (url) => notesGet(url) ?? ({ data: url === '/assist/sessions' || url.startsWith('/knowledge') ? [] : current }));
+    const back = '/spaces/space-1/notes?query=rollback&status=all&author=me&scope=space';
+    const Probe = () => <p data-testid="edit-context">{useLocation().search}</p>;
+    render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="reader"><MemoryRouter initialEntries={['/pages/page-1?notesReturn=' + encodeURIComponent(back)]}><Routes><Route path="/pages/:id" element={<PagePreview />} /><Route path="/pages/:id/edit" element={<Probe />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    expect(new URLSearchParams(screen.getByTestId('edit-context').textContent ?? '').get('notesReturn')).toBe(back);
+  });
+
+  it('does not offer external note-search return paths', async () => {
+    const current = page({ content: 'A passage worth noting', capabilities: { canEdit: false } });
+    localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');
+    vi.mocked(api.get).mockImplementation(async (url) => notesGet(url) ?? ({ data: url === '/assist/sessions' || url.startsWith('/knowledge') ? [] : current }));
+    render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="reader"><MemoryRouter initialEntries={['/pages/page-1?notesReturn=' + encodeURIComponent('//example.com/notes')]}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
+    expect(await screen.findByRole('heading', { name: 'Checklist' })).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'Back to notes' })).not.toBeInTheDocument();
+  });
+
   it('keeps the page usable when a page-note deep link does not belong to the loaded page', async () => {
     const current = page({ content: 'A passage worth noting', capabilities: { canEdit: false } });
     localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');

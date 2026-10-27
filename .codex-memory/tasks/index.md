@@ -4,6 +4,8 @@
 
 ## 活跃任务
 
+- [notes-discovery-release-20261028](active/notes-discovery-release-20261028/brief.md)：已批准跨页笔记双视图及发布，后端/前端/接线已实现，完整门禁与真实浏览器验收、v0.12.64发布准备进行中。
+
 - [notification-unread-20261023](active/notification-unread-20261023/brief.md)：#12服务端count漏readAt过滤已补发.58，真实PG红绿、server3591/3skip及生产实际服务unread1→0/历史不变通过；原报告回复回读，billy浏览器待验。
 
 - [release-v01257-20261023](active/release-v01257-20261023/brief.md)：Web .57/精确npm .5/GitHub已发布并验收；完整测试8223/5skip，生产1422源码及浏览器/原报告通过；仅npm latest推广因安全密钥超时待继续。
