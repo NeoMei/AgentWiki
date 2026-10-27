@@ -1,0 +1,15 @@
+{
+  "changeSetId": "cmvqq2sfc00fuowgd942rknqm",
+  "status": "published",
+  "publishedAt": "2026-10-27T13:29:43.379Z",
+  "pageId": "aa1739e9-092e-4b61-a4a1-8c63d634817a",
+  "updatedAt": "2026-10-27T13:29:43.365Z",
+  "exactReadback": true,
+  "previousContentPreserved": true,
+  "browserReadback": {
+    "headingVisible": true,
+    "deploymentCompleteVisible": true,
+    "browserAcceptanceVisible": true,
+    "untruncated": true
+  }
+}

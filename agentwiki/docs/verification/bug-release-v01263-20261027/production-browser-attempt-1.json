@@ -1,0 +1,125 @@
+{
+  "version": "0.12.63",
+  "startedAt": "2026-10-27T13:25:10.995Z",
+  "origin": "https://agentwiki.quukk.com",
+  "isolatedProfile": true,
+  "existingUserProfileUntouched": true,
+  "setupVia": "Normal authenticated API with task-created account only",
+  "tests": [
+    {
+      "name": "login: empty",
+      "passed": true
+    },
+    {
+      "name": "login: invalid email bad-address",
+      "passed": true
+    },
+    {
+      "name": "login: invalid email a@b..com",
+      "passed": true
+    },
+    {
+      "name": "login: invalid email a@-b.com",
+      "passed": true
+    },
+    {
+      "name": "login: invalid email a@b_.com",
+      "passed": true
+    },
+    {
+      "name": "login: invalid email a,b@example.com",
+      "passed": true
+    },
+    {
+      "name": "login: invalid email a<b@example.com",
+      "passed": true
+    },
+    {
+      "name": "login: invalid email a..b@example.com",
+      "passed": true
+    },
+    {
+      "name": "login: empty password",
+      "passed": true
+    },
+    {
+      "name": "login: whitespace password",
+      "passed": true
+    },
+    {
+      "name": "register: empty",
+      "passed": true
+    },
+    {
+      "name": "register: invalid email bad-address",
+      "passed": true
+    },
+    {
+      "name": "register: invalid email a@b..com",
+      "passed": true
+    },
+    {
+      "name": "register: invalid email a@-b.com",
+      "passed": true
+    },
+    {
+      "name": "register: invalid email a@b_.com",
+      "passed": true
+    },
+    {
+      "name": "register: invalid email a,b@example.com",
+      "passed": true
+    },
+    {
+      "name": "register: invalid email a<b@example.com",
+      "passed": true
+    },
+    {
+      "name": "register: invalid email a..b@example.com",
+      "passed": true
+    },
+    {
+      "name": "register: empty password",
+      "passed": true
+    },
+    {
+      "name": "register: whitespace password",
+      "passed": true
+    },
+    {
+      "name": "register: whitespace name",
+      "passed": true
+    },
+    {
+      "name": "Isolated temporary account signs in via normal production UI",
+      "passed": true
+    }
+  ],
+  "cleanup": {
+    "space": {
+      "deleted": true,
+      "readbackStatus": 404
+    },
+    "user": {
+      "deleted": true,
+      "readbackStatus": 401
+    },
+    "browserClosed": true
+  },
+  "resources": {
+    "userId": "cmvqpx0za006fowgdkrioayvt",
+    "spaceId": "cmvqpx12c006gowgd6nf194ej"
+  },
+  "browser": "156.0.8078.48",
+  "entryAssets": [
+    "/assets/index-CZ1zz4Pt.js"
+  ],
+  "invalidAuthentication": {
+    "nativeInvalidEvents": 0,
+    "authRequests": 0
+  },
+  "passed": false,
+  "error": "Error: POST /spaces/cmvqpx12c006gowgd6nf194ej/folders: 400 {\"statusCode\":400,\"message\":\"parentId should not be null or undefined, parentId must be shorter than or equal to 100 characters, parentId must be longer than or equal to 1 characters, parentId must be a string\",\"error\":\"Bad Request\",\"timestamp\":\"2026-10-27T13:25:15.215Z\",\"path\":\"/api/spaces/cmvqpx12",
+  "completedAt": "2026-10-27T13:25:15.910Z",
+  "noModelRequests": true
+}

@@ -52,7 +52,7 @@ try{
  space=await api('/spaces','POST',{name:`Release QA 0.12.63 ${id.slice(0,8)}`,description:'Temporary acceptance resources; safe to remove after this run.'});receipt.resources.spaceId=space.id;
  await page.locator('#product-auth-tab-login').click();await page.locator('#product-auth-email').fill(email);await page.locator('#product-auth-password').fill(password);await page.locator('#product-auth-panel form button[type=submit]').click();
  await page.waitForURL('**/dashboard');check('Isolated temporary account signs in via normal production UI');
- const folders=[];for(const name of ['QA folder A','QA folder B'])folders.push((await api(`/spaces/${space.id}/folders`,'POST',{name,expectedTreeRevision:(await tree()).treeRevision})).folder);
+ const folders=[];for(const name of ['QA folder A','QA folder B'])folders.push((await api(`/spaces/${space.id}/folders`,'POST',{name,parentId:null,expectedTreeRevision:(await tree()).treeRevision})).folder);
  const pages=[];for(const title of ['QA first','QA second','QA third'])pages.push(await api('/pages','POST',{title,content:`# ${title}\n\nSynthetic release acceptance.`,spaceId:space.id,expectedTreeRevision:(await tree()).treeRevision}));
  receipt.resources.pageIds=pages.map(p=>p.id);receipt.resources.folderIds=folders.map(p=>p.id);
  await page.goto(`${origin}/spaces/${space.id}`);

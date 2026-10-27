@@ -1,0 +1,18 @@
+{
+  "version": "0.12.63",
+  "revision": "c4fe12bda31e41c355735cd0d09dbcad834c30b5",
+  "deploymentExitCode": 0,
+  "deployedFromCleanDetachedWorktree": true,
+  "sourceFiles": 1443,
+  "backupDirectory": "/var/backups/agentwiki/bug-release-v01263.VaQNOfbS",
+  "previousApplicationTree": "/root/agentwiki-previous-20261027212359",
+  "noPendingMigrations": true,
+  "serviceStatus": {
+    "api": "active",
+    "worker": "active",
+    "frontend": "active"
+  },
+  "deployedPackageVersion": "0.12.63",
+  "deploymentLogSha256": "e22a8b7bcdd1b79ba44eb46e87d29e22f2e8edd6571df581e11424b9d61ed151",
+  "deploymentLogPath": "/tmp/agentwiki-v01263-deploy.log"
+}

@@ -10,3 +10,7 @@
 - docs/verification/bug-release-v01263-20261027/完整门禁、工具、源码发布与待部署回执。
 - /private/tmp/agentwiki-v01263-tree-c4fe12bd/agentwiki 干净发布树；/tmp/agentwiki-v01263-receipts-c4fe12bd/manifest和standalone verifier。
 - 待用SSH socket /tmp/agentwiki-v01263-ssh。
+
+- 最终部署：docs/verification/bug-release-v01263-20261027/{deployment-receipt,production-host,production-public,production-browser,backup-restore,report-production}.json。
+- 备份/旧树：/var/backups/agentwiki/bug-release-v01263.VaQNOfbS 与 /root/agentwiki-previous-20261027212359，恢复需配对。
+- 发布树与SSH连接已清理；仍可从冻结commit重建。

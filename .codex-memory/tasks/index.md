@@ -4,7 +4,6 @@
 
 ## 活跃任务
 
-- [bug-report-20261027](active/bug-report-20261027/brief.md)：修复1a417a67已随GitHub v0.12.63/c4fe12bd正式发布，8425pass；生产SSH认证待用户登录，部署/线上回归未执行，报告状态已补回。
 
 
 
@@ -35,6 +34,8 @@
 - [q3-regressions-20260914](archive/q3-regressions-20260914/brief.md)：Q3人工报告20项代码修复、整分支独立复审与候选验收完成；未发布部署或安装日常Vault。
 
 ## 最近完成
+
+- [bug-report-20261027](archive/bug-report-20261027/brief.md)：v0.12.63/c4fe12bd已GitHub发布及生产部署；8425pass、1443源码、公网和Chrome33/33通过；配对备份/恢复验证、临时资源清理及原报告回复完成。
 
 - [agent-audit-release-20261026](archive/agent-audit-release-20261026/brief.md)：追加租约竞态修复，v0.12.62已发布部署2635bc66；8375通过/5既有skip、1437源/公网/3模式真实模型/生产浏览器全过，原页未改写。
 

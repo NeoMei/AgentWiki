@@ -1,0 +1,201 @@
+{
+  "version": "0.12.63",
+  "startedAt": "2026-10-27T13:26:13.176Z",
+  "origin": "https://agentwiki.quukk.com",
+  "isolatedProfile": true,
+  "existingUserProfileUntouched": true,
+  "setupVia": "Normal authenticated API with task-created account only",
+  "tests": [
+    {
+      "name": "login: empty",
+      "passed": true
+    },
+    {
+      "name": "login: invalid email bad-address",
+      "passed": true
+    },
+    {
+      "name": "login: invalid email a@b..com",
+      "passed": true
+    },
+    {
+      "name": "login: invalid email a@-b.com",
+      "passed": true
+    },
+    {
+      "name": "login: invalid email a@b_.com",
+      "passed": true
+    },
+    {
+      "name": "login: invalid email a,b@example.com",
+      "passed": true
+    },
+    {
+      "name": "login: invalid email a<b@example.com",
+      "passed": true
+    },
+    {
+      "name": "login: invalid email a..b@example.com",
+      "passed": true
+    },
+    {
+      "name": "login: empty password",
+      "passed": true
+    },
+    {
+      "name": "login: whitespace password",
+      "passed": true
+    },
+    {
+      "name": "register: empty",
+      "passed": true
+    },
+    {
+      "name": "register: invalid email bad-address",
+      "passed": true
+    },
+    {
+      "name": "register: invalid email a@b..com",
+      "passed": true
+    },
+    {
+      "name": "register: invalid email a@-b.com",
+      "passed": true
+    },
+    {
+      "name": "register: invalid email a@b_.com",
+      "passed": true
+    },
+    {
+      "name": "register: invalid email a,b@example.com",
+      "passed": true
+    },
+    {
+      "name": "register: invalid email a<b@example.com",
+      "passed": true
+    },
+    {
+      "name": "register: invalid email a..b@example.com",
+      "passed": true
+    },
+    {
+      "name": "register: empty password",
+      "passed": true
+    },
+    {
+      "name": "register: whitespace password",
+      "passed": true
+    },
+    {
+      "name": "register: whitespace name",
+      "passed": true
+    },
+    {
+      "name": "Isolated temporary account signs in via normal production UI",
+      "passed": true
+    },
+    {
+      "name": "Page after drop persists server ordering and reload",
+      "passed": true
+    },
+    {
+      "name": "Drop after last page appends and survives reload",
+      "passed": true
+    },
+    {
+      "name": "Page cross-folder drag persists through fresh reload",
+      "passed": true
+    },
+    {
+      "name": "Folder after drop persists and survives reload",
+      "passed": true
+    },
+    {
+      "name": "Keyboard menu move-up persists",
+      "passed": true
+    },
+    {
+      "name": "Independent second Chrome context reloads persisted page order",
+      "passed": true
+    },
+    {
+      "name": "Reading sidebar deletes stale note; reload empty; page body and version unchanged",
+      "passed": true,
+      "bodyHash": "adc84d6974e13fe2ab415dda501e3ce5d98c60b4ef2b7ad38580db4ec2a04899"
+    },
+    {
+      "name": "Task rename persists and detail reloads new name",
+      "passed": true
+    },
+    {
+      "name": "Cancel task deletion leaves all cards",
+      "passed": true
+    },
+    {
+      "name": "Referenced subtree deletion rejected visibly with no partial write",
+      "passed": true
+    },
+    {
+      "name": "Confirmed subtree deletion persists and reload contains only unrelated card",
+      "passed": true
+    }
+  ],
+  "cleanup": {
+    "space": {
+      "deleted": true,
+      "readbackStatus": 404
+    },
+    "user": {
+      "deleted": true,
+      "readbackStatus": 401
+    },
+    "browserClosed": true
+  },
+  "resources": {
+    "userId": "cmvqpyc6c006yowgdm2s000ro",
+    "spaceId": "cmvqpyc9h006zowgdxahgbhz2",
+    "pageIds": [
+      "dc6cc5c3-c8e7-4b82-bc55-25fb90360993",
+      "688e0e4f-85c3-4427-8019-5f5984d6f576",
+      "e72ddecd-7eb7-47e4-9ee1-f82e87b83788",
+      "d02934e3-0e50-408c-8198-5e060c4dcce4"
+    ],
+    "folderIds": [
+      "cmvqpycs80076owgd3w8bghbf",
+      "cmvqpycz1007cowgdsoba47ps"
+    ],
+    "noteId": "cmvqpyln1009jowgd8lk6n3co"
+  },
+  "browser": "156.0.8078.48",
+  "entryAssets": [
+    "/assets/index-CZ1zz4Pt.js"
+  ],
+  "invalidAuthentication": {
+    "nativeInvalidEvents": 0,
+    "authRequests": 0
+  },
+  "passed": true,
+  "completedAt": "2026-10-27T13:26:34.535Z",
+  "noModelRequests": true,
+  "evidence": {
+    "script": "production-browser-acceptance.mjs",
+    "scriptSha256": "ad7835987a77ee26f25e44b5b0e107a3ff3429d4fea1c4184f89e8cc2f47939a",
+    "attempt": 2,
+    "fixtureCorrections": [
+      {
+        "attempt": 1,
+        "issue": "Root Folder fixture omitted explicit parentId:null required by CreateFolderDto. No product code change.",
+        "passedBeforeFailure": 22,
+        "cleanupSpaceReadback": 404,
+        "cleanupUserReadback": 401
+      }
+    ],
+    "limitations": [
+      "Synthetic temporary owner account and Space; no existing business objects were edited.",
+      "Stale note was created and original text changed via normal API, then deletion exercised through actual reading UI.",
+      "Directory and task operations exercised real browser UI, followed by API readback and refresh.",
+      "Second independent Chrome context verified persisted directory order; no native desktop client was tested.",
+      "Readonly account UI boundary was covered in local tests, not re-exercised with a second production role in this run."
+    ]
+  }
+}

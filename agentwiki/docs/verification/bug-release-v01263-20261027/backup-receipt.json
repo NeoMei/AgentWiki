@@ -1,0 +1,8 @@
+{
+  "status": "verified",
+  "backupDirectory": "/var/backups/agentwiki/bug-release-v01263.VaQNOfbS",
+  "servicesRestored": true,
+  "pairedDatabaseAndAttachments": true,
+  "configurationRemainsServerPrivate": true,
+  "logSha256": "4215d68ed8b883e8dfb39b7432452c38d3ed593075388f1f17fb1e2de6e9a657"
+}

@@ -2,8 +2,7 @@
   "release": "0.12.63",
   "revision": "c4fe12bda31e41c355735cd0d09dbcad834c30b5",
   "githubPublished": true,
-  "productionDeployed": false,
-  "reason": "SSH authentication unavailable: Permission denied (publickey,password); no identities or active control socket",
+  "productionDeployed": true,
   "requestedControlSocket": "/tmp/agentwiki-v01263-ssh",
   "frozenWorktree": "/private/tmp/agentwiki-v01263-tree-c4fe12bd/agentwiki",
   "sourceFiles": 1443,
@@ -15,6 +14,15 @@
     "attachmentStorage": "ok"
   },
   "healthProvesNewVersion": false,
-  "backupExecuted": false,
-  "productionBrowserExecuted": false
+  "backupExecuted": true,
+  "productionBrowserExecuted": true,
+  "backupRestoreVerified": true,
+  "hostSourceVerified": true,
+  "publicAssetsVerified": true,
+  "productionBrowserStatus": "passed",
+  "productionBrowserPassed": 33,
+  "temporaryBrowserResourcesCleaned": true,
+  "frozenWorktreeRemoved": true,
+  "sshControlConnectionClosed": true,
+  "finalStatus": "complete"
 }

@@ -20,6 +20,14 @@ Web/API/client version: 0.12.63. No schema migration, npm package or protocol ch
 
 Freeze the exact commit and use a clean detached checkout for deploy.sh, which packages working-tree files. Back up application/configuration plus database/attachments, verify an isolated restore, then deploy and verify source hashes, services, public assets and the changed browser flows.
 
-## Publication status
+## Publication and production acceptance
 
-[GitHub v0.12.63](https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.63) is published as latest (not draft or prerelease), with its annotated tag resolving to `c4fe12bda31e41c355735cd0d09dbcad834c30b5`. The source manifest covers 1443 files. Production deployment is pending SSH authentication; no backup or production browser mutation has been run. Existing public health is ok and does not establish deployment of this version. See github-release.json, deployment-status.json and report-publication.json.
+[GitHub v0.12.63](https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.63) is the formal latest release, with the annotated tag resolving to `c4fe12bda31e41c355735cd0d09dbcad834c30b5`. Production Web/API/Client are 0.12.63. Independent host verification matched all 1443 source files; three services are active and all five health fields are ok. Public HTML and all five entry assets match production hashes.
+
+The paired application/configuration/database/attachment backup is server-private at `/var/backups/agentwiki/bug-release-v01263.VaQNOfbS`. An isolated restore verified 85 public tables and 65 completed migrations, then removed the temporary database. Previous application tree: `/root/agentwiki-previous-20261027212359`; recovery must use the matching backup and account for post-backup writes.
+
+Production Chrome acceptance passed 33/33 checks: 21 invalid authentication cases, normal temporary-user login, page/folder reorder and cross-folder moves, keyboard menu, refresh and a second independent browser context, stale-note deletion without page mutation, task renaming, cancelled deletion, dependency rejection, and confirmed subtree deletion. The first attempt omitted parentId:null from its test fixture; the second run corrected the fixture with no product change. Both attempts' temporary Spaces and accounts were deleted and read back as inaccessible. No model requests were made or existing user profile changed.
+
+The production role was owner; readonly UI boundaries retain their local-test evidence. The independent Chrome context is not a native desktop client. These limits are retained in production-browser.json. Host/public/browser evidence, backup restore, and GitHub receipts are separate files in this directory.
+
+The original report received the final production reply via published ChangeSet `cmvqq2sfc00fuowgd942rknqm`, with exact MCP readback and Chrome rendering confirmed. Historical report content was preserved. The temporary detached release checkout, browser sessions and task-owned SSH control connection were cleaned up.
