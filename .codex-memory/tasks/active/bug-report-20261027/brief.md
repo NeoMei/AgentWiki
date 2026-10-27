@@ -1,9 +1,7 @@
-# 10-20 测试报告残留问题补修
+# 10-20 测试报告修复与v0.12.63发布
 
-用户要求修复并回复 aa1739e9-092e-4b61-a4a1-8c63d634817a。代码与本地验收完成，修复提交 1a417a67；原报告已追加 published ChangeSet cmvqjp9po1awyp2owmm3fqt1p，MCP 精确回读及历史正文保留确认通过，Chrome已确认新标题、提交、测试数和未部署说明。尚未推送、发布或部署。
+用户先要求修复并回复，后明确授权“发布”。修复1a417a67，本地验收已完成。冻结发布c4fe12bda31e41c355735cd0d09dbcad834c30b5已发布GitHub正式latest v0.12.63，候选分支已推送。Tag精确匹配，0.12.63完整门禁8425pass/0fail/5既有skip，build/typecheck/lint/guard通过。
 
-范围：实际首页认证表单与独立表单校验、阅读侧栏失效笔记删除、任务删除依赖及并发/撤权保护、目录 after 落点与菜单排序；既有任务改名增加回归。
+生产部署尚未执行：SSH Permission denied，agent无密钥、无控制socket。已请用户在终端执行ssh -M -S /tmp/agentwiki-v01263-ssh root@113.249.120.24并保持登录，待用户完成。不要重复要求发布授权。
 
-验证：client359、server auth18、taskboard/MCP62（真实PG4）、目录真实PG38、Chrome认证28/目录6，全构建/typecheck/scoped lint/guard通过；独立最终复审通过。
-
-下一步：如继续上线，从锁定候选新提交冻结干净工作树发布，再做生产实际笔记/任务/目录刷新及跨客户端验收。历史页面v0.12.56发布回执不代表本次补修上线。
+原报告ChangeSet cmvqlcaoj1d4yp2owprbhefdj已published并精确回读，明确GitHub完成/生产待认证。部署后还需真实目录拖动刷新/跨客户端、失效笔记删除、任务改名删除，准备脚本仅使用临时用户/Space并cleanup。

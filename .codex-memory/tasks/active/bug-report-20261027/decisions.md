@@ -6,3 +6,6 @@
 - 所有任务板写入共用 Space advisory lock；Human 按 User→Space→live权限重验，ReadCommitted 读到等待后的最新提交。Agent Grant撤销语义不扩展。
 - 目录 after 转换为下一同类兄弟 beforeId 或末尾；浏览器fixture和真实PG持久化证据分开记录。
 - 本轮不升级版本、不推送、不部署；保留用户未跟踪design/。
+
+- 后续用户明确授权“发布”，原不推送/不部署阶段边界已解除。现GitHub已发布；生产仅被SSH认证条件阻塞，不能因旧阶段说明再次索取发布许可。
+- v0.12.63无schema/npm/protocol变化；沿用冻结detached部署与独立主机/公网/浏览器证据。

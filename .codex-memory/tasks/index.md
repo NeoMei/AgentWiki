@@ -4,7 +4,7 @@
 
 ## 活跃任务
 
-- [bug-report-20261027](active/bug-report-20261027/brief.md)：7项残留补修1a417a67，本地测试/真实PG/Chrome/构建通过，原报告published精确回读；尚未推送部署。
+- [bug-report-20261027](active/bug-report-20261027/brief.md)：修复1a417a67已随GitHub v0.12.63/c4fe12bd正式发布，8425pass；生产SSH认证待用户登录，部署/线上回归未执行，报告状态已补回。
 
 
 

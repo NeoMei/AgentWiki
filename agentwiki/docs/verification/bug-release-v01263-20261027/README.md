@@ -19,3 +19,7 @@ The final full repository gate passed: 8,425 checks, zero failures and five pre-
 Web/API/client version: 0.12.63. No schema migration, npm package or protocol change. Local Sync remains 0.13.5; sync protocol remains 0.6.1. Existing business pages, notes, tasks and folders must be preserved; acceptance uses isolated temporary resources and cleans them afterwards.
 
 Freeze the exact commit and use a clean detached checkout for deploy.sh, which packages working-tree files. Back up application/configuration plus database/attachments, verify an isolated restore, then deploy and verify source hashes, services, public assets and the changed browser flows.
+
+## Publication status
+
+[GitHub v0.12.63](https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.63) is published as latest (not draft or prerelease), with its annotated tag resolving to `c4fe12bda31e41c355735cd0d09dbcad834c30b5`. The source manifest covers 1443 files. Production deployment is pending SSH authentication; no backup or production browser mutation has been run. Existing public health is ok and does not establish deployment of this version. See github-release.json, deployment-status.json and report-publication.json.

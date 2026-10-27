@@ -1,29 +1,31 @@
 # 当前目标
 
-10-20 AgentWiki 测试报告残留问题补修与回复已完成，代码提交1a417a67；当前阶段为本地已验收、尚未部署。任务：tasks/active/bug-report-20261027/brief.md。
+发布10-20测试报告补修v0.12.63。GitHub正式latest已发布，生产部署等待SSH认证。修复1a417a67，冻结发布c4fe12bda31e41c355735cd0d09dbcad834c30b5。
 
 # 范围 / 不做
 
-报告7项：实际认证入口统一校验、失效笔记删除、任务删除/改名回归、目录排序。未推送或部署，没有修改生产业务笔记/任务/目录；原报告仅追加回复并保留历史。
+用户已明确授权“发布”。覆盖备份/隔离恢复校验/生产切换/公网与真实浏览器回归/原报告回复。npm和协议无变化。真实业务数据不用于验收，只创建并清理临时测试账号/Space。
 
 # 当前状态
 
-- 修复基线d4dd13d1，仍为Web0.12.62；修复提交1a417a67。
-- client359、auth server18、taskboard/MCP62（真实PG4）、目录PG38、Chrome认证28/目录6通过；全构建/typecheck/scoped lint/guard与独立复审通过。
-- 原报告ChangeSet cmvqjp9po1awyp2owmm3fqt1p已published；正文精确回读、原文前缀不变，Chrome已回读新回复及未部署边界。
-- 临时数据库已删除并回查，未触碰生产数据。最近已验收生产发布仍见20261026记录：v0.12.62，2635bc66。
+- GitHub v0.12.63已正式latest发布，非草稿/非预发布，tag解引用c4fe12bd；候选分支已推送。
+- 全仓8425通过/0失败/5既有skip；build/typecheck/lint/guard通过；临时三DB和Redis已清理。
+- 冻结干净树 `/private/tmp/agentwiki-v01263-tree-c4fe12bd/agentwiki`；manifest1443文件，准备回执在docs/verification/bug-release-v01263-20261027/。
+- 生产SSH root@113.249.120.24返回Permission denied，ssh-agent无身份/无控制socket。已向用户请求在终端运行 `ssh -M -S /tmp/agentwiki-v01263-ssh root@113.249.120.24`，登录后保留连接。尚未收到完成信息；生产备份、部署、浏览器mutation均未执行。
+- 公网health五项ok，不证明.63部署。最近已验收生产发布见20261026记录v0.12.62/2635bc66。
+- 原报告追加源码发布及待部署状态，ChangeSet cmvqlcaoj1d4yp2owprbhefdj published，MCP精确回读通过；历史正文保留。
 
 # 稳定约束
 
-canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`，分支 `codex/agent-autochat-external-opencode`。编辑发布前运行release guard；历史检出禁止发布。deploy.sh打包工作树，发布须冻结干净detached检出。生产root@113.249.120.24:/root/agentwiki，外部OpenCode2.1.1。中文“天枢”、英文“AgentWiki”。Local Sync0.13.5 / protocol0.6.1。保留未跟踪design/。
+canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`，分支 `codex/agent-autochat-external-opencode`；编辑/发布前guard。历史检出禁止发布。deploy.sh打包工作树，只从冻结干净detached树运行。生产root@113.249.120.24:/root/agentwiki，外部OpenCode2.1.1；Local Sync0.13.5/protocol0.6.1。保留用户未跟踪design/。
 
 # 关键索引
 
 - tasks/active/bug-report-20261027/{brief,decisions,refs}.md
-- agentwiki/docs/verification/bug-report-20261027/
-- tasks/archive/agent-audit-release-20261026/brief.md
+- agentwiki/docs/verification/bug-release-v01263-20261027/{release-tools.md,deployment-status.json,preparation-receipt.json,production-browser-acceptance.mjs}
+- https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.63
 - https://agentwiki.quukk.com/pages/aa1739e9-092e-4b61-a4a1-8c63d634817a
 
 # 风险 / 下一步
 
-新修复尚未上线。部署后需实际失效笔记删除、任务改名/删除、目录排序刷新与跨客户端验收，不能用既有v0.12.56/v0.12.62发布回执替代。初始JS550990/551000 bytes，后续新增首屏功能仍须保持bundle门禁。Agent Grant撤销并发未纳入本轮。
+待用户完成SSH认证后验证控制socket，使用AGENTWIKI_SSH_CONTROL_PATH=/tmp/agentwiki-v01263-ssh。执行配对备份、verify-backup-restore.py隔离恢复校验，然后冻结树deploy.sh；host/public verifier校验1443文件/三服务/五health。部署确认后运行生产browser脚本（RELEASE_APPROVED=0.12.63 CONFIRM_REMOTE_E2E_HOST=agentwiki.quukk.com），临时资源清理，更新GitHub生产状态和原报告。最后清理本轮detached树。初始JS550990/551000门禁保留。
