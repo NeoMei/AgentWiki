@@ -22,6 +22,8 @@
 
 ## 最近完成
 
+- [tianshu-logo-blue-20261028](archive/tianshu-logo-blue-20261028/brief.md)：页面/标签/触屏标志改为主站 #155DFC；74项测试、构建、桌面/手机检查及颜色/alpha独立复核通过；仅本地完成，未推送部署。
+
 - [local-workspace-hygiene-20261028](archive/local-workspace-hygiene-20261028/brief.md)：正式仓库直连GitHub、6条失效登记清理、9个历史状态恢复快照与旧主目录归档、过期任务索引修正完成；仅本地整理。
 
 - [bug-report-20261027](archive/bug-report-20261027/brief.md)：v0.12.63/c4fe12bd已GitHub发布及生产部署；8425pass、1443源码、公网和Chrome33/33通过；配对备份/恢复验证、临时资源清理及原报告回复完成。
