@@ -1,0 +1,38 @@
+{
+  "status": "passed",
+  "revision": "190ba1b34c2cb03691cc82bfbe4aa3bc2a7e725c",
+  "reviewer": "/root/github_state",
+  "verifiedAt": "2026-10-27T17:55:47.331459+00:00",
+  "sourceFilesCheckedAgainstFrozenGitBlobs": 1461,
+  "manifestSha256": "e1a916be2ca380969f2a6de1e2f5aa4ac4a54d5a47218ef98cb39369e744ed5c",
+  "deploymentHostPublicPreparationManifestConsistent": true,
+  "productionBrowserChecksPassed": 13,
+  "productionBrowserVersionMatchesHost": true,
+  "fixtureCleanupSetsEqualCreatedResources": true,
+  "notesDeletedAndReadBack": 27,
+  "pagesDeletedAndReadBack": 4,
+  "spacesDeletedAndReadBack": 3,
+  "usersDeletedAndReadBack": 2,
+  "browserClosed": true,
+  "credentialFormatScanFindings": 0,
+  "reviewWasLocalAndReadOnly": true,
+  "screenshots": [
+    {
+      "file": "production-desktop-notes.png",
+      "sha256": "bfc5a5115f9e56d6557598a72025249db1fb95a5bf602d65a002e8dae7e4a59d"
+    },
+    {
+      "file": "production-mobile-stale-note.png",
+      "sha256": "ca1c2cc37ed5651da77c686cb8da0955a0939c8cc5068cae61917a21a287b2fa"
+    }
+  ],
+  "finalGates": {
+    "reviewer": "/root/github_state",
+    "exitCodeVerified": 0,
+    "passed": 8492,
+    "failed": 0,
+    "skipped": 9,
+    "phaseAndLogHashesVerified": true,
+    "notesDiscoveryRealPgIncluded": 31
+  }
+}

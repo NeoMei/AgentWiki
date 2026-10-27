@@ -1,0 +1,109 @@
+{
+  "status": "passed",
+  "revision": "190ba1b34c2cb03691cc82bfbe4aa3bc2a7e725c",
+  "completedAt": "2026-10-27T17:56:04.351089+00:00",
+  "testFull": {
+    "command": "pnpm test:full",
+    "exitCode": 0,
+    "passed": 8492,
+    "failed": 0,
+    "skipped": 9,
+    "log": "/tmp/agentwiki-notes-full-publish.log",
+    "logSha256": "a4b1a187892ad2d171fbe7fd671d0d49ac9e31e340135dfc2ccc2ae5a8f41888",
+    "phases": [
+      {
+        "name": "runtime",
+        "passed": 319,
+        "skipped": 1
+      },
+      {
+        "name": "runtime-db-redis",
+        "passed": 244,
+        "skipped": 0
+      },
+      {
+        "name": "server",
+        "passed": 3750,
+        "skipped": 7,
+        "suitesPassed": 193,
+        "suitesSkipped": 2,
+        "notesDiscoveryRealPgTestsIncluded": 31
+      },
+      {
+        "name": "client",
+        "passed": 2914,
+        "skipped": 0,
+        "filesPassed": 172
+      },
+      {
+        "name": "sync-protocol",
+        "passed": 140,
+        "skipped": 0
+      },
+      {
+        "name": "local-sync",
+        "passed": 1125,
+        "skipped": 1
+      }
+    ]
+  },
+  "skipReasons": [
+    {
+      "count": 1,
+      "scope": "runtime",
+      "reason": "Opt-in real CodeGraph scanner install/scan; AGENTWIKI_CODEGRAPH_E2E not enabled"
+    },
+    {
+      "count": 3,
+      "scope": "server onboard-connection.db.spec.ts",
+      "reason": "CONNECTION_UX_DB_TEST=1 and dedicated connection DB not configured"
+    },
+    {
+      "count": 4,
+      "scope": "server project-taskboard.db.spec.ts",
+      "reason": "TASKBOARD_TEST_DATABASE_URL dedicated gate not configured"
+    },
+    {
+      "count": 1,
+      "scope": "local-sync cli.spec.ts",
+      "reason": "Windows-only ACL case on macOS"
+    }
+  ],
+  "otherGates": [
+    {
+      "name": "typecheck",
+      "command": "pnpm typecheck",
+      "status": "passed",
+      "exitCode": 0,
+      "log": "/tmp/agentwiki-notes-types-final.log",
+      "logSha256": "d0a87d9e039ecf277453e5bf5e153e25986e53af6f6456b0f1c7a11ba35dc86d"
+    },
+    {
+      "name": "lint",
+      "command": "pnpm lint",
+      "status": "passed",
+      "exitCode": 0,
+      "log": "/tmp/agentwiki-notes-lint.log",
+      "logSha256": "d5b17ee595fbfdae02af58fd347506b1d5a827a69c28da8385dc57ae52ef712d"
+    },
+    {
+      "name": "build",
+      "command": "pnpm build",
+      "status": "passed",
+      "exitCode": 0,
+      "log": "/tmp/agentwiki-notes-build-all.log",
+      "logSha256": "8cdfed94dce23134028b334ef7a6040b420837411fee7399397622f7d1fd3546"
+    }
+  ],
+  "initialJsBytes": 550514,
+  "initialJsBudgetBytes": 551000,
+  "independentReviewOpenImportantFindings": 0,
+  "localBrowser": {
+    "checksPassed": 13,
+    "fixtureCleanupReadBack": true
+  },
+  "productionBrowser": {
+    "checksPassed": 13,
+    "fixtureCleanupReadBack": true
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "attempts": [
+    {
+      "command": "pnpm test:full",
+      "result": "failed",
+      "reason": "4 runtime DB assertions still pinned old migration fingerprint; reviewed index-only migration and synchronized the digest",
+      "log": "/tmp/agentwiki-notes-full.log"
+    },
+    {
+      "command": "pnpm test:full",
+      "result": "all phase summaries passed; process exit code not retained",
+      "passed": 8492,
+      "skipped": 9,
+      "log": "/tmp/agentwiki-notes-full-final.log",
+      "sha256": "de50a57e7c620e32722af0a1206ddba56009aedf8fac87f7c818212a9649da3e"
+    },
+    {
+      "command": "pnpm test:full",
+      "result": "failed",
+      "phase": "client",
+      "passed": 2913,
+      "failed": 1,
+      "exitCode": 1,
+      "reason": "new resolved-note test asserted before PersonalNotesPanel filter effect rendered target card; waitFor now preserves original active-card assertion",
+      "log": "/tmp/agentwiki-notes-full-release.log",
+      "sha256": "3d5c8823d6243b7bf48d915fc0d0853e6e978a1cfb120b73086de350e3f90d90"
+    },
+    {
+      "command": "pnpm --filter @agentwiki/client test",
+      "result": "passed after test-only correction",
+      "testFiles": 172,
+      "passed": 2914,
+      "failed": 0,
+      "exitCode": 0,
+      "log": "/tmp/agentwiki-notes-client-final.log",
+      "sha256": "be22c13f5fe175d6428deb832c5bdb1722b5ef16895be11cae64cea873864929"
+    }
+  ],
+  "independentFailureReview": "notes_integration_review confirmed async test race; no product code change needed",
+  "lastProductChangeCommit": "adfd3522142eb7ddcf914f9dc8a088dca73b9af8",
+  "finalTestCorrectionCommit": "190ba1b34c2cb03691cc82bfbe4aa3bc2a7e725c"
+}

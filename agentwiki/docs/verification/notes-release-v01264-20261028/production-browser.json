@@ -1,0 +1,319 @@
+{
+  "version": "0.12.64",
+  "origin": "https://agentwiki.quukk.com",
+  "startedAt": "2026-10-27T17:52:10.066Z",
+  "prefix": "aw64-e652cd50",
+  "isolatedProfile": true,
+  "existingUserProfileUntouched": true,
+  "setupVia": "Normal authenticated API, task-created accounts and resources only; normal UI sign-in",
+  "tests": [
+    {
+      "name": "Authenticated discovery paginates 26 readable notes without disclosing the other owner secret Space",
+      "passed": true
+    },
+    {
+      "name": "Fresh system Chrome context signs in through the normal UI",
+      "passed": true
+    },
+    {
+      "name": "Reading sidebar switches between Current page and All notes and can return to the current page",
+      "passed": true
+    },
+    {
+      "name": "This-space/all-spaces, written-by-me/mentioning-me and open/resolved filters reflect shared authors and mentions",
+      "passed": true
+    },
+    {
+      "name": "Search matches note body, quoted source and source-page title across Spaces",
+      "passed": true
+    },
+    {
+      "name": "Source deep link activates an older note; read/edit/read preserves return filters and restores two pages and card position",
+      "passed": true
+    },
+    {
+      "name": "Changed source retains the selected stale note with an explicit disabled-anchor fallback and no page mutation",
+      "passed": true
+    },
+    {
+      "name": "Resolved-note source deep link reveals the selected resolved card",
+      "passed": true
+    },
+    {
+      "name": "Clicking the same source highlight repeatedly reopens Current page from All notes",
+      "passed": true
+    },
+    {
+      "name": "Displayed Chinese-knot logo matches the release resource hash and Quukk blue #155DFC",
+      "passed": true,
+      "sha256": "d5a4028c8827c120d58d07780d8ea4f4ceb5e104982b2ead16439b1e83314fb0",
+      "width": 256,
+      "height": 256,
+      "opaquePixels": 1459,
+      "wrongBluePixels": 0
+    },
+    {
+      "name": "390px note-library layout has no horizontal overflow",
+      "passed": true,
+      "viewport": 390,
+      "document": 390,
+      "body": 390
+    },
+    {
+      "name": "390px stale-note source and open notes sidebar have no horizontal overflow",
+      "passed": true,
+      "viewport": 390,
+      "document": 390,
+      "body": 390
+    },
+    {
+      "name": "Revoking only the temporary viewer membership changes accessRevision; next-page discovery/UI removes accumulated inaccessible cards",
+      "passed": true,
+      "beforeTotal": 26,
+      "afterTotal": 1
+    }
+  ],
+  "cleanup": {
+    "notes": [
+      {
+        "id": "cmvqzgjcv008yubiagp83ljv1",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzgj78008vubiahfz6n9oq",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzgj1k008qubiaicrq3zqb",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzgiw5008nubiatth5lcuq",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzgiqf008kubia1agc5at7",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzgikw008hubiaizo5nuz5",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzgif8008eubiauaoniq48",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzgi9h008bubiailxsk04o",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzgi470088ubiajpt4ijn1",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzghyi0085ubiasyyhdrsn",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzght90082ubiau4ubatlg",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzghne007zubia2o2wzj1q",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzghhp007wubia0gkom1l1",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzghc5007tubianc6txjws",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzgh6c007qubianpdnye53",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzgh0u007nubia8i267nu4",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzggv7007kubia4kk7uwsp",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzggq1007hubias2roxcmk",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzggjw007eubia0egzimf1",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzggem007bubiabmjkdsp3",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzgg920078ubiaf0pyj7ux",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzgg3b0075ubia04bsggy7",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzgfxo0072ubiaqfs3ptke",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzgfs4006zubialpafyyid",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzgfmm006wubialclmsc5r",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzgfha006tubiap8udub9m",
+        "deleted": true,
+        "readbackAbsent": true
+      },
+      {
+        "id": "cmvqzgfbj006qubia79lvw0f8",
+        "deleted": true,
+        "readbackAbsent": true
+      }
+    ],
+    "pages": [
+      {
+        "id": "8499af9c-ec20-407f-9539-839cddba04da",
+        "deleted": true,
+        "readbackStatus": 404
+      },
+      {
+        "id": "67b12b07-5ceb-4e60-a41a-0bc999ad4855",
+        "deleted": true,
+        "readbackStatus": 404
+      },
+      {
+        "id": "de5a46ff-0e77-41cc-842f-09c22d3f42df",
+        "deleted": true,
+        "readbackStatus": 404
+      },
+      {
+        "id": "08e7a586-c836-460f-b094-53ab9bb6a831",
+        "deleted": true,
+        "readbackStatus": 404
+      }
+    ],
+    "spaces": [
+      {
+        "id": "cmvqzgd0y005yubiakhn78zu2",
+        "deleted": true,
+        "readbackStatus": 404
+      },
+      {
+        "id": "cmvqzgcv6005vubiatyaz4q1c",
+        "deleted": true,
+        "readbackStatus": 404
+      },
+      {
+        "id": "cmvqzgcps005subia2adwgv29",
+        "deleted": true,
+        "readbackStatus": 404
+      }
+    ],
+    "users": [
+      {
+        "id": "cmvqzgcmv005rubiatofi1lij",
+        "deleted": true,
+        "readbackStatus": 401
+      },
+      {
+        "id": "cmvqzgbvf005qubiafvlkm31g",
+        "deleted": true,
+        "readbackStatus": 401
+      }
+    ],
+    "browserClosed": true
+  },
+  "resources": {
+    "userIds": [
+      "cmvqzgbvf005qubiafvlkm31g",
+      "cmvqzgcmv005rubiatofi1lij"
+    ],
+    "spaceIds": [
+      "cmvqzgcps005subia2adwgv29",
+      "cmvqzgcv6005vubiatyaz4q1c",
+      "cmvqzgd0y005yubiakhn78zu2"
+    ],
+    "pageIds": [
+      "08e7a586-c836-460f-b094-53ab9bb6a831",
+      "de5a46ff-0e77-41cc-842f-09c22d3f42df",
+      "67b12b07-5ceb-4e60-a41a-0bc999ad4855",
+      "8499af9c-ec20-407f-9539-839cddba04da"
+    ],
+    "noteIds": [
+      "cmvqzgfbj006qubia79lvw0f8",
+      "cmvqzgfha006tubiap8udub9m",
+      "cmvqzgfmm006wubialclmsc5r",
+      "cmvqzgfs4006zubialpafyyid",
+      "cmvqzgfxo0072ubiaqfs3ptke",
+      "cmvqzgg3b0075ubia04bsggy7",
+      "cmvqzgg920078ubiaf0pyj7ux",
+      "cmvqzggem007bubiabmjkdsp3",
+      "cmvqzggjw007eubia0egzimf1",
+      "cmvqzggq1007hubias2roxcmk",
+      "cmvqzggv7007kubia4kk7uwsp",
+      "cmvqzgh0u007nubia8i267nu4",
+      "cmvqzgh6c007qubianpdnye53",
+      "cmvqzghc5007tubianc6txjws",
+      "cmvqzghhp007wubia0gkom1l1",
+      "cmvqzghne007zubia2o2wzj1q",
+      "cmvqzght90082ubiau4ubatlg",
+      "cmvqzghyi0085ubiasyyhdrsn",
+      "cmvqzgi470088ubiajpt4ijn1",
+      "cmvqzgi9h008bubiailxsk04o",
+      "cmvqzgif8008eubiauaoniq48",
+      "cmvqzgikw008hubiaizo5nuz5",
+      "cmvqzgiqf008kubia1agc5at7",
+      "cmvqzgiw5008nubiatth5lcuq",
+      "cmvqzgj1k008qubiaicrq3zqb",
+      "cmvqzgj78008vubiahfz6n9oq",
+      "cmvqzgjcv008yubiagp83ljv1"
+    ]
+  },
+  "rateLimitReadRetries": [],
+  "browser": "156.0.8078.48",
+  "passed": true,
+  "noModelRequests": true,
+  "interrupted": false,
+  "completedAt": "2026-10-27T17:53:03.991Z"
+}

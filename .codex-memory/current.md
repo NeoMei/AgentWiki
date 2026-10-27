@@ -1,40 +1,33 @@
 # 当前目标
 
-用户已批准笔记跨页发现的双视图方案并指令发布；正在实现、验收并准备 v0.12.64，包含此前蓝色 logo。精确进度见 tasks/active/notes-discovery-release-20261028/progress.md。正式生产仍为 v0.12.63 / c4fe12bda31e41c355735cd0d09dbcad834c30b5。
+本轮跨页笔记看板及主站蓝色logo发布已完成。当前正式生产与GitHub latest为v0.12.64，冻结源码190ba1b34c2cb03691cc82bfbe4aa3bc2a7e725c。
 
 # 范围 / 不做
 
-本轮发布笔记当前/全部双视图、授权跨页检索/筛选/分页、笔记入口、来源与失效原文降级、检索返回和蓝色logo；schema仅新增发现索引，npm/protocol无业务变更时保持现版本。历史独有实现未批量合入，原环境待验事项保留。
+已交付当前/全部双视图、授权跨页搜索/筛选/分页、空间笔记入口、来源与失效选区降级、返回筛选与有界位置恢复及蓝色logo。LocalSync保持0.13.5/protocol0.6.1；历史独有实现未批量合入，原账号/原生客户端待验边界仍按任务索引保留。
 
 # 当前状态
 
-- Logo v2 使用主站 #155DFC/OKLCH 蓝色，256px 原图 alpha 逐像素保留；64px favicon/180px touch/兼容 SVG 同步。74 项相关测试、client 构建/lint/guard、桌面与手机首页→指南检查及独立颜色/透明度复核通过。
-- origin 已直连 GitHub，正式候选跟踪同名 origin 分支；legacy-local 仅作恢复入口。原 ahead 10 已证实是本地中转引用滞后。
-- 6 条失效 worktree 登记已清理；9 个历史 dirty 状态完成恢复快照，旧主目录固化为本地 archive 分支，其他 8 树原 HEAD/index 保留；8 个设计草稿原位保留。
-- 旧目录 current/任务索引已指向正式入口；.26 发布/编辑预览任务完成归档，未验边界保留。
-- 完整门禁8425pass/0fail/5既有skip，构建/typecheck/lint/guard与独立复审通过。
-- 生产1443源码与冻结commit匹配，Web/Client/API0.12.63；三服务active、五healthok，公网HTML及5入口资源匹配。
-- Chrome33/33真实交互通过，包括目录刷新/第二独立会话、失效笔记删除正文不变、任务改名/取消/依赖拒删/递归删除。两轮临时Space/账号均删除回查。
-- 原报告最终ChangeSet cmvqq2sfc00fuowgd942rknqm published，精确MCP回读及Chrome呈现通过，历史保留。
-- 配对备份与隔离恢复验证通过；临时DB/Redis、detached发布树、浏览器及本任务SSH控制连接已清理。
+- v0.12.64已正式发布部署，源码1461文件与冻结commit一致，Web/Client/API均.64；3服务active、5healthok，公网HTML及5入口资源匹配。
+- 完整test:full退出0：8492pass/0fail/9条件skip，包含笔记发现31项真实PG；typecheck/lint/build、独立代码和回执复审通过，初始JS550514/551000。
+- 本地和生产真实Chrome各13/13通过：双视图、跨空间/作者/@我/状态、正文/引用/标题、20+分页、来源与读/编辑/读返回位置、失效选区/已解决、重复高亮、390px、权限撤销和蓝色logo。
+- 生产27笔记/4页面/3空间/2账号全部删除并读回；本轮临时DB/Redis/浏览器/干净detached发布检出已清理。敏感配对备份与匹配旧应用保留。
+- origin直连GitHub、候选跟踪同名远端；6条失效worktree登记已清理，9个历史dirty状态已留恢复快照，旧主目录已本地归档。8个未跟踪design草稿保留。
 
 # 稳定约束
 
-canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`，便捷入口 `/Users/neomei/项目/codexprojects/AgentWiki-current/agentwiki`，分支 `codex/agent-autochat-external-opencode`；origin 必须直连 GitHub。编辑发布前guard，历史检出禁止发布。deploy.sh打包工作树，必须从冻结干净detached树发布。生产root@113.249.120.24:/root/agentwiki，外部OpenCode2.1.1；LocalSync0.13.5/protocol0.6.1。保留未跟踪design/。
+canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`，便捷入口 `/Users/neomei/项目/codexprojects/AgentWiki-current/agentwiki`，分支 `codex/agent-autochat-external-opencode`；origin直连GitHub。编辑发布前guard，历史检出禁止发布。deploy.sh打包工作树，必须从冻结干净detached树发布。生产root@113.249.120.24:/root/agentwiki，外部OpenCode2.1.1；保留未跟踪design/。
 
 # 关键索引
 
-- tasks/active/notes-discovery-release-20261028/{brief,design,plan,progress,decisions,refs}.md
-- agentwiki/docs/verification/notes-release-v01264-20261028/
-- tasks/archive/tianshu-logo-blue-20261028/{brief,decisions,refs}.md
-- agentwiki/apps/client/public/brand/README.md
-- tasks/archive/local-workspace-hygiene-20261028/{brief,decisions,refs}.md
+- tasks/archive/notes-discovery-release-20261028/{brief,design,plan,progress,decisions,refs}.md
+- agentwiki/docs/verification/notes-release-v01264-20261028/README.md
+- https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.64
+- tasks/archive/tianshu-logo-blue-20261028/brief.md
+- tasks/archive/local-workspace-hygiene-20261028/brief.md
 - 本地恢复 `/Users/neomei/.local/share/agentwiki-local-archives/20261028/`
-- tasks/archive/bug-report-20261027/{brief,decisions,refs}.md
-- agentwiki/docs/verification/bug-release-v01263-20261027/
-- https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.63
-- https://agentwiki.quukk.com/pages/aa1739e9-092e-4b61-a4a1-8c63d634817a
+- tasks/index.md（历史未验边界）
 
 # 风险 / 下一步
 
-Logo 改色尚未发布；生产仍沿用原发布版本。本地整理未合并或推送 GitHub master，历史独有提交及原环境待验不因快照而视为完成。原授权发布任务已完成：配对备份/旧树为 `/var/backups/agentwiki/bug-release-v01263.VaQNOfbS` 与 `/root/agentwiki-previous-20261027212359`，恢复需考虑备份后写入。只读角色生产二角色回归/原生桌面客户端未测，前者保留本地证据。初始JS550990/551000，后续功能需保持bundle门禁。
+9项条件skip分别为CodeGraph实际scanner opt-in1、专用connection DB3、专用taskboard DB4和Windows ACL1；不将其称为已测。原账号/原生桌面客户端验收继续保留原任务边界。配对备份 `/var/backups/agentwiki/notes-release-v01264.HTbMjvWN`，旧应用 `/root/agentwiki-previous-20261028015130`；恢复必须配对数据库/配置/附件并考虑备份后写入。后续功能需保持551000字节初始JS门禁。

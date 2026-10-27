@@ -1,0 +1,22 @@
+{
+  "status": "passed",
+  "verifiedAt": "2026-10-27T17:58:11.065926+00:00",
+  "localUiDatabaseRemoved": true,
+  "finalFullTestDatabasesRemoved": true,
+  "ownedLocalUiProcessesStopped": true,
+  "ownedRedisProcessesStopped": true,
+  "browserSessionsRemaining": 0,
+  "productionFixturesDeletedAndReadBack": {
+    "notes": 27,
+    "pages": 4,
+    "spaces": 3,
+    "users": 2
+  },
+  "detachedPublicationTreesRemoved": [
+    "/tmp/agentwiki-v01264-tree-fa39628d",
+    "/tmp/agentwiki-v01264-tree-190ba1b3"
+  ],
+  "userUntrackedDesignFilesPreserved": true,
+  "serverPrivatePairedBackupRetained": "/var/backups/agentwiki/notes-release-v01264.HTbMjvWN",
+  "previousApplicationTreeRetained": "/root/agentwiki-previous-20261028015130"
+}

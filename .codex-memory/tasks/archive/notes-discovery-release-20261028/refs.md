@@ -5,3 +5,7 @@
 - 现有生产发布工具与回执：`agentwiki/docs/verification/bug-release-v01263-20261027/`。
 - 原单页实现：`apps/server/src/page-notes/page-note.service.ts`、`apps/client/src/features/page/usePersonalNotes.ts`、`PersonalNotesPanel.tsx`。
 - `design.md` 为前后端契约，`plan.md` 为本轮执行清单。
+
+- 正式Release：https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.64
+- 冻结源码：190ba1b34c2cb03691cc82bfbe4aa3bc2a7e725c
+- 最终验收：agentwiki/docs/verification/notes-release-v01264-20261028/README.md（gates/host/public/browser/cleanup独立回执）

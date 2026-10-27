@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "release": "0.12.64",
+  "recordedAt": "2026-10-27T17:46:39.345826+00:00",
+  "recordedBy": "/root/worktree_audit",
+  "status": "no-known-open-important-review-findings",
+  "provenance": "Mixed evidence: this agent executed the backend implementation checks and an earlier frontend check; later integration and whole-diff outcomes are explicitly reported evidence. No full-repository test rerun is claimed by this agent.",
+  "checks": [
+    {
+      "scope": "backend aggregate note discovery, existing single-page CRUD, query validation and HTTP route",
+      "evidenceKind": "executed-by-this-agent",
+      "independentOfImplementation": false,
+      "command": "node /tmp/agentwiki-note-discovery-db-runner.mjs revision-green --all-notes",
+      "result": "passed",
+      "exitCode": 0,
+      "testSuites": 4,
+      "testsPassed": 72,
+      "testsFailed": 0,
+      "realPostgreSQLTestsPassed": 31,
+      "evidence": "/tmp/agentwiki-note-discovery-revision-green.log",
+      "timing": "Implementation candidate before the release freeze; this is not a claim of a new run against the frozen commit.",
+      "coverage": [
+        "Cross-page and current-space discovery, body/quote/page-title search, author and status filters.",
+        "Live human, personal credential and Agent authorization; inaccessible and deleted notes/pages/Spaces excluded from results and counts.",
+        "Bounded filter-bound cursors with updatedAt/id ordering, including UTC, Asia/Shanghai and America/Los_Angeles PostgreSQL session timezones.",
+        "PAT and Agent credential expiration across the same three session timezones.",
+        "Access revision changes when one Space is revoked while another gains notes and the total stays unchanged.",
+        "Existing author-only writes, optimistic version checks and idempotent/tombstone behavior remain covered by the single-page service suite."
+      ],
+      "databaseBoundary": "Disposable loopback test database and isolated collaboration_test_* schema; cleanup completed. No production database access by this agent."
+    },
+    {
+      "scope": "backend TypeScript, scoped ESLint and diff whitespace checks",
+      "evidenceKind": "executed-by-this-agent",
+      "result": "passed",
+      "exitCode": 0,
+      "commands": [
+        "pnpm --filter @agentwiki/server typecheck",
+        "pnpm exec eslint 'apps/server/src/page-notes/**/*.ts'",
+        "git diff --check"
+      ]
+    },
+    {
+      "scope": "frontend new-directory initial independent review and component tests",
+      "evidenceKind": "executed-by-this-agent",
+      "independentOfImplementation": true,
+      "command": "pnpm --filter @agentwiki/client test --run src/features/page-notes/NotesBrowser.spec.tsx",
+      "result": "passed",
+      "testFiles": 1,
+      "testsPassed": 21,
+      "testsFailed": 0,
+      "timing": "Before the final accessRevision client follow-up; the later 23-test result below supersedes this count for final frontend verification."
+    },
+    {
+      "scope": "frontend new-directory final follow-up, including access-revision collection invalidation",
+      "evidenceKind": "reported",
+      "reportedBy": "/root, forwarding frontend implementation verification in this session",
+      "result": "passed",
+      "testsPassed": 23,
+      "rerunByThisAgent": false
+    },
+    {
+      "scope": "PagePreview, workspaceNavigation and PageEditor integration follow-up",
+      "evidenceKind": "reported",
+      "reportedBy": "/root/notes_integration_review in this session",
+      "result": "passed",
+      "testFiles": 3,
+      "testsPassed": 229,
+      "rerunByThisAgent": false,
+      "reviewOutcome": "Reported follow-up found no new blocking issue after same-note reactivation and safe reading/editing return-context fixes."
+    },
+    {
+      "scope": "whole-diff independent review",
+      "evidenceKind": "reported",
+      "reportedBy": "/root in this session",
+      "reviewOutcome": "No unclosed important findings reported.",
+      "independentWholeDiffRunByThisAgent": false
+    },
+    {
+      "scope": "production browser acceptance request retry policy",
+      "evidenceKind": "reported-with-artifact-readback",
+      "reportedBy": "/root/notes_integration_review, relayed by /root in this session",
+      "evidence": "docs/verification/notes-release-v01264-20261028/tools-validation.json",
+      "testFile": "docs/verification/notes-release-v01264-20261028/browser-request-policy.spec.mjs",
+      "result": "passed",
+      "testsPassed": 7,
+      "testsFailed": 0,
+      "exitCode": 0,
+      "rerunByThisAgent": false,
+      "artifactReadByThisAgent": true,
+      "boundary": "Mock waits only; no production access. GET/HEAD retry is bounded; mutations never automatically retry on 429 or network failure; each attempt has a fresh timeout and individual waits are at most 60 seconds."
+    }
+  ],
+  "importantFindings": [
+    {
+      "finding": "Timestamp-without-time-zone cursor comparisons could repeat pages under a non-UTC PostgreSQL session.",
+      "disposition": "fixed",
+      "verification": "Executed real PostgreSQL cursor tests in UTC, Asia/Shanghai and America/Los_Angeles."
+    },
+    {
+      "finding": "Raw credential expiration checks could disagree with live authorization under a non-UTC session.",
+      "disposition": "fixed",
+      "verification": "Observed Asia/Shanghai red regression, then passed real PostgreSQL PAT/Agent tests in all three timezones."
+    },
+    {
+      "finding": "Total-count-only pagination invalidation could retain cards from a revoked Space when another Space gained the same number of notes.",
+      "disposition": "fixed-backend-and-client-follow-up-reported",
+      "verification": "Backend same-total accessRevision regression executed by this agent; final client follow-up reported as 23 passing tests."
+    }
+  ],
+  "openImportantFindings": [],
+  "limits": [
+    "This receipt records review and scoped verification evidence; it is not a production deployment or acceptance receipt.",
+    "The repository-wide final test:full run belongs to the root agent and is deliberately not asserted here.",
+    "Reported checks are attributed to their source and were not rerun by this agent.",
+    "The backend verification was performed by its implementation author; independent whole-diff review is separately marked as reported.",
+    "No product files, release lock, Git refs, commits, remote branches or production state were changed while writing this receipt."
+  ],
+  "reviewedImplementationCommit": "fa39628d3299e5f7988a8a022b3b1dff5860f437",
+  "releasedCommit": "190ba1b34c2cb03691cc82bfbe4aa3bc2a7e725c",
+  "laterChange": {
+    "path": "apps/client/src/features/page/PagePreview.spec.tsx",
+    "kind": "test-only waitFor around unchanged active-card assertion",
+    "independentReviewer": "/root/notes_integration_review",
+    "result": "confirmed assertion strength preserved; no product change"
+  }
+}

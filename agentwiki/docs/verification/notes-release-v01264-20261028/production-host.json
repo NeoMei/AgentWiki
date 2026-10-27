@@ -1,0 +1,37 @@
+{
+  "mode": "host",
+  "revision": "190ba1b34c2cb03691cc82bfbe4aa3bc2a7e725c",
+  "sourceFilesVerified": 1461,
+  "manifestSha256": "e1a916be2ca380969f2a6de1e2f5aa4ac4a54d5a47218ef98cb39369e744ed5c",
+  "mismatches": [],
+  "versions": {
+    "web": "0.12.64",
+    "client": "0.12.64",
+    "api": "0.12.64",
+    "localSync": "0.13.5",
+    "protocol": "0.6.1"
+  },
+  "nodeVersion": "v24.18.0",
+  "services": {
+    "agentwiki-api.service": "active",
+    "agentwiki-worker.service": "active",
+    "agentwiki-frontend.service": "active"
+  },
+  "health": {
+    "status": "ok",
+    "database": "ok",
+    "redis": "ok",
+    "auditPersistence": "ok",
+    "attachmentStorage": "ok"
+  },
+  "entryHtmlSha256": "be65b16a5d70712b156fa64180a68c26080ce7ada8bb9368bbae4ede1fffdc72",
+  "entryAssets": {
+    "/assets/index-B_-ZsIY5.js": "c4d72f8988ed660283eb5ed678159f918852844c0ac2789cd3b67828de40aba5",
+    "/assets/_commonjsHelpers-CqkleIqs.js": "4c81dcd54e7e877a79145c4c6fde30ac0e8d857f412b73f48f6970e5d7eab938",
+    "/assets/react-vendor-BsE8OLxz.js": "dd6615f5e7ab363be5c2605968fe1613f4a767c8d7d3470f64132842ff79d72b",
+    "/assets/preload-helper-ckwbz45p.js": "b1cf8db666a7d7bfc05e8f8c93c4536728e9d086bf6f0270fa1fd0e607491519",
+    "/assets/index-CzOCY9F4.css": "7bd3e6d5c4eb78097d8033f8aa7a871047d625c1c3ca4fdc6ca32d0692e51f5b"
+  },
+  "status": "passed",
+  "verifiedAt": "2026-10-27T17:51:58.567262+00:00"
+}

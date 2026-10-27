@@ -39,8 +39,8 @@ Owner: root. Files: PagePreview/PageEditor/AgentReadingSidebar, a small shared p
 ## Task 4 — review, freeze and publish
 
 - [x] Independent API/UI/integration review and fix/re-review any blocking findings.
-- [ ] Complete test:full, typecheck, lint, build, guard, diff checks. Record actual skips independently from unrun tests.
-- [ ] Bump to next unused Web/API version, lock candidate, commit, push candidate branch and publish GitHub tag/release. Keep default master handling scoped to necessary verified integration; no force push.
-- [ ] Create clean frozen detached publication tree; verify paired production backup and isolated restore; deploy from that tree using existing tooling.
-- [ ] Read back deployed version/source hashes/services/health/public assets. Use disposable accounts/Space/pages/notes for real production cross-page and stale-anchor UI acceptance, then clean them and verify deletion; existing business pages remain read-only.
-- [ ] Archive this task and update current.md with exact release/boundaries and receipt locations.
+- [x] Complete test:full, typecheck, lint, build, guard, diff checks. Record actual skips independently from unrun tests.
+- [x] Bump to next unused Web/API version, lock candidate, commit, push candidate branch and publish GitHub tag/release. Keep default master handling scoped to necessary verified integration; no force push.
+- [x] Create clean frozen detached publication tree; verify paired production backup and isolated restore; deploy from that tree using existing tooling.
+- [x] Read back deployed version/source hashes/services/health/public assets. Use disposable accounts/Space/pages/notes for real production cross-page and stale-anchor UI acceptance, then clean them and verify deletion; existing business pages remain read-only.
+- [x] Archive this task and update current.md with exact release/boundaries and receipt locations.
