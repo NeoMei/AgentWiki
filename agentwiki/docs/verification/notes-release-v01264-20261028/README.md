@@ -11,8 +11,8 @@ Web/API/Client target: 0.12.64. Local Sync remains 0.13.5; sync protocol remains
 
 ## Evidence status
 
-This directory initially contains release preparation tools and draft notes. It does not establish that implementation gates, a GitHub Release, backups, deployment, or production browser acceptance have passed. Record the actual frozen commit and final gate counts after they complete; keep host/public checks separate from changed-flow browser acceptance.
+Implementation and independent whole-diff review are complete. Local real-browser acceptance passes 13/13 with all 27 notes, four pages, three Spaces and two users deleted/read back. See local-browser.json; the first cleanup readback hit a 429 and is preserved separately, with direct local PostgreSQL deletion confirmation.
 
-The release tools reuse the v0.12.63 safety controls. See release-tools.md for exact commands and tools-validation.json for local mock/syntax checks. Source manifests must come from the frozen Git commit. Deployment must run from a clean detached checkout because deploy.sh packages working-tree files.
+Paired production app/configuration/database/attachments backup passed, and its dump restored successfully to a fresh isolated database which was then removed. See backup.json and backup-restore.json. Sensitive archives remain server-private; rollback must use matching artifacts and account for writes after backup.
 
-Application/configuration/database/attachment backups remain server-private. A temporary restore validates dump recoverability; rollback must use the matching application, configuration, database and attachments and account for post-backup writes.
+Full-suite and release/source/production acceptance receipts are added only after their actual execution. This source-preparation commit does not establish successful deployment or a published GitHub Release. See release-tools.md for exact tooling and tools-validation.json for local mock/syntax checks.

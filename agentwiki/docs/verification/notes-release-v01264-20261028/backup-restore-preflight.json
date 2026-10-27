@@ -1,0 +1,13 @@
+{
+  "mode": "isolated-backup-restore",
+  "status": "preflight-passed",
+  "verifiedAt": "2026-10-27T17:42:22.921180+00:00",
+  "businessDatabaseTouched": false,
+  "liveAttachmentsTouched": false,
+  "databaseCreated": false,
+  "backup": "/var/backups/agentwiki/notes-release-v01264.HTbMjvWN",
+  "dumpSha256": "5d0d44567994e34625fa3d86c276625b9c0c572ec2bfa161eae34e9bb46f7212",
+  "database": "agentwiki_restore_v01264_0be7b27cf4f041a6b8353511e270afed",
+  "preexisting": false,
+  "databaseExists": false
+}

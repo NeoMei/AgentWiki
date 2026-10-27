@@ -1,0 +1,12 @@
+{
+  "status": "passed",
+  "backup": "/var/backups/agentwiki/notes-release-v01264.HTbMjvWN",
+  "applicationConfigurationDatabaseAttachmentsPaired": true,
+  "snapshotHashesVerified": true,
+  "writersRestored": true,
+  "servicesActive": 3,
+  "healthChecksPassed": 5,
+  "backupToolSha256": "5fcdb07d6913ad6afef00c8ea982f337fbb5c6b2f751e9daa92442ee677e7037",
+  "restoreToolSha256": "087f4edcba64fd4172b7b6b089897799aa9960ff8971483d6a519de8b462ec53",
+  "archivesRemainServerPrivate": true
+}

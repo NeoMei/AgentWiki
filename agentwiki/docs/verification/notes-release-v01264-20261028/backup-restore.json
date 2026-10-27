@@ -1,0 +1,17 @@
+{
+  "mode": "isolated-backup-restore",
+  "status": "passed",
+  "verifiedAt": "2026-10-27T17:42:23.241397+00:00",
+  "businessDatabaseTouched": false,
+  "liveAttachmentsTouched": false,
+  "databaseCreated": true,
+  "backup": "/var/backups/agentwiki/notes-release-v01264.HTbMjvWN",
+  "dumpSha256": "5d0d44567994e34625fa3d86c276625b9c0c572ec2bfa161eae34e9bb46f7212",
+  "database": "agentwiki_restore_v01264_ce51e217f09e444790e2f9a2ee220b70",
+  "preexisting": false,
+  "privateLog": "/var/backups/agentwiki/notes-release-v01264.HTbMjvWN/restore-v01264-17ad639e68c245d3a6324d3744cf6bb0.log",
+  "restoredApplicationTables": 4,
+  "restoredPublicTables": 85,
+  "restoredCompletedMigrations": 65,
+  "databaseExists": false
+}
