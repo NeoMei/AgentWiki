@@ -1,31 +1,29 @@
 # 当前目标
 
-内置 Agent 多轮审查、追加修复和发布已完成。线上与GitHub latest均为v0.12.62，冻结提交2635bc66dd669d94f00650d3488f62e455719cab。任务：tasks/archive/agent-audit-release-20261026/brief.md。
+10-20 AgentWiki 测试报告残留问题补修与回复已完成，代码提交1a417a67；当前阶段为本地已验收、尚未部署。任务：tasks/active/bug-report-20261027/brief.md。
 
 # 范围 / 不做
 
-覆盖会话状态、清空/历史/取消/引用UI、REST类型与来源权限、队列恢复和租约、OpenCode流解码及最终结果。保持权限/写入保护。生产浏览器仅创建2个隔离空会话，原页面标题/正文/版本未变；真实模型验证使用合成短文档，不写业务数据库/Redis/Page。
+报告7项：实际认证入口统一校验、失效笔记删除、任务删除/改名回归、目录排序。未推送或部署，没有修改生产业务笔记/任务/目录；原报告仅追加回复并保留历史。
 
 # 当前状态
 
-- ee955c72完成前四轮审查修复；追加审查修复同worker重领租约后旧attempt覆盖新attempt，1a6de6c8，2红转绿且独立复审通过。
-- 最终全仓8375通过/0失败/5既有条件跳过；build/typecheck/lint/release guard全部通过。
-- 2635bc66从干净detached检出部署，tag/Release target与生产一致。Host1437源文件/包版本全匹配，3服务active、5healthok，公网HTML/5入口资源匹配。GitHub正式Release为latest、非草稿、非预发布。
-- 生产question/proposal/auto-answer真实模型合成烟测3/3通过，共33.935秒；中文/emoji/nonce、proposal完整保留断言通过。provider usage零不代表免费。
-- 生产BrowserSkill清空、草稿/历史保留、Tab/ShiftTab、刷新后的会话/来源验收通过；session已停止。临时本地测试数据库和detached发布工作树已清理。
+- 修复基线d4dd13d1，仍为Web0.12.62；修复提交1a417a67。
+- client359、auth server18、taskboard/MCP62（真实PG4）、目录PG38、Chrome认证28/目录6通过；全构建/typecheck/scoped lint/guard与独立复审通过。
+- 原报告ChangeSet cmvqjp9po1awyp2owmm3fqt1p已published；正文精确回读、原文前缀不变，Chrome已回读新回复及未部署边界。
+- 临时数据库已删除并回查，未触碰生产数据。最近已验收生产发布仍见20261026记录：v0.12.62，2635bc66。
 
 # 稳定约束
 
-canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`，分支 `codex/agent-autochat-external-opencode`。编辑发布前运行release guard；历史检出禁止发布。deploy.sh打包工作树，必须从冻结提交的干净detached检出部署。生产root@113.249.120.24:/root/agentwiki，root用户级systemd、外部OpenCode2.1.1。中文“天枢”、英文“AgentWiki”，中国结Logo。Local Sync0.13.5 / protocol0.6.1。保留未跟踪design/。
+canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`，分支 `codex/agent-autochat-external-opencode`。编辑发布前运行release guard；历史检出禁止发布。deploy.sh打包工作树，发布须冻结干净detached检出。生产root@113.249.120.24:/root/agentwiki，外部OpenCode2.1.1。中文“天枢”、英文“AgentWiki”。Local Sync0.13.5 / protocol0.6.1。保留未跟踪design/。
 
 # 关键索引
 
-- tasks/archive/agent-audit-release-20261026/{brief,decisions,refs}.md
-- tasks/archive/agent-audit-20261026/{brief,decisions,refs}.md
-- agentwiki/docs/verification/agent-audit-v01262-20261026/{README,release-tools}.md及JSON回执
-- agentwiki/apps/client/src/features/agent-session/；agentwiki/apps/server/src/assist/
-- https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.62
+- tasks/active/bug-report-20261027/{brief,decisions,refs}.md
+- agentwiki/docs/verification/bug-report-20261027/
+- tasks/archive/agent-audit-release-20261026/brief.md
+- https://agentwiki.quukk.com/pages/aa1739e9-092e-4b61-a4a1-8c63d634817a
 
 # 风险 / 下一步
 
-本轮授权工作已完成。配套备份 `/var/backups/agentwiki/agent-audit-v01262.7nox7xx3`，前应用树 `/root/agentwiki-previous-20261026063503`；恢复须配对数据。短合成模型与成功执行不证明原Bug汇总表的逐项语义完整，原表核对仍独立。免费备用模型认证、通知浏览器回验和npm认证为独立事项。
+新修复尚未上线。部署后需实际失效笔记删除、任务改名/删除、目录排序刷新与跨客户端验收，不能用既有v0.12.56/v0.12.62发布回执替代。初始JS550990/551000 bytes，后续新增首屏功能仍须保持bundle门禁。Agent Grant撤销并发未纳入本轮。

@@ -4,6 +4,8 @@
 
 ## 活跃任务
 
+- [bug-report-20261027](active/bug-report-20261027/brief.md)：7项残留补修1a417a67，本地测试/真实PG/Chrome/构建通过，原报告published精确回读；尚未推送部署。
+
 
 
 - [notification-unread-20261023](active/notification-unread-20261023/brief.md)：#12服务端count漏readAt过滤已补发.58，真实PG红绿、server3591/3skip及生产实际服务unread1→0/历史不变通过；原报告回复回读，billy浏览器待验。

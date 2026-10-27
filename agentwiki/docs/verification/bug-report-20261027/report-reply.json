@@ -1,0 +1,18 @@
+{
+  "pageId": "aa1739e9-092e-4b61-a4a1-8c63d634817a",
+  "changeSetId": "cmvqjp9po1awyp2owmm3fqt1p",
+  "status": "published",
+  "updatedAt": "2026-10-27T10:31:14.914Z",
+  "exactReadback": true,
+  "originalContentPreserved": true,
+  "appendedCharacters": 1510,
+  "sourceCommit": "1a417a67",
+  "deployed": false,
+  "browserReadback": {
+    "headingVisible": true,
+    "commitVisible": true,
+    "testCountVisible": true,
+    "deploymentBoundaryVisible": true,
+    "snapshotTruncated": false
+  }
+}
