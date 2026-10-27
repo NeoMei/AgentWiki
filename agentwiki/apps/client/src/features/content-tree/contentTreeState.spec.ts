@@ -87,8 +87,10 @@ describe('buildMoveRequest', () => {
   });
 
   it('reorders relative to pages using the page folder as the parent', () => {
-    const request = buildMoveRequest({ kind: 'page', id: 'p1' }, page('p2', 'B', 'f1'), 'after', null);
-    expect(request).toMatchObject({ kind: 'page', id: 'p1', targetFolderId: 'f1', beforeId: 'p2' });
+    const target = page('p2', 'B', 'f1');
+    const next = { ...page('p3', 'C', 'f1'), sortOrder: target.sortOrder + 1 };
+    const request = buildMoveRequest({ kind: 'page', id: 'p1' }, target, 'after', null, [target, next]);
+    expect(request).toMatchObject({ kind: 'page', id: 'p1', targetFolderId: 'f1', beforeId: 'p3' });
   });
 
   it('reorders relative to folder rows using the listed level parent, not the root', () => {

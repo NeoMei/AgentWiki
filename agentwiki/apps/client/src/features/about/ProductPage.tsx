@@ -14,13 +14,9 @@ import { GlobalNavigation } from '../../components/GlobalNavigation';
 import { safeReturnTo } from '../auth/safeReturnTo';
 import { apiErrorMessage } from '../../api/error-message';
 import { authEmailError, type AuthEmailError } from '../auth/auth-email-error';
+import { authFormError } from '../auth/auth-form-validation';
 
-const validatePassword = (pwd: string, t: (key: string) => string): string | null => {
-  if (pwd.length < 8) return t('auth.passwordMin');
-  if (!/[A-Z]/.test(pwd)) return t('auth.passwordUppercase');
-  if (!/[0-9]/.test(pwd)) return t('auth.passwordNumber');
-  return null;
-};
+const authInputClass = (error: string | null) => `w-full px-4 py-3 border rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 transition ${error ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'}`;
 
 export const ProductPage: React.FC = () => {
   const { token, login } = useAuth();
@@ -38,7 +34,7 @@ export const ProductPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [authError, setAuthError] = useState('');
-  const [emailError, setEmailError] = useState<AuthEmailError | null>(null);
+  const [emailError, setEmailError] = useState<AuthEmailError | 'required' | null>(null);
   const [nameError, setNameError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -84,55 +80,18 @@ export const ProductPage: React.FC = () => {
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
-    const normalizedEmail = email.trim();
-    if (!normalizedEmail) {
-      setAuthError('');
-      setEmailError('invalid');
-      emailInputRef.current?.focus();
+    setAuthError(''); setEmailError(null); setNameError(''); setPasswordError('');
+    const invalid = authFormError({ email, password, ...(authMode === 'register' ? { name } : {}) });
+    if (invalid) {
+      if (invalid.field === 'name') { setNameError(t(invalid.messageKey)); nameInputRef.current?.focus(); }
+      if (invalid.field === 'email') { setEmailError(invalid.messageKey === 'auth.emailRequired' ? 'required' : 'invalid'); emailInputRef.current?.focus(); }
+      if (invalid.field === 'password') { setPasswordError(t(invalid.messageKey)); passwordInputRef.current?.focus(); }
       return;
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@.]{2,}$/.test(normalizedEmail)) {
-      setAuthError('');
-      setEmailError('invalid');
-      emailInputRef.current?.focus();
-      return;
-    }
-    if (authMode === 'register') {
-      if (!name.trim()) {
-        setAuthError('');
-        setEmailError(null);
-        setNameError(t('auth.nameRequired'));
-        nameInputRef.current?.focus();
-        return;
-      }
-      if (/\s/u.test(name)) {
-        setAuthError('');
-        setEmailError(null);
-        setNameError(t('auth.nameWhitespace'));
-        return;
-      }
-    }
-    if (!password.trim()) {
-      setAuthError('');
-      setEmailError(null);
-      setPasswordError(t('auth.passwordRequired'));
-      passwordInputRef.current?.focus();
-      return;
-    }
-    if (authMode === 'register') {
-      const pwdErr = validatePassword(password, t);
-      if (pwdErr) { setPasswordError(pwdErr); return; }
-      if (/\s/u.test(password)) {
-        setPasswordError(t('auth.passwordWhitespace'));
-        return;
-      }
     }
     setIsSubmitting(true);
-    setAuthError('');
-    setEmailError(null);
     try {
-      const payload: Record<string, string> = { email: normalizedEmail, password };
-      if (authMode === 'register' && name) payload.name = name;
+      const payload: Record<string, string> = { email: email.trim(), password };
+      if (authMode === 'register') payload.name = name;
       const endpoint = authMode === 'login' ? '/auth/login' : '/auth/register';
       const res = await api.post(endpoint, payload);
       login(res.data.access_token, res.data.user);
@@ -312,7 +271,7 @@ export const ProductPage: React.FC = () => {
                     </div>
                   )}
 
-                  <form onSubmit={handleAuth} className="space-y-4">
+                  <form onSubmit={handleAuth} noValidate className="space-y-4">
                   {authMode === 'register' && (
                     <div>
                       <label htmlFor="product-auth-name" className="sr-only">{t('common.name')}</label>
@@ -325,8 +284,9 @@ export const ProductPage: React.FC = () => {
                         value={name}
                         onChange={(e) => { setName(e.target.value); setNameError(''); setAuthError(''); }}
                         aria-invalid={Boolean(nameError)}
+                        aria-required="true"
                         aria-describedby={nameError ? 'product-auth-name-error' : undefined}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                        className={authInputClass(nameError)}
                       />
                       {nameError && <div id="product-auth-name-error" role="alert" className="mt-2 text-sm text-red-600">{nameError}</div>}
                     </div>
@@ -341,18 +301,14 @@ export const ProductPage: React.FC = () => {
                       placeholder={t('common.email')}
                       value={email}
                       onChange={(e) => { setEmail(e.target.value); setEmailError(null); setAuthError(''); }}
-                      onInvalid={(e) => {
-                        e.preventDefault();
-                        setEmailError('invalid');
-                        emailInputRef.current?.focus();
-                      }}
                       aria-invalid={Boolean(emailError)}
+                      aria-required="true"
                       aria-describedby={emailError ? 'product-auth-email-error' : undefined}
-                      className={`w-full px-4 py-3 border rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 transition ${emailError ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'}`}
+                      className={authInputClass(emailError)}
                     />
                     {emailError && (
                       <div id="product-auth-email-error" role="alert" className="mt-2 text-sm text-red-600">
-                        {t(emailError === 'inUse' ? 'auth.emailInUse' : 'auth.emailInvalid')}
+                        {t(emailError === 'inUse' ? 'auth.emailInUse' : emailError === 'required' ? 'auth.emailRequired' : 'auth.emailInvalid')}
                         {emailError === 'inUse' && (
                           <button
                             type="button"
@@ -363,7 +319,7 @@ export const ProductPage: React.FC = () => {
                       </div>
                     )}
                   </div>
-                  <div className="relative">
+                  <div><div className="relative">
                     <label htmlFor="product-auth-password" className="sr-only">{t('common.password')}</label>
                     <input
                       id="product-auth-password"
@@ -373,9 +329,10 @@ export const ProductPage: React.FC = () => {
                       placeholder={t('common.password')}
                       value={password}
                       aria-invalid={Boolean(passwordError)}
+                      aria-required="true"
                       aria-describedby={passwordError ? 'product-auth-password-error' : undefined}
                       onChange={(e) => { setPassword(e.target.value); setPasswordError(''); setAuthError(''); }}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition pr-10"
+                      className={`${authInputClass(passwordError)} pr-10`}
                     />
                     <button
                       type="button"
@@ -389,8 +346,9 @@ export const ProductPage: React.FC = () => {
                     </button>
                   </div>
                   {passwordError && (
-                    <div id="product-auth-password-error" role="alert" className="text-red-600 text-xs">{passwordError}</div>
+                    <div id="product-auth-password-error" role="alert" className="mt-2 text-sm text-red-600">{passwordError}</div>
                   )}
+                  </div>
                   <button
                     type="submit"
                     disabled={isSubmitting}

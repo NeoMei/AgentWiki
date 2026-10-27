@@ -1,0 +1,65 @@
+{
+  "startedAt": "2026-10-27T10:21:33.205Z",
+  "candidate": {
+    "head": "d4dd13d12a8f6b0ed7867199f51bd552af6b5645",
+    "worktree": "/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki",
+    "trackedWorkingTreeDiffSha256": "61c04029df7040bfffeab646099328c3386ad55fe1a01aba149f54973bdb1959",
+    "trackedWorkingTreeFiles": [
+      "agentwiki/apps/client/src/features/about/ProductPage.spec.tsx",
+      "agentwiki/apps/client/src/features/about/ProductPage.tsx",
+      "agentwiki/apps/client/src/features/agent-session/AgentReadingSidebar.tsx",
+      "agentwiki/apps/client/src/features/auth/Login.tsx",
+      "agentwiki/apps/client/src/features/auth/Register.tsx",
+      "agentwiki/apps/client/src/features/content-tree/ContentTree.spec.tsx",
+      "agentwiki/apps/client/src/features/content-tree/ContentTree.tsx",
+      "agentwiki/apps/client/src/features/content-tree/contentTreeState.spec.ts",
+      "agentwiki/apps/client/src/features/content-tree/contentTreeState.ts",
+      "agentwiki/apps/client/src/features/page/PagePreview.spec.tsx",
+      "agentwiki/apps/client/src/features/page/usePersonalNotes.spec.tsx",
+      "agentwiki/apps/client/src/features/page/usePersonalNotes.ts",
+      "agentwiki/apps/client/src/features/space-workspace/SpaceDirectory.tsx",
+      "agentwiki/apps/client/src/features/taskboard/TaskboardPage.spec.tsx",
+      "agentwiki/apps/client/src/features/taskboard/TaskboardPage.tsx",
+      "agentwiki/apps/server/src/core/auth/auth.service.spec.ts",
+      "agentwiki/apps/server/src/project-taskboard/project-taskboard.service.spec.ts",
+      "agentwiki/apps/server/src/project-taskboard/project-taskboard.service.ts",
+      "agentwiki/apps/server/src/project-taskboard/testing/fake-taskboard-db.ts"
+    ]
+  },
+  "database": {
+    "host": "127.0.0.1",
+    "databaseName": "agentwiki_content_tree_test_83905_mvqjcsyd",
+    "isolated": true,
+    "preexisting": false,
+    "dropped": true
+  },
+  "test": {
+    "command": "node --test --test-reporter=tap scripts/content-tree-operations-db.test.mjs",
+    "fileSha256": "6d6b559e201a1ab1c05043120e7167247b2bc8f83cc814796cc2f4b7ef68dc3c",
+    "serviceDistSha256": "60a187ebf6a8b9c3d92dd076739adda50c31d88642d5c2b994758769af1fe6f6",
+    "migration": "withFolderTestDatabase creates a fresh folder_test_ schema, runs the reviewed migration bundle, and drops the schema after validation.",
+    "exitCode": 0,
+    "passed": 38,
+    "failed": 0,
+    "skipped": 0,
+    "total": 38,
+    "serviceSourceSha256": "d5506c44cd71894e07d908ad689a78a5526f0b6a8f6529d23b1c0001ec5e4fc1",
+    "logFile": "docs/verification/bug-report-20261027/content-tree-db.log",
+    "logSha256": "b91731e116fe35f794437a05ef30f81be4e00abb74fbb911abf421989cfa0413",
+    "nodeVersion": "v26.12.0"
+  },
+  "status": "passed",
+  "verifiedScenarios": [
+    "Folder cross-parent move persists rewritten subtree paths and page path aliases; same-parent reorder preserves child updatedAt and advances contentTreeRevision.",
+    "Page move before beforeId persists target siblings in occupied,moving,before order with compact sortOrder [0,1,2]; stale updatedAt rejects without advancing revision.",
+    "Concurrent moves serialize to one commit and one conflict; HTTP operations recheck live permissions after obtaining the Space lock."
+  ],
+  "safety": {
+    "schemasRemoved": true,
+    "sanitizedMigrationDirectoriesRemoved": true,
+    "publicInventoryUnchanged": true
+  },
+  "temporaryRootRemoved": true,
+  "completedAt": "2026-10-27T10:21:50.804Z",
+  "durationMs": 17599
+}

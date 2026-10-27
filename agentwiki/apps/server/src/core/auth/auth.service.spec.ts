@@ -71,13 +71,18 @@ describe('AuthService', () => {
 
   describe('registration', () => {
     it.each([
-      ['Password 1', 'ValidName'],
-      ['Password1', 'Valid Name'],
-      ['   ', 'ValidName'],
-    ])('rejects whitespace in registration credentials before persistence (%s / %s)', async (password, name) => {
+      ['Password 1', 'ValidName', 'AUTH_PASSWORD_POLICY'],
+      ['Password1', 'Valid Name', 'AUTH_NAME_POLICY'],
+      ['   ', 'ValidName', 'AUTH_PASSWORD_POLICY'],
+      ['Password1', '   ', 'AUTH_NAME_POLICY'],
+      ['\t', 'ValidName', 'AUTH_PASSWORD_POLICY'],
+      ['Password1', '\t', 'AUTH_NAME_POLICY'],
+      ['\u3000', 'ValidName', 'AUTH_PASSWORD_POLICY'],
+      ['Password1', '\u3000', 'AUTH_NAME_POLICY'],
+    ])('rejects whitespace in registration credentials before persistence (%s / %s)', async (password, name, businessCode) => {
       await expect(service.register('new@test.com', password, name))
         .rejects.toMatchObject({
-          businessCode: password.includes(' ') ? 'AUTH_PASSWORD_POLICY' : 'AUTH_NAME_POLICY',
+          businessCode,
           statusCode: 400,
         });
       expect(mockPrisma.user.create).not.toHaveBeenCalled();

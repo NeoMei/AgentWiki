@@ -278,7 +278,12 @@ export const TaskboardPage: React.FC = () => {
       setSelectedId(null);
       setViewPath((current) => current.slice(0, Math.max(0, current.findIndex((id) => id === selected.id))));
       await load();
-    } catch (requestError: unknown) { setError(apiErrorMessage(requestError, t, 'taskboard.actionFailed')); }
+    } catch (requestError: unknown) {
+      const data = (requestError as { response?: { data?: { code?: string; details?: { reason?: string } } } })?.response?.data;
+      setError(data?.code === 'RESOURCE_CONFLICT' && data.details?.reason === 'taskboard_dependency_referenced'
+        ? (zh ? '其他任务仍依赖此任务或其子任务，请先解除依赖后再删除。' : 'Other tasks depend on this task or its children. Remove those dependencies before deleting.')
+        : apiErrorMessage(requestError, t, 'taskboard.actionFailed'));
+    }
     finally { setBusy(false); }
   };
 

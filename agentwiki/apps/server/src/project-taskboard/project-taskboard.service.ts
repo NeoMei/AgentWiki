@@ -257,6 +257,13 @@ export class ProjectTaskboardService {
         }
       }
       const deletedTaskIds = board.tasks.filter((task) => ids.has(task.id)).map((task) => task.id);
+      const dependents = board.tasks.filter((task) => !ids.has(task.id)
+        && Array.isArray(task.depends_on) && task.depends_on.some((id) => ids.has(String(id))));
+      if (dependents.length) {
+        throw new BusinessException('RESOURCE_CONFLICT', 'Other tasks still depend on this task or its descendants', {
+          reason: 'taskboard_dependency_referenced', task_ids: dependents.map((task) => task.id),
+        });
+      }
       await tx.projectBoardTask.deleteMany({ where: { boardId, id: { in: deletedTaskIds } } });
       board.tasks = board.tasks.filter((task) => !ids.has(task.id));
       events.push({
@@ -315,7 +322,6 @@ export class ProjectTaskboardService {
         return { summary };
       },
       incoming.project,
-      Prisma.TransactionIsolationLevel.Serializable,
     );
     return { board, summary: result.summary, project: board.project };
   }
@@ -402,11 +408,17 @@ export class ProjectTaskboardService {
     actor: TaskboardActor,
     mutate: (board: TaskboardBoard, tx: PrismaTx, boardId: string, events: BoardEventInput[]) => Promise<T>,
     defaultProject?: string,
-    isolation: Prisma.TransactionIsolationLevel = Prisma.TransactionIsolationLevel.ReadCommitted,
   ): Promise<BoardMutationResult<T>> {
     const outcome = await withCollaborationSerializableRetry(() =>
       this.prisma.$transaction(
         async (tx) => {
+          if (!principal.agentId) {
+            await this.authorization.lockLiveHumanPrincipal(tx, principal);
+          }
+          // Share the Space lock with membership changes, respecting User -> Space
+          // lock order. It also serializes the full board read-modify-write cycle,
+          // including first-board creation and concurrent subtree mutations.
+          await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${spaceId}))`);
           if (!principal.agentId) {
             await this.authorization.assertLiveHumanSpaceAccess(tx, principal, spaceId, [...WRITE_ROLES]);
           }
@@ -449,7 +461,9 @@ export class ProjectTaskboardService {
           }
           return { board, result, boardRow: updatedBoardRow, events };
         },
-        { isolationLevel: isolation },
+        // All board writers share the lock above. READ COMMITTED gives a waiting
+        // writer a fresh board snapshot after it acquires that lock.
+        { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
       ),
     );
     if (outcome.events.length > 0) {

@@ -192,6 +192,8 @@ describe('TaskboardPage 项目全景 UI', () => {
   });
 
   it('renames a task from the inspector and deletes a task after confirmation', async () => {
+    const renamed = planBoard();
+    renamed.board.tasks[1].title = '新名称';
     vi.mocked(api.get).mockResolvedValue({ data: planBoard() });
     vi.mocked(api.patch).mockResolvedValue({ data: { task: { id: 'superpowers-plan-x-task-1', title: '新名称' } } });
     vi.mocked(api.delete).mockResolvedValue({ data: { deleted_task_ids: ['superpowers-plan-x-task-1', 'superpowers-plan-x-task-1-step-1'] } });
@@ -200,13 +202,39 @@ describe('TaskboardPage 项目全景 UI', () => {
     fireEvent.click(await screen.findByRole('button', { name: '登录契约' }));
     expect(screen.getByLabelText('任务名称')).toHaveValue('登录契约');
     fireEvent.change(screen.getByLabelText('任务名称'), { target: { value: '  新名称  ' } });
+    vi.mocked(api.get).mockResolvedValue({ data: renamed });
     fireEvent.click(screen.getByRole('button', { name: '保存名称' }));
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith(
       '/spaces/space-1/taskboard/tasks/superpowers-plan-x-task-1', { title: '新名称' },
     ));
+    expect(await screen.findByRole('button', { name: '新名称', pressed: true })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '新名称' })).toBeInTheDocument();
+    expect(screen.getByLabelText('任务名称')).toHaveValue('新名称');
+    expect(screen.getByRole('row', { name: /新名称/ })).toBeInTheDocument();
+    vi.mocked(api.get).mockResolvedValue({ data: { ...renamed, board: { ...renamed.board, tasks: [renamed.board.tasks[0]] } } });
     fireEvent.click(screen.getByRole('button', { name: '删除任务卡片' }));
     await waitFor(() => expect(api.delete).toHaveBeenCalledWith('/spaces/space-1/taskboard/tasks/superpowers-plan-x-task-1'));
-    expect(confirm).toHaveBeenCalled();
+    expect(confirm).toHaveBeenCalledWith('删除“新名称”及其全部子任务？此操作不可撤销。');
+    await waitFor(() => expect(screen.queryAllByRole('button', { name: '新名称' })).toHaveLength(0));
+    expect(screen.queryByRole('button', { name: '写失败测试' })).not.toBeInTheDocument();
+    confirm.mockRestore();
+  });
+
+  it('keeps tasks when deletion is canceled and explains dependent-task conflicts', async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: planBoard() });
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: '登录契约' }));
+    fireEvent.click(screen.getByRole('button', { name: '删除任务卡片' }));
+    expect(api.delete).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '登录契约', pressed: true })).toBeInTheDocument();
+    confirm.mockReturnValue(true);
+    vi.mocked(api.delete).mockRejectedValueOnce({ response: { status: 409, data: {
+      code: 'RESOURCE_CONFLICT', details: { reason: 'taskboard_dependency_referenced' },
+    } } });
+    fireEvent.click(screen.getByRole('button', { name: '删除任务卡片' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('其他任务仍依赖此任务或其子任务，请先解除依赖后再删除。');
+    expect(screen.getByRole('button', { name: '登录契约', pressed: true })).toBeInTheDocument();
     confirm.mockRestore();
   });
 });

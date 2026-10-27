@@ -1,0 +1,90 @@
+{
+  "checkedAt": "2026-10-27T10:23:57.087Z",
+  "scope": "Taskboard rename/delete, dependency integrity, concurrent board mutation, and human membership revocation",
+  "source": {
+    "head": "d4dd13d1",
+    "releaseCandidate": "v0.12.62",
+    "uncommittedChanges": true,
+    "sha256": {
+      "apps/server/src/project-taskboard/project-taskboard.service.ts": "a7c4a63451dd5696340c194fb8f702790c3ff8da464f5fc2801940753226026f",
+      "apps/server/src/project-taskboard/project-taskboard.db.spec.ts": "55729b9243d114d38e94331caaf197391b3de9f7abdcb03e4cedd72a32521646"
+    }
+  },
+  "backend": {
+    "command": "TASKBOARD_TEST_DATABASE_URL=<dedicated-loopback-database-url> pnpm --filter @agentwiki/server exec jest --runInBand project-taskboard taskboard-mcp",
+    "suites": [
+      "src/project-taskboard/taskboard-core.spec.ts",
+      "src/project-taskboard/plan-parser.spec.ts",
+      "src/project-taskboard/project-taskboard.service.spec.ts",
+      "src/project-taskboard/project-taskboard.db.spec.ts",
+      "src/mcp/taskboard-mcp.spec.ts"
+    ],
+    "suiteCount": 5,
+    "passed": 62,
+    "failed": 0,
+    "skipped": 0,
+    "previousRunBeforeMembershipRegression": {
+      "passed": 61,
+      "failed": 0
+    }
+  },
+  "realPostgres": {
+    "migration": "pnpm --filter @agentwiki/server exec prisma migrate deploy",
+    "extension": "vector",
+    "database": "agentwiki_taskboard_86918_mvqjfrt7",
+    "checks": [
+      {
+        "name": "Concurrent first imports",
+        "result": "passed",
+        "evidence": "Second writer observed waiting on advisory lock; both task IDs persisted and event sequences are 1 and 2."
+      },
+      {
+        "name": "Subtree deletion versus concurrent child creation",
+        "result": "passed",
+        "evidence": "Child writer observed waiting on advisory lock; deletion succeeds, child creation rejects TASKBOARD_TASK_NOT_FOUND, zero remaining tasks and one delete event."
+      },
+      {
+        "name": "External dependency rejection",
+        "result": "passed",
+        "evidence": "Deleting referenced subtree rejects RESOURCE_CONFLICT without task/event mutation; unlinking dependency then deletes root and child while dependent remains."
+      },
+      {
+        "name": "Queued editor write versus membership removal",
+        "result": "passed",
+        "evidence": "Actual SpaceService.removeMemberAs holds uncommitted removal; editor eager check sees old membership, waits on shared Space advisory lock, then rejects SPACE_ACCESS_DENIED after removal commits. No board/task/event inserted."
+      }
+    ],
+    "cleanup": {
+      "exists": false
+    }
+  },
+  "redRegression": {
+    "name": "Queued editor write versus membership removal",
+    "beforeFix": "failed: expected advisory lock wait, received false",
+    "database": "agentwiki_taskboard_86692_mvqjez6a",
+    "cleanup": {
+      "exists": false
+    }
+  },
+  "serializableComparison": {
+    "testedBeforeReadCommittedChange": true,
+    "concurrentFirstImportPassed": true,
+    "p2002Reproduced": false,
+    "database": "agentwiki_taskboard_79307_mvqj0enc",
+    "cleanup": {
+      "exists": false
+    },
+    "note": "Old Serializable version passed the controlled concurrency test; do not claim a reproduced P2002. ReadCommitted now makes post-lock statements see the latest committed board while the shared Space lock serializes all board writers."
+  },
+  "frontend": {
+    "command": "pnpm --filter @agentwiki/client exec vitest run src/features/taskboard",
+    "files": 3,
+    "passed": 26,
+    "failed": 0,
+    "evidence": "Save updates card/detail title; confirmed subtree deletion refreshes cards; cancellation sends no DELETE; dependency conflict is explained."
+  },
+  "limitations": [
+    "Agent grant/credential revocation semantics were not changed by this taskboard fix.",
+    "Parent task performs the final whole-candidate build and typecheck."
+  ]
+}

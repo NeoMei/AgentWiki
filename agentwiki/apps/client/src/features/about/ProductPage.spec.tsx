@@ -34,6 +34,45 @@ const registrationForm = (language: 'zh-CN' | 'en' = 'zh-CN') => {
   };
 };
 
+describe('product authentication validation order', () => {
+  beforeEach(() => { vi.clearAllMocks(); localStorage.setItem('agentwiki.language.v1', 'en'); });
+
+  it('uses custom validation for the actual entry form and focuses in visual field order', () => {
+    const { container } = render(<LanguageProvider><MemoryRouter><ProductPage /></MemoryRouter></LanguageProvider>);
+    expect(container.querySelector('form')).toHaveAttribute('novalidate');
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter your email address');
+    expect(screen.getByLabelText('Email')).toHaveFocus();
+    fireEvent.click(screen.getByRole('tab', { name: 'Switch to register' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Register' }));
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter your name');
+    expect(screen.getByLabelText('Name')).toHaveFocus();
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Tester' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Register' }));
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(screen.getByLabelText('Email')).toHaveFocus();
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'tester@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Register' }));
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter your password');
+    expect(screen.getByLabelText('Password')).toHaveFocus();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it.each(['a@b..com', 'a@-b.com', 'a@b_.com', 'a,b@example.com', 'a<b@example.com', 'a..b@example.com', '.a@example.com', 'a.@example.com'])('rejects invalid email at the actual login and registration entry: %s', value => {
+    const { email, submit } = registrationForm('en');
+    fireEvent.change(email, { target: { value } });
+    fireEvent.click(submit);
+    expect(email).toHaveFocus();
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a valid email address');
+    fireEvent.click(screen.getByRole('tab', { name: 'Switch to sign in' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a valid email address');
+    expect(api.post).not.toHaveBeenCalled();
+  });
+});
+
 describe('ProductPage workspace intent', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -267,7 +306,7 @@ describe('ProductPage workspace intent', () => {
     fireEvent.change(email, { target: { value } });
     fireEvent.click(submit);
     expect(api.post).not.toHaveBeenCalled();
-    expect(email).toHaveAccessibleDescription('请输入有效的邮箱地址，例如 name@example.com。');
+    expect(email).toHaveAccessibleDescription(value ? '请输入有效的邮箱地址，例如 name@example.com。' : '请输入邮箱。');
     expect(email).toHaveFocus();
     fireEvent.change(email, { target: { value: 'fixed@example.com' } });
     expect(email).toHaveAttribute('aria-invalid', 'false');

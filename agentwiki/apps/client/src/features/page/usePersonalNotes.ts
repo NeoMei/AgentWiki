@@ -24,7 +24,7 @@ const editPassageEvidence = (edit: CandidateEdit, passage: { from: number; to: n
 const accessDenied = (error: unknown) => [401, 403, 404].includes((error as { response?: { status?: number } } | null)?.response?.status ?? 0);
 const sessionToken = () => { try { return localStorage.getItem('token'); } catch { return null; } };
 interface PendingNoteWrites { userId: string; token: string | null; controller: AbortController; tail: Promise<void>; confirmed: Map<string, PersonalNote> }
-// Only explicitly submitted status writes outlive their view. A new view reads after this receipt barrier.
+// Explicitly submitted status/deletion writes outlive their view. New views read after this receipt barrier.
 const pendingNoteWrites = new Map<string, PendingNoteWrites>();
 const cancelNoteWrites = (key: string, lane: PendingNoteWrites) => { lane.controller.abort(); if (pendingNoteWrites.get(key) === lane) pendingNoteWrites.delete(key); };
 
@@ -241,12 +241,18 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
     const queued = writeLane.tail.then(async () => {
       if (!canPersist()) return false;
       try {
-        const latest = writeLane.confirmed.get(id) ?? confirmed;
+        // A preceding queued deletion removes its receipt; repeated clicks must
+        // not retry with the captured token and turn a successful delete into a 404.
+        const latest = writeLane.confirmed.get(id);
+        if (!latest) return true;
         if (!latest.updatedAt) return false;
         await pageNotesApi.remove(scope, id, { expectedUpdatedAt: latest.updatedAt }, writeLane.controller.signal);
         if (!canPersist()) return false;
-        writeLane.confirmed.delete(id); confirmedRef.current.delete(id);
-        if (current()) commit({ ...stateRef.current, notes: stateRef.current.notes.filter((item) => item.id !== id), storageUnavailable: false });
+        writeLane.confirmed.delete(id);
+        if (current()) {
+          confirmedRef.current.delete(id);
+          commit({ ...stateRef.current, notes: stateRef.current.notes.filter((item) => item.id !== id), storageUnavailable: false });
+        }
         return true;
       } catch (error) {
         if (!canPersist()) return false;

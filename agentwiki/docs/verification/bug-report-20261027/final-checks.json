@@ -1,0 +1,61 @@
+{
+  "base": "d4dd13d12a8f6b0ed7867199f51bd552af6b5645",
+  "files": {
+    "apps/client/src/features/about/ProductPage.spec.tsx": "f83dc41d580e0a337f80e0685caa2f0f1836f23ea8a9322da9ff07d2e0c95235",
+    "apps/client/src/features/about/ProductPage.tsx": "254a249015692a1f7b8d7bb7b22429d17e6411136396999ac0d5119810755df3",
+    "apps/client/src/features/agent-session/AgentReadingSidebar.tsx": "49153db0fb85a8247e9f6c44e3517df29b631c35aace32f849df864b621069eb",
+    "apps/client/src/features/auth/Login.tsx": "9c6ee09e02b17130adfadffd67df9cb8647a51be4403df613cc01a9aa745565e",
+    "apps/client/src/features/auth/Register.tsx": "7274181e0308a1dc3204971535756546af7a74aa6ea030c176e3987e42ce1bcd",
+    "apps/client/src/features/content-tree/ContentTree.spec.tsx": "ba74d47ec3bff5bf073b6f4f42ecd2385b96541209a37c173b749868a9e5a94f",
+    "apps/client/src/features/content-tree/ContentTree.tsx": "6eed8c893e539cece886695ca118055b5f239818492321691c066afc9cfc7da4",
+    "apps/client/src/features/content-tree/contentTreeState.spec.ts": "ebbbd9c469aa530895b48d278833f3d4c2ac9121916bde7fddfe23cbe047de69",
+    "apps/client/src/features/content-tree/contentTreeState.ts": "9bef60540c0d2092533b0ac86469ee6fc0334f1ce238a26697e993d506709eb4",
+    "apps/client/src/features/page/PagePreview.spec.tsx": "05a3a0e8acaef6292c95ecfa6ac288040d7dcf8afec8a20b0fc07501b25ec355",
+    "apps/client/src/features/page/usePersonalNotes.spec.tsx": "c07dd87941837f20407c90e1ff358c8d0fb01d6fb4dce51119e480e9813dd899",
+    "apps/client/src/features/page/usePersonalNotes.ts": "4fc713ce674f7ee9d1d6f2423388a912ec74a2273ddeef322000bfd3deaa92a4",
+    "apps/client/src/features/space-workspace/SpaceDirectory.tsx": "5640d25f38ce150451ccfa3680afc6696f2eade201a7a6b77cd0e3dab47dbd17",
+    "apps/client/src/features/taskboard/TaskboardPage.spec.tsx": "01c84274374c7d46cfc8593f17f275fcbced8c233838920ff55bb3afd77abd5a",
+    "apps/client/src/features/taskboard/TaskboardPage.tsx": "178cc0254ec6de7f8d69014399606726088a8ca81fa55ea5f62adbeac05cbafd",
+    "apps/server/src/core/auth/auth.service.spec.ts": "3602eb27e8916a694bcfed829f0d205fecc0ff18f6bf5de61e622bf120dec70e",
+    "apps/server/src/project-taskboard/project-taskboard.service.spec.ts": "5056df1604273f2ce0ebd356ce58d85f88ee3bc7a3dbcffbef1d5d96017c86ac",
+    "apps/server/src/project-taskboard/project-taskboard.service.ts": "a7c4a63451dd5696340c194fb8f702790c3ff8da464f5fc2801940753226026f",
+    "apps/server/src/project-taskboard/testing/fake-taskboard-db.ts": "1c95be063002757918941a78d7f69bc55cfa41e734f33c90eded04b8468c78d1",
+    "apps/client/e2e/content-tree-reorder.spec.ts": "e6d9b1f7c1173ecc362f9b0016e0648ee3570a062bd195fc51b3559cfdf7aef1",
+    "apps/client/e2e/fixtures/content-tree-reorder.html": "42dae2181aeb2466ed82ce0a726b67a4ffe1fe9bcc05424c804dccd68442a739",
+    "apps/client/e2e/fixtures/content-tree-reorder.tsx": "0d30f9f6afce466a9b1a449ed1e0396ee6ead2c003bee29b927f9223e04ccb64",
+    "apps/client/src/features/auth/auth-form-validation.spec.tsx": "6553d28d30dc2e2757a12d6fdbcf19c83fc1beb4b38c7a57975c020a63fd6d18",
+    "apps/client/src/features/auth/auth-form-validation.ts": "16a519de770cb71b77a63f84f0287035cf5dd065349798fa254ce0817b46d75a",
+    "apps/server/src/project-taskboard/project-taskboard.db.spec.ts": "55729b9243d114d38e94331caaf197391b3de9f7abdcb03e4cedd72a32521646"
+  },
+  "checks": {
+    "client": {
+      "files": 20,
+      "passed": 359
+    },
+    "taskboard": {
+      "suites": 5,
+      "passed": 62,
+      "realPostgres": 4
+    },
+    "authServer": {
+      "passed": 18
+    },
+    "contentTreePostgres": {
+      "passed": 38
+    },
+    "authChrome": {
+      "passed": 28
+    },
+    "directoryChrome": {
+      "passed": 6
+    },
+    "build": "passed",
+    "typecheck": "passed",
+    "changedFilesEslint": "passed",
+    "releaseGuard": "passed",
+    "diffCheck": "passed",
+    "initialJavaScriptBytes": 550990,
+    "initialJavaScriptBudget": 551000
+  },
+  "productionDeployment": false
+}

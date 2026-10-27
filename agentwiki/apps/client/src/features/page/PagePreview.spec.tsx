@@ -1433,6 +1433,33 @@ describe('PagePreview checklist saves', () => {
     expect(agentPostCalls()).toHaveLength(0); expect(pagePatchCalls()).toHaveLength(0);
   });
 
+  it('lets a reading-view author delete an orphan note without editing the page body', async () => {
+    const current = page({ content: 'The replacement passage', capabilities: { canEdit: false } });
+    const target = captureAssistTarget('The removed passage', 'selection', 0, 19, current.updatedAt)!;
+    serverNotes = [{
+      id: 'orphan-note', spaceId: current.spaceId, pageId: current.id, body: 'Outdated annotation', target,
+      status: 'pending', author: { type: 'user', id: 'reader', name: 'Reader' }, canEdit: true,
+      createdAt: current.createdAt, updatedAt: current.updatedAt,
+    }];
+    localStorage.setItem('user', JSON.stringify({ id: 'reader' })); localStorage.setItem('token', 'test');
+    vi.mocked(api.get).mockImplementation(async (url) => notesGet(url) ?? ({ data: url === '/assist/sessions' || url.startsWith('/knowledge') ? [] : current }));
+    vi.mocked(api.delete).mockImplementation(async (url) => {
+      if (url !== '/spaces/space-1/pages/page-1/notes/orphan-note') throw new Error('Unexpected delete');
+      serverNotes = []; return { data: { deleted: true } };
+    });
+    render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="reader"><MemoryRouter initialEntries={['/pages/page-1']}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
+    await screen.findByRole('heading', { name: 'Checklist' });
+    fireEvent.click(screen.getByRole('tab', { name: 'Page notes' }));
+    const panel = await screen.findByRole('region', { name: 'Page notes' });
+    expect(within(panel).getByText('Original passage changed or anchor is ambiguous')).toBeVisible();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Delete note' }));
+    await waitFor(() => expect(within(panel).queryByText('Outdated annotation')).not.toBeInTheDocument());
+    expect(api.delete).toHaveBeenCalledExactlyOnceWith('/spaces/space-1/pages/page-1/notes/orphan-note', expect.objectContaining({ data: { expectedUpdatedAt: current.updatedAt } }));
+    expect(screen.getByText('The replacement passage')).toBeVisible();
+    expect(pagePatchCalls()).toHaveLength(0);
+    expect(agentPostCalls()).toHaveLength(0);
+  });
+
   it('opens and activates a page note from the query while preserving hash scrolling', async () => {
     const current = page({ content: '# Passage\n\nA passage worth noting', capabilities: { canEdit: false } });
     const target = captureAssistTarget(current.content, 'selection', current.content.indexOf('A passage'), current.content.indexOf('A passage') + 9, current.updatedAt)!;

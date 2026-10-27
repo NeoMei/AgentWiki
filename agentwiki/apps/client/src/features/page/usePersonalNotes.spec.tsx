@@ -87,13 +87,66 @@ it('supports explicit resolve by the note author and persists it without an Agen
 });
 
 it('deletes an authored orphan note with its current concurrency token', async () => {
-  server = [{ ...serverNote({ ...addPersonalNote(scope, first, 'Stale note', 'stale'), target: captureAssistTarget('changed', 'selection', 0, 3, version)! }) }];
+  server = [serverNote(addPersonalNote(scope, first, 'Stale note', 'stale'))];
   const { result } = renderHook(() => usePersonalNotes({ scope, canEdit: true, source: 'changed', updatedAt: version })); await act(async () => {});
   expect(result.current.notes).toHaveLength(1);
   await act(async () => { result.current.remove('stale'); });
   expect(result.current.notes).toEqual([]);
   expect(pageNotesApi.remove).toHaveBeenCalledWith(scope, 'stale', { expectedUpdatedAt: '1' }, expect.any(AbortSignal));
   expect(server).toEqual([]);
+});
+
+it('deletes once after repeated clicks while keeping unrelated notes visible', async () => {
+  server = [serverNote(addPersonalNote(scope, first, 'Stale note', 'stale')), serverNote(addPersonalNote(scope, second, 'Keep this note', 'keep'))];
+  const { result } = renderHook(() => usePersonalNotes({ scope, canEdit: true, source: 'changed', updatedAt: version })); await act(async () => {});
+  const remove = vi.mocked(pageNotesApi.remove).getMockImplementation()!;
+  let finish!: () => void;
+  vi.mocked(pageNotesApi.remove).mockImplementationOnce((...args) => new Promise((resolve, reject) => { finish = () => { void remove(...args).then(resolve, reject); }; }));
+  await act(async () => { void result.current.remove('stale'); void result.current.remove('stale'); });
+  await act(async () => { finish(); });
+  expect(pageNotesApi.remove).toHaveBeenCalledTimes(1);
+  expect(result.current).toMatchObject({ syncing: false, storageUnavailable: false, notes: [{ id: 'keep' }] });
+});
+
+it('uses the receipt from a queued status write when deleting a note', async () => {
+  server = [{ ...serverNote(addPersonalNote(scope, first, 'Stale note', 'stale')), status: 'resolved' }];
+  const { result } = renderHook(() => usePersonalNotes({ scope, canEdit: true, source: 'changed', updatedAt: version })); await act(async () => {});
+  const update = vi.mocked(pageNotesApi.update).getMockImplementation()!;
+  let finish!: () => void;
+  vi.mocked(pageNotesApi.update).mockImplementationOnce((...args) => new Promise((resolve, reject) => { finish = () => { void update(...args).then(resolve, reject); }; }));
+  await act(async () => { result.current.reopen('stale'); void result.current.remove('stale'); });
+  expect(pageNotesApi.remove).not.toHaveBeenCalled();
+  await act(async () => { finish(); });
+  expect(pageNotesApi.remove).toHaveBeenCalledWith(scope, 'stale', { expectedUpdatedAt: '2' }, expect.any(AbortSignal));
+  expect(result.current).toMatchObject({ syncing: false, storageUnavailable: false, notes: [] });
+  expect(server).toEqual([]);
+});
+
+it('does not restore a deleted note from a read that started before deletion', async () => {
+  server = [serverNote(addPersonalNote(scope, first, 'Stale note', 'stale'))];
+  const { result } = renderHook(() => usePersonalNotes({ scope, canEdit: true, source: 'changed', updatedAt: version })); await act(async () => {});
+  const oldNotes = structuredClone(server);
+  let finish!: (value: { notes: PersonalNote[]; canCreate: boolean }) => void;
+  vi.mocked(pageNotesApi.list).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  act(() => { void result.current.retrySync(); });
+  await act(async () => { await result.current.remove('stale'); });
+  await act(async () => { finish({ notes: oldNotes, canCreate: true }); });
+  expect(result.current.notes).toEqual([]);
+});
+
+it('cancels a queued deletion when the authenticated session changes', async () => {
+  localStorage.setItem('token', 'first-session');
+  server = [{ ...serverNote(addPersonalNote(scope, first, 'Stale note', 'stale')), status: 'resolved' }];
+  const props = { scope, canEdit: true, source: 'changed', updatedAt: version };
+  const { result, rerender } = renderHook((input) => usePersonalNotes(input), { initialProps: props }); await act(async () => {});
+  let finish!: (value: PersonalNote) => void;
+  vi.mocked(pageNotesApi.update).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  await act(async () => { result.current.reopen('stale'); void result.current.remove('stale'); });
+  localStorage.setItem('token', 'second-session');
+  rerender({ ...props, scope: { ...scope, userId: 'other-user' } }); await act(async () => {});
+  await act(async () => { finish({ ...server[0], status: 'pending' }); });
+  expect(pageNotesApi.remove).not.toHaveBeenCalled();
+  expect(result.current.notes[0]).toMatchObject({ id: 'stale', status: 'resolved', canEdit: false });
 });
 
 it('uses latest source/version and retains draft ownership when the server rejects a save', async () => {

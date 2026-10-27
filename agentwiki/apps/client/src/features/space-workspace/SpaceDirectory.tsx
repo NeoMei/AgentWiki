@@ -185,6 +185,10 @@ export const SpaceDirectory: React.FC<SpaceDirectoryProps> = ({
             className="mt-1 min-h-8 w-full rounded border border-gray-200 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
         </label>
         <p className="text-xs text-gray-400">{copy('仅包含已加载目录，未加载分支不在范围内。', 'Only loaded items; unloaded branches are excluded.')}</p>
+        <p className="text-xs text-gray-500">{!treeProps.canEdit
+          ? copy('只读，不可移动。', 'Read-only; cannot move.')
+          : query ? copy('清空过滤后可排序。', 'Clear filter to sort.')
+            : copy('拖动或用「…」上移/下移。', 'Drag or use ⋯ to move up/down.')}</p>
         <div className="flex flex-wrap gap-2 text-xs text-gray-600">
           {selectedPageId ? <button type="button" onClick={revealCurrent}>{copy('定位当前文档', 'Reveal current document')}</button> : null}
           {!titleId && onDirectoryCollapsedChange ? <button type="button" onClick={() => onDirectoryCollapsedChange(true)}>{copy('收起目录', 'Collapse directory')}</button> : null}

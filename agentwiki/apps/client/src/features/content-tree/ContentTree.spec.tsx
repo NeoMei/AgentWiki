@@ -13,6 +13,47 @@ const page: ContentTreePageNode = {
   createdAt: '2026-09-05T00:00:00.000Z', updatedAt: '2026-09-05T00:00:00.000Z',
 };
 
+describe('ContentTree reorder drop targets', () => {
+  const renderTree = (canEdit = true, reorderDisabled = false) => {
+    const onMove = vi.fn();
+    const pages = [page, { ...page, id: 'page-2', title: 'Second', sortOrder: 2 }, { ...page, id: 'page-3', title: 'Third', sortOrder: 3 }];
+    render(<LanguageProvider><ContentTree nodes={pages} loading={false} error={null} canEdit={canEdit} reorderDisabled={reorderDisabled}
+      levelParentFolderId="folder-1" pageDeleteDisabled={false} emptyText="" onOpenFolder={vi.fn()} onOpenPage={vi.fn()} onEditPage={vi.fn()}
+      onDeletePage={vi.fn()} onCreateSubfolder={vi.fn()} onRenameFolder={vi.fn()} onDeleteFolder={vi.fn()} onMove={onMove} /></LanguageProvider>);
+    return onMove;
+  };
+  const dropAt = (sourceId: string, targetId: string, clientY: number) => {
+    const source = screen.getByTestId(`content-row-${sourceId}`), target = screen.getByTestId(`content-row-${targetId}`);
+    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 200, 40));
+    const dataTransfer = { setData: vi.fn(), effectAllowed: '', dropEffect: '' };
+    fireEvent.dragStart(source, { dataTransfer });
+    fireEvent.dragOver(target, { dataTransfer, clientY });
+    fireEvent.drop(target, { dataTransfer, clientY });
+  };
+  it('accepts a drop at the centre of a page and inserts after it', () => {
+    const onMove = renderTree();
+    dropAt('page-1', 'page-2', 21);
+    expect(onMove).toHaveBeenCalledWith({ kind: 'page', id: 'page-1', targetFolderId: 'folder-1', position: 'after', beforeId: 'page-3' });
+  });
+  it('appends when dropped after the last sibling', () => {
+    const onMove = renderTree();
+    dropAt('page-1', 'page-3', 39);
+    expect(onMove).toHaveBeenCalledWith({ kind: 'page', id: 'page-1', targetFolderId: 'folder-1', position: 'after' });
+  });
+  it('provides the same reorder through the keyboard-accessible menu', () => {
+    const onMove = renderTree();
+    fireEvent.click(screen.getByLabelText('Actions: Brief'));
+    fireEvent.click(screen.getByRole('button', { name: 'Move down' }));
+    expect(onMove).toHaveBeenCalledWith({ kind: 'page', id: 'page-1', targetFolderId: 'folder-1', position: 'after', beforeId: 'page-3' });
+  });
+  it.each([[false, false], [true, true]])('blocks drops for readonly or filtered trees', (canEdit, reorderDisabled) => {
+    const onMove = renderTree(canEdit, reorderDisabled);
+    dropAt('page-1', 'page-3', 39);
+    expect(onMove).not.toHaveBeenCalled();
+    expect(screen.getByTestId('content-row-page-1')).toHaveAttribute('draggable', 'false');
+  });
+});
+
 describe('ContentTree Agent binding entry points', () => {
   it('passes the exact selected Page or Folder to the late-binding action', () => {
     const onConfigurePageAgent = vi.fn();

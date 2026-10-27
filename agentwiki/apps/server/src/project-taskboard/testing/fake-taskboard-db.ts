@@ -82,8 +82,19 @@ export function makeDb(): { prisma: any; db: FakeDb } {
         db.events.filter((e) => e.boardId === where.boardId).sort((a, b) => b.sequence - a.sequence)),
     },
   };
+  let lockTail = Promise.resolve();
   const prisma = {
-    $transaction: jest.fn(async (fn: any) => fn(tx)),
+    $transaction: jest.fn(async (fn: any) => {
+      let release: (() => void) | undefined;
+      const transaction = { ...tx, $executeRaw: jest.fn(async () => {
+        const previous = lockTail;
+        lockTail = new Promise<void>((resolve) => { release = resolve; });
+        await previous;
+        return 1;
+      }) };
+      try { return await fn(transaction); }
+      finally { release?.(); }
+    }),
     projectBoard: tx.projectBoard,
     space: tx.space,
     projectBoardTask: tx.projectBoardTask,

@@ -57,6 +57,8 @@ interface NodeRowLabels {
   newPage: string;
   configureAgent: string;
   saveAsTemplate: string;
+  moveUp: string;
+  moveDown: string;
   expand: (name: string) => string;
   collapse: (name: string) => string;
 }
@@ -135,14 +137,24 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
     newPage: t('page.new'),
     configureAgent: t('pageTemplate.binding.action'),
     saveAsTemplate: t('pageTemplate.folderSave.action'),
+    moveUp: t('collaboration.editor.moveUp'),
+    moveDown: t('collaboration.editor.moveDown'),
     expand: (name) => t('folder.expand', { name }),
     collapse: (name) => t('folder.collapse', { name }),
   };
 
-  const renderNodes = (levelNodes: ContentTreeNode[], parentFolderId: string | null, nested = false): React.ReactNode => (
+  const renderNodes = (levelNodes: ContentTreeNode[], parentFolderId: string | null, nested = false): React.ReactNode => {
+    const sorted = sortNodes(levelNodes);
+    return (
     <ul className={nested ? 'ml-[15px] space-y-0.5 border-l border-gray-200' : 'space-y-0.5'} role={nested ? 'group' : 'tree'} data-testid={nested ? undefined : 'content-tree'}>
-      {sortNodes(levelNodes).map((node) => {
+      {sorted.map((node, index) => {
         const expanded = node.kind === 'folder' && expandedFolderIds.has(node.id);
+        const previous = sorted[index - 1];
+        const next = sorted[index + 1];
+        const moveRelative = (target: ContentTreeNode, position: MovePosition) => {
+          const request = buildMoveRequest(node, target, position, parentFolderId, levelNodes);
+          if (request && canEdit && !reorderDisabled) onMove(request);
+        };
         return (
         <NodeRow
           key={`${mutationScopeKey}:${node.id}`}
@@ -172,9 +184,11 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
           onSaveFolderAsTemplate={onSaveFolderAsTemplate}
           saveFolderTemplateDisabledReason={saveFolderTemplateDisabledReason}
           onDragStart={setDrag}
+          onMoveUp={previous?.kind === node.kind ? () => moveRelative(previous, 'before') : undefined}
+          onMoveDown={next?.kind === node.kind ? () => moveRelative(next, 'after') : undefined}
           onDragEnd={() => setDrag(null)}
           onDrop={(_event, target, position) => {
-            const request = buildMoveRequest(drag, target, position, parentFolderId);
+            const request = buildMoveRequest(drag, target, position, parentFolderId, levelNodes);
             setDrag(null);
             if (request && canEdit && !reorderDisabled) onMove(request);
           }}
@@ -190,7 +204,8 @@ export const ContentTree: React.FC<ContentTreeProps> = ({
         </NodeRow>
       )})}
     </ul>
-  );
+    );
+  };
   return <>{renderNodes(nodes, levelParentFolderId)}</>;
 };
 
@@ -221,6 +236,8 @@ interface NodeRowProps {
   saveFolderTemplateDisabledReason?: string;
   onSaveFolderAsTemplate?: (folder: ContentTreeFolderNode, trigger: HTMLElement) => void;
   onDragStart: (drag: DragInfo) => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
   onDragEnd: () => void;
   onDrop: (event: React.DragEvent, target: ContentTreeNode, position: MovePosition) => void;
   children?: React.ReactNode;
@@ -234,26 +251,27 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
   useEffect(() => { if (!canEdit) setInlineMode(null); }, [canEdit]);
   const finishInline = () => { setInlineMode(null); requestAnimationFrame(() => rowRef.current?.querySelector<HTMLElement>('[aria-haspopup="menu"]')?.focus()); };
   const [dropHint, setDropHint] = useState<MovePosition | null>(null);
+  useEffect(() => { if (!dragActive || !canEdit || props.reorderDisabled) setDropHint(null); }, [dragActive, canEdit, props.reorderDisabled]);
   const isPage = node.kind === 'page';
   const isCurrent = isPage ? node.id === currentPageId : node.id === selectedFolderId;
   const selfDrag = dragActive?.id === node.id;
-  const rowClass = 'group flex items-center gap-1 rounded-md py-1 pr-1 text-sm transition '
+  const rowClass = 'group relative flex items-center gap-1 rounded-md py-1 pr-1 text-sm transition '
     + (isCurrent ? 'bg-blue-50 font-medium text-blue-700' : 'text-gray-700 hover:bg-gray-100')
+    + (canEdit && !props.reorderDisabled && !inlineMode ? ' cursor-grab active:cursor-grabbing' : '')
     + (dropHint === 'into' ? ' ring-2 ring-blue-400' : '');
 
-  const handleDragOver = (event: React.DragEvent) => {
-    if (!canEdit || props.reorderDisabled || !dragActive || selfDrag) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'move';
+  const dropPosition = (event: React.DragEvent): MovePosition | null => {
+    if (!canEdit || props.reorderDisabled || !dragActive || selfDrag) return null;
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
     const ratio = rect.height ? (event.clientY - rect.top) / rect.height : 0.5;
-    const next: MovePosition = ratio < 0.35 ? 'before' : ratio > 0.65 ? 'after' : 'into';
-    if (next !== 'into' && dragActive.kind !== node.kind) return;
-    if (next === 'into' && isPage) {
-      setDropHint(null);
-    } else {
-      setDropHint(next);
-    }
+    if (isPage) return dragActive.kind === 'page' ? (ratio < 0.5 ? 'before' : 'after') : null;
+    if (dragActive.kind === 'page') return 'into';
+    return ratio < 0.35 ? 'before' : ratio > 0.65 ? 'after' : 'into';
+  };
+  const handleDragOver = (event: React.DragEvent) => {
+    const next = dropPosition(event);
+    setDropHint(next);
+    if (next) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; }
   };
 
   return (
@@ -265,8 +283,6 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
       aria-expanded={isPage ? undefined : props.expanded}
       aria-selected={isCurrent}
     >
-      {dropHint === 'before' ? <div className="pointer-events-none absolute -top-px left-2 right-2 h-0.5 rounded bg-blue-500" data-testid="drop-before" /> : null}
-      {dropHint === 'after' ? <div className="pointer-events-none absolute -bottom-px left-2 right-2 h-0.5 rounded bg-blue-500" data-testid="drop-after" /> : null}
       <div
         draggable={canEdit && !props.reorderDisabled && !inlineMode}
         data-testid={'content-row-' + node.id}
@@ -281,16 +297,18 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
           props.onDragEnd();
         }}
         onDragOver={handleDragOver}
-        onDragLeave={() => setDropHint(null)}
+        onDragLeave={(event) => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropHint(null); }}
         onDrop={(event) => {
           event.preventDefault();
           if (!canEdit || props.reorderDisabled) return;
-          const position: MovePosition = dropHint ?? 'into';
+          const position = dropPosition(event);
           setDropHint(null);
-          props.onDrop(event, node, position);
+          if (position) props.onDrop(event, node, position);
         }}
         className={rowClass}
       >
+        {dropHint === 'before' ? <div className="pointer-events-none absolute -top-px left-2 right-2 h-0.5 rounded bg-blue-500" data-testid="drop-before" /> : null}
+        {dropHint === 'after' ? <div className="pointer-events-none absolute -bottom-px left-2 right-2 h-0.5 rounded bg-blue-500" data-testid="drop-after" /> : null}
         {isPage ? <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center"><FileText size={14} className="text-gray-400" /></span> : (
           <button type="button" data-testid={'content-toggle-' + node.id} aria-label={props.expanded ? labels.collapse(node.name) : labels.expand(node.name)}
             onClick={() => props.onToggleFolder?.(node.id)} className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
@@ -329,6 +347,13 @@ const NodeRow: React.FC<NodeRowProps> = (props) => {
         )}
         {canEdit ? (
           <TreeActionMenu label={`${labels.actions}: ${isPage ? node.title : node.name}`} title={labels.actions}>
+            {([
+              ['up', labels.moveUp, props.onMoveUp], ['down', labels.moveDown, props.onMoveDown],
+            ] as const).map(([direction, title, move]) => <IconButton key={direction}
+              testId={`content-move-${direction}-${node.id}`} title={title}
+              disabled={props.reorderDisabled || !move} onClick={() => move?.()}>
+              <ChevronDown size={13} className={direction === 'up' ? 'rotate-180' : undefined} />
+            </IconButton>)}
             {!isPage ? (
               <>
                 {props.onConfigureFolderAgents ? <IconButton

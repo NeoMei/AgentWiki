@@ -6,56 +6,33 @@ import { Eye, EyeOff } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { BrandMark } from '../../components/BrandMark';
-
-const validatePassword = (pwd: string, t: (key: string) => string): string | null => {
-  if (pwd.length < 8) return t('auth.passwordMin');
-  if (!/[A-Z]/.test(pwd)) return t('auth.passwordUppercase');
-  if (!/[0-9]/.test(pwd)) return t('auth.passwordNumber');
-  return null;
-};
+import { authFormError, type AuthFieldError } from './auth-form-validation';
 
 export const Register: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
-  const [nameError, setNameError] = useState('');
-  const [passwordError, setPasswordError] = useState('');
+  const [fieldError, setFieldError] = useState<AuthFieldError | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
   const { login } = useAuth();
   const { t } = useLanguage();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!name.trim()) {
-      setNameError(t('auth.nameRequired'));
-      setError('');
-      return;
-    }
-    if (/\s/u.test(name)) {
-      setNameError(t('auth.nameWhitespace'));
-      setError('');
-      return;
-    }
-    setNameError('');
-    if (!email.trim()) { setError(t('auth.emailRequired')); return; }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@.]{2,}$/.test(email.trim())) { setError(t('auth.emailInvalid')); return; }
-    if (!password.trim()) { setPasswordError(t('auth.passwordRequired')); return; }
-    const pwdErr = validatePassword(password, t);
-    if (pwdErr) {
-      setPasswordError(pwdErr);
-      return;
-    }
-    if (/\s/u.test(password)) {
-      setPasswordError(t('auth.passwordWhitespace'));
+    setError('');
+    const invalid = authFormError({ name, email, password });
+    setFieldError(invalid);
+    if (invalid) {
+      (e.currentTarget.elements.namedItem(invalid.field) as HTMLInputElement)?.focus();
       return;
     }
     setIsSubmitting(true);
     setError('');
     try {
-      const response = await api.post('/auth/register', { email, password, name });
+      const response = await api.post('/auth/register', { email: email.trim(), password, name });
       login(response.data.access_token, response.data.user);
       navigate('/');
     } catch (err: any) {
@@ -75,44 +52,58 @@ export const Register: React.FC = () => {
           <h2 className="text-xl text-gray-600 mt-2">{t('auth.createAccount')}</h2>
         </div>
         {error && (
-          <div className="p-3 bg-red-50 text-red-600 rounded-md text-sm text-center">
+          <div role="alert" className="p-3 bg-red-50 text-red-600 rounded-md text-sm text-center">
             {error}
           </div>
         )}
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} noValidate className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1">{t('common.name')}</label>
+            <label htmlFor="register-name" className="block text-sm font-medium mb-1">{t('common.name')}</label>
             <input
+              id="register-name"
+              name="name"
               type="text"
               value={name}
-              onChange={(e) => { setName(e.target.value); setNameError(''); setError(''); }}
-              aria-invalid={Boolean(nameError)}
-              aria-describedby={nameError ? 'register-name-error' : undefined}
-              className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              onChange={(e) => { setName(e.target.value); setFieldError(null); setError(''); }}
+              aria-required="true"
+              aria-invalid={fieldError?.field === 'name'}
+              aria-describedby={fieldError?.field === 'name' ? 'register-name-error' : undefined}
+              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldError?.field === 'name' ? 'border-red-500' : ''}`}
               autoFocus
             />
-            {nameError && <div id="register-name-error" role="alert" className="text-red-500 text-sm mt-1">{nameError}</div>}
+            {fieldError?.field === 'name' ? <p id="register-name-error" role="alert" className="mt-1 text-sm text-red-600">{t(fieldError.messageKey)}</p> : null}
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">{t('common.email')}</label>
+            <label htmlFor="register-email" className="block text-sm font-medium mb-1">{t('common.email')}</label>
             <input
+              id="register-email"
+              name="email"
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              onChange={(e) => { setEmail(e.target.value); setFieldError(null); setError(''); }}
+              aria-required="true"
+              aria-invalid={fieldError?.field === 'email'}
+              aria-describedby={fieldError?.field === 'email' ? 'register-email-error' : undefined}
+              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldError?.field === 'email' ? 'border-red-500' : ''}`}
             />
+            {fieldError?.field === 'email' ? <p id="register-email-error" role="alert" className="mt-1 text-sm text-red-600">{t(fieldError.messageKey)}</p> : null}
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">{t('common.password')}</label>
+            <label htmlFor="register-password" className="block text-sm font-medium mb-1">{t('common.password')}</label>
             <div className="relative">
               <input
+                id="register-password"
+                name="password"
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value);
-                  setPasswordError(validatePassword(e.target.value, t) || '');
+                  setFieldError(null); setError('');
                 }}
-                className="w-full px-3 py-2 pr-10 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                aria-required="true"
+                aria-invalid={fieldError?.field === 'password'}
+                aria-describedby={fieldError?.field === 'password' ? 'register-password-help register-password-error' : 'register-password-help'}
+                className={`w-full px-3 py-2 pr-10 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldError?.field === 'password' ? 'border-red-500' : ''}`}
               />
               <button
                 type="button"
@@ -123,8 +114,8 @@ export const Register: React.FC = () => {
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
-            {passwordError && <div className="text-red-500 text-sm mt-1">{passwordError}</div>}
-            <div className="text-xs text-gray-400 mt-1">{t('auth.passwordHelp')}</div>
+            {fieldError?.field === 'password' ? <p id="register-password-error" role="alert" className="mt-1 text-sm text-red-600">{t(fieldError.messageKey)}</p> : null}
+            <div id="register-password-help" className="text-xs text-gray-400 mt-1">{t('auth.passwordHelp')}</div>
           </div>
           <button
             type="submit"

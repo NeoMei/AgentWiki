@@ -103,6 +103,7 @@ export const buildMoveRequest = (
   target: ContentTreeNode,
   position: MovePosition,
   levelParentFolderId: string | null,
+  levelNodes: ContentTreeNode[] = [],
 ): ContentMoveRequest | null => {
   if (!drag || drag.id === target.id) return null;
   if (position !== 'into' && drag.kind !== target.kind) return null;
@@ -111,11 +112,17 @@ export const buildMoveRequest = (
     return { kind: drag.kind, id: drag.id, targetFolderId: target.id, position };
   }
   const targetParent = target.kind === 'page' ? target.folderId : levelParentFolderId;
+  // The server accepts beforeId only. An after drop must target the following
+  // sibling (or omit beforeId to append), never the row it was dropped on.
+  const siblings = sortNodes(levelNodes).filter((node) => node.kind === drag.kind && node.id !== drag.id);
+  const targetIndex = siblings.findIndex((node) => node.id === target.id);
+  if (position === 'after' && targetIndex < 0) return null;
+  const beforeId = position === 'before' ? target.id : siblings[targetIndex + 1]?.id;
   return {
     kind: drag.kind,
     id: drag.id,
     targetFolderId: targetParent,
-    beforeId: target.id,
+    ...(beforeId ? { beforeId } : {}),
     position,
   };
 };

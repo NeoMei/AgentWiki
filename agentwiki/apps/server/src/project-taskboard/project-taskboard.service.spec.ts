@@ -18,6 +18,7 @@ import { makeDb } from './testing/fake-taskboard-db';
 function makeService(db = makeDb()) {
   const authorization = {
     assertSpaceAccess: jest.fn(async () => ({ role: 'owner' })),
+    lockLiveHumanPrincipal: jest.fn(async () => ({ id: 'u1' })),
     assertLiveHumanSpaceAccess: jest.fn(async () => ({ role: 'owner', userId: 'u1', spaceId: 'space-1' })),
   };
   const redis = { publish: jest.fn(async () => undefined) };
@@ -37,7 +38,7 @@ describe('ProjectTaskboardService', () => {
     expect(authorization.assertLiveHumanSpaceAccess).toHaveBeenCalledWith(expect.anything(), { userId: 'u1', platformRole: 'super_admin' }, 'space-1', ['owner', 'admin', 'editor']);
   });
 
-  it.each(['createTask', 'createChild', 'updateStatus', 'upsertTask', 'patchTask', 'importPlan'] as const)(
+  it.each(['createTask', 'createChild', 'updateStatus', 'upsertTask', 'patchTask', 'deleteTask', 'importPlan'] as const)(
     'rejects %s when a platform admin loses membership between eager check and transaction', async (operation) => {
       const { prisma, db } = makeDb();
       const member = { role: 'owner', space: { deletedAt: null } };
@@ -58,6 +59,7 @@ describe('ProjectTaskboardService', () => {
           case 'updateStatus': return service.updateStatus(principal, 'space-1', 'task', { status: 'done' });
           case 'upsertTask': return service.upsertTask(principal, 'space-1', 'task', { title: 'No write' });
           case 'patchTask': return service.patchTask(principal, 'space-1', 'task', { title: 'No write' });
+          case 'deleteTask': return service.deleteTask(principal, 'space-1', 'task');
           case 'importPlan': return service.importPlan(principal, 'space-1', { content: PLAN });
         }
       };
@@ -177,6 +179,51 @@ describe('ProjectTaskboardService', () => {
     const result = await service.patchTask({ userId: 'u1' } as any, 'space-1', 'task-1', { title: '  New title  ' });
 
     expect(result.task.title).toBe('New title');
+    const { board } = await service.getBoard({ userId: 'u1' }, 'space-1');
+    expect(board.tasks.find((task) => task.id === 'task-1')?.title).toBe('New title');
+  });
+
+  it('keeps a referenced subtree intact until external task dependencies are removed', async () => {
+    const { service, db } = makeService();
+    const user = { userId: 'u1' };
+    await service.createTask(user, 'space-1', { id: 'root', title: 'Root' });
+    await service.createChild(user, 'space-1', 'root', { id: 'child', title: 'Child' });
+    await service.createTask(user, 'space-1', { id: 'dependent', title: 'Dependent', depends_on: ['child'] });
+    const eventCount = db.events.length;
+    await expect(service.deleteTask(user, 'space-1', 'root')).rejects.toMatchObject({
+      businessCode: 'RESOURCE_CONFLICT',
+    });
+    expect(db.tasks.map((task) => task.id)).toEqual(['root', 'child', 'dependent']);
+    expect(db.events).toHaveLength(eventCount);
+    await service.patchTask(user, 'space-1', 'dependent', { depends_on: [] });
+    await expect(service.deleteTask(user, 'space-1', 'root')).resolves.toMatchObject({ deleted_task_ids: ['root', 'child'] });
+    expect(db.tasks.map((task) => task.id)).toEqual(['dependent']);
+  });
+
+  it('does not leave a child whose parent is deleted by an overlapping writer', async () => {
+    const { service, prisma, db } = makeService();
+    const user = { userId: 'u1' };
+    await service.createTask(user, 'space-1', { id: 'root', title: 'Root' });
+    let releaseRead!: () => void;
+    let signalRead!: () => void;
+    const readStarted = new Promise<void>((resolve) => { signalRead = resolve; });
+    const readPaused = new Promise<void>((resolve) => { releaseRead = resolve; });
+    const findMany = prisma.projectBoardTask.findMany.getMockImplementation();
+    prisma.projectBoardTask.findMany.mockImplementationOnce(async (args: unknown) => {
+      const rows = await findMany(args);
+      signalRead();
+      await readPaused;
+      return rows;
+    });
+    const removing = service.deleteTask(user, 'space-1', 'root');
+    await readStarted;
+    const creating = service.createChild(user, 'space-1', 'root', { id: 'child', title: 'Child' });
+    const creationOutcome = creating.then(() => 'created', (error: unknown) => getBusinessCode(error));
+    await new Promise((resolve) => setImmediate(resolve));
+    releaseRead();
+    await removing;
+    expect(await creationOutcome).toBe('TASKBOARD_TASK_NOT_FOUND');
+    expect(db.tasks).toHaveLength(0);
   });
 
   it('reports status idempotently with started/completed stamps and history', async () => {
