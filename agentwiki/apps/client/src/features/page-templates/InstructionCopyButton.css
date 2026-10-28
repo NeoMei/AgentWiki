@@ -1,0 +1,25 @@
+.instruction-copy-control { margin-top: 8px; }
+.instruction-copy-button {
+  display: inline-flex;
+  min-height: 32px;
+  min-width: 96px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f9fafb;
+  color: #4b5563;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+}
+.instruction-copy-button svg { flex-shrink: 0; }
+.instruction-copy-button:hover { border-color: #d1d5db; background: #f3f4f6; color: #111827; }
+.instruction-copy-button:focus-visible { outline: 2px solid #6b7280; outline-offset: 2px; }
+.instruction-copy-button:disabled { cursor: wait; opacity: .65; }
+.instruction-copy-button[data-state="copied"] { border-color: #bbf7d0; background: #f0fdf4; color: #15803d; }
+.instruction-copy-error { margin-top: 8px; color: #b91c1c; font-size: 14px; line-height: 20px; }
+@media (max-width: 767px) { .instruction-copy-button { min-height: 44px; } }

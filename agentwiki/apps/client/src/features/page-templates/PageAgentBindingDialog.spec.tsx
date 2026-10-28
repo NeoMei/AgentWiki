@@ -134,6 +134,10 @@ describe('PageAgentBindingDialog', () => {
   });
 
   it('uses the atomic Page start endpoint instead of saving then starting', async () => {
+    mocks.getRun.mockResolvedValue({ id: 'run-1', roleBindings: [{ roleSlotId: 'owner', roleSlotName: 'Owner', agentId: 'agent-1' }],
+      joinInstructions: [{ agentId: 'agent-1', roleSlotIds: ['owner'], taskIds: ['task-1'] }] });
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } });
+
     renderDialog({ kind: 'page', pageId: 'page-1', title: 'Page one' });
     await screen.findByLabelText('主责 Agent');
     fireEvent.change(screen.getByLabelText('主责 Agent'), { target: { value: 'agent-1' } });
@@ -144,6 +148,8 @@ describe('PageAgentBindingDialog', () => {
       expectedTreeRevision: '17',
     }), expect.any(AbortSignal)));
     expect(mocks.setPageBinding).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole('button', { name: '复制' }));
+    expect(await screen.findByRole('button', { name: '已复制' })).toBeVisible();
   });
 
   it('shows the server-discovered Folder page IDs and sends that exact versioned scope', async () => {

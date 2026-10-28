@@ -2,6 +2,9 @@ import type { Language } from './messages';
 
 export const templateEntryMessages: Record<Language, Record<string, string>> = {
   en: {
+    'pageTemplate.copyInstruction.copied': 'Copied',
+    'pageTemplate.copyInstruction.copying': 'Copying…',
+    'pageTemplate.copyInstruction.failed': 'Could not copy. Select and copy the instruction above.',
     'creation.title': 'New content',
     'creation.groupName': 'Page group name',
     'creation.description': 'Start blank, or reuse a page or a page group.',
@@ -36,6 +39,9 @@ export const templateEntryMessages: Record<Language, Record<string, string>> = {
     'pageTemplate.createHelp': 'You can also save a page as a template from its More page actions menu, or save a folder as a page group from the directory menu.',
   },
   'zh-CN': {
+    'pageTemplate.copyInstruction.copied': '已复制',
+    'pageTemplate.copyInstruction.copying': '复制中…',
+    'pageTemplate.copyInstruction.failed': '复制失败，请手动选择并复制上方指令。',
     'creation.title': '新建内容',
     'creation.groupName': '页面组名称',
     'creation.description': '从空白页面开始，或复用已有的页面和目录结构。',

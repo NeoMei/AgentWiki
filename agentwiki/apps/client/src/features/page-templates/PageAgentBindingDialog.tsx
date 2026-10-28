@@ -1,6 +1,7 @@
 import { NativeSelect } from '../../components/NativeSelect';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Copy, X } from 'lucide-react';
+import { X } from 'lucide-react';
+import { InstructionCopyButton } from './InstructionCopyButton';
 import { Link } from 'react-router-dom';
 import { getContentTreeRevision } from '../../api/content-tree';
 import { apiErrorMessage } from '../../api/error-message';
@@ -295,8 +296,8 @@ export const PageAgentBindingDialog: React.FC<{
       </fieldset> : null}
       {result ? <section className="mt-5"><h3 className="text-lg font-semibold">{t('pageTemplate.binding.runStarted')}</h3>
         <p className="mt-1 text-sm text-amber-800">{t('pageTemplate.composite.agentsNeedWake')}</p>
-        <div className="mt-3 space-y-3">{result.instructions.map((instruction) => <article key={instruction.agentId} className="rounded-lg border p-3"><pre className="whitespace-pre-wrap break-words text-xs">{instruction.text}</pre>
-          <button type="button" onClick={() => void navigator.clipboard.writeText(instruction.text)} className="mt-2 inline-flex min-h-10 items-center gap-2 rounded-lg border px-3 text-sm"><Copy size={14} />{t('common.copy')}</button></article>)}</div>
+        <div className="mt-3 space-y-3">{result.instructions.map((instruction) => <article key={instruction.agentId} className="min-w-0 rounded-lg border border-gray-200 bg-gray-50/50 p-3"><pre className="whitespace-pre-wrap break-words text-xs">{instruction.text}</pre>
+          <InstructionCopyButton text={instruction.text} /></article>)}</div>
         <Link to={`/spaces/${spaceId}/collaboration/runs/${result.runId}`} className="mt-4 inline-flex min-h-10 items-center rounded-lg bg-blue-600 px-4 text-sm font-medium text-white">{t('collaboration.wizard.openRun')}</Link>
       </section> : <>
         {scope.kind === 'folder' ? <fieldset className="mt-4 rounded-[14px] border p-4"><legend className="px-1 text-sm font-medium">{t('pageTemplate.binding.bindingMode')}</legend>

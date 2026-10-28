@@ -324,6 +324,11 @@ describe('NewPageDialog composite flow', () => {
     expect(await screen.findByText('协作 Run 已创建。')).toBeVisible();
     expect(screen.getByText(/wiki_collaboration_join_run/)).toBeVisible();
     expect(screen.getByText(/外部 Agent 尚未被唤醒/)).toBeVisible();
+    const clipboard = { writeText: vi.fn().mockResolvedValue(undefined) };
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: clipboard });
+    fireEvent.click(screen.getByRole('button', { name: '复制' }));
+    expect(await screen.findByRole('button', { name: '已复制' })).toBeVisible();
+
   });
 
   it('refreshes collaboration validation at submit after the user fixes inputs and bindings', async () => {

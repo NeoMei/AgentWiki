@@ -32,6 +32,7 @@ import { listPageTemplates } from './pageTemplateApi';
 import type { PageTemplateListResponse, PageTemplateSummary } from './pageTemplateTypes';
 import { TemplateTreePreview } from './TemplateTreePreview';
 import { truncateValidatorLength } from './validatorLength';
+import { InstructionCopyButton } from './InstructionCopyButton';
 import './template-creation.css';
 
 export interface NewPageCreationTarget {
@@ -1056,9 +1057,8 @@ const ResultPhase: React.FC<{
   return <section className="mt-6"><h3 className="text-lg font-semibold text-gray-900">{t('pageTemplate.composite.created')}</h3>
     {result.runId ? <><p className="mt-2 text-sm text-gray-700">{t('pageTemplate.composite.runStarted')}</p>
       <p className="mt-2 text-sm text-amber-800">{t('pageTemplate.composite.agentsNeedWake')}</p>
-      <div className="mt-4 space-y-3">{instructions.map((instruction) => <article key={instruction.agentId} className="rounded-lg border p-3">
-        <pre className="whitespace-pre-wrap break-words text-xs">{instruction.text}</pre><button type="button" onClick={() => void navigator.clipboard.writeText(instruction.text)}
-          className="mt-2 inline-flex min-h-10 items-center gap-2 rounded-lg border px-3 text-sm"><Copy size={14} />{t('common.copy')}</button></article>)}</div>
+      <div className="mt-4 space-y-3">{instructions.map((instruction) => <article key={instruction.agentId} className="min-w-0 rounded-lg border border-gray-200 bg-gray-50/50 p-3">
+        <pre className="whitespace-pre-wrap break-words text-xs">{instruction.text}</pre><InstructionCopyButton text={instruction.text} /></article>)}</div>
       <Link to={`/spaces/${spaceId}/collaboration/runs/${result.runId}`} className="mt-4 inline-flex min-h-10 items-center text-sm font-medium text-blue-700 hover:underline">{t('collaboration.wizard.openRun')}</Link></> : null}
     <ErrorNotice message={error} />
     <div className="mt-6 flex justify-end border-t pt-4"><button type="button" onClick={onOpen}
