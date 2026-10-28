@@ -1,0 +1,789 @@
+{
+  "version": "0.12.65",
+  "origin": "http://127.0.0.1:5180",
+  "prefix": "aw65-0b8e3728",
+  "startedAt": "2026-10-28T06:11:27.857Z",
+  "isolatedChromeProfile": true,
+  "tests": [
+    {
+      "name": "Isolated system Chrome signs in through normal login UI",
+      "passed": true
+    },
+    {
+      "name": "Dashboard creates default no-review and explicitly selected always-review Spaces with persisted API readback",
+      "passed": true
+    },
+    {
+      "name": "Pre-existing always-review fixture retains its policy",
+      "passed": true
+    },
+    {
+      "name": "Header policy save synchronizes Settings immediately, restores focus and preserves unsaved name/description",
+      "passed": true
+    },
+    {
+      "name": "Injected one-shot policy HTTP 503 shows error and preserves the persisted policy; mutation was not sent to server",
+      "passed": true
+    },
+    {
+      "name": "A subsequent explicit user save succeeds and synchronizes header",
+      "passed": true
+    },
+    {
+      "name": "390px Settings has no horizontal overflow",
+      "passed": true,
+      "viewport": 390,
+      "document": 390,
+      "body": 390
+    },
+    {
+      "name": "390px policy dialog has no horizontal overflow",
+      "passed": true,
+      "viewport": 390,
+      "document": 390,
+      "body": 390
+    },
+    {
+      "name": "Viewer sees the current policy and owner-only explanation with no policy mutation controls",
+      "passed": true
+    }
+  ],
+  "rateLimitReadRetries": [],
+  "blockedMutations": [],
+  "cleanup": {
+    "runs": [],
+    "bindings": [
+      {
+        "id": "f1b16d8e-ba3a-4b43-b179-8ac7b6b627ee",
+        "unbound": true,
+        "readbackConfirmed": true
+      }
+    ],
+    "grants": [
+      {
+        "id": "agent_c13dfa7ef8c8228657a452dfdec71831/cmvrpv2ou001m5jtd6ipj34uc",
+        "deleted": true,
+        "readbackAbsent": true
+      }
+    ],
+    "agents": [
+      {
+        "id": "agent_c13dfa7ef8c8228657a452dfdec71831",
+        "revoked": true,
+        "readbackStatus": 404
+      }
+    ],
+    "pages": [
+      {
+        "id": "f1b16d8e-ba3a-4b43-b179-8ac7b6b627ee",
+        "deleted": true,
+        "readbackStatus": 404
+      }
+    ],
+    "spaces": [
+      {
+        "id": "cmvrpv2uv001r5jtdpcrfknmc",
+        "deleted": true,
+        "readbackStatus": 404,
+        "ownedRunsInaccessible": true
+      },
+      {
+        "id": "cmvrpv2ou001m5jtd6ipj34uc",
+        "deleted": true,
+        "readbackStatus": 404,
+        "ownedRunsInaccessible": true
+      },
+      {
+        "id": "cmvrpv1rx001h5jtdr1xt3odu",
+        "deleted": true,
+        "readbackStatus": 404,
+        "ownedRunsInaccessible": true
+      }
+    ],
+    "users": [
+      {
+        "id": "cmvrpv1rk001g5jtdk9kc1li4",
+        "deleted": true,
+        "readbackStatus": 401
+      },
+      {
+        "id": "cmvrpv1lh001f5jtdiya92evj",
+        "deleted": true,
+        "readbackStatus": 401
+      }
+    ],
+    "browserClosed": true
+  },
+  "boundaries": [
+    "Existing always-review retention uses a disposable pre-existing fixture, not an unrelated business Space.",
+    "RunController has no DELETE endpoint: Runs are cancelled, then verified inaccessible after fixture Space removal. Agent deletion revokes; Space/User deletion is soft deletion.",
+    "NewPageDialog creation-completion copy surface is covered by component tests, not this browser script. This script verifies the real PageAgentBindingDialog surface.",
+    "No Agent credential, model configuration, model call, MCP join, or execution claim is created. The Run waits for an external Agent."
+  ],
+  "browser": "156.0.8078.48",
+  "passed": false,
+  "error": "TimeoutError: locator.check: Timeout 20000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('dialog', { name: 'Agent binding and collaboration', exact: true }).getByRole('checkbox', { name: 'Start collaboration after saving', exact: true })\u001b[22m\n\u001b[2m    - locator resolved to <input disabled type=\"checkbox\"/>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is not enabled\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is not enabled\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    39 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is not enabled\u001b[22m\n\u001b[2m     - retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n",
+  "resources": {
+    "userIds": [
+      "cmvrpv1lh001f5jtdiya92evj",
+      "cmvrpv1rk001g5jtdk9kc1li4"
+    ],
+    "spaceIds": [
+      "cmvrpv1rx001h5jtdr1xt3odu",
+      "cmvrpv2ou001m5jtd6ipj34uc",
+      "cmvrpv2uv001r5jtdpcrfknmc"
+    ],
+    "pageIds": [
+      "f1b16d8e-ba3a-4b43-b179-8ac7b6b627ee"
+    ],
+    "agentIds": [
+      "agent_c13dfa7ef8c8228657a452dfdec71831"
+    ],
+    "runIds": []
+  },
+  "requests": [
+    {
+      "transport": "fixture",
+      "method": "POST",
+      "path": "/auth/register"
+    },
+    {
+      "transport": "fixture",
+      "method": "POST",
+      "path": "/auth/register"
+    },
+    {
+      "transport": "fixture",
+      "method": "POST",
+      "path": "/spaces"
+    },
+    {
+      "transport": "browser",
+      "method": "POST",
+      "path": "/auth/login"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces"
+    },
+    {
+      "transport": "browser",
+      "method": "POST",
+      "path": "/spaces"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces"
+    },
+    {
+      "transport": "browser",
+      "method": "POST",
+      "path": "/spaces"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2uv001r5jtdpcrfknmc"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv1rx001h5jtdr1xt3odu"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv1rx001h5jtdr1xt3odu"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv1rx001h5jtdr1xt3odu"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv1rx001h5jtdr1xt3odu"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv1rx001h5jtdr1xt3odu/graph/settings"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv1rx001h5jtdr1xt3odu/page-templates"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv1rx001h5jtdr1xt3odu/graph/settings"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv1rx001h5jtdr1xt3odu/page-templates"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmvrpv1rx001h5jtdr1xt3odu"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/graph/settings"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/page-templates"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/graph/settings"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/page-templates"
+    },
+    {
+      "transport": "browser",
+      "method": "PATCH",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc"
+    },
+    {
+      "transport": "browser",
+      "method": "PATCH",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc"
+    },
+    {
+      "transport": "browser",
+      "method": "PATCH",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc"
+    },
+    {
+      "transport": "fixture",
+      "method": "POST",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/members"
+    },
+    {
+      "transport": "browser",
+      "method": "POST",
+      "path": "/auth/login"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/graph/settings"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/page-templates"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/graph/settings"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/page-templates"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/content-tree"
+    },
+    {
+      "transport": "fixture",
+      "method": "POST",
+      "path": "/pages"
+    },
+    {
+      "transport": "fixture",
+      "method": "POST",
+      "path": "/agents"
+    },
+    {
+      "transport": "fixture",
+      "method": "PUT",
+      "path": "/agents/agent_c13dfa7ef8c8228657a452dfdec71831/grants/cmvrpv2ou001m5jtd6ipj34uc"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents/agent_c13dfa7ef8c8228657a452dfdec71831/credentials"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/pages/f1b16d8e-ba3a-4b43-b179-8ac7b6b627ee"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/pages/f1b16d8e-ba3a-4b43-b179-8ac7b6b627ee/notes"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/page-templates"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/templates"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/templates"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/content-tree"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/pages/f1b16d8e-ba3a-4b43-b179-8ac7b6b627ee/agent-binding"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/members"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/pages/f1b16d8e-ba3a-4b43-b179-8ac7b6b627ee/agent-binding"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/content-tree"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/members"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmvrpv1rx001h5jtdr1xt3odu"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmvrpv1rx001h5jtdr1xt3odu/collaboration/runs"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmvrpv1rx001h5jtdr1xt3odu/collaboration/runs"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/collaboration/runs"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/collaboration/runs"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2uv001r5jtdpcrfknmc"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2uv001r5jtdpcrfknmc/collaboration/runs"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2uv001r5jtdpcrfknmc/collaboration/runs"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents/agent_c13dfa7ef8c8228657a452dfdec71831"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/pages/f1b16d8e-ba3a-4b43-b179-8ac7b6b627ee/agent-binding"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/pages/f1b16d8e-ba3a-4b43-b179-8ac7b6b627ee/agent-binding"
+    },
+    {
+      "transport": "fixture",
+      "method": "DELETE",
+      "path": "/agents/agent_c13dfa7ef8c8228657a452dfdec71831/grants/cmvrpv2ou001m5jtd6ipj34uc"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents/agent_c13dfa7ef8c8228657a452dfdec71831"
+    },
+    {
+      "transport": "fixture",
+      "method": "DELETE",
+      "path": "/agents/agent_c13dfa7ef8c8228657a452dfdec71831"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents/agent_c13dfa7ef8c8228657a452dfdec71831"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/pages/f1b16d8e-ba3a-4b43-b179-8ac7b6b627ee"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc/content-tree"
+    },
+    {
+      "transport": "fixture",
+      "method": "DELETE",
+      "path": "/pages/f1b16d8e-ba3a-4b43-b179-8ac7b6b627ee"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/pages/f1b16d8e-ba3a-4b43-b179-8ac7b6b627ee"
+    },
+    {
+      "transport": "fixture",
+      "method": "DELETE",
+      "path": "/spaces/cmvrpv2uv001r5jtdpcrfknmc"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2uv001r5jtdpcrfknmc"
+    },
+    {
+      "transport": "fixture",
+      "method": "DELETE",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmvrpv2ou001m5jtd6ipj34uc"
+    },
+    {
+      "transport": "fixture",
+      "method": "DELETE",
+      "path": "/spaces/cmvrpv1rx001h5jtdr1xt3odu"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmvrpv1rx001h5jtdr1xt3odu"
+    },
+    {
+      "transport": "fixture",
+      "method": "DELETE",
+      "path": "/users/cmvrpv1rk001g5jtdk9kc1li4"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/users/me"
+    },
+    {
+      "transport": "fixture",
+      "method": "DELETE",
+      "path": "/users/cmvrpv1lh001f5jtdiya92evj"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/users/me"
+    }
+  ],
+  "noModelOrAgentExecutionRequests": true,
+  "completedAt": "2026-10-28T06:11:59.919Z",
+  "interrupted": false
+}

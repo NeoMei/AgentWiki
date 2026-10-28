@@ -1,0 +1,13 @@
+{
+  "mode": "isolated-backup-restore",
+  "status": "preflight-passed",
+  "verifiedAt": "2026-10-28T06:25:07.993678+00:00",
+  "businessDatabaseTouched": false,
+  "liveAttachmentsTouched": false,
+  "databaseCreated": false,
+  "backup": "/var/backups/agentwiki/space-review-release-v01265.KP7MhiQn",
+  "dumpSha256": "a1b07ae9ca294436255659352bdc92a6370d1ec3e284677ea2ae6c56a0ed422a",
+  "database": "agentwiki_restore_v01265_0ca1828fcdb64c89b0bc84e68e50cf26",
+  "preexisting": false,
+  "databaseExists": false
+}

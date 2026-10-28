@@ -1,0 +1,76 @@
+{
+  "status": "passed-local-not-published",
+  "testFull": {
+    "exitCode": 0,
+    "pass": 8540,
+    "fail": 0,
+    "skip": 9,
+    "phases": {
+      "runtime": 319,
+      "runtimeDbRedis": 246,
+      "server": 3773,
+      "client": 2937,
+      "syncProtocol": 140,
+      "localSync": 1125
+    },
+    "logSha256": "c901e47dd5049d7b2051b02ce8f15976e728daa7067b0f91425f94e437f28f67"
+  },
+  "browser": {
+    "passed": 10,
+    "scope": "actual React components with in-memory API fixtures; isolated system Chrome; no production writes",
+    "receipt": "/tmp/agentwiki-space-review-qa/receipt.json"
+  },
+  "migration": {
+    "onlyFutureDefault": true,
+    "existingSpacesBackfilled": false,
+    "treeSha256": "7f8648decb8c3ab0de310e2603c4d3023584c151d1713c3a5697084f4c085f0a"
+  },
+  "independentReview": {
+    "backend": "copy_button_review",
+    "client": "space_review_ux_audit",
+    "openImportantFindings": 0
+  },
+  "skipReasons": {
+    "optInCodeGraph": 1,
+    "dedicatedConnectionDb": 3,
+    "dedicatedTaskboardDb": 4,
+    "windowsAcl": 1
+  },
+  "cleanup": {
+    "ownedPreviewServerStopped": true,
+    "browserClosed": true,
+    "ownedDatabaseCleaned": true,
+    "unrelatedOldDatabasesPreserved": true,
+    "designDraftsPreserved": true
+  },
+  "sourceImplementationCommit": "c251549c5117b240e0f78bcdb7eaf0ba3a7a2f06",
+  "copyImplementationCommit": "dce0f764",
+  "releaseVersions": {
+    "web": "0.12.65",
+    "api": "0.12.65",
+    "client": "0.12.65",
+    "localSync": "0.13.5",
+    "protocol": "0.6.1"
+  },
+  "metadataOnlyReleasePreparation": true,
+  "otherGates": [
+    {
+      "name": "typecheck",
+      "status": "passed",
+      "exitCode": 0,
+      "logSha256": "8427b48995a1636c05adc8d787ecffbcee91de713b319f8193af798aec002470"
+    },
+    {
+      "name": "lint",
+      "status": "passed",
+      "exitCode": 0,
+      "logSha256": "d5b17ee595fbfdae02af58fd347506b1d5a827a69c28da8385dc57ae52ef712d"
+    },
+    {
+      "name": "all-package-build",
+      "status": "passed",
+      "exitCode": 0,
+      "logSha256": "ff7394cb1f33d355d778151b39c4442bb30fd99532904cabfaa5774626098609"
+    }
+  ]
+}

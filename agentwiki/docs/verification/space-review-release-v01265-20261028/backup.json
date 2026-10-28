@@ -1,0 +1,10 @@
+{
+  "status": "passed",
+  "backup": "/var/backups/agentwiki/space-review-release-v01265.KP7MhiQn",
+  "applicationConfigurationDatabaseAttachmentsPaired": true,
+  "snapshotHashesVerified": true,
+  "writersRestored": true,
+  "servicesActive": 3,
+  "healthChecksPassed": 5,
+  "archivesRemainServerPrivate": true
+}

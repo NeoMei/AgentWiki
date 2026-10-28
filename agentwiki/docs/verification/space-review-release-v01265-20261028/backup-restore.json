@@ -1,0 +1,17 @@
+{
+  "mode": "isolated-backup-restore",
+  "status": "passed",
+  "verifiedAt": "2026-10-28T06:25:08.344896+00:00",
+  "businessDatabaseTouched": false,
+  "liveAttachmentsTouched": false,
+  "databaseCreated": true,
+  "backup": "/var/backups/agentwiki/space-review-release-v01265.KP7MhiQn",
+  "dumpSha256": "a1b07ae9ca294436255659352bdc92a6370d1ec3e284677ea2ae6c56a0ed422a",
+  "database": "agentwiki_restore_v01265_b4a3d0a1b41c48ab8c4dcbb39fe76c44",
+  "preexisting": false,
+  "privateLog": "/var/backups/agentwiki/space-review-release-v01265.KP7MhiQn/restore-v01265-4bc58187ad474c2aa811efedc7f8ac85.log",
+  "restoredApplicationTables": 4,
+  "restoredPublicTables": 85,
+  "restoredCompletedMigrations": 66,
+  "databaseExists": false
+}

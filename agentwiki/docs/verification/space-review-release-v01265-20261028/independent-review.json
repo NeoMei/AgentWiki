@@ -1,0 +1,17 @@
+{
+  "status": "no-known-open-important-findings",
+  "sourceRange": "190ba1b3..c251549c",
+  "reviewers": {
+    "productAndQa": "/root/space_review_ux_audit",
+    "releaseTools": "/root/copy_button_review"
+  },
+  "reviewedSource": {
+    "copyFeedback": true,
+    "newDefaultAndExplicitPolicy": true,
+    "existingSpacesNotBackfilled": true,
+    "ownerOnlyPolicyChanges": true,
+    "oldOnboardRecoveryPreserved": true,
+    "pendingChangesNotAutomaticallyApproved": true
+  },
+  "qaBoundary": "Disposable resources only; no model calls; production feature allowlist unchanged. Copy browser path is not run when that feature is not enabled for the disposable Space."
+}

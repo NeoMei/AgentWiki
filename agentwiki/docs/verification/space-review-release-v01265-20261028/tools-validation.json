@@ -1,0 +1,145 @@
+{
+  "status": "passed",
+  "verifiedAt": "2026-10-28T06:09:18.840759+00:00",
+  "scope": "release tooling only; mock PostgreSQL, frozen-archive fixture and syntax/CLI checks; no production access or writes",
+  "checks": [
+    {
+      "check": "python-syntax",
+      "path": "prepare-source-manifest.py",
+      "status": "passed"
+    },
+    {
+      "check": "python-syntax",
+      "path": "verify-backup-restore.py",
+      "status": "passed"
+    },
+    {
+      "check": "python-syntax",
+      "path": "verify-backup-restore.spec.py",
+      "status": "passed"
+    },
+    {
+      "check": "python-syntax",
+      "path": "verify-release.py",
+      "status": "passed"
+    },
+    {
+      "check": "backup-shell-syntax",
+      "status": "passed",
+      "exitCode": 0
+    },
+    {
+      "check": "isolated-restore-control-flow",
+      "status": "passed",
+      "tests": 6,
+      "exitCode": 0,
+      "output": "......\n----------------------------------------------------------------------\nRan 6 tests in 0.012s\n\nOK"
+    },
+    {
+      "check": "cli-help",
+      "path": "prepare-source-manifest.py",
+      "status": "passed",
+      "exitCode": 0
+    },
+    {
+      "check": "cli-help",
+      "path": "verify-release.py",
+      "status": "passed",
+      "exitCode": 0
+    },
+    {
+      "check": "cli-help",
+      "path": "verify-backup-restore.py",
+      "status": "passed",
+      "exitCode": 0
+    },
+    {
+      "check": "reviewed-source-equivalence",
+      "path": "backup-production-v01265.sh",
+      "status": "passed",
+      "source": "docs/verification/notes-release-v01264-20261028/backup-production-v01264.sh",
+      "sourceSha256": "5fcdb07d6913ad6afef00c8ea982f337fbb5c6b2f751e9daa92442ee677e7037",
+      "adaptedSha256": "f911d487ff80c057c7bf40b9b4d7c85d0fc715b989326b6d2dbdc415771c7ca5",
+      "allowedChanges": "release version, directory, backup prefix, restore namespace and application labels only"
+    },
+    {
+      "check": "reviewed-source-equivalence",
+      "path": "prepare-source-manifest.py",
+      "status": "passed",
+      "source": "docs/verification/notes-release-v01264-20261028/prepare-source-manifest.py",
+      "sourceSha256": "d8b23d96b1096768f336668904a8dae6ccfbda15cb93fded284fd25635b0f458",
+      "adaptedSha256": "f40efa875a3aa92d4ddeae4ff3673f80d22dc5c47ca5f28e33d7ae033d8ae222",
+      "allowedChanges": "release version, directory, backup prefix, restore namespace and application labels only"
+    },
+    {
+      "check": "reviewed-source-equivalence",
+      "path": "verify-backup-restore.py",
+      "status": "passed",
+      "source": "docs/verification/notes-release-v01264-20261028/verify-backup-restore.py",
+      "sourceSha256": "087f4edcba64fd4172b7b6b089897799aa9960ff8971483d6a519de8b462ec53",
+      "adaptedSha256": "5368d4caafdedf71cc337b4f7ffd2b7ff317b655c1db9d818b764b4b63c94e98",
+      "allowedChanges": "release version, directory, backup prefix, restore namespace and application labels only"
+    },
+    {
+      "check": "reviewed-source-equivalence",
+      "path": "verify-backup-restore.spec.py",
+      "status": "passed",
+      "source": "docs/verification/notes-release-v01264-20261028/verify-backup-restore.spec.py",
+      "sourceSha256": "0f79cfe49ed0e2cc35d00310473a5da899121f4432b931bd3efa90c442248a27",
+      "adaptedSha256": "f6234927729e412ceca0ba791c99ca81955002bf51cb21fd7d62a09f21f16c84",
+      "allowedChanges": "release version, directory, backup prefix, restore namespace and application labels only"
+    },
+    {
+      "check": "reviewed-source-equivalence",
+      "path": "verify-release.py",
+      "status": "passed",
+      "source": "docs/verification/notes-release-v01264-20261028/verify-release.py",
+      "sourceSha256": "794fac40c01764b8ededf6bc44ba27928b4573f2cd164b782b32e6e5bbff7f16",
+      "adaptedSha256": "d8b6c44fdbf1deef79c5275ed5c8582e8a4c34c415a5ed0e8c553d273ebc8899",
+      "allowedChanges": "release version, directory, backup prefix, restore namespace and application labels only"
+    },
+    {
+      "check": "version-and-prefix-pairing",
+      "status": "passed",
+      "appVersion": "0.12.65",
+      "localSyncVersion": "0.13.5",
+      "protocolVersion": "0.6.1",
+      "backupPrefix": "space-review-release-v01265.",
+      "restorePrefix": "agentwiki_restore_v01265_"
+    },
+    {
+      "check": "frozen-archive-manifest-and-verifier-hash-matching",
+      "status": "passed",
+      "mockGitTransport": true,
+      "realGitCommitCreated": false,
+      "fixtureSourceFiles": 6,
+      "fixtureManifestSha256": "d1553cf464d4a7a6d583164bc4af69618649c700a8bb9bde864af72b82cc3c11",
+      "fixtureVerifierSha256": "ccec17b3dbac0459980ebfe65348a860c34350957ac34941fb807144719f511a",
+      "excludedEnvAndBuildArtifacts": true,
+      "standaloneCliHelpExitCode": 0
+    },
+    {
+      "check": "wrong-frozen-version-fails-before-output",
+      "status": "passed"
+    },
+    {
+      "check": "unchanged-read-retry-reference",
+      "status": "not-rerun",
+      "source": "docs/verification/notes-release-v01264-20261028/browser-request-policy.mjs",
+      "sha256": "2ba13e4fd02454a3df46df38169b59fa7727be31aee5d926b2da0814a31970a1",
+      "existingTests": 7,
+      "reason": "unchanged reviewed implementation; production browser script is a separately reviewed artifact"
+    }
+  ],
+  "toolFilesSha256": {
+    "backup-production-v01265.sh": "f911d487ff80c057c7bf40b9b4d7c85d0fc715b989326b6d2dbdc415771c7ca5",
+    "prepare-source-manifest.py": "f40efa875a3aa92d4ddeae4ff3673f80d22dc5c47ca5f28e33d7ae033d8ae222",
+    "release-tools.md": "d00b4a1bafad0d5f58a68c679a9341f5f612ccfec7bb87af6146806a6f862cf1",
+    "verify-backup-restore.py": "5368d4caafdedf71cc337b4f7ffd2b7ff317b655c1db9d818b764b4b63c94e98",
+    "verify-backup-restore.spec.py": "f6234927729e412ceca0ba791c99ca81955002bf51cb21fd7d62a09f21f16c84",
+    "verify-release.py": "d8b6c44fdbf1deef79c5275ed5c8582e8a4c34c415a5ed0e8c553d273ebc8899"
+  },
+  "productionBackupRun": false,
+  "productionDeployRun": false,
+  "frozenManifestPrepared": false
+}

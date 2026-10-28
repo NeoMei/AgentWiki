@@ -1,5 +1,7 @@
 # 当前目标
 
+用户已授权发布审核方式与复制按钮改进；正在准备v0.12.65，详见tasks/active/space-review-release-20261028/。生产仍v0.12.64。
+
 新空间默认无需审核、创建可选、标题快捷与Settings顶部卡片已本地实现并验收，尚未发布；已有Space策略/待审事项不批量改变。详见tasks/archive/space-review-policy-20261028/。
 
 跨页笔记看板及主站蓝色logo已随v0.12.64发布。新增复制按钮样式/反馈修复已在本地完成并验证，尚未发布。当前正式生产与GitHub latest仍为v0.12.64，冻结源码190ba1b34c2cb03691cc82bfbe4aa3bc2a7e725c。
