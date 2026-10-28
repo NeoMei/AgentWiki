@@ -1,0 +1,23 @@
+{
+  "status": "passed",
+  "verifiedAt": "2026-10-28T06:35:38.281453+00:00",
+  "localUiDatabaseRemoved": true,
+  "ownedLocalUiApiRedisClientStopped": true,
+  "browserClosed": true,
+  "detachedPublicationTreeRemoved": "/tmp/agentwiki-v01265-tree-ecf5f027",
+  "taskSshMasterClosed": true,
+  "productionFixturesCleanedReadBack": {
+    "users": 2,
+    "spaces": 3,
+    "pages": 1,
+    "agents": 1,
+    "grants": 1,
+    "bindings": 1,
+    "runs": 0
+  },
+  "runRecordsPhysicallyDeleted": false,
+  "productionFeatureAllowlistChanged": false,
+  "untrackedDesignPreserved": true,
+  "privatePairedBackupRetained": "/var/backups/agentwiki/space-review-release-v01265.KP7MhiQn",
+  "previousApplicationRetained": "/root/agentwiki-previous-20261028142947"
+}

@@ -1,0 +1,16 @@
+{
+  "revision": "ecf5f027a9cfa953aba264c47e49907d1c43041f",
+  "sourceFiles": 1469,
+  "manifestSha256": "e36270ea737c469fcca2c87e0fca0c750a052e63dd44f8fb2e90f7326c6f2ee5",
+  "manifest": "/private/tmp/agentwiki-v01265-receipts-ecf5f027/source-manifest.json",
+  "verifier": "/private/tmp/agentwiki-v01265-receipts-ecf5f027/verify-release.py",
+  "verifierSha256": "ccec17b3dbac0459980ebfe65348a860c34350957ac34941fb807144719f511a",
+  "verifierArgs": [
+    "--revision",
+    "ecf5f027a9cfa953aba264c47e49907d1c43041f",
+    "--manifest-sha256",
+    "e36270ea737c469fcca2c87e0fca0c750a052e63dd44f8fb2e90f7326c6f2ee5",
+    "--expected-files",
+    "1469"
+  ]
+}

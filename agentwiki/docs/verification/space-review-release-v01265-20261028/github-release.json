@@ -1,0 +1,12 @@
+{
+  "isDraft": false,
+  "isPrerelease": false,
+  "publishedAt": "2026-10-28T06:31:55Z",
+  "tagName": "v0.12.65",
+  "targetCommitish": "ecf5f027a9cfa953aba264c47e49907d1c43041f",
+  "url": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.65",
+  "status": "passed",
+  "latestReleaseReadBack": true,
+  "tagObject": "f2c0995b9f5acd3ffac885aa4741dc3bf7b293fb",
+  "tagResolvesTo": "ecf5f027a9cfa953aba264c47e49907d1c43041f"
+}

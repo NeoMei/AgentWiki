@@ -1,6 +1,6 @@
 # 协作指令复制按钮样式与反馈
 
-用户截图指出创建完成页复制按钮粗糙且没有成功反馈。基线bd58b522，生产v0.12.64不变。本次按明确可逆的小修复处理，未推送或部署。
+用户截图指出创建完成页复制按钮粗糙且没有成功反馈。基线bd58b522，生产v0.12.64不变。本次按明确可逆的小修复处理；后续随v0.12.65发布部署，线上结果页实点边界见space-review-release-20261028发布任务。
 
 根因：NewPageDialog与PageAgentBindingDialog两处相同按钮直接void调用clipboard.writeText，不捕获结果；border未指颜色且控件偏大。抽feature级InstructionCopyButton统一两入口，显式轻灰边框/浅背景，桌面32px、手机44px。复制完整原指令，await成功后Check+已复制+可访问status，3秒复位；拒绝或缺失API显示alert并允许重试。按text隔离组件，卸载后忽略旧pending，保留用户手选指令，未改变Agent指令内容或启动行为。
 

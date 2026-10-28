@@ -1,0 +1,9 @@
+{
+  "status": "passed",
+  "revision": "ecf5f027a9cfa953aba264c47e49907d1c43041f",
+  "exitCode": 0,
+  "fromCleanDetachedTree": true,
+  "previousApplicationTree": "/root/agentwiki-previous-20261028142947",
+  "pairedBackup": "/var/backups/agentwiki/space-review-release-v01265.KP7MhiQn",
+  "logSha256": "8c71e7ab8b827905e1304547c9736ac61a2c7c14e6927a41971e4f8bec6d8b62"
+}

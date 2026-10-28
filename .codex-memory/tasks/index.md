@@ -4,8 +4,6 @@
 
 ## 活跃任务
 
-- [space-review-release-20261028](active/space-review-release-20261028/brief.md)：已授权v0.12.65发布，版本冻结/备份部署/生产验收准备中。
-
 - [notification-unread-20261023](active/notification-unread-20261023/brief.md)：#12服务端count漏readAt过滤已补发.58，真实PG红绿、server3591/3skip及生产实际服务unread1→0/历史不变通过；原报告回复回读，billy浏览器待验。
 
 - [release-v01257-20261023](active/release-v01257-20261023/brief.md)：Web .57/精确npm .5/GitHub已发布并验收；完整测试8223/5skip，生产1422源码及浏览器/原报告通过；仅npm latest推广因安全密钥超时待继续。
@@ -24,7 +22,9 @@
 
 ## 最近完成
 
-- [space-review-policy-20261028](archive/space-review-policy-20261028/brief.md)：本地新空间默认no-review、创建可选、标题快捷及Settings顶部入口完成；8540pass/9条件skip、10项本地Chrome与独立复审通过，尚未发布。
+- [space-review-release-20261028](archive/space-review-release-20261028/brief.md)：v0.12.65已发布部署；8540pass/9skip、1469源码、104旧Space策略保持及生产11项通过；备份恢复/临时资源清理完成，复制线上结果页实点边界保留。
+
+- [space-review-policy-20261028](archive/space-review-policy-20261028/brief.md)：新空间默认no-review、创建可选、标题快捷及Settings顶部入口已随v0.12.65发布；8540pass/9条件skip、生产11项与旧策略保持验证通过。
 
 - [notes-discovery-release-20261028](archive/notes-discovery-release-20261028/brief.md)：v0.12.64已发布部署，跨页笔记双视图与蓝色logo上线；8492pass/9条件skip、1461源码和生产13项真实Chrome通过，备份恢复及临时资源清理完成。
 
