@@ -1,9 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AuthProvider } from '../../context/AuthContext';
+import { AuthProvider, useAuth } from '../../context/AuthContext';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { SpaceSettings } from './SpaceSettings';
+import { announceSpaceReviewPolicyChange } from './spaceReviewPolicyEvents';
 
 const api = vi.hoisted(() => ({ get: vi.fn(), patch: vi.fn(), post: vi.fn() }));
 vi.mock('../../api/client', () => ({ default: api }));
@@ -39,6 +40,14 @@ const NavigableSettings = () => {
   const navigate = useNavigate();
   return <>
     <button type='button' onClick={() => navigate('/spaces/space-2/settings')}>Switch space</button>
+    <SpaceSettings />
+  </>;
+};
+
+const UserSwitchableSettings = () => {
+  const { login } = useAuth();
+  return <>
+    <button type='button' onClick={() => login('test-user-token', { id: 'user-2' })}>Switch user</button>
     <SpaceSettings />
   </>;
 };
@@ -87,7 +96,7 @@ describe('SpaceSettings auto graph card', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存设置' }));
     await screen.findByText('已保存');
     expect(api.patch).toHaveBeenLastCalledWith('/spaces/space-1', {
-      description: 'New description', approvalPolicy: 'always-review',
+      description: 'New description',
     });
     expect(input).toHaveValue(legacy.name);
     fireEvent.change(input, { target: { value: '改'.repeat(33) } });
@@ -100,14 +109,14 @@ describe('SpaceSettings auto graph card', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存设置' }));
     await screen.findByText('已保存');
     expect(api.patch).toHaveBeenLastCalledWith('/spaces/space-1', {
-      name: '😀'.repeat(32), description: 'New description', approvalPolicy: 'always-review',
+      name: '😀'.repeat(32), description: 'New description',
     });
     api.patch.mockClear();
     fireEvent.change(screen.getByLabelText('描述'), { target: { value: 'Second description' } });
     fireEvent.click(screen.getByRole('button', { name: '保存设置' }));
     await screen.findByText('已保存');
     expect(api.patch).toHaveBeenLastCalledWith('/spaces/space-1', {
-      description: 'Second description', approvalPolicy: 'always-review',
+      description: 'Second description',
     });
   });
 
@@ -220,7 +229,7 @@ describe('SpaceSettings auto graph card', () => {
     expect(screen.queryByText('已保存')).not.toBeInTheDocument();
   });
 
-  it('normalizes a legacy scoped auto-publish Space policy to the no-review choice and writes the canonical value', async () => {
+  it('normalizes a legacy policy to no review without attaching it to a basic settings save', async () => {
     api.get.mockImplementation((url: string) => {
       if (url === '/spaces/space-1') {
         return Promise.resolve({ data: { ...spaceSettings, approvalPolicy: 'scoped-auto-publish' } });
@@ -231,16 +240,88 @@ describe('SpaceSettings auto graph card', () => {
     api.patch.mockResolvedValue({ data: { ...spaceSettings, approvalPolicy: 'no-review' } });
     renderSettings();
 
-    const policy = await screen.findByRole('combobox');
-    expect(policy).toHaveValue('no-review');
-    expect(screen.getByRole('option', { name: '无需审核' })).toBeInTheDocument();
-    expect(screen.queryByRole('option', { name: '限定范围自动发布' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('radio', { name: /无需审核/ })).toBeChecked();
+    expect(screen.queryByRole('radio', { name: '限定范围自动发布' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '保存设置' }));
     await screen.findByText('已保存');
     expect(api.patch).toHaveBeenCalledWith('/spaces/space-1', {
-      description: '', approvalPolicy: 'no-review',
+      description: '',
     });
+  });
+
+  it('saves review policy independently while preserving unfinished basic settings', async () => {
+    api.patch.mockImplementation((_url, body) => Promise.resolve({ data: { ...spaceSettings, ...body } }));
+    renderSettings();
+    const name = await screen.findByLabelText('名称');
+    const description = screen.getByLabelText('描述');
+    fireEvent.change(name, { target: { value: '未保存名称' } });
+    fireEvent.change(description, { target: { value: '未保存描述' } });
+
+    fireEvent.click(screen.getByRole('radio', { name: /无需审核/ }));
+    fireEvent.click(screen.getByRole('button', { name: '保存审核方式' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('审核方式已保存');
+
+    expect(api.patch).toHaveBeenLastCalledWith('/spaces/space-1', { approvalPolicy: 'no-review' });
+    expect(name).toHaveValue('未保存名称');
+    expect(description).toHaveValue('未保存描述');
+    fireEvent.click(screen.getByRole('button', { name: '保存设置' }));
+    await waitFor(() => expect(api.patch).toHaveBeenLastCalledWith('/spaces/space-1', {
+      name: '未保存名称', description: '未保存描述',
+    }));
+  });
+
+  it('keeps a newly saved policy when an older basic settings response arrives', async () => {
+    let finishBasicSave: (value: unknown) => void = () => undefined;
+    api.patch.mockImplementation((_url, body) => {
+      if (body.approvalPolicy) return Promise.resolve({ data: { ...spaceSettings, approvalPolicy: body.approvalPolicy } });
+      return new Promise((resolve) => { finishBasicSave = resolve; });
+    });
+    renderSettings();
+    const name = await screen.findByLabelText('名称');
+    fireEvent.change(name, { target: { value: '已保存名称' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存设置' }));
+    fireEvent.click(screen.getByRole('radio', { name: /无需审核/ }));
+    fireEvent.click(screen.getByRole('button', { name: '保存审核方式' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('审核方式已保存');
+    await act(async () => {
+      finishBasicSave({ data: { ...spaceSettings, name: '已保存名称' } });
+    });
+
+    expect(screen.getByRole('radio', { name: /无需审核/ })).toBeChecked();
+    expect(name).toHaveValue('已保存名称');
+  });
+
+  it('keeps a policy saved from the header while the initial settings request was pending', async () => {
+    let finishLoad: (value: unknown) => void = () => undefined;
+    api.get.mockImplementation((url: string) => {
+      if (url === '/spaces/space-1') return new Promise((resolve) => { finishLoad = resolve; });
+      return Promise.resolve({ data: graphSettings });
+    });
+    renderSettings();
+
+    await act(async () => {
+      announceSpaceReviewPolicyChange({ spaceId: 'space-1', actorId: 'user-1', approvalPolicy: 'no-review' });
+      finishLoad({ data: spaceSettings });
+    });
+
+    expect(await screen.findByRole('radio', { name: /无需审核/ })).toBeChecked();
+    expect(screen.getByLabelText('名称')).toHaveValue('Docs');
+  });
+
+  it.each(['admin', 'editor', 'viewer'])('keeps review policy read-only for a Space %s', async (role) => {
+    api.get.mockImplementation((url: string) => Promise.resolve({
+      data: url.endsWith('/graph/settings') ? graphSettings : {
+        ...spaceSettings, members: [{ userId: 'user-1', role }],
+      },
+    }));
+    renderSettings();
+
+    expect(await screen.findByText('始终审核')).toBeInTheDocument();
+    expect(screen.getByText('仅空间所有者可以修改审核方式。')).toBeInTheDocument();
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '保存审核方式' })).not.toBeInTheDocument();
+    expect(api.patch).not.toHaveBeenCalled();
   });
 
   it('shows a retryable error instead of silently hiding the card', async () => {
@@ -364,6 +445,34 @@ describe('SpaceSettings auto graph card', () => {
     });
 
     expect(screen.getByLabelText('名称')).toHaveValue('Space Two');
+    expect(screen.queryByText('已保存')).not.toBeInTheDocument();
+  });
+
+  it('ignores a basic settings save completed after switching users in the same Space', async () => {
+    let finishOldSave: (value: unknown) => void = () => undefined;
+    let spaceLoads = 0;
+    api.get.mockImplementation((url: string) => {
+      if (url.endsWith('/graph/settings')) return Promise.resolve({ data: graphSettings });
+      spaceLoads += 1;
+      return Promise.resolve({ data: spaceLoads === 1 ? spaceSettings : {
+        ...spaceSettings, name: 'New user view', members: [{ userId: 'user-2', role: 'viewer' }],
+      } });
+    });
+    api.patch.mockImplementation(() => new Promise((resolve) => { finishOldSave = resolve; }));
+    render(
+      <AuthProvider><LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1/settings']}>
+        <Routes><Route path='/spaces/:id/settings' element={<UserSwitchableSettings />} /></Routes>
+      </MemoryRouter></LanguageProvider></AuthProvider>,
+    );
+    fireEvent.change(await screen.findByLabelText('名称'), { target: { value: 'Old user draft' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存设置' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Switch user' }));
+    await waitFor(() => expect(screen.getByLabelText('名称')).toHaveValue('New user view'));
+
+    await act(async () => { finishOldSave({ data: { ...spaceSettings, name: 'Old user draft' } }); });
+
+    expect(screen.getByLabelText('名称')).toHaveValue('New user view');
+    expect(screen.getByLabelText('名称')).toBeDisabled();
     expect(screen.queryByText('已保存')).not.toBeInTheDocument();
   });
 

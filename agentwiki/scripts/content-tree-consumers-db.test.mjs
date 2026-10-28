@@ -32,6 +32,7 @@ const { PushSessionService } = requireFromServer('./dist/integrations/obsidian/p
 const { KnowledgeSubmissionService } = requireFromServer('./dist/knowledge-pipeline/knowledge-submission.service.js');
 const { SourceService } = requireFromServer('./dist/knowledge-pipeline/source.service.js');
 const { McpService } = requireFromServer('./dist/mcp/mcp.service.js');
+const { installBigIntJsonSerialization } = requireFromServer('./dist/bigint-json.js');
 
 const baseDatabaseUrl = process.env.FOLDER_TEST_DATABASE_URL;
 
@@ -80,6 +81,8 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
   skip: baseDatabaseUrl ? false : 'FOLDER_TEST_DATABASE_URL is not configured',
   timeout: 300_000,
 }, async (t) => {
+  // Match main.ts before testing MCP responses containing persisted revisions.
+  installBigIntJsonSerialization();
   const adminUrl = administrativeUrl(baseDatabaseUrl);
   const inventoryClient = new PrismaClient({ datasources: { db: { url: adminUrl } } });
   let inventoryBefore;
@@ -676,6 +679,7 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
 
         await t.test('real Folder writer and real Source Agent proposal serialize without the Space-row/advisory deadlock', async () => {
           const spaceId = await createSpace('agent-lock-order');
+          await prisma.space.update({ where: { id: spaceId }, data: { approvalPolicy: 'always-review' } });
           const agentId = `lock-order-agent-${suffix}`;
           const grantId = `lock-order-grant-${suffix}`;
           const credentialId = `lock-order-credential-${suffix}`;
@@ -1426,8 +1430,9 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
             .every((item) => item.status === 'accepted'));
         });
 
-        await t.test('real MCP propose_page persists caller tree CAS, publishes, and rejects an old proposal after a concurrent tree change', async () => {
+        await t.test('real MCP propose_page persists caller tree CAS, publishes, and rejects an old proposal after a concurrent tree change', async (mcpTest) => {
           const spaceId = await createSpace('mcp-producer');
+          await prisma.space.update({ where: { id: spaceId }, data: { approvalPolicy: 'always-review' } });
           const agentId = `mcp-agent-${suffix}`;
           const grantId = `mcp-grant-${suffix}`;
           const credentialId = `mcp-credential-${suffix}`;
@@ -1520,6 +1525,23 @@ test('Folder-aware Page consumers are atomic in real PostgreSQL', {
           assert.equal(rolledBack.reviewedAt, null);
           assert.equal(rolledBack.publishedAt, null);
           assert.equal(await prisma.approval.count({ where: { changeSetId: staleProposal.id } }), 0);
+
+          await mcpTest.test('no-review MCP proposals auto-publish for the same Editor Grant and serialize revision values', async () => {
+            await prisma.space.update({ where: { id: spaceId }, data: { approvalPolicy: 'no-review' } });
+            const response = await tools.propose_page.handler({
+              spaceId, title: 'MCP auto published', content: '# No review', expectedTreeRevision: '2',
+            });
+            const result = JSON.parse(response.content[0].text);
+            assert.equal(result.status, 'published');
+            assert.equal(result.autoPublished, true);
+            const autoPublishedPage = await prisma.page.findFirstOrThrow({
+              where: { spaceId, title: 'MCP auto published' },
+            });
+            assert.equal(autoPublishedPage.lastChangeSetId, result.id);
+            assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: spaceId } })).contentTreeRevision, 3n);
+            assert.equal((await prisma.agentGrant.findUniqueOrThrow({ where: { id: grantId } })).role, 'editor');
+            assert.equal(await prisma.approval.count({ where: { changeSetId: result.id } }), 0);
+          });
         });
 
         await t.test('Review revert commits once and rolls back stale, path-collision, and deleted-Folder targets', async () => {

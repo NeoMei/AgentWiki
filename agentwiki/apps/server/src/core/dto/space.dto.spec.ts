@@ -38,8 +38,13 @@ describe.each([CreateSpaceDto, UpdateSpaceDto])('%p approval policy contract', (
       .resolves.toMatchObject({ approvalPolicy });
   });
 
-  it('rejects removed approval policy values', async () => {
-    await expect(parse({ ...(metatype === CreateSpaceDto ? { name: 'Space' } : {}), approvalPolicy: 'review-required' }))
+  it.each(['review-required', '', null, 123, true, [], {}, ['no-review']])('rejects invalid approval policy %p', async (approvalPolicy) => {
+    await expect(parse({ ...(metatype === CreateSpaceDto ? { name: 'Space' } : {}), approvalPolicy }))
       .rejects.toMatchObject({ status: 400 });
+  });
+
+  it('allows the approval policy to be omitted', async () => {
+    await expect(parse(metatype === CreateSpaceDto ? { name: 'Space' } : {}))
+      .resolves.not.toHaveProperty('approvalPolicy');
   });
 });

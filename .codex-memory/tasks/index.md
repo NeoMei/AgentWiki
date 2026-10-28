@@ -22,6 +22,8 @@
 
 ## 最近完成
 
+- [space-review-policy-20261028](archive/space-review-policy-20261028/brief.md)：本地新空间默认no-review、创建可选、标题快捷及Settings顶部入口完成；8540pass/9条件skip、10项本地Chrome与独立复审通过，尚未发布。
+
 - [notes-discovery-release-20261028](archive/notes-discovery-release-20261028/brief.md)：v0.12.64已发布部署，跨页笔记双视图与蓝色logo上线；8492pass/9条件skip、1461源码和生产13项真实Chrome通过，备份恢复及临时资源清理完成。
 
 - [tianshu-logo-blue-20261028](archive/tianshu-logo-blue-20261028/brief.md)：页面/标签/触屏标志改为主站 #155DFC；74项测试、构建、桌面/手机检查及颜色/alpha独立复核通过；已随v0.12.64发布部署并通过生产颜色检查。

@@ -29,7 +29,7 @@ export class CreateSpaceDto {
   @IsIn(['public', 'private'])
   visibility?: 'public' | 'private';
 
-  @IsOptional()
+  @ValidateIf((_object, value) => value !== undefined)
   @IsIn(['always-review', 'no-review', 'scoped-auto-publish'])
   approvalPolicy?: 'always-review' | 'no-review' | 'scoped-auto-publish';
 }
@@ -56,7 +56,7 @@ export class UpdateSpaceDto {
   @IsIn(['public', 'private'])
   visibility?: 'public' | 'private';
 
-  @IsOptional()
+  @ValidateIf((_object, value) => value !== undefined)
   @IsIn(['always-review', 'no-review', 'scoped-auto-publish'])
   approvalPolicy?: 'always-review' | 'no-review' | 'scoped-auto-publish';
 }

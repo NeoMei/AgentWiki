@@ -1,4 +1,3 @@
-import { NativeSelect } from '../../components/NativeSelect';
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import api from '../../api/client';
@@ -9,6 +8,8 @@ import { useLanguage } from '../../context/LanguageContext';
 import { SPACE_NAME_MAX_LENGTH } from '@agentwiki/shared';
 import { validatorLength } from '../page-templates/validatorLength';
 import { normalizeSpaceApprovalPolicy, type CanonicalSpaceApprovalPolicy } from '../../api/space-types';
+import { SpaceReviewPolicyCard } from './SpaceReviewPolicy';
+import { listenSpaceReviewPolicyChanges } from './spaceReviewPolicyEvents';
 
 interface SpaceSettingsModel {
   name: string;
@@ -191,6 +192,9 @@ export const SpaceSettings: React.FC = () => {
   const [error, setError] = useState('');
   const activeSpaceId = useRef(id);
   activeSpaceId.current = id;
+  const activeActorId = useRef(user?.id);
+  activeActorId.current = user?.id;
+  const latestPolicyChange = useRef<CanonicalSpaceApprovalPolicy | null>(null);
   const currentSpace = loadedSpaceId === id ? space : null;
   const nameChanged = currentSpace !== null && currentSpace.name !== confirmedName;
   const nameLength = validatorLength(currentSpace?.name.trim() ?? '');
@@ -208,10 +212,14 @@ export const SpaceSettings: React.FC = () => {
     setSaved(false);
     setSaving(false);
     setError('');
+    latestPolicyChange.current = null;
     api.get(`/spaces/${id}`)
       .then((response) => {
         if (active) {
-          setSpace({ ...response.data, approvalPolicy: normalizeSpaceApprovalPolicy(response.data.approvalPolicy) });
+          setSpace({
+            ...response.data,
+            approvalPolicy: latestPolicyChange.current ?? normalizeSpaceApprovalPolicy(response.data.approvalPolicy),
+          });
           setConfirmedName(response.data.name);
           setLoadedSpaceId(id);
         }
@@ -222,11 +230,20 @@ export const SpaceSettings: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [id]);
+  }, [id, user?.id]);
+
+  useEffect(() => {
+    if (!id) return;
+    return listenSpaceReviewPolicyChanges(id, user?.id, (approvalPolicy) => {
+      latestPolicyChange.current = approvalPolicy;
+      setSpace((current) => current ? { ...current, approvalPolicy } : current);
+    });
+  }, [id, user?.id]);
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!id || !currentSpace || invalidName || !canEditSpace || saving) return;
+    const actorId = user?.id;
     setSaving(true);
     setSaved(false);
     setError('');
@@ -234,17 +251,20 @@ export const SpaceSettings: React.FC = () => {
       const response = await api.patch(`/spaces/${id}`, {
         ...(nameChanged ? { name: currentSpace.name.trim() } : {}),
         description: currentSpace.description?.trim() ?? '',
-        approvalPolicy: currentSpace.approvalPolicy,
       });
-      if (activeSpaceId.current !== id) return;
-      setSpace((current) => current ? { ...current, ...response.data } : current);
+      if (activeSpaceId.current !== id || activeActorId.current !== actorId) return;
+      setSpace((current) => current ? {
+        ...current,
+        name: response.data.name ?? (nameChanged ? currentSpace.name.trim() : confirmedName),
+        description: response.data.description ?? currentSpace.description?.trim() ?? '',
+      } : current);
       setConfirmedName(response.data.name ?? (nameChanged ? currentSpace.name.trim() : confirmedName));
       setSaved(true);
     } catch (requestError: any) {
-      if (activeSpaceId.current !== id) return;
+      if (activeSpaceId.current !== id || activeActorId.current !== actorId) return;
       setError(apiErrorMessage(requestError, t, 'settings.saveFailed'));
     } finally {
-      if (activeSpaceId.current === id) setSaving(false);
+      if (activeSpaceId.current === id && activeActorId.current === actorId) setSaving(false);
     }
   };
 
@@ -260,6 +280,12 @@ export const SpaceSettings: React.FC = () => {
   return (
     <div className="max-w-3xl mx-auto">
       <h1 className="text-2xl font-semibold mt-3 mb-6">{t('settings.spaceTitle')}</h1>
+      {id ? <SpaceReviewPolicyCard
+        spaceId={id}
+        approvalPolicy={currentSpace.approvalPolicy}
+        canEdit={canEditSpace}
+        actorId={user?.id}
+      /> : null}
       <form onSubmit={save} className="space-y-5 border rounded-[14px] bg-white p-5">
         <div>
           <label className="block text-sm font-medium mb-1" htmlFor="space-name">{t('common.name')}</label>
@@ -273,14 +299,6 @@ export const SpaceSettings: React.FC = () => {
         <div>
           <label className="block text-sm font-medium mb-1" htmlFor="space-description">{t('common.description')}</label>
           <textarea id="space-description" value={currentSpace.description || ''} onChange={(event) => updateDraft({ description: event.target.value })} className="w-full border rounded-lg px-3 py-2" rows={3} disabled={saving || !canEditSpace} />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1" htmlFor="approval-policy">{t('settings.approval')}</label>
-          <p className="text-sm text-gray-500 mb-3">{t('settings.approvalHelp')}</p>
-          <NativeSelect id="approval-policy" value={currentSpace.approvalPolicy} onChange={(event) => updateDraft({ approvalPolicy: event.target.value as SpaceSettingsModel['approvalPolicy'] })}  disabled={saving || !canEditSpace}>
-            <option value="always-review">{t('settings.alwaysReview')}</option>
-            <option value="no-review">{t('settings.autoPublish')}</option>
-          </NativeSelect>
         </div>
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
         <div className="flex items-center gap-3">

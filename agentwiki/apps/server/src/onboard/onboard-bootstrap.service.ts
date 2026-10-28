@@ -480,7 +480,7 @@ export class OnboardBootstrapService {
             name: plan.space.name.trim(),
             slug: `${this.slugify(plan.space.name) || 'space'}-${this.hash(deviceSessionId).slice(0, 16)}`,
             visibility: 'private',
-            approvalPolicy: 'always-review',
+            approvalPolicy: 'no-review',
             members: { create: { userId, role: 'owner' } },
           },
         })
@@ -527,7 +527,10 @@ export class OnboardBootstrapService {
       },
     });
     if (!space) throw new BusinessException('SPACE_ACCESS_DENIED');
-    if (plan.space.mode === 'create' && space.approvalPolicy !== 'always-review') {
+    // Space policy is owner-controlled and was not part of the confirmed plan.
+    // Keep historical defaults and later owner choices intact when resuming.
+    if (plan.space.mode === 'create'
+      && !['always-review', 'no-review', 'scoped-auto-publish'].includes(space.approvalPolicy)) {
       throw new BusinessException(
         'RESOURCE_CONFLICT',
         'Onboarding-created Space policy is inconsistent',

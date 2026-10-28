@@ -282,6 +282,28 @@ describe('SpaceService.create card statistics', () => {
   });
 });
 
+describe('SpaceService.create approval policy', () => {
+  const prisma = { space: {
+    findUnique: jest.fn().mockResolvedValue(null),
+    create: jest.fn(async ({ data }) => ({ id: 'space-new', ...data })),
+  } } as any;
+  const service = new SpaceService(prisma, revisionWriter, authorization);
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('persists no-review when a new Space omits its approval policy', async () => {
+    await expect(service.create({ name: '新空间' }, 'owner-1'))
+      .resolves.toMatchObject({ approvalPolicy: 'no-review' });
+  });
+
+  it.each(['always-review', 'no-review', 'scoped-auto-publish'] as const)(
+    'preserves an explicitly selected %s policy', async (approvalPolicy) => {
+      await expect(service.create({ name: '新空间', approvalPolicy }, 'owner-1'))
+        .resolves.toMatchObject({ approvalPolicy });
+    },
+  );
+});
+
 describe('SpaceService.listMembers includes agents', () => {
   const prisma = {
     space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },

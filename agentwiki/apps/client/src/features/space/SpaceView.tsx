@@ -35,6 +35,9 @@ import type {
 import { useOptionalSpaceWorkspace } from '../space-workspace/SpaceWorkspaceContext';
 import { useSpaceDirectory } from '../space-workspace/useSpaceDirectory';
 import { SpaceDirectory } from '../space-workspace/SpaceDirectory';
+import { SpaceReviewPolicyStatus } from './SpaceReviewPolicy';
+import { listenSpaceReviewPolicyChanges } from './spaceReviewPolicyEvents';
+import type { SpaceApprovalPolicy } from '../../api/space-types';
 
 const AgentSessionPanel = React.lazy(() => import('../agent-session/AgentSessionPanel').then((module) => ({ default: module.AgentSessionPanel })));
 
@@ -48,6 +51,7 @@ interface Space {
   name: string;
   description?: string;
   members: SpaceMemberSummary[];
+  approvalPolicy?: SpaceApprovalPolicy;
 }
 
 interface PendingFolderDialog {
@@ -110,6 +114,16 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   };
 
   const [space, setSpace] = useState<Space | null>(null);
+  const latestPolicy = useRef<{ spaceId: string; actorId?: string; approvalPolicy: SpaceApprovalPolicy; epoch: number } | null>(null);
+  const policyEpoch = useRef(0);
+  useEffect(() => {
+    latestPolicy.current = null;
+    if (!id) return;
+    return listenSpaceReviewPolicyChanges(id, user?.id, approvalPolicy => {
+      latestPolicy.current = { spaceId: id, actorId: user?.id, approvalPolicy, epoch: ++policyEpoch.current };
+      setSpace(current => current?.id === id ? { ...current, approvalPolicy } : current);
+    });
+  }, [id, user?.id]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -252,9 +266,12 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
       return;
     }
     try {
+      const policyEpochAtRequest = policyEpoch.current;
       const spaceRes = await api.get('/spaces/' + id);
       if (requestSequenceRef.current !== requestSequence) return;
-      setSpace(spaceRes.data);
+      const changedPolicy = latestPolicy.current;
+      setSpace(changedPolicy?.spaceId === id && changedPolicy.actorId === user?.id && changedPolicy.epoch > policyEpochAtRequest
+        ? { ...spaceRes.data, approvalPolicy: changedPolicy.approvalPolicy } : spaceRes.data);
       setError(null);
     } catch (err: any) {
       if (requestSequenceRef.current !== requestSequence) return;
@@ -615,6 +632,9 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
   const bindingEnabled = compositeCapabilities.canBindAgent === true;
   const folderTemplateEnabled = compositeCapabilities.canSaveFolderTemplate === true;
 
+  const reviewPolicyStatus = space.approvalPolicy ? <SpaceReviewPolicyStatus
+    spaceId={space.id} actorId={user?.id} approvalPolicy={space.approvalPolicy} canEdit={currentRole === 'owner'} /> : null;
+
   return (
     <div>
       {actionError && (
@@ -634,7 +654,7 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
         </div>
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
           <div className="min-w-0 w-full lg:w-auto">
-            <h1 title={space.name} className="text-2xl font-bold truncate">{space.name}</h1>
+            <div className="flex min-w-0 flex-wrap items-center gap-3"><h1 title={space.name} className="min-w-0 truncate text-2xl font-bold">{space.name}</h1>{reviewPolicyStatus}</div>
             {space.description && <p className="text-gray-500 mt-1">{space.description}</p>}
           </div>
         </div>
@@ -642,8 +662,8 @@ export const SpaceView: React.FC<SpaceViewProps> = ({ spaceId: providedSpaceId, 
 
       {!workspace ? <SpaceNav spaceId={id} /> : null}
       {workspace ? <div className="flex flex-col border-b border-gray-200 lg:flex-row lg:items-stretch">
-        <div className="flex min-h-12 min-w-0 w-full items-center border-b border-gray-100 px-4 lg:w-auto lg:max-w-[50%] lg:border-b-0 lg:border-r">
-          <h1 tabIndex={-1} data-testid="space-root-focus" title={space.name} className="truncate text-base font-semibold text-gray-900">{space.name}</h1>
+        <div className="flex min-h-12 min-w-0 w-full items-center gap-3 border-b border-gray-100 px-4 lg:w-auto lg:max-w-[50%] lg:border-b-0 lg:border-r">
+          <h1 tabIndex={-1} data-testid="space-root-focus" title={space.name} className="min-w-0 truncate text-base font-semibold text-gray-900">{space.name}</h1>{reviewPolicyStatus}
         </div>
         <div className="min-w-0 flex-1 px-3"><SpaceNav spaceId={id} activeSection={workspace.activeSection} embedded /></div>
       </div> : null}

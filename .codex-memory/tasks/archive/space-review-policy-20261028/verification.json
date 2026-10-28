@@ -1,0 +1,46 @@
+{
+  "status": "passed-local-not-published",
+  "testFull": {
+    "exitCode": 0,
+    "pass": 8540,
+    "fail": 0,
+    "skip": 9,
+    "phases": {
+      "runtime": 319,
+      "runtimeDbRedis": 246,
+      "server": 3773,
+      "client": 2937,
+      "syncProtocol": 140,
+      "localSync": 1125
+    },
+    "logSha256": "c901e47dd5049d7b2051b02ce8f15976e728daa7067b0f91425f94e437f28f67"
+  },
+  "browser": {
+    "passed": 10,
+    "scope": "actual React components with in-memory API fixtures; isolated system Chrome; no production writes",
+    "receipt": "/tmp/agentwiki-space-review-qa/receipt.json"
+  },
+  "migration": {
+    "onlyFutureDefault": true,
+    "existingSpacesBackfilled": false,
+    "treeSha256": "7f8648decb8c3ab0de310e2603c4d3023584c151d1713c3a5697084f4c085f0a"
+  },
+  "independentReview": {
+    "backend": "copy_button_review",
+    "client": "space_review_ux_audit",
+    "openImportantFindings": 0
+  },
+  "skipReasons": {
+    "optInCodeGraph": 1,
+    "dedicatedConnectionDb": 3,
+    "dedicatedTaskboardDb": 4,
+    "windowsAcl": 1
+  },
+  "cleanup": {
+    "ownedPreviewServerStopped": true,
+    "browserClosed": true,
+    "ownedDatabaseCleaned": true,
+    "unrelatedOldDatabasesPreserved": true,
+    "designDraftsPreserved": true
+  }
+}

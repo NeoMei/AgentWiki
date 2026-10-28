@@ -204,7 +204,7 @@ model Space {
   slug                String  @unique
   description         String?
   visibility          String  @default("private")
-  approvalPolicy      String  @default("always-review")
+  approvalPolicy      String  @default("no-review")
   contentTreeRevision BigInt  @default(0)
 
   members                SpaceMember[]

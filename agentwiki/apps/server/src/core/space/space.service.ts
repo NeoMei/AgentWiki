@@ -96,7 +96,7 @@ export class SpaceService {
           slug,
           description: data.description,
           visibility: data.visibility ?? 'private',
-          approvalPolicy: data.approvalPolicy ?? 'always-review',
+          approvalPolicy: data.approvalPolicy ?? 'no-review',
           members: {
             create: {
               userId,

@@ -2,13 +2,14 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../api/client';
 import { apiErrorMessage } from '../../api/error-message';
-import type { SpaceListResponse, SpaceSummary } from '../../api/space-types';
+import type { CanonicalSpaceApprovalPolicy, SpaceListResponse, SpaceSummary } from '../../api/space-types';
 import { ModalDialog } from '../../components/ModalDialog';
 import { useAuth } from '../../context/AuthContext';
 import { Plus, Folder, X, Trash2, Network, ArrowUpRight, BookOpen, Clock3, LockKeyhole, ShieldCheck, Users, UserRound } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { SPACE_NAME_MAX_LENGTH } from '@agentwiki/shared';
 import { validatorLength } from '../page-templates/validatorLength';
+import { ReviewPolicyOptions } from '../space/SpaceReviewPolicy';
 
 const PAGE_SIZE = 20;
 const OPTIMISTIC_SPACE_TTL_MS = 5 * 60_000;
@@ -71,7 +72,7 @@ export const Dashboard: React.FC = () => {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [deletingSpace, setDeletingSpace] = useState<string | null>(null);
-  const [newSpace, setNewSpace] = useState({ name: '', description: '' });
+  const [newSpace, setNewSpace] = useState<{ name: string; description: string; approvalPolicy: CanonicalSpaceApprovalPolicy }>({ name: '', description: '', approvalPolicy: 'no-review' });
   const nameLength = validatorLength(newSpace.name.trim());
   const nameTooLong = nameLength > SPACE_NAME_MAX_LENGTH;
   const mutationVersionRef = useRef(0);
@@ -179,6 +180,7 @@ export const Dashboard: React.FC = () => {
       const { data: created } = await api.post('/spaces', {
         name: newSpace.name.trim(),
         description: newSpace.description.trim() || undefined,
+        approvalPolicy: newSpace.approvalPolicy,
       });
       const mutationVersion = mutationVersionRef.current + 1;
       mutationVersionRef.current = mutationVersion;
@@ -189,7 +191,7 @@ export const Dashboard: React.FC = () => {
           expiresAt: Date.now() + OPTIMISTIC_SPACE_TTL_MS,
         }, ...current.filter((entry) => entry.space.id !== created.id)]);
       }
-      setNewSpace({ name: '', description: '' });
+      setNewSpace({ name: '', description: '', approvalPolicy: 'no-review' });
       setShowCreate(false);
     } catch (err: unknown) {
       setCreateError(apiErrorMessage(err, t, 'dashboard.createFailed'));
@@ -420,6 +422,11 @@ export const Dashboard: React.FC = () => {
                   placeholder={t('dashboard.descriptionPlaceholder')}
                 />
               </div>
+              <ReviewPolicyOptions
+                value={newSpace.approvalPolicy}
+                onChange={(approvalPolicy) => setNewSpace((current) => ({ ...current, approvalPolicy }))}
+                disabled={creating}
+              />
               <div className="flex justify-end gap-2">
                 <button
                   type="button"

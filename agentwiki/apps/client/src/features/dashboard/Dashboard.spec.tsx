@@ -223,7 +223,7 @@ describe('Dashboard Space pagination and creation', () => {
     vi.mocked(api.post).mockResolvedValue({ data: { id: 'boundary', name: unit.repeat(32), slug: 'boundary' } });
     fireEvent.submit(input.closest('form')!);
     await screen.findByRole('heading', { name: unit.repeat(32) });
-    expect(api.post).toHaveBeenCalledWith('/spaces', { name: unit.repeat(32), description: undefined });
+    expect(api.post).toHaveBeenCalledWith('/spaces', { name: unit.repeat(32), description: undefined, approvalPolicy: 'no-review' });
   });
 
   it('prepends the POST response without depending on a second list request', async () => {
@@ -240,7 +240,28 @@ describe('Dashboard Space pagination and creation', () => {
     expect(await screen.findByRole('heading', { name: '新建空间' })).toBeInTheDocument();
     expect(screen.getAllByRole('heading', { level: 3 })[0]).toHaveTextContent('新建空间');
     expect(api.get).toHaveBeenCalledTimes(1);
-    expect(api.post).toHaveBeenCalledWith('/spaces', { name: '新建空间', description: undefined });
+    expect(api.post).toHaveBeenCalledWith('/spaces', { name: '新建空间', description: undefined, approvalPolicy: 'no-review' });
+  });
+
+  it('lets the creator require review and resets the next successful creation to no review', async () => {
+    vi.mocked(api.post).mockResolvedValue({
+      data: { id: 'space-reviewed', name: '审核空间', slug: 'reviewed', approvalPolicy: 'always-review' },
+    });
+    renderDashboard();
+    fireEvent.click(await screen.findByRole('button', { name: '新建空间' }));
+    const dialog = screen.getByRole('dialog', { name: '创建新空间' });
+    expect(within(dialog).getByRole('radio', { name: /无需审核/ })).toBeChecked();
+    fireEvent.click(within(dialog).getByRole('radio', { name: /始终审核/ }));
+    fireEvent.change(within(dialog).getByPlaceholderText('例如：我的知识库'), { target: { value: '审核空间' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '创建' }));
+
+    expect(await screen.findByRole('heading', { name: '审核空间' })).toBeInTheDocument();
+    expect(api.post).toHaveBeenCalledWith('/spaces', {
+      name: '审核空间', description: undefined, approvalPolicy: 'always-review',
+    });
+    fireEvent.click(screen.getByRole('button', { name: '新建空间' }));
+    expect(screen.getByRole('radio', { name: /无需审核/ })).toBeChecked();
+    expect(screen.getByPlaceholderText('例如：我的知识库')).toHaveValue('');
   });
 
   it('loads and de-duplicates the next page when more Spaces exist', async () => {
@@ -725,6 +746,8 @@ describe('Dashboard Space pagination and creation', () => {
       fireEvent.change(within(dialog).getByPlaceholderText('例如：我的知识库'), { target: { value: '失败空间' } });
       fireEvent.click(within(dialog).getByRole('button', { name: '创建' }));
       await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+      expect(within(dialog).getByRole('radio', { name: /无需审核/ })).toBeDisabled();
+      expect(within(dialog).getByRole('radio', { name: /始终审核/ })).toBeDisabled();
 
       if (dismissMethod === 'backdrop') fireEvent.click(dialog.parentElement as HTMLElement);
       if (dismissMethod === 'close button') fireEvent.click(within(dialog).getByRole('button', { name: '关闭' }));

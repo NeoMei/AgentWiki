@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createRequire } from 'node:module';
+import { readFile } from 'node:fs/promises';
 import {
   validateCollaborationTestDatabaseUrl,
   withCollaborationTestDatabase,
@@ -10,7 +11,52 @@ import * as collaborationDatabase from './collaboration-test-database.mjs';
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
 const baseDatabaseUrl = process.env.COLLABORATION_TEST_DATABASE_URL;
-const REVIEWED_MIGRATION_TREE_SHA256 = '5199e2d702c345c64b0438daad1cfa17da4c0aa624f5d62dc0fc762c58a833fc';
+const REVIEWED_MIGRATION_TREE_SHA256 = '7f8648decb8c3ab0de310e2603c4d3023584c151d1713c3a5697084f4c085f0a';
+
+test('Space defaults new rows to no-review without rewriting existing review policies', {
+  skip: baseDatabaseUrl ? false : 'COLLABORATION_TEST_DATABASE_URL is not configured',
+  timeout: 120_000,
+}, async () => {
+  await withCollaborationTestDatabase(baseDatabaseUrl, async ({ databaseUrl }) => {
+    const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+    const createWithDatabaseDefault = (id) => prisma.$executeRaw`
+      INSERT INTO "Space" ("id", "name", "slug", "updatedAt")
+      VALUES (${id}, ${id}, ${id}, CURRENT_TIMESTAMP)
+    `;
+    try {
+      await createWithDatabaseDefault('new-default');
+      assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: 'new-default' } })).approvalPolicy, 'no-review');
+
+      // Recreate the pre-upgrade default and existing rows, then execute the
+      // actual forward migration to prove it changes only future defaults.
+      await prisma.$executeRawUnsafe('ALTER TABLE "Space" ALTER COLUMN "approvalPolicy" SET DEFAULT \'always-review\'');
+      await createWithDatabaseDefault('old-default');
+      for (const approvalPolicy of ['always-review', 'no-review', 'scoped-auto-publish']) {
+        await prisma.space.create({ data: { id: approvalPolicy, name: approvalPolicy, slug: approvalPolicy, approvalPolicy } });
+      }
+      const migration = await readFile(new URL(
+        '../apps/server/prisma/migrations/20261028090000_default_space_no_review/migration.sql', import.meta.url,
+      ), 'utf8');
+      await prisma.$executeRawUnsafe(migration);
+      await createWithDatabaseDefault('after-upgrade');
+      const policies = await prisma.space.findMany({
+        select: { id: true, approvalPolicy: true }, orderBy: { id: 'asc' },
+      });
+      assert.deepEqual(policies, [
+        { id: 'after-upgrade', approvalPolicy: 'no-review' },
+        { id: 'always-review', approvalPolicy: 'always-review' },
+        { id: 'new-default', approvalPolicy: 'no-review' },
+        { id: 'no-review', approvalPolicy: 'no-review' },
+        { id: 'old-default', approvalPolicy: 'always-review' },
+        { id: 'scoped-auto-publish', approvalPolicy: 'scoped-auto-publish' },
+      ]);
+      await prisma.space.update({ where: { id: 'old-default' }, data: { description: 'Metadata-only update' } });
+      assert.equal((await prisma.space.findUniqueOrThrow({ where: { id: 'old-default' } })).approvalPolicy, 'always-review');
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+});
 
 test('dedicated collaboration database URLs fail closed', () => {
   assert.throws(() => validateCollaborationTestDatabaseUrl(undefined), /required/i);

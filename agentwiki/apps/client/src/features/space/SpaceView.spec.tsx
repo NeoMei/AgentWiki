@@ -4,7 +4,8 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter, Route, Router, Routes, useNavigate, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { LanguageProvider } from '../../context/LanguageContext';
+import { LanguageProvider, useLanguage } from '../../context/LanguageContext';
+import { announceSpaceReviewPolicyChange } from './spaceReviewPolicyEvents';
 import { SpaceView } from './SpaceView';
 import { SpaceWorkspaceProvider, usePageWorkspaceIdentity } from '../space-workspace/SpaceWorkspaceContext';
 import { SpaceWorkspaceScope } from '../space-workspace/SpaceWorkspaceScope';
@@ -187,6 +188,51 @@ describe('SpaceView new-page flow', () => {
 
     await screen.findByRole('heading', { name: 'Role Space' });
     expect(screen.queryByRole('button', { name: '新建页面' }) !== null).toBe(visible);
+  });
+
+  it('shows the live review policy beside the Space title and lets only its owner change it', async () => {
+    mocks.api.get.mockImplementation(async (url: string) => url === '/spaces/space-1'
+      ? { data: { ...spaceResponse('space-1', 'Policy Space', 'owner').data, approvalPolicy: 'always-review' } }
+      : treeResponse('space-1'));
+    mocks.api.patch.mockResolvedValue({ data: { approvalPolicy: 'no-review' } });
+    renderSpaceView();
+    fireEvent.click(await screen.findByRole('button', { name: '内容审核：始终审核' }));
+    fireEvent.click(screen.getByRole('radio', { name: '无需审核' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存审核方式' }));
+    expect(await screen.findByRole('button', { name: '内容审核：无需审核' })).toBeVisible();
+    expect(mocks.api.patch).toHaveBeenCalledWith('/spaces/space-1', { approvalPolicy: 'no-review' });
+  });
+
+  it('keeps a newly saved policy when an older same-Space reload finishes late', async () => {
+    let reads = 0;
+    let finish!: (result: unknown) => void;
+    mocks.api.get.mockImplementation(async (url: string) => {
+      if (url !== '/spaces/space-1') return treeResponse('space-1');
+      reads += 1;
+      if (reads === 2) return new Promise(resolve => { finish = resolve; });
+      return { data: { ...spaceResponse('space-1', 'Policy Space', 'owner').data, approvalPolicy: 'always-review' } };
+    });
+    const Locale = () => { const { toggleLanguage } = useLanguage(); return <button onClick={toggleLanguage}>Switch locale</button>; };
+    render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1']}><Locale /><Routes><Route path="/spaces/:id" element={<SpaceView />} /></Routes></MemoryRouter></LanguageProvider>);
+    await screen.findByRole('button', { name: '内容审核：始终审核' });
+    fireEvent.click(screen.getByRole('button', { name: 'Switch locale' }));
+    await waitFor(() => expect(reads).toBe(2));
+    act(() => announceSpaceReviewPolicyChange({ spaceId: 'space-1', actorId: 'user-1', approvalPolicy: 'no-review' }));
+    await act(async () => finish({ data: { ...spaceResponse('space-1', 'Policy Space', 'owner').data, approvalPolicy: 'always-review' } }));
+    expect(screen.getByRole('button', { name: 'Content review：No review' })).toBeVisible();
+  });
+
+  it('trusts a fresh server policy after an earlier same-window update', async () => {
+    mocks.api.get.mockImplementation(async (url: string) => url === '/spaces/space-1'
+      ? { data: { ...spaceResponse('space-1', 'Policy Space', 'owner').data, approvalPolicy: 'always-review' } }
+      : treeResponse('space-1'));
+    const Locale = () => { const { toggleLanguage } = useLanguage(); return <button onClick={toggleLanguage}>Switch locale</button>; };
+    render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1']}><Locale /><Routes><Route path="/spaces/:id" element={<SpaceView />} /></Routes></MemoryRouter></LanguageProvider>);
+    await screen.findByRole('button', { name: '内容审核：始终审核' });
+    act(() => announceSpaceReviewPolicyChange({ spaceId: 'space-1', actorId: 'user-1', approvalPolicy: 'no-review' }));
+    expect(screen.getByRole('button', { name: '内容审核：无需审核' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Switch locale' }));
+    expect(await screen.findByRole('button', { name: 'Content review：Always review' })).toBeVisible();
   });
 
   it('hides creation from a platform super admin without membership', async () => {

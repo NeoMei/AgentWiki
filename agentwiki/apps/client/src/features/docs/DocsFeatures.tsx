@@ -12,7 +12,7 @@ export const DocsFeatures: React.FC = () => {
       icon: Layers, color: 'blue',
       title: zh ? '知识空间（Space）' : 'Knowledge Spaces',
       design: zh ? '按项目、团队或主题隔离知识。每个 Space 拥有独立的成员列表、发布策略和审核流。Space 之间数据完全隔离，Agent 必须以阅读者、编辑者或发布者角色显式接入；阅读者始终只读，具备写入能力的编辑者和发布者 Agent 在“无需审核”下可在已有权限范围内自动发布。' : 'Isolate knowledge by project, team, or topic. Each Space has its own member list, publishing policy, and review flow. Spaces are fully data-isolated, and Agents connect explicitly as Reader, Editor, or Publisher. Reader is always read-only; write-capable Editor and Publisher Agents may auto-publish within existing scopes in No review mode.',
-      usage: zh ? ['在 Dashboard 点击「创建空间」', '在 Space 设置中选择「始终审核」或「无需审核」', '在 Members 页面添加人类成员或 Agent 成员', '为 Agent 选择 Reader、Editor 或 Publisher'] : ['Click "Create Space" in the Dashboard', 'Choose Always review or No review in Space settings', 'Add human or Agent members in the Members page', 'Choose Reader, Editor, or Publisher for the Agent'],
+      usage: zh ? ['在 Dashboard 点击「创建空间」', '创建空间时可选「无需审核」（默认）或「始终审核」，之后可在空间名称旁修改', '在 Members 页面添加人类成员或 Agent 成员', '为 Agent 选择 Reader、Editor 或 Publisher'] : ['Click "Create Space" in the Dashboard', 'Choose No review (default) or Always review when creating a Space; change it later beside the Space name', 'Add human or Agent members in the Members page', 'Choose Reader, Editor, or Publisher for the Agent'],
     },
     {
       icon: FileText, color: 'indigo',
@@ -48,7 +48,7 @@ export const DocsFeatures: React.FC = () => {
       icon: CheckCircle2, color: 'emerald',
       title: zh ? '审核与变更集' : 'Review & ChangeSets',
       design: zh ? '所有 Agent 写入都记录在可审计的变更集（ChangeSet）中。阅读者始终只读；具备写入能力的编辑者和发布者 Agent 在“无需审核”下可在已有权限范围内自动发布，“始终审核”下则进入待审核。Agent 永远不能执行人工审批或成员管理。' : 'All Agent writes are recorded in auditable ChangeSets. Reader is always read-only. In No review mode, active write-capable Editor and Publisher Agents may auto-publish within existing scopes; Always review keeps their writes pending for human review. Agents can never perform human approval or member management.',
-      usage: zh ? ['在 Space 设置中选择「始终审核」或「无需审核」', '无需审核下，活跃且具备写入能力的 Editor 或 Publisher Agent 可在已有权限范围内自动发布', '始终审核下，由具备审批权的人类查看 diff 并接受或拒绝', '自动发布和人工决策都会保留审计记录'] : ['Choose Always review or No review in Space settings', 'In No review, active write-capable Editor or Publisher Agents may auto-publish within existing scopes', 'In Always review, authorized humans inspect diffs and accept or reject', 'Both auto-publishing and human decisions retain audit records'],
+      usage: zh ? ['创建空间时可选「无需审核」（默认）或「始终审核」，之后可在空间名称旁修改', '无需审核下，活跃且具备写入能力的 Editor 或 Publisher Agent 可在已有权限范围内自动发布', '始终审核下，由具备审批权的人类查看 diff 并接受或拒绝', '自动发布和人工决策都会保留审计记录'] : ['Choose No review (default) or Always review when creating a Space; change it later beside the Space name', 'In No review, active write-capable Editor or Publisher Agents may auto-publish within existing scopes', 'In Always review, authorized humans inspect diffs and accept or reject', 'Both auto-publishing and human decisions retain audit records'],
     },
     {
       icon: Brain, color: 'rose',

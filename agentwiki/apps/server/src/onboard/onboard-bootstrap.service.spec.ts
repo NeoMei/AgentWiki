@@ -72,7 +72,7 @@ describe('OnboardBootstrapService', () => {
     tx = {
       space: {
         create: jest.fn().mockResolvedValue({
-          id: 'space-1', name: '研发知识库', approvalPolicy: 'always-review',
+          id: 'space-1', name: '研发知识库', approvalPolicy: 'no-review',
         }),
         findFirst: jest.fn(),
       },
@@ -189,7 +189,7 @@ describe('OnboardBootstrapService', () => {
     expect(bootstrapRecord.serverPlanHash).toBe(hashServerPlan(plan));
   });
 
-  it('creates a private always-review Space and active Agent without creating a Grant', async () => {
+  it('creates a private no-review Space and active Agent without creating a Grant', async () => {
     const normalized = normalizeServerPlan(createPlan);
     const result = await service.bootstrap(context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan));
 
@@ -198,7 +198,7 @@ describe('OnboardBootstrapService', () => {
         name: '研发知识库',
         slug: '研发知识库-ba522e1d1301ce83',
         visibility: 'private',
-        approvalPolicy: 'always-review',
+        approvalPolicy: 'no-review',
         members: { create: { userId: 'user-1', role: 'owner' } },
       },
     });
@@ -249,7 +249,7 @@ describe('OnboardBootstrapService', () => {
   it.each([
     ['reader', 'always-review'],
     ['publisher', 'scoped-auto-publish'],
-  ] as const)('creates a new always-review Space while preserving the canonical %s package', async (role, approvalMode) => {
+  ] as const)('creates a new no-review Space while preserving the canonical %s package', async (role, approvalMode) => {
     const plan: ServerPlan = { ...createPlan, role };
 
     const result = await service.bootstrap(
@@ -260,7 +260,7 @@ describe('OnboardBootstrapService', () => {
     );
 
     expect(tx.space.create).toHaveBeenCalledWith({ data: expect.objectContaining({
-      approvalPolicy: 'always-review',
+      approvalPolicy: 'no-review',
     }) });
     expect(tx.agent.create).toHaveBeenCalledWith({ data: {
       ownerId: 'user-1', name: 'Codex', approvalMode,
@@ -559,28 +559,30 @@ describe('OnboardBootstrapService', () => {
     expect(prisma.onboardingDeviceSession.updateMany).not.toHaveBeenCalled();
   });
 
-  it('recovers resource IDs after installation failure without recreating database resources', async () => {
-    prisma.onboardingBootstrap.create.mockRejectedValue(p2002());
-    bootstrapRecord.status = 'failed';
-    bootstrapRecord.idempotencyKeyHash = idempotencyKeyHash('bootstrap-key-01');
-    bootstrapRecord.resourceIds = {
-      spaceId: 'space-1', agentId: 'agent-1',
-    };
-    prisma.space.findFirst.mockResolvedValue({
-      id: 'space-1', name: '研发知识库', deletedAt: null, approvalPolicy: 'always-review',
-    });
-    prisma.agent.findUnique.mockResolvedValue({
-      id: 'agent-1', name: 'Codex', ownerId: 'user-1', status: 'active', revokedAt: null,
-      approvalMode: 'always-review',
-    });
+  it.each(['always-review', 'no-review', 'scoped-auto-publish'])(
+    'recovers saved resources while preserving the existing %s Space policy', async (approvalPolicy) => {
+      prisma.onboardingBootstrap.create.mockRejectedValue(p2002());
+      bootstrapRecord.status = 'failed';
+      bootstrapRecord.idempotencyKeyHash = idempotencyKeyHash('bootstrap-key-01');
+      bootstrapRecord.resourceIds = {
+        spaceId: 'space-1', agentId: 'agent-1',
+      };
+      prisma.space.findFirst.mockResolvedValue({
+        id: 'space-1', name: '研发知识库', deletedAt: null, approvalPolicy,
+      });
+      prisma.agent.findUnique.mockResolvedValue({
+        id: 'agent-1', name: 'Codex', ownerId: 'user-1', status: 'active', revokedAt: null,
+        approvalMode: 'always-review',
+      });
 
-    await expect(service.bootstrap(
-      context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
-    )).resolves.toMatchObject({ installation: { code: 'AW-INSTALL-CODE' } });
+      await expect(service.bootstrap(
+        context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
+      )).resolves.toMatchObject({ installation: { code: 'AW-INSTALL-CODE' } });
 
-    expect(prisma.$transaction).not.toHaveBeenCalled();
-    expect(installations.issueForBootstrap).toHaveBeenCalledTimes(1);
-  });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(installations.issueForBootstrap).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('rechecks current Space administration before recovering saved resources', async () => {
     prisma.onboardingBootstrap.create.mockRejectedValue(p2002());
@@ -606,6 +608,21 @@ describe('OnboardBootstrapService', () => {
         members: { some: { userId: 'user-1', role: { in: ['owner', 'admin'] } } },
       },
     });
+    expect(installations.issueForBootstrap).not.toHaveBeenCalled();
+  });
+
+  it('rejects recovery of a saved Space with an unknown approval policy', async () => {
+    prisma.onboardingBootstrap.create.mockRejectedValue(p2002());
+    bootstrapRecord.status = 'failed';
+    bootstrapRecord.idempotencyKeyHash = idempotencyKeyHash('bootstrap-key-01');
+    bootstrapRecord.resourceIds = { spaceId: 'space-1', agentId: 'agent-1' };
+    prisma.space.findFirst.mockResolvedValue({
+      id: 'space-1', name: '研发知识库', deletedAt: null, approvalPolicy: 'unknown-policy',
+    });
+
+    await expect(service.bootstrap(
+      context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
+    )).rejects.toMatchObject({ businessCode: 'RESOURCE_CONFLICT' });
     expect(installations.issueForBootstrap).not.toHaveBeenCalled();
   });
 
