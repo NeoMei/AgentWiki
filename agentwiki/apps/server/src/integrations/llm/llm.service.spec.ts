@@ -17,6 +17,7 @@ describe('LlmService', () => {
   beforeEach(async () => {
     for (const key of Object.keys(envValues)) delete envValues[key];
     jest.clearAllMocks();
+    mockedAxios.post.mockReset();
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         LlmService,
@@ -44,6 +45,51 @@ describe('LlmService', () => {
   });
 
   describe('generateText configuration', () => {
+    it('uses Quukk GLM 5.3 Flash as the default worker text model', async () => {
+      envValues.LLM_TEXT_GATEWAY = 'quukk';
+      envValues.QUUKK_API_KEY = 'quukk-test-key-1234567890';
+      mockedAxios.post.mockResolvedValueOnce({
+        data: { choices: [{ message: { content: 'ok' } }] },
+      });
+
+      const result = await service.generateText('hello');
+
+      expect(mockedAxios.post).toHaveBeenCalledWith(
+        'https://llmapi.quukk.com/v1/chat/completions',
+        expect.objectContaining({ model: 'glm-5.3-flash' }),
+        expect.objectContaining({
+          headers: expect.objectContaining({ Authorization: 'Bearer quukk-test-key-1234567890' }),
+        }),
+      );
+      expect(result.modelId).toBe('glm-5.3-flash');
+    });
+
+    it('falls back from Quukk GLM 5.3 Flash to Kimi 2.8 after a provider failure', async () => {
+      envValues.LLM_TEXT_GATEWAY = 'quukk';
+      envValues.QUUKK_API_KEY = 'quukk-test-key-1234567890';
+      mockedAxios.post
+        .mockRejectedValueOnce({ response: { status: 503, data: { error: 'unavailable' } } })
+        .mockResolvedValueOnce({
+          data: { choices: [{ message: { content: 'fallback ok' } }] },
+        });
+
+      const result = await service.generateText('hello');
+
+      expect(mockedAxios.post).toHaveBeenNthCalledWith(
+        1,
+        'https://llmapi.quukk.com/v1/chat/completions',
+        expect.objectContaining({ model: 'glm-5.3-flash' }),
+        expect.anything(),
+      );
+      expect(mockedAxios.post).toHaveBeenNthCalledWith(
+        2,
+        'https://llmapi.quukk.com/v1/chat/completions',
+        expect.objectContaining({ model: 'kimi-for-coding' }),
+        expect.anything(),
+      );
+      expect(result).toMatchObject({ text: 'fallback ok', modelId: 'kimi-for-coding' });
+    });
+
     it('uses DeepSeek V4 Flash as the default text model', async () => {
       envValues.LLM_GATEWAY = 'direct';
       envValues.DEEPSEEK_API_KEY = 'deepseek-test-key-1234567890';

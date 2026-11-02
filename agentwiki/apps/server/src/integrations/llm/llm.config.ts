@@ -1,7 +1,7 @@
 export interface LlmModelConfig {
   id: string;
   name: string;
-  provider: 'deepseek' | 'kimi' | 'glm' | 'qwen';
+  provider: 'deepseek' | 'kimi' | 'glm' | 'qwen' | 'quukk';
   apiBaseUrl: string;
   contextLength: number;
   inputPricePer1kTokens: number;
@@ -19,6 +19,7 @@ export interface LlmProviderConfig {
 }
 
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+export const QUUKK_BASE_URL = 'https://llmapi.quukk.com/v1';
 
 export const LLM_PROVIDERS: Record<string, LlmProviderConfig> = {
   deepseek: {
@@ -147,6 +148,33 @@ export const LLM_PROVIDERS: Record<string, LlmProviderConfig> = {
       },
     ],
   },
+  quukk: {
+    provider: 'quukk',
+    apiKeyEnvVar: 'QUUKK_API_KEY',
+    defaultApiBaseUrl: QUUKK_BASE_URL,
+    models: [
+      {
+        id: 'glm-5.3-flash',
+        name: 'GLM 5.3 Flash (Quukk)',
+        provider: 'quukk',
+        apiBaseUrl: QUUKK_BASE_URL,
+        contextLength: 200000,
+        inputPricePer1kTokens: 0,
+        outputPricePer1kTokens: 0,
+        supportsEmbedding: false,
+      },
+      {
+        id: 'kimi-for-coding',
+        name: 'Kimi 2.8 (Quukk)',
+        provider: 'quukk',
+        apiBaseUrl: QUUKK_BASE_URL,
+        contextLength: 256000,
+        inputPricePer1kTokens: 0,
+        outputPricePer1kTokens: 0,
+        supportsEmbedding: false,
+      },
+    ],
+  },
 };
 
 export const OPENROUTER_MODEL_MAP: Record<string, string> = {
@@ -162,6 +190,8 @@ export const OPENROUTER_MODEL_MAP: Record<string, string> = {
 
 export const DEFAULT_MODEL = 'deepseek-v4-flash';
 export const DEFAULT_GATEWAY = 'openrouter';
+export const DEFAULT_TEXT_GATEWAY = 'quukk';
+export const DEFAULT_TEXT_MODELS = ['glm-5.3-flash', 'kimi-for-coding'] as const;
 
 export function getModelConfig(modelId: string): LlmModelConfig | undefined {
   for (const provider of Object.values(LLM_PROVIDERS)) {
@@ -181,6 +211,9 @@ export function resolveApiBaseUrl(
 ): string {
   if (gateway === 'openrouter') {
     return OPENROUTER_BASE_URL;
+  }
+  if (gateway === 'quukk') {
+    return QUUKK_BASE_URL;
   }
   const config = getModelConfig(modelId);
   return config?.apiBaseUrl ?? OPENROUTER_BASE_URL;

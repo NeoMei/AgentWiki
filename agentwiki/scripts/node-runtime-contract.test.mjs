@@ -468,6 +468,9 @@ test('Compose forwards onboarding and OpenCode routing configuration to the API'
   );
   assert.match(compose, /ASSIST_OPENCODE_ALLOW_PAID_FALLBACK: \$\{ASSIST_OPENCODE_ALLOW_PAID_FALLBACK:-true\}/);
   assert.match(compose, /OPENROUTER_API_KEY: \$\{OPENROUTER_API_KEY:-\}/);
+  assert.match(compose, /LLM_TEXT_GATEWAY: \$\{LLM_TEXT_GATEWAY:-\}/);
+  assert.match(compose, /LLM_TEXT_MODELS: \$\{LLM_TEXT_MODELS:-\}/);
+  assert.match(compose, /QUUKK_API_KEY: \$\{QUUKK_API_KEY:-\}/);
 });
 
 test('retired external wiki matching keeps active instructions and ignores historical inventory', () => {

@@ -4,6 +4,8 @@ import axios, { AxiosResponse } from 'axios';
 import {
   DEFAULT_MODEL,
   DEFAULT_GATEWAY,
+  DEFAULT_TEXT_GATEWAY,
+  DEFAULT_TEXT_MODELS,
   getModelConfig,
   getAllModelConfigs,
   resolveApiBaseUrl,
@@ -52,6 +54,10 @@ export class LlmService {
       const key = this.configService.get<string>('OPENROUTER_API_KEY') ?? '';
       return this.isValidApiKey(key) ? key : '';
     }
+    if (gateway === 'quukk') {
+      const key = this.configService.get<string>('QUUKK_API_KEY') ?? '';
+      return this.isValidApiKey(key) ? key : '';
+    }
     if (modelConfig) {
       const envVar = `${modelConfig.provider.toUpperCase()}_API_KEY`;
       const key = this.configService.get<string>(envVar) ?? '';
@@ -70,6 +76,29 @@ export class LlmService {
     return option
       ?? this.configService.get<string>('LLM_GATEWAY')
       ?? DEFAULT_GATEWAY;
+  }
+
+  private resolveTextGateway(option?: string): string {
+    return option
+      ?? this.configService.get<string>('LLM_TEXT_GATEWAY')
+      ?? this.configService.get<string>('LLM_GATEWAY')
+      ?? DEFAULT_TEXT_GATEWAY;
+  }
+
+  private resolveTextModels(explicitModelId: string | undefined, gateway: string): string[] {
+    const configured = (this.configService.get<string>('LLM_TEXT_MODELS') ?? '')
+      .split(',')
+      .map((model) => model.trim())
+      .filter(Boolean);
+    const defaults = configured.length > 0
+      ? configured
+      : gateway === DEFAULT_TEXT_GATEWAY
+        ? [...DEFAULT_TEXT_MODELS]
+        : [this.configService.get<string>('LLM_DEFAULT_MODEL') ?? DEFAULT_MODEL];
+    return [...new Set([
+      ...(explicitModelId ? [explicitModelId] : []),
+      ...defaults,
+    ])];
   }
 
   private async callChatCompletions(
@@ -125,26 +154,6 @@ export class LlmService {
     prompt: string,
     options: GenerateTextOptions = {},
   ): Promise<GenerateTextResult> {
-    const modelId = options.modelId
-      ?? this.configService.get<string>('LLM_DEFAULT_MODEL')
-      ?? DEFAULT_MODEL;
-    const gateway = this.resolveGateway(options.gateway);
-    const modelConfig = getModelConfig(modelId);
-
-    if (!modelConfig) {
-      throw new Error(`Unknown model: ${modelId}`);
-    }
-
-    const apiBaseUrl = resolveApiBaseUrl(modelId, gateway);
-    const resolvedModelId = resolveModelIdForGateway(modelId, gateway);
-    const apiKey = this.getApiKey(gateway, modelConfig);
-
-    if (!apiKey) {
-      throw new Error(
-        `Missing API key for gateway ${gateway} / model ${modelId}`,
-      );
-    }
-
     const messages: Array<{ role: string; content: string }> = [
       { role: 'user', content: prompt },
     ];
@@ -153,17 +162,47 @@ export class LlmService {
       messages.unshift({ role: 'system', content: options.systemPrompt });
     }
 
-    this.logger.log(
-      `Generating text with ${modelId} via ${gateway} (${resolvedModelId})`,
-    );
+    const gateway = this.resolveTextGateway(options.gateway);
+    const modelIds = this.resolveTextModels(options.modelId, gateway);
+    let lastError: unknown;
 
-    return this.callChatCompletions(
-      apiBaseUrl,
-      apiKey,
-      resolvedModelId,
-      messages,
-      options,
-    );
+    for (const modelId of modelIds) {
+      const modelConfig = getModelConfig(modelId);
+      if (!modelConfig) {
+        lastError = new Error(`Unknown model: ${modelId}`);
+        continue;
+      }
+
+      const apiBaseUrl = resolveApiBaseUrl(modelId, gateway);
+      const resolvedModelId = resolveModelIdForGateway(modelId, gateway);
+      const apiKey = this.getApiKey(gateway, modelConfig);
+
+      if (!apiKey) {
+        lastError = new Error(`Missing API key for gateway ${gateway} / model ${modelId}`);
+      } else {
+        this.logger.log(
+          `Generating text with ${modelId} via ${gateway} (${resolvedModelId})`,
+        );
+        try {
+          return await this.callChatCompletions(
+            apiBaseUrl,
+            apiKey,
+            resolvedModelId,
+            messages,
+            { ...options, gateway },
+          );
+        } catch (error) {
+          lastError = error;
+        }
+      }
+
+      const nextModelId = modelIds[modelIds.indexOf(modelId) + 1];
+      if (nextModelId) {
+        this.logger.warn(`Text model ${modelId} failed; falling back to ${nextModelId}`);
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error('No text model available');
   }
 
   async generateEmbedding(
