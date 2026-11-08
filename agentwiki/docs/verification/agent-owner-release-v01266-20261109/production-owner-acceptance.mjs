@@ -57,8 +57,10 @@ export function validateOrigin(value) {
   return { origin: url.origin, host: url.host, production };
 }
 
-export function initializeLanguage(storage = localStorage) {
-  if (!storage.getItem('agentwiki.language.v1')) storage.setItem('agentwiki.language.v1', 'en');
+export function initializeLanguage(storage) {
+  if (!storage && !['http:', 'https:'].includes(globalThis.location?.protocol)) return;
+  const target = storage ?? globalThis.localStorage;
+  if (!target.getItem('agentwiki.language.v1')) target.setItem('agentwiki.language.v1', 'en');
 }
 
 export async function main(argv = process.argv.slice(2), environment = process.env) {

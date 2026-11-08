@@ -1,0 +1,440 @@
+{
+  "version": "0.12.66",
+  "origin": "https://agentwiki.quukk.com",
+  "prefix": "aw66-043e0796",
+  "startedAt": "2026-11-08T17:24:36.152Z",
+  "isolatedChromeProfile": true,
+  "checks": [
+    {
+      "name": "Real API returns exact safe owner summaries for same-name Agents; other-owner detail remains forbidden and management is unchanged",
+      "passed": true
+    },
+    {
+      "name": "Isolated Chrome signs in through normal login UI",
+      "passed": true
+    },
+    {
+      "name": "agents-desktop",
+      "passed": true,
+      "dimensions": {
+        "viewport": 1440,
+        "document": 1440,
+        "body": 1440
+      }
+    },
+    {
+      "name": "agent-detail-desktop",
+      "passed": true,
+      "dimensions": {
+        "viewport": 1440,
+        "document": 1440,
+        "body": 1440
+      }
+    },
+    {
+      "name": "members-desktop",
+      "passed": true,
+      "dimensions": {
+        "viewport": 1440,
+        "document": 1440,
+        "body": 1440
+      }
+    },
+    {
+      "name": "members-mobile-en",
+      "passed": true,
+      "dimensions": {
+        "viewport": 390,
+        "document": 390,
+        "body": 390
+      }
+    },
+    {
+      "name": "members-mobile-zh",
+      "passed": true,
+      "dimensions": {
+        "viewport": 390,
+        "document": 390,
+        "body": 390
+      }
+    },
+    {
+      "name": "Peer sees both owners but may manage only its own Agent",
+      "passed": true
+    }
+  ],
+  "blockedRequests": [],
+  "consoleErrors": [],
+  "consoleWarnings": [],
+  "pageErrors": [
+    "SecurityError: Failed to read the 'localStorage' property from 'Window': Access is denied for this document.",
+    "SecurityError: Failed to read the 'localStorage' property from 'Window': Access is denied for this document."
+  ],
+  "rateLimitReadRetries": [],
+  "cleanup": [
+    {
+      "kind": "grant",
+      "id": "agent_96a555f22d234f985d0862f613f4f8a7/cmw83r4ky006dmb6fotee8ko2",
+      "cleaned": true,
+      "readbackAbsent": true
+    },
+    {
+      "kind": "grant",
+      "id": "agent_dd6e3f5af53c7a666e66351be2fd1f00/cmw83r4ky006dmb6fotee8ko2",
+      "cleaned": true,
+      "readbackAbsent": true
+    },
+    {
+      "kind": "agent",
+      "id": "agent_96a555f22d234f985d0862f613f4f8a7",
+      "cleaned": true,
+      "revoked": true,
+      "readbackStatus": 404
+    },
+    {
+      "kind": "agent",
+      "id": "agent_dd6e3f5af53c7a666e66351be2fd1f00",
+      "cleaned": true,
+      "revoked": true,
+      "readbackStatus": 404
+    },
+    {
+      "kind": "space",
+      "id": "cmw83r4ky006dmb6fotee8ko2",
+      "cleaned": true,
+      "softDeleted": true,
+      "readbackStatus": 404
+    },
+    {
+      "kind": "user",
+      "id": "cmw83r4i7006cmb6frl6xcxtq",
+      "cleaned": true,
+      "softDeleted": true,
+      "readbackStatus": 401
+    },
+    {
+      "kind": "user",
+      "id": "cmw83r3qo006bmb6f92ix27ov",
+      "cleaned": true,
+      "softDeleted": true,
+      "readbackStatus": 401
+    }
+  ],
+  "boundaries": [
+    "Only disposable accounts and their new Space/Agents are touched.",
+    "No Page create/write, Agent credential, binding save, collaboration Run, model configuration or model execution is requested. Page binding and collaboration selectors remain local/component-test evidence because Page creation may invoke embedding through search indexing.",
+    "API cleanup revokes Agents and soft-deletes Space/users, preserving the existing audit history. Screenshot email text is redacted after real DOM assertions."
+  ],
+  "browser": "156.0.8078.80",
+  "passed": false,
+  "error": "AssertionError: Expected values to be strictly equal:\n\n2 !== 0\n",
+  "browserClosed": true,
+  "resources": {
+    "userIds": [
+      "cmw83r3qo006bmb6f92ix27ov",
+      "cmw83r4i7006cmb6frl6xcxtq"
+    ],
+    "spaceIds": [
+      "cmw83r4ky006dmb6fotee8ko2"
+    ],
+    "agentIds": [
+      "agent_dd6e3f5af53c7a666e66351be2fd1f00",
+      "agent_96a555f22d234f985d0862f613f4f8a7"
+    ]
+  },
+  "requests": [
+    {
+      "transport": "fixture",
+      "method": "POST",
+      "path": "/auth/register"
+    },
+    {
+      "transport": "fixture",
+      "method": "POST",
+      "path": "/auth/register"
+    },
+    {
+      "transport": "fixture",
+      "method": "POST",
+      "path": "/spaces"
+    },
+    {
+      "transport": "fixture",
+      "method": "POST",
+      "path": "/spaces/cmw83r4ky006dmb6fotee8ko2/members"
+    },
+    {
+      "transport": "fixture",
+      "method": "POST",
+      "path": "/agents"
+    },
+    {
+      "transport": "fixture",
+      "method": "PUT",
+      "path": "/agents/agent_dd6e3f5af53c7a666e66351be2fd1f00/grants/cmw83r4ky006dmb6fotee8ko2"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents/agent_dd6e3f5af53c7a666e66351be2fd1f00"
+    },
+    {
+      "transport": "fixture",
+      "method": "POST",
+      "path": "/agents"
+    },
+    {
+      "transport": "fixture",
+      "method": "PUT",
+      "path": "/agents/agent_96a555f22d234f985d0862f613f4f8a7/grants/cmw83r4ky006dmb6fotee8ko2"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents/agent_96a555f22d234f985d0862f613f4f8a7"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmw83r4ky006dmb6fotee8ko2/members"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents/agent_96a555f22d234f985d0862f613f4f8a7"
+    },
+    {
+      "transport": "browser",
+      "method": "POST",
+      "path": "/auth/login"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/agents"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/agents/agent_dd6e3f5af53c7a666e66351be2fd1f00"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/agents/agent_dd6e3f5af53c7a666e66351be2fd1f00/activity"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmw83r4ky006dmb6fotee8ko2"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmw83r4ky006dmb6fotee8ko2/members"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmw83r4ky006dmb6fotee8ko2/members"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmw83r4ky006dmb6fotee8ko2"
+    },
+    {
+      "transport": "browser",
+      "method": "POST",
+      "path": "/auth/login"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmw83r4ky006dmb6fotee8ko2/members"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmw83r4ky006dmb6fotee8ko2"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents/agent_dd6e3f5af53c7a666e66351be2fd1f00"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents/agent_96a555f22d234f985d0862f613f4f8a7"
+    },
+    {
+      "transport": "fixture",
+      "method": "DELETE",
+      "path": "/agents/agent_96a555f22d234f985d0862f613f4f8a7/grants/cmw83r4ky006dmb6fotee8ko2"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents/agent_96a555f22d234f985d0862f613f4f8a7"
+    },
+    {
+      "transport": "fixture",
+      "method": "DELETE",
+      "path": "/agents/agent_dd6e3f5af53c7a666e66351be2fd1f00/grants/cmw83r4ky006dmb6fotee8ko2"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents/agent_dd6e3f5af53c7a666e66351be2fd1f00"
+    },
+    {
+      "transport": "fixture",
+      "method": "DELETE",
+      "path": "/agents/agent_96a555f22d234f985d0862f613f4f8a7"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents/agent_96a555f22d234f985d0862f613f4f8a7"
+    },
+    {
+      "transport": "fixture",
+      "method": "DELETE",
+      "path": "/agents/agent_dd6e3f5af53c7a666e66351be2fd1f00"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents/agent_dd6e3f5af53c7a666e66351be2fd1f00"
+    },
+    {
+      "transport": "fixture",
+      "method": "DELETE",
+      "path": "/spaces/cmw83r4ky006dmb6fotee8ko2"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmw83r4ky006dmb6fotee8ko2"
+    },
+    {
+      "transport": "fixture",
+      "method": "DELETE",
+      "path": "/users/cmw83r4i7006cmb6frl6xcxtq"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/users/me"
+    },
+    {
+      "transport": "fixture",
+      "method": "DELETE",
+      "path": "/users/cmw83r3qo006bmb6f92ix27ov"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/users/me"
+    }
+  ],
+  "noCredentialsOrExecutionRequested": true,
+  "interrupted": false,
+  "completedAt": "2026-11-08T17:24:54.408Z"
+}

@@ -1,35 +1,33 @@
 # 当前目标
 
-用户已明确授权发布所有者可见性修复，正在准备 v0.12.66 冻结验证、GitHub Release 和生产部署。
+Agent所有者可见性修复已随v0.12.66正式GitHub发布并部署生产，本轮发布完成。冻结源436a3101fe7bd4de240ae8edc82be5ac7261d8e3。
 
 # 范围 / 不做
 
-Agent 列表、详情、空间成员、页面/目录绑定、协作角色绑定、任务改派显示真实所有者姓名与账号，支持中英文及未知所有者降级。不扩大管理权限，不改数据库，不调整仅含本人 Agent 的接入选择器。
+列表、详情、空间成员、页面/目录绑定、协作角色、任务改派显示真实所有者姓名及账号，支持中英/未知所有者降级/手机换行。权限及生产配置保持；包括已有Quukk支持及空网关兼容修正。LocalSync0.13.5/protocol0.6.1不变。
 
 # 当前状态
 
-- 本地发布锁仍为 v0.12.65，HEAD f100ea9a，编辑前后 release guard 通过。线上状态本轮未重新核验。
-- AgentService.list/getOwned、SpaceService.listMembers 明确 select owner 的 id/name/email；空间仍剥离原始 ownerId/credentials，canManageRole 规则保持。
-- 客户端全量174suite/2949tests通过；其后特殊字符回归先红后绿，最终相关7suite/220tests通过；最后窄屏布局微调再验SpaceMembers14/14。
-- 服务端相关4suite/89tests、server typecheck、client tsc/build、全部修改TS/TSX ESLint、diff check通过。最终初始JS550838/551000字节。
-- 真实Chrome+本地Vite+夹具API桌面1440/手机390共9项检查通过，含列表→详情→暂停、同名不同所有者、他人Agent只读、中英、未知所有者、无横向溢出/控制台错误。未运行真实数据库或生产业务验收。
-- 独立复核发现并修正姓名含美元替换序列的显示错误，最终无未解决finding。既有未跟踪design/保留。
-- 上轮v0.12.65发布与审核/复制功能记录保留在归档，本轮所有者修复尚未上线。
+- v0.12.66已正式Release及生产部署；1470源码匹配冻结源，三服务active/五healthok，公网HTML与五入口资源一致。
+- 完整8562pass/0fail/9条件skip，types/lint/全包build及独立复核通过；初始JS550838/551000。
+- 两个生产环境文件哈希完全保持。旧生产1469源码均对应已知.65或f100ea9a，无未知修改。
+- 配对应用/配置/DB/附件备份与随机隔离恢复通过。生产真实Chrome两个临时同名owner/Agent的8项API/UI/权限/中英/390px验收通过，7项资源清理均读回。
+- 首轮整体因验收脚本opaque localStorage初始化失败，8业务项与7清理项仍全过；失败保留，修正脚本先红后绿8/8并最终生产通过。产品冻结源未改变。
+- 绑定/协作选择器为本地组件证据；生产未创建Page、保存绑定、颁发凭据或请求模型。原未跟踪design/8稿保持。
 
 # 稳定约束
 
-canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`，便捷入口 `/Users/neomei/项目/codexprojects/AgentWiki-current/agentwiki`，分支 `codex/agent-autochat-external-opencode`；origin直连GitHub。编辑发布前guard，历史检出禁止发布；deploy.sh打包工作树，发布必须用冻结clean detached树。生产root@113.249.120.24:/root/agentwiki；保留未跟踪design/。不记录密码/私钥/令牌。
+canonical `/Users/neomei/.codex/worktrees/agentwiki-autochat-external/agentwiki`，便捷入口 `/Users/neomei/项目/codexprojects/AgentWiki-current/agentwiki`，分支 `codex/agent-autochat-external-opencode`；origin直连GitHub。编辑发布前guard，历史检出禁止发布；deploy.sh打包工作树，须用冻结clean detached树，worktree根读取当前配置并确认外置卷。生产root@113.249.120.24:/root/agentwiki；保留design/。不记录认证材料。
 
 # 关键索引
 
-- tasks/active/agent-owner-release-20261109/{brief,decisions,refs}.md
-- archive/2026-11-09-agent-owner-visibility.md（含上轮current快照）
-- agentwiki/apps/client/src/features/agent/agentOwner.ts
+- tasks/archive/agent-owner-release-20261109/{brief,decisions,refs}.md
+- agentwiki/docs/verification/agent-owner-release-v01266-20261109/README.md
+- https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.66
+- archive/2026-11-09-agent-owner-visibility.md
 - tasks/archive/space-review-release-20261028/{brief,decisions,refs}.md
-- tasks/archive/space-review-policy-20261028/{brief,decisions,refs,plan,verification.json}
-- tasks/archive/local-workspace-hygiene-20261028/brief.md
 - tasks/index.md（既有原环境未验边界）
 
 # 风险 / 下一步
 
-所有者修复为本地未提交变更，发布前需冻结并验证候选、备份及生产读回。551000字节初始JS门禁保持。原账号/原生客户端与线上复制结果页实点待验仍按原任务保留，不由本轮夹具验收替代。上次发布的备份与回滚要求见release归档。
+9skip为CodeGraph opt-in1、专用connection DB3、专用taskboard DB4、Windows ACL1；原账号/原生客户端及前次复制线上实点待验保留。备份`/var/backups/agentwiki/agent-owner-release-v01266.LfsNJki6`与旧应用`/root/agentwiki-previous-20261109012353`保留，回滚须考虑备份后新写入，不能恢复旧库覆盖新业务。551000字节初始JS门禁保持。

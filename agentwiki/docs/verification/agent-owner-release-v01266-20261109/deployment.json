@@ -1,0 +1,10 @@
+{
+  "status": "passed",
+  "revision": "436a3101fe7bd4de240ae8edc82be5ac7261d8e3",
+  "backup": "/var/backups/agentwiki/agent-owner-release-v01266.LfsNJki6",
+  "backupVerified": true,
+  "isolatedRestorePassed": true,
+  "previousApplication": "/root/agentwiki-previous-20261109012353",
+  "environmentFilesUnchanged": true,
+  "publicUrl": "https://agentwiki.quukk.com"
+}

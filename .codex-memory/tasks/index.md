@@ -4,7 +4,6 @@
 
 ## 活跃任务
 
-- [agent-owner-release-20261109](active/agent-owner-release-20261109/brief.md)：用户已授权 v0.12.66 所有者可见性修复发布，冻结验证与生产备份/部署进行中；尚未发布。
 
 - [notification-unread-20261023](active/notification-unread-20261023/brief.md)：#12服务端count漏readAt过滤已补发.58，真实PG红绿、server3591/3skip及生产实际服务unread1→0/历史不变通过；原报告回复回读，billy浏览器待验。
 
@@ -23,6 +22,8 @@
 - [q3-regressions-20260914](archive/q3-regressions-20260914/brief.md)：Q3人工报告20项代码修复、整分支独立复审与候选验收完成；未发布部署或安装日常Vault。
 
 ## 最近完成
+
+- [agent-owner-release-20261109](archive/agent-owner-release-20261109/brief.md)：v0.12.66已GitHub正式发布及生产部署，8562pass/9skip、1470源/服务/公网一致、生产8项owner验收和临时资源清理读回通过。
 
 - [space-review-release-20261028](archive/space-review-release-20261028/brief.md)：v0.12.65已发布部署；8540pass/9skip、1469源码、104旧Space策略保持及生产11项通过；备份恢复/临时资源清理完成，复制线上结果页实点边界保留。
 

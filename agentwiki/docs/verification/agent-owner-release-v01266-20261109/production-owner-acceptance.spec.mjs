@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 import { assertFixtureMutation, initializeLanguage, noExecution, redact, validateOrigin } from './production-owner-acceptance.mjs';
 import { createFixtureRequester } from '../notes-release-v01264-20261028/browser-request-policy.mjs';
@@ -39,6 +40,13 @@ test('new isolated profiles default to English while selected Chinese survives l
   assert.equal(storage.getItem('agentwiki.language.v1'), 'en');
   storage.setItem('agentwiki.language.v1', 'zh-CN'); initializeLanguage(storage);
   assert.equal(storage.getItem('agentwiki.language.v1'), 'zh-CN');
+});
+
+test('initial opaque browser documents do not attempt to access localStorage', () => {
+  assert.doesNotThrow(() => runInNewContext(`(${initializeLanguage.toString()})()`, {
+    location: { protocol: 'about:' },
+    get localStorage() { throw new Error('Opaque document storage is denied'); },
+  }));
 });
 
 test('binding reads are allowed while credentials, saves, Runs, model and Agent execution are blocked', () => {

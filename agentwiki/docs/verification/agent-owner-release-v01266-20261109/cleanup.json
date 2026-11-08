@@ -1,0 +1,10 @@
+{
+  "releaseWorktreeRemoved": true,
+  "dedicatedSshMasterClosed": true,
+  "localFullTestDatabasesRemaining": 0,
+  "designFilesPreserved": 8,
+  "designHashesUnchanged": true,
+  "productionFixtureResourcesRevokedOrSoftDeletedAndReadBack": true,
+  "pairedBackupAndPreviousApplicationRetained": true,
+  "privateRemoteVerifierToolsRetained": true
+}

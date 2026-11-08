@@ -1,0 +1,411 @@
+{
+  "version": "0.12.66",
+  "origin": "https://agentwiki.quukk.com",
+  "prefix": "aw66-c6b079ce",
+  "startedAt": "2026-11-08T17:26:08.217Z",
+  "isolatedChromeProfile": true,
+  "checks": [
+    {
+      "name": "Real API returns exact safe owner summaries for same-name Agents; other-owner detail remains forbidden and management is unchanged",
+      "passed": true
+    },
+    {
+      "name": "Isolated Chrome signs in through normal login UI",
+      "passed": true
+    },
+    {
+      "name": "agents-desktop",
+      "passed": true,
+      "dimensions": {
+        "viewport": 1440,
+        "document": 1440,
+        "body": 1440
+      }
+    },
+    {
+      "name": "agent-detail-desktop",
+      "passed": true,
+      "dimensions": {
+        "viewport": 1440,
+        "document": 1440,
+        "body": 1440
+      }
+    },
+    {
+      "name": "members-desktop",
+      "passed": true,
+      "dimensions": {
+        "viewport": 1440,
+        "document": 1440,
+        "body": 1440
+      }
+    },
+    {
+      "name": "members-mobile-en",
+      "passed": true,
+      "dimensions": {
+        "viewport": 390,
+        "document": 390,
+        "body": 390
+      }
+    },
+    {
+      "name": "members-mobile-zh",
+      "passed": true,
+      "dimensions": {
+        "viewport": 390,
+        "document": 390,
+        "body": 390
+      }
+    },
+    {
+      "name": "Peer sees both owners but may manage only its own Agent",
+      "passed": true
+    }
+  ],
+  "blockedRequests": [],
+  "consoleErrors": [],
+  "consoleWarnings": [],
+  "pageErrors": [],
+  "rateLimitReadRetries": [],
+  "cleanup": [
+    {
+      "kind": "grant",
+      "id": "agent_1bb9a4551ad23663a4546b0998f4d7f4/cmw83t2l7007imb6ft72logzp",
+      "cleaned": true,
+      "readbackAbsent": true
+    },
+    {
+      "kind": "grant",
+      "id": "agent_df1ba57403948d5d6733a59e94dc199a/cmw83t2l7007imb6ft72logzp",
+      "cleaned": true,
+      "readbackAbsent": true
+    },
+    {
+      "kind": "agent",
+      "id": "agent_1bb9a4551ad23663a4546b0998f4d7f4",
+      "cleaned": true,
+      "revoked": true,
+      "readbackStatus": 404
+    },
+    {
+      "kind": "agent",
+      "id": "agent_df1ba57403948d5d6733a59e94dc199a",
+      "cleaned": true,
+      "revoked": true,
+      "readbackStatus": 404
+    },
+    {
+      "kind": "space",
+      "id": "cmw83t2l7007imb6ft72logzp",
+      "cleaned": true,
+      "softDeleted": true,
+      "readbackStatus": 404
+    },
+    {
+      "kind": "user",
+      "id": "cmw83t2io007hmb6frm49aqbf",
+      "cleaned": true,
+      "softDeleted": true,
+      "readbackStatus": 401
+    },
+    {
+      "kind": "user",
+      "id": "cmw83t22e007gmb6f8jsnezwo",
+      "cleaned": true,
+      "softDeleted": true,
+      "readbackStatus": 401
+    }
+  ],
+  "boundaries": [
+    "Only disposable accounts and their new Space/Agents are touched.",
+    "No Page create/write, Agent credential, binding save, collaboration Run, model configuration or model execution is requested. Page binding and collaboration selectors remain local/component-test evidence because Page creation may invoke embedding through search indexing.",
+    "API cleanup revokes Agents and soft-deletes Space/users, preserving the existing audit history. Screenshot email text is redacted after real DOM assertions."
+  ],
+  "browser": "156.0.8078.80",
+  "passed": true,
+  "browserClosed": true,
+  "resources": {
+    "userIds": [
+      "cmw83t22e007gmb6f8jsnezwo",
+      "cmw83t2io007hmb6frm49aqbf"
+    ],
+    "spaceIds": [
+      "cmw83t2l7007imb6ft72logzp"
+    ],
+    "agentIds": [
+      "agent_df1ba57403948d5d6733a59e94dc199a",
+      "agent_1bb9a4551ad23663a4546b0998f4d7f4"
+    ]
+  },
+  "requests": [
+    {
+      "transport": "fixture",
+      "method": "POST",
+      "path": "/auth/register"
+    },
+    {
+      "transport": "fixture",
+      "method": "POST",
+      "path": "/auth/register"
+    },
+    {
+      "transport": "fixture",
+      "method": "POST",
+      "path": "/spaces"
+    },
+    {
+      "transport": "fixture",
+      "method": "POST",
+      "path": "/spaces/cmw83t2l7007imb6ft72logzp/members"
+    },
+    {
+      "transport": "fixture",
+      "method": "POST",
+      "path": "/agents"
+    },
+    {
+      "transport": "fixture",
+      "method": "PUT",
+      "path": "/agents/agent_df1ba57403948d5d6733a59e94dc199a/grants/cmw83t2l7007imb6ft72logzp"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents/agent_df1ba57403948d5d6733a59e94dc199a"
+    },
+    {
+      "transport": "fixture",
+      "method": "POST",
+      "path": "/agents"
+    },
+    {
+      "transport": "fixture",
+      "method": "PUT",
+      "path": "/agents/agent_1bb9a4551ad23663a4546b0998f4d7f4/grants/cmw83t2l7007imb6ft72logzp"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents/agent_1bb9a4551ad23663a4546b0998f4d7f4"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmw83t2l7007imb6ft72logzp/members"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents/agent_1bb9a4551ad23663a4546b0998f4d7f4"
+    },
+    {
+      "transport": "browser",
+      "method": "POST",
+      "path": "/auth/login"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/agents"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmw83t2l7007imb6ft72logzp/members"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmw83t2l7007imb6ft72logzp"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmw83t2l7007imb6ft72logzp"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmw83t2l7007imb6ft72logzp/members"
+    },
+    {
+      "transport": "browser",
+      "method": "POST",
+      "path": "/auth/login"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/review/count"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmw83t2l7007imb6ft72logzp/members"
+    },
+    {
+      "transport": "browser",
+      "method": "GET",
+      "path": "/spaces/cmw83t2l7007imb6ft72logzp"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents/agent_df1ba57403948d5d6733a59e94dc199a"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents/agent_1bb9a4551ad23663a4546b0998f4d7f4"
+    },
+    {
+      "transport": "fixture",
+      "method": "DELETE",
+      "path": "/agents/agent_1bb9a4551ad23663a4546b0998f4d7f4/grants/cmw83t2l7007imb6ft72logzp"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents/agent_1bb9a4551ad23663a4546b0998f4d7f4"
+    },
+    {
+      "transport": "fixture",
+      "method": "DELETE",
+      "path": "/agents/agent_df1ba57403948d5d6733a59e94dc199a/grants/cmw83t2l7007imb6ft72logzp"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents/agent_df1ba57403948d5d6733a59e94dc199a"
+    },
+    {
+      "transport": "fixture",
+      "method": "DELETE",
+      "path": "/agents/agent_1bb9a4551ad23663a4546b0998f4d7f4"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents/agent_1bb9a4551ad23663a4546b0998f4d7f4"
+    },
+    {
+      "transport": "fixture",
+      "method": "DELETE",
+      "path": "/agents/agent_df1ba57403948d5d6733a59e94dc199a"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/agents/agent_df1ba57403948d5d6733a59e94dc199a"
+    },
+    {
+      "transport": "fixture",
+      "method": "DELETE",
+      "path": "/spaces/cmw83t2l7007imb6ft72logzp"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/spaces/cmw83t2l7007imb6ft72logzp"
+    },
+    {
+      "transport": "fixture",
+      "method": "DELETE",
+      "path": "/users/cmw83t2io007hmb6frm49aqbf"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/users/me"
+    },
+    {
+      "transport": "fixture",
+      "method": "DELETE",
+      "path": "/users/cmw83t22e007gmb6f8jsnezwo"
+    },
+    {
+      "transport": "fixture",
+      "method": "GET",
+      "path": "/users/me"
+    }
+  ],
+  "noCredentialsOrExecutionRequested": true,
+  "interrupted": false,
+  "completedAt": "2026-11-08T17:26:24.479Z"
+}

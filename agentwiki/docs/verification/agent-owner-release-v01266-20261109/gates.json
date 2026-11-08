@@ -1,0 +1,57 @@
+{
+  "frozen": "436a3101fe7bd4de240ae8edc82be5ac7261d8e3",
+  "fullTestExitCode": 0,
+  "fullTestSummary": [
+    "# tests 246",
+    "# pass 246",
+    "# fail 0",
+    "# skipped 0",
+    "Tests:       7 skipped, 3782 passed, 3789 total",
+    "      Tests  2950 passed (2950)",
+    "      Tests  140 passed (140)",
+    "      Tests  1125 passed | 1 skipped (1126)"
+  ],
+  "gates": {
+    "fullTest": {
+      "exitCode": 0,
+      "logSha256": "f59ba9a5cb2973b0cb3d97a6aae7ff8181d69ed96800edb7230e2ee28abfdb7f"
+    },
+    "types": {
+      "exitCode": 0,
+      "logSha256": "d0a87d9e039ecf277453e5bf5e153e25986e53af6f6456b0f1c7a11ba35dc86d"
+    },
+    "lint": {
+      "exitCode": 0,
+      "logSha256": "d5b17ee595fbfdae02af58fd347506b1d5a827a69c28da8385dc57ae52ef712d"
+    },
+    "build": {
+      "exitCode": 0,
+      "logSha256": "85a86b5f8bc9c7fd73310b3ce243af07c2d4f663647ac9da964167f96076ca7a"
+    }
+  },
+  "initialJavaScriptBytes": 550838,
+  "initialJavaScriptBudget": 551000,
+  "fullTest": {
+    "pass": 8562,
+    "fail": 0,
+    "skip": 9,
+    "phases": {
+      "runtime": 319,
+      "runtimeDbRedis": 246,
+      "server": 3782,
+      "client": 2950,
+      "syncProtocol": 140,
+      "localSync": 1125
+    },
+    "skipReasons": {
+      "optInCodeGraph": 1,
+      "dedicatedConnectionDb": 3,
+      "dedicatedTaskboardDb": 4,
+      "windowsAcl": 1
+    }
+  },
+  "fixturePolicyTests": {
+    "pass": 8,
+    "fail": 0
+  }
+}

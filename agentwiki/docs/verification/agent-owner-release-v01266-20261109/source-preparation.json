@@ -1,0 +1,16 @@
+{
+  "revision": "436a3101fe7bd4de240ae8edc82be5ac7261d8e3",
+  "sourceFiles": 1470,
+  "manifestSha256": "f2146c371da973f105743e36724e412565873e692029ea8dc852d491b045a6e3",
+  "manifest": "/private/tmp/aw-owner66-w_dqr994/receipts/source-manifest.json",
+  "verifier": "/private/tmp/aw-owner66-w_dqr994/receipts/verify-release.py",
+  "verifierSha256": "e819f8e696642e94e0f4879e92534f7e74b7462ade4ec0a11552f5af172ad738",
+  "verifierArgs": [
+    "--revision",
+    "436a3101fe7bd4de240ae8edc82be5ac7261d8e3",
+    "--manifest-sha256",
+    "f2146c371da973f105743e36724e412565873e692029ea8dc852d491b045a6e3",
+    "--expected-files",
+    "1470"
+  ]
+}
