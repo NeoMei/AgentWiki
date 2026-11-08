@@ -4,6 +4,8 @@
 
 ## 活跃任务
 
+- [agent-owner-release-20261109](active/agent-owner-release-20261109/brief.md)：用户已授权 v0.12.66 所有者可见性修复发布，冻结验证与生产备份/部署进行中；尚未发布。
+
 - [notification-unread-20261023](active/notification-unread-20261023/brief.md)：#12服务端count漏readAt过滤已补发.58，真实PG红绿、server3591/3skip及生产实际服务unread1→0/历史不变通过；原报告回复回读，billy浏览器待验。
 
 - [release-v01257-20261023](active/release-v01257-20261023/brief.md)：Web .57/精确npm .5/GitHub已发布并验收；完整测试8223/5skip，生产1422源码及浏览器/原报告通过；仅npm latest推广因安全密钥超时待继续。
