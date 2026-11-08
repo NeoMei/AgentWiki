@@ -16,6 +16,34 @@ describe('AgentList create dialog', () => {
     vi.mocked(api.get).mockResolvedValue({ data: [] } as never);
   });
 
+  it.each([
+    ['zh-CN', '所有者：张三（zhang@example.test）'],
+    ['en', 'Owner: 张三 (zhang@example.test)'],
+  ])('shows the server-provided owner in %s, including archived Agents', async (language, ownerLabel) => {
+    localStorage.setItem('agentwiki.language.v1', language);
+    vi.mocked(api.get).mockResolvedValue({ data: [{
+      id: 'agent-owned', name: 'Codex', status: 'archived', grants: [],
+      owner: { id: 'owner-1', name: '张三', email: 'zhang@example.test' },
+      _count: { credentials: 0, auditEvents: 1 },
+    }] });
+    render(<MemoryRouter><LanguageProvider><AgentList /></LanguageProvider></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: language === 'zh-CN' ? '查看已归档智能体' : 'View archived Agents' }));
+
+    expect(await screen.findByRole('link', { name: /Codex/ })).toHaveTextContent(ownerLabel);
+  });
+
+  it('preserves dollar sequences in the owner name literally', async () => {
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    vi.mocked(api.get).mockResolvedValue({ data: [{
+      id: 'agent-special-owner', name: 'Codex', status: 'active', grants: [],
+      owner: { id: 'owner-1', name: "Ops $& $` $'", email: 'ops@example.test' },
+      _count: { credentials: 0, auditEvents: 1 },
+    }] });
+    render(<MemoryRouter><LanguageProvider><AgentList /></LanguageProvider></MemoryRouter>);
+
+    expect(await screen.findByRole('link', { name: /Codex/ })).toHaveTextContent("Owner: Ops $& $` $' (ops@example.test)");
+  });
+
   it('closes with Escape and restores focus to the new-agent button', async () => {
     render(
       <MemoryRouter>

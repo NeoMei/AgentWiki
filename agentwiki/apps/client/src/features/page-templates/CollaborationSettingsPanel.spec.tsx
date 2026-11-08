@@ -105,7 +105,7 @@ describe('CollaborationSettingsPanel', () => {
 
     expect(refresh).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('combobox', { name: '负责人' })).toHaveValue('agent-new');
-    expect(screen.getByRole('option', { name: 'Authoritative Alpha' })).toBeVisible();
+    expect(screen.getByRole('option', { name: /^Authoritative Alpha ·/u })).toBeVisible();
     expect(within(screen.getByTestId('participant-preview')).getByText('Authoritative Alpha')).toBeVisible();
   });
 });

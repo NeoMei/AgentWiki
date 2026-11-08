@@ -2,6 +2,8 @@ import { NativeSelect } from '../../../components/NativeSelect';
 import React from 'react';
 import type { CollaborationTemplateDefinition } from '@neomei/agentwiki-sync-protocol';
 import type { RoleBinding, SpaceMemberSummary } from '../types';
+import { useLanguage } from '../../../context/LanguageContext';
+import { agentOwnerText } from '../../agent/agentOwner';
 import './role-binding-editor.css';
 
 export const RoleBindingEditor: React.FC<{
@@ -14,7 +16,9 @@ export const RoleBindingEditor: React.FC<{
   prepareLabel?: string;
   prepareActionLabel?: (roleName: string) => string;
   agentAvailability?: Record<string, { disabled: boolean; reason?: string }>;
-}> = ({ roleSlots, agents, bindings, onChange, onPrepare, chooseLabel, prepareLabel, prepareActionLabel, agentAvailability }) => (
+}> = ({ roleSlots, agents, bindings, onChange, onPrepare, chooseLabel, prepareLabel, prepareActionLabel, agentAvailability }) => {
+  const { language } = useLanguage();
+  return (
   <div className="role-binding-editor">
     {roleSlots.map((slot) => {
       const value = bindings.find((binding) => binding.roleSlotId === slot.id)?.agentId ?? '';
@@ -44,7 +48,7 @@ export const RoleBindingEditor: React.FC<{
                 if (!member.agentId || !member.agent) return [];
                 const availability = agentAvailability?.[member.agentId];
                 return [<option key={member.agentId} value={member.agentId} disabled={availability?.disabled}>
-                  {member.agent.name}{availability?.reason ? ` — ${availability.reason}` : ''}
+                  {member.agent.name} · {agentOwnerText(member.agent.owner, language)}{availability?.reason ? ` — ${availability.reason}` : ''}
                 </option>];
               })}
             </NativeSelect>
@@ -62,4 +66,5 @@ export const RoleBindingEditor: React.FC<{
       );
     })}
   </div>
-);
+  );
+};

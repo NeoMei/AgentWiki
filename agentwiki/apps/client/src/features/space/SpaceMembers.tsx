@@ -8,6 +8,7 @@ import { Users, Plus, Trash2, Shield, Loader2, Bot } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { AddSpaceMemberDialog } from './AddSpaceMemberDialog';
+import { agentOwnerText, type AgentOwnerSummary } from '../agent/agentOwner';
 
 type HumanRole = 'owner' | 'admin' | 'editor' | 'viewer';
 
@@ -25,7 +26,7 @@ interface AgentMember {
   role: AgentAccessRole;
   type: 'agent';
   agentId?: string;
-  agent?: { id: string; name: string; status: string };
+  agent?: { id: string; name: string; status: string; owner?: AgentOwnerSummary | null };
   canManageRole: boolean;
   createdAt: string;
 }
@@ -205,7 +206,7 @@ export const SpaceMembers: React.FC = () => {
               ? [member.role, ...availableAgentRoles]
               : availableAgentRoles;
             return (
-              <div key={member.id} data-testid={`member-agent-${member.agentId}`} className="flex items-center gap-3 p-4">
+              <div key={member.id} data-testid={`member-agent-${member.agentId}`} className="grid grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-3 p-4 sm:flex">
                 <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 text-white">
                   <Bot size={18} />
                 </div>
@@ -214,13 +215,14 @@ export const SpaceMembers: React.FC = () => {
                     <span className="truncate font-medium">{name}</span>
                     <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs text-emerald-700">Agent</span>
                   </div>
+                  <p className="text-sm text-gray-500 [overflow-wrap:anywhere]">{agentOwnerText(member.agent?.owner, language)}</p>
                   <p className="truncate text-sm text-gray-500">
                     {member.role === 'publisher'
                       ? (zh ? '自动发布仍受 Space 发布策略限制；Agent 无人工审批权。' : 'Auto-publishing remains subject to Space policy; Agents cannot approve reviews.')
                       : (zh ? '通过统一 Agent 角色授权接入' : 'Connected with a unified Agent role')}
                   </p>
                 </div>
-                <div className="flex flex-shrink-0 items-center gap-2">
+                <div className="col-start-2 flex flex-shrink-0 items-center gap-2 sm:ml-auto">
                   {member.canManageRole ? (
                     <NativeSelect
                       aria-label={zh ? `${name} 的 Agent 角色` : `${name} Agent role`}

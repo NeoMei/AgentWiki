@@ -59,6 +59,28 @@ describe('PageAgentBindingDialog', () => {
     mocks.getRun.mockResolvedValue({ id: 'run-1', roleBindings: [], joinInstructions: [] });
   });
 
+  it.each([
+    ['zh-CN', '所有者：Alice（alice@example.test）', '所有者：Bob（bob@example.test）', '主责 Agent', '已连接'],
+    ['en', 'Owner: Alice (alice@example.test)', 'Owner: Bob (bob@example.test)', 'Primary Agent', 'Connected'],
+  ] as const)('shows owners in binding choices, current assignment and selection in %s', async (language, alice, bob, label, connected) => {
+    localStorage.setItem('agentwiki.language.v1', language);
+    mocks.listMembers.mockResolvedValue([
+      { type: 'agent', agentId: 'agent-1', role: 'editor', agent: { id: 'agent-1', name: 'Shared', status: 'active', connected: true, owner: { id: 'alice', name: 'Alice', email: 'alice@example.test' } } },
+      { type: 'agent', agentId: 'agent-2', role: 'publisher', agent: { id: 'agent-2', name: 'Shared', status: 'active', connected: true, owner: { id: 'bob', name: 'Bob', email: 'bob@example.test' } } },
+    ]);
+    mocks.getPageBinding.mockResolvedValue({ pageId: 'page-1', agentId: 'agent-1', roleSlotKey: 'owner', updatedAt: 'binding-v1' });
+    renderDialog({ kind: 'page', pageId: 'page-1', title: 'Page one' });
+
+    expect(await screen.findByRole('option', { name: `Shared #agent-1 · ${alice}` })).toHaveValue('agent-1');
+    expect(screen.getByRole('option', { name: `Shared #agent-2 · ${bob}` })).toHaveValue('agent-2');
+    const currentAssignment = within(screen.getByTestId('binding-page-scope')).getByText(`Shared · ${alice}`);
+    expect(currentAssignment.tagName).toBe('DD');
+    expect(screen.getByText(`Shared · ${alice} · ${connected}`)).toBeVisible();
+    fireEvent.change(screen.getByLabelText(label), { target: { value: 'agent-2' } });
+    expect(screen.getByText(`Shared · ${bob} · ${connected}`)).toBeVisible();
+    expect(currentAssignment).toHaveTextContent(alice);
+  });
+
   it('saves a late Page binding without starting by default', async () => {
     renderDialog({ kind: 'page', pageId: 'page-1', title: 'Page one' });
     expect(await screen.findByRole('checkbox', { name: '保存后立即启动协作' })).not.toBeChecked();

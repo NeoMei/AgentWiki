@@ -11,6 +11,7 @@ import { credentialIsActive, hasActiveAgentCredential } from '../collaboration/a
 import { LocalSyncInstallCard } from './LocalSyncInstallCard';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { agentOwnerText } from './agentOwner';
 
 type Tab = 'overview' | 'access' | 'activity' | 'settings';
 
@@ -155,12 +156,13 @@ export const AgentDetail: React.FC = () => {
     <div className="max-w-5xl mx-auto">
       <Link to="/agents" className="text-sm text-gray-500 hover:text-blue-600">← {t('nav.agents')}</Link>
       <div className="flex items-start justify-between gap-4 mt-4 mb-6">
-        <div>
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-semibold">{currentAgent.name}</h1>
             <span className={'text-xs px-2 py-0.5 rounded-full ' + (currentAgent.status === 'active' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700')}>{currentAgent.status === 'archived' ? op('operations.archived') : runtimeLabel(currentAgent.status, t)}</span>
           </div>
           <p className="text-sm text-gray-500 mt-1">{currentAgent.description || t('common.noDescription')}</p>
+          <p className="text-sm text-gray-500 mt-1 [overflow-wrap:anywhere]">{agentOwnerText(currentAgent.owner, language)}</p>
         </div>
         {currentAgent.status !== 'archived' ? <button disabled={updatingStatus} onClick={() => void updateStatus()} className="h-8 px-3 border rounded-lg text-sm flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50">
           {currentAgent.status === 'active' ? <Pause size={14} /> : <Play size={14} />} {currentAgent.status === 'active' ? t('agent.pause') : t('agent.resume')}

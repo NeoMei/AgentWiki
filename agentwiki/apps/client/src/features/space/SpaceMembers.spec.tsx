@@ -73,6 +73,33 @@ describe('SpaceMembers Agent addition', () => {
 
   afterEach(cleanup);
 
+  it.each([
+    ['zh-CN', '所有者：同名用户（alice@example.test）', '所有者：同名用户（bob@example.test）'],
+    ['en', 'Owner: 同名用户 (alice@example.test)', 'Owner: 同名用户 (bob@example.test)'],
+  ] as const)('distinguishes same-name Agents by their real owners in %s without granting management', async (language, alice, bob) => {
+    vi.mocked(useLanguage).mockReturnValue({ language, t: (key: string) => messages[language][key] || key } as ReturnType<typeof useLanguage>);
+    vi.mocked(api.get).mockResolvedValue({ data: [
+      ...membersFor('viewer').slice(0, 2),
+      {
+        id: 'grant-alice', type: 'agent', agentId: 'agent-alice', role: 'reader', canManageRole: false,
+        agent: { id: 'agent-alice', name: 'Codex', status: 'active', owner: { id: 'alice', name: '同名用户', email: 'alice@example.test' } },
+      },
+      {
+        id: 'grant-bob', type: 'agent', agentId: 'agent-bob', role: 'reader', canManageRole: false,
+        agent: { id: 'agent-bob', name: 'Codex', status: 'active', owner: { id: 'bob', name: '同名用户', email: 'bob@example.test' } },
+      },
+    ] });
+    render(<MemoryRouter initialEntries={['/spaces/space-1/members']}><Routes><Route path="/spaces/:id/members" element={<SpaceMembers />} /></Routes></MemoryRouter>);
+
+    const aliceRow = await screen.findByTestId('member-agent-agent-alice');
+    const bobRow = screen.getByTestId('member-agent-agent-bob');
+    expect(aliceRow).toHaveTextContent(alice);
+    expect(aliceRow).not.toHaveTextContent('bob@example.test');
+    expect(bobRow).toHaveTextContent(bob);
+    expect(aliceRow.querySelector('select,button')).toBeNull();
+    expect(bobRow.querySelector('select,button')).toBeNull();
+  });
+
   it('opens the unified dialog for an owner and excludes existing agent grants', async () => {
     renderMembers();
 

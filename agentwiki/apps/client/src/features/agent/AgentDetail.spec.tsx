@@ -58,6 +58,30 @@ describe('AgentDetail', () => {
       .mockResolvedValueOnce({ data: { data: [] } } as any);
   });
 
+  it.each([
+    ['zh-CN', '所有者：owner@example.test'],
+    ['en', 'Owner: owner@example.test'],
+  ])('shows the owner account when no display name is set in %s', async (language, ownerLabel) => {
+    localStorage.setItem('agentwiki.language.v1', language);
+    vi.mocked(api.get).mockReset().mockImplementation(async (url: string) => {
+      if (url === '/agents/agent-1') return { data: {
+        id: 'agent-1', name: '同步助手', status: 'active', grants: [], credentials: [],
+        owner: { id: 'owner-1', name: null, email: 'owner@example.test' },
+      } };
+      return { data: { data: [] } };
+    });
+    renderDetail();
+
+    expect(await screen.findByText(ownerLabel)).toBeVisible();
+  });
+
+  it('shows an unknown owner instead of attributing missing data to the signed-in user', async () => {
+    renderDetail();
+
+    expect(await screen.findByText('所有者：未知所有者')).toBeVisible();
+    expect(document.body).not.toHaveTextContent('owner@example.test');
+  });
+
   it('shows tool, real target and result summary while labeling historical transport honestly', async () => {
     vi.mocked(api.get).mockReset().mockImplementation(async (url: string) => {
       if (url === '/agents/agent-1') return { data: { id: 'agent-1', name: '同步助手', status: 'active', grants: [], credentials: [] } };

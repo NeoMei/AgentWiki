@@ -390,6 +390,7 @@ export class SpaceService {
           createdAt: true,
           agent: { select: {
             id: true, name: true, status: true, revokedAt: true, ownerId: true,
+            owner: { select: { id: true, name: true, email: true } },
             credentials: {
               where: {
                 revokedAt: null,

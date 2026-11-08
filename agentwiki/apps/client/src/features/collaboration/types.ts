@@ -1,4 +1,5 @@
 import type { CollaborationRunStatus as ProtocolCollaborationRunStatus, CollaborationTemplateDefinition } from '@neomei/agentwiki-sync-protocol';
+import type { AgentOwnerSummary } from '../agent/agentOwner';
 
 export type HumanSpaceRole = 'owner' | 'admin' | 'editor' | 'viewer';
 
@@ -8,7 +9,7 @@ export interface SpaceMemberSummary {
   agentId?: string;
   role: string;
   user?: { id: string; name?: string | null; email: string; type?: string };
-  agent?: { id: string; name: string; status: string; revokedAt?: string | null; connected?: boolean };
+  agent?: { id: string; name: string; status: string; revokedAt?: string | null; connected?: boolean; owner?: AgentOwnerSummary | null };
 }
 
 export interface TemplateSummary {

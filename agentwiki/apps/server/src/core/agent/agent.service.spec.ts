@@ -77,6 +77,43 @@ describe('AgentService grant scope validation', () => {
     expect(prisma.agent.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: { ownerId: 'owner-1', revokedAt: null } }));
   });
 
+  it('loads a safe owner identity for the Agent list', async () => {
+    prisma.agent.findMany.mockResolvedValue([{
+      id: 'agent-1', name: 'Writer', ownerId: 'owner-1', status: 'active',
+      owner: { id: 'owner-1', name: 'Alice', email: 'alice@example.test' },
+      grants: [],
+    }]);
+
+    const result: any[] = await service.list('owner-1');
+
+    expect(prisma.agent.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { ownerId: 'owner-1', revokedAt: null, status: { not: 'archived' } },
+      include: expect.objectContaining({
+        owner: { select: { id: true, name: true, email: true } },
+      }),
+    }));
+    expect(result[0].owner).toEqual({ id: 'owner-1', name: 'Alice', email: 'alice@example.test' });
+  });
+
+  it('loads a safe owner identity for Agent detail without widening access', async () => {
+    prisma.agent.findUnique.mockResolvedValue({
+      id: 'agent-1', name: 'Writer', ownerId: 'owner-1', status: 'active', revokedAt: null,
+      owner: { id: 'owner-1', name: null, email: 'alice@example.test' },
+      grants: [], credentials: [],
+    });
+
+    const result: any = await service.getOwned('owner-1', 'agent-1');
+
+    expect(prisma.agent.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'agent-1' },
+      include: expect.objectContaining({
+        owner: { select: { id: true, name: true, email: true } },
+      }),
+    }));
+    expect(result.owner).toEqual({ id: 'owner-1', name: null, email: 'alice@example.test' });
+    await expect(service.getOwned('another-owner', 'agent-1')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
   it('replays one atomic Agent create for the same owner idempotency key', async () => {
     let persisted: any;
     prisma.agent.create.mockImplementation(async ({ data }: any) => {

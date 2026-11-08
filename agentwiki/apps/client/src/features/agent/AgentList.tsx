@@ -7,6 +7,7 @@ import { Bot, KeyRound, Pause, Play, Plus, X } from 'lucide-react';
 import api from '../../api/client';
 import { useLanguage } from '../../context/LanguageContext';
 import { ModalDialog } from '../../components/ModalDialog';
+import { agentOwnerText, type AgentOwnerSummary } from './agentOwner';
 
 interface Agent {
   id: string;
@@ -14,6 +15,7 @@ interface Agent {
   description?: string;
   status: string;
   approvalMode: string;
+  owner?: AgentOwnerSummary | null;
   grants: Array<{ id: string; space: { id: string; name: string }; role: string }>;
   _count: { credentials: number; auditEvents: number };
 }
@@ -111,6 +113,7 @@ export const AgentList: React.FC = () => {
                   </span>
                 </div>
                 <p className="text-sm text-gray-500 truncate mt-1">{agent.description || t('common.noDescription')}</p>
+                <p className="text-sm text-gray-500 mt-1 [overflow-wrap:anywhere]">{agentOwnerText(agent.owner, language)}</p>
                 <div className="flex gap-4 text-xs text-gray-400 mt-2">
                   <span>{t('agent.spaces', { count: agent.grants.length })}</span>
                   <span className="flex items-center gap-1"><KeyRound size={12} /> {t('agent.credentialsCount', { count: agent._count.credentials })}</span>

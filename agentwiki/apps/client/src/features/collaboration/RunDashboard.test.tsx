@@ -112,6 +112,30 @@ describe('RunDashboard', () => {
     });
   });
 
+  it('distinguishes same-named reassignment targets by their owners and submits the selected Agent ID', async () => {
+    vi.mocked(useAuth).mockReturnValue({ user: { id: 'owner-1' } } as ReturnType<typeof useAuth>);
+    vi.mocked(collaborationApi.getRun).mockResolvedValue(runningRun as any);
+    vi.mocked(collaborationApi.listMembers).mockResolvedValue([
+      { type: 'human', userId: 'owner-1', role: 'owner' },
+      { type: 'agent', agentId: 'agent-a', role: 'editor', agent: { id: 'agent-a', name: 'Shared', status: 'active', owner: { id: 'alice', name: 'Alice', email: 'alice@example.test' } } },
+      { type: 'agent', agentId: 'agent-b', role: 'publisher', agent: { id: 'agent-b', name: 'Shared', status: 'active', owner: { id: 'bob', name: 'Bob', email: 'bob@example.test' } } },
+    ]);
+    localStorage.setItem('agentwiki.language.v1', 'en');
+    render(<LanguageProvider><MemoryRouter initialEntries={['/spaces/space-1/collaboration/runs/run-1']}>
+      <Routes><Route path="/spaces/:id/collaboration/runs/:runId" element={<RunDashboard />} /></Routes>
+    </MemoryRouter></LanguageProvider>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Reassign' }));
+
+    expect(screen.getByRole('option', { name: 'Shared · Owner: Alice (alice@example.test)' })).toHaveValue('agent-a');
+    expect(screen.getByRole('option', { name: 'Shared · Owner: Bob (bob@example.test)' })).toHaveValue('agent-b');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Agent' }), { target: { value: 'agent-b' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Reason' }), { target: { value: 'Owner confirmed' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm reassign task' }));
+    await waitFor(() => expect(collaborationApi.reassignTask).toHaveBeenCalledWith('space-1', 'run-1', 'task-1', {
+      idempotencyKey: expect.stringMatching(/^task-reassign-/u), reason: 'Owner confirmed', agentId: 'agent-b',
+    }));
+  });
+
   it.each(['running', 'waiting_review'] as const)('retrieves fresh instructions on reentry to a %s run without a mutation', async (status) => {
     renderDashboard({ ...runningRun, status }, 'owner', 'owner-1');
     const get = await screen.findByRole('button', { name: 'Get continuation instructions' });

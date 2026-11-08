@@ -1428,9 +1428,9 @@ describe('RunStartWizard', () => {
 
     expect(await screen.findByRole('heading', { name: '2. Map Agents' })).toBeVisible();
     const writer = screen.getByLabelText('Writer');
-    expect(within(writer).getByRole('option', { name: 'Editor Bot' })).toBeVisible();
-    expect(within(writer).queryByRole('option', { name: 'Reader Bot' })).not.toBeInTheDocument();
-    expect(within(writer).queryByRole('option', { name: 'Revoked Bot' })).not.toBeInTheDocument();
+    expect(within(writer).getByRole('option', { name: /^Editor Bot(?: ·|$)/u })).toBeVisible();
+    expect(within(writer).queryByRole('option', { name: /^Reader Bot(?: ·|$)/u })).not.toBeInTheDocument();
+    expect(within(writer).queryByRole('option', { name: /^Revoked Bot(?: ·|$)/u })).not.toBeInTheDocument();
     fireEvent.change(writer, { target: { value: 'agent-editor' } });
     fireEvent.change(screen.getByLabelText('Reviewer'), { target: { value: 'agent-editor' } });
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
@@ -1465,7 +1465,7 @@ describe('RunStartWizard', () => {
 
     expect(await screen.findByText('An assigned Agent is no longer executable. Choose current Agents and try again.')).toBeVisible();
     expect(screen.getByRole('heading', { name: '2. Map Agents' })).toBeVisible();
-    expect(within(screen.getByLabelText('Writer')).queryByRole('option', { name: 'Editor Bot' })).not.toBeInTheDocument();
+    expect(within(screen.getByLabelText('Writer')).queryByRole('option', { name: /^Editor Bot(?: ·|$)/u })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Retry preserved changes' })).not.toBeInTheDocument();
   });
 

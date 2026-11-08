@@ -7,6 +7,7 @@ import { getContentTreeRevision } from '../../api/content-tree';
 import { apiErrorMessage } from '../../api/error-message';
 import { ModalDialog } from '../../components/ModalDialog';
 import { useLanguage } from '../../context/LanguageContext';
+import { agentOwnerText } from '../agent/agentOwner';
 import { collaborationApi } from '../collaboration/api';
 import { buildAgentJoinInstructions } from '../collaboration/agentJoinInstructions';
 import type { AgentInstruction, SpaceMemberSummary } from '../collaboration/types';
@@ -36,7 +37,7 @@ export const PageAgentBindingDialog: React.FC<{
   onClose: () => void;
   onSaved: () => void;
 }> = ({ spaceId, scope, capabilities, returnFocusTo, onClose, onSaved }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const canBind = capabilities?.canBindAgent === true;
   const canStart = capabilities?.canStartPageCollaboration === true;
   const [loading, setLoading] = useState(true);
@@ -107,6 +108,9 @@ export const PageAgentBindingDialog: React.FC<{
   const agentNames = useMemo(() => new Map(agents.flatMap((member) => member.agentId && member.agent
     ? [[member.agentId, member.agent.name] as const]
     : [])), [agents]);
+  const agentLabels = useMemo(() => new Map(agents.flatMap((member) => member.agentId && member.agent
+    ? [[member.agentId, `${member.agent.name} · ${agentOwnerText(member.agent.owner, language)}`] as const]
+    : [])), [agents, language]);
   const duplicateAgentNames = useMemo(() => {
     const counts = new Map<string, number>();
     agents.forEach((member) => { if (member.agent?.name) counts.set(member.agent.name, (counts.get(member.agent.name) ?? 0) + 1); });
@@ -283,7 +287,7 @@ export const PageAgentBindingDialog: React.FC<{
             : <p className="break-words font-medium text-gray-900">{page.title ?? page.pageId}</p>}
           <p className="mt-1 break-all font-mono text-xs text-gray-500">{page.pageId}</p>
           <dl className="mt-2 grid min-w-0 grid-cols-1 gap-1 text-xs text-gray-600 sm:grid-cols-3">
-            <div className="min-w-0"><dt className="font-medium">{t('pageTemplate.binding.currentAgent')}</dt><dd className="break-all">{page.agentId ? agentNames.get(page.agentId) ?? page.agentId : t('pageTemplate.binding.unbound')}</dd></div>
+            <div className="min-w-0"><dt className="font-medium">{t('pageTemplate.binding.currentAgent')}</dt><dd className="break-all">{page.agentId ? agentLabels.get(page.agentId) ?? page.agentId : t('pageTemplate.binding.unbound')}</dd></div>
             <div className="min-w-0"><dt className="font-medium">{t('pageTemplate.binding.currentRole')}</dt><dd className="break-all">{page.roleSlotKey ?? t('pageTemplate.binding.unbound')}</dd></div>
             <div className="min-w-0"><dt className="font-medium">{t('pageTemplate.binding.currentVersion')}</dt><dd className="break-all">{page.updatedAt ?? t('pageTemplate.binding.unbound')}</dd></div>
           </dl>
@@ -306,16 +310,16 @@ export const PageAgentBindingDialog: React.FC<{
           {folderBindingMode === 'bulk_replace' ? <label className="mt-4 block text-sm font-medium">{t('pageTemplate.binding.bulkAgent')}
             <NativeSelect aria-label={t('pageTemplate.binding.bulkAgent')} value={agentId} onChange={(event) => { setAgentId(event.target.value); signatureRef.current = null; invalidateRunPreview(); }} className="mt-1 w-full">
               <option value="">{t('pageTemplate.binding.none')}</option>
-              {agents.flatMap((member) => member.agentId && member.agent ? [<option key={member.agentId} value={member.agentId} disabled={!availability.get(member.agentId)}>{member.agent.name}{duplicateAgentNames.has(member.agent.name) ? ` #${member.agentId.slice(0, 8)}` : ''}{availability.get(member.agentId) ? '' : ` — ${member.role === 'reader' ? t('pageTemplate.composite.agentReader') : t('pageTemplate.composite.agentInactive')}`}</option>] : [])}
+              {agents.flatMap((member) => member.agentId && member.agent ? [<option key={member.agentId} value={member.agentId} disabled={!availability.get(member.agentId)}>{member.agent.name}{duplicateAgentNames.has(member.agent.name) ? ` #${member.agentId.slice(0, 8)}` : ''} · {agentOwnerText(member.agent.owner, language)}{availability.get(member.agentId) ? '' : ` — ${member.role === 'reader' ? t('pageTemplate.composite.agentReader') : t('pageTemplate.composite.agentInactive')}`}</option>] : [])}
             </NativeSelect>
           </label> : null}
         </fieldset> : <label className="mt-5 block text-sm font-medium">{t('pageTemplate.binding.primaryAgent')}
           <NativeSelect aria-label={t('pageTemplate.binding.primaryAgent')} value={agentId} onChange={(event) => { setAgentId(event.target.value); signatureRef.current = null; invalidateRunPreview(); }} className="mt-1 w-full">
             <option value="">{t('pageTemplate.binding.none')}</option>
-            {agents.flatMap((member) => member.agentId && member.agent ? [<option key={member.agentId} value={member.agentId} disabled={!availability.get(member.agentId)}>{member.agent.name}{duplicateAgentNames.has(member.agent.name) ? ` #${member.agentId.slice(0, 8)}` : ''}{availability.get(member.agentId) ? '' : ` — ${member.role === 'reader' ? t('pageTemplate.composite.agentReader') : t('pageTemplate.composite.agentInactive')}`}</option>] : [])}
+            {agents.flatMap((member) => member.agentId && member.agent ? [<option key={member.agentId} value={member.agentId} disabled={!availability.get(member.agentId)}>{member.agent.name}{duplicateAgentNames.has(member.agent.name) ? ` #${member.agentId.slice(0, 8)}` : ''} · {agentOwnerText(member.agent.owner, language)}{availability.get(member.agentId) ? '' : ` — ${member.role === 'reader' ? t('pageTemplate.composite.agentReader') : t('pageTemplate.composite.agentInactive')}`}</option>] : [])}
           </NativeSelect>
         </label>}
-        {selectedAgent?.agent ? <p className="mt-2 text-sm text-gray-500">{selectedAgent.agent.name} · {selectedAgent.agent.connected ? t('pageTemplate.binding.connected') : t('pageTemplate.binding.notConnected')}</p> : null}
+        {selectedAgent?.agent ? <p className="mt-2 break-words text-sm text-gray-500">{selectedAgent.agent.name} · {agentOwnerText(selectedAgent.agent.owner, language)} · {selectedAgent.agent.connected ? t('pageTemplate.binding.connected') : t('pageTemplate.binding.notConnected')}</p> : null}
         <label className="mt-4 flex items-center gap-2 text-sm"><input type="checkbox" checked={startNow} disabled={!canStart || !canBind || (scope.kind === 'page' ? !agentId : !hasFolderPageScope || (folderBindingMode === 'bulk_replace' && !agentId))} onChange={(event) => { setStartNow(canStart && canBind && event.target.checked); signatureRef.current = null; invalidateRunPreview(); }} />{t('pageTemplate.binding.startNow')}</label>
         {!canStart ? <p className="mt-2 text-sm text-amber-800">{t('pageTemplate.binding.startUnavailable')}</p> : null}
         {!canBind ? <p className="mt-2 text-sm text-amber-800">{t('pageTemplate.binding.saveUnavailable')}</p> : null}

@@ -347,6 +347,47 @@ describe('SpaceService.listMembers includes agents', () => {
     ]));
   });
 
+  it('identifies different owners of same-name Agents without exposing credentials or changing management rights', async () => {
+    prisma.spaceMember.findMany.mockResolvedValue([]);
+    prisma.agentGrant.findMany.mockResolvedValue([
+      {
+        id: 'own', role: 'editor', agentId: 'ag-own', spaceId: 'space-1', createdAt: new Date(),
+        agent: {
+          id: 'ag-own', name: 'Writer', status: 'active', revokedAt: null, ownerId: 'u1',
+          owner: { id: 'u1', name: 'Alice', email: 'alice@example.test' },
+          credentials: [{ id: 'private-credential' }],
+        },
+      },
+      {
+        id: 'other', role: 'publisher', agentId: 'ag-other', spaceId: 'space-1', createdAt: new Date(),
+        agent: {
+          id: 'ag-other', name: 'Writer', status: 'active', revokedAt: null, ownerId: 'u2',
+          owner: { id: 'u2', name: null, email: 'bob@example.test' }, credentials: [],
+        },
+      },
+    ]);
+
+    const result: any[] = await service.listMembers('space-1', 'u1');
+
+    expect(prisma.agentGrant.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      select: expect.objectContaining({ agent: { select: expect.objectContaining({
+        owner: { select: { id: true, name: true, email: true } },
+      }) } }),
+    }));
+    expect(result.map((member) => ({
+      owner: member.agent.owner, canManageRole: member.canManageRole, connected: member.agent.connected,
+    }))).toEqual([
+      { owner: { id: 'u1', name: 'Alice', email: 'alice@example.test' }, canManageRole: true, connected: true },
+      { owner: { id: 'u2', name: null, email: 'bob@example.test' }, canManageRole: false, connected: false },
+    ]);
+    for (const member of result) {
+      expect(member.agent).not.toHaveProperty('ownerId');
+      expect(member.agent).not.toHaveProperty('credentials');
+    }
+    const agentPrincipalResult: any[] = await service.listMembers('space-1', 'u1', false);
+    expect(agentPrincipalResult.map((member) => member.canManageRole)).toEqual([false, false]);
+  });
+
   it('reports only a live Agent identity credential as connected without exposing credentials', async () => {
     prisma.spaceMember.findMany.mockResolvedValue([]);
     prisma.agentGrant.findMany.mockResolvedValue([

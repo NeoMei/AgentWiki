@@ -52,6 +52,7 @@ export class AgentService {
     const agents = await this.prisma.agent.findMany({
       where: { ownerId, revokedAt: null, ...(!includeArchived ? { status: { not: 'archived' } } : {}) },
       include: {
+        owner: { select: { id: true, name: true, email: true } },
         grants: { include: { space: { select: { id: true, name: true } } } },
         _count: { select: { credentials: true, auditEvents: true } },
       },
@@ -68,6 +69,7 @@ export class AgentService {
     const agent = await this.prisma.agent.findUnique({
       where: { id },
       include: {
+        owner: { select: { id: true, name: true, email: true } },
         grants: { include: { space: { select: { id: true, name: true } } } },
         credentials: {
           where: { revokedAt: null },
