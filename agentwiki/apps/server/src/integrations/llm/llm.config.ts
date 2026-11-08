@@ -190,7 +190,7 @@ export const OPENROUTER_MODEL_MAP: Record<string, string> = {
 
 export const DEFAULT_MODEL = 'deepseek-v4-flash';
 export const DEFAULT_GATEWAY = 'openrouter';
-export const DEFAULT_TEXT_GATEWAY = 'quukk';
+export const DEFAULT_TEXT_GATEWAY = DEFAULT_GATEWAY;
 export const DEFAULT_TEXT_MODELS = ['glm-5.3-flash', 'kimi-for-coding'] as const;
 
 export function getModelConfig(modelId: string): LlmModelConfig | undefined {

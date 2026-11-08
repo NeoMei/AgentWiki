@@ -45,7 +45,49 @@ describe('LlmService', () => {
   });
 
   describe('generateText configuration', () => {
-    it('uses Quukk GLM 5.3 Flash as the default worker text model', async () => {
+    it.each([undefined, '', ' \t '])('keeps the existing OpenRouter route when the text gateway is %j', async (textGateway) => {
+      envValues.LLM_TEXT_GATEWAY = textGateway;
+      envValues.OPENROUTER_API_KEY = 'or-test-key-1234567890';
+      mockedAxios.post.mockResolvedValueOnce({
+        data: { choices: [{ message: { content: 'legacy route ok' } }] },
+      });
+
+      const result = await service.generateText('hello');
+
+      expect(mockedAxios.post).toHaveBeenCalledWith(
+        'https://openrouter.ai/api/v1/chat/completions',
+        expect.objectContaining({ model: 'deepseek-v4-flash' }),
+        expect.objectContaining({
+          headers: expect.objectContaining({ Authorization: 'Bearer or-test-key-1234567890' }),
+        }),
+      );
+      expect(result).toMatchObject({ text: 'legacy route ok', modelId: 'deepseek-v4-flash' });
+    });
+
+    it('honors an existing direct gateway when Compose supplies an empty text gateway', async () => {
+      envValues.LLM_TEXT_GATEWAY = '';
+      envValues.LLM_GATEWAY = 'direct';
+      envValues.DEEPSEEK_API_KEY = 'deepseek-test-key-1234567890';
+      envValues.OPENROUTER_API_KEY = 'or-test-key-1234567890';
+      mockedAxios.post.mockResolvedValueOnce({
+        data: { choices: [{ message: { content: 'direct route ok' } }] },
+      });
+
+      const result = await service.generateText('hello');
+
+      expect(mockedAxios.post).toHaveBeenCalledWith(
+        'https://api.deepseek.com/v1/chat/completions',
+        expect.objectContaining({ model: 'deepseek-v4-flash' }),
+        expect.objectContaining({
+          headers: expect.objectContaining({ Authorization: 'Bearer deepseek-test-key-1234567890' }),
+        }),
+      );
+      expect(result).toMatchObject({ text: 'direct route ok', modelId: 'deepseek-v4-flash' });
+    });
+
+    it('uses Quukk GLM 5.3 Flash when the text gateway is explicitly selected', async () => {
+      envValues.LLM_GATEWAY = 'openrouter';
+      envValues.OPENROUTER_API_KEY = 'or-test-key-1234567890';
       envValues.LLM_TEXT_GATEWAY = 'quukk';
       envValues.QUUKK_API_KEY = 'quukk-test-key-1234567890';
       mockedAxios.post.mockResolvedValueOnce({

@@ -79,10 +79,11 @@ export class LlmService {
   }
 
   private resolveTextGateway(option?: string): string {
-    return option
-      ?? this.configService.get<string>('LLM_TEXT_GATEWAY')
-      ?? this.configService.get<string>('LLM_GATEWAY')
-      ?? DEFAULT_TEXT_GATEWAY;
+    // Compose supplies empty optional values; keep the existing route unless selected explicitly.
+    return option?.trim()
+      || this.configService.get<string>('LLM_TEXT_GATEWAY')?.trim()
+      || this.configService.get<string>('LLM_GATEWAY')?.trim()
+      || DEFAULT_TEXT_GATEWAY;
   }
 
   private resolveTextModels(explicitModelId: string | undefined, gateway: string): string[] {
@@ -92,7 +93,7 @@ export class LlmService {
       .filter(Boolean);
     const defaults = configured.length > 0
       ? configured
-      : gateway === DEFAULT_TEXT_GATEWAY
+      : gateway === 'quukk'
         ? [...DEFAULT_TEXT_MODELS]
         : [this.configService.get<string>('LLM_DEFAULT_MODEL') ?? DEFAULT_MODEL];
     return [...new Set([
