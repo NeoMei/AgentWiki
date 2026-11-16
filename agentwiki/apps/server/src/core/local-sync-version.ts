@@ -1,4 +1,4 @@
-export const CURRENT_LOCAL_SYNC_VERSION = '0.13.5' as const;
+export const CURRENT_LOCAL_SYNC_VERSION = '0.13.6' as const;
 
 export const SUPPORTED_LOCAL_SYNC_VERSIONS = [
   '0.9.0',
@@ -13,6 +13,7 @@ export const SUPPORTED_LOCAL_SYNC_VERSIONS = [
   '0.13.2',
   '0.13.3',
   '0.13.4',
+  '0.13.5',
   CURRENT_LOCAL_SYNC_VERSION,
 ] as const;
 

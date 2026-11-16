@@ -14,8 +14,7 @@ import { AgentWikiClient, type ExchangeResult } from '../agentwiki-client.js';
 import { installSkill, packagedSkillSource } from '../agent-clients.js';
 import { loadConfig, loadCredentials, mergeConnection, type LocalSyncConnection } from '../config.js';
 import { archiveLegacyState, initCleanState, restoreArchivedState, type ArchiveResult } from '../installer/archive.js';
-import { installGatewayEntry, readWorkBuddyGatewayLaunch } from '../installer/client-config.js';
-import { mergeWorkBuddyEnvironment } from '../installer/workbuddy-runtime.js';
+import { installGatewayEntry, readGatewayLaunch } from '../installer/client-config.js';
 import { verifyGateway, type VerifyResult } from './verifier.js';
 
 type InstallInput = Parameters<BootstrapInstallFn>[0];
@@ -156,7 +155,7 @@ export interface ExchangedGatewayInstallInput {
   expectedSpaceId: string;
   expectedRole: AgentAccessRole;
   expectedScopes: string[];
-  expectedPluginVersion: '0.13.5';
+  expectedPluginVersion: '0.13.6';
   exchange: ExchangeResult;
   /** Retain only after the client entry switched successfully; pre-switch failures restore old active state. */
   retainOnFailure?: boolean;
@@ -383,15 +382,13 @@ export function productionDependencies(request?: typeof fetch): BootstrapInstall
     installSkill: (home, client) => installSkill(home, packagedSkillSource, client),
     installClient: installGatewayEntry,
     verify: async (connectionId, home, client) => {
-      const launch = client === 'workbuddy' ? await readWorkBuddyGatewayLaunch(home, connectionId) : undefined;
+      // Verify exactly the command the host will run: the installed local
+      // runtime, never a package lookup over the network.
+      const launch = client === undefined ? undefined : await readGatewayLaunch(client, home, connectionId).catch(() => null);
       return verifyGateway({
         command: launch ? [launch.command, ...launch.args] : gatewayVerificationCommand(connectionId),
         cwd: home,
-        // WorkBuddy verifies the real npx command, including a possible cold package download.
-        deadlineMs: launch ? 180_000 : undefined,
-        env: launch
-          ? mergeWorkBuddyEnvironment(process.env, { HOME: home, ...launch.env })
-          : { ...process.env, HOME: home } as Record<string, string>,
+        env: { ...process.env, HOME: home } as Record<string, string>,
       });
     },
     verifyAccess: async (connection, apiKey, expected) => {
@@ -417,7 +414,7 @@ export function productionDependencies(request?: typeof fetch): BootstrapInstall
   };
 }
 
-function assertExchange(exchange: ExchangeResult, bootstrap: BootstrapResult, version: '0.13.5'): void {
+function assertExchange(exchange: ExchangeResult, bootstrap: BootstrapResult, version: '0.13.6'): void {
   assertExchangePackage(exchange, {
     agentId: bootstrap.agent.id,
     spaceId: bootstrap.space.id,
@@ -453,13 +450,13 @@ function assertExchangePackage(
     spaceId: string;
     role: AgentAccessRole;
     scopes: string[];
-    pluginVersion: '0.13.5';
+    pluginVersion: '0.13.6';
   },
 ): void {
   const canonicalScopes = scopesForAgentAccessRole(expected.role);
   if (
-    expected.pluginVersion !== '0.13.5'
-    || exchange.pluginVersion !== '0.13.5'
+    expected.pluginVersion !== '0.13.6'
+    || exchange.pluginVersion !== '0.13.6'
     || exchange.pluginVersion !== expected.pluginVersion
     || exchange.agentId !== expected.agentId
     || exchange.spaceId !== expected.spaceId

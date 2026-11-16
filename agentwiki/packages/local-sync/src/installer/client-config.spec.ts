@@ -1,17 +1,32 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, lstat, readFile, rm, writeFile, stat } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { delimiter, dirname, join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   clientConfigPath,
   clientSetupInstructions,
   readRawConfig,
-  readWorkBuddyGatewayLaunch,
-  installGatewayEntry,
+  readGatewayLaunch,
   removeGatewayEntry,
   analyzeConfig,
+  installGatewayEntry,
 } from './client-config.js';
 import { GATEWAY_MCP_NAME, hashConfig } from './plan.js';
+import { stageGatewayRuntimeFixture, type InstalledGatewayRuntime } from './gateway-runtime.js';
+
+/** Install into a disposable local runtime; tests never reach the npm registry. */
+async function installStagedGateway(
+  client: Parameters<typeof installGatewayEntry>[0],
+  connectionId: string,
+  expectedHash: string,
+  home: string,
+  serverBaseUrl?: string,
+  openCodeMajor?: 1 | 2,
+  runtime?: InstalledGatewayRuntime,
+) {
+  const installed = runtime ?? await stageGatewayRuntimeFixture(home);
+  return installGatewayEntry(client, connectionId, expectedHash, home, serverBaseUrl, openCodeMajor, installed);
+}
 
 let tempHome = '';
 async function freshHome(): Promise<string> {
@@ -126,7 +141,7 @@ describe('installGatewayEntry', () => {
     const before = await readRawConfig('claude', home);
     const expectedHash = hashConfig(before!);
 
-    const { rollback } = await installGatewayEntry('claude', 'conn-1', expectedHash, home);
+    const { rollback } = await installStagedGateway('claude', 'conn-1', expectedHash, home);
     const after = JSON.parse(await readFile(path, 'utf8')) as { mcpServers: Record<string, unknown> };
     expect(after.mcpServers[GATEWAY_MCP_NAME]).toBeDefined();
     expect(after.mcpServers['agentwiki-local']).toBeUndefined(); // old entry removed
@@ -144,7 +159,7 @@ describe('installGatewayEntry', () => {
     // Simulate concurrent change.
     await seedConfig('claude', home, JSON.stringify({ other: true }));
 
-    await expect(installGatewayEntry('claude', 'conn-1', staleHash, home)).rejects.toThrow(
+    await expect(installStagedGateway('claude', 'conn-1', staleHash, home)).rejects.toThrow(
       'CONFIG_CONFLICT',
     );
   });
@@ -153,19 +168,19 @@ describe('installGatewayEntry', () => {
     const home = await freshHome();
     const path = clientConfigPath('opencode', home);
     const { hash } = await analyzeConfig('opencode', home);
-    await installGatewayEntry('opencode', 'conn-42', hash, home, undefined, 1);
+    const { runtime } = await installStagedGateway('opencode', 'conn-42', hash, home, undefined, 1);
    const config = JSON.parse(await readFile(path, 'utf8')) as {
       mcp: Record<string, { type: string; command: string[]; enabled: boolean; timeout: number }>;
    };
     const entry = config.mcp[GATEWAY_MCP_NAME];
     expect(entry.command).toEqual([
-      'npx',
-      '--yes',
-      '@neomei/agentwiki-local-sync@0.13.5',
+      runtime.nodePath,
+      runtime.cliPath,
       'gateway',
       '--connection',
       'conn-42',
     ]);
+    expect(entry.command.join(' ')).not.toContain('npx');
     expect(entry).toMatchObject({ type: 'local', enabled: true, timeout: 1_800_000 });
   });
 
@@ -180,7 +195,7 @@ describe('installGatewayEntry', () => {
     }));
     const { hash } = await analyzeConfig('opencode', home);
 
-    await installGatewayEntry('opencode', 'conn-v2', hash, home, undefined, 2);
+    const { runtime } = await installStagedGateway('opencode', 'conn-v2', hash, home, undefined, 2);
 
     const config = JSON.parse(await readFile(path, 'utf8')) as {
       mcp: {
@@ -190,7 +205,7 @@ describe('installGatewayEntry', () => {
     };
     expect(config.mcp.servers.agentwiki).toEqual({
       type: 'local',
-      command: ['npx', '--yes', '@neomei/agentwiki-local-sync@0.13.5', 'gateway', '--connection', 'conn-v2'],
+      command: [runtime.nodePath, runtime.cliPath, 'gateway', '--connection', 'conn-v2'],
       disabled: false,
       timeout: { execution: 1_800_000 },
     });
@@ -201,7 +216,7 @@ describe('installGatewayEntry', () => {
   it('backs up the config at 0600', async () => {
     const home = await freshHome();
     await seedConfig('claude', home, '{"old":true}');
-    const { backupPath } = await installGatewayEntry('claude', 'conn-1', hashConfig('{"old":true}'), home);
+    const { backupPath } = await installStagedGateway('claude', 'conn-1', hashConfig('{"old":true}'), home);
     const s = await stat(backupPath);
     if (process.platform !== 'win32') expect(s.mode & 0o777).toBe(0o600);
   });
@@ -211,10 +226,10 @@ describe('installGatewayEntry', () => {
     const original = JSON.stringify({ mcpServers: { unrelated: { command: ['tool'] } } });
     await seedConfig('claude', home, original);
     const originalHash = hashConfig(original);
-    await installGatewayEntry('claude', 'conn-1', originalHash, home);
+    await installStagedGateway('claude', 'conn-1', originalHash, home);
     const installed = await readFile(clientConfigPath('claude', home), 'utf8');
 
-    const resumed = await installGatewayEntry('claude', 'conn-1', originalHash, home);
+    const resumed = await installStagedGateway('claude', 'conn-1', originalHash, home);
     await resumed.rollback();
 
     await expect(readFile(clientConfigPath('claude', home), 'utf8')).resolves.toBe(installed);
@@ -230,7 +245,7 @@ describe('installGatewayEntry', () => {
     });
     await seedConfig('claude', home, original);
 
-    await installGatewayEntry(
+    await installStagedGateway(
       'claude', 'conn-1', hashConfig(original), home, 'https://wiki.test/api',
     );
 
@@ -254,7 +269,7 @@ describe('installGatewayEntry', () => {
     ].join('\n');
     await seedConfig('codex', home, original);
 
-    await installGatewayEntry(
+    await installStagedGateway(
       'codex', 'conn-1', hashConfig(original), home, 'https://wiki.test/api',
     );
 
@@ -276,7 +291,7 @@ describe('installGatewayEntry', () => {
     ].join('\n');
     await seedConfig('codex', home, original);
 
-    await installGatewayEntry(
+    await installStagedGateway(
       'codex', 'conn-1', hashConfig(original), home, 'https://wiki.test/api',
     );
 
@@ -291,30 +306,33 @@ describe('installGatewayEntry client formats', () => {
   it('writes Codex TOML with command string + args array', async () => {
     const home = await freshHome();
     const { hash } = await analyzeConfig('codex', home);
-    await installGatewayEntry('codex', 'conn-1', hash, home);
+    const { runtime } = await installStagedGateway('codex', 'conn-1', hash, home);
     const raw = await readFile(clientConfigPath('codex', home), 'utf8');
     expect(raw).toContain('[mcp_servers.agentwiki]');
-    expect(raw).toMatch(/command = "npx"/);
+    expect(raw).toContain(`command = "${runtime.nodePath}"`);
+    expect(raw).not.toContain('npx');
     expect(raw).not.toMatch(/\ncmd =/);
     expect(raw).toMatch(/args = \[/);
-    expect(raw).toContain('"--yes"');
+    expect(raw).toContain(`"${runtime.cliPath.replace(/\\/g, '\\\\')}"`);
     expect(raw).toContain('"gateway"');
     expect(raw).toContain('"--connection"');
     expect(raw).toContain('"conn-1"');
+    await expect(readGatewayLaunch('codex', home, 'conn-1')).resolves.toEqual({
+      command: runtime.nodePath,
+      args: [runtime.cliPath, 'gateway', '--connection', 'conn-1'],
+    });
   });
 
   it('writes Claude JSON with command string + args array (DEF-002)', async () => {
     const home = await freshHome();
     const { hash } = await analyzeConfig('claude', home);
-    await installGatewayEntry('claude', 'conn-1', hash, home);
+    const { runtime } = await installStagedGateway('claude', 'conn-1', hash, home);
     const config = JSON.parse(await readFile(clientConfigPath('claude', home), 'utf8')) as {
       mcpServers: Record<string, { command: string; args: string[] }>;
     };
     const entry = config.mcpServers[GATEWAY_MCP_NAME];
-    expect(entry.command).toBe('npx');
-    expect(entry.args).toEqual([
-      '--yes', '@neomei/agentwiki-local-sync@0.13.5', 'gateway', '--connection', 'conn-1',
-    ]);
+    expect(entry.command).toBe(runtime.nodePath);
+    expect(entry.args).toEqual([runtime.cliPath, 'gateway', '--connection', 'conn-1']);
   });
 
   it('writes the Claude gateway to ~/.claude.json without mutating untracked legacy settings', async () => {
@@ -327,7 +345,7 @@ describe('installGatewayEntry client formats', () => {
       },
     }));
     const { hash } = await analyzeConfig('claude', home);
-    await installGatewayEntry('claude', 'conn-1', hash, home);
+    await installStagedGateway('claude', 'conn-1', hash, home);
 
     expect(clientConfigPath('claude', home)).toBe(join(home, '.claude.json'));
     const main = JSON.parse(await readFile(clientConfigPath('claude', home), 'utf8')) as {
@@ -348,7 +366,7 @@ describe('removeGatewayEntry', () => {
     for (const client of ['codex', 'claude', 'opencode'] as const) {
       const home = await freshHome();
       const { hash } = await analyzeConfig(client, home);
-      await installGatewayEntry(
+      await installStagedGateway(
         client, 'conn-x', hash, home, undefined, client === 'opencode' ? 1 : undefined,
       );
 
@@ -372,7 +390,7 @@ describe('removeGatewayEntry', () => {
     const original = JSON.stringify({ mcpServers: { other: { command: 'tool', args: ['-x'] } } });
     await seedConfig('claude', home, original);
 
-    await installGatewayEntry('claude', 'conn-1', hashConfig(original), home);
+    await installStagedGateway('claude', 'conn-1', hashConfig(original), home);
     const withGateway = JSON.parse(await readFile(clientConfigPath('claude', home), 'utf8')) as Record<string, unknown>;
     expect((withGateway.mcpServers as Record<string, unknown>).other).toBeDefined();
     expect((withGateway.mcpServers as Record<string, unknown>).agentwiki).toBeDefined();
@@ -450,19 +468,16 @@ describe('standard MCP host integration', () => {
     const original = JSON.stringify({ theme: 'dark', mcpServers: { unrelated: { command: 'other-tool', args: ['--safe'] } } });
     await seedConfig(client, home, original);
     const analysis = await analyzeConfig(client, home);
-    const installed = await installGatewayEntry(client, 'conn-standard', analysis.hash, home);
+    const installed = await installStagedGateway(client, 'conn-standard', analysis.hash, home);
     const config = JSON.parse(await readFile(expectedPath, 'utf8'));
     expect(config.theme).toBe('dark');
     expect(config.mcpServers.unrelated).toEqual({ command: 'other-tool', args: ['--safe'] });
-    if (client === 'workbuddy') {
-      expect(config.mcpServers.agentwiki.command).toBe(process.execPath);
-      expect(config.mcpServers.agentwiki.args.slice(-5)).toEqual(['--yes', '@neomei/agentwiki-local-sync@0.13.5', 'gateway', '--connection', 'conn-standard']);
-      expect(config.mcpServers.agentwiki.args[3]).toBe('--cache');
-      expect(config.mcpServers.agentwiki.env.PATH.startsWith(`${dirname(process.execPath)}${delimiter}`)).toBe(true);
-      await rm(config.mcpServers.agentwiki.args[4], { recursive: true });
-    } else {
-      expect(config.mcpServers.agentwiki).toEqual({ command: 'npx', args: ['--yes', '@neomei/agentwiki-local-sync@0.13.5', 'gateway', '--connection', 'conn-standard'] });
-    }
+    // Both standard hosts launch the installed local runtime; neither runs npx.
+    expect(config.mcpServers.agentwiki).toEqual({
+      command: installed.runtime.nodePath,
+      args: [installed.runtime.cliPath, 'gateway', '--connection', 'conn-standard'],
+    });
+    expect(JSON.stringify(config.mcpServers.agentwiki)).not.toContain('npx');
     expect(await readFile(installed.backupPath, 'utf8')).toBe(original);
     if (process.platform !== 'win32') expect((await stat(expectedPath)).mode & 0o777).toBe(0o600);
     expect(await removeGatewayEntry(client, home)).toEqual({ removed: true });
@@ -512,139 +527,87 @@ describe('gateway name ownership at commit', () => {
         ? { mcp: { agentwiki: { type: 'local', command: ['unrelated-tool', '--serve'] } } }
         : { mcpServers: { agentwiki: { command: 'unrelated-tool', args: ['--serve'] } } });
     await seedConfig(client, home, original);
-    await expect(installGatewayEntry(client, 'conn-1', hashConfig(original), home, undefined, client === 'opencode' ? 1 : undefined)).rejects.toThrow('CONFIG_CONFLICT');
+    await expect(installStagedGateway(client, 'conn-1', hashConfig(original), home, undefined, client === 'opencode' ? 1 : undefined)).rejects.toThrow('CONFIG_CONFLICT');
     expect(await readRawConfig(client, home)).toBe(original);
   });
 });
 
+describe('local runtime launch and retry', () => {
+  it.each(['codex', 'claude', 'opencode', 'workbuddy', 'generic'] as const)(
+    'writes a %s entry that never resolves a package at startup',
+    async (client) => {
+      const home = await freshHome();
+      const { hash } = await analyzeConfig(client, home);
+      const { runtime } = await installStagedGateway(
+        client, 'conn-1', hash, home, undefined, client === 'opencode' ? 1 : undefined,
+      );
+      const raw = (await readRawConfig(client, home))!;
+      expect(raw).toContain(runtime.cliPath);
+      expect(raw.toLowerCase()).not.toContain('npx');
+      expect(raw).not.toContain('--cache');
+      await expect(readGatewayLaunch(client, home, 'conn-1')).resolves.toEqual({
+        command: runtime.nodePath,
+        args: [runtime.cliPath, 'gateway', '--connection', 'conn-1'],
+      });
+    },
+  );
 
-describe('WorkBuddy retry runtime contract', () => {
-  it('rejects an environment change when reading back the launch for verification', async () => {
+  it('rejects a tampered command when reading the launch back', async () => {
     const home = await freshHome();
-    await installGatewayEntry('workbuddy', 'conn-1', hashConfig(''), home);
-    const config = JSON.parse((await readRawConfig('workbuddy', home))!);
-    const cache = config.mcpServers.agentwiki.args[4];
-    config.mcpServers.agentwiki.env.NODE_OPTIONS = '--require /unconfirmed.cjs';
-    await seedConfig('workbuddy', home, JSON.stringify(config));
-    try {
-      await expect(readWorkBuddyGatewayLaunch(home, 'conn-1')).rejects.toThrow('CONFIG_CONFLICT');
-    } finally {
-      await rm(cache, { recursive: true, force: true });
-    }
+    const { hash } = await analyzeConfig('claude', home);
+    const { runtime } = await installStagedGateway('claude', 'conn-1', hash, home);
+    const config = JSON.parse((await readRawConfig('claude', home))!);
+    config.mcpServers.agentwiki.command = '/usr/bin/false';
+    await seedConfig('claude', home, JSON.stringify(config));
+    await expect(readGatewayLaunch('claude', home, 'conn-1')).rejects.toThrow('CONFIG_NOT_WRITABLE');
+
+    config.mcpServers.agentwiki = { command: runtime.nodePath, args: ['other.js', 'gateway', '--connection', 'conn-1'] };
+    await seedConfig('claude', home, JSON.stringify(config));
+    await expect(readGatewayLaunch('claude', home, 'conn-1')).rejects.toThrow('CONFIG_NOT_WRITABLE');
   });
 
-  it.each(['NODE_OPTIONS', 'CUSTOM_SETTING', 'entry', 'other-server'] as const)('rejects an unconfirmed %s change on a stale-hash retry without executing it', async (change) => {
+  it('upgrades a retired npx entry to the local runtime on the same confirmed hash', async () => {
     const home = await freshHome();
-    const installed = await installGatewayEntry('workbuddy', 'conn-1', hashConfig(''), home);
-    const config = JSON.parse((await readRawConfig('workbuddy', home))!);
-    const cache = config.mcpServers.agentwiki.args[4];
-    const marker = join(home, 'unconfirmed-options-ran');
-    const preload = join(home, 'new-options.cjs');
-    await writeFile(preload, `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'executed');`);
-    if (change === 'entry') config.mcpServers.agentwiki.disabled = true;
-    else if (change === 'other-server') config.mcpServers.other = { command: 'other-tool' };
-    else config.mcpServers.agentwiki.env[change] = change === 'NODE_OPTIONS' ? `--require ${JSON.stringify(preload)}` : 'unconfirmed';
+    const retired = JSON.stringify({ mcpServers: { agentwiki: {
+      command: 'npx', args: ['--yes', '@neomei/agentwiki-local-sync@0.13.6', 'gateway', '--connection', 'conn-1'],
+    } } });
+    await seedConfig('claude', home, retired);
+    await mkdir(join(home, '.agentwiki-archive'));
+    await writeFile(join(home, '.agentwiki-archive', 'claude-before'), retired);
+
+    const { runtime } = await installStagedGateway('claude', 'conn-1', hashConfig(retired), home);
+
+    const config = JSON.parse((await readRawConfig('claude', home))!);
+    expect(config.mcpServers.agentwiki).toEqual({
+      command: runtime.nodePath,
+      args: [runtime.cliPath, 'gateway', '--connection', 'conn-1'],
+    });
+  });
+
+  it('rejects a changed runtime command on a stale-hash retry without executing it', async () => {
+    const home = await freshHome();
+    const installed = await installStagedGateway('claude', 'conn-1', hashConfig(''), home);
+    const config = JSON.parse((await readRawConfig('claude', home))!);
+    config.mcpServers.agentwiki.args[0] = join(home, 'unconfirmed.js');
     const changed = JSON.stringify(config);
-    await seedConfig('workbuddy', home, changed);
-    try {
-      await expect(installGatewayEntry('workbuddy', 'conn-1', hashConfig(''), home)).rejects.toThrow('CONFIG_CONFLICT');
-      expect(await readRawConfig('workbuddy', home)).toBe(changed);
-      expect(await readFile(installed.backupPath, 'utf8')).toBe('');
-      await expect(lstat(marker)).rejects.toMatchObject({ code: 'ENOENT' });
-    } finally {
-      await rm(cache, { recursive: true, force: true });
-    }
+    await seedConfig('claude', home, changed);
+
+    await expect(installStagedGateway('claude', 'conn-1', hashConfig(''), home)).rejects.toThrow('CONFIG_CONFLICT');
+    expect(await readRawConfig('claude', home)).toBe(changed);
+    expect((await readFile(installed.backupPath, 'utf8'))).toBe('');
   });
 
-  it('binds retry to the matching confirmed hash and original backup rather than the oldest archive', async () => {
+  it('reuses the matching original backup on a retry instead of the newest archive', async () => {
     const home = await freshHome();
-    await mkdir(join(home, '.agentwiki-archive'));
-    await writeFile(join(home, '.agentwiki-archive', 'workbuddy-000-old'), '{"old":true}');
     const original = '{"theme":"dark"}';
-    await seedConfig('workbuddy', home, original);
-    const installed = await installGatewayEntry('workbuddy', 'conn-1', hashConfig(original), home);
-    const saved = (await readRawConfig('workbuddy', home))!;
-    const cache = JSON.parse(saved).mcpServers.agentwiki.args[4];
-    try {
-      await expect(installGatewayEntry('workbuddy', 'conn-1', hashConfig('unconfirmed'), home)).rejects.toThrow('CONFIG_CONFLICT');
-      const retry = await installGatewayEntry('workbuddy', 'conn-1', hashConfig(original), home);
-      expect(retry.backupPath).toBe(installed.backupPath);
-      await writeFile(installed.backupPath, '{"backup":"changed"}');
-      await expect(installGatewayEntry('workbuddy', 'conn-1', hashConfig(original), home)).rejects.toThrow('CONFIG_CONFLICT');
-      expect(await readRawConfig('workbuddy', home)).toBe(saved);
-    } finally {
-      await rm(cache, { recursive: true, force: true });
-    }
-  });
+    await seedConfig('claude', home, original);
+    const installed = await installStagedGateway('claude', 'conn-1', hashConfig(original), home);
+    const saved = (await readRawConfig('claude', home))!;
+    await writeFile(join(home, '.agentwiki-archive', 'claude-999-newer'), '{"other":true}');
 
-  it('does not write the client config when the private installation receipt cannot be written', async () => {
-    const home = await freshHome();
-    const original = JSON.stringify({ mcpServers: { agentwiki: {
-      command: 'npx', args: ['@neomei/agentwiki-local-sync@0.13.5', 'gateway'], env: { TMPDIR: home, TMP: home, TEMP: home },
-    } } });
-    await seedConfig('workbuddy', home, original);
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date('2026-10-19T00:00:00.000Z'));
-    const receipt = join(home, '.agentwiki-archive', 'workbuddy-2026-10-19T000000000Z.gateway-install.json');
-    await mkdir(receipt, { recursive: true });
-    await expect(installGatewayEntry('workbuddy', 'conn-1', hashConfig(original), home)).rejects.toThrow();
-    expect(await readRawConfig('workbuddy', home)).toBe(original);
-  });
-
-  it('does not accept the old bare-npx command as an already completed installation', async () => {
-    const home = await freshHome();
-    await seedConfig('workbuddy', home, JSON.stringify({ mcpServers: { agentwiki: {
-      command: 'npx', args: ['--yes', '@neomei/agentwiki-local-sync@0.13.5', 'gateway', '--connection', 'conn-1'],
-    } } }));
-    await mkdir(join(home, '.agentwiki-archive'));
-    await writeFile(join(home, '.agentwiki-archive', 'workbuddy-original'), '{}');
-    await expect(installGatewayEntry('workbuddy', 'conn-1', hashConfig('{}'), home)).rejects.toThrow('CONFIG_CONFLICT');
-  });
-
-  it.skipIf(process.platform === 'win32')('does not execute a changed unconfirmed command while checking a retry', async () => {
-    const home = await freshHome();
-    await installGatewayEntry('workbuddy', 'conn-1', hashConfig(''), home);
-    const entry = JSON.parse((await readRawConfig('workbuddy', home))!).mcpServers.agentwiki;
-    const cache = entry.args[4];
-    const marker = join(home, 'unconfirmed-command-ran');
-    const malicious = join(home, 'node');
-    await writeFile(malicious, `#!/bin/sh\ntouch '${marker}'\necho v24.18.0\n`, { mode: 0o755 });
-    entry.command = malicious;
-    entry.env.PATH = `${home}${delimiter}${process.env.PATH}`;
-    await seedConfig('workbuddy', home, JSON.stringify({ mcpServers: { agentwiki: entry } }));
-    await expect(installGatewayEntry('workbuddy', 'conn-1', hashConfig(''), home)).rejects.toThrow('CONFIG_CONFLICT');
-    await expect(lstat(marker)).rejects.toMatchObject({ code: 'ENOENT' });
-    await rm(cache, { recursive: true });
-  });
-
-  it('checks a stale-hash retry without recreating or writing the saved disposable cache', async () => {
-    const home = await freshHome();
-    await installGatewayEntry('workbuddy', 'conn-1', hashConfig(''), home);
-    const entry = JSON.parse((await readRawConfig('workbuddy', home))!).mcpServers.agentwiki;
-    const cache = entry.args[4];
-    await rm(cache, { recursive: true });
-    await installGatewayEntry('workbuddy', 'conn-1', hashConfig(''), home);
-    await expect(lstat(cache)).rejects.toMatchObject({ code: 'ENOENT' });
-  });
-
-  it('preserves existing entry environment and reuses the exact saved runtime and original backup', async () => {
-    const home = await freshHome();
-    const original = JSON.stringify({ mcpServers: { agentwiki: {
-      command: 'npx', args: ['--yes', '@neomei/agentwiki-local-sync@0.13.5', 'gateway', '--connection', 'conn-1'],
-      env: { CUSTOM_SETTING: 'keep me', NODE_OPTIONS: '--no-warnings', PATH: '/custom/bin' },
-    } } });
-    await seedConfig('workbuddy', home, original);
-    const installed = await installGatewayEntry('workbuddy', 'conn-1', hashConfig(original), home);
-    const saved = (await readRawConfig('workbuddy', home))!;
-    const entry = JSON.parse(saved).mcpServers.agentwiki;
-    expect(entry.env).toEqual({ CUSTOM_SETTING: 'keep me', NODE_OPTIONS: '--no-warnings', PATH: `${dirname(process.execPath)}${delimiter}/custom/bin` });
-    const retry = await installGatewayEntry('workbuddy', 'conn-1', hashConfig(original), home);
+    const retry = await installStagedGateway('claude', 'conn-1', hashConfig(original), home);
     expect(retry.backupPath).toBe(installed.backupPath);
     await retry.rollback();
-    expect(await readRawConfig('workbuddy', home)).toBe(saved);
-    expect(await readFile(installed.backupPath, 'utf8')).toBe(original);
-    await installed.rollback();
-    expect(await readRawConfig('workbuddy', home)).toBe(original);
-    await rm(entry.args[4], { recursive: true });
+    expect(await readRawConfig('claude', home)).toBe(saved);
   });
 });

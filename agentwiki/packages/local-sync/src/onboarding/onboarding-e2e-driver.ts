@@ -14,6 +14,7 @@ import type { OnboardingEvent, ProtocolSink, ProtocolSource } from './protocol.j
 import type { LocalScanPlan } from '../codegraph/contracts.js';
 import { installGatewayEntry } from '../installer/client-config.js';
 import { hashConfig } from '../installer/plan.js';
+import { stageGatewayRuntimeFixture } from '../installer/gateway-runtime.js';
 
 type E2EInput = {
   spaceMode: 'create' | 'existing';
@@ -109,6 +110,9 @@ export async function runOnboardingStateMachineHarness(
           // deliberately controlled. Its local installation boundary is not:
           // write the production single-gateway config into this test's own
           // disposable client home so all three client formats are exercised.
+          // Stage the local runtime in this disposable home so the harness
+          // exercises the production config writer without a registry install.
+          const runtime = await stageGatewayRuntimeFixture(options.home);
           await installGatewayEntry(
             options.input.clientType,
             '00000000-0000-4000-8000-000000000001',
@@ -116,6 +120,7 @@ export async function runOnboardingStateMachineHarness(
             options.home,
             'https://wiki.test/api',
             options.input.clientType === 'opencode' ? 1 : undefined,
+            runtime,
           );
           const grant = {
             role: options.input.role,

@@ -7,20 +7,23 @@
  */
 import { createHash } from 'node:crypto';
 import type { AgentClient } from '../agent-clients.js';
+import { localGatewayCommand, type InstalledGatewayRuntime } from './gateway-runtime.js';
 
 export const GATEWAY_MCP_NAME = 'agentwiki';
-export const GATEWAY_PACKAGE_VERSION = '0.13.5';
+export { GATEWAY_PACKAGE_NAME, GATEWAY_PACKAGE_VERSION } from './package-release.js';
 
-/** The exact command written into every supported client configuration. */
-export function gatewayCommand(connectionId: string): string[] {
-  return [
-    'npx',
-    '--yes',
-    `@neomei/agentwiki-local-sync@${GATEWAY_PACKAGE_VERSION}`,
-    'gateway',
-    '--connection',
-    connectionId,
-  ];
+/**
+ * The exact command written into every supported client configuration.
+ *
+ * It always points at the locally installed runtime. Starting MCP through npx
+ * would repeat a registry download on every Agent launch and fail on machines
+ * that cannot reach the registry, including hosts with no network on startup.
+ */
+export function gatewayCommand(
+  runtime: Pick<InstalledGatewayRuntime, 'nodePath' | 'cliPath'>,
+  connectionId: string,
+): string[] {
+  return localGatewayCommand(runtime, connectionId);
 }
 
 const LEGACY_LOCAL_SYNC_NAMES = [

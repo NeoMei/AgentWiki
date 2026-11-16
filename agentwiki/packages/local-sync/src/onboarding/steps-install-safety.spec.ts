@@ -7,6 +7,7 @@ import { loadConfig, loadCredentials, saveConfig, saveCredentials } from '../con
 import { AgentWikiClient, type ExchangeResult } from '../agentwiki-client.js';
 import { installGatewayEntry } from '../installer/client-config.js';
 import { hashConfig } from '../installer/plan.js';
+import { stageGatewayRuntimeFixture } from '../installer/gateway-runtime.js';
 import { OnboardingClient } from './client.js';
 import { runOnboardingSteps, type StepResult } from './steps.js';
 import * as verifier from './verifier.js';
@@ -33,7 +34,7 @@ afterEach(async () => {
 const scopes = scopesForAgentAccessRole('reader');
 const exchange: ExchangeResult = {
   apiKey: 'agk_new', agentId: 'new-agent', credentialId: 'new-key', spaceId: 'space-1',
-  role: 'reader', scopes, serverUrl: 'https://wiki.test/api', pluginVersion: '0.13.5',
+  role: 'reader', scopes, serverUrl: 'https://wiki.test/api', pluginVersion: '0.13.6',
 };
 
 async function fixture(cachedExchange = true, archiveStarted = false, tokenExpiresIn = 600) {
@@ -49,7 +50,7 @@ async function fixture(cachedExchange = true, archiveStarted = false, tokenExpir
   const skillPath = join(home, '.agents', 'skills', 'agentwiki-local-sync', 'SKILL.md');
   await fs.mkdir(join(skillPath, '..'), { recursive: true });
   await fs.writeFile(skillPath, 'old skill');
-  await installGatewayEntry('claude', 'old', hashConfig(''), home);
+  await installGatewayEntry('claude', 'old', hashConfig(''), home, undefined, undefined, await stageGatewayRuntimeFixture(home));
   const raw = await fs.readFile(join(home, '.claude.json'), 'utf8');
   const changed = JSON.stringify({ ...JSON.parse(raw), unrelatedPreference: 'changed' });
   const client = new OnboardingClient();

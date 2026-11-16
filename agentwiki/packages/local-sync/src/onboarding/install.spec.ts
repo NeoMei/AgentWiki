@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createWorkBuddyGatewayLaunch } from '../installer/workbuddy-runtime.js';
 import { clientConfigPath } from '../installer/client-config.js';
 import { staticToolNames } from '../gateway/manifest.js';
+import { stageGatewayRuntimeFixture } from '../installer/gateway-runtime.js';
 import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 
 import type { BootstrapInstallFn } from './coordinator.js';
@@ -37,7 +37,7 @@ function input(): Parameters<BootstrapInstallFn>[0] {
     idempotencyKey: 'idem-1',
     serverPlan: {
       space: { mode: 'create', name: 'Space' }, agentName: 'Agent', role: 'editor',
-      packageVersion: '0.13.5',
+      packageVersion: '0.13.6',
     },
     serverPlanHash: 'hash-1',
     client: 'codex',
@@ -71,7 +71,7 @@ function dependencies(verifyOk = true): { deps: BootstrapInstallerDeps; calls: s
         calls.push('exchange');
         return {
           apiKey: 'agk_test', agentId: 'agent-1', credentialId: 'credential-1', serverUrl: 'https://wiki.test/api',
-          pluginVersion: '0.13.5' as const, scopes: EDITOR_SCOPES, role: 'editor' as const, spaceId: 'space-1',
+          pluginVersion: '0.13.6' as const, scopes: EDITOR_SCOPES, role: 'editor' as const, spaceId: 'space-1',
         };
       }),
       saveConnection: vi.fn(async () => { calls.push('save-connection'); }),
@@ -122,7 +122,7 @@ describe('createBootstrapInstaller', () => {
     fixture.deps.loadExisting = vi.fn(async () => ({
       connection: {
         id: 'connection-1', serverUrl: 'https://wiki.test/api', agentId: 'agent-1', credentialId: 'credential-1',
-        pluginVersion: '0.13.5', client: 'codex' as const, mcpName: 'agentwiki',
+        pluginVersion: '0.13.6', client: 'codex' as const, mcpName: 'agentwiki',
       },
       apiKey: 'agk_existing',
     }));
@@ -149,7 +149,7 @@ describe('createBootstrapInstaller', () => {
     const fixture = dependencies();
     vi.mocked(fixture.deps.exchange).mockResolvedValue({
       apiKey: 'agk_test', agentId: 'agent-1', credentialId: 'credential-1', serverUrl: 'https://wiki.test/api',
-      pluginVersion: '0.13.5', scopes: EDITOR_SCOPES, role: 'editor', spaceId: 'space-1',
+      pluginVersion: '0.13.6', scopes: EDITOR_SCOPES, role: 'editor', spaceId: 'space-1',
       [field]: value,
     });
 
@@ -203,7 +203,7 @@ describe('installExchangedGateway', () => {
     agentId: 'agent-1',
     credentialId: 'credential-1',
     serverUrl: 'https://wiki.test/api',
-    pluginVersion: '0.13.5' as const,
+    pluginVersion: '0.13.6' as const,
     scopes: EDITOR_SCOPES,
     role: 'editor' as const,
     spaceId: 'space-1',
@@ -225,7 +225,7 @@ describe('installExchangedGateway', () => {
       expectedSpaceId: 'space-1',
       expectedRole: 'editor',
       expectedScopes: EDITOR_SCOPES,
-      expectedPluginVersion: '0.13.5',
+      expectedPluginVersion: '0.13.6',
       exchange: { ...exchanged, [field]: value },
     }, fixture.deps)).rejects.toMatchObject({ code: 'PACKAGE_INTEGRITY_FAILED' });
 
@@ -244,14 +244,14 @@ describe('installExchangedGateway', () => {
       expectedSpaceId: 'space-1',
       expectedRole: 'editor',
       expectedScopes: EDITOR_SCOPES,
-      expectedPluginVersion: '0.13.5',
+      expectedPluginVersion: '0.13.6',
       exchange: exchanged,
     }, fixture.deps);
 
     expect(result).toMatchObject({
       connection: {
         id: 'connection-1', agentId: 'agent-1', credentialId: 'credential-1',
-        pluginVersion: '0.13.5', client: 'codex', mcpName: 'agentwiki',
+        pluginVersion: '0.13.6', client: 'codex', mcpName: 'agentwiki',
       },
       configBackupPath: '/tmp/config-backup',
       manifestHash: 'manifest-hash',
@@ -267,7 +267,7 @@ describe('installExchangedGateway', () => {
     fixture.deps.loadExisting = vi.fn(async () => ({
       connection: {
         id: 'connection-1', serverUrl: 'https://wiki.test/api', agentId: 'agent-1',
-        credentialId: 'credential-1', pluginVersion: '0.13.5', client: 'codex' as const,
+        credentialId: 'credential-1', pluginVersion: '0.13.6', client: 'codex' as const,
         mcpName: 'agentwiki',
       },
       apiKey: 'agk_attach_secret',
@@ -282,7 +282,7 @@ describe('installExchangedGateway', () => {
       expectedSpaceId: 'space-1',
       expectedRole: 'editor',
       expectedScopes: EDITOR_SCOPES,
-      expectedPluginVersion: '0.13.5',
+      expectedPluginVersion: '0.13.6',
       exchange: exchanged,
     }, fixture.deps);
 
@@ -305,7 +305,7 @@ describe('installExchangedGateway', () => {
       expectedSpaceId: 'space-1',
       expectedRole: 'editor',
       expectedScopes: EDITOR_SCOPES,
-      expectedPluginVersion: '0.13.5',
+      expectedPluginVersion: '0.13.6',
       exchange: exchanged,
     }, fixture.deps)).rejects.toMatchObject({ code: 'MCP_HANDSHAKE_FAILED' });
 
@@ -327,7 +327,7 @@ describe('installExchangedGateway', () => {
       expectedSpaceId: 'space-1',
       expectedRole: 'editor',
       expectedScopes: EDITOR_SCOPES,
-      expectedPluginVersion: '0.13.5',
+      expectedPluginVersion: '0.13.6',
       exchange: exchanged,
     }, fixture.deps)).rejects.toMatchObject({
       code: 'SYNC_FAILED',
@@ -352,7 +352,7 @@ describe('installExchangedGateway', () => {
       expectedSpaceId: 'space-1',
       expectedRole: 'editor',
       expectedScopes: EDITOR_SCOPES,
-      expectedPluginVersion: '0.13.5',
+      expectedPluginVersion: '0.13.6',
       exchange: exchanged,
     }, fixture.deps)).rejects.toMatchObject({
       code: 'SYNC_FAILED',
@@ -366,7 +366,7 @@ describe('installExchangedGateway', () => {
     fixture.deps.loadExisting = vi.fn(async () => ({
       connection: {
         id: 'connection-1', serverUrl: 'https://wiki.test/api', agentId: 'agent-1',
-        credentialId: 'credential-1', pluginVersion: '0.13.5', client: 'codex' as const,
+        credentialId: 'credential-1', pluginVersion: '0.13.6', client: 'codex' as const,
         mcpName: 'agentwiki',
       },
       apiKey: 'agk_attach_secret',
@@ -385,7 +385,7 @@ describe('installExchangedGateway', () => {
       expectedSpaceId: 'space-1',
       expectedRole: 'editor',
       expectedScopes: EDITOR_SCOPES,
-      expectedPluginVersion: '0.13.5',
+      expectedPluginVersion: '0.13.6',
       exchange: exchanged,
     }, fixture.deps)).rejects.toMatchObject({
       code: 'SYNC_FAILED',
@@ -400,7 +400,7 @@ describe('resumable connection installation', () => {
     const fixture = dependencies(false);
     const configured = vi.fn(async () => undefined);
     const exchange = await fixture.deps.exchange('https://wiki.test/api','install-code');
-    await expect(installExchangedGateway({home:'/tmp/home',client:'codex',connectionId:'connection-1',expectedConfigHash:'hash',expectedAgentId:'agent-1',expectedSpaceId:'space-1',expectedRole:'editor',expectedScopes:EDITOR_SCOPES,expectedPluginVersion:'0.13.5',exchange,retainOnFailure:true,onConfigured:configured},fixture.deps)).rejects.toMatchObject({code:'MCP_HANDSHAKE_FAILED'});
+    await expect(installExchangedGateway({home:'/tmp/home',client:'codex',connectionId:'connection-1',expectedConfigHash:'hash',expectedAgentId:'agent-1',expectedSpaceId:'space-1',expectedRole:'editor',expectedScopes:EDITOR_SCOPES,expectedPluginVersion:'0.13.6',exchange,retainOnFailure:true,onConfigured:configured},fixture.deps)).rejects.toMatchObject({code:'MCP_HANDSHAKE_FAILED'});
     expect(configured).toHaveBeenCalledOnce();
     expect(fixture.calls).not.toContain('revoke-credential');
     expect(fixture.calls).not.toContain('restore-state');
@@ -416,52 +416,33 @@ it.each(['workbuddy', 'generic'] as const)('requires host reload for %s after in
 });
 
 
-it('verifies the saved WorkBuddy runtime, npm arguments and env rather than bypassing npm with the current CLI', async () => {
+it('verifies the saved local runtime command instead of a network package lookup', async () => {
   const home = await mkdtemp(join(tmpdir(), 'aw-workbuddy-verifier-'));
-  let cache: string | undefined;
-  let initialCache: string | undefined;
-  const deadlines = vi.spyOn(globalThis, 'setTimeout');
   try {
-    const launch = await createWorkBuddyGatewayLaunch('conn-installed', { env: {
-      CAPTURE_FILE: join(home, 'captured.json'), NODE_OPTIONS: '--no-warnings', CUSTOM_SETTING: 'retained',
-    } });
-    initialCache = launch.args[4];
-    // Substitute only the external npm boundary; the saved Node/inline command, argv and env run for real.
-    const preload = join(home, 'npm-boundary.cjs');
-    await writeFile(preload, `
-      const Module = require('node:module');
-      const original = Module._load;
-      Module._load = function(request, ...args) {
-        if (request !== ${JSON.stringify(launch.args[2])} || !process.argv.includes('gateway')) return original.call(this, request, ...args);
-        require('node:fs').writeFileSync(process.env.CAPTURE_FILE, JSON.stringify({ args: process.argv.slice(2), nodeOptions: process.env.NODE_OPTIONS, custom: process.env.CUSTOM_SETTING, path: process.env.PATH, home: process.env.HOME }));
-        require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
-          const request = JSON.parse(line);
-          if (request.method === 'tools/list') console.log(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { tools: ${JSON.stringify(staticToolNames().map((name) => ({ name })))} } }));
-        });
-      };
+    // A stub CLI is enough: verification must run the exact command saved in
+    // the host configuration, not npx and not the current build.
+    const runtime = await stageGatewayRuntimeFixture(home);
+    await writeFile(runtime.cliPath, `
+      require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
+        const request = JSON.parse(line);
+        if (request.method === 'tools/list') console.log(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { tools: ${JSON.stringify(staticToolNames().map((name) => ({ name })))} } }));
+      });
     `);
-    launch.env.NODE_OPTIONS += ` --require ${JSON.stringify(preload)}`;
     await mkdir(join(home, '.workbuddy'));
-    const confirmed = JSON.stringify({ mcpServers: { agentwiki: launch } });
+    const confirmed = JSON.stringify({ mcpServers: { unrelated: { command: 'other-tool', args: [] } } });
     await writeFile(clientConfigPath('workbuddy', home), confirmed);
     const { installGatewayEntry } = await import('../installer/client-config.js');
     const { hashConfig } = await import('../installer/plan.js');
-    await installGatewayEntry('workbuddy', 'conn-installed', hashConfig(confirmed), home);
+    await installGatewayEntry('workbuddy', 'conn-installed', hashConfig(confirmed), home, undefined, undefined, runtime);
     const saved = JSON.parse(await readFile(clientConfigPath('workbuddy', home), 'utf8')).mcpServers.agentwiki;
-    cache = saved.args[4];
+    expect(saved).toEqual({
+      command: runtime.nodePath,
+      args: [runtime.cliPath, 'gateway', '--connection', 'conn-installed'],
+    });
 
     const result = await productionDependencies().verify('conn-installed', home, 'workbuddy');
-
     expect(result.ok).toBe(true);
-    expect(deadlines).toHaveBeenCalledWith(expect.any(Function), 180_000);
-    expect(JSON.parse(await readFile(join(home, 'captured.json'), 'utf8'))).toEqual({
-      args: ['--cache', cache, '--yes', '@neomei/agentwiki-local-sync@0.13.5', 'gateway', '--connection', 'conn-installed'],
-      nodeOptions: saved.env.NODE_OPTIONS, custom: 'retained', path: saved.env.PATH, home,
-    });
   } finally {
-    deadlines.mockRestore();
     await rm(home, { recursive: true, force: true });
-    if (cache) await rm(cache, { recursive: true, force: true });
-    if (initialCache) await rm(initialCache, { recursive: true, force: true });
   }
 });

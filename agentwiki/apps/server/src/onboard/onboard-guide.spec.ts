@@ -1,37 +1,25 @@
 import { BadRequestException } from '@nestjs/common';
 import { CURRENT_LOCAL_SYNC_VERSION } from '../core/local-sync-version';
 import { OnboardController } from './onboard.controller';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
 
 describe('public Agent connection guide', () => {
-  it('provides an executable WorkBuddy cache bootstrap before any package startup', () => {
+  it('prepares WorkBuddy for a local runtime instead of an npx launch at every start', () => {
     const guide = new OnboardController({} as any, {} as any).getRuntime('workbuddy');
-    const bootstrap = guide.match(/^node -e "(.+)"$/m)?.[1];
-    expect(bootstrap).toBeDefined();
-    const root = mkdtempSync(join(tmpdir(), 'agentwiki-api-guide-test-'));
-    try {
-      const result = JSON.parse(execFileSync(process.execPath, ['-e', bootstrap!], {
-        encoding: 'utf8', env: { ...process.env, TMPDIR: root, TMP: root, TEMP: root },
-      }));
-      expect(dirname(result.npmCache)).toBe(root);
-      expect(result.node).toBe(process.execPath);
-      if (process.platform !== 'win32') expect(statSync(result.npmCache).mode & 0o777).toBe(0o700);
-      expect(guide).not.toContain('onboard start');
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
+    expect(guide).not.toMatch(/^npx /m);
+    expect(guide).not.toContain('--cache');
+    expect(guide).not.toContain('mkdtempSync');
+    expect(guide).toContain('.agentwiki/runtime');
+    expect(guide).toMatch(/no npx|不运行 npx/i);
+    expect(guide).not.toContain('onboard start');
+    expect(guide).toContain('Node.js 24 or 26');
   });
 
-  it.each(['0.13.4', '0.13.5'])('pins WorkBuddy runtime preparation to the requested %s installation version', (packageVersion) => {
+  it.each(['0.13.4', '0.13.6'])('pins WorkBuddy runtime preparation to the requested %s installation version', (packageVersion) => {
     const controller = new OnboardController({} as any, {} as any);
     const guide = Reflect.apply(controller.getRuntime, controller, ['workbuddy', packageVersion]);
-    const runners = guide.split('\n').filter((line: string) => line.startsWith('npx '));
-    expect(runners).toEqual([`npx --cache '<absolute-npm-cache>' --yes @neomei/agentwiki-local-sync@${packageVersion}`]);
+    expect(guide).toContain(`@neomei/agentwiki-local-sync@${packageVersion}`);
     expect(guide).toContain(`Package version: ${packageVersion}`);
-    expect(guide).not.toContain(`@neomei/agentwiki-local-sync@${packageVersion === '0.13.4' ? '0.13.5' : '0.13.4'}`);
+    expect(guide).not.toContain(`@neomei/agentwiki-local-sync@${packageVersion === '0.13.4' ? '0.13.6' : '0.13.4'}`);
   });
 
   it('defaults only an omitted runtime package version to the current release', () => {
@@ -40,7 +28,7 @@ describe('public Agent connection guide', () => {
     expect(guide).toContain(`Package version: ${CURRENT_LOCAL_SYNC_VERSION}`);
   });
 
-  it.each(['', 'latest', '0.13.6', '0.13.4;echo unsafe', ['0.13.4', '0.13.5'], null])('rejects an unsupported or ambiguous runtime version %j before generating a runner', (packageVersion) => {
+  it.each(['', 'latest', '0.13.7', '0.13.4;echo unsafe', ['0.13.4', '0.13.6'], null])('rejects an unsupported or ambiguous runtime version %j before generating a runner', (packageVersion) => {
     const controller = new OnboardController({} as any, {} as any);
     for (const client of ['workbuddy', 'generic', 'codex']) {
       expect(() => Reflect.apply(controller.getRuntime, controller, [client, packageVersion])).toThrow(BadRequestException);
@@ -62,8 +50,8 @@ describe('public Agent connection guide', () => {
   it('advertises bounded version-pinned steps, explicit confirmation, and actual host-read verification', () => {
     const controller = new OnboardController({} as any, {} as any);
     const guide = controller.getMarkdown();
-    expect(guide).toContain("@neomei/agentwiki-local-sync@0.13.5 onboard start --server 'https://agentwiki.quukk.com/api' --client <host-client> --protocol json");
-    expect(guide).toContain('/onboard/runtime?client=<host-client>&packageVersion=0.13.5');
+    expect(guide).toContain("@neomei/agentwiki-local-sync@0.13.6 onboard start --server 'https://agentwiki.quukk.com/api' --client <host-client> --protocol json");
+    expect(guide).toContain('/onboard/runtime?client=<host-client>&packageVersion=0.13.6');
     expect(guide).toContain('--client workbuddy');
     expect(guide).toContain('Node.js 24 或 26');
     expect(guide).toContain('browserOpened:false');

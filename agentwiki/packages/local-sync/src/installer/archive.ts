@@ -11,6 +11,14 @@ import { join } from 'node:path';
 
 export const ACTIVE_ONBOARDING_DIR = 'onboarding';
 
+/**
+ * Children that are active program state rather than legacy user data.
+ * `runtime` holds the installed gateway package; archiving it would force a
+ * registry download on the next onboarding run, exactly the startup-time
+ * network dependency this layout avoids.
+ */
+export const PRESERVED_AGENTWIKI_DIRS = new Set([ACTIVE_ONBOARDING_DIR, 'runtime']);
+
 export function agentwikiRoot(home: string = homedir()): string {
   return join(home, '.agentwiki');
 }
@@ -37,7 +45,7 @@ export async function archiveLegacyState(home: string = homedir()): Promise<Arch
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw new Error('ARCHIVE_FAILED: unable to inspect active local state', { cause: error });
   }
-  children = children.filter((child) => child !== ACTIVE_ONBOARDING_DIR);
+  children = children.filter((child) => !PRESERVED_AGENTWIKI_DIRS.has(child));
   if (children.length === 0) return null;
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '');
@@ -93,7 +101,7 @@ export async function restoreArchivedState(home: string, archive: ArchiveResult 
   const root = agentwikiRoot(home);
   const currentChildren = await readdir(root).catch(() => []);
   for (const child of currentChildren) {
-    if (child === ACTIVE_ONBOARDING_DIR) continue;
+    if (PRESERVED_AGENTWIKI_DIRS.has(child)) continue;
     await rm(join(root, child), { recursive: true, force: true });
   }
 

@@ -18,7 +18,13 @@ import {
   type AgentClient,
 } from '../agent-clients.js';
 import { GATEWAY_MCP_NAME, gatewayCommand, hashConfig, looksLikeAgentWikiEntry } from './plan.js';
-import { createWorkBuddyGatewayLaunch, validateWorkBuddyGatewayLaunch, type GatewayLaunch } from './workbuddy-runtime.js';
+import {
+  ensureGatewayRuntime,
+  gatewayRuntimeCliPath,
+  isLocalGatewayCli,
+  readGatewayRuntime,
+  type InstalledGatewayRuntime,
+} from './gateway-runtime.js';
 
 export interface ClientConfigPaths {
   configPath: string;
@@ -118,30 +124,36 @@ export async function installGatewayEntry(
   home: string = homedir(),
   serverBaseUrl?: string,
   openCodeMajor?: 1 | 2,
-): Promise<{ backupPath: string; rollback: () => Promise<void> }> {
+  runtime?: InstalledGatewayRuntime,
+): Promise<{ backupPath: string; rollback: () => Promise<void>; runtime: InstalledGatewayRuntime }> {
   const configPath = clientConfigPath(client, home);
 
   const { current, originalBackup } = await inspectConfirmedConfig(client, connectionId, expectedHash, home);
-  if (originalBackup) return { backupPath: originalBackup, rollback: async () => undefined };
+  if (originalBackup) {
+    // The runtime was installed before the config was written; a retry reads it
+    // back instead of downloading the package again.
+    const installed = await readGatewayRuntime(home) ?? await ensureGatewayRuntime({ home });
+    return { backupPath: originalBackup, rollback: async () => undefined, runtime: installed };
+  }
 
+  // Install the pinned package once, before any host configuration points at it.
+  // Hosts then start an absolute local CLI and never resolve a package at launch.
+  const installed = runtime ?? await ensureGatewayRuntime({ home });
   const backup = await backupConfig(client, home);
   const next = await buildConfigWithGateway(
     client,
     current,
     connectionId,
+    installed,
     serverBaseUrl,
     openCodeMajor ?? (client === 'opencode' ? installedOpenCodeMajor() : undefined),
   );
-  if (client === 'workbuddy') {
-    // Record only hashes, not environment values. A failed receipt write must
-    // leave the user's actual configuration untouched.
-    await writeWorkBuddyInstallReceipt(backup, connectionId, expectedHash, next);
-  }
   await writeAtomically(configPath, next, 0o600, current);
 
   return {
     backupPath: backup,
     rollback: rollbackFromBackup(configPath, backup),
+    runtime: installed,
   };
 }
 
@@ -162,9 +174,7 @@ async function inspectConfirmedConfig(client: AgentClient, connectionId: string,
   }
   if (hashConfig(current ?? '') === expectedHash) return { current, originalBackup: null };
   if (current !== null && await hasExactGatewayEntry(client, current, connectionId)) {
-    const originalBackup = client === 'workbuddy'
-      ? await findConfirmedWorkBuddyBackup(home, current, connectionId, expectedHash)
-      : await findOriginalBackup(client, home);
+    const originalBackup = await findBackupMatchingHash(client, home, expectedHash);
     if (originalBackup) return { current, originalBackup };
   }
   throw new Error('CONFIG_CONFLICT: client configuration changed since preflight');
@@ -250,65 +260,45 @@ function rollbackFromBackup(configPath: string, backup: string): () => Promise<v
   };
 }
 
-async function findOriginalBackup(client: AgentClient, home: string): Promise<string | null> {
-  const root = join(home, '.agentwiki-archive');
-  const names = await readdir(root).catch(() => []);
-  const name = names.filter((candidate) => candidate.startsWith(`${client}-`)).sort()[0];
-  return name ? join(root, name) : null;
-}
-
-const WORKBUDDY_RECEIPT_SUFFIX = '.gateway-install.json';
-
-async function writeWorkBuddyInstallReceipt(backup: string, connectionId: string, expectedHash: string, installed: string): Promise<void> {
-  if (hashConfig(await readFile(backup, 'utf8')) !== expectedHash) {
-    throw new Error('CONFIG_CONFLICT: original backup does not match the confirmed configuration');
-  }
-  const file = await open(backup + WORKBUDDY_RECEIPT_SUFFIX, 'wx', 0o600);
-  try {
-    await file.writeFile(JSON.stringify({
-      version: 1,
-      client: 'workbuddy',
-      connectionId,
-      originalConfigHash: expectedHash,
-      installedConfigHash: hashConfig(installed),
-    }) + '\n', 'utf8');
-    await file.sync();
-  } finally {
-    await file.close();
-  }
-}
-
-async function findConfirmedWorkBuddyBackup(home: string, current: string, connectionId: string, expectedHash?: string): Promise<string | null> {
+/**
+ * A retry may reuse a backup only when its bytes still hash to the confirmed
+ * pre-install configuration. Retired receipt files are ignored.
+ */
+async function findBackupMatchingHash(
+  client: AgentClient,
+  home: string,
+  expectedHash: string,
+): Promise<string | null> {
   const root = join(home, '.agentwiki-archive');
   const directory = await lstat(root).catch(() => null);
   if (!directory?.isDirectory() || directory.isSymbolicLink()) return null;
   if (process.platform !== 'win32' && ((directory.mode & 0o077) !== 0 || directory.uid !== process.getuid?.())) return null;
-  const names = await readdir(root);
-  for (const name of names.filter((value) => value.startsWith('workbuddy-') && value.endsWith(WORKBUDDY_RECEIPT_SUFFIX)).sort()) {
-    const receiptPath = join(root, name);
-    const backup = receiptPath.slice(0, -WORKBUDDY_RECEIPT_SUFFIX.length);
+  const names = (await readdir(root).catch(() => []))
+    .filter((value) => value.startsWith(`${client}-`) && !value.endsWith('.gateway-install.json'))
+    .sort()
+    .reverse();
+  for (const name of names) {
+    const backup = join(root, name);
     try {
-      const files = await Promise.all([lstat(receiptPath), lstat(backup)]);
-      if (files.some((file) => !file.isFile() || file.isSymbolicLink()
-        || (process.platform !== 'win32' && ((file.mode & 0o077) !== 0 || file.uid !== process.getuid?.())))) continue;
-      const receipt = JSON.parse(await readFile(receiptPath, 'utf8'));
-      if (receipt.version !== 1 || receipt.client !== 'workbuddy' || receipt.connectionId !== connectionId
-        || typeof receipt.originalConfigHash !== 'string' || !/^[a-f0-9]{64}$/.test(receipt.originalConfigHash)
-        || (expectedHash !== undefined && receipt.originalConfigHash !== expectedHash)
-        || receipt.installedConfigHash !== hashConfig(current)) continue;
-      if (hashConfig(await readFile(backup, 'utf8')) === receipt.originalConfigHash) return backup;
+      const info = await lstat(backup);
+      if (!info.isFile() || info.isSymbolicLink()) continue;
+      if (process.platform !== 'win32' && ((info.mode & 0o077) !== 0 || info.uid !== process.getuid?.())) continue;
+      if (hashConfig(await readFile(backup, 'utf8')) === expectedHash) return backup;
     } catch {
-      // An incomplete, missing or changed receipt cannot authorize a retry.
+      // An unreadable or changed backup cannot authorize a retry.
     }
   }
   return null;
 }
 
 async function hasExactGatewayEntry(client: AgentClient, current: string, connectionId: string): Promise<boolean> {
-  if (client === 'workbuddy') return validateWorkBuddyGatewayLaunch(workBuddyEntry(current), connectionId);
   const entry = extractEntryNames(client, current).find(([name]) => name === GATEWAY_MCP_NAME)?.[1];
   if (!entry) return false;
-  return gatewayCommand(connectionId).every((part) => entry.includes(part));
+  const tail = ['gateway', '--connection', connectionId];
+  if (!tail.every((part) => entry.includes(part))) return false;
+  // Both the local runtime and the retired npx shape are owned entries; a
+  // retry upgrades the retired shape to the local runtime.
+  return isLocalGatewayCli(entry) || entry.includes('agentwiki-local-sync');
 }
 
 /** Build the post-install config text for each client format. */
@@ -316,25 +306,18 @@ async function buildConfigWithGateway(
   client: AgentClient,
   current: string | null,
   connectionId: string,
+  runtime: InstalledGatewayRuntime,
   serverBaseUrl?: string,
   openCodeMajor?: 1 | 2,
 ): Promise<string> {
-  const command = gatewayCommand(connectionId);
+  const command = gatewayCommand(runtime, connectionId);
   switch (client) {
     case 'codex':
       return buildToml(current, command, serverBaseUrl);
-    case 'workbuddy': {
-      const previous = workBuddyEntry(current);
-      const env = previous?.env;
-      if (env !== undefined && (!isJsonObject(env) || !Object.values(env).every((value) => typeof value === 'string'))) {
-        throw new Error('CONFIG_NOT_WRITABLE: WorkBuddy gateway env must contain string values');
-      }
-      const launch = await createWorkBuddyGatewayLaunch(connectionId, { env });
-      return buildJson(current, [launch.command, ...launch.args], serverBaseUrl, client, launch.env);
-    }
+    case 'workbuddy':
     case 'claude':
     case 'generic':
-      return buildJson(current, command, serverBaseUrl, client);
+      return buildJson(client, current, command, serverBaseUrl);
     case 'opencode':
       if (openCodeMajor === undefined) throw new Error('OpenCode major version is required');
       return buildOpenCodeJson(current, command, serverBaseUrl, openCodeMajor);
@@ -354,7 +337,7 @@ function buildToml(current: string | null, command: string[], serverBaseUrl?: st
   return `${base}\n[mcp_servers.${GATEWAY_MCP_NAME}]\ncommand = "${escapeTomlString(cmd)}"\nargs = [${argsStr}]\n`;
 }
 
-function buildJson(current: string | null, command: string[], serverBaseUrl: string | undefined, client: AgentClient, env?: Record<string, string>): string {
+function buildJson(client: AgentClient, current: string | null, command: string[], serverBaseUrl: string | undefined): string {
   let config: Record<string, unknown> = {};
   if (current) {
     try {
@@ -370,14 +353,14 @@ function buildJson(current: string | null, command: string[], serverBaseUrl: str
     throw new Error(`CONFIG_NOT_WRITABLE: ${client} mcpServers must be an object`);
   }
   const mcpServers = (config.mcpServers ?? {}) as Record<string, unknown>;
-  // Remove old AgentWiki entries.
+  // Remove old AgentWiki entries, including the retired npx launch shape.
   for (const key of Object.keys(mcpServers)) {
     const entry = mcpServers[key];
     const text = JSON.stringify(entry);
-    if (looksLikeAgentWikiEntry(key, text, serverBaseUrl)) delete mcpServers[key];
+    if (key === GATEWAY_MCP_NAME || looksLikeAgentWikiEntry(key, text, serverBaseUrl)) delete mcpServers[key];
   }
   const [cmd, ...args] = command;
-  mcpServers[GATEWAY_MCP_NAME] = { command: cmd, args, ...(env ? { env } : {}) };
+  mcpServers[GATEWAY_MCP_NAME] = { command: cmd, args };
   config.mcpServers = mcpServers;
   return JSON.stringify(config, null, 2) + '\n';
 }
@@ -617,20 +600,70 @@ function extractEntryNames(client: AgentClient, raw: string | null): Array<[stri
   return entries;
 }
 
-
-function workBuddyEntry(current: string | null): GatewayLaunch | undefined {
-  try { return JSON.parse(current ?? '{}').mcpServers?.[GATEWAY_MCP_NAME]; } catch { return undefined; }
+/**
+ * Read back the launch a host will execute. The entry must still be the owned
+ * local runtime, not a retired npx wrapper or a changed command.
+ */
+export async function readGatewayLaunch(
+  client: AgentClient,
+  home: string,
+  connectionId: string,
+): Promise<{ command: string; args: string[] }> {
+  const current = await readRawConfig(client, home);
+  if (current === null) throw new Error('CONFIG_NOT_WRITABLE: client configuration is missing');
+  const entry = extractGatewayLaunch(client, current);
+  const installed = await readGatewayRuntime(home);
+  if (!installed) throw new Error('CONFIG_NOT_WRITABLE: gateway runtime is not installed');
+  const expected = gatewayCommand(installed, connectionId);
+  if (entry.command !== expected[0] || entry.args.length !== expected.length - 1
+    || !expected.slice(1).every((part, index) => entry.args[index] === part)) {
+    throw new Error('CONFIG_NOT_WRITABLE: gateway runtime does not match the installed connection');
+  }
+  return entry;
 }
 
-/** Read back the launch that WorkBuddy will execute, including its runtime and npm cache. */
-export async function readWorkBuddyGatewayLaunch(home: string, connectionId: string): Promise<GatewayLaunch> {
-  const current = await readRawConfig('workbuddy', home);
-  if (current === null || !await findConfirmedWorkBuddyBackup(home, current, connectionId)) {
-    throw new Error('CONFIG_CONFLICT: WorkBuddy configuration no longer matches the confirmed installation');
+/** The gateway CLI recorded under this home, or null when not installed yet. */
+export async function readInstalledGatewayCli(home: string): Promise<string | null> {
+  return (await readGatewayRuntime(home))?.cliPath ?? null;
+}
+
+export { gatewayRuntimeCliPath };
+
+function extractGatewayLaunch(client: AgentClient, current: string): { command: string; args: string[] } {
+  if (client === 'codex') {
+    const block = extractEntryNames('codex', current).find(([name]) => name === GATEWAY_MCP_NAME)?.[1];
+    const command = block?.match(/^command\s*=\s*"((?:[^"\\]|\\.)*)"\s*$/m)?.[1];
+    const argsText = block?.match(/^args\s*=\s*\[([\s\S]*?)\]/m)?.[1];
+    if (!command || argsText === undefined) throw new Error('CONFIG_NOT_WRITABLE: Codex gateway entry is incomplete');
+    const args = [...argsText.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((match) => unescapeTomlString(match[1]));
+    return { command: unescapeTomlString(command), args };
   }
-  const entry = workBuddyEntry(current);
-  if (!await validateWorkBuddyGatewayLaunch(entry, connectionId)) {
-    throw new Error('CONFIG_NOT_WRITABLE: WorkBuddy gateway runtime does not match the installed connection');
+  let entry: unknown;
+  try {
+    const config = JSON.parse(current) as Record<string, unknown>;
+    if (client === 'opencode') {
+      const mcp = isJsonObject(config.mcp) ? config.mcp : {};
+      const servers = isJsonObject(mcp.servers) ? mcp.servers : {};
+      entry = servers[GATEWAY_MCP_NAME] ?? mcp[GATEWAY_MCP_NAME];
+      if (isJsonObject(entry)) {
+        const command = entry.command;
+        const [cmd, ...args] = Array.isArray(command) ? command : [];
+        if (typeof cmd === 'string' && args.every((part) => typeof part === 'string')) return { command: cmd, args };
+      }
+    } else {
+      const servers = isJsonObject(config.mcpServers) ? config.mcpServers : {};
+      entry = servers[GATEWAY_MCP_NAME];
+      if (isJsonObject(entry) && typeof entry.command === 'string' && Array.isArray(entry.args)
+        && entry.args.every((part) => typeof part === 'string')) {
+        return { command: entry.command, args: entry.args };
+      }
+    }
+  } catch {
+    // Fall through to a uniform error below.
   }
-  return entry!;
+  throw new Error('CONFIG_NOT_WRITABLE: gateway entry is incomplete');
+}
+
+function unescapeTomlString(value: string): string {
+  return value.replace(/\\([\\"])/g, '$1');
 }

@@ -6,6 +6,8 @@ import { mkdtemp, readFile, rm, writeFile, mkdir, readdir } from 'node:fs/promis
 import { delimiter, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { scopesForAgentAccessRole } from '@neomei/agentwiki-sync-protocol';
+import { staticToolNames } from '../gateway/manifest.js';
+import { stageGatewayRuntimeFixture } from '../installer/gateway-runtime.js';
 const exec = promisify(execFile);
 let server: Server, home: string, base: string, browserPreload: string;
 let bootstrapCalls = 0,
@@ -86,6 +88,20 @@ beforeAll(async () => {
   await exec('pnpm', ['build'], { cwd: process.cwd(), timeout: 30_000 });
   home = await mkdtemp(join(tmpdir(), 'aw-steps-process-'));
   await mkdir(join(home, 'bin'));
+  // The installer installs the local gateway runtime once. Stage a verified
+  // fixture in this disposable home so the process exercises the real config
+  // writer and verifier without a registry download. Its CLI answers the
+  // tools/list handshake the verifier expects.
+  const runtime = await stageGatewayRuntimeFixture(home);
+  await writeFile(
+    runtime.cliPath,
+    `
+      require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
+        const request = JSON.parse(line);
+        if (request.method === 'tools/list') console.log(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { tools: ${JSON.stringify(staticToolNames().map((name) => ({ name })))} } }));
+      });
+    `,
+  );
   await writeFile(
     join(home, 'bin', 'codegraph'),
     '#!/bin/sh\nprintf scan-invoked > "$HOME/scan-invoked"\nexit 90\n',
@@ -155,7 +171,7 @@ beforeAll(async () => {
         spaceId: 's1',
         role: 'editor',
         serverUrl: base,
-        pluginVersion: '0.13.5',
+        pluginVersion: '0.13.6',
         scopes,
       });
     }
