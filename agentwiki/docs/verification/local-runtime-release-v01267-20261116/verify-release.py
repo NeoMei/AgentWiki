@@ -52,6 +52,23 @@ def main():
         exec(compile(source, 'notification-unread-20261023/verify-release.py', 'exec'), namespace)
         namespace.update(REVISION=args.revision, MANIFEST_SHA256=args.manifest_sha256,
                          EXPECTED_FILES=args.expected_files, VERSIONS=VERSIONS)
+        # The public edge injects a single footer-backlink script into the app
+        # HTML at serve time (quukk-home.js). It is not part of the deployed
+        # build, and the app assets themselves are compared byte-for-byte below.
+        # Strip exactly that known injected tag when reading the public entry
+        # document so the HTML hash reflects the application build only.
+        if args.mode == 'public':
+            _base_get_bytes = namespace['get_bytes']
+            _public_origin = namespace['PUBLIC_ORIGIN'].rstrip('/')
+            _injected = re.compile(rb'<script\s+src="/quukk-home\.js[^"]*"\s+defer></script>')
+
+            def _get_bytes(url, max_bytes=20 * 1024 * 1024):
+                data = _base_get_bytes(url, max_bytes)
+                if url.rstrip('/') == _public_origin and data.lstrip().lower().startswith(b'<!doctype html'):
+                    data = _injected.sub(b'', data)
+                return data
+
+            namespace['get_bytes'] = _get_bytes
         result = namespace['host_verify'](args.manifest) if args.mode == 'host' else namespace['public_verify'](args.host_receipt)
         result.update(status='passed', verifiedAt=datetime.datetime.now(datetime.timezone.utc).isoformat())
         print(json.dumps(result, ensure_ascii=False))
