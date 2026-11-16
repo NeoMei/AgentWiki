@@ -1,0 +1,66 @@
+{
+  "release": "v0.12.67",
+  "frozenRevision": "75bb7be6e1c35ac2960183177cbdf753b7a94bbb",
+  "npmPackage": "@neomei/agentwiki-local-sync@0.13.6",
+  "verifiedAt": "2026-11-16",
+  "sourceManifest": {
+    "sha256": "80fc5e36e0949f784808dec95911810b0b469cd837a84735484fcbb3065dd4b6",
+    "files": 1469
+  },
+  "hostVerification": {
+    "status": "passed",
+    "sourceFilesVerified": 1469,
+    "mismatches": [],
+    "versions": {
+      "web": "0.12.67",
+      "client": "0.12.67",
+      "api": "0.12.67",
+      "localSync": "0.13.6",
+      "protocol": "0.6.1"
+    },
+    "services": "all three active",
+    "health": "5/5 ok"
+  },
+  "publicVerification": {
+    "status": "passed",
+    "origin": "https://agentwiki.quukk.com",
+    "entryAssetsMatchProduction": 5,
+    "note": "public edge injects a single quukk-home.js footer-backlink script; verifier strips exactly that known tag before comparing app HTML hash; all five entry assets and health match byte-for-byte."
+  },
+  "backup": {
+    "dir": "/var/backups/agentwiki/local-runtime-release-v01267.A7vOMwei",
+    "status": "verified",
+    "checksums": "ok",
+    "servicesRestored": true
+  },
+  "isolatedRestore": {
+    "status": "passed",
+    "database": "agentwiki_restore_v01267_cd630135f05349ec86cb289dad92c83a",
+    "applicationTables": 4,
+    "publicTables": 85,
+    "migrations": 67,
+    "cleanedUp": true,
+    "businessDbTouched": false
+  },
+  "deploy": {
+    "from": "clean detached worktree at frozen revision",
+    "previousApp": "/root/agentwiki-previous-20261116231510",
+    "versionsAfter": "0.12.67 / 0.13.6 / 0.6.1"
+  },
+  "githubRelease": {
+    "url": "https://github.com/NeoMei/AgentWiki/releases/tag/v0.12.67",
+    "targetCommitish": "75bb7be6e1c35ac2960183177cbdf753b7a94bbb",
+    "tag": "v0.12.67"
+  },
+  "businessAcceptance": {
+    "fix": "MCP startup uses local installed runtime, no npx/registry lookup",
+    "evidence": [
+      "Published 0.13.6 installed fresh with empty npm cache into isolated prefix (97 packages).",
+      "gateway CLI launched via absolute Node + absolute CLI path with all HTTP(S) proxies pointed at a dead port; help returned with no network dependency.",
+      "Source config generation writes command=<absolute node>, args=[<absolute cli>,'gateway','--connection',id]; unit tests assert no npx and cover upgrading a retired npx entry to the local runtime.",
+      "Server accepts 0.13.5 and 0.13.6 clients; existing 0.13.5 clients remain compatible."
+    ],
+    "limits": "No GUI end-user Agent launch was driven in this run; verification used the published package CLI and shipped config-generation tests. No model or Agent task was executed."
+  },
+  "preserved": "untracked agentwiki/design/ draft retained, not committed or packaged"
+}
