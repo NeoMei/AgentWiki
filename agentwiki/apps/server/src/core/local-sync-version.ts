@@ -19,6 +19,11 @@ export const SUPPORTED_LOCAL_SYNC_VERSIONS = [
 
 export type SupportedLocalSyncVersion = typeof SUPPORTED_LOCAL_SYNC_VERSIONS[number];
 
+export function supportsPreinstalledGateway(version: string): boolean {
+  return SUPPORTED_LOCAL_SYNC_VERSIONS.findIndex(candidate => candidate === version)
+    >= SUPPORTED_LOCAL_SYNC_VERSIONS.indexOf('0.13.6');
+}
+
 export function isSupportedLocalSyncVersion(
   value: unknown,
 ): value is SupportedLocalSyncVersion {

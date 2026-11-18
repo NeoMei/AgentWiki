@@ -2,6 +2,7 @@ import { Body, Controller, Get, Header, Headers, HttpCode, HttpStatus, Post, Que
 import { Request } from 'express';
 import { HumanOnlyGuard } from '../core/auth/human-only.guard';
 import { JwtAuthGuard } from '../core/auth/jwt-auth.guard';
+import { CURRENT_LOCAL_SYNC_VERSION } from '../core/local-sync-version';
 import { BootstrapDto, DeviceDecisionDto, PollDeviceDto, StartDeviceDto } from './onboard.dto';
 import { onboardRuntimeGuide } from './onboard-runtime-guide';
 import { OnboardBootstrapService } from './onboard-bootstrap.service';
@@ -94,7 +95,7 @@ export class OnboardController {
     return {
       statusCode: 410,
       error: 'Gone',
-      replacement: `Use the pinned ${PACKAGE_VERSION} onboarding command: ${PUBLIC_COMMAND}`,
+      replacement: `Follow ${API_BASE}/onboard to prepare the pinned ${PACKAGE_VERSION} runtime, then run: ${PUBLIC_COMMAND}`,
     };
   }
 
@@ -107,8 +108,9 @@ export class OnboardController {
 
 const BASE_URL = 'https://agentwiki.quukk.com';
 const API_BASE = `${BASE_URL}/api`;
-const PACKAGE_VERSION = '0.13.6';
-const PUBLIC_COMMAND = `npx --yes @neomei/agentwiki-local-sync@${PACKAGE_VERSION} onboard start --server '${API_BASE}' --client <host-client> --protocol json`;
+const PACKAGE_VERSION = CURRENT_LOCAL_SYNC_VERSION;
+const RUNNER = '<nodePath> <cliPath>';
+const PUBLIC_COMMAND = `${RUNNER} onboard start --server '${API_BASE}' --client <host-client> --protocol json`;
 
 const ONBOARD_MD = `# AgentWiki Agent 接入 / Connect your Agent
 
@@ -118,8 +120,8 @@ Give this complete guide to any Agent supporting local stdio MCP. Identify the c
 1. 本机需要 Node.js 24 或 26。完成适用的准备后执行启动命令；环境预检失败时按返回的修复指引处理后再继续。每条接入命令结束后读取一个 JSON 对象并保存 sessionId。后续使用同一会话，不并行重复启动。
 Node.js 24 or 26 is required locally. Complete the applicable preparation before the start command; if environment preflight fails, follow its repair instructions before continuing. Read each onboarding command's single JSON response and preserve sessionId. Continue that same session throughout.
 
-首次 npx 前，先读取与实际宿主对应的运行环境准备（纯文本）：${API_BASE}/onboard/runtime?client=<host-client>&packageVersion=${PACKAGE_VERSION}。将 <host-client> 替换为已识别的 codex、claude、opencode、workbuddy；其他支持本地 stdio MCP 的宿主才选 generic。执行返回的对应准备后，将下面命令的 <host-client> 替换为同一值；若准备要求专用 runner，所有命令复用它。此页面不会创建或命名 Agent。不能识别宿主时先请用户说明，不根据现有连接名猜测。
-Before the first npx invocation, read the plain-text runtime preparation for the actual host: ${API_BASE}/onboard/runtime?client=<host-client>&packageVersion=${PACKAGE_VERSION}. Replace <host-client> with codex, claude, opencode, or workbuddy only for that identified host; use generic for other local stdio MCP hosts. Complete that preparation, substitute the same client in the command below, and reuse its runner if specified. This runtime page does not create or name an Agent. If the host cannot be identified, ask the user; never infer it from an existing connection name.
+先读取与实际宿主对应的运行时准备指引：${API_BASE}/onboard/runtime?client=<host-client>&packageVersion=${PACKAGE_VERSION}。替换 <host-client> 为已识别的宿主标识；无法识别时请用户说明当前使用的客户端。按指引安装或复用固定版本，再将输出中的 nodePath 和 cliPath 作为每条命令最前面的两个独立路径参数，安全引用。MCP 启动时也会使用同一份运行时。
+Read the runtime preparation for the identified host: ${API_BASE}/onboard/runtime?client=<host-client>&packageVersion=${PACKAGE_VERSION}. Replace <host-client> with that host’s identifier. Ask the user which client is running if you cannot identify it. Follow the guide to install or reuse the pinned version and use the returned nodePath and cliPath as the first two separately quoted arguments in every command. MCP also starts from this same runtime.
 
 \`\`\`sh
 ${PUBLIC_COMMAND}
@@ -127,15 +129,15 @@ ${PUBLIC_COMMAND}
 
 2. 将 <sessionId> 替换为返回的会话 ID；<absolute-json-file> 替换为实际绝对文件路径，并安全引用 shell 参数。
 Replace placeholders with the returned session ID or actual absolute file path, quoting shell arguments safely.
-若步骤1返回专用 runner，后续每条命令均复用该运行时、缓存与精确包版本；其余参数保持一致。
-If step 1 supplies a dedicated runner, reuse that runtime, cache, and exact package version for every later command; keep the remaining arguments unchanged.
+后续每条命令复用步骤 1 返回的 nodePath 和 cliPath。
+Use the same nodePath and cliPath from step 1 for every later command.
 只读查看本地检查点（不会联系服务器领取浏览器批准结果） / Inspect the saved local checkpoint (does not retrieve browser approval from the server):
 \`\`\`sh
-npx --yes @neomei/agentwiki-local-sync@${PACKAGE_VERSION} onboard status --session <sessionId> --protocol json
+${RUNNER} onboard status --session <sessionId> --protocol json
 \`\`\`
 推进一个阶段 / Advance one phase:
 \`\`\`sh
-npx --yes @neomei/agentwiki-local-sync@${PACKAGE_VERSION} onboard continue --session <sessionId> --protocol json
+${RUNNER} onboard continue --session <sessionId> --protocol json
 \`\`\`
 
 3. authorization_expired：该响应没有授权链接；保留原 sessionId、计划和配置，按 nextAction 执行不带 --reply-file 的 continue 续授权。收到新的 authorization_required 后，脚本会尝试自动打开浏览器；browserOpened 仅表示系统接受打开请求，不表示用户已授权。browserOpened:false 或用户确认页面未出现时，使用当前客户端的浏览器或系统打开能力打开 authorizationUrl，仍不可用再展示可点击链接。用户须在 expiresAt 前登录并批准。CLI onboard status 只读取本地检查点，不会联系服务器；它不会领取浏览器批准结果或重新打开浏览器，不能靠反复 status 等待授权。打开页面不代表已授权，等待 retryAfterMs 后必须执行不带 --reply-file 的 continue，从服务器领取浏览器批准结果并推进；仍为 authorization_required 时按新的 retryAfterMs 再 continue。首次收到 authorization_required 也按此方式处理；不要重复打开同一链接、新建会话或索取密码。
@@ -152,7 +154,7 @@ Show the complete plan, including account/server, space, Agent, role and configu
 
 提交回复文件 / Submit the reply file:
 \`\`\`sh
-npx --yes @neomei/agentwiki-local-sync@${PACKAGE_VERSION} onboard continue --session <sessionId> --reply-file <absolute-json-file> --protocol json
+${RUNNER} onboard continue --session <sessionId> --reply-file <absolute-json-file> --protocol json
 \`\`\`
 
 6. configuration_pending 时继续同一会话。网络中断或 error.retryable:true 时先 status 后重试 continue；不可重试错误报告 code/nextAction。保留原计划和配置，不重复创建 Agent/Space。

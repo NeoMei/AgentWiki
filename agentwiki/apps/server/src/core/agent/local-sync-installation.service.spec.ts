@@ -129,7 +129,12 @@ describe('LocalSyncInstallationService', () => {
 
       const stored = JSON.parse(redis.setOnce.mock.calls[0][1]);
       expect(stored.pluginVersion).toBe(pluginVersion);
-      expect(result.instructions).toContain(`@neomei/agentwiki-local-sync@${pluginVersion} onboard`);
+      if (pluginVersion === '0.13.6') {
+        expect(result.instructions).toContain('<nodePath> <cliPath> onboard');
+        expect(result.instructions).toContain('packageVersion=0.13.6');
+      } else {
+        expect(result.instructions).toContain(`@neomei/agentwiki-local-sync@${pluginVersion} onboard`);
+      }
       if (pluginVersion !== '0.13.2' && pluginVersion !== '0.13.3' && pluginVersion !== '0.13.4' && pluginVersion !== '0.13.6') {
         expect(result.instructions).toContain('--agent auto');
         expect(result.instructions).not.toContain('--agent generic');
@@ -143,9 +148,10 @@ describe('LocalSyncInstallationService', () => {
       'owner-1', 'agent-1', 'space-1', 'editor', pluginVersion, 'https://wiki.test/api',
     );
 
-    const command = result.instructions.split('\n').find((line) => line.startsWith('npx '));
+    const runner = pluginVersion === '0.13.6' ? '<nodePath> <cliPath>' : `npx --yes @neomei/agentwiki-local-sync@${pluginVersion}`;
+    const command = result.instructions.split('\n').find((line) => line.startsWith(runner));
     const client = (pluginVersion === '0.13.4' || pluginVersion === '0.13.6') ? '<host-client>' : 'generic';
-    expect(command).toBe(`npx --yes @neomei/agentwiki-local-sync@${pluginVersion} onboard --server https://wiki.test/api --code ${result.code} --protocol ndjson --agent ${client}`);
+    expect(command).toBe(`${runner} onboard --server https://wiki.test/api --code ${result.code} --protocol ndjson --agent ${client}`);
     expect(result.instructions).toContain('local stdio MCP');
     expect(result.instructions).toContain('--agent workbuddy');
     expect(result.instructions).toContain('import');
@@ -161,13 +167,18 @@ describe('LocalSyncInstallationService', () => {
       'owner-1', 'agent-1', 'space-1', 'editor', pluginVersion, 'https://wiki.test/api',
     );
     const lines = result.instructions.split('\n');
-    const firstNpxIndex = lines.findIndex((line) => line.startsWith('npx '));
-    expect(lines[firstNpxIndex]).toMatch(/--agent <host-client>$/);
+    const runner = pluginVersion === '0.13.6' ? '<nodePath> <cliPath>' : 'npx --yes';
+    const commandIndex = lines.findIndex((line) => line.startsWith(runner));
+    expect(lines[commandIndex]).toMatch(/--agent <host-client>$/);
     expect(result.instructions).not.toMatch(/^node -e|^npx --cache/m);
     expect(result.instructions).toContain(`https://wiki.test/api/onboard/runtime?client=<host-client>&packageVersion=${pluginVersion}`);
     expect(result.instructions).toContain('agent-1');
     expect(result.instructions).toContain('space-1');
-    expect(result.instructions.indexOf('/onboard/runtime?')).toBeLessThan(result.instructions.indexOf('npx --yes'));
+    expect(lines.findIndex((line) => line.includes('/onboard/runtime?'))).toBeLessThan(commandIndex);
+    if (pluginVersion === '0.13.6') {
+      expect(result.instructions).not.toContain('npx');
+      expect(result.instructions).toContain('only when a usable copy of that version is absent');
+    }
   });
 
   it.each(['0.13.2', '0.13.3'] as const)('keeps historical %s command preparation unchanged', async (pluginVersion) => {
@@ -191,7 +202,9 @@ describe('LocalSyncInstallationService', () => {
       await expect(service.create(
         'owner-1', 'agent-1', 'space-1', 'editor', pluginVersion, 'https://wiki.test/api',
       )).resolves.toEqual(expect.objectContaining({
-        instructions: expect.stringContaining(`@neomei/agentwiki-local-sync@${pluginVersion}`),
+        instructions: expect.stringContaining(pluginVersion === '0.13.6'
+          ? 'packageVersion=0.13.6'
+          : `@neomei/agentwiki-local-sync@${pluginVersion}`),
       }));
     },
   );

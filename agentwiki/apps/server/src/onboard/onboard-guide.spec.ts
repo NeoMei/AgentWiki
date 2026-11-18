@@ -1,15 +1,60 @@
 import { BadRequestException } from '@nestjs/common';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { CURRENT_LOCAL_SYNC_VERSION } from '../core/local-sync-version';
 import { OnboardController } from './onboard.controller';
 
 describe('public Agent connection guide', () => {
-  it('prepares WorkBuddy for a local runtime instead of an npx launch at every start', () => {
+  it('runs the guide installer once and returns the same launch paths when npm is unavailable', () => {
+    const controller = new OnboardController({} as any, {} as any);
+    const source = controller.getRuntime('codex').match(/\x60\x60\x60js\n([\s\S]+?)\n\x60\x60\x60/)?.[1];
+    expect(source).toBeDefined();
+    const home = mkdtempSync(join(tmpdir(), 'agentwiki runtime '));
+    try {
+      const script = join(home, 'prepare.cjs');
+      const npm = join(home, 'npm-cli.js');
+      const log = join(home, 'install.log');
+      writeFileSync(script, source!);
+      writeFileSync(npm, `
+        const { appendFileSync, mkdirSync, writeFileSync } = require('node:fs');
+        const { join } = require('node:path');
+        const args = process.argv.slice(2);
+        if (args[0] === '--version') {
+          console.log('11.0.0');
+          process.exit(0);
+        }
+        const [command, prefixFlag, prefix, spec] = args;
+        if (command !== 'install' || prefixFlag !== '--prefix') process.exit(1);
+        const [name, version] = spec.split(/@(?=[^@]+$)/);
+        appendFileSync(${JSON.stringify(log)}, spec + '\\n');
+        const pkg = join(prefix, 'node_modules', name);
+        mkdirSync(join(pkg, 'dist'), { recursive: true });
+        writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name, version }));
+        writeFileSync(join(pkg, 'dist', 'cli.js'), '');
+      `);
+      const run = (npmPath: string) => JSON.parse(execFileSync(process.execPath, [script, npmPath], {
+        encoding: 'utf8', env: { ...process.env, HOME: home, USERPROFILE: home },
+      }));
+      const first = run(npm);
+      const second = run(join(home, 'missing', 'npm-cli.js'));
+      expect(second).toEqual(first);
+      expect(first.version).toBe(CURRENT_LOCAL_SYNC_VERSION);
+      expect(first.cliPath).toBe(join(home, '.agentwiki', 'runtime', `local-sync-${CURRENT_LOCAL_SYNC_VERSION}`,
+        'node_modules', '@neomei', 'agentwiki-local-sync', 'dist', 'cli.js'));
+      expect(readFileSync(log, 'utf8')).toBe(`@neomei/agentwiki-local-sync@${CURRENT_LOCAL_SYNC_VERSION}\n`);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('prepares WorkBuddy for a local runtime before onboarding', () => {
     const guide = new OnboardController({} as any, {} as any).getRuntime('workbuddy');
     expect(guide).not.toMatch(/^npx /m);
     expect(guide).not.toContain('--cache');
-    expect(guide).not.toContain('mkdtempSync');
     expect(guide).toContain('.agentwiki/runtime');
-    expect(guide).toMatch(/no npx|不运行 npx/i);
+    expect(guide).toContain('reuses a valid copy');
     expect(guide).not.toContain('onboard start');
     expect(guide).toContain('Node.js 24 or 26');
   });
@@ -38,7 +83,7 @@ describe('public Agent connection guide', () => {
   it.each(['generic', 'codex', 'claude', 'opencode'])('does not execute another host\'s runtime preparation for %s', (client) => {
     const controller = new OnboardController({} as any, {} as any);
     const runtime = controller.getRuntime(client);
-    expect(runtime).not.toMatch(/workbuddy|--cache|mkdtempSync/i);
+    expect(runtime).not.toMatch(/workbuddy|--cache/i);
     expect(runtime).toContain('Node.js 24 or 26');
     expect(controller.getMarkdown()).not.toMatch(/^node -e|^npx --cache/m);
   });
@@ -50,7 +95,9 @@ describe('public Agent connection guide', () => {
   it('advertises bounded version-pinned steps, explicit confirmation, and actual host-read verification', () => {
     const controller = new OnboardController({} as any, {} as any);
     const guide = controller.getMarkdown();
-    expect(guide).toContain("@neomei/agentwiki-local-sync@0.13.6 onboard start --server 'https://agentwiki.quukk.com/api' --client <host-client> --protocol json");
+    expect(guide).toContain("<nodePath> <cliPath> onboard start --server 'https://agentwiki.quukk.com/api' --client <host-client> --protocol json");
+    expect(guide.match(/^<nodePath> <cliPath> onboard /gm)).toHaveLength(4);
+    expect(guide).not.toMatch(/^npx /m);
     expect(guide).toContain('/onboard/runtime?client=<host-client>&packageVersion=0.13.6');
     expect(guide).toContain('--client workbuddy');
     expect(guide).toContain('Node.js 24 或 26');

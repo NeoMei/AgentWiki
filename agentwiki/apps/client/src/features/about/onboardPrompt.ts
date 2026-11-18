@@ -1,4 +1,4 @@
-import { LOCAL_SYNC_PACKAGE_NAME, LOCAL_SYNC_VERSION } from '../../config/localSync';
+import { LOCAL_SYNC_VERSION } from '../../config/localSync';
 
 export type OnboardClient = 'generic' | 'codex' | 'claude' | 'opencode' | 'workbuddy';
 export const ONBOARD_CLIENTS = [
@@ -10,17 +10,16 @@ export const ONBOARD_CLIENTS = [
 ] as const;
 
 export function buildOnboardPrompt(zh: boolean, client: OnboardClient, serverUrl: string): string {
-  const packageSpec = `${LOCAL_SYNC_PACKAGE_NAME}@${LOCAL_SYNC_VERSION}`;
-  const runner = `npx --yes ${packageSpec}`;
+  const runner = '<nodePath> <cliPath>';
   const actualClient = client === 'generic' ? '<actual-client>' : client;
-  const runtimeUrl = `${serverUrl.replace(/\/+$/, '')}/onboard/runtime?client=<actual-client>`;
+  const runtimeUrl = `${serverUrl.replace(/\/+$/, '')}/onboard/runtime?client=${actualClient}&packageVersion=${LOCAL_SYNC_VERSION}`;
   const hostPreparation = client === 'generic' ? (zh
-    ? `首先根据客户端元数据和当前工具执行环境识别实际宿主；不得根据提示词中的客户端名称或已有 Agent 显示名猜测。已知宿主使用准确标识 codex、claude、opencode 或 workbuddy；确认是其他支持本地 stdio MCP 的宿主才使用 generic。无法识别时先让我说明客户端，不得猜成任何已知宿主。将下文全部 <actual-client> 替换为该标识。开始前先读取 ${runtimeUrl} 返回的纯文本运行时准备指引并完整执行；如果指引要求专用 runner，将后文每条命令的完整前缀 \`${runner}\` 替换为准备好的 runner，并保留后面的 onboard 子命令和参数。后续始终复用同一 runner。无法取得指引时先解决读取问题，不得跳过准备。`
-    : `First identify the actual host from client metadata and the current tool execution environment; do not infer it from client names in this prompt or an existing Agent display name. Use the exact identifier codex, claude, opencode, or workbuddy for a known host; use generic only after identifying a different host with local stdio MCP support. If the host cannot be identified, ask me which client is running instead of guessing a known host. Replace every <actual-client> below with that identifier. Before starting, read the plain-text runtime preparation instructions from ${runtimeUrl} and complete them. If they require a prepared runner, replace the entire prefix \`${runner}\` in every command below with that runner, preserving the onboard subcommand and arguments. Reuse that runner throughout. If the instructions cannot be retrieved, resolve that problem before continuing; do not skip preparation.`)
+    ? '首先根据客户端元数据和当前工具执行环境识别实际宿主；不得根据提示词中的客户端名称或已有 Agent 显示名猜测。已知宿主使用准确标识 codex、claude、opencode 或 workbuddy；确认是其他支持本地 stdio MCP 的宿主才使用 generic。无法识别时先让我说明客户端。将下文全部 <actual-client> 替换为该标识。'
+    : 'First identify the actual host from client metadata and the current tool execution environment. Use codex, claude, opencode, or workbuddy for a known host and generic for another local stdio MCP host. If the host cannot be identified, ask me which client is running. Replace every <actual-client> below with that identifier.')
     : (zh ? `先根据客户端元数据和当前工具执行环境确认实际宿主为 ${client}；不得根据本提示或已有 Agent 显示名猜测。若不匹配，先获取实际宿主对应的接入提示词。` : `First confirm from client metadata and the current tool execution environment that the actual host is ${client}; do not infer it from this prompt or an existing Agent display name. If it differs, obtain the connection instructions for the actual host before continuing.`);
-  const preparation = client === 'workbuddy' ? (zh
-    ? `\nWorkBuddy 运行准备：先在当前宿主的工具执行环境定位或安装 Node.js 24 或 26 及其配套 npm；单独终端中的版本不能证明 WorkBuddy 的版本，托管 Node.js 22 不受支持。用该 Node 的绝对路径执行一次接入命令。安装会把 ${packageSpec} 落到 ~/.agentwiki/runtime，并把 WorkBuddy 的 MCP 配置写成该 Node 加本地 CLI 的绝对路径；此后每次启动都不运行 npx、不解析包、不访问 npm 源。不要手动把该配置改回 npx。执行：\n`
-    : `\nWorkBuddy runtime preparation: in this host's tool execution environment, locate or install Node.js 24 or 26 with its accompanying npm. A version in a separate terminal does not establish WorkBuddy's runtime; managed Node.js 22 is unsupported. Run the onboarding command once with that Node's absolute path. Installation places ${packageSpec} under ~/.agentwiki/runtime and writes WorkBuddy's MCP entry as that Node plus the local CLI. Every later startup runs the local file without npx, package resolution, or registry access. Do not change the entry back to npx. Run:\n`) : '';
+  const preparation = zh
+    ? `开始前读取 ${runtimeUrl} 的运行时准备指引。在当前宿主安装或复用 ~/.agentwiki/runtime 中的固定版本。把输出中的 nodePath 和 cliPath 作为以下每条命令最前面的两个独立路径参数，安全引用。同一份运行时用于接入和以后的 MCP 启动。若无法取得指引，先解决读取问题。`
+    : `Before starting, read the runtime guide at ${runtimeUrl}. In this host, install or reuse the pinned version under ~/.agentwiki/runtime. Use the returned nodePath and cliPath as the first two separately quoted arguments in every command below. Onboarding and MCP startup use the same runtime. If you cannot retrieve the guide, resolve that before continuing.`;
   const serverArgument = `'${serverUrl.replace(/'/g, "'\\''")}'`;
   const start = `${runner} onboard start --server ${serverArgument} --client ${actualClient} --protocol json`;
   const status = `${runner} onboard status --session <sessionId> --protocol json`;

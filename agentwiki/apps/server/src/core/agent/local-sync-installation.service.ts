@@ -13,8 +13,8 @@ import {
 import { RedisService } from '../../database/redis.service';
 import { BusinessException } from '../filters/business-error';
 import {
-  CURRENT_LOCAL_SYNC_VERSION,
   isSupportedLocalSyncVersion,
+  supportsPreinstalledGateway,
   type SupportedLocalSyncVersion,
 } from '../local-sync-version';
 import { AuditService } from '../security/audit.service';
@@ -467,29 +467,33 @@ export class LocalSyncInstallationService {
   }
 
   private instructions(code: string, pluginVersion: string, serverUrl: string, agentId: string, spaceId: string): string {
-    // Historical packages keep their supported client options. The current
-    // candidate and its public setup instructions must be released together.
-    const genericMcp = pluginVersion === '0.13.2' || pluginVersion === '0.13.3' || pluginVersion === '0.13.4' || pluginVersion === CURRENT_LOCAL_SYNC_VERSION;
-    const hostAwarePreparation = pluginVersion === '0.13.4' || pluginVersion === CURRENT_LOCAL_SYNC_VERSION;
+    const localRunner = supportsPreinstalledGateway(pluginVersion);
+    const genericMcp = pluginVersion === '0.13.2' || pluginVersion === '0.13.3' || pluginVersion === '0.13.4' || localRunner;
+    const hostAwarePreparation = pluginVersion === '0.13.4' || localRunner;
+    const runner = localRunner ? '<nodePath> <cliPath>' : `npx --yes @neomei/agentwiki-local-sync@${pluginVersion}`;
     return [
       `This installation code is bound to the selected Agent ID ${JSON.stringify(agentId)} and Space ID ${JSON.stringify(spaceId)}. Preserve that identity; do not create or rename an Agent based on a client label, sample, or old connection.`,
       ...(hostAwarePreparation ? [
         'Identify the actual current host from its runtime or host metadata before any command. Use --agent codex for Codex, --agent claude for Claude Code, --agent opencode for OpenCode, or --agent workbuddy for that host. Use --agent generic only for other local stdio MCP hosts. If the host cannot be identified, ask the user rather than guessing from an Agent display name.',
-        `Before the first npx invocation, read the plain-text runtime preparation at ${serverUrl}/onboard/runtime?client=<host-client>&packageVersion=${pluginVersion}, replacing <host-client> with the identified preset. Complete that preparation in this host and reuse its runner if specified. This preparation does not start onboarding; continue with the same code below.`,
+        `Before running the onboarding command, read the plain-text runtime preparation at ${serverUrl}/onboard/runtime?client=<host-client>&packageVersion=${pluginVersion}, replacing <host-client> with the identified preset. Complete that preparation in this host. This preparation does not start onboarding; continue with the same code below.`,
         '--agent selects the host configuration format, not the server Agent name or identity. Replace <host-client> below with the same identified preset before running it.',
       ] : []),
       genericMcp
         ? 'Run this pinned command with your current Agent, which must support local stdio MCP:'
         : 'Run this pinned command with your local Codex, Claude Code, or OpenCode Agent:',
-      `npx --yes @neomei/agentwiki-local-sync@${pluginVersion} onboard --server ${serverUrl} --code ${code} --protocol ndjson --agent ${hostAwarePreparation ? '<host-client>' : genericMcp ? 'generic' : 'auto'}`,
+      ...(localRunner ? [
+        'Use nodePath and cliPath from the preparation result as the first two absolute paths below, passed as separate, safely quoted arguments.',
+      ] : []),
+      `${runner} onboard --server ${serverUrl} --code ${code} --protocol ndjson --agent ${hostAwarePreparation ? '<host-client>' : genericMcp ? 'generic' : 'auto'}`,
       ...(genericMcp ? [
         hostAwarePreparation
           ? 'The generic mode exports MCP settings for import into this host. Known host presets write only that host configuration; preserve other client settings.'
           : 'The generic mode exports MCP settings for import into this host. For WorkBuddy native configuration, replace --agent generic with --agent workbuddy; use --agent codex, claude, or opencode only for those hosts.',
         'Follow the returned configurationMode, configPath, and hostActivationSteps. For manual-import, import mcpServers.agentwiki or create a stdio MCP service with the exact command and args, preserving other host settings. If you cannot operate the settings, show the export path and wait for the user to finish.',
       ] : []),
-      'Onboarding installs the pinned package once into ~/.agentwiki/runtime and writes this host\'s MCP entry as an absolute Node executable plus the local CLI. Later Agent startups run that file directly; they must not run npx, resolve a package, or contact the npm registry. Keep ~/.agentwiki/runtime in place; rerunning the same onboarding command rebuilds it.',
-      `Do not replace this entry with an npx launch such as npx --yes @neomei/agentwiki-local-sync@${pluginVersion} gateway: a registry lookup on every Agent startup fails on offline or proxied machines and times out MCP.`,
+      ...(localRunner ? [
+        'Preparation installs the pinned package into ~/.agentwiki/runtime only when a usable copy of that version is absent. Keep that directory in place. The MCP entry uses the same absolute Node and local CLI, so later Agent startups require no npm registry access.',
+      ] : []),
       'Enable agentwiki and approve the client MCP/tool permissions; browser or website account approval does not replace client authorization.',
       'Reload MCP after installation. If reload is unavailable, tools remain missing, or they still show the old Agent/Spaces, fully quit and restart the client, then start a new conversation. Compare onboard_status gateway.connection (connectionId, agentId, client) with the installation result before treating a denied read as missing Space authorization. For older gateways without this field, check the running process and client configuration --connection arguments.',
       'After installation, report the complete doctor output to the user.',
