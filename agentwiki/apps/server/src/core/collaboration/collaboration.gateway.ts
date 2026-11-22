@@ -6,6 +6,7 @@ import { Logger } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { RedisService } from '../../database/redis.service';
 import { AuthService } from '../auth/auth.service';
+import { fingerprintNativeJwt } from '../auth/unihub/unihub-native-session.service';
 import { AuthorizationService, type Principal } from '../authorization/authorization.service';
 import { COLLABORATION_RUN_CHANNEL } from '../../collaboration-workflows/collaboration-events.service';
 import { CollaborationRunAccessService } from './collaboration-run-access.service';
@@ -50,7 +51,8 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   private unsubscribeTaskboard: (() => void) | null = null;
   private activeUsers = new Map<string, Map<string, CursorPosition>>();
   private userSockets = new Map<string, Set<string>>();
-  private readonly uniHubSockets = new Map<string, Socket>();
+  private readonly revocableSockets = new Map<string, Socket>();
+  private readonly pageContentOrder = new WeakMap<Socket, Map<string, { received: number; sent: number }>>();
   private roomAuthorizationCheckedAt = new Map<string, number>();
   private assistRelayChains = new Map<string, Promise<void>>();
   private roomPruneInFlight = new Map<string, Promise<void>>();
@@ -147,7 +149,11 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
         client.disconnect(true);
         return;
       }
-      const principal = payload.sub ? await this.validateSocketUser(payload.sub, payload.unihubSid) : null;
+      const fingerprint = payload.unihubSid === undefined && this.auth.nativeJwtRevocationEnabled
+        ? fingerprintNativeJwt(token)
+        : undefined;
+      const principal = payload.sub ? await this.validateSocketUser(payload.sub, payload.unihubSid, fingerprint) : null;
+      if (!client.connected) return;
       if (
         !principal || principal.mustChangePassword ||
         (payload.authVersion !== undefined && principal.authVersion !== undefined && payload.authVersion !== principal.authVersion)
@@ -158,6 +164,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       client.data.socketAuthVersion = payload.authVersion;
       client.data.socketExpiresAt = payload.exp ? payload.exp * 1_000 : undefined;
       client.data.socketUniHubSid = payload.unihubSid;
+      client.data.socketNativeJwtFingerprint = fingerprint;
       const sockets = this.userSockets.get(principal.userId) || new Set<string>();
       if (sockets.size >= MAX_SOCKETS_PER_USER) {
         client.disconnect(true);
@@ -165,7 +172,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       }
       sockets.add(client.id);
       this.userSockets.set(principal.userId, sockets);
-      if (payload.unihubSid !== undefined) this.uniHubSockets.set(client.id, client);
+      if (this.hasRevocableSession(client)) this.revocableSockets.set(client.id, client);
     } catch {
       client.disconnect(true);
       return;
@@ -174,7 +181,8 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
 
   handleDisconnect(client: Socket) {
     this.logger.log(`Client disconnected: ${client.id}`);
-    this.uniHubSockets.delete(client.id);
+    this.revocableSockets.delete(client.id);
+    this.pageContentOrder.delete(client);
     this.activeUsers.forEach((users, pageId) => {
       if (users.has(client.id)) {
         this.removeClientFromPage(client, pageId);
@@ -339,6 +347,12 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       client.emit('collaborationError', { code: 'EVENT_RATE_LIMITED' });
       return;
     }
+    const pages = this.pageContentOrder.get(client) ?? new Map();
+    this.pageContentOrder.set(client, pages);
+    const order = pages.get(body.pageId) ?? { received: 0, sent: 0 };
+    pages.set(body.pageId, order);
+    const sequence = ++order.received;
+
     await this.pruneUnauthorizedRoomMembers(body.pageId);
     if (!client.rooms.has(body.pageId)) return;
     if (!await this.hasSocketWriteAccess(client, body.pageId)) {
@@ -347,9 +361,9 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       client.emit('collaborationError', { code: 'PAGE_WRITE_DENIED' });
       return;
     }
-    const scopedSockets = [...this.uniHubSockets.values()]
+    const scopedSockets = [...this.revocableSockets.values()]
       .filter((socket) => socket.id !== client.id && socket.rooms.has(body.pageId));
-    const scopedSender = client.data.socketUniHubSid !== undefined;
+    const scopedSender = this.hasRevocableSession(client);
     if (scopedSender) scopedSockets.push(client);
 
     let broadcast = client.to(body.pageId);
@@ -358,14 +372,18 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       await Promise.all(scopedSockets.map(async (socket) => {
         if (await this.refreshSocketPrincipal(socket)) verified.add(socket.id);
       }));
-      if (!client.rooms.has(body.pageId) || (scopedSender && !verified.has(client.id))) return;
+      if (scopedSender && !verified.has(client.id)) return;
 
-      // A UniHub socket may have joined while the session checks were running.
-      const excluded = [...this.uniHubSockets.values()]
+      // A socket may have joined while the session checks were running.
+      const excluded = [...this.revocableSockets.values()]
         .filter((socket) => socket.rooms.has(body.pageId) && !verified.has(socket.id))
         .map((socket) => socket.id);
       if (excluded.length) broadcast = broadcast.except(excluded);
     }
+    if (!client.rooms.has(body.pageId) ||
+        this.pageContentOrder.get(client)?.get(body.pageId) !== order ||
+        sequence <= order.sent) return;
+    order.sent = sequence;
     broadcast.emit('contentUpdated', {
       content: body.content,
       version: body.version,
@@ -417,6 +435,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   }
 
   private removeClientFromPage(client: Socket, pageId: string) {
+    this.pageContentOrder.get(client)?.delete(pageId);
     const users = this.activeUsers.get(pageId);
     if (!users) return;
     const user = users.get(client.id);
@@ -481,7 +500,9 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
     await this.waitForSocketAuthentication(client);
     const previous = client.data.user as (Principal & { authVersion?: number }) | undefined;
     if (!previous?.userId) return null;
-    const current = await this.validateSocketUser(previous.userId, client.data.socketUniHubSid);
+    const current = await this.validateSocketUser(
+      previous.userId, client.data.socketUniHubSid, client.data.socketNativeJwtFingerprint,
+    );
     if (
       !current || current.mustChangePassword ||
       (client.data.socketExpiresAt !== undefined && Date.now() >= client.data.socketExpiresAt) ||
@@ -593,12 +614,17 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
     const room = `taskboard:space:${hint.spaceId}`;
     const sockets = await this.server.in(room).fetchSockets();
     await Promise.all((sockets as unknown as Socket[])
-      .filter((socket) => socket.data.socketUniHubSid !== undefined)
+      .filter((socket) => this.hasRevocableSession(socket))
       .map((socket) => this.refreshSocketPrincipal(socket)));
     this.server.to(room).emit('taskboardChanged', hint);
   }
 
-  private validateSocketUser(userId: string, unihubSid?: string) {
+  private hasRevocableSession(socket: Socket): boolean {
+    return socket.data.socketUniHubSid !== undefined || socket.data.socketNativeJwtFingerprint !== undefined;
+  }
+
+  private validateSocketUser(userId: string, unihubSid?: string, nativeFingerprint?: string) {
+    if (nativeFingerprint !== undefined) return this.auth.validateJwtUser(userId, unihubSid, nativeFingerprint);
     return unihubSid === undefined
       ? this.auth.validateJwtUser(userId)
       : this.auth.validateJwtUser(userId, unihubSid);
@@ -606,7 +632,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
 
   private async *recheckRoomSessions(room: string, onInvalid?: (socket: Socket) => void) {
     const sockets = await this.server.in(room).fetchSockets();
-    const sessions = new Map<string, { userId: string; unihubSid?: string; sockets: Socket[] }>();
+    const sessions = new Map<string, { userId: string; unihubSid?: string; nativeFingerprint?: string; sockets: Socket[] }>();
     for (const socket of sockets as unknown as Socket[]) {
       const userId = (socket.data.user as Principal | undefined)?.userId;
       if (!userId) {
@@ -615,14 +641,15 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
         continue;
       }
       const unihubSid = socket.data.socketUniHubSid as string | undefined;
-      const key = JSON.stringify([userId, unihubSid]);
-      const session = sessions.get(key) ?? { userId, unihubSid, sockets: [] };
+      const nativeFingerprint = socket.data.socketNativeJwtFingerprint as string | undefined;
+      const key = JSON.stringify([userId, unihubSid, nativeFingerprint]);
+      const session = sessions.get(key) ?? { userId, unihubSid, nativeFingerprint, sockets: [] };
       session.sockets.push(socket);
       sessions.set(key, session);
     }
 
     for (const session of sessions.values()) {
-      const principal = await this.validateSocketUser(session.userId, session.unihubSid);
+      const principal = await this.validateSocketUser(session.userId, session.unihubSid, session.nativeFingerprint);
       const eligibleSockets = session.sockets.filter((socket) => {
         const expired = socket.data.socketExpiresAt !== undefined && Date.now() >= socket.data.socketExpiresAt;
         const versionChanged = principal && socket.data.socketAuthVersion !== undefined &&

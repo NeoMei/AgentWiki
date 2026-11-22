@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useLocation, useNavigate, Navigate } from 'react-router-dom';
+import { safeNativeReturnTo } from '../../App';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -7,11 +8,13 @@ import { apiErrorMessage } from '../../api/error-message';
 import { safeUniHubEntryHref } from './unihubNavigation';
 
 export const ForcePasswordChange: React.FC = () => {
-  const { user, token, login, logout } = useAuth();
+  const { user, token, login, logout, fromAnotherTab } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
-  const returnTo = safeUniHubEntryHref(location.state?.uniHubReturnTo ?? null) ?? '/dashboard';
+  const ownsIntent = !fromAnotherTab && typeof user?.id === 'string' && location.state?.passwordUserId === user.id;
+  const returnTo = (ownsIntent && (safeUniHubEntryHref(location.state?.uniHubReturnTo)
+    ?? safeNativeReturnTo(location.state?.passwordReturnTo))) || '/dashboard';
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
@@ -19,6 +22,9 @@ export const ForcePasswordChange: React.FC = () => {
 
   if (!token || !user?.mustChangePassword) {
     return <Navigate to={returnTo} replace />;
+  }
+  if (location.state && !ownsIntent) {
+    return <Navigate to="/change-password" replace state={null} />;
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -31,8 +37,8 @@ export const ForcePasswordChange: React.FC = () => {
     setSubmitting(true);
     try {
       const response = await api.post('/auth/change-required-password', { newPassword, confirmPassword });
-      login(response.data.access_token, response.data.user);
-      navigate(returnTo);
+      if (response.data.user?.id !== user.id) throw new Error('Unexpected AgentWiki account');
+      if (login(response.data.access_token, response.data.user) !== false) navigate(returnTo, { replace: true });
     } catch (err: unknown) {
       setError(apiErrorMessage(err, t, 'auth.passwordChangeFailed'));
     } finally {

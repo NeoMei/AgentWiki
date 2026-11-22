@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { InternalAxiosRequestConfig } from 'axios';
 import api from '../../api/client';
 import {
   archiveAttachment,
@@ -166,17 +167,27 @@ describe('attachmentApi', () => {
     const createSpy = vi.spyOn(axiosModule.default, 'create');
     const { default: sharedApi } = await import('../../api/client');
     expect(createSpy).toHaveBeenCalledTimes(1);
-    const unauthorized = {
-      config: { url: '/attachments/attachment-1/content' },
-      response: { status: 401 },
-    };
-    sharedApi.defaults.adapter = async () => Promise.reject(unauthorized);
-    localStorage.setItem('token', 'expired-token');
-    const freshAttachmentApi = await import('./attachmentApi');
+    const send = vi.fn(async (config: InternalAxiosRequestConfig) => {
+      throw new axiosModule.AxiosError('Unauthorized', 'ERR_BAD_REQUEST', config, undefined, {
+        status: 401, statusText: 'Unauthorized', headers: {}, data: null, config,
+      });
+    });
+    const originalAdapter = sharedApi.defaults.adapter;
+    sharedApi.defaults.adapter = send;
+    try {
+      localStorage.setItem('token', 'expired-token');
+      const freshAttachmentApi = await import('./attachmentApi');
 
-    await expect(freshAttachmentApi.fetchAttachmentBlob('attachment-1')).rejects.toBe(unauthorized);
+      await expect(freshAttachmentApi.fetchAttachmentBlob('attachment-1')).rejects.toMatchObject({
+        response: { status: 401 },
+      });
 
-    expect(createSpy).toHaveBeenCalledTimes(1);
-    expect(localStorage.getItem('token')).toBeNull();
+      expect(createSpy).toHaveBeenCalledTimes(1);
+      expect(send.mock.calls[0][0].headers.get('Authorization')).toBe('Bearer expired-token');
+      expect(localStorage.getItem('token')).toBeNull();
+    } finally {
+      sharedApi.defaults.adapter = originalAdapter;
+      localStorage.removeItem('token');
+    }
   });
 });

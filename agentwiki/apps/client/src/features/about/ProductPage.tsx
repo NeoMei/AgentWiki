@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { safeNativeReturnTo } from '../../App';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -21,7 +22,7 @@ import { authFormError } from '../auth/auth-form-validation';
 const authInputClass = (error: string | null) => `w-full px-4 py-3 border rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 transition ${error ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'}`;
 
 export const ProductPage: React.FC = () => {
-  const { token, login } = useAuth();
+  const { token, login, logoutFailed } = useAuth();
   const { language, t } = useLanguage();
   const zh = language === 'zh-CN';
   const location = useLocation();
@@ -44,11 +45,11 @@ export const ProductPage: React.FC = () => {
   const query = new URLSearchParams(location.search);
   const intent = query.get('intent');
   const hubReturnTo = intent === 'unihub' ? safeUniHubEntryHref(query.get('returnTo')) : null;
-  const uniHubStatus = useUniHubStatus(token, !token || Boolean(hubReturnTo));
+  const uniHubStatus = useUniHubStatus(token, !token);
   const hubIntent = Boolean(hubReturnTo && uniHubStatus?.enabled);
   const authIntent = intent === 'workspace' || intent === 'onboard' || hubIntent;
   const onboardIntent = intent === 'onboard';
-  const workspaceReturnTo = intent === 'workspace' ? safeUniHubReturnTo(location.state?.workspaceReturnTo) : null;
+  const workspaceReturnTo = intent === 'workspace' ? safeNativeReturnTo(location.state?.workspaceReturnTo) : null;
   const returnTarget = safeReturnTo(query.get('returnTo')) ?? workspaceReturnTo;
 
   useEffect(() => {
@@ -100,8 +101,14 @@ export const ProductPage: React.FC = () => {
       if (authMode === 'register') payload.name = name;
       const endpoint = authMode === 'login' ? '/auth/login' : '/auth/register';
       const res = await api.post(endpoint, payload);
-      login(res.data.access_token, res.data.user);
-      navigate(hubReturnTo ?? returnTarget ?? '/dashboard', { replace: Boolean(hubReturnTo) });
+      if (login(res.data.access_token, res.data.user) === false) return;
+      if (res.data.user?.mustChangePassword) {
+        navigate('/change-password', { replace: true, state: {
+          passwordUserId: res.data.user.id, uniHubReturnTo: hubReturnTo, passwordReturnTo: returnTarget,
+        } });
+      } else {
+        navigate(hubReturnTo ?? returnTarget ?? '/dashboard', { replace: Boolean(hubReturnTo) });
+      }
     } catch (err: unknown) {
       const fieldError = authEmailError(err, authMode === 'register');
       if (fieldError) {
@@ -113,8 +120,6 @@ export const ProductPage: React.FC = () => {
       setIsSubmitting(false);
     }
   };
-
-  if (token && hubIntent && hubReturnTo) return <Navigate to={hubReturnTo} replace />;
 
   const features = [
     {
@@ -273,9 +278,11 @@ export const ProductPage: React.FC = () => {
                   role="tabpanel"
                   aria-labelledby={`product-auth-tab-${authMode}`}
                 >
-                  {authError && (
+                  {(authError || logoutFailed) && (
                     <div role="alert" className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600 text-center">
-                      {authError}
+                      {authError || (zh
+                        ? '已退出此浏览器，服务器退出状态未能确认。'
+                        : 'Signed out in this browser. Server sign-out could not be confirmed.')}
                     </div>
                   )}
 
@@ -376,7 +383,7 @@ export const ProductPage: React.FC = () => {
                   </button>
                   </form>
                   {uniHubStatus?.enabled && !hubReturnTo && authMode === 'login' ? (
-                    <a href={uniHubStartHref(returnTarget)} className="mt-3 block rounded-lg border border-gray-300 px-4 py-3 text-center text-sm font-medium text-gray-800 hover:bg-gray-50">
+                    <a href={uniHubStartHref(safeUniHubReturnTo(returnTarget))} className="mt-3 block rounded-lg border border-gray-300 px-4 py-3 text-center text-sm font-medium text-gray-800 hover:bg-gray-50">
                       {t('unihub.signIn')}
                     </a>
                   ) : null}

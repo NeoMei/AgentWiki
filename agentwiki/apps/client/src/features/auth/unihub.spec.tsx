@@ -1,9 +1,10 @@
 import { StrictMode } from 'react';
+import { webcrypto } from 'node:crypto';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App, { createAppMemoryRouter } from '../../App';
-import api from '../../api/client';
+import api, { authSessionKey, writeAuthSession } from '../../api/client';
 import { AuthProvider, useAuth } from '../../context/AuthContext';
 
 const localUser = { id: 'local-user', name: 'Local User', email: 'local@example.test' };
@@ -22,6 +23,17 @@ const preview = {
 function seedSession(user: typeof localUser & { authSource?: string } = localUser) {
   localStorage.setItem('token', 'original-token');
   localStorage.setItem('user', JSON.stringify(user));
+}
+
+function updateFromOtherTab(token: string | null, user: unknown = null) {
+  const oldValue = localStorage.getItem(authSessionKey);
+  writeAuthSession(token, user);
+  window.dispatchEvent(new StorageEvent('storage', {
+    key: authSessionKey,
+    storageArea: localStorage,
+    oldValue,
+    newValue: localStorage.getItem(authSessionKey),
+  }));
 }
 
 function mockApi(respond: (request: InternalAxiosRequestConfig) => unknown = () => ({})) {
@@ -54,6 +66,8 @@ const originalAdapter = api.defaults.adapter;
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
+  vi.stubGlobal('crypto', webcrypto);
   localStorage.setItem('agentwiki.language.v1', 'en');
   window.history.replaceState({}, '', '/');
   Element.prototype.scrollIntoView = vi.fn();
@@ -61,6 +75,7 @@ beforeEach(() => {
 
 afterEach(() => {
   api.defaults.adapter = originalAdapter;
+  vi.unstubAllGlobals();
 });
 
 describe('UniHub browser flows', () => {
@@ -149,6 +164,7 @@ describe('UniHub browser flows', () => {
     const request = adapter.mock.calls.find(([entry]) => entry.url === '/auth/unihub/native')?.[0];
     expect(JSON.parse(request?.data ?? '{}')).toEqual(body);
     expect(request?.headers.get('Authorization')).toBe('Bearer original-token');
+    expect(request?.timeout).toBeGreaterThan(0);
     expect(localStorage.getItem('token')).toBe('original-token');
   });
 
@@ -163,7 +179,9 @@ describe('UniHub browser flows', () => {
     expect(await screen.findByRole('alert')).toBeVisible();
     expect(screen.queryByLabelText('AgentWiki password')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Link an existing UniHub account' })).not.toBeInTheDocument();
-    expect(adapter.mock.calls.find(([request]) => request.url === '/auth/unihub/native')?.[0].data).toBe('{"mode":"open"}');
+    const request = adapter.mock.calls.find(([entry]) => entry.url === '/auth/unihub/native')?.[0];
+    expect(request?.data).toBe('{"mode":"open"}');
+    expect(request?.timeout).toBeGreaterThan(0);
   });
 
   it('shows the exact accounts and sends the selected central ID only after confirmation', async () => {
@@ -252,20 +270,175 @@ describe('UniHub browser flows', () => {
     expect(adapter.mock.calls.some(([request]) => request.url === '/auth/unihub/finish')).toBe(false);
   });
 
-  it('keeps signed-in SSO explicit and submits no link identity', async () => {
+  it.each([false, true])('explicitly confirms signed-in SSO after an unknown match (same account: %s)', async (sameAccount) => {
     seedSession();
     const adapter = mockApi(({ url }) => {
-      if (url === '/auth/unihub/pending') return { mode: 'sso', confirmationId };
-      if (url === '/auth/unihub/finish') return { returnTo: '/guide/obsidian' };
+      if (url === '/auth/unihub/pending') return { mode: 'sso', confirmationId, returnTo: '/guide/obsidian#connect' };
+      if (url === '/auth/unihub/finish') return sameAccount ? {} : { access_token: 'sso-token', user: centerUser };
+      return { enabled: true };
+    });
+    const router = openRoute(callbackRoute + '&returnTo=%2Fdashboard');
+
+    const next = await screen.findByRole('button', { name: 'Switch AgentWiki account' });
+    expect(screen.getByRole('link', { name: 'Cancel' })).toHaveAttribute('href', '/guide/obsidian#connect');
+    expect(adapter.mock.calls.some(([request]) => request.url === '/auth/unihub/finish')).toBe(false);
+    fireEvent.click(next);
+    await waitFor(() => expect(router.state.location).toMatchObject({ pathname: '/guide/obsidian', hash: '#connect' }));
+    const request = adapter.mock.calls.find(([entry]) => entry.url === '/auth/unihub/finish')?.[0];
+    expect(JSON.parse(request?.data ?? '{}')).toEqual({ mode: 'sso', confirmationId, confirmAccountSwitch: true });
+    expect(request?.headers.get('Authorization')).toBe('Bearer original-token');
+    expect(request?.timeout).toBeGreaterThan(0);
+    expect(localStorage.getItem('token')).toBe(sameAccount ? 'original-token' : 'sso-token');
+  });
+
+  it.each([
+    { change: 'sign-out', token: null, user: null },
+    { change: 'account replacement', token: 'replacement-token', user: centerUser },
+    { change: 'a new session for the same account', token: 'replacement-token', user: localUser },
+  ])('requires a new SSO flow after cross-tab $change', async ({ token, user }) => {
+    writeAuthSession('original-token', localUser);
+    const adapter = mockApi((request) => {
+      if (request.url === '/auth/unihub/pending') {
+        return {
+          mode: 'sso', confirmationId, returnTo: '/guide/obsidian#connect',
+          sameUser: request.headers.get('Authorization') === 'Bearer replacement-token',
+        };
+      }
+      if (request.url === '/auth/unihub/finish') return { access_token: 'unexpected-token', user: centerUser, returnTo: '/' };
+      return { enabled: request.headers.get('Authorization') !== 'Bearer replacement-token' };
+    });
+    openRoute(callbackRoute + '&returnTo=%2Fguide%2Fobsidian%23connect');
+    await screen.findByRole('button', { name: 'Switch AgentWiki account' });
+    expect(Object.values(sessionStorage).join('')).not.toContain('original-token');
+
+    await act(async () => { updateFromOtherTab(token, user); });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Your AgentWiki session changed.');
+    expect(screen.getByRole('link', { name: 'Start a new UniHub sign-in' }))
+      .toHaveAttribute('href', '/api/auth/unihub/start?returnTo=%2Fguide%2Fobsidian%23connect');
+    expect(screen.getByRole('link', { name: 'Cancel' })).toHaveAttribute('href', '/guide/obsidian#connect');
+    expect(adapter.mock.calls.filter(([request]) => request.url === '/auth/unihub/pending')).toHaveLength(1);
+    expect(adapter.mock.calls.some(([request]) => request.url === '/auth/unihub/finish')).toBe(false);
+    expect(localStorage.getItem('token')).toBe(token);
+  });
+
+  it('retains the flow owner across a provider remount and permits a fresh flow in the same tab', async () => {
+    seedSession();
+    const newFlow = 'b'.repeat(64);
+    const adapter = mockApi(({ url, params }) => {
+      if (url === '/auth/unihub/pending') return { mode: 'sso', confirmationId: params.flow };
+      if (url === '/auth/unihub/finish') return { access_token: 'fresh-token', user: centerUser, returnTo: '/' };
+      return { enabled: true };
+    });
+    const original = createAppMemoryRouter(callbackRoute);
+    const view = render(<App router={original} />);
+    await screen.findByRole('button', { name: 'Switch AgentWiki account' });
+    view.unmount();
+    updateFromOtherTab(null);
+
+    const reopened = createAppMemoryRouter(callbackRoute);
+    const remounted = render(<App router={reopened} />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Your AgentWiki session changed.');
+    expect(adapter.mock.calls.some(([request]) => request.url === '/auth/unihub/finish')).toBe(false);
+    remounted.unmount();
+
+    const fresh = openRoute('/unihub?continue=1&flow=' + newFlow);
+    await waitFor(() => expect(fresh.state.location.pathname).toBe('/'));
+    const finishes = adapter.mock.calls.filter(([request]) => request.url === '/auth/unihub/finish');
+    expect(finishes).toHaveLength(1);
+    expect(JSON.parse(finishes[0][0].data)).toEqual({ mode: 'sso', confirmationId: newFlow });
+    expect(localStorage.getItem('token')).toBe('fresh-token');
+  });
+
+  it('aborts an in-flight same-account finish on cross-tab logout', async () => {
+    seedSession();
+    let resolveFinish!: (data: unknown) => void;
+    const adapter = mockApi(({ url }) => {
+      if (url === '/auth/unihub/pending') return { mode: 'sso', confirmationId, sameUser: true };
+      if (url === '/auth/unihub/finish') return new Promise((resolve) => { resolveFinish = resolve; });
+      return { enabled: true };
+    });
+    openRoute(callbackRoute);
+    await waitFor(() => expect(resolveFinish).toBeDefined());
+    const request = adapter.mock.calls.find(([entry]) => entry.url === '/auth/unihub/finish')?.[0];
+
+    await act(async () => { updateFromOtherTab(null); });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Your AgentWiki session changed.');
+    expect(request?.signal?.aborted).toBe(true);
+    await act(async () => { resolveFinish({ access_token: 'late-token', user: centerUser, returnTo: '/' }); });
+    expect(localStorage.getItem('token')).toBeNull();
+    expect(adapter.mock.calls.filter(([entry]) => entry.url === '/auth/unihub/finish')).toHaveLength(1);
+  });
+
+  it('offers a new sign-in and Cancel when an automatic SSO finish may have consumed the flow', async () => {
+    seedSession();
+    const adapter = mockApi(({ url }) => {
+      if (url === '/auth/unihub/pending') return { mode: 'sso', confirmationId, sameUser: true, returnTo: '/guide/obsidian#connect' };
+      if (url === '/auth/unihub/finish') throw new AxiosError('Timed out', 'ECONNABORTED');
+      return { enabled: true };
+    });
+    const router = openRoute(callbackRoute + '&returnTo=%2Fdashboard');
+
+    await screen.findByRole('alert');
+    expect(screen.getByRole('link', { name: 'Start a new UniHub sign-in' }))
+      .toHaveAttribute('href', '/api/auth/unihub/start?returnTo=%2Fguide%2Fobsidian%23connect');
+    expect(screen.queryByRole('button', { name: /^(Continue|Switch AgentWiki account)$/ })).not.toBeInTheDocument();
+    const finishes = adapter.mock.calls.filter(([request]) => request.url === '/auth/unihub/finish');
+    expect(finishes).toHaveLength(1);
+    expect(JSON.parse(finishes[0][0].data)).toEqual({ mode: 'sso', confirmationId, requireSameUser: true });
+    expect(finishes[0][0].timeout).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('link', { name: 'Cancel' }));
+    await waitFor(() => expect(router.state.location).toMatchObject({ pathname: '/guide/obsidian', hash: '#connect' }));
+    expect(localStorage.getItem('token')).toBe('original-token');
+  });
+
+  it.each([callbackRoute, '/unihub?error=login'])('uses the validated destination to restart a failed callback at %s', async (route) => {
+    seedSession();
+    mockApi((request) => {
+      if (request.url === '/auth/unihub/pending') rejectUnauthorized(request);
+      return { enabled: true };
+    });
+    openRoute(route + '&returnTo=%2Fguide%2Fobsidian%23connect');
+
+    await screen.findByRole('alert');
+    expect(screen.getByRole('link', { name: 'Start a new UniHub sign-in' }))
+      .toHaveAttribute('href', '/api/auth/unihub/start?returnTo=%2Fguide%2Fobsidian%23connect');
+    expect(screen.getByRole('link', { name: 'Cancel' })).toHaveAttribute('href', '/guide/obsidian#connect');
+  });
+
+  it('restarts a failed link from connection management without resubmitting the consumed flow', async () => {
+    seedSession();
+    const adapter = mockApi((request) => {
+      if (request.url === '/auth/unihub/pending') return preview;
+      if (request.url === '/auth/unihub/finish') rejectUnauthorized(request);
+      return { enabled: true };
+    });
+    const router = openRoute(callbackRoute + '&returnTo=%2Fguide%2Fobsidian');
+    fireEvent.click(await screen.findByRole('button', { name: 'Complete UniHub connection' }));
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Restart UniHub connection' }));
+    expect(await screen.findByRole('button', { name: 'Link an existing UniHub account' })).toBeVisible();
+    expect(router.state.location).toMatchObject({ pathname: '/unihub', search: '?returnTo=%2Fguide%2Fobsidian' });
+    expect(adapter.mock.calls.filter(([request]) => request.url === '/auth/unihub/finish')).toHaveLength(1);
+  });
+
+  it('keeps Cancel available during SSO completion and ignores a late session response', async () => {
+    seedSession();
+    let resolveFinish!: (data: unknown) => void;
+    const adapter = mockApi(({ url }) => {
+      if (url === '/auth/unihub/pending') return { mode: 'sso', confirmationId, sameUser: true, returnTo: '/guide/obsidian' };
+      if (url === '/auth/unihub/finish') return new Promise((resolve) => { resolveFinish = resolve; });
       return { enabled: true };
     });
     const router = openRoute(callbackRoute);
+    await waitFor(() => expect(resolveFinish).toBeDefined());
 
-    const next = await screen.findByRole('button', { name: 'Continue' });
-    expect(adapter.mock.calls.some(([request]) => request.url === '/auth/unihub/finish')).toBe(false);
-    fireEvent.click(next);
+    fireEvent.click(screen.getByRole('link', { name: 'Cancel' }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/guide/obsidian'));
-    expect(adapter.mock.calls.find(([request]) => request.url === '/auth/unihub/finish')?.[0].data).toBe(JSON.stringify({ mode: 'sso', confirmationId }));
+    const request = adapter.mock.calls.find(([entry]) => entry.url === '/auth/unihub/finish')?.[0];
+    expect(request?.signal?.aborted).toBe(true);
+    await act(async () => { resolveFinish({ access_token: 'late-token', user: centerUser, returnTo: '/dashboard' }); });
+    expect(router.state.location.pathname).toBe('/guide/obsidian');
+    expect(localStorage.getItem('token')).toBe('original-token');
   });
 
   it('returns a matching SSO callback to the workspace without switching the original local session', async () => {
@@ -302,6 +475,17 @@ describe('UniHub browser flows', () => {
     expect(JSON.parse(localStorage.getItem('user') ?? '{}')).toEqual(centerUser);
   });
 
+  it('keeps the original UniHub intent attached to a required password change', async () => {
+    seedSession();
+    localStorage.setItem('user', JSON.stringify({ ...localUser, mustChangePassword: true }));
+    mockApi(() => ({ enabled: true }));
+    const router = openRoute('/unihub?entry=hub');
+    await waitFor(() => expect(router.state.location).toMatchObject({
+      pathname: '/change-password',
+      state: { passwordUserId: localUser.id, uniHubReturnTo: '/unihub?entry=hub' },
+    }));
+  });
+
   it('offers connection management from the authenticated profile', async () => {
     seedSession();
     mockApi(({ url }) => url === '/auth/unihub/status' ? { enabled: true } : {});
@@ -317,8 +501,8 @@ function LogoutButton() {
 }
 
 describe('UniHub logout', () => {
-  it('sends the captured SSO bearer before clearing local auth even when remote logout fails', async () => {
-    seedSession({ ...localUser, authSource: centerUser.authSource });
+  it.each(['unihub', undefined])('sends the captured bearer before clearing local auth on logout (source: %s)', async (authSource) => {
+    seedSession({ ...localUser, authSource });
     let rejectLogout!: () => void;
     const adapter = mockApi((request) => new Promise((_, reject) => {
       rejectLogout = () => {
@@ -336,15 +520,5 @@ describe('UniHub logout', () => {
 
     await act(async () => { rejectLogout(); });
     expect(localStorage.getItem('token')).toBeNull();
-  });
-
-  it('clears a native session without calling UniHub logout', () => {
-    seedSession();
-    const adapter = mockApi();
-    render(<AuthProvider><LogoutButton /></AuthProvider>);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
-    expect(localStorage.getItem('token')).toBeNull();
-    expect(adapter).not.toHaveBeenCalled();
   });
 });

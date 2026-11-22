@@ -4,7 +4,7 @@ import { RouterProvider, Routes, Route, Navigate, createBrowserRouter, createMem
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { ProductPage } from './features/about/ProductPage';
+import { safeUniHubReturnTo } from './features/auth/unihubNavigation';
 const GuideLayout = lazy(() => import('./features/guide/GuideLayout').then((module) => ({ default: module.GuideLayout })));
 import {
   SpaceWorkspaceProvider,
@@ -13,6 +13,7 @@ import {
 import { NavigationGuardProvider } from './features/space-workspace/workspaceNavigation';
 
 const Layout = lazy(() => import('./components/Layout').then((module) => ({ default: module.Layout })));
+const ProductPage = lazy(() => import('./features/about/ProductPage').then((module) => ({ default: module.ProductPage })));
 const UniHubPage = lazy(() => import('./features/auth/UniHubPage'));
 const Dashboard = lazy(() => import('./features/dashboard/Dashboard').then((module) => ({ default: module.Dashboard })));
 const NotesPage = lazy(() => import('./features/page-notes/NotesPage').then((module) => ({ default: module.NotesPage })));
@@ -90,15 +91,24 @@ const SectionRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   <WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}>{children}</Suspense></WorkspaceRoute>
 );
 
-export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { token, user } = useAuth();
+export function safeNativeReturnTo(value: unknown): string | null {
+  if (typeof value === 'string' && value.length <= 1024) {
+    const path = value.match(/^\/(?:admin|agents(?:\/[\w-]+)?|notifications|profile|review|search)\/?(?=[?#]|$)/u)?.[0];
+    if (path && safeUniHubReturnTo('/' + value.slice(path.length))) return value;
+  }
+  return safeUniHubReturnTo(value);
+}
+
+export const ProtectedRoute: React.FC<{ children: React.ReactNode; allowSignedOut?: boolean }> = ({ children, allowSignedOut }) => {
+  const { token, user, fromAnotherTab } = useAuth();
   const location = useLocation();
-  if (!token) {
-    const workspaceReturnTo = location.pathname + location.search + location.hash;
+  const workspaceReturnTo = location.pathname + location.search + location.hash;
+  if (!token && !allowSignedOut) {
     return <Navigate to="/?intent=workspace#login" replace state={{ workspaceReturnTo }} />;
   }
-  if (user?.mustChangePassword && location.pathname !== '/change-password') {
-    return <Navigate to="/change-password" replace />;
+  if (token && user?.mustChangePassword && location.pathname !== '/change-password') {
+    const state = fromAnotherTab ? null : { passwordUserId: user.id, passwordReturnTo: workspaceReturnTo };
+    return <Navigate to="/change-password" replace state={state} />;
   }
   return <>{children}</>;
 };
@@ -141,7 +151,7 @@ const AppRoutes: React.FC = () => {
         <Route path="/notifications" element={<Suspense fallback={<RouteLoading />}><NotificationsPage /></Suspense>} />
         <Route path="/admin" element={<Suspense fallback={<RouteLoading />}><AdminPage /></Suspense>} />
       </Route>
-      <Route path="/" element={<ProductPage />} />
+      <Route path="/" element={<Suspense fallback={<RouteLoading />}><ProductPage /></Suspense>} />
       <Route path="/unihub" element={<Suspense fallback={<RouteLoading />}><UniHubPage /></Suspense>} />
       <Route path="/guide" element={<Suspense fallback={<RouteLoading />}><GuideLayout><UsageGuide /></GuideLayout></Suspense>} />
       <Route path="/guide/agent-onboard" element={<Suspense fallback={<RouteLoading />}><GuideLayout><OnboardPage /></GuideLayout></Suspense>} />
@@ -153,7 +163,7 @@ const AppRoutes: React.FC = () => {
       <Route path="/guide/docs/security" element={<Suspense fallback={<RouteLoading />}><GuideLayout><DocsSecurity /></GuideLayout></Suspense>} />
       <Route path="/guide/docs/sync" element={<Suspense fallback={<RouteLoading />}><GuideLayout><DocsSync /></GuideLayout></Suspense>} />
       <Route path="/onboard" element={<Navigate to="/guide/agent-onboard" replace />} />
-      <Route path="/onboard/device" element={<Suspense fallback={<RouteLoading />}><OnboardDevicePage /></Suspense>} />
+      <Route path="/onboard/device" element={<ProtectedRoute allowSignedOut><Suspense fallback={<RouteLoading />}><OnboardDevicePage /></Suspense></ProtectedRoute>} />
       <Route path="/docs" element={<Navigate to="/guide/docs" replace />} />
       <Route path="/docs/architecture" element={<Navigate to="/guide/docs/architecture" replace />} />
       <Route path="/docs/features" element={<Navigate to="/guide/docs/features" replace />} />

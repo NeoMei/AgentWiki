@@ -4,7 +4,10 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../database/prisma.service';
 import { CombinedAuthGuard } from './combined-auth.guard';
+import { JwtAuthGuard } from './jwt-auth.guard';
 import { JwtStrategy } from './jwt.strategy';
+import { createHash } from 'crypto';
+import { UniHubClient } from './unihub/unihub-client';
 import { UniHubSessionService } from './unihub/unihub-session.service';
 
 const mockPrisma = {
@@ -33,13 +36,15 @@ describe('UniHub human JWTs', () => {
   const user: User = {
     id: 'user-1', email: 'unihub@example.test', name: 'Human', type: 'human', authVersion: 3,
   };
-  const prisma = { user: { findUnique: jest.fn().mockResolvedValue(user) } } as unknown as PrismaService;
+  const findUser = jest.fn();
+  const prisma = { user: { findUnique: findUser } } as unknown as PrismaService;
   const sessions = { verify: jest.fn<Promise<boolean>, [string, string]>() };
   const service = new AuthService(jwt, prisma, sessions as unknown as UniHubSessionService);
   const strategy = new JwtStrategy(new ConfigService({ JWT_SECRET: secret }), service);
   const guard = new CombinedAuthGuard(jwt, service, { record: jest.fn() } as any);
 
   beforeEach(() => {
+    findUser.mockReset().mockResolvedValue(user);
     sessions.verify.mockReset();
     sessions.verify.mockImplementation(async (sid, userId) => sid === 'active' && userId === 'user-1');
   });
@@ -49,19 +54,66 @@ describe('UniHub human JWTs', () => {
     const storedUser = { ...user, type: String(user.type), name: null };
     const payload = jwt.verify(service.signToken(storedUser, { sid: 'active', expiresAt }));
     expect(payload).toMatchObject({ sub: 'user-1', unihubSid: 'active', exp: expiresAt });
+    expect(payload).not.toHaveProperty('jti');
   });
 
-  it('keeps the configured TTL and validation for a legacy JWT', async () => {
-    const payload = jwt.verify(service.signToken(user));
-    expect(payload.unihubSid).toBeUndefined();
-    expect(payload.exp - payload.iat).toBe(7 * 24 * 60 * 60);
-    await expect(strategy.validate(payload)).resolves.toMatchObject({ userId: 'user-1' });
+  it('issues distinct native JWTs to the same user in the same second', () => {
+    const issuedAt = 1_700_000_000;
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(issuedAt * 1_000);
+    try {
+      const first = service.signToken(user);
+      const second = service.signToken(user);
+      const claims = jwt.verify(first);
+      expect(claims).toEqual({
+        sub: user.id,
+        email: user.email,
+        type: 'human',
+        authVersion: 3,
+        passwordChangeRequired: false,
+        iat: issuedAt,
+        exp: issuedAt + 7 * 24 * 60 * 60,
+        jti: expect.any(String),
+      });
+      expect(jwt.verify(second).jti).not.toBe(claims.jti);
+      expect(second).not.toBe(first);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('continues to validate previously issued native JWTs without a JWT ID', async () => {
+    const payload = jwt.verify(jwt.sign({
+      sub: user.id, email: user.email, type: user.type, authVersion: 3, passwordChangeRequired: false,
+    }));
+    expect(payload).not.toHaveProperty('jti');
+    await expect(strategy.validate({ headers: {} }, payload)).resolves.toMatchObject({ userId: 'user-1' });
     expect(sessions.verify).not.toHaveBeenCalled();
   });
 
   it.each(['revoked', '', null])('rejects a JWT with invalid session claim %p through Passport', async (sid) => {
     const payload = jwt.verify(jwt.sign({ sub: user.id, authVersion: 3, unihubSid: sid }));
-    await expect(strategy.validate(payload)).rejects.toMatchObject({ status: 401 });
+    await expect(strategy.validate({ headers: {} }, payload)).rejects.toMatchObject({ status: 401 });
+  });
+
+  it.each([
+    ['locked', { lockedAt: new Date() }],
+    ['reset', { authVersion: 4 }],
+  ])('rejects a JWT when the local account is %s during UniHub verification', async (_change, patch) => {
+    const token = service.signToken(user, { sid: 'active', expiresAt: Math.floor(Date.now() / 1_000) + 60 });
+    let finishVerification!: (verified: boolean) => void;
+    let startVerification!: () => void;
+    const started = new Promise<void>((resolve) => { startVerification = resolve; });
+    sessions.verify.mockImplementationOnce(() => {
+      startVerification();
+      return new Promise<boolean>((resolve) => { finishVerification = resolve; });
+    });
+
+    const validation = strategy.validate({ headers: {} }, jwt.verify(token));
+    await started;
+    findUser.mockResolvedValue({ ...user, ...patch });
+    finishVerification(true);
+
+    await expect(validation).rejects.toMatchObject({ status: 401 });
   });
 
   it.each([['active', true], ['revoked', false]])('enforces session %s through CombinedAuthGuard', async (sid, allowed) => {
@@ -256,5 +308,61 @@ describe('AuthService', () => {
         },
       });
     });
+  });
+});
+
+describe('Native JWT logout through the REST guards', () => {
+  const secret = 'native-logout-test-secret';
+  const jwt = new JwtService({ secret, signOptions: { expiresIn: '7d' } });
+  const user = {
+    id: 'user-1', email: 'native@example.test', name: 'Native', type: 'human', authVersion: 0,
+  } as const;
+  const findSession = jest.fn();
+  const runtime = { lifecycleEnabled: true };
+  let service: AuthService;
+
+  beforeEach(async () => {
+    findSession.mockReset();
+    runtime.lifecycleEnabled = true;
+    const module = await Test.createTestingModule({
+      providers: [
+        AuthService,
+        { provide: JwtService, useValue: jwt },
+        { provide: UniHubClient, useValue: runtime },
+        { provide: UniHubSessionService, useValue: { verify: jest.fn() } },
+        { provide: PrismaService, useValue: {
+          user: { findUnique: jest.fn(async () => user) },
+          uniHubNativeBrowserSession: { findUnique: findSession },
+        } },
+      ],
+    }).compile();
+    service = module.get(AuthService);
+    new JwtStrategy(new ConfigService({ JWT_SECRET: secret }), service);
+  });
+
+  function authorization(token: string, guard: JwtAuthGuard | CombinedAuthGuard) {
+    const request = { headers: { authorization: 'Bearer ' + token } };
+    const context = { switchToHttp: () => ({ getRequest: () => request, getResponse: () => ({}) }) } as any;
+    return guard.canActivate(context);
+  }
+
+  it.each(['Passport', 'combined'])('rejects only the explicitly revoked token through %s auth', async (kind) => {
+    const guard = kind === 'Passport' ? new JwtAuthGuard() : new CombinedAuthGuard(jwt, service, {} as any);
+    const token = service.signToken(user);
+    const sibling = service.signToken(user);
+    const id = createHash('sha256').update(token).digest('hex');
+    // Simulate a tombstone recorded even when the token was never tracked.
+    findSession.mockImplementation(async ({ where }) =>
+      where.id === id && where.userId === user.id && where.revokedAt?.not === null ? { id } : null);
+
+    await expect(authorization(sibling, guard)).resolves.toBe(true);
+    await expect(authorization(token, guard)).rejects.toMatchObject({ status: 401 });
+  });
+
+  it('keeps native JWTs stateless when lifecycle integration is disabled', async () => {
+    runtime.lifecycleEnabled = false;
+    const token = jwt.sign({ sub: user.id, authVersion: 0 });
+    await expect(authorization(token, new JwtAuthGuard())).resolves.toBe(true);
+    expect(findSession).not.toHaveBeenCalled();
   });
 });

@@ -129,6 +129,7 @@ model User {
   humanDeviceCredentialFamilies HumanDeviceCredentialFamily[]
   humanDeviceCredentials        HumanDeviceCredential[]
   unihubIdentityBinding         UniHubIdentityBinding?
+  unihubEnrollmentIntent        UniHubEnrollmentIntent?
   collaborationTemplatesCreated CollaborationTemplate[]                   @relation("CollaborationTemplateCreatedBy")
   collaborationRunsStarted      CollaborationRun[]                        @relation("CollaborationRunStartedBy")
   collaborationReviewsDecided   CollaborationReview[]                     @relation("CollaborationReviewReviewer")
@@ -172,6 +173,13 @@ model UniHubLifecycleOutbox {
   @@index([availableAt, id])
 }
 
+model UniHubEnrollmentIntent {
+  userId          String   @id
+  reconcileAfter  DateTime
+  mappingObserved Boolean  @default(false)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
 model UniHubIdentityBinding {
   userId            String              @id
   centralUserId     String              @unique
@@ -185,12 +193,25 @@ model UniHubUserSession {
   userId           String
   centralUserId    String
   sourceProofToken String
+  generation       String                @default("1")
   expiresAt        DateTime
   lastVerifiedAt   DateTime?
   revokedAt        DateTime?
   binding          UniHubIdentityBinding @relation(fields: [userId], references: [userId], onDelete: Cascade)
 
   @@index([userId])
+}
+
+model UniHubNativeBrowserSession {
+  id          String   @id
+  userId      String
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  deliveredAt DateTime?
+  availableAt DateTime @default(now())
+
+  @@index([deliveredAt, availableAt], map: "UniHubNativeBrowserSession_delivery_idx")
+  @@index([expiresAt])
 }
 
 model ApiKeyCredential {

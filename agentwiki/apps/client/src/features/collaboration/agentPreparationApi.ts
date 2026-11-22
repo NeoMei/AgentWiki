@@ -1,5 +1,5 @@
 import { agentRoleAllowsScope, type AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
-import api from '../../api/client';
+import api, { pinAuthSession } from '../../api/client';
 import { LOCAL_SYNC_VERSION } from '../../config/localSync';
 
 export type ExecutableAgentRole = Extract<AgentAccessRole, 'editor' | 'publisher'>;
@@ -41,6 +41,7 @@ export interface AgentInstallation {
 }
 
 export interface AgentPreparationApi {
+  pin?(): AgentPreparationApi;
   listAgents(): Promise<OwnedAgentSummary[]>;
   getAgent(agentId: string): Promise<OwnedAgentDetail>;
   createAgent(input: { name: string; description?: string; idempotencyKey?: string }): Promise<AgentIdentity>;
@@ -53,22 +54,28 @@ export interface AgentPreparationApi {
   ): Promise<AgentInstallation>;
 }
 
-export const agentPreparationApi: AgentPreparationApi = {
-  listAgents: async () => (await api.get<OwnedAgentSummary[]>('/agents')).data,
-  getAgent: async (agentId) => (await api.get<OwnedAgentDetail>(`/agents/${agentId}`)).data,
-  createAgent: async (input) => (await api.post<AgentIdentity>('/agents', input)).data,
+const preparationRequests = (...config: [ReturnType<typeof pinAuthSession>?]): AgentPreparationApi => ({
+  listAgents: async () => (await api.get<OwnedAgentSummary[]>('/agents', ...config)).data,
+  getAgent: async (agentId) => (await api.get<OwnedAgentDetail>(`/agents/${agentId}`, ...config)).data,
+  createAgent: async (input) => (await api.post<AgentIdentity>('/agents', input, ...config)).data,
   activateAgent: async (agentId) => (
-    await api.patch<AgentIdentity>(`/agents/${agentId}`, { status: 'active' })
+    await api.patch<AgentIdentity>(`/agents/${agentId}`, { status: 'active' }, ...config)
   ).data,
   upsertGrant: async (agentId, spaceId, role) => (
-    await api.put(`/agents/${agentId}/grants/${spaceId}`, { role })
+    await api.put(`/agents/${agentId}/grants/${spaceId}`, { role }, ...config)
   ).data,
   createInstallation: async (agentId, spaceId, role) => (
     await api.post<AgentInstallation>(
       `/agents/${agentId}/local-sync-installations`,
       { pluginVersion: LOCAL_SYNC_VERSION, spaceId, role },
+      ...config
     )
   ).data,
+});
+
+export const agentPreparationApi: AgentPreparationApi = {
+  ...preparationRequests(),
+  pin: () => preparationRequests(pinAuthSession()),
 };
 
 export const existingAgentContextApi = {

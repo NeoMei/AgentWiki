@@ -15,7 +15,8 @@ import { readWorkspacePosition } from '../space-workspace/workspaceNavigation';
 import { addPersonalNote, loadPersonalNotes, savePersonalNotes } from './reviewComments';
 import { captureAssistTarget } from './assistTargets';
 
-vi.mock('../../api/client', () => ({
+vi.mock('../../api/client', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../api/client')>(),
   default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
 }));
 const contentTreeMocks = vi.hoisted(() => ({ getContentTreeRevision: vi.fn() }));
@@ -287,6 +288,7 @@ describe('PagePreview checklist saves', () => {
   });
 
   beforeEach(() => {
+    localStorage.clear();
     vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
     vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined);
     scrollIntoViewMock = vi.fn();
@@ -485,13 +487,18 @@ describe('PagePreview checklist saves', () => {
 
   it('cannot refill the cleared cache from a previous session scroll callback during logout', async () => {
     queuePages({ data: page({ content: '# Previous session position' }) });
+    const logoutAcknowledged = deferred<void>();
+    vi.mocked(api.post).mockImplementationOnce(async () => {
+      await logoutAcknowledged.promise;
+      return { data: undefined };
+    });
     localStorage.setItem('token', 'token-a');
     localStorage.setItem('user', JSON.stringify({ id: 'user-a' }));
     const SessionHarness = () => {
       const { user, logout } = useAuth();
       return <>
         <button type="button" onClick={() => {
-          logout();
+          void logout();
           // Existing listeners can still run before React commits the auth transition.
           fireEvent.scroll(window);
         }}>Logout</button>
@@ -510,6 +517,15 @@ describe('PagePreview checklist saves', () => {
     fireEvent.scroll(window);
     expect(readWorkspacePosition(entryKey, 'page-1')).not.toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Logout' }));
+    expect(readWorkspacePosition(entryKey, 'page-1')).toBeNull();
+    fireEvent.scroll(window);
+    expect(readWorkspacePosition(entryKey, 'page-1')).toBeNull();
+    expect(localStorage.getItem('token')).toBe('token-a');
+    expect(screen.getByRole('heading', { name: 'Previous session position' })).toBeVisible();
+    expect(api.post).toHaveBeenCalledWith('/auth/unihub/logout', {}, expect.objectContaining({ timeout: 5000 }));
+
+    await act(async () => { logoutAcknowledged.resolve(); });
+    expect(screen.queryByRole('heading', { name: 'Previous session position' })).not.toBeInTheDocument();
     expect(readWorkspacePosition(entryKey, 'page-1')).toBeNull();
   });
 

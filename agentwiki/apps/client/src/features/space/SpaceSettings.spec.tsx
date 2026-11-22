@@ -7,7 +7,8 @@ import { SpaceSettings } from './SpaceSettings';
 import { announceSpaceReviewPolicyChange } from './spaceReviewPolicyEvents';
 
 const api = vi.hoisted(() => ({ get: vi.fn(), patch: vi.fn(), post: vi.fn() }));
-vi.mock('../../api/client', () => ({ default: api }));
+vi.mock('../../api/client', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../api/client')>(), default: api }));
 vi.mock('../../components/SpaceNav', () => ({ SpaceNav: () => <div>Space navigation</div> }));
 vi.mock('../page-templates/PageTemplateSettingsCard', () => ({
   PageTemplateSettingsCard: ({ spaceId }: { spaceId: string }) => <section>Template settings {spaceId}</section>,
@@ -54,6 +55,7 @@ const UserSwitchableSettings = () => {
 
 describe('SpaceSettings auto graph card', () => {
   beforeEach(() => {
+    localStorage.clear();
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
     localStorage.setItem('user', JSON.stringify({ id: 'user-1', platformRole: 'user' }));
     vi.clearAllMocks();

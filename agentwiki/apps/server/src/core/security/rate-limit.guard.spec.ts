@@ -80,6 +80,88 @@ describe('RateLimitGuard identity boundaries', () => {
     }))).rejects.toMatchObject({ businessCode: 'AUTH_RATE_LIMITED' });
   });
 
+  describe.each(['Redis', 'in-process fallback'])('UniHub auth budgets with %s', (store) => {
+    const request = (method: string, originalUrl: string, extra: Record<string, unknown> = {}) =>
+      guard.canActivate(contextFor({ method, originalUrl, ip: '203.0.113.60', ...extra }));
+
+    beforeEach(() => {
+      jest.spyOn(Date, 'now').mockReturnValue(60_000);
+      if (store === 'in-process fallback') redis.incrementWithWindow.mockResolvedValue(null);
+    });
+
+    afterEach(() => jest.restoreAllMocks());
+
+    it('bounds status polling separately from browser and password requests', async () => {
+      for (let attempt = 0; attempt < 59; attempt += 1) {
+        await expect(request('GET', '/api/auth/unihub/status?poll=' + attempt, {
+          headers: { 'x-api-key': 'untrusted-' + attempt },
+        })).resolves.toBe(true);
+      }
+      await expect(request('HEAD', '/API/AUTH/UNIHUB/STATUS/')).resolves.toBe(true);
+      await expect(request('GET', '/api/auth/unihub/status'))
+        .rejects.toMatchObject({ businessCode: 'AUTH_RATE_LIMITED' });
+      await expect(request('GET', '/api/auth/unihub/start')).resolves.toBe(true);
+      await expect(request('POST', '/api/auth/login')).resolves.toBe(true);
+      await expect(request('POST', '/api/auth/unihub/native', { body: { mode: 'auto' } })).resolves.toBe(true);
+    });
+
+    it('bounds the browser workflow without spending the password or status budget', async () => {
+      const browserSteps = [
+        ['GET', '/api/auth/unihub/start?returnTo=%2Fdashboard'],
+        ['GET', '/api/auth/unihub/callback?state=example'],
+        ['GET', '/api/auth/unihub/pending?flow=example'],
+        ['POST', '/api/auth/unihub/finish'],
+        ['POST', '/api/auth/unihub/logout'],
+      ];
+      for (let flow = 0; flow < 6; flow += 1) {
+        for (const [method, url] of browserSteps) {
+          await expect(request(method, url)).resolves.toBe(true);
+        }
+      }
+      await expect(request('POST', '/api/auth/unihub/finish'))
+        .rejects.toMatchObject({ businessCode: 'AUTH_RATE_LIMITED' });
+      await expect(request('GET', '/api/auth/unihub/status')).resolves.toBe(true);
+      await expect(request('POST', '/api/auth/login')).resolves.toBe(true);
+    });
+
+    it('counts native and standard logins against the same strict budget', async () => {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        await expect(request('POST', '/api/auth/login')).resolves.toBe(true);
+        await expect(request('POST', '/api/auth/unihub/native', {
+          body: { mode: 'enroll', password: 'test-password' },
+        })).resolves.toBe(true);
+      }
+      await expect(request('POST', '/API/AUTH/UNIHUB/NATIVE/?next=/api/auth/unihub/status', {
+        body: { mode: 'auto' },
+        headers: { authorization: 'Bearer test-token', 'x-api-key': 'untrusted-key' },
+      })).rejects.toMatchObject({ businessCode: 'AUTH_RATE_LIMITED' });
+      await expect(request('POST', '/api/auth/register'))
+        .rejects.toMatchObject({ businessCode: 'AUTH_RATE_LIMITED' });
+      await expect(request('POST', '/api/auth/unihub/status'))
+        .rejects.toMatchObject({ businessCode: 'AUTH_RATE_LIMITED' });
+      await expect(request('GET', '/api/auth/unihub/status-extra'))
+        .rejects.toMatchObject({ businessCode: 'AUTH_RATE_LIMITED' });
+      await expect(request('GET', '/api/auth/unihub/status')).resolves.toBe(true);
+      await expect(request('GET', '/api/auth/unihub/callback')).resolves.toBe(true);
+      await expect(request('POST', '/api/auth/unihub/finish')).resolves.toBe(true);
+    });
+  });
+
+  it('honors the isolated E2E ceiling for UniHub traffic without changing production limits', async () => {
+    await withEnvironment({
+      ...isolatedE2EEnvironment,
+      AGENTWIKI_E2E_AUTH_RATE_LIMIT: '90',
+    }, async () => {
+      for (let attempt = 0; attempt < 61; attempt++) {
+        for (const pathname of ['status', 'callback']) {
+          await expect(guard.canActivate(contextFor({
+            method: 'GET', originalUrl: '/api/auth/unihub/' + pathname, ip: '127.0.0.1',
+          }))).resolves.toBe(true);
+        }
+      }
+    });
+  });
+
   it('raises the auth ceiling for an explicitly configured E2E test runtime', async () => {
     await withEnvironment({
       ...isolatedE2EEnvironment,

@@ -1,7 +1,7 @@
 import { startTransition, useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import api from '../../api/client';
+import api, { authSessionKey, readAuthSession } from '../../api/client';
 import { apiErrorMessage } from '../../api/error-message';
 import { BrandMark } from '../../components/BrandMark';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
@@ -14,8 +14,81 @@ import { useUniHubStatus } from './useUniHubStatus';
 
 type ReauthMode = 'link' | 'enroll';
 type NativeMode = ReauthMode | 'open' | 'auto';
+type CallbackSession = 'checking' | 'current' | 'changed';
 
-type PendingFlow = { mode: 'sso'; confirmationId: string; sameUser?: boolean } | {
+const callbackSessionKey = (id: string) => 'agentwiki.unihub.callback.' + id;
+const recordingSessions = new Map<string, Promise<void>>();
+
+function invalidateCallbackSession(key: string) {
+  try {
+    sessionStorage.setItem(key, 'changed');
+  } catch {
+    // A callback with unavailable tab storage fails its session check.
+  }
+}
+
+async function sessionFingerprint(token: string | null): Promise<string> {
+  if (token === null) return 'signed-out';
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function matchesCallbackSession(key: string, token: string | null) {
+  try {
+    const saved = sessionStorage.getItem(key);
+    if (saved === 'changed') return false;
+    // Claim the callback before hashing so a remount cannot choose a new owner.
+    if (saved === null) sessionStorage.setItem(key, 'recording');
+    const fingerprint = sessionFingerprint(token);
+    if (saved === null) {
+      recordingSessions.set(key, fingerprint.then((value) => {
+        if (sessionStorage.getItem(key) === 'recording') sessionStorage.setItem(key, value);
+      }).finally(() => recordingSessions.delete(key)));
+    }
+    const [current] = await Promise.all([fingerprint, recordingSessions.get(key)]);
+    if (sessionStorage.getItem(key) === current) return true;
+  } catch {
+    // A missing fingerprint or interrupted claim requires a fresh callback.
+  }
+  invalidateCallbackSession(key);
+  return false;
+}
+
+function useCallbackSession(confirmationId: string | null, token: string | null): CallbackSession {
+  const [result, setResult] = useState<{ id: string; token: string | null; status: CallbackSession }>();
+  useLayoutEffect(() => {
+    if (confirmationId === null) return;
+    const id = confirmationId;
+    const key = callbackSessionKey(id);
+    let active = true;
+    function sessionChanged() {
+      if (readAuthSession().token === token) return false;
+      invalidateCallbackSession(key);
+      setResult({ id, token, status: 'changed' });
+      return true;
+    }
+    function checkStorage(event: StorageEvent) {
+      if (event.storageArea === localStorage && (event.key === authSessionKey || event.key === 'token' || event.key === null)) {
+        sessionChanged();
+      }
+    }
+    window.addEventListener('storage', checkStorage);
+    if (!sessionChanged()) {
+      void matchesCallbackSession(key, token).then((matches) => {
+        if (active && !sessionChanged()) setResult({ id, token, status: matches ? 'current' : 'changed' });
+      });
+    }
+    return () => {
+      active = false;
+      window.removeEventListener('storage', checkStorage);
+    };
+  }, [confirmationId, token]);
+
+  if (!confirmationId) return 'current';
+  return result?.id === confirmationId && result.token === token ? result.status : 'checking';
+}
+
+type PendingFlow = { mode: 'sso'; confirmationId: string; sameUser?: boolean; returnTo?: string } | {
   mode: 'link';
   confirmationId: string;
   localEmail: string;
@@ -64,11 +137,12 @@ interface UniHubFlowProps {
   hubEntry: boolean;
   continuing: boolean;
   confirmationId: string | null;
+  callbackSession: CallbackSession;
   failed: boolean;
   returnTo: string | null;
 }
 
-function UniHubFlow({ bound, hubEntry, continuing, confirmationId, failed, returnTo }: UniHubFlowProps) {
+function UniHubFlow({ bound, hubEntry, continuing, confirmationId, callbackSession, failed, returnTo }: UniHubFlowProps) {
   const { token, user, login } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
@@ -78,60 +152,82 @@ function UniHubFlow({ bound, hubEntry, continuing, confirmationId, failed, retur
   const [busy, setBusy] = useState(false);
   const [departing, setDeparting] = useState(false);
   const [autoFailed, setAutoFailed] = useState(false);
+  const [finishFailed, setFinishFailed] = useState(false);
   const [linkRequired, setLinkRequired] = useState(false);
   const autoEntry = hubEntry && !continuing && Boolean(token);
-  const [pending, setPending] = useState<PendingFlow | null>();
+  const [preview, setPreview] = useState<{ token: string | null; flow: PendingFlow | null }>();
+  const pending = callbackSession === 'current' && preview?.token === token ? preview.flow : undefined;
+  const switchRequired = pending?.mode === 'sso' && Boolean(token) && pending.sameUser !== true;
+  const autoFinish = pending?.mode === 'sso' && !switchRequired;
+  const destination = (pending?.mode === 'sso' ? safeUniHubReturnTo(pending.returnTo) : null) ?? returnTo;
   const cancelled = useRef(false);
   const alive = useRef(false);
-  const inFlight = useRef(false);
+  const submission = useRef<AbortController | null>(null);
   const autoAttempted = useRef(false);
 
   useLayoutEffect(() => {
     alive.current = true;
-    return () => { alive.current = false; };
-  }, []);
+    return () => {
+      alive.current = false;
+      if (continuing) submission.current?.abort();
+    };
+  }, [continuing]);
+
+  useLayoutEffect(() => {
+    if (callbackSession !== 'current') submission.current?.abort();
+  }, [callbackSession]);
 
   useEffect(() => {
-    if (!continuing || departing) return;
+    if (!continuing || departing || callbackSession !== 'current') return;
     const controller = new AbortController();
     async function loadPreview() {
-      let preview: PendingFlow | null = null;
+      if (!confirmationId) {
+        setPreview({ token, flow: null });
+        return;
+      }
+      let flow: PendingFlow | null = null;
       try {
-        if (!confirmationId) {
-          setPending(null);
-          return;
-        }
         const { data } = await api.get<PendingFlow>('/auth/unihub/pending', {
-          headers: token ? { Authorization: 'Bearer ' + token } : undefined,
+          authSessionToken: token,
           params: { flow: confirmationId },
           signal: controller.signal,
           timeout: 5000,
         });
-        if (localStorage.getItem('token') === token) preview = verifiedPendingFlow(data, token, confirmationId);
+        if (readAuthSession().token === token) flow = verifiedPendingFlow(data, token, confirmationId);
       } catch {
         // A failed preview cannot authorize completion.
       }
-      if (!controller.signal.aborted) setPending(preview);
+      if (!controller.signal.aborted) setPreview({ token, flow });
     }
-    void loadPreview();
+    queueMicrotask(() => {
+      if (!controller.signal.aborted) void loadPreview();
+    });
     return () => controller.abort();
-  }, [continuing, confirmationId, departing, token]);
+  }, [callbackSession, continuing, confirmationId, departing, token]);
 
   useDirtyNavigationGuard(
     !departing && (Boolean(token && continuing) || Boolean(password) || busy),
     t('unihub.leave'),
   );
 
-  const submit = useCallback(async (action: NativeMode | 'finish', password?: string) => {
-    if (inFlight.current || cancelled.current) return;
-    const finish = action === 'finish';
-    if (finish && !pending) return;
-    if (localStorage.getItem('token') !== token) {
+  const submit = useCallback(async (action: NativeMode | 'finish' | 'switch', password?: string) => {
+    if (submission.current || cancelled.current) return;
+    const finish = action === 'finish' || action === 'switch';
+    if (finish && (!pending || finishFailed || (action === 'switch') !== switchRequired)) return;
+    function sessionChanged() {
       if (action === 'auto') setAutoFailed(true);
+      if (finish) {
+        if (confirmationId) invalidateCallbackSession(callbackSessionKey(confirmationId));
+        setFinishFailed(true);
+      }
       setError(t('unihub.sessionChanged'));
+    }
+    if (readAuthSession().token !== token) {
+      sessionChanged();
       return;
     }
-    inFlight.current = true;
+    const controller = new AbortController();
+    submission.current = controller;
     setBusy(true);
     setError('');
     try {
@@ -140,15 +236,21 @@ function UniHubFlow({ bound, hubEntry, continuing, confirmationId, failed, retur
         confirmationId: pending?.confirmationId,
         ...(pending?.mode === 'link' ? { centralUserId: pending.centralUserId } : {}),
         ...(pending?.mode === 'sso' && pending.sameUser === true ? { requireSameUser: true } : {}),
+        ...(action === 'switch' ? { confirmAccountSwitch: true } : {}),
       } : {
         mode: action,
         ...(action !== 'open' && password ? { password } : {}),
       };
       const { data } = await api.post<FinishResult>(finish ? '/auth/unihub/finish' : '/auth/unihub/native', body, {
-        headers: token ? { Authorization: 'Bearer ' + token } : undefined,
-        timeout: action === 'auto' ? 8000 : undefined,
+        authSessionToken: token,
+        signal: controller.signal,
+        timeout: 8000,
       });
-      if (!alive.current || localStorage.getItem('token') !== token) return;
+      if (!alive.current || cancelled.current || controller.signal.aborted) return;
+      if (readAuthSession().token !== token) {
+        sessionChanged();
+        return;
+      }
 
       const redirect = uniHubRedirectUrl(data.redirectUrl);
       if (data.redirectUrl !== undefined && !redirect) throw new Error('Invalid UniHub redirect');
@@ -161,7 +263,11 @@ function UniHubFlow({ bound, hubEntry, continuing, confirmationId, failed, retur
       flushSync(() => setDeparting(true));
       startTransition(() => {
         if (finish && data.access_token && data.user?.id) {
-          login(data.access_token, data.user);
+          if (!login(data.access_token, data.user)) {
+            setDeparting(false);
+            sessionChanged();
+            return;
+          }
           if (data.user.mustChangePassword) {
             navigate('/change-password', { replace: true });
             return;
@@ -171,12 +277,14 @@ function UniHubFlow({ bound, hubEntry, continuing, confirmationId, failed, retur
           window.location.assign(redirect);
           return;
         }
-        navigate(safeUniHubReturnTo(data.returnTo) ?? returnTo ?? '/dashboard', { replace: true });
+        navigate(safeUniHubReturnTo(data.returnTo) ?? destination ?? '/dashboard', { replace: true });
       });
     } catch (err) {
-      if (!alive.current) return;
+      if (!alive.current || cancelled.current || controller.signal.aborted) return;
       const status = (err as { response?: { status?: number } })?.response?.status;
       if (action === 'auto') setAutoFailed(true);
+      // A failed finish may already have consumed the browser flow.
+      if (finish) setFinishFailed(true);
       if (action === 'auto' && status === 409 && bound !== true) {
         setLinkRequired(true);
         setError(t('unihub.linkRequired'));
@@ -186,24 +294,23 @@ function UniHubFlow({ bound, hubEntry, continuing, confirmationId, failed, retur
         setError(apiErrorMessage(err, t, 'unihub.requestFailed'));
       }
     } finally {
-      if (alive.current) {
-        inFlight.current = false;
-        setBusy(false);
-      }
+      submission.current = null;
+      if (alive.current && !cancelled.current) setBusy(false);
     }
-  }, [bound, login, navigate, pending, returnTo, t, token]);
+  }, [bound, confirmationId, destination, finishFailed, login, navigate, pending, switchRequired, t, token]);
 
   useEffect(() => {
     if (autoAttempted.current) return;
-    if (autoEntry || (pending?.mode === 'sso' && (!token || pending.sameUser === true))) {
+    if (autoEntry || autoFinish) {
       autoAttempted.current = true;
       void submit(autoEntry ? 'auto' : 'finish');
     }
-  }, [autoEntry, pending, submit, token]);
+  }, [autoEntry, autoFinish, submit]);
 
-  function cancel(event: MouseEvent<HTMLAnchorElement>) {
+  function leave(event: MouseEvent<HTMLAnchorElement>) {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
     cancelled.current = true;
+    submission.current?.abort();
     flushSync(() => setDeparting(true));
   }
 
@@ -223,20 +330,26 @@ function UniHubFlow({ bound, hubEntry, continuing, confirmationId, failed, retur
     ? '/?intent=onboard&returnTo=' + encodeURIComponent(deviceReturn) + '#login'
     : '/?intent=workspace#login';
 
-  const backTo = returnTo ?? (token ? '/dashboard' : '/');
-  const visibleError = error || (pending === null ? t('unihub.pendingFailed') : failed ? t('unihub.callbackFailed') : '');
+  const backTo = destination ?? (token ? '/dashboard' : '/');
+  const callbackChanged = callbackSession === 'changed';
+  const restartSignIn = callbackChanged || (!continuing && failed && returnTo !== null) || pending === null || (finishFailed && pending?.mode === 'sso');
+  const showCallback = continuing || restartSignIn;
+  const visibleError = callbackChanged ? t('unihub.sessionChanged')
+    : error || (pending === null ? t('unihub.pendingFailed') : failed ? t('unihub.callbackFailed') : '');
 
   return (
     <UniHubCard>
       {visibleError ? (
         <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{visibleError}</p>
       ) : null}
-      {continuing ? (
+      {showCallback ? (
         <>
-          {pending === undefined ? <p role="status" className="text-sm text-gray-600">{t('common.loading')}</p> : null}
-          {pending ? (
+          {continuing && !callbackChanged && !finishFailed && (pending === undefined || autoFinish) ? (
+            <p role="status" className="text-sm text-gray-600">{t('common.loading')}</p>
+          ) : null}
+          {pending && !finishFailed && !autoFinish ? (
             <>
-              <p className="text-sm text-gray-600">{t(pending.mode === 'link' ? 'unihub.completeHelp' : 'unihub.signInHelp')}</p>
+              <p className="text-sm text-gray-600">{t(pending.mode === 'link' ? 'unihub.completeHelp' : 'unihub.switchAccountHelp')}</p>
               {pending.mode === 'link' ? (
                 <dl className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
                   <div>
@@ -250,10 +363,19 @@ function UniHubFlow({ bound, hubEntry, continuing, confirmationId, failed, retur
                   </div>
                 </dl>
               ) : null}
-              <button type="button" className={primaryClass} disabled={busy || departing} onClick={() => { void submit('finish'); }}>
-                {t(busy || departing ? 'common.loading' : pending.mode === 'link' ? 'unihub.complete' : 'unihub.continue')}
+              <button type="button" className={primaryClass} disabled={busy || departing}
+                onClick={() => { void submit(pending.mode === 'link' ? 'finish' : 'switch'); }}>
+                {t(busy || departing ? 'common.loading' : pending.mode === 'link' ? 'unihub.complete' : 'unihub.switchAccount')}
               </button>
             </>
+          ) : null}
+          {restartSignIn ? (
+            <a className={primaryClass} href={uniHubStartHref(destination)} onClick={leave}>{t('unihub.restartSignIn')}</a>
+          ) : finishFailed && pending?.mode === 'link' ? (
+            <Link className={primaryClass} replace onClick={leave}
+              to={destination ? '/unihub?returnTo=' + encodeURIComponent(destination) : '/unihub'}>
+              {t('unihub.restartConnection')}
+            </Link>
           ) : null}
         </>
       ) : !token ? (
@@ -293,9 +415,9 @@ function UniHubFlow({ bound, hubEntry, continuing, confirmationId, failed, retur
           ) : null}
         </div>
       )}
-      {continuing ? (
-        !busy && !departing ? (
-          <Link to={backTo} replace onClick={cancel} className="block text-sm text-blue-700 hover:underline">{t('common.cancel')}</Link>
+      {showCallback ? (
+        !departing ? (
+          <Link to={backTo} replace onClick={leave} className="block text-sm text-blue-700 hover:underline">{t('common.cancel')}</Link>
         ) : null
       ) : token ? (
         <Link to={backTo} className="inline-block text-sm text-blue-700 hover:underline">{t('unihub.backToWorkspace')}</Link>
@@ -314,18 +436,21 @@ export default function UniHubPage() {
   const flow = query.get('flow');
   const confirmationId = flow && /^[a-f0-9]{64}$/.test(flow) ? flow : null;
   const hubEntry = query.get('entry') === 'hub';
+  const callbackSession = useCallbackSession(continuing ? confirmationId : null, token);
   // A callback only needs the feature flag. Its preview checks the active session.
-  const status = useUniHubStatus(continuing ? null : token);
+  const status = useUniHubStatus(continuing ? null : token, callbackSession !== 'changed');
 
-  if (!status) return <div role="status" className="py-8 text-center text-gray-500">{t('common.loading')}</div>;
-  if (!status.enabled) return <Navigate to={returnTo ?? (token ? '/dashboard' : '/')} replace />;
-  if (token && user?.mustChangePassword) {
-    return <Navigate to="/change-password" replace state={hubEntry ? { uniHubReturnTo: uniHubEntryHref(returnTo) } : undefined} />;
+  if (callbackSession !== 'changed') {
+    if (!status) return <div role="status" className="py-8 text-center text-gray-500">{t('common.loading')}</div>;
+    if (!status.enabled) return <Navigate to={returnTo ?? (token ? '/dashboard' : '/')} replace />;
+  }
+  if (token && user?.mustChangePassword && callbackSession === 'current') {
+    return <Navigate to="/change-password" replace state={hubEntry ? { passwordUserId: user.id, uniHubReturnTo: uniHubEntryHref(returnTo) } : undefined} />;
   }
   if (hubEntry && !continuing && !token) {
     return <Navigate to={'/?intent=unihub&returnTo=' + encodeURIComponent(uniHubEntryHref(returnTo)) + '#login'} replace />;
   }
 
-  return <UniHubFlow key={location.key} bound={status.bound} hubEntry={hubEntry} continuing={continuing} confirmationId={confirmationId}
-    failed={query.get('error') === 'login'} returnTo={returnTo} />;
+  return <UniHubFlow key={location.key} bound={status?.bound} hubEntry={hubEntry} continuing={continuing} confirmationId={confirmationId}
+    callbackSession={callbackSession} failed={query.get('error') === 'login'} returnTo={returnTo} />;
 }

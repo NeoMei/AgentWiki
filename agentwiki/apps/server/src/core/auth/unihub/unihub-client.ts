@@ -66,6 +66,7 @@ export class UniHubClient {
   readonly enabled: boolean;
   readonly lifecycleEnabled: boolean;
   readonly clientId: string;
+  readonly sessionGeneration: string;
   readonly callbackURL: string;
   private readonly api: string;
   private readonly publicOrigin: string;
@@ -75,6 +76,10 @@ export class UniHubClient {
   constructor(config: ConfigService) {
     this.enabled = config.get('UNIHUB_IDENTITY_ENABLED') === 'true';
     this.clientId = config.get<string>('UNIHUB_IDENTITY_CLIENT_ID') ?? '';
+    this.sessionGeneration = config.get<string>('UNIHUB_IDENTITY_SESSION_GENERATION') ?? '1';
+    if (this.enabled && (this.sessionGeneration === 'disabled' || !/^[a-zA-Z0-9._-]{1,64}$/.test(this.sessionGeneration))) {
+      throw new Error('Invalid UniHub identity session generation');
+    }
     this.token = config.get<string>('UNIHUB_IDENTITY_RUNTIME_TOKEN') ?? '';
     const apiOrigin = config.get<string>('UNIHUB_IDENTITY_API_ORIGIN');
     this.lifecycleEnabled = this.enabled || hasUniHubLifecycleRuntime(apiOrigin, this.token);
@@ -124,7 +129,7 @@ export class UniHubClient {
   }
 
   async request<T>(path: string, body: unknown, actor?: string): Promise<T> {
-    const lifecyclePath = path === '/source-lifecycle' || path === '/source-lifecycle/status';
+    const lifecyclePath = path === '/source-lifecycle' || path === '/source-lifecycle/status' || path === '/source-session/revoke';
     if (!this.enabled && !(this.lifecycleEnabled && lifecyclePath)) throw new UniHubRuntimeError(404);
     if (!/^\/(?:[a-z-]+\/)*[a-z-]+$/.test(path)) throw new UniHubRuntimeError(502);
     const headers: Record<string, string> = {

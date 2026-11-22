@@ -8,8 +8,20 @@ import { isIsolatedE2EEnvironment } from './e2e-isolation';
 const MAX_FALLBACK_BUCKETS = 10_000;
 const AUTH_RATE_LIMIT = 10;
 const MAX_E2E_AUTH_RATE_LIMIT = 1_000;
+const UNIHUB_STATUS_RATE_LIMIT = 60;
+const UNIHUB_BROWSER_RATE_LIMIT = 30;
 const API_IP_RATE_LIMIT = 300;
 const MAX_E2E_API_IP_RATE_LIMIT = 10_000;
+
+const UNIHUB_BROWSER_READ_PATHS = new Set([
+  '/api/auth/unihub/start',
+  '/api/auth/unihub/callback',
+  '/api/auth/unihub/pending',
+]);
+const UNIHUB_BROWSER_POST_PATHS = new Set([
+  '/api/auth/unihub/finish',
+  '/api/auth/unihub/logout',
+]);
 
 @Injectable()
 export class RateLimitGuard implements CanActivate {
@@ -20,7 +32,8 @@ export class RateLimitGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const route = String(request.originalUrl || request.url || '');
-    const pathname = this.pathname(route);
+    // Match Express's case-insensitive routes and optional trailing slash.
+    const pathname = this.pathname(route).toLowerCase().replace(/\/$/, '');
     const apiKey = String(request.headers?.['x-api-key'] || '');
     const authorization = String(request.headers?.authorization || '');
     const bearerToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
@@ -31,11 +44,8 @@ export class RateLimitGuard implements CanActivate {
     const windowSeconds = 60;
     const bucket = Math.floor(Date.now() / (windowSeconds * 1000));
     if (isAuthRoute) {
-      await this.consume(
-        `rate:${bucket}:${ipIdentity}:auth`,
-        this.authRateLimit(),
-        windowSeconds,
-      );
+      const { scope, limit } = this.authBudget(pathname, request.method);
+      await this.consume(`rate:${bucket}:${ipIdentity}:${scope}`, limit, windowSeconds);
       return true;
     }
     // The global guard runs before authentication, so a raw X-API-Key header
@@ -53,10 +63,23 @@ export class RateLimitGuard implements CanActivate {
     return true;
   }
 
-  private authRateLimit(): number {
+  private authBudget(pathname: string, method: string): { scope: string; limit: number } {
+    const read = method === 'GET' || method === 'HEAD';
+    if (read && pathname === '/api/auth/unihub/status') {
+      return { scope: 'unihub-status', limit: this.authRateLimit(UNIHUB_STATUS_RATE_LIMIT) };
+    }
+    if ((read && UNIHUB_BROWSER_READ_PATHS.has(pathname))
+      || (method === 'POST' && UNIHUB_BROWSER_POST_PATHS.has(pathname))) {
+      return { scope: 'unihub-browser', limit: this.authRateLimit(UNIHUB_BROWSER_RATE_LIMIT) };
+    }
+    // UniHub native can validate a password, so every mode shares the login limit.
+    return { scope: 'auth', limit: this.authRateLimit() };
+  }
+
+  private authRateLimit(defaultLimit = AUTH_RATE_LIMIT): number {
     return this.e2eRateLimit(
       'AGENTWIKI_E2E_AUTH_RATE_LIMIT',
-      AUTH_RATE_LIMIT,
+      defaultLimit,
       MAX_E2E_AUTH_RATE_LIMIT,
     );
   }

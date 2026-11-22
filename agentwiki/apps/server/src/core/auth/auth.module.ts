@@ -14,6 +14,7 @@ import { UniHubClient } from './unihub/unihub-client';
 import { UniHubSessionService } from './unihub/unihub-session.service';
 import { UniHubController } from './unihub/unihub.controller';
 import { UniHubLifecycleService } from './unihub/unihub-lifecycle.service';
+import { UniHubNativeSessionService } from './unihub/unihub-native-session.service';
 
 @Module({
   imports: [
@@ -35,7 +36,7 @@ import { UniHubLifecycleService } from './unihub/unihub-lifecycle.service';
       },
     }),
   ],
-  providers: [AuthService, JwtStrategy, ApiKeyStrategy, CombinedAuthGuard, HumanOnlyGuard, UniHubClient, UniHubSessionService, UniHubLifecycleService],
+  providers: [AuthService, JwtStrategy, ApiKeyStrategy, CombinedAuthGuard, HumanOnlyGuard, UniHubClient, UniHubSessionService, UniHubLifecycleService, UniHubNativeSessionService],
   controllers: [AuthController, UniHubController],
   exports: [AuthService, CombinedAuthGuard, HumanOnlyGuard, JwtModule],
 })

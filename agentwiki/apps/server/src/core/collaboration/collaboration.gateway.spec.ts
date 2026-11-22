@@ -1,5 +1,6 @@
 import { CollaborationGateway } from './collaboration.gateway';
 import { TASKBOARD_CHANNEL } from '../../project-taskboard/taskboard-core';
+import { createHash } from 'crypto';
 
 describe('CollaborationGateway authentication', () => {
   const jwt = { verify: jest.fn().mockReturnValue({ sub: 'user-1' }) } as any;
@@ -15,6 +16,7 @@ describe('CollaborationGateway authentication', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    auth.nativeJwtRevocationEnabled = false;
     prisma.assistTask.findUnique.mockResolvedValue({ id: 'task-1', pageId: 'page-1', spaceId: 'space-1', requestedByUserId: 'user-1' });
     jwt.verify.mockReturnValue({ sub: 'user-1', authVersion: 0 });
     auth.validateJwtUser.mockResolvedValue({ userId: 'user-1', name: 'Alice', authVersion: 0 });
@@ -24,7 +26,7 @@ describe('CollaborationGateway authentication', () => {
     (gateway as any).activeUsers.clear();
     (gateway as any).collaborationRates.clear();
     (gateway as any).userSockets.clear();
-    (gateway as any).uniHubSockets.clear();
+    (gateway as any).revocableSockets.clear();
     (gateway as any).roomAuthorizationCheckedAt.clear();
     (gateway as any).roomPruneInFlight.clear();
     (gateway as any).server = {
@@ -34,7 +36,7 @@ describe('CollaborationGateway authentication', () => {
   });
 
   it('accepts a socket with a valid signed token', async () => {
-    const client = { id: 'socket-valid', handshake: { auth: { token: 'signed-token' } }, data: {}, disconnect: jest.fn() } as any;
+    const client = { id: 'socket-valid', connected: true, handshake: { auth: { token: 'signed-token' } }, data: {}, disconnect: jest.fn() } as any;
     await gateway.handleConnection(client);
     expect(jwt.verify).toHaveBeenCalledWith('signed-token');
     expect(auth.validateJwtUser).toHaveBeenCalledWith('user-1');
@@ -47,8 +49,25 @@ describe('CollaborationGateway authentication', () => {
     auth.validateJwtUser.mockImplementation(async (_userId: string, sid?: string) =>
       sid === 'revoked' ? null : { userId: 'user-1', name: 'Alice', authVersion: 0 });
     const client = {
-      id: 'socket-revoked-handshake', handshake: { auth: { token: 'signed-token' } },
+      id: 'socket-revoked-handshake', connected: true, handshake: { auth: { token: 'signed-token' } },
       data: {}, disconnect: jest.fn(),
+    } as any;
+
+    await gateway.handleConnection(client);
+
+    expect(client.disconnect).toHaveBeenCalledWith(true);
+    expect(client.data.user).toBeUndefined();
+  });
+
+  it('denies a native JWT that was revoked before the socket handshake', async () => {
+    const token = 'native-token';
+    const revokedId = createHash('sha256').update(token).digest('hex');
+    auth.nativeJwtRevocationEnabled = true;
+    auth.validateJwtUser.mockImplementation(async (userId: string, _sid?: string, fingerprint?: string) =>
+      fingerprint === revokedId ? null : { userId, authVersion: 0 });
+    const client = {
+      id: 'revoked-native-socket', connected: true, data: {}, disconnect: jest.fn(),
+      handshake: { auth: { token } },
     } as any;
 
     await gateway.handleConnection(client);
@@ -63,7 +82,7 @@ describe('CollaborationGateway authentication', () => {
     auth.validateJwtUser.mockImplementation(async (_userId: string, sid?: string) =>
       sid === 'revocable' && revoked ? null : { userId: 'user-1', name: 'Alice', authVersion: 0 });
     const client = {
-      id: 'socket-revoked-session', handshake: { auth: { token: 'signed-token' } }, data: {},
+      id: 'socket-revoked-session', connected: true, handshake: { auth: { token: 'signed-token' } }, data: {},
       rooms: new Set(), join: jest.fn(), emit: jest.fn(), disconnect: jest.fn(),
     } as any;
     await gateway.handleConnection(client);
@@ -81,6 +100,7 @@ describe('CollaborationGateway authentication', () => {
     runs.getHumanRun.mockResolvedValueOnce({ id: 'run-1', spaceId: 'space-1', eventSequence: 41 });
     const client = {
       id: 'socket-auth-race',
+      connected: true,
       handshake: { auth: { token: 'signed-token' } },
       data: {},
       rooms: new Set(['socket-auth-race']),
@@ -103,6 +123,28 @@ describe('CollaborationGateway authentication', () => {
     });
   });
 
+  it('leaves the socket quota available when a client disconnects during UniHub authentication', async () => {
+    const principal = { userId: 'user-1', name: 'Alice', authVersion: 0 };
+    jwt.verify.mockReturnValue({ sub: principal.userId, authVersion: 0, unihubSid: 'active' });
+    const createSocket = (id: string) => ({
+      id, connected: true, data: {}, handshake: { auth: { token: 'signed-token' } }, disconnect: jest.fn(),
+    });
+    let finishAuthentication!: (value: typeof principal) => void;
+    auth.validateJwtUser.mockReturnValueOnce(new Promise((resolve) => { finishAuthentication = resolve; }));
+    const closed = createSocket('closed');
+    const authentication = gateway.handleConnection(closed as any);
+    closed.connected = false;
+    gateway.handleDisconnect(closed as any);
+    finishAuthentication(principal);
+    await authentication;
+
+    const liveSockets = Array.from({ length: 20 }, (_, index) => createSocket(`live-${index}`));
+    for (const socket of liveSockets) await gateway.handleConnection(socket as any);
+
+    expect(liveSockets[19].disconnect).not.toHaveBeenCalled();
+    expect(closed.data).not.toHaveProperty('user');
+  });
+
   it('disconnects a socket with an invalid or missing token', async () => {
     const badClient = { handshake: { auth: { token: 'bad' } }, data: {}, disconnect: jest.fn() } as any;
     jwt.verify.mockImplementationOnce(() => { throw new Error('jwt expired'); });
@@ -117,7 +159,7 @@ describe('CollaborationGateway authentication', () => {
 
   it('caps parallel sockets for the same user', async () => {
     const clients = Array.from({ length: 21 }, (_, index) => ({
-      id: `connection-${index}`,
+      id: `connection-${index}`, connected: true,
       handshake: { auth: { token: 'signed-token' } }, data: {}, disconnect: jest.fn(),
     })) as any[];
 
@@ -526,6 +568,28 @@ describe('CollaborationGateway authentication', () => {
     expect(allowed.disconnect).not.toHaveBeenCalled();
   });
 
+  it('rechecks distinct native JWTs independently for two sockets of the same user', async () => {
+    auth.nativeJwtRevocationEnabled = true;
+    let revokedId: string | undefined;
+    auth.validateJwtUser.mockImplementation(async (userId: string, _sid?: string, fingerprint?: string) =>
+      revokedId && fingerprint === revokedId ? null : { userId, authVersion: 0 });
+    const createSocket = (id: string) => ({
+      id, connected: true, data: {}, disconnect: jest.fn(), rooms: new Set(['page-1']),
+      handshake: { auth: { token: id } },
+    }) as any;
+    const allowed = createSocket('active-native-token');
+    const revoked = createSocket('revoked-native-token');
+    await gateway.handleConnection(allowed);
+    await gateway.handleConnection(revoked);
+    revokedId = createHash('sha256').update('revoked-native-token').digest('hex');
+    (gateway as any).server.in.mockReturnValue({ fetchSockets: jest.fn().mockResolvedValue([allowed, revoked]) });
+
+    await (gateway as any).pruneUnauthorizedRoomMembers('page-1', true);
+
+    expect(revoked.disconnect).toHaveBeenCalledWith(true);
+    expect(allowed.disconnect).not.toHaveBeenCalled();
+  });
+
   it('rate-limits content before DB work and reuses short authorization leases', async () => {
     const client = {
       id: 'content-flood',
@@ -548,16 +612,52 @@ describe('CollaborationGateway authentication', () => {
     expect(client.emit).toHaveBeenCalledWith('collaborationError', { code: 'EVENT_RATE_LIMITED' });
   });
 
-  it.each(['recipient', 'sender'])('rechecks a revoked UniHub %s before content delivery with a warm room lease', async (revokedRole) => {
+  it('discards an older same-sender page update that finishes verification after a newer update', async () => {
+    const pageId = 'page-1';
+    const broadcast = jest.fn();
+    const rooms = new Set<string>();
+    const sender = {
+      id: 'editing-socket', connected: true, data: {}, rooms, handshake: { auth: { token: 'signed-token' } },
+      join: (room: string) => rooms.add(room), emit: jest.fn(), disconnect: jest.fn(),
+      to: jest.fn().mockReturnValue({ emit: broadcast }),
+    } as any;
+    jwt.verify.mockReturnValue({ sub: 'user-1', authVersion: 0, unihubSid: 'active' });
+    await gateway.handleConnection(sender);
+    await gateway.handleJoinPage(sender, { pageId });
+    broadcast.mockClear();
+
+    let startVerification!: () => void;
+    let finishVerification!: (value: object) => void;
+    const checkingFirst = new Promise<void>((resolve) => { startVerification = resolve; });
+    auth.validateJwtUser.mockImplementationOnce(() => {
+      startVerification();
+      return new Promise((resolve) => { finishVerification = resolve; });
+    });
+
+    const first = gateway.handleContentChange(sender, { pageId, content: 'first', version: 1 });
+    await checkingFirst;
+    await gateway.handleContentChange(sender, { pageId, content: 'second', version: 2 });
+    finishVerification({ userId: 'user-1', name: 'Alice', authVersion: 0 });
+    await first;
+
+    expect(broadcast.mock.calls).toEqual([
+      ['contentUpdated', { content: 'second', version: 2, userId: sender.id }],
+    ]);
+  });
+
+  it.each([
+    ['UniHub', 'recipient'], ['UniHub', 'sender'], ['native', 'recipient'], ['native', 'sender'],
+  ])('rechecks a revoked %s %s before content delivery with a warm room lease', async (credentialKind, revokedRole) => {
     const sockets: ReturnType<typeof createSocket>[] = [];
     const pageId = 'page-1';
     function createSocket(id: string) {
       const rooms = new Set([id]);
       const socket = {
-        id, rooms, data: {}, handshake: { auth: { token: id } }, emit: jest.fn(),
+        id, rooms, connected: true, data: {}, handshake: { auth: { token: id } }, emit: jest.fn(),
         join: jest.fn((room: string) => rooms.add(room)),
         leave: jest.fn((room: string) => rooms.delete(room)),
         disconnect: jest.fn(() => {
+          socket.connected = false;
           rooms.clear();
           gateway.handleDisconnect(socket as any);
         }),
@@ -582,12 +682,14 @@ describe('CollaborationGateway authentication', () => {
     const recipient = createSocket('recipient');
     const legacy = createSocket('legacy');
     sockets.push(sender, recipient, legacy);
+    auth.nativeJwtRevocationEnabled = credentialKind === 'native';
+    const revokedId = createHash('sha256').update(revokedRole).digest('hex');
     jwt.verify.mockImplementation((id: string) => ({
-      sub: id, authVersion: 0, unihubSid: id === revokedRole ? 'revocable' : undefined,
+      sub: id, authVersion: 0, unihubSid: credentialKind === 'UniHub' && id === revokedRole ? 'revocable' : undefined,
     }));
     let revoked = false;
-    auth.validateJwtUser.mockImplementation(async (userId: string, sid?: string) =>
-      revoked && sid === 'revocable' ? null : { userId, name: userId, authVersion: 0 });
+    auth.validateJwtUser.mockImplementation(async (userId: string, sid?: string, fingerprint?: string) =>
+      revoked && (sid === 'revocable' || fingerprint === revokedId) ? null : { userId, name: userId, authVersion: 0 });
     (gateway as any).server.in.mockReturnValue({
       fetchSockets: jest.fn(async () => sockets.filter((socket) => socket.rooms.has(pageId))),
     });

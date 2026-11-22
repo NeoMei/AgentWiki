@@ -1,6 +1,7 @@
 import { Injectable, ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AuthService } from './auth.service';
+import { fingerprintNativeJwt } from './unihub/unihub-native-session.service';
 import { AuditService } from '../security/audit.service';
 
 @Injectable()
@@ -21,7 +22,10 @@ export class CombinedAuthGuard {
       const token = authHeader.substring(7);
       try {
         const payload = this.jwtService.verify(token);
-        const principal = await this.authService.validateJwtUser(payload.sub, payload.unihubSid);
+        const fingerprint = payload.unihubSid === undefined && this.authService.nativeJwtRevocationEnabled
+          ? fingerprintNativeJwt(token)
+          : undefined;
+        const principal = await this.authService.validateJwtUser(payload.sub, payload.unihubSid, fingerprint);
         if (!principal) {
           jwtError = 'Token payload is no longer valid';
         } else if (payload.authVersion !== undefined && principal.authVersion !== undefined && payload.authVersion !== principal.authVersion) {

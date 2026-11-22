@@ -1,6 +1,7 @@
 import React from 'react';
+import api from '../../api/client';
 import { AuthProvider, useAuth } from '../../context/AuthContext';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Link, RouterProvider, createMemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -139,13 +140,20 @@ describe('workspaceNavigation', () => {
     expect(readWorkspacePosition('bounded-100', 'bounded-page')).toEqual(position);
   });
 
-  it.each(['switch user', 'logout'])('clears positions on %s', (action) => {
+  it.each(['switch user', 'logout'])('clears positions on %s', async (action) => {
     localStorage.clear();
     const position = { pageId: 'shared-page', cursorOffset: 12, headingId: null, headingText: 'Private position label', sourceOffset: 12, scrollTop: 80 };
+    let acknowledgeLogout: (() => void) | undefined;
+    if (action === 'logout') {
+      vi.spyOn(api, 'post').mockImplementation(async () => {
+        await new Promise<void>((resolve) => { acknowledgeLogout = resolve; });
+        return { data: undefined };
+      });
+    }
     const AuthHarness = () => {
       const auth = useAuth();
       return React.createElement('button', { onClick: () => {
-        if (action === 'logout') auth.logout();
+        if (action === 'logout') void auth.logout();
         else auth.login('token-b', { id: 'user-b' });
       } }, 'Change session');
     };
@@ -159,6 +167,19 @@ describe('workspaceNavigation', () => {
     expect(readWorkspacePosition('shared-entry', 'shared-page')).toBeNull();
     oldSessionRecorder('shared-entry', position);
     expect(readWorkspacePosition('shared-entry', 'shared-page')).toBeNull();
+    if (action === 'logout') {
+      expect(acknowledgeLogout).toBeTypeOf('function');
+      expect(localStorage.getItem('token')).toBe('token-a');
+      const pendingLogoutRecorder = createWorkspacePositionRecorder();
+      pendingLogoutRecorder('pending-entry', position);
+      expect(readWorkspacePosition('pending-entry', 'shared-page')).toEqual(position);
+
+      await act(async () => { acknowledgeLogout!(); });
+      expect(localStorage.getItem('token')).toBeNull();
+      expect(readWorkspacePosition('pending-entry', 'shared-page')).toBeNull();
+      pendingLogoutRecorder('pending-entry', position);
+      expect(readWorkspacePosition('pending-entry', 'shared-page')).toBeNull();
+    }
     createWorkspacePositionRecorder()('new-session-entry', position);
     expect(readWorkspacePosition('new-session-entry', 'shared-page')).toEqual(position);
     localStorage.clear();

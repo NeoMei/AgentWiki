@@ -45,7 +45,7 @@ export class UniHubSessionService {
       throw new UnauthorizedException('UniHub identity binding is unavailable');
     }
     const { sid } = await this.prisma.uniHubUserSession.create({
-      data: { userId, centralUserId, sourceProofToken, expiresAt: expiry },
+      data: { userId, centralUserId, sourceProofToken, expiresAt: expiry, generation: this.client.sessionGeneration },
       select: { sid: true },
     });
     return { sid, expiresAt };
@@ -61,7 +61,7 @@ export class UniHubSessionService {
   async verify(sid: string, userId: string): Promise<boolean> {
     if (!this.client.allowsLocalUser(userId)) return false;
     const session = await this.prisma.uniHubUserSession.findUnique({
-      where: { sid, userId, revokedAt: null, expiresAt: { gt: new Date() } },
+      where: { sid, userId, generation: this.client.sessionGeneration, revokedAt: null, expiresAt: { gt: new Date() } },
       select: { centralUserId: true, sourceProofToken: true },
     });
     if (!session) return false;
@@ -79,7 +79,7 @@ export class UniHubSessionService {
     // A logout or definitive denial can land while UniHub is responding.
     const now = new Date();
     const updated = await this.prisma.uniHubUserSession.updateMany({
-      where: { sid, userId, revokedAt: null, expiresAt: { gt: now } },
+      where: { sid, userId, generation: this.client.sessionGeneration, revokedAt: null, expiresAt: { gt: now } },
       data: { lastVerifiedAt: now },
     });
     return updated.count === 1;

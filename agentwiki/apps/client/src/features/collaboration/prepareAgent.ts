@@ -1,3 +1,4 @@
+import { isCancel } from 'axios';
 import {
   apiResponseStatus,
   hasAgentExecutionAuthorization,
@@ -73,6 +74,7 @@ export async function prepareAgent(
   api: AgentPreparationApi,
   onStage: (stage: PreparationStage) => void = () => undefined,
 ): Promise<PreparedAgent> {
+  api = api.pin?.() ?? api;
   let agent: AgentIdentity | undefined = input.resume?.agent;
   let source: AgentPreparationProgress['source'] = input.resume?.source
     ?? (input.candidate?.kind === 'new' ? 'created' : 'existing');
@@ -131,7 +133,7 @@ export async function prepareAgent(
       };
     }
   } catch (error) {
-    const progress = agent && stage !== 'creating'
+    const progress = agent && stage !== 'creating' && !isCancel(error)
       ? { agent, resumeFrom: stage as PreparationResumeStage, role, source, spaceId }
       : undefined;
     throw new AgentPreparationFailure(stage, error, progress);
@@ -149,6 +151,7 @@ export async function prepareAgent(
       connection: { kind: 'waiting', installation },
     };
   } catch (error) {
+    if (isCancel(error)) throw new AgentPreparationFailure(stage, error);
     return {
       agentId: agent.id,
       agentName: agent.name,

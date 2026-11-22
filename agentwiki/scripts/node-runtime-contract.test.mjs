@@ -640,7 +640,7 @@ test('every active local-sync release surface uses the package version', async (
     'apps/client/e2e/local-sync.spec.ts',
     'apps/client/e2e/onboarding-device.spec.ts',
     'apps/server/.env.example',
-    'apps/server/src/onboard/onboard.controller.ts',
+    'apps/server/src/core/local-sync-version.ts',
     'docker-compose.yml',
     'packages/local-sync/README.md',
     'packages/local-sync/src/gateway/entry.ts',
@@ -688,7 +688,8 @@ test('every user-facing local-sync surface uses the published npm package name',
     'packages/local-sync/skill/SKILL.md',
     'apps/client/src/config/localSync.ts',
     'apps/client/e2e/local-sync.spec.ts',
-    'apps/server/src/onboard/onboard.controller.ts',
+    'apps/server/src/onboard/onboard-runtime-guide.ts',
+    'apps/server/src/onboard/onboard-runtime-bootstrap.ts',
   ]) {
     const source = await read(path);
     assert.doesNotMatch(source, /@agentwiki\/local-sync/, `${path} must not use the retired npm scope`);
@@ -700,7 +701,10 @@ test('every user-facing local-sync surface uses the published npm package name',
 
 test('the onboard controller advertises the pinned 0.13.6 onboarding command', async () => {
   const source = await read('apps/server/src/onboard/onboard.controller.ts');
-  assert.match(source, /0\.13\.6/, 'onboard controller must reference 0.13.6');
+  const versionSource = await read('apps/server/src/core/local-sync-version.ts');
+  assert.match(versionSource, /CURRENT_LOCAL_SYNC_VERSION = '0\.13\.6'/u);
+  assert.match(source, /const PACKAGE_VERSION = CURRENT_LOCAL_SYNC_VERSION;/u);
+  assert.match(source, /onboardRuntimeGuide\(client, packageVersion\)/u);
   assert.match(source, /onboard start --server/, 'onboard controller must advertise the pinned finite-process onboard command');
   assert.doesNotMatch(source, /connect --server/, 'onboard controller must not advertise the retired connect command');
   assert.doesNotMatch(source, /--orchestrator/, 'onboard controller must not advertise --orchestrator');

@@ -1,9 +1,11 @@
-import { Injectable, InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Optional, UnauthorizedException } from '@nestjs/common';
 import { BusinessException } from '../filters/business-error';
 import { JwtService } from '@nestjs/jwt';
 import { compare, hash } from 'bcryptjs';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
+import { UniHubClient } from './unihub/unihub-client';
+import { UniHubNativeSessionService } from './unihub/unihub-native-session.service';
 import { UniHubSessionService } from './unihub/unihub-session.service';
 import { recordUniHubSourceLifecycle, shouldRecordUniHubLifecycle } from './unihub/unihub-lifecycle.service';
 import type { Prisma } from '@prisma/client';
@@ -36,6 +38,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly prisma: PrismaService,
     private readonly unihubSessions?: UniHubSessionService,
+    @Optional() private readonly uniHubClient?: UniHubClient,
   ) {}
 
   async validatePassword(plain: string, hashed: string): Promise<boolean> {
@@ -57,7 +60,9 @@ export class AuthService {
       authVersion: user.authVersion ?? 0,
       passwordChangeRequired: user.mustChangePassword ?? false,
     };
-    if (!session) return this.jwtService.sign(payload);
+    if (!session) {
+      return this.jwtService.sign(user.type === 'human' ? { ...payload, jti: randomUUID() } : payload);
+    }
     const iat = Math.floor(Date.now() / 1_000);
     if (user.type !== 'human' || !session.sid || !Number.isSafeInteger(session.expiresAt) ||
         session.expiresAt <= iat) {
@@ -69,7 +74,11 @@ export class AuthService {
     );
   }
 
-  async validateJwtUser(userId: string, unihubSid?: string): Promise<{
+  get nativeJwtRevocationEnabled(): boolean {
+    return this.uniHubClient?.lifecycleEnabled === true;
+  }
+
+  async validateJwtUser(userId: string, unihubSid?: string, nativeFingerprint?: string): Promise<{
     userId: string;
     email: string;
     name?: string;
@@ -78,6 +87,13 @@ export class AuthService {
     authVersion?: number;
     mustChangePassword?: boolean;
   } | null> {
+    if (unihubSid !== undefined &&
+        (typeof unihubSid !== 'string' || !unihubSid || !await this.unihubSessions?.verify(unihubSid, userId))) {
+      return null;
+    }
+    if (unihubSid === undefined && nativeFingerprint !== undefined && this.nativeJwtRevocationEnabled &&
+        await UniHubNativeSessionService.isRevoked(this.prisma, userId, nativeFingerprint)) return null;
+    // Local account state can change while UniHub verifies the source session.
     const user = await this.prisma.user.findUnique({
       where: { id: userId, deletedAt: null, type: 'human' },
       select: {
@@ -86,10 +102,6 @@ export class AuthService {
       },
     });
     if (!user || user.lockedAt) return null;
-    if (unihubSid !== undefined &&
-        (typeof unihubSid !== 'string' || !unihubSid || !await this.unihubSessions?.verify(unihubSid, userId))) {
-      return null;
-    }
     return {
       userId: user.id,
       email: user.email,

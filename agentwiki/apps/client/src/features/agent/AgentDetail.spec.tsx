@@ -6,7 +6,8 @@ import { AuthProvider } from '../../context/AuthContext';
 import { LanguageProvider } from '../../context/LanguageContext';
 import { AgentDetail } from './AgentDetail';
 
-vi.mock('../../api/client', () => ({
+vi.mock('../../api/client', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../api/client')>(),
   default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), put: vi.fn(), delete: vi.fn() },
 }));
 

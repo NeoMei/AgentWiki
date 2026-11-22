@@ -5,18 +5,19 @@ import { UniHubController } from './unihub.controller';
 describe('UniHub callback flow ownership', () => {
   const cookie = 'a'.repeat(43);
   const confirmationId = createHash('sha256').update(cookie).digest('hex');
+  const generation = 'flow-test';
 
   function fixture() {
-    const currentFlow = { mode: 'sso', code: 'fixture-code', nonce: 'nonce', state: 'state', verifier: 'verifier' };
+    const currentFlow = { mode: 'sso', generation, code: 'fixture-code', nonce: 'nonce', state: 'state', verifier: 'verifier' };
     const redis = {
       getStrict: jest.fn().mockResolvedValue(JSON.stringify(currentFlow)),
       deleteIfValueMatches: jest.fn().mockResolvedValue(true),
     };
     const client = {
-      enabled: true, hasPilotUsers: true, callbackURL: 'https://wiki.test/api/auth/unihub/callback',
+      enabled: true, hasPilotUsers: true, sessionGeneration: generation, callbackURL: 'https://wiki.test/api/auth/unihub/callback',
       request: jest.fn().mockRejectedValue(new Error('unexpected exchange')),
     };
-    const controller = new UniHubController(client as never, redis as never, {} as never, {} as never, {} as never, {} as never);
+    const controller = new UniHubController(client as never, redis as never, {} as never, {} as never, {} as never, {} as never, {} as never);
     const req = { headers: { cookie: 'agentwiki_unihub_flow=' + cookie }, query: {} } as Request;
     const res = { set: jest.fn(), clearCookie: jest.fn() } as unknown as Response;
     return { controller, redis, client, req, res };
@@ -37,6 +38,15 @@ describe('UniHub callback flow ownership', () => {
     expect(redis.deleteIfValueMatches).not.toHaveBeenCalled();
   });
 
+  it('rejects a pending flow created before the rollout generation advanced', async () => {
+    const { controller, client, req, res, redis } = fixture();
+    client.sessionGeneration = 'new-rollout';
+    req.query = { flow: confirmationId };
+    await expect(controller.pending(req)).rejects.toMatchObject({ status: 400 });
+    await expect(controller.finish({ mode: 'sso', confirmationId }, req, res)).rejects.toMatchObject({ status: 400 });
+    expect(redis.deleteIfValueMatches).not.toHaveBeenCalled();
+  });
+
   it('checks the callback tab ID before returning the pending SSO flow', async () => {
     const { controller, req } = fixture();
     req.query = { flow: 'b'.repeat(64) };
@@ -49,7 +59,7 @@ describe('UniHub callback flow ownership', () => {
 describe('seamless AgentWiki entry into UniHub', () => {
   const user = { id: 'original-wiki-user', authVersion: 4, email: 'original@example.test', name: 'Original', type: 'human', password: 'stored-hash' };
 
-  function fixture(options: { authVersion?: number; bound?: boolean } = {}) {
+  function fixture(options: { authVersion?: number; bound?: boolean; platformRole?: string } = {}) {
     const sessions = {
       findBinding: jest.fn().mockResolvedValue(options.bound ? { userId: user.id } : null),
       bind: jest.fn().mockResolvedValue(undefined),
@@ -63,10 +73,14 @@ describe('seamless AgentWiki entry into UniHub', () => {
       }),
       browserURL: jest.fn().mockReturnValue('https://hub.test/handoff'),
     };
-    const jwt = { verify: () => ({ sub: user.id, authVersion: options.authVersion, iat: 100 }) };
+    const jwt = { verify: () => ({ sub: user.id, authVersion: options.authVersion, iat: 100, exp: Math.floor(Date.now() / 1000) + 3600 }) };
     const redis = { setStrict: jest.fn().mockResolvedValue(undefined) };
-    const prisma = { user: { findUnique: jest.fn().mockResolvedValue(user) } };
-    const controller = new UniHubController(client as never, redis as never, sessions as never, prisma as never, {} as never, jwt as never);
+    const prisma = {
+      user: { findUnique: jest.fn().mockResolvedValue({ ...user, platformRole: options.platformRole }) },
+      $executeRaw: jest.fn().mockResolvedValue(1),
+    };
+    const nativeSessions = { track: jest.fn().mockResolvedValue(true) };
+    const controller = new UniHubController(client as never, redis as never, sessions as never, prisma as never, {} as never, jwt as never, nativeSessions as never);
     const req = { headers: { authorization: 'Bearer original-native-token' } } as Request;
     const res = { set: jest.fn(), cookie: jest.fn() } as unknown as Response;
     const enter = () => controller.native({ mode: 'auto' }, req, res);
@@ -90,6 +104,12 @@ describe('seamless AgentWiki entry into UniHub', () => {
     expect(sessions.bind).toHaveBeenCalledWith(user.id, 'central-id', 5);
   });
 
+  it('requires fresh native authentication before the first administrator provisioning', async () => {
+    const { enter, client } = fixture({ authVersion: 4, platformRole: 'super_admin' });
+    await expect(enter()).rejects.toMatchObject({ status: 401 });
+    expect(client.request).not.toHaveBeenCalled();
+  });
+
   it.each([undefined, 3])('refuses new automatic provisioning for a missing or stale version (%s)', async (authVersion) => {
     const { enter, client } = fixture({ authVersion });
     await expect(enter()).rejects.toMatchObject({ status: 401 });
@@ -100,12 +120,13 @@ describe('seamless AgentWiki entry into UniHub', () => {
 describe('UniHub return to an active AgentWiki session', () => {
   const cookie = 'c'.repeat(43);
   const confirmationId = createHash('sha256').update(cookie).digest('hex');
+  const generation = 'flow-test';
 
   function fixture(incomingId: string) {
-    const flow = { mode: 'sso', code: 'fixture-code', nonce: 'nonce', state: 'state', verifier: 'verifier', returnTo: '/dashboard' };
+    const flow = { mode: 'sso', generation, code: 'fixture-code', nonce: 'nonce', state: 'state', verifier: 'verifier', returnTo: '/dashboard' };
     const redis = { getStrict: jest.fn().mockResolvedValue(JSON.stringify(flow)), deleteIfValueMatches: jest.fn().mockResolvedValue(true) };
     const client = {
-      enabled: true, hasPilotUsers: true, allowsLocalUser: () => true,
+      enabled: true, hasPilotUsers: true, sessionGeneration: generation, allowsLocalUser: () => true,
       callbackURL: 'https://wiki.test/api/auth/unihub/callback',
       request: jest.fn().mockResolvedValue({
         identity: { binding: { local_user_id: incomingId, user_id: 'center-id' }, auth_version: 5, access: { active: true, permissions: ['product:use'] } },
@@ -115,10 +136,14 @@ describe('UniHub return to an active AgentWiki session', () => {
     const sessions = { bind: jest.fn(), open: jest.fn() };
     const prisma = { user: { findUnique: jest.fn().mockResolvedValue({ id: incomingId, type: 'human', authVersion: 4 }) } };
     const jwt = { verify: () => ({ sub: 'active-user', authVersion: 4 }) };
-    const controller = new UniHubController(client as never, redis as never, sessions as never, prisma as never, auth as never, jwt as never);
+    const controller = new UniHubController(client as never, redis as never, sessions as never, prisma as never, auth as never, jwt as never, {} as never);
     const request = { headers: { cookie: 'agentwiki_unihub_flow=' + cookie, authorization: 'Bearer original' }, query: {} } as Request;
     const response = { set: jest.fn(), clearCookie: jest.fn() } as unknown as Response;
-    return { finish: () => controller.finish({ mode: 'sso', confirmationId, requireSameUser: true }, request, response), sessions };
+    return {
+      finish: (input: { requireSameUser?: boolean; confirmAccountSwitch?: boolean } = { requireSameUser: true }) =>
+        controller.finish({ mode: 'sso', confirmationId, ...input }, request, response),
+      response, sessions,
+    };
   }
 
   it('retains the native JWT when the exchanged code matches the active account', async () => {
@@ -126,6 +151,19 @@ describe('UniHub return to an active AgentWiki session', () => {
     await expect(finish()).resolves.toEqual({ returnTo: '/dashboard' });
     expect(sessions.bind).toHaveBeenCalledWith('active-user', 'center-id', 5);
     expect(sessions.open).not.toHaveBeenCalled();
+  });
+
+  it('preserves a matching original session after a failed match preview and leaves later tab cookies alone', async () => {
+    const { finish, sessions, response } = fixture('active-user');
+    await expect(finish({})).resolves.toEqual({ returnTo: '/dashboard' });
+    expect(sessions.open).not.toHaveBeenCalled();
+    expect(response.clearCookie).not.toHaveBeenCalled();
+  });
+
+  it('requires the explicit switch action when the local account differs', async () => {
+    const { finish, sessions } = fixture('another-user');
+    await expect(finish({})).rejects.toMatchObject({ status: 409 });
+    expect(sessions.bind).not.toHaveBeenCalled();
   });
 
   it('rejects automatic switching to any other AgentWiki account', async () => {

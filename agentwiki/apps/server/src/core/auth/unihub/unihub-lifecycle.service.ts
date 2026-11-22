@@ -24,6 +24,32 @@ export function shouldRecordUniHubLifecycle(): boolean {
   );
 }
 
+/**
+ * Commit this intent before sending the first mapping-capable request to UniHub.
+ * Build the source authentication proof first and use that proof for this attempt.
+ */
+export async function persistUniHubEnrollmentIntent(
+  prisma: PrismaService,
+  userId: string,
+  expectedAuthVersion: number,
+): Promise<boolean> {
+  const recorded = await prisma.$executeRaw`
+    WITH eligible AS (
+      -- Serialize with native account mutations, including a self-delete that
+      -- started a serializable snapshot before the intent was recorded.
+      UPDATE "User" SET "authVersion" = "authVersion"
+      WHERE "id" = ${userId} AND "authVersion" = ${expectedAuthVersion}
+        AND "type" = 'human' AND "lockedAt" IS NULL AND "deletedAt" IS NULL AND NOT "mustChangePassword"
+      RETURNING "id"
+    )
+    INSERT INTO "UniHubEnrollmentIntent" ("userId", "reconcileAfter")
+    -- Allow for UniHub's 60-second proof freshness window and 30-second request deadline.
+    SELECT "id", clock_timestamp() + INTERVAL '2 minutes' FROM eligible
+    ON CONFLICT ("userId") DO UPDATE SET "reconcileAfter" = EXCLUDED."reconcileAfter"
+  `;
+  return recorded === 1;
+}
+
 export async function recordUniHubSourceLifecycle(
   tx: Prisma.TransactionClient,
   userId: string,
@@ -32,10 +58,11 @@ export async function recordUniHubSourceLifecycle(
 ): Promise<void> {
   if (!shouldRecordUniHubLifecycle()) return;
 
-  // Gateway enrollment can commit before its binding is stored in AgentWiki.
   await tx.$executeRaw`
     INSERT INTO "UniHubLifecycleOutbox" ("id", "userId", "previousLocalVersion", "state")
-    VALUES (${randomUUID()}, ${userId}, ${previousLocalVersion}, ${state ?? null})
+    SELECT ${randomUUID()}, ${userId}, ${previousLocalVersion}, ${state ?? null}
+    WHERE EXISTS (SELECT 1 FROM "UniHubIdentityBinding" WHERE "userId" = ${userId})
+       OR EXISTS (SELECT 1 FROM "UniHubEnrollmentIntent" WHERE "userId" = ${userId})
   `;
 }
 
@@ -95,7 +122,7 @@ export class UniHubLifecycleService implements OnModuleInit, OnModuleDestroy {
         `;
         if (!event) return false;
 
-        if (await this.deliver(event)) {
+        if (await this.deliver(tx, event)) {
           await tx.$executeRaw`DELETE FROM "UniHubLifecycleOutbox" WHERE "id" = ${event.id}`;
         } else {
           const delayMs = Math.min(60_000, POLL_INTERVAL_MS * 2 ** Math.min(event.attempts, 6));
@@ -113,7 +140,7 @@ export class UniHubLifecycleService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async deliver(event: LifecycleEvent): Promise<boolean> {
+  private async deliver(tx: Prisma.TransactionClient, event: LifecycleEvent): Promise<boolean> {
     const previous = event.previousLocalVersion + 1;
     const next = previous + 1;
 
@@ -125,24 +152,67 @@ export class UniHubLifecycleService implements OnModuleInit, OnModuleDestroy {
         next_auth_version: next,
         ...(event.state ? { state: event.state } : {}),
       });
-      return receipt?.auth_version === next;
+      if (receipt?.auth_version !== next) return false;
     } catch (error) {
-      if (!(error instanceof UniHubRuntimeError) || error.status !== 409) return false;
+      if (!(error instanceof UniHubRuntimeError) || ![404, 409].includes(error.status)) return false;
+      return this.reconcile(tx, event, next);
     }
 
-    // A native account can first enroll at a version newer than a queued event.
-    // Only the Gateway's exact source status can substantiate supersession.
-    try {
-      const status = await this.client.request<{ local_user_id: string; auth_version: number; state: SourceState }>(
-        '/source-lifecycle/status', { local_user_id: event.userId },
-      );
-      if (status?.local_user_id !== event.userId || !Number.isSafeInteger(status.auth_version) ||
-          !['locked', 'active', 'deleted'].includes(status.state)) return false;
+    await this.observeMapping(tx, event.userId);
+    return true;
+  }
 
-      return status.auth_version > next ||
-        (status.auth_version === next && (event.state === null || event.state === status.state));
+  private async reconcile(tx: Prisma.TransactionClient, event: LifecycleEvent, next: number): Promise<boolean> {
+    let status: { local_user_id?: unknown; found?: unknown; auth_version?: unknown; state?: unknown } | undefined;
+    try {
+      status = await this.client.request<typeof status>('/source-lifecycle/status', { local_user_id: event.userId });
     } catch {
       return false;
     }
+
+    if (status?.local_user_id !== event.userId) return false;
+    const { found, auth_version: version, state } = status;
+    if (found === false) {
+      if (version !== undefined || state !== undefined) return false;
+      return this.retireUnmappedIntent(tx, event.userId);
+    }
+    if ((found !== undefined && found !== true) ||
+        typeof version !== 'number' || !Number.isSafeInteger(version) || version < 1 ||
+        (state !== 'locked' && state !== 'active' && state !== 'deleted')) return false;
+
+    // A native account can first enroll at a version newer than a queued event.
+    await this.observeMapping(tx, event.userId);
+    return version > next || (version === next && (event.state === null || event.state === state));
+  }
+
+  private async observeMapping(tx: Prisma.TransactionClient, userId: string): Promise<void> {
+    await tx.$executeRaw`
+      INSERT INTO "UniHubEnrollmentIntent" ("userId", "reconcileAfter", "mappingObserved")
+      SELECT account."id", CURRENT_TIMESTAMP, TRUE
+      FROM "User" AS account
+      WHERE account."id" = ${userId} AND account."type" = 'human'
+        AND NOT EXISTS (SELECT 1 FROM "UniHubIdentityBinding" WHERE "userId" = account."id")
+      ON CONFLICT ("userId") DO UPDATE SET "mappingObserved" = TRUE
+      WHERE NOT "UniHubEnrollmentIntent"."mappingObserved"
+    `;
+  }
+
+  private async retireUnmappedIntent(tx: Prisma.TransactionClient, userId: string): Promise<boolean> {
+    const [result] = await tx.$queryRaw<Array<{ retire: boolean }>>`
+      WITH bound AS (
+        SELECT 1 FROM "UniHubIdentityBinding" WHERE "userId" = ${userId}
+      ), expired AS (
+        DELETE FROM "UniHubEnrollmentIntent"
+        WHERE "userId" = ${userId} AND NOT "mappingObserved"
+          -- Require the window to have ended before this poll's status lookup.
+          AND "reconcileAfter" <= CURRENT_TIMESTAMP AND NOT EXISTS (SELECT 1 FROM bound)
+        RETURNING "userId"
+      )
+      SELECT NOT EXISTS (SELECT 1 FROM bound)
+        AND (EXISTS (SELECT 1 FROM expired) OR NOT EXISTS (
+          SELECT 1 FROM "UniHubEnrollmentIntent" WHERE "userId" = ${userId}
+        )) AS retire
+    `;
+    return result.retire;
   }
 }

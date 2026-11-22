@@ -8,7 +8,9 @@ import { AuthService } from '../auth.service';
 import type { AuditService } from '../../security/audit.service';
 import { UserService } from '../../user/user.service';
 import { UniHubClient } from './unihub-client';
-import { recordUniHubSourceLifecycle, UniHubLifecycleService } from './unihub-lifecycle.service';
+import {
+  persistUniHubEnrollmentIntent, recordUniHubSourceLifecycle, UniHubLifecycleService,
+} from './unihub-lifecycle.service';
 
 function isolatedDatabase(): boolean {
   const url = process.env.UNIHUB_LIFECYCLE_TEST_DATABASE_URL;
@@ -29,6 +31,7 @@ describeDb('UniHub lifecycle outbox with PostgreSQL', () => {
   const prisma = new PrismaService();
   const userId = 'outbox-local-user';
   const otherUserId = 'outbox-other-user';
+  const absentStatus: GatewayReply = [200, { local_user_id: userId, found: false }];
   const savedEnvironment = new Map([
     ['UNIHUB_IDENTITY_ENABLED', process.env.UNIHUB_IDENTITY_ENABLED],
     ['UNIHUB_IDENTITY_API_ORIGIN', process.env.UNIHUB_IDENTITY_API_ORIGIN],
@@ -117,11 +120,24 @@ describeDb('UniHub lifecycle outbox with PostgreSQL', () => {
   }
 
   async function makeRetriesDue() {
-    await prisma.$executeRaw`UPDATE "UniHubLifecycleOutbox" SET "availableAt" = NOW()`;
+    await prisma.$executeRaw`UPDATE "UniHubLifecycleOutbox" SET "availableAt" = NOW() - INTERVAL '1 second'`;
+  }
+
+  async function expireIntent() {
+    await prisma.$executeRaw`
+      UPDATE "UniHubEnrollmentIntent" SET "reconcileAfter" = NOW() - INTERVAL '1 minute'
+      WHERE "userId" = ${userId}
+    `;
   }
 
   function worker(runtime = client) {
     return new UniHubLifecycleService(prisma, runtime);
+  }
+
+  async function bind(id: string) {
+    await prisma.uniHubIdentityBinding.create({
+      data: { userId: id, centralUserId: 'central-' + id, syncedAuthVersion: 1 },
+    });
   }
 
   async function record(id: string, version: number, state?: 'locked' | 'active' | 'deleted') {
@@ -132,7 +148,51 @@ describeDb('UniHub lifecycle outbox with PostgreSQL', () => {
     await expect(outboxExists()).resolves.toBe(true);
   });
 
+  it('skips unrelated local accounts without creating outbox work', async () => {
+    await record(userId, 0, 'locked');
+    await worker().pollOnce();
+    expect(requests).toEqual([]);
+    await expect(rows()).resolves.toEqual([]);
+  });
+
+  it('does not persist an intent against a stale or unavailable native account', async () => {
+    await expect(persistUniHubEnrollmentIntent(prisma, userId, 1)).resolves.toBe(false);
+    await prisma.user.update({ where: { id: userId }, data: { lockedAt: new Date(), authVersion: 1 } });
+    await expect(persistUniHubEnrollmentIntent(prisma, userId, 1)).resolves.toBe(false);
+    await prisma.user.update({ where: { id: otherUserId }, data: { type: 'agent' } });
+    await expect(persistUniHubEnrollmentIntent(prisma, otherUserId, 0)).resolves.toBe(false);
+    await record(userId, 1);
+    await record(otherUserId, 0);
+    await expect(rows()).resolves.toEqual([]);
+  });
+
+  it('forces an older serializable user mutation to retry and observe the intent', async () => {
+    let snapshotRead!: () => void;
+    let continueMutation!: () => void;
+    const started = new Promise<void>((resolve) => { snapshotRead = resolve; });
+    const paused = new Promise<void>((resolve) => { continueMutation = resolve; });
+    const staleMutation = prisma.$transaction(async (tx) => {
+      await tx.user.findUniqueOrThrow({ where: { id: userId } });
+      snapshotRead();
+      await paused;
+      await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE`;
+      await recordUniHubSourceLifecycle(tx, userId, 0, 'deleted');
+      await tx.user.update({ where: { id: userId }, data: { authVersion: 1, deletedAt: new Date() } });
+    }, { isolationLevel: 'Serializable' });
+
+    try {
+      await Promise.race([started, staleMutation]);
+      await expect(persistUniHubEnrollmentIntent(prisma, userId, 0)).resolves.toBe(true);
+    } finally {
+      continueMutation();
+      await expect(staleMutation).rejects.toThrow(/could not serialize access|write conflict/i);
+    }
+    await new UserService(prisma).remove(userId);
+    await expect(rows()).resolves.toMatchObject([{ userId, previousLocalVersion: 0, state: 'deleted' }]);
+  });
+
   it('records and sends a source transition before any local binding exists', async () => {
+    await expect(persistUniHubEnrollmentIntent(prisma, userId, 0)).resolves.toBe(true);
     await record(userId, 0, 'locked');
     const [event] = await rows();
     await worker().pollOnce();
@@ -144,9 +204,99 @@ describeDb('UniHub lifecycle outbox with PostgreSQL', () => {
       },
     }]);
     await expect(rows()).resolves.toEqual([]);
+    // The receipt substantiates the mapping even if the browser never stores it.
+    await expireIntent();
+    await record(userId, 1, 'active');
+    reply = ({ path }) => path === lifecyclePath ? [404] : absentStatus;
+    await worker().pollOnce();
+    await expect(rows()).resolves.toMatchObject([{ userId, previousLocalVersion: 1, attempts: 1 }]);
+  });
+
+  it('retires an expired intent after authoritative absence for that subject', async () => {
+    await expect(persistUniHubEnrollmentIntent(prisma, userId, 0)).resolves.toBe(true);
+    await record(userId, 0, 'locked');
+    await expireIntent();
+    reply = ({ path }) => path === lifecyclePath ? [404] : absentStatus;
+    await worker().pollOnce();
+    await expect(rows()).resolves.toEqual([]);
+    await record(userId, 1, 'active');
+    await expect(rows()).resolves.toEqual([]);
+  });
+
+  it.each<GatewayReply[]>([
+    [[404]],
+    [[404, { error: 'not_found' }]],
+    [[503]],
+    [[200, { local_user_id: otherUserId, found: false }]],
+    [[200, { local_user_id: userId, found: 'false' }]],
+    [[200, { local_user_id: userId, found: false, auth_version: 2, state: 'active' }]],
+  ])('preserves an expired intent and its queued transition after an inconclusive status %j', async (status) => {
+    await expect(persistUniHubEnrollmentIntent(prisma, userId, 0)).resolves.toBe(true);
+    await record(userId, 0, 'locked');
+    await expireIntent();
+    const [event] = await rows();
+    reply = ({ path }) => path === lifecyclePath ? [404] : status;
+
+    await worker().pollOnce();
+    expect(requests.map(({ path }) => path)).toEqual([lifecyclePath, lifecyclePath + '/status']);
+    await expect(rows()).resolves.toMatchObject([{ id: event.id, userId, attempts: 1 }]);
+    await record(userId, 1, 'active');
+    await expect(rows()).resolves.toMatchObject([
+      { id: event.id, userId, attempts: 1 },
+      { userId, previousLocalVersion: 1, attempts: 0 },
+    ]);
+  });
+
+  it('does not retire an intent renewed during a Gateway absence lookup', async () => {
+    await expect(persistUniHubEnrollmentIntent(prisma, userId, 0)).resolves.toBe(true);
+    await expireIntent();
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id: userId }, data: { authVersion: 1 } });
+      await recordUniHubSourceLifecycle(tx, userId, 0);
+    });
+    let checkingStatus!: () => void;
+    let returnAbsence!: () => void;
+    const statusStarted = new Promise<void>((resolve) => { checkingStatus = resolve; });
+    const responsePaused = new Promise<void>((resolve) => { returnAbsence = resolve; });
+    reply = async ({ path }) => {
+      if (path === lifecyclePath) return [404];
+      checkingStatus();
+      await responsePaused;
+      return absentStatus;
+    };
+
+    const polling = worker().pollOnce();
+    try {
+      await Promise.race([statusStarted, polling.then(() => { throw new Error('missing status lookup'); })]);
+      await expect(persistUniHubEnrollmentIntent(prisma, userId, 1)).resolves.toBe(true);
+    } finally {
+      returnAbsence();
+      await polling;
+    }
+    await expect(rows()).resolves.toMatchObject([{ userId, attempts: 1 }]);
+  });
+
+  it('retains a Gateway mapping discovered while draining a legacy outbox row', async () => {
+    await prisma.$executeRaw`
+      INSERT INTO "UniHubLifecycleOutbox" ("id", "userId", "previousLocalVersion")
+      VALUES ('legacy-operation', ${userId}, 0)
+    `;
+    await worker().pollOnce();
+    await expect(rows()).resolves.toEqual([]);
+    await record(userId, 1, 'locked');
+    await expect(rows()).resolves.toMatchObject([{ userId, previousLocalVersion: 1 }]);
+  });
+
+  it('keeps a known binding queued when the Gateway returns absence', async () => {
+    await bind(userId);
+    await record(userId, 0, 'deleted');
+    reply = ({ path }) => path === lifecyclePath ? [404] : absentStatus;
+    await worker().pollOnce();
+    await expect(rows()).resolves.toMatchObject([{ userId, attempts: 1 }]);
   });
 
   it('rolls back a lifecycle event with its user mutation', async () => {
+    await bind(userId);
     await expect(prisma.$transaction(async (tx) => {
       await tx.user.update({ where: { id: userId }, data: { authVersion: { increment: 1 } } });
       await recordUniHubSourceLifecycle(tx, userId, 0);
@@ -157,6 +307,7 @@ describeDb('UniHub lifecycle outbox with PostgreSQL', () => {
   });
 
   it('skips recording and polling when the integration is disabled', async () => {
+    await bind(userId);
     await record(userId, 0);
     process.env.UNIHUB_IDENTITY_ENABLED = 'false';
     const disabled = worker(new UniHubClient(new ConfigService()));
@@ -169,6 +320,7 @@ describeDb('UniHub lifecycle outbox with PostgreSQL', () => {
   });
 
   it('keeps syncing native changes when the SSO rollback retains the runtime connection', async () => {
+    await bind(userId);
     const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     process.env.UNIHUB_IDENTITY_ENABLED = 'false';
     process.env.UNIHUB_IDENTITY_API_ORIGIN = origin;
@@ -178,6 +330,7 @@ describeDb('UniHub lifecycle outbox with PostgreSQL', () => {
       expect(runtime.allowsLocalUser(userId)).toBe(false);
       await expect(runtime.request('/browser/exchange', {})).rejects.toMatchObject({ status: 404 });
       await record(userId, 0, 'locked');
+      await record(otherUserId, 0, 'locked');
       await worker(runtime).pollOnce();
       expect(requests).toMatchObject([{
         path: lifecyclePath,
@@ -190,34 +343,41 @@ describeDb('UniHub lifecycle outbox with PostgreSQL', () => {
     }
   });
 
-  it('defers a missing subject and retries the same operation after enrollment', async () => {
+  it('retries the same operation while a recent enrollment may still commit', async () => {
+    await expect(persistUniHubEnrollmentIntent(prisma, userId, 0)).resolves.toBe(true);
+    await bind(otherUserId);
     await record(userId, 0);
     await record(userId, 1, 'locked');
     await record(otherUserId, 0);
-    reply = ({ body }) => body.local_user_id === userId ? [404] : [200, { auth_version: 2 }];
+    reply = ({ path, body }) => {
+      if (body.local_user_id !== userId) return [200, { auth_version: 2 }];
+      return path === lifecyclePath ? [404] : absentStatus;
+    };
     await worker().pollOnce();
-    const original = requests.find(({ body }) => body.local_user_id === userId);
+    const original = requests.find(({ path, body }) => path === lifecyclePath && body.local_user_id === userId);
     expect(original?.body).not.toHaveProperty('state');
-    expect(requests.map(({ body }) => body.local_user_id).sort()).toEqual([userId, otherUserId].sort());
+    expect(requests.filter(({ path }) => path === lifecyclePath).map(({ body }) => body.local_user_id).sort())
+      .toEqual([userId, otherUserId].sort());
     await expect(rows()).resolves.toMatchObject([
       { previousLocalVersion: 0, attempts: 1 }, { previousLocalVersion: 1, attempts: 0 },
     ]);
     await worker().pollOnce();
-    expect(requests).toHaveLength(2);
+    expect(requests).toHaveLength(3);
     await makeRetriesDue();
     reply = ({ body }) => [200, { auth_version: body.next_auth_version }];
     await worker().pollOnce();
-    expect(requests[2]).toEqual(original);
-    expect(requests[3].body).toMatchObject({ previous_auth_version: 2, next_auth_version: 3, state: 'locked' });
+    expect(requests[3]).toEqual(original);
+    expect(requests[4].body).toMatchObject({ previous_auth_version: 2, next_auth_version: 3, state: 'locked' });
     await expect(rows()).resolves.toEqual([]);
   });
 
-  it('unblocks a newer event after exact Gateway status confirms the prior version', async () => {
+  it.each([undefined, true])('unblocks a newer event after exact Gateway status (found: %s)', async (found) => {
+    await bind(userId);
     await record(userId, 0, 'locked');
     await record(userId, 1, 'active');
     await record(userId, 2, 'deleted');
     reply = ({ path, body }) => path === lifecyclePath + '/status'
-      ? [200, { local_user_id: userId, auth_version: 3, state: 'active' }]
+      ? [200, { local_user_id: userId, found, auth_version: 3, state: 'active' }]
       : body.next_auth_version === 4 ? [200, { auth_version: 4 }] : [409];
     await worker().pollOnce();
     expect(requests.map(({ path, body }) => [path, body.next_auth_version ?? body.local_user_id])).toEqual([
@@ -235,6 +395,7 @@ describeDb('UniHub lifecycle outbox with PostgreSQL', () => {
     ['Gateway behind', [409] as GatewayReply, [200, { local_user_id: userId, auth_version: 1, state: 'active' }] as GatewayReply],
     ['same version with different state', [409] as GatewayReply, [200, { local_user_id: userId, auth_version: 2, state: 'active' }] as GatewayReply],
   ])('keeps later events pending after %s', async (_label, transition, status) => {
+    await bind(userId);
     await record(userId, 0, 'locked');
     await record(userId, 1, 'active');
     reply = ({ path }) => path === lifecyclePath ? transition : status;
@@ -246,6 +407,7 @@ describeDb('UniHub lifecycle outbox with PostgreSQL', () => {
   });
 
   it('keeps one user in order while another worker claims a different user', async () => {
+    await bind(userId);
     await record(userId, 0, 'locked');
     await record(userId, 1, 'active');
     let notifyArrival!: () => void;
@@ -259,6 +421,7 @@ describeDb('UniHub lifecycle outbox with PostgreSQL', () => {
       }
       return [200, { auth_version: body.next_auth_version }];
     };
+    await bind(otherUserId);
     const first = worker().pollOnce();
     try {
       await Promise.race([arrived, first.then(() => { throw new Error('missing first request'); })]);
@@ -274,6 +437,7 @@ describeDb('UniHub lifecycle outbox with PostgreSQL', () => {
   });
 
   it('records Admin reset, lock, unlock and deletion alongside their auth version changes', async () => {
+    await bind(userId);
     const admin = new PlatformAdminService(
       prisma, new ConfigService(), { record: async () => undefined } as unknown as AuditService,
       new AuthService(new JwtService(), prisma),
@@ -293,6 +457,7 @@ describeDb('UniHub lifecycle outbox with PostgreSQL', () => {
   });
 
   it('records self-deletion as the terminal native state', async () => {
+    await bind(userId);
     await new UserService(prisma).remove(userId);
     await expect(rows()).resolves.toMatchObject([{ userId, previousLocalVersion: 0, state: 'deleted' }]);
   });
