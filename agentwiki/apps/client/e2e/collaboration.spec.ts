@@ -307,7 +307,7 @@ test('owner starts a mapped collaboration run and receives an external API chang
   await expect(page.getByRole('heading', { name: 'Collaboration started' })).toBeVisible();
   await page.getByRole('link', { name: 'Open run dashboard' }).click();
   await expect(page).toHaveURL(new RegExp(`/spaces/${spaceId}/collaboration/runs/${startedRunId}$`, 'u'));
-  await expect(page.getByRole('heading', { name: 'Collaboration run', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: runName, exact: true, level: 1 })).toBeVisible();
   const summary = page.getByTestId('dashboard-section-summary');
   await expect(summary.getByLabel('Running status')).toBeVisible();
   await verifyMobileViewport(page, 'collaboration run dashboard');

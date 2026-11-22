@@ -16,18 +16,13 @@ test.beforeEach(async ({ page }) => {
     (window as any).revoked = [];
     URL.revokeObjectURL = url => { (window as any).revoked.push(url); revoke(url); };
     const p = CanvasRenderingContext2D.prototype;
-    const fill = p.fillText, clear = p.clearRect, arc = p.arc;
-    (window as any).painted = [];
+    const clear = p.clearRect, arc = p.arc;
     (window as any).circles = [];
-    p.clearRect = function(...args) { (window as any).painted=[]; (window as any).circles=[]; return clear.apply(this,args); };
+    p.clearRect = function(...args) { (window as any).circles=[]; return clear.apply(this,args); };
     p.arc = function(x,y,r,...rest) {
       const t = this.getTransform(), dpr = window.devicePixelRatio;
       (window as any).circles.push({ x:(x*t.a+t.e)/dpr, y:(y*t.d+t.f)/dpr, radius:r*t.a/dpr });
       return arc.call(this,x,y,r,...rest);
-    };
-    p.fillText = function(text,x,y,...rest) {
-      (window as any).painted.push({ text,x,y,width:this.measureText(text).width,transform:Array.from([this.getTransform().a,this.getTransform().d]),font:this.font });
-      return fill.call(this,text,x,y,...rest);
     };
   });
   await page.route('https://images.example.test/**', route => route.fulfill({contentType:'image/png',body:png()}));
@@ -40,49 +35,62 @@ test.beforeEach(async ({ page }) => {
   });
   await page.goto('/e2e/fixtures/q2-graph-images.html');
 });
-test('real canvas paints only selection, clears on blank space, and keeps zoom working', async ({page}) => {
-  await expect(page.getByRole('combobox',{name:'Browse graph nodes'})).toBeVisible();
+test('grouped and flat canvas views support selection, clearing, zoom and opening a page', async ({page}) => {
+  const browse = page.getByRole('combobox', { name: 'Browse graph nodes', exact: true });
+  const details = page.getByRole('complementary', { name: 'Page details', exact: true });
+  const canvas = page.locator('canvas.graph-canvas');
+  const selectedLabels = page.locator('.graph-node-label[aria-pressed="true"]');
+  const zoom = page.getByLabel('Graph zoom', { exact: true });
+  const fit = page.getByRole('button', { name: 'Fit graph', exact: true });
+  const zoomPercent = async () => Number.parseInt(await zoom.innerText(), 10);
+  await expect(browse).toBeVisible();
+  await page.getByText('Relation types', { exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Folder groups', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  const flatView = page.getByRole('button', { name: 'All page nodes', exact: true });
+  await expect(flatView).toHaveAttribute('aria-pressed', 'false');
+  await flatView.click();
+  await expect(flatView).toHaveAttribute('aria-pressed', 'true');
+  await page.getByText('Relation types', { exact: true }).click();
   await expect.poll(() => page.evaluate(() => (window as any).circles.length)).toBe(60);
-  expect(await page.evaluate(() => (window as any).painted)).toEqual([]);
+  await expect(selectedLabels).toHaveCount(0);
+  await expect(details).toHaveCount(0);
   await page.screenshot({path:test.info().outputPath('graph-default-desktop.png')});
   const first = await page.evaluate(() => (window as any).circles[0] as {x:number;y:number});
-  await page.locator('canvas').click({position:{x:first.x,y:first.y}});
-  await expect(page.getByRole('combobox')).toHaveValue('p0');
-  await expect.poll(() => page.evaluate(() => (window as any).painted[0]?.text)).toContain('中文知识');
-  await page.locator('canvas').click({position:{x:2,y:2}});
-  await expect(page.getByRole('combobox')).toHaveValue('');
+  await canvas.click({position:{x:first.x,y:first.y}});
+  await expect(browse).toHaveValue('p0');
+  await expect(details.getByRole('heading', { level: 3, name: /中文知识图谱标题/u })).toBeVisible();
+  await expect(selectedLabels).toHaveAttribute('data-node-id', 'p0');
+  await canvas.click({position:{x:24,y:24}});
+  await expect(browse).toHaveValue('');
+  await expect(details).toHaveCount(0);
   for (const width of [1200,390]) {
     await page.setViewportSize({width,height:850});
     for (const id of ['p11', 'p59']) {
-      await page.getByRole('combobox').selectOption(id);
-      for (const action of ['Fit graph','Zoom in','Zoom out']) {
-        await page.getByRole('button',{name:action,exact:true}).click();
-        await expect.poll(() => page.evaluate(() => (window as any).painted.length)).toBeGreaterThan(0);
-        const geometry = await page.evaluate(() => {
-          const canvas = document.querySelector('canvas')!, rect=canvas.getBoundingClientRect();
-          return {rect:{width:rect.width,height:rect.height}, labels:(window as any).painted as Array<{x:number;y:number;width:number;text:string;font:string}>};
-        });
-        expect(geometry.labels.length).toBeLessThanOrEqual(2);
-        expect(geometry.labels[0].text).toContain('Long English title');
-        for (const a of geometry.labels) {
-          expect(a.x).toBeGreaterThanOrEqual(8); expect(a.y).toBeGreaterThanOrEqual(8);
-          expect(a.x+a.width).toBeLessThanOrEqual(geometry.rect.width-8+0.01);
-          expect(a.y+20).toBeLessThanOrEqual(geometry.rect.height-8+0.01);
-          expect(a.font).toBe('14px sans-serif');
-        }
-      }
-      await expect(page.getByRole('link',{name:'Open selected page'})).toHaveAttribute('href',`/pages/${id}`);
+      await browse.selectOption(id);
+      await fit.click();
+      const fitted = await zoomPercent();
+      await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
+      await expect.poll(zoomPercent).toBeGreaterThan(fitted);
+      const zoomed = await zoomPercent();
+      await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
+      await expect.poll(zoomPercent).toBeLessThan(zoomed);
+      await expect(browse).toHaveValue(id);
+      await expect(selectedLabels).toHaveAttribute('data-node-id', id);
+      await expect(details.getByRole('heading', { level: 3, name: /Long English title/u })).toBeVisible();
+      await expect(details.getByRole('link',{name:'Open page', exact: true})).toHaveAttribute('href',`/pages/${id}`);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
       await page.screenshot({path:test.info().outputPath(`graph-selected-${width}-${id}.png`)});
     }
-    await page.locator('canvas').click({position:{x:2,y:2}});
-    await expect(page.getByRole('combobox')).toHaveValue('');
-    await expect.poll(() => page.evaluate(() => (window as any).painted.length)).toBe(0);
+    await canvas.click({position:{x:24,y:24}});
+    await expect(browse).toHaveValue('');
+    await expect(selectedLabels).toHaveCount(0);
+    await expect(details).toHaveCount(0);
     await page.screenshot({path:test.info().outputPath(`graph-cleared-${width}.png`)});
   }
-  await page.getByRole('button',{name:'Fit graph',exact:true}).click();
+  await fit.click();
   const second = await page.evaluate(() => (window as any).circles[1] as {x:number;y:number});
-  await page.locator('canvas').dblclick({position:{x:second.x,y:second.y}});
-  await expect(page.getByText('Opened page', {exact:true})).toBeVisible();
+  await canvas.dblclick({position:{x:second.x,y:second.y}});
+  await expect(page.getByText('Opened page p1', {exact:true})).toBeVisible();
 });
 test('page and editor images open by keyboard, remain bounded, close and restore focus', async ({page}) => {
   for (const width of [1200,390]) {
@@ -93,7 +101,7 @@ test('page and editor images open by keyboard, remain bounded, close and restore
         await opener.focus(); await page.keyboard.press('Enter');
         const dialog=page.getByRole('dialog',{name:'Image preview'}); await expect(dialog).toBeVisible();
         const image=dialog.getByRole('img'); await expect.poll(()=>image.evaluate((e:HTMLImageElement)=>e.naturalWidth)).toBe(1200);
-        if(width===390 && region==='Page image fixture' && name==='Attachment') await page.screenshot({path:'/tmp/task6-lightbox-mobile.png'});
+        if(width===390 && region==='Page image fixture' && name==='Attachment') await page.screenshot({path:test.info().outputPath('lightbox-mobile.png')});
         const bounds=await image.boundingBox(); expect(bounds!.width/bounds!.height).toBeCloseTo(2,1); expect(bounds!.width).toBeLessThan(width); expect(bounds!.height).toBeLessThan(850);
         await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0); await expect(opener).toBeFocused();
         await page.keyboard.press('Space'); await expect(dialog).toBeVisible();

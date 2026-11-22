@@ -1,5 +1,7 @@
 /** Local-only in-memory HTTP API. This fixture does not implement or prove production authorization. */
 import http from 'node:http';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 const spaceId = 'template-preview-space';
 const stamp = '2026-10-19T06:00:00.000Z';
 const daily = '# 日报\n\n## 今日成果\n\n| 工作事项 | 进度 | 负责人 |\n| --- | --- | --- |\n| 模板预览修复 | 已完成 | 项目团队 |\n| 自定义模板入口 | 验证中 | 产品团队 |\n\n## 明日计划\n\n- [x] 核对模板实际内容\n- [ ] 完成用户验收\n\n## 风险与依赖\n\n记录阻塞事项、协作需求以及下一步安排。';
@@ -23,7 +25,7 @@ const nodesFor = (template, input = {}) => template.kind === 'single_page'
     { nodeId: 'project-overview', parentNodeId: 'project-root', kind: 'page', order: 0, title: '项目概览', content: '# 项目概览\n\n## 项目目标\n\n这是页面组的第一篇内容。\n\n- [ ] 明确目标与范围' },
     { nodeId: 'project-risks', parentNodeId: 'project-root', kind: 'page', order: 1, title: '风险清单', content: '# 风险清单\n\n这是页面组的第二篇内容。\n\n| 风险 | 应对方案 |\n| --- | --- |\n| 资源不足 | 提前协调 |' },
   ];
-const server = http.createServer(async (request, response) => {
+export const templatePreviewServer = http.createServer(async (request, response) => {
   const url = new URL(request.url || '/', 'http://127.0.0.1');
   const send = (status, value) => { response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); response.end(JSON.stringify(value)); };
   let input = {};
@@ -73,4 +75,6 @@ const server = http.createServer(async (request, response) => {
     return send(404, { message: `Unsupported synthetic request: ${request.method} ${url.pathname}` });
   } catch (error) { return send(500, { message: error.message }); }
 });
-server.listen(3424, '127.0.0.1', () => console.log('Template UI fixture API listening on http://127.0.0.1:3424 (synthetic data only)'));
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  templatePreviewServer.listen(3424, '127.0.0.1', () => console.log('Template UI fixture API listening on http://127.0.0.1:3424 (synthetic data only)'));
+}

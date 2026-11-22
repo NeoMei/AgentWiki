@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
+import { expectPinnedRuntimePreparation, localSyncPackage } from './fixtures/local-sync-runtime';
 
 const enabled = process.env.AGENTWIKI_LOCAL_SYNC_E2E === '1';
 const apiUrl = (process.env.AGENTWIKI_API_URL ?? 'http://127.0.0.1:3000/api').replace(/\/$/u, '');
@@ -83,7 +84,7 @@ test.describe('local sync enrollment card', () => {
     await cleanupFixture(request, fixture);
   });
 
-  test('logs in and generates, copies, and shows expiry for a one-shot instruction', async ({ page }) => {
+  test('logs in and generates, copies, and shows expiry for a one-shot instruction', async ({ page, request }) => {
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
     await page.goto('/?intent=workspace#login');
     await page.getByPlaceholder(/email|邮箱/i).fill(fixture.email);
@@ -94,20 +95,34 @@ test.describe('local sync enrollment card', () => {
     await page.goto(`/agents/${fixture.agentId}`);
     await page.getByRole('button', { name: /access|访问/i }).click();
     await page.locator('#local-sync-role').selectOption('editor');
+    const installationResponse = page.waitForResponse(response =>
+      response.request().method() === 'POST'
+      && new URL(response.url()).pathname === `/api/agents/${fixture.agentId}/local-sync-installations`);
     await page.getByRole('button', { name: /generate unified gateway instructions|生成统一网关接入指令/i }).click();
+    const installation = await installationResponse;
+    expect(installation.ok()).toBe(true);
+    const { code, expiresAt } = await installation.json() as { code: string; expiresAt: string };
+    expect(/^AW-[A-Z0-9-]{24}$/u.test(code)).toBe(true);
+    expect(Date.parse(expiresAt)).toBeGreaterThan(Date.now());
 
     const instructions = page.locator('pre');
-    await expect(instructions).toContainText('@neomei/agentwiki-local-sync@0.13.6');
-    await expect(instructions).toContainText('onboard --server');
-    await expect(instructions).toContainText('--code AW-');
+    await expect(instructions).toBeVisible();
+    const apiOrigin = new URL('/api', page.url()).href;
+    const displayed = await instructions.innerText();
+    expect(displayed).toContain(`Agent ID "${fixture.agentId}" and Space ID "${fixture.spaceId}"`);
+    expect(displayed).toContain(`${apiOrigin}/onboard/runtime?client=<host-client>&packageVersion=${localSyncPackage.version}`);
+    expect(displayed.split('\n').includes(
+      `<nodePath> <cliPath> onboard --server ${apiOrigin} --code ${code} --protocol ndjson --agent <host-client>`,
+    )).toBe(true);
+    expect(displayed).not.toMatch(/^\s*(?:npx|npm exec)\b/mu);
     await expect(instructions).not.toContainText('connect --server');
-    await expect(instructions).toContainText('AW-');
     await expect(instructions).not.toContainText('agk_');
     await expect(instructions).not.toContainText('syncDeviceCredential');
     await expect(instructions).not.toContainText('human device credential');
 
     await page.getByRole('button', { name: /copy instructions|复制接入指令/i }).click();
-    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('@neomei/agentwiki-local-sync@0.13.6');
+    await expect.poll(async () => await page.evaluate(() => navigator.clipboard.readText()) === displayed).toBe(true);
     await expect(page.getByText(/expires in|后过期/i)).toBeVisible();
+    await expectPinnedRuntimePreparation(request, apiOrigin);
   });
 });

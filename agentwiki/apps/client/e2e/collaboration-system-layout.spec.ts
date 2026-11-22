@@ -2,7 +2,7 @@ import { writeFile } from 'node:fs/promises';
 import { test, expect } from '@playwright/test';
 
 /** Local-only synthetic API fixture; this does not exercise production authentication or authorization. */
-test('system composite presentation, pending review header actions and bounded long-text cards', async ({ page }) => {
+test('system composite presentation, page comparison decisions and bounded long-text cards', async ({ page }) => {
   const now = '2026-10-08T00:00:00Z';
   const long = 'LongUnbrokenUserArtifact'.repeat(60);
   const run = {
@@ -45,11 +45,28 @@ test('system composite presentation, pending review header actions and bounded l
     await expect(page.getByRole('heading', { name: '世界观设定', exact: true })).toBeVisible();
     await expect(page.getByText('1. 定义世界规则', { exact: true })).toBeVisible();
     await expect(page.getByText('本次运行冻结负责人: Define world rules')).toBeVisible();
-    expect(await pending.getByRole('button', { name: '通过', exact: true }).count()).toBe(0);
-    await pending.getByRole('button', { name: '加载页面对比' }).click();
     const header = pending.getByTestId('review-card-header');
-    await expect(header.getByRole('button', { name: '通过', exact: true })).toBeVisible();
-    await expect(pending.getByText('证据完整', { exact: true })).toBeVisible();
+    const loadComparison = header.getByRole('button', { name: '加载页面对比', exact: true });
+    await expect(pending.getByRole('button', { name: '通过', exact: true })).toHaveCount(0);
+    await loadComparison.click();
+    const comparison = page.getByRole('dialog', { name: '页面对比', exact: true });
+    const approve = comparison.getByRole('button', { name: '通过', exact: true });
+    await expect(comparison).toBeVisible();
+    await expect(approve).toBeEnabled();
+    await expect(comparison.getByText('证据完整', { exact: true })).toBeVisible();
+    await approve.scrollIntoViewIfNeeded();
+    const dialogBox = (await comparison.boundingBox())!;
+    const approveBox = (await approve.boundingBox())!;
+    expect(dialogBox.x).toBeGreaterThanOrEqual(0);
+    expect(dialogBox.x + dialogBox.width).toBeLessThanOrEqual(width);
+    expect(dialogBox.y).toBeGreaterThanOrEqual(0);
+    expect(dialogBox.y + dialogBox.height).toBeLessThanOrEqual(900);
+    expect(approveBox.y).toBeGreaterThanOrEqual(dialogBox.y);
+    expect(approveBox.y + approveBox.height).toBeLessThanOrEqual(dialogBox.y + dialogBox.height);
+    await expect(comparison.getByRole('link', { name: '关联 ChangeSet: c', exact: true })).toHaveAttribute('href', '/review?spaceId=space-layout&changeSet=c');
+    await comparison.getByRole('button', { name: '关闭', exact: true }).click();
+    await expect(comparison).toHaveCount(0);
+    await expect(loadComparison).toBeFocused();
     if (width < 1000) await page.evaluate(() => window.scrollTo(0, 0));
     const geometry = await page.evaluate(() => {
       const ids = ['summary', 'current-task', 'reviews', 'artifacts', 'activity'];
@@ -64,10 +81,6 @@ test('system composite presentation, pending review header actions and bounded l
       for (const card of geometry.cards.filter(c => c.id !== 'summary')) { expect(card.overflowY).toBe('auto'); expect(card.bottom).toBeLessThanOrEqual(900); }
       const headerBox = await header.boundingBox(); const reviewBox = await reviews.boundingBox();
       expect(headerBox!.y + headerBox!.height).toBeLessThanOrEqual(reviewBox!.y + reviewBox!.height);
-      await reviews.evaluate(el => { el.scrollTop = 120; });
-      const button = await header.getByRole('button', { name: '通过', exact: true }).boundingBox();
-      expect(button!.y).toBeGreaterThanOrEqual(reviewBox!.y);
-      expect(button!.y + button!.height).toBeLessThanOrEqual(reviewBox!.y + reviewBox!.height);
     } else for (const card of geometry.cards) expect(card.overflowY).toBe('visible');
     geometries.push(geometry);
     await page.screenshot({ path: test.info().outputPath(`system-layout-${width}.png`), fullPage: true });
@@ -79,22 +92,27 @@ test('system composite presentation, pending review header actions and bounded l
   await page.getByRole('button', { name: '切换语言', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'World bible', exact: true })).toBeVisible();
   await expect(page.getByText('1. Define world rules', { exact: true })).toBeVisible();
-  await expect(page.getByText('Evidence is complete', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Load page comparison', exact: true }).click();
+  const englishComparison = page.getByRole('dialog', { name: 'Page comparison', exact: true });
+  await expect(englishComparison.getByText('Evidence is complete', { exact: true })).toBeVisible();
+  await englishComparison.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByText('Frozen assignee: Define world rules')).toBeVisible();
   await page.getByRole('button', { name: 'Switch language', exact: true }).click();
   await expect(page.getByRole('heading', { name: '世界观设定', exact: true })).toBeVisible();
-  await expect(page.getByText('证据完整', { exact: true })).toBeVisible();
   conflict = true;
   await page.reload();
   const pending = page.getByTestId('dashboard-section-reviews').locator('article').first();
   await pending.getByRole('button', { name: '加载页面对比' }).click();
-  await expect(pending.getByRole('button', { name: '驳回返工' })).toBeVisible();
-  await expect(pending.getByRole('button', { name: '终止运行' })).toBeVisible();
-  await expect(pending.getByRole('button', { name: '通过', exact: true })).toHaveCount(0);
-  await expect(pending.getByRole('button', { name: '采纳当前页面' })).toBeVisible();
-  await pending.getByRole('button', { name: '基于当前页面重新生成' }).scrollIntoViewIfNeeded();
+  const comparison = page.getByRole('dialog', { name: '页面对比', exact: true });
+  await expect(comparison.getByText('证据完整', { exact: true })).toBeVisible();
+  await expect(comparison.getByRole('button', { name: '驳回返工' })).toBeVisible();
+  await expect(comparison.getByRole('button', { name: '终止运行' })).toBeVisible();
+  await expect(comparison.getByRole('button', { name: '通过', exact: true })).toHaveCount(0);
+  await expect(comparison.getByRole('button', { name: '采纳当前页面' })).toBeVisible();
+  const regenerate = comparison.getByRole('button', { name: '基于当前页面重新生成' });
+  await regenerate.scrollIntoViewIfNeeded();
   await page.screenshot({ path: test.info().outputPath('pre-detected-conflict.png'), fullPage: true });
-  await pending.getByRole('button', { name: '基于当前页面重新生成' }).click();
+  await regenerate.click();
   await expect.poll(() => requests.filter(r => r.startsWith('POST'))).toEqual(['POST /api/spaces/space-layout/collaboration/runs/run-system-layout/tasks/task/page-conflict']);
   await writeFile(test.info().outputPath('geometry.json'), JSON.stringify(geometries, null, 2));
   await test.info().attach('geometry', { body: JSON.stringify(geometries, null, 2), contentType: 'application/json' });

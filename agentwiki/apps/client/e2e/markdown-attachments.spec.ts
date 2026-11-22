@@ -279,8 +279,18 @@ const dispatchImageTransfer = async (
   }, { eventKind: kind, fileName: name, bytes: png.toString('base64') });
 };
 
+const readEditorSource = async (page: Page) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.locator('.cm-content[contenteditable="true"]').focus();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.press('ControlOrMeta+c');
+  const source = await page.evaluate(() => navigator.clipboard.readText());
+  await page.keyboard.press('ArrowRight');
+  return source;
+};
+
 const expectMarker = async (page: Page, marker: string) => {
-  await expect.poll(async () => page.locator('.cm-content').innerText()).toContain(marker);
+  await expect.poll(() => readEditorSource(page)).toContain(marker);
 };
 
 const cleanupFixtures = async () => {
@@ -510,7 +520,7 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
     try {
       await viewerSession.page.goto(`/pages/${anchorPage.id}`);
       await expect(viewerSession.page.getByRole('heading', { name: anchorPage.title })).toBeVisible();
-      await expect(viewerSession.page.getByRole('button', { name: 'Edit' })).toHaveCount(0);
+      await expect(viewerSession.page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
       await expect(viewerSession.page.getByRole('button', { name: 'Image attachments' })).toHaveCount(0);
       const viewerImage = viewerSession.page.getByRole('img', { name: 'same-name.png' });
       await expect(viewerImage).toBeVisible();
@@ -585,7 +595,7 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       await dispatchImageTransfer(page, 'drop', 'coordinate-drop.png');
       await expectMarker(page, '![[assets/coordinate-drop.png]]');
 
-      const draft = await page.locator('.cm-content').innerText();
+      const draft = await readEditorSource(page);
       const markers = [
         '![[assets/same-name (2).png]]',
         '![[assets/same-name.png]]',
@@ -602,16 +612,15 @@ test.describe.serial('Markdown attachments and embeds browser acceptance', () =>
       await expect(page.getByTestId('save-button')).toBeEnabled();
       await page.getByTestId('save-button').click();
       await expect(page.getByRole('status')).toContainText('Saved');
+      const reloadResponse = page.waitForResponse(response =>
+        response.request().method() === 'GET' && new URL(response.url()).pathname === `/api/pages/${editorPage.id}`);
       await page.reload();
-      await expect(page.locator('.cm-content')).toContainText('same-name (2).png');
-      await expect(page.locator('.cm-content')).toContainText('same-name.png');
-      await expect(page.locator('.cm-content')).toContainText('clipboard.png');
-      await expect(page.locator('.cm-content')).toContainText('coordinate-drop.png');
-
-      const persisted = await json<PersistedPage>(
-        await api.get(`pages/${editorPage.id}`, { headers: headers(owner) }),
-        'read saved attachment page',
-      );
+      const reloaded = await reloadResponse;
+      expect(reloaded.status()).toBe(200);
+      const persisted = await reloaded.json() as PersistedPage;
+      // Source lines can be offscreen or rendered as widgets in CodeMirror.
+      // Check the reloaded document, then verify its images in the real Preview.
+      await expect(content).toBeVisible();
       previous = -1;
       for (const marker of markers) {
         const index = persisted.content.indexOf(marker);

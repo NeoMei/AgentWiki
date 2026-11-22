@@ -34,6 +34,9 @@ test('returning owner reads continuation instructions with bounded desktop cards
   await page.route('**/api/review/count', async route => route.fulfill({
     contentType: 'application/json', body: JSON.stringify({ pending: 6 }),
   }));
+  await page.route(url => url.pathname === '/api/notifications', route => route.fulfill({
+    json: { notifications: [], unreadCount: 0 },
+  }));
   await page.route('**/api/spaces/**', async (route) => {
     const url = new URL(route.request().url());
     requests.push(`${route.request().method()} ${url.pathname}`);

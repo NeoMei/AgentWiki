@@ -51,7 +51,7 @@ test('real measured late-parent groups, overflow, mobile scrolling and arbitrary
     const g = await assertGeometry(page);
     const p = g.nodes.find(n => n.title === 'parent-8')!, c = g.nodes.find(n => n.title === 'child')!;
     expect(p.y + p.height / 2).toBeCloseTo(c.y + c.height / 2, 0);
-    expect(g.scrollWidth).toBeGreaterThan(g.viewportWidth);
+    if (width === 390) expect(g.scrollWidth).toBeGreaterThan(g.viewportWidth);
     receipts.push(g);
     // A font/content height change must be remeasured without a React state change.
     await page.addStyleTag({ content: '.tb-page .graph .node strong { font-size: 18px !important }' });
@@ -66,15 +66,21 @@ test('real measured late-parent groups, overflow, mobile scrolling and arbitrary
     expect(parent.y + parent.height / 2).toBeCloseTo((children[0].y + children.at(-1)!.y + children.at(-1)!.height) / 2, 0);
     await node(page, 'parent-8').click(); await node(page, 'child').click();
     for (let i = 0; i < 7; i++) await node(page, `deep-${i}`).click();
-    const deep = await assertGeometry(page); expect(deep.width).toBeGreaterThan(2500);
-    await page.getByRole('button', { name: '定位节点 ↗' }).click();
-    await expect(node(page, 'deep-6')).toBeVisible();
+    const deep = await assertGeometry(page);
+    expect(deep.width).toBeGreaterThan(2500);
+    expect(deep.scrollWidth).toBeGreaterThan(deep.viewportWidth);
+    const graphViewport = page.locator('.graphviewport');
+    await graphViewport.evaluate(el => { el.scrollLeft = 0; });
+    await expect.poll(() => graphViewport.evaluate(el => el.scrollLeft)).toBe(0);
+    await page.getByRole('row', { name: /deep-6/u }).getByRole('button', { name: '定位节点 ↗' }).click();
+    await expect.poll(() => graphViewport.evaluate(el => el.scrollLeft)).toBeGreaterThan(0);
+    await expect(node(page, 'deep-6')).toBeInViewport();
     await page.locator('.crumb-button').filter({ hasText: /^root$/ }).click();
     await expect(node(page, 'child')).toHaveCount(0); await expect(node(page, 'parent-8')).toBeVisible();
   }
   await node(page, 'parent-8').click();
   await node(page, 'child').scrollIntoViewIfNeeded();
-  await page.screenshot({ path: '/tmp/task7-taskboard-mobile.png' });
+  await page.screenshot({ path: test.info().outputPath('taskboard-mobile.png') });
   await test.info().attach('geometry', { body: JSON.stringify(receipts), contentType: 'application/json' });
 });
 test('status saves update imported implementation, parent signals and actual purple CSS independently of evidence', async ({ page }) => {

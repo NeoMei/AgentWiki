@@ -1,7 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { readFileSync } from 'node:fs';
-
-const localSyncPackage = JSON.parse(readFileSync(new URL('../../../packages/local-sync/package.json', import.meta.url), 'utf8')) as { name: string; version: string };
+import { expectPinnedRuntimePreparation, localSyncPackage } from './fixtures/local-sync-runtime';
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -12,6 +10,7 @@ test.beforeEach(async ({ page }) => {
 test('public Agent onboarding guide copies the executable prompt and switches language', async ({
   context,
   page,
+  request,
 }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.goto('/onboard');
@@ -19,19 +18,24 @@ test('public Agent onboarding guide copies the executable prompt and switches la
   await expect(page).toHaveURL(/\/guide\/agent-onboard$/);
   await expect(page.getByRole('heading', { level: 1, name: '连接你的 Agent' })).toBeVisible();
   await page.locator('summary').filter({ hasText: '查看完整提示词' }).click();
-  await expect(page.locator('pre')).toBeVisible();
-  await expect(page.locator('pre')).toContainText(`${localSyncPackage.name}@${localSyncPackage.version}`);
-  await expect(page.locator('pre')).toContainText('onboard start --server');
-  await expect(page.locator('pre')).toContainText('--client codex --protocol json');
-  const displayedPrompt = await page.locator('pre').innerText();
+  const prompt = page.locator('pre');
+  await expect(prompt).toBeVisible();
+  const apiOrigin = new URL('/api', page.url()).href;
+  const displayedPrompt = await prompt.innerText();
+  expect(displayedPrompt).toContain(`${apiOrigin}/onboard/runtime?client=<actual-client>&packageVersion=${localSyncPackage.version}`);
+  expect(displayedPrompt.split('\n')).toEqual(expect.arrayContaining([
+    `<nodePath> <cliPath> onboard start --server '${apiOrigin}' --client <actual-client> --protocol json`,
+    '<nodePath> <cliPath> onboard status --session <sessionId> --protocol json',
+    '<nodePath> <cliPath> onboard continue --session <sessionId> --protocol json',
+    '<nodePath> <cliPath> onboard continue --session <sessionId> --reply-file <absolute-json-file> --protocol json',
+  ]));
+  expect(displayedPrompt).not.toMatch(/^\s*(?:npx|npm exec)\b/mu);
 
   await page.getByRole('button', { name: '复制提示词' }).click();
   await expect(page.getByRole('status')).toHaveText('已复制，粘贴到所选客户端即可开始。');
   const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
   expect(clipboardText).toBe(displayedPrompt);
   expect(clipboardText).toContain('请帮我完成 AgentWiki 接入，并在当前客户端实际读取一篇已知页面来验证。');
-  expect(clipboardText).toContain(`--server '${new URL(page.url()).origin}/api' --client codex --protocol json`);
-  expect(clipboardText).toContain('onboard continue --session <sessionId> --reply-file <absolute-json-file> --protocol json');
 
   await page.getByRole('button', { name: '切换语言' }).click();
   await expect(page.getByRole('heading', {
@@ -39,6 +43,8 @@ test('public Agent onboarding guide copies the executable prompt and switches la
     name: 'Connect your Agent',
   })).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+
+  await expectPinnedRuntimePreparation(request, apiOrigin);
 });
 
 test('390px guide drawer overlays the page without squeezing the onboarding content', async ({ page }) => {

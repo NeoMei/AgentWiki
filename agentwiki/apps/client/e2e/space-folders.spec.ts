@@ -250,10 +250,12 @@ test.describe.serial('space folder hierarchy', () => {
     await page.goto(`/spaces/${spaceId}`);
 
     const rootRow = directory(page).getByTestId(`content-row-${rootFolderId}`);
-    await rootRow.getByLabel(`操作: ${rootFolderName}`, { exact: true }).click();
-    await expect(rootRow.locator('details')).toHaveAttribute('open', '');
-    await rootRow.getByTestId(`content-deletefolder-${rootFolderId}`).click();
-    const dialog = page.getByTestId('folder-delete-dialog');
+    const actions = rootRow.getByRole('button', { name: `操作: ${rootFolderName}`, exact: true });
+    await actions.click();
+    const deleteFolder = rootRow.getByTestId(`content-deletefolder-${rootFolderId}`);
+    await expect(deleteFolder).toHaveAccessibleName('删除文件夹');
+    await deleteFolder.click();
+    const dialog = page.getByRole('dialog', { name: '删除文件夹', exact: true });
     await expect(dialog).toBeVisible();
     await expect(page.getByTestId('folder-delete-impact')).toContainText('1 个子文件夹');
     await expect(page.getByTestId('folder-delete-impact')).toContainText('2 个页面');

@@ -509,7 +509,7 @@ test.describe.serial('page template library', () => {
         name: new RegExp(customTemplateName, 'u'),
       });
       await expect(customTemplate).toBeVisible();
-      await expect(editorSession.page.getByRole('link', { name: 'Manage templates' })).toHaveCount(0);
+      await expect(editorSession.page.getByRole('link', { name: 'Manage custom templates', exact: true })).toHaveCount(0);
       await customTemplate.click();
       await editorSession.page.getByRole('button', { name: 'Next', exact: true }).click();
       await editorSession.page.getByLabel('Title').fill('Editor custom-template page');
@@ -561,9 +561,25 @@ test.describe.serial('page template library', () => {
       await choosePageTemplates(adminSession.page, 'en');
       const adminCatalog = await adminCatalogResponse;
       expect(adminCatalog.status()).toBe(200);
-      expect((await adminCatalog.json() as { capabilities: unknown }).capabilities)
-        .toEqual({ canManage: true, canCreate: true });
-      await expect(adminSession.page.getByRole('link', { name: 'Manage templates' })).toBeVisible();
+      expect((await adminCatalog.json() as { capabilities: unknown }).capabilities).toEqual({
+        canManage: true,
+        canCreate: true,
+        canManageDefinitions: false,
+        canSaveFolderTemplate: false,
+        canBindAgent: true,
+        canStartPageCollaboration: false,
+      });
+      const manageTemplates = adminSession.page.getByRole('link', { name: 'Manage custom templates', exact: true });
+      await expect(manageTemplates).toHaveAttribute('href', `/spaces/${spaceId}/settings/page-templates`);
+      await manageTemplates.click();
+      await adminSession.page.waitForURL(url => url.pathname === `/spaces/${spaceId}/settings/page-templates`);
+      await expect(adminSession.page.getByRole('heading', { name: 'Space page templates', exact: true })).toBeVisible();
+      const adminArticle = customTemplateArticle(adminSession.page);
+      await expect(adminArticle.getByRole('button', { name: `Edit ${customTemplateName}`, exact: true })).toBeVisible();
+      await expect(adminArticle.getByRole('button', { name: `Update content from page ${customTemplateName}`, exact: true })).toBeVisible();
+      await expectNoDocumentOverflow(adminSession.page);
+      await adminSession.page.goBack();
+      await choosePageTemplates(adminSession.page, 'en');
       await adminSession.page.getByRole('button', { name: new RegExp(customTemplateName, 'u') }).click();
       await adminSession.page.getByRole('button', { name: 'Next', exact: true }).click();
       await adminSession.page.getByLabel('Title').fill('Admin custom-template page');
@@ -586,16 +602,6 @@ test.describe.serial('page template library', () => {
         sourceTemplateLocale: 'zh-CN',
       });
       expect(adminPage.content).toContain('Second version');
-
-      await adminSession.page.goto(`/spaces/${spaceId}/settings/page-templates`);
-      const adminArticle = customTemplateArticle(adminSession.page);
-      await expect(adminArticle.getByRole('button', {
-        name: new RegExp(`^Edit ${customTemplateName}$`, 'u'),
-      })).toBeVisible();
-      await expectNoDocumentOverflow(adminSession.page);
-      await expect(adminArticle.getByRole('button', {
-        name: new RegExp(`^Update content from page ${customTemplateName}$`, 'u'),
-      })).toBeVisible();
     } finally {
       await adminSession.context.close();
     }

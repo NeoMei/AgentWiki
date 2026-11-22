@@ -1,18 +1,43 @@
 import { test, expect, type Page } from '@playwright/test';
 import path from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { templatePreviewServer } from './fixtures/template-preview-api.mjs';
 
 // Real React routes + loopback HTTP fixture. These checks are not production or database acceptance.
-const evidence = path.resolve(process.env.TEMPLATE_PREVIEW_EVIDENCE || '../../docs/verification/template-preview-custom-20261019');
+const evidence = () => process.env.TEMPLATE_PREVIEW_EVIDENCE
+  ? path.resolve(process.env.TEMPLATE_PREVIEW_EVIDENCE)
+  : test.info().outputPath('evidence');
 const fixture = '/e2e/fixtures/template-preview.html';
 const managerRoute = '/spaces/template-preview-space/settings/page-templates?folder=reports';
 const problems = new WeakMap<Page, string[]>();
+let fixtureOrigin: string;
 
-test.describe.configure({ mode: 'serial' });
+test.beforeAll(async () => {
+  await new Promise<void>((resolve, reject) => {
+    templatePreviewServer.once('error', reject);
+    templatePreviewServer.listen(0, '127.0.0.1', () => {
+      templatePreviewServer.removeListener('error', reject);
+      resolve();
+    });
+  });
+  const address = templatePreviewServer.address();
+  if (!address || typeof address === 'string') throw new Error('Template preview fixture requires a loopback TCP address');
+  fixtureOrigin = `http://127.0.0.1:${address.port}`;
+});
+test.afterAll(async () => {
+  if (!templatePreviewServer.listening) return;
+  await new Promise<void>((resolve, reject) => templatePreviewServer.close(error => error ? reject(error) : resolve()));
+});
 test.beforeEach(async ({ page, request }) => {
-  await request.post('http://127.0.0.1:3424/__fixture/reset');
-  await mkdir(evidence, { recursive: true });
   problems.set(page, []);
+  const reset = await request.post(fixtureOrigin + '/__fixture/reset', { maxRedirects: 0 });
+  expect(reset.ok()).toBe(true);
+  await mkdir(evidence(), { recursive: true });
+  await page.route(url => url.pathname.startsWith('/api/'), async route => {
+    const url = new URL(route.request().url());
+    const response = await route.fetch({ url: fixtureOrigin + url.pathname + url.search, maxRedirects: 0 });
+    await route.fulfill({ response });
+  });
   page.on('pageerror', error => problems.get(page)!.push(error.message));
   page.on('console', message => { if (message.type() === 'error' || message.type() === 'warning') problems.get(page)!.push(message.text()); });
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -21,7 +46,7 @@ test.afterEach(async ({ page }) => {
   expect(problems.get(page), 'no relevant console errors or warnings').toEqual([]);
   await expect(page.locator('vite-error-overlay')).toHaveCount(0);
 });
-const shot = async (page: Page, name: string) => page.screenshot({ path: path.join(evidence, `${name}.png`), fullPage: false });
+const shot = async (page: Page, name: string) => page.screenshot({ path: path.join(evidence(), `${name}.png`), fullPage: false });
 const overflow = async (page: Page) => expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 const actionVisible = async (page: Page, label: string) => {
   const button = page.getByRole('button', { name: label, exact: true });
@@ -73,7 +98,7 @@ test('preview page selectors keep the shared style through keyboard focus, modal
 
 test('desktop selection renders real Markdown, expanded preview and multi-page switching', async ({ page }) => {
   await page.goto(fixture);
-  await expect(page).toHaveTitle('模板内容预览与自定义管理 · 本地 UI 验证');
+  await expect(page).toHaveTitle('天枢');
   await expect(page.getByRole('heading', { name: '新建内容', exact: true })).toBeVisible();
   await page.getByRole('button', { name: /^日报 系统/u }).click();
   const preview = page.locator('.template-content-preview');
@@ -134,8 +159,8 @@ test('manager creates from saved page, edits, archives, restores and directly us
   await expect(page.getByLabel('标题', { exact: true })).toHaveValue('已保存的项目周报');
   await page.getByRole('button', { name: '创建', exact: true }).click();
   await expect(page.getByRole('heading', { name: '创建完成', exact: true })).toBeVisible();
-  const state = await (await request.get('http://127.0.0.1:3424/__fixture/state')).json();
-  await writeFile(path.join(evidence, 'manager-http-receipt.json'), JSON.stringify(state, null, 2));
+  const state = await (await request.get(fixtureOrigin + '/__fixture/state', { maxRedirects: 0 })).json();
+  await writeFile(path.join(evidence(), 'manager-http-receipt.json'), JSON.stringify(state, null, 2));
   expect(state.created).toHaveLength(1);
   expect(state.created[0].targetParentFolderId).toBe('reports');
   expect(state.created[0].content).toContain('从已保存页面复制的自定义正文。');
