@@ -37,7 +37,7 @@ export function agentWikiReturnTo(input: unknown): string {
         codes.length > 1 || (codes.length === 1 && !/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(codes[0]))) return '/';
   } else if (value.pathname === '/guide/obsidian') {
     if (value.search || (value.hash && value.hash !== '#connect')) return '/';
-  } else if (!/^\/(?:$|(?:spaces|pages|space)(?:\/[a-zA-Z0-9_-]+)*\/?$)/.test(value.pathname)) {
+  } else if (!/^\/(?:$|dashboard$|(?:spaces|pages|space)(?:\/[a-zA-Z0-9_-]+)*\/?$)/.test(value.pathname)) {
     return '/';
   }
   return value.pathname + value.search + value.hash;

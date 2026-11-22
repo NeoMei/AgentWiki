@@ -13,9 +13,9 @@ import { safeUniHubReturnTo, uniHubEntryHref, uniHubRedirectUrl, uniHubStartHref
 import { useUniHubStatus } from './useUniHubStatus';
 
 type ReauthMode = 'link' | 'enroll';
-type NativeMode = ReauthMode | 'open';
+type NativeMode = ReauthMode | 'open' | 'auto';
 
-type PendingFlow = { mode: 'sso'; confirmationId: string } | {
+type PendingFlow = { mode: 'sso'; confirmationId: string; sameUser?: boolean } | {
   mode: 'link';
   confirmationId: string;
   localEmail: string;
@@ -61,13 +61,14 @@ function UniHubCard({ children }: { children: ReactNode }) {
 
 interface UniHubFlowProps {
   bound?: boolean;
+  hubEntry: boolean;
   continuing: boolean;
   confirmationId: string | null;
   failed: boolean;
   returnTo: string | null;
 }
 
-function UniHubFlow({ bound, continuing, confirmationId, failed, returnTo }: UniHubFlowProps) {
+function UniHubFlow({ bound, hubEntry, continuing, confirmationId, failed, returnTo }: UniHubFlowProps) {
   const { token, user, login } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
@@ -76,6 +77,9 @@ function UniHubFlow({ bound, continuing, confirmationId, failed, returnTo }: Uni
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [departing, setDeparting] = useState(false);
+  const [autoFailed, setAutoFailed] = useState(false);
+  const [linkRequired, setLinkRequired] = useState(false);
+  const autoEntry = hubEntry && !continuing && Boolean(token);
   const [pending, setPending] = useState<PendingFlow | null>();
   const cancelled = useRef(false);
   const alive = useRef(false);
@@ -123,6 +127,7 @@ function UniHubFlow({ bound, continuing, confirmationId, failed, returnTo }: Uni
     const finish = action === 'finish';
     if (finish && !pending) return;
     if (localStorage.getItem('token') !== token) {
+      if (action === 'auto') setAutoFailed(true);
       setError(t('unihub.sessionChanged'));
       return;
     }
@@ -134,12 +139,14 @@ function UniHubFlow({ bound, continuing, confirmationId, failed, returnTo }: Uni
         mode: pending?.mode,
         confirmationId: pending?.confirmationId,
         ...(pending?.mode === 'link' ? { centralUserId: pending.centralUserId } : {}),
+        ...(pending?.mode === 'sso' && pending.sameUser === true ? { requireSameUser: true } : {}),
       } : {
         mode: action,
         ...(action !== 'open' && password ? { password } : {}),
       };
       const { data } = await api.post<FinishResult>(finish ? '/auth/unihub/finish' : '/auth/unihub/native', body, {
         headers: token ? { Authorization: 'Bearer ' + token } : undefined,
+        timeout: action === 'auto' ? 8000 : undefined,
       });
       if (!alive.current || localStorage.getItem('token') !== token) return;
 
@@ -168,7 +175,12 @@ function UniHubFlow({ bound, continuing, confirmationId, failed, returnTo }: Uni
       });
     } catch (err) {
       if (!alive.current) return;
-      if ((err as { response?: { status?: number } })?.response?.status === 401 && action !== 'finish' && action !== 'open') {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (action === 'auto') setAutoFailed(true);
+      if (action === 'auto' && status === 409 && bound !== true) {
+        setLinkRequired(true);
+        setError(t('unihub.linkRequired'));
+      } else if (status === 401 && action !== 'finish' && action !== 'open') {
         setError(t('unihub.reauthFailed'));
       } else {
         setError(apiErrorMessage(err, t, 'unihub.requestFailed'));
@@ -179,13 +191,15 @@ function UniHubFlow({ bound, continuing, confirmationId, failed, returnTo }: Uni
         setBusy(false);
       }
     }
-  }, [login, navigate, pending, returnTo, t, token]);
+  }, [bound, login, navigate, pending, returnTo, t, token]);
 
   useEffect(() => {
-    if (pending?.mode !== 'sso' || token || autoAttempted.current) return;
-    autoAttempted.current = true;
-    void submit('finish');
-  }, [pending, submit, token]);
+    if (autoAttempted.current) return;
+    if (autoEntry || (pending?.mode === 'sso' && (!token || pending.sameUser === true))) {
+      autoAttempted.current = true;
+      void submit(autoEntry ? 'auto' : 'finish');
+    }
+  }, [autoEntry, pending, submit, token]);
 
   function cancel(event: MouseEvent<HTMLAnchorElement>) {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
@@ -247,6 +261,8 @@ function UniHubFlow({ bound, continuing, confirmationId, failed, returnTo }: Uni
           <a className={primaryClass} href={uniHubStartHref(returnTo)}>{t('unihub.signIn')}</a>
           <Link className={secondaryClass} to={originalLogin} state={{ workspaceReturnTo: returnTo }}>{t('unihub.nativeSignIn')}</Link>
         </div>
+      ) : autoEntry && !autoFailed ? (
+        <p role="status" className="text-sm text-gray-600">{t('common.loading')}</p>
       ) : mode ? (
         <form className="space-y-4" onSubmit={submitReauth}>
           <h2 className="font-semibold text-gray-900">{t('unihub.' + mode)}</h2>
@@ -267,10 +283,10 @@ function UniHubFlow({ bound, continuing, confirmationId, failed, returnTo }: Uni
           {bound !== true && user?.authSource !== 'unihub' ? (
             <>
               <button type="button" className={secondaryClass} disabled={busy || departing} onClick={() => choose('link')}>{t('unihub.link')}</button>
-              <button type="button" className={secondaryClass} disabled={busy || departing} onClick={() => choose('enroll')}>{t('unihub.enroll')}</button>
+              {!linkRequired ? <button type="button" className={secondaryClass} disabled={busy || departing} onClick={() => choose('enroll')}>{t('unihub.enroll')}</button> : null}
             </>
           ) : null}
-          {bound !== false ? (
+          {bound !== false && !linkRequired ? (
             <button type="button" className={primaryClass} disabled={busy || departing} onClick={() => { void submit('open'); }}>
               {t(busy || departing ? 'common.loading' : 'unihub.open')}
             </button>
@@ -310,6 +326,6 @@ export default function UniHubPage() {
     return <Navigate to={'/?intent=unihub&returnTo=' + encodeURIComponent(uniHubEntryHref(returnTo)) + '#login'} replace />;
   }
 
-  return <UniHubFlow key={location.key} bound={status.bound} continuing={continuing} confirmationId={confirmationId}
+  return <UniHubFlow key={location.key} bound={status.bound} hubEntry={hubEntry} continuing={continuing} confirmationId={confirmationId}
     failed={query.get('error') === 'login'} returnTo={returnTo} />;
 }

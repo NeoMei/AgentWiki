@@ -123,7 +123,12 @@ export const Profile: React.FC = () => {
       <h1 className="text-2xl font-bold mb-6">{t('profile.title')}</h1>
       <div className="mb-4 flex flex-wrap gap-4">
         <Link to="/guide/obsidian" className="text-sm text-blue-600">{t('nav.obsidian')} →</Link>
-        {uniHubStatus?.enabled ? <Link to="/unihub" className="text-sm text-blue-600">{t('unihub.manage')}</Link> : null}
+        {uniHubStatus?.enabled ? (
+          <>
+            <Link to="/unihub?entry=hub" className="text-sm text-blue-600">{t('unihub.open')}</Link>
+            <Link to="/unihub" className="text-sm text-blue-600">{t('unihub.manage')}</Link>
+          </>
+        ) : null}
       </div>
 
       {error && (

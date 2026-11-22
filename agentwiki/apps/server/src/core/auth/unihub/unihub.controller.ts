@@ -3,7 +3,7 @@ import {
   HttpCode, NotFoundException, Post, Query, Req, Res, ServiceUnavailableException, UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { IsIn, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Request, Response } from 'express';
 
@@ -36,8 +36,8 @@ type SavedFlow = Flow & { code?: string };
 type IdentitySession = { identity: UniHubIdentity; source_proof_token: string; source_proof_expires_at: number };
 
 class NativeRequest {
-  @IsIn(['enroll', 'link', 'open'])
-  mode!: 'enroll' | 'link' | 'open';
+  @IsIn(['auto', 'enroll', 'link', 'open'])
+  mode!: 'auto' | 'enroll' | 'link' | 'open';
 
   @IsOptional()
   @IsString()
@@ -57,6 +57,10 @@ class FinishRequest {
   @IsString()
   @MaxLength(128)
   centralUserId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  requireSameUser?: boolean;
 }
 
 @Controller('auth/unihub')
@@ -100,26 +104,34 @@ export class UniHubController {
   async native(@Body() input: NativeRequest, @Req() request: Request, @Res({ passthrough: true }) response: Response) {
     this.requireEnabled();
     const credential = this.bearer(request);
-    if (credential?.unihubSid && input.mode === 'open') {
+    const automatic = input.mode === 'auto';
+    if (credential?.unihubSid && (automatic || input.mode === 'open')) {
       const actor = await this.auth.validateJwtUser(credential.sub, credential.unihubSid);
       if (!actor || actor.mustChangePassword || actor.authVersion !== credential.authVersion) throw new UnauthorizedException();
       return { redirectUrl: this.client.browserURL('/console') };
     }
     const user = await this.nativeUser(credential);
     const epoch = user.authVersion + 1;
-    if (input.mode === 'open') return this.beginHandoff(response, user.id, epoch);
+    if (input.mode === 'open' || (automatic && await this.sessions.findBinding(user.id))) {
+      return this.beginHandoff(response, user.id, epoch);
+    }
 
-    if (input.password !== undefined) {
+    if (automatic) {
+      if (!user.password || credential?.authVersion !== user.authVersion) {
+        throw new UnauthorizedException('AgentWiki original login required');
+      }
+    } else if (input.password !== undefined) {
       if (!user.password || !await this.auth.validatePassword(input.password, user.password)) {
         throw new UnauthorizedException('AgentWiki password verification failed');
       }
     } else if (!credential?.iat || Date.now() / 1000 - credential.iat > 55 || !user.password) {
       throw new UnauthorizedException('Confirm your AgentWiki password');
     }
-    const authentication = this.authentication(user.id, epoch, 'password');
-    if (input.mode === 'enroll') {
+    const authentication = this.authentication(user.id, epoch, automatic ? 'session' : 'password');
+    if (automatic || input.mode === 'enroll') {
       const result = await this.call<UniHubIdentity>('/enroll', {
         client_id: this.client.clientId, authentication, display_name: user.name ?? '', email: user.email,
+        ...(automatic ? { automatic: true } : {}),
       });
       await this.bind(result, user.id, epoch);
       return this.beginHandoff(response, user.id, epoch);
@@ -143,7 +155,8 @@ export class UniHubController {
     if (!await this.redis.deleteIfValueMatches(saved.key, saved.raw)) throw new BadRequestException('Expired UniHub handoff');
     if (request.query.error) {
       this.clear(response);
-      response.redirect(303, '/unihub?error=login');
+      const target = saved.flow.mode === 'sso' ? '&returnTo=' + encodeURIComponent(saved.flow.returnTo) : '';
+      response.redirect(303, '/unihub?error=login' + target);
       return;
     }
     const flow = saved.flow;
@@ -199,12 +212,20 @@ export class UniHubController {
       return this.beginHandoff(response, user.id, flow.epoch);
     }
 
+    const current = input.requireSameUser ? this.bearer(request) : null;
+    if (input.requireSameUser && !await this.currentActor(current)) {
+      throw new UnauthorizedException('AgentWiki session changed');
+    }
     if (!await this.redis.deleteIfValueMatches(saved.key, saved.raw)) throw new BadRequestException('Expired UniHub login');
     this.clear(response);
     const result = await this.call<IdentitySession>('/session/exchange', exchange);
     const identity = result.identity;
     const user = await this.nativeUser({ sub: identity.binding.local_user_id, authVersion: identity.auth_version - 1 });
+    if (current && (current.sub !== user.id || current.authVersion !== user.authVersion)) {
+      throw new ConflictException('Confirm the AgentWiki account switch');
+    }
     await this.bind(identity, user.id, user.authVersion + 1);
+    if (current && !current.unihubSid) return { returnTo: flow.returnTo };
     const local = await this.sessions.open(user.id, identity.binding.user_id, result.source_proof_token, result.source_proof_expires_at);
     return {
       access_token: this.auth.signToken(user, local),
@@ -221,7 +242,20 @@ export class UniHubController {
     if (!saved?.flow.code || saved.flow.mode === 'handoff') throw new BadRequestException('No pending UniHub login');
     if (request.query.flow !== saved.confirmationId) throw new ConflictException('UniHub browser flow changed');
     const flow = saved.flow;
-    if (flow.mode === 'sso') return { mode: 'sso', confirmationId: saved.confirmationId };
+    if (flow.mode === 'sso') {
+      const result = { mode: 'sso' as const, confirmationId: saved.confirmationId };
+      const actor = await this.currentActor(this.bearer(request));
+      if (!actor) return result;
+      try {
+        const { matches } = await this.call<{ matches: boolean }>('/session/matches', {
+          ...this.exchange(flow), local_user_id: actor.userId,
+        });
+        if (matches === true) return { ...result, sameUser: true };
+      } catch {
+        // Explicit SSO confirmation is available when the account match cannot be checked.
+      }
+      return result;
+    }
     const user = await this.nativeUser(this.bearer(request));
     if (user.id !== flow.userId || user.authVersion + 1 !== flow.epoch) throw new ForbiddenException('AgentWiki account changed');
     const preview = await this.call<{ central_user_id: string; display_name: string; masked_email: string }>('/link/preview', {
@@ -255,6 +289,12 @@ export class UniHubController {
     } catch {
       return null;
     }
+  }
+
+  private async currentActor(credential: Credential | null) {
+    if (!credential || !this.client.allowsLocalUser(credential.sub)) return null;
+    const actor = await this.auth.validateJwtUser(credential.sub, credential.unihubSid);
+    return actor && !actor.mustChangePassword && credential.authVersion === actor.authVersion ? actor : null;
   }
 
   private async nativeUser(credential: Credential | null) {

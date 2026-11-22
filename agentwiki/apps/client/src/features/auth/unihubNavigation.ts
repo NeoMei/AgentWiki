@@ -9,7 +9,7 @@ export function safeUniHubReturnTo(value: unknown): string | null {
     || /[\\\u0000-\u0020\u007f]|%(?:0[0-9a-f]|1[0-9a-f]|7f|5c)/i.test(value)) return null;
   const url = new URL(value, targetOrigin);
   if (url.origin !== targetOrigin) return null;
-  if (/^\/(?:$|(?:spaces|pages|space)(?:\/[a-zA-Z0-9_-]+)*\/?$)/.test(url.pathname)) {
+  if (/^\/(?:$|dashboard$|(?:spaces|pages|space)(?:\/[a-zA-Z0-9_-]+)*\/?$)/.test(url.pathname)) {
     return url.pathname + url.search + url.hash;
   }
   return safeReturnTo(value);

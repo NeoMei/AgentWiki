@@ -100,17 +100,28 @@ describe('UniHub browser flows', () => {
       .toHaveAttribute('href', '/api/auth/unihub/start?returnTo=%2F');
   });
 
-  it('resumes the Hub entry after the original AgentWiki login without offering SSO there', async () => {
-    const adapter = mockApi(({ url }) => url === '/auth/login'
-      ? { access_token: 'original-token', user: localUser }
-      : { enabled: true, bound: false });
+  it('automatically continues the Hub entry once after the original AgentWiki login', async () => {
+    const adapter = mockApi((request) => {
+      if (request.url === '/auth/login') return { access_token: 'original-token', user: localUser };
+      if (request.url === '/auth/unihub/native') throw new AxiosError('Unavailable', undefined, request, undefined, {
+        data: {}, status: 503, statusText: 'Unavailable', headers: {}, config: request,
+      });
+      return { enabled: true, bound: false };
+    });
     const router = openRoute('/unihub?entry=hub');
 
     await screen.findByText('Sign in to AgentWiki to connect your UniHub account.');
     expect(screen.queryByRole('link', { name: 'Sign in with UniHub' })).not.toBeInTheDocument();
     submitNativeLogin();
 
+    expect(await screen.findByRole('alert')).toBeVisible();
     expect(await screen.findByRole('button', { name: 'Link an existing UniHub account' })).toBeVisible();
+    expect(screen.queryByLabelText('AgentWiki password')).not.toBeInTheDocument();
+    expect(localStorage.getItem('token')).toBe('original-token');
+    const attempts = adapter.mock.calls.filter(([request]) => request.url === '/auth/unihub/native');
+    expect(attempts).toHaveLength(1);
+    expect(JSON.parse(attempts[0][0].data)).toEqual({ mode: 'auto' });
+    expect(attempts[0][0].headers.get('Authorization')).toBe('Bearer original-token');
     expect(router.state.location).toMatchObject({ pathname: '/unihub', search: '?entry=hub' });
     expect(adapter.mock.calls.find(([request]) => request.url === '/auth/unihub/status' && request.headers.get('Authorization'))
       ?.[0].headers.get('Authorization')).toBe('Bearer original-token');
@@ -125,7 +136,7 @@ describe('UniHub browser flows', () => {
       if (request.url === '/auth/unihub/native') rejectUnauthorized(request);
       return { enabled: true };
     });
-    openRoute('/unihub?entry=hub');
+    openRoute('/unihub');
 
     fireEvent.click(await screen.findByRole('button', { name: label }));
     expect(adapter.mock.calls.some(([request]) => request.method === 'post')).toBe(false);
@@ -255,6 +266,21 @@ describe('UniHub browser flows', () => {
     fireEvent.click(next);
     await waitFor(() => expect(router.state.location.pathname).toBe('/guide/obsidian'));
     expect(adapter.mock.calls.find(([request]) => request.url === '/auth/unihub/finish')?.[0].data).toBe(JSON.stringify({ mode: 'sso', confirmationId }));
+  });
+
+  it('returns a matching SSO callback to the workspace without switching the original local session', async () => {
+    seedSession();
+    const adapter = mockApi(({ url }) => {
+      if (url === '/auth/unihub/pending') return { mode: 'sso', confirmationId, sameUser: true };
+      if (url === '/auth/unihub/finish') return { returnTo: '/dashboard' };
+      return { enabled: true };
+    });
+    const router = openRoute(callbackRoute);
+    await waitFor(() => expect(router.state.location.pathname).toBe('/dashboard'));
+    const requests = adapter.mock.calls.filter(([request]) => request.url === '/auth/unihub/finish');
+    expect(requests).toHaveLength(1);
+    expect(JSON.parse(requests[0][0].data)).toEqual({ mode: 'sso', confirmationId, requireSameUser: true });
+    expect(localStorage.getItem('token')).toBe('original-token');
   });
 
   it('finishes signed-out SSO once and stores the AgentWiki session through AuthProvider', async () => {
