@@ -637,7 +637,6 @@ test('every active local-sync release surface uses the package version', async (
     '.env.example',
     'README.md',
     'apps/client/src/config/localSync.ts',
-    'apps/client/e2e/local-sync.spec.ts',
     'apps/client/e2e/onboarding-device.spec.ts',
     'apps/server/.env.example',
     'apps/server/src/core/local-sync-version.ts',
@@ -658,6 +657,18 @@ test('every active local-sync release surface uses the package version', async (
     /export \{ GATEWAY_PACKAGE_NAME, GATEWAY_PACKAGE_VERSION \} from '\.\/package-release\.js'/u,
     'plan.ts must re-export the pinned version from the single package-release source',
   );
+});
+
+test('the browser onboarding suites verify the runtime pin from the Local Sync package manifest', async () => {
+  const fixture = await read('apps/client/e2e/fixtures/local-sync-runtime.ts');
+  assert.ok(fixture.includes('packages/local-sync/package.json'));
+  assert.ok(fixture.includes("url.searchParams.set('packageVersion', localSyncPackage.version)"));
+  assert.ok(fixture.includes('expect(guide).toContain(`${localSyncPackage.name}@${localSyncPackage.version}`)'));
+  for (const path of ['apps/client/e2e/local-sync.spec.ts', 'apps/client/e2e/onboarding-guide.spec.ts']) {
+    const source = await read(path);
+    assert.ok(source.includes("from './fixtures/local-sync-runtime'"), `${path} must use the shared manifest pin`);
+    assert.ok(source.includes('await expectPinnedRuntimePreparation(request, apiOrigin)'), `${path} must verify the runtime guide`);
+  }
 });
 
 test('the local-sync release remains pinned to its compatible sync protocol release', async () => {
@@ -687,7 +698,6 @@ test('every user-facing local-sync surface uses the published npm package name',
     'packages/local-sync/README.md',
     'packages/local-sync/skill/SKILL.md',
     'apps/client/src/config/localSync.ts',
-    'apps/client/e2e/local-sync.spec.ts',
     'apps/server/src/onboard/onboard-runtime-guide.ts',
     'apps/server/src/onboard/onboard-runtime-bootstrap.ts',
   ]) {
