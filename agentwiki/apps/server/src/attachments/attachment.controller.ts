@@ -121,6 +121,11 @@ export class AttachmentContentController {
       attachmentId,
       req.user as Principal,
     );
+    const stream = content.stream as Readable;
+    if (response.destroyed) {
+      stream.destroy();
+      return;
+    }
     response.setHeader('X-Content-Type-Options', 'nosniff');
     // Browser-private storage is allowed, but every reuse must pass the live
     // permission check above. Separate every supported credential transport.
@@ -131,13 +136,18 @@ export class AttachmentContentController {
     if (req.fresh) {
       // The authorized service opened a file stream. A 304 has no body: close
       // that stream now rather than leaking its file descriptor.
-      (content.stream as Readable).destroy();
+      stream.destroy();
       response.status(304);
       return;
     }
+    // Nest pipes StreamableFile to the response. Closing the destination
+    // unpipes it, so premature disconnects must also close the source.
+    const closeStream = () => stream.destroy();
+    response.once('close', closeStream);
+    stream.once('close', () => response.off('close', closeStream));
     response.setHeader('Content-Type', content.mimeType);
     response.setHeader('Content-Length', content.sizeBytes.toString(10));
     response.setHeader('Content-Disposition', contentDisposition(content.displayName));
-    return new StreamableFile(content.stream as Readable);
+    return new StreamableFile(stream);
   }
 }

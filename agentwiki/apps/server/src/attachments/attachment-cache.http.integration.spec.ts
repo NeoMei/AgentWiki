@@ -3,7 +3,7 @@ import { HttpAdapterHost } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import type { AddressInfo } from 'node:net';
-import { get as httpGet } from 'node:http';
+import { get as httpGet, request as httpRequest } from 'node:http';
 import { Readable } from 'node:stream';
 import { AuthService } from '../core/auth/auth.service';
 import { CombinedAuthGuard } from '../core/auth/combined-auth.guard';
@@ -21,6 +21,8 @@ describe('protected attachment HTTP revalidation', () => {
   let memberActive = true;
   let attachmentExists = true;
   let version = 'a';
+  let openContentStream: (() => Promise<Readable>) | undefined;
+  let onResponseClose: (() => void) | undefined;
   const streams: Readable[] = [];
   const jwt = new JwtService({ secret: 'attachment-cache-isolated-test-secret' });
   const ownerToken = jwt.sign({ sub: 'owner', authVersion: 1 });
@@ -36,7 +38,7 @@ describe('protected attachment HTTP revalidation', () => {
   } as any;
   const authorization = new AuthorizationService(prisma);
   const storage = { open: async () => {
-    const stream = Readable.from([Buffer.from(`image-${version}`)]);
+    const stream = openContentStream ? await openContentStream() : Readable.from([Buffer.from(`image-${version}`)]);
     streams.push(stream);
     return stream;
   } } as any;
@@ -59,19 +61,31 @@ describe('protected attachment HTTP revalidation', () => {
     }).compile();
     app = moduleRef.createNestApplication();
     app.setGlobalPrefix('api');
-    app.use((_req: unknown, response: any, next: () => void) => { response.vary('Origin'); next(); });
+    app.use((_req: unknown, response: any, next: () => void) => {
+      response.vary('Origin');
+      if (onResponseClose) response.once('close', onResponseClose);
+      next();
+    });
     app.useGlobalFilters(new AllExceptionsFilter(app.get(HttpAdapterHost)));
     await app.listen(0, '127.0.0.1');
     baseUrl = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}/api`;
   });
   afterAll(async () => { await app.close(); });
-  beforeEach(() => { memberActive = true; attachmentExists = true; version = 'a'; streams.length = 0; });
-  const get = (headers: Record<string, string> = {}, token: string | null = ownerToken) => new Promise<{
+  beforeEach(() => {
+    memberActive = true;
+    attachmentExists = true;
+    version = 'a';
+    openContentStream = undefined;
+    onResponseClose = undefined;
+    streams.length = 0;
+  });
+  const get = (headers: Record<string, string> = {}, token: string | null = ownerToken, method = 'GET') => new Promise<{
     status: number; headers: Headers; text: () => Promise<string>;
   }>((resolve, reject) => {
     // fetch adds force-refresh directives to manual conditional requests; use
     // an HTTP client that sends exactly the browser revalidation headers here.
-    const request = httpGet(`${baseUrl}/attachments/attachment-1/content`, {
+    const request = httpRequest(`${baseUrl}/attachments/attachment-1/content`, {
+      method,
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...headers },
     }, (response) => {
       const chunks: Buffer[] = [];
@@ -86,6 +100,7 @@ describe('protected attachment HTTP revalidation', () => {
       }));
     });
     request.on('error', reject);
+    request.end();
   });
 
   it('allows private storage but requires validation and isolates both credential transports', async () => {
@@ -120,6 +135,72 @@ describe('protected attachment HTTP revalidation', () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('image-b');
     expect(response.headers.get('etag')).toBe(`"${'b'.repeat(64)}"`);
+  });
+
+  it('answers HEAD without sending attachment bytes', async () => {
+    const response = await get({}, ownerToken, 'HEAD');
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-length')).toBe('7');
+    expect(await response.text()).toBe('');
+    expect(streams[0].destroyed).toBe(true);
+  });
+
+  it('destroys the source when the client disconnects during a body read', async () => {
+    let sentChunk = false;
+    const source = new Readable({
+      read() {
+        if (sentChunk) return;
+        sentChunk = true;
+        this.push(Buffer.from('i'));
+      },
+    });
+    openContentStream = async () => source;
+    const closed = new Promise<void>((resolve) => { onResponseClose = resolve; });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const request = httpGet(`${baseUrl}/attachments/attachment-1/content`, {
+          headers: { Authorization: 'Bearer ' + ownerToken },
+        }, (response) => {
+          response.on('error', reject);
+          response.once('data', () => {
+            response.destroy();
+            resolve();
+          });
+        });
+        request.on('error', reject);
+      });
+      await closed;
+      expect(source.destroyed).toBe(true);
+    } finally {
+      source.destroy();
+    }
+  });
+
+  it('destroys the source when the client disconnects before storage opens it', async () => {
+    const source = new Readable({ read() {} });
+    let opened!: () => void;
+    const opening = new Promise<void>((resolve) => { opened = resolve; });
+    let finishOpen!: (value: Readable) => void;
+    openContentStream = () => {
+      opened();
+      return new Promise((resolve) => { finishOpen = resolve; });
+    };
+    const closed = new Promise<void>((resolve) => { onResponseClose = resolve; });
+    const request = httpGet(`${baseUrl}/attachments/attachment-1/content`, {
+      headers: { Authorization: 'Bearer ' + ownerToken },
+    });
+    request.on('error', () => undefined);
+    try {
+      await opening;
+      request.destroy();
+      await closed;
+      finishOpen(source);
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(source.destroyed).toBe(true);
+    } finally {
+      request.destroy();
+      source.destroy();
+    }
   });
 
   it('honors a forced refresh even when the validator matches', async () => {

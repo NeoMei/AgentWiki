@@ -7,6 +7,8 @@ import {
   ROUTE_ARGS_METADATA,
 } from '@nestjs/common/constants';
 import { RouteParamtypes } from '@nestjs/common/enums/route-paramtypes.enum';
+import { EventEmitter, once } from 'node:events';
+import { Readable } from 'node:stream';
 import { CombinedAuthGuard } from '../core/auth/combined-auth.guard';
 import { HumanOnlyGuard } from '../core/auth/human-only.guard';
 import {
@@ -132,7 +134,7 @@ describe('attachment controllers', () => {
   });
 
   it('writes protected content headers without exposing storageKey', async () => {
-    const stream = { pipe: jest.fn(), on: jest.fn(), once: jest.fn() } as any;
+    const stream = new Readable({ read() {} });
     service.content.mockResolvedValue({
       stream,
       mimeType: 'image/png',
@@ -140,9 +142,9 @@ describe('attachment controllers', () => {
       displayName: 'photo.png',
       contentHash: 'a'.repeat(64),
     });
-    const response = { setHeader: jest.fn(), vary: jest.fn() } as any;
+    const response = Object.assign(new EventEmitter(), { setHeader: jest.fn(), vary: jest.fn() });
 
-    const result = await content.getContent(request, 'attachment-1', response);
+    const result = await content.getContent(request, 'attachment-1', response as any);
 
     expect(service.content).toHaveBeenCalledWith('attachment-1', request.user);
     expect(response.setHeader).toHaveBeenCalledWith('Content-Type', 'image/png');
@@ -159,5 +161,10 @@ describe('attachment controllers', () => {
       expect.anything(), expect.stringContaining('storageKey'),
     );
     expect(result).toBeDefined();
+    expect(response.listenerCount('close')).toBe(1);
+    const closed = once(stream, 'close');
+    stream.destroy();
+    await closed;
+    expect(response.listenerCount('close')).toBe(0);
   });
 });
