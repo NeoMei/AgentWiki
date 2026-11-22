@@ -1,6 +1,9 @@
 import { safeReturnTo } from './safeReturnTo';
 
-const AUTH_ENDPOINTS = new Set(['/auth/login', '/auth/register']);
+const AUTH_ENDPOINTS = new Set([
+  '/auth/login', '/auth/register',
+  '/auth/unihub/status', '/auth/unihub/native', '/auth/unihub/pending', '/auth/unihub/finish', '/auth/unihub/logout',
+]);
 
 export const unauthorizedRedirect = (
   requestUrl: unknown,

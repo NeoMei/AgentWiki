@@ -9,10 +9,16 @@ import { ApiKeyStrategy } from './api-key.strategy';
 import { CombinedAuthGuard } from './combined-auth.guard';
 import { DatabaseModule } from '../../database/database.module';
 import { HumanOnlyGuard } from './human-only.guard';
+import { RedisModule } from '../../database/redis.module';
+import { UniHubClient } from './unihub/unihub-client';
+import { UniHubSessionService } from './unihub/unihub-session.service';
+import { UniHubController } from './unihub/unihub.controller';
+import { UniHubLifecycleService } from './unihub/unihub-lifecycle.service';
 
 @Module({
   imports: [
     DatabaseModule,
+    RedisModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -29,8 +35,8 @@ import { HumanOnlyGuard } from './human-only.guard';
       },
     }),
   ],
-  providers: [AuthService, JwtStrategy, ApiKeyStrategy, CombinedAuthGuard, HumanOnlyGuard],
-  controllers: [AuthController],
+  providers: [AuthService, JwtStrategy, ApiKeyStrategy, CombinedAuthGuard, HumanOnlyGuard, UniHubClient, UniHubSessionService, UniHubLifecycleService],
+  controllers: [AuthController, UniHubController],
   exports: [AuthService, CombinedAuthGuard, HumanOnlyGuard, JwtModule],
 })
 export class AuthModule {}

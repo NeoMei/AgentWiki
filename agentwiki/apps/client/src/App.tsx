@@ -3,7 +3,6 @@ import React, { lazy, Suspense, useState } from 'react';
 import { RouterProvider, Routes, Route, Navigate, createBrowserRouter, createMemoryRouter, useLocation, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LanguageProvider, useLanguage } from './context/LanguageContext';
-import { Layout } from './components/Layout';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ProductPage } from './features/about/ProductPage';
 const GuideLayout = lazy(() => import('./features/guide/GuideLayout').then((module) => ({ default: module.GuideLayout })));
@@ -13,6 +12,8 @@ import {
 } from './features/space-workspace/SpaceWorkspaceContext';
 import { NavigationGuardProvider } from './features/space-workspace/workspaceNavigation';
 
+const Layout = lazy(() => import('./components/Layout').then((module) => ({ default: module.Layout })));
+const UniHubPage = lazy(() => import('./features/auth/UniHubPage'));
 const Dashboard = lazy(() => import('./features/dashboard/Dashboard').then((module) => ({ default: module.Dashboard })));
 const NotesPage = lazy(() => import('./features/page-notes/NotesPage').then((module) => ({ default: module.NotesPage })));
 const SearchResults = lazy(() => import('./features/search/SearchResults').then((module) => ({ default: module.SearchResults })));
@@ -92,7 +93,10 @@ const SectionRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { token, user } = useAuth();
   const location = useLocation();
-  if (!token) return <Navigate to="/?intent=workspace#login" replace />;
+  if (!token) {
+    const workspaceReturnTo = location.pathname + location.search + location.hash;
+    return <Navigate to="/?intent=workspace#login" replace state={{ workspaceReturnTo }} />;
+  }
   if (user?.mustChangePassword && location.pathname !== '/change-password') {
     return <Navigate to="/change-password" replace />;
   }
@@ -106,7 +110,7 @@ const AppRoutes: React.FC = () => {
     <AgentSessionRegistryProvider key={workspaceUserId} userId={workspaceUserId}>
     <SpaceWorkspaceProvider userId={workspaceUserId}>
     <Routes>
-      <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+      <Route element={<ProtectedRoute><Suspense fallback={<RouteLoading />}><Layout /></Suspense></ProtectedRoute>}>
         <Route path="/dashboard" element={<Suspense fallback={<RouteLoading />}><Dashboard /></Suspense>} />
         <Route path="/spaces/:id/new" element={<SectionRoute><NewContentPage /></SectionRoute>} />
         <Route path="/spaces/:id" element={<WorkspaceRoute mode="directory"><></></WorkspaceRoute>} />
@@ -138,6 +142,7 @@ const AppRoutes: React.FC = () => {
         <Route path="/admin" element={<Suspense fallback={<RouteLoading />}><AdminPage /></Suspense>} />
       </Route>
       <Route path="/" element={<ProductPage />} />
+      <Route path="/unihub" element={<Suspense fallback={<RouteLoading />}><UniHubPage /></Suspense>} />
       <Route path="/guide" element={<Suspense fallback={<RouteLoading />}><GuideLayout><UsageGuide /></GuideLayout></Suspense>} />
       <Route path="/guide/agent-onboard" element={<Suspense fallback={<RouteLoading />}><GuideLayout><OnboardPage /></GuideLayout></Suspense>} />
       <Route path="/guide/obsidian" element={<Suspense fallback={<RouteLoading />}><GuideLayout><ObsidianGuide /></GuideLayout></Suspense>} />

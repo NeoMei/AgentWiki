@@ -5,11 +5,14 @@ import { CollaborationGateway } from './collaboration.gateway';
 import { RedisModule } from '../../database/redis.module';
 import { DatabaseModule } from '../../database/database.module';
 import { AuthService } from '../auth/auth.service';
+import { UniHubClient } from '../auth/unihub/unihub-client';
+import { UniHubSessionService } from '../auth/unihub/unihub-session.service';
 import { AuthorizationModule } from '../authorization/authorization.module';
 import { CollaborationRunAccessService } from './collaboration-run-access.service';
 
 @Module({
   imports: [
+    ConfigModule,
     RedisModule,
     DatabaseModule,
     AuthorizationModule,
@@ -24,7 +27,7 @@ import { CollaborationRunAccessService } from './collaboration-run-access.servic
   ],
   // Keep the gateway usable by the HTTP-free worker process. Importing the
   // full AuthModule here would also instantiate its controllers and guards.
-  providers: [AuthService, CollaborationRunAccessService, CollaborationGateway],
+  providers: [AuthService, UniHubClient, UniHubSessionService, CollaborationRunAccessService, CollaborationGateway],
   exports: [CollaborationGateway, CollaborationRunAccessService],
 })
 export class CollaborationModule {}

@@ -128,6 +128,7 @@ model User {
   obsidianInstallations         ObsidianInstallation[]
   humanDeviceCredentialFamilies HumanDeviceCredentialFamily[]
   humanDeviceCredentials        HumanDeviceCredential[]
+  unihubIdentityBinding         UniHubIdentityBinding?
   collaborationTemplatesCreated CollaborationTemplate[]                   @relation("CollaborationTemplateCreatedBy")
   collaborationRunsStarted      CollaborationRun[]                        @relation("CollaborationRunStartedBy")
   collaborationReviewsDecided   CollaborationReview[]                     @relation("CollaborationReviewReviewer")
@@ -157,6 +158,39 @@ model User {
   deletedAt DateTime?
 
   @@index([platformRole])
+}
+
+model UniHubLifecycleOutbox {
+  id                   String   @id
+  userId               String
+  previousLocalVersion Int
+  state                String?
+  attempts             Int      @default(0)
+  availableAt          DateTime @default(now())
+
+  @@unique([userId, previousLocalVersion])
+  @@index([availableAt, id])
+}
+
+model UniHubIdentityBinding {
+  userId            String              @id
+  centralUserId     String              @unique
+  syncedAuthVersion Int
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions          UniHubUserSession[]
+}
+
+model UniHubUserSession {
+  sid              String                @id @default(uuid())
+  userId           String
+  centralUserId    String
+  sourceProofToken String
+  expiresAt        DateTime
+  lastVerifiedAt   DateTime?
+  revokedAt        DateTime?
+  binding          UniHubIdentityBinding @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model ApiKeyCredential {

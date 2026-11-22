@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Mail, Calendar, Save, X, Key, Copy, Check, RefreshCw, Trash2, AlertTriangle, Bot } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { UserAvatar } from '../../components/UserAvatar';
+import { useUniHubStatus } from '../auth/useUniHubStatus';
 
 interface OwnedAgent {
   id: string;
@@ -15,7 +16,8 @@ interface OwnedAgent {
 }
 
 export const Profile: React.FC = () => {
-  const { user, login } = useAuth();
+  const { token, user, login } = useAuth();
+  const uniHubStatus = useUniHubStatus(token, Boolean(token));
   const { t } = useLanguage();
   const [formData, setFormData] = useState({ name: '', email: '' });
   const [loading, setLoading] = useState(true);
@@ -119,7 +121,10 @@ export const Profile: React.FC = () => {
         ← {t('search.back')}
       </Link>
       <h1 className="text-2xl font-bold mb-6">{t('profile.title')}</h1>
-      <Link to="/guide/obsidian" className="inline-flex items-center text-sm text-blue-600 mb-4">{t('nav.obsidian')} →</Link>
+      <div className="mb-4 flex flex-wrap gap-4">
+        <Link to="/guide/obsidian" className="text-sm text-blue-600">{t('nav.obsidian')} →</Link>
+        {uniHubStatus?.enabled ? <Link to="/unihub" className="text-sm text-blue-600">{t('unihub.manage')}</Link> : null}
+      </div>
 
       {error && (
         <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-md text-sm flex items-center justify-between">

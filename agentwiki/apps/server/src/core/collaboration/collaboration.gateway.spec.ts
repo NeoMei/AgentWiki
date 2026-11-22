@@ -1,4 +1,5 @@
 import { CollaborationGateway } from './collaboration.gateway';
+import { TASKBOARD_CHANNEL } from '../../project-taskboard/taskboard-core';
 
 describe('CollaborationGateway authentication', () => {
   const jwt = { verify: jest.fn().mockReturnValue({ sub: 'user-1' }) } as any;
@@ -23,6 +24,7 @@ describe('CollaborationGateway authentication', () => {
     (gateway as any).activeUsers.clear();
     (gateway as any).collaborationRates.clear();
     (gateway as any).userSockets.clear();
+    (gateway as any).uniHubSockets.clear();
     (gateway as any).roomAuthorizationCheckedAt.clear();
     (gateway as any).roomPruneInFlight.clear();
     (gateway as any).server = {
@@ -38,6 +40,39 @@ describe('CollaborationGateway authentication', () => {
     expect(auth.validateJwtUser).toHaveBeenCalledWith('user-1');
     expect(client.data.user).toEqual(expect.objectContaining({ userId: 'user-1', name: 'Alice' }));
     expect(client.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('denies a revoked UniHub session during the socket handshake', async () => {
+    jwt.verify.mockReturnValueOnce({ sub: 'user-1', authVersion: 0, unihubSid: 'revoked' });
+    auth.validateJwtUser.mockImplementation(async (_userId: string, sid?: string) =>
+      sid === 'revoked' ? null : { userId: 'user-1', name: 'Alice', authVersion: 0 });
+    const client = {
+      id: 'socket-revoked-handshake', handshake: { auth: { token: 'signed-token' } },
+      data: {}, disconnect: jest.fn(),
+    } as any;
+
+    await gateway.handleConnection(client);
+
+    expect(client.disconnect).toHaveBeenCalledWith(true);
+    expect(client.data.user).toBeUndefined();
+  });
+
+  it('denies a run-room join when the socket session is revoked after connection', async () => {
+    let revoked = false;
+    jwt.verify.mockReturnValueOnce({ sub: 'user-1', authVersion: 0, unihubSid: 'revocable' });
+    auth.validateJwtUser.mockImplementation(async (_userId: string, sid?: string) =>
+      sid === 'revocable' && revoked ? null : { userId: 'user-1', name: 'Alice', authVersion: 0 });
+    const client = {
+      id: 'socket-revoked-session', handshake: { auth: { token: 'signed-token' } }, data: {},
+      rooms: new Set(), join: jest.fn(), emit: jest.fn(), disconnect: jest.fn(),
+    } as any;
+    await gateway.handleConnection(client);
+    revoked = true;
+
+    await gateway.handleJoinCollaborationRun(client, { spaceId: 'space-1', runId: 'run-1' });
+
+    expect(client.disconnect).toHaveBeenCalledWith(true);
+    expect(client.join).not.toHaveBeenCalled();
   });
 
   it('waits for asynchronous connection authentication before handling a run-room join', async () => {
@@ -462,6 +497,35 @@ describe('CollaborationGateway authentication', () => {
     expect(authorization.assertPageAccess).toHaveBeenCalledTimes(2);
   });
 
+  it.each(['page', 'run', 'taskboard'])('evicts only the revoked session for the same user before %s broadcasts', async (roomKind) => {
+    const makeSocket = (id: string, socketUniHubSid: string) => ({
+      id,
+      data: { user: { userId: 'user-1', authVersion: 0 }, socketUniHubSid, socketAuthVersion: 0 },
+      disconnect: jest.fn(), leave: jest.fn(),
+    });
+    const allowed = makeSocket('allowed', 'active');
+    const revoked = makeSocket('revoked', 'revoked');
+    auth.validateJwtUser.mockImplementation(async (_userId: string, sid?: string) =>
+      sid === 'revoked' ? null : { userId: 'user-1', authVersion: 0 });
+    (gateway as any).server.in.mockReturnValue({ fetchSockets: jest.fn().mockResolvedValue([allowed, revoked]) });
+
+    if (roomKind === 'page') {
+      await (gateway as any).pruneUnauthorizedRoomMembers('page-1', true);
+    } else if (roomKind === 'run') {
+      await (gateway as any).relayCollaborationRunHint({ spaceId: 'space-1', runId: 'run-1', eventSequence: 1 });
+    } else {
+      await gateway.onModuleInit();
+      const [, listener] = redis.subscribe.mock.calls.find(([channel]: [string]) =>
+        channel === TASKBOARD_CHANNEL);
+      listener(JSON.stringify({ spaceId: 'space-1', eventSequence: 1 }));
+      await new Promise((resolve) => setImmediate(resolve));
+      await gateway.onModuleDestroy();
+    }
+
+    expect(revoked.disconnect).toHaveBeenCalledWith(true);
+    expect(allowed.disconnect).not.toHaveBeenCalled();
+  });
+
   it('rate-limits content before DB work and reuses short authorization leases', async () => {
     const client = {
       id: 'content-flood',
@@ -483,6 +547,72 @@ describe('CollaborationGateway authentication', () => {
     expect(authorization.assertPageAccess).toHaveBeenCalledTimes(2);
     expect(client.emit).toHaveBeenCalledWith('collaborationError', { code: 'EVENT_RATE_LIMITED' });
   });
+
+  it.each(['recipient', 'sender'])('rechecks a revoked UniHub %s before content delivery with a warm room lease', async (revokedRole) => {
+    const sockets: ReturnType<typeof createSocket>[] = [];
+    const pageId = 'page-1';
+    function createSocket(id: string) {
+      const rooms = new Set([id]);
+      const socket = {
+        id, rooms, data: {}, handshake: { auth: { token: id } }, emit: jest.fn(),
+        join: jest.fn((room: string) => rooms.add(room)),
+        leave: jest.fn((room: string) => rooms.delete(room)),
+        disconnect: jest.fn(() => {
+          rooms.clear();
+          gateway.handleDisconnect(socket as any);
+        }),
+        to: jest.fn((room: string) => {
+          const emit = (event: string, payload: unknown, excluded: string[] = []) => {
+            for (const recipient of sockets) {
+              if (recipient.id !== id && recipient.rooms.has(room) && !excluded.includes(recipient.id)) {
+                recipient.emit(event, payload);
+              }
+            }
+          };
+          return {
+            emit,
+            except: (excluded: string[]) => ({ emit: (event: string, payload: unknown) => emit(event, payload, excluded) }),
+          };
+        }),
+      };
+      return socket;
+    }
+
+    const sender = createSocket('sender');
+    const recipient = createSocket('recipient');
+    const legacy = createSocket('legacy');
+    sockets.push(sender, recipient, legacy);
+    jwt.verify.mockImplementation((id: string) => ({
+      sub: id, authVersion: 0, unihubSid: id === revokedRole ? 'revocable' : undefined,
+    }));
+    let revoked = false;
+    auth.validateJwtUser.mockImplementation(async (userId: string, sid?: string) =>
+      revoked && sid === 'revocable' ? null : { userId, name: userId, authVersion: 0 });
+    (gateway as any).server.in.mockReturnValue({
+      fetchSockets: jest.fn(async () => sockets.filter((socket) => socket.rooms.has(pageId))),
+    });
+
+    for (const socket of sockets) {
+      await gateway.handleConnection(socket as any);
+      await gateway.handleJoinPage(socket as any, { pageId });
+    }
+    await gateway.handleContentChange(sender as any, { pageId, content: 'before', version: 1 });
+    expect(recipient.emit).toHaveBeenCalledWith('contentUpdated', { content: 'before', version: 1, userId: 'sender' });
+    jest.clearAllMocks();
+    revoked = true;
+
+    await gateway.handleContentChange(sender as any, { pageId, content: 'after', version: 2 });
+
+    expect(gateway.server.in).not.toHaveBeenCalled();
+    expect((revokedRole === 'sender' ? sender : recipient).disconnect).toHaveBeenCalledWith(true);
+    expect(recipient.emit).not.toHaveBeenCalledWith('contentUpdated', expect.anything());
+    if (revokedRole === 'sender') {
+      expect(legacy.emit).not.toHaveBeenCalledWith('contentUpdated', expect.anything());
+    } else {
+      expect(legacy.emit).toHaveBeenCalledWith('contentUpdated', { content: 'after', version: 2, userId: 'sender' });
+    }
+  });
+
   const assistSocket = (userId: string) => ({
     id: `socket-${userId}`, data: { user: { userId, authVersion: 0 }, socketAuthVersion: 0 },
     rooms: new Set(['page-1']), emit: jest.fn(), disconnect: jest.fn(), leave: jest.fn(),

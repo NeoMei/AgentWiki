@@ -1,9 +1,11 @@
 import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../core/security/audit.service';
 import { AuthService } from '../core/auth/auth.service';
+import { recordUniHubSourceLifecycle } from '../core/auth/unihub/unihub-lifecycle.service';
 
 export interface Stats {
   users: {
@@ -177,10 +179,17 @@ export class PlatformAdminService {
       const defaultPassword = `${randomBytes(18).toString('base64url')}Aa1!`;
 
       const hashed = await this.auth.hashPassword(defaultPassword);
-      await tx.user.update({
-        where: { id: targetId },
+      const updated = await tx.user.update({
+        where: { id: targetId, deletedAt: null },
         data: { password: hashed, mustChangePassword: true, authVersion: { increment: 1 } },
+        select: { authVersion: true },
+      }).catch((error: unknown) => {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+          throw new ConflictException('Cannot reset password of a deleted user');
+        }
+        throw error;
       });
+      await recordUniHubSourceLifecycle(tx, targetId, updated.authVersion - 1);
       await tx.apiKeyCredential.updateMany({
         where: { userId: targetId, revokedAt: null }, data: { revokedAt: new Date() },
       });
@@ -199,8 +208,7 @@ export class PlatformAdminService {
     if (actorUserId === targetId) throw new ConflictException('Cannot lock your own account');
 
     return this.prisma.$transaction(async (tx) => {
-      const user = await tx.user.findUnique({ where: { id: targetId, type: 'human' } });
-      if (!user) throw new NotFoundException('User not found');
+      const user = await this.lockTargetUser(tx, targetId);
       if (user.deletedAt) throw new ConflictException('Cannot lock a deleted user');
       if (user.lockedAt) return { locked: true, alreadyLocked: true };
 
@@ -211,10 +219,12 @@ export class PlatformAdminService {
         if (count === 0) throw new ConflictException('Cannot remove the last active super admin');
       }
 
-      await tx.user.update({
+      const updated = await tx.user.update({
         where: { id: targetId },
         data: { lockedAt: new Date(), authVersion: { increment: 1 } },
+        select: { authVersion: true },
       });
+      await recordUniHubSourceLifecycle(tx, targetId, updated.authVersion - 1, 'locked');
       return { locked: true };
     }).then(async (result) => {
       await this.audit.record({ actorUserId, action: 'platform_user.lock', metadata: { targetId }, outcome: 'success' });
@@ -224,14 +234,16 @@ export class PlatformAdminService {
 
   async unlockUser(actorUserId: string, targetId: string) {
     return this.prisma.$transaction(async (tx) => {
-      const user = await tx.user.findUnique({ where: { id: targetId, type: 'human' } });
-      if (!user) throw new NotFoundException('User not found');
+      const user = await this.lockTargetUser(tx, targetId);
       if (!user.lockedAt) return { unlocked: true, alreadyUnlocked: true };
+      if (user.deletedAt) throw new ConflictException('Cannot unlock a deleted user');
 
-      await tx.user.update({
+      const updated = await tx.user.update({
         where: { id: targetId },
         data: { lockedAt: null, authVersion: { increment: 1 } },
+        select: { authVersion: true },
       });
+      await recordUniHubSourceLifecycle(tx, targetId, updated.authVersion - 1, 'active');
       return { unlocked: true };
     }).then(async (result) => {
       await this.audit.record({ actorUserId, action: 'platform_user.unlock', metadata: { targetId }, outcome: 'success' });
@@ -243,8 +255,7 @@ export class PlatformAdminService {
     if (actorUserId === targetId) throw new ConflictException('Cannot delete your own account');
 
     return this.prisma.$transaction(async (tx) => {
-      const user = await tx.user.findUnique({ where: { id: targetId, type: 'human' } });
-      if (!user) throw new NotFoundException('User not found');
+      const user = await this.lockTargetUser(tx, targetId);
       if (user.deletedAt) return { deleted: true, alreadyDeleted: true };
 
       if (user.platformRole === 'super_admin') {
@@ -254,14 +265,30 @@ export class PlatformAdminService {
         if (count === 0) throw new ConflictException('Cannot remove the last active super admin');
       }
 
-      await tx.user.update({
+      const updated = await tx.user.update({
         where: { id: targetId },
         data: { deletedAt: new Date(), authVersion: { increment: 1 } },
+        select: { authVersion: true },
       });
+      await recordUniHubSourceLifecycle(tx, targetId, updated.authVersion - 1, 'deleted');
       return { deleted: true };
     }).then(async (result) => {
       await this.audit.record({ actorUserId, action: 'platform_user.delete', metadata: { targetId }, outcome: 'success' });
       return result;
     });
+  }
+
+  private async lockTargetUser(tx: Prisma.TransactionClient, userId: string) {
+    const [user] = await tx.$queryRaw<Array<{
+      lockedAt: Date | null;
+      deletedAt: Date | null;
+      platformRole: string;
+    }>>`
+      SELECT "lockedAt", "deletedAt", "platformRole" FROM "User"
+      WHERE "id" = ${userId} AND "type" = 'human'
+      FOR UPDATE
+    `;
+    if (!user) throw new NotFoundException('User not found');
+    return user;
   }
 }

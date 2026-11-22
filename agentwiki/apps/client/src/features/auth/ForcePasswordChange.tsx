@@ -1,21 +1,24 @@
 import React, { useState } from 'react';
-import { useNavigate, Navigate } from 'react-router-dom';
+import { useLocation, useNavigate, Navigate } from 'react-router-dom';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { apiErrorMessage } from '../../api/error-message';
+import { safeUniHubEntryHref } from './unihubNavigation';
 
 export const ForcePasswordChange: React.FC = () => {
   const { user, token, login, logout } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const location = useLocation();
+  const returnTo = safeUniHubEntryHref(location.state?.uniHubReturnTo ?? null) ?? '/dashboard';
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   if (!token || !user?.mustChangePassword) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={returnTo} replace />;
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -29,7 +32,7 @@ export const ForcePasswordChange: React.FC = () => {
     try {
       const response = await api.post('/auth/change-required-password', { newPassword, confirmPassword });
       login(response.data.access_token, response.data.user);
-      navigate('/dashboard');
+      navigate(returnTo);
     } catch (err: unknown) {
       setError(apiErrorMessage(err, t, 'auth.passwordChangeFailed'));
     } finally {
@@ -56,7 +59,7 @@ export const ForcePasswordChange: React.FC = () => {
           </div>
           <button type="submit" disabled={submitting} className="w-full py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">{submitting ? t('common.saving') : t('common.save')}</button>
         </form>
-        <button onClick={() => { logout(); navigate('/'); }} className="w-full py-2 text-sm text-gray-500 hover:text-gray-700">{t('nav.logout')}</button>
+        <button onClick={async () => { await logout(); navigate('/'); }} className="w-full py-2 text-sm text-gray-500 hover:text-gray-700">{t('nav.logout')}</button>
       </div>
     </div>
   );

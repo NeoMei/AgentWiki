@@ -4,6 +4,9 @@ import { JwtService } from '@nestjs/jwt';
 import { compare, hash } from 'bcryptjs';
 import { createHash } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
+import { UniHubSessionService } from './unihub/unihub-session.service';
+import { recordUniHubSourceLifecycle, shouldRecordUniHubLifecycle } from './unihub/unihub-lifecycle.service';
+import type { Prisma } from '@prisma/client';
 
 export interface User {
   id: string;
@@ -17,11 +20,22 @@ export interface User {
   password?: string;
 }
 
+interface UniHubSessionInfo {
+  sid: string;
+  expiresAt: number;
+}
+
+type JwtSubject = Pick<User, 'id' | 'email' | 'authVersion' | 'mustChangePassword'> & {
+  type: string;
+  platformRole?: string;
+};
+
 @Injectable()
 export class AuthService {
   constructor(
     private readonly jwtService: JwtService,
     private readonly prisma: PrismaService,
+    private readonly unihubSessions?: UniHubSessionService,
   ) {}
 
   async validatePassword(plain: string, hashed: string): Promise<boolean> {
@@ -32,7 +46,9 @@ export class AuthService {
     return hash(plain, 12);
   }
 
-  signToken(user: User): string {
+  signToken(user: User, session?: UniHubSessionInfo): string;
+  signToken<T extends JwtSubject>(user: T, session: UniHubSessionInfo): string;
+  signToken(user: JwtSubject, session?: UniHubSessionInfo): string {
     const payload = {
       sub: user.id,
       email: user.email,
@@ -41,10 +57,19 @@ export class AuthService {
       authVersion: user.authVersion ?? 0,
       passwordChangeRequired: user.mustChangePassword ?? false,
     };
-    return this.jwtService.sign(payload);
+    if (!session) return this.jwtService.sign(payload);
+    const iat = Math.floor(Date.now() / 1_000);
+    if (user.type !== 'human' || !session.sid || !Number.isSafeInteger(session.expiresAt) ||
+        session.expiresAt <= iat) {
+      throw new UnauthorizedException('Invalid UniHub session');
+    }
+    return this.jwtService.sign(
+      { ...payload, unihubSid: session.sid, iat },
+      { expiresIn: session.expiresAt - iat },
+    );
   }
 
-  async validateJwtUser(userId: string): Promise<{
+  async validateJwtUser(userId: string, unihubSid?: string): Promise<{
     userId: string;
     email: string;
     name?: string;
@@ -61,6 +86,10 @@ export class AuthService {
       },
     });
     if (!user || user.lockedAt) return null;
+    if (unihubSid !== undefined &&
+        (typeof unihubSid !== 'string' || !unihubSid || !await this.unihubSessions?.verify(unihubSid, userId))) {
+      return null;
+    }
     return {
       userId: user.id,
       email: user.email,
@@ -212,8 +241,10 @@ export class AuthService {
       throw new BusinessException('AUTH_PASSWORD_POLICY', 'Password must be at least 8 characters');
     }
     const hashed = await this.hashPassword(newPassword);
-    const updated = await this.prisma.user.update({
-      where: { id: userId },
+    const change = (db: Prisma.TransactionClient, enforceVersion = false) => db.user.update({
+      where: enforceVersion
+        ? { id: userId, authVersion: user.authVersion, lockedAt: null, deletedAt: null, mustChangePassword: true }
+        : { id: userId },
       data: {
         password: hashed,
         mustChangePassword: false,
@@ -224,6 +255,13 @@ export class AuthService {
         platformRole: true, authVersion: true, mustChangePassword: true,
       },
     });
+    const updated = shouldRecordUniHubLifecycle()
+      ? await this.prisma.$transaction(async tx => {
+        const result = await change(tx, true);
+        await recordUniHubSourceLifecycle(tx, userId, result.authVersion - 1);
+        return result;
+      })
+      : await change(this.prisma);
     const token = this.signToken(updated as User);
     return {
       access_token: token,

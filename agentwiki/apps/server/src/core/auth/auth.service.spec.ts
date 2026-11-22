@@ -1,7 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { AuthService } from './auth.service';
+import { AuthService, type User } from './auth.service';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../database/prisma.service';
+import { CombinedAuthGuard } from './combined-auth.guard';
+import { JwtStrategy } from './jwt.strategy';
+import { UniHubSessionService } from './unihub/unihub-session.service';
 
 const mockPrisma = {
   user: {
@@ -23,6 +27,53 @@ const mockJwtService = {
   sign: jest.fn().mockReturnValue('mock-token'),
 };
 
+describe('UniHub human JWTs', () => {
+  const secret = 'unihub-session-test-secret';
+  const jwt = new JwtService({ secret, signOptions: { expiresIn: '7d' } });
+  const user: User = {
+    id: 'user-1', email: 'unihub@example.test', name: 'Human', type: 'human', authVersion: 3,
+  };
+  const prisma = { user: { findUnique: jest.fn().mockResolvedValue(user) } } as unknown as PrismaService;
+  const sessions = { verify: jest.fn<Promise<boolean>, [string, string]>() };
+  const service = new AuthService(jwt, prisma, sessions as unknown as UniHubSessionService);
+  const strategy = new JwtStrategy(new ConfigService({ JWT_SECRET: secret }), service);
+  const guard = new CombinedAuthGuard(jwt, service, { record: jest.fn() } as any);
+
+  beforeEach(() => {
+    sessions.verify.mockReset();
+    sessions.verify.mockImplementation(async (sid, userId) => sid === 'active' && userId === 'user-1');
+  });
+
+  it('signs the session ID with the supplied Unix expiry', () => {
+    const expiresAt = Math.floor(Date.now() / 1000) + 120;
+    const storedUser = { ...user, type: String(user.type), name: null };
+    const payload = jwt.verify(service.signToken(storedUser, { sid: 'active', expiresAt }));
+    expect(payload).toMatchObject({ sub: 'user-1', unihubSid: 'active', exp: expiresAt });
+  });
+
+  it('keeps the configured TTL and validation for a legacy JWT', async () => {
+    const payload = jwt.verify(service.signToken(user));
+    expect(payload.unihubSid).toBeUndefined();
+    expect(payload.exp - payload.iat).toBe(7 * 24 * 60 * 60);
+    await expect(strategy.validate(payload)).resolves.toMatchObject({ userId: 'user-1' });
+    expect(sessions.verify).not.toHaveBeenCalled();
+  });
+
+  it.each(['revoked', '', null])('rejects a JWT with invalid session claim %p through Passport', async (sid) => {
+    const payload = jwt.verify(jwt.sign({ sub: user.id, authVersion: 3, unihubSid: sid }));
+    await expect(strategy.validate(payload)).rejects.toMatchObject({ status: 401 });
+  });
+
+  it.each([['active', true], ['revoked', false]])('enforces session %s through CombinedAuthGuard', async (sid, allowed) => {
+    const token = jwt.sign({ sub: user.id, authVersion: 3, unihubSid: sid });
+    const request = { headers: { authorization: `Bearer ${token}` } };
+    const context = { switchToHttp: () => ({ getRequest: () => request }) } as any;
+    const outcome = guard.canActivate(context);
+    if (allowed) await expect(outcome).resolves.toBe(true);
+    else await expect(outcome).rejects.toMatchObject({ status: 401 });
+  });
+});
+
 describe('AuthService', () => {
   let service: AuthService;
 
@@ -32,6 +83,7 @@ describe('AuthService', () => {
         AuthService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: JwtService, useValue: mockJwtService },
+        { provide: UniHubSessionService, useValue: { verify: jest.fn() } },
       ],
     }).compile();
 

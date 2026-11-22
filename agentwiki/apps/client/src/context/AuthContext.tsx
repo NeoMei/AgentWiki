@@ -1,18 +1,19 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
+import api from '../api/client';
 import { resetWorkspacePositions } from '../features/space-workspace/workspaceNavigation';
 
 interface AuthContextType {
   token: string | null;
   user: any | null;
   login: (token: string, user: any) => void;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   token: null,
   user: null,
   login: () => {},
-  logout: () => {},
+  logout: async () => {},
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -36,13 +37,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(newUser);
   }, [user?.id]);
 
-  const logout = useCallback(() => {
+  const authSource = user?.authSource;
+  const logout = useCallback(async () => {
+    if (token && authSource === 'unihub') {
+      try {
+        await api.post('/auth/unihub/logout', {}, {
+          headers: { Authorization: 'Bearer ' + token },
+          timeout: 5000,
+        });
+      } catch {
+        // Local sign-out remains available when UniHub cannot be reached.
+      }
+      const currentToken = localStorage.getItem('token');
+      if (currentToken && currentToken !== token) return;
+    }
     resetWorkspacePositions();
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setToken(null);
     setUser(null);
-  }, []);
+  }, [token, authSource]);
 
   return (
     <AuthContext.Provider value={{ token, user, login, logout }}>

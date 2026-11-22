@@ -21,7 +21,7 @@ export class CombinedAuthGuard {
       const token = authHeader.substring(7);
       try {
         const payload = this.jwtService.verify(token);
-        const principal = await this.authService.validateJwtUser(payload.sub);
+        const principal = await this.authService.validateJwtUser(payload.sub, payload.unihubSid);
         if (!principal) {
           jwtError = 'Token payload is no longer valid';
         } else if (payload.authVersion !== undefined && principal.authVersion !== undefined && payload.authVersion !== principal.authVersion) {

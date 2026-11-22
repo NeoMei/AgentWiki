@@ -11,7 +11,7 @@ import * as collaborationDatabase from './collaboration-test-database.mjs';
 const requireFromServer = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const { PrismaClient } = requireFromServer('@prisma/client');
 const baseDatabaseUrl = process.env.COLLABORATION_TEST_DATABASE_URL;
-const REVIEWED_MIGRATION_TREE_SHA256 = '7f8648decb8c3ab0de310e2603c4d3023584c151d1713c3a5697084f4c085f0a';
+const REVIEWED_MIGRATION_TREE_SHA256 = '3a4ab2ecfe2813f08702dd9cd8baa6d0ff763b784b7ac88c3fe75bc4d41748b0';
 
 test('Space defaults new rows to no-review without rewriting existing review policies', {
   skip: baseDatabaseUrl ? false : 'COLLABORATION_TEST_DATABASE_URL is not configured',

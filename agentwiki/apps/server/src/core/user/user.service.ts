@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateUserDto, UpdateUserDto } from '../dto/user.dto';
+import { recordUniHubSourceLifecycle } from '../auth/unihub/unihub-lifecycle.service';
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -127,6 +128,7 @@ export class UserService {
         where: { ownerId: id, revokedAt: null },
         data: { status: 'revoked', revokedAt: new Date() },
       });
+      await recordUniHubSourceLifecycle(tx, id, user.authVersion, 'deleted');
       return tx.user.update({
         where: { id },
         data: { deletedAt: new Date(), authVersion: { increment: 1 } },

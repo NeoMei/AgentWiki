@@ -10,7 +10,7 @@ const api = axios.create({
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
-  if (token) {
+  if (token && !config.headers.has('Authorization')) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
@@ -20,9 +20,8 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Login and registration forms render their own authentication errors.
-      // Every other 401 invalidates the stored human session. Device Auth
-      // preserves its narrowly validated return target across the reload.
+      // Auth flows handle their own 401 responses. Other 401s invalidate
+      // the stored human session. Device Auth preserves its validated return target.
       const redirect = unauthorizedRedirect(
         error.config?.url,
         window.location.pathname,

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -12,6 +12,8 @@ import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { BrandMark } from '../../components/BrandMark';
 import { GlobalNavigation } from '../../components/GlobalNavigation';
 import { safeReturnTo } from '../auth/safeReturnTo';
+import { safeUniHubEntryHref, safeUniHubReturnTo, uniHubStartHref } from '../auth/unihubNavigation';
+import { useUniHubStatus } from '../auth/useUniHubStatus';
 import { apiErrorMessage } from '../../api/error-message';
 import { authEmailError, type AuthEmailError } from '../auth/auth-email-error';
 import { authFormError } from '../auth/auth-form-validation';
@@ -41,9 +43,13 @@ export const ProductPage: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const query = new URLSearchParams(location.search);
   const intent = query.get('intent');
-  const authIntent = intent === 'workspace' || intent === 'onboard';
+  const hubReturnTo = intent === 'unihub' ? safeUniHubEntryHref(query.get('returnTo')) : null;
+  const uniHubStatus = useUniHubStatus(token, !token || Boolean(hubReturnTo));
+  const hubIntent = Boolean(hubReturnTo && uniHubStatus?.enabled);
+  const authIntent = intent === 'workspace' || intent === 'onboard' || hubIntent;
   const onboardIntent = intent === 'onboard';
-  const returnTarget = safeReturnTo(query.get('returnTo'));
+  const workspaceReturnTo = intent === 'workspace' ? safeUniHubReturnTo(location.state?.workspaceReturnTo) : null;
+  const returnTarget = safeReturnTo(query.get('returnTo')) ?? workspaceReturnTo;
 
   useEffect(() => {
     if (!authIntent || token) return;
@@ -95,7 +101,7 @@ export const ProductPage: React.FC = () => {
       const endpoint = authMode === 'login' ? '/auth/login' : '/auth/register';
       const res = await api.post(endpoint, payload);
       login(res.data.access_token, res.data.user);
-      navigate(returnTarget ?? '/dashboard');
+      navigate(hubReturnTo ?? returnTarget ?? '/dashboard', { replace: Boolean(hubReturnTo) });
     } catch (err: unknown) {
       const fieldError = authEmailError(err, authMode === 'register');
       if (fieldError) {
@@ -107,6 +113,8 @@ export const ProductPage: React.FC = () => {
       setIsSubmitting(false);
     }
   };
+
+  if (token && hubIntent && hubReturnTo) return <Navigate to={hubReturnTo} replace />;
 
   const features = [
     {
@@ -221,7 +229,7 @@ export const ProductPage: React.FC = () => {
               <div id="login" ref={loginCardRef} className="bg-white rounded-xl shadow-lg border border-gray-200 p-8">
                 {authIntent ? (
                   <div role="status" className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-center text-sm text-blue-700">
-                    {t(onboardIntent ? 'auth.onboardPrompt' : 'auth.workspacePrompt')}
+                    {t(hubIntent ? 'unihub.nativePrompt' : onboardIntent ? 'auth.onboardPrompt' : 'auth.workspacePrompt')}
                   </div>
                 ) : null}
                 {/* Tab Switcher */}
@@ -367,6 +375,11 @@ export const ProductPage: React.FC = () => {
                     )}
                   </button>
                   </form>
+                  {uniHubStatus?.enabled && !hubReturnTo && authMode === 'login' ? (
+                    <a href={uniHubStartHref(returnTarget)} className="mt-3 block rounded-lg border border-gray-300 px-4 py-3 text-center text-sm font-medium text-gray-800 hover:bg-gray-50">
+                      {t('unihub.signIn')}
+                    </a>
+                  ) : null}
                 </div>
               </div>
             ) : (

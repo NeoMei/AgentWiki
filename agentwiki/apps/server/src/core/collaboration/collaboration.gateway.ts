@@ -50,6 +50,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   private unsubscribeTaskboard: (() => void) | null = null;
   private activeUsers = new Map<string, Map<string, CursorPosition>>();
   private userSockets = new Map<string, Set<string>>();
+  private readonly uniHubSockets = new Map<string, Socket>();
   private roomAuthorizationCheckedAt = new Map<string, number>();
   private assistRelayChains = new Map<string, Promise<void>>();
   private roomPruneInFlight = new Map<string, Promise<void>>();
@@ -104,13 +105,13 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
         try {
           const message = JSON.parse(raw) as { spaceId?: unknown; boardId?: unknown; eventSequence?: unknown };
           if (!this.validRunId(message.spaceId) || !Number.isSafeInteger(message.eventSequence)) return;
-          this.server
-            .to('taskboard:space:' + String(message.spaceId))
-            .emit('taskboardChanged', {
-              spaceId: message.spaceId,
-              boardId: message.boardId ?? null,
-              eventSequence: Number(message.eventSequence),
-            });
+          void this.relayTaskboardHint({
+            spaceId: message.spaceId,
+            boardId: message.boardId ?? null,
+            eventSequence: Number(message.eventSequence),
+          }).catch((error: any) => {
+            this.logger.error(`Failed to relay taskboard hint: ${error?.message || error}`);
+          });
         } catch {
           /* ignore malformed board hints */
         }
@@ -138,13 +139,15 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   private async authenticateConnection(client: Socket) {
     const token = String(client.handshake.auth?.token || '');
     try {
-      const payload = this.jwtService.verify(token) as { sub?: string; authVersion?: number; exp?: number };
+      const payload = this.jwtService.verify(token) as {
+        sub?: string; authVersion?: number; exp?: number; unihubSid?: string;
+      };
       const existingSockets = payload.sub ? this.userSockets.get(payload.sub) : undefined;
       if (existingSockets && existingSockets.size >= MAX_SOCKETS_PER_USER) {
         client.disconnect(true);
         return;
       }
-      const principal = payload.sub ? await this.auth.validateJwtUser(payload.sub) : null;
+      const principal = payload.sub ? await this.validateSocketUser(payload.sub, payload.unihubSid) : null;
       if (
         !principal || principal.mustChangePassword ||
         (payload.authVersion !== undefined && principal.authVersion !== undefined && payload.authVersion !== principal.authVersion)
@@ -154,6 +157,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       client.data.user = principal;
       client.data.socketAuthVersion = payload.authVersion;
       client.data.socketExpiresAt = payload.exp ? payload.exp * 1_000 : undefined;
+      client.data.socketUniHubSid = payload.unihubSid;
       const sockets = this.userSockets.get(principal.userId) || new Set<string>();
       if (sockets.size >= MAX_SOCKETS_PER_USER) {
         client.disconnect(true);
@@ -161,6 +165,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       }
       sockets.add(client.id);
       this.userSockets.set(principal.userId, sockets);
+      if (payload.unihubSid !== undefined) this.uniHubSockets.set(client.id, client);
     } catch {
       client.disconnect(true);
       return;
@@ -169,6 +174,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
 
   handleDisconnect(client: Socket) {
     this.logger.log(`Client disconnected: ${client.id}`);
+    this.uniHubSockets.delete(client.id);
     this.activeUsers.forEach((users, pageId) => {
       if (users.has(client.id)) {
         this.removeClientFromPage(client, pageId);
@@ -341,7 +347,26 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       client.emit('collaborationError', { code: 'PAGE_WRITE_DENIED' });
       return;
     }
-    client.to(body.pageId).emit('contentUpdated', {
+    const scopedSockets = [...this.uniHubSockets.values()]
+      .filter((socket) => socket.id !== client.id && socket.rooms.has(body.pageId));
+    const scopedSender = client.data.socketUniHubSid !== undefined;
+    if (scopedSender) scopedSockets.push(client);
+
+    let broadcast = client.to(body.pageId);
+    if (scopedSockets.length) {
+      const verified = new Set<string>();
+      await Promise.all(scopedSockets.map(async (socket) => {
+        if (await this.refreshSocketPrincipal(socket)) verified.add(socket.id);
+      }));
+      if (!client.rooms.has(body.pageId) || (scopedSender && !verified.has(client.id))) return;
+
+      // A UniHub socket may have joined while the session checks were running.
+      const excluded = [...this.uniHubSockets.values()]
+        .filter((socket) => socket.rooms.has(body.pageId) && !verified.has(socket.id))
+        .map((socket) => socket.id);
+      if (excluded.length) broadcast = broadcast.except(excluded);
+    }
+    broadcast.emit('contentUpdated', {
       content: body.content,
       version: body.version,
       userId: client.id,
@@ -456,7 +481,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
     await this.waitForSocketAuthentication(client);
     const previous = client.data.user as (Principal & { authVersion?: number }) | undefined;
     if (!previous?.userId) return null;
-    const current = await this.auth.validateJwtUser(previous.userId);
+    const current = await this.validateSocketUser(previous.userId, client.data.socketUniHubSid);
     if (
       !current || current.mustChangePassword ||
       (client.data.socketExpiresAt !== undefined && Date.now() >= client.data.socketExpiresAt) ||
@@ -488,42 +513,15 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   }
 
   private async performRoomPrune(pageId: string, checkedAt: number) {
-    const sockets = await this.server.in(pageId).fetchSockets();
-    const socketsByUser = new Map<string, Socket[]>();
-    for (const socket of sockets as unknown as Socket[]) {
-      const previous = socket.data.user as (Principal & { authVersion?: number }) | undefined;
-      if (!previous?.userId) {
-        socket.disconnect(true);
-        this.removeClientFromPage(socket, pageId);
-        continue;
-      }
-      const userSockets = socketsByUser.get(previous.userId) || [];
-      userSockets.push(socket);
-      socketsByUser.set(previous.userId, userSockets);
-    }
-
-    for (const [userId, userSockets] of socketsByUser) {
-      const current = await this.auth.validateJwtUser(userId);
-      const eligibleSockets = userSockets.filter((socket) => {
-        const expired = socket.data.socketExpiresAt !== undefined && Date.now() >= socket.data.socketExpiresAt;
-        const versionChanged = current && socket.data.socketAuthVersion !== undefined &&
-          current.authVersion !== socket.data.socketAuthVersion;
-        if (!current || current.mustChangePassword || expired || versionChanged) {
-          socket.disconnect(true);
-          this.removeClientFromPage(socket, pageId);
-          return false;
-        }
-        socket.data.user = current;
-        return true;
-      });
-      if (!current || eligibleSockets.length === 0) continue;
-
+    for await (const { principal, sockets } of this.recheckRoomSessions(
+      pageId, (socket) => this.removeClientFromPage(socket, pageId),
+    )) {
       try {
         await this.authorization.assertPageAccess(
-          current, pageId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read',
+          principal, pageId, ['owner', 'admin', 'editor', 'viewer'], 'pages:read',
         );
       } catch {
-        await Promise.all(eligibleSockets.map(async (socket) => {
+        await Promise.all(sockets.map(async (socket) => {
           await socket.leave(pageId);
           this.removeClientFromPage(socket, pageId);
         }));
@@ -581,42 +579,64 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
 
   private async relayCollaborationRunHint(hint: { spaceId: string; runId: string; eventSequence: number }) {
     const room = `collaboration:run:${hint.runId}`;
+    for await (const { principal, sockets } of this.recheckRoomSessions(room)) {
+      try {
+        await this.runs.getHumanRun(hint.spaceId, hint.runId, principal);
+      } catch {
+        await Promise.all(sockets.map((socket) => socket.leave(room)));
+      }
+    }
+    this.server.to(room).emit('collaborationRunChanged', hint);
+  }
+
+  private async relayTaskboardHint(hint: { spaceId: string; eventSequence: number; boardId: unknown }) {
+    const room = `taskboard:space:${hint.spaceId}`;
     const sockets = await this.server.in(room).fetchSockets();
-    const socketsByUser = new Map<string, Socket[]>();
+    await Promise.all((sockets as unknown as Socket[])
+      .filter((socket) => socket.data.socketUniHubSid !== undefined)
+      .map((socket) => this.refreshSocketPrincipal(socket)));
+    this.server.to(room).emit('taskboardChanged', hint);
+  }
+
+  private validateSocketUser(userId: string, unihubSid?: string) {
+    return unihubSid === undefined
+      ? this.auth.validateJwtUser(userId)
+      : this.auth.validateJwtUser(userId, unihubSid);
+  }
+
+  private async *recheckRoomSessions(room: string, onInvalid?: (socket: Socket) => void) {
+    const sockets = await this.server.in(room).fetchSockets();
+    const sessions = new Map<string, { userId: string; unihubSid?: string; sockets: Socket[] }>();
     for (const socket of sockets as unknown as Socket[]) {
-      const previous = socket.data.user as (Principal & { authVersion?: number }) | undefined;
-      if (!previous?.userId) {
+      const userId = (socket.data.user as Principal | undefined)?.userId;
+      if (!userId) {
         socket.disconnect(true);
+        onInvalid?.(socket);
         continue;
       }
-      const userSockets = socketsByUser.get(previous.userId) || [];
-      userSockets.push(socket);
-      socketsByUser.set(previous.userId, userSockets);
+      const unihubSid = socket.data.socketUniHubSid as string | undefined;
+      const key = JSON.stringify([userId, unihubSid]);
+      const session = sessions.get(key) ?? { userId, unihubSid, sockets: [] };
+      session.sockets.push(socket);
+      sessions.set(key, session);
     }
 
-    for (const [userId, userSockets] of socketsByUser) {
-      const current = await this.auth.validateJwtUser(userId);
-      const eligibleSockets = userSockets.filter((socket) => {
+    for (const session of sessions.values()) {
+      const principal = await this.validateSocketUser(session.userId, session.unihubSid);
+      const eligibleSockets = session.sockets.filter((socket) => {
         const expired = socket.data.socketExpiresAt !== undefined && Date.now() >= socket.data.socketExpiresAt;
-        const versionChanged = current && socket.data.socketAuthVersion !== undefined &&
-          current.authVersion !== socket.data.socketAuthVersion;
-        if (!current || current.mustChangePassword || expired || versionChanged) {
+        const versionChanged = principal && socket.data.socketAuthVersion !== undefined &&
+          principal.authVersion !== socket.data.socketAuthVersion;
+        if (!principal || principal.mustChangePassword || expired || versionChanged) {
           socket.disconnect(true);
+          onInvalid?.(socket);
           return false;
         }
-        socket.data.user = current;
+        socket.data.user = principal;
         return true;
       });
-      if (!current || eligibleSockets.length === 0) continue;
-
-      try {
-        await this.runs.getHumanRun(hint.spaceId, hint.runId, current);
-      } catch {
-        await Promise.all(eligibleSockets.map((socket) => socket.leave(room)));
-      }
+      if (principal && eligibleSockets.length) yield { principal, sockets: eligibleSockets };
     }
-
-    this.server.to(room).emit('collaborationRunChanged', hint);
   }
 
   private async hasSocketWriteAccess(client: Socket, pageId: string): Promise<boolean> {
