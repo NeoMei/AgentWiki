@@ -24,8 +24,8 @@ const requireFromServer = createRequire(new URL('../apps/server/package.json', i
 const { PrismaClient } = requireFromServer('@prisma/client');
 const SAFE_SCHEMA = /^folder_test_[a-z0-9_]+$/u;
 // Previous corpus review: docs/verification/migration-corpus-20261028-space-review-policy.md.
-// The appended UniHub migrations use only schema-local DDL.
-const REVIEWED_MIGRATION_TREE_SHA256 = 'bf866a6681e44ed6cb12a66b19bc98555349db174ccfa471e14bad5b03cb06f9';
+// The appended UniHub and personal token migrations use only schema-local DDL.
+const REVIEWED_MIGRATION_TREE_SHA256 = '99fb73d60766ba31feb2cd134b679f209744c8d13710cf944aedbf61b04e024e';
 const DEFAULT_MIGRATIONS_ROOT = fileURLToPath(new URL('../apps/server/prisma/migrations/', import.meta.url));
 const DEFAULT_SCHEMA_PATH = fileURLToPath(new URL('../apps/server/prisma/schema.prisma', import.meta.url));
 const VECTOR_EXTENSION_FRAGMENT = 'CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;';

@@ -91,6 +91,37 @@ describe('Profile shortcuts', () => {
     expect(await screen.findByRole('link', { name: /写作助手.*需要重连/ })).toHaveAttribute('href', '/agents/agent-1');
   });
 
+  it('reveals the current Key only when requested and can reveal it again after hiding it', async () => {
+    apiMock.get
+      .mockResolvedValueOnce({ data: { name: 'Test User', apiKeys: [{ id: 'key-1' }] } })
+      .mockResolvedValueOnce({ data: [] })
+      .mockResolvedValue({ data: { apiKey: 'existing-test-key' } });
+    render(<LanguageProvider><MemoryRouter><Profile /></MemoryRouter></LanguageProvider>);
+
+    fireEvent.click(await screen.findByRole('button', { name: '查看令牌' }));
+    expect(await screen.findByText('existing-test-key')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '隐藏令牌' }));
+    expect(screen.queryByText('existing-test-key')).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: '查看令牌' }));
+    expect(await screen.findByText('existing-test-key')).toBeVisible();
+
+    expect(apiMock.get.mock.calls.filter(([path]) => path === '/users/me/api-key')).toHaveLength(2);
+    expect(apiMock.post).not.toHaveBeenCalled();
+  });
+
+  it('explains why a legacy Key cannot be viewed without rotating it automatically', async () => {
+    apiMock.get
+      .mockResolvedValueOnce({ data: { name: 'Test User', apiKeys: [{ id: 'legacy-key' }] } })
+      .mockResolvedValueOnce({ data: [] })
+      .mockRejectedValueOnce({ response: { status: 409, data: { code: 'PERSONAL_TOKEN_LEGACY' } } });
+    render(<LanguageProvider><MemoryRouter><Profile /></MemoryRouter></LanguageProvider>);
+
+    fireEvent.click(await screen.findByRole('button', { name: '查看令牌' }));
+    expect(await screen.findByText(/旧版令牌只保存了校验摘要/u)).toBeVisible();
+    expect(screen.getByRole('button', { name: '重新生成' })).toBeVisible();
+    expect(apiMock.post).not.toHaveBeenCalled();
+  });
+
   it('warns before issuing a Key when an Agent exists but no active Key is visible', async () => {
     apiMock.get
       .mockResolvedValueOnce({ data: { name: 'Test User', email: 'user@example.com', apiKeys: [] } })

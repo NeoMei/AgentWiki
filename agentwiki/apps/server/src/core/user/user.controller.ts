@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Logger, Req, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Logger, Req, ForbiddenException, Header } from '@nestjs/common';
 import { Request } from 'express';
 import { UserService } from './user.service';
 import { CreateUserDto, UpdateUserDto } from '../dto/user.dto';
@@ -36,7 +36,23 @@ export class UserController {
     throw new ForbiddenException('User directory listing is not available');
   }
 
+  @Get('me/api-key')
+  @Header('Cache-Control', 'no-store')
+  async revealApiKey(@Req() req: Request) {
+    const user = req.user as any;
+    const apiKey = await this.userService.revealApiKey(user.userId);
+    await this.audit.record({
+      action: 'personal_token.reveal',
+      outcome: 'success',
+      actorUserId: user.userId,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+    return { apiKey };
+  }
+
   @Post('me/api-key')
+  @Header('Cache-Control', 'no-store')
   async generateApiKey(@Req() req: Request) {
     const user = req.user as any;
     this.logger.log('Generating API key for user: ' + user.userId);

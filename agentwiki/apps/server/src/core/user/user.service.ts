@@ -1,10 +1,12 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateUserDto, UpdateUserDto } from '../dto/user.dto';
 import { recordUniHubSourceLifecycle } from '../auth/unihub/unihub-lifecycle.service';
 import { lockConnectionOwner, PERSONAL_KEY_ROTATION_ID_PREFIX } from './personal-key-rotation';
+import { BusinessException } from '../filters/business-error';
+import { decryptPersonalApiKey, encryptPersonalApiKey } from './personal-key-secret';
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -120,7 +122,7 @@ export class UserService {
         if (remaining === 0) throw new BadRequestException('Cannot delete the last active super admin');
       }
       await tx.apiKeyCredential.updateMany({
-        where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() },
+        where: { userId: id, revokedAt: null }, data: { revokedAt: new Date(), encryptedKey: null },
       });
       await tx.agentCredential.updateMany({
         where: { agent: { ownerId: id }, revokedAt: null }, data: { revokedAt: new Date() },
@@ -137,6 +139,27 @@ export class UserService {
       });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
+  async revealApiKey(userId: string): Promise<string> {
+    const credential = await this.prisma.apiKeyCredential.findFirst({
+      where: {
+        userId,
+        revokedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        user: { type: 'human', deletedAt: null, lockedAt: null, mustChangePassword: false },
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { keyHash: true, encryptedKey: true },
+    });
+    if (!credential) throw new NotFoundException('No active personal access token');
+    if (!credential.encryptedKey) throw new BusinessException('PERSONAL_TOKEN_LEGACY');
+
+    try {
+      return decryptPersonalApiKey(credential.encryptedKey, userId, credential.keyHash);
+    } catch {
+      throw new ServiceUnavailableException('Could not read the current personal access token');
+    }
+  }
+
   async regenerateApiKey(userId: string): Promise<string> {
     return this.prisma.$transaction(async (tx) => {
       await this.lockActiveUser(tx, userId);
@@ -151,7 +174,7 @@ export class UserService {
         `);
         const revokedAt = new Date();
         await tx.apiKeyCredential.updateMany({
-          where: { userId, revokedAt: null }, data: { revokedAt },
+          where: { userId, revokedAt: null }, data: { revokedAt, encryptedKey: null },
         });
         await tx.agentCredential.updateMany({
           where: { agent: { ownerId: userId }, revokedAt: null }, data: { revokedAt },
@@ -169,12 +192,14 @@ export class UserService {
       }
 
       const rawKey = 'awk_' + randomBytes(32).toString('base64url');
+      const keyHash = createHash('sha256').update(rawKey).digest('hex');
       await tx.apiKeyCredential.create({
         data: {
           ...(historicalKey ? { id: PERSONAL_KEY_ROTATION_ID_PREFIX + randomUUID() } : {}),
           userId,
           prefix: rawKey.slice(0, 12),
-          keyHash: createHash('sha256').update(rawKey).digest('hex'),
+          keyHash,
+          encryptedKey: encryptPersonalApiKey(rawKey, userId, keyHash),
           scopes: ['*'],
         },
       });
@@ -187,7 +212,7 @@ export class UserService {
       await this.lockActiveUser(tx, userId);
       await tx.apiKeyCredential.updateMany({
         where: { userId, revokedAt: null },
-        data: { revokedAt: new Date() },
+        data: { revokedAt: new Date(), encryptedKey: null },
       });
     });
   }

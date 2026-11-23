@@ -25,6 +25,7 @@ const ERROR_CODE_MAP: Record<string, { status: HttpStatus; message: string }> = 
   AUTH_INVALID_STATE: { status: HttpStatus.CONFLICT, message: 'Authentication state does not allow this operation' },
   AUTH_SCOPE_REQUIRED: { status: HttpStatus.FORBIDDEN, message: 'Required scope is missing' },
   HUMAN_AUTH_REQUIRED: { status: HttpStatus.FORBIDDEN, message: 'This operation requires a human account' },
+  PERSONAL_TOKEN_LEGACY: { status: HttpStatus.CONFLICT, message: 'This personal access token predates retrieval support' },
   LOCAL_SYNC_CODE_INVALID: { status: HttpStatus.UNAUTHORIZED, message: 'Local sync installation code is invalid or expired' },
   LOCAL_SYNC_CODE_EXPIRED: { status: HttpStatus.UNAUTHORIZED, message: 'Local sync installation code has expired' },
   LOCAL_SYNC_VERSION_UNSUPPORTED: { status: HttpStatus.CONFLICT, message: 'Local sync plugin version is unsupported' },

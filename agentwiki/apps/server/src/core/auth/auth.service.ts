@@ -125,7 +125,15 @@ export class AuthService {
     const keyHash = createHash('sha256').update(apiKey).digest('hex');
     const credential = await this.prisma.apiKeyCredential.findUnique({
       where: { keyHash },
-      include: { user: true },
+      select: {
+        id: true,
+        expiresAt: true,
+        revokedAt: true,
+        scopes: true,
+        user: {
+          select: { id: true, email: true, type: true, platformRole: true, deletedAt: true, lockedAt: true },
+        },
+      },
     });
     if (credential && (
       credential.revokedAt ||

@@ -215,14 +215,15 @@ model UniHubNativeBrowserSession {
 }
 
 model ApiKeyCredential {
-  id         String    @id @default(cuid())
-  name       String    @default("Personal access token")
-  prefix     String
-  keyHash    String    @unique
-  scopes     String[]  @default(["*"])
-  expiresAt  DateTime?
-  revokedAt  DateTime?
-  lastUsedAt DateTime?
+  id           String    @id @default(cuid())
+  name         String    @default("Personal access token")
+  prefix       String
+  keyHash      String    @unique
+  encryptedKey String?
+  scopes       String[]  @default(["*"])
+  expiresAt    DateTime?
+  revokedAt    DateTime?
+  lastUsedAt   DateTime?
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId String

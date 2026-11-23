@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../api/client';
+import { apiErrorCode, apiErrorMessage } from '../../api/error-message';
 import { useAuth } from '../../context/AuthContext';
 import { Mail, Calendar, Save, X, Key, Copy, Check, RefreshCw, Trash2, AlertTriangle, Bot } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
@@ -28,13 +29,15 @@ export const Profile: React.FC = () => {
 
   // Personal access token state
   const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
-  const [newApiKey, setNewApiKey] = useState<string | null>(null);
+  const [revealedKey, setRevealedKey] = useState<{ ownerId: string; value: string } | null>(null);
+  const [keyError, setKeyError] = useState<string | null>(null);
   const [keyLoading, setKeyLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showKeyConfirm, setShowKeyConfirm] = useState(false);
   const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
   const [agents, setAgents] = useState<OwnedAgent[]>([]);
   const copyKeyRef = useRef<HTMLButtonElement>(null);
+  const visibleApiKey = revealedKey?.ownerId === user?.id ? revealedKey?.value : undefined;
   // The profile response only includes unrevoked keys.
   const shouldConfirmKey = hasApiKey !== false || agents.length > 0;
 
@@ -57,6 +60,12 @@ export const Profile: React.FC = () => {
   useEffect(() => {
     fetchProfile();
   }, []);
+
+  useEffect(() => {
+    setRevealedKey(null);
+    setKeyError(null);
+    setCopied(false);
+  }, [user?.id]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,12 +91,14 @@ export const Profile: React.FC = () => {
   };
 
   const handleGenerateKey = async () => {
+    if (!user) return;
     setKeyLoading(true);
     setError(null);
+    setKeyError(null);
     try {
       const res = await api.post('/users/me/api-key');
       setCopied(false);
-      setNewApiKey(res.data.apiKey);
+      setRevealedKey({ ownerId: user.id, value: res.data.apiKey });
       setHasApiKey(true);
       setShowKeyConfirm(false);
       setShowRevokeConfirm(false);
@@ -97,6 +108,23 @@ export const Profile: React.FC = () => {
       }
     } catch (err: any) {
       setError(err.response?.data?.message || t('profile.generateFailed'));
+    } finally {
+      setKeyLoading(false);
+    }
+  };
+
+  const handleRevealKey = async () => {
+    if (!user) return;
+    setKeyLoading(true);
+    setKeyError(null);
+    setCopied(false);
+    try {
+      const { data } = await api.get<{ apiKey: string }>('/users/me/api-key');
+      setRevealedKey({ ownerId: user.id, value: data.apiKey });
+    } catch (reason) {
+      setKeyError(apiErrorCode(reason) === 'PERSONAL_TOKEN_LEGACY'
+        ? t('profile.tokenLegacy')
+        : apiErrorMessage(reason, t, 'profile.revealFailed'));
     } finally {
       setKeyLoading(false);
     }
@@ -114,10 +142,11 @@ export const Profile: React.FC = () => {
   const handleRevokeKey = async () => {
     setKeyLoading(true);
     setError(null);
+    setKeyError(null);
     try {
       await api.delete('/users/me/api-key');
       setHasApiKey(false);
-      setNewApiKey(null);
+      setRevealedKey(null);
       setShowRevokeConfirm(false);
     } catch (err: any) {
       setError(err.response?.data?.message || t('profile.revokeFailed'));
@@ -126,11 +155,15 @@ export const Profile: React.FC = () => {
     }
   };
 
-  const handleCopy = () => {
-    if (newApiKey) {
-      navigator.clipboard.writeText(newApiKey);
+  const handleCopy = async () => {
+    if (!visibleApiKey) return;
+    setKeyError(null);
+    try {
+      await navigator.clipboard.writeText(visibleApiKey);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setKeyError(t('profile.copyFailed'));
     }
   };
 
@@ -243,32 +276,39 @@ export const Profile: React.FC = () => {
         <p className="text-sm text-gray-500 mb-4">
           {t('profile.tokenHelp')}
         </p>
+        {keyError && <p role="alert" className="mb-4 text-sm text-red-600">{keyError}</p>}
 
-        {newApiKey ? (
+        {visibleApiKey ? (
           <div className="mb-4">
             <div className="p-3 bg-green-50 border border-green-200 rounded-md">
               <p className="text-sm text-green-700 font-medium mb-2">
-                {t('profile.tokenGenerated')}
+                {t('profile.tokenVisible')}
               </p>
               <div className="flex items-center gap-2">
-                <code className="flex-1 px-3 py-2 bg-white rounded border text-sm font-mono break-all">
-                  {newApiKey}
+                <code className="min-w-0 flex-1 px-3 py-2 bg-white rounded border text-sm font-mono break-all">
+                  {visibleApiKey}
                 </code>
                 <button
+                  type="button"
                   ref={copyKeyRef}
                   onClick={handleCopy}
-                  className="p-2 bg-white border rounded hover:bg-gray-50 flex-shrink-0"
+                  className="flex flex-shrink-0 items-center gap-1 rounded border bg-white p-2 text-sm hover:bg-gray-50"
                   title={t('profile.copy')}
                 >
                   {copied ? <Check size={16} className="text-green-600" /> : <Copy size={16} />}
+                  {t('profile.copy')}
                 </button>
               </div>
             </div>
             <button
-              onClick={() => setNewApiKey(null)}
+              type="button"
+              onClick={() => {
+                setRevealedKey(null);
+                setKeyError(null);
+              }}
               className="mt-2 text-sm text-gray-500 hover:text-gray-700"
             >
-              {t('profile.dismiss')}
+              {t('profile.hideToken')}
             </button>
           </div>
         ) : (
@@ -281,6 +321,14 @@ export const Profile: React.FC = () => {
                 </span>
                 <button
                   type="button"
+                  onClick={handleRevealKey}
+                  disabled={keyLoading}
+                  className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <Key size={16} /> {t('profile.reveal')}
+                </button>
+                <button
+                  type="button"
                   onClick={requestKey}
                   disabled={keyLoading}
                   className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm disabled:opacity-50"
@@ -290,6 +338,7 @@ export const Profile: React.FC = () => {
                 </button>
                 {!showRevokeConfirm ? (
                   <button
+                    disabled={keyLoading}
                     onClick={() => setShowRevokeConfirm(true)}
                     className="flex items-center gap-2 px-3 py-1.5 bg-red-50 text-red-600 rounded-md hover:bg-red-100 text-sm"
                   >

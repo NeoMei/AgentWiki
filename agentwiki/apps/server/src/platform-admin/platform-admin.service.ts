@@ -191,7 +191,7 @@ export class PlatformAdminService {
       });
       await recordUniHubSourceLifecycle(tx, targetId, updated.authVersion - 1);
       await tx.apiKeyCredential.updateMany({
-        where: { userId: targetId, revokedAt: null }, data: { revokedAt: new Date() },
+        where: { userId: targetId, revokedAt: null }, data: { revokedAt: new Date(), encryptedKey: null },
       });
       await tx.agentCredential.updateMany({
         where: { agent: { ownerId: targetId }, revokedAt: null }, data: { revokedAt: new Date() },
